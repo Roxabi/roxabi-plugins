@@ -24,6 +24,12 @@
       "description": "Walk through a list of items one by one — brief, decide, execute, repeat.",
       "source": "./plugins/1b1",
       "category": "workflow"
+    },
+    {
+      "name": "web-intel",
+      "description": "Multi-platform URL scraper (Twitter/X, GitHub, YouTube, Reddit, webpages) with 6 analysis skills: scrape, summarize, analyze, roast, benchmark, adapt.",
+      "source": "./plugins/web-intel",
+      "category": "analysis"
     }
   ]
 }

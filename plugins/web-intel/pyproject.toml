@@ -1,0 +1,23 @@
+[project]
+name = "roxabi-web-intel"
+version = "0.1.0"
+description = "Multi-platform URL scraper and content analysis engine for Claude Code"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    "httpx>=0.27",
+    "filelock>=3.13",
+]
+
+[project.optional-dependencies]
+scraper = ["trafilatura>=1.8"]
+twitter = ["playwright>=1.40"]
+youtube = ["youtube-transcript-api>=0.6"]
+all = [
+    "trafilatura>=1.8",
+    "playwright>=1.40",
+    "youtube-transcript-api>=0.6",
+]
+
+[dependency-groups]
+dev = []
