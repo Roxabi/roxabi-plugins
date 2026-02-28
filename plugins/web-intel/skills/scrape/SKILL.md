@@ -28,6 +28,20 @@ if [ -z "$PLUGIN_ROOT" ]; then
 fi
 ```
 
+## First Use
+
+On the **first invocation** of any web-intel skill in this session:
+
+1. Run the doctor check:
+
+```bash
+cd "$PLUGIN_ROOT" && uv run python scripts/doctor.py
+```
+
+2. If doctor reports core failures (exit code 1) → show output to the user and stop. Guide them through the install commands listed in the report.
+3. If doctor reports optional warnings → inform the user which platforms have limited support, then continue.
+4. Skip this check on subsequent invocations in the same session.
+
 ## Step 2 — Run Scraper
 
 ```bash

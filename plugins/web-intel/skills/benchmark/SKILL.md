@@ -28,10 +28,33 @@ Extract U from arguments. If no URL provided → `AskUserQuestion` to get one.
 
 Parse optional `--focus <area>` flag. Default F = `all`.
 
-## Step 1 — Scrape Target
+## Step 1 — Locate Plugin
 
 ```bash
 PLUGIN_ROOT=$(find ~/projects -maxdepth 4 -path "*/web-intel/pyproject.toml" -print -quit 2>/dev/null | xargs dirname)
+if [ -z "$PLUGIN_ROOT" ]; then
+  echo "ERROR: web-intel plugin not found. Install: claude plugin install web-intel"
+  exit 1
+fi
+```
+
+## First Use
+
+On the **first invocation** of any web-intel skill in this session:
+
+1. Run the doctor check:
+
+```bash
+cd "$PLUGIN_ROOT" && uv run python scripts/doctor.py
+```
+
+2. If doctor reports core failures (exit code 1) → show output to the user and stop. Guide them through the install commands listed in the report.
+3. If doctor reports optional warnings → inform the user which platforms have limited support, then continue.
+4. Skip this check on subsequent invocations in the same session.
+
+## Step 2 — Scrape Target
+
+```bash
 cd "$PLUGIN_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt uv run python scripts/scraper.py "$URL"
 ```
 
@@ -43,7 +66,7 @@ Parse JSON output. Extract:
 
 If `success: false` → fall back to WebFetch tool for content extraction.
 
-## Step 2 — Screenshot & Visual Capture
+## Step 3 — Screenshot & Visual Capture
 
 Use agent-browser to capture visual state:
 
@@ -56,7 +79,7 @@ agent-browser snapshot -i
 
 If agent-browser unavailable → skip visual capture, note in report.
 
-## Step 3 — Analyze Current Repo
+## Step 4 — Analyze Current Repo
 
 Scan the project repo to build a capability inventory:
 
@@ -69,7 +92,7 @@ Scan the project repo to build a capability inventory:
 
 Use Glob and Grep to discover these patterns.
 
-## Step 4 — Compare & Score
+## Step 5 — Compare & Score
 
 Build a comparison matrix across dimensions based on F:
 
@@ -88,7 +111,7 @@ For each dimension, assign:
 - **Gap** — target has something we lack
 - **Missing** — target has it, we don't at all
 
-## Step 5 — Present Results
+## Step 6 — Present Results
 
 Output structured markdown with:
 1. **Target Overview** — what the site is/does

@@ -42,6 +42,27 @@ uv sync --extra all          # Install all optional dependencies
 playwright install chromium  # Only if you need Twitter article support
 ```
 
+## Doctor
+
+Check that all dependencies are installed and working:
+
+```bash
+cd plugins/web-intel
+uv run python scripts/doctor.py
+```
+
+The doctor checks:
+
+**Core** (required): Python >= 3.11, uv, requests, httpx, filelock
+
+**Optional** (per-platform):
+- `trafilatura` — generic webpage extraction
+- `playwright` + chromium — Twitter/X articles
+- `youtube-transcript-api` — YouTube transcripts
+- `gh` CLI — GitHub repos and gists
+
+Doctor runs automatically on first use of any web-intel skill in a session. Run it manually at any time to diagnose issues.
+
 ## Usage
 
 ### CLI
@@ -67,6 +88,7 @@ Once installed via the plugin, use any skill directly:
 ```
 scripts/
 ├── scraper.py           # Main entry point — URL routing + CLI
+├── doctor.py            # Dependency checker — core + optional status report
 ├── fetchers/            # Platform-specific extractors
 │   ├── base.py          # Abstract base class + shared utilities
 │   ├── twitter.py       # Twitter/X (syndication API + FxTwitter + Playwright)
