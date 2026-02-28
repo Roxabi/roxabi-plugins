@@ -7,6 +7,8 @@ Open-source Claude Code plugins by [Roxabi](https://github.com/MickaelV0). Conte
 | Plugin | Description |
 |--------|-------------|
 | [memory-audit](plugins/memory-audit/README.md) | Drain auto-memory to zero — every entry gets resolved (fix/promote/relocate/delete) with audit logging and recurrence detection |
+| [compress](plugins/compress/README.md) | Rewrite agent/skill definitions using compact math/logic notation to reduce token usage |
+| [1b1](plugins/1b1/README.md) | Walk through a list of items one by one — brief, decide, execute, repeat |
 
 ## Install
 
