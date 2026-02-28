@@ -248,8 +248,8 @@ export async function fetchWorktrees(): Promise<Worktree[]> {
   }
 }
 
-const VERCEL_PROJECT_ID = 'prj_zQBFlIxtRstBkgQkxb9UwNPlaQuv'
-const VERCEL_TEAM_ID = 'team_aykdwlsiBnvKgB1hCKU7XsXy'
+const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID ?? ''
+const VERCEL_TEAM_ID = process.env.VERCEL_TEAM_ID ?? ''
 const FIVE_MINUTES = 5 * 60 * 1000
 
 // Build phases detected from Vercel build log text
@@ -304,7 +304,7 @@ async function fetchBuildLogs(token: string, deploymentId: string): Promise<stri
 
 export async function fetchVercelDeployments(): Promise<VercelDeployment[]> {
   const token = process.env.VERCEL_TOKEN
-  if (!token) return []
+  if (!token || !VERCEL_PROJECT_ID || !VERCEL_TEAM_ID) return []
 
   try {
     const since = Date.now() - FIVE_MINUTES
