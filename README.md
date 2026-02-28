@@ -1,4 +1,4 @@
-# roxabi-plugins
+# Roxabi-plugins
 
 Open-source Claude Code plugins by [Roxabi](https://github.com/MickaelV0). Context engineering tools for teams using Claude Code.
 
@@ -6,23 +6,23 @@ Open-source Claude Code plugins by [Roxabi](https://github.com/MickaelV0). Conte
 
 | Plugin | Description |
 |--------|-------------|
-| [memory-audit](skills/memory-audit/README.md) | Drain auto-memory to zero — every entry gets resolved (fix/promote/relocate/delete) with audit logging and recurrence detection |
+| [memory-audit](plugins/memory-audit/README.md) | Drain auto-memory to zero — every entry gets resolved (fix/promote/relocate/delete) with audit logging and recurrence detection |
 
 ## Install
 
-### From marketplace
+### Add the marketplace
 
 ```bash
 claude plugin marketplace add Roxabi/roxabi-plugins
-claude plugin install roxabi-plugins
 ```
 
-### From local clone
+### Install a specific plugin
 
 ```bash
-git clone https://github.com/Roxabi/roxabi-plugins.git
-claude plugin install /path/to/roxabi-plugins
+claude plugin install memory-audit
 ```
+
+You only install what you need. Each plugin is independent.
 
 ## License
 

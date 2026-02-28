@@ -1,14 +1,17 @@
 {
   "name": "roxabi-marketplace",
+  "version": "1.0.0",
+  "description": "Open-source Claude Code plugins by Roxabi — context engineering tools for teams.",
   "owner": {
-    "name": "Roxabi"
+    "name": "Roxabi",
+    "url": "https://github.com/Roxabi"
   },
   "plugins": [
     {
-      "name": "roxabi-plugins",
-      "source": ".",
-      "description": "Claude Code plugins by Roxabi — memory audit, context engineering tools, and more.",
-      "version": "1.0.0"
+      "name": "memory-audit",
+      "description": "Drain auto-memory to zero — every entry gets resolved (fix/promote/relocate/delete) with audit logging and recurrence detection.",
+      "source": "./plugins/memory-audit",
+      "category": "maintenance"
     }
   ]
 }

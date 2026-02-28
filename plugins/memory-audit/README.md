@@ -26,14 +26,7 @@ When you run an audit, the plugin:
 
 ```bash
 claude plugin marketplace add Roxabi/roxabi-plugins
-claude plugin install roxabi-plugins
-```
-
-### From a local clone
-
-```bash
-git clone https://github.com/Roxabi/roxabi-plugins.git
-claude plugin install /path/to/roxabi-plugins
+claude plugin install memory-audit
 ```
 
 ## Usage
