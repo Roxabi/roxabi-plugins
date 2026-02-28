@@ -1,5 +1,5 @@
 ---
-description: Audit and drain Claude Code auto-memory — every entry gets resolved (fix/promote/relocate/delete), target is memory=0. Triggers: "memory-audit" | "audit memory" | "clean memory" | "prune memory".
+description: 'Audit and drain Claude Code auto-memory — every entry gets resolved (fix/promote/relocate/delete), target is memory=0. Triggers: "memory-audit" | "audit memory" | "clean memory" | "prune memory".'
 allowed-tools: Read, Edit, Write, Bash, Glob, AskUserQuestion
 ---
 
