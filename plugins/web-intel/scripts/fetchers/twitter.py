@@ -17,6 +17,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -52,7 +54,9 @@ ARTICLE_CONTENT_SELECTORS: tuple[str, ...] = (
 # Wait time for dynamic content to load (ms)
 ARTICLE_CONTENT_WAIT_MS = 5000
 
-# Playwright is optional - only needed for articles
+# Browser automation: agent-browser (primary) or Playwright (fallback)
+AGENT_BROWSER_AVAILABLE = shutil.which("agent-browser") is not None
+
 try:
     from playwright.sync_api import sync_playwright
 
@@ -603,6 +607,170 @@ def _extract_article_date(page: Any) -> str:
     return ""
 
 
+def _run_agent_browser(*args: str, timeout: int = 30) -> Optional[str]:
+    """Run an agent-browser CLI command and return stdout.
+
+    Args:
+        *args: CLI arguments (e.g., "open", url)
+        timeout: Command timeout in seconds
+
+    Returns:
+        stdout string on success, None on failure
+    """
+    try:
+        result = subprocess.run(
+            ["agent-browser", *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if result.returncode != 0:
+            logger.debug("agent-browser %s failed: %s", args[0], result.stderr.strip())
+            return None
+        return result.stdout
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        logger.debug("agent-browser %s error: %s", args[0], e)
+        return None
+
+
+def _agent_browser_close() -> None:
+    """Close agent-browser, ignoring errors."""
+    try:
+        subprocess.run(
+            ["agent-browser", "close"],
+            capture_output=True,
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
+def fetch_article_agent_browser(
+    article_id: str,
+    timeout: int = 60,
+    cookies_path: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """Fetch X Article content via agent-browser CLI.
+
+    Primary method for article extraction. Falls back to None if
+    agent-browser is not installed.
+
+    Args:
+        article_id: X Article ID
+        timeout: Navigation timeout in seconds
+        cookies_path: Optional path to X cookies JSON file
+
+    Returns:
+        Dict with article data, or None if agent-browser unavailable
+    """
+    if not AGENT_BROWSER_AVAILABLE:
+        return None
+
+    url = f"https://x.com/i/article/{article_id}"
+
+    try:
+        # Navigate to article
+        nav_result = _run_agent_browser("open", url, timeout=timeout)
+        if nav_result is None:
+            _agent_browser_close()
+            return {"success": False, "error": "agent-browser: failed to open URL"}
+
+        # Load cookies if available
+        cookies = load_x_cookies(cookies_path)
+        if cookies:
+            for cookie in cookies:
+                _run_agent_browser(
+                    "cookie", "set",
+                    cookie["name"], cookie["value"],
+                    "--domain", cookie.get("domain", ".x.com"),
+                    "--path", cookie.get("path", "/"),
+                    timeout=5,
+                )
+            # Reload with cookies applied
+            _run_agent_browser("open", url, timeout=timeout)
+
+        # Try to dismiss cookie banner
+        for btn_text in ["Accept all cookies", "Accept all", "Allow all"]:
+            result = _run_agent_browser("find", "text", btn_text, "click", timeout=3)
+            if result is not None:
+                import time
+                time.sleep(1)
+                break
+
+        # Wait for dynamic content to load
+        import time
+        time.sleep(ARTICLE_CONTENT_WAIT_MS / 1000)
+
+        # Extract content using CSS selectors (same as Playwright version)
+        content = ""
+        for selector in ARTICLE_CONTENT_SELECTORS:
+            text = _run_agent_browser("get", "text", selector, timeout=10)
+            if text and len(text.strip()) > len(content):
+                content = text.strip()
+
+        # Extract title (h1, then page title)
+        title_js = (
+            "(() => {"
+            'const h1 = document.querySelector("h1");'
+            "if (h1 && h1.innerText.trim()) return h1.innerText.trim();"
+            "return document.title || '';"
+            "})()"
+        )
+        title = (_run_agent_browser("eval", title_js, timeout=5) or "").strip()[:200]
+
+        # Extract author from links
+        author_js = (
+            "(() => {"
+            'const links = document.querySelectorAll(\'a[href^="/"]\');'
+            "for (const link of [...links].slice(0, 10)) {"
+            '  const href = link.getAttribute("href");'
+            '  if (href && href.split("/").length === 2 && !href.startsWith("/i/")) {'
+            '    return "@" + href.replace("/", "");'
+            "  }"
+            '} return "";})()'
+        )
+        author = (_run_agent_browser("eval", author_js, timeout=5) or "").strip()
+
+        # Extract date
+        date_js = (
+            "(() => {"
+            'const t = document.querySelector("time");'
+            'return t ? (t.getAttribute("datetime") || t.innerText) : "";'
+            "})()"
+        )
+        date = (_run_agent_browser("eval", date_js, timeout=5) or "").strip()
+
+        _agent_browser_close()
+
+        # Validate content
+        if _looks_like_cookie_banner(content):
+            return {
+                "success": False,
+                "error": "Could not dismiss cookie banner. Content extraction failed.",
+            }
+
+        if not content or len(content) < 50:
+            return {
+                "success": False,
+                "error": "Could not extract article content. X may require login.",
+            }
+
+        return {
+            "success": True,
+            "type": "article",
+            "id": article_id,
+            "title": title,
+            "text": sanitize_content(content),
+            "author": author,
+            "created_at": date,
+            "url": url,
+        }
+
+    except Exception as e:
+        _agent_browser_close()
+        return {"success": False, "error": f"agent-browser error: {str(e)}"}
+
+
 def fetch_article_playwright(
     article_id: str, timeout: int = 60000, debug: bool = False, cookies_path: Optional[str] = None
 ) -> Optional[dict[str, Any]]:
@@ -684,6 +852,47 @@ def fetch_article_playwright(
         return {"success": False, "error": f"Playwright error: {str(e)}"}
 
 
+def fetch_article(
+    article_id: str, timeout: int = 60, cookies_path: Optional[str] = None
+) -> Optional[dict[str, Any]]:
+    """Fetch X Article using agent-browser (primary) or Playwright (fallback).
+
+    Args:
+        article_id: X Article ID
+        timeout: Timeout in seconds
+        cookies_path: Optional path to X cookies JSON
+
+    Returns:
+        Dict with article data or error
+    """
+    # Try agent-browser first (fast Rust CLI)
+    if AGENT_BROWSER_AVAILABLE:
+        logger.info("Fetching article %s via agent-browser", article_id)
+        result = fetch_article_agent_browser(article_id, timeout=timeout, cookies_path=cookies_path)
+        if result is not None and result.get("success"):
+            return result
+        if result is not None:
+            logger.warning(
+                "agent-browser failed for article %s: %s, trying Playwright",
+                article_id,
+                result.get("error", "unknown"),
+            )
+
+    # Fallback to Playwright
+    if PLAYWRIGHT_AVAILABLE:
+        logger.info("Fetching article %s via Playwright", article_id)
+        return fetch_article_playwright(article_id, timeout=timeout * 1000, cookies_path=cookies_path)
+
+    return {
+        "success": False,
+        "error": (
+            "No browser automation available. Install one of:\n"
+            "  - agent-browser: npm install -g agent-browser && agent-browser install\n"
+            "  - Playwright: uv sync --extra twitter && uv run playwright install chromium"
+        ),
+    }
+
+
 class TwitterFetcher(BaseFetcher):
     """Twitter/X content fetcher.
 
@@ -729,7 +938,7 @@ class TwitterFetcher(BaseFetcher):
             article_id = extract_tweet_id(url)
             if not article_id:
                 return {"success": False, "error": "Could not extract article ID from URL"}
-            article_res = fetch_article_playwright(article_id)
+            article_res = fetch_article(article_id)
             return (
                 article_res if article_res else {"success": False, "error": "Article fetch failed"}
             )
@@ -746,7 +955,7 @@ class TwitterFetcher(BaseFetcher):
         # Try to fetch as article
         if not result.get("success") and "not found" in result.get("error", "").lower():
             # The tweet might contain an article link - try article extraction
-            article_result = fetch_article_playwright(tweet_id)
+            article_result = fetch_article(tweet_id)
             if article_result and article_result.get("success"):
                 return article_result
 
@@ -809,11 +1018,21 @@ class TwitterFetcher(BaseFetcher):
                         logger.info("t.co resolved to X Article: %s", resolved_url)
                         article_id = extract_tweet_id(resolved_url)
                         if article_id:
-                            article_result = fetch_article_playwright(article_id)
+                            article_result = fetch_article(article_id)
                             if article_result and article_result.get("success"):
                                 # Add reference to original tweet
                                 article_result["shared_via_tweet"] = url
                                 return article_result
+                            # Article fetch failed — propagate error instead of
+                            # returning useless tweet with only t.co URL
+                            if article_result:
+                                article_result["shared_via_tweet"] = url
+                                return article_result
+                            return {
+                                "success": False,
+                                "error": "Article fetch failed",
+                                "shared_via_tweet": url,
+                            }
 
                     # Case 2: t.co → Another Twitter/X URL (not article)
                     elif resolved.get("is_twitter"):
