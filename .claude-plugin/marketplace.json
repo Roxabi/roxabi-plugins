@@ -1,0 +1,14 @@
+{
+  "name": "roxabi-marketplace",
+  "owner": {
+    "name": "Roxabi"
+  },
+  "plugins": [
+    {
+      "name": "roxabi-plugins",
+      "source": ".",
+      "description": "Claude Code plugins by Roxabi — memory audit, context engineering tools, and more.",
+      "version": "1.0.0"
+    }
+  ]
+}
