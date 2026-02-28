@@ -16,15 +16,27 @@ VoiceMe is a Python CLI (`uv run voiceme`) for local voice generation (TTS) and 
 Before any action, detect voiceMe project location:
 
 ```bash
-# Find voiceme project
-for d in . .. ../voiceMe ~/projects/voiceMe; do
-  test -f "$d/src/voiceme/cli.py" && echo "VOICEME_DIR=$(cd "$d" && pwd)" && break
-done
+# Check VOICEME_DIR env var first, then search common locations
+if [ -n "$VOICEME_DIR" ] && [ -f "$VOICEME_DIR/src/voiceme/cli.py" ]; then
+  echo "VOICEME_DIR=$VOICEME_DIR"
+else
+  for d in . .. ../voiceMe ~/projects/voiceMe; do
+    test -f "$d/src/voiceme/cli.py" && echo "VOICEME_DIR=$(cd "$d" && pwd)" && break
+  done
+fi
 ```
 
 If not found → inform user voiceMe is not installed and offer guidance.
 
 All `uv run voiceme` commands must run from the voiceMe project directory.
+
+## First Use
+
+On the **first invocation** of any voice/TTS command in a session:
+
+1. Run `cd $VOICEME_DIR && uv run voiceme doctor` to check system readiness
+2. If doctor reports issues (missing CUDA, no models downloaded), guide the user through fixes before attempting generation
+3. Skip this check on subsequent invocations in the same session, or when the user is asking informational questions (engine capabilities, script format, etc.)
 
 ## Engine Capability Matrix
 
@@ -172,6 +184,7 @@ uv run voiceme voices                                       # list Qwen voices
 uv run voiceme voices -e chatterbox                         # list engine voices
 uv run voiceme engines                                      # list engines
 uv run voiceme emotions                                     # emotion cheat sheet
+uv run voiceme doctor                                       # system readiness check
 ```
 
 ## Project Layout
