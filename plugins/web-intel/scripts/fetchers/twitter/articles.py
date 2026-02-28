@@ -257,25 +257,26 @@ def fetch_article_agent_browser(
     url = f"https://x.com/i/article/{article_id}"
 
     try:
-        # Navigate to article
-        nav_result = _run_agent_browser("open", url, timeout=timeout)
-        if nav_result is None:
-            _agent_browser_close()
-            return {"success": False, "error": "agent-browser: failed to open URL"}
+        # Open a page first so we have a browser context for cookies
+        _run_agent_browser("open", "https://x.com", timeout=timeout)
 
-        # Load cookies if available
+        # Load cookies before navigating to article (auth required)
         cookies = load_x_cookies(cookies_path)
         if cookies:
             for cookie in cookies:
                 _run_agent_browser(
-                    "cookie", "set",
+                    "cookies", "set",
                     cookie["name"], cookie["value"],
                     "--domain", cookie.get("domain", ".x.com"),
                     "--path", cookie.get("path", "/"),
                     timeout=5,
                 )
-            # Reload with cookies applied
-            _run_agent_browser("open", url, timeout=timeout)
+
+        # Navigate to article (with cookies applied)
+        nav_result = _run_agent_browser("open", url, timeout=timeout)
+        if nav_result is None:
+            _agent_browser_close()
+            return {"success": False, "error": "agent-browser: failed to open URL"}
 
         # Try to dismiss cookie banner
         for btn_text in ["Accept all cookies", "Accept all", "Allow all"]:
@@ -289,12 +290,16 @@ def fetch_article_agent_browser(
         import time
         time.sleep(ARTICLE_CONTENT_WAIT_MS / 1000)
 
-        # Extract content using CSS selectors (same as Playwright version)
+        # Extract content using CSS selectors
+        # Unlike Playwright's inner_text(), agent-browser's "get text" includes
+        # noscript/hidden content. So we stop at the first good match instead
+        # of keeping the longest (body would always win with garbage).
         content = ""
         for selector in ARTICLE_CONTENT_SELECTORS:
             text = _run_agent_browser("get", "text", selector, timeout=10)
-            if text and len(text.strip()) > len(content):
+            if text and len(text.strip()) > 200:
                 content = text.strip()
+                break
 
         # Extract title (h1, then page title)
         title_js = (
