@@ -1,5 +1,7 @@
 ---
-description: 'Audit and drain Claude Code auto-memory — every entry gets resolved (fix/promote/relocate/delete), target is memory=0. Triggers: "memory-audit" | "audit memory" | "clean memory" | "prune memory".'
+name: memory-audit
+description: 'This skill should be used when the user asks to "memory-audit", "audit memory", "clean memory", "prune memory", "drain memory", or wants to resolve auto-memory entries. Audits and drains Claude Code auto-memory — every entry gets resolved (fix/promote/relocate/delete), target is memory=0.'
+version: 0.1.0
 allowed-tools: Read, Edit, Write, Bash, Glob, AskUserQuestion
 ---
 
