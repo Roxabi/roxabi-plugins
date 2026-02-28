@@ -21,7 +21,7 @@ claude plugin marketplace add Roxabi/roxabi-plugins
 ### Install a specific plugin
 
 ```bash
-claude plugin install memory-audit
+claude plugin install <plugin-name>
 ```
 
 You only install what you need. Each plugin is independent.

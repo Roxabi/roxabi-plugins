@@ -121,6 +121,13 @@ Then commit with the standard format:
 feat(plugins): add <plugin-name> — short description
 ```
 
+## Documentation
+
+All READMEs must be kept up to date at all times. When adding, modifying, or removing a plugin, update:
+
+- `plugins/<plugin-name>/README.md` — the plugin's own documentation
+- `README.md` — the root plugin index table
+
 ## Design Principles
 
 1. **Project-agnostic** — auto-discover structure (CLAUDE.md files, agents, docs dirs), don't assume layout
