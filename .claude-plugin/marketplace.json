@@ -30,6 +30,12 @@
       "description": "Multi-platform URL scraper (Twitter/X, GitHub, YouTube, Reddit, webpages) with 6 analysis skills: scrape, summarize, analyze, roast, benchmark, adapt.",
       "source": "./plugins/web-intel",
       "category": "analysis"
+    },
+    {
+      "name": "dev-core",
+      "description": "Full development workflow — frame, shape, plan, implement, review, ship. Opinionated Roxabi process with 17 skills, 9 agents, and safety hooks.",
+      "source": "./plugins/dev-core",
+      "category": "development"
     }
   ]
 }

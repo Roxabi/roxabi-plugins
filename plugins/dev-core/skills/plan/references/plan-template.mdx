@@ -1,0 +1,65 @@
+---
+title: "Plan: {Feature Title}"
+issue: 0
+spec: artifacts/specs/0-example.mdx
+complexity: 0
+tier: F-lite
+generated: "2026-01-01T00:00:00Z"
+---
+
+## Summary
+
+{1-2 sentence overview of the feature and implementation approach}
+
+## Bootstrap Context
+
+{Conclusions and selected shape from artifacts/analyses/{issue}-*.mdx, if exists. Omit section if no analysis.}
+
+## Agents
+
+| Agent | Task count | Files |
+|-------|-----------|-------|
+| {agent} | {N} | {comma-separated file list} |
+
+## Consistency Report
+
+- Criteria covered: {N}/{total}
+- Uncovered criteria: {list or "none"}
+- Tasks without spec backing: {list or "none"}
+- Gold plating exemptions applied: {count}
+
+## Micro-Tasks
+
+{In fallback mode (no Breadboard/Slices), replace Slice headings with criteria groupings: ### Criteria SC-1: {description}, ### Criteria SC-2: {description}, etc.}
+
+### Slice V1: {Description}
+
+#### Task 1: {Description} [P] → {agent}
+- **File:** {path}
+- **Snippet:** `{code skeleton}`
+- **Verify:** `{command}` ({ready|deferred|manual})
+- **Expected:** {output}
+- **Time:** {N} min
+- **Difficulty:** {1-5}
+- **Traces:** {SC-N, U1->N1->S1}
+- **Phase:** {RED|GREEN|REFACTOR}
+
+#### Task 2: {Description} → {agent}
+- **File:** {path}
+- **Snippet:** `{code skeleton}`
+- **Verify:** `{command}` ({ready|deferred|manual})
+- **Expected:** {output}
+- **Time:** {N} min
+- **Difficulty:** {1-5}
+- **Traces:** {SC-N}
+- **Phase:** {RED|GREEN|REFACTOR}
+
+#### RED-GATE: RED complete V1 → tester
+- **Verify:** All test tasks for V1 marked complete
+- **Phase:** RED-GATE
+
+> **Pre-#283:** The orchestrator manages RED-GATE ordering by spawning GREEN agents only after the tester completes RED tasks for each slice. Post-#283: Agents check the sentinel task status directly via TaskList.
+
+### Slice V2: {Description}
+
+...

@@ -1,0 +1,8 @@
+{
+  "name": "dev-core",
+  "description": "Full development workflow — frame, shape, plan, implement, review, ship. 17 skills, 9 agents, safety hooks.",
+  "author": {
+    "name": "Roxabi",
+    "email": "dev@roxabi.com"
+  }
+}

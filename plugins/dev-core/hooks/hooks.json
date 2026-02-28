@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/security-check.js"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE '(^|\\s|&&|;|\\|)bun test(\\s|$)' && ! echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'bun run test'; then echo 'Use bun run test (Vitest), not bun test (Bun runner)' >&2; exit 2; fi"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_FILE_PATHS\" | grep -qE '\\.(ts|tsx|js|jsx|json)$'; then timeout 10s bunx biome check --write \"$CLAUDE_FILE_PATHS\" || true; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
