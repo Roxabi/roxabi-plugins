@@ -2,7 +2,7 @@
 name: memory-audit
 description: 'Audit and drain Claude Code auto-memory — every entry gets resolved (fix/promote/relocate/delete), target is memory=0. Triggers: "memory-audit" | "audit memory" | "clean memory" | "prune memory" | "drain memory".'
 version: 0.1.0
-allowed-tools: Read, Edit, Write, Bash, Glob, AskUserQuestion
+allowed-tools: Read, Edit, Write, Bash, Glob
 ---
 
 # Memory Audit
