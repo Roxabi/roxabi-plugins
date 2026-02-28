@@ -2,6 +2,7 @@
 name: analyze-url
 argument-hint: '<url>'
 description: Deep analysis of a URL — tech stack, architecture, business model, competitive positioning. Triggers: "analyze url" | "deep dive url" | "analyze this site".
+version: 0.1.0
 allowed-tools: Bash, Read
 ---
 

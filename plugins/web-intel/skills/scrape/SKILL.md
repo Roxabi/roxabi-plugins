@@ -2,6 +2,7 @@
 name: scrape
 argument-hint: '<url>'
 description: Extract structured content from a URL — Twitter/X, GitHub, YouTube, Reddit, or any webpage. Triggers: "scrape" | "fetch url" | "extract content".
+version: 0.1.0
 allowed-tools: Bash, Read
 ---
 
