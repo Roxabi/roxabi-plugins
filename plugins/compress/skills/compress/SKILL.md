@@ -1,6 +1,6 @@
 ---
 name: compress
-description: 'This skill should be used when the user asks to "compress", "compress skill", "compress agent", "shorten this", "make it formal", or wants to rewrite a definition using compact math/logic notation to save tokens.'
+description: 'Compress agent/skill definitions using math/logic notation. Triggers: "compress" | "compress skill" | "compress agent" | "shorten this" | "make it formal".'
 version: 0.1.0
 argument-hint: '[file path | agent name | skill name]'
 allowed-tools: Read, Write, Edit, Glob, Grep, AskUserQuestion

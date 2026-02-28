@@ -48,7 +48,7 @@ The file has two parts: a YAML frontmatter header and a markdown body with instr
 **Frontmatter (required fields):**
 
 - `name` — the skill identifier, in kebab-case (e.g. `memory-audit`)
-- `description` — must start with "This skill should be used when the user asks to..." followed by trigger phrases in quotes. This is how Claude decides when to activate the skill, so be specific
+- `description` — one-line purpose followed by `Triggers: "phrase1" | "phrase2"`. This is how Claude decides when to activate the skill, so be specific
 - `version` — semantic version starting at `0.1.0`
 - `allowed-tools` — comma-separated list of tools the skill can use (e.g. `Read, Edit, Write, Bash, Glob, AskUserQuestion`)
 
@@ -57,7 +57,7 @@ The file has two parts: a YAML frontmatter header and a markdown body with instr
 ```yaml
 ---
 name: memory-audit
-description: 'This skill should be used when the user asks to "memory-audit", "audit memory", "clean memory", "prune memory", "drain memory", or wants to resolve auto-memory entries. Audits and drains Claude Code auto-memory.'
+description: 'Audit and drain Claude Code auto-memory — every entry gets resolved (fix/promote/relocate/delete), target is memory=0. Triggers: "memory-audit" | "audit memory" | "clean memory" | "prune memory" | "drain memory".'
 version: 0.1.0
 allowed-tools: Read, Edit, Write, Bash, Glob, AskUserQuestion
 ---

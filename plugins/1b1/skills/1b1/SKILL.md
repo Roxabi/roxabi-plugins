@@ -1,6 +1,6 @@
 ---
 name: 1b1
-description: 'This skill should be used when the user asks to "one by one", "walk through", "1b1", "process each item", or wants to step through a list of items sequentially with a decision for each one.'
+description: 'Walk through items 1-by-1 (findings, tasks, issues, TODOs). Triggers: "one by one" | "walk through" | "1b1" | "process each item".'
 version: 0.1.0
 argument-hint: '[items description]'
 allowed-tools: AskUserQuestion, Read, Bash, Grep, Glob
