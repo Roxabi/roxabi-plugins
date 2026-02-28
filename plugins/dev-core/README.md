@@ -1,6 +1,6 @@
 # dev-core
 
-Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 17 skills, 9 specialized agents, and safety hooks.
+Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 18 skills, 9 specialized agents, and safety hooks.
 
 ## Prerequisites
 
@@ -22,6 +22,16 @@ Install the plugin:
 claude plugin install dev-core
 ```
 
+## Getting Started
+
+After installing, run the init skill to configure your project:
+
+```
+/init
+```
+
+This auto-detects your GitHub repo, Project V2 board, and field IDs, then writes `.env`, sets up the dashboard script in `package.json`, and creates the `artifacts/` directory. Re-run with `/init --force` to reconfigure.
+
 ## Usage
 
 The main entry point is:
@@ -34,10 +44,11 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 ## Skills
 
-17 skills organized by workflow phase:
+18 skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
+| `init` | Setup | Configures project for dev-core (GitHub Project V2, dashboard, env vars) |
 | `dev` | Orchestrator | Routes issues through the full workflow |
 | `frame` | Frame | Creates initial feature frame from issue |
 | `analyze` | Shape | Deep analysis with expert consultation |

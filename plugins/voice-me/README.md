@@ -1,6 +1,6 @@
 # voice-me
 
-Claude Code plugin for [VoiceMe](https://github.com/MickaelV0/voiceMe) — local AI voice generation and transcription.
+Claude Code plugin for [VoiceMe](https://github.com/Roxabi/voiceMe) — local AI voice generation and transcription.
 
 ## What It Does
 
@@ -53,6 +53,6 @@ The plugin does not include the AI models — those live in the voiceMe project.
 
 ## Requirements
 
-- [VoiceMe](https://github.com/MickaelV0/voiceMe) installed locally
+- [VoiceMe](https://github.com/Roxabi/voiceMe) installed locally
 - Python 3.12 + uv
 - GPU with CUDA support (for model inference)

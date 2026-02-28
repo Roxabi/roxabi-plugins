@@ -1,6 +1,6 @@
 # Roxabi-plugins
 
-Open-source Claude Code plugins by [Roxabi](https://github.com/MickaelV0). Context engineering tools for teams using Claude Code.
+Open-source Claude Code plugins by [Roxabi](https://github.com/Roxabi). Context engineering tools for teams using Claude Code.
 
 ## Plugins
 
