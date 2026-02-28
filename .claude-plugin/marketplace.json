@@ -33,9 +33,15 @@
     },
     {
       "name": "dev-core",
-      "description": "Full development workflow — frame, shape, plan, implement, review, ship. Opinionated Roxabi process with 17 skills, 9 agents, and safety hooks.",
+      "description": "Full development workflow — frame, shape, plan, implement, review, ship. Opinionated Roxabi process with 18 skills, 9 agents, and safety hooks.",
       "source": "./plugins/dev-core",
       "category": "development"
+    },
+    {
+      "name": "voice-me",
+      "description": "VoiceMe assistant — author TTS scripts, generate speech, clone voices, transcribe audio. Knows engine capabilities and the full CLI.",
+      "source": "./plugins/voice-me",
+      "category": "productivity"
     }
   ]
 }
