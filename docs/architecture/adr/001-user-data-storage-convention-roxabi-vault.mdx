@@ -1,0 +1,80 @@
+---
+title: "ADR-001: User Data Storage Convention — Roxabi Vault"
+description: Establish ~/.roxabi-vault/ as the standard data directory for all plugins that store personal user data, with an optional vault plugin providing search and indexation on top.
+---
+
+## Status
+
+Accepted
+
+## Context
+
+Five plugins are migrating from a personal project (2ndBrain) to the public roxabi-plugins marketplace. These plugins store personal user data — CV documents, invoices, a knowledge base, LinkedIn posts, and image prompt configurations. The repo is public on GitHub; personal data must never be committed.
+
+The core design question is: where does user data live, how do plugins declare their data needs, and how does a shared search/indexation layer (the vault plugin) integrate without becoming a hard dependency?
+
+A secondary question is how shared Python utilities (path resolution) are distributed across plugins without creating tight coupling.
+
+## Options Considered
+
+### Option A: Per-plugin XDG-compliant directories (`~/.local/share/roxabi/<plugin>/`)
+
+Each plugin stores data under the XDG Base Directory Specification path.
+
+- **Pros:** Follows Linux/freedesktop.org standards. Clean per-plugin isolation. No cross-plugin namespace collisions.
+- **Cons:** XDG paths are ignored on macOS and Windows. No unified root for cross-plugin search (vault would need to know each plugin's XDG path). More complex path resolution.
+
+### Option B: Project-scoped `.roxabi-vault/` inside the working project
+
+Data stored in a `.roxabi-vault/` directory inside the user's current project.
+
+- **Pros:** Per-project isolation. Familiar pattern (similar to `.git/`, `.claude/`).
+- **Cons:** Personal data (CV, invoices) is not project-scoped — it is global to the user. Users would need to re-initialize every project. gitignore entries required per project.
+
+### Option C: `~/.roxabi-vault/` home directory convention with `ROXABI_VAULT_HOME` override
+
+A single dot-directory in the user's home, overridable via environment variable. All plugins store data under `~/.roxabi-vault/<plugin-subdirectory>/`. An optional vault plugin manages a SQLite+vec database at `~/.roxabi-vault/vault.db`.
+
+- **Pros:** Single root for all personal data. Easy to back up (`tar ~/.roxabi-vault/`). Override mechanism covers CI, Docker, and custom paths. Vault plugin can index all subdirectories from one root. Simple path resolution.
+- **Cons:** Not XDG-compliant by default. Requires explicit CI handling. Shared root means naming discipline is required across plugins to avoid subdirectory collisions.
+
+## Decision
+
+Option C is adopted: `~/.roxabi-vault/` as the standard data root, overridable via `ROXABI_VAULT_HOME`.
+
+The design is modified from the original plan in four ways based on architectural review:
+
+1. **Each plugin owns its subdirectory exclusively.** The `content/` shared directory is eliminated. `linkedin-post-generator` stores to `~/.roxabi-vault/linkedin/`, `get-invoice-details` to `~/.roxabi-vault/invoices/` (English name, not `factures/`), `image-prompt-generator` to `~/.roxabi-vault/image-prompts/`, and vault's own data (ideas, learnings) to `~/.roxabi-vault/vault/`. No cross-plugin filesystem sharing.
+
+2. **`plugin.json` manifest-version and required field.** The manifest format version is declared as `"manifest-version": "1"` at the top level. File entries gain a `required` boolean and directories gain a `lifecycle` field (`"init"` or `"runtime"`). The `vault.indexes.category` field is renamed to `vault.indexes.namespace` to avoid semantic ambiguity.
+
+3. **`paths.py` includes CI detection and `vault_healthy()`.** If `CI=true` and `ROXABI_VAULT_HOME` is unset, the resolver emits a warning on stderr. A `vault_healthy()` function performs a lightweight schema version probe (`PRAGMA user_version`) in addition to the existence check of `vault_available()`.
+
+4. **Directory permissions set explicitly on init.** `~/.roxabi-vault/` is created with `mode=0o700`. `vault.db` is created with permissions `0o600`. Init skills must not rely on umask.
+
+The vault plugin is optional. Consumer plugins always store files to `~/.roxabi-vault/<plugin>/`. If vault is installed and healthy, plugins additionally call `index_content()` for search. If vault is absent or unhealthy, the indexing step is silently skipped and a warning is logged.
+
+Shared Python utilities (`_lib/paths.py`) are vendored into each consumer plugin. The vault plugin's `_lib/paths.py` is the canonical source. A sync procedure is documented in CLAUDE.md under "Shared Libraries." The `_lib/memory/` module (SQLite+vec) is not vendored — only vault imports it.
+
+## Consequences
+
+### Positive
+
+- Personal data is structurally separated from the public repo — it is impossible to accidentally commit it.
+- A single `~/.roxabi-vault/` root makes backup, migration, and vault-wide search straightforward.
+- The optional vault architecture lets users install only the plugins they need without any dependency chain.
+- The `plugin.json` `data` section is self-documenting — future tooling (backup, migrate, validate) can introspect plugin data needs without reading source code.
+- Per-plugin subdirectory ownership eliminates cross-plugin naming collisions and makes the data layout legible to users.
+
+### Negative
+
+- Not XDG-compliant by default. Power users on Linux may find `~/.roxabi-vault/` cluttering their home directory.
+- Vendoring `paths.py` creates a maintenance surface: if the canonical copy changes, consumer plugins must be manually synced until automation is added.
+- The `ROXABI_VAULT_HOME` override requires CI/Docker users to know about it — silent data accumulation at the runner home is possible if the override is not set.
+
+### Neutral
+
+- `memory.db` (existing vault data from 2ndBrain) must be migrated to `vault.db`. A `vault-migrate` init skill should detect the old filename and offer to migrate indexed data.
+- Directory names visible to users are in English (`invoices/`, `linkedin/`), consistent with the repo's English-language convention.
+- SQLite WAL mode should be enabled at vault initialization to prevent write-lock conflicts if multiple Claude Code sessions run concurrently.
+- The `sensitive: true` flag in `plugin.json` is documentation only. A companion `backup: false` field is reserved for future use by backup tooling.
