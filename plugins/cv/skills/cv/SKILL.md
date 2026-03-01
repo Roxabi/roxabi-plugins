@@ -49,12 +49,16 @@ AskUserQuestion if intent is ambiguous.
 ## Phase 2 — Generate
 
 1. Read D.
-2. Determine format (md or html) from args or config. Default: md.
-3. Run the generation script:
+2. Determine format (md, html, or all) from args or config. Default: from config.
+3. Determine language (fr, en, or all) from args or config. Default: from config `default_language`.
+4. Run the generation script:
 ```bash
-python3 <plugin>/scripts/generate_cv.py --data ~/.roxabi-vault/cv/cv_data.json --output ~/.roxabi-vault/cv/generated/cv.<format> --format <format>
+python3 <plugin>/scripts/generate_cv.py --data ~/.roxabi-vault/cv/cv_data.json --lang <lang> --format <format>
 ```
-4. Report the output path.
+   - `--lang all` generates one file per supported language (`cv_fr.md`, `cv_en.md`)
+   - `--lang fr` generates a single file (`cv.md`, no language suffix)
+   - `--format all` generates both md and html
+5. Report the output path(s).
 
 ## Phase 3 — Adapt
 
