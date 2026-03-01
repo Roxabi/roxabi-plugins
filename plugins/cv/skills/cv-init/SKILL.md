@@ -52,12 +52,16 @@ If C does not exist:
 Write default config:
 ```json
 {
+  "default_language": "en",
+  "supported_languages": ["en"],
   "default_format": "md",
   "default_template": "cv_template",
   "output_dir_generated": "~/.roxabi-vault/cv/generated",
   "output_dir_adapted": "~/.roxabi-vault/cv/adapted"
 }
 ```
+
+If C exists but is missing `default_language` or `supported_languages` keys, add them with defaults (`"en"` and `["en"]`) and inform the user: "Updated cv.json with language configuration keys."
 
 ## Phase 5 — Report
 

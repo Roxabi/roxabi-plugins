@@ -1,6 +1,6 @@
 # {{ personal.name }}
 
-**{{ personal.title }}**
+**{{ personal.title|t(lang) }}**
 
 {{ personal.email }}{% if personal.phone %} | {{ personal.phone }}{% endif %}{% if personal.location %} | {{ personal.location }}{% endif %}
 
@@ -11,17 +11,17 @@
 {% if personal.summary %}
 ## Summary
 
-{{ personal.summary }}
+{{ personal.summary|t(lang) }}
 {% endif %}
 
 ## Experience
 
 {% for job in experience %}
-### {{ job.role }} — {{ job.company }}
+### {{ job.role|t(lang) }} — {{ job.company }}
 
 *{{ job.start }}{% if job.end %} to {{ job.end }}{% else %} to Present{% endif %}*{% if job.location %} | {{ job.location }}{% endif %}
 
-{% for h in job.highlights %}
+{% for h in job.highlights|t(lang) %}
 - {{ h }}
 {% endfor %}
 
@@ -30,11 +30,11 @@
 ## Education
 
 {% for edu in education %}
-### {{ edu.degree }} — {{ edu.institution }}
+### {{ edu.degree|t(lang) }} — {{ edu.institution }}
 
 *{{ edu.start }}{% if edu.end %} to {{ edu.end }}{% endif %}*
 
-{% if edu.notes %}{{ edu.notes }}{% endif %}
+{% if edu.notes %}{{ edu.notes|t(lang) }}{% endif %}
 
 {% endfor %}
 
@@ -47,8 +47,8 @@
 {% if languages is defined and languages %}
 ## Languages
 
-{% for lang in languages %}
-- **{{ lang.language }}** — {{ lang.level }}
+{% for spoken in languages %}
+- **{{ spoken.language }}** — {{ spoken.level }}
 {% endfor %}
 {% endif %}
 

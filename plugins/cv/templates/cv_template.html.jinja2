@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -28,7 +28,7 @@
 <body>
   <header>
     <h1>{{ personal.name }}</h1>
-    <div class="subtitle">{{ personal.title }}</div>
+    <div class="subtitle">{{ personal.title|t(lang) }}</div>
     <div class="contact">
       {{ personal.email }}
       {% if personal.phone %} &middot; {{ personal.phone }}{% endif %}
@@ -45,7 +45,7 @@
   {% if personal.summary %}
   <section>
     <h2>Summary</h2>
-    <p class="summary">{{ personal.summary }}</p>
+    <p class="summary">{{ personal.summary|t(lang) }}</p>
   </section>
   {% endif %}
 
@@ -53,10 +53,10 @@
     <h2>Experience</h2>
     {% for job in experience %}
     <div class="job">
-      <h3>{{ job.role }} &mdash; {{ job.company }}</h3>
+      <h3>{{ job.role|t(lang) }} &mdash; {{ job.company }}</h3>
       <div class="job-meta">{{ job.start }}{% if job.end %} to {{ job.end }}{% else %} to Present{% endif %}{% if job.location %} &middot; {{ job.location }}{% endif %}</div>
       <ul>
-        {% for h in job.highlights %}
+        {% for h in job.highlights|t(lang) %}
         <li>{{ h }}</li>
         {% endfor %}
       </ul>
@@ -68,9 +68,9 @@
     <h2>Education</h2>
     {% for edu in education %}
     <div class="edu">
-      <h3>{{ edu.degree }} &mdash; {{ edu.institution }}</h3>
+      <h3>{{ edu.degree|t(lang) }} &mdash; {{ edu.institution }}</h3>
       <div class="edu-meta">{{ edu.start }}{% if edu.end %} to {{ edu.end }}{% endif %}</div>
-      {% if edu.notes %}<p>{{ edu.notes }}</p>{% endif %}
+      {% if edu.notes %}<p>{{ edu.notes|t(lang) }}</p>{% endif %}
     </div>
     {% endfor %}
   </section>
@@ -87,8 +87,8 @@
   {% if languages is defined and languages %}
   <section>
     <h2>Languages</h2>
-    {% for lang in languages %}
-    <div class="lang-item"><strong>{{ lang.language }}</strong> &mdash; {{ lang.level }}</div>
+    {% for spoken in languages %}
+    <div class="lang-item"><strong>{{ spoken.language }}</strong> &mdash; {{ spoken.level }}</div>
     {% endfor %}
   </section>
   {% endif %}

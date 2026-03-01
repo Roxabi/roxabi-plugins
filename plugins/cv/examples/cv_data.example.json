@@ -1,59 +1,80 @@
 {
   "personal": {
     "name": "John Doe",
-    "title": "Senior Software Engineer",
+    "title": { "fr": "Ingénieur Logiciel Senior", "en": "Senior Software Engineer" },
     "email": "john.doe@example.com",
     "phone": "+1-555-0100",
     "location": "San Francisco, CA",
     "linkedin": "linkedin.com/in/johndoe",
     "github": "github.com/johndoe",
-    "summary": "Software engineer with 10+ years of experience building scalable web applications and distributed systems. Passionate about clean architecture, developer tooling, and mentoring engineering teams."
+    "summary": { "fr": "Ingénieur logiciel avec plus de 10 ans d'expérience dans le développement d'applications web scalables et de systèmes distribués. Passionné par l'architecture logicielle, l'outillage développeur et le mentorat d'équipes.", "en": "Software engineer with 10+ years of experience building scalable web applications and distributed systems. Passionate about clean architecture, developer tooling, and mentoring engineering teams." }
   },
   "experience": [
     {
       "company": "Acme Corp",
-      "role": "Senior Software Engineer",
+      "role": { "fr": "Ingénieur Logiciel Senior", "en": "Senior Software Engineer" },
       "location": "San Francisco, CA",
       "start": "2021-03",
       "end": null,
-      "highlights": [
-        "Led migration of monolithic application to microservices architecture, reducing deployment time by 70%",
-        "Designed and implemented real-time data pipeline processing 2M+ events/day using Kafka and Python",
-        "Mentored team of 5 junior engineers through code reviews and weekly knowledge-sharing sessions"
-      ]
+      "highlights": {
+        "fr": [
+          "Dirigé la migration d'une application monolithique vers une architecture microservices, réduisant le temps de déploiement de 70%",
+          "Conçu et implémenté un pipeline de données temps réel traitant 2M+ événements/jour avec Kafka et Python",
+          "Mentoré une équipe de 5 ingénieurs juniors via des revues de code et des sessions de partage hebdomadaires"
+        ],
+        "en": [
+          "Led migration of monolithic application to microservices architecture, reducing deployment time by 70%",
+          "Designed and implemented real-time data pipeline processing 2M+ events/day using Kafka and Python",
+          "Mentored team of 5 junior engineers through code reviews and weekly knowledge-sharing sessions"
+        ]
+      }
     },
     {
       "company": "Widgets Inc",
-      "role": "Software Engineer",
+      "role": { "fr": "Ingénieur Logiciel", "en": "Software Engineer" },
       "location": "Oakland, CA",
       "start": "2017-06",
       "end": "2021-02",
-      "highlights": [
-        "Built REST API serving 50k+ daily active users with 99.9% uptime",
-        "Introduced CI/CD pipeline with automated testing, reducing production bugs by 40%",
-        "Developed internal dashboard used by 200+ employees for operational monitoring"
-      ]
+      "highlights": {
+        "fr": [
+          "Développé une API REST servant 50k+ utilisateurs actifs quotidiens avec 99,9% de disponibilité",
+          "Mis en place un pipeline CI/CD avec tests automatisés, réduisant les bugs en production de 40%",
+          "Développé un tableau de bord interne utilisé par 200+ employés pour le monitoring opérationnel"
+        ],
+        "en": [
+          "Built REST API serving 50k+ daily active users with 99.9% uptime",
+          "Introduced CI/CD pipeline with automated testing, reducing production bugs by 40%",
+          "Developed internal dashboard used by 200+ employees for operational monitoring"
+        ]
+      }
     },
     {
       "company": "StartupXYZ",
-      "role": "Junior Developer",
+      "role": { "fr": "Développeur Junior", "en": "Junior Developer" },
       "location": "San Jose, CA",
       "start": "2014-09",
       "end": "2017-05",
-      "highlights": [
-        "Implemented core features for the company's flagship SaaS product",
-        "Collaborated with design team to rebuild the frontend using React",
-        "Wrote integration tests that caught 30% more regressions before release"
-      ]
+      "highlights": {
+        "fr": [
+          "Implémenté les fonctionnalités clés du produit SaaS phare de l'entreprise",
+          "Collaboré avec l'équipe design pour reconstruire le frontend avec React",
+          "Écrit des tests d'intégration détectant 30% plus de régressions avant mise en production"
+        ],
+        "en": [
+          "Implemented core features for the company's flagship SaaS product",
+          "Collaborated with design team to rebuild the frontend using React",
+          "Wrote integration tests that caught 30% more regressions before release"
+        ]
+      }
     }
   ],
   "education": [
     {
       "institution": "University of California, Berkeley",
-      "degree": "B.S. Computer Science",
+      "degree": { "fr": "Licence en Informatique", "en": "B.S. Computer Science" },
       "start": "2010",
       "end": "2014",
-      "notes": "Dean's List, Teaching Assistant for Data Structures"
+      "notes": { "fr": "Liste du doyen, Assistant d'enseignement en Structures de données", "en": "Dean's List, Teaching Assistant for Data Structures" }
     }
   ],
   "skills": {

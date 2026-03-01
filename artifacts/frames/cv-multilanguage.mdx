@@ -1,0 +1,41 @@
+---
+title: "Add multilanguage support (FR/EN) to CV plugin"
+issue: 3
+status: approved
+tier: F-lite
+date: 2026-03-01
+---
+
+## Problem
+
+The CV plugin currently supports a single language per invocation. Users who need bilingual CVs (FR/EN) must maintain separate data files or manually duplicate content. The 2ndBrain project already has a working bilingual fork with a `|t` Jinja2 filter, bilingual schema, and `--lang all` flag — but this hasn't been upstreamed to the roxabi-plugins CV plugin yet.
+
+The migration from 2ndBrain to roxabi-plugins is the trigger. Without multilanguage support upstream, the 2ndBrain fork diverges further with each change.
+
+## Who
+
+- **Primary:** CV plugin users who need FR/EN bilingual output (cover letters, formatted CVs)
+- **Secondary:** Future users who may need additional languages (design should be extensible)
+
+## Constraints
+
+- **Backward compatible** — existing single-lang `cv_data.json` files must work without changes (string fields stay as strings)
+- **Must match 2ndBrain fork** — implementation follows the proven patterns from the existing bilingual fork (`|t` filter, `{fr, en}` dict schema, `--lang` flag)
+- **Must be extensible** — adding a new language later should only require adding entries to `supported_languages` config and translating fields in `cv_data.json`
+
+## Out of Scope
+
+- Languages beyond FR and EN in this iteration
+- Auto-translation (no AI/API translation — all translations are manual in `cv_data.json`)
+- PDF output format
+- CV-to-job-posting adaptation
+
+## Complexity
+
+**Tier: F-lite** — Clear scope, single domain (CV plugin). The 2ndBrain fork provides a working reference implementation, reducing unknowns. Changes touch data schema, generation script, templates, and config — all within the CV plugin boundary.
+
+Signals:
+- Single plugin affected (cv)
+- Working reference implementation exists (2ndBrain fork)
+- No new architectural patterns — Jinja2 filter is a standard approach
+- Backward compatibility adds testing complexity but not architectural complexity
