@@ -1,0 +1,8 @@
+{
+  "fts_enabled": true,
+  "wal_mode": true,
+  "backup": {
+    "enabled": true,
+    "max_backups": 5
+  }
+}

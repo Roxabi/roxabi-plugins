@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 .venv/
+
+# Roxabi vault user data
+.roxabi-vault/

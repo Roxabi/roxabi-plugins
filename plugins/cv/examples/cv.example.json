@@ -1,0 +1,6 @@
+{
+  "default_format": "md",
+  "default_template": "cv_template",
+  "output_dir_generated": "~/.roxabi-vault/cv/generated",
+  "output_dir_adapted": "~/.roxabi-vault/cv/adapted"
+}

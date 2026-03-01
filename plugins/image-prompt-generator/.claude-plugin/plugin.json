@@ -1,0 +1,22 @@
+{
+  "name": "image-prompt-generator",
+  "version": "0.1.0",
+  "description": "Generate AI image prompts with visual identity and style consistency.",
+  "author": { "name": "Roxabi" },
+  "data": {
+    "root": null,
+    "directories": [],
+    "files": {
+      "config/visual-charter.json": {
+        "description": "Brand visual identity — colors, style, tone for image generation",
+        "sensitive": false,
+        "example": "examples/visual-charter.example.json"
+      }
+    },
+    "shared": []
+  },
+  "vault": {
+    "optional": true,
+    "indexes": null
+  }
+}

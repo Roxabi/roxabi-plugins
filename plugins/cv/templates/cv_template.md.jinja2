@@ -1,0 +1,61 @@
+# {{ personal.name }}
+
+**{{ personal.title }}**
+
+{{ personal.email }}{% if personal.phone %} | {{ personal.phone }}{% endif %}{% if personal.location %} | {{ personal.location }}{% endif %}
+
+{% if personal.linkedin %}{{ personal.linkedin }}{% endif %}{% if personal.github %} | {{ personal.github }}{% endif %}
+
+---
+
+{% if personal.summary %}
+## Summary
+
+{{ personal.summary }}
+{% endif %}
+
+## Experience
+
+{% for job in experience %}
+### {{ job.role }} — {{ job.company }}
+
+*{{ job.start }}{% if job.end %} to {{ job.end }}{% else %} to Present{% endif %}*{% if job.location %} | {{ job.location }}{% endif %}
+
+{% for h in job.highlights %}
+- {{ h }}
+{% endfor %}
+
+{% endfor %}
+
+## Education
+
+{% for edu in education %}
+### {{ edu.degree }} — {{ edu.institution }}
+
+*{{ edu.start }}{% if edu.end %} to {{ edu.end }}{% endif %}*
+
+{% if edu.notes %}{{ edu.notes }}{% endif %}
+
+{% endfor %}
+
+## Skills
+
+{% for category, items in skills.items() %}
+**{{ category | capitalize }}:** {{ items | join(', ') }}
+{% endfor %}
+
+{% if languages is defined and languages %}
+## Languages
+
+{% for lang in languages %}
+- **{{ lang.language }}** — {{ lang.level }}
+{% endfor %}
+{% endif %}
+
+{% if certifications is defined and certifications %}
+## Certifications
+
+{% for cert in certifications %}
+- **{{ cert.name }}** — {{ cert.issuer }} ({{ cert.year }})
+{% endfor %}
+{% endif %}

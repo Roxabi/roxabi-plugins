@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ personal.name }} — CV</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #333; max-width: 800px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; }
+    h1 { font-size: 2em; margin-bottom: 4px; }
+    h2 { font-size: 1.3em; border-bottom: 2px solid #333; padding-bottom: 4px; margin-top: 28px; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+    h3 { font-size: 1.05em; margin-bottom: 2px; }
+    .subtitle { font-size: 1.15em; color: #555; margin-bottom: 8px; }
+    .contact { color: #666; font-size: 0.9em; margin-bottom: 4px; }
+    .contact a { color: #666; text-decoration: none; }
+    .summary { margin-top: 16px; color: #444; }
+    .job { margin-bottom: 20px; }
+    .job-meta { color: #666; font-size: 0.9em; margin-bottom: 6px; }
+    ul { padding-left: 20px; margin-top: 4px; }
+    li { margin-bottom: 4px; }
+    .edu { margin-bottom: 14px; }
+    .edu-meta { color: #666; font-size: 0.9em; }
+    .skills-group { margin-bottom: 6px; }
+    .skills-group strong { text-transform: capitalize; }
+    .lang-item, .cert-item { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>{{ personal.name }}</h1>
+    <div class="subtitle">{{ personal.title }}</div>
+    <div class="contact">
+      {{ personal.email }}
+      {% if personal.phone %} &middot; {{ personal.phone }}{% endif %}
+      {% if personal.location %} &middot; {{ personal.location }}{% endif %}
+    </div>
+    {% if personal.linkedin or personal.github %}
+    <div class="contact">
+      {% if personal.linkedin %}<a href="https://{{ personal.linkedin }}">{{ personal.linkedin }}</a>{% endif %}
+      {% if personal.github %} &middot; <a href="https://{{ personal.github }}">{{ personal.github }}</a>{% endif %}
+    </div>
+    {% endif %}
+  </header>
+
+  {% if personal.summary %}
+  <section>
+    <h2>Summary</h2>
+    <p class="summary">{{ personal.summary }}</p>
+  </section>
+  {% endif %}
+
+  <section>
+    <h2>Experience</h2>
+    {% for job in experience %}
+    <div class="job">
+      <h3>{{ job.role }} &mdash; {{ job.company }}</h3>
+      <div class="job-meta">{{ job.start }}{% if job.end %} to {{ job.end }}{% else %} to Present{% endif %}{% if job.location %} &middot; {{ job.location }}{% endif %}</div>
+      <ul>
+        {% for h in job.highlights %}
+        <li>{{ h }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </section>
+
+  <section>
+    <h2>Education</h2>
+    {% for edu in education %}
+    <div class="edu">
+      <h3>{{ edu.degree }} &mdash; {{ edu.institution }}</h3>
+      <div class="edu-meta">{{ edu.start }}{% if edu.end %} to {{ edu.end }}{% endif %}</div>
+      {% if edu.notes %}<p>{{ edu.notes }}</p>{% endif %}
+    </div>
+    {% endfor %}
+  </section>
+
+  <section>
+    <h2>Skills</h2>
+    {% for category, items in skills.items() %}
+    <div class="skills-group">
+      <strong>{{ category | capitalize }}:</strong> {{ items | join(', ') }}
+    </div>
+    {% endfor %}
+  </section>
+
+  {% if languages is defined and languages %}
+  <section>
+    <h2>Languages</h2>
+    {% for lang in languages %}
+    <div class="lang-item"><strong>{{ lang.language }}</strong> &mdash; {{ lang.level }}</div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {% if certifications is defined and certifications %}
+  <section>
+    <h2>Certifications</h2>
+    {% for cert in certifications %}
+    <div class="cert-item"><strong>{{ cert.name }}</strong> &mdash; {{ cert.issuer }} ({{ cert.year }})</div>
+    {% endfor %}
+  </section>
+  {% endif %}
+</body>
+</html>

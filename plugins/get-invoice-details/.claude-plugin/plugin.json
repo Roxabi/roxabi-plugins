@@ -1,0 +1,19 @@
+{
+  "name": "get-invoice-details",
+  "version": "0.1.0",
+  "description": "Extract and store invoice details from documents.",
+  "author": { "name": "Roxabi" },
+  "data": {
+    "root": "invoices",
+    "directories": [],
+    "files": {},
+    "shared": []
+  },
+  "vault": {
+    "optional": true,
+    "indexes": {
+      "category": "invoices",
+      "types": ["invoice", "receipt", "quote"]
+    }
+  }
+}

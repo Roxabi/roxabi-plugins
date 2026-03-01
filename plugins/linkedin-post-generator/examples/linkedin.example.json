@@ -1,0 +1,12 @@
+{
+  "author_name": "Jane Smith",
+  "default_language": "en",
+  "tone": "professional-casual",
+  "hashtag_sets": {
+    "tech": ["#TechLeadership", "#SoftwareEngineering", "#Innovation"],
+    "career": ["#CareerGrowth", "#Leadership", "#ProfessionalDevelopment"],
+    "startup": ["#StartupLife", "#Entrepreneurship", "#BuildInPublic"],
+    "ai": ["#ArtificialIntelligence", "#MachineLearning", "#FutureOfWork"]
+  },
+  "post_signature": ""
+}

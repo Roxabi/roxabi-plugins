@@ -1,0 +1,19 @@
+{
+  "brand_name": "Acme Corp",
+  "colors": {
+    "primary": "#2563EB",
+    "secondary": "#7C3AED",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC"
+  },
+  "style": {
+    "aesthetic": "modern minimalist",
+    "mood": "professional yet approachable",
+    "photography_style": "clean, well-lit, natural",
+    "illustration_style": "flat design with subtle gradients"
+  },
+  "preferences": {
+    "avoid": ["dark themes", "cluttered compositions", "stock photo feel"],
+    "prefer": ["clean backgrounds", "geometric shapes", "natural lighting"]
+  }
+}

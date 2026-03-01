@@ -136,6 +136,77 @@ All READMEs must be kept up to date at all times. When adding, modifying, or rem
 4. **Append-only logs** — plugins that track state should use append-only logs for auditability
 5. **Recurrence detection** — if a plugin solves recurring problems, track occurrences to find root causes
 
+## Data Management Convention
+
+Plugins that produce or consume user data follow these rules:
+
+### Storage
+
+- **Default location**: `~/.roxabi-vault/` — all user data lives here, never in the repo
+- **Override**: set `ROXABI_VAULT_HOME` environment variable for a custom location
+- **Permissions**: directories created with mode `0o700`
+- **Shared directories**: `content/`, `ideas/`, `learnings/` — used by multiple plugins
+- **Exclusive directories**: `cv/`, `invoices/` — owned by one plugin (`data.root` in plugin.json)
+
+### plugin.json extended format
+
+Plugins with data declare it in `plugin.json`:
+
+```json
+{
+  "data": {
+    "root": "cv",
+    "directories": ["generated", "adapted"],
+    "files": {
+      "cv_data.json": {
+        "description": "Master CV data",
+        "sensitive": true,
+        "example": "examples/cv_data.example.json"
+      }
+    },
+    "shared": []
+  },
+  "vault": {
+    "optional": true,
+    "indexes": { "category": "cv", "types": ["cv", "cover-letter"] }
+  }
+}
+```
+
+- `data.root` must be unique across all plugins (enforced by `tools/validate_plugins.py`)
+- `data.shared` lists shared directories the plugin reads/writes
+- `data.files[].example` points to a template with fictional data in `examples/`
+- `vault.optional: true` means the plugin works without vault installed
+
+### Path resolution
+
+All plugins use `_lib/paths.py` for path resolution. The canonical copy lives at `plugins/vault/_lib/paths.py`. Consumer plugins vendor a copy at `scripts/_lib/paths.py`.
+
+Key functions: `get_vault_home()`, `get_plugin_data(name)`, `get_shared_dir(name)`, `get_config(name)`, `ensure_dir(path)`, `vault_available()`, `vault_healthy()`.
+
+### Vault integration pattern
+
+```python
+# ALWAYS: save to ~/.roxabi-vault/
+save_dir = ensure_dir(get_vault_home() / 'content')
+(save_dir / filename).write_text(content)
+
+# OPTIONAL: index if vault is healthy
+if vault_healthy():
+    try:
+        index_content(...)
+    except Exception:
+        pass  # degraded: file saved, not indexed
+```
+
+### Rules
+
+1. **Zero personal data** in the repo — use fictional data in `examples/`
+2. **English names** — `invoices/` not `factures/`, skills in English
+3. **Self-check in skills** — verify preconditions at start, suggest init skill if data missing
+4. **Vendoring** — copy `_lib/paths.py` from vault, don't symlink
+5. **CI checks** — `tools/validate_plugins.py` enforces no personal data, unique `data.root`, examples exist
+
 ## Style
 
 - Single quotes, no semicolons (for any JS/TS in plugins)
