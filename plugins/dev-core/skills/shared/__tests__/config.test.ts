@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import {
   BLOCK_ORDER,
+  detectGitHubRepo,
   FIELD_MAP,
   PRIORITY_ALIASES,
   PRIORITY_OPTIONS,
@@ -9,6 +10,10 @@ import {
   resolveSize,
   resolveStatus,
   SIZE_OPTIONS,
+  STANDARD_LABELS,
+  STANDARD_WORKFLOWS,
+  PROTECTED_BRANCHES,
+  BRANCH_PROTECTION_PAYLOAD,
   STATUS_ALIASES,
   STATUS_OPTIONS,
 } from '../config'
@@ -52,9 +57,9 @@ describe('shared/config', () => {
       expect(Object.keys(FIELD_MAP)).toEqual(['status', 'size', 'priority'])
     })
 
-    it('each entry has a fieldId and options', () => {
+    it('each entry has a fieldId (possibly empty) and options', () => {
       for (const entry of Object.values(FIELD_MAP)) {
-        expect(entry.fieldId).toBeTruthy()
+        expect(typeof entry.fieldId).toBe('string')
         expect(Object.keys(entry.options).length).toBeGreaterThan(0)
       }
     })
@@ -138,5 +143,119 @@ describe('shared/config', () => {
       expect(BLOCK_ORDER.blocking).toBeLessThan(BLOCK_ORDER.ready)
       expect(BLOCK_ORDER.ready).toBeLessThan(BLOCK_ORDER.blocked)
     })
+  })
+})
+
+describe('STANDARD_LABELS', () => {
+  it('has exactly 15 labels', () => {
+    expect(STANDARD_LABELS).toHaveLength(15)
+  })
+
+  it('all names are unique', () => {
+    const names = STANDARD_LABELS.map((l) => l.name)
+    expect(new Set(names).size).toBe(names.length)
+  })
+
+  it('all colors are valid 6-char hex', () => {
+    for (const label of STANDARD_LABELS) {
+      expect(label.color).toMatch(/^[0-9a-f]{6}$/)
+    }
+  })
+
+  it('has correct category counts (6 type, 5 area, 4 priority)', () => {
+    const counts = { type: 0, area: 0, priority: 0 }
+    for (const label of STANDARD_LABELS) counts[label.category]++
+    expect(counts).toEqual({ type: 6, area: 5, priority: 4 })
+  })
+})
+
+describe('STANDARD_WORKFLOWS', () => {
+  it('contains ci.yml and deploy-preview.yml', () => {
+    expect(STANDARD_WORKFLOWS).toEqual(['ci.yml', 'deploy-preview.yml'])
+  })
+})
+
+describe('PROTECTED_BRANCHES', () => {
+  it('contains main and staging', () => {
+    expect(PROTECTED_BRANCHES).toEqual(['main', 'staging'])
+  })
+})
+
+describe('BRANCH_PROTECTION_PAYLOAD', () => {
+  it('requires 1 approving review', () => {
+    expect(BRANCH_PROTECTION_PAYLOAD.required_pull_request_reviews.required_approving_review_count).toBe(1)
+  })
+
+  it('has strict status checks', () => {
+    expect(BRANCH_PROTECTION_PAYLOAD.required_status_checks.strict).toBe(true)
+  })
+})
+
+describe('detectGitHubRepo', () => {
+  const originalEnv = process.env.GITHUB_REPO
+  let spawnSyncSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    delete process.env.GITHUB_REPO
+    spawnSyncSpy = vi.spyOn(Bun, 'spawnSync')
+  })
+
+  afterEach(() => {
+    if (originalEnv !== undefined) {
+      process.env.GITHUB_REPO = originalEnv
+    } else {
+      delete process.env.GITHUB_REPO
+    }
+    spawnSyncSpy.mockRestore()
+  })
+
+  it('prefers GITHUB_REPO env var when set', () => {
+    process.env.GITHUB_REPO = 'MyOrg/my-repo'
+    expect(detectGitHubRepo()).toBe('MyOrg/my-repo')
+    expect(spawnSyncSpy).not.toHaveBeenCalled()
+  })
+
+  it('parses SSH remote URL', () => {
+    spawnSyncSpy.mockReturnValue({
+      stdout: new TextEncoder().encode('git@github.com:Roxabi/roxabi-plugins.git\n'),
+      stderr: new Uint8Array(),
+      exitCode: 0,
+      success: true,
+    } as unknown as ReturnType<typeof Bun.spawnSync>)
+
+    expect(detectGitHubRepo()).toBe('Roxabi/roxabi-plugins')
+  })
+
+  it('parses HTTPS remote URL', () => {
+    spawnSyncSpy.mockReturnValue({
+      stdout: new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins.git\n'),
+      stderr: new Uint8Array(),
+      exitCode: 0,
+      success: true,
+    } as unknown as ReturnType<typeof Bun.spawnSync>)
+
+    expect(detectGitHubRepo()).toBe('Roxabi/roxabi-plugins')
+  })
+
+  it('parses HTTPS remote URL without .git suffix', () => {
+    spawnSyncSpy.mockReturnValue({
+      stdout: new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins\n'),
+      stderr: new Uint8Array(),
+      exitCode: 0,
+      success: true,
+    } as unknown as ReturnType<typeof Bun.spawnSync>)
+
+    expect(detectGitHubRepo()).toBe('Roxabi/roxabi-plugins')
+  })
+
+  it('throws when no env var and no git remote', () => {
+    spawnSyncSpy.mockReturnValue({
+      stdout: new Uint8Array(),
+      stderr: new TextEncoder().encode('fatal: not a git repository\n'),
+      exitCode: 128,
+      success: false,
+    } as unknown as ReturnType<typeof Bun.spawnSync>)
+
+    expect(() => detectGitHubRepo()).toThrow('Cannot detect GitHub repo')
   })
 })

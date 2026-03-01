@@ -2,16 +2,28 @@
  * Shared configuration constants for GitHub Project V2 integration.
  * Single source of truth — used by both issues/ and issue-triage/ skills.
  *
- * All values are configurable via env vars. Run `/init` to auto-detect and
- * write them to `.env`. Hardcoded fallbacks are for roxabi_boilerplate only
- * and will be removed in a future version.
+ * GITHUB_REPO is auto-detected from git remote "origin" when not set via env.
+ * PROJECT_ID and field IDs default to empty string — callers handle absence.
+ * Run `/init` to auto-detect and write all values to `.env`.
  */
 
-export const PROJECT_ID = process.env.PROJECT_ID ?? 'PVT_kwHODEqYK84BOId3'
-export const GITHUB_REPO = process.env.GITHUB_REPO ?? 'Roxabi/roxabi_boilerplate'
-export const STATUS_FIELD_ID = process.env.STATUS_FIELD_ID ?? 'PVTSSF_lAHODEqYK84BOId3zg87HNM'
-export const SIZE_FIELD_ID = process.env.SIZE_FIELD_ID ?? 'PVTSSF_lAHODEqYK84BOId3zg87HYo'
-export const PRIORITY_FIELD_ID = process.env.PRIORITY_FIELD_ID ?? 'PVTSSF_lAHODEqYK84BOId3zg87HYs'
+export function detectGitHubRepo(): string {
+  if (process.env.GITHUB_REPO) return process.env.GITHUB_REPO
+  try {
+    const proc = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], { stdout: 'pipe', stderr: 'pipe' })
+    const url = new TextDecoder().decode(proc.stdout).trim()
+    // SSH: git@github.com:owner/repo.git  |  HTTPS: https://github.com/owner/repo.git
+    const match = url.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/)
+    if (match?.[1]) return match[1]
+  } catch {}
+  throw new Error('Cannot detect GitHub repo. Set GITHUB_REPO env var or ensure git remote "origin" is configured.')
+}
+
+export const GITHUB_REPO = detectGitHubRepo()
+export const PROJECT_ID = process.env.PROJECT_ID ?? ''
+export const STATUS_FIELD_ID = process.env.STATUS_FIELD_ID ?? ''
+export const SIZE_FIELD_ID = process.env.SIZE_FIELD_ID ?? ''
+export const PRIORITY_FIELD_ID = process.env.PRIORITY_FIELD_ID ?? ''
 
 /** Parse a JSON env var into a Record, falling back to the provided default. */
 function parseOptionsEnv(envVar: string, fallback: Record<string, string>): Record<string, string> {
@@ -93,6 +105,42 @@ export const STATUS_SHORT: Record<string, string> = {
   Specs: 'Specs',
   Review: 'Review',
   Done: 'Done',
+}
+
+// --- Standard labels, workflows, branch protection ---
+
+export interface LabelDef {
+  name: string
+  color: string
+  description: string
+  category: 'type' | 'area' | 'priority'
+}
+
+export const STANDARD_LABELS: LabelDef[] = [
+  { name: 'bug', color: 'd73a4a', description: "Something isn't working", category: 'type' },
+  { name: 'feature', color: '0075ca', description: 'New functionality', category: 'type' },
+  { name: 'enhancement', color: 'a2eeef', description: 'Improve existing functionality', category: 'type' },
+  { name: 'docs', color: '5319e7', description: 'Documentation only', category: 'type' },
+  { name: 'chore', color: 'ededed', description: 'Maintenance, deps, config', category: 'type' },
+  { name: 'research', color: 'd4c5f9', description: 'Investigation or spike', category: 'type' },
+  { name: 'frontend', color: '1d76db', description: 'Frontend', category: 'area' },
+  { name: 'backend', color: 'e99695', description: 'Backend', category: 'area' },
+  { name: 'infra', color: 'f9d0c4', description: 'Infrastructure', category: 'area' },
+  { name: 'api', color: 'bfd4f2', description: 'API', category: 'area' },
+  { name: 'design', color: 'c5def5', description: 'Design', category: 'area' },
+  { name: 'P0-critical', color: 'b60205', description: 'Critical priority', category: 'priority' },
+  { name: 'P1-high', color: 'd93f0b', description: 'High priority', category: 'priority' },
+  { name: 'P2-medium', color: 'fbca04', description: 'Medium priority', category: 'priority' },
+  { name: 'P3-low', color: '0e8a16', description: 'Low priority', category: 'priority' },
+]
+
+export const STANDARD_WORKFLOWS = ['ci.yml', 'deploy-preview.yml'] as const
+export const PROTECTED_BRANCHES = ['main', 'staging'] as const
+export const BRANCH_PROTECTION_PAYLOAD = {
+  required_pull_request_reviews: { required_approving_review_count: 1 },
+  required_status_checks: { strict: true, contexts: ['ci'] },
+  enforce_admins: false,
+  restrictions: null,
 }
 
 // Sort orders
