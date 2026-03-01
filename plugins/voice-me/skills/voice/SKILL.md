@@ -123,8 +123,10 @@ crossfade: 50             # ms fade between segments (default 0)
 ### Per-Section Directives
 
 All frontmatter fields can be overridden per-section using `<!-- key: value -->` comments.
+Multiple keys can be combined in a single comment: `<!-- emotion: "Passionnée", speed: "Rapide" -->`.
 Directives accumulate before a text block and apply to the text that follows.
 Each section inherits frontmatter defaults, overridden by its inline directives.
+Commas inside quoted values are safe: `<!-- emotion: "Passionnée, mais contenue" -->`.
 
 Available: `accent`, `personality`, `speed`, `emotion`, `instruct`, `exaggeration`, `cfg_weight`, `language`, `voice`, `segment_gap`, `crossfade`
 
@@ -140,14 +142,12 @@ Available: `accent`, `personality`, `speed`, `emotion`, `instruct`, `exaggeratio
 ### Body Features
 
 - Standard markdown (auto-stripped to plain text)
-- `<!-- accent: "Parisien" -->` — per-section accent (Qwen, composes into instruct)
-- `<!-- emotion: "Passionnée" -->` — per-section emotion (Qwen, composes into instruct)
+- `<!-- emotion: "Passionnée", speed: "Rapide" -->` — multi-key on one line (preferred)
+- `<!-- accent: "Parisien" -->` — single-key still works
 - `<!-- instruct: "Speak seriously" -->` — raw instruct bypass (Qwen)
-- `<!-- exaggeration: 0.8 -->` — per-section expressiveness (Chatterbox)
-- `<!-- language: Japanese -->` — per-section language switch
-- `<!-- voice: Ono_Anna -->` — per-section voice switch (Qwen)
-- `<!-- segment_gap: 500 -->` — silence before this section (ms)
-- `<!-- crossfade: 100 -->` — fade before this section (ms)
+- `<!-- exaggeration: 0.8, cfg_weight: 0.3 -->` — per-section expressiveness (Chatterbox)
+- `<!-- language: Japanese, voice: Ono_Anna -->` — per-section language + voice switch
+- `<!-- segment_gap: 500, crossfade: 100 -->` — per-section transition control
 - `[laugh]` `[sigh]` etc. — paralinguistic tags (see tag handling above)
 
 ### Example Script
@@ -165,14 +165,10 @@ segment_gap: 200
 
 Welcome everyone. [laugh] This is going to be fun!
 
-<!-- emotion: "Passionnée" -->
-<!-- segment_gap: 500 -->
+<!-- emotion: "Passionnée", segment_gap: 500 -->
 Now let me tell you something important. [sigh] It has been a long road.
 
-<!-- language: Japanese -->
-<!-- voice: Ono_Anna -->
-<!-- crossfade: 100 -->
-<!-- segment_gap: 0 -->
+<!-- language: Japanese, voice: Ono_Anna, crossfade: 100, segment_gap: 0 -->
 A section in Japanese with a different voice, crossfaded in.
 ```
 
@@ -281,7 +277,7 @@ STT/
 When writing `.md` scripts:
 
 1. Use all features freely — the translator adapts per engine (unsupported fields are nulled per-segment)
-2. Use `<!-- key: value -->` directives for per-section overrides (accent, personality, speed, emotion, instruct, exaggeration, language, voice, segment_gap, crossfade)
+2. Use `<!-- key: value, key2: value2 -->` directives for per-section overrides — combine multiple keys on one line (accent, personality, speed, emotion, instruct, exaggeration, language, voice, segment_gap, crossfade)
 3. Place `[tags]` naturally in the text flow — before or after the relevant phrase
 4. Keep text segments under ~250 chars for Chatterbox engines (they chunk at sentence boundaries, but shorter is safer)
 5. For multilingual content, set `language:` in frontmatter and override per-section with `<!-- language: ... -->`
