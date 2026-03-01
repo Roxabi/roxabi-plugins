@@ -85,12 +85,17 @@ Optional file at project root for default settings:
 ```toml
 [defaults]
 language = "French"
-engine = "chatterbox"
+engine = "qwen"
+accent = "Léger accent du sud provençal"
+personality = "Voix calme, douce et flamboyante"
 exaggeration = 0.7
 cfg_weight = 0.3
 segment_gap = 200
 crossfade = 50
 ```
+
+Structured instruct parts (`accent`, `personality`, `speed`, `emotion`) auto-compose into `instruct`.
+Raw `instruct` bypasses composition. **Write instruct parts in the target language.**
 
 Priority: **CLI flag > markdown frontmatter > voiceme.toml > hardcoded default**
 
@@ -105,7 +110,11 @@ One `.md` file works across all engines — the code translator adapts per engin
 language: French          # language name (Qwen + Chatterbox Multilingual)
 voice: Ryan               # built-in voice (Qwen only)
 engine: qwen              # qwen | chatterbox | chatterbox-turbo
-instruct: "Speak angrily" # free-form emotion (Qwen only)
+accent: "Provençal"       # pronunciation/origin (Qwen, composes into instruct)
+personality: "Calme"      # character traits (Qwen, composes into instruct)
+speed: "Rythme posé"      # tempo/pace (Qwen, composes into instruct)
+emotion: "Chaleureuse"    # emotional state (Qwen, composes into instruct)
+instruct: "Parle avec colère" # raw instruct bypass (overrides structured parts)
 exaggeration: 0.75        # expressiveness 0.25-2.0 (Chatterbox only)
 cfg_weight: 0.3           # speaker adherence 0.0-1.0 (Chatterbox only)
 segment_gap: 200          # ms silence between segments (default 0)
@@ -119,7 +128,7 @@ All frontmatter fields can be overridden per-section using `<!-- key: value -->`
 Directives accumulate before a text block and apply to the text that follows.
 Each section inherits frontmatter defaults, overridden by its inline directives.
 
-Available: `instruct`, `exaggeration`, `cfg_weight`, `language`, `voice`, `segment_gap`, `crossfade`
+Available: `accent`, `personality`, `speed`, `emotion`, `instruct`, `exaggeration`, `cfg_weight`, `language`, `voice`, `segment_gap`, `crossfade`
 
 ### Segment Transitions
 
@@ -133,7 +142,9 @@ Available: `instruct`, `exaggeration`, `cfg_weight`, `language`, `voice`, `segme
 ### Body Features
 
 - Standard markdown (auto-stripped to plain text)
-- `<!-- instruct: "Speak seriously" -->` — per-section emotion (Qwen)
+- `<!-- accent: "Parisien" -->` — per-section accent (Qwen, composes into instruct)
+- `<!-- emotion: "Passionnée" -->` — per-section emotion (Qwen, composes into instruct)
+- `<!-- instruct: "Speak seriously" -->` — raw instruct bypass (Qwen)
 - `<!-- exaggeration: 0.8 -->` — per-section expressiveness (Chatterbox)
 - `<!-- language: Japanese -->` — per-section language switch
 - `<!-- voice: Ono_Anna -->` — per-section voice switch (Qwen)
@@ -146,7 +157,9 @@ Available: `instruct`, `exaggeration`, `cfg_weight`, `language`, `voice`, `segme
 ```markdown
 ---
 language: French
-instruct: "Speak warmly"
+accent: "Léger accent provençal"
+personality: "Calme et douce"
+emotion: "Chaleureuse"
 exaggeration: 0.7
 cfg_weight: 0.3
 segment_gap: 200
@@ -154,7 +167,7 @@ segment_gap: 200
 
 Welcome everyone. [laugh] This is going to be fun!
 
-<!-- instruct: "Speak seriously" -->
+<!-- emotion: "Passionnée" -->
 <!-- segment_gap: 500 -->
 Now let me tell you something important. [sigh] It has been a long road.
 
@@ -268,12 +281,13 @@ STT/
 When writing `.md` scripts:
 
 1. Use all features freely — the translator adapts per engine (unsupported fields are nulled per-segment)
-2. Use `<!-- key: value -->` directives for per-section overrides (instruct, exaggeration, language, voice, segment_gap, crossfade)
+2. Use `<!-- key: value -->` directives for per-section overrides (accent, personality, speed, emotion, instruct, exaggeration, language, voice, segment_gap, crossfade)
 3. Place `[tags]` naturally in the text flow — before or after the relevant phrase
 4. Keep text segments under ~250 chars for Chatterbox engines (they chunk at sentence boundaries, but shorter is safer)
 5. For multilingual content, set `language:` in frontmatter and override per-section with `<!-- language: ... -->`
 6. Scripts go in `TTS/texts_in/` by convention
 7. Use `segment_gap` and `crossfade` in frontmatter for global defaults, override per-section for fine control
+8. Write all instruct parts (accent, personality, speed, emotion, instruct) in the target language
 
 ### Key Constraints
 
