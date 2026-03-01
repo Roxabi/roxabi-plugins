@@ -128,6 +128,7 @@ export async function createGitHubIssue(
 
 /** Get project item ID for an issue number. */
 export async function getItemId(issueNumber: number): Promise<string> {
+  if (!PROJECT_ID) throw new Error('PROJECT_ID not configured. Run /init or set PROJECT_ID env var.')
   const [owner, repo] = GITHUB_REPO.split('/')
   const data = (await ghGraphQL(ITEM_ID_QUERY, { owner, repo, number: issueNumber })) as {
     data: {
@@ -144,6 +145,7 @@ export async function getItemId(issueNumber: number): Promise<string> {
 
 /** Add an issue to the project board. Returns the new item ID. */
 export async function addToProject(nodeId: string): Promise<string> {
+  if (!PROJECT_ID) throw new Error('PROJECT_ID not configured. Run /init or set PROJECT_ID env var.')
   const data = (await ghGraphQL(ADD_TO_PROJECT_MUTATION, {
     projectId: PROJECT_ID,
     contentId: nodeId,
@@ -157,6 +159,7 @@ export async function updateField(
   fieldId: string,
   optionId: string
 ): Promise<void> {
+  if (!PROJECT_ID) throw new Error('PROJECT_ID not configured. Run /init or set PROJECT_ID env var.')
   await ghGraphQL(UPDATE_FIELD_MUTATION, {
     projectId: PROJECT_ID,
     itemId,

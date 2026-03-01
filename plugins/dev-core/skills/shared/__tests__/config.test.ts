@@ -1,8 +1,14 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import {
+
+// Must be set before config module loads (detectGitHubRepo runs eagerly at import)
+process.env.GITHUB_REPO = 'Test/test-repo'
+
+const {
   BLOCK_ORDER,
+  NOT_CONFIGURED_MSG,
   detectGitHubRepo,
   FIELD_MAP,
+  isProjectConfigured,
   PRIORITY_ALIASES,
   PRIORITY_OPTIONS,
   PRIORITY_ORDER,
@@ -16,39 +22,14 @@ import {
   BRANCH_PROTECTION_PAYLOAD,
   STATUS_ALIASES,
   STATUS_OPTIONS,
-} from '../config'
+} = await import('../config')
 
 describe('shared/config', () => {
   describe('option maps', () => {
-    it('STATUS_OPTIONS has all 6 statuses', () => {
-      expect(Object.keys(STATUS_OPTIONS)).toEqual([
-        'Backlog',
-        'Analysis',
-        'Specs',
-        'In Progress',
-        'Review',
-        'Done',
-      ])
-    })
-
-    it('SIZE_OPTIONS has all 5 sizes', () => {
-      expect(Object.keys(SIZE_OPTIONS)).toEqual(['XS', 'S', 'M', 'L', 'XL'])
-    })
-
-    it('PRIORITY_OPTIONS has all 4 priorities', () => {
-      expect(Object.keys(PRIORITY_OPTIONS)).toEqual([
-        'P0 - Urgent',
-        'P1 - High',
-        'P2 - Medium',
-        'P3 - Low',
-      ])
-    })
-
-    it('all option IDs are unique within each map', () => {
-      for (const map of [STATUS_OPTIONS, SIZE_OPTIONS, PRIORITY_OPTIONS]) {
-        const values = Object.values(map)
-        expect(new Set(values).size).toBe(values.length)
-      }
+    it('defaults to empty when env vars are not set', () => {
+      expect(Object.keys(STATUS_OPTIONS)).toEqual([])
+      expect(Object.keys(SIZE_OPTIONS)).toEqual([])
+      expect(Object.keys(PRIORITY_OPTIONS)).toEqual([])
     })
   })
 
@@ -57,11 +38,21 @@ describe('shared/config', () => {
       expect(Object.keys(FIELD_MAP)).toEqual(['status', 'size', 'priority'])
     })
 
-    it('each entry has a fieldId (possibly empty) and options', () => {
+    it('each entry has a fieldId and options object', () => {
       for (const entry of Object.values(FIELD_MAP)) {
         expect(typeof entry.fieldId).toBe('string')
-        expect(Object.keys(entry.options).length).toBeGreaterThan(0)
+        expect(typeof entry.options).toBe('object')
       }
+    })
+  })
+
+  describe('isProjectConfigured', () => {
+    it('returns false when PROJECT_ID is empty', () => {
+      expect(isProjectConfigured()).toBe(false)
+    })
+
+    it('returns a string for NOT_CONFIGURED_MSG', () => {
+      expect(NOT_CONFIGURED_MSG).toContain('/init')
     })
   })
 

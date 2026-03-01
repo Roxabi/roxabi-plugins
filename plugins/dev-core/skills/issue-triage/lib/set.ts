@@ -4,8 +4,10 @@
  */
 
 import {
+  NOT_CONFIGURED_MSG,
   PRIORITY_FIELD_ID,
   PRIORITY_OPTIONS,
+  isProjectConfigured,
   resolvePriority,
   resolveSize,
   resolveStatus,
@@ -143,6 +145,11 @@ async function applyPriority(itemId: string, issueNumber: number, priority: stri
 
 async function applyProjectFields(issueNumber: number, opts: SetOptions): Promise<void> {
   if (!(opts.size || opts.priority || opts.status)) return
+
+  if (!isProjectConfigured()) {
+    console.error(NOT_CONFIGURED_MSG)
+    process.exit(1)
+  }
 
   const itemId = await resolveItemId(issueNumber)
   if (!itemId) return

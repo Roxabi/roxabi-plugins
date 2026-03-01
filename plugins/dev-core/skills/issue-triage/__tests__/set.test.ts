@@ -1,5 +1,33 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+// Provide project config so field updates work in tests
+process.env.GITHUB_REPO = 'Test/test-repo'
+process.env.PROJECT_ID = 'PVT_test'
+process.env.STATUS_FIELD_ID = 'SF_test'
+process.env.SIZE_FIELD_ID = 'SZF_test'
+process.env.PRIORITY_FIELD_ID = 'PF_test'
+process.env.STATUS_OPTIONS_JSON = JSON.stringify({
+  Backlog: 'status-backlog',
+  Analysis: 'status-analysis',
+  Specs: 'status-specs',
+  'In Progress': 'status-inprog',
+  Review: 'status-review',
+  Done: 'status-done',
+})
+process.env.SIZE_OPTIONS_JSON = JSON.stringify({
+  XS: 'size-xs',
+  S: 'size-s',
+  M: 'size-m',
+  L: 'size-l',
+  XL: 'size-xl',
+})
+process.env.PRIORITY_OPTIONS_JSON = JSON.stringify({
+  'P0 - Urgent': 'pri-urgent',
+  'P1 - High': 'pri-high',
+  'P2 - Medium': 'pri-medium',
+  'P3 - Low': 'pri-low',
+})
+
 vi.mock('../../shared/github', () => ({
   getItemId: vi.fn(),
   getNodeId: vi.fn(),
@@ -38,29 +66,17 @@ describe('issue-triage/set > field updates', () => {
   it('updates size field', async () => {
     await setIssue(['42', '--size', 'M'])
     expect(mockGetItemId).toHaveBeenCalledWith(42)
-    expect(mockUpdateField).toHaveBeenCalledWith(
-      'item-123',
-      expect.any(String),
-      'e2c52fb1' // M option ID
-    )
+    expect(mockUpdateField).toHaveBeenCalledWith('item-123', expect.any(String), 'size-m')
   })
 
   it('updates priority field with alias', async () => {
     await setIssue(['42', '--priority', 'High'])
-    expect(mockUpdateField).toHaveBeenCalledWith(
-      'item-123',
-      expect.any(String),
-      '742ac87b' // P1 - High option ID
-    )
+    expect(mockUpdateField).toHaveBeenCalledWith('item-123', expect.any(String), 'pri-high')
   })
 
   it('updates status with case normalization', async () => {
     await setIssue(['42', '--status', 'In Progress'])
-    expect(mockUpdateField).toHaveBeenCalledWith(
-      'item-123',
-      expect.any(String),
-      '331d27a4' // In Progress option ID
-    )
+    expect(mockUpdateField).toHaveBeenCalledWith('item-123', expect.any(String), 'status-inprog')
   })
 })
 

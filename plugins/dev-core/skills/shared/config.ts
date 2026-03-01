@@ -37,30 +37,21 @@ function parseOptionsEnv(envVar: string, fallback: Record<string, string>): Reco
 }
 
 // Canonical option maps: display name → GitHub option ID
-// Override via STATUS_OPTIONS_JSON, SIZE_OPTIONS_JSON, PRIORITY_OPTIONS_JSON env vars
-export const STATUS_OPTIONS: Record<string, string> = parseOptionsEnv('STATUS_OPTIONS_JSON', {
-  Backlog: 'df6ee93b',
-  Analysis: 'bec91bb0',
-  Specs: 'ad9a9195',
-  'In Progress': '331d27a4',
-  Review: 'ee30a001',
-  Done: 'bfdc35bd',
-})
+// Configure via STATUS_OPTIONS_JSON, SIZE_OPTIONS_JSON, PRIORITY_OPTIONS_JSON env vars.
+// Run `/init` to auto-detect and populate these from your GitHub Project V2 board.
+export const STATUS_OPTIONS: Record<string, string> = parseOptionsEnv('STATUS_OPTIONS_JSON', {})
 
-export const SIZE_OPTIONS: Record<string, string> = parseOptionsEnv('SIZE_OPTIONS_JSON', {
-  XS: 'dfcde6df',
-  S: '4390f522',
-  M: 'e2c52fb1',
-  L: 'f8ea3803',
-  XL: '228a917d',
-})
+export const SIZE_OPTIONS: Record<string, string> = parseOptionsEnv('SIZE_OPTIONS_JSON', {})
 
-export const PRIORITY_OPTIONS: Record<string, string> = parseOptionsEnv('PRIORITY_OPTIONS_JSON', {
-  'P0 - Urgent': 'ed739db3',
-  'P1 - High': '742ac87b',
-  'P2 - Medium': '723e7784',
-  'P3 - Low': '796f973f',
-})
+export const PRIORITY_OPTIONS: Record<string, string> = parseOptionsEnv('PRIORITY_OPTIONS_JSON', {})
+
+/** True when PROJECT_ID and at least one option map are configured via env. */
+export function isProjectConfigured(): boolean {
+  return PROJECT_ID !== '' && Object.keys(STATUS_OPTIONS).length > 0
+}
+
+export const NOT_CONFIGURED_MSG =
+  'GitHub Project V2 is not configured. Run `/init` to auto-detect project board settings.'
 
 export const FIELD_MAP: Record<string, { fieldId: string; options: Record<string, string> }> = {
   status: { fieldId: STATUS_FIELD_ID, options: STATUS_OPTIONS },
@@ -176,21 +167,26 @@ export const BLOCK_ORDER: Record<string, number> = {
   blocked: 2,
 }
 
+// Canonical names — used for validation regardless of whether option maps are populated
+const CANONICAL_STATUSES = new Set(['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'])
+const CANONICAL_SIZES = new Set(['XS', 'S', 'M', 'L', 'XL'])
+const CANONICAL_PRIORITIES = new Set(['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'])
+
 /** Resolve loose user input to a canonical status key, or undefined. */
 export function resolveStatus(input: string): string | undefined {
-  if (STATUS_OPTIONS[input]) return input
+  if (CANONICAL_STATUSES.has(input)) return input
   return STATUS_ALIASES[input.toUpperCase()]
 }
 
 /** Resolve loose user input to a canonical priority key, or undefined. */
 export function resolvePriority(input: string): string | undefined {
-  if (PRIORITY_OPTIONS[input]) return input
+  if (CANONICAL_PRIORITIES.has(input)) return input
   return PRIORITY_ALIASES[input.toUpperCase()]
 }
 
 /** Resolve loose user input to a canonical size key, or undefined. */
 export function resolveSize(input: string): string | undefined {
   const upper = input.toUpperCase()
-  if (SIZE_OPTIONS[upper]) return upper
+  if (CANONICAL_SIZES.has(upper)) return upper
   return
 }

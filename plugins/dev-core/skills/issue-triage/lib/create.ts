@@ -4,8 +4,10 @@
  */
 
 import {
+  NOT_CONFIGURED_MSG,
   PRIORITY_FIELD_ID,
   PRIORITY_OPTIONS,
+  isProjectConfigured,
   resolvePriority,
   resolveSize,
   resolveStatus,
@@ -181,25 +183,31 @@ export async function createIssue(args: string[]): Promise<void> {
   const issueNumber = result.number
   console.log(`Created #${issueNumber}: ${opts.title}`)
 
-  // Add to project board (non-fatal)
   const nodeId = await getNodeId(issueNumber)
-  let itemId: string | undefined
-  try {
-    itemId = await addToProject(nodeId)
-    console.log(`Added #${issueNumber} to project`)
-  } catch {
-    console.error(
-      `Warning: Failed to add #${issueNumber} to project board — skipping project field updates`
-    )
-  }
+  const wantsProjectFields = !!(opts.status || opts.size || opts.priority)
 
-  // Set project fields (require a valid item_id from addToProject)
-  if (itemId) {
-    await applyProjectFields(itemId, issueNumber, opts)
-  } else if (opts.status || opts.size || opts.priority) {
-    console.error(
-      'Warning: Skipped project field updates (status/size/priority) — issue not on project board'
-    )
+  // Add to project board (non-fatal, skip if not configured)
+  let itemId: string | undefined
+  if (isProjectConfigured()) {
+    try {
+      itemId = await addToProject(nodeId)
+      console.log(`Added #${issueNumber} to project`)
+    } catch {
+      console.error(
+        `Warning: Failed to add #${issueNumber} to project board — skipping project field updates`
+      )
+    }
+
+    // Set project fields (require a valid item_id from addToProject)
+    if (itemId) {
+      await applyProjectFields(itemId, issueNumber, opts)
+    } else if (wantsProjectFields) {
+      console.error(
+        'Warning: Skipped project field updates (status/size/priority) — issue not on project board'
+      )
+    }
+  } else if (wantsProjectFields) {
+    console.error(NOT_CONFIGURED_MSG)
   }
 
   await applyRelationships(nodeId, issueNumber, opts)

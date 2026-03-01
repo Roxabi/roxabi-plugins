@@ -1,6 +1,6 @@
 # dev-core
 
-Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 18 skills, 9 specialized agents, and safety hooks.
+Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 19 skills, 9 specialized agents, and safety hooks.
 
 ## Prerequisites
 
@@ -32,6 +32,8 @@ After installing, run the init skill to configure your project:
 
 This auto-detects your GitHub repo, Project V2 board, and field IDs, then writes `.env`, sets up the dashboard script in `package.json`, and creates the `artifacts/` directory. Re-run with `/init --force` to reconfigure.
 
+**Important:** `/init` is required for project board features (issue status, size, priority fields). Without it, issue creation and dependency management still work, but field updates will show a "not configured" error pointing back to `/init`.
+
 ## Usage
 
 The main entry point is:
@@ -44,11 +46,12 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 ## Skills
 
-18 skills organized by workflow phase:
+19 skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
-| `init` | Setup | Configures project for dev-core (GitHub Project V2, dashboard, env vars) |
+| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, workflows, branch protection, env vars). TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
+| `doctor` | Setup | Health check — verifies prerequisites, GitHub config, labels, workflows, branch protection, project structure. Standalone TypeScript CLI |
 | `dev` | Orchestrator | Routes issues through the full workflow |
 | `frame` | Frame | Creates initial feature frame from issue |
 | `analyze` | Shape | Deep analysis with expert consultation |
@@ -85,7 +88,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 |-------|------|
 | `tester` | Writes and runs tests, manages RED-GATE |
 | `fixer` | Applies accepted review findings |
-| `security-auditor` | Read-only security audit |
+| `security-auditor` | OWASP Top 10 audit with exploit scenarios, confidence scoring (C ≥ 60), and false-positive filtering |
 
 ### Strategy
 

@@ -1,8 +1,12 @@
-import { FIELD_MAP } from '../../shared/config'
+import { FIELD_MAP, NOT_CONFIGURED_MSG, isProjectConfigured } from '../../shared/config'
 import { getItemId, updateField } from '../../shared/github'
 
 export async function handleUpdate(req: Request): Promise<Response> {
   try {
+    if (!isProjectConfigured()) {
+      return Response.json({ ok: false, error: NOT_CONFIGURED_MSG }, { status: 400 })
+    }
+
     const body = (await req.json()) as { issueNumber: number; field: string; value: string }
     const { issueNumber, field, value } = body
 

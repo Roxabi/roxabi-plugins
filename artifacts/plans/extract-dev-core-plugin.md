@@ -120,7 +120,7 @@ Create all directories under `roxabi-plugins/plugins/dev-core/`.
 
 ### Step 2: Copy and adapt skills (16 skills)
 
-For each skill in `/home/mickael/projects/roxabi_boilerplate/.claude/skills/`:
+For each skill in `~/projects/roxabi_boilerplate/.claude/skills/`:
 
 **Source → Destination mapping:**
 
@@ -150,7 +150,7 @@ For each skill in `/home/mickael/projects/roxabi_boilerplate/.claude/skills/`:
 
 ### Step 3: Copy and adapt agents (9 agents)
 
-For each agent in `/home/mickael/projects/roxabi_boilerplate/.claude/agents/`:
+For each agent in `~/projects/roxabi_boilerplate/.claude/agents/`:
 
 **Copy all 9 `.md` files** to `agents/` directory.
 
