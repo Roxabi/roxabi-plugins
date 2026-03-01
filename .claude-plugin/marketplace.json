@@ -39,8 +39,38 @@
     },
     {
       "name": "voice-me",
-      "description": "VoiceMe assistant — author TTS scripts, generate speech, clone voices, transcribe audio. Knows engine capabilities and the full CLI.",
+      "description": "VoiceMe assistant — author TTS scripts, generate speech (4 engines incl. CUDA-accelerated Qwen-Fast), clone voices, chunked progressive output, transcribe audio.",
       "source": "./plugins/voice-me",
+      "category": "productivity"
+    },
+    {
+      "name": "linkedin-post-generator",
+      "description": "Generate engaging LinkedIn posts with best practices and visual identity.",
+      "source": "./plugins/linkedin-post-generator",
+      "category": "content"
+    },
+    {
+      "name": "image-prompt-generator",
+      "description": "Generate AI image prompts with visual identity and style consistency.",
+      "source": "./plugins/image-prompt-generator",
+      "category": "productivity"
+    },
+    {
+      "name": "vault",
+      "description": "Unified local data vault — SQLite+FTS5 index, CRUD, full-text search across all Roxabi plugins.",
+      "source": "./plugins/vault",
+      "category": "data"
+    },
+    {
+      "name": "cv",
+      "description": "Generate and adapt CVs from structured JSON data, with tailoring for specific job postings.",
+      "source": "./plugins/cv",
+      "category": "productivity"
+    },
+    {
+      "name": "get-invoice-details",
+      "description": "Extract structured data from invoice documents (text or PDF) and store as JSON.",
+      "source": "./plugins/get-invoice-details",
       "category": "productivity"
     }
   ]
