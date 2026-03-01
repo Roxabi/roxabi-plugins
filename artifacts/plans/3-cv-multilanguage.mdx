@@ -1,0 +1,256 @@
+---
+title: "Plan: Add multilanguage support (FR/EN) to CV plugin"
+issue: 3
+spec: artifacts/specs/3-cv-multilanguage.mdx
+complexity: 4
+tier: F-lite
+generated: "2026-03-01T12:00:00Z"
+---
+
+## Summary
+
+Add FR/EN multilanguage support to the CV plugin by implementing a Jinja2 `|t(lang)` translation filter, `--lang`/`--format all` CLI flags with config loading, and updating templates, examples, and init skill. All changes are within `plugins/cv/`, following the 2ndBrain fork reference implementation.
+
+## Agents
+
+| Agent | Task count | Files |
+|-------|-----------|-------|
+| general-purpose | 12 | generate_cv.py, cv_template.md.jinja2, cv_template.html.jinja2, cv_data.example.json, cv.example.json, cv-init/SKILL.md, cv/SKILL.md |
+
+## Consistency Report
+
+- Criteria covered: 15/15
+- Uncovered criteria: none
+- Tasks without spec backing: none
+- Gold plating exemptions applied: 0
+
+## Micro-Tasks
+
+### Slice V1: Translation filter + templates
+
+#### Task 1: Add `t(value, lang)` filter function to generate_cv.py → general-purpose
+- **File:** `plugins/cv/scripts/generate_cv.py`
+- **Snippet:**
+  ```python
+  def t(value, lang):
+      if isinstance(value, dict):
+          if lang in value:
+              return value[lang]
+          fallback = next(iter(value))
+          print(f"Warning: lang '{lang}' missing, using '{fallback}'", file=sys.stderr)
+          return value[fallback]
+      return value
+  ```
+- **Verify:** `grep -q 'def t(value, lang)' plugins/cv/scripts/generate_cv.py` (ready)
+- **Expected:** Filter function exists in script
+- **Time:** 3 min | **Difficulty:** 2
+- **Traces:** SC-2, SC-3, SC-4, SC-5, U2
+- **Phase:** GREEN
+
+#### Task 2: Register `t` filter in Jinja2 env and pass `lang` as context → general-purpose
+- **File:** `plugins/cv/scripts/generate_cv.py`
+- **Snippet:**
+  ```python
+  env.filters['t'] = t
+  # In render call:
+  template.render(**data, lang=lang)
+  ```
+- **Verify:** `grep -q "env.filters\['t'\]" plugins/cv/scripts/generate_cv.py` (ready)
+- **Expected:** Filter registered and lang passed to template context
+- **Time:** 3 min | **Difficulty:** 2
+- **Traces:** SC-2, SC-3, U2, H2
+- **Phase:** GREEN
+
+#### Task 3: Update md template — add `|t(lang)` to all translatable fields → general-purpose
+- **File:** `plugins/cv/templates/cv_template.md.jinja2`
+- **Snippet:**
+  ```jinja2
+  **{{ personal.title|t(lang) }}**
+  {{ personal.summary|t(lang) }}
+  ### {{ job.role|t(lang) }}
+  - {{ h|t(lang) }}
+  ### {{ edu.degree|t(lang) }}
+  {{ edu.notes|t(lang) }}
+  ```
+- **Verify:** `grep -c '|t(lang)' plugins/cv/templates/cv_template.md.jinja2` (ready)
+- **Expected:** 6 occurrences (title, summary, role, highlights, degree, notes)
+- **Time:** 4 min | **Difficulty:** 2
+- **Traces:** SC-14, U6
+- **Phase:** GREEN
+
+#### Task 4: Update html template — add `|t(lang)` to all translatable fields + dynamic lang attr → general-purpose
+- **File:** `plugins/cv/templates/cv_template.html.jinja2`
+- **Snippet:**
+  ```jinja2
+  <html lang="{{ lang }}">
+  <div class="subtitle">{{ personal.title|t(lang) }}</div>
+  <p class="summary">{{ personal.summary|t(lang) }}</p>
+  <h3>{{ job.role|t(lang) }}</h3>
+  <li>{{ h|t(lang) }}</li>
+  <h3>{{ edu.degree|t(lang) }}</h3>
+  <p>{{ edu.notes|t(lang) }}</p>
+  ```
+- **Verify:** `grep -c '|t(lang)' plugins/cv/templates/cv_template.html.jinja2` (ready)
+- **Expected:** 6 occurrences + dynamic `<html lang="{{ lang }}">`
+- **Time:** 5 min | **Difficulty:** 2
+- **Traces:** SC-14, U6
+- **Phase:** GREEN
+
+#### RED-GATE: V1 complete — verify backward compat
+- **Verify:** `cd plugins/cv/scripts && python3 generate_cv.py --data ../examples/cv_data.example.json --output /tmp/cv_test.md --format md && echo "OK"` (ready)
+- **Expected:** Generates identical output to pre-change version with single-lang data
+- **Phase:** RED-GATE
+
+### Slice V2: CLI + config + multi-lang generation
+
+#### Task 5: Add config loading to generate_cv.py → general-purpose
+- **File:** `plugins/cv/scripts/generate_cv.py`
+- **Snippet:**
+  ```python
+  from _lib.paths import get_config
+
+  def load_config():
+      config_path = get_config('cv')
+      if config_path.exists():
+          with open(config_path) as f:
+              cfg = json.load(f)
+      else:
+          cfg = {}
+      cfg.setdefault('default_language', 'en')
+      cfg.setdefault('supported_languages', ['en'])
+      cfg.setdefault('default_format', 'md')
+      if 'default_language' not in original:
+          print("Warning: 'default_language' missing from cv.json. Run /cv-init.", file=sys.stderr)
+      return cfg
+  ```
+- **Verify:** `grep -q 'def load_config' plugins/cv/scripts/generate_cv.py` (ready)
+- **Expected:** Config loading function with backward-compat defaults
+- **Time:** 4 min | **Difficulty:** 2
+- **Traces:** SC-10, SC-11, U4, H1
+- **Phase:** GREEN
+
+#### Task 6: Add `--lang` and `--format all` CLI flags → general-purpose
+- **File:** `plugins/cv/scripts/generate_cv.py`
+- **Snippet:**
+  ```python
+  parser.add_argument('--lang', default=None,
+                      help='Language: fr, en, or all (default: from config)')
+  parser.add_argument('--format', choices=['md', 'html', 'all'], default=None,
+                      help='Output format (default: from config)')
+  ```
+- **Verify:** `python3 plugins/cv/scripts/generate_cv.py --help | grep -q '\-\-lang'` (ready)
+- **Expected:** `--lang` flag shown in help output
+- **Time:** 3 min | **Difficulty:** 2
+- **Traces:** SC-6, SC-7, SC-8, SC-9, U1
+- **Phase:** GREEN
+
+#### Task 7: Add language resolution + validation logic → general-purpose
+- **File:** `plugins/cv/scripts/generate_cv.py`
+- **Snippet:**
+  ```python
+  def resolve_languages(lang_arg, config):
+      supported = config['supported_languages']
+      if lang_arg is None:
+          return [config['default_language']]
+      if lang_arg == 'all':
+          return supported
+      if lang_arg not in supported:
+          print(f"Error: unsupported language '{lang_arg}'. Supported: {', '.join(supported)}", file=sys.stderr)
+          sys.exit(1)
+      return [lang_arg]
+  ```
+- **Verify:** `grep -q 'def resolve_languages' plugins/cv/scripts/generate_cv.py` (ready)
+- **Expected:** Language resolution function with validation
+- **Time:** 3 min | **Difficulty:** 2
+- **Traces:** SC-9, SC-11, H1
+- **Phase:** GREEN
+
+#### Task 8: Rewrite main() with language/format loop + output naming → general-purpose
+- **File:** `plugins/cv/scripts/generate_cv.py`
+- **Snippet:**
+  ```python
+  def main():
+      config = load_config()
+      # ... argparse ...
+      langs = resolve_languages(args.lang, config)
+      formats = [args.format] if args.format != 'all' else ['md', 'html']
+      for fmt in formats:
+          for lang in langs:
+              suffix = f'_{lang}' if len(langs) > 1 else ''
+              output = args.output or (DEFAULT_OUTPUT_DIR / f'cv{suffix}.{fmt}')
+              result = render(data, fmt, lang)
+              ensure_dir(output.parent)
+              output.write_text(result)
+              print(f'CV generated: {output}')
+  ```
+- **Verify:** `python3 plugins/cv/scripts/generate_cv.py --data plugins/cv/examples/cv_data.example.json --output /tmp/cv_v2_test.md --format md && echo "OK"` (ready)
+- **Expected:** Script runs successfully with updated main loop
+- **Time:** 8 min | **Difficulty:** 3
+- **Traces:** SC-6, SC-7, SC-8, SC-11, H3, H4
+- **Phase:** GREEN
+
+#### RED-GATE: V2 complete — verify multi-lang generation
+- **Verify:** Manual — requires bilingual test data file. Create temp bilingual JSON, run `--lang all`, verify 2 files.
+- **Phase:** RED-GATE
+
+### Slice V3: Init + example update
+
+#### Task 9: Update cv_data.example.json with bilingual fields [P] → general-purpose
+- **File:** `plugins/cv/examples/cv_data.example.json`
+- **Snippet:**
+  ```json
+  "title": { "fr": "Ingénieur Logiciel Senior", "en": "Senior Software Engineer" },
+  "summary": { "fr": "Ingénieur logiciel avec 10+ ans...", "en": "Software engineer with 10+ years..." }
+  ```
+- **Verify:** `python3 -c "import json; d=json.load(open('plugins/cv/examples/cv_data.example.json')); assert isinstance(d['personal']['title'], dict)"` (ready)
+- **Expected:** `personal.title` is a dict with `fr` and `en` keys
+- **Time:** 5 min | **Difficulty:** 2
+- **Traces:** SC-12, U5
+- **Phase:** GREEN
+
+#### Task 10: Update cv.example.json with language config keys [P] → general-purpose
+- **File:** `plugins/cv/examples/cv.example.json`
+- **Snippet:**
+  ```json
+  {
+    "default_language": "en",
+    "supported_languages": ["en", "fr"],
+    "default_format": "md",
+    ...
+  }
+  ```
+- **Verify:** `python3 -c "import json; d=json.load(open('plugins/cv/examples/cv.example.json')); assert 'default_language' in d and 'supported_languages' in d"` (ready)
+- **Expected:** Both new keys present in example config
+- **Time:** 2 min | **Difficulty:** 1
+- **Traces:** SC-13, U5
+- **Phase:** GREEN
+
+#### Task 11: Update cv-init SKILL.md — Phase 4 config includes new keys [P] → general-purpose
+- **File:** `plugins/cv/skills/cv-init/SKILL.md`
+- **Snippet:**
+  ```json
+  {
+    "default_language": "en",
+    "supported_languages": ["en"],
+    "default_format": "md",
+    "default_template": "cv_template",
+    ...
+  }
+  ```
+- **Verify:** `grep -q 'default_language' plugins/cv/skills/cv-init/SKILL.md` (ready)
+- **Expected:** Config block includes `default_language` and `supported_languages`
+- **Time:** 3 min | **Difficulty:** 1
+- **Traces:** SC-13, U5
+- **Phase:** GREEN
+
+#### Task 12: Update cv SKILL.md — Phase 2 generate with --lang flag [P] → general-purpose
+- **File:** `plugins/cv/skills/cv/SKILL.md`
+- **Snippet:**
+  ```bash
+  python3 <plugin>/scripts/generate_cv.py --data ... --lang <lang> --format <format>
+  ```
+- **Verify:** `grep -q '\-\-lang' plugins/cv/skills/cv/SKILL.md` (ready)
+- **Expected:** Skill docs reference `--lang` flag
+- **Time:** 3 min | **Difficulty:** 1
+- **Traces:** SC-15, U1
+- **Phase:** GREEN
