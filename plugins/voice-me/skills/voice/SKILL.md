@@ -93,7 +93,7 @@ crossfade = 50
 ```
 
 Structured instruct parts (`accent`, `personality`, `speed`, `emotion`) auto-compose into `instruct`.
-Raw `instruct` bypasses composition. **Write instruct parts in the target language.**
+Raw `instruct` bypasses composition.
 
 Priority: **CLI flag > markdown frontmatter > voiceme.toml > hardcoded default**
 
@@ -269,14 +269,14 @@ STT/
 
 1. **User wants to create a speech** → Author a `.md` script in `TTS/texts_in/`, then run `generate` (default) or `clone` (only if explicitly requested)
 2. **User wants quick speech** → Run `generate` with inline text
-3. **User explicitly wants voice cloning** → Ensure sample exists (`samples list`/`samples add`), then `clone`
-
-> **Default is always `generate`**. Never use `clone` unless the user explicitly asks for voice cloning. The presence of an active sample does NOT mean the user wants their voice cloned.
+3. **User explicitly wants voice cloning** → Ensure sample exists (`samples list`/`samples add`), then `clone`. Never default to `clone` — the presence of an active sample does NOT imply the user wants cloning.
 4. **User wants to transcribe** → Run `transcribe` on audio file
 5. **User wants to edit a script** → Read existing `.md`, apply changes respecting the format
 6. **User asks about capabilities** → Consult engine matrix, recommend engine
 
 ### Script Authoring Rules
+
+**Before writing any script**, read `voiceme.toml` to discover the user's configured defaults (engine, language, accent, personality, etc.). Only add frontmatter fields that **override** those defaults — never duplicate what toml already sets.
 
 When writing `.md` scripts:
 
@@ -291,11 +291,7 @@ When writing `.md` scripts:
 
 ### Telegram Integration
 
-When running inside the 2ndBrain Telegram bot, voice files are **automatically sent**
-to the user's chat after generation. You do NOT need to call any send script.
-
-Just generate the audio and report what you created in your text response.
-Do NOT call `send_voice_telegram.py` — the bot handles delivery natively.
+When running inside the 2ndBrain Telegram bot, voice files auto-send to the user's chat after generation. Skip `send_voice_telegram.py` — just generate and report what you created.
 
 ### Key Constraints
 
@@ -303,7 +299,6 @@ Do NOT call `send_voice_telegram.py` — the bot handles delivery natively.
 - Chatterbox Turbo is English-only
 - Chatterbox Multilingual strips all paralinguistic tags
 - Both Chatterbox engines have a ~40s generation cutoff (handled by auto-chunking per segment)
-- Priority: CLI flag > markdown frontmatter > voiceme.toml > hardcoded default
 - Clone falls back to active sample when `--ref` is omitted
 
 $ARGUMENTS
