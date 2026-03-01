@@ -22,8 +22,14 @@ export async function createProject(owner: string, repoName: string): Promise<Cr
 
   const pn = String(project.number)
 
-  // Create 3 single-select fields
-  await run(['gh', 'project', 'field-create', pn, '--owner', owner, '--name', 'Status', '--data-type', 'SINGLE_SELECT', '--single-select-options', 'Backlog,Analysis,Specs,In Progress,Review,Done'])
+  // Create single-select fields (Status may already exist as a built-in field)
+  try {
+    await run(['gh', 'project', 'field-create', pn, '--owner', owner, '--name', 'Status', '--data-type', 'SINGLE_SELECT', '--single-select-options', 'Backlog,Analysis,Specs,In Progress,Review,Done'])
+  } catch (err) {
+    // Status is a built-in field on GitHub Projects V2 — skip if it already exists
+    const msg = err instanceof Error ? err.message : String(err)
+    if (!msg.includes('already been taken') && !msg.includes('already exists')) throw err
+  }
   await run(['gh', 'project', 'field-create', pn, '--owner', owner, '--name', 'Size', '--data-type', 'SINGLE_SELECT', '--single-select-options', 'XS,S,M,L,XL'])
   await run(['gh', 'project', 'field-create', pn, '--owner', owner, '--name', 'Priority', '--data-type', 'SINGLE_SELECT', '--single-select-options', 'P0 - Urgent,P1 - High,P2 - Medium,P3 - Low'])
 

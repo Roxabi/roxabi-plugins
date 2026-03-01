@@ -10,6 +10,7 @@
  *   bun init.ts labels --repo <owner/repo> [--scope all|type|area|priority]
  *   bun init.ts workflows --stack <bun|node> --test <vitest|jest|none> --deploy <vercel|none>
  *   bun init.ts protect-branches --repo <owner/repo>
+ *   bun init.ts migrate-issues --owner <owner> --repo <repo> --project-number <N>
  *   bun init.ts scaffold --github-repo <owner/repo> --project-id <PVT_...> [--force] ...
  */
 
@@ -89,6 +90,20 @@ switch (command) {
     break
   }
 
+  case 'migrate-issues': {
+    const { migrateIssues } = await import('./lib/migrate')
+    const owner = parseFlag('--owner', '')
+    const repo = parseFlag('--repo', '')
+    const projectNumber = parseInt(parseFlag('--project-number', '0'), 10)
+    if (!owner || !repo || !projectNumber) {
+      console.error('Usage: init.ts migrate-issues --owner <owner> --repo <repo> --project-number <N>')
+      process.exit(1)
+    }
+    const result = await migrateIssues(owner, repo, projectNumber)
+    console.log(JSON.stringify(result, null, 2))
+    break
+  }
+
   case 'scaffold': {
     const { scaffold } = await import('./lib/scaffold')
     const result = await scaffold({
@@ -112,6 +127,6 @@ switch (command) {
 
   default:
     console.error(`Unknown command: ${command}`)
-    console.error('Usage: init.ts [prereqs|discover|create-project|labels|workflows|protect-branches|scaffold]')
+    console.error('Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|protect-branches|scaffold]')
     process.exit(1)
 }

@@ -51,6 +51,8 @@ Parse the JSON. Extract `owner`, `repo`, `projects`, `fields`, `labels`, `workfl
 
 If no project selected, field IDs stay empty. If project selected but fields missing from discover, run `create-project` to create them.
 
+After project selection, re-run `bun $INIT_TS discover` to refresh field IDs for the selected project. If Status/Size/Priority fields are still missing after re-discovery, run `bun $INIT_TS create-project --owner <owner> --repo <repo>` to create them (handles pre-existing Status field gracefully).
+
 #### 3b. Labels
 
 If `labels.missing` is non-empty, AskUserQuestion: **Create all labels** | **Type labels only** | **Area labels only** | **Skip labels**.
@@ -77,6 +79,13 @@ Run: `bun $INIT_TS protect-branches --repo <owner/repo>`
 #### 3e. Vercel (Optional)
 
 If `vercel` is non-null in discover result, AskUserQuestion: **Set up Vercel integration** | **Skip**. If yes, ask for `VERCEL_TOKEN` via AskUserQuestion (free text — explain: Vercel Settings → Tokens).
+
+#### 3f. Issue Migration
+
+If `issues.orphaned > 0` in the discover result:
+- AskUserQuestion: **Add N open issues to project board** | **Skip**
+- If yes: `bun $INIT_TS migrate-issues --owner <owner> --repo <repo> --project-number <N>`
+- Parse result JSON. Display: "Added {added}/{total} issues to project board" (mention failures if any).
 
 ### Phase 4 — Confirm Values
 
@@ -125,6 +134,7 @@ dev-core initialized
   .env              ✅ Written (N variables)
   .env.example      ✅ Written
   Project board     ✅ Created / Detected / ⏭ Skipped
+  Issue migration   ✅ N issues added to board / ⏭ Skipped
   Labels            ✅ N labels created / ⏭ Skipped
   CI/CD workflows   ✅ Created / ⏭ Skipped
   Branch protection ✅ Created / ⏭ Skipped

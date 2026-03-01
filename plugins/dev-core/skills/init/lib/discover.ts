@@ -16,6 +16,7 @@ export interface DiscoveryResult {
     size: { id: string; options: Record<string, string> } | null
     priority: { id: string; options: Record<string, string> } | null
   }
+  issues: { total: number; onBoard: number; orphaned: number }
   labels: { existing: string[]; missing: string[] }
   workflows: { existing: string[]; missing: string[] }
   protection: Record<string, boolean>
@@ -50,6 +51,7 @@ export async function discover(): Promise<DiscoveryResult> {
     owner,
     projects: [],
     fields: { status: null, size: null, priority: null },
+    issues: { total: 0, onBoard: 0, orphaned: 0 },
     labels: { existing: [], missing: [] },
     workflows: { existing: [], missing: [] },
     protection: {},
@@ -81,6 +83,36 @@ export async function discover(): Promise<DiscoveryResult> {
           for (const opt of f.options ?? []) options[opt.name] = opt.id
           result.fields[key] = { id: f.id, options }
         }
+      }
+    } catch {}
+  }
+
+  // Issues — count open issues and how many are on the board
+  if (repo) {
+    try {
+      const issuesJson = await run(['gh', 'issue', 'list', '--repo', `${owner}/${repo}`, '--state', 'open', '--json', 'number', '--limit', '500'])
+      const issues = JSON.parse(issuesJson) as Array<{ number: number }>
+      result.issues.total = issues.length
+
+      // If we have a project, check which issues are already on the board
+      const selectedProject = projectId
+        ? result.projects.find((p) => p.id === projectId)
+        : result.projects[0]
+      if (selectedProject && issues.length > 0) {
+        try {
+          const itemsJson = await run(['gh', 'project', 'item-list', String(selectedProject.number), '--owner', owner!, '--format', 'json', '--limit', '500'])
+          const itemsData = JSON.parse(itemsJson) as { items: Array<{ content: { number: number; type: string } }> }
+          const onBoardNumbers = new Set(
+            (itemsData.items ?? [])
+              .filter((i) => i.content?.type === 'Issue')
+              .map((i) => i.content.number)
+          )
+          const onBoard = issues.filter((i) => onBoardNumbers.has(i.number)).length
+          result.issues.onBoard = onBoard
+          result.issues.orphaned = result.issues.total - onBoard
+        } catch {}
+      } else {
+        result.issues.orphaned = result.issues.total
       }
     } catch {}
   }
