@@ -5,7 +5,7 @@
 
 import { STANDARD_LABELS, STANDARD_WORKFLOWS, PROTECTED_BRANCHES } from '../../shared/config'
 import { checkPrereqs } from '../../shared/prereqs'
-import { run } from '../../shared/github'
+import { run, parseProjectFields, getBoardIssueNumbers } from '../../shared/github'
 
 export interface DiscoveryResult {
   repo: string | null
@@ -75,15 +75,10 @@ export async function discover(): Promise<DiscoveryResult> {
     const project = result.projects.find((p) => p.id === projectId) ?? result.projects[0]
     try {
       const fieldsJson = await run(['gh', 'project', 'field-list', String(project.number), '--owner', owner, '--format', 'json'])
-      const fields = JSON.parse(fieldsJson) as { fields: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }> }
-      for (const f of fields.fields ?? []) {
-        const key = f.name.toLowerCase() as 'status' | 'size' | 'priority'
-        if (key === 'status' || key === 'size' || key === 'priority') {
-          const options: Record<string, string> = {}
-          for (const opt of f.options ?? []) options[opt.name] = opt.id
-          result.fields[key] = { id: f.id, options }
-        }
-      }
+      const parsed = parseProjectFields(fieldsJson)
+      result.fields.status = parsed.status
+      result.fields.size = parsed.size
+      result.fields.priority = parsed.priority
     } catch {}
   }
 
@@ -100,13 +95,7 @@ export async function discover(): Promise<DiscoveryResult> {
         : result.projects[0]
       if (selectedProject && issues.length > 0) {
         try {
-          const itemsJson = await run(['gh', 'project', 'item-list', String(selectedProject.number), '--owner', owner!, '--format', 'json', '--limit', '500'])
-          const itemsData = JSON.parse(itemsJson) as { items: Array<{ content: { number: number; type: string } }> }
-          const onBoardNumbers = new Set(
-            (itemsData.items ?? [])
-              .filter((i) => i.content?.type === 'Issue')
-              .map((i) => i.content.number)
-          )
+          const onBoardNumbers = await getBoardIssueNumbers(owner!, selectedProject.number)
           const onBoard = issues.filter((i) => onBoardNumbers.has(i.number)).length
           result.issues.onBoard = onBoard
           result.issues.orphaned = result.issues.total - onBoard
@@ -134,14 +123,16 @@ export async function discover(): Promise<DiscoveryResult> {
     }
   }
 
-  // Branch protection
-  for (const branch of PROTECTED_BRANCHES) {
-    try {
-      await run(['gh', 'api', `repos/${owner}/${repo}/branches/${branch}/protection`])
-      result.protection[branch] = true
-    } catch {
-      result.protection[branch] = false
-    }
+  // Branch protection (parallel)
+  const protectionChecks = await Promise.all(
+    PROTECTED_BRANCHES.map((branch) =>
+      run(['gh', 'api', `repos/${owner}/${repo}/branches/${branch}/protection`])
+        .then(() => ({ branch, ok: true }))
+        .catch(() => ({ branch, ok: false }))
+    )
+  )
+  for (const { branch, ok } of protectionChecks) {
+    result.protection[branch] = ok
   }
 
   // Vercel

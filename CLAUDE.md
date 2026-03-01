@@ -207,6 +207,28 @@ if vault_healthy():
 4. **Vendoring** — copy `_lib/paths.py` from vault, don't symlink
 5. **CI checks** — `tools/validate_plugins.py` enforces no personal data, unique `data.root`, examples exist
 
+## Editing Plugins
+
+**Source of truth** is always the repo: `plugins/<plugin-name>/` in this repository.
+
+The installed (running) copies live in the plugin cache at `~/.claude/plugins/cache/roxabi-marketplace/<plugin-name>/<hash>/`. These are independent copies — editing one does not update the other.
+
+### Workflow
+
+1. **Edit the repo source first** — `plugins/<plugin-name>/skills/...`, `plugins/<plugin-name>/agents/...`, etc.
+2. **Propagate to the active cache** — sync changes so the running plugin reflects the edits:
+   ```bash
+   rsync -av --exclude='__tests__' --exclude='node_modules' --exclude='.orphaned_at' --exclude='.dashboard.pid' \
+     plugins/<plugin-name>/ ~/.claude/plugins/cache/roxabi-marketplace/<plugin-name>/<hash>/
+   ```
+3. **Find the active cache hash** — when a skill runs, `$CLAUDE_PLUGIN_ROOT` contains the full cache path (e.g. `~/.claude/plugins/cache/roxabi-marketplace/dev-core/6011eb380f4f/skills/init`). The hash segment (`6011eb380f4f`) identifies the active cache directory.
+
+### Rules
+
+- **Never edit only the cache** — changes are lost on plugin update/reinstall
+- **Always commit repo source** — the cache is ephemeral, the repo is permanent
+- **Propagate after every edit** — so the running plugin matches the committed source
+
 ## Style
 
 - Single quotes, no semicolons (for any JS/TS in plugins)

@@ -167,10 +167,14 @@ export const BLOCK_ORDER: Record<string, number> = {
   blocked: 2,
 }
 
-// Canonical names — used for validation regardless of whether option maps are populated
-const CANONICAL_STATUSES = new Set(['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'])
-const CANONICAL_SIZES = new Set(['XS', 'S', 'M', 'L', 'XL'])
-const CANONICAL_PRIORITIES = new Set(['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'])
+// Canonical field option arrays — single source of truth for field creation and validation
+export const DEFAULT_STATUS_OPTIONS = ['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done']
+export const DEFAULT_SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL']
+export const DEFAULT_PRIORITY_OPTIONS = ['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low']
+
+const CANONICAL_STATUSES = new Set(DEFAULT_STATUS_OPTIONS)
+const CANONICAL_SIZES = new Set(DEFAULT_SIZE_OPTIONS)
+const CANONICAL_PRIORITIES = new Set(DEFAULT_PRIORITY_OPTIONS)
 
 /** Resolve loose user input to a canonical status key, or undefined. */
 export function resolveStatus(input: string): string | undefined {

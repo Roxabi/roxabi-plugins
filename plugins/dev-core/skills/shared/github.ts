@@ -88,6 +88,46 @@ export async function ghGraphQL(
   return json
 }
 
+export type ProjectFieldKey = 'status' | 'size' | 'priority'
+
+export interface ParsedField {
+  id: string
+  options: Record<string, string>
+}
+
+/** Parse gh project field-list JSON into a map of field key to {id, options}. */
+export function parseProjectFields(
+  fieldsJson: string
+): Record<ProjectFieldKey, ParsedField | null> {
+  const result: Record<ProjectFieldKey, ParsedField | null> = { status: null, size: null, priority: null }
+  const fields = JSON.parse(fieldsJson) as { fields: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }> }
+  for (const f of fields.fields ?? []) {
+    const key = f.name.toLowerCase() as ProjectFieldKey
+    if (key === 'status' || key === 'size' || key === 'priority') {
+      const options: Record<string, string> = {}
+      for (const opt of f.options ?? []) options[opt.name] = opt.id
+      result[key] = { id: f.id, options }
+    }
+  }
+  return result
+}
+
+/** Fetch issue numbers currently on a project board. */
+export async function getBoardIssueNumbers(owner: string, projectNumber: number): Promise<Set<number>> {
+  const itemsJson = await run([
+    'gh', 'project', 'item-list', String(projectNumber),
+    '--owner', owner,
+    '--format', 'json',
+    '--limit', '500',
+  ])
+  const itemsData = JSON.parse(itemsJson) as { items: Array<{ content: { number: number; type: string } }> }
+  return new Set(
+    (itemsData.items ?? [])
+      .filter((i) => i.content?.type === 'Issue')
+      .map((i) => i.content.number)
+  )
+}
+
 /** Get issue node ID via REST API. */
 export async function getNodeId(issueNumber: number | string): Promise<string> {
   const res = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/issues/${issueNumber}`, {
