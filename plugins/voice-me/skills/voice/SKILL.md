@@ -32,11 +32,9 @@ All `uv run voiceme` commands must run from the voiceMe project directory.
 
 ## First Use
 
-On the **first invocation** of any voice/TTS command in a session:
+On the **first invocation** of any voice/TTS command in a session, proceed directly with the request.
 
-1. Run `cd $VOICEME_DIR && uv run voiceme doctor` to check system readiness
-2. If doctor reports issues (missing CUDA, no models downloaded), guide the user through fixes before attempting generation
-3. Skip this check on subsequent invocations in the same session, or when the user is asking informational questions (engine capabilities, script format, etc.)
+> `voiceme doctor` is a **diagnostic/installation tool** — only run it when the user explicitly asks for a system check or when troubleshooting an error. Never run it automatically.
 
 ## Engine Capability Matrix
 
@@ -269,9 +267,11 @@ STT/
 
 ### Intent → Action Mapping
 
-1. **User wants to create a speech** → Author a `.md` script in `TTS/texts_in/`, then run `generate` or `clone`
+1. **User wants to create a speech** → Author a `.md` script in `TTS/texts_in/`, then run `generate` (default) or `clone` (only if explicitly requested)
 2. **User wants quick speech** → Run `generate` with inline text
-3. **User wants voice cloning** → Ensure sample exists (`samples list`/`samples add`), then `clone`
+3. **User explicitly wants voice cloning** → Ensure sample exists (`samples list`/`samples add`), then `clone`
+
+> **Default is always `generate`**. Never use `clone` unless the user explicitly asks for voice cloning. The presence of an active sample does NOT mean the user wants their voice cloned.
 4. **User wants to transcribe** → Run `transcribe` on audio file
 5. **User wants to edit a script** → Read existing `.md`, apply changes respecting the format
 6. **User asks about capabilities** → Consult engine matrix, recommend engine
@@ -288,6 +288,14 @@ When writing `.md` scripts:
 6. Scripts go in `TTS/texts_in/` by convention
 7. Use `segment_gap` and `crossfade` in frontmatter for global defaults, override per-section for fine control
 8. Write all instruct parts (accent, personality, speed, emotion, instruct) in the target language
+
+### Telegram Integration
+
+When running inside the 2ndBrain Telegram bot, voice files are **automatically sent**
+to the user's chat after generation. You do NOT need to call any send script.
+
+Just generate the audio and report what you created in your text response.
+Do NOT call `send_voice_telegram.py` — the bot handles delivery natively.
 
 ### Key Constraints
 
