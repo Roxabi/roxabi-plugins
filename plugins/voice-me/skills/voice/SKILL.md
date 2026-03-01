@@ -1,7 +1,7 @@
 ---
 name: voice
 description: 'VoiceMe assistant — author TTS scripts, generate speech, clone voices, transcribe audio, manage samples. Knows engine capabilities, markdown format, and all CLI commands. Triggers: "voice" | "voiceme" | "speech" | "generate speech" | "clone voice" | "transcribe" | "TTS" | "text to speech" | "voice script".'
-version: 0.2.0
+version: 0.3.0
 allowed-tools: Read, Edit, Write, Bash, Glob, Grep, AskUserQuestion
 ---
 
@@ -38,17 +38,18 @@ On the **first invocation** of any voice/TTS command in a session, proceed direc
 
 ## Engine Capability Matrix
 
-Three engines with different strengths. Pick based on user intent:
+Four engines with different strengths. Pick based on user intent:
 
-| Capability | Qwen | Chatterbox Multilingual | Chatterbox Turbo |
-|------------|------|-------------------------|------------------|
-| instruct (free-form emotion) | **yes** | no | no |
-| segments (per-section overrides) | **yes** | **yes** | **yes** |
-| paralinguistic tags | to_instruct | strip | **native** |
-| exaggeration (0.25–2.0) | no | **yes** (per-segment) | **yes** (per-segment) |
-| cfg_weight (0.0–1.0) | no | **yes** (per-segment) | **yes** (per-segment) |
-| language (23 langs) | **yes** (per-segment) | **yes** (per-segment) | no (EN only) |
-| built-in voices (9) | **yes** (per-segment) | no | no |
+| Capability | Qwen | Qwen-Fast | Chatterbox Multilingual | Chatterbox Turbo |
+|------------|------|-----------|-------------------------|------------------|
+| instruct (free-form emotion) | **yes** | **yes** | no | no |
+| segments (per-section overrides) | **yes** | **yes** | **yes** | **yes** |
+| paralinguistic tags | to_instruct | to_instruct | strip | **native** |
+| exaggeration (0.25–2.0) | no | no | **yes** (per-segment) | **yes** (per-segment) |
+| cfg_weight (0.0–1.0) | no | no | **yes** (per-segment) | **yes** (per-segment) |
+| language (23 langs) | **yes** (per-segment) | **yes** (per-segment) | **yes** (per-segment) | no (EN only) |
+| built-in voices (9) | **yes** (per-segment) | **yes** (per-segment) | no | no |
+| CUDA graph acceleration | no | **yes** (5-9x speedup) | no | no |
 
 ### Engine Selection Guide
 
@@ -56,11 +57,12 @@ Three engines with different strengths. Pick based on user intent:
 |-------------|--------|
 | Multi-language + voice cloning | `chatterbox` |
 | English + emotion tags ([laugh], [sigh]) | `chatterbox-turbo` |
-| Free-form emotion instructions | `qwen` |
-| Named built-in voices | `qwen` |
-| Per-section emotion changes | `qwen` |
+| Free-form emotion instructions | `qwen` or `qwen-fast` |
+| Named built-in voices | `qwen` or `qwen-fast` |
+| Per-section emotion changes | `qwen` or `qwen-fast` |
 | Per-section expressiveness | `chatterbox` or `chatterbox-turbo` |
-| Bilingual content (language switching) | `qwen` or `chatterbox` |
+| Bilingual content (language switching) | `qwen`, `qwen-fast`, or `chatterbox` |
+| Fastest generation (CUDA graph accel.) | `qwen-fast` |
 
 ### Tag Handling
 
@@ -93,7 +95,9 @@ crossfade = 50
 ```
 
 Structured instruct parts (`accent`, `personality`, `speed`, `emotion`) auto-compose into `instruct`.
-Raw `instruct` bypasses composition.
+Raw `instruct` bypasses composition. **Write instruct parts in the target language.**
+
+**Segment propagation**: toml structured parts are backfilled into `.md` segments where frontmatter didn't set them, so a script with no frontmatter still inherits instruct from voiceme.toml.
 
 Priority: **CLI flag > markdown frontmatter > voiceme.toml > hardcoded default**
 
@@ -107,7 +111,7 @@ One `.md` file works across all engines — the code translator adapts per engin
 ---
 language: French          # language name (Qwen + Chatterbox Multilingual)
 voice: Ryan               # built-in voice (Qwen only)
-engine: qwen              # qwen | chatterbox | chatterbox-turbo
+engine: qwen              # qwen | qwen-fast | chatterbox | chatterbox-turbo
 accent: "Provençal"       # pronunciation/origin (Qwen, composes into instruct)
 personality: "Calme"      # character traits (Qwen, composes into instruct)
 speed: "Rythme posé"      # tempo/pace (Qwen, composes into instruct)
@@ -189,11 +193,15 @@ All commands use `uv run voiceme` from the voiceMe project directory.
 uv run voiceme generate "Hello world"                       # Qwen, default voice
 uv run voiceme generate "Bonjour" -e chatterbox --lang French
 uv run voiceme generate "text" -e chatterbox-turbo          # English + tags
+uv run voiceme generate "text" -e qwen-fast                 # CUDA-accelerated Qwen
 uv run voiceme generate script.md                           # from markdown
 uv run voiceme generate script.md --mp3                     # + MP3 output
 uv run voiceme generate "text" -v Ono_Anna --lang Japanese  # specific voice
 uv run voiceme generate script.md --segment-gap 300         # 300ms between segments
 uv run voiceme generate script.md --crossfade 50            # 50ms fade transitions
+uv run voiceme generate "text" --fast                       # 0.6B model (faster, lower quality)
+uv run voiceme generate "Long text" --chunked               # progressive output (separate files)
+uv run voiceme generate "Long text" --chunked --chunk-size 300  # smaller chunks (~20s each)
 ```
 
 ### Clone (voice cloning)
@@ -203,7 +211,10 @@ uv run voiceme clone "text" --ref voice.wav                 # clone from audio
 uv run voiceme clone "text"                                 # uses active sample
 uv run voiceme clone script.md --mp3                        # from markdown + MP3
 uv run voiceme clone "text" -e chatterbox --lang French     # multilingual clone
+uv run voiceme clone "text" -e qwen-fast                    # CUDA-accelerated clone
 uv run voiceme clone script.md --segment-gap 200            # with segment transitions
+uv run voiceme clone "text" --fast                          # 0.6B model (faster, lower quality)
+uv run voiceme clone "Long text" --chunked                  # progressive output (separate files)
 ```
 
 ### Transcribe (speech-to-text)
@@ -245,6 +256,7 @@ uv run voiceme voices -e chatterbox                         # list engine voices
 uv run voiceme engines                                      # list engines
 uv run voiceme emotions                                     # emotion cheat sheet
 uv run voiceme doctor                                       # system readiness check
+uv run voiceme init                                         # create starter voiceme.toml
 ```
 
 ## Project Layout
@@ -258,6 +270,18 @@ STT/
   audio_in/       — audio files to transcribe (gitignored)
   texts_out/      — transcription results (gitignored)
 ```
+
+## Chunked Output
+
+Use `--chunked` for long texts to enable progressive sending via Telegram. Each chunk is saved as a separate numbered file (`prefix_001.wav`, `prefix_002.wav`...) and a `.done` sentinel is written when complete.
+
+- For plain text: splits at paragraph/sentence boundaries (~500 chars per chunk by default)
+- For .md scripts with segments: each segment becomes a chunk
+- `--chunk-size N` adjusts target chunk size in characters (~15 chars/sec of speech)
+
+**Always use `--chunked` when generating from Telegram** so the bot can send audio progressively.
+
+Output format is WAV by default. Do NOT add `--mp3` unless the user explicitly asks for it.
 
 ## Workflow
 
@@ -287,7 +311,7 @@ When writing `.md` scripts:
 
 ### Telegram Integration
 
-When running inside the 2ndBrain Telegram bot, voice files auto-send to the user's chat after generation. Skip `send_voice_telegram.py` — just generate and report what you created.
+When running inside the 2ndBrain Telegram bot, voice files auto-send to the user's chat after generation. **Always use `--chunked`** so the bot can send audio progressively. Skip `send_voice_telegram.py` — just generate with `--chunked` and report what you created.
 
 ### Key Constraints
 
@@ -296,5 +320,8 @@ When running inside the 2ndBrain Telegram bot, voice files auto-send to the user
 - Chatterbox Multilingual strips all paralinguistic tags
 - Both Chatterbox engines have a ~40s generation cutoff (handled by auto-chunking per segment)
 - Clone falls back to active sample when `--ref` is omitted
+- `qwen-fast` has same capabilities as `qwen` but uses CUDA graph acceleration (5-9x speedup after warmup)
+- `--fast` flag uses the smaller 0.6B model (Qwen/Qwen-fast only) — faster but lower quality
+- Base instruct is preserved in tag-split segments (e.g. `[laugh]` on Qwen keeps the original instruct alongside the tag instruct)
 
 $ARGUMENTS

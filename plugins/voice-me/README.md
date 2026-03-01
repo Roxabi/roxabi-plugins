@@ -8,7 +8,8 @@ Gives Claude Code deep knowledge of the VoiceMe CLI so it can:
 
 - **Author TTS scripts** — write markdown files with correct frontmatter, per-section emotions, paralinguistic tags, and engine-appropriate settings
 - **Run voice commands** — generate speech, clone voices, transcribe audio, manage samples
-- **Pick the right engine** — knows the full capability matrix (Qwen vs Chatterbox Multilingual vs Turbo) and recommends the best fit
+- **Pick the right engine** — knows the full capability matrix (Qwen, Qwen-Fast, Chatterbox Multilingual, Turbo) and recommends the best fit
+- **Chunked output** — progressive audio generation for long texts and Telegram integration
 - **Manage the workflow** — samples, output formats, language settings, expressiveness controls
 
 ## Install
@@ -33,7 +34,8 @@ Trigger phrases:
 
 - Writing TTS markdown scripts with emotional segments and paralinguistic tags
 - Running voiceme commands without memorizing flags and engine differences
-- Choosing between Qwen, Chatterbox Multilingual, and Chatterbox Turbo
+- Choosing between Qwen, Qwen-Fast, Chatterbox Multilingual, and Chatterbox Turbo
+- Generating long texts with chunked progressive output
 - Managing voice samples and cloning workflows
 - Transcribing audio files or doing real-time speech-to-text
 
@@ -48,6 +50,7 @@ The plugin does not include the AI models — those live in the voiceMe project.
 | Engine | Best For |
 |--------|----------|
 | Qwen | Free-form emotion instructions, per-section changes, 9 built-in voices |
+| Qwen-Fast | Same as Qwen with CUDA graph acceleration (5-9x speedup) |
 | Chatterbox Multilingual | 23 languages, voice cloning across languages |
 | Chatterbox Turbo | English with native paralinguistic tags ([laugh], [sigh], etc.) |
 
