@@ -1,7 +1,7 @@
 ---
 name: voice
 description: 'VoiceMe assistant — author TTS scripts, generate speech, clone voices, transcribe audio, manage samples. Knows engine capabilities, markdown format, and all CLI commands. Triggers: "voice" | "voiceme" | "speech" | "generate speech" | "clone voice" | "transcribe" | "TTS" | "text to speech" | "voice script".'
-version: 0.1.0
+version: 0.2.0
 allowed-tools: Read, Edit, Write, Bash, Glob, Grep, AskUserQuestion
 ---
 
@@ -45,12 +45,12 @@ Three engines with different strengths. Pick based on user intent:
 | Capability | Qwen | Chatterbox Multilingual | Chatterbox Turbo |
 |------------|------|-------------------------|------------------|
 | instruct (free-form emotion) | **yes** | no | no |
-| segments (per-section emotion) | **yes** | no | no |
+| segments (per-section overrides) | **yes** | **yes** | **yes** |
 | paralinguistic tags | to_instruct | strip | **native** |
-| exaggeration (0.25–2.0) | no | **yes** | **yes** |
-| cfg_weight (0.0–1.0) | no | **yes** | **yes** |
-| language (23 langs) | **yes** | **yes** | no (EN only) |
-| built-in voices (9) | **yes** | no | no |
+| exaggeration (0.25–2.0) | no | **yes** (per-segment) | **yes** (per-segment) |
+| cfg_weight (0.0–1.0) | no | **yes** (per-segment) | **yes** (per-segment) |
+| language (23 langs) | **yes** (per-segment) | **yes** (per-segment) | no (EN only) |
+| built-in voices (9) | **yes** (per-segment) | no | no |
 
 ### Engine Selection Guide
 
@@ -61,7 +61,8 @@ Three engines with different strengths. Pick based on user intent:
 | Free-form emotion instructions | `qwen` |
 | Named built-in voices | `qwen` |
 | Per-section emotion changes | `qwen` |
-| Maximum expressiveness control | `chatterbox` or `chatterbox-turbo` |
+| Per-section expressiveness | `chatterbox` or `chatterbox-turbo` |
+| Bilingual content (language switching) | `qwen` or `chatterbox` |
 
 ### Tag Handling
 
@@ -77,6 +78,22 @@ The code translator handles this automatically — write tags in the universal f
 
 Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan (default), Aiden, Ono_Anna, Sohee
 
+## User Config (`voiceme.toml`)
+
+Optional file at project root for default settings:
+
+```toml
+[defaults]
+language = "French"
+engine = "chatterbox"
+exaggeration = 0.7
+cfg_weight = 0.3
+segment_gap = 200
+crossfade = 50
+```
+
+Priority: **CLI flag > markdown frontmatter > voiceme.toml > hardcoded default**
+
 ## Unified Markdown Format
 
 One `.md` file works across all engines — the code translator adapts per engine.
@@ -91,13 +108,37 @@ engine: qwen              # qwen | chatterbox | chatterbox-turbo
 instruct: "Speak angrily" # free-form emotion (Qwen only)
 exaggeration: 0.75        # expressiveness 0.25-2.0 (Chatterbox only)
 cfg_weight: 0.3           # speaker adherence 0.0-1.0 (Chatterbox only)
+segment_gap: 200          # ms silence between segments (default 0)
+crossfade: 50             # ms fade between segments (default 0)
 ---
 ```
+
+### Per-Section Directives
+
+All frontmatter fields can be overridden per-section using `<!-- key: value -->` comments.
+Directives accumulate before a text block and apply to the text that follows.
+Each section inherits frontmatter defaults, overridden by its inline directives.
+
+Available: `instruct`, `exaggeration`, `cfg_weight`, `language`, `voice`, `segment_gap`, `crossfade`
+
+### Segment Transitions
+
+| gap | crossfade | Result |
+|-----|-----------|--------|
+| 0   | 0         | Direct concat (default) |
+| >0  | 0         | Hard cut, silence, hard cut |
+| 0   | >0        | Fade-out then fade-in (no silence) |
+| >0  | >0        | Fade-out, silence, fade-in |
 
 ### Body Features
 
 - Standard markdown (auto-stripped to plain text)
-- `<!-- instruct: "Speak seriously" -->` — per-section emotion (Qwen segments)
+- `<!-- instruct: "Speak seriously" -->` — per-section emotion (Qwen)
+- `<!-- exaggeration: 0.8 -->` — per-section expressiveness (Chatterbox)
+- `<!-- language: Japanese -->` — per-section language switch
+- `<!-- voice: Ono_Anna -->` — per-section voice switch (Qwen)
+- `<!-- segment_gap: 500 -->` — silence before this section (ms)
+- `<!-- crossfade: 100 -->` — fade before this section (ms)
 - `[laugh]` `[sigh]` etc. — paralinguistic tags (see tag handling above)
 
 ### Example Script
@@ -108,12 +149,20 @@ language: French
 instruct: "Speak warmly"
 exaggeration: 0.7
 cfg_weight: 0.3
+segment_gap: 200
 ---
 
 Welcome everyone. [laugh] This is going to be fun!
 
 <!-- instruct: "Speak seriously" -->
+<!-- segment_gap: 500 -->
 Now let me tell you something important. [sigh] It has been a long road.
+
+<!-- language: Japanese -->
+<!-- voice: Ono_Anna -->
+<!-- crossfade: 100 -->
+<!-- segment_gap: 0 -->
+A section in Japanese with a different voice, crossfaded in.
 ```
 
 ### Recommended Settings
@@ -121,6 +170,7 @@ Now let me tell you something important. [sigh] It has been a long road.
 - Passionate speech: exaggeration 0.7–0.8, cfg_weight 0.3
 - Cross-language cloning: cfg_weight 0.0 (reduces accent bleed)
 - Default: exaggeration 0.5, cfg_weight 0.5
+- Natural pauses between sections: segment_gap 200–300
 
 ## CLI Commands Reference
 
@@ -135,6 +185,8 @@ uv run voiceme generate "text" -e chatterbox-turbo          # English + tags
 uv run voiceme generate script.md                           # from markdown
 uv run voiceme generate script.md --mp3                     # + MP3 output
 uv run voiceme generate "text" -v Ono_Anna --lang Japanese  # specific voice
+uv run voiceme generate script.md --segment-gap 300         # 300ms between segments
+uv run voiceme generate script.md --crossfade 50            # 50ms fade transitions
 ```
 
 ### Clone (voice cloning)
@@ -144,6 +196,7 @@ uv run voiceme clone "text" --ref voice.wav                 # clone from audio
 uv run voiceme clone "text"                                 # uses active sample
 uv run voiceme clone script.md --mp3                        # from markdown + MP3
 uv run voiceme clone "text" -e chatterbox --lang French     # multilingual clone
+uv run voiceme clone script.md --segment-gap 200            # with segment transitions
 ```
 
 ### Transcribe (speech-to-text)
@@ -214,20 +267,21 @@ STT/
 
 When writing `.md` scripts:
 
-1. Only include frontmatter fields relevant to the chosen engine (translator handles the rest, but keep it clean)
-2. Use `<!-- instruct: "..." -->` for per-section emotion changes (Qwen only, but safe to include — ignored by others)
+1. Use all features freely — the translator adapts per engine (unsupported fields are nulled per-segment)
+2. Use `<!-- key: value -->` directives for per-section overrides (instruct, exaggeration, language, voice, segment_gap, crossfade)
 3. Place `[tags]` naturally in the text flow — before or after the relevant phrase
 4. Keep text segments under ~250 chars for Chatterbox engines (they chunk at sentence boundaries, but shorter is safer)
-5. For multilingual content, always set `language:` in frontmatter
+5. For multilingual content, set `language:` in frontmatter and override per-section with `<!-- language: ... -->`
 6. Scripts go in `TTS/texts_in/` by convention
+7. Use `segment_gap` and `crossfade` in frontmatter for global defaults, override per-section for fine control
 
 ### Key Constraints
 
 - Qwen clone does NOT support instruct — only generate does
 - Chatterbox Turbo is English-only
 - Chatterbox Multilingual strips all paralinguistic tags
-- Both Chatterbox engines have a ~40s generation cutoff (handled by auto-chunking)
-- CLI flags always override frontmatter values
+- Both Chatterbox engines have a ~40s generation cutoff (handled by auto-chunking per segment)
+- Priority: CLI flag > markdown frontmatter > voiceme.toml > hardcoded default
 - Clone falls back to active sample when `--ref` is omitted
 
 $ARGUMENTS
