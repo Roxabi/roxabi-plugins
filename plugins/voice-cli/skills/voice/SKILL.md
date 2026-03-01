@@ -1,7 +1,7 @@
 ---
 name: voice
 description: 'VoiceCLI assistant — author TTS scripts, generate speech, clone voices, transcribe audio, manage samples. Knows engine capabilities, markdown format, and all CLI commands. Triggers: "voice" | "voicecli" | "speech" | "generate speech" | "clone voice" | "transcribe" | "TTS" | "text to speech" | "voice script".'
-version: 0.4.0
+version: 0.5.0
 allowed-tools: Read, Edit, Write, Bash, Glob, Grep, AskUserQuestion
 ---
 
@@ -253,6 +253,16 @@ voicecli samples active                               # show current active
 voicecli samples remove name.wav                      # delete sample
 ```
 
+### Daemon (warm model — fast generation)
+
+```bash
+voicecli serve                                        # start daemon (lazy-loads on first request)
+voicecli serve --engine qwen                          # preload Qwen at startup (~60s once, then ~2-5s per call)
+voicecli serve --engine qwen --fast                   # preload smaller 0.6B model
+```
+
+`generate` and `clone` automatically route to the daemon when it's running — no extra flags. Falls back silently to standalone if the socket isn't present.
+
 ### Utilities
 
 ```bash
@@ -330,5 +340,7 @@ When running inside the 2ndBrain Telegram bot, voice files auto-send to the user
 - `qwen-fast` has same capabilities as `qwen` but uses CUDA graph acceleration (5-9x speedup after warmup)
 - `--fast` flag uses the smaller 0.6B model (Qwen/Qwen-fast only) — faster but lower quality
 - Base instruct is preserved in tag-split segments (e.g. `[laugh]` on Qwen keeps the original instruct alongside the tag instruct)
+- Daemon (`voicecli serve`) only accelerates Qwen engines — Chatterbox always runs standalone
+- Daemon socket: `~/.local/share/voicecli/daemon.sock`; if absent, generate/clone fall back silently
 
 $ARGUMENTS

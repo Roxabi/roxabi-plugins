@@ -10,6 +10,7 @@ Gives Claude Code deep knowledge of the VoiceCLI CLI so it can:
 - **Run voice commands** — generate speech, clone voices, transcribe audio, manage samples
 - **Pick the right engine** — knows the full capability matrix (Qwen, Qwen-Fast, Chatterbox Multilingual, Turbo) and recommends the best fit
 - **Chunked output** — progressive audio generation for long texts and Telegram integration
+- **Daemon mode** — start `voicecli serve` to keep models warm; subsequent generates run in ~2–5s instead of ~60s
 - **Manage the workflow** — samples, output formats, language settings, expressiveness controls
 
 ## Install
@@ -36,6 +37,7 @@ Trigger phrases:
 - Running voicecli commands without memorizing flags and engine differences
 - Choosing between Qwen, Qwen-Fast, Chatterbox Multilingual, and Chatterbox Turbo
 - Generating long texts with chunked progressive output
+- Starting or querying the daemon for warm-model fast generation
 - Managing voice samples and cloning workflows
 - Transcribing audio files or doing real-time speech-to-text
 
