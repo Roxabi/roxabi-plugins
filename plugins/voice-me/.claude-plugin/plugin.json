@@ -1,0 +1,8 @@
+{
+  "name": "voice-me",
+  "version": "0.1.0",
+  "description": "Local AI voice generation and transcription via VoiceMe.",
+  "author": {
+    "name": "Roxabi"
+  }
+}

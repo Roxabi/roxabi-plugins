@@ -2,18 +2,7 @@
   "name": "linkedin-post-generator",
   "version": "0.1.0",
   "description": "Generate engaging LinkedIn posts with best practices and visual identity.",
-  "author": { "name": "Roxabi" },
-  "data": {
-    "root": null,
-    "directories": [],
-    "files": {},
-    "shared": ["content"]
-  },
-  "vault": {
-    "optional": true,
-    "indexes": {
-      "category": "content",
-      "types": ["linkedin-post"]
-    }
+  "author": {
+    "name": "Roxabi"
   }
 }

@@ -1,0 +1,21 @@
+{
+  "data": {
+    "root": "cv",
+    "directories": ["generated", "adapted"],
+    "files": {
+      "cv_data.json": {
+        "description": "Master CV data — personal info, experience, skills",
+        "sensitive": true,
+        "example": "examples/cv_data.example.json"
+      }
+    },
+    "shared": []
+  },
+  "vault": {
+    "optional": true,
+    "indexes": {
+      "category": "cv",
+      "types": ["cv", "cover-letter", "salary-research"]
+    }
+  }
+}

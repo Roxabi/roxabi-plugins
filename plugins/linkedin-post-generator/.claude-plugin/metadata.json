@@ -1,0 +1,15 @@
+{
+  "data": {
+    "root": null,
+    "directories": [],
+    "files": {},
+    "shared": ["content"]
+  },
+  "vault": {
+    "optional": true,
+    "indexes": {
+      "category": "content",
+      "types": ["linkedin-post"]
+    }
+  }
+}

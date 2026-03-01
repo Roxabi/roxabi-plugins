@@ -1,0 +1,18 @@
+{
+  "data": {
+    "root": null,
+    "directories": [],
+    "files": {
+      "config/visual-charter.json": {
+        "description": "Brand visual identity — colors, style, tone for image generation",
+        "sensitive": false,
+        "example": "examples/visual-charter.example.json"
+      }
+    },
+    "shared": []
+  },
+  "vault": {
+    "optional": true,
+    "indexes": null
+  }
+}

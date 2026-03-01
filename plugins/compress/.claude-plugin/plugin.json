@@ -1,0 +1,8 @@
+{
+  "name": "compress",
+  "version": "0.1.0",
+  "description": "Rewrite agent and skill definitions using compact notation to reduce token usage while preserving semantics.",
+  "author": {
+    "name": "Roxabi"
+  }
+}

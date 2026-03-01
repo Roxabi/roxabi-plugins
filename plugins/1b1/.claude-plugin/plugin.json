@@ -1,0 +1,8 @@
+{
+  "name": "1b1",
+  "version": "0.1.0",
+  "description": "Walk through a list of items one at a time, briefing on each and asking what to do before moving to the next.",
+  "author": {
+    "name": "Roxabi"
+  }
+}

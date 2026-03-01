@@ -1,0 +1,15 @@
+{
+  "data": {
+    "root": "invoices",
+    "directories": [],
+    "files": {},
+    "shared": []
+  },
+  "vault": {
+    "optional": true,
+    "indexes": {
+      "category": "invoices",
+      "types": ["invoice", "receipt", "quote"]
+    }
+  }
+}

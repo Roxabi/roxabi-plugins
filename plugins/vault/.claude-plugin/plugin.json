@@ -4,29 +4,5 @@
   "description": "Unified data vault — SQLite+FTS5 index, CRUD, search across all Roxabi plugins.",
   "author": {
     "name": "Roxabi"
-  },
-  "data": {
-    "root": null,
-    "directories": ["config", "content", "ideas", "learnings", "backup"],
-    "files": {
-      "vault.db": {
-        "description": "SQLite database with FTS5 full-text search index",
-        "sensitive": false,
-        "example": null
-      },
-      "config/vault.json": {
-        "description": "Vault configuration (embedding model, preferences)",
-        "sensitive": false,
-        "example": "examples/vault.example.json"
-      }
-    },
-    "shared": ["content", "ideas", "learnings"]
-  },
-  "vault": {
-    "optional": false,
-    "indexes": {
-      "category": "vault",
-      "types": ["idea", "learning", "note"]
-    }
   }
 }

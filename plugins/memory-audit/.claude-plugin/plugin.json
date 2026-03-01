@@ -1,0 +1,8 @@
+{
+  "name": "memory-audit",
+  "version": "0.1.0",
+  "description": "Keep auto-memory clean by reviewing and resolving every entry so nothing piles up.",
+  "author": {
+    "name": "Roxabi"
+  }
+}

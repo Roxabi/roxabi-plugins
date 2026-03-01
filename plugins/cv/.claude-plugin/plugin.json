@@ -2,24 +2,7 @@
   "name": "cv",
   "version": "0.1.0",
   "description": "Generate and adapt CVs from structured data.",
-  "author": { "name": "Roxabi" },
-  "data": {
-    "root": "cv",
-    "directories": ["generated", "adapted"],
-    "files": {
-      "cv_data.json": {
-        "description": "Master CV data — personal info, experience, skills",
-        "sensitive": true,
-        "example": "examples/cv_data.example.json"
-      }
-    },
-    "shared": []
-  },
-  "vault": {
-    "optional": true,
-    "indexes": {
-      "category": "cv",
-      "types": ["cv", "cover-letter", "salary-research"]
-    }
+  "author": {
+    "name": "Roxabi"
   }
 }
