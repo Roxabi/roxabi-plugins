@@ -1,0 +1,207 @@
+---
+title: "Add multilanguage support (FR/EN) to CV plugin"
+issue: 3
+status: approved
+tier: F-lite
+promoted_from: artifacts/frames/cv-multilanguage.mdx
+date: 2026-03-01
+---
+
+## Context
+
+Promoted from [frame](../frames/cv-multilanguage.mdx). The CV plugin currently generates single-language CVs. The 2ndBrain fork has a working bilingual implementation that serves as reference. This spec defines the upstream implementation.
+
+## Goal
+
+Enable the CV plugin to generate CVs in FR, EN, or both languages from a single `cv_data.json` file, while maintaining full backward compatibility with existing single-language data.
+
+## Users
+
+- **Primary:** CV plugin users needing bilingual (FR/EN) output
+- **Secondary:** Future users who may add more languages (design must be extensible)
+
+## Expected Behavior
+
+### Single-language (default, backward compatible)
+
+A user with an existing single-language `cv_data.json` runs `/cv generate`. The output is identical to today — no change required to their data or workflow. The `--lang` flag defaults to the configured `default_language` (or `"en"` if config key is missing).
+
+### Multi-language
+
+A user with a bilingual `cv_data.json` runs `/cv generate --lang all`. Two files are generated: `cv_fr.md` and `cv_en.md` (or `.html` depending on `--format`). Running `--lang fr` generates only the French version as `cv.md` (no language suffix when a single language is requested).
+
+### Data schema
+
+Translatable fields accept either a plain string or a `{"fr": "...", "en": "..."}` dict. Language-neutral fields remain plain strings. Mixed usage within the same section is valid (e.g., one experience entry with string `role`, another with dict `role`).
+
+```json
+{
+  "personal": {
+    "name": "John Doe",
+    "title": { "fr": "Développeur Senior", "en": "Senior Developer" },
+    "summary": { "fr": "Résumé en français...", "en": "Summary in English..." }
+  },
+  "experience": [{
+    "company": "Acme",
+    "role": { "fr": "Lead Dev", "en": "Lead Developer" },
+    "location": "Paris",
+    "start": "2020-01",
+    "end": null,
+    "highlights": {
+      "fr": ["Dirigé une équipe de 5"],
+      "en": ["Led a team of 5"]
+    }
+  }]
+}
+```
+
+#### Translatable fields
+
+| Section | Field | Translatable? | Notes |
+|---------|-------|---------------|-------|
+| personal | name | No | Language-neutral |
+| personal | title | Yes | Job title |
+| personal | email, phone, location | No | Language-neutral |
+| personal | linkedin, github | No | URLs |
+| personal | summary | Yes | Professional summary |
+| experience[] | company | No | Proper noun |
+| experience[] | role | Yes | Job title |
+| experience[] | location | No | City/country |
+| experience[] | start, end | No | Dates |
+| experience[] | highlights | Yes | Array of bullet points |
+| education[] | institution | No | Proper noun |
+| education[] | degree | Yes | e.g., "M.Sc." vs "Maîtrise" |
+| education[] | start, end | No | Dates |
+| education[] | notes | Yes | Optional description |
+| skills | category keys + values | No | Technical terms |
+| languages[] | language, level | No | Meta-language info |
+| certifications[] | name, issuer, year | No | Proper nouns / dates |
+
+### Translation filter
+
+A Jinja2 custom filter `|t(lang)` resolves fields. The `lang` variable is passed as a template context variable (set once per render cycle).
+
+```python
+def t(value, lang):
+    if isinstance(value, dict):
+        if lang in value:
+            return value[lang]
+        # Fallback: first key by insertion order (Python 3.7+)
+        fallback = next(iter(value))
+        print(f"Warning: lang '{lang}' missing, using '{fallback}'", file=sys.stderr)
+        return value[fallback]
+    return value  # Plain string — backward compat
+```
+
+Template usage: `{{ personal.title|t(lang) }}`, `{{ exp.role|t(lang) }}`
+
+### Config
+
+`~/.roxabi-vault/config/cv.json` gains two new keys:
+
+```json
+{
+  "default_language": "fr",
+  "supported_languages": ["fr", "en"],
+  "default_format": "md",
+  "default_template": "cv_template",
+  "output_dir_generated": "~/.roxabi-vault/cv/generated",
+  "output_dir_adapted": "~/.roxabi-vault/cv/adapted"
+}
+```
+
+#### Config backward compatibility
+
+If `cv.json` is missing the new keys (existing installs):
+- `default_language` defaults to `"en"`
+- `supported_languages` defaults to `["en"]`
+- A stderr warning suggests running `/cv-init` to update the config
+
+The `cv-init` skill writes the full config including the new keys.
+
+### CLI
+
+`generate_cv.py` gains two flag changes:
+
+```
+--lang {fr|en|all}       Language(s) to generate (default: from config default_language)
+--format {md|html|all}   Output format(s) (default: from config default_format)
+```
+
+Validation: `--lang <value>` must be `"all"` or a member of `supported_languages`. Invalid values exit with error: `"Error: unsupported language 'de'. Supported: fr, en"`.
+
+### Output naming
+
+| Scenario | Output filename |
+|----------|----------------|
+| `--lang fr` (single) | `cv.md` (no suffix) |
+| `--lang all` | `cv_fr.md`, `cv_en.md` |
+| `--lang en --format html` | `cv.html` |
+| `--lang all --format all` | `cv_fr.md`, `cv_en.md`, `cv_fr.html`, `cv_en.html` |
+
+Repeated runs overwrite existing files at the same path (no temp files, no dedup).
+
+### Adapt operation
+
+Out of scope for this iteration. Adapt remains single-language — no `--lang` support. Future issue will add it.
+
+## Breadboard
+
+### Affordances
+
+| ID | Element | Location |
+|----|---------|----------|
+| U1 | `--lang` CLI flag | `generate_cv.py` argparse |
+| U2 | `|t(lang)` filter | Jinja2 environment setup in `generate_cv.py` |
+| U3 | Multi-lang data fields | `cv_data.json` schema |
+| U4 | Config keys (`default_language`, `supported_languages`) | `cv.json` config file |
+| U5 | Init example | `cv_data.example.json`, `cv.example.json` |
+| U6 | Template files | `cv_template.md.jinja2`, `cv_template.html.jinja2` |
+
+### Handlers
+
+| ID | Handler | Wired to | Logic |
+|----|---------|----------|-------|
+| H1 | Load config + resolve languages | U1 → U4 | Load `cv.json`, apply defaults for missing keys. Parse `--lang`: if `"all"` → `supported_languages` list; else validate against `supported_languages` → single-item list. |
+| H2 | Register `t` filter in Jinja2 env | U2 | Add `t` as a custom filter. `lang` passed via template context per render cycle. |
+| H3 | Language loop | H1 → H2 → U6 | For each lang in resolved list: set `lang` in template context → render template → determine filename (H4) → write output. |
+| H4 | Output filename | H3 | If `len(langs) == 1` → `cv.{fmt}` (no suffix). If `len(langs) > 1` → `cv_{lang}.{fmt}`. |
+
+### Data flow
+
+```
+cv.json (U4) ──→ load config + defaults (H1) ──→ language list
+                                                     │
+cv_data.json (U3) ──→ load + validate ──────────────→│
+                                                     ▼
+                                              for each lang:
+                                                set lang context
+                                                     │
+template (U6) + filter (U2/H2) ──→ render ──→ filename (H4) ──→ write
+```
+
+## Slices
+
+| # | Slice | Deliverable | Demo |
+|---|-------|-------------|------|
+| 1 | Translation filter + templates | `t(value, lang)` filter in `generate_cv.py`. Both templates updated: all translatable fields use `\|t(lang)`. `lang` passed as context variable. | Run with existing single-lang data → identical output to current version |
+| 2 | CLI + config + multi-lang generation | `--lang` and `--format all` flags. Config loading with backward-compat defaults. Language loop + output naming logic. | Run `--lang all` with bilingual data → `cv_fr.md` + `cv_en.md` generated |
+| 3 | Init + example update | `cv_data.example.json` with bilingual fields. `cv.example.json` with `default_language` + `supported_languages`. `cv-init` skill writes updated config. | Run `/cv-init` → example data has FR/EN fields, config has language keys |
+
+## Success Criteria
+
+- [ ] Running `generate_cv.py` with existing single-lang `cv_data.json` (no `--lang` flag) produces byte-identical output to the current version
+- [ ] `t({"fr": "A", "en": "B"}, "fr")` returns `"A"`
+- [ ] `t("plain string", "fr")` returns `"plain string"`
+- [ ] `t({"fr": "A"}, "en")` returns `"A"` (fallback) and prints a warning to stderr
+- [ ] Mixed string/dict fields in the same section render without error (e.g., one experience with string `role`, another with dict `role`)
+- [ ] `--lang fr` writes a single file named `cv.md` (no language suffix)
+- [ ] `--lang all` writes one file per language in `supported_languages` with `_lang` suffix (`cv_fr.md`, `cv_en.md`)
+- [ ] `--lang all --format all` writes 4 files: `cv_fr.md`, `cv_en.md`, `cv_fr.html`, `cv_en.html`
+- [ ] `--lang de` with `supported_languages: ["fr", "en"]` exits with error message listing supported languages
+- [ ] When `cv.json` is missing `default_language`, script defaults to `"en"` and prints a stderr warning
+- [ ] `--lang` defaults to `default_language` from config when not specified on CLI
+- [ ] `cv_data.example.json` includes at least one field with `{"fr": "...", "en": "..."}` pattern
+- [ ] `cv.example.json` includes `default_language` and `supported_languages` keys
+- [ ] All translatable fields listed in the translatable fields table use `|t(lang)` in both templates
+- [ ] Adapt operation (`/cv adapt`) works identically to current version (no `--lang` support)
