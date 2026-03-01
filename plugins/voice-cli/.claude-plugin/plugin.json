@@ -1,0 +1,8 @@
+{
+  "name": "voice-cli",
+  "version": "0.4.0",
+  "description": "Local AI voice generation and transcription via VoiceCLI.",
+  "author": {
+    "name": "Roxabi"
+  }
+}

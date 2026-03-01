@@ -11,7 +11,7 @@ Open-source Claude Code plugins by [Roxabi](https://github.com/Roxabi). Context 
 | [compress](plugins/compress/README.md) | Rewrite agent/skill definitions using compact math/logic notation to reduce token usage |
 | [1b1](plugins/1b1/README.md) | Walk through a list of items one by one — brief, decide, execute, repeat |
 | [web-intel](plugins/web-intel/README.md) | Multi-platform URL scraper + 6 analysis skills (scrape, summarize, analyze, roast, benchmark, adapt) |
-| [voice-me](plugins/voice-me/README.md) | VoiceMe assistant — author TTS scripts, generate speech (4 engines incl. CUDA-accelerated Qwen-Fast), clone voices, chunked output, transcribe audio |
+| [voice-cli](plugins/voice-cli/README.md) | VoiceCLI assistant — author TTS scripts, generate speech, clone voices, transcribe audio |
 | [linkedin-post-generator](plugins/linkedin-post-generator/README.md) | Generate engaging LinkedIn posts with best practices and visual identity |
 | [image-prompt-generator](plugins/image-prompt-generator/README.md) | Generate AI image prompts with visual identity and style consistency |
 | [vault](plugins/vault/README.md) | Unified data vault — SQLite+FTS5 index, CRUD, search across all Roxabi plugins |

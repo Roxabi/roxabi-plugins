@@ -1,40 +1,49 @@
 ---
 name: voice
-description: 'VoiceMe assistant — author TTS scripts, generate speech, clone voices, transcribe audio, manage samples. Knows engine capabilities, markdown format, and all CLI commands. Triggers: "voice" | "voiceme" | "speech" | "generate speech" | "clone voice" | "transcribe" | "TTS" | "text to speech" | "voice script".'
-version: 0.3.0
+description: 'VoiceCLI assistant — author TTS scripts, generate speech, clone voices, transcribe audio, manage samples. Knows engine capabilities, markdown format, and all CLI commands. Triggers: "voice" | "voicecli" | "speech" | "generate speech" | "clone voice" | "transcribe" | "TTS" | "text to speech" | "voice script".'
+version: 0.4.0
 allowed-tools: Read, Edit, Write, Bash, Glob, Grep, AskUserQuestion
 ---
 
-# VoiceMe — Unified Voice Assistant
+# VoiceCLI — Unified Voice Assistant
 
-**Purpose**: Author TTS markdown scripts, run voiceme CLI commands, manage the full voice pipeline.
+**Purpose**: Author TTS markdown scripts, run voicecli CLI commands, manage the full voice pipeline.
 
-VoiceMe is a Python CLI (`uv run voiceme`) for local voice generation (TTS) and transcription (STT) with multiple AI backends.
+VoiceCLI is a Python CLI for local voice generation (TTS) and transcription (STT) with multiple AI backends.
 
 ## Auto-Discovery
 
-Before any action, detect voiceMe project location:
+Before the **first** command in a session, determine how to invoke voicecli:
 
 ```bash
-# Check VOICEME_DIR env var first, then search common locations
-if [ -n "$VOICEME_DIR" ] && [ -f "$VOICEME_DIR/src/voiceme/cli.py" ]; then
-  echo "VOICEME_DIR=$VOICEME_DIR"
+# 1. Preferred: voicecli in PATH (installed via `voicecli init`)
+if command -v voicecli &>/dev/null; then
+  echo "voicecli is in PATH — use it directly"
+# 2. Fallback: find project dir and use uv run
 else
-  for d in . .. ../voiceMe ~/projects/voiceMe; do
-    test -f "$d/src/voiceme/cli.py" && echo "VOICEME_DIR=$(cd "$d" && pwd)" && break
-  done
+  if [ -n "$VOICECLI_DIR" ] && [ -f "$VOICECLI_DIR/src/voicecli/cli.py" ]; then
+    true  # already set via env var
+  else
+    for d in . .. ../voiceCLI ~/projects/voiceCLI; do
+      test -f "$d/src/voicecli/cli.py" && VOICECLI_DIR="$(cd "$d" && pwd)" && break
+    done
+  fi
+  [ -z "$VOICECLI_DIR" ] && echo "voiceCLI not found — run 'voicecli init' or set VOICECLI_DIR" && exit 1
+  echo "Using fallback: cd $VOICECLI_DIR && uv run voicecli"
 fi
 ```
 
-If not found → inform user voiceMe is not installed and offer guidance.
+Cache the result for the session:
+- **If in PATH**: use `voicecli <args>` directly (works from any directory)
+- **Fallback**: use `cd "$VOICECLI_DIR" && uv run voicecli <args>`
 
-All `uv run voiceme` commands must run from the voiceMe project directory.
+All examples below use `voicecli` — substitute with the fallback form if needed.
 
 ## First Use
 
 On the **first invocation** of any voice/TTS command in a session, proceed directly with the request.
 
-> `voiceme doctor` is a **diagnostic/installation tool** — only run it when the user explicitly asks for a system check or when troubleshooting an error. Never run it automatically.
+> `voicecli doctor` is a **diagnostic/installation tool** — only run it when the user explicitly asks for a system check or when troubleshooting an error. Never run it automatically.
 
 ## Engine Capability Matrix
 
@@ -78,7 +87,7 @@ The code translator handles this automatically — write tags in the universal f
 
 Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan (default), Aiden, Ono_Anna, Sohee
 
-## User Config (`voiceme.toml`)
+## User Config (`voicecli.toml`)
 
 Optional file at project root for default settings:
 
@@ -97,9 +106,9 @@ crossfade = 50
 Structured instruct parts (`accent`, `personality`, `speed`, `emotion`) auto-compose into `instruct`.
 Raw `instruct` bypasses composition. **Write instruct parts in the target language.**
 
-**Segment propagation**: toml structured parts are backfilled into `.md` segments where frontmatter didn't set them, so a script with no frontmatter still inherits instruct from voiceme.toml.
+**Segment propagation**: toml structured parts are backfilled into `.md` segments where frontmatter didn't set them, so a script with no frontmatter still inherits instruct from voicecli.toml.
 
-Priority: **CLI flag > markdown frontmatter > voiceme.toml > hardcoded default**
+Priority: **CLI flag > markdown frontmatter > voicecli.toml > hardcoded default**
 
 ## Unified Markdown Format
 
@@ -185,45 +194,43 @@ A section in Japanese with a different voice, crossfaded in.
 
 ## CLI Commands Reference
 
-All commands use `uv run voiceme` from the voiceMe project directory.
-
 ### Generate (built-in voices)
 
 ```bash
-uv run voiceme generate "Hello world"                       # Qwen, default voice
-uv run voiceme generate "Bonjour" -e chatterbox --lang French
-uv run voiceme generate "text" -e chatterbox-turbo          # English + tags
-uv run voiceme generate "text" -e qwen-fast                 # CUDA-accelerated Qwen
-uv run voiceme generate script.md                           # from markdown
-uv run voiceme generate script.md --mp3                     # + MP3 output
-uv run voiceme generate "text" -v Ono_Anna --lang Japanese  # specific voice
-uv run voiceme generate script.md --segment-gap 300         # 300ms between segments
-uv run voiceme generate script.md --crossfade 50            # 50ms fade transitions
-uv run voiceme generate "text" --fast                       # 0.6B model (faster, lower quality)
-uv run voiceme generate "Long text" --chunked               # progressive output (separate files)
-uv run voiceme generate "Long text" --chunked --chunk-size 300  # smaller chunks (~20s each)
+voicecli generate "Hello world"                       # Qwen, default voice
+voicecli generate "Bonjour" -e chatterbox --lang French
+voicecli generate "text" -e chatterbox-turbo          # English + tags
+voicecli generate "text" -e qwen-fast                 # CUDA-accelerated Qwen
+voicecli generate script.md                           # from markdown
+voicecli generate script.md --mp3                     # + MP3 output
+voicecli generate "text" -v Ono_Anna --lang Japanese  # specific voice
+voicecli generate script.md --segment-gap 300         # 300ms between segments
+voicecli generate script.md --crossfade 50            # 50ms fade transitions
+voicecli generate "text" --fast                       # 0.6B model (faster, lower quality)
+voicecli generate "Long text" --chunked               # progressive output (separate files)
+voicecli generate "Long text" --chunked --chunk-size 300  # smaller chunks (~20s each)
 ```
 
 ### Clone (voice cloning)
 
 ```bash
-uv run voiceme clone "text" --ref voice.wav                 # clone from audio
-uv run voiceme clone "text"                                 # uses active sample
-uv run voiceme clone script.md --mp3                        # from markdown + MP3
-uv run voiceme clone "text" -e chatterbox --lang French     # multilingual clone
-uv run voiceme clone "text" -e qwen-fast                    # CUDA-accelerated clone
-uv run voiceme clone script.md --segment-gap 200            # with segment transitions
-uv run voiceme clone "text" --fast                          # 0.6B model (faster, lower quality)
-uv run voiceme clone "Long text" --chunked                  # progressive output (separate files)
+voicecli clone "text" --ref voice.wav                 # clone from audio
+voicecli clone "text"                                 # uses active sample
+voicecli clone script.md --mp3                        # from markdown + MP3
+voicecli clone "text" -e chatterbox --lang French     # multilingual clone
+voicecli clone "text" -e qwen-fast                    # CUDA-accelerated clone
+voicecli clone script.md --segment-gap 200            # with segment transitions
+voicecli clone "text" --fast                          # 0.6B model (faster, lower quality)
+voicecli clone "Long text" --chunked                  # progressive output (separate files)
 ```
 
 ### Transcribe (speech-to-text)
 
 ```bash
-uv run voiceme transcribe audio.wav                         # default model
-uv run voiceme transcribe audio.wav --json                  # JSON + timestamps
-uv run voiceme transcribe audio.wav -m large-v3             # specific model
-uv run voiceme transcribe audio.wav -l fr                   # force language
+voicecli transcribe audio.wav                         # default model
+voicecli transcribe audio.wav --json                  # JSON + timestamps
+voicecli transcribe audio.wav -m large-v3             # specific model
+voicecli transcribe audio.wav -l fr                   # force language
 ```
 
 Models: tiny, base, small, medium, large-v3, large-v3-turbo (default)
@@ -231,32 +238,32 @@ Models: tiny, base, small, medium, large-v3, large-v3-turbo (default)
 ### Listen (real-time mic STT)
 
 ```bash
-uv run voiceme listen                                       # Kyutai 1b (EN+FR)
-uv run voiceme listen -m 2.6b                               # EN-only, higher quality
+voicecli listen                                       # Kyutai 1b (EN+FR)
+voicecli listen -m 2.6b                               # EN-only, higher quality
 ```
 
 ### Samples
 
 ```bash
-uv run voiceme samples list                                 # list all samples
-uv run voiceme samples add file.wav                         # import WAV
-uv run voiceme samples record name -d 30                    # record 30s from mic
-uv run voiceme samples use name.wav                         # set active for clone
-uv run voiceme samples active                               # show current active
-uv run voiceme samples remove name.wav                      # delete sample
+voicecli samples list                                 # list all samples
+voicecli samples add file.wav                         # import WAV
+voicecli samples record name -d 30                    # record 30s from mic
+voicecli samples use name.wav                         # set active for clone
+voicecli samples active                               # show current active
+voicecli samples remove name.wav                      # delete sample
 ```
 
 ### Utilities
 
 ```bash
-uv run voiceme mp3 TTS/voices_out/file.wav                  # WAV → MP3 (192kbps)
-uv run voiceme mp3 TTS/voices_out/file.wav -b 320           # 320kbps
-uv run voiceme voices                                       # list Qwen voices
-uv run voiceme voices -e chatterbox                         # list engine voices
-uv run voiceme engines                                      # list engines
-uv run voiceme emotions                                     # emotion cheat sheet
-uv run voiceme doctor                                       # system readiness check
-uv run voiceme init                                         # create starter voiceme.toml
+voicecli mp3 TTS/voices_out/file.wav                  # WAV → MP3 (192kbps)
+voicecli mp3 TTS/voices_out/file.wav -b 320           # 320kbps
+voicecli voices                                       # list Qwen voices
+voicecli voices -e chatterbox                         # list engine voices
+voicecli engines                                      # list engines
+voicecli emotions                                     # emotion cheat sheet
+voicecli doctor                                       # system readiness check
+voicecli init                                         # create starter voicecli.toml
 ```
 
 ## Project Layout
@@ -296,7 +303,7 @@ Output format is WAV by default. Do NOT add `--mp3` unless the user explicitly a
 
 ### Script Authoring Rules
 
-**Before writing any script**, read `voiceme.toml` to discover the user's configured defaults (engine, language, accent, personality, etc.). Only add frontmatter fields that **override** those defaults — never duplicate what toml already sets.
+**Before writing any script**, read `voicecli.toml` to discover the user's configured defaults (engine, language, accent, personality, etc.). Only add frontmatter fields that **override** those defaults — never duplicate what toml already sets.
 
 When writing `.md` scripts:
 

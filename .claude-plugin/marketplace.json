@@ -38,9 +38,9 @@
       "category": "development"
     },
     {
-      "name": "voice-me",
-      "description": "VoiceMe assistant — author TTS scripts, generate speech (4 engines incl. CUDA-accelerated Qwen-Fast), clone voices, chunked progressive output, transcribe audio.",
-      "source": "./plugins/voice-me",
+      "name": "voice-cli",
+      "description": "VoiceCLI assistant — author TTS scripts, generate speech, clone voices, transcribe audio. Knows engine capabilities, markdown format, and all CLI commands.",
+      "source": "./plugins/voice-cli",
       "category": "productivity"
     },
     {

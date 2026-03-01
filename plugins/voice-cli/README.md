@@ -1,10 +1,10 @@
-# voice-me
+# voice-cli
 
-Claude Code plugin for [VoiceMe](https://github.com/Roxabi/voiceMe) — local AI voice generation and transcription.
+Claude Code plugin for [VoiceCLI](https://github.com/Roxabi/voiceCLI) — local AI voice generation and transcription.
 
 ## What It Does
 
-Gives Claude Code deep knowledge of the VoiceMe CLI so it can:
+Gives Claude Code deep knowledge of the VoiceCLI CLI so it can:
 
 - **Author TTS scripts** — write markdown files with correct frontmatter, per-section emotions, paralinguistic tags, and engine-appropriate settings
 - **Run voice commands** — generate speech, clone voices, transcribe audio, manage samples
@@ -16,7 +16,7 @@ Gives Claude Code deep knowledge of the VoiceMe CLI so it can:
 
 ```bash
 claude plugin marketplace add Roxabi/roxabi-plugins
-claude plugin install voice-me
+claude plugin install voice-cli
 ```
 
 ## Usage
@@ -33,7 +33,7 @@ Trigger phrases:
 ## When to Use
 
 - Writing TTS markdown scripts with emotional segments and paralinguistic tags
-- Running voiceme commands without memorizing flags and engine differences
+- Running voicecli commands without memorizing flags and engine differences
 - Choosing between Qwen, Qwen-Fast, Chatterbox Multilingual, and Chatterbox Turbo
 - Generating long texts with chunked progressive output
 - Managing voice samples and cloning workflows
@@ -41,9 +41,9 @@ Trigger phrases:
 
 ## How It Works
 
-The plugin embeds the full VoiceMe knowledge base: engine capability matrix, unified markdown format, CLI command reference, and workflow patterns. When triggered, Claude auto-discovers the voiceMe project directory and operates from there.
+The plugin embeds the full VoiceCLI knowledge base: engine capability matrix, unified markdown format, CLI command reference, and workflow patterns. When triggered, Claude auto-discovers the voiceCLI project directory and operates from there.
 
-The plugin does not include the AI models — those live in the voiceMe project. It provides the intelligence layer that lets Claude Code drive the voiceMe CLI effectively.
+The plugin does not include the AI models — those live in the voiceCLI project. It provides the intelligence layer that lets Claude Code drive the VoiceCLI CLI effectively.
 
 ## Engines at a Glance
 
@@ -56,6 +56,6 @@ The plugin does not include the AI models — those live in the voiceMe project.
 
 ## Requirements
 
-- [VoiceMe](https://github.com/Roxabi/voiceMe) installed locally
+- [VoiceCLI](https://github.com/Roxabi/voiceCLI) installed locally
 - Python 3.12 + uv
 - GPU with CUDA support (for model inference)
