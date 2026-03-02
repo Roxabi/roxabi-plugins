@@ -1,4 +1,5 @@
 import {
+  escHtml,
   issueRow,
   renderBranchCI,
   renderBranchesAndWorktrees,
@@ -10,8 +11,15 @@ import { buildDepGraph, renderDepGraph } from './graph'
 import { PAGE_STYLES } from './page-styles'
 import type { Branch, BranchCI, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './types'
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+const INITIAL_VISIBLE = 8
+
+function splitIssueRows(issues: Issue[]) {
+  return {
+    visibleRows: issues.slice(0, INITIAL_VISIBLE).map((i) => issueRow(i)).join(''),
+    hiddenRows: issues.slice(INITIAL_VISIBLE).map((i) => issueRow(i)).join(''),
+    hasMore: issues.length > INITIAL_VISIBLE,
+    hiddenCount: issues.length - INITIAL_VISIBLE,
+  }
 }
 
 function buildTabBar(projects: Array<{label: string, repo: string}>, activeTab: string): string {
@@ -21,7 +29,7 @@ function buildTabBar(projects: Array<{label: string, repo: string}>, activeTab: 
 }
 
 function buildProjectTab(label: string, repo: string, activeTab: string): string {
-  return `<button class="tab${label === activeTab ? ' active' : ''}" data-repo="${escapeHtml(label)}" data-slug="${escapeHtml(repo)}" onclick="switchTab('${escapeHtml(label)}')">${escapeHtml(label)}<span class="tab-close" onclick="event.stopPropagation();removeProject('${escapeHtml(repo)}')">&#215;</span></button>`
+  return `<button class="tab${label === activeTab ? ' active' : ''}" data-repo="${escHtml(label)}" data-slug="${escHtml(repo)}" onclick="switchTab('${escHtml(label)}')">${escHtml(label)}<span class="tab-close" onclick="event.stopPropagation();removeProject('${escHtml(repo)}')">&#215;</span></button>`
 }
 
 function buildAddButton(): string {
@@ -33,19 +41,15 @@ function buildAllView(byProject: Map<string, Issue[]>, issueTableFn: (issues: Is
     return '<div class="empty-state">No projects registered — click + to add one</div>'
   }
   return [...byProject.entries()].map(([label, issues]) =>
-    `<section class="project-group" data-project="${escapeHtml(label)}">
-      <h2 class="project-header">${escapeHtml(label)}</h2>
+    `<section class="project-group" data-project="${escHtml(label)}">
+      <h2 class="project-header">${escHtml(label)}</h2>
       ${issues.length === 0 ? '<p class="no-issues">No open issues</p>' : issueTableFn(issues)}
     </section>`
   ).join('\n')
 }
 
 function buildIssueTable(issues: Issue[]): string {
-  const INITIAL_VISIBLE = 8
-  const visibleRows = issues.slice(0, INITIAL_VISIBLE).map((i) => issueRow(i)).join('')
-  const hiddenRows = issues.slice(INITIAL_VISIBLE).map((i) => issueRow(i)).join('')
-  const hasMore = issues.length > INITIAL_VISIBLE
-  const hiddenCount = issues.length - INITIAL_VISIBLE
+  const { visibleRows, hiddenRows, hasMore, hiddenCount } = splitIssueRows(issues)
   return `<table>
     <thead>
       <tr>
@@ -125,17 +129,7 @@ export function buildHtml(
     : issues
   const totalCount = allIssues.reduce((sum, i) => sum + 1 + i.children.length, 0)
 
-  const INITIAL_VISIBLE = 8
-  const visibleRows = issues
-    .slice(0, INITIAL_VISIBLE)
-    .map((i) => issueRow(i))
-    .join('')
-  const hiddenRows = issues
-    .slice(INITIAL_VISIBLE)
-    .map((i) => issueRow(i))
-    .join('')
-  const hasMore = issues.length > INITIAL_VISIBLE
-  const hiddenCount = issues.length - INITIAL_VISIBLE
+  const { visibleRows, hiddenRows, hasMore, hiddenCount } = splitIssueRows(issues)
   const depNodes = buildDepGraph(allIssues)
   const depGraphHtml = renderDepGraph(depNodes, allIssues)
   const vercelHtml = renderVercelDeployments(deployments)
