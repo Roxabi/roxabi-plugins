@@ -48,5 +48,14 @@ export async function run(args: string[]): Promise<void> {
     stdio: ['inherit', 'inherit', 'inherit'],
   })
 
+  process.on('SIGINT', () => {
+    proc.kill('SIGINT')
+    process.exit(0)
+  })
+  process.on('SIGTERM', () => {
+    proc.kill('SIGTERM')
+    process.exit(0)
+  })
+
   process.exit(await proc.exited)
 }
