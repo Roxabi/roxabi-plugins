@@ -1,6 +1,6 @@
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
-import { dirname, join } from 'path'
+import { join } from 'path'
 
 const PID_FILE = join(homedir(), '.claude/plugins/cache/roxabi-marketplace/.dashboard.pid')
 
@@ -15,32 +15,11 @@ Options:
 `.trim()
 
 function resolveDashboardPath(): string {
-  // Prefer source-relative path (when running from repo directly)
-  const sourceRelative = join(dirname(import.meta.dir), 'skills/issues/dashboard.ts')
-  if (existsSync(sourceRelative)) return sourceRelative
-
-  // Fall back to cache
-  const base = join(homedir(), '.claude/plugins/cache/roxabi-marketplace/dev-core')
-  if (!existsSync(base)) {
-    console.error('dev-core plugin not found. Run: claude plugin install dev-core')
-    process.exit(1)
-  }
-
-  const dirs = readdirSync(base).filter(
-    (d) => !d.startsWith('.') && !existsSync(join(base, d, '.orphaned_at'))
-  )
-  if (!dirs.length) {
-    console.error('dev-core plugin cache is empty. Run: claude plugin install dev-core')
-    process.exit(1)
-  }
-
-  const latest = dirs.sort(
-    (a, b) => statSync(join(base, b)).mtimeMs - statSync(join(base, a)).mtimeMs
-  )[0]
-
-  const path = join(base, latest, 'skills/issues/dashboard.ts')
+  // Always resolve relative to this file: cli/commands/ → ../../skills/issues/
+  // Works from both source repo and plugin cache
+  const path = join(import.meta.dir, '../../skills/issues/dashboard.ts')
   if (!existsSync(path)) {
-    console.error(`dashboard.ts not found in cache: ${path}`)
+    console.error(`dashboard.ts not found: ${path}`)
     process.exit(1)
   }
   return path
