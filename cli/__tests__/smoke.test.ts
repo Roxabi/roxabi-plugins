@@ -12,4 +12,16 @@ describe('roxabi CLI smoke', () => {
     expect(out).toContain('workspace')
     expect(out).toContain('issues')
   })
+
+  it('dashboard --help prints usage without hanging', () => {
+    const r = spawnSync(['bun', 'run', 'cli/index.ts', 'dashboard', '--help'], {
+      cwd: REPO_ROOT,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const out = new TextDecoder().decode(r.stdout)
+    expect(out).toContain('--port')
+    expect(out).toContain('--poll')
+    expect(r.exitCode).toBe(0)
+  })
 })
