@@ -1,7 +1,8 @@
 import { GITHUB_REPO, PROJECT_ID } from '../../shared/config'
 import { ghGraphQL, run } from '../../shared/github'
-import { BRANCH_CI_QUERY, ISSUES_QUERY, PRS_QUERY } from '../../shared/queries'
+import { BRANCH_CI_QUERY, ISSUES_QUERY, PRS_QUERY, buildBatchedQuery, buildBatchedVariables } from '../../shared/queries'
 import type { RawItem } from '../../shared/types'
+
 import type {
   Branch,
   BranchCI,
@@ -13,6 +14,12 @@ import type {
   WorkflowRun,
   Worktree,
 } from './types'
+
+export interface WorkspaceProject {
+  repo: string
+  projectId: string
+  label: string
+}
 
 async function fetchPage(
   cursor?: string
@@ -45,8 +52,40 @@ export async function fetchAllItems(): Promise<RawItem[]> {
   return allItems
 }
 
-export async function fetchIssues(): Promise<Issue[]> {
-  const items = await fetchAllItems()
+/**
+ * Fetch all open issues for multiple workspace projects in a single batched GraphQL request.
+ * Returns a Map keyed by project label → RawItem[].
+ * Single HTTP request regardless of project count.
+ */
+export async function fetchAllProjects(
+  projects: WorkspaceProject[]
+): Promise<Map<string, RawItem[]>> {
+  if (projects.length === 0) return new Map()
+
+  const projectIds = projects.map((p) => p.projectId)
+  const query = buildBatchedQuery(projectIds)
+  const variables = buildBatchedVariables(projectIds)
+
+  const data = (await ghGraphQL(query, variables)) as {
+    data: Record<
+      string,
+      { items: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: RawItem[] } } | null
+    >
+  }
+
+  const result = new Map<string, RawItem[]>()
+  for (let i = 0; i < projects.length; i++) {
+    const node = data.data[`project${i}`]
+    const items = node?.items?.nodes ?? []
+    if (node?.items?.pageInfo?.hasNextPage) {
+      console.warn(`[dashboard] Project "${projects[i].label}" has >100 issues — only first 100 fetched. Full pagination tracked in S5.`)
+    }
+    result.set(projects[i].label, items)
+  }
+  return result
+}
+
+export function rawItemsToIssues(items: RawItem[]): Issue[] {
   const openItems = items.filter((i) => i.content?.state === 'OPEN')
 
   const field = (item: RawItem, name: string): string => {
@@ -128,6 +167,11 @@ export async function fetchIssues(): Promise<Issue[]> {
   })
 
   return roots
+}
+
+export async function fetchIssues(): Promise<Issue[]> {
+  const items = await fetchAllItems()
+  return rawItemsToIssues(items)
 }
 
 export { run }

@@ -1,0 +1,14 @@
+{
+  "name": "roxabi-cli",
+  "version": "0.1.0",
+  "description": "Roxabi CLI — multi-project GitHub Projects management for Claude Code",
+  "license": "MIT",
+  "bin": {
+    "roxabi": "./index.ts"
+  },
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

@@ -10,6 +10,102 @@ import { buildDepGraph, renderDepGraph } from './graph'
 import { PAGE_STYLES } from './page-styles'
 import type { Branch, BranchCI, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './types'
 
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function buildTabBar(projects: Array<{label: string, repo: string}>, activeTab: string): string {
+  const allTab = `<button class="tab${activeTab === 'All' ? ' active' : ''}" onclick="switchTab('All')">All</button>`
+  const projectTabs = projects.map(p => buildProjectTab(p.label, p.repo, activeTab)).join('\n')
+  return `<div class="tab-bar" id="tab-bar">${allTab}\n${projectTabs}\n${buildAddButton()}</div>`
+}
+
+function buildProjectTab(label: string, repo: string, activeTab: string): string {
+  return `<button class="tab${label === activeTab ? ' active' : ''}" data-repo="${escapeHtml(label)}" data-slug="${escapeHtml(repo)}" onclick="switchTab('${escapeHtml(label)}')">${escapeHtml(label)}<span class="tab-close" onclick="event.stopPropagation();removeProject('${escapeHtml(repo)}')">&#215;</span></button>`
+}
+
+function buildAddButton(): string {
+  return `<button class="tab add-btn" onclick="openAddDialog()" title="Add project">+</button>`
+}
+
+function buildAllView(byProject: Map<string, Issue[]>, issueTableFn: (issues: Issue[]) => string): string {
+  if (byProject.size === 0) {
+    return '<div class="empty-state">No projects registered — click + to add one</div>'
+  }
+  return [...byProject.entries()].map(([label, issues]) =>
+    `<section class="project-group" data-project="${escapeHtml(label)}">
+      <h2 class="project-header">${escapeHtml(label)}</h2>
+      ${issues.length === 0 ? '<p class="no-issues">No open issues</p>' : issueTableFn(issues)}
+    </section>`
+  ).join('\n')
+}
+
+function buildIssueTable(issues: Issue[]): string {
+  const INITIAL_VISIBLE = 8
+  const visibleRows = issues.slice(0, INITIAL_VISIBLE).map((i) => issueRow(i)).join('')
+  const hiddenRows = issues.slice(INITIAL_VISIBLE).map((i) => issueRow(i)).join('')
+  const hasMore = issues.length > INITIAL_VISIBLE
+  const hiddenCount = issues.length - INITIAL_VISIBLE
+  return `<table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Title</th>
+        <th>Status</th>
+        <th>Size</th>
+        <th>Pri</th>
+        <th>&#9889;</th>
+        <th>Deps</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${visibleRows}
+      ${hasMore ? `<tr><td colspan="7" style="text-align:center;padding:12px;">
+        <button class="show-more-btn" onclick="var tb=this.closest('table').querySelector('.hidden-issues-body');tb.style.display='';this.parentElement.parentElement.style.display='none';">
+          Show ${hiddenCount} more issue${hiddenCount > 1 ? 's' : ''}
+        </button>
+      </td></tr>` : ''}
+    </tbody>
+    <tbody class="hidden-issues-body" style="display:none;">
+      ${hiddenRows}
+      <tr><td colspan="7" style="text-align:center;padding:12px;">
+        <button class="show-more-btn" onclick="var tb=this.closest('table').querySelector('.hidden-issues-body');tb.style.display='none';">
+          Show less
+        </button>
+      </td></tr>
+    </tbody>
+  </table>`
+}
+
+function buildWorkspaceDialog(): string {
+  return `
+<dialog id="add-project-dialog">
+  <form method="dialog">
+    <h3>Add project to workspace</h3>
+    <label>Repo (owner/name): <input type="text" id="add-repo-input" placeholder="Roxabi/my-repo" /></label>
+    <div class="dialog-actions">
+      <button type="button" onclick="submitAddProject()">Add</button>
+      <button type="button" onclick="document.getElementById('add-project-dialog').close()">Cancel</button>
+    </div>
+  </form>
+</dialog>
+<script>
+function openAddDialog() { document.getElementById('add-project-dialog').showModal() }
+async function submitAddProject() {
+  var repo = document.getElementById('add-repo-input').value.trim()
+  if (!repo) return
+  var res = await fetch('/api/workspace/add', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({repo: repo}) })
+  var data = await res.json()
+  if (!data.ok) { alert('Error: ' + data.error); return }
+  document.getElementById('add-project-dialog').close()
+}
+async function removeProject(repo) {
+  if (!confirm('Remove ' + repo + ' from workspace?')) return
+  await fetch('/api/workspace/remove', {method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({repo: repo})})
+}
+<\/script>`
+}
+
 export function buildHtml(
   issues: Issue[],
   prs: PR[],
@@ -19,9 +115,15 @@ export function buildHtml(
   branchCI: BranchCI[],
   workflowRuns: WorkflowRun[],
   fetchMs: number,
-  updatedAt: number
+  updatedAt: number,
+  byProject?: Map<string, Issue[]>,
+  workspaceProjects?: Array<{label: string, repo: string}>
 ): string {
-  const totalCount = issues.reduce((sum, i) => sum + 1 + i.children.length, 0)
+  const isMultiProject = byProject !== undefined && byProject.size > 0
+  const allIssues = isMultiProject
+    ? [...byProject!.values()].flat()
+    : issues
+  const totalCount = allIssues.reduce((sum, i) => sum + 1 + i.children.length, 0)
 
   const INITIAL_VISIBLE = 8
   const visibleRows = issues
@@ -34,8 +136,8 @@ export function buildHtml(
     .join('')
   const hasMore = issues.length > INITIAL_VISIBLE
   const hiddenCount = issues.length - INITIAL_VISIBLE
-  const depNodes = buildDepGraph(issues)
-  const depGraphHtml = renderDepGraph(depNodes, issues)
+  const depNodes = buildDepGraph(allIssues)
+  const depGraphHtml = renderDepGraph(depNodes, allIssues)
   const vercelHtml = renderVercelDeployments(deployments)
   const wrHtml = renderWorkflowRuns(workflowRuns)
   const prsHtml = renderPRs(prs)
@@ -43,40 +145,13 @@ export function buildHtml(
   const ciHtml = renderBranchCI(branchCI)
   const showCI = shouldShowCI(branchCI)
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Issues Dashboard</title>
-<style>
-${PAGE_STYLES}
-${LIVE_STYLES}
-</style>
-</head>
-<body data-updated-at="${updatedAt}">
-  <header>
-    <h1>Issues Dashboard</h1>
-    <span id="issue-count" class="count">${totalCount} issues</span>
-    <span class="meta">
-      <span id="live-indicator" class="live-dot connecting" title="Connecting..."></span>
-      <span id="live-status">Connecting...</span>
-      &middot; <span id="fetch-time">Fetched in ${fetchMs}ms</span>
-    </span>
-  </header>
+  const tabBarHtml = isMultiProject
+    ? buildTabBar(workspaceProjects ?? [...byProject!.keys()].map(label => ({label, repo: label})), 'All')
+    : ''
 
-  <div id="section-vercel">${vercelHtml}</div>
-
-  <div id="section-workflow-runs">${wrHtml}</div>
-
-  <div id="section-ci">${showCI ? `<div class="section"><h2>CI Status</h2>${ciHtml}</div>` : ''}</div>
-
-  <div id="section-prs">${prs.length > 0 ? `<div class="section"><h2>Pull Requests</h2>${prsHtml}</div>` : ''}</div>
-
-  <div id="section-issues" class="section">
-    <h2>Issues</h2>
-  </div>
-  <table>
+  const issuesSectionHtml = isMultiProject
+    ? buildAllView(byProject!, buildIssueTable)
+    : `<table>
     <thead>
       <tr>
         <th>#</th>
@@ -108,7 +183,46 @@ ${LIVE_STYLES}
         </button>
       </td></tr>
     </tbody>
-  </table>
+  </table>`
+
+  const workspaceDialogHtml = isMultiProject ? buildWorkspaceDialog() : ''
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issues Dashboard</title>
+<style>
+${PAGE_STYLES}
+${LIVE_STYLES}
+</style>
+</head>
+<body data-updated-at="${updatedAt}">
+  <header>
+    <h1>Issues Dashboard</h1>
+    <span id="issue-count" class="count">${totalCount} issues</span>
+    <span class="meta">
+      <span id="live-indicator" class="live-dot connecting" title="Connecting..."></span>
+      <span id="live-status">Connecting...</span>
+      &middot; <span id="fetch-time">Fetched in ${fetchMs}ms</span>
+    </span>
+  </header>
+
+  ${tabBarHtml}
+
+  <div id="section-vercel">${vercelHtml}</div>
+
+  <div id="section-workflow-runs">${wrHtml}</div>
+
+  <div id="section-ci">${showCI ? `<div class="section"><h2>CI Status</h2>${ciHtml}</div>` : ''}</div>
+
+  <div id="section-prs">${prs.length > 0 ? `<div class="section"><h2>Pull Requests</h2>${prsHtml}</div>` : ''}</div>
+
+  <div id="section-issues" class="section">
+    <h2>Issues</h2>
+  </div>
+  ${issuesSectionHtml}
 
   <div class="legend">
     <span>\u26d4 blocked</span>
@@ -127,6 +241,8 @@ ${LIVE_STYLES}
     <h2>Branches &amp; Worktrees</h2>
     ${branchesHtml}
   </div>
+
+  ${workspaceDialogHtml}
 
   <!-- Context menu -->
   <div id="ctx-menu" class="ctx-menu">
@@ -153,6 +269,24 @@ ${LIVE_STYLES}
   <div id="toast" class="toast"></div>
 
   <script>
+  function switchTab(label) {
+    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+    document.querySelectorAll('.tab[data-repo]').forEach(function(t) {
+      if (t.dataset.repo === label) t.classList.add('active');
+    });
+    if (label === 'All') {
+      document.querySelectorAll('.tab:not([data-repo]):not(.add-btn)').forEach(function(t) {
+        if (t.textContent.trim() === 'All') t.classList.add('active');
+      });
+      document.querySelectorAll('.project-group').forEach(function(s) { s.style.display = ''; });
+      document.querySelectorAll('.single-project-view').forEach(function(s) { s.style.display = ''; });
+    } else {
+      document.querySelectorAll('.project-group').forEach(function(s) {
+        s.style.display = s.dataset.project === label ? '' : 'none';
+      });
+    }
+  }
+
   function toggleCI(id) {
     var row = document.getElementById(typeof id === 'number' ? 'ci-' + id : id);
     if (!row) return;
@@ -287,7 +421,7 @@ ${LIVE_STYLES}
       });
 
       // Patch issue tables
-      var selectors = ['#issues-visible', '#hidden-issues', '#section-vercel', '#section-workflow-runs', '#section-ci', '#section-prs', '#section-graph', '#section-branches', '#issue-count', '#fetch-time'];
+      var selectors = ['#tab-bar', '#issues-visible', '#hidden-issues', '#section-vercel', '#section-workflow-runs', '#section-ci', '#section-prs', '#section-graph', '#section-branches', '#issue-count', '#fetch-time'];
       for (var s = 0; s < selectors.length; s++) {
         var sel = selectors[s];
         var freshEl = freshDoc.querySelector(sel);
@@ -341,6 +475,12 @@ ${LIVE_STYLES}
             var parser = new DOMParser();
             var freshDoc = parser.parseFromString(html, 'text/html');
             patchDOM(freshDoc);
+            if (freshDoc.body && freshDoc.body.dataset.stale === 'true') {
+              var fetchTimeEl = document.getElementById('fetch-time');
+              if (fetchTimeEl && fetchTimeEl.textContent.indexOf('(stale)') === -1) {
+                fetchTimeEl.textContent += ' (stale)';
+              }
+            }
             refreshing = false;
           })
           .catch(function(err) {

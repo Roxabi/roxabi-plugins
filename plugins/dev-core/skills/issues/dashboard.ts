@@ -4,10 +4,11 @@
  * Usage: bun ${CLAUDE_PLUGIN_ROOT}/skills/issues/dashboard.ts [--port=3333] [--poll=60]
  *
  * Serves a live HTML dashboard of GitHub project issues.
- * Features: in-memory cache, background polling, SSE live updates.
+ * Features: in-memory cache, background polling, SSE live updates, multi-project workspace.
  */
 
 import {
+  fetchAllProjects,
   fetchBranchCI,
   fetchBranches,
   fetchIssues,
@@ -15,7 +16,9 @@ import {
   fetchVercelDeployments,
   fetchWorkflowRuns,
   fetchWorktrees,
+  rawItemsToIssues,
 } from './lib/fetch'
+import type { WorkspaceProject } from './lib/fetch'
 import { buildHtml } from './lib/page'
 import type {
   Branch,
@@ -27,6 +30,11 @@ import type {
   Worktree,
 } from './lib/types'
 import { handleUpdate } from './lib/update'
+import {
+  discoverProject,
+  readWorkspace,
+  writeWorkspace,
+} from '../../shared/workspace'
 
 const PORT = Number(process.argv.find((a) => a.startsWith('--port='))?.split('=')[1] ?? 3333)
 const POLL_MS =
@@ -36,7 +44,15 @@ const PID_FILE = `${import.meta.dirname}/.dashboard.pid`
 // ---------------------------------------------------------------------------
 // Cache
 // ---------------------------------------------------------------------------
-let cache: { html: string; hash: string; fetchMs: number; updatedAt: number } | null = null
+let cache: {
+  html: string
+  hash: string
+  fetchMs: number
+  updatedAt: number
+  byProject: Map<string, Issue[]> | null
+  workspaceHash: string
+  stale?: boolean
+} | null = null
 
 function computeHash(
   issues: Issue[],
@@ -72,24 +88,53 @@ function computeHash(
   return Bun.hash(key).toString(36)
 }
 
+function computeWorkspaceHash(projects: WorkspaceProject[]): string {
+  return Bun.hash(JSON.stringify(projects)).toString(36)
+}
+
 async function refreshCache(): Promise<void> {
   try {
     const start = performance.now()
-    const [issues, prs, branches, worktrees, deployments, branchCI, workflowRuns] =
-      await Promise.all([
-        fetchIssues(),
-        fetchPRs(),
-        fetchBranches(),
-        fetchWorktrees(),
-        fetchVercelDeployments(),
-        fetchBranchCI(),
-        fetchWorkflowRuns(),
-      ])
+
+    // Resolve issues — multi-project if workspace has projects, else single-project fallback
+    const ws = readWorkspace()
+    const newWorkspaceHash = computeWorkspaceHash(ws.projects)
+    let issues: Issue[]
+    let byProject: Map<string, Issue[]> | null = null
+
+    if (ws.projects.length > 0) {
+      const rawMap = await fetchAllProjects(ws.projects)
+      byProject = new Map<string, Issue[]>()
+      const allRaw: RawItem[] = []
+      for (const [label, rawItems] of rawMap) {
+        const projectIssues = rawItemsToIssues(rawItems)
+        byProject.set(label, projectIssues)
+        allRaw.push(...rawItems)
+      }
+      issues = rawItemsToIssues(allRaw)
+    } else {
+      issues = await fetchIssues()
+    }
+
+    const [prs, branches, worktrees, deployments, branchCI, workflowRuns] = await Promise.all([
+      fetchPRs(),
+      fetchBranches(),
+      fetchWorktrees(),
+      fetchVercelDeployments(),
+      fetchBranchCI(),
+      fetchWorkflowRuns(),
+    ])
+
     const fetchMs = Math.round(performance.now() - start)
     const hash = computeHash(issues, prs, branches, worktrees, deployments, branchCI, workflowRuns)
 
-    const changed = !cache || cache.hash !== hash
+    // Detect workspace change and notify clients even if issue data is unchanged
+    const workspaceChanged = !cache || cache.workspaceHash !== newWorkspaceHash
+    const dataChanged = !cache || cache.hash !== hash
+    const changed = dataChanged || workspaceChanged
+
     const updatedAt = Date.now()
+    const wsProjects = ws.projects.map(p => ({ label: p.label, repo: p.repo }))
     const html = buildHtml(
       issues,
       prs,
@@ -99,13 +144,19 @@ async function refreshCache(): Promise<void> {
       branchCI,
       workflowRuns,
       fetchMs,
-      updatedAt
+      updatedAt,
+      byProject ?? undefined,
+      wsProjects.length > 0 ? wsProjects : undefined
     )
-    cache = { html, hash, fetchMs, updatedAt }
+    cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
 
     if (changed) notifyClients()
   } catch (err) {
     console.error('[dashboard] refresh failed:', err instanceof Error ? err.message : err)
+    if (cache) {
+      cache.stale = true
+      notifyClients()
+    }
   }
 }
 
@@ -167,6 +218,7 @@ setInterval(refreshCache, POLL_MS)
 // ---------------------------------------------------------------------------
 const server = Bun.serve({
   port: PORT,
+  hostname: '127.0.0.1',
   idleTimeout: 255, // max — SSE connections are long-lived
   async fetch(req) {
     const url = new URL(req.url)
@@ -201,10 +253,66 @@ const server = Bun.serve({
       return response
     }
 
+    // Workspace: add a project
+    if (url.pathname === '/api/workspace/add' && req.method === 'POST') {
+      try {
+        const body = (await req.json()) as { repo?: string }
+        if (!body.repo) {
+          return Response.json({ ok: false, error: 'Missing repo field' }, { status: 400 })
+        }
+        const discovered = await discoverProject(body.repo)
+        if (discovered.length === 0) {
+          return Response.json(
+            { ok: false, error: `No GitHub Projects found for repo '${body.repo}'` },
+            { status: 400 }
+          )
+        }
+        // Auto-select the first project when only one is found; if multiple, pick first
+        const project = discovered[0]
+        const ws = readWorkspace()
+        const alreadyAdded = ws.projects.some((p) => p.projectId === project.projectId)
+        if (!alreadyAdded) {
+          ws.projects.push(project)
+          writeWorkspace(ws)
+        }
+        notifyClients()
+        refreshCache()
+        return Response.json({ ok: true, project })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return Response.json({ ok: false, error: msg }, { status: 400 })
+      }
+    }
+
+    // Workspace: remove a project
+    if (url.pathname === '/api/workspace/remove' && req.method === 'DELETE') {
+      try {
+        const body = (await req.json()) as { repo?: string }
+        if (!body.repo) {
+          return Response.json({ ok: false, error: 'Missing repo field' }, { status: 400 })
+        }
+        const ws = readWorkspace()
+        const before = ws.projects.length
+        ws.projects = ws.projects.filter((p) => p.repo !== body.repo)
+        if (ws.projects.length !== before) {
+          writeWorkspace(ws)
+          notifyClients()
+          refreshCache()
+        }
+        return Response.json({ ok: true })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return Response.json({ ok: false, error: msg }, { status: 400 })
+      }
+    }
+
     // Dashboard page
     try {
       if (!cache) await refreshCache()
-      return new Response(cache?.html, {
+      const html = cache?.stale
+        ? cache.html.replace('<body', '<body data-stale="true"')
+        : cache?.html
+      return new Response(html, {
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       })
     } catch (err) {
