@@ -19,7 +19,7 @@ Multi-platform URL scraper and content analysis engine for Claude Code. Extracts
 |----------|------|------------|
 | Twitter/X | x.com, twitter.com | text, author, thread reconstruction, articles |
 | GitHub | github.com | README, stars, forks, language, topics |
-| YouTube | youtube.com, youtu.be | title, transcript (with timestamps), duration |
+| YouTube | youtube.com, youtu.be | title, description, author, view/like counts, upload date, duration, tags, categories, chapters, transcript (with timestamps) |
 | Reddit | reddit.com, redd.it | post, top comments, score, subreddit |
 | Webpage | any HTTP(S) URL | extracted article text, title, author, metadata |
 
@@ -31,7 +31,7 @@ Multi-platform URL scraper and content analysis engine for Claude Code. Extracts
 Optional:
 - `gh` CLI (for GitHub repo scraping)
 - `playwright` (for Twitter/X articles): `uv sync --extra twitter && playwright install chromium`
-- `youtube-transcript-api` (for YouTube transcripts): `uv sync --extra youtube`
+- `yt-dlp` + `youtube-transcript-api` (for YouTube rich metadata + transcripts): `uv sync --extra youtube`
 - `trafilatura` (for generic webpage extraction): `uv sync --extra scraper`
 
 ## Setup
@@ -58,7 +58,8 @@ The doctor checks:
 **Optional** (per-platform):
 - `trafilatura` — generic webpage extraction
 - `playwright` + chromium — Twitter/X articles
-- `youtube-transcript-api` — YouTube transcripts
+- `yt-dlp` — YouTube rich metadata (description, view/like counts, upload date, tags, chapters, subtitles)
+- `youtube-transcript-api` — YouTube transcripts (fallback when yt-dlp has no subtitles)
 - `gh` CLI — GitHub repos and gists
 
 Doctor runs automatically on first use of any web-intel skill in a session. Run it manually at any time to diagnose issues.
@@ -94,7 +95,7 @@ scripts/
 │   ├── twitter.py       # Twitter/X (syndication API + FxTwitter + Playwright)
 │   ├── github.py        # GitHub (gh CLI)
 │   ├── gist.py          # GitHub Gists (gh API)
-│   ├── youtube.py       # YouTube (oEmbed + transcript API)
+│   ├── youtube.py       # YouTube (yt-dlp primary; oEmbed + transcript API fallback)
 │   ├── reddit.py        # Reddit (JSON API)
 │   └── generic.py       # Any webpage (Trafilatura)
 ├── utils/

@@ -56,7 +56,7 @@ Parse the JSON output. Present a clean summary:
 - **Title**: page/post/repo title
 - **Author**: if available
 - **Content preview**: first 500 chars of extracted text
-- **Metadata**: platform-specific fields (stars, score, transcript, etc.)
+- **Metadata**: platform-specific fields (stars, score, view_count, like_count, upload_date, tags, chapters, transcript, etc.)
 
 Show the full JSON in a `<details>` block for reference.
 
