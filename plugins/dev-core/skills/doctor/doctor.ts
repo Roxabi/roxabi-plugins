@@ -221,12 +221,19 @@ function checkProjectStructure(): Section {
   const allExist = artifactDirs.every((d) => require('fs').existsSync(`artifacts/${d}`))
   checks.push({ name: 'artifacts/', status: allExist ? 'pass' : 'fail', detail: allExist ? 'found' : 'missing subdirectories' })
 
-  // roxabi shim
+  // roxabi shim + PATH
   const home = require('os').homedir()
   const shimPaths = [`${home}/.local/bin/roxabi`, `${home}/bin/roxabi`]
-  const hasShim = shimPaths.some(p => require('fs').existsSync(p)) ||
-    spawnSync(['sh', '-c', 'command -v roxabi']).ok
-  checks.push({ name: 'roxabi CLI', status: hasShim ? 'pass' : 'warn', detail: hasShim ? 'in PATH' : 'not found — run /init to install' })
+  const inPath = spawnSync(['sh', '-c', 'command -v roxabi']).ok
+  const shimFile = shimPaths.find(p => require('fs').existsSync(p))
+  if (inPath) {
+    checks.push({ name: 'roxabi CLI', status: 'pass', detail: 'in PATH' })
+  } else if (shimFile) {
+    const shimDir = shimFile.substring(0, shimFile.lastIndexOf('/'))
+    checks.push({ name: 'roxabi CLI', status: 'warn', detail: `shim exists but not in PATH — add: export PATH="${shimDir.replace(home, '$HOME')}:$PATH"` })
+  } else {
+    checks.push({ name: 'roxabi CLI', status: 'warn', detail: 'not found — run /init to install' })
+  }
 
   return { name: 'Project', checks }
 }

@@ -25,6 +25,8 @@ export interface ScaffoldResult {
   envExampleWritten: boolean
   shimWritten: boolean
   shimPath: string
+  pathUpdated: boolean
+  pathFiles: string[]
   artifactsCreated: boolean
   gitignoreUpdated: boolean
   envVarCount: number
@@ -241,12 +243,33 @@ function writeShim(): { written: boolean; path: string } {
   }
 }
 
+function addShimDirToPath(shimPath: string): { updated: boolean; files: string[] } {
+  const shimDir = shimPath.substring(0, shimPath.lastIndexOf('/'))
+  const home = require('os').homedir()
+  const exportLine = `\nexport PATH="${shimDir.replace(home, '$HOME')}:$PATH"\n`
+  const rcFiles = ['.bashrc', '.zshrc', '.profile'].map(f => `${home}/${f}`)
+  const updated: string[] = []
+
+  for (const rc of rcFiles) {
+    try {
+      const existing = fs.existsSync(rc) ? fs.readFileSync(rc, 'utf8') : ''
+      if (existing.includes(shimDir) || existing.includes(shimDir.replace(home, '$HOME'))) continue
+      fs.appendFileSync(rc, exportLine)
+      updated.push(rc)
+    } catch {}
+  }
+
+  return { updated: updated.length > 0, files: updated }
+}
+
 export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
   const result: ScaffoldResult = {
     envWritten: false,
     envExampleWritten: false,
     shimWritten: false,
     shimPath: '',
+    pathUpdated: false,
+    pathFiles: [],
     artifactsCreated: false,
     gitignoreUpdated: false,
     envVarCount: 0,
@@ -267,10 +290,15 @@ export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
   fs.writeFileSync('.env.example', envExample)
   result.envExampleWritten = true
 
-  // roxabi shim
+  // roxabi shim + PATH
   const shim = writeShim()
   result.shimWritten = shim.written
   result.shimPath = shim.path
+  if (shim.written) {
+    const pathResult = addShimDirToPath(shim.path)
+    result.pathUpdated = pathResult.updated
+    result.pathFiles = pathResult.files
+  }
 
   // artifacts/
   for (const dir of ['artifacts/frames', 'artifacts/analyses', 'artifacts/specs', 'artifacts/plans']) {

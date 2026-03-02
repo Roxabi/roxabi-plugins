@@ -159,13 +159,14 @@ dev-core initialized
   CI/CD workflows   ✅ Created / ⏭ Skipped
   Branch protection ✅ Created / ⏭ Skipped
   roxabi shim       ✅ Installed (~/.local/bin/roxabi)
+  PATH              ✅ ~/.local/bin added to .bashrc/.zshrc  (or ⏭ already present)
   artifacts/        ✅ Created
   .gitignore        ✅ .env added
 
 Next steps:
   /stack-setup           Configure stack for agents (auto-discovers your project)
   /doctor                Verify full configuration health
-  roxabi dashboard       Launch the issues dashboard  (add ~/.local/bin to PATH if needed)
+  roxabi dashboard       Launch the issues dashboard  (restart shell or: source ~/.bashrc)
   /issues                View issues in CLI
   /dev #N                Start working on an issue
   /init --force          Re-configure anytime

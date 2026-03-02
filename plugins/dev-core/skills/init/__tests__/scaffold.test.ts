@@ -176,11 +176,15 @@ describe('scaffold', () => {
 
     expect(result.shimWritten).toBe(true)
     expect(result.shimPath).toContain('roxabi')
-    // Find the shim content via the resolved path
     const shimContent = writtenFiles[result.shimPath]
     expect(shimContent).toContain('dev-core')
     expect(shimContent).toContain('.orphaned_at')
     expect(shimContent).toContain('cli/index.ts')
+    // PATH update: appended to rc files
+    expect(result.pathUpdated).toBe(true)
+    expect(result.pathFiles.length).toBeGreaterThan(0)
+    const rcContent = writtenFiles[result.pathFiles[0]]
+    expect(rcContent).toContain('PATH')
   })
 
   it('adds .env to .gitignore if missing', async () => {
