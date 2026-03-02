@@ -89,7 +89,7 @@ Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan (default), Aiden, Ono_Anna, Sohee
 
 ## User Config (`voicecli.toml`)
 
-Optional file at project root for default settings:
+Optional file for default settings. **Discovery**: voicecli walks up from the CWD to `$HOME` looking for `voicecli.toml` — place it in a parent directory (e.g. `~/projects/voicecli.toml`) to share it across multiple projects. A warning is printed to stderr if no file is found anywhere.
 
 ```toml
 [defaults]

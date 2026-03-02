@@ -1,6 +1,6 @@
 # dev-core
 
-Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 19 skills, 9 specialized agents, and safety hooks.
+Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 20 skills, 9 specialized agents, and safety hooks.
 
 ## Prerequisites
 
@@ -69,6 +69,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 | `issues` | Supporting | Lists/dashboards GitHub issues — status, dependencies, backlog |
 | `issue-triage` | Supporting | Triages GitHub issues with labels/priority |
 | `adr` | Supporting | Creates Architecture Decision Records |
+| `doc-sync` | Supporting | Syncs CLAUDE.md, README.md, and plugin SKILL.md after a code change |
 
 ## Agents
 
