@@ -307,7 +307,7 @@ def fetch_transcript(video_id: str, languages: Optional[list[str]] = None) -> di
         transcript_lang = None
 
         try:
-            transcript_list = api.list_transcripts(video_id)
+            transcript_list = api.list(video_id)
 
             for lang in languages:
                 try:
@@ -324,7 +324,7 @@ def fetch_transcript(video_id: str, languages: Optional[list[str]] = None) -> di
                 except Exception:
                     pass
         except Exception:
-            transcript = api.fetch(video_id)
+            transcript = api.fetch(video_id, languages=languages)
             transcript_lang = "unknown"
 
         if not transcript:
