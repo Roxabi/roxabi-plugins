@@ -221,13 +221,9 @@ function checkProjectStructure(): Section {
   const allExist = artifactDirs.every((d) => require('fs').existsSync(`artifacts/${d}`))
   checks.push({ name: 'artifacts/', status: allExist ? 'pass' : 'fail', detail: allExist ? 'found' : 'missing subdirectories' })
 
-  // dashboard script
-  let hasDashboard = false
-  try {
-    const pkg = JSON.parse(require('fs').readFileSync('package.json', 'utf8'))
-    hasDashboard = !!pkg.scripts?.dashboard
-  } catch {}
-  checks.push({ name: 'dashboard script', status: hasDashboard ? 'pass' : 'fail', detail: hasDashboard ? 'found' : 'missing in package.json' })
+  // dashboard launcher
+  const hasLauncher = require('fs').existsSync('.claude/run-dashboard.ts')
+  checks.push({ name: 'run-dashboard.ts', status: hasLauncher ? 'pass' : 'warn', detail: hasLauncher ? 'found' : 'missing — run /init to create' })
 
   return { name: 'Project', checks }
 }

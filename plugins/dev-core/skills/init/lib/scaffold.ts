@@ -1,6 +1,6 @@
 /**
  * Scaffold dev-core configuration files.
- * Handles .env merge, .env.example, package.json update, artifacts dirs, .gitignore.
+ * Handles .env merge, .env.example, run-dashboard.ts launcher, artifacts dirs, .gitignore.
  */
 
 const fs = require('fs')
@@ -23,7 +23,7 @@ export interface ScaffoldOpts {
 export interface ScaffoldResult {
   envWritten: boolean
   envExampleWritten: boolean
-  packageJsonUpdated: boolean
+  launcherWritten: boolean
   artifactsCreated: boolean
   gitignoreUpdated: boolean
   envVarCount: number
@@ -220,19 +220,10 @@ await import(join(base, latest, 'skills/issues/dashboard.ts'))
 
 const LAUNCHER_PATH = '.claude/run-dashboard.ts'
 
-function writeLauncherAndUpdatePkg(force: boolean): boolean {
+function writeLauncher(): boolean {
   try {
     fs.mkdirSync('.claude', { recursive: true })
     fs.writeFileSync(LAUNCHER_PATH, LAUNCHER_CONTENT)
-
-    const raw = fs.readFileSync('package.json', 'utf8')
-    const pkg = JSON.parse(raw)
-    if (!pkg.scripts) pkg.scripts = {}
-    if (pkg.scripts.dashboard && !force) return false
-
-    pkg.scripts.dashboard = `bun ${LAUNCHER_PATH}`
-    const indent = raw.match(/^(\s+)/m)?.[1] ?? '  '
-    fs.writeFileSync('package.json', JSON.stringify(pkg, null, indent) + '\n')
     return true
   } catch {
     return false
@@ -243,7 +234,7 @@ export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
   const result: ScaffoldResult = {
     envWritten: false,
     envExampleWritten: false,
-    packageJsonUpdated: false,
+    launcherWritten: false,
     artifactsCreated: false,
     gitignoreUpdated: false,
     envVarCount: 0,
@@ -264,8 +255,8 @@ export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
   fs.writeFileSync('.env.example', envExample)
   result.envExampleWritten = true
 
-  // package.json + launcher
-  result.packageJsonUpdated = writeLauncherAndUpdatePkg(opts.force)
+  // launcher
+  result.launcherWritten = writeLauncher()
 
   // artifacts/
   for (const dir of ['artifacts/frames', 'artifacts/analyses', 'artifacts/specs', 'artifacts/plans']) {

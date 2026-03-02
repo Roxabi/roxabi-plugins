@@ -160,9 +160,7 @@ describe('scaffold', () => {
     expect(writtenFiles['.env.example']).not.toContain('old/repo')
   })
 
-  it('writes launcher and updates package.json dashboard script', async () => {
-    mockFs['package.json'] = '{"scripts": {}}'
-
+  it('writes run-dashboard.ts launcher', async () => {
     const { scaffold } = await import('../lib/scaffold')
     const result = await scaffold({
       githubRepo: 'Org/repo',
@@ -176,9 +174,7 @@ describe('scaffold', () => {
       force: false,
     })
 
-    expect(result.packageJsonUpdated).toBe(true)
-    const pkg = JSON.parse(writtenFiles['package.json'])
-    expect(pkg.scripts.dashboard).toBe('bun .claude/run-dashboard.ts')
+    expect(result.launcherWritten).toBe(true)
     expect(writtenFiles['.claude/run-dashboard.ts']).toContain('dev-core')
     expect(writtenFiles['.claude/run-dashboard.ts']).toContain('.orphaned_at')
   })

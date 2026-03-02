@@ -1,14 +1,14 @@
 ---
 name: init
 argument-hint: '[--force]'
-description: 'Initialize project for dev-core — auto-detect GitHub Project V2, set up dashboard, env vars, artifacts. Triggers: "init" | "setup dev-core" | "initialize dev-core".'
+description: 'Initialize project for dev-core — auto-detect GitHub Project V2, set up dashboard launcher, env vars, artifacts. Triggers: "init" | "setup dev-core" | "initialize dev-core".'
 version: 0.3.0
 allowed-tools: Bash
 ---
 
 # Init
 
-Configure the current project to work with dev-core. Auto-detects GitHub repo, Project V2 board, field IDs, and optionally Vercel integration. Writes `.env`, `.env.example`, dashboard script in `package.json`, and creates the `artifacts/` directory.
+Configure the current project to work with dev-core. Auto-detects GitHub repo, Project V2 board, field IDs, and optionally Vercel integration. Writes `.env`, `.env.example`, `.claude/run-dashboard.ts` launcher, and creates the `artifacts/` directory.
 
 Safe to re-run — merges with existing config unless `--force` is used.
 
@@ -21,15 +21,7 @@ Set `INIT_TS="${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts"` and `DOCTOR_TS="${CLAU
 ### Phase 1 — Parse Input + Idempotency
 
 1. Check if `$ARGUMENTS` contains `--force`. Store as `FORCE` flag.
-2. Check for `package.json`: `test -f package.json && echo found || echo missing`
-   - If missing: this is likely a Python or non-JS project. Create a minimal one so dev-core tooling (dashboard) works:
-     ```json
-     { "name": "<repo-name>-devtools", "private": true, "scripts": {} }
-     ```
-     where `<repo-name>` is derived from the git remote or current directory name.
-     Display: "Created minimal `package.json` for dev-core tooling ✅"
-   - Continue normally — the scaffold step will add the `dashboard` script.
-3. If not force, check for existing dev-core config: `grep -c 'dev-core' .env 2>/dev/null || echo "0"`. If > 0, AskUserQuestion: **Re-configure** (same as --force) | **Skip** (abort).
+2. If not force, check for existing dev-core config: `grep -c 'dev-core' .env 2>/dev/null || echo "0"`. If > 0, AskUserQuestion: **Re-configure** (same as --force) | **Skip** (abort).
 
 ### Phase 2 — Prerequisites
 
@@ -148,7 +140,7 @@ If "Edit a value", ask which value to change, accept new value, re-display, re-c
 
 Run: `bun $INIT_TS scaffold --github-repo <owner/repo> --project-id <PVT_...> --status-field-id <PVTSSF_...> --size-field-id <PVTSSF_...> --priority-field-id <PVTSSF_...> --status-options-json '<json>' --size-options-json '<json>' --priority-options-json '<json>' [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
 
-The scaffold step writes `.claude/run-dashboard.ts` — a self-healing launcher that resolves the latest active dev-core plugin cache at runtime, so `bun dashboard` keeps working after plugin updates without re-running `/init`.
+The scaffold step writes `.claude/run-dashboard.ts` — a self-healing launcher that resolves the latest active dev-core plugin cache at runtime, so `roxabi dashboard` keeps working after plugin updates without re-running `/init`.
 
 ### Phase 6 — Report
 
@@ -166,14 +158,14 @@ dev-core initialized
   Project workflows ✅ N enabled / ⏭ Skipped
   CI/CD workflows   ✅ Created / ⏭ Skipped
   Branch protection ✅ Created / ⏭ Skipped
-  package.json      ✅ "dashboard" script added
+  run-dashboard.ts  ✅ Written (.claude/run-dashboard.ts)
   artifacts/        ✅ Created
   .gitignore        ✅ .env added
 
 Next steps:
   /stack-setup           Configure stack for agents (auto-discovers your project)
   /doctor                Verify full configuration health
-  bun run dashboard      Launch the issues dashboard
+  roxabi dashboard       Launch the issues dashboard
   /issues                View issues in CLI
   /dev #N                Start working on an issue
   /init --force          Re-configure anytime
