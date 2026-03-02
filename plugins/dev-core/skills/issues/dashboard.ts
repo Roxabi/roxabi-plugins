@@ -29,12 +29,15 @@ import type {
   WorkflowRun,
   Worktree,
 } from './lib/types'
+
 import { handleUpdate } from './lib/update'
 import {
   discoverProject,
   readWorkspace,
   writeWorkspace,
 } from '../shared/workspace'
+
+type ProjectMeta = { prs: PR[]; branchCI: BranchCI[]; workflowRuns: WorkflowRun[] }
 
 const PORT = Number(process.argv.find((a) => a.startsWith('--port='))?.split('=')[1] ?? 3333)
 const POLL_MS =
@@ -101,17 +104,42 @@ async function refreshCache(): Promise<void> {
     const newWorkspaceHash = computeWorkspaceHash(ws.projects)
     let issues: Issue[]
     let byProject: Map<string, Issue[]> | null = null
+    let byProjectMeta: Map<string, ProjectMeta> | null = null
 
     if (ws.projects.length > 0) {
-      const rawMap = await fetchAllProjects(ws.projects)
+      const [rawMap, metaResults, branches_, worktrees_, deployments_] = await Promise.all([
+        fetchAllProjects(ws.projects),
+        Promise.all(ws.projects.map(async (p) => ({
+          label: p.label,
+          prs: await fetchPRs(p.repo),
+          branchCI: await fetchBranchCI(p.repo),
+          workflowRuns: await fetchWorkflowRuns(p.repo),
+        }))),
+        fetchBranches(),
+        fetchWorktrees(),
+        fetchVercelDeployments(),
+      ])
+
       byProject = new Map<string, Issue[]>()
-      const allRaw: RawItem[] = []
       for (const [label, rawItems] of rawMap) {
-        const projectIssues = rawItemsToIssues(rawItems)
-        byProject.set(label, projectIssues)
-        allRaw.push(...rawItems)
+        byProject.set(label, rawItemsToIssues(rawItems))
       }
-      issues = rawItemsToIssues(allRaw)
+      issues = [...byProject.values()].flat()
+      byProjectMeta = new Map(metaResults.map((m) => [m.label, { prs: m.prs, branchCI: m.branchCI, workflowRuns: m.workflowRuns }]))
+
+      const prs = metaResults.flatMap((m) => m.prs)
+      const branchCI = metaResults.flatMap((m) => m.branchCI)
+      const workflowRuns = metaResults.flatMap((m) => m.workflowRuns)
+      const fetchMs = Math.round(performance.now() - start)
+      const hash = computeHash(issues, prs, branches_, worktrees_, deployments_, branchCI, workflowRuns)
+      const workspaceChanged = !cache || cache.workspaceHash !== newWorkspaceHash
+      const changed = workspaceChanged || !cache || cache.hash !== hash
+      const updatedAt = Date.now()
+      const wsProjects = ws.projects.map(p => ({ label: p.label, repo: p.repo }))
+      const html = buildHtml(issues, prs, branches_, worktrees_, deployments_, branchCI, workflowRuns, fetchMs, updatedAt, byProject, wsProjects, byProjectMeta)
+      cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
+      if (changed) notifyClients()
+      return
     } else {
       issues = await fetchIssues()
     }

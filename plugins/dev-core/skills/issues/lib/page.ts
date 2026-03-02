@@ -39,11 +39,21 @@ function buildAddButton(): string {
   return `<button class="tab add-btn" onclick="openAddDialog()" title="Add project">+</button>`
 }
 
-function buildAllView(byProject: Map<string, Issue[]>): string {
+type ProjectMeta = { prs: PR[]; branchCI: BranchCI[]; workflowRuns: WorkflowRun[] }
+
+function buildAllView(byProject: Map<string, Issue[]>, byProjectMeta?: Map<string, ProjectMeta>): string {
   if (byProject.size === 0) {
     return '<div class="empty-state">No projects registered — click + to add one</div>'
   }
   return [...byProject.entries()].map(([label, issues]) => {
+    const meta = byProjectMeta?.get(label)
+    const prsSection = meta && meta.prs.length > 0
+      ? `<div class="section"><h3>Pull Requests</h3>${renderPRs(meta.prs)}</div>`
+      : ''
+    const ciSection = meta && shouldShowCI(meta.branchCI)
+      ? `<div class="section"><h3>CI Status</h3>${renderBranchCI(meta.branchCI)}</div>`
+      : ''
+    const wrSection = meta ? renderWorkflowRuns(meta.workflowRuns) : ''
     const depNodes = buildDepGraph(issues)
     const graphHtml = depNodes.length > 0
       ? `<div class="section graph-subsection">
@@ -54,6 +64,9 @@ function buildAllView(byProject: Map<string, Issue[]>): string {
     return `<section class="project-group" data-project="${escHtml(label)}">
       <h2 class="project-header">${escHtml(label)}</h2>
       ${issues.length === 0 ? '<p class="no-issues">No open issues</p>' : buildIssueTable(issues)}
+      ${prsSection}
+      ${ciSection}
+      ${wrSection}
       ${graphHtml}
     </section>`
   }).join('\n')
@@ -132,7 +145,8 @@ export function buildHtml(
   fetchMs: number,
   updatedAt: number,
   byProject?: Map<string, Issue[]>,
-  workspaceProjects?: Array<{label: string, repo: string}>
+  workspaceProjects?: Array<{label: string, repo: string}>,
+  byProjectMeta?: Map<string, ProjectMeta>
 ): string {
   const isMultiProject = byProject !== undefined && byProject.size > 0
   const allIssues = isMultiProject
@@ -155,7 +169,7 @@ export function buildHtml(
     : ''
 
   const issuesSectionHtml = isMultiProject
-    ? buildAllView(byProject!)
+    ? buildAllView(byProject!, byProjectMeta)
     : `<table>
     <thead>
       <tr>
@@ -218,11 +232,11 @@ ${LIVE_STYLES}
 
   <div id="section-vercel">${vercelHtml}</div>
 
-  <div id="section-workflow-runs">${wrHtml}</div>
+  <div id="section-workflow-runs">${isMultiProject ? '' : wrHtml}</div>
 
-  <div id="section-ci">${showCI ? `<div class="section"><h2>CI Status</h2>${ciHtml}</div>` : ''}</div>
+  <div id="section-ci">${!isMultiProject && showCI ? `<div class="section"><h2>CI Status</h2>${ciHtml}</div>` : ''}</div>
 
-  <div id="section-prs">${prs.length > 0 ? `<div class="section"><h2>Pull Requests</h2>${prsHtml}</div>` : ''}</div>
+  <div id="section-prs">${!isMultiProject && prs.length > 0 ? `<div class="section"><h2>Pull Requests</h2>${prsHtml}</div>` : ''}</div>
 
   <div id="section-issues" class="section">
     <h2>Issues</h2>

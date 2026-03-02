@@ -187,9 +187,9 @@ interface RawPRNode {
   }
 }
 
-export async function fetchPRs(): Promise<PR[]> {
+export async function fetchPRs(repoSlug: string = GITHUB_REPO): Promise<PR[]> {
   try {
-    const [owner, repo] = GITHUB_REPO.split('/')
+    const [owner, repo] = repoSlug.split('/')
     const data = (await ghGraphQL(PRS_QUERY, { owner, repo })) as {
       data: { repository: { pullRequests: { nodes: RawPRNode[] } } }
     }
@@ -384,9 +384,9 @@ interface RawBranchRef {
   } | null
 }
 
-export async function fetchBranchCI(): Promise<BranchCI[]> {
+export async function fetchBranchCI(repoSlug: string = GITHUB_REPO): Promise<BranchCI[]> {
   try {
-    const [owner, repo] = GITHUB_REPO.split('/')
+    const [owner, repo] = repoSlug.split('/')
     const data = (await ghGraphQL(BRANCH_CI_QUERY, { owner, repo })) as {
       data: { repository: { main: RawBranchRef | null; staging: RawBranchRef | null } }
     }
@@ -473,12 +473,12 @@ function getGitHubToken(): string {
   return ''
 }
 
-export async function fetchWorkflowRuns(): Promise<WorkflowRun[]> {
+export async function fetchWorkflowRuns(repoSlug: string = GITHUB_REPO): Promise<WorkflowRun[]> {
   const token = getGitHubToken()
   if (!token) return []
 
   try {
-    const url = `https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/deploy-preview.yml/runs?per_page=10`
+    const url = `https://api.github.com/repos/${repoSlug}/actions/workflows/deploy-preview.yml/runs?per_page=10`
     const res = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
