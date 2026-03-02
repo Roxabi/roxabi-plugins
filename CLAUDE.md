@@ -50,7 +50,7 @@ The file has two parts: a YAML frontmatter header and a markdown body with instr
 - `name` — the skill identifier, in kebab-case (e.g. `memory-audit`)
 - `description` — one-line purpose followed by `Triggers: "phrase1" | "phrase2"`. This is how Claude decides when to activate the skill, so be specific
 - `version` — semantic version starting at `0.1.0`
-- `allowed-tools` — comma-separated list of tools the skill can use (e.g. `Read, Edit, Write, Bash, Glob, AskUserQuestion`)
+- `allowed-tools` — comma-separated list of tools the skill can use (e.g. `Read, Edit, Write, Bash, Glob`). **Never include `AskUserQuestion`** — it is not a valid tool and will cause a bug.
 
 **Example frontmatter:**
 
@@ -59,7 +59,7 @@ The file has two parts: a YAML frontmatter header and a markdown body with instr
 name: memory-audit
 description: 'Audit and drain Claude Code auto-memory — every entry gets resolved (fix/promote/relocate/delete), target is memory=0. Triggers: "memory-audit" | "audit memory" | "clean memory" | "prune memory" | "drain memory".'
 version: 0.1.0
-allowed-tools: Read, Edit, Write, Bash, Glob, AskUserQuestion
+allowed-tools: Read, Edit, Write, Bash, Glob
 ---
 ```
 
@@ -213,21 +213,35 @@ if vault_healthy():
 
 The installed (running) copies live in the plugin cache at `~/.claude/plugins/cache/roxabi-marketplace/<plugin-name>/<hash>/`. These are independent copies — editing one does not update the other.
 
+### How the cache works
+
+Each project that has a plugin installed uses a specific cache dir identified by a hash (e.g. `6011eb380f4f`). Multiple projects can have different hashes for the same plugin, and old hashes accumulate over time. **Editing the source never touches the cache automatically.**
+
 ### Workflow
 
 1. **Edit the repo source first** — `plugins/<plugin-name>/skills/...`, `plugins/<plugin-name>/agents/...`, etc.
-2. **Propagate to the active cache** — sync changes so the running plugin reflects the edits:
+2. **Commit and push.**
+3. **Propagate to all projects** — run this script from the repo root to sync every plugin into every cache dir:
    ```bash
-   rsync -av --exclude='__tests__' --exclude='node_modules' --exclude='.orphaned_at' --exclude='.dashboard.pid' \
-     plugins/<plugin-name>/ ~/.claude/plugins/cache/roxabi-marketplace/<plugin-name>/<hash>/
+   REPO=~/projects/roxabi-plugins
+   CACHE=~/.claude/plugins/cache/roxabi-marketplace
+   for plugin_dir in "$REPO/plugins"/*/; do
+     plugin=$(basename "$plugin_dir")
+     [ -d "$CACHE/$plugin" ] && for h in "$CACHE/$plugin"/*/; do
+       rsync -a --exclude='__tests__' --exclude='node_modules' --exclude='.orphaned_at' --exclude='.dashboard.pid' \
+         "$plugin_dir" "$h"
+     done
+   done
    ```
-3. **Find the active cache hash** — when a skill runs, `$CLAUDE_PLUGIN_ROOT` contains the full cache path (e.g. `~/.claude/plugins/cache/roxabi-marketplace/dev-core/6011eb380f4f/skills/init`). The hash segment (`6011eb380f4f`) identifies the active cache directory.
+   This covers all projects at once — no need to visit each one individually.
+
+**Find the active cache hash** — when a skill runs, `$CLAUDE_PLUGIN_ROOT` contains the full cache path (e.g. `~/.claude/plugins/cache/roxabi-marketplace/dev-core/6011eb380f4f/skills/init`). The hash segment (`6011eb380f4f`) identifies the active cache directory if you need to target a single one.
 
 ### Rules
 
 - **Never edit only the cache** — changes are lost on plugin update/reinstall
 - **Always commit repo source** — the cache is ephemeral, the repo is permanent
-- **Propagate after every edit** — so the running plugin matches the committed source
+- **Run the sync script after every push** — so all projects immediately get the latest version
 
 ## Style
 
