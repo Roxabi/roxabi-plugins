@@ -39,16 +39,24 @@ function buildAddButton(): string {
   return `<button class="tab add-btn" onclick="openAddDialog()" title="Add project">+</button>`
 }
 
-function buildAllView(byProject: Map<string, Issue[]>, issueTableFn: (issues: Issue[]) => string): string {
+function buildAllView(byProject: Map<string, Issue[]>): string {
   if (byProject.size === 0) {
     return '<div class="empty-state">No projects registered — click + to add one</div>'
   }
-  return [...byProject.entries()].map(([label, issues]) =>
-    `<section class="project-group" data-project="${escHtml(label)}">
+  return [...byProject.entries()].map(([label, issues]) => {
+    const depNodes = buildDepGraph(issues)
+    const graphHtml = depNodes.length > 0
+      ? `<div class="section graph-subsection">
+        <h3>Dependency Graph</h3>
+        <div class="graph-container">${renderDepGraph(depNodes, issues)}</div>
+      </div>`
+      : ''
+    return `<section class="project-group" data-project="${escHtml(label)}">
       <h2 class="project-header">${escHtml(label)}</h2>
-      ${issues.length === 0 ? '<p class="no-issues">No open issues</p>' : issueTableFn(issues)}
+      ${issues.length === 0 ? '<p class="no-issues">No open issues</p>' : buildIssueTable(issues)}
+      ${graphHtml}
     </section>`
-  ).join('\n')
+  }).join('\n')
 }
 
 function buildIssueTable(issues: Issue[]): string {
@@ -133,8 +141,8 @@ export function buildHtml(
   const totalCount = allIssues.reduce((sum, i) => sum + 1 + i.children.length, 0)
 
   const { visibleRows, hiddenRows, hasMore, hiddenCount } = splitIssueRows(issues)
-  const depNodes = buildDepGraph(allIssues)
-  const depGraphHtml = renderDepGraph(depNodes, allIssues)
+  const depNodes = isMultiProject ? [] : buildDepGraph(allIssues)
+  const depGraphHtml = isMultiProject ? '' : renderDepGraph(depNodes, allIssues)
   const vercelHtml = renderVercelDeployments(deployments)
   const wrHtml = renderWorkflowRuns(workflowRuns)
   const prsHtml = renderPRs(prs)
@@ -147,7 +155,7 @@ export function buildHtml(
     : ''
 
   const issuesSectionHtml = isMultiProject
-    ? buildAllView(byProject!, buildIssueTable)
+    ? buildAllView(byProject!)
     : `<table>
     <thead>
       <tr>
@@ -227,12 +235,10 @@ ${LIVE_STYLES}
     <span>\u2705 ready</span>
   </div>
 
-  <div id="section-graph" class="section">
+  <div id="section-graph">${isMultiProject ? '' : `<div class="section">
     <h2>Dependency Graph</h2>
-    <div class="graph-container">
-      ${depGraphHtml}
-    </div>
-  </div>
+    <div class="graph-container">${depGraphHtml}</div>
+  </div>`}</div>
 
   <div id="section-branches" class="section">
     <h2>Branches &amp; Worktrees</h2>
