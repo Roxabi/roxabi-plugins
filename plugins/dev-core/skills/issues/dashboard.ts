@@ -34,7 +34,7 @@ import {
   discoverProject,
   readWorkspace,
   writeWorkspace,
-} from '../../shared/workspace'
+} from '../shared/workspace'
 
 const PORT = Number(process.argv.find((a) => a.startsWith('--port='))?.split('=')[1] ?? 3333)
 const POLL_MS =
