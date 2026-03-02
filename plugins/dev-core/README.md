@@ -30,7 +30,7 @@ After installing, run init to configure your project:
 /init
 ```
 
-Auto-detects your GitHub repo, Project V2 board, and field IDs. Writes `.env`, sets up the `dashboard` script in `package.json`, and creates the `artifacts/` directory. Works for JS, Python, and other project types — creates a minimal `package.json` if none exists. Re-run with `/init --force` to reconfigure.
+Auto-detects your GitHub repo, Project V2 board, and field IDs. Writes `.env`, generates `.claude/run-dashboard.ts` (a self-healing launcher that survives plugin updates), sets up the `dashboard` script in `package.json`, and creates the `artifacts/` directory. Works for JS, Python, and other project types — creates a minimal `package.json` if none exists. Re-run with `/init --force` to reconfigure.
 
 Then configure the agent stack:
 
