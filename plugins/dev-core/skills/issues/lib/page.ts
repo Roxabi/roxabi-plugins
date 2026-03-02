@@ -280,14 +280,10 @@ ${LIVE_STYLES}
       });
       document.querySelectorAll('.project-group').forEach(function(s) {
         s.style.display = '';
-        // Collapse hidden rows back when returning to All view
-        var hiddenBody = s.querySelector('.hidden-issues-body');
-        if (hiddenBody) hiddenBody.style.display = 'none';
-        var firstTbody = s.querySelector('tbody:not(.hidden-issues-body)');
-        if (firstTbody) {
-          var lastTr = firstTbody.querySelector('tr:last-child');
-          if (lastTr && lastTr.querySelector('.show-more-btn')) lastTr.style.display = '';
-        }
+        s.querySelectorAll('.hidden-issues-body').forEach(function(b) { b.style.display = 'none'; });
+        s.querySelectorAll('tbody:not(.hidden-issues-body) tr').forEach(function(tr) {
+          if (tr.querySelector('.show-more-btn')) tr.style.display = '';
+        });
       });
       document.querySelectorAll('.single-project-view').forEach(function(s) { s.style.display = ''; });
     } else {
@@ -295,14 +291,10 @@ ${LIVE_STYLES}
         var isActive = s.dataset.project === label;
         s.style.display = isActive ? '' : 'none';
         if (isActive) {
-          // Auto-expand all issues when focusing a single project
-          var hiddenBody = s.querySelector('.hidden-issues-body');
-          if (hiddenBody) hiddenBody.style.display = '';
-          var firstTbody = s.querySelector('tbody:not(.hidden-issues-body)');
-          if (firstTbody) {
-            var lastTr = firstTbody.querySelector('tr:last-child');
-            if (lastTr && lastTr.querySelector('.show-more-btn')) lastTr.style.display = 'none';
-          }
+          s.querySelectorAll('.hidden-issues-body').forEach(function(b) { b.style.display = ''; });
+          s.querySelectorAll('tbody:not(.hidden-issues-body) tr').forEach(function(tr) {
+            if (tr.querySelector('.show-more-btn')) tr.style.display = 'none';
+          });
         }
       });
     }
