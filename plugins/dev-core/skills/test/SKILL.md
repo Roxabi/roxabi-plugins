@@ -52,7 +52,7 @@ If no testable files are found, inform the user and stop.
 
 **MUST read `docs/standards/testing.mdx` before generating any test code.** This document contains the project's framework configuration, AAA pattern requirements, mocking strategies, and coverage targets.
 
-**Framework:** This project uses **Vitest**. Always import explicitly:
+**Framework:** This project uses **Vitest** syntax running on **Bun**'s test runner. Always import explicitly:
 
 ```typescript
 import { describe, it, expect, vi } from 'vitest'
@@ -63,6 +63,17 @@ Use **Glob** to search for `*.test.ts` and `*.spec.ts` files in the same or near
 - Mocking approach (`vi.mock`, `vi.fn()`, manual mocks)
 - Assertion style (`expect().toBe()`, `expect().toEqual()`, etc.)
 - File naming convention (`.test.ts` for unit/integration, `.spec.ts` for E2E)
+
+**Bun compat constraints** (Bun implements Vitest API partially):
+
+| Avoid | Use instead |
+|-------|------------|
+| `vi.mocked(fn)` | `fn as ReturnType<typeof vi.fn>` |
+| `vi.stubGlobal('fetch', mock)` | `globalThis.fetch = mock as typeof fetch` |
+| `vi.stubGlobal('Bun', {...})` | `vi.spyOn(Bun, 'spawn').mockImplementation(...)` |
+| `vi.restoreAllMocks()` in `beforeEach` | `vi.clearAllMocks()` (restoreAllMocks clears module mocks) |
+
+**Mock factory hoisting gotcha:** Bun validates `vi.mock` factories against the real module at hoist time. If the real module has side-effectful imports (e.g., reads `process.env` at module load), those run *before* any `process.env` assignments in the test file. Fix: add a `vi.mock('../../shared/config', factory)` to intercept those imports directly.
 
 ### 4. Check Existing Test Coverage
 
