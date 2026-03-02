@@ -2,9 +2,16 @@
  * Create GitHub Project V2 board + 3 standard fields.
  */
 
-import { run, parseProjectFields } from '../../shared/github'
+import { run, parseProjectFields, ghGraphQL } from '../../shared/github'
 import type { ParsedField } from '../../shared/github'
 import { DEFAULT_STATUS_OPTIONS, DEFAULT_SIZE_OPTIONS, DEFAULT_PRIORITY_OPTIONS } from '../../shared/config'
+import { PROJECT_WORKFLOWS_QUERY, UPDATE_PROJECT_WORKFLOW_MUTATION } from '../../shared/queries'
+
+export interface ProjectWorkflow {
+  id: string
+  name: string
+  enabled: boolean
+}
 
 export interface CreateProjectResult {
   id: string
@@ -48,4 +55,20 @@ export async function createProject(owner: string, repoName: string): Promise<Cr
       priority: parsed.priority ?? { id: '', options: {} },
     },
   }
+}
+
+/** List all built-in workflows on a GitHub Project V2. */
+export async function listProjectWorkflows(projectId: string): Promise<ProjectWorkflow[]> {
+  const data = (await ghGraphQL(PROJECT_WORKFLOWS_QUERY, { projectId })) as {
+    data: { node: { workflows: { nodes: ProjectWorkflow[] } } }
+  }
+  return data.data.node.workflows.nodes
+}
+
+/** Enable a single GitHub Project V2 built-in workflow. */
+export async function enableProjectWorkflow(workflowId: string): Promise<ProjectWorkflow> {
+  const data = (await ghGraphQL(UPDATE_PROJECT_WORKFLOW_MUTATION, { workflowId, enabled: true })) as {
+    data: { updateProjectV2Workflow: { projectV2Workflow: ProjectWorkflow } }
+  }
+  return data.data.updateProjectV2Workflow.projectV2Workflow
 }

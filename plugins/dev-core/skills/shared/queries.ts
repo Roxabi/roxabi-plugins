@@ -205,3 +205,23 @@ mutation($parentId: ID!, $childId: ID!) {
     issue { number } subIssue { number }
   }
 }`
+
+/** List all built-in workflows on a project board. */
+export const PROJECT_WORKFLOWS_QUERY = `
+query($projectId: ID!) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      workflows(first: 20) {
+        nodes { id name enabled }
+      }
+    }
+  }
+}`
+
+/** Enable or disable a single project workflow. */
+export const UPDATE_PROJECT_WORKFLOW_MUTATION = `
+mutation($workflowId: ID!, $enabled: Boolean!) {
+  updateProjectV2Workflow(input: { workflowId: $workflowId, enabled: $enabled }) {
+    projectV2Workflow { id name enabled }
+  }
+}`

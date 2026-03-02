@@ -154,11 +154,42 @@ function checkWorkflows(): Section {
       checks.push({ name: wf, status: 'skip', detail: 'skipped — no deploy platform in stack.yml' })
       continue
     }
-    // ci.yml: warn (not fail) when stack.yml is present — project may use a different CI setup
-    const severity: Status = require('fs').existsSync('.claude/stack.yml') ? 'warn' : 'fail'
-    checks.push({ name: wf, status: severity, detail: 'missing' })
+    // CI/CD workflows are optional — always warn, never fail
+    checks.push({ name: wf, status: 'warn', detail: 'missing — run /init to create' })
   }
   return { name: 'Workflows', checks }
+}
+
+function checkProjectWorkflows(ghOk: boolean, owner: string): Section {
+  if (!ghOk) return { name: 'Project workflows', checks: [{ name: 'workflows', status: 'skip', detail: 'gh CLI not available' }] }
+
+  const env = readEnvFile()
+  const projectId = env.PROJECT_ID
+  if (!projectId) return { name: 'Project workflows', checks: [{ name: 'workflows', status: 'skip', detail: 'PROJECT_ID not set' }] }
+
+  const query = 'query($projectId: ID!) { node(id: $projectId) { ... on ProjectV2 { workflows(first: 20) { nodes { name enabled } } } } }'
+  const result = spawnSync(['gh', 'api', 'graphql', '-f', `query=${query}`, '-F', `projectId=${projectId}`])
+  if (!result.ok) return { name: 'Project workflows', checks: [{ name: 'workflows', status: 'warn', detail: 'could not fetch — check gh auth' }] }
+
+  let nodes: Array<{ name: string; enabled: boolean }> = []
+  try {
+    const data = JSON.parse(result.stdout) as { data: { node: { workflows: { nodes: typeof nodes } } } }
+    nodes = data.data.node.workflows.nodes
+  } catch {
+    return { name: 'Project workflows', checks: [{ name: 'workflows', status: 'warn', detail: 'could not parse response' }] }
+  }
+
+  const enabled = nodes.filter((w) => w.enabled).length
+  const total = nodes.length
+  const disabled = nodes.filter((w) => !w.enabled).map((w) => w.name)
+
+  if (disabled.length === 0) {
+    return { name: 'Project workflows', checks: [{ name: 'workflows', status: 'pass', detail: `${enabled}/${total} enabled` }] }
+  }
+  return {
+    name: 'Project workflows',
+    checks: [{ name: 'workflows', status: 'warn', detail: `${enabled}/${total} enabled — disabled: ${disabled.join(', ')}` }],
+  }
 }
 
 function checkBranchProtection(ghOk: boolean, owner: string, repo: string): Section {
@@ -243,8 +274,12 @@ function formatText(sections: Section[]): string {
     }
   }
 
-  if (passed === total) {
+  const hasWarn = sections.some((s) => s.checks.some((c) => c.status === 'warn'))
+  const hasFail = sections.some((s) => s.checks.some((c) => c.status === 'fail'))
+  if (!hasFail && !hasWarn) {
     lines.push(`  Verdict: All ${total} checks passed. dev-core is fully configured.`)
+  } else if (!hasFail) {
+    lines.push(`  Verdict: ${passed}/${total} checks passed (${total - passed} warnings). dev-core is operational.`)
   } else {
     lines.push(`  Verdict: ${passed}/${total} checks passed. Run \`/init\` to fix missing items.`)
   }
@@ -267,6 +302,7 @@ const sections: Section[] = [
   checkGitHubConfig(ghOk, owner, repo),
   checkLabels(ghOk, owner, repo),
   checkWorkflows(),
+  checkProjectWorkflows(ghOk, owner),
   checkBranchProtection(ghOk, owner, fullRepo),
   checkProjectStructure(),
   checkVercel(),
@@ -278,6 +314,6 @@ if (jsonFlag) {
   console.log(formatText(sections))
 }
 
-// Exit code
+// Exit code: only hard failures trigger non-zero (warnings are informational)
 const hasFail = sections.some((s) => s.checks.some((c) => c.status === 'fail'))
 process.exit(hasFail ? 1 : 0)

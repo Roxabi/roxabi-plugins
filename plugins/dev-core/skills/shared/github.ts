@@ -68,7 +68,7 @@ export async function run(cmd: string[]): Promise<string> {
 /** Execute a GraphQL query/mutation against GitHub API. */
 export async function ghGraphQL(
   query: string,
-  variables: Record<string, string | number>
+  variables: Record<string, string | number | boolean>
 ): Promise<unknown> {
   const res = await fetch(GRAPHQL_URL, {
     method: 'POST',

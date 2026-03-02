@@ -60,6 +60,30 @@ If no project selected, field IDs stay empty. If project selected but fields mis
 
 After project selection, re-run `bun $INIT_TS discover` to refresh field IDs for the selected project. If Status/Size/Priority fields are still missing after re-discovery, run `bun $INIT_TS create-project --owner <owner> --repo <repo>` to create them (handles pre-existing Status field gracefully).
 
+#### 3a-bis. Project Workflows
+
+If a project was selected or created, run: `bun $INIT_TS list-workflows --project-id <PVT_...>`
+
+Parse the JSON array. Display a table:
+
+```
+  GitHub Project Workflows
+  ┌─────────────────────────────────────────┬──────────┐
+  │ Workflow                                │ Status   │
+  ├─────────────────────────────────────────┼──────────┤
+  │ Auto-add to project                     │ ❌ off   │
+  │ Auto-add sub-issues to project          │ ❌ off   │
+  │ Auto-archive items                      │ ❌ off   │
+  │ ...                                     │          │
+  └─────────────────────────────────────────┴──────────┘
+```
+
+AskUserQuestion: **Enable all** | **Select** | **Skip**.
+
+- If **Enable all**: for each disabled workflow, run `bun $INIT_TS enable-workflow --workflow-id <PWF_...>`. Display "✅ Enabled N workflows".
+- If **Select**: present a numbered list, ask which ones (comma-separated), then enable only those.
+- If **Skip**: continue without enabling any.
+
 #### 3b. Labels
 
 If `labels.missing` is non-empty, AskUserQuestion: **Create all labels** | **Type labels only** | **Area labels only** | **Skip labels**.
@@ -139,6 +163,7 @@ dev-core initialized
   Project board     ✅ Created / Detected / ⏭ Skipped
   Issue migration   ✅ N issues added to board / ⏭ Skipped
   Labels            ✅ N labels created / ⏭ Skipped
+  Project workflows ✅ N enabled / ⏭ Skipped
   CI/CD workflows   ✅ Created / ⏭ Skipped
   Branch protection ✅ Created / ⏭ Skipped
   package.json      ✅ "dashboard" script added
