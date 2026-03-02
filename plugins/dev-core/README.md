@@ -54,13 +54,13 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 ## Skills
 
-19 skills organized by workflow phase:
+21 skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
-| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, workflows, branch protection, env vars). Supports JS, Python, and other project types. TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
+| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, workflows, branch protection, env vars, project board automations). Supports JS, Python, and other project types. TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
 | `stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.claude/stack.yml`. Single confirmation screen — no wizard questions |
-| `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, workflows, branch protection. Skips deploy-preview check when no deploy platform is configured; warns (not fails) on missing CI when stack.yml is present |
+| `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows, GitHub Project V2 built-in workflow status, and branch protection. Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
 | `dev` | Orchestrator | Routes issues through the full workflow |
 | `frame` | Frame | Creates initial feature frame from issue |
 | `analyze` | Shape | Deep analysis with expert consultation |
