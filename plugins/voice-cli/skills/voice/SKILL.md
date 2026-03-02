@@ -101,6 +101,9 @@ exaggeration = 0.7
 cfg_weight = 0.3
 segment_gap = 200
 crossfade = 50
+# plain = false         # strip [tags] and ignore <!-- directives -->
+# chunked = false       # always output separate chunk files
+# chunk_size = 500      # target chunk size in chars (~15 chars/sec)
 ```
 
 Structured instruct parts (`accent`, `personality`, `speed`, `emotion`) auto-compose into `instruct`.
@@ -202,13 +205,16 @@ voicecli generate "Bonjour" -e chatterbox --lang French
 voicecli generate "text" -e chatterbox-turbo          # English + tags
 voicecli generate "text" -e qwen-fast                 # CUDA-accelerated Qwen
 voicecli generate script.md                           # from markdown
+voicecli generate article.txt                         # from plain text file
 voicecli generate script.md --mp3                     # + MP3 output
 voicecli generate "text" -v Ono_Anna --lang Japanese  # specific voice
 voicecli generate script.md --segment-gap 300         # 300ms between segments
 voicecli generate script.md --crossfade 50            # 50ms fade transitions
+voicecli generate script.md --plain                   # strip [tags] and ignore <!-- directives -->
 voicecli generate "text" --fast                       # 0.6B model (faster, lower quality)
 voicecli generate "Long text" --chunked               # progressive output (separate files)
 voicecli generate "Long text" --chunked --chunk-size 300  # smaller chunks (~20s each)
+voicecli generate article.txt --chunked               # long plain text file → chunks
 ```
 
 ### Clone (voice cloning)
@@ -217,9 +223,11 @@ voicecli generate "Long text" --chunked --chunk-size 300  # smaller chunks (~20s
 voicecli clone "text" --ref voice.wav                 # clone from audio
 voicecli clone "text"                                 # uses active sample
 voicecli clone script.md --mp3                        # from markdown + MP3
+voicecli clone article.txt --chunked                  # from plain text file → chunks
 voicecli clone "text" -e chatterbox --lang French     # multilingual clone
 voicecli clone "text" -e qwen-fast                    # CUDA-accelerated clone
 voicecli clone script.md --segment-gap 200            # with segment transitions
+voicecli clone script.md --plain                      # strip [tags] and ignore <!-- directives -->
 voicecli clone "text" --fast                          # 0.6B model (faster, lower quality)
 voicecli clone "Long text" --chunked                  # progressive output (separate files)
 ```
@@ -329,6 +337,13 @@ When writing `.md` scripts:
 ### Telegram Integration
 
 When running inside the 2ndBrain Telegram bot, voice files auto-send to the user's chat after generation. **Always use `--chunked`** so the bot can send audio progressively. Skip `send_voice_telegram.py` — just generate with `--chunked` and report what you created.
+
+### `--plain` Flag
+
+Use `--plain` on `generate` or `clone` to strip all `[tags]` and ignore `<!-- directives -->`:
+- On a `.md` file: frontmatter settings (language, voice, instruct) are still applied; only per-section directives and tags are ignored
+- On raw text or `.txt` file: tags are stripped from the text
+- Can be set permanently in `voicecli.toml` as `plain = true`
 
 ### Key Constraints
 
