@@ -2,7 +2,7 @@
 name: vault-migrate
 description: 'Migrate data from 2ndBrain memory.db to Roxabi vault — non-destructive copy with schema mapping. Triggers: "vault-migrate" | "migrate vault" | "migrate to vault" | "import to vault" | "vault import".'
 version: 0.1.0
-allowed-tools: Bash, Read, AskUserQuestion
+allowed-tools: Bash, Read
 ---
 
 # Vault Migrate

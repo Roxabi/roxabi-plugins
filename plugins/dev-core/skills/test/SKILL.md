@@ -3,7 +3,7 @@ name: test
 argument-hint: [file | --e2e | --run]
 description: Generate/run unit, integration & Playwright e2e tests. Triggers: "test this file" | "write tests" | "add coverage" | "run tests" | "e2e tests".
 version: 0.1.0
-allowed-tools: Bash, AskUserQuestion, Read, Write, Glob, Grep
+allowed-tools: Bash, Read, Write, Glob, Grep
 ---
 
 # Test

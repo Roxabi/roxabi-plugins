@@ -3,7 +3,7 @@ name: frame
 argument-hint: '["idea" | --issue <N>]'
 description: Problem framing — capture problem, constraints, scope, tier. Triggers: "frame" | "frame this" | "what's the problem" | "define the problem".
 version: 0.1.0
-allowed-tools: Bash, AskUserQuestion, Read, Write, Edit, Glob, Grep
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 
 # Frame

@@ -3,7 +3,7 @@ name: benchmark
 argument-hint: '<url> [--focus <area>]'
 description: Benchmark current repo against a live website — scrape, screenshot, compare features/UX/stack. Triggers: "benchmark" | "compare with" | "benchmark against" | "how do we compare".
 version: 0.1.0
-allowed-tools: Bash, AskUserQuestion, Read, Write, Edit, Glob, Grep, WebFetch
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch
 ---
 
 # Benchmark

@@ -3,7 +3,7 @@ name: dev
 argument-hint: '[#N | "idea" | --from <step>]'
 description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "develop".
 version: 0.1.0
-allowed-tools: Bash, AskUserQuestion, Read, Write, Edit, Glob, Grep, Task, Skill
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill
 ---
 
 # Dev

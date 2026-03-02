@@ -3,7 +3,7 @@ name: fix
 argument-hint: '[#PR]'
 description: Apply review findings — auto-apply high-confidence, 1b1 for rest, spawn fixers. Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these".
 version: 0.1.0
-allowed-tools: Bash, AskUserQuestion, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill
 ---
 
 # Fix

@@ -3,7 +3,7 @@ name: review
 argument-hint: [#PR]
 description: Multi-domain code review (agents + Conventional Comments → findings + verdict). Triggers: "review changes" | "review PR #42" | "code review" | "check my code".
 version: 0.1.0
-allowed-tools: Bash, AskUserQuestion, Read, Write, Glob, Grep, Task, Skill
+allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill
 ---
 
 # Code Review

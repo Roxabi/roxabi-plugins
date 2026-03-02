@@ -2,7 +2,7 @@
 name: cv
 description: 'Generate, adapt, and update CVs from structured data stored in cv_data.json. Triggers: "cv" | "generate cv" | "adapt cv" | "update cv" | "tailor cv".'
 version: 0.1.0
-allowed-tools: Read, Edit, Write, Bash, Glob, Grep, AskUserQuestion
+allowed-tools: Read, Edit, Write, Bash, Glob, Grep
 ---
 
 # CV

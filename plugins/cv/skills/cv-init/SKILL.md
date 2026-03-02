@@ -2,7 +2,7 @@
 name: cv-init
 description: 'Initialize the CV plugin — creates data directories and starter cv_data.json template. Triggers: "cv-init" | "init cv" | "setup cv".'
 version: 0.1.0
-allowed-tools: Read, Write, Bash, Glob, AskUserQuestion
+allowed-tools: Read, Write, Bash, Glob
 ---
 
 # CV Init

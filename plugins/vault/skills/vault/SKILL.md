@@ -2,7 +2,7 @@
 name: vault
 description: 'Unified data vault — add, search, list, get, delete, stats, export entries in a SQLite+FTS5 knowledge base. Triggers: "vault" | "vault add" | "vault search" | "vault list" | "vault stats" | "vault export" | "vault delete" | "search vault" | "add to vault".'
 version: 0.1.0
-allowed-tools: Read, Bash, Glob, AskUserQuestion
+allowed-tools: Read, Bash, Glob
 ---
 
 # Vault

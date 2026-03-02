@@ -3,7 +3,7 @@ name: analyze
 argument-hint: '[--issue <N> | --frame <path>]'
 description: Deep technical analysis — explore existing code, risks, alternatives. Triggers: "analyze" | "technical analysis" | "explore the problem" | "how deep is it".
 version: 0.1.0
-allowed-tools: Bash, AskUserQuestion, Read, Write, Edit, Glob, Grep, Task, Skill
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill
 ---
 
 # Analyze

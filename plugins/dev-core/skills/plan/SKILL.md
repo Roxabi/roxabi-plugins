@@ -3,7 +3,7 @@ name: plan
 argument-hint: '[--issue <N> | --spec <path>]'
 description: Implementation plan — tasks, agents, file groups, dependencies. Triggers: "plan" | "plan this" | "implementation plan" | "break it down".
 version: 0.1.0
-allowed-tools: Bash, AskUserQuestion, Read, Write, Edit, Glob, Grep, Task
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task
 ---
 
 # Plan

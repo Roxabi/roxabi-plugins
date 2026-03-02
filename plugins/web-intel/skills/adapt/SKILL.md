@@ -3,7 +3,7 @@ name: adapt
 argument-hint: '<url>'
 description: Extract what works from a URL and suggest how to adapt patterns/copy/design for your project. Triggers: "adapt" | "inspire from" | "steal from" | "adapt this".
 version: 0.1.0
-allowed-tools: Bash, Read, AskUserQuestion
+allowed-tools: Bash, Read
 ---
 
 # Adapt

@@ -2,7 +2,7 @@
 name: voice
 description: 'VoiceCLI assistant — author TTS scripts, generate speech, clone voices, transcribe audio, manage samples. Knows engine capabilities, markdown format, and all CLI commands. Triggers: "voice" | "voicecli" | "speech" | "generate speech" | "clone voice" | "transcribe" | "TTS" | "text to speech" | "voice script".'
 version: 0.5.0
-allowed-tools: Read, Edit, Write, Bash, Glob, Grep, AskUserQuestion
+allowed-tools: Read, Edit, Write, Bash, Glob, Grep
 ---
 
 # VoiceCLI — Unified Voice Assistant
