@@ -1,6 +1,6 @@
 import { GITHUB_REPO, PROJECT_ID } from '../../shared/config'
 import { ghGraphQL, run } from '../../shared/github'
-import { BRANCH_CI_QUERY, ISSUES_QUERY, PRS_QUERY, buildBatchedQuery, buildBatchedVariables } from '../../shared/queries'
+import { BRANCH_CI_QUERY, ISSUES_QUERY, PRS_QUERY } from '../../shared/queries'
 import type { RawItem } from '../../shared/types'
 
 import type {
@@ -21,68 +21,43 @@ export interface WorkspaceProject {
   label: string
 }
 
-async function fetchPage(
-  cursor?: string
-): Promise<{ items: RawItem[]; hasNextPage: boolean; endCursor: string | null }> {
-  const variables: Record<string, string> = { projectId: PROJECT_ID }
-  if (cursor) variables.cursor = cursor
-
-  const data = (await ghGraphQL(ISSUES_QUERY, variables)) as {
-    data: {
-      node: { items: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: RawItem[] } }
-    }
-  }
-  const pageInfo = data.data.node.items.pageInfo
-  return {
-    items: data.data.node.items.nodes,
-    hasNextPage: pageInfo.hasNextPage,
-    endCursor: pageInfo.endCursor,
-  }
-}
-
-/** Fetch all raw project items with pagination. */
-export async function fetchAllItems(): Promise<RawItem[]> {
+/** Fetch all raw items for a project with full cursor-based pagination. */
+async function fetchAllItemsForProject(projectId: string): Promise<RawItem[]> {
   const allItems: RawItem[] = []
   let cursor: string | undefined
   do {
-    const page = await fetchPage(cursor)
-    allItems.push(...page.items)
-    cursor = page.hasNextPage ? (page.endCursor ?? undefined) : undefined
+    const variables: Record<string, string> = { projectId }
+    if (cursor) variables.cursor = cursor
+    const data = (await ghGraphQL(ISSUES_QUERY, variables)) as {
+      data: {
+        node: { items: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: RawItem[] } }
+      }
+    }
+    const page = data.data.node.items
+    allItems.push(...page.nodes)
+    cursor = page.pageInfo.hasNextPage ? (page.pageInfo.endCursor ?? undefined) : undefined
   } while (cursor)
   return allItems
 }
 
+/** Fetch all raw project items with pagination. */
+export async function fetchAllItems(): Promise<RawItem[]> {
+  return fetchAllItemsForProject(PROJECT_ID)
+}
+
 /**
- * Fetch all open issues for multiple workspace projects in a single batched GraphQL request.
+ * Fetch all issues for multiple workspace projects in parallel, each with full pagination.
  * Returns a Map keyed by project label → RawItem[].
- * Single HTTP request regardless of project count.
  */
 export async function fetchAllProjects(
   projects: WorkspaceProject[]
 ): Promise<Map<string, RawItem[]>> {
   if (projects.length === 0) return new Map()
 
-  const projectIds = projects.map((p) => p.projectId)
-  const query = buildBatchedQuery(projectIds)
-  const variables = buildBatchedVariables(projectIds)
-
-  const data = (await ghGraphQL(query, variables)) as {
-    data: Record<
-      string,
-      { items: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: RawItem[] } } | null
-    >
-  }
-
-  const result = new Map<string, RawItem[]>()
-  for (let i = 0; i < projects.length; i++) {
-    const node = data.data[`project${i}`]
-    const items = node?.items?.nodes ?? []
-    if (node?.items?.pageInfo?.hasNextPage) {
-      console.warn(`[dashboard] Project "${projects[i].label}" has >100 issues — only first 100 fetched. Full pagination tracked in S5.`)
-    }
-    result.set(projects[i].label, items)
-  }
-  return result
+  const results = await Promise.all(
+    projects.map(async (p) => ({ label: p.label, items: await fetchAllItemsForProject(p.projectId) }))
+  )
+  return new Map(results.map((r) => [r.label, r.items]))
 }
 
 export function rawItemsToIssues(items: RawItem[]): Issue[] {
