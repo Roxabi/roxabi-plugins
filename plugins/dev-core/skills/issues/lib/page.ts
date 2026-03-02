@@ -76,7 +76,7 @@ function buildIssueTable(issues: Issue[]): string {
     <tbody class="hidden-issues-body" style="display:none;">
       ${hiddenRows}
       <tr><td colspan="7" style="text-align:center;padding:12px;">
-        <button class="show-more-btn" onclick="var tb=this.closest('table').querySelector('.hidden-issues-body');tb.style.display='none';">
+        <button class="show-more-btn" onclick="var tbl=this.closest('table');tbl.querySelector('.hidden-issues-body').style.display='none';tbl.querySelector('.show-more-row').style.display='';">
           Show less
         </button>
       </td></tr>
