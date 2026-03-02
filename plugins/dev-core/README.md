@@ -30,7 +30,7 @@ After installing, run init to configure your project:
 /init
 ```
 
-Auto-detects your GitHub repo, Project V2 board, and field IDs. Writes `.env`, generates `.claude/run-dashboard.ts` (a self-healing launcher that survives plugin updates), and creates the `artifacts/` directory. Works for any project type — JS, Python, or other. Re-run with `/init --force` to reconfigure.
+Auto-detects your GitHub repo, Project V2 board, and field IDs. Writes `.env`, registers the project in `~/.roxabi-vault/workspace.json` for the multi-project dashboard, generates a self-healing `roxabi` shim, and creates the `artifacts/` directory. Works for any project type. Re-run with `/init --force` to reconfigure.
 
 Then configure the agent stack:
 
@@ -58,9 +58,9 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
-| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, workflows, branch protection, env vars, project board automations). Supports JS, Python, and other project types. TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
+| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, workflows, branch protection, env vars, workspace.json registration). TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
 | `stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.claude/stack.yml`. Single confirmation screen — no wizard questions |
-| `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows, GitHub Project V2 built-in workflow status, and branch protection. Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
+| `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows, branch protection, stack.yml, and workspace.json registration. Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
 | `dev` | Orchestrator | Routes issues through the full workflow |
 | `frame` | Frame | Creates initial feature frame from issue |
 | `analyze` | Shape | Deep analysis with expert consultation |
