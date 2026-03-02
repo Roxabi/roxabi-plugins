@@ -72,6 +72,12 @@
       "description": "Extract structured data from invoice documents (text or PDF) and store as JSON.",
       "source": "./plugins/get-invoice-details",
       "category": "productivity"
+    },
+    {
+      "name": "linkedin-apply",
+      "description": "Scrape LinkedIn job offers and score them against your profile with Claude LLM — APPLY / REVIEW / SKIP decisions with 4-dimension scoring.",
+      "source": "./plugins/linkedin-apply",
+      "category": "productivity"
     }
   ]
 }

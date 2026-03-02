@@ -146,7 +146,7 @@ Plugins that produce or consume user data follow these rules:
 - **Override**: set `ROXABI_VAULT_HOME` environment variable for a custom location
 - **Permissions**: directories created with mode `0o700`
 - **Shared directories**: `content/`, `ideas/`, `learnings/` — used by multiple plugins
-- **Exclusive directories**: `cv/`, `invoices/` — owned by one plugin (`data.root` in plugin.json)
+- **Exclusive directories**: `cv/`, `invoices/`, `linkedin-apply/` — owned by one plugin (`data.root` in plugin.json)
 
 ### plugin.json extended format
 

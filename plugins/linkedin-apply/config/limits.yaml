@@ -1,0 +1,64 @@
+# Rate limiting and session configuration for LinkedIn Apply
+# Used to prevent detection and account restrictions
+
+rate_limiting:
+  # Daily application quota
+  daily_quota: 15            # Max applications per day (LinkedIn soft limit ~25)
+
+  # Delays between actions (in seconds)
+  min_delay_seconds: 30      # Minimum delay between applications
+  max_delay_seconds: 120     # Maximum delay (randomized between min/max)
+
+  # Page interaction delays (human-like behavior)
+  page_load_wait: 3          # Wait after page load
+  click_delay_min: 0.5       # Min delay between clicks
+  click_delay_max: 2.0       # Max delay between clicks
+  typing_delay_min: 0.05     # Min delay between keystrokes
+  typing_delay_max: 0.15     # Max delay between keystrokes
+
+  # Error handling
+  max_retries: 3             # Max retries on transient errors
+  retry_backoff_base: 60     # Base seconds for exponential backoff
+  cooldown_on_error: 300     # Cooldown (seconds) after error
+
+# Browser session configuration
+session:
+  # Profile persistence (avoid re-login, maintain fingerprint)
+  profile_dir: "~/.config/linkedin_browser_profile"
+
+  # Browser settings
+  headless: false            # Run without visible window (false = visible for reliability)
+  slow_mo: 50                # Slow down operations by X ms (0 = disabled)
+
+  # Viewport (realistic desktop)
+  viewport:
+    width: 1280
+    height: 900
+
+  # User agent (realistic desktop browser)
+  user_agents:
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+  # Timezone (should match your location)
+  timezone: "Europe/Paris"
+  locale: "en-US"
+
+# Stealth settings
+stealth:
+  enabled: true              # Use playwright-stealth
+  disable_webrtc: true       # Prevent IP leak
+  mask_automation: true      # Hide automation indicators
+  random_mouse_movement: true  # Simulate human mouse behavior
+
+# Logging and debugging
+debug:
+  screenshots_on_error: true # Take screenshot when error occurs
+  save_html_on_error: false  # Save page HTML for debugging
+  verbose_logging: false     # Detailed logs (disable in production)
+  output_dir: "/tmp/linkedin_debug"
+
+# Quota tracking
+quota:
+  tracking_file: "~/.config/linkedin_apply_quota.json"
+  reset_hour: 0              # Reset quota at midnight

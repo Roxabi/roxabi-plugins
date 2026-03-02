@@ -1,0 +1,70 @@
+# Criteria configuration for LinkedIn job matching
+# Used by matcher.py to evaluate job-candidate fit
+# Copy to ~/.roxabi-vault/linkedin-apply/criteria.yaml and customize.
+
+# Dealbreakers - if ANY fails, job is auto-SKIPped
+dealbreakers:
+  min_salary: null           # EUR/year, null = no minimum
+  remote_required: false     # true = must allow remote
+  excluded_companies:        # Company names to never apply to
+    []
+  excluded_keywords:         # Keywords in job description that trigger SKIP
+    - "unpaid internship"
+    - "volunteer"
+    - "bénévolat"
+    - "stage non rémunéré"
+  max_travel_percent: null   # null = no limit, max acceptable travel %
+  require_eu_based: false    # Company must be EU-based or EU office
+
+# Scoring weights - must sum to 1.0
+scoring:
+  weights:
+    tech: 0.35               # Technical skills match (stack, tools, domain)
+    seniority: 0.25          # Level match (junior/mid/senior/lead/director)
+    culture: 0.20            # Company culture, values, work style
+    responsibilities: 0.20   # Day-to-day tasks alignment
+
+  # Score bonuses/penalties
+  modifiers:
+    remote_bonus: 0.5        # Add to score if remote allowed
+    hybrid_bonus: 0.2        # Add to score if hybrid allowed
+    startup_penalty: -0.3    # Subtract if early-stage startup (< 20 employees)
+    no_salary_penalty: -0.2  # Subtract if no salary mentioned
+
+# Decision thresholds
+thresholds:
+  auto_apply: 7.0            # score >= 7.0 -> APPLY
+  review: 5.0                # 5.0 <= score < 7.0 -> REVIEW
+  # score < 5.0 -> SKIP
+
+# Preferred attributes (influence scoring, not dealbreakers)
+preferences:
+  tech_stack:
+    must_have: []            # Empty = flexible
+    nice_to_have:
+      - "Python"
+      - "Agile"
+      - "Scrum"
+    avoid:
+      - "COBOL"
+      - "Mainframe"
+
+  company:
+    sizes:                   # Preferred company sizes
+      - "51-200"
+      - "201-500"
+      - "501-1000"
+    industries:              # Preferred industries
+      - "Technology"
+      - "SaaS"
+    avoid_industries:
+      - "Gambling"
+      - "Tobacco"
+      - "Weapons"
+
+  seniority:
+    target_level: "senior"   # senior, lead, manager, director
+    accept_levels:
+      - "senior"
+      - "lead"
+      - "manager"

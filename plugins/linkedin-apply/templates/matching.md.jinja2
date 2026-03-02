@@ -1,0 +1,200 @@
+# Job Matching Analysis
+
+You are a job matching expert. Analyze the correspondence between the job offer and the candidate profile.
+Return ONLY valid JSON with your analysis. No markdown, no explanation outside JSON.
+
+---
+
+## Job Offer
+
+**Title:** {{ job.title }}
+**Company:** {{ job.company }}
+**Location:** {{ job.location }}
+{% if job.work_type %}
+**Work Type:** {{ job.work_type }}
+{% endif %}
+{% if job.contract_type %}
+**Contract:** {{ job.contract_type }}
+{% endif %}
+{% if job.experience_level %}
+**Experience Level:** {{ job.experience_level }}
+{% endif %}
+{% if job.salary_range %}
+**Salary:** {{ job.salary_range }}
+{% endif %}
+{% if job.applicants_count %}
+**Applicants:** {{ job.applicants_count }}
+{% endif %}
+{% if job.is_easy_apply %}
+**Easy Apply:** Yes
+{% endif %}
+
+### Job Description
+{{ job.description }}
+
+{% if job.skills %}
+### Required Skills
+{% for skill in job.skills %}
+- {{ skill }}
+{% endfor %}
+{% endif %}
+
+---
+
+## Candidate Profile
+
+**Name:** {{ cv.personal.name }}
+**Title:** {{ cv.personal.title.fr if cv.personal.title.fr else cv.personal.title }}
+**Location:** {{ cv.personal.location.fr if cv.personal.location.fr else cv.personal.location }}
+
+### Professional Summary
+{% if cv.summary.fr %}
+{% for paragraph in cv.summary.fr %}
+{{ paragraph }}
+{% endfor %}
+{% else %}
+{{ cv.summary }}
+{% endif %}
+
+### Key Skills
+{% for skill_group in cv.skills %}
+**{{ skill_group.category.fr if skill_group.category.fr else skill_group.category }}:**
+{% for item in skill_group['items'] %}
+{% if item.fr %}
+- {{ item.fr }}
+{% elif item %}
+- {{ item }}
+{% endif %}
+{% endfor %}
+{% endfor %}
+
+### Key Achievements
+{% for achievement in cv.achievements %}
+- **{{ achievement.title.fr if achievement.title.fr else achievement.title }}**: {{ achievement.description.fr if achievement.description.fr else achievement.description }}
+{% endfor %}
+
+### Recent Experience
+{% for exp in cv.experiences[:3] %}
+**{{ exp.title.fr if exp.title.fr else exp.title }}** at {{ exp.company.fr if exp.company.fr else exp.company }}
+{{ exp.dates.fr if exp.dates.fr else exp.dates }}
+{{ exp.description.fr if exp.description.fr else exp.description }}
+
+{% endfor %}
+
+### Education
+{% for edu in cv.education %}
+- {{ edu.degree.fr if edu.degree.fr else edu.degree }} - {{ edu.school }} ({{ edu.year }})
+{% endfor %}
+
+### Additional Info
+- Availability: {{ cv.additional_info.availability.fr if cv.additional_info.availability.fr else cv.additional_info.availability }}
+- Mobility: {{ cv.additional_info.mobility.fr if cv.additional_info.mobility.fr else cv.additional_info.mobility }}
+- Languages: French (Native), English (Professional)
+
+---
+
+## Matching Criteria
+
+### Dealbreakers (MUST pass all)
+{% if criteria.dealbreakers %}
+- Required languages: {{ criteria.dealbreakers.required_languages | join(', ') }}
+{% if criteria.dealbreakers.excluded_locations %}- Excluded locations: {{ criteria.dealbreakers.excluded_locations | join(', ') }}{% endif %}
+{% if criteria.dealbreakers.excluded_companies %}- Excluded companies: {{ criteria.dealbreakers.excluded_companies | join(', ') }}{% endif %}
+{% if criteria.dealbreakers.min_remote_days > 0 %}- Minimum remote days: {{ criteria.dealbreakers.min_remote_days }}{% endif %}
+{% if criteria.dealbreakers.max_travel_percentage < 100 %}- Maximum travel: {{ criteria.dealbreakers.max_travel_percentage }}%{% endif %}
+{% if criteria.dealbreakers.requires_security_clearance %}- Security clearance required: No{% endif %}
+{% endif %}
+
+### Score Weights
+{% if criteria.weights %}
+- Tech score: {{ (criteria.weights.tech_score * 100) | int }}%
+- Seniority score: {{ (criteria.weights.seniority_score * 100) | int }}%
+- Culture score: {{ (criteria.weights.culture_score * 100) | int }}%
+- Responsibilities score: {{ (criteria.weights.responsibilities_score * 100) | int }}%
+{% endif %}
+
+### Decision Thresholds
+{% if criteria.thresholds %}
+- APPLY if score >= {{ criteria.thresholds.apply }}
+- REVIEW if score >= {{ criteria.thresholds.review }}
+- SKIP if score < {{ criteria.thresholds.review }}
+{% endif %}
+
+### Preferences (bonus points)
+{% if criteria.preferences %}
+{% if criteria.preferences.preferred_industries %}- Preferred industries: {{ criteria.preferences.preferred_industries | join(', ') }}{% endif %}
+{% if criteria.preferences.preferred_company_sizes %}- Preferred company sizes: {{ criteria.preferences.preferred_company_sizes | join(', ') }}{% endif %}
+{% if criteria.preferences.preferred_methodologies %}- Preferred methodologies: {{ criteria.preferences.preferred_methodologies | join(', ') }}{% endif %}
+{% endif %}
+
+---
+
+## Your Task
+
+Analyze the match and return a JSON object with this EXACT structure:
+
+```json
+{
+  "passes_dealbreakers": true,
+  "dealbreaker_issues": [],
+  "tech_score": 8,
+  "seniority_score": 7,
+  "culture_score": 6,
+  "responsibilities_score": 8,
+  "global_score": 7.3,
+  "decision": "APPLY",
+  "highlights": [
+    "Strong match on Product Management experience",
+    "Relevant SaaS and Agile background"
+  ],
+  "expected_questions": [
+    "Tell us about your experience managing international teams",
+    "How do you prioritize features in your backlog?"
+  ],
+  "analysis_summary": "Strong candidate match with 14 years of PM experience..."
+}
+```
+
+### Scoring Guidelines
+
+**Tech Score (0-10):**
+- 9-10: Perfect skills match, exceeds requirements
+- 7-8: Strong match, most skills covered
+- 5-6: Partial match, some key skills missing
+- 3-4: Weak match, significant gaps
+- 0-2: Poor match, major skills missing
+
+**Seniority Score (0-10):**
+- 9-10: Experience level perfectly matches (or exceeds) requirements
+- 7-8: Good fit, slight over/under-qualified
+- 5-6: Acceptable, some experience gap
+- 3-4: Significant mismatch
+- 0-2: Completely mismatched level
+
+**Culture Score (0-10):**
+- Consider: company size preference, industry fit, work style, methodologies mentioned
+- 9-10: Perfect cultural fit
+- 7-8: Good fit
+- 5-6: Neutral/uncertain
+- 0-4: Potential mismatch
+
+**Responsibilities Score (0-10):**
+- Compare job responsibilities with candidate's past achievements
+- 9-10: Candidate has done exactly this before
+- 7-8: Very similar responsibilities
+- 5-6: Related experience
+- 0-4: New domain/responsibilities
+
+### Expected Questions
+List 3-5 questions the candidate should prepare for based on the job requirements and their background gaps.
+
+### Important Notes
+- Be objective and honest in scoring
+- If job description is vague, assume neutral (5-6) for unclear areas
+- Dealbreaker issues should be specific (e.g., "Job requires German, candidate only speaks French/English")
+- Highlights should emphasize the candidate's relevant strengths for THIS specific job
+- Return ONLY the JSON object, no other text
+
+---
+
+Return your analysis as a single JSON object:

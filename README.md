@@ -17,6 +17,7 @@ Open-source Claude Code plugins by [Roxabi](https://github.com/Roxabi). Context 
 | [vault](plugins/vault/README.md) | Unified data vault — SQLite+FTS5 index, CRUD, search across all Roxabi plugins |
 | [cv](plugins/cv/README.md) | Generate and adapt CVs from structured data |
 | [get-invoice-details](plugins/get-invoice-details/README.md) | Extract and store invoice details from documents |
+| [linkedin-apply](plugins/linkedin-apply/README.md) | Scrape and score LinkedIn job offers with LLM matching |
 
 ## Data Storage
 
@@ -29,6 +30,7 @@ All data-producing plugins store user data in `~/.roxabi-vault/` (never in the r
 | linkedin-post-generator | `~/.roxabi-vault/content/` (shared) | Optional — suggestions from vault |
 | get-invoice-details | `~/.roxabi-vault/invoices/` | Optional — semantic search |
 | image-prompt-generator | `~/.roxabi-vault/config/visual-charter.json` | N/A — works 100% standalone |
+| linkedin-apply | `~/.roxabi-vault/linkedin-apply/` | Optional — job analysis history |
 
 All plugins work without vault installed — files are saved, just not indexed.
 
