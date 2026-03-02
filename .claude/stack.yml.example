@@ -1,0 +1,86 @@
+# .claude/stack.yml — dev-core stack configuration
+# DO NOT commit this file. Add `.claude/stack.yml` to .gitignore.
+# Commit stack.yml.example instead (no sensitive values).
+#
+# Usage:
+#   1. Copy to your project: cp stack.yml.example .claude/stack.yml
+#   2. Add as first line of CLAUDE.md: @.claude/stack.yml
+#   3. Fill in the values below for your project's stack.
+#   4. Run /init to verify setup, /doctor to health-check.
+
+schema_version: "1.0"
+
+# Runtime and package manager used for all commands
+runtime: bun                      # bun | node | deno
+package_manager: bun              # bun | npm | pnpm | yarn
+
+backend:
+  framework: nestjs               # nestjs | express | fastify | django | rails | none
+  orm: drizzle                    # drizzle | prisma | typeorm | mongoose | none
+  path: apps/api                  # path to backend app, relative to project root
+
+frontend:
+  framework: tanstack-start       # nextjs | remix | sveltekit | tanstack-start | nuxt | none
+  path: apps/web                  # path to frontend app, relative to project root
+  ui_package: "@repo/ui"          # import path for the shared UI package
+  ui_src: packages/ui/src         # source directory of the shared UI package
+
+shared:
+  types: packages/types           # shared TypeScript types package
+  ui: packages/ui                 # shared UI component library
+  config: packages/config         # shared configuration package
+
+build:
+  orchestrator: turbo             # turbo | nx | none
+  orchestrator_config: turbo.jsonc  # filename of the orchestrator config
+  formatter: biome                # biome | eslint | rome | none
+  formatter_config: biome.json    # filename of the formatter config
+  formatter_fix_cmd: "bunx biome check --write"  # command to auto-fix formatting
+
+testing:
+  unit: vitest                    # vitest | jest | pytest | none
+  e2e: playwright                 # playwright | cypress | none
+
+deploy:
+  platform: vercel                # vercel | railway | fly | aws | none
+  secrets_cmd: "vercel env add"   # command to add a secret to the deployment platform
+
+docs:
+  framework: fumadocs             # fumadocs | docusaurus | nextra | none
+  path: docs                      # path to documentation directory
+  format: mdx                     # mdx | md
+
+# Commands used by agents to perform standard tasks.
+# These are passed to agents that invoke quality gates and CI steps.
+commands:
+  dev: bun run dev
+  build: bun run build
+  test: bun run test
+  lint: bun run lint
+  typecheck: bun run typecheck
+  format: "bunx biome check --write"
+  install: bun install
+
+# Directories where dev-core agents write structured artifacts.
+# All paths are relative to the project root.
+artifacts:
+  analyses: artifacts/analyses    # technical analyses produced by product-lead / architect
+  specs: artifacts/specs          # solution specs
+  frames: artifacts/frames        # problem frames
+  plans: artifacts/plans          # implementation plans
+
+# Paths to standards documentation referenced by agents.
+# Each agent reads the relevant doc before implementing to follow project conventions.
+# All paths are relative to the project root.
+standards:
+  backend: docs/standards/backend-patterns.mdx      # used by: backend-dev, fixer, tester
+  frontend: docs/standards/frontend-patterns.mdx    # used by: frontend-dev, fixer, tester
+  testing: docs/standards/testing.mdx              # used by: tester, fixer, backend-dev, frontend-dev
+  code_review: docs/standards/code-review.mdx      # used by: fixer
+  architecture: docs/architecture/                  # used by: architect
+  configuration: docs/configuration.mdx            # used by: devops
+  deployment: docs/guides/deployment.mdx           # used by: devops
+  troubleshooting: docs/guides/troubleshooting.mdx  # used by: devops
+  issue_management: docs/processes/issue-management.mdx  # used by: product-lead
+  dev_process: docs/processes/dev-process.mdx      # used by: architect
+  contributing: docs/contributing.mdx              # used by: doc-writer, architect

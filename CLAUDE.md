@@ -1,3 +1,4 @@
+@.claude/stack.yml
 # Roxabi Plugins
 
 Open-source Claude Code plugins by Roxabi. Context engineering tools for teams using Claude Code.

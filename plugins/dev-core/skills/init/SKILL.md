@@ -179,7 +179,7 @@ Set up `.claude/stack.yml` so dev-core agents can work without hardcoded paths.
 1. **Check for existing stack.yml:** `test -f .claude/stack.yml && echo exists || echo missing`
 
 2. **If missing:**
-   - Copy the template: `cp "${CLAUDE_PLUGIN_ROOT}/../../stack.yml.example" .claude/stack.yml`
+   - Copy the template: `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml`
    - Walk the user through filling in critical fields. AskUserQuestion for each of:
      - **Backend path** (e.g., `apps/api`) — `backend.path` in stack.yml
      - **Frontend path** (e.g., `apps/web`) — `frontend.path` in stack.yml
@@ -199,7 +199,7 @@ Set up `.claude/stack.yml` so dev-core agents can work without hardcoded paths.
    - Display: "Added `.claude/stack.yml` to .gitignore ✅"
 
 5. **Copy stack.yml.example to project root (committed reference):**
-   - If `.claude/stack.yml.example` does not exist, copy: `cp "${CLAUDE_PLUGIN_ROOT}/../../stack.yml.example" .claude/stack.yml.example`
+   - If `.claude/stack.yml.example` does not exist, copy: `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example`
    - Display: ".claude/stack.yml.example created ✅ (commit this file)"
 
 ## Safety Rules
