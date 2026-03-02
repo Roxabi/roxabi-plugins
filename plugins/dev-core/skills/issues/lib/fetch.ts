@@ -321,13 +321,16 @@ async function fetchBuildLogs(token: string, deploymentId: string): Promise<stri
   }
 }
 
-export async function fetchVercelDeployments(): Promise<VercelDeployment[]> {
+export async function fetchVercelDeployments(
+  projectId: string = VERCEL_PROJECT_ID,
+  teamId: string = VERCEL_TEAM_ID
+): Promise<VercelDeployment[]> {
   const token = process.env.VERCEL_TOKEN
-  if (!token || !VERCEL_PROJECT_ID || !VERCEL_TEAM_ID) return []
+  if (!token || !projectId || !teamId) return []
 
   try {
     const since = Date.now() - FIVE_MINUTES
-    const url = `https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_TEAM_ID}&limit=10&since=${since}`
+    const url = `https://api.vercel.com/v6/deployments?projectId=${projectId}&teamId=${teamId}&limit=10&since=${since}`
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     })

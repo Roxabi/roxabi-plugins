@@ -39,21 +39,13 @@ function buildAddButton(): string {
   return `<button class="tab add-btn" onclick="openAddDialog()" title="Add project">+</button>`
 }
 
-type ProjectMeta = { prs: PR[]; branchCI: BranchCI[]; workflowRuns: WorkflowRun[] }
+type ProjectMeta = { prs: PR[]; branchCI: BranchCI[]; workflowRuns: WorkflowRun[]; deployments: VercelDeployment[] }
 
-function buildAllView(byProject: Map<string, Issue[]>, byProjectMeta?: Map<string, ProjectMeta>): string {
+function buildAllView(byProject: Map<string, Issue[]>): string {
   if (byProject.size === 0) {
     return '<div class="empty-state">No projects registered — click + to add one</div>'
   }
   return [...byProject.entries()].map(([label, issues]) => {
-    const meta = byProjectMeta?.get(label)
-    const prsSection = meta && meta.prs.length > 0
-      ? `<div class="section"><h3>Pull Requests</h3>${renderPRs(meta.prs)}</div>`
-      : ''
-    const ciSection = meta && shouldShowCI(meta.branchCI)
-      ? `<div class="section"><h3>CI Status</h3>${renderBranchCI(meta.branchCI)}</div>`
-      : ''
-    const wrSection = meta ? renderWorkflowRuns(meta.workflowRuns) : ''
     const depNodes = buildDepGraph(issues)
     const graphHtml = depNodes.length > 0
       ? `<div class="section graph-subsection">
@@ -61,14 +53,10 @@ function buildAllView(byProject: Map<string, Issue[]>, byProjectMeta?: Map<strin
         <div class="graph-container">${renderDepGraph(depNodes, issues)}</div>
       </div>`
       : ''
-    return `<section class="project-group" data-project="${escHtml(label)}">
-      <h2 class="project-header">${escHtml(label)}</h2>
+    return `<div data-project="${escHtml(label)}">
       ${issues.length === 0 ? '<p class="no-issues">No open issues</p>' : buildIssueTable(issues)}
-      ${prsSection}
-      ${ciSection}
-      ${wrSection}
       ${graphHtml}
-    </section>`
+    </div>`
   }).join('\n')
 }
 
@@ -157,19 +145,31 @@ export function buildHtml(
   const { visibleRows, hiddenRows, hasMore, hiddenCount } = splitIssueRows(issues)
   const depNodes = isMultiProject ? [] : buildDepGraph(allIssues)
   const depGraphHtml = isMultiProject ? '' : renderDepGraph(depNodes, allIssues)
-  const vercelHtml = renderVercelDeployments(deployments)
-  const wrHtml = renderWorkflowRuns(workflowRuns)
-  const prsHtml = renderPRs(prs)
   const branchesHtml = renderBranchesAndWorktrees(branches, worktrees)
-  const ciHtml = renderBranchCI(branchCI)
-  const showCI = shouldShowCI(branchCI)
+
+  // In multi-project mode, wrap each project's section content in data-project divs
+  // so switchTab can show/hide across ALL sections uniformly.
+  const vercelHtml = isMultiProject && byProjectMeta
+    ? [...byProjectMeta.entries()].map(([l, m]) => `<div data-project="${escHtml(l)}">${renderVercelDeployments(m.deployments)}</div>`).join('')
+    : renderVercelDeployments(deployments)
+  const wrHtml = isMultiProject && byProjectMeta
+    ? [...byProjectMeta.entries()].map(([l, m]) => `<div data-project="${escHtml(l)}">${renderWorkflowRuns(m.workflowRuns)}</div>`).join('')
+    : renderWorkflowRuns(workflowRuns)
+  const prsHtml = isMultiProject && byProjectMeta
+    ? [...byProjectMeta.entries()].map(([l, m]) => m.prs.length > 0 ? `<div data-project="${escHtml(l)}">${renderPRs(m.prs)}</div>` : '').join('')
+    : renderPRs(prs)
+  const ciHtml = isMultiProject && byProjectMeta
+    ? [...byProjectMeta.entries()].map(([l, m]) => shouldShowCI(m.branchCI) ? `<div data-project="${escHtml(l)}">${renderBranchCI(m.branchCI)}</div>` : '').join('')
+    : renderBranchCI(branchCI)
+  const showCI = isMultiProject ? !!ciHtml : shouldShowCI(branchCI)
+  const showPRs = isMultiProject ? !!prsHtml : prs.length > 0
 
   const tabBarHtml = isMultiProject
     ? buildTabBar(workspaceProjects ?? [...byProject!.keys()].map(label => ({label, repo: label})), 'All')
     : ''
 
   const issuesSectionHtml = isMultiProject
-    ? buildAllView(byProject!, byProjectMeta)
+    ? buildAllView(byProject!)
     : `<table>
     <thead>
       <tr>
@@ -232,11 +232,11 @@ ${LIVE_STYLES}
 
   <div id="section-vercel">${vercelHtml}</div>
 
-  <div id="section-workflow-runs">${isMultiProject ? '' : wrHtml}</div>
+  <div id="section-workflow-runs">${wrHtml}</div>
 
-  <div id="section-ci">${!isMultiProject && showCI ? `<div class="section"><h2>CI Status</h2>${ciHtml}</div>` : ''}</div>
+  <div id="section-ci">${showCI ? `<div class="section"><h2>CI Status</h2>${ciHtml}</div>` : ''}</div>
 
-  <div id="section-prs">${!isMultiProject && prs.length > 0 ? `<div class="section"><h2>Pull Requests</h2>${prsHtml}</div>` : ''}</div>
+  <div id="section-prs">${showPRs ? `<div class="section"><h2>Pull Requests</h2>${prsHtml}</div>` : ''}</div>
 
   <div id="section-issues" class="section">
     <h2>Issues</h2>
@@ -283,22 +283,20 @@ ${LIVE_STYLES}
       document.querySelectorAll('.tab:not([data-repo]):not(.add-btn)').forEach(function(t) {
         if (t.textContent.trim() === 'All') t.classList.add('active');
       });
-      document.querySelectorAll('.project-group').forEach(function(s) {
-        s.style.display = '';
-        s.querySelectorAll('.hidden-issues-body').forEach(function(b) { b.style.display = 'none'; });
-        s.querySelectorAll('.show-more-row').forEach(function(tr) { tr.style.display = ''; });
-      });
-      document.querySelectorAll('.single-project-view').forEach(function(s) { s.style.display = ''; });
+      // Show all project data across every section
+      document.querySelectorAll('[data-project]').forEach(function(el) { el.style.display = ''; });
+      // Collapse issue tables back to compact view
+      document.querySelectorAll('.hidden-issues-body').forEach(function(b) { b.style.display = 'none'; });
+      document.querySelectorAll('.show-more-row').forEach(function(tr) { tr.style.display = ''; });
     } else {
-      document.querySelectorAll('.project-group').forEach(function(s) {
-        var isActive = s.dataset.project === label;
-        s.style.display = isActive ? '' : 'none';
-        if (isActive) {
-          s.querySelectorAll('.hidden-issues-body').forEach(function(b) { b.style.display = ''; });
-          s.querySelectorAll('.show-more-row').forEach(function(tr) { tr.style.display = 'none'; });
-          s.querySelectorAll('.show-less-row').forEach(function(tr) { tr.style.display = 'none'; });
-        }
+      // Filter every section to only show the active project
+      document.querySelectorAll('[data-project]').forEach(function(el) {
+        el.style.display = el.dataset.project === label ? '' : 'none';
       });
+      // Expand all issues for the active project (no show-more/show-less needed)
+      document.querySelectorAll('[data-project="' + label + '"] .hidden-issues-body').forEach(function(b) { b.style.display = ''; });
+      document.querySelectorAll('[data-project="' + label + '"] .show-more-row').forEach(function(tr) { tr.style.display = 'none'; });
+      document.querySelectorAll('[data-project="' + label + '"] .show-less-row').forEach(function(tr) { tr.style.display = 'none'; });
     }
   }
 

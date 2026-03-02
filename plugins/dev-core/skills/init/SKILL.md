@@ -164,11 +164,14 @@ Register the current project in the shared workspace config so the multi-project
    bun -e "
    import { getWorkspacePath, readWorkspace, writeWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/workspace.ts'
    const ws = readWorkspace()
-   ws.projects.push({
+   const entry = {
      repo: process.env.GITHUB_REPO ?? '',
      projectId: process.env.PROJECT_ID ?? '',
      label: (process.env.GITHUB_REPO ?? '').split('/')[1] ?? '',
-   })
+   }
+   if (process.env.VERCEL_PROJECT_ID) entry.vercelProjectId = process.env.VERCEL_PROJECT_ID
+   if (process.env.VERCEL_TEAM_ID) entry.vercelTeamId = process.env.VERCEL_TEAM_ID
+   ws.projects.push(entry)
    writeWorkspace(ws)
    console.log('written:' + getWorkspacePath())
    "
@@ -191,9 +194,9 @@ Scan the filesystem for other repos with dev-core configured but not yet in work
    done | sort -u
    ```
 
-2. **For each found `.env`**, extract `GITHUB_REPO` and `PROJECT_ID`:
+2. **For each found `.env`**, extract `GITHUB_REPO`, `PROJECT_ID`, and Vercel config:
    ```bash
-   grep -E "^(GITHUB_REPO|PROJECT_ID)=" <path>/.env
+   grep -E "^(GITHUB_REPO|PROJECT_ID|VERCEL_PROJECT_ID|VERCEL_TEAM_ID)=" <path>/.env
    ```
 
 3. **Filter out**: current project + already-registered repos (compare against `workspace.json`).
@@ -209,7 +212,7 @@ Scan the filesystem for other repos with dev-core configured but not yet in work
    ```
    AskUserQuestion: **Add all** | **Select** | **Skip**
 
-6. **If Add all or Select:** for each chosen repo, read its `GITHUB_REPO` + `PROJECT_ID` + derive label from repo name, then append to `workspace.json` via the same `writeWorkspace` call as Phase 6 step 4.
+6. **If Add all or Select:** for each chosen repo, read its `GITHUB_REPO` + `PROJECT_ID` + `VERCEL_PROJECT_ID` + `VERCEL_TEAM_ID` + derive label from repo name, then append to `workspace.json` (include `vercelProjectId`/`vercelTeamId` only if present in that repo's `.env`).
 
    Display: `workspace.json ✅ Added N projects (repo-a, repo-b, ...)`
 

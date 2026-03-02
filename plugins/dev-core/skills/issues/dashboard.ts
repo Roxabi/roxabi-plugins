@@ -37,7 +37,7 @@ import {
   writeWorkspace,
 } from '../shared/workspace'
 
-type ProjectMeta = { prs: PR[]; branchCI: BranchCI[]; workflowRuns: WorkflowRun[] }
+type ProjectMeta = { prs: PR[]; branchCI: BranchCI[]; workflowRuns: WorkflowRun[]; deployments: VercelDeployment[] }
 
 const PORT = Number(process.argv.find((a) => a.startsWith('--port='))?.split('=')[1] ?? 3333)
 const POLL_MS =
@@ -107,17 +107,17 @@ async function refreshCache(): Promise<void> {
     let byProjectMeta: Map<string, ProjectMeta> | null = null
 
     if (ws.projects.length > 0) {
-      const [rawMap, metaResults, branches_, worktrees_, deployments_] = await Promise.all([
+      const [rawMap, metaResults, branches_, worktrees_] = await Promise.all([
         fetchAllProjects(ws.projects),
         Promise.all(ws.projects.map(async (p) => ({
           label: p.label,
           prs: await fetchPRs(p.repo),
           branchCI: await fetchBranchCI(p.repo),
           workflowRuns: await fetchWorkflowRuns(p.repo),
+          deployments: await fetchVercelDeployments(p.vercelProjectId, p.vercelTeamId),
         }))),
         fetchBranches(),
         fetchWorktrees(),
-        fetchVercelDeployments(),
       ])
 
       byProject = new Map<string, Issue[]>()
@@ -125,11 +125,12 @@ async function refreshCache(): Promise<void> {
         byProject.set(label, rawItemsToIssues(rawItems))
       }
       issues = [...byProject.values()].flat()
-      byProjectMeta = new Map(metaResults.map((m) => [m.label, { prs: m.prs, branchCI: m.branchCI, workflowRuns: m.workflowRuns }]))
+      byProjectMeta = new Map(metaResults.map((m) => [m.label, { prs: m.prs, branchCI: m.branchCI, workflowRuns: m.workflowRuns, deployments: m.deployments }]))
 
       const prs = metaResults.flatMap((m) => m.prs)
       const branchCI = metaResults.flatMap((m) => m.branchCI)
       const workflowRuns = metaResults.flatMap((m) => m.workflowRuns)
+      const deployments_ = metaResults.flatMap((m) => m.deployments)
       const fetchMs = Math.round(performance.now() - start)
       const hash = computeHash(issues, prs, branches_, worktrees_, deployments_, branchCI, workflowRuns)
       const workspaceChanged = !cache || cache.workspaceHash !== newWorkspaceHash

@@ -6,9 +6,11 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 
 export interface WorkspaceProject {
-  repo: string       // 'owner/name'
-  projectId: string  // 'PVT_...'
-  label: string      // display name shown in dashboard tab
+  repo: string              // 'owner/name'
+  projectId: string         // 'PVT_...'
+  label: string             // display name shown in dashboard tab
+  vercelProjectId?: string  // Vercel project ID (optional, for per-project deployments)
+  vercelTeamId?: string     // Vercel team ID (optional)
 }
 
 export interface Workspace {
