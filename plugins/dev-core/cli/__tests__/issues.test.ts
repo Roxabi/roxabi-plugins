@@ -73,15 +73,11 @@ function makeIssueNode(number: number, title: string) {
 
 describe('buildBatchedQuery', () => {
   it('returns a query string containing project0: and project1: aliases for 2 project IDs', async () => {
-    // Arrange
-    // Will fail until buildBatchedQuery is exported from queries.ts — RED
-    const { buildBatchedQuery } = await import('../../plugins/dev-core/skills/shared/queries')
+    const { buildBatchedQuery } = await import('../../skills/shared/queries')
     const projectIds = ['PVT_kwABC123', 'PVT_kwDEF456']
 
-    // Act
     const query = buildBatchedQuery(projectIds)
 
-    // Assert — IDs go into variables, not inline in the query string
     expect(query).toContain('project0:')
     expect(query).toContain('project1:')
     expect(query).toContain('$project0Id')
@@ -89,14 +85,11 @@ describe('buildBatchedQuery', () => {
   })
 
   it('uses unique variable aliases so both projects appear in a single query document', async () => {
-    // Arrange
-    const { buildBatchedQuery } = await import('../../plugins/dev-core/skills/shared/queries')
+    const { buildBatchedQuery } = await import('../../skills/shared/queries')
     const projectIds = ['PVT_kwABC123', 'PVT_kwDEF456']
 
-    // Act
     const query = buildBatchedQuery(projectIds)
 
-    // Assert — both aliases must be distinct (not reusing the same field name)
     const project0Count = (query.match(/project0:/g) ?? []).length
     const project1Count = (query.match(/project1:/g) ?? []).length
     expect(project0Count).toBeGreaterThanOrEqual(1)
@@ -106,18 +99,18 @@ describe('buildBatchedQuery', () => {
 
 describe('buildBatchedVariables', () => {
   it('returns empty object for empty array', async () => {
-    const { buildBatchedVariables } = await import('../../plugins/dev-core/skills/shared/queries')
+    const { buildBatchedVariables } = await import('../../skills/shared/queries')
     expect(buildBatchedVariables([])).toEqual({})
   })
 
   it('returns { project0Id: "..." } for a single project ID', async () => {
-    const { buildBatchedVariables } = await import('../../plugins/dev-core/skills/shared/queries')
+    const { buildBatchedVariables } = await import('../../skills/shared/queries')
     const result = buildBatchedVariables(['PVT_kwABC123'])
     expect(result).toEqual({ project0Id: 'PVT_kwABC123' })
   })
 
   it('returns correctly keyed entries for N project IDs', async () => {
-    const { buildBatchedVariables } = await import('../../plugins/dev-core/skills/shared/queries')
+    const { buildBatchedVariables } = await import('../../skills/shared/queries')
     const ids = ['PVT_kwABC123', 'PVT_kwDEF456', 'PVT_kwGHI789']
     const result = buildBatchedVariables(ids)
     expect(result).toEqual({
@@ -150,31 +143,23 @@ describe('issues command - batched GraphQL', () => {
   })
 
   it('SC-10: fires exactly 1 HTTP request for a 2-project workspace', async () => {
-    // Arrange
-    // Will fail until cli/commands/issues.ts exists — RED
     const { runIssuesCommand } = await import('../commands/issues')
 
-    // Act
     await runIssuesCommand({ workspace: TWO_PROJECT_WORKSPACE, format: 'table' })
 
-    // Assert — single batched request regardless of project count
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('SC-10: the single request targets the GitHub GraphQL endpoint', async () => {
-    // Arrange
     const { runIssuesCommand } = await import('../commands/issues')
 
-    // Act
     await runIssuesCommand({ workspace: TWO_PROJECT_WORKSPACE, format: 'table' })
 
-    // Assert
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('https://api.github.com/graphql')
   })
 
   it('SC-11: output contains the project label for each project when issues are present', async () => {
-    // Arrange
     const project0Issue = makeIssueNode(1, 'Frontend login page')
     const project1Issue = makeIssueNode(2, 'Backend auth endpoint')
 
@@ -186,19 +171,16 @@ describe('issues command - batched GraphQL', () => {
 
     const { runIssuesCommand } = await import('../commands/issues')
 
-    // Act
     const output = await runIssuesCommand({
       workspace: TWO_PROJECT_WORKSPACE,
       format: 'table',
     })
 
-    // Assert — both project labels appear as column context
     expect(output).toContain('frontend')
     expect(output).toContain('backend')
   })
 
   it('SC-11: each issue row is annotated with its project label', async () => {
-    // Arrange
     const project0Issue = makeIssueNode(10, 'Add dark mode')
     const project1Issue = makeIssueNode(20, 'Fix DB connection pool')
 
@@ -210,30 +192,24 @@ describe('issues command - batched GraphQL', () => {
 
     const { runIssuesCommand } = await import('../commands/issues')
 
-    // Act
     const output = await runIssuesCommand({
       workspace: TWO_PROJECT_WORKSPACE,
       format: 'table',
     })
 
-    // Assert — issue titles appear alongside their project labels
     expect(output).toContain('#10')
     expect(output).toContain('#20')
-    // Label column header must be present
     expect(output).toContain('Project')
   })
 
   it('returns empty table gracefully when all projects have no issues', async () => {
-    // Arrange — default fetchMock returns empty nodes for both projects
     const { runIssuesCommand } = await import('../commands/issues')
 
-    // Act
     const output = await runIssuesCommand({
       workspace: TWO_PROJECT_WORKSPACE,
       format: 'table',
     })
 
-    // Assert — no crash, still shows column headers
     expect(typeof output).toBe('string')
     expect(output).toContain('0 issues')
   })

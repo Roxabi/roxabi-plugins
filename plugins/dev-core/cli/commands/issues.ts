@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { readWorkspace } from '../lib/workspace'
-import { buildBatchedQuery, buildBatchedVariables } from '../../plugins/dev-core/skills/shared/queries'
-import type { RawItem } from '../../plugins/dev-core/skills/shared/types'
+import { buildBatchedQuery, buildBatchedVariables } from '../../skills/shared/queries'
+import type { RawItem } from '../../skills/shared/types'
 
 export interface IssuesCommandProject {
   repo: string

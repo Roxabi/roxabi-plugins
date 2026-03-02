@@ -160,7 +160,7 @@ describe('scaffold', () => {
     expect(writtenFiles['.env.example']).not.toContain('old/repo')
   })
 
-  it('writes run-dashboard.ts launcher', async () => {
+  it('writes roxabi shim to ~/.local/bin/roxabi', async () => {
     const { scaffold } = await import('../lib/scaffold')
     const result = await scaffold({
       githubRepo: 'Org/repo',
@@ -174,9 +174,13 @@ describe('scaffold', () => {
       force: false,
     })
 
-    expect(result.launcherWritten).toBe(true)
-    expect(writtenFiles['.claude/run-dashboard.ts']).toContain('dev-core')
-    expect(writtenFiles['.claude/run-dashboard.ts']).toContain('.orphaned_at')
+    expect(result.shimWritten).toBe(true)
+    expect(result.shimPath).toContain('roxabi')
+    // Find the shim content via the resolved path
+    const shimContent = writtenFiles[result.shimPath]
+    expect(shimContent).toContain('dev-core')
+    expect(shimContent).toContain('.orphaned_at')
+    expect(shimContent).toContain('cli/index.ts')
   })
 
   it('adds .env to .gitignore if missing', async () => {

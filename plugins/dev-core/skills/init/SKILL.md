@@ -140,7 +140,7 @@ If "Edit a value", ask which value to change, accept new value, re-display, re-c
 
 Run: `bun $INIT_TS scaffold --github-repo <owner/repo> --project-id <PVT_...> --status-field-id <PVTSSF_...> --size-field-id <PVTSSF_...> --priority-field-id <PVTSSF_...> --status-options-json '<json>' --size-options-json '<json>' --priority-options-json '<json>' [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
 
-The scaffold step writes `.claude/run-dashboard.ts` — a self-healing launcher that resolves the latest active dev-core plugin cache at runtime, so `roxabi dashboard` keeps working after plugin updates without re-running `/init`.
+The scaffold step installs a `roxabi` shim at `~/.local/bin/roxabi` (or `~/bin/roxabi`) — a self-healing shell script that resolves the latest active dev-core plugin cache at runtime. Run `roxabi dashboard` to launch the issues dashboard. The shim survives plugin updates without re-running `/init`.
 
 ### Phase 6 — Report
 
@@ -158,14 +158,14 @@ dev-core initialized
   Project workflows ✅ N enabled / ⏭ Skipped
   CI/CD workflows   ✅ Created / ⏭ Skipped
   Branch protection ✅ Created / ⏭ Skipped
-  run-dashboard.ts  ✅ Written (.claude/run-dashboard.ts)
+  roxabi shim       ✅ Installed (~/.local/bin/roxabi)
   artifacts/        ✅ Created
   .gitignore        ✅ .env added
 
 Next steps:
   /stack-setup           Configure stack for agents (auto-discovers your project)
   /doctor                Verify full configuration health
-  roxabi dashboard       Launch the issues dashboard
+  roxabi dashboard       Launch the issues dashboard  (add ~/.local/bin to PATH if needed)
   /issues                View issues in CLI
   /dev #N                Start working on an issue
   /init --force          Re-configure anytime

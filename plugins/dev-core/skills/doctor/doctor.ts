@@ -221,9 +221,12 @@ function checkProjectStructure(): Section {
   const allExist = artifactDirs.every((d) => require('fs').existsSync(`artifacts/${d}`))
   checks.push({ name: 'artifacts/', status: allExist ? 'pass' : 'fail', detail: allExist ? 'found' : 'missing subdirectories' })
 
-  // dashboard launcher
-  const hasLauncher = require('fs').existsSync('.claude/run-dashboard.ts')
-  checks.push({ name: 'run-dashboard.ts', status: hasLauncher ? 'pass' : 'warn', detail: hasLauncher ? 'found' : 'missing — run /init to create' })
+  // roxabi shim
+  const home = require('os').homedir()
+  const shimPaths = [`${home}/.local/bin/roxabi`, `${home}/bin/roxabi`]
+  const hasShim = shimPaths.some(p => require('fs').existsSync(p)) ||
+    spawnSync(['sh', '-c', 'command -v roxabi']).ok
+  checks.push({ name: 'roxabi CLI', status: hasShim ? 'pass' : 'warn', detail: hasShim ? 'in PATH' : 'not found — run /init to install' })
 
   return { name: 'Project', checks }
 }
