@@ -84,6 +84,21 @@ Parse the JSON output and display:
 - **projectId format valid** → ✅ all valid | ⚠️ `invalid projectId for <repo> (expected PVT_...)` for each in `invalidIds`
 - **Project count:** display `N project(s) registered: <label1>, <label2>, ...`
 
+**Unregistered projects scan:**
+
+```bash
+SEARCH_DIRS="$(dirname $PWD) $HOME/projects"
+for dir in $SEARCH_DIRS; do
+  find "$dir" -maxdepth 3 -name ".env" 2>/dev/null \
+    | xargs grep -l "^GITHUB_REPO=" 2>/dev/null
+done | sort -u
+```
+
+For each found `.env`, extract `GITHUB_REPO` and check if it's already in workspace.json. Collect those that are not (excluding the current repo, already checked above).
+
+- **No unregistered candidates:** ✅ `all local dev-core projects are registered`
+- **Unregistered found:** ⚠️ `N project(s) with dev-core config not in workspace: <repo-a>, <repo-b> — run /init to bulk-register`
+
 Print summary line:
 ```
 Workspace: N projects registered  (or: not found)
