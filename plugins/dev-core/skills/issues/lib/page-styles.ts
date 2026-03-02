@@ -513,4 +513,57 @@ export const PAGE_STYLES = `
   .wr-name { color: var(--accent); text-decoration: none; font-weight: 500; }
   .wr-name:hover { text-decoration: underline; }
   .wr-event { font-size: 10px; color: var(--text-muted); }
+
+  /* Tab bar */
+  .tab-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 16px 0;
+    border-bottom: 1px solid #30363d;
+    flex-wrap: wrap;
+  }
+  .tab {
+    background: transparent;
+    border: 1px solid #30363d;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    padding: 6px 14px;
+    cursor: pointer;
+    color: #8b949e;
+    font-size: 13px;
+    transition: color 0.15s;
+  }
+  .tab:hover { color: #e6edf3; }
+  .tab.active { background: #161b22; border-color: #30363d; color: #e6edf3; }
+  .add-btn { font-size: 18px; padding: 2px 10px; }
+  .tab-close { margin-left: 6px; opacity: 0.5; font-size: 11px; }
+  .tab-close:hover { opacity: 1; }
+
+  /* Multi-project grouped view */
+  .project-group { margin-bottom: 24px; }
+  .project-header { font-size: 14px; font-weight: 600; color: #8b949e; margin: 16px 0 8px; border-bottom: 1px solid #21262d; padding-bottom: 4px; }
+  .no-issues { color: #8b949e; font-size: 13px; padding: 8px 0; }
+  .show-more-btn {
+    background: var(--surface);
+    color: var(--accent);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 20px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .show-more-btn:hover {
+    border-color: var(--accent);
+    background: rgba(88,166,255,.1);
+  }
+
+  /* Workspace add-project dialog */
+  dialog { background: #161b22; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; padding: 20px; min-width: 320px; }
+  dialog h3 { margin: 0 0 12px; }
+  dialog label { display: block; margin-bottom: 12px; font-size: 13px; }
+  dialog input { display: block; width: 100%; margin-top: 4px; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 6px 8px; border-radius: 4px; }
+  .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+  .dialog-actions button { padding: 6px 14px; border-radius: 4px; cursor: pointer; border: 1px solid #30363d; background: #21262d; color: #e6edf3; }
 `

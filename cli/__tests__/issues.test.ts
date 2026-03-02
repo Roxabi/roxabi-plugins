@@ -1,0 +1,210 @@
+import { describe, it, expect, mock, beforeEach } from 'bun:test'
+
+/**
+ * RED tests for multi-project issues command (SC-10, SC-11).
+ *
+ * These tests will fail until the following implementations exist:
+ *   - cli/commands/issues.ts           (issues command with workspace support)
+ *   - buildBatchedQuery() exported from plugins/dev-core/skills/shared/queries.ts
+ *
+ * SC-10: A single HTTP request is sent for all projects in the workspace.
+ * SC-11: Output includes the project label column for each project's issues.
+ */
+
+// ---------------------------------------------------------------------------
+// Workspace fixture — inline JSON, no real files needed
+// ---------------------------------------------------------------------------
+
+const TWO_PROJECT_WORKSPACE = {
+  projects: [
+    { id: 'PVT_kwABC123', label: 'frontend', repo: 'Roxabi/frontend-app' },
+    { id: 'PVT_kwDEF456', label: 'backend', repo: 'Roxabi/backend-api' },
+  ],
+}
+
+// ---------------------------------------------------------------------------
+// Batched GraphQL response fixture
+// ---------------------------------------------------------------------------
+
+function makeBatchedResponse(project0Nodes = [], project1Nodes = []) {
+  return {
+    data: {
+      project0: {
+        items: {
+          nodes: project0Nodes,
+          pageInfo: { hasNextPage: false, endCursor: null },
+        },
+      },
+      project1: {
+        items: {
+          nodes: project1Nodes,
+          pageInfo: { hasNextPage: false, endCursor: null },
+        },
+      },
+    },
+  }
+}
+
+function makeIssueNode(number: number, title: string) {
+  return {
+    content: {
+      number,
+      title,
+      state: 'OPEN',
+      url: `https://github.com/Roxabi/repo/issues/${number}`,
+      subIssues: { nodes: [] },
+      parent: null,
+      blockedBy: { nodes: [] },
+      blocking: { nodes: [] },
+    },
+    fieldValues: {
+      nodes: [
+        { name: 'Backlog', field: { name: 'Status' } },
+        { name: 'P1 - High', field: { name: 'Priority' } },
+        { name: 'M', field: { name: 'Size' } },
+      ],
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests — buildBatchedQuery (queries.ts)
+// ---------------------------------------------------------------------------
+
+describe('buildBatchedQuery', () => {
+  it('returns a query string containing project0: and project1: aliases for 2 project IDs', async () => {
+    // Arrange
+    // Will fail until buildBatchedQuery is exported from queries.ts — RED
+    const { buildBatchedQuery } = await import('../../plugins/dev-core/skills/shared/queries')
+    const projectIds = ['PVT_kwABC123', 'PVT_kwDEF456']
+
+    // Act
+    const query = buildBatchedQuery(projectIds)
+
+    // Assert — IDs go into variables, not inline in the query string
+    expect(query).toContain('project0:')
+    expect(query).toContain('project1:')
+    expect(query).toContain('$project0Id')
+    expect(query).toContain('$project1Id')
+  })
+
+  it('uses unique variable aliases so both projects appear in a single query document', async () => {
+    // Arrange
+    const { buildBatchedQuery } = await import('../../plugins/dev-core/skills/shared/queries')
+    const projectIds = ['PVT_kwABC123', 'PVT_kwDEF456']
+
+    // Act
+    const query = buildBatchedQuery(projectIds)
+
+    // Assert — both aliases must be distinct (not reusing the same field name)
+    const project0Count = (query.match(/project0:/g) ?? []).length
+    const project1Count = (query.match(/project1:/g) ?? []).length
+    expect(project0Count).toBeGreaterThanOrEqual(1)
+    expect(project1Count).toBeGreaterThanOrEqual(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Integration tests — issues command with workspace fixture (SC-10, SC-11)
+// ---------------------------------------------------------------------------
+
+describe('issues command - batched GraphQL', () => {
+  let fetchMock: ReturnType<typeof mock>
+
+  beforeEach(() => {
+    fetchMock = mock(async (_url: string, _opts: RequestInit) => ({
+      ok: true,
+      json: async () => makeBatchedResponse(),
+    }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+  })
+
+  it('SC-10: fires exactly 1 HTTP request for a 2-project workspace', async () => {
+    // Arrange
+    // Will fail until cli/commands/issues.ts exists — RED
+    const { runIssuesCommand } = await import('../commands/issues')
+
+    // Act
+    await runIssuesCommand({ workspace: TWO_PROJECT_WORKSPACE, format: 'table' })
+
+    // Assert — single batched request regardless of project count
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('SC-10: the single request targets the GitHub GraphQL endpoint', async () => {
+    // Arrange
+    const { runIssuesCommand } = await import('../commands/issues')
+
+    // Act
+    await runIssuesCommand({ workspace: TWO_PROJECT_WORKSPACE, format: 'table' })
+
+    // Assert
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.github.com/graphql')
+  })
+
+  it('SC-11: output contains the project label for each project when issues are present', async () => {
+    // Arrange
+    const project0Issue = makeIssueNode(1, 'Frontend login page')
+    const project1Issue = makeIssueNode(2, 'Backend auth endpoint')
+
+    fetchMock = mock(async () => ({
+      ok: true,
+      json: async () => makeBatchedResponse([project0Issue], [project1Issue]),
+    }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { runIssuesCommand } = await import('../commands/issues')
+
+    // Act
+    const output = await runIssuesCommand({
+      workspace: TWO_PROJECT_WORKSPACE,
+      format: 'table',
+    })
+
+    // Assert — both project labels appear as column context
+    expect(output).toContain('frontend')
+    expect(output).toContain('backend')
+  })
+
+  it('SC-11: each issue row is annotated with its project label', async () => {
+    // Arrange
+    const project0Issue = makeIssueNode(10, 'Add dark mode')
+    const project1Issue = makeIssueNode(20, 'Fix DB connection pool')
+
+    fetchMock = mock(async () => ({
+      ok: true,
+      json: async () => makeBatchedResponse([project0Issue], [project1Issue]),
+    }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { runIssuesCommand } = await import('../commands/issues')
+
+    // Act
+    const output = await runIssuesCommand({
+      workspace: TWO_PROJECT_WORKSPACE,
+      format: 'table',
+    })
+
+    // Assert — issue titles appear alongside their project labels
+    expect(output).toContain('#10')
+    expect(output).toContain('#20')
+    // Label column header must be present
+    expect(output).toContain('Project')
+  })
+
+  it('returns empty table gracefully when all projects have no issues', async () => {
+    // Arrange — default fetchMock returns empty nodes for both projects
+    const { runIssuesCommand } = await import('../commands/issues')
+
+    // Act
+    const output = await runIssuesCommand({
+      workspace: TWO_PROJECT_WORKSPACE,
+      format: 'table',
+    })
+
+    // Assert — no crash, still shows column headers
+    expect(typeof output).toBe('string')
+    expect(output).toContain('0 issues')
+  })
+})

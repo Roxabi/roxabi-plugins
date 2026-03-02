@@ -225,3 +225,46 @@ mutation($workflowId: ID!, $enabled: Boolean!) {
     projectV2Workflow { id name enabled }
   }
 }`
+
+/**
+ * Build a batched multi-project query with N aliased node() lookups.
+ * Response shape: data.project0, data.project1, ...
+ * Variables shape: { project0Id: "PVT_...", project1Id: "PVT_..." }
+ */
+export function buildBatchedQuery(projectIds: string[]): string {
+  if (projectIds.length === 0) return ''
+  const params = projectIds.map((_, i) => `$project${i}Id: ID!`).join(', ')
+  const aliases = projectIds.map((_, i) => `
+    project${i}: node(id: $project${i}Id) {
+      ... on ProjectV2 {
+        items(first: 100) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            content {
+              ... on Issue {
+                number title state url
+                subIssues(first: 50) { nodes { number state title } }
+                parent { number state }
+                blockedBy(first: 20) { nodes { number state } }
+                blocking(first: 20) { nodes { number state } }
+              }
+            }
+            fieldValues(first: 10) {
+              nodes {
+                ... on ProjectV2ItemFieldSingleSelectValue {
+                  name
+                  field { ... on ProjectV2SingleSelectField { name } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }`).join('')
+  return `query(${params}) {${aliases}\n}`
+}
+
+/** Build variables object for buildBatchedQuery: { project0Id: "PVT_...", ... } */
+export function buildBatchedVariables(projectIds: string[]): Record<string, string> {
+  return Object.fromEntries(projectIds.map((id, i) => [`project${i}Id`, id]))
+}
