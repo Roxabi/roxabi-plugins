@@ -585,6 +585,7 @@ ${LIVE_STYLES}
 const TWO_MINUTES = 2 * 60 * 1000
 const CI_FAILING_STATES = ['FAILURE', 'ERROR', 'ACTION_REQUIRED', 'TIMED_OUT']
 const CI_RUNNING_STATES = ['PENDING', 'EXPECTED']
+const CI_KNOWN_STATES = ['SUCCESS', ...CI_FAILING_STATES, ...CI_RUNNING_STATES]
 
 function shouldShowCI(branchCI: BranchCI[]): boolean {
   if (branchCI.length === 0) return false
@@ -592,6 +593,7 @@ function shouldShowCI(branchCI: BranchCI[]): boolean {
   return branchCI.some((b) => {
     if (CI_FAILING_STATES.includes(b.overallState)) return true
     if (CI_RUNNING_STATES.includes(b.overallState)) return true
+    if (!CI_KNOWN_STATES.includes(b.overallState)) return true // unknown state — always show
     if (b.committedAt && now - new Date(b.committedAt).getTime() < TWO_MINUTES) return true
     return false
   })
