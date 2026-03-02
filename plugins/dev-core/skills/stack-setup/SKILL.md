@@ -2,15 +2,15 @@
 name: stack-setup
 argument-hint: '[--force]'
 description: 'Interactive wizard to fill in .claude/stack.yml through guided questions — asks about runtime, backend, frontend, build, testing, deploy, docs, commands, and standards paths, then writes the file. Triggers: "stack setup" | "setup stack" | "configure stack" | "fill stack.yml" | "stack wizard" | "stack-setup".'
-version: 0.1.0
+version: 0.2.0
 allowed-tools: Read, Edit, Write, Bash, Glob
 ---
 
 # Stack Setup Wizard
 
-Walk the user through every section of `.claude/stack.yml` with guided questions. Write the file at the end. Safe to re-run.
+Auto-discovers your project configuration from the codebase, shows a confirmation screen, then writes `.claude/stack.yml`. Safe to re-run.
 
-## Phase 1 — Idempotency check
+## Phase 0 — Idempotency check
 
 Check: `test -f .claude/stack.yml && echo exists || echo missing`
 
@@ -20,169 +20,142 @@ AskUserQuestion: **Re-configure** (overwrite existing stack.yml) | **Skip** (abo
 
 If missing, create `.claude/` directory: `mkdir -p .claude`
 
-## Phase 2 — Runtime & package manager
+## Phase 1 — Check /init prerequisite
 
-AskUserQuestion:
-- **Package manager?** — **bun** | **npm** | **pnpm** | **yarn**
+Run: `test -f .env && grep -q 'PROJECT_ID' .env && echo done || echo missing`
 
-Derive `runtime`:
-- bun → `bun`
-- npm / pnpm / yarn → `node`
+If `missing`:
+Display warning:
+> ⚠️ `/init` has not been run yet — GitHub project integration won't work until you do.
 
-Store: `PM`, `RUNTIME`
+AskUserQuestion: **Continue anyway** | **Abort (run /init first)**
+→ Abort: stop with "Run `/init` to set up GitHub integration, then come back to `/stack-setup`."
 
-## Phase 3 — Backend
+## Phase 2 — Auto-discover project configuration
 
-AskUserQuestion: **Does this project have a backend?** — **Yes** | **No**
+Run all detection commands. Collect results and derive the proposed config.
 
-If Yes:
-1. AskUserQuestion: **Backend framework?** — **NestJS** | **Express** | **Fastify** | **Django** | **Rails** | **Other**
-   - Other → AskUserQuestion (free text): "Enter the framework name:"
-   - Store as lowercase: `nestjs`, `express`, `fastify`, `django`, `rails`, or user input
-2. AskUserQuestion: **ORM / database layer?** — **Drizzle** | **Prisma** | **TypeORM** | **Mongoose** | **None**
-   - Store as lowercase: `drizzle`, `prisma`, `typeorm`, `mongoose`, `none`
-3. AskUserQuestion: **Backend app path?** (relative to project root)
-   - Default suggestion: `apps/api` (monorepo) or `src` (single-app) — present as options
-   - **apps/api** | **src** | **backend** | **Other**
-   - Other → free text input
+```bash
+# Runtime & package manager
+echo "--- RUNTIME ---"
+if [ -f pyproject.toml ]; then
+  grep -q '\[tool\.uv\]' pyproject.toml && echo "runtime=python pm=uv" || echo "runtime=python pm=pip"
+elif [ -f bun.lockb ]; then echo "runtime=bun pm=bun"
+elif [ -f pnpm-lock.yaml ]; then echo "runtime=node pm=pnpm"
+elif [ -f yarn.lock ]; then echo "runtime=node pm=yarn"
+elif [ -f package.json ]; then echo "runtime=node pm=npm"
+else echo "runtime=unknown pm=unknown"
+fi
 
-If No: set backend fields to `none`/empty.
+# Source / backend path
+echo "--- SOURCE PATH ---"
+grep -oP '(?<=packages = \[")[^"]+' pyproject.toml 2>/dev/null | head -1 \
+  || (test -d src && echo "src") \
+  || (test -d apps/api && echo "apps/api") \
+  || echo ""
 
-## Phase 4 — Frontend
+# Backend framework
+echo "--- BACKEND FRAMEWORK ---"
+grep -iE '\btyper\b|\bfastapi\b|\bflask\b|\bdjango\b' pyproject.toml 2>/dev/null | head -1 \
+  || grep -oE '"@nestjs/core"|"express"|"fastify"' package.json 2>/dev/null | head -1 \
+  || echo "none"
 
-AskUserQuestion: **Does this project have a frontend?** — **Yes** | **No**
+# Frontend framework
+echo "--- FRONTEND FRAMEWORK ---"
+grep -oE '"next"|"@sveltejs/kit"|"@remix-run/react"|"nuxt"|"@tanstack/start"' package.json 2>/dev/null | head -1 \
+  || echo "none"
 
-If Yes:
-1. AskUserQuestion: **Frontend framework?** — **TanStack Start** | **Next.js** | **Remix** | **SvelteKit** | **Nuxt** | **Other**
-   - Store: `tanstack-start`, `nextjs`, `remix`, `sveltekit`, `nuxt`, or user input
-2. AskUserQuestion: **Frontend app path?**
-   - **apps/web** | **app** | **src** | **frontend** | **Other**
-3. AskUserQuestion: **Shared UI package import path?** (what you import from in code)
-   - **@repo/ui** | **@/components/ui** | **$lib/components** | **None / not applicable** | **Other**
-   - None → skip `ui_src` question
-   - Other → free text
-4. If UI package was set: AskUserQuestion: **UI source directory?** (where components are defined)
-   - Default: derive from UI package path — e.g., `@repo/ui` → suggest `packages/ui/src`
-   - **packages/ui/src** | **src/components/ui** | **src/lib/components** | **Other**
+# ORM
+echo "--- ORM ---"
+grep -oE '"drizzle-orm"|"@prisma/client"|"@prisma/client"|"mongoose"|"typeorm"' package.json 2>/dev/null | head -1 \
+  || echo "none"
 
-If No: set frontend fields to `none`/empty.
+# Test framework
+echo "--- TESTING ---"
+grep -q 'pytest' pyproject.toml 2>/dev/null && echo "pytest" \
+  || grep -oE '"vitest"|"jest"' package.json 2>/dev/null | head -1 \
+  || echo "none"
 
-## Phase 5 — Shared packages (monorepo only)
+# Linter / formatter
+echo "--- LINTER ---"
+grep -q '\[tool\.ruff\]' pyproject.toml 2>/dev/null && echo "ruff config=pyproject.toml" \
+  || (test -f biome.json && echo "biome config=biome.json") \
+  || grep -q '"eslint"' package.json 2>/dev/null && echo "eslint config=.eslintrc.*" \
+  || echo "none"
 
-AskUserQuestion: **Is this a monorepo with shared packages?** — **Yes** | **No**
+# Build orchestrator
+echo "--- ORCHESTRATOR ---"
+(test -f turbo.jsonc && echo "turbo config=turbo.jsonc") \
+  || (test -f turbo.json && echo "turbo config=turbo.json") \
+  || (test -f nx.json && echo "nx config=nx.json") \
+  || echo "none"
 
-If Yes:
-1. AskUserQuestion: **Shared types package path?** — **packages/types** | **packages/shared** | **shared/types** | **Other / None**
-2. AskUserQuestion: **Shared UI package directory?** — **packages/ui** | **packages/components** | **Other / None**
-3. AskUserQuestion: **Shared config package path?** — **packages/config** | **config** | **Other / None**
-   - "None" → leave field empty
+# Docs
+echo "--- DOCS ---"
+test -d docs && echo "path=docs format=md" || echo "none"
 
-If No: leave shared fields empty.
-
-## Phase 6 — Build tooling
-
-1. AskUserQuestion: **Build orchestrator?** — **Turbo** | **Nx** | **None**
-   - Turbo → `orchestrator_config: turbo.jsonc`
-   - Nx → `orchestrator_config: nx.json`
-   - None → skip config field
-
-2. AskUserQuestion: **Code formatter / linter?** — **Biome** | **ESLint** | **ESLint + Prettier** | **None**
-   - Biome → `formatter_config: biome.json`, `formatter_fix_cmd: "bunx biome check --write"`
-   - ESLint → `formatter_config: .eslintrc.*`, `formatter_fix_cmd: "npx eslint --fix"`
-   - ESLint + Prettier → `formatter_config: .eslintrc.*`, `formatter_fix_cmd: "npx prettier --write . && npx eslint --fix"`
-   - None → skip
-
-## Phase 7 — Testing
-
-1. AskUserQuestion: **Unit / integration test framework?** — **Vitest** | **Jest** | **Pytest** | **None**
-2. AskUserQuestion: **E2E test framework?** — **Playwright** | **Cypress** | **None**
-
-## Phase 8 — Deployment
-
-AskUserQuestion: **Deployment platform?** — **Vercel** | **Railway** | **Fly.io** | **AWS** | **None**
-
-Derive `secrets_cmd`:
-- Vercel → `vercel env add`
-- Railway → `railway variables set`
-- Fly.io → `fly secrets set`
-- AWS → `aws ssm put-parameter`
-- None → leave empty
-
-## Phase 9 — Documentation
-
-AskUserQuestion: **Does this project have a documentation site?** — **Yes** | **No**
-
-If Yes:
-1. AskUserQuestion: **Docs framework?** — **Fumadocs** | **Docusaurus** | **Nextra** | **None / plain Markdown**
-2. AskUserQuestion: **Docs directory?** — **docs** | **documentation** | **website** | **Other**
-3. AskUserQuestion: **Docs file format?** — **MDX** | **Markdown**
-
-If No: set `docs.framework: none`, `docs.path: docs`, `docs.format: md`
-
-## Phase 10 — Commands
-
-Derive defaults from `PM` (package manager) — no need to ask unless user wants to override.
-
-Default derivation:
-```
-dev:        {PM} run dev
-build:      {PM} run build
-test:       {PM} run test
-lint:       {PM} run lint
-typecheck:  {PM} run typecheck
-format:     (from formatter_fix_cmd above)
-install:    {PM} install
+# Project scripts (entry points)
+echo "--- PROJECT SCRIPTS ---"
+grep -A5 '^\[project\.scripts\]' pyproject.toml 2>/dev/null | grep -v '^\[' | head -5 \
+  || (grep '"scripts"' package.json 2>/dev/null && python3 -c "import json,sys; pkg=json.load(open('package.json')); [print(f'{k}={v}') for k,v in (pkg.get('scripts') or {}).items() if k in ['dev','build','test','lint','typecheck','format']]" 2>/dev/null) \
+  || echo ""
 ```
 
-AskUserQuestion: **Customize commands?** — **Use defaults** | **Customize**
+From the output, derive the proposed config:
 
-If Customize → for each command, AskUserQuestion (free text) with the default pre-shown.
+**Runtime/PM mapping:**
+- `pm=uv` → `runtime: python`, `package_manager: uv`; commands prefixed with `uv run`
+- `pm=bun` → `runtime: bun`, `package_manager: bun`; commands prefixed with `bun run`
+- `pm=npm/pnpm/yarn` → `runtime: node`, `package_manager: {pm}`; commands prefixed with `{pm} run`
 
-## Phase 11 — Artifact directories
+**Commands derivation by runtime:**
+- Python/uv: `dev: uv run <first-script-key>`, `test: uv run pytest`, `lint: uv run ruff check .`, `format: uv run ruff format .`, `typecheck: uv run ruff check --select=PYI .`, `install: uv sync`
+- Node/Bun: `dev: {pm} run dev`, `test: {pm} run test`, `lint: {pm} run lint`, `format: {pm} run format`, `typecheck: {pm} run typecheck`, `install: {pm} install`
 
-Use defaults. No questions unless `--force`.
+**Formatter fix command:**
+- ruff → `uv run ruff format . && uv run ruff check --fix .`
+- biome → `bunx biome check --write` (or `npx biome check --write`)
+- eslint → `npx eslint --fix .`
+
+**Standards paths** (only include if `docs/` exists on disk):
+- backend, testing, code_review, architecture, configuration, contributing
+
+## Phase 3 — Confirm detected configuration
+
+Display the full proposed config as a preview table:
+
 ```
-analyses: artifacts/analyses
-specs:    artifacts/specs
-frames:   artifacts/frames
-plans:    artifacts/plans
+Detected configuration
+======================
+
+  Runtime:     {runtime} / {pm}
+  Backend:     {framework} at {path}
+  Frontend:    {frontend_framework | "none"}
+  ORM:         {orm | "none"}
+  Testing:     {test_framework | "none"}
+  Linter:      {formatter} ({formatter_config})
+  Orchestrator:{orchestrator | "none"}
+  Docs:        {docs_path | "none"}
+
+  Commands:
+    dev:        {dev_cmd}
+    test:       {test_cmd}
+    lint:       {lint_cmd}
+    format:     {format_cmd}
+    typecheck:  {typecheck_cmd}
+    install:    {install_cmd}
 ```
 
-AskUserQuestion: **Artifact directories?** — **Use defaults** | **Customize**
+AskUserQuestion: **Looks good — write it** | **Edit a field** | **Abort**
 
-If Customize → ask for each path (free text).
+If "Edit a field": ask "Which field? (e.g. `runtime`, `backend.path`, `commands.test`)" and "New value?". Apply the override and re-display the table. Repeat until confirmed.
 
-## Phase 12 — Standards doc paths
+## Phase 4 — Write stack.yml
 
-Auto-suggest paths based on `docs.path` chosen in Phase 9. Present each as a question with a sensible default.
+Assemble and write `.claude/stack.yml` using the confirmed values.
 
-For each standards key, AskUserQuestion with inferred default:
-- **backend** → `{docs.path}/standards/backend-patterns.{docs.format}`
-- **frontend** → `{docs.path}/standards/frontend-patterns.{docs.format}`
-- **testing** → `{docs.path}/standards/testing.{docs.format}`
-- **code_review** → `{docs.path}/standards/code-review.{docs.format}`
-- **architecture** → `{docs.path}/architecture/`
-- **configuration** → `{docs.path}/configuration.{docs.format}`
-- **deployment** → `{docs.path}/guides/deployment.{docs.format}`
-- **troubleshooting** → `{docs.path}/guides/troubleshooting.{docs.format}`
-- **issue_management** → `{docs.path}/processes/issue-management.{docs.format}`
-- **dev_process** → `{docs.path}/processes/dev-process.{docs.format}`
-- **contributing** → `{docs.path}/contributing.{docs.format}`
+Do NOT write keys that are `none` / empty — omit them entirely.
 
-Batch questions where possible — AskUserQuestion: **Use all defaults** | **Customize individual paths**
-
-If "Customize": step through each key individually with its default pre-shown.
-
-Check which standards paths actually exist on disk. For each missing path, warn inline:
-`⚠️ standards.{key}: {path} does not exist yet. Create the doc before running that agent, or update the path.`
-
-## Phase 13 — Write stack.yml
-
-Assemble and write `.claude/stack.yml` using all collected values.
-
-Do NOT write keys that were set to "None" / "not applicable" — omit them entirely.
-
-Template:
 ```yaml
 # .claude/stack.yml — dev-core stack configuration
 # DO NOT commit this file. Add .claude/stack.yml to .gitignore.
@@ -194,19 +167,61 @@ package_manager: {PM}
 
 backend:
   framework: {BE_FRAMEWORK}
-  orm: {BE_ORM}
   path: {BE_PATH}
+  # orm: {BE_ORM}  (only if orm != none)
 
-frontend:
-  framework: {FE_FRAMEWORK}
-  path: {FE_PATH}
-  ui_package: {FE_UI_PACKAGE}
-  ui_src: {FE_UI_SRC}
+# frontend: (only if frontend framework detected)
+#   framework: {FE_FRAMEWORK}
+#   path: {FE_PATH}
 
-# ... (only include sections that were answered)
+# shared: (only if monorepo detected)
+#   types: packages/types
+#   ui: packages/ui
+#   config: packages/config
+
+build:
+  # orchestrator: {ORCHESTRATOR}  (only if detected)
+  # orchestrator_config: {ORCHESTRATOR_CONFIG}
+  formatter: {FORMATTER}
+  formatter_config: {FORMATTER_CONFIG}
+  formatter_fix_cmd: "{FORMATTER_FIX_CMD}"
+
+testing:
+  unit: {UNIT_TEST}
+  # e2e: (only if playwright/cypress detected)
+
+deploy:
+  platform: none
+
+docs:
+  framework: none
+  path: {DOCS_PATH}
+  format: md
+
+commands:
+  dev: {DEV_CMD}
+  test: {TEST_CMD}
+  lint: {LINT_CMD}
+  format: {FORMAT_CMD}
+  typecheck: {TYPECHECK_CMD}
+  install: {INSTALL_CMD}
+
+artifacts:
+  analyses: artifacts/analyses
+  specs: artifacts/specs
+  frames: artifacts/frames
+  plans: artifacts/plans
+
+# standards: (only if docs/ exists on disk)
+#   backend: {docs}/standards/backend-patterns.md
+#   testing: {docs}/standards/testing.md
+#   code_review: {docs}/standards/code-review.md
+#   architecture: {docs}/architecture/
+#   configuration: {docs}/configuration.md
+#   contributing: {docs}/contributing.md
 ```
 
-## Phase 14 — CLAUDE.md and .gitignore
+## Phase 5 — CLAUDE.md and .gitignore
 
 1. **Add @import:** Check `head -1 CLAUDE.md`. If first line ≠ `@.claude/stack.yml`:
    - Prepend `@.claude/stack.yml` as a new first line.
@@ -222,7 +237,7 @@ frontend:
    - Copy `.claude/stack.yml` to `.claude/stack.yml.example`
    - Display: "Created `.claude/stack.yml.example` ✅ — commit this file as a reference for teammates"
 
-## Phase 15 — Summary
+## Phase 6 — Summary
 
 Display a table of all written values and the status of each action:
 
@@ -230,22 +245,19 @@ Display a table of all written values and the status of each action:
 Stack configuration written
 ===========================
 
-  Runtime:          {RUNTIME} / {PM}
-  Backend:          {BE_FRAMEWORK} + {BE_ORM} at {BE_PATH}
-  Frontend:         {FE_FRAMEWORK} at {FE_PATH}
-  UI package:       {FE_UI_PACKAGE} (src: {FE_UI_SRC})
-  Shared:           types={} ui={} config={}
-  Build:            {ORCHESTRATOR} + {FORMATTER}
-  Testing:          {UNIT} + {E2E}
-  Deploy:           {PLATFORM}
-  Docs:             {DOCS_FRAMEWORK} at {DOCS_PATH}
+  Runtime:     {RUNTIME} / {PM}
+  Backend:     {BE_FRAMEWORK} at {BE_PATH}
+  Frontend:    {FE_FRAMEWORK | "none"}
+  Testing:     {UNIT_TEST}
+  Linter:      {FORMATTER} ({FORMATTER_CONFIG})
+  Docs:        {DOCS_PATH | "none"}
 
   .claude/stack.yml           ✅ Written
   CLAUDE.md @import           ✅ Added / Already present
   .gitignore                  ✅ Updated / Already set
   .claude/stack.yml.example   ✅ Created / Already exists
 
-  ⚠️  Missing standards docs: (list any that don't exist on disk)
+  ⚠️  Missing standards docs: (list any configured paths that don't exist on disk)
 
 Next:
   /doctor     Verify all checks pass

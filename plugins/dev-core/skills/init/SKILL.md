@@ -2,7 +2,7 @@
 name: init
 argument-hint: '[--force]'
 description: 'Initialize project for dev-core — auto-detect GitHub Project V2, set up dashboard, env vars, artifacts. Triggers: "init" | "setup dev-core" | "initialize dev-core".'
-version: 0.2.0
+version: 0.3.0
 allowed-tools: Bash
 ---
 
@@ -21,7 +21,14 @@ Set `INIT_TS="${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts"` and `DOCTOR_TS="${CLAU
 ### Phase 1 — Parse Input + Idempotency
 
 1. Check if `$ARGUMENTS` contains `--force`. Store as `FORCE` flag.
-2. Check for `package.json`: `test -f package.json`. If missing, abort: "No package.json found. Run from your project root."
+2. Check for `package.json`: `test -f package.json && echo found || echo missing`
+   - If missing: this is likely a Python or non-JS project. Create a minimal one so dev-core tooling (dashboard) works:
+     ```json
+     { "name": "<repo-name>-devtools", "private": true, "scripts": {} }
+     ```
+     where `<repo-name>` is derived from the git remote or current directory name.
+     Display: "Created minimal `package.json` for dev-core tooling ✅"
+   - Continue normally — the scaffold step will add the `dashboard` script.
 3. If not force, check for existing dev-core config: `grep -c 'dev-core' .env 2>/dev/null || echo "0"`. If > 0, AskUserQuestion: **Re-configure** (same as --force) | **Skip** (abort).
 
 ### Phase 2 — Prerequisites
@@ -64,11 +71,13 @@ Run: `bun $INIT_TS labels --repo <owner/repo> --scope <all|type|area|priority>`
 If `workflows.missing` is non-empty, AskUserQuestion: **Set up CI/CD workflows** | **Skip**.
 
 If yes:
-1. AskUserQuestion for stack: **Bun** | **Node**
-2. AskUserQuestion for test framework: **Vitest** | **Jest** | **None**
+1. AskUserQuestion for stack: **Bun** | **Node** | **Python (uv)**
+2. AskUserQuestion for test framework: **Vitest** | **Jest** | **Pytest** | **None**
 3. AskUserQuestion for deploy: **Vercel** | **None**
 
 Run: `bun $INIT_TS workflows --stack bun --test vitest --deploy vercel`
+
+Note: Python workflow generates a `ci.yml` running `uv run ruff check .` and `uv run pytest`.
 
 #### 3d. Branch Protection
 
@@ -117,13 +126,7 @@ Run: `bun $INIT_TS scaffold --github-repo <owner/repo> --project-id <PVT_...> --
 
 Resolve `--dashboard-path` using `$CLAUDE_PLUGIN_ROOT/skills/issues/dashboard.ts`.
 
-### Phase 6 — Verify
-
-Run: `bun $DOCTOR_TS`
-
-Display the doctor output as the final verification.
-
-### Phase 7 — Report
+### Phase 6 — Report
 
 Display final summary:
 
@@ -143,8 +146,9 @@ dev-core initialized
   .gitignore        ✅ .env added
 
 Next steps:
+  /stack-setup           Configure stack for agents (auto-discovers your project)
+  /doctor                Verify full configuration health
   bun run dashboard      Launch the issues dashboard
-  /doctor                Verify configuration health
   /issues                View issues in CLI
   /dev #N                Start working on an issue
   /init --force          Re-configure anytime

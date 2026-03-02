@@ -124,11 +124,39 @@ function checkLabels(ghOk: boolean, owner: string, repo: string): Section {
   return { name: 'Labels', checks: [{ name: 'labels', status: 'warn', detail: `${count}/${STANDARD_LABELS.length} present (missing: ${missing.join(', ')})` }] }
 }
 
+function readStackYml(): { hasDeployPlatform: boolean; hasFrontend: boolean } {
+  try {
+    const text = require('fs').readFileSync('.claude/stack.yml', 'utf8') as string
+    // deploy.platform: none means no deploy platform
+    const platformMatch = text.match(/^\s*platform:\s*(\S+)/m)
+    const hasDeployPlatform = !!platformMatch && platformMatch[1] !== 'none'
+    // frontend section present with a real framework
+    const frontendMatch = text.match(/^frontend:/m)
+    const frameworkMatch = text.match(/^\s+framework:\s*(\S+)/m)
+    const hasFrontend = !!frontendMatch && !!frameworkMatch && frameworkMatch[1] !== 'none'
+    return { hasDeployPlatform, hasFrontend }
+  } catch {
+    return { hasDeployPlatform: true, hasFrontend: true } // unknown — keep checks strict
+  }
+}
+
 function checkWorkflows(): Section {
+  const stack = readStackYml()
   const checks: Check[] = []
   for (const wf of STANDARD_WORKFLOWS) {
     const exists = require('fs').existsSync(`.github/workflows/${wf}`)
-    checks.push({ name: wf, status: exists ? 'pass' : 'fail', detail: exists ? 'found' : 'missing' })
+    if (exists) {
+      checks.push({ name: wf, status: 'pass', detail: 'found' })
+      continue
+    }
+    // deploy-preview.yml only matters when a deploy platform is configured
+    if (wf === 'deploy-preview.yml' && !stack.hasDeployPlatform) {
+      checks.push({ name: wf, status: 'skip', detail: 'skipped — no deploy platform in stack.yml' })
+      continue
+    }
+    // ci.yml: warn (not fail) when stack.yml is present — project may use a different CI setup
+    const severity: Status = require('fs').existsSync('.claude/stack.yml') ? 'warn' : 'fail'
+    checks.push({ name: wf, status: severity, detail: 'missing' })
   }
   return { name: 'Workflows', checks }
 }
@@ -138,6 +166,12 @@ function checkBranchProtection(ghOk: boolean, owner: string, repo: string): Sect
 
   const checks: Check[] = []
   for (const branch of PROTECTED_BRANCHES) {
+    // Check branch exists before checking protection
+    const branchExists = spawnSync(['gh', 'api', `repos/${owner}/${repo}/branches/${branch}`])
+    if (!branchExists.ok) {
+      checks.push({ name: branch, status: 'skip', detail: 'branch does not exist' })
+      continue
+    }
     const result = spawnSync(['gh', 'api', `repos/${owner}/${repo}/branches/${branch}/protection`])
     checks.push({ name: branch, status: result.ok ? 'pass' : 'fail', detail: result.ok ? 'protected' : 'unprotected' })
   }
