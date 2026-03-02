@@ -391,11 +391,11 @@ export async function fetchBranchCI(repoSlug: string = GITHUB_REPO): Promise<Bra
   try {
     const [owner, repo] = repoSlug.split('/')
     const data = (await ghGraphQL(BRANCH_CI_QUERY, { owner, repo })) as {
-      data: { repository: { main: RawBranchRef | null; staging: RawBranchRef | null } }
+      data: { repository: { main: RawBranchRef | null; master: RawBranchRef | null; staging: RawBranchRef | null } }
     }
 
     const refs: [string, RawBranchRef | null][] = [
-      ['main', data.data.repository.main],
+      ['main', data.data.repository.main ?? data.data.repository.master],
       ['staging', data.data.repository.staging],
     ]
 

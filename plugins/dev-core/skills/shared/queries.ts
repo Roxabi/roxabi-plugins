@@ -160,11 +160,12 @@ query($owner: String!, $repo: String!) {
   }
 }`
 
-/** CI status for main and staging branches — used by dashboard. */
+/** CI status for main/master and staging branches — used by dashboard. */
 export const BRANCH_CI_QUERY = `
 query($owner: String!, $repo: String!) {
   repository(owner: $owner, name: $repo) {
     main: ref(qualifiedName: "refs/heads/main") { ...BranchCI }
+    master: ref(qualifiedName: "refs/heads/master") { ...BranchCI }
     staging: ref(qualifiedName: "refs/heads/staging") { ...BranchCI }
   }
 }
