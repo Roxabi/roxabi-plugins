@@ -83,7 +83,7 @@ function buildIssueTable(issues: Issue[]): string {
     </tbody>
     <tbody class="hidden-issues-body" style="display:none;">
       ${hiddenRows}
-      <tr><td colspan="7" style="text-align:center;padding:12px;">
+      <tr class="show-less-row"><td colspan="7" style="text-align:center;padding:12px;">
         <button class="show-more-btn" onclick="var tbl=this.closest('table');tbl.querySelector('.hidden-issues-body').style.display='none';tbl.querySelector('.show-more-row').style.display='';">
           Show less
         </button>
@@ -282,6 +282,7 @@ ${LIVE_STYLES}
         if (isActive) {
           s.querySelectorAll('.hidden-issues-body').forEach(function(b) { b.style.display = ''; });
           s.querySelectorAll('.show-more-row').forEach(function(tr) { tr.style.display = 'none'; });
+          s.querySelectorAll('.show-less-row').forEach(function(tr) { tr.style.display = 'none'; });
         }
       });
     }
