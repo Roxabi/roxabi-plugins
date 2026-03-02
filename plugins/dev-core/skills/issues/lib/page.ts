@@ -327,6 +327,8 @@ ${LIVE_STYLES}
         var sec = document.getElementById(id);
         if (sec) sec.style.display = '';
       });
+      // Hide dep graphs (only shown per project tab)
+      document.querySelectorAll('.project-graph').forEach(function(el) { el.style.display = 'none'; });
       // Collapse issue tables back to compact view
       document.querySelectorAll('.hidden-issues-body').forEach(function(b) { b.style.display = 'none'; });
       document.querySelectorAll('.show-more-row').forEach(function(tr) { tr.style.display = ''; });
