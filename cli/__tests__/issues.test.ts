@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
 
 /**
  * RED tests for multi-project issues command (SC-10, SC-11).
@@ -104,9 +104,35 @@ describe('buildBatchedQuery', () => {
   })
 })
 
+describe('buildBatchedVariables', () => {
+  it('returns empty object for empty array', async () => {
+    const { buildBatchedVariables } = await import('../../plugins/dev-core/skills/shared/queries')
+    expect(buildBatchedVariables([])).toEqual({})
+  })
+
+  it('returns { project0Id: "..." } for a single project ID', async () => {
+    const { buildBatchedVariables } = await import('../../plugins/dev-core/skills/shared/queries')
+    const result = buildBatchedVariables(['PVT_kwABC123'])
+    expect(result).toEqual({ project0Id: 'PVT_kwABC123' })
+  })
+
+  it('returns correctly keyed entries for N project IDs', async () => {
+    const { buildBatchedVariables } = await import('../../plugins/dev-core/skills/shared/queries')
+    const ids = ['PVT_kwABC123', 'PVT_kwDEF456', 'PVT_kwGHI789']
+    const result = buildBatchedVariables(ids)
+    expect(result).toEqual({
+      project0Id: 'PVT_kwABC123',
+      project1Id: 'PVT_kwDEF456',
+      project2Id: 'PVT_kwGHI789',
+    })
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Integration tests — issues command with workspace fixture (SC-10, SC-11)
 // ---------------------------------------------------------------------------
+
+const originalFetch = globalThis.fetch
 
 describe('issues command - batched GraphQL', () => {
   let fetchMock: ReturnType<typeof mock>
@@ -117,6 +143,10 @@ describe('issues command - batched GraphQL', () => {
       json: async () => makeBatchedResponse(),
     }))
     globalThis.fetch = fetchMock as unknown as typeof fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
   })
 
   it('SC-10: fires exactly 1 HTTP request for a 2-project workspace', async () => {

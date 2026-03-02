@@ -27,8 +27,8 @@ interface Workspace { projects: WorkspaceProject[] }
 
 function getWorkspacePath(): string {
   const home = process.env.HOME ?? ''
-  const vault = `${home}/.roxabi-vault/workspace.json`
-  if (existsSync(vault)) return vault
+  const vault = `${home}/.roxabi-vault`
+  if (existsSync(vault)) return `${vault}/workspace.json`
   return `${home}/.config/roxabi/workspace.json`
 }
 

@@ -193,16 +193,12 @@ describe('workspace add (single project found)', () => {
 // ---------------------------------------------------------------------------
 
 describe('workspace add (multiple projects found)', () => {
-  it.skip('prompts a numbered list when multiple GitHub Projects are linked to the repo', () => {
-    // Deferred to S5 — requires stdin mock for interactive prompt.
-    // SC-4: implement when commands/workspace.ts supports mockable stdin.
-    expect(true).toBe(false)
-  })
+  it.todo('prompts a numbered list when multiple GitHub Projects are linked to the repo')
+  // Deferred to S5 — requires stdin mock for interactive prompt.
+  // SC-4: implement when commands/workspace.ts supports mockable stdin.
 
-  it.skip('writes the user-selected entry after prompt', () => {
-    // Deferred to S5 — requires stdin mock for interactive prompt.
-    expect(true).toBe(false)
-  })
+  it.todo('writes the user-selected entry after prompt')
+  // Deferred to S5 — requires stdin mock for interactive prompt.
 })
 
 // ---------------------------------------------------------------------------

@@ -230,6 +230,9 @@ mutation($workflowId: ID!, $enabled: Boolean!) {
  * Build a batched multi-project query with N aliased node() lookups.
  * Response shape: data.project0, data.project1, ...
  * Variables shape: { project0Id: "PVT_...", project1Id: "PVT_..." }
+ *
+ * NOTE: Fetches up to 100 items per project. Projects with >100 issues will be
+ * silently truncated. Full cursor-based pagination per alias is tracked in issue S5.
  */
 export function buildBatchedQuery(projectIds: string[]): string {
   if (projectIds.length === 0) return ''

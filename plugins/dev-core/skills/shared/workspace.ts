@@ -1,3 +1,8 @@
+/**
+ * Workspace config helpers — vendored copy for plugin use.
+ * Canonical source: cli/lib/workspace.ts
+ * Keep in sync when making changes to workspace path logic.
+ */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 
 export interface WorkspaceProject {

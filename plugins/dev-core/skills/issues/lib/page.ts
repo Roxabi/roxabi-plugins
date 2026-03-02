@@ -14,14 +14,14 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function buildTabBar(labels: string[], activeTab: string): string {
+function buildTabBar(projects: Array<{label: string, repo: string}>, activeTab: string): string {
   const allTab = `<button class="tab${activeTab === 'All' ? ' active' : ''}" onclick="switchTab('All')">All</button>`
-  const projectTabs = labels.map(label => buildProjectTab(label, activeTab)).join('\n')
+  const projectTabs = projects.map(p => buildProjectTab(p.label, p.repo, activeTab)).join('\n')
   return `<div class="tab-bar" id="tab-bar">${allTab}\n${projectTabs}\n${buildAddButton()}</div>`
 }
 
-function buildProjectTab(label: string, activeTab: string): string {
-  return `<button class="tab${label === activeTab ? ' active' : ''}" data-repo="${escapeHtml(label)}" onclick="switchTab('${escapeHtml(label)}')">${escapeHtml(label)}<span class="tab-close" onclick="event.stopPropagation();removeProject('${escapeHtml(label)}')">&#215;</span></button>`
+function buildProjectTab(label: string, repo: string, activeTab: string): string {
+  return `<button class="tab${label === activeTab ? ' active' : ''}" data-repo="${escapeHtml(label)}" data-slug="${escapeHtml(repo)}" onclick="switchTab('${escapeHtml(label)}')">${escapeHtml(label)}<span class="tab-close" onclick="event.stopPropagation();removeProject('${escapeHtml(repo)}')">&#215;</span></button>`
 }
 
 function buildAddButton(): string {
@@ -116,7 +116,8 @@ export function buildHtml(
   workflowRuns: WorkflowRun[],
   fetchMs: number,
   updatedAt: number,
-  byProject?: Map<string, Issue[]>
+  byProject?: Map<string, Issue[]>,
+  workspaceProjects?: Array<{label: string, repo: string}>
 ): string {
   const isMultiProject = byProject !== undefined && byProject.size > 0
   const allIssues = isMultiProject
@@ -145,7 +146,7 @@ export function buildHtml(
   const showCI = shouldShowCI(branchCI)
 
   const tabBarHtml = isMultiProject
-    ? buildTabBar([...byProject!.keys()], 'All')
+    ? buildTabBar(workspaceProjects ?? [...byProject!.keys()].map(label => ({label, repo: label})), 'All')
     : ''
 
   const issuesSectionHtml = isMultiProject
@@ -420,7 +421,7 @@ ${LIVE_STYLES}
       });
 
       // Patch issue tables
-      var selectors = ['#issues-visible', '#hidden-issues', '#section-vercel', '#section-workflow-runs', '#section-ci', '#section-prs', '#section-graph', '#section-branches', '#issue-count', '#fetch-time'];
+      var selectors = ['#tab-bar', '#issues-visible', '#hidden-issues', '#section-vercel', '#section-workflow-runs', '#section-ci', '#section-prs', '#section-graph', '#section-branches', '#issue-count', '#fetch-time'];
       for (var s = 0; s < selectors.length; s++) {
         var sel = selectors[s];
         var freshEl = freshDoc.querySelector(sel);
@@ -474,6 +475,12 @@ ${LIVE_STYLES}
             var parser = new DOMParser();
             var freshDoc = parser.parseFromString(html, 'text/html');
             patchDOM(freshDoc);
+            if (freshDoc.body && freshDoc.body.dataset.stale === 'true') {
+              var fetchTimeEl = document.getElementById('fetch-time');
+              if (fetchTimeEl && fetchTimeEl.textContent.indexOf('(stale)') === -1) {
+                fetchTimeEl.textContent += ' (stale)';
+              }
+            }
             refreshing = false;
           })
           .catch(function(err) {

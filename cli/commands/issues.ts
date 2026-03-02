@@ -89,6 +89,9 @@ export async function runIssuesCommand(opts: IssuesCommandOptions = {}): Promise
 }
 
 export async function run(_args: string[]): Promise<void> {
+  if (!process.env.GITHUB_TOKEN) {
+    throw new Error('GITHUB_TOKEN is not set. Export it or run: gh auth login')
+  }
   const output = await runIssuesCommand()
   console.log(output)
 }

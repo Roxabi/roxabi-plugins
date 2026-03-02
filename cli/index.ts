@@ -43,6 +43,11 @@ switch (cmd) {
     process.exit(0)
   }
 
+  case '--version': {
+    console.log('0.1.0')
+    process.exit(0)
+  }
+
   default: {
     console.error(`Unknown command: ${cmd}`)
     console.error(USAGE)

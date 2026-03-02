@@ -16,6 +16,7 @@ import {
   fetchVercelDeployments,
   fetchWorkflowRuns,
   fetchWorktrees,
+  rawItemsToIssues,
 } from './lib/fetch'
 import type { WorkspaceProject } from './lib/fetch'
 import { buildHtml } from './lib/page'
@@ -28,99 +29,17 @@ import type {
   WorkflowRun,
   Worktree,
 } from './lib/types'
-import type { RawItem } from '../../shared/types'
 import { handleUpdate } from './lib/update'
 import {
   discoverProject,
   readWorkspace,
   writeWorkspace,
-  getWorkspacePath,
-} from '../../../../cli/lib/workspace'
+} from '../../shared/workspace'
 
 const PORT = Number(process.argv.find((a) => a.startsWith('--port='))?.split('=')[1] ?? 3333)
 const POLL_MS =
   Number(process.argv.find((a) => a.startsWith('--poll='))?.split('=')[1] ?? 60) * 1000
 const PID_FILE = `${import.meta.dirname}/.dashboard.pid`
-
-// ---------------------------------------------------------------------------
-// Raw-items-to-issues transform (mirrors fetchIssues logic, for multi-project)
-// ---------------------------------------------------------------------------
-function rawItemsToIssues(items: RawItem[]): Issue[] {
-  const openItems = items.filter((i) => i.content?.state === 'OPEN')
-
-  const field = (item: RawItem, name: string): string => {
-    for (const fv of item.fieldValues.nodes) {
-      if (fv.field?.name === name && fv.name) return fv.name
-    }
-    return '-'
-  }
-
-  const byNumber = new Map<number, RawItem>()
-  for (const item of openItems) byNumber.set(item.content.number, item)
-
-  const toIssue = (item: RawItem): Issue => {
-    const bb = item.content.blockedBy?.nodes ?? []
-    const bl = item.content.blocking?.nodes ?? []
-    const openBlockedBy = bb.filter((b) => b.state === 'OPEN')
-
-    let blockStatus: Issue['blockStatus'] = 'ready'
-    if (openBlockedBy.length > 0) blockStatus = 'blocked'
-    else if (bl.length > 0) blockStatus = 'blocking'
-
-    const subs = item.content.subIssues?.nodes ?? []
-    const children: Issue[] = subs
-      .map((sub) => {
-        const child = byNumber.get(sub.number)
-        if (!child) return null
-        return toIssue(child)
-      })
-      .filter(Boolean) as Issue[]
-
-    return {
-      number: item.content.number,
-      title: item.content.title,
-      url: item.content.url,
-      status: field(item, 'Status'),
-      size: field(item, 'Size'),
-      priority: field(item, 'Priority'),
-      blockStatus,
-      blockedBy: bb,
-      blocking: bl,
-      children,
-    }
-  }
-
-  const roots = openItems
-    .filter((i) => !i.content.parent || i.content.parent.state === 'CLOSED')
-    .map(toIssue)
-
-  const statusOrder: Record<string, number> = {
-    Review: 0,
-    'In Progress': 1,
-    Specs: 2,
-    Analysis: 3,
-    Backlog: 4,
-    '-': 99,
-  }
-  const blockOrder: Record<string, number> = { blocking: 0, ready: 1, blocked: 2 }
-  const priorityOrder: Record<string, number> = {
-    'P0 - Urgent': 0,
-    'P1 - High': 1,
-    'P2 - Medium': 2,
-    'P3 - Low': 3,
-    '-': 99,
-  }
-
-  roots.sort((a, b) => {
-    const sd = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99)
-    if (sd !== 0) return sd
-    const bd = (blockOrder[a.blockStatus] ?? 9) - (blockOrder[b.blockStatus] ?? 9)
-    if (bd !== 0) return bd
-    return (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99)
-  })
-
-  return roots
-}
 
 // ---------------------------------------------------------------------------
 // Cache
@@ -132,6 +51,7 @@ let cache: {
   updatedAt: number
   byProject: Map<string, Issue[]> | null
   workspaceHash: string
+  stale?: boolean
 } | null = null
 
 function computeHash(
@@ -214,6 +134,7 @@ async function refreshCache(): Promise<void> {
     const changed = dataChanged || workspaceChanged
 
     const updatedAt = Date.now()
+    const wsProjects = ws.projects.map(p => ({ label: p.label, repo: p.repo }))
     const html = buildHtml(
       issues,
       prs,
@@ -223,13 +144,19 @@ async function refreshCache(): Promise<void> {
       branchCI,
       workflowRuns,
       fetchMs,
-      updatedAt
+      updatedAt,
+      byProject ?? undefined,
+      wsProjects.length > 0 ? wsProjects : undefined
     )
     cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
 
     if (changed) notifyClients()
   } catch (err) {
     console.error('[dashboard] refresh failed:', err instanceof Error ? err.message : err)
+    if (cache) {
+      cache.stale = true
+      notifyClients()
+    }
   }
 }
 
@@ -291,6 +218,7 @@ setInterval(refreshCache, POLL_MS)
 // ---------------------------------------------------------------------------
 const server = Bun.serve({
   port: PORT,
+  hostname: '127.0.0.1',
   idleTimeout: 255, // max — SSE connections are long-lived
   async fetch(req) {
     const url = new URL(req.url)
@@ -381,7 +309,10 @@ const server = Bun.serve({
     // Dashboard page
     try {
       if (!cache) await refreshCache()
-      return new Response(cache?.html, {
+      const html = cache?.stale
+        ? cache.html.replace('<body', '<body data-stale="true"')
+        : cache?.html
+      return new Response(html, {
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       })
     } catch (err) {

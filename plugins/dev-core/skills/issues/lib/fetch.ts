@@ -76,13 +76,16 @@ export async function fetchAllProjects(
   const result = new Map<string, RawItem[]>()
   for (let i = 0; i < projects.length; i++) {
     const node = data.data[`project${i}`]
-    result.set(projects[i].label, node?.items?.nodes ?? [])
+    const items = node?.items?.nodes ?? []
+    if (node?.items?.pageInfo?.hasNextPage) {
+      console.warn(`[dashboard] Project "${projects[i].label}" has >100 issues — only first 100 fetched. Full pagination tracked in S5.`)
+    }
+    result.set(projects[i].label, items)
   }
   return result
 }
 
-export async function fetchIssues(): Promise<Issue[]> {
-  const items = await fetchAllItems()
+export function rawItemsToIssues(items: RawItem[]): Issue[] {
   const openItems = items.filter((i) => i.content?.state === 'OPEN')
 
   const field = (item: RawItem, name: string): string => {
@@ -164,6 +167,11 @@ export async function fetchIssues(): Promise<Issue[]> {
   })
 
   return roots
+}
+
+export async function fetchIssues(): Promise<Issue[]> {
+  const items = await fetchAllItems()
+  return rawItemsToIssues(items)
 }
 
 export { run }
