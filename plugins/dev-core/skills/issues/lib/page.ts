@@ -48,10 +48,10 @@ function buildAllView(byProject: Map<string, Issue[]>): string {
   return [...byProject.entries()].map(([label, issues]) => {
     const depNodes = buildDepGraph(issues)
     const graphHtml = depNodes.length > 0
-      ? `<div class="section graph-subsection">
+      ? `<div class="project-graph" style="display:none;"><div class="section graph-subsection">
         <h3>Dependency Graph</h3>
         <div class="graph-container">${renderDepGraph(depNodes, issues)}</div>
-      </div>`
+      </div></div>`
       : ''
     return `<div data-project="${escHtml(label)}">
       ${issues.length === 0 ? '<p class="no-issues">No open issues</p>' : buildIssueTable(issues)}
@@ -297,6 +297,8 @@ ${LIVE_STYLES}
       document.querySelectorAll('[data-project="' + label + '"] .hidden-issues-body').forEach(function(b) { b.style.display = ''; });
       document.querySelectorAll('[data-project="' + label + '"] .show-more-row').forEach(function(tr) { tr.style.display = 'none'; });
       document.querySelectorAll('[data-project="' + label + '"] .show-less-row').forEach(function(tr) { tr.style.display = 'none'; });
+      // Show dep graph for active project only
+      document.querySelectorAll('[data-project="' + label + '"] .project-graph').forEach(function(el) { el.style.display = ''; });
     }
   }
 
