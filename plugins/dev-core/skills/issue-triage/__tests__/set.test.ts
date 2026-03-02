@@ -28,6 +28,33 @@ process.env.PRIORITY_OPTIONS_JSON = JSON.stringify({
   'P3 - Low': 'pri-low',
 })
 
+// Mock config before github — Bun hoists vi.mock and validates factory against real module,
+// which would load config.ts before process.env assignments run. Mocking config avoids this.
+vi.mock('../../shared/config', () => ({
+  isProjectConfigured: () => true,
+  NOT_CONFIGURED_MSG: 'GitHub Project V2 is not configured.',
+  PROJECT_ID: 'PVT_test',
+  STATUS_FIELD_ID: 'SF_test',
+  SIZE_FIELD_ID: 'SZF_test',
+  PRIORITY_FIELD_ID: 'PF_test',
+  STATUS_OPTIONS: { Backlog: 'status-backlog', Analysis: 'status-analysis', Specs: 'status-specs', 'In Progress': 'status-inprog', Review: 'status-review', Done: 'status-done' },
+  SIZE_OPTIONS: { XS: 'size-xs', S: 'size-s', M: 'size-m', L: 'size-l', XL: 'size-xl' },
+  PRIORITY_OPTIONS: { 'P0 - Urgent': 'pri-urgent', 'P1 - High': 'pri-high', 'P2 - Medium': 'pri-medium', 'P3 - Low': 'pri-low' },
+  resolveStatus: (input: string) => {
+    const canonical = new Set(['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'])
+    if (canonical.has(input)) return input
+    const aliases: Record<string, string> = { BACKLOG: 'Backlog', ANALYSIS: 'Analysis', SPECS: 'Specs', 'IN PROGRESS': 'In Progress', IN_PROGRESS: 'In Progress', INPROGRESS: 'In Progress', REVIEW: 'Review', DONE: 'Done' }
+    return aliases[input.toUpperCase()]
+  },
+  resolveSize: (input: string) => { const u = input.toUpperCase(); return new Set(['XS', 'S', 'M', 'L', 'XL']).has(u) ? u : undefined },
+  resolvePriority: (input: string) => {
+    const canonical = new Set(['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'])
+    if (canonical.has(input)) return input
+    const aliases: Record<string, string> = { URGENT: 'P0 - Urgent', HIGH: 'P1 - High', MEDIUM: 'P2 - Medium', LOW: 'P3 - Low', P0: 'P0 - Urgent', P1: 'P1 - High', P2: 'P2 - Medium', P3: 'P3 - Low' }
+    return aliases[input.toUpperCase()]
+  },
+}))
+
 vi.mock('../../shared/github', () => ({
   getItemId: vi.fn(),
   getNodeId: vi.fn(),
@@ -40,14 +67,14 @@ vi.mock('../../shared/github', () => ({
 }))
 
 const github = await import('../../shared/github')
-const mockGetItemId = vi.mocked(github.getItemId)
-const mockGetNodeId = vi.mocked(github.getNodeId)
-const mockUpdateField = vi.mocked(github.updateField)
-const mockAddBlockedBy = vi.mocked(github.addBlockedBy)
-const mockRemoveBlockedBy = vi.mocked(github.removeBlockedBy)
-const mockAddSubIssue = vi.mocked(github.addSubIssue)
-const mockRemoveSubIssue = vi.mocked(github.removeSubIssue)
-const mockGetParentNumber = vi.mocked(github.getParentNumber)
+const mockGetItemId = github.getItemId as ReturnType<typeof vi.fn>
+const mockGetNodeId = github.getNodeId as ReturnType<typeof vi.fn>
+const mockUpdateField = github.updateField as ReturnType<typeof vi.fn>
+const mockAddBlockedBy = github.addBlockedBy as ReturnType<typeof vi.fn>
+const mockRemoveBlockedBy = github.removeBlockedBy as ReturnType<typeof vi.fn>
+const mockAddSubIssue = github.addSubIssue as ReturnType<typeof vi.fn>
+const mockRemoveSubIssue = github.removeSubIssue as ReturnType<typeof vi.fn>
+const mockGetParentNumber = github.getParentNumber as ReturnType<typeof vi.fn>
 
 const { setIssue } = await import('../lib/set')
 

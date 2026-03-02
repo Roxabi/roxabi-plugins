@@ -27,7 +27,7 @@ describe('createProject', () => {
   let mockRun: ReturnType<typeof vi.fn>
 
   beforeEach(async () => {
-    vi.restoreAllMocks()
+    vi.clearAllMocks()
     const github = await import('../../shared/github')
     mockRun = github.run as ReturnType<typeof vi.fn>
   })
@@ -71,7 +71,7 @@ describe('listProjectWorkflows', () => {
   let mockGhGraphQL: ReturnType<typeof vi.fn>
 
   beforeEach(async () => {
-    vi.restoreAllMocks()
+    vi.clearAllMocks()
     const github = await import('../../shared/github')
     mockGhGraphQL = github.ghGraphQL as ReturnType<typeof vi.fn>
   })
@@ -103,7 +103,7 @@ describe('enableProjectWorkflow', () => {
   let mockGhGraphQL: ReturnType<typeof vi.fn>
 
   beforeEach(async () => {
-    vi.restoreAllMocks()
+    vi.clearAllMocks()
     const github = await import('../../shared/github')
     mockGhGraphQL = github.ghGraphQL as ReturnType<typeof vi.fn>
   })

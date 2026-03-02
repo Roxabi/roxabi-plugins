@@ -1,14 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Mock fetch and Bun.spawn/spawnSync before importing the module
+// Stub fetch before importing the module (vi.stubGlobal not supported in Bun)
 const mockFetch = vi.fn()
-const mockSpawn = vi.fn()
-const mockSpawnSync = vi.fn()
-vi.stubGlobal('fetch', mockFetch)
-vi.stubGlobal('Bun', {
-  spawn: mockSpawn,
-  spawnSync: mockSpawnSync,
-})
+;(globalThis as typeof globalThis & { fetch: unknown }).fetch = mockFetch
 
 // Set GITHUB_TOKEN for tests
 process.env.GITHUB_TOKEN = 'test-token'
@@ -36,8 +30,12 @@ function mockProcess(stdout: string, stderr = '', exitCode = 0) {
 }
 
 describe('shared/github', () => {
+  let spawnSpy: ReturnType<typeof vi.spyOn>
+
   beforeEach(() => {
-    mockSpawn.mockReset()
+    // Spy on Bun.spawn (vi.stubGlobal not supported in Bun's compat layer)
+    spawnSpy = vi.spyOn(Bun, 'spawn')
+    spawnSpy.mockReset()
     mockFetch.mockReset()
   })
 
@@ -47,22 +45,22 @@ describe('shared/github', () => {
 
   describe('run', () => {
     it('returns trimmed stdout', async () => {
-      mockSpawn.mockReturnValue(mockProcess('  hello world  \n'))
+      spawnSpy.mockReturnValue(mockProcess('  hello world  \n') as ReturnType<typeof Bun.spawn>)
       const result = await run(['echo', 'hello'])
       expect(result).toBe('hello world')
     })
 
     it('passes command to Bun.spawn', async () => {
-      mockSpawn.mockReturnValue(mockProcess('ok'))
+      spawnSpy.mockReturnValue(mockProcess('ok') as ReturnType<typeof Bun.spawn>)
       await run(['git', 'status'])
-      expect(mockSpawn).toHaveBeenCalledWith(
+      expect(spawnSpy).toHaveBeenCalledWith(
         ['git', 'status'],
         expect.objectContaining({ stdout: 'pipe', stderr: 'pipe' })
       )
     })
 
     it('throws on non-zero exit code', async () => {
-      mockSpawn.mockReturnValue(mockProcess('', 'not found', 1))
+      spawnSpy.mockReturnValue(mockProcess('', 'not found', 1) as ReturnType<typeof Bun.spawn>)
       await expect(run(['git', 'branch'])).rejects.toThrow('Command failed (1)')
     })
   })

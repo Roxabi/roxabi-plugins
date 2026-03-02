@@ -1,5 +1,10 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
+// Clear option env vars before config module loads so defaults apply (not .env values)
+delete process.env.STATUS_OPTIONS_JSON
+delete process.env.SIZE_OPTIONS_JSON
+delete process.env.PRIORITY_OPTIONS_JSON
+delete process.env.PROJECT_ID
 // Must be set before config module loads (detectGitHubRepo runs eagerly at import)
 process.env.GITHUB_REPO = 'Test/test-repo'
 

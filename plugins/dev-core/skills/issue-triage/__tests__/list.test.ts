@@ -7,7 +7,7 @@ vi.mock('../../shared/github', () => ({
 }))
 
 const { ghGraphQL } = await import('../../shared/github')
-const mockGhGraphQL = vi.mocked(ghGraphQL)
+const mockGhGraphQL = ghGraphQL as ReturnType<typeof vi.fn>
 
 function makeProjectResponse(items: unknown[]) {
   return {

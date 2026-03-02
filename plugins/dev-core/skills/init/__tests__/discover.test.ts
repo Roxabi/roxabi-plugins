@@ -6,6 +6,8 @@ vi.mock('../../shared/prereqs', () => ({
 
 vi.mock('../../shared/github', () => ({
   run: vi.fn(),
+  parseProjectFields: vi.fn(),
+  getBoardIssueNumbers: vi.fn(),
 }))
 
 describe('discover', () => {
