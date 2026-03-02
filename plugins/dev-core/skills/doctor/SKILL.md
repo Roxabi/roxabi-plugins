@@ -58,31 +58,31 @@ Only suggest "Run `/init` to fix missing items." if there are ❌ errors.
 
 Verify the multi-project workspace config that powers the multi-tab dashboard.
 
-1. **Locate workspace file:**
-   ```bash
-   WS_PATH="${HOME}/.roxabi-vault/workspace.json"
-   [ -f "$WS_PATH" ] || WS_PATH="${HOME}/.config/roxabi/workspace.json"
-   [ -f "$WS_PATH" ] && echo "found:$WS_PATH" || echo "missing"
-   ```
+Run a single check using the canonical workspace helpers:
+```bash
+bun -e "
+import { getWorkspacePath, readWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/workspace.ts'
+import { existsSync } from 'node:fs'
+const path = getWorkspacePath()
+if (!existsSync(path)) { console.log(JSON.stringify({ found: false })); process.exit(0) }
+const ws = readWorkspace()
+const repo = process.env.GITHUB_REPO ?? ''
+console.log(JSON.stringify({
+  found: true,
+  path,
+  registered: ws.projects.some(p => p.repo === repo),
+  invalidIds: ws.projects.filter(p => !p.projectId.startsWith('PVT_')).map(p => p.repo),
+  labels: ws.projects.map(p => p.label),
+  count: ws.projects.length,
+}))
+"
+```
 
-2. **workspace.json exists** → ✅ `found at <WS_PATH>` | ⚠️ `not found — run /init to register this project`
-   - If missing, mark remaining checks ⏭ and skip to summary.
-
-3. **Current repo registered:**
-   ```bash
-   CURRENT_REPO=$(git remote get-url origin 2>/dev/null | sed 's|.*github.com[:/]\(.*\)\.git|\1|;s|.*github.com[:/]\(.*\)|\1|')
-   python3 -c "
-   import json
-   ws = json.load(open('$WS_PATH'))
-   repos = [p['repo'] for p in ws.get('projects', [])]
-   print('registered' if '$CURRENT_REPO' in repos else 'missing')
-   "
-   ```
-   → ✅ `<repo> registered` | ⚠️ `current repo not in workspace — run /init to register`
-
-4. **projectId format valid:** for each entry, check `projectId` starts with `PVT_` → ✅ | ⚠️ `invalid projectId for <repo> (expected PVT_...)`
-
-5. **Project count:** display `N project(s) registered: <label1>, <label2>, ...`
+Parse the JSON output and display:
+- **workspace.json exists** → ✅ `found at <path>` | ⚠️ `not found — run /init to register this project` (skip remaining checks if missing)
+- **Current repo registered** (uses `GITHUB_REPO` env var) → ✅ `<repo> registered` | ⚠️ `current repo not in workspace — run /init to register`
+- **projectId format valid** → ✅ all valid | ⚠️ `invalid projectId for <repo> (expected PVT_...)` for each in `invalidIds`
+- **Project count:** display `N project(s) registered: <label1>, <label2>, ...`
 
 Print summary line:
 ```

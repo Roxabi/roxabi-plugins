@@ -142,7 +142,42 @@ Run: `bun $INIT_TS scaffold --github-repo <owner/repo> --project-id <PVT_...> --
 
 The scaffold step installs a `roxabi` shim at `~/.local/bin/roxabi` (or `~/bin/roxabi`) — a self-healing shell script that resolves the latest active dev-core plugin cache at runtime. Run `roxabi dashboard` to launch the issues dashboard. The shim survives plugin updates without re-running `/init`.
 
-### Phase 6 — Report
+### Phase 6 — Workspace Registration
+
+Register the current project in the shared workspace config so the multi-project dashboard shows issues from all your repos in one view.
+
+1. **Check if already registered** (uses `GITHUB_REPO` from Phase 3):
+   ```bash
+   bun -e "
+   import { readWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/workspace.ts'
+   const ws = readWorkspace()
+   console.log(ws.projects.some(p => p.repo === process.env.GITHUB_REPO) ? 'registered' : 'not-registered')
+   "
+   ```
+
+2. **If already registered:** display `workspace.json ✅ Already registered` and skip to Phase 7.
+
+3. **If not registered:** AskUserQuestion: **Add to workspace** (enables multi-project dashboard) | **Skip**
+
+4. **If add:**
+   ```bash
+   bun -e "
+   import { getWorkspacePath, readWorkspace, writeWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/workspace.ts'
+   const ws = readWorkspace()
+   ws.projects.push({
+     repo: process.env.GITHUB_REPO ?? '',
+     projectId: process.env.PROJECT_ID ?? '',
+     label: (process.env.GITHUB_REPO ?? '').split('/')[1] ?? '',
+   })
+   writeWorkspace(ws)
+   console.log('written:' + getWorkspacePath())
+   "
+   ```
+   Display: `workspace.json ✅ Registered <GITHUB_REPO> at <path>`
+
+5. **If skip:** display `workspace.json ⏭ Skipped`
+
+### Phase 7 — Report
 
 Display final summary:
 
@@ -172,44 +207,6 @@ Next steps:
   /dev #N                Start working on an issue
   /init --force          Re-configure anytime
 ```
-
-### Phase 7 — Workspace Registration
-
-Register the current project in the shared workspace config so the multi-project dashboard shows issues from all your repos in one view.
-
-1. **Locate workspace file** (prefer vault, fall back to XDG):
-   ```bash
-   WS_PATH="${HOME}/.roxabi-vault/workspace.json"
-   [ -f "$WS_PATH" ] || WS_PATH="${HOME}/.config/roxabi/workspace.json"
-   [ -f "$WS_PATH" ] && echo "found:$WS_PATH" || echo "missing"
-   ```
-
-2. **Check if already registered** (use `GITHUB_REPO` from Phase 3):
-   ```bash
-   python3 -c "
-   import json, sys
-   try:
-     ws = json.load(open('$WS_PATH'))
-     registered = any(p['repo'] == '$GITHUB_REPO' for p in ws.get('projects', []))
-     print('registered' if registered else 'not-registered')
-   except: print('not-registered')
-   " 2>/dev/null || echo "not-registered"
-   ```
-
-3. **If already registered:** display `workspace.json ✅ Already registered` and skip to Phase 8.
-
-4. **If not registered:** AskUserQuestion: **Add to workspace** (enables multi-project dashboard) | **Skip**
-
-5. **If add:**
-   - Determine `WS_PATH`: prefer `~/.roxabi-vault/workspace.json` if vault dir exists, else `~/.config/roxabi/workspace.json`
-   - Create parent dir: `mkdir -p "$(dirname "$WS_PATH")"`
-   - Read existing workspace or start fresh: `{"projects": []}`
-   - Derive `label` from repo name (part after `/`, kebab-case as-is)
-   - Append: `{"repo": "<GITHUB_REPO>", "projectId": "<PROJECT_ID>", "label": "<label>"}`
-   - Write updated JSON (pretty-printed, mode 0600)
-   - Display: `workspace.json ✅ Registered <GITHUB_REPO> at <WS_PATH>`
-
-6. **If skip:** display `workspace.json ⏭ Skipped`
 
 ### Phase 8 — Stack Configuration
 
