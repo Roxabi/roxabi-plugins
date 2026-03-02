@@ -1,0 +1,144 @@
+---
+title: "Multi-Project Support: Roxabi CLI + unified dashboard + workspace config"
+issue: 2
+companion: 5
+status: approved
+tier: F-full
+date: 2026-03-02
+---
+
+## Problem
+
+The dev-core dashboard and triage skills are hardcoded to a single GitHub Project per repo,
+reading config from `.env` environment variables (`PROJECT_ID`, `STATUS_FIELD_ID`, etc.).
+This breaks down the moment a developer works across multiple repos or GitHub Projects:
+there is no way to see all issues in one place, and every new project requires manual `.env`
+configuration with opaque field IDs.
+
+Two observable pain points today:
+1. **Single-project lock-in** — `/issues` and `/issue-triage` silently ignore any project
+   not configured in the current repo's `.env`. Multi-repo workflows are blind.
+2. **No proper CLI** — scripts are invoked as `bun /path/to/script.ts`, fragile and
+   non-composable. There is no installable entrypoint, no help text, no versioning.
+
+## Who
+
+- **Primary:** Mickael (solo dev, owner of `mickaelV0` personal + `Roxabi` org) — uses
+  Claude Code with dev-core across multiple repos, wants one dashboard for everything.
+- **Secondary:** Any dev-core user working on more than one GitHub Project.
+
+## Constraints
+
+- **Backward compatible** — existing single-project `.env` workflows must continue to work
+  unchanged. workspace.json is additive, not a migration.
+- **Vault optional** — workspace.json lives at `~/.roxabi-vault/workspace.json` when vault
+  is installed; falls back to `~/.config/roxabi/workspace.json` otherwise.
+- **One GitHub token** — user owns both personal and org repos; no multi-token auth needed.
+- **Bun + TypeScript** — same runtime as the existing scripts.
+- **Global install** — `bun install -g roxabi-cli` or `npm i -g roxabi-cli`.
+  Skills call `roxabi <command>` after install; no more `bun /path/script.ts`.
+- **Clean rewrite** — no wrapper shim over old scripts. Full rewrite as proper CLI commands.
+- **GitHub GraphQL batching** — all project fetches in a single aliased query
+  (verified: `fieldAlias: node(id: "PVT_...")` works). No N×fetch fan-out.
+
+## Architecture
+
+### Roxabi CLI — new `cli/` package at repo root
+
+```
+cli/
+├── package.json          # name: roxabi-cli, bin: { roxabi: "./index.ts" }
+├── index.ts              # subcommand router
+└── commands/
+    ├── workspace.ts      # roxabi workspace list / add / remove
+    ├── triage.ts         # roxabi triage set #42 --status "In Progress"
+    ├── issues.ts         # roxabi issues [--project PVT_xxx]
+    └── dashboard.ts      # roxabi dashboard start / stop / status
+```
+
+### Workspace config
+
+```
+~/.roxabi-vault/workspace.json   (vault installed)
+~/.config/roxabi/workspace.json  (fallback)
+```
+
+```json
+{
+  "projects": [
+    { "repo": "Roxabi/repo-a", "projectId": "PVT_...", "label": "Repo A" },
+    { "repo": "mickaelV0/repo-b", "projectId": "PVT_...", "label": "Repo B" }
+  ]
+}
+```
+
+### Multi-project GraphQL batch
+
+Single HTTP request for all workspace projects:
+
+```graphql
+query {
+  project1: node(id: "PVT_xxx") { ... on ProjectV2 { items(first:100) { ... } } }
+  project2: node(id: "PVT_yyy") { ... on ProjectV2 { items(first:100) { ... } } }
+}
+```
+
+Auto-discovery uses GraphQL (not `gh project list` CLI — that flag does not filter by repo):
+```graphql
+repository(owner, name) { projectsV2(first:10) { nodes { id title } } }
+```
+
+### Dashboard changes
+
+- **Tab bar:** `[ All ]  [ Repo A ]  [ Repo B ]`
+- **All tab:** issues grouped by project, global dependency graph
+- **Per-project tab:** identical to today's single-project view
+- **Browser workspace editor:** "+" / "×" buttons to add/remove projects from workspace.json
+  via POST/DELETE to local server API endpoints
+- **Client-side polling:** `setInterval` every 60s calls `/api/refresh`, server re-fetches
+  all projects via batched GraphQL. Acceptable rate-limit cost at 60s interval.
+
+### `/init` workspace sub-commands (CLI extension)
+
+```
+/init workspace --list
+/init workspace --add owner/repo
+/init workspace --remove owner/repo
+```
+
+`/init` (Phase 5) asks "Register this project in your workspace dashboard?" and writes
+the entry. Sub-commands allow post-hoc management without re-running full `/init`.
+
+## Scope
+
+**In scope:**
+- `cli/` package — `roxabi` binary with `workspace`, `triage`, `issues`, `dashboard` commands
+- Rewrite `shared/config.ts` — replace env-var globals with workspace.json config loader
+- Rewrite `shared/queries.ts` — batched multi-project GraphQL
+- Rewrite `issues/lib/fetch.ts` — accept `{repo, projectId}[]`, single batched query
+- Rewrite `issues/lib/page.ts` — tab bar + grouped All view
+- Rewrite `issues/lib/config.ts` — load from workspace config + per-repo `.env` fallback
+- Rewrite `issue-triage/triage.ts` — auto-discover project via GraphQL, CLI subcommand
+- `/init` skill — Phase 5 writes workspace.json; add `--workspace` sub-commands
+- Dashboard: browser workspace editor (POST/DELETE server endpoints + UI)
+- Dashboard: client-side polling (60s interval)
+- Update all dev-core skills to call `roxabi` instead of `bun /path/script.ts`
+
+**Out of scope:**
+- Nested GitHub Project hierarchies (ambiguous GitHub V2 API — defer)
+- Real-time server-push / WebSockets (polling covers the need at lower complexity)
+- Cross-org multi-token auth (not needed: one token covers mickaelV0 + Roxabi org)
+- Workspace config editor as a separate GUI app (browser panel in dashboard is sufficient)
+
+## Complexity
+
+**Tier: F-full** — touches 4 skills (`issues`, `issue-triage`, `init`, `doctor`), introduces
+a new installable CLI package, replaces the entire config layer, changes how all scripts
+are invoked. Multiple architectural decisions, significant rewrite surface.
+
+Signals:
+- New package (`cli/`) with its own `package.json` and build/publish pipeline
+- Replace env-var config with file-based workspace config across all scripts
+- GraphQL query restructure (single-project → batched multi-project)
+- Dashboard UI changes (tab bar + browser editor + polling)
+- All skill SKILL.md files need updated invocation paths
