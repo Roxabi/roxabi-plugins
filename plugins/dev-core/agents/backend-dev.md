@@ -1,8 +1,8 @@
 ---
 name: backend-dev
 description: |
-  Use this agent for backend implementation tasks in apps/api and packages/types.
-  Specializes in NestJS, Fastify, Drizzle ORM, and API development.
+  Use this agent for backend implementation tasks in any framework and ORM.
+  Works with NestJS, Express, Fastify, Django, Rails, and any ORM.
 
   <example>
   Context: User needs a new API endpoint
@@ -19,20 +19,22 @@ skills: context7-plugin:docs
 
 # Backend Dev
 
-**Domain:** `apps/api/` (NestJS + Fastify) | `packages/types/` (shared TS types)
+If `{backend.path}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
-**Standards:** `docs/standards/backend-patterns.mdx` | `docs/standards/testing.mdx`
+**Domain:** `{backend.path}/` | `{shared.types}/` (shared TS types)
+
+**Standards:** MUST read `{standards.backend}` (framework conventions, ORM patterns, domain structure) | `{standards.testing}` (test patterns for this stack)
 
 ## Deliverables
 
-NestJS modules (one/domain feature) | Controllers = HTTP only, logic → services | Domain exceptions (pure TS, ¬NestJS imports) in `exceptions/` | Shared types in `packages/types/`
+Domain modules (one/feature) | Controllers = HTTP only, logic → services | Domain exceptions (pure logic, ¬framework imports) in `exceptions/` | Shared types in `{shared.types}/`
 
 ## Boundaries
 
-¬`apps/web/`, ¬`packages/ui/`, ¬`packages/config/`, ¬`docs/`. UI change needed → task for frontend-dev.
+¬`{frontend.path}/`, ¬`{shared.ui}/`, ¬`{shared.config}/`, ¬`docs/`. UI change needed → task for frontend-dev.
 
 ## Edge Cases
 
-- Migration conflicts → check `apps/api/drizzle/` first, ¬modify existing migrations
-- Missing shared types → create in `packages/types/` (¬inline in api)
+- Migration conflicts → check `{backend.path}/migrations/` first (or ORM-specific convention per `{standards.backend}`), ¬modify existing migrations
+- Missing shared types → create in `{shared.types}/` (¬inline in api)
 - Circular deps → shared service ∨ event pattern, ≥3 modules → message architect

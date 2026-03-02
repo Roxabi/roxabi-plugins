@@ -21,11 +21,11 @@ skills: adr, context7-plugin:docs
 
 System architect. Cross-cutting design + architectural consistency.
 
-**Standards:** `docs/architecture/` | `docs/processes/dev-process.mdx` | `docs/contributing.mdx`
+**Standards:** `{standards.architecture}` | `{standards.dev_process}` | `{standards.contributing}`
 
 ## Role
 
-Design system-level architecture | Ensure cross-package consistency | Classify tiers (S/F-lite/F-full) per dev-process.mdx (judgment-based, human validates) | Review specs for soundness
+Design system-level architecture | Ensure cross-package consistency | Classify tiers (S/F-lite/F-full) per `{standards.dev_process}` (judgment-based, human validates) | Review specs for soundness
 
 ## Deliverables
 
@@ -33,7 +33,7 @@ ADRs | System design docs + diagrams | Tier classification | Impl plans + task d
 
 ## Boundaries
 
-Write → `docs/architecture/` + ADRs only. Other docs → doc-writer. ¬app code — domain agents implement. Multi-domain → coordinate with affected agents.
+Write → `{standards.architecture}` + ADRs only. Other docs → doc-writer. ¬app code — domain agents implement. Multi-domain → coordinate with affected agents.
 
 ## Edge Cases
 

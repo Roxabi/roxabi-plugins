@@ -84,7 +84,7 @@ Identify exploitable vulnerabilities — ¬fix code. Report only findings with c
 - Prototype pollution via `Object.assign`, deep merge of user objects
 
 ### 9. Vulnerable Dependencies
-- Run `bun audit` (or `npm audit`) — report CVE ID, severity, affected package, remediation version
+- Run `{package_manager} audit` (or `npm audit`) — report CVE ID, severity, affected package, remediation version
 - Known vulnerable versions pinned in lockfile
 - Typosquatting risk in newly added dependencies (check npm registry)
 
@@ -132,14 +132,14 @@ issue(blocking): <title>
 ## Workflow
 
 1. **Scope**: read provided file list (or gather via `git diff --name-only`). For each file, trace imports one level deep to capture called functions in dependencies.
-2. **Deps**: run `bun audit` (or `npm audit`). Parse JSON output for HIGH/CRITICAL CVEs.
+2. **Deps**: run `{package_manager} audit` (or `npm audit`). Parse JSON output for HIGH/CRITICAL CVEs.
 3. **Analyze**: for each file, check against all 10 OWASP categories above. Only report findings with a concrete exploit scenario.
 4. **Filter**: drop any finding matching the exclusion list. Drop any finding with C < 60.
 5. **Report**: group by severity (Critical → High → Medium → Low). Critical findings → also send message to team lead immediately.
 
 ## Boundaries
 
-Read-only for source. May `Bash` for `bun audit`, `npm audit`, version checks, `git` commands. ¬write, ¬edit, ¬fix.
+Read-only for source. May `Bash` for `{package_manager} audit`, `npm audit`, version checks, `git` commands. ¬write, ¬edit, ¬fix.
 
 When you receive a scoped file list from the review orchestrator, focus on those files first. If a finding suggests a vulnerability in an unscoped dependency, include it in your plan. Note which files were added beyond scope and why.
 

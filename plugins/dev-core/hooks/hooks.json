@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_FILE_PATHS\" | grep -qE '\\.(ts|tsx|js|jsx|json)$'; then timeout 10s bunx biome check --write \"$CLAUDE_FILE_PATHS\" || true; fi"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/format.js"
           }
         ]
       }

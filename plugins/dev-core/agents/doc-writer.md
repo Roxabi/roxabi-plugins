@@ -2,7 +2,7 @@
 name: doc-writer
 description: |
   Use this agent for documentation creation, maintenance, and CLAUDE.md updates.
-  Specializes in MDX formatting, Fumadocs conventions, and project docs.
+  Works with any documentation framework (Fumadocs, Docusaurus, Nextra, plain Markdown).
 
   <example>
   Context: New feature needs documentation
@@ -19,11 +19,13 @@ skills: context7-plugin:docs
 
 # Doc Writer
 
-**Domain:** `docs/` | `CLAUDE.md` | `docs/**/meta.json` (Fumadocs nav)
+**Domain:** `{docs.path}/` | `CLAUDE.md` | Nav files (if `{docs.framework}` uses them, e.g., `meta.json` for Fumadocs)
 
-**Standards:** MUST read `docs/contributing.mdx`.
+**Standards:** MUST read `{standards.contributing}` — contains format conventions, framework-specific rules (MDX escaping, nav file format, H1 rendering behaviour, etc.), and file naming conventions.
 
-**MDX rules:** `.mdx` + YAML frontmatter (`title`, `description`) | kebab-case filenames | Escape `<` as `&lt;` in prose (¬in code blocks) | ¬`# Title` first line (Fumadocs renders frontmatter as H1, start with `##`) | Relative paths for links | New doc → update `meta.json` | Specs: `artifacts/specs/{issue}-{slug}.mdx` | Analyses: `artifacts/analyses/{slug}.mdx`
+**File format:** `.{docs.format}` + YAML frontmatter (`title`, `description`) | kebab-case filenames | Relative paths for links | Specs: `{artifacts.specs}/{issue}-{slug}.{docs.format}` | Analyses: `{artifacts.analyses}/{slug}.{docs.format}`
+
+**Nav files:** If `{docs.framework}` requires nav files (e.g., Fumadocs uses `meta.json`), update them when adding new docs. See `{standards.contributing}` for the required format.
 
 ## SKILL.md Authoring (`.claude/skills/*/SKILL.md`)
 

@@ -150,6 +150,36 @@ Next steps:
   /init --force          Re-configure anytime
 ```
 
+### Phase 8 — Stack Configuration
+
+Set up `.claude/stack.yml` so dev-core agents can work without hardcoded paths.
+
+1. **Check for existing stack.yml:** `test -f .claude/stack.yml && echo exists || echo missing`
+
+2. **If missing:**
+   - Copy the template: `cp "${CLAUDE_PLUGIN_ROOT}/../../stack.yml.example" .claude/stack.yml`
+   - Walk the user through filling in critical fields. AskUserQuestion for each of:
+     - **Backend path** (e.g., `apps/api`) — `backend.path` in stack.yml
+     - **Frontend path** (e.g., `apps/web`) — `frontend.path` in stack.yml
+     - **Package manager** — **bun** | **npm** | **pnpm** | **yarn**
+     - **Test command** (e.g., `bun run test`) — `commands.test` in stack.yml
+   - Open `.claude/stack.yml` and fill in the confirmed values.
+   - Inform the user: "Fill in the remaining fields in `.claude/stack.yml` before running agents."
+
+3. **Add @import to CLAUDE.md:**
+   - Check if first line of `CLAUDE.md` is `@.claude/stack.yml`: `head -1 CLAUDE.md`
+   - If not present, prepend it: write `@.claude/stack.yml\n` before the existing content.
+   - Display: "Added `@.claude/stack.yml` import to CLAUDE.md ✅"
+
+4. **Add stack.yml to .gitignore:**
+   - Check: `grep -q '\.claude/stack\.yml' .gitignore 2>/dev/null && echo found || echo missing`
+   - If missing, append: `.claude/stack.yml` to `.gitignore`.
+   - Display: "Added `.claude/stack.yml` to .gitignore ✅"
+
+5. **Copy stack.yml.example to project root (committed reference):**
+   - If `.claude/stack.yml.example` does not exist, copy: `cp "${CLAUDE_PLUGIN_ROOT}/../../stack.yml.example" .claude/stack.yml.example`
+   - Display: ".claude/stack.yml.example created ✅ (commit this file)"
+
 ## Safety Rules
 
 1. **Never overwrite `.env` values** without `--force` or explicit user confirmation
@@ -157,5 +187,6 @@ Next steps:
 3. **Never commit `.env`** — ensure it's in `.gitignore`
 4. **Never store secrets in `.env.example`** — use empty placeholder values
 5. **Idempotent** — safe to re-run, merges rather than overwrites
+6. **Never commit `.claude/stack.yml`** — only `.claude/stack.yml.example`
 
 $ARGUMENTS

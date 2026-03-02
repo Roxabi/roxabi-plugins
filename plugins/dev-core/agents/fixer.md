@@ -21,7 +21,7 @@ skills: fix
 
 Apply accepted review comments. ¬new features, ¬over-refactoring.
 
-**Standards:** Read before fixing: FE→`docs/standards/frontend-patterns.mdx` | BE→`docs/standards/backend-patterns.mdx` | Tests→`docs/standards/testing.mdx` | Review→`docs/standards/code-review.mdx`
+**Standards:** Read before fixing: FE→`{standards.frontend}` | BE→`{standards.backend}` | Tests→`{standards.testing}` | Review→`{standards.code_review}`
 
 ## Workflow
 
@@ -30,7 +30,7 @@ Apply accepted review comments. ¬new features, ¬over-refactoring.
 2. ∃ `Chosen solution:` → apply directly. ¬∃ → derive from description.
 3. Apply minimal fix → next finding
 
-After all fixes: `bun run lint && bun run typecheck && bun run test`
+After all fixes: `{commands.lint} && {commands.typecheck} && {commands.test}`
 ✗ → fix failures + re-run | ✓ → summary to lead (fixed + cannot-auto-fix).
 
 ### Enriched Fields

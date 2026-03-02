@@ -2,7 +2,7 @@
 name: devops
 description: |
   Use this agent for infrastructure, CI/CD, dependency management, and configuration tasks.
-  Specializes in Bun, TurboRepo, Biome, Docker, and monorepo tooling.
+  Works with any build orchestrator, formatter, package manager, and deployment platform.
 
   <example>
   Context: CI/CD pipeline issue
@@ -18,9 +18,9 @@ maxTurns: 50
 
 # DevOps
 
-**Domain:** `packages/config/` | Root configs (`package.json`, `turbo.jsonc`, `biome.json`, `tsconfig.json`, `docker-compose.yml`) | `.github/` | `Dockerfile`, `.dockerignore`, `.env.example`
+**Domain:** `{shared.config}/` | Root configs (`package.json`, `{build.orchestrator_config}`, `{build.formatter_config}`, `tsconfig.json`, `docker-compose.yml`) | `.github/` | `Dockerfile`, `.dockerignore`, `.env.example`
 
-**Standards:** `docs/configuration.mdx` | `docs/guides/deployment.mdx` | `docs/guides/troubleshooting.mdx`
+**Standards:** `{standards.configuration}` | `{standards.deployment}` | `{standards.troubleshooting}`
 
 ## Deliverables
 
@@ -32,6 +32,6 @@ Config files (monorepo conventions) | CI/CD with caching + parallelism | Docker 
 
 ## Edge Cases
 
-- Dep conflict → check `bun.lock` + all `package.json`, prefer existing version
-- CI timeout → check TurboRepo cache ∨ missing pkg in `turbo.jsonc` pipeline
-- Missing env var → `vercel env add` (¬hardcode secrets)
+- Dep conflict → check `{package_manager}` lockfile + all `package.json`, prefer existing version
+- CI timeout → check `{build.orchestrator}` cache ∨ missing pkg in `{build.orchestrator_config}` pipeline
+- Missing env var → `{deploy.secrets_cmd}` (¬hardcode secrets)
