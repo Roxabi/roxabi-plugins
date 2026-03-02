@@ -51,14 +51,17 @@ AskUserQuestion if intent is ambiguous.
 1. Read D.
 2. Determine format (md, html, or all) from args or config. Default: from config.
 3. Determine language (fr, en, or all) from args or config. Default: from config `default_language`.
-4. Run the generation script:
+4. Determine template: default `cv_template`; use `cv_template_rich` if D uses the rich data shape (`experiences` key with `title`/`dates`/`sections` fields) or if user requests it.
+5. Run the generation script:
 ```bash
-python3 <plugin>/scripts/generate_cv.py --data ~/.roxabi-vault/cv/cv_data.json --lang <lang> --format <format>
+python3 <plugin>/scripts/generate_cv.py --data ~/.roxabi-vault/cv/cv_data.json --lang <lang> --format <format> [--template cv_template_rich]
 ```
    - `--lang all` generates one file per supported language (`cv_fr.md`, `cv_en.md`)
    - `--lang fr` generates a single file (`cv.md`, no language suffix)
    - `--format all` generates both md and html
-5. Report the output path(s).
+   - `--template` selects the template set; omit to use `cv_template` (default)
+   - Both `experience` and `experiences` keys are accepted in D (aliased automatically)
+6. Report the output path(s).
 
 ## Phase 3 — Adapt
 
