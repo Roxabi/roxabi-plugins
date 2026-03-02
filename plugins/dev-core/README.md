@@ -24,13 +24,21 @@ claude plugin install dev-core
 
 ## Getting Started
 
-After installing, run the init skill to configure your project:
+After installing, run init to configure your project:
 
 ```
 /init
 ```
 
-This auto-detects your GitHub repo, Project V2 board, and field IDs, then writes `.env`, sets up the dashboard script in `package.json`, and creates the `artifacts/` directory. Re-run with `/init --force` to reconfigure.
+Auto-detects your GitHub repo, Project V2 board, and field IDs. Writes `.env`, sets up the `dashboard` script in `package.json`, and creates the `artifacts/` directory. Works for JS, Python, and other project types — creates a minimal `package.json` if none exists. Re-run with `/init --force` to reconfigure.
+
+Then configure the agent stack:
+
+```
+/stack-setup
+```
+
+Auto-discovers your runtime, framework, test tooling, and linter from the codebase, shows a confirmation screen, and writes `.claude/stack.yml` so all agents know where things live.
 
 **Important:** `/init` is required for project board features (issue status, size, priority fields). Without it, issue creation and dependency management still work, but field updates will show a "not configured" error pointing back to `/init`.
 
@@ -50,8 +58,9 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
-| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, workflows, branch protection, env vars). TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
-| `doctor` | Setup | Health check — verifies prerequisites, GitHub config, labels, workflows, branch protection, project structure. Standalone TypeScript CLI |
+| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, workflows, branch protection, env vars). Supports JS, Python, and other project types. TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
+| `stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.claude/stack.yml`. Single confirmation screen — no wizard questions |
+| `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, workflows, branch protection. Skips deploy-preview check when no deploy platform is configured; warns (not fails) on missing CI when stack.yml is present |
 | `dev` | Orchestrator | Routes issues through the full workflow |
 | `frame` | Frame | Creates initial feature frame from issue |
 | `analyze` | Shape | Deep analysis with expert consultation |
