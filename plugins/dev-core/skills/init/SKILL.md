@@ -177,6 +177,44 @@ Register the current project in the shared workspace config so the multi-project
 
 5. **If skip:** display `workspace.json ⏭ Skipped`
 
+### Phase 6b — Bulk Discovery
+
+Scan the filesystem for other repos with dev-core configured but not yet in workspace.json.
+
+1. **Find candidates:**
+   ```bash
+   # Search parent dir + ~/projects for .env files with GITHUB_REPO set
+   SEARCH_DIRS="$(dirname $PWD) $HOME/projects"
+   for dir in $SEARCH_DIRS; do
+     find "$dir" -maxdepth 3 -name ".env" 2>/dev/null \
+       | xargs grep -l "^GITHUB_REPO=" 2>/dev/null
+   done | sort -u
+   ```
+
+2. **For each found `.env`**, extract `GITHUB_REPO` and `PROJECT_ID`:
+   ```bash
+   grep -E "^(GITHUB_REPO|PROJECT_ID)=" <path>/.env
+   ```
+
+3. **Filter out**: current project + already-registered repos (compare against `workspace.json`).
+
+4. **If no unregistered candidates:** skip silently.
+
+5. **If candidates found**, display:
+   ```
+   Other dev-core projects found:
+     [ ] owner/repo-a   (PROJECT_ID: PVT_...)
+     [ ] owner/repo-b   (no project board)
+     [ ] owner/repo-c   (PROJECT_ID: PVT_...)
+   ```
+   AskUserQuestion: **Add all** | **Select** | **Skip**
+
+6. **If Add all or Select:** for each chosen repo, read its `GITHUB_REPO` + `PROJECT_ID` + derive label from repo name, then append to `workspace.json` via the same `writeWorkspace` call as Phase 6 step 4.
+
+   Display: `workspace.json ✅ Added N projects (repo-a, repo-b, ...)`
+
+7. **If Skip:** display `workspace.json ⏭ Bulk discovery skipped`
+
 ### Phase 7 — Report
 
 Display final summary:
@@ -198,6 +236,7 @@ dev-core initialized
   artifacts/        ✅ Created
   .gitignore        ✅ .env added
   workspace.json    ✅ Registered <repo> / ⏭ Skipped
+  bulk discovery    ✅ Added N projects / ⏭ Skipped / ⏭ No others found
 
 Next steps:
   /stack-setup           Configure stack for agents (auto-discovers your project)
