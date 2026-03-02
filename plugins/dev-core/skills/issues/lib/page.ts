@@ -2,13 +2,17 @@ import {
   PRIORITY_VALUES,
   SIZE_VALUES,
   STATUS_VALUES,
+  branchCIRows,
   escHtml,
   issueRow,
+  prRows,
   renderBranchCI,
   renderBranchesAndWorktrees,
   renderPRs,
   renderVercelDeployments,
   renderWorkflowRuns,
+  vercelCards,
+  workflowRunCards,
 } from './components'
 import { buildDepGraph, renderDepGraph } from './graph'
 import { PAGE_STYLES } from './page-styles'
@@ -54,6 +58,7 @@ function buildAllView(byProject: Map<string, Issue[]>): string {
       </div></div>`
       : ''
     return `<div data-project="${escHtml(label)}">
+      <h3 class="project-header">${escHtml(label)}</h3>
       ${issues.length === 0 ? '<p class="no-issues">No open issues</p>' : buildIssueTable(issues)}
       ${graphHtml}
     </div>`
@@ -147,19 +152,51 @@ export function buildHtml(
   const depGraphHtml = isMultiProject ? '' : renderDepGraph(depNodes, allIssues)
   const branchesHtml = renderBranchesAndWorktrees(branches, worktrees)
 
-  // In multi-project mode, wrap each project's section content in data-project divs
+  // In multi-project mode, build combined sections with per-project [data-project] groups
   // so switchTab can show/hide across ALL sections uniformly.
   const vercelHtml = isMultiProject && byProjectMeta
-    ? [...byProjectMeta.entries()].map(([l, m]) => `<div data-project="${escHtml(l)}">${renderVercelDeployments(m.deployments)}</div>`).join('')
+    ? (() => {
+        const withV = [...byProjectMeta.entries()].filter(([, m]) => m.deployments.length > 0)
+        if (withV.length === 0) return ''
+        const groups = withV.map(([l, m]) =>
+          `<div data-project="${escHtml(l)}"><div class="project-sep-inline">${escHtml(l)}</div>${vercelCards(m.deployments)}</div>`
+        ).join('')
+        return `<div class="section"><h2>\u25b2 Vercel Deployments</h2><div class="vd-list">${groups}</div></div>`
+      })()
     : renderVercelDeployments(deployments)
   const wrHtml = isMultiProject && byProjectMeta
-    ? [...byProjectMeta.entries()].map(([l, m]) => `<div data-project="${escHtml(l)}">${renderWorkflowRuns(m.workflowRuns)}</div>`).join('')
+    ? (() => {
+        const withWR = [...byProjectMeta.entries()].filter(([, m]) => m.workflowRuns.length > 0)
+        if (withWR.length === 0) return ''
+        const groups = withWR.map(([l, m]) =>
+          `<div data-project="${escHtml(l)}"><div class="project-sep-inline">${escHtml(l)}</div>${workflowRunCards(m.workflowRuns)}</div>`
+        ).join('')
+        return `<div class="section"><h2>Workflow Runs</h2><div class="wr-cards">${groups}</div></div>`
+      })()
     : renderWorkflowRuns(workflowRuns)
   const prsHtml = isMultiProject && byProjectMeta
-    ? [...byProjectMeta.entries()].map(([l, m]) => m.prs.length > 0 ? `<div data-project="${escHtml(l)}">${renderPRs(m.prs)}</div>` : '').join('')
+    ? (() => {
+        const withPRs = [...byProjectMeta.entries()].filter(([, m]) => m.prs.length > 0)
+        if (withPRs.length === 0) return ''
+        const bodies = withPRs.map(([l, m]) =>
+          `<tbody data-project="${escHtml(l)}"><tr class="project-sep-row"><td colspan="6">${escHtml(l)}</td></tr>${prRows(m.prs)}</tbody>`
+        ).join('')
+        return `<table class="sub-table"><thead><tr>
+    <th>#</th><th>Title</th><th>Status</th><th>CI</th><th>Changes</th><th>Updated</th>
+  </tr></thead>${bodies}</table>`
+      })()
     : renderPRs(prs)
   const ciHtml = isMultiProject && byProjectMeta
-    ? [...byProjectMeta.entries()].map(([l, m]) => shouldShowCI(m.branchCI) ? `<div data-project="${escHtml(l)}">${renderBranchCI(m.branchCI)}</div>` : '').join('')
+    ? (() => {
+        const withCI = [...byProjectMeta.entries()].filter(([, m]) => shouldShowCI(m.branchCI))
+        if (withCI.length === 0) return ''
+        const bodies = withCI.map(([l, m]) =>
+          `<tbody data-project="${escHtml(l)}"><tr class="project-sep-row"><td colspan="5">${escHtml(l)}</td></tr>${branchCIRows(m.branchCI)}</tbody>`
+        ).join('')
+        return `<table class="sub-table"><thead><tr>
+    <th>Branch</th><th>Status</th><th>CI</th><th>Commit</th><th>Updated</th>
+  </tr></thead>${bodies}</table>`
+      })()
     : renderBranchCI(branchCI)
   const showCI = isMultiProject ? !!ciHtml : shouldShowCI(branchCI)
   const showPRs = isMultiProject ? !!prsHtml : prs.length > 0
@@ -285,6 +322,11 @@ ${LIVE_STYLES}
       });
       // Show all project data across every section
       document.querySelectorAll('[data-project]').forEach(function(el) { el.style.display = ''; });
+      // Restore section visibility
+      ['section-ci', 'section-prs', 'section-vercel', 'section-workflow-runs'].forEach(function(id) {
+        var sec = document.getElementById(id);
+        if (sec) sec.style.display = '';
+      });
       // Collapse issue tables back to compact view
       document.querySelectorAll('.hidden-issues-body').forEach(function(b) { b.style.display = 'none'; });
       document.querySelectorAll('.show-more-row').forEach(function(tr) { tr.style.display = ''; });
@@ -292,6 +334,15 @@ ${LIVE_STYLES}
       // Filter every section to only show the active project
       document.querySelectorAll('[data-project]').forEach(function(el) {
         el.style.display = el.dataset.project === label ? '' : 'none';
+      });
+      // Hide sections that have no visible [data-project] content for this tab
+      ['section-ci', 'section-prs', 'section-vercel', 'section-workflow-runs'].forEach(function(id) {
+        var sec = document.getElementById(id);
+        if (!sec) return;
+        var projEls = sec.querySelectorAll('[data-project]');
+        if (projEls.length === 0) return;
+        var hasVisible = Array.from(projEls).some(function(el) { return el.style.display !== 'none'; });
+        sec.style.display = hasVisible ? '' : 'none';
       });
       // Expand all issues for the active project (no show-more/show-less needed)
       document.querySelectorAll('[data-project="' + label + '"] .hidden-issues-body').forEach(function(b) { b.style.display = ''; });
@@ -545,6 +596,33 @@ function shouldShowCI(branchCI: BranchCI[]): boolean {
 }
 
 const LIVE_STYLES = `
+  .project-header {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 18px 0 4px;
+    padding: 0 2px;
+  }
+  .project-sep-row td {
+    background: var(--surface-2, #1a1a1a);
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    padding: 4px 10px;
+    border-top: 1px solid var(--border, #333);
+  }
+  .project-sep-inline {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    padding: 10px 0 4px;
+  }
   .live-dot {
     display: inline-block;
     width: 8px;

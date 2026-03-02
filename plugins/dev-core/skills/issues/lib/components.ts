@@ -187,13 +187,8 @@ function ciSummary(checks: PR['checks']): { icon: string; label: string; cssClas
   }
 }
 
-export function renderPRs(prs: PR[]): string {
-  if (prs.length === 0) return '<p class="empty-state">No open pull requests</p>'
-
-  let html = `<table class="sub-table"><thead><tr>
-    <th>#</th><th>Title</th><th>Status</th><th>CI</th><th>Changes</th><th>Updated</th>
-  </tr></thead><tbody>`
-
+export function prRows(prs: PR[]): string {
+  let html = ''
   for (const pr of prs) {
     const { label: statusLabel, cssClass: statusClass } = getPRDisplay(pr)
     const age = timeAgo(pr.updatedAt)
@@ -227,8 +222,14 @@ export function renderPRs(prs: PR[]): string {
       html += `</div></td></tr>`
     }
   }
-  html += `</tbody></table>`
   return html
+}
+
+export function renderPRs(prs: PR[]): string {
+  if (prs.length === 0) return '<p class="empty-state">No open pull requests</p>'
+  return `<table class="sub-table"><thead><tr>
+    <th>#</th><th>Title</th><th>Status</th><th>CI</th><th>Changes</th><th>Updated</th>
+  </tr></thead><tbody>${prRows(prs)}</tbody></table>`
 }
 
 export function renderBranchesAndWorktrees(branches: Branch[], worktrees: Worktree[]): string {
@@ -298,13 +299,8 @@ const OVERALL_STATE_DISPLAY: Record<string, { icon: string; label: string; cls: 
   EXPECTED: { icon: CI_SPINNER, label: 'Running', cls: 'ci-running' },
 }
 
-export function renderBranchCI(branches: BranchCI[]): string {
-  if (branches.length === 0) return '<p class="empty-state">No CI data</p>'
-
-  let html = `<table class="sub-table"><thead><tr>
-    <th>Branch</th><th>Status</th><th>CI</th><th>Commit</th><th>Updated</th>
-  </tr></thead><tbody>`
-
+export function branchCIRows(branches: BranchCI[]): string {
+  let html = ''
   for (const b of branches) {
     const stateDisplay = OVERALL_STATE_DISPLAY[b.overallState] ?? {
       icon: '\u2753',
@@ -340,23 +336,19 @@ export function renderBranchCI(branches: BranchCI[]): string {
       html += `</div></td></tr>`
     }
   }
-  html += `</tbody></table>`
   return html
 }
 
-export function renderVercelDeployments(deployments: VercelDeployment[]): string {
-  if (deployments.length === 0) return ''
+export function renderBranchCI(branches: BranchCI[]): string {
+  if (branches.length === 0) return '<p class="empty-state">No CI data</p>'
+  return `<table class="sub-table"><thead><tr>
+    <th>Branch</th><th>Status</th><th>CI</th><th>Commit</th><th>Updated</th>
+  </tr></thead><tbody>${branchCIRows(branches)}</tbody></table>`
+}
 
-  let html = `<div class="section">
-    <h2>\u25b2 Vercel Deployments</h2>
-    <div class="vd-list">`
-
-  for (const d of deployments) {
-    const display = DEPLOY_STATE_DISPLAY[d.state] ?? {
-      icon: '\u2753',
-      label: d.state,
-      cls: '',
-    }
+export function vercelCards(deployments: VercelDeployment[]): string {
+  return deployments.map((d) => {
+    const display = DEPLOY_STATE_DISPLAY[d.state] ?? { icon: '\u2753', label: d.state, cls: '' }
     const env = d.target === 'production' ? 'prod' : 'preview'
     const envCls = d.target === 'production' ? 'vd-env-prod' : 'vd-env-preview'
     const branch = d.meta.githubCommitRef ?? ''
@@ -365,8 +357,7 @@ export function renderVercelDeployments(deployments: VercelDeployment[]): string
     const deployUrl = `https://${d.url}`
     const inspectUrl = d.inspectorUrl || `https://vercel.com`
     const pipeline = renderBuildPipeline(d.buildSteps)
-
-    html += `<div class="vd-card ${display.cls}">
+    return `<div class="vd-card ${display.cls}">
       <div class="vd-item">
         <span class="vd-state">${display.icon} ${display.label}</span>
         <span class="badge ${envCls}">${env}</span>
@@ -378,10 +369,15 @@ export function renderVercelDeployments(deployments: VercelDeployment[]): string
       </div>
       ${pipeline ? `<div class="vd-pipeline">${pipeline}</div>` : ''}
     </div>`
-  }
+  }).join('')
+}
 
-  html += '</div></div>'
-  return html
+export function renderVercelDeployments(deployments: VercelDeployment[]): string {
+  if (deployments.length === 0) return ''
+  return `<div class="section">
+    <h2>\u25b2 Vercel Deployments</h2>
+    <div class="vd-list">${vercelCards(deployments)}</div>
+  </div>`
 }
 
 const WR_STATUS_DISPLAY: Record<string, { icon: string; label: string; cls: string }> = {
@@ -402,12 +398,8 @@ const WR_EVENT_LABEL: Record<string, string> = {
   push: 'push',
 }
 
-export function renderWorkflowRuns(runs: WorkflowRun[]): string {
-  if (runs.length === 0) return ''
-
-  let html = `<div class="section"><h2>Workflow Runs</h2><div class="wr-cards">`
-
-  for (const run of runs) {
+export function workflowRunCards(runs: WorkflowRun[]): string {
+  return runs.map((run) => {
     let badge: { icon: string; label: string; cls: string }
     if (run.status === 'completed') {
       badge = WR_CONCLUSION_DISPLAY[run.conclusion ?? ''] ?? {
@@ -422,12 +414,10 @@ export function renderWorkflowRuns(runs: WorkflowRun[]): string {
         cls: 'wr-badge-queued',
       }
     }
-
     const eventLabel = WR_EVENT_LABEL[run.event] ?? run.event
     const age = timeAgo(run.updatedAt)
     const commitText = run.displayTitle || run.headCommitMessage
-
-    html += `<div class="wr-card">
+    return `<div class="wr-card">
       <div class="wr-item">
         <span class="wr-badge ${badge.cls}">${badge.icon} ${badge.label}</span>
         <a href="${escHtml(run.htmlUrl)}" target="_blank" rel="noopener" class="wr-name">${escHtml(run.name)}</a>
@@ -437,8 +427,10 @@ export function renderWorkflowRuns(runs: WorkflowRun[]): string {
         <span class="text-muted vd-age">${age}</span>
       </div>
     </div>`
-  }
+  }).join('')
+}
 
-  html += '</div></div>'
-  return html
+export function renderWorkflowRuns(runs: WorkflowRun[]): string {
+  if (runs.length === 0) return ''
+  return `<div class="section"><h2>Workflow Runs</h2><div class="wr-cards">${workflowRunCards(runs)}</div></div>`
 }
