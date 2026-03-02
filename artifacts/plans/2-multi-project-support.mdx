@@ -1,0 +1,448 @@
+---
+title: "Plan: Multi-Project Support — Roxabi CLI + unified dashboard + workspace config"
+issue: 2
+companion: 5
+spec: artifacts/specs/2-multi-project-support.mdx
+complexity: 7/10
+tier: F-full
+slices: S1, S2, S3, S4
+deferred: S5 (dashboard workspace editor), S6 (triage CLI), S7 (skill updates)
+generated: "2026-03-02T00:00:00Z"
+---
+
+## Summary
+
+Introduces the `roxabi` CLI package (S1–S2), replaces single-project GraphQL with a batched
+multi-project data layer (S3), and extends the dashboard with a tab bar + grouped All view
+via the existing SSE mechanism (S4). S5–S7 are deferred to the next `/plan` run.
+
+## Bootstrap Context
+
+No analysis artifact. Frame: `artifacts/frames/multi-project-support.mdx`.
+Key decisions: `lib/workspace.ts` is new (does not modify `shared/config.ts`); SSE is
+extended (not replaced); `buildBatchedQuery()` uses aliased `node(id)` — verified working.
+
+## Path Notes
+
+- **New CLI code:** `cli/` at repo root → `/home/mickael/projects/roxabi-plugins/cli/`
+- **Skill source (edit here first):** `plugins/dev-core/skills/` in repo
+- **Skill cache (rsync after):** `~/.claude/plugins/cache/roxabi-marketplace/dev-core/0.1.0/skills/`
+- After each commit run the rsync script from CLAUDE.md to propagate to all projects.
+
+## Reference Patterns
+
+- `plugins/dev-core/skills/init/init.ts` — `switch(command)` router → use same for `cli/index.ts`
+- `plugins/dev-core/skills/issues/dashboard.ts` — `notifyClients()` + `sseClients` Set → extend poller
+- `plugins/dev-core/skills/issues/lib/fetch.ts:fetchPage()` → refactor to `fetchAllProjects()`
+
+## Agents
+
+| Agent | Task count | Files |
+|-------|-----------|-------|
+| backend-dev | 10 | cli/index.ts, cli/lib/workspace.ts, cli/commands/workspace.ts, cli/commands/issues.ts, plugins/dev-core/skills/shared/queries.ts, plugins/dev-core/skills/issues/lib/fetch.ts, plugins/dev-core/skills/issues/lib/config.ts, plugins/dev-core/skills/issues/dashboard.ts |
+| frontend-dev | 3 | plugins/dev-core/skills/issues/lib/page.ts, plugins/dev-core/skills/issues/lib/page-styles.ts |
+| tester | 3 | cli/__tests__/workspace.test.ts, cli/__tests__/issues.test.ts |
+| devops | 1 | cli/package.json |
+
+## Consistency Report
+
+- Criteria covered by S1–S4: 14/23
+- Covered: SC-1, SC-2 (CLI install), SC-3..SC-9 (workspace CRUD), SC-10..SC-11 (multi-project issues), SC-16..SC-17 (dashboard tab bar + All), SC-22 (backward compat `.env`)
+- Deferred (by design): SC-12..SC-15 (S7 /init), SC-18..SC-21 (S5 dashboard editor), SC-23 (S6 triage .env)
+- Tasks without spec backing: 0
+- Gold plating exemptions: 0
+
+---
+
+## Micro-Tasks
+
+### Slice S1: CLI Scaffold
+
+#### Task 1: Create cli/package.json [P] → devops
+- **File:** `cli/package.json`
+- **Snippet:** `{ "name": "roxabi-cli", "version": "0.1.0", "bin": { "roxabi": "./index.ts" }, "scripts": { "test": "bun test" } }`
+- **Verify:** `test -f cli/package.json && grep -q '"roxabi"' cli/package.json` (ready)
+- **Expected:** Exit 0
+- **Time:** 3 min
+- **Difficulty:** 1
+- **Traces:** SC-1
+- **Phase:** GREEN
+
+#### Task 2: Create cli/index.ts subcommand router [P] → backend-dev
+- **File:** `cli/index.ts`
+- **Snippet:**
+  ```ts
+  #!/usr/bin/env bun
+  const [,, cmd, ...rest] = process.argv
+  switch (cmd) {
+    case 'workspace': await import('./commands/workspace').then(m => m.run(rest)); break
+    case 'issues':    await import('./commands/issues').then(m => m.run(rest)); break
+    case 'triage':    await import('./commands/triage').then(m => m.run(rest)); break
+    case 'dashboard': await import('./commands/dashboard').then(m => m.run(rest)); break
+    default:
+      console.log('Usage: roxabi <workspace|issues|triage|dashboard> [args]')
+      console.log('Version: 0.1.0')
+      process.exit(cmd ? 1 : 0)
+  }
+  ```
+- **Verify:** `grep -q 'workspace\|issues\|triage\|dashboard' cli/index.ts` (ready)
+- **Expected:** Exit 0
+- **Time:** 5 min
+- **Difficulty:** 2
+- **Traces:** SC-1, SC-2
+- **Phase:** GREEN
+
+#### Task 3: Verify --help output → tester
+- **File:** `cli/__tests__/smoke.test.ts`
+- **Snippet:**
+  ```ts
+  import { describe, it, expect } from 'bun:test'
+  import { spawnSync } from 'bun'
+  describe('roxabi CLI smoke', () => {
+    it('prints usage with no args', () => {
+      const r = spawnSync(['bun', 'cli/index.ts'], { stdout: 'pipe' })
+      const out = new TextDecoder().decode(r.stdout)
+      expect(out).toContain('workspace')
+      expect(out).toContain('issues')
+    })
+  })
+  ```
+- **Verify:** `bun test cli/__tests__/smoke.test.ts` (ready)
+- **Expected:** 1 test passed
+- **Time:** 3 min
+- **Difficulty:** 1
+- **Traces:** SC-2
+- **Phase:** GREEN
+
+---
+
+### Slice S2: Workspace Config + lib/workspace.ts
+
+#### Task 4: Write RED tests for workspace commands → tester
+- **File:** `cli/__tests__/workspace.test.ts`
+- **Snippet:**
+  ```ts
+  import { describe, it, expect, beforeEach } from 'bun:test'
+  // Tests will fail until cli/lib/workspace.ts and cli/commands/workspace.ts exist
+  describe('workspace list', () => { it('prints table with repo/projectId/label columns', ...) })
+  describe('workspace add', () => {
+    it('writes entry when one project found', ...)
+    it('prompts interactively when multiple projects found', ...)
+  })
+  describe('workspace remove', () => {
+    it('removes entry and exits 0 with message', ...)
+    it('exits 1 with error when repo not registered', ...)
+  })
+  describe('path resolution', () => {
+    it('uses ~/.roxabi-vault/workspace.json when vault exists', ...)
+    it('creates ~/.config/roxabi/workspace.json with 0700 dir when vault absent', ...)
+  })
+  ```
+- **Verify:** `grep -q 'workspace list\|workspace add\|workspace remove\|path resolution' cli/__tests__/workspace.test.ts` (ready)
+- **Expected:** Exit 0 (structure only — tests expected to fail pre-impl)
+- **Time:** 8 min
+- **Difficulty:** 3
+- **Traces:** SC-3..SC-9
+- **Phase:** RED
+
+#### Task 5: Create cli/lib/workspace.ts → backend-dev
+- **File:** `cli/lib/workspace.ts`
+- **Snippet:**
+  ```ts
+  import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+  export interface WorkspaceProject { repo: string; projectId: string; label: string }
+  export interface Workspace { projects: WorkspaceProject[] }
+
+  export function getWorkspacePath(): string {
+    const vault = `${process.env.HOME}/.roxabi-vault`
+    if (existsSync(vault)) return `${vault}/workspace.json`
+    return `${process.env.HOME}/.config/roxabi/workspace.json`
+  }
+
+  export function readWorkspace(): Workspace {
+    const p = getWorkspacePath()
+    if (!existsSync(p)) return { projects: [] }
+    return JSON.parse(readFileSync(p, 'utf8')) as Workspace
+  }
+
+  export function writeWorkspace(ws: Workspace): void {
+    const p = getWorkspacePath()
+    const dir = p.substring(0, p.lastIndexOf('/'))
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    writeFileSync(p, JSON.stringify(ws, null, 2) + '\n')
+  }
+
+  export async function discoverProject(repo: string): Promise<WorkspaceProject[]> {
+    const [owner, name] = repo.split('/')
+    // gh api graphql → repository.projectsV2 → return array
+  }
+  ```
+- **Verify:** `bun run typecheck cli/lib/workspace.ts 2>/dev/null || bun build --target=bun cli/lib/workspace.ts --outdir /tmp/roxabi-check 2>&1 | grep -v "^$"` (deferred)
+- **Expected:** No type errors
+- **Time:** 10 min
+- **Difficulty:** 3
+- **Traces:** SC-8, SC-9
+- **Phase:** GREEN
+
+#### Task 6: Create cli/commands/workspace.ts (list/add/remove) → backend-dev
+- **File:** `cli/commands/workspace.ts`
+- **Snippet:**
+  ```ts
+  import { readWorkspace, writeWorkspace, discoverProject } from '../lib/workspace'
+  export async function run(args: string[]): Promise<void> {
+    const sub = args[0]
+    if (sub === 'list') { /* print table: repo | projectId | label */ }
+    if (sub === 'add') {
+      const repo = args[1]
+      const found = await discoverProject(repo)
+      if (found.length === 0) { console.error('No GitHub Project found'); process.exit(1) }
+      if (found.length > 1) { /* prompt numbered list */ }
+      const ws = readWorkspace()
+      ws.projects.push(found[0])
+      writeWorkspace(ws)
+      console.log(`✓ Added ${found[0].label} (${repo})`)
+    }
+    if (sub === 'remove') { /* find + splice, exit 1 if not found */ }
+  }
+  ```
+- **Verify:** `bun cli/index.ts workspace list 2>&1 | grep -E "repo|projectId|label|No projects"` (deferred)
+- **Expected:** Table header or "No projects registered"
+- **Time:** 10 min
+- **Difficulty:** 3
+- **Traces:** SC-3, SC-4, SC-5, SC-6, SC-7
+- **Phase:** GREEN
+
+#### RED-GATE: S2 RED complete → tester
+- **Verify:** `bun test cli/__tests__/workspace.test.ts 2>&1 | grep -E "passed|failed"`
+- **Phase:** RED-GATE
+
+---
+
+### Slice S3: Multi-Project Data Layer
+
+#### Task 7: Write RED tests for issues command → tester
+- **File:** `cli/__tests__/issues.test.ts`
+- **Snippet:**
+  ```ts
+  import { describe, it, expect, mock } from 'bun:test'
+  describe('issues command', () => {
+    it('fires exactly 1 HTTP request for 2 workspace projects', async () => {
+      const fetchMock = mock(() => Promise.resolve({ json: () => ({ data: {} }) }))
+      globalThis.fetch = fetchMock
+      // call issues command with 2-project workspace fixture
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+    it('each row includes the project label column', ...)
+  })
+  ```
+- **Verify:** `grep -q 'toHaveBeenCalledTimes(1)\|project label' cli/__tests__/issues.test.ts` (ready)
+- **Expected:** Exit 0 (structure — tests fail pre-impl)
+- **Time:** 8 min
+- **Difficulty:** 3
+- **Traces:** SC-10, SC-11
+- **Phase:** RED
+
+#### Task 8: Add buildBatchedQuery() to shared/queries.ts → backend-dev
+- **File:** `plugins/dev-core/skills/shared/queries.ts`
+- **Snippet:**
+  ```ts
+  /** Build a batched multi-project query with N aliased node() lookups.
+   *  Response shape: data.project0, data.project1, ...
+   */
+  export function buildBatchedQuery(projectIds: string[]): string {
+    const fragments = projectIds.map((_, i) => `
+      project${i}: node(id: $project${i}Id) {
+        ... on ProjectV2 {
+          items(first: 100) {
+            pageInfo { hasNextPage endCursor }
+            nodes { /* same shape as ISSUES_QUERY node fragment */ }
+          }
+        }
+      }`)
+    const params = projectIds.map((_, i) => `$project${i}Id: ID!`).join(', ')
+    return `query(${params}) { ${fragments.join('')} }`
+  }
+  ```
+- **Verify:** `grep -q 'buildBatchedQuery' plugins/dev-core/skills/shared/queries.ts` (ready)
+- **Expected:** Exit 0
+- **Time:** 8 min
+- **Difficulty:** 4
+- **Traces:** SC-10
+- **Phase:** GREEN
+
+#### Task 9: Refactor fetch.ts → fetchAllProjects() → backend-dev
+- **File:** `plugins/dev-core/skills/issues/lib/fetch.ts`
+- **Snippet:**
+  ```ts
+  import type { WorkspaceProject } from '../../../cli/lib/workspace'  // or inline type
+  /** Fetch items for all workspace projects in a single batched GraphQL request. */
+  export async function fetchAllProjects(
+    projects: WorkspaceProject[]
+  ): Promise<Map<string, RawItem[]>> {
+    if (projects.length === 0) return new Map()
+    const query = buildBatchedQuery(projects.map(p => p.projectId))
+    const variables = Object.fromEntries(projects.map((p, i) => [`project${i}Id`, p.projectId]))
+    const data = await ghGraphQL(query, variables)
+    const result = new Map<string, RawItem[]>()
+    for (let i = 0; i < projects.length; i++) {
+      const node = (data as any).data[`project${i}`]
+      result.set(projects[i].label, node?.items?.nodes ?? [])
+    }
+    return result
+  }
+  // Keep fetchAllItems() for backward compat (single-project mode)
+  ```
+- **Verify:** `grep -q 'fetchAllProjects' plugins/dev-core/skills/issues/lib/fetch.ts` (ready)
+- **Expected:** Exit 0
+- **Time:** 10 min
+- **Difficulty:** 4
+- **Traces:** SC-10
+- **Phase:** GREEN
+
+#### Task 10: Add resolveConfig() to issues/lib/config.ts [P] → backend-dev
+- **File:** `plugins/dev-core/skills/issues/lib/config.ts`
+- **Snippet:**
+  ```ts
+  import { readWorkspace } from '../../../cli/lib/workspace'
+  import { detectGitHubRepo } from '../../shared/config'
+
+  /** Resolve project config: workspace.json entry for current repo → .env fallback. */
+  export function resolveConfig(): { projectId: string; source: 'workspace' | 'env' } {
+    const ws = readWorkspace()
+    const currentRepo = detectGitHubRepo()
+    const entry = ws.projects.find(p => p.repo === currentRepo)
+    if (entry) return { projectId: entry.projectId, source: 'workspace' }
+    const envId = process.env.PROJECT_ID ?? ''
+    if (envId) return { projectId: envId, source: 'env' }
+    return { projectId: '', source: 'env' }
+  }
+  ```
+- **Verify:** `grep -q 'resolveConfig' plugins/dev-core/skills/issues/lib/config.ts` (ready)
+- **Expected:** Exit 0
+- **Time:** 5 min
+- **Difficulty:** 2
+- **Traces:** SC-22
+- **Phase:** GREEN
+
+#### Task 11: Create cli/commands/issues.ts [P] → backend-dev
+- **File:** `cli/commands/issues.ts`
+- **Snippet:**
+  ```ts
+  import { readWorkspace } from '../lib/workspace'
+  import { fetchAllProjects } from '../../plugins/dev-core/skills/issues/lib/fetch'
+  export async function run(args: string[]): Promise<void> {
+    const ws = readWorkspace()
+    if (ws.projects.length === 0) { console.log('No projects in workspace. Run: roxabi workspace add owner/repo'); return }
+    const byProject = await fetchAllProjects(ws.projects)
+    for (const [label, items] of byProject) {
+      // render table with label column prefix
+    }
+  }
+  ```
+- **Verify:** `grep -q 'fetchAllProjects\|readWorkspace' cli/commands/issues.ts` (ready)
+- **Expected:** Exit 0
+- **Time:** 8 min
+- **Difficulty:** 3
+- **Traces:** SC-10, SC-11
+- **Phase:** GREEN
+
+#### RED-GATE: S3 RED complete → tester
+- **Verify:** `bun test cli/__tests__/issues.test.ts 2>&1 | grep -E "passed|failed"`
+- **Phase:** RED-GATE
+
+---
+
+### Slice S4: Dashboard Tab Bar + All View + SSE Extension
+
+#### Task 12: Extend dashboard.ts SSE poller → fetchAllProjects → backend-dev
+- **File:** `plugins/dev-core/skills/issues/dashboard.ts`
+- **Snippet:**
+  ```ts
+  // Replace single-project fetchIssues() call in the refresh loop with:
+  import { readWorkspace } from '../../../cli/lib/workspace'
+  import { fetchAllProjects } from './lib/fetch'
+
+  async function refresh(): Promise<void> {
+    const ws = readWorkspace()
+    const byProject = ws.projects.length > 0
+      ? await fetchAllProjects(ws.projects)
+      : new Map([[GITHUB_REPO, await fetchAllItems()]])  // backward compat
+
+    const html = buildHtml({ ...existingData, byProject })
+    const newHash = computeHash(...)
+    if (newHash !== cache?.hash) { cache = { html, hash: newHash, ... }; notifyClients() }
+  }
+  ```
+- **Verify:** `grep -q 'fetchAllProjects\|readWorkspace' plugins/dev-core/skills/issues/dashboard.ts` (ready)
+- **Expected:** Exit 0
+- **Time:** 10 min
+- **Difficulty:** 4
+- **Traces:** SC-16, SC-17
+- **Phase:** GREEN
+
+#### Task 13: Add tab bar rendering to page.ts → frontend-dev
+- **File:** `plugins/dev-core/skills/issues/lib/page.ts`
+- **Snippet:**
+  ```ts
+  function buildTabBar(projectLabels: string[], activeTab: string): string {
+    const tabs = ['All', ...projectLabels].map(label =>
+      `<button class="tab ${label === activeTab ? 'active' : ''}"
+        onclick="switchTab('${label}')">${label}</button>`
+    ).join('')
+    return `<div class="tab-bar">${tabs}</div>`
+  }
+  ```
+- **Verify:** `grep -q 'buildTabBar\|tab-bar' plugins/dev-core/skills/issues/lib/page.ts` (ready)
+- **Expected:** Exit 0
+- **Time:** 8 min
+- **Difficulty:** 3
+- **Traces:** SC-16
+- **Phase:** GREEN
+
+#### Task 14: Add grouped All view to page.ts → frontend-dev
+- **File:** `plugins/dev-core/skills/issues/lib/page.ts`
+- **Snippet:**
+  ```ts
+  function buildAllView(byProject: Map<string, Issue[]>): string {
+    return [...byProject.entries()].map(([label, issues]) => `
+      <section class="project-group">
+        <h2 class="project-header">${label}</h2>
+        ${buildIssueTable(issues)}
+      </section>`
+    ).join('')
+  }
+  // JS in HTML: function switchTab(label) { ... show/hide .project-group sections ... }
+  ```
+- **Verify:** `grep -q 'buildAllView\|project-group' plugins/dev-core/skills/issues/lib/page.ts` (ready)
+- **Expected:** Exit 0
+- **Time:** 8 min
+- **Difficulty:** 3
+- **Traces:** SC-17
+- **Phase:** GREEN
+
+#### Task 15: Add tab bar CSS to page-styles.ts → frontend-dev
+- **File:** `plugins/dev-core/skills/issues/lib/page-styles.ts`
+- **Snippet:**
+  ```ts
+  // Add to exported styles string:
+  `.tab-bar { display: flex; gap: 4px; padding: 12px 16px; border-bottom: 1px solid #30363d; }
+   .tab { background: transparent; border: 1px solid #30363d; border-radius: 6px; padding: 6px 14px; cursor: pointer; color: #8b949e; }
+   .tab.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+   .project-header { font-size: 14px; color: #8b949e; margin: 16px 0 8px; }`
+  ```
+- **Verify:** `grep -q 'tab-bar\|tab.active\|project-header' plugins/dev-core/skills/issues/lib/page-styles.ts` (ready)
+- **Expected:** Exit 0
+- **Time:** 5 min
+- **Difficulty:** 2
+- **Traces:** SC-16, SC-17
+- **Phase:** GREEN
+
+#### Task 16: Manual integration verify → tester
+- **File:** `[manual]`
+- **Snippet:** N/A — open dashboard with 2-project workspace.json, verify tab bar renders, All tab shows grouped sections, click project tab shows filtered view
+- **Verify:** `[manual]`
+- **Expected:** Tab bar visible with [All] + 2 project tabs; All tab shows 2 `<h2>` section headers
+- **Time:** 5 min
+- **Difficulty:** 2
+- **Traces:** SC-16, SC-17
+- **Phase:** GREEN
