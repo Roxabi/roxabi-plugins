@@ -14,15 +14,53 @@
     .contact { color: #666; font-size: 0.9em; margin-bottom: 4px; }
     .contact a { color: #666; text-decoration: none; }
     .summary { margin-top: 16px; color: #444; }
-    .job { margin-bottom: 20px; }
-    .job-meta { color: #666; font-size: 0.9em; margin-bottom: 6px; }
-    ul { padding-left: 20px; margin-top: 4px; }
+    .summary p { margin-bottom: 8px; }
+    .achievements { margin-top: 4px; }
+    .achievement { margin-bottom: 8px; }
+    .achievement strong { color: #222; }
+    .job { margin-bottom: 28px; padding-bottom: 24px; border-bottom: 1px solid #e8e8e8; }
+    .job:last-of-type { border-bottom: none; }
+    .job-meta { color: #666; font-size: 0.9em; margin-bottom: 8px; }
+    .job-desc { color: #555; margin-bottom: 10px; font-style: italic; font-size: 0.95em; }
+    .job-body { padding-left: 10px; border-left: 2px solid #e8e8e8; margin-top: 8px; }
+    .job-section { margin-bottom: 10px; }
+    .job-section-title { font-weight: 600; font-size: 0.88em; color: #555; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
+    ul { padding-left: 18px; margin-top: 2px; }
     li { margin-bottom: 4px; }
     .edu { margin-bottom: 14px; }
     .edu-meta { color: #666; font-size: 0.9em; }
     .skills-group { margin-bottom: 6px; }
     .skills-group strong { text-transform: capitalize; }
     .lang-item, .cert-item { margin-bottom: 4px; }
+    footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd; color: #888; font-size: 0.85em; }
+
+    @page {
+      size: A4 portrait;
+      margin: 14mm 14mm;
+    }
+    @media print {
+      html { height: auto; }
+      body {
+        max-width: 100%;
+        width: 182mm;
+        padding: 0;
+        margin: 0;
+        font-size: 9.5pt;
+        line-height: 1.45;
+        color: #000;
+      }
+      h1 { font-size: 17pt; }
+      h2 { font-size: 10pt; margin-top: 12pt; margin-bottom: 6pt; }
+      h3 { font-size: 9.5pt; }
+      .subtitle { font-size: 10.5pt; }
+      .contact { font-size: 8.5pt; }
+      .job { page-break-inside: avoid; break-inside: avoid; }
+      .edu { page-break-inside: avoid; break-inside: avoid; }
+      h2, h3 { page-break-after: avoid; break-after: avoid; }
+      a { text-decoration: none; color: #000; }
+      .job-body { border-left: 0.5pt solid #ccc; }
+      .job { border-bottom: 0.5pt solid #e0e0e0; }
+    }
   </style>
 </head>
 <body>
@@ -34,34 +72,66 @@
       {% if personal.phone %} &middot; {{ personal.phone|t(lang) }}{% endif %}
       {% if personal.location %} &middot; {{ personal.location|t(lang) }}{% endif %}
     </div>
-    {% if personal.linkedin or personal.github %}
+    {% if personal.linkedin or personal.github or personal.github_org %}
     <div class="contact">
       {% if personal.linkedin %}<a href="https://{{ personal.linkedin }}">{{ personal.linkedin }}</a>{% endif %}
       {% if personal.github %} &middot; <a href="https://{{ personal.github }}">{{ personal.github }}</a>{% endif %}
+      {% if personal.github_org %} &middot; <a href="https://{{ personal.github_org }}">{{ personal.github_org }}</a>{% endif %}
     </div>
     {% endif %}
   </header>
 
-  {% if personal.summary %}
+  {% if summary is defined or personal.summary is defined %}
   <section>
-    <h2>Summary</h2>
-    <p class="summary">{{ personal.summary|t(lang) }}</p>
+    <h2>{% if lang == 'fr' %}Profil{% else %}Summary{% endif %}</h2>
+    <div class="summary">
+    {% if summary is defined %}
+      {% if summary is mapping %}
+        {% for line in summary|t(lang) %}
+        <p>{{ line }}</p>
+        {% endfor %}
+      {% else %}
+        <p>{{ summary|t(lang) }}</p>
+      {% endif %}
+    {% else %}
+      <p>{{ personal.summary|t(lang) }}</p>
+    {% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if achievements is defined and achievements %}
+  <section>
+    <h2>{% if lang == 'fr' %}Points clés{% else %}Key Achievements{% endif %}</h2>
+    <div class="achievements">
+    {% for ach in achievements %}
+    <div class="achievement"><strong>{{ ach.title|t(lang) }}</strong> &mdash; {{ ach.description|t(lang) }}</div>
+    {% endfor %}
+    </div>
   </section>
   {% endif %}
 
   <section>
-    <h2>Experience</h2>
+    <h2>{% if lang == 'fr' %}Expériences professionnelles{% else %}Experience{% endif %}</h2>
     {% set jobs = experiences if experiences is defined else experience %}
     {% for job in jobs %}
     <div class="job">
     {% if job.title is defined %}
       <h3>{{ job.title|t(lang) }} &mdash; {{ job.company|t(lang) }}</h3>
       <div class="job-meta">{{ job.dates|t(lang) }}{% if job.location %} &middot; {{ job.location|t(lang) if job.location is mapping else job.location }}{% endif %}</div>
-      <ul>
-      {% for section in job.sections %}{% for item in section['items'] %}
-        <li>{{ item|t(lang) }}</li>
-      {% endfor %}{% endfor %}
-      </ul>
+      <div class="job-body">
+      {% if job.description is defined %}<div class="job-desc">{{ job.description|t(lang) }}</div>{% endif %}
+      {% for section in job.sections %}
+      <div class="job-section">
+        <div class="job-section-title">{{ section.title|t(lang) }}</div>
+        <ul>
+        {% for item in section['items'] %}
+          <li>{{ item|t(lang) }}</li>
+        {% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+      </div>
     {% else %}
       <h3>{{ job.role|t(lang) }} &mdash; {{ job.company }}</h3>
       <div class="job-meta">{{ job.start }}{% if job.end %} to {{ job.end }}{% else %} to Present{% endif %}{% if job.location %} &middot; {{ job.location }}{% endif %}</div>
@@ -76,7 +146,7 @@
   </section>
 
   <section>
-    <h2>Education</h2>
+    <h2>{% if lang == 'fr' %}Formation{% else %}Education{% endif %}</h2>
     {% for edu in education %}
     <div class="edu">
     {% if edu.school is defined %}
@@ -92,7 +162,7 @@
   </section>
 
   <section>
-    <h2>Skills</h2>
+    <h2>{% if lang == 'fr' %}Compétences{% else %}Skills{% endif %}</h2>
     {% if skills is mapping %}
     {% for category, items in skills.items() %}
     <div class="skills-group">
@@ -102,7 +172,12 @@
     {% else %}
     {% for cat in skills %}
     <div class="skills-group">
-      <strong>{{ cat.category|t(lang) }}:</strong> {% for item in cat['items'] %}{{ item|t(lang) }}{% if not loop.last %}, {% endif %}{% endfor %}
+      <strong>{{ cat.category|t(lang) }}</strong>
+      <ul>
+      {% for item in cat['items'] %}
+        <li>{{ item|t(lang) }}</li>
+      {% endfor %}
+      </ul>
     </div>
     {% endfor %}
     {% endif %}
@@ -110,7 +185,7 @@
 
   {% if languages is defined and languages %}
   <section>
-    <h2>Languages</h2>
+    <h2>{% if lang == 'fr' %}Langues{% else %}Languages{% endif %}</h2>
     {% for spoken in languages %}
     <div class="lang-item"><strong>{{ spoken.language }}</strong> &mdash; {{ spoken.level }}</div>
     {% endfor %}
@@ -124,6 +199,13 @@
     <div class="cert-item"><strong>{{ cert.name }}</strong> &mdash; {{ cert.issuer }} ({{ cert.year }})</div>
     {% endfor %}
   </section>
+  {% endif %}
+
+  {% if additional_info is defined %}
+  <footer>
+    {% if additional_info.availability is defined %}{% if lang == 'fr' %}Disponibilité{% else %}Availability{% endif %} : {{ additional_info.availability|t(lang) }}{% endif %}
+    {% if additional_info.mobility is defined %} &mdash; {% if lang == 'fr' %}Mobilité{% else %}Mobility{% endif %} : {{ additional_info.mobility|t(lang) }}{% endif %}
+  </footer>
   {% endif %}
 </body>
 </html>

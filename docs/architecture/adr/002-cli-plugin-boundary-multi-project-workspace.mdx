@@ -1,0 +1,90 @@
+---
+title: "ADR-002: CLI/Plugin Boundary — Multi-Project Workspace"
+description: Establish how the new cli/ package relates to plugin skill code, preventing cross-boundary imports that break the plugin cache deployment model.
+---
+
+## Status
+
+Accepted
+
+## Context
+
+PR #6 (feat/2-multi-project-support) introduces a `cli/` package at the repo root alongside the existing `plugins/dev-core/` plugin. The PR adds multi-project workspace management and a tabbed dashboard UI.
+
+The core conflict: `plugins/dev-core/skills/issues/dashboard.ts` imports directly from `../../../../cli/lib/workspace`, which resolves correctly when running from the repo root but fails with a module-not-found error when the skill runs from the plugin cache at `~/.claude/plugins/cache/roxabi-marketplace/dev-core/<hash>/`. The cache sync script (defined in CLAUDE.md) only rsyncs `plugins/dev-core/` — `cli/` is never copied to the cache, making this import structurally impossible in production.
+
+A secondary issue surfaces in the same PR: `plugins/dev-core/skills/issues/lib/config.ts` duplicates `getWorkspacePath()` logic from `cli/lib/workspace.ts`, but with a different predicate — the plugin copy checks if the `workspace.json` file exists (checking a file path), while the CLI copy checks if the `~/.roxabi-vault/` directory exists. When the vault directory exists but no `workspace.json` has been written yet, the two functions return different paths, producing split-brain workspace state.
+
+The design question is: where does shared, runtime-critical logic live when it must be consumed by both a plugin skill and a CLI binary?
+
+## Options Considered
+
+### Option A: Vendor workspace logic into the plugin (current approach in PR, but fixed)
+
+Copy (or vendor) `cli/lib/workspace.ts` into `plugins/dev-core/skills/shared/workspace.ts`. The plugin imports from its own tree. The CLI imports from `cli/lib/workspace.ts`. Both copies are kept in sync manually, similar to how `_lib/paths.py` is vendored across Python plugins.
+
+- **Pros:** Follows the existing vendoring pattern already documented in CLAUDE.md. Plugin is fully self-contained; cache deployment works with zero changes to sync scripts. No new architectural concepts.
+- **Cons:** Two copies of workspace logic. If path resolution semantics change (e.g. adding `ROXABI_VAULT_HOME` support), both must be updated. The divergence bug in PR #6 (file vs. directory check) is exactly this failure mode occurring on day one.
+
+### Option B: Extract a shared `lib/` package at the repo root; plugins import from it
+
+Create `lib/workspace.ts` (or a proper `packages/shared/` workspace) at the repo root. Both `cli/` and `plugins/dev-core/` import from it. Update the cache sync script to also copy `lib/` alongside each plugin.
+
+- **Pros:** Single source of truth. No duplication. A change to path resolution logic propagates everywhere.
+- **Cons:** Requires updating the CLAUDE.md sync script and any CI that validates plugin structure. Adds a new concept (shared root-level library) that does not yet exist in the marketplace architecture. Cache sync must be kept in sync with library additions — a new failure mode.
+
+### Option C: Skill reads workspace via the CLI binary (subprocess call)
+
+The plugin skill shells out to `roxabi workspace list --json` and parses stdout, rather than importing the TypeScript module. The workspace state is owned and served entirely by the CLI.
+
+- **Pros:** Hard boundary. Plugin never imports CLI code. CLI owns the data contract.
+- **Cons:** Adds process-spawn latency on every dashboard refresh. Requires the CLI binary to be installed and on PATH, adding a runtime dependency. Error handling across process boundaries is brittle. Overkill for what is currently a JSON file read.
+
+### Option D: Keep workspace state management entirely inside the plugin, with no CLI dependency
+
+Collapse the workspace CRUD logic into the plugin's own `shared/` layer. The CLI (if it needs workspace access) imports from the plugin's published package, or duplicates minimally. The CLI is treated as a thin wrapper over plugin logic, not an upstream.
+
+- **Pros:** Matches the current repo mental model where plugins are the primary unit of functionality. Plugin ships self-contained. CLI remains thin.
+- **Cons:** Inverts the dependency direction that PR #6 assumed. CLI commands would need to be re-layered. Longer term, CLI growing beyond workspace management may pull more logic from plugins.
+
+## Decision
+
+Option A is adopted as the immediate fix for this PR, with a documented path toward Option B when a second plugin needs to share CLI-level infrastructure.
+
+The specific rules are:
+
+1. **Plugins must never import from `cli/`** via relative paths. The plugin cache deployment model makes any such import structurally broken in production.
+
+2. **Workspace path resolution logic is vendored** into `plugins/dev-core/skills/shared/workspace.ts`. This mirrors the `_lib/paths.py` vendoring pattern for Python plugins. The CLI copy (`cli/lib/workspace.ts`) is the canonical source. When the canonical copy changes, the vendored copy must be updated in the same commit.
+
+3. **The predicate used in `getWorkspacePath()` must be identical** in both copies: check directory existence (`~/.roxabi-vault/`), not file existence (`~/.roxabi-vault/workspace.json`). The file-existence predicate in PR #6 is a bug and must be corrected regardless of which option is chosen.
+
+4. **`cli/` is a standalone package.** It may import from `plugins/dev-core/skills/shared/` if and only if the import target is a pure utility with no plugin-runtime assumptions. In practice, `cli/` should import from `cli/lib/` and the shared plugin layer should not be its dependency — that would create a circular package boundary.
+
+5. **`buildBatchedQuery` must support pagination.** The current implementation fetches `first: 100` with no loop. For batched multi-project queries, pagination must be added before this feature is used against projects with more than 100 issues, or the 100-item limit must be documented as a known constraint with a follow-up issue filed.
+
+6. **`removeProject` must send `p.repo` (the slug), not the label.** The client-side `removeProject` function currently passes the display label (e.g. "Roxabi Plugins") to `/api/workspace/remove`, but the server filters by `p.repo !== body.repo` where `p.repo` is the slug (e.g. "Roxabi/roxabi-plugins"). These never match. The fix is to embed `data-repo-slug` as a separate attribute on the tab button and send that instead of the label.
+
+7. **Test files must not hardcode absolute paths.** `cli/__tests__/smoke.test.ts` hardcodes `/home/mickael/projects/roxabi-2` as the cwd. Tests must use `process.cwd()`, `import.meta.dirname`, or a fixture directory relative to the test file.
+
+Option B (a shared `lib/` package) should be revisited when a second plugin or CLI command needs to share workspace or path-resolution logic. At that point the CLAUDE.md sync script and the cache deployment model should be updated together in a single ADR.
+
+## Consequences
+
+### Positive
+
+- Plugin cache deployment continues to work without changes to the sync script.
+- Vendoring makes the workspace API visible and testable within the plugin's own test suite.
+- The file-vs-directory predicate bug is caught and fixed before it reaches production.
+- The removeProject silent-failure bug is identified and documented with a concrete fix.
+
+### Negative
+
+- Two copies of workspace path resolution exist until Option B is adopted. The divergence risk is real — it happened once already in this PR.
+- Vendoring creates a manual sync obligation: every change to `cli/lib/workspace.ts` must be reflected in `plugins/dev-core/skills/shared/workspace.ts` in the same commit.
+
+### Neutral
+
+- `buildBatchedQuery` pagination is deferred, but must be tracked as a known data-loss risk (silent truncation at 100 items per project).
+- The `cli/` package exists and is valid as a standalone binary entrypoint. It is not part of the plugin; it is a companion tool. The distinction must be enforced by code review, not by tooling (for now).
+- smoke.test.ts should be fixed to use a repo-relative path, making it runnable in CI without environment-specific configuration.

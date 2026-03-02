@@ -8,13 +8,33 @@
 
 ---
 
-{% if personal.summary %}
-## Summary
+{% if summary is defined %}
+## {% if lang == 'fr' %}Profil{% else %}Summary{% endif %}
+
+{% if summary is mapping %}
+{% for line in summary|t(lang) %}
+{{ line }}
+
+{% endfor %}
+{% else %}
+{{ summary|t(lang) }}
+{% endif %}
+{% elif personal.summary is defined %}
+## {% if lang == 'fr' %}Profil{% else %}Summary{% endif %}
 
 {{ personal.summary|t(lang) }}
 {% endif %}
 
-## Experience
+{% if achievements is defined and achievements %}
+## {% if lang == 'fr' %}Points clés{% else %}Key Achievements{% endif %}
+
+{% for ach in achievements %}
+**{{ ach.title|t(lang) }}** — {{ ach.description|t(lang) }}
+
+{% endfor %}
+{% endif %}
+
+## {% if lang == 'fr' %}Expériences professionnelles{% else %}Experience{% endif %}
 
 {% set jobs = experiences if experiences is defined else experience %}
 {% for job in jobs %}
@@ -23,12 +43,17 @@
 
 *{{ job.dates|t(lang) }}*{% if job.location %} | {{ job.location|t(lang) if job.location is mapping else job.location }}{% endif %}
 
-{% set ns = namespace(items=[]) %}
-{% for section in job.sections %}{% for item in section['items'] %}{% set ns.items = ns.items + [item] %}{% endfor %}{% endfor %}
-{% for h in ns.items %}
-- {{ h|t(lang) }}
+{% if job.description is defined %}
+{{ job.description|t(lang) }}
+
+{% endif %}
+{% for section in job.sections %}
+**{{ section.title|t(lang) }}**
+{% for item in section['items'] %}
+- {{ item|t(lang) }}
 {% endfor %}
 
+{% endfor %}
 {% else %}
 ### {{ job.role|t(lang) }} — {{ job.company }}
 
@@ -41,13 +66,13 @@
 {% endif %}
 {% endfor %}
 
-## Education
+## {% if lang == 'fr' %}Formation{% else %}Education{% endif %}
 
 {% for edu in education %}
 {% if edu.school is defined %}
 ### {{ edu.degree|t(lang) }} — {{ edu.school }}
 
-*{{ edu.year }}*
+*{{ edu.year }}*{% if edu.location is defined %} | {{ edu.location|t(lang) if edu.location is mapping else edu.location }}{% endif %}
 
 {% else %}
 ### {{ edu.degree|t(lang) }} — {{ edu.institution }}
@@ -59,7 +84,7 @@
 {% endif %}
 {% endfor %}
 
-## Skills
+## {% if lang == 'fr' %}Compétences{% else %}Skills{% endif %}
 
 {% if skills is mapping %}
 {% for category, items in skills.items() %}
@@ -67,13 +92,16 @@
 {% endfor %}
 {% else %}
 {% for cat in skills %}
-**{{ cat.category|t(lang) }}:** {% for item in cat['items'] %}{{ item|t(lang) }}{% if not loop.last %}, {% endif %}{% endfor %}
+**{{ cat.category|t(lang) }}**
+{% for item in cat['items'] %}
+- {{ item|t(lang) }}
+{% endfor %}
 
 {% endfor %}
 {% endif %}
 
 {% if languages is defined and languages %}
-## Languages
+## {% if lang == 'fr' %}Langues{% else %}Languages{% endif %}
 
 {% for spoken in languages %}
 - **{{ spoken.language }}** — {{ spoken.level }}
@@ -86,4 +114,10 @@
 {% for cert in certifications %}
 - **{{ cert.name }}** — {{ cert.issuer }} ({{ cert.year }})
 {% endfor %}
+{% endif %}
+
+{% if additional_info is defined %}
+---
+{% if additional_info.availability is defined %}*{% if lang == 'fr' %}Disponibilité{% else %}Availability{% endif %} : {{ additional_info.availability|t(lang) }}*{% endif %}
+{% if additional_info.mobility is defined %} — *{% if lang == 'fr' %}Mobilité{% else %}Mobility{% endif %} : {{ additional_info.mobility|t(lang) }}*{% endif %}
 {% endif %}

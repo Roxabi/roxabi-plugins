@@ -71,7 +71,15 @@ def load_data(path: Path) -> dict:
         sys.exit(1)
     with open(path) as f:
         data = json.load(f)
-    required = ['personal', 'experience', 'education', 'skills']
+    # Support both 'experience' (legacy) and 'experiences' (rich format) — alias either way
+    if 'experiences' in data and 'experience' not in data:
+        data['experience'] = data['experiences']
+    elif 'experience' in data and 'experiences' not in data:
+        data['experiences'] = data['experience']
+    has_exp = 'experience' in data or 'experiences' in data
+    required = ['personal', 'education', 'skills']
+    if not has_exp:
+        required.append('experience')
     missing = [k for k in required if k not in data]
     if missing:
         print(f'Error: missing required sections in data: {", ".join(missing)}', file=sys.stderr)
@@ -79,9 +87,9 @@ def load_data(path: Path) -> dict:
     return data
 
 
-def render(data: dict, fmt: str, lang: str) -> str:
+def render(data: dict, fmt: str, lang: str, template: str = 'cv_template') -> str:
     """Render CV data using the appropriate Jinja2 template."""
-    template_name = f'cv_template.{fmt}.jinja2'
+    template_name = f'{template}.{fmt}.jinja2'
     template_path = TEMPLATES_DIR / template_name
     if not template_path.exists():
         print(f'Error: template not found: {template_path}', file=sys.stderr)
@@ -94,8 +102,8 @@ def render(data: dict, fmt: str, lang: str) -> str:
         lstrip_blocks=True
     )
     env.filters['t'] = t
-    template = env.get_template(template_name)
-    return template.render(**data, lang=lang)
+    tmpl = env.get_template(template_name)
+    return tmpl.render(**data, lang=lang)
 
 
 def main():
@@ -111,6 +119,8 @@ def main():
                         help='Output format (default: from config)')
     parser.add_argument('--lang', default=None,
                         help='Language: fr, en, or all (default: from config)')
+    parser.add_argument('--template', default='cv_template',
+                        help='Template name without extension (default: cv_template, rich: cv_template_rich)')
     args = parser.parse_args()
 
     langs = resolve_languages(args.lang, config)
@@ -125,7 +135,7 @@ def main():
             else:
                 suffix = f'_{lang}' if len(langs) > 1 else ''
                 output = DEFAULT_OUTPUT_DIR / f'cv{suffix}.{fmt}'
-            result = render(data, fmt, lang)
+            result = render(data, fmt, lang, template=args.template)
             ensure_dir(output.parent)
             output.write_text(result)
             print(f'CV generated: {output}')
