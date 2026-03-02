@@ -33,6 +33,10 @@ const STATUS_CLASS: Record<string, string> = {
   Done: 'status-done',
 }
 
+export const STATUS_VALUES = ['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'] as const
+export const PRIORITY_VALUES = ['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'] as const
+export const SIZE_VALUES = ['XS', 'S', 'M', 'L', 'XL'] as const
+
 export function escHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')

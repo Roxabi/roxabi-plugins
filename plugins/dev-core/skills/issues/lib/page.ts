@@ -1,4 +1,7 @@
 import {
+  PRIORITY_VALUES,
+  SIZE_VALUES,
+  STATUS_VALUES,
   escHtml,
   issueRow,
   renderBranchCI,
@@ -172,7 +175,7 @@ export function buildHtml(
     <tbody id="hidden-issues" style="display:none;">
       ${hiddenRows}
       <tr id="show-less-row" style="display:none;"><td colspan="7" style="text-align:center;padding:12px;">
-        <button id="show-more-btn" onclick="document.getElementById('hidden-issues').style.display='none';document.getElementById('show-less-row').style.display='none';document.getElementById('show-more-row').style.display='';">
+        <button onclick="document.getElementById('hidden-issues').style.display='none';document.getElementById('show-less-row').style.display='none';document.getElementById('show-more-row').style.display='';">
           Show less
         </button>
       </td></tr>
@@ -215,8 +218,8 @@ ${LIVE_STYLES}
 
   <div id="section-issues" class="section">
     <h2>Issues</h2>
+    <div id="section-issues-content">${issuesSectionHtml}</div>
   </div>
-  ${issuesSectionHtml}
 
   <div class="legend">
     <span>\u26d4 blocked</span>
@@ -242,23 +245,11 @@ ${LIVE_STYLES}
   <div id="ctx-menu" class="ctx-menu">
     <div class="ctx-header">#<span id="ctx-issue-num"></span></div>
     <div class="ctx-section">Status</div>
-    <div class="ctx-item" data-field="status" data-value="Backlog">Backlog</div>
-    <div class="ctx-item" data-field="status" data-value="Analysis">Analysis</div>
-    <div class="ctx-item" data-field="status" data-value="Specs">Specs</div>
-    <div class="ctx-item" data-field="status" data-value="In Progress">In Progress</div>
-    <div class="ctx-item" data-field="status" data-value="Review">Review</div>
-    <div class="ctx-item" data-field="status" data-value="Done">Done</div>
+    ${STATUS_VALUES.map(v => `<div class="ctx-item" data-field="status" data-value="${escHtml(v)}">${escHtml(v)}</div>`).join('\n    ')}
     <div class="ctx-section">Size</div>
-    <div class="ctx-item" data-field="size" data-value="XS">XS</div>
-    <div class="ctx-item" data-field="size" data-value="S">S</div>
-    <div class="ctx-item" data-field="size" data-value="M">M</div>
-    <div class="ctx-item" data-field="size" data-value="L">L</div>
-    <div class="ctx-item" data-field="size" data-value="XL">XL</div>
+    ${SIZE_VALUES.map(v => `<div class="ctx-item" data-field="size" data-value="${escHtml(v)}">${escHtml(v)}</div>`).join('\n    ')}
     <div class="ctx-section">Priority</div>
-    <div class="ctx-item" data-field="priority" data-value="P0 - Urgent">P0 - Urgent</div>
-    <div class="ctx-item" data-field="priority" data-value="P1 - High">P1 - High</div>
-    <div class="ctx-item" data-field="priority" data-value="P2 - Medium">P2 - Medium</div>
-    <div class="ctx-item" data-field="priority" data-value="P3 - Low">P3 - Low</div>
+    ${PRIORITY_VALUES.map(v => `<div class="ctx-item" data-field="priority" data-value="${escHtml(v)}">${escHtml(v)}</div>`).join('\n    ')}
   </div>
   <div id="toast" class="toast"></div>
 
@@ -414,7 +405,11 @@ ${LIVE_STYLES}
     setInterval(updateRelativeTime, 5000);
 
     function patchDOM(freshDoc) {
-      // Preserve show/hide state of hidden issues (only exists in single-project mode)
+      // Capture active tab label (multi-project mode)
+      var activeTabEl = document.querySelector('.tab.active[data-repo]');
+      var activeTabLabel = activeTabEl ? activeTabEl.dataset.repo : null;
+
+      // Preserve show/hide state of hidden issues (single-project mode only)
       var hiddenEl = document.getElementById('hidden-issues');
       var hiddenVisible = hiddenEl ? hiddenEl.style.display !== 'none' : false;
 
@@ -424,17 +419,21 @@ ${LIVE_STYLES}
         if (row.style.display !== 'none') expandedCIs.push(row.id);
       });
 
-      // Patch issue tables
-      var selectors = ['#tab-bar', '#issues-visible', '#hidden-issues', '#section-vercel', '#section-workflow-runs', '#section-ci', '#section-prs', '#section-graph', '#section-branches', '#issue-count', '#fetch-time'];
+      // Patch sections
+      var selectors = ['#tab-bar', '#section-issues-content', '#section-vercel', '#section-workflow-runs', '#section-ci', '#section-prs', '#section-graph', '#section-branches', '#issue-count', '#fetch-time'];
       for (var s = 0; s < selectors.length; s++) {
         var sel = selectors[s];
         var freshEl = freshDoc.querySelector(sel);
         var currentEl = document.querySelector(sel);
         if (freshEl && currentEl) {
-          // For elements with children, replace all children
           while (currentEl.firstChild) currentEl.removeChild(currentEl.firstChild);
           while (freshEl.firstChild) currentEl.appendChild(freshEl.firstChild);
         }
+      }
+
+      // Restore active tab (multi-project mode)
+      if (activeTabLabel) {
+        switchTab(activeTabLabel);
       }
 
       // Restore show/hide state (single-project mode only)
