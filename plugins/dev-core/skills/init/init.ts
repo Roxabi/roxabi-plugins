@@ -142,7 +142,6 @@ switch (command) {
       vercelToken: parseFlag('--vercel-token', ''),
       vercelProjectId: parseFlag('--vercel-project-id', ''),
       vercelTeamId: parseFlag('--vercel-team-id', ''),
-      dashboardPath: parseFlag('--dashboard-path', ''),
       force: hasFlag('--force'),
     })
     console.log(JSON.stringify(result, null, 2))

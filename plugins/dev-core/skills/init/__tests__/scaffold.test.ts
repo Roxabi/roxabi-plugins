@@ -97,7 +97,6 @@ describe('scaffold', () => {
       statusOptionsJson: '{}',
       sizeOptionsJson: '{}',
       priorityOptionsJson: '{}',
-      dashboardPath: '/path/to/dashboard.ts',
       force: false,
     })
 
@@ -107,7 +106,7 @@ describe('scaffold', () => {
     expect(writtenFiles['.env.example']).toContain('GITHUB_REPO=owner/repo')
   })
 
-  it('updates package.json with dashboard script', async () => {
+  it('writes launcher and updates package.json dashboard script', async () => {
     mockFs['package.json'] = '{"scripts": {}}'
 
     const { scaffold } = await import('../lib/scaffold')
@@ -120,13 +119,14 @@ describe('scaffold', () => {
       statusOptionsJson: '{}',
       sizeOptionsJson: '{}',
       priorityOptionsJson: '{}',
-      dashboardPath: '/path/to/dashboard.ts',
       force: false,
     })
 
     expect(result.packageJsonUpdated).toBe(true)
     const pkg = JSON.parse(writtenFiles['package.json'])
-    expect(pkg.scripts.dashboard).toBe('bun /path/to/dashboard.ts')
+    expect(pkg.scripts.dashboard).toBe('bun .claude/run-dashboard.ts')
+    expect(writtenFiles['.claude/run-dashboard.ts']).toContain('dev-core')
+    expect(writtenFiles['.claude/run-dashboard.ts']).toContain('.orphaned_at')
   })
 
   it('adds .env to .gitignore if missing', async () => {
@@ -142,7 +142,6 @@ describe('scaffold', () => {
       statusOptionsJson: '{}',
       sizeOptionsJson: '{}',
       priorityOptionsJson: '{}',
-      dashboardPath: '/path/to/dashboard.ts',
       force: false,
     })
 

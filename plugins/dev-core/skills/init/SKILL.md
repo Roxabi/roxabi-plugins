@@ -146,9 +146,9 @@ If "Edit a value", ask which value to change, accept new value, re-display, re-c
 
 ### Phase 5 — Scaffold
 
-Run: `bun $INIT_TS scaffold --github-repo <owner/repo> --project-id <PVT_...> --status-field-id <PVTSSF_...> --size-field-id <PVTSSF_...> --priority-field-id <PVTSSF_...> --status-options-json '<json>' --size-options-json '<json>' --priority-options-json '<json>' --dashboard-path <resolved-path>/skills/issues/dashboard.ts [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
+Run: `bun $INIT_TS scaffold --github-repo <owner/repo> --project-id <PVT_...> --status-field-id <PVTSSF_...> --size-field-id <PVTSSF_...> --priority-field-id <PVTSSF_...> --status-options-json '<json>' --size-options-json '<json>' --priority-options-json '<json>' [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
 
-Resolve `--dashboard-path` using `$CLAUDE_PLUGIN_ROOT/skills/issues/dashboard.ts`.
+The scaffold step writes `.claude/run-dashboard.ts` — a self-healing launcher that resolves the latest active dev-core plugin cache at runtime, so `bun dashboard` keeps working after plugin updates without re-running `/init`.
 
 ### Phase 6 — Report
 

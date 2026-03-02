@@ -5,6 +5,6 @@
   "description": "Open-source Claude Code plugins by Roxabi",
   "license": "MIT",
   "scripts": {
-    "dashboard": "bun /home/mickael/.claude/plugins/cache/roxabi-marketplace/dev-core/6011eb380f4f/skills/issues/dashboard.ts"
+    "dashboard": "bun .claude/run-dashboard.ts"
   }
 }
