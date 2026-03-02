@@ -1,7 +1,7 @@
 ---
 name: doctor
 description: 'Health check — verify dev-core config, GitHub project, labels, workflows, branch protection. Triggers: "doctor" | "health check" | "check setup" | "verify config".'
-version: 0.3.0
+version: 0.4.0
 allowed-tools: Bash
 ---
 
@@ -53,5 +53,40 @@ Stack config: N checks passed, M warnings, K errors
 ```
 
 Only suggest "Run `/init` to fix missing items." if there are ❌ errors.
+
+### Phase 3 — Workspace health check
+
+Verify the multi-project workspace config that powers the multi-tab dashboard.
+
+1. **Locate workspace file:**
+   ```bash
+   WS_PATH="${HOME}/.roxabi-vault/workspace.json"
+   [ -f "$WS_PATH" ] || WS_PATH="${HOME}/.config/roxabi/workspace.json"
+   [ -f "$WS_PATH" ] && echo "found:$WS_PATH" || echo "missing"
+   ```
+
+2. **workspace.json exists** → ✅ `found at <WS_PATH>` | ⚠️ `not found — run /init to register this project`
+   - If missing, mark remaining checks ⏭ and skip to summary.
+
+3. **Current repo registered:**
+   ```bash
+   CURRENT_REPO=$(git remote get-url origin 2>/dev/null | sed 's|.*github.com[:/]\(.*\)\.git|\1|;s|.*github.com[:/]\(.*\)|\1|')
+   python3 -c "
+   import json
+   ws = json.load(open('$WS_PATH'))
+   repos = [p['repo'] for p in ws.get('projects', [])]
+   print('registered' if '$CURRENT_REPO' in repos else 'missing')
+   "
+   ```
+   → ✅ `<repo> registered` | ⚠️ `current repo not in workspace — run /init to register`
+
+4. **projectId format valid:** for each entry, check `projectId` starts with `PVT_` → ✅ | ⚠️ `invalid projectId for <repo> (expected PVT_...)`
+
+5. **Project count:** display `N project(s) registered: <label1>, <label2>, ...`
+
+Print summary line:
+```
+Workspace: N projects registered  (or: not found)
+```
 
 $ARGUMENTS

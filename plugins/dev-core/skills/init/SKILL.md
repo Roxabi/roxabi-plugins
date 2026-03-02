@@ -2,7 +2,7 @@
 name: init
 argument-hint: '[--force]'
 description: 'Initialize project for dev-core — auto-detect GitHub Project V2, set up dashboard launcher, env vars, artifacts. Triggers: "init" | "setup dev-core" | "initialize dev-core".'
-version: 0.3.0
+version: 0.4.0
 allowed-tools: Bash
 ---
 
@@ -162,6 +162,7 @@ dev-core initialized
   PATH              ✅ ~/.local/bin added to .bashrc/.zshrc  (or ⏭ already present)
   artifacts/        ✅ Created
   .gitignore        ✅ .env added
+  workspace.json    ✅ Registered <repo> / ⏭ Skipped
 
 Next steps:
   /stack-setup           Configure stack for agents (auto-discovers your project)
@@ -171,6 +172,44 @@ Next steps:
   /dev #N                Start working on an issue
   /init --force          Re-configure anytime
 ```
+
+### Phase 7 — Workspace Registration
+
+Register the current project in the shared workspace config so the multi-project dashboard shows issues from all your repos in one view.
+
+1. **Locate workspace file** (prefer vault, fall back to XDG):
+   ```bash
+   WS_PATH="${HOME}/.roxabi-vault/workspace.json"
+   [ -f "$WS_PATH" ] || WS_PATH="${HOME}/.config/roxabi/workspace.json"
+   [ -f "$WS_PATH" ] && echo "found:$WS_PATH" || echo "missing"
+   ```
+
+2. **Check if already registered** (use `GITHUB_REPO` from Phase 3):
+   ```bash
+   python3 -c "
+   import json, sys
+   try:
+     ws = json.load(open('$WS_PATH'))
+     registered = any(p['repo'] == '$GITHUB_REPO' for p in ws.get('projects', []))
+     print('registered' if registered else 'not-registered')
+   except: print('not-registered')
+   " 2>/dev/null || echo "not-registered"
+   ```
+
+3. **If already registered:** display `workspace.json ✅ Already registered` and skip to Phase 8.
+
+4. **If not registered:** AskUserQuestion: **Add to workspace** (enables multi-project dashboard) | **Skip**
+
+5. **If add:**
+   - Determine `WS_PATH`: prefer `~/.roxabi-vault/workspace.json` if vault dir exists, else `~/.config/roxabi/workspace.json`
+   - Create parent dir: `mkdir -p "$(dirname "$WS_PATH")"`
+   - Read existing workspace or start fresh: `{"projects": []}`
+   - Derive `label` from repo name (part after `/`, kebab-case as-is)
+   - Append: `{"repo": "<GITHUB_REPO>", "projectId": "<PROJECT_ID>", "label": "<label>"}`
+   - Write updated JSON (pretty-printed, mode 0600)
+   - Display: `workspace.json ✅ Registered <GITHUB_REPO> at <WS_PATH>`
+
+6. **If skip:** display `workspace.json ⏭ Skipped`
 
 ### Phase 8 — Stack Configuration
 
