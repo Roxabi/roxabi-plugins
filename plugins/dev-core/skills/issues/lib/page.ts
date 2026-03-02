@@ -60,7 +60,7 @@ function buildIssueTable(issues: Issue[]): string {
     </thead>
     <tbody>
       ${visibleRows}
-      ${hasMore ? `<tr><td colspan="7" style="text-align:center;padding:12px;">
+      ${hasMore ? `<tr class="show-more-row"><td colspan="7" style="text-align:center;padding:12px;">
         <button class="show-more-btn" onclick="var tb=this.closest('table').querySelector('.hidden-issues-body');tb.style.display='';this.parentElement.parentElement.style.display='none';">
           Show ${hiddenCount} more issue${hiddenCount > 1 ? 's' : ''}
         </button>
@@ -281,9 +281,7 @@ ${LIVE_STYLES}
       document.querySelectorAll('.project-group').forEach(function(s) {
         s.style.display = '';
         s.querySelectorAll('.hidden-issues-body').forEach(function(b) { b.style.display = 'none'; });
-        s.querySelectorAll('tbody:not(.hidden-issues-body) tr').forEach(function(tr) {
-          if (tr.querySelector('.show-more-btn')) tr.style.display = '';
-        });
+        s.querySelectorAll('.show-more-row').forEach(function(tr) { tr.style.display = ''; });
       });
       document.querySelectorAll('.single-project-view').forEach(function(s) { s.style.display = ''; });
     } else {
@@ -292,9 +290,7 @@ ${LIVE_STYLES}
         s.style.display = isActive ? '' : 'none';
         if (isActive) {
           s.querySelectorAll('.hidden-issues-body').forEach(function(b) { b.style.display = ''; });
-          s.querySelectorAll('tbody:not(.hidden-issues-body) tr').forEach(function(tr) {
-            if (tr.querySelector('.show-more-btn')) tr.style.display = 'none';
-          });
+          s.querySelectorAll('.show-more-row').forEach(function(tr) { tr.style.display = 'none'; });
         }
       });
     }
@@ -424,8 +420,9 @@ ${LIVE_STYLES}
     setInterval(updateRelativeTime, 5000);
 
     function patchDOM(freshDoc) {
-      // Preserve show/hide state of hidden issues
-      var hiddenVisible = document.getElementById('hidden-issues').style.display !== 'none';
+      // Preserve show/hide state of hidden issues (only exists in single-project mode)
+      var hiddenEl = document.getElementById('hidden-issues');
+      var hiddenVisible = hiddenEl ? hiddenEl.style.display !== 'none' : false;
 
       // Preserve CI expand/collapse state
       var expandedCIs = [];
@@ -446,9 +443,10 @@ ${LIVE_STYLES}
         }
       }
 
-      // Restore show/hide state
+      // Restore show/hide state (single-project mode only)
       if (hiddenVisible) {
-        document.getElementById('hidden-issues').style.display = '';
+        var hiddenIssues = document.getElementById('hidden-issues');
+        if (hiddenIssues) hiddenIssues.style.display = '';
         var showMoreRow = document.getElementById('show-more-row');
         if (showMoreRow) showMoreRow.style.display = 'none';
         var showLessRow = document.getElementById('show-less-row');
