@@ -146,7 +146,7 @@ export function mergeEnv(existing: string, sections: EnvSection[], force: boolea
   return [...filtered, ...devCoreLines, ''].join('\n')
 }
 
-function generateEnvExample(opts: ScaffoldOpts): string {
+function generateEnvExample(_opts: ScaffoldOpts): string {
   const lines = [
     '# --- dev-core: GitHub Project V2 ---',
     '# Run /init to auto-detect these values',
@@ -171,6 +171,34 @@ function generateEnvExample(opts: ScaffoldOpts): string {
     '',
   ]
   return lines.join('\n')
+}
+
+export function mergeEnvExample(existing: string, newBlock: string): string {
+  const lines = existing.split('\n')
+  const filtered: string[] = []
+  let inDevCoreBlock = false
+
+  for (const line of lines) {
+    if (line.startsWith('# --- dev-core:')) {
+      inDevCoreBlock = true
+      continue
+    }
+    if (inDevCoreBlock) {
+      const trimmed = line.trim()
+      if (trimmed === '' || trimmed.startsWith('#')) continue
+      const eq = trimmed.indexOf('=')
+      if (eq > 0 && DEV_CORE_KEYS.has(trimmed.slice(0, eq))) continue
+      inDevCoreBlock = false
+    }
+    filtered.push(line)
+  }
+
+  while (filtered.length > 0 && filtered[filtered.length - 1].trim() === '') {
+    filtered.pop()
+  }
+
+  const prefix = filtered.length > 0 ? filtered.join('\n') + '\n\n' : ''
+  return prefix + newBlock
 }
 
 const LAUNCHER_CONTENT = `#!/usr/bin/env bun
@@ -231,7 +259,8 @@ export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
   result.envVarCount = sections.reduce((acc, s) => acc + s.vars.length, 0)
 
   // .env.example
-  const envExample = generateEnvExample(opts)
+  const existingEnvExample = fs.existsSync('.env.example') ? fs.readFileSync('.env.example', 'utf8') : ''
+  const envExample = mergeEnvExample(existingEnvExample, generateEnvExample(opts))
   fs.writeFileSync('.env.example', envExample)
   result.envExampleWritten = true
 

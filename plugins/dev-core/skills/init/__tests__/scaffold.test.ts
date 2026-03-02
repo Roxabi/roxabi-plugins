@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { mergeEnv } from '../lib/scaffold'
+import { mergeEnv, mergeEnvExample } from '../lib/scaffold'
 
 describe('mergeEnv', () => {
   const baseSections = [
@@ -61,6 +61,39 @@ describe('mergeEnv', () => {
   })
 })
 
+describe('mergeEnvExample', () => {
+  const newBlock = '# --- dev-core: GitHub Project V2 ---\nGITHUB_REPO=owner/repo\n'
+
+  it('returns new block for empty file', () => {
+    const result = mergeEnvExample('', newBlock)
+    expect(result).toBe(newBlock)
+  })
+
+  it('preserves non-dev-core lines', () => {
+    const existing = 'MY_APP_VAR=something\nDB_URL=postgres://...\n'
+    const result = mergeEnvExample(existing, newBlock)
+    expect(result).toContain('MY_APP_VAR=something')
+    expect(result).toContain('DB_URL=postgres://...')
+    expect(result).toContain('GITHUB_REPO=owner/repo')
+  })
+
+  it('replaces existing dev-core block', () => {
+    const existing = 'MY_APP_VAR=foo\n# --- dev-core: GitHub Project V2 ---\nGITHUB_REPO=old/repo\n\nOTHER=bar\n'
+    const result = mergeEnvExample(existing, newBlock)
+    expect(result).toContain('MY_APP_VAR=foo')
+    expect(result).toContain('OTHER=bar')
+    expect(result).toContain('GITHUB_REPO=owner/repo')
+    expect(result).not.toContain('old/repo')
+  })
+
+  it('handles file with only dev-core content', () => {
+    const existing = '# --- dev-core: GitHub Project V2 ---\nGITHUB_REPO=old/repo\n'
+    const result = mergeEnvExample(existing, newBlock)
+    expect(result).toBe(newBlock)
+    expect(result).not.toContain('old/repo')
+  })
+})
+
 describe('scaffold', () => {
   let mockFs: Record<string, string | null>
   let writtenFiles: Record<string, string>
@@ -104,6 +137,27 @@ describe('scaffold', () => {
     expect(result.envExampleWritten).toBe(true)
     expect(writtenFiles['.env']).toContain('GITHUB_REPO=Org/repo')
     expect(writtenFiles['.env.example']).toContain('GITHUB_REPO=owner/repo')
+  })
+
+  it('preserves existing .env.example user content on re-init', async () => {
+    mockFs['.env.example'] = 'MY_APP_VAR=something\n# --- dev-core: GitHub Project V2 ---\nGITHUB_REPO=old/repo\n'
+
+    const { scaffold } = await import('../lib/scaffold')
+    await scaffold({
+      githubRepo: 'Org/repo',
+      projectId: 'PVT_123',
+      statusFieldId: 'F1',
+      sizeFieldId: 'F2',
+      priorityFieldId: 'F3',
+      statusOptionsJson: '{}',
+      sizeOptionsJson: '{}',
+      priorityOptionsJson: '{}',
+      force: false,
+    })
+
+    expect(writtenFiles['.env.example']).toContain('MY_APP_VAR=something')
+    expect(writtenFiles['.env.example']).toContain('GITHUB_REPO=owner/repo')
+    expect(writtenFiles['.env.example']).not.toContain('old/repo')
   })
 
   it('writes launcher and updates package.json dashboard script', async () => {
