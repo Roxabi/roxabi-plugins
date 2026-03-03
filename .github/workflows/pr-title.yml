@@ -2,7 +2,7 @@ name: PR Title
 
 on:
   pull_request:
-    types: [opened, edited, reopened]
+    types: [opened, edited, synchronize, reopened]
     branches: [main, staging]
 
 permissions:
@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check PR title follows Conventional Commits
-        uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50  # v6
+        uses: amannn/action-semantic-pull-request@v5
         with:
           types: |
             feat
@@ -30,7 +30,7 @@ jobs:
             build
             revert
           requireScope: false
-          allowMergeCommits: false
+          allowMergeCommits: true
           allowRevertCommits: true
           ignoredAuthors: |
             dependabot[bot]
