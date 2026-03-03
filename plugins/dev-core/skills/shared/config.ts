@@ -142,13 +142,15 @@ export const BRANCH_PROTECTION_PAYLOAD = {
  * Throws when fieldIds is explicitly provided but status is missing.
  */
 export function resolveFieldIds(project: WorkspaceProject): ProjectFieldIds {
-  if (project.fieldIds) {
+  if (project.fieldIds && Object.keys(project.fieldIds).length > 0) {
     if (!project.fieldIds.status) {
       throw new Error(`[project ${project.label}] fieldIds.status is required`)
     }
     return project.fieldIds
   }
   // Fallback: build from .env (existing behavior)
+  // Empty fieldIds ({}) also falls through here — written by /init when field resolution fails.
+  console.warn(`[dev-core] project "${project.label}" has no fieldIds — falling back to .env field IDs. Run /init to persist per-project field IDs.`)
   return {
     status: STATUS_FIELD_ID,
     col2: SIZE_FIELD_ID,

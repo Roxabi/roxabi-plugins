@@ -21,6 +21,10 @@ export async function handleUpdate(req: Request): Promise<Response> {
       ? readWorkspace().projects.find(p => p.label === projectLabel)
       : undefined
 
+    if (projectLabel && !project) {
+      return Response.json({ ok: false, error: 'Unknown project' }, { status: 400 })
+    }
+
     let fieldIds: ProjectFieldIds | null = null
     if (project) {
       fieldIds = resolveFieldIds(project)

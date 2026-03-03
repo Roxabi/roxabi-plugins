@@ -122,7 +122,12 @@ async function refreshCache(): Promise<void> {
 
       byProject = new Map<string, Issue[]>()
       for (const [label, rawItems] of rawMap) {
-        byProject.set(label, rawItemsToIssues(rawItems))
+        const proj = ws.projects.find(p => p.label === label)
+        const type = proj?.type ?? 'technical'
+        const slotNames = type === 'company'
+          ? { col2: 'Quarter', col3: 'Pillar' }
+          : { col2: 'Size', col3: 'Priority' }
+        byProject.set(label, rawItemsToIssues(rawItems, slotNames))
       }
       issues = [...byProject.values()].flat()
       byProjectMeta = new Map(metaResults.map((m) => [m.label, { prs: m.prs, branchCI: m.branchCI, workflowRuns: m.workflowRuns, deployments: m.deployments }]))
@@ -323,7 +328,8 @@ const server = Bun.serve({
         return Response.json({ ok: true, project })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        return Response.json({ ok: false, error: msg }, { status: 400 })
+        console.error('[dashboard] workspace/add error:', msg)
+        return Response.json({ ok: false, error: 'Workspace update failed — check server logs' }, { status: 400 })
       }
     }
 
@@ -345,7 +351,8 @@ const server = Bun.serve({
         return Response.json({ ok: true })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        return Response.json({ ok: false, error: msg }, { status: 400 })
+        console.error('[dashboard] workspace/remove error:', msg)
+        return Response.json({ ok: false, error: 'Workspace update failed — check server logs' }, { status: 400 })
       }
     }
 
@@ -360,8 +367,9 @@ const server = Bun.serve({
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
+      console.error('[dashboard] page render error:', msg)
       return new Response(
-        `<pre style="color:red;padding:20px;">Error fetching issues:\n${msg}</pre>`,
+        `<pre style="color:red;padding:20px;">Error loading dashboard — check server logs</pre>`,
         { status: 500, headers: { 'Content-Type': 'text/html' } }
       )
     }

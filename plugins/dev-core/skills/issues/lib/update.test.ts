@@ -17,6 +17,7 @@ import { test, expect, vi, beforeEach } from 'vitest'
 
 const mockGetItemId = vi.hoisted(() => vi.fn(() => Promise.resolve('ITEM_42')))
 const mockUpdateField = vi.hoisted(() => vi.fn(() => Promise.resolve()))
+const mockReadWorkspace = vi.hoisted(() => vi.fn())
 
 vi.mock('../../shared/github', () => ({
   getItemId: mockGetItemId,
@@ -24,32 +25,32 @@ vi.mock('../../shared/github', () => ({
 }))
 
 vi.mock('../../shared/workspace', () => ({
-  readWorkspace: () => ({
-    projects: [
-      {
-        repo: 'test/ryvo',
-        projectId: 'PVT_test',
-        label: 'ryvo-tech',
-        type: 'technical',
-        fieldIds: {
-          status: 'SF_proj',
-          col2: 'COL2_ID',
-          col3: 'COL3_ID',
-          statusOptions: { 'In Progress': 'OPT_STATUS_IP' },
-          col2Options: { XL: 'OPT_XL_PROJ' },
-          col3Options: { 'P1 - High': 'OPT_P1_PROJ' },
-        },
-      },
-    ],
-  }),
+  readWorkspace: mockReadWorkspace,
   writeWorkspace: vi.fn(() => {}),
 }))
+
+const defaultProject = {
+  repo: 'test/ryvo',
+  projectId: 'PVT_test',
+  label: 'ryvo-tech',
+  type: 'technical',
+  fieldIds: {
+    status: 'SF_proj',
+    col2: 'COL2_ID',
+    col3: 'COL3_ID',
+    statusOptions: { 'In Progress': 'OPT_STATUS_IP' },
+    col2Options: { XL: 'OPT_XL_PROJ' },
+    col3Options: { 'P1 - High': 'OPT_P1_PROJ' },
+  },
+}
 
 const { handleUpdate } = await import('./update')
 
 beforeEach(() => {
   mockGetItemId.mockClear()
   mockUpdateField.mockClear()
+  mockReadWorkspace.mockClear()
+  mockReadWorkspace.mockReturnValue({ projects: [defaultProject] })
 })
 
 test('uses project fieldIds.col2 for size field when projectLabel provided', async () => {
@@ -63,13 +64,29 @@ test('uses project fieldIds.col2 for size field when projectLabel provided', asy
   expect(data.ok).toBe(true)
   // should use COL2_ID (project fieldIds), not SZ_env (global .env)
   expect(mockUpdateField).toHaveBeenCalledWith('ITEM_42', 'COL2_ID', 'OPT_XL_PROJ')
+  // option ID must come from project fieldIds, not global env
+  const [, , optionId] = mockUpdateField.mock.calls[0] as [string, string, string]
+  expect(optionId).not.toBe('OPT_XL_ENV')
 })
 
-test('skips update (ok: true) when fieldIds.col2 absent for slot', async () => {
-  // Test with a field that has no ID (col3 absent in project fieldIds... but it's present)
-  // Use a slot that maps to a missing field: send field='col2' for a project without col2
-  // We'll test this via the legacy path where field='size' maps to col2 in env
-  // but env SIZE_FIELD_ID is present — so test with an unknown field instead
+test('skips update (ok: true) when col2 absent from project fieldIds', async () => {
+  // Project has fieldIds but col2 is absent — update.ts must no-op rather than throw
+  mockReadWorkspace.mockReturnValueOnce({
+    projects: [{ ...defaultProject, fieldIds: { status: 'SF_proj' } }],
+  })
+  const req = new Request('http://localhost/api/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ issueNumber: 42, field: 'col2', value: 'XL', projectLabel: 'ryvo-tech' }),
+  })
+  const res = await handleUpdate(req)
+  const data = await res.json() as { ok: boolean }
+  // col2 absent in fieldIds → no fieldId found → no-op
+  expect(data.ok).toBe(true)
+  expect(mockUpdateField).not.toHaveBeenCalled()
+})
+
+test('skips update (ok: true) when slot name is unknown', async () => {
   const req = new Request('http://localhost/api/update', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -82,15 +99,78 @@ test('skips update (ok: true) when fieldIds.col2 absent for slot', async () => {
   expect(mockUpdateField).not.toHaveBeenCalled()
 })
 
-test('resolves dropdown from fieldIds.col2Options', async () => {
+
+// Finding 1 — Unknown project 400 guard
+test('returns 400 Unknown project when projectLabel has no matching workspace project', async () => {
+  // Arrange
+  mockReadWorkspace.mockReturnValueOnce({ projects: [defaultProject] })
   const req = new Request('http://localhost/api/update', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ issueNumber: 42, field: 'col2', value: 'XL', projectLabel: 'ryvo-tech' }),
+    body: JSON.stringify({ issueNumber: 42, field: 'col2', value: 'XL', projectLabel: 'nonexistent' }),
   })
-  await handleUpdate(req)
-  // Verify it used the project-specific option ID, not the global env one
-  const [, , optionId] = mockUpdateField.mock.calls[0] as [string, string, string]
-  expect(optionId).toBe('OPT_XL_PROJ')
-  expect(optionId).not.toBe('OPT_XL_ENV')
+  // Act
+  const res = await handleUpdate(req)
+  const data = await res.json() as { ok: boolean; error: string }
+  // Assert
+  expect(res.status).toBe(400)
+  expect(data.error).toBe('Unknown project')
+  expect(mockUpdateField).not.toHaveBeenCalled()
+})
+
+// Finding 2 — Unknown option value 400
+test('returns 400 with Unknown value error when value is not in col2Options', async () => {
+  // Arrange — defaultProject has col2Options: { XL: 'OPT_XL_PROJ' }, 'XXL' is absent
+  const req = new Request('http://localhost/api/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ issueNumber: 42, field: 'col2', value: 'XXL', projectLabel: 'ryvo-tech' }),
+  })
+  // Act
+  const res = await handleUpdate(req)
+  const data = await res.json() as { ok: boolean; error: string }
+  // Assert
+  expect(res.status).toBe(400)
+  expect(data.error).toContain('Unknown value')
+  expect(mockUpdateField).not.toHaveBeenCalled()
+})
+
+// Finding 3a — Legacy mode: no projectLabel + not configured → 400
+test('returns 400 NOT_CONFIGURED_MSG when no projectLabel and GH_PROJECT_ID is unset', async () => {
+  // Arrange — GH_PROJECT_ID is not set in this test environment (only PROJECT_ID is, wrong key)
+  const req = new Request('http://localhost/api/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ issueNumber: 42, field: 'col2', value: 'XL' }),
+  })
+  // Act
+  const res = await handleUpdate(req)
+  const data = await res.json() as { ok: boolean; error: string }
+  // Assert
+  expect(res.status).toBe(400)
+  expect(data.error).toBe('GitHub Project V2 is not configured. Run `/init` to auto-detect project board settings.')
+  expect(mockUpdateField).not.toHaveBeenCalled()
+})
+
+// Finding 3b — Legacy mode: no projectLabel + GH_PROJECT_ID configured → update proceeds with FIELD_MAP
+test('proceeds with FIELD_MAP when no projectLabel and GH_PROJECT_ID is set', async () => {
+  // Arrange — temporarily configure GH_PROJECT_ID so isProjectConfigured() returns true
+  process.env.GH_PROJECT_ID = 'PVT_env'
+  try {
+    // SIZE_FIELD_ID = 'SZ_env' and SIZE_OPTIONS = { XL: 'OPT_XL_ENV' } from env set at top of file
+    // mockGetItemId is already returning 'ITEM_42'
+    const req = new Request('http://localhost/api/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ issueNumber: 42, field: 'col2', value: 'XL' }),
+    })
+    // Act
+    const res = await handleUpdate(req)
+    const data = await res.json() as { ok: boolean }
+    // Assert
+    expect(data.ok).toBe(true)
+    expect(mockUpdateField).toHaveBeenCalledWith('ITEM_42', 'SZ_env', 'OPT_XL_ENV')
+  } finally {
+    delete process.env.GH_PROJECT_ID
+  }
 })
