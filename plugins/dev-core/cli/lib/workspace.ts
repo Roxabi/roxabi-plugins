@@ -35,7 +35,7 @@ export function writeWorkspace(ws: Workspace): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 })
   }
-  writeFileSync(p, JSON.stringify(ws, null, 2) + '\n', { mode: 0o600 })
+  writeFileSync(p, `${JSON.stringify(ws, null, 2)}\n`, { mode: 0o600 })
 }
 
 /**

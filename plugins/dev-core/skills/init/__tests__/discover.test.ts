@@ -21,7 +21,7 @@ describe('discover', () => {
     mockCheckPrereqs = prereqs.checkPrereqs as ReturnType<typeof vi.fn>
     mockRun = github.run as ReturnType<typeof vi.fn>
 
-    const fs = require('fs')
+    const fs = require('node:fs')
     vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
       throw new Error('ENOENT')
     })

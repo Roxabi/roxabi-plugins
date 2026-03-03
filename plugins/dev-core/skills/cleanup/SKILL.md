@@ -8,34 +8,25 @@ allowed-tools: Bash
 
 # Git Cleanup
 
-Safely clean up local branches, worktrees, and **remote branches** with **mandatory merge-status verification** before any deletion.
+Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging)
+
+Safely clean local β, ω, and remote branches with **mandatory merge-status verification** before any deletion.
 
 ## Instructions
 
 ### 1. Gather State
 
-Run all these commands and collect the output:
-
 ```bash
-# All local branches with tracking info
 git branch -vv
-
-# All worktrees
 git worktree list
-
-# Open PRs (to avoid cleaning active work)
 gh pr list --state open 2>/dev/null || echo "No gh CLI or no remote"
-
-# Current branch
 git branch --show-current
-
-# Optional: project-specific teardown hook output (e.g. DB branch list)
 # Configure {commands.worktree_list} in stack.yml if applicable
 ```
 
 ### 2. Analyze Each Branch
 
-For every branch **except `main`/`master`/`staging`** and the current branch, determine:
+∀ β ∉ {Π, current branch}:
 
 | Check | Command | Safe to delete? |
 |-------|---------|-----------------|
@@ -45,11 +36,9 @@ For every branch **except `main`/`master`/`staging`** and the current branch, de
 | Has worktree? | Check `git worktree list` output | Remove worktree first |
 | Last commit age | `git log -1 --format="%cr" <branch>` | Info only |
 
-**CRITICAL**: A branch is only safe to delete if it is **fully merged** (regular or squash merge) AND has **no open PR**.
+**CRITICAL**: safe(β) ⟺ fully merged (regular ∨ squash) ∧ ¬π(β)
 
 ### 3. Present Summary Table
-
-Display a clear table with ALL branches:
 
 ```
 Git Cleanup Summary
@@ -72,68 +61,56 @@ Legend: 🗑 = safe to delete, ⚠️ = needs attention, 🔒 = protected
 
 ### 4. Ask for Confirmation
 
-Use **AskUserQuestion** to let the user choose what to clean up:
-
-- Present **only safe-to-delete items** as default selections
-- Show **unmerged branches separately** with a warning
-- **NEVER auto-select unmerged branches**
-- Always include a "Skip / Do nothing" option
-
-Example question structure:
-- "Which branches should I delete?" (multi-select, safe branches pre-listed)
-- If unmerged branches exist: "These branches are NOT merged. Delete anyway?" (separate question, explicit warning)
+Use **AskUserQuestion**:
+- Present only safe-to-delete items as default selections
+- Show unmerged β separately with a warning; **NEVER auto-select unmerged β**
+- ∃ unmerged β → separate question with explicit warning
+- Always include "Skip / Do nothing"
 
 ### 5. Execute Cleanup
 
-For each confirmed deletion:
+∀ confirmed deletion:
 
 ```bash
 # Optional: project-specific teardown hook (e.g. DB branch drop)
 # [ -n "{commands.worktree_teardown}" ] && {commands.worktree_teardown} <issue_number>
 
-# If branch has a worktree, remove worktree FIRST
+# ω ∃ for β → remove ω FIRST
 git worktree remove <path>
 
-# Delete the branch
 git branch -d <branch>        # merged branches (safe)
-git branch -D <branch>        # unmerged branches (only if explicitly confirmed)
+git branch -D <branch>        # unmerged — only if explicitly confirmed
 
-# Prune worktree references
 git worktree prune
 ```
 
 ### 6. Clean Remote Branches
 
-Scan **all** remote branches for stale ones that can be cleaned up.
+Scan **all** remote branches for stale ones.
 
 #### 6a. Gather remote branches
 
 ```bash
-# Fetch and prune stale remote tracking refs
 git fetch --prune origin
-
-# List all remote branches except main/master/staging/HEAD
 git branch -r | grep -v 'origin/main' | grep -v 'origin/master' | grep -v 'origin/staging' | grep -v 'origin/HEAD'
-
-# Get open PR branch names (to exclude)
 gh pr list --state open --json headRefName --jq '.[].headRefName' 2>/dev/null
 ```
 
 #### 6b. Analyze each remote branch
 
-For every remote branch **not associated with an open PR**, determine merge status:
+∀ remote β ∉ π-set:
 
 | Check | Command | Safe to delete? |
 |-------|---------|-----------------|
 | Regular merge? | `git log --oneline main..origin/<branch> \| head -1` — empty = merged | Yes |
-| Squash-merged? | Extract issue number from branch name, then `git log --oneline --grep="#<issue>" main \| head -1`. Also check `gh pr list --state all --head <branch> --json state --jq '.[0].state'` for `MERGED` status | Yes if found |
+| Squash-merged? | Extract issue# from β name → `git log --oneline --grep="#<issue>" main \| head -1`; also `gh pr list --state all --head <branch> --json state --jq '.[0].state'` for `MERGED` | Yes if found |
 | Has open PR? | Check against open PR list from 6a | **No** — active work |
 
 **CRITICAL for squash merges**: `git branch -r --merged` will NOT detect squash-merged branches. Always check both:
 1. Issue number in main's commit history (`git log --grep="#<issue>"`)
 2. PR state via `gh pr list --state all --head <branch>` — look for `MERGED`
 
-A branch with commits after its PR was merged (e.g., post-merge review fixes) is still safe to delete if the PR is `MERGED`.
+Post-merge commits (e.g. review fixes) on a `MERGED` PR β → still safe to delete.
 
 #### 6c. Present remote summary table
 
@@ -150,24 +127,15 @@ Remote Branch Cleanup
 
 #### 6d. Ask for confirmation
 
-Use **AskUserQuestion**:
-
-- Present all merged remote branches with no open PR as safe to delete
-- Show unmerged remote branches separately with a warning
-- **NEVER auto-delete remote branches** — always require explicit confirmation
-- Always include a "Skip / Keep all remote branches" option
+Use **AskUserQuestion**: present merged remote β with ¬π as safe; show unmerged separately; **NEVER auto-delete remote β**; always include "Skip / Keep all remote branches".
 
 #### 6e. Execute remote cleanup
-
-For each confirmed remote deletion:
 
 ```bash
 git push origin --delete <branch>
 ```
 
 ### 7. Final Report
-
-Show what was cleaned up:
 
 ```
 Cleanup Complete
@@ -209,9 +177,9 @@ Cleanup Complete
 
 ## Edge Cases
 
-- **Squash merges**: `git branch -d` won't detect squash merges as merged. Use `git log --oneline --grep` to check if the branch name or issue number appears in main's history.
-- **Remote tracking branches**: Step 6 scans **all** remote branches independently (not just locally deleted ones). Always require explicit confirmation before any remote deletion.
-- **Squash merges on remote**: `git branch -r --merged` does NOT detect squash merges. Always verify via issue number grep in main history AND `gh pr list --state all --head <branch>` to check for `MERGED` status. A branch with post-merge commits (e.g., review fixes pushed after squash-merge) is still safe to delete if its PR is `MERGED`.
-- **Stale worktrees**: If a worktree path no longer exists on disk, `git worktree prune` will clean it up.
+- **Squash merges**: `git branch -d` won't detect squash merges. Use `git log --oneline --grep` to check β name or issue# in main's history.
+- **Remote tracking branches**: Step 6 scans **all** remote β independently (not just locally deleted ones). Always require explicit confirmation before remote deletion.
+- **Squash merges on remote**: `git branch -r --merged` does NOT detect squash merges. Verify via issue# grep in main history AND `gh pr list --state all --head <branch>` for `MERGED`. Post-merge commits on a `MERGED` PR → still safe to delete.
+- **Stale worktrees**: ω path ∉ disk → `git worktree prune` cleans it up.
 
 $ARGUMENTS

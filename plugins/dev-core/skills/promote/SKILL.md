@@ -8,7 +8,12 @@ allowed-tools: Bash, Read, Grep, Write, Edit
 
 # Promote
 
-`staging` → `main` for production. Pre-flight → version → changelog → commit → preview → PR.
+Let:
+  σ := staging branch
+  μ := main branch
+  V := release version string (vX.Y.Z)
+
+σ → μ for production. Pre-flight → version → changelog → commit → preview → PR.
 `--finalize`: post-merge tag + GitHub Release.
 
 ## Usage
@@ -35,8 +40,8 @@ Guard rails:
 | Check | Condition | Action |
 |-------|-----------|--------|
 | No commits | `git log main..staging` empty | **REFUSE.** Nothing to promote. Stop. |
-| Open PRs on staging | `gh pr list --base staging` → results | **WARN** + AskUserQuestion: **Continue** \| **Wait** |
-| CI status | Check latest staging commit | **WARN** if ¬passing |
+| Open PRs on σ | `gh pr list --base staging` → results | **WARN** + AskUserQuestion: **Continue** \| **Wait** |
+| CI status | Check latest σ commit | **WARN** if ¬passing |
 
 CI check:
 ```bash
@@ -127,7 +132,7 @@ gh pr list --base main --head staging --state merged --limit 1 --json number,tit
 ```
 ¬merged PR found ⇒ REFUSE: "Merge the promotion PR first."
 
-**9b. Detect version:**
+**9b. Detect V:**
 ```bash
 grep -oP '## \[\Kv[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1
 ```
@@ -160,8 +165,8 @@ Inform: "Release $VERSION finalized: tag + GitHub Release created. Run `/cleanup
 
 | Scenario | Behavior |
 |----------|----------|
-| Nothing to promote | REFUSE: staging is up to date with main |
-| Open PRs on staging | Warn, list, AskUserQuestion: continue or wait |
+| Nothing to promote | REFUSE: σ is up to date with μ |
+| Open PRs on σ | Warn, list, AskUserQuestion: continue or wait |
 | CI failing | Warn, show failures, AskUserQuestion: proceed or fix |
 | Deploy preview fails | Show error, AskUserQuestion: abort or proceed |
 | Promotion PR already exists | Detect via `gh pr list --base main --head staging`, offer update |
@@ -172,11 +177,11 @@ Inform: "Release $VERSION finalized: tag + GitHub Release created. Run `/cleanup
 
 ## Safety Rules
 
-1. ¬force-push to main ∨ staging
+1. ¬force-push to μ ∨ σ
 2. ¬auto-merge — user merges after review
 3. Always show changelog before creating PR
 4. Always check CI before promoting
-5. Always warn about open PRs on staging
-6. ¬push directly to main — changelog reaches main via promotion PR
+5. Always warn about open PRs on σ
+6. ¬push directly to μ — changelog reaches μ via promotion PR
 
 $ARGUMENTS

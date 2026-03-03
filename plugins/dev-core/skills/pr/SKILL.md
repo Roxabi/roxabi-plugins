@@ -8,6 +8,10 @@ allowed-tools: Bash, Read, Grep
 
 # Pull Request
 
+Let:
+  BASE := `staging` (∃ origin/staging) ∨ `main`
+  BRANCH := current branch
+
 Branch → PR: Conventional Commits title, issue linking, guard rails.
 
 **⚠ Flow: single continuous pipeline. ¬stop between steps. Stop only on: REFUSE, explicit Cancel, or Step 6 completion.**
@@ -58,8 +62,8 @@ Issue# detection: first number after `/` in branch name (e.g. `feat/42-slug` →
 
 ## Step 4 — Create
 
-Show generated title + body → create immediately (¬ask how). `--draft` ⇒ create as draft.
-Failure ∨ explicit edit request ⇒ AskUserQuestion: **Edit title/body** | **Cancel**.
+Show generated title + body → create immediately (¬ask how). `--draft` → create as draft.
+Failure ∨ explicit edit request → AskUserQuestion: **Edit title/body** | **Cancel**.
 
 ## Step 5 — Create PR
 
@@ -72,12 +76,12 @@ Display PR URL.
 
 ## Step 6 — Update Issue Status
 
-∃ issue# ⇒
+∃ issue# →
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <ISSUE_NUMBER> --status Review
 ```
 
-Updating existing PR ⇒ `gh pr edit <number> --title "<title>" --body "<body>"`.
+Updating existing PR → `gh pr edit <number> --title "<title>" --body "<body>"`.
 
 ## PR Body Template
 
@@ -120,8 +124,8 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 
 | Scenario | Behavior |
 |----------|----------|
-| Branch is staging/main/master | REFUSE: "Create a feature branch first" |
-| No commits ahead | REFUSE: "Nothing to create a PR for" |
+| BRANCH ∈ {staging, main, master} | REFUSE: "Create a feature branch first" |
+| ¬commits ahead | REFUSE: "Nothing to create a PR for" |
 | PR already exists | Offer `gh pr edit` to update |
 | ¬issue# in branch | AskUserQuestion: link issue or skip |
 | Multiple commit types | Use primary type only |

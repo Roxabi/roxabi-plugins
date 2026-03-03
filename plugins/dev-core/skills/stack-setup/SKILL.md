@@ -8,32 +8,29 @@ allowed-tools: Read, Edit, Write, Bash, Glob
 
 # Stack Setup Wizard
 
-Auto-discovers your project configuration from the codebase, shows a confirmation screen, then writes `.claude/stack.yml`. Safe to re-run.
+Auto-discovers project configuration from the codebase, shows a confirmation screen, then writes `.claude/stack.yml`. Safe to re-run.
+
+Let: σ := `.claude/stack.yml` | π := proposed config table
 
 ## Phase 0 — Idempotency check
 
-Check: `test -f .claude/stack.yml && echo exists || echo missing`
+`test -f .claude/stack.yml && echo exists || echo missing`
 
-If exists and `$ARGUMENTS` does not contain `--force`:
-AskUserQuestion: **Re-configure** (overwrite existing stack.yml) | **Skip** (abort — keep current file)
+σ ∃ ∧ `--force` ∉ `$ARGUMENTS` → AskUserQuestion: **Re-configure** (overwrite) | **Skip** (abort)
 → Skip: abort with "Keeping existing `.claude/stack.yml`. Run with `--force` to reconfigure."
 
-If missing, create `.claude/` directory: `mkdir -p .claude`
+σ ∄ → `mkdir -p .claude`
 
 ## Phase 1 — Check /init prerequisite
 
-Run: `test -f .env && grep -q 'GH_PROJECT_ID' .env && echo done || echo missing`
+`test -f .env && grep -q 'GH_PROJECT_ID' .env && echo done || echo missing`
 
-If `missing`:
-Display warning:
-> ⚠️ `/init` has not been run yet — GitHub project integration won't work until you do.
-
-AskUserQuestion: **Continue anyway** | **Abort (run /init first)**
-→ Abort: stop with "Run `/init` to set up GitHub integration, then come back to `/stack-setup`."
+`missing` → AskUserQuestion: **Continue anyway** | **Abort (run /init first)**
+→ Abort: "Run `/init` to set up GitHub integration, then come back to `/stack-setup`."
 
 ## Phase 2 — Auto-discover project configuration
 
-Run all detection commands. Collect results and derive the proposed config.
+Run all detection commands; derive π from output.
 
 ```bash
 # Runtime & package manager
@@ -101,24 +98,21 @@ grep -A5 '^\[project\.scripts\]' pyproject.toml 2>/dev/null | grep -v '^\[' | he
   || echo ""
 ```
 
-From the output, derive the proposed config:
-
 **Runtime/PM mapping:**
-- `pm=uv` → `runtime: python`, `package_manager: uv`; commands prefixed with `uv run`
-- `pm=bun` → `runtime: bun`, `package_manager: bun`; commands prefixed with `bun run`
-- `pm=npm/pnpm/yarn` → `runtime: node`, `package_manager: {pm}`; commands prefixed with `{pm} run`
+- `pm=uv` → `runtime: python`, `package_manager: uv`; commands prefixed `uv run`
+- `pm=bun` → `runtime: bun`, `package_manager: bun`; commands prefixed `bun run`
+- `pm=npm/pnpm/yarn` → `runtime: node`, `package_manager: {pm}`; commands prefixed `{pm} run`
 
-**Commands derivation by runtime:**
-- Python/uv: `dev: uv run <first-script-key>`, `test: uv run pytest`, `lint: uv run ruff check .`, `format: uv run ruff format .`, `typecheck: uv run ruff check --select=PYI .`, `install: uv sync`
-- Node/Bun: `dev: {pm} run dev`, `test: {pm} run test`, `lint: {pm} run lint`, `format: {pm} run format`, `typecheck: {pm} run typecheck`, `install: {pm} install`
+**Commands by runtime:**
+- Python/uv: `dev: uv run <first-script-key>` | `test: uv run pytest` | `lint: uv run ruff check .` | `format: uv run ruff format .` | `typecheck: uv run ruff check --select=PYI .` | `install: uv sync`
+- Node/Bun: `dev/test/lint/format/typecheck: {pm} run <key>` | `install: {pm} install`
 
 **Formatter fix command:**
 - ruff → `uv run ruff format . && uv run ruff check --fix .`
 - biome → `bunx biome check --write` (or `npx biome check --write`)
 - eslint → `npx eslint --fix .`
 
-**Mixed-stack monorepos (FE+BE with different formatters):**
-When both JS/TS and Python sources are detected (e.g. `fe/` + `be/` dirs), write `formatters:` array instead of `formatter_fix_cmd`:
+**Mixed-stack monorepos** (JS/TS + Python both detected): write `formatters:` array instead of `formatter_fix_cmd`:
 ```yaml
 build:
   formatters:
@@ -127,14 +121,13 @@ build:
     - cmd: "ruff format"
       ext: [".py"]
 ```
-Each formatter only receives files matching its `ext` list. `formatter_fix_cmd` is the fallback for single-formatter projects.
+Each formatter receives only files matching its `ext` list. `formatter_fix_cmd` is the fallback for single-formatter projects.
 
-**Standards paths** (only include if `docs/` exists on disk):
-- backend, testing, code_review, architecture, configuration, contributing
+**Standards paths** — only include if `docs/` ∃ on disk: backend, testing, code_review, architecture, configuration, contributing.
 
 ## Phase 3 — Confirm detected configuration
 
-Display the full proposed config as a preview table:
+Display π:
 
 ```
 Detected configuration
@@ -160,13 +153,11 @@ Detected configuration
 
 AskUserQuestion: **Looks good — write it** | **Edit a field** | **Abort**
 
-If "Edit a field": ask "Which field? (e.g. `runtime`, `backend.path`, `commands.test`)" and "New value?". Apply the override and re-display the table. Repeat until confirmed.
+"Edit a field" → ask "Which field? (e.g. `runtime`, `backend.path`, `commands.test`)" + "New value?"; apply override; re-display π. Repeat until confirmed.
 
 ## Phase 4 — Write stack.yml
 
-Assemble and write `.claude/stack.yml` using the confirmed values.
-
-Do NOT write keys that are `none` / empty — omit them entirely.
+Assemble and write `.claude/stack.yml`. Omit keys that are `none`/empty entirely.
 
 ```yaml
 # .claude/stack.yml — dev-core stack configuration
@@ -240,23 +231,11 @@ artifacts:
 
 ## Phase 5 — CLAUDE.md and .gitignore
 
-1. **Add @import:** Check `head -1 CLAUDE.md`. If first line ≠ `@.claude/stack.yml`:
-   - Prepend `@.claude/stack.yml` as a new first line.
-   - Display: "Added `@.claude/stack.yml` import to CLAUDE.md ✅"
-   - Else: "CLAUDE.md already imports stack.yml ✅"
-
-2. **Add to .gitignore:** Check `grep -q '\.claude/stack\.yml' .gitignore 2>/dev/null`
-   - If missing: append `.claude/stack.yml` to `.gitignore`
-   - Display: "Added `.claude/stack.yml` to .gitignore ✅"
-   - Else: "Already in .gitignore ✅"
-
-3. **Copy example file:** If `.claude/stack.yml.example` does not exist:
-   - Copy `.claude/stack.yml` to `.claude/stack.yml.example`
-   - Display: "Created `.claude/stack.yml.example` ✅ — commit this file as a reference for teammates"
+1. **@import:** `head -1 CLAUDE.md` ≠ `@.claude/stack.yml` → prepend it; display "Added `@.claude/stack.yml` import to CLAUDE.md ✅" | else "CLAUDE.md already imports stack.yml ✅"
+2. **Gitignore:** `grep -q '\.claude/stack\.yml' .gitignore 2>/dev/null` → ∄ → append `.claude/stack.yml`; display "Added `.claude/stack.yml` to .gitignore ✅" | ∃ → "Already in .gitignore ✅"
+3. **Example:** `.claude/stack.yml.example` ∄ → copy σ → display "Created `.claude/stack.yml.example` ✅ — commit this file as a reference for teammates"
 
 ## Phase 6 — Summary
-
-Display a table of all written values and the status of each action:
 
 ```
 Stack configuration written

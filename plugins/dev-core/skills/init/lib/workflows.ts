@@ -9,7 +9,7 @@ export interface WorkflowOpts {
 }
 
 export function generateCiYml(opts: WorkflowOpts): string {
-  const runtime = opts.stack === 'bun' ? 'oven-sh/setup-bun@v2' : 'actions/setup-node@v4'
+  const _runtime = opts.stack === 'bun' ? 'oven-sh/setup-bun@v2' : 'actions/setup-node@v4'
   const setupStep =
     opts.stack === 'bun'
       ? '      - uses: oven-sh/setup-bun@v2\n      - run: bun install'
@@ -86,7 +86,7 @@ ${deployStep}
 }
 
 export async function writeWorkflows(opts: WorkflowOpts): Promise<string[]> {
-  const fs = require('fs')
+  const fs = require('node:fs')
   const dir = '.github/workflows'
   fs.mkdirSync(dir, { recursive: true })
 

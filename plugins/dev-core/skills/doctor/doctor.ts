@@ -36,7 +36,7 @@ function spawnSync(cmd: string[]): { stdout: string; ok: boolean } {
 
 function readEnvFile(): Record<string, string> {
   try {
-    const text = require('fs').readFileSync('.env', 'utf8') as string
+    const text = require('node:fs').readFileSync('.env', 'utf8') as string
     const env: Record<string, string> = {}
     for (const line of text.split('\n')) {
       const trimmed = line.trim()
@@ -122,7 +122,7 @@ function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): Section 
 
   // Field IDs
   for (const field of ['STATUS_FIELD_ID', 'SIZE_FIELD_ID', 'PRIORITY_FIELD_ID']) {
-    const label = field.replace('_FIELD_ID', '').replace('_', ' ') + ' field'
+    const label = `${field.replace('_FIELD_ID', '').replace('_', ' ')} field`
     const val = env[field]
     checks.push({ name: label, status: val ? 'pass' : 'fail', detail: val ? 'configured' : 'not set in .env' })
   }
@@ -167,7 +167,7 @@ function checkLabels(ghOk: boolean, owner: string, repo: string): Section {
 
 function readStackYml(): { hasDeployPlatform: boolean; hasFrontend: boolean } {
   try {
-    const text = require('fs').readFileSync('.claude/stack.yml', 'utf8') as string
+    const text = require('node:fs').readFileSync('.claude/stack.yml', 'utf8') as string
     // deploy.platform: none means no deploy platform
     const platformMatch = text.match(/^\s*platform:\s*(\S+)/m)
     const hasDeployPlatform = !!platformMatch && platformMatch[1] !== 'none'
@@ -185,7 +185,7 @@ function checkWorkflows(): Section {
   const stack = readStackYml()
   const checks: Check[] = []
   for (const wf of STANDARD_WORKFLOWS) {
-    const exists = require('fs').existsSync(`.github/workflows/${wf}`)
+    const exists = require('node:fs').existsSync(`.github/workflows/${wf}`)
     if (exists) {
       checks.push({ name: wf, status: 'pass', detail: 'found' })
       continue
@@ -201,7 +201,7 @@ function checkWorkflows(): Section {
   return { name: 'Workflows', checks }
 }
 
-function checkProjectWorkflows(ghOk: boolean, owner: string): Section {
+function checkProjectWorkflows(ghOk: boolean, _owner: string): Section {
   if (!ghOk)
     return {
       name: 'Project workflows',
@@ -279,12 +279,12 @@ function checkProjectStructure(): Section {
   const checks: Check[] = []
 
   // .env
-  const envExists = require('fs').existsSync('.env')
+  const envExists = require('node:fs').existsSync('.env')
   checks.push({ name: '.env', status: envExists ? 'pass' : 'fail', detail: envExists ? 'found' : 'missing' })
 
   // artifacts/
   const artifactDirs = ['frames', 'analyses', 'specs', 'plans']
-  const allExist = artifactDirs.every((d) => require('fs').existsSync(`artifacts/${d}`))
+  const allExist = artifactDirs.every((d) => require('node:fs').existsSync(`artifacts/${d}`))
   checks.push({
     name: 'artifacts/',
     status: allExist ? 'pass' : 'fail',
@@ -292,10 +292,10 @@ function checkProjectStructure(): Section {
   })
 
   // roxabi shim + PATH
-  const home = require('os').homedir()
+  const home = require('node:os').homedir()
   const shimPaths = [`${home}/.local/bin/roxabi`, `${home}/bin/roxabi`]
   const inPath = spawnSync(['sh', '-c', 'command -v roxabi']).ok
-  const shimFile = shimPaths.find((p) => require('fs').existsSync(p))
+  const shimFile = shimPaths.find((p) => require('node:fs').existsSync(p))
   if (inPath) {
     checks.push({ name: 'roxabi CLI', status: 'pass', detail: 'in PATH' })
   } else if (shimFile) {
@@ -315,7 +315,7 @@ function checkProjectStructure(): Section {
 function checkVercel(): Section {
   const checks: Check[] = []
 
-  const vercelExists = require('fs').existsSync('.vercel/project.json')
+  const vercelExists = require('node:fs').existsSync('.vercel/project.json')
   checks.push({
     name: '.vercel/project',
     status: vercelExists ? 'pass' : 'skip',

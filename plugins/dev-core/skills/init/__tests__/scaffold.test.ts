@@ -104,7 +104,7 @@ describe('scaffold', () => {
   beforeEach(() => {
     mockFs = {}
     writtenFiles = {}
-    const fs = require('fs')
+    const fs = require('node:fs')
 
     vi.spyOn(fs, 'existsSync').mockImplementation((...args: unknown[]) => {
       const path = args[0] as string

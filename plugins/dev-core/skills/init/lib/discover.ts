@@ -39,7 +39,7 @@ export interface DiscoveryResult {
 
 function readEnvFile(): Record<string, string> {
   try {
-    const text = require('fs').readFileSync('.env', 'utf8') as string
+    const text = require('node:fs').readFileSync('.env', 'utf8') as string
     const env: Record<string, string> = {}
     for (const line of text.split('\n')) {
       const trimmed = line.trim()
@@ -127,7 +127,7 @@ export async function discover(): Promise<DiscoveryResult> {
       const selectedProject = projectId ? result.projects.find((p) => p.id === projectId) : result.projects[0]
       if (selectedProject && issues.length > 0) {
         try {
-          const onBoardNumbers = await getBoardIssueNumbers(owner!, selectedProject.number)
+          const onBoardNumbers = await getBoardIssueNumbers(owner, selectedProject.number)
           const onBoard = issues.filter((i) => onBoardNumbers.has(i.number)).length
           result.issues.onBoard = onBoard
           result.issues.orphaned = result.issues.total - onBoard
@@ -158,7 +158,7 @@ export async function discover(): Promise<DiscoveryResult> {
 
   // Workflows
   for (const wf of STANDARD_WORKFLOWS) {
-    if (require('fs').existsSync(`.github/workflows/${wf}`)) {
+    if (require('node:fs').existsSync(`.github/workflows/${wf}`)) {
       result.workflows.existing.push(wf)
     } else {
       result.workflows.missing.push(wf)
@@ -179,7 +179,7 @@ export async function discover(): Promise<DiscoveryResult> {
 
   // Vercel
   try {
-    const vercelJson = require('fs').readFileSync('.vercel/project.json', 'utf8')
+    const vercelJson = require('node:fs').readFileSync('.vercel/project.json', 'utf8')
     const vercel = JSON.parse(vercelJson) as { projectId?: string; orgId?: string }
     if (vercel.projectId) {
       result.vercel = { projectId: vercel.projectId, orgId: vercel.orgId ?? '' }

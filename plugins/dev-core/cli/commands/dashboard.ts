@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs'
-import { homedir } from 'os'
-import { join } from 'path'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 const PID_FILE = join(homedir(), '.claude/plugins/cache/roxabi-marketplace/.dashboard.pid')
 
@@ -44,7 +44,7 @@ export async function run(args: string[]): Promise<void> {
       console.log(`Process ${pid} not found — already stopped.`)
     }
     try {
-      require('fs').unlinkSync(PID_FILE)
+      require('node:fs').unlinkSync(PID_FILE)
     } catch {}
     process.exit(0)
   }
@@ -59,7 +59,7 @@ export async function run(args: string[]): Promise<void> {
 
   const cleanup = () => {
     try {
-      require('fs').unlinkSync(PID_FILE)
+      require('node:fs').unlinkSync(PID_FILE)
     } catch {}
   }
 

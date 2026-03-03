@@ -9,6 +9,7 @@ import { spawnSync as nodeSpawnSync } from 'node:child_process'
  * (e.g. doctor.test.ts subprocess integration tests).
  */
 if (typeof globalThis.Bun === 'undefined') {
+  // biome-ignore lint/suspicious/noExplicitAny: bun-types makes the Bun global too complex to satisfy without any
   ;(globalThis as any).Bun = {
     spawnSync: (
       cmd: string[],

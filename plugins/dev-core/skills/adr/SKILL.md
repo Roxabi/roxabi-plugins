@@ -8,6 +8,10 @@ allowed-tools: Write, Read, Glob
 
 # ADR (Architecture Decision Record)
 
+Let:
+  D := `docs/architecture/adr/`
+  NNN := zero-padded 3-digit sequence number
+
 Create and manage Architecture Decision Records — document **why** technical choices were made.
 
 ```
@@ -17,18 +21,12 @@ Create and manage Architecture Decision Records — document **why** technical c
 
 ## Create Mode
 
-**1. Next ADR number:**
+**1. Next NNN:** Scan D for `{NNN}-*.mdx` → extract highest NNN → next = highest + 1.
+¬D ∨ ¬files → create D, start at `001`.
 
-Scan `docs/architecture/adr/` for `{NNN}-*.mdx` → extract highest NNN → next = highest + 1 (zero-padded, 3 digits).
-¬dir ∨ ¬files ⇒ create dir, start at `001`.
+**2. Resolve title:** ∃ title in `$ARGUMENTS` → use it. ¬title → AskUserQuestion.
 
-**2. Resolve title:**
-
-∃ title in `$ARGUMENTS` ⇒ use it. ¬title ⇒ AskUserQuestion.
-
-**3. Interview:**
-
-AskUserQuestion (1–2 calls, ≤3 questions). Skip questions already clear from title:
+**3. Interview:** AskUserQuestion (1–2 calls, ≤3 questions). Skip questions clear from title:
 
 | Topic | Ask |
 |-------|-----|
@@ -37,9 +35,7 @@ AskUserQuestion (1–2 calls, ≤3 questions). Skip questions already clear from
 | Decision | Which was chosen and why? |
 | Consequences | Positive, negative, neutral trade-offs? |
 
-**4. Write ADR:**
-
-`docs/architecture/adr/{NNN}-{slug}.mdx` (slug = kebab-case title).
+**4. Write ADR:** `D/{NNN}-{slug}.mdx` (slug = kebab-case title).
 
 ```mdx
 ---
@@ -83,25 +79,20 @@ description: {one-line summary}
 
 Default status: **Accepted** unless stated otherwise. Include all options discussed (min 2).
 
-**5. Update meta.json:**
+**5. Update meta.json:** Read `D/meta.json`. ¬∃ → create: `{ "title": "ADRs", "pages": [] }`.
 
-Read `docs/architecture/adr/meta.json`. ¬∃ ⇒ create: `{ "title": "ADRs", "pages": [] }`.
+∃ `pages` array (Fumadocs format) → append new slug.
+∃ array-of-objects (legacy) → migrate: extract `file` values, strip `.mdx`, rebuild as `{ "title": "ADRs", "pages": [...] }`, append new slug. ¬write legacy format.
 
-∃ `pages` array (Fumadocs format) ⇒ append new slug.
-∃ array-of-objects (legacy) ⇒ migrate: extract `file` values, strip `.mdx`, rebuild as `{ "title": "ADRs", "pages": [...] }`, append new slug.
-¬write legacy format.
-
-**6. Confirm:**
-
-Inform: file path, ADR number + title, status.
+**6. Confirm:** Inform: file path, NNN + title, status.
 
 ## List Mode
 
-Scan `docs/architecture/adr/` for `.mdx` files.
-¬∃ ⇒ inform + suggest `/adr "Title"`.
+Scan D for `.mdx` files.
+¬∃ → inform + suggest `/adr "Title"`.
 
-∃ ⇒ read `meta.json`. ∃ `pages` array ⇒ iterate in order. ∀ slug: read frontmatter for title, status, date.
-¬meta.json ∨ ¬recognised format ⇒ scan `.mdx` files directly.
+∃ → read `meta.json`. ∃ `pages` array → iterate in order; ∀ slug: read frontmatter for title, status, date.
+¬meta.json ∨ ¬recognised format → scan `.mdx` files directly.
 
 ```
 Architecture Decision Records
@@ -117,7 +108,7 @@ Architecture Decision Records
 
 | Scenario | Behavior |
 |----------|----------|
-| First ADR ever | Create `docs/architecture/adr/` + `meta.json` from scratch |
+| First ADR ever | Create D + `meta.json` from scratch |
 | ¬title provided | AskUserQuestion before proceeding |
 | Superseding an ADR | Update old ADR status to `Superseded by ADR-{NNN}`; reference old ADR in new context |
 | meta.json out of sync | Rebuild from file frontmatter |

@@ -8,55 +8,52 @@ allowed-tools: Bash
 
 # Init
 
-Configure the current project to work with dev-core. Auto-detects GitHub repo, Project V2 board, field IDs, and optionally Vercel integration. Writes `.env`, `.env.example`, `.claude/run-dashboard.ts` launcher, and creates the `artifacts/` directory.
+Let:
+  I_TS  := `${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts`
+  D_TS  := `${CLAUDE_PLUGIN_ROOT}/skills/doctor/doctor.ts`
+  F     := `--force` flag present in `$ARGUMENTS`
+  PID   := selected project ID (PVT_...)
+  disc  := JSON result of `bun $I_TS discover`
 
-Safe to re-run — merges with existing config unless `--force` is used.
+Configure current project for dev-core. Auto-detects GitHub repo, Project V2 board, field IDs, optional Vercel. Writes `.env`, `.env.example`, `.claude/run-dashboard.ts`, creates `artifacts/`.
 
-## Instructions
+Safe to re-run — merges with existing config unless F.
 
 All data (label definitions, workflow templates, protection payloads) lives in TypeScript. This SKILL.md orchestrates by running CLI subcommands and presenting results.
 
-Set `INIT_TS="${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts"` and `DOCTOR_TS="${CLAUDE_PLUGIN_ROOT}/skills/doctor/doctor.ts"` for all commands below.
+## Phase 1 — Parse Input + Idempotency
 
-### Phase 1 — Parse Input + Idempotency
+¬F → check existing config: `grep -c 'dev-core' .env 2>/dev/null || echo "0"`.
+result > 0 → AskUserQuestion: **Re-configure** (same as F) | **Skip** (abort).
 
-1. Check if `$ARGUMENTS` contains `--force`. Store as `FORCE` flag.
-2. If not force, check for existing dev-core config: `grep -c 'dev-core' .env 2>/dev/null || echo "0"`. If > 0, AskUserQuestion: **Re-configure** (same as --force) | **Skip** (abort).
+## Phase 2 — Prerequisites
 
-### Phase 2 — Prerequisites
+Run: `bun $I_TS prereqs`. Parse JSON → display ✅/❌ table for bun, gh, git remote.
 
-Run: `bun $INIT_TS prereqs`
-
-Parse the JSON output. Display a summary table with ✅/❌ for bun, gh, git remote.
-
-If any check fails, show install links:
+any ❌ → show install links:
 - bun: https://bun.sh/
 - gh: https://cli.github.com/ then `gh auth login`
 - git remote: `git remote add origin <url>`
 
-AskUserQuestion: **Abort** | **Continue anyway** (with warning some features won't work).
+AskUserQuestion: **Abort** | **Continue anyway** (warn: some features won't work).
 
-### Phase 3 — Auto-Discover Configuration
+## Phase 3 — Auto-Discover Configuration
 
-Run: `bun $INIT_TS discover`
+Run: `bun $I_TS discover`. Parse → extract `owner`, `repo`, `projects`, `fields`, `labels`, `workflows`, `protection`, `vercel`, `env`.
 
-Parse the JSON. Extract `owner`, `repo`, `projects`, `fields`, `labels`, `workflows`, `protection`, `vercel`, `env`.
+### 3a. Project Board
 
-#### 3a. Project Board
+- |projects| == 0 → AskUserQuestion: **Create project board** | **Skip**. Create → `bun $I_TS create-project --owner <owner> --repo <repo>`, parse PID + field IDs.
+- |projects| == 1 → auto-select, use its ID from disc.
+- |projects| > 1 → present numbered list, AskUserQuestion to pick one.
 
-- If **0 projects**: AskUserQuestion: **Create project board** | **Skip**. If Create: `bun $INIT_TS create-project --owner <owner> --repo <repo>`. Parse result for project ID and field IDs.
-- If **1 project**: auto-select, use its ID from discover result.
-- If **multiple projects**: present numbered list, AskUserQuestion to pick one.
+¬PID → field IDs stay empty. PID ∃ ∧ fields missing from disc → run `create-project` to create them.
 
-If no project selected, field IDs stay empty. If project selected but fields missing from discover, run `create-project` to create them.
+After selection: re-run `bun $I_TS discover` to refresh field IDs. Status/Size/Priority still missing → run `bun $I_TS create-project --owner <owner> --repo <repo>` (handles pre-existing Status field gracefully).
 
-After project selection, re-run `bun $INIT_TS discover` to refresh field IDs for the selected project. If Status/Size/Priority fields are still missing after re-discovery, run `bun $INIT_TS create-project --owner <owner> --repo <repo>` to create them (handles pre-existing Status field gracefully).
+### 3a-bis. Project Workflows
 
-#### 3a-bis. Project Workflows
-
-If a project was selected or created, run: `bun $INIT_TS list-workflows --project-id <PVT_...>`
-
-Parse the JSON array. Display a table:
+PID ∃ → run: `bun $I_TS list-workflows --project-id <PVT_...>`. Parse JSON array, display table:
 
 ```
   GitHub Project Workflows
@@ -71,50 +68,48 @@ Parse the JSON array. Display a table:
 ```
 
 AskUserQuestion: **Enable all** | **Select** | **Skip**.
+- Enable all → ∀ disabled workflow: `bun $I_TS enable-workflow --workflow-id <PWF_...>`. Display "✅ Enabled N workflows".
+- Select → numbered list, ask which (comma-separated), enable only those.
+- Skip → continue.
 
-- If **Enable all**: for each disabled workflow, run `bun $INIT_TS enable-workflow --workflow-id <PWF_...>`. Display "✅ Enabled N workflows".
-- If **Select**: present a numbered list, ask which ones (comma-separated), then enable only those.
-- If **Skip**: continue without enabling any.
+### 3b. Labels
 
-#### 3b. Labels
+`labels.missing` ≠ ∅ → AskUserQuestion: **Create all labels** | **Type labels only** | **Area labels only** | **Skip labels**.
+Run: `bun $I_TS labels --repo <owner/repo> --scope <all|type|area|priority>`
 
-If `labels.missing` is non-empty, AskUserQuestion: **Create all labels** | **Type labels only** | **Area labels only** | **Skip labels**.
+### 3c. Workflows
 
-Run: `bun $INIT_TS labels --repo <owner/repo> --scope <all|type|area|priority>`
+`workflows.missing` ≠ ∅ → AskUserQuestion: **Set up CI/CD workflows** | **Skip**.
 
-#### 3c. Workflows
+yes → AskUserQuestion (each):
+1. Stack: **Bun** | **Node** | **Python (uv)**
+2. Test framework: **Vitest** | **Jest** | **Pytest** | **None**
+3. Deploy: **Vercel** | **None**
 
-If `workflows.missing` is non-empty, AskUserQuestion: **Set up CI/CD workflows** | **Skip**.
+Run: `bun $I_TS workflows --stack bun --test vitest --deploy vercel`
 
-If yes:
-1. AskUserQuestion for stack: **Bun** | **Node** | **Python (uv)**
-2. AskUserQuestion for test framework: **Vitest** | **Jest** | **Pytest** | **None**
-3. AskUserQuestion for deploy: **Vercel** | **None**
+Note: Python workflow generates `ci.yml` running `uv run ruff check .` and `uv run pytest`.
 
-Run: `bun $INIT_TS workflows --stack bun --test vitest --deploy vercel`
-
-Note: Python workflow generates a `ci.yml` running `uv run ruff check .` and `uv run pytest`.
-
-#### 3d. Branch Protection
+### 3d. Branch Protection
 
 AskUserQuestion: **Set up branch protection** | **Skip**.
+yes → `bun $I_TS protect-branches --repo <owner/repo>`
 
-Run: `bun $INIT_TS protect-branches --repo <owner/repo>`
+### 3e. Vercel (Optional)
 
-#### 3e. Vercel (Optional)
+`vercel` ≠ null in disc → AskUserQuestion: **Set up Vercel integration** | **Skip**.
+yes → AskUserQuestion for `VERCEL_TOKEN` (free text — explain: Vercel Settings → Tokens).
 
-If `vercel` is non-null in discover result, AskUserQuestion: **Set up Vercel integration** | **Skip**. If yes, ask for `VERCEL_TOKEN` via AskUserQuestion (free text — explain: Vercel Settings → Tokens).
+### 3f. Issue Migration
 
-#### 3f. Issue Migration
-
-If `issues.orphaned > 0` in the discover result:
+`issues.orphaned > 0` in disc:
 - AskUserQuestion: **Add N open issues to project board** | **Skip**
-- If yes: `bun $INIT_TS migrate-issues --owner <owner> --repo <repo> --project-number <N>`
+- yes → `bun $I_TS migrate-issues --owner <owner> --repo <repo> --project-number <N>`
 - Parse result JSON. Display: "Added {added}/{total} issues to project board" (mention failures if any).
 
-### Phase 4 — Confirm Values
+## Phase 4 — Confirm Values
 
-Display all discovered/selected values in a summary table:
+Display summary table:
 
 ```
 dev-core Configuration
@@ -133,20 +128,19 @@ dev-core Configuration
 ```
 
 AskUserQuestion: **Confirm** | **Edit a value** | **Abort**.
+Edit → ask which value, accept new, re-display, re-confirm.
 
-If "Edit a value", ask which value to change, accept new value, re-display, re-confirm.
+## Phase 5 — Scaffold
 
-### Phase 5 — Scaffold
+Run: `bun $I_TS scaffold --github-repo <owner/repo> --project-id <PVT_...> --status-field-id <PVTSSF_...> --size-field-id <PVTSSF_...> --priority-field-id <PVTSSF_...> --status-options-json '<json>' --size-options-json '<json>' --priority-options-json '<json>' [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
 
-Run: `bun $INIT_TS scaffold --github-repo <owner/repo> --project-id <PVT_...> --status-field-id <PVTSSF_...> --size-field-id <PVTSSF_...> --priority-field-id <PVTSSF_...> --status-options-json '<json>' --size-options-json '<json>' --priority-options-json '<json>' [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
+Installs `roxabi` shim at `~/.local/bin/roxabi` (or `~/bin/roxabi`) — self-healing shell script that resolves the latest active dev-core plugin cache at runtime. Run `roxabi dashboard` to launch issues dashboard. Shim survives plugin updates without re-running `/init`.
 
-The scaffold step installs a `roxabi` shim at `~/.local/bin/roxabi` (or `~/bin/roxabi`) — a self-healing shell script that resolves the latest active dev-core plugin cache at runtime. Run `roxabi dashboard` to launch the issues dashboard. The shim survives plugin updates without re-running `/init`.
+## Phase 6 — Workspace Registration
 
-### Phase 6 — Workspace Registration
+Register current project in shared workspace config (enables multi-project dashboard).
 
-Register the current project in the shared workspace config so the multi-project dashboard shows issues from all your repos in one view.
-
-1. **Check if already registered** (uses `GITHUB_REPO` from Phase 3):
+1. Check if already registered:
    ```bash
    bun -e "
    import { readWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/workspace.ts'
@@ -155,11 +149,11 @@ Register the current project in the shared workspace config so the multi-project
    "
    ```
 
-2. **If already registered:** display `workspace.json ✅ Already registered` and skip to Phase 7.
+2. already registered → display `workspace.json ✅ Already registered`, skip to Phase 7.
 
-3. **If not registered:** AskUserQuestion: **Add to workspace** (enables multi-project dashboard) | **Skip**
+3. ¬registered → AskUserQuestion: **Add to workspace** | **Skip**
 
-4. **If add:**
+4. Add:
    ```bash
    bun -e "
    import { getWorkspacePath, readWorkspace, writeWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/workspace.ts'
@@ -178,13 +172,13 @@ Register the current project in the shared workspace config so the multi-project
    ```
    Display: `workspace.json ✅ Registered <GITHUB_REPO> at <path>`
 
-5. **If skip:** display `workspace.json ⏭ Skipped`
+5. Skip → display `workspace.json ⏭ Skipped`
 
-### Phase 6b — Bulk Discovery
+## Phase 6b — Bulk Discovery
 
-Scan the filesystem for other repos with dev-core configured but not yet in workspace.json.
+Scan filesystem for other repos with dev-core configured but ∉ workspace.json.
 
-1. **Find candidates:**
+1. Find candidates:
    ```bash
    # Constrain to $HOME to avoid reading files outside user's home directory
    # maxdepth 6 prevents deep traversal while covering typical monorepo layouts
@@ -193,16 +187,16 @@ Scan the filesystem for other repos with dev-core configured but not yet in work
      | sort -u
    ```
 
-2. **For each found `.env`**, extract `GITHUB_REPO`, `GH_PROJECT_ID`, and Vercel config:
+2. ∀ found `.env`: extract `GITHUB_REPO`, `GH_PROJECT_ID`, Vercel config:
    ```bash
    grep -E "^(GITHUB_REPO|GH_PROJECT_ID|VERCEL_PROJECT_ID|VERCEL_TEAM_ID)=" <path>/.env
    ```
 
-3. **Filter out**: current project + already-registered repos (compare against `workspace.json`).
+3. Filter out: current project + already-registered repos (compare against `workspace.json`).
 
-4. **If no unregistered candidates:** skip silently.
+4. ∄ unregistered candidates → skip silently.
 
-5. **If candidates found**, display:
+5. ∃ candidates → display:
    ```
    Other dev-core projects found:
      [ ] owner/repo-a   (GH_PROJECT_ID: PVT_...)
@@ -211,15 +205,12 @@ Scan the filesystem for other repos with dev-core configured but not yet in work
    ```
    AskUserQuestion: **Add all** | **Select** | **Skip**
 
-6. **If Add all or Select:** for each chosen repo, read its `GITHUB_REPO` + `GH_PROJECT_ID` + `VERCEL_PROJECT_ID` + `VERCEL_TEAM_ID` + derive label from repo name, then append to `workspace.json` (include `vercelProjectId`/`vercelTeamId` only if present in that repo's `.env`).
-
+6. Add all / Select → ∀ chosen repo: read `GITHUB_REPO` + `GH_PROJECT_ID` + `VERCEL_PROJECT_ID` + `VERCEL_TEAM_ID` + derive label from repo name, append to `workspace.json` (include `vercelProjectId`/`vercelTeamId` only if ∃ in that repo's `.env`).
    Display: `workspace.json ✅ Added N projects (repo-a, repo-b, ...)`
 
-7. **If Skip:** display `workspace.json ⏭ Bulk discovery skipped`
+7. Skip → display `workspace.json ⏭ Bulk discovery skipped`
 
-### Phase 7 — Report
-
-Display final summary:
+## Phase 7 — Report
 
 ```
 dev-core initialized
@@ -239,6 +230,8 @@ dev-core initialized
   .gitignore        ✅ .env added
   workspace.json    ✅ Registered <repo> / ⏭ Skipped
   bulk discovery    ✅ Added N projects / ⏭ Skipped / ⏭ No others found
+  VS Code MDX preview   ✅ Added / ✅ Already configured / ⏭ Skipped / ⏭ No .mdx files found
+  Pre-commit hooks      ✅ lefthook installed / ✅ pre-commit installed / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
 
 Next steps:
   /stack-setup           Configure stack for agents (auto-discovers your project)
@@ -249,96 +242,83 @@ Next steps:
   /init --force          Re-configure anytime
 ```
 
-### Phase 8 — Stack Configuration
+## Phase 8 — Stack Configuration
 
-Set up `.claude/stack.yml` so dev-core agents can work without hardcoded paths.
+Set up `.claude/stack.yml` so dev-core agents work without hardcoded paths.
 
-1. **Check for existing stack.yml:** `test -f .claude/stack.yml && echo exists || echo missing`
+1. `test -f .claude/stack.yml && echo exists || echo missing`
 
-2. **If missing:**
-   - Copy the template: `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml`
-   - Walk the user through filling in critical fields. AskUserQuestion for each of:
-     - **Backend path** (e.g., `apps/api`) — `backend.path` in stack.yml
-     - **Frontend path** (e.g., `apps/web`) — `frontend.path` in stack.yml
-     - **Package manager** — **bun** | **npm** | **pnpm** | **yarn**
-     - **Test command** (e.g., `bun run test`) — `commands.test` in stack.yml
-   - Open `.claude/stack.yml` and fill in the confirmed values.
-   - Inform the user: "Fill in the remaining fields in `.claude/stack.yml` before running agents."
+2. missing:
+   - `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml`
+   - AskUserQuestion ∀ critical field:
+     - **Backend path** (e.g., `apps/api`) → `backend.path`
+     - **Frontend path** (e.g., `apps/web`) → `frontend.path`
+     - **Package manager** → **bun** | **npm** | **pnpm** | **yarn**
+     - **Test command** (e.g., `bun run test`) → `commands.test`
+   - Write confirmed values into `.claude/stack.yml`.
+   - Inform: "Fill in the remaining fields in `.claude/stack.yml` before running agents."
 
-3. **Add @import to CLAUDE.md:**
-   - Check if first line of `CLAUDE.md` is `@.claude/stack.yml`: `head -1 CLAUDE.md`
-   - If not present, prepend it: write `@.claude/stack.yml\n` before the existing content.
+3. Add @import to CLAUDE.md:
+   - `head -1 CLAUDE.md` → ¬`@.claude/stack.yml` → prepend `@.claude/stack.yml\n`.
    - Display: "Added `@.claude/stack.yml` import to CLAUDE.md ✅"
 
-4. **Add stack.yml to .gitignore:**
-   - Check: `grep -q '\.claude/stack\.yml' .gitignore 2>/dev/null && echo found || echo missing`
-   - If missing, append: `.claude/stack.yml` to `.gitignore`.
+4. Add stack.yml to .gitignore:
+   - `grep -q '\.claude/stack\.yml' .gitignore 2>/dev/null && echo found || echo missing`
+   - missing → append `.claude/stack.yml` to `.gitignore`.
    - Display: "Added `.claude/stack.yml` to .gitignore ✅"
 
-5. **Copy stack.yml.example to project root (committed reference):**
-   - If `.claude/stack.yml.example` does not exist, copy: `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example`
+5. Copy stack.yml.example (committed reference):
+   - ¬`.claude/stack.yml.example` → `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example`
    - Display: ".claude/stack.yml.example created ✅ (commit this file)"
 
-### Phase 9 — VS Code MDX Preview (Optional)
+## Phase 9 — VS Code MDX Preview (Optional)
 
-Only run if `.mdx` files exist in the project (`find . -name "*.mdx" -not -path "*/node_modules/*" | head -1`) or `docs.format: mdx` in stack.yml.
+Run only if `find . -name "*.mdx" -not -path "*/node_modules/*" | head -1` returns a result ∨ `docs.format: mdx` in stack.yml.
 
 1. Check `.vscode/settings.json` for `"*.mdx": "markdown"` under `files.associations`.
-2. If already present → display `VS Code MDX preview ✅ Already configured` and skip.
-3. If missing → AskUserQuestion: **Add VS Code MDX preview support** (adds `"*.mdx": "markdown"` to `.vscode/settings.json`) | **Skip**.
-4. If yes:
-   - If `.vscode/settings.json` does not exist, create it: `{"files.associations": {"*.mdx": "markdown"}}`
-   - If it exists, merge `"*.mdx": "markdown"` into the existing `files.associations` object (preserve all other keys).
+2. ∃ → display `VS Code MDX preview ✅ Already configured`, skip.
+3. ∄ → AskUserQuestion: **Add VS Code MDX preview support** | **Skip**.
+4. yes:
+   - ¬`.vscode/settings.json` → create: `{"files.associations": {"*.mdx": "markdown"}}`
+   - ∃ → merge `"*.mdx": "markdown"` into existing `files.associations` (preserve all other keys).
    - Display: `VS Code MDX preview ✅ Added`
 
-Update Phase 7 report to include:
-```
-  VS Code MDX preview   ✅ Added / ✅ Already configured / ⏭ Skipped / ⏭ No .mdx files found
-```
-
-### Phase 10 — Pre-commit Hooks (Optional)
+## Phase 10 — Pre-commit Hooks (Optional)
 
 Catch lint/format/typecheck failures locally before they reach CI.
 
-#### 10a — Detect existing hooks
+### 10a — Detect existing hooks
 
-Check all three in parallel:
+Check in parallel:
 ```bash
-test -f lefthook.yml && echo found || echo missing          # lefthook
-test -d .husky && echo found || echo missing                 # husky
-test -f .pre-commit-config.yaml && echo found || echo missing  # pre-commit
-test -f .git/hooks/pre-commit && echo found || echo missing  # raw git hook
+test -f lefthook.yml && echo found || echo missing
+test -d .husky && echo found || echo missing
+test -f .pre-commit-config.yaml && echo found || echo missing
+test -f .git/hooks/pre-commit && echo found || echo missing
 ```
 
-If any found → display `Pre-commit hooks ✅ Already configured` and skip to the Phase 7 report update.
+∃ any → display `Pre-commit hooks ✅ Already configured`, skip to Phase 7 report update.
 
-#### 10b — Resolve tool
+### 10b — Resolve tool
 
-Read `hooks.tool` from `.claude/stack.yml` (just written in Phase 8) if present.
+Read `hooks.tool` from `.claude/stack.yml`.
 
-If value is `none` → display `Pre-commit hooks ⏭ Disabled in stack.yml` and skip.
+- `none` → display `Pre-commit hooks ⏭ Disabled in stack.yml`, skip.
+- `auto` ∨ key absent → infer from `runtime`:
+  - `python` → tool = **pre-commit**
+  - `bun` / `node` / `deno` / anything else → tool = **lefthook**
+- explicit value (`lefthook`, `pre-commit`, `husky`) → use directly.
 
-If value is `auto` or key absent, infer from `runtime`:
-- `python` → tool = **pre-commit**
-- `bun` / `node` / `deno` / anything else → tool = **lefthook**
-
-If `hooks.tool` is an explicit value (`lefthook`, `pre-commit`, `husky`) → use it directly.
-
-#### 10c — Offer setup
+### 10c — Offer setup
 
 AskUserQuestion: **Set up `<tool>`** (catches lint/format issues before push) | **Skip**.
 
-#### 10d — Install
+### 10d — Install
 
-**lefthook path:**
+**lefthook:**
 
 a. Read `commands.lint` and `commands.typecheck` from `.claude/stack.yml` (defaults: `bun run lint` / `bun run typecheck`).
-
-b. Install:
-   ```bash
-   bun add -d lefthook
-   ```
-
+b. `bun add -d lefthook`
 c. Write `lefthook.yml`:
    ```yaml
    pre-commit:
@@ -348,26 +328,19 @@ c. Write `lefthook.yml`:
        typecheck:
          run: <commands.typecheck>
    ```
-
-d. Activate:
-   ```bash
-   bunx lefthook install
-   ```
-
+d. `bunx lefthook install`
 e. Display: `Pre-commit hooks ✅ lefthook installed (lint + typecheck on commit)`
 
 ---
 
-**pre-commit path (Python):**
+**pre-commit (Python):**
 
 a. Read `commands.lint` and `commands.typecheck` from `.claude/stack.yml` (defaults: `ruff check .` / `mypy .`).
-
-b. Install pre-commit:
+b. Install:
    ```bash
    pip install pre-commit
    # or if uv available: uv add --dev pre-commit
    ```
-
 c. Write `.pre-commit-config.yaml`:
    ```yaml
    repos:
@@ -384,22 +357,12 @@ c. Write `.pre-commit-config.yaml`:
            language: system
            pass_filenames: false
    ```
-
-d. Activate:
-   ```bash
-   pre-commit install
-   ```
-
+d. `pre-commit install`
 e. Display: `Pre-commit hooks ✅ pre-commit installed (lint + typecheck on commit)`
-
-Update Phase 7 report to include:
-```
-  Pre-commit hooks      ✅ lefthook installed / ✅ pre-commit installed / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
-```
 
 ## Safety Rules
 
-1. **Never overwrite `.env` values** without `--force` or explicit user confirmation
+1. **Never overwrite `.env` values** without F or explicit user confirmation
 2. **Always AskUserQuestion** before destructive or write operations
 3. **Never commit `.env`** — ensure it's in `.gitignore`
 4. **Never store secrets in `.env.example`** — use empty placeholder values
