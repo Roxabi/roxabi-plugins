@@ -2,7 +2,7 @@ name: PR Title
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, edited, reopened]
     branches: [main, staging]
 
 permissions:
@@ -30,7 +30,7 @@ jobs:
             build
             revert
           requireScope: false
-          allowMergeCommits: true
+          allowMergeCommits: false
           allowRevertCommits: true
           ignoredAuthors: |
             dependabot[bot]
