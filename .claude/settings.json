@@ -1,5 +1,6 @@
 {
   "enabledPlugins": {
-    "dev-core@roxabi-marketplace": true
+    "dev-core@roxabi-marketplace": true,
+    "compress@roxabi-marketplace": true
   }
 }
