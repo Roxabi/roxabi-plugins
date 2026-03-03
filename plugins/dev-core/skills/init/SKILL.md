@@ -310,7 +310,7 @@ test -f .pre-commit-config.yaml && echo found || echo missing  # pre-commit
 test -f .git/hooks/pre-commit && echo found || echo missing  # raw git hook
 ```
 
-If any found → display `Pre-commit hooks ✅ Already configured` and skip to Phase 11.
+If any found → display `Pre-commit hooks ✅ Already configured` and skip to the Phase 7 report update.
 
 #### 10b — Resolve tool
 
