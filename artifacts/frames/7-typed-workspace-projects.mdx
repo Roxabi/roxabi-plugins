@@ -1,0 +1,44 @@
+---
+title: "feat(dashboard): typed workspace projects — technical vs company board support"
+issue: 7
+status: approved
+tier: F-full
+date: 2026-03-03
+---
+
+## Problem
+
+The dev-core dashboard hardcodes GitHub Project fields (Status / Size / Priority) and renders all projects identically as technical boards. When a second project type is introduced — specifically a company roadmap with Quarter / Pillar columns — inline edits silently use the wrong field IDs, column headers are wrong, and CI/Vercel integration is shown where it doesn't apply.
+
+Concrete trigger: Ryvo needs both a **tech issues board** (engineering, sprints, `/dev #N` workflow) and a **company roadmap board** (product initiatives, quarters, pillars) displayed in the same dashboard. The current model cannot support two project types simultaneously.
+
+## Who
+
+- **Primary:** Engineers/teams using dev-core with multiple GitHub Projects of different types (e.g., Ryvo with tech + company boards).
+- **Secondary:** Any future team adding a non-technical project to their workspace — they'll hit the same silent failure pattern.
+
+## Constraints
+
+- Backwards compatible: `type` defaults to `'technical'`, `fieldIds` is optional with `.env` fallback. Existing users unaffected until they re-run `/init`.
+- Targeted extension, not a rewrite. ~3–4h estimate.
+- 5 files affected: `workspace.ts`, `config.ts`, `update.ts`, `page.ts`, `init.ts`.
+- Full prior analysis at `artifacts/analyses/typed-workspace-projects.md`.
+
+## Out of Scope
+
+- Adding project types beyond `'technical'` and `'company'` — the type discriminant should remain a closed set for now.
+- Migrating existing `workspace.json` files automatically — backward compat handles this via defaults.
+- Changing the `/dev` workflow itself — only visibility of `/dev` links in the UI changes.
+- New filtering or grouping UI beyond the per-type column schema.
+
+## Complexity
+
+**Tier: F-full** — Multiple domains (types, config, API field dispatch, UI rendering, init scaffolding), introduces a new type discriminant and per-project field ID structure, and changes both data shape and rendering logic across 5 files.
+
+Signals observed:
+- New `type: 'technical' | 'company'` discriminant on `WorkspaceProject`
+- Per-project `fieldIds` struct replaces global `.env` vars for field dispatch
+- Column schema differs by type (col2, col3, CI/Vercel, `/dev` links, sort default)
+- `update.ts` field dispatch must route to per-project fieldIds
+- `init.ts` must write fieldIds to `workspace.json` on scaffold
+- `page.ts` must conditionally render CI/Vercel and `/dev` links based on type
