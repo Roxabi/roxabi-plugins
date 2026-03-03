@@ -1,7 +1,7 @@
 ---
 name: doctor
 description: 'Health check — verify dev-core config, GitHub project, labels, workflows, branch protection. Triggers: "doctor" | "health check" | "check setup" | "verify config".'
-version: 0.4.0
+version: 0.5.0
 allowed-tools: Bash
 ---
 
@@ -108,5 +108,31 @@ Print summary line:
 ```
 Workspace: N projects registered  (or: not found)
 ```
+
+### Phase 4 — CI Setup (if missing)
+
+Only run if CI workflows are absent from the project.
+
+1. **Check for existing CI:** `ls .github/workflows/ci.yml 2>/dev/null && echo exists || echo missing`
+   - If exists → display `CI/CD workflows ✅ Already configured` and skip this phase.
+
+2. **If missing**, display: `⚠️ CI/CD workflows not found`
+
+3. **Auto-detect from stack.yml** (read `.claude/stack.yml` if it exists):
+   - `stack` ← `runtime` field (`bun` → **Bun**, `node` → **Node**, `python` → **Python (uv)**)
+   - `test` ← `commands.test` (contains "vitest" → **Vitest**, "jest" → **Jest**, "pytest" → **Pytest**, else → **None**)
+   - `deploy` ← `deploy.platform` (`vercel` → **Vercel**, else → **None**)
+
+4. AskUserQuestion: **Set up CI/CD workflows** | **Skip**
+
+5. **If yes:**
+   - AskUserQuestion for stack (pre-select detected value): **Bun** | **Node** | **Python (uv)**
+   - AskUserQuestion for test framework (pre-select detected value): **Vitest** | **Jest** | **Pytest** | **None**
+   - AskUserQuestion for deploy (pre-select detected value): **Vercel** | **None**
+   - Run: `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts workflows --stack <stack> --test <test> --deploy <deploy>`
+   - Note: Python workflow generates a `ci.yml` running `uv run ruff check .` and `uv run pytest`.
+   - Display: `CI/CD workflows ✅ Created`
+
+6. **If skip:** display `CI/CD workflows ⏭ Skipped`
 
 $ARGUMENTS
