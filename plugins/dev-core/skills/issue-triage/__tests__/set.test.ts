@@ -28,10 +28,8 @@ process.env.PRIORITY_OPTIONS_JSON = JSON.stringify({
   'P3 - Low': 'pri-low',
 })
 
-// Mock config before github — Bun hoists vi.mock and validates factory against real module,
-// which would load config.ts before process.env assignments run. Mocking config avoids this.
-// Note: vi.importActual and importOriginal callback are not available in Bun 1.3.9,
-// so we provide a manual factory spreading only the exports the tests need.
+// Mock config before github — vi.mock is hoisted before process.env assignments,
+// so importOriginal would load config.ts with empty env vars. Manual factory is required.
 vi.mock('../../shared/config', () => ({
   isProjectConfigured: () => true,
   NOT_CONFIGURED_MSG: 'GitHub Project V2 is not configured.',
