@@ -298,24 +298,26 @@ export const PAGE_STYLES = `
   .vd-item {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     padding: 8px 12px;
     font-size: 13px;
+    line-height: 1.2;
   }
-  .vd-state { min-width: 100px; font-weight: 500; }
+  .vd-state { min-width: 90px; font-weight: 500; display: inline-flex; align-items: center; gap: 4px; }
   .vd-building .vd-state { color: var(--orange); }
   .vd-queued .vd-state { color: var(--text-muted); }
   .vd-ready .vd-state { color: var(--green); }
   .vd-error .vd-state { color: var(--red); }
   .vd-env-prod { background: rgba(63,185,80,.15); color: var(--green); border-color: rgba(63,185,80,.4); }
   .vd-env-preview { background: rgba(88,166,255,.1); color: var(--accent); border-color: rgba(88,166,255,.3); }
-  .vd-project-name { font-size: 11px; font-weight: 600; color: var(--text); background: var(--bg-alt); padding: 1px 6px; border-radius: 4px; }
+  .vd-item .badge { display: inline-flex; align-items: center; line-height: 1; }
+  .vd-project-name { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; color: var(--text); background: var(--bg-alt); padding: 2px 6px; border-radius: 4px; line-height: 1; }
   .vd-url { color: var(--accent); text-decoration: none; font-size: 12px; }
   .vd-url:hover { text-decoration: underline; }
-  .vd-branch { font-size: 11px; color: var(--text-muted); background: var(--bg); padding: 1px 6px; border-radius: 4px; }
+  .vd-branch { display: inline-flex; align-items: center; font-size: 11px; color: var(--text-muted); background: var(--bg); padding: 2px 6px; border-radius: 4px; line-height: 1; font-family: var(--font-mono, monospace); }
   .vd-msg { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
   .vd-age { margin-left: auto; font-size: 11px; }
-  .vd-inspect { color: var(--text-muted); text-decoration: none; font-size: 14px; padding: 0 4px; }
+  .vd-inspect { display: inline-flex; align-items: center; color: var(--text-muted); text-decoration: none; font-size: 13px; padding: 0 2px; }
   .vd-inspect:hover { color: var(--accent); }
 
   /* Build pipeline */
