@@ -2,90 +2,68 @@
 name: promote
 argument-hint: [--dry-run | --skip-preview | --finalize]
 description: Promote staging→main — pre-flight, version bump, changelog, PR & tag. Triggers: "promote staging" | "release" | "deploy" | "cut a release" | "--finalize".
-version: 0.1.0
+version: 0.2.0
 allowed-tools: Bash, Read, Grep, Write, Edit
 ---
 
 # Promote
 
-Promote `staging` to `main` for production deployment. Runs pre-flight checks, computes the version, generates changelog and release notes, commits them to staging, optionally triggers a deploy preview, and creates a staging→main PR. After merge, `--finalize` tags and creates a GitHub Release.
+`staging` → `main` for production. Pre-flight → version → changelog → commit → preview → PR.
+`--finalize`: post-merge tag + GitHub Release.
 
 ## Usage
 
 ```
-/promote                   → Full promotion flow with preview verification
-/promote --skip-preview    → Skip deploy preview, go straight to PR creation
-/promote --dry-run         → Show what would be promoted without creating anything
-/promote --finalize        → After merge: tag and create GitHub Release
+/promote                   → Full flow
+/promote --skip-preview    → Skip deploy preview
+/promote --dry-run         → Show what would be promoted, create nothing
+/promote --finalize        → Post-merge: tag + GitHub Release
 ```
 
-## Instructions
-
-### 1. Pre-flight Checks
-
-Run all of these and collect the output:
+## Step 1 — Pre-flight
 
 ```bash
-# Ensure we're on staging and it's up to date
 git fetch origin staging main
-git checkout staging
-git pull origin staging
-
-# Commits on staging that aren't on main
+git checkout staging && git pull origin staging
 git log main..staging --oneline
-
-# Changed files summary
 git diff main...staging --stat
-
-# Check for open PRs targeting staging (unmerged work)
 gh pr list --base staging --state open --json number,title,headRefName
 ```
 
-**Guard rails:**
+Guard rails:
 
 | Check | Condition | Action |
 |-------|-----------|--------|
-| **No commits ahead** | `git log main..staging` is empty | **REFUSE.** Nothing to promote. Stop. |
-| **Open PRs targeting staging** | `gh pr list --base staging` returns results | **WARN.** Show the list and ask via `AskUserQuestion` whether to continue or wait. |
-| **CI status on staging** | Check latest commit status | **WARN** if CI hasn't passed on the latest staging commit. |
+| No commits | `git log main..staging` empty | **REFUSE.** Nothing to promote. Stop. |
+| Open PRs on staging | `gh pr list --base staging` → results | **WARN** + AskUserQuestion: **Continue** \| **Wait** |
+| CI status | Check latest staging commit | **WARN** if ¬passing |
 
-Check CI status:
-
+CI check:
 ```bash
-gh api repos/:owner/:repo/commits/staging/check-runs --jq '[.check_runs[] | {name, conclusion}] | group_by(.conclusion) | map({conclusion: .[0].conclusion, count: length})'
+gh api repos/:owner/:repo/commits/staging/check-runs \
+  --jq '[.check_runs[] | {name, conclusion}] | group_by(.conclusion) | map({conclusion: .[0].conclusion, count: length})'
 ```
 
-### 2–4. Version, Changelog, Commit
+## Steps 2–4 — Version, Changelog, Commit
 
-Read [references/release-artifacts.md](references/release-artifacts.md) for full procedure (version computation, changelog generation, CHANGELOG.md + Fumadocs page + meta.json updates, commit to staging).
+Read [references/release-artifacts.md](references/release-artifacts.md) for full procedure.
 
-### 5. Deploy Preview (unless `--skip-preview`)
+## Step 5 — Deploy Preview
 
-If `--skip-preview` was NOT passed:
+¬`--skip-preview` ⇒
 
-1. **Trigger the Deploy Preview workflow:**
-   ```bash
-   gh workflow run deploy-preview.yml --ref staging -f target=both
-   ```
+```bash
+gh workflow run deploy-preview.yml --ref staging -f target=both
+sleep 5
+RUN_ID=$(gh run list --workflow=deploy-preview.yml --limit=1 --json databaseId --jq '.[0].databaseId')
+gh run watch $RUN_ID --exit-status
+```
 
-2. **Wait for completion** and present the preview URLs:
-   ```bash
-   # Get the latest run
-   sleep 5
-   RUN_ID=$(gh run list --workflow=deploy-preview.yml --limit=1 --json databaseId --jq '.[0].databaseId')
-   gh run watch $RUN_ID --exit-status
-   ```
+AskUserQuestion: **Looks good — proceed** | **Issues found — abort** | **Skip preview, proceed**
 
-3. **Ask the user to verify** via `AskUserQuestion`:
-   - **Looks good, proceed** — Continue to PR creation
-   - **Issues found, abort** — Stop the promotion
-   - **Skip preview, proceed anyway** — Continue without verification
+`--skip-preview` ⇒ skip entirely.
 
-If `--skip-preview` was passed, skip this step entirely.
-
-### 6. Present Summary
-
-Show the full promotion summary before creating the PR:
+## Step 6 — Summary
 
 ```
 Promotion Summary
@@ -94,28 +72,22 @@ Promotion Summary
   Commits:   {N} commits ahead of main
   PRs:       {N} merged PRs
   Files:     {N} files changed
-  CI:        {passing/failing/pending}
-  Preview:   {verified/skipped}
-
-Changelog:
-  {formatted changelog from step 3}
+  CI:        passing/failing/pending
+  Preview:   verified/skipped
 ```
 
-If `--dry-run` was passed, stop here. Show the summary and inform the user:
+`--dry-run` ⇒ display summary + changelog, stop. Inform: "Run `/promote` to create the promotion PR."
 
-> "Dry run complete. Run `/promote` to create the promotion PR."
-
-### 7. Create Promotion PR
+## Step 7 — Create Promotion PR
 
 ```bash
 gh pr create \
-  --base main \
-  --head staging \
+  --base main --head staging \
   --title "chore: promote staging to main ($VERSION)" \
   --body "$(cat <<EOF
 ## Promotion: staging → main ($VERSION)
 
-{changelog from step 3}
+{changelog}
 
 ## Pre-flight
 - [x] CI passing on staging
@@ -124,119 +96,87 @@ gh pr create \
 - [x] Release notes committed to staging
 
 ---
-Generated with [Claude Code](https://claude.com/claude-code) via `/promote`
+Generated with [Claude Code](https://claude.com/claude-code) via \`/promote\`
 EOF
 )"
 ```
 
-After creation, display the PR URL.
+Display PR URL.
 
-### 8. Post-merge Reminder
+## Step 8 — Post-merge Reminder
 
-After the PR is created, inform the user:
+Inform:
+```
+Promotion PR created: {URL}
 
-> "Promotion PR created: {URL}
->
-> After merge:
-> 1. Vercel will auto-deploy to production (changelog and release notes included)
-> 2. Verify production at your domain
-> 3. Run `/promote --finalize` to tag the release and create the GitHub Release
-> 4. Run `/cleanup` to clean up merged branches"
-
-### 9. Finalize Release (`--finalize`)
-
-**Only runs when `--finalize` is passed.** This step executes after the promotion PR has been merged. Skip steps 1–8 entirely.
-
-`--finalize` only creates the git tag and GitHub Release. The changelog and release notes are already deployed (committed to staging in step 4, merged to main via the promotion PR).
-
-#### 9a. Verify promotion PR was merged
-
-```bash
-git fetch origin main
-git checkout main
-git pull origin main
-
-# Verify the latest promotion PR is merged
-gh pr list --base main --head staging --state merged --limit 1 --json number,title,mergedAt
+After merge:
+  1. Vercel auto-deploys to production
+  2. Verify production at your domain
+  3. Run /promote --finalize to tag + create GitHub Release
+  4. Run /cleanup to clean up merged branches
 ```
 
-If no merged promotion PR is found, **REFUSE** and inform the user to merge the promotion PR first.
+## Step 9 — Finalize (`--finalize` only)
 
-#### 9b. Detect version from CHANGELOG.md
+Skip Steps 1–8 entirely. Runs post-merge only.
 
-Read the latest version from `CHANGELOG.md` (the first `## [vX.Y.Z]` entry):
+**9a. Verify merge:**
+```bash
+git fetch origin main && git checkout main && git pull origin main
+gh pr list --base main --head staging --state merged --limit 1 --json number,title,mergedAt
+```
+¬merged PR found ⇒ REFUSE: "Merge the promotion PR first."
 
+**9b. Detect version:**
 ```bash
 grep -oP '## \[\Kv[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1
 ```
+AskUserQuestion: **Use {detected version}** | **Custom version**
 
-Confirm the version with the user via `AskUserQuestion`:
-- **Use {detected version}** (Recommended)
-- **Custom version** — let user type a version
-
-#### 9c. Create annotated git tag
-
-Before tagging, check if the tag already exists (idempotency guard for repeated `--finalize` runs):
-
+**9c. Tag:**
 ```bash
-# Check if tag already exists
-if git tag -l "$VERSION" | grep -q "$VERSION"; then
-  echo "Tag $VERSION already exists. Aborting."
-  exit 1
-fi
-
+git tag -l "$VERSION" | grep -q "$VERSION" && echo "Tag exists — abort" && exit 1
 git tag -a "$VERSION" -m "Release $VERSION"
 git push origin "$VERSION"
 ```
 
-#### 9d. Create GitHub Release
-
+**9d. Release:**
 ```bash
 gh release create "$VERSION" --title "$VERSION" --notes "$CHANGELOG_CONTENT"
 ```
 
-Use the same changelog content from `CHANGELOG.md` for the release notes.
-
-Inform the user:
-
-> "Release $VERSION finalized:
-> - Git tag: $VERSION
-> - GitHub Release: {URL}
-> - CHANGELOG.md and docs page were already deployed with the promotion PR
->
-> Run `/cleanup` to clean up merged branches."
+Inform: "Release $VERSION finalized: tag + GitHub Release created. Run `/cleanup` to clean up merged branches."
 
 ## Options
 
 | Flag | Description |
 |------|-------------|
 | (none) | Full flow: pre-flight → version → changelog → commit → preview → PR |
-| `--skip-preview` | Skip deploy preview verification |
-| `--dry-run` | Show what would be promoted without creating anything |
-| `--finalize` | Post-merge: tag and create GitHub Release (changelog already deployed) |
+| `--skip-preview` | Skip deploy preview |
+| `--dry-run` | Show summary + changelog, create nothing |
+| `--finalize` | Post-merge: tag + GitHub Release (changelog already deployed) |
 
 ## Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| Nothing to promote | Refuse, inform user staging is up to date with main |
-| Open PRs on staging | Warn, list them, ask user to proceed or wait |
-| CI failing on staging | Warn, show failures, ask user to proceed or fix first |
-| Deploy preview fails | Show error, ask user to abort or proceed anyway |
-| Promotion PR already exists | Detect via `gh pr list --base main --head staging`, offer to update instead |
-| `--dry-run` | Show summary and changelog, do not create PR or commit changelog |
-| Promotion PR not merged (`--finalize`) | Refuse, tell user to merge the promotion PR first |
-| No commits since last tag | Refuse, nothing to release |
-| Tag already exists (`--finalize`) | Refuse, inform user the tag already exists |
-| Invalid version format | Refuse, ask user to provide a valid `vX.Y.Z` version |
+| Nothing to promote | REFUSE: staging is up to date with main |
+| Open PRs on staging | Warn, list, AskUserQuestion: continue or wait |
+| CI failing | Warn, show failures, AskUserQuestion: proceed or fix |
+| Deploy preview fails | Show error, AskUserQuestion: abort or proceed |
+| Promotion PR already exists | Detect via `gh pr list --base main --head staging`, offer update |
+| `--dry-run` | Show summary + changelog only, ¬create PR ∨ commit |
+| ¬merged promotion PR (`--finalize`) | REFUSE: merge first |
+| Tag already exists (`--finalize`) | REFUSE: tag exists |
+| Invalid version | REFUSE: ask for valid `vX.Y.Z` |
 
 ## Safety Rules
 
-1. **NEVER force-push** to main or staging
-2. **NEVER merge** the PR automatically — the user merges after review
-3. **ALWAYS show the changelog** before creating the PR
-4. **ALWAYS check CI status** before promoting
-5. **ALWAYS warn about open PRs** targeting staging
-6. **NEVER push directly to main** — changelog is committed to staging and reaches main via the promotion PR
+1. ¬force-push to main ∨ staging
+2. ¬auto-merge — user merges after review
+3. Always show changelog before creating PR
+4. Always check CI before promoting
+5. Always warn about open PRs on staging
+6. ¬push directly to main — changelog reaches main via promotion PR
 
 $ARGUMENTS

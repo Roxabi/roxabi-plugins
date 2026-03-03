@@ -2,199 +2,136 @@
 name: pr
 argument-hint: [--draft | --base <branch>]
 description: Create/update PRs with Conventional Commits title, issue linking & guard rails. Triggers: "create PR" | "open PR" | "submit PR" | "update PR" | "/pr --draft".
-version: 0.1.0
+version: 0.2.0
 allowed-tools: Bash, Read, Grep
 ---
 
 # Pull Request
 
-Create or update a pull request with a consistent format, proper issue linking, and guard rails. Natural pair with `/commit`.
+Branch → PR: Conventional Commits title, issue linking, guard rails.
 
-**⚠ Flow: single continuous pipeline. ¬stop between steps. AskUserQuestion response → immediately execute next step. Stop only on: explicit Cancel, REFUSE condition, or Step 6 completion.**
+**⚠ Flow: single continuous pipeline. ¬stop between steps. Stop only on: REFUSE, explicit Cancel, or Step 6 completion.**
 
-## Instructions
-
-### 1. Gather State
-
-Run all these commands and collect the output:
+## Step 1 — Gather State
 
 ```bash
-# Current branch
 BRANCH=$(git branch --show-current)
-echo "Branch: $BRANCH"
-
-# All commits on this branch vs staging
 git log staging..HEAD --oneline
-
-# Changed files summary
 git diff staging...HEAD --stat
-
-# Check if PR already exists for this branch
 gh pr list --head "$BRANCH" --json number,title,url,state
 ```
 
-### 2. Guard Rails
-
-Check each condition **before** proceeding:
+## Step 2 — Guard Rails
 
 | Check | Condition | Action |
 |-------|-----------|--------|
-| **Branch is staging/main/master** | `$BRANCH` is `staging`, `main`, or `master` | **REFUSE.** Tell user to create a feature branch first. Stop here. |
-| **No commits ahead** | `git log staging..HEAD` is empty | **REFUSE.** Nothing to PR. Stop here. |
-| **PR already exists** | `gh pr list` returned a result | Offer to **update** the existing PR description with `gh pr edit` instead of creating a new one. Use `AskUserQuestion` to confirm. |
-| **Branch not pushed** | `git ls-remote --heads origin $BRANCH` is empty | Push with `git push -u origin $BRANCH` before creating PR. |
-| **Behind staging** | `git rev-list HEAD..staging --count` > 0 | **Warn** the user that the branch is behind staging and suggest rebasing. Use `AskUserQuestion` to ask whether to continue anyway or rebase first. |
-| **Quality gates** | Run `bun lint && bun typecheck` | **Warn** if failing but do NOT block. Show the output and note it in the PR body if user chooses to proceed. |
+| Protected branch | BRANCH ∈ {staging, main, master} | **REFUSE.** Create feature branch first. Stop. |
+| No commits | `git log staging..HEAD` empty | **REFUSE.** Nothing to PR. Stop. |
+| PR exists | gh pr list → result | AskUserQuestion: **Update** (`gh pr edit`) \| **Cancel** |
+| Branch not pushed | `git ls-remote --heads origin $BRANCH` empty | `git push -u origin $BRANCH` |
+| Behind staging | `git rev-list HEAD..staging --count` > 0 | Warn + AskUserQuestion: **Continue** \| **Rebase first** |
+| Quality gates | `{commands.lint} && {commands.typecheck}` | Warn on failure, ¬block. Note in PR body if proceeding. |
 
-### 3. Generate PR Content
+## Step 3 — Generate Content
 
-**Analyze ALL commits** on the branch (not just the latest) to understand the full scope of changes:
-
+**3a. Commits + diff:**
 ```bash
-# Full commit messages
 git log staging..HEAD --format="%h %s%n%b"
-
-# Diff stat for scope
 git diff staging...HEAD --stat
 ```
 
-**Build lifecycle section** (gather artifacts linked to this PR):
-
+**3b. Lifecycle artifacts:**
 ```bash
-# Extract issue number from branch name (e.g., feat/42-slug → 42)
 ISSUE_NUM=$(echo "$BRANCH" | grep -oP '(?<=/)\d+')
-
-# Check for analysis file
 ls artifacts/analyses/${ISSUE_NUM}-*.mdx 2>/dev/null
-
-# Check for spec file
 ls artifacts/specs/${ISSUE_NUM}-*.mdx 2>/dev/null
-
-# Get issue title + status (if issue exists)
 gh issue view "$ISSUE_NUM" --json title,state,labels 2>/dev/null
-
-# Count new test files in this branch
 git diff staging...HEAD --name-only | grep -c '\.test\.\|\.spec\.' || echo 0
-
-# Check lint + typecheck status (already run in guard rails)
 ```
 
-For each artifact found, add a row to the lifecycle table. Omit rows for artifacts that don't exist (e.g., no spec for S-tier changes). See the PR Body Template below.
+Issue# detection: first number after `/` in branch name (e.g. `feat/42-slug` → `#42`). ¬found → AskUserQuestion.
 
-**Detect issue number** from the branch name:
+**3c. Title:** `<type>(<scope>): <desc>` (≤70 chars). Type from primary commit purpose. Scope from files: `web | api | ui | config` ∨ omit if cross-cutting.
 
-- Branch `feat/42-user-auth` -> issue `#42`
-- Branch `fix/15-login-timeout` -> issue `#15`
-- Pattern: extract the first number after the `/` in the branch name
-- If no issue number found, ask the user via `AskUserQuestion`
+**3d. Body:** template below.
 
-**Generate title** in Conventional Commits format:
+## Step 4 — Create
 
-- Analyze the commits to determine the primary type (`feat`, `fix`, `docs`, `refactor`, `chore`, `test`, `ci`, `perf`)
-- Analyze the changed files to determine the scope (`web`, `api`, `ui`, `config`, or omit if cross-cutting)
-- Format: `<type>(<scope>): <description>` (under 70 characters)
-- The description should summarize what the PR accomplishes, not list individual commits
+Show generated title + body → create immediately (¬ask how). `--draft` ⇒ create as draft.
+Failure ∨ explicit edit request ⇒ AskUserQuestion: **Edit title/body** | **Cancel**.
 
-**Generate body** using the template below.
-
-### 4. Create by Default
-
-Show the generated title and body to the user, then **create the PR immediately** (unless `--draft` was passed, in which case create as draft).
-
-Do NOT ask the user how they want to create it — just create it.
-
-If creation fails or the user explicitly asks to edit before creating, use `AskUserQuestion` with options: **Edit title/body** / **Cancel**.
-
-### 5. Create PR
+## Step 5 — Create PR
 
 ```bash
-# Standard PR (defaults to staging as base)
-gh pr create --title "<title>" --body "<body>" --base staging
-
-# If --draft flag or user chose "Create as Draft"
-gh pr create --title "<title>" --body "<body>" --base staging --draft
-
-# If --base flag specified (overrides default)
-gh pr create --title "<title>" --body "<body>" --base <branch>
+gh pr create --title "<title>" --body "<body>" --base staging [--draft]
+# --base <branch> if flag specified
 ```
 
-After creation, display the PR URL.
+Display PR URL.
 
-### 6. Update Issue Status to "Review"
+## Step 6 — Update Issue Status
 
-If an issue number was detected (from the branch name or user input), move it to **Review** on the project board:
-
+∃ issue# ⇒
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <ISSUE_NUMBER> --status Review
 ```
 
-Skip this step if no issue is associated with the PR.
-
-If updating an existing PR instead:
-
-```bash
-gh pr edit <number> --title "<title>" --body "<body>"
-```
+Updating existing PR ⇒ `gh pr edit <number> --title "<title>" --body "<body>"`.
 
 ## PR Body Template
 
 ```markdown
 ## Summary
-- {bullet 1: what changed and why}
-- {bullet 2: secondary change if applicable}
-- {bullet 3: if needed}
+- {what changed and why}
+- {secondary change if applicable}
 
 ## Lifecycle
 
 | Phase | Artifact | Status |
 |-------|----------|--------|
-| Intent | #{issue_number}: {issue title} | {issue state} |
-| Analysis | [{analysis filename}](artifacts/analyses/{filename}) | {Present/Absent} |
-| Spec | [{spec filename}](artifacts/specs/{filename}) | {Present/Absent} |
+| Intent | #{N}: {title} | {state} |
+| Analysis | [{filename}](artifacts/analyses/{filename}) | Present/Absent |
+| Spec | [{filename}](artifacts/specs/{filename}) | Present/Absent |
 | Implementation | {N} commits on `{branch}` | Complete |
-| Verification | Lint {✅/❌} Typecheck {✅/❌} Tests {✅/❌} ({N} new) | {Passed/Failed} |
+| Verification | Lint {✅/❌} Typecheck {✅/❌} Tests {✅/❌} ({N} new) | Passed/Failed |
 
 ## Test Plan
-- [ ] {how to verify the change works}
-- [ ] {edge case to test}
+- [ ] {how to verify}
+- [ ] {edge case}
 
-Closes #{issue_number}
+Closes #{N}
 
 ---
 Generated with [Claude Code](https://claude.com/claude-code) via `/pr`
 ```
 
-**Notes on the template:**
-
-- Summary bullets should focus on **what** changed and **why**, not list commits
-- **Lifecycle table:** Include only rows where artifacts exist. For S-tier changes (no spec/analysis), show only Intent + Implementation + Verification. Omit the entire Lifecycle section if there's no linked issue.
-- Test Plan should have actionable items a reviewer can follow
-- `Closes #XX` auto-links and auto-closes the issue on merge
-- If no issue number was detected, omit the `Closes` line and the Lifecycle section
+Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue → omit Lifecycle + Closes.
 
 ## Options
 
 | Flag | Description |
 |------|-------------|
-| (none) | Create PR targeting `staging` (default branch) |
-| `--draft` | Create as draft PR |
-| `--base <branch>` | Target a specific base branch instead of `staging` |
+| (none) | Target `staging` |
+| `--draft` | Create as draft |
+| `--base <branch>` | Override base branch |
 
 ## Edge Cases
 
-- **Branch is staging/main/master:** Refuse immediately. Tell user: "Cannot create a PR from staging. Create a feature branch first: `git checkout -b feature/<issue>-<description>`"
-- **No commits ahead of staging:** Refuse. Tell user: "No commits ahead of staging. Nothing to create a PR for."
-- **PR already exists:** Offer to update the existing PR description with `gh pr edit`. Show the existing PR URL.
-- **No issue number in branch name:** Ask the user via `AskUserQuestion` if they want to link an issue (provide issue number) or skip issue linking.
-- **Multiple types of changes:** If commits span multiple types (e.g., feat + test + docs), use the primary type (the one representing the main purpose of the PR).
-- **Lint/typecheck failures:** Show the failures as a warning, ask user whether to proceed or fix first. If proceeding, add a note in the PR body under Summary.
+| Scenario | Behavior |
+|----------|----------|
+| Branch is staging/main/master | REFUSE: "Create a feature branch first" |
+| No commits ahead | REFUSE: "Nothing to create a PR for" |
+| PR already exists | Offer `gh pr edit` to update |
+| ¬issue# in branch | AskUserQuestion: link issue or skip |
+| Multiple commit types | Use primary type only |
+| Lint/typecheck fail | Warn + AskUserQuestion: proceed or fix first |
 
 ## Safety Rules
 
-1. **NEVER create a PR from `staging`, `main`, or `master`**
-2. **NEVER force-push** as part of this skill
-3. **ALWAYS show the PR content** to the user when creating
-4. **ALWAYS use `AskUserQuestion`** for decisions (proceed despite warnings, edit content, etc.)
-5. **ALWAYS display the PR URL** after successful creation
+1. ¬PR from `staging`, `main`, `master`
+2. ¬force-push
+3. Always show PR content before creation
+4. AskUserQuestion for all decisions (proceed despite warnings, edit)
+5. Always display PR URL after creation
 
 $ARGUMENTS
