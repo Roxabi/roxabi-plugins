@@ -258,6 +258,26 @@ const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID ?? ''
 const VERCEL_TEAM_ID = process.env.VERCEL_TEAM_ID ?? ''
 const FIVE_MINUTES = 5 * 60 * 1000
 
+function getVercelToken(): string {
+  if (process.env.VERCEL_TOKEN) return process.env.VERCEL_TOKEN
+  // Try Vercel CLI auth files (written by `vercel login`)
+  const home = process.env.HOME ?? ''
+  const candidates = [
+    `${home}/.local/share/com.vercel.cli/auth.json`, // Linux
+    `${home}/Library/Application Support/com.vercel.cli/auth.json`, // macOS
+    `${home}/.vercel/auth.json`, // legacy
+  ]
+  for (const p of candidates) {
+    try {
+      const json = JSON.parse(require('node:fs').readFileSync(p, 'utf8')) as { token?: string }
+      if (json.token) return json.token
+    } catch {
+      // not found or unreadable — try next
+    }
+  }
+  return ''
+}
+
 // Build phases detected from Vercel build log text
 const BUILD_PHASES: { name: string; patterns: RegExp[] }[] = [
   { name: 'Provision', patterns: [/Running build in/] },
@@ -293,9 +313,9 @@ function parseBuildSteps(logs: string[], deployState: string): BuildStep[] {
   })
 }
 
-async function fetchBuildLogs(token: string, deploymentId: string): Promise<string[]> {
+async function fetchBuildLogs(token: string, deploymentId: string, teamId: string): Promise<string[]> {
   try {
-    const url = `https://api.vercel.com/v3/deployments/${deploymentId}/events?teamId=${VERCEL_TEAM_ID}&limit=200`
+    const url = `https://api.vercel.com/v3/deployments/${deploymentId}/events?teamId=${teamId}&limit=200`
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -311,7 +331,7 @@ export async function fetchVercelDeployments(
   projectId: string = VERCEL_PROJECT_ID,
   teamId: string = VERCEL_TEAM_ID,
 ): Promise<VercelDeployment[]> {
-  const token = process.env.VERCEL_TOKEN
+  const token = getVercelToken()
   if (!token || !projectId || !teamId) return []
 
   try {
@@ -349,7 +369,7 @@ export async function fetchVercelDeployments(
       })
 
     // Fetch build logs in parallel for all visible deployments
-    const logResults = await Promise.all(filtered.map((d) => fetchBuildLogs(token, d.uid)))
+    const logResults = await Promise.all(filtered.map((d) => fetchBuildLogs(token, d.uid, teamId)))
     for (let i = 0; i < filtered.length; i++) {
       filtered[i].buildSteps = parseBuildSteps(logResults[i], filtered[i].state)
     }
