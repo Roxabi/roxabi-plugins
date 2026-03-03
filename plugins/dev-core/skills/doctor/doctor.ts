@@ -186,7 +186,7 @@ function checkWorkflows(ghOk: boolean, owner: string, repo: string): Section {
   const checks: Check[] = []
 
   // Fetch remote workflow list once (workflows may be pushed via REST API, not locally committed)
-  let remoteFiles: Set<string> = new Set()
+  const remoteFiles: Set<string> = new Set()
   if (ghOk && owner && repo) {
     const r = spawnSync(['gh', 'api', `/repos/${owner}/${repo}/contents/.github/workflows`, '--jq', '.[].name'])
     if (r.ok) {
@@ -248,7 +248,10 @@ function checkSecrets(ghOk: boolean, owner: string, repo: string): Section {
   }
 
   if (checks.length === 0)
-    return { name: 'Secrets', checks: [{ name: 'secrets', status: 'skip', detail: 'no secrets required by current workflows' }] }
+    return {
+      name: 'Secrets',
+      checks: [{ name: 'secrets', status: 'skip', detail: 'no secrets required by current workflows' }],
+    }
 
   return { name: 'Secrets', checks }
 }

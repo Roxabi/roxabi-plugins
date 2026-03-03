@@ -188,8 +188,7 @@ export function generateCiYml(opts: WorkflowOpts): string {
       testStep = '\n      - name: Test\n        run: bun test'
     }
   } else {
-    setupStep =
-      '      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - run: npm ci'
+    setupStep = '      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - run: npm ci'
     lintCmd = 'npm run lint'
     typecheckCmd = 'npx tsc --noEmit'
     if (opts.test !== 'none') {
@@ -281,7 +280,7 @@ async function pushWorkflowFile(
   }
 
   const checkRes = await fetch(url, { headers })
-  const existing = checkRes.ok ? (await checkRes.json() as { sha: string }) : null
+  const existing = checkRes.ok ? ((await checkRes.json()) as { sha: string }) : null
 
   const body: Record<string, string> = {
     message: `chore: ${existing ? 'update' : 'add'} ${filename} workflow`,
@@ -297,7 +296,7 @@ async function pushWorkflowFile(
   })
 
   if (!res.ok) {
-    const err = await res.json() as { message?: string }
+    const err = (await res.json()) as { message?: string }
     throw new Error(`Failed to push ${filename}: ${err.message ?? JSON.stringify(err)}`)
   }
 
@@ -335,11 +334,7 @@ export async function pushWorkflows(
 }
 
 /** Push a specific subset of workflow files (e.g. only the generic ones). */
-export async function pushGenericWorkflows(
-  owner: string,
-  repo: string,
-  branch = 'main',
-): Promise<PushResult[]> {
+export async function pushGenericWorkflows(owner: string, repo: string, branch = 'main'): Promise<PushResult[]> {
   const token = await getToken()
   const files = [
     { name: 'auto-merge.yml', content: generateAutoMergeYml() },
