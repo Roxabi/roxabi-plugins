@@ -2,6 +2,7 @@ import { GITHUB_REPO, GH_PROJECT_ID } from '../../shared/config'
 import { ghGraphQL, run } from '../../shared/github'
 import { BRANCH_CI_QUERY, ISSUES_QUERY, PRS_QUERY } from '../../shared/queries'
 import type { RawItem } from '../../shared/types'
+import type { WorkspaceProject } from '../../shared/workspace'
 
 import type {
   Branch,
@@ -14,12 +15,6 @@ import type {
   WorkflowRun,
   Worktree,
 } from './types'
-
-export interface WorkspaceProject {
-  repo: string
-  projectId: string
-  label: string
-}
 
 /** Fetch all raw items for a project with full cursor-based pagination. */
 async function fetchAllItemsForProject(projectId: string): Promise<RawItem[]> {

@@ -17,6 +17,48 @@ import {
 import { buildDepGraph, renderDepGraph } from './graph'
 import { PAGE_STYLES } from './page-styles'
 import type { Branch, BranchCI, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './types'
+import type { WorkspaceProject } from '../../shared/workspace'
+
+// ---------------------------------------------------------------------------
+// Per-project column helpers
+// ---------------------------------------------------------------------------
+
+const COLUMN_SCHEMA = {
+  technical: { col2: { label: 'Size', icon: '📐' }, col3: { label: 'Pri', icon: '🔥' } },
+  company:   { col2: { label: 'Quarter', icon: '📅' }, col3: { label: 'Pillar', icon: '🏛' } },
+} as const
+
+export function columnLabel(p: WorkspaceProject, slot: 'col2' | 'col3') {
+  return COLUMN_SCHEMA[p.type ?? 'technical'][slot]
+}
+
+export const showCI = (p: WorkspaceProject): boolean => (p.type ?? 'technical') !== 'company'
+export const showDevLinks = (p: WorkspaceProject): boolean => (p.type ?? 'technical') !== 'company'
+export const showSubIssues = (p: WorkspaceProject): boolean => (p.type ?? 'technical') !== 'company'
+
+export function defaultSort(p: WorkspaceProject): string {
+  return (p.type ?? 'technical') === 'company' ? 'col2-asc' : 'priority-desc'
+}
+
+/** Build JSON for `data-field-sections` attribute — drives per-project context menu. */
+function buildFieldSections(project?: WorkspaceProject): string {
+  const c2 = project ? columnLabel(project, 'col2') : { label: 'Size', icon: '📐' }
+  const c3 = project ? columnLabel(project, 'col3') : { label: 'Pri', icon: '🔥' }
+  const statusOpts = project?.fieldIds?.statusOptions
+    ? Object.keys(project.fieldIds.statusOptions)
+    : [...STATUS_VALUES]
+  const col2Opts = project?.fieldIds?.col2Options
+    ? Object.keys(project.fieldIds.col2Options)
+    : project?.type === 'company' ? [] : [...SIZE_VALUES]
+  const col3Opts = project?.fieldIds?.col3Options
+    ? Object.keys(project.fieldIds.col3Options)
+    : project?.type === 'company' ? [] : [...PRIORITY_VALUES]
+  return JSON.stringify([
+    { label: 'Status', field: 'status', options: statusOpts },
+    { label: c2.label, field: 'col2', options: col2Opts },
+    { label: c3.label, field: 'col3', options: col3Opts },
+  ])
+}
 
 const INITIAL_VISIBLE = 8
 
@@ -29,7 +71,7 @@ function splitIssueRows(issues: Issue[]) {
   }
 }
 
-function buildTabBar(projects: Array<{label: string, repo: string}>, activeTab: string): string {
+function buildTabBar(projects: WorkspaceProject[], activeTab: string): string {
   const allTab = `<button class="tab${activeTab === 'All' ? ' active' : ''}" onclick="switchTab('All')">All</button>`
   const projectTabs = projects.map(p => buildProjectTab(p.label, p.repo, activeTab)).join('\n')
   return `<div class="tab-bar" id="tab-bar">${allTab}\n${projectTabs}\n${buildAddButton()}</div>`
@@ -45,13 +87,14 @@ function buildAddButton(): string {
 
 type ProjectMeta = { prs: PR[]; branchCI: BranchCI[]; workflowRuns: WorkflowRun[]; deployments: VercelDeployment[] }
 
-function buildAllView(byProject: Map<string, Issue[]>): string {
+function buildAllView(byProject: Map<string, Issue[]>, workspaceProjects?: WorkspaceProject[]): string {
   if (byProject.size === 0) {
     return '<div class="empty-state">No projects registered — click + to add one</div>'
   }
   return [...byProject.entries()].map(([label, issues]) => {
+    const project = workspaceProjects?.find(p => p.label === label)
     const depNodes = buildDepGraph(issues)
-    const graphHtml = depNodes.length > 0
+    const graphHtml = (!project || showSubIssues(project)) && depNodes.length > 0
       ? `<div class="project-graph" style="display:none;"><div class="section graph-subsection">
         <h3>Dependency Graph</h3>
         <div class="graph-container">${renderDepGraph(depNodes, issues)}</div>
@@ -59,22 +102,26 @@ function buildAllView(byProject: Map<string, Issue[]>): string {
       : ''
     return `<div data-project="${escHtml(label)}">
       <h3 class="project-header">${escHtml(label)}</h3>
-      ${issues.length === 0 ? '<p class="no-issues">No open issues</p>' : buildIssueTable(issues)}
+      ${issues.length === 0 ? '<p class="no-issues">No open issues</p>' : buildIssueTable(issues, project)}
       ${graphHtml}
     </div>`
   }).join('\n')
 }
 
-function buildIssueTable(issues: Issue[]): string {
+function buildIssueTable(issues: Issue[], project?: WorkspaceProject): string {
   const { visibleRows, hiddenRows, hasMore, hiddenCount } = splitIssueRows(issues)
-  return `<table>
+  const c2 = project ? columnLabel(project, 'col2') : { label: 'Size', icon: '📐' }
+  const c3 = project ? columnLabel(project, 'col3') : { label: 'Pri', icon: '🔥' }
+  const fieldSections = escHtml(buildFieldSections(project))
+  const projectLabel = project ? ` data-project-label="${escHtml(project.label)}"` : ''
+  return `<table data-field-sections="${fieldSections}"${projectLabel}>
     <thead>
       <tr>
         <th>#</th>
         <th>Title</th>
         <th>Status</th>
-        <th>Size</th>
-        <th>Pri</th>
+        <th>${c2.icon} ${c2.label}</th>
+        <th>${c3.icon} ${c3.label}</th>
         <th>&#9889;</th>
         <th>Deps</th>
       </tr>
@@ -138,7 +185,7 @@ export function buildHtml(
   fetchMs: number,
   updatedAt: number,
   byProject?: Map<string, Issue[]>,
-  workspaceProjects?: Array<{label: string, repo: string}>,
+  workspaceProjects?: WorkspaceProject[],
   byProjectMeta?: Map<string, ProjectMeta>
 ): string {
   const isMultiProject = byProject !== undefined && byProject.size > 0
@@ -154,9 +201,15 @@ export function buildHtml(
 
   // In multi-project mode, build combined sections with per-project [data-project] groups
   // so switchTab can show/hide across ALL sections uniformly.
+  const projectFor = (l: string): WorkspaceProject | undefined =>
+    workspaceProjects?.find(p => p.label === l)
+
   const vercelHtml = isMultiProject && byProjectMeta
     ? (() => {
-        const withV = [...byProjectMeta.entries()].filter(([, m]) => m.deployments.length > 0)
+        const withV = [...byProjectMeta.entries()].filter(([l, m]) => {
+          const p = projectFor(l)
+          return m.deployments.length > 0 && (!p || showDevLinks(p))
+        })
         if (withV.length === 0) return ''
         const groups = withV.map(([l, m]) =>
           `<div data-project="${escHtml(l)}"><div class="project-sep-inline">${escHtml(l)}</div>${vercelCards(m.deployments)}</div>`
@@ -166,7 +219,10 @@ export function buildHtml(
     : renderVercelDeployments(deployments)
   const wrHtml = isMultiProject && byProjectMeta
     ? (() => {
-        const withWR = [...byProjectMeta.entries()].filter(([, m]) => m.workflowRuns.length > 0)
+        const withWR = [...byProjectMeta.entries()].filter(([l, m]) => {
+          const p = projectFor(l)
+          return m.workflowRuns.length > 0 && (!p || showCI(p))
+        })
         if (withWR.length === 0) return ''
         const groups = withWR.map(([l, m]) =>
           `<div data-project="${escHtml(l)}"><div class="project-sep-inline">${escHtml(l)}</div>${workflowRunCards(m.workflowRuns)}</div>`
@@ -176,7 +232,10 @@ export function buildHtml(
     : renderWorkflowRuns(workflowRuns)
   const prsHtml = isMultiProject && byProjectMeta
     ? (() => {
-        const withPRs = [...byProjectMeta.entries()].filter(([, m]) => m.prs.length > 0)
+        const withPRs = [...byProjectMeta.entries()].filter(([l, m]) => {
+          const p = projectFor(l)
+          return m.prs.length > 0 && (!p || showDevLinks(p))
+        })
         if (withPRs.length === 0) return ''
         const bodies = withPRs.map(([l, m]) =>
           `<tbody data-project="${escHtml(l)}"><tr class="project-sep-row"><td colspan="6">${escHtml(l)}</td></tr>${prRows(m.prs)}</tbody>`
@@ -188,7 +247,10 @@ export function buildHtml(
     : renderPRs(prs)
   const ciHtml = isMultiProject && byProjectMeta
     ? (() => {
-        const withCI = [...byProjectMeta.entries()].filter(([, m]) => shouldShowCI(m.branchCI))
+        const withCI = [...byProjectMeta.entries()].filter(([l, m]) => {
+          const p = projectFor(l)
+          return shouldShowCI(m.branchCI) && (!p || showCI(p))
+        })
         if (withCI.length === 0) return ''
         const bodies = withCI.map(([l, m]) =>
           `<tbody data-project="${escHtml(l)}"><tr class="project-sep-row"><td colspan="5">${escHtml(l)}</td></tr>${branchCIRows(m.branchCI, l)}</tbody>`
@@ -198,15 +260,18 @@ export function buildHtml(
   </tr></thead>${bodies}</table>`
       })()
     : renderBranchCI(branchCI)
-  const showCI = isMultiProject ? !!ciHtml : shouldShowCI(branchCI)
+  const showCISection = isMultiProject ? !!ciHtml : shouldShowCI(branchCI)
   const showPRs = isMultiProject ? !!prsHtml : prs.length > 0
 
   const tabBarHtml = isMultiProject
-    ? buildTabBar(workspaceProjects ?? [...byProject!.keys()].map(label => ({label, repo: label})), 'All')
+    ? buildTabBar(
+        workspaceProjects ?? [...byProject!.keys()].map(label => ({ label, repo: label, projectId: '' })),
+        'All'
+      )
     : ''
 
   const issuesSectionHtml = isMultiProject
-    ? buildAllView(byProject!)
+    ? buildAllView(byProject!, workspaceProjects)
     : `<table>
     <thead>
       <tr>
@@ -271,7 +336,7 @@ ${LIVE_STYLES}
 
   <div id="section-workflow-runs">${wrHtml}</div>
 
-  <div id="section-ci">${showCI ? `<div class="section"><h2>CI Status</h2>${ciHtml}</div>` : ''}</div>
+  <div id="section-ci">${showCISection ? `<div class="section"><h2>CI Status</h2>${ciHtml}</div>` : ''}</div>
 
   <div id="section-prs">${showPRs ? `<div class="section"><h2>Pull Requests</h2>${prsHtml}</div>` : ''}</div>
 
@@ -298,15 +363,10 @@ ${LIVE_STYLES}
 
   ${workspaceDialogHtml}
 
-  <!-- Context menu -->
+  <!-- Context menu — rebuilt dynamically from table's data-field-sections on each open -->
   <div id="ctx-menu" class="ctx-menu">
     <div class="ctx-header">#<span id="ctx-issue-num"></span></div>
-    <div class="ctx-section">Status</div>
-    ${STATUS_VALUES.map(v => `<div class="ctx-item" data-field="status" data-value="${escHtml(v)}">${escHtml(v)}</div>`).join('\n    ')}
-    <div class="ctx-section">Size</div>
-    ${SIZE_VALUES.map(v => `<div class="ctx-item" data-field="size" data-value="${escHtml(v)}">${escHtml(v)}</div>`).join('\n    ')}
-    <div class="ctx-section">Priority</div>
-    ${PRIORITY_VALUES.map(v => `<div class="ctx-item" data-field="priority" data-value="${escHtml(v)}">${escHtml(v)}</div>`).join('\n    ')}
+    <div id="ctx-body"></div>
   </div>
   <div id="toast" class="toast"></div>
 
@@ -367,6 +427,14 @@ ${LIVE_STYLES}
     var toast = document.getElementById('toast');
     var ctxIssue = null;
 
+    var ctxBody = document.getElementById('ctx-body');
+    // Default field sections (technical project fallback)
+    var DEFAULT_SECTIONS = [
+      { label: 'Status', field: 'status', options: ${JSON.stringify([...STATUS_VALUES])} },
+      { label: 'Size', field: 'col2', options: ${JSON.stringify([...SIZE_VALUES])} },
+      { label: 'Pri', field: 'col3', options: ${JSON.stringify([...PRIORITY_VALUES])} },
+    ];
+
     // -----------------------------------------------------------------------
     // Context menu
     // -----------------------------------------------------------------------
@@ -375,22 +443,37 @@ ${LIVE_STYLES}
       if (!row) { ctxMenu.classList.remove('visible'); return; }
 
       e.preventDefault();
+      // col2 value stored in data-size (legacy field name), col3 in data-priority
       ctxIssue = {
         number: row.dataset.issue,
         status: row.dataset.status,
-        size: row.dataset.size,
-        priority: row.dataset.priority,
+        col2: row.dataset.size,
+        col3: row.dataset.priority,
+        projectLabel: row.closest('table') ? row.closest('table').dataset.projectLabel : null,
       };
       ctxNum.textContent = ctxIssue.number;
 
-      ctxMenu.querySelectorAll('.ctx-item').forEach(function(item) {
-        item.classList.remove('active', 'loading');
-        var field = item.dataset.field;
-        var value = item.dataset.value;
-        if (field === 'status' && value === ctxIssue.status) item.classList.add('active');
-        if (field === 'size' && value === ctxIssue.size) item.classList.add('active');
-        if (field === 'priority' && value === ctxIssue.priority) item.classList.add('active');
+      // Read per-project sections from the containing table, fall back to defaults
+      var table = row.closest('table');
+      var sections = DEFAULT_SECTIONS;
+      if (table && table.dataset.fieldSections) {
+        try { sections = JSON.parse(table.dataset.fieldSections); } catch (ex) { /* use default */ }
+      }
+
+      // Rebuild menu body from sections
+      var html = '';
+      sections.forEach(function(s) {
+        html += '<div class="ctx-section">' + s.label + '</div>';
+        s.options.forEach(function(v) {
+          var isActive = (s.field === 'status' && v === ctxIssue.status) ||
+                         (s.field === 'col2' && v === ctxIssue.col2) ||
+                         (s.field === 'col3' && v === ctxIssue.col3);
+          html += '<div class="ctx-item' + (isActive ? ' active' : '') +
+            '" data-field="' + s.field + '" data-value="' + v.replace(/&/g,'&amp;').replace(/"/g,'&quot;') + '">' +
+            v.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</div>';
+        });
       });
+      ctxBody.innerHTML = html;
 
       ctxMenu.style.left = e.clientX + 'px';
       ctxMenu.style.top = e.clientY + 'px';
@@ -414,10 +497,13 @@ ${LIVE_STYLES}
       var value = item.dataset.value;
       item.classList.add('loading');
 
+      var payload = { issueNumber: Number(ctxIssue.number), field: field, value: value };
+      if (ctxIssue.projectLabel) payload.projectLabel = ctxIssue.projectLabel;
+
       fetch('/api/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ issueNumber: Number(ctxIssue.number), field: field, value: value }),
+        body: JSON.stringify(payload),
       })
       .then(function(res) { return res.json(); })
       .then(function(data) {

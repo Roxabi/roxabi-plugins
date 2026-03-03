@@ -44,13 +44,22 @@ Parse the JSON. Extract `owner`, `repo`, `projects`, `fields`, `labels`, `workfl
 
 #### 3a. Project Board
 
-- If **0 projects**: AskUserQuestion: **Create project board** | **Skip**. If Create: `bun $INIT_TS create-project --owner <owner> --repo <repo>`. Parse result for project ID and field IDs.
+- If **0 projects**: AskUserQuestion: **Create project board** | **Skip**. If Create: AskUserQuestion: **Technical** (Size/Priority fields, CI/Vercel integration) | **Company** (Quarter/Pillar fields, no CI/Vercel). Run `bun $INIT_TS create-project --owner <owner> --repo <repo> [--type technical|company]`. Parse result for project ID and field IDs.
 - If **1 project**: auto-select, use its ID from discover result.
 - If **multiple projects**: present numbered list, AskUserQuestion to pick one.
 
 If no project selected, field IDs stay empty. If project selected but fields missing from discover, run `create-project` to create them.
 
-After project selection, re-run `bun $INIT_TS discover` to refresh field IDs for the selected project. If Status/Size/Priority fields are still missing after re-discovery, run `bun $INIT_TS create-project --owner <owner> --repo <repo>` to create them (handles pre-existing Status field gracefully).
+After project selection, re-run `bun $INIT_TS discover` to refresh field IDs for the selected project. If Status/Size/Priority fields are still missing after re-discovery, run `bun $INIT_TS create-project --owner <owner> --repo <repo> [--type technical|company]` to create them (handles pre-existing Status field gracefully).
+
+#### create-project options
+
+| Flag | Values | Default | Description |
+|------|--------|---------|-------------|
+| `--type` | `technical` \| `company` | `technical` | Sets project type in workspace.json. |
+
+- **technical**: col2=Size, col3=Priority. CI/Vercel/dev links shown. Sort by priority.
+- **company**: col2=Quarter, col3=Pillar. No CI/Vercel/dev links. Sort by quarter ascending.
 
 #### 3a-bis. Project Workflows
 

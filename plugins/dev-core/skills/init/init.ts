@@ -46,11 +46,12 @@ switch (command) {
     const { createProject } = await import('./lib/project')
     const owner = parseFlag('--owner', '')
     const repo = parseFlag('--repo', '')
+    const type = parseFlag('--type', 'technical') as 'technical' | 'company'
     if (!owner || !repo) {
-      console.error('Usage: init.ts create-project --owner <owner> --repo <repo>')
+      console.error('Usage: init.ts create-project --owner <owner> --repo <repo> [--type technical|company]')
       process.exit(1)
     }
-    const result = await createProject(owner, repo)
+    const result = await createProject(owner, repo, type)
     console.log(JSON.stringify(result, null, 2))
     break
   }
