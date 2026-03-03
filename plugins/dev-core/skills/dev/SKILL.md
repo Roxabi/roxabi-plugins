@@ -75,8 +75,9 @@ ls artifacts/specs/ 2>/dev/null | grep "^{N}-"
 # Plan
 ls artifacts/plans/ 2>/dev/null | grep "^{N}-"
 
-# Worktree
-git worktree list | grep "roxabi-{N}"
+# Worktree (repo name is dynamic — detect once)
+REPO=$(gh repo view --json name --jq '.name')
+git worktree list | grep "${REPO}-{N}"
 
 # Branch
 git branch -a | grep "{N}-{slug}"
@@ -99,7 +100,7 @@ Read frontmatter of φ (frame) if ∃ → extract `status`, `tier`.
   analyze:   analysis artifact ∃,
   spec:      spec artifact ∃,
   plan:      plan artifact ∃,
-  implement: worktree ∃ ∧ branch has commits beyond staging,
+  implement: worktree ∃ (path: `../${REPO}-{N}`) ∧ branch has commits beyond staging,
   pr:        PR ∃,
   validate:  null,         # no artifact — uses Σ_s only
   review:    PR ∃ ∧ (PR.reviewDecision ∈ ('APPROVED','CHANGES_REQUESTED') ∨ pr_has_review_comment(PR)),

@@ -33,33 +33,41 @@ Extract from plan frontmatter: `issue`, `tier`, `spec` path. Extract from body: 
 
 **2a. Issue check:** `gh issue view <N>` — ¬∃ ⇒ draft + AskUserQuestion (Create|Edit|Skip) + `gh issue create`.
 
-**2b. Status:**
+**2b. Repo name:**
+
+```bash
+REPO=$(gh repo view --json name --jq '.name')
+```
+
+Used as worktree dir prefix: `../${REPO}-<N>`.
+
+**2c. Status:**
 
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status "In Progress"
 ```
 
-**2c. Pre-flight:**
+**2d. Pre-flight:**
 
 ```bash
 git branch --list "feat/<N>-*"
-ls -d ../roxabi-<N> 2>/dev/null
+ls -d ../${REPO}-<N> 2>/dev/null
 git fetch origin staging
 ```
 
 ∃ branch ⇒ AskUserQuestion: Reuse | Recreate | Abort
 
-∃ worktree at `../roxabi-<N>` ⇒ check dirty state:
+∃ worktree at `../${REPO}-<N>` ⇒ check dirty state:
 ```bash
-cd ../roxabi-<N> && git status --porcelain
+cd ../${REPO}-<N> && git status --porcelain
 ```
 ¬empty ⇒ AskUserQuestion: **Stash changes** (`git stash`) | **Reset** (`git checkout .`) | **Continue with dirty state** | **Abort**
 
-**2d. Worktree:**
+**2e. Worktree:**
 
 ```bash
-git worktree add ../roxabi-<N> -b feat/<N>-<slug> staging
-cd ../roxabi-<N> && cp .env.example .env && bun install
+git worktree add ../${REPO}-<N> -b feat/<N>-<slug> staging
+cd ../${REPO}-<N> && cp .env.example .env && bun install
 cd apps/api && bun run db:branch:create --force <N>
 ```
 
@@ -105,7 +113,7 @@ Agents create files from scratch (¬stubs). Include target path, shape/skeleton,
 ## Step 5 — Quality Gate
 
 ```bash
-cd ../roxabi-<N>
+cd ../${REPO}-<N>
 bun lint && bun typecheck && bun run test
 ```
 
@@ -118,7 +126,7 @@ bun lint && bun typecheck && bun run test
 Implement Complete
   Issue:    #N — title
   Branch:   feat/N-slug
-  Worktree: ../roxabi-N
+  Worktree: ../${REPO}-N
   Tier:     S|F-lite|F-full
   Agents:   list
   Files:    created/modified list
@@ -129,8 +137,8 @@ Implement Complete
 ## Rollback
 
 ```bash
-cd ../roxabi_boilerplate
-git worktree remove ../roxabi-<N>
+REPO=$(gh repo view --json name --jq '.name')
+git worktree remove ../${REPO}-<N>
 git branch -D feat/<N>-<slug>
 ```
 
