@@ -133,7 +133,7 @@ async function refreshCache(): Promise<void> {
         fieldIds: p.fieldIds,
         vercelProjectId: p.vercelProjectId,
         vercelTeamId: p.vercelTeamId,
-      }))
+      })) as WorkspaceProject[]
       const html = buildHtml(
         issues,
         prs,
@@ -192,7 +192,7 @@ async function refreshCache(): Promise<void> {
       fetchMs,
       updatedAt,
       byProject ?? undefined,
-      wsProjects.length > 0 ? wsProjects : undefined,
+      wsProjects.length > 0 ? (wsProjects as WorkspaceProject[]) : undefined,
     )
     cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
 

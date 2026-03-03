@@ -6,7 +6,6 @@
 import { describe, expect, test } from 'vitest'
 import type { WorkspaceProject } from '../../shared/workspace'
 
-// @ts-expect-error — columnLabel / showCI / etc. may not exist yet (RED phase)
 const { columnLabel, showCI, showDevLinks, showSubIssues, defaultSort } = await import('./page')
 
 const base: Omit<WorkspaceProject, 'type'> = { repo: 'test/test', projectId: 'PVT_1', label: 'test' }

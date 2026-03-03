@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Stub fetch before importing the module (vi.stubGlobal not supported in Bun)
 const mockFetch = vi.fn()
-;(globalThis as typeof globalThis & { fetch: unknown }).fetch = mockFetch
+;(globalThis as unknown as { fetch: unknown }).fetch = mockFetch
 
 // Set GITHUB_TOKEN for tests
 process.env.GITHUB_TOKEN = 'test-token'

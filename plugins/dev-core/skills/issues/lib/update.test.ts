@@ -65,7 +65,7 @@ test('uses project fieldIds.col2 for size field when projectLabel provided', asy
   // should use COL2_ID (project fieldIds), not SZ_env (global .env)
   expect(mockUpdateField).toHaveBeenCalledWith('ITEM_42', 'COL2_ID', 'OPT_XL_PROJ')
   // option ID must come from project fieldIds, not global env
-  const [, , optionId] = mockUpdateField.mock.calls[0] as [string, string, string]
+  const [, , optionId] = mockUpdateField.mock.calls[0] as unknown as [string, string, string]
   expect(optionId).not.toBe('OPT_XL_ENV')
 })
 

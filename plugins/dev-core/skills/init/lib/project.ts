@@ -69,7 +69,7 @@ async function resolveProjectFieldIds(
       '--format',
       'json',
     ])
-    if (!fieldsJson) return {}
+    if (!fieldsJson) return {} as ProjectFieldIds
 
     const raw = JSON.parse(fieldsJson) as {
       fields: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }>
@@ -89,7 +89,7 @@ async function resolveProjectFieldIds(
 
     if (!statusField || !col2Field || !col3Field) {
       console.warn(`[init] some fields not found for project (type=${type}); writing fieldIds: {}`)
-      return {}
+      return {} as ProjectFieldIds
     }
 
     return {
@@ -102,7 +102,7 @@ async function resolveProjectFieldIds(
     }
   } catch {
     console.warn('[init] field resolution failed; writing fieldIds: {}')
-    return {}
+    return {} as ProjectFieldIds
   }
 }
 
@@ -143,7 +143,7 @@ export async function createProject(
         color: STATUS_COLORS[i] ?? 'GRAY',
         description: '',
       }))
-      await ghGraphQL(UPDATE_FIELD_OPTIONS_MUTATION, { fieldId: existingId, options })
+      await ghGraphQL(UPDATE_FIELD_OPTIONS_MUTATION, { fieldId: existingId, options: options as unknown as boolean })
     } else {
       await run([
         'gh',

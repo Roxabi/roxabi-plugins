@@ -107,7 +107,7 @@ function resolveItemId(issueNumber: number): Promise<string | undefined> {
     console.error(
       `Warning: Issue #${issueNumber} not found in project — skipping project field updates (status/size/priority)`,
     )
-    return
+    return undefined
   })
 }
 

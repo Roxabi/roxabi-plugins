@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import type { ProjectFieldIds } from '../workspace'
 
 // Re-use the already-imported config module (same module cache as config.test.ts)
 const { resolveFieldIds, fieldIdForSlot } = await import('../config')
@@ -49,7 +50,7 @@ describe('resolveFieldIds', () => {
   })
 
   it('falls back to .env when fieldIds is {} (empty object)', () => {
-    const project = { repo: 'r', projectId: 'p', label: 'empty-proj', fieldIds: {} }
+    const project = { repo: 'r', projectId: 'p', label: 'empty-proj', fieldIds: {} as ProjectFieldIds }
     // Empty fieldIds ({}) is written by /init when GitHub field resolution fails.
     // It must fall through to the .env fallback — not throw.
     const ids = resolveFieldIds(project)

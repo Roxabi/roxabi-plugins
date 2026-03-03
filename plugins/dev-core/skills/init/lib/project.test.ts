@@ -86,14 +86,14 @@ beforeEach(() => {
 test('createProject writes type to workspace entry', async () => {
   await createProject('TestOrg', 'my-repo', 'company')
   expect(mockWriteWorkspace).toHaveBeenCalled()
-  const ws = mockWriteWorkspace.mock.calls[0]?.[0] as { projects: Array<{ type: string }> }
+  const ws = (mockWriteWorkspace.mock.calls[0] as unknown as [unknown])[0] as unknown as { projects: Array<{ type: string }> }
   const entry = ws?.projects?.[0]
   expect(entry?.type).toBe('company')
 })
 
 test('createProject writes fieldIds on scaffold', async () => {
   await createProject('TestOrg', 'my-repo', 'technical')
-  const ws = mockWriteWorkspace.mock.calls[0]?.[0] as {
+  const ws = (mockWriteWorkspace.mock.calls[0] as unknown as [unknown])[0] as unknown as {
     projects: Array<{ fieldIds?: { status: string; col2?: string } }>
   }
   const entry = ws?.projects?.[0]
