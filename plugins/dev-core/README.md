@@ -4,9 +4,9 @@ Full development lifecycle orchestrator for Roxabi projects. Covers framing, ana
 
 ## Prerequisites
 
-- [Bun](https://bun.sh/) -- package manager and runtime
-- [GitHub CLI](https://cli.github.com/) (`gh`) -- issue fetching, PR creation, label management
-- [Biome](https://biomejs.dev/) -- used by the auto-format hook for TS/JS/JSON files
+- **Package manager** — Bun, npm, pnpm, or yarn (configured via `stack.yml`)
+- [GitHub CLI](https://cli.github.com/) (`gh`) — issue fetching, PR creation, label management
+- [Biome](https://biomejs.dev/) — used by the auto-format hook for TS/JS/JSON files
 
 ## Install
 
@@ -40,6 +40,8 @@ Then configure the agent stack:
 
 Auto-discovers your runtime, framework, test tooling, and linter from the codebase, shows a confirmation screen, and writes `.claude/stack.yml` so all agents know where things live.
 
+**Project-agnostic:** All skills and agents read commands and paths from `.claude/stack.yml` at runtime — `{commands.test}`, `{commands.lint}`, `{package_manager}`, `{backend.path}`, etc. If a required field is missing, the agent immediately tells you to run `/init` or `/stack-setup`. This means dev-core works with any stack — Bun/npm/pnpm/yarn, NestJS/Express/Django, Vitest/Jest/Pytest.
+
 **Important:** `/init` is required for project board features (issue status, size, priority fields). Without it, issue creation and dependency management still work, but field updates will show a "not configured" error pointing back to `/init`.
 
 ## Usage
@@ -67,9 +69,9 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 | `spec` | Shape | Generates specifications with smart splitting |
 | `interview` | Shape | Interactive requirements gathering |
 | `plan` | Build | Creates implementation plan with micro-tasks |
-| `implement` | Build | Executes implementation from plan |
+| `implement` | Build | Executes implementation from plan — merge conflict recovery, abandon-on-3-failures option |
 | `pr` | Build | Creates pull request with proper format |
-| `review` | Verify | Code review against quality gates |
+| `review` | Verify | Code review against quality gates — secret scan before spawning agents |
 | `fix` | Verify | Applies fixes from review feedback |
 | `validate` | Verify | Validates implementation against spec |
 | `cleanup` | Ship | Post-merge cleanup |
@@ -82,7 +84,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 ## Agents
 
-9 specialized agents organized in three tiers:
+9 specialized agents organized in three tiers. Each agent has a built-in **config guard** (fails fast if `stack.yml` is missing) and a domain-specific **escalation path** (knows who to message for out-of-scope issues).
 
 ### Domain
 
