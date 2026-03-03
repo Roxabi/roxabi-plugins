@@ -127,7 +127,7 @@ export async function discover(): Promise<DiscoveryResult> {
       const selectedProject = projectId ? result.projects.find((p) => p.id === projectId) : result.projects[0]
       if (selectedProject && issues.length > 0) {
         try {
-          const onBoardNumbers = await getBoardIssueNumbers(owner ?? '', selectedProject.number)
+          const onBoardNumbers = await getBoardIssueNumbers(owner, selectedProject.number)
           const onBoard = issues.filter((i) => onBoardNumbers.has(i.number)).length
           result.issues.onBoard = onBoard
           result.issues.orphaned = result.issues.total - onBoard

@@ -8,6 +8,10 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 
 # Doc Sync
 
+Let:
+  δ := change description
+  SRC ∈ {working-tree, staged, last-commit}
+
 Code change → keep three docs in sync:
 - `CLAUDE.md` — Claude-facing codebase instructions
 - `README.md` — human-facing docs
@@ -24,7 +28,7 @@ Code change → keep three docs in sync:
 
 δ := `$ARGUMENTS` ∨ derive from git.
 
-¬δ ⇒ detect in priority order (first non-empty wins):
+¬δ → detect in priority order (first non-empty wins):
 
 ```bash
 git diff --stat            # 1. unstaged
@@ -32,55 +36,43 @@ git diff --cached --stat   # 2. staged
 git diff HEAD~1..HEAD --stat && git log -1 --format="%s%n%b"  # 3. last commit
 ```
 
-Record `SRC ∈ {working-tree, staged, last-commit}`.
-¬δ after scan ⇒ AskUserQuestion: describe the change in one sentence.
+Record SRC. ¬δ after scan → AskUserQuestion: describe the change in one sentence.
 
 ## Phase 2 — Discover Context
 
 **2a. Stack config:**
-
 ```bash
 cat .claude/stack.yml 2>/dev/null
 ```
-
-∃ `docs.path` ⇒ use as base for CLAUDE.md/README.md. Else: project root.
+∃ `docs.path` → use as base for CLAUDE.md/README.md. Else: project root.
 
 **2b. Self-referential check:**
-
 ```bash
 ls .claude-plugin/marketplace.json 2>/dev/null
 ```
-
-∃ ⇒ `PLUGINS_REPO=$(pwd)`. Skip to 2d.
+∃ → `PLUGINS_REPO=$(pwd)`. Skip to 2d.
 
 **2c. Locate plugin repo:**
-
 ```bash
 [ -n "$ROXABI_PLUGINS_DIR" ] && echo "$ROXABI_PLUGINS_DIR"
 for d in ../*/; do [ -f "${d}.claude-plugin/marketplace.json" ] && echo "$d" && break; done
 ```
-
-First hit ⇒ `PLUGINS_REPO`.
-¬found ⇒ warn + skip Phase 4c.
+First hit → `PLUGINS_REPO`. ¬found → warn + skip Phase 4c.
 
 **2d. Plugin name:**
-
 ```bash
 REPO=$(gh repo view --json name --jq '.name')
 ls "$PLUGINS_REPO/plugins/"
 ```
-
-Exact ∨ kebab-case match ⇒ `PLUGIN_NAME` auto-set.
-Multiple candidates ∨ ¬match ⇒ AskUserQuestion: select plugin.
-¬found ⇒ warn + skip SKILL.md update.
+Exact ∨ kebab-case match → `PLUGIN_NAME` auto-set.
+Multiple candidates ∨ ¬match → AskUserQuestion: select plugin.
+¬found → warn + skip SKILL.md update.
 
 **2e. Locate SKILL.md:**
-
 ```bash
 ls "$PLUGINS_REPO/plugins/$PLUGIN_NAME/skills/"
 ```
-
-∃ one ⇒ use it. Multiple ⇒ AskUserQuestion: select skill.
+∃ one → use it. Multiple → AskUserQuestion: select skill.
 
 ## Phase 3 — Read Changed Code
 
@@ -101,20 +93,14 @@ Read changed files (most relevant if many). Extract:
 
 Targeted edits only — find affected section, update those lines. ¬rewrite unrelated sections. Append to `EDITED_FILES` after each edit.
 
-**4a. CLAUDE.md:**
+**4a. CLAUDE.md:** Grep for relevant keywords → update section. ¬match → add subsection under nearest heading.
 
-Grep for relevant keywords → update section. ¬match ⇒ add subsection under nearest heading.
-
-**4b. README.md:**
-
-Same approach, user perspective only (¬implementation details).
+**4b. README.md:** Same approach, user perspective only (¬implementation details).
 
 **4c. SKILL.md** (∃ `PLUGINS_REPO`):
-
 ```
 TARGET = "$PLUGINS_REPO/plugins/$PLUGIN_NAME/skills/<skill>/SKILL.md"
 ```
-
 Same targeted edit, adapted to LLM-facing language. ¬bump version unless behavior fundamentally changed.
 
 ## Phase 5 — Summary
@@ -133,8 +119,8 @@ Doc Sync Complete
 
 AskUserQuestion: **Commit project docs** | **Commit all (project + plugin)** | **Skip**
 
-Commit approved ⇒ `git add ${EDITED_FILES}` + commit with `docs:` prefix.
-Plugin repo updated ⇒ inform: "Commit `$PLUGINS_REPO` separately."
+Commit approved → `git add ${EDITED_FILES}` + commit with `docs:` prefix.
+Plugin repo updated → inform: "Commit `$PLUGINS_REPO` separately."
 
 ## Edge Cases
 
@@ -146,6 +132,6 @@ Plugin repo updated ⇒ inform: "Commit `$PLUGINS_REPO` separately."
 | ¬plugin dir in PLUGINS_REPO | Project docs only, warn |
 | δ vague | AskUserQuestion: narrow to one feature |
 | Unrelated files changed | Focus on δ feature only |
-| SRC=working-tree, ¬PLUGINS_REPO set | Warn to set `$ROXABI_PLUGINS_DIR` |
+| SRC=working-tree ∧ ¬PLUGINS_REPO set | Warn to set `$ROXABI_PLUGINS_DIR` |
 
 $ARGUMENTS

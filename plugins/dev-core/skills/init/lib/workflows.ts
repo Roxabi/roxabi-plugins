@@ -170,6 +170,7 @@ export function generateCiYml(opts: WorkflowOpts): string {
   let setupStep: string
   let lintCmd: string
   let typecheckCmd: string
+
   let testStep = ''
 
   if (opts.stack === 'python') {

@@ -8,9 +8,15 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill
 
 # Implement
 
+Let:
+  π := artifacts/plans/{N}-{slug}.mdx
+  τ := tier (S | F-lite | F-full)
+  ω := worktree path `../${REPO}-<N>`
+  β := base branch (staging if ∃ origin/staging, else main)
+
 Plan → worktree → agents (test-first) → passing quality gate.
 
-**⚠ Flow: single continuous pipeline. ¬stop between steps. AskUserQuestion response → immediately execute next step. Stop only on: explicit Cancel/Abort, or Step 6 completion.**
+**Flow: single continuous pipeline. ¬stop between steps. AskUserQuestion response → immediately execute next step. Stop only on: explicit Cancel/Abort, or Step 6 completion.**
 
 ```
 /implement --issue 42        Execute plan for issue #42
@@ -25,18 +31,18 @@ Does NOT create a PR — that is `/pr` (next step).
 |------|----|----------|-------|
 | 1 | locate-plan | ✓ | — |
 | 2 | setup | ✓ | rollback on failure |
-| 3 | context-inject | — | tier F only |
+| 3 | context-inject | — | τ=F only |
 | 4 | implement | ✓ | parallel: conditional, retry 3 |
 | 5 | quality-gate | ✓ | retry 3, rollback on failure |
 | 6 | summary | ✓ | — |
 
 ## Step 1 — Locate Plan
 
-`--issue N` → `ls artifacts/plans/N-*.mdx` → read full → extract tasks, agents, tier, slug.
+`--issue N` → `ls artifacts/plans/N-*.mdx` → read full → extract tasks, agents, τ, slug.
 `--plan <path>` → read directly.
 ¬found ⇒ suggest `/plan`. **Stop.**
 
-**S-tier exception:** τ == S ∧ ¬plan found ⇒ locate spec (`ls artifacts/specs/N-*.mdx`) or issue body (`gh issue view N --json body`). Skip to [Step 4 — Implement (Tier S)](#tier-s--direct). ¬require plan for S-tier.
+**S-tier exception:** τ=S ∧ ¬π found ⇒ locate spec (`ls artifacts/specs/N-*.mdx`) or issue body (`gh issue view N --json body`). Skip to Step 4 (Tier S). ¬require plan for S-tier.
 
 Extract from plan frontmatter: `issue`, `tier`, `spec` path. Extract from body: agent list, task list, slice structure.
 
@@ -44,14 +50,14 @@ Extract from plan frontmatter: `issue`, `tier`, `spec` path. Extract from body: 
 
 **2a. Issue check:** `gh issue view <N>` — ¬∃ ⇒ draft + AskUserQuestion (Create|Edit|Skip) + `gh issue create`.
 
-**2b. Repo + base branch:**
+**2b. Repo + β:**
 
 ```bash
 REPO=$(gh repo view --json name --jq '.name')
 BASE=$(git branch -r | grep -q 'origin/staging' && echo staging || echo main)
 ```
 
-Worktree dir: `../${REPO}-<N>`. Branch base: `${BASE}`.
+ω: `../${REPO}-<N>`. Branch base: `${BASE}`.
 
 **2c. Status:**
 
@@ -69,7 +75,7 @@ git fetch origin ${BASE}
 
 ∃ branch ⇒ AskUserQuestion: Reuse | Recreate | Abort
 
-∃ worktree at `../${REPO}-<N>` ⇒ check dirty state:
+∃ ω → check dirty state:
 ```bash
 cd ../${REPO}-<N> && git status --porcelain
 ```
@@ -85,7 +91,7 @@ cd ../${REPO}-<N> && cp .env.example .env 2>/dev/null; {package_manager} install
 
 XS exception: AskUserQuestion → if approved, `git checkout -b feat/<N>-<slug> ${BASE}`.
 
-## Step 3 — Context Injection (Tier F only)
+## Step 3 — Context Injection (τ=F only)
 
 ∀ agent: inject read instructions in Task prompt. Section headers only (¬numeric prefixes).
 
@@ -105,16 +111,16 @@ Reference file paths come from `/plan` Step 3 (ref patterns). Inject the 1-2 ref
 
 ### Tier S — Direct
 
-Read spec + ref patterns → create + implement → tests → `{commands.lint} && {commands.typecheck} && {commands.test}` → loop until ✓. Single session, no agent spawning.
+Read spec + ref patterns → create + implement → tests → `{commands.lint} && {commands.typecheck} && {commands.test}` → loop until ✓. Single session, ¬agent spawning.
 
 ### Tier F — Agent-Driven (test-first)
 
-Spawn via `Task` (subagent/domain). Sequential ∨ parallel (2-3 max).
+Spawn via `Task` (subagent/domain). Sequential ∨ parallel (2–3 max).
 
 **RED → GREEN → REFACTOR:**
 
 1. **RED** — tester: write failing tests from spec. Structural verify only (grep test structure). Tests expected to fail pre-impl. Create RED-GATE sentinel per slice.
-2. **GREEN** — domain agents in parallel: implement to pass. `ready` verify → run now; `deferred` → wait RED-GATE.
+2. **GREEN** — domain agents ∥: implement to pass. `ready` verify → run now; `deferred` → wait RED-GATE.
 3. **REFACTOR** — domain agents: refactor, keep tests ✓.
 4. **Verify** — tester: coverage + edge cases.
 
@@ -130,7 +136,7 @@ cd ../${REPO}-<N>
 ```
 
 ✓ → continue to Step 6.
-✗ → fix loop (max 3 attempts). Spawn domain fixer agents as needed. 3✗ → AskUserQuestion: **Escalate to lead** | **Continue with failures** | **Abandon worktree** (removes worktree + branch).
+✗ → fix loop (max 3 attempts). Spawn domain fixer agents as needed. 3✗ → AskUserQuestion: **Escalate to lead** | **Continue with failures** | **Abandon worktree** (removes ω + branch).
 
 ## Step 6 — Summary
 

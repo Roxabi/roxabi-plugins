@@ -42,40 +42,32 @@ cat(f)    ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
 ## Phase 1 — Gather Changes
 
 0. `BASE=$(git branch -r | grep -q 'origin/staging' && echo staging || echo main)`
-1. target = PR# provided → `gh pr diff <#>` | else → `git diff ${BASE}...HEAD`
+1. PR# provided → `gh pr diff <#>` | else → `git diff ${BASE}...HEAD`
 2. Δ = `git diff --name-only ${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
-3. Read all files ∈ Δ in full (skip binaries, note in report)
+3. ∀ f ∈ Δ: read in full (skip binaries, note in report)
 4. |Δ| = 0 → inform, halt
 5. |Δ| > 50 → warn quality degradation, suggest split
 
 ## Phase 1.5 — Secret Scan
-
-Before spawning any agents, scan the diff for potential secrets:
 
 ```bash
 git diff ${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27`][^"\x27`]{8,}' | head -20
 ```
 
 ∃ matches → WARN:
-
 ```
 ⚠️  Potential secrets found in diff — review before proceeding:
   <file>: <matched line with secret value redacted to first 2 + last 2 chars>
 ```
-
-AskUserQuestion: **Review and proceed** (I've confirmed these are not real secrets) | **Abort** (¬post comment, exit)
-
-Abort → halt. Proceed → continue to Phase 2 silently.
+AskUserQuestion: **Review and proceed** (confirmed ¬real secrets) | **Abort** (¬post comment, exit)
+→ Abort: halt | Proceed: continue to Phase 2 silently.
 ∅ matches → continue silently (¬mention to user).
 
 ## Phase 2 — Spec Compliance
 
 1. issue_num ← `git branch --show-current | grep -oP '\d+' | head -1`
 2. spec ← `ls artifacts/specs/<issue_num>-*.mdx 2>/dev/null`
-3. spec ∃ → ∀ criterion ∈ spec.success_criteria:
-   - met by diff → ∅
-   - ¬met → emit `issue(blocking):` with criterion text
-   - ∀ met → emit `praise:` (spec compliance)
+3. spec ∃ → ∀ criterion ∈ spec.success_criteria: met → ∅ | ¬met → emit `issue(blocking):` with criterion text | ∀ met → emit `praise:`
 4. spec ∄ → skip silently
 
 ## Phase 3 — Multi-Domain Review (Fresh Agents)
@@ -87,17 +79,16 @@ Spawn fresh agents via Task (¬implementation context → ¬bias).
 | Agent | Condition | Focus |
 |-------|-----------|-------|
 | **security-auditor** | always | OWASP, secrets, injection, auth |
-| **architect** | |Δ| > 5 ∨ src ⊇ {arch, pattern, structure, service, module} | patterns, structure, circular deps |
+| **architect** | \|Δ\| > 5 ∨ src ⊇ {arch, pattern, structure, service, module} | patterns, structure, circular deps |
 | **product-lead** | spec(issue_num) ∃ | spec compliance, product fit |
 | **tester** | Δ ∩ {`src/`, `test/`, `*.test.*`, `*.spec.*`} ≠ ∅ | coverage, AAA, edge cases |
 | **frontend-dev** | Δ ∩ {`{frontend.path}`, `{shared.ui}`} ≠ ∅ | FE patterns, components, hooks |
 | **backend-dev** | Δ ∩ {`{backend.path}`, `{shared.types}`} ≠ ∅ | BE patterns, API, errors |
 | **devops** | Δ ∩ {configs, CI} ≠ ∅ | config, deploy, infra |
 
-**Notes:**
-- **architect skip:** XS changes (≤5 files) ∧ no arch keywords → faster feedback
-- **product-lead skip:** Phase 2 auto-detects spec; if missing, skip entirely
-- **tester skip:** config/docs/infra only → skip (test reviewers handled by domain-specific agents)
+- architect skip: |Δ| ≤ 5 ∧ ¬arch keywords → faster feedback
+- product-lead skip: spec ∄ → skip entirely
+- tester skip: Δ ⊂ {config, docs, infra} → skip
 
 **Subdomain split:** |files_domain| ≥ 8 ∧ distinct modules → N same-type agents, 1/module group. Default: 1 agent/domain.
 
@@ -117,7 +108,7 @@ Spawn fresh agents via Task (¬implementation context → ¬bias).
 
 ### Agent payload
 
-Each **spawned** agent receives: full diff + Δ + spec (if ∃) + "output Conventional Comments". Only agents matching Phase 2 conditions are spawned.
+Each spawned agent receives: full diff + Δ + spec (if ∃) + "output Conventional Comments". Only agents matching Phase 2 conditions are spawned.
 
 ### Review dimensions (scoped per domain)
 
@@ -178,7 +169,7 @@ correctness | security | performance | architecture | tests | readability | obse
 
 1. PR# = provided ∨ `gh pr list --head "$(git branch --show-current)" --json number --jq '.[0].number'`; ¬∃ → skip
 2. `/tmp/review-comment.md` → `gh pr comment <#> --body-file /tmp/review-comment.md`
-3. `## Code Review` header, grouped findings + summary + verdict. ∀C included.
+3. `## Code Review` header; grouped findings + summary + verdict; ∀C included
 
 **→ immediately continue to Phase 8 (¬stop).**
 
@@ -212,8 +203,8 @@ AskUserQuestion:
 | Agents disagree | Present both findings with respective C values |
 | ¬∃ PR | Skip Phase 6, go to Phase 8 local only |
 | Missing root cause/solutions | C(f) := 0 — noted in findings |
-| architect skipped (|Δ| ≤ 5 + no arch keywords) | No arch review → faster, still security/spec/test |
-| product-lead skipped (no spec) | Skip compliance check → Phase 2 validation skipped |
+| architect skipped (|Δ| ≤ 5 + ¬arch keywords) | No arch review → faster, still security/spec/test |
+| product-lead skipped (spec ∄) | Skip compliance check → Phase 2 skipped |
 | tester skipped (pure config/docs) | No test coverage review → focus on security/devops |
 
 ## Safety Rules

@@ -12,6 +12,8 @@ Let:
   α := artifacts/analyses/{N}-{slug}-analysis.mdx
   σ := artifacts/specs/{N}-{slug}-spec.mdx
   φ := artifacts/frames/{slug}-frame.mdx
+  ρ := reviewer set
+  χ := `[NEEDS CLARIFICATION]`
 
 Analysis (or frame) → approved spec. Interview → pre-check → expert review → user approval gate.
 ¬worktree, ¬PR. Shape phase only. Implementation → `/plan`.
@@ -36,16 +38,15 @@ ls artifacts/analyses/{N}-*.mdx 2>/dev/null | head -1
 grep -rl "issue: N" artifacts/frames/ 2>/dev/null | head -1
 ```
 
-`--analysis path` → read analysis directly.
-`--frame path` → read frame directly (analysis was skipped for this tier).
+`--analysis path` → read directly. `--frame path` → read directly (analysis skipped for this tier).
 
 ¬source found → AskUserQuestion: "No analysis or frame found for this issue. Would you like to run `/analyze --issue N` first, or provide a path directly?"
 
-Read source doc → extract: title, issue number, tier, problem, outcome, appetite, recommended shape (if analysis).
+Read source → extract: title, issue#, tier, problem, outcome, appetite, recommended shape (if analysis).
 
 ### 0b. Ensure GitHub Issue
 
-∃ issue (`--issue N` or found in source frontmatter) → use it.
+∃ issue (`--issue N` ∨ found in source frontmatter) → use it.
 ¬∃ issue → draft from source doc:
 
 ```bash
@@ -59,7 +60,7 @@ Capture returned issue #N.
 
 Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*` — match issue# or slug keywords.
 
-∃ σ → AskUserQuestion: **Reuse existing** (jump to [Step 3 Pre-check](#step-3--pre-check)) | **Start fresh**
+∃ σ → AskUserQuestion: **Reuse existing** (→ Step 3 Pre-check) | **Start fresh**
 
 ## Step 2 — Generate Spec
 
@@ -68,36 +69,36 @@ Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*` — match issue# or slu
 Interview pre-fills from source. Focus on gaps to spec level:
 - Acceptance criteria (binary pass/fail)
 - Breadboard: affordance tables (UI/API elements → handlers → data)
-- Slices: vertical increments that are independently demo-able
+- Slices: vertical increments, independently demo-able
 - Ambiguity detection via 9-category taxonomy (see interview SKILL.md)
 
-Write `artifacts/specs/{N}-{slug}-spec.mdx`.
+Write `artifacts/specs/{N}-{slug}-spec.mdx`. σ must include:
 
-σ must include:
-- `## Context` — source + promoted-from link
-- `## Goal` — one-sentence outcome
-- `## Users` — who is affected
-- `## Expected Behavior` — narrative walkthrough
-- `## Breadboard` — affordance tables + wiring (skip if Tier S)
-- `## Slices` — vertical increments table (skip if Tier S)
-- `## Success Criteria` — `- [ ]` checkboxes, each binary
+| Section | Skip if |
+|---------|---------|
+| `## Context` — source + promoted-from link | — |
+| `## Goal` — one-sentence outcome | — |
+| `## Users` — who is affected | — |
+| `## Expected Behavior` — narrative walkthrough | — |
+| `## Breadboard` — affordance tables + wiring | Tier S |
+| `## Slices` — vertical increments table | Tier S |
+| `## Success Criteria` — `- [ ]` checkboxes, each binary | — |
 
-May contain `[NEEDS CLARIFICATION: description]` (max 3–5). These block `/plan` — must be resolved first.
+May contain χ (max 3–5). χ items block `/plan` — must be resolved first.
 
 ## Step 3 — Pre-check
 
-"Unit tests for English" — run before expert review. Check all:
+"Unit tests for English" — run before expert review:
 
 | Check | Rule | Skip condition |
 |-------|------|----------------|
 | Testable criteria | Each `- [ ]` item is binary (pass/fail) | — |
-| No dangling refs | All breadboard IDs (U*/N*/S*) appear in ≥1 slice | ¬Breadboard ∨ ¬Slices sections |
-| Ambiguity budget | ≤5 `[NEEDS CLARIFICATION]` items | — |
-| Slice coverage | Every affordance appears in ≥1 slice | ¬Breadboard ∨ ¬Slices sections |
+| No dangling refs | All breadboard IDs (U*/N*/S*) appear in ≥1 slice | ¬Breadboard ∨ ¬Slices |
+| Ambiguity budget | ≤5 χ items | — |
+| Slice coverage | Every affordance appears in ≥1 slice | ¬Breadboard ∨ ¬Slices |
 | Edge completeness | Each edge case has a handling strategy | — |
 
-Count failures. ≥2 failures → inform user before review:
-
+≥2 failures → inform user:
 ```
 Pre-check: 2 of 5 checks failed
   ✗ Testable criteria: "The UI should feel fast" is not binary
@@ -108,11 +109,11 @@ AskUserQuestion: **Fix spec first** (open σ, collect corrections, revise, re-ch
 
 ## Step 4 — Expert Review
 
-Auto-select ρ (¬ask user). Architect always included for specs:
+Auto-select ρ (¬ask user). Architect always included:
 
 | ρ | When | Focus |
 |---|------|-------|
-| architect | Always | Technical soundness, implementation feasibility, slice ordering |
+| architect | Always | Technical soundness, feasibility, slice ordering |
 | doc-writer | Always | Structure, clarity, breadboard completeness |
 | product-lead | Always | Criteria quality, scope, user story validity |
 | devops | ∃ CI/CD / deploy / infra criteria | Operational feasibility |
@@ -125,30 +126,27 @@ Incorporate feedback → revise σ → note unresolved concerns.
 
 Open σ: `code artifacts/specs/{N}-{slug}-spec.mdx`.
 
-Present summary: scope, slices count, acceptance criteria count, `[NEEDS CLARIFICATION]` count, pre-check results, unresolved expert concerns.
+Present summary: scope, |slices|, |acceptance criteria|, |χ|, pre-check results, unresolved expert concerns.
 
-AskUserQuestion: **Approve** → continue pipeline | **Revise** → collect feedback → revise σ → loop from [Step 3 Pre-check](#step-3--pre-check).
+AskUserQuestion: **Approve** → continue pipeline | **Revise** → collect feedback → revise σ → loop from Step 3.
 
 On approval → commit artifact: `git add artifacts/specs/{N}-{slug}-spec.mdx` + commit per CLAUDE.md Rule 5.
 
-Run [Gate 2.5 Smart Splitting](#gate-25-smart-splitting-optional) → update issue status → done.
-
+Run Gate 2.5 → update issue status → done:
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Specs
 ```
 
-Inform: "Spec complete. Run `/plan --issue <N>` to generate the implementation plan."
-Sub-issues created → "Run `/plan --issue <sub_N>` for each sub-issue in dependency order."
+∄ sub-issues → "Spec complete. Run `/plan --issue <N>` to generate the implementation plan."
+∃ sub-issues → "Run `/plan --issue <sub_N>` for each sub-issue in dependency order."
 
 ## Gate 2.5: Smart Splitting (Optional)
 
-Skip if Tier S. Read [references/smart-splitting.md](references/smart-splitting.md).
+Tier S → skip. Read [references/smart-splitting.md](references/smart-splitting.md).
 
 **Triggers:** |acceptance criteria| > 8 ∨ |slices| > 3.
-
-Count:
-- Acceptance criteria: `- [ ]` checkboxes in `## Success Criteria`
-- Slices: rows in `## Slices` table
+- Acceptance criteria := `- [ ]` checkboxes in `## Success Criteria`
+- Slices := rows in `## Slices` table
 
 ¬triggers ∧ ¬both sections present → skip.
 ∃ triggers → run smart splitting per reference doc.
@@ -157,13 +155,13 @@ Count:
 
 | Scenario | Behavior |
 |----------|----------|
-| No analysis or frame found | AskUserQuestion: run `/analyze` first or provide path |
-| ∃ spec, user picks reuse | Present existing spec → jump to Step 3 Pre-check |
+| ¬analysis ∧ ¬frame found | AskUserQuestion: run `/analyze` first or provide path |
+| ∃ spec, user picks reuse | Present existing spec → jump to Step 3 |
 | Analysis was skipped (F-lite) | Use frame as source for interview promotion |
-| `--issue N` but no GitHub issue exists | Create issue from source doc content |
-| Expert reviewer subagent fails | Report error, continue without that reviewer |
+| `--issue N` ∧ ¬GitHub issue | Create issue from source doc content |
+| Expert subagent fails | Report error, continue without that reviewer |
 | All pre-checks fail | Strongly recommend fix before review (¬block, user decides) |
-| `[NEEDS CLARIFICATION]` count > 5 | Pre-check failure — inform user, request reduction |
+| |χ| > 5 | Pre-check failure — inform user, request reduction |
 | Tier S | Skip Breadboard + Slices in generated spec |
 | Circular deps in split | Reject split proposal, inform user |
 

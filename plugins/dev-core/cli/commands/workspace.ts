@@ -56,8 +56,7 @@ async function cmdAdd(repo: string): Promise<void> {
     chosen = nodes[0]
   } else {
     process.stdout.write('Multiple projects found. Select one:\n')
-    for (let i = 0; i < nodes.length; i++)
-      process.stdout.write(`  ${i + 1}. ${nodes[i].label} (${nodes[i].projectId})\n`)
+    for (const [i, p] of nodes.entries()) process.stdout.write(`  ${i + 1}. ${p.label} (${p.projectId})\n`)
     process.stdout.write('Enter number: ')
 
     const line = await new Promise<string>((resolve) => {

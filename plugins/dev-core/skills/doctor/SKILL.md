@@ -7,63 +7,134 @@ allowed-tools: Bash
 
 # Doctor
 
-Run the doctor CLI and display the report. Then run stack.yml health checks.
+Let: Σ := severity icon (❌ blocking | ⚠️ warning | ✅ pass | ⏭ skipped) | Φ := CLAUDE_PLUGIN_ROOT
+
+Run all health checks and fix issues inline — no redirects to other skills.
 
 ## Instructions
+
+Severity guide: ❌ = blocking error, ⚠️ = warning, ✅ = pass, ⏭ = skipped.
 
 ### Phase 1 — dev-core health check
 
 1. Run: `bun ${CLAUDE_PLUGIN_ROOT}/skills/doctor/doctor.ts`
-2. Display the output directly — it is pre-formatted.
-3. If exit code is non-zero, suggest: "Run `/init` to fix missing items."
-4. For JSON output: `bun ${CLAUDE_PLUGIN_ROOT}/skills/doctor/doctor.ts --json`
+2. Display output directly — pre-formatted.
+3. exit code ≠ 0 → collect ❌ items; offer Phase 1 Fix per item.
+
+#### Phase 1 Fix
+
+∀ ❌ item ∈ doctor.ts output:
+
+| Item | Fix command |
+|------|-------------|
+| `GITHUB_REPO` missing | "Add `GITHUB_REPO=owner/repo` to `.env`" |
+| `GH_PROJECT_ID` missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts discover` then `scaffold` |
+| `STATUS_FIELD_ID` / `SIZE_FIELD_ID` / `PRIORITY_FIELD_ID` missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts create-project --owner <owner> --repo <repo>` |
+| Labels missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts labels --repo <owner/repo> --scope all` |
+| roxabi shim missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts scaffold ...` (requires env vars) |
+
+Issues requiring interactive GitHub auth or multi-step scaffolding → display exact command + explanation. Do not silently redirect — always show the fix.
 
 ### Phase 2 — Stack configuration health check
 
-Severity guide: ❌ = blocking error (exit 1), ⚠️ = warning (optional / contextual), ✅ = pass, ⏭ = skipped.
+Run all checks. Collect fixable items as you go. Apply fixes at end (Phase 2 Fix).
 
 **File presence:**
-- `.claude/stack.yml` exists → ✅ | ❌ "Run `/init` to create it"
-- If stack.yml is missing, skip all remaining Phase 2 checks and show ⏭ for each.
-- `.claude/stack.yml.example` exists → ✅ | ⚠️ "Consider committing stack.yml.example as a reference"
+- `.claude/stack.yml` ∃ → ✅ | ❌ "stack.yml missing"
+- stack.yml missing → mark all remaining Phase 2 checks ⏭; proceed to Phase 2 Fix.
+- `.claude/stack.yml.example` ∃ → ✅ | ⚠️ "stack.yml.example missing"
 
 **Schema:**
-- `schema_version` field is present in stack.yml → ✅ | ⚠️ "Add `schema_version: \"1.0\"` to stack.yml"
-- Key fields present: `commands.test`, `commands.lint`, `commands.typecheck` → ✅ each | ⚠️ "Missing field: {field_name} — agents may not run correctly"
-- Contextual fields (only warn if the section exists but field is blank): `backend.path`, `frontend.path`, `standards.testing`, `standards.backend`, `standards.frontend` → ✅ | ⚠️ "Missing field: {field_name}"
+- `schema_version` ∃ → ✅ | ⚠️ "Missing `schema_version: \"1.0\"` in stack.yml"
+- `commands.test`, `commands.lint`, `commands.typecheck` each ∃ → ✅ | ⚠️ "Missing field: {field} — agents may not run correctly"
+- Contextual (warn only if section ∃ but field blank): `backend.path`, `frontend.path`, `standards.testing`, `standards.backend`, `standards.frontend` → ✅ | ⚠️ "Missing field: {field}"
 
 **CLAUDE.md import:**
-- First line of `CLAUDE.md` is `@.claude/stack.yml` → ✅ | ⚠️ "Add `@.claude/stack.yml` as the first line of CLAUDE.md so agents pick up your stack config"
+- First line of `CLAUDE.md` = `@.claude/stack.yml` → ✅ | ⚠️ "CLAUDE.md missing `@.claude/stack.yml` import"
 
 **Standards docs exist on disk:**
-- For each path in `standards.*`, check the file/directory exists → ✅ | ⚠️ "standards.{key} path not found: {path}"
+- ∀ path ∈ `standards.*` → ✅ | ⚠️ "standards.{key} path not found: {path}"
 
 **Artifact directories:**
-- For each path in `artifacts.*`, check the directory exists → ✅ | ⚠️ "artifacts.{key} directory not found: {path}"
+- ∀ path ∈ `artifacts.*` → ✅ | ⚠️ "artifacts.{key} dir not found: {path}"
 
 **Security:**
-- `.claude/stack.yml` is in `.gitignore` → ✅ | ❌ "Add `.claude/stack.yml` to .gitignore (it may contain local paths)"
+- `.claude/stack.yml` ∈ `.gitignore` → ✅ | ❌ "stack.yml not in .gitignore"
 
 **Hooks formatter match:**
-- If `build.formatter_fix_cmd` in stack.yml contains `biome`, confirm `hooks.json` PostToolUse runs `format.js` → ✅ | ⚠️ "Hooks formatter may not match stack.yml build.formatter_fix_cmd"
+- `build.formatter_fix_cmd` contains `biome` → confirm `hooks.json` PostToolUse runs `format.js` → ✅ | ⚠️ "Hooks formatter may not match stack.yml build.formatter_fix_cmd"
+
+**Pre-commit hooks:**
+
+Read `hooks.tool` from stack.yml. Resolve effective tool:
+- `none` → ⏭ "Disabled in stack.yml" (skip hook install checks)
+- `auto` ∨ absent → infer: `python` runtime → `pre-commit`, otherwise → `lefthook`
+- explicit value (`lefthook` | `pre-commit` | `husky`) → use it
+
+Check install state:
+
+| Tool | Config file check | Git hook check |
+|------|-------------------|----------------|
+| lefthook | `test -f lefthook.yml` | `test -f .git/hooks/pre-commit` |
+| pre-commit | `test -f .pre-commit-config.yaml` | `test -f .git/hooks/pre-commit` |
+| husky | `test -d .husky` | `test -f .git/hooks/pre-commit` |
+
+- Config file ∄ → ⚠️ "{tool} config not found"
+- Config ∃ ∧ git hook ∄ → ⚠️ "{tool} config found but hooks not active — needs `{install-cmd}`"
+- Both ∃ → ✅ "Pre-commit hooks active ({tool})"
+- `hooks.tool` key ∄ in stack.yml → ⚠️ "`hooks.tool` not set in stack.yml"
 
 **VS Code MDX preview:**
-- Only check if `.mdx` files exist in the project (`find . -name "*.mdx" -not -path "*/node_modules/*" | head -1`) or `docs.format: mdx` in stack.yml.
-- `.vscode/settings.json` contains `"*.mdx": "markdown"` under `files.associations` → ✅ | ⚠️ "Run `/init` to add MDX preview support in VS Code"
-- If no `.mdx` files found → ⏭ skip silently.
+- Only check if `.mdx` files ∃ (`find . -name "*.mdx" -not -path "*/node_modules/*" | head -1`) ∨ `docs.format: mdx` in stack.yml.
+- `.vscode/settings.json` contains `"*.mdx": "markdown"` → ✅ | ⚠️ "VS Code MDX preview not configured"
+- ∄ `.mdx` files → ⏭ skip silently.
 
-Print a final summary:
+Print summary:
 ```
 Stack config: N checks passed, M warnings, K errors
 ```
 
-Only suggest "Run `/init` to fix missing items." if there are ❌ errors.
+#### Phase 2 Fix
+
+Collect all ❌/⚠️ items with auto-fix. None → skip section.
+
+Show list:
+```
+Auto-fixable issues:
+  [ ] stack.yml missing
+  [ ] CLAUDE.md import missing
+  [ ] stack.yml not in .gitignore
+  [ ] artifacts/analyses dir missing
+  [ ] hooks.tool not set
+  [ ] lefthook not installed
+  [ ] VS Code MDX preview missing
+  ...
+```
+
+AskUserQuestion: **Fix all** | **Select** | **Skip**
+
+Apply each selected fix:
+
+| Issue | Fix |
+|-------|-----|
+| `stack.yml missing` | `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml` — inform user to fill in critical fields |
+| `stack.yml.example missing` | `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example` |
+| `CLAUDE.md import missing` | Prepend `@.claude/stack.yml\n` to `CLAUDE.md` |
+| `stack.yml not in .gitignore` | Append `.claude/stack.yml` to `.gitignore` |
+| `artifacts.* dir missing` | `mkdir -p {path}` ∀ missing dir |
+| `hooks.tool not set` | Append `hooks:\n  tool: auto` to `.claude/stack.yml` |
+| `lefthook config missing` | Write `lefthook.yml` with `commands.lint` + `commands.typecheck`; then `bunx lefthook install` |
+| `lefthook not activated` | `bunx lefthook install` |
+| `pre-commit config missing` | Write `.pre-commit-config.yaml` with local hooks for `commands.lint` + `commands.typecheck`; then `pip install pre-commit && pre-commit install` (or `uv add --dev pre-commit && uv run pre-commit install`) |
+| `pre-commit not activated` | `pre-commit install` (or `uv run pre-commit install`) |
+| `VS Code MDX preview missing` | Merge `"*.mdx": "markdown"` into `.vscode/settings.json` `files.associations` (create file if missing) |
+
+Issues requiring user input (e.g. `commands.*` fields blank, standards paths missing) → display exact line to add to stack.yml; ask user to edit manually. Do not silently skip.
+
+After fixes, re-run relevant checks and display updated result.
 
 ### Phase 3 — Workspace health check
 
-Verify the multi-project workspace config that powers the multi-tab dashboard.
-
-Run a single check using the canonical workspace helpers:
 ```bash
 bun -e "
 import { getWorkspacePath, readWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/workspace.ts'
@@ -83,14 +154,13 @@ console.log(JSON.stringify({
 "
 ```
 
-Parse the JSON output and display:
-- **workspace.json exists** → ✅ `found at <path>` | ⚠️ `not found — run /init to register this project` (skip remaining checks if missing)
-- **Current repo registered** (uses `GITHUB_REPO` env var) → ✅ `<repo> registered` | ⚠️ `current repo not in workspace — run /init to register`
-- **projectId format valid** → ✅ all valid | ⚠️ `invalid projectId for <repo> (expected PVT_...)` for each in `invalidIds`
-- **Project count:** display `N project(s) registered: <label1>, <label2>, ...`
+Display:
+- workspace.json ∃ → ✅ `found at <path>` | ⚠️ `not found`
+- Current repo registered → ✅ `<repo> registered` | ⚠️ `current repo not in workspace`
+- projectId format → ✅ all valid | ⚠️ `invalid projectId for <repo>` ∀ in `invalidIds`
+- Project count: `N project(s): <label1>, <label2>, ...`
 
 **Unregistered projects scan:**
-
 ```bash
 SEARCH_DIRS="$(dirname $PWD) $HOME/projects"
 for dir in $SEARCH_DIRS; do
@@ -99,15 +169,27 @@ for dir in $SEARCH_DIRS; do
 done | sort -u
 ```
 
-For each found `.env`, extract `GITHUB_REPO` and check if it's already in workspace.json. Collect those that are not (excluding the current repo, already checked above).
+∀ found `.env` ∉ workspace.json (excluding current repo) → collect as unregistered candidates.
 
-- **No unregistered candidates:** ✅ `all local dev-core projects are registered`
-- **Unregistered found:** ⚠️ `N project(s) with dev-core config not in workspace: <repo-a>, <repo-b> — run /init to bulk-register`
+- ∄ unregistered candidates → ✅ `all local dev-core projects are registered`
+- unregistered ∃ → ⚠️ `N unregistered: <repo-a>, <repo-b>`
 
-Print summary line:
+Print:
 ```
 Workspace: N projects registered  (or: not found)
 ```
+
+#### Phase 3 Fix
+
+∃ workspace issues → AskUserQuestion: **Fix all** | **Select** | **Skip**
+
+| Issue | Fix |
+|-------|-----|
+| `workspace.json not found` ∨ `current repo not registered` | Run registration bun snippet (same as /init Phase 6 step 4) using `GITHUB_REPO` + `GH_PROJECT_ID` from `.env` |
+| Unregistered projects | ∀ selected repo: read its `.env`, build entry, append to workspace.json |
+| Invalid `projectId` | Display: "Edit workspace.json and correct `projectId` for `<repo>` — must start with `PVT_`" (manual fix, cannot auto-correct) |
+
+After fixes, re-run workspace check and display updated result.
 
 ### Phase 4 — CI Setup (if missing)
 

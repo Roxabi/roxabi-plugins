@@ -8,6 +8,10 @@ allowed-tools: Bash, Read, Write, Glob, Grep
 
 # Test
 
+Let:
+  τ := target file(s) under test
+  π := test file adjacent to source (`{name}.test.ts` | `{name}.spec.ts` | `__tests__/{name}.test.ts`)
+
 Generate tests for changed or specified files. Follows existing codebase patterns.
 
 ## Usage
@@ -44,13 +48,13 @@ git diff ${BASE}...HEAD --name-only
 
 Include: `.ts`, `.tsx`. Exclude: `*.config.ts`, `*.d.ts`, `*.test.*`, `*.spec.*`, files with no exports.
 
-Specific file argument ⇒ use directly. ¬testable files found ⇒ inform + stop.
+Specific file argument ⇒ use directly. ¬testable τ found ⇒ inform + stop.
 
 ## Step 3 — Read Standards + Find Patterns
 
 Read `{standards.testing}` before generating any tests — contains framework config, AAA requirements, mocking strategies, coverage targets.
 
-Glob `*.test.ts` / `*.spec.ts` near target files → read 1–2 examples → extract: describe/it nesting, mock approach, assertion style, naming convention.
+Glob `*.test.ts` / `*.spec.ts` near τ → read 1–2 examples → extract: describe/it nesting, mock approach, assertion style, naming convention.
 
 **Framework:** Vitest on Bun. Always import explicitly:
 ```typescript
@@ -70,14 +74,14 @@ Mock factory hoisting: Bun validates `vi.mock` factories against the real module
 
 ## Step 4 — Check Existing Coverage
 
-∀ target file → check for `{name}.test.ts` / `{name}.spec.ts` / `__tests__/{name}.test.ts`.
+∀ τ → check for π.
 
-∃ test file ⇒ read it, compare with source exports, offer to add missing coverage (¬overwrite).
-¬test file ⇒ generate full test file.
+∃ π ⇒ read it, compare with source exports, offer to add missing coverage (¬overwrite).
+¬π ⇒ generate full test file.
 
 ## Step 5 — Generate Tests
 
-∀ target file:
+∀ τ:
 1. Read source → understand exports, signatures, types, behavior
 2. Generate: happy path, edge cases (empty/null/boundary), error cases
 3. Structure using AAA with explicit comments:
@@ -93,7 +97,7 @@ it('should return user by id', () => {
 })
 ```
 
-4. Coverage targets: 90% business logic, 80% controllers/modules, 70% overall
+4. Coverage targets: 90% business logic | 80% controllers/modules | 70% overall
 5. Follow discovered patterns exactly
 6. Place adjacent to source: `login.ts` → `login.test.ts`
 
@@ -105,7 +109,7 @@ AskUserQuestion: **Approve and write all** | **Approve with modifications** | **
 
 ## Step 7 — Write + Verify
 
-∀ approved file:
+∀ approved τ:
 1. Write via Write tool
 2. `{commands.test} {test_file_path}`
 3. Report pass/fail
@@ -125,7 +129,7 @@ Follow approval + verification flow (Steps 6–7).
 
 ## Playwright Patterns
 
-Check `{frontend.path}/e2e/` for POM conventions. If ∃ page objects, follow them.
+∃ page objects in `{frontend.path}/e2e/` → follow them.
 
 ```typescript
 // e2e/pages/login.page.ts

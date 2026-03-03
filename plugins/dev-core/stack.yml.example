@@ -35,11 +35,20 @@ build:
   orchestrator_config: turbo.jsonc  # filename of the orchestrator config
   formatter: biome                # biome | eslint | rome | none
   formatter_config: biome.json    # filename of the formatter config
-  formatter_fix_cmd: "bunx biome check --write"  # command to auto-fix formatting
+  formatter_fix_cmd: "bunx biome check --write"  # single formatter (leave empty to disable)
+  # formatters:                   # multi-formatter for mixed stacks (FE+BE, JS+Python, etc.)
+  #   - cmd: "bunx biome check --write"
+  #     ext: [".ts", ".tsx", ".js", ".jsx", ".json"]
+  #   - cmd: "ruff format"
+  #     ext: [".py"]
 
 testing:
   unit: vitest                    # vitest | jest | pytest | none
   e2e: playwright                 # playwright | cypress | none
+
+hooks:
+  tool: auto                      # auto | lefthook | pre-commit | husky | none
+                                  # auto: bun/node/deno → lefthook, python → pre-commit
 
 deploy:
   platform: vercel                # vercel | railway | fly | aws | none

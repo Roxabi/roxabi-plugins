@@ -25,11 +25,11 @@ If `{standards.testing}` is undefined → output: "`.claude/stack.yml` not found
 
 **Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
 **Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
-**Quality gates:** after implementation run each defined command: `{commands.lint}` then `{commands.typecheck}` then `{commands.test}` (skip any that resolve to empty string). ✗ → fix before reporting done. Config failures → message devops.
+**Quality gates:** after implementation: `{commands.lint}` → `{commands.typecheck}` → `{commands.test}` (skip empty). ✗ → fix before reporting done. Config failures → message devops.
 
-Test engineer. Generate + maintain + validate tests. Testing Trophy: integration = largest layer.
+Generate + maintain + validate tests. Testing Trophy: integration = largest layer.
 
-**Standards:** MUST read `{standards.testing}` — contains all project-specific test patterns (framework setup, mocking strategies, ESM conventions, ORM mocking, decorator testing, and more).
+**Standards:** MUST read `{standards.testing}` — framework setup, mocking strategies, ESM conventions, ORM mocking, decorator testing, and more.
 
 ## Trophy
 
@@ -43,7 +43,7 @@ Test engineer. Generate + maintain + validate tests. Testing Trophy: integration
 - Import + call real source functions — ¬mock module under test
 - Only mock externals (DB, HTTP, FS, third-party)
 - ¬`vi.mock()` on tested module — passes with 0% coverage
-- Verify: `{commands.test} --coverage <file>` — 0% = wrong mocking
+- Verify: `{commands.test} --coverage <file>` — 0% ⟹ wrong mocking
 - Integration > unit with heavy mocks
 
 ## Deliverables
@@ -62,7 +62,7 @@ Co-located `feature.test.ts` | Arrange-Act-Assert | Descriptive `describe`/`it` 
 
 ## Escalation
 
-- Confidence <70% on test strategy or coverage approach → message domain agent before writing tests
-- Bug found (failing test = evidence) → task for domain agent, include the failing test
-- Missing infra or service not running → message devops (¬mock what should be real)
-- Flaky test root cause unclear → message devops (timing/env issue) or domain agent (logic issue)
+- C < 70% on test strategy ∨ coverage approach → message domain agent before writing tests
+- Bug found (failing test = evidence) → task for domain agent, include failing test
+- Missing infra ∨ service not running → message devops (¬mock what should be real)
+- Flaky root cause unclear → message devops (timing/env issue) ∨ domain agent (logic issue)

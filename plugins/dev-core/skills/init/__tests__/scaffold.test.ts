@@ -106,18 +106,22 @@ describe('scaffold', () => {
     writtenFiles = {}
     const fs = require('node:fs')
 
-    vi.spyOn(fs, 'existsSync').mockImplementation((path) => {
-      return (path as string) in mockFs && mockFs[path as string] !== null
+    vi.spyOn(fs, 'existsSync').mockImplementation((...args: unknown[]) => {
+      const path = args[0] as string
+      return path in mockFs && mockFs[path] !== null
     })
-    vi.spyOn(fs, 'readFileSync').mockImplementation((path) => {
-      if ((path as string) in mockFs && mockFs[path as string] !== null) return mockFs[path as string]
+    vi.spyOn(fs, 'readFileSync').mockImplementation((...args: unknown[]) => {
+      const path = args[0] as string
+      if (path in mockFs && mockFs[path] !== null) return mockFs[path]
       throw new Error('ENOENT')
     })
-    vi.spyOn(fs, 'writeFileSync').mockImplementation((path, content) => {
-      writtenFiles[path as string] = content as string
+    vi.spyOn(fs, 'writeFileSync').mockImplementation((...args: unknown[]) => {
+      const [path, content] = args as [string, string]
+      writtenFiles[path] = content
     })
-    vi.spyOn(fs, 'appendFileSync').mockImplementation((path, content) => {
-      writtenFiles[path as string] = (writtenFiles[path as string] ?? '') + (content as string)
+    vi.spyOn(fs, 'appendFileSync').mockImplementation((...args: unknown[]) => {
+      const [path, content] = args as [string, string]
+      writtenFiles[path] = (writtenFiles[path] ?? '') + content
     })
     vi.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
   })

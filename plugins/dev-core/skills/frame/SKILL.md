@@ -11,9 +11,9 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 Let:
   φ := artifacts/frames/{N}-{slug}-frame.mdx (∃N) ∨ artifacts/frames/{slug}-frame.mdx (frame-only mode)
   N := issue number (∅ if free text)
-  τ := tier (S | F-lite | F-full)
+  τ := tier ∈ {S, F-lite, F-full}
 
-idea | issue → approved frame doc. Interview → detect tier → write φ → user approves.
+idea | issue → approved frame doc. Interview → detect τ → write φ → user approves.
 Standalone-safe: callable without `/dev`. Output consumed by `/analyze`, `/spec`, `/dev`.
 
 ## Entry
@@ -25,41 +25,36 @@ Standalone-safe: callable without `/dev`. Output consumed by `/analyze`, `/spec`
 
 ## Step 0 — Parse + Seed
 
-`--issue N` ⇒
-
+`--issue N` →
 ```bash
 gh issue view N --json number,title,body,labels
 ```
+Extract: title, body, labels → seed context (S/M/L/XL label → τ hint).
+Free text → use verbatim as seed.
 
-Extract: title, body, labels → seed context (S/M/L/XL label → tier hint).
-Free text ⇒ use verbatim as seed.
+Derive slug: lowercase, kebab-case, ≤5 words.
 
-Derive slug from title/text: lowercase, kebab-case, ≤5 words.
-
-Check for ∃ φ:
-
+Check ∃ φ:
 ```bash
 # glob artifacts/frames/*{slug}*
 ```
 
-∃ φ with `status: approved` ⇒ AskUserQuestion: **Use existing** (→ Step 4, show + confirm) | **Re-frame** (→ Step 1, fresh).
-∃ φ with `status: draft` ⇒ AskUserQuestion: **Continue draft** (→ Step 3, present draft) | **Start fresh** (→ Step 1).
+∃ φ ∧ `status: approved` → AskUserQuestion: **Use existing** (→ Step 4) | **Re-frame** (→ Step 1, fresh).
+∃ φ ∧ `status: draft` → AskUserQuestion: **Continue draft** (→ Step 3) | **Start fresh** (→ Step 1).
 
 ## Step 1 — Interview
 
-3–5 questions max. Skip questions whose answers are already clear from seed context. Group into 1–2 AskUserQuestion calls.
-
-**Core questions (adapt to gaps in seed):**
+3–5 questions max. Skip answers clear from seed. Group into 1–2 AskUserQuestion calls.
 
 | # | Question | Skip if |
 |---|----------|---------|
-| 1 | What is the problem or pain point? What triggers this? | Issue body has clear problem |
-| 2 | Who is affected? Primary user + secondary users. | Issue body names users |
+| 1 | What is the problem/pain? What triggers this? | Issue body has clear problem |
+| 2 | Who is affected? Primary + secondary users. | Issue body names users |
 | 3 | What constraints apply? (time, tech, dependencies) | Labels or body imply these |
-| 4 | What is explicitly out of scope? What are we NOT solving? | Scope already narrow |
-| 5 | Any related work, prior attempts, or adjacent issues? | ∅ context → optional |
+| 4 | What is explicitly out of scope? | Scope already narrow |
+| 5 | Related work, prior attempts, adjacent issues? | ∅ context → optional |
 
-¬ask all 5 if seed is rich — only ask what's missing.
+¬ask all 5 if seed is rich — ask only what's missing.
 
 ## Step 2 — Tier Detection
 
@@ -67,20 +62,20 @@ Auto-detect τ from complexity signals:
 
 | Signal | Infers |
 |--------|--------|
-| ≤3 files mentioned, single domain, no new arch | S |
-| Clear scope, single domain, no unknowns | F-lite |
-| Multiple domains, new patterns, unknowns, XL label | F-full |
+| ≤3 files, single domain, ¬new arch | S |
+| Clear scope, single domain, ¬unknowns | F-lite |
+| Multiple domains ∨ new patterns ∨ unknowns ∨ XL label | F-full |
 | Issue label S ∨ XS | S |
 | Issue label M | F-lite |
 | Issue label L ∨ XL | F-full |
 
 See [tier-classification.md](../../../shared/references/tier-classification.md) for canonical rules and complexity scoring.
 
-AskUserQuestion: **Confirm {τ}** | **Override → S** | **Override → F-lite** | **Override → F-full**.
+AskUserQuestion: **Confirm {τ}** | **Override → S** | **Override → F-lite** | **Override → F-full**
 
 ## Step 3 — Write Frame Doc
 
-Write φ as `artifacts/frames/{N}-{slug}-frame.mdx` (∃ issue) or `artifacts/frames/{slug}-frame.mdx` (frame-only mode) with `status: draft`.
+Write φ as `artifacts/frames/{N}-{slug}-frame.mdx` (∃ issue) or `artifacts/frames/{slug}-frame.mdx` (frame-only mode) with `status: draft`:
 
 ```mdx
 ---
@@ -117,12 +112,11 @@ date: {YYYY-MM-DD}
 
 ## Step 4 — User Approval
 
-Present frame summary: problem statement, tier, key constraints, scope boundary.
+Present summary: problem statement, τ, key constraints, scope boundary.
 AskUserQuestion: **Approve** | **Revise** (specify what to change).
 
-**Revise** ⇒ apply edits inline → re-present → loop until Approve.
-
-**Approve** ⇒ update frontmatter `status: approved` via Edit.
+**Revise** → apply edits inline → re-present → loop until Approve.
+**Approve** → update frontmatter `status: approved` via Edit.
 
 ## Completion
 
@@ -130,18 +124,18 @@ AskUserQuestion: **Approve** | **Revise** (specify what to change).
 
 Commit artifact: `git add artifacts/frames/{N}-{slug}-frame.mdx` + commit per CLAUDE.md Rule 5.
 
-∃ N ⇒ update issue status:
+∃ N →
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set N --status Analysis
 ```
 
-Inform user: "Frame approved. Run `/dev #N` to continue, or `/analyze --issue N` for deep technical exploration."
+Inform: "Frame approved. Run `/dev #N` to continue, or `/analyze --issue N` for deep technical exploration."
 
 ## Edge Cases
 
-- Free text with no clear slug ⇒ derive from first 4 nouns/verbs. AskUserQuestion to confirm slug if ambiguous.
-- Issue ¬exists (gh returns 404) ⇒ proceed with free-text mode using title as seed.
-- Tier is contested (signals split evenly) ⇒ default to higher tier, note in doc: "Defaulted to {τ} — downgrade if scope narrows."
-- User approves then requests major change ⇒ reset `status: draft`, revise, re-approve.
+- Free text ∧ ¬clear slug → derive from first 4 nouns/verbs. AskUserQuestion to confirm if ambiguous.
+- Issue ¬exists (gh 404) → proceed in free-text mode using title as seed.
+- Tier contested (signals split evenly) → default to higher τ; note in doc: "Defaulted to {τ} — downgrade if scope narrows."
+- User approves then requests major change → reset `status: draft`, revise, re-approve.
 
 $ARGUMENTS

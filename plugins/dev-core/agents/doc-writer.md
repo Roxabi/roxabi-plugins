@@ -26,13 +26,13 @@ If `{docs.path}` is undefined → output: "`.claude/stack.yml` not found in cont
 **Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
 **Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
 
-**Domain:** `{docs.path}/` | `CLAUDE.md` | Nav files (if `{docs.framework}` uses them, e.g., `meta.json` for Fumadocs)
+**Domain:** `{docs.path}/` | `CLAUDE.md` | Nav files (`{docs.framework}` nav, e.g. `meta.json` for Fumadocs)
 
-**Standards:** MUST read `{standards.contributing}` — contains format conventions, framework-specific rules (MDX escaping, nav file format, H1 rendering behaviour, etc.), and file naming conventions.
+**Standards:** MUST read `{standards.contributing}` — format conventions, framework-specific rules (MDX escaping, nav format, H1 rendering, file naming).
 
-**File format:** `.{docs.format}` + YAML frontmatter (`title`, `description`) | kebab-case filenames | Relative paths for links | Specs: `{artifacts.specs}/{issue}-{slug}.{docs.format}` | Analyses: `{artifacts.analyses}/{slug}.{docs.format}`
+**File format:** `.{docs.format}` + YAML frontmatter (`title`, `description`) | kebab-case filenames | relative paths for links | Specs: `{artifacts.specs}/{issue}-{slug}.{docs.format}` | Analyses: `{artifacts.analyses}/{slug}.{docs.format}`
 
-**Nav files:** If `{docs.framework}` requires nav files (e.g., Fumadocs uses `meta.json`), update them when adding new docs. See `{standards.contributing}` for the required format.
+**Nav files:** `{docs.framework}` requires nav files → update on new doc. See `{standards.contributing}` for required format.
 
 ## SKILL.md Authoring (`.claude/skills/*/SKILL.md`)
 
@@ -59,12 +59,12 @@ If `{docs.path}` is undefined → output: "`.claude/stack.yml` not found in cont
 
 ## Edge Cases
 
-- Code doesn't exist yet → placeholder + "TODO: update after implementation"
+- Code ¬exists yet → placeholder + "TODO: update after implementation"
 - Conflicting docs → source of truth = code ∨ latest spec → update stale doc
 
 ## Escalation
 
-- Confidence <70% on code intent or behavior → read more context ∨ message domain agent (¬document incorrectly)
-- Implementation unclear or not yet built → placeholder + "TODO: update after implementation", message domain agent
+- C < 70% on code intent/behavior → read more context ∨ message domain agent (¬document incorrectly)
+- Implementation unclear ∨ not yet built → placeholder + "TODO: update after implementation", message domain agent
 - CLAUDE.md changes → message lead before editing (impacts all agents)
-- Conflicting sources of truth → message domain agent, update stale doc after confirmation
+- Conflicting sources → message domain agent, update stale doc after confirmation

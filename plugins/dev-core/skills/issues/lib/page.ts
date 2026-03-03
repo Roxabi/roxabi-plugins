@@ -204,7 +204,7 @@ export function buildHtml(
   byProjectMeta?: Map<string, ProjectMeta>,
 ): string {
   const isMultiProject = byProject !== undefined && byProject.size > 0
-  const allIssues = isMultiProject ? [...(byProject as Map<string, typeof issues>).values()].flat() : issues
+  const allIssues = isMultiProject && byProject ? [...byProject.values()].flat() : issues
   const totalCount = allIssues.reduce((sum, i) => sum + 1 + i.children.length, 0)
 
   const { visibleRows, hiddenRows, hasMore, hiddenCount } = splitIssueRows(issues)
@@ -291,17 +291,18 @@ export function buildHtml(
   const showCISection = isMultiProject ? !!ciHtml : shouldShowCI(branchCI)
   const showPRs = isMultiProject ? !!prsHtml : prs.length > 0
 
-  const tabBarHtml = isMultiProject
-    ? buildTabBar(
-        workspaceProjects ??
-          [...(byProject as Map<string, unknown>).keys()].map((label) => ({ label, repo: label, projectId: '' })),
-        'All',
-      )
-    : ''
+  const tabBarHtml =
+    isMultiProject && byProject
+      ? buildTabBar(
+          workspaceProjects ?? [...byProject.keys()].map((label) => ({ label, repo: label, projectId: '' })),
+          'All',
+        )
+      : ''
 
-  const issuesSectionHtml = isMultiProject
-    ? buildAllView(byProject as NonNullable<typeof byProject>, workspaceProjects)
-    : `<table>
+  const issuesSectionHtml =
+    isMultiProject && byProject
+      ? buildAllView(byProject, workspaceProjects)
+      : `<table>
     <thead>
       <tr>
         <th>#</th>

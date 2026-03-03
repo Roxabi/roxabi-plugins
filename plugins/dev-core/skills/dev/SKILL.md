@@ -15,6 +15,7 @@ Let:
   Σ    := state map (step → bool | null), persisted via artifacts
   Σ_s  := session state map (step → bool), in-memory only, lost on restart
   S*   := next step to execute
+  φ    := frame artifact
 
 Single entry point for the full dev lifecycle. Scans artifacts → detects state → shows progress → delegates to step skill → loops.
 ¬rewrites logic of step skills. ¬auto-advances phases. AskUserQuestion at each gate.
@@ -35,13 +36,13 @@ gh issue view N --json number,title,labels,state
 ```
 ¬∃ issue ⇒ AskUserQuestion: **Create issue** | **Proceed without issue** (frame-only mode).
 
-Free text ⇒ slug from text. Search for matching issue:
+Free text ⇒ slug from text. Search:
 ```bash
 gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 ```
 ∃ match ⇒ AskUserQuestion: **Use #{N}: {title}** | **Create new issue** | **Proceed without issue**.
 
-`--from <step>` ⇒ record override. Warn if prerequisite artifacts missing per table:
+`--from <step>` ⇒ record override. Warn if prerequisite artifacts missing:
 
 | Step | Required artifacts |
 |------|-------------------|
@@ -56,8 +57,6 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 | fix | review findings (PR comment with "## Code Review") |
 
 ## Step 1 — Scan State (parallel, <3s)
-
-Run all checks in parallel via Bash:
 
 ```bash
 # Issue
@@ -92,7 +91,7 @@ gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "
 gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "^## Review Fixes Applied" && echo "fix_comment=true"
 ```
 
-Read frontmatter of φ (frame) if ∃ → extract `status`, `tier`.
+φ ∃ → read frontmatter → extract `status`, `tier`.
 
 Σ = {
   triage:    issue ∃,
@@ -110,21 +109,19 @@ Read frontmatter of φ (frame) if ∃ → extract `status`, `tier`.
 }
 
 Σ_s = {} initially. Populated in Step 8 after each skill completes. Lost on session restart.
-Steps with Σ[step] == null (no artifact detection) rely on Σ_s for within-session advancement.
+Steps with Σ[step] == null rely on Σ_s for within-session advancement.
 
-pr_has_review_comment(PR) := PR comments contain a body starting with "## Code Review"
-pr_has_fix_comment(PR)    := PR comments contain a body starting with "## Review Fixes Applied"
+pr_has_review_comment(PR) ⟺ PR comments ∃ body starting with "## Code Review"
+pr_has_fix_comment(PR)    ⟺ PR comments ∃ body starting with "## Review Fixes Applied"
 
 τ = φ.tier || issue_size_label_to_tier(issue.labels) || null
 
 ## Step 2 — Determine Tier
 
-τ already set ⇒ skip.
-¬τ ⇒ AskUserQuestion: **S** (≤3 files, no arch) | **F-lite** (clear scope, 1 domain) | **F-full** (complex, multi-domain).
+τ ∃ → skip.
+¬τ → AskUserQuestion: **S** (≤3 files, no arch) | **F-lite** (clear scope, 1 domain) | **F-full** (complex, multi-domain).
 
 ## Step 3 — Progress Display
-
-Render progress bar to user:
 
 ```
 ## {title} (#{N})  [{τ}]
@@ -191,14 +188,12 @@ Walk STEPS:
 
 ## Step 6 — Gate Check
 
-Before invoking S*, check if arriving at a gate:
-
 | Gate trigger | Behavior |
 |-------------|----------|
-| S* == frame (Σ.triage && ¬Σ.frame) | Show frame doc if ∃ draft, ask approval |
-| S* == spec (Σ.frame && ¬Σ.spec) | Will gate after spec runs |
-| S* == plan (Σ.spec && ¬Σ.plan) | Will gate after plan runs |
-| S* == pr (Σ.implement && ¬Σ.pr) | Confirm ready for PR |
+| S* == frame (Σ.triage ∧ ¬Σ.frame) | Show φ if ∃ draft, ask approval |
+| S* == spec (Σ.frame ∧ ¬Σ.spec) | Gate after spec runs |
+| S* == plan (Σ.spec ∧ ¬Σ.plan) | Gate after plan runs |
+| S* == pr (Σ.implement ∧ ¬Σ.pr) | Confirm ready for PR |
 | S* == review | Post-review gate handled inside /review |
 
 ## Step 7 — AskUserQuestion Loop
@@ -208,7 +203,7 @@ AskUserQuestion:
 - **Skip to...** → {list of remaining non-skipped steps}
 - **Stop** → save progress (artifacts persist), exit
 
-**Continue** ⇒ invoke step skill using dispatch table:
+**Continue** ⇒ invoke step skill:
 
 | Step | Skill invocation |
 |------|-----------------|
@@ -225,18 +220,17 @@ AskUserQuestion:
 | promote | `skill: "promote"` (standalone staging→main — skipped by default) |
 | cleanup | `skill: "cleanup", args: "--scope #N"` (scoped to current issue's branch/worktree) |
 
-**Skip to X** ⇒ warn if prerequisite artifacts for X are missing, then confirm:
-AskUserQuestion: **Proceed anyway** | **Cancel skip**.
-Proceed ⇒ mark all steps before X as skipped for this run, set S* = X, loop to Step 7.
+**Skip to X** ⇒ missing prerequisite artifacts → warn, then AskUserQuestion: **Proceed anyway** | **Cancel skip**.
+Proceed ⇒ mark all steps before X as skipped, S* = X, loop to Step 7.
 
-**Stop** ⇒ inform: "Stopped at {S*}. Run `/dev #N` to resume from this point."
+**Stop** ⇒ "Stopped at {S*}. Run `/dev #N` to resume from this point."
 
 ## Step 8 — Post-skill Re-scan
 
-After skill completes → set Σ_s[step] = true → goto Step 1 (re-scan Σ from artifacts).
-Σ_s ensures within-session advancement for steps without artifacts (validate, review, fix).
-On session restart, Σ_s is empty → artifact-less steps re-run (desired: validate results go stale).
-Gates (frame, spec, plan, post-implement) ⇒ re-scan will detect updated artifact state → show updated progress → loop.
+skill completes → Σ_s[step] = true → goto Step 1 (re-scan Σ from artifacts).
+Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix).
+session restart → Σ_s = ∅ → artifact-less steps re-run (desired: validate results go stale).
+Gates (frame, spec, plan, post-implement) → re-scan detects updated artifact state → show progress → loop.
 ¬auto-advance past a phase gate without AskUserQuestion.
 
 ## Phases + Gate Summary
@@ -270,7 +264,7 @@ cond = run only if applicable (see skip logic).
 
 ## Completion
 
-All steps done/skipped ⇒
+∀ steps done/skipped ⇒
 
 ```
 ## Done — {title} (#{N})
@@ -289,10 +283,10 @@ To promote to production → run `/promote`
 
 ## Edge Cases
 
-- Session dies mid-step → re-run `/dev #N`. Re-scan detects partial state. If artifact was half-written, step skill handles it (checks ∃ + status).
-- `--from <step>` with missing deps → warn once: "Step X normally requires {dep artifact}. Proceeding anyway may produce incomplete output." AskUserQuestion: **Proceed** | **Cancel**.
-- Issue ¬exists + free text → proceed in frame-only mode. After frame approved, AskUserQuestion: **Create GitHub issue now** | **Continue without issue**.
-- S* == validate → Σ.validate is always null (no artifact). Within a session, Σ_s.validate advances past it. On resume (new session), validate re-runs (Σ_s lost).
-- Multiple open PRs for same issue → show list, AskUserQuestion: select which PR to track.
+- session dies mid-step → re-run `/dev #N`. Re-scan detects partial state. half-written artifact → step skill handles (checks ∃ + status).
+- `--from <step>` ∧ missing deps → warn: "Step X normally requires {dep artifact}. Proceeding may produce incomplete output." AskUserQuestion: **Proceed** | **Cancel**.
+- issue ¬∃ ∧ free text → frame-only mode. φ approved → AskUserQuestion: **Create GitHub issue now** | **Continue without issue**.
+- S* == validate → Σ.validate always null. Σ_s.validate advances within session. new session → validate re-runs (Σ_s lost).
+- multiple open PRs for same issue → list, AskUserQuestion: select which PR to track.
 
 $ARGUMENTS

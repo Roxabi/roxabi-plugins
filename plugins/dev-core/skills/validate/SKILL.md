@@ -12,7 +12,7 @@ Let:
   χ := quality check (name, `{commands.*}` from stack.yml, timeout, result)
   σ := {✅ pass (exit 0), ❌ FAIL (exit ≠0), ⚠️ warn (exit 0 + warnings), ⏭ skip (¬in scope)}
 
-Run all quality gates sequentially → single structured pass/fail report. ¬stop on first failure — run all χ for complete picture.
+Run all χ sequentially → single structured pass/fail report. ¬stop on first failure — run all χ for complete picture.
 
 ## Pipeline
 
@@ -48,7 +48,7 @@ Run all quality gates sequentially → single structured pass/fail report. ¬sto
 
 ∀ χ ∈ scope: run command, capture stdout+stderr + exit code. Record: name, σ, duration, error summary (first 5 error lines if failed).
 
-**¬raw runner** — always use `{commands.*}` resolved from stack.yml. If a command is not defined in stack.yml, σ := ⏭ skip.
+**¬raw runner** — always use `{commands.*}` from stack.yml. Command ¬defined in stack.yml → σ := ⏭ skip.
 
 | χ | Command | Timeout |
 |---|---------|---------|
@@ -83,7 +83,7 @@ Validate Report
 
 ### 4. Failure Details
 
-∃ χ with σ = ❌ → append failures section. First 10 error lines per failing χ. User re-runs individual χ for full output.
+∃ χ ∧ σ = ❌ → append failures section. First 10 error lines per failing χ.
 
 ```
 Failures
@@ -97,10 +97,9 @@ Test:
 
 ### 5. Verdict
 
-One-line exit summary:
 - ∀ χ pass → `All checks passed. Safe to push.`
 - ∃ χ fail → `{N} check(s) failed. Fix before pushing.`
-- `--quick` ∧ pass → `Quick checks passed. Run /validate for full check.`
+- `--quick` ∧ ∀ χ pass → `Quick checks passed. Run /validate for full check.`
 
 ## Edge Cases
 
@@ -108,8 +107,8 @@ One-line exit summary:
 |----------|----------|
 | Command not found | σ := ⚠️ warn, "command not available" |
 | Command times out | σ := ❌ FAIL, "timed out after Xs" |
-| No test files found | σ := ⏭ skip |
-| Docker not running (env/db) | σ := ⚠️ warn, ¬fail |
+| ¬test files found | σ := ⏭ skip |
+| Docker ¬running (env/db) | σ := ⚠️ warn, ¬fail |
 | Running in worktree | No special handling needed |
 
 ## Safety Rules
