@@ -17,6 +17,7 @@ import { test, expect, vi, beforeEach } from 'vitest'
 
 const mockGetItemId = vi.hoisted(() => vi.fn(() => Promise.resolve('ITEM_42')))
 const mockUpdateField = vi.hoisted(() => vi.fn(() => Promise.resolve()))
+const mockReadWorkspace = vi.hoisted(() => vi.fn())
 
 vi.mock('../../shared/github', () => ({
   getItemId: mockGetItemId,
@@ -24,32 +25,31 @@ vi.mock('../../shared/github', () => ({
 }))
 
 vi.mock('../../shared/workspace', () => ({
-  readWorkspace: () => ({
-    projects: [
-      {
-        repo: 'test/ryvo',
-        projectId: 'PVT_test',
-        label: 'ryvo-tech',
-        type: 'technical',
-        fieldIds: {
-          status: 'SF_proj',
-          col2: 'COL2_ID',
-          col3: 'COL3_ID',
-          statusOptions: { 'In Progress': 'OPT_STATUS_IP' },
-          col2Options: { XL: 'OPT_XL_PROJ' },
-          col3Options: { 'P1 - High': 'OPT_P1_PROJ' },
-        },
-      },
-    ],
-  }),
+  readWorkspace: mockReadWorkspace,
   writeWorkspace: vi.fn(() => {}),
 }))
+
+const defaultProject = {
+  repo: 'test/ryvo',
+  projectId: 'PVT_test',
+  label: 'ryvo-tech',
+  type: 'technical',
+  fieldIds: {
+    status: 'SF_proj',
+    col2: 'COL2_ID',
+    col3: 'COL3_ID',
+    statusOptions: { 'In Progress': 'OPT_STATUS_IP' },
+    col2Options: { XL: 'OPT_XL_PROJ' },
+    col3Options: { 'P1 - High': 'OPT_P1_PROJ' },
+  },
+}
 
 const { handleUpdate } = await import('./update')
 
 beforeEach(() => {
   mockGetItemId.mockClear()
   mockUpdateField.mockClear()
+  mockReadWorkspace.mockReturnValue({ projects: [defaultProject] })
 })
 
 test('uses project fieldIds.col2 for size field when projectLabel provided', async () => {
@@ -65,11 +65,24 @@ test('uses project fieldIds.col2 for size field when projectLabel provided', asy
   expect(mockUpdateField).toHaveBeenCalledWith('ITEM_42', 'COL2_ID', 'OPT_XL_PROJ')
 })
 
-test('skips update (ok: true) when fieldIds.col2 absent for slot', async () => {
-  // Test with a field that has no ID (col3 absent in project fieldIds... but it's present)
-  // Use a slot that maps to a missing field: send field='col2' for a project without col2
-  // We'll test this via the legacy path where field='size' maps to col2 in env
-  // but env SIZE_FIELD_ID is present — so test with an unknown field instead
+test('skips update (ok: true) when col2 absent from project fieldIds', async () => {
+  // Project has fieldIds but col2 is absent — update.ts must no-op rather than throw
+  mockReadWorkspace.mockReturnValueOnce({
+    projects: [{ ...defaultProject, fieldIds: { status: 'SF_proj' } }],
+  })
+  const req = new Request('http://localhost/api/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ issueNumber: 42, field: 'col2', value: 'XL', projectLabel: 'ryvo-tech' }),
+  })
+  const res = await handleUpdate(req)
+  const data = await res.json() as { ok: boolean }
+  // col2 absent in fieldIds → no fieldId found → no-op
+  expect(data.ok).toBe(true)
+  expect(mockUpdateField).not.toHaveBeenCalled()
+})
+
+test('skips update (ok: true) when slot name is unknown', async () => {
   const req = new Request('http://localhost/api/update', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -39,10 +39,19 @@ describe('resolveFieldIds', () => {
   it('throws when fieldIds present but status missing', () => {
     const project = {
       repo: 'r', projectId: 'p', label: 'test-proj',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // `as any` — tests the JSON-deserialization path: workspace.json written by hand
+      // or a future version may contain fieldIds without status; TypeScript won't catch it at runtime.
       fieldIds: { col2: 'C1', col3: 'C2' } as any,
     }
     expect(() => resolveFieldIds(project)).toThrow('fieldIds.status is required')
+  })
+
+  it('falls back to .env when fieldIds is {} (empty object)', () => {
+    const project = { repo: 'r', projectId: 'p', label: 'empty-proj', fieldIds: {} }
+    // Empty fieldIds ({}) is written by /init when GitHub field resolution fails.
+    // It must fall through to the .env fallback — not throw.
+    const ids = resolveFieldIds(project)
+    expect(typeof ids.status).toBe('string')
   })
 })
 

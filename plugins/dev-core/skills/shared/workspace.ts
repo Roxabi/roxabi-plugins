@@ -7,6 +7,12 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 
 export type ProjectType = 'technical' | 'company'
 
+/**
+ * Per-project field ID map written by /init and read by update.ts / fetch.ts.
+ * col2 and col3 are stable positional serialisation keys — they do NOT change
+ * when the project type changes. Display labels for each slot are determined
+ * at render time by columnLabel() in page.ts.
+ */
 export interface ProjectFieldIds {
   status: string
   col2?: string
@@ -60,6 +66,11 @@ export function writeWorkspace(ws: Workspace): void {
 /**
  * Discover GitHub Projects linked to a repo via GraphQL.
  * Returns array of WorkspaceProject (may be 0, 1, or multiple).
+ *
+ * Note: discovered projects intentionally omit `type` and `fieldIds`.
+ * `type` defaults to `'technical'` at runtime. `fieldIds` falls back to
+ * `.env` globals via resolveFieldIds(). Run /init to persist explicit
+ * `fieldIds` for non-technical projects or multi-project workspaces.
  */
 export async function discoverProject(repo: string): Promise<WorkspaceProject[]> {
   const [owner, name] = repo.split('/')
