@@ -56,6 +56,14 @@ describe('resolveFieldIds', () => {
     expect(ids.col2Options).toEqual({})
     expect(ids.col3Options).toEqual({})
   })
+
+  it('falls back to .env when fieldIds is {} (empty object)', () => {
+    const project = { repo: 'r', projectId: 'p', label: 'empty-proj', fieldIds: {} }
+    // Empty fieldIds ({}) is written by /init when GitHub field resolution fails.
+    // It must fall through to the .env fallback — not throw.
+    const ids = resolveFieldIds(project)
+    expect(typeof ids.status).toBe('string')
+  })
 })
 
 describe('fieldIdForSlot', () => {
