@@ -31,42 +31,35 @@ Formatting errors are **non-fatal**: if the formatter exits non-zero, the hook e
 
 ## Configuring Your Formatter
 
-Set `build.formatter_fix_cmd` in `.claude/stack.yml`. Leave it empty to disable auto-formatting.
+Set `build.formatter_fix_cmd` (single) or `build.formatters` (multi) in `.claude/stack.yml`.
 
-### Bun + Biome (default)
+### Single formatter — Bun + Biome
 
 ```yaml
 build:
   formatter_fix_cmd: "bunx biome check --write"
 ```
 
-### Node + Prettier
-
-```yaml
-build:
-  formatter_fix_cmd: "npx prettier --write"
-```
-
-### Python + Ruff
+### Single formatter — Python + Ruff
 
 ```yaml
 build:
   formatter_fix_cmd: "ruff format"
 ```
 
-### Python + Black
+### Mixed stack — JS frontend + Python backend
 
 ```yaml
 build:
-  formatter_fix_cmd: "black"
+  formatters:
+    - cmd: "bunx biome check --write"
+      ext: [".ts", ".tsx", ".js", ".jsx", ".json"]
+    - cmd: "ruff format"
+      ext: [".py"]
 ```
 
-### Node + ESLint (fix only)
-
-```yaml
-build:
-  formatter_fix_cmd: "npx eslint --fix"
-```
+Each formatter only receives files matching its `ext` list.
+Omit `ext` to pass all formattable files to that formatter.
 
 ### Disabled
 
@@ -74,6 +67,12 @@ build:
 build:
   formatter_fix_cmd:   # empty → hook skips silently
 ```
+
+### Resolution order
+
+1. `formatters:` array — used if present (multi-formatter)
+2. `formatter_fix_cmd:` — fallback (single formatter, backward compat)
+3. Neither set — hook skips silently
 
 ## Supported File Extensions
 
