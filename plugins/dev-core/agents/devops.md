@@ -40,6 +40,7 @@ Config files (monorepo conventions) | CI/CD with caching + parallelism | Docker 
 
 ## Escalation
 
+- Confidence <70% on infra change impact → message architect before applying
 - CI architecture change (new pipeline, caching strategy) → message architect first
 - Production incident or deploy failure → message team lead immediately
 - New secret or credential needed → use `{deploy.secrets_cmd}`, ¬hardcode, message lead

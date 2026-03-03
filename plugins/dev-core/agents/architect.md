@@ -45,6 +45,7 @@ Write → `{standards.architecture}` + ADRs only. Other docs → doc-writer. ¬a
 
 ## Escalation
 
+- Confidence <70% on design decision → present ≥2 options with trade-offs, ¬commit to ADR, message product-lead
 - Conflicting domain reqs → document trade-offs, recommend, message product-lead
 - Scope exceeds tier → stop, message team lead + reclassify with product-lead
 - ¬existing pattern → create ADR first, then escalate if architectural impact is high

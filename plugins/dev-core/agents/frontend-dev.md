@@ -43,6 +43,7 @@ React components (named exports, co-located tests) | Framework route handlers
 
 ## Escalation
 
+- Confidence <70% on implementation approach → message architect before writing code
 - Build / typecheck failure in config → message devops
 - API change or new endpoint needed → task for backend-dev
 - New UI pattern not in `{shared.ui}` → message architect before creating

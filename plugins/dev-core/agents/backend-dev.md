@@ -41,6 +41,7 @@ Domain modules (one/feature) | Controllers = HTTP only, logic → services | Dom
 
 ## Escalation
 
+- Confidence <70% on implementation approach → message architect before writing code
 - Circular deps (3+ modules) → message architect with dep graph
 - Config / infra issue → message devops
 - Shared type conflict with frontend → message frontend-dev first, then architect if unresolved

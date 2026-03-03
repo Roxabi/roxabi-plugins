@@ -46,6 +46,7 @@ Focus "what" + "why", ¬"how" (→ architect). Search: codebase → context7 →
 
 ## Escalation
 
+- Confidence <70% on scope or priority → document ≥2 options with rationale, message team lead
 - Technical feasibility unclear → message architect (¬block spec on this — note as open question)
 - Business priority conflict → message team lead
 - Scope creep detected → flag, split into child issues, keep spec focused

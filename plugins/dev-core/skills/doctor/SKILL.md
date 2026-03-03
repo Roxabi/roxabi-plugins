@@ -47,6 +47,11 @@ Severity guide: ❌ = blocking error (exit 1), ⚠️ = warning (optional / cont
 **Hooks formatter match:**
 - If `build.formatter_fix_cmd` in stack.yml contains `biome`, confirm `hooks.json` PostToolUse runs `format.js` → ✅ | ⚠️ "Hooks formatter may not match stack.yml build.formatter_fix_cmd"
 
+**VS Code MDX preview:**
+- Only check if `.mdx` files exist in the project (`find . -name "*.mdx" -not -path "*/node_modules/*" | head -1`) or `docs.format: mdx` in stack.yml.
+- `.vscode/settings.json` contains `"*.mdx": "markdown"` under `files.associations` → ✅ | ⚠️ "Run `/init` to add MDX preview support in VS Code"
+- If no `.mdx` files found → ⏭ skip silently.
+
 Print a final summary:
 ```
 Stack config: N checks passed, M warnings, K errors

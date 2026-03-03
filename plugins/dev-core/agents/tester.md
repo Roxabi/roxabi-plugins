@@ -56,6 +56,7 @@ Co-located `feature.test.ts` | Arrange-Act-Assert | Descriptive `describe`/`it` 
 
 ## Escalation
 
+- Confidence <70% on test strategy or coverage approach → message domain agent before writing tests
 - Bug found (failing test = evidence) → task for domain agent, include the failing test
 - Missing infra or service not running → message devops (¬mock what should be real)
 - Flaky test root cause unclear → message devops (timing/env issue) or domain agent (logic issue)

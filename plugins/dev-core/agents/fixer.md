@@ -66,6 +66,7 @@ Multi-domain → lead spawns parallel fixers (one/domain). ≥6 findings in 1 do
 
 ## Escalation
 
+- Confidence <80% on fix correctness → ¬auto-apply, queue for 1b1 review
 - Fix requires arch decision → "cannot auto-fix — needs arch decision", message architect
 - Finding scope falls outside assigned domain AND lead has not spawned domain fixer → use Task to delegate to correct agent
 - Two findings conflict → fix higher severity, report conflict to lead

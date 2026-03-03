@@ -59,6 +59,7 @@ If `{docs.path}` is undefined → output: "`.claude/stack.yml` not found in cont
 
 ## Escalation
 
+- Confidence <70% on code intent or behavior → read more context ∨ message domain agent (¬document incorrectly)
 - Implementation unclear or not yet built → placeholder + "TODO: update after implementation", message domain agent
 - CLAUDE.md changes → message lead before editing (impacts all agents)
 - Conflicting sources of truth → message domain agent, update stale doc after confirmation

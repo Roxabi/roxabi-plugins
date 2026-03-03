@@ -280,6 +280,23 @@ Set up `.claude/stack.yml` so dev-core agents can work without hardcoded paths.
    - If `.claude/stack.yml.example` does not exist, copy: `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example`
    - Display: ".claude/stack.yml.example created ✅ (commit this file)"
 
+### Phase 9 — VS Code MDX Preview (Optional)
+
+Only run if `.mdx` files exist in the project (`find . -name "*.mdx" -not -path "*/node_modules/*" | head -1`) or `docs.format: mdx` in stack.yml.
+
+1. Check `.vscode/settings.json` for `"*.mdx": "markdown"` under `files.associations`.
+2. If already present → display `VS Code MDX preview ✅ Already configured` and skip.
+3. If missing → AskUserQuestion: **Add VS Code MDX preview support** (adds `"*.mdx": "markdown"` to `.vscode/settings.json`) | **Skip**.
+4. If yes:
+   - If `.vscode/settings.json` does not exist, create it: `{"files.associations": {"*.mdx": "markdown"}}`
+   - If it exists, merge `"*.mdx": "markdown"` into the existing `files.associations` object (preserve all other keys).
+   - Display: `VS Code MDX preview ✅ Added`
+
+Update Phase 7 report to include:
+```
+  VS Code MDX preview   ✅ Added / ✅ Already configured / ⏭ Skipped / ⏭ No .mdx files found
+```
+
 ## Safety Rules
 
 1. **Never overwrite `.env` values** without `--force` or explicit user confirmation

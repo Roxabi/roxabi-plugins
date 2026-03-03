@@ -60,9 +60,9 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
-| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, workflows, branch protection, env vars, workspace.json registration). TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
+| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, workflows, branch protection, env vars, workspace.json registration, VS Code MDX preview). TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
 | `stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.claude/stack.yml`. Single confirmation screen — no wizard questions |
-| `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows, branch protection, stack.yml, and workspace.json registration. Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
+| `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows, branch protection, stack.yml, workspace.json registration, and VS Code MDX preview. Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
 | `dev` | Orchestrator | Routes issues through the full workflow |
 | `frame` | Frame | Creates initial feature frame from issue |
 | `analyze` | Shape | Deep analysis with expert consultation |
@@ -84,7 +84,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 ## Agents
 
-9 specialized agents organized in three tiers. Each agent has a built-in **config guard** (fails fast if `stack.yml` is missing) and a domain-specific **escalation path** (knows who to message for out-of-scope issues).
+9 specialized agents organized in three tiers. Each agent has a built-in **config guard** (fails fast if `stack.yml` is missing), a domain-specific **escalation path** (knows who to message for out-of-scope issues), and a **confidence threshold** (stops and escalates instead of guessing when certainty is below 70–80%).
 
 ### Domain
 

@@ -157,6 +157,7 @@ When you receive a scoped file list from the review orchestrator, focus on those
 
 ## Escalation
 
+- Confidence <70% on finding severity → default higher, note uncertainty in finding (¬silent drop)
 - Critical / High finding → send message to team lead immediately (¬wait for report delivery)
 - Finding needs runtime verification → note as "suspected — needs runtime testing", message devops
 - Dependency CVE with no fix available → report to team lead + document in findings
