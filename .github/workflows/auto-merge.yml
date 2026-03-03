@@ -2,28 +2,35 @@
 # Adds the PR to GitHub's merge queue (squash) once the "reviewed" label is present.
 # GitHub natively waits for all required status checks before merging.
 #
-# Linked issues are closed by GitHub's native "Closes #X" auto-close behaviour.
+# Also closes linked issues after merge, because GITHUB_TOKEN-initiated
+# auto-merges don't trigger GitHub's native "Closes #X" issue closure.
 name: Auto Merge
 
 on:
   pull_request:
-    types: [labeled, synchronize]
+    types: [labeled, synchronize, closed]
+  check_suite:
+    types: [completed]
   push:
     branches: [staging, main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
 
 jobs:
   auto-merge:
     name: Enable auto-merge
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
     if: >-
-      github.event_name == 'pull_request' &&
       github.event.action != 'closed' &&
       contains(github.event.pull_request.labels.*.name, 'reviewed')
     timeout-minutes: 5
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Enable auto-merge (squash)
         run: gh pr merge "$PR_NUMBER" --auto --squash
         env:
@@ -33,24 +40,62 @@ jobs:
   update-behind-prs:
     name: Update behind PRs
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
     if: github.event_name == 'push'
     timeout-minutes: 5
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Update all reviewed PRs targeting this branch
         run: |
           BRANCH="${GITHUB_REF_NAME}"
-          PRS=$(gh pr list --repo "$REPO" --base "$BRANCH" --label reviewed --state open --json number,headRefOid --jq '.[] | [.number,.headRefOid] | @tsv')
+          PRS=$(gh pr list --base "$BRANCH" --label reviewed --state open --json number,headRefOid --jq '.[]')
           if [ -z "$PRS" ]; then
             echo "No reviewed PRs targeting $BRANCH"
             exit 0
           fi
-          echo "$PRS" | while IFS=$'\t' read -r NUM SHA; do
+          echo "$PRS" | while IFS= read -r pr; do
+            NUM=$(echo "$pr" | jq -r .number)
+            SHA=$(echo "$pr" | jq -r .headRefOid)
             echo "Updating PR #$NUM..."
-            gh api "repos/$REPO/pulls/$NUM/update-branch" \
+            gh api "repos/${{ github.repository }}/pulls/$NUM/update-branch" \
               --method PUT -f expected_head_sha="$SHA" || true
           done
         env:
           GH_TOKEN: ${{ secrets.PAT }}
-          REPO: ${{ github.repository }}
+
+  close-linked-issues:
+    name: Close linked issues
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true
+    timeout-minutes: 5
+    steps:
+      - name: Close issues referenced with closing keywords
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request.body || '';
+            const pattern = /(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)/gi;
+            const issues = new Set();
+            let match;
+            while ((match = pattern.exec(body)) !== null) {
+              issues.add(parseInt(match[1]));
+            }
+            if (issues.size === 0) {
+              core.info('No closing keywords found in PR body');
+              return;
+            }
+            for (const number of issues) {
+              try {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: number,
+                  state: 'closed',
+                  state_reason: 'completed',
+                });
+                core.info(`Closed issue #${number}`);
+              } catch (error) {
+                core.warning(`Failed to close issue #${number}: ${error.message}`);
+              }
+            }
