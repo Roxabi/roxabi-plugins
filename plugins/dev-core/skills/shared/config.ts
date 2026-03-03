@@ -127,7 +127,11 @@ export const STANDARD_LABELS: LabelDef[] = [
   { name: 'P3-low', color: '0e8a16', description: 'Low priority', category: 'priority' },
 ]
 
-export const STANDARD_WORKFLOWS = ['ci.yml', 'deploy-preview.yml'] as const
+export const STANDARD_WORKFLOWS = ['ci.yml', 'auto-merge.yml', 'pr-title.yml', 'deploy-preview.yml'] as const
+/** Secrets required by standard workflows. auto-merge.yml needs PAT. */
+export const REQUIRED_SECRETS: Record<string, string> = {
+  'auto-merge.yml': 'PAT',
+}
 export const PROTECTED_BRANCHES = ['main', 'staging'] as const
 export const BRANCH_PROTECTION_PAYLOAD = {
   required_pull_request_reviews: { required_approving_review_count: 1 },

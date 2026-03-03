@@ -5,7 +5,7 @@
  * Exit code: 0 = all pass, 1 = any failure.
  */
 
-import { PROTECTED_BRANCHES, STANDARD_LABELS, STANDARD_WORKFLOWS } from '../shared/config'
+import { PROTECTED_BRANCHES, REQUIRED_SECRETS, STANDARD_LABELS, STANDARD_WORKFLOWS } from '../shared/config'
 import { checkPrereqs, type PrereqResult } from '../shared/prereqs'
 
 // --- Types ---
@@ -181,13 +181,29 @@ function readStackYml(): { hasDeployPlatform: boolean; hasFrontend: boolean } {
   }
 }
 
-function checkWorkflows(): Section {
+function checkWorkflows(ghOk: boolean, owner: string, repo: string): Section {
   const stack = readStackYml()
   const checks: Check[] = []
+
+  // Fetch remote workflow list once (workflows may be pushed via REST API, not locally committed)
+  let remoteFiles: Set<string> = new Set()
+  if (ghOk && owner && repo) {
+    const r = spawnSync(['gh', 'api', `/repos/${owner}/${repo}/contents/.github/workflows`, '--jq', '.[].name'])
+    if (r.ok) {
+      for (const line of r.stdout.split('\n')) {
+        const f = line.trim()
+        if (f) remoteFiles.add(f)
+      }
+    }
+  }
+
   for (const wf of STANDARD_WORKFLOWS) {
-    const exists = require('node:fs').existsSync(`.github/workflows/${wf}`)
+    const localExists = require('node:fs').existsSync(`.github/workflows/${wf}`)
+    const remoteExists = remoteFiles.has(wf)
+    const exists = localExists || remoteExists
+
     if (exists) {
-      checks.push({ name: wf, status: 'pass', detail: 'found' })
+      checks.push({ name: wf, status: 'pass', detail: localExists ? 'found locally' : 'found on remote' })
       continue
     }
     // deploy-preview.yml only matters when a deploy platform is configured
@@ -199,6 +215,42 @@ function checkWorkflows(): Section {
     checks.push({ name: wf, status: 'warn', detail: 'missing — run /init to create' })
   }
   return { name: 'Workflows', checks }
+}
+
+function checkSecrets(ghOk: boolean, owner: string, repo: string): Section {
+  if (!ghOk || !owner || !repo)
+    return { name: 'Secrets', checks: [{ name: 'secrets', status: 'skip', detail: 'gh CLI not available' }] }
+
+  const checks: Check[] = []
+
+  // Fetch remote workflow list to know which secrets are required
+  const r = spawnSync(['gh', 'api', `/repos/${owner}/${repo}/contents/.github/workflows`, '--jq', '.[].name'])
+  const remoteFiles: Set<string> = new Set()
+  if (r.ok) {
+    for (const line of r.stdout.split('\n')) {
+      const f = line.trim()
+      if (f) remoteFiles.add(f)
+    }
+  }
+
+  // Also check local
+  for (const wf of Object.keys(REQUIRED_SECRETS)) {
+    if (!remoteFiles.has(wf) && !require('node:fs').existsSync(`.github/workflows/${wf}`)) continue
+    const secretName = REQUIRED_SECRETS[wf]
+    const result = spawnSync(['gh', 'api', `/repos/${owner}/${repo}/actions/secrets/${secretName}`])
+    checks.push({
+      name: secretName,
+      status: result.ok ? 'pass' : 'warn',
+      detail: result.ok
+        ? `set (required by ${wf})`
+        : `missing — required by ${wf}. Fix: gh secret set ${secretName} --repo ${owner}/${repo} --body "$(gh auth token)"`,
+    })
+  }
+
+  if (checks.length === 0)
+    return { name: 'Secrets', checks: [{ name: 'secrets', status: 'skip', detail: 'no secrets required by current workflows' }] }
+
+  return { name: 'Secrets', checks }
 }
 
 function checkProjectWorkflows(ghOk: boolean, _owner: string): Section {
@@ -385,7 +437,8 @@ const sections: Section[] = [
   checkPrereqsSection(prereqs),
   checkGitHubConfig(ghOk, owner, repo),
   checkLabels(ghOk, owner, repo),
-  checkWorkflows(),
+  checkWorkflows(ghOk, owner, repo),
+  checkSecrets(ghOk, owner, repo),
   checkProjectWorkflows(ghOk, owner),
   checkBranchProtection(ghOk, owner, fullRepo),
   checkProjectStructure(),

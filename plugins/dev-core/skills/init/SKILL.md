@@ -117,7 +117,13 @@ To add only the generic workflows (`auto-merge.yml` + `pr-title.yml`) without to
 bun $INIT_TS push-workflows --owner <owner> --repo <repo>
 ```
 
-Note: `auto-merge.yml` requires a `PAT` secret in the repo (a personal access token with `repo` + `workflow` scopes). Remind the user to add it at: `https://github.com/<owner>/<repo>/settings/secrets/actions`.
+After pushing workflows, automatically set the `PAT` secret using the current gh token (no user action needed):
+
+```bash
+gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"
+```
+
+Display: `PAT secret ✅ Set`
 
 #### 3d. Branch Protection
 
@@ -307,8 +313,8 @@ Standard workflow set: `ci.yml`, `auto-merge.yml`, `pr-title.yml` (+ `deploy-pre
    - AskUserQuestion for deploy (pre-select detected value): **Vercel** | **None**
    - Run: `bun $INIT_TS workflows --owner <owner> --repo <repo> --stack <stack> --test <test> --deploy <deploy>`
    - Files are pushed directly to the remote repo via GitHub REST API — no commit needed locally.
-   - Note: `auto-merge.yml` requires a `PAT` secret in the repo. Remind user to add it at: `https://github.com/<owner>/<repo>/settings/secrets/actions`
-   - Display: `CI/CD workflows ✅ Created (ci.yml, auto-merge.yml, pr-title.yml)`
+   - After pushing, automatically set the `PAT` secret: `gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"`
+   - Display: `CI/CD workflows ✅ Created (ci.yml, auto-merge.yml, pr-title.yml)` + `PAT secret ✅ Set`
 
 5. **If skip:** display `CI/CD workflows ⏭ Skipped`
 

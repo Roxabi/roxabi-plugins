@@ -111,28 +111,28 @@ Workspace: N projects registered  (or: not found)
 
 ### Phase 4 — CI Setup (if missing)
 
-Only run if CI workflows are absent from the project.
+The doctor CLI (Phase 1) already checks Workflows and Secrets sections. Only run this phase if those sections show ⚠️ or ❌.
 
-1. **Check for existing CI:** `ls .github/workflows/ci.yml 2>/dev/null && echo exists || echo missing`
-   - If exists → display `CI/CD workflows ✅ Already configured` and skip this phase.
+1. **Workflow files** — doctor checks both local `.github/workflows/` and remote via REST API. Standard set: `ci.yml`, `auto-merge.yml`, `pr-title.yml` (+ `deploy-preview.yml` if Vercel configured).
 
-2. **If missing**, display: `⚠️ CI/CD workflows not found`
+2. **PAT secret** — doctor checks if `PAT` secret exists in the repo (required by `auto-merge.yml`). If missing:
+   - Auto-fix: `gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"`
+   - Display: `PAT secret ✅ Set`
 
-3. **Auto-detect from stack.yml** (read `.claude/stack.yml` if it exists):
-   - `stack` ← `runtime` field (`bun` → **Bun**, `node` → **Node**, `python` → **Python (uv)**)
-   - `test` ← `commands.test` (contains "vitest" → **Vitest**, "jest" → **Jest**, "pytest" → **Pytest**, else → **None**)
-   - `deploy` ← `deploy.platform` (`vercel` → **Vercel**, else → **None**)
+3. **If workflow files are missing**, AskUserQuestion: **Set up CI/CD workflows** | **Skip**
 
-4. AskUserQuestion: **Set up CI/CD workflows** | **Skip**
+4. **If yes:**
+   - **Auto-detect from stack.yml** (read `.claude/stack.yml` if it exists):
+     - `stack` ← `runtime` field
+     - `test` ← `commands.test` (contains "vitest" → Vitest, "jest" → Jest, "pytest" → Pytest, else → None)
+     - `deploy` ← `deploy.platform`
+   - AskUserQuestion for stack (pre-select detected): **Bun** | **Node** | **Python (uv)**
+   - AskUserQuestion for test framework (pre-select detected): **Vitest** | **Jest** | **Pytest** | **None**
+   - AskUserQuestion for deploy (pre-select detected): **Vercel** | **None**
+   - Run: `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts workflows --owner <owner> --repo <repo> --stack <stack> --test <test> --deploy <deploy>`
+   - After pushing: `gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"`
+   - Display: `CI/CD workflows ✅ Created` + `PAT secret ✅ Set`
 
-5. **If yes:**
-   - AskUserQuestion for stack (pre-select detected value): **Bun** | **Node** | **Python (uv)**
-   - AskUserQuestion for test framework (pre-select detected value): **Vitest** | **Jest** | **Pytest** | **None**
-   - AskUserQuestion for deploy (pre-select detected value): **Vercel** | **None**
-   - Run: `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts workflows --stack <stack> --test <test> --deploy <deploy>`
-   - Note: Python workflow generates a `ci.yml` running `uv run ruff check .` and `uv run pytest`.
-   - Display: `CI/CD workflows ✅ Created`
-
-6. **If skip:** display `CI/CD workflows ⏭ Skipped`
+5. **If skip:** display `CI/CD workflows ⏭ Skipped`
 
 $ARGUMENTS
