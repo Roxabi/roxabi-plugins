@@ -3,7 +3,7 @@
  * Uses direct fetch() against GitHub API with GITHUB_TOKEN.
  */
 
-import { GITHUB_REPO, GH_PROJECT_ID } from './config'
+import { GH_PROJECT_ID, GITHUB_REPO } from './config'
 import {
   ADD_BLOCKED_BY_MUTATION,
   ADD_SUB_ISSUE_MUTATION,
@@ -68,10 +68,7 @@ export async function run(cmd: string[]): Promise<string> {
 }
 
 /** Execute a GraphQL query/mutation against GitHub API. */
-export async function ghGraphQL(
-  query: string,
-  variables: Record<string, string | number | boolean>
-): Promise<unknown> {
+export async function ghGraphQL(query: string, variables: Record<string, string | number | boolean>): Promise<unknown> {
   const res = await fetch(GRAPHQL_URL, {
     method: 'POST',
     headers: authHeaders(),
@@ -98,11 +95,11 @@ export interface ParsedField {
 }
 
 /** Parse gh project field-list JSON into a map of field key to {id, options}. */
-export function parseProjectFields(
-  fieldsJson: string
-): Record<ProjectFieldKey, ParsedField | null> {
+export function parseProjectFields(fieldsJson: string): Record<ProjectFieldKey, ParsedField | null> {
   const result: Record<ProjectFieldKey, ParsedField | null> = { status: null, size: null, priority: null }
-  const fields = JSON.parse(fieldsJson) as { fields: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }> }
+  const fields = JSON.parse(fieldsJson) as {
+    fields: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }>
+  }
   for (const f of fields.fields ?? []) {
     const key = f.name.toLowerCase() as ProjectFieldKey
     if (key === 'status' || key === 'size' || key === 'priority') {
@@ -117,17 +114,19 @@ export function parseProjectFields(
 /** Fetch issue numbers currently on a project board. */
 export async function getBoardIssueNumbers(owner: string, projectNumber: number): Promise<Set<number>> {
   const itemsJson = await run([
-    'gh', 'project', 'item-list', String(projectNumber),
-    '--owner', owner,
-    '--format', 'json',
-    '--limit', '500',
+    'gh',
+    'project',
+    'item-list',
+    String(projectNumber),
+    '--owner',
+    owner,
+    '--format',
+    'json',
+    '--limit',
+    '500',
   ])
   const itemsData = JSON.parse(itemsJson) as { items: Array<{ content: { number: number; type: string } }> }
-  return new Set(
-    (itemsData.items ?? [])
-      .filter((i) => i.content?.type === 'Issue')
-      .map((i) => i.content.number)
-  )
+  return new Set((itemsData.items ?? []).filter((i) => i.content?.type === 'Issue').map((i) => i.content.number))
 }
 
 /** Get issue node ID via REST API. */
@@ -147,7 +146,7 @@ export async function getNodeId(issueNumber: number | string): Promise<string> {
 export async function createGitHubIssue(
   title: string,
   body?: string,
-  labels?: string[]
+  labels?: string[],
 ): Promise<{ url: string; number: number }> {
   const payload: Record<string, unknown> = { title }
   if (body) payload.body = body
@@ -196,11 +195,7 @@ export async function addToProject(nodeId: string): Promise<string> {
 }
 
 /** Update a single-select project field value. */
-export async function updateField(
-  itemId: string,
-  fieldId: string,
-  optionId: string
-): Promise<void> {
+export async function updateField(itemId: string, fieldId: string, optionId: string): Promise<void> {
   if (!GH_PROJECT_ID) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
   await ghGraphQL(UPDATE_FIELD_MUTATION, {
     projectId: GH_PROJECT_ID,

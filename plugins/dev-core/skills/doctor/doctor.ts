@@ -5,7 +5,7 @@
  * Exit code: 0 = all pass, 1 = any failure.
  */
 
-import { STANDARD_LABELS, STANDARD_WORKFLOWS, PROTECTED_BRANCHES } from '../shared/config'
+import { PROTECTED_BRANCHES, STANDARD_LABELS, STANDARD_WORKFLOWS } from '../shared/config'
 import { checkPrereqs, type PrereqResult } from '../shared/prereqs'
 
 // --- Types ---
@@ -56,16 +56,34 @@ function checkPrereqsSection(prereqs: PrereqResult): Section {
   return {
     name: 'Prerequisites',
     checks: [
-      { name: 'bun', status: prereqs.bun.ok ? 'pass' : 'fail', detail: prereqs.bun.ok ? prereqs.bun.version : 'not installed — https://bun.sh/' },
-      { name: 'gh', status: prereqs.gh.ok ? 'pass' : 'fail', detail: prereqs.gh.ok ? prereqs.gh.detail : `${prereqs.gh.detail} — https://cli.github.com/` },
-      { name: 'git remote', status: prereqs.gitRemote.ok ? 'pass' : 'fail', detail: prereqs.gitRemote.ok ? prereqs.gitRemote.url : 'no origin remote configured' },
+      {
+        name: 'bun',
+        status: prereqs.bun.ok ? 'pass' : 'fail',
+        detail: prereqs.bun.ok ? prereqs.bun.version : 'not installed — https://bun.sh/',
+      },
+      {
+        name: 'gh',
+        status: prereqs.gh.ok ? 'pass' : 'fail',
+        detail: prereqs.gh.ok ? prereqs.gh.detail : `${prereqs.gh.detail} — https://cli.github.com/`,
+      },
+      {
+        name: 'git remote',
+        status: prereqs.gitRemote.ok ? 'pass' : 'fail',
+        detail: prereqs.gitRemote.ok ? prereqs.gitRemote.url : 'no origin remote configured',
+      },
     ],
   }
 }
 
 function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): Section {
   const skip = (name: string) => ({ name, status: 'skip' as Status, detail: 'gh CLI not available' })
-  if (!ghOk) return { name: 'GitHub', checks: ['GITHUB_REPO', 'GITHUB_TOKEN', 'GH_PROJECT_ID', 'Status field', 'Size field', 'Priority field'].map(skip) }
+  if (!ghOk)
+    return {
+      name: 'GitHub',
+      checks: ['GITHUB_REPO', 'GITHUB_TOKEN', 'GH_PROJECT_ID', 'Status field', 'Size field', 'Priority field'].map(
+        skip,
+      ),
+    }
 
   const env = readEnvFile()
   const checks: Check[] = []
@@ -76,7 +94,11 @@ function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): Section 
 
   // GITHUB_TOKEN
   const hasToken = !!process.env.GITHUB_TOKEN || spawnSync(['gh', 'auth', 'token']).ok
-  checks.push({ name: 'GITHUB_TOKEN', status: hasToken ? 'pass' : 'fail', detail: hasToken ? 'available' : 'not set and gh auth token failed' })
+  checks.push({
+    name: 'GITHUB_TOKEN',
+    status: hasToken ? 'pass' : 'fail',
+    detail: hasToken ? 'available' : 'not set and gh auth token failed',
+  })
 
   // GH_PROJECT_ID
   const projectId = env.GH_PROJECT_ID
@@ -89,7 +111,11 @@ function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): Section 
         verified = data.projects?.some((p) => p.id === projectId) ?? false
       } catch {}
     }
-    checks.push({ name: 'GH_PROJECT_ID', status: verified ? 'pass' : 'warn', detail: verified ? 'set (verified)' : 'set (not verified)' })
+    checks.push({
+      name: 'GH_PROJECT_ID',
+      status: verified ? 'pass' : 'warn',
+      detail: verified ? 'set (verified)' : 'set (not verified)',
+    })
   } else {
     checks.push({ name: 'GH_PROJECT_ID', status: 'fail', detail: 'not set in .env' })
   }
@@ -108,7 +134,8 @@ function checkLabels(ghOk: boolean, owner: string, repo: string): Section {
   if (!ghOk) return { name: 'Labels', checks: [{ name: 'labels', status: 'skip', detail: 'gh CLI not available' }] }
 
   const result = spawnSync(['gh', 'label', 'list', '--repo', `${owner}/${repo}`, '--json', 'name', '--limit', '100'])
-  if (!result.ok) return { name: 'Labels', checks: [{ name: 'labels', status: 'fail', detail: 'could not fetch labels' }] }
+  if (!result.ok)
+    return { name: 'Labels', checks: [{ name: 'labels', status: 'fail', detail: 'could not fetch labels' }] }
 
   let existing: string[] = []
   try {
@@ -119,9 +146,23 @@ function checkLabels(ghOk: boolean, owner: string, repo: string): Section {
   const count = STANDARD_LABELS.length - missing.length
 
   if (missing.length === 0) {
-    return { name: 'Labels', checks: [{ name: 'labels', status: 'pass', detail: `${STANDARD_LABELS.length}/${STANDARD_LABELS.length} present` }] }
+    return {
+      name: 'Labels',
+      checks: [
+        { name: 'labels', status: 'pass', detail: `${STANDARD_LABELS.length}/${STANDARD_LABELS.length} present` },
+      ],
+    }
   }
-  return { name: 'Labels', checks: [{ name: 'labels', status: 'warn', detail: `${count}/${STANDARD_LABELS.length} present (missing: ${missing.join(', ')})` }] }
+  return {
+    name: 'Labels',
+    checks: [
+      {
+        name: 'labels',
+        status: 'warn',
+        detail: `${count}/${STANDARD_LABELS.length} present (missing: ${missing.join(', ')})`,
+      },
+    ],
+  }
 }
 
 function readStackYml(): { hasDeployPlatform: boolean; hasFrontend: boolean } {
@@ -161,22 +202,38 @@ function checkWorkflows(): Section {
 }
 
 function checkProjectWorkflows(ghOk: boolean, owner: string): Section {
-  if (!ghOk) return { name: 'Project workflows', checks: [{ name: 'workflows', status: 'skip', detail: 'gh CLI not available' }] }
+  if (!ghOk)
+    return {
+      name: 'Project workflows',
+      checks: [{ name: 'workflows', status: 'skip', detail: 'gh CLI not available' }],
+    }
 
   const env = readEnvFile()
   const projectId = env.GH_PROJECT_ID
-  if (!projectId) return { name: 'Project workflows', checks: [{ name: 'workflows', status: 'skip', detail: 'GH_PROJECT_ID not set' }] }
+  if (!projectId)
+    return {
+      name: 'Project workflows',
+      checks: [{ name: 'workflows', status: 'skip', detail: 'GH_PROJECT_ID not set' }],
+    }
 
-  const query = 'query($projectId: ID!) { node(id: $projectId) { ... on ProjectV2 { workflows(first: 20) { nodes { name enabled } } } } }'
+  const query =
+    'query($projectId: ID!) { node(id: $projectId) { ... on ProjectV2 { workflows(first: 20) { nodes { name enabled } } } } }'
   const result = spawnSync(['gh', 'api', 'graphql', '-f', `query=${query}`, '-F', `projectId=${projectId}`])
-  if (!result.ok) return { name: 'Project workflows', checks: [{ name: 'workflows', status: 'warn', detail: 'could not fetch — check gh auth' }] }
+  if (!result.ok)
+    return {
+      name: 'Project workflows',
+      checks: [{ name: 'workflows', status: 'warn', detail: 'could not fetch — check gh auth' }],
+    }
 
   let nodes: Array<{ name: string; enabled: boolean }> = []
   try {
     const data = JSON.parse(result.stdout) as { data: { node: { workflows: { nodes: typeof nodes } } } }
     nodes = data.data.node.workflows.nodes
   } catch {
-    return { name: 'Project workflows', checks: [{ name: 'workflows', status: 'warn', detail: 'could not parse response' }] }
+    return {
+      name: 'Project workflows',
+      checks: [{ name: 'workflows', status: 'warn', detail: 'could not parse response' }],
+    }
   }
 
   const enabled = nodes.filter((w) => w.enabled).length
@@ -184,16 +241,25 @@ function checkProjectWorkflows(ghOk: boolean, owner: string): Section {
   const disabled = nodes.filter((w) => !w.enabled).map((w) => w.name)
 
   if (disabled.length === 0) {
-    return { name: 'Project workflows', checks: [{ name: 'workflows', status: 'pass', detail: `${enabled}/${total} enabled` }] }
+    return {
+      name: 'Project workflows',
+      checks: [{ name: 'workflows', status: 'pass', detail: `${enabled}/${total} enabled` }],
+    }
   }
   return {
     name: 'Project workflows',
-    checks: [{ name: 'workflows', status: 'warn', detail: `${enabled}/${total} enabled — disabled: ${disabled.join(', ')}` }],
+    checks: [
+      { name: 'workflows', status: 'warn', detail: `${enabled}/${total} enabled — disabled: ${disabled.join(', ')}` },
+    ],
   }
 }
 
 function checkBranchProtection(ghOk: boolean, owner: string, repo: string): Section {
-  if (!ghOk) return { name: 'Branch protection', checks: PROTECTED_BRANCHES.map((b) => ({ name: b, status: 'skip' as Status, detail: 'gh CLI not available' })) }
+  if (!ghOk)
+    return {
+      name: 'Branch protection',
+      checks: PROTECTED_BRANCHES.map((b) => ({ name: b, status: 'skip' as Status, detail: 'gh CLI not available' })),
+    }
 
   const checks: Check[] = []
   for (const branch of PROTECTED_BRANCHES) {
@@ -219,18 +285,26 @@ function checkProjectStructure(): Section {
   // artifacts/
   const artifactDirs = ['frames', 'analyses', 'specs', 'plans']
   const allExist = artifactDirs.every((d) => require('fs').existsSync(`artifacts/${d}`))
-  checks.push({ name: 'artifacts/', status: allExist ? 'pass' : 'fail', detail: allExist ? 'found' : 'missing subdirectories' })
+  checks.push({
+    name: 'artifacts/',
+    status: allExist ? 'pass' : 'fail',
+    detail: allExist ? 'found' : 'missing subdirectories',
+  })
 
   // roxabi shim + PATH
   const home = require('os').homedir()
   const shimPaths = [`${home}/.local/bin/roxabi`, `${home}/bin/roxabi`]
   const inPath = spawnSync(['sh', '-c', 'command -v roxabi']).ok
-  const shimFile = shimPaths.find(p => require('fs').existsSync(p))
+  const shimFile = shimPaths.find((p) => require('fs').existsSync(p))
   if (inPath) {
     checks.push({ name: 'roxabi CLI', status: 'pass', detail: 'in PATH' })
   } else if (shimFile) {
     const shimDir = shimFile.substring(0, shimFile.lastIndexOf('/'))
-    checks.push({ name: 'roxabi CLI', status: 'warn', detail: `shim exists but not in PATH — add: export PATH="${shimDir.replace(home, '$HOME')}:$PATH"` })
+    checks.push({
+      name: 'roxabi CLI',
+      status: 'warn',
+      detail: `shim exists but not in PATH — add: export PATH="${shimDir.replace(home, '$HOME')}:$PATH"`,
+    })
   } else {
     checks.push({ name: 'roxabi CLI', status: 'warn', detail: 'not found — run /init to install' })
   }
@@ -242,7 +316,11 @@ function checkVercel(): Section {
   const checks: Check[] = []
 
   const vercelExists = require('fs').existsSync('.vercel/project.json')
-  checks.push({ name: '.vercel/project', status: vercelExists ? 'pass' : 'skip', detail: vercelExists ? 'found' : 'not found (optional)' })
+  checks.push({
+    name: '.vercel/project',
+    status: vercelExists ? 'pass' : 'skip',
+    detail: vercelExists ? 'found' : 'not found (optional)',
+  })
 
   if (vercelExists) {
     const env = readEnvFile()

@@ -3,7 +3,7 @@
  * Fetches repo issues, diffs against board items, adds missing ones.
  */
 
-import { run, getBoardIssueNumbers } from '../../shared/github'
+import { getBoardIssueNumbers, run } from '../../shared/github'
 
 export interface MigrateResult {
   total: number
@@ -13,20 +13,22 @@ export interface MigrateResult {
   errors: string[]
 }
 
-export async function migrateIssues(
-  owner: string,
-  repo: string,
-  projectNumber: number
-): Promise<MigrateResult> {
+export async function migrateIssues(owner: string, repo: string, projectNumber: number): Promise<MigrateResult> {
   const result: MigrateResult = { total: 0, alreadyOnBoard: 0, added: 0, failed: 0, errors: [] }
 
   // 1. Fetch all open issues from the repo
   const issuesJson = await run([
-    'gh', 'issue', 'list',
-    '--repo', `${owner}/${repo}`,
-    '--state', 'open',
-    '--json', 'number,url',
-    '--limit', '500',
+    'gh',
+    'issue',
+    'list',
+    '--repo',
+    `${owner}/${repo}`,
+    '--state',
+    'open',
+    '--json',
+    'number,url',
+    '--limit',
+    '500',
   ])
   const issues = JSON.parse(issuesJson) as Array<{ number: number; url: string }>
   result.total = issues.length
@@ -46,12 +48,10 @@ export async function migrateIssues(
     const batch = missing.slice(i, i + BATCH_SIZE)
     const results = await Promise.allSettled(
       batch.map((issue) =>
-        run([
-          'gh', 'project', 'item-add', String(projectNumber),
-          '--owner', owner,
-          '--url', issue.url,
-        ]).then(() => issue.number)
-      )
+        run(['gh', 'project', 'item-add', String(projectNumber), '--owner', owner, '--url', issue.url]).then(
+          () => issue.number,
+        ),
+      ),
     )
     for (let j = 0; j < results.length; j++) {
       const r = results[j]

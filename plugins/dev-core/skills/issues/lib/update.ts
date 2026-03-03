@@ -1,4 +1,4 @@
-import { FIELD_MAP, NOT_CONFIGURED_MSG, isProjectConfigured } from '../../shared/config'
+import { FIELD_MAP, isProjectConfigured, NOT_CONFIGURED_MSG } from '../../shared/config'
 import { getItemId, updateField } from '../../shared/github'
 
 export async function handleUpdate(req: Request): Promise<Response> {
@@ -11,12 +11,10 @@ export async function handleUpdate(req: Request): Promise<Response> {
     const { issueNumber, field, value } = body
 
     const fieldConfig = FIELD_MAP[field]
-    if (!fieldConfig)
-      return Response.json({ ok: false, error: `Unknown field: ${field}` }, { status: 400 })
+    if (!fieldConfig) return Response.json({ ok: false, error: `Unknown field: ${field}` }, { status: 400 })
 
     const optionId = fieldConfig.options[value]
-    if (!optionId)
-      return Response.json({ ok: false, error: `Unknown value: ${value}` }, { status: 400 })
+    if (!optionId) return Response.json({ ok: false, error: `Unknown value: ${value}` }, { status: 400 })
 
     const itemId = await getItemId(issueNumber)
     await updateField(itemId, fieldConfig.fieldId, optionId)

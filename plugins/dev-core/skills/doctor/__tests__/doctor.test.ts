@@ -1,7 +1,7 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 /**
  * Doctor tests run the script as a subprocess in a controlled tmp directory.
@@ -45,23 +45,28 @@ describe('doctor', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-test-'))
 
     // Create fake gh — simulates a properly authenticated gh CLI
-    makeFakeExec(tmpDir, 'gh', [
-      'case "$*" in',
-      '  "--version") echo "gh version 2.40.0"; exit 0 ;;',
-      '  "auth status") exit 0 ;;',
-      '  "auth token") echo "ghp_test"; exit 0 ;;',
-      '  "project list"*) echo \'{"projects":[{"id":"PVT_123"}]}\'; exit 0 ;;',
-      '  "label list"*) echo \'[]\'; exit 0 ;;',
-      '  "api"*) echo \'{"data":{"node":{"workflows":{"nodes":[]}}}}\'; exit 0 ;;',
-      '  *) exit 0 ;;',
-      'esac',
-    ].join('\n'))
+    makeFakeExec(
+      tmpDir,
+      'gh',
+      [
+        'case "$*" in',
+        '  "--version") echo "gh version 2.40.0"; exit 0 ;;',
+        '  "auth status") exit 0 ;;',
+        '  "auth token") echo "ghp_test"; exit 0 ;;',
+        '  "project list"*) echo \'{"projects":[{"id":"PVT_123"}]}\'; exit 0 ;;',
+        '  "label list"*) echo \'[]\'; exit 0 ;;',
+        '  "api"*) echo \'{"data":{"node":{"workflows":{"nodes":[]}}}}\'; exit 0 ;;',
+        '  *) exit 0 ;;',
+        'esac',
+      ].join('\n'),
+    )
 
     // Create fake git — returns a known remote URL
-    makeFakeExec(tmpDir, 'git', [
-      'if [ "$1" = "remote" ]; then echo "git@github.com:TestOrg/test-repo.git"; exit 0; fi',
-      'exit 0',
-    ].join('\n'))
+    makeFakeExec(
+      tmpDir,
+      'git',
+      ['if [ "$1" = "remote" ]; then echo "git@github.com:TestOrg/test-repo.git"; exit 0; fi', 'exit 0'].join('\n'),
+    )
 
     // Create .env with GH_PROJECT_ID
     fs.writeFileSync(

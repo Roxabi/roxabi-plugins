@@ -150,6 +150,8 @@ switch (command) {
 
   default:
     console.error(`Unknown command: ${command}`)
-    console.error('Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|protect-branches|list-workflows|enable-workflow|scaffold]')
+    console.error(
+      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|protect-branches|list-workflows|enable-workflow|scaffold]',
+    )
     process.exit(1)
 }

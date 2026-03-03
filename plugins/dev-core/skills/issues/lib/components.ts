@@ -38,11 +38,7 @@ export const PRIORITY_VALUES = ['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 -
 export const SIZE_VALUES = ['XS', 'S', 'M', 'L', 'XL'] as const
 
 export function escHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 export function shortTitle(title: string, max = 22): string {
@@ -68,9 +64,7 @@ export function formatDeps(issue: Issue): string {
   const parts: string[] = []
   for (const b of issue.blockedBy) {
     const icon = b.state === 'OPEN' ? '\u26d4' : '\u2705'
-    parts.push(
-      `<span class="dep dep-${b.state === 'OPEN' ? 'blocked' : 'done'}">${icon}#${b.number}</span>`
-    )
+    parts.push(`<span class="dep dep-${b.state === 'OPEN' ? 'blocked' : 'done'}">${icon}#${b.number}</span>`)
   }
   for (const b of issue.blocking) {
     parts.push(`<span class="dep dep-blocking">\ud83d\udd13#${b.number}</span>`)
@@ -115,8 +109,7 @@ function getPRDisplay(pr: PR): { label: string; cssClass: string } {
   if (pr.isDraft) return { label: 'Draft', cssClass: 'status-backlog' }
   if (pr.reviewDecision === 'APPROVED') return { label: 'Approved', cssClass: 'status-done' }
   if (pr.reviewDecision === 'CHANGES_REQUESTED') return { label: 'Changes', cssClass: 'pri-p1' }
-  if (pr.labels.some((l) => l.toLowerCase() === 'reviewed'))
-    return { label: 'Reviewed', cssClass: 'status-review' }
+  if (pr.labels.some((l) => l.toLowerCase() === 'reviewed')) return { label: 'Reviewed', cssClass: 'status-review' }
   return { label: 'Review', cssClass: 'status-progress' }
 }
 
@@ -131,8 +124,7 @@ function ciIcon(status: string, conclusion: string): string {
     return '\u2753'
   }
   if (status === 'IN_PROGRESS') return CI_SPINNER
-  if (status === 'QUEUED' || status === 'WAITING' || status === 'PENDING' || status === 'REQUESTED')
-    return CI_SPINNER
+  if (status === 'QUEUED' || status === 'WAITING' || status === 'PENDING' || status === 'REQUESTED') return CI_SPINNER
   // StatusContext states
   if (status === 'SUCCESS') return '\u2705'
   if (status === 'FAILURE' || status === 'ERROR') return '\u274c'
@@ -161,22 +153,17 @@ function ciSummary(checks: PR['checks']): { icon: string; label: string; cssClas
       c.conclusion === 'SUCCESS' ||
       (c.status === 'SUCCESS' && !c.conclusion) ||
       c.conclusion === 'SKIPPED' ||
-      c.conclusion === 'NEUTRAL'
+      c.conclusion === 'NEUTRAL',
   ).length
   const fail = checks.filter(
-    (c) =>
-      c.conclusion === 'FAILURE' ||
-      c.conclusion === 'ERROR' ||
-      c.status === 'FAILURE' ||
-      c.status === 'ERROR'
+    (c) => c.conclusion === 'FAILURE' || c.conclusion === 'ERROR' || c.status === 'FAILURE' || c.status === 'ERROR',
   ).length
   const running = checks.filter((c) => c.status === 'IN_PROGRESS').length
 
   if (fail > 0) return { icon: '\u274c', label: `${fail}/${total} failed`, cssClass: 'ci-failure' }
   if (running > 0 || (pass < total && fail === 0)) {
     // Show progress: how many done so far out of total
-    if (pass === 0 && running > 0)
-      return { icon: CI_SPINNER, label: `0/${total} passed`, cssClass: 'ci-running' }
+    if (pass === 0 && running > 0) return { icon: CI_SPINNER, label: `0/${total} passed`, cssClass: 'ci-running' }
     return { icon: CI_SPINNER, label: `${pass}/${total} passed`, cssClass: 'ci-running' }
   }
   if (pass === total) return { icon: '\u2705', label: `${total} passed`, cssClass: 'ci-success' }
@@ -284,10 +271,7 @@ const STEP_ICON: Record<string, string> = {
 function renderBuildPipeline(steps: VercelDeployment['buildSteps']): string {
   if (steps.length === 0) return ''
   return steps
-    .map(
-      (s) =>
-        `<span class="vd-step vd-step-${s.status}">${STEP_ICON[s.status]} ${escHtml(s.name)}</span>`
-    )
+    .map((s) => `<span class="vd-step vd-step-${s.status}">${STEP_ICON[s.status]} ${escHtml(s.name)}</span>`)
     .join('<span class="vd-step-arrow">\u2192</span>')
 }
 
@@ -347,17 +331,18 @@ export function renderBranchCI(branches: BranchCI[]): string {
 }
 
 export function vercelCards(deployments: VercelDeployment[]): string {
-  return deployments.map((d) => {
-    const display = DEPLOY_STATE_DISPLAY[d.state] ?? { icon: '\u2753', label: d.state, cls: '' }
-    const env = d.target === 'production' ? 'prod' : 'preview'
-    const envCls = d.target === 'production' ? 'vd-env-prod' : 'vd-env-preview'
-    const branch = d.meta.githubCommitRef ?? ''
-    const msg = d.meta.githubCommitMessage ? shortTitle(d.meta.githubCommitMessage, 40) : ''
-    const age = d.createdAt ? timeAgo(new Date(d.createdAt).toISOString()) : ''
-    const deployUrl = `https://${d.url}`
-    const inspectUrl = d.inspectorUrl || `https://vercel.com`
-    const pipeline = renderBuildPipeline(d.buildSteps)
-    return `<div class="vd-card ${display.cls}">
+  return deployments
+    .map((d) => {
+      const display = DEPLOY_STATE_DISPLAY[d.state] ?? { icon: '\u2753', label: d.state, cls: '' }
+      const env = d.target === 'production' ? 'prod' : 'preview'
+      const envCls = d.target === 'production' ? 'vd-env-prod' : 'vd-env-preview'
+      const branch = d.meta.githubCommitRef ?? ''
+      const msg = d.meta.githubCommitMessage ? shortTitle(d.meta.githubCommitMessage, 40) : ''
+      const age = d.createdAt ? timeAgo(new Date(d.createdAt).toISOString()) : ''
+      const deployUrl = `https://${d.url}`
+      const inspectUrl = d.inspectorUrl || `https://vercel.com`
+      const pipeline = renderBuildPipeline(d.buildSteps)
+      return `<div class="vd-card ${display.cls}">
       <div class="vd-item">
         <span class="vd-state">${display.icon} ${display.label}</span>
         <span class="badge ${envCls}">${env}</span>
@@ -369,7 +354,8 @@ export function vercelCards(deployments: VercelDeployment[]): string {
       </div>
       ${pipeline ? `<div class="vd-pipeline">${pipeline}</div>` : ''}
     </div>`
-  }).join('')
+    })
+    .join('')
 }
 
 export function renderVercelDeployments(deployments: VercelDeployment[]): string {
@@ -399,25 +385,26 @@ const WR_EVENT_LABEL: Record<string, string> = {
 }
 
 export function workflowRunCards(runs: WorkflowRun[]): string {
-  return runs.map((run) => {
-    let badge: { icon: string; label: string; cls: string }
-    if (run.status === 'completed') {
-      badge = WR_CONCLUSION_DISPLAY[run.conclusion ?? ''] ?? {
-        icon: '\u2753',
-        label: run.conclusion ?? run.status,
-        cls: 'wr-badge-queued',
+  return runs
+    .map((run) => {
+      let badge: { icon: string; label: string; cls: string }
+      if (run.status === 'completed') {
+        badge = WR_CONCLUSION_DISPLAY[run.conclusion ?? ''] ?? {
+          icon: '\u2753',
+          label: run.conclusion ?? run.status,
+          cls: 'wr-badge-queued',
+        }
+      } else {
+        badge = WR_STATUS_DISPLAY[run.status] ?? {
+          icon: '\u2753',
+          label: run.status,
+          cls: 'wr-badge-queued',
+        }
       }
-    } else {
-      badge = WR_STATUS_DISPLAY[run.status] ?? {
-        icon: '\u2753',
-        label: run.status,
-        cls: 'wr-badge-queued',
-      }
-    }
-    const eventLabel = WR_EVENT_LABEL[run.event] ?? run.event
-    const age = timeAgo(run.updatedAt)
-    const commitText = run.displayTitle || run.headCommitMessage
-    return `<div class="wr-card">
+      const eventLabel = WR_EVENT_LABEL[run.event] ?? run.event
+      const age = timeAgo(run.updatedAt)
+      const commitText = run.displayTitle || run.headCommitMessage
+      return `<div class="wr-card">
       <div class="wr-item">
         <span class="wr-badge ${badge.cls}">${badge.icon} ${badge.label}</span>
         <a href="${escHtml(run.htmlUrl)}" target="_blank" rel="noopener" class="wr-name">${escHtml(run.name)}</a>
@@ -427,7 +414,8 @@ export function workflowRunCards(runs: WorkflowRun[]): string {
         <span class="text-muted vd-age">${age}</span>
       </div>
     </div>`
-  }).join('')
+    })
+    .join('')
 }
 
 export function renderWorkflowRuns(runs: WorkflowRun[]): string {

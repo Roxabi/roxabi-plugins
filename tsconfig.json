@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext"],
+    "types": ["bun-types"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true
+  },
+  "include": [
+    "vitest.config.ts",
+    "vitest.setup.ts",
+    "plugins/dev-core/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "plugins/web-intel/.venv",
+    "plugins/dev-core/cli/__tests__",
+    "plugins/dev-core/cli/index.ts",
+    "plugins/dev-core/skills/init/init.ts",
+    "plugins/dev-core/skills/issue-triage/triage.ts"
+  ]
+}

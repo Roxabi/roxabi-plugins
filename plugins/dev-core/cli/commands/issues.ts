@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
-import { readWorkspace } from '../lib/workspace'
 import { buildBatchedQuery, buildBatchedVariables } from '../../skills/shared/queries'
 import type { RawItem } from '../../skills/shared/types'
+import { readWorkspace } from '../lib/workspace'
 
 export interface IssuesCommandProject {
   repo: string
@@ -30,7 +30,7 @@ export async function runIssuesCommand(opts: IssuesCommandOptions = {}): Promise
   }
 
   // Normalise: accept either `projectId` or `id` field
-  const projectIds = ws.projects.map(p => p.projectId ?? p.id ?? '')
+  const projectIds = ws.projects.map((p) => p.projectId ?? p.id ?? '')
   const query = buildBatchedQuery(projectIds)
   const variables = buildBatchedVariables(projectIds)
 
@@ -62,7 +62,7 @@ export async function runIssuesCommand(opts: IssuesCommandOptions = {}): Promise
   const lines: string[] = []
 
   for (const [label, items] of byProject) {
-    const open = items.filter(i => i.content?.state === 'OPEN')
+    const open = items.filter((i) => i.content?.state === 'OPEN')
     if (open.length === 0) {
       lines.push(`\n## ${label}\n  0 issues`)
       continue

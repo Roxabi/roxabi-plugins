@@ -4,10 +4,10 @@
  */
 
 import {
+  isProjectConfigured,
   NOT_CONFIGURED_MSG,
   PRIORITY_FIELD_ID,
   PRIORITY_OPTIONS,
-  isProjectConfigured,
   resolvePriority,
   resolveSize,
   resolveStatus,
@@ -105,18 +105,16 @@ function parseNumberList(input: string): number[] {
 function resolveItemId(issueNumber: number): Promise<string | undefined> {
   return getItemId(issueNumber).catch(() => {
     console.error(
-      `Warning: Issue #${issueNumber} not found in project — skipping project field updates (status/size/priority)`
+      `Warning: Issue #${issueNumber} not found in project — skipping project field updates (status/size/priority)`,
     )
-    return
+    return undefined
   })
 }
 
 async function applyStatus(itemId: string, issueNumber: number, status: string): Promise<void> {
   const canonical = resolveStatus(status)
   if (!(canonical && STATUS_OPTIONS[canonical])) {
-    console.error(
-      'Error: Invalid status. Valid: Backlog, Analysis, Specs, "In Progress", Review, Done'
-    )
+    console.error('Error: Invalid status. Valid: Backlog, Analysis, Specs, "In Progress", Review, Done')
     process.exit(1)
   }
   await updateField(itemId, STATUS_FIELD_ID, STATUS_OPTIONS[canonical])
@@ -260,7 +258,7 @@ export async function setIssue(args: string[]): Promise<void> {
 
   if (!hasAction) {
     console.error(
-      'Error: Specify --size, --priority, --status, --blocked-by, --blocks, --rm-blocked-by, --rm-blocks, --parent, --add-child, --rm-parent, and/or --rm-child'
+      'Error: Specify --size, --priority, --status, --blocked-by, --blocks, --rm-blocked-by, --rm-blocks, --parent, --add-child, --rm-parent, and/or --rm-child',
     )
     process.exit(1)
   }

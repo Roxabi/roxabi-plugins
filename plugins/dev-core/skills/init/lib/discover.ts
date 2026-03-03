@@ -3,9 +3,9 @@
  * Returns structured JSON for the init orchestrator.
  */
 
-import { STANDARD_LABELS, STANDARD_WORKFLOWS, PROTECTED_BRANCHES } from '../../shared/config'
+import { PROTECTED_BRANCHES, STANDARD_LABELS, STANDARD_WORKFLOWS } from '../../shared/config'
+import { getBoardIssueNumbers, parseProjectFields, run } from '../../shared/github'
 import { checkPrereqs } from '../../shared/prereqs'
-import { run, parseProjectFields, getBoardIssueNumbers } from '../../shared/github'
 
 export interface DiscoveryResult {
   repo: string | null
@@ -21,7 +21,20 @@ export interface DiscoveryResult {
   workflows: { existing: string[]; missing: string[] }
   protection: Record<string, boolean>
   vercel: { projectId: string; orgId: string } | null
-  env: Partial<Record<'GITHUB_REPO' | 'GH_PROJECT_ID' | 'STATUS_FIELD_ID' | 'SIZE_FIELD_ID' | 'PRIORITY_FIELD_ID' | 'VERCEL_PROJECT_ID' | 'VERCEL_TEAM_ID' | 'VERCEL_TOKEN' | 'GITHUB_TOKEN', string>>
+  env: Partial<
+    Record<
+      | 'GITHUB_REPO'
+      | 'GH_PROJECT_ID'
+      | 'STATUS_FIELD_ID'
+      | 'SIZE_FIELD_ID'
+      | 'PRIORITY_FIELD_ID'
+      | 'VERCEL_PROJECT_ID'
+      | 'VERCEL_TEAM_ID'
+      | 'VERCEL_TOKEN'
+      | 'GITHUB_TOKEN',
+      string
+    >
+  >
 }
 
 function readEnvFile(): Record<string, string> {
@@ -74,7 +87,16 @@ export async function discover(): Promise<DiscoveryResult> {
   if (projectId && result.projects.length > 0) {
     const project = result.projects.find((p) => p.id === projectId) ?? result.projects[0]
     try {
-      const fieldsJson = await run(['gh', 'project', 'field-list', String(project.number), '--owner', owner, '--format', 'json'])
+      const fieldsJson = await run([
+        'gh',
+        'project',
+        'field-list',
+        String(project.number),
+        '--owner',
+        owner,
+        '--format',
+        'json',
+      ])
       const parsed = parseProjectFields(fieldsJson)
       result.fields.status = parsed.status
       result.fields.size = parsed.size
@@ -85,14 +107,24 @@ export async function discover(): Promise<DiscoveryResult> {
   // Issues — count open issues and how many are on the board
   if (repo) {
     try {
-      const issuesJson = await run(['gh', 'issue', 'list', '--repo', `${owner}/${repo}`, '--state', 'open', '--json', 'number', '--limit', '500'])
+      const issuesJson = await run([
+        'gh',
+        'issue',
+        'list',
+        '--repo',
+        `${owner}/${repo}`,
+        '--state',
+        'open',
+        '--json',
+        'number',
+        '--limit',
+        '500',
+      ])
       const issues = JSON.parse(issuesJson) as Array<{ number: number }>
       result.issues.total = issues.length
 
       // If we have a project, check which issues are already on the board
-      const selectedProject = projectId
-        ? result.projects.find((p) => p.id === projectId)
-        : result.projects[0]
+      const selectedProject = projectId ? result.projects.find((p) => p.id === projectId) : result.projects[0]
       if (selectedProject && issues.length > 0) {
         try {
           const onBoardNumbers = await getBoardIssueNumbers(owner!, selectedProject.number)
@@ -108,7 +140,17 @@ export async function discover(): Promise<DiscoveryResult> {
 
   // Labels
   try {
-    const labelsJson = await run(['gh', 'label', 'list', '--repo', `${owner}/${repo}`, '--json', 'name', '--limit', '100'])
+    const labelsJson = await run([
+      'gh',
+      'label',
+      'list',
+      '--repo',
+      `${owner}/${repo}`,
+      '--json',
+      'name',
+      '--limit',
+      '100',
+    ])
     const labels = (JSON.parse(labelsJson) as { name: string }[]).map((l) => l.name)
     result.labels.existing = labels
     result.labels.missing = STANDARD_LABELS.filter((l) => !labels.includes(l.name)).map((l) => l.name)
@@ -128,8 +170,8 @@ export async function discover(): Promise<DiscoveryResult> {
     PROTECTED_BRANCHES.map((branch) =>
       run(['gh', 'api', `repos/${owner}/${repo}/branches/${branch}/protection`])
         .then(() => ({ branch, ok: true }))
-        .catch(() => ({ branch, ok: false }))
-    )
+        .catch(() => ({ branch, ok: false })),
+    ),
   )
   for (const { branch, ok } of protectionChecks) {
     result.protection[branch] = ok

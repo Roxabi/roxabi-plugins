@@ -2,9 +2,9 @@
  * Create GitHub Project V2 board + 3 standard fields.
  */
 
-import { run, parseProjectFields, ghGraphQL } from '../../shared/github'
+import { DEFAULT_PRIORITY_OPTIONS, DEFAULT_SIZE_OPTIONS, DEFAULT_STATUS_OPTIONS } from '../../shared/config'
 import type { ParsedField } from '../../shared/github'
-import { DEFAULT_STATUS_OPTIONS, DEFAULT_SIZE_OPTIONS, DEFAULT_PRIORITY_OPTIONS } from '../../shared/config'
+import { ghGraphQL, parseProjectFields, run } from '../../shared/github'
 import { PROJECT_WORKFLOWS_QUERY, UPDATE_PROJECT_WORKFLOW_MUTATION } from '../../shared/queries'
 
 export interface ProjectWorkflow {
@@ -27,7 +27,17 @@ const FIELD_DEFS = [
 
 export async function createProject(owner: string, repoName: string): Promise<CreateProjectResult> {
   // Create project
-  const createJson = await run(['gh', 'project', 'create', '--owner', owner, '--title', `${repoName} board`, '--format', 'json'])
+  const createJson = await run([
+    'gh',
+    'project',
+    'create',
+    '--owner',
+    owner,
+    '--title',
+    `${repoName} board`,
+    '--format',
+    'json',
+  ])
   const project = JSON.parse(createJson) as { id: string; number: number }
 
   const pn = String(project.number)
@@ -35,7 +45,20 @@ export async function createProject(owner: string, repoName: string): Promise<Cr
   // Create single-select fields — each may already exist (Status is a built-in)
   for (const field of FIELD_DEFS) {
     try {
-      await run(['gh', 'project', 'field-create', pn, '--owner', owner, '--name', field.name, '--data-type', 'SINGLE_SELECT', '--single-select-options', field.options])
+      await run([
+        'gh',
+        'project',
+        'field-create',
+        pn,
+        '--owner',
+        owner,
+        '--name',
+        field.name,
+        '--data-type',
+        'SINGLE_SELECT',
+        '--single-select-options',
+        field.options,
+      ])
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       if (!msg.includes('already been taken') && !msg.includes('already exists')) throw err

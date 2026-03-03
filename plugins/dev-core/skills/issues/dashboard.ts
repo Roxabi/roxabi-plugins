@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+
 /**
  * Issues Dashboard — local dev tool
  * Usage: bun ${CLAUDE_PLUGIN_ROOT}/skills/issues/dashboard.ts [--port=3333] [--poll=60]
@@ -7,6 +8,8 @@
  * Features: in-memory cache, background polling, SSE live updates, multi-project workspace.
  */
 
+import { discoverProject, readWorkspace, writeWorkspace } from '../shared/workspace'
+import type { WorkspaceProject } from './lib/fetch'
 import {
   fetchAllProjects,
   fetchBranchCI,
@@ -18,30 +21,14 @@ import {
   fetchWorktrees,
   rawItemsToIssues,
 } from './lib/fetch'
-import type { WorkspaceProject } from './lib/fetch'
 import { buildHtml } from './lib/page'
-import type {
-  Branch,
-  BranchCI,
-  Issue,
-  PR,
-  VercelDeployment,
-  WorkflowRun,
-  Worktree,
-} from './lib/types'
-
+import type { Branch, BranchCI, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './lib/types'
 import { handleUpdate } from './lib/update'
-import {
-  discoverProject,
-  readWorkspace,
-  writeWorkspace,
-} from '../shared/workspace'
 
 type ProjectMeta = { prs: PR[]; branchCI: BranchCI[]; workflowRuns: WorkflowRun[]; deployments: VercelDeployment[] }
 
 const PORT = Number(process.argv.find((a) => a.startsWith('--port='))?.split('=')[1] ?? 3333)
-const POLL_MS =
-  Number(process.argv.find((a) => a.startsWith('--poll='))?.split('=')[1] ?? 60) * 1000
+const POLL_MS = Number(process.argv.find((a) => a.startsWith('--poll='))?.split('=')[1] ?? 60) * 1000
 const PID_FILE = `${import.meta.dirname}/.dashboard.pid`
 
 // ---------------------------------------------------------------------------
@@ -64,17 +51,10 @@ function computeHash(
   worktrees: Worktree[],
   deployments: VercelDeployment[],
   branchCI: BranchCI[],
-  workflowRuns: WorkflowRun[]
+  workflowRuns: WorkflowRun[],
 ): string {
   const key = JSON.stringify({
-    i: issues.map((i) => [
-      i.number,
-      i.status,
-      i.size,
-      i.priority,
-      i.blockStatus,
-      i.children.length,
-    ]),
+    i: issues.map((i) => [i.number, i.status, i.size, i.priority, i.blockStatus, i.children.length]),
     p: prs.map((p) => [
       p.number,
       p.isDraft,
@@ -109,13 +89,15 @@ async function refreshCache(): Promise<void> {
     if (ws.projects.length > 0) {
       const [rawMap, metaResults, branches_, worktrees_] = await Promise.all([
         fetchAllProjects(ws.projects),
-        Promise.all(ws.projects.map(async (p) => ({
-          label: p.label,
-          prs: await fetchPRs(p.repo),
-          branchCI: await fetchBranchCI(p.repo),
-          workflowRuns: await fetchWorkflowRuns(p.repo),
-          deployments: await fetchVercelDeployments(p.vercelProjectId, p.vercelTeamId),
-        }))),
+        Promise.all(
+          ws.projects.map(async (p) => ({
+            label: p.label,
+            prs: await fetchPRs(p.repo),
+            branchCI: await fetchBranchCI(p.repo),
+            workflowRuns: await fetchWorkflowRuns(p.repo),
+            deployments: await fetchVercelDeployments(p.vercelProjectId, p.vercelTeamId),
+          })),
+        ),
         fetchBranches(),
         fetchWorktrees(),
       ])
@@ -125,7 +107,12 @@ async function refreshCache(): Promise<void> {
         byProject.set(label, rawItemsToIssues(rawItems))
       }
       issues = [...byProject.values()].flat()
-      byProjectMeta = new Map(metaResults.map((m) => [m.label, { prs: m.prs, branchCI: m.branchCI, workflowRuns: m.workflowRuns, deployments: m.deployments }]))
+      byProjectMeta = new Map(
+        metaResults.map((m) => [
+          m.label,
+          { prs: m.prs, branchCI: m.branchCI, workflowRuns: m.workflowRuns, deployments: m.deployments },
+        ]),
+      )
 
       const prs = metaResults.flatMap((m) => m.prs)
       const branchCI = metaResults.flatMap((m) => m.branchCI)
@@ -136,8 +123,21 @@ async function refreshCache(): Promise<void> {
       const workspaceChanged = !cache || cache.workspaceHash !== newWorkspaceHash
       const changed = workspaceChanged || !cache || cache.hash !== hash
       const updatedAt = Date.now()
-      const wsProjects = ws.projects.map(p => ({ label: p.label, repo: p.repo }))
-      const html = buildHtml(issues, prs, branches_, worktrees_, deployments_, branchCI, workflowRuns, fetchMs, updatedAt, byProject, wsProjects, byProjectMeta)
+      const wsProjects = ws.projects.map((p) => ({ label: p.label, repo: p.repo }))
+      const html = buildHtml(
+        issues,
+        prs,
+        branches_,
+        worktrees_,
+        deployments_,
+        branchCI,
+        workflowRuns,
+        fetchMs,
+        updatedAt,
+        byProject,
+        wsProjects,
+        byProjectMeta,
+      )
       cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
       if (changed) notifyClients()
       return
@@ -163,7 +163,7 @@ async function refreshCache(): Promise<void> {
     const changed = dataChanged || workspaceChanged
 
     const updatedAt = Date.now()
-    const wsProjects = ws.projects.map(p => ({ label: p.label, repo: p.repo }))
+    const wsProjects = ws.projects.map((p) => ({ label: p.label, repo: p.repo }))
     const html = buildHtml(
       issues,
       prs,
@@ -175,7 +175,7 @@ async function refreshCache(): Promise<void> {
       fetchMs,
       updatedAt,
       byProject ?? undefined,
-      wsProjects.length > 0 ? wsProjects : undefined
+      wsProjects.length > 0 ? wsProjects : undefined,
     )
     cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
 
@@ -293,7 +293,7 @@ const server = Bun.serve({
         if (discovered.length === 0) {
           return Response.json(
             { ok: false, error: `No GitHub Projects found for repo '${body.repo}'` },
-            { status: 400 }
+            { status: 400 },
           )
         }
         // Auto-select the first project when only one is found; if multiple, pick first
@@ -338,23 +338,19 @@ const server = Bun.serve({
     // Dashboard page
     try {
       if (!cache) await refreshCache()
-      const html = cache?.stale
-        ? cache.html.replace('<body', '<body data-stale="true"')
-        : cache?.html
+      const html = cache?.stale ? cache.html.replace('<body', '<body data-stale="true"') : cache?.html
       return new Response(html, {
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      return new Response(
-        `<pre style="color:red;padding:20px;">Error fetching issues:\n${msg}</pre>`,
-        { status: 500, headers: { 'Content-Type': 'text/html' } }
-      )
+      return new Response(`<pre style="color:red;padding:20px;">Error fetching issues:\n${msg}</pre>`, {
+        status: 500,
+        headers: { 'Content-Type': 'text/html' },
+      })
     }
   },
 })
 
 const pollSec = POLL_MS / 1000
-console.log(
-  `\n  Issues Dashboard \u2192 http://localhost:${server.port}  (live, polling every ${pollSec}s)\n`
-)
+console.log(`\n  Issues Dashboard \u2192 http://localhost:${server.port}  (live, polling every ${pollSec}s)\n`)

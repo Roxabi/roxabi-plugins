@@ -22,13 +22,7 @@ function makeProjectResponse(items: unknown[]) {
   }
 }
 
-function makeItem(
-  number: number,
-  title: string,
-  size: string | null,
-  priority: string | null,
-  state = 'OPEN'
-) {
+function makeItem(number: number, title: string, size: string | null, priority: string | null, state = 'OPEN') {
   return {
     id: `item-${number}`,
     content: { number, title, body: '', state },
@@ -52,7 +46,7 @@ describe('issue-triage/list > filtering', () => {
         makeItem(2, 'Missing size', null, 'P2 - Medium'),
         makeItem(3, 'Missing priority', 'S', null),
         makeItem(4, 'Missing both', null, null),
-      ])
+      ]),
     )
 
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -70,7 +64,7 @@ describe('issue-triage/list > filtering', () => {
 
   it('ignores closed issues', async () => {
     mockGhGraphQL.mockResolvedValueOnce(
-      makeProjectResponse([makeItem(1, 'Closed no size', null, 'P1 - High', 'CLOSED')])
+      makeProjectResponse([makeItem(1, 'Closed no size', null, 'P1 - High', 'CLOSED')]),
     )
 
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -102,9 +96,7 @@ describe('issue-triage/list > output format', () => {
   })
 
   it('reports all triaged when no untriaged issues', async () => {
-    mockGhGraphQL.mockResolvedValueOnce(
-      makeProjectResponse([makeItem(1, 'Triaged', 'M', 'P1 - High')])
-    )
+    mockGhGraphQL.mockResolvedValueOnce(makeProjectResponse([makeItem(1, 'Triaged', 'M', 'P1 - High')]))
 
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     const { listIssues } = await import('../lib/list')

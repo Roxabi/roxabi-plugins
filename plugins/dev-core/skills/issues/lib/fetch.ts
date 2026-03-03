@@ -1,19 +1,9 @@
-import { GITHUB_REPO, GH_PROJECT_ID } from '../../shared/config'
+import { GH_PROJECT_ID, GITHUB_REPO } from '../../shared/config'
 import { ghGraphQL, run } from '../../shared/github'
 import { BRANCH_CI_QUERY, ISSUES_QUERY, PRS_QUERY } from '../../shared/queries'
 import type { RawItem } from '../../shared/types'
 
-import type {
-  Branch,
-  BranchCI,
-  BuildStep,
-  CICheck,
-  Issue,
-  PR,
-  VercelDeployment,
-  WorkflowRun,
-  Worktree,
-} from './types'
+import type { Branch, BranchCI, BuildStep, CICheck, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './types'
 
 export interface WorkspaceProject {
   repo: string
@@ -49,13 +39,11 @@ export async function fetchAllItems(): Promise<RawItem[]> {
  * Fetch all issues for multiple workspace projects in parallel, each with full pagination.
  * Returns a Map keyed by project label → RawItem[].
  */
-export async function fetchAllProjects(
-  projects: WorkspaceProject[]
-): Promise<Map<string, RawItem[]>> {
+export async function fetchAllProjects(projects: WorkspaceProject[]): Promise<Map<string, RawItem[]>> {
   if (projects.length === 0) return new Map()
 
   const results = await Promise.all(
-    projects.map(async (p) => ({ label: p.label, items: await fetchAllItemsForProject(p.projectId) }))
+    projects.map(async (p) => ({ label: p.label, items: await fetchAllItemsForProject(p.projectId) })),
   )
   return new Map(results.map((r) => [r.label, r.items]))
 }
@@ -106,9 +94,7 @@ export function rawItemsToIssues(items: RawItem[]): Issue[] {
   }
 
   // Root issues only (no open parent); orphaned children (parent closed) promoted to root
-  const roots = openItems
-    .filter((i) => !i.content.parent || i.content.parent.state === 'CLOSED')
-    .map(toIssue)
+  const roots = openItems.filter((i) => !i.content.parent || i.content.parent.state === 'CLOSED').map(toIssue)
 
   // Sort: status first (Review > In Progress > Specs > Analysis > Backlog),
   // then block status, then priority
@@ -291,8 +277,7 @@ function parseBuildSteps(logs: string[], deployState: string): BuildStep[] {
     }
   }
 
-  const hasError =
-    deployState === 'ERROR' || logs.some((l) => /^Error:|Command ".*" exited with \d+/.test(l))
+  const hasError = deployState === 'ERROR' || logs.some((l) => /^Error:|Command ".*" exited with \d+/.test(l))
   const maxReached = Math.max(-1, ...reached)
 
   return BUILD_PHASES.map((phase, i) => {
@@ -323,7 +308,7 @@ async function fetchBuildLogs(token: string, deploymentId: string): Promise<stri
 
 export async function fetchVercelDeployments(
   projectId: string = VERCEL_PROJECT_ID,
-  teamId: string = VERCEL_TEAM_ID
+  teamId: string = VERCEL_TEAM_ID,
 ): Promise<VercelDeployment[]> {
   const token = process.env.VERCEL_TOKEN
   if (!token || !projectId || !teamId) return []
@@ -496,8 +481,7 @@ export async function fetchWorkflowRuns(repoSlug: string = GITHUB_REPO): Promise
 
     const filtered = data.workflow_runs.filter((run) => {
       const ongoing = run.status === 'in_progress' || run.status === 'queued'
-      const recentCompleted =
-        run.status === 'completed' && now - new Date(run.updated_at).getTime() < FIVE_MINUTES_WR
+      const recentCompleted = run.status === 'completed' && now - new Date(run.updated_at).getTime() < FIVE_MINUTES_WR
       return ongoing || recentCompleted
     })
 

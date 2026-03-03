@@ -37,20 +37,53 @@ vi.mock('../../shared/config', () => ({
   STATUS_FIELD_ID: 'SF_test',
   SIZE_FIELD_ID: 'SZF_test',
   PRIORITY_FIELD_ID: 'PF_test',
-  STATUS_OPTIONS: { Backlog: 'status-backlog', Analysis: 'status-analysis', Specs: 'status-specs', 'In Progress': 'status-inprog', Review: 'status-review', Done: 'status-done' },
+  STATUS_OPTIONS: {
+    Backlog: 'status-backlog',
+    Analysis: 'status-analysis',
+    Specs: 'status-specs',
+    'In Progress': 'status-inprog',
+    Review: 'status-review',
+    Done: 'status-done',
+  },
   SIZE_OPTIONS: { XS: 'size-xs', S: 'size-s', M: 'size-m', L: 'size-l', XL: 'size-xl' },
-  PRIORITY_OPTIONS: { 'P0 - Urgent': 'pri-urgent', 'P1 - High': 'pri-high', 'P2 - Medium': 'pri-medium', 'P3 - Low': 'pri-low' },
+  PRIORITY_OPTIONS: {
+    'P0 - Urgent': 'pri-urgent',
+    'P1 - High': 'pri-high',
+    'P2 - Medium': 'pri-medium',
+    'P3 - Low': 'pri-low',
+  },
   resolveStatus: (input: string) => {
     const canonical = new Set(['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'])
     if (canonical.has(input)) return input
-    const aliases: Record<string, string> = { BACKLOG: 'Backlog', ANALYSIS: 'Analysis', SPECS: 'Specs', 'IN PROGRESS': 'In Progress', IN_PROGRESS: 'In Progress', INPROGRESS: 'In Progress', REVIEW: 'Review', DONE: 'Done' }
+    const aliases: Record<string, string> = {
+      BACKLOG: 'Backlog',
+      ANALYSIS: 'Analysis',
+      SPECS: 'Specs',
+      'IN PROGRESS': 'In Progress',
+      IN_PROGRESS: 'In Progress',
+      INPROGRESS: 'In Progress',
+      REVIEW: 'Review',
+      DONE: 'Done',
+    }
     return aliases[input.toUpperCase()]
   },
-  resolveSize: (input: string) => { const u = input.toUpperCase(); return new Set(['XS', 'S', 'M', 'L', 'XL']).has(u) ? u : undefined },
+  resolveSize: (input: string) => {
+    const u = input.toUpperCase()
+    return new Set(['XS', 'S', 'M', 'L', 'XL']).has(u) ? u : undefined
+  },
   resolvePriority: (input: string) => {
     const canonical = new Set(['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'])
     if (canonical.has(input)) return input
-    const aliases: Record<string, string> = { URGENT: 'P0 - Urgent', HIGH: 'P1 - High', MEDIUM: 'P2 - Medium', LOW: 'P3 - Low', P0: 'P0 - Urgent', P1: 'P1 - High', P2: 'P2 - Medium', P3: 'P3 - Low' }
+    const aliases: Record<string, string> = {
+      URGENT: 'P0 - Urgent',
+      HIGH: 'P1 - High',
+      MEDIUM: 'P2 - Medium',
+      LOW: 'P3 - Low',
+      P0: 'P0 - Urgent',
+      P1: 'P1 - High',
+      P2: 'P2 - Medium',
+      P3: 'P3 - Low',
+    }
     return aliases[input.toUpperCase()]
   },
 }))

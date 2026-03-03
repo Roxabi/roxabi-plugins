@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Stub fetch before importing the module (vi.stubGlobal not supported in Bun)
 const mockFetch = vi.fn()
-;(globalThis as typeof globalThis & { fetch: unknown }).fetch = mockFetch
+// biome-ignore lint/suspicious/noExplicitAny: test stub replaces global fetch
+;(globalThis as any).fetch = mockFetch
 
 // Set GITHUB_TOKEN for tests
 process.env.GITHUB_TOKEN = 'test-token'
@@ -55,7 +56,7 @@ describe('shared/github', () => {
       await run(['git', 'status'])
       expect(spawnSpy).toHaveBeenCalledWith(
         ['git', 'status'],
-        expect.objectContaining({ stdout: 'pipe', stderr: 'pipe' })
+        expect.objectContaining({ stdout: 'pipe', stderr: 'pipe' }),
       )
     })
 
@@ -79,7 +80,7 @@ describe('shared/github', () => {
           headers: expect.objectContaining({
             Authorization: 'Bearer test-token',
           }),
-        })
+        }),
       )
     })
 

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mergeEnv, mergeEnvExample } from '../lib/scaffold'
 
 describe('mergeEnv', () => {
@@ -28,7 +28,8 @@ describe('mergeEnv', () => {
   })
 
   it('replaces existing dev-core block', () => {
-    const existing = 'MY_VAR=hello\n# --- dev-core: GitHub Project V2 ---\nGITHUB_REPO=Old/repo\nGH_PROJECT_ID=PVT_old\n\nOTHER=world\n'
+    const existing =
+      'MY_VAR=hello\n# --- dev-core: GitHub Project V2 ---\nGITHUB_REPO=Old/repo\nGH_PROJECT_ID=PVT_old\n\nOTHER=world\n'
     const result = mergeEnv(existing, baseSections, true)
     expect(result).toContain('GITHUB_REPO=Org/repo')
     expect(result).not.toContain('Old/repo')
@@ -105,17 +106,21 @@ describe('scaffold', () => {
     writtenFiles = {}
     const fs = require('fs')
 
-    vi.spyOn(fs, 'existsSync').mockImplementation((path: string) => {
+    vi.spyOn(fs, 'existsSync').mockImplementation((...args: unknown[]) => {
+      const path = args[0] as string
       return path in mockFs && mockFs[path] !== null
     })
-    vi.spyOn(fs, 'readFileSync').mockImplementation((path: string) => {
+    vi.spyOn(fs, 'readFileSync').mockImplementation((...args: unknown[]) => {
+      const path = args[0] as string
       if (path in mockFs && mockFs[path] !== null) return mockFs[path]
       throw new Error('ENOENT')
     })
-    vi.spyOn(fs, 'writeFileSync').mockImplementation((path: string, content: string) => {
+    vi.spyOn(fs, 'writeFileSync').mockImplementation((...args: unknown[]) => {
+      const [path, content] = args as [string, string]
       writtenFiles[path] = content
     })
-    vi.spyOn(fs, 'appendFileSync').mockImplementation((path: string, content: string) => {
+    vi.spyOn(fs, 'appendFileSync').mockImplementation((...args: unknown[]) => {
+      const [path, content] = args as [string, string]
       writtenFiles[path] = (writtenFiles[path] ?? '') + content
     })
     vi.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)

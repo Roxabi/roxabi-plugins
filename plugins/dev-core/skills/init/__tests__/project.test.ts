@@ -1,11 +1,17 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../shared/github', () => ({
   run: vi.fn(),
   ghGraphQL: vi.fn(),
   parseProjectFields: (json: string) => {
-    const data = JSON.parse(json) as { fields: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }> }
-    const result: Record<string, { id: string; options: Record<string, string> } | null> = { status: null, size: null, priority: null }
+    const data = JSON.parse(json) as {
+      fields: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }>
+    }
+    const result: Record<string, { id: string; options: Record<string, string> } | null> = {
+      status: null,
+      size: null,
+      priority: null,
+    }
     for (const f of data.fields ?? []) {
       const key = f.name.toLowerCase()
       if (key === 'status' || key === 'size' || key === 'priority') {
@@ -32,7 +38,6 @@ describe('createProject', () => {
     mockRun = github.run as ReturnType<typeof vi.fn>
   })
 
-
   it('creates project and returns IDs', async () => {
     const calls: string[][] = []
     mockRun.mockImplementation(async (cmd: string[]) => {
@@ -42,7 +47,14 @@ describe('createProject', () => {
       if (joined.includes('field-list')) {
         return JSON.stringify({
           fields: [
-            { id: 'F_status', name: 'Status', options: [{ id: 'opt1', name: 'Backlog' }, { id: 'opt2', name: 'Done' }] },
+            {
+              id: 'F_status',
+              name: 'Status',
+              options: [
+                { id: 'opt1', name: 'Backlog' },
+                { id: 'opt2', name: 'Done' },
+              ],
+            },
             { id: 'F_size', name: 'Size', options: [{ id: 'opt3', name: 'S' }] },
             { id: 'F_priority', name: 'Priority', options: [{ id: 'opt4', name: 'P0 - Urgent' }] },
           ],
@@ -121,9 +133,9 @@ describe('enableProjectWorkflow', () => {
     const result = await enableProjectWorkflow('PWF_1')
 
     expect(result).toEqual({ id: 'PWF_1', name: 'Auto-add to project', enabled: true })
-    expect(mockGhGraphQL).toHaveBeenCalledWith(
-      'UPDATE_PROJECT_WORKFLOW_MUTATION',
-      { workflowId: 'PWF_1', enabled: true }
-    )
+    expect(mockGhGraphQL).toHaveBeenCalledWith('UPDATE_PROJECT_WORKFLOW_MUTATION', {
+      workflowId: 'PWF_1',
+      enabled: true,
+    })
   })
 })

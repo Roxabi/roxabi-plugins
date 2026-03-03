@@ -238,7 +238,9 @@ mutation($workflowId: ID!, $enabled: Boolean!) {
 export function buildBatchedQuery(projectIds: string[]): string {
   if (projectIds.length === 0) return ''
   const params = projectIds.map((_, i) => `$project${i}Id: ID!`).join(', ')
-  const aliases = projectIds.map((_, i) => `
+  const aliases = projectIds
+    .map(
+      (_, i) => `
     project${i}: node(id: $project${i}Id) {
       ... on ProjectV2 {
         items(first: 100) {
@@ -264,7 +266,9 @@ export function buildBatchedQuery(projectIds: string[]): string {
           }
         }
       }
-    }`).join('')
+    }`,
+    )
+    .join('')
   return `query(${params}) {${aliases}\n}`
 }
 

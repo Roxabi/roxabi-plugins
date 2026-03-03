@@ -2,7 +2,7 @@
  * Apply branch protection rules to standard branches.
  */
 
-import { PROTECTED_BRANCHES, BRANCH_PROTECTION_PAYLOAD } from '../../shared/config'
+import { BRANCH_PROTECTION_PAYLOAD, PROTECTED_BRANCHES } from '../../shared/config'
 import { run } from '../../shared/github'
 
 export async function protectBranches(repo: string): Promise<Record<string, boolean>> {
@@ -21,7 +21,7 @@ export async function protectBranches(repo: string): Promise<Record<string, bool
       const payload = JSON.stringify(BRANCH_PROTECTION_PAYLOAD)
       const proc = Bun.spawn(
         ['gh', 'api', `repos/${repo}/branches/${branch}/protection`, '-X', 'PUT', '--input', '-'],
-        { stdin: new TextEncoder().encode(payload), stdout: 'pipe', stderr: 'pipe' }
+        { stdin: new TextEncoder().encode(payload), stdout: 'pipe', stderr: 'pipe' },
       )
       const code = await proc.exited
       results[branch] = code === 0

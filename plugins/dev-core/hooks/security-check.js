@@ -108,7 +108,7 @@ function main() {
         JSON.stringify({
           decision: 'block',
           message: `Security check:\n${blocked.map((w) => `- ${w}`).join('\n')}`,
-        })
+        }),
       )
     }
   } catch {

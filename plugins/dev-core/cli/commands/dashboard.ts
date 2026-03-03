@@ -43,7 +43,9 @@ export async function run(args: string[]): Promise<void> {
     } catch {
       console.log(`Process ${pid} not found — already stopped.`)
     }
-    try { require('fs').unlinkSync(PID_FILE) } catch {}
+    try {
+      require('fs').unlinkSync(PID_FILE)
+    } catch {}
     process.exit(0)
   }
 
@@ -56,11 +58,21 @@ export async function run(args: string[]): Promise<void> {
   writeFileSync(PID_FILE, String(proc.pid))
 
   const cleanup = () => {
-    try { require('fs').unlinkSync(PID_FILE) } catch {}
+    try {
+      require('fs').unlinkSync(PID_FILE)
+    } catch {}
   }
 
-  process.on('SIGINT', () => { cleanup(); proc.kill('SIGINT'); process.exit(0) })
-  process.on('SIGTERM', () => { cleanup(); proc.kill('SIGTERM'); process.exit(0) })
+  process.on('SIGINT', () => {
+    cleanup()
+    proc.kill('SIGINT')
+    process.exit(0)
+  })
+  process.on('SIGTERM', () => {
+    cleanup()
+    proc.kill('SIGTERM')
+    process.exit(0)
+  })
 
   const code = await proc.exited
   cleanup()
