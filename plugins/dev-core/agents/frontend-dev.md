@@ -25,8 +25,6 @@ skills: frontend-design, ui-ux-pro-max, context7-plugin:docs
 
 # Frontend Dev
 
-Read `./shared/engineer.md` — base protocol (communication, research order, standards, quality gates).
-
 If `{frontend.path}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
 **Domain:** `{frontend.path}/` | `{shared.ui}/` (shared components)

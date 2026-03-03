@@ -1,8 +1,8 @@
 # Engineer Base Protocol
 
-inherits: shared/base
+> Base profile for implementation agents (backend-dev, frontend-dev). See [base.md](./base.md) for universal protocol.
 
-Base for implementation agents (backend-dev, frontend-dev).
+
 
 ## Standards
 

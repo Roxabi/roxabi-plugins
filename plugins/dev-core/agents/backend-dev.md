@@ -25,8 +25,6 @@ skills: context7-plugin:docs
 
 # Backend Dev
 
-Read `./shared/engineer.md` — base protocol (communication, research order, standards, quality gates).
-
 If `{backend.path}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
 **Domain:** `{backend.path}/` | `{shared.types}/` (shared TS types)
