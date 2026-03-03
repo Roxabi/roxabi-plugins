@@ -90,30 +90,17 @@ If `labels.missing` is non-empty, AskUserQuestion: **Create all labels** | **Typ
 
 Run: `bun $INIT_TS labels --repo <owner/repo> --scope <all|type|area|priority>`
 
-#### 3c. Workflows
-
-If `workflows.missing` is non-empty, AskUserQuestion: **Set up CI/CD workflows** | **Skip**.
-
-If yes:
-1. AskUserQuestion for stack: **Bun** | **Node** | **Python (uv)**
-2. AskUserQuestion for test framework: **Vitest** | **Jest** | **Pytest** | **None**
-3. AskUserQuestion for deploy: **Vercel** | **None**
-
-Run: `bun $INIT_TS workflows --stack bun --test vitest --deploy vercel`
-
-Note: Python workflow generates a `ci.yml` running `uv run ruff check .` and `uv run pytest`.
-
-#### 3d. Branch Protection
+#### 3c. Branch Protection
 
 AskUserQuestion: **Set up branch protection** | **Skip**.
 
 Run: `bun $INIT_TS protect-branches --repo <owner/repo>`
 
-#### 3e. Vercel (Optional)
+#### 3d. Vercel (Optional)
 
 If `vercel` is non-null in discover result, AskUserQuestion: **Set up Vercel integration** | **Skip**. If yes, ask for `VERCEL_TOKEN` via AskUserQuestion (free text — explain: Vercel Settings → Tokens).
 
-#### 3f. Issue Migration
+#### 3e. Issue Migration
 
 If `issues.orphaned > 0` in the discover result:
 - AskUserQuestion: **Add N open issues to project board** | **Skip**
@@ -136,7 +123,6 @@ dev-core Configuration
     PRIORITY_FIELD_ID   = PVTSSF_...
 
   Labels:               15 labels (created / skipped)
-  Workflows:            ci.yml, deploy-preview (created / skipped)
   Branch protection:    main, staging (created / skipped)
 ```
 
@@ -225,39 +211,7 @@ Scan the filesystem for other repos with dev-core configured but not yet in work
 
 7. **If Skip:** display `workspace.json ⏭ Bulk discovery skipped`
 
-### Phase 7 — Report
-
-Display final summary:
-
-```
-dev-core initialized
-====================
-
-  .env              ✅ Written (N variables)
-  .env.example      ✅ Written
-  Project board     ✅ Created / Detected / ⏭ Skipped
-  Issue migration   ✅ N issues added to board / ⏭ Skipped
-  Labels            ✅ N labels created / ⏭ Skipped
-  Project workflows ⚠️ Enable manually at https://github.com/orgs/<owner>/projects/<number>/workflows
-  CI/CD workflows   ✅ Created / ⏭ Skipped
-  Branch protection ✅ Created / ⏭ Skipped
-  roxabi shim       ✅ Installed (~/.local/bin/roxabi)
-  PATH              ✅ ~/.local/bin added to .bashrc/.zshrc  (or ⏭ already present)
-  artifacts/        ✅ Created
-  .gitignore        ✅ .env added
-  workspace.json    ✅ Registered <repo> / ⏭ Skipped
-  bulk discovery    ✅ Added N projects / ⏭ Skipped / ⏭ No others found
-
-Next steps:
-  /stack-setup           Configure stack for agents (auto-discovers your project)
-  /doctor                Verify full configuration health
-  roxabi dashboard       Launch the issues dashboard  (restart shell or: source ~/.bashrc)
-  /issues                View issues in CLI
-  /dev #N                Start working on an issue
-  /init --force          Re-configure anytime
-```
-
-### Phase 8 — Stack Configuration
+### Phase 7 — Stack Configuration
 
 Set up `.claude/stack.yml` so dev-core agents can work without hardcoded paths.
 
@@ -287,7 +241,7 @@ Set up `.claude/stack.yml` so dev-core agents can work without hardcoded paths.
    - If `.claude/stack.yml.example` does not exist, copy: `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example`
    - Display: ".claude/stack.yml.example created ✅ (commit this file)"
 
-### Phase 9 — VS Code MDX Preview (Optional)
+### Phase 8 — VS Code MDX Preview (Optional)
 
 Only run if `.mdx` files exist in the project (`find . -name "*.mdx" -not -path "*/node_modules/*" | head -1`) or `docs.format: mdx` in stack.yml.
 
@@ -299,9 +253,61 @@ Only run if `.mdx` files exist in the project (`find . -name "*.mdx" -not -path 
    - If it exists, merge `"*.mdx": "markdown"` into the existing `files.associations` object (preserve all other keys).
    - Display: `VS Code MDX preview ✅ Added`
 
-Update Phase 7 report to include:
+### Phase 9 — CI Setup
+
+Set up GitHub Actions CI/CD workflows. Runs last so stack.yml values are available to pre-fill the configuration.
+
+1. **Check for existing CI:** `ls .github/workflows/ci.yml 2>/dev/null && echo exists || echo missing`
+   - If exists → display `CI/CD workflows ✅ Already configured` and skip this phase.
+
+2. **Auto-detect from stack.yml** (read `.claude/stack.yml` if it exists):
+   - `stack` ← `runtime` field (`bun` → **Bun**, `node` → **Node**, `python` → **Python (uv)**)
+   - `test` ← `commands.test` (contains "vitest" → **Vitest**, "jest" → **Jest**, "pytest" → **Pytest**, else → **None**)
+   - `deploy` ← `deploy.platform` (`vercel` → **Vercel**, else → **None**)
+
+3. **If workflows missing**, AskUserQuestion: **Set up CI/CD workflows** | **Skip**
+
+4. **If yes:**
+   - AskUserQuestion for stack (pre-select detected value): **Bun** | **Node** | **Python (uv)**
+   - AskUserQuestion for test framework (pre-select detected value): **Vitest** | **Jest** | **Pytest** | **None**
+   - AskUserQuestion for deploy (pre-select detected value): **Vercel** | **None**
+   - Run: `bun $INIT_TS workflows --stack <stack> --test <test> --deploy <deploy>`
+   - Note: Python workflow generates a `ci.yml` running `uv run ruff check .` and `uv run pytest`.
+   - Display: `CI/CD workflows ✅ Created`
+
+5. **If skip:** display `CI/CD workflows ⏭ Skipped`
+
+### Phase 10 — Report
+
+Display final summary:
+
 ```
+dev-core initialized
+====================
+
+  .env              ✅ Written (N variables)
+  .env.example      ✅ Written
+  Project board     ✅ Created / Detected / ⏭ Skipped
+  Issue migration   ✅ N issues added to board / ⏭ Skipped
+  Labels            ✅ N labels created / ⏭ Skipped
+  Project workflows ⚠️ Enable manually at https://github.com/orgs/<owner>/projects/<number>/workflows
+  Branch protection ✅ Created / ⏭ Skipped
+  roxabi shim       ✅ Installed (~/.local/bin/roxabi)
+  PATH              ✅ ~/.local/bin added to .bashrc/.zshrc  (or ⏭ already present)
+  artifacts/        ✅ Created
+  .gitignore        ✅ .env added
+  workspace.json    ✅ Registered <repo> / ⏭ Skipped
+  bulk discovery    ✅ Added N projects / ⏭ Skipped / ⏭ No others found
+  stack.yml         ✅ Configured / ✅ Already exists
   VS Code MDX preview   ✅ Added / ✅ Already configured / ⏭ Skipped / ⏭ No .mdx files found
+  CI/CD workflows   ✅ Created / ✅ Already configured / ⏭ Skipped
+
+Next steps:
+  /doctor                Verify full configuration health
+  roxabi dashboard       Launch the issues dashboard  (restart shell or: source ~/.bashrc)
+  /issues                View issues in CLI
+  /dev #N                Start working on an issue
+  /init --force          Re-configure anytime
 ```
 
 ## Safety Rules

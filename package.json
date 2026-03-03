@@ -7,9 +7,14 @@
   "scripts": {
     "dashboard": "bun .claude/run-dashboard.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "bunx biome check .",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.5",
+    "bun-types": "^1.3.10",
+    "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }
 }
