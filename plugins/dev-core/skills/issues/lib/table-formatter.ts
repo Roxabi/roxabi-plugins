@@ -45,7 +45,7 @@ function formatChildRow(
   sub: { number: number; state: string; title: string },
   childItem: RawItem | undefined,
   prefix: string,
-  titleLen: number
+  titleLen: number,
 ): string {
   const numStr = `#${sub.number}`
   const prefixLen = numStr.length + 7 // "       │   " + prefix + "#NN "
@@ -142,7 +142,7 @@ export function formatTable(allItems: RawItem[], opts: FormatOptions): string {
   lines.push(`\u25CF ${sorted.length} issues`)
   lines.push('')
   lines.push(
-    `  ${pad('#', 5)}\u2502 ${pad('Title', tl + 2)}\u2502 ${pad('Status', 9)}\u2502 ${pad('Size', 5)}\u2502 ${pad('Pri', 4)}\u2502 \u26A1 \u2502 Deps`
+    `  ${pad('#', 5)}\u2502 ${pad('Title', tl + 2)}\u2502 ${pad('Status', 9)}\u2502 ${pad('Size', 5)}\u2502 ${pad('Pri', 4)}\u2502 \u26A1 \u2502 Deps`,
   )
 
   for (const item of sorted) {
@@ -155,7 +155,7 @@ export function formatTable(allItems: RawItem[], opts: FormatOptions): string {
     const deps = formatDepsFromRaw(item)
 
     lines.push(
-      `  ${pad(`#${num}`, 5)}\u2502 ${pad(title, tl + 2)}\u2502 ${pad(STATUS_SHORT[status] ?? status, 9)}\u2502 ${pad(size, 5)}\u2502 ${pad(PRIORITY_SHORT[priority] ?? priority, 4)}\u2502 ${blockIcon(bStatus)} \u2502 ${deps}`
+      `  ${pad(`#${num}`, 5)}\u2502 ${pad(title, tl + 2)}\u2502 ${pad(STATUS_SHORT[status] ?? status, 9)}\u2502 ${pad(size, 5)}\u2502 ${pad(PRIORITY_SHORT[priority] ?? priority, 4)}\u2502 ${blockIcon(bStatus)} \u2502 ${deps}`,
     )
 
     // Children
@@ -215,9 +215,7 @@ function buildDependencyGraph(allItems: RawItem[]): Map<number, GraphNode> {
 function topologicalSort(blockers: number[], graph: Map<number, GraphNode>): number[] {
   const inDeps = new Map<number, number[]>()
   for (const num of blockers) {
-    const upstream = blockers.filter(
-      (other) => other !== num && (graph.get(other)?.blocks.includes(num) ?? false)
-    )
+    const upstream = blockers.filter((other) => other !== num && (graph.get(other)?.blocks.includes(num) ?? false))
     inDeps.set(num, upstream)
   }
 
@@ -225,9 +223,7 @@ function topologicalSort(blockers: number[], graph: Map<number, GraphNode>): num
   let remaining = [...blockers]
   while (remaining.length > 0) {
     const emittedSet = new Set(emitted)
-    const ready = remaining
-      .filter((num) => (inDeps.get(num) ?? []).every((d) => emittedSet.has(d)))
-      .sort()
+    const ready = remaining.filter((num) => (inDeps.get(num) ?? []).every((d) => emittedSet.has(d))).sort()
     if (ready.length === 0) {
       emitted.push(...remaining.sort())
       remaining = []
@@ -246,14 +242,10 @@ function formatChainLines(emitted: number[], graph: Map<number, GraphNode>): str
     if (!node) continue
     const [first, ...rest] = node.blocks
     const firstNode = graph.get(first)
-    lines.push(
-      `  #${num} ${shortName(node.title)} \u2500\u2500\u25BA #${first} ${shortName(firstNode?.title ?? '')}`
-    )
+    lines.push(`  #${num} ${shortName(node.title)} \u2500\u2500\u25BA #${first} ${shortName(firstNode?.title ?? '')}`)
     for (const t of rest) {
       const targetNode = graph.get(t)
-      lines.push(
-        `                               \u2514\u2500\u2500\u25BA #${t} ${shortName(targetNode?.title ?? '')}`
-      )
+      lines.push(`                               \u2514\u2500\u2500\u25BA #${t} ${shortName(targetNode?.title ?? '')}`)
     }
   }
   return lines

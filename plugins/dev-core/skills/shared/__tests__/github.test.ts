@@ -55,7 +55,7 @@ describe('shared/github', () => {
       await run(['git', 'status'])
       expect(spawnSpy).toHaveBeenCalledWith(
         ['git', 'status'],
-        expect.objectContaining({ stdout: 'pipe', stderr: 'pipe' })
+        expect.objectContaining({ stdout: 'pipe', stderr: 'pipe' }),
       )
     })
 
@@ -79,7 +79,7 @@ describe('shared/github', () => {
           headers: expect.objectContaining({
             Authorization: 'Bearer test-token',
           }),
-        })
+        }),
       )
     })
 

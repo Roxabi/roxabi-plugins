@@ -3,7 +3,7 @@
  * Handles .env merge, .env.example, run-dashboard.ts launcher, artifacts dirs, .gitignore.
  */
 
-const fs = require('fs')
+const fs = require('node:fs')
 
 export interface ScaffoldOpts {
   githubRepo: string
@@ -79,10 +79,18 @@ function buildDevCoreSections(opts: ScaffoldOpts): EnvSection[] {
 }
 
 const DEV_CORE_KEYS = new Set([
-  'GITHUB_REPO', 'GH_PROJECT_ID', 'PROJECT_ID', // PROJECT_ID: tombstone — strips legacy key on next /init
-  'STATUS_FIELD_ID', 'SIZE_FIELD_ID', 'PRIORITY_FIELD_ID',
-  'STATUS_OPTIONS_JSON', 'SIZE_OPTIONS_JSON', 'PRIORITY_OPTIONS_JSON',
-  'VERCEL_TOKEN', 'VERCEL_PROJECT_ID', 'VERCEL_TEAM_ID',
+  'GITHUB_REPO',
+  'GH_PROJECT_ID',
+  'PROJECT_ID', // PROJECT_ID: tombstone — strips legacy key on next /init
+  'STATUS_FIELD_ID',
+  'SIZE_FIELD_ID',
+  'PRIORITY_FIELD_ID',
+  'STATUS_OPTIONS_JSON',
+  'SIZE_OPTIONS_JSON',
+  'PRIORITY_OPTIONS_JSON',
+  'VERCEL_TOKEN',
+  'VERCEL_PROJECT_ID',
+  'VERCEL_TEAM_ID',
 ])
 
 export function mergeEnv(existing: string, sections: EnvSection[], force: boolean): string {
@@ -200,7 +208,7 @@ export function mergeEnvExample(existing: string, newBlock: string): string {
     filtered.pop()
   }
 
-  const prefix = filtered.length > 0 ? filtered.join('\n') + '\n\n' : ''
+  const prefix = filtered.length > 0 ? `${filtered.join('\n')}\n\n` : ''
   return prefix + newBlock
 }
 
@@ -222,7 +230,7 @@ exec bun "$BASE/$LATEST/cli/index.ts" "$@"
 `
 
 function resolveShimPath(): string {
-  const home = require('os').homedir()
+  const home = require('node:os').homedir()
   // Prefer ~/.local/bin if it exists (standard XDG user bin), else ~/bin
   const localBin = `${home}/.local/bin`
   const homeBin = `${home}/bin`
@@ -245,9 +253,9 @@ function writeShim(): { written: boolean; path: string } {
 
 function addShimDirToPath(shimPath: string): { updated: boolean; files: string[] } {
   const shimDir = shimPath.substring(0, shimPath.lastIndexOf('/'))
-  const home = require('os').homedir()
+  const home = require('node:os').homedir()
   const exportLine = `\nexport PATH="${shimDir.replace(home, '$HOME')}:$PATH"\n`
-  const rcFiles = ['.bashrc', '.zshrc', '.profile'].map(f => `${home}/${f}`)
+  const rcFiles = ['.bashrc', '.zshrc', '.profile'].map((f) => `${home}/${f}`)
   const updated: string[] = []
 
   for (const rc of rcFiles) {

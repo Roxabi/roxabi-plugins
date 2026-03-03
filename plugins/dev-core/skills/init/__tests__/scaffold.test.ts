@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mergeEnv, mergeEnvExample } from '../lib/scaffold'
 
 describe('mergeEnv', () => {
@@ -28,7 +28,8 @@ describe('mergeEnv', () => {
   })
 
   it('replaces existing dev-core block', () => {
-    const existing = 'MY_VAR=hello\n# --- dev-core: GitHub Project V2 ---\nGITHUB_REPO=Old/repo\nGH_PROJECT_ID=PVT_old\n\nOTHER=world\n'
+    const existing =
+      'MY_VAR=hello\n# --- dev-core: GitHub Project V2 ---\nGITHUB_REPO=Old/repo\nGH_PROJECT_ID=PVT_old\n\nOTHER=world\n'
     const result = mergeEnv(existing, baseSections, true)
     expect(result).toContain('GITHUB_REPO=Org/repo')
     expect(result).not.toContain('Old/repo')
@@ -103,7 +104,7 @@ describe('scaffold', () => {
   beforeEach(() => {
     mockFs = {}
     writtenFiles = {}
-    const fs = require('fs')
+    const fs = require('node:fs')
 
     vi.spyOn(fs, 'existsSync').mockImplementation((path: string) => {
       return path in mockFs && mockFs[path] !== null

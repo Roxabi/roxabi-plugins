@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../shared/config', () => ({
   PROTECTED_BRANCHES: ['main', 'staging'],
@@ -73,7 +73,7 @@ describe('protectBranches', () => {
     } as unknown as ReturnType<typeof Bun.spawn>)
 
     const { protectBranches } = await import('../lib/protection')
-    const result = await protectBranches('Org/repo')
+    const _result = await protectBranches('Org/repo')
 
     // run() should have been called for git branch + git push for each branch
     expect(mockRun).toHaveBeenCalled()

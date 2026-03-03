@@ -5,24 +5,40 @@
 
 process.env.GITHUB_REPO = 'Test/test-repo'
 
-import { test, expect, vi, beforeEach } from 'vitest'
+import { beforeEach, expect, test, vi } from 'vitest'
 
-const mockRun = vi.hoisted(() => vi.fn(async (args: string[]) => {
-  // Simulate `gh project create` returning a project
-  if (args.includes('create')) return JSON.stringify({ id: 'PVT_new', number: 42 })
-  // Simulate `gh project field-list` returning fields
-  if (args.includes('field-list')) {
-    return JSON.stringify({
-      fields: [
-        { id: 'SF_1', name: 'Status', options: [{ id: 'OPT_BL', name: 'Backlog' }, { id: 'OPT_IP', name: 'In Progress' }] },
-        { id: 'SZ_1', name: 'Size', options: [{ id: 'OPT_XS', name: 'XS' }, { id: 'OPT_XL', name: 'XL' }] },
-        { id: 'PR_1', name: 'Priority', options: [{ id: 'OPT_P1', name: 'P1 - High' }] },
-      ],
-    })
-  }
-  // Simulate `gh project field-create` success
-  return ''
-}))
+const mockRun = vi.hoisted(() =>
+  vi.fn(async (args: string[]) => {
+    // Simulate `gh project create` returning a project
+    if (args.includes('create')) return JSON.stringify({ id: 'PVT_new', number: 42 })
+    // Simulate `gh project field-list` returning fields
+    if (args.includes('field-list')) {
+      return JSON.stringify({
+        fields: [
+          {
+            id: 'SF_1',
+            name: 'Status',
+            options: [
+              { id: 'OPT_BL', name: 'Backlog' },
+              { id: 'OPT_IP', name: 'In Progress' },
+            ],
+          },
+          {
+            id: 'SZ_1',
+            name: 'Size',
+            options: [
+              { id: 'OPT_XS', name: 'XS' },
+              { id: 'OPT_XL', name: 'XL' },
+            ],
+          },
+          { id: 'PR_1', name: 'Priority', options: [{ id: 'OPT_P1', name: 'P1 - High' }] },
+        ],
+      })
+    }
+    // Simulate `gh project field-create` success
+    return ''
+  }),
+)
 
 const mockGhGraphQL = vi.hoisted(() => vi.fn(async () => ({ data: { node: { workflows: { nodes: [] } } } })))
 
@@ -30,9 +46,13 @@ vi.mock('../../shared/github', () => ({
   run: mockRun,
   parseProjectFields: (json: string) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = JSON.parse(json) as { fields: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }> }
+    const data = JSON.parse(json) as {
+      fields: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }>
+    }
     const result: Record<string, { id: string; options: Record<string, string> } | null> = {
-      status: null, size: null, priority: null,
+      status: null,
+      size: null,
+      priority: null,
     }
     for (const f of data.fields ?? []) {
       const key = f.name.toLowerCase()
@@ -87,9 +107,7 @@ test('createProject warns + writes fieldIds:{} when GitHub fields missing', asyn
     if (args.includes('create')) return JSON.stringify({ id: 'PVT_empty', number: 99 })
     return ''
   })
-  mockRun.mockImplementationOnce(async () =>
-    JSON.stringify({ id: 'PVT_empty', number: 99 })
-  )
+  mockRun.mockImplementationOnce(async () => JSON.stringify({ id: 'PVT_empty', number: 99 }))
   // After create, field-list returns no fields
   mockRun.mockImplementationOnce(async () => '')
   mockRun.mockImplementationOnce(async () => JSON.stringify({ fields: [] }))

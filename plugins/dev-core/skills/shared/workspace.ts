@@ -3,7 +3,7 @@
  * Canonical source: cli/lib/workspace.ts
  * Keep in sync when making changes to workspace path logic.
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 
 export type ProjectType = 'technical' | 'company'
 
@@ -23,13 +23,13 @@ export interface ProjectFieldIds {
 }
 
 export interface WorkspaceProject {
-  repo: string              // 'owner/name'
-  projectId: string         // 'PVT_...'
-  label: string             // display name shown in dashboard tab
-  type?: ProjectType        // defaults to 'technical'
+  repo: string // 'owner/name'
+  projectId: string // 'PVT_...'
+  label: string // display name shown in dashboard tab
+  type?: ProjectType // defaults to 'technical'
   fieldIds?: ProjectFieldIds
-  vercelProjectId?: string  // Vercel project ID (optional, for per-project deployments)
-  vercelTeamId?: string     // Vercel team ID (optional)
+  vercelProjectId?: string // Vercel project ID (optional, for per-project deployments)
+  vercelTeamId?: string // Vercel team ID (optional)
 }
 
 export interface Workspace {
@@ -60,7 +60,7 @@ export function writeWorkspace(ws: Workspace): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 })
   }
-  writeFileSync(p, JSON.stringify(ws, null, 2) + '\n', { mode: 0o600 })
+  writeFileSync(p, `${JSON.stringify(ws, null, 2)}\n`, { mode: 0o600 })
 }
 
 /**
@@ -82,23 +82,27 @@ export async function discoverProject(repo: string): Promise<WorkspaceProject[]>
     }
   }`
 
-  const token = process.env.GITHUB_TOKEN || (() => {
-    const proc = Bun.spawnSync(['gh', 'auth', 'token'], { stdout: 'pipe', stderr: 'pipe' })
-    return new TextDecoder().decode(proc.stdout).trim()
-  })()
+  const token =
+    process.env.GITHUB_TOKEN ||
+    (() => {
+      const proc = Bun.spawnSync(['gh', 'auth', 'token'], { stdout: 'pipe', stderr: 'pipe' })
+      return new TextDecoder().decode(proc.stdout).trim()
+    })()
   if (!token) throw new Error('Not authenticated. Run: gh auth login or set GITHUB_TOKEN env var')
 
   const res = await fetch('https://api.github.com/graphql', {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables: { owner, name } }),
   })
   if (!res.ok) throw new Error(`GitHub API error: ${res.status} ${res.statusText}`)
 
-  const json = await res.json() as {
+  const json = (await res.json()) as {
     data: { repository: { projectsV2: { nodes: { id: string; title: string }[] } } }
   }
-  return (json.data?.repository?.projectsV2?.nodes ?? []).map(n => ({
-    repo, projectId: n.id, label: n.title,
+  return (json.data?.repository?.projectsV2?.nodes ?? []).map((n) => ({
+    repo,
+    projectId: n.id,
+    label: n.title,
   }))
 }

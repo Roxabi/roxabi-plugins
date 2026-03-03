@@ -5,11 +5,11 @@
 
 export {
   FIELD_MAP,
+  GH_PROJECT_ID,
   GITHUB_REPO,
   PRIORITY_OPTIONS,
   PRIORITY_ORDER,
   PRIORITY_SHORT,
-  GH_PROJECT_ID,
   SIZE_FIELD_ID,
   SIZE_OPTIONS,
   STATUS_FIELD_ID,
@@ -19,11 +19,17 @@ export {
 
 export { ISSUES_QUERY as QUERY, ITEM_ID_QUERY, UPDATE_FIELD_MUTATION } from '../../shared/queries'
 
-import { readFileSync, existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { detectGitHubRepo } from '../../shared/config'
 
-interface WorkspaceProject { repo: string; projectId: string; label: string }
-interface Workspace { projects: WorkspaceProject[] }
+interface WorkspaceProject {
+  repo: string
+  projectId: string
+  label: string
+}
+interface Workspace {
+  projects: WorkspaceProject[]
+}
 
 function getWorkspacePath(): string {
   const home = process.env.HOME ?? ''
@@ -50,9 +56,13 @@ function readWorkspace(): Workspace {
 export function resolveConfig(): { projectId: string; source: 'workspace' | 'env' } {
   const ws = readWorkspace()
   let currentRepo = ''
-  try { currentRepo = detectGitHubRepo() } catch { /* not in git repo */ }
+  try {
+    currentRepo = detectGitHubRepo()
+  } catch {
+    /* not in git repo */
+  }
   if (currentRepo) {
-    const entry = ws.projects.find(p => p.repo === currentRepo)
+    const entry = ws.projects.find((p) => p.repo === currentRepo)
     if (entry?.projectId) return { projectId: entry.projectId, source: 'workspace' }
   }
   const envId = process.env.GH_PROJECT_ID ?? ''

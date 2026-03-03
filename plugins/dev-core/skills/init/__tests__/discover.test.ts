@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../shared/prereqs', () => ({
   checkPrereqs: vi.fn(),
@@ -21,8 +21,10 @@ describe('discover', () => {
     mockCheckPrereqs = prereqs.checkPrereqs as ReturnType<typeof vi.fn>
     mockRun = github.run as ReturnType<typeof vi.fn>
 
-    const fs = require('fs')
-    vi.spyOn(fs, 'readFileSync').mockImplementation(() => { throw new Error('ENOENT') })
+    const fs = require('node:fs')
+    vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
+      throw new Error('ENOENT')
+    })
     vi.spyOn(fs, 'existsSync').mockReturnValue(false)
   })
 
@@ -48,7 +50,8 @@ describe('discover', () => {
 
     mockRun.mockImplementation(async (cmd: string[]) => {
       const joined = cmd.join(' ')
-      if (joined.includes('project list')) return JSON.stringify({ projects: [{ id: 'PVT_1', number: 1, title: 'Board' }] })
+      if (joined.includes('project list'))
+        return JSON.stringify({ projects: [{ id: 'PVT_1', number: 1, title: 'Board' }] })
       if (joined.includes('label list')) return JSON.stringify([{ name: 'bug' }, { name: 'feature' }])
       if (joined.includes('branches') && joined.includes('protection')) throw new Error('404')
       return '{}'

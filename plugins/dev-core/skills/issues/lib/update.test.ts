@@ -13,7 +13,7 @@ process.env.STATUS_OPTIONS_JSON = JSON.stringify({ 'In Progress': 'OPT_IP_ENV' }
 process.env.SIZE_OPTIONS_JSON = JSON.stringify({ XL: 'OPT_XL_ENV' })
 process.env.PRIORITY_OPTIONS_JSON = JSON.stringify({ 'P1 - High': 'OPT_P1_ENV' })
 
-import { test, expect, vi, beforeEach } from 'vitest'
+import { beforeEach, expect, test, vi } from 'vitest'
 
 const mockGetItemId = vi.hoisted(() => vi.fn(() => Promise.resolve('ITEM_42')))
 const mockUpdateField = vi.hoisted(() => vi.fn(() => Promise.resolve()))
@@ -60,7 +60,7 @@ test('uses project fieldIds.col2 for size field when projectLabel provided', asy
     body: JSON.stringify({ issueNumber: 42, field: 'col2', value: 'XL', projectLabel: 'ryvo-tech' }),
   })
   const res = await handleUpdate(req)
-  const data = await res.json() as { ok: boolean }
+  const data = (await res.json()) as { ok: boolean }
   expect(data.ok).toBe(true)
   // should use COL2_ID (project fieldIds), not SZ_env (global .env)
   expect(mockUpdateField).toHaveBeenCalledWith('ITEM_42', 'COL2_ID', 'OPT_XL_PROJ')
@@ -80,7 +80,7 @@ test('skips update (ok: true) when col2 absent from project fieldIds', async () 
     body: JSON.stringify({ issueNumber: 42, field: 'col2', value: 'XL', projectLabel: 'ryvo-tech' }),
   })
   const res = await handleUpdate(req)
-  const data = await res.json() as { ok: boolean }
+  const data = (await res.json()) as { ok: boolean }
   // col2 absent in fieldIds → no fieldId found → no-op
   expect(data.ok).toBe(true)
   expect(mockUpdateField).not.toHaveBeenCalled()
@@ -93,12 +93,11 @@ test('skips update (ok: true) when slot name is unknown', async () => {
     body: JSON.stringify({ issueNumber: 42, field: 'unknown-slot', value: 'XL', projectLabel: 'ryvo-tech' }),
   })
   const res = await handleUpdate(req)
-  const data = await res.json() as { ok: boolean }
+  const data = (await res.json()) as { ok: boolean }
   // unknown slot → no fieldId → no-op, ok: true
   expect(data.ok).toBe(true)
   expect(mockUpdateField).not.toHaveBeenCalled()
 })
-
 
 // Finding 1 — Unknown project 400 guard
 test('returns 400 Unknown project when projectLabel has no matching workspace project', async () => {
@@ -111,7 +110,7 @@ test('returns 400 Unknown project when projectLabel has no matching workspace pr
   })
   // Act
   const res = await handleUpdate(req)
-  const data = await res.json() as { ok: boolean; error: string }
+  const data = (await res.json()) as { ok: boolean; error: string }
   // Assert
   expect(res.status).toBe(400)
   expect(data.error).toBe('Unknown project')
@@ -128,7 +127,7 @@ test('returns 400 with Unknown value error when value is not in col2Options', as
   })
   // Act
   const res = await handleUpdate(req)
-  const data = await res.json() as { ok: boolean; error: string }
+  const data = (await res.json()) as { ok: boolean; error: string }
   // Assert
   expect(res.status).toBe(400)
   expect(data.error).toContain('Unknown value')
@@ -145,7 +144,7 @@ test('returns 400 NOT_CONFIGURED_MSG when no projectLabel and GH_PROJECT_ID is u
   })
   // Act
   const res = await handleUpdate(req)
-  const data = await res.json() as { ok: boolean; error: string }
+  const data = (await res.json()) as { ok: boolean; error: string }
   // Assert
   expect(res.status).toBe(400)
   expect(data.error).toBe('GitHub Project V2 is not configured. Run `/init` to auto-detect project board settings.')
@@ -166,7 +165,7 @@ test('proceeds with FIELD_MAP when no projectLabel and GH_PROJECT_ID is set', as
     })
     // Act
     const res = await handleUpdate(req)
-    const data = await res.json() as { ok: boolean }
+    const data = (await res.json()) as { ok: boolean }
     // Assert
     expect(data.ok).toBe(true)
     expect(mockUpdateField).toHaveBeenCalledWith('ITEM_42', 'SZ_env', 'OPT_XL_ENV')

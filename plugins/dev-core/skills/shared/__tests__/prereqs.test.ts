@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { checkPrereqs } from '../prereqs'
 
 describe('checkPrereqs', () => {
@@ -45,7 +45,12 @@ describe('checkPrereqs', () => {
     const result = checkPrereqs()
     expect(result.bun).toEqual({ ok: true, version: '1.2.0' })
     expect(result.gh.ok).toBe(true)
-    expect(result.gitRemote).toEqual({ ok: true, url: 'git@github.com:Roxabi/test-repo.git', owner: 'Roxabi', repo: 'test-repo' })
+    expect(result.gitRemote).toEqual({
+      ok: true,
+      url: 'git@github.com:Roxabi/test-repo.git',
+      owner: 'Roxabi',
+      repo: 'test-repo',
+    })
   })
 
   it('handles gh not installed', () => {
@@ -101,6 +106,11 @@ describe('checkPrereqs', () => {
     })
 
     const result = checkPrereqs()
-    expect(result.gitRemote).toEqual({ ok: true, url: 'https://github.com/Roxabi/test-repo.git', owner: 'Roxabi', repo: 'test-repo' })
+    expect(result.gitRemote).toEqual({
+      ok: true,
+      url: 'https://github.com/Roxabi/test-repo.git',
+      owner: 'Roxabi',
+      repo: 'test-repo',
+    })
   })
 })

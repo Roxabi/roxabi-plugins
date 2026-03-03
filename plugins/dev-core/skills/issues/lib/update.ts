@@ -1,14 +1,14 @@
-import { FIELD_MAP, NOT_CONFIGURED_MSG, isProjectConfigured, resolveFieldIds } from '../../shared/config'
+import { FIELD_MAP, isProjectConfigured, NOT_CONFIGURED_MSG, resolveFieldIds } from '../../shared/config'
 import { getItemId, updateField } from '../../shared/github'
-import { readWorkspace } from '../../shared/workspace'
 import type { ProjectFieldIds } from '../../shared/workspace'
+import { readWorkspace } from '../../shared/workspace'
 
 // Map legacy field names (from browser context menu) to slot names
 const FIELD_ALIAS: Record<string, string> = { size: 'col2', priority: 'col3' }
 
 export async function handleUpdate(req: Request): Promise<Response> {
   try {
-    const body = await req.json() as {
+    const body = (await req.json()) as {
       issueNumber: number
       field: string
       value: string
@@ -17,9 +17,7 @@ export async function handleUpdate(req: Request): Promise<Response> {
     const { issueNumber, field, value, projectLabel } = body
 
     // Find project in workspace when projectLabel is provided
-    const project = projectLabel
-      ? readWorkspace().projects.find(p => p.label === projectLabel)
-      : undefined
+    const project = projectLabel ? readWorkspace().projects.find((p) => p.label === projectLabel) : undefined
 
     if (projectLabel && !project) {
       return Response.json({ ok: false, error: 'Unknown project' }, { status: 400 })
@@ -48,7 +46,7 @@ export async function handleUpdate(req: Request): Promise<Response> {
     }
 
     const fieldId = effectiveFieldIds[slot as keyof ProjectFieldIds] as string | undefined
-    if (!fieldId) return Response.json({ ok: true })  // no-op when slot absent
+    if (!fieldId) return Response.json({ ok: true }) // no-op when slot absent
 
     const options = effectiveFieldIds[`${slot}Options` as keyof ProjectFieldIds] as Record<string, string> | undefined
     const optionId = options?.[value]

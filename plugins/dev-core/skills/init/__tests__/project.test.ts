@@ -1,11 +1,17 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../shared/github', () => ({
   run: vi.fn(),
   ghGraphQL: vi.fn(),
   parseProjectFields: (json: string) => {
-    const data = JSON.parse(json) as { fields: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }> }
-    const result: Record<string, { id: string; options: Record<string, string> } | null> = { status: null, size: null, priority: null }
+    const data = JSON.parse(json) as {
+      fields: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }>
+    }
+    const result: Record<string, { id: string; options: Record<string, string> } | null> = {
+      status: null,
+      size: null,
+      priority: null,
+    }
     for (const f of data.fields ?? []) {
       const key = f.name.toLowerCase()
       if (key === 'status' || key === 'size' || key === 'priority') {
@@ -61,7 +67,14 @@ describe('createProject', () => {
         // Subsequent calls: all fields present after creates
         return JSON.stringify({
           fields: [
-            { id: 'F_status', name: 'Status', options: [{ id: 'opt1', name: 'Backlog' }, { id: 'opt2', name: 'Done' }] },
+            {
+              id: 'F_status',
+              name: 'Status',
+              options: [
+                { id: 'opt1', name: 'Backlog' },
+                { id: 'opt2', name: 'Done' },
+              ],
+            },
             { id: 'F_size', name: 'Size', options: [{ id: 'opt3', name: 'S' }] },
             { id: 'F_priority', name: 'Priority', options: [{ id: 'opt4', name: 'P0 - Urgent' }] },
           ],
@@ -70,7 +83,9 @@ describe('createProject', () => {
       return ''
     })
 
-    mockGhGraphQL.mockResolvedValue({ data: { updateProjectV2Field: { projectV2Field: { id: 'F_status', name: 'Status', options: [] } } } })
+    mockGhGraphQL.mockResolvedValue({
+      data: { updateProjectV2Field: { projectV2Field: { id: 'F_status', name: 'Status', options: [] } } },
+    })
 
     const { createProject } = await import('../lib/project')
     const result = await createProject('TestOrg', 'test-repo')
@@ -82,7 +97,10 @@ describe('createProject', () => {
     expect(result.fields.priority.id).toBe('F_priority')
 
     // Status already existed — updated via GraphQL, not field-create
-    expect(mockGhGraphQL).toHaveBeenCalledWith('UPDATE_FIELD_OPTIONS_MUTATION', expect.objectContaining({ fieldId: 'F_status' }))
+    expect(mockGhGraphQL).toHaveBeenCalledWith(
+      'UPDATE_FIELD_OPTIONS_MUTATION',
+      expect.objectContaining({ fieldId: 'F_status' }),
+    )
     const fieldCreates = calls.filter((c) => c.join(' ').includes('field-create'))
     expect(fieldCreates).toHaveLength(2) // Size + Priority only
   })
@@ -142,9 +160,9 @@ describe('enableProjectWorkflow', () => {
     const result = await enableProjectWorkflow('PWF_1')
 
     expect(result).toEqual({ id: 'PWF_1', name: 'Auto-add to project', enabled: true })
-    expect(mockGhGraphQL).toHaveBeenCalledWith(
-      'UPDATE_PROJECT_WORKFLOW_MUTATION',
-      { workflowId: 'PWF_1', enabled: true }
-    )
+    expect(mockGhGraphQL).toHaveBeenCalledWith('UPDATE_PROJECT_WORKFLOW_MUTATION', {
+      workflowId: 'PWF_1',
+      enabled: true,
+    })
   })
 })

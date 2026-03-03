@@ -1,4 +1,4 @@
-import type { WorkspaceProject, ProjectFieldIds } from './workspace'
+import type { ProjectFieldIds, WorkspaceProject } from './workspace'
 
 /**
  * Shared configuration constants for GitHub Project V2 integration.
@@ -150,7 +150,9 @@ export function resolveFieldIds(project: WorkspaceProject): ProjectFieldIds {
   }
   // Fallback: build from .env (existing behavior)
   // Empty fieldIds ({}) also falls through here — written by /init when field resolution fails.
-  console.warn(`[dev-core] project "${project.label}" has no fieldIds — falling back to .env field IDs. Run /init to persist per-project field IDs.`)
+  console.warn(
+    `[dev-core] project "${project.label}" has no fieldIds — falling back to .env field IDs. Run /init to persist per-project field IDs.`,
+  )
   return {
     status: STATUS_FIELD_ID,
     col2: SIZE_FIELD_ID,
@@ -162,10 +164,7 @@ export function resolveFieldIds(project: WorkspaceProject): ProjectFieldIds {
 }
 
 /** Return the field ID for a given slot (col2 or col3), or undefined when absent. */
-export function fieldIdForSlot(
-  project: WorkspaceProject,
-  slot: 'col2' | 'col3'
-): string | undefined {
+export function fieldIdForSlot(project: WorkspaceProject, slot: 'col2' | 'col3'): string | undefined {
   return resolveFieldIds(project)[slot]
 }
 

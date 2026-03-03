@@ -9,10 +9,11 @@ export interface WorkflowOpts {
 }
 
 export function generateCiYml(opts: WorkflowOpts): string {
-  const runtime = opts.stack === 'bun' ? 'oven-sh/setup-bun@v2' : 'actions/setup-node@v4'
-  const setupStep = opts.stack === 'bun'
-    ? '      - uses: oven-sh/setup-bun@v2\n      - run: bun install'
-    : '      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - run: npm ci'
+  const _runtime = opts.stack === 'bun' ? 'oven-sh/setup-bun@v2' : 'actions/setup-node@v4'
+  const setupStep =
+    opts.stack === 'bun'
+      ? '      - uses: oven-sh/setup-bun@v2\n      - run: bun install'
+      : '      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - run: npm ci'
 
   const lintCmd = opts.stack === 'bun' ? 'bun lint' : 'npm run lint'
   const typecheckCmd = opts.stack === 'bun' ? 'bun typecheck' : 'npx tsc --noEmit'
@@ -44,9 +45,10 @@ ${setupStep}
 }
 
 export function generateDeployYml(opts: WorkflowOpts): string {
-  const setupStep = opts.stack === 'bun'
-    ? '      - uses: oven-sh/setup-bun@v2\n      - run: bun install'
-    : '      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - run: npm ci'
+  const setupStep =
+    opts.stack === 'bun'
+      ? '      - uses: oven-sh/setup-bun@v2\n      - run: bun install'
+      : '      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - run: npm ci'
 
   let deployStep: string
   if (opts.deploy === 'vercel') {
@@ -84,7 +86,7 @@ ${deployStep}
 }
 
 export async function writeWorkflows(opts: WorkflowOpts): Promise<string[]> {
-  const fs = require('fs')
+  const fs = require('node:fs')
   const dir = '.github/workflows'
   fs.mkdirSync(dir, { recursive: true })
 

@@ -4,10 +4,10 @@
  */
 
 import {
+  isProjectConfigured,
   NOT_CONFIGURED_MSG,
   PRIORITY_FIELD_ID,
   PRIORITY_OPTIONS,
-  isProjectConfigured,
   resolvePriority,
   resolveSize,
   resolveStatus,
@@ -16,14 +16,7 @@ import {
   STATUS_FIELD_ID,
   STATUS_OPTIONS,
 } from '../../shared/config'
-import {
-  addBlockedBy,
-  addSubIssue,
-  addToProject,
-  createGitHubIssue,
-  getNodeId,
-  updateField,
-} from '../../shared/github'
+import { addBlockedBy, addSubIssue, addToProject, createGitHubIssue, getNodeId, updateField } from '../../shared/github'
 
 interface CreateOptions {
   title: string
@@ -93,11 +86,7 @@ function parseNumberList(input: string): number[] {
     .map(Number)
 }
 
-async function applyProjectFields(
-  itemId: string,
-  issueNumber: number,
-  opts: CreateOptions
-): Promise<void> {
+async function applyProjectFields(itemId: string, issueNumber: number, opts: CreateOptions): Promise<void> {
   if (opts.status) {
     const canonical = resolveStatus(opts.status)
     if (!(canonical && STATUS_OPTIONS[canonical])) {
@@ -129,11 +118,7 @@ async function applyProjectFields(
   }
 }
 
-async function applyRelationships(
-  nodeId: string,
-  issueNumber: number,
-  opts: CreateOptions
-): Promise<void> {
+async function applyRelationships(nodeId: string, issueNumber: number, opts: CreateOptions): Promise<void> {
   if (opts.parent) {
     const parentNum = opts.parent.replace(/^#/, '')
     const parentNodeId = await getNodeId(parentNum)
@@ -193,18 +178,14 @@ export async function createIssue(args: string[]): Promise<void> {
       itemId = await addToProject(nodeId)
       console.log(`Added #${issueNumber} to project`)
     } catch {
-      console.error(
-        `Warning: Failed to add #${issueNumber} to project board — skipping project field updates`
-      )
+      console.error(`Warning: Failed to add #${issueNumber} to project board — skipping project field updates`)
     }
 
     // Set project fields (require a valid item_id from addToProject)
     if (itemId) {
       await applyProjectFields(itemId, issueNumber, opts)
     } else if (wantsProjectFields) {
-      console.error(
-        'Warning: Skipped project field updates (status/size/priority) — issue not on project board'
-      )
+      console.error('Warning: Skipped project field updates (status/size/priority) — issue not on project board')
     }
   } else if (wantsProjectFields) {
     console.error(NOT_CONFIGURED_MSG)

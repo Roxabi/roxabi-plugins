@@ -19,9 +19,7 @@ export function buildDepGraph(issues: Issue[]): DepNode[] {
 
   const nodes: DepNode[] = []
   for (const issue of issues) {
-    const targets = issue.blocking
-      .filter((b) => b.state === 'OPEN' && rootNumbers.has(b.number))
-      .map((b) => b.number)
+    const targets = issue.blocking.filter((b) => b.state === 'OPEN' && rootNumbers.has(b.number)).map((b) => b.number)
     if (targets.length > 0) {
       nodes.push({
         number: issue.number,
@@ -38,7 +36,7 @@ export function buildDepGraph(issues: Issue[]): DepNode[] {
   const remaining = [...nodes]
   while (remaining.length > 0) {
     const ready = remaining.filter((n) =>
-      nodes.filter((o) => o.targets.includes(n.number)).every((o) => emitted.has(o.number))
+      nodes.filter((o) => o.targets.includes(n.number)).every((o) => emitted.has(o.number)),
     )
     if (ready.length === 0) {
       sorted.push(...remaining)
@@ -108,7 +106,7 @@ function groupByColumn(col: Map<number, number>, allNumbers: Set<number>): Map<n
 function computeNodePositions(
   columns: Map<number, number[]>,
   dims: GraphDims,
-  svgHeight: number
+  svgHeight: number,
 ): Map<number, { x: number; y: number }> {
   const pos = new Map<number, { x: number; y: number }>()
   for (const [c, nums] of columns) {
@@ -122,11 +120,7 @@ function computeNodePositions(
   return pos
 }
 
-function renderSvgEdges(
-  nodes: DepNode[],
-  pos: Map<number, { x: number; y: number }>,
-  dims: GraphDims
-): string {
+function renderSvgEdges(nodes: DepNode[], pos: Map<number, { x: number; y: number }>, dims: GraphDims): string {
   let svg = ''
   for (const node of nodes) {
     const from = pos.get(node.number)
@@ -156,7 +150,7 @@ function renderSvgNodes(
   allNumbers: Set<number>,
   pos: Map<number, { x: number; y: number }>,
   flat: Map<number, Issue>,
-  dims: GraphDims
+  dims: GraphDims,
 ): string {
   let svg = ''
   for (const num of allNumbers) {

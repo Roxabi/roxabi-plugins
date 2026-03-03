@@ -12,7 +12,9 @@ const { resolveFieldIds, fieldIdForSlot } = await import('../config')
 describe('resolveFieldIds', () => {
   it('uses project.fieldIds when present', () => {
     const project = {
-      repo: 'r', projectId: 'p', label: 'l',
+      repo: 'r',
+      projectId: 'p',
+      label: 'l',
       fieldIds: { status: 'S1', col2: 'C1', col3: 'C2' },
     }
     const ids = resolveFieldIds(project)
@@ -36,7 +38,9 @@ describe('resolveFieldIds', () => {
 
   it('throws when fieldIds present but status missing', () => {
     const project = {
-      repo: 'r', projectId: 'p', label: 'test-proj',
+      repo: 'r',
+      projectId: 'p',
+      label: 'test-proj',
       // `as any` — tests the JSON-deserialization path: workspace.json written by hand
       // or a future version may contain fieldIds without status; TypeScript won't catch it at runtime.
       fieldIds: { col2: 'C1', col3: 'C2' } as any,
@@ -61,7 +65,9 @@ describe('resolveFieldIds', () => {
 describe('fieldIdForSlot', () => {
   it('returns col2 field id', () => {
     const project = {
-      repo: 'r', projectId: 'p', label: 'l',
+      repo: 'r',
+      projectId: 'p',
+      label: 'l',
       fieldIds: { status: 'S1', col2: 'C2', col3: 'C3' },
     }
     expect(fieldIdForSlot(project, 'col2')).toBe('C2')
@@ -69,7 +75,9 @@ describe('fieldIdForSlot', () => {
 
   it('returns col3 field id', () => {
     const project = {
-      repo: 'r', projectId: 'p', label: 'l',
+      repo: 'r',
+      projectId: 'p',
+      label: 'l',
       fieldIds: { status: 'S1', col2: 'C2', col3: 'C3' },
     }
     expect(fieldIdForSlot(project, 'col3')).toBe('C3')
@@ -77,7 +85,9 @@ describe('fieldIdForSlot', () => {
 
   it('returns undefined when slot absent in fieldIds', () => {
     const project = {
-      repo: 'r', projectId: 'p', label: 'l',
+      repo: 'r',
+      projectId: 'p',
+      label: 'l',
       fieldIds: { status: 'S1' },
     }
     expect(fieldIdForSlot(project, 'col2')).toBeUndefined()

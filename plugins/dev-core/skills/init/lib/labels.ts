@@ -2,7 +2,7 @@
  * Create standard dev-core labels on the GitHub repo.
  */
 
-import { STANDARD_LABELS, type LabelDef } from '../../shared/config'
+import { type LabelDef, STANDARD_LABELS } from '../../shared/config'
 import { run } from '../../shared/github'
 
 export type LabelScope = 'all' | 'type' | 'area' | 'priority'
@@ -18,7 +18,19 @@ export async function createLabels(repo: string, scope: LabelScope): Promise<{ c
   const created: string[] = []
   for (const label of labels) {
     try {
-      await run(['gh', 'label', 'create', label.name, '--repo', repo, '--description', label.description, '--color', label.color, '--force'])
+      await run([
+        'gh',
+        'label',
+        'create',
+        label.name,
+        '--repo',
+        repo,
+        '--description',
+        label.description,
+        '--color',
+        label.color,
+        '--force',
+      ])
       created.push(label.name)
     } catch {
       // label creation failed — continue with others

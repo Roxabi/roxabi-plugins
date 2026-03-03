@@ -3,10 +3,7 @@ import type { RawItem } from '../../shared/types'
 import { formatDeps, formatJson, formatTable, pad, sortIssues } from '../lib/table-formatter'
 import type { Issue } from '../lib/types'
 
-function makeRawItem(
-  overrides: Partial<RawItem['content']> = {},
-  fields: Record<string, string> = {}
-): RawItem {
+function makeRawItem(overrides: Partial<RawItem['content']> = {}, fields: Record<string, string> = {}): RawItem {
   return {
     content: {
       number: 1,
@@ -101,12 +98,12 @@ describe('table-formatter', () => {
       const items = [
         makeRawItem(
           { number: 1, blockedBy: { nodes: [{ number: 99, state: 'OPEN' }] } },
-          { Status: 'Backlog', Priority: 'P0 - Urgent' }
+          { Status: 'Backlog', Priority: 'P0 - Urgent' },
         ),
         makeRawItem({ number: 2 }, { Status: 'Backlog', Priority: 'P0 - Urgent' }),
         makeRawItem(
           { number: 3, blocking: { nodes: [{ number: 1, state: 'OPEN' }] } },
-          { Status: 'Backlog', Priority: 'P0 - Urgent' }
+          { Status: 'Backlog', Priority: 'P0 - Urgent' },
         ),
       ]
 
@@ -128,10 +125,7 @@ describe('table-formatter', () => {
   describe('formatTable', () => {
     it('produces header with issue count', () => {
       const items = [
-        makeRawItem(
-          { number: 1, title: 'First issue' },
-          { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' }
-        ),
+        makeRawItem({ number: 1, title: 'First issue' }, { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' }),
       ]
       const output = formatTable(items, { sortBy: 'priority', titleLength: 55 })
       expect(output).toContain('1 issues')
@@ -160,11 +154,11 @@ describe('table-formatter', () => {
           title: 'Parent',
           subIssues: { nodes: [{ number: 11, state: 'OPEN', title: 'Child' }] },
         },
-        { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' }
+        { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' },
       )
       const child = makeRawItem(
         { number: 11, title: 'Child', parent: { number: 10, state: 'OPEN' } },
-        { Status: 'Backlog', Priority: 'P2 - Medium', Size: 'S' }
+        { Status: 'Backlog', Priority: 'P2 - Medium', Size: 'S' },
       )
       const output = formatTable([parent, child], { sortBy: 'priority', titleLength: 55 })
       // Should contain tree connector character
@@ -178,11 +172,11 @@ describe('table-formatter', () => {
           title: 'Parent',
           subIssues: { nodes: [{ number: 11, state: 'OPEN', title: 'Child' }] },
         },
-        { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' }
+        { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' },
       )
       const child = makeRawItem(
         { number: 11, title: 'Child', parent: { number: 10, state: 'OPEN' } },
-        { Status: 'Backlog', Priority: 'P2 - Medium', Size: 'S' }
+        { Status: 'Backlog', Priority: 'P2 - Medium', Size: 'S' },
       )
       const output = formatTable([parent, child], { sortBy: 'priority', titleLength: 55 })
       // Count should show 1 root issue, not 2
@@ -197,7 +191,7 @@ describe('table-formatter', () => {
           title: 'Setup auth module',
           blocking: { nodes: [{ number: 51, state: 'OPEN' }] },
         },
-        { Status: 'In Progress', Priority: 'P0 - Urgent', Size: 'M' }
+        { Status: 'In Progress', Priority: 'P0 - Urgent', Size: 'M' },
       )
       const blocked = makeRawItem(
         {
@@ -205,7 +199,7 @@ describe('table-formatter', () => {
           title: 'Add login page',
           blockedBy: { nodes: [{ number: 50, state: 'OPEN' }] },
         },
-        { Status: 'Backlog', Priority: 'P1 - High', Size: 'S' }
+        { Status: 'Backlog', Priority: 'P1 - High', Size: 'S' },
       )
 
       // Act
@@ -221,10 +215,7 @@ describe('table-formatter', () => {
 
   describe('formatJson', () => {
     it('filters to open issues only', () => {
-      const items = [
-        makeRawItem({ number: 1, state: 'OPEN' }, {}),
-        makeRawItem({ number: 2, state: 'CLOSED' }, {}),
-      ]
+      const items = [makeRawItem({ number: 1, state: 'OPEN' }, {}), makeRawItem({ number: 2, state: 'CLOSED' }, {})]
       const result = JSON.parse(formatJson(items))
       expect(result).toHaveLength(1)
       expect(result[0].number).toBe(1)
@@ -242,7 +233,7 @@ describe('table-formatter', () => {
               ],
             },
           },
-          {}
+          {},
         ),
       ]
       const result = JSON.parse(formatJson(items))
@@ -258,7 +249,7 @@ describe('table-formatter', () => {
             subIssues: { nodes: [{ number: 2, state: 'OPEN', title: 'Sub' }] },
             parent: { number: 99, state: 'OPEN' },
           },
-          {}
+          {},
         ),
       ]
       const result = JSON.parse(formatJson(items))
