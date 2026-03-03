@@ -2,7 +2,7 @@
 name: init
 argument-hint: '[--force]'
 description: 'Initialize project for dev-core — auto-detect GitHub Project V2, set up dashboard launcher, env vars, artifacts. Triggers: "init" | "setup dev-core" | "initialize dev-core".'
-version: 0.4.0
+version: 0.5.0
 allowed-tools: Bash
 ---
 
@@ -294,6 +294,52 @@ Only run if `.mdx` files exist in the project (`find . -name "*.mdx" -not -path 
 Update Phase 7 report to include:
 ```
   VS Code MDX preview   ✅ Added / ✅ Already configured / ⏭ Skipped / ⏭ No .mdx files found
+```
+
+### Phase 10 — Pre-commit Hooks (Optional)
+
+Catch lint/format/typecheck failures locally before they reach CI.
+
+1. **Detect existing hooks:**
+   - Check for lefthook: `test -f lefthook.yml && echo found || echo missing`
+   - Check for husky: `test -d .husky && echo found || echo missing`
+   - Check for a raw git hook: `test -f .git/hooks/pre-commit && echo found || echo missing`
+
+2. **If any found** → display `Pre-commit hooks ✅ Already configured (lefthook/husky/git)` and skip to Phase 11.
+
+3. **If none found** → AskUserQuestion: **Set up lefthook** (recommended — catches lint/format issues before push) | **Skip**.
+
+4. **If set up:**
+
+   a. Determine the lint and typecheck commands to run. If `.claude/stack.yml` exists and was just written:
+      - Read `commands.lint` from it (default: `bun run lint`)
+      - Read `commands.typecheck` from it (default: `bun run typecheck`)
+
+   b. Install lefthook as a dev dependency:
+      ```bash
+      bun add -d lefthook
+      ```
+
+   c. Write `lefthook.yml` at project root:
+      ```yaml
+      pre-commit:
+        commands:
+          lint:
+            run: <lint-cmd>
+          typecheck:
+            run: <typecheck-cmd>
+      ```
+
+   d. Install the git hook:
+      ```bash
+      bunx lefthook install
+      ```
+
+   e. Display: `Pre-commit hooks ✅ lefthook installed (lint + typecheck on commit)`
+
+Update Phase 7 report to include:
+```
+  Pre-commit hooks      ✅ lefthook installed / ✅ Already configured / ⏭ Skipped
 ```
 
 ## Safety Rules
