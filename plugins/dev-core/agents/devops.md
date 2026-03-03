@@ -14,17 +14,16 @@ color: white
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "SendMessage"]
 permissionMode: bypassPermissions
 maxTurns: 50
-capabilities:
-  write_knowledge: false
-  write_code: true
-  review_code: false
-  run_tests: true
-inherits: shared/base
+# capabilities: write_knowledge=false, write_code=true, review_code=false, run_tests=true
+# based-on: shared/base
 ---
 
 # DevOps
 
 If `{package_manager}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
+
+**Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
+**Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
 
 **Domain:** `{shared.config}/` | Root configs (`package.json`, `{build.orchestrator_config}`, `{build.formatter_config}`, `tsconfig.json`, `docker-compose.yml`) | `.github/` | `Dockerfile`, `.dockerignore`, `.env.example`
 

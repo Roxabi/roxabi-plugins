@@ -4,14 +4,6 @@ argument-hint: [file | --e2e | --run]
 description: Generate/run unit, integration & Playwright e2e tests. Triggers: "test this file" | "write tests" | "add coverage" | "run tests" | "e2e tests".
 version: 0.3.0
 allowed-tools: Bash, Read, Write, Glob, Grep
-pipeline:
-  - { id: run-shortcut,    required: false, condition: "--run flag", early-exit: true }
-  - { id: identify-targets, required: true }
-  - { id: read-standards,  required: true }
-  - { id: check-coverage,  required: true }
-  - { id: generate-tests,  required: true }
-  - { id: approval,        required: true }
-  - { id: write-and-verify, required: true, retry: 1 }
 ---
 
 # Test
@@ -26,6 +18,18 @@ Generate tests for changed or specified files. Follows existing codebase pattern
 /test --e2e                → Generate Playwright e2e tests for changed files
 /test --run                → Run existing tests ({commands.test})
 ```
+
+## Pipeline
+
+| Step | ID | Required | Notes |
+|------|----|----------|-------|
+| 1 | run-shortcut | — | `--run` flag only, early exit |
+| 2 | identify-targets | ✓ | — |
+| 3 | read-standards | ✓ | — |
+| 4 | check-coverage | ✓ | — |
+| 5 | generate-tests | ✓ | — |
+| 6 | approval | ✓ | — |
+| 7 | write-and-verify | ✓ | retry 1 |
 
 ## Step 1 — `--run` Shortcut
 

@@ -86,7 +86,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 9 specialized agents organized in three tiers. Each agent has a built-in **config guard** (fails fast if `stack.yml` is missing), a domain-specific **escalation path** (knows who to message for out-of-scope issues), and a **confidence threshold** (stops and escalates instead of guessing when certainty is below 70–80%).
 
-Each agent frontmatter also declares a **`capabilities`** block (`write_knowledge`, `write_code`, `review_code`, `run_tests`) for machine-readable permission scanning, and an **`inherits`** field pointing to a shared base profile. `backend-dev` and `frontend-dev` inherit from `agents/shared/engineer.md`; all other agents inherit from `agents/shared/base.md`. These shared profiles hold universal communication protocol, research order, and (for engineer-type agents) standards reading and quality gate requirements.
+Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, `write_code`, `review_code`, `run_tests`) for human-readable permission reference, and a `# based-on:` traceability comment. All agents inline a base communication + research-order protocol in their body. `backend-dev`, `frontend-dev`, `fixer`, and `tester` additionally inline quality-gate rules. The shared reference files live in `skills/shared/references/` (`base.md`, `engineer.md`).
 
 ### Domain
 

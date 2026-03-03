@@ -4,12 +4,6 @@ argument-hint: [--quick | --full | --affected]
 description: Run all quality gates (lint, typecheck, test, env, i18n, license) and produce a structured pass/fail report. Triggers: "validate" | "check everything" | "quality check" | "pre-push check" | "are we green".
 version: 0.1.0
 allowed-tools: Bash, Read
-pipeline:
-  - { id: scope,           required: true }
-  - { id: run-checks,      required: true,  continue-on-failure: true }
-  - { id: report,          required: true }
-  - { id: failure-details, required: false, condition: "∃ failures" }
-  - { id: verdict,         required: true }
 ---
 
 # Validate
@@ -19,6 +13,16 @@ Let:
   σ := {✅ pass (exit 0), ❌ FAIL (exit ≠0), ⚠️ warn (exit 0 + warnings), ⏭ skip (¬in scope)}
 
 Run all quality gates sequentially → single structured pass/fail report. ¬stop on first failure — run all χ for complete picture.
+
+## Pipeline
+
+| Step | ID | Required | Notes |
+|------|----|----------|-------|
+| 1 | scope | ✓ | — |
+| 2 | run-checks | ✓ | continue-on-failure |
+| 3 | report | ✓ | — |
+| 4 | failure-details | — | ∃ failures |
+| 5 | verdict | ✓ | — |
 
 ## Usage
 

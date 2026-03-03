@@ -4,14 +4,6 @@ argument-hint: [#PR]
 description: Multi-domain code review (agents + Conventional Comments → findings + verdict). Triggers: "review changes" | "review PR #42" | "code review" | "check my code".
 version: 0.1.0
 allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill
-pipeline:
-  - { id: gather-changes,       required: true }
-  - { id: secret-scan,          required: true }
-  - { id: spec-compliance,      required: false, condition: "spec ∃" }
-  - { id: multi-domain-review,  required: true,  parallel: true }
-  - { id: merge-and-present,    required: true }
-  - { id: post-to-pr,           required: false, condition: "PR ∃" }
-  - { id: next-step,            required: true }
 ---
 
 # Code Review
@@ -24,6 +16,18 @@ Review branch/PR changes via fresh domain-specific agents → Conventional Comme
 /review          → diff ${BASE}...HEAD  (BASE = staging if exists, else main)
 /review #42      → gh pr diff 42
 ```
+
+## Pipeline
+
+| Phase | ID | Required | Notes |
+|-------|----|----------|-------|
+| 1 | gather-changes | ✓ | — |
+| 1.5 | secret-scan | ✓ | — |
+| 2 | spec-compliance | — | spec ∃ |
+| 3 | multi-domain-review | ✓ | parallel |
+| 4 | merge-and-present | ✓ | — |
+| 6 | post-to-pr | — | PR ∃ |
+| 8 | next-step | ✓ | — |
 
 ## Definitions
 

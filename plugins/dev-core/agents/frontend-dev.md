@@ -14,12 +14,8 @@ color: white
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "SendMessage"]
 permissionMode: bypassPermissions
 maxTurns: 50
-capabilities:
-  write_knowledge: false
-  write_code: true
-  review_code: true
-  run_tests: true
-inherits: shared/engineer
+# capabilities: write_knowledge=false, write_code=true, review_code=true, run_tests=true
+# based-on: shared/engineer
 skills: frontend-design, ui-ux-pro-max, context7-plugin:docs
 ---
 

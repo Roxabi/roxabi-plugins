@@ -31,22 +31,20 @@ Start from the plugin's agent as a base. Keep what works, add what's project-spe
 ```markdown
 ---
 name: backend-dev
-inherits: dev-core/shared/engineer     # traceability — shows which plugin version this overrides
+# based-on: dev-core/backend-dev     # traceability — shows which plugin version this overrides
 model: sonnet
 color: white
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "SendMessage"]
-permissionMode: bypassPermissions
+permissionMode: bypassPermissions   # ⚠ removes all confirmation dialogs — review before use
 maxTurns: 50
-capabilities:
-  write_knowledge: false
-  write_code: true
-  review_code: true
-  run_tests: true
+# capabilities: write_knowledge=false, write_code=true, review_code=true, run_tests=true
 ---
 
 # Backend Dev (project override)
 
-Read `~/.claude/plugins/cache/roxabi-marketplace/dev-core/<hash>/agents/shared/engineer.md` — base protocol.
+**Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
+**Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
+**Quality gates:** after implementation run `{commands.lint} && {commands.typecheck} && {commands.test}`. ✗ → fix before reporting done. Config failures → message devops.
 
 If `{backend.path}` is undefined → output: "`.claude/stack.yml` not found."
 
@@ -59,7 +57,7 @@ If `{backend.path}` is undefined → output: "`.claude/stack.yml` not found."
 - ¬`any` in new service methods — use `{shared.types}/` or create a new type
 ```
 
-The `inherits` field in the frontmatter documents which plugin version the override derives from — useful for maintainers when plugin agents are updated.
+The `# based-on:` comment documents which plugin version the override derives from — useful for maintainers when plugin agents are updated.
 
 ## Skill override anatomy
 
@@ -77,9 +75,9 @@ Skill overrides follow the same SKILL.md format as plugin skills. Copy the plugi
 
 | Keep | Safe to change |
 |------|---------------|
-| `capabilities` block | Escalation paths and thresholds |
+| `# based-on:` traceability comment (update value) | Escalation paths and thresholds |
 | Phase 0 config guard | Boundaries (restrict further) |
-| `inherits` field (update value) | Edge cases (add project-specific entries) |
+| Base protocol lines (Communication, Research order, Quality gates) | Edge cases (add project-specific entries) |
 | Core workflow phases in skills | Standards references (point to project docs) |
 
 **Never remove** the Phase 0 config guard — agents hard-stop without it when `stack.yml` is missing.
@@ -96,4 +94,4 @@ Overrides are for behavioral changes. Configuration changes belong in `stack.yml
 
 When dev-core agents are updated in a new plugin version, your overrides won't automatically pick up the changes. Diff the updated plugin agent against your override and merge relevant improvements manually.
 
-Use the `inherits` field to track which plugin version the override was based on — run `/doctor` to check for version drift.
+Use the `# based-on:` comment to track which plugin version the override was based on. To check for drift, diff your override file against the plugin repo source (not the cache) — the repo is the canonical version.

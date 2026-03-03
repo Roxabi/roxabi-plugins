@@ -4,13 +4,6 @@ argument-hint: '[--issue <N> | --plan <path>]'
 description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "implement" | "build this" | "execute plan" | "start coding".
 version: 0.1.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill
-pipeline:
-  - { id: locate-plan,      required: true }
-  - { id: setup,            required: true,  rollback: true }
-  - { id: context-inject,   required: false, condition: "tier F only" }
-  - { id: implement,        required: true,  parallel: conditional, retry: 3 }
-  - { id: quality-gate,     required: true,  retry: 3, rollback: true }
-  - { id: summary,          required: true }
 ---
 
 # Implement
@@ -25,6 +18,17 @@ Plan → worktree → agents (test-first) → passing quality gate.
 ```
 
 Does NOT create a PR — that is `/pr` (next step).
+
+## Pipeline
+
+| Step | ID | Required | Notes |
+|------|----|----------|-------|
+| 1 | locate-plan | ✓ | — |
+| 2 | setup | ✓ | rollback on failure |
+| 3 | context-inject | — | tier F only |
+| 4 | implement | ✓ | parallel: conditional, retry 3 |
+| 5 | quality-gate | ✓ | retry 3, rollback on failure |
+| 6 | summary | ✓ | — |
 
 ## Step 1 — Locate Plan
 
