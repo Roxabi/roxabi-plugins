@@ -90,8 +90,8 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 | Agent | Role |
 |-------|------|
-| `frontend-dev` | Frontend implementation (`apps/web/`, `packages/ui/`) |
-| `backend-dev` | Backend implementation (`apps/api/`, `packages/types/`) |
+| `frontend-dev` | Frontend implementation (`{frontend.path}`, `{shared.ui}` from stack.yml) |
+| `backend-dev` | Backend implementation (`{backend.path}`, `{shared.types}` from stack.yml) |
 | `devops` | Infrastructure, CI/CD, root configs |
 
 ### Quality
