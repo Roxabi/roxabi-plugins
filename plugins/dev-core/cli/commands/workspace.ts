@@ -1,4 +1,4 @@
-import { readWorkspace, writeWorkspace, discoverProject } from '../lib/workspace'
+import { discoverProject, readWorkspace, writeWorkspace } from '../lib/workspace'
 
 const USAGE = `
 Usage:
@@ -13,12 +13,11 @@ function printTable(projects: { repo: string; projectId: string; label: string }
     return
   }
 
-  const repoW = Math.max('repo'.length, ...projects.map(p => p.repo.length))
-  const idW = Math.max('projectId'.length, ...projects.map(p => p.projectId.length))
-  const labelW = Math.max('label'.length, ...projects.map(p => p.label.length))
+  const repoW = Math.max('repo'.length, ...projects.map((p) => p.repo.length))
+  const idW = Math.max('projectId'.length, ...projects.map((p) => p.projectId.length))
+  const labelW = Math.max('label'.length, ...projects.map((p) => p.label.length))
 
-  const row = (r: string, id: string, l: string) =>
-    `${r.padEnd(repoW)}  ${id.padEnd(idW)}  ${l.padEnd(labelW)}`
+  const row = (r: string, id: string, l: string) => `${r.padEnd(repoW)}  ${id.padEnd(idW)}  ${l.padEnd(labelW)}`
 
   console.log(row('repo', 'projectId', 'label'))
   console.log('-'.repeat(repoW + idW + labelW + 4))
@@ -57,11 +56,12 @@ async function cmdAdd(repo: string): Promise<void> {
     chosen = nodes[0]
   } else {
     process.stdout.write('Multiple projects found. Select one:\n')
-    nodes.forEach((p, i) => process.stdout.write(`  ${i + 1}. ${p.label} (${p.projectId})\n`))
+    for (let i = 0; i < nodes.length; i++)
+      process.stdout.write(`  ${i + 1}. ${nodes[i].label} (${nodes[i].projectId})\n`)
     process.stdout.write('Enter number: ')
 
-    const line = await new Promise<string>(resolve => {
-      process.stdin.once('data', d => resolve(d.toString().trim()))
+    const line = await new Promise<string>((resolve) => {
+      process.stdin.once('data', (d) => resolve(d.toString().trim()))
     })
 
     const idx = parseInt(line, 10) - 1
@@ -73,7 +73,7 @@ async function cmdAdd(repo: string): Promise<void> {
   }
 
   const ws = readWorkspace()
-  const existing = ws.projects.findIndex(p => p.repo === repo)
+  const existing = ws.projects.findIndex((p) => p.repo === repo)
   if (existing !== -1) {
     ws.projects[existing] = chosen
   } else {
@@ -90,7 +90,7 @@ async function cmdRemove(repo: string): Promise<void> {
   }
 
   const ws = readWorkspace()
-  const idx = ws.projects.findIndex(p => p.repo === repo)
+  const idx = ws.projects.findIndex((p) => p.repo === repo)
   if (idx === -1) {
     console.error(`Error: '${repo}' is not registered in the workspace.`)
     process.exit(1)

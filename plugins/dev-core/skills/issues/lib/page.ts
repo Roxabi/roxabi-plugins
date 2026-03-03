@@ -1,23 +1,23 @@
+import type { WorkspaceProject } from '../../shared/workspace'
 import {
-  PRIORITY_VALUES,
-  SIZE_VALUES,
-  STATUS_VALUES,
   branchCIRows,
   escHtml,
   issueRow,
+  PRIORITY_VALUES,
   prRows,
   renderBranchCI,
   renderBranchesAndWorktrees,
   renderPRs,
   renderVercelDeployments,
   renderWorkflowRuns,
+  SIZE_VALUES,
+  STATUS_VALUES,
   vercelCards,
   workflowRunCards,
 } from './components'
 import { buildDepGraph, renderDepGraph } from './graph'
 import { PAGE_STYLES } from './page-styles'
 import type { Branch, BranchCI, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './types'
-import type { WorkspaceProject } from '../../shared/workspace'
 
 // ---------------------------------------------------------------------------
 // Per-project column helpers
@@ -25,7 +25,7 @@ import type { WorkspaceProject } from '../../shared/workspace'
 
 const COLUMN_SCHEMA = {
   technical: { col2: { label: 'Size', icon: '📐' }, col3: { label: 'Pri', icon: '🔥' } },
-  company:   { col2: { label: 'Quarter', icon: '📅' }, col3: { label: 'Pillar', icon: '🏛' } },
+  company: { col2: { label: 'Quarter', icon: '📅' }, col3: { label: 'Pillar', icon: '🏛' } },
 } as const
 
 export function columnLabel(p: WorkspaceProject, slot: 'col2' | 'col3') {
@@ -44,15 +44,17 @@ export function defaultSort(p: WorkspaceProject): string {
 function buildFieldSections(project?: WorkspaceProject): string {
   const c2 = project ? columnLabel(project, 'col2') : { label: 'Size', icon: '📐' }
   const c3 = project ? columnLabel(project, 'col3') : { label: 'Pri', icon: '🔥' }
-  const statusOpts = project?.fieldIds?.statusOptions
-    ? Object.keys(project.fieldIds.statusOptions)
-    : [...STATUS_VALUES]
+  const statusOpts = project?.fieldIds?.statusOptions ? Object.keys(project.fieldIds.statusOptions) : [...STATUS_VALUES]
   const col2Opts = project?.fieldIds?.col2Options
     ? Object.keys(project.fieldIds.col2Options)
-    : project?.type === 'company' ? [] : [...SIZE_VALUES]
+    : project?.type === 'company'
+      ? []
+      : [...SIZE_VALUES]
   const col3Opts = project?.fieldIds?.col3Options
     ? Object.keys(project.fieldIds.col3Options)
-    : project?.type === 'company' ? [] : [...PRIORITY_VALUES]
+    : project?.type === 'company'
+      ? []
+      : [...PRIORITY_VALUES]
   return JSON.stringify([
     { label: 'Status', field: 'status', options: statusOpts },
     { label: c2.label, field: 'col2', options: col2Opts },
@@ -64,8 +66,14 @@ const INITIAL_VISIBLE = 8
 
 function splitIssueRows(issues: Issue[]) {
   return {
-    visibleRows: issues.slice(0, INITIAL_VISIBLE).map((i) => issueRow(i)).join(''),
-    hiddenRows: issues.slice(INITIAL_VISIBLE).map((i) => issueRow(i)).join(''),
+    visibleRows: issues
+      .slice(0, INITIAL_VISIBLE)
+      .map((i) => issueRow(i))
+      .join(''),
+    hiddenRows: issues
+      .slice(INITIAL_VISIBLE)
+      .map((i) => issueRow(i))
+      .join(''),
     hasMore: issues.length > INITIAL_VISIBLE,
     hiddenCount: issues.length - INITIAL_VISIBLE,
   }
@@ -73,7 +81,7 @@ function splitIssueRows(issues: Issue[]) {
 
 function buildTabBar(projects: WorkspaceProject[], activeTab: string): string {
   const allTab = `<button class="tab${activeTab === 'All' ? ' active' : ''}" onclick="switchTab('All')">All</button>`
-  const projectTabs = projects.map(p => buildProjectTab(p.label, p.repo, activeTab)).join('\n')
+  const projectTabs = projects.map((p) => buildProjectTab(p.label, p.repo, activeTab)).join('\n')
   return `<div class="tab-bar" id="tab-bar">${allTab}\n${projectTabs}\n${buildAddButton()}</div>`
 }
 
@@ -91,21 +99,24 @@ function buildAllView(byProject: Map<string, Issue[]>, workspaceProjects?: Works
   if (byProject.size === 0) {
     return '<div class="empty-state">No projects registered — click + to add one</div>'
   }
-  return [...byProject.entries()].map(([label, issues]) => {
-    const project = workspaceProjects?.find(p => p.label === label)
-    const depNodes = buildDepGraph(issues)
-    const graphHtml = (!project || showSubIssues(project)) && depNodes.length > 0
-      ? `<div class="project-graph" style="display:none;"><div class="section graph-subsection">
+  return [...byProject.entries()]
+    .map(([label, issues]) => {
+      const project = workspaceProjects?.find((p) => p.label === label)
+      const depNodes = buildDepGraph(issues)
+      const graphHtml =
+        (!project || showSubIssues(project)) && depNodes.length > 0
+          ? `<div class="project-graph" style="display:none;"><div class="section graph-subsection">
         <h3>Dependency Graph</h3>
         <div class="graph-container">${renderDepGraph(depNodes, issues)}</div>
       </div></div>`
-      : ''
-    return `<div data-project="${escHtml(label)}">
+          : ''
+      return `<div data-project="${escHtml(label)}">
       <h3 class="project-header">${escHtml(label)}</h3>
       ${issues.length === 0 ? '<p class="no-issues">No open issues</p>' : buildIssueTable(issues, project)}
       ${graphHtml}
     </div>`
-  }).join('\n')
+    })
+    .join('\n')
 }
 
 function buildIssueTable(issues: Issue[], project?: WorkspaceProject): string {
@@ -128,11 +139,15 @@ function buildIssueTable(issues: Issue[], project?: WorkspaceProject): string {
     </thead>
     <tbody>
       ${visibleRows}
-      ${hasMore ? `<tr class="show-more-row"><td colspan="7" style="text-align:center;padding:12px;">
+      ${
+        hasMore
+          ? `<tr class="show-more-row"><td colspan="7" style="text-align:center;padding:12px;">
         <button class="show-more-btn" onclick="var tb=this.closest('table').querySelector('.hidden-issues-body');tb.style.display='';this.parentElement.parentElement.style.display='none';">
           Show ${hiddenCount} more issue${hiddenCount > 1 ? 's' : ''}
         </button>
-      </td></tr>` : ''}
+      </td></tr>`
+          : ''
+      }
     </tbody>
     <tbody class="hidden-issues-body" style="display:none;">
       ${hiddenRows}
@@ -171,7 +186,7 @@ async function removeProject(repo) {
   if (!confirm('Remove ' + repo + ' from workspace?')) return
   await fetch('/api/workspace/remove', {method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({repo: repo})})
 }
-<\/script>`
+</script>`
 }
 
 export function buildHtml(
@@ -186,12 +201,10 @@ export function buildHtml(
   updatedAt: number,
   byProject?: Map<string, Issue[]>,
   workspaceProjects?: WorkspaceProject[],
-  byProjectMeta?: Map<string, ProjectMeta>
+  byProjectMeta?: Map<string, ProjectMeta>,
 ): string {
   const isMultiProject = byProject !== undefined && byProject.size > 0
-  const allIssues = isMultiProject
-    ? [...byProject!.values()].flat()
-    : issues
+  const allIssues = isMultiProject ? [...byProject!.values()].flat() : issues
   const totalCount = allIssues.reduce((sum, i) => sum + 1 + i.children.length, 0)
 
   const { visibleRows, hiddenRows, hasMore, hiddenCount } = splitIssueRows(issues)
@@ -201,72 +214,87 @@ export function buildHtml(
 
   // In multi-project mode, build combined sections with per-project [data-project] groups
   // so switchTab can show/hide across ALL sections uniformly.
-  const projectFor = (l: string): WorkspaceProject | undefined =>
-    workspaceProjects?.find(p => p.label === l)
+  const projectFor = (l: string): WorkspaceProject | undefined => workspaceProjects?.find((p) => p.label === l)
 
-  const vercelHtml = isMultiProject && byProjectMeta
-    ? (() => {
-        const withV = [...byProjectMeta.entries()].filter(([l, m]) => {
-          const p = projectFor(l)
-          return m.deployments.length > 0 && (!p || showDevLinks(p))
-        })
-        if (withV.length === 0) return ''
-        const groups = withV.map(([l, m]) =>
-          `<div data-project="${escHtml(l)}"><div class="project-sep-inline">${escHtml(l)}</div>${vercelCards(m.deployments)}</div>`
-        ).join('')
-        return `<div class="section"><h2>\u25b2 Vercel Deployments</h2><div class="vd-list">${groups}</div></div>`
-      })()
-    : renderVercelDeployments(deployments)
-  const wrHtml = isMultiProject && byProjectMeta
-    ? (() => {
-        const withWR = [...byProjectMeta.entries()].filter(([l, m]) => {
-          const p = projectFor(l)
-          return m.workflowRuns.length > 0 && (!p || showCI(p))
-        })
-        if (withWR.length === 0) return ''
-        const groups = withWR.map(([l, m]) =>
-          `<div data-project="${escHtml(l)}"><div class="project-sep-inline">${escHtml(l)}</div>${workflowRunCards(m.workflowRuns)}</div>`
-        ).join('')
-        return `<div class="section"><h2>Workflow Runs</h2><div class="wr-cards">${groups}</div></div>`
-      })()
-    : renderWorkflowRuns(workflowRuns)
-  const prsHtml = isMultiProject && byProjectMeta
-    ? (() => {
-        const withPRs = [...byProjectMeta.entries()].filter(([l, m]) => {
-          const p = projectFor(l)
-          return m.prs.length > 0 && (!p || showDevLinks(p))
-        })
-        if (withPRs.length === 0) return ''
-        const bodies = withPRs.map(([l, m]) =>
-          `<tbody data-project="${escHtml(l)}"><tr class="project-sep-row"><td colspan="6">${escHtml(l)}</td></tr>${prRows(m.prs)}</tbody>`
-        ).join('')
-        return `<table class="sub-table"><thead><tr>
+  const vercelHtml =
+    isMultiProject && byProjectMeta
+      ? (() => {
+          const withV = [...byProjectMeta.entries()].filter(([l, m]) => {
+            const p = projectFor(l)
+            return m.deployments.length > 0 && (!p || showDevLinks(p))
+          })
+          if (withV.length === 0) return ''
+          const groups = withV
+            .map(
+              ([l, m]) =>
+                `<div data-project="${escHtml(l)}"><div class="project-sep-inline">${escHtml(l)}</div>${vercelCards(m.deployments)}</div>`,
+            )
+            .join('')
+          return `<div class="section"><h2>\u25b2 Vercel Deployments</h2><div class="vd-list">${groups}</div></div>`
+        })()
+      : renderVercelDeployments(deployments)
+  const wrHtml =
+    isMultiProject && byProjectMeta
+      ? (() => {
+          const withWR = [...byProjectMeta.entries()].filter(([l, m]) => {
+            const p = projectFor(l)
+            return m.workflowRuns.length > 0 && (!p || showCI(p))
+          })
+          if (withWR.length === 0) return ''
+          const groups = withWR
+            .map(
+              ([l, m]) =>
+                `<div data-project="${escHtml(l)}"><div class="project-sep-inline">${escHtml(l)}</div>${workflowRunCards(m.workflowRuns)}</div>`,
+            )
+            .join('')
+          return `<div class="section"><h2>Workflow Runs</h2><div class="wr-cards">${groups}</div></div>`
+        })()
+      : renderWorkflowRuns(workflowRuns)
+  const prsHtml =
+    isMultiProject && byProjectMeta
+      ? (() => {
+          const withPRs = [...byProjectMeta.entries()].filter(([l, m]) => {
+            const p = projectFor(l)
+            return m.prs.length > 0 && (!p || showDevLinks(p))
+          })
+          if (withPRs.length === 0) return ''
+          const bodies = withPRs
+            .map(
+              ([l, m]) =>
+                `<tbody data-project="${escHtml(l)}"><tr class="project-sep-row"><td colspan="6">${escHtml(l)}</td></tr>${prRows(m.prs)}</tbody>`,
+            )
+            .join('')
+          return `<table class="sub-table"><thead><tr>
     <th>#</th><th>Title</th><th>Status</th><th>CI</th><th>Changes</th><th>Updated</th>
   </tr></thead>${bodies}</table>`
-      })()
-    : renderPRs(prs)
-  const ciHtml = isMultiProject && byProjectMeta
-    ? (() => {
-        const withCI = [...byProjectMeta.entries()].filter(([l, m]) => {
-          const p = projectFor(l)
-          return shouldShowCI(m.branchCI) && (!p || showCI(p))
-        })
-        if (withCI.length === 0) return ''
-        const bodies = withCI.map(([l, m]) =>
-          `<tbody data-project="${escHtml(l)}"><tr class="project-sep-row"><td colspan="5">${escHtml(l)}</td></tr>${branchCIRows(m.branchCI, l)}</tbody>`
-        ).join('')
-        return `<table class="sub-table"><thead><tr>
+        })()
+      : renderPRs(prs)
+  const ciHtml =
+    isMultiProject && byProjectMeta
+      ? (() => {
+          const withCI = [...byProjectMeta.entries()].filter(([l, m]) => {
+            const p = projectFor(l)
+            return shouldShowCI(m.branchCI) && (!p || showCI(p))
+          })
+          if (withCI.length === 0) return ''
+          const bodies = withCI
+            .map(
+              ([l, m]) =>
+                `<tbody data-project="${escHtml(l)}"><tr class="project-sep-row"><td colspan="5">${escHtml(l)}</td></tr>${branchCIRows(m.branchCI, l)}</tbody>`,
+            )
+            .join('')
+          return `<table class="sub-table"><thead><tr>
     <th>Branch</th><th>Status</th><th>CI</th><th>Commit</th><th>Updated</th>
   </tr></thead>${bodies}</table>`
-      })()
-    : renderBranchCI(branchCI)
+        })()
+      : renderBranchCI(branchCI)
   const showCISection = isMultiProject ? !!ciHtml : shouldShowCI(branchCI)
   const showPRs = isMultiProject ? !!prsHtml : prs.length > 0
 
   const tabBarHtml = isMultiProject
     ? buildTabBar(
-        workspaceProjects ?? [...byProject!.keys()].map(label => ({ label, repo: label, projectId: '' })),
-        'All'
+        workspaceProjects ?? [...byProject!.keys()].map((label) => ({ label, repo: label, projectId: '' })),
+        'All',
       )
     : ''
 
@@ -351,10 +379,14 @@ ${LIVE_STYLES}
     <span>\u2705 ready</span>
   </div>
 
-  <div id="section-graph">${isMultiProject ? '' : `<div class="section">
+  <div id="section-graph">${
+    isMultiProject
+      ? ''
+      : `<div class="section">
     <h2>Dependency Graph</h2>
     <div class="graph-container">${depGraphHtml}</div>
-  </div>`}</div>
+  </div>`
+  }</div>
 
   <div id="section-branches" class="section">
     <h2>Branches &amp; Worktrees</h2>

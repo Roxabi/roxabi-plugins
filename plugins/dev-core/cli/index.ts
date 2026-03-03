@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-const [,, cmd, ...rest] = process.argv
+const [, , cmd, ...rest] = process.argv
 
 const USAGE = `
 roxabi — multi-project GitHub Projects management for Claude Code
@@ -19,33 +19,35 @@ Version: 0.1.0
 
 switch (cmd) {
   case 'workspace': {
-    await import('./commands/workspace').then(m => m.run(rest))
+    await import('./commands/workspace').then((m) => m.run(rest))
     break
   }
 
   case 'issues': {
-    await import('./commands/issues').then(m => m.run(rest))
+    await import('./commands/issues').then((m) => m.run(rest))
     break
   }
 
   case 'triage': {
-    await import('./commands/triage').then(m => m.run(rest))
+    await import('./commands/triage').then((m) => m.run(rest))
     break
   }
 
   case 'dashboard': {
-    await import('./commands/dashboard').then(m => m.run(rest))
+    await import('./commands/dashboard').then((m) => m.run(rest))
     break
   }
 
   case undefined: {
     console.log(USAGE)
     process.exit(0)
+    break
   }
 
   case '--version': {
     console.log('0.1.0')
     process.exit(0)
+    break
   }
 
   default: {
