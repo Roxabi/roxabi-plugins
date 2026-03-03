@@ -18,6 +18,8 @@ import {
 const GITHUB_API = 'https://api.github.com'
 const GRAPHQL_URL = `${GITHUB_API}/graphql`
 
+const GH_PROJECT_ID_NOT_CONFIGURED = 'GH_PROJECT_ID not configured. Run `/init` or set GH_PROJECT_ID in .env.'
+
 let cachedToken: string | undefined
 
 function getToken(): string {
@@ -168,7 +170,7 @@ export async function createGitHubIssue(
 
 /** Get project item ID for an issue number. */
 export async function getItemId(issueNumber: number): Promise<string> {
-  if (!GH_PROJECT_ID) throw new Error('GH_PROJECT_ID not configured. Run /init or set GH_PROJECT_ID env var.')
+  if (!GH_PROJECT_ID) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
   const [owner, repo] = GITHUB_REPO.split('/')
   const data = (await ghGraphQL(ITEM_ID_QUERY, { owner, repo, number: issueNumber })) as {
     data: {
@@ -185,7 +187,7 @@ export async function getItemId(issueNumber: number): Promise<string> {
 
 /** Add an issue to the project board. Returns the new item ID. */
 export async function addToProject(nodeId: string): Promise<string> {
-  if (!GH_PROJECT_ID) throw new Error('GH_PROJECT_ID not configured. Run /init or set GH_PROJECT_ID env var.')
+  if (!GH_PROJECT_ID) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
   const data = (await ghGraphQL(ADD_TO_PROJECT_MUTATION, {
     projectId: GH_PROJECT_ID,
     contentId: nodeId,
@@ -199,7 +201,7 @@ export async function updateField(
   fieldId: string,
   optionId: string
 ): Promise<void> {
-  if (!GH_PROJECT_ID) throw new Error('GH_PROJECT_ID not configured. Run /init or set GH_PROJECT_ID env var.')
+  if (!GH_PROJECT_ID) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
   await ghGraphQL(UPDATE_FIELD_MUTATION, {
     projectId: GH_PROJECT_ID,
     itemId,

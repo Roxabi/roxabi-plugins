@@ -59,6 +59,18 @@ describe('shared/config', () => {
     it('returns a string for NOT_CONFIGURED_MSG', () => {
       expect(NOT_CONFIGURED_MSG).toContain('/init')
     })
+
+    it('returns false when only old PROJECT_ID is set (not GH_PROJECT_ID)', () => {
+      const orig = process.env.PROJECT_ID
+      process.env.PROJECT_ID = 'PVT_legacy'
+      delete process.env.GH_PROJECT_ID
+      try {
+        expect(isProjectConfigured()).toBe(false)
+      } finally {
+        if (orig !== undefined) process.env.PROJECT_ID = orig
+        else delete process.env.PROJECT_ID
+      }
+    })
   })
 
   describe('aliases', () => {

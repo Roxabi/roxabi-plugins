@@ -21,7 +21,7 @@ export interface DiscoveryResult {
   workflows: { existing: string[]; missing: string[] }
   protection: Record<string, boolean>
   vercel: { projectId: string; orgId: string } | null
-  env: Record<string, string>
+  env: Partial<Record<'GITHUB_REPO' | 'GH_PROJECT_ID' | 'STATUS_FIELD_ID' | 'SIZE_FIELD_ID' | 'PRIORITY_FIELD_ID' | 'VERCEL_PROJECT_ID' | 'VERCEL_TEAM_ID' | 'VERCEL_TOKEN' | 'GITHUB_TOKEN', string>>
 }
 
 function readEnvFile(): Record<string, string> {
@@ -56,7 +56,7 @@ export async function discover(): Promise<DiscoveryResult> {
     workflows: { existing: [], missing: [] },
     protection: {},
     vercel: null,
-    env: readEnvFile(),
+    env: readEnvFile() as DiscoveryResult['env'],
   }
 
   if (!ghOk || !owner) return result

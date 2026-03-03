@@ -58,6 +58,8 @@ describe('mergeEnv', () => {
     const result = mergeEnv(existing, baseSections, true)
     expect(result).toContain('GITHUB_REPO=Org/repo')
     expect(result).not.toContain('Old/repo')
+    expect(result).not.toContain('PVT_old')
+    expect(result).toContain('GH_PROJECT_ID=PVT_123')
   })
 })
 

@@ -5,6 +5,11 @@
   "description": "Open-source Claude Code plugins by Roxabi",
   "license": "MIT",
   "scripts": {
-    "dashboard": "bun .claude/run-dashboard.ts"
+    "dashboard": "bun .claude/run-dashboard.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18"
   }
 }

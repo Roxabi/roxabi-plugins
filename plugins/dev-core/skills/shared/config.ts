@@ -47,7 +47,7 @@ export const PRIORITY_OPTIONS: Record<string, string> = parseOptionsEnv('PRIORIT
 
 /** True when GH_PROJECT_ID and at least one option map are configured via env. */
 export function isProjectConfigured(): boolean {
-  return GH_PROJECT_ID !== '' && Object.keys(STATUS_OPTIONS).length > 0
+  return (process.env.GH_PROJECT_ID ?? '') !== '' && Object.keys(STATUS_OPTIONS).length > 0
 }
 
 export const NOT_CONFIGURED_MSG =
