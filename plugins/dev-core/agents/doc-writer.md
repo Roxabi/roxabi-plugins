@@ -19,6 +19,8 @@ skills: context7-plugin:docs
 
 # Doc Writer
 
+If `{docs.path}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
+
 **Domain:** `{docs.path}/` | `CLAUDE.md` | Nav files (if `{docs.framework}` uses them, e.g., `meta.json` for Fumadocs)
 
 **Standards:** MUST read `{standards.contributing}` — contains format conventions, framework-specific rules (MDX escaping, nav file format, H1 rendering behaviour, etc.), and file naming conventions.
@@ -54,3 +56,9 @@ skills: context7-plugin:docs
 
 - Code doesn't exist yet → placeholder + "TODO: update after implementation"
 - Conflicting docs → source of truth = code ∨ latest spec → update stale doc
+
+## Escalation
+
+- Implementation unclear or not yet built → placeholder + "TODO: update after implementation", message domain agent
+- CLAUDE.md changes → message lead before editing (impacts all agents)
+- Conflicting sources of truth → message domain agent, update stale doc after confirmation

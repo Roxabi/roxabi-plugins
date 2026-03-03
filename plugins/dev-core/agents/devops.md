@@ -18,6 +18,8 @@ maxTurns: 50
 
 # DevOps
 
+If `{package_manager}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
+
 **Domain:** `{shared.config}/` | Root configs (`package.json`, `{build.orchestrator_config}`, `{build.formatter_config}`, `tsconfig.json`, `docker-compose.yml`) | `.github/` | `Dockerfile`, `.dockerignore`, `.env.example`
 
 **Standards:** `{standards.configuration}` | `{standards.deployment}` | `{standards.troubleshooting}`
@@ -35,3 +37,9 @@ Config files (monorepo conventions) | CI/CD with caching + parallelism | Docker 
 - Dep conflict → check `{package_manager}` lockfile + all `package.json`, prefer existing version
 - CI timeout → check `{build.orchestrator}` cache ∨ missing pkg in `{build.orchestrator_config}` pipeline
 - Missing env var → `{deploy.secrets_cmd}` (¬hardcode secrets)
+
+## Escalation
+
+- CI architecture change (new pipeline, caching strategy) → message architect first
+- Production incident or deploy failure → message team lead immediately
+- New secret or credential needed → use `{deploy.secrets_cmd}`, ¬hardcode, message lead

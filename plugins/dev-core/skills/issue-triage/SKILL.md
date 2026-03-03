@@ -136,6 +136,8 @@ This machine-parseable marker (`<!-- complexity: N -->`) can be retrieved by dow
 
 The score is advisory. Human judgment overrides. Use `AskUserQuestion` if the score and your intuition disagree.
 
+See [Tier Classification Reference](../../../shared/references/tier-classification.md) for full rules including scope vs. complexity distinction.
+
 Reference: [artifacts/analyses/280-token-consumption.mdx](../../../artifacts/analyses/280-token-consumption.mdx) for scoring examples.
 
 ## Status Values

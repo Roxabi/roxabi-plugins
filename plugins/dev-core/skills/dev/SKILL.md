@@ -46,7 +46,7 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 | Step | Required artifacts |
 |------|-------------------|
 | frame | issue (triage) |
-| analyze | `artifacts/frames/{slug}.mdx` (approved) |
+| analyze | `artifacts/frames/{N}-{slug}.mdx` or `artifacts/frames/{slug}.mdx` (approved) |
 | spec | `artifacts/frames/{slug}.mdx` or `artifacts/analyses/{N}-{slug}.mdx` |
 | plan | `artifacts/specs/{N}-{slug}.mdx` |
 | implement | `artifacts/plans/{N}-{slug}.mdx` (or spec for S-tier) |
@@ -63,8 +63,8 @@ Run all checks in parallel via Bash:
 # Issue
 gh issue view N --json state 2>/dev/null && echo "triage=true"
 
-# Frame
-ls artifacts/frames/ 2>/dev/null | grep -i "{slug}"
+# Frame (handles both {N}-{slug}.mdx and {slug}.mdx patterns)
+ls artifacts/frames/ 2>/dev/null | grep -iE "^{N}-{slug}|^{slug}"
 
 # Analysis
 ls artifacts/analyses/ 2>/dev/null | grep -E "^{N}-|{slug}"
@@ -212,7 +212,7 @@ AskUserQuestion:
 
 | Step | Skill invocation |
 |------|-----------------|
-| triage | `skill: "issue-triage", args: "set N --status Triage"` |
+| triage | `skill: "issue-triage", args: "N"` (set size + priority) |
 | frame | `skill: "frame", args: "--issue N"` |
 | analyze | `skill: "analyze", args: "--issue N"` |
 | spec | `skill: "spec", args: "--issue N"` |
@@ -223,7 +223,7 @@ AskUserQuestion:
 | review | `skill: "review"` (auto-detects PR from current branch) |
 | fix | `skill: "fix", args: "#{PR_NUMBER}"` (PR# from Σ scan) |
 | promote | `skill: "promote"` (standalone staging→main — skipped by default) |
-| cleanup | `skill: "cleanup"` (auto-detects stale worktrees/branches) |
+| cleanup | `skill: "cleanup", args: "--scope #N"` (scoped to current issue's branch/worktree) |
 
 **Skip to X** ⇒ warn if prerequisite artifacts for X are missing, then confirm:
 AskUserQuestion: **Proceed anyway** | **Cancel skip**.
@@ -282,6 +282,9 @@ All steps done/skipped ⇒
   Ship     ██████████  ✓
 
 Issue #{N} closed. Worktree cleaned up.
+
+Next: feature is merged to staging.
+To promote to production → run `/promote`
 ```
 
 ## Edge Cases

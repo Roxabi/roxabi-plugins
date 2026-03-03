@@ -9,7 +9,7 @@ allowed-tools: Bash, Read
 # Validate
 
 Let:
-  χ := quality check (name, `bun run` command, timeout, result)
+  χ := quality check (name, `{commands.*}` from stack.yml, timeout, result)
   σ := {✅ pass (exit 0), ❌ FAIL (exit ≠0), ⚠️ warn (exit 0 + warnings), ⏭ skip (¬in scope)}
 
 Run all quality gates sequentially → single structured pass/fail report. ¬stop on first failure — run all χ for complete picture.
@@ -38,19 +38,19 @@ Run all quality gates sequentially → single structured pass/fail report. ¬sto
 
 ∀ χ ∈ scope: run command, capture stdout+stderr + exit code. Record: name, σ, duration, error summary (first 5 error lines if failed).
 
-**¬raw `bun test`** — always `bun run <command>`.
+**¬raw runner** — always use `{commands.*}` resolved from stack.yml. If a command is not defined in stack.yml, σ := ⏭ skip.
 
 | χ | Command | Timeout |
 |---|---------|---------|
-| Lint | `bun run lint` | 60s |
-| Typecheck | `bun run typecheck` | 120s |
-| Typecheck (affected) | `bun run typecheck:affected` | 120s |
-| Test | `bun run test` | 180s |
-| Test (affected) | `bun run test:affected` | 180s |
-| Test coverage | `bun run test:coverage` | 300s |
-| Env check | `bun run env:check` | 10s |
-| i18n | `bun run i18n:check` | 30s |
-| License | `bun run license:check` | 30s |
+| Lint | `{commands.lint}` | 60s |
+| Typecheck | `{commands.typecheck}` | 120s |
+| Typecheck (affected) | `{package_manager} run typecheck:affected` | 120s |
+| Test | `{commands.test}` | 180s |
+| Test (affected) | `{package_manager} run test:affected` | 180s |
+| Test coverage | `{package_manager} run test:coverage` | 300s |
+| Env check | `{package_manager} run env:check` | 10s |
+| i18n | `{package_manager} run i18n:check` | 30s |
+| License | `{package_manager} run license:check` | 30s |
 
 ### 3. Report
 
@@ -107,6 +107,6 @@ One-line exit summary:
 1. **Read-only** — ¬modify files
 2. **¬auto-fix** — report issues, user decides
 3. **Run ALL χ** — ¬short-circuit on first failure
-4. **`bun run`** — ¬raw `bun test` (Bun runner ≠ Vitest)
+4. **`{commands.*}`** — always use commands from stack.yml, never raw runner (Bun runner ≠ Vitest)
 
 $ARGUMENTS

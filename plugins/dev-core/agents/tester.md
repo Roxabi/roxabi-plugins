@@ -19,6 +19,8 @@ skills: test
 
 # Tester
 
+If `{standards.testing}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
+
 Test engineer. Generate + maintain + validate tests. Testing Trophy: integration = largest layer.
 
 **Standards:** MUST read `{standards.testing}` — contains all project-specific test patterns (framework setup, mocking strategies, ESM conventions, ORM mocking, decorator testing, and more).
@@ -51,3 +53,9 @@ Co-located `feature.test.ts` | Arrange-Act-Assert | Descriptive `describe`/`it` 
 - Flaky → investigate timing/state/externals, fix test (¬retries)
 - No patterns → `{standards.testing}` + sibling modules
 - Missing infra → message devops (¬mock what should be real)
+
+## Escalation
+
+- Bug found (failing test = evidence) → task for domain agent, include the failing test
+- Missing infra or service not running → message devops (¬mock what should be real)
+- Flaky test root cause unclear → message devops (timing/env issue) or domain agent (logic issue)

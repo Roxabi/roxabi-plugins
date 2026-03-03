@@ -67,8 +67,8 @@ cd ../${REPO}-<N> && git status --porcelain
 
 ```bash
 git worktree add ../${REPO}-<N> -b feat/<N>-<slug> staging
-cd ../${REPO}-<N> && cp .env.example .env && bun install
-cd apps/api && bun run db:branch:create --force <N>
+cd ../${REPO}-<N> && cp .env.example .env && {package_manager} install
+cd apps/api && {package_manager} run db:branch:create --force <N>
 ```
 
 XS exception: AskUserQuestion → if approved, `git checkout -b feat/<N>-<slug> staging`.
@@ -93,7 +93,7 @@ Reference file paths come from `/plan` Step 3 (ref patterns). Inject the 1-2 ref
 
 ### Tier S — Direct
 
-Read spec + ref patterns → create + implement → tests → `bun lint && bun typecheck && bun run test` → loop until ✓. Single session, no agent spawning.
+Read spec + ref patterns → create + implement → tests → `{commands.lint} && {commands.typecheck} && {commands.test}` → loop until ✓. Single session, no agent spawning.
 
 ### Tier F — Agent-Driven (test-first)
 
@@ -114,11 +114,11 @@ Agents create files from scratch (¬stubs). Include target path, shape/skeleton,
 
 ```bash
 cd ../${REPO}-<N>
-bun lint && bun typecheck && bun run test
+{commands.lint} && {commands.typecheck} && {commands.test}
 ```
 
 ✓ → continue to Step 6.
-✗ → fix loop (max 3 attempts). Spawn domain fixer agents as needed. 3✗ → AskUserQuestion: **Escalate to lead** | **Continue with failures**.
+✗ → fix loop (max 3 attempts). Spawn domain fixer agents as needed. 3✗ → AskUserQuestion: **Escalate to lead** | **Continue with failures** | **Abandon worktree** (removes worktree + branch).
 
 ## Step 6 — Summary
 
@@ -145,6 +145,9 @@ git branch -D feat/<N>-<slug>
 ## Edge Cases
 
 Read [references/edge-cases.md](references/edge-cases.md).
+
+| Merge conflict (worktree setup) | `git rebase --abort` → AskUserQuestion: **Resolve manually** (fix conflicts → `git rebase --continue`) \| **Abort** |
+| Abandon after 3✗ gate failures | `git worktree remove ../${REPO}-<N> --force && git branch -D feat/<N>-<slug>` |
 
 ## Safety
 

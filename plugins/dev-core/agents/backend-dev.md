@@ -38,3 +38,9 @@ Domain modules (one/feature) | Controllers = HTTP only, logic → services | Dom
 - Migration conflicts → check `{backend.path}/migrations/` first (or ORM-specific convention per `{standards.backend}`), ¬modify existing migrations
 - Missing shared types → create in `{shared.types}/` (¬inline in api)
 - Circular deps → shared service ∨ event pattern, ≥3 modules → message architect
+
+## Escalation
+
+- Circular deps (3+ modules) → message architect with dep graph
+- Config / infra issue → message devops
+- Shared type conflict with frontend → message frontend-dev first, then architect if unresolved

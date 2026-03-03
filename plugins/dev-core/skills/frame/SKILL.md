@@ -9,7 +9,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 # Frame
 
 Let:
-  φ := artifacts/frames/{slug}.mdx
+  φ := artifacts/frames/{N}-{slug}.mdx (∃N) ∨ artifacts/frames/{slug}.mdx (frame-only mode)
   N := issue number (∅ if free text)
   τ := tier (S | F-lite | F-full)
 
@@ -74,11 +74,13 @@ Auto-detect τ from complexity signals:
 | Issue label M | F-lite |
 | Issue label L ∨ XL | F-full |
 
+See [tier-classification.md](../../../shared/references/tier-classification.md) for canonical rules and complexity scoring.
+
 AskUserQuestion: **Confirm {τ}** | **Override → S** | **Override → F-lite** | **Override → F-full**.
 
 ## Step 3 — Write Frame Doc
 
-Write φ as `artifacts/frames/{slug}.mdx` with `status: draft`.
+Write φ as `artifacts/frames/{N}-{slug}.mdx` (∃ issue) or `artifacts/frames/{slug}.mdx` (frame-only mode) with `status: draft`.
 
 ```mdx
 ---
@@ -124,7 +126,7 @@ AskUserQuestion: **Approve** | **Revise** (specify what to change).
 
 ## Completion
 
-φ written at `artifacts/frames/{slug}.mdx` with `status: approved`.
+φ written at `artifacts/frames/{N}-{slug}.mdx` (or `artifacts/frames/{slug}.mdx` in frame-only mode) with `status: approved`.
 
 Commit artifact: `git add artifacts/frames/{slug}.mdx` + commit per CLAUDE.md Rule 5.
 

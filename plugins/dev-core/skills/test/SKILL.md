@@ -16,7 +16,7 @@ Generate tests for changed or specified files. Follows existing test patterns in
 /test                      → Generate tests for files changed vs main
 /test src/auth/login.ts    → Generate tests for a specific file
 /test --e2e                → Generate Playwright e2e tests for changed files
-/test --run                → Run existing tests (shortcut for bun run test)
+/test --run                → Run existing tests (shortcut for {commands.test} from stack.yml)
 ```
 
 ## Instructions
@@ -26,7 +26,7 @@ Generate tests for changed or specified files. Follows existing test patterns in
 If `--run` is passed, skip all generation steps:
 
 ```bash
-bun test
+{commands.test}
 ```
 
 Report results and stop.
@@ -129,7 +129,7 @@ For each approved test file:
 1. Write the file using **Write**.
 2. Run the test:
    ```bash
-   bun run test {test_file_path}
+   {commands.test} {test_file_path}
    ```
 3. Report results (pass/fail with summary).
 4. If failures occur, offer to fix via **AskUserQuestion**:
@@ -144,7 +144,7 @@ For each approved test file:
    bunx playwright --version 2>/dev/null
    ```
    If not installed, inform the user:
-   > Playwright is not installed. Run `bun add -d @playwright/test && bunx playwright install` to set it up.
+   > Playwright is not installed. Run `{package_manager} add -d @playwright/test && {package_manager}x playwright install` to set it up.
 
    **Stop here.** Skills do not install dependencies.
 
@@ -155,6 +155,77 @@ For each approved test file:
 
 3. Follow the same approval and verification flow (steps 6-7).
 
+## Playwright Patterns
+
+When writing E2E tests, follow page-object model (POM) conventions if they exist in the codebase. Check `apps/web/e2e/` for existing patterns first.
+
+### Page Object Pattern
+
+```typescript
+// e2e/pages/login.page.ts
+import { type Page, type Locator } from '@playwright/test'
+
+export class LoginPage {
+  readonly page: Page
+  readonly emailInput: Locator
+  readonly passwordInput: Locator
+  readonly submitButton: Locator
+
+  constructor(page: Page) {
+    this.page = page
+    this.emailInput = page.getByLabel('Email')
+    this.passwordInput = page.getByLabel('Password')
+    this.submitButton = page.getByRole('button', { name: 'Sign in' })
+  }
+
+  async goto() {
+    await this.page.goto('/login')
+  }
+
+  async login(email: string, password: string) {
+    await this.emailInput.fill(email)
+    await this.passwordInput.fill(password)
+    await this.submitButton.click()
+  }
+}
+```
+
+### E2E Test Structure
+
+```typescript
+// e2e/auth/login.spec.ts
+import { test, expect } from '@playwright/test'
+import { LoginPage } from '../pages/login.page'
+
+test.describe('Login flow', () => {
+  test('should login with valid credentials', async ({ page }) => {
+    // Arrange
+    const loginPage = new LoginPage(page)
+    await loginPage.goto()
+
+    // Act
+    await loginPage.login('user@example.com', 'password123')
+
+    // Assert
+    await expect(page).toHaveURL('/dashboard')
+  })
+
+  test('should show error on invalid credentials', async ({ page }) => {
+    // Arrange
+    const loginPage = new LoginPage(page)
+    await loginPage.goto()
+
+    // Act
+    await loginPage.login('bad@example.com', 'wrong')
+
+    // Assert
+    await expect(page.getByRole('alert')).toBeVisible()
+  })
+})
+```
+
+Use `page.getByRole()`, `page.getByLabel()`, `page.getByText()` selectors (resilient, accessibility-first). Avoid `page.locator('css selector')` unless no semantic alternative exists.
+
 ## Edge Cases
 
 | Scenario | Action |
@@ -162,7 +233,7 @@ For each approved test file:
 | File has no exports | Skip it. Inform user: "No exports found, may not need tests." |
 | Tests already exist | Offer to add missing coverage, not overwrite |
 | Test framework not detected | Ask user via AskUserQuestion |
-| `--run` flag | Run `bun run test` and report results only |
+| `--run` flag | Run `{commands.test}` and report results only |
 | Source file is a React component | Generate component tests with appropriate rendering approach |
 | File is in a monorepo package | Place tests relative to the package, not the root |
 

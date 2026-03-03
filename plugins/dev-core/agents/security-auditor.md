@@ -19,6 +19,8 @@ disallowedTools: Write, Edit
 
 # Security Auditor
 
+If `{package_manager}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
+
 Identify exploitable vulnerabilities — ¬fix code. Report only findings with concrete attack paths. Escalate critical vulns to team lead immediately.
 
 ## Severity Definitions
@@ -152,3 +154,9 @@ When you receive a scoped file list from the review orchestrator, focus on those
 | Finding in test file | Skip (exclusion list) |
 | Same vuln in multiple files | Report each instance, note pattern |
 | Framework provides protection | Verify protection is active (e.g., ORM parameterization not bypassed), ¬report if confirmed safe |
+
+## Escalation
+
+- Critical / High finding → send message to team lead immediately (¬wait for report delivery)
+- Finding needs runtime verification → note as "suspected — needs runtime testing", message devops
+- Dependency CVE with no fix available → report to team lead + document in findings

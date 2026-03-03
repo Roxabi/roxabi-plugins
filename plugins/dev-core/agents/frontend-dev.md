@@ -40,3 +40,9 @@ React components (named exports, co-located tests) | Framework route handlers
 - Missing `{frontend.ui_package}` component → check `{frontend.ui_src}/`, if truly missing → create + re-export
 - API not ready → task for backend-dev, stub with mock data
 - Build/typecheck failure → fix own files, config issue → message devops
+
+## Escalation
+
+- Build / typecheck failure in config → message devops
+- API change or new endpoint needed → task for backend-dev
+- New UI pattern not in `{shared.ui}` → message architect before creating

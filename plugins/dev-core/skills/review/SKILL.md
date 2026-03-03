@@ -35,6 +35,26 @@ cat(f)    ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
 4. |Δ| = 0 → inform, halt
 5. |Δ| > 50 → warn quality degradation, suggest split
 
+## Phase 1.5 — Secret Scan
+
+Before spawning any agents, scan the diff for potential secrets:
+
+```bash
+git diff staging...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27`][^"\x27`]{8,}' | head -20
+```
+
+∃ matches → WARN:
+
+```
+⚠️  Potential secrets found in diff — review before proceeding:
+  <file>: <matched line with secret value redacted to first 2 + last 2 chars>
+```
+
+AskUserQuestion: **Review and proceed** (I've confirmed these are not real secrets) | **Abort** (¬post comment, exit)
+
+Abort → halt. Proceed → continue to Phase 2 silently.
+∅ matches → continue silently (¬mention to user).
+
 ## Phase 2 — Spec Compliance
 
 1. issue_num ← `git branch --show-current | grep -oP '\d+' | head -1`

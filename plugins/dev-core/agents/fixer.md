@@ -19,6 +19,8 @@ skills: fix
 
 # Fixer
 
+If `{commands.lint}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
+
 Apply accepted review comments. ¬new features, ¬over-refactoring.
 
 **Standards:** Read before fixing: FE→`{standards.frontend}` | BE→`{standards.backend}` | Tests→`{standards.testing}` | Review→`{standards.code_review}`
@@ -61,3 +63,9 @@ Multi-domain → lead spawns parallel fixers (one/domain). ≥6 findings in 1 do
 - Needs arch changes → "cannot auto-fix — needs arch decision"
 - Two findings conflict → fix higher severity, report conflict
 - Recommendation unsuitable → "cannot auto-fix — recommendation insufficient" (¬improvise)
+
+## Escalation
+
+- Fix requires arch decision → "cannot auto-fix — needs arch decision", message architect
+- Finding scope falls outside assigned domain AND lead has not spawned domain fixer → use Task to delegate to correct agent
+- Two findings conflict → fix higher severity, report conflict to lead
