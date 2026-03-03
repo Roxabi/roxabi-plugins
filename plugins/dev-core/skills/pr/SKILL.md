@@ -2,7 +2,7 @@
 name: pr
 argument-hint: [--draft | --base <branch>]
 description: Create/update PRs with Conventional Commits title, issue linking & guard rails. Triggers: "create PR" | "open PR" | "submit PR" | "update PR" | "/pr --draft".
-version: 0.2.0
+version: 0.3.0
 allowed-tools: Bash, Read, Grep
 ---
 
@@ -16,8 +16,9 @@ Branch → PR: Conventional Commits title, issue linking, guard rails.
 
 ```bash
 BRANCH=$(git branch --show-current)
-git log staging..HEAD --oneline
-git diff staging...HEAD --stat
+BASE=$(git branch -r | grep -q 'origin/staging' && echo staging || echo main)
+git log ${BASE}..HEAD --oneline
+git diff ${BASE}...HEAD --stat
 gh pr list --head "$BRANCH" --json number,title,url,state
 ```
 
@@ -26,18 +27,18 @@ gh pr list --head "$BRANCH" --json number,title,url,state
 | Check | Condition | Action |
 |-------|-----------|--------|
 | Protected branch | BRANCH ∈ {staging, main, master} | **REFUSE.** Create feature branch first. Stop. |
-| No commits | `git log staging..HEAD` empty | **REFUSE.** Nothing to PR. Stop. |
+| No commits | `git log ${BASE}..HEAD` empty | **REFUSE.** Nothing to PR. Stop. |
 | PR exists | gh pr list → result | AskUserQuestion: **Update** (`gh pr edit`) \| **Cancel** |
 | Branch not pushed | `git ls-remote --heads origin $BRANCH` empty | `git push -u origin $BRANCH` |
-| Behind staging | `git rev-list HEAD..staging --count` > 0 | Warn + AskUserQuestion: **Continue** \| **Rebase first** |
+| Behind base | `git rev-list HEAD..${BASE} --count` > 0 | Warn + AskUserQuestion: **Continue** \| **Rebase first** |
 | Quality gates | `{commands.lint} && {commands.typecheck}` | Warn on failure, ¬block. Note in PR body if proceeding. |
 
 ## Step 3 — Generate Content
 
 **3a. Commits + diff:**
 ```bash
-git log staging..HEAD --format="%h %s%n%b"
-git diff staging...HEAD --stat
+git log ${BASE}..HEAD --format="%h %s%n%b"
+git diff ${BASE}...HEAD --stat
 ```
 
 **3b. Lifecycle artifacts:**
@@ -46,7 +47,7 @@ ISSUE_NUM=$(echo "$BRANCH" | grep -oP '(?<=/)\d+')
 ls artifacts/analyses/${ISSUE_NUM}-*.mdx 2>/dev/null
 ls artifacts/specs/${ISSUE_NUM}-*.mdx 2>/dev/null
 gh issue view "$ISSUE_NUM" --json title,state,labels 2>/dev/null
-git diff staging...HEAD --name-only | grep -c '\.test\.\|\.spec\.' || echo 0
+git diff ${BASE}...HEAD --name-only | grep -c '\.test\.\|\.spec\.' || echo 0
 ```
 
 Issue# detection: first number after `/` in branch name (e.g. `feat/42-slug` → `#42`). ¬found → AskUserQuestion.
@@ -63,8 +64,8 @@ Failure ∨ explicit edit request ⇒ AskUserQuestion: **Edit title/body** | **C
 ## Step 5 — Create PR
 
 ```bash
-gh pr create --title "<title>" --body "<body>" --base staging [--draft]
-# --base <branch> if flag specified
+gh pr create --title "<title>" --body "<body>" --base ${BASE} [--draft]
+# --base <branch> if flag specified (overrides BASE)
 ```
 
 Display PR URL.
@@ -111,7 +112,7 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 
 | Flag | Description |
 |------|-------------|
-| (none) | Target `staging` |
+| (none) | Target auto-detected base branch |
 | `--draft` | Create as draft |
 | `--base <branch>` | Override base branch |
 

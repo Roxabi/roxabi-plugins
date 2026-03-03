@@ -57,8 +57,8 @@ Based on frame problem + constraints, search codebase for related code:
 ```bash
 # Find files relevant to the domain
 # Examples (adapt to the actual problem):
-Glob("apps/api/src/**/*.ts")     # backend domain
-Glob("apps/web/src/**/*.tsx")    # frontend domain
+Glob("{backend.path}/src/**/*.ts")    # backend domain
+Glob("{frontend.path}/src/**/*.tsx")  # frontend domain
 Grep("keyword", type: "ts")     # symbol/pattern search
 ```
 
@@ -138,10 +138,11 @@ Skip if ¬technical uncertainty signals in Step 2 findings.
 ∃ signals → AskUserQuestion: **Spike now** (create throwaway worktree, test hypothesis, report findings) | **Skip** (proceed to expert review).
 
 **Spike flow:**
-1. `git worktree add ../roxabi-spike-{N} -b spike/{N} staging`
-2. Investigate: write minimal code, run isolated test, confirm/reject hypothesis
-3. Report findings → incorporate into analysis
-4. `git worktree remove ../roxabi-spike-{N}` (throwaway, ¬merge)
+1. `REPO=$(gh repo view --json name --jq '.name')` + `BASE=$(git branch -r | grep -q 'origin/staging' && echo staging || echo main)`
+2. `git worktree add ../${REPO}-spike-{N} -b spike/{N} ${BASE}`
+3. Investigate: write minimal code, run isolated test, confirm/reject hypothesis
+4. Report findings → incorporate into analysis
+5. `git worktree remove ../${REPO}-spike-{N}` (throwaway, ¬merge)
 
 See [references/investigation.md](references/investigation.md) if the reference file exists, else proceed with inline flow above.
 

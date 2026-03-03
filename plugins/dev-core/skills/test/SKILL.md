@@ -2,7 +2,7 @@
 name: test
 argument-hint: [file | --e2e | --run]
 description: Generate/run unit, integration & Playwright e2e tests. Triggers: "test this file" | "write tests" | "add coverage" | "run tests" | "e2e tests".
-version: 0.2.0
+version: 0.3.0
 allowed-tools: Bash, Read, Write, Glob, Grep
 ---
 
@@ -13,7 +13,7 @@ Generate tests for changed or specified files. Follows existing codebase pattern
 ## Usage
 
 ```
-/test                      → Generate tests for files changed vs staging
+/test                      → Generate tests for files changed vs base branch
 /test src/auth/login.ts    → Generate tests for a specific file
 /test --e2e                → Generate Playwright e2e tests for changed files
 /test --run                → Run existing tests ({commands.test})
@@ -25,9 +25,9 @@ Generate tests for changed or specified files. Follows existing codebase pattern
 
 ## Step 2 — Identify Target Files
 
-Default:
 ```bash
-git diff staging...HEAD --name-only
+BASE=$(git branch -r | grep -q 'origin/staging' && echo staging || echo main)
+git diff ${BASE}...HEAD --name-only
 ```
 
 Include: `.ts`, `.tsx`. Exclude: `*.config.ts`, `*.d.ts`, `*.test.*`, `*.spec.*`, files with no exports.
@@ -107,12 +107,13 @@ bunx playwright --version 2>/dev/null
 ```
 ¬installed ⇒ inform: "Run `{package_manager} add -d @playwright/test && {package_manager}x playwright install`." Stop (¬install deps).
 
-Generate Playwright tests in `apps/web/e2e/`. Check existing patterns first. Name: `{feature}.spec.ts`.
+E2E dir: `{frontend.path}/e2e/` (fall back to `e2e/` if `{frontend.path}` not set).
+Check existing patterns first. Name: `{feature}.spec.ts`.
 Follow approval + verification flow (Steps 6–7).
 
 ## Playwright Patterns
 
-Check `apps/web/e2e/` for POM conventions. If ∃ page objects, follow them.
+Check `{frontend.path}/e2e/` for POM conventions. If ∃ page objects, follow them.
 
 ```typescript
 // e2e/pages/login.page.ts

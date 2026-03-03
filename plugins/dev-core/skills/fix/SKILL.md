@@ -81,7 +81,7 @@ Evaluate the fix, ¬the label — any category can be simple or complex.
 simple(f) → fixer
 complex(f) → domain agent: FE→frontend-dev | BE→backend-dev | Infra→devops
 ```
-Domains: FE = `apps/web/`, `packages/ui/` | BE = `apps/api/`, `packages/types/` | Infra = `packages/config/`, root, CI
+Domains: FE = `{frontend.path}`, `{shared.ui}` | BE = `{backend.path}`, `{shared.types}` | Infra = `{shared.config}`, root, CI
 
 **Batching (cost efficiency):**
 - Min 3 findings per agent — ¬spawn for <3

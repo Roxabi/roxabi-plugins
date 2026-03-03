@@ -33,13 +33,14 @@ Extract from plan frontmatter: `issue`, `tier`, `spec` path. Extract from body: 
 
 **2a. Issue check:** `gh issue view <N>` — ¬∃ ⇒ draft + AskUserQuestion (Create|Edit|Skip) + `gh issue create`.
 
-**2b. Repo name:**
+**2b. Repo + base branch:**
 
 ```bash
 REPO=$(gh repo view --json name --jq '.name')
+BASE=$(git branch -r | grep -q 'origin/staging' && echo staging || echo main)
 ```
 
-Used as worktree dir prefix: `../${REPO}-<N>`.
+Worktree dir: `../${REPO}-<N>`. Branch base: `${BASE}`.
 
 **2c. Status:**
 
@@ -52,7 +53,7 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status "In Pro
 ```bash
 git branch --list "feat/<N>-*"
 ls -d ../${REPO}-<N> 2>/dev/null
-git fetch origin staging
+git fetch origin ${BASE}
 ```
 
 ∃ branch ⇒ AskUserQuestion: Reuse | Recreate | Abort
@@ -66,12 +67,12 @@ cd ../${REPO}-<N> && git status --porcelain
 **2e. Worktree:**
 
 ```bash
-git worktree add ../${REPO}-<N> -b feat/<N>-<slug> staging
-cd ../${REPO}-<N> && cp .env.example .env && {package_manager} install
-cd apps/api && {package_manager} run db:branch:create --force <N>
+git worktree add ../${REPO}-<N> -b feat/<N>-<slug> ${BASE}
+cd ../${REPO}-<N> && cp .env.example .env 2>/dev/null; {package_manager} install
+# Optional: {commands.worktree_setup} <N>  (configure in stack.yml for DB branch creation etc.)
 ```
 
-XS exception: AskUserQuestion → if approved, `git checkout -b feat/<N>-<slug> staging`.
+XS exception: AskUserQuestion → if approved, `git checkout -b feat/<N>-<slug> ${BASE}`.
 
 ## Step 3 — Context Injection (Tier F only)
 
@@ -140,6 +141,7 @@ Implement Complete
 REPO=$(gh repo view --json name --jq '.name')
 git worktree remove ../${REPO}-<N>
 git branch -D feat/<N>-<slug>
+# Optional: {commands.worktree_teardown} <N>
 ```
 
 ## Edge Cases

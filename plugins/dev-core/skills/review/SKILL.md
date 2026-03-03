@@ -13,7 +13,7 @@ Review branch/PR changes via fresh domain-specific agents → Conventional Comme
 **⚠ Flow: single continuous pipeline (Phases 1→4 + 6 + 8). ¬stop between phases. AskUserQuestion response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, or Phase 8 completion.**
 
 ```
-/review          → diff staging...HEAD
+/review          → diff ${BASE}...HEAD  (BASE = staging if exists, else main)
 /review #42      → gh pr diff 42
 ```
 
@@ -29,8 +29,9 @@ cat(f)    ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
 
 ## Phase 1 — Gather Changes
 
-1. target = PR# provided → `gh pr diff <#>` | else → `git diff staging...HEAD`
-2. Δ = `git diff --name-only staging...HEAD` (or `gh pr diff <#> --name-only`)
+0. `BASE=$(git branch -r | grep -q 'origin/staging' && echo staging || echo main)`
+1. target = PR# provided → `gh pr diff <#>` | else → `git diff ${BASE}...HEAD`
+2. Δ = `git diff --name-only ${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
 3. Read all files ∈ Δ in full (skip binaries, note in report)
 4. |Δ| = 0 → inform, halt
 5. |Δ| > 50 → warn quality degradation, suggest split
@@ -40,7 +41,7 @@ cat(f)    ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
 Before spawning any agents, scan the diff for potential secrets:
 
 ```bash
-git diff staging...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27`][^"\x27`]{8,}' | head -20
+git diff ${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27`][^"\x27`]{8,}' | head -20
 ```
 
 ∃ matches → WARN:
@@ -77,8 +78,8 @@ Spawn fresh agents via Task (¬implementation context → ¬bias).
 | **architect** | |Δ| > 5 ∨ src ⊇ {arch, pattern, structure, service, module} | patterns, structure, circular deps |
 | **product-lead** | spec(issue_num) ∃ | spec compliance, product fit |
 | **tester** | Δ ∩ {`src/`, `test/`, `*.test.*`, `*.spec.*`} ≠ ∅ | coverage, AAA, edge cases |
-| **frontend-dev** | Δ ∩ {`apps/web/`, `packages/ui/`} ≠ ∅ | FE patterns, components, hooks |
-| **backend-dev** | Δ ∩ {`apps/api/`, `packages/types/`} ≠ ∅ | BE patterns, API, errors |
+| **frontend-dev** | Δ ∩ {`{frontend.path}`, `{shared.ui}`} ≠ ∅ | FE patterns, components, hooks |
+| **backend-dev** | Δ ∩ {`{backend.path}`, `{shared.types}`} ≠ ∅ | BE patterns, API, errors |
 | **devops** | Δ ∩ {configs, CI} ≠ ∅ | config, deploy, infra |
 
 **Notes:**
@@ -97,10 +98,10 @@ Spawn fresh agents via Task (¬implementation context → ¬bias).
    |---------|-----------|
    | `./`, `../` | relative, try `.ts`, `/index.ts` |
    | `@repo/<pkg>` | → `packages/<pkg>/src/index.ts` (skip vitest-config, playwright-config) |
-   | `@/*` (web only) | → `apps/web/src/` + rest, try `.ts`, `.tsx`, `/index.{ts,tsx}` |
+   | `@/*` | → `{frontend.path}/src/` + rest, try `.ts`, `.tsx`, `/index.{ts,tsx}` |
    | External | skip |
 
-3. scope = Δ ∪ ⋃{resolve(imports(f)) | f ∈ Δ} ∪ `apps/api/src/auth/**` — deduplicate
+3. scope = Δ ∪ ⋃{resolve(imports(f)) | f ∈ Δ} ∪ `{backend.path}/src/auth/**` — deduplicate
 
 ### Agent payload
 
@@ -178,8 +179,8 @@ AskUserQuestion:
 
 **If Merge as-is:**
 
-1. `git fetch origin staging && git rev-list HEAD..origin/staging --count`
-   - count > 0 → `git rebase origin/staging` + `git push --force-with-lease`
+1. `git fetch origin ${BASE} && git rev-list HEAD..origin/${BASE} --count`
+   - count > 0 → `git rebase origin/${BASE}` + `git push --force-with-lease`
    - conflict → inform user, halt (¬label)
 2. AskUserQuestion: "Add `reviewed` label?" → Yes / No
 3. Yes → `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"` → squash merge on green CI

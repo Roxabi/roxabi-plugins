@@ -29,8 +29,8 @@ gh pr list --state open 2>/dev/null || echo "No gh CLI or no remote"
 # Current branch
 git branch --show-current
 
-# Branch databases (if Postgres container is running)
-docker exec roxabi-postgres psql -U roxabi -tc "SELECT datname FROM pg_database WHERE datname ~ '^roxabi_[0-9]+$'" 2>/dev/null
+# Optional: project-specific teardown hook output (e.g. DB branch list)
+# Configure {commands.worktree_list} in stack.yml if applicable
 ```
 
 ### 2. Analyze Each Branch
@@ -56,12 +56,11 @@ Git Cleanup Summary
 ═══════════════════
 
 Branches:
-  Branch              │ Merged │ PR    │ Worktree │ Database     │ Last Commit  │ Action
-  feat/19-auth        │ ✅ yes │ —     │ —        │ —            │ 3 days ago   │ 🗑 Safe to delete
-  feat/33-i18n        │ ❌ no  │ #42   │ ../rox-33│ roxabi_33    │ 2 hours ago  │ ⚠️ Active work
-  fix/old-bug         │ ✅ yes │ —     │ —        │ —            │ 2 weeks ago  │ 🗑 Safe to delete
-  experiment/test     │ ❌ no  │ —     │ —        │ —            │ 1 month ago  │ ⚠️ Unmerged
-  —                   │ —      │ —     │ —        │ roxabi_123   │ —            │ ⚠️ Orphan DB
+  Branch              │ Merged │ PR    │ Worktree │ Last Commit  │ Action
+  feat/19-auth        │ ✅ yes │ —     │ —        │ 3 days ago   │ 🗑 Safe to delete
+  feat/33-i18n        │ ❌ no  │ #42   │ ../repo-33│ 2 hours ago  │ ⚠️ Active work
+  fix/old-bug         │ ✅ yes │ —     │ —        │ 2 weeks ago  │ 🗑 Safe to delete
+  experiment/test     │ ❌ no  │ —     │ —        │ 1 month ago  │ ⚠️ Unmerged
 
 Worktrees:
   Path                │ Branch          │ Status
@@ -89,8 +88,8 @@ Example question structure:
 For each confirmed deletion:
 
 ```bash
-# Drop branch database (if exists)
-cd <worktree-path>/apps/api && bun run db:branch:drop <issue_number>
+# Optional: project-specific teardown hook (e.g. DB branch drop)
+# [ -n "{commands.worktree_teardown}" ] && {commands.worktree_teardown} <issue_number>
 
 # If branch has a worktree, remove worktree FIRST
 git worktree remove <path>

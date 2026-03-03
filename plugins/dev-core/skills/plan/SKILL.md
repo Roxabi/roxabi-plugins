@@ -40,10 +40,12 @@ Read `docs/processes/dev-process.mdx` + spec.
 
 | Path prefix | Agent |
 |------------|-------|
-| `apps/web/`, `packages/ui/` | frontend-dev |
-| `apps/api/`, `packages/types/` | backend-dev |
-| `packages/config/`, root configs | devops |
+| `{frontend.path}`, `{shared.ui}` | frontend-dev |
+| `{backend.path}`, `{shared.types}` | backend-dev |
+| `{shared.config}`, root configs | devops |
 | `docs/` | doc-writer |
+
+Paths from stack.yml. ¬set → use file domain heuristics (component/hook patterns → FE; service/controller/route patterns → BE).
 
 Always: **tester**. Add: architect (new modules), security-auditor (auth/validation), doc-writer (new APIs).
 Tier S ⇒ skip agent assignment (single session).
