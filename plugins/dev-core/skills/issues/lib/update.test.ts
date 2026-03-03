@@ -13,17 +13,17 @@ process.env.STATUS_OPTIONS_JSON = JSON.stringify({ 'In Progress': 'OPT_IP_ENV' }
 process.env.SIZE_OPTIONS_JSON = JSON.stringify({ XL: 'OPT_XL_ENV' })
 process.env.PRIORITY_OPTIONS_JSON = JSON.stringify({ 'P1 - High': 'OPT_P1_ENV' })
 
-import { test, expect, mock, beforeEach } from 'bun:test'
+import { test, expect, vi, beforeEach } from 'vitest'
 
-const mockGetItemId = mock(() => Promise.resolve('ITEM_42'))
-const mockUpdateField = mock(() => Promise.resolve())
+const mockGetItemId = vi.hoisted(() => vi.fn(() => Promise.resolve('ITEM_42')))
+const mockUpdateField = vi.hoisted(() => vi.fn(() => Promise.resolve()))
 
-mock.module('../../shared/github', () => ({
+vi.mock('../../shared/github', () => ({
   getItemId: mockGetItemId,
   updateField: mockUpdateField,
 }))
 
-mock.module('../../shared/workspace', () => ({
+vi.mock('../../shared/workspace', () => ({
   readWorkspace: () => ({
     projects: [
       {
@@ -42,7 +42,7 @@ mock.module('../../shared/workspace', () => ({
       },
     ],
   }),
-  writeWorkspace: mock(() => {}),
+  writeWorkspace: vi.fn(() => {}),
 }))
 
 const { handleUpdate } = await import('./update')

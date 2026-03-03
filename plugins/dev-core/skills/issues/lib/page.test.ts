@@ -3,7 +3,7 @@
  * RED phase: fail until Task 3.2 adds the helpers.
  */
 
-import { test, expect, describe } from 'bun:test'
+import { test, expect, describe } from 'vitest'
 import type { WorkspaceProject } from '../../shared/workspace'
 
 // @ts-ignore — columnLabel / showCI / etc. may not exist yet (RED phase)

@@ -5,9 +5,9 @@
 
 process.env.GITHUB_REPO = 'Test/test-repo'
 
-import { test, expect, mock, beforeEach } from 'bun:test'
+import { test, expect, vi, beforeEach } from 'vitest'
 
-const mockRun = mock(async (args: string[]) => {
+const mockRun = vi.hoisted(() => vi.fn(async (args: string[]) => {
   // Simulate `gh project create` returning a project
   if (args.includes('create')) return JSON.stringify({ id: 'PVT_new', number: 42 })
   // Simulate `gh project field-list` returning fields
@@ -22,11 +22,11 @@ const mockRun = mock(async (args: string[]) => {
   }
   // Simulate `gh project field-create` success
   return ''
-})
+}))
 
-const mockGhGraphQL = mock(async () => ({ data: { node: { workflows: { nodes: [] } } } }))
+const mockGhGraphQL = vi.hoisted(() => vi.fn(async () => ({ data: { node: { workflows: { nodes: [] } } } })))
 
-mock.module('../../shared/github', () => ({
+vi.mock('../../shared/github', () => ({
   run: mockRun,
   parseProjectFields: (json: string) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -47,10 +47,10 @@ mock.module('../../shared/github', () => ({
   ghGraphQL: mockGhGraphQL,
 }))
 
-const mockWriteWorkspace = mock(() => {})
-const mockReadWorkspace = mock(() => ({ projects: [] }))
+const mockWriteWorkspace = vi.hoisted(() => vi.fn(() => {}))
+const mockReadWorkspace = vi.hoisted(() => vi.fn(() => ({ projects: [] })))
 
-mock.module('../../shared/workspace', () => ({
+vi.mock('../../shared/workspace', () => ({
   readWorkspace: mockReadWorkspace,
   writeWorkspace: mockWriteWorkspace,
   getWorkspacePath: () => '/tmp/test-workspace.json',
