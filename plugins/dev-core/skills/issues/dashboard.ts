@@ -328,7 +328,8 @@ const server = Bun.serve({
         return Response.json({ ok: true, project })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        return Response.json({ ok: false, error: msg }, { status: 400 })
+        console.error('[dashboard] workspace/add error:', msg)
+        return Response.json({ ok: false, error: 'Workspace update failed — check server logs' }, { status: 400 })
       }
     }
 
@@ -350,7 +351,8 @@ const server = Bun.serve({
         return Response.json({ ok: true })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        return Response.json({ ok: false, error: msg }, { status: 400 })
+        console.error('[dashboard] workspace/remove error:', msg)
+        return Response.json({ ok: false, error: 'Workspace update failed — check server logs' }, { status: 400 })
       }
     }
 

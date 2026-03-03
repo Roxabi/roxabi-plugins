@@ -1,5 +1,3 @@
-process.env.GITHUB_REPO = 'TestOrg/test-repo'
-
 /**
  * Tests for resolveFieldIds / fieldIdForSlot added to config.ts.
  * Runs in the same worker as config.test.ts — env is already set up:
@@ -27,13 +25,13 @@ describe('resolveFieldIds', () => {
     const project = { repo: 'r', projectId: 'p', label: 'l' }
     const ids = resolveFieldIds(project)
     // Falls back to process.env.STATUS_FIELD_ID ('' in test env)
-    expect(typeof ids.status).toBe('string')
-    expect(typeof ids.col2).toBe('string')
-    expect(typeof ids.col3).toBe('string')
-    // Options come from cleared env vars — must be Record<string, string>
-    expect(typeof ids.statusOptions).toBe('object')
-    expect(typeof ids.col2Options).toBe('object')
-    expect(typeof ids.col3Options).toBe('object')
+    expect(ids.status).toBe('')
+    expect(ids.col2).toBe('')
+    expect(ids.col3).toBe('')
+    // Options come from cleared env vars — empty objects
+    expect(ids.statusOptions).toEqual({})
+    expect(ids.col2Options).toEqual({})
+    expect(ids.col3Options).toEqual({})
   })
 
   it('throws when fieldIds present but status missing', () => {
@@ -43,7 +41,7 @@ describe('resolveFieldIds', () => {
       // or a future version may contain fieldIds without status; TypeScript won't catch it at runtime.
       fieldIds: { col2: 'C1', col3: 'C2' } as any,
     }
-    expect(() => resolveFieldIds(project)).toThrow('fieldIds.status is required')
+    expect(() => resolveFieldIds(project)).toThrow('[project test-proj] fieldIds.status is required')
   })
 
   it('falls back to .env when fieldIds is {} (empty object)', () => {
@@ -51,7 +49,12 @@ describe('resolveFieldIds', () => {
     // Empty fieldIds ({}) is written by /init when GitHub field resolution fails.
     // It must fall through to the .env fallback — not throw.
     const ids = resolveFieldIds(project)
-    expect(typeof ids.status).toBe('string')
+    expect(ids.status).toBe('')
+    expect(ids.col2).toBe('')
+    expect(ids.col3).toBe('')
+    expect(ids.statusOptions).toEqual({})
+    expect(ids.col2Options).toEqual({})
+    expect(ids.col3Options).toEqual({})
   })
 })
 
