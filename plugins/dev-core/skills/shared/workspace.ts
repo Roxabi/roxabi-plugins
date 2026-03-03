@@ -31,7 +31,8 @@ export interface Workspace {
 }
 
 export function getWorkspacePath(): string {
-  const home = process.env.HOME ?? ''
+  const home = process.env.HOME
+  if (!home) throw new Error('HOME environment variable is not set')
   const vault = `${home}/.roxabi-vault`
   if (existsSync(vault)) return `${vault}/workspace.json`
   return `${home}/.config/roxabi/workspace.json`

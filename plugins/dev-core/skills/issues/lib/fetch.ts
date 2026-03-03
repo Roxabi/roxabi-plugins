@@ -55,7 +55,13 @@ export async function fetchAllProjects(
   return new Map(results.map((r) => [r.label, r.items]))
 }
 
-export function rawItemsToIssues(items: RawItem[]): Issue[] {
+interface SlotNames {
+  col2: string
+  col3: string
+}
+const DEFAULT_SLOTS: SlotNames = { col2: 'Size', col3: 'Priority' }
+
+export function rawItemsToIssues(items: RawItem[], slotNames: SlotNames = DEFAULT_SLOTS): Issue[] {
   const openItems = items.filter((i) => i.content?.state === 'OPEN')
 
   const field = (item: RawItem, name: string): string => {
@@ -91,8 +97,8 @@ export function rawItemsToIssues(items: RawItem[]): Issue[] {
       title: item.content.title,
       url: item.content.url,
       status: field(item, 'Status'),
-      size: field(item, 'Size'),
-      priority: field(item, 'Priority'),
+      size: field(item, slotNames.col2),
+      priority: field(item, slotNames.col3),
       blockStatus,
       blockedBy: bb,
       blocking: bl,

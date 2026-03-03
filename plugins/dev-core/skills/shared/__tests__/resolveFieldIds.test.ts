@@ -1,3 +1,5 @@
+process.env.GITHUB_REPO = 'TestOrg/test-repo'
+
 /**
  * Tests for resolveFieldIds / fieldIdForSlot added to config.ts.
  * Runs in the same worker as config.test.ts — env is already set up:

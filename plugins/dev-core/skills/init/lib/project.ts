@@ -129,7 +129,7 @@ export async function createProject(
     projectId: project.id,
     label: repoName,
     type,
-    fieldIds: Object.keys(fieldIds).length > 0 ? fieldIds : undefined,
+    fieldIds: Object.keys(fieldIds).length > 0 ? fieldIds : ({} as ProjectFieldIds),
   }
   writeWorkspace({ ...ws, projects: [...ws.projects, entry] })
 

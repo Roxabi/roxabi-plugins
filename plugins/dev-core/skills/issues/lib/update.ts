@@ -56,6 +56,7 @@ export async function handleUpdate(req: Request): Promise<Response> {
     return Response.json({ ok: true })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    return Response.json({ ok: false, error: msg }, { status: 500 })
+    console.error('[update] handleUpdate error:', msg)
+    return Response.json({ ok: false, error: 'Update failed — check server logs' }, { status: 500 })
   }
 }
