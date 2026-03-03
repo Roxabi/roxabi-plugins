@@ -70,7 +70,7 @@ export async function discover(): Promise<DiscoveryResult> {
 
   // Fields (if we have a project)
   const envData = result.env
-  const projectId = envData.PROJECT_ID
+  const projectId = envData.GH_PROJECT_ID
   if (projectId && result.projects.length > 0) {
     const project = result.projects.find((p) => p.id === projectId) ?? result.projects[0]
     try {

@@ -202,7 +202,7 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \
 Run `/init` to auto-detect and populate these env vars. Project field operations (status, size, priority) require a configured project board — without it, issue creation and dependency management still work but field updates are skipped with a clear error message.
 
 Environment variables (set by `/init` in `.env`):
-- `PROJECT_ID` — GitHub Project V2 ID (**required** for field updates)
+- `GH_PROJECT_ID` — GitHub Project V2 ID (**required** for field updates)
 - `STATUS_FIELD_ID` — Project field ID for Status
 - `SIZE_FIELD_ID` — Project field ID for Size
 - `PRIORITY_FIELD_ID` — Project field ID for Priority

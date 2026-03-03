@@ -1,0 +1,386 @@
+---
+title: "Plan: feat(dashboard): typed workspace projects — technical vs company board support"
+issue: 7
+spec: artifacts/specs/7-typed-workspace-projects.mdx
+complexity: 7/10
+tier: F-full
+generated: "2026-03-03T00:00:00Z"
+---
+
+## Summary
+
+Extend `WorkspaceProject` with `type` and `fieldIds` so that column headers, field dispatch,
+CI/Vercel/dev-link visibility, and default sort are all driven per-project. Zero breaking
+change: `type` defaults to `'technical'`, `fieldIds` absent falls back to `.env`.
+
+## Bootstrap Context
+
+From `artifacts/analyses/typed-workspace-projects.md`:
+- `WorkspaceProject` has no `type` or `fieldIds` — field IDs come from global `.env` vars
+- `update.ts` uses a global `FIELD_MAP` (single source for all projects)
+- `fetch.ts` defines its own local `WorkspaceProject` interface (duplication to fix)
+- `page.ts` hardcodes column headers ("Size", "Pri") and the context menu with `SIZE_VALUES`/`PRIORITY_VALUES`
+- `init.ts` routes to `lib/project.ts` for `create-project`; currently no `--type` flag
+- Selected shape: semantic `col2`/`col3` slots (not named fields) + `ProjectType` as closed union
+
+## Agents
+
+| Agent | Task count | Files |
+|-------|-----------|-------|
+| tester | 4 (RED tasks + RED-GATEs) | `config.test.ts`, `update.test.ts`, `page.test.ts`, `project.test.ts` |
+| backend-dev | 9 | `workspace.ts`, `config.ts`, `update.ts`, `fetch.ts`, `init.ts`, `lib/project.ts` |
+| frontend-dev | 5 | `page.ts` |
+| doc-writer | 1 | `skills/init/SKILL.md` |
+
+All paths relative to `plugins/dev-core/`.
+
+## Consistency Report
+
+- Criteria covered: 16/16
+- Uncovered criteria: none
+- Tasks without spec backing: none
+- Gold plating exemptions applied: 1 (Task 4.5 — SKILL.md docs)
+
+---
+
+## Micro-Tasks
+
+### Slice V1: Types + Config
+
+#### Task 1.1: Write failing tests for `resolveFieldIds` → tester
+- **File:** `skills/shared/config.test.ts` (new)
+- **Snippet:**
+  ```typescript
+  import { resolveFieldIds } from './config'
+  test('uses project.fieldIds when present', () => {
+    const project = { repo: 'r', projectId: 'p', label: 'l',
+      fieldIds: { status: 'S1', col2: 'C1', col3: 'C2' } }
+    expect(resolveFieldIds(project).status).toBe('S1')
+  })
+  test('falls back to .env when fieldIds absent', () => { ... })
+  test('throws when fieldIds present but status missing', () => { ... })
+  ```
+- **Verify:** `bun test plugins/dev-core/skills/shared/config.test.ts` (deferred — expected fail pre-impl)
+- **Expected:** 3 failing tests
+- **Time:** 5 min | **Difficulty:** 2
+- **Traces:** U2→N1, SC-3, SC-12, SC-13 | **Phase:** RED
+
+#### Task 1.2: Define `ProjectType`, `ProjectFieldIds`, extend `WorkspaceProject` → backend-dev
+- **File:** `plugins/dev-core/skills/shared/workspace.ts`
+- **Snippet:**
+  ```typescript
+  export type ProjectType = 'technical' | 'company'
+  export interface ProjectFieldIds {
+    status: string
+    col2?: string
+    col3?: string
+    statusOptions?: Record<string, string>
+    col2Options?: Record<string, string>
+    col3Options?: Record<string, string>
+  }
+  export interface WorkspaceProject {
+    repo: string; projectId: string; label: string
+    type?: ProjectType        // defaults to 'technical'
+    fieldIds?: ProjectFieldIds
+    vercelProjectId?: string; vercelTeamId?: string
+  }
+  ```
+- **Verify:** `grep -q 'ProjectType' plugins/dev-core/skills/shared/workspace.ts` (ready)
+- **Expected:** types present, TypeScript compiles
+- **Time:** 5 min | **Difficulty:** 2
+- **Traces:** U1, U2, U3, SC-1, SC-2 | **Phase:** GREEN
+
+#### Task 1.3: Add `resolveFieldIds` + `fieldIdForSlot` to `config.ts` → backend-dev
+- **File:** `plugins/dev-core/skills/shared/config.ts`
+- **Snippet:**
+  ```typescript
+  import type { WorkspaceProject, ProjectFieldIds } from './workspace'
+
+  export function resolveFieldIds(project: WorkspaceProject): ProjectFieldIds {
+    if (project.fieldIds) {
+      if (!project.fieldIds.status) {
+        throw new Error(`[project ${project.label}] fieldIds.status is required`)
+      }
+      return project.fieldIds  // complete source — no env mixing
+    }
+    // fallback: build from .env (existing behavior)
+    return {
+      status: STATUS_FIELD_ID,
+      col2: SIZE_FIELD_ID,
+      col3: PRIORITY_FIELD_ID,
+      statusOptions: STATUS_OPTIONS,
+      col2Options: SIZE_OPTIONS,
+      col3Options: PRIORITY_OPTIONS,
+    }
+  }
+
+  export function fieldIdForSlot(
+    project: WorkspaceProject,
+    slot: 'col2' | 'col3'
+  ): string | undefined {
+    return resolveFieldIds(project)[slot]
+  }
+  ```
+- **Verify:** `bun test plugins/dev-core/skills/shared/config.test.ts` (ready)
+- **Expected:** 3 passing tests
+- **Time:** 8 min | **Difficulty:** 3
+- **Traces:** N1, N3, SC-3, SC-12, SC-13 | **Phase:** GREEN
+
+#### RED-GATE: RED complete V1 → tester
+- **Verify:** All V1 RED tasks passing
+- **Phase:** RED-GATE
+
+---
+
+### Slice V2: Field dispatch
+
+#### Task 2.1: Write failing tests for updated `handleUpdate` → tester
+- **File:** `plugins/dev-core/skills/issues/lib/update.test.ts` (new)
+- **Snippet:**
+  ```typescript
+  test('uses project fieldIds.col2 for size field', async () => {
+    const req = new Request('...', { method: 'POST', body: JSON.stringify({
+      issueNumber: 42, field: 'col2', value: 'XL', projectLabel: 'ryvo-tech'
+    })})
+    // mock workspace returning project with fieldIds
+    // expect updateField called with fieldIds.col2, not SIZE_FIELD_ID
+  })
+  test('skips update when fieldIds.col2 absent', async () => { ... })
+  test('resolves dropdown from fieldIds.col2Options', async () => { ... })
+  ```
+- **Verify:** `bun test plugins/dev-core/skills/issues/lib/update.test.ts` (deferred — expected fail)
+- **Expected:** 3 failing tests
+- **Time:** 5 min | **Difficulty:** 2
+- **Traces:** N2, N3, SC-10, SC-11 | **Phase:** RED
+
+#### Task 2.2: Remove duplicate `WorkspaceProject` from `fetch.ts`, import from `workspace.ts` [P] → backend-dev
+- **File:** `plugins/dev-core/skills/issues/lib/fetch.ts`
+- **Snippet:**
+  ```typescript
+  // Remove lines 18-22 (local WorkspaceProject interface)
+  import type { WorkspaceProject } from '../../shared/workspace'
+  // fetchAllProjects signature unchanged — now uses canonical type
+  ```
+- **Verify:** `grep -q 'from.*shared/workspace' plugins/dev-core/skills/issues/lib/fetch.ts` (ready)
+- **Expected:** single canonical WorkspaceProject
+- **Time:** 3 min | **Difficulty:** 1
+- **Traces:** U3, SC-1 | **Phase:** GREEN
+
+#### Task 2.3: Update `handleUpdate` to use per-project `resolveFieldIds` → backend-dev
+- **File:** `plugins/dev-core/skills/issues/lib/update.ts`
+- **Snippet:**
+  ```typescript
+  import { readWorkspace } from '../../shared/workspace'
+  import { resolveFieldIds } from '../../shared/config'
+
+  const body = await req.json() as { issueNumber: number; field: string; value: string; projectLabel?: string }
+  const project = body.projectLabel
+    ? readWorkspace().projects.find(p => p.label === body.projectLabel)
+    : undefined
+  const fieldIds = project ? resolveFieldIds(project) : buildLegacyFieldIds()
+  // map field 'size'→'col2', 'priority'→'col3' for legacy callers
+  const slot = FIELD_ALIAS[body.field] ?? body.field
+  const fieldId = fieldIds[slot as keyof typeof fieldIds] as string | undefined
+  if (!fieldId) return Response.json({ ok: true })  // no-op when slot absent
+  const options = fieldIds[`${slot}Options` as keyof typeof fieldIds] as Record<string,string> | undefined
+  const optionId = options?.[body.value]
+  if (!optionId) return Response.json({ ok: false, error: `Unknown value: ${body.value}` }, { status: 400 })
+  ```
+- **Verify:** `bun test plugins/dev-core/skills/issues/lib/update.test.ts` (ready)
+- **Expected:** 3 passing tests
+- **Time:** 10 min | **Difficulty:** 3
+- **Traces:** N2, SC-10, SC-11, SC-12 | **Phase:** GREEN
+
+#### RED-GATE: RED complete V2 → tester
+- **Verify:** All V2 RED tasks passing
+- **Phase:** RED-GATE
+
+---
+
+### Slice V3: Column rendering
+
+#### Task 3.1: Write failing tests for `columnLabel`, `show*`, `defaultSort` → tester
+- **File:** `plugins/dev-core/skills/issues/lib/page.test.ts` (new)
+- **Snippet:**
+  ```typescript
+  const tech = { type: 'technical' as const, ...base }
+  const co   = { type: 'company' as const, ...base }
+  test('columnLabel col2 technical = Size', () => expect(columnLabel(tech,'col2')).toEqual({label:'Size',icon:'📐'}))
+  test('columnLabel col2 company = Quarter', () => ...)
+  test('showCI company = false', () => expect(showCI(co)).toBe(false))
+  test('showCI technical = true', () => ...)
+  test('defaultSort company = col2 asc', () => ...)
+  ```
+- **Verify:** `bun test plugins/dev-core/skills/issues/lib/page.test.ts` (deferred — expected fail)
+- **Expected:** 8 failing tests
+- **Time:** 5 min | **Difficulty:** 2
+- **Traces:** N4, N5, N6, N7, N8, N9, SC-4, SC-5, SC-6, SC-7, SC-8, SC-9 | **Phase:** RED
+
+#### Task 3.2: Add `columnLabel`, `showCI`, `showDevLinks`, `showSubIssues`, `defaultSort` helpers → frontend-dev
+- **File:** `plugins/dev-core/skills/issues/lib/page.ts`
+- **Snippet:**
+  ```typescript
+  import type { WorkspaceProject } from '../../shared/workspace'
+
+  const COLUMN_SCHEMA = {
+    technical: { col2: { label: 'Size', icon: '📐' }, col3: { label: 'Pri', icon: '🔥' } },
+    company:   { col2: { label: 'Quarter', icon: '📅' }, col3: { label: 'Pillar', icon: '🏛' } },
+  } as const
+
+  export function columnLabel(p: WorkspaceProject, slot: 'col2' | 'col3') {
+    return COLUMN_SCHEMA[p.type ?? 'technical'][slot]
+  }
+  export const showCI = (p: WorkspaceProject) => (p.type ?? 'technical') !== 'company'
+  export const showDevLinks = (p: WorkspaceProject) => (p.type ?? 'technical') !== 'company'
+  export const showSubIssues = (p: WorkspaceProject) => (p.type ?? 'technical') !== 'company'
+  export function defaultSort(p: WorkspaceProject) {
+    return (p.type ?? 'technical') === 'company' ? 'col2-asc' : 'priority-desc'
+  }
+  ```
+- **Verify:** `bun test plugins/dev-core/skills/issues/lib/page.test.ts` (ready)
+- **Expected:** 8 passing tests
+- **Time:** 8 min | **Difficulty:** 2
+- **Traces:** N4, N5, N6, N7, N8, N9, SC-4, SC-5, SC-6, SC-7, SC-8, SC-9 | **Phase:** GREEN
+
+#### Task 3.3: Update `buildIssueTable` to use `columnLabel` for col2/col3 headers → frontend-dev
+- **File:** `plugins/dev-core/skills/issues/lib/page.ts`
+- **Snippet:**
+  ```typescript
+  function buildIssueTable(issues: Issue[], project: WorkspaceProject): string {
+    const c2 = columnLabel(project, 'col2')
+    const c3 = columnLabel(project, 'col3')
+    // thead: replace hardcoded <th>Size</th><th>Pri</th>
+    // with: `<th>${c2.icon} ${c2.label}</th><th>${c3.icon} ${c3.label}</th>`
+    // also pass project.label as data attribute on <table> for JS context menu
+  }
+  ```
+- **Verify:** `grep -q 'columnLabel' plugins/dev-core/skills/issues/lib/page.ts` (ready)
+- **Expected:** issue table headers driven by project type
+- **Time:** 5 min | **Difficulty:** 2
+- **Traces:** N4, N5, SC-4, SC-5 | **Phase:** GREEN
+
+#### Task 3.4: Thread `WorkspaceProject` through `buildHtml` + control CI/dev/graph sections → frontend-dev
+- **File:** `plugins/dev-core/skills/issues/lib/page.ts`
+- **Snippet:**
+  ```typescript
+  // buildHtml signature: change workspaceProjects type from Array<{label,repo}> to WorkspaceProject[]
+  // In buildAllView: pass project to buildIssueTable(issues, project)
+  // dep graph section: wrap in showSubIssues(project) guard per project
+  // CI/PR sections: already gated on isMultiProject; add per-project type check for non-technical
+  ```
+- **Verify:** `[manual]` — visual check with company project tab
+- **Expected:** company tab shows no dep graph, no CI section
+- **Time:** 10 min | **Difficulty:** 4
+- **Traces:** N6, N7, N9, SC-6, SC-7, SC-8 | **Phase:** GREEN
+
+#### Task 3.5: Update context menu to use per-project `fieldIds` options → frontend-dev
+- **File:** `plugins/dev-core/skills/issues/lib/page.ts`
+- **Snippet:**
+  ```typescript
+  // Embed per-project options as JSON in <table data-project-options="..."> attribute
+  // JS: on contextmenu, read table.dataset.projectOptions, parse, rebuild ctx-menu items
+  // Fallback: use STATUS_VALUES/SIZE_VALUES/PRIORITY_VALUES for technical (current behavior)
+  ```
+- **Verify:** `[manual]` — right-click on company issue shows Quarter/Pillar options
+- **Expected:** context menu items match project type's field options
+- **Time:** 10 min | **Difficulty:** 4
+- **Traces:** N4, N5, SC-4, SC-5, SC-11 | **Phase:** GREEN
+
+#### RED-GATE: RED complete V3 → tester
+- **Verify:** All V3 RED tasks passing
+- **Phase:** RED-GATE
+
+---
+
+### Slice V4: Init scaffolding
+
+#### Task 4.1: Write failing tests for `--type` flag + `fieldIds` write → tester
+- **File:** `plugins/dev-core/skills/init/lib/project.test.ts` (new)
+- **Snippet:**
+  ```typescript
+  test('createProject writes type to workspace entry', async () => { ... })
+  test('createProject writes fieldIds on scaffold', async () => { ... })
+  test('createProject warns + writes fieldIds:{} when GitHub fields missing', async () => { ... })
+  ```
+- **Verify:** `bun test plugins/dev-core/skills/init/lib/project.test.ts` (deferred — expected fail)
+- **Expected:** 3 failing tests
+- **Time:** 5 min | **Difficulty:** 2
+- **Traces:** N10, N11, SC-14, SC-15, SC-16 | **Phase:** RED
+
+#### Task 4.2: Add `--type` flag parsing in `init.ts` create-project command [P] → backend-dev
+- **File:** `plugins/dev-core/skills/init/init.ts`
+- **Snippet:**
+  ```typescript
+  case 'create-project': {
+    const type = parseFlag('--type', 'technical') as 'technical' | 'company'
+    const result = await createProject(owner, repo, type)
+    ...
+  }
+  ```
+- **Verify:** `grep -q "'--type'" plugins/dev-core/skills/init/init.ts` (ready)
+- **Expected:** `--type` flag parsed and passed to createProject
+- **Time:** 3 min | **Difficulty:** 1
+- **Traces:** N10, SC-14 | **Phase:** GREEN
+
+#### Task 4.3: Update `createProject` to write `type` + `fieldIds` to `workspace.json` → backend-dev
+- **File:** `plugins/dev-core/skills/init/lib/project.ts`
+- **Snippet:**
+  ```typescript
+  export async function createProject(
+    owner: string, repo: string, type: ProjectType = 'technical'
+  ): Promise<...> {
+    // existing project creation logic
+    const fieldIds = await resolveProjectFieldIds(projectId, type)  // new helper
+    const entry: WorkspaceProject = { repo: `${owner}/${repo}`, projectId, label: ..., type, fieldIds }
+    writeWorkspace({ ...ws, projects: [...ws.projects, entry] })
+  }
+  ```
+- **Verify:** `bun test plugins/dev-core/skills/init/lib/project.test.ts` → first 2 passing (ready)
+- **Expected:** workspace.json contains type + fieldIds
+- **Time:** 10 min | **Difficulty:** 3
+- **Traces:** N10, N11, SC-14, SC-15 | **Phase:** GREEN
+
+#### Task 4.4: Add `resolveProjectFieldIds` — GitHub field query, slot mapping, missing-field warning → backend-dev
+- **File:** `plugins/dev-core/skills/init/lib/project.ts`
+- **Snippet:**
+  ```typescript
+  async function resolveProjectFieldIds(projectId: string, type: ProjectType): Promise<ProjectFieldIds> {
+    const fields = await queryGitHubProjectFields(projectId)
+    const SLOT_NAMES = type === 'company'
+      ? { col2: ['Quarter'], col3: ['Pillar'] }
+      : { col2: ['Size'], col3: ['Priority'] }
+    const col2Field = fields.find(f => SLOT_NAMES.col2.includes(f.name))
+    const col3Field = fields.find(f => SLOT_NAMES.col3.includes(f.name))
+    const statusField = fields.find(f => f.name === 'Status')
+    if (!statusField || !col2Field || !col3Field) {
+      console.warn(`[init] some fields not found for project ${projectId}; writing fieldIds: {}`)
+      return {}  // partial or empty — user fills manually
+    }
+    return {
+      status: statusField.id, col2: col2Field.id, col3: col3Field.id,
+      statusOptions: toOptionMap(statusField), col2Options: toOptionMap(col2Field),
+      col3Options: toOptionMap(col3Field),
+    }
+  }
+  ```
+- **Verify:** `bun test plugins/dev-core/skills/init/lib/project.test.ts` (ready — all 3 pass)
+- **Expected:** fieldIds populated from GitHub fields; warn + `{}` on missing
+- **Time:** 10 min | **Difficulty:** 4
+- **Traces:** N11, SC-15, SC-16 | **Phase:** GREEN
+
+#### Task 4.5: Update `SKILL.md` to document `--type` option → doc-writer
+- **File:** `plugins/dev-core/skills/init/SKILL.md`
+- **Snippet:**
+  ```
+  ### create-project
+  `--type technical|company` (default: technical) — sets project type in workspace.json.
+  company: col2=Quarter, col3=Pillar, no CI/Vercel, no /dev links.
+  ```
+- **Verify:** `grep -q '\-\-type' plugins/dev-core/skills/init/SKILL.md` (ready)
+- **Expected:** --type option documented with schema table
+- **Time:** 5 min | **Difficulty:** 1
+- **Traces:** N10 (exempt — docs only) | **Phase:** GREEN
+
+#### RED-GATE: RED complete V4 → tester
+- **Verify:** All V4 RED tasks passing
+- **Phase:** RED-GATE

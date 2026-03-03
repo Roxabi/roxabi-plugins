@@ -3,7 +3,7 @@
  * Uses direct fetch() against GitHub API with GITHUB_TOKEN.
  */
 
-import { GITHUB_REPO, PROJECT_ID } from './config'
+import { GITHUB_REPO, GH_PROJECT_ID } from './config'
 import {
   ADD_BLOCKED_BY_MUTATION,
   ADD_SUB_ISSUE_MUTATION,
@@ -168,7 +168,7 @@ export async function createGitHubIssue(
 
 /** Get project item ID for an issue number. */
 export async function getItemId(issueNumber: number): Promise<string> {
-  if (!PROJECT_ID) throw new Error('PROJECT_ID not configured. Run /init or set PROJECT_ID env var.')
+  if (!GH_PROJECT_ID) throw new Error('GH_PROJECT_ID not configured. Run /init or set GH_PROJECT_ID env var.')
   const [owner, repo] = GITHUB_REPO.split('/')
   const data = (await ghGraphQL(ITEM_ID_QUERY, { owner, repo, number: issueNumber })) as {
     data: {
@@ -178,16 +178,16 @@ export async function getItemId(issueNumber: number): Promise<string> {
     }
   }
   const items = data.data.repository.issue.projectItems.nodes
-  const item = items.find((i) => i.project.id === PROJECT_ID)
+  const item = items.find((i) => i.project.id === GH_PROJECT_ID)
   if (!item) throw new Error(`Issue #${issueNumber} not found in project`)
   return item.id
 }
 
 /** Add an issue to the project board. Returns the new item ID. */
 export async function addToProject(nodeId: string): Promise<string> {
-  if (!PROJECT_ID) throw new Error('PROJECT_ID not configured. Run /init or set PROJECT_ID env var.')
+  if (!GH_PROJECT_ID) throw new Error('GH_PROJECT_ID not configured. Run /init or set GH_PROJECT_ID env var.')
   const data = (await ghGraphQL(ADD_TO_PROJECT_MUTATION, {
-    projectId: PROJECT_ID,
+    projectId: GH_PROJECT_ID,
     contentId: nodeId,
   })) as { data: { addProjectV2ItemById: { item: { id: string } } } }
   return data.data.addProjectV2ItemById.item.id
@@ -199,9 +199,9 @@ export async function updateField(
   fieldId: string,
   optionId: string
 ): Promise<void> {
-  if (!PROJECT_ID) throw new Error('PROJECT_ID not configured. Run /init or set PROJECT_ID env var.')
+  if (!GH_PROJECT_ID) throw new Error('GH_PROJECT_ID not configured. Run /init or set GH_PROJECT_ID env var.')
   await ghGraphQL(UPDATE_FIELD_MUTATION, {
-    projectId: PROJECT_ID,
+    projectId: GH_PROJECT_ID,
     itemId,
     fieldId,
     optionId,

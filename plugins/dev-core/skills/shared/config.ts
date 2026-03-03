@@ -3,7 +3,7 @@
  * Single source of truth — used by both issues/ and issue-triage/ skills.
  *
  * GITHUB_REPO is auto-detected from git remote "origin" when not set via env.
- * PROJECT_ID and field IDs default to empty string — callers handle absence.
+ * GH_PROJECT_ID and field IDs default to empty string — callers handle absence.
  * Run `/init` to auto-detect and write all values to `.env`.
  */
 
@@ -20,7 +20,7 @@ export function detectGitHubRepo(): string {
 }
 
 export const GITHUB_REPO = detectGitHubRepo()
-export const PROJECT_ID = process.env.PROJECT_ID ?? ''
+export const GH_PROJECT_ID = process.env.GH_PROJECT_ID ?? ''
 export const STATUS_FIELD_ID = process.env.STATUS_FIELD_ID ?? ''
 export const SIZE_FIELD_ID = process.env.SIZE_FIELD_ID ?? ''
 export const PRIORITY_FIELD_ID = process.env.PRIORITY_FIELD_ID ?? ''
@@ -45,9 +45,9 @@ export const SIZE_OPTIONS: Record<string, string> = parseOptionsEnv('SIZE_OPTION
 
 export const PRIORITY_OPTIONS: Record<string, string> = parseOptionsEnv('PRIORITY_OPTIONS_JSON', {})
 
-/** True when PROJECT_ID and at least one option map are configured via env. */
+/** True when GH_PROJECT_ID and at least one option map are configured via env. */
 export function isProjectConfigured(): boolean {
-  return PROJECT_ID !== '' && Object.keys(STATUS_OPTIONS).length > 0
+  return GH_PROJECT_ID !== '' && Object.keys(STATUS_OPTIONS).length > 0
 }
 
 export const NOT_CONFIGURED_MSG =

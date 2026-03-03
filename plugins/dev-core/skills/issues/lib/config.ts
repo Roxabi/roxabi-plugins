@@ -9,7 +9,7 @@ export {
   PRIORITY_OPTIONS,
   PRIORITY_ORDER,
   PRIORITY_SHORT,
-  PROJECT_ID,
+  GH_PROJECT_ID,
   SIZE_FIELD_ID,
   SIZE_OPTIONS,
   STATUS_FIELD_ID,
@@ -45,7 +45,7 @@ function readWorkspace(): Workspace {
 /**
  * Resolve project config for the current repo.
  * Priority 1: workspace.json entry matching current repo
- * Priority 2: .env / process.env fallback (PROJECT_ID etc.)
+ * Priority 2: .env / process.env fallback (GH_PROJECT_ID etc.)
  */
 export function resolveConfig(): { projectId: string; source: 'workspace' | 'env' } {
   const ws = readWorkspace()
@@ -55,6 +55,6 @@ export function resolveConfig(): { projectId: string; source: 'workspace' | 'env
     const entry = ws.projects.find(p => p.repo === currentRepo)
     if (entry?.projectId) return { projectId: entry.projectId, source: 'workspace' }
   }
-  const envId = process.env.PROJECT_ID ?? ''
+  const envId = process.env.GH_PROJECT_ID ?? ''
   return { projectId: envId, source: 'env' }
 }

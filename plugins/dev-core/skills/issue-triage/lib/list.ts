@@ -3,7 +3,7 @@
  * Replaces list.sh.
  */
 
-import { PROJECT_ID } from '../../shared/config'
+import { GH_PROJECT_ID } from '../../shared/config'
 import { ghGraphQL } from '../../shared/github'
 import { TRIAGE_QUERY } from '../../shared/queries'
 import type { RawItem } from '../../shared/types'
@@ -13,7 +13,7 @@ async function fetchAllItems(): Promise<RawItem[]> {
   let cursor: string | undefined
 
   do {
-    const variables: Record<string, string> = { projectId: PROJECT_ID }
+    const variables: Record<string, string> = { projectId: GH_PROJECT_ID }
     if (cursor) variables.cursor = cursor
 
     const data = (await ghGraphQL(TRIAGE_QUERY, variables)) as {
