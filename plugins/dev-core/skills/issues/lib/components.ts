@@ -346,6 +346,7 @@ export function vercelCards(deployments: VercelDeployment[]): string {
       <div class="vd-item">
         <span class="vd-state">${display.icon} ${display.label}</span>
         <span class="badge ${envCls}">${env}</span>
+        ${d.name ? `<span class="vd-project-name">${escHtml(d.name)}</span>` : ''}
         <a href="${escHtml(deployUrl)}" target="_blank" rel="noopener" class="vd-url">${escHtml(d.url)}</a>
         ${branch ? `<code class="vd-branch">${escHtml(branch)}</code>` : ''}
         ${msg ? `<span class="vd-msg">${escHtml(msg)}</span>` : ''}

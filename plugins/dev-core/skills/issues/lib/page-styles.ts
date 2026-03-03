@@ -309,6 +309,7 @@ export const PAGE_STYLES = `
   .vd-error .vd-state { color: var(--red); }
   .vd-env-prod { background: rgba(63,185,80,.15); color: var(--green); border-color: rgba(63,185,80,.4); }
   .vd-env-preview { background: rgba(88,166,255,.1); color: var(--accent); border-color: rgba(88,166,255,.3); }
+  .vd-project-name { font-size: 11px; font-weight: 600; color: var(--text); background: var(--bg-alt); padding: 1px 6px; border-radius: 4px; }
   .vd-url { color: var(--accent); text-decoration: none; font-size: 12px; }
   .vd-url:hover { text-decoration: underline; }
   .vd-branch { font-size: 11px; color: var(--text-muted); background: var(--bg); padding: 1px 6px; border-radius: 4px; }

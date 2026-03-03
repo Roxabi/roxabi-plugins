@@ -346,6 +346,7 @@ export async function fetchVercelDeployments(
     const mapped = data.deployments.map((d) => ({
       uid: d.uid,
       url: d.url,
+      name: d.name ?? '',
       state: d.state ?? d.readyState ?? '',
       target: d.target ?? '',
       createdAt: d.createdAt,
@@ -440,6 +441,7 @@ export async function fetchBranchCI(repoSlug: string = GITHUB_REPO): Promise<Bra
 interface RawVercelDeployment {
   uid: string
   url: string
+  name?: string
   state?: string
   readyState?: string
   target?: string

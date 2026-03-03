@@ -61,6 +61,7 @@ export interface BuildStep {
 export interface VercelDeployment {
   uid: string
   url: string
+  name: string
   state: string
   target: string
   createdAt: number
