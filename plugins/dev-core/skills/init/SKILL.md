@@ -186,12 +186,11 @@ Scan the filesystem for other repos with dev-core configured but not yet in work
 
 1. **Find candidates:**
    ```bash
-   # Search parent dir + ~/projects for .env files with GITHUB_REPO set
-   SEARCH_DIRS="$(dirname $PWD) $HOME/projects"
-   for dir in $SEARCH_DIRS; do
-     find "$dir" -maxdepth 3 -name ".env" 2>/dev/null \
-       | xargs grep -l "^GITHUB_REPO=" 2>/dev/null
-   done | sort -u
+   # Constrain to $HOME to avoid reading files outside user's home directory
+   # maxdepth 6 prevents deep traversal while covering typical monorepo layouts
+   find "$HOME" -maxdepth 6 -name ".env" 2>/dev/null \
+     | xargs grep -l "^GITHUB_REPO=" 2>/dev/null \
+     | sort -u
    ```
 
 2. **For each found `.env`**, extract `GITHUB_REPO`, `GH_PROJECT_ID`, and Vercel config:

@@ -79,7 +79,7 @@ function buildDevCoreSections(opts: ScaffoldOpts): EnvSection[] {
 }
 
 const DEV_CORE_KEYS = new Set([
-  'GITHUB_REPO', 'GH_PROJECT_ID',
+  'GITHUB_REPO', 'GH_PROJECT_ID', 'PROJECT_ID', // PROJECT_ID: tombstone — strips legacy key on next /init
   'STATUS_FIELD_ID', 'SIZE_FIELD_ID', 'PRIORITY_FIELD_ID',
   'STATUS_OPTIONS_JSON', 'SIZE_OPTIONS_JSON', 'PRIORITY_OPTIONS_JSON',
   'VERCEL_TOKEN', 'VERCEL_PROJECT_ID', 'VERCEL_TEAM_ID',

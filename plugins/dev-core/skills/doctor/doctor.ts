@@ -89,7 +89,7 @@ function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): Section 
         verified = data.projects?.some((p) => p.id === projectId) ?? false
       } catch {}
     }
-    checks.push({ name: 'GH_PROJECT_ID', status: verified ? 'pass' : 'warn', detail: verified ? `${projectId} (verified)` : `${projectId} (not verified)` })
+    checks.push({ name: 'GH_PROJECT_ID', status: verified ? 'pass' : 'warn', detail: verified ? 'set (verified)' : 'set (not verified)' })
   } else {
     checks.push({ name: 'GH_PROJECT_ID', status: 'fail', detail: 'not set in .env' })
   }
