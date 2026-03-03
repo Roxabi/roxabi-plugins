@@ -360,15 +360,35 @@ export async function fetchVercelDeployments(
       isCurrent: false,
     }))
 
-    // Show: all ongoing + current production + latest error (only if newer than current prod)
-    const ongoing = mapped.filter((d) => ['BUILDING', 'QUEUED', 'INITIALIZING'].includes(d.state))
+    const FIVE_MIN = 5 * 60 * 1000
+    const now = Date.now()
+    const isOngoing = (d: (typeof mapped)[0]) => ['BUILDING', 'QUEUED', 'INITIALIZING'].includes(d.state)
+
+    // Production: current (latest READY prod) + latest prod error if newer than current
     const currentProd = mapped.find((d) => d.state === 'READY' && d.target === 'production')
     if (currentProd) currentProd.isCurrent = true
-    const latestError = mapped.find((d) => d.state === 'ERROR')
-    const showError = latestError && (!currentProd || latestError.createdAt > currentProd.createdAt)
+    const latestProdError = mapped.find((d) => d.state === 'ERROR' && d.target === 'production')
+    const showProdError = latestProdError && (!currentProd || latestProdError.createdAt > currentProd.createdAt)
+
+    // Preview: latest ongoing preview + latest completed preview if within last 5 min
+    const latestOngoingPreview = mapped.find((d) => isOngoing(d) && d.target !== 'production')
+    const latestCompletedPreview = mapped.find(
+      (d) => !isOngoing(d) && d.target !== 'production' && now - d.createdAt < FIVE_MIN,
+    )
+
+    // Also include ongoing production deployments
+    const ongoingProd = mapped.filter((d) => isOngoing(d) && d.target === 'production')
+
     const seen = new Set<string>()
     const filtered: typeof mapped = []
-    for (const d of [...ongoing, ...(currentProd ? [currentProd] : []), ...(showError ? [latestError] : [])]) {
+    const candidates = [
+      ...ongoingProd,
+      ...(currentProd ? [currentProd] : []),
+      ...(showProdError ? [latestProdError] : []),
+      ...(latestOngoingPreview ? [latestOngoingPreview] : []),
+      ...(latestCompletedPreview ? [latestCompletedPreview] : []),
+    ]
+    for (const d of candidates) {
       if (!seen.has(d.uid)) {
         seen.add(d.uid)
         filtered.push(d)
