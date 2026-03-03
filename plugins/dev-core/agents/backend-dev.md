@@ -27,6 +27,10 @@ skills: context7-plugin:docs
 
 If `{backend.path}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
+**Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
+**Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
+**Quality gates:** after implementation run `{commands.lint} && {commands.typecheck} && {commands.test}`. ✗ → fix before reporting done. Config failures → message devops.
+
 **Domain:** `{backend.path}/` | `{shared.types}/` (shared TS types)
 
 **Standards:** MUST read `{standards.backend}` (framework conventions, ORM patterns, domain structure) | `{standards.testing}` (test patterns for this stack)

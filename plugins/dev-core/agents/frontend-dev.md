@@ -27,6 +27,10 @@ skills: frontend-design, ui-ux-pro-max, context7-plugin:docs
 
 If `{frontend.path}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
+**Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
+**Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
+**Quality gates:** after implementation run `{commands.lint} && {commands.typecheck} && {commands.test}`. ✗ → fix before reporting done. Config failures → message devops.
+
 **Domain:** `{frontend.path}/` | `{shared.ui}/` (shared components)
 
 **Standards:** MUST read `{standards.frontend}` — contains UI library patterns, TypeScript gotchas, component conventions, and framework-specific rules. | `{standards.testing}` | Check `{frontend.ui_package}` exports: `grep "export" {frontend.ui_src}/index.ts` — prefer primitives over hand-rolled, customize via `className`.
