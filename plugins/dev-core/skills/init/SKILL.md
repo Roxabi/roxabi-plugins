@@ -306,8 +306,19 @@ Standard workflow set: `ci.yml`, `auto-merge.yml`, `pr-title.yml` (+ `deploy-pre
    - AskUserQuestion for deploy (pre-select detected value): **Vercel** | **None**
    - Run: `bun $INIT_TS workflows --owner <owner> --repo <repo> --stack <stack> --test <test> --deploy <deploy>`
    - Files are pushed directly to the remote repo via GitHub REST API — no commit needed locally.
-   - After pushing, automatically set the `PAT` secret: `gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"`
-   - Display: `CI/CD workflows ✅ Created (ci.yml, auto-merge.yml, pr-title.yml)` + `PAT secret ✅ Set`
+   - Set the `PAT` secret: `gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"`
+   - Enable `allow_auto_merge` on the repo (required for `gh pr merge --auto` to work):
+     ```bash
+     gh api repos/<owner>/<repo> --method PATCH --field allow_auto_merge=true
+     ```
+   - Re-trigger auto-merge on any open PRs already carrying the `reviewed` label:
+     ```bash
+     for pr in $(gh pr list --repo <owner>/<repo> --label reviewed --state open --json number --jq '.[].number'); do
+       gh pr edit $pr --remove-label reviewed --repo <owner>/<repo>
+       gh pr edit $pr --add-label reviewed --repo <owner>/<repo>
+     done
+     ```
+   - Display: `CI/CD workflows ✅ Created (ci.yml, auto-merge.yml, pr-title.yml)` + `PAT secret ✅ Set` + `allow_auto_merge ✅ Enabled` + `Auto-merge re-triggered on N open PR(s) ✅` (or ⏭ if none)
 
 5. **If skip:** display `CI/CD workflows ⏭ Skipped`
 

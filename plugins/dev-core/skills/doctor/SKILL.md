@@ -201,9 +201,25 @@ The doctor CLI (Phase 1) already checks Workflows and Secrets sections. Only run
    - Auto-fix: `gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"`
    - Display: `PAT secret ✅ Set`
 
-3. **If workflow files are missing**, AskUserQuestion: **Set up CI/CD workflows** | **Skip**
+3. **`allow_auto_merge` setting** — check if the repo has it enabled (required for `gh pr merge --auto`):
+   ```bash
+   gh api repos/<owner>/<repo> --jq '.allow_auto_merge'
+   ```
+   - `true` → ✅ `allow_auto_merge enabled`
+   - `false` / null → ⚠️ `allow_auto_merge disabled — required for auto-merge workflow`
+     - Auto-fix: `gh api repos/<owner>/<repo> --method PATCH --field allow_auto_merge=true`
+     - Re-trigger open PRs already carrying the `reviewed` label:
+       ```bash
+       for pr in $(gh pr list --repo <owner>/<repo> --label reviewed --state open --json number --jq '.[].number'); do
+         gh pr edit $pr --remove-label reviewed --repo <owner>/<repo>
+         gh pr edit $pr --add-label reviewed --repo <owner>/<repo>
+       done
+       ```
+     - Display: `allow_auto_merge ✅ Enabled` + `Auto-merge re-triggered on N PR(s)` (or ⏭ if none)
 
-4. **If yes:**
+4. **If workflow files are missing**, AskUserQuestion: **Set up CI/CD workflows** | **Skip**
+
+5. **If yes:**
    - **Auto-detect from stack.yml** (read `.claude/stack.yml` if it exists):
      - `stack` ← `runtime` field
      - `test` ← `commands.test` (contains "vitest" → Vitest, "jest" → Jest, "pytest" → Pytest, else → None)
@@ -213,8 +229,10 @@ The doctor CLI (Phase 1) already checks Workflows and Secrets sections. Only run
    - AskUserQuestion for deploy (pre-select detected): **Vercel** | **None**
    - Run: `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts workflows --owner <owner> --repo <repo> --stack <stack> --test <test> --deploy <deploy>`
    - After pushing: `gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"`
-   - Display: `CI/CD workflows ✅ Created` + `PAT secret ✅ Set`
+   - Enable `allow_auto_merge`: `gh api repos/<owner>/<repo> --method PATCH --field allow_auto_merge=true`
+   - Re-trigger open PRs with `reviewed` label (cycle remove/add)
+   - Display: `CI/CD workflows ✅ Created` + `PAT secret ✅ Set` + `allow_auto_merge ✅ Enabled`
 
-5. **If skip:** display `CI/CD workflows ⏭ Skipped`
+6. **If skip:** display `CI/CD workflows ⏭ Skipped`
 
 $ARGUMENTS
