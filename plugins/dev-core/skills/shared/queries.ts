@@ -233,7 +233,6 @@ mutation($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
   }
 }`
 
-
 /**
  * Build a batched multi-project query with N aliased node() lookups.
  * Response shape: data.project0, data.project1, ...

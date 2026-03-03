@@ -6,10 +6,7 @@
 import { DEFAULT_PRIORITY_OPTIONS, DEFAULT_SIZE_OPTIONS, DEFAULT_STATUS_OPTIONS } from '../../shared/config'
 import type { ParsedField } from '../../shared/github'
 import { ghGraphQL, parseProjectFields, run } from '../../shared/github'
-import {
-  PROJECT_WORKFLOWS_QUERY,
-  UPDATE_FIELD_OPTIONS_MUTATION,
-} from '../../shared/queries'
+import { PROJECT_WORKFLOWS_QUERY, UPDATE_FIELD_OPTIONS_MUTATION } from '../../shared/queries'
 import type { ProjectFieldIds, ProjectType, WorkspaceProject } from '../../shared/workspace'
 import { readWorkspace, writeWorkspace } from '../../shared/workspace'
 
@@ -198,4 +195,3 @@ export async function listProjectWorkflows(projectId: string): Promise<ProjectWo
   }
   return data.data.node.workflows.nodes
 }
-
