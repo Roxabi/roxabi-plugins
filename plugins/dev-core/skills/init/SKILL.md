@@ -300,46 +300,101 @@ Update Phase 7 report to include:
 
 Catch lint/format/typecheck failures locally before they reach CI.
 
-1. **Detect existing hooks:**
-   - Check for lefthook: `test -f lefthook.yml && echo found || echo missing`
-   - Check for husky: `test -d .husky && echo found || echo missing`
-   - Check for a raw git hook: `test -f .git/hooks/pre-commit && echo found || echo missing`
+#### 10a — Detect existing hooks
 
-2. **If any found** → display `Pre-commit hooks ✅ Already configured (lefthook/husky/git)` and skip to Phase 11.
+Check all three in parallel:
+```bash
+test -f lefthook.yml && echo found || echo missing          # lefthook
+test -d .husky && echo found || echo missing                 # husky
+test -f .pre-commit-config.yaml && echo found || echo missing  # pre-commit
+test -f .git/hooks/pre-commit && echo found || echo missing  # raw git hook
+```
 
-3. **If none found** → AskUserQuestion: **Set up lefthook** (recommended — catches lint/format issues before push) | **Skip**.
+If any found → display `Pre-commit hooks ✅ Already configured` and skip to Phase 11.
 
-4. **If set up:**
+#### 10b — Resolve tool
 
-   a. Determine the lint and typecheck commands to run. If `.claude/stack.yml` exists and was just written:
-      - Read `commands.lint` from it (default: `bun run lint`)
-      - Read `commands.typecheck` from it (default: `bun run typecheck`)
+Read `hooks.tool` from `.claude/stack.yml` (just written in Phase 8) if present.
 
-   b. Install lefthook as a dev dependency:
-      ```bash
-      bun add -d lefthook
-      ```
+If value is `none` → display `Pre-commit hooks ⏭ Disabled in stack.yml` and skip.
 
-   c. Write `lefthook.yml` at project root:
-      ```yaml
-      pre-commit:
-        commands:
-          lint:
-            run: <lint-cmd>
-          typecheck:
-            run: <typecheck-cmd>
-      ```
+If value is `auto` or key absent, infer from `runtime`:
+- `python` → tool = **pre-commit**
+- `bun` / `node` / `deno` / anything else → tool = **lefthook**
 
-   d. Install the git hook:
-      ```bash
-      bunx lefthook install
-      ```
+If `hooks.tool` is an explicit value (`lefthook`, `pre-commit`, `husky`) → use it directly.
 
-   e. Display: `Pre-commit hooks ✅ lefthook installed (lint + typecheck on commit)`
+#### 10c — Offer setup
+
+AskUserQuestion: **Set up `<tool>`** (catches lint/format issues before push) | **Skip**.
+
+#### 10d — Install
+
+**lefthook path:**
+
+a. Read `commands.lint` and `commands.typecheck` from `.claude/stack.yml` (defaults: `bun run lint` / `bun run typecheck`).
+
+b. Install:
+   ```bash
+   bun add -d lefthook
+   ```
+
+c. Write `lefthook.yml`:
+   ```yaml
+   pre-commit:
+     commands:
+       lint:
+         run: <commands.lint>
+       typecheck:
+         run: <commands.typecheck>
+   ```
+
+d. Activate:
+   ```bash
+   bunx lefthook install
+   ```
+
+e. Display: `Pre-commit hooks ✅ lefthook installed (lint + typecheck on commit)`
+
+---
+
+**pre-commit path (Python):**
+
+a. Read `commands.lint` and `commands.typecheck` from `.claude/stack.yml` (defaults: `ruff check .` / `mypy .`).
+
+b. Install pre-commit:
+   ```bash
+   pip install pre-commit
+   # or if uv available: uv add --dev pre-commit
+   ```
+
+c. Write `.pre-commit-config.yaml`:
+   ```yaml
+   repos:
+     - repo: local
+       hooks:
+         - id: lint
+           name: lint
+           entry: <commands.lint>
+           language: system
+           pass_filenames: false
+         - id: typecheck
+           name: typecheck
+           entry: <commands.typecheck>
+           language: system
+           pass_filenames: false
+   ```
+
+d. Activate:
+   ```bash
+   pre-commit install
+   ```
+
+e. Display: `Pre-commit hooks ✅ pre-commit installed (lint + typecheck on commit)`
 
 Update Phase 7 report to include:
 ```
-  Pre-commit hooks      ✅ lefthook installed / ✅ Already configured / ⏭ Skipped
+  Pre-commit hooks      ✅ lefthook installed / ✅ pre-commit installed / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
 ```
 
 ## Safety Rules

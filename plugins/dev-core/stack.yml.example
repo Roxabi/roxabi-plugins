@@ -46,6 +46,10 @@ testing:
   unit: vitest                    # vitest | jest | pytest | none
   e2e: playwright                 # playwright | cypress | none
 
+hooks:
+  tool: auto                      # auto | lefthook | pre-commit | husky | none
+                                  # auto: bun/node/deno → lefthook, python → pre-commit
+
 deploy:
   platform: vercel                # vercel | railway | fly | aws | none
   secrets_cmd: "vercel env add"   # command to add a secret to the deployment platform
