@@ -21,6 +21,7 @@ vi.mock('../../shared/github', () => ({
 vi.mock('../../shared/queries', () => ({
   PROJECT_WORKFLOWS_QUERY: 'PROJECT_WORKFLOWS_QUERY',
   UPDATE_PROJECT_WORKFLOW_MUTATION: 'UPDATE_PROJECT_WORKFLOW_MUTATION',
+  UPDATE_FIELD_OPTIONS_MUTATION: 'UPDATE_FIELD_OPTIONS_MUTATION',
 }))
 
 vi.mock('../../shared/workspace', () => ({
@@ -31,21 +32,33 @@ vi.mock('../../shared/workspace', () => ({
 
 describe('createProject', () => {
   let mockRun: ReturnType<typeof vi.fn>
+  let mockGhGraphQL: ReturnType<typeof vi.fn>
 
   beforeEach(async () => {
     vi.clearAllMocks()
     const github = await import('../../shared/github')
     mockRun = github.run as ReturnType<typeof vi.fn>
+    mockGhGraphQL = github.ghGraphQL as ReturnType<typeof vi.fn>
   })
 
-
-  it('creates project and returns IDs', async () => {
+  it('creates project, updates existing Status field, and creates Size/Priority via field-create', async () => {
     const calls: string[][] = []
+    let fieldListCallCount = 0
+
     mockRun.mockImplementation(async (cmd: string[]) => {
       calls.push(cmd)
       const joined = cmd.join(' ')
       if (joined.includes('project create')) return JSON.stringify({ id: 'PVT_new', number: 42 })
+      if (joined.includes('project link')) return ''
       if (joined.includes('field-list')) {
+        fieldListCallCount++
+        if (fieldListCallCount === 1) {
+          // First call: GitHub's default fields after project creation
+          return JSON.stringify({
+            fields: [{ id: 'F_status', name: 'Status', options: [{ id: 'opt_todo', name: 'Todo' }] }],
+          })
+        }
+        // Subsequent calls: all fields present after creates
         return JSON.stringify({
           fields: [
             { id: 'F_status', name: 'Status', options: [{ id: 'opt1', name: 'Backlog' }, { id: 'opt2', name: 'Done' }] },
@@ -57,19 +70,21 @@ describe('createProject', () => {
       return ''
     })
 
+    mockGhGraphQL.mockResolvedValue({ data: { updateProjectV2Field: { projectV2Field: { id: 'F_status', name: 'Status', options: [] } } } })
+
     const { createProject } = await import('../lib/project')
     const result = await createProject('TestOrg', 'test-repo')
 
     expect(result.id).toBe('PVT_new')
     expect(result.number).toBe(42)
     expect(result.fields.status.id).toBe('F_status')
-    expect(result.fields.status.options).toEqual({ Backlog: 'opt1', Done: 'opt2' })
     expect(result.fields.size.id).toBe('F_size')
     expect(result.fields.priority.id).toBe('F_priority')
 
-    // Verify field-create was called 3 times
+    // Status already existed — updated via GraphQL, not field-create
+    expect(mockGhGraphQL).toHaveBeenCalledWith('UPDATE_FIELD_OPTIONS_MUTATION', expect.objectContaining({ fieldId: 'F_status' }))
     const fieldCreates = calls.filter((c) => c.join(' ').includes('field-create'))
-    expect(fieldCreates).toHaveLength(3)
+    expect(fieldCreates).toHaveLength(2) // Size + Priority only
   })
 })
 

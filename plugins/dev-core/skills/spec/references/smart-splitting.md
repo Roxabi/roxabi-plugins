@@ -66,7 +66,7 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \
 ## Scope
 {slices/affordances/criteria covered}
 
-**Parent spec:** artifacts/specs/{issue}-{slug}.mdx | **Parent issue:** #{parent}
+**Parent spec:** artifacts/specs/{issue}-{slug}-spec.mdx | **Parent issue:** #{parent}
 
 ## Acceptance Criteria
 {subset from parent spec}
@@ -81,12 +81,12 @@ Parse output `Created #N: <title>` → store mapping. Wire deps:
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <B> --blocked-by <A>
 ```
 
-**Generate sub-specs** ∀ sub-issue at `artifacts/specs/{sub_N}-{sub_slug}.mdx`:
+**Generate sub-specs** ∀ sub-issue at `artifacts/specs/{sub_N}-{sub_slug}-spec.mdx`:
 
 ```markdown
 ---
 title: "{sub-issue title}"
-parent_spec: "artifacts/specs/{parent_issue}-{parent_slug}.mdx"
+parent_spec: "artifacts/specs/{parent_issue}-{parent_slug}-spec.mdx"
 parent_issue: {parent_N}
 ---
 
@@ -97,7 +97,7 @@ parent_issue: {parent_N}
 {subset from parent}
 
 ## Reference
-Full spec: [artifacts/specs/{parent_issue}-{parent_slug}.mdx](../specs/{parent_issue}-{parent_slug}.mdx)
+Full spec: [artifacts/specs/{parent_issue}-{parent_slug}-spec.mdx](../specs/{parent_issue}-{parent_slug}-spec.mdx)
 ```
 
 Inform: "Created {N} sub-issues under #{parent}. Run `/dev #N` for each sub-issue in dependency order."

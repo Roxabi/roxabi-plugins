@@ -14,7 +14,7 @@ Spec → micro-tasks → agent assignments → plan artifact.
 
 ```
 /plan --issue 42      Generate plan from spec for issue #42
-/plan --spec artifacts/specs/42-dark-mode.mdx   Generate plan from explicit spec path
+/plan --spec artifacts/specs/42-dark-mode-spec.mdx   Generate plan from explicit spec path
 ```
 
 ## Step 1 — Locate Spec
@@ -95,7 +95,7 @@ See [references/micro-task-example.mdx](references/micro-task-example.mdx) for a
 
 ## Step 5 — Write Plan Artifact
 
-Write to `artifacts/plans/{issue}-{slug}.mdx`. Create `artifacts/plans/` dir if needed.
+Write to `artifacts/plans/{N}-{slug}-plan.mdx`. Create `artifacts/plans/` dir if needed.
 
 Use [references/plan-template.mdx](references/plan-template.mdx) format. See [references/micro-task-example.mdx](references/micro-task-example.mdx) for task formatting.
 
@@ -103,7 +103,7 @@ Use [references/plan-template.mdx](references/plan-template.mdx) format. See [re
 ---
 title: "Plan: {title}"
 issue: {N}
-spec: artifacts/specs/{issue}-{slug}.mdx
+spec: artifacts/specs/{N}-{slug}-spec.mdx
 complexity: {score}/10
 tier: {tier}
 generated: {ISO}
@@ -122,7 +122,7 @@ Include:
 AskUserQuestion: complexity, tier, task count, agents, consistency, slices.
 Options: **Approve** | **Modify** | **Return to spec**
 
-On Approve → commit artifact: `git add artifacts/plans/{issue}-{slug}.mdx` + commit per CLAUDE.md Rule 5.
+On Approve → commit artifact: `git add artifacts/plans/{N}-{slug}-plan.mdx` + commit per CLAUDE.md Rule 5.
 
 ## Edge Cases
 

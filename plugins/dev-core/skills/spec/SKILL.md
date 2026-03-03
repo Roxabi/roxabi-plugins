@@ -9,9 +9,9 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill
 # Spec
 
 Let:
-  α := artifacts/analyses/{N}-{slug}.mdx
-  σ := artifacts/specs/{N}-{slug}.mdx
-  φ := artifacts/frames/{slug}.mdx
+  α := artifacts/analyses/{N}-{slug}-analysis.mdx
+  σ := artifacts/specs/{N}-{slug}-spec.mdx
+  φ := artifacts/frames/{slug}-frame.mdx
 
 Analysis (or frame) → approved spec. Interview → pre-check → expert review → user approval gate.
 ¬worktree, ¬PR. Shape phase only. Implementation → `/plan`.
@@ -63,7 +63,7 @@ Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*` — match issue# or slu
 
 ## Step 2 — Generate Spec
 
-`skill: "interview", args: "--promote artifacts/analyses/{N}-{slug}.mdx"` (or frame path if no analysis).
+`skill: "interview", args: "--promote artifacts/analyses/{N}-{slug}-analysis.mdx"` (or frame path if no analysis).
 
 Interview pre-fills from source. Focus on gaps to spec level:
 - Acceptance criteria (binary pass/fail)
@@ -71,7 +71,7 @@ Interview pre-fills from source. Focus on gaps to spec level:
 - Slices: vertical increments that are independently demo-able
 - Ambiguity detection via 9-category taxonomy (see interview SKILL.md)
 
-Write `artifacts/specs/{N}-{slug}.mdx`.
+Write `artifacts/specs/{N}-{slug}-spec.mdx`.
 
 σ must include:
 - `## Context` — source + promoted-from link
@@ -117,19 +117,19 @@ Auto-select ρ (¬ask user). Architect always included for specs:
 | product-lead | Always | Criteria quality, scope, user story validity |
 | devops | ∃ CI/CD / deploy / infra criteria | Operational feasibility |
 
-∀ r ∈ ρ → spawn ∥ `Task(subagent_type: "<r>", prompt: "Review artifacts/specs/{N}-{slug}.mdx for <focus>. Check pre-check results. Return: good / needs improvement / concerns.")`.
+∀ r ∈ ρ → spawn ∥ `Task(subagent_type: "<r>", prompt: "Review artifacts/specs/{N}-{slug}-spec.mdx for <focus>. Check pre-check results. Return: good / needs improvement / concerns.")`.
 
 Incorporate feedback → revise σ → note unresolved concerns.
 
 ## Step 5 — User Approval
 
-Open σ: `code artifacts/specs/{N}-{slug}.mdx`.
+Open σ: `code artifacts/specs/{N}-{slug}-spec.mdx`.
 
 Present summary: scope, slices count, acceptance criteria count, `[NEEDS CLARIFICATION]` count, pre-check results, unresolved expert concerns.
 
 AskUserQuestion: **Approve** → continue pipeline | **Revise** → collect feedback → revise σ → loop from [Step 3 Pre-check](#step-3--pre-check).
 
-On approval → commit artifact: `git add artifacts/specs/{N}-{slug}.mdx` + commit per CLAUDE.md Rule 5.
+On approval → commit artifact: `git add artifacts/specs/{N}-{slug}-spec.mdx` + commit per CLAUDE.md Rule 5.
 
 Run [Gate 2.5 Smart Splitting](#gate-25-smart-splitting-optional) → update issue status → done.
 

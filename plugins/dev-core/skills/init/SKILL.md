@@ -79,11 +79,10 @@ Parse the JSON array. Display a table:
   └─────────────────────────────────────────┴──────────┘
 ```
 
-AskUserQuestion: **Enable all** | **Select** | **Skip**.
+If any workflows are disabled, display:
 
-- If **Enable all**: for each disabled workflow, run `bun $INIT_TS enable-workflow --workflow-id <PWF_...>`. Display "✅ Enabled N workflows".
-- If **Select**: present a numbered list, ask which ones (comma-separated), then enable only those.
-- If **Skip**: continue without enabling any.
+> ⚠️ GitHub's API does not support enabling project workflows programmatically.
+> Enable them manually at: `https://github.com/orgs/<owner>/projects/<number>/workflows`
 
 #### 3b. Labels
 
@@ -239,7 +238,7 @@ dev-core initialized
   Project board     ✅ Created / Detected / ⏭ Skipped
   Issue migration   ✅ N issues added to board / ⏭ Skipped
   Labels            ✅ N labels created / ⏭ Skipped
-  Project workflows ✅ N enabled / ⏭ Skipped
+  Project workflows ⚠️ Enable manually at https://github.com/orgs/<owner>/projects/<number>/workflows
   CI/CD workflows   ✅ Created / ⏭ Skipped
   Branch protection ✅ Created / ⏭ Skipped
   roxabi shim       ✅ Installed (~/.local/bin/roxabi)

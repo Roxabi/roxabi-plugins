@@ -59,9 +59,9 @@ Use **AskUserQuestion** to ask the user which document type to create:
 
 | Type | Purpose | Output Path |
 |------|---------|-------------|
-| **Brainstorm** | Explore ideas, divergent thinking, early-stage exploration | `artifacts/analyses/{slug}.mdx` |
-| **Analysis** | Structured investigation of a topic or problem | `artifacts/analyses/{slug}.mdx` |
-| **Spec** | Technical specification for implementation | `artifacts/specs/{issue}-{slug}.mdx` |
+| **Brainstorm** | Explore ideas, divergent thinking, early-stage exploration | `artifacts/analyses/{slug}-analysis.mdx` |
+| **Analysis** | Structured investigation of a topic or problem | `artifacts/analyses/{slug}-analysis.mdx` |
+| **Spec** | Technical specification for implementation | `artifacts/specs/{issue}-{slug}-spec.mdx` |
 
 If promoting, this step is already determined — skip it.
 
@@ -147,8 +147,8 @@ Write the document using the appropriate template below. Follow these rules:
 
 - Use `.mdx` extension with YAML frontmatter (`title`, `description`).
 - Use kebab-case slugs.
-- For **Spec** documents, prefix the filename with the GitHub issue number: `artifacts/specs/{issue}-{slug}.mdx`
-- For **Analysis** and **Brainstorm** documents: `artifacts/analyses/{slug}.mdx` (prefix with issue number if one exists, e.g., `artifacts/analyses/{issue}-{slug}.mdx`).
+- For **Spec** documents, prefix the filename with the GitHub issue number: `artifacts/specs/{issue}-{slug}-spec.mdx`
+- For **Analysis** and **Brainstorm** documents: `artifacts/analyses/{slug}-analysis.mdx` (prefix with issue number if one exists, e.g., `artifacts/analyses/{issue}-{slug}-analysis.mdx`).
 - Brainstorm documents add `type: brainstorm` to their frontmatter.
 - Escape `<` as `&lt;` in MDX content to avoid JSX parsing errors.
 

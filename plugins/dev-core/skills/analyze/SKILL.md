@@ -9,8 +9,8 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill
 # Analyze
 
 Let:
-  α := artifacts/analyses/{N}-{slug}.mdx
-  φ := artifacts/frames/{slug}.mdx
+  α := artifacts/analyses/{N}-{slug}-analysis.mdx
+  φ := artifacts/frames/{slug}-frame.mdx
 
 Frame → analysis. Codebase exploration → expert review → user approval gate.
 ¬spec, ¬worktree. Shape phase only. Spec → `/spec`.
@@ -80,7 +80,7 @@ Pre-fill context from frame doc — skip questions already answered.
 
 ## Step 2c — Generate Analysis
 
-Write `artifacts/analyses/{N}-{slug}.mdx`:
+Write `artifacts/analyses/{N}-{slug}-analysis.mdx`:
 
 ```mdx
 ---
@@ -157,19 +157,19 @@ Auto-select ρ (¬ask user):
 | architect | ∃ arch / trade-offs / multi-domain | Technical soundness, shape feasibility |
 | devops | ∃ CI/CD / deploy / infra | Operational impact |
 
-∀ r ∈ ρ → spawn ∥ `Task(subagent_type: "<r>", prompt: "Review artifacts/analyses/{N}-{slug}.mdx for <focus>. Return: good / needs improvement / concerns.")`.
+∀ r ∈ ρ → spawn ∥ `Task(subagent_type: "<r>", prompt: "Review artifacts/analyses/{N}-{slug}-analysis.mdx for <focus>. Return: good / needs improvement / concerns.")`.
 
 Incorporate feedback → revise α → note unresolved concerns.
 
 ## Step 4 — User Approval
 
-Open α: `code artifacts/analyses/{N}-{slug}.mdx`.
+Open α: `code artifacts/analyses/{N}-{slug}-analysis.mdx`.
 
 Present summary: shapes found, trade-offs, recommended shape, unresolved concerns.
 
 AskUserQuestion: **Approve** → update issue status → done | **Revise** → collect feedback → revise α → loop from [Step 3 Expert Review](#step-3--expert-review-1).
 
-On approval → commit artifact: `git add artifacts/analyses/{N}-{slug}.mdx` + commit per CLAUDE.md Rule 5.
+On approval → commit artifact: `git add artifacts/analyses/{N}-{slug}-analysis.mdx` + commit per CLAUDE.md Rule 5.
 
 Update issue status:
 ```bash

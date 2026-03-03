@@ -14,7 +14,7 @@ Plan → worktree → agents (test-first) → passing quality gate.
 
 ```
 /implement --issue 42        Execute plan for issue #42
-/implement --plan artifacts/plans/42-dark-mode.mdx   Execute from explicit plan path
+/implement --plan artifacts/plans/42-dark-mode-plan.mdx   Execute from explicit plan path
 ```
 
 Does NOT create a PR — that is `/pr` (next step).

@@ -6,7 +6,7 @@
 import { run, parseProjectFields, ghGraphQL } from '../../shared/github'
 import type { ParsedField } from '../../shared/github'
 import { DEFAULT_STATUS_OPTIONS, DEFAULT_SIZE_OPTIONS, DEFAULT_PRIORITY_OPTIONS } from '../../shared/config'
-import { PROJECT_WORKFLOWS_QUERY, UPDATE_PROJECT_WORKFLOW_MUTATION } from '../../shared/queries'
+import { PROJECT_WORKFLOWS_QUERY, UPDATE_PROJECT_WORKFLOW_MUTATION, UPDATE_FIELD_OPTIONS_MUTATION } from '../../shared/queries'
 import { readWorkspace, writeWorkspace } from '../../shared/workspace'
 import type { ProjectType, ProjectFieldIds, WorkspaceProject } from '../../shared/workspace'
 
@@ -28,6 +28,9 @@ const SLOT_NAMES: Record<ProjectType, { col2: string[]; col3: string[] }> = {
   technical: { col2: ['Size'], col3: ['Priority'] },
   company:   { col2: ['Quarter'], col3: ['Pillar'] },
 }
+
+// Colors applied in order to single-select options when replacing field options via GraphQL
+const STATUS_COLORS = ['GRAY', 'BLUE', 'PURPLE', 'YELLOW', 'ORANGE', 'GREEN', 'RED', 'PINK'] as const
 
 const FIELD_DEFS: Record<ProjectType, Array<{ name: string; options: string }>> = {
   technical: [
@@ -101,17 +104,28 @@ export async function createProject(
   const project = JSON.parse(createJson) as { id: string; number: number }
   const pn = String(project.number)
 
-  // Create single-select fields for this project type
+  // Fetch existing fields — GitHub auto-creates Status with Todo/In Progress/Done
+  const existingJson = await run(['gh', 'project', 'field-list', pn, '--owner', owner, '--format', 'json'])
+  const existingFields = (JSON.parse(existingJson) as { fields: Array<{ id: string; name: string }> }).fields ?? []
+  const existingByName = Object.fromEntries(existingFields.map(f => [f.name, f.id]))
+
+  // Create or update single-select fields for this project type
   for (const field of fieldDefs) {
-    try {
+    const existingId = existingByName[field.name]
+    if (existingId) {
+      // Field already exists (e.g. GitHub's default Status) — replace its options
+      const options = field.options.split(',').map((name, i) => ({
+        name: name.trim(),
+        color: STATUS_COLORS[i] ?? 'GRAY',
+        description: '',
+      }))
+      await ghGraphQL(UPDATE_FIELD_OPTIONS_MUTATION, { fieldId: existingId, options })
+    } else {
       await run([
         'gh', 'project', 'field-create', pn, '--owner', owner,
         '--name', field.name, '--data-type', 'SINGLE_SELECT',
         '--single-select-options', field.options,
       ])
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (!msg.includes('already been taken') && !msg.includes('already exists')) throw err
     }
   }
 

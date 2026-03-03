@@ -219,6 +219,20 @@ query($projectId: ID!) {
   }
 }`
 
+/**
+ * Replace single-select options on an existing field.
+ * Used to overwrite GitHub's default Status options (Todo/In Progress/Done)
+ * with our standard set after project creation.
+ */
+export const UPDATE_FIELD_OPTIONS_MUTATION = `
+mutation($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
+  updateProjectV2Field(input: { fieldId: $fieldId, singleSelectOptions: $options }) {
+    projectV2Field {
+      ... on ProjectV2SingleSelectField { id name options { id name } }
+    }
+  }
+}`
+
 /** Enable or disable a single project workflow. */
 export const UPDATE_PROJECT_WORKFLOW_MUTATION = `
 mutation($workflowId: ID!, $enabled: Boolean!) {

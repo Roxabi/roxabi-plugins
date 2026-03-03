@@ -9,7 +9,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 # Frame
 
 Let:
-  φ := artifacts/frames/{N}-{slug}.mdx (∃N) ∨ artifacts/frames/{slug}.mdx (frame-only mode)
+  φ := artifacts/frames/{N}-{slug}-frame.mdx (∃N) ∨ artifacts/frames/{slug}-frame.mdx (frame-only mode)
   N := issue number (∅ if free text)
   τ := tier (S | F-lite | F-full)
 
@@ -80,7 +80,7 @@ AskUserQuestion: **Confirm {τ}** | **Override → S** | **Override → F-lite**
 
 ## Step 3 — Write Frame Doc
 
-Write φ as `artifacts/frames/{N}-{slug}.mdx` (∃ issue) or `artifacts/frames/{slug}.mdx` (frame-only mode) with `status: draft`.
+Write φ as `artifacts/frames/{N}-{slug}-frame.mdx` (∃ issue) or `artifacts/frames/{slug}-frame.mdx` (frame-only mode) with `status: draft`.
 
 ```mdx
 ---
@@ -126,9 +126,9 @@ AskUserQuestion: **Approve** | **Revise** (specify what to change).
 
 ## Completion
 
-φ written at `artifacts/frames/{N}-{slug}.mdx` (or `artifacts/frames/{slug}.mdx` in frame-only mode) with `status: approved`.
+φ written at `artifacts/frames/{N}-{slug}-frame.mdx` (or `artifacts/frames/{slug}-frame.mdx` in frame-only mode) with `status: approved`.
 
-Commit artifact: `git add artifacts/frames/{slug}.mdx` + commit per CLAUDE.md Rule 5.
+Commit artifact: `git add artifacts/frames/{N}-{slug}-frame.mdx` + commit per CLAUDE.md Rule 5.
 
 ∃ N ⇒ update issue status:
 ```bash

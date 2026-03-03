@@ -46,10 +46,10 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 | Step | Required artifacts |
 |------|-------------------|
 | frame | issue (triage) |
-| analyze | `artifacts/frames/{N}-{slug}.mdx` or `artifacts/frames/{slug}.mdx` (approved) |
-| spec | `artifacts/frames/{slug}.mdx` or `artifacts/analyses/{N}-{slug}.mdx` |
-| plan | `artifacts/specs/{N}-{slug}.mdx` |
-| implement | `artifacts/plans/{N}-{slug}.mdx` (or spec for S-tier) |
+| analyze | `artifacts/frames/{N}-{slug}-frame.mdx` or `artifacts/frames/{slug}-frame.mdx` (approved) |
+| spec | `artifacts/frames/{slug}-frame.mdx` or `artifacts/analyses/{N}-{slug}-analysis.mdx` |
+| plan | `artifacts/specs/{N}-{slug}-spec.mdx` |
+| implement | `artifacts/plans/{N}-{slug}-plan.mdx` (or spec for S-tier) |
 | pr | worktree with code changes |
 | validate | PR ∃ |
 | review | PR ∃ |
