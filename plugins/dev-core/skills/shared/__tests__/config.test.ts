@@ -178,8 +178,11 @@ describe('STANDARD_LABELS', () => {
 })
 
 describe('STANDARD_WORKFLOWS', () => {
-  it('contains ci.yml and deploy-preview.yml', () => {
-    expect(STANDARD_WORKFLOWS).toEqual(['ci.yml', 'deploy-preview.yml'])
+  it('contains standard workflow files', () => {
+    expect(STANDARD_WORKFLOWS).toContain('ci.yml')
+    expect(STANDARD_WORKFLOWS).toContain('auto-merge.yml')
+    expect(STANDARD_WORKFLOWS).toContain('pr-title.yml')
+    expect(STANDARD_WORKFLOWS).toContain('deploy-preview.yml')
   })
 })
 
