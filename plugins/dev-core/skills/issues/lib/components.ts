@@ -299,7 +299,7 @@ const OVERALL_STATE_DISPLAY: Record<string, { icon: string; label: string; cls: 
   EXPECTED: { icon: CI_SPINNER, label: 'Running', cls: 'ci-running' },
 }
 
-export function branchCIRows(branches: BranchCI[]): string {
+export function branchCIRows(branches: BranchCI[], idPrefix = ''): string {
   let html = ''
   for (const b of branches) {
     const stateDisplay = OVERALL_STATE_DISPLAY[b.overallState] ?? {
@@ -309,7 +309,7 @@ export function branchCIRows(branches: BranchCI[]): string {
     }
     const summary = ciSummary(b.checks)
     const hasChecks = b.checks.length > 0
-    const branchId = `branch-ci-${b.branch}`
+    const branchId = idPrefix ? `branch-ci-${idPrefix}-${b.branch}` : `branch-ci-${b.branch}`
     const age = b.committedAt ? timeAgo(b.committedAt) : ''
     const branchBadgeCls = b.branch === 'main' ? 'status-done' : 'status-review'
 

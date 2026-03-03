@@ -191,7 +191,7 @@ export function buildHtml(
         const withCI = [...byProjectMeta.entries()].filter(([, m]) => shouldShowCI(m.branchCI))
         if (withCI.length === 0) return ''
         const bodies = withCI.map(([l, m]) =>
-          `<tbody data-project="${escHtml(l)}"><tr class="project-sep-row"><td colspan="5">${escHtml(l)}</td></tr>${branchCIRows(m.branchCI)}</tbody>`
+          `<tbody data-project="${escHtml(l)}"><tr class="project-sep-row"><td colspan="5">${escHtml(l)}</td></tr>${branchCIRows(m.branchCI, l)}</tbody>`
         ).join('')
         return `<table class="sub-table"><thead><tr>
     <th>Branch</th><th>Status</th><th>CI</th><th>Commit</th><th>Updated</th>
