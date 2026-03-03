@@ -25,7 +25,7 @@ If `{backend.path}` is undefined → output: "`.claude/stack.yml` not found in c
 
 **Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
 **Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
-**Quality gates:** after implementation run `{commands.lint} && {commands.typecheck} && {commands.test}`. ✗ → fix before reporting done. Config failures → message devops.
+**Quality gates:** after implementation run each defined command: `{commands.lint}` then `{commands.typecheck}` then `{commands.test}` (skip any that resolve to empty string). ✗ → fix before reporting done. Config failures → message devops.
 
 **Domain:** `{backend.path}/` | `{shared.types}/` (shared TS types)
 

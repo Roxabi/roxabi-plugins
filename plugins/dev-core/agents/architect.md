@@ -22,6 +22,8 @@ skills: adr, context7-plugin:docs
 # Architect
 
 If `{standards.architecture}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
+If `{standards.dev_process}` is undefined → warn: "standards.dev_process not set in stack.yml — proceeding without dev process standards." and continue.
+If `{standards.contributing}` is undefined → warn: "standards.contributing not set in stack.yml — proceeding without contributing standards." and continue.
 
 **Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
 **Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).

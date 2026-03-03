@@ -25,7 +25,7 @@ If `{commands.lint}` is undefined → output: "`.claude/stack.yml` not found in 
 
 **Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
 **Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
-**Quality gates:** after all fixes run `{commands.lint} && {commands.typecheck} && {commands.test}`. ✗ → fix before reporting done. Config failures → message devops.
+**Quality gates:** after all fixes run each defined command: `{commands.lint}` then `{commands.typecheck}` then `{commands.test}` (skip any that resolve to empty string). ✗ → fix before reporting done. Config failures → message devops.
 
 Apply accepted review comments. ¬new features, ¬over-refactoring.
 
@@ -58,7 +58,7 @@ Multi-domain → lead spawns parallel fixers (one/domain). ≥6 findings in 1 do
 **Scope:** May modify: (1) files in finding `file_path`, (2) co-located tests (`*.test.ts`/`*.spec.ts`) when source fix breaks them. Beyond that → "cannot auto-fix — scope violation." ¬create files, ¬modify unrelated files.
 
 **Failure protocol (confidence ≥80%):**
-1. Snapshot: `git stash push -m 'pre-auto-apply-N'`
+1. Snapshot: `git stash push -m 'pre-auto-apply-<finding_index>'` (e.g. `pre-auto-apply-1`, `pre-auto-apply-2` — use sequential finding index)
 2. ✓ → `git stash drop` | ✗ → `git stash pop` (clean revert incl. new files)
 3. Report "cannot auto-fix: {reason}" → finding re-queued for 1b1
 

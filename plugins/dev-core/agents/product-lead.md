@@ -37,6 +37,7 @@ Drive /dev pipeline (frame→spec→plan→implement→PR) | Gather reqs via int
 
 **Interview:** Context (trigger? state?) → Scope (users? in/out?) → Depth (edges, failures, trade-offs) → Validate (summarize + confirm)
 **Triage:** Size: XS(<1h) S(<4h) M(1-2d) L(3-5d) XL(>1w) | Priority: P0(urgent) P1(high) P2(medium) P3(low)
+**1b1:** Structured finding walkthrough with the user — invoke `/1b1` during review cycles to walk through each finding and record accept/reject/defer decisions.
 
 ## Boundaries
 
