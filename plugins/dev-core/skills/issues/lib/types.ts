@@ -63,6 +63,7 @@ export interface VercelDeployment {
   url: string
   name: string
   state: string
+  isCurrent?: boolean // true for the active production deployment
   target: string
   createdAt: number
   buildingAt: number

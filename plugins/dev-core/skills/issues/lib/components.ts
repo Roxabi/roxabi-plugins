@@ -333,7 +333,9 @@ export function renderBranchCI(branches: BranchCI[]): string {
 export function vercelCards(deployments: VercelDeployment[]): string {
   return deployments
     .map((d) => {
-      const display = DEPLOY_STATE_DISPLAY[d.state] ?? { icon: '\u2753', label: d.state, cls: '' }
+      const display = d.isCurrent
+        ? { icon: '🟢', label: 'Current', cls: 'vd-ready' }
+        : (DEPLOY_STATE_DISPLAY[d.state] ?? { icon: '\u2753', label: d.state, cls: '' })
       const env = d.target === 'production' ? 'prod' : 'preview'
       const envCls = d.target === 'production' ? 'vd-env-prod' : 'vd-env-preview'
       const branch = d.meta.githubCommitRef ?? ''

@@ -357,15 +357,18 @@ export async function fetchVercelDeployments(
       },
       inspectorUrl: d.inspectorUrl ?? '',
       buildSteps: [] as BuildStep[],
+      isCurrent: false,
     }))
 
-    // Show: all ongoing + current production (latest READY on prod) + latest failed (latest ERROR)
+    // Show: all ongoing + current production + latest error (only if newer than current prod)
     const ongoing = mapped.filter((d) => ['BUILDING', 'QUEUED', 'INITIALIZING'].includes(d.state))
     const currentProd = mapped.find((d) => d.state === 'READY' && d.target === 'production')
+    if (currentProd) currentProd.isCurrent = true
     const latestError = mapped.find((d) => d.state === 'ERROR')
+    const showError = latestError && (!currentProd || latestError.createdAt > currentProd.createdAt)
     const seen = new Set<string>()
     const filtered: typeof mapped = []
-    for (const d of [...ongoing, ...(currentProd ? [currentProd] : []), ...(latestError ? [latestError] : [])]) {
+    for (const d of [...ongoing, ...(currentProd ? [currentProd] : []), ...(showError ? [latestError] : [])]) {
       if (!seen.has(d.uid)) {
         seen.add(d.uid)
         filtered.push(d)
