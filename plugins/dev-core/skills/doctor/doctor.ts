@@ -256,7 +256,6 @@ function checkSecrets(ghOk: boolean, owner: string, repo: string): Section {
   return { name: 'Secrets', checks }
 }
 
-
 function checkProjectWorkflows(ghOk: boolean, _owner: string): Section {
   if (!ghOk)
     return {

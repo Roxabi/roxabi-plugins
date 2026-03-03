@@ -44,7 +44,7 @@ describe('resolveFieldIds', () => {
       label: 'test-proj',
       // `as any` — tests the JSON-deserialization path: workspace.json written by hand
       // or a future version may contain fieldIds without status; TypeScript won't catch it at runtime.
-      fieldIds: { col2: 'C1', col3: 'C2' } as any,
+      fieldIds: { col2: 'C1', col3: 'C2' } as unknown as ProjectFieldIds,
     }
     expect(() => resolveFieldIds(project)).toThrow('[project test-proj] fieldIds.status is required')
   })
