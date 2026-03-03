@@ -1,0 +1,82 @@
+---
+title: "ADR-003: Typed Workspace Projects and Per-Project Field Resolution"
+description: Establish how WorkspaceProject types (technical vs company) are discriminated, how GitHub Projects field IDs are resolved per-project, and why the .env global fallback is a migration path rather than a steady-state design.
+---
+
+## Status
+
+Accepted
+
+## Context
+
+PR #11 introduces a `type` discriminator (`'technical' | 'company'`) on `WorkspaceProject` and a `fieldIds` bag that maps generic slot names (`status`, `col2`, `col3`) to GitHub Projects field IDs and their option values. A `resolveFieldIds` function provides a fallback to `.env`-based globals when `fieldIds` is absent from a project entry.
+
+Three design gaps surfaced during architectural review:
+
+1. `/init` writes `fieldIds: {}` (an empty object) when GitHub field discovery fails. `resolveFieldIds` guards on `if (project.fieldIds)`, which is `true` for `{}`, and then throws because `fieldIds.status` is `undefined`. The `.env` fallback is never reached for any project that failed discovery.
+
+2. `rawItemsToIssues` was extended to accept `slotNames` (column-label overrides per project type), but the only call site in `dashboard.ts` does not pass them, making the feature inert in production.
+
+3. The `.env` fallback in `resolveFieldIds` reads module-level constants — a global singleton. In a workspace with multiple projects, all projects lacking `fieldIds` share identical field IDs, which is only correct if every project uses the same GitHub Projects schema. For mixed-schema workspaces this silently produces wrong query results.
+
+A secondary question is whether `col2`/`col3` as positional key names are stable enough to anchor the `ProjectFieldIds` type across future project types.
+
+## Options Considered
+
+### Option A: Keep .env fallback as steady-state, fix the empty-object bug only
+
+Treat the `.env` fallback as a permanent supported mode. Fix `project.ts` to write `fieldIds: undefined` (not `{}`) so the guard in `resolveFieldIds` works correctly. Accept that multi-project workspaces with heterogeneous schemas must configure `.env` to match one "primary" project and set explicit `fieldIds` on all others.
+
+- **Pros:** Minimal change surface. Single-project users continue to work with only `.env` configured, with no requirement to run field discovery.
+- **Cons:** Globally shared `.env` values silently produce wrong GraphQL queries when a second project with a different schema is added without explicit `fieldIds`. The failure mode is data-level (empty or mismatched results), not an error — it is invisible until the user notices missing issues.
+
+### Option B: Require fieldIds on every project; deprecate .env fallback
+
+Make `fieldIds` mandatory on every `WorkspaceProject` entry in `workspace.json`. The `.env` fallback is kept only as a migration path — `resolveFieldIds` emits a deprecation warning when it triggers and documents that the next `/init` run will persist proper `fieldIds`. For projects where discovery fails, `/init` stores `fieldIds: undefined` and documents the gap, rather than storing `{}` or silently falling back.
+
+- **Pros:** Eliminates the global-singleton correctness problem. Each project's field mapping is explicit and versioned in `workspace.json`. The empty-object bug cannot recur because the contract is: either `fieldIds` is present and valid (has `status`), or it is absent entirely.
+- **Cons:** Existing users with only `.env` configured will see deprecation warnings. Projects that genuinely cannot resolve fields at init time produce a visible gap in `workspace.json` that the user must address manually.
+
+### Option C: Encode field resolution inside the project type discriminant
+
+Use TypeScript discriminated unions: `type: 'technical'` implies no `fieldIds` needed (fixed well-known field names); `type: 'company'` requires `fieldIds`. The type system enforces completeness at the point of construction.
+
+- **Pros:** Makes the type contract self-documenting. No runtime guard needed for technical projects.
+- **Cons:** GitHub Projects field IDs vary even for technical projects — two technical projects in the same GitHub org can have different project schemas. The discriminant would need to carry field IDs too, collapsing back into Option B with extra type machinery.
+
+## Decision
+
+Option B is adopted: `fieldIds` becomes the authoritative source of truth for every project. The `.env` fallback is a migration path, not a steady-state design.
+
+The specific rules are:
+
+1. **`fieldIds: {}` must never be written.** `project.ts` must write `fieldIds: undefined` (omit the key) when GitHub field discovery returns nothing. The contract is binary: `fieldIds` is either a valid `ProjectFieldIds` (with `status` present) or it is absent from the serialised project entry.
+
+2. **`resolveFieldIds` emits a deprecation warning when the fallback triggers.** The warning must name the project and direct the user to run `/init` against that project to persist explicit field IDs. Silently falling back in a multi-project workspace is the primary source of wrong-data failures.
+
+3. **`dashboard.ts` must pass `slotNames` derived from the resolved `fieldIds`.** The call at line 107 (`rawItemsToIssues(rawItems)`) must be updated to resolve the active project's field IDs and derive slot names from them before calling `rawItemsToIssues`. The `DEFAULT_SLOTS` constant remains as the fallback for projects using the `.env` path.
+
+4. **`discoverProject` stores `fieldIds: undefined`, not `{}`.** Post-discovery, the CLI may optionally trigger field resolution for company-type projects. For technical projects, `fieldIds` may remain absent until the user runs `/init` for that project.
+
+5. **`col2`/`col3` are stable positional keys in `ProjectFieldIds`.** They are internal serialisation keys — their names do not change. The `SlotNames` interface in `fetch.ts` is the display-label layer and is the only place where human-readable names (`'Size'`, `'Priority'`, `'Budget'`) appear. Adding a third slot in a future project type extends both interfaces in parallel without renaming existing keys.
+
+6. **The type discriminant (`'technical' | 'company'`) controls UI column labelling only.** It does not determine whether `fieldIds` is required — all projects that query GitHub Projects need `fieldIds`. The discriminant exists to provide sensible `DEFAULT_SLOTS` when `fieldIds` is absent and to render type-specific UI chrome.
+
+## Consequences
+
+### Positive
+
+- The empty-object crash (`fieldIds: {}` passing the truthy guard and then throwing on `status`) cannot recur once rule 1 is enforced.
+- Multi-project workspaces with heterogeneous schemas produce correct GraphQL queries because field IDs are stored per-project rather than read from a global `.env` singleton.
+- The `slotNames` feature in `rawItemsToIssues` becomes active in production once `dashboard.ts` is updated.
+- `col2`/`col3` as stable serialisation keys mean `workspace.json` files written today remain valid when new project types are added.
+
+### Negative
+
+- Users who rely solely on `.env` for field configuration will see deprecation warnings until they run `/init` per project. This is a UX regression for existing single-project users.
+- `/init` must handle the case where field discovery fails gracefully: store `fieldIds: undefined`, surface a clear message, and instruct the user to check their GitHub Projects schema permissions.
+
+### Neutral
+
+- The `.env` fallback constants (`STATUS_FIELD_ID`, `SIZE_FIELD_ID`, `PRIORITY_FIELD_ID`) remain in `config.ts` until all known workspaces have migrated. A future ADR should set a removal timeline once adoption of per-project `fieldIds` is measured.
+- `type: 'technical'` remains the default for auto-discovered projects. The discriminant is informational until a company-type-specific rendering path is implemented.

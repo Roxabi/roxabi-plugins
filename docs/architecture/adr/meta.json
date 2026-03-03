@@ -1,1 +1,1 @@
-{ "title": "ADRs", "pages": ["001-user-data-storage-convention-roxabi-vault", "002-cli-plugin-boundary-multi-project-workspace"] }
+{ "title": "ADRs", "pages": ["001-user-data-storage-convention-roxabi-vault", "002-cli-plugin-boundary-multi-project-workspace", "003-typed-workspace-projects-field-resolution"] }
