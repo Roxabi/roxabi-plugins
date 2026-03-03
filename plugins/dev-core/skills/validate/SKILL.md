@@ -4,6 +4,12 @@ argument-hint: [--quick | --full | --affected]
 description: Run all quality gates (lint, typecheck, test, env, i18n, license) and produce a structured pass/fail report. Triggers: "validate" | "check everything" | "quality check" | "pre-push check" | "are we green".
 version: 0.1.0
 allowed-tools: Bash, Read
+pipeline:
+  - { id: scope,           required: true }
+  - { id: run-checks,      required: true,  continue-on-failure: true }
+  - { id: report,          required: true }
+  - { id: failure-details, required: false, condition: "∃ failures" }
+  - { id: verdict,         required: true }
 ---
 
 # Validate

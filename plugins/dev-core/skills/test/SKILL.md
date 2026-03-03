@@ -4,6 +4,14 @@ argument-hint: [file | --e2e | --run]
 description: Generate/run unit, integration & Playwright e2e tests. Triggers: "test this file" | "write tests" | "add coverage" | "run tests" | "e2e tests".
 version: 0.3.0
 allowed-tools: Bash, Read, Write, Glob, Grep
+pipeline:
+  - { id: run-shortcut,    required: false, condition: "--run flag", early-exit: true }
+  - { id: identify-targets, required: true }
+  - { id: read-standards,  required: true }
+  - { id: check-coverage,  required: true }
+  - { id: generate-tests,  required: true }
+  - { id: approval,        required: true }
+  - { id: write-and-verify, required: true, retry: 1 }
 ---
 
 # Test

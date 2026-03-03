@@ -4,6 +4,14 @@ argument-hint: [#PR]
 description: Multi-domain code review (agents + Conventional Comments → findings + verdict). Triggers: "review changes" | "review PR #42" | "code review" | "check my code".
 version: 0.1.0
 allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill
+pipeline:
+  - { id: gather-changes,       required: true }
+  - { id: secret-scan,          required: true }
+  - { id: spec-compliance,      required: false, condition: "spec ∃" }
+  - { id: multi-domain-review,  required: true,  parallel: true }
+  - { id: merge-and-present,    required: true }
+  - { id: post-to-pr,           required: false, condition: "PR ∃" }
+  - { id: next-step,            required: true }
 ---
 
 # Code Review

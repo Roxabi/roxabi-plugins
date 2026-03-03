@@ -14,6 +14,12 @@ color: white
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "TeamCreate", "TeamDelete", "SendMessage"]
 permissionMode: bypassPermissions
 maxTurns: 50
+capabilities:
+  write_knowledge: true
+  write_code: false
+  review_code: true
+  run_tests: false
+inherits: shared/base
 skills: adr, context7-plugin:docs
 ---
 

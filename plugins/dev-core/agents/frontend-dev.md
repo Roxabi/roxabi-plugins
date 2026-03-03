@@ -14,10 +14,18 @@ color: white
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "SendMessage"]
 permissionMode: bypassPermissions
 maxTurns: 50
+capabilities:
+  write_knowledge: false
+  write_code: true
+  review_code: true
+  run_tests: true
+inherits: shared/engineer
 skills: frontend-design, ui-ux-pro-max, context7-plugin:docs
 ---
 
 # Frontend Dev
+
+Read `./shared/engineer.md` — base protocol (communication, research order, standards, quality gates).
 
 If `{frontend.path}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 

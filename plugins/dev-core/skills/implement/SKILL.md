@@ -4,6 +4,13 @@ argument-hint: '[--issue <N> | --plan <path>]'
 description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "implement" | "build this" | "execute plan" | "start coding".
 version: 0.1.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill
+pipeline:
+  - { id: locate-plan,      required: true }
+  - { id: setup,            required: true,  rollback: true }
+  - { id: context-inject,   required: false, condition: "tier F only" }
+  - { id: implement,        required: true,  parallel: conditional, retry: 3 }
+  - { id: quality-gate,     required: true,  retry: 3, rollback: true }
+  - { id: summary,          required: true }
 ---
 
 # Implement

@@ -14,6 +14,12 @@ color: white
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "SendMessage"]
 permissionMode: bypassPermissions
 maxTurns: 50
+capabilities:
+  write_knowledge: false
+  write_code: true
+  review_code: false
+  run_tests: true
+inherits: shared/base
 skills: test
 ---
 

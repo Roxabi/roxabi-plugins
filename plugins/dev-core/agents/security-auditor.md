@@ -14,6 +14,12 @@ color: white
 tools: ["Read", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "SendMessage"]
 permissionMode: plan
 maxTurns: 30
+capabilities:
+  write_knowledge: false
+  write_code: false
+  review_code: true
+  run_tests: false
+inherits: shared/base
 disallowedTools: Write, Edit
 ---
 
