@@ -23,6 +23,12 @@ vi.mock('../../shared/queries', () => ({
   UPDATE_PROJECT_WORKFLOW_MUTATION: 'UPDATE_PROJECT_WORKFLOW_MUTATION',
 }))
 
+vi.mock('../../shared/workspace', () => ({
+  readWorkspace: vi.fn(() => ({ projects: [] })),
+  writeWorkspace: vi.fn(),
+  getWorkspacePath: () => '/tmp/test-workspace.json',
+}))
+
 describe('createProject', () => {
   let mockRun: ReturnType<typeof vi.fn>
 
