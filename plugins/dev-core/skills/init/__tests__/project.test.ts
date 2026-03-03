@@ -26,7 +26,6 @@ vi.mock('../../shared/github', () => ({
 
 vi.mock('../../shared/queries', () => ({
   PROJECT_WORKFLOWS_QUERY: 'PROJECT_WORKFLOWS_QUERY',
-  UPDATE_PROJECT_WORKFLOW_MUTATION: 'UPDATE_PROJECT_WORKFLOW_MUTATION',
   UPDATE_FIELD_OPTIONS_MUTATION: 'UPDATE_FIELD_OPTIONS_MUTATION',
 }))
 
@@ -135,34 +134,5 @@ describe('listProjectWorkflows', () => {
     expect(result).toHaveLength(2)
     expect(result[0]).toEqual({ id: 'PWF_1', name: 'Auto-add to project', enabled: false })
     expect(result[1].enabled).toBe(true)
-  })
-})
-
-describe('enableProjectWorkflow', () => {
-  let mockGhGraphQL: ReturnType<typeof vi.fn>
-
-  beforeEach(async () => {
-    vi.clearAllMocks()
-    const github = await import('../../shared/github')
-    mockGhGraphQL = github.ghGraphQL as ReturnType<typeof vi.fn>
-  })
-
-  it('enables a workflow and returns updated state', async () => {
-    mockGhGraphQL.mockResolvedValueOnce({
-      data: {
-        updateProjectV2Workflow: {
-          projectV2Workflow: { id: 'PWF_1', name: 'Auto-add to project', enabled: true },
-        },
-      },
-    })
-
-    const { enableProjectWorkflow } = await import('../lib/project')
-    const result = await enableProjectWorkflow('PWF_1')
-
-    expect(result).toEqual({ id: 'PWF_1', name: 'Auto-add to project', enabled: true })
-    expect(mockGhGraphQL).toHaveBeenCalledWith('UPDATE_PROJECT_WORKFLOW_MUTATION', {
-      workflowId: 'PWF_1',
-      enabled: true,
-    })
   })
 })
