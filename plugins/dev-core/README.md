@@ -6,7 +6,7 @@ Full development lifecycle orchestrator for Roxabi projects. Covers framing, ana
 
 - **Package manager** — Bun, npm, pnpm, or yarn (configured via `stack.yml`)
 - [GitHub CLI](https://cli.github.com/) (`gh`) — issue fetching, PR creation, label management
-- [Biome](https://biomejs.dev/) — used by the auto-format hook for TS/JS/JSON files
+- **Formatter** — optional; configure any formatter in `stack.yml` (`build.formatter_fix_cmd` or `build.formatters[]`). Biome, Prettier, Ruff, Black — all work. Leave empty to disable auto-formatting.
 
 ## Install
 
@@ -128,7 +128,7 @@ Three Claude Code hooks for safety and consistency:
 |------|---------|--------------|
 | Security check | PreToolUse on Edit/Write | Blocks hardcoded secrets, SQL injection patterns, command injection |
 | Bun test blocker | PreToolUse on Bash | Enforces `bun run test` over `bun test` (the latter uses the Bun test runner instead of Vitest and causes CPU spin) |
-| Biome auto-format | PostToolUse on Edit/Write | Auto-formats TypeScript, JavaScript, and JSON files after edits |
+| Auto-format | PostToolUse on Edit/Write | Reads `build.formatter_fix_cmd` (single) or `build.formatters[]` (multi, for mixed JS+Python monorepos) from `stack.yml` and runs the right formatter per file extension. Silent no-op when unconfigured. |
 
 ## External Dependencies
 

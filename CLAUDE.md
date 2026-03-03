@@ -114,7 +114,7 @@ Run the plugin validator and test suite:
 
 ```bash
 claude plugin validate .
-bun test
+bun lint && bun typecheck && bun test
 ```
 
 CI (`bun lint`, `bun typecheck`, `bun test`) runs automatically on push to `main`/`staging` via `.github/workflows/ci.yml`. PRs must be green before merging.

@@ -117,6 +117,18 @@ From the output, derive the proposed config:
 - biome → `bunx biome check --write` (or `npx biome check --write`)
 - eslint → `npx eslint --fix .`
 
+**Mixed-stack monorepos (FE+BE with different formatters):**
+When both JS/TS and Python sources are detected (e.g. `fe/` + `be/` dirs), write `formatters:` array instead of `formatter_fix_cmd`:
+```yaml
+build:
+  formatters:
+    - cmd: "bunx biome check --write"
+      ext: [".ts", ".tsx", ".js", ".jsx", ".json"]
+    - cmd: "ruff format"
+      ext: [".py"]
+```
+Each formatter only receives files matching its `ext` list. `formatter_fix_cmd` is the fallback for single-formatter projects.
+
 **Standards paths** (only include if `docs/` exists on disk):
 - backend, testing, code_review, architecture, configuration, contributing
 
@@ -184,7 +196,12 @@ build:
   # orchestrator_config: {ORCHESTRATOR_CONFIG}
   formatter: {FORMATTER}
   formatter_config: {FORMATTER_CONFIG}
-  formatter_fix_cmd: "{FORMATTER_FIX_CMD}"
+  formatter_fix_cmd: "{FORMATTER_FIX_CMD}"  # single formatter; use formatters[] for mixed stacks
+  # formatters:                              # mixed-stack alternative (FE JS + BE Python etc.)
+  #   - cmd: "bunx biome check --write"
+  #     ext: [".ts", ".tsx", ".js", ".jsx", ".json"]
+  #   - cmd: "ruff format"
+  #     ext: [".py"]
 
 testing:
   unit: {UNIT_TEST}
