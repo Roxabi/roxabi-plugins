@@ -43,7 +43,7 @@ function buildDevCoreSections(opts: ScaffoldOpts): EnvSection[] {
       header: '# --- dev-core: GitHub Project V2 ---',
       vars: [
         { key: 'GITHUB_REPO', value: opts.githubRepo },
-        { key: 'PROJECT_ID', value: opts.projectId },
+        { key: 'GH_PROJECT_ID', value: opts.projectId },
         { key: 'STATUS_FIELD_ID', value: opts.statusFieldId },
         { key: 'SIZE_FIELD_ID', value: opts.sizeFieldId },
         { key: 'PRIORITY_FIELD_ID', value: opts.priorityFieldId },
@@ -79,7 +79,7 @@ function buildDevCoreSections(opts: ScaffoldOpts): EnvSection[] {
 }
 
 const DEV_CORE_KEYS = new Set([
-  'GITHUB_REPO', 'PROJECT_ID',
+  'GITHUB_REPO', 'GH_PROJECT_ID',
   'STATUS_FIELD_ID', 'SIZE_FIELD_ID', 'PRIORITY_FIELD_ID',
   'STATUS_OPTIONS_JSON', 'SIZE_OPTIONS_JSON', 'PRIORITY_OPTIONS_JSON',
   'VERCEL_TOKEN', 'VERCEL_PROJECT_ID', 'VERCEL_TEAM_ID',
@@ -154,7 +154,7 @@ function generateEnvExample(_opts: ScaffoldOpts): string {
     '# --- dev-core: GitHub Project V2 ---',
     '# Run /init to auto-detect these values',
     'GITHUB_REPO=owner/repo',
-    'PROJECT_ID=PVT_...',
+    'GH_PROJECT_ID=PVT_...',
     'STATUS_FIELD_ID=PVTSSF_...',
     'SIZE_FIELD_ID=PVTSSF_...',
     'PRIORITY_FIELD_ID=PVTSSF_...',

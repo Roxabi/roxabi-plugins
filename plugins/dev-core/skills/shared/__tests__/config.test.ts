@@ -4,7 +4,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 delete process.env.STATUS_OPTIONS_JSON
 delete process.env.SIZE_OPTIONS_JSON
 delete process.env.PRIORITY_OPTIONS_JSON
-delete process.env.PROJECT_ID
+delete process.env.GH_PROJECT_ID
 // Must be set before config module loads (detectGitHubRepo runs eagerly at import)
 process.env.GITHUB_REPO = 'Test/test-repo'
 
@@ -52,7 +52,7 @@ describe('shared/config', () => {
   })
 
   describe('isProjectConfigured', () => {
-    it('returns false when PROJECT_ID is empty', () => {
+    it('returns false when GH_PROJECT_ID is empty', () => {
       expect(isProjectConfigured()).toBe(false)
     })
 

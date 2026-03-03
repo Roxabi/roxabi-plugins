@@ -63,7 +63,7 @@ describe('doctor', () => {
   it('formats text output with sections and verdict', async () => {
     mockPrereqs()
     mockFs({
-      '.env': 'GITHUB_REPO=TestOrg/test-repo\nPROJECT_ID=PVT_123\nSTATUS_FIELD_ID=F1\nSIZE_FIELD_ID=F2\nPRIORITY_FIELD_ID=F3',
+      '.env': 'GITHUB_REPO=TestOrg/test-repo\nGH_PROJECT_ID=PVT_123\nSTATUS_FIELD_ID=F1\nSIZE_FIELD_ID=F2\nPRIORITY_FIELD_ID=F3',
       '.vercel/project.json': null,
       'package.json': '{"scripts":{"dashboard":"bun test"}}',
     })

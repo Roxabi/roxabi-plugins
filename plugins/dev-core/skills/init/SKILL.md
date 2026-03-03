@@ -122,7 +122,7 @@ dev-core Configuration
 
   GitHub:
     GITHUB_REPO         = owner/repo
-    PROJECT_ID          = PVT_kwHO...
+    GH_PROJECT_ID       = PVT_kwHO...
     STATUS_FIELD_ID     = PVTSSF_...
     SIZE_FIELD_ID       = PVTSSF_...
     PRIORITY_FIELD_ID   = PVTSSF_...
@@ -166,7 +166,7 @@ Register the current project in the shared workspace config so the multi-project
    const ws = readWorkspace()
    const entry = {
      repo: process.env.GITHUB_REPO ?? '',
-     projectId: process.env.PROJECT_ID ?? '',
+     projectId: process.env.GH_PROJECT_ID ?? '',
      label: (process.env.GITHUB_REPO ?? '').split('/')[1] ?? '',
    }
    if (process.env.VERCEL_PROJECT_ID) entry.vercelProjectId = process.env.VERCEL_PROJECT_ID
@@ -194,9 +194,9 @@ Scan the filesystem for other repos with dev-core configured but not yet in work
    done | sort -u
    ```
 
-2. **For each found `.env`**, extract `GITHUB_REPO`, `PROJECT_ID`, and Vercel config:
+2. **For each found `.env`**, extract `GITHUB_REPO`, `GH_PROJECT_ID`, and Vercel config:
    ```bash
-   grep -E "^(GITHUB_REPO|PROJECT_ID|VERCEL_PROJECT_ID|VERCEL_TEAM_ID)=" <path>/.env
+   grep -E "^(GITHUB_REPO|GH_PROJECT_ID|VERCEL_PROJECT_ID|VERCEL_TEAM_ID)=" <path>/.env
    ```
 
 3. **Filter out**: current project + already-registered repos (compare against `workspace.json`).
@@ -206,13 +206,13 @@ Scan the filesystem for other repos with dev-core configured but not yet in work
 5. **If candidates found**, display:
    ```
    Other dev-core projects found:
-     [ ] owner/repo-a   (PROJECT_ID: PVT_...)
+     [ ] owner/repo-a   (GH_PROJECT_ID: PVT_...)
      [ ] owner/repo-b   (no project board)
-     [ ] owner/repo-c   (PROJECT_ID: PVT_...)
+     [ ] owner/repo-c   (GH_PROJECT_ID: PVT_...)
    ```
    AskUserQuestion: **Add all** | **Select** | **Skip**
 
-6. **If Add all or Select:** for each chosen repo, read its `GITHUB_REPO` + `PROJECT_ID` + `VERCEL_PROJECT_ID` + `VERCEL_TEAM_ID` + derive label from repo name, then append to `workspace.json` (include `vercelProjectId`/`vercelTeamId` only if present in that repo's `.env`).
+6. **If Add all or Select:** for each chosen repo, read its `GITHUB_REPO` + `GH_PROJECT_ID` + `VERCEL_PROJECT_ID` + `VERCEL_TEAM_ID` + derive label from repo name, then append to `workspace.json` (include `vercelProjectId`/`vercelTeamId` only if present in that repo's `.env`).
 
    Display: `workspace.json ✅ Added N projects (repo-a, repo-b, ...)`
 

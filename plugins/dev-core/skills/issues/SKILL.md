@@ -206,10 +206,10 @@ This skill **displays** dependency relationships (blockedBy/blocking). To **modi
 
 ## Configuration
 
-Run `/init` to auto-detect and populate these env vars. `GITHUB_REPO` is auto-detected from git remote if not set. `PROJECT_ID` is required for fetching project board data.
+Run `/init` to auto-detect and populate these env vars. `GITHUB_REPO` is auto-detected from git remote if not set. `GH_PROJECT_ID` is required for fetching project board data.
 
 Environment variables (set by `/init` in `.env`):
-- `PROJECT_ID` — GitHub Project V2 ID (**required**)
+- `GH_PROJECT_ID` — GitHub Project V2 ID (**required**)
 - `GITHUB_REPO` — Repository in `owner/repo` format (auto-detected from git remote)
 
 $ARGUMENTS

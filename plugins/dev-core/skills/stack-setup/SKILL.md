@@ -22,7 +22,7 @@ If missing, create `.claude/` directory: `mkdir -p .claude`
 
 ## Phase 1 — Check /init prerequisite
 
-Run: `test -f .env && grep -q 'PROJECT_ID' .env && echo done || echo missing`
+Run: `test -f .env && grep -q 'GH_PROJECT_ID' .env && echo done || echo missing`
 
 If `missing`:
 Display warning:

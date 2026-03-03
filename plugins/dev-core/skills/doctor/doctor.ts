@@ -65,7 +65,7 @@ function checkPrereqsSection(prereqs: PrereqResult): Section {
 
 function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): Section {
   const skip = (name: string) => ({ name, status: 'skip' as Status, detail: 'gh CLI not available' })
-  if (!ghOk) return { name: 'GitHub', checks: ['GITHUB_REPO', 'GITHUB_TOKEN', 'PROJECT_ID', 'Status field', 'Size field', 'Priority field'].map(skip) }
+  if (!ghOk) return { name: 'GitHub', checks: ['GITHUB_REPO', 'GITHUB_TOKEN', 'GH_PROJECT_ID', 'Status field', 'Size field', 'Priority field'].map(skip) }
 
   const env = readEnvFile()
   const checks: Check[] = []
@@ -78,8 +78,8 @@ function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): Section 
   const hasToken = !!process.env.GITHUB_TOKEN || spawnSync(['gh', 'auth', 'token']).ok
   checks.push({ name: 'GITHUB_TOKEN', status: hasToken ? 'pass' : 'fail', detail: hasToken ? 'available' : 'not set and gh auth token failed' })
 
-  // PROJECT_ID
-  const projectId = env.PROJECT_ID
+  // GH_PROJECT_ID
+  const projectId = env.GH_PROJECT_ID
   if (projectId) {
     const projects = spawnSync(['gh', 'project', 'list', '--owner', owner, '--format', 'json', '--limit', '20'])
     let verified = false
@@ -89,9 +89,9 @@ function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): Section 
         verified = data.projects?.some((p) => p.id === projectId) ?? false
       } catch {}
     }
-    checks.push({ name: 'PROJECT_ID', status: verified ? 'pass' : 'warn', detail: verified ? `${projectId} (verified)` : `${projectId} (not verified)` })
+    checks.push({ name: 'GH_PROJECT_ID', status: verified ? 'pass' : 'warn', detail: verified ? `${projectId} (verified)` : `${projectId} (not verified)` })
   } else {
-    checks.push({ name: 'PROJECT_ID', status: 'fail', detail: 'not set in .env' })
+    checks.push({ name: 'GH_PROJECT_ID', status: 'fail', detail: 'not set in .env' })
   }
 
   // Field IDs
@@ -164,8 +164,8 @@ function checkProjectWorkflows(ghOk: boolean, owner: string): Section {
   if (!ghOk) return { name: 'Project workflows', checks: [{ name: 'workflows', status: 'skip', detail: 'gh CLI not available' }] }
 
   const env = readEnvFile()
-  const projectId = env.PROJECT_ID
-  if (!projectId) return { name: 'Project workflows', checks: [{ name: 'workflows', status: 'skip', detail: 'PROJECT_ID not set' }] }
+  const projectId = env.GH_PROJECT_ID
+  if (!projectId) return { name: 'Project workflows', checks: [{ name: 'workflows', status: 'skip', detail: 'GH_PROJECT_ID not set' }] }
 
   const query = 'query($projectId: ID!) { node(id: $projectId) { ... on ProjectV2 { workflows(first: 20) { nodes { name enabled } } } } }'
   const result = spawnSync(['gh', 'api', 'graphql', '-f', `query=${query}`, '-F', `projectId=${projectId}`])

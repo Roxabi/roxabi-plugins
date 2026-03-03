@@ -1,4 +1,4 @@
-import { GITHUB_REPO, PROJECT_ID } from '../../shared/config'
+import { GITHUB_REPO, GH_PROJECT_ID } from '../../shared/config'
 import { ghGraphQL, run } from '../../shared/github'
 import { BRANCH_CI_QUERY, ISSUES_QUERY, PRS_QUERY } from '../../shared/queries'
 import type { RawItem } from '../../shared/types'
@@ -42,7 +42,7 @@ async function fetchAllItemsForProject(projectId: string): Promise<RawItem[]> {
 
 /** Fetch all raw project items with pagination. */
 export async function fetchAllItems(): Promise<RawItem[]> {
-  return fetchAllItemsForProject(PROJECT_ID)
+  return fetchAllItemsForProject(GH_PROJECT_ID)
 }
 
 /**

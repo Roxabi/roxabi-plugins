@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Provide project config so field updates work in tests
 process.env.GITHUB_REPO = 'Test/test-repo'
-process.env.PROJECT_ID = 'PVT_test'
+process.env.GH_PROJECT_ID = 'PVT_test'
 process.env.STATUS_FIELD_ID = 'SF_test'
 process.env.SIZE_FIELD_ID = 'SZF_test'
 process.env.PRIORITY_FIELD_ID = 'PF_test'
@@ -33,7 +33,7 @@ process.env.PRIORITY_OPTIONS_JSON = JSON.stringify({
 vi.mock('../../shared/config', () => ({
   isProjectConfigured: () => true,
   NOT_CONFIGURED_MSG: 'GitHub Project V2 is not configured.',
-  PROJECT_ID: 'PVT_test',
+  GH_PROJECT_ID: 'PVT_test',
   STATUS_FIELD_ID: 'SF_test',
   SIZE_FIELD_ID: 'SZF_test',
   PRIORITY_FIELD_ID: 'PF_test',
