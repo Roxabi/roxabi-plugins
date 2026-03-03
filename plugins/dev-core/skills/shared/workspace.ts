@@ -22,14 +22,20 @@ export interface ProjectFieldIds {
   col3Options?: Record<string, string>
 }
 
+export interface VercelProjectRef {
+  projectId: string
+  teamId: string
+}
+
 export interface WorkspaceProject {
   repo: string // 'owner/name'
   projectId: string // 'PVT_...'
   label: string // display name shown in dashboard tab
   type?: ProjectType // defaults to 'technical'
   fieldIds?: ProjectFieldIds
-  vercelProjectId?: string // Vercel project ID (optional, for per-project deployments)
-  vercelTeamId?: string // Vercel team ID (optional)
+  vercelProjectId?: string // single Vercel project ID (legacy / single-project)
+  vercelTeamId?: string // Vercel team ID for single project
+  vercelProjects?: VercelProjectRef[] // multiple Vercel projects (overrides vercelProjectId)
 }
 
 export interface Workspace {

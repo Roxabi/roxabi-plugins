@@ -8,7 +8,7 @@
  * Features: in-memory cache, background polling, SSE live updates, multi-project workspace.
  */
 
-import type { WorkspaceProject } from '../shared/workspace'
+import type { VercelProjectRef, WorkspaceProject } from '../shared/workspace'
 import { discoverProject, readWorkspace, writeWorkspace } from '../shared/workspace'
 import {
   fetchAllProjects,
@@ -71,6 +71,13 @@ function computeHash(
   return Bun.hash(key).toString(36)
 }
 
+/** Resolve the list of Vercel projects for a workspace entry. */
+function resolveVercelProjects(p: WorkspaceProject): VercelProjectRef[] {
+  if (p.vercelProjects && p.vercelProjects.length > 0) return p.vercelProjects
+  if (p.vercelProjectId && p.vercelTeamId) return [{ projectId: p.vercelProjectId, teamId: p.vercelTeamId }]
+  return []
+}
+
 function computeWorkspaceHash(projects: WorkspaceProject[]): string {
   return Bun.hash(JSON.stringify(projects)).toString(36)
 }
@@ -95,7 +102,9 @@ async function refreshCache(): Promise<void> {
             prs: await fetchPRs(p.repo),
             branchCI: await fetchBranchCI(p.repo),
             workflowRuns: await fetchWorkflowRuns(p.repo),
-            deployments: await fetchVercelDeployments(p.vercelProjectId, p.vercelTeamId),
+            deployments: (
+              await Promise.all(resolveVercelProjects(p).map((vp) => fetchVercelDeployments(vp.projectId, vp.teamId)))
+            ).flat(),
           })),
         ),
         fetchBranches(),
@@ -133,6 +142,7 @@ async function refreshCache(): Promise<void> {
         fieldIds: p.fieldIds,
         vercelProjectId: p.vercelProjectId,
         vercelTeamId: p.vercelTeamId,
+        vercelProjects: p.vercelProjects,
       })) as WorkspaceProject[]
       const html = buildHtml(
         issues,

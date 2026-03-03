@@ -359,10 +359,18 @@ export async function fetchVercelDeployments(
       buildSteps: [] as BuildStep[],
     }))
 
-    // Always show: all ongoing deployments + the most recent completed ones (up to 5 total)
+    // Show: all ongoing + current production (latest READY on prod) + latest failed (latest ERROR)
     const ongoing = mapped.filter((d) => ['BUILDING', 'QUEUED', 'INITIALIZING'].includes(d.state))
-    const completed = mapped.filter((d) => !['BUILDING', 'QUEUED', 'INITIALIZING'].includes(d.state))
-    const filtered = [...ongoing, ...completed].slice(0, 5)
+    const currentProd = mapped.find((d) => d.state === 'READY' && d.target === 'production')
+    const latestError = mapped.find((d) => d.state === 'ERROR')
+    const seen = new Set<string>()
+    const filtered: typeof mapped = []
+    for (const d of [...ongoing, ...(currentProd ? [currentProd] : []), ...(latestError ? [latestError] : [])]) {
+      if (!seen.has(d.uid)) {
+        seen.add(d.uid)
+        filtered.push(d)
+      }
+    }
 
     // Fetch build logs in parallel for all visible deployments
     const logResults = await Promise.all(filtered.map((d) => fetchBuildLogs(token, d.uid, teamId)))
