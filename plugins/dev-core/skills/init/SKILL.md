@@ -86,7 +86,7 @@ PID ∃ → run: `bun $I_TS list-workflows --project-id <PVT_...>`. Parse JSON a
 ```
   ℹ️  GitHub doesn't expose an API to toggle built-in project workflows.
       Enable them manually in the project settings:
-      https://github.com/orgs/<owner>/projects/<number>/settings/workflows
+      https://github.com/orgs/<owner>/projects/<number>/workflows
       (replace `orgs` with `users` for personal accounts)
 ```
 
