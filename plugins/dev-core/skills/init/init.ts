@@ -8,7 +8,8 @@
  *   bun init.ts discover [--json]
  *   bun init.ts create-project --owner <owner> --repo <repo>
  *   bun init.ts labels --repo <owner/repo> [--scope all|type|area|priority]
- *   bun init.ts workflows --stack <bun|node> --test <vitest|jest|none> --deploy <vercel|none>
+ *   bun init.ts workflows --owner <owner> --repo <repo> --stack <bun|node|python> --test <vitest|jest|pytest|none> --deploy <vercel|none> [--branch <branch>]
+ *   bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>]  # generic only (auto-merge + pr-title)
  *   bun init.ts protect-branches --repo <owner/repo>
  *   bun init.ts migrate-issues --owner <owner> --repo <repo> --project-number <N>
  *   bun init.ts scaffold --github-repo <owner/repo> --project-id <PVT_...> [--force] ...
@@ -75,12 +76,35 @@ switch (command) {
   }
 
   case 'workflows': {
-    const { writeWorkflows } = await import('./lib/workflows')
-    const stack = parseFlag('--stack', 'bun') as 'bun' | 'node'
-    const test = parseFlag('--test', 'vitest') as 'vitest' | 'jest' | 'none'
+    const { pushWorkflows, writeWorkflows } = await import('./lib/workflows')
+    const owner = parseFlag('--owner', '')
+    const repo = parseFlag('--repo', '')
+    const branch = parseFlag('--branch', 'main')
+    const stack = parseFlag('--stack', 'bun') as 'bun' | 'node' | 'python'
+    const test = parseFlag('--test', 'vitest') as 'vitest' | 'jest' | 'pytest' | 'none'
     const deploy = parseFlag('--deploy', 'none') as 'vercel' | 'none'
-    const result = await writeWorkflows({ stack, test, deploy })
-    console.log(JSON.stringify({ written: result }, null, 2))
+    if (owner && repo) {
+      const result = await pushWorkflows(owner, repo, { stack, test, deploy }, branch)
+      console.log(JSON.stringify({ pushed: result }, null, 2))
+    } else {
+      // fallback: local write (no owner/repo provided)
+      const result = await writeWorkflows({ stack, test, deploy })
+      console.log(JSON.stringify({ written: result }, null, 2))
+    }
+    break
+  }
+
+  case 'push-workflows': {
+    const { pushGenericWorkflows } = await import('./lib/workflows')
+    const owner = parseFlag('--owner', '')
+    const repo = parseFlag('--repo', '')
+    const branch = parseFlag('--branch', 'main')
+    if (!owner || !repo) {
+      console.error('Usage: init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>]')
+      process.exit(1)
+    }
+    const result = await pushGenericWorkflows(owner, repo, branch)
+    console.log(JSON.stringify({ pushed: result }, null, 2))
     break
   }
 
@@ -157,7 +181,7 @@ switch (command) {
   default:
     console.error(`Unknown command: ${command}`)
     console.error(
-      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|protect-branches|list-workflows|enable-workflow|scaffold]',
+      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|enable-workflow|scaffold]',
     )
     process.exit(1)
 }

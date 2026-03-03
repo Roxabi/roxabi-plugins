@@ -90,7 +90,36 @@ If `labels.missing` is non-empty, AskUserQuestion: **Create all labels** | **Typ
 
 Run: `bun $INIT_TS labels --repo <owner/repo> --scope <all|type|area|priority>`
 
-#### 3c. Branch Protection
+#### 3c. GitHub Actions Workflows
+
+Check which workflow files exist in the repo:
+
+```bash
+gh api /repos/<owner>/<repo>/contents/.github/workflows --jq '.[].name' 2>/dev/null || echo "none"
+```
+
+The standard set is: `ci.yml`, `auto-merge.yml`, `pr-title.yml` (+ `deploy-preview.yml` if Vercel).
+
+If any are missing, AskUserQuestion: **Set up GitHub Actions workflows** | **Skip**.
+
+If yes:
+1. AskUserQuestion for stack: **Bun** | **Node** | **Python (uv)**
+2. AskUserQuestion for test framework: **Vitest** | **Jest** | **Pytest** | **None**
+3. AskUserQuestion for deploy: **Vercel** | **None**
+
+Run: `bun $INIT_TS workflows --owner <owner> --repo <repo> --stack bun --test vitest --deploy vercel`
+
+This pushes all workflow files directly to the remote repo via GitHub REST API — no local git commit needed. Files are created or updated idempotently.
+
+To add only the generic workflows (`auto-merge.yml` + `pr-title.yml`) without touching `ci.yml`:
+
+```bash
+bun $INIT_TS push-workflows --owner <owner> --repo <repo>
+```
+
+Note: `auto-merge.yml` requires a `PAT` secret in the repo (a personal access token with `repo` + `workflow` scopes). Remind the user to add it at: `https://github.com/<owner>/<repo>/settings/secrets/actions`.
+
+#### 3d. Branch Protection
 
 AskUserQuestion: **Set up branch protection** | **Skip**.
 
@@ -255,25 +284,31 @@ Only run if `.mdx` files exist in the project (`find . -name "*.mdx" -not -path 
 
 ### Phase 9 — CI Setup
 
-Set up GitHub Actions CI/CD workflows. Runs last so stack.yml values are available to pre-fill the configuration.
+Set up GitHub Actions CI/CD workflows via REST API (no local git needed). Runs last so stack.yml values are available to pre-fill the configuration.
 
-1. **Check for existing CI:** `ls .github/workflows/ci.yml 2>/dev/null && echo exists || echo missing`
-   - If exists → display `CI/CD workflows ✅ Already configured` and skip this phase.
+Standard workflow set: `ci.yml`, `auto-merge.yml`, `pr-title.yml` (+ `deploy-preview.yml` if Vercel).
+
+1. **Check for existing workflows** via REST API:
+   ```bash
+   gh api /repos/<owner>/<repo>/contents/.github/workflows --jq '.[].name' 2>/dev/null || echo "none"
+   ```
+   Check which of the standard files are missing. If all present → display `CI/CD workflows ✅ Already configured` and skip.
 
 2. **Auto-detect from stack.yml** (read `.claude/stack.yml` if it exists):
    - `stack` ← `runtime` field (`bun` → **Bun**, `node` → **Node**, `python` → **Python (uv)**)
    - `test` ← `commands.test` (contains "vitest" → **Vitest**, "jest" → **Jest**, "pytest" → **Pytest**, else → **None**)
    - `deploy` ← `deploy.platform` (`vercel` → **Vercel**, else → **None**)
 
-3. **If workflows missing**, AskUserQuestion: **Set up CI/CD workflows** | **Skip**
+3. **If any workflows missing**, AskUserQuestion: **Set up CI/CD workflows** | **Skip**
 
 4. **If yes:**
    - AskUserQuestion for stack (pre-select detected value): **Bun** | **Node** | **Python (uv)**
    - AskUserQuestion for test framework (pre-select detected value): **Vitest** | **Jest** | **Pytest** | **None**
    - AskUserQuestion for deploy (pre-select detected value): **Vercel** | **None**
-   - Run: `bun $INIT_TS workflows --stack <stack> --test <test> --deploy <deploy>`
-   - Note: Python workflow generates a `ci.yml` running `uv run ruff check .` and `uv run pytest`.
-   - Display: `CI/CD workflows ✅ Created`
+   - Run: `bun $INIT_TS workflows --owner <owner> --repo <repo> --stack <stack> --test <test> --deploy <deploy>`
+   - Files are pushed directly to the remote repo via GitHub REST API — no commit needed locally.
+   - Note: `auto-merge.yml` requires a `PAT` secret in the repo. Remind user to add it at: `https://github.com/<owner>/<repo>/settings/secrets/actions`
+   - Display: `CI/CD workflows ✅ Created (ci.yml, auto-merge.yml, pr-title.yml)`
 
 5. **If skip:** display `CI/CD workflows ⏭ Skipped`
 
