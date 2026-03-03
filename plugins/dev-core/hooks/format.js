@@ -8,15 +8,26 @@ const path = require('node:path')
 // The formatter itself decides which it actually processes — this list just
 // avoids passing irrelevant files (binaries, lock files, etc.).
 const FORMATTABLE_EXTENSIONS = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.cjs', '.mjs', // JS/TS
-  '.json', '.jsonc',                              // JSON
-  '.py',                                          // Python
-  '.rb',                                          // Ruby
-  '.go',                                          // Go
-  '.rs',                                          // Rust
-  '.css', '.scss', '.less',                       // CSS
-  '.html', '.svelte', '.vue',                     // HTML/templates
-  '.md', '.mdx',                                  // Markdown
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.cjs',
+  '.mjs', // JS/TS
+  '.json',
+  '.jsonc', // JSON
+  '.py', // Python
+  '.rb', // Ruby
+  '.go', // Go
+  '.rs', // Rust
+  '.css',
+  '.scss',
+  '.less', // CSS
+  '.html',
+  '.svelte',
+  '.vue', // HTML/templates
+  '.md',
+  '.mdx', // Markdown
 ])
 
 function readStackYml() {
@@ -59,10 +70,7 @@ function parseFormatters(text) {
     // First line is the cmd value
     const firstLine = chunk.split('\n')[0]
     let cmd = firstLine.trim()
-    if (
-      (cmd.startsWith('"') && cmd.endsWith('"')) ||
-      (cmd.startsWith("'") && cmd.endsWith("'"))
-    ) {
+    if ((cmd.startsWith('"') && cmd.endsWith('"')) || (cmd.startsWith("'") && cmd.endsWith("'"))) {
       cmd = cmd.slice(1, -1)
     }
     if (!cmd) continue
@@ -70,7 +78,10 @@ function parseFormatters(text) {
     // ext: [".ts", ".py"] — inline array on one line
     const extMatch = chunk.match(/\bext:\s*\[([^\]]*)\]/)
     const ext = extMatch
-      ? extMatch[1].split(',').map((e) => e.trim().replace(/['"]/g, '')).filter(Boolean)
+      ? extMatch[1]
+          .split(',')
+          .map((e) => e.trim().replace(/['"]/g, ''))
+          .filter(Boolean)
       : null // null = match all formattable extensions
 
     formatters.push({ cmd, ext })
@@ -88,10 +99,7 @@ function parseSingleCmd(text) {
   const match = text.match(/^\s*formatter_fix_cmd:\s*(.+?)\s*$/m)
   if (!match) return null
   let val = match[1].trim()
-  if (
-    (val.startsWith('"') && val.endsWith('"')) ||
-    (val.startsWith("'") && val.endsWith("'"))
-  ) {
+  if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
     val = val.slice(1, -1)
   }
   return val || null
