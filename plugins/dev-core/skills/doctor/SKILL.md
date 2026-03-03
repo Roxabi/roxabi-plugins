@@ -1,7 +1,7 @@
 ---
 name: doctor
 description: 'Health check — verify dev-core config, GitHub project, labels, workflows, branch protection. Triggers: "doctor" | "health check" | "check setup" | "verify config".'
-version: 0.5.0
+version: 0.6.0
 allowed-tools: Bash
 ---
 

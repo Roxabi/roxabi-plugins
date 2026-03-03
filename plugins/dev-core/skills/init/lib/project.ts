@@ -9,7 +9,6 @@ import { ghGraphQL, parseProjectFields, run } from '../../shared/github'
 import {
   PROJECT_WORKFLOWS_QUERY,
   UPDATE_FIELD_OPTIONS_MUTATION,
-  UPDATE_PROJECT_WORKFLOW_MUTATION,
 } from '../../shared/queries'
 import type { ProjectFieldIds, ProjectType, WorkspaceProject } from '../../shared/workspace'
 import { readWorkspace, writeWorkspace } from '../../shared/workspace'
@@ -200,10 +199,3 @@ export async function listProjectWorkflows(projectId: string): Promise<ProjectWo
   return data.data.node.workflows.nodes
 }
 
-/** Enable a single GitHub Project V2 built-in workflow. */
-export async function enableProjectWorkflow(workflowId: string): Promise<ProjectWorkflow> {
-  const data = (await ghGraphQL(UPDATE_PROJECT_WORKFLOW_MUTATION, { workflowId, enabled: true })) as {
-    data: { updateProjectV2Workflow: { projectV2Workflow: ProjectWorkflow } }
-  }
-  return data.data.updateProjectV2Workflow.projectV2Workflow
-}

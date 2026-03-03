@@ -2,7 +2,7 @@
 name: cleanup
 argument-hint: [--branches | --worktrees | --all]
 description: Clean git branches/worktrees/remotes after merge-status verification. Triggers: "cleanup" | "clean branches" | "cleanup worktrees" | "remove stale branches".
-version: 0.1.0
+version: 0.2.0
 allowed-tools: Bash
 ---
 

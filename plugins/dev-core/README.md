@@ -60,7 +60,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
-| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, CI/CD workflows, branch protection, env vars, workspace.json registration, VS Code MDX preview). Pushes workflow files directly via GitHub REST API — no local git required. Auto-sets PAT secret after workflow creation. TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
+| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, CI/CD workflows, branch protection, env vars, workspace.json registration, VS Code MDX preview). Pushes workflow files directly via GitHub REST API — no local git required. Auto-sets PAT secret after workflow creation. Lists built-in project workflow status; GitHub has no API to enable them programmatically — provides direct settings URL. TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
 | `stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.claude/stack.yml`. Single confirmation screen — no wizard questions |
 | `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows (checks both local files and remote via REST API), required secrets (PAT for auto-merge.yml), branch protection, stack.yml, workspace.json registration, and VS Code MDX preview. Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
 | `dev` | Orchestrator | Routes issues through the full workflow |

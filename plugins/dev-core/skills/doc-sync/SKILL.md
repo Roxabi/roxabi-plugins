@@ -2,7 +2,7 @@
 name: doc-sync
 argument-hint: '[description of change]'
 description: Sync project docs (CLAUDE.md, README.md) and the matching plugin SKILL.md after a code change. Triggers: "sync docs" | "update docs" | "doc sync" | "sync plugin docs" | "update skill docs" | "update the docs".
-version: 0.2.0
+version: 0.3.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 

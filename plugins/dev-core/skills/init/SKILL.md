@@ -2,7 +2,7 @@
 name: init
 argument-hint: '[--force]'
 description: 'Initialize project for dev-core — auto-detect GitHub Project V2, set up dashboard launcher, env vars, artifacts. Triggers: "init" | "setup dev-core" | "initialize dev-core".'
-version: 0.5.0
+version: 0.6.0
 allowed-tools: Bash
 ---
 
@@ -82,10 +82,13 @@ PID ∃ → run: `bun $I_TS list-workflows --project-id <PVT_...>`. Parse JSON a
   └─────────────────────────────────────────┴──────────┘
 ```
 
-AskUserQuestion: **Enable all** | **Select** | **Skip**.
-- Enable all → ∀ disabled workflow: `bun $I_TS enable-workflow --workflow-id <PWF_...>`. Display "✅ Enabled N workflows".
-- Select → numbered list, ask which (comma-separated), enable only those.
-- Skip → continue.
+∃ disabled workflows → display:
+```
+  ℹ️  GitHub doesn't expose an API to toggle built-in project workflows.
+      Enable them manually in the project settings:
+      https://github.com/orgs/<owner>/projects/<number>/settings/workflows
+      (replace `orgs` with `users` for personal accounts)
+```
 
 ### 3b. Labels
 
@@ -412,7 +415,7 @@ dev-core initialized
   Project board     ✅ Created / Detected / ⏭ Skipped
   Issue migration   ✅ N issues added to board / ⏭ Skipped
   Labels            ✅ N labels created / ⏭ Skipped
-  Project workflows ✅ N enabled / ⏭ Skipped
+  Project workflows ✅ Displayed / ⏭ Skipped
   Branch protection ✅ Created / ⏭ Skipped
   roxabi shim       ✅ Installed (~/.local/bin/roxabi)
   PATH              ✅ ~/.local/bin added to .bashrc/.zshrc  (or ⏭ already present)

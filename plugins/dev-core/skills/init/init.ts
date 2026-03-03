@@ -146,18 +146,6 @@ switch (command) {
     break
   }
 
-  case 'enable-workflow': {
-    const { enableProjectWorkflow } = await import('./lib/project')
-    const workflowId = parseFlag('--workflow-id', '')
-    if (!workflowId) {
-      console.error('Usage: init.ts enable-workflow --workflow-id <PWF_...>')
-      process.exit(1)
-    }
-    const result = await enableProjectWorkflow(workflowId)
-    console.log(JSON.stringify(result, null, 2))
-    break
-  }
-
   case 'scaffold': {
     const { scaffold } = await import('./lib/scaffold')
     const result = await scaffold({
@@ -181,7 +169,7 @@ switch (command) {
   default:
     console.error(`Unknown command: ${command}`)
     console.error(
-      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|enable-workflow|scaffold]',
+      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|scaffold]',
     )
     process.exit(1)
 }

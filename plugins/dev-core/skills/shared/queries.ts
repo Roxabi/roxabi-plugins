@@ -233,13 +233,6 @@ mutation($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
   }
 }`
 
-/** Enable or disable a single project workflow. */
-export const UPDATE_PROJECT_WORKFLOW_MUTATION = `
-mutation($workflowId: ID!, $enabled: Boolean!) {
-  updateProjectV2Workflow(input: { workflowId: $workflowId, enabled: $enabled }) {
-    projectV2Workflow { id name enabled }
-  }
-}`
 
 /**
  * Build a batched multi-project query with N aliased node() lookups.

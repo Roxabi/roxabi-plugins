@@ -2,7 +2,7 @@
 name: issues
 argument-hint: [--dashboard | --stop | --json | --priority]
 description: List/dashboard GitHub issues — status, dependencies, backlog. Triggers: "list issues" | "show issues" | "backlog" | "issue dashboard" | "what's blocked".
-version: 0.1.0
+version: 0.2.0
 allowed-tools: Bash, Read
 ---
 

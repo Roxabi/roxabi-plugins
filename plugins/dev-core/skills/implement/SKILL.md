@@ -2,7 +2,7 @@
 name: implement
 argument-hint: '[--issue <N> | --plan <path>]'
 description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "implement" | "build this" | "execute plan" | "start coding".
-version: 0.1.0
+version: 0.2.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill
 ---
 
