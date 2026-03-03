@@ -256,7 +256,7 @@ export async function fetchWorktrees(): Promise<Worktree[]> {
 
 const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID ?? ''
 const VERCEL_TEAM_ID = process.env.VERCEL_TEAM_ID ?? ''
-const FIVE_MINUTES = 5 * 60 * 1000
+const ONE_DAY = 24 * 60 * 60 * 1000
 
 function getVercelToken(): string {
   if (process.env.VERCEL_TOKEN) return process.env.VERCEL_TOKEN
@@ -335,7 +335,7 @@ export async function fetchVercelDeployments(
   if (!token || !projectId || !teamId) return []
 
   try {
-    const since = Date.now() - FIVE_MINUTES
+    const since = Date.now() - ONE_DAY
     const url = `https://api.vercel.com/v6/deployments?projectId=${projectId}&teamId=${teamId}&limit=10&since=${since}`
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
@@ -343,30 +343,27 @@ export async function fetchVercelDeployments(
     if (!res.ok) return []
     const data = (await res.json()) as { deployments: RawVercelDeployment[] }
 
-    const now = Date.now()
-    const filtered = data.deployments
-      .map((d) => ({
-        uid: d.uid,
-        url: d.url,
-        state: d.state ?? d.readyState ?? '',
-        target: d.target ?? '',
-        createdAt: d.createdAt,
-        buildingAt: d.buildingAt ?? 0,
-        ready: d.ready ?? 0,
-        source: d.source ?? '',
-        meta: {
-          githubCommitRef: d.meta?.githubCommitRef,
-          githubCommitMessage: d.meta?.githubCommitMessage,
-        },
-        inspectorUrl: d.inspectorUrl ?? '',
-        buildSteps: [] as BuildStep[],
-      }))
-      .filter((d) => {
-        const ongoing = ['BUILDING', 'QUEUED', 'INITIALIZING'].includes(d.state)
-        const recentReady = d.state === 'READY' && d.ready > 0 && now - d.ready < FIVE_MINUTES
-        const recentError = d.state === 'ERROR' && now - d.createdAt < FIVE_MINUTES
-        return ongoing || recentReady || recentError
-      })
+    const mapped = data.deployments.map((d) => ({
+      uid: d.uid,
+      url: d.url,
+      state: d.state ?? d.readyState ?? '',
+      target: d.target ?? '',
+      createdAt: d.createdAt,
+      buildingAt: d.buildingAt ?? 0,
+      ready: d.ready ?? 0,
+      source: d.source ?? '',
+      meta: {
+        githubCommitRef: d.meta?.githubCommitRef,
+        githubCommitMessage: d.meta?.githubCommitMessage,
+      },
+      inspectorUrl: d.inspectorUrl ?? '',
+      buildSteps: [] as BuildStep[],
+    }))
+
+    // Always show: all ongoing deployments + the most recent completed ones (up to 5 total)
+    const ongoing = mapped.filter((d) => ['BUILDING', 'QUEUED', 'INITIALIZING'].includes(d.state))
+    const completed = mapped.filter((d) => !['BUILDING', 'QUEUED', 'INITIALIZING'].includes(d.state))
+    const filtered = [...ongoing, ...completed].slice(0, 5)
 
     // Fetch build logs in parallel for all visible deployments
     const logResults = await Promise.all(filtered.map((d) => fetchBuildLogs(token, d.uid, teamId)))
