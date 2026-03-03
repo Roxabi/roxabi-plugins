@@ -8,39 +8,32 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 
 # Doc Sync
 
-After a code change, keep three docs in sync:
-1. `CLAUDE.md` — codebase instructions for Claude (in the project repo)
-2. `README.md` — human-facing docs (in the project repo)
-3. Plugin `SKILL.md` — LLM-facing skill instructions (in `roxabi-plugins`)
+Code change → keep three docs in sync:
+- `CLAUDE.md` — Claude-facing codebase instructions
+- `README.md` — human-facing docs
+- `SKILL.md` — LLM-facing skill instructions (in plugin repo)
 
 **⚠ Flow: single continuous pipeline. Stop only on: explicit Cancel, or Phase 5 completion.**
 
 ```
-/doc-sync                        → auto-detect changes from working tree or last commit
-/doc-sync "walk-up config discovery"  → user-provided description
+/doc-sync                             → auto-detect from working tree or last commit
+/doc-sync "walk-up config discovery"  → user-supplied description
 ```
 
 ## Phase 1 — Parse Input
 
-δ := `$ARGUMENTS` if provided, else derive from git.
+δ := `$ARGUMENTS` ∨ derive from git.
 
-¬δ — detect changes in priority order:
+¬δ ⇒ detect in priority order (first non-empty wins):
 
 ```bash
-# 1. Unstaged changes
-git diff --stat
-
-# 2. Staged changes
-git diff --cached --stat
-
-# 3. Last commit
-git diff HEAD~1..HEAD --stat
-git log -1 --format="%s%n%b"
+git diff --stat            # 1. unstaged
+git diff --cached --stat   # 2. staged
+git diff HEAD~1..HEAD --stat && git log -1 --format="%s%n%b"  # 3. last commit
 ```
 
-Use the first non-empty result. Record source: `working-tree | staged | last-commit`.
-
-If still unclear → AskUserQuestion: describe the change in one sentence.
+Record `SRC ∈ {working-tree, staged, last-commit}`.
+¬δ after scan ⇒ AskUserQuestion: describe the change in one sentence.
 
 ## Phase 2 — Discover Context
 
@@ -50,7 +43,7 @@ If still unclear → AskUserQuestion: describe the change in one sentence.
 cat .claude/stack.yml 2>/dev/null
 ```
 
-If present, extract `docs.path` (custom docs dir) and `docs.format`. Falls back to project root for CLAUDE.md/README.md if not set.
+∃ `docs.path` ⇒ use as base for CLAUDE.md/README.md. Else: project root.
 
 **2b. Self-referential check:**
 
@@ -58,32 +51,28 @@ If present, extract `docs.path` (custom docs dir) and `docs.format`. Falls back 
 ls .claude-plugin/marketplace.json 2>/dev/null
 ```
 
-∃ → this IS the plugin repo. Set `PLUGINS_REPO=$(pwd)`. Skip to Phase 2d.
+∃ ⇒ `PLUGINS_REPO=$(pwd)`. Skip to 2d.
 
 **2c. Locate plugin repo:**
-
-Priority order:
-1. `$ROXABI_PLUGINS_DIR` env var
-2. Sibling dirs: `ls ../` → find dir containing `.claude-plugin/marketplace.json`
 
 ```bash
 [ -n "$ROXABI_PLUGINS_DIR" ] && echo "$ROXABI_PLUGINS_DIR"
 for d in ../*/; do [ -f "${d}.claude-plugin/marketplace.json" ] && echo "$d" && break; done
 ```
 
-First hit that exists → `PLUGINS_REPO`.
-¬found → warn: "Plugin repo not found. Set ROXABI_PLUGINS_DIR or place roxabi-plugins as a sibling directory." Update project docs only (skip Phase 4c).
+First hit ⇒ `PLUGINS_REPO`.
+¬found ⇒ warn + skip Phase 4c.
 
 **2d. Plugin name:**
 
 ```bash
+REPO=$(gh repo view --json name --jq '.name')
 ls "$PLUGINS_REPO/plugins/"
 ```
 
-1. Get current repo name: `gh repo view --json name --jq '.name'`
-2. Check if a plugin dir matches (exact or kebab-case): use it automatically
-3. Multiple candidates or no match → AskUserQuestion: select which plugin to update
-4. ¬found → warn + skip SKILL.md update
+Exact ∨ kebab-case match ⇒ `PLUGIN_NAME` auto-set.
+Multiple candidates ∨ ¬match ⇒ AskUserQuestion: select plugin.
+¬found ⇒ warn + skip SKILL.md update.
 
 **2e. Locate SKILL.md:**
 
@@ -91,93 +80,72 @@ ls "$PLUGINS_REPO/plugins/"
 ls "$PLUGINS_REPO/plugins/$PLUGIN_NAME/skills/"
 ```
 
-∃ one skill dir → use it. Multiple → AskUserQuestion: select which skill to update.
+∃ one ⇒ use it. Multiple ⇒ AskUserQuestion: select skill.
 
 ## Phase 3 — Read Changed Code
 
-Read the files that changed (using the source detected in Phase 1):
-
 ```bash
-# unstaged
-git diff --name-only
-
-# staged
-git diff --cached --name-only
-
-# last commit
-git diff HEAD~1..HEAD --name-only
+git diff --name-only                  # SRC=working-tree
+git diff --cached --name-only         # SRC=staged
+git diff HEAD~1..HEAD --name-only     # SRC=last-commit
 ```
 
-Read each changed file (or the most relevant ones if many). Understand:
-- What feature/behavior changed
-- Which user-visible concepts were added/modified/removed
-- Any config fields, CLI flags, file paths, or default values that changed
+Read changed files (most relevant if many). Extract:
+- feature/behavior changed
+- user-visible concepts added/modified/removed
+- config fields, CLI flags, file paths, default values
 
-Track `EDITED_FILES = []` — populated in Phase 4 as each file is modified.
+`EDITED_FILES = []` — append each file modified in Phase 4.
 
 ## Phase 4 — Update Docs
 
-For each target doc, make **targeted edits only** — find the section(s) affected by the change and update those lines. ¬rewrite unrelated sections. Append file path to `EDITED_FILES` after each edit.
+Targeted edits only — find affected section, update those lines. ¬rewrite unrelated sections. Append to `EDITED_FILES` after each edit.
 
-**4a. CLAUDE.md** (at project root or `docs.path` from stack.yml):
+**4a. CLAUDE.md:**
 
-- Locate the section describing the changed feature (grep for relevant keywords)
-- Update the description, add/remove fields, fix examples
-- If no matching section exists → add a new subsection under the most relevant heading
+Grep for relevant keywords → update section. ¬match ⇒ add subsection under nearest heading.
 
-**4b. README.md** (at project root or `docs.path` from stack.yml):
+**4b. README.md:**
 
-- Same targeted approach: find the user-facing section for the changed feature
-- Update examples, behavior descriptions, flags, config fields
-- Keep the user perspective (¬implementation details)
+Same approach, user perspective only (¬implementation details).
 
-**4c. Plugin SKILL.md** (if `PLUGINS_REPO` found):
+**4c. SKILL.md** (∃ `PLUGINS_REPO`):
 
 ```
 TARGET = "$PLUGINS_REPO/plugins/$PLUGIN_NAME/skills/<skill>/SKILL.md"
 ```
 
-- Find the section in SKILL.md that describes the changed feature
-- Make the same targeted edit as CLAUDE.md/README.md, adapted to LLM-facing language
-- ¬bump version unless the skill's behavior fundamentally changed
+Same targeted edit, adapted to LLM-facing language. ¬bump version unless behavior fundamentally changed.
 
 ## Phase 5 — Summary
-
-Display:
 
 ```
 Doc Sync Complete
 =================
 
-  Change:   <one-line description of what changed>
-  Source:   working-tree | staged | last-commit
+  Change:  <one-line description>
+  Source:  <SRC>
 
-  CLAUDE.md       ✅ updated — <section name>
-  README.md       ✅ updated — <section name>
-  SKILL.md        ✅ updated — <plugin>/<skill> § <section name>
-                  (or ⏭ skipped — plugin repo not found)
-
-  Commit?   git add <edited files> && git commit -m "docs: ..."
-            (and a separate commit in roxabi-plugins if SKILL.md updated)
+  CLAUDE.md   ✅ updated — <section>  |  ⏭ skipped
+  README.md   ✅ updated — <section>  |  ⏭ skipped
+  SKILL.md    ✅ updated — <plugin>/<skill> § <section>  |  ⏭ skipped — plugin repo not found
 ```
 
-AskUserQuestion: **Commit project docs** | **Commit all (project + plugin)** | **Skip commit**
+AskUserQuestion: **Commit project docs** | **Commit all (project + plugin)** | **Skip**
 
-If commit approved → `git add` only files in `EDITED_FILES` + commit with `docs:` prefix.
-If plugin repo updated → inform: "Commit `$PLUGINS_REPO` separately."
+Commit approved ⇒ `git add ${EDITED_FILES}` + commit with `docs:` prefix.
+Plugin repo updated ⇒ inform: "Commit `$PLUGINS_REPO` separately."
 
 ## Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| ¬git repo | Read CLAUDE.md/README.md from CWD, skip git-derived context |
-| No CLAUDE.md | Skip, warn |
-| No README.md | Skip, warn |
-| Plugin repo not found | Update project docs only |
-| Plugin dir not in plugin repo | Update project docs only, warn |
-| δ vague / too broad | AskUserQuestion: narrow down which feature changed |
-| Multiple files changed, unrelated | Focus on the feature described in δ |
-| Running from plugin repo | PLUGINS_REPO = CWD, skip discovery (self-referential) |
-| No $ROXABI_PLUGINS_DIR + no sibling | Update project docs only, warn to set env var |
+| ¬git repo | Read docs from CWD, skip git-derived context |
+| ¬CLAUDE.md ∨ ¬README.md | Skip that file, warn |
+| ¬PLUGINS_REPO | Project docs only |
+| ¬plugin dir in PLUGINS_REPO | Project docs only, warn |
+| δ vague | AskUserQuestion: narrow to one feature |
+| Unrelated files changed | Focus on δ feature only |
+| SRC=working-tree, ¬PLUGINS_REPO set | Warn to set `$ROXABI_PLUGINS_DIR` |
 
 $ARGUMENTS
