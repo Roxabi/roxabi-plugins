@@ -110,11 +110,14 @@ Add a row to the Plugins table in `README.md`:
 
 ### Step 6 — Validate and commit
 
-Run the plugin validator to check the structure:
+Run the plugin validator and test suite:
 
 ```bash
 claude plugin validate .
+bun test
 ```
+
+CI (`bun lint`, `bun typecheck`, `bun test`) runs automatically on push to `main`/`staging` via `.github/workflows/ci.yml`. PRs must be green before merging.
 
 Then commit with the standard format:
 
