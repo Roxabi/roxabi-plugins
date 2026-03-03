@@ -42,7 +42,7 @@ jobs:
       - name: Update all reviewed PRs targeting this branch
         run: |
           BRANCH="${GITHUB_REF_NAME}"
-          PRS=$(gh pr list --base "$BRANCH" --label reviewed --state open --json number,headRefOid --jq '.[] | [.number,.headRefOid] | @tsv')
+          PRS=$(gh pr list --repo "$REPO" --base "$BRANCH" --label reviewed --state open --json number,headRefOid --jq '.[] | [.number,.headRefOid] | @tsv')
           if [ -z "$PRS" ]; then
             echo "No reviewed PRs targeting $BRANCH"
             exit 0
