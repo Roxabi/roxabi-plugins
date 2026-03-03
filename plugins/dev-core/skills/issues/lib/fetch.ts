@@ -256,7 +256,6 @@ export async function fetchWorktrees(): Promise<Worktree[]> {
 
 const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID ?? ''
 const VERCEL_TEAM_ID = process.env.VERCEL_TEAM_ID ?? ''
-const ONE_DAY = 24 * 60 * 60 * 1000
 
 function getVercelToken(): string {
   if (process.env.VERCEL_TOKEN) return process.env.VERCEL_TOKEN
@@ -335,8 +334,7 @@ export async function fetchVercelDeployments(
   if (!token || !projectId || !teamId) return []
 
   try {
-    const since = Date.now() - ONE_DAY
-    const url = `https://api.vercel.com/v6/deployments?projectId=${projectId}&teamId=${teamId}&limit=10&since=${since}`
+    const url = `https://api.vercel.com/v6/deployments?projectId=${projectId}&teamId=${teamId}&limit=10`
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     })
