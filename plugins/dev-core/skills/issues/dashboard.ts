@@ -18,7 +18,7 @@ import {
   fetchWorktrees,
   rawItemsToIssues,
 } from './lib/fetch'
-import type { WorkspaceProject } from './lib/fetch'
+import type { WorkspaceProject } from '../shared/workspace'
 import { buildHtml } from './lib/page'
 import type {
   Branch,
@@ -136,7 +136,14 @@ async function refreshCache(): Promise<void> {
       const workspaceChanged = !cache || cache.workspaceHash !== newWorkspaceHash
       const changed = workspaceChanged || !cache || cache.hash !== hash
       const updatedAt = Date.now()
-      const wsProjects = ws.projects.map(p => ({ label: p.label, repo: p.repo }))
+      const wsProjects = ws.projects.map(p => ({
+        label: p.label,
+        repo: p.repo,
+        type: p.type,
+        fieldIds: p.fieldIds,
+        vercelProjectId: p.vercelProjectId,
+        vercelTeamId: p.vercelTeamId,
+      }))
       const html = buildHtml(issues, prs, branches_, worktrees_, deployments_, branchCI, workflowRuns, fetchMs, updatedAt, byProject, wsProjects, byProjectMeta)
       cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
       if (changed) notifyClients()
@@ -163,7 +170,14 @@ async function refreshCache(): Promise<void> {
     const changed = dataChanged || workspaceChanged
 
     const updatedAt = Date.now()
-    const wsProjects = ws.projects.map(p => ({ label: p.label, repo: p.repo }))
+    const wsProjects = ws.projects.map(p => ({
+      label: p.label,
+      repo: p.repo,
+      type: p.type,
+      fieldIds: p.fieldIds,
+      vercelProjectId: p.vercelProjectId,
+      vercelTeamId: p.vercelTeamId,
+    }))
     const html = buildHtml(
       issues,
       prs,

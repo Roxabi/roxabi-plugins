@@ -5,10 +5,23 @@
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 
+export type ProjectType = 'technical' | 'company'
+
+export interface ProjectFieldIds {
+  status: string
+  col2?: string
+  col3?: string
+  statusOptions?: Record<string, string>
+  col2Options?: Record<string, string>
+  col3Options?: Record<string, string>
+}
+
 export interface WorkspaceProject {
   repo: string              // 'owner/name'
   projectId: string         // 'PVT_...'
   label: string             // display name shown in dashboard tab
+  type?: ProjectType        // defaults to 'technical'
+  fieldIds?: ProjectFieldIds
   vercelProjectId?: string  // Vercel project ID (optional, for per-project deployments)
   vercelTeamId?: string     // Vercel team ID (optional)
 }
@@ -18,7 +31,8 @@ export interface Workspace {
 }
 
 export function getWorkspacePath(): string {
-  const home = process.env.HOME ?? ''
+  const home = process.env.HOME
+  if (!home) throw new Error('HOME environment variable is not set')
   const vault = `${home}/.roxabi-vault`
   if (existsSync(vault)) return `${vault}/workspace.json`
   return `${home}/.config/roxabi/workspace.json`

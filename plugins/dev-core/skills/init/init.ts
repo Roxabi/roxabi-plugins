@@ -46,11 +46,17 @@ switch (command) {
     const { createProject } = await import('./lib/project')
     const owner = parseFlag('--owner', '')
     const repo = parseFlag('--repo', '')
-    if (!owner || !repo) {
-      console.error('Usage: init.ts create-project --owner <owner> --repo <repo>')
+    const rawType = parseFlag('--type', 'technical')
+    if (rawType !== 'technical' && rawType !== 'company') {
+      console.error(`[init] Invalid --type value: '${rawType}'. Must be 'technical' or 'company'.`)
       process.exit(1)
     }
-    const result = await createProject(owner, repo)
+    const type: import('../shared/workspace').ProjectType = rawType
+    if (!owner || !repo) {
+      console.error('Usage: init.ts create-project --owner <owner> --repo <repo> [--type technical|company]')
+      process.exit(1)
+    }
+    const result = await createProject(owner, repo, type)
     console.log(JSON.stringify(result, null, 2))
     break
   }

@@ -2,6 +2,7 @@ import { GITHUB_REPO, GH_PROJECT_ID } from '../../shared/config'
 import { ghGraphQL, run } from '../../shared/github'
 import { BRANCH_CI_QUERY, ISSUES_QUERY, PRS_QUERY } from '../../shared/queries'
 import type { RawItem } from '../../shared/types'
+import type { WorkspaceProject } from '../../shared/workspace'
 
 import type {
   Branch,
@@ -14,12 +15,6 @@ import type {
   WorkflowRun,
   Worktree,
 } from './types'
-
-export interface WorkspaceProject {
-  repo: string
-  projectId: string
-  label: string
-}
 
 /** Fetch all raw items for a project with full cursor-based pagination. */
 async function fetchAllItemsForProject(projectId: string): Promise<RawItem[]> {
@@ -60,7 +55,13 @@ export async function fetchAllProjects(
   return new Map(results.map((r) => [r.label, r.items]))
 }
 
-export function rawItemsToIssues(items: RawItem[]): Issue[] {
+interface SlotNames {
+  col2: string
+  col3: string
+}
+const DEFAULT_SLOTS: SlotNames = { col2: 'Size', col3: 'Priority' }
+
+export function rawItemsToIssues(items: RawItem[], slotNames: SlotNames = DEFAULT_SLOTS): Issue[] {
   const openItems = items.filter((i) => i.content?.state === 'OPEN')
 
   const field = (item: RawItem, name: string): string => {
@@ -96,8 +97,8 @@ export function rawItemsToIssues(items: RawItem[]): Issue[] {
       title: item.content.title,
       url: item.content.url,
       status: field(item, 'Status'),
-      size: field(item, 'Size'),
-      priority: field(item, 'Priority'),
+      size: field(item, slotNames.col2),
+      priority: field(item, slotNames.col3),
       blockStatus,
       blockedBy: bb,
       blocking: bl,

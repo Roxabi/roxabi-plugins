@@ -1,3 +1,5 @@
+import type { WorkspaceProject, ProjectFieldIds } from './workspace'
+
 /**
  * Shared configuration constants for GitHub Project V2 integration.
  * Single source of truth — used by both issues/ and issue-triage/ skills.
@@ -132,6 +134,37 @@ export const BRANCH_PROTECTION_PAYLOAD = {
   required_status_checks: { strict: true, contexts: ['ci'] },
   enforce_admins: false,
   restrictions: null,
+}
+
+/**
+ * Resolve field IDs for a project.
+ * Uses project.fieldIds when present (per-project); falls back to .env for legacy single-project mode.
+ * Throws when fieldIds is explicitly provided but status is missing.
+ */
+export function resolveFieldIds(project: WorkspaceProject): ProjectFieldIds {
+  if (project.fieldIds) {
+    if (!project.fieldIds.status) {
+      throw new Error(`[project ${project.label}] fieldIds.status is required`)
+    }
+    return project.fieldIds
+  }
+  // Fallback: build from .env (existing behavior)
+  return {
+    status: STATUS_FIELD_ID,
+    col2: SIZE_FIELD_ID,
+    col3: PRIORITY_FIELD_ID,
+    statusOptions: STATUS_OPTIONS,
+    col2Options: SIZE_OPTIONS,
+    col3Options: PRIORITY_OPTIONS,
+  }
+}
+
+/** Return the field ID for a given slot (col2 or col3), or undefined when absent. */
+export function fieldIdForSlot(
+  project: WorkspaceProject,
+  slot: 'col2' | 'col3'
+): string | undefined {
+  return resolveFieldIds(project)[slot]
 }
 
 // Sort orders
