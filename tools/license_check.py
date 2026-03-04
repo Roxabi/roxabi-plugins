@@ -177,7 +177,9 @@ def main() -> None:
         version = pkg.get("Version", "")
         license_str = pkg.get("License", "UNKNOWN")
         entry = {"name": name, "version": version, "license": license_str}
-        if license_str == "UNKNOWN":
+        if name in policy.get("allowlist", []) or name in policy.get("overrides", {}):
+            compliant.append(entry)  # policy explicitly covers this package
+        elif license_str == "UNKNOWN":
             unknown.append(entry)
         elif is_compliant(name, license_str, policy):
             compliant.append(entry)
