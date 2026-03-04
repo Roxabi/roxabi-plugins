@@ -214,6 +214,17 @@ ${setupStep}
         run: ${lintCmd}
       - name: Typecheck
         run: ${typecheckCmd}${testStep}
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
 `
 }
 

@@ -124,6 +124,78 @@ gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"
 
 Display: `PAT secret ✅ Set`
 
+### 3c-bis. Gitleaks
+
+AskUserQuestion: **Set up Gitleaks secret scanning** | **Skip**.
+
+yes:
+1. Create `.gitleaks.toml` in the project root:
+   ```toml
+   title = 'Gitleaks'
+
+   [extend]
+     useDefault = true
+
+   [allowlist]
+     description = 'Project-level allowlist for known safe values'
+     paths = ['.env.example']
+     regexes = [
+       'change-me-to-a-random-secret',
+       'your-.*-token',
+       'your-.*-key',
+     ]
+   ```
+2. Display: `Gitleaks ✅ .gitleaks.toml created`
+3. Note: CI workflow includes a `secrets` job with `gitleaks/gitleaks-action@v2` — it runs automatically on every push and PR.
+
+skip → Display: `Gitleaks ⏭ Skipped`
+
+### 3c-ter. Dependabot
+
+AskUserQuestion: **Set up Dependabot** (automated dependency updates) | **Skip**.
+
+yes:
+1. Auto-detect package manager from `stack.yml` (`package_manager` field).
+   Ecosystem map: `uv` / `pip` → `pip` | `bun` / `npm` / `pnpm` / `yarn` → `npm`.
+   If unknown → ask: **pip** | **npm** | **Skip**.
+2. Generate `.github/dependabot.yml`:
+   ```yaml
+   version: 2
+   updates:
+     - package-ecosystem: <ecosystem>
+       directory: /
+       schedule:
+         interval: weekly
+         day: monday
+       open-pull-requests-limit: 10
+       groups:
+         minor-and-patch:
+           update-types: [minor, patch]
+       labels:
+         - dependencies
+
+     - package-ecosystem: github-actions
+       directory: /
+       schedule:
+         interval: weekly
+         day: monday
+       open-pull-requests-limit: 5
+       labels:
+         - dependencies
+         - ci
+   ```
+3. Push via REST API (no local commit needed):
+   ```bash
+   CONTENT=$(base64 -w0 .github/dependabot.yml 2>/dev/null || base64 .github/dependabot.yml)
+   gh api repos/<owner>/<repo>/contents/.github/dependabot.yml \
+     --method PUT \
+     --field message="chore: add dependabot.yml" \
+     --field content="$CONTENT"
+   ```
+4. Display: `Dependabot ✅ .github/dependabot.yml created (<ecosystem> + github-actions)`
+
+skip → Display: `Dependabot ⏭ Skipped`
+
 ### 3d. Branch Protection
 
 AskUserQuestion: **Set up branch protection** | **Skip**.
@@ -426,6 +498,8 @@ dev-core initialized
   stack.yml         ✅ Configured / ✅ Already exists
   VS Code MDX preview   ✅ Added / ✅ Already configured / ⏭ Skipped / ⏭ No .mdx files found
   CI/CD workflows   ✅ Created / ✅ Already configured / ⏭ Skipped
+  Gitleaks          ✅ .gitleaks.toml created / ⏭ Skipped
+  Dependabot        ✅ .github/dependabot.yml created / ⏭ Skipped
   Pre-commit hooks      ✅ lefthook installed / ✅ pre-commit installed / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
 
 Next steps:

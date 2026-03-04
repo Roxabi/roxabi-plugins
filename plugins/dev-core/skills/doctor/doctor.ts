@@ -367,6 +367,59 @@ function checkProjectStructure(): Section {
   return { name: 'Project', checks }
 }
 
+function checkSecurity(): Section {
+  const checks: Check[] = []
+  const fs = require('node:fs')
+
+  // .gitleaks.toml
+  const gitleaksExists = fs.existsSync('.gitleaks.toml')
+  checks.push({
+    name: '.gitleaks.toml',
+    status: gitleaksExists ? 'pass' : 'warn',
+    detail: gitleaksExists ? 'found' : 'missing — run /init to create (prevents secret leaks in CI)',
+  })
+
+  // .github/dependabot.yml
+  const dependabotExists = fs.existsSync('.github/dependabot.yml')
+  checks.push({
+    name: 'dependabot.yml',
+    status: dependabotExists ? 'pass' : 'warn',
+    detail: dependabotExists ? 'found' : 'missing — run /init to create (automated dependency updates)',
+  })
+
+  // lock file — inferred from stack.yml package_manager
+  let lockFile: string | null = null
+  let pm = ''
+  try {
+    const stack = fs.readFileSync('.claude/stack.yml', 'utf8') as string
+    const pmMatch = stack.match(/^\s*package_manager:\s*(\S+)/m)
+    pm = pmMatch?.[1] ?? ''
+    if (pm === 'uv') lockFile = 'uv.lock'
+    else if (pm === 'bun') lockFile = 'bun.lock'
+    else if (pm === 'npm') lockFile = 'package-lock.json'
+    else if (pm === 'pnpm') lockFile = 'pnpm-lock.yaml'
+    else if (pm === 'yarn') lockFile = 'yarn.lock'
+    else if (pm === 'pip') lockFile = 'requirements.txt'
+  } catch {}
+
+  if (lockFile) {
+    const lockExists = fs.existsSync(lockFile)
+    checks.push({
+      name: lockFile,
+      status: lockExists ? 'pass' : 'warn',
+      detail: lockExists ? 'found' : `missing — commit ${lockFile} for reproducible installs`,
+    })
+  } else {
+    checks.push({
+      name: 'lock file',
+      status: 'skip',
+      detail: pm ? `unsupported package manager: ${pm}` : 'package_manager not set in stack.yml',
+    })
+  }
+
+  return { name: 'Security', checks }
+}
+
 function checkVercel(): Section {
   const checks: Check[] = []
 
@@ -445,6 +498,7 @@ const sections: Section[] = [
   checkProjectWorkflows(ghOk, owner),
   checkBranchProtection(ghOk, owner, fullRepo),
   checkProjectStructure(),
+  checkSecurity(),
   checkVercel(),
 ]
 
