@@ -56,8 +56,10 @@ Runs before 1b1 — `[auto-applied]` markers reflect outcomes.
 
 **1.** Q_a = ∅ → skip to Phase 4.
 
-**2. Verify single-agent:** ∀ f ∈ Q_a ∧ |A(f)| = 1 → spawn fresh verifier (different domain).
-- C(f) ≥ T → stays, |A(f)| := 2 | C(f) < T ∨ rejects → Q_1 | Batch ∥
+**2. Verify single-agent:** ∀ f ∈ Q_a ∧ |A(f)| = 1 → spawn fresh verifier (different domain from src(f)).
+- Verifier confirms (C_v ≥ T) → f stays in Q_a, |A(f)| := 2
+- Verifier rejects (C_v < T) → demote f → Q_1
+- Batch verifications ∥ (group by domain, 1 verifier/domain)
 
 **3. Large queue:** |Q_a| > 5 → AskUserQuestion: "Auto-apply all N?" / "Review via 1b1".
 - 1b1 → Q_1 ∪= Q_a; Q_a := ∅; skip to Phase 4.
@@ -178,12 +180,16 @@ Fixer constraints:
 - CI fail → respawn until green (max 3 attempts)
 - Cannot fix → escalate to lead, mark as unresolved
 
-## Phase 6 — Commit + Push
+## Phase 6 — Validate + Commit + Push
 
-1. Stage specific files only (¬`git add -A`)
-2. Commit per CLAUDE.md Rule 5; include list of applied findings in body
-3. AskUserQuestion: "Push now?" / "I'll push later"
-4. Push approved → `git push`
+1. Run `{commands.lint} && {commands.test}` — full quality gate across all applied changes
+   - Pass → continue
+   - Fail → display failure output; AskUserQuestion: **Retry** (attempt auto-fix) | **Continue anyway** | **Abort** (leave changes uncommitted)
+   - Retry → attempt inline fix of the reported error; re-run gate; max 2 retries; still failing → AskUserQuestion: Continue anyway | Abort
+2. Stage specific files only (¬`git add -A`)
+3. Commit per CLAUDE.md Rule 5; include list of applied findings in body
+4. AskUserQuestion: "Push now?" / "I'll push later"
+5. Push approved → `git push`
 
 ## Phase 7 — Post Follow-Up Comment
 
