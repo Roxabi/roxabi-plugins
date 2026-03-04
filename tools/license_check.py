@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -63,6 +64,7 @@ SAFE_LICENSES: set[str] = {
     "Python Software Foundation License",
     "PSF",
     "PSFL",
+    "PSF-2.0",
     "Python Software Foundation",
     # Mozilla
     "Mozilla Public License 2.0 (MPL 2.0)",
@@ -117,15 +119,30 @@ def get_packages() -> list[dict]:
         sys.exit(2)
 
 
+def _split_compound_spdx(license_str: str) -> list[str]:
+    """Split compound SPDX expressions into individual identifiers.
+
+    Handles:
+      - SPDX AND/OR operators: 'Apache-2.0 AND MIT', 'Apache-2.0 OR BSD-2-Clause'
+      - pip-licenses semicolon separator: 'Apache Software License; MIT License'
+    """
+    parts = re.split(r"\s+AND\s+|\s+OR\s+|;\s*", license_str)
+    return [p.strip() for p in parts if p.strip()]
+
+
 def is_compliant(name: str, license_str: str, policy: dict) -> bool:
     """Return True if the package is considered license-compliant."""
-    overrides: dict = policy.get("overrides", {})
-    if name in overrides:
-        return True  # explicitly whitelisted with override
-    allowlist: list = policy.get("allowlist", [])
-    if name in allowlist:
-        return True  # explicitly whitelisted by name
-    return license_str in SAFE_LICENSES
+    if name in policy.get("overrides", {}):
+        return True  # explicitly overridden
+    if name in policy.get("allowlist", []):
+        return True  # explicitly allowlisted by name
+    if license_str in SAFE_LICENSES:
+        return True  # direct match
+    # Compound SPDX: safe if all component licenses are individually safe
+    parts = _split_compound_spdx(license_str)
+    if len(parts) > 1:
+        return all(p in SAFE_LICENSES for p in parts)
+    return False
 
 
 def main() -> None:
@@ -153,13 +170,16 @@ def main() -> None:
 
     violations: list[dict] = []
     compliant: list[dict] = []
+    unknown: list[dict] = []
 
     for pkg in packages:
         name = pkg.get("Name", "")
         version = pkg.get("Version", "")
         license_str = pkg.get("License", "UNKNOWN")
         entry = {"name": name, "version": version, "license": license_str}
-        if is_compliant(name, license_str, policy):
+        if license_str == "UNKNOWN":
+            unknown.append(entry)
+        elif is_compliant(name, license_str, policy):
             compliant.append(entry)
         else:
             violations.append(entry)
@@ -168,8 +188,10 @@ def main() -> None:
         "total": len(packages),
         "compliant": len(compliant),
         "violations": len(violations),
+        "unknown": len(unknown),
         "packages": compliant,
         "violating": violations,
+        "unresolved": unknown,
     }
 
     if args.output:
@@ -189,10 +211,14 @@ def main() -> None:
             print("  Add to .license-policy.json to allow:")
             names = ", ".join(f'"{v["name"]}"' for v in violations)
             print('  { "allowlist": [' + names + "] }")
-        else:
+        if unknown:
+            print(f"  ⚠️  {len(unknown)} package(s) with UNKNOWN license:")
+            for u in unknown:
+                print(f"     {u['name']} ({u['version']}) — add to allowlist if safe")
+        if not violations and not unknown:
             print(f"  ✅ All {len(compliant)} packages are compliant")
 
-    sys.exit(1 if violations else 0)
+    sys.exit(1 if violations or unknown else 0)
 
 
 if __name__ == "__main__":

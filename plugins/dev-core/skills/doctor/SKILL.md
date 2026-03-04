@@ -38,6 +38,7 @@ Severity guide: ❌ = blocking error, ⚠️ = warning, ✅ = pass, ⏭ = skippe
 | lock file missing | Commit the lock file (`uv.lock`, `bun.lock`, `package-lock.json`, etc.) to the repository |
 | `tools/license_check.py` missing | Run `/init` Phase 10d — copies script from plugin: `cp "${CLAUDE_PLUGIN_ROOT}/tools/license_check.py" tools/license_check.py` + `uv add --dev pip-licenses` |
 | `pip-licenses` not installed (Python) | Run `uv add --dev pip-licenses` — required for `tools/license_check.py` to work |
+| License violations found | Run `uv run tools/license_check.py` to review, then create/update `.license-policy.json` with violating package names in `allowlist` |
 | `tools/licenseChecker.ts` missing | Copy from boilerplate `tools/licenseChecker.ts` or run `/init` Phase 10d |
 | gitleaks not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-push.commands.gitleaks` |
 | license check not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-push.commands.license` |
@@ -100,6 +101,16 @@ Check install state:
 **pip-licenses (Python only):**
 - Only check if `runtime: python` in stack.yml ∧ `tools/license_check.py` ∃.
 - `uv run pip-licenses --version` → ✅ "pip-licenses installed" | ⚠️ "pip-licenses not installed — run `uv add --dev pip-licenses`"
+
+**License compliance (Python only):**
+- Only run if `runtime: python` ∧ `tools/license_check.py` ∃ ∧ pip-licenses installed.
+- Run: `uv run tools/license_check.py --json`
+  - exit 0 → ✅ "License check: all N packages compliant"
+  - exit 1 → parse JSON `violating` + `unresolved` arrays:
+    - ⚠️ "License violations found (N packages) — run `uv run tools/license_check.py` to review"
+    - If `.license-policy.json` ∄ → add to auto-fixable: offer to generate it (write `{ "allowlist": [...all violating + unknown names...], "overrides": {} }`)
+    - If `.license-policy.json` ∃ → ⚠️ "Update `.license-policy.json` to cover new violations"
+  - exit 2 → ⚠️ "License check failed — pip-licenses may not be installed"
 
 **VS Code MDX preview:**
 - Only check if `.mdx` files ∃ (`find . -name "*.mdx" -not -path "*/node_modules/*" | head -1`) ∨ `docs.format: mdx` in stack.yml.

@@ -470,7 +470,28 @@ d. Write `lefthook.yml`:
          run: <license-cmd>
    ```
 e. `bunx lefthook install`
-f. Display: `Pre-commit hooks ✅ lefthook installed (lint + typecheck on commit, gitleaks + license on push)`
+f. Check if `gitleaks` binary is installed:
+   ```bash
+   which gitleaks 2>/dev/null && echo "installed" || echo "missing"
+   ```
+   missing → display:
+   ```
+   ⚠️  gitleaks binary not found — pre-push hook will fail until installed.
+       Install options:
+         • Ubuntu/Debian:  sudo apt install gitleaks
+         • GitHub release: https://github.com/gitleaks/gitleaks/releases
+         • Homebrew:       brew install gitleaks
+         • No sudo:        curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.27.2/gitleaks_8.27.2_linux_x64.tar.gz | tar -xz -C ~/.local/bin gitleaks
+   ```
+g. Run license check and offer to generate policy (JS/bun):
+   ```bash
+   bun tools/licenseChecker.ts --json 2>/dev/null
+   ```
+   - exit 0 → Display: `License check ✅ All packages compliant`
+   - exit 1 → parse violations JSON, display list, AskUserQuestion: **Generate .license-policy.json** | **Skip**
+     - yes → write `.license-policy.json` with all violating package names in `allowlist` array, display: `License policy ✅ .license-policy.json created (N packages allowlisted) — review and tighten before production`
+     - skip → Display: `License policy ⏭ Skipped — first push will fail until resolved`
+h. Display: `Pre-commit hooks ✅ lefthook installed (lint + typecheck on commit, gitleaks + license on push)`
 
 ---
 
@@ -527,7 +548,23 @@ f. Check if `gitleaks` binary is installed:
          • GitHub release: https://github.com/gitleaks/gitleaks/releases
          • Homebrew:       brew install gitleaks
    ```
-g. Display: `Pre-commit hooks ✅ pre-commit installed (lint + typecheck on commit, gitleaks + license on push)`
+g. Run license check and offer to generate policy (Python):
+   ```bash
+   uv run tools/license_check.py --json 2>/dev/null
+   ```
+   - exit 0 → Display: `License check ✅ All packages compliant`
+   - exit 1 → parse violations + unknown JSON fields, display list, AskUserQuestion: **Generate .license-policy.json** | **Skip**
+     - yes → write `.license-policy.json` with all violating + unknown package names in `allowlist` array:
+       ```json
+       {
+         "allowlist": ["pkg-a", "pkg-b"],
+         "overrides": {}
+       }
+       ```
+       Display: `License policy ✅ .license-policy.json created (N packages allowlisted) — review and tighten before production`
+     - skip → Display: `License policy ⏭ Skipped — first push will fail until resolved`
+   - exit 2 (pip-licenses missing) → Display: `License check ⏭ pip-licenses not installed — run uv add --dev pip-licenses`
+h. Display: `Pre-commit hooks ✅ pre-commit installed (lint + typecheck on commit, gitleaks + license on push)`
 
 ## Phase 11 — Report
 
@@ -557,6 +594,7 @@ dev-core initialized
   Dependabot        ✅ .github/dependabot.yml created / ⏭ Skipped
   Pre-commit hooks      ✅ lefthook installed / ✅ pre-commit installed / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
   License checker   ✅ tools/license_check.py copied (Python) / ⏭ Skipped
+  License policy    ✅ .license-policy.json created (N packages) / ✅ All compliant / ⏭ Skipped / ⏭ pip-licenses missing
 
 Next steps:
   /doctor                Verify full configuration health
