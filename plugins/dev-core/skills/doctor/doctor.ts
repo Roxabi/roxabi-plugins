@@ -387,19 +387,30 @@ function checkSecurity(): Section {
     detail: dependabotExists ? 'found' : 'missing — run /init to create (automated dependency updates)',
   })
 
-  // lock file — inferred from stack.yml package_manager
+  // lock file + license checker — inferred from stack.yml package_manager
   let lockFile: string | null = null
+  let licenseChecker: string | null = null
   let pm = ''
   try {
     const stack = fs.readFileSync('.claude/stack.yml', 'utf8') as string
     const pmMatch = stack.match(/^\s*package_manager:\s*(\S+)/m)
     pm = pmMatch?.[1] ?? ''
-    if (pm === 'uv') lockFile = 'uv.lock'
-    else if (pm === 'bun') lockFile = 'bun.lock'
-    else if (pm === 'npm') lockFile = 'package-lock.json'
-    else if (pm === 'pnpm') lockFile = 'pnpm-lock.yaml'
-    else if (pm === 'yarn') lockFile = 'yarn.lock'
-    else if (pm === 'pip') lockFile = 'requirements.txt'
+    if (pm === 'uv' || pm === 'pip') {
+      lockFile = 'uv.lock'
+      licenseChecker = 'tools/license_check.py'
+    } else if (pm === 'bun') {
+      lockFile = 'bun.lock'
+      licenseChecker = 'tools/licenseChecker.ts'
+    } else if (pm === 'npm') {
+      lockFile = 'package-lock.json'
+      licenseChecker = 'tools/licenseChecker.ts'
+    } else if (pm === 'pnpm') {
+      lockFile = 'pnpm-lock.yaml'
+      licenseChecker = 'tools/licenseChecker.ts'
+    } else if (pm === 'yarn') {
+      lockFile = 'yarn.lock'
+      licenseChecker = 'tools/licenseChecker.ts'
+    }
   } catch {}
 
   if (lockFile) {
@@ -414,6 +425,46 @@ function checkSecurity(): Section {
       name: 'lock file',
       status: 'skip',
       detail: pm ? `unsupported package manager: ${pm}` : 'package_manager not set in stack.yml',
+    })
+  }
+
+  // license checker script
+  if (licenseChecker) {
+    const licenseExists = fs.existsSync(licenseChecker)
+    checks.push({
+      name: licenseChecker,
+      status: licenseExists ? 'pass' : 'warn',
+      detail: licenseExists
+        ? 'found'
+        : 'missing — run /init to create license compliance checker',
+    })
+  } else {
+    checks.push({
+      name: 'license checker',
+      status: 'skip',
+      detail: pm ? `unsupported package manager: ${pm}` : 'package_manager not set in stack.yml',
+    })
+  }
+
+  // gitleaks in lefthook (if lefthook.yml present)
+  const lefthookPath = 'lefthook.yml'
+  if (fs.existsSync(lefthookPath)) {
+    const lefthookContent = fs.readFileSync(lefthookPath, 'utf8') as string
+    const hasGitleaks = lefthookContent.includes('gitleaks')
+    checks.push({
+      name: 'gitleaks in lefthook',
+      status: hasGitleaks ? 'pass' : 'warn',
+      detail: hasGitleaks
+        ? 'configured in lefthook.yml'
+        : 'not found in lefthook.yml — run /init to add',
+    })
+    const hasLicense = lefthookContent.includes('license')
+    checks.push({
+      name: 'license check in lefthook',
+      status: hasLicense ? 'pass' : 'warn',
+      detail: hasLicense
+        ? 'configured in lefthook.yml'
+        : 'not found in lefthook.yml — run /init to add',
     })
   }
 

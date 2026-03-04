@@ -126,6 +126,13 @@ Display: `PAT secret ✅ Set`
 
 ### 3c-bis. Gitleaks
 
+Check repo visibility first:
+```bash
+gh api repos/<owner>/<repo> --jq '.private'
+```
+- `true` → Display: `Gitleaks ⏭ Skipped (private repo — less critical)`, skip this step entirely.
+- `false` or error → proceed.
+
 AskUserQuestion: **Set up Gitleaks secret scanning** | **Skip**.
 
 yes:
@@ -432,8 +439,9 @@ AskUserQuestion: **Set up `<tool>`** (catches lint/format issues before push) | 
 **lefthook:**
 
 a. Read `commands.lint` and `commands.typecheck` from `.claude/stack.yml` (defaults: `bun run lint` / `bun run typecheck`).
-b. `bun add -d lefthook`
-c. Write `lefthook.yml`:
+b. Detect stack from `stack.yml` `runtime` field. For Python: license cmd = `uv run tools/license_check.py`. For JS: license cmd = `bun tools/licenseChecker.ts`.
+c. `bun add -d lefthook`
+d. Write `lefthook.yml`:
    ```yaml
    pre-commit:
      commands:
@@ -441,21 +449,32 @@ c. Write `lefthook.yml`:
          run: <commands.lint>
        typecheck:
          run: <commands.typecheck>
+
+   pre-push:
+     commands:
+       gitleaks:
+         run: gitleaks detect --source . --no-git
+       license:
+         run: <license-cmd>
    ```
-d. `bunx lefthook install`
-e. Display: `Pre-commit hooks ✅ lefthook installed (lint + typecheck on commit)`
+e. `bunx lefthook install`
+f. Display: `Pre-commit hooks ✅ lefthook installed (lint + typecheck on commit, gitleaks + license on push)`
 
 ---
 
 **pre-commit (Python):**
 
-a. Read `commands.lint` and `commands.typecheck` from `.claude/stack.yml` (defaults: `ruff check .` / `mypy .`).
+a. Read `commands.lint` and `commands.typecheck` from `.claude/stack.yml` (defaults: `ruff check .` / `pyright`).
 b. Install:
    ```bash
-   pip install pre-commit
-   # or if uv available: uv add --dev pre-commit
+   uv add --dev pre-commit pip-licenses
    ```
-c. Write `.pre-commit-config.yaml`:
+c. Copy license checker script from plugin:
+   ```bash
+   mkdir -p tools
+   cp "${CLAUDE_PLUGIN_ROOT}/tools/license_check.py" tools/license_check.py
+   ```
+d. Write `.pre-commit-config.yaml`:
    ```yaml
    repos:
      - repo: local
@@ -470,9 +489,21 @@ c. Write `.pre-commit-config.yaml`:
            entry: <commands.typecheck>
            language: system
            pass_filenames: false
+         - id: gitleaks
+           name: gitleaks secret scan
+           entry: gitleaks detect --source . --no-git
+           language: system
+           pass_filenames: false
+           stages: [pre-push]
+         - id: license
+           name: license check
+           entry: uv run tools/license_check.py
+           language: system
+           pass_filenames: false
+           stages: [pre-push]
    ```
-d. `pre-commit install`
-e. Display: `Pre-commit hooks ✅ pre-commit installed (lint + typecheck on commit)`
+e. `uv run pre-commit install && uv run pre-commit install --hook-type pre-push`
+f. Display: `Pre-commit hooks ✅ pre-commit installed (lint + typecheck on commit, gitleaks + license on push)`
 
 ## Phase 11 — Report
 
@@ -498,9 +529,10 @@ dev-core initialized
   stack.yml         ✅ Configured / ✅ Already exists
   VS Code MDX preview   ✅ Added / ✅ Already configured / ⏭ Skipped / ⏭ No .mdx files found
   CI/CD workflows   ✅ Created / ✅ Already configured / ⏭ Skipped
-  Gitleaks          ✅ .gitleaks.toml created / ⏭ Skipped
+  Gitleaks          ✅ .gitleaks.toml created / ⏭ Skipped (private repo) / ⏭ Skipped
   Dependabot        ✅ .github/dependabot.yml created / ⏭ Skipped
   Pre-commit hooks      ✅ lefthook installed / ✅ pre-commit installed / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
+  License checker   ✅ tools/license_check.py copied (Python) / ⏭ Skipped
 
 Next steps:
   /doctor                Verify full configuration health
