@@ -434,9 +434,7 @@ function checkSecurity(): Section {
     checks.push({
       name: licenseChecker,
       status: licenseExists ? 'pass' : 'warn',
-      detail: licenseExists
-        ? 'found'
-        : 'missing — run /init to create license compliance checker',
+      detail: licenseExists ? 'found' : 'missing — run /init to create license compliance checker',
     })
   } else {
     checks.push({
@@ -454,17 +452,13 @@ function checkSecurity(): Section {
     checks.push({
       name: 'gitleaks in lefthook',
       status: hasGitleaks ? 'pass' : 'warn',
-      detail: hasGitleaks
-        ? 'configured in lefthook.yml'
-        : 'not found in lefthook.yml — run /init to add',
+      detail: hasGitleaks ? 'configured in lefthook.yml' : 'not found in lefthook.yml — run /init to add',
     })
     const hasLicense = lefthookContent.includes('license')
     checks.push({
       name: 'license check in lefthook',
       status: hasLicense ? 'pass' : 'warn',
-      detail: hasLicense
-        ? 'configured in lefthook.yml'
-        : 'not found in lefthook.yml — run /init to add',
+      detail: hasLicense ? 'configured in lefthook.yml' : 'not found in lefthook.yml — run /init to add',
     })
   }
 
