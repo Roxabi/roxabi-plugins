@@ -1,0 +1,21 @@
+pre-commit:
+  parallel: true
+  commands:
+    lint:
+      run: bunx biome check --write {staged_files}
+      glob: "*.{ts,tsx,js,jsx,json}"
+    typecheck:
+      run: bun run typecheck
+    gitleaks:
+      run: gitleaks protect --staged --config .gitleaks.toml
+      skip:
+        - merge
+        - rebase
+    license-check:
+      run: python3 tools/license_check.py {staged_files}
+      glob: "*.{ts,tsx,js,jsx,py}"
+
+commit-msg:
+  commands:
+    conventional-commits:
+      run: bunx commitlint --edit {1}

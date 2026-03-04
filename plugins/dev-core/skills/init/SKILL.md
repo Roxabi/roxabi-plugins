@@ -154,6 +154,18 @@ yes:
    ```
 2. Display: `Gitleaks ✅ .gitleaks.toml created`
 3. Note: CI workflow includes a `secrets` job with `gitleaks/gitleaks-action@v2` — it runs automatically on every push and PR.
+4. Check if `gitleaks` binary is installed locally (needed for pre-push hooks):
+   ```bash
+   which gitleaks 2>/dev/null && echo "installed" || echo "missing"
+   ```
+   missing → display:
+   ```
+   ⚠️  gitleaks binary not found — pre-push hook will fail until installed.
+       Install options:
+         • Ubuntu/Debian:  sudo apt install gitleaks
+         • GitHub release: https://github.com/gitleaks/gitleaks/releases
+         • Homebrew:       brew install gitleaks
+   ```
 
 skip → Display: `Gitleaks ⏭ Skipped`
 
@@ -503,7 +515,19 @@ d. Write `.pre-commit-config.yaml`:
            stages: [pre-push]
    ```
 e. `uv run pre-commit install && uv run pre-commit install --hook-type pre-push`
-f. Display: `Pre-commit hooks ✅ pre-commit installed (lint + typecheck on commit, gitleaks + license on push)`
+f. Check if `gitleaks` binary is installed:
+   ```bash
+   which gitleaks 2>/dev/null && echo "installed" || echo "missing"
+   ```
+   missing → display:
+   ```
+   ⚠️  gitleaks binary not found — pre-push hook will fail until installed.
+       Install options:
+         • Ubuntu/Debian:  sudo apt install gitleaks
+         • GitHub release: https://github.com/gitleaks/gitleaks/releases
+         • Homebrew:       brew install gitleaks
+   ```
+g. Display: `Pre-commit hooks ✅ pre-commit installed (lint + typecheck on commit, gitleaks + license on push)`
 
 ## Phase 11 — Report
 

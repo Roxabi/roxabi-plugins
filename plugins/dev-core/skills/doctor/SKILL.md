@@ -33,9 +33,11 @@ Severity guide: ❌ = blocking error, ⚠️ = warning, ✅ = pass, ⏭ = skippe
 | Labels missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts labels --repo <owner/repo> --scope all` |
 | roxabi shim missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts scaffold ...` (requires env vars) |
 | `.gitleaks.toml` missing | Run `/init` Phase 3c-bis (public repos only) — creates `.gitleaks.toml` with sensible defaults |
+| `gitleaks` binary missing | Install: `sudo apt install gitleaks` (Ubuntu/Debian) or download from https://github.com/gitleaks/gitleaks/releases or `brew install gitleaks` — required for pre-push hooks to work locally |
 | `dependabot.yml` missing | Run `/init` Phase 3c-ter — generates and pushes `.github/dependabot.yml` |
 | lock file missing | Commit the lock file (`uv.lock`, `bun.lock`, `package-lock.json`, etc.) to the repository |
 | `tools/license_check.py` missing | Run `/init` Phase 10d — copies script from plugin: `cp "${CLAUDE_PLUGIN_ROOT}/tools/license_check.py" tools/license_check.py` + `uv add --dev pip-licenses` |
+| `pip-licenses` not installed (Python) | Run `uv add --dev pip-licenses` — required for `tools/license_check.py` to work |
 | `tools/licenseChecker.ts` missing | Copy from boilerplate `tools/licenseChecker.ts` or run `/init` Phase 10d |
 | gitleaks not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-push.commands.gitleaks` |
 | license check not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-push.commands.license` |
@@ -90,6 +92,14 @@ Check install state:
 - Config ∃ ∧ git hook ∄ → ⚠️ "{tool} config found but hooks not active — needs `{install-cmd}`"
 - Both ∃ → ✅ "Pre-commit hooks active ({tool})"
 - `hooks.tool` key ∄ in stack.yml → ⚠️ "`hooks.tool` not set in stack.yml"
+
+**gitleaks binary:**
+- `which gitleaks` → ✅ "gitleaks binary found" | ⚠️ "gitleaks binary not installed — pre-push hook will fail. Install: `sudo apt install gitleaks` or https://github.com/gitleaks/gitleaks/releases or `brew install gitleaks`"
+- Only check if `.gitleaks.toml` ∃ or gitleaks hook ∈ `lefthook.yml` / `.pre-commit-config.yaml`.
+
+**pip-licenses (Python only):**
+- Only check if `runtime: python` in stack.yml ∧ `tools/license_check.py` ∃.
+- `uv run pip-licenses --version` → ✅ "pip-licenses installed" | ⚠️ "pip-licenses not installed — run `uv add --dev pip-licenses`"
 
 **VS Code MDX preview:**
 - Only check if `.mdx` files ∃ (`find . -name "*.mdx" -not -path "*/node_modules/*" | head -1`) ∨ `docs.format: mdx` in stack.yml.

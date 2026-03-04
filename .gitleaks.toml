@@ -1,0 +1,7 @@
+title = 'Gitleaks'
+[extend]
+  useDefault = true
+[allowlist]
+  description = 'Project-level allowlist for known safe values'
+  paths = ['.env.example']
+  regexes = ['change-me-to-a-random-secret', 'your-.*-token', 'your-.*-key']
