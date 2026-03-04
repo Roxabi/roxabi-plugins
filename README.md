@@ -18,6 +18,7 @@ Open-source Claude Code plugins by [Roxabi](https://github.com/Roxabi). Context 
 | [cv](plugins/cv/README.md) | Generate and adapt CVs from structured data |
 | [get-invoice-details](plugins/get-invoice-details/README.md) | Extract and store invoice details from documents |
 | [linkedin-apply](plugins/linkedin-apply/README.md) | Scrape and score LinkedIn job offers with LLM matching |
+| [frontend-slides](plugins/frontend-slides/README.md) | Zero-dependency HTML presentations — 12 style presets, visual discovery, PPT conversion |
 
 ## Data Storage
 

@@ -79,6 +79,12 @@
       "description": "Scrape LinkedIn job offers and score them against your profile with Claude LLM — APPLY / REVIEW / SKIP decisions with 4-dimension scoring.",
       "source": "./plugins/linkedin-apply",
       "category": "productivity"
+    },
+    {
+      "name": "frontend-slides",
+      "description": "Create zero-dependency, animation-rich HTML presentations from scratch or by converting PowerPoint files. 12 curated style presets, visual style discovery, PPT conversion.",
+      "source": "./plugins/frontend-slides",
+      "category": "productivity"
     }
   ]
 }
