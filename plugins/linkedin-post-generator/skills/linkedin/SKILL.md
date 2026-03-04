@@ -29,7 +29,7 @@ allowed-tools: Read, Write, Bash, Glob, Grep
 1. Check if vault is available by running:
 ```bash
 python3 -c "
-import sys; sys.path.insert(0, '$(dirname \"$0\")/scripts')
+import sys; sys.path.insert(0, '$CLAUDE_PLUGIN_ROOT/../../scripts')
 from _lib.paths import vault_healthy
 print('VAULT_OK' if vault_healthy() else 'VAULT_UNAVAILABLE')
 "
@@ -54,11 +54,11 @@ for r in rows: print(json.dumps({'title': r[0], 'preview': r[1]}))
 
 1. Read the best practices reference:
 ```bash
-cat "$(dirname "$0")/references/linkedin_best_practices.md"
+cat "$CLAUDE_PLUGIN_ROOT/../../references/linkedin_best_practices.md"
 ```
 2. Read the emoji guide reference:
 ```bash
-cat "$(dirname "$0")/references/emoji_guide.md"
+cat "$CLAUDE_PLUGIN_ROOT/../../references/emoji_guide.md"
 ```
 3. Generate the post applying these rules:
    - Length: 1300-2000 characters (the LinkedIn sweet spot)
