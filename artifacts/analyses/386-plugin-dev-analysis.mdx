@@ -1,0 +1,63 @@
+---
+issue: 386
+roxabi_plugins_issue: 17
+title: plugin-dev toolkit analysis — integration opportunities for /dev workflow
+status: approved
+date: 2026-02-28
+labels: [research]
+---
+
+# Plugin-Dev Toolkit Analysis — Integration Opportunities for /dev Workflow
+
+## Fundamental Difference
+
+`plugin-dev` is a **domain-specific instructional toolkit** (teaches you to build Claude Code plugins). Our `/dev` is a **general-purpose, stateful, adaptive lifecycle orchestrator**. They're in entirely different categories — plugin-dev cannot replace /dev.
+
+## What We Have That plugin-dev Lacks
+
+| Our capability | plugin-dev equivalent |
+|---|---|
+| Problem framing (frame skill) | None — jumps straight to "what components?" |
+| Stateful resumability via artifact scan | None — session dies = start over |
+| Tier system (S / F-lite / F-full) | None — always same 8 phases |
+| Formal spec (acceptance criteria, slices) | None |
+| Plan with micro-tasks + agent assignment | None |
+| RED/GREEN/REFACTOR TDD cycle | Manual testing checklist only |
+| Confidence-gated auto-fix | None |
+| Release management (promote, changelog, tag) | "prepare for distribution" guidance only |
+| Spec compliance check in review | None |
+| Multi-agent parallel review | Single agent |
+
+## What plugin-dev Has That We Could Learn From
+
+| plugin-dev strength | Our gap |
+|---|---|
+| Full hook API docs (9 events, 2 types) | Our 3 hooks are undocumented — no skill for extending them |
+| Agent `<example>` + `<commentary>` standards | Our agents have minimal/no examples (e.g. backend-dev has 1 bare example) |
+| AI-assisted agent generation (structured JSON prompt) | We write agents manually from scratch |
+| skill-reviewer agent for SKILL.md quality | No equivalent — our skills are unvalidated |
+| Utility scripts co-located with skills | Our scripts live separately, undocumented in skills |
+
+## Actionable Opportunities (Priority Order)
+
+### 1. Enrich agent `<example>`/`<commentary>` blocks (cheap, high ROI)
+
+plugin-dev enforces 2-4 `<example>` blocks with `<commentary>` in every agent description. Our agents (e.g. backend-dev, architect) have minimal or bare examples. Improving these increases triggering reliability.
+
+### 2. Add a hooks skill
+
+Adapt plugin-dev's `hook-development` SKILL.md for our `.claude/settings.json` hooks format. Would document our 3 existing hooks (Biome auto-format, security warn, bun test blocker) and provide a reference for adding new ones. Cover all 9 hook events + 2 hook types.
+
+### 3. Run skill-reviewer on our existing SKILL.md files
+
+plugin-dev's `skill-reviewer` agent is already installed. Run it against our `.claude/skills/*/SKILL.md` files to catch: weak triggers, bloated SKILL.md, second-person writing, missing progressive disclosure structure.
+
+### 4. Borrow agent-creator JSON prompt pattern
+
+plugin-dev's `agent-creator` uses a structured JSON generation prompt (`identifier`, `whenToUse` with `<example>` blocks, `systemPrompt`). When we add new specialized agents (performance-auditor, i18n-specialist, etc.), use this pattern instead of writing from scratch.
+
+## Out of Scope
+
+- MCP integration docs: useful only if we add new MCP servers
+- Plugin settings pattern: not applicable to our GitHub-issue-as-state model
+- Replacing /dev with plugin-dev: category error

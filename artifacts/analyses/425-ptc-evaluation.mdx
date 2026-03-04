@@ -1,0 +1,57 @@
+---
+issue: 425
+roxabi_plugins_issue: 18
+title: evaluate Programmatic Tool Calling (PTC) for analysis-heavy skills
+status: approved
+date: 2026-02-28
+labels: [ai, research]
+horizon: long
+effort: L
+impact: High
+---
+
+# Programmatic Tool Calling (PTC) — Evaluation for Analysis-Heavy Skills
+
+## Background
+
+Programmatic Tool Calling (PTC) allows Claude to write Python code orchestrating multiple tool invocations in a sandboxed container. Intermediate results stay in code rather than entering the context window.
+
+Anthropic measured:
+- **37% token reduction** on complex multi-tool tasks (43,588 → 27,297 tokens)
+- **200 KB raw tool results** compressed to 1 KB final output
+- **85% token savings** on tool definitions via deferred loading
+- **+10% on SWE-bench** with Opus 4.6
+
+Available on `claude-opus-4-6` and `claude-sonnet-4-6` via `code_execution_20260120` tool type.
+
+## Evaluate For
+
+| Skill | Current Pattern | PTC Opportunity |
+|-------|----------------|-----------------|
+| `/analyze` | 20+ sequential Grep/Read calls | Single code block scanning transitive imports |
+| `/review` | Multiple file reads per domain agent | Batch file reading + pattern matching |
+| `/spec` | Research phase with many searches | Consolidated web + codebase search |
+| `security-auditor` | Import graph resolution via sequential Grep | Single code block building transitive closure |
+
+## Key Constraints
+
+- PTC is not covered by Zero Data Retention
+- MCP tools cannot be called programmatically yet
+- Container has Python runtime, not Node/Bun
+
+## Acceptance Criteria
+
+- [ ] POC on one skill (suggest: security-auditor import graph resolution)
+- [ ] Measure token savings vs current approach
+- [ ] Document limitations and gotchas
+- [ ] Decision: adopt broadly / adopt selectively / defer
+
+## References
+
+- [Anthropic — Programmatic Tool Calling](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling)
+- [Anthropic — Advanced Tool Use](https://www.anthropic.com/engineering/advanced-tool-use)
+- [Lance Martin — Programmatic Tool Calling in Claude 4.6](https://x.com/rlancemartin/status/2027450018513490419)
+
+## Source
+
+Knowledge audit (2026-02-28) item #24.
