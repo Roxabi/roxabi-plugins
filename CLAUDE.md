@@ -125,6 +125,59 @@ Then commit with the standard format:
 feat(plugins): add <plugin-name> — short description
 ```
 
+## Forking an Upstream Plugin
+
+When adopting a high-quality external skill rather than building from scratch, use `git subtree` to vendor it into the marketplace while keeping the ability to pull upstream updates.
+
+### Step 1 — Add as a subtree
+
+```bash
+git subtree add --prefix=plugins/<plugin-name> \
+  https://github.com/<owner>/<repo>.git main --squash
+```
+
+This copies all files into `plugins/<plugin-name>/` as a normal commit (no submodule complexity).
+
+### Step 2 — Restructure into marketplace layout
+
+The external skill likely has a flat structure. Move files into the standard layout:
+
+```bash
+mkdir -p plugins/<plugin-name>/skills/<skill-name>
+mv plugins/<plugin-name>/SKILL.md plugins/<plugin-name>/skills/<skill-name>/
+# move any supporting files alongside SKILL.md
+```
+
+### Step 3 — Adapt the frontmatter
+
+The upstream SKILL.md frontmatter won't have the required fields. Update it:
+
+```yaml
+---
+name: skill-name
+description: 'One-line description. Triggers: "phrase1" | "phrase2".'
+version: 0.1.0
+allowed-tools: Read, Write, Bash, Glob
+---
+```
+
+### Step 4 — Replace the README
+
+Overwrite the upstream README with a Roxabi marketplace README (install instructions, trigger phrases, how it works). Credit the upstream author with a "Forked from" line.
+
+### Steps 5–6 — Register and commit
+
+Follow Steps 4–6 from "Creating a New Plugin" above (marketplace.json, root README, commit).
+
+### Pulling upstream updates later
+
+```bash
+git subtree pull --prefix=plugins/<plugin-name> \
+  https://github.com/<owner>/<repo>.git main --squash
+```
+
+Keep local changes (frontmatter, README) minimal to avoid merge conflicts. Put the pull command in the commit message for easy reference.
+
 ## Documentation
 
 All READMEs must be kept up to date at all times. When adding, modifying, or removing a plugin, update:
