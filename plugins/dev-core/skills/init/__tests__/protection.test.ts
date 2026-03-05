@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../../shared/config', () => ({
   PROTECTED_BRANCHES: ['main', 'staging'],
   BRANCH_PROTECTION_PAYLOAD: {
-    required_pull_request_reviews: { required_approving_review_count: 1 },
     required_status_checks: { strict: true, contexts: ['ci'] },
     enforce_admins: false,
     restrictions: null,
@@ -79,6 +78,32 @@ describe('protectBranches', () => {
     expect(mockRun).toHaveBeenCalled()
     const branchCalls = mockRun.mock.calls.filter((c: string[][]) => c[0].includes('git'))
     expect(branchCalls.length).toBeGreaterThan(0)
+  })
+
+  it('deletes PR review requirement after applying protection', async () => {
+    spawnSyncSpy.mockReturnValue({
+      stdout: new Uint8Array(),
+      stderr: new Uint8Array(),
+      exitCode: 0,
+      success: true,
+    } as unknown as ReturnType<typeof Bun.spawnSync>)
+
+    spawnSpy.mockReturnValue({
+      exited: Promise.resolve(0),
+      stdout: new ReadableStream(),
+      stderr: new ReadableStream(),
+    } as unknown as ReturnType<typeof Bun.spawn>)
+
+    const { protectBranches } = await import('../lib/protection')
+    await protectBranches('Org/repo')
+
+    // 2 calls per branch: PUT protection + DELETE required_pull_request_reviews
+    const spawnCalls = spawnSpy.mock.calls
+    const deleteCalls = spawnCalls.filter((c: unknown[]) => {
+      const args = c[0] as string[]
+      return args.includes('-X') && args.includes('DELETE')
+    })
+    expect(deleteCalls.length).toBe(2) // one per protected branch
   })
 
   it('returns false when protection API fails', async () => {
