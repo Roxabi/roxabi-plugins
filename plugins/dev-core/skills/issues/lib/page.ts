@@ -64,15 +64,15 @@ function buildFieldSections(project?: WorkspaceProject): string {
 
 const INITIAL_VISIBLE = 8
 
-function splitIssueRows(issues: Issue[]) {
+function splitIssueRows(issues: Issue[], showProject = false) {
   return {
     visibleRows: issues
       .slice(0, INITIAL_VISIBLE)
-      .map((i) => issueRow(i))
+      .map((i) => issueRow(i, 0, '', showProject))
       .join(''),
     hiddenRows: issues
       .slice(INITIAL_VISIBLE)
-      .map((i) => issueRow(i))
+      .map((i) => issueRow(i, 0, '', showProject))
       .join(''),
     hasMore: issues.length > INITIAL_VISIBLE,
     hiddenCount: issues.length - INITIAL_VISIBLE,
@@ -99,24 +99,125 @@ function buildAllView(byProject: Map<string, Issue[]>, workspaceProjects?: Works
   if (byProject.size === 0) {
     return '<div class="empty-state">No projects registered — click + to add one</div>'
   }
-  return [...byProject.entries()]
+
+  // 1. Flat all-issues table (shown on "All" tab)
+  const allIssues: Issue[] = []
+  for (const [label, issues] of byProject) {
+    for (const issue of issues) {
+      allIssues.push({ ...issue, projectLabel: label })
+    }
+  }
+  const priorityOrder: Record<string, number> = {
+    'P0 - Urgent': 0,
+    'P1 - High': 1,
+    'P2 - Medium': 2,
+    'P3 - Low': 3,
+    '-': 99,
+  }
+  const sizeOrder: Record<string, number> = {
+    XL: 0,
+    L: 1,
+    M: 2,
+    S: 3,
+    XS: 4,
+    '-': 99,
+  }
+  allIssues.sort((a, b) => {
+    const aParent = a.children.length > 0 ? 0 : 1
+    const bParent = b.children.length > 0 ? 0 : 1
+    if (aParent !== bParent) return aParent - bParent
+    const pd = (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99)
+    if (pd !== 0) return pd
+    return (sizeOrder[a.size] ?? 99) - (sizeOrder[b.size] ?? 99)
+  })
+  const allTableHtml =
+    allIssues.length === 0
+      ? '<p class="no-issues">No open issues</p>'
+      : buildAllIssueTable(allIssues, workspaceProjects)
+  const allViewHtml = `<div data-project="All">${allTableHtml}</div>`
+
+  // 2. Per-project tables (shown when that project's tab is active)
+  const projectViews = [...byProject.entries()]
     .map(([label, issues]) => {
       const project = workspaceProjects?.find((p) => p.label === label)
-      const depNodes = buildDepGraph(issues)
+      // Tag issues with projectLabel for context menu
+      const tagged = issues.map((i) => ({ ...i, projectLabel: label }))
+      const depNodes = buildDepGraph(tagged)
       const graphHtml =
         (!project || showSubIssues(project)) && depNodes.length > 0
-          ? `<div class="project-graph" style="display:none;"><div class="section graph-subsection">
+          ? `<div class="section graph-subsection">
         <h3>Dependency Graph</h3>
-        <div class="graph-container">${renderDepGraph(depNodes, issues)}</div>
-      </div></div>`
+        <div class="graph-container">${renderDepGraph(depNodes, tagged)}</div>
+      </div>`
           : ''
-      return `<div data-project="${escHtml(label)}">
-      <h3 class="project-header">${escHtml(label)}</h3>
-      ${issues.length === 0 ? '<p class="no-issues">No open issues</p>' : buildIssueTable(issues, project)}
+      return `<div data-project="${escHtml(label)}" style="display:none;">
+      ${tagged.length === 0 ? '<p class="no-issues">No open issues</p>' : buildIssueTable(tagged, project)}
       ${graphHtml}
     </div>`
     })
     .join('\n')
+
+  return allViewHtml + '\n' + projectViews
+}
+
+function buildAllIssueTable(issues: Issue[], workspaceProjects?: WorkspaceProject[]): string {
+  const { visibleRows, hiddenRows, hasMore, hiddenCount } = splitIssueRows(issues, true)
+  const mergedSections = buildMergedFieldSections(workspaceProjects)
+  const mergedAttr = escHtml(JSON.stringify(mergedSections))
+
+  return `<table data-field-sections="${mergedAttr}" class="all-issues-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Title</th>
+        <th>Project</th>
+        <th>Status</th>
+        <th>\ud83d\udccf Size</th>
+        <th>\ud83d\udd25 Pri</th>
+        <th>&#9889;</th>
+        <th>Deps</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${visibleRows}
+      ${
+        hasMore
+          ? `<tr class="show-more-row"><td colspan="8" style="text-align:center;padding:12px;">
+        <button class="show-more-btn" onclick="var tb=this.closest('table').querySelector('.hidden-issues-body');tb.style.display='';this.parentElement.parentElement.style.display='none';">
+          Show ${hiddenCount} more issue${hiddenCount > 1 ? 's' : ''}
+        </button>
+      </td></tr>`
+          : ''
+      }
+    </tbody>
+    <tbody class="hidden-issues-body" style="display:none;">
+      ${hiddenRows}
+      <tr class="show-less-row"><td colspan="8" style="text-align:center;padding:12px;">
+        <button class="show-more-btn" onclick="var tbl=this.closest('table');tbl.querySelector('.hidden-issues-body').style.display='none';tbl.querySelector('.show-more-row').style.display='';">
+          Show less
+        </button>
+      </td></tr>
+    </tbody>
+  </table>`
+}
+
+/** Merge field sections from all workspace projects for the All tab context menu. */
+function buildMergedFieldSections(workspaceProjects?: WorkspaceProject[]) {
+  const statusOpts = new Set<string>([...STATUS_VALUES])
+  const col2Opts = new Set<string>([...SIZE_VALUES])
+  const col3Opts = new Set<string>([...PRIORITY_VALUES])
+  if (workspaceProjects) {
+    for (const p of workspaceProjects) {
+      if (p.fieldIds?.statusOptions) for (const k of Object.keys(p.fieldIds.statusOptions)) statusOpts.add(k)
+      if (p.fieldIds?.col2Options) for (const k of Object.keys(p.fieldIds.col2Options)) col2Opts.add(k)
+      if (p.fieldIds?.col3Options) for (const k of Object.keys(p.fieldIds.col3Options)) col3Opts.add(k)
+    }
+  }
+  return [
+    { label: 'Status', field: 'status', options: [...statusOpts] },
+    { label: 'Size', field: 'col2', options: [...col2Opts] },
+    { label: 'Pri', field: 'col3', options: [...col3Opts] },
+  ]
 }
 
 function buildIssueTable(issues: Issue[], project?: WorkspaceProject): string {
@@ -414,24 +515,24 @@ ${LIVE_STYLES}
       document.querySelectorAll('.tab:not([data-repo]):not(.add-btn)').forEach(function(t) {
         if (t.textContent.trim() === 'All') t.classList.add('active');
       });
-      // Show all project data across every section
-      document.querySelectorAll('[data-project]').forEach(function(el) { el.style.display = ''; });
-      // Restore section visibility
+    }
+
+    // Issues section: show All view or per-project view
+    document.querySelectorAll('#section-issues-content > [data-project]').forEach(function(el) {
+      el.style.display = (label === 'All' ? el.dataset.project === 'All' : el.dataset.project === label) ? '' : 'none';
+    });
+
+    // Other sections with [data-project] groups (CI, PRs, Vercel, workflow runs)
+    if (label === 'All') {
+      document.querySelectorAll('#section-ci [data-project], #section-prs [data-project], #section-vercel [data-project], #section-workflow-runs [data-project]').forEach(function(el) { el.style.display = ''; });
       ['section-ci', 'section-prs', 'section-vercel', 'section-workflow-runs'].forEach(function(id) {
         var sec = document.getElementById(id);
         if (sec) sec.style.display = '';
       });
-      // Hide dep graphs (only shown per project tab)
-      document.querySelectorAll('.project-graph').forEach(function(el) { el.style.display = 'none'; });
-      // Collapse issue tables back to compact view
-      document.querySelectorAll('.hidden-issues-body').forEach(function(b) { b.style.display = 'none'; });
-      document.querySelectorAll('.show-more-row').forEach(function(tr) { tr.style.display = ''; });
     } else {
-      // Filter every section to only show the active project
-      document.querySelectorAll('[data-project]').forEach(function(el) {
+      document.querySelectorAll('#section-ci [data-project], #section-prs [data-project], #section-vercel [data-project], #section-workflow-runs [data-project]').forEach(function(el) {
         el.style.display = el.dataset.project === label ? '' : 'none';
       });
-      // Hide sections that have no visible [data-project] content for this tab
       ['section-ci', 'section-prs', 'section-vercel', 'section-workflow-runs'].forEach(function(id) {
         var sec = document.getElementById(id);
         if (!sec) return;
@@ -440,12 +541,17 @@ ${LIVE_STYLES}
         var hasVisible = Array.from(projEls).some(function(el) { return el.style.display !== 'none'; });
         sec.style.display = hasVisible ? '' : 'none';
       });
-      // Expand all issues for the active project (no show-more/show-less needed)
+    }
+
+    // Show-more / collapse state
+    if (label === 'All') {
+      document.querySelectorAll('.hidden-issues-body').forEach(function(b) { b.style.display = 'none'; });
+      document.querySelectorAll('.show-more-row').forEach(function(tr) { tr.style.display = ''; });
+    } else {
+      // Expand all issues for the active project
       document.querySelectorAll('[data-project="' + label + '"] .hidden-issues-body').forEach(function(b) { b.style.display = ''; });
       document.querySelectorAll('[data-project="' + label + '"] .show-more-row').forEach(function(tr) { tr.style.display = 'none'; });
       document.querySelectorAll('[data-project="' + label + '"] .show-less-row').forEach(function(tr) { tr.style.display = 'none'; });
-      // Show dep graph for active project only
-      document.querySelectorAll('[data-project="' + label + '"] .project-graph').forEach(function(el) { el.style.display = ''; });
     }
   }
 
@@ -483,7 +589,7 @@ ${LIVE_STYLES}
         status: row.dataset.status,
         col2: row.dataset.size,
         col3: row.dataset.priority,
-        projectLabel: row.closest('table') ? row.closest('table').dataset.projectLabel : null,
+        projectLabel: row.dataset.projectLabel || (row.closest('table') ? row.closest('table').dataset.projectLabel : null),
       };
       ctxNum.textContent = ctxIssue.number;
 

@@ -52,8 +52,9 @@ export async function handleUpdate(req: Request): Promise<Response> {
     const optionId = options?.[value]
     if (!optionId) return Response.json({ ok: false, error: `Unknown value: ${value}` }, { status: 400 })
 
-    const itemId = await getItemId(issueNumber)
-    await updateField(itemId, fieldId, optionId)
+    const overrides = project ? { projectId: project.projectId, repo: project.repo } : undefined
+    const itemId = await getItemId(issueNumber, overrides)
+    await updateField(itemId, fieldId, optionId, project?.projectId)
 
     return Response.json({ ok: true })
   } catch (err) {

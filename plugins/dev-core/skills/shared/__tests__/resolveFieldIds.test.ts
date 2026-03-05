@@ -8,7 +8,16 @@ import { describe, expect, it } from 'vitest'
 import type { ProjectFieldIds } from '../workspace'
 
 // Re-use the already-imported config module (same module cache as config.test.ts)
-const { resolveFieldIds, fieldIdForSlot } = await import('../config')
+const {
+  resolveFieldIds,
+  fieldIdForSlot,
+  STATUS_FIELD_ID,
+  SIZE_FIELD_ID,
+  PRIORITY_FIELD_ID,
+  STATUS_OPTIONS,
+  SIZE_OPTIONS,
+  PRIORITY_OPTIONS,
+} = await import('../config')
 
 describe('resolveFieldIds', () => {
   it('uses project.fieldIds when present', () => {
@@ -27,14 +36,13 @@ describe('resolveFieldIds', () => {
   it('falls back to .env values when fieldIds absent', () => {
     const project = { repo: 'r', projectId: 'p', label: 'l' }
     const ids = resolveFieldIds(project)
-    // Falls back to process.env.STATUS_FIELD_ID ('' in test env)
-    expect(ids.status).toBe('')
-    expect(ids.col2).toBe('')
-    expect(ids.col3).toBe('')
-    // Options come from cleared env vars — empty objects
-    expect(ids.statusOptions).toEqual({})
-    expect(ids.col2Options).toEqual({})
-    expect(ids.col3Options).toEqual({})
+    // Falls back to module-level constants loaded from .env
+    expect(ids.status).toBe(STATUS_FIELD_ID)
+    expect(ids.col2).toBe(SIZE_FIELD_ID)
+    expect(ids.col3).toBe(PRIORITY_FIELD_ID)
+    expect(ids.statusOptions).toEqual(STATUS_OPTIONS)
+    expect(ids.col2Options).toEqual(SIZE_OPTIONS)
+    expect(ids.col3Options).toEqual(PRIORITY_OPTIONS)
   })
 
   it('throws when fieldIds present but status missing', () => {
@@ -54,12 +62,12 @@ describe('resolveFieldIds', () => {
     // Empty fieldIds ({}) is written by /init when GitHub field resolution fails.
     // It must fall through to the .env fallback — not throw.
     const ids = resolveFieldIds(project)
-    expect(ids.status).toBe('')
-    expect(ids.col2).toBe('')
-    expect(ids.col3).toBe('')
-    expect(ids.statusOptions).toEqual({})
-    expect(ids.col2Options).toEqual({})
-    expect(ids.col3Options).toEqual({})
+    expect(ids.status).toBe(STATUS_FIELD_ID)
+    expect(ids.col2).toBe(SIZE_FIELD_ID)
+    expect(ids.col3).toBe(PRIORITY_FIELD_ID)
+    expect(ids.statusOptions).toEqual(STATUS_OPTIONS)
+    expect(ids.col2Options).toEqual(SIZE_OPTIONS)
+    expect(ids.col3Options).toEqual(PRIORITY_OPTIONS)
   })
 })
 

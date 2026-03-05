@@ -170,9 +170,14 @@ export async function createGitHubIssue(
 }
 
 /** Get project item ID for an issue number. */
-export async function getItemId(issueNumber: number): Promise<string> {
-  if (!GH_PROJECT_ID) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
-  const [owner, repo] = GITHUB_REPO.split('/')
+export async function getItemId(
+  issueNumber: number,
+  overrides?: { projectId?: string; repo?: string },
+): Promise<string> {
+  const pid = overrides?.projectId ?? GH_PROJECT_ID
+  const repoSlug = overrides?.repo ?? GITHUB_REPO
+  if (!pid) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
+  const [owner, repo] = repoSlug.split('/')
   const data = (await ghGraphQL(ITEM_ID_QUERY, { owner, repo, number: issueNumber })) as {
     data: {
       repository: {
@@ -181,7 +186,7 @@ export async function getItemId(issueNumber: number): Promise<string> {
     }
   }
   const items = data.data.repository.issue.projectItems.nodes
-  const item = items.find((i) => i.project.id === GH_PROJECT_ID)
+  const item = items.find((i) => i.project.id === pid)
   if (!item) throw new Error(`Issue #${issueNumber} not found in project`)
   return item.id
 }
@@ -197,10 +202,16 @@ export async function addToProject(nodeId: string): Promise<string> {
 }
 
 /** Update a single-select project field value. */
-export async function updateField(itemId: string, fieldId: string, optionId: string): Promise<void> {
-  if (!GH_PROJECT_ID) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
+export async function updateField(
+  itemId: string,
+  fieldId: string,
+  optionId: string,
+  overrideProjectId?: string,
+): Promise<void> {
+  const pid = overrideProjectId ?? GH_PROJECT_ID
+  if (!pid) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
   await ghGraphQL(UPDATE_FIELD_MUTATION, {
-    projectId: GH_PROJECT_ID,
+    projectId: pid,
     itemId,
     fieldId,
     optionId,

@@ -72,23 +72,29 @@ export function formatDeps(issue: Issue): string {
   return parts.length > 0 ? parts.join(' ') : '<span class="dep-none">-</span>'
 }
 
-export function issueRow(issue: Issue, indent = 0, prefix = ''): string {
+export function issueRow(issue: Issue, indent = 0, prefix = '', showProject = false): string {
   const pri = PRIORITY_SHORT[issue.priority] ?? issue.priority
   const status = STATUS_SHORT[issue.status] ?? issue.status
   const priClass = PRIORITY_CLASS[issue.priority] ?? ''
   const statusClass = STATUS_CLASS[issue.status] ?? ''
   const blockIcon = BLOCK_ICON[issue.blockStatus] ?? ''
   const blockClass = `block-${issue.blockStatus}`
+  const projLabel = issue.projectLabel ?? ''
+  const projAttr = projLabel ? ` data-project-label="${escHtml(projLabel)}"` : ''
 
   const titleHtml =
     indent > 0
       ? `<span class="tree-prefix">${prefix}</span><a href="${issue.url}" target="_blank" rel="noopener">#${issue.number}</a> ${escHtml(issue.title)}`
       : `<a href="${issue.url}" target="_blank" rel="noopener">#${issue.number}</a> ${escHtml(issue.title)}`
 
-  let html = `<tr class="issue-row depth-${indent} ${blockClass}" data-issue="${issue.number}" data-status="${escHtml(issue.status)}" data-size="${escHtml(issue.size)}" data-priority="${escHtml(issue.priority)}">
+  const projectCol = showProject
+    ? `<td class="col-project"><span class="badge project-label">${indent === 0 ? escHtml(projLabel) : ''}</span></td>`
+    : ''
+
+  let html = `<tr class="issue-row depth-${indent} ${blockClass}" data-issue="${issue.number}" data-status="${escHtml(issue.status)}" data-size="${escHtml(issue.size)}" data-priority="${escHtml(issue.priority)}"${projAttr}>
     <td class="col-num">${indent === 0 ? `<a href="${issue.url}" target="_blank" rel="noopener">#${issue.number}</a>` : ''}</td>
     <td class="col-title">${titleHtml}</td>
-    <td class="col-status"><span class="badge ${statusClass}">${escHtml(status)}</span></td>
+    ${projectCol}<td class="col-status"><span class="badge ${statusClass}">${escHtml(status)}</span></td>
     <td class="col-size">${escHtml(issue.size)}</td>
     <td class="col-pri"><span class="badge ${priClass}">${escHtml(pri)}</span></td>
     <td class="col-block">${blockIcon}</td>
@@ -98,7 +104,7 @@ export function issueRow(issue: Issue, indent = 0, prefix = ''): string {
   for (let i = 0; i < issue.children.length; i++) {
     const isLast = i === issue.children.length - 1
     const childPrefix = isLast ? '\u2514 ' : '\u251c '
-    html += issueRow(issue.children[i], indent + 1, childPrefix)
+    html += issueRow(issue.children[i], indent + 1, childPrefix, showProject)
   }
 
   return html
