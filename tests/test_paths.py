@@ -1,4 +1,4 @@
-"""Tests for the canonical paths.py resolver."""
+"""Tests for the canonical roxabi_sdk.paths resolver."""
 import sqlite3
 import sys
 from pathlib import Path
@@ -6,11 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Import paths module once
-_vault_lib_parent = str(Path(__file__).resolve().parent.parent / 'plugins' / 'vault')
-if _vault_lib_parent not in sys.path:
-    sys.path.insert(0, _vault_lib_parent)
-from _lib import paths as paths_module
+# Import from roxabi_sdk (repo root is already on sys.path via conftest)
+from roxabi_sdk import paths as paths_module
 
 
 def test_default_vault_home(monkeypatch):

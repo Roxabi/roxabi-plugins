@@ -11,7 +11,8 @@ except ImportError:
     print('Error: Jinja2 is required. Install with: pip install jinja2', file=sys.stderr)
     sys.exit(1)
 
-from _lib.paths import get_plugin_data, get_config, ensure_dir
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
+from roxabi_sdk.paths import get_plugin_data, get_config, ensure_dir
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / 'templates'
 _CV_DIR = get_plugin_data('cv')

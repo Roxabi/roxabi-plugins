@@ -5,7 +5,8 @@ import json
 import sys
 from pathlib import Path
 
-from _lib.paths import get_plugin_data, get_vault_home, ensure_dir, vault_healthy
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
+from roxabi_sdk.paths import get_plugin_data, get_vault_home, ensure_dir, vault_healthy
 
 
 PLUGIN_NAME = 'invoices'

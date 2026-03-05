@@ -237,7 +237,7 @@ Plugins with data declare it in `plugin.json`:
 
 ### Path resolution
 
-All plugins use `_lib/paths.py` for path resolution. The canonical copy lives at `plugins/vault/_lib/paths.py`. Consumer plugins vendor a copy at `scripts/_lib/paths.py`.
+All plugins use `roxabi_sdk/paths.py` for path resolution. The canonical copy lives at `roxabi_sdk/paths.py` (repo root). The sync script copies `roxabi_sdk/` into each plugin cache dir so imports work in both repo and installed contexts.
 
 Key functions: `get_vault_home()`, `get_plugin_data(name)`, `get_shared_dir(name)`, `get_config(name)`, `ensure_dir(path)`, `vault_available()`, `vault_healthy()`.
 
@@ -261,7 +261,7 @@ if vault_healthy():
 1. **Zero personal data** in the repo — use fictional data in `examples/`
 2. **English names** — `invoices/` not `factures/`, skills in English
 3. **Self-check in skills** — verify preconditions at start, suggest init skill if data missing
-4. **Vendoring** — copy `_lib/paths.py` from vault, don't symlink
+4. **Shared SDK** — `roxabi_sdk/` at repo root is the single source of truth for path resolution. Sync script copies it into each plugin cache dir. Import via `from roxabi_sdk.paths import ...`
 5. **CI checks** — `tools/validate_plugins.py` enforces no personal data, unique `data.root`, examples exist
 
 ## Editing Plugins
@@ -287,6 +287,8 @@ Each project that has a plugin installed uses a specific cache dir identified by
      [ -d "$CACHE/$plugin" ] && for h in "$CACHE/$plugin"/*/; do
        rsync -a --exclude='__tests__' --exclude='node_modules' --exclude='.orphaned_at' --exclude='.dashboard.pid' \
          "$plugin_dir" "$h"
+       # Sync roxabi_sdk into plugin root for Python imports
+       rsync -a "$REPO/roxabi_sdk/" "$h/roxabi_sdk/"
      done
    done
    ```

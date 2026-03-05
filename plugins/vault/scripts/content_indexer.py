@@ -21,7 +21,8 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # plugin root (for _lib.memory)
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
 from _lib.memory.db import VaultDB
 
 
