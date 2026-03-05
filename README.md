@@ -1,5 +1,9 @@
 # Roxabi-plugins
 
+![License](https://img.shields.io/badge/license-MIT-22c55e)
+![Bun](https://img.shields.io/badge/Bun-runtime-FBF0DF?logo=bun&logoColor=black)
+![Claude Code](https://img.shields.io/badge/Claude%20Code-plugins-CC785C)
+
 Open-source Claude Code plugins by [Roxabi](https://github.com/Roxabi). Context engineering tools for teams using Claude Code.
 
 ## Plugins
