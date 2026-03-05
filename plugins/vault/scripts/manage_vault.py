@@ -8,187 +8,126 @@ from datetime import datetime
 from pathlib import Path
 
 # Resolve imports
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # plugin root (for _lib.memory)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # plugin root
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
 from roxabi_sdk.paths import get_vault_home, vault_available
-from _lib.memory.db import VaultDB
-from _lib.memory.fts import search_entries
+from adapters.sqlite_repository import SqliteEntryRepository
+from adapters.fts5_search import Fts5SearchAdapter
 
 
-def get_db() -> VaultDB:
-    """Get a connected VaultDB instance."""
-    db = VaultDB()
-    db.connect()
-    return db
+def get_db_path() -> Path:
+    return get_vault_home() / 'vault.db'
 
 
-def cmd_add(args):
+def cmd_add(args, repo):
     """Add an entry to the vault."""
-    db = get_db()
-    try:
-        metadata = json.loads(args.metadata) if args.metadata else {}
-        cursor = db.conn.execute(
-            'INSERT INTO entries (category, type, title, content, metadata) '
-            'VALUES (?, ?, ?, ?, ?)',
-            (args.category, args.type, args.title, args.content,
-             json.dumps(metadata))
-        )
-        db.conn.commit()
-        entry_id = cursor.lastrowid
-        print(json.dumps({'id': entry_id, 'status': 'added'}))
-    finally:
-        db.close()
+    metadata = json.dumps(json.loads(args.metadata)) if args.metadata else '{}'
+    entry = repo.add(args.category, args.type, args.title, args.content, metadata)
+    print(json.dumps({'id': entry.id, 'status': 'added'}))
 
 
-def cmd_search(args):
+def cmd_search(args, repo, search):
     """Full-text search across vault entries."""
-    db = get_db()
-    try:
-        rows = search_entries(db.conn, args.query, limit=args.limit)
-        results = []
-        for row in rows:
-            results.append({
-                'id': row['id'],
-                'category': row['category'],
-                'type': row['type'],
-                'title': row['title'],
-                'content': row['content'][:200] + ('...' if len(row['content']) > 200 else ''),
-                'created_at': row['created_at']
-            })
-        print(json.dumps(results, indent=2))
-    finally:
-        db.close()
+    results = search.search(args.query, limit=args.limit)
+    output = []
+    for r in results:
+        output.append({
+            'id': r.entry.id,
+            'category': r.entry.category,
+            'type': r.entry.type,
+            'title': r.entry.title,
+            'content': r.entry.content[:200] + ('...' if len(r.entry.content) > 200 else ''),
+            'created_at': r.entry.created_at
+        })
+    print(json.dumps(output, indent=2))
 
 
-def build_filter(args) -> tuple[str, list]:
-    """Build WHERE clause from --category/--type args."""
-    conditions = []
-    params = []
-    if getattr(args, 'category', None):
-        conditions.append('category = ?')
-        params.append(args.category)
-    if getattr(args, 'type', None):
-        conditions.append('type = ?')
-        params.append(args.type)
-    where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
-    return where, params
-
-
-def cmd_list(args):
+def cmd_list(args, repo):
     """List vault entries, optionally filtered by category/type."""
-    db = get_db()
-    try:
-        where, params = build_filter(args)
-        sql = 'SELECT id, category, type, title, created_at, updated_at FROM entries' + where
+    entries = repo.list(
+        category=getattr(args, 'category', None),
+        type=getattr(args, 'type', None),
+        limit=args.limit
+    )
+    results = [
+        {
+            'id': e.id, 'category': e.category, 'type': e.type,
+            'title': e.title, 'created_at': e.created_at, 'updated_at': e.updated_at
+        }
+        for e in entries
+    ]
+    print(json.dumps(results, indent=2))
 
-        sql += ' ORDER BY updated_at DESC LIMIT ?'
-        params.append(args.limit)
 
-        rows = db.conn.execute(sql, params).fetchall()
-        results = [dict(row) for row in rows]
-        print(json.dumps(results, indent=2))
-    finally:
-        db.close()
-
-
-def cmd_get(args):
+def cmd_get(args, repo):
     """Get a single entry by ID."""
-    db = get_db()
-    try:
-        row = db.conn.execute(
-            'SELECT * FROM entries WHERE id = ?', (args.id,)
-        ).fetchone()
-        if row:
-            result = dict(row)
-            result['metadata'] = json.loads(result['metadata'])
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps({'error': f'Entry {args.id} not found'}),
-                  file=sys.stderr)
-            sys.exit(1)
-    finally:
-        db.close()
+    entry = repo.get(args.id)
+    if entry:
+        result = {
+            'id': entry.id, 'category': entry.category, 'type': entry.type,
+            'title': entry.title, 'content': entry.content,
+            'created_at': entry.created_at, 'updated_at': entry.updated_at,
+            'metadata': json.loads(entry.metadata),
+        }
+        print(json.dumps(result, indent=2))
+    else:
+        print(json.dumps({'error': f'Entry {args.id} not found'}),
+              file=sys.stderr)
+        sys.exit(1)
 
 
-def cmd_delete(args):
+def cmd_delete(args, repo):
     """Delete an entry by ID."""
-    db = get_db()
-    try:
-        cursor = db.conn.execute(
-            'DELETE FROM entries WHERE id = ?', (args.id,)
-        )
-        db.conn.commit()
-        if cursor.rowcount:
-            print(json.dumps({'id': args.id, 'status': 'deleted'}))
-        else:
-            print(json.dumps({'error': f'Entry {args.id} not found'}),
-                  file=sys.stderr)
-            sys.exit(1)
-    finally:
-        db.close()
+    if repo.delete(args.id):
+        print(json.dumps({'id': args.id, 'status': 'deleted'}))
+    else:
+        print(json.dumps({'error': f'Entry {args.id} not found'}),
+              file=sys.stderr)
+        sys.exit(1)
 
 
-def cmd_stats(args):
+def cmd_stats(args, repo):
     """Show vault statistics."""
-    db = get_db()
-    try:
-        by_category = db.conn.execute(
-            'SELECT category, COUNT(*) as count FROM entries '
-            'GROUP BY category ORDER BY count DESC'
-        ).fetchall()
-        by_type = db.conn.execute(
-            'SELECT type, COUNT(*) as count FROM entries '
-            'GROUP BY type ORDER BY count DESC'
-        ).fetchall()
-        total = sum(row[1] for row in by_category)
-        oldest, newest = db.conn.execute(
-            'SELECT MIN(created_at), MAX(created_at) FROM entries'
-        ).fetchone()
-
-        db_path = get_vault_home() / 'vault.db'
-        db_size = db_path.stat().st_size if db_path.exists() else 0
-
-        stats = {
-            'total_entries': total,
-            'by_category': {row[0]: row[1] for row in by_category},
-            'by_type': {row[0]: row[1] for row in by_type},
-            'oldest_entry': oldest,
-            'newest_entry': newest,
-            'db_size_bytes': db_size
-        }
-        print(json.dumps(stats, indent=2))
-    finally:
-        db.close()
+    stats = repo.stats()
+    db_path = get_db_path()
+    output = {
+        'total_entries': stats.total_entries,
+        'by_category': stats.by_category,
+        'by_type': stats.by_type,
+        'oldest_entry': stats.oldest_entry,
+        'newest_entry': stats.newest_entry,
+        'db_size_bytes': db_path.stat().st_size if db_path.exists() else 0,
+    }
+    print(json.dumps(output, indent=2))
 
 
-def cmd_export(args):
+def cmd_export(args, repo):
     """Export vault entries as JSON."""
-    db = get_db()
-    try:
-        where, params = build_filter(args)
-        sql = 'SELECT * FROM entries' + where + ' ORDER BY created_at ASC'
-
-        rows = db.conn.execute(sql, params).fetchall()
-        entries = []
-        for row in rows:
-            entry = dict(row)
-            entry['metadata'] = json.loads(entry['metadata'])
-            entries.append(entry)
-
-        output = {
-            'exported_at': datetime.now().isoformat(),
-            'count': len(entries),
-            'entries': entries
+    entries = repo.export(
+        category=getattr(args, 'category', None),
+        type=getattr(args, 'type', None),
+    )
+    output_entries = [
+        {
+            'id': e.id, 'category': e.category, 'type': e.type,
+            'title': e.title, 'content': e.content,
+            'created_at': e.created_at, 'updated_at': e.updated_at,
+            'metadata': json.loads(e.metadata),
         }
+        for e in entries
+    ]
+    output = {
+        'exported_at': datetime.now().isoformat(),
+        'count': len(output_entries),
+        'entries': output_entries
+    }
 
-        if args.output:
-            Path(args.output).write_text(json.dumps(output, indent=2))
-            print(json.dumps({'status': 'exported', 'file': args.output,
-                              'count': len(entries)}))
-        else:
-            print(json.dumps(output, indent=2))
-    finally:
-        db.close()
+    if args.output:
+        Path(args.output).write_text(json.dumps(output, indent=2))
+        print(json.dumps({'status': 'exported', 'file': args.output,
+                          'count': len(output_entries)}))
+    else:
+        print(json.dumps(output, indent=2))
 
 
 def main():
@@ -204,41 +143,34 @@ def main():
     p_add.add_argument('--title', required=True, help='Entry title')
     p_add.add_argument('--content', required=True, help='Entry content')
     p_add.add_argument('--metadata', help='JSON metadata string')
-    p_add.set_defaults(func=cmd_add)
 
     # search
     p_search = sub.add_parser('search', help='Full-text search')
     p_search.add_argument('query', help='Search query')
     p_search.add_argument('--limit', type=int, default=20, help='Max results')
-    p_search.set_defaults(func=cmd_search)
 
     # list
     p_list = sub.add_parser('list', help='List entries')
     p_list.add_argument('--category', help='Filter by category')
     p_list.add_argument('--type', help='Filter by type')
     p_list.add_argument('--limit', type=int, default=50, help='Max results')
-    p_list.set_defaults(func=cmd_list)
 
     # get
     p_get = sub.add_parser('get', help='Get entry by ID')
     p_get.add_argument('id', type=int, help='Entry ID')
-    p_get.set_defaults(func=cmd_get)
 
     # delete
     p_del = sub.add_parser('delete', help='Delete entry by ID')
     p_del.add_argument('id', type=int, help='Entry ID')
-    p_del.set_defaults(func=cmd_delete)
 
     # stats
-    p_stats = sub.add_parser('stats', help='Show vault statistics')
-    p_stats.set_defaults(func=cmd_stats)
+    sub.add_parser('stats', help='Show vault statistics')
 
     # export
     p_export = sub.add_parser('export', help='Export entries as JSON')
     p_export.add_argument('--category', help='Filter by category')
     p_export.add_argument('--type', help='Filter by type')
     p_export.add_argument('--output', '-o', help='Output file path')
-    p_export.set_defaults(func=cmd_export)
 
     args = parser.parse_args()
 
@@ -248,7 +180,29 @@ def main():
         }), file=sys.stderr)
         sys.exit(1)
 
-    args.func(args)
+    # Composition root — construct adapters (shared connection)
+    db_path = get_db_path()
+    repo = SqliteEntryRepository(db_path)
+    search = Fts5SearchAdapter(db_path, conn=repo._get_conn())
+
+    try:
+        if args.command == 'add':
+            cmd_add(args, repo)
+        elif args.command == 'search':
+            cmd_search(args, repo, search)
+        elif args.command == 'list':
+            cmd_list(args, repo)
+        elif args.command == 'get':
+            cmd_get(args, repo)
+        elif args.command == 'delete':
+            cmd_delete(args, repo)
+        elif args.command == 'stats':
+            cmd_stats(args, repo)
+        elif args.command == 'export':
+            cmd_export(args, repo)
+    finally:
+        repo.close()
+        search.close()
 
 
 if __name__ == '__main__':

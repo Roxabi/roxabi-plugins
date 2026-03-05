@@ -19,5 +19,11 @@ jobs:
         run: bun lint
       - name: Typecheck
         run: bun typecheck
-      - name: Test
+      - name: Test (vitest)
         run: bun run test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pytest
+      - name: Test (pytest)
+        run: python3 -m pytest tests/ plugins/vault/tests/ -v
