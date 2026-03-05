@@ -1,7 +1,7 @@
 ---
 name: 1b1
 description: 'Walk through items 1-by-1 (findings, tasks, issues, TODOs). Triggers: "one by one" | "walk through" | "1b1" | "process each item".'
-version: 0.1.0
+version: 0.2.0
 argument-hint: '[items description]'
 allowed-tools: Read, Bash, Grep, Glob
 ---
@@ -30,17 +30,24 @@ Argument ∃ (e.g. `/1b1 review findings`) → narrow to matching list.
 
 ### 2. ∀ ι ∈ Ι (sequential)
 
-#### 2a. Brief
+#### 2a. Investigate
+
+ι references file → read relevant lines + surrounding context. ι references issue → `gh issue view`. Trace the root cause — don't stop at the symptom.
+
+**Root cause first:** before presenting options, understand *why* the item exists. Read code, check history, follow references. The analysis must be grounded in evidence, not speculation.
+
+#### 2b. Brief
 
 ```
 ── Item {N}/{|Ι|}: {title} ──
 
-{2-5 lines: what, why, current state}
+Summary:        {what the item is and its root cause — 2-3 lines}
+Benefit:        {what improves if we act on it}
+Tradeoff:       {cost, risk, or complexity of acting}
+Recommendation: {Fix now | Defer | Skip | Reject} — {1-line rationale}
 ```
 
-ι references file → read relevant lines. ι references issue → `gh issue view`. Keep concise — enough to decide.
-
-#### 2b. Ask Decision
+#### 2c. Ask Decision
 
 `AskUserQuestion` with options adapted to ι type. Always include **Skip**.
 
@@ -51,7 +58,7 @@ Argument ∃ (e.g. `/1b1 review findings`) → narrow to matching list.
 | Issues / TODOs | **Act on it** (triage/assign/close) · **Skip** · **Defer** |
 | Generic | **Act** · **Skip** · **Defer** |
 
-#### 2c. Execute
+#### 2d. Execute
 
 | Decision | Behavior |
 |----------|----------|
@@ -94,7 +101,7 @@ D ≠ ∅ → `AskUserQuestion`: **Process deferred now** | **Done**.
 
 ## Safety Rules
 
-1. Always brief before asking — ¬present decision without context
+1. Always investigate then brief before asking — ¬present decision without root cause analysis
 2. One ι at a time — ¬batch multiple into one question
 3. Track all decisions — maintain tally for summary
 4. Respect user pace — ¬rush or skip ahead

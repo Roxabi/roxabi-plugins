@@ -6,10 +6,11 @@ A Claude Code plugin that walks through a list of items one at a time, briefing 
 
 When you have a list of items to process — review findings, tasks, issues, TODOs — this plugin steps through them sequentially. For each item it:
 
-1. Shows a brief context summary (what the item is, why it matters, current state)
-2. Asks you for a decision (fix, skip, defer, reject, etc.)
-3. Executes your decision immediately
-4. Moves to the next item
+1. Investigates the root cause (reads code, traces references, checks history)
+2. Presents a structured brief: summary, benefit, tradeoff, and recommendation
+3. Asks you for a decision (fix, skip, defer, reject, etc.)
+4. Executes your decision immediately
+5. Moves to the next item
 
 At the end, it shows a summary of all decisions made and lets you go back to any deferred items.
 
