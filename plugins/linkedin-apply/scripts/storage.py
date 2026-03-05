@@ -39,12 +39,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-# Add _lib to path for vault path resolution
-_LIB_DIR = Path(__file__).resolve().parent / "_lib"
-if str(_LIB_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIB_DIR))
-
-from paths import get_plugin_data, ensure_dir as vault_ensure_dir
+# Resolve roxabi_sdk imports
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
+from roxabi_sdk.paths import get_plugin_data, ensure_dir as vault_ensure_dir
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
