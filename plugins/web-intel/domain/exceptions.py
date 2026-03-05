@@ -12,8 +12,15 @@ class WebIntelError(PluginError):
 class FetchError(WebIntelError):
     """Error fetching content from a URL."""
     def __init__(self, url: str, reason: str):
-        self.url = url
-        super().__init__(f"Failed to fetch {url}: {reason}")
+        self.url = _sanitize_url(url)
+        super().__init__(f"Failed to fetch {self.url}: {reason}")
+
+
+def _sanitize_url(url: str) -> str:
+    """Strip query parameters and fragments to avoid leaking secrets in logs."""
+    from urllib.parse import urlsplit, urlunsplit
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, '', ''))
 
 
 class ContentParseError(WebIntelError):

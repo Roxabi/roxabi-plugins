@@ -1,16 +1,20 @@
 /**
  * WorkspacePort — role interface for workspace/worktree/git operations.
  */
-import type { Branch, Worktree } from '../domain/types'
+import type { Branch, ProjectFieldIds, Worktree } from '../domain/types'
+
+export interface VercelProjectRef {
+  projectId: string
+  teamId: string
+}
 
 export interface WorkspaceProject {
   repo: string
   projectId: string
   label: string
   type?: 'technical' | 'company'
-  fieldIds?: import('../domain/types').ProjectFieldIds
-  vercelProjectId?: string
-  vercelTeamId?: string
+  fieldIds?: ProjectFieldIds
+  vercelProjects?: VercelProjectRef[]
 }
 
 export interface Workspace {
@@ -23,5 +27,4 @@ export interface WorkspacePort {
   discoverProject(repo: string): Promise<WorkspaceProject[]>
   listBranches(): Promise<Branch[]>
   listWorktrees(): Promise<Worktree[]>
-  run(cmd: string[]): Promise<string>
 }

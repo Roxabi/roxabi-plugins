@@ -16,7 +16,7 @@ class EntryNotFoundError(VaultError):
         super().__init__(f"Entry #{entry_id} not found")
 
 
-class IndexError(VaultError):
+class FtsIndexError(VaultError):
     """FTS indexing error."""
 
 

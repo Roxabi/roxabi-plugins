@@ -14,7 +14,7 @@ class VaultEntry:
     content: str
     created_at: str
     updated_at: str
-    metadata: str = ""
+    metadata: str = "{}"
 
 
 @dataclass(frozen=True)
