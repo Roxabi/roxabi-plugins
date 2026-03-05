@@ -1,8 +1,8 @@
 ---
 name: doc-sync
 argument-hint: '[description of change]'
-description: Sync project docs (CLAUDE.md, README.md) and the matching plugin SKILL.md after a code change. Triggers: "sync docs" | "update docs" | "doc sync" | "sync plugin docs" | "update skill docs" | "update the docs".
-version: 0.3.0
+description: 'Sync all project docs after a code change — scans every doc for stale references, updates affected sections. Triggers: "sync docs" | "update docs" | "doc sync" | "sync plugin docs" | "update skill docs" | "update the docs".'
+version: 0.4.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 
@@ -10,18 +10,18 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 
 Let:
   δ := change description
+  K := keywords/concepts extracted from δ (tool names, config fields, CLI flags, file paths, function names)
   SRC ∈ {working-tree, staged, last-commit}
+  D := set of all doc files that reference K
+  EDITED_FILES := [] — accumulator of modified files
 
-Code change → keep three docs in sync:
-- `CLAUDE.md` — Claude-facing codebase instructions
-- `README.md` — human-facing docs
-- `SKILL.md` — LLM-facing skill instructions (in plugin repo)
+Code change → find **every** doc that references affected concepts → update them.
 
-**⚠ Flow: single continuous pipeline. Stop only on: explicit Cancel, or Phase 5 completion.**
+**⚠ Flow: single continuous pipeline. Stop only on: explicit Cancel, or Phase 6 completion.**
 
 ```
 /doc-sync                             → auto-detect from working tree or last commit
-/doc-sync "walk-up config discovery"  → user-supplied description
+/doc-sync "gitleaks → trufflehog"     → user-supplied description
 ```
 
 ## Phase 1 — Parse Input
@@ -44,7 +44,7 @@ Record SRC. ¬δ after scan → AskUserQuestion: describe the change in one sent
 ```bash
 cat .claude/stack.yml 2>/dev/null
 ```
-∃ `docs.path` → use as base for CLAUDE.md/README.md. Else: project root.
+∃ `docs.path` → DOCS_ROOT = docs.path. Else: DOCS_ROOT = project root.
 
 **2b. Self-referential check:**
 ```bash
@@ -57,7 +57,7 @@ ls .claude-plugin/marketplace.json 2>/dev/null
 [ -n "$ROXABI_PLUGINS_DIR" ] && echo "$ROXABI_PLUGINS_DIR"
 for d in ../*/; do [ -f "${d}.claude-plugin/marketplace.json" ] && echo "$d" && break; done
 ```
-First hit → `PLUGINS_REPO`. ¬found → warn + skip Phase 4c.
+First hit → `PLUGINS_REPO`. ¬found → warn + skip plugin doc updates.
 
 **2d. Plugin name:**
 ```bash
@@ -74,7 +74,7 @@ ls "$PLUGINS_REPO/plugins/$PLUGIN_NAME/skills/"
 ```
 ∃ one → use it. Multiple → AskUserQuestion: select skill.
 
-## Phase 3 — Read Changed Code
+## Phase 3 — Read Changed Code + Extract Keywords
 
 ```bash
 git diff --name-only                  # SRC=working-tree
@@ -82,45 +82,113 @@ git diff --cached --name-only         # SRC=staged
 git diff HEAD~1..HEAD --name-only     # SRC=last-commit
 ```
 
-Read changed files (most relevant if many). Extract:
-- feature/behavior changed
-- user-visible concepts added/modified/removed
-- config fields, CLI flags, file paths, default values
+Read changed files (most relevant if many). Extract K:
+- tool/library names added, removed, or replaced (e.g. `gitleaks`, `trufflehog`)
+- config fields, CLI flags, environment variables changed
+- file paths, function names, class names modified
+- concepts renamed or restructured
 
-`EDITED_FILES = []` — append each file modified in Phase 4.
+K must include **both old and new** names when something is renamed/replaced (grep must find stale references).
 
-## Phase 4 — Update Docs
+## Phase 4 — Scan All Docs for Stale References
+
+Find every doc file in the project that references K:
+
+```bash
+# Project docs (exclude node_modules, .venv, vendor, dist, .git)
+find . -type f \( -name "*.md" -o -name "*.mdx" \) \
+  -not -path "*/node_modules/*" \
+  -not -path "*/.venv/*" \
+  -not -path "*/vendor/*" \
+  -not -path "*/dist/*" \
+  -not -path "*/.git/*"
+```
+
+∀ keyword ∈ K: grep across all found doc files. Collect:
+
+```
+D = { file | file ∈ docs ∧ ∃ k ∈ K : k ∈ file.content }
+```
+
+Always include these if they exist (even if K ∉ content — they may need new sections):
+- `CLAUDE.md`
+- `README.md` (project root)
+- Plugin `README.md` (∃ PLUGINS_REPO)
+- Matching `SKILL.md` files (∃ PLUGINS_REPO)
+
+Display scan results:
+
+```
+Docs referencing changed concepts:
+  CLAUDE.md                              2 matches (gitleaks)
+  docs/guides/deployment.mdx             1 match (gitleaks)
+  plugins/dev-core/hooks/README.md       3 matches (gitleaks, .gitleaks.toml)
+  README.md                              0 matches (always checked)
+  ...
+
+{|D|} docs to review.
+```
+
+|D| = 0 (only always-included files, 0 matches) → display "No docs reference changed concepts" → AskUserQuestion: **Force update core docs anyway** | **Skip** → Skip: jump to Phase 6.
+
+## Phase 5 — Update Docs
+
+∀ file ∈ D (sorted: CLAUDE.md first, README.md second, SKILL.md third, then rest alphabetically):
 
 Targeted edits only — find affected section, update those lines. ¬rewrite unrelated sections. Append to `EDITED_FILES` after each edit.
 
-**4a. CLAUDE.md:** Grep for relevant keywords → update section. ¬match → add subsection under nearest heading.
+**Per-file rules:**
 
-**4b. README.md:** Same approach, user perspective only (¬implementation details).
+| Doc type | Audience | Guidelines |
+|----------|----------|------------|
+| `CLAUDE.md` | Claude / LLM | Codebase instructions, paths, conventions. Be precise. |
+| `README.md` (root) | Humans (users) | User perspective. ¬implementation details. |
+| `SKILL.md` | Claude / LLM | Skill instructions. ¬bump version unless behavior changed. |
+| Plugin `README.md` | Humans (users) | Plugin usage, install, trigger phrases. |
+| `docs/**/*.md{,x}` | Humans (devs) | Standards, guides, architecture. Match existing style. |
+| ADRs (`adr/`) | Humans (devs) | ¬edit ADRs — they are immutable records. Warn if stale. |
+| `references/*.md` | Claude / LLM | Reference material for skills. Keep factual. |
+| Agent files (`agents/*.md`) | Claude / LLM | Agent instructions. Update tool/config references. |
 
-**4c. SKILL.md** (∃ `PLUGINS_REPO`):
+**Edit approach per file:**
+1. Grep for K within the file → locate exact lines
+2. Read surrounding context (±10 lines)
+3. Edit: replace old references with new, update descriptions
+4. ¬match but file is in always-included set → check if a new section is needed. Only add if δ introduces a concept that belongs in that doc.
+
+**Stale ADR warning:**
+∀ ADR ∈ D: ¬edit. Instead display:
 ```
-TARGET = "$PLUGINS_REPO/plugins/$PLUGIN_NAME/skills/<skill>/SKILL.md"
+⚠️  ADR {number} references {keyword} — consider a new ADR if the decision has changed.
 ```
-Same targeted edit, adapted to LLM-facing language. ¬bump version unless behavior fundamentally changed.
 
-## Phase 5 — Summary
+## Phase 6 — Summary
 
 ```
 Doc Sync Complete
 =================
 
-  Change:  <one-line description>
+  Change:  <one-line δ>
   Source:  <SRC>
+  Scanned: <N> doc files for <|K|> keywords
 
-  CLAUDE.md   ✅ updated — <section>  |  ⏭ skipped
-  README.md   ✅ updated — <section>  |  ⏭ skipped
-  SKILL.md    ✅ updated — <plugin>/<skill> § <section>  |  ⏭ skipped — plugin repo not found
+  Updated:
+    CLAUDE.md                           ✅ <section>
+    plugins/dev-core/hooks/README.md    ✅ <section>
+    ...
+
+  Skipped:
+    README.md                           ⏭ no references found
+    docs/architecture/adr/005-...       ⏭ ADR (immutable)
+    ...
+
+  {|EDITED_FILES|} files updated, {|D| - |EDITED_FILES|} skipped.
 ```
 
 AskUserQuestion: **Commit project docs** | **Commit all (project + plugin)** | **Skip**
 
 Commit approved → `git add ${EDITED_FILES}` + commit with `docs:` prefix.
-Plugin repo updated → inform: "Commit `$PLUGINS_REPO` separately."
+Plugin repo ≠ CWD ∧ plugin files ∈ EDITED_FILES → inform: "Commit `$PLUGINS_REPO` separately."
 
 ## Edge Cases
 
@@ -133,5 +201,8 @@ Plugin repo updated → inform: "Commit `$PLUGINS_REPO` separately."
 | δ vague | AskUserQuestion: narrow to one feature |
 | Unrelated files changed | Focus on δ feature only |
 | SRC=working-tree ∧ ¬PLUGINS_REPO set | Warn to set `$ROXABI_PLUGINS_DIR` |
+| Rename/replace (A → B) | K includes both A and B; grep finds stale A refs |
+| ADR references K | Warn, ¬edit (immutable) |
+| |D| > 20 | Display list, AskUserQuestion: **Update all** ∨ **Select** ∨ **Skip** |
 
 $ARGUMENTS
