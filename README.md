@@ -22,6 +22,7 @@ Open-source Claude Code plugins by [Roxabi](https://github.com/Roxabi). Context 
 | [get-invoice-details](plugins/get-invoice-details/README.md) | Extract and store invoice details from documents |
 | [linkedin-apply](plugins/linkedin-apply/README.md) | Scrape and score LinkedIn job offers with LLM matching |
 | [frontend-slides](plugins/frontend-slides/README.md) | Zero-dependency HTML presentations — 12 style presets, visual discovery, PPT conversion |
+| [visual-explainer](plugins/visual-explainer/README.md) | Self-contained HTML pages with diagrams, visualizations, and data tables |
 
 ## Data Storage
 

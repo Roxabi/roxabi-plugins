@@ -1,108 +1,76 @@
-<p>
-  <img src="banner.png" alt="visual-explainer" width="1100">
-</p>
+# Visual Explainer
 
-# visual-explainer
+Generate self-contained HTML pages that visually explain systems, code, data, and concepts. Instead of ASCII art and box-drawing tables, get real diagrams with typography, dark/light themes, and interactive Mermaid charts.
 
-**An agent skill that turns complex terminal output into styled HTML pages you actually want to read.**
+Forked from [nicobailon/visual-explainer](https://github.com/nicobailon/visual-explainer) (MIT).
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+## What it does
 
-Ask your agent to explain a system architecture, review a diff, or compare requirements against a plan. Instead of ASCII art and box-drawing tables, it generates a self-contained HTML page and opens it in your browser.
+Takes any input (code, docs, concepts, data) and produces a standalone HTML page with:
 
-```
-> draw a diagram of our authentication flow
-> /diff-review
-> /plan-review ~/docs/refactor-plan.md
-```
+- Mermaid.js diagrams (flowcharts, sequence, ER, state, mind maps, C4)
+- Chart.js data visualizations (bar, line, pie, radar)
+- CSS Grid layouts for architecture cards and dashboards
+- Slide deck mode for presentations
+- Dark/light theme support with responsive design
+- Zoom and pan on all diagrams
 
-https://github.com/user-attachments/assets/55ebc81b-8732-40f6-a4b1-7c3781aa96ec
-
-## Why
-
-Every coding agent defaults to ASCII art when you ask for a diagram. Box-drawing characters, monospace alignment hacks, text arrows. It works for trivial cases, but anything beyond a 3-box flowchart turns into an unreadable mess.
-
-Tables are worse. Ask the agent to compare 15 requirements against a plan and you get a wall of pipes and dashes that wraps and breaks in the terminal. The data is there but it's painful to read.
-
-This skill fixes that. Real typography, dark/light themes, interactive Mermaid diagrams with zoom and pan. No build step, no dependencies beyond a browser.
+Output is saved to `~/.agent/diagrams/` and opened in the browser.
 
 ## Install
 
-**Pi:**
 ```bash
-pi install https://github.com/nicobailon/visual-explainer
+claude plugin marketplace add Roxabi/roxabi-plugins
+claude plugin install visual-explainer
 ```
 
-**Claude Code (plugin):**
-```bash
-claude /plugin install https://github.com/nicobailon/visual-explainer
-```
+## Usage
 
-Note: Claude Code plugins namespace commands as `/visual-explainer:command-name`.
+Trigger phrases:
 
-**OpenAI Codex:**
-```bash
-git clone https://github.com/nicobailon/visual-explainer.git ~/.agents/skills/visual-explainer
-mkdir -p ~/.agents/commands
-cp ~/.agents/skills/visual-explainer/commands/*.md ~/.agents/commands/
-```
+- `diagram of our authentication flow`
+- `visualize the data pipeline`
+- `generate an architecture diagram`
+- `generate HTML page for this data`
 
-## Commands
+### Commands
 
 | Command | What it does |
 |---------|-------------|
 | `/generate-web-diagram` | Generate an HTML diagram for any topic |
-| `/generate-visual-plan` | Generate a visual implementation plan for a feature or extension |
+| `/generate-visual-plan` | Generate a visual implementation plan |
 | `/generate-slides` | Generate a magazine-quality slide deck |
-| `/diff-review` | Visual diff review with architecture comparison and code review |
-| `/plan-review` | Compare a plan against the codebase with risk assessment |
-| `/project-recap` | Mental model snapshot for context-switching back to a project |
-| `/fact-check` | Verify accuracy of a document against actual code |
+| `/diff-review` | Visual diff review with architecture comparison |
+| `/plan-review` | Compare a plan against the codebase |
+| `/project-recap` | Mental model snapshot for context-switching |
+| `/fact-check` | Verify accuracy of a document against code |
 | `/share` | Deploy an HTML page to Vercel and get a live URL |
 
-The agent also kicks in automatically when it's about to dump a complex table in the terminal (4+ rows or 3+ columns) — it renders HTML instead.
+### Slide deck mode
 
-## Slide Deck Mode
-
-Any command that produces a scrollable page supports `--slides` to generate a slide deck instead:
+Any command supports `--slides` to generate a slide deck instead of a scrollable page:
 
 ```
 /diff-review --slides
 /project-recap --slides 2w
 ```
 
-https://github.com/user-attachments/assets/342d3558-5fcf-4fb2-bc03-f0dd5b9e35dc
+### Proactive table rendering
 
-## How It Works
+The skill also activates automatically when about to render a complex ASCII table (4+ rows or 3+ columns) — it generates an HTML page instead.
+
+## How it works
 
 ```
-SKILL.md              ← workflow + design principles
-commands/             ← slash commands (works with pi and Claude Code)
-references/           ← agent reads before generating
-├── css-patterns.md   (layouts, animations, theming)
-├── libraries.md      (Mermaid, Chart.js, fonts)
-├── responsive-nav.md (sticky TOC for multi-section pages)
-└── slide-patterns.md (slide engine, transitions, presets)
-templates/            ← reference templates with different palettes
-├── architecture.html
-├── mermaid-flowchart.html
-├── data-table.html
-└── slide-deck.html
-    ↓
-~/.agent/diagrams/filename.html → opens in browser
+skills/visual-explainer/
+  SKILL.md              -- workflow + design principles
+  references/           -- CSS patterns, library configs, slide engine
+  templates/            -- reference HTML templates (architecture, mermaid, data-table, slides)
+  scripts/share.sh      -- Vercel deploy script
+commands/               -- slash commands
 ```
 
-The skill routes to the right approach automatically: Mermaid for flowcharts and diagrams, CSS Grid for architecture overviews, HTML tables for data, Chart.js for dashboards.
-
-## Limitations
-
-- Requires a browser to view
-- Switching OS theme requires a page refresh for Mermaid SVGs
-- Results vary by model capability
-
-## Credits
-
-Borrows ideas from [Anthropic's frontend-design skill](https://github.com/anthropics/skills) and [interface-design](https://github.com/Dammyjay93/interface-design).
+The skill reads the input, picks the right rendering approach (Mermaid for diagrams, CSS Grid for architecture, HTML tables for data, Chart.js for dashboards), generates a themed HTML file, and opens it in the browser.
 
 ## License
 

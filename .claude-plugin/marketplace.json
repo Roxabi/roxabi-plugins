@@ -79,6 +79,12 @@
       "description": "Create zero-dependency, animation-rich HTML presentations from scratch or by converting PowerPoint files. 12 curated style presets, visual style discovery, PPT conversion.",
       "source": "./plugins/frontend-slides",
       "category": "productivity"
+    },
+    {
+      "name": "visual-explainer",
+      "description": "Generate self-contained HTML pages with diagrams, visualizations, and data tables from any input.",
+      "source": "./plugins/visual-explainer",
+      "category": "productivity"
     }
   ]
 }

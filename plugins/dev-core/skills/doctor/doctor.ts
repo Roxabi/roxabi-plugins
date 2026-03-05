@@ -128,10 +128,15 @@ function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): Section 
       }
     }`
     const linkResult = spawnSync([
-      'gh', 'api', 'graphql',
-      '-f', `query=${linkQuery}`,
-      '-f', `owner=${owner}`,
-      '-f', `name=${repo}`,
+      'gh',
+      'api',
+      'graphql',
+      '-f',
+      `query=${linkQuery}`,
+      '-f',
+      `owner=${owner}`,
+      '-f',
+      `name=${repo}`,
     ])
     let linked = false
     if (linkResult.ok) {
