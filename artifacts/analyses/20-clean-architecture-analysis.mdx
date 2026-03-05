@@ -1,0 +1,207 @@
+---
+title: "Clean Architecture & Hexagonal Architecture Migration"
+description: "Deep analysis of current architecture, three migration shapes, and recommended approach for all plugins (Python + TypeScript)."
+issue: 20
+status: approved
+date: 2026-03-05
+---
+
+## Source
+
+GitHub issue #20: "refactor: migrate to Clean Architecture & Hexagonal Architecture" — structural analysis of the plugin codebase identifying 8 pain points across Python plugins and parallel concerns in TypeScript.
+
+## Problem
+
+**Key terms:** A *port* is an interface (ABC in Python, `interface` in TypeScript) that isolates domain logic from infrastructure — callers depend on the port, not the concrete implementation. An *adapter* is the concrete implementation behind a port.
+
+The plugin codebase has **two distinct architectural profiles** that both need Clean Architecture treatment:
+
+### Python plugins (5 plugins with code, ~2,800 LOC)
+
+| Plugin | Architecture profile | Key smell |
+|--------|---------------------|-----------|
+| **vault** | VaultDB class with raw SQL + FTS5 | No repository port; consumers use VaultDB directly or raw sqlite3 |
+| **web-intel** | BaseFetcher ABC with 6 fetchers, ~10-line dispatch in scraper.py | Dispatch violates OCP (minor — BaseFetcher is already close to a port) |
+| **linkedin-apply** | Best-in-class: dataclasses, custom exception hierarchy (5 classes), async, append-only storage | Already has domain models — needs port extraction only |
+| **cv** | Jinja2 templates, config from JSON dict | No config validation, raw dicts, sys.exit error handling |
+| **get-invoice-details** | PDF extraction + raw sqlite3 insert against vault schema | Uses vault.db directly instead of VaultDB (has vault_healthy() guard + try/except, but coupled to vault schema) |
+| **image-prompt-generator** | Single script, loads JSON config | Minimal — graceful degradation already works |
+
+### Cross-cutting pain points
+
+1. **Duplicated infrastructure** — `_lib/paths.py` vendored 5× (byte-identical). Any change = 5 edits.
+2. **Generic exceptions** — `Exception` is raised and caught broadly across web-intel, cv, and get-invoice-details. No plugin-specific exception hierarchy (except linkedin-apply which has 5 custom exception classes). Makes debugging hard and error handling inconsistent.
+
+### TypeScript (dev-core, ~4,500 LOC)
+
+| Module | Architecture profile | Key smell |
+|--------|---------------------|-----------|
+| **shared/github.ts** | Mixed REST + GraphQL + `gh` CLI wrapping | Three access patterns, no unified port |
+| **shared/config.ts** | `process.env` reads at import time, resolver functions | Eager evaluation, globals, no schema validation |
+| **shared/workspace.ts** | File-based persistence, vendored from cli/ | Another vendor copy, tightly coupled to file format |
+| **issues/fetch.ts** | Multi-source data fetching (GitHub, Vercel, git) | No fetch port — each source accessed differently |
+| **issues/dashboard.ts** | In-memory cache + SSE + PID files | Infrastructure concerns mixed with domain logic |
+| **init/project.ts** | gh CLI + GraphQL + REST for field creation | Three API layers interleaved in one function |
+
+**Cross-cutting:** Heavy use of `as` casts after JSON.parse; ad-hoc types vs domain types unclear boundary. `stack.yml` config is consumed by both Python (via shell) and TypeScript — a schema change requires coordinated updates to both language ports.
+
+## Outcome
+
+Success looks like:
+
+1. **Any plugin can swap its storage backend** (e.g., SQLite → PostgreSQL) by implementing a new adapter — zero changes to business logic or other plugins.
+2. **Adding a new web-intel fetcher** requires only: create a class, register it. No router modification.
+3. **All structured data** travels as typed domain objects (dataclasses in Python, interfaces/classes in TypeScript) — no raw dicts crossing boundaries.
+4. **Config loading fails fast** with a clear error message on malformed input.
+5. **A change to shared path resolution logic** requires exactly one edit, not five.
+6. **Adding a new GitHub API interaction** in dev-core does not require choosing between REST, GraphQL, or CLI on a case-by-case basis.
+
+## Appetite
+
+No time constraint. Do it right.
+
+## Shapes
+
+### Shape 1: Bottom-Up Foundation (recommended)
+
+Start with domain models and ports (pure types, zero behavior change), then wrap existing implementations behind those ports incrementally.
+
+**Approach:**
+1. **Phase 1 — Domain layer** (no runtime changes)
+   - Python: Create `domain/models.py` per plugin with dataclasses (VaultEntry, FetchResult, CVConfig, InvoiceData)
+   - Python: Create `domain/exceptions.py` with plugin-specific hierarchy
+   - TypeScript: Create `domain/` in shared/ with proper interfaces (GitHubPort, ConfigPort, WorkspacePort)
+   - TypeScript: Define domain types for Issue, PR, Project replacing ad-hoc types
+
+2. **Phase 2 — Port interfaces** (no runtime changes)
+   - Python: `ports/repository.py` (EntryRepository ABC), `ports/fetcher.py` (FetcherPort ABC)
+   - Python: `ports/config.py` (ConfigLoader ABC with validation)
+   - TypeScript: `ports/github.ts` (GitHubPort interface), `ports/artifacts.ts` (ArtifactRepository)
+   - TypeScript: `ports/config.ts` (StackConfig interface with Zod validation)
+
+3. **Phase 3 — Adapter wrapping** (behavior-preserving refactor, plugin by plugin in priority order)
+   - Wrap VaultDB behind SqliteEntryRepository (see vault shim strategy below)
+   - Extract port from BaseFetcher + replace dispatch with registry (~30 min, quick win)
+   - Wrap github.ts functions behind GitHubPort implementation
+   - Plugin order: vault → linkedin-apply → web-intel → dev-core → cv → invoice
+
+4. **Phase 4 — Use case extraction** (behavior-preserving, reduces entrypoint complexity)
+   - Extract business logic from CLI scripts into UseCase classes
+   - CLI becomes thin: parse args → call use case → format output
+
+5. **Phase 5 — SDK** (deferred, shape TBD)
+
+**Trade-offs:**
+- Pro: Zero risk at each step — types and interfaces don't change runtime behavior
+- Pro: Each phase is independently shippable and testable
+- Pro: linkedin-apply is already 80% there (dataclasses, exceptions exist) — validates the pattern cheaply in Phase 3
+- Con: Slower overall — 5 phases vs 3
+- Con: Intermediate state has both old and new patterns coexisting — acceptable and explicitly bounded: old patterns are removed when a plugin completes Phase 3. The coexistence window per plugin is short (one phase).
+
+**Rough scope:** XL (all plugins + dev-core, 5 phases)
+
+### Shape 2: Plugin-by-Plugin Vertical Slices
+
+Fully migrate one plugin at a time (domain → ports → adapters → use cases) before moving to the next.
+
+**Approach:**
+1. **Slice 1: vault** — most depended-upon, establishes the repository pattern others consume
+2. **Slice 2: web-intel** — establishes fetcher port + registry
+3. **Slice 3: linkedin-apply** — already has dataclasses/exceptions, just extract ports
+4. **Slice 4: cv + invoice** — simpler plugins, apply established patterns
+5. **Slice 5: dev-core TypeScript** — apply same patterns to TS codebase
+6. **SDK extraction** after all plugins migrated
+
+**Trade-offs:**
+- Pro: Each slice produces a fully clean plugin — no half-done state
+- Pro: Patterns emerge from real migration, not upfront design
+- Pro: vault-first means consumers get the repository port early
+- Con: Patterns may drift between early and late slices (retrofit needed)
+- Con: Shared types/exceptions must be extracted retroactively into SDK
+- Con: Longer before dev-core (TS) gets attention
+
+**Rough scope:** XL
+
+### Shape 3: Extract SDK First, Then Migrate
+
+Create the shared SDK package upfront (paths, exceptions, base ports, config loader), then migrate plugins to consume it.
+
+**Approach:**
+1. **SDK package** — `packages/roxabi-sdk/` with:
+   - `paths.py` (canonical, replaces 5 vendor copies)
+   - `exceptions.py` (base hierarchy)
+   - `ports/` (abstract base classes: Repository, Fetcher, ConfigLoader)
+   - `config.py` (JSON schema validation base)
+2. **Plugin migration** — each plugin switches imports from `_lib` to `roxabi-sdk`
+3. **Adapter implementation** — each plugin implements SDK ports
+4. **Use case extraction** — same as Shape 1 Phase 4
+
+**Trade-offs:**
+- Pro: SDK is designed with full knowledge upfront — clean API from day 1
+- Pro: Immediately solves the 5× vendor problem (biggest concrete pain)
+- Pro: All plugins migrate to same contracts simultaneously
+- Con: SDK API designed before migration experience — port interfaces will likely need revision after migrating the first 2 plugins, costing a second round of changes across all consumers
+- Con: Requires choosing package distribution approach upfront (monorepo workspace vs pip package)
+- Con: Doesn't address TypeScript (dev-core) — would need a separate TS SDK
+
+**Rough scope:** L
+
+## Fit Check
+
+**Shape 1 (Bottom-Up Foundation) is the best fit.**
+
+Rationale:
+- No time constraint → incremental, low-risk approach is appropriate
+- The codebase has **two languages** (Python + TypeScript) — Shape 3's SDK-first approach would need two SDKs, doubling the upfront design work
+- Shape 2's vertical slices risk pattern drift — with 6+ plugins, the first and last slices would look different
+- Shape 1 establishes shared types and ports as a foundation, then each plugin adapts at its own pace
+- linkedin-apply is already 80% aligned (dataclasses, exceptions) — validates the approach cheaply as an early Phase 3 target
+
+### Outcome mapping
+
+| Outcome | Addressed by |
+|---------|-------------|
+| 1. Swap storage backend | Phase 2 (EntryRepository port) + Phase 3 (SqliteEntryRepository adapter) |
+| 2. Add fetcher without router change | Phase 2 (FetcherPort) + Phase 3 (registry replaces dispatch) |
+| 3. Typed domain objects everywhere | Phase 1 (domain models) + Phase 3 (wire through adapters) |
+| 4. Config fails fast | Phase 2 (ConfigLoader port with validation) |
+| 5. Single path resolution source | Phase 5 (SDK — deferred). **Open question:** this outcome is not addressed until SDK is scoped. |
+| 6. Unified GitHub access | Phase 2 (GitHubPort interface) + Phase 3 (wrap REST/GraphQL/CLI behind it) |
+
+**Eliminated:**
+- Shape 2: Pattern drift risk across 6 plugins migrated sequentially
+- Shape 3: Premature SDK design (port interfaces designed before migration experience → costly revision); dual-language SDK complexity; defers the SDK shape decision the user explicitly requested
+
+### Key risk and mitigation
+
+Phase 3 (adapter wrapping) is the highest-risk phase — changing how plugins access VaultDB requires updating every consumer.
+
+**Vault shim strategy:** Keep `VaultDB` in place throughout the transition. Introduce `EntryRepository` ABC (port) and `SqliteEntryRepository` (adapter that wraps VaultDB internally). Consumers switch from `VaultDB` → `EntryRepository` one at a time. `VaultDB` is only removed after all consumers have migrated. For cross-plugin consumers (get-invoice-details uses raw sqlite3 against vault.db), the shim must live in vault's `_lib/` and be re-vendored — or this forces SDK extraction (Phase 5) specifically for vault before the rest.
+
+### Cross-language coupling
+
+`stack.yml` configuration is consumed by both Python (via shell invocations) and TypeScript (via `config.ts`). If Phase 2 introduces a `ConfigPort` ABC in Python and a `StackConfig` interface in TypeScript, both must stay structurally in sync. Any breaking change to the `stack.yml` schema requires coordinated updates to both language ports. This should be treated as a single cross-cutting concern, not two independent tasks.
+
+### Existing strengths to preserve
+
+| Plugin | Already has | Keep as-is |
+|--------|------------|-----------|
+| linkedin-apply | Dataclasses, custom exception hierarchy (5 classes), async, append-only storage | Domain model, exception tree, storage pattern |
+| web-intel | BaseFetcher ABC (already close to a port), result dict standard format | Fetcher abstraction (extract port, replace ~10-line dispatch with registry) |
+| vault | VaultDB class with context manager, FTS5 integration | FTS layer (wrap, don't replace) |
+| dev-core | types.ts separation, prereqs.ts structured results | Type separation pattern, graceful degradation |
+
+### Plugin migration priority (by impact × effort)
+
+Phase 3 proceeds plugin by plugin in this order:
+
+| Priority | Plugin | Why |
+|----------|--------|-----|
+| 1 | vault | Foundation — all data consumers depend on it. Establishing the repository port unblocks consumers. |
+| 2 | linkedin-apply | Lowest migration effort: already has dataclasses + exception hierarchy. Validates the port extraction pattern cheaply before tackling larger codebases. |
+| 3 | dev-core (TS) | Highest change velocity codebase, most active development. Clean ports here deliver immediate ongoing value to every feature being built. |
+| 4 | web-intel | BaseFetcher is already close to a port — dispatch replacement is a quick win (~30 min). Self-contained, no downstream consumers. |
+| 5 | cv | Simple, good for pattern validation |
+| 6 | get-invoice-details | Simplest — main fix is routing vault access through EntryRepository instead of raw sqlite3 |
+| 7 | image-prompt-generator | Minimal code, lowest priority |
+| - | linkedin-post-generator | No Python code to refactor |
