@@ -11,9 +11,8 @@ import json
 import sys
 from pathlib import Path
 
-# Allow imports from _lib/
-sys.path.insert(0, str(Path(__file__).parent))
-from _lib.paths import get_vault_home
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
+from roxabi_sdk.paths import get_vault_home
 
 
 STYLES = [

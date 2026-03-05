@@ -7,9 +7,10 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Resolve imports from plugin root
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _lib.paths import get_vault_home, vault_available
+# Resolve imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # plugin root (for _lib.memory)
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
+from roxabi_sdk.paths import get_vault_home, vault_available
 from _lib.memory.db import VaultDB
 from _lib.memory.fts import search_entries
 

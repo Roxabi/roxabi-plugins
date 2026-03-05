@@ -29,8 +29,8 @@ allowed-tools: Read, Write, Bash, Glob, Grep
 1. Check if vault is available by running:
 ```bash
 python3 -c "
-import sys; sys.path.insert(0, '$CLAUDE_PLUGIN_ROOT/../../scripts')
-from _lib.paths import vault_healthy
+import sys; sys.path.insert(0, '$CLAUDE_PLUGIN_ROOT/../..')
+from roxabi_sdk.paths import vault_healthy
 print('VAULT_OK' if vault_healthy() else 'VAULT_UNAVAILABLE')
 "
 ```

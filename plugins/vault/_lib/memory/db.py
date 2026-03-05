@@ -4,8 +4,8 @@ import sqlite3
 from pathlib import Path
 
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from _lib.paths import get_vault_home
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))  # repo root
+from roxabi_sdk.paths import get_vault_home
 
 
 SCHEMA_SQL = """
