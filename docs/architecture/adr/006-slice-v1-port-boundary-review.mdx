@@ -1,0 +1,120 @@
+---
+title: "ADR-006: Slice V1 Port Boundary Review — Findings and Corrections"
+description: Records architectural findings from the Slice V1 (Clean Architecture foundation layer) review — 40 new files across 6 plugins. Documents 7 must-fix defects, 4 non-blocking issues, and confirms the per-plugin PluginError strategy.
+---
+
+## Status
+
+Accepted
+
+## Context
+
+ADR-005 established the Clean Architecture migration strategy (Shape 1 — Bottom-Up Foundation) for six plugins across two languages (TypeScript: dev-core; Python: vault, web-intel, cv, image-prompt-generator, linkedin-apply). Slice V1 delivered the foundation layer: domain models, exception hierarchies, and port interfaces. Forty new files were reviewed against the existing infrastructure they are designed to abstract (`github.ts`, `config.ts`, `workspace.ts`, `VaultDB`, `fts.py`, `BaseFetcher`, `manage_vault.py`, `scraper.py`).
+
+This ADR records the findings from that review — what must be corrected before Slice 2 begins, what is confirmed by design, and what requires Slice 2 tracking.
+
+## Options Considered
+
+The review process evaluated two approaches to resolving the identified defects:
+
+### Option A: Fix in Slice V1 before merging
+
+Correct all 7 must-fix items in the current branch before merging Slice V1. Each fix is isolated (no behaviour change, no adapter wiring involved).
+
+- **Pros:** Clean foundation for Slice 2. No debt carried forward. Tests and type-checks stay green.
+- **Cons:** Slightly longer Slice V1 cycle.
+
+### Option B: Carry defects as Slice V2 pre-conditions
+
+Merge Slice V1 as-is, open tracking issues for each defect, make corrections the first commits of Slice V2.
+
+- **Pros:** Faster Slice V1 merge.
+- **Cons:** Slice V2 begins with a dirty foundation. The `IndexError` shadow bug will break any module that imports it alongside the builtin. The `VaultEntry.metadata` mismatch will surface as a test failure as soon as the `SqliteEntryRepository` adapter is written. The `FetchResult.to_dict()` gap blocks CLI contract compliance from the first moment the adapter is wired.
+
+## Decision
+
+**Option A** — all 7 must-fix items are corrected in the Slice V1 branch before merge. Non-blocking and suggestion items are tracked in this ADR for Slice 2 assignees.
+
+### Must-fix corrections (7)
+
+**1. `vault/domain/models.py` — `VaultEntry.metadata` default mismatch**
+
+The SQLite schema defaults `metadata` to `'{}'` (a JSON object string). `VaultEntry` defaults it to `""` (empty string). A `SqliteEntryRepository.get()` implementation will hydrate `metadata` from the DB row, producing `'{}'` for entries inserted without metadata. Any downstream code comparing `entry.metadata == ""` will produce false negatives. Correct the default to `"{}"` to match the schema, or change the field type to `dict` and deserialize at the repository boundary. The `dict` approach is preferred for type safety, but changes the domain model's public surface; the `"{}"` string fix is the minimal-impact V1 correction.
+
+**2. `web-intel/domain/models.py` — `FetchResult` missing `to_dict()`**
+
+ADR-005 (Consequences, Neutral section) explicitly requires: "`FetchResult.to_dict()` must produce the same keys as the current `scrape_content()` return dict (`success`, `content_type`, `url`, `resolved_url`, `data`, `error`, `raw`) to preserve the CLI JSON contract for skill callers." The domain model was delivered without this method. Add `to_dict(self) -> dict[str, Any]` to `FetchResult`. All fields are already present on the dataclass; `to_dict` is a thin serialisation bridge.
+
+**3. `vault/domain/exceptions.py` — `IndexError` shadows Python builtin**
+
+`class IndexError(VaultError)` shadows `builtins.IndexError` in any module that imports it. The test file at line 39 (`from domain.exceptions import IndexError`) is already affected. Any future code in the plugin that needs both the vault exception and a standard sequence-index error will silently receive the wrong class. Rename to `FtsIndexError` throughout (`exceptions.py`, `test_domain.py`).
+
+**4. `dev-core/ports/workspace.ts` — `WorkspaceProject` missing `vercelProjects` field**
+
+The port's embedded `WorkspaceProject` omits `vercelProjects?: VercelProjectRef[]`. This field is present in the canonical `workspace.ts` interface and is actively consumed in `dashboard.ts` at `resolveVercelProjects(p)`. If `dashboard.ts` is migrated to accept `WorkspacePort`-typed objects before this field is added, the multi-Vercel project configuration is silently dropped. Add `vercelProjects?: { projectId: string; teamId: string }[]` to the port's `WorkspaceProject`. The inline type (rather than importing `VercelProjectRef` from `workspace.ts`) avoids a cross-file dependency inside the ports layer.
+
+**5. `dev-core/ports/config.ts` — inline dynamic import type**
+
+Line 11 uses `import('./workspace').WorkspaceProject` as an inline type expression. This makes the dependency between `ConfigPort` and `WorkspacePort.WorkspaceProject` non-legible during static analysis and code navigation. Replace with a top-level `import type { WorkspaceProject } from './workspace'` at the file header. No runtime impact; purely a readability and tooling correctness fix.
+
+**6. `linkedin-apply/ports/` — ports reference scripts-layer types under `TYPE_CHECKING`**
+
+`matcher.py` imports `LinkedInJob` (from `scripts/scraper.py`) and `MatchResult` (from `scripts/matcher.py`). `storage.py` imports `ApplicationRecap` (from `scripts/storage.py`). Under Clean Architecture, ports must not reference the scripts (infrastructure/adapter) layer, even via `TYPE_CHECKING`. The correct location for `LinkedInJob`, `MatchResult`, and `ApplicationRecap` is `linkedin-apply/domain/models.py`. These are data structures, not infrastructure — they belong in the domain. Move all three to `domain/models.py`. Update imports in `scripts/scraper.py`, `scripts/matcher.py`, `scripts/storage.py`, and the ports accordingly.
+
+**7. `image-prompt-generator/domain/models.py` — false immutability on `VisualCharter`**
+
+`VisualCharter` is `frozen=True` but carries three `dict` fields (`colors`, `style`, `preferences`) with `field(default_factory=dict)`. `frozen=True` prevents reassignment of the field reference, but the dict contents remain mutable. A caller can do `charter.colors["primary"] = "red"` without error. Domain value objects that declare immutability must enforce it on their contents. Fix: add a `__post_init__` that wraps each dict in `types.MappingProxyType`. Alternatively, use `tuple[tuple[str, str], ...]` for color/style maps, but that changes the public interface significantly. `MappingProxyType` is the minimal-impact fix for V1.
+
+### Non-blocking items (tracked for Slice 2)
+
+**N1. `vault/ports/repository.py` — `SearchPort.search()` adapter mapping**
+
+The `search_entries()` function in `fts.py` returns `list[sqlite3.Row]`. The adapter (`SqliteSearchAdapter`) must map rows into `VaultEntry` then `SearchResult`. Add a docstring note to `SearchPort.search()` so the Slice 2 implementer does not route the mapping into `manage_vault.py`.
+
+**N2. `dev-core/ports/issue.ts` — `listIssues` and `updateLabels` have no backing function in `github.ts`**
+
+`listIssues` will be backed by `gh issue list` CLI output (not a REST call). `updateLabels` has no backing function at all. Add `// TODO(Slice 3): backed by gh CLI, not REST API` and `// TODO(Slice 3): no backing function in github.ts yet` comments respectively to prevent adapter implementers from choosing the wrong transport or assuming an existing helper exists.
+
+**N3. `dev-core/ports/project.ts` — `addToProject` is wider than its implementation**
+
+`addToProject(nodeId, projectId?)` adds an optional `projectId` that the current `addToProject(nodeId)` in `github.ts` does not accept (it reads `GH_PROJECT_ID` internally). The adapter will silently ignore the override unless the implementation is widened. Document this limitation in the port's JSDoc for Slice 3 when the adapter is written.
+
+**N4. `dev-core/domain/types.ts` — `ProjectFieldIds` is duplicated in `workspace.ts`**
+
+Both files export an identical `ProjectFieldIds` interface. Until all consumers migrate to import from `domain/types.ts`, there are two structurally compatible but nominally separate types in circulation. Track removal of the `workspace.ts` copy as a Slice 3 migration cleanup task.
+
+**N5. `dev-core/ports/workspace.ts` — `listBranches` and `listWorktrees` source modules**
+
+The backing implementations are in `skills/issues/lib/fetch.ts` (`fetchBranches`, `fetchWorktrees`), not in `workspace.ts`. The adapter author must lift these from `fetch.ts`. Add a JSDoc comment naming the source module.
+
+**N6. `dev-core/ports/config.ts` — anonymous inner type in `getFieldMap()`**
+
+`getFieldMap()` returns an anonymous `{ fieldId: string; options: Record<string, string> }`. The existing `ParsedField` interface in `github.ts` has the same shape. Extract a `FieldDescriptor` type in `domain/types.ts` or reuse `ParsedField` to prevent a third parallel representation of the same shape.
+
+### Confirmed by design
+
+**PluginError per-plugin duplication** — Each of the five Python plugins defines its own `PluginError` in `domain/exceptions.py`. This is correct for Slice V1. ADR-005 documents this explicitly: "The cross-plugin common `PluginError` base is a Phase 5 (SDK) concern." No action required before Phase 5.
+
+**`FetcherPort` vs `BaseFetcher` separation** — `FetcherPort` is a new two-method interface (`supports`, `fetch`). `BaseFetcher` remains as the internal implementation base class for existing fetchers. This separation is correct and matches ADR-005. No action required.
+
+**`ConfigLoader[T]` generic pattern** — The generic ABC for CV and image-prompt-generator config loading is correctly designed. It avoids a shared untyped dict crossing the port boundary. No action required.
+
+**No circular dependency risks** — The dependency direction in both TypeScript and Python layers is correct: domain imports nothing; ports import from domain only; infrastructure (not yet written in V1) will import from ports. No cycles exist.
+
+## Consequences
+
+### Positive
+
+- The 7 must-fix corrections harden the domain model before any adapter is written, preventing defects from propagating into Slice 2.
+- Renaming `IndexError` eliminates a latent correctness bug that would be difficult to diagnose in production.
+- Moving `LinkedInJob`, `MatchResult`, `ApplicationRecap` to `linkedin-apply/domain/models.py` makes the port signatures fully self-contained and removes the only downward dependency from ports to scripts in the V1 deliverable.
+
+### Negative
+
+- Slice V1 branch requires fixes before merge. Review cycle is slightly longer.
+- Moving the three linkedin-apply types to `domain/models.py` requires updating their import sites in `scripts/matcher.py`, `scripts/scraper.py`, and `scripts/storage.py`.
+
+### Neutral
+
+- The `ProjectFieldIds` duplication between `domain/types.ts` and `workspace.ts` is not resolved in Slice V1. Both copies remain structurally identical. Resolution is a Slice 3 migration cleanup task.
+- `FetchResult.to_dict()` must be verified to produce the exact key set expected by skill callers before Slice 2 wires the FetcherPort adapter to `scrape_content()`.
