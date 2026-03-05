@@ -6,8 +6,8 @@ pre-commit:
       glob: "*.{ts,tsx,js,jsx,json}"
     typecheck:
       run: bun run typecheck
-    gitleaks:
-      run: gitleaks protect --staged --config .gitleaks.toml
+    trufflehog:
+      run: trufflehog git file://. --only-verified --fail
       skip:
         - merge
         - rebase

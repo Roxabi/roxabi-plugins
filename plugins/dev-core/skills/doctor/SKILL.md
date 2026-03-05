@@ -32,15 +32,14 @@ Severity guide: ❌ = blocking error, ⚠️ = warning, ✅ = pass, ⏭ = skippe
 | `STATUS_FIELD_ID` / `SIZE_FIELD_ID` / `PRIORITY_FIELD_ID` missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts create-project --owner <owner> --repo <repo>` |
 | Labels missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts labels --repo <owner/repo> --scope all` |
 | roxabi shim missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts scaffold ...` (requires env vars) |
-| `.gitleaks.toml` missing | Run `/init` Phase 3c-bis (public repos only) — creates `.gitleaks.toml` with sensible defaults |
-| `gitleaks` binary missing | Install: `sudo apt install gitleaks` (Ubuntu/Debian) or download from https://github.com/gitleaks/gitleaks/releases or `brew install gitleaks` — required for pre-push hooks to work locally |
+| `trufflehog` binary missing | Install: `brew install trufflehog` or download from https://github.com/trufflesecurity/trufflehog/releases — required for pre-commit hooks to work locally |
 | `dependabot.yml` missing | Run `/init` Phase 3c-ter — generates and pushes `.github/dependabot.yml` |
 | lock file missing | Commit the lock file (`uv.lock`, `bun.lock`, `package-lock.json`, etc.) to the repository |
 | `tools/license_check.py` missing | Run `/init` Phase 10d — copies script from plugin: `cp "${CLAUDE_PLUGIN_ROOT}/tools/license_check.py" tools/license_check.py` + `uv add --dev pip-licenses` |
 | `pip-licenses` not installed (Python) | Run `uv add --dev pip-licenses` — required for `tools/license_check.py` to work |
 | License violations found | Run `uv run tools/license_check.py` to review, then create/update `.license-policy.json` with violating package names in `allowlist` |
 | `tools/licenseChecker.ts` missing | Copy from boilerplate `tools/licenseChecker.ts` or run `/init` Phase 10d |
-| gitleaks not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-push.commands.gitleaks` |
+| trufflehog not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-commit.commands.trufflehog` |
 | license check not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-push.commands.license` |
 
 Issues requiring interactive GitHub auth or multi-step scaffolding → display exact command + explanation. Do not silently redirect — always show the fix.
@@ -94,9 +93,9 @@ Check install state:
 - Both ∃ → ✅ "Pre-commit hooks active ({tool})"
 - `hooks.tool` key ∄ in stack.yml → ⚠️ "`hooks.tool` not set in stack.yml"
 
-**gitleaks binary:**
-- `which gitleaks` → ✅ "gitleaks binary found" | ⚠️ "gitleaks binary not installed — pre-push hook will fail. Install: `sudo apt install gitleaks` or https://github.com/gitleaks/gitleaks/releases or `brew install gitleaks`"
-- Only check if `.gitleaks.toml` ∃ or gitleaks hook ∈ `lefthook.yml` / `.pre-commit-config.yaml`.
+**trufflehog binary:**
+- `which trufflehog` → ✅ "trufflehog binary found" | ⚠️ "trufflehog binary not installed — pre-commit hook will fail. Install: `brew install trufflehog` or https://github.com/trufflesecurity/trufflehog/releases"
+- Only check if trufflehog hook ∈ `lefthook.yml` / `.pre-commit-config.yaml`.
 
 **pip-licenses (Python only):**
 - Only check if `runtime: python` in stack.yml ∧ `tools/license_check.py` ∃.

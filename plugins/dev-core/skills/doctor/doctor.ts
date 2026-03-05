@@ -407,12 +407,14 @@ function checkSecurity(): Section {
   const checks: Check[] = []
   const fs = require('node:fs')
 
-  // .gitleaks.toml
-  const gitleaksExists = fs.existsSync('.gitleaks.toml')
+  // trufflehog binary
+  const trufflehogInstalled = spawnSync(['which', 'trufflehog']).ok
   checks.push({
-    name: '.gitleaks.toml',
-    status: gitleaksExists ? 'pass' : 'warn',
-    detail: gitleaksExists ? 'found' : 'missing — run /init to create (prevents secret leaks in CI)',
+    name: 'trufflehog',
+    status: trufflehogInstalled ? 'pass' : 'warn',
+    detail: trufflehogInstalled
+      ? 'installed'
+      : 'not installed — pre-commit hook will fail. Install: brew install trufflehog or https://github.com/trufflesecurity/trufflehog/releases',
   })
 
   // .github/dependabot.yml
@@ -480,15 +482,15 @@ function checkSecurity(): Section {
     })
   }
 
-  // gitleaks in lefthook (if lefthook.yml present)
+  // trufflehog in lefthook (if lefthook.yml present)
   const lefthookPath = 'lefthook.yml'
   if (fs.existsSync(lefthookPath)) {
     const lefthookContent = fs.readFileSync(lefthookPath, 'utf8') as string
-    const hasGitleaks = lefthookContent.includes('gitleaks')
+    const hasTrufflehog = lefthookContent.includes('trufflehog')
     checks.push({
-      name: 'gitleaks in lefthook',
-      status: hasGitleaks ? 'pass' : 'warn',
-      detail: hasGitleaks ? 'configured in lefthook.yml' : 'not found in lefthook.yml — run /init to add',
+      name: 'trufflehog in lefthook',
+      status: hasTrufflehog ? 'pass' : 'warn',
+      detail: hasTrufflehog ? 'configured in lefthook.yml' : 'not found in lefthook.yml — run /init to add',
     })
     const hasLicense = lefthookContent.includes('license')
     checks.push({

@@ -124,50 +124,27 @@ gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"
 
 Display: `PAT secret ✅ Set`
 
-### 3c-bis. Gitleaks
+### 3c-bis. TruffleHog
 
-Check repo visibility first:
-```bash
-gh api repos/<owner>/<repo> --jq '.private'
-```
-- `true` → Display: `Gitleaks ⏭ Skipped (private repo — less critical)`, skip this step entirely.
-- `false` or error → proceed.
-
-AskUserQuestion: **Set up Gitleaks secret scanning** | **Skip**.
+AskUserQuestion: **Set up TruffleHog secret scanning** | **Skip**.
 
 yes:
-1. Create `.gitleaks.toml` in the project root:
-   ```toml
-   title = 'Gitleaks'
-
-   [extend]
-     useDefault = true
-
-   [allowlist]
-     description = 'Project-level allowlist for known safe values'
-     paths = ['.env.example']
-     regexes = [
-       'change-me-to-a-random-secret',
-       'your-.*-token',
-       'your-.*-key',
-     ]
-   ```
-2. Display: `Gitleaks ✅ .gitleaks.toml created`
-3. Note: CI workflow includes a `secrets` job with `gitleaks/gitleaks-action@v2` — it runs automatically on every push and PR.
-4. Check if `gitleaks` binary is installed locally (needed for pre-push hooks):
+1. CI workflow includes a `secrets` job with `trufflesecurity/trufflehog@main` — it runs automatically on every push and PR (with `--only-verified` to reduce noise).
+2. Check if `trufflehog` binary is installed locally (needed for pre-commit hooks):
    ```bash
-   which gitleaks 2>/dev/null && echo "installed" || echo "missing"
+   which trufflehog 2>/dev/null && echo "installed" || echo "missing"
    ```
    missing → display:
    ```
-   ⚠️  gitleaks binary not found — pre-push hook will fail until installed.
+   ⚠️  trufflehog binary not found — pre-commit hook will fail until installed.
        Install options:
-         • Ubuntu/Debian:  sudo apt install gitleaks
-         • GitHub release: https://github.com/gitleaks/gitleaks/releases
-         • Homebrew:       brew install gitleaks
+         • Homebrew:       brew install trufflehog
+         • GitHub release: https://github.com/trufflesecurity/trufflehog/releases
+         • Docker:         docker run --rm -it trufflesecurity/trufflehog:latest
    ```
+3. Display: `TruffleHog ✅ Secret scanning configured`
 
-skip → Display: `Gitleaks ⏭ Skipped`
+skip → Display: `TruffleHog ⏭ Skipped`
 
 ### 3c-ter. Dependabot
 
@@ -462,26 +439,25 @@ d. Write `lefthook.yml`:
        typecheck:
          run: <commands.typecheck>
 
+     trufflehog:
+       run: trufflehog git file://. --only-verified --fail
+
    pre-push:
      commands:
-       gitleaks:
-         run: gitleaks detect --source . --no-git
        license:
          run: <license-cmd>
    ```
 e. `bunx lefthook install`
-f. Check if `gitleaks` binary is installed:
+f. Check if `trufflehog` binary is installed:
    ```bash
-   which gitleaks 2>/dev/null && echo "installed" || echo "missing"
+   which trufflehog 2>/dev/null && echo "installed" || echo "missing"
    ```
    missing → display:
    ```
-   ⚠️  gitleaks binary not found — pre-push hook will fail until installed.
+   ⚠️  trufflehog binary not found — pre-commit hook will fail until installed.
        Install options:
-         • Ubuntu/Debian:  sudo apt install gitleaks
-         • GitHub release: https://github.com/gitleaks/gitleaks/releases
-         • Homebrew:       brew install gitleaks
-         • No sudo:        curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.27.2/gitleaks_8.27.2_linux_x64.tar.gz | tar -xz -C ~/.local/bin gitleaks
+         • Homebrew:       brew install trufflehog
+         • GitHub release: https://github.com/trufflesecurity/trufflehog/releases
    ```
 g. Run license check and offer to generate policy (JS/bun):
    ```bash
@@ -491,7 +467,7 @@ g. Run license check and offer to generate policy (JS/bun):
    - exit 1 → parse violations JSON, display list, AskUserQuestion: **Generate .license-policy.json** | **Skip**
      - yes → write `.license-policy.json` with all violating package names in `allowlist` array, display: `License policy ✅ .license-policy.json created (N packages allowlisted) — review and tighten before production`
      - skip → Display: `License policy ⏭ Skipped — first push will fail until resolved`
-h. Display: `Pre-commit hooks ✅ lefthook installed (lint + typecheck on commit, gitleaks + license on push)`
+h. Display: `Pre-commit hooks ✅ lefthook installed (lint + typecheck + trufflehog on commit, license on push)`
 
 ---
 
@@ -522,12 +498,11 @@ d. Write `.pre-commit-config.yaml`:
            entry: <commands.typecheck>
            language: system
            pass_filenames: false
-         - id: gitleaks
-           name: gitleaks secret scan
-           entry: gitleaks detect --source . --no-git
+         - id: trufflehog
+           name: trufflehog secret scan
+           entry: trufflehog git file://. --only-verified --fail
            language: system
            pass_filenames: false
-           stages: [pre-push]
          - id: license
            name: license check
            entry: uv run tools/license_check.py
@@ -536,17 +511,16 @@ d. Write `.pre-commit-config.yaml`:
            stages: [pre-push]
    ```
 e. `uv run pre-commit install && uv run pre-commit install --hook-type pre-push`
-f. Check if `gitleaks` binary is installed:
+f. Check if `trufflehog` binary is installed:
    ```bash
-   which gitleaks 2>/dev/null && echo "installed" || echo "missing"
+   which trufflehog 2>/dev/null && echo "installed" || echo "missing"
    ```
    missing → display:
    ```
-   ⚠️  gitleaks binary not found — pre-push hook will fail until installed.
+   ⚠️  trufflehog binary not found — pre-commit hook will fail until installed.
        Install options:
-         • Ubuntu/Debian:  sudo apt install gitleaks
-         • GitHub release: https://github.com/gitleaks/gitleaks/releases
-         • Homebrew:       brew install gitleaks
+         • Homebrew:       brew install trufflehog
+         • GitHub release: https://github.com/trufflesecurity/trufflehog/releases
    ```
 g. Run license check and offer to generate policy (Python):
    ```bash
@@ -564,7 +538,7 @@ g. Run license check and offer to generate policy (Python):
        Display: `License policy ✅ .license-policy.json created (N packages allowlisted) — review and tighten before production`
      - skip → Display: `License policy ⏭ Skipped — first push will fail until resolved`
    - exit 2 (pip-licenses missing) → Display: `License check ⏭ pip-licenses not installed — run uv add --dev pip-licenses`
-h. Display: `Pre-commit hooks ✅ pre-commit installed (lint + typecheck on commit, gitleaks + license on push)`
+h. Display: `Pre-commit hooks ✅ pre-commit installed (lint + typecheck + trufflehog on commit, license on push)`
 
 ## Phase 11 — Report
 
@@ -590,7 +564,7 @@ dev-core initialized
   stack.yml         ✅ Configured / ✅ Already exists
   VS Code MDX preview   ✅ Added / ✅ Already configured / ⏭ Skipped / ⏭ No .mdx files found
   CI/CD workflows   ✅ Created / ✅ Already configured / ⏭ Skipped
-  Gitleaks          ✅ .gitleaks.toml created / ⏭ Skipped (private repo) / ⏭ Skipped
+  TruffleHog        ✅ Secret scanning configured / ⏭ Skipped
   Dependabot        ✅ .github/dependabot.yml created / ⏭ Skipped
   Pre-commit hooks      ✅ lefthook installed / ✅ pre-commit installed / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
   License checker   ✅ tools/license_check.py copied (Python) / ⏭ Skipped
