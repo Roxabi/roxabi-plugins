@@ -1,0 +1,742 @@
+---
+title: "Plan: Clean Architecture & Hexagonal Architecture Migration"
+issue: 20
+spec: artifacts/specs/20-clean-architecture-spec.mdx
+complexity: 9/10
+tier: F-full
+generated: "2026-03-05T12:00:00Z"
+---
+
+## Summary
+
+Incrementally migrate all plugins to Clean Architecture boundaries (domain → ports → adapters → use cases) following the Bottom-Up Foundation approach: pure types first, then adapter wrapping per plugin, then use case extraction. 7 slices across 5 Python plugins + 1 TypeScript plugin, ~24 files modified, ~30 files created.
+
+## Bootstrap Context
+
+The approved analysis evaluated three shapes (Bottom-Up Foundation, Plugin-by-Plugin Vertical Slices, Extract SDK First) and recommended Bottom-Up Foundation for zero-risk incremental delivery. linkedin-apply is already 80% aligned (dataclasses, exceptions) — validates the pattern cheaply. SDK extraction (Phase 5) is explicitly deferred to a future issue.
+
+**Reference patterns:**
+- Python domain models: `plugins/linkedin-apply/scripts/scraper.py` (LinkedInJob dataclass, exception hierarchy)
+- TypeScript domain types: `plugins/dev-core/skills/issues/lib/types.ts` (Issue, PR interfaces)
+- Composition root: `plugins/dev-core/skills/init/init.ts` (phased construction)
+
+## Agents
+
+| Agent | Task count | Files |
+|-------|-----------|-------|
+| backend-dev | 17 | `domain/`, `ports/`, `adapters/`, `use_cases/` across all plugins; shims; composition roots |
+| tester | 7 | Smoke/unit tests for each slice |
+| devops | 2 | pytest CI step, `__init__.py` scaffolding, biome lint rules |
+
+## Consistency Report
+
+- Criteria covered: 37/37 (Foundation 6, Vault 8, LinkedIn 6, dev-core 8, web-intel 7, cv+img 4, use-cases 4, cross-cutting 6 — all traced)
+- Uncovered criteria: none
+- Tasks without spec backing: none
+- Gold plating exemptions applied: 2 (devops: pytest CI step, `__init__.py` scaffolding)
+
+## Prerequisites (from spec)
+
+Before Slice 2 merges:
+1. Pytest step added to `.github/workflows/ci.yml`
+2. All new `domain/`, `ports/`, `adapters/` dirs include `__init__.py`
+3. Phase 5 tracking issue opened before Slice 7 merges
+
+## Micro-Tasks
+
+### Slice V1: Foundation (domain models + port interfaces)
+
+All new files, no runtime changes. Establishes types and ABCs that subsequent slices implement.
+
+#### Task 1: Write Python domain model import tests [P] → tester
+- **File:** `plugins/vault/tests/test_domain.py`, `plugins/web-intel/tests/test_domain.py`, `plugins/cv/tests/test_domain.py`, `plugins/image-prompt-generator/tests/test_domain.py`
+- **Snippet:**
+  ```python
+  def test_vault_entry_frozen():
+      from domain.models import VaultEntry
+      e = VaultEntry(id=1, category="test", type="note", title="t", content="c", created_at="now", updated_at="now")
+      assert e.title == "t"
+  ```
+- **Verify:** `grep -q 'def test_.*frozen' plugins/vault/tests/test_domain.py` (ready)
+- **Expected:** Test files exist with import + freeze assertions
+- **Time:** 5 min | **Difficulty:** 2
+- **Traces:** SC-F1, SC-F6
+- **Phase:** RED
+
+#### Task 2: Write TypeScript domain type tests [P] → tester
+- **File:** `plugins/dev-core/skills/shared/__tests__/domain.test.ts`
+- **Snippet:**
+  ```typescript
+  import { describe, it, expect } from 'vitest'
+  import type { Issue, PR, Project } from '../domain/types'
+  // type-level tests: assignability checks
+  ```
+- **Verify:** `grep -q 'domain/types' plugins/dev-core/skills/shared/__tests__/domain.test.ts` (ready)
+- **Expected:** Test file exists with type imports
+- **Time:** 3 min | **Difficulty:** 2
+- **Traces:** SC-F4, SC-F5
+- **Phase:** RED
+
+#### RED-GATE: RED complete V1 → tester
+- **Verify:** All test tasks for V1 marked complete
+- **Phase:** RED-GATE
+
+#### Task 3: Create Python domain models for all plugins [P] → backend-dev
+- **File:** `plugins/vault/domain/models.py`, `plugins/web-intel/domain/models.py`, `plugins/cv/domain/models.py`, `plugins/image-prompt-generator/domain/models.py`
+- **Snippet:**
+  ```python
+  # plugins/vault/domain/models.py
+  from dataclasses import dataclass
+  from datetime import datetime
+
+  @dataclass(frozen=True)
+  class VaultEntry:
+      id: int
+      category: str
+      type: str
+      title: str
+      content: str
+      created_at: str
+      updated_at: str
+      metadata: str = ""
+
+  @dataclass(frozen=True)
+  class SearchResult:
+      entry: VaultEntry
+      rank: float
+  ```
+- **Verify:** `python -c "from plugins.vault.domain.models import VaultEntry; print('ok')"` (deferred)
+- **Expected:** All domain model files importable with frozen dataclasses
+- **Time:** 8 min | **Difficulty:** 2
+- **Traces:** SC-F1
+- **Phase:** GREEN
+
+#### Task 4: Create Python domain exceptions + shared PluginError [P] → backend-dev
+- **File:** `plugins/vault/domain/exceptions.py`, `plugins/web-intel/domain/exceptions.py`, `plugins/cv/domain/exceptions.py`, `plugins/image-prompt-generator/domain/exceptions.py`
+- **Snippet:**
+  ```python
+  # plugins/vault/domain/exceptions.py
+  class PluginError(Exception):
+      """Base exception for all plugin errors."""
+
+  class VaultError(PluginError):
+      """Base exception for vault plugin."""
+
+  class EntryNotFoundError(VaultError):
+      """Entry not found in vault."""
+
+  class IndexError(VaultError):
+      """FTS indexing error."""
+  ```
+- **Verify:** `grep -q 'class PluginError' plugins/vault/domain/exceptions.py` (ready)
+- **Expected:** Each plugin has exception hierarchy inheriting from PluginError
+- **Time:** 5 min | **Difficulty:** 1
+- **Traces:** SC-F2
+- **Phase:** GREEN
+
+#### Task 5: Create Python port interfaces (ABCs) → backend-dev
+- **File:** `plugins/vault/ports/repository.py`, `plugins/vault/ports/search.py`, `plugins/web-intel/ports/fetcher.py`, `plugins/linkedin-apply/ports/storage.py`, `plugins/linkedin-apply/ports/matcher.py`, `plugins/cv/ports/config.py`
+- **Snippet:**
+  ```python
+  # plugins/vault/ports/repository.py
+  from abc import ABC, abstractmethod
+  from domain.models import VaultEntry
+
+  class EntryRepository(ABC):
+      @abstractmethod
+      def add(self, category: str, type: str, title: str, content: str, metadata: str = "") -> VaultEntry: ...
+      @abstractmethod
+      def get(self, entry_id: int) -> VaultEntry: ...
+      @abstractmethod
+      def delete(self, entry_id: int) -> bool: ...
+      @abstractmethod
+      def list(self, category: str | None = None) -> list[VaultEntry]: ...
+      @abstractmethod
+      def stats(self) -> dict: ...
+  ```
+- **Verify:** `grep -q 'class EntryRepository' plugins/vault/ports/repository.py` (ready)
+- **Expected:** ABC files exist for all ports listed in spec
+- **Time:** 8 min | **Difficulty:** 3
+- **Traces:** SC-F3
+- **Phase:** GREEN
+
+#### Task 6: Create TypeScript domain types + errors + port interfaces [P] → backend-dev
+- **File:** `plugins/dev-core/skills/shared/domain/types.ts`, `plugins/dev-core/skills/shared/domain/errors.ts`, `plugins/dev-core/skills/shared/ports/issue.ts`, `plugins/dev-core/skills/shared/ports/project.ts`, `plugins/dev-core/skills/shared/ports/workspace.ts`, `plugins/dev-core/skills/shared/ports/config.ts`, `plugins/dev-core/skills/shared/ports/artifacts.ts`
+- **Snippet:**
+  ```typescript
+  // domain/types.ts
+  export interface Issue {
+    number: number
+    title: string
+    status: string
+    size: string | null
+    priority: string | null
+    labels: string[]
+    assignees: string[]
+    url: string
+    children: SubIssue[]
+  }
+
+  // ports/issue.ts
+  export interface IssuePort {
+    getIssue(number: number): Promise<Issue>
+    listIssues(filters?: IssueFilters): Promise<Issue[]>
+    updateLabels(number: number, add: string[], remove: string[]): Promise<void>
+    addComment(number: number, body: string): Promise<void>
+  }
+  ```
+- **Verify:** `bun run typecheck` (ready)
+- **Expected:** No type errors; domain types and port interfaces compile
+- **Time:** 10 min | **Difficulty:** 3
+- **Traces:** SC-F4, SC-F5
+- **Phase:** GREEN
+
+#### Task 7: Scaffold __init__.py + directory structure [P] → devops
+- **File:** `plugins/*/domain/__init__.py`, `plugins/*/ports/__init__.py` (×5 Python plugins)
+- **Snippet:**
+  ```python
+  # __init__.py (empty or re-exports)
+  ```
+- **Verify:** `find plugins -name '__init__.py' -path '*/domain/*' | wc -l` (ready)
+- **Expected:** ≥5 `__init__.py` files in domain dirs, ≥5 in ports dirs
+- **Time:** 3 min | **Difficulty:** 1
+- **Traces:** SC-X5 (cross-cutting)
+- **Phase:** GREEN
+
+---
+
+### Slice V2: Vault adapter
+
+Wraps VaultDB behind EntryRepository port. Composition root in manage_vault.py.
+
+#### Task 8: Write vault adapter smoke tests → tester
+- **File:** `plugins/vault/tests/test_adapters.py`
+- **Snippet:**
+  ```python
+  import tempfile
+  from adapters.sqlite_repository import SqliteEntryRepository
+
+  def test_add_and_get():
+      with tempfile.TemporaryDirectory() as tmp:
+          repo = SqliteEntryRepository(db_path=Path(tmp) / "test.db")
+          entry = repo.add("test", "note", "Title", "Content")
+          assert entry.title == "Title"
+          fetched = repo.get(entry.id)
+          assert fetched.content == "Content"
+  ```
+- **Verify:** `grep -q 'def test_add_and_get' plugins/vault/tests/test_adapters.py` (ready)
+- **Expected:** Test file with adapter instantiation + CRUD assertions
+- **Time:** 5 min | **Difficulty:** 3
+- **Traces:** SC-V1, SC-V2
+- **Phase:** RED
+
+#### RED-GATE: RED complete V2 → tester
+- **Verify:** All test tasks for V2 marked complete
+- **Phase:** RED-GATE
+
+#### Task 9: Create SqliteEntryRepository + Fts5SearchAdapter → backend-dev
+- **File:** `plugins/vault/adapters/sqlite_repository.py`, `plugins/vault/adapters/fts5_search.py`, `plugins/vault/adapters/__init__.py`
+- **Snippet:**
+  ```python
+  # adapters/sqlite_repository.py
+  from ports.repository import EntryRepository
+  from domain.models import VaultEntry
+  from _lib.memory.db import VaultDB
+
+  class SqliteEntryRepository(EntryRepository):
+      def __init__(self, db_path: Path):
+          self._db = VaultDB(str(db_path))
+
+      def add(self, category, type, title, content, metadata="") -> VaultEntry:
+          with self._db as db:
+              cur = db.conn.execute(...)
+              return VaultEntry(id=cur.lastrowid, ...)
+  ```
+- **Verify:** `python -c "from plugins.vault.adapters.sqlite_repository import SqliteEntryRepository; print('ok')"` (deferred)
+- **Expected:** Adapter wraps VaultDB, returns VaultEntry domain objects
+- **Time:** 10 min | **Difficulty:** 4
+- **Traces:** SC-V1, SC-V2, SC-V3
+- **Phase:** GREEN
+
+#### Task 10: Migrate manage_vault.py + content_indexer.py to use adapters → backend-dev
+- **File:** `plugins/vault/scripts/manage_vault.py`, `plugins/vault/scripts/content_indexer.py`
+- **Snippet:**
+  ```python
+  # manage_vault.py — composition root
+  def main():
+      db_path = get_vault_home() / "vault.db"
+      repo = SqliteEntryRepository(db_path)
+      search = Fts5SearchAdapter(db_path)
+      # all cmd_* functions receive repo/search instead of raw db
+  ```
+- **Verify:** `python plugins/vault/scripts/manage_vault.py stats` (deferred)
+- **Expected:** CLI produces identical output via adapter layer; no raw db.conn.execute in manage_vault.py
+- **Time:** 8 min | **Difficulty:** 4
+- **Traces:** SC-V5, SC-V6, SC-V7
+- **Phase:** GREEN
+
+#### Task 11: Create VaultDB shim + add pytest CI step → backend-dev
+- **File:** `plugins/vault/_lib/memory/db.py` (add @deprecated), `.github/workflows/ci.yml`
+- **Snippet:**
+  ```python
+  # db.py — add deprecation docstring
+  class VaultDB:
+      """@deprecated Use SqliteEntryRepository from adapters/ instead."""
+  ```
+- **Verify:** `grep -q '@deprecated' plugins/vault/_lib/memory/db.py` (ready)
+- **Expected:** VaultDB marked deprecated; pytest step in CI covers vault
+- **Time:** 5 min | **Difficulty:** 2
+- **Traces:** SC-V4, SC-V8
+- **Phase:** GREEN
+
+---
+
+### Slice V3: linkedin-apply adapter
+
+Wraps module-level storage functions behind StoragePort. Existing dataclasses already serve as domain models.
+
+#### Task 12: Write linkedin-apply adapter tests → tester
+- **File:** `plugins/linkedin-apply/tests/test_adapters.py`
+- **Snippet:**
+  ```python
+  def test_file_storage_adapter_save_and_load():
+      with tempfile.TemporaryDirectory() as tmp:
+          adapter = FileStorageAdapter(base_dir=Path(tmp))
+          adapter.save_analysis(job_id="test-123", data={...})
+          recap = adapter.load_recap("test-123")
+          assert recap is not None
+  ```
+- **Verify:** `grep -q 'def test_file_storage' plugins/linkedin-apply/tests/test_adapters.py` (ready)
+- **Expected:** Test file with FileStorageAdapter using tmp_path for isolation
+- **Time:** 5 min | **Difficulty:** 3
+- **Traces:** SC-L1, SC-L2
+- **Phase:** RED
+
+#### RED-GATE: RED complete V3 → tester
+- **Verify:** All test tasks for V3 marked complete
+- **Phase:** RED-GATE
+
+#### Task 13: Create StoragePort + FileStorageAdapter → backend-dev
+- **File:** `plugins/linkedin-apply/ports/storage.py`, `plugins/linkedin-apply/adapters/file_storage.py`, `plugins/linkedin-apply/adapters/__init__.py`, `plugins/linkedin-apply/ports/__init__.py`, `plugins/linkedin-apply/domain/__init__.py`
+- **Snippet:**
+  ```python
+  # ports/storage.py
+  from abc import ABC, abstractmethod
+  from scripts.scraper import ApplicationRecap
+
+  class StoragePort(ABC):
+      @abstractmethod
+      def save_analysis(self, job_id: str, data: dict) -> Path: ...
+      @abstractmethod
+      def load_recap(self, job_id: str) -> ApplicationRecap | None: ...
+      @abstractmethod
+      def list_applications(self) -> list[ApplicationRecap]: ...
+      @abstractmethod
+      def get_daily_count(self) -> int: ...
+      @abstractmethod
+      def get_stats(self) -> dict: ...
+      @abstractmethod
+      def find_existing_analysis(self, job_id: str) -> Path | None: ...
+  ```
+- **Verify:** `grep -q 'class StoragePort' plugins/linkedin-apply/ports/storage.py` (ready)
+- **Expected:** StoragePort ABC with all 6 methods; FileStorageAdapter accepts base_dir
+- **Time:** 8 min | **Difficulty:** 3
+- **Traces:** SC-L1, SC-L2, SC-L4
+- **Phase:** GREEN
+
+#### Task 14: Create MatcherPort + ClaudeMatcherAdapter + wire callers → backend-dev
+- **File:** `plugins/linkedin-apply/ports/matcher.py`, `plugins/linkedin-apply/adapters/claude_matcher.py`
+- **Snippet:**
+  ```python
+  # ports/matcher.py
+  from abc import ABC, abstractmethod
+  from scripts.scraper import LinkedInJob, MatchResult
+
+  class MatcherPort(ABC):
+      @abstractmethod
+      async def match(self, job: LinkedInJob, cv_data: dict) -> MatchResult: ...
+  ```
+- **Verify:** `grep -q 'class MatcherPort' plugins/linkedin-apply/ports/matcher.py` (ready)
+- **Expected:** MatcherPort + ClaudeMatcherAdapter wrapping call_claude(); existing dataclasses used as return types
+- **Time:** 5 min | **Difficulty:** 3
+- **Traces:** SC-L3, SC-L4, SC-L5
+- **Phase:** GREEN
+
+---
+
+### Slice V4: dev-core TypeScript adapter
+
+Role interfaces for GitHub API. GitHubAdapter implements IssuePort + ProjectPort. Legacy shims delegate to adapters.
+
+#### Task 15: Write TS adapter tests → tester
+- **File:** `plugins/dev-core/skills/shared/__tests__/adapters.test.ts`
+- **Snippet:**
+  ```typescript
+  import { describe, it, expect } from 'vitest'
+  import { GitHubAdapter } from '../adapters/github-adapter'
+  import type { IssuePort, ProjectPort } from '../ports/issue'
+
+  describe('GitHubAdapter', () => {
+    it('should implement IssuePort', () => {
+      const adapter: IssuePort = new GitHubAdapter()
+      expect(adapter).toBeDefined()
+    })
+  })
+  ```
+- **Verify:** `grep -q 'GitHubAdapter' plugins/dev-core/skills/shared/__tests__/adapters.test.ts` (ready)
+- **Expected:** Test file with adapter type assignability checks
+- **Time:** 5 min | **Difficulty:** 3
+- **Traces:** SC-D1, SC-D2
+- **Phase:** RED
+
+#### RED-GATE: RED complete V4 → tester
+- **Verify:** All test tasks for V4 marked complete
+- **Phase:** RED-GATE
+
+#### Task 16: Create GitHubAdapter implementing IssuePort + ProjectPort → backend-dev
+- **File:** `plugins/dev-core/skills/shared/adapters/github-adapter.ts`
+- **Snippet:**
+  ```typescript
+  import type { IssuePort } from '../ports/issue'
+  import type { ProjectPort } from '../ports/project'
+  import type { Issue, PR, Project } from '../domain/types'
+
+  export class GitHubAdapter implements IssuePort, ProjectPort {
+    #token: string | null = null
+
+    private async getToken(): Promise<string> {
+      if (!this.#token) {
+        this.#token = process.env.GITHUB_TOKEN ?? (await this.resolveToken())
+      }
+      return this.#token
+    }
+
+    async getIssue(number: number): Promise<Issue> { ... }
+    async updateProjectField(itemId: string, fieldId: string, value: string): Promise<void> { ... }
+  }
+  ```
+- **Verify:** `bun run typecheck` (ready)
+- **Expected:** GitHubAdapter compiles; token is private + lazy; implements both role interfaces
+- **Time:** 10 min | **Difficulty:** 4
+- **Traces:** SC-D1, SC-D2, SC-D3
+- **Phase:** GREEN
+
+#### Task 17: Create EnvConfigAdapter + GitWorkspaceAdapter → backend-dev
+- **File:** `plugins/dev-core/skills/shared/adapters/env-config.ts`, `plugins/dev-core/skills/shared/adapters/git-workspace.ts`
+- **Snippet:**
+  ```typescript
+  import type { ConfigPort } from '../ports/config'
+
+  export class EnvConfigAdapter implements ConfigPort {
+    getRepo(): string { return process.env.GITHUB_REPO ?? '' }
+    getProjectId(): string | null { return process.env.GH_PROJECT_ID ?? null }
+    resolveFieldIds(): ProjectFieldIds { ... }
+  }
+  ```
+- **Verify:** `bun run typecheck` (ready)
+- **Expected:** Both adapters compile and implement their port interfaces
+- **Time:** 8 min | **Difficulty:** 3
+- **Traces:** SC-D4
+- **Phase:** GREEN
+
+#### Task 18: Create legacy shims + biome lint rules → backend-dev
+- **File:** `plugins/dev-core/skills/shared/github.ts` (refactor to shim), `plugins/dev-core/skills/shared/config.ts` (refactor to shim), `plugins/dev-core/skills/shared/workspace.ts` (refactor to shim), `biome.json`
+- **Snippet:**
+  ```typescript
+  // github.ts — shim
+  /** @deprecated Use GitHubAdapter from adapters/github-adapter.ts instead */
+  import { GitHubAdapter } from './adapters/github-adapter'
+
+  const adapter = new GitHubAdapter()
+
+  /** @deprecated */
+  export async function ghGraphQL(query: string, vars?: Record<string, unknown>) {
+    return adapter.graphql(query, vars)
+  }
+  ```
+- **Verify:** `grep -q '@deprecated' plugins/dev-core/skills/shared/github.ts` (ready)
+- **Expected:** All 3 shims delegate to adapters; `@deprecated` JSDoc on every export; env reads deferred to call time
+- **Time:** 8 min | **Difficulty:** 4
+- **Traces:** SC-D6
+- **Phase:** GREEN
+
+#### Task 19: Migrate dashboard + skill composition roots to use adapters → backend-dev
+- **File:** `plugins/dev-core/skills/issues/dashboard.ts`, `plugins/dev-core/skills/issues/lib/fetch.ts`, `plugins/dev-core/skills/init/init.ts`
+- **Snippet:**
+  ```typescript
+  // dashboard.ts — composition root
+  import { GitHubAdapter } from '../../shared/adapters/github-adapter'
+  import { EnvConfigAdapter } from '../../shared/adapters/env-config'
+
+  const github = new GitHubAdapter()
+  const config = new EnvConfigAdapter()
+  // pass to fetchAllItems(github, config)
+  ```
+- **Verify:** `bun run typecheck && bun run test` (ready)
+- **Expected:** Dashboard loads; init/doctor/triage skills work unchanged; domain types replace ad-hoc casts
+- **Time:** 10 min | **Difficulty:** 5
+- **Traces:** SC-D5, SC-D7, SC-D8
+- **Phase:** GREEN
+
+---
+
+### Slice V5: web-intel adapter
+
+New thin FetcherPort + FetcherRegistry replaces if/elif dispatch. BaseFetcher stays internal.
+
+#### Task 20: Write web-intel adapter tests → tester
+- **File:** `plugins/web-intel/tests/test_adapters.py`
+- **Snippet:**
+  ```python
+  def test_fetcher_registry_selects_generic():
+      registry = FetcherRegistry([GenericWebFetcher()])
+      fetcher = registry.get_fetcher("https://example.com")
+      assert fetcher is not None
+  ```
+- **Verify:** `grep -q 'def test_fetcher_registry' plugins/web-intel/tests/test_adapters.py` (ready)
+- **Expected:** Test for registry selection + FetchResult dataclass
+- **Time:** 4 min | **Difficulty:** 2
+- **Traces:** SC-W1, SC-W4
+- **Phase:** RED
+
+#### RED-GATE: RED complete V5 → tester
+- **Verify:** All test tasks for V5 marked complete
+- **Phase:** RED-GATE
+
+#### Task 21: Create FetcherPort + FetcherRegistry + FetchResult → backend-dev
+- **File:** `plugins/web-intel/ports/fetcher.py`, `plugins/web-intel/adapters/fetcher_registry.py`, `plugins/web-intel/adapters/__init__.py`
+- **Snippet:**
+  ```python
+  # ports/fetcher.py
+  from abc import ABC, abstractmethod
+  from domain.models import FetchResult
+
+  class FetcherPort(ABC):
+      @abstractmethod
+      def supports(self, url: str) -> bool: ...
+      @abstractmethod
+      def fetch(self, url: str) -> FetchResult: ...
+  ```
+- **Verify:** `grep -q 'class FetcherPort' plugins/web-intel/ports/fetcher.py` (ready)
+- **Expected:** Thin FetcherPort ABC; FetcherRegistry with `get_fetcher(url)` method
+- **Time:** 5 min | **Difficulty:** 2
+- **Traces:** SC-W1, SC-W4
+- **Phase:** GREEN
+
+#### Task 22: Wire fetchers to FetcherPort + update scraper.py dispatch → backend-dev
+- **File:** `plugins/web-intel/scripts/fetchers/base.py`, `plugins/web-intel/scripts/scraper.py`
+- **Snippet:**
+  ```python
+  # base.py — BaseFetcher now also implements FetcherPort
+  from ports.fetcher import FetcherPort
+
+  class BaseFetcher(FetcherPort):
+      def supports(self, url: str) -> bool:
+          return self._supports_url(url)  # delegate to existing logic
+
+      def fetch(self, url: str) -> FetchResult:
+          result = self._fetch_impl(url)
+          return FetchResult(**result)  # wrap raw dict → domain model
+
+  # scraper.py — composition root
+  registry = FetcherRegistry([TwitterFetcher(), GitHubFetcher(), ...])
+  fetcher = registry.get_fetcher(url)
+  result = fetcher.fetch(url)
+  ```
+- **Verify:** `python plugins/web-intel/scripts/scraper.py --help 2>&1 | head -1` (deferred)
+- **Expected:** All fetchers implement FetcherPort via BaseFetcher; registry replaces if/elif; FetchResult field names match existing dict keys; redirect logic stays in scraper.py
+- **Time:** 8 min | **Difficulty:** 4
+- **Traces:** SC-W2, SC-W3, SC-W5, SC-W6, SC-W7
+- **Phase:** GREEN
+
+---
+
+### Slice V6: cv + image-prompt adapters
+
+Generic ConfigLoader[T] port. CVConfig + VisualCharter dataclasses with validation.
+
+#### Task 23: Write config adapter tests → tester
+- **File:** `plugins/cv/tests/test_adapters.py`, `plugins/image-prompt-generator/tests/test_adapters.py`
+- **Snippet:**
+  ```python
+  def test_cv_config_validation():
+      config = CVConfig.from_dict({"default_language": "en"})
+      assert config.default_language == "en"
+
+  def test_cv_config_rejects_invalid():
+      with pytest.raises(ConfigError):
+          CVConfig.from_dict({"invalid_field": True})
+  ```
+- **Verify:** `grep -q 'def test_cv_config' plugins/cv/tests/test_adapters.py` (ready)
+- **Expected:** Validation tests for both CVConfig and VisualCharter
+- **Time:** 4 min | **Difficulty:** 2
+- **Traces:** SC-C1, SC-C3
+- **Phase:** RED
+
+#### RED-GATE: RED complete V6 → tester
+- **Verify:** All test tasks for V6 marked complete
+- **Phase:** RED-GATE
+
+#### Task 24: Create ConfigLoader[T] + JsonConfigLoader + CVConfig + VisualCharter → backend-dev
+- **File:** `plugins/cv/ports/config.py`, `plugins/cv/adapters/json_config.py`, `plugins/cv/domain/models.py` (update with CVConfig), `plugins/image-prompt-generator/adapters/json_config.py`, `plugins/image-prompt-generator/domain/models.py` (update with VisualCharter)
+- **Snippet:**
+  ```python
+  # ports/config.py (generic)
+  from abc import ABC, abstractmethod
+  from typing import TypeVar, Generic
+
+  T = TypeVar('T')
+
+  class ConfigLoader(ABC, Generic[T]):
+      @abstractmethod
+      def load(self, path: Path) -> T: ...
+
+  # adapters/json_config.py
+  class JsonConfigLoader(ConfigLoader[T]):
+      def __init__(self, model_class: type[T]):
+          self._model = model_class
+      def load(self, path: Path) -> T:
+          data = json.loads(path.read_text())
+          return self._model.from_dict(data)  # fail-fast on invalid
+  ```
+- **Verify:** `grep -q 'class ConfigLoader' plugins/cv/ports/config.py` (ready)
+- **Expected:** Generic ConfigLoader ABC; JsonConfigLoader with fail-fast validation; CVConfig + VisualCharter dataclasses
+- **Time:** 8 min | **Difficulty:** 3
+- **Traces:** SC-C1, SC-C2, SC-C3
+- **Phase:** GREEN
+
+#### Task 25: Wire generate_cv.py + generate_prompt_variants.py to use adapters → backend-dev
+- **File:** `plugins/cv/scripts/generate_cv.py`, `plugins/image-prompt-generator/scripts/generate_prompt_variants.py`
+- **Snippet:**
+  ```python
+  # generate_cv.py — composition root
+  from adapters.json_config import JsonConfigLoader
+  from domain.models import CVConfig
+
+  loader = JsonConfigLoader(CVConfig)
+  config = loader.load(config_path)  # fail-fast on malformed JSON
+  ```
+- **Verify:** `python plugins/cv/scripts/generate_cv.py --help 2>&1 | head -1` (deferred)
+- **Expected:** Identical output through adapter layer; config validation catches bad JSON
+- **Time:** 5 min | **Difficulty:** 2
+- **Traces:** SC-C4
+- **Phase:** GREEN
+
+---
+
+### Slice V7: Use case extraction
+
+Extract business logic from CLI entrypoints into UseCase classes. Depends on all adapter slices.
+
+#### Task 26: Write use case unit tests (mocked ports) → tester
+- **File:** `plugins/vault/tests/test_use_cases.py`, `plugins/linkedin-apply/tests/test_use_cases.py`, `plugins/cv/tests/test_use_cases.py`
+- **Snippet:**
+  ```python
+  from unittest.mock import MagicMock
+  from use_cases.add_entry import AddEntryUseCase
+
+  def test_add_entry_calls_repo():
+      mock_repo = MagicMock()
+      mock_repo.add.return_value = VaultEntry(id=1, ...)
+      uc = AddEntryUseCase(repo=mock_repo)
+      result = uc.execute("test", "note", "Title", "Content")
+      mock_repo.add.assert_called_once()
+      assert result.title == "Title"
+  ```
+- **Verify:** `grep -q 'def test_add_entry' plugins/vault/tests/test_use_cases.py` (ready)
+- **Expected:** Each use case has unit test with mocked port — no I/O
+- **Time:** 5 min | **Difficulty:** 3
+- **Traces:** SC-U4
+- **Phase:** RED
+
+#### RED-GATE: RED complete V7 → tester
+- **Verify:** All test tasks for V7 marked complete
+- **Phase:** RED-GATE
+
+#### Task 27: Extract AddEntryUseCase + SearchEntriesUseCase (vault) → backend-dev
+- **File:** `plugins/vault/use_cases/add_entry.py`, `plugins/vault/use_cases/search_entries.py`, `plugins/vault/use_cases/__init__.py`
+- **Snippet:**
+  ```python
+  from ports.repository import EntryRepository
+  from domain.models import VaultEntry
+
+  class AddEntryUseCase:
+      def __init__(self, repo: EntryRepository):
+          self._repo = repo
+
+      def execute(self, category: str, type: str, title: str, content: str, metadata: str = "") -> VaultEntry:
+          # business logic: validate, normalize, delegate
+          return self._repo.add(category, type, title, content, metadata)
+  ```
+- **Verify:** `python -m pytest plugins/vault/tests/test_use_cases.py` (deferred)
+- **Expected:** Use case classes receive ports via constructor; business logic extracted from manage_vault.py
+- **Time:** 8 min | **Difficulty:** 3
+- **Traces:** SC-U1, SC-U2
+- **Phase:** GREEN
+
+#### Task 28: Extract ScrapeJobUseCase (linkedin-apply) + GenerateCVUseCase (cv) → backend-dev
+- **File:** `plugins/linkedin-apply/use_cases/match_job.py`, `plugins/cv/use_cases/generate_cv.py`, `plugins/linkedin-apply/use_cases/__init__.py`, `plugins/cv/use_cases/__init__.py`
+- **Snippet:**
+  ```python
+  # linkedin-apply/use_cases/match_job.py
+  class MatchJobUseCase:
+      def __init__(self, storage: StoragePort, matcher: MatcherPort):
+          self._storage = storage
+          self._matcher = matcher
+
+      async def execute(self, job: LinkedInJob, cv_data: dict) -> MatchResult:
+          existing = self._storage.find_existing_analysis(job.job_id)
+          if existing:
+              return self._storage.load_recap(job.job_id)
+          result = await self._matcher.match(job, cv_data)
+          self._storage.save_analysis(job.job_id, result)
+          return result
+  ```
+- **Verify:** `python -m pytest plugins/linkedin-apply/tests/test_use_cases.py` (deferred)
+- **Expected:** Business logic in use case classes; ports injected via constructor
+- **Time:** 8 min | **Difficulty:** 4
+- **Traces:** SC-U1, SC-U2
+- **Phase:** GREEN
+
+#### Task 29: Thin CLI shells for all migrated entrypoints → backend-dev
+- **File:** `plugins/vault/scripts/manage_vault.py`, `plugins/linkedin-apply/scripts/matcher.py`, `plugins/cv/scripts/generate_cv.py`
+- **Snippet:**
+  ```python
+  # manage_vault.py — thin shell
+  def main():
+      args = parse_args()
+      repo = SqliteEntryRepository(db_path)
+      search = Fts5SearchAdapter(db_path)
+
+      if args.command == "add":
+          uc = AddEntryUseCase(repo)
+          entry = uc.execute(args.category, args.type, args.title, args.content)
+          print(f"Added entry #{entry.id}")
+      elif args.command == "search":
+          uc = SearchEntriesUseCase(search)
+          results = uc.execute(args.query)
+          for r in results:
+              print(f"[{r.rank:.2f}] {r.entry.title}")
+  ```
+- **Verify:** `python plugins/vault/scripts/manage_vault.py stats` (deferred)
+- **Expected:** CLI entrypoints are parse → construct → call → format; identical output
+- **Time:** 8 min | **Difficulty:** 3
+- **Traces:** SC-U3
+- **Phase:** GREEN
+
+---
+
+### Cross-Cutting Verification
+
+These criteria are verified across all slices during implementation:
+
+- **SC-X1:** No raw dict crosses a port boundary → enforced by port signatures (all return domain objects)
+- **SC-X2:** No generic Exception in migrated code → grep verification per slice
+- **SC-X3:** All existing tests pass → `bun test && python -m pytest` after each slice
+- **SC-X4:** Each adapter has smoke test → Tasks 8, 12, 15, 20, 23
+- **SC-X5:** All __init__.py files present → Task 7
+- **SC-X6:** All shims carry @deprecated → Tasks 11, 18
+
+### Prerequisite: Phase 5 tracking issue
+
+Before Slice 7 merges, create a GitHub issue for SDK extraction + shim removal (spec prerequisite #3).
