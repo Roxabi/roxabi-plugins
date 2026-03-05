@@ -46,11 +46,8 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'reviewed')
     timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Enable auto-merge (squash)
-        run: gh pr merge "$PR_NUMBER" --auto --squash
+        run: gh pr merge "$PR_NUMBER" --auto --squash --repo "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: \${{ secrets.PAT }}
           PR_NUMBER: \${{ github.event.pull_request.number }}
@@ -61,13 +58,10 @@ jobs:
     if: github.event_name == 'push'
     timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Update all reviewed PRs targeting this branch
         run: |
           BRANCH="\${GITHUB_REF_NAME}"
-          PRS=$(gh pr list --base "$BRANCH" --label reviewed --state open --json number,headRefOid --jq '.[]')
+          PRS=$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$BRANCH" --label reviewed --state open --json number,headRefOid --jq '.[]')
           if [ -z "$PRS" ]; then
             echo "No reviewed PRs targeting $BRANCH"
             exit 0
