@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../../shared/github', () => ({
   run: vi.fn(),
   ghGraphQL: vi.fn(),
+  linkProjectToRepo: vi.fn(),
   parseProjectFields: (json: string) => {
     const data = JSON.parse(json) as {
       fields: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }>

@@ -44,6 +44,7 @@ const mockGhGraphQL = vi.hoisted(() => vi.fn(async () => ({ data: { node: { work
 
 vi.mock('../../shared/github', () => ({
   run: mockRun,
+  linkProjectToRepo: vi.fn(),
   parseProjectFields: (json: string) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = JSON.parse(json) as {
