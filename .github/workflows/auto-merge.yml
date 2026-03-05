@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Enable auto-merge (squash)
         run: gh pr merge "$PR_NUMBER" --auto --squash
@@ -44,7 +44,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Update all reviewed PRs targeting this branch
         run: |
@@ -71,7 +71,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Close issues referenced with closing keywords
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const body = context.payload.pull_request.body || '';
