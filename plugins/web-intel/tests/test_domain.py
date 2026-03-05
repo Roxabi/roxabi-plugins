@@ -37,6 +37,14 @@ def test_web_intel_exceptions_hierarchy():
     assert issubclass(ContentParseError, WebIntelError)
 
 
+def test_fetch_error_sanitizes_url():
+    from domain.exceptions import FetchError
+    err = FetchError("https://api.example.com/data?api_key=SECRET&token=XYZ", "timeout")
+    assert "SECRET" not in str(err)
+    assert "XYZ" not in str(err)
+    assert err.url == "https://api.example.com/data"
+
+
 def test_fetcher_port_is_abstract():
     from ports.fetcher import FetcherPort
     with pytest.raises(TypeError):

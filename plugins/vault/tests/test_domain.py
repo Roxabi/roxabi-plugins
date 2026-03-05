@@ -23,7 +23,7 @@ def test_vault_entry_default_metadata():
     from domain.models import VaultEntry
     e = VaultEntry(id=1, category="test", type="note", title="t", content="c",
                    created_at="2026-01-01", updated_at="2026-01-01")
-    assert e.metadata == ""
+    assert e.metadata == "{}"
 
 
 def test_search_result():
@@ -36,10 +36,10 @@ def test_search_result():
 
 
 def test_vault_exceptions_hierarchy():
-    from domain.exceptions import PluginError, VaultError, EntryNotFoundError, IndexError
+    from domain.exceptions import PluginError, VaultError, EntryNotFoundError, FtsIndexError
     assert issubclass(VaultError, PluginError)
     assert issubclass(EntryNotFoundError, VaultError)
-    assert issubclass(IndexError, VaultError)
+    assert issubclass(FtsIndexError, VaultError)
 
     with pytest.raises(PluginError):
         raise VaultError("test")
