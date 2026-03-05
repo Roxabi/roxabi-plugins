@@ -104,3 +104,34 @@ class TestFileStorageAdapter:
     def test_get_daily_count_no_applied(self, adapter):
         adapter.save_analysis(FakeJob(), FakeMatch())
         assert adapter.get_daily_count() == 0
+
+    def test_get_daily_count_with_applied_entries(self, adapter):
+        # Arrange — write an index entry with status='applied' and today's date
+        today_iso = datetime.now().isoformat()
+        entry = {
+            'job_id': 'applied-001',
+            'job_title': 'Engineer',
+            'company': 'Applied Corp',
+            'url': 'https://example.com',
+            'match_score': 7.0,
+            'match_decision': 'APPLY',
+            'status': 'applied',
+            'analyzed_at': today_iso,
+            'applied_at': today_iso,
+            'storage_path': '',
+        }
+        adapter._index_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(adapter._index_file, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(entry) + '\n')
+        # Act + Assert
+        assert adapter.get_daily_count() == 1
+
+    def test_list_applications_filter_month(self, adapter):
+        # Arrange — save an analysis (status='analyzed', analyzed_at=now)
+        adapter.save_analysis(FakeJob(), FakeMatch())
+        current_month = datetime.now().strftime('%Y-%m')
+        # Act
+        apps = adapter.list_applications(month=current_month)
+        # Assert — the saved application appears in results for the current month
+        assert len(apps) == 1
+        assert apps[0].job_id == 'test-123'

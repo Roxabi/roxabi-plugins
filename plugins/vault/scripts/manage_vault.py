@@ -90,8 +90,15 @@ def cmd_stats(args, repo):
     """Show vault statistics."""
     stats = repo.stats()
     db_path = get_db_path()
-    stats['db_size_bytes'] = db_path.stat().st_size if db_path.exists() else 0
-    print(json.dumps(stats, indent=2))
+    output = {
+        'total_entries': stats.total_entries,
+        'by_category': stats.by_category,
+        'by_type': stats.by_type,
+        'oldest_entry': stats.oldest_entry,
+        'newest_entry': stats.newest_entry,
+        'db_size_bytes': db_path.stat().st_size if db_path.exists() else 0,
+    }
+    print(json.dumps(output, indent=2))
 
 
 def cmd_export(args, repo):
@@ -173,10 +180,10 @@ def main():
         }), file=sys.stderr)
         sys.exit(1)
 
-    # Composition root — construct adapters
+    # Composition root — construct adapters (shared connection)
     db_path = get_db_path()
     repo = SqliteEntryRepository(db_path)
-    search = Fts5SearchAdapter(db_path)
+    search = Fts5SearchAdapter(db_path, conn=repo._get_conn())
 
     try:
         if args.command == 'add':

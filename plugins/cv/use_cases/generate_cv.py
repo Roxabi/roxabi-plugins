@@ -5,11 +5,10 @@ import sys
 from pathlib import Path
 
 _plugin_root = str(Path(__file__).resolve().parents[1])
-_repo_root = str(Path(__file__).resolve().parents[3])
-for _p in [_plugin_root, _repo_root]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if _plugin_root not in sys.path:
+    sys.path.insert(0, _plugin_root)
 
+from domain.exceptions import DataError
 from domain.models import CVConfig
 from ports.config import ConfigLoader
 
@@ -34,5 +33,5 @@ class GenerateCVUseCase:
         if lang_arg == 'all':
             return supported
         if lang_arg not in supported:
-            raise ValueError(f"unsupported language '{lang_arg}'. Supported: {', '.join(supported)}")
+            raise DataError(f"unsupported language '{lang_arg}'. Supported: {', '.join(supported)}")
         return [lang_arg]

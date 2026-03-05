@@ -5,11 +5,10 @@ import sys
 from pathlib import Path
 
 _plugin_root = str(Path(__file__).resolve().parents[1])
-_repo_root = str(Path(__file__).resolve().parents[3])
-for _p in [_plugin_root, _repo_root]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if _plugin_root not in sys.path:
+    sys.path.insert(0, _plugin_root)
 
+from domain.exceptions import VaultError
 from domain.models import SearchResult
 from ports.search import SearchPort
 
@@ -21,4 +20,6 @@ class SearchEntriesUseCase:
         self._search = search
 
     def execute(self, query: str, limit: int = 20) -> list[SearchResult]:
+        if not query.strip():
+            raise VaultError("query must not be empty")
         return self._search.search(query, limit=limit)

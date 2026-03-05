@@ -2,6 +2,9 @@
  * EnvConfigAdapter — concrete ConfigPort backed by process.env.
  */
 
+import type { ProjectFieldIds } from '../domain/types'
+import type { ConfigPort } from '../ports/config'
+import type { WorkspaceProject } from '../ports/workspace'
 import {
   detectGitHubRepo,
   FIELD_MAP,
@@ -11,10 +14,7 @@ import {
   resolvePriority,
   resolveSize,
   resolveStatus,
-} from '../config'
-import type { ProjectFieldIds } from '../domain/types'
-import type { ConfigPort } from '../ports/config'
-import type { WorkspaceProject } from '../ports/workspace'
+} from './config-helpers'
 
 export class EnvConfigAdapter implements ConfigPort {
   getRepo(): string {
@@ -30,7 +30,7 @@ export class EnvConfigAdapter implements ConfigPort {
   }
 
   resolveFieldIds(project: WorkspaceProject): ProjectFieldIds {
-    return resolveFieldIds(project as any)
+    return resolveFieldIds(project)
   }
 
   isProjectConfigured(): boolean {

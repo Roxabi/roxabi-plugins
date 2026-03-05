@@ -11,6 +11,7 @@ for p in [_plugin_root, _repo_root]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
+from domain.exceptions import VaultError
 from domain.models import VaultEntry, SearchResult
 from use_cases.add_entry import AddEntryUseCase
 from use_cases.search_entries import SearchEntriesUseCase
@@ -42,6 +43,26 @@ class TestAddEntryUseCase:
         mock_repo.add.assert_called_once_with('test', 'note', 'T', 'C', '{"key":"val"}')
         assert result.metadata == '{"key":"val"}'
 
+    def test_raises_on_empty_category(self):
+        uc = AddEntryUseCase(repo=MagicMock())
+        with pytest.raises(VaultError, match='category'):
+            uc.execute('', 'note', 'Title', 'Content')
+
+    def test_raises_on_empty_type(self):
+        uc = AddEntryUseCase(repo=MagicMock())
+        with pytest.raises(VaultError, match='type'):
+            uc.execute('test', '', 'Title', 'Content')
+
+    def test_raises_on_empty_title(self):
+        uc = AddEntryUseCase(repo=MagicMock())
+        with pytest.raises(VaultError, match='title'):
+            uc.execute('test', 'note', '', 'Content')
+
+    def test_raises_on_whitespace_only_category(self):
+        uc = AddEntryUseCase(repo=MagicMock())
+        with pytest.raises(VaultError, match='category'):
+            uc.execute('   ', 'note', 'Title', 'Content')
+
 
 class TestSearchEntriesUseCase:
 
@@ -64,3 +85,13 @@ class TestSearchEntriesUseCase:
         uc = SearchEntriesUseCase(search=mock_search)
         uc.execute('q', limit=5)
         mock_search.search.assert_called_once_with('q', limit=5)
+
+    def test_raises_on_empty_query(self):
+        uc = SearchEntriesUseCase(search=MagicMock())
+        with pytest.raises(VaultError, match='query'):
+            uc.execute('')
+
+    def test_raises_on_whitespace_only_query(self):
+        uc = SearchEntriesUseCase(search=MagicMock())
+        with pytest.raises(VaultError, match='query'):
+            uc.execute('   ')

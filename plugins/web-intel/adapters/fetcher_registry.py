@@ -8,6 +8,7 @@ _plugin_root = str(Path(__file__).resolve().parents[1])
 if _plugin_root not in sys.path:
     sys.path.insert(0, _plugin_root)
 
+from domain.exceptions import UnsupportedURLError
 from domain.models import FetchResult
 from ports.fetcher import FetcherPort
 
@@ -26,13 +27,12 @@ class FetcherRegistry:
         return None
 
     def fetch(self, url: str) -> FetchResult:
-        """Fetch content from URL using the appropriate fetcher."""
+        """Fetch content from URL using the appropriate fetcher.
+
+        Raises:
+            UnsupportedURLError: if no registered fetcher supports the URL.
+        """
         fetcher = self.get_fetcher(url)
         if fetcher is None:
-            return FetchResult(
-                success=False,
-                content_type='unknown',
-                url=url,
-                error='No fetcher supports this URL',
-            )
+            raise UnsupportedURLError(url)
         return fetcher.fetch(url)

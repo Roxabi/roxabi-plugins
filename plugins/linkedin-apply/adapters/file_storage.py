@@ -18,7 +18,7 @@ for _p in [_plugin_root, _repo_root]:
 
 from ports.storage import StoragePort
 from roxabi_sdk.paths import get_plugin_data, ensure_dir
-from scripts.storage import ApplicationRecap, slugify
+from domain.models import ApplicationRecap, slugify
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,10 @@ class FileStorageAdapter(StoragePort):
                 if entry.get('job_id') == job_id:
                     sp = entry.get('storage_path')
                     if sp:
-                        recap_file = Path(sp) / 'recap.json'
+                        resolved = Path(sp).resolve()
+                        if not resolved.is_relative_to(self._base_dir.resolve()):
+                            continue
+                        recap_file = resolved / 'recap.json'
                         if recap_file.exists():
                             return ApplicationRecap.from_dict(
                                 json.loads(recap_file.read_text(encoding='utf-8')))

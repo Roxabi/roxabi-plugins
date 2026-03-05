@@ -7,7 +7,7 @@ import {
   discoverProject as discoverProjectFn,
   readWorkspace as readWorkspaceFn,
   writeWorkspace as writeWorkspaceFn,
-} from '../workspace'
+} from './workspace-helpers'
 
 export class GitWorkspaceAdapter implements WorkspacePort {
   readWorkspace(): Workspace {

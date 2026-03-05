@@ -1,114 +1,21 @@
 /**
- * Workspace config helpers — vendored copy for plugin use.
- * Canonical source: cli/lib/workspace.ts
- * Keep in sync when making changes to workspace path logic.
- */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-
-export type ProjectType = 'technical' | 'company'
-
-/**
- * Per-project field ID map written by /init and read by update.ts / fetch.ts.
- * col2 and col3 are stable positional serialisation keys — they do NOT change
- * when the project type changes. Display labels for each slot are determined
- * at render time by columnLabel() in page.ts.
- */
-export interface ProjectFieldIds {
-  status: string
-  col2?: string
-  col3?: string
-  statusOptions?: Record<string, string>
-  col2Options?: Record<string, string>
-  col3Options?: Record<string, string>
-}
-
-export interface VercelProjectRef {
-  projectId: string
-  teamId: string
-}
-
-export interface WorkspaceProject {
-  repo: string // 'owner/name'
-  projectId: string // 'PVT_...'
-  label: string // display name shown in dashboard tab
-  type?: ProjectType // defaults to 'technical'
-  fieldIds?: ProjectFieldIds
-  vercelProjectId?: string // single Vercel project ID (legacy / single-project)
-  vercelTeamId?: string // Vercel team ID for single project
-  vercelProjects?: VercelProjectRef[] // multiple Vercel projects (overrides vercelProjectId)
-}
-
-export interface Workspace {
-  projects: WorkspaceProject[]
-}
-
-export function getWorkspacePath(): string {
-  const home = process.env.HOME
-  if (!home) throw new Error('HOME environment variable is not set')
-  const vault = `${home}/.roxabi-vault`
-  if (existsSync(vault)) return `${vault}/workspace.json`
-  return `${home}/.config/roxabi/workspace.json`
-}
-
-export function readWorkspace(): Workspace {
-  const p = getWorkspacePath()
-  if (!existsSync(p)) return { projects: [] }
-  try {
-    return JSON.parse(readFileSync(p, 'utf8')) as Workspace
-  } catch {
-    return { projects: [] }
-  }
-}
-
-export function writeWorkspace(ws: Workspace): void {
-  const p = getWorkspacePath()
-  const dir = p.substring(0, p.lastIndexOf('/'))
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true, mode: 0o700 })
-  }
-  writeFileSync(p, `${JSON.stringify(ws, null, 2)}\n`, { mode: 0o600 })
-}
-
-/**
- * Discover GitHub Projects linked to a repo via GraphQL.
- * Returns array of WorkspaceProject (may be 0, 1, or multiple).
+ * @deprecated Use GitWorkspaceAdapter from adapters/git-workspace.ts instead.
  *
- * Note: discovered projects intentionally omit `type` and `fieldIds`.
- * `type` defaults to `'technical'` at runtime. `fieldIds` falls back to
- * `.env` globals via resolveFieldIds(). Run /init to persist explicit
- * `fieldIds` for non-technical projects or multi-project workspaces.
+ * Workspace config helpers — vendored copy for plugin use.
+ * Retained as a shim for existing callers during migration.
+ * Re-exports pure logic from adapters/workspace-helpers.ts.
  */
-export async function discoverProject(repo: string): Promise<WorkspaceProject[]> {
-  const [owner, name] = repo.split('/')
-  if (!owner || !name) throw new Error(`Invalid repo format: '${repo}'. Use 'owner/name'.`)
 
-  const query = `query($owner: String!, $name: String!) {
-    repository(owner: $owner, name: $name) {
-      projectsV2(first: 10) { nodes { id title } }
-    }
-  }`
+// Re-export functions from the adapter layer
+export {
+  discoverProject,
+  getWorkspacePath,
+  readWorkspace,
+  writeWorkspace,
+} from './adapters/workspace-helpers'
+// Re-export types from canonical locations
+export type { ProjectFieldIds } from './domain/types'
+export type { VercelProjectRef, Workspace, WorkspaceProject } from './ports/workspace'
 
-  const token =
-    process.env.GITHUB_TOKEN ||
-    (() => {
-      const proc = Bun.spawnSync(['gh', 'auth', 'token'], { stdout: 'pipe', stderr: 'pipe' })
-      return new TextDecoder().decode(proc.stdout).trim()
-    })()
-  if (!token) throw new Error('Not authenticated. Run: gh auth login or set GITHUB_TOKEN env var')
-
-  const res = await fetch('https://api.github.com/graphql', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, variables: { owner, name } }),
-  })
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status} ${res.statusText}`)
-
-  const json = (await res.json()) as {
-    data: { repository: { projectsV2: { nodes: { id: string; title: string }[] } } }
-  }
-  return (json.data?.repository?.projectsV2?.nodes ?? []).map((n) => ({
-    repo,
-    projectId: n.id,
-    label: n.title,
-  }))
-}
+// ProjectType is not yet in ports/workspace — keep it here for backward compat
+export type ProjectType = 'technical' | 'company'

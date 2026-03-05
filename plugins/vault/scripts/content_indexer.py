@@ -18,8 +18,11 @@ Never raises — always fails gracefully.
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # plugin root
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
@@ -43,7 +46,8 @@ def index_content(category: str, entry_type: str, title: str, content: str,
             return entry.id
         finally:
             repo.close()
-    except Exception:
+    except Exception as e:
+        logger.warning("index_content failed: %s", e, exc_info=True)
         return None
 
 

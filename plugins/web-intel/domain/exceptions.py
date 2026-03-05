@@ -1,4 +1,5 @@
 """Web-intel exception hierarchy."""
+# TODO(#20): Consolidate into roxabi_sdk.exceptions when Phase 5 SDK extraction lands
 
 
 class PluginError(Exception):

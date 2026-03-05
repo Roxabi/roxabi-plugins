@@ -11,6 +11,7 @@ for p in [_plugin_root, _repo_root]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
+from domain.exceptions import DataError
 from domain.models import CVConfig
 from use_cases.generate_cv import GenerateCVUseCase
 
@@ -53,5 +54,5 @@ class TestGenerateCVUseCase:
         config = CVConfig(default_language='en', default_format='md',
                           supported_languages=('en', 'fr'))
         uc = GenerateCVUseCase(config_loader=MagicMock())
-        with pytest.raises(ValueError, match='unsupported'):
+        with pytest.raises(DataError, match='unsupported'):
             uc.resolve_languages('de', config)

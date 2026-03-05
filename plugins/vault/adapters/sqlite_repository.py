@@ -5,7 +5,8 @@ import json
 import sqlite3
 from pathlib import Path
 
-from domain.models import VaultEntry
+from domain.exceptions import StorageError
+from domain.models import VaultEntry, VaultStats
 from ports.repository import EntryRepository
 
 SCHEMA_SQL = """
@@ -75,81 +76,99 @@ class SqliteEntryRepository(EntryRepository):
 
     def add(self, category: str, type: str, title: str, content: str,
             metadata: str = "") -> VaultEntry:
-        conn = self._get_conn()
-        cursor = conn.execute(
-            'INSERT INTO entries (category, type, title, content, metadata) '
-            'VALUES (?, ?, ?, ?, ?)',
-            (category, type, title, content, metadata or '{}')
-        )
-        conn.commit()
-        row = conn.execute('SELECT * FROM entries WHERE id = ?',
-                           (cursor.lastrowid,)).fetchone()
-        return self._row_to_entry(row)
+        try:
+            conn = self._get_conn()
+            cursor = conn.execute(
+                'INSERT INTO entries (category, type, title, content, metadata) '
+                'VALUES (?, ?, ?, ?, ?)',
+                (category, type, title, content, metadata or '{}')
+            )
+            conn.commit()
+            row = conn.execute('SELECT * FROM entries WHERE id = ?',
+                               (cursor.lastrowid,)).fetchone()
+            return self._row_to_entry(row)
+        except sqlite3.Error as e:
+            raise StorageError(str(e)) from e
 
     def get(self, entry_id: int) -> VaultEntry | None:
-        conn = self._get_conn()
-        row = conn.execute('SELECT * FROM entries WHERE id = ?',
-                           (entry_id,)).fetchone()
-        return self._row_to_entry(row) if row else None
+        try:
+            conn = self._get_conn()
+            row = conn.execute('SELECT * FROM entries WHERE id = ?',
+                               (entry_id,)).fetchone()
+            return self._row_to_entry(row) if row else None
+        except sqlite3.Error as e:
+            raise StorageError(str(e)) from e
 
     def delete(self, entry_id: int) -> bool:
-        conn = self._get_conn()
-        cursor = conn.execute('DELETE FROM entries WHERE id = ?', (entry_id,))
-        conn.commit()
-        return cursor.rowcount > 0
+        try:
+            conn = self._get_conn()
+            cursor = conn.execute('DELETE FROM entries WHERE id = ?', (entry_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            raise StorageError(str(e)) from e
 
     def list(self, category: str | None = None, type: str | None = None,
              limit: int = 50) -> list[VaultEntry]:
-        conn = self._get_conn()
-        conditions, params = [], []
-        if category:
-            conditions.append('category = ?')
-            params.append(category)
-        if type:
-            conditions.append('type = ?')
-            params.append(type)
-        where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
-        sql = f'SELECT * FROM entries{where} ORDER BY updated_at DESC LIMIT ?'
-        params.append(limit)
-        rows = conn.execute(sql, params).fetchall()
-        return [self._row_to_entry(r) for r in rows]
+        try:
+            conn = self._get_conn()
+            conditions, params = [], []
+            if category:
+                conditions.append('category = ?')
+                params.append(category)
+            if type:
+                conditions.append('type = ?')
+                params.append(type)
+            where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+            sql = f'SELECT * FROM entries{where} ORDER BY updated_at DESC LIMIT ?'
+            params.append(limit)
+            rows = conn.execute(sql, params).fetchall()
+            return [self._row_to_entry(r) for r in rows]
+        except sqlite3.Error as e:
+            raise StorageError(str(e)) from e
 
-    def stats(self) -> dict:
-        conn = self._get_conn()
-        by_category = conn.execute(
-            'SELECT category, COUNT(*) as count FROM entries '
-            'GROUP BY category ORDER BY count DESC'
-        ).fetchall()
-        by_type = conn.execute(
-            'SELECT type, COUNT(*) as count FROM entries '
-            'GROUP BY type ORDER BY count DESC'
-        ).fetchall()
-        total = sum(row['count'] for row in by_category)
-        oldest, newest = conn.execute(
-            'SELECT MIN(created_at), MAX(created_at) FROM entries'
-        ).fetchone()
-        return {
-            'total_entries': total,
-            'by_category': {row['category']: row['count'] for row in by_category},
-            'by_type': {row['type']: row['count'] for row in by_type},
-            'oldest_entry': oldest,
-            'newest_entry': newest,
-        }
+    def stats(self) -> VaultStats:
+        try:
+            conn = self._get_conn()
+            by_category = conn.execute(
+                'SELECT category, COUNT(*) as count FROM entries '
+                'GROUP BY category ORDER BY count DESC'
+            ).fetchall()
+            by_type = conn.execute(
+                'SELECT type, COUNT(*) as count FROM entries '
+                'GROUP BY type ORDER BY count DESC'
+            ).fetchall()
+            total = sum(row['count'] for row in by_category)
+            oldest, newest = conn.execute(
+                'SELECT MIN(created_at), MAX(created_at) FROM entries'
+            ).fetchone()
+            return VaultStats(
+                total_entries=total,
+                by_category={row['category']: row['count'] for row in by_category},
+                by_type={row['type']: row['count'] for row in by_type},
+                oldest_entry=oldest,
+                newest_entry=newest,
+            )
+        except sqlite3.Error as e:
+            raise StorageError(str(e)) from e
 
     def export(self, category: str | None = None,
                type: str | None = None) -> list[VaultEntry]:
-        conn = self._get_conn()
-        conditions, params = [], []
-        if category:
-            conditions.append('category = ?')
-            params.append(category)
-        if type:
-            conditions.append('type = ?')
-            params.append(type)
-        where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
-        sql = f'SELECT * FROM entries{where} ORDER BY created_at ASC'
-        rows = conn.execute(sql, params).fetchall()
-        return [self._row_to_entry(r) for r in rows]
+        try:
+            conn = self._get_conn()
+            conditions, params = [], []
+            if category:
+                conditions.append('category = ?')
+                params.append(category)
+            if type:
+                conditions.append('type = ?')
+                params.append(type)
+            where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+            sql = f'SELECT * FROM entries{where} ORDER BY created_at ASC'
+            rows = conn.execute(sql, params).fetchall()
+            return [self._row_to_entry(r) for r in rows]
+        except sqlite3.Error as e:
+            raise StorageError(str(e)) from e
 
     def close(self) -> None:
         if self._conn:

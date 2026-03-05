@@ -19,7 +19,6 @@ class TestMatchJobUseCase:
 
     def test_returns_cached_when_existing(self):
         mock_storage = MagicMock()
-        mock_storage.find_existing_analysis.return_value = Path('/tmp/existing.json')
         mock_storage.load_recap.return_value = {'decision': 'APPLY', 'score': 8.5}
         mock_matcher = AsyncMock()
 
@@ -27,14 +26,13 @@ class TestMatchJobUseCase:
         job = MagicMock(job_id='job-1')
         result = asyncio.run(uc.execute(job, {'name': 'Test'}))
 
-        mock_storage.find_existing_analysis.assert_called_once_with('job-1')
         mock_storage.load_recap.assert_called_once_with('job-1')
         mock_matcher.match.assert_not_called()
         assert result == {'decision': 'APPLY', 'score': 8.5}
 
     def test_matches_and_saves_when_new(self):
         mock_storage = MagicMock()
-        mock_storage.find_existing_analysis.return_value = None
+        mock_storage.load_recap.return_value = None
         mock_storage.save_analysis.return_value = Path('/tmp/new.json')
         mock_matcher = AsyncMock()
         mock_matcher.match.return_value = MagicMock(decision='REVIEW')
@@ -49,7 +47,7 @@ class TestMatchJobUseCase:
 
     def test_passes_criteria(self):
         mock_storage = MagicMock()
-        mock_storage.find_existing_analysis.return_value = None
+        mock_storage.load_recap.return_value = None
         mock_matcher = AsyncMock()
         mock_matcher.match.return_value = MagicMock(decision='SKIP')
 

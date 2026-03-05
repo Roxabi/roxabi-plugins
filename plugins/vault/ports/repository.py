@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from domain.models import VaultEntry
+from domain.models import VaultEntry, VaultStats
 
 
 class EntryRepository(ABC):
@@ -14,7 +14,7 @@ class EntryRepository(ABC):
             metadata: str = "") -> VaultEntry: ...
 
     @abstractmethod
-    def get(self, entry_id: int) -> VaultEntry: ...
+    def get(self, entry_id: int) -> VaultEntry | None: ...
 
     @abstractmethod
     def delete(self, entry_id: int) -> bool: ...
@@ -24,8 +24,11 @@ class EntryRepository(ABC):
              limit: int = 50) -> list[VaultEntry]: ...
 
     @abstractmethod
-    def stats(self) -> dict: ...
+    def stats(self) -> VaultStats: ...
 
     @abstractmethod
     def export(self, category: str | None = None,
                type: str | None = None) -> list[VaultEntry]: ...
+
+    @abstractmethod
+    def close(self) -> None: ...

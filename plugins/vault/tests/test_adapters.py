@@ -101,9 +101,9 @@ class TestSqliteEntryRepository:
         repo.add('cat1', 'article', 'B', 'content')
         repo.add('cat2', 'note', 'C', 'content')
         stats = repo.stats()
-        assert stats['total_entries'] == 3
-        assert 'cat1' in stats['by_category']
-        assert stats['by_category']['cat1'] == 2
+        assert stats.total_entries == 3
+        assert 'cat1' in stats.by_category
+        assert stats.by_category['cat1'] == 2
 
     def test_export_all(self, repo):
         repo.add('cat1', 'note', 'A', 'content a')
@@ -128,13 +128,30 @@ class TestFts5SearchAdapter:
         assert isinstance(results[0].entry, VaultEntry)
 
     def test_search_no_match(self, search):
-        results = search.search('xyznonexistent')
-        # May return the setup entry or nothing depending on FTS
-        # Just verify it returns a list of SearchResult
-        assert isinstance(results, list)
+        results = search.search('zzznomatch_xyzabc_999')
+        assert len(results) == 0
 
     def test_search_with_limit(self, search, repo):
         for i in range(5):
             repo.add('test', 'note', f'Python topic {i}', f'Python content {i}')
         results = search.search('Python', limit=2)
         assert len(results) <= 2
+
+    def test_close_is_idempotent(self, search):
+        # Arrange — search adapter is already initialised by fixture
+        # Act + Assert — calling close() twice must not raise
+        search.close()
+        search.close()
+
+    def test_search_query_with_special_characters(self, search):
+        # Arrange — query contains a double-quote (FTS5 special char)
+        # Act + Assert — must return a list without raising an exception
+        results = search.search('quote"test')
+        assert isinstance(results, list)
+
+    def test_fts5_search_with_asterisk(self, search, repo):
+        # Arrange
+        repo.add('test', 'note', 'Testing asterisk', 'test content here')
+        # Act + Assert — wildcard query must not crash and must return a list
+        results = search.search('test*')
+        assert isinstance(results, list)

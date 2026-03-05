@@ -5,11 +5,10 @@ import sys
 from pathlib import Path
 
 _plugin_root = str(Path(__file__).resolve().parents[1])
-_repo_root = str(Path(__file__).resolve().parents[3])
-for _p in [_plugin_root, _repo_root]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if _plugin_root not in sys.path:
+    sys.path.insert(0, _plugin_root)
 
+from domain.exceptions import VaultError
 from domain.models import VaultEntry
 from ports.repository import EntryRepository
 
@@ -22,4 +21,10 @@ class AddEntryUseCase:
 
     def execute(self, category: str, type: str, title: str,
                 content: str, metadata: str = '') -> VaultEntry:
+        if not category.strip():
+            raise VaultError("category must not be empty")
+        if not type.strip():
+            raise VaultError("type must not be empty")
+        if not title.strip():
+            raise VaultError("title must not be empty")
         return self._repo.add(category, type, title, content, metadata)

@@ -11,6 +11,7 @@ for p in [_plugin_root, _repo_root]:
         sys.path.insert(0, p)
 
 from adapters.fetcher_registry import FetcherRegistry
+from domain.exceptions import UnsupportedURLError
 from domain.models import FetchResult
 from ports.fetcher import FetcherPort
 
@@ -67,8 +68,7 @@ class TestFetcherRegistry:
         assert result.success is True
         assert result.content_type == 'generic'
 
-    def test_fetch_returns_error_when_no_fetcher(self):
+    def test_fetch_raises_unsupported_url_when_no_fetcher(self):
         registry = FetcherRegistry([])
-        result = registry.fetch('https://example.com')
-        assert result.success is False
-        assert 'No fetcher' in result.error
+        with pytest.raises(UnsupportedURLError):
+            registry.fetch('https://example.com')

@@ -1,3 +1,4 @@
+// TODO: Add behavioral tests with mocked Bun.spawnSync and fetch
 import { describe, expect, it } from 'vitest'
 import { EnvConfigAdapter } from '../adapters/env-config'
 import { GitWorkspaceAdapter } from '../adapters/git-workspace'

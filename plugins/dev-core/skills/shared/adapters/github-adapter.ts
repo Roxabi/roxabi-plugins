@@ -21,7 +21,33 @@ import {
 const GITHUB_API = 'https://api.github.com'
 const GRAPHQL_URL = `${GITHUB_API}/graphql`
 
+export type ProjectFieldKey = 'status' | 'size' | 'priority'
+
+export interface ParsedField {
+  id: string
+  options: Record<string, string>
+}
+
+/** Parse gh project field-list JSON into a map of field key to {id, options}. */
+export function parseProjectFields(fieldsJson: string): Record<ProjectFieldKey, ParsedField | null> {
+  const result: Record<ProjectFieldKey, ParsedField | null> = { status: null, size: null, priority: null }
+  const fields = JSON.parse(fieldsJson) as {
+    fields: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }>
+  }
+  for (const f of fields.fields ?? []) {
+    const key = f.name.toLowerCase() as ProjectFieldKey
+    if (key === 'status' || key === 'size' || key === 'priority') {
+      const options: Record<string, string> = {}
+      for (const opt of f.options ?? []) options[opt.name] = opt.id
+      result[key] = { id: f.id, options }
+    }
+  }
+  return result
+}
+
 export class GitHubAdapter implements IssuePort, ProjectPort {
+  /** Parse gh project field-list JSON into a map of field key to {id, options}. */
+  static parseProjectFields = parseProjectFields
   #token: string | null = null
   #repo: string
   #projectId: string | null
@@ -74,12 +100,14 @@ export class GitHubAdapter implements IssuePort, ProjectPort {
 
     if (!res.ok) {
       const text = await res.text()
-      throw new Error(`GitHub GraphQL error (${res.status}): ${text}`)
+      console.debug(`GitHub GraphQL error body (${res.status}):`, text)
+      throw new Error(`GitHub GraphQL error: ${res.status}`)
     }
 
     const json = (await res.json()) as { errors?: { message: string }[] }
     if (json.errors?.length) {
-      throw new Error(`GitHub GraphQL error: ${JSON.stringify(json.errors)}`)
+      console.debug('GitHub GraphQL errors:', JSON.stringify(json.errors))
+      throw new Error(`GitHub GraphQL error: ${json.errors[0]?.message ?? 'unknown'}`)
     }
     return json
   }
@@ -91,7 +119,8 @@ export class GitHubAdapter implements IssuePort, ProjectPort {
     const code = await proc.exited
 
     if (code !== 0) {
-      throw new Error(`Command failed (${code}): ${cmd.join(' ')}\n${stderr}`)
+      console.debug(`Command failed (${code}): ${cmd.join(' ')}\n${stderr}`)
+      throw new Error(`gh command failed (exit ${code})`)
     }
     return stdout.trim()
   }
@@ -181,7 +210,8 @@ export class GitHubAdapter implements IssuePort, ProjectPort {
     })
     if (!res.ok) {
       const text = await res.text()
-      throw new Error(`Failed to get node ID for #${number} (${res.status}): ${text}`)
+      console.debug(`Failed to get node ID for #${number} (${res.status}):`, text)
+      throw new Error(`Failed to get node ID for #${number}: ${res.status}`)
     }
     const data = (await res.json()) as { node_id: string }
     return data.node_id
@@ -199,7 +229,8 @@ export class GitHubAdapter implements IssuePort, ProjectPort {
     })
     if (!res.ok) {
       const text = await res.text()
-      throw new Error(`Failed to create issue (${res.status}): ${text}`)
+      console.debug(`Failed to create issue (${res.status}):`, text)
+      throw new Error(`Failed to create issue: ${res.status}`)
     }
     const data = (await res.json()) as { html_url: string; number: number }
     return { url: data.html_url, number: data.number }
