@@ -74,7 +74,7 @@ function computeHash(
 /** Resolve the list of Vercel projects for a workspace entry. */
 function resolveVercelProjects(p: WorkspaceProject): VercelProjectRef[] {
   if (p.vercelProjects && p.vercelProjects.length > 0) return p.vercelProjects
-  if (p.vercelProjectId && p.vercelTeamId) return [{ projectId: p.vercelProjectId, teamId: p.vercelTeamId }]
+  // Legacy single-project fields removed — use vercelProjects[] array
   return []
 }
 
@@ -138,10 +138,9 @@ async function refreshCache(): Promise<void> {
       const wsProjects = ws.projects.map((p) => ({
         label: p.label,
         repo: p.repo,
+        projectId: p.projectId,
         type: p.type,
         fieldIds: p.fieldIds,
-        vercelProjectId: p.vercelProjectId,
-        vercelTeamId: p.vercelTeamId,
         vercelProjects: p.vercelProjects,
       })) as WorkspaceProject[]
       const html = buildHtml(
@@ -186,11 +185,11 @@ async function refreshCache(): Promise<void> {
     const wsProjects = ws.projects.map((p) => ({
       label: p.label,
       repo: p.repo,
+      projectId: p.projectId,
       type: p.type,
       fieldIds: p.fieldIds,
-      vercelProjectId: p.vercelProjectId,
-      vercelTeamId: p.vercelTeamId,
-    }))
+      vercelProjects: p.vercelProjects,
+    })) as WorkspaceProject[]
     const html = buildHtml(
       issues,
       prs,

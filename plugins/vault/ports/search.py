@@ -11,3 +11,6 @@ class SearchPort(ABC):
 
     @abstractmethod
     def search(self, query: str, limit: int = 20) -> list[SearchResult]: ...
+
+    @abstractmethod
+    def close(self) -> None: ...

@@ -1,6 +1,9 @@
 /**
+ * @deprecated Use GitHubAdapter from adapters/github-adapter.ts instead.
+ *
  * GitHub API helpers — shared across skills.
  * Uses direct fetch() against GitHub API with GITHUB_TOKEN.
+ * Retained as a shim for existing callers during migration.
  */
 
 import { GH_PROJECT_ID, GITHUB_REPO } from './config'
@@ -89,29 +92,8 @@ export async function ghGraphQL(query: string, variables: Record<string, string 
   return json
 }
 
-export type ProjectFieldKey = 'status' | 'size' | 'priority'
-
-export interface ParsedField {
-  id: string
-  options: Record<string, string>
-}
-
-/** Parse gh project field-list JSON into a map of field key to {id, options}. */
-export function parseProjectFields(fieldsJson: string): Record<ProjectFieldKey, ParsedField | null> {
-  const result: Record<ProjectFieldKey, ParsedField | null> = { status: null, size: null, priority: null }
-  const fields = JSON.parse(fieldsJson) as {
-    fields: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }>
-  }
-  for (const f of fields.fields ?? []) {
-    const key = f.name.toLowerCase() as ProjectFieldKey
-    if (key === 'status' || key === 'size' || key === 'priority') {
-      const options: Record<string, string> = {}
-      for (const opt of f.options ?? []) options[opt.name] = opt.id
-      result[key] = { id: f.id, options }
-    }
-  }
-  return result
-}
+// Re-export parseProjectFields from the adapter layer for backward compat
+export { type ParsedField, type ProjectFieldKey, parseProjectFields } from './adapters/github-adapter'
 
 /** Fetch issue numbers currently on a project board. */
 export async function getBoardIssueNumbers(owner: string, projectNumber: number): Promise<Set<number>> {

@@ -45,7 +45,11 @@ END;
 
 
 class VaultDB:
-    """SQLite+FTS5 vault database connection."""
+    """@deprecated Use SqliteEntryRepository from adapters/sqlite_repository.py instead.
+
+    SQLite+FTS5 vault database connection. Retained for backward compatibility
+    with vault-init and vault-migrate skills. New code should use adapters/.
+    """
 
     def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or (get_vault_home() / 'vault.db')

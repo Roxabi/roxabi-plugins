@@ -11,8 +11,17 @@ except ImportError:
     print('Error: Jinja2 is required. Install with: pip install jinja2', file=sys.stderr)
     sys.exit(1)
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
+_plugin_root = str(Path(__file__).resolve().parent.parent)
+_repo_root = str(Path(__file__).resolve().parents[3])
+for _p in [_plugin_root, _repo_root]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 from roxabi_sdk.paths import get_plugin_data, get_config, ensure_dir
+from adapters.json_config import JsonConfigLoader
+from domain.models import CVConfig
+from domain.exceptions import DataError
+from use_cases.generate_cv import GenerateCVUseCase
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / 'templates'
 _CV_DIR = get_plugin_data('cv')
@@ -108,7 +117,18 @@ def render(data: dict, fmt: str, lang: str, template: str = 'cv_template') -> st
 
 
 def main():
-    config = load_config()
+    # Composition root — construct adapter + use case
+    loader = JsonConfigLoader(CVConfig)
+    uc = GenerateCVUseCase(config_loader=loader)
+
+    config_path = get_config('cv')
+    try:
+        config = uc.load_config(config_path)
+    except Exception:
+        config = CVConfig(default_language='en', default_format='md',
+                          supported_languages=('en',))
+        print("Warning: 'default_language' missing from cv.json. Run /cv-init to update config.",
+              file=sys.stderr)
 
     parser = argparse.ArgumentParser(description='Generate CV from structured JSON data')
     parser.add_argument('--data', type=Path, default=DEFAULT_DATA,
@@ -116,7 +136,7 @@ def main():
     parser.add_argument('--output', type=Path, default=None,
                         help='Output file path (ignored when generating multiple files)')
     parser.add_argument('--format', choices=['md', 'html', 'all'],
-                        default=config['default_format'],
+                        default=config.default_format,
                         help='Output format (default: from config)')
     parser.add_argument('--lang', default=None,
                         help='Language: fr, en, or all (default: from config)')
@@ -124,7 +144,11 @@ def main():
                         help='Template name without extension (default: cv_template, rich: cv_template_rich)')
     args = parser.parse_args()
 
-    langs = resolve_languages(args.lang, config)
+    try:
+        langs = uc.resolve_languages(args.lang, config)
+    except DataError as e:
+        print(f'Error: {e}', file=sys.stderr)
+        sys.exit(1)
     formats = ['md', 'html'] if args.format == 'all' else [args.format]
 
     data = load_data(args.data)

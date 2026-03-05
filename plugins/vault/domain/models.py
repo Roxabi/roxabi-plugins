@@ -22,3 +22,13 @@ class SearchResult:
     """A search result pairing a vault entry with its relevance rank."""
     entry: VaultEntry
     rank: float
+
+
+@dataclass(frozen=True)
+class VaultStats:
+    """Aggregate statistics for the vault."""
+    total_entries: int
+    by_category: dict[str, int]
+    by_type: dict[str, int]
+    oldest_entry: str | None
+    newest_entry: str | None
