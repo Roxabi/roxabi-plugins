@@ -1,6 +1,6 @@
 ---
 name: dev
-argument-hint: '[#N | "idea" | --from <step>]'
+argument-hint: '[#N | "idea" | --from <step> | --audit]'
 description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "develop".
 version: 0.2.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill
@@ -26,9 +26,13 @@ Single entry point for the full dev lifecycle. Scans artifacts → detects state
 /dev #42             → resume/start from issue number
 /dev "dark mode"     → find or create issue, then start
 /dev #42 --from spec → jump to specific step (warn if deps missing)
+/dev #42 --audit     → enable reasoning checkpoint before critical steps
+/dev --cleanup-context → audit & clean CLAUDE.md, skills, memory (delegates to /cleanup-context)
 ```
 
 ## Step 0 — Parse Input
+
+`--cleanup-context` ⇒ ∃ other flags → warn "Other flags ignored when --cleanup-context is used." Delegate: `skill: "cleanup-context"`. **Stop** (¬enter dev loop).
 
 `#N` ⇒ fetch issue:
 ```bash
@@ -195,6 +199,23 @@ Walk STEPS:
 | S* == plan (Σ.spec ∧ ¬Σ.plan) | Gate after plan runs |
 | S* == pr (Σ.implement ∧ ¬Σ.pr) | Confirm ready for PR |
 | S* == review | Post-review gate handled inside /review |
+
+## Step 6b — Reasoning Audit (optional)
+
+**Trigger:** `--audit` flag ∨ `workflow.reasoning_audit` list in `stack.yml` includes S*.
+
+audit_enabled ⟺ `--audit` flag ∨ S* ∈ stack.yml `workflow.reasoning_audit` list.
+critical_steps := {spec, plan, implement}.
+
+audit_enabled ∧ S* ∈ critical_steps → present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) template, using field guidance for S*.
+
+**Merge rule:** if Step 6 already produced a gate for S* (spec, plan), the reasoning audit **replaces** the Step 6 gate — show audit display + single combined AskUserQuestion. ¬present two consecutive prompts for the same step.
+
+→ AskUserQuestion: **Proceed** | **Adjust approach** (max 3 rounds) | **Abort step** (→ mark skipped, return to Step 5)
+
+¬audit_enabled ∨ S* ∉ critical_steps → skip directly to Step 7 (Step 6 gate still applies independently).
+
+**Important:** ¬pass `--audit` to child skill invocations in Step 7. The audit gate fires here (orchestrator level) only. Child skills have their own `--audit` for standalone use — ¬double-gate.
 
 ## Step 7 — AskUserQuestion Loop
 

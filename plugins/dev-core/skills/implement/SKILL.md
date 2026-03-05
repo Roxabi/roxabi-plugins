@@ -1,6 +1,6 @@
 ---
 name: implement
-argument-hint: '[--issue <N> | --plan <path>]'
+argument-hint: '[--issue <N> | --plan <path> | --audit]'
 description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "implement" | "build this" | "execute plan" | "start coding".
 version: 0.2.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill
@@ -21,6 +21,7 @@ Plan → worktree → agents (test-first) → passing quality gate.
 ```
 /implement --issue 42        Execute plan for issue #42
 /implement --plan artifacts/plans/42-dark-mode-plan.mdx   Execute from explicit plan path
+/implement --issue 42 --audit   Show reasoning checkpoint before coding
 ```
 
 Does NOT create a PR — that is `/pr` (next step).
@@ -106,6 +107,14 @@ Template: "Read `{doc}` sections: {sections}. Read `{ref_file}` for conventions.
 | devops, security-auditor, doc-writer | ∅ | ✗ |
 
 Reference file paths come from `/plan` Step 3 (ref patterns). Inject the 1-2 ref files stored there.
+
+## Step 3b — Reasoning Audit (optional)
+
+`--audit` flag → present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) (implement guidance). Read plan/spec in full before presenting audit.
+
+→ AskUserQuestion: **Proceed** | **Adjust approach** | **Abort**
+
+¬`--audit` → skip to Step 4.
 
 ## Step 4 — Implement
 

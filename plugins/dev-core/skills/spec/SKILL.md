@@ -1,6 +1,6 @@
 ---
 name: spec
-argument-hint: '[--issue <N> | --analysis <path> | --frame <path>]'
+argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit]'
 description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build".
 version: 0.2.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill
@@ -61,6 +61,14 @@ Capture returned issue #N.
 Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*` — match issue# or slug keywords.
 
 ∃ σ → AskUserQuestion: **Reuse existing** (→ Step 3 Pre-check) | **Start fresh**
+
+## Step 1b — Reasoning Audit (optional)
+
+`--audit` flag → after reading source document (Step 0), present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) (spec guidance).
+
+→ AskUserQuestion: **Proceed** | **Adjust approach** | **Abort**
+
+¬`--audit` → skip to Step 2.
 
 ## Step 2 — Generate Spec
 

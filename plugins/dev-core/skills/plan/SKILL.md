@@ -1,6 +1,6 @@
 ---
 name: plan
-argument-hint: '[--issue <N> | --spec <path>]'
+argument-hint: '[--issue <N> | --spec <path> | --audit]'
 description: Implementation plan — tasks, agents, file groups, dependencies. Triggers: "plan" | "plan this" | "implementation plan" | "break it down".
 version: 0.2.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task
@@ -18,8 +18,9 @@ Spec → micro-tasks → agent assignments → plan artifact.
 **⚠ Flow: single continuous pipeline. ¬stop between steps. AskUserQuestion response → immediately execute next step. Stop only on: Cancel/Abort or Step 6 completion.**
 
 ```
-/plan --issue 42      Generate plan from spec for issue #42
-/plan --spec artifacts/specs/42-dark-mode-spec.mdx   Generate plan from explicit spec path
+/plan --issue 42         Generate plan from spec for issue #42
+/plan --spec path        Generate plan from explicit spec path
+/plan --issue 42 --audit Show reasoning checkpoint before planning
 ```
 
 ## Step 1 — Locate Spec
@@ -36,6 +37,14 @@ count > 0 → AskUserQuestion: **Resolve now** | **Return to spec** | **Proceed 
 ## Step 2 — Plan
 
 Read `docs/processes/dev-process.mdx` + σ.
+
+### Step 2a-pre — Reasoning Audit (optional)
+
+`--audit` flag → after reading σ, present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) (plan guidance).
+
+→ AskUserQuestion: **Proceed** | **Adjust approach** | **Abort**
+
+¬`--audit` → continue to Step 2a.
 
 **2a. Scope:** Glob + Grep → files to create/modify + reference features for patterns.
 

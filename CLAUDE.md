@@ -48,7 +48,7 @@ The file has two parts: a YAML frontmatter header and a markdown body with instr
 
 **Frontmatter (required fields):**
 
-- `name` — the skill identifier, in kebab-case (e.g. `memory-audit`)
+- `name` — the skill identifier, in kebab-case (e.g. `compress`)
 - `description` — one-line purpose followed by `Triggers: "phrase1" | "phrase2"`. This is how Claude decides when to activate the skill, so be specific
 - `version` — semantic version starting at `0.1.0`
 - `allowed-tools` — comma-separated list of tools the skill can use (e.g. `Read, Edit, Write, Bash, Glob`). **Never include `AskUserQuestion`** — it is not a valid tool and will cause a bug.
@@ -57,8 +57,8 @@ The file has two parts: a YAML frontmatter header and a markdown body with instr
 
 ```yaml
 ---
-name: memory-audit
-description: 'Audit and drain Claude Code auto-memory — every entry gets resolved (fix/promote/relocate/delete), target is memory=0. Triggers: "memory-audit" | "audit memory" | "clean memory" | "prune memory" | "drain memory".'
+name: compress
+description: 'Rewrite agent/skill definitions using compact math/logic notation. Triggers: "compress" | "compress skill" | "shorten this" | "make it formal".'
 version: 0.1.0
 allowed-tools: Read, Edit, Write, Bash, Glob
 ---
@@ -83,7 +83,7 @@ Create `plugins/<plugin-name>/README.md` in plain English. This is for humans br
 - When to use it (typical scenarios)
 - How it works (brief explanation of the approach, no code notation)
 
-See `plugins/memory-audit/README.md` for an example.
+See `plugins/compress/README.md` for an example.
 
 ### Step 4 — Register the plugin in marketplace.json
 

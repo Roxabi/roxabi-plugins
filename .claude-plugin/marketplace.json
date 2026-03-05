@@ -8,12 +8,6 @@
   },
   "plugins": [
     {
-      "name": "memory-audit",
-      "description": "Drain auto-memory to zero — every entry gets resolved (fix/promote/relocate/delete) with audit logging and recurrence detection.",
-      "source": "./plugins/memory-audit",
-      "category": "maintenance"
-    },
-    {
       "name": "compress",
       "description": "Rewrite agent and skill definitions using compact math/logic notation to reduce token usage while preserving semantics.",
       "source": "./plugins/compress",

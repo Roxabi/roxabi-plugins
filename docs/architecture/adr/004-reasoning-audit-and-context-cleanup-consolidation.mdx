@@ -1,0 +1,96 @@
+---
+title: "ADR-004: Reasoning Audit Gates and Context Cleanup Consolidation"
+description: Establish where reasoning audit checkpoints fire in the dev orchestrator, how the audit template is owned, where workflow behavioural config lives in stack.yml, and whether memory-audit should be consolidated into dev-core or kept standalone.
+---
+
+## Status
+
+Accepted
+
+## Context
+
+Issue #16 introduced two related changes to the dev-core plugin:
+
+1. **Reasoning audit** — an opt-in checkpoint (`--audit` flag or `reasoning_audit` in stack.yml) that forces the orchestrating agent to articulate its understanding, key files, approach, and risks before executing a critical step (spec, plan, implement). The goal is to surface misunderstandings before they become expensive to fix, and to reduce sycophantic "proceed immediately" behaviour.
+
+2. **Context cleanup consolidation** — the standalone `memory-audit` plugin was deleted and its functionality (plus a broader scope covering CLAUDE.md contradictions, staleness, redundancy, and bloat) was rewritten as `cleanup-context`, a skill inside dev-core. The dev orchestrator gained a `--cleanup-context` shortcut that delegates and stops.
+
+These two changes raise five architectural questions:
+
+- Where should Step 6b (Reasoning Audit) sit relative to the existing Gate Check (Step 6) in /dev?
+- Does the `--cleanup-context` early-exit shortcut break the orchestrator contract?
+- Should the reasoning audit template be inline in each skill or extracted to a shared reference?
+- Where does `reasoning_audit` config belong in stack.yml?
+- Is consolidating memory-audit into dev-core the right call, given the impact on standalone installability?
+
+## Options Considered
+
+### Option A: Reasoning audit as a distinct sub-step (Step 6b), inline template, top-level stack.yml key (current implementation)
+
+The audit fires after the gate check and before the AskUserQuestion loop. The four-field template (Understanding / Key files / Approach / Risks) is duplicated in each skill. `reasoning_audit` is a bare top-level key in stack.yml.
+
+- **Pros:** Placement is sequentially natural — gate confirms readiness, audit captures reasoning. Each skill is fully self-contained. Simple initial implementation.
+- **Cons:** Gate Check (Step 6) and Reasoning Audit (Step 6b) can produce two consecutive user-facing approval prompts for the same step, creating a double-interrupt. Template duplication across four files creates a maintenance surface. Top-level orphan key breaks stack.yml's structural grammar.
+
+### Option B: Audit merged into Gate Check, shared reference template, workflow-namespaced config key
+
+Collapse Step 6b into Step 6: each gate row gains an optional reasoning audit block when `audit_enabled`. Extract the template to `skills/shared/references/reasoning-audit.md`. Nest the config under `workflow.reasoning_audit`.
+
+- **Pros:** Eliminates the double-interrupt. Single source of truth for the template. Config placement is consistent with other structured sections.
+- **Cons:** Gate table becomes more complex. Merging the gate and audit makes it harder to disable one without the other. More refactoring effort.
+
+### Option C (hybrid, recommended): Keep Step 6b as a sub-step, add double-interrupt guard, extract template, nest config under workflow
+
+Keep the structural separation of Gate Check and Reasoning Audit (they serve different purposes — the gate checks artifact state, the audit checks agent understanding), but add an explicit rule: if Step 6 already produced an approval gate for S*, the reasoning audit absorbs the confirmation rather than adding a second prompt. Extract the template to a shared reference. Move `reasoning_audit` under a new `workflow:` section.
+
+- **Pros:** Preserves the conceptual separation. Eliminates the double-interrupt in practice. Reduces template drift. Config structure remains consistent.
+- **Cons:** Adds a merge-or-skip rule to Step 6b that the agent must follow.
+
+### Option D (standalone audit skill): Extract reasoning audit to its own skill
+
+Move the reasoning audit entirely out of the orchestrator and individual skills into a standalone `/audit` skill that any skill can invoke.
+
+- **Pros:** Maximum reuse. Clean separation.
+- **Cons:** Requires a skill-invocation round-trip on every critical step. Adds latency and context switching. Overengineered for the current use case (four skills, one template).
+
+### Option E (memory-audit consolidation): Keep memory-audit as a standalone plugin, add cleanup-context to dev-core separately
+
+Publish cleanup-context as a dev-core skill for the `/dev --cleanup-context` shortcut, but also keep (or restore) a standalone marketplace entry pointing at the same source.
+
+- **Pros:** Users who do not use dev-core retain a lightweight install path for context maintenance. Marketplace discoverability is preserved.
+- **Cons:** Two marketplace entries pointing to the same underlying skill requires documentation discipline. Risk of the entries diverging.
+
+## Decision
+
+**Reasoning audit placement:** Accept the current Step 6b placement (after Gate Check, before AskUserQuestion Loop) as structurally correct. Add a double-interrupt guard: when `audit_enabled` and S* already triggers a Step 6 gate, the reasoning audit display replaces the gate confirmation — do not present both.
+
+**Template ownership:** Extract the reasoning audit template to `plugins/dev-core/skills/shared/references/reasoning-audit.md`. Each skill references it by name and keeps only its skill-specific header label inline. This is the standard pattern used by other shared references in dev-core.
+
+**stack.yml config placement:** Move `reasoning_audit` from a top-level orphan key into a new `workflow:` section. This section is the canonical home for behavioural flags that control orchestrator behaviour (e.g. future `workflow.auto_cleanup`, `workflow.require_frame`). The key becomes `workflow.reasoning_audit`.
+
+**Context cleanup consolidation:** Accept the consolidation of memory-audit into cleanup-context inside dev-core as architecturally correct — the broader scope (contradictions, staleness, redundancy) is a genuine improvement over the original memory-only scope. To restore standalone installability, add a second marketplace entry for cleanup-context pointing at the dev-core plugin source. One implementation, two install paths.
+
+**--cleanup-context flag handling:** Add an explicit guard in Step 0 of /dev: if `--cleanup-context` is present alongside other flags, warn that all other flags are ignored before delegating.
+
+**Reasoning audit timing in child skills:** Move the audit blocks in /plan and /implement to fire after the spec or plan is fully read into context. In /plan, Step 1b becomes Step 2b (after Step 2 reads the spec). In /implement, Step 3b fires after Step 3 injects reference files and any pre-audit codebase scan.
+
+## Consequences
+
+### Positive
+
+- Double-interrupt eliminated: users get one decision point per critical step, not two.
+- Template changes propagate from one file to all four skills automatically.
+- stack.yml gains a `workflow:` section that can absorb future behavioural flags without structural violations.
+- Context cleanup is available both as a dev-core integrated shortcut and as a standalone install, preserving the marketplace's original discoverability model.
+- Reasoning audit content will be more accurate because it fires after the agent has read the relevant artifacts.
+
+### Negative
+
+- Step 6b gains a conditional merge rule that adds prompt-engineering complexity to the orchestrator.
+- Adding a second marketplace entry for cleanup-context requires keeping descriptions and README in sync with the dev-core plugin.
+- Moving audit blocks in /plan and /implement requires a minor re-ordering of steps in those skills.
+
+### Neutral
+
+- The `workflow:` section in stack.yml is new; `/doctor` and `/init` will need to be updated to validate and generate it.
+- Existing users who have `reasoning_audit` at the top level in their `.claude/stack.yml` will need to migrate to `workflow.reasoning_audit` — a one-line change.

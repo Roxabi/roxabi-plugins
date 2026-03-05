@@ -70,6 +70,11 @@ commands:
   format: "bunx biome check --write"
   install: bun install
 
+# Workflow behaviour flags for the /dev orchestrator.
+# workflow:
+#   reasoning_audit: [implement, plan]  # steps where agent shows reasoning before execution
+                                         # Valid steps: spec, plan, implement. Omit to disable.
+
 # Directories where dev-core agents write structured artifacts.
 # All paths are relative to the project root.
 artifacts:
