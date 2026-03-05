@@ -1,1 +1,1 @@
-{ "title": "ADRs", "pages": ["001-user-data-storage-convention-roxabi-vault", "002-cli-plugin-boundary-multi-project-workspace", "003-typed-workspace-projects-field-resolution", "004-reasoning-audit-and-context-cleanup-consolidation"] }
+{ "title": "ADRs", "pages": ["001-user-data-storage-convention-roxabi-vault", "002-cli-plugin-boundary-multi-project-workspace", "003-typed-workspace-projects-field-resolution", "004-reasoning-audit-and-context-cleanup-consolidation", "005-clean-architecture-hexagonal-migration"] }

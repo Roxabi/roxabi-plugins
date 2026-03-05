@@ -1,0 +1,101 @@
+---
+title: "ADR-005: Clean Architecture & Hexagonal Migration — Boundary Decisions"
+description: Documents the port/adapter/domain boundary decisions, shim strategy, composition root rules, and Phase 5 SDK gate for the cross-plugin Clean Architecture migration (issue #20).
+---
+
+## Status
+
+Accepted
+
+## Context
+
+GitHub issue #20 identified eight structural pain points across the plugin codebase (Python + TypeScript): untyped data crossing boundaries, no repository pattern, hardcoded dispatch, generic exceptions, duplicated `_lib/paths.py` (5× vendored), mixed GitHub API access patterns, absent config validation, and no use case layer.
+
+Three migration shapes were evaluated in the approved analysis:
+
+- **Shape 1 — Bottom-Up Foundation** (recommended): domain models and port interfaces first (zero runtime change), then adapter wrapping plugin-by-plugin, then use case extraction.
+- **Shape 2 — Plugin-by-Plugin Vertical Slices**: fully migrate one plugin before the next.
+- **Shape 3 — Extract SDK First**: build shared SDK package upfront, then migrate consumers.
+
+Spec #20 chose Shape 1. This ADR records the boundary and wiring decisions that the architectural review confirmed, and documents the open questions resolved during that review.
+
+## Options Considered
+
+### Option A: Single wide GitHubPort interface
+
+One `GitHubPort` interface covering all REST, GraphQL, and CLI operations. `GitHubAdapter` implements it.
+
+- **Pros:** Simple — one import, one adapter, no fan-out.
+- **Cons:** 15+ methods; skills that only need issue reads must declare a dependency on all project/field/sub-issue mutations; interface becomes a God Port; mocking in tests requires implementing every method.
+
+### Option B: Role interfaces (IssuePort + ProjectPort + WorkspacePort)
+
+Split by caller role: `IssuePort` for issue CRUD (REST-backed), `ProjectPort` for project fields and sub-issues (GraphQL-backed), `WorkspacePort` for git and worktree operations (CLI-backed). `GitHubAdapter` implements `IssuePort` and `ProjectPort`; `GitWorkspaceAdapter` implements `WorkspacePort`.
+
+- **Pros:** Dependencies are explicit per skill. Mocking is scoped. Interface sizes are manageable (6–8 methods each). Skills that never touch projects are not coupled to project mutations.
+- **Cons:** Two imports instead of one when a skill needs both. `GitHubAdapter` is a two-role class (standard but needs discipline to avoid accumulation).
+
+### Option C: Separate adapters per transport (RestAdapter, GraphQLAdapter, CliAdapter)
+
+- **Pros:** Perfect transport isolation.
+- **Cons:** Skills must know which transport a given operation uses — leaks infrastructure details into the skill layer. Composition root becomes complex.
+
+## Decision
+
+**Option B (role interfaces) is adopted** for the TypeScript (dev-core) layer.
+
+`GitHubAdapter` implements `IssuePort` and `ProjectPort` because both use the same underlying `api.github.com` transport (REST + GraphQL on the same host with the same auth token). CLI-backed operations (`run(['gh', ...])`) that grow beyond utility calls must go into a separate `GhCliAdapter`, not be added to `GitHubAdapter`. This cap prevents accumulation.
+
+`WorkspacePort` is separate because it wraps git/worktree operations, not GitHub API calls, and has a different failure surface.
+
+For Python plugins:
+
+- `EntryRepository` + `SearchPort` are the vault ports (write/read separation across different underlying mechanisms — SQL vs FTS5).
+- `FetcherPort` is a new thin interface (`supports(url) → bool`, `fetch(url) → FetchResult`) sitting above `BaseFetcher`. `BaseFetcher` is demoted to internal infrastructure base class.
+- `StoragePort` covers `save_analysis`, `load_recap`, `list_applications`. `get_stats`, `get_daily_count`, and `find_existing_analysis` are also on `StoragePort` — any caller that needs them must receive `StoragePort`, not `FileStorageAdapter`, to preserve dependency inversion.
+- `ConfigLoader[T]` is a generic ABC — `cv` specialises it as `ConfigLoader[CVConfig]`, `image-prompt-generator` as `ConfigLoader[VisualCharter]`. This avoids a shared untyped dict crossing the port boundary.
+
+### Shim strategy
+
+Existing infrastructure files (`VaultDB`, `github.ts`, `config.ts`, `workspace.ts`) are kept as shims that delegate to the new adapters. Shims are removed only after all consumers have migrated **and** the Phase 5 SDK is in place. Because `get-invoice-details` cannot migrate without a cross-plugin import mechanism (which requires the SDK), shim removal in vault is explicitly gated on Phase 5 completion.
+
+### Composition root rules
+
+1. The composition root for each Python plugin is the CLI entrypoint script (`manage_vault.py`, `scraper.py`, `generate_cv.py`). It constructs concrete adapters and passes them to use cases or business logic through port interfaces.
+2. After Slice 2, `manage_vault.py` must no longer contain direct `db.conn.execute(...)` calls. All SQL goes through `SqliteEntryRepository`. "Works identically" in the Slice 2 success criterion means "through the adapter, raw SQL bypasses removed."
+3. For linkedin-apply, the composition root after Slice 3 is `scraper.py` (linkedin-apply's own scraper, not web-intel's). It constructs `FileStorageAdapter` and passes it to both the matching and storage call sites. The Breadboard must name this file explicitly.
+4. For dev-core TypeScript, `dashboard.ts` is the composition root for the dashboard. Individual skill entry `.ts` files are each a composition root for their skill. The `GitHubAdapter` constructor calls `getToken()` internally — the shim (`github.ts`) must not trigger eager env reads at import time after Slice 4.
+
+### Redirect resolution placement (web-intel)
+
+`scrape_content()`'s redirect orchestration (`is_shortener`, `resolve_redirects`, recursive re-routing) is use-case logic. After Slice 5 (adapter extraction), it remains in `scraper.py` as pre-adapter orchestration. After Slice 7 (use case extraction), it moves into `ScrapeUseCase`. It does not belong in `FetcherRegistry` (infrastructure) or in a thin CLI shell.
+
+### Per-plugin base exceptions
+
+Phase 1 creates per-plugin base exceptions (`VaultError`, `FetchError`, etc.) inheriting from a local `PluginError` defined in each plugin's own `domain/exceptions.py`. The cross-plugin common `PluginError` base is a Phase 5 (SDK) concern. Until Phase 5, "shared `PluginError`" means per-plugin, not cross-plugin.
+
+### Phase 5 SDK gate
+
+Phase 5 (SDK extraction: canonical `paths.py`, shared exception base, cross-plugin port imports) is deferred. A tracking issue for Phase 5 must be opened before Slice 7 is merged. Without this gate, `get-invoice-details` remains permanently stranded on raw sqlite3 access to vault.db from a foreign plugin directory, and the shim removal in vault cannot complete.
+
+## Consequences
+
+### Positive
+
+- Role interfaces keep per-skill dependency surface small and mocking tractable.
+- The shim strategy makes migration incremental — no big-bang cut-over.
+- Generic `ConfigLoader[T]` preserves type safety across both config-loading plugins without a shared package.
+- Composition root rules prevent business logic from creeping into CLI entrypoints during Phase 4.
+- The Phase 5 gate ensures the largest concrete pain (5× vendored `paths.py`) has a committed resolution path.
+
+### Negative
+
+- Skills that need both `IssuePort` and `ProjectPort` must import and construct two adapters (or receive two injected ports). Minor verbosity cost at composition roots.
+- `GitHubAdapter` implementing two role interfaces is a pattern that requires discipline: a rule against adding CLI-backed operations to `GitHubAdapter` must be enforced in code review, not by the type system.
+- Deferring the shared `PluginError` base means cross-plugin exception handling (e.g., vault errors surfacing in `get-invoice-details`) remains untyped until Phase 5.
+
+### Neutral
+
+- `content_indexer.py` in vault is in scope for Slice 2 — it accesses VaultDB directly and must route through `SqliteEntryRepository` post-migration. It is not a separate slice.
+- `FetchResult.to_dict()` must produce the same keys as the current `scrape_content()` return dict (`success`, `content_type`, `url`, `resolved_url`, `data`, `error`, `raw`) to preserve the CLI JSON contract for skill callers.
+- Module-level globals in `storage.py` (`APPLICATIONS_DIR`, `INDEX_FILE` at lines 60–61) must be moved into `FileStorageAdapter.__init__` so the path is resolved at construction time, not at import time.
