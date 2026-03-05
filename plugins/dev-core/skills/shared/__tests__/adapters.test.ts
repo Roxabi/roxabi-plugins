@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'vitest'
-import { GitHubAdapter } from '../adapters/github-adapter'
+import { describe, expect, it } from 'vitest'
 import { EnvConfigAdapter } from '../adapters/env-config'
 import { GitWorkspaceAdapter } from '../adapters/git-workspace'
+import { GitHubAdapter } from '../adapters/github-adapter'
+import type { ConfigPort } from '../ports/config'
 import type { IssuePort } from '../ports/issue'
 import type { ProjectPort } from '../ports/project'
-import type { ConfigPort } from '../ports/config'
 import type { WorkspacePort } from '../ports/workspace'
 
 describe('GitHubAdapter', () => {

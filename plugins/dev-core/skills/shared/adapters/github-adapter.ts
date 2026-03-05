@@ -3,7 +3,7 @@
  * Wraps GitHub REST + GraphQL APIs.
  */
 import type { Issue } from '../domain/types'
-import type { IssuePort, IssueFilters } from '../ports/issue'
+import type { IssueFilters, IssuePort } from '../ports/issue'
 import type { ProjectPort } from '../ports/project'
 import {
   ADD_BLOCKED_BY_MUTATION,
@@ -100,12 +100,20 @@ export class GitHubAdapter implements IssuePort, ProjectPort {
 
   async getIssue(number: number): Promise<Issue> {
     const json = await this.run([
-      'gh', 'issue', 'view', String(number),
-      '--repo', this.#repo,
-      '--json', 'number,title,url,state,labels,assignees',
+      'gh',
+      'issue',
+      'view',
+      String(number),
+      '--repo',
+      this.#repo,
+      '--json',
+      'number,title,url,state,labels,assignees',
     ])
     const data = JSON.parse(json) as {
-      number: number; title: string; url: string; state: string
+      number: number
+      title: string
+      url: string
+      state: string
       labels: { name: string }[]
       assignees: { login: string }[]
     }
@@ -124,8 +132,17 @@ export class GitHubAdapter implements IssuePort, ProjectPort {
   }
 
   async listIssues(filters?: IssueFilters): Promise<Issue[]> {
-    const args = ['gh', 'issue', 'list', '--repo', this.#repo, '--json',
-      'number,title,url,state,labels,assignees', '--limit', '100']
+    const args = [
+      'gh',
+      'issue',
+      'list',
+      '--repo',
+      this.#repo,
+      '--json',
+      'number,title,url,state,labels,assignees',
+      '--limit',
+      '100',
+    ]
     if (filters?.state && filters.state !== 'all') {
       args.push('--state', filters.state === 'OPEN' ? 'open' : 'closed')
     }
@@ -137,7 +154,10 @@ export class GitHubAdapter implements IssuePort, ProjectPort {
     }
     const json = await this.run(args)
     const items = JSON.parse(json) as Array<{
-      number: number; title: string; url: string; state: string
+      number: number
+      title: string
+      url: string
+      state: string
       labels: { name: string }[]
       assignees: { login: string }[]
     }>
@@ -269,8 +289,16 @@ export class GitHubAdapter implements IssuePort, ProjectPort {
 
   async getBoardIssueNumbers(owner: string, projectNumber: number): Promise<Set<number>> {
     const itemsJson = await this.run([
-      'gh', 'project', 'item-list', String(projectNumber),
-      '--owner', owner, '--format', 'json', '--limit', '500',
+      'gh',
+      'project',
+      'item-list',
+      String(projectNumber),
+      '--owner',
+      owner,
+      '--format',
+      'json',
+      '--limit',
+      '500',
     ])
     const itemsData = JSON.parse(itemsJson) as { items: Array<{ content: { number: number; type: string } }> }
     return new Set((itemsData.items ?? []).filter((i) => i.content?.type === 'Issue').map((i) => i.content.number))
