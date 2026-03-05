@@ -193,8 +193,8 @@ describe('PROTECTED_BRANCHES', () => {
 })
 
 describe('BRANCH_PROTECTION_PAYLOAD', () => {
-  it('requires 1 approving review', () => {
-    expect(BRANCH_PROTECTION_PAYLOAD.required_pull_request_reviews.required_approving_review_count).toBe(1)
+  it('does not require approving reviews (reviewed label is the gate)', () => {
+    expect(BRANCH_PROTECTION_PAYLOAD).not.toHaveProperty('required_pull_request_reviews')
   })
 
   it('has strict status checks', () => {

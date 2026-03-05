@@ -89,7 +89,6 @@ export const REQUIRED_SECRETS: Record<string, string> = {
 }
 export const PROTECTED_BRANCHES = ['main', 'staging'] as const
 export const BRANCH_PROTECTION_PAYLOAD = {
-  required_pull_request_reviews: { required_approving_review_count: 1 },
   required_status_checks: { strict: true, contexts: ['ci'] },
   enforce_admins: false,
   restrictions: null,

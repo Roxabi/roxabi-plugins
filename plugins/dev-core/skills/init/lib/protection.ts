@@ -24,6 +24,17 @@ export async function protectBranches(repo: string): Promise<Record<string, bool
         { stdin: new TextEncoder().encode(payload), stdout: 'pipe', stderr: 'pipe' },
       )
       const code = await proc.exited
+
+      // Remove PR review requirement — the "reviewed" label is the merge gate,
+      // not GitHub's native review approval (which blocks self-authored PRs).
+      if (code === 0) {
+        const delProc = Bun.spawn(
+          ['gh', 'api', `repos/${repo}/branches/${branch}/protection/required_pull_request_reviews`, '-X', 'DELETE'],
+          { stdout: 'pipe', stderr: 'pipe' },
+        )
+        await delProc.exited // 204 = removed, 404 = already absent — both OK
+      }
+
       results[branch] = code === 0
     } catch {
       results[branch] = false
