@@ -120,6 +120,37 @@ function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): Section 
     checks.push({ name: 'GH_PROJECT_ID', status: 'fail', detail: 'not set in .env' })
   }
 
+  // Project linked to repo
+  if (projectId && repo) {
+    const linkQuery = `query($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) {
+        projectsV2(first: 20) { nodes { id } }
+      }
+    }`
+    const linkResult = spawnSync([
+      'gh', 'api', 'graphql',
+      '-f', `query=${linkQuery}`,
+      '-f', `owner=${owner}`,
+      '-f', `name=${repo}`,
+    ])
+    let linked = false
+    if (linkResult.ok) {
+      try {
+        const linkData = JSON.parse(linkResult.stdout) as {
+          data: { repository: { projectsV2: { nodes: { id: string }[] } } }
+        }
+        linked = linkData.data.repository.projectsV2.nodes.some((p) => p.id === projectId)
+      } catch {}
+    }
+    checks.push({
+      name: 'Project linked to repo',
+      status: linked ? 'pass' : 'warn',
+      detail: linked
+        ? 'project is linked to repository'
+        : `project not linked — fix: gh api graphql -f query='mutation { linkProjectV2ToRepository(input: { projectId: "${projectId}", repositoryId: "REPO_NODE_ID" }) { repository { id } } }'`,
+    })
+  }
+
   // Field IDs
   for (const field of ['STATUS_FIELD_ID', 'SIZE_FIELD_ID', 'PRIORITY_FIELD_ID']) {
     const label = `${field.replace('_FIELD_ID', '').replace('_', ' ')} field`

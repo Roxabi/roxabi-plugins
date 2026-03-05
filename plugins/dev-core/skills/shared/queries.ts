@@ -278,6 +278,20 @@ export function buildBatchedQuery(projectIds: string[]): string {
   return `query(${params}) {${aliases}\n}`
 }
 
+/** Link a GitHub Project V2 to a repository (makes it visible via repository.projectsV2). */
+export const LINK_PROJECT_TO_REPO_MUTATION = `
+mutation($projectId: ID!, $repositoryId: ID!) {
+  linkProjectV2ToRepository(input: { projectId: $projectId, repositoryId: $repositoryId }) {
+    repository { id }
+  }
+}`
+
+/** Get repository node ID. */
+export const REPO_ID_QUERY = `
+query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) { id }
+}`
+
 /** Build variables object for buildBatchedQuery: { project0Id: "PVT_...", ... } */
 export function buildBatchedVariables(projectIds: string[]): Record<string, string> {
   return Object.fromEntries(projectIds.map((id, i) => [`project${i}Id`, id]))

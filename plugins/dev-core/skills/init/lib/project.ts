@@ -5,7 +5,7 @@
 
 import { DEFAULT_PRIORITY_OPTIONS, DEFAULT_SIZE_OPTIONS, DEFAULT_STATUS_OPTIONS } from '../../shared/config'
 import type { ParsedField } from '../../shared/github'
-import { ghGraphQL, parseProjectFields, run } from '../../shared/github'
+import { ghGraphQL, linkProjectToRepo, parseProjectFields, run } from '../../shared/github'
 import { PROJECT_WORKFLOWS_QUERY, UPDATE_FIELD_OPTIONS_MUTATION } from '../../shared/queries'
 import type { ProjectFieldIds, ProjectType, WorkspaceProject } from '../../shared/workspace'
 import { readWorkspace, writeWorkspace } from '../../shared/workspace'
@@ -123,6 +123,9 @@ export async function createProject(
   ])
   const project = JSON.parse(createJson) as { id: string; number: number }
   const pn = String(project.number)
+
+  // Link the project to the repository so it appears in repository.projectsV2
+  await linkProjectToRepo(project.id, owner, repoName)
 
   // Fetch existing fields — GitHub auto-creates Status with Todo/In Progress/Done
   const existingJson = await run(['gh', 'project', 'field-list', pn, '--owner', owner, '--format', 'json'])

@@ -9,9 +9,11 @@ import {
   ADD_SUB_ISSUE_MUTATION,
   ADD_TO_PROJECT_MUTATION,
   ITEM_ID_QUERY,
+  LINK_PROJECT_TO_REPO_MUTATION,
   PARENT_QUERY,
   REMOVE_BLOCKED_BY_MUTATION,
   REMOVE_SUB_ISSUE_MUTATION,
+  REPO_ID_QUERY,
   UPDATE_FIELD_MUTATION,
 } from './queries'
 
@@ -223,6 +225,15 @@ export async function addSubIssue(parentId: string, childId: string): Promise<vo
 /** Remove a sub-issue (parent/child) relationship. */
 export async function removeSubIssue(parentId: string, childId: string): Promise<void> {
   await ghGraphQL(REMOVE_SUB_ISSUE_MUTATION, { parentId, childId })
+}
+
+/** Link a GitHub Project V2 to a repository so it appears in repository.projectsV2. */
+export async function linkProjectToRepo(projectId: string, owner: string, repoName: string): Promise<void> {
+  const repoData = (await ghGraphQL(REPO_ID_QUERY, { owner, name: repoName })) as {
+    data: { repository: { id: string } }
+  }
+  const repositoryId = repoData.data.repository.id
+  await ghGraphQL(LINK_PROJECT_TO_REPO_MUTATION, { projectId, repositoryId })
 }
 
 /** Get the parent issue number for an issue, or null if none. */
