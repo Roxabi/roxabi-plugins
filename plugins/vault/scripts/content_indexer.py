@@ -21,9 +21,10 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # plugin root (for _lib.memory)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # plugin root
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
-from _lib.memory.db import VaultDB
+from roxabi_sdk.paths import get_vault_home
+from adapters.sqlite_repository import SqliteEntryRepository
 
 
 def index_content(category: str, entry_type: str, title: str, content: str,
@@ -34,19 +35,14 @@ def index_content(category: str, entry_type: str, title: str, content: str,
     error occurs, it returns None silently.
     """
     try:
-        db = VaultDB()
-        db.connect()
+        db_path = get_vault_home() / 'vault.db'
+        repo = SqliteEntryRepository(db_path)
         try:
-            cursor = db.conn.execute(
-                'INSERT INTO entries (category, type, title, content, metadata) '
-                'VALUES (?, ?, ?, ?, ?)',
-                (category, entry_type, title, content,
-                 json.dumps(metadata or {}))
-            )
-            db.conn.commit()
-            return cursor.lastrowid
+            entry = repo.add(category, entry_type, title, content,
+                             json.dumps(metadata or {}))
+            return entry.id
         finally:
-            db.close()
+            repo.close()
     except Exception:
         return None
 
