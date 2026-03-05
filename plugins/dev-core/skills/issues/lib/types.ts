@@ -15,6 +15,7 @@ export interface Issue {
   blockedBy: { number: number; state: string }[]
   blocking: { number: number; state: string }[]
   children: Issue[]
+  projectLabel?: string
 }
 
 export interface CICheck {

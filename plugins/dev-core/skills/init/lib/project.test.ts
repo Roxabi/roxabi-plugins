@@ -7,40 +7,38 @@ process.env.GITHUB_REPO = 'Test/test-repo'
 
 import { beforeEach, expect, test, vi } from 'vitest'
 
-const mockRun = vi.hoisted(() =>
-  vi.fn(async (args: string[]) => {
-    // Simulate `gh project create` returning a project
-    if (args.includes('create')) return JSON.stringify({ id: 'PVT_new', number: 42 })
-    // Simulate `gh project field-list` returning fields
-    if (args.includes('field-list')) {
-      return JSON.stringify({
-        fields: [
-          {
-            id: 'SF_1',
-            name: 'Status',
-            options: [
-              { id: 'OPT_BL', name: 'Backlog' },
-              { id: 'OPT_IP', name: 'In Progress' },
-            ],
-          },
-          {
-            id: 'SZ_1',
-            name: 'Size',
-            options: [
-              { id: 'OPT_XS', name: 'XS' },
-              { id: 'OPT_XL', name: 'XL' },
-            ],
-          },
-          { id: 'PR_1', name: 'Priority', options: [{ id: 'OPT_P1', name: 'P1 - High' }] },
-        ],
-      })
-    }
-    // Simulate `gh project field-create` success
-    return ''
-  }),
-)
+const mockRun = vi.fn(async (args: string[]) => {
+  // Simulate `gh project create` returning a project
+  if (args.includes('create')) return JSON.stringify({ id: 'PVT_new', number: 42 })
+  // Simulate `gh project field-list` returning fields
+  if (args.includes('field-list')) {
+    return JSON.stringify({
+      fields: [
+        {
+          id: 'SF_1',
+          name: 'Status',
+          options: [
+            { id: 'OPT_BL', name: 'Backlog' },
+            { id: 'OPT_IP', name: 'In Progress' },
+          ],
+        },
+        {
+          id: 'SZ_1',
+          name: 'Size',
+          options: [
+            { id: 'OPT_XS', name: 'XS' },
+            { id: 'OPT_XL', name: 'XL' },
+          ],
+        },
+        { id: 'PR_1', name: 'Priority', options: [{ id: 'OPT_P1', name: 'P1 - High' }] },
+      ],
+    })
+  }
+  // Simulate `gh project field-create` success
+  return ''
+})
 
-const mockGhGraphQL = vi.hoisted(() => vi.fn(async () => ({ data: { node: { workflows: { nodes: [] } } } })))
+const mockGhGraphQL = vi.fn(async () => ({ data: { node: { workflows: { nodes: [] } } } }))
 
 vi.mock('../../shared/github', () => ({
   run: mockRun,
@@ -68,8 +66,8 @@ vi.mock('../../shared/github', () => ({
   ghGraphQL: mockGhGraphQL,
 }))
 
-const mockWriteWorkspace = vi.hoisted(() => vi.fn(() => {}))
-const mockReadWorkspace = vi.hoisted(() => vi.fn(() => ({ projects: [] })))
+const mockWriteWorkspace = vi.fn(() => {})
+const mockReadWorkspace = vi.fn(() => ({ projects: [] }))
 
 vi.mock('../../shared/workspace', () => ({
   readWorkspace: mockReadWorkspace,

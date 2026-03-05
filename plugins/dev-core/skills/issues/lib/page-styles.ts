@@ -97,6 +97,8 @@ export const PAGE_STYLES = `
   .depth-2 .col-title { padding-left: 48px; color: var(--text-muted); font-size: 12px; }
   .depth-3 .col-title { padding-left: 68px; color: var(--text-muted); font-size: 12px; }
   .tree-prefix { color: var(--border); margin-right: 4px; font-family: monospace; }
+  .col-project { white-space: nowrap; }
+  .project-label { font-size: 10px; letter-spacing: 0.03em; color: var(--text-muted); }
 
   .badge {
     display: inline-block;

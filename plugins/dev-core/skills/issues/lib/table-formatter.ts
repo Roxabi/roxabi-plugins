@@ -3,14 +3,7 @@
  * Ports the jq logic from the old fetch_issues.sh.
  */
 
-import {
-  BLOCK_ORDER,
-  PRIORITY_ORDER,
-  PRIORITY_SHORT,
-  SIZE_ORDER,
-  STATUS_ORDER,
-  STATUS_SHORT,
-} from '../../shared/config'
+import { PRIORITY_ORDER, PRIORITY_SHORT, SIZE_ORDER, STATUS_SHORT } from '../../shared/config'
 import type { RawItem } from '../../shared/types'
 import type { Issue } from './types'
 
@@ -105,21 +98,20 @@ export interface FormatOptions {
 
 export function sortIssues(items: RawItem[]): RawItem[] {
   return [...items].sort((a, b) => {
-    const aStatus = fieldValue(a, 'Status')
-    const bStatus = fieldValue(b, 'Status')
-    const sd = (STATUS_ORDER[aStatus] ?? 99) - (STATUS_ORDER[bStatus] ?? 99)
-    if (sd !== 0) return sd
+    // Parents (issues with children) first
+    const aSubs = a.content.subIssues?.nodes?.filter((s) => s.state === 'OPEN').length ?? 0
+    const bSubs = b.content.subIssues?.nodes?.filter((s) => s.state === 'OPEN').length ?? 0
+    const aParent = aSubs > 0 ? 0 : 1
+    const bParent = bSubs > 0 ? 0 : 1
+    if (aParent !== bParent) return aParent - bParent
 
-    const aBlock = computeBlockStatus(a)
-    const bBlock = computeBlockStatus(b)
-    const bd = (BLOCK_ORDER[aBlock] ?? 9) - (BLOCK_ORDER[bBlock] ?? 9)
-    if (bd !== 0) return bd
-
+    // Priority P0 → P3
     const aPri = fieldValue(a, 'Priority')
     const bPri = fieldValue(b, 'Priority')
     const pd = (PRIORITY_ORDER[aPri] ?? 99) - (PRIORITY_ORDER[bPri] ?? 99)
     if (pd !== 0) return pd
 
+    // Size XL → S
     const aSize = fieldValue(a, 'Size')
     const bSize = fieldValue(b, 'Size')
     return (SIZE_ORDER[aSize] ?? 99) - (SIZE_ORDER[bSize] ?? 99)

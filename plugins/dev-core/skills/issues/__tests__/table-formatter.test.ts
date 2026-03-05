@@ -94,31 +94,38 @@ describe('table-formatter', () => {
   })
 
   describe('sortIssues', () => {
-    it('sorts blocking before ready before blocked', () => {
+    it('sorts parents (with children) before leaf issues', () => {
       const items = [
+        makeRawItem({ number: 1 }, { Priority: 'P0 - Urgent', Size: 'M' }),
         makeRawItem(
-          { number: 1, blockedBy: { nodes: [{ number: 99, state: 'OPEN' }] } },
-          { Status: 'Backlog', Priority: 'P0 - Urgent' },
+          { number: 2, subIssues: { nodes: [{ number: 10, state: 'OPEN', title: 'child' }] } },
+          { Priority: 'P1 - High', Size: 'XL' },
         ),
-        makeRawItem({ number: 2 }, { Status: 'Backlog', Priority: 'P0 - Urgent' }),
-        makeRawItem(
-          { number: 3, blocking: { nodes: [{ number: 1, state: 'OPEN' }] } },
-          { Status: 'Backlog', Priority: 'P0 - Urgent' },
-        ),
-      ]
-
-      const sorted = sortIssues(items)
-      expect(sorted.map((i) => i.content.number)).toEqual([3, 2, 1])
-    })
-
-    it('sorts by priority within same block status', () => {
-      const items = [
-        makeRawItem({ number: 1 }, { Status: 'Backlog', Priority: 'P3 - Low' }),
-        makeRawItem({ number: 2 }, { Status: 'Backlog', Priority: 'P0 - Urgent' }),
       ]
 
       const sorted = sortIssues(items)
       expect(sorted.map((i) => i.content.number)).toEqual([2, 1])
+    })
+
+    it('sorts by priority P0 → P3', () => {
+      const items = [
+        makeRawItem({ number: 1 }, { Priority: 'P3 - Low', Size: 'M' }),
+        makeRawItem({ number: 2 }, { Priority: 'P0 - Urgent', Size: 'M' }),
+      ]
+
+      const sorted = sortIssues(items)
+      expect(sorted.map((i) => i.content.number)).toEqual([2, 1])
+    })
+
+    it('sorts by size XL → XS within same priority', () => {
+      const items = [
+        makeRawItem({ number: 1 }, { Priority: 'P1 - High', Size: 'S' }),
+        makeRawItem({ number: 2 }, { Priority: 'P1 - High', Size: 'XL' }),
+        makeRawItem({ number: 3 }, { Priority: 'P1 - High', Size: 'M' }),
+      ]
+
+      const sorted = sortIssues(items)
+      expect(sorted.map((i) => i.content.number)).toEqual([2, 3, 1])
     })
   })
 

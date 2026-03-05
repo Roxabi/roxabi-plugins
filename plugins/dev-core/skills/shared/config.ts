@@ -182,11 +182,11 @@ export const PRIORITY_ORDER: Record<string, number> = {
 }
 
 export const SIZE_ORDER: Record<string, number> = {
-  XS: 1,
-  S: 2,
-  M: 3,
-  L: 4,
-  XL: 5,
+  XL: 0,
+  L: 1,
+  M: 2,
+  S: 3,
+  XS: 4,
   '-': 99,
 }
 

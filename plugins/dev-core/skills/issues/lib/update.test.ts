@@ -15,9 +15,24 @@ process.env.PRIORITY_OPTIONS_JSON = JSON.stringify({ 'P1 - High': 'OPT_P1_ENV' }
 
 import { beforeEach, expect, test, vi } from 'vitest'
 
-const mockGetItemId = vi.hoisted(() => vi.fn(() => Promise.resolve('ITEM_42')))
-const mockUpdateField = vi.hoisted(() => vi.fn(() => Promise.resolve()))
-const mockReadWorkspace = vi.hoisted(() => vi.fn())
+const mockGetItemId = vi.fn(() => Promise.resolve('ITEM_42'))
+const mockUpdateField = vi.fn(() => Promise.resolve())
+const mockReadWorkspace = vi.fn()
+const mockIsProjectConfigured = vi.fn(() => false)
+
+// FIELD_MAP for legacy mode tests — must match the shape used by update.ts
+const MOCK_FIELD_MAP = {
+  status: { fieldId: 'SF_mock', options: { 'In Progress': 'OPT_IP_MOCK' } },
+  size: { fieldId: 'SZ_mock', options: { XL: 'OPT_XL_MOCK' } },
+  priority: { fieldId: 'PR_mock', options: { 'P1 - High': 'OPT_P1_MOCK' } },
+}
+
+vi.mock('../../shared/config', () => ({
+  FIELD_MAP: MOCK_FIELD_MAP,
+  isProjectConfigured: mockIsProjectConfigured,
+  NOT_CONFIGURED_MSG: 'GitHub Project V2 is not configured. Run `/init` to auto-detect project board settings.',
+  resolveFieldIds: (project: { fieldIds?: Record<string, unknown> }) => project.fieldIds ?? {},
+}))
 
 vi.mock('../../shared/github', () => ({
   getItemId: mockGetItemId,
@@ -50,6 +65,8 @@ beforeEach(() => {
   mockGetItemId.mockClear()
   mockUpdateField.mockClear()
   mockReadWorkspace.mockClear()
+  mockIsProjectConfigured.mockClear()
+  mockIsProjectConfigured.mockReturnValue(false)
   mockReadWorkspace.mockReturnValue({ projects: [defaultProject] })
 })
 
@@ -63,9 +80,9 @@ test('uses project fieldIds.col2 for size field when projectLabel provided', asy
   const data = (await res.json()) as { ok: boolean }
   expect(data.ok).toBe(true)
   // should use COL2_ID (project fieldIds), not SZ_env (global .env)
-  expect(mockUpdateField).toHaveBeenCalledWith('ITEM_42', 'COL2_ID', 'OPT_XL_PROJ')
+  expect(mockUpdateField).toHaveBeenCalledWith('ITEM_42', 'COL2_ID', 'OPT_XL_PROJ', 'PVT_test')
   // option ID must come from project fieldIds, not global env
-  const [, , optionId] = mockUpdateField.mock.calls[0] as unknown as [string, string, string]
+  const [, , optionId] = mockUpdateField.mock.calls[0] as unknown as [string, string, string, string]
   expect(optionId).not.toBe('OPT_XL_ENV')
 })
 
@@ -135,41 +152,31 @@ test('returns 400 with Unknown value error when value is not in col2Options', as
 })
 
 // Finding 3a — Legacy mode: no projectLabel + not configured → 400
-test('returns 400 NOT_CONFIGURED_MSG when no projectLabel and GH_PROJECT_ID is unset', async () => {
-  // Arrange — GH_PROJECT_ID is not set in this test environment (only PROJECT_ID is, wrong key)
+test('returns 400 NOT_CONFIGURED_MSG when no projectLabel and project not configured', async () => {
+  // isProjectConfigured defaults to false in beforeEach
   const req = new Request('http://localhost/api/update', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ issueNumber: 42, field: 'col2', value: 'XL' }),
   })
-  // Act
   const res = await handleUpdate(req)
   const data = (await res.json()) as { ok: boolean; error: string }
-  // Assert
   expect(res.status).toBe(400)
   expect(data.error).toBe('GitHub Project V2 is not configured. Run `/init` to auto-detect project board settings.')
   expect(mockUpdateField).not.toHaveBeenCalled()
 })
 
-// Finding 3b — Legacy mode: no projectLabel + GH_PROJECT_ID configured → update proceeds with FIELD_MAP
-test('proceeds with FIELD_MAP when no projectLabel and GH_PROJECT_ID is set', async () => {
-  // Arrange — temporarily configure GH_PROJECT_ID so isProjectConfigured() returns true
-  process.env.GH_PROJECT_ID = 'PVT_env'
-  try {
-    // SIZE_FIELD_ID = 'SZ_env' and SIZE_OPTIONS = { XL: 'OPT_XL_ENV' } from env set at top of file
-    // mockGetItemId is already returning 'ITEM_42'
-    const req = new Request('http://localhost/api/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ issueNumber: 42, field: 'col2', value: 'XL' }),
-    })
-    // Act
-    const res = await handleUpdate(req)
-    const data = (await res.json()) as { ok: boolean }
-    // Assert
-    expect(data.ok).toBe(true)
-    expect(mockUpdateField).toHaveBeenCalledWith('ITEM_42', 'SZ_env', 'OPT_XL_ENV')
-  } finally {
-    delete process.env.GH_PROJECT_ID
-  }
+// Finding 3b — Legacy mode: no projectLabel + project configured → update proceeds with FIELD_MAP
+test('proceeds with FIELD_MAP when no projectLabel and project is configured', async () => {
+  mockIsProjectConfigured.mockReturnValue(true)
+  const req = new Request('http://localhost/api/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ issueNumber: 42, field: 'col2', value: 'XL' }),
+  })
+  const res = await handleUpdate(req)
+  const data = (await res.json()) as { ok: boolean }
+  expect(data.ok).toBe(true)
+  // Legacy mode uses mocked FIELD_MAP constants
+  expect(mockUpdateField).toHaveBeenCalledWith('ITEM_42', 'SZ_mock', 'OPT_XL_MOCK', undefined)
 })

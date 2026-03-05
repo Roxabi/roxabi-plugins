@@ -97,21 +97,7 @@ export function rawItemsToIssues(items: RawItem[], slotNames: SlotNames = DEFAUL
   // Root issues only (no open parent); orphaned children (parent closed) promoted to root
   const roots = openItems.filter((i) => !i.content.parent || i.content.parent.state === 'CLOSED').map(toIssue)
 
-  // Sort: status first (Review > In Progress > Specs > Analysis > Backlog),
-  // then block status, then priority
-  const statusOrder: Record<string, number> = {
-    Review: 0,
-    'In Progress': 1,
-    Specs: 2,
-    Analysis: 3,
-    Backlog: 4,
-    '-': 99,
-  }
-  const blockOrder: Record<string, number> = {
-    blocking: 0,
-    ready: 1,
-    blocked: 2,
-  }
+  // Sort: parents (issues with children) first, then priority P0→PX, then size XL→S
   const priorityOrder: Record<string, number> = {
     'P0 - Urgent': 0,
     'P1 - High': 1,
@@ -119,13 +105,25 @@ export function rawItemsToIssues(items: RawItem[], slotNames: SlotNames = DEFAUL
     'P3 - Low': 3,
     '-': 99,
   }
+  const sizeOrder: Record<string, number> = {
+    XL: 0,
+    L: 1,
+    M: 2,
+    S: 3,
+    XS: 4,
+    '-': 99,
+  }
 
   roots.sort((a, b) => {
-    const sd = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99)
-    if (sd !== 0) return sd
-    const bd = (blockOrder[a.blockStatus] ?? 9) - (blockOrder[b.blockStatus] ?? 9)
-    if (bd !== 0) return bd
-    return (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99)
+    // Parents (issues with children) float to top
+    const aParent = a.children.length > 0 ? 0 : 1
+    const bParent = b.children.length > 0 ? 0 : 1
+    if (aParent !== bParent) return aParent - bParent
+    // Priority P0 → P3
+    const pd = (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99)
+    if (pd !== 0) return pd
+    // Size XL → S
+    return (sizeOrder[a.size] ?? 99) - (sizeOrder[b.size] ?? 99)
   })
 
   return roots
