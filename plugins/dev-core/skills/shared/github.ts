@@ -1,6 +1,9 @@
 /**
+ * @deprecated Use GitHubAdapter from adapters/github-adapter.ts instead.
+ *
  * GitHub API helpers — shared across skills.
  * Uses direct fetch() against GitHub API with GITHUB_TOKEN.
+ * Retained as a shim for existing callers during migration.
  */
 
 import { GH_PROJECT_ID, GITHUB_REPO } from './config'
