@@ -34,7 +34,7 @@ All data-producing plugins store user data in `~/.roxabi-vault/` (never in the r
 | cv | `~/.roxabi-vault/cv/` | Optional — search by content |
 | linkedin-post-generator | `~/.roxabi-vault/content/` (shared) | Optional — suggestions from vault |
 | get-invoice-details | `~/.roxabi-vault/invoices/` | Optional — semantic search |
-| image-prompt-generator | `~/.roxabi-vault/config/visual-charter.json` | N/A — works 100% standalone |
+| image-prompt-generator | `~/.roxabi-vault/config/` (charter, face ref), `~/.roxabi-vault/image-prompts/` | Optional — auto-saves prompt variants |
 | linkedin-apply | `~/.roxabi-vault/linkedin-apply/` | Optional — job analysis history |
 
 All plugins work without vault installed — files are saved, just not indexed.
