@@ -97,7 +97,7 @@ export function rawItemsToIssues(items: RawItem[], slotNames: SlotNames = DEFAUL
   // Root issues only (no open parent); orphaned children (parent closed) promoted to root
   const roots = openItems.filter((i) => !i.content.parent || i.content.parent.state === 'CLOSED').map(toIssue)
 
-  // Sort: parents (issues with children) first, then priority P0→PX, then size XL→S
+  // Sort: priority P0→PX, then size XL→S
   const priorityOrder: Record<string, number> = {
     'P0 - Urgent': 0,
     'P1 - High': 1,
@@ -115,10 +115,6 @@ export function rawItemsToIssues(items: RawItem[], slotNames: SlotNames = DEFAUL
   }
 
   roots.sort((a, b) => {
-    // Parents (issues with children) float to top
-    const aParent = a.children.length > 0 ? 0 : 1
-    const bParent = b.children.length > 0 ? 0 : 1
-    if (aParent !== bParent) return aParent - bParent
     // Priority P0 → P3
     const pd = (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99)
     if (pd !== 0) return pd

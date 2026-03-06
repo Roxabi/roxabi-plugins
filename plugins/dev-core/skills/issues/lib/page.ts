@@ -123,9 +123,6 @@ function buildAllView(byProject: Map<string, Issue[]>, workspaceProjects?: Works
     '-': 99,
   }
   allIssues.sort((a, b) => {
-    const aParent = a.children.length > 0 ? 0 : 1
-    const bParent = b.children.length > 0 ? 0 : 1
-    if (aParent !== bParent) return aParent - bParent
     const pd = (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99)
     if (pd !== 0) return pd
     return (sizeOrder[a.size] ?? 99) - (sizeOrder[b.size] ?? 99)
