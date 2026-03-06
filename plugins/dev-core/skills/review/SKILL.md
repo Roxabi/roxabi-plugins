@@ -176,7 +176,7 @@ correctness | security | performance | architecture | tests | readability | obse
 ## Phase 8 — Next Step
 
 AskUserQuestion:
-- **Fix now (`/fix`)** — invoke `/fix` skill to auto-apply + 1b1 + spawn fixers
+- **Fix now (`/fix`)** — invoke `/fix` skill to auto-apply + 1b1 + spawn fixers (`/fix` Phase 8 offers rebase + label + merge)
 - **Merge as-is** — rebase + label + squash merge (see below)
 - **Stop** — exit (findings posted to PR, no further action)
 

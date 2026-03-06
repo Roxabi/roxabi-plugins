@@ -10,7 +10,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill
 
 Apply review findings from a PR or conversation context — auto-apply high-confidence findings, walk through the rest 1b1, spawn fixer agents for accepted findings, then commit.
 
-**⚠ Flow: single continuous pipeline. ¬stop between phases. AskUserQuestion response → immediately execute next phase. Stop only on: explicit Cancel, or pipeline completion.**
+**⚠ Flow: single continuous pipeline. ¬stop between phases. AskUserQuestion response → immediately execute next phase. Stop only on: explicit Cancel, or Phase 8 completion.**
 
 ```
 /fix        → findings from conversation context
@@ -212,6 +212,27 @@ Fixer constraints:
 ### Deferred
 - nitpick: Variable naming in auth.service.ts:88 — noted for future cleanup
 ```
+
+## Phase 8 — Merge Gate
+
+∄ PR → skip.
+
+```
+BASE := `staging` (∃ origin/staging) ∨ `main`
+```
+
+AskUserQuestion:
+- **Rebase & merge** — rebase onto base, label, squash merge
+- **I'll merge later** — exit
+
+**If Rebase & merge:**
+
+1. `git fetch origin ${BASE} && git rev-list HEAD..origin/${BASE} --count`
+   - count > 0 → `git rebase origin/${BASE}` + `git push --force-with-lease`
+   - conflict → inform user, halt (¬label, ¬merge)
+2. AskUserQuestion: "Add `reviewed` label?" → Yes / No
+3. Yes → `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"`
+4. Squash merge on green CI: `gh pr merge <#> --squash`
 
 ## Edge Cases
 
