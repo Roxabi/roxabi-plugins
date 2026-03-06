@@ -123,7 +123,6 @@ conn.close()
 
 ### Phase 8 — Visual Companion
 
-1. If the post would benefit from an accompanying image, mention that the user can use the **image-prompt-generator** plugin to create a matching visual.
-2. This is a suggestion, not a hard dependency — the post is complete without it.
+To generate a matching visual for this post, run the **image-prompt** skill next.
 
 $ARGUMENTS

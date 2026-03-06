@@ -75,38 +75,6 @@ EOF
 
 4. Store the face description as `FACE_DESC` — it will be injected into the Subject component of every prompt variant in Phase 4.
 
-## Phase 2.75 — Vault Search (Optional)
-
-Check if vault has relevant ideas, notes, or references that could enrich the image concept:
-
-```bash
-python3 -c "
-import sys
-sys.path.insert(0, '$CLAUDE_PLUGIN_ROOT/../..')
-from roxabi_sdk.paths import vault_healthy
-print('VAULT_OK' if vault_healthy() else 'VAULT_UNAVAILABLE')
-" 2>/dev/null || echo "VAULT_UNAVAILABLE"
-```
-
-If vault is healthy, search for related content using the concept keywords:
-
-```bash
-python3 -c "
-import sqlite3, json
-from pathlib import Path
-home = Path.home() / '.roxabi-vault'
-conn = sqlite3.connect(str(home / 'vault.db'))
-rows = conn.execute(
-    'SELECT title, substr(content, 1, 200) FROM entries WHERE category IN (\"ideas\", \"content\", \"references\") ORDER BY created_at DESC LIMIT 5'
-).fetchall()
-conn.close()
-for r in rows: print(json.dumps({'title': r[0], 'preview': r[1]}))
-" 2>/dev/null
-```
-
-- If relevant entries found: surface them and incorporate key themes, mood, or context into the creative brief
-- If vault unavailable or no relevant results: skip silently — proceed to Phase 3
-
 ## Phase 3 — Load Style References
 
 1. Read reference files for style guidance:
