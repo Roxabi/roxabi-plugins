@@ -8,3 +8,6 @@ __pycache__/
 .env
 node_modules/
 .claude/stack.yml
+
+# Upstream skill cache (used by tools/sync-vercel-skills.sh)
+.cache/
