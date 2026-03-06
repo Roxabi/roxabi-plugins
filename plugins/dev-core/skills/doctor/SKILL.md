@@ -1,7 +1,7 @@
 ---
 name: doctor
 description: 'Health check — verify dev-core config, GitHub project, labels, workflows, branch protection. Triggers: "doctor" | "health check" | "check setup" | "verify config".'
-version: 0.6.0
+version: 0.7.0
 allowed-tools: Bash
 ---
 
@@ -261,5 +261,27 @@ The doctor CLI (Phase 1) already checks Workflows and Secrets sections. Only run
    - Display: `CI/CD workflows ✅ Created` + `PAT secret ✅ Set` + `allow_auto_merge ✅ Enabled`
 
 6. **If skip:** display `CI/CD workflows ⏭ Skipped`
+
+### Phase 5 — CI Permissions check
+
+Runs automatically (no prompt). Scans local `.github/workflows/` files for a private-repo footgun:
+
+> When a job defines its own `permissions:` block it **overrides** the workflow-level permissions entirely. If the block omits `contents: read`, any `actions/checkout` step in that job fails with `remote: Repository not found` on private repos (silent on public repos).
+
+**Algorithm:** for each `.yml`/`.yaml` in `.github/workflows/`:
+1. Find job-level `permissions:` blocks (4-space indent inside a job).
+2. `permissions: read-all` / `write-all` → ✅ (shorthand grants all perms).
+3. Mapping without `contents:` AND job has `actions/checkout` → flag.
+
+**Severity:**
+- `❌ fail` — repo is private (`gh repo view --json isPrivate` returns `true`)
+- `⚠️ warn` — repo is public (checkout works today, breaks on private forks)
+
+**Fix (shown inline):**
+```yaml
+permissions:
+  contents: read   # ← add this
+  actions: read
+```
 
 $ARGUMENTS

@@ -9,12 +9,14 @@ Describe what you want to see, and the plugin generates multiple ready-to-use pr
 When you run the generator, the plugin:
 
 1. **Loads your visual charter** (optional) — brand colors, style preferences, and avoidances from `~/.roxabi-vault/config/visual-charter.json`
-2. **Accepts your concept** — a description of the image you want
-3. **Generates prompt variants** — 4-6 prompts across different styles (photography, illustration, digital art, 3D rendering)
-4. **Applies brand identity** — if a charter exists, aligns colors, mood, and style to your brand
-5. **Presents variants** — structured output with style, composition, lighting, and mood details
-6. **Lets you refine** — pick a variant, request changes, or regenerate with different styles
-7. **Batch generation** — optionally run the Python script for bulk prompt creation
+2. **Runs a structured intake** — asks about platform, content type, mood/tone, style preference, and aspect ratio to build a creative brief
+3. **Handles face references** (optional) — asks if you want your likeness in the image; saves and reuses your appearance description across sessions
+4. **Generates prompt variants** — 4-6 prompts across different styles (photography, illustration, digital art, 3D rendering)
+5. **Applies brand identity** — if a charter exists, aligns colors, mood, and style to your brand; tags each variant as on-brand, near-brand, or off-brand
+6. **Auto-saves to vault** — writes all variants to `~/.roxabi-vault/image-prompts/` before presenting
+7. **Presents variants** — structured output with style, composition, lighting, and mood details
+8. **Lets you refine** — pick a variant, request changes, or regenerate with different styles
+9. **Batch generation** — optionally run the Python script for bulk prompt creation
 
 ## Install
 
@@ -84,13 +86,31 @@ python3 scripts/generate_prompt_variants.py --concept "a mountain landscape at s
 
 ## How it works
 
+### Structured intake
+
+Before generating prompts, the plugin builds a creative brief from your answers:
+
+| Question | Purpose |
+|----------|---------|
+| Platform | Instagram, LinkedIn, website, presentation, thumbnail |
+| Content type | Personal brand, product, educational, promotional, lifestyle |
+| Mood/tone | Professional, warm, dramatic, energetic, minimal, mysterious |
+| Style preference | Photographic, illustrated, 3D, or no preference |
+| Aspect ratio | Square 1:1, portrait 4:5/9:16, landscape 16:9 |
+
+Composition, lighting, and framing in every variant are driven by these answers.
+
+### Face reference
+
+When you want your likeness in the image, the plugin asks for an appearance description (hair, eye color, age range, skin tone, distinctive features) and saves it to `~/.roxabi-vault/config/face-reference.json`. On future sessions it loads the saved description and asks if it's still accurate — no re-entering needed.
+
 ### Style coverage
 
 The plugin generates variants across multiple categories to give you a range of options:
 
 | Category | Examples |
 |----------|---------|
-| Photography | Cinematic, editorial, street, macro |
+| Photography | Cinematic lifestyle, editorial, street, macro |
 | Illustration | Flat design, isometric, hand-drawn, vector |
 | Art | Watercolor, oil painting, minimalist, abstract |
 | Rendering | 3D render, cel-shaded, low poly, photorealistic |
@@ -102,6 +122,10 @@ When a visual charter is loaded, each variant is tagged:
 - **On-brand** — fully aligned with charter colors, style, and mood
 - **Near-brand** — creative interpretation within brand guidelines
 - **Off-brand** — deliberately divergent for exploration
+
+### Auto-save
+
+All variants are automatically saved to `~/.roxabi-vault/image-prompts/YYYYMMDD_<concept-slug>.md` before being presented. Nothing is lost if you close the session.
 
 ### Reference files
 

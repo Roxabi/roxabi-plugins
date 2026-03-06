@@ -522,6 +522,143 @@ function checkVercel(): Section {
   return { name: 'Vercel', checks }
 }
 
+// --- CI Permissions ---
+
+/**
+ * Parse a GitHub Actions workflow YAML text and find jobs that have a job-level
+ * `permissions:` block with a `Checkout` step but are missing `contents: read`.
+ * When a job defines its own permissions block it overrides top-level permissions,
+ * so forgetting `contents: read` causes checkout to fail on private repos.
+ */
+function detectMissingContentsRead(
+  content: string,
+  filePath: string,
+): Array<{ file: string; job: string; permissions: string[] }> {
+  const lines = content.split('\n')
+  const issues: Array<{ file: string; job: string; permissions: string[] }> = []
+
+  // Find jobs: section (at root indent)
+  let jobsSectionLine = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (/^jobs:\s*$/.test(lines[i])) {
+      jobsSectionLine = i
+      break
+    }
+  }
+  if (jobsSectionLine === -1) return issues
+
+  // Find job headers (2-space indent within jobs section)
+  const jobHeaders: Array<{ name: string; start: number }> = []
+  for (let i = jobsSectionLine + 1; i < lines.length; i++) {
+    const m = lines[i].match(/^ {2}([a-zA-Z0-9][a-zA-Z0-9_-]*):\s*$/)
+    if (m) {
+      jobHeaders.push({ name: m[1], start: i })
+    } else if (/^\S/.test(lines[i]) && lines[i].trim() && !lines[i].trimStart().startsWith('#')) {
+      break // top-level key — end of jobs section
+    }
+  }
+
+  for (let j = 0; j < jobHeaders.length; j++) {
+    const { name, start } = jobHeaders[j]
+    const end = j + 1 < jobHeaders.length ? jobHeaders[j + 1].start : lines.length
+    const jobLines = lines.slice(start + 1, end)
+
+    let inPermissions = false
+    let hasJobLevelPerms = false
+    const permKeys: string[] = []
+    let hasContentsRead = false
+    let hasCheckout = false
+
+    for (const line of jobLines) {
+      // Job-level permissions block (4-space indent)
+      const permLineMatch = line.match(/^ {4}permissions:\s*(.*)$/)
+      if (permLineMatch) {
+        const val = permLineMatch[1].trim()
+        hasJobLevelPerms = true
+        if (val === 'read-all' || val === 'write-all') {
+          // These shorthand values include contents: read — no issue
+          hasContentsRead = true
+        } else {
+          inPermissions = true
+        }
+        continue
+      }
+
+      if (inPermissions) {
+        const permEntryMatch = line.match(/^ {6}([a-zA-Z-]+):\s*\S/)
+        if (permEntryMatch) {
+          permKeys.push(permEntryMatch[1])
+          if (permEntryMatch[1] === 'contents') hasContentsRead = true
+        } else if (line.trim() && !/^ {6}/.test(line)) {
+          inPermissions = false
+        }
+      }
+
+      if (line.includes('actions/checkout')) hasCheckout = true
+    }
+
+    if (hasJobLevelPerms && !hasContentsRead && hasCheckout) {
+      issues.push({ file: filePath, job: name, permissions: [...permKeys] })
+    }
+  }
+
+  return issues
+}
+
+function checkCIPermissions(ghOk: boolean, owner: string, repo: string): Section {
+  const fs = require('node:fs') as typeof import('fs')
+  const checks: Check[] = []
+
+  const wfDir = '.github/workflows'
+  const files: string[] = []
+  if (fs.existsSync(wfDir)) {
+    for (const f of fs.readdirSync(wfDir) as string[]) {
+      if (f.endsWith('.yml') || f.endsWith('.yaml')) {
+        files.push(`${wfDir}/${f}`)
+      }
+    }
+  }
+
+  if (files.length === 0) {
+    return {
+      name: 'CI permissions',
+      checks: [{ name: 'job permissions', status: 'skip', detail: 'no local workflow files found' }],
+    }
+  }
+
+  let isPrivate = false
+  if (ghOk && owner && repo) {
+    const r = spawnSync(['gh', 'repo', 'view', `${owner}/${repo}`, '--json', 'isPrivate', '--jq', '.isPrivate'])
+    isPrivate = r.stdout === 'true'
+  }
+
+  const issues: Array<{ file: string; job: string; permissions: string[] }> = []
+  for (const filePath of files) {
+    const content = fs.readFileSync(filePath, 'utf8') as string
+    issues.push(...detectMissingContentsRead(content, filePath))
+  }
+
+  if (issues.length === 0) {
+    checks.push({
+      name: 'job permissions',
+      status: 'pass',
+      detail: `${files.length} workflow(s) checked — no missing contents: read`,
+    })
+  } else {
+    for (const issue of issues) {
+      const fileName = issue.file.replace('.github/workflows/', '')
+      const permList = issue.permissions.length > 0 ? `[${issue.permissions.join(', ')}]` : 'empty block'
+      checks.push({
+        name: `${fileName} / ${issue.job}`,
+        status: isPrivate ? 'fail' : 'warn',
+        detail: `job-level permissions missing \`contents: read\` — checkout fails on private repos. Current: ${permList}. Add \`contents: read\`.`,
+      })
+    }
+  }
+
+  return { name: 'CI permissions', checks }
+}
+
 // --- Output formatting ---
 
 const ICONS: Record<Status, string> = { pass: '✅', fail: '❌', warn: '⚠️', skip: '⏭' }
@@ -583,6 +720,7 @@ const sections: Section[] = [
   checkProjectStructure(),
   checkSecurity(),
   checkVercel(),
+  checkCIPermissions(ghOk, owner, repo),
 ]
 
 if (jsonFlag) {
