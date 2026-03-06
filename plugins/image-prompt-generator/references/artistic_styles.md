@@ -10,6 +10,9 @@ Prompt-ready phrases organized by category. Combine across categories to build c
 | Landscape | landscape photography, wide angle, deep focus, natural light | scenery, environments |
 | Macro | macro photography, extreme close-up, sharp detail, ring light | textures, small objects |
 | Street | street photography, candid, available light, urban, grain | lifestyle, authenticity |
+| Cinematic Lifestyle | cinematic lifestyle photography, shallow depth of field, bokeh background, teal and orange color grade, 85mm lens, f/1.8, photorealistic, candid-staged | content creators, tech workers, cozy indoor scenes |
+| Screen-lit Portrait | dark environment, screen/monitor light, face lit from front-below, warm bokeh background lights, shallow depth of field, cinematic color grade, moody | night coding, gaming, dark office scenes |
+| Golden Hour Indoors | warm natural backlight, large windows, interior daylight, golden-teal grade, cozy living room, shallow DOF, MacBook or laptop in foreground | lifestyle, work-from-home, cozy content |
 | Editorial | editorial photography, studio lighting, clean composition | products, fashion |
 | Documentary | documentary photography, natural moment, unposed, real | storytelling, journalism |
 | Aerial | aerial photography, bird's eye view, drone shot, vast scale | locations, architecture |
