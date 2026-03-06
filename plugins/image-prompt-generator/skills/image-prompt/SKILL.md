@@ -27,18 +27,30 @@ fi
 3. If absent, proceed without brand constraints — inform user they can create one from the example at `examples/visual-charter.example.json`.
 4. Check for face reference at `~/.roxabi-vault/config/face-reference.json` and load if present.
 
-## Phase 2 — Accept Concept
+## Phase 2 — Accept Concept & Intake
 
 1. If no concept provided via $ARGUMENTS, AskUserQuestion:
-   - "Describe the image you want to generate. Include subject, context, and any specific requirements."
-2. Parse the concept into components:
-   - **Subject** — the main focus of the image
+   - "What image do you want to create? Describe the subject, context, and any specific requirements."
+
+2. Ask structured follow-up questions (one message, all at once):
+   - **Platform** — "Where will this image be used?" (Instagram, LinkedIn, website, presentation, thumbnail, other)
+   - **Content type** — "What kind of content?" (personal brand, product, educational, promotional, lifestyle, other)
+   - **Mood/tone** — "What feeling should it convey?" (professional, warm, dramatic, energetic, minimal, mysterious, other)
+   - **Style preference** — "Any style direction?" (photographic, illustrated, 3D, no preference — optional override)
+   - **Aspect ratio** — "What format?" (square 1:1, portrait 4:5 or 9:16, landscape 16:9, no preference)
+
+3. Parse all answers into a creative brief:
+   - **Subject** — main focus of the image
    - **Context** — setting, environment, background
-   - **Intent** — what the image is for (social media, presentation, website, etc.)
-   - **Constraints** — aspect ratio, platform requirements, style preferences
-3. Ask the user: "Do you want your face/likeness to appear in the generated image? (yes/no)"
-   - If yes → proceed to Phase 2.5 before loading style references
-   - If no → skip directly to Phase 3
+   - **Platform** — target platform (drives aspect ratio and style decisions)
+   - **Content type** — purpose of the image
+   - **Mood** — emotional tone and atmosphere
+   - **Style** — preferred visual direction (or "open" if no preference)
+   - **Aspect ratio** — target format
+
+4. AskUserQuestion: "Do you want your face/likeness to appear in the image? (yes/no)"
+   - If yes → proceed to Phase 2.5
+   - If no → skip to Phase 2.75
 
 ## Phase 2.5 — Face Reference Resolution
 
@@ -63,6 +75,38 @@ EOF
 
 4. Store the face description as `FACE_DESC` — it will be injected into the Subject component of every prompt variant in Phase 4.
 
+## Phase 2.75 — Vault Search (Optional)
+
+Check if vault has relevant ideas, notes, or references that could enrich the image concept:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, '$CLAUDE_PLUGIN_ROOT/../..')
+from roxabi_sdk.paths import vault_healthy
+print('VAULT_OK' if vault_healthy() else 'VAULT_UNAVAILABLE')
+" 2>/dev/null || echo "VAULT_UNAVAILABLE"
+```
+
+If vault is healthy, search for related content using the concept keywords:
+
+```bash
+python3 -c "
+import sqlite3, json
+from pathlib import Path
+home = Path.home() / '.roxabi-vault'
+conn = sqlite3.connect(str(home / 'vault.db'))
+rows = conn.execute(
+    'SELECT title, substr(content, 1, 200) FROM entries WHERE category IN (\"ideas\", \"content\", \"references\") ORDER BY created_at DESC LIMIT 5'
+).fetchall()
+conn.close()
+for r in rows: print(json.dumps({'title': r[0], 'preview': r[1]}))
+" 2>/dev/null
+```
+
+- If relevant entries found: surface them and incorporate key themes, mood, or context into the creative brief
+- If vault unavailable or no relevant results: skip silently — proceed to Phase 3
+
 ## Phase 3 — Load Style References
 
 1. Read reference files for style guidance:
@@ -82,23 +126,23 @@ done
 
 ## Phase 4 — Generate Prompt Variants
 
-Generate 4-6 prompt variants across different styles. Each variant must include:
+Generate 4-6 prompt variants informed by the creative brief from Phase 2. Each variant must include:
 
 | Component | Description |
 |-----------|-------------|
-| **Style** | Artistic style from references (e.g., "cinematic photography", "flat illustration") |
-| **Subject** | Detailed subject description with attributes — if `FACE_DESC` is set, prepend it: "[FACE_DESC], [rest of subject]" |
-| **Composition** | Framing, perspective, focal point |
-| **Lighting** | Light source, quality, mood |
-| **Color palette** | Dominant colors, harmony type |
-| **Mood** | Emotional tone, atmosphere |
-| **Technical** | Resolution, aspect ratio, rendering details |
+| **Style** | Artistic style from references — if user specified a style preference, lead with that; otherwise distribute across categories |
+| **Subject** | Detailed subject description — if `FACE_DESC` is set, prepend it: "[FACE_DESC], [rest of subject]" |
+| **Composition** | Framing and perspective matched to the target aspect ratio from the brief |
+| **Lighting** | Light source and quality matched to the mood from the brief |
+| **Color palette** | Dominant colors and harmony — informed by brand charter if present |
+| **Mood** | Emotional tone matched to the mood/tone answer from the brief |
+| **Technical** | Resolution, aspect ratio (from brief), platform-specific rendering details |
 
-Variant distribution:
-- 1-2 photographic styles
-- 1-2 illustration/digital art styles
-- 1 stylized/artistic style
-- 1 experimental/unexpected style
+Variant distribution — adapt based on style preference:
+- If style preference given: 2-3 variants in that direction + 1-2 creative divergences
+- If no preference: 1-2 photographic, 1-2 illustration/digital art, 1 stylized, 1 experimental
+
+Use vault content (if found in Phase 2.75) to add contextual depth to subject descriptions and mood.
 
 ## Phase 5 — Apply Brand Identity
 
