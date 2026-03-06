@@ -25,6 +25,7 @@ fi
 
 2. If charter exists, parse brand identity: colors, style preferences, mood, avoidances.
 3. If absent, proceed without brand constraints — inform user they can create one from the example at `examples/visual-charter.example.json`.
+4. Check for face reference at `~/.roxabi-vault/config/face-reference.json` and load if present.
 
 ## Phase 2 — Accept Concept
 
@@ -35,6 +36,32 @@ fi
    - **Context** — setting, environment, background
    - **Intent** — what the image is for (social media, presentation, website, etc.)
    - **Constraints** — aspect ratio, platform requirements, style preferences
+3. Ask the user: "Do you want your face/likeness to appear in the generated image? (yes/no)"
+   - If yes → proceed to Phase 2.5 before loading style references
+   - If no → skip directly to Phase 3
+
+## Phase 2.5 — Face Reference Resolution
+
+Only execute if user confirmed they want their face in the image.
+
+1. If `face-reference.json` was found in Phase 1, display a summary and confirm:
+   - "Using your saved face reference: [description]. Is this still accurate? (yes/update)"
+   - If update → ask for new description and overwrite the file
+2. If not found, ask the user:
+   - "Please describe your appearance for the prompt (e.g. hair color and style, eye color, age range, skin tone, any distinctive features)."
+3. Save to vault for future sessions:
+
+```bash
+mkdir -p "$HOME/.roxabi-vault/config"
+cat > "$HOME/.roxabi-vault/config/face-reference.json" << EOF
+{
+  "description": "FACE_DESCRIPTION",
+  "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+```
+
+4. Store the face description as `FACE_DESC` — it will be injected into the Subject component of every prompt variant in Phase 4.
 
 ## Phase 3 — Load Style References
 
@@ -60,7 +87,7 @@ Generate 4-6 prompt variants across different styles. Each variant must include:
 | Component | Description |
 |-----------|-------------|
 | **Style** | Artistic style from references (e.g., "cinematic photography", "flat illustration") |
-| **Subject** | Detailed subject description with attributes |
+| **Subject** | Detailed subject description with attributes — if `FACE_DESC` is set, prepend it: "[FACE_DESC], [rest of subject]" |
 | **Composition** | Framing, perspective, focal point |
 | **Lighting** | Light source, quality, mood |
 | **Color palette** | Dominant colors, harmony type |
@@ -88,6 +115,20 @@ Mark each variant as:
 - **Off-brand** — deliberately divergent (for exploration)
 
 ## Phase 6 — Present Variants
+
+Auto-save all variants to vault before presenting:
+
+```bash
+save_dir="$HOME/.roxabi-vault/image-prompts"
+mkdir -p "$save_dir"
+timestamp=$(date +%Y-%m-%d-%H-%M-%S)
+save_file="$save_dir/$timestamp.md"
+# Write concept, face reference (if used), and all variants to the file
+echo "# Image Prompts — $timestamp" > "$save_file"
+echo "Concept: USER_CONCEPT" >> "$save_file"
+# Append each variant block
+echo "Saved to: $save_file"
+```
 
 Present all variants in a structured format:
 
