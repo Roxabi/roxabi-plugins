@@ -110,7 +110,7 @@ Variant distribution — adapt based on style preference:
 - If style preference given: 2-3 variants in that direction + 1-2 creative divergences
 - If no preference: 1-2 photographic, 1-2 illustration/digital art, 1 stylized, 1 experimental
 
-Use vault content (if found in Phase 2.75) to add contextual depth to subject descriptions and mood.
+Use face description (if set in Phase 2.5) and creative brief (from Phase 2) to add contextual depth to subject descriptions and mood.
 
 ## Phase 5 — Apply Brand Identity
 
@@ -133,11 +133,12 @@ Auto-save all variants to vault before presenting:
 ```bash
 save_dir="$HOME/.roxabi-vault/image-prompts"
 mkdir -p "$save_dir"
-timestamp=$(date +%Y-%m-%d-%H-%M-%S)
-save_file="$save_dir/$timestamp.md"
+date_prefix=$(date +%Y%m%d)
+slug=$(echo "USER_CONCEPT" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\{2,\}/-/g' | sed 's/^-\|-$//g' | cut -c1-40)
+save_file="$save_dir/${date_prefix}_${slug}.md"
 # Write concept, face reference (if used), and all variants to the file
-echo "# Image Prompts — $timestamp" > "$save_file"
-echo "Concept: USER_CONCEPT" >> "$save_file"
+echo "# Image Prompts — USER_CONCEPT" > "$save_file"
+echo "Date: $date_prefix" >> "$save_file"
 # Append each variant block
 echo "Saved to: $save_file"
 ```
