@@ -116,4 +116,124 @@ describe('doctor', () => {
     // Assert: the ⏭ skip icon appears in the GitHub section (gh not available skips all checks)
     expect(result.stdout).toContain('⏭')
   })
+
+  describe('CI permissions', () => {
+    function writeWorkflow(dir: string, content: string) {
+      const wfDir = path.join(dir, '.github', 'workflows')
+      fs.mkdirSync(wfDir, { recursive: true })
+      fs.writeFileSync(path.join(wfDir, 'ci.yml'), content)
+    }
+
+    it('warns when a job has job-level permissions without contents: read and uses actions/checkout', () => {
+      // Arrange
+      writeWorkflow(
+        tmpDir,
+        [
+          'name: CI',
+          'on: [push]',
+          'jobs:',
+          '  merge-reports:',
+          '    runs-on: ubuntu-latest',
+          '    permissions:',
+          '      actions: read',
+          '    steps:',
+          '      - uses: actions/checkout@v4',
+        ].join('\n'),
+      )
+
+      // Act
+      const result = runDoctor(tmpDir)
+
+      // Assert
+      expect(result.stdout).toContain('CI permissions')
+      expect(result.stdout).toContain('merge-reports')
+      expect(result.stdout).toContain('contents: read')
+    })
+
+    it('passes when a job with job-level permissions includes contents: read', () => {
+      // Arrange
+      writeWorkflow(
+        tmpDir,
+        [
+          'name: CI',
+          'on: [push]',
+          'jobs:',
+          '  build:',
+          '    runs-on: ubuntu-latest',
+          '    permissions:',
+          '      contents: read',
+          '      actions: read',
+          '    steps:',
+          '      - uses: actions/checkout@v4',
+        ].join('\n'),
+      )
+
+      // Act
+      const result = runDoctor(tmpDir)
+
+      // Assert
+      expect(result.stdout).toContain('CI permissions')
+      expect(result.stdout).toContain('no missing contents: read')
+    })
+
+    it('passes when a job uses permissions: read-all shorthand', () => {
+      // Arrange
+      writeWorkflow(
+        tmpDir,
+        [
+          'name: CI',
+          'on: [push]',
+          'jobs:',
+          '  build:',
+          '    runs-on: ubuntu-latest',
+          '    permissions: read-all',
+          '    steps:',
+          '      - uses: actions/checkout@v4',
+        ].join('\n'),
+      )
+
+      // Act
+      const result = runDoctor(tmpDir)
+
+      // Assert
+      expect(result.stdout).toContain('CI permissions')
+      expect(result.stdout).toContain('no missing contents: read')
+    })
+
+    it('passes when a job has no job-level permissions block (inherits top-level)', () => {
+      // Arrange: top-level permissions only — job inherits, no override
+      writeWorkflow(
+        tmpDir,
+        [
+          'name: CI',
+          'on: [push]',
+          'permissions:',
+          '  contents: read',
+          'jobs:',
+          '  build:',
+          '    runs-on: ubuntu-latest',
+          '    steps:',
+          '      - uses: actions/checkout@v4',
+        ].join('\n'),
+      )
+
+      // Act
+      const result = runDoctor(tmpDir)
+
+      // Assert
+      expect(result.stdout).toContain('CI permissions')
+      expect(result.stdout).toContain('no missing contents: read')
+    })
+
+    it('skips CI permissions check when no workflow files exist', () => {
+      // Arrange: no .github/workflows directory in tmpDir by default
+
+      // Act
+      const result = runDoctor(tmpDir)
+
+      // Assert
+      expect(result.stdout).toContain('CI permissions')
+      expect(result.stdout).toContain('no local workflow files found')
+    })
+  })
 })
