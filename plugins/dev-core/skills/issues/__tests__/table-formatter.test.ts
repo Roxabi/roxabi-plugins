@@ -94,7 +94,7 @@ describe('table-formatter', () => {
   })
 
   describe('sortIssues', () => {
-    it('sorts parents (with children) before leaf issues', () => {
+    it('sorts by priority over parent status (P0 leaf before P1 parent)', () => {
       const items = [
         makeRawItem({ number: 1 }, { Priority: 'P0 - Urgent', Size: 'M' }),
         makeRawItem(
@@ -104,7 +104,7 @@ describe('table-formatter', () => {
       ]
 
       const sorted = sortIssues(items)
-      expect(sorted.map((i) => i.content.number)).toEqual([2, 1])
+      expect(sorted.map((i) => i.content.number)).toEqual([1, 2])
     })
 
     it('sorts by priority P0 → P3', () => {
