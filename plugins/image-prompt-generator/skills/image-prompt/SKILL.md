@@ -25,16 +25,55 @@ fi
 
 2. If charter exists, parse brand identity: colors, style preferences, mood, avoidances.
 3. If absent, proceed without brand constraints — inform user they can create one from the example at `examples/visual-charter.example.json`.
+4. Check for face reference at `~/.roxabi-vault/config/face-reference.json` and load if present.
 
-## Phase 2 — Accept Concept
+## Phase 2 — Accept Concept & Intake
 
 1. If no concept provided via $ARGUMENTS, AskUserQuestion:
-   - "Describe the image you want to generate. Include subject, context, and any specific requirements."
-2. Parse the concept into components:
-   - **Subject** — the main focus of the image
+   - "What image do you want to create? Describe the subject, context, and any specific requirements."
+
+2. Ask structured follow-up questions (one message, all at once):
+   - **Platform** — "Where will this image be used?" (Instagram, LinkedIn, website, presentation, thumbnail, other)
+   - **Content type** — "What kind of content?" (personal brand, product, educational, promotional, lifestyle, other)
+   - **Mood/tone** — "What feeling should it convey?" (professional, warm, dramatic, energetic, minimal, mysterious, other)
+   - **Style preference** — "Any style direction?" (photographic, illustrated, 3D, no preference — optional override)
+   - **Aspect ratio** — "What format?" (square 1:1, portrait 4:5 or 9:16, landscape 16:9, no preference)
+
+3. Parse all answers into a creative brief:
+   - **Subject** — main focus of the image
    - **Context** — setting, environment, background
-   - **Intent** — what the image is for (social media, presentation, website, etc.)
-   - **Constraints** — aspect ratio, platform requirements, style preferences
+   - **Platform** — target platform (drives aspect ratio and style decisions)
+   - **Content type** — purpose of the image
+   - **Mood** — emotional tone and atmosphere
+   - **Style** — preferred visual direction (or "open" if no preference)
+   - **Aspect ratio** — target format
+
+4. AskUserQuestion: "Do you want your face/likeness to appear in the image? (yes/no)"
+   - If yes → proceed to Phase 2.5
+   - If no → skip to Phase 2.75
+
+## Phase 2.5 — Face Reference Resolution
+
+Only execute if user confirmed they want their face in the image.
+
+1. If `face-reference.json` was found in Phase 1, display a summary and confirm:
+   - "Using your saved face reference: [description]. Is this still accurate? (yes/update)"
+   - If update → ask for new description and overwrite the file
+2. If not found, ask the user:
+   - "Please describe your appearance for the prompt (e.g. hair color and style, eye color, age range, skin tone, any distinctive features)."
+3. Save to vault for future sessions:
+
+```bash
+mkdir -p "$HOME/.roxabi-vault/config"
+cat > "$HOME/.roxabi-vault/config/face-reference.json" << EOF
+{
+  "description": "FACE_DESCRIPTION",
+  "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+```
+
+4. Store the face description as `FACE_DESC` — it will be injected into the Subject component of every prompt variant in Phase 4.
 
 ## Phase 3 — Load Style References
 
@@ -55,23 +94,23 @@ done
 
 ## Phase 4 — Generate Prompt Variants
 
-Generate 4-6 prompt variants across different styles. Each variant must include:
+Generate 4-6 prompt variants informed by the creative brief from Phase 2. Each variant must include:
 
 | Component | Description |
 |-----------|-------------|
-| **Style** | Artistic style from references (e.g., "cinematic photography", "flat illustration") |
-| **Subject** | Detailed subject description with attributes |
-| **Composition** | Framing, perspective, focal point |
-| **Lighting** | Light source, quality, mood |
-| **Color palette** | Dominant colors, harmony type |
-| **Mood** | Emotional tone, atmosphere |
-| **Technical** | Resolution, aspect ratio, rendering details |
+| **Style** | Artistic style from references — if user specified a style preference, lead with that; otherwise distribute across categories |
+| **Subject** | Detailed subject description — if `FACE_DESC` is set, prepend it: "[FACE_DESC], [rest of subject]" |
+| **Composition** | Framing and perspective matched to the target aspect ratio from the brief |
+| **Lighting** | Light source and quality matched to the mood from the brief |
+| **Color palette** | Dominant colors and harmony — informed by brand charter if present |
+| **Mood** | Emotional tone matched to the mood/tone answer from the brief |
+| **Technical** | Resolution, aspect ratio (from brief), platform-specific rendering details |
 
-Variant distribution:
-- 1-2 photographic styles
-- 1-2 illustration/digital art styles
-- 1 stylized/artistic style
-- 1 experimental/unexpected style
+Variant distribution — adapt based on style preference:
+- If style preference given: 2-3 variants in that direction + 1-2 creative divergences
+- If no preference: 1-2 photographic, 1-2 illustration/digital art, 1 stylized, 1 experimental
+
+Use vault content (if found in Phase 2.75) to add contextual depth to subject descriptions and mood.
 
 ## Phase 5 — Apply Brand Identity
 
@@ -88,6 +127,20 @@ Mark each variant as:
 - **Off-brand** — deliberately divergent (for exploration)
 
 ## Phase 6 — Present Variants
+
+Auto-save all variants to vault before presenting:
+
+```bash
+save_dir="$HOME/.roxabi-vault/image-prompts"
+mkdir -p "$save_dir"
+timestamp=$(date +%Y-%m-%d-%H-%M-%S)
+save_file="$save_dir/$timestamp.md"
+# Write concept, face reference (if used), and all variants to the file
+echo "# Image Prompts — $timestamp" > "$save_file"
+echo "Concept: USER_CONCEPT" >> "$save_file"
+# Append each variant block
+echo "Saved to: $save_file"
+```
 
 Present all variants in a structured format:
 
