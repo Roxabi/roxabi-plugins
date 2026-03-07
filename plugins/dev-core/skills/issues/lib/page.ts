@@ -93,47 +93,24 @@ function buildAddButton(): string {
   return `<button class="tab add-btn" onclick="openAddDialog()" title="Add project">+</button>`
 }
 
-type ProjectMeta = { prs: PR[]; branchCI: BranchCI[]; workflowRuns: WorkflowRun[]; deployments: VercelDeployment[] }
+type ProjectMeta = {
+  prs: PR[]
+  branchCI: BranchCI[]
+  workflowRuns: WorkflowRun[]
+  deployments: VercelDeployment[]
+  branches: Branch[]
+  worktrees: Worktree[]
+}
 
 function buildAllView(byProject: Map<string, Issue[]>, workspaceProjects?: WorkspaceProject[]): string {
   if (byProject.size === 0) {
     return '<div class="empty-state">No projects registered — click + to add one</div>'
   }
 
-  // 1. Flat all-issues table (shown on "All" tab)
-  const allIssues: Issue[] = []
-  for (const [label, issues] of byProject) {
-    for (const issue of issues) {
-      allIssues.push({ ...issue, projectLabel: label })
-    }
-  }
-  const priorityOrder: Record<string, number> = {
-    'P0 - Urgent': 0,
-    'P1 - High': 1,
-    'P2 - Medium': 2,
-    'P3 - Low': 3,
-    '-': 99,
-  }
-  const sizeOrder: Record<string, number> = {
-    XL: 0,
-    L: 1,
-    M: 2,
-    S: 3,
-    XS: 4,
-    '-': 99,
-  }
-  allIssues.sort((a, b) => {
-    const pd = (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99)
-    if (pd !== 0) return pd
-    return (sizeOrder[a.size] ?? 99) - (sizeOrder[b.size] ?? 99)
-  })
-  const allTableHtml =
-    allIssues.length === 0
-      ? '<p class="no-issues">No open issues</p>'
-      : buildAllIssueTable(allIssues, workspaceProjects)
-  const allViewHtml = `<div data-project="All">${allTableHtml}</div>`
+  // "All" tab: no issues (user navigates per-project tabs for issues)
+  const allViewHtml = '<div data-project="All"></div>'
 
-  // 2. Per-project tables (shown when that project's tab is active)
+  // Per-project tables (shown when that project's tab is active)
   const projectViews = [...byProject.entries()]
     .map(([label, issues]) => {
       const project = workspaceProjects?.find((p) => p.label === label)
@@ -154,67 +131,7 @@ function buildAllView(byProject: Map<string, Issue[]>, workspaceProjects?: Works
     })
     .join('\n')
 
-  return allViewHtml + '\n' + projectViews
-}
-
-function buildAllIssueTable(issues: Issue[], workspaceProjects?: WorkspaceProject[]): string {
-  const { visibleRows, hiddenRows, hasMore, hiddenCount } = splitIssueRows(issues, true)
-  const mergedSections = buildMergedFieldSections(workspaceProjects)
-  const mergedAttr = escHtml(JSON.stringify(mergedSections))
-
-  return `<table data-field-sections="${mergedAttr}" class="all-issues-table">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Title</th>
-        <th>Project</th>
-        <th>Status</th>
-        <th>\ud83d\udccf Size</th>
-        <th>\ud83d\udd25 Pri</th>
-        <th>&#9889;</th>
-        <th>Deps</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${visibleRows}
-      ${
-        hasMore
-          ? `<tr class="show-more-row"><td colspan="8" style="text-align:center;padding:12px;">
-        <button class="show-more-btn" onclick="var tb=this.closest('table').querySelector('.hidden-issues-body');tb.style.display='';this.parentElement.parentElement.style.display='none';">
-          Show ${hiddenCount} more issue${hiddenCount > 1 ? 's' : ''}
-        </button>
-      </td></tr>`
-          : ''
-      }
-    </tbody>
-    <tbody class="hidden-issues-body" style="display:none;">
-      ${hiddenRows}
-      <tr class="show-less-row"><td colspan="8" style="text-align:center;padding:12px;">
-        <button class="show-more-btn" onclick="var tbl=this.closest('table');tbl.querySelector('.hidden-issues-body').style.display='none';tbl.querySelector('.show-more-row').style.display='';">
-          Show less
-        </button>
-      </td></tr>
-    </tbody>
-  </table>`
-}
-
-/** Merge field sections from all workspace projects for the All tab context menu. */
-function buildMergedFieldSections(workspaceProjects?: WorkspaceProject[]) {
-  const statusOpts = new Set<string>([...STATUS_VALUES])
-  const col2Opts = new Set<string>([...SIZE_VALUES])
-  const col3Opts = new Set<string>([...PRIORITY_VALUES])
-  if (workspaceProjects) {
-    for (const p of workspaceProjects) {
-      if (p.fieldIds?.statusOptions) for (const k of Object.keys(p.fieldIds.statusOptions)) statusOpts.add(k)
-      if (p.fieldIds?.col2Options) for (const k of Object.keys(p.fieldIds.col2Options)) col2Opts.add(k)
-      if (p.fieldIds?.col3Options) for (const k of Object.keys(p.fieldIds.col3Options)) col3Opts.add(k)
-    }
-  }
-  return [
-    { label: 'Status', field: 'status', options: [...statusOpts] },
-    { label: 'Size', field: 'col2', options: [...col2Opts] },
-    { label: 'Pri', field: 'col3', options: [...col3Opts] },
-  ]
+  return `${allViewHtml}\n${projectViews}`
 }
 
 function buildIssueTable(issues: Issue[], project?: WorkspaceProject): string {
@@ -308,7 +225,22 @@ export function buildHtml(
   const { visibleRows, hiddenRows, hasMore, hiddenCount } = splitIssueRows(issues)
   const depNodes = isMultiProject ? [] : buildDepGraph(allIssues)
   const depGraphHtml = isMultiProject ? '' : renderDepGraph(depNodes, allIssues)
-  const branchesHtml = renderBranchesAndWorktrees(branches, worktrees)
+  const branchesHtml =
+    isMultiProject && byProjectMeta
+      ? (() => {
+          const groups = [...byProjectMeta.entries()]
+            .filter(([, m]) => {
+              const featureBranches = m.branches.filter((b) => b.name !== 'main' && b.name !== 'master')
+              return featureBranches.length > 0 || m.worktrees.length > 1
+            })
+            .map(
+              ([l, m]) =>
+                `<div data-project="${escHtml(l)}"><div class="project-sep-inline">${escHtml(l)}</div>${renderBranchesAndWorktrees(m.branches, m.worktrees)}</div>`,
+            )
+            .join('')
+          return groups || '<p class="empty-state">No feature branches</p>'
+        })()
+      : renderBranchesAndWorktrees(branches, worktrees)
 
   // In multi-project mode, build combined sections with per-project [data-project] groups
   // so switchTab can show/hide across ALL sections uniformly.
@@ -468,18 +400,18 @@ ${LIVE_STYLES}
 
   <div id="section-prs">${showPRs ? `<div class="section"><h2>Pull Requests</h2>${prsHtml}</div>` : ''}</div>
 
-  <div id="section-issues" class="section">
+  <div id="section-issues" class="section"${isMultiProject ? ' style="display:none;"' : ''}>
     <h2>Issues</h2>
     <div id="section-issues-content">${issuesSectionHtml}</div>
   </div>
 
-  <div class="legend">
+  <div class="legend"${isMultiProject ? ' style="display:none;"' : ''}>
     <span>\u26d4 blocked</span>
     <span>\ud83d\udd13 blocking</span>
     <span>\u2705 ready</span>
   </div>
 
-  <div id="section-graph">${
+  <div id="section-graph"${isMultiProject ? ' style="display:none;"' : ''}>${
     isMultiProject
       ? ''
       : `<div class="section">
@@ -514,23 +446,37 @@ ${LIVE_STYLES}
       });
     }
 
-    // Issues section: show All view or per-project view
+    // Issues section: hide on All tab (no issues), show per-project view on project tabs
+    var issuesSec = document.getElementById('section-issues');
+    var legendSec = document.querySelector('.legend');
+    var graphSec = document.getElementById('section-graph');
+    if (label === 'All') {
+      if (issuesSec) issuesSec.style.display = 'none';
+      if (legendSec) legendSec.style.display = 'none';
+      if (graphSec) graphSec.style.display = 'none';
+    } else {
+      if (issuesSec) issuesSec.style.display = '';
+      if (legendSec) legendSec.style.display = '';
+      if (graphSec) graphSec.style.display = '';
+    }
     document.querySelectorAll('#section-issues-content > [data-project]').forEach(function(el) {
       el.style.display = (label === 'All' ? el.dataset.project === 'All' : el.dataset.project === label) ? '' : 'none';
     });
 
-    // Other sections with [data-project] groups (CI, PRs, Vercel, workflow runs)
+    // Other sections with [data-project] groups (CI, PRs, Vercel, workflow runs, branches)
+    var tabSections = '#section-ci [data-project], #section-prs [data-project], #section-vercel [data-project], #section-workflow-runs [data-project], #section-branches [data-project]';
+    var tabSectionIds = ['section-ci', 'section-prs', 'section-vercel', 'section-workflow-runs'];
     if (label === 'All') {
-      document.querySelectorAll('#section-ci [data-project], #section-prs [data-project], #section-vercel [data-project], #section-workflow-runs [data-project]').forEach(function(el) { el.style.display = ''; });
-      ['section-ci', 'section-prs', 'section-vercel', 'section-workflow-runs'].forEach(function(id) {
+      document.querySelectorAll(tabSections).forEach(function(el) { el.style.display = ''; });
+      tabSectionIds.forEach(function(id) {
         var sec = document.getElementById(id);
         if (sec) sec.style.display = '';
       });
     } else {
-      document.querySelectorAll('#section-ci [data-project], #section-prs [data-project], #section-vercel [data-project], #section-workflow-runs [data-project]').forEach(function(el) {
+      document.querySelectorAll(tabSections).forEach(function(el) {
         el.style.display = el.dataset.project === label ? '' : 'none';
       });
-      ['section-ci', 'section-prs', 'section-vercel', 'section-workflow-runs'].forEach(function(id) {
+      tabSectionIds.forEach(function(id) {
         var sec = document.getElementById(id);
         if (!sec) return;
         var projEls = sec.querySelectorAll('[data-project]');

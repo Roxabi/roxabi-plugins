@@ -207,9 +207,9 @@ export async function fetchPRs(repoSlug: string = GITHUB_REPO): Promise<PR[]> {
   }
 }
 
-export async function fetchBranches(): Promise<Branch[]> {
+export async function fetchBranches(cwd?: string): Promise<Branch[]> {
   try {
-    const out = await run(['git', 'branch', '--list'])
+    const out = await run(['git', 'branch', '--list'], cwd)
     if (!out) return []
     return out
       .split('\n')
@@ -223,9 +223,9 @@ export async function fetchBranches(): Promise<Branch[]> {
   }
 }
 
-export async function fetchWorktrees(): Promise<Worktree[]> {
+export async function fetchWorktrees(cwd?: string): Promise<Worktree[]> {
   try {
-    const out = await run(['git', 'worktree', 'list', '--porcelain'])
+    const out = await run(['git', 'worktree', 'list', '--porcelain'], cwd)
     if (!out) return []
     const trees: Worktree[] = []
     let current: Partial<Worktree> = {}

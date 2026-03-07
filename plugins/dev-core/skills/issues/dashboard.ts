@@ -25,7 +25,14 @@ import { buildHtml } from './lib/page'
 import type { Branch, BranchCI, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './lib/types'
 import { handleUpdate } from './lib/update'
 
-type ProjectMeta = { prs: PR[]; branchCI: BranchCI[]; workflowRuns: WorkflowRun[]; deployments: VercelDeployment[] }
+type ProjectMeta = {
+  prs: PR[]
+  branchCI: BranchCI[]
+  workflowRuns: WorkflowRun[]
+  deployments: VercelDeployment[]
+  branches: Branch[]
+  worktrees: Worktree[]
+}
 
 const PORT = Number(process.argv.find((a) => a.startsWith('--port='))?.split('=')[1] ?? 3333)
 const POLL_MS = Number(process.argv.find((a) => a.startsWith('--poll='))?.split('=')[1] ?? 60) * 1000
@@ -94,21 +101,23 @@ async function refreshCache(): Promise<void> {
     let byProjectMeta: Map<string, ProjectMeta> | null = null
 
     if (ws.projects.length > 0) {
-      const [rawMap, metaResults, branches_, worktrees_] = await Promise.all([
+      const [rawMap, metaResults] = await Promise.all([
         fetchAllProjects(ws.projects),
         Promise.all(
-          ws.projects.map(async (p) => ({
-            label: p.label,
-            prs: await fetchPRs(p.repo),
-            branchCI: await fetchBranchCI(p.repo),
-            workflowRuns: await fetchWorkflowRuns(p.repo),
-            deployments: (
-              await Promise.all(resolveVercelProjects(p).map((vp) => fetchVercelDeployments(vp.projectId, vp.teamId)))
-            ).flat(),
-          })),
+          ws.projects.map(async (p) => {
+            const [prs, branchCI, workflowRuns, deployments, branches, worktrees] = await Promise.all([
+              fetchPRs(p.repo),
+              fetchBranchCI(p.repo),
+              fetchWorkflowRuns(p.repo),
+              Promise.all(resolveVercelProjects(p).map((vp) => fetchVercelDeployments(vp.projectId, vp.teamId))).then(
+                (r) => r.flat(),
+              ),
+              fetchBranches(p.localPath),
+              fetchWorktrees(p.localPath),
+            ])
+            return { label: p.label, prs, branchCI, workflowRuns, deployments, branches, worktrees }
+          }),
         ),
-        fetchBranches(),
-        fetchWorktrees(),
       ])
 
       byProject = new Map<string, Issue[]>()
@@ -122,11 +131,20 @@ async function refreshCache(): Promise<void> {
       byProjectMeta = new Map(
         metaResults.map((m) => [
           m.label,
-          { prs: m.prs, branchCI: m.branchCI, workflowRuns: m.workflowRuns, deployments: m.deployments },
+          {
+            prs: m.prs,
+            branchCI: m.branchCI,
+            workflowRuns: m.workflowRuns,
+            deployments: m.deployments,
+            branches: m.branches,
+            worktrees: m.worktrees,
+          },
         ]),
       )
 
       const prs = metaResults.flatMap((m) => m.prs)
+      const branches_ = metaResults.flatMap((m) => m.branches)
+      const worktrees_ = metaResults.flatMap((m) => m.worktrees)
       const branchCI = metaResults.flatMap((m) => m.branchCI)
       const workflowRuns = metaResults.flatMap((m) => m.workflowRuns)
       const deployments_ = metaResults.flatMap((m) => m.deployments)
@@ -142,6 +160,7 @@ async function refreshCache(): Promise<void> {
         type: p.type,
         fieldIds: p.fieldIds,
         vercelProjects: p.vercelProjects,
+        localPath: p.localPath,
       })) as WorkspaceProject[]
       const html = buildHtml(
         issues,

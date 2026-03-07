@@ -378,8 +378,8 @@ function authHeaders(): Record<string, string> {
 }
 
 /** Run a local shell command and return trimmed stdout. Throws on non-zero exit. */
-export async function run(cmd: string[]): Promise<string> {
-  const proc = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe' })
+export async function run(cmd: string[], cwd?: string): Promise<string> {
+  const proc = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe', cwd })
   const stdout = await new Response(proc.stdout).text()
   const stderr = await new Response(proc.stderr).text()
   const code = await proc.exited
