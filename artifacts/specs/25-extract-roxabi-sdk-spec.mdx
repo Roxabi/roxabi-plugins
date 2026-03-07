@@ -1,0 +1,125 @@
+---
+title: "Extract roxabi-sdk — consolidate shims into adapters"
+issue: 25
+status: approved
+tier: F-full
+shape: A
+date: 2026-03-07
+promoted_from: artifacts/analyses/25-extract-roxabi-sdk-analysis.mdx
+---
+
+## Context
+
+Issue #25 — Phase 5 cleanup from clean architecture spec (#20, ADR-005). Shape A selected: move standalone functions from 3 shim files into their corresponding adapter files, update all import paths, delete shims. Additionally fix cross-plugin sqlite3 boundary violation in `get-invoice-details`.
+
+Key constraint: adapter classes have zero production consumers — all 34 files import standalone functions. This spec preserves the standalone function API; consumers only change their import paths.
+
+## Goal
+
+Eliminate dual import paths by consolidating shim code into adapter files, and fix the cross-plugin boundary violation in `get-invoice-details`.
+
+## Users
+
+- Plugin developers maintaining `dev-core` — no more confusion about which import path to use
+- `get-invoice-details` plugin — resilient to vault schema changes via SDK function
+
+## Expected Behavior
+
+After this change:
+1. `plugins/dev-core/skills/shared/github.ts`, `config.ts`, and `workspace.ts` no longer exist
+2. All consumers import directly from `adapters/github-adapter`, `adapters/config-helpers`, `adapters/workspace-helpers`, `ports/workspace`, or `domain/types`
+3. `get-invoice-details/scripts/extract.py` calls `roxabi_sdk.paths.vault_index_entry()` instead of raw `sqlite3`
+4. `bun typecheck`, `bun lint`, and `bun test` pass
+5. No behavior changes — identical runtime behavior before and after
+
+## Breadboard
+
+### Module: config.ts → adapters/config-helpers.ts
+
+| Affordance | Current location | Target location |
+|------------|-----------------|-----------------|
+| `GITHUB_REPO` | `shared/config.ts` | `adapters/config-helpers.ts` |
+| `NOT_CONFIGURED_MSG` | `shared/config.ts` | `adapters/config-helpers.ts` |
+| `PRIORITY_SHORT` | `shared/config.ts` | `adapters/config-helpers.ts` |
+| `STATUS_SHORT` | `shared/config.ts` | `adapters/config-helpers.ts` |
+| `LabelDef` (type) | `shared/config.ts` | `adapters/config-helpers.ts` |
+| `STANDARD_LABELS` | `shared/config.ts` | `adapters/config-helpers.ts` |
+| `STANDARD_WORKFLOWS` | `shared/config.ts` | `adapters/config-helpers.ts` |
+| `REQUIRED_SECRETS` | `shared/config.ts` | `adapters/config-helpers.ts` |
+| `PROTECTED_BRANCHES` | `shared/config.ts` | `adapters/config-helpers.ts` |
+| `BRANCH_PROTECTION_PAYLOAD` | `shared/config.ts` | `adapters/config-helpers.ts` |
+| `PRIORITY_ORDER` | `shared/config.ts` | `adapters/config-helpers.ts` |
+| `SIZE_ORDER` | `shared/config.ts` | `adapters/config-helpers.ts` |
+| `STATUS_ORDER` | `shared/config.ts` | `adapters/config-helpers.ts` |
+| `BLOCK_ORDER` | `shared/config.ts` | `adapters/config-helpers.ts` |
+
+Consumers (14 import sites): update `'../../shared/config'` → `'../../shared/adapters/config-helpers'` (or `'../shared/adapters/config-helpers'` for 1-level consumers).
+
+### Module: workspace.ts → adapters/workspace-helpers.ts + ports/workspace.ts
+
+| Affordance | Current location | Target location |
+|------------|-----------------|-----------------|
+| `ProjectType` (type) | `shared/workspace.ts` | `ports/workspace.ts` |
+| `discoverProject` | re-export from `adapters/workspace-helpers.ts` | direct import |
+| `getWorkspacePath` | re-export from `adapters/workspace-helpers.ts` | direct import |
+| `readWorkspace` | re-export from `adapters/workspace-helpers.ts` | direct import |
+| `writeWorkspace` | re-export from `adapters/workspace-helpers.ts` | direct import |
+| `ProjectFieldIds` (type) | re-export from `domain/types` | direct import from `domain/types` |
+| `VercelProjectRef`, `Workspace`, `WorkspaceProject` (types) | re-export from `ports/workspace` | direct import from `ports/workspace` |
+
+Consumers (8 import sites): update to import from `adapters/workspace-helpers` (functions) or `ports/workspace` / `domain/types` (types).
+
+### Module: github.ts → adapters/github-adapter.ts
+
+| Affordance | Current location | Target location |
+|------------|-----------------|-----------------|
+| `run()` | `shared/github.ts` (standalone) | `adapters/github-adapter.ts` (standalone export) |
+| `ghGraphQL()` | `shared/github.ts` (standalone) | `adapters/github-adapter.ts` (standalone export) |
+| `getNodeId()` | `shared/github.ts` (standalone) | `adapters/github-adapter.ts` (standalone export) |
+| `createGitHubIssue()` | `shared/github.ts` (standalone) | `adapters/github-adapter.ts` (standalone export) |
+| `getItemId()` | `shared/github.ts` (standalone) | `adapters/github-adapter.ts` (standalone export) |
+| `addToProject()` | `shared/github.ts` (standalone) | `adapters/github-adapter.ts` (standalone export) |
+| `updateField()` | `shared/github.ts` (standalone) | `adapters/github-adapter.ts` (standalone export) |
+| `addBlockedBy()` | `shared/github.ts` (standalone) | `adapters/github-adapter.ts` (standalone export) |
+| `removeBlockedBy()` | `shared/github.ts` (standalone) | `adapters/github-adapter.ts` (standalone export) |
+| `addSubIssue()` | `shared/github.ts` (standalone) | `adapters/github-adapter.ts` (standalone export) |
+| `removeSubIssue()` | `shared/github.ts` (standalone) | `adapters/github-adapter.ts` (standalone export) |
+| `linkProjectToRepo()` | `shared/github.ts` (standalone) | `adapters/github-adapter.ts` (standalone export) |
+| `getBoardIssueNumbers()` | `shared/github.ts` (standalone) | `adapters/github-adapter.ts` (standalone export) |
+| `getParentNumber()` | `shared/github.ts` (standalone) | `adapters/github-adapter.ts` (standalone export) |
+
+Token management (`getToken()`, `authHeaders()`) and `GITHUB_API`/`GRAPHQL_URL` constants already exist in the adapter class. The standalone functions will share these with the class — extract `getToken()` and `authHeaders()` as module-level helpers used by both.
+
+Consumers (12 import sites): update `'../../shared/github'` → `'../../shared/adapters/github-adapter'`.
+
+### Module: get-invoice-details SDK fix
+
+| Affordance | Current location | Target location |
+|------------|-----------------|-----------------|
+| `vault_index_entry()` | N/A (raw sqlite3 in extract.py) | `roxabi_sdk/paths.py` |
+
+`vault_index_entry(category, type, title, content, metadata)` — inserts into vault.db `entries` table. Returns `True` on success, `False` on failure. Graceful degradation: if vault unhealthy or table missing, returns `False`.
+
+`extract.py` replaces its `index_in_vault()` function body with a call to `vault_index_entry()`.
+
+## Slices
+
+| Slice | Files changed | Description | Depends on |
+|-------|--------------|-------------|------------|
+| 1. Config + workspace consolidation | ~25 files | Move unique exports from `config.ts` → `config-helpers.ts`, move `ProjectType` → `ports/workspace.ts`, update 22 import sites, delete `config.ts` + `workspace.ts` | — |
+| 2. GitHub consolidation | ~15 files | Move standalone functions from `github.ts` → `github-adapter.ts`, extract shared token helpers, update 12 import sites, delete `github.ts` | — |
+| 3. SDK vault indexing | 2 files | Add `vault_index_entry()` to `roxabi_sdk/paths.py`, update `extract.py` to use it | — |
+
+All slices are independent and can be done in any order. Each slice is independently verifiable via `bun typecheck` (slices 1-2) or manual test (slice 3).
+
+## Success Criteria
+
+- [ ] `plugins/dev-core/skills/shared/config.ts` deleted — no file exists at this path
+- [ ] `plugins/dev-core/skills/shared/workspace.ts` deleted — no file exists at this path
+- [ ] `plugins/dev-core/skills/shared/github.ts` deleted — no file exists at this path
+- [ ] Zero imports from `'../../shared/config'`, `'../shared/config'`, `'../../shared/github'`, `'../../shared/workspace'`, or `'../shared/workspace'` in any `.ts` file
+- [ ] `roxabi_sdk/paths.py` exports `vault_index_entry()` function
+- [ ] `get-invoice-details/scripts/extract.py` does not import `sqlite3` — uses `vault_index_entry()` instead
+- [ ] `bun typecheck` passes with zero errors
+- [ ] `bun lint` passes
+- [ ] `bun test` passes
