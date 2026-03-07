@@ -6,6 +6,7 @@
  */
 
 import {
+  DEFAULT_RULESET,
   PROTECTED_BRANCHES,
   REQUIRED_SECRETS,
   STANDARD_LABELS,
@@ -371,6 +372,40 @@ function checkBranchProtection(ghOk: boolean, owner: string, repo: string): Sect
   return { name: 'Branch protection', checks }
 }
 
+function checkRulesets(ghOk: boolean, owner: string, repo: string): Section {
+  if (!ghOk || !owner || !repo)
+    return {
+      name: 'Rulesets',
+      checks: [{ name: DEFAULT_RULESET.name, status: 'skip', detail: 'gh CLI not available' }],
+    }
+
+  const result = spawnSync(['gh', 'api', `repos/${owner}/${repo}/rulesets`, '--jq', '.[].name'])
+  if (!result.ok)
+    return {
+      name: 'Rulesets',
+      checks: [{ name: DEFAULT_RULESET.name, status: 'warn', detail: 'could not fetch rulesets' }],
+    }
+
+  const existing = result.stdout
+    .split('\n')
+    .map((n) => n.trim())
+    .filter((n) => n)
+  const hasRuleset = existing.includes(DEFAULT_RULESET.name)
+
+  return {
+    name: 'Rulesets',
+    checks: [
+      {
+        name: DEFAULT_RULESET.name,
+        status: hasRuleset ? 'pass' : 'warn',
+        detail: hasRuleset
+          ? 'active (squash/rebase only, no deletion, no force push, thread resolution)'
+          : 'missing — run /init to create (enforces squash/rebase merges, thread resolution)',
+      },
+    ],
+  }
+}
+
 function checkProjectStructure(): Section {
   const checks: Check[] = []
 
@@ -722,6 +757,7 @@ const sections: Section[] = [
   checkSecrets(ghOk, owner, repo),
   checkProjectWorkflows(ghOk, owner),
   checkBranchProtection(ghOk, owner, fullRepo),
+  checkRulesets(ghOk, owner, repo),
   checkProjectStructure(),
   checkSecurity(),
   checkVercel(),

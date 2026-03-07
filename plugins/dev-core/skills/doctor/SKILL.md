@@ -41,6 +41,7 @@ Severity guide: ❌ = blocking error, ⚠️ = warning, ✅ = pass, ⏭ = skippe
 | `tools/licenseChecker.ts` missing | Copy from boilerplate `tools/licenseChecker.ts` or run `/init` Phase 10d |
 | trufflehog not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-commit.commands.trufflehog` |
 | license check not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-push.commands.license` |
+| `PR_Main` ruleset missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts protect-branches --repo <owner/repo>` — creates ruleset enforcing squash/rebase merges, thread resolution, no deletion/force push |
 
 Issues requiring interactive GitHub auth or multi-step scaffolding → display exact command + explanation. Do not silently redirect — always show the fix.
 

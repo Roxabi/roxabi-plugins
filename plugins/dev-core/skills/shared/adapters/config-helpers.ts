@@ -191,6 +191,41 @@ export const BRANCH_PROTECTION_PAYLOAD = {
   restrictions: null,
 }
 
+export const DEFAULT_RULESET = {
+  name: 'PR_Main',
+  target: 'branch',
+  enforcement: 'active',
+  conditions: {
+    ref_name: {
+      include: ['~DEFAULT_BRANCH'],
+      exclude: [],
+    },
+  },
+  rules: [
+    { type: 'deletion' },
+    { type: 'non_fast_forward' },
+    {
+      type: 'pull_request',
+      parameters: {
+        required_approving_review_count: 0,
+        dismiss_stale_reviews_on_push: true,
+        required_reviewers: [],
+        require_code_owner_review: false,
+        require_last_push_approval: false,
+        required_review_thread_resolution: true,
+        allowed_merge_methods: ['squash', 'rebase'],
+      },
+    },
+  ],
+  bypass_actors: [
+    {
+      actor_id: 5,
+      actor_type: 'RepositoryRole',
+      bypass_mode: 'always',
+    },
+  ],
+} as const
+
 export const PRIORITY_ORDER: Record<string, number> = {
   'P0 - Urgent': 0,
   'P1 - High': 1,

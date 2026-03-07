@@ -192,10 +192,18 @@ yes:
 
 skip → Display: `Dependabot ⏭ Skipped`
 
-### 3d. Branch Protection
+### 3d. Branch Protection + Ruleset
 
 AskUserQuestion: **Set up branch protection** | **Skip**.
 yes → `bun $I_TS protect-branches --repo <owner/repo>`
+
+This command:
+1. Applies branch protection (required `ci` check, strict up-to-date) on main + staging
+2. Creates the `PR_Main` ruleset if missing (squash/rebase only, no deletion, no force push, thread resolution required)
+
+Parse result JSON. Display:
+- Branch protection: `main ✅, staging ✅` (or ❌ per branch)
+- Ruleset: `PR_Main ✅ Created` | `PR_Main ✅ Already exists` | `PR_Main ❌ Failed`
 
 ### 3e. Vercel (Optional)
 
@@ -555,6 +563,7 @@ dev-core initialized
   Labels            ✅ N labels created / ⏭ Skipped
   Project workflows ✅ Displayed / ⏭ Skipped
   Branch protection ✅ Created / ⏭ Skipped
+  Ruleset PR_Main   ✅ Created / ✅ Already exists / ⏭ Skipped
   roxabi shim       ✅ Installed (~/.local/bin/roxabi)
   PATH              ✅ ~/.local/bin added to .bashrc/.zshrc  (or ⏭ already present)
   artifacts/        ✅ Created
