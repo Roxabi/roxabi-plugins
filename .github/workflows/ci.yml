@@ -24,6 +24,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install pytest
+      - run: pip install pytest git+https://github.com/Roxabi/roxabi-memory.git@main
       - name: Test (pytest)
         run: python3 -m pytest tests/ plugins/vault/tests/ -v
