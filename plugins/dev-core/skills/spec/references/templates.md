@@ -27,6 +27,55 @@ description: "{one-line description}"
 
 {narrative walkthrough of the feature from a user perspective}
 
+## Data Model & Consumers
+
+### Data Structure
+
+```mermaid
+classDiagram
+    class {MainConfig} {
+        <<frozen>>
+        +field_a: type
+        +sub: SubConfig
+    }
+
+    class SubConfig {
+        <<frozen>>
+        +field_b: type
+    }
+
+    {MainConfig} *-- SubConfig
+```
+
+### Consumer Map
+
+```mermaid
+flowchart LR
+    DATA["{MainConfig}"]
+
+    subgraph "Current Consumers (this issue)"
+        C1["Consumer 1\nreads field_a"]
+    end
+
+    subgraph "Future Consumers (separate issues)"
+        C2["Consumer 2\nreads sub.field_b"]
+    end
+
+    DATA -->|"field_a"| C1
+    DATA -.->|"sub.field_b"| C2
+
+    style DATA fill:#f9f,stroke:#333
+    style C1 fill:#bbf,stroke:#333
+    style C2 fill:#ffe,stroke:#999,stroke-dasharray: 5 5
+```
+
+**Legend:** Solid lines = this issue. Dashed lines = future consumers.
+
+| Consumer | Fields consumed | When | Status |
+|----------|----------------|------|--------|
+| Consumer 1 | field_a | {trigger} | This issue |
+| Consumer 2 | sub.field_b | {trigger} | Future |
+
 ## Breadboard
 
 ### {Affordance Group 1}

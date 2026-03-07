@@ -126,10 +126,21 @@ generated: {ISO}
 
 Include:
 - Summary (1–2 sentences)
+- Architecture diagrams (mermaid, see below)
 - Bootstrap Context (from analysis if ∃, omit if ¬∃)
 - Agents table (agent, task count, files)
 - Consistency Report (covered/total, uncovered, untraced, exemptions)
 - Micro-Tasks (grouped by slice/criteria, with RED-GATE sentinels)
+
+### Mermaid Diagrams
+
+`## Architecture` section must include:
+
+1. **Data flow diagram** (`flowchart TD`) — show the full pipeline: config files → loader functions → data structures → composition → runtime injection. Group nodes into subgraphs by file. Highlight key paths (override, hot-reload) with distinct styles.
+
+2. **File × Function map** (`flowchart LR`) — show which functions/classes live in which files and how they call each other. Group by source file. Show test files as consumers.
+
+Diagrams go AFTER Summary and BEFORE Bootstrap Context. They answer "how does the implementation flow across files" — the plan's equivalent of the spec's data model diagrams.
 
 ## Step 6 — Approve + Commit
 
