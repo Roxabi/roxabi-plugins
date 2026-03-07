@@ -112,8 +112,8 @@ async function refreshCache(): Promise<void> {
               Promise.all(resolveVercelProjects(p).map((vp) => fetchVercelDeployments(vp.projectId, vp.teamId))).then(
                 (r) => r.flat(),
               ),
-              fetchBranches(p.localPath),
-              fetchWorktrees(p.localPath),
+              p.localPath ? fetchBranches(p.localPath) : Promise.resolve([]),
+              p.localPath ? fetchWorktrees(p.localPath) : Promise.resolve([]),
             ])
             return { label: p.label, prs, branchCI, workflowRuns, deployments, branches, worktrees }
           }),
