@@ -7,7 +7,7 @@ const mockFetch = vi.fn()
 // Set GITHUB_TOKEN for tests
 process.env.GITHUB_TOKEN = 'test-token'
 
-const { ghGraphQL, run } = await import('../github')
+const { ghGraphQL, run } = await import('../adapters/github-adapter')
 
 function mockProcess(stdout: string, stderr = '', exitCode = 0) {
   const stdoutStream = new ReadableStream({

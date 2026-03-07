@@ -49,3 +49,24 @@ def vault_healthy() -> bool:
             conn.close()
     except Exception:
         return False
+
+
+def vault_index_entry(category: str, entry_type: str, title: str, content: str, metadata: str = '{}') -> bool:
+    """Index an entry in vault.db. Returns True on success, False on failure."""
+    if not vault_healthy():
+        return False
+    try:
+        db_path = get_vault_home() / 'vault.db'
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.execute(
+                'INSERT INTO entries (category, type, title, content, metadata) '
+                'VALUES (?, ?, ?, ?, ?)',
+                (category, entry_type, title, content, metadata)
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+    except Exception:
+        return False

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../shared/github', () => ({
+vi.mock('../../shared/adapters/github-adapter', () => ({
   run: vi.fn(),
   ghGraphQL: vi.fn(),
   linkProjectToRepo: vi.fn(),
@@ -30,7 +30,7 @@ vi.mock('../../shared/queries', () => ({
   UPDATE_FIELD_OPTIONS_MUTATION: 'UPDATE_FIELD_OPTIONS_MUTATION',
 }))
 
-vi.mock('../../shared/workspace', () => ({
+vi.mock('../../shared/adapters/workspace-helpers', () => ({
   readWorkspace: vi.fn(() => ({ projects: [] })),
   writeWorkspace: vi.fn(),
   getWorkspacePath: () => '/tmp/test-workspace.json',
@@ -42,7 +42,7 @@ describe('createProject', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
-    const github = await import('../../shared/github')
+    const github = await import('../../shared/adapters/github-adapter')
     mockRun = github.run as ReturnType<typeof vi.fn>
     mockGhGraphQL = github.ghGraphQL as ReturnType<typeof vi.fn>
   })
@@ -111,7 +111,7 @@ describe('listProjectWorkflows', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
-    const github = await import('../../shared/github')
+    const github = await import('../../shared/adapters/github-adapter')
     mockGhGraphQL = github.ghGraphQL as ReturnType<typeof vi.fn>
   })
 

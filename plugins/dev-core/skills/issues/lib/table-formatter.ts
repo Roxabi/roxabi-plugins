@@ -3,7 +3,7 @@
  * Ports the jq logic from the old fetch_issues.sh.
  */
 
-import { PRIORITY_ORDER, PRIORITY_SHORT, SIZE_ORDER, STATUS_SHORT } from '../../shared/config'
+import { PRIORITY_ORDER, PRIORITY_SHORT, SIZE_ORDER, STATUS_SHORT } from '../../shared/adapters/config-helpers'
 import type { RawItem } from '../../shared/types'
 import type { Issue } from './types'
 

@@ -1,8 +1,8 @@
-import { GH_PROJECT_ID, GITHUB_REPO } from '../../shared/config'
-import { ghGraphQL, run } from '../../shared/github'
+import { GH_PROJECT_ID, GITHUB_REPO } from '../../shared/adapters/config-helpers'
+import { ghGraphQL, run } from '../../shared/adapters/github-adapter'
+import type { WorkspaceProject } from '../../shared/ports/workspace'
 import { BRANCH_CI_QUERY, ISSUES_QUERY, PRS_QUERY } from '../../shared/queries'
 import type { RawItem } from '../../shared/types'
-import type { WorkspaceProject } from '../../shared/workspace'
 
 import type { Branch, BranchCI, BuildStep, CICheck, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './types'
 

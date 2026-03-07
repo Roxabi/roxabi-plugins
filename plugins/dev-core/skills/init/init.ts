@@ -52,7 +52,7 @@ switch (command) {
       console.error(`[init] Invalid --type value: '${rawType}'. Must be 'technical' or 'company'.`)
       process.exit(1)
     }
-    const type: import('../shared/workspace').ProjectType = rawType
+    const type: import('../shared/ports/workspace').ProjectType = rawType
     if (!owner || !repo) {
       console.error('Usage: init.ts create-project --owner <owner> --repo <repo> [--type technical|company]')
       process.exit(1)

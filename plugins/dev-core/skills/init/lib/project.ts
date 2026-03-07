@@ -3,12 +3,17 @@
  * Supports --type technical|company to configure per-project field slots.
  */
 
-import { DEFAULT_PRIORITY_OPTIONS, DEFAULT_SIZE_OPTIONS, DEFAULT_STATUS_OPTIONS } from '../../shared/config'
-import type { ParsedField } from '../../shared/github'
-import { ghGraphQL, linkProjectToRepo, parseProjectFields, run } from '../../shared/github'
+import {
+  DEFAULT_PRIORITY_OPTIONS,
+  DEFAULT_SIZE_OPTIONS,
+  DEFAULT_STATUS_OPTIONS,
+} from '../../shared/adapters/config-helpers'
+import type { ParsedField } from '../../shared/adapters/github-adapter'
+import { ghGraphQL, linkProjectToRepo, parseProjectFields, run } from '../../shared/adapters/github-adapter'
+import { readWorkspace, writeWorkspace } from '../../shared/adapters/workspace-helpers'
+import type { ProjectFieldIds } from '../../shared/domain/types'
+import type { ProjectType, WorkspaceProject } from '../../shared/ports/workspace'
 import { PROJECT_WORKFLOWS_QUERY, UPDATE_FIELD_OPTIONS_MUTATION } from '../../shared/queries'
-import type { ProjectFieldIds, ProjectType, WorkspaceProject } from '../../shared/workspace'
-import { readWorkspace, writeWorkspace } from '../../shared/workspace'
 
 export interface ProjectWorkflow {
   id: string

@@ -27,19 +27,19 @@ const MOCK_FIELD_MAP = {
   priority: { fieldId: 'PR_mock', options: { 'P1 - High': 'OPT_P1_MOCK' } },
 }
 
-vi.mock('../../shared/config', () => ({
+vi.mock('../../shared/adapters/config-helpers', () => ({
   FIELD_MAP: MOCK_FIELD_MAP,
   isProjectConfigured: mockIsProjectConfigured,
   NOT_CONFIGURED_MSG: 'GitHub Project V2 is not configured. Run `/init` to auto-detect project board settings.',
   resolveFieldIds: (project: { fieldIds?: Record<string, unknown> }) => project.fieldIds ?? {},
 }))
 
-vi.mock('../../shared/github', () => ({
+vi.mock('../../shared/adapters/github-adapter', () => ({
   getItemId: mockGetItemId,
   updateField: mockUpdateField,
 }))
 
-vi.mock('../../shared/workspace', () => ({
+vi.mock('../../shared/adapters/workspace-helpers', () => ({
   readWorkspace: mockReadWorkspace,
   writeWorkspace: vi.fn(() => {}),
 }))

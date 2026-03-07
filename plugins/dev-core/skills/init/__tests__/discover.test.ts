@@ -4,7 +4,7 @@ vi.mock('../../shared/prereqs', () => ({
   checkPrereqs: vi.fn(),
 }))
 
-vi.mock('../../shared/github', () => ({
+vi.mock('../../shared/adapters/github-adapter', () => ({
   run: vi.fn(),
   parseProjectFields: vi.fn(),
   getBoardIssueNumbers: vi.fn(),
@@ -17,7 +17,7 @@ describe('discover', () => {
   beforeEach(async () => {
     vi.restoreAllMocks()
     const prereqs = await import('../../shared/prereqs')
-    const github = await import('../../shared/github')
+    const github = await import('../../shared/adapters/github-adapter')
     mockCheckPrereqs = prereqs.checkPrereqs as ReturnType<typeof vi.fn>
     mockRun = github.run as ReturnType<typeof vi.fn>
 

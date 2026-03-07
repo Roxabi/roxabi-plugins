@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { ProjectFieldIds } from '../workspace'
+import type { ProjectFieldIds } from '../domain/types'
 
 // Re-use the already-imported config module (same module cache as config.test.ts)
 const {
@@ -17,7 +17,7 @@ const {
   STATUS_OPTIONS,
   SIZE_OPTIONS,
   PRIORITY_OPTIONS,
-} = await import('../config')
+} = await import('../adapters/config-helpers')
 
 describe('resolveFieldIds', () => {
   it('uses project.fieldIds when present', () => {

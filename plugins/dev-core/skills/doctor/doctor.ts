@@ -5,7 +5,12 @@
  * Exit code: 0 = all pass, 1 = any failure.
  */
 
-import { PROTECTED_BRANCHES, REQUIRED_SECRETS, STANDARD_LABELS, STANDARD_WORKFLOWS } from '../shared/config'
+import {
+  PROTECTED_BRANCHES,
+  REQUIRED_SECRETS,
+  STANDARD_LABELS,
+  STANDARD_WORKFLOWS,
+} from '../shared/adapters/config-helpers'
 import { checkPrereqs, type PrereqResult } from '../shared/prereqs'
 
 // --- Types ---

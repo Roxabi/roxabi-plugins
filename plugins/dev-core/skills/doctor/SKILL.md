@@ -164,7 +164,7 @@ After fixes, re-run relevant checks and display updated result.
 
 ```bash
 bun -e "
-import { getWorkspacePath, readWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/workspace.ts'
+import { getWorkspacePath, readWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/adapters/workspace-helpers.ts'
 import { existsSync } from 'node:fs'
 const path = getWorkspacePath()
 if (!existsSync(path)) { console.log(JSON.stringify({ found: false })); process.exit(0) }

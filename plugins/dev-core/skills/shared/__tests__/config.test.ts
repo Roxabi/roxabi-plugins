@@ -27,7 +27,7 @@ const {
   BRANCH_PROTECTION_PAYLOAD,
   STATUS_ALIASES,
   STATUS_OPTIONS,
-} = await import('../config')
+} = await import('../adapters/config-helpers')
 
 describe('shared/config', () => {
   describe('option maps', () => {

@@ -2,8 +2,8 @@
  * Apply branch protection rules to standard branches.
  */
 
-import { BRANCH_PROTECTION_PAYLOAD, PROTECTED_BRANCHES } from '../../shared/config'
-import { run } from '../../shared/github'
+import { BRANCH_PROTECTION_PAYLOAD, PROTECTED_BRANCHES } from '../../shared/adapters/config-helpers'
+import { run } from '../../shared/adapters/github-adapter'
 
 export async function protectBranches(repo: string): Promise<Record<string, boolean>> {
   const results: Record<string, boolean> = {}

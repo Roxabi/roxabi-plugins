@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock shared/github before importing list module
-vi.mock('../../shared/github', () => ({
+vi.mock('../../shared/adapters/github-adapter', () => ({
   ghGraphQL: vi.fn(),
   run: vi.fn(),
 }))
 
-const { ghGraphQL } = await import('../../shared/github')
+const { ghGraphQL } = await import('../../shared/adapters/github-adapter')
 const mockGhGraphQL = ghGraphQL as ReturnType<typeof vi.fn>
 
 function makeProjectResponse(items: unknown[]) {

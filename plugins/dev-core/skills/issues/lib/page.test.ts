@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, test } from 'vitest'
-import type { WorkspaceProject } from '../../shared/workspace'
+import type { WorkspaceProject } from '../../shared/ports/workspace'
 
 const { columnLabel, showCI, showDevLinks, showSubIssues, defaultSort } = await import('./page')
 

@@ -1,4 +1,4 @@
-import type { WorkspaceProject } from '../../shared/workspace'
+import type { WorkspaceProject } from '../../shared/ports/workspace'
 import {
   branchCIRows,
   escHtml,

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
-from roxabi_sdk.paths import get_plugin_data, get_vault_home, ensure_dir, vault_healthy
+from roxabi_sdk.paths import get_plugin_data, ensure_dir, vault_healthy, vault_index_entry
 
 
 PLUGIN_NAME = 'invoices'
@@ -64,23 +64,11 @@ def index_in_vault(data: dict) -> bool:
     """Index invoice in vault if available. Returns True on success."""
     if not vault_healthy():
         return False
-    try:
-        import sqlite3
-        db_path = get_vault_home() / 'vault.db'
-        conn = sqlite3.connect(str(db_path))
-        try:
-            conn.execute(
-                'INSERT INTO entries (category, type, title, content, metadata) '
-                'VALUES (?, ?, ?, ?, ?)',
-                ('invoices', 'invoice', data.get('invoice_number', ''),
-                 json.dumps(data), '{}')
-            )
-            conn.commit()
-            return True
-        finally:
-            conn.close()
-    except Exception:
-        return False
+    return vault_index_entry(
+        'invoices', 'invoice',
+        data.get('invoice_number', ''),
+        json.dumps(data)
+    )
 
 
 def main():
