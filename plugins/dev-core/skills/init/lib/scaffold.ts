@@ -91,6 +91,7 @@ const DEV_CORE_KEYS = new Set([
   'VERCEL_TOKEN',
   'VERCEL_PROJECT_ID',
   'VERCEL_TEAM_ID',
+  'GITHUB_TOKEN',
 ])
 
 export function mergeEnv(existing: string, sections: EnvSection[], force: boolean): string {
