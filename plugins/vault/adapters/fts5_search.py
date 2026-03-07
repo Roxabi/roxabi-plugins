@@ -25,7 +25,7 @@ class Fts5SearchAdapter(SearchPort):
         if self._conn is None:
             self._db = MemoryDB(self._db_path)
             self._db.connect()
-            self._conn = self._db._conn_or_raise()
+            self._conn = self._db.connection
             self._owns_conn = True
         return self._conn
 

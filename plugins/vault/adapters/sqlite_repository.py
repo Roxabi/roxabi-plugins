@@ -20,7 +20,20 @@ class SqliteEntryRepository(EntryRepository):
 
     def _get_conn(self) -> sqlite3.Connection:
         """Expose raw connection for shared-connection consumers (e.g. Fts5SearchAdapter)."""
-        return self._db._conn_or_raise()
+        return self._db.connection
+
+    def _mem_to_vault(self, entry) -> VaultEntry:
+        """Convert a MemoryEntry to a VaultEntry."""
+        return VaultEntry(
+            id=entry.id,
+            category=entry.category,
+            type=entry.type,
+            title=entry.title,
+            content=entry.content,
+            created_at=entry.created_at,
+            updated_at=entry.updated_at,
+            metadata=entry.metadata,
+        )
 
     def _row_to_entry(self, row: sqlite3.Row) -> VaultEntry:
         return VaultEntry(
@@ -45,24 +58,17 @@ class SqliteEntryRepository(EntryRepository):
                 namespace='vault',
                 metadata=metadata or '{}',
             )
-            return VaultEntry(
-                id=entry.id,
-                category=entry.category,
-                type=entry.type,
-                title=entry.title,
-                content=entry.content,
-                created_at=entry.created_at,
-                updated_at=entry.updated_at,
-                metadata=entry.metadata,
-            )
+            return self._mem_to_vault(entry)
         except sqlite3.Error as e:
             raise StorageError(str(e)) from e
 
     def get(self, entry_id: int) -> VaultEntry | None:
         try:
             conn = self._get_conn()
-            row = conn.execute('SELECT * FROM entries WHERE id = ?',
-                               (entry_id,)).fetchone()
+            row = conn.execute(
+                'SELECT * FROM entries WHERE id = ? AND namespace = ?',
+                (entry_id, 'vault'),
+            ).fetchone()
             return self._row_to_entry(row) if row else None
         except sqlite3.Error as e:
             raise StorageError(str(e)) from e
@@ -70,7 +76,10 @@ class SqliteEntryRepository(EntryRepository):
     def delete(self, entry_id: int) -> bool:
         try:
             conn = self._get_conn()
-            cursor = conn.execute('DELETE FROM entries WHERE id = ?', (entry_id,))
+            cursor = conn.execute(
+                'DELETE FROM entries WHERE id = ? AND namespace = ?',
+                (entry_id, 'vault'),
+            )
             conn.commit()
             return cursor.rowcount > 0
         except sqlite3.Error as e:
@@ -80,14 +89,14 @@ class SqliteEntryRepository(EntryRepository):
              limit: int = 50) -> list[VaultEntry]:
         try:
             conn = self._get_conn()
-            conditions, params = [], []
+            conditions, params = ["namespace = ?"], ["vault"]
             if category:
                 conditions.append('category = ?')
                 params.append(category)
             if type:
                 conditions.append('type = ?')
                 params.append(type)
-            where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+            where = ' WHERE ' + ' AND '.join(conditions)
             sql = f'SELECT * FROM entries{where} ORDER BY updated_at DESC LIMIT ?'
             params.append(limit)
             rows = conn.execute(sql, params).fetchall()
@@ -100,15 +109,18 @@ class SqliteEntryRepository(EntryRepository):
             conn = self._get_conn()
             by_category = conn.execute(
                 'SELECT category, COUNT(*) as count FROM entries '
-                'GROUP BY category ORDER BY count DESC'
+                'WHERE namespace = ? GROUP BY category ORDER BY count DESC',
+                ('vault',),
             ).fetchall()
             by_type = conn.execute(
                 'SELECT type, COUNT(*) as count FROM entries '
-                'GROUP BY type ORDER BY count DESC'
+                'WHERE namespace = ? GROUP BY type ORDER BY count DESC',
+                ('vault',),
             ).fetchall()
             total = sum(row['count'] for row in by_category)
             oldest, newest = conn.execute(
-                'SELECT MIN(created_at), MAX(created_at) FROM entries'
+                'SELECT MIN(created_at), MAX(created_at) FROM entries '
+                'WHERE namespace = ?', ('vault',),
             ).fetchone()
             return VaultStats(
                 total_entries=total,
@@ -124,14 +136,14 @@ class SqliteEntryRepository(EntryRepository):
                type: str | None = None) -> list[VaultEntry]:
         try:
             conn = self._get_conn()
-            conditions, params = [], []
+            conditions, params = ["namespace = ?"], ["vault"]
             if category:
                 conditions.append('category = ?')
                 params.append(category)
             if type:
                 conditions.append('type = ?')
                 params.append(type)
-            where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+            where = ' WHERE ' + ' AND '.join(conditions)
             sql = f'SELECT * FROM entries{where} ORDER BY created_at ASC'
             rows = conn.execute(sql, params).fetchall()
             return [self._row_to_entry(r) for r in rows]
