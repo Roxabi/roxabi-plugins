@@ -17,6 +17,8 @@ export interface WorkspaceProject {
   vercelProjects?: VercelProjectRef[]
 }
 
+export type ProjectType = 'technical' | 'company'
+
 export interface Workspace {
   projects: WorkspaceProject[]
 }

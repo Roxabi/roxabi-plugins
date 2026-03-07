@@ -244,7 +244,7 @@ Register current project in shared workspace config (enables multi-project dashb
 1. Check if already registered:
    ```bash
    bun -e "
-   import { readWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/workspace.ts'
+   import { readWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/adapters/workspace-helpers.ts'
    const ws = readWorkspace()
    console.log(ws.projects.some(p => p.repo === process.env.GITHUB_REPO) ? 'registered' : 'not-registered')
    "
@@ -257,7 +257,7 @@ Register current project in shared workspace config (enables multi-project dashb
 4. Add:
    ```bash
    bun -e "
-   import { getWorkspacePath, readWorkspace, writeWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/workspace.ts'
+   import { getWorkspacePath, readWorkspace, writeWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/adapters/workspace-helpers.ts'
    const ws = readWorkspace()
    const entry = {
      repo: process.env.GITHUB_REPO ?? '',

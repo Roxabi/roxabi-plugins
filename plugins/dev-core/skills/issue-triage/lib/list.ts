@@ -3,8 +3,8 @@
  * Replaces list.sh.
  */
 
-import { GH_PROJECT_ID } from '../../shared/config'
-import { ghGraphQL } from '../../shared/github'
+import { GH_PROJECT_ID } from '../../shared/adapters/config-helpers'
+import { ghGraphQL } from '../../shared/adapters/github-adapter'
 import { TRIAGE_QUERY } from '../../shared/queries'
 import type { RawItem } from '../../shared/types'
 

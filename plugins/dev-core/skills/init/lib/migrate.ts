@@ -3,7 +3,7 @@
  * Fetches repo issues, diffs against board items, adds missing ones.
  */
 
-import { getBoardIssueNumbers, run } from '../../shared/github'
+import { getBoardIssueNumbers, run } from '../../shared/adapters/github-adapter'
 
 export interface MigrateResult {
   total: number

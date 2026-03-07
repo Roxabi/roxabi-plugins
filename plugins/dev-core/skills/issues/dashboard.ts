@@ -8,8 +8,8 @@
  * Features: in-memory cache, background polling, SSE live updates, multi-project workspace.
  */
 
-import type { VercelProjectRef, WorkspaceProject } from '../shared/workspace'
-import { discoverProject, readWorkspace, writeWorkspace } from '../shared/workspace'
+import { discoverProject, readWorkspace, writeWorkspace } from '../shared/adapters/workspace-helpers'
+import type { VercelProjectRef, WorkspaceProject } from '../shared/ports/workspace'
 import {
   fetchAllProjects,
   fetchBranchCI,

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../shared/github', () => ({
+vi.mock('../../shared/adapters/github-adapter', () => ({
   run: vi.fn(),
 }))
 
@@ -9,7 +9,7 @@ describe('createLabels', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks()
-    const github = await import('../../shared/github')
+    const github = await import('../../shared/adapters/github-adapter')
     mockRun = github.run as ReturnType<typeof vi.fn>
     mockRun.mockResolvedValue('')
   })

@@ -15,8 +15,15 @@ import {
   SIZE_OPTIONS,
   STATUS_FIELD_ID,
   STATUS_OPTIONS,
-} from '../../shared/config'
-import { addBlockedBy, addSubIssue, addToProject, createGitHubIssue, getNodeId, updateField } from '../../shared/github'
+} from '../../shared/adapters/config-helpers'
+import {
+  addBlockedBy,
+  addSubIssue,
+  addToProject,
+  createGitHubIssue,
+  getNodeId,
+  updateField,
+} from '../../shared/adapters/github-adapter'
 
 interface CreateOptions {
   title: string

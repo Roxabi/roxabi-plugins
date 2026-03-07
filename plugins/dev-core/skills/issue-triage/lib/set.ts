@@ -15,7 +15,7 @@ import {
   SIZE_OPTIONS,
   STATUS_FIELD_ID,
   STATUS_OPTIONS,
-} from '../../shared/config'
+} from '../../shared/adapters/config-helpers'
 import {
   addBlockedBy,
   addSubIssue,
@@ -25,7 +25,7 @@ import {
   removeBlockedBy,
   removeSubIssue,
   updateField,
-} from '../../shared/github'
+} from '../../shared/adapters/github-adapter'
 
 interface SetOptions {
   issueNumber: number

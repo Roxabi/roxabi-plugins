@@ -3,7 +3,7 @@
  * Supports both local write (writeWorkflows) and REST API push (pushWorkflows).
  */
 
-import { run } from '../../shared/github'
+import { run } from '../../shared/adapters/github-adapter'
 
 export interface WorkflowOpts {
   stack: 'bun' | 'node' | 'python'
