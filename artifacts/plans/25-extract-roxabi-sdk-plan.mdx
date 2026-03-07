@@ -1,0 +1,296 @@
+---
+title: "Plan: Extract roxabi-sdk — consolidate shims into adapters"
+issue: 25
+spec: artifacts/specs/25-extract-roxabi-sdk-spec.mdx
+complexity: 4/10
+tier: F-full
+generated: 2026-03-07
+---
+
+## Summary
+
+Move standalone code from 3 shim files into their corresponding adapter files, update all import paths, delete shims, and fix cross-plugin sqlite3 boundary violation. Mechanical migration — no behavior changes.
+
+## Agents
+
+| Agent | Tasks | Files |
+|-------|-------|-------|
+| backend-dev | 11 | ~40 (move code, update imports, delete shims, SDK function) |
+| tester | 1 | 0 (run quality gates) |
+
+## Consistency Report
+
+| Metric | Value |
+|--------|-------|
+| Success criteria covered | 9/9 |
+| Uncovered criteria | 0 |
+| Untraced tasks | 0 |
+
+## Micro-Tasks
+
+### Slice V1: Config + Workspace Consolidation
+
+#### T1.1 — Move unique constants from config.ts into config-helpers.ts [P]
+
+**Agent:** backend-dev
+**Files:** `plugins/dev-core/skills/shared/adapters/config-helpers.ts`, `plugins/dev-core/skills/shared/config.ts`
+**Description:** Move these exports from `config.ts` into `config-helpers.ts` (append at bottom):
+- `GITHUB_REPO` (const)
+- `NOT_CONFIGURED_MSG` (const)
+- `PRIORITY_SHORT` (Record)
+- `STATUS_SHORT` (Record)
+- `LabelDef` (interface)
+- `STANDARD_LABELS` (array)
+- `STANDARD_WORKFLOWS` (const)
+- `REQUIRED_SECRETS` (Record)
+- `PROTECTED_BRANCHES` (const)
+- `BRANCH_PROTECTION_PAYLOAD` (object)
+- `PRIORITY_ORDER` (Record)
+- `SIZE_ORDER` (Record)
+- `STATUS_ORDER` (Record)
+- `BLOCK_ORDER` (Record)
+
+Note: `GITHUB_REPO` calls `detectGitHubRepo()` which is already in `config-helpers.ts`.
+
+**Verify:** `bun typecheck 2>&1 | tail -5`
+**Expected:** No errors related to config-helpers.ts
+**Spec trace:** SC-1, SC-4
+**Difficulty:** 2
+
+#### T1.2 — Move ProjectType to ports/workspace.ts [P]
+
+**Agent:** backend-dev
+**Files:** `plugins/dev-core/skills/shared/ports/workspace.ts`, `plugins/dev-core/skills/shared/workspace.ts`
+**Description:** Add `export type ProjectType = 'technical' | 'company'` to `ports/workspace.ts`.
+
+**Verify:** `grep 'ProjectType' plugins/dev-core/skills/shared/ports/workspace.ts`
+**Expected:** `export type ProjectType = 'technical' | 'company'`
+**Spec trace:** SC-2
+**Difficulty:** 1
+
+#### T1.3 — Update 12 config.ts import sites → config-helpers
+
+**Agent:** backend-dev
+**Depends on:** T1.1
+**Files:**
+- `plugins/dev-core/skills/doctor/doctor.ts`
+- `plugins/dev-core/skills/init/lib/discover.ts`
+- `plugins/dev-core/skills/init/lib/labels.ts`
+- `plugins/dev-core/skills/init/lib/project.ts`
+- `plugins/dev-core/skills/init/lib/protection.ts`
+- `plugins/dev-core/skills/issue-triage/lib/create.ts`
+- `plugins/dev-core/skills/issue-triage/lib/list.ts`
+- `plugins/dev-core/skills/issue-triage/lib/set.ts`
+- `plugins/dev-core/skills/issues/lib/config.ts`
+- `plugins/dev-core/skills/issues/lib/fetch.ts`
+- `plugins/dev-core/skills/issues/lib/table-formatter.ts`
+- `plugins/dev-core/skills/issues/lib/update.ts`
+
+**Description:** In each file, update import paths:
+- `'../../shared/config'` → `'../../shared/adapters/config-helpers'`
+- `'../shared/config'` → `'../shared/adapters/config-helpers'`
+
+**Verify:** `grep -r "from '../../shared/config'\|from '../shared/config'" plugins/dev-core/skills/ --include="*.ts" | wc -l`
+**Expected:** `0`
+**Spec trace:** SC-4
+**Difficulty:** 2
+
+#### T1.4 — Update 6 workspace.ts import sites → workspace-helpers / ports / domain
+
+**Agent:** backend-dev
+**Depends on:** T1.2
+**Files:**
+- `plugins/dev-core/skills/init/lib/project.ts`
+- `plugins/dev-core/skills/issues/dashboard.ts`
+- `plugins/dev-core/skills/issues/lib/fetch.ts`
+- `plugins/dev-core/skills/issues/lib/page.test.ts`
+- `plugins/dev-core/skills/issues/lib/page.ts`
+- `plugins/dev-core/skills/issues/lib/update.ts`
+
+**Description:** In each file, update imports:
+- Functions (`discoverProject`, `readWorkspace`, `writeWorkspace`, `getWorkspacePath`) → from `'../../shared/adapters/workspace-helpers'` or `'../shared/adapters/workspace-helpers'`
+- Types (`WorkspaceProject`, `Workspace`, `VercelProjectRef`) → from `'../../shared/ports/workspace'` or `'../shared/ports/workspace'`
+- `ProjectFieldIds` → from `'../../shared/domain/types'`
+- `ProjectType` → from `'../../shared/ports/workspace'`
+
+Split imports that mix functions and types into separate import statements.
+
+**Verify:** `grep -r "from '../../shared/workspace'\|from '../shared/workspace'" plugins/dev-core/skills/ --include="*.ts" | wc -l`
+**Expected:** `0`
+**Spec trace:** SC-4
+**Difficulty:** 2
+
+#### T1.5 — Update 2 SKILL.md workspace references
+
+**Agent:** backend-dev
+**Depends on:** T1.2
+**Files:**
+- `plugins/dev-core/skills/doctor/SKILL.md`
+- `plugins/dev-core/skills/init/SKILL.md`
+
+**Description:** Update `shared/workspace.ts` references in code examples to `shared/adapters/workspace-helpers`. These are inline code examples in SKILL.md, not actual imports — update the paths in the code blocks.
+
+**Verify:** `grep -r "shared/workspace" plugins/dev-core/skills/ --include="*.md" | wc -l`
+**Expected:** `0`
+**Spec trace:** SC-2
+**Difficulty:** 1
+
+#### T1.6 — Delete config.ts and workspace.ts shims
+
+**Agent:** backend-dev
+**Depends on:** T1.3, T1.4, T1.5
+**Files:** `plugins/dev-core/skills/shared/config.ts`, `plugins/dev-core/skills/shared/workspace.ts`
+**Description:** `rm plugins/dev-core/skills/shared/config.ts plugins/dev-core/skills/shared/workspace.ts`
+
+**Verify:** `ls plugins/dev-core/skills/shared/config.ts plugins/dev-core/skills/shared/workspace.ts 2>&1`
+**Expected:** `No such file or directory` for both
+**Spec trace:** SC-1, SC-2
+**Difficulty:** 1
+
+#### RED-GATE V1: Typecheck slice 1
+
+**Verify:** `bun typecheck 2>&1 | tail -5`
+**Expected:** Exit 0, no errors
+**Spec trace:** SC-7
+
+---
+
+### Slice V2: GitHub Consolidation
+
+#### T2.1 — Extract shared token helpers as module-level in github-adapter.ts
+
+**Agent:** backend-dev
+**Files:** `plugins/dev-core/skills/shared/adapters/github-adapter.ts`
+**Description:** The class has private `getToken()` and `authHeaders()` methods + `GITHUB_API`/`GRAPHQL_URL` constants. The standalone functions need the same helpers. Extract module-level versions:
+- `const GITHUB_API` and `GRAPHQL_URL` — already at module level, keep as-is
+- Add module-level `getToken()` and `authHeaders()` functions (same logic as class methods)
+- Update class methods to call the module-level versions (DRY)
+
+**Verify:** `bun typecheck 2>&1 | tail -5`
+**Expected:** No errors
+**Spec trace:** SC-3
+**Difficulty:** 3
+
+#### T2.2 — Move standalone functions from github.ts into github-adapter.ts
+
+**Agent:** backend-dev
+**Depends on:** T2.1
+**Files:** `plugins/dev-core/skills/shared/adapters/github-adapter.ts`, `plugins/dev-core/skills/shared/github.ts`
+**Description:** Move all 14 standalone exported functions from `github.ts` into `github-adapter.ts` (after the class). They use the module-level `getToken()`, `authHeaders()`, `GH_PROJECT_ID`, `GITHUB_REPO` — add necessary imports from `config-helpers`. Remove the re-export of `parseProjectFields` (already in adapter file).
+
+Functions to move: `run`, `ghGraphQL`, `getBoardIssueNumbers`, `getNodeId`, `createGitHubIssue`, `getItemId`, `addToProject`, `updateField`, `addBlockedBy`, `removeBlockedBy`, `addSubIssue`, `removeSubIssue`, `linkProjectToRepo`, `getParentNumber`.
+
+**Verify:** `grep -c "export.*function" plugins/dev-core/skills/shared/adapters/github-adapter.ts`
+**Expected:** ≥15 (14 standalone + `parseProjectFields`)
+**Spec trace:** SC-3
+**Difficulty:** 3
+
+#### T2.3 — Update 11 github.ts import sites → github-adapter
+
+**Agent:** backend-dev
+**Depends on:** T2.2
+**Files:**
+- `plugins/dev-core/skills/init/lib/discover.ts`
+- `plugins/dev-core/skills/init/lib/labels.ts`
+- `plugins/dev-core/skills/init/lib/migrate.ts`
+- `plugins/dev-core/skills/init/lib/project.ts`
+- `plugins/dev-core/skills/init/lib/protection.ts`
+- `plugins/dev-core/skills/init/lib/workflows.ts`
+- `plugins/dev-core/skills/issue-triage/lib/create.ts`
+- `plugins/dev-core/skills/issue-triage/lib/list.ts`
+- `plugins/dev-core/skills/issue-triage/lib/set.ts`
+- `plugins/dev-core/skills/issues/lib/fetch.ts`
+- `plugins/dev-core/skills/issues/lib/update.ts`
+
+**Description:** In each file, update import path:
+- `'../../shared/github'` → `'../../shared/adapters/github-adapter'`
+
+**Verify:** `grep -r "from '../../shared/github'\|from '../shared/github'" plugins/dev-core/skills/ --include="*.ts" | wc -l`
+**Expected:** `0`
+**Spec trace:** SC-4
+**Difficulty:** 2
+
+#### T2.4 — Delete github.ts shim
+
+**Agent:** backend-dev
+**Depends on:** T2.3
+**Files:** `plugins/dev-core/skills/shared/github.ts`
+**Description:** `rm plugins/dev-core/skills/shared/github.ts`
+
+**Verify:** `ls plugins/dev-core/skills/shared/github.ts 2>&1`
+**Expected:** `No such file or directory`
+**Spec trace:** SC-3
+**Difficulty:** 1
+
+#### RED-GATE V2: Typecheck slice 2
+
+**Verify:** `bun typecheck 2>&1 | tail -5`
+**Expected:** Exit 0, no errors
+**Spec trace:** SC-7
+
+---
+
+### Slice V3: SDK Vault Indexing
+
+#### T3.1 — Add vault_index_entry() to roxabi_sdk/paths.py [P]
+
+**Agent:** backend-dev
+**Files:** `roxabi_sdk/paths.py`
+**Description:** Add function:
+```python
+def vault_index_entry(category: str, entry_type: str, title: str, content: str, metadata: str = '{}') -> bool:
+    """Index an entry in vault.db. Returns True on success, False on failure."""
+    if not vault_healthy():
+        return False
+    try:
+        db_path = get_vault_home() / 'vault.db'
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.execute(
+                'INSERT INTO entries (category, type, title, content, metadata) '
+                'VALUES (?, ?, ?, ?, ?)',
+                (category, entry_type, title, content, metadata)
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+    except Exception:
+        return False
+```
+
+**Verify:** `python3 -c "from roxabi_sdk.paths import vault_index_entry; print('ok')"`
+**Expected:** `ok`
+**Spec trace:** SC-5
+**Difficulty:** 2
+
+#### T3.2 — Update extract.py to use vault_index_entry()
+
+**Agent:** backend-dev
+**Depends on:** T3.1
+**Files:** `plugins/get-invoice-details/scripts/extract.py`
+**Description:** Replace the `index_in_vault()` function body:
+- Remove `import sqlite3` from inside the function
+- Import `vault_index_entry` from `roxabi_sdk.paths` (add to existing import line)
+- Replace function body with:
+```python
+def index_in_vault(data: dict) -> bool:
+    if not vault_healthy():
+        return False
+    return vault_index_entry(
+        'invoices', 'invoice',
+        data.get('invoice_number', ''),
+        json.dumps(data)
+    )
+```
+
+**Verify:** `grep -c 'sqlite3' plugins/get-invoice-details/scripts/extract.py`
+**Expected:** `0`
+**Spec trace:** SC-6
+**Difficulty:** 1
+
+#### RED-GATE V3: Full quality gates
+
+**Verify:** `bun typecheck && bun lint && bun test`
+**Expected:** All pass, exit 0
+**Spec trace:** SC-7, SC-8, SC-9
