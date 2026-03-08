@@ -567,6 +567,73 @@ g. Run license check and offer to generate policy (Python):
    - exit 2 (pip-licenses missing) → Display: `License check ⏭ pip-licenses not installed — run uv add --dev pip-licenses`
 h. Display: `Pre-commit hooks ✅ pre-commit installed (lint + typecheck + trufflehog on commit, license on push)`
 
+## Phase 10b — Marketplace Plugins
+
+Offer additional Roxabi plugins. dev-core is already installed — present the rest grouped by theme, 3 at a time.
+
+For each group below, display the group name + plugin list, then AskUserQuestion: **Install all** | **Pick** | **Skip**.
+
+- **Pick**: AskUserQuestion per plugin: **Install** | **Skip**.
+- Install: `claude plugin install <name>` — run for each selected plugin, display result inline.
+
+---
+
+### Group 1 — Dev tools
+
+| Plugin | What it does |
+|--------|-------------|
+| `compress` | Rewrite agent/skill definitions in compact math/logic notation — cuts token usage |
+| `1b1` | Walk a list one by one: brief → decide → act → next. Great for review queues |
+| `web-intel` | Scrape Twitter/X, GitHub, YouTube, Reddit, webpages — summarize, analyze, benchmark |
+
+---
+
+### Group 2 — Frontend quality
+
+| Plugin | What it does |
+|--------|-------------|
+| `react-best-practices` | 58 React/Next.js perf rules across 8 categories, prioritized by impact |
+| `composition-patterns` | Avoid boolean prop proliferation — compound components, context providers |
+| `web-design-guidelines` | Review UI for accessibility, UX, and Web Interface Guidelines compliance |
+
+---
+
+### Group 3 — Visual output
+
+| Plugin | What it does |
+|--------|-------------|
+| `visual-explainer` | Self-contained HTML pages with diagrams, visualizations, and data tables |
+| `frontend-slides` | Zero-dependency HTML presentations — 12 presets, PPT conversion |
+| `image-prompt-generator` | AI image prompts with visual identity and style consistency |
+
+---
+
+### Group 4 — Career & content
+
+| Plugin | What it does |
+|--------|-------------|
+| `cv` | Generate and adapt CVs from structured JSON, tailored for specific job postings |
+| `linkedin-apply` | Scrape LinkedIn jobs and score against your profile — APPLY / REVIEW / SKIP |
+| `linkedin-post-generator` | Engaging LinkedIn posts with best practices and visual identity |
+
+---
+
+### Group 5 — Data & productivity
+
+| Plugin | What it does |
+|--------|-------------|
+| `vault` | Unified local SQLite+FTS5 vault — CRUD and full-text search across Roxabi data |
+| `get-invoice-details` | Extract structured data from invoice documents (text or PDF) → JSON |
+| `voice-cli` | Author TTS scripts, generate speech, clone voices, transcribe audio |
+
+---
+
+After all groups, display:
+```
+Marketplace plugins
+  installed: compress, web-intel, vault  (or: ⏭ None installed)
+```
+
 ## Phase 11 — Report
 
 Display final summary:
@@ -590,6 +657,7 @@ dev-core initialized
   workspace.json    ✅ Registered <repo> / ⏭ Skipped
   bulk discovery    ✅ Added N projects / ⏭ Skipped / ⏭ No others found
   stack.yml         ✅ Configured / ✅ Already exists / ⏭ Skipped
+  Marketplace       ✅ N plugins installed (name, name, ...) / ⏭ Skipped
   VS Code MDX preview   ✅ Added / ✅ Already configured / ⏭ Skipped / ⏭ No .mdx files found
   CI/CD workflows   ✅ Created / ✅ Already configured / ⏭ Skipped
   TruffleHog        ✅ Secret scanning configured / ⏭ Skipped
