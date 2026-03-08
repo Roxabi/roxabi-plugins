@@ -110,6 +110,27 @@ export function issueRow(issue: Issue, indent = 0, prefix = '', showProject = fa
   return html
 }
 
+function extractRepo(url: string): string {
+  const match = url.match(/github\.com\/([^/]+\/[^/]+)\//)
+  return match ? match[1].split('/')[1] : ''
+}
+
+export function roadmapRow(issue: Issue): string {
+  const repo = extractRepo(issue.url)
+  const status = STATUS_SHORT[issue.status] ?? issue.status
+  const statusClass = STATUS_CLASS[issue.status] ?? ''
+  const pri = PRIORITY_SHORT[issue.priority] ?? issue.priority
+  const priClass = PRIORITY_CLASS[issue.priority] ?? ''
+
+  return `<tr class="issue-row" data-issue="${issue.number}">
+    <td class="col-num"><a href="${escHtml(issue.url)}" target="_blank" rel="noopener">#${issue.number}</a></td>
+    <td class="col-title">${escHtml(issue.title)}</td>
+    <td class="col-project"><span class="badge project-label">${escHtml(repo)}</span></td>
+    <td class="col-status"><span class="badge ${statusClass}">${escHtml(status)}</span></td>
+    <td class="col-pri"><span class="badge ${priClass}">${escHtml(pri)}</span></td>
+  </tr>\n`
+}
+
 function getPRDisplay(pr: PR): { label: string; cssClass: string } {
   if (pr.mergeable === 'CONFLICTING') return { label: 'Conflict', cssClass: 'pri-p0' }
   if (pr.isDraft) return { label: 'Draft', cssClass: 'status-backlog' }

@@ -10,6 +10,7 @@ import {
   renderPRs,
   renderVercelDeployments,
   renderWorkflowRuns,
+  roadmapRow,
   SIZE_VALUES,
   STATUS_VALUES,
   vercelCards,
@@ -79,10 +80,13 @@ function splitIssueRows(issues: Issue[], showProject = false) {
   }
 }
 
-function buildTabBar(projects: WorkspaceProject[], activeTab: string): string {
+function buildTabBar(projects: WorkspaceProject[], activeTab: string, hasRoadmap = false): string {
+  const roadmapTab = hasRoadmap
+    ? `<button class="tab${activeTab === 'Roadmap' ? ' active' : ''}" onclick="switchTab('Roadmap')">Roadmap</button>`
+    : ''
   const allTab = `<button class="tab${activeTab === 'All' ? ' active' : ''}" onclick="switchTab('All')">All</button>`
   const projectTabs = projects.map((p) => buildProjectTab(p.label, p.repo, activeTab)).join('\n')
-  return `<div class="tab-bar" id="tab-bar">${allTab}\n${projectTabs}\n${buildAddButton()}</div>`
+  return `<div class="tab-bar" id="tab-bar">${roadmapTab}\n${allTab}\n${projectTabs}\n${buildAddButton()}</div>`
 }
 
 function buildProjectTab(label: string, repo: string, activeTab: string): string {
@@ -204,6 +208,25 @@ async function removeProject(repo) {
 </script>`
 }
 
+function buildRoadmapView(items: Issue[]): string {
+  if (items.length === 0) {
+    return '<div class="empty-state">No roadmap items yet</div>'
+  }
+  const rows = items.map((i) => roadmapRow(i)).join('')
+  return `<table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Title</th>
+        <th>Repo</th>
+        <th>Status</th>
+        <th>Priority</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`
+}
+
 export function buildHtml(
   issues: Issue[],
   prs: PR[],
@@ -217,6 +240,7 @@ export function buildHtml(
   byProject?: Map<string, Issue[]>,
   workspaceProjects?: WorkspaceProject[],
   byProjectMeta?: Map<string, ProjectMeta>,
+  roadmapItems?: Issue[],
 ): string {
   const isMultiProject = byProject !== undefined && byProject.size > 0
   const allIssues = isMultiProject && byProject ? [...byProject.values()].flat() : issues
@@ -321,13 +345,22 @@ export function buildHtml(
   const showCISection = isMultiProject ? !!ciHtml : shouldShowCI(branchCI)
   const showPRs = isMultiProject ? !!prsHtml : prs.length > 0
 
+  const hasRoadmap = roadmapItems !== undefined
+  const defaultTab = hasRoadmap ? 'Roadmap' : 'All'
   const tabBarHtml =
     isMultiProject && byProject
       ? buildTabBar(
           workspaceProjects ?? [...byProject.keys()].map((label) => ({ label, repo: label, projectId: '' })),
-          'All',
+          defaultTab,
+          hasRoadmap,
         )
       : ''
+  const roadmapHtml = hasRoadmap
+    ? `<div id="section-roadmap" class="section">
+      <h2>Roadmap</h2>
+      ${buildRoadmapView(roadmapItems ?? [])}
+    </div>`
+    : ''
 
   const issuesSectionHtml =
     isMultiProject && byProject
@@ -392,15 +425,17 @@ ${LIVE_STYLES}
 
   ${tabBarHtml}
 
-  <div id="section-vercel">${vercelHtml}</div>
+  ${roadmapHtml}
 
-  <div id="section-workflow-runs">${wrHtml}</div>
+  <div id="section-vercel"${hasRoadmap ? ' style="display:none;"' : ''}>${vercelHtml}</div>
 
-  <div id="section-ci">${showCISection ? `<div class="section"><h2>CI Status</h2>${ciHtml}</div>` : ''}</div>
+  <div id="section-workflow-runs"${hasRoadmap ? ' style="display:none;"' : ''}>${wrHtml}</div>
 
-  <div id="section-prs">${showPRs ? `<div class="section"><h2>Pull Requests</h2>${prsHtml}</div>` : ''}</div>
+  <div id="section-ci"${hasRoadmap ? ' style="display:none;"' : ''}>${showCISection ? `<div class="section"><h2>CI Status</h2>${ciHtml}</div>` : ''}</div>
 
-  <div id="section-issues" class="section"${isMultiProject ? ' style="display:none;"' : ''}>
+  <div id="section-prs"${hasRoadmap ? ' style="display:none;"' : ''}>${showPRs ? `<div class="section"><h2>Pull Requests</h2>${prsHtml}</div>` : ''}</div>
+
+  <div id="section-issues" class="section"${isMultiProject || hasRoadmap ? ' style="display:none;"' : ''}>
     <h2>Issues</h2>
     <div id="section-issues-content">${issuesSectionHtml}</div>
   </div>
@@ -420,7 +455,7 @@ ${LIVE_STYLES}
   </div>`
   }</div>
 
-  <div id="section-branches" class="section">
+  <div id="section-branches" class="section"${hasRoadmap ? ' style="display:none;"' : ''}>
     <h2>Branches &amp; Worktrees</h2>
     ${branchesHtml}
   </div>
@@ -440,16 +475,34 @@ ${LIVE_STYLES}
     document.querySelectorAll('.tab[data-repo]').forEach(function(t) {
       if (t.dataset.repo === label) t.classList.add('active');
     });
-    if (label === 'All') {
+    if (label === 'All' || label === 'Roadmap') {
       document.querySelectorAll('.tab:not([data-repo]):not(.add-btn)').forEach(function(t) {
-        if (t.textContent.trim() === 'All') t.classList.add('active');
+        if (t.textContent.trim() === label) t.classList.add('active');
       });
     }
 
-    // Issues section: hide on All tab (no issues), show per-project view on project tabs
+    var roadmapSec = document.getElementById('section-roadmap');
     var issuesSec = document.getElementById('section-issues');
     var legendSec = document.querySelector('.legend');
     var graphSec = document.getElementById('section-graph');
+
+    // Roadmap tab: show roadmap, hide everything else
+    if (label === 'Roadmap') {
+      if (roadmapSec) roadmapSec.style.display = '';
+      if (issuesSec) issuesSec.style.display = 'none';
+      if (legendSec) legendSec.style.display = 'none';
+      if (graphSec) graphSec.style.display = 'none';
+      ['section-vercel', 'section-workflow-runs', 'section-ci', 'section-prs', 'section-branches'].forEach(function(id) {
+        var sec = document.getElementById(id);
+        if (sec) sec.style.display = 'none';
+      });
+      return;
+    }
+
+    // Non-roadmap tabs: hide roadmap
+    if (roadmapSec) roadmapSec.style.display = 'none';
+
+    // Issues section: hide on All tab (no issues), show per-project view on project tabs
     if (label === 'All') {
       if (issuesSec) issuesSec.style.display = 'none';
       if (legendSec) legendSec.style.display = 'none';
@@ -485,6 +538,10 @@ ${LIVE_STYLES}
         sec.style.display = hasVisible ? '' : 'none';
       });
     }
+
+    // Restore branches and dev sections visibility for non-Roadmap tabs
+    var branchesSec = document.getElementById('section-branches');
+    if (branchesSec) branchesSec.style.display = '';
 
     // Show-more / collapse state
     if (label === 'All') {
@@ -651,6 +708,13 @@ ${LIVE_STYLES}
       // Capture active tab label (multi-project mode)
       var activeTabEl = document.querySelector('.tab.active[data-repo]');
       var activeTabLabel = activeTabEl ? activeTabEl.dataset.repo : null;
+      if (!activeTabLabel) {
+        var genericActive = document.querySelector('.tab.active');
+        if (genericActive) {
+          var txt = genericActive.textContent.trim();
+          if (txt === 'Roadmap' || txt === 'All') activeTabLabel = txt;
+        }
+      }
 
       // Preserve show/hide state of hidden issues (single-project mode only)
       var hiddenEl = document.getElementById('hidden-issues');
@@ -663,7 +727,7 @@ ${LIVE_STYLES}
       });
 
       // Patch sections
-      var selectors = ['#tab-bar', '#section-issues-content', '#section-vercel', '#section-workflow-runs', '#section-ci', '#section-prs', '#section-graph', '#section-branches', '#issue-count', '#fetch-time'];
+      var selectors = ['#tab-bar', '#section-roadmap', '#section-issues-content', '#section-vercel', '#section-workflow-runs', '#section-ci', '#section-prs', '#section-graph', '#section-branches', '#issue-count', '#fetch-time'];
       for (var s = 0; s < selectors.length; s++) {
         var sel = selectors[s];
         var freshEl = freshDoc.querySelector(sel);

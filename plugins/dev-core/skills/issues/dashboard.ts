@@ -11,6 +11,7 @@
 import { discoverProject, readWorkspace, writeWorkspace } from '../shared/adapters/workspace-helpers'
 import type { VercelProjectRef, WorkspaceProject } from '../shared/ports/workspace'
 import {
+  fetchAllItemsForProject,
   fetchAllProjects,
   fetchBranchCI,
   fetchBranches,
@@ -100,6 +101,18 @@ async function refreshCache(): Promise<void> {
     let byProject: Map<string, Issue[]> | null = null
     let byProjectMeta: Map<string, ProjectMeta> | null = null
 
+    // Fetch roadmap items if configured
+    let roadmapItems: Issue[] | undefined
+    if (ws.roadmapProjectId) {
+      try {
+        const rawRoadmap = await fetchAllItemsForProject(ws.roadmapProjectId)
+        roadmapItems = rawItemsToIssues(rawRoadmap)
+      } catch (err) {
+        console.error('[dashboard] roadmap fetch failed:', err instanceof Error ? err.message : err)
+        roadmapItems = []
+      }
+    }
+
     if (ws.projects.length > 0) {
       const [rawMap, metaResults] = await Promise.all([
         fetchAllProjects(ws.projects),
@@ -175,6 +188,7 @@ async function refreshCache(): Promise<void> {
         byProject,
         wsProjects,
         byProjectMeta,
+        roadmapItems,
       )
       cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
       if (changed) notifyClients()
@@ -221,6 +235,8 @@ async function refreshCache(): Promise<void> {
       updatedAt,
       byProject ?? undefined,
       wsProjects.length > 0 ? (wsProjects as WorkspaceProject[]) : undefined,
+      undefined,
+      roadmapItems,
     )
     cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
 

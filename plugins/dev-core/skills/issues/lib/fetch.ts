@@ -7,7 +7,7 @@ import type { RawItem } from '../../shared/types'
 import type { Branch, BranchCI, BuildStep, CICheck, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './types'
 
 /** Fetch all raw items for a project with full cursor-based pagination. */
-async function fetchAllItemsForProject(projectId: string): Promise<RawItem[]> {
+export async function fetchAllItemsForProject(projectId: string): Promise<RawItem[]> {
   const allItems: RawItem[] = []
   let cursor: string | undefined
   do {

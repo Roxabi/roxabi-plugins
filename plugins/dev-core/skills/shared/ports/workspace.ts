@@ -22,6 +22,7 @@ export type ProjectType = 'technical' | 'company'
 
 export interface Workspace {
   projects: WorkspaceProject[]
+  roadmapProjectId?: string
 }
 
 export interface WorkspacePort {
