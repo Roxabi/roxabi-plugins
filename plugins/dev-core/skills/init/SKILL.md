@@ -37,6 +37,39 @@ any ❌ → show install links:
 
 AskUserQuestion: **Abort** | **Continue anyway** (warn: some features won't work).
 
+## Phase 2b — Stack Configuration
+
+Set up `.claude/stack.yml` early so all later phases can read stack values (runtime, package manager, commands, deploy platform, hooks tool, docs format).
+
+1. `test -f .claude/stack.yml && echo exists || echo missing`
+
+2. **missing** → AskUserQuestion: **Set up stack.yml now** (recommended — later phases use it for CI, hooks, Dependabot) | **Skip** (later phases will use fallback defaults).
+
+3. **Set up**:
+   - `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml`
+   - AskUserQuestion ∀ critical field:
+     - **Runtime** → **bun** | **node** | **python** → `runtime` + `package_manager`
+     - **Backend path** (e.g., `apps/api`, or leave blank if none) → `backend.path`
+     - **Frontend path** (e.g., `apps/web`, or leave blank if none) → `frontend.path`
+     - **Test command** (e.g., `bun run test`) → `commands.test`
+   - Write confirmed values into `.claude/stack.yml`.
+   - Inform: "Fill in the remaining fields in `.claude/stack.yml` before running agents."
+
+4. Add @import to CLAUDE.md:
+   - `head -1 CLAUDE.md` → ¬`@.claude/stack.yml` → prepend `@.claude/stack.yml\n`.
+   - Display: "Added `@.claude/stack.yml` import to CLAUDE.md ✅"
+
+5. Add stack.yml to .gitignore:
+   - `grep -q '\.claude/stack\.yml' .gitignore 2>/dev/null && echo found || echo missing`
+   - missing → append `.claude/stack.yml` to `.gitignore`.
+   - Display: "Added `.claude/stack.yml` to .gitignore ✅"
+
+6. Copy stack.yml.example (committed reference):
+   - ¬`.claude/stack.yml.example` → `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example`
+   - Display: ".claude/stack.yml.example created ✅ (commit this file)"
+
+7. **existing** → display `stack.yml ✅ Already exists`, skip setup.
+
 ## Phase 3 — Auto-Discover Configuration
 
 Run: `bun $I_TS discover`. Parse → extract `owner`, `repo`, `projects`, `fields`, `labels`, `workflows`, `protection`, `vercel`, `env`.
@@ -319,36 +352,7 @@ Scan filesystem for other repos with dev-core configured but ∉ workspace.json.
 
 7. Skip → display `workspace.json ⏭ Bulk discovery skipped`
 
-## Phase 7 — Stack Configuration
-
-Set up `.claude/stack.yml` so dev-core agents work without hardcoded paths.
-
-1. `test -f .claude/stack.yml && echo exists || echo missing`
-
-2. missing:
-   - `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml`
-   - AskUserQuestion ∀ critical field:
-     - **Backend path** (e.g., `apps/api`) → `backend.path`
-     - **Frontend path** (e.g., `apps/web`) → `frontend.path`
-     - **Package manager** → **bun** | **npm** | **pnpm** | **yarn**
-     - **Test command** (e.g., `bun run test`) → `commands.test`
-   - Write confirmed values into `.claude/stack.yml`.
-   - Inform: "Fill in the remaining fields in `.claude/stack.yml` before running agents."
-
-3. Add @import to CLAUDE.md:
-   - `head -1 CLAUDE.md` → ¬`@.claude/stack.yml` → prepend `@.claude/stack.yml\n`.
-   - Display: "Added `@.claude/stack.yml` import to CLAUDE.md ✅"
-
-4. Add stack.yml to .gitignore:
-   - `grep -q '\.claude/stack\.yml' .gitignore 2>/dev/null && echo found || echo missing`
-   - missing → append `.claude/stack.yml` to `.gitignore`.
-   - Display: "Added `.claude/stack.yml` to .gitignore ✅"
-
-5. Copy stack.yml.example (committed reference):
-   - ¬`.claude/stack.yml.example` → `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example`
-   - Display: ".claude/stack.yml.example created ✅ (commit this file)"
-
-## Phase 7b — Documentation Scaffolding (Optional)
+## Phase 7 — Documentation Scaffolding (Optional)
 
 Scaffold standard documentation directories and minimal template files.
 
@@ -585,7 +589,7 @@ dev-core initialized
   .gitignore        ✅ .env added
   workspace.json    ✅ Registered <repo> / ⏭ Skipped
   bulk discovery    ✅ Added N projects / ⏭ Skipped / ⏭ No others found
-  stack.yml         ✅ Configured / ✅ Already exists
+  stack.yml         ✅ Configured / ✅ Already exists / ⏭ Skipped
   VS Code MDX preview   ✅ Added / ✅ Already configured / ⏭ Skipped / ⏭ No .mdx files found
   CI/CD workflows   ✅ Created / ✅ Already configured / ⏭ Skipped
   TruffleHog        ✅ Secret scanning configured / ⏭ Skipped

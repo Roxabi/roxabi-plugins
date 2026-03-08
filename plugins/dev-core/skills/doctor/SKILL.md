@@ -51,7 +51,22 @@ Run all checks. Collect fixable items as you go. Apply fixes at end (Phase 2 Fix
 
 **File presence:**
 - `.claude/stack.yml` ∃ → ✅ | ❌ "stack.yml missing"
-- stack.yml missing → mark all remaining Phase 2 checks ⏭; proceed to Phase 2 Fix.
+- stack.yml missing:
+  - AskUserQuestion: **Set up stack.yml now** (recommended — agents and later checks depend on it) | **Continue with warnings** (all stack-dependent checks marked ⏭).
+  - **Set up**:
+    - `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml`
+    - AskUserQuestion ∀ critical field:
+      - **Runtime** → **bun** | **node** | **python** → `runtime` + `package_manager`
+      - **Backend path** (e.g., `apps/api`, blank if none) → `backend.path`
+      - **Frontend path** (e.g., `apps/web`, blank if none) → `frontend.path`
+      - **Test command** (e.g., `bun run test`) → `commands.test`
+    - Write values into `.claude/stack.yml`.
+    - Prepend `@.claude/stack.yml\n` to CLAUDE.md if not already present.
+    - Append `.claude/stack.yml` to `.gitignore` if missing.
+    - ¬`.claude/stack.yml.example` → `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example`
+    - Display: `stack.yml ✅ Created — fill in remaining fields before running agents`
+    - Continue remaining Phase 2 checks against the newly created file.
+  - **Continue with warnings**: mark all remaining Phase 2 checks ⏭; proceed to Phase 2 Fix.
 - `.claude/stack.yml.example` ∃ → ✅ | ⚠️ "stack.yml.example missing"
 
 **Schema:**
@@ -145,7 +160,7 @@ Apply each selected fix:
 
 | Issue | Fix |
 |-------|-----|
-| `stack.yml missing` | `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml` — inform user to fill in critical fields |
+| `stack.yml missing` | Already handled inline at Phase 2 start — if user skipped, re-offer: `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml` then AskUserQuestion for runtime, paths, test command |
 | `stack.yml.example missing` | `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example` |
 | `CLAUDE.md import missing` | Prepend `@.claude/stack.yml\n` to `CLAUDE.md` |
 | `stack.yml not in .gitignore` | Append `.claude/stack.yml` to `.gitignore` |

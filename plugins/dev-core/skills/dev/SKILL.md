@@ -197,8 +197,9 @@ Walk STEPS:
 | S* == frame (Σ.triage ∧ ¬Σ.frame) | Show φ if ∃ draft, ask approval |
 | S* == spec (Σ.frame ∧ ¬Σ.spec) | Gate after spec runs |
 | S* == plan (Σ.spec ∧ ¬Σ.plan) | Gate after plan runs |
-| S* == pr (Σ.implement ∧ ¬Σ.pr) | Confirm ready for PR |
 | S* == review | Post-review gate handled inside /review |
+
+Gate fires → Step 7 skips its own prompt for that step (gate IS the confirmation). ¬double-prompt.
 
 ## Step 6b — Reasoning Audit (optional)
 
@@ -217,14 +218,20 @@ audit_enabled ∧ S* ∈ critical_steps → present reasoning audit per [reasoni
 
 **Important:** ¬pass `--audit` to child skill invocations in Step 7. The audit gate fires here (orchestrator level) only. Child skills have their own `--audit` for standalone use — ¬double-gate.
 
-## Step 7 — AskUserQuestion Loop
+## Step 7 — Execute Step
 
-AskUserQuestion:
-- **Continue → {S*}** ({one-line description})
-- **Skip to...** → {list of remaining non-skipped steps}
-- **Stop** → save progress (artifacts persist), exit
+```
+gate_steps    := {frame, spec, plan}
+auto_advance  := {triage, analyze, implement, pr, validate, review, fix, cleanup}
+```
 
-**Continue** ⇒ invoke step skill:
+**gate_steps:** Step 6 already fired an AskUserQuestion for these — Step 7 skips its own prompt and invokes the skill immediately. ¬double-prompt.
+
+**auto_advance:** No user decision needed. Show `→ Running {S*}…` and invoke skill immediately. ¬AskUserQuestion.
+
+**Exception — always available via text input:** At any auto_advance step the user may type "stop" or "skip to X" in the Claude input before the skill completes. Honor it.
+
+**Skill invocation map:**
 
 | Step | Skill invocation |
 |------|-----------------|
@@ -241,7 +248,7 @@ AskUserQuestion:
 | promote | `skill: "promote"` (standalone staging→main — skipped by default) |
 | cleanup | `skill: "cleanup", args: "--scope #N"` (scoped to current issue's branch/worktree) |
 
-**Skip to X** ⇒ missing prerequisite artifacts → warn, then AskUserQuestion: **Proceed anyway** | **Cancel skip**.
+**Skip to X** ⇒ AskUserQuestion: **Proceed anyway** | **Cancel skip**. Missing prerequisite artifacts → warn first.
 Proceed ⇒ mark all steps before X as skipped, S* = X, loop to Step 7.
 
 **Stop** ⇒ "Stopped at {S*}. Run `/dev #N` to resume from this point."
@@ -251,8 +258,8 @@ Proceed ⇒ mark all steps before X as skipped, S* = X, loop to Step 7.
 skill completes → Σ_s[step] = true → goto Step 1 (re-scan Σ from artifacts).
 Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix).
 session restart → Σ_s = ∅ → artifact-less steps re-run (desired: validate results go stale).
-Gates (frame, spec, plan, post-implement) → re-scan detects updated artifact state → show progress → loop.
-¬auto-advance past a phase gate without AskUserQuestion.
+Gates (frame, spec, plan) → re-scan detects updated artifact state → show progress → Step 6 fires gate → Step 7 invokes skill immediately (¬second prompt).
+auto_advance steps → re-scan → show progress → Step 7 invokes next skill immediately.
 
 ## Phases + Gate Summary
 
@@ -260,7 +267,7 @@ Gates (frame, spec, plan, post-implement) → re-scan detects updated artifact s
 |-------|-------|-----------|
 | Frame | triage → frame | frame approval (status: approved) |
 | Shape | analyze → spec | spec approval |
-| Build | plan → implement → pr | plan approval; post-implement confirm |
+| Build | plan → implement → pr | plan approval (then auto-chains implement → pr) |
 | Verify | validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /review Phase 8). |
 | Ship | promote → cleanup | promote always skipped (/promote is standalone staging→main). cleanup runs if worktree/branches stale. |
 
