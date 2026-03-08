@@ -348,6 +348,21 @@ Set up `.claude/stack.yml` so dev-core agents work without hardcoded paths.
    - ¬`.claude/stack.yml.example` → `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example`
    - Display: ".claude/stack.yml.example created ✅ (commit this file)"
 
+## Phase 7b — Documentation Scaffolding (Optional)
+
+Scaffold standard documentation directories and minimal template files.
+
+1. Read `docs.path` and `docs.format` from `.claude/stack.yml` (defaults: `docs`, `md`).
+2. Check if `{docs.path}/standards/` already exists.
+   - exists → display `Docs scaffolding ✅ Already present`, skip.
+3. AskUserQuestion: **Scaffold standard docs structure** (architecture/, standards/, guides/ with template files) | **Skip**.
+4. yes:
+   ```bash
+   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-docs --format <docs.format> --path <docs.path>
+   ```
+5. Display created dirs and files from JSON result. Format:
+   - `Docs scaffolding ✅ Created {filesCreated.length} files in {docsPath}/`
+
 ## Phase 8 — VS Code MDX Preview (Optional)
 
 Run only if `find . -name "*.mdx" -not -path "*/node_modules/*" | head -1` returns a result ∨ `docs.format: mdx` in stack.yml.

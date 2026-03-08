@@ -146,6 +146,15 @@ switch (command) {
     break
   }
 
+  case 'scaffold-docs': {
+    const { scaffoldDocs } = await import('./lib/docs')
+    const format = parseFlag('--format', 'md') as 'md' | 'mdx'
+    const docsPath = parseFlag('--path', 'docs')
+    const result = scaffoldDocs({ format, path: docsPath })
+    console.log(JSON.stringify(result, null, 2))
+    break
+  }
+
   case 'scaffold': {
     const { scaffold } = await import('./lib/scaffold')
     const result = await scaffold({
