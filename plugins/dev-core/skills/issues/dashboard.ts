@@ -8,6 +8,7 @@
  * Features: in-memory cache, background polling, SSE live updates, multi-project workspace.
  */
 
+import { addToProject, getItemId, getNodeId, removeFromProject } from '../shared/adapters/github-adapter'
 import { discoverProject, readWorkspace, writeWorkspace } from '../shared/adapters/workspace-helpers'
 import type { VercelProjectRef, WorkspaceProject } from '../shared/ports/workspace'
 import {
@@ -141,6 +142,25 @@ async function refreshCache(): Promise<void> {
         byProject.set(label, rawItemsToIssues(rawItems, slotNames))
       }
       issues = [...byProject.values()].flat()
+
+      // Tag each issue with the list of projects it belongs to (for context menu add/remove)
+      const issueProjectsMap = new Map<number, string[]>()
+      for (const [label, projectIssues] of byProject.entries()) {
+        for (const issue of projectIssues) {
+          const existing = issueProjectsMap.get(issue.number)
+          if (existing) existing.push(label)
+          else issueProjectsMap.set(issue.number, [label])
+        }
+      }
+      for (const [, projectIssues] of byProject.entries()) {
+        for (const issue of projectIssues) {
+          issue.inProjects = issueProjectsMap.get(issue.number) ?? []
+          for (const child of issue.children) {
+            child.inProjects = issueProjectsMap.get(child.number) ?? issue.inProjects
+          }
+        }
+      }
+
       byProjectMeta = new Map(
         metaResults.map((m) => [
           m.label,
@@ -395,6 +415,32 @@ const server = Bun.serve({
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[dashboard] workspace/remove error:', msg)
         return Response.json({ ok: false, error: 'Workspace update failed — check server logs' }, { status: 400 })
+      }
+    }
+
+    // Add/remove an issue from a project
+    if (url.pathname === '/api/project-item' && req.method === 'POST') {
+      try {
+        const body = (await req.json()) as { issueNumber: number; projectLabel: string; action: 'add' | 'remove' }
+        const { issueNumber, projectLabel, action } = body
+        const ws = readWorkspace()
+        const project = ws.projects.find((p) => p.label === projectLabel)
+        if (!project) {
+          return Response.json({ ok: false, error: `Unknown project: ${projectLabel}` }, { status: 400 })
+        }
+        if (action === 'add') {
+          const nodeId = await getNodeId(issueNumber, project.repo)
+          await addToProject(nodeId, project.projectId)
+        } else {
+          const itemId = await getItemId(issueNumber, { projectId: project.projectId, repo: project.repo })
+          await removeFromProject(itemId, project.projectId)
+        }
+        refreshCache()
+        return Response.json({ ok: true })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[dashboard] project-item error:', msg)
+        return Response.json({ ok: false, error: 'Operation failed — check server logs' }, { status: 500 })
       }
     }
 

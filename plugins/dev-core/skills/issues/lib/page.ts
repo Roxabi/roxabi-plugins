@@ -412,7 +412,7 @@ ${PAGE_STYLES}
 ${LIVE_STYLES}
 </style>
 </head>
-<body data-updated-at="${updatedAt}">
+<body data-updated-at="${updatedAt}" data-ws-projects="${escHtml(JSON.stringify((workspaceProjects ?? []).map((p) => ({ label: p.label, repo: p.repo, projectId: p.projectId }))))}">
   <header>
     <h1>Issues Dashboard</h1>
     <span id="issue-count" class="count">${totalCount} issues</span>
@@ -470,6 +470,7 @@ ${LIVE_STYLES}
   <div id="toast" class="toast"></div>
 
   <script>
+  window.__wsProjects = JSON.parse(document.body.dataset.wsProjects || '[]');
   function switchTab(label) {
     document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
     document.querySelectorAll('.tab[data-repo]').forEach(function(t) {
@@ -590,6 +591,7 @@ ${LIVE_STYLES}
         col2: row.dataset.size,
         col3: row.dataset.priority,
         projectLabel: row.dataset.projectLabel || (row.closest('table') ? row.closest('table').dataset.projectLabel : null),
+        inProjects: row.dataset.inProjects || '',
       };
       ctxNum.textContent = ctxIssue.number;
 
@@ -613,6 +615,20 @@ ${LIVE_STYLES}
             v.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</div>';
         });
       });
+      // Projects section — add to / remove from any workspace project
+      var allProjects = window.__wsProjects || [];
+      if (allProjects.length > 0) {
+        var inProjectsList = (ctxIssue.inProjects || '').split(',').filter(Boolean);
+        html += '<div class="ctx-section">Projects</div>';
+        allProjects.forEach(function(p) {
+          var isIn = inProjectsList.indexOf(p.label) !== -1;
+          html += '<div class="ctx-item ctx-project-item' + (isIn ? ' active' : '') + '"' +
+            ' data-action="' + (isIn ? 'remove' : 'add') + '"' +
+            ' data-proj-label="' + p.label.replace(/&/g,'&amp;').replace(/"/g,'&quot;') + '">' +
+            p.label.replace(/&/g,'&amp;').replace(/</g,'&lt;') +
+            '</div>';
+        });
+      }
       ctxBody.innerHTML = html;
 
       ctxMenu.style.left = e.clientX + 'px';
@@ -631,6 +647,31 @@ ${LIVE_STYLES}
       var item = e.target.closest('.ctx-item');
       if (!item || !ctxIssue) return;
       e.stopPropagation();
+
+      // Handle add/remove from project
+      if (item.classList.contains('ctx-project-item')) {
+        var action = item.dataset.action;
+        var projLabel = item.dataset.projLabel;
+        item.classList.add('loading');
+        fetch('/api/project-item', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ issueNumber: Number(ctxIssue.number), projectLabel: projLabel, action: action }),
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.ok) showToast('#' + ctxIssue.number + (action === 'add' ? ' added to ' : ' removed from ') + projLabel);
+          else showToast('Error: ' + data.error, true);
+          item.classList.remove('loading');
+        })
+        .catch(function(err) {
+          showToast('Failed: ' + err.message, true);
+          item.classList.remove('loading');
+        });
+        ctxMenu.classList.remove('visible');
+        return;
+      }
+
       if (item.classList.contains('active')) { ctxMenu.classList.remove('visible'); return; }
 
       var field = item.dataset.field;
@@ -763,6 +804,10 @@ ${LIVE_STYLES}
       var newUpdatedAt = freshDoc.body.dataset.updatedAt;
       if (newUpdatedAt) updatedAt = Number(newUpdatedAt);
       updateRelativeTime();
+
+      // Refresh workspace projects for context menu
+      var newWsProjects = freshDoc.body.dataset.wsProjects;
+      if (newWsProjects) { try { window.__wsProjects = JSON.parse(newWsProjects); } catch {} }
     }
 
     function connectSSE() {

@@ -12,6 +12,7 @@ import {
   ADD_BLOCKED_BY_MUTATION,
   ADD_SUB_ISSUE_MUTATION,
   ADD_TO_PROJECT_MUTATION,
+  DELETE_PROJECT_ITEM_MUTATION,
   ITEM_ID_QUERY,
   LINK_PROJECT_TO_REPO_MUTATION,
   PARENT_QUERY,
@@ -429,8 +430,9 @@ export async function getBoardIssueNumbers(owner: string, projectNumber: number)
 }
 
 /** Get issue node ID via REST API. */
-export async function getNodeId(issueNumber: number | string): Promise<string> {
-  const res = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/issues/${issueNumber}`, {
+export async function getNodeId(issueNumber: number | string, repo?: string): Promise<string> {
+  const repoSlug = repo ?? GITHUB_REPO
+  const res = await fetch(`${GITHUB_API}/repos/${repoSlug}/issues/${issueNumber}`, {
     headers: authHeaders(),
   })
   if (!res.ok) {
@@ -489,13 +491,19 @@ export async function getItemId(
 }
 
 /** Add an issue to the project board. Returns the new item ID. */
-export async function addToProject(nodeId: string): Promise<string> {
-  if (!GH_PROJECT_ID) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
+export async function addToProject(nodeId: string, projectId?: string): Promise<string> {
+  const pid = projectId ?? GH_PROJECT_ID
+  if (!pid) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
   const data = (await ghGraphQL(ADD_TO_PROJECT_MUTATION, {
-    projectId: GH_PROJECT_ID,
+    projectId: pid,
     contentId: nodeId,
   })) as { data: { addProjectV2ItemById: { item: { id: string } } } }
   return data.data.addProjectV2ItemById.item.id
+}
+
+/** Remove an issue from the project board by its project item ID. */
+export async function removeFromProject(itemId: string, projectId: string): Promise<void> {
+  await ghGraphQL(DELETE_PROJECT_ITEM_MUTATION, { projectId, itemId })
 }
 
 /** Update a single-select project field value. */

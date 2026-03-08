@@ -97,6 +97,13 @@ mutation($projectId: ID!, $contentId: ID!) {
   }
 }`
 
+export const DELETE_PROJECT_ITEM_MUTATION = `
+mutation($projectId: ID!, $itemId: ID!) {
+  deleteProjectV2Item(input: { projectId: $projectId, itemId: $itemId }) {
+    deletedItemId
+  }
+}`
+
 export const ADD_BLOCKED_BY_MUTATION = `
 mutation($issueId: ID!, $blockingId: ID!) {
   addBlockedBy(input: { issueId: $issueId, blockingIssueId: $blockingId }) {

@@ -81,6 +81,7 @@ export function issueRow(issue: Issue, indent = 0, prefix = '', showProject = fa
   const blockClass = `block-${issue.blockStatus}`
   const projLabel = issue.projectLabel ?? ''
   const projAttr = projLabel ? ` data-project-label="${escHtml(projLabel)}"` : ''
+  const inProjectsAttr = issue.inProjects?.length ? ` data-in-projects="${escHtml(issue.inProjects.join(','))}"` : ''
 
   const titleHtml =
     indent > 0
@@ -91,7 +92,7 @@ export function issueRow(issue: Issue, indent = 0, prefix = '', showProject = fa
     ? `<td class="col-project"><span class="badge project-label">${indent === 0 ? escHtml(projLabel) : ''}</span></td>`
     : ''
 
-  let html = `<tr class="issue-row depth-${indent} ${blockClass}" data-issue="${issue.number}" data-status="${escHtml(issue.status)}" data-size="${escHtml(issue.size)}" data-priority="${escHtml(issue.priority)}"${projAttr}>
+  let html = `<tr class="issue-row depth-${indent} ${blockClass}" data-issue="${issue.number}" data-status="${escHtml(issue.status)}" data-size="${escHtml(issue.size)}" data-priority="${escHtml(issue.priority)}"${projAttr}${inProjectsAttr}>
     <td class="col-num">${indent === 0 ? `<a href="${issue.url}" target="_blank" rel="noopener">#${issue.number}</a>` : ''}</td>
     <td class="col-title">${titleHtml}</td>
     ${projectCol}<td class="col-status"><span class="badge ${statusClass}">${escHtml(status)}</span></td>
