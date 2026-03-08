@@ -725,11 +725,61 @@ function checkStandardsPaths(): Section {
         const trimmedPath = path.trim()
         if (!trimmedPath) continue
         const exists = fs.existsSync(trimmedPath)
-        checks.push({
-          name: `standards.${key}`,
-          status: exists ? 'pass' : 'warn',
-          detail: exists ? trimmedPath : `path not found: ${trimmedPath} — run /init scaffold-docs or create manually`,
-        })
+        if (!exists) {
+          checks.push({
+            name: `standards.${key}`,
+            status: 'warn',
+            detail: `path not found: ${trimmedPath} — run /init scaffold-docs or create manually`,
+          })
+          continue
+        }
+
+        const stat = fs.statSync(trimmedPath)
+        if (stat.isDirectory()) {
+          // Check if the directory has at least one non-stub file (> 10 lines)
+          let hasSubstantialFile = false
+          try {
+            const entries = fs.readdirSync(trimmedPath) as string[]
+            for (const entry of entries) {
+              const entryPath = `${trimmedPath}/${entry}`
+              const entryStat = fs.statSync(entryPath)
+              if (entryStat.isFile()) {
+                const entryContent = fs.readFileSync(entryPath, 'utf8') as string
+                if (entryContent.split('\n').length > 10) {
+                  hasSubstantialFile = true
+                  break
+                }
+              }
+            }
+          } catch {}
+          checks.push({
+            name: `standards.${key}`,
+            status: hasSubstantialFile ? 'pass' : 'warn',
+            detail: hasSubstantialFile
+              ? trimmedPath
+              : `${trimmedPath} — all files appear to be stubs — run /analyze or fill manually`,
+          })
+        } else {
+          // File: check line count and TODO markers
+          let fileStatus: 'pass' | 'warn' = 'pass'
+          let fileDetail = trimmedPath
+          try {
+            const content = fs.readFileSync(trimmedPath, 'utf8') as string
+            const lineCount = content.split('\n').length
+            if (lineCount < 10) {
+              fileStatus = 'warn'
+              fileDetail = `${trimmedPath} — appears to be a stub (${lineCount} lines) — run /analyze or fill manually`
+            } else if (content.includes('TODO:') && lineCount < 30) {
+              fileStatus = 'warn'
+              fileDetail = `${trimmedPath} — has TODO markers — fill with project-specific content or run /analyze`
+            }
+          } catch {}
+          checks.push({
+            name: `standards.${key}`,
+            status: fileStatus,
+            detail: fileDetail,
+          })
+        }
       }
     }
 

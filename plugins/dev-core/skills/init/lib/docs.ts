@@ -54,6 +54,24 @@ Recurring patterns and conventions used in this project.
 `,
     },
     {
+      relativePath: `architecture/ubiquitous-language.${ext}`,
+      content: `# Ubiquitous Language
+
+Glossary of domain terms used in this project. Keeps agents and contributors aligned on vocabulary.
+
+## Glossary
+
+| Term | Definition | Source |
+|------|-----------|--------|
+
+TODO: Add domain-specific terms as they emerge from codebase analysis.
+
+## Common Confusions
+
+TODO: Document terms that are easily mixed up (e.g., "engine" vs "pipeline", "user" vs "account").
+`,
+    },
+    {
       relativePath: `standards/backend-patterns.${ext}`,
       content: `# Backend Patterns
 
@@ -70,6 +88,12 @@ TODO: Document error handling conventions.
 ## Data Access
 
 TODO: Document data access patterns.
+
+## AI Quick Reference
+
+<!-- Compressed imperative rules for dev-core agents. Keep under 10 lines. -->
+
+TODO: Add concise, imperative rules that agents can quickly consume (e.g., "NEVER import X from Y", "ALWAYS use Z pattern for error handling").
 `,
     },
     {
@@ -89,6 +113,12 @@ TODO: Document minimum coverage thresholds.
 ## Test Patterns
 
 TODO: Document common test patterns (fixtures, mocks, etc.).
+
+## AI Quick Reference
+
+<!-- Compressed imperative rules for dev-core agents. Keep under 10 lines. -->
+
+TODO: Add concise, imperative rules that agents can quickly consume (e.g., "NEVER import X from Y", "ALWAYS use Z pattern for error handling").
 `,
     },
     {
@@ -103,6 +133,31 @@ Guidelines for reviewing code in this project.
 - [ ] Tests added/updated for changes
 - [ ] No security vulnerabilities introduced
 - [ ] Documentation updated if needed
+
+## AI Quick Reference
+
+<!-- Compressed imperative rules for dev-core agents. Keep under 10 lines. -->
+
+TODO: Add concise, imperative rules that agents can quickly consume (e.g., "NEVER import X from Y", "ALWAYS use Z pattern for error handling").
+`,
+    },
+    {
+      relativePath: `configuration.${ext}`,
+      content: `# Configuration
+
+How the project is configured — environment variables, config files, and discovery mechanisms.
+
+## Environment Variables
+
+TODO: Document required and optional environment variables.
+
+## Config Files
+
+TODO: Document configuration file locations and formats.
+
+## Priority Chain
+
+TODO: Document precedence when multiple config sources exist (e.g., env var > config file > default).
 `,
     },
     {
