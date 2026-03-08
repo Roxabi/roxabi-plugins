@@ -158,7 +158,7 @@ export interface LabelDef {
   name: string
   color: string
   description: string
-  category: 'type' | 'area' | 'priority'
+  category: 'type' | 'area'
 }
 
 export const STANDARD_LABELS: LabelDef[] = [
@@ -173,10 +173,6 @@ export const STANDARD_LABELS: LabelDef[] = [
   { name: 'infra', color: 'f9d0c4', description: 'Infrastructure', category: 'area' },
   { name: 'api', color: 'bfd4f2', description: 'API', category: 'area' },
   { name: 'design', color: 'c5def5', description: 'Design', category: 'area' },
-  { name: 'P0-critical', color: 'b60205', description: 'Critical priority', category: 'priority' },
-  { name: 'P1-high', color: 'd93f0b', description: 'High priority', category: 'priority' },
-  { name: 'P2-medium', color: 'fbca04', description: 'Medium priority', category: 'priority' },
-  { name: 'P3-low', color: '0e8a16', description: 'Low priority', category: 'priority' },
 ]
 
 export const STANDARD_WORKFLOWS = ['ci.yml', 'auto-merge.yml', 'pr-title.yml', 'deploy-preview.yml'] as const

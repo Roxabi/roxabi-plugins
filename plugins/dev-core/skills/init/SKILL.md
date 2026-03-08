@@ -93,7 +93,7 @@ PID ∃ → run: `bun $I_TS list-workflows --project-id <PVT_...>`. Parse JSON a
 ### 3b. Labels
 
 `labels.missing` ≠ ∅ → AskUserQuestion: **Create all labels** | **Type labels only** | **Area labels only** | **Skip labels**.
-Run: `bun $I_TS labels --repo <owner/repo> --scope <all|type|area|priority>`
+Run: `bun $I_TS labels --repo <owner/repo> --scope <all|type|area>`
 
 ### 3c. Workflows
 
@@ -232,7 +232,7 @@ dev-core Configuration
     SIZE_FIELD_ID       = PVTSSF_...
     PRIORITY_FIELD_ID   = PVTSSF_...
 
-  Labels:               15 labels (created / skipped)
+  Labels:               11 labels (created / skipped)
   Branch protection:    main, staging (created / skipped)
 ```
 

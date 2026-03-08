@@ -65,9 +65,9 @@ switch (command) {
   case 'labels': {
     const { createLabels } = await import('./lib/labels')
     const repo = parseFlag('--repo', '')
-    const scope = parseFlag('--scope', 'all') as 'all' | 'type' | 'area' | 'priority'
+    const scope = parseFlag('--scope', 'all') as 'all' | 'type' | 'area'
     if (!repo) {
-      console.error('Usage: init.ts labels --repo <owner/repo> [--scope all|type|area|priority]')
+      console.error('Usage: init.ts labels --repo <owner/repo> [--scope all|type|area]')
       process.exit(1)
     }
     const result = await createLabels(repo, scope)
