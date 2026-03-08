@@ -31,6 +31,16 @@ export const PAGE_STYLES = `
     flex-wrap: wrap;
   }
 
+  .truncation-warning {
+    background: #3d2a00;
+    border: 1px solid #b45309;
+    border-radius: 6px;
+    color: #fbbf24;
+    font-size: 13px;
+    padding: 8px 14px;
+    margin-bottom: 16px;
+  }
+
   header h1 {
     font-size: 20px;
     font-weight: 600;

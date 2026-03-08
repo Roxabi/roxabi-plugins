@@ -242,6 +242,7 @@ export function buildHtml(
   byProjectMeta?: Map<string, ProjectMeta>,
   roadmapItems?: Issue[],
   roadmapProject?: { label: string; projectId: string },
+  truncatedProjects?: string[],
 ): string {
   const isMultiProject = byProject !== undefined && byProject.size > 0
   const allIssues = isMultiProject && byProject ? [...byProject.values()].flat() : issues
@@ -435,6 +436,12 @@ ${LIVE_STYLES}
       &middot; <span id="fetch-time">Fetched in ${fetchMs}ms</span>
     </span>
   </header>
+
+  ${
+    truncatedProjects && truncatedProjects.length > 0
+      ? `<div class="truncation-warning">⚠️ Some issues may not be displayed — projects exceeding 100 items are truncated: <strong>${truncatedProjects.map(escHtml).join(', ')}</strong></div>`
+      : ''
+  }
 
   ${tabBarHtml}
 

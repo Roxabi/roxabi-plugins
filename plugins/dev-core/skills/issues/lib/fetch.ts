@@ -1,7 +1,12 @@
 import { GH_PROJECT_ID, GITHUB_REPO } from '../../shared/adapters/config-helpers'
 import { ghGraphQL, run } from '../../shared/adapters/github-adapter'
-import type { WorkspaceProject } from '../../shared/ports/workspace'
-import { BRANCH_CI_QUERY, ISSUES_QUERY, PRS_QUERY } from '../../shared/queries'
+import {
+  BRANCH_CI_QUERY,
+  buildBatchedQuery,
+  buildBatchedVariables,
+  ISSUES_QUERY,
+  PRS_QUERY,
+} from '../../shared/queries'
 import type { RawItem } from '../../shared/types'
 
 import type { Branch, BranchCI, BuildStep, CICheck, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './types'
@@ -30,17 +35,38 @@ export async function fetchAllItems(): Promise<RawItem[]> {
   return fetchAllItemsForProject(GH_PROJECT_ID)
 }
 
-/**
- * Fetch all issues for multiple workspace projects in parallel, each with full pagination.
- * Returns a Map keyed by project label → RawItem[].
- */
-export async function fetchAllProjects(projects: WorkspaceProject[]): Promise<Map<string, RawItem[]>> {
-  if (projects.length === 0) return new Map()
+export type FetchAllProjectsResult = {
+  items: Map<string, RawItem[]>
+  /** Labels of projects that hit the 100-item limit and may have more issues not displayed. */
+  truncated: string[]
+}
 
-  const results = await Promise.all(
-    projects.map(async (p) => ({ label: p.label, items: await fetchAllItemsForProject(p.projectId) })),
-  )
-  return new Map(results.map((r) => [r.label, r.items]))
+/**
+ * Fetch all issues for multiple projects in a single batched GraphQL call.
+ * Returns items keyed by label, and a list of labels that were truncated at 100.
+ */
+export async function fetchAllProjects(
+  projects: Array<{ label: string; projectId: string }>,
+): Promise<FetchAllProjectsResult> {
+  if (projects.length === 0) return { items: new Map(), truncated: [] }
+
+  const projectIds = projects.map((p) => p.projectId)
+  const query = buildBatchedQuery(projectIds)
+  const variables = buildBatchedVariables(projectIds)
+
+  const data = (await ghGraphQL(query, variables)) as {
+    data: Record<string, { items: { nodes: RawItem[]; pageInfo: { hasNextPage: boolean } } } | null>
+  }
+
+  const items = new Map<string, RawItem[]>()
+  const truncated: string[] = []
+  for (let i = 0; i < projects.length; i++) {
+    const proj = projects[i]
+    const page = data.data[`project${i}`]
+    items.set(proj.label, page?.items.nodes ?? [])
+    if (page?.items.pageInfo.hasNextPage) truncated.push(proj.label)
+  }
+  return { items, truncated }
 }
 
 interface SlotNames {
