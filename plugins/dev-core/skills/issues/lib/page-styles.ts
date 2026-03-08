@@ -459,6 +459,21 @@ export const PAGE_STYLES = `
     pointer-events: none;
   }
 
+  /* Multi-project badge on issue number */
+  .multi-proj-badge {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 9px;
+    line-height: 1;
+    background: var(--accent);
+    color: var(--bg);
+    border-radius: 3px;
+    padding: 1px 3px;
+    font-weight: 700;
+    vertical-align: middle;
+    cursor: default;
+  }
+
   /* Toast notification */
   .toast {
     position: fixed;

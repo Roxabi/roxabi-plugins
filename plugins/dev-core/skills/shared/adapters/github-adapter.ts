@@ -16,6 +16,7 @@ import {
   ITEM_ID_QUERY,
   LINK_PROJECT_TO_REPO_MUTATION,
   PARENT_QUERY,
+  PROJECT_TITLE_QUERY,
   REMOVE_BLOCKED_BY_MUTATION,
   REMOVE_SUB_ISSUE_MUTATION,
   REPO_ID_QUERY,
@@ -504,6 +505,14 @@ export async function addToProject(nodeId: string, projectId?: string): Promise<
 /** Remove an issue from the project board by its project item ID. */
 export async function removeFromProject(itemId: string, projectId: string): Promise<void> {
   await ghGraphQL(DELETE_PROJECT_ITEM_MUTATION, { projectId, itemId })
+}
+
+/** Get a GitHub Project V2 title by its node ID. */
+export async function getProjectTitle(projectId: string): Promise<string> {
+  const data = (await ghGraphQL(PROJECT_TITLE_QUERY, { id: projectId })) as {
+    data: { node: { title: string } }
+  }
+  return data.data.node.title
 }
 
 /** Update a single-select project field value. */

@@ -299,6 +299,14 @@ query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) { id }
 }`
 
+/** Get a project's title by node ID. */
+export const PROJECT_TITLE_QUERY = `
+query($id: ID!) {
+  node(id: $id) {
+    ... on ProjectV2 { title }
+  }
+}`
+
 /** Build variables object for buildBatchedQuery: { project0Id: "PVT_...", ... } */
 export function buildBatchedVariables(projectIds: string[]): Record<string, string> {
   return Object.fromEntries(projectIds.map((id, i) => [`project${i}Id`, id]))

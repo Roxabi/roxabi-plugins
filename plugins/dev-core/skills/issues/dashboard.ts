@@ -8,7 +8,13 @@
  * Features: in-memory cache, background polling, SSE live updates, multi-project workspace.
  */
 
-import { addToProject, getItemId, getNodeId, removeFromProject } from '../shared/adapters/github-adapter'
+import {
+  addToProject,
+  getItemId,
+  getNodeId,
+  getProjectTitle,
+  removeFromProject,
+} from '../shared/adapters/github-adapter'
 import { discoverProject, readWorkspace, writeWorkspace } from '../shared/adapters/workspace-helpers'
 import type { VercelProjectRef, WorkspaceProject } from '../shared/ports/workspace'
 import {
@@ -39,6 +45,11 @@ type ProjectMeta = {
 const PORT = Number(process.argv.find((a) => a.startsWith('--port='))?.split('=')[1] ?? 3333)
 const POLL_MS = Number(process.argv.find((a) => a.startsWith('--poll='))?.split('=')[1] ?? 60) * 1000
 const PID_FILE = `${import.meta.dirname}/.dashboard.pid`
+
+// ---------------------------------------------------------------------------
+// Roadmap project title cache (fetched once per process lifetime)
+// ---------------------------------------------------------------------------
+let cachedRoadmapLabel: string | undefined
 
 // ---------------------------------------------------------------------------
 // Cache
@@ -102,12 +113,21 @@ async function refreshCache(): Promise<void> {
     let byProject: Map<string, Issue[]> | null = null
     let byProjectMeta: Map<string, ProjectMeta> | null = null
 
-    // Fetch roadmap items if configured
+    // Fetch roadmap items (and title, once) if configured
     let roadmapItems: Issue[] | undefined
+    let roadmapLabel = cachedRoadmapLabel
     if (ws.roadmapProjectId) {
       try {
-        const rawRoadmap = await fetchAllItemsForProject(ws.roadmapProjectId)
+        const titlePromise = cachedRoadmapLabel
+          ? Promise.resolve(cachedRoadmapLabel)
+          : getProjectTitle(ws.roadmapProjectId)
+        const [rawRoadmap, fetchedTitle] = await Promise.all([
+          fetchAllItemsForProject(ws.roadmapProjectId),
+          titlePromise,
+        ])
         roadmapItems = rawItemsToIssues(rawRoadmap)
+        roadmapLabel = fetchedTitle
+        if (!cachedRoadmapLabel) cachedRoadmapLabel = fetchedTitle
       } catch (err) {
         console.error('[dashboard] roadmap fetch failed:', err instanceof Error ? err.message : err)
         roadmapItems = []
@@ -143,21 +163,33 @@ async function refreshCache(): Promise<void> {
       }
       issues = [...byProject.values()].flat()
 
-      // Tag each issue with the list of projects it belongs to (for context menu add/remove)
-      const issueProjectsMap = new Map<number, string[]>()
+      // Tag each issue with the list of projects it belongs to (for context menu add/remove).
+      // Key: "owner/repo:number" to avoid collisions across repos.
+      const issueProjectsMap = new Map<string, string[]>()
       for (const [label, projectIssues] of byProject.entries()) {
+        const repo = ws.projects.find((p) => p.label === label)?.repo ?? ''
         for (const issue of projectIssues) {
-          const existing = issueProjectsMap.get(issue.number)
+          const key = `${repo}:${issue.number}`
+          const existing = issueProjectsMap.get(key)
           if (existing) existing.push(label)
-          else issueProjectsMap.set(issue.number, [label])
+          else issueProjectsMap.set(key, [label])
         }
       }
-      for (const [, projectIssues] of byProject.entries()) {
+      for (const [label, projectIssues] of byProject.entries()) {
+        const repo = ws.projects.find((p) => p.label === label)?.repo ?? ''
         for (const issue of projectIssues) {
-          issue.inProjects = issueProjectsMap.get(issue.number) ?? []
+          issue.inProjects = issueProjectsMap.get(`${repo}:${issue.number}`) ?? []
           for (const child of issue.children) {
-            child.inProjects = issueProjectsMap.get(child.number) ?? issue.inProjects
+            child.inProjects = issueProjectsMap.get(`${repo}:${child.number}`) ?? issue.inProjects
           }
+        }
+      }
+      // Tag roadmap items: cross-reference with workspace projects + add the roadmap itself
+      if (roadmapItems) {
+        for (const item of roadmapItems) {
+          const itemRepo = item.url.match(/github\.com\/([^/]+\/[^/]+)\//)?.[1] ?? ''
+          const projectLabels = issueProjectsMap.get(`${itemRepo}:${item.number}`) ?? []
+          item.inProjects = roadmapLabel ? [...projectLabels, roadmapLabel] : projectLabels
         }
       }
 
@@ -195,6 +227,8 @@ async function refreshCache(): Promise<void> {
         vercelProjects: p.vercelProjects,
         localPath: p.localPath,
       })) as WorkspaceProject[]
+      const roadmapProject =
+        ws.roadmapProjectId && roadmapLabel ? { label: roadmapLabel, projectId: ws.roadmapProjectId } : undefined
       const html = buildHtml(
         issues,
         prs,
@@ -209,6 +243,7 @@ async function refreshCache(): Promise<void> {
         wsProjects,
         byProjectMeta,
         roadmapItems,
+        roadmapProject,
       )
       cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
       if (changed) notifyClients()
@@ -257,6 +292,7 @@ async function refreshCache(): Promise<void> {
       wsProjects.length > 0 ? (wsProjects as WorkspaceProject[]) : undefined,
       undefined,
       roadmapItems,
+      ws.roadmapProjectId && roadmapLabel ? { label: roadmapLabel, projectId: ws.roadmapProjectId } : undefined,
     )
     cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
 
@@ -421,19 +457,38 @@ const server = Bun.serve({
     // Add/remove an issue from a project
     if (url.pathname === '/api/project-item' && req.method === 'POST') {
       try {
-        const body = (await req.json()) as { issueNumber: number; projectLabel: string; action: 'add' | 'remove' }
-        const { issueNumber, projectLabel, action } = body
+        const body = (await req.json()) as {
+          issueNumber: number
+          projectLabel: string
+          action: 'add' | 'remove'
+          issueRepo?: string
+          projectId?: string // direct projectId for roadmap (not in ws.projects)
+        }
+        const { issueNumber, projectLabel, action, issueRepo, projectId: directProjectId } = body
         const ws = readWorkspace()
+
+        // Find project in ws.projects, or fall back to the roadmap project
         const project = ws.projects.find((p) => p.label === projectLabel)
-        if (!project) {
+        const resolvedProjectId =
+          project?.projectId ??
+          (directProjectId ||
+            (ws.roadmapProjectId && cachedRoadmapLabel === projectLabel ? ws.roadmapProjectId : undefined))
+        if (!resolvedProjectId) {
           return Response.json({ ok: false, error: `Unknown project: ${projectLabel}` }, { status: 400 })
         }
+
+        // Use issueRepo from browser (supports cross-repo roadmap items); fall back to project repo
+        const repoForApi = issueRepo || project?.repo || ''
+        if (!repoForApi) {
+          return Response.json({ ok: false, error: 'Cannot determine issue repo' }, { status: 400 })
+        }
+
         if (action === 'add') {
-          const nodeId = await getNodeId(issueNumber, project.repo)
-          await addToProject(nodeId, project.projectId)
+          const nodeId = await getNodeId(issueNumber, repoForApi)
+          await addToProject(nodeId, resolvedProjectId)
         } else {
-          const itemId = await getItemId(issueNumber, { projectId: project.projectId, repo: project.repo })
-          await removeFromProject(itemId, project.projectId)
+          const itemId = await getItemId(issueNumber, { projectId: resolvedProjectId, repo: repoForApi })
+          await removeFromProject(itemId, resolvedProjectId)
         }
         refreshCache()
         return Response.json({ ok: true })

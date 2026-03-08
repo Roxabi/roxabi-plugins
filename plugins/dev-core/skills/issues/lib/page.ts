@@ -241,6 +241,7 @@ export function buildHtml(
   workspaceProjects?: WorkspaceProject[],
   byProjectMeta?: Map<string, ProjectMeta>,
   roadmapItems?: Issue[],
+  roadmapProject?: { label: string; projectId: string },
 ): string {
   const isMultiProject = byProject !== undefined && byProject.size > 0
   const allIssues = isMultiProject && byProject ? [...byProject.values()].flat() : issues
@@ -412,7 +413,19 @@ ${PAGE_STYLES}
 ${LIVE_STYLES}
 </style>
 </head>
-<body data-updated-at="${updatedAt}" data-ws-projects="${escHtml(JSON.stringify((workspaceProjects ?? []).map((p) => ({ label: p.label, repo: p.repo, projectId: p.projectId }))))}">
+<body data-updated-at="${updatedAt}" data-ws-projects="${escHtml(
+    JSON.stringify([
+      ...(workspaceProjects ?? []).map((p) => ({
+        label: p.label,
+        repo: p.repo,
+        projectId: p.projectId,
+        isRoadmap: p.type === 'company',
+      })),
+      ...(roadmapProject
+        ? [{ label: roadmapProject.label, repo: '', projectId: roadmapProject.projectId, isRoadmap: true }]
+        : []),
+    ]),
+  )}">
   <header>
     <h1>Issues Dashboard</h1>
     <span id="issue-count" class="count">${totalCount} issues</span>
@@ -592,6 +605,7 @@ ${LIVE_STYLES}
         col3: row.dataset.priority,
         projectLabel: row.dataset.projectLabel || (row.closest('table') ? row.closest('table').dataset.projectLabel : null),
         inProjects: row.dataset.inProjects || '',
+        repo: row.dataset.repo || '',
       };
       ctxNum.textContent = ctxIssue.number;
 
@@ -656,7 +670,7 @@ ${LIVE_STYLES}
         fetch('/api/project-item', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ issueNumber: Number(ctxIssue.number), projectLabel: projLabel, action: action }),
+          body: JSON.stringify({ issueNumber: Number(ctxIssue.number), projectLabel: projLabel, action: action, issueRepo: ctxIssue.repo }),
         })
         .then(function(res) { return res.json(); })
         .then(function(data) {
@@ -808,6 +822,8 @@ ${LIVE_STYLES}
       // Refresh workspace projects for context menu
       var newWsProjects = freshDoc.body.dataset.wsProjects;
       if (newWsProjects) { try { window.__wsProjects = JSON.parse(newWsProjects); } catch {} }
+
+      updateMultiProjectBadges();
     }
 
     function connectSSE() {
@@ -853,6 +869,30 @@ ${LIVE_STYLES}
     }
 
     connectSSE();
+
+    // -----------------------------------------------------------------------
+    // Multi-project badge: show "×N" on issues belonging to >1 non-roadmap project
+    // -----------------------------------------------------------------------
+    function updateMultiProjectBadges() {
+      var allProjects = window.__wsProjects || [];
+      var roadmapLabels = allProjects.filter(function(p) { return p.isRoadmap; }).map(function(p) { return p.label; });
+      document.querySelectorAll('.issue-row[data-in-projects]').forEach(function(row) {
+        var inProjects = row.dataset.inProjects.split(',').filter(Boolean);
+        var nonRoadmap = inProjects.filter(function(l) { return roadmapLabels.indexOf(l) === -1; });
+        var numCell = row.querySelector('.col-num');
+        if (!numCell) return;
+        var existing = numCell.querySelector('.multi-proj-badge');
+        if (existing) existing.remove();
+        if (nonRoadmap.length > 1) {
+          var badge = document.createElement('span');
+          badge.className = 'multi-proj-badge';
+          badge.title = nonRoadmap.join(', ');
+          badge.textContent = '\u00d7' + nonRoadmap.length;
+          numCell.appendChild(badge);
+        }
+      });
+    }
+    updateMultiProjectBadges();
   })();
   </script>
 

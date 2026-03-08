@@ -82,6 +82,8 @@ export function issueRow(issue: Issue, indent = 0, prefix = '', showProject = fa
   const projLabel = issue.projectLabel ?? ''
   const projAttr = projLabel ? ` data-project-label="${escHtml(projLabel)}"` : ''
   const inProjectsAttr = issue.inProjects?.length ? ` data-in-projects="${escHtml(issue.inProjects.join(','))}"` : ''
+  const fullRepo = issue.url.match(/github\.com\/([^/]+\/[^/]+)\//)?.[1] ?? ''
+  const repoAttr = fullRepo ? ` data-repo="${escHtml(fullRepo)}"` : ''
 
   const titleHtml =
     indent > 0
@@ -92,7 +94,7 @@ export function issueRow(issue: Issue, indent = 0, prefix = '', showProject = fa
     ? `<td class="col-project"><span class="badge project-label">${indent === 0 ? escHtml(projLabel) : ''}</span></td>`
     : ''
 
-  let html = `<tr class="issue-row depth-${indent} ${blockClass}" data-issue="${issue.number}" data-status="${escHtml(issue.status)}" data-size="${escHtml(issue.size)}" data-priority="${escHtml(issue.priority)}"${projAttr}${inProjectsAttr}>
+  let html = `<tr class="issue-row depth-${indent} ${blockClass}" data-issue="${issue.number}" data-status="${escHtml(issue.status)}" data-size="${escHtml(issue.size)}" data-priority="${escHtml(issue.priority)}"${projAttr}${inProjectsAttr}${repoAttr}>
     <td class="col-num">${indent === 0 ? `<a href="${issue.url}" target="_blank" rel="noopener">#${issue.number}</a>` : ''}</td>
     <td class="col-title">${titleHtml}</td>
     ${projectCol}<td class="col-status"><span class="badge ${statusClass}">${escHtml(status)}</span></td>
@@ -122,8 +124,11 @@ export function roadmapRow(issue: Issue): string {
   const statusClass = STATUS_CLASS[issue.status] ?? ''
   const pri = PRIORITY_SHORT[issue.priority] ?? issue.priority
   const priClass = PRIORITY_CLASS[issue.priority] ?? ''
+  const fullRepo = issue.url.match(/github\.com\/([^/]+\/[^/]+)\//)?.[1] ?? ''
+  const inProjectsAttr = issue.inProjects?.length ? ` data-in-projects="${escHtml(issue.inProjects.join(','))}"` : ''
+  const repoAttr = fullRepo ? ` data-repo="${escHtml(fullRepo)}"` : ''
 
-  return `<tr class="issue-row" data-issue="${issue.number}">
+  return `<tr class="issue-row" data-issue="${issue.number}"${inProjectsAttr}${repoAttr}>
     <td class="col-num"><a href="${escHtml(issue.url)}" target="_blank" rel="noopener">#${issue.number}</a></td>
     <td class="col-title">${escHtml(issue.title)}</td>
     <td class="col-project"><span class="badge project-label">${escHtml(repo)}</span></td>
