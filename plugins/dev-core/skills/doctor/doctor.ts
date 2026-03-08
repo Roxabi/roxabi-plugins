@@ -699,6 +699,50 @@ function checkCIPermissions(ghOk: boolean, owner: string, repo: string): Section
   return { name: 'CI permissions', checks }
 }
 
+function checkStandardsPaths(): Section {
+  const fs = require('node:fs') as typeof import('fs')
+  const checks: Check[] = []
+
+  if (!fs.existsSync('.claude/stack.yml')) {
+    return { name: 'Standards', checks: [{ name: 'stack.yml', status: 'skip', detail: 'not found' }] }
+  }
+
+  try {
+    const raw = fs.readFileSync('.claude/stack.yml', 'utf8') as string
+    const lines = raw.split('\n')
+    let inStandards = false
+
+    for (const line of lines) {
+      if (/^standards:\s*$/.test(line)) {
+        inStandards = true
+        continue
+      }
+      if (inStandards) {
+        if (/^\S/.test(line)) break // new top-level key
+        const match = line.match(/^\s+(\w+):\s*(.+?)\s*(#.*)?$/)
+        if (!match) continue
+        const [, key, path] = match
+        const trimmedPath = path.trim()
+        if (!trimmedPath) continue
+        const exists = fs.existsSync(trimmedPath)
+        checks.push({
+          name: `standards.${key}`,
+          status: exists ? 'pass' : 'warn',
+          detail: exists ? trimmedPath : `path not found: ${trimmedPath} — run /init scaffold-docs or create manually`,
+        })
+      }
+    }
+
+    if (checks.length === 0) {
+      checks.push({ name: 'standards', status: 'skip', detail: 'no standards paths configured in stack.yml' })
+    }
+  } catch {
+    checks.push({ name: 'standards', status: 'skip', detail: 'could not parse stack.yml' })
+  }
+
+  return { name: 'Standards', checks }
+}
+
 // --- Output formatting ---
 
 const ICONS: Record<Status, string> = { pass: '✅', fail: '❌', warn: '⚠️', skip: '⏭' }
@@ -759,6 +803,7 @@ const sections: Section[] = [
   checkBranchProtection(ghOk, owner, fullRepo),
   checkRulesets(ghOk, owner, repo),
   checkProjectStructure(),
+  checkStandardsPaths(),
   checkSecurity(),
   checkVercel(),
   checkCIPermissions(ghOk, owner, repo),
