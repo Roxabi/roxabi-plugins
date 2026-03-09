@@ -1,4 +1,4 @@
-import { GH_PROJECT_ID, GITHUB_REPO } from '../../shared/adapters/config-helpers'
+import { GH_PROJECT_ID, GITHUB_REPO, PRIORITY_ORDER, SIZE_ORDER } from '../../shared/adapters/config-helpers'
 import { ghGraphQL, run } from '../../shared/adapters/github-adapter'
 import {
   BRANCH_CI_QUERY,
@@ -124,28 +124,10 @@ export function rawItemsToIssues(items: RawItem[], slotNames: SlotNames = DEFAUL
   const roots = openItems.filter((i) => !i.content.parent || i.content.parent.state === 'CLOSED').map(toIssue)
 
   // Sort: priority P0→PX, then size XL→S
-  const priorityOrder: Record<string, number> = {
-    'P0 - Urgent': 0,
-    'P1 - High': 1,
-    'P2 - Medium': 2,
-    'P3 - Low': 3,
-    '-': 99,
-  }
-  const sizeOrder: Record<string, number> = {
-    XL: 0,
-    L: 1,
-    M: 2,
-    S: 3,
-    XS: 4,
-    '-': 99,
-  }
-
   roots.sort((a, b) => {
-    // Priority P0 → P3
-    const pd = (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99)
+    const pd = (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99)
     if (pd !== 0) return pd
-    // Size XL → S
-    return (sizeOrder[a.size] ?? 99) - (sizeOrder[b.size] ?? 99)
+    return (SIZE_ORDER[a.size] ?? 99) - (SIZE_ORDER[b.size] ?? 99)
   })
 
   return roots

@@ -19,34 +19,8 @@ export {
 
 export { ISSUES_QUERY as QUERY, ITEM_ID_QUERY, UPDATE_FIELD_MUTATION } from '../../shared/queries'
 
-import { existsSync, readFileSync } from 'node:fs'
 import { detectGitHubRepo } from '../../shared/adapters/config-helpers'
-
-interface WorkspaceProject {
-  repo: string
-  projectId: string
-  label: string
-}
-interface Workspace {
-  projects: WorkspaceProject[]
-}
-
-function getWorkspacePath(): string {
-  const home = process.env.HOME ?? ''
-  const vault = `${home}/.roxabi-vault`
-  if (existsSync(vault)) return `${vault}/workspace.json`
-  return `${home}/.config/roxabi/workspace.json`
-}
-
-function readWorkspace(): Workspace {
-  const p = getWorkspacePath()
-  if (!existsSync(p)) return { projects: [] }
-  try {
-    return JSON.parse(readFileSync(p, 'utf8')) as Workspace
-  } catch {
-    return { projects: [] }
-  }
-}
+import { readWorkspace } from '../../shared/adapters/workspace-helpers'
 
 /**
  * Resolve project config for the current repo.
