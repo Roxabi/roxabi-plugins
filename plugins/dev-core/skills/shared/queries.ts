@@ -46,7 +46,7 @@ query($projectId: ID!, $cursor: String) {
         nodes {
           id
           content {
-            ... on Issue { number title body state }
+            ... on Issue { number title body state labels(first: 10) { nodes { name } } }
           }
           fieldValues(first: 10) {
             nodes {

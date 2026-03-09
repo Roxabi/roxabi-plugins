@@ -15,6 +15,7 @@ import {
   SIZE_OPTIONS,
   STATUS_FIELD_ID,
   STATUS_OPTIONS,
+  syncPriorityLabel,
 } from '../../shared/adapters/config-helpers'
 import {
   addBlockedBy,
@@ -264,6 +265,13 @@ export async function setIssue(args: string[]): Promise<void> {
   }
 
   await applyProjectFields(opts.issueNumber, opts)
+
+  // Sync priority label (independent of project board)
+  if (opts.priority) {
+    const canonical = resolvePriority(opts.priority)
+    if (canonical) await syncPriorityLabel(opts.issueNumber, canonical)
+  }
+
   await applyDependencies(opts.issueNumber, opts)
   await applyParentChild(opts.issueNumber, opts)
 }
