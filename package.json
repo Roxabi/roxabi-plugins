@@ -4,6 +4,7 @@
   "private": true,
   "description": "Open-source Claude Code plugins by Roxabi",
   "license": "MIT",
+  "type": "module",
   "scripts": {
     "dashboard": "bun .claude/run-dashboard.ts",
     "test": "vitest run",
