@@ -4,6 +4,7 @@
  */
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import type { TemplateFile } from './types'
 
 export interface DocsScaffoldOpts {
   format: 'md' | 'mdx'
@@ -15,11 +16,6 @@ export interface DocsScaffoldResult {
   dirsCreated: string[]
   filesCreated: string[]
   filesSkipped: string[]
-}
-
-interface TemplateFile {
-  relativePath: string
-  content: string
 }
 
 function buildTemplates(format: 'md' | 'mdx'): TemplateFile[] {

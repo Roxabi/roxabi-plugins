@@ -1,21 +1,20 @@
 /**
- * Fumadocs scaffolding — creates a docs app (apps/docs/) and root docs/ directory.
- * Generates template files based on the boilerplate structure.
+ * Fumadocs scaffolding — creates a Next.js docs app (apps/docs/) and root docs/ content directory.
+ *
+ * Separation from docs.ts:
+ *   docs.ts    — framework-agnostic content structure (architecture/, standards/, guides/)
+ *   fumadocs.ts — Fumadocs-specific Next.js app scaffold (apps/docs/ monorepo split)
  */
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { TemplateFile } from './types'
 
 export interface FumadocsScaffoldResult {
   dirsCreated: string[]
   filesCreated: string[]
   filesSkipped: string[]
   warnings: string[]
-}
-
-interface TemplateFile {
-  relativePath: string
-  content: string
 }
 
 function buildTemplates(): TemplateFile[] {
@@ -217,7 +216,9 @@ Welcome to the documentation. Add your content here.
   ]
 }
 
-export async function scaffoldFumadocs(projectRoot: string): Promise<FumadocsScaffoldResult> {
+export function scaffoldFumadocs(projectRoot: string): FumadocsScaffoldResult {
+  if (!projectRoot) throw new Error('projectRoot must be a non-empty string')
+
   const result: FumadocsScaffoldResult = {
     dirsCreated: [],
     filesCreated: [],

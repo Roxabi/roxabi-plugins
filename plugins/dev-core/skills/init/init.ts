@@ -15,6 +15,10 @@
  *   bun init.ts scaffold --github-repo <owner/repo> --project-id <PVT_...> [--force] ...
  */
 
+import { execSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+
 const args = process.argv.slice(2)
 const command = args[0] ?? 'prereqs'
 const rest = args.slice(1)
@@ -158,8 +162,18 @@ switch (command) {
   case 'scaffold-fumadocs': {
     const { scaffoldFumadocs } = await import('./lib/fumadocs')
     const root = parseFlag('--root', process.cwd())
-    const result = await scaffoldFumadocs(root)
+    const result = scaffoldFumadocs(root)
     console.log(JSON.stringify(result, null, 2))
+    // Install deps in apps/docs/
+    const appsDocsPath = join(root, 'apps/docs')
+    if (existsSync(appsDocsPath)) {
+      try {
+        execSync('bun install', { cwd: appsDocsPath, stdio: 'inherit' })
+        console.error('Fumadocs deps installed in apps/docs/')
+      } catch {
+        console.error('Warning: bun install in apps/docs/ failed — run manually')
+      }
+    }
     break
   }
 

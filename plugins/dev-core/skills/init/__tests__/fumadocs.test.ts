@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -84,11 +84,26 @@ describe('scaffoldFumadocs', () => {
     const result = await scaffoldFumadocs(tmpDir)
 
     // Assert — one warning per skipped file
-    expect(result.warnings.length).toBeGreaterThanOrEqual(2)
+    expect(result.warnings).toHaveLength(2)
 
     const warningText = result.warnings.join('\n')
     expect(warningText).toContain(file1Rel)
     expect(warningText).toContain(file2Rel)
+  })
+
+  it('omits pre-existing dirs from dirsCreated', async () => {
+    // Arrange — create the docs dir in advance
+    mkdirSync(join(tmpDir, 'docs'), { recursive: true })
+
+    // Act
+    const result = await scaffoldFumadocs(tmpDir)
+
+    // Assert — pre-existing dir not in dirsCreated
+    expect(result.dirsCreated).not.toContain('docs')
+    // Other dirs still created
+    expect(result.dirsCreated).toContain('apps/docs/src/lib')
+    // No error — scaffold still completes
+    expect(result.filesCreated.length).toBeGreaterThan(0)
   })
 
   it('uses projectRoot as the base path, not process.cwd()', async () => {
@@ -103,6 +118,9 @@ describe('scaffoldFumadocs', () => {
       expect(result.filesCreated.length).toBeGreaterThan(0)
       // Nothing should land in cwd
       expect(result.filesCreated).toContain('docs/index.mdx')
+      expect(existsSync(join(anotherTmpDir, 'docs/index.mdx'))).toBe(true)
+      // Also verify files did NOT land in tmpDir (the outer temp dir)
+      expect(existsSync(join(tmpDir, 'docs/index.mdx'))).toBe(false)
     } finally {
       rmSync(anotherTmpDir, { recursive: true, force: true })
     }

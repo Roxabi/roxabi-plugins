@@ -95,6 +95,12 @@ The layout for each project is:
 
 - Option C (hybrid aggregation) remains viable if cross-project discovery becomes important as the number of projects grows. Adopting Option B now does not close that path — per-project `docs/` directories are the correct source format for an aggregator.
 
+### Non-Monorepo Projects
+
+The `apps/docs/` path presupposes a monorepo with an `apps/` workspace directory. Flat-layout repositories (e.g., single-package repos) will also adopt the `apps/docs/` convention — this is intentional. The `apps/` directory is created as part of the scaffold regardless of whether the repo uses a workspace. This makes the layout universal across all Roxabi projects, trading some visual idiosyncrasy in flat repos for a consistent convention everywhere.
+
+Projects that strongly prefer a different layout can override the docs app path by passing `--app-path` to the `/init` scaffold command (to be implemented in a future iteration).
+
 ## Migration Notes
 
 Existing projects can adopt this strategy by:
