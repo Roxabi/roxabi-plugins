@@ -367,6 +367,15 @@ Scaffold standard documentation directories and minimal template files.
 5. Display created dirs and files from JSON result. Format:
    - `Docs scaffolding ✅ Created {filesCreated.length} files in {docsPath}/`
 
+6. If `docs.framework: fumadocs` in `.claude/stack.yml`:
+   AskUserQuestion: **Scaffold Fumadocs app** (`apps/docs/` + `docs/` monorepo split matching roxabi_boilerplate) | **Skip**
+   If yes:
+   ```bash
+   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-fumadocs --root <project-root>
+   ```
+   Display result: `Fumadocs scaffold ✅ Created {filesCreated.length} files` (or list skipped files with warnings if any).
+   Note: run `bun install` in `apps/docs/` afterward to install fumadocs deps.
+
 ## Phase 8 — VS Code MDX Preview (Optional)
 
 Run only if `find . -name "*.mdx" -not -path "*/node_modules/*" | head -1` returns a result ∨ `docs.format: mdx` in stack.yml.

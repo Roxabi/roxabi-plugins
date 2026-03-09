@@ -155,6 +155,14 @@ switch (command) {
     break
   }
 
+  case 'scaffold-fumadocs': {
+    const { scaffoldFumadocs } = await import('./lib/fumadocs')
+    const root = parseFlag('--root', process.cwd())
+    const result = await scaffoldFumadocs(root)
+    console.log(JSON.stringify(result, null, 2))
+    break
+  }
+
   case 'scaffold': {
     const { scaffold } = await import('./lib/scaffold')
     const result = await scaffold({
