@@ -489,10 +489,7 @@ export function scaffoldFumadocs(projectRoot: string, docsPath = 'docs'): Fumado
  * Conditional on deploy.platform == vercel in stack.yml.
  * Uses turbo-ignore when build.orchestrator == turbo, plain bun otherwise.
  */
-export function scaffoldFumadocsVercel(
-  projectRoot: string,
-  orchestrator: string,
-): FumadocsVercelResult {
+export function scaffoldFumadocsVercel(projectRoot: string, orchestrator: string): FumadocsVercelResult {
   const file = 'apps/docs/vercel.json'
   const fullPath = join(projectRoot, file)
 
@@ -502,18 +499,17 @@ export function scaffoldFumadocsVercel(
 
   const isTurbo = orchestrator === 'turbo'
   const content = isTurbo
-    ? JSON.stringify(
+    ? `${JSON.stringify(
         {
           $schema: 'https://openapi.vercel.sh/vercel.json',
-          ignoreCommand:
-            '[ "$VERCEL_GIT_COMMIT_REF" != "main" ] || npx turbo-ignore @repo/docs',
+          ignoreCommand: '[ "$VERCEL_GIT_COMMIT_REF" != "main" ] || npx turbo-ignore @repo/docs',
           installCommand: 'bun install --ignore-scripts',
           buildCommand: 'turbo run build --filter=@repo/docs',
         },
         null,
         2,
-      ) + '\n'
-    : JSON.stringify(
+      )}\n`
+    : `${JSON.stringify(
         {
           $schema: 'https://openapi.vercel.sh/vercel.json',
           installCommand: 'bun install --ignore-scripts',
@@ -521,7 +517,7 @@ export function scaffoldFumadocsVercel(
         },
         null,
         2,
-      ) + '\n'
+      )}\n`
 
   mkdirSync(join(projectRoot, 'apps/docs'), { recursive: true })
   writeFileSync(fullPath, content, 'utf8')
