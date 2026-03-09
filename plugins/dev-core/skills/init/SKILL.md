@@ -367,6 +367,20 @@ Scaffold standard documentation directories and minimal template files.
 5. Display created dirs and files from JSON result. Format:
    - `Docs scaffolding ✅ Created {filesCreated.length} files in {docsPath}/`
 
+### Phase 7b — Fumadocs App Scaffold (Optional)
+
+Run only if `docs.framework: fumadocs` in `.claude/stack.yml`.
+
+1. AskUserQuestion: **Scaffold Fumadocs app** (`apps/docs/` Next.js app + `docs/` content dir — Mermaid, Shiki, Tailwind v4) | **Skip**
+2. If yes:
+   ```bash
+   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-fumadocs --root <cwd> --docs-path <docs.path>
+   ```
+   - Display result: `Fumadocs scaffold ✅ Created {filesCreated.length} files in apps/docs/ and {docs.path}/`
+   - List created files grouped by directory.
+   - ∃ warnings (skipped files) → display each with ⚠️
+3. Remind: run `bun install` in `apps/docs/` to install dependencies, then `bun dev` to start the docs server on port 3002.
+
 ## Phase 8 — VS Code MDX Preview (Optional)
 
 Run only if `find . -name "*.mdx" -not -path "*/node_modules/*" | head -1` returns a result ∨ `docs.format: mdx` in stack.yml.
@@ -419,6 +433,22 @@ Standard workflow set: `ci.yml`, `auto-merge.yml`, `pr-title.yml` (+ `deploy-pre
    - Display: `CI/CD workflows ✅ Created (ci.yml, auto-merge.yml, pr-title.yml)` + `PAT secret ✅ Set` + `allow_auto_merge ✅ Enabled` + `Auto-merge re-triggered on N open PR(s) ✅` (or ⏭ if none)
 
 5. **If skip:** display `CI/CD workflows ⏭ Skipped`
+
+### Phase 9b — Fumadocs Vercel Deployment (Optional)
+
+Run only if `deploy.platform: vercel` ∧ `docs.framework: fumadocs` in `.claude/stack.yml`.
+
+1. Check if `apps/docs/vercel.json` already exists.
+   - ∃ → display `Fumadocs Vercel config ✅ Already present`, skip.
+2. AskUserQuestion: **Add Vercel deployment config for docs** (`apps/docs/vercel.json`) | **Skip**
+3. If yes:
+   ```bash
+   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-fumadocs-vercel --root <cwd> --orchestrator <build.orchestrator>
+   ```
+   - `build.orchestrator: turbo` → generates config with `turbo-ignore @repo/docs` (skips Vercel rebuild when docs unchanged)
+   - other → generates simple config (`cd apps/docs && bun run build`)
+   - Display: `Fumadocs Vercel config ✅ Created apps/docs/vercel.json`
+4. Remind: connect `apps/docs/` as a Vercel project (set root directory to `apps/docs` in Vercel dashboard), then set `NEXT_PUBLIC_APP_URL` env var to your app URL.
 
 ## Phase 10 — Pre-commit Hooks (Optional)
 

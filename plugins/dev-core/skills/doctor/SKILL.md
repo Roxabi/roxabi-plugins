@@ -80,6 +80,19 @@ Run all checks. Collect fixable items as you go. Apply fixes at end (Phase 2 Fix
 **Standards docs exist on disk:**
 - ∀ path ∈ `standards.*` → ✅ | ⚠️ "standards.{key} path not found: {path}"
 
+**Documentation structure:**
+
+Read `docs.path` from `.claude/stack.yml`.
+¬`docs.path` → display `Docs ⏭ docs.path not set in stack.yml`, skip remaining doc checks.
+
+- `existsSync(docs.path)` → ✅ `docs/ directory found` | ⚠️ `docs.path not found on disk: {path}` (auto-fixable)
+- ∃ docs.path dir → check `{docs.path}/architecture/` ∧ `{docs.path}/standards/`:
+  - both ∃ → ✅ `Docs structure present (architecture/, standards/)`
+  - missing ∃ → ⚠️ `Docs structure incomplete — missing: {list of dirs}` (auto-fixable)
+- `docs.framework: fumadocs` in stack.yml → check `existsSync('apps/docs/source.config.ts')`:
+  - ∃ → ✅ `Fumadocs app found (apps/docs/)`
+  - ¬∃ → ⚠️ `Fumadocs app missing — apps/docs/ not scaffolded` (auto-fixable)
+
 **Artifact directories:**
 - ∀ path ∈ `artifacts.*` → ✅ | ⚠️ "artifacts.{key} dir not found: {path}"
 
@@ -135,7 +148,12 @@ Check install state:
 Print summary:
 ```
 Stack config: N checks passed, M warnings, K errors
+Docs          ✅ docs/ present, structure complete[, Fumadocs ✅]
+              ⚠️ docs/ not found on disk — run scaffold-docs to fix
+              ⚠️ docs structure incomplete (missing: {dirs}) — run scaffold-docs
+              ⏭ docs.path not set in stack.yml
 ```
+Note: Fumadocs segment appended only when `docs.framework: fumadocs`.
 
 #### Phase 2 Fix
 
@@ -171,6 +189,10 @@ Apply each selected fix:
 | `pre-commit config missing` | Write `.pre-commit-config.yaml` with local hooks for `commands.lint` + `commands.typecheck`; then `pip install pre-commit && pre-commit install` (or `uv add --dev pre-commit && uv run pre-commit install`) |
 | `pre-commit not activated` | `pre-commit install` (or `uv run pre-commit install`) |
 | `VS Code MDX preview missing` | Merge `"*.mdx": "markdown"` into `.vscode/settings.json` `files.associations` (create file if missing) |
+| `docs.path missing` \| `docs structure incomplete` | Run scaffold-docs: `bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-docs --format {docs.format} --path {docs.path}` — then re-check docs checks and display updated Docs row |
+| `Fumadocs app missing` | Run scaffold-fumadocs: `bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-fumadocs --root {cwd} --docs-path {docs.path}` — then re-check docs checks and display updated Docs row |
+
+Note: When `standards.*` paths are missing and match scaffold-docs output patterns, offer scaffold-docs instead of the manual-edit advisory.
 
 Issues requiring user input (e.g. `commands.*` fields blank, standards paths missing) → display exact line to add to stack.yml; ask user to edit manually. Do not silently skip.
 

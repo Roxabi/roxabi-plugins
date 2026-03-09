@@ -1,0 +1,124 @@
+---
+title: "ADR-007: Documentation Strategy — Per-Project Fumadocs with apps/docs/ Split"
+description: Records the decision to standardize Roxabi project documentation on a per-project Fumadocs setup using an apps/docs/ + docs/ monorepo split, matching the roxabi_boilerplate reference implementation. Documents three options evaluated and establishes the scaffold convention automated by /init Phase 7.
+---
+
+## Status
+
+Accepted
+
+## Context
+
+Five active Roxabi projects (roxabi-plugins, lyra, voiceCLI, roxabi-dashboard, roxabi_site) had no shared documentation strategy: inconsistent tooling, no agreed directory structure, and no common hosting model. Some projects used Fumadocs; others had no documentation at all. This created divergence risk — as new projects were added or `/init` scaffolded docs directories, each project would independently reinvent its approach, compounding the inconsistency.
+
+**Pre-existing constraint:** Fumadocs is already in use across the Roxabi ecosystem. This is not open for replacement. The strategy must build on it.
+
+**Reference implementation:** `roxabi_boilerplate` already establishes the correct pattern — an `apps/docs/` Next.js app reading content from a `docs/` directory at the monorepo root. The question is whether to standardize on this pattern or adopt a different topology.
+
+This ADR records the decision reached. It is not a genuinely open evaluation — the Fumadocs constraint is firm, and the reference implementation already exists. The decision is recorded here to make the rationale explicit and to establish the scaffold convention for all future projects.
+
+## Options Considered
+
+### Option A: Centralized Fumadocs Portal
+
+A single `apps/docs/` app living in a dedicated repository, aggregating documentation from all five Roxabi projects into one portal.
+
+- **Pros:** Single URL for all Roxabi documentation. Unified navigation and search. Consistent branding across projects.
+- **Cons:** Cross-repository build complexity — the portal must pull content from five separate repos at build time. Tight coupling between unrelated projects: a broken build in one project can block the portal. Independent deployment of a single project's docs is impossible. Significant infrastructure overhead for a project still in active development.
+
+### Option B: Per-Project Fumadocs (apps/docs/ split)
+
+Each project owns its own `apps/docs/` Next.js app, which reads MDX content from a `docs/` directory at the project root. This matches the `roxabi_boilerplate` reference implementation.
+
+- **Pros:** Fully independent — each project builds and deploys its docs without depending on any other project. Matches the existing reference implementation, so the scaffold is already proven. Zero cross-repo coupling. Each project's docs can be deployed to its own Vercel deployment or subdomain. `/init` can automate the scaffold from a single template.
+- **Cons:** No single URL for all Roxabi docs. Navigation between projects requires following links rather than using a unified sidebar. Potential for drift between projects' Fumadocs versions if upgrades are applied unevenly.
+
+### Option C: Hybrid (Per-Project Source, Aggregated Portal)
+
+Each project owns its `docs/` MDX content. A separate aggregation build pulls content from all projects and publishes a unified portal, while each project can also serve its own docs independently.
+
+- **Pros:** Attempts to get the benefits of both A and B.
+- **Cons:** Extra infrastructure — the aggregation layer adds a third moving part that none of Options A or B require. Premature optimization for a five-project ecosystem that has not yet established consistent documentation coverage. Adds operational burden before the baseline (per-project docs) is working reliably.
+
+## Decision
+
+**Option B** — each Roxabi project adopts the per-project `apps/docs/` Next.js app + `docs/` content directory split, matching the `roxabi_boilerplate` reference implementation.
+
+### Architecture
+
+```
+project-root/
+├── apps/
+│   └── docs/                        # Next.js app (Fumadocs UI)
+│       ├── source.config.ts         # fumadocs-mdx source, dir: ../../docs
+│       ├── next.config.ts           # wraps with createMDX()
+│       ├── package.json             # Fumadocs deps (see below)
+│       ├── src/
+│       │   └── lib/
+│       │       └── source.ts        # loader(docsSource) export
+│       └── app/
+│           ├── layout.tsx           # RootProvider + font setup
+│           ├── page.tsx             # root redirect to /docs
+│           ├── docs/
+│           │   ├── layout.tsx       # DocsLayout (sidebar, nav)
+│           │   └── [[...slug]]/
+│           │       └── page.tsx     # DocsPage (MDX renderer)
+│           └── api/
+│               └── search/
+│                   └── route.ts     # fumadocs search endpoint
+└── docs/                            # MDX content (source of truth)
+    ├── index.mdx                    # docs home page
+    ├── meta.json                    # Fumadocs nav root
+    ├── architecture/                # ADRs and technical decisions
+    ├── standards/                   # coding and review standards
+    ├── guides/                      # how-to guides (deployment, etc.)
+    └── processes/                   # team processes (issue management, etc.)
+```
+
+### Technology choices (locked to roxabi_boilerplate versions)
+
+| Package | Version |
+|---------|---------|
+| `fumadocs-ui` | `^15.0.0` |
+| `fumadocs-core` | `^15.0.0` |
+| `fumadocs-mdx` | `^11.0.0` |
+| `next` | `^15.0.0` |
+| `react` | `^19.0.0` |
+| `react-dom` | `^19.0.0` |
+| Mermaid | theme-aware, DOMPurify-sanitized |
+| Shiki | `experimentalJSEngine`, dual themes (light/dark) |
+| Tailwind | v4 |
+
+### Scaffold automation
+
+The scaffold is generated by `/init` Phase 7 when `docs.framework: fumadocs` is set in `.claude/stack.yml`. The implementation lives in `scaffoldFumadocs()` inside `lib/fumadocs.ts` (dev-core plugin). The scaffold is additive only — if a file in `docs/` or `apps/docs/` already exists, it is skipped with a warning and never overwritten.
+
+The `docs/` content directory structure is initialized with four subdirectories: `architecture/`, `standards/`, `guides/`, `processes/`. These map to the `standards.*` and `artifacts.*` paths referenced throughout dev-core agent prompts.
+
+## Consequences
+
+### Positive
+
+- Each project has an independently deployable, self-contained documentation site with no cross-repo dependencies.
+- The scaffold is fully automated: running `/init` on a new project with `docs.framework: fumadocs` in `stack.yml` produces the complete `apps/docs/` + `docs/` structure in one step.
+- The `roxabi_boilerplate` reference implementation validates the approach — the scaffold template is derived from a working production setup, not designed from scratch.
+- The `docs/` content directory structure (`architecture/`, `standards/`, `guides/`, `processes/`) aligns with the path conventions already used in dev-core agent prompts (`standards.backend`, `standards.testing`, `artifacts.analyses`, etc.), so agents write to and read from expected locations without additional configuration.
+
+### Negative
+
+- No single URL for all Roxabi documentation. Users navigating between projects must follow links between separate sites.
+- Fumadocs version drift is possible if individual projects upgrade at different times. Mitigated by deriving all projects from the same `roxabi_boilerplate` baseline and propagating updates via plugin updates.
+
+### Neutral
+
+- Existing projects (roxabi-plugins, lyra, voiceCLI, roxabi-dashboard, roxabi_site) are not automatically migrated. Adoption requires either running `/init` (Phase 7 will offer the scaffold) or manually copying `apps/docs/` from `roxabi_boilerplate`. This is intentional — the ADR establishes the standard for new and future projects; migration of existing projects is deferred.
+- The aggregated portal (Option C) remains available as a future layer if the five-project ecosystem grows to a scale where unified navigation justifies the infrastructure cost. The per-project content directories are already the correct unit of aggregation if that path is taken.
+
+## Migration Notes
+
+Existing projects can adopt this pattern by one of two routes:
+
+1. **Run `/init`** — Phase 7 detects `docs.framework: fumadocs` in `stack.yml` and offers to scaffold. If `apps/docs/` or `docs/` already exist, only missing files are added (additive, never destructive).
+2. **Manual copy** — Copy `apps/docs/` from `roxabi_boilerplate` into the target project's `apps/` directory. Update `source.config.ts` to point `dir` at the correct relative path to the project's `docs/` directory.
+
+A formal migration guide for existing projects is out of scope for this ADR and is deferred to a future issue.
