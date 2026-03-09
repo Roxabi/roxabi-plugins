@@ -285,6 +285,10 @@ Each project that has a plugin installed uses a specific cache dir identified by
    for plugin_dir in "$REPO/plugins"/*/; do
      plugin=$(basename "$plugin_dir")
      [ -d "$CACHE/$plugin" ] && for h in "$CACHE/$plugin"/*/; do
+       name=$(basename "$h")
+       # Skip .claude-plugin and bogus dirs (only sync into version or hex-hash dirs)
+       [[ "$name" == ".claude-plugin" ]] && continue
+       [[ ! "$name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && ! "$name" =~ ^[0-9a-f]{12}$ ]] && continue
        rsync -a --exclude='__tests__' --exclude='node_modules' --exclude='.orphaned_at' --exclude='.dashboard.pid' \
          "$plugin_dir" "$h"
        # Sync roxabi_sdk into plugin root for Python imports
