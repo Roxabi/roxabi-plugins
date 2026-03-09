@@ -1,0 +1,113 @@
+---
+title: "ADR-007: Documentation Strategy — Per-Project Fumadocs with apps/docs/ Split"
+description: Records the decision to adopt a per-project Fumadocs documentation strategy across all Roxabi projects, using an apps/docs/ Next.js app alongside a docs/ content directory at the repo root. Covers options considered, rationale, and migration path for existing projects.
+---
+
+## Status
+
+Accepted
+
+## Context
+
+Five active Roxabi projects (roxabi-plugins, lyra, voiceCLI, roxabi-dashboard, roxabi_site) each lack a consistent documentation strategy. Documentation has grown organically — some projects have a `docs/` directory with raw markdown, others have nothing at all.
+
+Fumadocs is a pre-existing constraint: roxabi_boilerplate already uses it and the pattern is proven. The `/init` skill (Phase 7b) was planned to scaffold docs infrastructure automatically when `docs.framework: fumadocs` is set in `stack.yml`. Any strategy chosen must be compatible with that scaffolding path.
+
+The decision scope covers:
+
+- Where documentation source lives relative to the repo root
+- Where the rendered documentation site lives (Next.js app)
+- Whether projects share a single documentation portal or maintain independent sites
+- How Fumadocs configuration (`source.config.ts`, `meta.json`, `app/docs/`) is structured
+
+## Options Considered
+
+### Option A: Centralized Fumadocs Portal
+
+One shared site (e.g. `roxabi-site`) aggregates documentation from all projects. Each project exports its `docs/` directory; the portal consumes them at build time via symlinks or package references.
+
+- **Pros:** Single URL for all Roxabi documentation. Unified full-text search across all projects. One deployment to maintain.
+- **Cons:** Tight coupling between projects — a broken build in one blocks the portal for all. Cross-repo coordination required before every docs update. Local preview requires cloning multiple repos. Fumadocs content discovery (`source.config.ts`) is designed for a single content root, making multi-repo aggregation non-trivial. Adds significant complexity for no immediate benefit given the current team size.
+
+### Option B: Per-Project Fumadocs with `apps/docs/` Split (chosen)
+
+Each project owns its own Fumadocs site. The repo is split into two co-located parts:
+
+- `apps/docs/` — Next.js app (Fumadocs UI, routing, layout)
+- `docs/` — MDX content at the repo root (ADRs, standards, guides, references)
+
+`source.config.ts` inside `apps/docs/` points to `../../docs` so content stays at the project root and is reachable from both the docs app and non-docs tooling (agents, scripts).
+
+- **Pros:** Proven by roxabi_boilerplate — zero unknowns. Each project deploys and evolves independently. No cross-project coordination required. Local preview is a single `bun dev` inside `apps/docs/`. Compatible with the `/init` scaffolding path. Fumadocs constraint satisfied without any workarounds.
+- **Cons:** No unified search across projects. Users must navigate to each project's documentation site separately. N projects = N deployments.
+
+### Option C: Hybrid (Per-Project Source, Aggregated at Build Time)
+
+Each project maintains its own `docs/` content, but a separate aggregation layer pulls all content at build time and publishes a single unified portal. Projects do not run their own Next.js app.
+
+- **Pros:** Unified search without per-project deployment. Source of truth stays in each project repo.
+- **Cons:** Aggregation layer is bespoke infrastructure that does not exist and would need to be built. Fumadocs is not designed for this pattern natively. Debugging content discovery issues requires understanding both the source project and the aggregator. Delays the benefit of having any documentation site live until the aggregator is complete.
+
+## Decision
+
+**Option B** — per-project Fumadocs with an `apps/docs/` Next.js app and `docs/` content directory at the repo root.
+
+The pattern is proven by roxabi_boilerplate and requires no new infrastructure. Each project is autonomous: it can publish its docs site on its own schedule without waiting for other projects. The Fumadocs constraint is satisfied directly. The `/init` skill scaffolding (Phase 7b) targets exactly this layout, so adoption is a single command for any project that sets `docs.framework: fumadocs` in `stack.yml`.
+
+The layout for each project is:
+
+```
+{project-root}/
+├── apps/
+│   └── docs/                     # Next.js Fumadocs app
+│       ├── app/
+│       │   ├── layout.tsx
+│       │   ├── page.tsx           # redirects to /docs
+│       │   └── docs/
+│       │       ├── layout.tsx     # DocsLayout
+│       │       └── [[...slug]]/
+│       │           └── page.tsx
+│       ├── src/lib/source.ts
+│       ├── source.config.ts       # points to ../../docs
+│       ├── next.config.ts
+│       └── package.json
+└── docs/
+    ├── index.mdx
+    └── meta.json
+```
+
+## Consequences
+
+### Positive
+
+- Pattern is proven and deployed in roxabi_boilerplate — no experimental risk.
+- Each project deploys its documentation independently; a broken site in one project does not affect others.
+- Content in `docs/` is co-located with the codebase and accessible to dev-core agents without any special configuration.
+- The `/init` skill can scaffold this layout automatically for any project that adopts `docs.framework: fumadocs` in `stack.yml`.
+- No cross-project coordination overhead; teams ship documentation at their own pace.
+
+### Negative
+
+- No unified full-text search across all Roxabi projects. Users must visit each project's documentation site independently.
+- N projects = N deployments to configure and maintain (Vercel project per docs site).
+
+### Neutral
+
+- Option C (hybrid aggregation) remains viable if cross-project discovery becomes important as the number of projects grows. Adopting Option B now does not close that path — per-project `docs/` directories are the correct source format for an aggregator.
+
+### Non-Monorepo Projects
+
+The `apps/docs/` path presupposes a monorepo with an `apps/` workspace directory. Flat-layout repositories (e.g., single-package repos) will also adopt the `apps/docs/` convention — this is intentional. The `apps/` directory is created as part of the scaffold regardless of whether the repo uses a workspace. This makes the layout universal across all Roxabi projects, trading some visual idiosyncrasy in flat repos for a consistent convention everywhere.
+
+Projects that strongly prefer a different layout can override the docs app path by passing `--app-path` to the `/init` scaffold command (to be implemented in a future iteration).
+
+## Migration Notes
+
+Existing projects can adopt this strategy by:
+
+1. Setting `docs.framework: fumadocs` in `.claude/stack.yml`.
+2. Running `/init` — Phase 7b scaffolds `apps/docs/` and the root `docs/` directory automatically.
+3. Moving any existing markdown documentation into `docs/` and converting to MDX.
+4. Adding a Vercel project pointing to `apps/docs/` for deployment.
+
+Projects that already have a `docs/` directory (e.g. roxabi-plugins) only need the `apps/docs/` Next.js app scaffolded. The `/init` skill uses an additive-only, skip-and-warn rule — existing files are never overwritten.

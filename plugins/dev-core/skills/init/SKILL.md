@@ -358,7 +358,7 @@ Scaffold standard documentation directories and minimal template files.
 
 1. Read `docs.path` and `docs.format` from `.claude/stack.yml` (defaults: `docs`, `md`).
 2. Check if `{docs.path}/standards/` already exists.
-   - exists → display `Docs scaffolding ✅ Already present`, skip.
+   - exists → display `Docs scaffolding ✅ Already present`, skip steps 3–5.
 3. AskUserQuestion: **Scaffold standard docs structure** (architecture/, standards/, guides/ with template files) | **Skip**.
 4. yes:
    ```bash
@@ -366,6 +366,20 @@ Scaffold standard documentation directories and minimal template files.
    ```
 5. Display created dirs and files from JSON result. Format:
    - `Docs scaffolding ✅ Created {filesCreated.length} files in {docsPath}/`
+
+6. If `docs.framework: fumadocs` in `.claude/stack.yml` (always runs, even if steps 3–5 were skipped):
+   AskUserQuestion: **Scaffold Fumadocs app** (`apps/docs/` + `docs/` monorepo split matching roxabi_boilerplate) | **Skip**
+   If yes:
+   ```bash
+   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-fumadocs --root <project-root>
+   ```
+   Display result: `Fumadocs scaffold ✅ Created {filesCreated.length} files` (or list skipped files with warnings if any).
+   After scaffold completes:
+   ```bash
+   cd apps/docs && bun install
+   ```
+   Display: `Fumadocs deps ✅ Installed`
+   (If `bun install` fails, display: `Fumadocs deps ⚠️ Install failed — run \`bun install\` in apps/docs/ manually`)
 
 ## Phase 8 — VS Code MDX Preview (Optional)
 
@@ -659,6 +673,7 @@ dev-core initialized
   stack.yml         ✅ Configured / ✅ Already exists / ⏭ Skipped
   Marketplace       ✅ N plugins installed (name, name, ...) / ⏭ Skipped
   VS Code MDX preview   ✅ Added / ✅ Already configured / ⏭ Skipped / ⏭ No .mdx files found
+  Fumadocs scaffold ✅ Created N files + deps installed | ⚠️ Created N files — run `bun install` in apps/docs/ | ⏭ Skipped
   CI/CD workflows   ✅ Created / ✅ Already configured / ⏭ Skipped
   TruffleHog        ✅ Secret scanning configured / ⏭ Skipped
   Dependabot        ✅ .github/dependabot.yml created / ⏭ Skipped
