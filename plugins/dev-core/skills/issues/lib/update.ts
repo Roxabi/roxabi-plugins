@@ -1,7 +1,12 @@
-import { FIELD_MAP, isProjectConfigured, NOT_CONFIGURED_MSG, resolveFieldIds } from '../../shared/config'
-import { getItemId, updateField } from '../../shared/github'
-import type { ProjectFieldIds } from '../../shared/workspace'
-import { readWorkspace } from '../../shared/workspace'
+import {
+  FIELD_MAP,
+  isProjectConfigured,
+  NOT_CONFIGURED_MSG,
+  resolveFieldIds,
+} from '../../shared/adapters/config-helpers'
+import { getItemId, updateField } from '../../shared/adapters/github-adapter'
+import { readWorkspace } from '../../shared/adapters/workspace-helpers'
+import type { ProjectFieldIds } from '../../shared/domain/types'
 
 // Map legacy field names (from browser context menu) to slot names
 const FIELD_ALIAS: Record<string, string> = { size: 'col2', priority: 'col3' }

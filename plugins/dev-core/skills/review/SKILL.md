@@ -3,7 +3,7 @@ name: review
 argument-hint: [#PR]
 description: Multi-domain code review (agents + Conventional Comments → findings + verdict). Triggers: "review changes" | "review PR #42" | "code review" | "check my code".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill
+allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill, ToolSearch, AskUserQuestion
 ---
 
 # Code Review
@@ -176,7 +176,7 @@ correctness | security | performance | architecture | tests | readability | obse
 ## Phase 8 — Next Step
 
 AskUserQuestion:
-- **Fix now (`/fix`)** — invoke `/fix` skill to auto-apply + 1b1 + spawn fixers
+- **Fix now (`/fix`)** — invoke `/fix` skill to auto-apply + 1b1 + spawn fixers (`/fix` Phase 8 offers rebase + label + merge)
 - **Merge as-is** — rebase + label + squash merge (see below)
 - **Stop** — exit (findings posted to PR, no further action)
 

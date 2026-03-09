@@ -1,4 +1,4 @@
-import type { WorkspaceProject } from '../../shared/workspace'
+import type { WorkspaceProject } from '../../shared/ports/workspace'
 import {
   branchCIRows,
   escHtml,
@@ -10,6 +10,7 @@ import {
   renderPRs,
   renderVercelDeployments,
   renderWorkflowRuns,
+  roadmapRow,
   SIZE_VALUES,
   STATUS_VALUES,
   vercelCards,
@@ -79,10 +80,13 @@ function splitIssueRows(issues: Issue[], showProject = false) {
   }
 }
 
-function buildTabBar(projects: WorkspaceProject[], activeTab: string): string {
+function buildTabBar(projects: WorkspaceProject[], activeTab: string, hasRoadmap = false): string {
+  const roadmapTab = hasRoadmap
+    ? `<button class="tab${activeTab === 'Roadmap' ? ' active' : ''}" onclick="switchTab('Roadmap')">Roadmap</button>`
+    : ''
   const allTab = `<button class="tab${activeTab === 'All' ? ' active' : ''}" onclick="switchTab('All')">All</button>`
   const projectTabs = projects.map((p) => buildProjectTab(p.label, p.repo, activeTab)).join('\n')
-  return `<div class="tab-bar" id="tab-bar">${allTab}\n${projectTabs}\n${buildAddButton()}</div>`
+  return `<div class="tab-bar" id="tab-bar">${roadmapTab}\n${allTab}\n${projectTabs}\n${buildAddButton()}</div>`
 }
 
 function buildProjectTab(label: string, repo: string, activeTab: string): string {
@@ -93,50 +97,24 @@ function buildAddButton(): string {
   return `<button class="tab add-btn" onclick="openAddDialog()" title="Add project">+</button>`
 }
 
-type ProjectMeta = { prs: PR[]; branchCI: BranchCI[]; workflowRuns: WorkflowRun[]; deployments: VercelDeployment[] }
+type ProjectMeta = {
+  prs: PR[]
+  branchCI: BranchCI[]
+  workflowRuns: WorkflowRun[]
+  deployments: VercelDeployment[]
+  branches: Branch[]
+  worktrees: Worktree[]
+}
 
 function buildAllView(byProject: Map<string, Issue[]>, workspaceProjects?: WorkspaceProject[]): string {
   if (byProject.size === 0) {
     return '<div class="empty-state">No projects registered — click + to add one</div>'
   }
 
-  // 1. Flat all-issues table (shown on "All" tab)
-  const allIssues: Issue[] = []
-  for (const [label, issues] of byProject) {
-    for (const issue of issues) {
-      allIssues.push({ ...issue, projectLabel: label })
-    }
-  }
-  const priorityOrder: Record<string, number> = {
-    'P0 - Urgent': 0,
-    'P1 - High': 1,
-    'P2 - Medium': 2,
-    'P3 - Low': 3,
-    '-': 99,
-  }
-  const sizeOrder: Record<string, number> = {
-    XL: 0,
-    L: 1,
-    M: 2,
-    S: 3,
-    XS: 4,
-    '-': 99,
-  }
-  allIssues.sort((a, b) => {
-    const aParent = a.children.length > 0 ? 0 : 1
-    const bParent = b.children.length > 0 ? 0 : 1
-    if (aParent !== bParent) return aParent - bParent
-    const pd = (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99)
-    if (pd !== 0) return pd
-    return (sizeOrder[a.size] ?? 99) - (sizeOrder[b.size] ?? 99)
-  })
-  const allTableHtml =
-    allIssues.length === 0
-      ? '<p class="no-issues">No open issues</p>'
-      : buildAllIssueTable(allIssues, workspaceProjects)
-  const allViewHtml = `<div data-project="All">${allTableHtml}</div>`
+  // "All" tab: no issues (user navigates per-project tabs for issues)
+  const allViewHtml = '<div data-project="All"></div>'
 
-  // 2. Per-project tables (shown when that project's tab is active)
+  // Per-project tables (shown when that project's tab is active)
   const projectViews = [...byProject.entries()]
     .map(([label, issues]) => {
       const project = workspaceProjects?.find((p) => p.label === label)
@@ -157,67 +135,7 @@ function buildAllView(byProject: Map<string, Issue[]>, workspaceProjects?: Works
     })
     .join('\n')
 
-  return allViewHtml + '\n' + projectViews
-}
-
-function buildAllIssueTable(issues: Issue[], workspaceProjects?: WorkspaceProject[]): string {
-  const { visibleRows, hiddenRows, hasMore, hiddenCount } = splitIssueRows(issues, true)
-  const mergedSections = buildMergedFieldSections(workspaceProjects)
-  const mergedAttr = escHtml(JSON.stringify(mergedSections))
-
-  return `<table data-field-sections="${mergedAttr}" class="all-issues-table">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Title</th>
-        <th>Project</th>
-        <th>Status</th>
-        <th>\ud83d\udccf Size</th>
-        <th>\ud83d\udd25 Pri</th>
-        <th>&#9889;</th>
-        <th>Deps</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${visibleRows}
-      ${
-        hasMore
-          ? `<tr class="show-more-row"><td colspan="8" style="text-align:center;padding:12px;">
-        <button class="show-more-btn" onclick="var tb=this.closest('table').querySelector('.hidden-issues-body');tb.style.display='';this.parentElement.parentElement.style.display='none';">
-          Show ${hiddenCount} more issue${hiddenCount > 1 ? 's' : ''}
-        </button>
-      </td></tr>`
-          : ''
-      }
-    </tbody>
-    <tbody class="hidden-issues-body" style="display:none;">
-      ${hiddenRows}
-      <tr class="show-less-row"><td colspan="8" style="text-align:center;padding:12px;">
-        <button class="show-more-btn" onclick="var tbl=this.closest('table');tbl.querySelector('.hidden-issues-body').style.display='none';tbl.querySelector('.show-more-row').style.display='';">
-          Show less
-        </button>
-      </td></tr>
-    </tbody>
-  </table>`
-}
-
-/** Merge field sections from all workspace projects for the All tab context menu. */
-function buildMergedFieldSections(workspaceProjects?: WorkspaceProject[]) {
-  const statusOpts = new Set<string>([...STATUS_VALUES])
-  const col2Opts = new Set<string>([...SIZE_VALUES])
-  const col3Opts = new Set<string>([...PRIORITY_VALUES])
-  if (workspaceProjects) {
-    for (const p of workspaceProjects) {
-      if (p.fieldIds?.statusOptions) for (const k of Object.keys(p.fieldIds.statusOptions)) statusOpts.add(k)
-      if (p.fieldIds?.col2Options) for (const k of Object.keys(p.fieldIds.col2Options)) col2Opts.add(k)
-      if (p.fieldIds?.col3Options) for (const k of Object.keys(p.fieldIds.col3Options)) col3Opts.add(k)
-    }
-  }
-  return [
-    { label: 'Status', field: 'status', options: [...statusOpts] },
-    { label: 'Size', field: 'col2', options: [...col2Opts] },
-    { label: 'Pri', field: 'col3', options: [...col3Opts] },
-  ]
+  return `${allViewHtml}\n${projectViews}`
 }
 
 function buildIssueTable(issues: Issue[], project?: WorkspaceProject): string {
@@ -290,6 +208,25 @@ async function removeProject(repo) {
 </script>`
 }
 
+function buildRoadmapView(items: Issue[]): string {
+  if (items.length === 0) {
+    return '<div class="empty-state">No roadmap items yet</div>'
+  }
+  const rows = items.map((i) => roadmapRow(i)).join('')
+  return `<table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Title</th>
+        <th>Repo</th>
+        <th>Status</th>
+        <th>Priority</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`
+}
+
 export function buildHtml(
   issues: Issue[],
   prs: PR[],
@@ -303,6 +240,9 @@ export function buildHtml(
   byProject?: Map<string, Issue[]>,
   workspaceProjects?: WorkspaceProject[],
   byProjectMeta?: Map<string, ProjectMeta>,
+  roadmapItems?: Issue[],
+  roadmapProject?: { label: string; projectId: string },
+  truncatedProjects?: string[],
 ): string {
   const isMultiProject = byProject !== undefined && byProject.size > 0
   const allIssues = isMultiProject && byProject ? [...byProject.values()].flat() : issues
@@ -311,7 +251,22 @@ export function buildHtml(
   const { visibleRows, hiddenRows, hasMore, hiddenCount } = splitIssueRows(issues)
   const depNodes = isMultiProject ? [] : buildDepGraph(allIssues)
   const depGraphHtml = isMultiProject ? '' : renderDepGraph(depNodes, allIssues)
-  const branchesHtml = renderBranchesAndWorktrees(branches, worktrees)
+  const branchesHtml =
+    isMultiProject && byProjectMeta
+      ? (() => {
+          const groups = [...byProjectMeta.entries()]
+            .filter(([, m]) => {
+              const featureBranches = m.branches.filter((b) => b.name !== 'main' && b.name !== 'master')
+              return featureBranches.length > 0 || m.worktrees.length > 1
+            })
+            .map(
+              ([l, m]) =>
+                `<div data-project="${escHtml(l)}"><div class="project-sep-inline">${escHtml(l)}</div>${renderBranchesAndWorktrees(m.branches, m.worktrees)}</div>`,
+            )
+            .join('')
+          return groups || '<p class="empty-state">No feature branches</p>'
+        })()
+      : renderBranchesAndWorktrees(branches, worktrees)
 
   // In multi-project mode, build combined sections with per-project [data-project] groups
   // so switchTab can show/hide across ALL sections uniformly.
@@ -392,13 +347,22 @@ export function buildHtml(
   const showCISection = isMultiProject ? !!ciHtml : shouldShowCI(branchCI)
   const showPRs = isMultiProject ? !!prsHtml : prs.length > 0
 
+  const hasRoadmap = roadmapItems !== undefined
+  const defaultTab = hasRoadmap ? 'Roadmap' : 'All'
   const tabBarHtml =
     isMultiProject && byProject
       ? buildTabBar(
           workspaceProjects ?? [...byProject.keys()].map((label) => ({ label, repo: label, projectId: '' })),
-          'All',
+          defaultTab,
+          hasRoadmap,
         )
       : ''
+  const roadmapHtml = hasRoadmap
+    ? `<div id="section-roadmap" class="section">
+      <h2>Roadmap</h2>
+      ${buildRoadmapView(roadmapItems ?? [])}
+    </div>`
+    : ''
 
   const issuesSectionHtml =
     isMultiProject && byProject
@@ -450,7 +414,19 @@ ${PAGE_STYLES}
 ${LIVE_STYLES}
 </style>
 </head>
-<body data-updated-at="${updatedAt}">
+<body data-updated-at="${updatedAt}" data-ws-projects="${escHtml(
+    JSON.stringify([
+      ...(workspaceProjects ?? []).map((p) => ({
+        label: p.label,
+        repo: p.repo,
+        projectId: p.projectId,
+        isRoadmap: p.type === 'company',
+      })),
+      ...(roadmapProject
+        ? [{ label: roadmapProject.label, repo: '', projectId: roadmapProject.projectId, isRoadmap: true }]
+        : []),
+    ]),
+  )}">
   <header>
     <h1>Issues Dashboard</h1>
     <span id="issue-count" class="count">${totalCount} issues</span>
@@ -461,28 +437,36 @@ ${LIVE_STYLES}
     </span>
   </header>
 
+  ${
+    truncatedProjects && truncatedProjects.length > 0
+      ? `<div class="truncation-warning">⚠️ Some issues may not be displayed — projects exceeding 100 items are truncated: <strong>${truncatedProjects.map(escHtml).join(', ')}</strong></div>`
+      : ''
+  }
+
   ${tabBarHtml}
 
-  <div id="section-vercel">${vercelHtml}</div>
+  ${roadmapHtml}
 
-  <div id="section-workflow-runs">${wrHtml}</div>
+  <div id="section-vercel"${hasRoadmap ? ' style="display:none;"' : ''}>${vercelHtml}</div>
 
-  <div id="section-ci">${showCISection ? `<div class="section"><h2>CI Status</h2>${ciHtml}</div>` : ''}</div>
+  <div id="section-workflow-runs"${hasRoadmap ? ' style="display:none;"' : ''}>${wrHtml}</div>
 
-  <div id="section-prs">${showPRs ? `<div class="section"><h2>Pull Requests</h2>${prsHtml}</div>` : ''}</div>
+  <div id="section-ci"${hasRoadmap ? ' style="display:none;"' : ''}>${showCISection ? `<div class="section"><h2>CI Status</h2>${ciHtml}</div>` : ''}</div>
 
-  <div id="section-issues" class="section">
+  <div id="section-prs"${hasRoadmap ? ' style="display:none;"' : ''}>${showPRs ? `<div class="section"><h2>Pull Requests</h2>${prsHtml}</div>` : ''}</div>
+
+  <div id="section-issues" class="section"${isMultiProject || hasRoadmap ? ' style="display:none;"' : ''}>
     <h2>Issues</h2>
     <div id="section-issues-content">${issuesSectionHtml}</div>
   </div>
 
-  <div class="legend">
+  <div class="legend"${isMultiProject ? ' style="display:none;"' : ''}>
     <span>\u26d4 blocked</span>
     <span>\ud83d\udd13 blocking</span>
     <span>\u2705 ready</span>
   </div>
 
-  <div id="section-graph">${
+  <div id="section-graph"${isMultiProject ? ' style="display:none;"' : ''}>${
     isMultiProject
       ? ''
       : `<div class="section">
@@ -491,7 +475,7 @@ ${LIVE_STYLES}
   </div>`
   }</div>
 
-  <div id="section-branches" class="section">
+  <div id="section-branches" class="section"${hasRoadmap ? ' style="display:none;"' : ''}>
     <h2>Branches &amp; Worktrees</h2>
     ${branchesHtml}
   </div>
@@ -506,34 +490,67 @@ ${LIVE_STYLES}
   <div id="toast" class="toast"></div>
 
   <script>
+  window.__wsProjects = JSON.parse(document.body.dataset.wsProjects || '[]');
   function switchTab(label) {
     document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
     document.querySelectorAll('.tab[data-repo]').forEach(function(t) {
       if (t.dataset.repo === label) t.classList.add('active');
     });
-    if (label === 'All') {
+    if (label === 'All' || label === 'Roadmap') {
       document.querySelectorAll('.tab:not([data-repo]):not(.add-btn)').forEach(function(t) {
-        if (t.textContent.trim() === 'All') t.classList.add('active');
+        if (t.textContent.trim() === label) t.classList.add('active');
       });
     }
 
-    // Issues section: show All view or per-project view
+    var roadmapSec = document.getElementById('section-roadmap');
+    var issuesSec = document.getElementById('section-issues');
+    var legendSec = document.querySelector('.legend');
+    var graphSec = document.getElementById('section-graph');
+
+    // Roadmap tab: show roadmap, hide everything else
+    if (label === 'Roadmap') {
+      if (roadmapSec) roadmapSec.style.display = '';
+      if (issuesSec) issuesSec.style.display = 'none';
+      if (legendSec) legendSec.style.display = 'none';
+      if (graphSec) graphSec.style.display = 'none';
+      ['section-vercel', 'section-workflow-runs', 'section-ci', 'section-prs', 'section-branches'].forEach(function(id) {
+        var sec = document.getElementById(id);
+        if (sec) sec.style.display = 'none';
+      });
+      return;
+    }
+
+    // Non-roadmap tabs: hide roadmap
+    if (roadmapSec) roadmapSec.style.display = 'none';
+
+    // Issues section: hide on All tab (no issues), show per-project view on project tabs
+    if (label === 'All') {
+      if (issuesSec) issuesSec.style.display = 'none';
+      if (legendSec) legendSec.style.display = 'none';
+      if (graphSec) graphSec.style.display = 'none';
+    } else {
+      if (issuesSec) issuesSec.style.display = '';
+      if (legendSec) legendSec.style.display = '';
+      if (graphSec) graphSec.style.display = '';
+    }
     document.querySelectorAll('#section-issues-content > [data-project]').forEach(function(el) {
       el.style.display = (label === 'All' ? el.dataset.project === 'All' : el.dataset.project === label) ? '' : 'none';
     });
 
-    // Other sections with [data-project] groups (CI, PRs, Vercel, workflow runs)
+    // Other sections with [data-project] groups (CI, PRs, Vercel, workflow runs, branches)
+    var tabSections = '#section-ci [data-project], #section-prs [data-project], #section-vercel [data-project], #section-workflow-runs [data-project], #section-branches [data-project]';
+    var tabSectionIds = ['section-ci', 'section-prs', 'section-vercel', 'section-workflow-runs'];
     if (label === 'All') {
-      document.querySelectorAll('#section-ci [data-project], #section-prs [data-project], #section-vercel [data-project], #section-workflow-runs [data-project]').forEach(function(el) { el.style.display = ''; });
-      ['section-ci', 'section-prs', 'section-vercel', 'section-workflow-runs'].forEach(function(id) {
+      document.querySelectorAll(tabSections).forEach(function(el) { el.style.display = ''; });
+      tabSectionIds.forEach(function(id) {
         var sec = document.getElementById(id);
         if (sec) sec.style.display = '';
       });
     } else {
-      document.querySelectorAll('#section-ci [data-project], #section-prs [data-project], #section-vercel [data-project], #section-workflow-runs [data-project]').forEach(function(el) {
+      document.querySelectorAll(tabSections).forEach(function(el) {
         el.style.display = el.dataset.project === label ? '' : 'none';
       });
-      ['section-ci', 'section-prs', 'section-vercel', 'section-workflow-runs'].forEach(function(id) {
+      tabSectionIds.forEach(function(id) {
         var sec = document.getElementById(id);
         if (!sec) return;
         var projEls = sec.querySelectorAll('[data-project]');
@@ -542,6 +559,10 @@ ${LIVE_STYLES}
         sec.style.display = hasVisible ? '' : 'none';
       });
     }
+
+    // Restore branches and dev sections visibility for non-Roadmap tabs
+    var branchesSec = document.getElementById('section-branches');
+    if (branchesSec) branchesSec.style.display = '';
 
     // Show-more / collapse state
     if (label === 'All') {
@@ -590,6 +611,8 @@ ${LIVE_STYLES}
         col2: row.dataset.size,
         col3: row.dataset.priority,
         projectLabel: row.dataset.projectLabel || (row.closest('table') ? row.closest('table').dataset.projectLabel : null),
+        inProjects: row.dataset.inProjects || '',
+        repo: row.dataset.repo || '',
       };
       ctxNum.textContent = ctxIssue.number;
 
@@ -613,6 +636,20 @@ ${LIVE_STYLES}
             v.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</div>';
         });
       });
+      // Projects section — add to / remove from any workspace project
+      var allProjects = window.__wsProjects || [];
+      if (allProjects.length > 0) {
+        var inProjectsList = (ctxIssue.inProjects || '').split(',').filter(Boolean);
+        html += '<div class="ctx-section">Projects</div>';
+        allProjects.forEach(function(p) {
+          var isIn = inProjectsList.indexOf(p.label) !== -1;
+          html += '<div class="ctx-item ctx-project-item' + (isIn ? ' active' : '') + '"' +
+            ' data-action="' + (isIn ? 'remove' : 'add') + '"' +
+            ' data-proj-label="' + p.label.replace(/&/g,'&amp;').replace(/"/g,'&quot;') + '">' +
+            p.label.replace(/&/g,'&amp;').replace(/</g,'&lt;') +
+            '</div>';
+        });
+      }
       ctxBody.innerHTML = html;
 
       ctxMenu.style.left = e.clientX + 'px';
@@ -631,6 +668,31 @@ ${LIVE_STYLES}
       var item = e.target.closest('.ctx-item');
       if (!item || !ctxIssue) return;
       e.stopPropagation();
+
+      // Handle add/remove from project
+      if (item.classList.contains('ctx-project-item')) {
+        var action = item.dataset.action;
+        var projLabel = item.dataset.projLabel;
+        item.classList.add('loading');
+        fetch('/api/project-item', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ issueNumber: Number(ctxIssue.number), projectLabel: projLabel, action: action, issueRepo: ctxIssue.repo }),
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.ok) showToast('#' + ctxIssue.number + (action === 'add' ? ' added to ' : ' removed from ') + projLabel);
+          else showToast('Error: ' + data.error, true);
+          item.classList.remove('loading');
+        })
+        .catch(function(err) {
+          showToast('Failed: ' + err.message, true);
+          item.classList.remove('loading');
+        });
+        ctxMenu.classList.remove('visible');
+        return;
+      }
+
       if (item.classList.contains('active')) { ctxMenu.classList.remove('visible'); return; }
 
       var field = item.dataset.field;
@@ -708,6 +770,13 @@ ${LIVE_STYLES}
       // Capture active tab label (multi-project mode)
       var activeTabEl = document.querySelector('.tab.active[data-repo]');
       var activeTabLabel = activeTabEl ? activeTabEl.dataset.repo : null;
+      if (!activeTabLabel) {
+        var genericActive = document.querySelector('.tab.active');
+        if (genericActive) {
+          var txt = genericActive.textContent.trim();
+          if (txt === 'Roadmap' || txt === 'All') activeTabLabel = txt;
+        }
+      }
 
       // Preserve show/hide state of hidden issues (single-project mode only)
       var hiddenEl = document.getElementById('hidden-issues');
@@ -720,7 +789,7 @@ ${LIVE_STYLES}
       });
 
       // Patch sections
-      var selectors = ['#tab-bar', '#section-issues-content', '#section-vercel', '#section-workflow-runs', '#section-ci', '#section-prs', '#section-graph', '#section-branches', '#issue-count', '#fetch-time'];
+      var selectors = ['#tab-bar', '#section-roadmap', '#section-issues-content', '#section-vercel', '#section-workflow-runs', '#section-ci', '#section-prs', '#section-graph', '#section-branches', '#issue-count', '#fetch-time'];
       for (var s = 0; s < selectors.length; s++) {
         var sel = selectors[s];
         var freshEl = freshDoc.querySelector(sel);
@@ -756,6 +825,12 @@ ${LIVE_STYLES}
       var newUpdatedAt = freshDoc.body.dataset.updatedAt;
       if (newUpdatedAt) updatedAt = Number(newUpdatedAt);
       updateRelativeTime();
+
+      // Refresh workspace projects for context menu
+      var newWsProjects = freshDoc.body.dataset.wsProjects;
+      if (newWsProjects) { try { window.__wsProjects = JSON.parse(newWsProjects); } catch {} }
+
+      updateMultiProjectBadges();
     }
 
     function connectSSE() {
@@ -801,6 +876,30 @@ ${LIVE_STYLES}
     }
 
     connectSSE();
+
+    // -----------------------------------------------------------------------
+    // Multi-project badge: show "×N" on issues belonging to >1 non-roadmap project
+    // -----------------------------------------------------------------------
+    function updateMultiProjectBadges() {
+      var allProjects = window.__wsProjects || [];
+      var roadmapLabels = allProjects.filter(function(p) { return p.isRoadmap; }).map(function(p) { return p.label; });
+      document.querySelectorAll('.issue-row[data-in-projects]').forEach(function(row) {
+        var inProjects = row.dataset.inProjects.split(',').filter(Boolean);
+        var nonRoadmap = inProjects.filter(function(l) { return roadmapLabels.indexOf(l) === -1; });
+        var numCell = row.querySelector('.col-num');
+        if (!numCell) return;
+        var existing = numCell.querySelector('.multi-proj-badge');
+        if (existing) existing.remove();
+        if (nonRoadmap.length > 1) {
+          var badge = document.createElement('span');
+          badge.className = 'multi-proj-badge';
+          badge.title = nonRoadmap.join(', ');
+          badge.textContent = '\u00d7' + nonRoadmap.length;
+          numCell.appendChild(badge);
+        }
+      });
+    }
+    updateMultiProjectBadges();
   })();
   </script>
 

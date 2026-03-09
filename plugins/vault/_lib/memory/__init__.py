@@ -1,6 +1,5 @@
-"""Roxabi vault memory — SQLite+FTS5 storage layer."""
+"""Roxabi vault memory — FTS5 helpers for migration/rebuild."""
 
-from .db import VaultDB
 from .fts import index_entry, search_entries, remove_entry
 
-__all__ = ['VaultDB', 'index_entry', 'search_entries', 'remove_entry']
+__all__ = ['index_entry', 'search_entries', 'remove_entry']

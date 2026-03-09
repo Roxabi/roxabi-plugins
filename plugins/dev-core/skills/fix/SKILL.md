@@ -1,16 +1,16 @@
 ---
 name: fix
 argument-hint: '[#PR]'
-description: Apply review findings — auto-apply high-confidence, 1b1 for rest, spawn fixers. Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these".
-version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill
+description: 'Apply review findings — auto-apply high-confidence, 1b1 for rest, then batch-apply. Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these".'
+version: 0.4.0
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill, ToolSearch, AskUserQuestion
 ---
 
 # Fix
 
-Apply review findings from a PR or conversation context — auto-apply high-confidence findings, walk through the rest 1b1, spawn fixer agents for accepted findings, then commit.
+Two-pass fix pipeline: auto-apply high-confidence findings (C≥80, 2+ agents), then 1b1 walkthrough for the rest with a single focused question per finding.
 
-**⚠ Flow: single continuous pipeline. ¬stop between phases. AskUserQuestion response → immediately execute next phase. Stop only on: explicit Cancel, or pipeline completion.**
+**⚠ Continuous pipeline. ¬stop between phases. Stop only on: unrecoverable failure, or Phase 8 completion.**
 
 ```
 /fix        → findings from conversation context
@@ -20,18 +20,15 @@ Apply review findings from a PR or conversation context — auto-apply high-conf
 ## Definitions
 
 ```
-F         = set of all findings
-f ∈ F     = a single finding
-C(f)      ∈ [0,100] ∩ ℤ        — confidence score
-A(f)      = {agents that flagged f}
-cat(f)    ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
-src(f)    = originating agent
-Δ         = set of changed files
-actionable = {issue, suggestion, todo}
-T         = 80                   — auto-apply threshold
+F          = set of all findings
+f ∈ F      = a single finding
+C(f)       ∈ [0,100] ∩ ℤ        — confidence score
+A(f)       = {agents that flagged f}
+cat(f)     ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
+src(f)     = originating agent
+actionable = {issue, suggestion, todo, nitpick}
+T          = 80                   — auto-apply threshold
 ```
-
-Let: Q_a := Q_auto | Q_1 := Q_1b1 | acc := accepted findings
 
 ## Phase 1 — Gather Findings
 
@@ -41,157 +38,128 @@ Let: Q_a := Q_auto | Q_1 := Q_1b1 | acc := accepted findings
 4. ∀ f: parse into structured form: label, file:line, agent, root cause, solutions, C(f)
 5. Malformed finding (missing fields ∨ C ∉ ℤ ∩ [0,100]) → C(f) := 0
 
-## Phase 2 — Queue Split
+## Phase 2 — Triage + Verify
 
+**Split:**
 ```
-auto_apply(f) ⟺ C(f) ≥ T  ∧  cat(f) ∈ actionable  ∧  src(f) ≠ security-auditor
-Q_a = {f ∈ F | auto_apply(f)}
-Q_1 = F \ Q_a
-∀f: cat(f) ∈ {thought, question, praise} → f ∈ Q_1  (unconditional)
+Q_auto = {f ∈ F | cat(f) ∈ actionable ∧ C(f) ≥ T ∧ |A(f)| ≥ 2}
+Q_1b1  = {f ∈ F | cat(f) ∈ actionable ∧ f ∉ Q_auto}
+skipped = {f ∈ F | cat(f) = praise}
 ```
 
-## Phase 3 — Confidence-Gated Auto-Apply
-
-Runs before 1b1 — `[auto-applied]` markers reflect outcomes.
-
-**1.** Q_a = ∅ → skip to Phase 4.
-
-**2. Verify single-agent:** ∀ f ∈ Q_a ∧ |A(f)| = 1 → spawn fresh verifier (different domain from src(f)).
-- Verifier confirms (C_v ≥ T) → f stays in Q_a, |A(f)| := 2
-- Verifier rejects (C_v < T) → demote f → Q_1
+**Verify single-agent high-confidence:** ∀ f where cat(f) ∈ actionable ∧ C(f) ≥ T ∧ |A(f)| = 1:
+- Spawn fresh verifier agent (different domain from src(f))
+- Verifier confirms (C_v ≥ T) → f → Q_auto, |A(f)| := 2
+- Verifier rejects (C_v < T) → f → Q_1b1
 - Batch verifications ∥ (group by domain, 1 verifier/domain)
 
-**3. Large queue:** |Q_a| > 5 → AskUserQuestion: "Auto-apply all N?" / "Review via 1b1".
-- 1b1 → Q_1 ∪= Q_a; Q_a := ∅; skip to Phase 4.
+∀ f ∈ Q_auto: solution(f) := Solution 1 (recommended).
 
-**4. Dispatch strategy:**
-
+Display:
 ```
-|Q_a| ≤ 2  → orchestrator applies directly (inline, ¬spawn agent)
-|Q_a| ≥ 3  → spawn agent(s) per dispatch table below
+── Fix Plan ──
+Auto-apply: |Q_auto| finding(s) (C≥80, 2+ agents)
+1b1 review: |Q_1b1| finding(s)
+Skipped:    |skipped| (praise)
 ```
 
-**Agent dispatch (|Q_a| ≥ 3):**
+Q_auto = ∅ ∧ Q_1b1 = ∅ → inform ("No actionable findings"), halt.
 
-```
-simple(f) ⟺ mechanical fix (rename, remove unused, add import/type, one-liner)
-complex(f) ⟺ domain reasoning needed (logic change, multi-file, arch-adjacent, security)
-```
-Evaluate the fix, ¬the label — any category can be simple or complex.
+## Phase 3 — Auto-Apply (High Confidence)
 
-```
-simple(f) → fixer
-complex(f) → domain agent: FE→frontend-dev | BE→backend-dev | Infra→devops
-```
-Domains: FE = `{frontend.path}`, `{shared.ui}` | BE = `{backend.path}`, `{shared.types}` | Infra = `{shared.config}`, root, CI
+Q_auto = ∅ → skip to Phase 4.
 
-**Batching (cost efficiency):**
-- Min 3 findings per agent — ¬spawn for <3
-- <3 in a group → merge into nearest agent (prefer `fixer` as catch-all)
-- Mixed domains → 1 agent/domain (if ≥3 each), else consolidate into fewest agents respecting min 3
+Apply all inline (sequential, ¬spawn agents — already verified by 2+ agents):
 
-**5. Apply:**
-
-*Inline (|Q_a| ≤ 2):* ∀ f ∈ Q_a (sequential):
+∀ f ∈ Q_auto:
+- Apply recommended solution directly
 - succeeds → `[applied]`
-- fails (test / lint / timeout / crash) → stash restore → demote f + remaining → Q_1 + note → **halt serial apply**
-- Prior fixes ¬rolled back
+- fails → stash restore, mark `[failed]`, demote to Q_1b1
 
-*Agent (|Q_a| ≥ 3):* Spawn per dispatch. Payload = findings in scope + diff context + "fix each finding; re-read files before editing; run lint + tests after each fix."
-- succeeds → `[applied]` per finding | fails on f → `[failed -> 1b1]`, demote to Q_1
-- Agent constraints: re-read; CI fail → retry max 3; escalate if stuck
-
-**6. Summary:**
+**Summary:**
 ```
--- Auto-Applied Fixes (C ≥ 80%, verified) --
-Applied N finding(s) [inline | via fixer | via frontend-dev | ...]:
+── Auto-Apply Results ──
   1. [applied] issue(blocking): SQL injection in users.service.ts:42 (92%)
-  2. [failed -> 1b1] nitpick: Unused import in dashboard.tsx:3 (85%) -- test failure
-Remaining M finding(s) → 1b1.
+  2. [failed → 1b1] nitpick: Unused import in dashboard.tsx:3 (85%) -- test failure
+Applied: N | Failed → 1b1: M
 ```
 
-**→ immediately continue to Phase 4 (¬stop).**
+## Phase 4 — Push Auto-Applied Changes
 
-## Phase 4 — Finding Walkthrough
+∃ applied changes → validate + commit + push:
+1. Run `{commands.lint} && {commands.test}` — quality gate
+   - Fail → auto-fix + retry (max 3); still failing → halt
+2. Stage specific files only (¬`git add -A`)
+3. Commit: `fix(<scope>): auto-apply N review findings` + list in body
+4. `git push`
 
-Q_1 = ∅ → skip to Phase 5.
+¬∃ applied changes → skip.
 
-|Q_a| > 0 → display before first item:
+## Phase 5 — 1b1 Walkthrough
+
+Q_1b1 = ∅ → skip to Phase 7.
+
+∀ f ∈ Q_1b1, sequentially (excluding praise):
+
+**Present:**
 ```
-Note: N finding(s) were auto-applied in Phase 3.
-Run `git diff` to review the auto-applied changes.
-```
+── Finding {i}/{|Q_1b1|}: {cat(f)} ──
+{cat} — C(f)% — {src(f)}
+  {file}:{line}
 
-∀ f ∈ Q_1, sequentially:
+Root cause: {root cause}
 
-**4a. Brief** — present enriched finding:
-```
-── Finding {N}/{|Q_1|}: {label} ──
-
-<label> -- estimated confidence: C(f)% -- <src(f)>
-  <file>:<line>
-
-Root cause: <root cause>
-
-Solutions:
-  1. <primary> (recommended)
-  2. <alternative>
-  3. <alternative> [if ∃]
-
-Recommended: Solution 1 -- <rationale>
+Recommended: Solution 1 — {rationale}
+Alternative: Solution 2 — {rationale}
 ```
 
-f demoted from auto-apply (failed) → prepend: `Auto-apply attempted but failed: <reason>`
+f demoted from auto-apply → prepend: `Auto-apply failed: {reason}`
 
-**4b. Decision** — AskUserQuestion: **Fix now** | **Reject** (invalid, discard) | **Skip** | **Defer** (valid, not urgent)
+**AskUserQuestion** (single question per finding):
+- **Solution 1** (recommended)
+- **Solution 2**
+- **Defer** — create GitHub issue for later
+- **Skip**
 
-**4c. Solution choice (Fix now only)** — AskUserQuestion with available solutions:
-- **Solution 1 (recommended):** <description>
-- **Solution 2:** <description>
-- **Solution 3:** <description> [if ∃]
+Defer → `gh issue create --title "{cat}: {summary}" --body "{details}"` immediately.
 
-Store chosen solution with f for Phase 5 payload.
-
-**4d. Summary:**
+**Walkthrough summary:**
 ```
 ── Walkthrough Complete ──
-Accepted: N | Rejected: N | Skipped: N | Deferred: N
+Accepted: N | Deferred (issues created): M | Skipped: K
 ```
 
-acc = {f ∈ Q_1 | decision(f) = accept}, each with chosen solution
+acc = {f ∈ Q_1b1 | decision(f) ∈ {solution1, solution2}}, each with chosen solution.
 
-## Phase 5 — Spawn Fixer Agents
+## Phase 6 — Apply 1b1 Decisions
 
-acc = ∅ → inform ("No findings accepted"), skip to Phase 6.
+acc = ∅ → skip to Phase 7.
 
+**Dispatch:**
 ```
-|acc| ≤ 2  → orchestrator applies directly (inline, ¬spawn agent)
-|acc| ≥ 3  → spawn agent(s) per dispatch below
+|acc| ≤ 2  → orchestrator applies directly (inline)
+|acc| ≥ 3  → spawn agent(s) per Phase 3 dispatch + batching rules
 ```
 
-Dispatch + batching rules identical to Phase 3:
-- `simple(f) → fixer` | `complex(f) → frontend-dev | backend-dev | devops`
-- Min 3/agent; <3 → merge into nearest (prefer `fixer`); ≥6 findings/domain across distinct modules → N agents (disjoint file groups), 1/module group; mixed domains → 1/domain if ≥3, else consolidate
-
-**Fixer payload per agent:** acc findings in scope + **chosen solution text from Phase 4c** + full diff context + "fix each finding using the chosen solution; re-read files before editing; run lint + tests after each fix." f demoted from auto-apply → include failure note.
+Payload = findings + **chosen solution text** + diff context + "fix using chosen solution; re-read files before editing; run lint + tests after each fix."
 
 Fixer constraints:
 - Re-read all target files before editing (Phase 3 edits may have changed them)
-- CI fail → respawn until green (max 3 attempts)
-- Cannot fix → escalate to lead, mark as unresolved
+- CI fail → retry max 3; mark `[failed]` if stuck
 
-## Phase 6 — Validate + Commit + Push
+## Phase 7 — Final Push + Approve
 
-1. Run `{commands.lint} && {commands.test}` — full quality gate across all applied changes
-   - Pass → continue
-   - Fail → display failure output; AskUserQuestion: **Retry** (attempt auto-fix) | **Continue anyway** | **Abort** (leave changes uncommitted)
-   - Retry → attempt inline fix of the reported error; re-run gate; max 2 retries; still failing → AskUserQuestion: Continue anyway | Abort
-2. Stage specific files only (¬`git add -A`)
-3. Commit per CLAUDE.md Rule 5; include list of applied findings in body
-4. AskUserQuestion: "Push now?" / "I'll push later"
-5. Push approved → `git push`
+1. ∃ changes from Phase 6 → validate + commit + push:
+   - Run `{commands.lint} && {commands.test}` — quality gate
+   - Fail → auto-fix + retry (max 3); still failing → halt
+   - Stage specific files only (¬`git add -A`)
+   - Commit: `fix(<scope>): apply N review findings from 1b1` + list in body
+   - `git push`
 
-## Phase 7 — Post Follow-Up Comment
+2. ∃ PR → label as reviewed:
+   - `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"`
+
+## Phase 8 — Post Follow-Up Comment
 
 ∄ PR → skip.
 
@@ -200,17 +168,23 @@ Fixer constraints:
 ```markdown
 ## Review Fixes Applied
 
-**Auto-applied (Phase 3):** N finding(s)
-**Accepted via 1b1:** M finding(s)
-**Rejected:** K finding(s)
-**Deferred:** J finding(s)
+**Auto-applied (C≥80, 2+ agents):** N finding(s)
+**Applied via 1b1:** M finding(s)
+**Deferred (issues created):** J finding(s)
+**Skipped:** K finding(s)
+**Failed:** L finding(s)
 
-### Applied
+### Auto-Applied
 - [applied] issue(blocking): SQL injection in users.service.ts:42 (92%)
-- [applied] suggestion: Missing error boundary in dashboard.tsx:15 (83%)
+
+### Applied (1b1)
+- [applied] suggestion: Missing error boundary in dashboard.tsx:15
 
 ### Deferred
-- nitpick: Variable naming in auth.service.ts:88 — noted for future cleanup
+- nitpick: Variable naming in auth.service.ts:88 → #123
+
+### Failed
+- [failed] nitpick: Unused import in dashboard.tsx:3 -- test failure
 ```
 
 ## Edge Cases
@@ -218,30 +192,20 @@ Fixer constraints:
 | Scenario | Behavior |
 |----------|----------|
 | F = ∅ | Inform, halt |
-| Q_a = ∅ | Skip Phase 3, go to Phase 4 |
-| Q_1 = ∅ after Phase 3 | Skip Phase 4 |
-| acc = ∅ | Skip Phase 5, inform |
-| ∀f: auto_apply(f) ∧ |Q_a| ≤ 2 | All auto-applied inline, 1b1 skipped |
-| ∀f: auto_apply(f) ∧ |Q_a| ≥ 3 | All auto-applied via agent(s), 1b1 skipped |
-| ∀f: C(f) < T | Phase 3 skipped, all → 1b1 |
-| |A(f)| = 1 ∧ C(f) ≥ T | Verification agent → auto-apply ∨ 1b1 |
-| Auto-apply breaks tests/lint | Stash restore, demote to 1b1 |
-| Fixer timeout/crash/cannot-fix | Demote to 1b1, stash restore |
-| cat(f) ∈ {praise, thought, question} | Exempt from auto-apply |
-| C(f) = T | Inclusive (≥ T) |
-| Missing root cause/solutions | C(f) := 0, → Q_1 |
-| Phase 3 edits ∩ Phase 5 targets | Phase 5 fixer re-reads files first |
-| security-auditor finding ∧ C ≥ T | Still → Q_1 (safety rule) |
-| ¬∃ PR | Skip Phase 7, local commit only |
-| Critical security accepted | Escalate immediately after 1b1 |
+| Q_auto = ∅ ∧ Q_1b1 = ∅ | Inform, halt |
+| All praise | Inform ("nothing actionable"), halt |
+| C(f) ≥ T ∧ \|A(f)\| = 1 | Verify → confirmed: auto-apply / rejected: 1b1 |
+| Auto-apply fails | Demote to Q_1b1 |
+| 1b1 fix fails | Mark `[failed]`, continue |
+| Quality gate fails after 3 retries | Halt, leave changes uncommitted |
+| ¬∃ PR | Skip Phase 8, local commit only, no label |
 
 ## Safety Rules
 
-1. security-auditor findings ¬auto-apply regardless of C(f) — always → Q_1
-2. ¬approve PRs on GitHub, ¬auto-merge
-3. Human can `git diff` anytime — applied changes visible in working tree
-4. ∃ PR → must post follow-up comment (Phase 7)
-5. Fixer agents ¬have implementation context from current session → spawn fresh
-6. Stage specific files only — ¬`git add -A` (risk of including .env, secrets)
+1. Human can `git diff` anytime — applied changes visible in working tree
+2. ∃ PR → must post follow-up comment (Phase 8)
+3. Fixer agents ¬have implementation context from current session → spawn fresh
+4. Stage specific files only — ¬`git add -A` (risk of including .env, secrets)
+5. ¬auto-merge — label `reviewed` only, human merges
 
 $ARGUMENTS

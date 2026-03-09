@@ -1,13 +1,18 @@
-import { GH_PROJECT_ID, GITHUB_REPO } from '../../shared/config'
-import { ghGraphQL, run } from '../../shared/github'
-import { BRANCH_CI_QUERY, ISSUES_QUERY, PRS_QUERY } from '../../shared/queries'
+import { GH_PROJECT_ID, GITHUB_REPO } from '../../shared/adapters/config-helpers'
+import { ghGraphQL, run } from '../../shared/adapters/github-adapter'
+import {
+  BRANCH_CI_QUERY,
+  buildBatchedQuery,
+  buildBatchedVariables,
+  ISSUES_QUERY,
+  PRS_QUERY,
+} from '../../shared/queries'
 import type { RawItem } from '../../shared/types'
-import type { WorkspaceProject } from '../../shared/workspace'
 
 import type { Branch, BranchCI, BuildStep, CICheck, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './types'
 
 /** Fetch all raw items for a project with full cursor-based pagination. */
-async function fetchAllItemsForProject(projectId: string): Promise<RawItem[]> {
+export async function fetchAllItemsForProject(projectId: string): Promise<RawItem[]> {
   const allItems: RawItem[] = []
   let cursor: string | undefined
   do {
@@ -30,17 +35,38 @@ export async function fetchAllItems(): Promise<RawItem[]> {
   return fetchAllItemsForProject(GH_PROJECT_ID)
 }
 
-/**
- * Fetch all issues for multiple workspace projects in parallel, each with full pagination.
- * Returns a Map keyed by project label → RawItem[].
- */
-export async function fetchAllProjects(projects: WorkspaceProject[]): Promise<Map<string, RawItem[]>> {
-  if (projects.length === 0) return new Map()
+export type FetchAllProjectsResult = {
+  items: Map<string, RawItem[]>
+  /** Labels of projects that hit the 100-item limit and may have more issues not displayed. */
+  truncated: string[]
+}
 
-  const results = await Promise.all(
-    projects.map(async (p) => ({ label: p.label, items: await fetchAllItemsForProject(p.projectId) })),
-  )
-  return new Map(results.map((r) => [r.label, r.items]))
+/**
+ * Fetch all issues for multiple projects in a single batched GraphQL call.
+ * Returns items keyed by label, and a list of labels that were truncated at 100.
+ */
+export async function fetchAllProjects(
+  projects: Array<{ label: string; projectId: string }>,
+): Promise<FetchAllProjectsResult> {
+  if (projects.length === 0) return { items: new Map(), truncated: [] }
+
+  const projectIds = projects.map((p) => p.projectId)
+  const query = buildBatchedQuery(projectIds)
+  const variables = buildBatchedVariables(projectIds)
+
+  const data = (await ghGraphQL(query, variables)) as {
+    data: Record<string, { items: { nodes: RawItem[]; pageInfo: { hasNextPage: boolean } } } | null>
+  }
+
+  const items = new Map<string, RawItem[]>()
+  const truncated: string[] = []
+  for (let i = 0; i < projects.length; i++) {
+    const proj = projects[i]
+    const page = data.data[`project${i}`]
+    items.set(proj.label, page?.items.nodes ?? [])
+    if (page?.items.pageInfo.hasNextPage) truncated.push(proj.label)
+  }
+  return { items, truncated }
 }
 
 interface SlotNames {
@@ -97,7 +123,7 @@ export function rawItemsToIssues(items: RawItem[], slotNames: SlotNames = DEFAUL
   // Root issues only (no open parent); orphaned children (parent closed) promoted to root
   const roots = openItems.filter((i) => !i.content.parent || i.content.parent.state === 'CLOSED').map(toIssue)
 
-  // Sort: parents (issues with children) first, then priority P0→PX, then size XL→S
+  // Sort: priority P0→PX, then size XL→S
   const priorityOrder: Record<string, number> = {
     'P0 - Urgent': 0,
     'P1 - High': 1,
@@ -115,10 +141,6 @@ export function rawItemsToIssues(items: RawItem[], slotNames: SlotNames = DEFAUL
   }
 
   roots.sort((a, b) => {
-    // Parents (issues with children) float to top
-    const aParent = a.children.length > 0 ? 0 : 1
-    const bParent = b.children.length > 0 ? 0 : 1
-    if (aParent !== bParent) return aParent - bParent
     // Priority P0 → P3
     const pd = (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99)
     if (pd !== 0) return pd
@@ -211,9 +233,9 @@ export async function fetchPRs(repoSlug: string = GITHUB_REPO): Promise<PR[]> {
   }
 }
 
-export async function fetchBranches(): Promise<Branch[]> {
+export async function fetchBranches(cwd?: string): Promise<Branch[]> {
   try {
-    const out = await run(['git', 'branch', '--list'])
+    const out = await run(['git', 'branch', '--list'], cwd)
     if (!out) return []
     return out
       .split('\n')
@@ -227,9 +249,9 @@ export async function fetchBranches(): Promise<Branch[]> {
   }
 }
 
-export async function fetchWorktrees(): Promise<Worktree[]> {
+export async function fetchWorktrees(cwd?: string): Promise<Worktree[]> {
   try {
-    const out = await run(['git', 'worktree', 'list', '--porcelain'])
+    const out = await run(['git', 'worktree', 'list', '--porcelain'], cwd)
     if (!out) return []
     const trees: Worktree[] = []
     let current: Partial<Worktree> = {}

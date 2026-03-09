@@ -1,0 +1,49 @@
+---
+title: Extract roxabi-sdk — deduplicate paths, migrate get-invoice-details, remove shims
+issue: 25
+status: approved
+tier: F-full
+date: 2026-03-07
+---
+
+## Problem
+
+The clean architecture migration (#20, ADR-005) introduced proper domain/ports/adapters layers in dev-core, but left behind three categories of tech debt:
+
+1. **Cross-plugin boundary violation** — `get-invoice-details/scripts/extract.py` writes directly into vault's `vault.db` using raw `sqlite3`. If vault ever changes its schema, this plugin silently breaks with no build-time error. This is the only item that poses a real bug risk.
+
+2. **TS shim files with live code** — `github.ts`, `config.ts`, and `workspace.ts` in `plugins/dev-core/skills/shared/` were kept as backward-compatible re-export layers during the migration. However:
+   - `github.ts` still contains ~200 lines of actual implementation (API calls, token management, helper functions) that should live in `adapters/github-adapter.ts`
+   - `config.ts` has unique constants (`PRIORITY_SHORT`, `STATUS_SHORT`, `LabelDef`, sort orders, standard labels/workflows) not yet moved to the adapter layer
+   - `workspace.ts` is almost clean but still defines `ProjectType` locally instead of in ports
+   - 30+ files import from these shim paths, creating two valid import paths for the same code — confusing for developers and growing as new code targets old paths
+
+3. **SDK extraction (already done)** — `roxabi_sdk/paths.py` exists at repo root, all 5 vendored `_lib/paths.py` copies have been removed. This acceptance criterion is complete.
+
+## Who
+
+- **Primary:** Plugin developers maintaining roxabi-plugins — they encounter confusing dual import paths and risk silent breakage from cross-plugin DB access
+- **Secondary:** Future contributors — clean import paths reduce onboarding friction
+
+## Constraints
+
+- Must pass `bun test`, `bun typecheck`, `bun lint` (no `pytest` — vault plugin has no Python tests in CI)
+- Blocked by #20 — now resolved (closed)
+- Import path changes must be mechanical (find-and-replace) to minimize risk
+- `github.ts` has 12+ consumers, `config.ts` has 14+, `workspace.ts` has 8+ — all within `plugins/dev-core/`
+
+## Out of Scope
+
+- **VaultDB refactor** — `VaultDB` is internal to the vault plugin, has no cross-plugin consumers, and works correctly. Refactoring it is pure ceremony with zero practical benefit. Defer to a vault-specific issue if ever needed.
+- **Adapter/port interface redesign** — the existing adapter layer is functional. This issue migrates consumers to it; it does not redesign it.
+- **New test coverage for adapters** — existing tests cover the functionality through the shim layer. Once imports point at adapters directly, the same tests validate the same code.
+
+## Complexity
+
+**Tier: F-full** — Multi-domain work spanning Python SDK (cross-plugin indexing function), TypeScript adapter migration (30+ import sites across 3 shim files), and shim deletion. Each domain is straightforward individually, but the breadth across languages and files warrants full framing.
+
+Signals observed:
+- Multiple domains: Python SDK + TypeScript adapters
+- 30+ files need import path updates
+- Cross-plugin boundary (get-invoice-details → vault)
+- Mechanical but high file count — risk is in missing an import, caught by typecheck

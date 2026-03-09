@@ -3,7 +3,7 @@ name: analyze
 argument-hint: '[--issue <N> | --frame <path>]'
 description: Deep technical analysis — explore existing code, risks, alternatives. Triggers: "analyze" | "technical analysis" | "explore the problem" | "how deep is it".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch, AskUserQuestion
 ---
 
 # Analyze
@@ -118,6 +118,14 @@ description: "{one-line description}"
 
 {Which shape best fits constraints + appetite, and why. Which shapes are eliminated.}
 ```
+
+### Mermaid Diagrams (optional, recommended for F-lite and F-full)
+
+When the analysis involves data flow or architectural choices, include a mermaid diagram in the `## Fit Check` or `## Shapes` section:
+
+- **Shape comparison** (`flowchart`): If shapes differ architecturally, show key structural differences visually.
+- **Data flow discovery** (`flowchart`): When the analysis discovers how existing code flows (e.g., finding injection gaps, tracing call chains), diagram the current state to make findings concrete.
+- **Files impacted** table: Always include when ≥3 files are touched.
 
 Tier S may omit Shapes + Fit Check.
 

@@ -31,6 +31,16 @@ export const PAGE_STYLES = `
     flex-wrap: wrap;
   }
 
+  .truncation-warning {
+    background: #3d2a00;
+    border: 1px solid #b45309;
+    border-radius: 6px;
+    color: #fbbf24;
+    font-size: 13px;
+    padding: 8px 14px;
+    margin-bottom: 16px;
+  }
+
   header h1 {
     font-size: 20px;
     font-weight: 600;
@@ -457,6 +467,21 @@ export const PAGE_STYLES = `
   .ctx-item.loading {
     opacity: 0.5;
     pointer-events: none;
+  }
+
+  /* Multi-project badge on issue number */
+  .multi-proj-badge {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 9px;
+    line-height: 1;
+    background: var(--accent);
+    color: var(--bg);
+    border-radius: 3px;
+    padding: 1px 3px;
+    font-weight: 700;
+    vertical-align: middle;
+    cursor: default;
   }
 
   /* Toast notification */

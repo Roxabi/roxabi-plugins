@@ -1,15 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../shared/config', () => ({
+vi.mock('../../shared/adapters/config-helpers', () => ({
   PROTECTED_BRANCHES: ['main', 'staging'],
   BRANCH_PROTECTION_PAYLOAD: {
     required_status_checks: { strict: true, contexts: ['ci'] },
     enforce_admins: false,
     restrictions: null,
   },
+  DEFAULT_RULESET: {
+    name: 'PR_Main',
+    target: 'branch',
+    enforcement: 'active',
+    conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+    rules: [{ type: 'deletion' }, { type: 'non_fast_forward' }, { type: 'pull_request', parameters: {} }],
+    bypass_actors: [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' }],
+  },
 }))
 
-vi.mock('../../shared/github', () => ({
+vi.mock('../../shared/adapters/github-adapter', () => ({
   run: vi.fn(),
 }))
 
@@ -20,7 +28,7 @@ describe('protectBranches', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks()
-    const github = await import('../../shared/github')
+    const github = await import('../../shared/adapters/github-adapter')
     mockRun = github.run as ReturnType<typeof vi.fn>
     mockRun.mockResolvedValue('')
 
@@ -52,8 +60,9 @@ describe('protectBranches', () => {
     const { protectBranches } = await import('../lib/protection')
     const result = await protectBranches('Org/repo')
 
-    expect(result.main).toBe(true)
-    expect(result.staging).toBe(true)
+    expect(result.branches.main).toBe(true)
+    expect(result.branches.staging).toBe(true)
+    expect(result.ruleset).toBe(true)
   })
 
   it('creates branch if it does not exist', async () => {
@@ -98,6 +107,7 @@ describe('protectBranches', () => {
     await protectBranches('Org/repo')
 
     // 2 calls per branch: PUT protection + DELETE required_pull_request_reviews
+    // + 1 list rulesets + 1 create ruleset = more spawn calls
     const spawnCalls = spawnSpy.mock.calls
     const deleteCalls = spawnCalls.filter((c: unknown[]) => {
       const args = c[0] as string[]
@@ -106,7 +116,7 @@ describe('protectBranches', () => {
     expect(deleteCalls.length).toBe(2) // one per protected branch
   })
 
-  it('returns false when protection API fails', async () => {
+  it('returns false for branches when protection API fails', async () => {
     spawnSyncSpy.mockReturnValue({
       stdout: new Uint8Array(),
       stderr: new Uint8Array(),
@@ -123,7 +133,7 @@ describe('protectBranches', () => {
     const { protectBranches } = await import('../lib/protection')
     const result = await protectBranches('Org/repo')
 
-    expect(result.main).toBe(false)
-    expect(result.staging).toBe(false)
+    expect(result.branches.main).toBe(false)
+    expect(result.branches.staging).toBe(false)
   })
 })

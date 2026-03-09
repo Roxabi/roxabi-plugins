@@ -2,10 +2,10 @@
  * Create standard dev-core labels on the GitHub repo.
  */
 
-import { type LabelDef, STANDARD_LABELS } from '../../shared/config'
-import { run } from '../../shared/github'
+import { type LabelDef, STANDARD_LABELS } from '../../shared/adapters/config-helpers'
+import { run } from '../../shared/adapters/github-adapter'
 
-export type LabelScope = 'all' | 'type' | 'area' | 'priority'
+export type LabelScope = 'all' | 'type' | 'area'
 
 export async function createLabels(repo: string, scope: LabelScope): Promise<{ created: string[] }> {
   let labels: LabelDef[]

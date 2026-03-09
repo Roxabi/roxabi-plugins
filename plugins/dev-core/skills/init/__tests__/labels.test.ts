@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../shared/github', () => ({
+vi.mock('../../shared/adapters/github-adapter', () => ({
   run: vi.fn(),
 }))
 
@@ -9,16 +9,16 @@ describe('createLabels', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks()
-    const github = await import('../../shared/github')
+    const github = await import('../../shared/adapters/github-adapter')
     mockRun = github.run as ReturnType<typeof vi.fn>
     mockRun.mockResolvedValue('')
   })
 
-  it('creates all 15 labels with scope "all"', async () => {
+  it('creates all 11 labels with scope "all"', async () => {
     const { createLabels } = await import('../lib/labels')
     const result = await createLabels('Org/repo', 'all')
-    expect(result.created).toHaveLength(15)
-    expect(mockRun).toHaveBeenCalledTimes(15)
+    expect(result.created).toHaveLength(11)
+    expect(mockRun).toHaveBeenCalledTimes(11)
   })
 
   it('creates only type labels (6) with scope "type"', async () => {
@@ -33,15 +33,9 @@ describe('createLabels', () => {
     expect(result.created).toHaveLength(5)
   })
 
-  it('creates only priority labels (4) with scope "priority"', async () => {
-    const { createLabels } = await import('../lib/labels')
-    const result = await createLabels('Org/repo', 'priority')
-    expect(result.created).toHaveLength(4)
-  })
-
   it('passes --force flag to gh label create', async () => {
     const { createLabels } = await import('../lib/labels')
-    await createLabels('Org/repo', 'priority')
+    await createLabels('Org/repo', 'area')
 
     const firstCall = mockRun.mock.calls[0][0] as string[]
     expect(firstCall).toContain('--force')
@@ -54,8 +48,8 @@ describe('createLabels', () => {
     mockRun.mockResolvedValue('')
 
     const { createLabels } = await import('../lib/labels')
-    const result = await createLabels('Org/repo', 'priority')
-    // First label fails, remaining 3 succeed
-    expect(result.created).toHaveLength(3)
+    const result = await createLabels('Org/repo', 'type')
+    // First label fails, remaining 5 succeed
+    expect(result.created).toHaveLength(5)
   })
 })

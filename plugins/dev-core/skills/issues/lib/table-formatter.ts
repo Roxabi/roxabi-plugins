@@ -3,7 +3,7 @@
  * Ports the jq logic from the old fetch_issues.sh.
  */
 
-import { PRIORITY_ORDER, PRIORITY_SHORT, SIZE_ORDER, STATUS_SHORT } from '../../shared/config'
+import { PRIORITY_ORDER, PRIORITY_SHORT, SIZE_ORDER, STATUS_SHORT } from '../../shared/adapters/config-helpers'
 import type { RawItem } from '../../shared/types'
 import type { Issue } from './types'
 
@@ -98,13 +98,6 @@ export interface FormatOptions {
 
 export function sortIssues(items: RawItem[]): RawItem[] {
   return [...items].sort((a, b) => {
-    // Parents (issues with children) first
-    const aSubs = a.content.subIssues?.nodes?.filter((s) => s.state === 'OPEN').length ?? 0
-    const bSubs = b.content.subIssues?.nodes?.filter((s) => s.state === 'OPEN').length ?? 0
-    const aParent = aSubs > 0 ? 0 : 1
-    const bParent = bSubs > 0 ? 0 : 1
-    if (aParent !== bParent) return aParent - bParent
-
     // Priority P0 → P3
     const aPri = fieldValue(a, 'Priority')
     const bPri = fieldValue(b, 'Priority')

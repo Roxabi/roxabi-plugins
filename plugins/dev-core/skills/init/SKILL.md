@@ -3,7 +3,7 @@ name: init
 argument-hint: '[--force]'
 description: 'Initialize project for dev-core — auto-detect GitHub Project V2, set up dashboard launcher, env vars, artifacts. Triggers: "init" | "setup dev-core" | "initialize dev-core".'
 version: 0.6.0
-allowed-tools: Bash
+allowed-tools: Bash, ToolSearch, AskUserQuestion
 ---
 
 # Init
@@ -36,6 +36,39 @@ any ❌ → show install links:
 - git remote: `git remote add origin <url>`
 
 AskUserQuestion: **Abort** | **Continue anyway** (warn: some features won't work).
+
+## Phase 2b — Stack Configuration
+
+Set up `.claude/stack.yml` early so all later phases can read stack values (runtime, package manager, commands, deploy platform, hooks tool, docs format).
+
+1. `test -f .claude/stack.yml && echo exists || echo missing`
+
+2. **missing** → AskUserQuestion: **Set up stack.yml now** (recommended — later phases use it for CI, hooks, Dependabot) | **Skip** (later phases will use fallback defaults).
+
+3. **Set up**:
+   - `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml`
+   - AskUserQuestion ∀ critical field:
+     - **Runtime** → **bun** | **node** | **python** → `runtime` + `package_manager`
+     - **Backend path** (e.g., `apps/api`, or leave blank if none) → `backend.path`
+     - **Frontend path** (e.g., `apps/web`, or leave blank if none) → `frontend.path`
+     - **Test command** (e.g., `bun run test`) → `commands.test`
+   - Write confirmed values into `.claude/stack.yml`.
+   - Inform: "Fill in the remaining fields in `.claude/stack.yml` before running agents."
+
+4. Add @import to CLAUDE.md:
+   - `head -1 CLAUDE.md` → ¬`@.claude/stack.yml` → prepend `@.claude/stack.yml\n`.
+   - Display: "Added `@.claude/stack.yml` import to CLAUDE.md ✅"
+
+5. Add stack.yml to .gitignore:
+   - `grep -q '\.claude/stack\.yml' .gitignore 2>/dev/null && echo found || echo missing`
+   - missing → append `.claude/stack.yml` to `.gitignore`.
+   - Display: "Added `.claude/stack.yml` to .gitignore ✅"
+
+6. Copy stack.yml.example (committed reference):
+   - ¬`.claude/stack.yml.example` → `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example`
+   - Display: ".claude/stack.yml.example created ✅ (commit this file)"
+
+7. **existing** → display `stack.yml ✅ Already exists`, skip setup.
 
 ## Phase 3 — Auto-Discover Configuration
 
@@ -93,7 +126,7 @@ PID ∃ → run: `bun $I_TS list-workflows --project-id <PVT_...>`. Parse JSON a
 ### 3b. Labels
 
 `labels.missing` ≠ ∅ → AskUserQuestion: **Create all labels** | **Type labels only** | **Area labels only** | **Skip labels**.
-Run: `bun $I_TS labels --repo <owner/repo> --scope <all|type|area|priority>`
+Run: `bun $I_TS labels --repo <owner/repo> --scope <all|type|area>`
 
 ### 3c. Workflows
 
@@ -192,10 +225,18 @@ yes:
 
 skip → Display: `Dependabot ⏭ Skipped`
 
-### 3d. Branch Protection
+### 3d. Branch Protection + Ruleset
 
 AskUserQuestion: **Set up branch protection** | **Skip**.
 yes → `bun $I_TS protect-branches --repo <owner/repo>`
+
+This command:
+1. Applies branch protection (required `ci` check, strict up-to-date) on main + staging
+2. Creates the `PR_Main` ruleset if missing (squash/rebase only, no deletion, no force push, thread resolution required)
+
+Parse result JSON. Display:
+- Branch protection: `main ✅, staging ✅` (or ❌ per branch)
+- Ruleset: `PR_Main ✅ Created` | `PR_Main ✅ Already exists` | `PR_Main ❌ Failed`
 
 ### 3e. Vercel (Optional)
 
@@ -224,7 +265,7 @@ dev-core Configuration
     SIZE_FIELD_ID       = PVTSSF_...
     PRIORITY_FIELD_ID   = PVTSSF_...
 
-  Labels:               15 labels (created / skipped)
+  Labels:               11 labels (created / skipped)
   Branch protection:    main, staging (created / skipped)
 ```
 
@@ -244,7 +285,7 @@ Register current project in shared workspace config (enables multi-project dashb
 1. Check if already registered:
    ```bash
    bun -e "
-   import { readWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/workspace.ts'
+   import { readWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/adapters/workspace-helpers.ts'
    const ws = readWorkspace()
    console.log(ws.projects.some(p => p.repo === process.env.GITHUB_REPO) ? 'registered' : 'not-registered')
    "
@@ -257,7 +298,7 @@ Register current project in shared workspace config (enables multi-project dashb
 4. Add:
    ```bash
    bun -e "
-   import { getWorkspacePath, readWorkspace, writeWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/workspace.ts'
+   import { getWorkspacePath, readWorkspace, writeWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/adapters/workspace-helpers.ts'
    const ws = readWorkspace()
    const entry = {
      repo: process.env.GITHUB_REPO ?? '',
@@ -311,34 +352,20 @@ Scan filesystem for other repos with dev-core configured but ∉ workspace.json.
 
 7. Skip → display `workspace.json ⏭ Bulk discovery skipped`
 
-## Phase 7 — Stack Configuration
+## Phase 7 — Documentation Scaffolding (Optional)
 
-Set up `.claude/stack.yml` so dev-core agents work without hardcoded paths.
+Scaffold standard documentation directories and minimal template files.
 
-1. `test -f .claude/stack.yml && echo exists || echo missing`
-
-2. missing:
-   - `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml`
-   - AskUserQuestion ∀ critical field:
-     - **Backend path** (e.g., `apps/api`) → `backend.path`
-     - **Frontend path** (e.g., `apps/web`) → `frontend.path`
-     - **Package manager** → **bun** | **npm** | **pnpm** | **yarn**
-     - **Test command** (e.g., `bun run test`) → `commands.test`
-   - Write confirmed values into `.claude/stack.yml`.
-   - Inform: "Fill in the remaining fields in `.claude/stack.yml` before running agents."
-
-3. Add @import to CLAUDE.md:
-   - `head -1 CLAUDE.md` → ¬`@.claude/stack.yml` → prepend `@.claude/stack.yml\n`.
-   - Display: "Added `@.claude/stack.yml` import to CLAUDE.md ✅"
-
-4. Add stack.yml to .gitignore:
-   - `grep -q '\.claude/stack\.yml' .gitignore 2>/dev/null && echo found || echo missing`
-   - missing → append `.claude/stack.yml` to `.gitignore`.
-   - Display: "Added `.claude/stack.yml` to .gitignore ✅"
-
-5. Copy stack.yml.example (committed reference):
-   - ¬`.claude/stack.yml.example` → `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example`
-   - Display: ".claude/stack.yml.example created ✅ (commit this file)"
+1. Read `docs.path` and `docs.format` from `.claude/stack.yml` (defaults: `docs`, `md`).
+2. Check if `{docs.path}/standards/` already exists.
+   - exists → display `Docs scaffolding ✅ Already present`, skip.
+3. AskUserQuestion: **Scaffold standard docs structure** (architecture/, standards/, guides/ with template files) | **Skip**.
+4. yes:
+   ```bash
+   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-docs --format <docs.format> --path <docs.path>
+   ```
+5. Display created dirs and files from JSON result. Format:
+   - `Docs scaffolding ✅ Created {filesCreated.length} files in {docsPath}/`
 
 ## Phase 8 — VS Code MDX Preview (Optional)
 
@@ -540,6 +567,73 @@ g. Run license check and offer to generate policy (Python):
    - exit 2 (pip-licenses missing) → Display: `License check ⏭ pip-licenses not installed — run uv add --dev pip-licenses`
 h. Display: `Pre-commit hooks ✅ pre-commit installed (lint + typecheck + trufflehog on commit, license on push)`
 
+## Phase 10b — Marketplace Plugins
+
+Offer additional Roxabi plugins. dev-core is already installed — present the rest grouped by theme, 3 at a time.
+
+For each group below, display the group name + plugin list, then AskUserQuestion: **Install all** | **Pick** | **Skip**.
+
+- **Pick**: AskUserQuestion per plugin: **Install** | **Skip**.
+- Install: `claude plugin install <name>` — run for each selected plugin, display result inline.
+
+---
+
+### Group 1 — Dev tools
+
+| Plugin | What it does |
+|--------|-------------|
+| `compress` | Rewrite agent/skill definitions in compact math/logic notation — cuts token usage |
+| `1b1` | Walk a list one by one: brief → decide → act → next. Great for review queues |
+| `web-intel` | Scrape Twitter/X, GitHub, YouTube, Reddit, webpages — summarize, analyze, benchmark |
+
+---
+
+### Group 2 — Frontend quality
+
+| Plugin | What it does |
+|--------|-------------|
+| `react-best-practices` | 58 React/Next.js perf rules across 8 categories, prioritized by impact |
+| `composition-patterns` | Avoid boolean prop proliferation — compound components, context providers |
+| `web-design-guidelines` | Review UI for accessibility, UX, and Web Interface Guidelines compliance |
+
+---
+
+### Group 3 — Visual output
+
+| Plugin | What it does |
+|--------|-------------|
+| `visual-explainer` | Self-contained HTML pages with diagrams, visualizations, and data tables |
+| `frontend-slides` | Zero-dependency HTML presentations — 12 presets, PPT conversion |
+| `image-prompt-generator` | AI image prompts with visual identity and style consistency |
+
+---
+
+### Group 4 — Career & content
+
+| Plugin | What it does |
+|--------|-------------|
+| `cv` | Generate and adapt CVs from structured JSON, tailored for specific job postings |
+| `linkedin-apply` | Scrape LinkedIn jobs and score against your profile — APPLY / REVIEW / SKIP |
+| `linkedin-post-generator` | Engaging LinkedIn posts with best practices and visual identity |
+
+---
+
+### Group 5 — Data & productivity
+
+| Plugin | What it does |
+|--------|-------------|
+| `vault` | Unified local SQLite+FTS5 vault — CRUD and full-text search across Roxabi data |
+| `get-invoice-details` | Extract structured data from invoice documents (text or PDF) → JSON |
+| `voice-cli` | Author TTS scripts, generate speech, clone voices, transcribe audio |
+
+---
+
+After all groups, display:
+```
+Marketplace plugins
+  installed: compress, web-intel, vault  (or: ⏭ None installed)
+```
+
 ## Phase 11 — Report
 
 Display final summary:
@@ -555,13 +649,15 @@ dev-core initialized
   Labels            ✅ N labels created / ⏭ Skipped
   Project workflows ✅ Displayed / ⏭ Skipped
   Branch protection ✅ Created / ⏭ Skipped
+  Ruleset PR_Main   ✅ Created / ✅ Already exists / ⏭ Skipped
   roxabi shim       ✅ Installed (~/.local/bin/roxabi)
   PATH              ✅ ~/.local/bin added to .bashrc/.zshrc  (or ⏭ already present)
   artifacts/        ✅ Created
   .gitignore        ✅ .env added
   workspace.json    ✅ Registered <repo> / ⏭ Skipped
   bulk discovery    ✅ Added N projects / ⏭ Skipped / ⏭ No others found
-  stack.yml         ✅ Configured / ✅ Already exists
+  stack.yml         ✅ Configured / ✅ Already exists / ⏭ Skipped
+  Marketplace       ✅ N plugins installed (name, name, ...) / ⏭ Skipped
   VS Code MDX preview   ✅ Added / ✅ Already configured / ⏭ Skipped / ⏭ No .mdx files found
   CI/CD workflows   ✅ Created / ✅ Already configured / ⏭ Skipped
   TruffleHog        ✅ Secret scanning configured / ⏭ Skipped

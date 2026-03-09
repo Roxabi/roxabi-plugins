@@ -3,8 +3,13 @@
  * Returns structured JSON for the init orchestrator.
  */
 
-import { PROTECTED_BRANCHES, STANDARD_LABELS, STANDARD_WORKFLOWS } from '../../shared/config'
-import { getBoardIssueNumbers, parseProjectFields, run } from '../../shared/github'
+import {
+  DEFAULT_RULESET,
+  PROTECTED_BRANCHES,
+  STANDARD_LABELS,
+  STANDARD_WORKFLOWS,
+} from '../../shared/adapters/config-helpers'
+import { getBoardIssueNumbers, parseProjectFields, run } from '../../shared/adapters/github-adapter'
 import { checkPrereqs } from '../../shared/prereqs'
 
 export interface DiscoveryResult {
@@ -20,6 +25,7 @@ export interface DiscoveryResult {
   labels: { existing: string[]; missing: string[] }
   workflows: { existing: string[]; missing: string[] }
   protection: Record<string, boolean>
+  rulesets: { existing: string[]; missing: string[] }
   vercel: { projectId: string; orgId: string } | null
   env: Partial<
     Record<
@@ -68,6 +74,7 @@ export async function discover(): Promise<DiscoveryResult> {
     labels: { existing: [], missing: [] },
     workflows: { existing: [], missing: [] },
     protection: {},
+    rulesets: { existing: [], missing: [] },
     vercel: null,
     env: readEnvFile() as DiscoveryResult['env'],
   }
@@ -176,6 +183,18 @@ export async function discover(): Promise<DiscoveryResult> {
   for (const { branch, ok } of protectionChecks) {
     result.protection[branch] = ok
   }
+
+  // Rulesets
+  try {
+    const rulesetsJson = await run(['gh', 'api', `repos/${owner}/${repo}/rulesets`, '--jq', '.[].name'])
+    const existing = rulesetsJson
+      .trim()
+      .split('\n')
+      .filter((n: string) => n)
+    result.rulesets.existing = existing
+    const required = [DEFAULT_RULESET.name]
+    result.rulesets.missing = required.filter((r) => !existing.includes(r))
+  } catch {}
 
   // Vercel
   try {

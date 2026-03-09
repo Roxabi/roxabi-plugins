@@ -85,6 +85,24 @@
       "description": "Generate self-contained HTML pages with diagrams, visualizations, and data tables from any input.",
       "source": "./plugins/visual-explainer",
       "category": "productivity"
+    },
+    {
+      "name": "react-best-practices",
+      "description": "React and Next.js performance optimization guidelines — 58 rules across 8 categories, prioritized by impact.",
+      "source": "./plugins/react-best-practices",
+      "category": "development"
+    },
+    {
+      "name": "composition-patterns",
+      "description": "React composition patterns — avoid boolean prop proliferation, compound components, context providers.",
+      "source": "./plugins/composition-patterns",
+      "category": "development"
+    },
+    {
+      "name": "web-design-guidelines",
+      "description": "Review UI code for Web Interface Guidelines compliance — accessibility, UX, design best practices.",
+      "source": "./plugins/web-design-guidelines",
+      "category": "development"
     }
   ]
 }

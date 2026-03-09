@@ -1,0 +1,87 @@
+---
+title: "Extract roxabi-sdk — migration analysis"
+description: "Technical analysis of shim removal, import migration, and cross-plugin boundary fix"
+---
+
+## Source
+
+Issue #25: "Extract roxabi-sdk: deduplicate _lib/paths.py, migrate get-invoice-details, remove shims." Created as Phase 5 gate from clean architecture spec (#20, ADR-005).
+
+## Problem
+
+Three shim files in `plugins/dev-core/skills/shared/` create dual import paths and one cross-plugin boundary violation:
+
+1. **`github.ts`** — 200+ lines of standalone functions (token management, API calls, helpers) with 12 consumers. The adapter class (`GitHubAdapter`) duplicates most of this as instance methods but has **zero production consumers** — only used in tests.
+
+2. **`config.ts`** — re-exports from `adapters/config-helpers.ts` plus unique constants (`PRIORITY_SHORT`, `STATUS_SHORT`, `LabelDef`, `STANDARD_LABELS`, sort orders, branch protection). 14 consumers.
+
+3. **`workspace.ts`** — almost pure re-exports from `adapters/workspace-helpers.ts` and `ports/workspace`. Only unique export: `ProjectType`. 8 consumers.
+
+4. **`get-invoice-details/scripts/extract.py`** — `index_in_vault()` writes directly into vault's `vault.db` using raw `sqlite3.connect()`. Cross-plugin boundary violation.
+
+**Critical finding:** The adapter classes (`GitHubAdapter`, `EnvConfigAdapter`, `GitWorkspaceAdapter`) introduced by #20 have **zero production usage**. All 34 consumer files import standalone functions from the shim layer. The clean architecture migration created the adapter layer but never migrated consumers to it.
+
+## Outcome
+
+- Single import path per module — no shim indirection
+- Cross-plugin boundary respected — `get-invoice-details` uses SDK function, not raw SQL
+- `bun typecheck` confirms zero stale imports
+- All 3 shim files deleted
+
+## Appetite
+
+1-day cycle. Mechanical import path updates + small SDK addition + shim deletion.
+
+## Shapes
+
+### Shape A: Consolidate into adapter files (Recommended)
+
+Move standalone functions from each shim into their corresponding adapter file. Update all import paths. Delete shims.
+
+For **github.ts**: move all standalone functions (`run`, `ghGraphQL`, `getNodeId`, `createGitHubIssue`, `getItemId`, `addToProject`, `updateField`, `addBlockedBy`, `removeBlockedBy`, `addSubIssue`, `removeSubIssue`, `linkProjectToRepo`, `getBoardIssueNumbers`, `getParentNumber`) into `adapters/github-adapter.ts` alongside the existing class. The class and standalone functions coexist — they share token logic and queries.
+
+For **config.ts**: move unique constants (`GITHUB_REPO`, `NOT_CONFIGURED_MSG`, `PRIORITY_SHORT`, `STATUS_SHORT`, `LabelDef`, `STANDARD_LABELS`, `STANDARD_WORKFLOWS`, `REQUIRED_SECRETS`, `PROTECTED_BRANCHES`, `BRANCH_PROTECTION_PAYLOAD`, `PRIORITY_ORDER`, `SIZE_ORDER`, `STATUS_ORDER`, `BLOCK_ORDER`) into `adapters/config-helpers.ts`.
+
+For **workspace.ts**: move `ProjectType` to `ports/workspace.ts`. All other exports are already re-exports.
+
+For **get-invoice-details**: add `vault_index_entry()` to `roxabi_sdk/paths.py`. Replace raw `sqlite3` in `extract.py`.
+
+**Trade-offs:**
+- Pro: Minimal risk — mechanical import path changes, no behavior change
+- Pro: `bun typecheck` catches any missed imports immediately
+- Pro: Adapter files become the single source of truth
+- Con: `github-adapter.ts` ends up with both class methods and standalone functions (some duplication)
+
+**Rough scope:** M
+
+### Shape B: Full adapter migration
+
+Replace all standalone function imports with adapter class instances. E.g., `import { run } from '../../shared/github'` becomes `const gh = new GitHubAdapter(repo, projectId); await gh.run(cmd)`.
+
+**Trade-offs:**
+- Pro: Completes the clean architecture vision — all code uses adapter instances
+- Con: Every call site changes shape (function call → method call), not just import path
+- Con: Need to thread adapter instances through call chains or use singletons
+- Con: Much higher risk — subtle bugs from incorrect adapter initialization
+- Con: 2-3x the work for marginal architectural benefit
+
+**Rough scope:** L
+
+### Shape C: Flatten — delete adapter classes
+
+The adapter classes have zero production consumers. Delete them, keep standalone functions as canonical, move functions to `adapters/` directory.
+
+**Trade-offs:**
+- Pro: Removes dead code, simplest outcome
+- Con: Undoes part of #20's work — adapter classes were designed for testability via ports
+- Con: Tests use the classes — would need rewriting
+
+**Rough scope:** M
+
+## Fit Check
+
+**Shape A** is the clear winner. It achieves all goals (single import path, shim deletion, cross-plugin fix) with minimal risk and minimal scope. The standalone function vs adapter class coexistence in `github-adapter.ts` is acceptable tech debt — it can be resolved in a future issue if the team decides to fully migrate to adapter instances.
+
+Shape B is over-scoped for the appetite — it's an architectural migration that changes call sites, not just import paths. Shape C discards work from #20 and breaks existing tests.
+
+**Eliminated:** Shape B (scope exceeds appetite, risk too high for marginal benefit), Shape C (destroys testability investment from #20).

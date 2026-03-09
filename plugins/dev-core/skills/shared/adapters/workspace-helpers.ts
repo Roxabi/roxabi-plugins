@@ -64,9 +64,22 @@ export async function discoverProject(repo: string): Promise<WorkspaceProject[]>
   const json = (await res.json()) as {
     data: { repository: { projectsV2: { nodes: { id: string; title: string }[] } } }
   }
+  const localPath = detectLocalPath(name)
   return (json.data?.repository?.projectsV2?.nodes ?? []).map((n) => ({
     repo,
     projectId: n.id,
     label: n.title,
+    ...(localPath ? { localPath } : {}),
   }))
+}
+
+/** Try to find the local clone of a repo by scanning common directories. */
+function detectLocalPath(repoName: string): string | undefined {
+  const home = process.env.HOME
+  if (!home) return undefined
+  const candidates = [`${home}/projects/${repoName}`, `${home}/${repoName}`, `${home}/src/${repoName}`]
+  for (const dir of candidates) {
+    if (existsSync(`${dir}/.git`)) return dir
+  }
+  return undefined
 }

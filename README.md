@@ -23,6 +23,9 @@ Open-source Claude Code plugins by [Roxabi](https://github.com/Roxabi). Context 
 | [linkedin-apply](plugins/linkedin-apply/README.md) | Scrape and score LinkedIn job offers with LLM matching |
 | [frontend-slides](plugins/frontend-slides/README.md) | Zero-dependency HTML presentations — 12 style presets, visual discovery, PPT conversion |
 | [visual-explainer](plugins/visual-explainer/README.md) | Self-contained HTML pages with diagrams, visualizations, and data tables |
+| [react-best-practices](plugins/react-best-practices/README.md) | React/Next.js performance optimization — 58 rules, 8 categories (Vercel Engineering) |
+| [composition-patterns](plugins/composition-patterns/README.md) | React composition patterns — compound components, context providers (Vercel) |
+| [web-design-guidelines](plugins/web-design-guidelines/README.md) | Review UI code for Web Interface Guidelines compliance (Vercel) |
 
 ## Data Storage
 
@@ -34,7 +37,7 @@ All data-producing plugins store user data in `~/.roxabi-vault/` (never in the r
 | cv | `~/.roxabi-vault/cv/` | Optional — search by content |
 | linkedin-post-generator | `~/.roxabi-vault/content/` (shared) | Optional — suggestions from vault |
 | get-invoice-details | `~/.roxabi-vault/invoices/` | Optional — semantic search |
-| image-prompt-generator | `~/.roxabi-vault/config/visual-charter.json` | N/A — works 100% standalone |
+| image-prompt-generator | `~/.roxabi-vault/config/` (charter, face ref), `~/.roxabi-vault/image-prompts/` | Optional — auto-saves prompt variants |
 | linkedin-apply | `~/.roxabi-vault/linkedin-apply/` | Optional — job analysis history |
 
 All plugins work without vault installed — files are saved, just not indexed.

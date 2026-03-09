@@ -3,7 +3,7 @@ name: pr
 argument-hint: [--draft | --base <branch>]
 description: Create/update PRs with Conventional Commits title, issue linking & guard rails. Triggers: "create PR" | "open PR" | "submit PR" | "update PR" | "/pr --draft".
 version: 0.4.0
-allowed-tools: Bash, Read, Grep
+allowed-tools: Bash, Read, Grep, ToolSearch, AskUserQuestion
 ---
 
 # Pull Request

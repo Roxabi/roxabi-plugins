@@ -97,6 +97,13 @@ mutation($projectId: ID!, $contentId: ID!) {
   }
 }`
 
+export const DELETE_PROJECT_ITEM_MUTATION = `
+mutation($projectId: ID!, $itemId: ID!) {
+  deleteProjectV2Item(input: { projectId: $projectId, itemId: $itemId }) {
+    deletedItemId
+  }
+}`
+
 export const ADD_BLOCKED_BY_MUTATION = `
 mutation($issueId: ID!, $blockingId: ID!) {
   addBlockedBy(input: { issueId: $issueId, blockingIssueId: $blockingId }) {
@@ -290,6 +297,14 @@ mutation($projectId: ID!, $repositoryId: ID!) {
 export const REPO_ID_QUERY = `
 query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) { id }
+}`
+
+/** Get a project's title by node ID. */
+export const PROJECT_TITLE_QUERY = `
+query($id: ID!) {
+  node(id: $id) {
+    ... on ProjectV2 { title }
+  }
 }`
 
 /** Build variables object for buildBatchedQuery: { project0Id: "PVT_...", ... } */

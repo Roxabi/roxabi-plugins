@@ -15,10 +15,14 @@ export interface WorkspaceProject {
   type?: 'technical' | 'company'
   fieldIds?: ProjectFieldIds
   vercelProjects?: VercelProjectRef[]
+  localPath?: string
 }
+
+export type ProjectType = 'technical' | 'company'
 
 export interface Workspace {
   projects: WorkspaceProject[]
+  roadmapProjectId?: string
 }
 
 export interface WorkspacePort {

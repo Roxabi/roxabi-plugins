@@ -52,7 +52,7 @@ switch (command) {
       console.error(`[init] Invalid --type value: '${rawType}'. Must be 'technical' or 'company'.`)
       process.exit(1)
     }
-    const type: import('../shared/workspace').ProjectType = rawType
+    const type: import('../shared/ports/workspace').ProjectType = rawType
     if (!owner || !repo) {
       console.error('Usage: init.ts create-project --owner <owner> --repo <repo> [--type technical|company]')
       process.exit(1)
@@ -65,9 +65,9 @@ switch (command) {
   case 'labels': {
     const { createLabels } = await import('./lib/labels')
     const repo = parseFlag('--repo', '')
-    const scope = parseFlag('--scope', 'all') as 'all' | 'type' | 'area' | 'priority'
+    const scope = parseFlag('--scope', 'all') as 'all' | 'type' | 'area'
     if (!repo) {
-      console.error('Usage: init.ts labels --repo <owner/repo> [--scope all|type|area|priority]')
+      console.error('Usage: init.ts labels --repo <owner/repo> [--scope all|type|area]')
       process.exit(1)
     }
     const result = await createLabels(repo, scope)
@@ -142,6 +142,15 @@ switch (command) {
       process.exit(1)
     }
     const result = await listProjectWorkflows(projectId)
+    console.log(JSON.stringify(result, null, 2))
+    break
+  }
+
+  case 'scaffold-docs': {
+    const { scaffoldDocs } = await import('./lib/docs')
+    const format = parseFlag('--format', 'md') as 'md' | 'mdx'
+    const docsPath = parseFlag('--path', 'docs')
+    const result = scaffoldDocs({ format, path: docsPath })
     console.log(JSON.stringify(result, null, 2))
     break
   }

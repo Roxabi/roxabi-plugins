@@ -2,7 +2,7 @@
 name: doctor
 description: 'Health check — verify dev-core config, GitHub project, labels, workflows, branch protection. Triggers: "doctor" | "health check" | "check setup" | "verify config".'
 version: 0.7.0
-allowed-tools: Bash
+allowed-tools: Bash, ToolSearch, AskUserQuestion
 ---
 
 # Doctor
@@ -41,6 +41,7 @@ Severity guide: ❌ = blocking error, ⚠️ = warning, ✅ = pass, ⏭ = skippe
 | `tools/licenseChecker.ts` missing | Copy from boilerplate `tools/licenseChecker.ts` or run `/init` Phase 10d |
 | trufflehog not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-commit.commands.trufflehog` |
 | license check not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-push.commands.license` |
+| `PR_Main` ruleset missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts protect-branches --repo <owner/repo>` — creates ruleset enforcing squash/rebase merges, thread resolution, no deletion/force push |
 
 Issues requiring interactive GitHub auth or multi-step scaffolding → display exact command + explanation. Do not silently redirect — always show the fix.
 
@@ -50,7 +51,22 @@ Run all checks. Collect fixable items as you go. Apply fixes at end (Phase 2 Fix
 
 **File presence:**
 - `.claude/stack.yml` ∃ → ✅ | ❌ "stack.yml missing"
-- stack.yml missing → mark all remaining Phase 2 checks ⏭; proceed to Phase 2 Fix.
+- stack.yml missing:
+  - AskUserQuestion: **Set up stack.yml now** (recommended — agents and later checks depend on it) | **Continue with warnings** (all stack-dependent checks marked ⏭).
+  - **Set up**:
+    - `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml`
+    - AskUserQuestion ∀ critical field:
+      - **Runtime** → **bun** | **node** | **python** → `runtime` + `package_manager`
+      - **Backend path** (e.g., `apps/api`, blank if none) → `backend.path`
+      - **Frontend path** (e.g., `apps/web`, blank if none) → `frontend.path`
+      - **Test command** (e.g., `bun run test`) → `commands.test`
+    - Write values into `.claude/stack.yml`.
+    - Prepend `@.claude/stack.yml\n` to CLAUDE.md if not already present.
+    - Append `.claude/stack.yml` to `.gitignore` if missing.
+    - ¬`.claude/stack.yml.example` → `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example`
+    - Display: `stack.yml ✅ Created — fill in remaining fields before running agents`
+    - Continue remaining Phase 2 checks against the newly created file.
+  - **Continue with warnings**: mark all remaining Phase 2 checks ⏭; proceed to Phase 2 Fix.
 - `.claude/stack.yml.example` ∃ → ✅ | ⚠️ "stack.yml.example missing"
 
 **Schema:**
@@ -144,7 +160,7 @@ Apply each selected fix:
 
 | Issue | Fix |
 |-------|-----|
-| `stack.yml missing` | `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml` — inform user to fill in critical fields |
+| `stack.yml missing` | Already handled inline at Phase 2 start — if user skipped, re-offer: `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml` then AskUserQuestion for runtime, paths, test command |
 | `stack.yml.example missing` | `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example` |
 | `CLAUDE.md import missing` | Prepend `@.claude/stack.yml\n` to `CLAUDE.md` |
 | `stack.yml not in .gitignore` | Append `.claude/stack.yml` to `.gitignore` |
@@ -164,7 +180,7 @@ After fixes, re-run relevant checks and display updated result.
 
 ```bash
 bun -e "
-import { getWorkspacePath, readWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/workspace.ts'
+import { getWorkspacePath, readWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/adapters/workspace-helpers.ts'
 import { existsSync } from 'node:fs'
 const path = getWorkspacePath()
 if (!existsSync(path)) { console.log(JSON.stringify({ found: false })); process.exit(0) }

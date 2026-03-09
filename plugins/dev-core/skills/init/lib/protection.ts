@@ -1,12 +1,17 @@
 /**
- * Apply branch protection rules to standard branches.
+ * Apply branch protection rules and rulesets to standard branches.
  */
 
-import { BRANCH_PROTECTION_PAYLOAD, PROTECTED_BRANCHES } from '../../shared/config'
-import { run } from '../../shared/github'
+import { BRANCH_PROTECTION_PAYLOAD, DEFAULT_RULESET, PROTECTED_BRANCHES } from '../../shared/adapters/config-helpers'
+import { run } from '../../shared/adapters/github-adapter'
 
-export async function protectBranches(repo: string): Promise<Record<string, boolean>> {
-  const results: Record<string, boolean> = {}
+export interface ProtectionResult {
+  branches: Record<string, boolean>
+  ruleset: boolean
+}
+
+export async function protectBranches(repo: string): Promise<ProtectionResult> {
+  const result: ProtectionResult = { branches: {}, ruleset: false }
 
   for (const branch of PROTECTED_BRANCHES) {
     try {
@@ -35,11 +40,45 @@ export async function protectBranches(repo: string): Promise<Record<string, bool
         await delProc.exited // 204 = removed, 404 = already absent — both OK
       }
 
-      results[branch] = code === 0
+      result.branches[branch] = code === 0
     } catch {
-      results[branch] = false
+      result.branches[branch] = false
     }
   }
 
-  return results
+  // Create or update PR_Main ruleset (idempotent)
+  result.ruleset = await ensureRuleset(repo)
+
+  return result
+}
+
+/**
+ * Ensure the PR_Main ruleset exists. If it already exists, skip.
+ * Returns true on success or if already present.
+ */
+async function ensureRuleset(repo: string): Promise<boolean> {
+  try {
+    // Check existing rulesets
+    const listResult = Bun.spawnSync(['gh', 'api', `repos/${repo}/rulesets`, '--jq', '.[].name'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    if (listResult.exitCode === 0) {
+      const names = new TextDecoder().decode(listResult.stdout).trim()
+      if (names.split('\n').includes(DEFAULT_RULESET.name)) {
+        return true // already exists
+      }
+    }
+
+    // Create ruleset
+    const payload = JSON.stringify(DEFAULT_RULESET)
+    const createProc = Bun.spawn(['gh', 'api', `repos/${repo}/rulesets`, '--method', 'POST', '--input', '-'], {
+      stdin: new TextEncoder().encode(payload),
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    return (await createProc.exited) === 0
+  } catch {
+    return false
+  }
 }

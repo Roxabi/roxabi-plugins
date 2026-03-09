@@ -5,7 +5,13 @@
  * Exit code: 0 = all pass, 1 = any failure.
  */
 
-import { PROTECTED_BRANCHES, REQUIRED_SECRETS, STANDARD_LABELS, STANDARD_WORKFLOWS } from '../shared/config'
+import {
+  DEFAULT_RULESET,
+  PROTECTED_BRANCHES,
+  REQUIRED_SECRETS,
+  STANDARD_LABELS,
+  STANDARD_WORKFLOWS,
+} from '../shared/adapters/config-helpers'
 import { checkPrereqs, type PrereqResult } from '../shared/prereqs'
 
 // --- Types ---
@@ -366,6 +372,40 @@ function checkBranchProtection(ghOk: boolean, owner: string, repo: string): Sect
   return { name: 'Branch protection', checks }
 }
 
+function checkRulesets(ghOk: boolean, owner: string, repo: string): Section {
+  if (!ghOk || !owner || !repo)
+    return {
+      name: 'Rulesets',
+      checks: [{ name: DEFAULT_RULESET.name, status: 'skip', detail: 'gh CLI not available' }],
+    }
+
+  const result = spawnSync(['gh', 'api', `repos/${owner}/${repo}/rulesets`, '--jq', '.[].name'])
+  if (!result.ok)
+    return {
+      name: 'Rulesets',
+      checks: [{ name: DEFAULT_RULESET.name, status: 'warn', detail: 'could not fetch rulesets' }],
+    }
+
+  const existing = result.stdout
+    .split('\n')
+    .map((n) => n.trim())
+    .filter((n) => n)
+  const hasRuleset = existing.includes(DEFAULT_RULESET.name)
+
+  return {
+    name: 'Rulesets',
+    checks: [
+      {
+        name: DEFAULT_RULESET.name,
+        status: hasRuleset ? 'pass' : 'warn',
+        detail: hasRuleset
+          ? 'active (squash/rebase only, no deletion, no force push, thread resolution)'
+          : 'missing — run /init to create (enforces squash/rebase merges, thread resolution)',
+      },
+    ],
+  }
+}
+
 function checkProjectStructure(): Section {
   const checks: Check[] = []
 
@@ -659,6 +699,100 @@ function checkCIPermissions(ghOk: boolean, owner: string, repo: string): Section
   return { name: 'CI permissions', checks }
 }
 
+function checkStandardsPaths(): Section {
+  const fs = require('node:fs') as typeof import('fs')
+  const checks: Check[] = []
+
+  if (!fs.existsSync('.claude/stack.yml')) {
+    return { name: 'Standards', checks: [{ name: 'stack.yml', status: 'skip', detail: 'not found' }] }
+  }
+
+  try {
+    const raw = fs.readFileSync('.claude/stack.yml', 'utf8') as string
+    const lines = raw.split('\n')
+    let inStandards = false
+
+    for (const line of lines) {
+      if (/^standards:\s*$/.test(line)) {
+        inStandards = true
+        continue
+      }
+      if (inStandards) {
+        if (/^\S/.test(line)) break // new top-level key
+        const match = line.match(/^\s+(\w+):\s*(.+?)\s*(#.*)?$/)
+        if (!match) continue
+        const [, key, path] = match
+        const trimmedPath = path.trim()
+        if (!trimmedPath) continue
+        const exists = fs.existsSync(trimmedPath)
+        if (!exists) {
+          checks.push({
+            name: `standards.${key}`,
+            status: 'warn',
+            detail: `path not found: ${trimmedPath} — run /init scaffold-docs or create manually`,
+          })
+          continue
+        }
+
+        const stat = fs.statSync(trimmedPath)
+        if (stat.isDirectory()) {
+          // Check if the directory has at least one non-stub file (> 10 lines)
+          let hasSubstantialFile = false
+          try {
+            const entries = fs.readdirSync(trimmedPath) as string[]
+            for (const entry of entries) {
+              const entryPath = `${trimmedPath}/${entry}`
+              const entryStat = fs.statSync(entryPath)
+              if (entryStat.isFile()) {
+                const entryContent = fs.readFileSync(entryPath, 'utf8') as string
+                if (entryContent.split('\n').length > 10) {
+                  hasSubstantialFile = true
+                  break
+                }
+              }
+            }
+          } catch {}
+          checks.push({
+            name: `standards.${key}`,
+            status: hasSubstantialFile ? 'pass' : 'warn',
+            detail: hasSubstantialFile
+              ? trimmedPath
+              : `${trimmedPath} — all files appear to be stubs — run /analyze or fill manually`,
+          })
+        } else {
+          // File: check line count and TODO markers
+          let fileStatus: 'pass' | 'warn' = 'pass'
+          let fileDetail = trimmedPath
+          try {
+            const content = fs.readFileSync(trimmedPath, 'utf8') as string
+            const lineCount = content.split('\n').length
+            if (lineCount < 10) {
+              fileStatus = 'warn'
+              fileDetail = `${trimmedPath} — appears to be a stub (${lineCount} lines) — run /analyze or fill manually`
+            } else if (content.includes('TODO:') && lineCount < 30) {
+              fileStatus = 'warn'
+              fileDetail = `${trimmedPath} — has TODO markers — fill with project-specific content or run /analyze`
+            }
+          } catch {}
+          checks.push({
+            name: `standards.${key}`,
+            status: fileStatus,
+            detail: fileDetail,
+          })
+        }
+      }
+    }
+
+    if (checks.length === 0) {
+      checks.push({ name: 'standards', status: 'skip', detail: 'no standards paths configured in stack.yml' })
+    }
+  } catch {
+    checks.push({ name: 'standards', status: 'skip', detail: 'could not parse stack.yml' })
+  }
+
+  return { name: 'Standards', checks }
+}
+
 // --- Output formatting ---
 
 const ICONS: Record<Status, string> = { pass: '✅', fail: '❌', warn: '⚠️', skip: '⏭' }
@@ -717,7 +851,9 @@ const sections: Section[] = [
   checkSecrets(ghOk, owner, repo),
   checkProjectWorkflows(ghOk, owner),
   checkBranchProtection(ghOk, owner, fullRepo),
+  checkRulesets(ghOk, owner, repo),
   checkProjectStructure(),
+  checkStandardsPaths(),
   checkSecurity(),
   checkVercel(),
   checkCIPermissions(ghOk, owner, repo),

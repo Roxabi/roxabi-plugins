@@ -1,0 +1,46 @@
+---
+title: Define documentation strategy across all Roxabi projects
+issue: 38
+status: approved
+tier: F-lite
+date: 2026-03-09
+---
+
+## Problem
+
+Roxabi spans five active projects (roxabi-plugins, lyra, voiceCLI, roxabi-dashboard, roxabi_site), each in a different documentation state: some use Fumadocs, others have no docs at all. There is no shared strategy — no agreed tool, structure, or hosting model — which makes it impossible for contributors to know where to write docs or for users to find them in a consistent place.
+
+The lack of strategy also creates divergence risk: as new projects are added or `/init` scaffolds docs directories, each project will independently reinvent its approach, compounding the inconsistency.
+
+## Who
+
+- **Primary:** Roxabi core contributors — need a clear decision on tooling and structure so they can scaffold and write docs with confidence
+- **Secondary:** External users of Roxabi tools — benefit from consistent, discoverable documentation across all projects
+
+## Constraints
+
+- **Must use Fumadocs** — already in use in some projects; the strategy must build on it rather than replace it
+- The decision must be implementable without introducing new hosting costs
+
+## Out of Scope
+
+- Writing the actual documentation content (this issue is strategy + structure only)
+- Auto-generated API reference from source code
+- Versioned documentation (per-release docs)
+- Internationalization / translation
+
+## Options to Evaluate
+
+- **Centralized Fumadocs portal** — one portal aggregating all projects' docs
+- **Per-project docs** — each project owns and hosts its own docs site
+- **Hybrid** — per-project source files, aggregated into a shared portal at build time
+
+## Complexity
+
+**Tier: F-lite** — Clear scope (strategy document + scaffolding), single tooling domain (Fumadocs), no unknown architecture patterns.
+
+Signals observed:
+- M label on issue
+- Single tooling domain (Fumadocs already chosen as constraint)
+- No cross-domain architectural changes
+- Deliverable is a decision doc + scaffolding convention, not a large implementation

@@ -20,6 +20,13 @@
     }
   },
   "files": {
-    "includes": ["**/*.ts", "**/*.js", "!node_modules", "!plugins/web-intel/.venv", "!plugins/dev-core/cli/__tests__"]
+    "includes": [
+      "**/*.ts",
+      "**/*.js",
+      "!node_modules",
+      "!plugins/web-intel/.venv",
+      "!plugins/dev-core/cli/__tests__",
+      "!.cache"
+    ]
   }
 }

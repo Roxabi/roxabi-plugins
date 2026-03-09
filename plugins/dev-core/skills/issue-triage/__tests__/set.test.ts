@@ -30,7 +30,7 @@ process.env.PRIORITY_OPTIONS_JSON = JSON.stringify({
 
 // Mock config before github — vi.mock is hoisted before process.env assignments,
 // so importOriginal would load config.ts with empty env vars. Manual factory is required.
-vi.mock('../../shared/config', () => ({
+vi.mock('../../shared/adapters/config-helpers', () => ({
   isProjectConfigured: () => true,
   NOT_CONFIGURED_MSG: 'GitHub Project V2 is not configured.',
   GH_PROJECT_ID: 'PVT_test',
@@ -88,7 +88,7 @@ vi.mock('../../shared/config', () => ({
   },
 }))
 
-vi.mock('../../shared/github', () => ({
+vi.mock('../../shared/adapters/github-adapter', () => ({
   getItemId: vi.fn(),
   getNodeId: vi.fn(),
   getParentNumber: vi.fn(),
@@ -99,7 +99,7 @@ vi.mock('../../shared/github', () => ({
   removeSubIssue: vi.fn(),
 }))
 
-const github = await import('../../shared/github')
+const github = await import('../../shared/adapters/github-adapter')
 const mockGetItemId = github.getItemId as ReturnType<typeof vi.fn>
 const mockGetNodeId = github.getNodeId as ReturnType<typeof vi.fn>
 const mockUpdateField = github.updateField as ReturnType<typeof vi.fn>

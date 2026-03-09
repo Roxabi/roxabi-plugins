@@ -15,12 +15,12 @@ export {
   STATUS_FIELD_ID,
   STATUS_OPTIONS,
   STATUS_SHORT,
-} from '../../shared/config'
+} from '../../shared/adapters/config-helpers'
 
 export { ISSUES_QUERY as QUERY, ITEM_ID_QUERY, UPDATE_FIELD_MUTATION } from '../../shared/queries'
 
 import { existsSync, readFileSync } from 'node:fs'
-import { detectGitHubRepo } from '../../shared/config'
+import { detectGitHubRepo } from '../../shared/adapters/config-helpers'
 
 interface WorkspaceProject {
   repo: string

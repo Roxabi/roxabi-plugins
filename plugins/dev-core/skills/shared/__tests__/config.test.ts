@@ -27,7 +27,7 @@ const {
   BRANCH_PROTECTION_PAYLOAD,
   STATUS_ALIASES,
   STATUS_OPTIONS,
-} = await import('../config')
+} = await import('../adapters/config-helpers')
 
 describe('shared/config', () => {
   describe('option maps', () => {
@@ -155,8 +155,8 @@ describe('shared/config', () => {
 })
 
 describe('STANDARD_LABELS', () => {
-  it('has exactly 15 labels', () => {
-    expect(STANDARD_LABELS).toHaveLength(15)
+  it('has exactly 11 labels', () => {
+    expect(STANDARD_LABELS).toHaveLength(11)
   })
 
   it('all names are unique', () => {
@@ -170,10 +170,10 @@ describe('STANDARD_LABELS', () => {
     }
   })
 
-  it('has correct category counts (6 type, 5 area, 4 priority)', () => {
-    const counts = { type: 0, area: 0, priority: 0 }
+  it('has correct category counts (6 type, 5 area)', () => {
+    const counts = { type: 0, area: 0 }
     for (const label of STANDARD_LABELS) counts[label.category]++
-    expect(counts).toEqual({ type: 6, area: 5, priority: 4 })
+    expect(counts).toEqual({ type: 6, area: 5 })
   })
 })
 

@@ -40,7 +40,7 @@ const mockRun = vi.fn(async (args: string[]) => {
 
 const mockGhGraphQL = vi.fn(async () => ({ data: { node: { workflows: { nodes: [] } } } }))
 
-vi.mock('../../shared/github', () => ({
+vi.mock('../../shared/adapters/github-adapter', () => ({
   run: mockRun,
   linkProjectToRepo: vi.fn(),
   parseProjectFields: (json: string) => {
@@ -69,7 +69,7 @@ vi.mock('../../shared/github', () => ({
 const mockWriteWorkspace = vi.fn(() => {})
 const mockReadWorkspace = vi.fn(() => ({ projects: [] }))
 
-vi.mock('../../shared/workspace', () => ({
+vi.mock('../../shared/adapters/workspace-helpers', () => ({
   readWorkspace: mockReadWorkspace,
   writeWorkspace: mockWriteWorkspace,
   getWorkspacePath: () => '/tmp/test-workspace.json',

@@ -8,8 +8,15 @@
  * Features: in-memory cache, background polling, SSE live updates, multi-project workspace.
  */
 
-import type { VercelProjectRef, WorkspaceProject } from '../shared/workspace'
-import { discoverProject, readWorkspace, writeWorkspace } from '../shared/workspace'
+import {
+  addToProject,
+  getItemId,
+  getNodeId,
+  getProjectTitle,
+  removeFromProject,
+} from '../shared/adapters/github-adapter'
+import { discoverProject, readWorkspace, writeWorkspace } from '../shared/adapters/workspace-helpers'
+import type { VercelProjectRef, WorkspaceProject } from '../shared/ports/workspace'
 import {
   fetchAllProjects,
   fetchBranchCI,
@@ -25,11 +32,23 @@ import { buildHtml } from './lib/page'
 import type { Branch, BranchCI, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './lib/types'
 import { handleUpdate } from './lib/update'
 
-type ProjectMeta = { prs: PR[]; branchCI: BranchCI[]; workflowRuns: WorkflowRun[]; deployments: VercelDeployment[] }
+type ProjectMeta = {
+  prs: PR[]
+  branchCI: BranchCI[]
+  workflowRuns: WorkflowRun[]
+  deployments: VercelDeployment[]
+  branches: Branch[]
+  worktrees: Worktree[]
+}
 
 const PORT = Number(process.argv.find((a) => a.startsWith('--port='))?.split('=')[1] ?? 3333)
 const POLL_MS = Number(process.argv.find((a) => a.startsWith('--poll='))?.split('=')[1] ?? 60) * 1000
 const PID_FILE = `${import.meta.dirname}/.dashboard.pid`
+
+// ---------------------------------------------------------------------------
+// Roadmap project title cache (fetched once per process lifetime)
+// ---------------------------------------------------------------------------
+let cachedRoadmapLabel: string | undefined
 
 // ---------------------------------------------------------------------------
 // Cache
@@ -93,43 +112,128 @@ async function refreshCache(): Promise<void> {
     let byProject: Map<string, Issue[]> | null = null
     let byProjectMeta: Map<string, ProjectMeta> | null = null
 
+    // Fetch roadmap items (and title, once) if configured
+    let roadmapItems: Issue[] | undefined
+    let roadmapLabel = cachedRoadmapLabel
+    const ROADMAP_KEY = '__roadmap__'
+
     if (ws.projects.length > 0) {
-      const [rawMap, metaResults, branches_, worktrees_] = await Promise.all([
-        fetchAllProjects(ws.projects),
-        Promise.all(
-          ws.projects.map(async (p) => ({
-            label: p.label,
-            prs: await fetchPRs(p.repo),
-            branchCI: await fetchBranchCI(p.repo),
-            workflowRuns: await fetchWorkflowRuns(p.repo),
-            deployments: (
-              await Promise.all(resolveVercelProjects(p).map((vp) => fetchVercelDeployments(vp.projectId, vp.teamId)))
-            ).flat(),
-          })),
-        ),
-        fetchBranches(),
-        fetchWorktrees(),
-      ])
+      // Build a single batched entry list: workspace projects + roadmap (if any)
+      const allEntries: { label: string; projectId: string }[] = [...ws.projects]
+      if (ws.roadmapProjectId) allEntries.push({ label: ROADMAP_KEY, projectId: ws.roadmapProjectId })
+
+      // Deduplicate repos so PRs/BranchCI are fetched once per repo
+      const uniqueRepos = [...new Set(ws.projects.map((p) => p.repo))]
+
+      const [{ items: rawMap, truncated: truncatedLabels }, prsByRepo, branchCIByRepo, titleResult, metaResults] =
+        await Promise.all([
+          fetchAllProjects(allEntries),
+          Promise.all(uniqueRepos.map((repo) => fetchPRs(repo).then((prs) => [repo, prs] as const))),
+          Promise.all(uniqueRepos.map((repo) => fetchBranchCI(repo).then((ci) => [repo, ci] as const))),
+          ws.roadmapProjectId && !cachedRoadmapLabel
+            ? getProjectTitle(ws.roadmapProjectId)
+            : Promise.resolve(cachedRoadmapLabel),
+          Promise.all(
+            ws.projects.map(async (p) => {
+              const [workflowRuns, deployments, branches, worktrees] = await Promise.all([
+                fetchWorkflowRuns(p.repo),
+                Promise.all(resolveVercelProjects(p).map((vp) => fetchVercelDeployments(vp.projectId, vp.teamId))).then(
+                  (r) => r.flat(),
+                ),
+                p.localPath ? fetchBranches(p.localPath) : Promise.resolve([]),
+                p.localPath ? fetchWorktrees(p.localPath) : Promise.resolve([]),
+              ])
+              return { label: p.label, workflowRuns, deployments, branches, worktrees }
+            }),
+          ),
+        ])
+
+      const prsMap = new Map(prsByRepo)
+      const branchCIMap = new Map(branchCIByRepo)
+
+      // Resolve roadmap from batched result
+      if (ws.roadmapProjectId) {
+        try {
+          const rawRoadmap = rawMap.get(ROADMAP_KEY) ?? []
+          roadmapItems = rawItemsToIssues(rawRoadmap)
+          roadmapLabel = titleResult ?? undefined
+          if (!cachedRoadmapLabel && roadmapLabel) cachedRoadmapLabel = roadmapLabel
+        } catch (err) {
+          console.error('[dashboard] roadmap fetch failed:', err instanceof Error ? err.message : err)
+          roadmapItems = []
+        }
+      }
+
+      // Attach PRs/BranchCI per project from deduplicated maps
+      const metaResultsWithCI = metaResults.map((m) => {
+        const repo = ws.projects.find((p) => p.label === m.label)?.repo ?? ''
+        return {
+          ...m,
+          prs: prsMap.get(repo) ?? [],
+          branchCI: branchCIMap.get(repo) ?? [],
+        }
+      })
 
       byProject = new Map<string, Issue[]>()
       for (const [label, rawItems] of rawMap) {
+        if (label === ROADMAP_KEY) continue // roadmap handled separately
         const proj = ws.projects.find((p) => p.label === label)
         const type = proj?.type ?? 'technical'
         const slotNames = type === 'company' ? { col2: 'Quarter', col3: 'Pillar' } : { col2: 'Size', col3: 'Priority' }
         byProject.set(label, rawItemsToIssues(rawItems, slotNames))
       }
       issues = [...byProject.values()].flat()
+
+      // Tag each issue with the list of projects it belongs to (for context menu add/remove).
+      // Key: "owner/repo:number" to avoid collisions across repos.
+      const issueProjectsMap = new Map<string, string[]>()
+      for (const [label, projectIssues] of byProject.entries()) {
+        const repo = ws.projects.find((p) => p.label === label)?.repo ?? ''
+        for (const issue of projectIssues) {
+          const key = `${repo}:${issue.number}`
+          const existing = issueProjectsMap.get(key)
+          if (existing) existing.push(label)
+          else issueProjectsMap.set(key, [label])
+        }
+      }
+      for (const [label, projectIssues] of byProject.entries()) {
+        const repo = ws.projects.find((p) => p.label === label)?.repo ?? ''
+        for (const issue of projectIssues) {
+          issue.inProjects = issueProjectsMap.get(`${repo}:${issue.number}`) ?? []
+          for (const child of issue.children) {
+            child.inProjects = issueProjectsMap.get(`${repo}:${child.number}`) ?? issue.inProjects
+          }
+        }
+      }
+      // Tag roadmap items: cross-reference with workspace projects + add the roadmap itself
+      if (roadmapItems) {
+        for (const item of roadmapItems) {
+          const itemRepo = item.url.match(/github\.com\/([^/]+\/[^/]+)\//)?.[1] ?? ''
+          const projectLabels = issueProjectsMap.get(`${itemRepo}:${item.number}`) ?? []
+          item.inProjects = roadmapLabel ? [...projectLabels, roadmapLabel] : projectLabels
+        }
+      }
+
       byProjectMeta = new Map(
-        metaResults.map((m) => [
+        metaResultsWithCI.map((m) => [
           m.label,
-          { prs: m.prs, branchCI: m.branchCI, workflowRuns: m.workflowRuns, deployments: m.deployments },
+          {
+            prs: m.prs,
+            branchCI: m.branchCI,
+            workflowRuns: m.workflowRuns,
+            deployments: m.deployments,
+            branches: m.branches,
+            worktrees: m.worktrees,
+          },
         ]),
       )
 
-      const prs = metaResults.flatMap((m) => m.prs)
-      const branchCI = metaResults.flatMap((m) => m.branchCI)
-      const workflowRuns = metaResults.flatMap((m) => m.workflowRuns)
-      const deployments_ = metaResults.flatMap((m) => m.deployments)
+      const prs = metaResultsWithCI.flatMap((m) => m.prs)
+      const branches_ = metaResultsWithCI.flatMap((m) => m.branches)
+      const worktrees_ = metaResultsWithCI.flatMap((m) => m.worktrees)
+      const branchCI = metaResultsWithCI.flatMap((m) => m.branchCI)
+      const workflowRuns = metaResultsWithCI.flatMap((m) => m.workflowRuns)
+      const deployments_ = metaResultsWithCI.flatMap((m) => m.deployments)
       const fetchMs = Math.round(performance.now() - start)
       const hash = computeHash(issues, prs, branches_, worktrees_, deployments_, branchCI, workflowRuns)
       const workspaceChanged = !cache || cache.workspaceHash !== newWorkspaceHash
@@ -142,7 +246,10 @@ async function refreshCache(): Promise<void> {
         type: p.type,
         fieldIds: p.fieldIds,
         vercelProjects: p.vercelProjects,
+        localPath: p.localPath,
       })) as WorkspaceProject[]
+      const roadmapProject =
+        ws.roadmapProjectId && roadmapLabel ? { label: roadmapLabel, projectId: ws.roadmapProjectId } : undefined
       const html = buildHtml(
         issues,
         prs,
@@ -156,6 +263,9 @@ async function refreshCache(): Promise<void> {
         byProject,
         wsProjects,
         byProjectMeta,
+        roadmapItems,
+        roadmapProject,
+        truncatedLabels.length > 0 ? truncatedLabels : undefined,
       )
       cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
       if (changed) notifyClients()
@@ -202,6 +312,9 @@ async function refreshCache(): Promise<void> {
       updatedAt,
       byProject ?? undefined,
       wsProjects.length > 0 ? (wsProjects as WorkspaceProject[]) : undefined,
+      undefined,
+      roadmapItems,
+      ws.roadmapProjectId && roadmapLabel ? { label: roadmapLabel, projectId: ws.roadmapProjectId } : undefined,
     )
     cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
 
@@ -360,6 +473,51 @@ const server = Bun.serve({
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[dashboard] workspace/remove error:', msg)
         return Response.json({ ok: false, error: 'Workspace update failed — check server logs' }, { status: 400 })
+      }
+    }
+
+    // Add/remove an issue from a project
+    if (url.pathname === '/api/project-item' && req.method === 'POST') {
+      try {
+        const body = (await req.json()) as {
+          issueNumber: number
+          projectLabel: string
+          action: 'add' | 'remove'
+          issueRepo?: string
+          projectId?: string // direct projectId for roadmap (not in ws.projects)
+        }
+        const { issueNumber, projectLabel, action, issueRepo, projectId: directProjectId } = body
+        const ws = readWorkspace()
+
+        // Find project in ws.projects, or fall back to the roadmap project
+        const project = ws.projects.find((p) => p.label === projectLabel)
+        const resolvedProjectId =
+          project?.projectId ??
+          (directProjectId ||
+            (ws.roadmapProjectId && cachedRoadmapLabel === projectLabel ? ws.roadmapProjectId : undefined))
+        if (!resolvedProjectId) {
+          return Response.json({ ok: false, error: `Unknown project: ${projectLabel}` }, { status: 400 })
+        }
+
+        // Use issueRepo from browser (supports cross-repo roadmap items); fall back to project repo
+        const repoForApi = issueRepo || project?.repo || ''
+        if (!repoForApi) {
+          return Response.json({ ok: false, error: 'Cannot determine issue repo' }, { status: 400 })
+        }
+
+        if (action === 'add') {
+          const nodeId = await getNodeId(issueNumber, repoForApi)
+          await addToProject(nodeId, resolvedProjectId)
+        } else {
+          const itemId = await getItemId(issueNumber, { projectId: resolvedProjectId, repo: repoForApi })
+          await removeFromProject(itemId, resolvedProjectId)
+        }
+        refreshCache()
+        return Response.json({ ok: true })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[dashboard] project-item error:', msg)
+        return Response.json({ ok: false, error: 'Operation failed — check server logs' }, { status: 500 })
       }
     }
 

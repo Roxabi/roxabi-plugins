@@ -3,7 +3,7 @@ name: spec
 argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit]'
 description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch, AskUserQuestion
 ---
 
 # Spec
@@ -88,9 +88,22 @@ Write `artifacts/specs/{N}-{slug}-spec.mdx`. σ must include:
 | `## Goal` — one-sentence outcome | — |
 | `## Users` — who is affected | — |
 | `## Expected Behavior` — narrative walkthrough | — |
+| `## Data Model & Consumers` — mermaid diagrams (see below) | Tier S |
 | `## Breadboard` — affordance tables + wiring | Tier S |
 | `## Slices` — vertical increments table | Tier S |
 | `## Success Criteria` — `- [ ]` checkboxes, each binary | — |
+
+### Mermaid Diagrams (Tier F-lite, F-full)
+
+`## Data Model & Consumers` section must include:
+
+1. **Data structure diagram** (`classDiagram`) — show core data types/models introduced or modified, with fields and relationships. Frozen/mutable annotations where relevant.
+
+2. **Consumer map** (`flowchart`) — show who consumes the data, which fields they read, and when. Distinguish current consumers (solid lines, this issue) from future consumers (dashed lines, out of scope but fields must be accessible).
+
+3. **Consumer summary table** — map each consumer to: fields consumed, when, status (this issue / future).
+
+Diagrams go BEFORE the Breadboard section. They answer "what is the data shape and who uses it" while the Breadboard answers "how do the pieces wire together."
 
 May contain χ (max 3–5). χ items block `/plan` — must be resolved first.
 

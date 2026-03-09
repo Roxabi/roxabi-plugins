@@ -3,7 +3,7 @@
  * Supports both local write (writeWorkflows) and REST API push (pushWorkflows).
  */
 
-import { run } from '../../shared/github'
+import { run } from '../../shared/adapters/github-adapter'
 
 export interface WorkflowOpts {
   stack: 'bun' | 'node' | 'python'
@@ -83,7 +83,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Close issues referenced with closing keywords
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const body = context.payload.pull_request.body || '';
@@ -133,7 +133,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check PR title follows Conventional Commits
-        uses: amannn/action-semantic-pull-request@v5
+        uses: amannn/action-semantic-pull-request@v6
         with:
           types: |
             feat
@@ -202,7 +202,7 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 ${setupStep}
       - name: Lint
         run: ${lintCmd}
@@ -213,7 +213,7 @@ ${setupStep}
     name: Secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: TruffleHog secret scan
@@ -258,7 +258,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 ${setupStep}
 ${deployStep}
 `
