@@ -1,24 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-
 import { scaffoldFumadocs } from '../lib/fumadocs'
-
-const EXPECTED_DIRS = ['apps/docs/app/docs/[[...slug]]', 'apps/docs/src/lib', 'docs']
-
-const EXPECTED_FILES = [
-  'apps/docs/source.config.ts',
-  'apps/docs/next.config.ts',
-  'apps/docs/src/lib/source.ts',
-  'apps/docs/app/layout.tsx',
-  'apps/docs/app/page.tsx',
-  'apps/docs/app/docs/layout.tsx',
-  'apps/docs/app/docs/[[...slug]]/page.tsx',
-  'apps/docs/package.json',
-  'docs/index.mdx',
-  'docs/meta.json',
-]
 
 describe('scaffoldFumadocs', () => {
   let tmpDir: string
@@ -31,98 +15,153 @@ describe('scaffoldFumadocs', () => {
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('creates all expected directories and files', async () => {
-    // Arrange
-    // (temp dir already exists, no pre-existing files)
+  const EXPECTED_DIRS = [
+    'apps/docs/app/docs/[[...slug]]',
+    'apps/docs/src/lib',
+    'apps/docs/src/components/mdx',
+    'docs',
+  ]
 
-    // Act
-    const result = await scaffoldFumadocs(tmpDir)
+  const EXPECTED_FILES = [
+    'apps/docs/source.config.ts',
+    'apps/docs/next.config.ts',
+    'apps/docs/postcss.config.mjs',
+    'apps/docs/globals.css',
+    'apps/docs/mdx-components.tsx',
+    'apps/docs/tsconfig.json',
+    'apps/docs/package.json',
+    'apps/docs/src/lib/source.ts',
+    'apps/docs/src/lib/shiki.ts',
+    'apps/docs/src/components/mdx/Mermaid.tsx',
+    'apps/docs/app/layout.tsx',
+    'apps/docs/app/page.tsx',
+    'apps/docs/app/docs/layout.tsx',
+    'apps/docs/app/docs/[[...slug]]/page.tsx',
+    'docs/index.mdx',
+    'docs/meta.json',
+  ]
 
-    // Assert — all expected files are in filesCreated
-    for (const file of EXPECTED_FILES) {
-      expect(result.filesCreated, `expected ${file} to be created`).toContain(file)
-    }
+  describe('creates all expected dirs', () => {
+    it('creates all 4 required directories', () => {
+      // Arrange + Act
+      scaffoldFumadocs(tmpDir)
 
-    // All expected dirs appear in dirsCreated
-    for (const dir of EXPECTED_DIRS) {
-      expect(result.dirsCreated, `expected ${dir} to be created`).toContain(dir)
-    }
-
-    // Nothing should be skipped on a clean run
-    expect(result.filesSkipped).toHaveLength(0)
-    expect(result.warnings).toHaveLength(0)
+      // Assert
+      for (const dir of EXPECTED_DIRS) {
+        const fullPath = join(tmpDir, dir)
+        expect(fullPath, `Expected dir to exist: ${dir}`).toSatisfy((p: string) => {
+          const { existsSync } = require('node:fs')
+          return existsSync(p)
+        })
+      }
+    })
   })
 
-  it('skips a file that already exists (additive-only)', async () => {
-    // Arrange — create the package.json before scaffolding
-    const packageJsonRel = 'apps/docs/package.json'
-    const packageJsonAbs = join(tmpDir, packageJsonRel)
-    mkdirSync(join(tmpDir, 'apps/docs'), { recursive: true })
-    writeFileSync(packageJsonAbs, JSON.stringify({ name: 'pre-existing' }))
+  describe('creates all expected files', () => {
+    it('creates all 16 expected files', () => {
+      // Arrange + Act
+      scaffoldFumadocs(tmpDir)
 
-    // Act
-    const result = await scaffoldFumadocs(tmpDir)
-
-    // Assert — pre-existing file is in filesSkipped, not filesCreated
-    expect(result.filesSkipped).toContain(packageJsonRel)
-    expect(result.filesCreated).not.toContain(packageJsonRel)
-
-    // Other files should still be created
-    expect(result.filesCreated).toContain('docs/index.mdx')
-    expect(result.filesCreated).toContain('apps/docs/source.config.ts')
+      // Assert
+      for (const file of EXPECTED_FILES) {
+        const fullPath = join(tmpDir, file)
+        expect(fullPath, `Expected file to exist: ${file}`).toSatisfy((p: string) => {
+          const { existsSync } = require('node:fs')
+          return existsSync(p)
+        })
+      }
+    })
   })
 
-  it('returns a warning for each skipped file', async () => {
-    // Arrange — create two files in advance
-    const file1Rel = 'docs/index.mdx'
-    const file2Rel = 'docs/meta.json'
-    mkdirSync(join(tmpDir, 'docs'), { recursive: true })
-    writeFileSync(join(tmpDir, file1Rel), '# existing')
-    writeFileSync(join(tmpDir, file2Rel), '{}')
+  describe('returns correct result counts', () => {
+    it('returns filesCreated=16, filesSkipped=0, warnings=0, dirsCreated=4 on first call', () => {
+      // Arrange + Act
+      const result = scaffoldFumadocs(tmpDir)
 
-    // Act
-    const result = await scaffoldFumadocs(tmpDir)
-
-    // Assert — one warning per skipped file
-    expect(result.warnings).toHaveLength(2)
-
-    const warningText = result.warnings.join('\n')
-    expect(warningText).toContain(file1Rel)
-    expect(warningText).toContain(file2Rel)
+      // Assert
+      expect(result.filesCreated.length).toBe(16)
+      expect(result.filesSkipped.length).toBe(0)
+      expect(result.warnings.length).toBe(0)
+      expect(result.dirsCreated.length).toBe(4)
+    })
   })
 
-  it('omits pre-existing dirs from dirsCreated', async () => {
-    // Arrange — create the docs dir in advance
-    mkdirSync(join(tmpDir, 'docs'), { recursive: true })
+  describe('additive-only: skips existing files', () => {
+    it('second call returns filesSkipped=16, filesCreated=0, warnings=16', () => {
+      // Arrange
+      scaffoldFumadocs(tmpDir)
 
-    // Act
-    const result = await scaffoldFumadocs(tmpDir)
-
-    // Assert — pre-existing dir not in dirsCreated
-    expect(result.dirsCreated).not.toContain('docs')
-    // Other dirs still created
-    expect(result.dirsCreated).toContain('apps/docs/src/lib')
-    // No error — scaffold still completes
-    expect(result.filesCreated.length).toBeGreaterThan(0)
-  })
-
-  it('uses projectRoot as the base path, not process.cwd()', async () => {
-    // Arrange — a second temp dir that is not cwd
-    const anotherTmpDir = mkdtempSync(join(tmpdir(), 'fumadocs-cwd-test-'))
-
-    try {
       // Act
-      const result = await scaffoldFumadocs(anotherTmpDir)
+      const secondResult = scaffoldFumadocs(tmpDir)
 
-      // Assert — files were created relative to anotherTmpDir
-      expect(result.filesCreated.length).toBeGreaterThan(0)
-      // Nothing should land in cwd
-      expect(result.filesCreated).toContain('docs/index.mdx')
-      expect(existsSync(join(anotherTmpDir, 'docs/index.mdx'))).toBe(true)
-      // Also verify files did NOT land in tmpDir (the outer temp dir)
-      expect(existsSync(join(tmpDir, 'docs/index.mdx'))).toBe(false)
-    } finally {
-      rmSync(anotherTmpDir, { recursive: true, force: true })
-    }
+      // Assert
+      expect(secondResult.filesSkipped.length).toBe(16)
+      expect(secondResult.filesCreated.length).toBe(0)
+      expect(secondResult.warnings.length).toBe(16)
+    })
+  })
+
+  describe('additive-only: partial skip', () => {
+    it('pre-existing file appears in filesSkipped and not in filesCreated', () => {
+      // Arrange — create the docs directory and one file manually before scaffolding
+      const { mkdirSync } = require('node:fs')
+      const preExistingRelPath = 'docs/index.mdx'
+      const preExistingFullPath = join(tmpDir, preExistingRelPath)
+      mkdirSync(join(tmpDir, 'docs'), { recursive: true })
+      writeFileSync(preExistingFullPath, '# Pre-existing content\n', 'utf8')
+
+      // Act
+      const result = scaffoldFumadocs(tmpDir)
+
+      // Assert
+      expect(result.filesSkipped).toContain(preExistingRelPath)
+      expect(result.filesCreated).not.toContain(preExistingRelPath)
+      expect(result.filesCreated.length).toBe(15)
+      expect(result.filesSkipped.length).toBe(1)
+      expect(result.warnings.length).toBe(1)
+    })
+  })
+
+  describe('content spot-checks', () => {
+    it('apps/docs/app/layout.tsx contains https://roxabi.com', () => {
+      // Arrange + Act
+      scaffoldFumadocs(tmpDir)
+
+      // Assert
+      const content = readFileSync(join(tmpDir, 'apps/docs/app/layout.tsx'), 'utf8')
+      expect(content).toContain('https://roxabi.com')
+    })
+
+    it('apps/docs/package.json is valid JSON with a fumadocs-ui dependency', () => {
+      // Arrange + Act
+      scaffoldFumadocs(tmpDir)
+
+      // Assert
+      const raw = readFileSync(join(tmpDir, 'apps/docs/package.json'), 'utf8')
+      const parsed = JSON.parse(raw)
+      expect(parsed).toBeDefined()
+      expect(parsed.dependencies).toHaveProperty('fumadocs-ui')
+    })
+
+    it('docs/meta.json is valid JSON with pages array containing "index"', () => {
+      // Arrange + Act
+      scaffoldFumadocs(tmpDir)
+
+      // Assert
+      const raw = readFileSync(join(tmpDir, 'docs/meta.json'), 'utf8')
+      const parsed = JSON.parse(raw)
+      expect(parsed).toBeDefined()
+      expect(Array.isArray(parsed.pages)).toBe(true)
+      expect(parsed.pages).toContain('index')
+    })
+
+    it('apps/docs/src/lib/shiki.ts contains experimentalJSEngine', () => {
+      // Arrange + Act
+      scaffoldFumadocs(tmpDir)
+
+      // Assert
+      const content = readFileSync(join(tmpDir, 'apps/docs/src/lib/shiki.ts'), 'utf8')
+      expect(content).toContain('experimentalJSEngine')
+    })
   })
 })

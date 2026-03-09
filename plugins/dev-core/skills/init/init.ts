@@ -13,11 +13,9 @@
  *   bun init.ts protect-branches --repo <owner/repo>
  *   bun init.ts migrate-issues --owner <owner> --repo <repo> --project-number <N>
  *   bun init.ts scaffold --github-repo <owner/repo> --project-id <PVT_...> [--force] ...
+ *   bun init.ts scaffold-fumadocs [--root <path>] [--docs-path <path>]
+ *   bun init.ts scaffold-fumadocs-vercel [--root <path>] [--orchestrator <turbo|none>]
  */
-
-import { execSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
 
 const args = process.argv.slice(2)
 const command = args[0] ?? 'prereqs'
@@ -161,25 +159,19 @@ switch (command) {
 
   case 'scaffold-fumadocs': {
     const { scaffoldFumadocs } = await import('./lib/fumadocs')
-    const rawRoot = parseFlag('--root', process.cwd())
-    const resolvedRoot = resolve(rawRoot)
-    const safeBase = process.cwd()
-    if (!resolvedRoot.startsWith(`${safeBase}/`) && resolvedRoot !== safeBase) {
-      console.error(`Error: --root must be within the current working directory (${safeBase})`)
-      process.exit(1)
-    }
-    const result = scaffoldFumadocs(resolvedRoot)
+    const root = parseFlag('--root', process.cwd())
+    const docsPath = parseFlag('--docs-path', 'docs')
+    const result = await scaffoldFumadocs(root, docsPath)
     console.log(JSON.stringify(result, null, 2))
-    // Install deps in apps/docs/
-    const appsDocsPath = join(resolvedRoot, 'apps/docs')
-    if (existsSync(appsDocsPath)) {
-      try {
-        execSync('bun install', { cwd: appsDocsPath, stdio: 'inherit' })
-        console.error('Fumadocs deps installed in apps/docs/')
-      } catch {
-        console.error('Warning: bun install in apps/docs/ failed — run manually')
-      }
-    }
+    break
+  }
+
+  case 'scaffold-fumadocs-vercel': {
+    const { scaffoldFumadocsVercel } = await import('./lib/fumadocs')
+    const root = parseFlag('--root', process.cwd())
+    const orchestrator = parseFlag('--orchestrator', 'none')
+    const result = scaffoldFumadocsVercel(root, orchestrator)
+    console.log(JSON.stringify(result, null, 2))
     break
   }
 
@@ -206,7 +198,7 @@ switch (command) {
   default:
     console.error(`Unknown command: ${command}`)
     console.error(
-      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|scaffold]',
+      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|scaffold|scaffold-fumadocs|scaffold-fumadocs-vercel]',
     )
     process.exit(1)
 }

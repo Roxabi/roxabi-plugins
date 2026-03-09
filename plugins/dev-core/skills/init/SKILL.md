@@ -358,7 +358,7 @@ Scaffold standard documentation directories and minimal template files.
 
 1. Read `docs.path` and `docs.format` from `.claude/stack.yml` (defaults: `docs`, `md`).
 2. Check if `{docs.path}/standards/` already exists.
-   - exists → display `Docs scaffolding ✅ Already present`, skip steps 3–5.
+   - exists → display `Docs scaffolding ✅ Already present`, skip.
 3. AskUserQuestion: **Scaffold standard docs structure** (architecture/, standards/, guides/ with template files) | **Skip**.
 4. yes:
    ```bash
@@ -367,19 +367,19 @@ Scaffold standard documentation directories and minimal template files.
 5. Display created dirs and files from JSON result. Format:
    - `Docs scaffolding ✅ Created {filesCreated.length} files in {docsPath}/`
 
-6. If `docs.framework: fumadocs` in `.claude/stack.yml` (always runs, even if steps 3–5 were skipped):
-   AskUserQuestion: **Scaffold Fumadocs app** (`apps/docs/` + `docs/` monorepo split matching roxabi_boilerplate) | **Skip**
-   If yes:
+### Phase 7b — Fumadocs App Scaffold (Optional)
+
+Run only if `docs.framework: fumadocs` in `.claude/stack.yml`.
+
+1. AskUserQuestion: **Scaffold Fumadocs app** (`apps/docs/` Next.js app + `docs/` content dir — Mermaid, Shiki, Tailwind v4) | **Skip**
+2. If yes:
    ```bash
-   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-fumadocs --root <project-root>
+   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-fumadocs --root <cwd> --docs-path <docs.path>
    ```
-   Display result: `Fumadocs scaffold ✅ Created {filesCreated.length} files` (or list skipped files with warnings if any).
-   After scaffold completes:
-   ```bash
-   cd apps/docs && bun install
-   ```
-   Display: `Fumadocs deps ✅ Installed`
-   (If `bun install` fails, display: `Fumadocs deps ⚠️ Install failed — run \`bun install\` in apps/docs/ manually`)
+   - Display result: `Fumadocs scaffold ✅ Created {filesCreated.length} files in apps/docs/ and {docs.path}/`
+   - List created files grouped by directory.
+   - ∃ warnings (skipped files) → display each with ⚠️
+3. Remind: run `bun install` in `apps/docs/` to install dependencies, then `bun dev` to start the docs server on port 3002.
 
 ## Phase 8 — VS Code MDX Preview (Optional)
 
@@ -433,6 +433,22 @@ Standard workflow set: `ci.yml`, `auto-merge.yml`, `pr-title.yml` (+ `deploy-pre
    - Display: `CI/CD workflows ✅ Created (ci.yml, auto-merge.yml, pr-title.yml)` + `PAT secret ✅ Set` + `allow_auto_merge ✅ Enabled` + `Auto-merge re-triggered on N open PR(s) ✅` (or ⏭ if none)
 
 5. **If skip:** display `CI/CD workflows ⏭ Skipped`
+
+### Phase 9b — Fumadocs Vercel Deployment (Optional)
+
+Run only if `deploy.platform: vercel` ∧ `docs.framework: fumadocs` in `.claude/stack.yml`.
+
+1. Check if `apps/docs/vercel.json` already exists.
+   - ∃ → display `Fumadocs Vercel config ✅ Already present`, skip.
+2. AskUserQuestion: **Add Vercel deployment config for docs** (`apps/docs/vercel.json`) | **Skip**
+3. If yes:
+   ```bash
+   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-fumadocs-vercel --root <cwd> --orchestrator <build.orchestrator>
+   ```
+   - `build.orchestrator: turbo` → generates config with `turbo-ignore @repo/docs` (skips Vercel rebuild when docs unchanged)
+   - other → generates simple config (`cd apps/docs && bun run build`)
+   - Display: `Fumadocs Vercel config ✅ Created apps/docs/vercel.json`
+4. Remind: connect `apps/docs/` as a Vercel project (set root directory to `apps/docs` in Vercel dashboard), then set `NEXT_PUBLIC_APP_URL` env var to your app URL.
 
 ## Phase 10 — Pre-commit Hooks (Optional)
 
@@ -673,7 +689,6 @@ dev-core initialized
   stack.yml         ✅ Configured / ✅ Already exists / ⏭ Skipped
   Marketplace       ✅ N plugins installed (name, name, ...) / ⏭ Skipped
   VS Code MDX preview   ✅ Added / ✅ Already configured / ⏭ Skipped / ⏭ No .mdx files found
-  Fumadocs scaffold ✅ Created N files + deps installed | ⚠️ Created N files — run `bun install` in apps/docs/ | ⏭ Skipped
   CI/CD workflows   ✅ Created / ✅ Already configured / ⏭ Skipped
   TruffleHog        ✅ Secret scanning configured / ⏭ Skipped
   Dependabot        ✅ .github/dependabot.yml created / ⏭ Skipped
