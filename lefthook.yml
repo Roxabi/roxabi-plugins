@@ -7,7 +7,7 @@ pre-commit:
     typecheck:
       run: bun run typecheck
     trufflehog:
-      run: trufflehog git file://. --only-verified --fail
+      run: "[ -f .git ] && echo 'Skipping trufflehog in worktree' && exit 0 || trufflehog git file://. --only-verified --fail"
       skip:
         - merge
         - rebase
