@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { scaffoldFumadocs } from '../lib/fumadocs'
 
@@ -15,12 +15,7 @@ describe('scaffoldFumadocs', () => {
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  const EXPECTED_DIRS = [
-    'apps/docs/app/docs/[[...slug]]',
-    'apps/docs/src/lib',
-    'apps/docs/src/components/mdx',
-    'docs',
-  ]
+  const EXPECTED_DIRS = ['apps/docs/app/docs/[[...slug]]', 'apps/docs/src/lib', 'apps/docs/src/components/mdx', 'docs']
 
   const EXPECTED_FILES = [
     'apps/docs/source.config.ts',
