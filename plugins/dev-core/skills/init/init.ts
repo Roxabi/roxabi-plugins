@@ -17,7 +17,7 @@
 
 import { execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 const args = process.argv.slice(2)
 const command = args[0] ?? 'prereqs'
@@ -161,11 +161,17 @@ switch (command) {
 
   case 'scaffold-fumadocs': {
     const { scaffoldFumadocs } = await import('./lib/fumadocs')
-    const root = parseFlag('--root', process.cwd())
-    const result = scaffoldFumadocs(root)
+    const rawRoot = parseFlag('--root', process.cwd())
+    const resolvedRoot = resolve(rawRoot)
+    const safeBase = process.cwd()
+    if (!resolvedRoot.startsWith(`${safeBase}/`) && resolvedRoot !== safeBase) {
+      console.error(`Error: --root must be within the current working directory (${safeBase})`)
+      process.exit(1)
+    }
+    const result = scaffoldFumadocs(resolvedRoot)
     console.log(JSON.stringify(result, null, 2))
     // Install deps in apps/docs/
-    const appsDocsPath = join(root, 'apps/docs')
+    const appsDocsPath = join(resolvedRoot, 'apps/docs')
     if (existsSync(appsDocsPath)) {
       try {
         execSync('bun install', { cwd: appsDocsPath, stdio: 'inherit' })
