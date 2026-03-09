@@ -70,7 +70,7 @@ export function loadPolicy(repoRoot: string): LicensePolicy {
 
 // ─── Node Modules Scanning ───────────────────────────────────────────────────
 
-interface RawPackageInfo {
+export interface RawPackageInfo {
   name: string
   version: string
   dir: string
@@ -202,14 +202,7 @@ export function scanDependencies(repoRoot: string): RawPackageInfo[] {
 
 // ─── License Detection ──────────────────────────────────────────────────────
 
-const LICENSE_FILE_NAMES = [
-  'LICENSE',
-  'LICENCE',
-  'LICENSE.md',
-  'LICENCE.md',
-  'LICENSE.txt',
-  'LICENCE.txt',
-]
+const LICENSE_FILE_NAMES = ['LICENSE', 'LICENCE', 'LICENSE.md', 'LICENCE.md', 'LICENSE.txt', 'LICENCE.txt']
 
 const LICENSE_PATTERNS: Array<[RegExp, string]> = [
   [/MIT License/i, 'MIT'],
@@ -246,7 +239,7 @@ function detectLicenseFromFile(pkgDir: string): string | null {
 
 export function detectLicense(
   pkg: RawPackageInfo,
-  policy: LicensePolicy
+  policy: LicensePolicy,
 ): { license: string | null; source: PackageEntry['source'] } {
   const key = `${pkg.name}@${pkg.version}`
 
@@ -476,7 +469,7 @@ function main(): void {
     process.exit(report.summary.violations > 0 ? 1 : 0)
   } catch (error) {
     if (!jsonMode) console.error(`Error: ${error instanceof Error ? error.message : error}`)
-    process.exit(1)
+    process.exit(2)
   }
 }
 

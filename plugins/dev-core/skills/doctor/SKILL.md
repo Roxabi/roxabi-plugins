@@ -38,7 +38,7 @@ Severity guide: ❌ = blocking error, ⚠️ = warning, ✅ = pass, ⏭ = skippe
 | `tools/license_check.py` missing | Run `/init` Phase 10d — copies script from plugin: `cp "${CLAUDE_PLUGIN_ROOT}/tools/license_check.py" tools/license_check.py` + `uv add --dev pip-licenses` |
 | `pip-licenses` not installed (Python) | Run `uv add --dev pip-licenses` — required for `tools/license_check.py` to work |
 | License violations found | Run `uv run tools/license_check.py` to review, then create/update `.license-policy.json` with violating package names in `allowlist` |
-| `tools/licenseChecker.ts` missing | Copy from boilerplate `tools/licenseChecker.ts` or run `/init` Phase 10d |
+| `tools/licenseChecker.ts` missing | Run `/init` Phase 10d — copies from plugin: `cp "${CLAUDE_PLUGIN_ROOT}/tools/licenseChecker.ts" tools/licenseChecker.ts` |
 | trufflehog not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-commit.commands.trufflehog` |
 | license check not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-push.commands.license` |
 | `PR_Main` ruleset missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts protect-branches --repo <owner/repo>` — creates ruleset enforcing squash/rebase merges, thread resolution, no deletion/force push |
@@ -153,7 +153,7 @@ Check install state:
     - ⚠️ "License violations found (N packages) — run `bun tools/licenseChecker.ts` to review"
     - If `.license-policy.json` ∄ → add to auto-fixable: offer to generate it (write `{ "allowedLicenses": [...standard set...], "overrides": {} }`)
     - If `.license-policy.json` ∃ → ⚠️ "Update `.license-policy.json` to cover new violations"
-  - exit 1 (no violations key) → ⚠️ "License check failed — check tools/licenseChecker.ts or run `bun install`"
+  - exit 2 → ⚠️ "License check failed (JS) — run `bun tools/licenseChecker.ts` to debug"
 
 **VS Code MDX preview:**
 - Only check if `.mdx` files ∃ (`find . -name "*.mdx" -not -path "*/node_modules/*" | head -1`) ∨ `docs.format: mdx` in stack.yml.

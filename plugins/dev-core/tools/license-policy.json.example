@@ -9,7 +9,12 @@
     "0BSD",
     "Unlicense",
     "CC0-1.0",
-    "BlueOak-1.0.0"
+    "CC-BY-4.0",
+    "CC-BY-3.0",
+    "BlueOak-1.0.0",
+    "Artistic-2.0",
+    "Zlib",
+    "WTFPL"
   ],
   "overrides": {
     "some-package@1.0.0": "MIT"

@@ -492,7 +492,10 @@ b2. Copy license tools (JS/bun stacks only):
    cp "${CLAUDE_PLUGIN_ROOT}/tools/licenseChecker.ts" tools/licenseChecker.ts
    # Copy default policy template only if no policy file exists yet
    test -f .license-policy.json || cp "${CLAUDE_PLUGIN_ROOT}/tools/license-policy.json.example" .license-policy.json
+   # Gitignore the reports/ output directory
+   grep -q 'reports/' .gitignore 2>/dev/null || echo 'reports/' >> .gitignore
    ```
+   - Add `"license": "bun tools/licenseChecker.ts"` to `package.json` `scripts` (if not already set).
    Display: `License checker ✅ tools/licenseChecker.ts copied`
 c. `bun add -d lefthook`
 d. Write `lefthook.yml`:
@@ -701,7 +704,7 @@ dev-core initialized
   TruffleHog        ✅ Secret scanning configured / ⏭ Skipped
   Dependabot        ✅ .github/dependabot.yml created / ⏭ Skipped
   Pre-commit hooks      ✅ lefthook installed / ✅ pre-commit installed / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
-  License checker   ✅ tools/license_check.py copied (Python) / ⏭ Skipped
+  License checker   ✅ tools/licenseChecker.ts copied (JS) / ✅ tools/license_check.py copied (Python) / ⏭ Skipped
   License policy    ✅ .license-policy.json created (N packages) / ✅ All compliant / ⏭ Skipped / ⏭ pip-licenses missing
 
 Next steps:
