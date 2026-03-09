@@ -1,0 +1,17 @@
+{
+  "allowedLicenses": [
+    "MIT",
+    "MIT-0",
+    "ISC",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "0BSD",
+    "Unlicense",
+    "CC0-1.0",
+    "BlueOak-1.0.0"
+  ],
+  "overrides": {
+    "some-package@1.0.0": "MIT"
+  }
+}

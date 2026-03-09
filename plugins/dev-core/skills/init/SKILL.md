@@ -486,6 +486,14 @@ AskUserQuestion: **Set up `<tool>`** (catches lint/format issues before push) | 
 
 a. Read `commands.lint` and `commands.typecheck` from `.claude/stack.yml` (defaults: `bun run lint` / `bun run typecheck`).
 b. Detect stack from `stack.yml` `runtime` field. For Python: license cmd = `uv run tools/license_check.py`. For JS: license cmd = `bun tools/licenseChecker.ts`.
+b2. Copy license tools (JS/bun stacks only):
+   ```bash
+   mkdir -p tools
+   cp "${CLAUDE_PLUGIN_ROOT}/tools/licenseChecker.ts" tools/licenseChecker.ts
+   # Copy default policy template only if no policy file exists yet
+   test -f .license-policy.json || cp "${CLAUDE_PLUGIN_ROOT}/tools/license-policy.json.example" .license-policy.json
+   ```
+   Display: `License checker ✅ tools/licenseChecker.ts copied`
 c. `bun add -d lefthook`
 d. Write `lefthook.yml`:
    ```yaml
