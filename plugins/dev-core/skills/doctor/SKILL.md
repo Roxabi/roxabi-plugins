@@ -160,6 +160,23 @@ Check install state:
 - `.vscode/settings.json` contains `"*.mdx": "markdown"` → ✅ | ⚠️ "VS Code MDX preview not configured"
 - ∄ `.mdx` files → ⏭ skip silently.
 
+**LSP support:**
+- Read `lsp.enabled` from `.claude/stack.yml`.
+  - `false` → ⏭ "Disabled in stack.yml", skip all LSP checks.
+  - `true` ∨ absent → continue.
+- `grep -q '^ENABLE_LSP_TOOL=' .env 2>/dev/null` → ✅ "ENABLE_LSP_TOOL set" | ⚠️ "ENABLE_LSP_TOOL not set in .env — add `ENABLE_LSP_TOOL=1`" (auto-fixable)
+- Detect expected LSP binary from `lsp.server` (if explicit) or `runtime`:
+  - `bun` / `node` / `deno` → `typescript-language-server`
+  - `python` → `pyright`
+  - `rust` → `rust-analyzer`
+  - `go` → `gopls`
+- `which <binary> 2>/dev/null` → ✅ "{binary} found" | ⚠️ "{binary} not installed — {install-hint}" (auto-fixable)
+  - Install hints:
+    - `typescript-language-server`: `{package_manager} add -d typescript-language-server typescript`
+    - `pyright`: `uv tool install pyright` or `pip install pyright`
+    - `rust-analyzer`: `rustup component add rust-analyzer`
+    - `gopls`: `go install golang.org/x/tools/gopls@latest`
+
 Print summary:
 ```
 Stack config: N checks passed, M warnings, K errors
@@ -184,6 +201,8 @@ Auto-fixable issues:
   [ ] hooks.tool not set
   [ ] lefthook not installed
   [ ] VS Code MDX preview missing
+  [ ] ENABLE_LSP_TOOL not set
+  [ ] LSP server not installed
   ...
 ```
 
@@ -204,6 +223,8 @@ Apply each selected fix:
 | `pre-commit config missing` | Write `.pre-commit-config.yaml` with local hooks for `commands.lint` + `commands.typecheck`; then `pip install pre-commit && pre-commit install` (or `uv add --dev pre-commit && uv run pre-commit install`) |
 | `pre-commit not activated` | `pre-commit install` (or `uv run pre-commit install`) |
 | `VS Code MDX preview missing` | Merge `"*.mdx": "markdown"` into `.vscode/settings.json` `files.associations` (create file if missing) |
+| `ENABLE_LSP_TOOL not set` | `echo 'ENABLE_LSP_TOOL=1' >> .env && grep -q '^ENABLE_LSP_TOOL=' .env.example 2>/dev/null \|\| echo 'ENABLE_LSP_TOOL=1' >> .env.example` |
+| `LSP server not installed` | Run install command for detected stack (see LSP support section): TS → `{package_manager} add -d typescript-language-server typescript`, Python → `uv tool install pyright`, Rust → `rustup component add rust-analyzer`, Go → `go install golang.org/x/tools/gopls@latest` |
 | `tools/licenseChecker.ts missing` | Run `/init` Phase 10e2 — or manually: `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && mkdir -p tools && cp "${Φ}/tools/licenseChecker.ts" tools/licenseChecker.ts` |
 | `.license-policy.json missing` (JS) | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && cp "${Φ}/tools/license-policy.json.example" .license-policy.json` |
 | `docs.path missing` \| `docs structure incomplete` | Run scaffold-docs: `bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-docs --format {docs.format} --path {docs.path}` — then re-check docs checks and display updated Docs row |
