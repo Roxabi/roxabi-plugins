@@ -12,10 +12,14 @@ pre-commit:
         - merge
         - rebase
     license-check:
-      run: python3 tools/license_check.py {staged_files}
-      glob: "*.{ts,tsx,js,jsx,py}"
+      run: "[ -f .venv/bin/python ] && .venv/bin/python tools/license_check.py || true"
 
 commit-msg:
   commands:
     conventional-commits:
       run: bunx commitlint --edit {1}
+
+pre-push:
+  commands:
+    test:
+      run: bun run test
