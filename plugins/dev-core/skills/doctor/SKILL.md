@@ -204,8 +204,8 @@ Apply each selected fix:
 | `pre-commit config missing` | Write `.pre-commit-config.yaml` with local hooks for `commands.lint` + `commands.typecheck`; then `pip install pre-commit && pre-commit install` (or `uv add --dev pre-commit && uv run pre-commit install`) |
 | `pre-commit not activated` | `pre-commit install` (or `uv run pre-commit install`) |
 | `VS Code MDX preview missing` | Merge `"*.mdx": "markdown"` into `.vscode/settings.json` `files.associations` (create file if missing) |
-| `tools/licenseChecker.ts missing` | `mkdir -p tools && cp "${CLAUDE_PLUGIN_ROOT}/tools/licenseChecker.ts" tools/licenseChecker.ts` |
-| `.license-policy.json missing` (JS) | `cp "${CLAUDE_PLUGIN_ROOT}/tools/license-policy.json.example" .license-policy.json` |
+| `tools/licenseChecker.ts missing` | Run `/init` Phase 10e2 — or manually: `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && mkdir -p tools && cp "${Φ}/tools/licenseChecker.ts" tools/licenseChecker.ts` |
+| `.license-policy.json missing` (JS) | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && cp "${Φ}/tools/license-policy.json.example" .license-policy.json` |
 | `docs.path missing` \| `docs structure incomplete` | Run scaffold-docs: `bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-docs --format {docs.format} --path {docs.path}` — then re-check docs checks and display updated Docs row |
 | `Fumadocs app missing` | Run scaffold-fumadocs: `bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-fumadocs --root {cwd} --docs-path {docs.path}` — then re-check docs checks and display updated Docs row |
 

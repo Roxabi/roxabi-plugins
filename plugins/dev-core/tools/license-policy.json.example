@@ -16,7 +16,8 @@
     "Zlib",
     "WTFPL"
   ],
+  "_comment": "Override keys: use 'name' (all versions) or 'name@version' for strict pinning",
   "overrides": {
-    "some-package@1.0.0": "MIT"
+    "some-package": "MIT"
   }
 }

@@ -23,7 +23,7 @@ import {
   realpathSync,
   writeFileSync,
 } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -144,6 +144,11 @@ function readPackageInfo(pkgDir: string): RawPackageInfo | null {
     const stat = lstatSync(pkgDir)
     if (stat.isSymbolicLink()) {
       realDir = realpathSync(pkgDir)
+      // Security: ensure the resolved path stays within the same node_modules directory
+      const nodeModulesDir = resolve(dirname(pkgDir))
+      if (!realDir.startsWith(nodeModulesDir + sep) && realDir !== nodeModulesDir) {
+        return null
+      }
     }
   } catch {
     return null
@@ -154,9 +159,12 @@ function readPackageInfo(pkgDir: string): RawPackageInfo | null {
 
   try {
     const raw = readFileSync(pkgJsonPath, 'utf-8')
-    const pkg = JSON.parse(raw)
-    if (!(pkg.name && pkg.version)) return null
-    return { name: pkg.name, version: pkg.version, dir: realDir }
+    const pkg = Object.assign(
+      Object.create(null) as Record<string, unknown>,
+      JSON.parse(raw) as Record<string, unknown>,
+    )
+    if (!(pkg['name'] && pkg['version'])) return null
+    return { name: String(pkg['name']), version: String(pkg['version']), dir: realDir }
   } catch {
     return null
   }
@@ -252,17 +260,21 @@ export function detectLicense(
   const pkgJsonPath = join(pkg.dir, 'package.json')
   try {
     const raw = readFileSync(pkgJsonPath, 'utf-8')
-    const pkgJson = JSON.parse(raw)
+    const pkgJson = Object.assign(
+      Object.create(null) as Record<string, unknown>,
+      JSON.parse(raw) as Record<string, unknown>,
+    )
 
     // 2. license field (string)
-    if (typeof pkgJson.license === 'string' && pkgJson.license.trim()) {
-      return { license: pkgJson.license.trim(), source: 'package.json' }
+    if (typeof pkgJson['license'] === 'string' && (pkgJson['license'] as string).trim()) {
+      return { license: (pkgJson['license'] as string).trim(), source: 'package.json' }
     }
 
     // 3. licenses array (deprecated)
-    if (Array.isArray(pkgJson.licenses) && pkgJson.licenses.length > 0) {
-      const first = pkgJson.licenses[0]
-      const licenseStr = typeof first === 'string' ? first : first?.type
+    const licenses = pkgJson['licenses']
+    if (Array.isArray(licenses) && licenses.length > 0) {
+      const first = licenses[0] as string | { type?: string } | null
+      const licenseStr = typeof first === 'string' ? first : (first as { type?: string } | null)?.type
       if (licenseStr) return { license: licenseStr, source: 'package.json' }
     }
   } catch {
