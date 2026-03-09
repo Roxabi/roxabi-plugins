@@ -678,6 +678,55 @@ Marketplace plugins
   installed: compress, web-intel, vault  (or: ⏭ None installed)
 ```
 
+## Phase 10c — LSP Support (Optional)
+
+Enable `ENABLE_LSP_TOOL` for richer code intelligence (go-to-definition, hover docs, diagnostics) in Claude Code sessions.
+
+1. Read `lsp.enabled` from `.claude/stack.yml`.
+   - `false` → display `LSP ⏭ Disabled in stack.yml`, skip.
+   - `true` ∨ absent → continue.
+
+2. Check if `ENABLE_LSP_TOOL` already in `.env`:
+   ```bash
+   grep -q '^ENABLE_LSP_TOOL=' .env 2>/dev/null && echo "set" || echo "missing"
+   ```
+   - set → display `ENABLE_LSP_TOOL ✅ Already configured`, skip to step 6.
+
+3. AskUserQuestion: **Enable LSP support** (adds `ENABLE_LSP_TOOL=1` to `.env` and installs language server) | **Skip**
+
+4. If yes:
+   a. Add to `.env` and `.env.example`:
+      ```bash
+      echo 'ENABLE_LSP_TOOL=1' >> .env
+      grep -q '^ENABLE_LSP_TOOL=' .env.example 2>/dev/null || echo 'ENABLE_LSP_TOOL=1' >> .env.example
+      ```
+
+   b. Detect LSP server from `lsp.server` (if explicit) or `runtime` in stack.yml:
+
+      | runtime | LSP server | Install command | Binary |
+      |---------|-----------|----------------|--------|
+      | `bun` / `node` / `deno` | typescript-language-server | `{package_manager} add -d typescript-language-server typescript` | `typescript-language-server` |
+      | `python` | pyright | `uv tool install pyright` or `pip install pyright` | `pyright` |
+      | `rust` | rust-analyzer | `rustup component add rust-analyzer` | `rust-analyzer` |
+      | `go` | gopls | `go install golang.org/x/tools/gopls@latest` | `gopls` |
+
+   c. Check if binary already in PATH:
+      ```bash
+      which <binary> 2>/dev/null && echo "installed" || echo "missing"
+      ```
+
+   d. missing → run install command. Verify post-install:
+      ```bash
+      which <binary> 2>/dev/null && echo "installed" || echo "still-missing"
+      ```
+      still-missing → ⚠️ "LSP server installed but not in PATH — you may need to restart your shell"
+
+   e. Display: `LSP ✅ ENABLE_LSP_TOOL=1 set, <lsp-server> installed`
+
+5. Skip → display `LSP ⏭ Skipped`
+
+6. `ENABLE_LSP_TOOL` already set ∧ binary ∃ → display `LSP ✅ Already configured (<binary>)`, no-op.
+
 ## Phase 11 — Report
 
 Display final summary:
@@ -709,6 +758,7 @@ dev-core initialized
   Pre-commit hooks      ✅ lefthook installed / ✅ pre-commit installed / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
   License checker   ✅ tools/licenseChecker.ts copied (JS) / ✅ tools/license_check.py copied (Python) / ⏭ Skipped
   License policy    ✅ .license-policy.json created (N packages) / ✅ All compliant / ⏭ Skipped / ⏭ pip-licenses missing
+  LSP               ✅ ENABLE_LSP_TOOL=1 set, <server> installed / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
 
 Next steps:
   /doctor                Verify full configuration health

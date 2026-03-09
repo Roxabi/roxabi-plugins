@@ -50,6 +50,11 @@ hooks:
   tool: auto                      # auto | lefthook | pre-commit | husky | none
                                   # auto: bun/node/deno → lefthook, python → pre-commit
 
+lsp:
+  enabled: true                   # set ENABLE_LSP_TOOL=1 in .env for richer code intelligence
+  # server: auto                  # auto | typescript-language-server | pyright | pylsp | rust-analyzer | gopls
+                                  # auto: detect from runtime field
+
 deploy:
   platform: vercel                # vercel | railway | fly | aws | none
   secrets_cmd: "vercel env add"   # command to add a secret to the deployment platform
