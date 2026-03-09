@@ -1,0 +1,47 @@
+---
+title: "Make triage the single source of truth for priority"
+issue: 37
+status: approved
+tier: F-lite
+date: 2026-03-09
+---
+
+## Problem
+
+Priority is tracked in two independent systems that never sync:
+
+1. **GitHub Labels** (`P0-critical`, `P1-high`, `P2-medium`, `P3-low`) — set manually via `gh issue create --label` or the GitHub UI, visible in the Issues list
+2. **GitHub Project V2 fields** (`P0 - Urgent`, `P1 - High`, `P2 - Medium`, `P3 - Low`) — set via `triage.ts set --priority`, read by dashboard and all dev-core tooling
+
+Issues created outside `/issue-triage create` (e.g., directly on GitHub or via `gh issue create`) get labels but are never added to the project board. Dev-core tooling only reads project fields, so label-only priorities are invisible to the workflow. The reverse also happens: `/issue-triage set --priority` updates the board but leaves stale or missing labels.
+
+**Observable impact:** An issue can show `P0-critical` label in the GitHub UI but have no priority on the board — or the opposite. This was discovered during Lyra Phase 0 when 6 issues created with `gh issue create --label P0-critical` had no board priority.
+
+## Who
+
+- **Primary:** Dev-core users running `/issue-triage`, `/issues`, `/dev` — they see inconsistent priority depending on which surface they check
+- **Secondary:** GitHub UI users browsing issues by label — they see labels that may not reflect the board's truth
+
+## Constraints
+
+- Must use the existing `gh` CLI for label operations (no additional dependencies)
+- Priority label names are already established: `P0-critical`, `P1-high`, `P2-medium`, `P3-low`
+- Label sync must be non-fatal — if label operations fail, the project field update (the primary source) should still succeed
+- Backwards-compatible: existing `triage.ts` callers that don't pass `--priority` are unaffected
+
+## Out of Scope
+
+- Removing priority labels from repos (still useful for GitHub UI filtering)
+- GitHub Actions-based sync (this feature replaces that need)
+- Size label sync (Size has no corresponding labels — project field only)
+- Syncing from labels → project fields (triage.ts is the single direction: project → labels)
+
+## Complexity
+
+**Tier: F-lite** — Clear scope, single domain (triage tooling), ~4 files to modify.
+
+Signals:
+- All changes within `plugins/dev-core/skills/issue-triage/` and `shared/adapters/`
+- No new architecture — adding label sync calls alongside existing project field updates
+- The priority-to-label mapping is a static constant (straightforward)
+- `list.ts` mismatch detection is optional and additive
