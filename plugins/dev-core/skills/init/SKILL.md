@@ -505,6 +505,20 @@ d. Write `lefthook.yml`:
          run: <license-cmd>
    ```
 e. `bunx lefthook install`
+e2. Copy license tools (JS/bun stacks only — runs after lefthook install to avoid partial state):
+   ```bash
+   [[ "${CLAUDE_PLUGIN_ROOT}" =~ ^/[a-zA-Z0-9/_.-]+$ ]] || { echo "ERROR: invalid CLAUDE_PLUGIN_ROOT"; exit 1; }
+   Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")")
+   test -f "${Φ}/tools/licenseChecker.ts" || { echo "ERROR: licenseChecker.ts not found in plugin (path: ${Φ}/tools/)"; exit 1; }
+   mkdir -p tools
+   cp "${Φ}/tools/licenseChecker.ts" tools/licenseChecker.ts
+   # Copy default policy template only if no policy file exists yet
+   test -f .license-policy.json || cp "${Φ}/tools/license-policy.json.example" .license-policy.json
+   # Gitignore the reports/ output directory
+   grep -q 'reports/' .gitignore 2>/dev/null || echo 'reports/' >> .gitignore
+   ```
+   - Add `"license": "bun tools/licenseChecker.ts"` to `package.json` `scripts` (if not already set).
+   Display: `License checker ✅ tools/licenseChecker.ts copied`
 f. Check if `trufflehog` binary is installed:
    ```bash
    which trufflehog 2>/dev/null && echo "installed" || echo "missing"
@@ -693,7 +707,7 @@ dev-core initialized
   TruffleHog        ✅ Secret scanning configured / ⏭ Skipped
   Dependabot        ✅ .github/dependabot.yml created / ⏭ Skipped
   Pre-commit hooks      ✅ lefthook installed / ✅ pre-commit installed / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
-  License checker   ✅ tools/license_check.py copied (Python) / ⏭ Skipped
+  License checker   ✅ tools/licenseChecker.ts copied (JS) / ✅ tools/license_check.py copied (Python) / ⏭ Skipped
   License policy    ✅ .license-policy.json created (N packages) / ✅ All compliant / ⏭ Skipped / ⏭ pip-licenses missing
 
 Next steps:

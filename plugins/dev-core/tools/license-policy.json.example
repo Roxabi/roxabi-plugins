@@ -1,0 +1,23 @@
+{
+  "allowedLicenses": [
+    "MIT",
+    "MIT-0",
+    "ISC",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "0BSD",
+    "Unlicense",
+    "CC0-1.0",
+    "CC-BY-4.0",
+    "CC-BY-3.0",
+    "BlueOak-1.0.0",
+    "Artistic-2.0",
+    "Zlib",
+    "WTFPL"
+  ],
+  "_comment": "Override keys: use 'name' (all versions) or 'name@version' for strict pinning",
+  "overrides": {
+    "some-package": "MIT"
+  }
+}

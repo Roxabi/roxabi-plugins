@@ -38,7 +38,7 @@ Severity guide: ❌ = blocking error, ⚠️ = warning, ✅ = pass, ⏭ = skippe
 | `tools/license_check.py` missing | Run `/init` Phase 10d — copies script from plugin: `cp "${CLAUDE_PLUGIN_ROOT}/tools/license_check.py" tools/license_check.py` + `uv add --dev pip-licenses` |
 | `pip-licenses` not installed (Python) | Run `uv add --dev pip-licenses` — required for `tools/license_check.py` to work |
 | License violations found | Run `uv run tools/license_check.py` to review, then create/update `.license-policy.json` with violating package names in `allowlist` |
-| `tools/licenseChecker.ts` missing | Copy from boilerplate `tools/licenseChecker.ts` or run `/init` Phase 10d |
+| `tools/licenseChecker.ts` missing | Run `/init` Phase 10d — copies from plugin: `cp "${CLAUDE_PLUGIN_ROOT}/tools/licenseChecker.ts" tools/licenseChecker.ts` |
 | trufflehog not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-commit.commands.trufflehog` |
 | license check not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-push.commands.license` |
 | `PR_Main` ruleset missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts protect-branches --repo <owner/repo>` — creates ruleset enforcing squash/rebase merges, thread resolution, no deletion/force push |
@@ -140,6 +140,21 @@ Check install state:
     - If `.license-policy.json` ∃ → ⚠️ "Update `.license-policy.json` to cover new violations"
   - exit 2 → ⚠️ "License check failed — pip-licenses may not be installed"
 
+**License checker (JS only):**
+- Only check if `runtime` ∈ {bun, node, deno} in stack.yml.
+- `test -f tools/licenseChecker.ts` → ✅ "tools/licenseChecker.ts present" | ⚠️ "tools/licenseChecker.ts missing — run `/init` Phase 10d to copy from plugin"
+- `test -f .license-policy.json` → ✅ ".license-policy.json present" | ⚠️ ".license-policy.json missing — run `/init` Phase 10d to generate from template"
+
+**License compliance (JS only):**
+- Only run if `runtime` ∈ {bun, node, deno} ∧ `tools/licenseChecker.ts` ∃ ∧ `.license-policy.json` ∃.
+- Run: `bun tools/licenseChecker.ts --json 2>/dev/null`
+  - exit 0 → ✅ "License check: all N packages compliant"
+  - exit 1 → parse JSON `violations` array:
+    - ⚠️ "License violations found (N packages) — run `bun tools/licenseChecker.ts` to review"
+    - If `.license-policy.json` ∄ → add to auto-fixable: offer to generate it (write `{ "allowedLicenses": [...standard set...], "overrides": {} }`)
+    - If `.license-policy.json` ∃ → ⚠️ "Update `.license-policy.json` to cover new violations"
+  - exit 2 → ⚠️ "License check failed (JS) — run `bun tools/licenseChecker.ts` to debug"
+
 **VS Code MDX preview:**
 - Only check if `.mdx` files ∃ (`find . -name "*.mdx" -not -path "*/node_modules/*" | head -1`) ∨ `docs.format: mdx` in stack.yml.
 - `.vscode/settings.json` contains `"*.mdx": "markdown"` → ✅ | ⚠️ "VS Code MDX preview not configured"
@@ -189,6 +204,8 @@ Apply each selected fix:
 | `pre-commit config missing` | Write `.pre-commit-config.yaml` with local hooks for `commands.lint` + `commands.typecheck`; then `pip install pre-commit && pre-commit install` (or `uv add --dev pre-commit && uv run pre-commit install`) |
 | `pre-commit not activated` | `pre-commit install` (or `uv run pre-commit install`) |
 | `VS Code MDX preview missing` | Merge `"*.mdx": "markdown"` into `.vscode/settings.json` `files.associations` (create file if missing) |
+| `tools/licenseChecker.ts missing` | Run `/init` Phase 10e2 — or manually: `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && mkdir -p tools && cp "${Φ}/tools/licenseChecker.ts" tools/licenseChecker.ts` |
+| `.license-policy.json missing` (JS) | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && cp "${Φ}/tools/license-policy.json.example" .license-policy.json` |
 | `docs.path missing` \| `docs structure incomplete` | Run scaffold-docs: `bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-docs --format {docs.format} --path {docs.path}` — then re-check docs checks and display updated Docs row |
 | `Fumadocs app missing` | Run scaffold-fumadocs: `bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-fumadocs --root {cwd} --docs-path {docs.path}` — then re-check docs checks and display updated Docs row |
 
