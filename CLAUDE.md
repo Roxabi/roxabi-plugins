@@ -51,7 +51,7 @@ The file has two parts: a YAML frontmatter header and a markdown body with instr
 - `name` — the skill identifier, in kebab-case (e.g. `compress`)
 - `description` — one-line purpose followed by `Triggers: "phrase1" | "phrase2"`. This is how Claude decides when to activate the skill, so be specific
 - `version` — semantic version starting at `0.1.0`
-- `allowed-tools` — comma-separated list of tools the skill can use (e.g. `Read, Edit, Write, Bash, Glob`). **Never include `AskUserQuestion`** — it is not a valid tool and will cause a bug.
+- `allowed-tools` — comma-separated list of tools the skill can use (e.g. `Read, Edit, Write, Bash, Glob`). To use `AskUserQuestion`, include both `ToolSearch` and `AskUserQuestion` — `ToolSearch` is required to load the deferred tool before calling it.
 
 **Example frontmatter:**
 

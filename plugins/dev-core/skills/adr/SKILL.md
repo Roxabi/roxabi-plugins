@@ -3,7 +3,7 @@ name: adr
 argument-hint: ["Title of decision" | --list]
 description: Create/list Architecture Decision Records. Triggers: "create an ADR" | "architecture decision" | "document why we chose" | "list ADRs".
 version: 0.3.0
-allowed-tools: Write, Read, Glob
+allowed-tools: Write, Read, Glob, ToolSearch, AskUserQuestion
 ---
 
 # ADR (Architecture Decision Record)

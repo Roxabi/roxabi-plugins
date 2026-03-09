@@ -3,7 +3,7 @@ name: cleanup-context
 argument-hint: '[--scope <area> | --dry-run]'
 description: 'Audit and clean CLAUDE.md, memory, skills, and rules — resolve every finding (fix/promote/relocate/delete), track recurrences, target bloat=0. Triggers: "cleanup context" | "context audit" | "clean memory" | "drain memory" | "prune memory" | "audit memory" | "consolidate rules" | "spa day" | "memory audit".'
 version: 0.1.0
-allowed-tools: Read, Edit, Write, Bash, Glob, Grep
+allowed-tools: Read, Edit, Write, Bash, Glob, Grep, ToolSearch, AskUserQuestion
 ---
 
 # Context Cleanup

@@ -3,7 +3,7 @@ name: issue-triage
 argument-hint: [list | set <num> | create --title "..." [--parent N] [--size S] [--priority P]]
 description: Triage/create GitHub issues — set size/priority/status, manage dependencies & parent/child. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue".
 version: 0.2.0
-allowed-tools: Bash
+allowed-tools: Bash, ToolSearch, AskUserQuestion
 ---
 
 # Issue Triage

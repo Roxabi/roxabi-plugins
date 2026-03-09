@@ -3,7 +3,7 @@ name: interview
 argument-hint: [topic | --promote <path>]
 description: Structured interview → brainstorm | analysis | spec (with promotion). Triggers: "create a spec" | "interview" | "brainstorm" | "write analysis" | "promote to spec".
 version: 0.2.0
-allowed-tools: Write, Read, Edit, Glob
+allowed-tools: Write, Read, Edit, Glob, ToolSearch, AskUserQuestion
 ---
 
 # Interview

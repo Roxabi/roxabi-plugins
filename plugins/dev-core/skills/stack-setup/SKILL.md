@@ -3,7 +3,7 @@ name: stack-setup
 argument-hint: '[--force]'
 description: 'Interactive wizard to fill in .claude/stack.yml through guided questions — asks about runtime, backend, frontend, build, testing, deploy, docs, commands, and standards paths, then writes the file. Triggers: "stack setup" | "setup stack" | "configure stack" | "fill stack.yml" | "stack wizard" | "stack-setup".'
 version: 0.3.0
-allowed-tools: Read, Edit, Write, Bash, Glob
+allowed-tools: Read, Edit, Write, Bash, Glob, ToolSearch, AskUserQuestion
 ---
 
 # Stack Setup Wizard

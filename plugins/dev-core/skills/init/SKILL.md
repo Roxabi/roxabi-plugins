@@ -3,7 +3,7 @@ name: init
 argument-hint: '[--force]'
 description: 'Initialize project for dev-core — auto-detect GitHub Project V2, set up dashboard launcher, env vars, artifacts. Triggers: "init" | "setup dev-core" | "initialize dev-core".'
 version: 0.6.0
-allowed-tools: Bash
+allowed-tools: Bash, ToolSearch, AskUserQuestion
 ---
 
 # Init
