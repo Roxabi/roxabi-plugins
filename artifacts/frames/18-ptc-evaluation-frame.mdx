@@ -1,0 +1,45 @@
+---
+title: evaluate Programmatic Tool Calling (PTC) for analysis-heavy skills
+issue: 18
+status: approved
+tier: F-lite
+date: 2026-03-10
+---
+
+## Problem
+
+Analysis-heavy dev-core skills (`/analyze`, `/review`, `/spec`, `security-auditor`) currently issue 20+ sequential Grep/Read tool calls to explore the codebase. Each call result enters the context window in full, inflating token usage and degrading model performance on long sessions.
+
+Programmatic Tool Calling (PTC) allows Claude to write Python code that orchestrates multiple tool invocations inside a sandboxed container. Intermediate results stay in Python variables and never enter the conversation context — only the final distilled output does. Anthropic measured 37% token reduction on complex multi-tool tasks and 85% savings on tool definitions via deferred loading.
+
+The question is: does PTC deliver meaningful token savings on dev-core skills, and is the tradeoff (Python-only runtime, no ZDR, no MCP tools) acceptable?
+
+## Who
+
+- **Primary:** dev-core plugin maintainers — deciding whether to adopt PTC in skill implementations.
+- **Secondary:** end users of dev-core skills — benefit from lower token usage and faster analysis if adopted.
+
+## Constraints
+
+- PTC uses `code_execution_20260120` tool type — only available on `claude-opus-4-6` and `claude-sonnet-4-6`.
+- Container runtime is Python — not Node/Bun. Any file reading or pattern matching must be implemented in Python.
+- PTC is **not** covered by Zero Data Retention (ZDR) — enterprise projects with ZDR requirements cannot use it.
+- MCP tools (Glob, Grep, Read, etc.) cannot be called programmatically from inside a PTC block yet.
+- POC scope only — no production rollout in this issue. Decision document is the primary output.
+
+## Out of Scope
+
+- Implementing PTC across all skills (only one POC skill in scope).
+- Changes to non-analysis skills (`/frame`, `/plan`, `/pr`, etc.).
+- Performance benchmarking infrastructure — manual token count comparison is sufficient.
+- Adoption in projects with ZDR requirements.
+
+## Complexity
+
+**Tier: F-lite** — Research spike with clear deliverables: one POC implementation, token measurement, and a written decision. Single domain (skill engineering), no architectural changes required.
+
+Signals observed:
+- Issue labeled `research` — investigation spike, bounded output
+- Existing approved analysis artifact provides full background
+- Acceptance criteria enumerate exactly 4 concrete outputs
+- No cross-domain dependencies
