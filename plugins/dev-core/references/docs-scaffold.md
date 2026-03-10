@@ -1,12 +1,10 @@
 # Fumadocs Scaffold Reference
 
-When `docs.framework: fumadocs` is set in `.claude/stack.yml`, `/init` Phase 7 generates a full Fumadocs documentation site. The scaffold is split across two directories: `apps/docs/` (Next.js application) and `docs/` (MDX content).
+When `docs.framework: fumadocs` in `.claude/stack.yml`, `/init` Phase 7 generates a full Fumadocs site. Split across `apps/docs/` (Next.js app) + `docs/` (MDX content).
 
-## Fumadocs Scaffold Convention
+`scaffoldFumadocs()` in `lib/fumadocs.ts` — called by `/init` Phase 7. Additive-only (¬overwrite existing files).
 
-`scaffoldFumadocs()` in `lib/fumadocs.ts` is the implementation. `/init` Phase 7 calls it after reading `docs.framework` from stack.yml. The function is additive-only — it never overwrites existing files.
-
-The scaffold produces a working documentation site out of the box: Mermaid diagrams, syntax highlighting via Shiki, dark/light theme switching, and a root navigation file ready for Fumadocs' `meta.json` convention.
+Produces working site: Mermaid diagrams, Shiki highlighting, dark/light theme, `meta.json` nav.
 
 ## Directory Layout
 
@@ -40,40 +38,40 @@ The scaffold produces a working documentation site out of the box: Mermaid diagr
     └── meta.json                             # root navigation
 ```
 
-## Required Packages (installed in apps/docs/)
+## Required Packages (apps/docs/)
 
 | Package | Version | Notes |
 |---------|---------|-------|
-| fumadocs-ui | ^15.4.2 | UI components and layouts |
-| fumadocs-core | ^15.4.2 | Core loader and plugins |
+| fumadocs-ui | ^15.4.2 | UI components + layouts |
+| fumadocs-core | ^15.4.2 | Core loader + plugins |
 | fumadocs-mdx | ^11.6.7 | MDX processing |
 | next | ^15.3.4 | Next.js app |
 | react / react-dom | ^19.2.4 | React |
 | mermaid | ^11.4.1 | Diagram rendering |
-| dompurify | ^3.3.2 | SVG sanitization for Mermaid |
-| next-themes | ^0.4.6 | Theme switching for Mermaid |
+| dompurify | ^3.3.2 | SVG sanitization |
+| next-themes | ^0.4.6 | Theme switching |
 | shiki | ^3.4.0 | Syntax highlighting |
 | tailwindcss | ^4.1.0 | Styling |
 | @tailwindcss/postcss (dev) | ^4.1.0 | Tailwind v4 PostCSS plugin |
-| @types/dompurify (dev) | ^3.2.0 | DOMPurify type definitions |
-| @types/mdx (dev) | ^2.0.13 | MDX type definitions |
+| @types/dompurify (dev) | ^3.2.0 | DOMPurify types |
+| @types/mdx (dev) | ^2.0.13 | MDX types |
 
 ## Key Design Decisions
 
-- **`@/*` path alias** maps to `./src/*` via `tsconfig.json` paths — keeps imports clean across all files under `src/`.
-- **`@/.source`** maps to `.source/index.ts`, the codegen output produced by `fumadocs-mdx` at build time. This is the only non-`src/` alias.
-- **Mermaid** is rendered client-side via a custom `Mermaid.tsx` component. `remarkMdxMermaid` (from `fumadocs-core`) extracts code blocks at build time; the component calls `mermaid.render()` and sanitizes the output SVG with DOMPurify before injecting it into the DOM. `next-themes` is used to pick the correct Mermaid theme (`neutral` vs `dark`) at render time.
-- **Shiki** uses `experimentalJSEngine` to avoid OOM crashes on CI runners. Dual themes are configured: one for light mode, one for dark mode.
-- **Back-link** in `app/layout.tsx` reads `process.env.NEXT_PUBLIC_APP_URL ?? 'https://roxabi.com'` — set this env var to point to your main application.
-- **`output: standalone`** in `next.config.ts` produces a self-contained build suitable for Docker and Railway deployments.
+- **`@/*`** → `./src/*` via tsconfig paths — clean imports under `src/`
+- **`@/.source`** → `.source/index.ts` — codegen output from `fumadocs-mdx` at build time (only non-`src/` alias)
+- **Mermaid** — client-side via `Mermaid.tsx`. `remarkMdxMermaid` extracts code blocks at build; component calls `mermaid.render()` + DOMPurify sanitize. `next-themes` picks correct theme (`neutral` vs `dark`)
+- **Shiki** — `experimentalJSEngine` avoids OOM on CI. Dual themes (light/dark)
+- **Back-link** — `app/layout.tsx` reads `NEXT_PUBLIC_APP_URL ?? 'https://roxabi.com'`
+- **`output: standalone`** — self-contained build for Docker/Railway
 
 ## Additive-Only Rule
 
-If a file already exists at any of the scaffold paths, `scaffoldFumadocs()` skips that file and emits a warning to stdout. It never overwrites existing content. This makes the scaffold safe to re-run after partial scaffolding or manual edits.
+∃ file at scaffold path → skip + stdout warning. ¬overwrite. Safe to re-run after partial scaffold ∨ manual edits.
 
-## Running the Scaffold
+## Running
 
-Set the following in `.claude/stack.yml`:
+Set in `.claude/stack.yml`:
 
 ```yaml
 docs:
@@ -82,24 +80,22 @@ docs:
   format: mdx
 ```
 
-Then run `/init` — Phase 7 detects `docs.framework: fumadocs` and offers to scaffold. Confirm to proceed.
+Then `/init` — Phase 7 detects `docs.framework: fumadocs`, offers scaffold.
 
-To trigger the scaffold directly without the full `/init` flow:
+Direct trigger (w/o full `/init`):
 
 ```bash
 bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-fumadocs --root <project-root>
 ```
 
-After scaffolding, install dependencies in the docs app:
+After scaffold:
 
 ```bash
 cd apps/docs && bun install
 ```
 
-Then start the dev server:
-
 ```bash
 cd apps/docs && bun dev
 ```
 
-The docs site will be available at `http://localhost:3000`. Content is read from `docs/` at the project root.
+Site at `http://localhost:3000`. Content from `docs/` at project root.

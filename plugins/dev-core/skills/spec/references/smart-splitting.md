@@ -1,10 +1,12 @@
 # Gate 2.5: Smart Splitting
 
-After Gate 2 approval. Decomposes feature into sub-issues. Always optional — user can skip.
+Let: N := parent issue number | τ := tier
+
+After Gate 2 approval. Decomposes feature → sub-issues. Always optional — user can skip.
 
 ## Pre-checks
 
-1. Tier S ⇒ skip entirely
+1. τ S ⇒ skip entirely
 2. Check ∃ sub-issues:
 
 ```bash
@@ -16,17 +18,17 @@ gh api graphql -f query='{ repository(owner: "{owner}", name: "{repo}") { issue(
 ## Trigger Detection
 
 Read spec, count:
-- Acceptance criteria: `- [ ]` checkboxes in `## Success Criteria`
+- Acceptance criteria: `- [ ]` in `## Success Criteria`
 - Slices: rows in `## Slices` table
 
-**Trigger when:** criteria > 8 ∨ slices > 3.
+**Trigger:** criteria > 8 ∨ slices > 3.
 ¬trigger ∨ ¬(criteria ∧ slices sections) ⇒ skip.
 
 ## Propose Sub-Issues
 
 Split heuristics (priority order):
-1. **Phases** (if present) → 1 sub-issue per phase
-2. **Slices** → 1 sub-issue per slice (group related if >5)
+1. **Phases** (if present) → 1 sub-issue/phase
+2. **Slices** → 1 sub-issue/slice (group related if >5)
 3. **Domains** → group criteria by FE/BE/infra
 
 ∀ sub-issue:
@@ -37,7 +39,7 @@ Split heuristics (priority order):
 | Scope | Which slices/affordances/criteria |
 | Dependencies | Infer from slice order ∨ phase deps |
 | Tier | Score via complexity rubric (Step 1a) |
-| Size | XS/S/M/L/XL from tier |
+| Size | XS/S/M/L/XL from τ |
 | Priority | Inherit parent ∨ default Medium |
 
 Present via AskUserQuestion:

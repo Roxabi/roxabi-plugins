@@ -1,47 +1,49 @@
 # Dev Process Reference
 
-> Extracted from the Roxabi boilerplate `CLAUDE.md`. This is a reference copy for the dev-core plugin. The canonical source lives in the boilerplate repository.
+> Extracted from Roxabi boilerplate `CLAUDE.md`. Reference copy for dev-core. Canonical source in boilerplate repo.
+
+Let: τ := tier | α := agent
 
 ## Tier System
 
-The `/dev #N` entry point determines issue tier based on complexity:
+`/dev #N` determines τ based on complexity:
 
-| Tier | Criteria | Phases |
-|------|----------|--------|
-| **S** | <=3 files, no arch, no risk | triage -> implement -> pr -> validate -> review -> fix* -> promote* -> cleanup* |
-| **F-lite** | Clear scope, single domain | Frame -> spec -> plan -> implement -> verify -> ship |
-| **F-full** | New arch, unclear reqs, >2 domains | Frame -> analyze -> spec -> plan -> implement -> verify -> ship |
+| τ | Criteria | Phases |
+|---|----------|--------|
+| **S** | ≤3 files, no arch, no risk | triage → implement → pr → validate → review → fix* → promote* → cleanup* |
+| **F-lite** | Clear scope, single domain | Frame → spec → plan → implement → verify → ship |
+| **F-full** | New arch, unclear reqs, >2 domains | Frame → analyze → spec → plan → implement → verify → ship |
 
-`*` = conditional (runs only if applicable -- e.g., fix runs only if review produces findings)
+`*` = conditional (runs only if applicable)
 
 ## Workflow Phases
 
-Phases flow in order: **Frame** (problem) -> **Shape** (spec) -> **Build** (code) -> **Verify** (review) -> **Ship** (release).
+Flow: **Frame** (problem) → **Shape** (spec) → **Build** (code) → **Verify** (review) → **Ship** (release).
 
-- **Frame:** Define the problem space. Creates the initial feature frame from the GitHub issue.
-- **Shape:** Deep analysis (F-full only), specification, requirements gathering. Produces specs with smart splitting.
-- **Build:** Implementation plan with micro-tasks, code execution, pull request creation.
-- **Verify:** Code review against quality gates, fix application, validation against spec.
-- **Ship:** Post-merge cleanup, promotion to staging/production.
+- **Frame:** Define problem space. Create feature frame from GitHub issue.
+- **Shape:** Deep analysis (F-full only), spec, reqs gathering. Specs w/ smart splitting.
+- **Build:** Impl plan w/ micro-tasks, code execution, PR creation.
+- **Verify:** Code review vs quality gates, fix application, spec validation.
+- **Ship:** Post-merge cleanup, promotion to staging/prod.
 
 ## Artifact Model
 
-Artifacts are the state markers `/dev` uses for progress detection and resumption.
+Artifacts = state markers for `/dev` progress detection + resumption.
 
-| Type | Directory | Question Answered |
-|------|-----------|-------------------|
+| Type | Directory | Question |
+|------|-----------|----------|
 | **Frame** | `artifacts/frames/` | What's the problem? |
-| **Analysis** | `artifacts/analyses/` | How deep is it? |
-| **Spec** | `artifacts/specs/` | What will we build? |
-| **Plan** | `artifacts/plans/` | How do we build it? |
+| **Analysis** | `artifacts/analyses/` | How deep? |
+| **Spec** | `artifacts/specs/` | What to build? |
+| **Plan** | `artifacts/plans/` | How to build? |
 
-The `/dev` orchestrator scans these directories to determine current progress and resume from the correct phase.
+`/dev` scans these dirs → determine progress → resume from correct phase.
 
 ## Git Workflow Rules
 
 ### Worktree
 
-All code changes require a worktree:
+All code changes require worktree:
 
 ```bash
 git worktree add ../roxabi-XXX -b feat/XXX-slug staging
@@ -49,12 +51,9 @@ cd ../roxabi-XXX && cp .env.example .env && bun install
 cd apps/api && bun run db:branch:create --force XXX
 ```
 
-**Exceptions:**
-- XS issues (confirm via AskUserQuestion)
-- `/dev` pre-implementation artifacts (frame, analysis, spec, plan)
-- `/promote` release artifacts
+**Exceptions:** XS issues (confirm via AskUserQuestion), `/dev` pre-impl artifacts (frame, analysis, spec, plan), `/promote` release artifacts.
 
-Never code on main/staging without a worktree.
+¬code on main/staging w/o worktree.
 
 ### Commit Format
 
@@ -68,11 +67,11 @@ Types: `feat` | `fix` | `refactor` | `docs` | `style` | `test` | `chore` | `ci` 
 
 ### Branch Naming
 
-`feat/XXX-slug` where XXX is the issue number.
+`feat/XXX-slug` where XXX = issue number.
 
 ## Quality Gate Requirements
 
-- Code review uses Conventional Comments format
+- Code review uses Conventional Comments
 - Block only on: security, correctness, standard violations
 - Must read code-review standards before reviewing
 - CI must pass before merge
@@ -80,10 +79,10 @@ Types: `feat` | `fix` | `refactor` | `docs` | `style` | `test` | `chore` | `ci` 
 
 ## Mandatory Rules
 
-1. **AskUserQuestion:** Always use `AskUserQuestion` for decisions, choices (>=2 options), and approach proposals. Never use plain-text questions like "Do you want..." or "Should I..."
-2. **No force/amend:** Never use `--force`, `--hard`, or `--amend`. Hook fail -> fix + NEW commit.
-3. **No push without request:** Never push without explicit user request.
-4. **Orchestrator delegation:** Orchestrator does not modify code/docs directly. Delegate to domain agents. Exception: typo/single-line fixes.
-5. **Skill usage:** Always use the appropriate skill, even without a slash command.
-6. **Standards reading:** Before code changes, read the relevant standards document for the context.
-7. **Test command:** Use `bun run test` (Vitest), never `bun test` (Bun runner -- causes CPU spin). A hook blocks the wrong command.
+1. **AskUserQuestion:** Always for decisions, choices (≥2 options), approach proposals. ¬plain-text questions.
+2. **¬force/amend:** ¬`--force`, ¬`--hard`, ¬`--amend`. Hook fail → fix + NEW commit.
+3. **¬push w/o request:** ¬push unless explicit user request.
+4. **Orchestrator delegation:** Orchestrator ¬modify code/docs directly → delegate to domain α. Exception: typo/single-line.
+5. **Skill usage:** Always use appropriate skill, even w/o slash command.
+6. **Standards reading:** Read relevant standards before code changes.
+7. **Test command:** Use `bun run test` (Vitest), ¬`bun test` (Bun runner — CPU spin). Hook blocks wrong cmd.

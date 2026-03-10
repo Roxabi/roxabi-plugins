@@ -8,10 +8,7 @@ allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch, AskUserQuestion
 
 # Promote
 
-Let:
-  σ := staging branch
-  μ := main branch
-  V := release version string (vX.Y.Z)
+Let: σ := staging | μ := main | V := release version (vX.Y.Z)
 
 σ → μ for production. Pre-flight → version → changelog → commit → preview → PR.
 `--finalize`: post-merge tag + GitHub Release.
@@ -35,21 +32,18 @@ git diff main...staging --stat
 gh pr list --base staging --state open --json number,title,headRefName
 ```
 
-Guard rails:
-
 | Check | Condition | Action |
 |-------|-----------|--------|
-| No commits | `git log main..staging` empty | **REFUSE.** Nothing to promote. Stop. |
+| No commits | `git log main..staging` empty | **REFUSE.** Stop. |
 | Open PRs on σ | `gh pr list --base staging` → results | **WARN** + AskUserQuestion: **Continue** \| **Wait** |
-| CI status | Check latest σ commit | **WARN** if ¬passing |
+| CI status | Latest σ commit | **WARN** if ¬passing |
 
-CI check:
 ```bash
 gh api repos/:owner/:repo/commits/staging/check-runs \
   --jq '[.check_runs[] | {name, conclusion}] | group_by(.conclusion) | map({conclusion: .[0].conclusion, count: length})'
 ```
 
-## Steps 2–4 — Version, Changelog, Commit
+## Steps 2-4 — Version, Changelog, Commit
 
 Read [references/release-artifacts.md](references/release-artifacts.md) for full procedure.
 
@@ -64,9 +58,9 @@ RUN_ID=$(gh run list --workflow=deploy-preview.yml --limit=1 --json databaseId -
 gh run watch $RUN_ID --exit-status
 ```
 
-AskUserQuestion: **Looks good — proceed** | **Issues found — abort** | **Skip preview, proceed**
+AskUserQuestion: **Looks good — proceed** | **Issues — abort** | **Skip preview, proceed**
 
-`--skip-preview` ⇒ skip entirely.
+`--skip-preview` ⇒ skip.
 
 ## Step 6 — Summary
 
@@ -81,16 +75,16 @@ Promotion Summary
   Preview:   verified/skipped
 ```
 
-`--dry-run` ⇒ display summary + changelog, stop. Inform: "Run `/promote` to create the promotion PR."
+`--dry-run` ⇒ display + stop. "Run `/promote` to create the promotion PR."
 
 ## Step 6b — Changelog Commit
 
-σ may have branch protection (PRs required). If direct push to σ fails:
-1. Create temp branch: `git branch chore/$VERSION-changelog staging`
+σ may have branch protection. Direct push fails →
+1. Branch: `git branch chore/$VERSION-changelog staging`
 2. Push: `git push origin chore/$VERSION-changelog`
-3. Create PR: `gh pr create --base staging --head chore/$VERSION-changelog --title "chore(release): add $VERSION changelog"`
+3. PR: `gh pr create --base staging --head chore/$VERSION-changelog --title "chore(release): add $VERSION changelog"`
 4. Merge: `gh pr merge <N> --squash --delete-branch`
-5. Sync local: `git fetch origin staging && git reset --hard origin/staging`
+5. Sync: `git fetch origin staging && git reset --hard origin/staging`
 
 ## Step 7 — Create Promotion PR
 
@@ -119,10 +113,8 @@ Display PR URL.
 
 ## Step 8 — Post-merge Reminder
 
-**CRITICAL: Use merge commit (not squash) when merging the promotion PR.**
-Squash-merge causes staging↔main history divergence → next promotion has conflicts on every previously-promoted file, and deleted files get resurrected.
+**CRITICAL: Use merge commit (not squash) for promotion PR.** Squash causes history divergence → conflicts + resurrected files on next promotion.
 
-Inform:
 ```
 Promotion PR created: {URL}
 
@@ -137,34 +129,34 @@ After merge:
 
 ## Step 9 — Finalize (`--finalize` only)
 
-Skip Steps 1–8 entirely. Runs post-merge only.
+Skip Steps 1-8. Post-merge only.
 
-**9a. Verify merge:**
+**9a.** Verify merge:
 ```bash
 git fetch origin main && git checkout main && git pull origin main
 gh pr list --base main --head staging --state merged --limit 1 --json number,title,mergedAt
 ```
-¬merged PR found ⇒ REFUSE: "Merge the promotion PR first."
+¬merged → REFUSE: "Merge the promotion PR first."
 
-**9b. Detect V:**
+**9b.** Detect V:
 ```bash
 grep -oP '## \[\Kv[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1
 ```
-AskUserQuestion: **Use {detected version}** | **Custom version**
+AskUserQuestion: **Use {detected}** | **Custom version**
 
-**9c. Tag:**
+**9c.** Tag:
 ```bash
 git tag -l "$VERSION" | grep -q "$VERSION" && echo "Tag exists — abort" && exit 1
 git tag -a "$VERSION" -m "Release $VERSION"
 git push origin "$VERSION"
 ```
 
-**9d. Release:**
+**9d.** Release:
 ```bash
 gh release create "$VERSION" --title "$VERSION" --notes "$CHANGELOG_CONTENT"
 ```
 
-Inform: "Release $VERSION finalized: tag + GitHub Release created. Run `/cleanup` to clean up merged branches."
+Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
 
 ## Options
 
@@ -173,20 +165,20 @@ Inform: "Release $VERSION finalized: tag + GitHub Release created. Run `/cleanup
 | (none) | Full flow: pre-flight → version → changelog → commit → preview → PR |
 | `--skip-preview` | Skip deploy preview |
 | `--dry-run` | Show summary + changelog, create nothing |
-| `--finalize` | Post-merge: tag + GitHub Release (changelog already deployed) |
+| `--finalize` | Post-merge: tag + GitHub Release |
 
 ## Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| Nothing to promote | REFUSE: σ is up to date with μ |
-| Open PRs on σ | Warn, list, AskUserQuestion: continue or wait |
-| CI failing | Warn, show failures, AskUserQuestion: proceed or fix |
-| Deploy preview fails | Show error, AskUserQuestion: abort or proceed |
-| Promotion PR already exists | Detect via `gh pr list --base main --head staging`, offer update |
-| `--dry-run` | Show summary + changelog only, ¬create PR ∨ commit |
-| ¬merged promotion PR (`--finalize`) | REFUSE: merge first |
-| Tag already exists (`--finalize`) | REFUSE: tag exists |
+| Nothing to promote | REFUSE: σ up to date with μ |
+| Open PRs on σ | Warn, list, AskUserQuestion |
+| CI failing | Warn, show failures, AskUserQuestion |
+| Preview fails | Show error, AskUserQuestion |
+| PR already exists | Detect via `gh pr list`, offer update |
+| `--dry-run` | Summary only, ¬create PR/commit |
+| ¬merged (`--finalize`) | REFUSE: merge first |
+| Tag exists (`--finalize`) | REFUSE |
 | Invalid version | REFUSE: ask for valid `vX.Y.Z` |
 
 ## Safety Rules

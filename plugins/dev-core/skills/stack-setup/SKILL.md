@@ -8,16 +8,16 @@ allowed-tools: Read, Edit, Write, Bash, Glob, ToolSearch, AskUserQuestion
 
 # Stack Setup Wizard
 
-Auto-discovers project configuration from the codebase, shows a confirmation screen, then writes `.claude/stack.yml`. Safe to re-run.
+Auto-discover project config → confirm → write `.claude/stack.yml`. Safe to re-run.
 
 Let: σ := `.claude/stack.yml` | π := proposed config table
 
-## Phase 0 — Idempotency check
+## Phase 0 — Idempotency
 
 `test -f .claude/stack.yml && echo exists || echo missing`
 
-σ ∃ ∧ `--force` ∉ `$ARGUMENTS` → AskUserQuestion: **Re-configure** (overwrite) | **Skip** (abort)
-→ Skip: abort with "Keeping existing `.claude/stack.yml`. Run with `--force` to reconfigure."
+σ ∃ ∧ `--force` ∉ `$ARGUMENTS` → AskUserQuestion: **Re-configure** | **Skip**
+→ Skip: "Keeping existing σ. Run with `--force` to reconfigure."
 
 σ ∄ → `mkdir -p .claude`
 
@@ -26,11 +26,10 @@ Let: σ := `.claude/stack.yml` | π := proposed config table
 `test -f .claude/dev-core.yml && grep -q 'gh_project_id' .claude/dev-core.yml && echo done || (test -f .env && grep -q 'GH_PROJECT_ID' .env && echo done || echo missing)`
 
 `missing` → AskUserQuestion: **Continue anyway** | **Abort (run /init first)**
-→ Abort: "Run `/init` to set up GitHub integration, then come back to `/stack-setup`."
 
-## Phase 2 — Auto-discover project configuration
+## Phase 2 — Auto-discover
 
-Run all detection commands; derive π from output.
+Run all detection; derive π:
 
 ```bash
 # Runtime & package manager
@@ -98,21 +97,21 @@ grep -A5 '^\[project\.scripts\]' pyproject.toml 2>/dev/null | grep -v '^\[' | he
   || echo ""
 ```
 
-**Runtime/PM mapping:**
-- `pm=uv` → `runtime: python`, `package_manager: uv`; commands prefixed `uv run`
-- `pm=bun` → `runtime: bun`, `package_manager: bun`; commands prefixed `bun run`
-- `pm=npm/pnpm/yarn` → `runtime: node`, `package_manager: {pm}`; commands prefixed `{pm} run`
+**Runtime/PM → command prefix:**
+- `uv` → `runtime: python`, `package_manager: uv`; prefix `uv run`
+- `bun` → `runtime: bun`, `package_manager: bun`; prefix `bun run`
+- `npm/pnpm/yarn` → `runtime: node`, `package_manager: {pm}`; prefix `{pm} run`
 
 **Commands by runtime:**
-- Python/uv: `dev: uv run <first-script-key>` | `test: uv run pytest` | `lint: uv run ruff check .` | `format: uv run ruff format .` | `typecheck: uv run ruff check --select=PYI .` | `install: uv sync`
+- Python/uv: `dev: uv run <first-script>` | `test: uv run pytest` | `lint: uv run ruff check .` | `format: uv run ruff format .` | `typecheck: uv run ruff check --select=PYI .` | `install: uv sync`
 - Node/Bun: `dev/test/lint/format/typecheck: {pm} run <key>` | `install: {pm} install`
 
 **Formatter fix command:**
 - ruff → `uv run ruff format . && uv run ruff check --fix .`
-- biome → `bunx biome check --write` (or `npx biome check --write`)
+- biome → `bunx biome check --write` (or `npx`)
 - eslint → `npx eslint --fix .`
 
-**Mixed-stack monorepos** (JS/TS + Python both detected): write `formatters:` array instead of `formatter_fix_cmd`:
+**Mixed-stack monorepos** (JS/TS + Python): `formatters:` array instead of `formatter_fix_cmd`:
 ```yaml
 build:
   formatters:
@@ -121,11 +120,11 @@ build:
     - cmd: "ruff format"
       ext: [".py"]
 ```
-Each formatter receives only files matching its `ext` list. `formatter_fix_cmd` is the fallback for single-formatter projects.
+Each formatter receives only matching `ext` files. `formatter_fix_cmd` = fallback for single-formatter projects.
 
-**Standards paths** — only include if `docs/` ∃ on disk: backend, testing, code_review, architecture, configuration, contributing.
+**Standards paths** — include only if `docs/` ∃: backend, testing, code_review, architecture, configuration, contributing.
 
-## Phase 3 — Confirm detected configuration
+## Phase 3 — Confirm
 
 Display π:
 
@@ -153,11 +152,11 @@ Detected configuration
 
 AskUserQuestion: **Looks good — write it** | **Edit a field** | **Abort**
 
-"Edit a field" → ask "Which field? (e.g. `runtime`, `backend.path`, `commands.test`)" + "New value?"; apply override; re-display π. Repeat until confirmed.
+"Edit a field" → ask which field + new value; apply; re-display π. Repeat until confirmed.
 
 ## Phase 4 — Write stack.yml
 
-Assemble and write `.claude/stack.yml`. Omit keys that are `none`/empty entirely.
+Assemble σ. Omit `none`/empty keys entirely.
 
 ```yaml
 # .claude/stack.yml — dev-core stack configuration
@@ -231,9 +230,9 @@ artifacts:
 
 ## Phase 5 — CLAUDE.md and .gitignore
 
-1. **@import:** `head -1 CLAUDE.md` ≠ `@.claude/stack.yml` → prepend it; display "Added `@.claude/stack.yml` import to CLAUDE.md ✅" | else "CLAUDE.md already imports stack.yml ✅"
-2. **Gitignore:** `grep -q '\.claude/stack\.yml' .gitignore 2>/dev/null` → ∄ → append `.claude/stack.yml`; display "Added `.claude/stack.yml` to .gitignore ✅" | ∃ → "Already in .gitignore ✅"
-3. **Example:** `.claude/stack.yml.example` ∄ → copy σ → display "Created `.claude/stack.yml.example` ✅ — commit this file as a reference for teammates"
+1. **@import:** `head -1 CLAUDE.md` ≠ `@.claude/stack.yml` → prepend; else already present.
+2. **Gitignore:** `grep -q '\.claude/stack\.yml' .gitignore 2>/dev/null` → ∄ → append `.claude/stack.yml`; ∃ → skip.
+3. **Example:** `.claude/stack.yml.example` ∄ → copy σ → "Created — commit this file as reference."
 
 ## Phase 6 — Summary
 

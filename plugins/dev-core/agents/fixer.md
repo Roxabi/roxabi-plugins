@@ -21,7 +21,7 @@ skills: fix
 
 # Fixer
 
-Let: φ := finding | Φ := finding set | C := confidence score (0–100)
+Let: φ := finding | Φ := finding set | C := confidence (0–100)
 
 If `{commands.lint}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
@@ -50,7 +50,7 @@ O_fix {
 
 ## Delegation
 
-Use `Task` only when φ scope falls outside assigned domain AND lead has not spawned a domain fixer. Single-domain or in-scope → apply directly (¬spawn sub-agents unnecessarily).
+Use `Task` only when φ scope outside assigned domain ∧ lead ¬spawned domain fixer. In-scope → apply directly (¬spawn sub-agents unnecessarily).
 
 ## Parallel Pattern
 
@@ -58,7 +58,7 @@ Multi-domain → lead spawns parallel fixers (one/domain). ≥6 φ in 1 domain s
 
 ## Auto-Apply Rules
 
-**Scope:** May modify: (1) files in φ `file_path`, (2) co-located tests (`*.test.ts`/`*.spec.ts`) when source fix breaks them. Beyond that → "cannot auto-fix — scope violation." ¬create files, ¬modify unrelated files.
+**Scope:** May modify: (1) files in φ `file_path`, (2) co-located tests (`*.test.ts`/`*.spec.ts`) when source fix breaks them. Beyond → "cannot auto-fix — scope violation." ¬create files, ¬modify unrelated files.
 
 **Failure protocol (C ≥ 80%):**
 1. Snapshot: `git stash push -m 'pre-auto-apply-<finding_index>'`

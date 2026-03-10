@@ -11,35 +11,35 @@ allowed-tools: Write, Read, Edit, Glob, ToolSearch, AskUserQuestion
 Let:
   β := Brainstorm | α := Analysis | σ := Spec
   τ := document type ∈ {β, α, σ}
+  A := `artifacts/analyses/` | S := `artifacts/specs/`
 
 Conduct structured interview → produce one of {β, α, σ}. Supports promoting existing doc to next level.
 
-## Step 0 — Check for `--promote` Flag
+## Step 0 — Check `--promote`
 
 ∃ `--promote <path>`:
-
 1. Read doc at path.
 2. Determine current τ (frontmatter first, content structure fallback):
-   - `type: brainstorm` in frontmatter → β → promote to α.
-   - ¬type frontmatter ∧ lives in `artifacts/analyses/` ∧ "Trigger"/"Ideas" structure → treat as β.
-   - `artifacts/analyses/` ∧ "Questions Explored"/"Analysis"/"Conclusions" structure → α → promote to σ.
-   - Already σ → inform: "This document is already a spec. Nothing to promote." Stop.
+   - `type: brainstorm` ∈ frontmatter → β → promote to α.
+   - ¬type ∧ lives in A ∧ "Trigger"/"Ideas" structure → treat as β.
+   - A path ∧ "Questions Explored"/"Analysis"/"Conclusions" structure → α → promote to σ.
+   - Already σ → inform: "Already a spec. Nothing to promote." Stop.
 3. Skip to Step 2; limit questions to gaps between current doc and next level. Pre-fill known from source.
-4. In promoted doc's Context section: `**Promoted from:** [source title](relative-path-to-source)`
+4. In promoted doc's Context: `**Promoted from:** [source title](relative-path-to-source)`
 
-¬`--promote` → continue to Step 1.
+¬`--promote` → Step 1.
 
 ## Step 1 — Existing Document Awareness
 
-Glob `artifacts/analyses/`, `artifacts/specs/` — match topic by issue#, keywords, or slug.
+Glob A, S — match topic by issue#, keywords, or slug.
 
 ∃ related docs → AskUserQuestion:
-> "I found existing documents related to this topic: {list with paths}. How would you like to proceed?"
+> "Found existing documents: {list with paths}. How to proceed?"
 - **Build on existing** — use as context, extend
 - **Promote to next level** — α → σ or β → α
 - **Start fresh** — ignore, begin new interview
 
-¬related docs → proceed to Step 2.
+¬related → Step 2.
 
 ## Step 2 — Determine Document Type
 
@@ -62,14 +62,14 @@ AskUserQuestion per phase. Group 2–4 questions/call. Skip questions obvious fr
 
 α-specific — also capture:
 - **Source material:** verbatim request/quote/ticket (ground truth)
-- **Outcome:** success without prescribing solution
-- **Appetite:** time budget (e.g. 1 week, 2-week cycle) — fixed time, variable scope
+- **Outcome:** success ¬prescribing solution
+- **Appetite:** time budget (fixed time, variable scope)
 
 #### Phase 2 — Scope (2–3 questions)
 
 - Who are the users? What are their workflows?
 - What is explicitly out of scope?
-- What are the constraints (technical, time, dependencies)?
+- Constraints (technical, time, dependencies)?
 
 #### Phase 3 — Depth (2–4 questions, adapt to τ)
 
@@ -78,11 +78,11 @@ AskUserQuestion per phase. Group 2–4 questions/call. Skip questions obvious fr
 - Integration with existing systems?
 - What does success look like?
 
-> **Shape Up terminology:** A *shape* = mutually exclusive architecture approach (name, trade-offs, rough scope). A *breadboard* maps a shape into affordance tables (UI elements → code handlers → data stores). *Slices* break a shape into demo-able vertical increments.
+> **Shape Up terminology:** *shape* = mutually exclusive arch approach (name, trade-offs, rough scope). *breadboard* = affordance tables (UI elements → handlers → data). *slices* = demo-able vertical increments.
 
 α-specific depth:
-- **Architecture shapes:** 2–3 mutually exclusive approaches; ∀ shape: name, description, trade-offs, rough scope.
-- **Constraint alignment:** which constraints eliminate any approach?
+- **Architecture shapes:** 2–3 mutually exclusive approaches; ∀ shape: name, description, trade-offs, scope.
+- **Constraint alignment:** which constraints eliminate which approach?
 
 σ-specific depth — probe ambiguity via 9-category taxonomy:
 
@@ -95,37 +95,31 @@ AskUserQuestion per phase. Group 2–4 questions/call. Skip questions obvious fr
 | Integrations | "What external systems does this touch?" |
 | Edge Cases | "What happens when X fails or is missing?" |
 | Constraints | "What technical/time/budget limits apply?" |
-| Terminology | "Terms that could mean different things to different people?" |
+| Terminology | "Terms that could mean different things?" |
 | Completion Signals | "How do we know this is done?" |
 
-∀ ambiguity detected: rank by **Impact × Uncertainty** (H/M/L each). High×High → follow-up question. Unresolved after interview → mark inline as `[NEEDS CLARIFICATION: description]` (max 3–5/spec). Must be resolved before `/plan`.
+∀ ambiguity: rank by **Impact × Uncertainty** (H/M/L). H×H → follow-up question. Unresolved → `[NEEDS CLARIFICATION: description]` (max 3–5/spec). Must resolve before `/plan`.
 
-> **Example:** Probe "What external systems does this touch?" reveals uncertainty about email provider. Scored High-Impact × High-Uncertainty → follow-up: "Which email provider should we evaluate?" If unresolved: `[NEEDS CLARIFICATION: email provider selection — SendGrid vs Resend]`.
-
-Depth by τ:
-- β: Phase 1 + divergent. Ask "What else?" / "What if?". Lighter depth.
-- α: Phases 1–3 thoroughly. Probe for structure and conclusions.
-- σ: All four phases. Rigorous on edge cases, constraints, criteria.
+Depth by τ: β = Phase 1 + divergent (lighter) | α = Phases 1–3 thorough | σ = all phases, rigorous on edge cases + criteria.
 
 #### Phase 4 — Validation (1 question, always last)
 
-> "Here is my understanding before I generate the document:
+> "My understanding before generating:
 > - **Type**: {τ}
 > - **Title**: {proposed title}
 > - **Key points**: {bulleted summary}
 >
 > Anything to correct or add?"
 
-## Step 4 — Generate the Document
+## Step 4 — Generate Document
 
-Write the document using the appropriate template below. Follow these rules:
-
-- Use `.mdx` extension with YAML frontmatter (`title`, `description`).
-- Use kebab-case slugs.
-- For **Spec** documents, prefix the filename with the GitHub issue number: `artifacts/specs/{issue}-{slug}-spec.mdx`
-- For **Analysis** and **Brainstorm** documents: `artifacts/analyses/{slug}-analysis.mdx` (prefix with issue number if one exists, e.g., `artifacts/analyses/{issue}-{slug}-analysis.mdx`).
-- Brainstorm documents add `type: brainstorm` to their frontmatter.
-- Escape `<` as `&lt;` in MDX content to avoid JSX parsing errors.
+Write using appropriate template. Rules:
+- `.mdx` extension with YAML frontmatter (`title`, `description`).
+- Kebab-case slugs.
+- σ prefix: `artifacts/specs/{issue}-{slug}-spec.mdx`
+- α/β: `artifacts/analyses/{slug}-analysis.mdx` (prefix with issue# if ∃).
+- β adds `type: brainstorm` to frontmatter.
+- Escape `<` as `&lt;` in MDX content.
 
 ---
 

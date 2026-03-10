@@ -8,18 +8,18 @@ allowed-tools: Read, Edit, Write, Bash, Glob, Grep, ToolSearch, AskUserQuestion
 
 # Context Cleanup
 
-**Goal: every finding resolved.** Context files are an inbox — stale rules, contradictions, and memory entries must be resolved to a permanent home or deleted.
+**Goal: every ε resolved.** Context files = inbox — stale rules, contradictions, memory entries → permanent home ∨ deleted.
 
-Addresses the "rule accumulation decay" pattern: adding rules improves performance → too many rules → contradictions → performance degrades silently.
+Addresses "rule accumulation decay": rules↑ → performance↑ → too many → contradictions → performance↓ silently.
 
 Let:
-  ε := finding (contradiction, stale ref, redundancy, bloat item, or memory entry)
+  ε := finding (contradiction, stale ref, redundancy, bloat, memory entry)
   μ := MEMORY.md (first κ lines injected every session)
   τ := memory/*.md (topic files, loaded on demand)
-  α := .claude/agent-memory/*/MEMORY.md (agent memory, per-agent)
+  α := .claude/agent-memory/*/MEMORY.md (per-agent)
   κ := 200 (MEMORY.md line cap)
-  λ := .claude/context-audit-log.md (audit log, append-only)
-  Π := discovered placement targets (auto-detected per project)
+  λ := .claude/context-audit-log.md (append-only audit log)
+  Π := placement targets (auto-detected per project)
 
 ```
 /cleanup-context                    Audit all context areas
@@ -31,20 +31,20 @@ Let:
 
 ## Resolutions
 
-Every ε resolves to exactly one:
+∀ ε → exactly one resolution:
 
 | Resolution | When | Action |
 |-----------|------|--------|
-| **Fix** | Root cause is a bug, wrong config, or design flaw | Fix the code/config/workflow, then delete ε |
-| **Promote** | Durable insight needed by multiple agents | Move content to permanent target (see placement), delete ε |
-| **Relocate** | Domain/agent-specific knowledge in wrong scope | Move to narrower scoped target, delete ε |
-| **Delete** | Ephemeral, stale, already covered, or resolved | Delete ε |
+| **Fix** | Root cause = bug/wrong config/design flaw | Fix code/config/workflow, delete ε |
+| **Promote** | Durable insight needed by multiple agents | Move to permanent target (see Π), delete ε |
+| **Relocate** | Domain/agent-specific knowledge in wrong scope | Move to narrower target, delete ε |
+| **Delete** | Ephemeral, stale, already covered, resolved | Delete ε |
 
 ### Placement Hierarchy
 
-When promoting or relocating, pick the **narrowest** target that covers all consumers.
+Promote/relocate → pick **narrowest** target covering all consumers.
 
-**Auto-discover Π** by scanning the project:
+**Auto-discover Π:**
 
 ```bash
 echo "=== Discovering placement targets (Π) ==="
@@ -90,9 +90,9 @@ No target found?                 → CLAUDE.md (root) as fallback
 
 ## Audit Log + Recurrence Detection
 
-Log: λ (`.claude/context-audit-log.md`) — append-only, persists across audits. Stored in `.claude/` so it travels with the project.
+λ = `.claude/context-audit-log.md` — append-only, persists across audits, stored in `.claude/`.
 
-Before classifying findings, scan λ for prior resolutions of similar entries:
+Before classifying, scan λ for prior similar resolutions:
 
 ```bash
 grep -i "<key phrase>" .claude/context-audit-log.md 2>/dev/null
@@ -101,15 +101,15 @@ grep -i "<key phrase>" .claude/context-audit-log.md 2>/dev/null
 | Count | Signal | Action |
 |-------|--------|--------|
 | 1st | Normal | Resolve normally |
-| 2nd | **Fix didn't stick** | Investigate: wrong target? agents not reading it? docs unclear? |
-| 3rd+ | **Systemic gap** | Permanent home is broken. Create issue to fix root cause |
+| 2nd | **Fix didn't stick** | Investigate: wrong target? agents ¬reading? docs unclear? |
+| 3rd+ | **Systemic gap** | Create issue to fix root cause |
 
-Recurrence >= 2 → AskUserQuestion with root cause options:
-- **Wrong target** — placed somewhere agents don't read → move to better location
-- **Unclear docs** — exists but ambiguous/buried → rewrite at target
-- **Agent prompt gap** — agent def doesn't reference the right docs → fix agent .md
+Recurrence ≥ 2 → AskUserQuestion with root-cause options:
+- **Wrong target** — agents ¬read location → move
+- **Unclear docs** — ambiguous/buried → rewrite at target
+- **Agent prompt gap** — agent def ¬references right docs → fix agent .md
 - **Process gap** — no target fits → create new section/file
-- **Create issue** — too complex to fix now, track it
+- **Create issue** — too complex now, track it
 
 ## Phase 1 — Discover + Inventory
 
@@ -151,58 +151,38 @@ All sources empty → "Context is clean — nothing to audit." **Stop.**
 
 ## Phase 2 — Analyze for Findings
 
-Read each file. Build ε set. Categories:
+Read each file. Build ε set:
 
 ### 2a. Contradictions
-
-Two rules that conflict semantically:
-- "Always use semicolons" vs "No semicolons"
-- "Use snake_case" in one file, "Use camelCase" in another
-- Skill A says "run tests first", Skill B says "skip tests for speed"
-
-Detection: read all rules/instructions → build directive list → compare pairwise for conflicts.
+Two semantically conflicting rules (e.g., "use semicolons" vs "no semicolons", snake_case vs camelCase, "run tests first" vs "skip tests").
+Detection: read all rules → build directive list → pairwise conflict check.
 
 ### 2b. Staleness
+Rules referencing: ¬∃ files/paths (`Glob` to verify) | ¬installed deps (`grep package.json`) | deprecated tools/patterns | completed TODOs listed pending | issue #N / PR refs / branch names / worktree paths (ephemeral).
 
-Rules that reference:
-- Files/paths that no longer exist (`Glob` to verify)
-- Dependencies no longer installed (`grep package.json`)
-- Deprecated tools, frameworks, or patterns
-- Completed TODOs still listed as pending
-- Issue numbers (#N), PR refs, branch names, worktree paths (ephemeral context)
-
-Verify:
 ```bash
 test -f "<path from ε>" && echo "EXISTS" || echo "STALE"
 grep -rl "<key phrase>" CLAUDE.md $(find . -maxdepth 3 -name "CLAUDE.md") .claude/agents/*.md 2>/dev/null
 ```
 
 ### 2c. Redundancy
+Same rule in multiple files (exact/near-dup) | overlapping trigger phrases | memory entries duplicating CLAUDE.md | content already in Π targets.
 
-- Same rule stated in multiple files (exact or near-duplicate)
-- Skills with overlapping trigger phrases
-- Memory entries that duplicate CLAUDE.md content
-- Content already in discovered Π targets
-
-### 2d. Bloat Indicators
-
-- CLAUDE.md > 500 lines
-- Memory files > κ lines
-- \> 10 installed skills
-- Rules overly specific (micro-managing the agent)
+### 2d. Bloat
+CLAUDE.md > 500 lines | memory > κ lines | > 10 skills | overly specific rules.
 
 ### 2e. Memory Entries (μ + τ + α)
 
-∀ memory entry, classify using resolution taxonomy:
+∀ entry, classify:
 
 | Signal | Resolution |
 |--------|-----------|
-| Describes a bug/workaround | **Fix** (fix root cause) |
-| Cross-cutting insight not in permanent docs | **Promote** (→ Π target) |
-| Agent/domain-specific knowledge in global memory | **Relocate** (→ scoped target) |
-| References #N, PR, branch, worktree path | **Delete** (ephemeral) |
-| References file/workflow that doesn't exist on disk | **Delete** (stale) |
-| Already exists in discovered Π targets | **Delete** (redundant) |
+| Bug/workaround | **Fix** (root cause) |
+| Cross-cutting insight ¬in permanent docs | **Promote** (→ Π) |
+| Agent/domain-specific in global memory | **Relocate** (→ scoped target) |
+| References #N, PR, branch, worktree | **Delete** (ephemeral) |
+| References ¬∃ file/workflow | **Delete** (stale) |
+| Already in Π targets | **Delete** (redundant) |
 
 ## Phase 3 — Present Resolution Plan
 
@@ -242,29 +222,23 @@ Score: {healthy | needs attention | bloated}
   Recurrences:     {count}
 ```
 
-`--dry-run` → stop here. Show report only.
+`--dry-run` → stop here.
 
-AskUserQuestion:
-- **Execute all** (apply all resolutions)
-- **1-by-1** (per-ε approve/change resolution)
-- **Skip** (no changes)
+AskUserQuestion: **Execute all** | **1-by-1** (per-ε approve/change) | **Skip**
 
 ## Phase 4 — Execute
 
 ∀ approved ε, in order:
+1. **Fix**: make code/config change, ¬just delete
+2. **Promote**: append to target (respect structure)
+3. **Relocate**: append to scoped target
+4. **Delete**: remove from source
 
-1. **Fix**: make the code/config change, not just delete the finding
-2. **Promote**: append content to target file (respect existing structure)
-3. **Relocate**: append content to scoped target
-4. **Delete**: remove from source file
-
-After each resolution → delete the ε from its source (μ/τ/α/CLAUDE.md).
-
-Apply via Edit tool. Always show exact diff before each change.
+After each → delete ε from source (μ/τ/α/CLAUDE.md). Apply via Edit. Show exact diff before each change.
 
 ## Phase 5 — Log + Report
 
-Append audit entry to λ (`.claude/context-audit-log.md`, create if not exists):
+Append to λ (create if ¬∃):
 
 ```markdown
 ## Audit <YYYY-MM-DD>
@@ -297,7 +271,7 @@ Files modified:
   {file_b} — {description}
 ```
 
-Do NOT commit automatically. User decides when to commit context changes.
+¬commit automatically. User decides when.
 
 ## Safety
 

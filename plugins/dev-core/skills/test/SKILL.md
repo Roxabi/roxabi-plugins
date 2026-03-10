@@ -11,8 +11,9 @@ allowed-tools: Bash, Read, Write, Glob, Grep, ToolSearch, AskUserQuestion
 Let:
   τ := target file(s) under test
   π := test file adjacent to source (`{name}.test.ts` | `{name}.spec.ts` | `__tests__/{name}.test.ts`)
+  Σ := `{standards.testing}`
 
-Generate tests for changed or specified files. Follows existing codebase patterns.
+Generate tests for changed/specified files. Follow existing codebase patterns.
 
 ## Usage
 
@@ -47,14 +48,13 @@ git diff ${BASE}...HEAD --name-only
 ```
 
 Include: `.ts`, `.tsx`. Exclude: `*.config.ts`, `*.d.ts`, `*.test.*`, `*.spec.*`, files with no exports.
-
-Specific file argument ⇒ use directly. ¬testable τ found ⇒ inform + stop.
+Specific file arg ⇒ use directly. ¬testable τ ⇒ inform + stop.
 
 ## Step 3 — Read Standards + Find Patterns
 
-Read `{standards.testing}` before generating any tests — contains framework config, AAA requirements, mocking strategies, coverage targets.
+Read Σ before generating — contains framework config, AAA requirements, mocking strategies, coverage targets.
 
-Glob `*.test.ts` / `*.spec.ts` near τ → read 1–2 examples → extract: describe/it nesting, mock approach, assertion style, naming convention.
+Glob `*.test.ts` / `*.spec.ts` near τ → read 1–2 examples → extract: describe/it nesting, mock approach, assertion style, naming.
 
 **Framework:** Vitest on Bun. Always import explicitly:
 ```typescript
@@ -70,13 +70,12 @@ import { describe, it, expect, vi } from 'vitest'
 | `vi.stubGlobal('Bun', {...})` | `vi.spyOn(Bun, 'spawn').mockImplementation(...)` |
 | `vi.restoreAllMocks()` in `beforeEach` | `vi.clearAllMocks()` |
 
-Mock factory hoisting: Bun validates `vi.mock` factories against the real module at hoist time. Side-effectful imports run before `process.env` assignments. Fix: `vi.mock('../../shared/config', factory)` to intercept directly.
+Mock factory hoisting: Bun validates `vi.mock` factories against real module at hoist time. Side-effectful imports run before `process.env` assignments. Fix: `vi.mock('../../shared/config', factory)` to intercept directly.
 
 ## Step 4 — Check Existing Coverage
 
 ∀ τ → check for π.
-
-∃ π ⇒ read it, compare with source exports, offer to add missing coverage (¬overwrite).
+∃ π ⇒ read, compare with source exports, offer to add missing coverage (¬overwrite).
 ¬π ⇒ generate full test file.
 
 ## Step 5 — Generate Tests
@@ -104,7 +103,6 @@ it('should return user by id', () => {
 ## Step 6 — Approval
 
 AskUserQuestion: **Approve and write all** | **Approve with modifications** | **Skip specific files**
-
 ¬write without approval.
 
 ## Step 7 — Write + Verify

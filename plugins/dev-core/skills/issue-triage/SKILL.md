@@ -10,16 +10,16 @@ allowed-tools: Bash, ToolSearch, AskUserQuestion
 
 Let: τ := triage.ts at ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts | κ := complexity score
 
-Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies and parent/child (sub-issue) relationships.
+Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies and parent/child relationships.
 
 ## Instructions
 
-1. List untriaged issues: `bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts list`
+1. List untriaged: `bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts list`
 2. ∀ issue: determine Size, Priority, κ (see [Complexity Scoring](#complexity-scoring))
 3. Set values: `bun τ set <number> --size <S> --priority <P>`
 4. Update status: `bun τ set <number> --status "In Progress"`
-5. Create new issues: `bun τ create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--parent 163]`
-6. Use **AskUserQuestion** if unsure about Size ∨ Priority for an issue.
+5. Create issues: `bun τ create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--parent 163]`
+6. AskUserQuestion if unsure about Size ∨ Priority.
 
 ## Size Guidelines
 
@@ -113,7 +113,7 @@ gh issue edit <number> --body "$BODY
 | 4-6 | **F-lite** | Worktree + subagents + /review | Task subagents (1-2 domain + tester) |
 | 7-10 | **F-full** | Bootstrap + worktree + agent team + /review | TeamCreate (3+ agents, test-first) |
 
-κ is advisory. Human judgment overrides. Use **AskUserQuestion** if score ≠ intuition.
+κ is advisory. Human judgment overrides. AskUserQuestion if score ≠ intuition.
 
 See [Tier Classification Reference](../../../shared/references/tier-classification.md) for full rules.
 Reference: [artifacts/analyses/280-token-consumption.mdx](../../../artifacts/analyses/280-token-consumption.mdx) for scoring examples.

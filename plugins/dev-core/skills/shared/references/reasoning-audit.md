@@ -1,6 +1,6 @@
 # Reasoning Audit Template
 
-Before executing a critical step, the agent must present a structured reasoning checkpoint and get user approval.
+Before critical steps, α must present structured reasoning checkpoint → user approval.
 
 ## Template
 
@@ -8,26 +8,26 @@ Before executing a critical step, the agent must present a structured reasoning 
 ## Reasoning Audit — {step_name}
 
 **Understanding:** {1-3 sentences: what the agent knows about the task}
-**Key files:** {files/artifacts the agent plans to read or modify}
-**Approach:** {strategy — how the agent will proceed, not implementation details}
+**Key files:** {files/artifacts to read or modify}
+**Approach:** {strategy — how to proceed, not implementation details}
 **Risks:** {ambiguities, unknowns, potential wrong turns}
 ```
 
-## Field Guidance Per Step
+## Field Guidance
 
-| Step | Understanding focus | Key files focus | Approach focus | Risks focus |
-|------|-------------------|-----------------|----------------|-------------|
-| spec | What the analysis/frame describes, target outcome | Source doc, existing specs, standards | Interview focus areas, breadboard shape, slice strategy | Ambiguities in source, missing user context, scope creep |
-| plan | What the spec asks for, scope and tier | Spec, standards docs, existing code to reference | Agent selection, slice strategy, parallelism | Ambiguities in spec, unclear domain boundaries, missing standards |
-| implement | What will be built, from which plan/spec | Files to create/modify, grouped by agent | Parallel vs sequential, test-first order, slice focus | Missing deps, unclear spec areas, complex integrations |
+| Step | Understanding | Key files | Approach | Risks |
+|------|--------------|-----------|----------|-------|
+| spec | Analysis/frame content, target outcome | Source doc, existing specs, standards | Interview focus, breadboard shape, slice strategy | Source ambiguities, missing context, scope creep |
+| plan | Spec scope + τ | Spec, standards, existing code | α selection, slice strategy, parallelism | Spec ambiguities, unclear boundaries, missing standards |
+| implement | What to build, from which plan/spec | Files to create/modify by α | Parallel vs sequential, test-first, slice focus | Missing deps, unclear spec, complex integrations |
 
 ## Gate Options
 
 AskUserQuestion:
-- **Proceed** — continue to step execution
-- **Adjust approach** — agent incorporates feedback, re-presents audit (max 3 rounds)
-- **Abort step** — mark step skipped for this run
+- **Proceed** — continue to execution
+- **Adjust approach** — incorporate feedback, re-present (max 3 rounds)
+- **Abort step** — mark skipped for this run
 
 ## Why
 
-Forces the agent to articulate its plan before executing. Catches misunderstandings before implementation (cheaper than fixing after). Reduces sycophancy by requiring neutral statement of understanding before action.
+Forces α to articulate plan before executing. Catches misunderstandings pre-impl (cheaper than post-fix). Reduces sycophancy via neutral statement of understanding before action.

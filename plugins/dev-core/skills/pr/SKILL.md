@@ -9,12 +9,13 @@ allowed-tools: Bash, Read, Grep, ToolSearch, AskUserQuestion
 # Pull Request
 
 Let:
-  BASE := `staging` (∃ origin/staging) ∨ `main`
-  BRANCH := current branch
+  β := `staging` (∃ origin/staging) ∨ `main`
+  Β := current branch
+  N := issue# (first number after `/` in Β)
 
-Branch → PR: Conventional Commits title, issue linking, guard rails.
+Β → PR: Conventional Commits title, issue linking, guard rails.
 
-**⚠ Flow: single continuous pipeline. ¬stop between steps. Stop only on: REFUSE, explicit Cancel, or Step 6 completion.**
+**Flow: single continuous pipeline. ¬stop between steps. Stop only on: REFUSE, explicit Cancel, or Step 6 completion.**
 
 ## Step 1 — Gather State
 
@@ -30,11 +31,11 @@ gh pr list --head "$BRANCH" --json number,title,url,state
 
 | Check | Condition | Action |
 |-------|-----------|--------|
-| Protected branch | BRANCH ∈ {staging, main, master} | **REFUSE.** Create feature branch first. Stop. |
-| No commits | `git log ${BASE}..HEAD` empty | **REFUSE.** Nothing to PR. Stop. |
+| Protected branch | Β ∈ {staging, main, master} | **REFUSE.** Create feature branch first. Stop. |
+| No commits | `git log ${β}..HEAD` empty | **REFUSE.** Nothing to PR. Stop. |
 | PR exists | gh pr list → result | AskUserQuestion: **Update** (`gh pr edit`) \| **Cancel** |
 | Branch not pushed | `git ls-remote --heads origin $BRANCH` empty | `git push -u origin $BRANCH` |
-| Behind base | `git rev-list HEAD..${BASE} --count` > 0 | Warn + AskUserQuestion: **Continue** \| **Rebase first** |
+| Behind base | `git rev-list HEAD..${β} --count` > 0 | Warn + AskUserQuestion: **Continue** \| **Rebase first** |
 | Quality gates | `{commands.lint} && {commands.typecheck}` | Warn on failure, ¬block. Note in PR body if proceeding. |
 
 ## Step 3 — Generate Content
@@ -54,7 +55,7 @@ gh issue view "$ISSUE_NUM" --json title,state,labels 2>/dev/null
 git diff ${BASE}...HEAD --name-only | grep -c '\.test\.\|\.spec\.' || echo 0
 ```
 
-Issue# detection: first number after `/` in branch name (e.g. `feat/42-slug` → `#42`). ¬found → AskUserQuestion.
+N detection: first number after `/` in Β (e.g. `feat/42-slug` → `#42`). ¬found → AskUserQuestion.
 
 **3c. Title:** `<type>(<scope>): <desc>` (≤70 chars). Type from primary commit purpose. Scope from files: `web | api | ui | config` ∨ omit if cross-cutting.
 
@@ -62,7 +63,7 @@ Issue# detection: first number after `/` in branch name (e.g. `feat/42-slug` →
 
 ## Step 4 — Create
 
-Show generated title + body → create immediately (¬ask how). `--draft` → create as draft.
+Show generated title + body → create immediately (¬ask how). `--draft` → draft.
 Failure ∨ explicit edit request → AskUserQuestion: **Edit title/body** | **Cancel**.
 
 ## Step 5 — Create PR
@@ -76,7 +77,7 @@ Display PR URL.
 
 ## Step 6 — Update Issue Status
 
-∃ issue# →
+∃ N →
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <ISSUE_NUMBER> --status Review
 ```
@@ -124,10 +125,10 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 
 | Scenario | Behavior |
 |----------|----------|
-| BRANCH ∈ {staging, main, master} | REFUSE: "Create a feature branch first" |
+| Β ∈ {staging, main, master} | REFUSE: "Create a feature branch first" |
 | ¬commits ahead | REFUSE: "Nothing to create a PR for" |
 | PR already exists | Offer `gh pr edit` to update |
-| ¬issue# in branch | AskUserQuestion: link issue or skip |
+| ¬N in branch | AskUserQuestion: link issue or skip |
 | Multiple commit types | Use primary type only |
 | Lint/typecheck fail | Warn + AskUserQuestion: proceed or fix first |
 

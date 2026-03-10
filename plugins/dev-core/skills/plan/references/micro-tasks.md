@@ -1,6 +1,8 @@
 # Step 4f — Micro-Task Generation (Tier F only)
 
-Tier S ⇒ skip → Step 5.
+Let: τ := tier | V := slice | α := agent | μ := micro-task
+
+τ S ⇒ skip → Step 5.
 
 ## 4f.1 Detect Spec Format
 
@@ -8,28 +10,28 @@ Tier S ⇒ skip → Step 5.
 |------|-----------|--------|
 | Primary | ∃ `## Breadboard` ∧ `## Slices` | Parse affordances (U*/N*/S*) + slices (V*) |
 | Fallback | ∃ `## Success Criteria` only | Parse criteria as SC-1, SC-2, ... |
-| Skip | Neither present | Warn user, use text tasks from Step 2d |
+| Skip | Neither | Warn, use text tasks from Step 2d |
 
-Partial (one of Breadboard/Slices but ¬both): fallback if ∃ Success Criteria, else skip.
+Partial (one of Breadboard/Slices ¬both): fallback if ∃ Success Criteria, else skip.
 
 ## 4f.2 Generate Micro-Tasks
 
-**Primary mode (Breadboard + Slices):**
+**Primary (Breadboard + Slices):**
 
-∀ slice (V1, V2, ...):
+∀ V (V1, V2, ...):
 1. Identify referenced affordances (N1, N2, U1, S1)
-2. Expand each → 1-3 micro-tasks by complexity
+2. Expand each → 1–3 μ by complexity
 3. Order: S* → N* → U* → tests
-4. Assign agents per Step 2c path rules
-5. Generate verification command
+4. Assign α per Step 2c path rules
+5. Generate verification cmd
 
-**Fallback mode (Success Criteria):**
+**Fallback (Success Criteria):**
 
 ∀ criterion (SC-1, SC-2, ...):
 1. Identify affected files + logic
-2. Expand → 1-5 micro-tasks
-3. Verification command ∨ `[manual]` marker
-4. Assign agents per Step 2c
+2. Expand → 1–5 μ
+3. Verification cmd ∨ `[manual]` marker
+4. Assign α per Step 2c
 
 **Verification heuristics:**
 
@@ -47,7 +49,7 @@ Partial (one of Breadboard/Slices but ¬both): fallback if ∃ Success Criteria,
 
 **Safety:** Single-quote grep args. Read-only only. Allowed: `bun run test`, `bun run typecheck`, `bun run lint`, `grep -q`, `test -f`, `bun run db:generate --check`.
 
-**Per-slice floor:** ≥2 tasks (1 impl + 1 test). < 2 ⇒ merge with adjacent slice.
+**Per-slice floor:** ≥2 μ (1 impl + 1 test). < 2 ⇒ merge w/ adjacent slice.
 
 ### Micro-Task Fields
 
@@ -58,46 +60,46 @@ Partial (one of Breadboard/Slices but ¬both): fallback if ∃ Success Criteria,
 | Code snippet | Expected shape skeleton |
 | Verify command | Bash confirmation |
 | Expected output | Success criteria |
-| Time estimate | 2-5 min (up to 8-10 for atomic ops) |
+| Time estimate | 2–5 min (up to 8–10 for atomic ops) |
 | `[P]` marker | Parallel-safe |
-| Agent | Owner |
+| Agent | Owner α |
 | Spec trace | SC-N ∨ U1→N1→S1 |
 | Slice | V1, V2, ... |
 | Phase | RED ∨ GREEN ∨ REFACTOR ∨ RED-GATE |
-| Difficulty | 1-5 |
+| Difficulty | 1–5 |
 
 ## 4f.3 Detect Parallelization
 
-`[P]` := ¬file-path conflict ∧ ¬import conflict with any other `[P]` task in same slice+phase.
+`[P]` := ¬file-path conflict ∧ ¬import conflict w/ any other `[P]` μ in same slice+phase.
 
-∀ task pair in same slice:
-1. Same file? → ¬parallel
-2. Import dep? (read existing ∨ infer from wiring) → ¬parallel
+∀ μ pair in same slice:
+1. Same file → ¬parallel
+2. Import dep (read existing ∨ infer from wiring) → ¬parallel
 3. Unknown → ¬parallel (conservative)
 
 ## 4f.4 Scale Task Count
 
-| Tier | Target | Floor |
-|------|--------|-------|
-| F-lite | 5-15 | 2 |
-| F-full | 15-30 | 2 |
+| τ | Target | Floor |
+|---|--------|-------|
+| F-lite | 5–15 | 2 |
+| F-full | 15–30 | 2 |
 
 \> 30 ⇒ AskUserQuestion: warn, suggest splitting. Show full list (¬truncate).
-< 2 ⇒ warn, suggest text-based tasks from Step 2d.
+< 2 ⇒ warn, suggest text tasks from Step 2d.
 
 ## 4f.5 Consistency Check
 
 Bidirectional spec↔task:
 
-1. **Coverage (spec→tasks):** ∀ criterion/affordance → ≥1 task. Report uncovered.
-2. **Gold plating (tasks→spec):** ∀ task → spec trace required. **Exempt** (sole purpose only): infra, quality, build, docs.
+1. **Coverage (spec→tasks):** ∀ criterion/affordance → ≥1 μ. Report uncovered.
+2. **Gold plating (tasks→spec):** ∀ μ → spec trace required. **Exempt** (sole purpose): infra, quality, build, docs.
 3. **Report:** covered N/total, uncovered list, untraced list, exemptions count.
 
-0 coverage ⇒ block agents. Return to spec ∨ regenerate.
+0 coverage ⇒ block α. Return to spec ∨ regenerate.
 
 ## 4f.6 Write Plan Artifact
 
-Write to `artifacts/plans/{N}-{slug}-plan.mdx`. Create `artifacts/plans/` dir if needed.
+Write to `artifacts/plans/{N}-{slug}-plan.mdx`. Create dir if needed.
 
 ```markdown
 ---
@@ -143,7 +145,7 @@ generated: {ISO}
 
 ## 4f.7 Present for Approval
 
-AskUserQuestion: complexity, tier, task count, agents, consistency, slices.
+AskUserQuestion: complexity, τ, μ count, α, consistency, slices.
 Options: **Approve** | **Modify** | **Return to spec**
 
 ## 4f.8 Commit Plan
@@ -152,7 +154,7 @@ Standalone commit (¬amend): `git add artifacts/plans/{N}-{slug}-plan.mdx` + com
 
 ## 4f.9 Dispatch TaskCreate
 
-∀ micro-task → TaskCreate with metadata:
+∀ μ → TaskCreate w/ metadata:
 
 ```json
 {
@@ -170,10 +172,10 @@ Standalone commit (¬amend): `git add artifacts/plans/{N}-{slug}-plan.mdx` + com
 
 | Field | Values |
 |-------|--------|
-| taskDifficulty | 1-5 |
+| taskDifficulty | 1–5 |
 | verificationStatus | ready (run now) ∨ deferred (wait RED-GATE) ∨ manual (no auto-check) |
-| estimatedMinutes | 2-10 |
+| estimatedMinutes | 2–10 |
 | parallel | true if [P] |
 | phase | RED ∨ GREEN ∨ REFACTOR ∨ RED-GATE |
 
-RED-GATE sentinels: auto-generate 1 per slice → tester, phase: RED-GATE.
+RED-GATE sentinels: auto-generate 1/slice → tester, phase: RED-GATE.

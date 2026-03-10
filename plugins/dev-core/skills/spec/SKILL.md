@@ -14,8 +14,10 @@ Let:
   φ := artifacts/frames/{slug}-frame.mdx
   ρ := reviewer set
   χ := `[NEEDS CLARIFICATION]`
+  Ω := `skill: "interview"`
+  SRC := source doc (α ∨ φ)
 
-Analysis (or frame) → approved spec. Interview → pre-check → expert review → user approval gate.
+Analysis (or frame) → approved spec. Interview → pre-check → expert review → user approval.
 ¬worktree, ¬PR. Shape phase only. Implementation → `/plan`.
 
 ## Entry
@@ -28,9 +30,9 @@ Analysis (or frame) → approved spec. Interview → pre-check → expert review
 
 ## Step 0 — Resolve Input + Ensure GitHub Issue
 
-### 0a. Resolve source document
+### 0a. Resolve SRC
 
-`--issue N` → scan in priority order:
+`--issue N` → scan priority order:
 ```bash
 # 1. Find analysis with matching issue number
 ls artifacts/analyses/{N}-*.mdx 2>/dev/null | head -1
@@ -38,16 +40,15 @@ ls artifacts/analyses/{N}-*.mdx 2>/dev/null | head -1
 grep -rl "issue: N" artifacts/frames/ 2>/dev/null | head -1
 ```
 
-`--analysis path` → read directly. `--frame path` → read directly (analysis skipped for this tier).
+`--analysis path` / `--frame path` → read directly.
+¬SRC found → AskUserQuestion: "Run `/analyze --issue N` first, or provide path directly?"
 
-¬source found → AskUserQuestion: "No analysis or frame found for this issue. Would you like to run `/analyze --issue N` first, or provide a path directly?"
-
-Read source → extract: title, issue#, tier, problem, outcome, appetite, recommended shape (if analysis).
+Read SRC → extract: title, issue#, tier, problem, outcome, appetite, recommended shape (if α).
 
 ### 0b. Ensure GitHub Issue
 
-∃ issue (`--issue N` ∨ found in source frontmatter) → use it.
-¬∃ issue → draft from source doc:
+∃ issue (`--issue N` ∨ found in SRC frontmatter) → use it.
+¬∃ issue → draft from SRC:
 
 ```bash
 gh issue create --title "<title>" --body "<body>"
@@ -58,29 +59,26 @@ Capture returned issue #N.
 
 ## Step 1 — Scan Existing Spec
 
-Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*` — match issue# or slug keywords.
-
-∃ σ → AskUserQuestion: **Reuse existing** (→ Step 3 Pre-check) | **Start fresh**
+Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*`.
+∃ σ → AskUserQuestion: **Reuse existing** (→ Step 3) | **Start fresh**
 
 ## Step 1b — Reasoning Audit (optional)
 
-`--audit` flag → after reading source document (Step 0), present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) (spec guidance).
-
+`--audit` → after reading SRC, present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) (spec guidance).
 → AskUserQuestion: **Proceed** | **Adjust approach** | **Abort**
-
 ¬`--audit` → skip to Step 2.
 
 ## Step 2 — Generate Spec
 
-`skill: "interview", args: "--promote artifacts/analyses/{N}-{slug}-analysis.mdx"` (or frame path if no analysis).
+`Ω, args: "--promote artifacts/analyses/{N}-{slug}-analysis.mdx"` (or frame path if no α).
 
-Interview pre-fills from source. Focus on gaps to spec level:
+Interview pre-fills from SRC. Focus on gaps to spec level:
 - Acceptance criteria (binary pass/fail)
 - Breadboard: affordance tables (UI/API elements → handlers → data)
 - Slices: vertical increments, independently demo-able
 - Ambiguity detection via 9-category taxonomy (see interview SKILL.md)
 
-Write `artifacts/specs/{N}-{slug}-spec.mdx`. σ must include:
+Write σ. Must include:
 
 | Section | Skip if |
 |---------|---------|
@@ -95,15 +93,12 @@ Write `artifacts/specs/{N}-{slug}-spec.mdx`. σ must include:
 
 ### Mermaid Diagrams (Tier F-lite, F-full)
 
-`## Data Model & Consumers` section must include:
+`## Data Model & Consumers` must include:
+1. **Data structure diagram** (`classDiagram`) — core types/models, fields, relationships. Frozen/mutable annotations where relevant.
+2. **Consumer map** (`flowchart`) — who consumes data, which fields, when. Solid = this issue, dashed = future (out of scope but fields must be accessible).
+3. **Consumer summary table** — consumer → fields consumed, when, status (this issue / future).
 
-1. **Data structure diagram** (`classDiagram`) — show core data types/models introduced or modified, with fields and relationships. Frozen/mutable annotations where relevant.
-
-2. **Consumer map** (`flowchart`) — show who consumes the data, which fields they read, and when. Distinguish current consumers (solid lines, this issue) from future consumers (dashed lines, out of scope but fields must be accessible).
-
-3. **Consumer summary table** — map each consumer to: fields consumed, when, status (this issue / future).
-
-Diagrams go BEFORE the Breadboard section. They answer "what is the data shape and who uses it" while the Breadboard answers "how do the pieces wire together."
+Diagrams go BEFORE Breadboard. They answer "what is the data shape and who uses it" while Breadboard answers "how do pieces wire together."
 
 May contain χ (max 3–5). χ items block `/plan` — must be resolved first.
 
@@ -117,7 +112,7 @@ May contain χ (max 3–5). χ items block `/plan` — must be resolved first.
 | No dangling refs | All breadboard IDs (U*/N*/S*) appear in ≥1 slice | ¬Breadboard ∨ ¬Slices |
 | Ambiguity budget | ≤5 χ items | — |
 | Slice coverage | Every affordance appears in ≥1 slice | ¬Breadboard ∨ ¬Slices |
-| Edge completeness | Each edge case has a handling strategy | — |
+| Edge completeness | Each edge case has handling strategy | — |
 
 ≥2 failures → inform user:
 ```
@@ -139,7 +134,7 @@ Auto-select ρ (¬ask user). Architect always included:
 | product-lead | Always | Criteria quality, scope, user story validity |
 | devops | ∃ CI/CD / deploy / infra criteria | Operational feasibility |
 
-∀ r ∈ ρ → spawn ∥ `Task(subagent_type: "<r>", prompt: "Review artifacts/specs/{N}-{slug}-spec.mdx for <focus>. Check pre-check results. Return: good / needs improvement / concerns.")`.
+∀ r ∈ ρ → spawn ∥ `Task(subagent_type: "<r>", prompt: "Review σ for <focus>. Check pre-check results. Return: good / needs improvement / concerns.")`.
 
 Incorporate feedback → revise σ → note unresolved concerns.
 
@@ -151,9 +146,9 @@ Present summary: scope, |slices|, |acceptance criteria|, |χ|, pre-check results
 
 AskUserQuestion: **Approve** → continue pipeline | **Revise** → collect feedback → revise σ → loop from Step 3.
 
-On approval → commit artifact: `git add artifacts/specs/{N}-{slug}-spec.mdx` + commit per CLAUDE.md Rule 5.
+On approval → commit: `git add artifacts/specs/{N}-{slug}-spec.mdx` + commit per CLAUDE.md Rule 5.
 
-Run Gate 2.5 → update issue status → done:
+Run Gate 2.5 → update issue status:
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Specs
 ```
@@ -176,14 +171,14 @@ Tier S → skip. Read [references/smart-splitting.md](references/smart-splitting
 
 | Scenario | Behavior |
 |----------|----------|
-| ¬analysis ∧ ¬frame found | AskUserQuestion: run `/analyze` first or provide path |
-| ∃ spec, user picks reuse | Present existing spec → jump to Step 3 |
-| Analysis was skipped (F-lite) | Use frame as source for interview promotion |
-| `--issue N` ∧ ¬GitHub issue | Create issue from source doc content |
+| ¬α ∧ ¬φ found | AskUserQuestion: run `/analyze` first or provide path |
+| ∃ σ, user picks reuse | Present existing → jump to Step 3 |
+| Analysis skipped (F-lite) | Use frame as SRC for interview promotion |
+| `--issue N` ∧ ¬GitHub issue | Create issue from SRC content |
 | Expert subagent fails | Report error, continue without that reviewer |
 | All pre-checks fail | Strongly recommend fix before review (¬block, user decides) |
-| |χ| > 5 | Pre-check failure — inform user, request reduction |
-| Tier S | Skip Breadboard + Slices in generated spec |
+| |χ| > 5 | Pre-check failure — inform, request reduction |
+| Tier S | Skip Breadboard + Slices |
 | Circular deps in split | Reject split proposal, inform user |
 
 $ARGUMENTS

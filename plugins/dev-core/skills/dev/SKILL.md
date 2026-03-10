@@ -17,8 +17,8 @@ Let:
   S*   := next step to execute
   φ    := frame artifact
 
-Single entry point for the full dev lifecycle. Scans artifacts → detects state → shows progress → delegates to step skill → loops.
-¬rewrites logic of step skills. ¬auto-advances phases. AskUserQuestion at each gate.
+Single entry point: scan artifacts → detect state → show progress → delegate to step skill → loop.
+¬rewrite step skill logic. ¬auto-advance phases. AskUserQuestion at each gate.
 
 ## Entry
 
@@ -32,21 +32,21 @@ Single entry point for the full dev lifecycle. Scans artifacts → detects state
 
 ## Step 0 — Parse Input
 
-`--cleanup-context` ⇒ ∃ other flags → warn "Other flags ignored when --cleanup-context is used." Delegate: `skill: "cleanup-context"`. **Stop** (¬enter dev loop).
+`--cleanup-context` ⇒ ∃ other flags → warn "Other flags ignored." Delegate: `skill: "cleanup-context"`. **Stop.**
 
-`#N` ⇒ fetch issue:
+`#N` ⇒ fetch:
 ```bash
 gh issue view N --json number,title,labels,state
 ```
-¬∃ issue ⇒ AskUserQuestion: **Create issue** | **Proceed without issue** (frame-only mode).
+¬∃ → AskUserQuestion: **Create issue** | **Proceed without issue** (frame-only).
 
-Free text ⇒ slug from text. Search:
+Free text ⇒ slug from text:
 ```bash
 gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 ```
-∃ match ⇒ AskUserQuestion: **Use #{N}: {title}** | **Create new issue** | **Proceed without issue**.
+∃ match → AskUserQuestion: **Use #{N}: {title}** | **Create new** | **Proceed without issue**.
 
-`--from <step>` ⇒ record override. Warn if prerequisite artifacts missing:
+`--from <step>` ⇒ record override. Warn if prerequisite artifacts ¬∃:
 
 | Step | Required artifacts |
 |------|-------------------|
@@ -108,12 +108,12 @@ gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "
   validate:  null,         # no artifact — uses Σ_s only
   review:    PR ∃ ∧ (PR.reviewDecision ∈ ('APPROVED','CHANGES_REQUESTED') ∨ pr_has_review_comment(PR)),
   fix:       PR ∃ ∧ pr_has_fix_comment(PR),
-  promote:   skipped,  # /promote is staging→main (standalone). ¬part of feature /dev cycle. Always skip unless user explicitly requests.
+  promote:   skipped,  # /promote is standalone staging→main. ¬part of feature cycle. Skip unless explicitly requested.
   cleanup:   ¬worktree ∃ ∧ ¬stale_branch ∃,
 }
 
-Σ_s = {} initially. Populated in Step 8 after each skill completes. Lost on session restart.
-Steps with Σ[step] == null rely on Σ_s for within-session advancement.
+Σ_s = {} initially. Populated in Step 8 after each skill completes. Lost on restart.
+Σ[step] == null → relies on Σ_s for within-session advancement.
 
 pr_has_review_comment(PR) ⟺ PR comments ∃ body starting with "## Code Review"
 pr_has_fix_comment(PR)    ⟺ PR comments ∃ body starting with "## Review Fixes Applied"
@@ -139,14 +139,14 @@ pr_has_fix_comment(PR)    ⟺ PR comments ∃ body starting with "## Review Fixe
 → Next: {S*} — {one-line description}
 ```
 
-Bar: `██` per completed/skipped step, `░░` per pending. Phase steps:
-- Frame:  triage, frame
-- Shape:  analyze, spec
-- Build:  plan, implement, pr
+Bar: `██` per completed/skipped, `░░` per pending. Phase steps:
+- Frame: triage, frame
+- Shape: analyze, spec
+- Build: plan, implement, pr
 - Verify: validate, review, fix
-- Ship:   promote, cleanup
+- Ship: promote, cleanup
 
-Step status: `✓ {name}` (done) | `skipped` | `pending` | `→ next`.
+Status: `✓ {name}` (done) | `skipped` | `pending` | `→ next`.
 
 ## Step 4 — Skip Logic
 
@@ -163,7 +163,7 @@ should_skip(step, τ, Σ):
   default                                 → false
 ```
 
-`--from <step>` ⇒ force-mark all prior steps as skipped for this run (warn user once).
+`--from <step>` ⇒ force-mark all prior steps skipped (warn once).
 
 ## Step 5 — Walk Steps + Find Next
 
@@ -184,11 +184,9 @@ STEPS = [
 ]
 ```
 
-Walk STEPS:
-- Σ[step] == true ∨ Σ_s[step] == true ∨ should_skip(step) ⇒ mark done/skipped, continue
-- First non-done, non-skipped ⇒ S* = step, stop walk
+Walk: Σ[step] == true ∨ Σ_s[step] == true ∨ should_skip(step) ⇒ done/skipped, continue. First non-done non-skipped ⇒ S*.
 
-∀ steps done ⇒ display completion banner, exit loop.
+∀ steps done ⇒ completion banner, exit.
 
 ## Step 6 — Gate Check
 
@@ -199,24 +197,23 @@ Walk STEPS:
 | S* == plan (Σ.spec ∧ ¬Σ.plan) | Gate after plan runs |
 | S* == review | Post-review gate handled inside /review |
 
-Gate fires → Step 7 skips its own prompt for that step (gate IS the confirmation). ¬double-prompt.
+Gate fires → Step 7 skips its own prompt (gate IS confirmation). ¬double-prompt.
 
 ## Step 6b — Reasoning Audit (optional)
 
-**Trigger:** `--audit` flag ∨ `workflow.reasoning_audit` list in `stack.yml` includes S*.
+**Trigger:** `--audit` ∨ S* ∈ `stack.yml` `workflow.reasoning_audit` list.
 
-audit_enabled ⟺ `--audit` flag ∨ S* ∈ stack.yml `workflow.reasoning_audit` list.
-critical_steps := {spec, plan, implement}.
+Let: critical_steps := {spec, plan, implement}.
 
-audit_enabled ∧ S* ∈ critical_steps → present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) template, using field guidance for S*.
+audit_enabled ∧ S* ∈ critical_steps → present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md), using field guidance for S*.
 
-**Merge rule:** if Step 6 already produced a gate for S* (spec, plan), the reasoning audit **replaces** the Step 6 gate — show audit display + single combined AskUserQuestion. ¬present two consecutive prompts for the same step.
+**Merge rule:** Step 6 gate ∃ for S* → audit **replaces** gate — single combined AskUserQuestion. ¬two consecutive prompts.
 
-→ AskUserQuestion: **Proceed** | **Adjust approach** (max 3 rounds) | **Abort step** (→ mark skipped, return to Step 5)
+→ AskUserQuestion: **Proceed** | **Adjust approach** (max 3 rounds) | **Abort step** (→ skipped, return to Step 5)
 
-¬audit_enabled ∨ S* ∉ critical_steps → skip directly to Step 7 (Step 6 gate still applies independently).
+¬audit_enabled ∨ S* ∉ critical_steps → skip to Step 7 (Step 6 gate still applies independently).
 
-**Important:** ¬pass `--audit` to child skill invocations in Step 7. The audit gate fires here (orchestrator level) only. Child skills have their own `--audit` for standalone use — ¬double-gate.
+**Important:** ¬pass `--audit` to child skills in Step 7. Audit fires at orchestrator level only. ¬double-gate.
 
 ## Step 7 — Execute Step
 
@@ -225,11 +222,9 @@ gate_steps    := {frame, spec, plan}
 auto_advance  := {triage, analyze, implement, pr, validate, review, fix, cleanup}
 ```
 
-**gate_steps:** Step 6 already fired an AskUserQuestion for these — Step 7 skips its own prompt and invokes the skill immediately. ¬double-prompt.
-
-**auto_advance:** No user decision needed. Show `→ Running {S*}…` and invoke skill immediately. ¬AskUserQuestion.
-
-**Exception — always available via text input:** At any auto_advance step the user may type "stop" or "skip to X" in the Claude input before the skill completes. Honor it.
+**gate_steps:** Step 6 already AskUserQuestion'd → invoke skill immediately. ¬double-prompt.
+**auto_advance:** Show `→ Running {S*}…`, invoke immediately. ¬AskUserQuestion.
+**Exception:** user may type "stop"/"skip to X" before skill completes.
 
 **Skill invocation map:**
 
@@ -248,18 +243,17 @@ auto_advance  := {triage, analyze, implement, pr, validate, review, fix, cleanup
 | promote | `skill: "promote"` (standalone staging→main — skipped by default) |
 | cleanup | `skill: "cleanup", args: "--scope #N"` (scoped to current issue's branch/worktree) |
 
-**Skip to X** ⇒ AskUserQuestion: **Proceed anyway** | **Cancel skip**. Missing prerequisite artifacts → warn first.
-Proceed ⇒ mark all steps before X as skipped, S* = X, loop to Step 7.
+**Skip to X** ⇒ AskUserQuestion: **Proceed anyway** | **Cancel**. Missing artifacts → warn first. Proceed ⇒ mark prior steps skipped, S* = X.
 
-**Stop** ⇒ "Stopped at {S*}. Run `/dev #N` to resume from this point."
+**Stop** ⇒ "Stopped at {S*}. Run `/dev #N` to resume."
 
 ## Step 8 — Post-skill Re-scan
 
-skill completes → Σ_s[step] = true → goto Step 1 (re-scan Σ from artifacts).
+Skill completes → Σ_s[step] = true → goto Step 1 (re-scan Σ).
 Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix).
-session restart → Σ_s = ∅ → artifact-less steps re-run (desired: validate results go stale).
-Gates (frame, spec, plan) → re-scan detects updated artifact state → show progress → Step 6 fires gate → Step 7 invokes skill immediately (¬second prompt).
-auto_advance steps → re-scan → show progress → Step 7 invokes next skill immediately.
+Session restart → Σ_s = ∅ → artifact-less steps re-run (desired: results go stale).
+Gates (frame, spec, plan) → re-scan detects updated artifact → progress → Step 6 gate → Step 7 immediately (¬second prompt).
+auto_advance → re-scan → progress → Step 7 immediately.
 
 ## Phases + Gate Summary
 
@@ -269,7 +263,7 @@ auto_advance steps → re-scan → show progress → Step 7 invokes next skill i
 | Shape | analyze → spec | spec approval |
 | Build | plan → implement → pr | plan approval (then auto-chains implement → pr) |
 | Verify | validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /review Phase 8). |
-| Ship | promote → cleanup | promote always skipped (/promote is standalone staging→main). cleanup runs if worktree/branches stale. |
+| Ship | promote → cleanup | promote always skipped. cleanup runs if worktree/branches stale. |
 
 ## Tier Skip Matrix
 
@@ -311,10 +305,10 @@ To promote to production → run `/promote`
 
 ## Edge Cases
 
-- session dies mid-step → re-run `/dev #N`. Re-scan detects partial state. half-written artifact → step skill handles (checks ∃ + status).
-- `--from <step>` ∧ missing deps → warn: "Step X normally requires {dep artifact}. Proceeding may produce incomplete output." AskUserQuestion: **Proceed** | **Cancel**.
-- issue ¬∃ ∧ free text → frame-only mode. φ approved → AskUserQuestion: **Create GitHub issue now** | **Continue without issue**.
-- S* == validate → Σ.validate always null. Σ_s.validate advances within session. new session → validate re-runs (Σ_s lost).
-- multiple open PRs for same issue → list, AskUserQuestion: select which PR to track.
+- Session dies mid-step → `/dev #N` resumes. Re-scan detects partial state. Half-written artifact → step skill handles.
+- `--from <step>` ∧ missing deps → warn + AskUserQuestion: **Proceed** | **Cancel**.
+- Issue ¬∃ ∧ free text → frame-only mode. φ approved → AskUserQuestion: **Create GitHub issue** | **Continue without**.
+- S* == validate → Σ.validate always null. Σ_s advances within session. New session → re-runs.
+- Multiple PRs for same issue → list, AskUserQuestion: select which.
 
 $ARGUMENTS

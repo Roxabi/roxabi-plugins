@@ -9,10 +9,10 @@ allowed-tools: Bash, Read
 # Validate
 
 Let:
-  χ := quality check (name, `{commands.*}` from stack.yml, timeout, result)
+  χ := quality check (name, command from `{commands.*}`, timeout, result)
   σ := {✅ pass (exit 0), ❌ FAIL (exit ≠0), ⚠️ warn (exit 0 + warnings), ⏭ skip (¬in scope)}
 
-Run all χ sequentially → single structured pass/fail report. ¬stop on first failure — run all χ for complete picture.
+Run all χ sequentially → single structured pass/fail report. ¬stop on first failure — run all for complete picture.
 
 ## Pipeline
 
@@ -46,9 +46,9 @@ Run all χ sequentially → single structured pass/fail report. ¬stop on first 
 
 ### 2. Run χ Sequentially
 
-∀ χ ∈ scope: run command, capture stdout+stderr + exit code. Record: name, σ, duration, error summary (first 5 error lines if failed).
+∀ χ ∈ scope: run command, capture stdout+stderr + exit code. Record: name, σ, duration, error summary (first 5 lines if failed).
 
-**¬raw runner** — always use `{commands.*}` from stack.yml. Command ¬defined in stack.yml → σ := ⏭ skip.
+**¬raw runner** — always use `{commands.*}` from stack.yml. Command ¬defined → σ := ⏭ skip.
 
 | χ | Command | Timeout |
 |---|---------|---------|
@@ -63,8 +63,6 @@ Run all χ sequentially → single structured pass/fail report. ¬stop on first 
 | License | `{package_manager} run license:check` | 30s |
 
 ### 3. Report
-
-Output structured table after all χ complete:
 
 ```
 Validate Report
@@ -83,7 +81,7 @@ Validate Report
 
 ### 4. Failure Details
 
-∃ χ ∧ σ = ❌ → append failures section. First 10 error lines per failing χ.
+∃ χ ∧ σ = ❌ → append failures. First 10 error lines per failing χ.
 
 ```
 Failures
@@ -99,7 +97,7 @@ Test:
 
 - ∀ χ pass → `All checks passed. Safe to push.`
 - ∃ χ fail → `{N} check(s) failed. Fix before pushing.`
-- `--quick` ∧ ∀ χ pass → `Quick checks passed. Run /validate for full check.`
+- `--quick` ∧ ∀ pass → `Quick checks passed. Run /validate for full check.`
 
 ## Edge Cases
 

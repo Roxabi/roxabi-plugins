@@ -8,7 +8,7 @@ allowed-tools: Bash, ToolSearch, AskUserQuestion
 
 # Git Cleanup
 
-Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging)
+Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging) | safe(β) ⟺ fully_merged(β) ∧ ¬π(β) | merged(β) := regular_merge(β) ∨ squash_merge(β)
 
 Safely clean local β, ω, and remote branches with **mandatory merge-status verification** before any deletion.
 
@@ -36,8 +36,6 @@ git branch --show-current
 | Has worktree? | Check `git worktree list` output | Remove worktree first |
 | Last commit age | `git log -1 --format="%cr" <branch>` | Info only |
 
-**CRITICAL**: safe(β) ⟺ fully merged (regular ∨ squash) ∧ ¬π(β)
-
 ### 3. Present Summary Table
 
 ```
@@ -61,9 +59,9 @@ Legend: 🗑 = safe to delete, ⚠️ = needs attention, 🔒 = protected
 
 ### 4. Ask for Confirmation
 
-Use **AskUserQuestion**:
+AskUserQuestion:
 - Present only safe-to-delete items as default selections
-- Show unmerged β separately with a warning; **NEVER auto-select unmerged β**
+- Show unmerged β separately with warning; **NEVER auto-select unmerged β**
 - ∃ unmerged β → separate question with explicit warning
 - Always include "Skip / Do nothing"
 
@@ -127,7 +125,7 @@ Remote Branch Cleanup
 
 #### 6d. Ask for confirmation
 
-Use **AskUserQuestion**: present merged remote β with ¬π as safe; show unmerged separately; **NEVER auto-delete remote β**; always include "Skip / Keep all remote branches".
+AskUserQuestion: present merged remote β with ¬π as safe; show unmerged separately; **NEVER auto-delete remote β**; always include "Skip / Keep all remote branches".
 
 #### 6e. Execute remote cleanup
 

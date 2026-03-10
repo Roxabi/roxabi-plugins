@@ -13,6 +13,7 @@ Let:
   τ := tier (S | F-lite | F-full)
   ω := worktree path `../${REPO}-<N>`
   β := base branch (staging if ∃ origin/staging, else main)
+  QG := `{commands.lint} && {commands.typecheck} && {commands.test}`
 
 Plan → worktree → agents (test-first) → passing quality gate.
 
@@ -43,9 +44,9 @@ Does NOT create a PR — that is `/pr` (next step).
 `--plan <path>` → read directly.
 ¬found ⇒ suggest `/plan`. **Stop.**
 
-**S-tier exception:** τ=S ∧ ¬π found ⇒ locate spec (`ls artifacts/specs/N-*.mdx`) or issue body (`gh issue view N --json body`). Skip to Step 4 (Tier S). ¬require plan for S-tier.
+**S-tier exception:** τ=S ∧ ¬π → locate spec (`ls artifacts/specs/N-*.mdx`) or issue body (`gh issue view N --json body`). Skip to Step 4 (Tier S). ¬require plan for S-tier.
 
-Extract from plan frontmatter: `issue`, `tier`, `spec` path. Extract from body: agent list, task list, slice structure.
+Extract from frontmatter: `issue`, `tier`, `spec` path. From body: agent list, task list, slice structure.
 
 ## Step 2 — Setup
 
@@ -106,28 +107,25 @@ Template: "Read `{doc}` sections: {sections}. Read `{ref_file}` for conventions.
 | architect | frontend-patterns + backend-patterns: AI Quick Ref | ✗ |
 | devops, security-auditor, doc-writer | ∅ | ✗ |
 
-Reference file paths come from `/plan` Step 3 (ref patterns). Inject the 1-2 ref files stored there.
+Ref file paths from `/plan` Step 3. Inject the 1-2 ref files stored there.
 
 ## Step 3b — Reasoning Audit (optional)
 
-`--audit` flag → present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) (implement guidance). Read plan/spec in full before presenting audit.
-
+`--audit` → present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) (implement guidance). Read plan/spec in full before presenting.
 → AskUserQuestion: **Proceed** | **Adjust approach** | **Abort**
-
 ¬`--audit` → skip to Step 4.
 
 ## Step 4 — Implement
 
 ### Tier S — Direct
 
-Read spec + ref patterns → create + implement → tests → `{commands.lint} && {commands.typecheck} && {commands.test}` → loop until ✓. Single session, ¬agent spawning.
+Read spec + ref patterns → create + implement → tests → QG → loop until ✓. Single session, ¬agent spawning.
 
 ### Tier F — Agent-Driven (test-first)
 
 Spawn via `Task` (subagent/domain). Sequential ∨ parallel (2–3 max).
 
 **RED → GREEN → REFACTOR:**
-
 1. **RED** — tester: write failing tests from spec. Structural verify only (grep test structure). Tests expected to fail pre-impl. Create RED-GATE sentinel per slice.
 2. **GREEN** — domain agents ∥: implement to pass. `ready` verify → run now; `deferred` → wait RED-GATE.
 3. **REFACTOR** — domain agents: refactor, keep tests ✓.
@@ -144,8 +142,8 @@ cd ../${REPO}-<N>
 {commands.lint} && {commands.typecheck} && {commands.test}
 ```
 
-✓ → continue to Step 6.
-✗ → fix loop (max 3 attempts). Spawn domain fixer agents as needed. 3✗ → AskUserQuestion: **Escalate to lead** | **Continue with failures** | **Abandon worktree** (removes ω + branch).
+✓ → Step 6.
+✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → AskUserQuestion: **Escalate to lead** | **Continue with failures** | **Abandon worktree** (removes ω + branch).
 
 ## Step 6 — Summary
 

@@ -1,139 +1,125 @@
 # Stack Configuration Reference
 
-`stack.yml` makes dev-core agents project-agnostic. Instead of hardcoding paths and tool names, agents reference values from `.claude/stack.yml`, which is imported into every Claude session via CLAUDE.md `@import`.
+Let: α := agent(s) | σ := stack.yml field
 
-## How It Works
+`stack.yml` makes dev-core agents project-agnostic. Agents reference `{backend.path}`, `{commands.test}`, etc. from `.claude/stack.yml`, imported via CLAUDE.md `@import`.
 
-Add `@.claude/stack.yml` as the **first line** of your project's `CLAUDE.md`. This loads the entire stack config into context. Agents reference values like `{backend.path}`, `{commands.test}`, `{standards.testing}` — no explicit Read call required.
-
-If `.claude/stack.yml` is absent, agents output:
+Add `@.claude/stack.yml` as **first line** of CLAUDE.md. ¬∃ `.claude/stack.yml` → agents output:
 > "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init` to generate the file, or `/doctor` to diagnose."
 
 ## Field Reference
 
 ### Top-Level
 
-| Field | Type | Used By | Purpose |
-|-------|------|---------|---------|
-| `schema_version` | string | doctor | Schema compatibility check |
-| `runtime` | string | — | Runtime identifier (informational) |
-| `package_manager` | string | security-auditor, devops | Package manager for audit and lock file references |
+| σ | Type | α | Purpose |
+|---|------|---|---------|
+| `schema_version` | string | doctor | Schema compat check |
+| `runtime` | string | — | Runtime ID (informational) |
+| `package_manager` | string | security-auditor, devops | Pkg mgr for audit/lockfile |
 
 ### `backend.*`
 
-| Field | Used By | Purpose |
-|-------|---------|---------|
-| `backend.framework` | backend-dev | Framework conventions label |
-| `backend.orm` | backend-dev | ORM conventions (migration paths, chain mocking) |
-| `backend.path` | backend-dev, fixer, tester | Root path of the backend application |
+| σ | α | Purpose |
+|---|---|---------|
+| `backend.framework` | backend-dev | Framework conventions |
+| `backend.orm` | backend-dev | ORM conventions (migrations, chain mocking) |
+| `backend.path` | backend-dev, fixer, tester | Backend app root |
 
 ### `frontend.*`
 
-| Field | Used By | Purpose |
-|-------|---------|---------|
-| `frontend.framework` | frontend-dev | Framework conventions label |
-| `frontend.path` | frontend-dev, fixer | Root path of the frontend application |
-| `frontend.ui_package` | frontend-dev | Import path for the shared UI package |
-| `frontend.ui_src` | frontend-dev | Source directory for UI component exports |
+| σ | α | Purpose |
+|---|---|---------|
+| `frontend.framework` | frontend-dev | Framework conventions |
+| `frontend.path` | frontend-dev, fixer | Frontend app root |
+| `frontend.ui_package` | frontend-dev | Shared UI import path |
+| `frontend.ui_src` | frontend-dev | UI component exports dir |
 
 ### `shared.*`
 
-| Field | Used By | Purpose |
-|-------|---------|---------|
-| `shared.types` | backend-dev, frontend-dev | Shared TypeScript types package path |
-| `shared.ui` | frontend-dev, backend-dev (boundary) | Shared UI package path |
-| `shared.config` | devops, backend-dev (boundary) | Shared config package path |
+| σ | α | Purpose |
+|---|---|---------|
+| `shared.types` | backend-dev, frontend-dev | Shared TS types path |
+| `shared.ui` | frontend-dev, backend-dev (boundary) | Shared UI path |
+| `shared.config` | devops, backend-dev (boundary) | Shared config path |
 
 ### `build.*`
 
-| Field | Used By | Purpose |
-|-------|---------|---------|
-| `build.orchestrator` | devops | Build orchestrator name (for cache references) |
-| `build.orchestrator_config` | devops | Config filename for the orchestrator |
+| σ | α | Purpose |
+|---|---|---------|
+| `build.orchestrator` | devops | Build orchestrator name |
+| `build.orchestrator_config` | devops | Orchestrator config file |
 | `build.formatter` | devops | Formatter name |
-| `build.formatter_config` | devops | Formatter config filename |
-| `build.formatter_fix_cmd` | devops | Command to auto-fix formatting |
+| `build.formatter_config` | devops | Formatter config file |
+| `build.formatter_fix_cmd` | devops | Auto-fix formatting cmd |
 
 ### `testing.*`
 
-| Field | Used By | Purpose |
-|-------|---------|---------|
-| `testing.unit` | tester | Unit test framework name |
-| `testing.e2e` | tester | E2E test framework name |
+| σ | α | Purpose |
+|---|---|---------|
+| `testing.unit` | tester | Unit test framework |
+| `testing.e2e` | tester | E2E test framework |
 
 ### `deploy.*`
 
-| Field | Used By | Purpose |
-|-------|---------|---------|
-| `deploy.platform` | devops | Deployment platform name |
-| `deploy.secrets_cmd` | devops | Command to add secrets to the platform |
+| σ | α | Purpose |
+|---|---|---------|
+| `deploy.platform` | devops | Deploy platform name |
+| `deploy.secrets_cmd` | devops | Add-secrets cmd |
 
 ### `docs.*`
 
-| Field | Used By | Purpose |
-|-------|---------|---------|
-| `docs.framework` | doc-writer | Documentation framework (for framework-specific nav rules) |
-| `docs.path` | doc-writer | Root documentation directory |
-| `docs.format` | doc-writer, product-lead | File extension for documentation files |
+| σ | α | Purpose |
+|---|---|---------|
+| `docs.framework` | doc-writer | Doc framework (nav rules) |
+| `docs.path` | doc-writer | Root doc dir |
+| `docs.format` | doc-writer, product-lead | Doc file extension |
 
 ### `commands.*`
 
-| Field | Used By | Purpose |
-|-------|---------|---------|
-| `commands.dev` | — | Start development server |
+| σ | α | Purpose |
+|---|---|---------|
+| `commands.dev` | — | Start dev server |
 | `commands.build` | devops | Build all packages |
-| `commands.test` | tester, fixer | Run the test suite |
+| `commands.test` | tester, fixer | Run test suite |
 | `commands.lint` | fixer, devops | Run linter |
 | `commands.typecheck` | fixer, devops | Run type checker |
-| `commands.format` | devops | Auto-format files |
-| `commands.install` | devops | Install dependencies |
+| `commands.format` | devops | Auto-format |
+| `commands.install` | devops | Install deps |
 
 ### `artifacts.*`
 
-| Field | Used By | Purpose |
-|-------|---------|---------|
-| `artifacts.analyses` | product-lead, architect | Directory for analysis documents |
-| `artifacts.specs` | product-lead | Directory for solution specs |
-| `artifacts.frames` | product-lead | Directory for problem frames |
-| `artifacts.plans` | product-lead, architect | Directory for implementation plans |
+| σ | α | Purpose |
+|---|---|---------|
+| `artifacts.analyses` | product-lead, architect | Analysis docs dir |
+| `artifacts.specs` | product-lead | Specs dir |
+| `artifacts.frames` | product-lead | Frames dir |
+| `artifacts.plans` | product-lead, architect | Plans dir |
 
 ### `standards.*`
 
-| Field | Used By | Purpose |
-|-------|---------|---------|
-| `standards.backend` | backend-dev, fixer, tester | Backend patterns and conventions |
-| `standards.frontend` | frontend-dev, fixer, tester | Frontend patterns and TypeScript gotchas |
-| `standards.testing` | tester, fixer, backend-dev, frontend-dev | Test patterns, mocking strategies |
+| σ | α | Purpose |
+|---|---|---------|
+| `standards.backend` | backend-dev, fixer, tester | Backend patterns |
+| `standards.frontend` | frontend-dev, fixer, tester | Frontend patterns + TS gotchas |
+| `standards.testing` | tester, fixer, backend-dev, frontend-dev | Test patterns, mocking |
 | `standards.code_review` | fixer | Code review conventions |
-| `standards.architecture` | architect | Architecture decision records and diagrams |
-| `standards.configuration` | devops | Configuration conventions |
-| `standards.deployment` | devops | Deployment procedures |
+| `standards.architecture` | architect | ADRs + diagrams |
+| `standards.configuration` | devops | Config conventions |
+| `standards.deployment` | devops | Deploy procedures |
 | `standards.troubleshooting` | devops | Troubleshooting guides |
-| `standards.issue_management` | product-lead | Issue triage and management process |
-| `standards.dev_process` | architect | Development process tiers and phases |
-| `standards.contributing` | doc-writer, architect | Contributing guidelines and doc format rules |
+| `standards.issue_management` | product-lead | Issue triage/mgmt |
+| `standards.dev_process` | architect | Dev process tiers/phases |
+| `standards.contributing` | doc-writer, architect | Contributing + doc format |
 
 ## Required Fields
 
-The following fields are required. `/doctor` will flag their absence:
+`/doctor` flags absence of: `schema_version`, `backend.path`, `frontend.path`, `commands.test`, `commands.lint`, `commands.typecheck`, `standards.testing`, `standards.backend`, `standards.frontend`
 
-- `schema_version`
-- `backend.path`
-- `frontend.path`
-- `commands.test`
-- `commands.lint`
-- `commands.typecheck`
-- `standards.testing`
-- `standards.backend`
-- `standards.frontend`
+## Writing Good Standards Docs
 
-## Writing a Good Standards Doc
-
-Each `standards.*` value points to a doc that agents read before implementing. These docs carry framework-specific knowledge so agent bodies stay generic.
+Each `standards.*` → doc agents read before implementing. Framework-specific knowledge keeps agent bodies generic.
 
 ### `standards.testing` template
-
-A good testing standards doc covers:
 
 ```markdown
 ## Framework Setup
@@ -182,9 +168,9 @@ A good testing standards doc covers:
 - Error codes
 ```
 
-## Example Configs for Common Stacks
+## Example Configs
 
-### NestJS + TanStack Start (default)
+### NestJS + TanStack Start
 
 ```yaml
 schema_version: "1.0"
@@ -235,14 +221,14 @@ frontend:
   ui_src: src/lib/components
 ```
 
-## What Happens When a Field Is Missing
+## Missing Field Behavior
 
-| Missing field | Affected agents | Behavior |
-|---------------|----------------|---------|
-| `backend.path` | backend-dev, fixer | Agent outputs hard-stop error with /init fix instruction |
-| `frontend.path` | frontend-dev, fixer | Agent outputs hard-stop error with /init fix instruction |
-| `standards.testing` | tester, fixer | Agent cannot read test patterns, falls back to generic guidance |
-| `commands.test` | tester, fixer | Agent cannot run tests; reports missing config |
-| `standards.backend` | backend-dev | Agent skips framework-specific conventions |
-| `standards.frontend` | frontend-dev | Agent skips TypeScript gotchas and UI library patterns |
-| `artifacts.*` | product-lead | Agent cannot write artifacts; reports path missing |
+| Missing σ | Affected α | Behavior |
+|-----------|-----------|---------|
+| `backend.path` | backend-dev, fixer | Hard-stop error w/ /init fix |
+| `frontend.path` | frontend-dev, fixer | Hard-stop error w/ /init fix |
+| `standards.testing` | tester, fixer | Falls back to generic guidance |
+| `commands.test` | tester, fixer | Cannot run tests; reports missing config |
+| `standards.backend` | backend-dev | Skips framework-specific conventions |
+| `standards.frontend` | frontend-dev | Skips TS gotchas + UI library patterns |
+| `artifacts.*` | product-lead | Cannot write artifacts; reports path missing |

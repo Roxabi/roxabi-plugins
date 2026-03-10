@@ -9,15 +9,13 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch, AskUserQuestion
 # Doc Sync
 
 Let:
-  δ := change description
-  K := keywords/concepts extracted from δ (tool names, config fields, CLI flags, file paths, function names)
-  SRC ∈ {working-tree, staged, last-commit}
-  D := set of all doc files that reference K
-  EDITED_FILES := [] — accumulator of modified files
+  δ := change description | K := keywords from δ (tools, config fields, CLI flags, paths, functions)
+  SRC ∈ {working-tree, staged, last-commit} | D := {doc files referencing K}
+  EDITED := [] — accumulator of modified files
 
-Code change → find **every** doc that references affected concepts → update them.
+Code change → find **every** doc referencing affected concepts → update.
 
-**⚠ Flow: single continuous pipeline. Stop only on: explicit Cancel, or Phase 6 completion.**
+**⚠ Continuous pipeline. Stop only on: Cancel or Phase 6 completion.**
 
 ```
 /doc-sync                             → auto-detect from working tree or last commit
@@ -26,9 +24,7 @@ Code change → find **every** doc that references affected concepts → update 
 
 ## Phase 1 — Parse Input
 
-δ := `$ARGUMENTS` ∨ derive from git.
-
-¬δ → detect in priority order (first non-empty wins):
+δ := `$ARGUMENTS` ∨ derive from git (first non-empty wins):
 
 ```bash
 git diff --stat            # 1. unstaged
@@ -36,45 +32,31 @@ git diff --cached --stat   # 2. staged
 git diff HEAD~1..HEAD --stat && git log -1 --format="%s%n%b"  # 3. last commit
 ```
 
-Record SRC. ¬δ after scan → AskUserQuestion: describe the change in one sentence.
+Record SRC. ¬δ after scan → AskUserQuestion: describe change.
 
 ## Phase 2 — Discover Context
 
-**2a. Stack config:**
-```bash
-cat .claude/stack.yml 2>/dev/null
-```
-∃ `docs.path` → DOCS_ROOT = docs.path. Else: DOCS_ROOT = project root.
+**2a.** `cat .claude/stack.yml 2>/dev/null` → ∃ `docs.path` → DOCS_ROOT = docs.path; else project root.
 
-**2b. Self-referential check:**
-```bash
-ls .claude-plugin/marketplace.json 2>/dev/null
-```
-∃ → `PLUGINS_REPO=$(pwd)`. Skip to 2d.
+**2b.** `ls .claude-plugin/marketplace.json 2>/dev/null` → ∃ → `PLUGINS_REPO=$(pwd)`. Skip to 2d.
 
-**2c. Locate plugin repo:**
+**2c.** Locate plugin repo:
 ```bash
 [ -n "$ROXABI_PLUGINS_DIR" ] && echo "$ROXABI_PLUGINS_DIR"
 for d in ../*/; do [ -f "${d}.claude-plugin/marketplace.json" ] && echo "$d" && break; done
 ```
-First hit → `PLUGINS_REPO`. ¬found → warn + skip plugin doc updates.
+First hit → `PLUGINS_REPO`. ¬found → warn + skip plugin docs.
 
-**2d. Plugin name:**
+**2d.** Plugin name:
 ```bash
 REPO=$(gh repo view --json name --jq '.name')
 ls "$PLUGINS_REPO/plugins/"
 ```
-Exact ∨ kebab-case match → `PLUGIN_NAME` auto-set.
-Multiple candidates ∨ ¬match → AskUserQuestion: select plugin.
-¬found → warn + skip SKILL.md update.
+Exact ∨ kebab-case match → auto-set. Multiple/¬match → AskUserQuestion. ¬found → warn + skip SKILL.md.
 
-**2e. Locate SKILL.md:**
-```bash
-ls "$PLUGINS_REPO/plugins/$PLUGIN_NAME/skills/"
-```
-∃ one → use it. Multiple → AskUserQuestion: select skill.
+**2e.** `ls "$PLUGINS_REPO/plugins/$PLUGIN_NAME/skills/"` → one → use. Multiple → AskUserQuestion.
 
-## Phase 3 — Read Changed Code + Extract Keywords
+## Phase 3 — Read Changes + Extract K
 
 ```bash
 git diff --name-only                  # SRC=working-tree
@@ -82,17 +64,11 @@ git diff --cached --name-only         # SRC=staged
 git diff HEAD~1..HEAD --name-only     # SRC=last-commit
 ```
 
-Read changed files (most relevant if many). Extract K:
-- tool/library names added, removed, or replaced (e.g. `gitleaks`, `trufflehog`)
-- config fields, CLI flags, environment variables changed
-- file paths, function names, class names modified
-- concepts renamed or restructured
+Read changed files. Extract K: tool/library names (added/removed/replaced), config fields, CLI flags, env vars, paths, functions, classes, renamed concepts.
 
-K must include **both old and new** names when something is renamed/replaced (grep must find stale references).
+K must include **both old and new** names for renames (grep finds stale refs).
 
-## Phase 4 — Scan All Docs for Stale References
-
-Find every doc file in the project that references K:
+## Phase 4 — Scan Docs for Stale References
 
 ```bash
 # Project docs (exclude node_modules, .venv, vendor, dist, .git)
@@ -104,20 +80,11 @@ find . -type f \( -name "*.md" -o -name "*.mdx" \) \
   -not -path "*/.git/*"
 ```
 
-∀ keyword ∈ K: grep across all found doc files. Collect:
+∀ k ∈ K: grep across docs. D = {file | ∃ k ∈ K : k ∈ file.content}.
 
-```
-D = { file | file ∈ docs ∧ ∃ k ∈ K : k ∈ file.content }
-```
+Always include (even if K ∉ content): `CLAUDE.md`, root `README.md`, plugin `README.md` (∃ PLUGINS_REPO), matching `SKILL.md` files.
 
-Always include these if they exist (even if K ∉ content — they may need new sections):
-- `CLAUDE.md`
-- `README.md` (project root)
-- Plugin `README.md` (∃ PLUGINS_REPO)
-- Matching `SKILL.md` files (∃ PLUGINS_REPO)
-
-Display scan results:
-
+Display:
 ```
 Docs referencing changed concepts:
   CLAUDE.md                              2 matches (gitleaks)
@@ -129,38 +96,28 @@ Docs referencing changed concepts:
 {|D|} docs to review.
 ```
 
-|D| = 0 (only always-included files, 0 matches) → display "No docs reference changed concepts" → AskUserQuestion: **Force update core docs anyway** | **Skip** → Skip: jump to Phase 6.
+|D| = 0 (only always-included, 0 matches) → AskUserQuestion: **Force update core docs** | **Skip** → Skip: Phase 6.
 
 ## Phase 5 — Update Docs
 
-∀ file ∈ D (sorted: CLAUDE.md first, README.md second, SKILL.md third, then rest alphabetically):
+∀ file ∈ D (order: CLAUDE.md → README.md → SKILL.md → rest alphabetically):
 
-Targeted edits only — find affected section, update those lines. ¬rewrite unrelated sections. Append to `EDITED_FILES` after each edit.
-
-**Per-file rules:**
+Targeted edits only — find affected section, update those lines. ¬rewrite unrelated. Append to EDITED after each.
 
 | Doc type | Audience | Guidelines |
 |----------|----------|------------|
-| `CLAUDE.md` | Claude / LLM | Codebase instructions, paths, conventions. Be precise. |
-| `README.md` (root) | Humans (users) | User perspective. ¬implementation details. |
-| `SKILL.md` | Claude / LLM | Skill instructions. ¬bump version unless behavior changed. |
-| Plugin `README.md` | Humans (users) | Plugin usage, install, trigger phrases. |
-| `docs/**/*.md{,x}` | Humans (devs) | Standards, guides, architecture. Match existing style. |
-| ADRs (`adr/`) | Humans (devs) | ¬edit ADRs — they are immutable records. Warn if stale. |
-| `references/*.md` | Claude / LLM | Reference material for skills. Keep factual. |
-| Agent files (`agents/*.md`) | Claude / LLM | Agent instructions. Update tool/config references. |
+| `CLAUDE.md` | LLM | Codebase instructions, paths, conventions. Precise. |
+| `README.md` (root) | Humans | User perspective. ¬implementation details. |
+| `SKILL.md` | LLM | Skill instructions. ¬bump version unless behavior changed. |
+| Plugin `README.md` | Humans | Usage, install, triggers. |
+| `docs/**/*.md{,x}` | Devs | Standards, guides. Match style. |
+| ADRs (`adr/`) | Devs | ¬edit (immutable). Warn if stale. |
+| `references/*.md` | LLM | Reference material. Keep factual. |
+| Agent files | LLM | Update tool/config references. |
 
-**Edit approach per file:**
-1. Grep for K within the file → locate exact lines
-2. Read surrounding context (±10 lines)
-3. Edit: replace old references with new, update descriptions
-4. ¬match but file is in always-included set → check if a new section is needed. Only add if δ introduces a concept that belongs in that doc.
+**Per file:** grep K → locate lines → read ±10 context → replace old with new. ¬match but always-included → add section only if δ introduces relevant concept.
 
-**Stale ADR warning:**
-∀ ADR ∈ D: ¬edit. Instead display:
-```
-⚠️  ADR {number} references {keyword} — consider a new ADR if the decision has changed.
-```
+**Stale ADR:** ∀ ADR ∈ D: ¬edit. Display: `⚠️  ADR {number} references {keyword} — consider new ADR if decision changed.`
 
 ## Phase 6 — Summary
 
@@ -182,27 +139,26 @@ Doc Sync Complete
     docs/architecture/adr/005-...       ⏭ ADR (immutable)
     ...
 
-  {|EDITED_FILES|} files updated, {|D| - |EDITED_FILES|} skipped.
+  {|EDITED|} files updated, {|D| - |EDITED|} skipped.
 ```
 
 AskUserQuestion: **Commit project docs** | **Commit all (project + plugin)** | **Skip**
 
-Commit approved → `git add ${EDITED_FILES}` + commit with `docs:` prefix.
-Plugin repo ≠ CWD ∧ plugin files ∈ EDITED_FILES → inform: "Commit `$PLUGINS_REPO` separately."
+Commit → `git add ${EDITED}` + `docs:` prefix. Plugin repo ≠ CWD ∧ plugin files ∈ EDITED → "Commit `$PLUGINS_REPO` separately."
 
 ## Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| ¬git repo | Read docs from CWD, skip git-derived context |
-| ¬CLAUDE.md ∨ ¬README.md | Skip that file, warn |
+| ¬git repo | Read docs from CWD, skip git context |
+| ¬CLAUDE.md ∨ ¬README.md | Skip, warn |
 | ¬PLUGINS_REPO | Project docs only |
-| ¬plugin dir in PLUGINS_REPO | Project docs only, warn |
+| ¬plugin dir | Project docs only, warn |
 | δ vague | AskUserQuestion: narrow to one feature |
-| Unrelated files changed | Focus on δ feature only |
-| SRC=working-tree ∧ ¬PLUGINS_REPO set | Warn to set `$ROXABI_PLUGINS_DIR` |
-| Rename/replace (A → B) | K includes both A and B; grep finds stale A refs |
-| ADR references K | Warn, ¬edit (immutable) |
-| |D| > 20 | Display list, AskUserQuestion: **Update all** ∨ **Select** ∨ **Skip** |
+| Unrelated files changed | Focus on δ only |
+| SRC=working-tree ∧ ¬PLUGINS_REPO | Warn to set `$ROXABI_PLUGINS_DIR` |
+| Rename A → B | K includes both; grep finds stale A |
+| ADR references K | Warn, ¬edit |
+| |D| > 20 | List, AskUserQuestion: **Update all** ∨ **Select** ∨ **Skip** |
 
 $ARGUMENTS

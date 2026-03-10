@@ -15,7 +15,7 @@ Let:
 
 Spec → micro-tasks → agent assignments → plan artifact.
 
-**⚠ Flow: single continuous pipeline. ¬stop between steps. AskUserQuestion response → immediately execute next step. Stop only on: Cancel/Abort or Step 6 completion.**
+**Flow: single continuous pipeline. ¬stop between steps. AskUserQuestion response → immediately execute next step. Stop only on: Cancel/Abort or Step 6 completion.**
 
 ```
 /plan --issue 42         Generate plan from spec for issue #42
@@ -40,10 +40,8 @@ Read `docs/processes/dev-process.mdx` + σ.
 
 ### Step 2a-pre — Reasoning Audit (optional)
 
-`--audit` flag → after reading σ, present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) (plan guidance).
-
+`--audit` → after reading σ, present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) (plan guidance).
 → AskUserQuestion: **Proceed** | **Adjust approach** | **Abort**
-
 ¬`--audit` → continue to Step 2a.
 
 **2a. Scope:** Glob + Grep → files to create/modify + reference features for patterns.
@@ -62,7 +60,7 @@ Read `docs/processes/dev-process.mdx` + σ.
 Paths from stack.yml. ¬set → file domain heuristics (component/hook → FE; service/controller/route → BE).
 
 Always: **tester**. Add: architect (new modules), security-auditor (auth/validation), doc-writer (new APIs).
-Tier S → skip agent assignment (single session).
+τ=S → skip agent assignment (single session).
 
 **Intra-domain parallel:** ≥4 independent tasks in 1 domain → multiple same-type agents (F-full only). Shared barrel files → merge into single agent.
 
@@ -82,7 +80,7 @@ Find similar existing feature → read 1–2 files for conventions. Store paths 
 
 ## Step 4 — Micro-Tasks (Tier F only)
 
-Tier S → skip → Step 5. Read [references/micro-tasks.md](references/micro-tasks.md) for complete process.
+τ=S → skip → Step 5. Read [references/micro-tasks.md](references/micro-tasks.md) for complete process.
 
 **Summary:** Detect σ format (Breadboard+Slices ∨ Success Criteria) → generate micro-tasks with verify commands → detect parallelization → scale task count → consistency check (σ↔tasks bidirectional) → write to π.
 
@@ -134,20 +132,18 @@ Include:
 
 ### Mermaid Diagrams
 
-`## Architecture` section must include:
+`## Architecture` must include:
+1. **Data flow diagram** (`flowchart TD`) — full pipeline: config files → loader functions → data structures → composition → runtime injection. Group nodes into subgraphs by file. Highlight key paths with distinct styles.
+2. **File × Function map** (`flowchart LR`) — which functions/classes live in which files, how they call each other. Group by source file. Show test files as consumers.
 
-1. **Data flow diagram** (`flowchart TD`) — show the full pipeline: config files → loader functions → data structures → composition → runtime injection. Group nodes into subgraphs by file. Highlight key paths (override, hot-reload) with distinct styles.
-
-2. **File × Function map** (`flowchart LR`) — show which functions/classes live in which files and how they call each other. Group by source file. Show test files as consumers.
-
-Diagrams go AFTER Summary and BEFORE Bootstrap Context. They answer "how does the implementation flow across files" — the plan's equivalent of the spec's data model diagrams.
+Diagrams go AFTER Summary, BEFORE Bootstrap Context.
 
 ## Step 6 — Approve + Commit
 
 AskUserQuestion: complexity, τ, task count, agents, consistency, slices.
 Options: **Approve** | **Modify** | **Return to spec**
 
-On Approve → commit artifact: `git add artifacts/plans/{N}-{slug}-plan.mdx` + commit per CLAUDE.md Rule 5.
+On Approve → commit: `git add artifacts/plans/{N}-{slug}-plan.mdx` + commit per CLAUDE.md Rule 5.
 
 ## Edge Cases
 

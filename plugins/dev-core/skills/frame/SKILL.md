@@ -9,7 +9,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch, AskUserQuestion
 # Frame
 
 Let:
-  φ := artifacts/frames/{N}-{slug}-frame.mdx (∃N) ∨ artifacts/frames/{slug}-frame.mdx (frame-only mode)
+  φ := artifacts/frames/{N}-{slug}-frame.mdx (∃N) ∨ artifacts/frames/{slug}-frame.mdx (frame-only)
   N := issue number (∅ if free text)
   τ := tier ∈ {S, F-lite, F-full}
 
@@ -69,13 +69,13 @@ Auto-detect τ from complexity signals:
 | Issue label M | F-lite |
 | Issue label L ∨ XL | F-full |
 
-See [tier-classification.md](../../../shared/references/tier-classification.md) for canonical rules and complexity scoring.
+See [tier-classification.md](../../../shared/references/tier-classification.md) for canonical rules.
 
 AskUserQuestion: **Confirm {τ}** | **Override → S** | **Override → F-lite** | **Override → F-full**
 
 ## Step 3 — Write Frame Doc
 
-Write φ as `artifacts/frames/{N}-{slug}-frame.mdx` (∃ issue) or `artifacts/frames/{slug}-frame.mdx` (frame-only mode) with `status: draft`:
+Write φ with `status: draft`:
 
 ```mdx
 ---
@@ -120,9 +120,9 @@ AskUserQuestion: **Approve** | **Revise** (specify what to change).
 
 ## Completion
 
-φ written at `artifacts/frames/{N}-{slug}-frame.mdx` (or `artifacts/frames/{slug}-frame.mdx` in frame-only mode) with `status: approved`.
+φ written with `status: approved`.
 
-Commit artifact: `git add artifacts/frames/{N}-{slug}-frame.mdx` + commit per CLAUDE.md Rule 5.
+Commit: `git add artifacts/frames/{N}-{slug}-frame.mdx` + commit per CLAUDE.md Rule 5.
 
 ∃ N →
 ```bash
@@ -135,7 +135,7 @@ Inform: "Frame approved. Run `/dev #N` to continue, or `/analyze --issue N` for 
 
 - Free text ∧ ¬clear slug → derive from first 4 nouns/verbs. AskUserQuestion to confirm if ambiguous.
 - Issue ¬exists (gh 404) → proceed in free-text mode using title as seed.
-- Tier contested (signals split evenly) → default to higher τ; note in doc: "Defaulted to {τ} — downgrade if scope narrows."
+- Tier contested (signals split evenly) → default to higher τ; note: "Defaulted to {τ} — downgrade if scope narrows."
 - User approves then requests major change → reset `status: draft`, revise, re-approve.
 
 $ARGUMENTS

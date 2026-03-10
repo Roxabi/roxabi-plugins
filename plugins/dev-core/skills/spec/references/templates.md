@@ -1,5 +1,7 @@
 # Spec Templates
 
+Let: N := issue number | τ := tier
+
 Templates used by the spec skill for document generation.
 
 ## Spec Document Template
@@ -25,7 +27,7 @@ description: "{one-line description}"
 
 ## Expected Behavior
 
-{narrative walkthrough of the feature from a user perspective}
+{narrative walkthrough from user perspective}
 
 ## Data Model & Consumers
 
@@ -69,7 +71,7 @@ flowchart LR
     style C2 fill:#ffe,stroke:#999,stroke-dasharray: 5 5
 ```
 
-**Legend:** Solid lines = this issue. Dashed lines = future consumers.
+**Legend:** Solid = this issue. Dashed = future consumers.
 
 | Consumer | Fields consumed | When | Status |
 |----------|----------------|------|--------|
@@ -88,7 +90,7 @@ flowchart LR
 
 ### Wiring
 
-{How IDs connect across the breadboard — e.g. "U1 triggers N1 which writes to S1"}
+{How IDs connect — e.g. "U1 triggers N1 which writes to S1"}
 
 ## Slices
 
@@ -105,5 +107,5 @@ flowchart LR
 
 ## Open Questions
 
-{Any [NEEDS CLARIFICATION: description] items that remain unresolved. Max 5. Must be resolved before /plan.}
+{Any [NEEDS CLARIFICATION: description] items unresolved. Max 5. Must resolve before /plan.}
 ```
