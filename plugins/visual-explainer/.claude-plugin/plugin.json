@@ -1,0 +1,8 @@
+{
+  "name": "visual-explainer",
+  "version": "0.1.0",
+  "description": "Generate self-contained HTML pages with diagrams, visualizations, and data tables from any input.",
+  "author": {
+    "name": "Roxabi"
+  }
+}
