@@ -287,26 +287,8 @@ Agents: Sonnet = all agents (frontend-dev, backend-dev, devops, doc-writer, fixe
   }
 }
 
-function gotchas(stack: StackConfig, _projectType: ProjectType): Section {
-  const items: string[] = []
-
-  const rt = stack.runtime ?? 'bun'
-
-  if (rt === 'bun') {
-    items.push('- `bun test` ≠ `bun run test` — former = Bun runner (CPU spin), latter = Vitest/Jest. Hook blocks it.')
-  }
-
-  if (stack.commands?.test) {
-    items.push(`- Always use \`${stack.commands.test}\` for tests (not bare test runner).`)
-  }
-
-  items.push('- Post-rebase: run install before push if new build steps added.')
-  items.push(
-    '- `gh pr edit --add-label` broken (Projects Classic deprecation) → use `gh api repos/:owner/:repo/issues/:number/labels -f "labels[]=<label>"`.',
-  )
-  items.push('- `gh pr view --json` has no `merged` field → use `mergedAt` (null = not merged).')
-
-  return { id: 'gotchas', title: 'Gotchas', content: items.join('\n') }
+function gotchas(): Section {
+  return { id: 'gotchas', title: 'Gotchas', content: '<!-- Add project-specific gotchas here -->' }
 }
 
 // ---------------------------------------------------------------------------
@@ -380,7 +362,7 @@ function generateSections(stack: StackConfig, projectType: ProjectType, projectN
     'code-review': () => codeReview(stack),
     'coding-standards': () => codingStandards(stack, projectType),
     'skills-agents': () => skillsAndAgents(),
-    gotchas: () => gotchas(stack, projectType),
+    gotchas: () => gotchas(),
   }
 
   return sectionIds.map((id) => generators[id]?.()).filter((s): s is Section => s !== undefined)
@@ -424,15 +406,15 @@ function analyzeExistingClaudeMd(claudeMdPath: string): ExistingSections {
   // Detect which Critical Rules sections already exist
   const sectionPatterns: Record<string, RegExp> = {
     tldr: /^## TL;DR/i,
-    'dev-process': /^###?\s*1[.\s]*Dev Process/i,
-    'ask-user-question': /^###?\s*2[.\s]*AskUserQuestion/i,
-    'orchestrator-delegation': /^###?\s*3[.\s]*Orchestrator/i,
-    'parallel-execution': /^###?\s*4[.\s]*Parallel/i,
-    git: /^###?\s*5[.\s]*Git/i,
-    'artifact-model': /^###?\s*6[.\s]*Artifact/i,
-    'mandatory-worktree': /^###?\s*7[.\s]*Mandatory Worktree/i,
-    'code-review': /^###?\s*8[.\s]*Code Review/i,
-    'coding-standards': /^###?\s*9[.\s]*Coding Standards/i,
+    'dev-process': /^###?\s*(?:1[.\s]*)?Dev Process/i,
+    'ask-user-question': /^###?\s*(?:2[.\s]*)?AskUserQuestion/i,
+    'orchestrator-delegation': /^###?\s*(?:3[.\s]*)?Orchestrator/i,
+    'parallel-execution': /^###?\s*(?:4[.\s]*)?Parallel/i,
+    git: /^###?\s*(?:5[.\s]*)?Git/i,
+    'artifact-model': /^###?\s*(?:6[.\s]*)?Artifact/i,
+    'mandatory-worktree': /^###?\s*(?:7[.\s]*)?Mandatory Worktree/i,
+    'code-review': /^###?\s*(?:8[.\s]*)?Code Review/i,
+    'coding-standards': /^###?\s*(?:9[.\s]*)?Coding Standards/i,
     'skills-agents': /^## Skills/i,
     gotchas: /^## Gotchas/i,
   }

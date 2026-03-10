@@ -75,6 +75,8 @@ Set up σ early — later phases read runtime, package manager, commands, deploy
 
 Generate governance rules (dev process, AskUserQuestion, git conventions, etc.) from σ values. Sections vary by detected project type.
 
+σ ∄ → D("Critical Rules", "⏭ Skipped — requires stack.yml"), skip to Phase 3.
+
 1. Run: `bun $I_TS scaffold-rules --stack-path .claude/stack.yml --claude-md CLAUDE.md`
 2. Parse JSON → extract `projectType`, `sections`, `markdown`, `existing`.
 
