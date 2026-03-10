@@ -57,6 +57,44 @@ If `{docs.path}` is undefined → output: "`.claude/stack.yml` not found in cont
 
 ¬`apps/`, ¬`packages/`, ¬CI/CD. Code examples → coordinate with domain agent. CLAUDE.md changes → message lead first.
 
+## Domain Reference
+
+### Documentation Quality Checklist
+
+∀ doc must pass:
+
+- [ ] **Title** matches content (¬generic "Overview" ∨ "Guide")
+- [ ] **Opening paragraph** states what + why in ≤3 sentences
+- [ ] **Code examples** are runnable (¬pseudo-code unless explicitly marked)
+- [ ] **Links** resolve (¬broken refs, ¬404s); relative paths for internal
+- [ ] **Headings** follow hierarchy (H1 → H2 → H3; ¬skip levels)
+- [ ] **Tables** have header row + alignment; ¬use tables for <3 items
+- [ ] **Commands** specify context (which dir, which env, prerequisites)
+- [ ] **No stale content** — matches current code behavior (verify via Grep/Read)
+
+### Cross-Reference Validation
+
+- ∀ internal link → verify target file ∃ (Glob)
+- ∀ code ref (function name, file path, CLI command) → verify ∃ in codebase (Grep)
+- ∀ config example → verify matches actual config schema
+- Changed code → scan docs for references to changed symbols → update ∨ flag stale
+
+### Framework-Specific Patterns
+
+| Framework | Key rules |
+|-----------|----------|
+| **Fumadocs** | `meta.json` for nav ordering; MDX frontmatter (`title`, `description`); `<Callout>` for warnings; H1 auto-generated from `title` (¬manual H1) |
+| **Docusaurus** | `sidebars.js` for nav; MDX + React components; `:::note` admonitions; slug from filename |
+| **Nextra** | `_meta.json` for nav; MDX; `<Callout>` component; file-based routing |
+| **Plain MD** | ATX headings (`#`); relative links; code blocks with language tag |
+
+### API Documentation Standards
+
+- **Endpoint docs** — method, path, params (required/optional), request body schema, response schema, status codes, example curl
+- **Type docs** — interface/type with field descriptions; mark optional fields; link to source
+- **Config docs** — every option with type, default, description, example value
+- **Changelog** — keep latest at top; group by version; categorize (Added, Changed, Fixed, Removed)
+
 ## Edge Cases
 
 - Code ¬exists yet → placeholder + "TODO: update after implementation"

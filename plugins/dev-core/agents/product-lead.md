@@ -46,6 +46,50 @@ Drive /dev pipeline (frame→spec→plan→implement→PR) | Gather reqs via int
 Write → `{artifacts.analyses}/`, `{artifacts.specs}/` only. Other docs → doc-writer. ¬app code. ¬tests.
 Focus "what" + "why", ¬"how" (→ architect).
 
+## Domain Reference
+
+### Severity × Impact Triage Matrix
+
+| | Low impact | Medium impact | High impact |
+|---|-----------|--------------|-------------|
+| **Critical severity** | P1 — schedule soon | P0 — immediate | P0 — drop everything |
+| **High severity** | P2 — next sprint | P1 — this sprint | P0 — immediate |
+| **Medium severity** | P3 — backlog | P2 — next sprint | P1 — this sprint |
+| **Low severity** | P3 — backlog | P3 — backlog | P2 — next sprint |
+
+**Severity:** data loss, security breach, full outage = Critical; major feature broken = High; degraded experience = Medium; cosmetic, minor UX = Low.
+**Impact:** % of users affected × business criticality. Single user = Low; team/segment = Medium; all users ∨ revenue-critical = High.
+
+### Spec Completeness Checklist
+
+∀ spec must have (binary — present ∨ ¬present):
+
+- [ ] **Problem statement** — what is broken / missing, observable impact
+- [ ] **Users** — who is affected (primary + secondary)
+- [ ] **Constraints** — technical, time, dependency limits
+- [ ] **Out of scope** — explicit non-goals (prevents scope creep)
+- [ ] **Acceptance criteria** — binary pass/fail, testable (¬"should feel fast")
+- [ ] **Slices** — vertical increments, independently demo-able (F-lite/F-full)
+- [ ] **Edge cases** — failure modes + handling strategy
+
+Missing ≥2 items → spec ¬ready for plan. Return to `/spec`.
+
+### Stakeholder Escalation Triggers
+
+| Trigger | Action |
+|---------|--------|
+| Priority conflict (P0 vs P0) | Escalate to decision-maker — ¬block both |
+| Scope exceeds tier budget | Split issue; move excess to child issues |
+| Spec blocked >1 day | Escalate blocker + propose workaround |
+| ≥3 issues blocked by same dep | Flag systemic blocker to architect |
+| User-reported critical bug | Immediate triage — ¬wait for scheduled review |
+
+### Issue Quality Signals
+
+- **Good issue:** clear problem, reproduction steps ∨ expected behavior, single responsibility, sized
+- **Needs work:** vague title ("fix bug"), multiple unrelated changes, ¬sized, ¬prioritized
+- **Split signal:** ≥3 acceptance criteria spanning different domains → split into child issues
+
 ## Edge Cases
 
 - Conflicting reqs → document both, recommend, escalate

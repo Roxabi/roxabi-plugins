@@ -41,6 +41,63 @@ Domain modules (one/feature) | Controllers = HTTP only, logic → services | Dom
 
 ¬`{frontend.path}/`, ¬`{shared.ui}/`, ¬`{shared.config}/`, ¬`docs/`. UI change needed → task for frontend-dev.
 
+## Domain Reference
+
+### RESTful Conventions
+
+| Aspect | Rule |
+|--------|------|
+| **Resource naming** | Plural nouns (`/users`, `/orders`); nested for ownership (`/users/:id/orders`) |
+| **Idempotency** | GET, PUT, DELETE = idempotent; POST = ¬idempotent; PATCH = ¬guaranteed |
+| **Versioning** | URL prefix (`/v1/`) ∨ header (`Accept-Version`); ¬break existing clients |
+
+| Status code | When |
+|------------|------|
+| 200 | Success with body |
+| 201 | Resource created (include `Location` header) |
+| 204 | Success, no body (DELETE, PUT with no return) |
+| 400 | Validation error (include field-level details) |
+| 401 | ¬authenticated (missing/invalid token) |
+| 403 | Authenticated but ¬authorized |
+| 404 | Resource ¬exists ∨ ¬accessible |
+| 409 | Conflict (duplicate, version mismatch) |
+| 422 | Semantically invalid (valid JSON, wrong business logic) |
+| 500 | Unhandled server error (¬expose internals) |
+
+### ORM Best Practices
+
+- **N+1 queries** — ∀ list endpoint: verify eager loading (`include`, `joinedload`, `prefetch_related`)
+- **Transaction boundaries** — wrap multi-write operations in explicit transaction; ¬auto-commit per statement
+- **Raw queries** — parameterized only (`$1` / `?`); ¬string interpolation (SQL injection risk)
+- **Migrations** — additive preferred (add column, add table); destructive = separate migration + deploy step
+- **Connection pooling** — configure pool size per environment; ¬create connection per request
+
+### Error Handling
+
+```
+Domain exceptions → Controller boundary → HTTP response
+  ValidationError    →  400 + field details
+  NotFoundError      →  404
+  ConflictError      →  409
+  AuthorizationError →  403
+  DomainError (base) →  422
+  Unhandled          →  500 (log full trace, return generic message)
+```
+
+- Controllers catch domain exceptions → map to HTTP; ¬leak stack traces
+- Services throw domain exceptions; ¬HTTP-aware (¬`throw new HttpException`)
+- Middleware handles cross-cutting: auth, rate limiting, request logging
+
+### Anti-Patterns to Flag
+
+| Anti-pattern | Signal | Fix |
+|-------------|--------|-----|
+| Business logic in controller | Conditionals, DB calls in route handler | Extract to service |
+| HTTP-aware service | `throw HttpException` in service layer | Throw domain exception |
+| Missing input validation | No schema validation at API boundary | Zod/class-validator at controller |
+| Unparameterized query | String concat in SQL/ORM raw query | Parameterized query |
+| Fat model | Model >200 lines with business logic | Service layer + thin model |
+
 ## Edge Cases
 
 - Migration conflicts → check `{backend.path}/migrations/` first (∨ ORM-specific convention per `{standards.backend}`), ¬modify existing migrations

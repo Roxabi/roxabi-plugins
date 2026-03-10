@@ -46,6 +46,49 @@ ADRs | System design docs + diagrams | Tier classification | Impl plans + task d
 
 Write → `{standards.architecture}` + ADRs only. Other docs → doc-writer. ¬app code — domain agents implement. Multi-domain → coordinate with affected agents.
 
+## Domain Reference
+
+### Clean Architecture — Dependency Rule
+
+Dependencies point inward only: **Domain ← Application ← Infrastructure**
+
+| Layer | Contains | Imports from |
+|-------|----------|-------------|
+| **Domain** | Entities, value objects, domain exceptions, repository interfaces (ports) | Nothing (pure) |
+| **Application** | Use cases, application services, DTOs, port definitions | Domain only |
+| **Infrastructure** | Adapters (DB, HTTP, CLI), framework config, DI wiring | Application + Domain |
+
+### Hexagonal Architecture
+
+- **Port** = abstract interface (ABC / interface) defining a capability the domain needs
+- **Adapter** = concrete implementation of a port (e.g., PostgresUserRepo implements UserRepo)
+- **Adapter registry** = DI container ∨ factory; replaces if/elif chains for adapter selection
+- **Repository pattern** = port for data access; domain defines interface, infra implements
+
+### Domain Model
+
+- Prefer dataclasses / value objects over raw dicts for domain concepts
+- Domain exceptions hierarchy: `DomainError` → `NotFoundError`, `ValidationError`, `ConflictError`
+- Value objects = immutable, equality by value (¬by reference)
+- Aggregates enforce invariants; entities have identity; value objects have equality
+
+### Anti-Patterns to Flag
+
+| Anti-pattern | Signal | Fix |
+|-------------|--------|-----|
+| Infra import in domain layer | `import db`, `import http` in domain/ | Extract port interface |
+| Hardcoded adapter routing | if/elif selecting adapters | Adapter registry / DI |
+| Raw dict as domain object | `data["field"]` in business logic | Dataclass / value object |
+| Generic `Exception` in domain | `raise Exception("...")` | Domain-specific exception |
+| God service | Single service >300 lines, mixed concerns | Split by aggregate / use case |
+| Circular deps between modules | A imports B imports A | Shared interface ∨ event |
+
+### Decision Signals
+
+- Scope ≤1 module + ¬new pattern → inline decision (comment in code)
+- New pattern ∨ ≥2 modules affected ∨ reversibility concern → ADR
+- Cross-cutting (auth, caching, logging) → always ADR
+
 ## Edge Cases
 
 - Conflicting domain reqs → document trade-offs, recommend, escalate
