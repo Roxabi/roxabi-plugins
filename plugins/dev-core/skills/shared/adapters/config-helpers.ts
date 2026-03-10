@@ -2,8 +2,9 @@
  * Pure config helper functions extracted from the legacy config.ts shim.
  * These are used by EnvConfigAdapter and re-exported from config.ts for backward compat.
  */
-import { readFileSync } from 'node:fs'
+
 import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import type { ProjectFieldIds } from '../domain/types'
 import type { WorkspaceProject } from '../ports/workspace'
 
@@ -20,7 +21,9 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
     const match = yaml.match(new RegExp(`^${key}:\\s*['"]?(.+?)['"]?\\s*$`, 'm'))
     const value = match?.[1]
     if (value && value !== "''") return value
-  } catch { /* file not found — fall through */ }
+  } catch {
+    /* file not found — fall through */
+  }
 
   // 2nd: Fall back to env var
   const envValue = process.env[envKey ?? key.toUpperCase()]
@@ -30,7 +33,9 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
   if (key === 'github_repo') {
     try {
       return execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', { encoding: 'utf-8' }).trim()
-    } catch { /* gh not available */ }
+    } catch {
+      /* gh not available */
+    }
   }
 
   return undefined
