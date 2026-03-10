@@ -78,31 +78,36 @@
       "name": "frontend-slides",
       "description": "Create zero-dependency, animation-rich HTML presentations from scratch or by converting PowerPoint files. 12 curated style presets, visual style discovery, PPT conversion.",
       "source": "./plugins/frontend-slides",
-      "category": "productivity"
+      "category": "productivity",
+      "version": "0.1.0"
     },
     {
       "name": "visual-explainer",
       "description": "Generate self-contained HTML pages with diagrams, visualizations, and data tables from any input.",
       "source": "./plugins/visual-explainer",
-      "category": "productivity"
+      "category": "productivity",
+      "version": "0.1.0"
     },
     {
       "name": "react-best-practices",
       "description": "React and Next.js performance optimization guidelines — 58 rules across 8 categories, prioritized by impact.",
       "source": "./plugins/react-best-practices",
-      "category": "development"
+      "category": "development",
+      "version": "0.1.0"
     },
     {
       "name": "composition-patterns",
       "description": "React composition patterns — avoid boolean prop proliferation, compound components, context providers.",
       "source": "./plugins/composition-patterns",
-      "category": "development"
+      "category": "development",
+      "version": "0.1.0"
     },
     {
       "name": "web-design-guidelines",
       "description": "Review UI code for Web Interface Guidelines compliance — accessibility, UX, design best practices.",
       "source": "./plugins/web-design-guidelines",
-      "category": "development"
+      "category": "development",
+      "version": "0.1.0"
     }
   ]
 }

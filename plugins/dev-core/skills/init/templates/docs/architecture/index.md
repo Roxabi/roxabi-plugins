@@ -22,3 +22,8 @@ TODO: Map your layers and their boundaries.
 ## Key Decisions
 
 See the `adr/` directory for Architecture Decision Records.
+
+## See Also
+
+- [Patterns](patterns.md) — naming conventions, error hierarchy, data flow
+- [Ubiquitous Language](ubiquitous-language.md) — shared domain vocabulary

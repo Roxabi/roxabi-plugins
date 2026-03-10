@@ -4,5 +4,6 @@
   "description": "Generate self-contained HTML pages with diagrams, visualizations, and data tables from any input.",
   "author": {
     "name": "Roxabi"
-  }
+  },
+  "license": "MIT"
 }

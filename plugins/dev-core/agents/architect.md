@@ -60,14 +60,14 @@ Dependencies point inward only: **Domain ← Application ← Infrastructure**
 
 ### Hexagonal Architecture
 
-- **Port** = abstract interface (ABC / interface) defining a capability the domain needs
+- **Port** = abstract interface defining a capability the domain needs
 - **Adapter** = concrete implementation of a port (e.g., PostgresUserRepo implements UserRepo)
 - **Adapter registry** = DI container ∨ factory; replaces if/elif chains for adapter selection
 - **Repository pattern** = port for data access; domain defines interface, infra implements
 
 ### Domain Model
 
-- Prefer dataclasses / value objects over raw dicts for domain concepts
+- Prefer value objects (immutable, equality by value) over raw maps/dicts for domain concepts
 - Domain exceptions hierarchy: `DomainError` → `NotFoundError`, `ValidationError`, `ConflictError`
 - Value objects = immutable, equality by value (¬by reference)
 - Aggregates enforce invariants; entities have identity; value objects have equality
@@ -76,10 +76,10 @@ Dependencies point inward only: **Domain ← Application ← Infrastructure**
 
 | Anti-pattern | Signal | Fix |
 |-------------|--------|-----|
-| Infra import in domain layer | `import db`, `import http` in domain/ | Extract port interface |
+| Infra import in domain layer | External-layer import in domain module | Extract port interface |
 | Hardcoded adapter routing | if/elif selecting adapters | Adapter registry / DI |
-| Raw dict as domain object | `data["field"]` in business logic | Dataclass / value object |
-| Generic `Exception` in domain | `raise Exception("...")` | Domain-specific exception |
+| Raw map/dict as domain object | `data["field"]` in business logic | Value object / typed model |
+| Generic exception in domain | Throwing base `Error`/`Exception` | Domain-specific exception |
 | God service | Single service >300 lines, mixed concerns | Split by aggregate / use case |
 | Circular deps between modules | A imports B imports A | Shared interface ∨ event |
 

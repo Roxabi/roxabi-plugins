@@ -81,12 +81,10 @@ If `{docs.path}` is undefined → output: "`.claude/stack.yml` not found in cont
 
 ### Framework-Specific Patterns
 
-| Framework | Key rules |
-|-----------|----------|
-| **Fumadocs** | `meta.json` for nav ordering; MDX frontmatter (`title`, `description`); `<Callout>` for warnings; H1 auto-generated from `title` (¬manual H1) |
-| **Docusaurus** | `sidebars.js` for nav; MDX + React components; `:::note` admonitions; slug from filename |
-| **Nextra** | `_meta.json` for nav; MDX; `<Callout>` component; file-based routing |
-| **Plain MD** | ATX headings (`#`); relative links; code blocks with language tag |
+- **Fumadocs** — `meta.json` for nav ordering; MDX frontmatter (`title`, `description`); `<Callout>` for warnings; H1 auto-generated from `title` (¬manual H1)
+- **Docusaurus** — `sidebars.js` for nav; MDX + React components; `:::note` admonitions; slug from filename
+- **Nextra** — `_meta.json` for nav; MDX; `<Callout>` component; file-based routing
+- **Plain MD** — ATX headings (`#`); relative links; code blocks with language tag
 
 ### API Documentation Standards
 

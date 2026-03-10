@@ -319,6 +319,8 @@ Each project that has a plugin installed uses a specific cache dir identified by
 
 **Find the active cache hash** — when a skill runs, `$CLAUDE_PLUGIN_ROOT` contains the full cache path (e.g. `~/.claude/plugins/cache/roxabi-marketplace/dev-core/6011eb380f4f/skills/init`). The hash segment (`6011eb380f4f`) identifies the active cache directory if you need to target a single one.
 
+**Skill path variables** — use `${CLAUDE_SKILL_DIR}` for files under the skill's own directory; use `${CLAUDE_PLUGIN_ROOT}` for cross-skill references (e.g., `shared/references/`).
+
 ### Rules
 
 - **Never edit only the cache** — changes are lost on plugin update/reinstall
@@ -332,4 +334,5 @@ Each project that has a plugin installed uses a specific cache dir identified by
 
 ## Gotchas
 
-<!-- Add project-specific gotchas here -->
+- Always run the rsync sync script after editing plugin source — the cache is not updated automatically
+- `${CLAUDE_SKILL_DIR}` / `${CLAUDE_PLUGIN_ROOT}` links in SKILL.md files are runtime-resolved and do not render in GitHub or VS Code previews

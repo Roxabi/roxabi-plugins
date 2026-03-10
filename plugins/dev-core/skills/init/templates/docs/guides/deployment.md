@@ -29,14 +29,7 @@ TODO: Document your deploy process.
 
 ## Environment Variables
 
-<!-- Document required env vars per environment. Examples:
-  | Variable | Required | Where | Description |
-  |----------|:---:|-------|-------------|
-  | DATABASE_URL | Yes | Vercel env | PostgreSQL connection string |
-  | NEXTAUTH_SECRET | Yes | Vercel env | Auth session encryption |
--->
-
-TODO: Document environment variables.
+See [Configuration](../configuration.md) for the full env var table. Document only **per-environment overrides** here (e.g., staging vs production values, secrets rotation).
 
 ## Monitoring & Health Checks
 

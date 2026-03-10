@@ -33,3 +33,8 @@ TODO: Document error handling patterns.
 -->
 
 TODO: Document data flow patterns.
+
+## See Also
+
+- [Architecture Overview](index.md) — layers, boundaries, high-level design
+- [ADRs](adr/) — Architecture Decision Records
