@@ -1,5 +1,4 @@
 pre-commit:
-  parallel: true
   commands:
     lint:
       run: bunx biome check --write {staged_files}
@@ -7,7 +6,7 @@ pre-commit:
     typecheck:
       run: bun run typecheck
     trufflehog:
-      run: "if [ -f .git ]; then REPO=$(git rev-parse --git-common-dir | sed 's|/\\.git.*||'); trufflehog git \"file://$REPO\" --only-verified --fail; else trufflehog git file://. --only-verified --fail; fi"
+      run: trufflehog git file://. --only-verified --fail
       skip:
         - merge
         - rebase
@@ -25,4 +24,4 @@ pre-push:
     test:
       run: bun run test
     trufflehog:
-      run: "if [ -f .git ]; then REPO=$(git rev-parse --git-common-dir | sed 's|/\\.git.*||'); trufflehog git \"file://$REPO\" --only-verified --fail; else trufflehog git file://. --only-verified --fail; fi"
+      run: trufflehog git file://. --only-verified --fail
