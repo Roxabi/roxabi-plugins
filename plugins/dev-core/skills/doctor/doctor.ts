@@ -396,17 +396,18 @@ function checkRulesets(ghOk: boolean, owner: string, repo: string): Section {
     {
       name: DEFAULT_RULESET.name,
       status: hasRuleset ? 'pass' : 'warn',
-      detail: hasRuleset
-        ? 'active'
-        : 'missing — run /init to create (enforces squash/rebase/merge, thread resolution)',
+      detail: hasRuleset ? 'active' : 'missing — run /init to create (enforces squash/rebase/merge, thread resolution)',
     },
   ]
 
   // Check that merge commit is in allowed methods (needed for promotion PRs)
   if (hasRuleset) {
     const detailResult = spawnSync([
-      'gh', 'api', `repos/${owner}/${repo}/rulesets`,
-      '--jq', `.[] | select(.name == "${DEFAULT_RULESET.name}") | .rules[] | select(.type == "pull_request") | .parameters.allowed_merge_methods`,
+      'gh',
+      'api',
+      `repos/${owner}/${repo}/rulesets`,
+      '--jq',
+      `.[] | select(.name == "${DEFAULT_RULESET.name}") | .rules[] | select(.type == "pull_request") | .parameters.allowed_merge_methods`,
     ])
     if (detailResult.ok) {
       const methods = detailResult.stdout.trim()
