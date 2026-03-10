@@ -7,7 +7,7 @@ pre-commit:
     typecheck:
       run: bun run typecheck
     trufflehog:
-      run: "[ -f .git ] && echo 'Skipping trufflehog in worktree' && exit 0 || trufflehog git file://. --only-verified --fail"
+      run: "if [ -f .git ]; then REPO=$(git rev-parse --git-common-dir | sed 's|/\\.git.*||'); trufflehog git \"file://$REPO\" --only-verified --fail; else trufflehog git file://. --only-verified --fail; fi"
       skip:
         - merge
         - rebase
@@ -20,6 +20,9 @@ commit-msg:
       run: bunx commitlint --edit {1}
 
 pre-push:
+  parallel: true
   commands:
     test:
       run: bun run test
+    trufflehog:
+      run: "if [ -f .git ]; then REPO=$(git rev-parse --git-common-dir | sed 's|/\\.git.*||'); trufflehog git \"file://$REPO\" --only-verified --fail; else trufflehog git file://. --only-verified --fail; fi"

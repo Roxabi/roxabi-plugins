@@ -106,6 +106,8 @@ describe('issue-triage/list > output format', () => {
     const parsed = JSON.parse(output)
     expect(parsed).toHaveLength(1)
     expect(parsed[0].number).toBe(5)
+    expect(parsed[0]).toHaveProperty('mismatch')
+    expect(typeof parsed[0].mismatch).toBe('boolean')
     consoleSpy.mockRestore()
   })
 

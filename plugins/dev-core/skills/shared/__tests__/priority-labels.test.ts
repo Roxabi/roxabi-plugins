@@ -39,12 +39,15 @@ describe('syncPriorityLabel', () => {
   it('calls updateLabels with correct add and remove for P1 - High', async () => {
     mockUpdateLabels.mockResolvedValue(undefined)
     await syncPriorityLabel(42, 'P1 - High')
-    expect(mockUpdateLabels).toHaveBeenCalledWith(
-      42,
-      ['P1-high'],
-      expect.arrayContaining(['P0-critical', 'P2-medium', 'P3-low']),
-    )
-    expect(mockUpdateLabels).toHaveBeenCalledWith(42, ['P1-high'], expect.not.arrayContaining(['P1-high']))
+    expect(mockUpdateLabels).toHaveBeenCalledOnce()
+    const [issueNum, addLabels, removeLabels] = mockUpdateLabels.mock.calls[0]
+    expect(issueNum).toBe(42)
+    expect(addLabels).toEqual(['P1-high'])
+    expect(removeLabels).toHaveLength(3)
+    expect(removeLabels).toContain('P0-critical')
+    expect(removeLabels).toContain('P2-medium')
+    expect(removeLabels).toContain('P3-low')
+    expect(removeLabels).not.toContain('P1-high')
   })
 
   it('does not throw when updateLabels fails (non-fatal)', async () => {
