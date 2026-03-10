@@ -1,0 +1,85 @@
+---
+title: "ADR-008: dev-core Config Resolution — .claude/dev-core.yml with 3-Tier Fallback"
+description: Records the decision to move dev-core plugin configuration (GitHub project IDs, field IDs, option mappings) from environment variables (.env) to a dedicated .claude/dev-core.yml file with a 3-tier fallback chain.
+---
+
+## Status
+
+Accepted
+
+## Context
+
+dev-core stores GitHub Project V2 configuration — repo slug, project ID, field IDs, and option mappings (status/size/priority). Originally, all values lived in `.env` as environment variables (`GITHUB_REPO`, `GH_PROJECT_ID`, `STATUS_FIELD_ID`, etc.), loaded via `process.env` at module import time.
+
+This created several problems:
+
+1. **Conflation of concerns.** `.env` mixes dev-core config with application secrets (`VERCEL_TOKEN`, `GITHUB_TOKEN`, database URLs). Plugin config is not a secret — it contains GitHub node IDs that are public via the API.
+2. **Worktree friction.** `git worktree add` does not copy `.env`. Every new worktree requires manually copying or symlinking `.env`, which breaks the `/implement` workflow that spawns worktrees automatically.
+3. **No separation from stack config.** `.claude/stack.yml` already holds project-level config (runtime, commands, standards paths). Having a second config mechanism (env vars) for the same plugin is inconsistent.
+4. **Discovery complexity.** Bulk discovery in `/init` Phase 6b and `/doctor` Phase 3 scans for `.env` files across the filesystem and greps for `GITHUB_REPO=`. This conflates "has dev-core" with "has any .env file containing that key."
+
+## Options Considered
+
+### Option A: Merge into stack.yml
+
+Add dev-core fields as a `dev-core:` section inside `.claude/stack.yml`.
+
+- **Pros:** Single config file. Already imported via `@.claude/stack.yml` in CLAUDE.md.
+- **Cons:** `stack.yml` is project-agnostic (runtime, framework, commands) — it works for any Claude Code project, not just dev-core users. Adding GitHub project IDs couples it to dev-core. `stack.yml` is loaded by CLAUDE.md `@import` as LLM context; project IDs waste context tokens. Different update cadence — stack rarely changes, project IDs change on `/init`.
+
+### Option B: Dedicated .claude/dev-core.yml with env fallback
+
+A new `.claude/dev-core.yml` file for dev-core-specific config, with `process.env` as a fallback for backward compatibility, and `gh` CLI as a last resort for `github_repo`.
+
+- **Pros:** Clean separation — stack config vs. plugin config. Backward compatible — existing `.env` setups keep working. Worktree-friendly — `.claude/` is inside the repo tree and can be gitignored per-project. Simple YAML format, no parser dependency. Discovery is unambiguous: `find -path "*/.claude/dev-core.yml"`.
+- **Cons:** Two config files in `.claude/`. New file to gitignore. 3-tier fallback adds complexity to `loadDevCoreConfig()`.
+
+### Option C: Keep .env only
+
+Status quo — no change.
+
+- **Pros:** No migration. Simple.
+- **Cons:** All four problems listed in Context remain unsolved.
+
+## Decision
+
+**Option B** — `.claude/dev-core.yml` with 3-tier fallback.
+
+The resolution chain in `loadDevCoreConfig()`:
+
+```
+1. .claude/dev-core.yml   (YAML key lookup)
+2. process.env[ENV_KEY]   (backward compat with .env)
+3. gh repo view           (github_repo key only — auto-detect)
+```
+
+### File format
+
+```yaml
+# dev-core plugin configuration
+# 3-tier fallback: this file -> process.env -> gh CLI (github_repo only)
+github_repo: Owner/repo
+gh_project_id: PVT_...
+status_field_id: PVTSSF_...
+size_field_id: PVTSSF_...
+priority_field_id: PVTSSF_...
+status_options_json: '{"Backlog":"...","In Progress":"..."}'
+size_options_json: '{"S":"...","M":"...","L":"..."}'
+priority_options_json: '{"P0 - Urgent":"...","P1 - High":"..."}'
+```
+
+YAML keys use `snake_case` (matching the env var names in lowercase). Values are parsed with a simple regex — no YAML library required.
+
+### Migration path
+
+- `/init` Phase 5 now writes `.claude/dev-core.yml` alongside `.env` (legacy fallback).
+- `/doctor` Phase 2 checks for `dev-core.yml` presence and gitignore entry.
+- Existing `.env`-only setups continue to work — the env fallback is permanent, not deprecated.
+- No breaking change. No flag day.
+
+## Consequences
+
+- `.claude/dev-core.yml` must be added to `.gitignore` (contains project-specific IDs, not secrets, but varies per fork).
+- `loadDevCoreConfig()` in `config-helpers.ts` is the single entry point for all config reads — no direct `process.env` access for these keys elsewhere.
+- Worktree-based workflows (`/implement`) benefit immediately — `.claude/` is part of the repo tree.
+- Bulk discovery (`/init` Phase 6b, `/doctor` Phase 3) now scans for both `.claude/dev-core.yml` and `.env`.
