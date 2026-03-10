@@ -69,7 +69,7 @@ Auto-detect τ from complexity signals:
 | Issue label M | F-lite |
 | Issue label L ∨ XL | F-full |
 
-See [tier-classification.md](../../../shared/references/tier-classification.md) for canonical rules.
+See [tier-classification.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/tier-classification.md) for canonical rules.
 
 AskUserQuestion: **Confirm {τ}** | **Override → S** | **Override → F-lite** | **Override → F-full**
 

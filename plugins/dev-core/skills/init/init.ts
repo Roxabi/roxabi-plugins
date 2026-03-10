@@ -12,6 +12,7 @@
  *   bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>]  # generic only (auto-merge + pr-title)
  *   bun init.ts protect-branches --repo <owner/repo>
  *   bun init.ts migrate-issues --owner <owner> --repo <repo> --project-number <N>
+ *   bun init.ts scaffold-rules [--stack-path .claude/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
  *   bun init.ts scaffold --github-repo <owner/repo> --project-id <PVT_...> [--force] ...
  *   bun init.ts scaffold-fumadocs [--root <path>] [--docs-path <path>]
  *   bun init.ts scaffold-fumadocs-vercel [--root <path>] [--orchestrator <turbo|none>]
@@ -175,6 +176,17 @@ switch (command) {
     break
   }
 
+  case 'scaffold-rules': {
+    const { scaffoldRules } = await import('./lib/scaffold-rules')
+    const result = scaffoldRules({
+      stackPath: parseFlag('--stack-path', '.claude/stack.yml'),
+      projectName: parseFlag('--project-name', ''),
+      claudeMdPath: parseFlag('--claude-md', 'CLAUDE.md'),
+    })
+    console.log(JSON.stringify(result, null, 2))
+    break
+  }
+
   case 'scaffold': {
     const { scaffold } = await import('./lib/scaffold')
     const result = await scaffold({
@@ -198,7 +210,7 @@ switch (command) {
   default:
     console.error(`Unknown command: ${command}`)
     console.error(
-      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|scaffold|scaffold-fumadocs|scaffold-fumadocs-vercel]',
+      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|scaffold-rules|scaffold|scaffold-fumadocs|scaffold-fumadocs-vercel]',
     )
     process.exit(1)
 }

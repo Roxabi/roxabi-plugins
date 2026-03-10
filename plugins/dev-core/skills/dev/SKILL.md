@@ -205,7 +205,7 @@ Gate fires → Step 7 skips its own prompt (gate IS confirmation). ¬double-prom
 
 Let: critical_steps := {spec, plan, implement}.
 
-audit_enabled ∧ S* ∈ critical_steps → present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md), using field guidance for S*.
+audit_enabled ∧ S* ∈ critical_steps → present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md), using field guidance for S*.
 
 **Merge rule:** Step 6 gate ∃ for S* → audit **replaces** gate — single combined AskUserQuestion. ¬two consecutive prompts.
 

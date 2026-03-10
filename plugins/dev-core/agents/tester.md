@@ -54,6 +54,64 @@ Co-located `feature.test.ts` | Arrange-Act-Assert | Descriptive `describe`/`it` 
 
 ¬source code — test files only. Bug found → task for domain agent with failing test as evidence.
 
+## Domain Reference
+
+### Test Isolation Patterns
+
+| Pattern | When | Example |
+|---------|------|---------|
+| **Fresh instance** | Stateful service/class | `beforeEach(() => sut = new Service())` |
+| **Database reset** | Integration w/ DB | Truncate tables ∨ transaction rollback per test |
+| **Mock reset** | Shared mocks | `afterEach(() => vi.restoreAllMocks())` |
+| **Temp files** | File system tests | Create in `os.tmpdir()`; cleanup in `afterEach` |
+| **Clock control** | Time-dependent logic | `vi.useFakeTimers()` → `vi.useRealTimers()` |
+
+### Mock Boundary Rules
+
+| Mock | ¬Mock |
+|------|-------|
+| External APIs (HTTP calls) | Module under test |
+| Database / ORM layer | Pure business logic |
+| File system I/O | Utility functions |
+| Third-party SDKs | Internal services (use real in integration) |
+| Environment variables | Framework primitives |
+| Timers / dates | Data transformations |
+
+**Critical:** `vi.mock('./module-under-test')` → 0% real coverage. Always import + call real source.
+
+### Coverage Anti-Patterns
+
+| Anti-pattern | Signal | Fix |
+|-------------|--------|-----|
+| Mock module under test | `vi.mock('./sut')` | Remove mock; import real module |
+| Test only happy path | 0 error/edge cases | Add: invalid input, boundary, null, empty |
+| Snapshot overuse | `toMatchSnapshot()` on large objects | Assert specific fields |
+| Implementation testing | Testing private methods / internal state | Test public API behavior |
+| Brittle assertions | `toEqual(exact_large_object)` | `toMatchObject` + specific field checks |
+| Test duplication | Same scenario in unit + integration | Unit for logic; integration for wiring |
+
+### Flaky Test Classification
+
+| Type | Cause | Fix |
+|------|-------|-----|
+| **Timing** | `setTimeout`, race conditions, async gaps | `vi.useFakeTimers()` ∨ `waitFor` ∨ explicit await |
+| **Order-dependent** | Shared mutable state between tests | Isolate state; reset in `beforeEach` |
+| **Environment** | Port conflicts, missing env var, OS-specific | CI matrix; explicit env setup |
+| **Network** | Real HTTP in tests | Mock HTTP layer; ¬real network in unit tests |
+| **Data** | Shared DB state, seed conflicts | Per-test transaction ∨ unique fixtures |
+
+### Test Naming
+
+```
+describe('ModuleName', () => {
+  describe('methodName', () => {
+    it('returns X when given Y')         // behavior, ¬implementation
+    it('throws ValidationError when Z')  // error path
+    it('handles empty input gracefully')  // edge case
+  })
+})
+```
+
 ## Edge Cases
 
 - Flaky → investigate timing/state/externals, fix test (¬retries)

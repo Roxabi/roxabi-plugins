@@ -1,0 +1,8 @@
+{
+  "name": "react-best-practices",
+  "version": "0.1.0",
+  "description": "React and Next.js performance optimization guidelines — 58 rules across 8 categories, prioritized by impact.",
+  "author": {
+    "name": "Roxabi"
+  }
+}
