@@ -28,31 +28,30 @@ Determine whether PTC delivers meaningful token savings in dev-core analysis-hea
 
 1. **POC implementation:** A new experimental agent file `security-auditor-ptc.md` is created alongside the production `security-auditor.md`. It replaces the import graph resolution phase with a single PTC Python code block that traverses transitive imports. The production agent is not modified.
 
-2. **Baseline measurement:** Run the current `security-auditor` (sequential Grep) on a representative target project (e.g. `roxabi-boilerplate`). Record input token count, tool call count, and wall-clock latency for the import-graph phase. Repeat for ≥ 3 runs.
+2. **Baseline measurement:** Run the current `security-auditor` (sequential Grep) on `roxabi-boilerplate` as the fixed target project. Count tool calls the agent emits during the import-graph phase and record wall-clock latency (via Bash `time` wrapping). Repeat for ≥ 3 runs. Note: input token counts are not directly observable from within a skill run; tool call count is the primary measurable signal for context inflation.
 
-3. **PTC measurement:** Run `security-auditor-ptc.md` on the same target. Record the same metrics for ≥ 3 runs. Compute mean ± range for each metric and reduction percentage.
+3. **PTC measurement:** Run `security-auditor-ptc.md` on the same target (`roxabi-boilerplate`). Record the same metrics for ≥ 3 runs. Compute mean ± range for tool calls and latency_ms, and the reduction percentage for each.
 
-4. **ZDR posture:** Before writing the decision, document the assumed ZDR user fraction for dev-core's target user base (e.g. `"unknown"`, `"<10%"`, `">50%"`). This assumption gates the recommendation scope.
+4. **ZDR posture:** Before writing the decision, document the assumed ZDR user fraction for dev-core's target user base (e.g. `"unknown"`, `"<10%"`, `">50%"`). This assumption gates the recommendation scope: if ZDR fraction is high, PTC may be unsuitable regardless of savings. The decision document is the gate — no implementation proceeds without it.
 
-5. **Limitation audit:** Exercise known constraints — ZDR incompatibility, MCP tools unavailable inside PTC, Python-only runtime, container spin-up latency — and document how each affects adoption scope.
+5. **Limitation audit:** For each known constraint, document its impact based on published API behavior (no live test required for ZDR or MCP): ZDR incompatibility (PTC unavailable for ZDR users — document coverage gap), MCP tools unavailable inside PTC (document which dev-core tool calls would be excluded), Python-only runtime (document language constraint), container spin-up latency (estimate from API timestamps in measured runs).
 
-6. **Decision document:** Write `artifacts/analyses/18-ptc-decision.mdx` with findings, per-skill applicability matrix, confidence level, ZDR posture assumption, and a final recommendation (adopt broadly / selectively / defer + rationale).
+6. **Decision document:** Write `artifacts/analyses/18-ptc-decision.mdx` with findings, per-skill applicability matrix, confidence level, ZDR posture assumption, limitation impact per constraint, and a final recommendation (adopt broadly / selectively / defer + rationale grounded in ZDR posture and limitation findings).
 
 ## Data Model & Consumers
 
 ```classDiagram
-  class POCPatch {
+  class AgentVariant {
     +skill: string
-    +phase: string
-    +before_code: string
-    +after_code: string
+    +file_path: string
+    +ptc_phases: string[]
+    +production_agent_unchanged: boolean
   }
 
   class Measurement {
     +approach: "sequential" | "ptc"
     +target_project: string
     +run_index: number
-    +input_tokens: number
     +tool_calls: number
     +latency_ms: number
     +phase: string
@@ -64,7 +63,7 @@ Determine whether PTC delivers meaningful token savings in dev-core analysis-hea
     +confidence: "high" | "medium" | "low"
     +zdr_user_fraction: string
     +per_skill_matrix: SkillEntry[]
-    +limitations: string[]
+    +limitations: LimitationEntry[]
     +rationale: string
   }
 
@@ -75,50 +74,61 @@ Determine whether PTC delivers meaningful token savings in dev-core analysis-hea
     +blocker: string | null
   }
 
-  POCPatch --> Measurement : measured by
+  class LimitationEntry {
+    +constraint: string
+    +impact: string
+    +scope: "all-users" | "zdr-users" | "informational"
+  }
+
+  AgentVariant --> Measurement : measured by
   Measurement --> DecisionDoc : informs
   DecisionDoc --> SkillEntry : contains
+  DecisionDoc --> LimitationEntry : contains
 ```
 
 ```flowchart LR
-  A[security-auditor agent] -->|POCPatch| B[18-ptc-poc patch]
-  B -->|Measurement| C[18-ptc-decision.mdx]
+  A[security-auditor agent] -->|AgentVariant| B[security-auditor-ptc.md]
+  B -->|Measurement x3+| C[18-ptc-decision.mdx]
   C -->|SkillEntry x4| D[/analyze, /review, /spec, security-auditor]
   D -.->|future: if adopted| E[Updated skill implementations]
+  F[ZDR posture assumption] -->|gates| C
 ```
 
 | Consumer | Fields consumed | When | Status |
 |----------|----------------|------|--------|
-| security-auditor | POCPatch.after_code | POC phase | this issue |
-| DecisionDoc | Measurement.input_tokens, tool_calls | Decision doc | this issue |
+| security-auditor-ptc.md | AgentVariant.ptc_phases | POC phase | this issue |
+| DecisionDoc | Measurement.tool_calls, latency_ms | Decision doc | this issue |
 | Future skill updates | DecisionDoc.per_skill_matrix | Post-decision | future |
 
 ## Breadboard
 
 | Affordance | Handler | Data |
 |-----------|---------|------|
-| U1 — run PTC POC | security-auditor with PTC import graph | POCPatch → Measurement |
-| U2 — run baseline | security-auditor with sequential Grep | Measurement (approach: sequential) |
-| U3 — compare results | diff Measurement records | token reduction % |
+| U1 — run PTC POC | security-auditor-ptc.md on roxabi-boilerplate | AgentVariant → Measurement (approach: ptc) |
+| U2 — run baseline | security-auditor on roxabi-boilerplate | Measurement (approach: sequential) |
+| U3 — compare results | diff Measurement records | tool_call reduction %, latency delta |
 | U4 — read decision doc | open `18-ptc-decision.mdx` | DecisionDoc |
-| N1 — ZDR check | document in limitations section | DecisionDoc.limitations |
-| N2 — MCP availability check | document in limitations section | DecisionDoc.limitations |
+| U5 — inconclusive path | no measurable delta → still write decision doc with "defer" | DecisionDoc (recommendation: defer) |
+| N1 — ZDR constraint | document from published API behavior | LimitationEntry (scope: zdr-users) |
+| N2 — MCP availability | document from published API behavior | LimitationEntry (scope: all-users) |
+| N3 — ZDR fraction high | fraction ≥ 50% → recommendation scoped to non-ZDR users only | DecisionDoc.zdr_user_fraction gates SkillEntry.applicable |
 | S1 — write decision doc | doc-writer agent | DecisionDoc → MDX file |
 
 Wiring:
-- U2 → baseline Measurement captured → U1 → PTC Measurement captured → U3 → % computed → S1 → DecisionDoc written → U4
+- U2 → baseline Measurement captured → U1 → PTC Measurement captured → U3 → % computed → (U5 if inconclusive) → S1 → DecisionDoc written → U4
+- N1, N2, N3 → LimitationEntry[] informs S1 → DecisionDoc.rationale
 
 ## Slices
 
 | # | Slice | Deliverable | Criteria |
 |---|-------|-------------|----------|
 | 1 | PTC POC | New `security-auditor-ptc.md` agent file using PTC for import graph (production agent unchanged) | AC1 |
-| 2 | Token + latency measurement | ≥3 runs per approach; mean ± range for input tokens, tool calls, latency_ms; reduction % | AC2 |
-| 3 | Decision document | `artifacts/analyses/18-ptc-decision.mdx` with ZDR assumption, confidence, per-skill matrix, recommendation | AC3, AC4 |
+| 2 | Tool call + latency measurement | ≥3 runs per approach on `roxabi-boilerplate`; mean ± range for tool_calls and latency_ms (informational); reduction % | AC2 |
+| 3 | Decision document | `artifacts/analyses/18-ptc-decision.mdx` with ZDR assumption, limitation impacts, per-skill matrix, recommendation grounded in findings | AC3, AC4 |
 
 ## Success Criteria
 
 - [ ] AC1: `security-auditor-ptc.md` agent exists with import graph resolution using a single PTC Python code block; production `security-auditor.md` is unchanged.
-- [ ] AC2: ≥ 3 runs recorded per approach (sequential + PTC) on the same target project; mean ± range reported for input tokens, tool calls, and latency_ms; reduction percentage computed.
-- [ ] AC3: Decision document lists limitations — ZDR incompatibility, no MCP tools inside PTC, Python-only runtime, container spin-up latency — each with impact assessment; ZDR user fraction assumption stated; confidence level set.
-- [ ] AC4: Decision document contains per-skill applicability matrix (`/analyze`, `/review`, `/spec`, `security-auditor`) and a final recommendation: adopt broadly / adopt selectively / defer + rationale.
+- [ ] AC2: ≥ 3 runs recorded per approach (sequential + PTC) on `roxabi-boilerplate`; mean ± range reported for tool_calls and latency_ms (informational — not a primary decision input); reduction percentage for tool calls computed. Input token counts are not directly observable and are excluded.
+- [ ] AC3: Decision document lists limitations — ZDR incompatibility, no MCP tools inside PTC, Python-only runtime, container spin-up latency — each with impact assessment and scope (all-users / zdr-users / informational); ZDR user fraction assumption stated; confidence level set.
+- [ ] AC4: Decision document contains per-skill applicability matrix (`/analyze`, `/review`, `/spec`, `security-auditor`) and a final recommendation: adopt broadly / adopt selectively / defer + rationale explicitly referencing ZDR posture and limitation findings.
