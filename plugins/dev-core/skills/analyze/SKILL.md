@@ -128,7 +128,7 @@ When analysis involves data flow or architectural choices, include mermaid in `#
 
 Tier S may omit Shapes + Fit Check.
 
-∃ specific technical question → spawn domain expert via Task. See [references/expert-consultation.md](references/expert-consultation.md).
+∃ specific technical question → spawn domain expert via Task. See [references/expert-consultation.md](${CLAUDE_SKILL_DIR}/references/expert-consultation.md).
 
 ## Step 2.5 — Investigation (Optional)
 
@@ -145,7 +145,7 @@ Skip if ¬technical uncertainty in Step 2 findings.
 4. Report findings → incorporate into analysis
 5. `git worktree remove ../${REPO}-spike-{N}` (throwaway, ¬merge)
 
-See [references/investigation.md](references/investigation.md) if ∃, else use inline flow above.
+See [references/investigation.md](${CLAUDE_SKILL_DIR}/references/investigation.md) if ∃, else use inline flow above.
 
 ## Step 3 — Expert Review
 

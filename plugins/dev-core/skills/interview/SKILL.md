@@ -125,6 +125,6 @@ Write using appropriate template. Rules:
 
 ## Document Templates
 
-Use templates from [references/templates.md](references/templates.md) — Brainstorm, Analysis, Spec.
+Use templates from [references/templates.md](${CLAUDE_SKILL_DIR}/references/templates.md) — Brainstorm, Analysis, Spec.
 
 $ARGUMENTS

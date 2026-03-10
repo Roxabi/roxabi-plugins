@@ -45,7 +45,7 @@ gh api repos/:owner/:repo/commits/staging/check-runs \
 
 ## Steps 2-4 — Version, Changelog, Commit
 
-Read [references/release-artifacts.md](references/release-artifacts.md) for full procedure.
+Read [references/release-artifacts.md](${CLAUDE_SKILL_DIR}/references/release-artifacts.md) for full procedure.
 
 ## Step 5 — Deploy Preview
 

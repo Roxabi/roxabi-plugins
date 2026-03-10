@@ -64,7 +64,7 @@ Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*`.
 
 ## Step 1b — Reasoning Audit (optional)
 
-`--audit` → after reading SRC, present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) (spec guidance).
+`--audit` → after reading SRC, present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) (spec guidance).
 → AskUserQuestion: **Proceed** | **Adjust approach** | **Abort**
 ¬`--audit` → skip to Step 2.
 
@@ -158,7 +158,7 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Specs
 
 ## Gate 2.5: Smart Splitting (Optional)
 
-Tier S → skip. Read [references/smart-splitting.md](references/smart-splitting.md).
+Tier S → skip. Read [references/smart-splitting.md](${CLAUDE_SKILL_DIR}/references/smart-splitting.md).
 
 **Triggers:** |acceptance criteria| > 8 ∨ |slices| > 3.
 - Acceptance criteria := `- [ ]` checkboxes in `## Success Criteria`
