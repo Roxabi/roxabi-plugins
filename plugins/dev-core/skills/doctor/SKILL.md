@@ -74,6 +74,16 @@ Contextual (warn only if parent section ∃ but field blank): `backend.path`, `f
 
 **CLAUDE.md import:** first line = `@.claude/stack.yml` → ✅ | ⚠️ "missing @import".
 
+**CLAUDE.md Critical Rules completeness:**
+
+Run: `bun $I_TS scaffold-rules --stack-path .claude/stack.yml --claude-md CLAUDE.md`. Parse JSON → `projectType`, `sections`, `existing`.
+
+- `existing.sectionIds` covers all expected sections for `projectType` → ✅ "Critical Rules complete ({N}/{N} sections for {projectType})"
+- partial → ⚠️ "Critical Rules incomplete — missing: {missing section ids}. Run `/init` to scaffold." (auto-fixable)
+- ∅ → ⚠️ "Critical Rules not scaffolded. Run `/init` to generate governance rules." (auto-fixable)
+
+Auto-fix for partial/missing: run `/init` Phase 2c (scaffold-rules).
+
 **Standards docs:** ∀ path ∈ `standards.*` → chk(existsOnDisk, ✅, ⚠️ "path not found: {path}").
 
 **Documentation:**
@@ -159,6 +169,7 @@ Ask: **Fix all** | **Select** | **Skip**
 | `stack.yml missing` | Re-offer O_stackSetup |
 | `stack.yml.example missing` | `cp "${Φ}/stack.yml.example" .claude/stack.yml.example` |
 | `CLAUDE.md import missing` | Prepend `@.claude/stack.yml\n` to CLAUDE.md |
+| `Critical Rules missing/incomplete` | Run `bun $I_TS scaffold-rules`, then append/merge generated markdown into CLAUDE.md (same logic as `/init` Phase 2c) |
 | `stack.yml not in .gitignore` | ensureGitignore(`.claude/stack.yml`) |
 | `dev-core.yml not in .gitignore` | ensureGitignore(`.claude/dev-core.yml`) |
 | `dev-core.yml missing` | Run `/init` |

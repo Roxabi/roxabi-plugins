@@ -1,6 +1,7 @@
 """SQLite adapter for EntryRepository port — thin wrapper over roxabi_memory.MemoryDB."""
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -56,7 +57,7 @@ class SqliteEntryRepository(EntryRepository):
                 title=title,
                 category=category,
                 namespace='vault',
-                metadata=metadata or '{}',
+                metadata=json.loads(metadata) if metadata else {},
             )
             return self._mem_to_vault(entry)
         except sqlite3.Error as e:
