@@ -21,7 +21,7 @@ describe('scaffoldDocs', () => {
     'architecture/index.md',
     'architecture/patterns.md',
     'architecture/ubiquitous-language.md',
-    'configuration.md',
+    'standards/configuration.md',
     'contributing.md',
     'guides/deployment.md',
     'guides/troubleshooting.md',
