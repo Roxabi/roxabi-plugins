@@ -264,7 +264,7 @@ export class GitHubAdapter implements IssuePort, ProjectPort {
 
   private requireProjectId(override?: string): string {
     const pid = override ?? this.#projectId
-    if (!pid) throw new Error('GH_PROJECT_ID not configured. Run `/init` or set GH_PROJECT_ID in .env.')
+    if (!pid) throw new Error('GH_PROJECT_ID not configured. Run `/init` or set gh_project_id in .claude/dev-core.yml.')
     return pid
   }
 
@@ -345,7 +345,8 @@ export class GitHubAdapter implements IssuePort, ProjectPort {
 
 import { GH_PROJECT_ID, GITHUB_REPO } from './config-helpers'
 
-const GH_PROJECT_ID_NOT_CONFIGURED = 'GH_PROJECT_ID not configured. Run `/init` or set GH_PROJECT_ID in .env.'
+const GH_PROJECT_ID_NOT_CONFIGURED =
+  'GH_PROJECT_ID not configured. Run `/init` or set gh_project_id in .claude/dev-core.yml.'
 
 let cachedToken: string | undefined
 

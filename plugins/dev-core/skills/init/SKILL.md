@@ -15,7 +15,9 @@ Let:
   PID   := selected project ID (PVT_...)
   disc  := JSON result of `bun $I_TS discover`
 
-Configure current project for dev-core. Auto-detects GitHub repo, Project V2 board, field IDs, optional Vercel. Writes `.env`, `.env.example`, `.claude/run-dashboard.ts`, creates `artifacts/`.
+Configure current project for dev-core. Auto-detects GitHub repo, Project V2 board, field IDs, optional Vercel. Writes `.claude/dev-core.yml` (primary config) and `.env` / `.env.example` (legacy fallback), `.claude/run-dashboard.ts`, creates `artifacts/`.
+
+Config resolution (3-tier fallback): `.claude/dev-core.yml` → env var → `gh` CLI (github_repo only).
 
 Safe to re-run — merges with existing config unless F.
 
@@ -23,7 +25,7 @@ All data (label definitions, workflow templates, protection payloads) lives in T
 
 ## Phase 1 — Parse Input + Idempotency
 
-¬F → check existing config: `grep -c 'dev-core' .env 2>/dev/null || echo "0"`.
+¬F → check existing config: `test -f .claude/dev-core.yml && echo "1" || grep -c 'dev-core' .env 2>/dev/null || echo "0"`.
 result > 0 → AskUserQuestion: **Re-configure** (same as F) | **Skip** (abort).
 
 ## Phase 2 — Prerequisites
@@ -274,7 +276,30 @@ Edit → ask which value, accept new, re-display, re-confirm.
 
 ## Phase 5 — Scaffold
 
+### 5a. Write `.claude/dev-core.yml` (primary config)
+
+Write the project config to `.claude/dev-core.yml`:
+
+```yaml
+# dev-core plugin configuration
+# 3-tier fallback: this file → process.env → gh CLI (github_repo only)
+github_repo: <owner/repo>
+gh_project_id: <PVT_...>
+status_field_id: <PVTSSF_...>
+size_field_id: <PVTSSF_...>
+priority_field_id: <PVTSSF_...>
+status_options_json: '<json>'
+size_options_json: '<json>'
+priority_options_json: '<json>'
+```
+
+Ensure `.claude/dev-core.yml` is in `.gitignore` (same block as `stack.yml`).
+
+### 5b. Scaffold (legacy .env + shim + artifacts)
+
 Run: `bun $I_TS scaffold --github-repo <owner/repo> --project-id <PVT_...> --status-field-id <PVTSSF_...> --size-field-id <PVTSSF_...> --priority-field-id <PVTSSF_...> --status-options-json '<json>' --size-options-json '<json>' --priority-options-json '<json>' [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
+
+This also writes `.env` / `.env.example` for backward compatibility. The `.claude/dev-core.yml` file takes precedence at runtime via `loadDevCoreConfig()`.
 
 Installs `roxabi` shim at `~/.local/bin/roxabi` (or `~/bin/roxabi`) — self-healing shell script that resolves the latest active dev-core plugin cache at runtime. Run `roxabi dashboard` to launch issues dashboard. Shim survives plugin updates without re-running `/init`.
 
@@ -320,18 +345,21 @@ Register current project in shared workspace config (enables multi-project dashb
 
 Scan filesystem for other repos with dev-core configured but ∉ workspace.json.
 
-1. Find candidates:
+1. Find candidates (prefer `dev-core.yml`, fall back to `.env`):
    ```bash
    # Constrain to $HOME to avoid reading files outside user's home directory
    # maxdepth 6 prevents deep traversal while covering typical monorepo layouts
-   find "$HOME" -maxdepth 6 -name ".env" 2>/dev/null \
-     | xargs grep -l "^GITHUB_REPO=" 2>/dev/null \
+   # Look for dev-core.yml first, then .env as fallback
+   find "$HOME" -maxdepth 6 \( -path "*/.claude/dev-core.yml" -o -name ".env" \) 2>/dev/null \
      | sort -u
    ```
 
-2. ∀ found `.env`: extract `GITHUB_REPO`, `GH_PROJECT_ID`, Vercel config:
+2. ∀ found config: extract `github_repo` / `GITHUB_REPO`, `gh_project_id` / `GH_PROJECT_ID`, Vercel config:
    ```bash
-   grep -E "^(GITHUB_REPO|GH_PROJECT_ID|VERCEL_PROJECT_ID|VERCEL_TEAM_ID)=" <path>/.env
+   # dev-core.yml (YAML keys)
+   grep -E "^(github_repo|gh_project_id):" <path>/.claude/dev-core.yml 2>/dev/null
+   # .env fallback
+   grep -E "^(GITHUB_REPO|GH_PROJECT_ID|VERCEL_PROJECT_ID|VERCEL_TEAM_ID)=" <path>/.env 2>/dev/null
    ```
 
 3. Filter out: current project + already-registered repos (compare against `workspace.json`).
@@ -735,7 +763,8 @@ Display final summary:
 dev-core initialized
 ====================
 
-  .env              ✅ Written (N variables)
+  dev-core.yml      ✅ Written (.claude/dev-core.yml)
+  .env              ✅ Written (N variables, legacy fallback)
   .env.example      ✅ Written
   Project board     ✅ Created / Detected / ⏭ Skipped
   Issue migration   ✅ N issues added to board / ⏭ Skipped
@@ -770,9 +799,9 @@ Next steps:
 
 ## Safety Rules
 
-1. **Never overwrite `.env` values** without F or explicit user confirmation
+1. **Never overwrite `.claude/dev-core.yml` or `.env` values** without F or explicit user confirmation
 2. **Always AskUserQuestion** before destructive or write operations
-3. **Never commit `.env`** — ensure it's in `.gitignore`
+3. **Never commit `.claude/dev-core.yml` or `.env`** — ensure both are in `.gitignore`
 4. **Never store secrets in `.env.example`** — use empty placeholder values
 5. **Idempotent** — safe to re-run, merges rather than overwrites
 6. **Never commit `.claude/stack.yml`** — only `.claude/stack.yml.example`

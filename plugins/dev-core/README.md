@@ -30,7 +30,7 @@ After installing, run init to configure your project:
 /init
 ```
 
-Auto-detects your GitHub repo, Project V2 board, and field IDs. Writes `.env`, registers the project in `~/.roxabi-vault/workspace.json` for the multi-project dashboard, generates a self-healing `roxabi` shim, and creates the `artifacts/` directory. Works for any project type. Re-run with `/init --force` to reconfigure.
+Auto-detects your GitHub repo, Project V2 board, and field IDs. Writes `.claude/dev-core.yml` (primary config) and `.env` (legacy fallback), registers the project in `~/.roxabi-vault/workspace.json` for the multi-project dashboard, generates a self-healing `roxabi` shim, and creates the `artifacts/` directory. Works for any project type. Re-run with `/init --force` to reconfigure.
 
 Then configure the agent stack:
 

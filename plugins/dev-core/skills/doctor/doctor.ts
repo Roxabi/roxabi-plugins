@@ -40,6 +40,28 @@ function spawnSync(cmd: string[]): { stdout: string; ok: boolean } {
   }
 }
 
+/** Read .claude/dev-core.yml and return a map of YAML keys to values (uppercase keys for compat). */
+function readDevCoreYml(): Record<string, string> {
+  try {
+    const text = require('node:fs').readFileSync('.claude/dev-core.yml', 'utf8') as string
+    const config: Record<string, string> = {}
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) continue
+      const match = trimmed.match(/^(\w+):\s*['"]?(.+?)['"]?\s*$/)
+      if (match) {
+        const [, key, value] = match
+        // Store under both YAML key and uppercase env-style key for lookup compat
+        config[key] = value
+        config[key.toUpperCase()] = value
+      }
+    }
+    return config
+  } catch {
+    return {}
+  }
+}
+
 function readEnvFile(): Record<string, string> {
   try {
     const text = require('node:fs').readFileSync('.env', 'utf8') as string
@@ -54,6 +76,14 @@ function readEnvFile(): Record<string, string> {
   } catch {
     return {}
   }
+}
+
+/** Read config with 3-tier fallback: dev-core.yml → .env → empty. */
+function readConfig(): Record<string, string> {
+  const yml = readDevCoreYml()
+  const env = readEnvFile()
+  // dev-core.yml takes precedence, env fills gaps
+  return { ...env, ...yml }
 }
 
 // --- Phase functions ---
@@ -91,7 +121,7 @@ function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): Section 
       ),
     }
 
-  const env = readEnvFile()
+  const env = readConfig()
   const checks: Check[] = []
 
   // GITHUB_REPO
@@ -123,7 +153,7 @@ function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): Section 
       detail: verified ? 'set (verified)' : 'set (not verified)',
     })
   } else {
-    checks.push({ name: 'GH_PROJECT_ID', status: 'fail', detail: 'not set in .env' })
+    checks.push({ name: 'GH_PROJECT_ID', status: 'fail', detail: 'not set in .claude/dev-core.yml or .env' })
   }
 
   // Project linked to repo
@@ -166,7 +196,11 @@ function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): Section 
   for (const field of ['STATUS_FIELD_ID', 'SIZE_FIELD_ID', 'PRIORITY_FIELD_ID']) {
     const label = `${field.replace('_FIELD_ID', '').replace('_', ' ')} field`
     const val = env[field]
-    checks.push({ name: label, status: val ? 'pass' : 'fail', detail: val ? 'configured' : 'not set in .env' })
+    checks.push({
+      name: label,
+      status: val ? 'pass' : 'fail',
+      detail: val ? 'configured' : 'not set in .claude/dev-core.yml or .env',
+    })
   }
 
   return { name: 'GitHub', checks }
@@ -305,8 +339,8 @@ function checkProjectWorkflows(ghOk: boolean, _owner: string): Section {
       checks: [{ name: 'workflows', status: 'skip', detail: 'gh CLI not available' }],
     }
 
-  const env = readEnvFile()
-  const projectId = env.GH_PROJECT_ID
+  const config = readConfig()
+  const projectId = config.GH_PROJECT_ID
   if (!projectId)
     return {
       name: 'Project workflows',
@@ -428,9 +462,23 @@ function checkRulesets(ghOk: boolean, owner: string, repo: string): Section {
 function checkProjectStructure(): Section {
   const checks: Check[] = []
 
-  // .env
+  // .claude/dev-core.yml (primary config)
+  const devCoreYmlExists = require('node:fs').existsSync('.claude/dev-core.yml')
+  checks.push({
+    name: 'dev-core.yml',
+    status: devCoreYmlExists ? 'pass' : 'warn',
+    detail: devCoreYmlExists
+      ? 'found (.claude/dev-core.yml)'
+      : 'missing — config read from .env fallback. Run /init to generate.',
+  })
+
+  // .env (legacy fallback)
   const envExists = require('node:fs').existsSync('.env')
-  checks.push({ name: '.env', status: envExists ? 'pass' : 'fail', detail: envExists ? 'found' : 'missing' })
+  checks.push({
+    name: '.env',
+    status: envExists ? 'pass' : devCoreYmlExists ? 'skip' : 'fail',
+    detail: envExists ? 'found' : devCoreYmlExists ? 'not needed (dev-core.yml present)' : 'missing',
+  })
 
   // artifacts/
   const artifactDirs = ['frames', 'analyses', 'specs', 'plans']
@@ -573,8 +621,8 @@ function checkVercel(): Section {
   })
 
   if (vercelExists) {
-    const env = readEnvFile()
-    const hasToken = !!process.env.VERCEL_TOKEN || !!env.VERCEL_TOKEN
+    const config = readConfig()
+    const hasToken = !!process.env.VERCEL_TOKEN || !!config.VERCEL_TOKEN
     checks.push({ name: 'VERCEL_TOKEN', status: hasToken ? 'pass' : 'warn', detail: hasToken ? 'set' : 'not set' })
   }
 

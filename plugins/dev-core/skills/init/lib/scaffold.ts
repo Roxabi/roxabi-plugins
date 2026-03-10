@@ -21,6 +21,7 @@ export interface ScaffoldOpts {
 }
 
 export interface ScaffoldResult {
+  devCoreYmlWritten: boolean
   envWritten: boolean
   envExampleWritten: boolean
   shimWritten: boolean
@@ -35,6 +36,22 @@ export interface ScaffoldResult {
 interface EnvSection {
   header: string
   vars: Array<{ key: string; value: string; comment?: string }>
+}
+
+function buildDevCoreYml(opts: ScaffoldOpts): string {
+  const lines = [
+    '# dev-core plugin configuration',
+    '# 3-tier fallback: this file → process.env → gh CLI (github_repo only)',
+    `github_repo: ${opts.githubRepo}`,
+    `gh_project_id: ${opts.projectId}`,
+    `status_field_id: ${opts.statusFieldId}`,
+    `size_field_id: ${opts.sizeFieldId}`,
+    `priority_field_id: ${opts.priorityFieldId}`,
+    `status_options_json: '${opts.statusOptionsJson}'`,
+    `size_options_json: '${opts.sizeOptionsJson}'`,
+    `priority_options_json: '${opts.priorityOptionsJson}'`,
+  ]
+  return `${lines.join('\n')}\n`
 }
 
 function buildDevCoreSections(opts: ScaffoldOpts): EnvSection[] {
@@ -273,6 +290,7 @@ function addShimDirToPath(shimPath: string): { updated: boolean; files: string[]
 
 export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
   const result: ScaffoldResult = {
+    devCoreYmlWritten: false,
     envWritten: false,
     envExampleWritten: false,
     shimWritten: false,
@@ -284,9 +302,14 @@ export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
     envVarCount: 0,
   }
 
+  // .claude/dev-core.yml (primary config)
+  fs.mkdirSync('.claude', { recursive: true })
+  fs.writeFileSync('.claude/dev-core.yml', buildDevCoreYml(opts))
+  result.devCoreYmlWritten = true
+
   const sections = buildDevCoreSections(opts)
 
-  // .env
+  // .env (legacy fallback)
   const existingEnv = fs.existsSync('.env') ? fs.readFileSync('.env', 'utf8') : ''
   const newEnv = mergeEnv(existingEnv, sections, opts.force)
   fs.writeFileSync('.env', newEnv)
@@ -318,8 +341,16 @@ export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
   // .gitignore
   try {
     const gitignore = fs.existsSync('.gitignore') ? fs.readFileSync('.gitignore', 'utf8') : ''
-    if (!gitignore.split('\n').some((l: string) => l.trim() === '.env')) {
-      fs.appendFileSync('.gitignore', '\n.env\n')
+    const lines = gitignore.split('\n')
+    const additions: string[] = []
+    if (!lines.some((l: string) => l.trim() === '.env')) {
+      additions.push('.env')
+    }
+    if (!lines.some((l: string) => l.trim() === '.claude/dev-core.yml')) {
+      additions.push('.claude/dev-core.yml')
+    }
+    if (additions.length > 0) {
+      fs.appendFileSync('.gitignore', `\n${additions.join('\n')}\n`)
       result.gitignoreUpdated = true
     }
   } catch {}

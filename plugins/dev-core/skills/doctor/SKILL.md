@@ -27,9 +27,9 @@ Severity guide: ❌ = blocking error, ⚠️ = warning, ✅ = pass, ⏭ = skippe
 
 | Item | Fix command |
 |------|-------------|
-| `GITHUB_REPO` missing | "Add `GITHUB_REPO=owner/repo` to `.env`" |
-| `GH_PROJECT_ID` missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts discover` then `scaffold` |
-| `STATUS_FIELD_ID` / `SIZE_FIELD_ID` / `PRIORITY_FIELD_ID` missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts create-project --owner <owner> --repo <repo>` |
+| `GITHUB_REPO` missing | "Add `github_repo: owner/repo` to `.claude/dev-core.yml` (or `GITHUB_REPO=owner/repo` to `.env` as fallback)" |
+| `GH_PROJECT_ID` missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts discover` then `scaffold` — writes `.claude/dev-core.yml` |
+| `STATUS_FIELD_ID` / `SIZE_FIELD_ID` / `PRIORITY_FIELD_ID` missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts create-project --owner <owner> --repo <repo>` — writes field IDs to `.claude/dev-core.yml` |
 | Labels missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts labels --repo <owner/repo> --scope all` |
 | roxabi shim missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts scaffold ...` (requires env vars) |
 | `trufflehog` binary missing | Install: `brew install trufflehog` or download from https://github.com/trufflesecurity/trufflehog/releases — required for pre-commit hooks to work locally |
@@ -51,6 +51,7 @@ Issues requiring interactive GitHub auth or multi-step scaffolding → display e
 Run all checks. Collect fixable items as you go. Apply fixes at end (Phase 2 Fix).
 
 **File presence:**
+- `.claude/dev-core.yml` ∃ → ✅ "dev-core.yml found (primary config)" | ⚠️ "dev-core.yml missing — config read from .env fallback. Run `/init` to generate."
 - `.claude/stack.yml` ∃ → ✅ | ❌ "stack.yml missing"
 - stack.yml missing:
   - AskUserQuestion: **Set up stack.yml now** (recommended — agents and later checks depend on it) | **Continue with warnings** (all stack-dependent checks marked ⏭).
@@ -99,6 +100,7 @@ Read `docs.path` from `.claude/stack.yml`.
 
 **Security:**
 - `.claude/stack.yml` ∈ `.gitignore` → ✅ | ❌ "stack.yml not in .gitignore"
+- `.claude/dev-core.yml` ∈ `.gitignore` → ✅ | ❌ "dev-core.yml not in .gitignore (contains project field IDs)"
 
 **Hooks formatter match:**
 - `build.formatter_fix_cmd` contains `biome` → confirm `hooks.json` PostToolUse runs `format.js` → ✅ | ⚠️ "Hooks formatter may not match stack.yml build.formatter_fix_cmd"
@@ -217,6 +219,8 @@ Apply each selected fix:
 | `stack.yml.example missing` | `cp "${CLAUDE_PLUGIN_ROOT}/stack.yml.example" .claude/stack.yml.example` |
 | `CLAUDE.md import missing` | Prepend `@.claude/stack.yml\n` to `CLAUDE.md` |
 | `stack.yml not in .gitignore` | Append `.claude/stack.yml` to `.gitignore` |
+| `dev-core.yml not in .gitignore` | Append `.claude/dev-core.yml` to `.gitignore` |
+| `dev-core.yml missing` | Run `/init` to generate `.claude/dev-core.yml` from auto-discovered project config |
 | `artifacts.* dir missing` | `mkdir -p {path}` ∀ missing dir |
 | `hooks.tool not set` | Append `hooks:\n  tool: auto` to `.claude/stack.yml` |
 | `lefthook config missing` | Write `lefthook.yml` with `commands.lint` + `commands.typecheck`; then `bunx lefthook install` |
@@ -268,12 +272,12 @@ Display:
 ```bash
 SEARCH_DIRS="$(dirname $PWD) $HOME/projects"
 for dir in $SEARCH_DIRS; do
-  find "$dir" -maxdepth 3 -name ".env" 2>/dev/null \
-    | xargs grep -l "^GITHUB_REPO=" 2>/dev/null
+  # Prefer dev-core.yml, fall back to .env
+  find "$dir" -maxdepth 3 \( -path "*/.claude/dev-core.yml" -o -name ".env" \) 2>/dev/null
 done | sort -u
 ```
 
-∀ found `.env` ∉ workspace.json (excluding current repo) → collect as unregistered candidates.
+∀ found config (`.claude/dev-core.yml` or `.env`) ∉ workspace.json (excluding current repo) → collect as unregistered candidates.
 
 - ∄ unregistered candidates → ✅ `all local dev-core projects are registered`
 - unregistered ∃ → ⚠️ `N unregistered: <repo-a>, <repo-b>`
@@ -289,8 +293,8 @@ Workspace: N projects registered  (or: not found)
 
 | Issue | Fix |
 |-------|-----|
-| `workspace.json not found` ∨ `current repo not registered` | Run registration bun snippet (same as /init Phase 6 step 4) using `GITHUB_REPO` + `GH_PROJECT_ID` from `.env` |
-| Unregistered projects | ∀ selected repo: read its `.env`, build entry, append to workspace.json |
+| `workspace.json not found` ∨ `current repo not registered` | Run registration bun snippet (same as /init Phase 6 step 4) using `github_repo` + `gh_project_id` from `.claude/dev-core.yml` (or `.env` fallback) |
+| Unregistered projects | ∀ selected repo: read its `.claude/dev-core.yml` or `.env`, build entry, append to workspace.json |
 | Invalid `projectId` | Display: "Edit workspace.json and correct `projectId` for `<repo>` — must start with `PVT_`" (manual fix, cannot auto-correct) |
 
 After fixes, re-run workspace check and display updated result.

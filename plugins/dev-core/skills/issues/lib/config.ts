@@ -25,7 +25,7 @@ import { readWorkspace } from '../../shared/adapters/workspace-helpers'
 /**
  * Resolve project config for the current repo.
  * Priority 1: workspace.json entry matching current repo
- * Priority 2: .env / process.env fallback (GH_PROJECT_ID etc.)
+ * Priority 2: .claude/dev-core.yml / .env / process.env fallback (GH_PROJECT_ID etc.)
  */
 export function resolveConfig(): { projectId: string; source: 'workspace' | 'env' } {
   const ws = readWorkspace()

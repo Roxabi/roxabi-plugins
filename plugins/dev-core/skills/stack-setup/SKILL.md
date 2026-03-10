@@ -23,7 +23,7 @@ Let: σ := `.claude/stack.yml` | π := proposed config table
 
 ## Phase 1 — Check /init prerequisite
 
-`test -f .env && grep -q 'GH_PROJECT_ID' .env && echo done || echo missing`
+`test -f .claude/dev-core.yml && grep -q 'gh_project_id' .claude/dev-core.yml && echo done || (test -f .env && grep -q 'GH_PROJECT_ID' .env && echo done || echo missing)`
 
 `missing` → AskUserQuestion: **Continue anyway** | **Abort (run /init first)**
 → Abort: "Run `/init` to set up GitHub integration, then come back to `/stack-setup`."
