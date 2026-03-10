@@ -17,7 +17,6 @@ Open-source Claude Code plugins by [Roxabi](https://github.com/Roxabi). Context 
 | [voice-cli](plugins/voice-cli/README.md) | VoiceCLI assistant — author TTS scripts, generate speech, clone voices, transcribe audio |
 | [linkedin-post-generator](plugins/linkedin-post-generator/README.md) | Generate engaging LinkedIn posts with best practices and visual identity |
 | [image-prompt-generator](plugins/image-prompt-generator/README.md) | Generate AI image prompts with visual identity and style consistency |
-| [vault](plugins/vault/README.md) | Unified data vault — SQLite+FTS5 index, CRUD, search across all Roxabi plugins |
 | [cv](plugins/cv/README.md) | Generate and adapt CVs from structured data |
 | [get-invoice-details](plugins/get-invoice-details/README.md) | Extract and store invoice details from documents |
 | [linkedin-apply](plugins/linkedin-apply/README.md) | Scrape and score LinkedIn job offers with LLM matching |
@@ -29,18 +28,15 @@ Open-source Claude Code plugins by [Roxabi](https://github.com/Roxabi). Context 
 
 ## Data Storage
 
-All data-producing plugins store user data in `~/.roxabi-vault/` (never in the repo). Override with `ROXABI_VAULT_HOME` environment variable.
+All data-producing plugins store user data in `~/.roxabi-vault/` (never in the repo). Override with `ROXABI_VAULT_HOME` environment variable. Vault functionality is provided by [roxabi-memory](https://github.com/Roxabi/roxabi-memory).
 
-| Plugin | Data Location | Vault Integration |
-|--------|--------------|-------------------|
-| vault | `~/.roxabi-vault/vault.db` + shared dirs | Core (required) |
-| cv | `~/.roxabi-vault/cv/` | Optional — search by content |
-| linkedin-post-generator | `~/.roxabi-vault/content/` (shared) | Optional — suggestions from vault |
-| get-invoice-details | `~/.roxabi-vault/invoices/` | Optional — semantic search |
-| image-prompt-generator | `~/.roxabi-vault/config/` (charter, face ref), `~/.roxabi-vault/image-prompts/` | Optional — auto-saves prompt variants |
-| linkedin-apply | `~/.roxabi-vault/linkedin-apply/` | Optional — job analysis history |
-
-All plugins work without vault installed — files are saved, just not indexed.
+| Plugin | Data Location |
+|--------|--------------|
+| cv | `~/.roxabi-vault/cv/` |
+| linkedin-post-generator | `~/.roxabi-vault/content/` (shared) |
+| get-invoice-details | `~/.roxabi-vault/invoices/` |
+| image-prompt-generator | `~/.roxabi-vault/config/`, `~/.roxabi-vault/image-prompts/` |
+| linkedin-apply | `~/.roxabi-vault/linkedin-apply/` |
 
 ## Install
 

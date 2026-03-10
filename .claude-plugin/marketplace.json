@@ -51,12 +51,6 @@
       "category": "productivity"
     },
     {
-      "name": "vault",
-      "description": "Unified local data vault — SQLite+FTS5 index, CRUD, full-text search across all Roxabi plugins.",
-      "source": "./plugins/vault",
-      "category": "data"
-    },
-    {
       "name": "cv",
       "description": "Generate and adapt CVs from structured JSON data, with tailoring for specific job postings.",
       "source": "./plugins/cv",

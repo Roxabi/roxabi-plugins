@@ -1,8 +1,0 @@
-{
-  "name": "vault",
-  "version": "0.1.0",
-  "description": "Unified data vault — SQLite+FTS5 index, CRUD, search across all Roxabi plugins.",
-  "author": {
-    "name": "Roxabi"
-  }
-}

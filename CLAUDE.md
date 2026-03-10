@@ -241,10 +241,6 @@ Plugins with data declare it in `plugin.json`:
       }
     },
     "shared": []
-  },
-  "vault": {
-    "optional": true,
-    "indexes": { "category": "cv", "types": ["cv", "cover-letter"] }
   }
 }
 ```
@@ -252,28 +248,14 @@ Plugins with data declare it in `plugin.json`:
 - `data.root` must be unique across all plugins (enforced by `tools/validate_plugins.py`)
 - `data.shared` lists shared directories the plugin reads/writes
 - `data.files[].example` points to a template with fictional data in `examples/`
-- `vault.optional: true` means the plugin works without vault installed
 
 ### Path resolution
 
 All plugins use `roxabi_sdk/paths.py` for path resolution. The canonical copy lives at `roxabi_sdk/paths.py` (repo root). The sync script copies `roxabi_sdk/` into each plugin cache dir so imports work in both repo and installed contexts.
 
-Key functions: `get_vault_home()`, `get_plugin_data(name)`, `get_shared_dir(name)`, `get_config(name)`, `ensure_dir(path)`, `vault_available()`, `vault_healthy()`.
+Key functions: `get_vault_home()`, `get_plugin_data(name)`, `get_shared_dir(name)`, `get_config(name)`, `ensure_dir(path)`.
 
-### Vault integration pattern
-
-```python
-# ALWAYS: save to ~/.roxabi-vault/
-save_dir = ensure_dir(get_vault_home() / 'content')
-(save_dir / filename).write_text(content)
-
-# OPTIONAL: index if vault is healthy
-if vault_healthy():
-    try:
-        index_content(...)
-    except Exception:
-        pass  # degraded: file saved, not indexed
-```
+Vault/indexing functionality has moved to [roxabi-memory](https://github.com/Roxabi/roxabi-memory).
 
 ### Rules
 
