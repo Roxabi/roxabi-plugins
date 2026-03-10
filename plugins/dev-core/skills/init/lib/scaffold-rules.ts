@@ -122,7 +122,7 @@ function detectProjectType(stack: StackConfig): ProjectType {
 // ---------------------------------------------------------------------------
 
 function sanitizeName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_\-]/g, '-').slice(0, 64)
+  return name.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 64)
 }
 
 function detectProjectName(explicit?: string): string {
