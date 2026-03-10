@@ -1,0 +1,124 @@
+---
+title: evaluate Programmatic Tool Calling (PTC) for analysis-heavy skills
+issue: 18
+status: approved
+tier: F-lite
+date: 2026-03-10
+promoted-from: artifacts/analyses/425-ptc-evaluation.mdx
+---
+
+## Context
+
+Promoted from `artifacts/analyses/425-ptc-evaluation.mdx` (approved 2026-02-28).
+
+PTC (`code_execution_20260120`) lets Claude emit a Python code block that orchestrates multiple tool invocations inside a sandboxed container. Only the final output returns to the conversation — intermediate file reads, grep results, and computed structures stay in Python variables and never inflate the context window.
+
+Anthropic measured 37% token reduction on complex multi-tool tasks and 85% savings on tool definitions via deferred loading. Dev-core analysis-heavy skills (`/analyze`, `/review`, `/spec`, `security-auditor`) currently issue 20+ sequential Grep/Read calls per session — a prime candidate for this optimization.
+
+## Goal
+
+Determine whether PTC delivers meaningful token savings in dev-core analysis-heavy skills, identify the constraints and gotchas, and produce a written adoption decision (adopt broadly / adopt selectively / defer).
+
+## Users
+
+- **Primary:** dev-core plugin maintainers — consuming the decision document to decide whether to update skill implementations.
+- **Secondary:** end users of dev-core skills — benefit indirectly if adopted (faster analysis, longer useful sessions).
+
+## Expected Behavior
+
+1. **POC implementation:** A new experimental agent file `security-auditor-ptc.md` is created alongside the production `security-auditor.md`. It replaces the import graph resolution phase with a single PTC Python code block that traverses transitive imports. The production agent is not modified.
+
+2. **Baseline measurement:** Run the current `security-auditor` (sequential Grep) on a representative target project (e.g. `roxabi-boilerplate`). Record input token count, tool call count, and wall-clock latency for the import-graph phase. Repeat for ≥ 3 runs.
+
+3. **PTC measurement:** Run `security-auditor-ptc.md` on the same target. Record the same metrics for ≥ 3 runs. Compute mean ± range for each metric and reduction percentage.
+
+4. **ZDR posture:** Before writing the decision, document the assumed ZDR user fraction for dev-core's target user base (e.g. `"unknown"`, `"<10%"`, `">50%"`). This assumption gates the recommendation scope.
+
+5. **Limitation audit:** Exercise known constraints — ZDR incompatibility, MCP tools unavailable inside PTC, Python-only runtime, container spin-up latency — and document how each affects adoption scope.
+
+6. **Decision document:** Write `artifacts/analyses/18-ptc-decision.mdx` with findings, per-skill applicability matrix, confidence level, ZDR posture assumption, and a final recommendation (adopt broadly / selectively / defer + rationale).
+
+## Data Model & Consumers
+
+```classDiagram
+  class POCPatch {
+    +skill: string
+    +phase: string
+    +before_code: string
+    +after_code: string
+  }
+
+  class Measurement {
+    +approach: "sequential" | "ptc"
+    +target_project: string
+    +run_index: number
+    +input_tokens: number
+    +tool_calls: number
+    +latency_ms: number
+    +phase: string
+  }
+
+  class DecisionDoc {
+    +issue: number
+    +recommendation: "adopt-broadly" | "adopt-selectively" | "defer"
+    +confidence: "high" | "medium" | "low"
+    +zdr_user_fraction: string
+    +per_skill_matrix: SkillEntry[]
+    +limitations: string[]
+    +rationale: string
+  }
+
+  class SkillEntry {
+    +skill: string
+    +applicable: boolean
+    +estimated_savings: string
+    +blocker: string | null
+  }
+
+  POCPatch --> Measurement : measured by
+  Measurement --> DecisionDoc : informs
+  DecisionDoc --> SkillEntry : contains
+```
+
+```flowchart LR
+  A[security-auditor agent] -->|POCPatch| B[18-ptc-poc patch]
+  B -->|Measurement| C[18-ptc-decision.mdx]
+  C -->|SkillEntry x4| D[/analyze, /review, /spec, security-auditor]
+  D -.->|future: if adopted| E[Updated skill implementations]
+```
+
+| Consumer | Fields consumed | When | Status |
+|----------|----------------|------|--------|
+| security-auditor | POCPatch.after_code | POC phase | this issue |
+| DecisionDoc | Measurement.input_tokens, tool_calls | Decision doc | this issue |
+| Future skill updates | DecisionDoc.per_skill_matrix | Post-decision | future |
+
+## Breadboard
+
+| Affordance | Handler | Data |
+|-----------|---------|------|
+| U1 — run PTC POC | security-auditor with PTC import graph | POCPatch → Measurement |
+| U2 — run baseline | security-auditor with sequential Grep | Measurement (approach: sequential) |
+| U3 — compare results | diff Measurement records | token reduction % |
+| U4 — read decision doc | open `18-ptc-decision.mdx` | DecisionDoc |
+| N1 — ZDR check | document in limitations section | DecisionDoc.limitations |
+| N2 — MCP availability check | document in limitations section | DecisionDoc.limitations |
+| S1 — write decision doc | doc-writer agent | DecisionDoc → MDX file |
+
+Wiring:
+- U2 → baseline Measurement captured → U1 → PTC Measurement captured → U3 → % computed → S1 → DecisionDoc written → U4
+
+## Slices
+
+| # | Slice | Deliverable | Criteria |
+|---|-------|-------------|----------|
+| 1 | PTC POC | New `security-auditor-ptc.md` agent file using PTC for import graph (production agent unchanged) | AC1 |
+| 2 | Token + latency measurement | ≥3 runs per approach; mean ± range for input tokens, tool calls, latency_ms; reduction % | AC2 |
+| 3 | Decision document | `artifacts/analyses/18-ptc-decision.mdx` with ZDR assumption, confidence, per-skill matrix, recommendation | AC3, AC4 |
+
+## Success Criteria
+
+- [ ] AC1: `security-auditor-ptc.md` agent exists with import graph resolution using a single PTC Python code block; production `security-auditor.md` is unchanged.
+- [ ] AC2: ≥ 3 runs recorded per approach (sequential + PTC) on the same target project; mean ± range reported for input tokens, tool calls, and latency_ms; reduction percentage computed.
+- [ ] AC3: Decision document lists limitations — ZDR incompatibility, no MCP tools inside PTC, Python-only runtime, container spin-up latency — each with impact assessment; ZDR user fraction assumption stated; confidence level set.
+- [ ] AC4: Decision document contains per-skill applicability matrix (`/analyze`, `/review`, `/spec`, `security-auditor`) and a final recommendation: adopt broadly / adopt selectively / defer + rationale.
