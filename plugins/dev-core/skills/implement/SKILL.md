@@ -111,7 +111,7 @@ Ref file paths from `/plan` Step 3. Inject the 1-2 ref files stored there.
 
 ## Step 3b — Reasoning Audit (optional)
 
-`--audit` → present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) (implement guidance). Read plan/spec in full before presenting.
+`--audit` → present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) (implement guidance). Read plan/spec in full before presenting.
 → AskUserQuestion: **Proceed** | **Adjust approach** | **Abort**
 ¬`--audit` → skip to Step 4.
 
@@ -170,7 +170,7 @@ git branch -D feat/<N>-<slug>
 
 ## Edge Cases
 
-Read [references/edge-cases.md](references/edge-cases.md).
+Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 
 | Merge conflict (worktree setup) | `git rebase --abort` → AskUserQuestion: **Resolve manually** (fix conflicts → `git rebase --continue`) \| **Abort** |
 | Abandon after 3✗ gate failures | `git worktree remove ../${REPO}-<N> --force && git branch -D feat/<N>-<slug>` |

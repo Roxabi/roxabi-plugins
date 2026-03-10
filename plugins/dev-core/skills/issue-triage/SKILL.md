@@ -115,8 +115,8 @@ gh issue edit <number> --body "$BODY
 
 κ is advisory. Human judgment overrides. AskUserQuestion if score ≠ intuition.
 
-See [Tier Classification Reference](../../../shared/references/tier-classification.md) for full rules.
-Reference: [artifacts/analyses/280-token-consumption.mdx](../../../artifacts/analyses/280-token-consumption.mdx) for scoring examples.
+See [Tier Classification Reference](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/tier-classification.md) for full rules.
+Reference: `artifacts/analyses/280-token-consumption.mdx` for scoring examples.
 
 ## Status Values
 

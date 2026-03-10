@@ -40,7 +40,7 @@ Read `docs/processes/dev-process.mdx` + σ.
 
 ### Step 2a-pre — Reasoning Audit (optional)
 
-`--audit` → after reading σ, present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) (plan guidance).
+`--audit` → after reading σ, present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) (plan guidance).
 → AskUserQuestion: **Proceed** | **Adjust approach** | **Abort**
 ¬`--audit` → continue to Step 2a.
 
@@ -80,13 +80,13 @@ Find similar existing feature → read 1–2 files for conventions. Store paths 
 
 ## Step 4 — Micro-Tasks (Tier F only)
 
-τ=S → skip → Step 5. Read [references/micro-tasks.md](references/micro-tasks.md) for complete process.
+τ=S → skip → Step 5. Read [references/micro-tasks.md](${CLAUDE_SKILL_DIR}/references/micro-tasks.md) for complete process.
 
 **Summary:** Detect σ format (Breadboard+Slices ∨ Success Criteria) → generate micro-tasks with verify commands → detect parallelization → scale task count → consistency check (σ↔tasks bidirectional) → write to π.
 
 Key outputs: micro-tasks with fields below, `[P]` parallel markers, RED-GATE sentinels per slice.
 
-See [references/micro-task-example.mdx](references/micro-task-example.mdx) for a worked example.
+See [references/micro-task-example.mdx](${CLAUDE_SKILL_DIR}/references/micro-task-example.mdx) for a worked example.
 
 ### Micro-Task Fields
 
@@ -109,7 +109,7 @@ See [references/micro-task-example.mdx](references/micro-task-example.mdx) for a
 
 Write to `artifacts/plans/{N}-{slug}-plan.mdx`. Create `artifacts/plans/` dir if needed.
 
-Use [references/plan-template.mdx](references/plan-template.mdx). See [references/micro-task-example.mdx](references/micro-task-example.mdx) for task formatting.
+Use [references/plan-template.mdx](${CLAUDE_SKILL_DIR}/references/plan-template.mdx). See [references/micro-task-example.mdx](${CLAUDE_SKILL_DIR}/references/micro-task-example.mdx) for task formatting.
 
 ```markdown
 ---
@@ -147,7 +147,7 @@ On Approve → commit: `git add artifacts/plans/{N}-{slug}-plan.mdx` + commit pe
 
 ## Edge Cases
 
-Read [references/edge-cases.md](references/edge-cases.md).
+Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 
 ## Safety
 
