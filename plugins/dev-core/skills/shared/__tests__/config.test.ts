@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+// Mock node:fs so loadDevCoreConfig doesn't read .claude/dev-core.yml at import time.
+// This ensures tests see the "no config" defaults, not values from the repo's YAML file.
+vi.mock('node:fs', () => ({
+  readFileSync: () => {
+    throw new Error('ENOENT')
+  },
+}))
+
 // Clear option env vars before config module loads so defaults apply (not .env values)
 delete process.env.STATUS_OPTIONS_JSON
 delete process.env.SIZE_OPTIONS_JSON
