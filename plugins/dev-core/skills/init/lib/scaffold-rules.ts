@@ -5,7 +5,7 @@
  * that can be appended to or merged into an existing CLAUDE.md.
  *
  * Usage:
- *   bun init.ts scaffold-rules [--stack-path .claude/stack.yml] [--project-name <name>] [--mode merge|replace|generate]
+ *   bun init.ts scaffold-rules [--stack-path .claude/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
  *
  * Output: JSON { sections: Section[], markdown: string, projectType: string }
  */
@@ -137,9 +137,8 @@ function detectProjectName(explicit?: string): string {
 // Section generators
 // ---------------------------------------------------------------------------
 
-function tldr(stack: StackConfig, projectName: string, projectType: ProjectType): Section {
+function tldr(_stack: StackConfig, projectName: string, projectType: ProjectType): Section {
   const parts: string[] = []
-  const _rt = stack.runtime ?? 'bun'
 
   parts.push(`- **Project:** ${projectName}`)
   parts.push(
@@ -388,7 +387,7 @@ function generateSections(stack: StackConfig, projectType: ProjectType, projectN
 }
 
 function sectionsToMarkdown(sections: Section[]): string {
-  const parts: string[] = ['## Critical Rules', '']
+  const parts: string[] = []
 
   for (const section of sections) {
     if (section.id === 'tldr') {
@@ -410,12 +409,11 @@ function sectionsToMarkdown(sections: Section[]): string {
 interface ExistingSections {
   hasImport: boolean
   sectionIds: string[]
-  projectSpecificContent: string[]
 }
 
 function analyzeExistingClaudeMd(claudeMdPath: string): ExistingSections {
   if (!existsSync(claudeMdPath)) {
-    return { hasImport: false, sectionIds: [], projectSpecificContent: [] }
+    return { hasImport: false, sectionIds: [] }
   }
 
   const content = readFileSync(claudeMdPath, 'utf-8')
@@ -448,7 +446,7 @@ function analyzeExistingClaudeMd(claudeMdPath: string): ExistingSections {
     }
   }
 
-  return { hasImport, sectionIds: found, projectSpecificContent: [] }
+  return { hasImport, sectionIds: found }
 }
 
 // ---------------------------------------------------------------------------

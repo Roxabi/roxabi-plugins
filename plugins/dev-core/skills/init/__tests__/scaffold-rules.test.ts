@@ -219,7 +219,6 @@ frontend:
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'test',
       })
-      expect(result.markdown).toContain('## Critical Rules')
       expect(result.markdown).toContain('## TL;DR')
       expect(result.markdown).toContain('### 1. Dev Process')
       expect(result.markdown).toContain('### 5. Git')
