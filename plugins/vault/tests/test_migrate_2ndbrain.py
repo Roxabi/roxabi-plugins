@@ -95,6 +95,31 @@ def _make_embedder() -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
+# Module-level fixtures (shared across test classes)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def vault_db(tmp_path):
+    """Create and connect a vault MemoryDB at tmp_path/vault.db."""
+    return _make_vault_db(tmp_path / "vault.db")
+
+
+@pytest.fixture
+def embedder():
+    """Return a mock Embedder that produces fixed 384-dim float32 bytes."""
+    return _make_embedder()
+
+
+@pytest.fixture
+def knowledge_dir(tmp_path):
+    """Create an empty knowledge directory under tmp_path."""
+    kdir = tmp_path / "knowledge"
+    kdir.mkdir()
+    return kdir
+
+
+# ---------------------------------------------------------------------------
 # T16 — Unit tests: map_document_to_entry + classify_file
 # ---------------------------------------------------------------------------
 
@@ -407,21 +432,6 @@ class TestDeduplicationAndIdempotency:
         ]
         return _make_source_db(db_path, rows)
 
-    @pytest.fixture
-    def vault_db(self, tmp_path):
-        return _make_vault_db(tmp_path / "vault.db")
-
-    @pytest.fixture
-    def embedder(self):
-        return _make_embedder()
-
-    @pytest.fixture
-    def knowledge_dir(self, tmp_path):
-        """Empty knowledge dir (no disk files needed for this test)."""
-        kdir = tmp_path / "knowledge"
-        kdir.mkdir()
-        return kdir
-
     def test_first_run_migrates_all_three(
         self, source_db, vault_db, embedder, knowledge_dir
     ):
@@ -528,20 +538,6 @@ class TestBrokenRefs:
         ]
         return _make_source_db(db_path, rows)
 
-    @pytest.fixture
-    def vault_db(self, tmp_path):
-        return _make_vault_db(tmp_path / "vault.db")
-
-    @pytest.fixture
-    def embedder(self):
-        return _make_embedder()
-
-    @pytest.fixture
-    def knowledge_dir(self, tmp_path):
-        kdir = tmp_path / "knowledge"
-        kdir.mkdir()
-        return kdir
-
     def test_broken_ref_entry_is_migrated(
         self, source_db_with_broken_ref, vault_db, embedder, knowledge_dir
     ):
@@ -643,16 +639,6 @@ class TestExistingVaultDataPreserved:
         )
         return db
 
-    @pytest.fixture
-    def embedder(self):
-        return _make_embedder()
-
-    @pytest.fixture
-    def knowledge_dir(self, tmp_path):
-        kdir = tmp_path / "knowledge"
-        kdir.mkdir()
-        return kdir
-
     def test_pre_existing_entries_still_present(
         self, source_db, vault_db_with_existing, embedder, knowledge_dir
     ):
@@ -730,3 +716,258 @@ class TestExistingVaultDataPreserved:
         for row in rows:
             meta = json.loads(row[0])
             assert "source_id" not in meta
+
+
+# ---------------------------------------------------------------------------
+# T20 — Unit tests: detect_source
+# ---------------------------------------------------------------------------
+
+
+class TestDetectSource:
+    """Unit tests for detect_source path resolution and schema validation."""
+
+    def test_valid_db_returns_path(self, tmp_path):
+        # Arrange — create a valid source DB
+        db_path = tmp_path / "memory.db"
+        _make_source_db(db_path, [])
+
+        from migrate_2ndbrain import detect_source
+
+        # Act
+        result = detect_source(str(db_path))
+
+        # Assert
+        assert result == db_path
+
+    def test_missing_file_raises(self, tmp_path):
+        # Arrange
+        missing = tmp_path / "does_not_exist.db"
+
+        from migrate_2ndbrain import MigrationError, detect_source
+
+        # Act / Assert
+        with pytest.raises(MigrationError, match="Source not found"):
+            detect_source(str(missing))
+
+    def test_missing_table_raises(self, tmp_path):
+        # Arrange — DB with no documents table
+        db_path = tmp_path / "empty.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.close()
+
+        from migrate_2ndbrain import MigrationError, detect_source
+
+        # Act / Assert
+        with pytest.raises(MigrationError, match="Table 'documents' not found"):
+            detect_source(str(db_path))
+
+    def test_missing_columns_raises(self, tmp_path):
+        # Arrange — DB with documents table but missing required columns
+        db_path = tmp_path / "bad_schema.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, title TEXT)")
+        conn.commit()
+        conn.close()
+
+        from migrate_2ndbrain import MigrationError, detect_source
+
+        # Act / Assert
+        with pytest.raises(MigrationError, match="Missing columns"):
+            detect_source(str(db_path))
+
+
+# ---------------------------------------------------------------------------
+# T21 — Unit tests: get_vault_dest
+# ---------------------------------------------------------------------------
+
+
+class TestGetVaultDest:
+    """Unit tests for get_vault_dest path mapping and traversal guard."""
+
+    def test_normal_path_resolves_under_vault_home(self, tmp_path, monkeypatch):
+        # Arrange — patch get_vault_home to a known tmp dir
+        from migrate_2ndbrain import get_vault_dest
+        import migrate_2ndbrain as mod
+
+        vault_home = tmp_path / "vault"
+        vault_home.mkdir()
+        monkeypatch.setattr(mod, "get_vault_home", lambda: vault_home)
+
+        # Act
+        result = get_vault_dest("analyses/foo.md")
+
+        # Assert — result is inside vault_home
+        assert result == (vault_home / "analyses/foo.md").resolve()
+        assert result.is_relative_to(vault_home.resolve())
+
+    def test_absolute_path_raises(self, tmp_path, monkeypatch):
+        # Arrange
+        from migrate_2ndbrain import get_vault_dest
+        import migrate_2ndbrain as mod
+
+        vault_home = tmp_path / "vault"
+        vault_home.mkdir()
+        monkeypatch.setattr(mod, "get_vault_home", lambda: vault_home)
+
+        # Act / Assert — absolute path must not bypass vault home
+        with pytest.raises(ValueError, match="Path traversal detected"):
+            get_vault_dest("/etc/passwd")
+
+    def test_traversal_path_raises(self, tmp_path, monkeypatch):
+        # Arrange
+        from migrate_2ndbrain import get_vault_dest
+        import migrate_2ndbrain as mod
+
+        vault_home = tmp_path / "vault"
+        vault_home.mkdir()
+        monkeypatch.setattr(mod, "get_vault_home", lambda: vault_home)
+
+        # Act / Assert — "../" sequences must be rejected
+        with pytest.raises(ValueError, match="Path traversal detected"):
+            get_vault_dest("../../etc/passwd")
+
+
+# ---------------------------------------------------------------------------
+# T22 — Unit tests: create_file_entry
+# ---------------------------------------------------------------------------
+
+
+class TestCreateFileEntry:
+    """Unit tests for create_file_entry disk-only file ingestion."""
+
+    def test_creates_entry_for_disk_only_file(
+        self, tmp_path, vault_db, embedder, knowledge_dir
+    ):
+        # Arrange — write a small markdown file
+        md_file = knowledge_dir / "analyses" / "my-analysis.md"
+        md_file.parent.mkdir(parents=True, exist_ok=True)
+        md_file.write_text("# My Analysis\n\nSome content here.", encoding="utf-8")
+
+        from migrate_2ndbrain import create_file_entry
+
+        # Act
+        entry_id = create_file_entry(vault_db, embedder, md_file, knowledge_dir)
+
+        # Assert — a real entry ID is returned and the entry exists in the DB
+        assert entry_id is not None
+        assert isinstance(entry_id, int)
+        assert entry_id > 0
+        count = vault_db.connection.execute(
+            "SELECT COUNT(*) FROM entries WHERE namespace='vault'"
+        ).fetchone()[0]
+        assert count == 1
+
+    def test_dedup_skips_existing_entry(
+        self, tmp_path, vault_db, embedder, knowledge_dir
+    ):
+        # Arrange — write a small markdown file and create its entry once
+        md_file = knowledge_dir / "ideas" / "my-idea.md"
+        md_file.parent.mkdir(parents=True, exist_ok=True)
+        md_file.write_text("# My Idea\n\nGreat idea here.", encoding="utf-8")
+
+        from migrate_2ndbrain import create_file_entry
+
+        first_id = create_file_entry(vault_db, embedder, md_file, knowledge_dir)
+        assert first_id is not None
+
+        # Act — call again (dedup should kick in)
+        second_id = create_file_entry(vault_db, embedder, md_file, knowledge_dir)
+
+        # Assert — None returned, still only 1 entry in vault
+        assert second_id is None
+        count = vault_db.connection.execute(
+            "SELECT COUNT(*) FROM entries WHERE namespace='vault'"
+        ).fetchone()[0]
+        assert count == 1
+
+    def test_large_file_skipped(self, tmp_path, vault_db, embedder, knowledge_dir):
+        # Arrange — create a file larger than 1 MB
+        md_file = knowledge_dir / "analyses" / "big-file.md"
+        md_file.parent.mkdir(parents=True, exist_ok=True)
+        md_file.write_bytes(b"x" * (1_048_576 + 1))
+
+        from migrate_2ndbrain import create_file_entry
+
+        # Act
+        result = create_file_entry(vault_db, embedder, md_file, knowledge_dir)
+
+        # Assert — None returned, no entry created
+        assert result is None
+        count = vault_db.connection.execute(
+            "SELECT COUNT(*) FROM entries"
+        ).fetchone()[0]
+        assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# T23 — Unit tests: generate_report
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateReport:
+    """Unit tests for generate_report JSON structure assembly."""
+
+    def test_assembles_correct_json_structure(self):
+        from migrate_2ndbrain import generate_report
+
+        db_stats = {
+            "new": 10,
+            "skipped": 2,
+            "errors": 1,
+            "broken_refs": ["analyses/missing.md"],
+            "migrated_source_ids": {"id1", "id2"},
+        }
+        file_stats = {
+            "copied": 8,
+            "new_entries": 5,
+            "errors": 0,
+        }
+        count_check = {
+            "source_count": 10,
+            "vault_count": 12,
+            "by_category": {"source": {"knowledge": 10}, "vault": {"knowledge": 12}},
+        }
+        fts_results = [
+            {"query": "twitter", "desc": "knowledge/twitter entries", "hits": 3, "pass": True},
+            {"query": "github", "desc": "knowledge/github entries", "hits": 0, "pass": False},
+        ]
+
+        # Act
+        report = generate_report(db_stats, file_stats, count_check, fts_results, ["analyses/missing.md"])
+
+        # Assert — top-level structure
+        assert "migration" in report
+        assert "verification" in report
+
+        # DB entries section
+        assert report["migration"]["db_entries"]["new"] == 10
+        assert report["migration"]["db_entries"]["skipped"] == 2
+        assert report["migration"]["db_entries"]["errors"] == 1
+
+        # Files section
+        assert report["migration"]["files"]["copied"] == 8
+        assert report["migration"]["files"]["new_entries"] == 5
+        assert report["migration"]["files"]["errors"] == 0
+
+        # Broken refs
+        assert report["migration"]["broken_refs"] == ["analyses/missing.md"]
+
+        # Verification section
+        assert report["verification"]["counts"] == count_check
+        assert report["verification"]["fts_smoke_tests"] == fts_results
+        assert report["verification"]["all_fts_pass"] is False
+
+        # Idempotent flag — new > 0 so not idempotent
+        assert report["idempotent"] is False
+
+    def test_idempotent_flag_set_when_all_skipped(self):
+        from migrate_2ndbrain import generate_report
+
+        db_stats = {"new": 0, "skipped": 5, "errors": 0, "broken_refs": [], "migrated_source_ids": set()}
+        file_stats = {"copied": 3, "new_entries": 0, "errors": 0}
+        count_check = {}
+        fts_results = []
+
+        report = generate_report(db_stats, file_stats, count_check, fts_results, [])
+
+        assert report["idempotent"] is True

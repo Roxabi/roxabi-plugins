@@ -102,9 +102,10 @@ def read_source_documents(src: Path) -> list[dict]:
 # ---------------------------------------------------------------------------
 def map_document_to_entry(doc: dict) -> dict:
     """Map a 2ndBrain document row to a vault entry dict."""
-    content = doc["summary"]
-    if doc.get("long_summary"):
-        content = content + "\n\n" + doc["long_summary"]
+    content = (doc.get("summary") or "").strip()
+    long = (doc.get("long_summary") or "").strip()
+    if long:
+        content = content + "\n\n" + long if content else long
 
     metadata: dict = {
         "source_id":    doc["id"],
@@ -198,6 +199,12 @@ def migrate_db_entries(
     }
     uncommitted = 0
 
+    if not dry_run:
+        db.connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entries_source_id"
+            " ON entries(json_extract(metadata, '$.source_id'))"
+        )
+
     for doc in docs:
         try:
             mapped = map_document_to_entry(doc)
@@ -274,8 +281,11 @@ def _repair_missing_embeddings(db: "MemoryDB", embedder: "Embedder") -> int:
 # T7 — Scan knowledge directory
 # ---------------------------------------------------------------------------
 def scan_knowledge_dir(knowledge_dir: Path) -> list[Path]:
-    """Return all .md files under knowledge_dir, sorted."""
-    return sorted(knowledge_dir.rglob("*.md"))
+    """Return all .md files under knowledge_dir, excluding hidden directories."""
+    return sorted(
+        p for p in knowledge_dir.rglob("*.md")
+        if not any(part.startswith(".") for part in p.relative_to(knowledge_dir).parts)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +347,14 @@ def create_file_entry(
 
     if check_dedup(db.connection, source_id):
         return None  # already migrated (idempotent)
+
+    file_size = file_path.stat().st_size
+    if file_size > 1_048_576:
+        import logging
+        logging.warning(
+            "Skipping %s: file size %d bytes exceeds 1 MB limit", file_path, file_size
+        )
+        return None
 
     content = file_path.read_text(encoding="utf-8")
     title = file_path.stem.replace("-", " ").replace("_", " ")
@@ -543,8 +561,14 @@ def main() -> None:
         sys.exit(1)
 
     knowledge_dir = (
-        Path(args.knowledge_dir) if args.knowledge_dir else DEFAULT_KNOWLEDGE_DIR
+        Path(args.knowledge_dir).resolve() if args.knowledge_dir else DEFAULT_KNOWLEDGE_DIR
     )
+    if not knowledge_dir.is_dir():
+        print(json.dumps({"error": f"Knowledge directory not found: {knowledge_dir}"}))
+        sys.exit(1)
+    if not knowledge_dir.is_relative_to(Path.home()):
+        print(json.dumps({"error": f"Knowledge directory must be under $HOME: {knowledge_dir}"}))
+        sys.exit(1)
     print(f"Source: {src}", file=sys.stderr)
     print(f"Knowledge dir: {knowledge_dir}", file=sys.stderr)
 
