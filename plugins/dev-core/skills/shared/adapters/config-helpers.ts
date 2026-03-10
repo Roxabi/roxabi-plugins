@@ -2,11 +2,43 @@
  * Pure config helper functions extracted from the legacy config.ts shim.
  * These are used by EnvConfigAdapter and re-exported from config.ts for backward compat.
  */
+import { readFileSync } from 'node:fs'
+import { execSync } from 'node:child_process'
 import type { ProjectFieldIds } from '../domain/types'
 import type { WorkspaceProject } from '../ports/workspace'
 
+/**
+ * Load a config value from .claude/dev-core.yml with 3-tier fallback:
+ *   1st: .claude/dev-core.yml (YAML key lookup)
+ *   2nd: process.env[envKey]
+ *   3rd: gh repo view (github_repo key only)
+ */
+function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
+  // 1st: Try .claude/dev-core.yml
+  try {
+    const yaml = readFileSync('.claude/dev-core.yml', 'utf-8')
+    const match = yaml.match(new RegExp(`^${key}:\\s*['"]?(.+?)['"]?\\s*$`, 'm'))
+    const value = match?.[1]
+    if (value && value !== "''") return value
+  } catch { /* file not found — fall through */ }
+
+  // 2nd: Fall back to env var
+  const envValue = process.env[envKey ?? key.toUpperCase()]
+  if (envValue) return envValue
+
+  // 3rd: For github_repo only, try gh CLI
+  if (key === 'github_repo') {
+    try {
+      return execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', { encoding: 'utf-8' }).trim()
+    } catch { /* gh not available */ }
+  }
+
+  return undefined
+}
+
 export function detectGitHubRepo(): string {
-  if (process.env.GITHUB_REPO) return process.env.GITHUB_REPO
+  const fromYamlOrEnv = loadDevCoreConfig('github_repo', 'GITHUB_REPO')
+  if (fromYamlOrEnv) return fromYamlOrEnv
   try {
     const proc = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], { stdout: 'pipe', stderr: 'pipe' })
     const url = new TextDecoder().decode(proc.stdout).trim()
@@ -17,14 +49,13 @@ export function detectGitHubRepo(): string {
   throw new Error('Cannot detect GitHub repo. Set GITHUB_REPO env var or ensure git remote "origin" is configured.')
 }
 
-export const GH_PROJECT_ID = process.env.GH_PROJECT_ID ?? ''
-export const STATUS_FIELD_ID = process.env.STATUS_FIELD_ID ?? ''
-export const SIZE_FIELD_ID = process.env.SIZE_FIELD_ID ?? ''
-export const PRIORITY_FIELD_ID = process.env.PRIORITY_FIELD_ID ?? ''
+export const GH_PROJECT_ID = loadDevCoreConfig('gh_project_id', 'GH_PROJECT_ID') ?? ''
+export const STATUS_FIELD_ID = loadDevCoreConfig('status_field_id', 'STATUS_FIELD_ID') ?? ''
+export const SIZE_FIELD_ID = loadDevCoreConfig('size_field_id', 'SIZE_FIELD_ID') ?? ''
+export const PRIORITY_FIELD_ID = loadDevCoreConfig('priority_field_id', 'PRIORITY_FIELD_ID') ?? ''
 
-/** Parse a JSON env var into a Record, falling back to the provided default. */
-function parseOptionsEnv(envVar: string, fallback: Record<string, string>): Record<string, string> {
-  const raw = process.env[envVar]
+/** Parse a JSON string into a Record, falling back to the provided default. */
+function parseOptionsValue(raw: string | undefined, fallback: Record<string, string>): Record<string, string> {
   if (!raw) return fallback
   try {
     return JSON.parse(raw) as Record<string, string>
@@ -33,13 +64,22 @@ function parseOptionsEnv(envVar: string, fallback: Record<string, string>): Reco
   }
 }
 
-export const STATUS_OPTIONS: Record<string, string> = parseOptionsEnv('STATUS_OPTIONS_JSON', {})
-export const SIZE_OPTIONS: Record<string, string> = parseOptionsEnv('SIZE_OPTIONS_JSON', {})
-export const PRIORITY_OPTIONS: Record<string, string> = parseOptionsEnv('PRIORITY_OPTIONS_JSON', {})
+export const STATUS_OPTIONS: Record<string, string> = parseOptionsValue(
+  loadDevCoreConfig('status_options_json', 'STATUS_OPTIONS_JSON'),
+  {},
+)
+export const SIZE_OPTIONS: Record<string, string> = parseOptionsValue(
+  loadDevCoreConfig('size_options_json', 'SIZE_OPTIONS_JSON'),
+  {},
+)
+export const PRIORITY_OPTIONS: Record<string, string> = parseOptionsValue(
+  loadDevCoreConfig('priority_options_json', 'PRIORITY_OPTIONS_JSON'),
+  {},
+)
 
-/** True when GH_PROJECT_ID and at least one option map are configured via env. */
+/** True when GH_PROJECT_ID and at least one option map are configured via env or YAML. */
 export function isProjectConfigured(): boolean {
-  return (process.env.GH_PROJECT_ID ?? '') !== '' && Object.keys(STATUS_OPTIONS).length > 0
+  return GH_PROJECT_ID !== '' && Object.keys(STATUS_OPTIONS).length > 0
 }
 
 export const FIELD_MAP: Record<string, { fieldId: string; options: Record<string, string> }> = {
