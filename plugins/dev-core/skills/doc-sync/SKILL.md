@@ -43,7 +43,7 @@ Record SRC. ¬δ after scan → AskUserQuestion: describe change.
 **2c.** Locate plugin repo:
 ```bash
 [ -n "$ROXABI_PLUGINS_DIR" ] && echo "$ROXABI_PLUGINS_DIR"
-for d in ../*/; do [ -f "${d}.claude-plugin/marketplace.json" ] && echo "$d" && break; done
+for d in ../*/; do [ -f "${d}.claude-plugin/marketplace.json" ] && [ -d "${d}plugins" ] && echo "$d" && break; done
 ```
 First hit → `PLUGINS_REPO`. ¬found → warn + skip plugin docs.
 

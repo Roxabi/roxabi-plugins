@@ -27,3 +27,6 @@ See the `adr/` directory for Architecture Decision Records.
 
 - [Patterns](patterns.md) — naming conventions, error hierarchy, data flow
 - [Ubiquitous Language](ubiquitous-language.md) — shared domain vocabulary
+- [Configuration](../standards/configuration.md) — environment variables, config files, priority chain
+- [Deployment](../guides/deployment.md) — deployment steps and platform setup
+- [Troubleshooting](../guides/troubleshooting.md) — common issues and solutions

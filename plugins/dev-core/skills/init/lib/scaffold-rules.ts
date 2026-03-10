@@ -46,6 +46,8 @@ interface ScaffoldRulesResult {
 
 // ---------------------------------------------------------------------------
 // Stack.yml parser (minimal YAML — no dependency needed)
+// NOTE: Only supports 2-level nesting (top-level keys + 2-space-indented children).
+// If the stack.yml schema grows to need deeper nesting, replace with a proper YAML parser.
 // ---------------------------------------------------------------------------
 
 function parseSimpleYaml(text: string): Record<string, unknown> {
@@ -299,49 +301,25 @@ function gotchas(): Section {
 // Section selection per project type
 // ---------------------------------------------------------------------------
 
+const APP_SECTIONS = [
+  'tldr',
+  'dev-process',
+  'ask-user-question',
+  'orchestrator-delegation',
+  'parallel-execution',
+  'git',
+  'artifact-model',
+  'mandatory-worktree',
+  'code-review',
+  'coding-standards',
+  'skills-agents',
+  'gotchas',
+]
+
 const SECTION_MAP: Record<ProjectType, string[]> = {
-  'full-app': [
-    'tldr',
-    'dev-process',
-    'ask-user-question',
-    'orchestrator-delegation',
-    'parallel-execution',
-    'git',
-    'artifact-model',
-    'mandatory-worktree',
-    'code-review',
-    'coding-standards',
-    'skills-agents',
-    'gotchas',
-  ],
-  'backend-only': [
-    'tldr',
-    'dev-process',
-    'ask-user-question',
-    'orchestrator-delegation',
-    'parallel-execution',
-    'git',
-    'artifact-model',
-    'mandatory-worktree',
-    'code-review',
-    'coding-standards',
-    'skills-agents',
-    'gotchas',
-  ],
-  'frontend-only': [
-    'tldr',
-    'dev-process',
-    'ask-user-question',
-    'orchestrator-delegation',
-    'parallel-execution',
-    'git',
-    'artifact-model',
-    'mandatory-worktree',
-    'code-review',
-    'coding-standards',
-    'skills-agents',
-    'gotchas',
-  ],
+  'full-app': APP_SECTIONS,
+  'backend-only': APP_SECTIONS,
+  'frontend-only': APP_SECTIONS,
   'cli-library': ['tldr', 'dev-process', 'ask-user-question', 'git', 'artifact-model', 'coding-standards', 'gotchas'],
   'docs-content': ['tldr', 'ask-user-question', 'git', 'gotchas'],
   stub: ['tldr', 'ask-user-question', 'git'],

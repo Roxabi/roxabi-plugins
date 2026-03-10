@@ -19,6 +19,8 @@ Let:
 
 **Idempotent** — skip files with ≥ 30 lines of real content (no TODOs). Safe to re-run.
 
+> **Stub threshold:** a file is considered a stub if it has < 30 non-blank, non-frontmatter lines or contains `TODO:` markers. Files above this threshold are never overwritten on re-run.
+
 ```
 /seed-docs                   → auto-discover DOCS from stack.yml
 /seed-docs --docs-path docs  → explicit path
@@ -61,27 +63,17 @@ Display: `Extracted {|K topics|} topics from CLAUDE.md.`
 
 ## Phase 3 — Codebase Scan (skip if `--no-scan`)
 
-**3a. Entry points**
-```bash
-# Detect runtime entry point
-ls {src,app,lib,packages,plugins}/index.{ts,js,py,go,rb} 2>/dev/null | head -5
-ls main.{ts,js,py,go,rb} server.{ts,js} app.{ts,js,py} 2>/dev/null | head -5
-```
+**3a. Entry points** — use Glob:
+- `{src,app,lib,packages,plugins}/index.{ts,js,py,go,rb}`
+- `main.{ts,js,py,go,rb}`, `server.{ts,js}`, `app.{ts,js,py}`
 
-**3b. Module structure** (TS/JS projects)
-```bash
-# Top-level dirs under src/ or app/ (max depth 2)
-find src app lib packages plugins -maxdepth 2 -type d 2>/dev/null | sort | head -40
-# Service/controller/repository naming
-find . -name "*.service.ts" -o -name "*.controller.ts" -o -name "*.repository.ts" \
-  -o -name "*.handler.ts" -o -name "*.resolver.ts" 2>/dev/null \
-  | grep -v node_modules | head -20
-```
+**3b. Module structure** — use Glob + Bash(`ls`):
+- Glob `{src,app,lib,packages,plugins}/**` (head_limit: 40) → dir structure
+- Glob `**/*.{service,controller,repository,handler,resolver}.ts` → naming patterns (TS/JS)
+- For Python: Glob `**/*.py`, `**/routers/**`, `**/models/**`, `**/schemas/**`, `**/services/**`
+- For Go: Glob `cmd/**`, `internal/**`, `pkg/**`
 
-For Python: scan for `*.py` modules, `routers/`, `models/`, `schemas/`, `services/`.
-For Go: scan `cmd/`, `internal/`, `pkg/` dirs.
-
-**3c. Naming patterns** — sample 10 files per type (`*.service.ts`, `*.test.ts`, etc.). Infer:
+**3c. Naming patterns** — Glob 10 files per type (`*.service.ts`, `*.test.ts`, etc.). Infer:
 - File naming style (kebab-case, snake_case, PascalCase)
 - Class/function naming from exported symbols in sampled files (read first 30 lines of 3 files)
 
@@ -95,11 +87,7 @@ Merge scan results into K. Display: `Codebase scan: {N} source files sampled, {M
 
 ## Phase 4 — Identify Stubs
 
-Find all docs under DOCS that are stubs:
-
-```bash
-find {DOCS} -type f \( -name "*.md" -o -name "*.mdx" \) | sort
-```
+Find all docs under DOCS that are stubs — use Glob: `{DOCS}/**/*.{md,mdx}`
 
 For each file — count non-blank, non-frontmatter, non-comment lines. A file is a stub if:
 - Contains `TODO:` markers, OR
