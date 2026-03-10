@@ -33,10 +33,12 @@ Types: `feat` | `fix` | `refactor` | `docs` | `style` | `test` | `chore` | `ci` 
 
 ## Documentation
 
-<!-- Document doc conventions. Examples:
+<!-- Document doc conventions for your project. Examples:
   - Docs live in docs/ (MDX format)
-  - Update docs when changing public APIs
-  - Run /doc-sync after code changes to catch stale references
+  - Update docs when changing public APIs or config options
+  - Fumadocs: update meta.json when adding/removing pages
+  - Docusaurus: update sidebars.js when adding/removing pages
+  - Nextra: update _meta.json when adding/removing pages
 -->
 
 TODO: Document documentation conventions.

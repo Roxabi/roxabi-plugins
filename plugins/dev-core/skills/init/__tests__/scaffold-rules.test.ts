@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { expectedSections, scaffoldRules } from '../lib/scaffold-rules'
 
 describe('scaffold-rules', () => {
@@ -10,6 +10,10 @@ describe('scaffold-rules', () => {
   beforeEach(() => {
     tmp = mkdtempSync(join(tmpdir(), 'scaffold-rules-'))
     mkdirSync(join(tmp, '.claude'), { recursive: true })
+  })
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true })
   })
 
   function writeStack(content: string) {

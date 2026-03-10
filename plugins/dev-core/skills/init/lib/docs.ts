@@ -10,7 +10,7 @@
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 
 export interface DocsScaffoldOpts {
   format: 'md' | 'mdx'
@@ -87,9 +87,17 @@ export function scaffoldDocs(opts: DocsScaffoldOpts): DocsScaffoldResult {
   const templateFiles = walkDir(templatesDir)
 
   for (const relPath of templateFiles) {
+    // Guard against path traversal (e.g. symlinks producing "../" relative paths)
+    if (relPath.includes('..')) continue
+
     const targetRelPath = renameExt(relPath, format)
     const sourcePath = join(templatesDir, relPath)
     const targetPath = join(docsPath, targetRelPath)
+
+    // Verify resolved path stays within docsPath boundary
+    const resolvedTarget = resolve(targetPath)
+    const resolvedBase = resolve(docsPath)
+    if (!resolvedTarget.startsWith(resolvedBase + sep) && resolvedTarget !== resolvedBase) continue
 
     if (existsSync(targetPath)) {
       result.filesSkipped.push(targetRelPath)

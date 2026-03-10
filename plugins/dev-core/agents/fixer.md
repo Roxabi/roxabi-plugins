@@ -56,6 +56,13 @@ Use `Task` only when φ scope outside assigned domain ∧ lead ¬spawned domain 
 
 Multi-domain → lead spawns parallel fixers (one/domain). ≥6 φ in 1 domain spanning distinct modules → multiple fixers/domain. Stay within assigned dirs. Lead handles combined commit.
 
+## Boundaries
+
+- ¬create new files; ¬modify files outside φ scope
+- ¬refactor surrounding code; ¬add features
+- ¬change public API signatures without architect approval
+- ¬auto-apply data/schema changes (→ manual review)
+
 ## Auto-Apply Rules
 
 **Scope:** May modify: (1) files in φ `file_path`, (2) co-located tests (`*.test.ts`/`*.spec.ts`) when source fix breaks them. Beyond → "cannot auto-fix — scope violation." ¬create files, ¬modify unrelated files.
