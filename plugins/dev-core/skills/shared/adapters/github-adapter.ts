@@ -561,6 +561,14 @@ export async function linkProjectToRepo(projectId: string, owner: string, repoNa
   await ghGraphQL(LINK_PROJECT_TO_REPO_MUTATION, { projectId, repositoryId })
 }
 
+/** Update labels on a GitHub issue: add and/or remove labels. */
+export async function updateLabels(issueNumber: number, add: string[], remove: string[]): Promise<void> {
+  const args = ['gh', 'issue', 'edit', String(issueNumber), '--repo', GITHUB_REPO]
+  if (add.length) args.push('--add-label', add.join(','))
+  if (remove.length) args.push('--remove-label', remove.join(','))
+  await run(args)
+}
+
 /** Get the parent issue number for an issue, or null if none. */
 export async function getParentNumber(issueNumber: number): Promise<number | null> {
   const [owner, repo] = GITHUB_REPO.split('/')

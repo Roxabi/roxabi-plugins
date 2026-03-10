@@ -145,6 +145,17 @@ export const PRIORITY_SHORT: Record<string, string> = {
   'P3 - Low': 'P3',
 }
 
+/** Map canonical project priority → GitHub label name. */
+export const PRIORITY_LABEL_MAP: Record<string, string> = {
+  'P0 - Urgent': 'P0-critical',
+  'P1 - High': 'P1-high',
+  'P2 - Medium': 'P2-medium',
+  'P3 - Low': 'P3-low',
+}
+
+/** Set of all priority label names (for stale label removal). */
+export const PRIORITY_LABELS_SET = new Set(Object.values(PRIORITY_LABEL_MAP))
+
 export const STATUS_SHORT: Record<string, string> = {
   'In Progress': 'In Prog',
   Backlog: 'Backlog',
@@ -252,4 +263,22 @@ export const BLOCK_ORDER: Record<string, number> = {
   blocking: 0,
   ready: 1,
   blocked: 2,
+}
+
+/**
+ * Sync priority label on a GitHub issue. Adds the target label and removes stale ones.
+ * Non-fatal: logs a warning on failure but does not throw.
+ */
+export async function syncPriorityLabel(issueNumber: number, canonical: string): Promise<void> {
+  const target = PRIORITY_LABEL_MAP[canonical]
+  if (!target) return
+
+  const stale = [...PRIORITY_LABELS_SET].filter((l) => l !== target)
+
+  try {
+    const { updateLabels } = await import('./github-adapter')
+    await updateLabels(issueNumber, [target], stale)
+  } catch (err) {
+    console.error(`Warning: Failed to sync priority label for #${issueNumber}: ${err}`)
+  }
 }

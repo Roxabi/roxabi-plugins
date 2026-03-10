@@ -86,6 +86,7 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
     }
     return aliases[input.toUpperCase()]
   },
+  syncPriorityLabel: vi.fn(),
 }))
 
 vi.mock('../../shared/adapters/github-adapter', () => ({
@@ -104,6 +105,9 @@ const mockAddToProject = github.addToProject as ReturnType<typeof vi.fn>
 const mockUpdateField = github.updateField as ReturnType<typeof vi.fn>
 const mockAddBlockedBy = github.addBlockedBy as ReturnType<typeof vi.fn>
 const mockAddSubIssue = github.addSubIssue as ReturnType<typeof vi.fn>
+
+const configHelpers = await import('../../shared/adapters/config-helpers')
+const mockSyncPriorityLabel = configHelpers.syncPriorityLabel as ReturnType<typeof vi.fn>
 
 const { createIssue } = await import('../lib/create')
 
@@ -192,5 +196,20 @@ describe('issue-triage/create > options and error handling', () => {
     await createIssue(['--title', 'Test', '--blocked-by', '10'])
     // Should still set dependencies
     expect(mockAddBlockedBy).toHaveBeenCalled()
+  })
+})
+
+describe('issue-triage/create > priority label sync', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  it('syncs priority label when --priority is provided', async () => {
+    await createIssue(['--title', 'Test', '--priority', 'High'])
+    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(99, 'P1 - High')
+  })
+
+  it('does not sync priority label when --priority is not provided', async () => {
+    await createIssue(['--title', 'Test'])
+    expect(mockSyncPriorityLabel).not.toHaveBeenCalled()
   })
 })

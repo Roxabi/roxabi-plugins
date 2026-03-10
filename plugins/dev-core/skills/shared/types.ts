@@ -21,6 +21,7 @@ export interface RawContent {
   body?: string
   subIssues?: { nodes: RawSubIssue[] }
   parent?: { number: number; state: string } | null
+  labels?: { nodes: { name: string }[] }
   blockedBy?: { nodes: { number: number; state: string }[] }
   blocking?: { nodes: { number: number; state: string }[] }
 }

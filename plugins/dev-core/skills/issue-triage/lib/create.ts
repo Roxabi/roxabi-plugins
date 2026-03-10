@@ -15,6 +15,7 @@ import {
   SIZE_OPTIONS,
   STATUS_FIELD_ID,
   STATUS_OPTIONS,
+  syncPriorityLabel,
 } from '../../shared/adapters/config-helpers'
 import {
   addBlockedBy,
@@ -196,6 +197,12 @@ export async function createIssue(args: string[]): Promise<void> {
     }
   } else if (wantsProjectFields) {
     console.error(NOT_CONFIGURED_MSG)
+  }
+
+  // Sync priority label (independent of project board)
+  if (opts.priority) {
+    const canonical = resolvePriority(opts.priority)
+    if (canonical) await syncPriorityLabel(issueNumber, canonical)
   }
 
   await applyRelationships(nodeId, issueNumber, opts)
