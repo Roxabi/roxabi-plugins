@@ -71,6 +71,30 @@ Set up σ early — later phases read runtime, package manager, commands, deploy
 
 7. **existing** → D("stack.yml", "✅ Already exists"), skip.
 
+## Phase 2c — Scaffold CLAUDE.md Critical Rules
+
+Generate governance rules (dev process, AskUserQuestion, git conventions, etc.) from σ values. Sections vary by detected project type.
+
+1. Run: `bun $I_TS scaffold-rules --stack-path .claude/stack.yml --claude-md CLAUDE.md`
+2. Parse JSON → extract `projectType`, `sections`, `markdown`, `existing`.
+
+3. Display detected type:
+   ```
+   Project type: {projectType}
+   Sections to scaffold: {sections.length} ({section ids joined by ", "})
+   ```
+
+4. Check `existing.sectionIds`:
+   - **∅ existing** (no Critical Rules yet) → Ask: **Scaffold Critical Rules** (append to CLAUDE.md) | **Skip**
+   - **partial** (some sections present, some missing) → list missing, Ask: **Merge** (append only missing sections) | **Replace** (rewrite all Critical Rules) | **Skip**
+   - **all present** → D("Critical Rules", "✅ Already complete"), skip.
+
+5. **Scaffold / Replace** → append or replace the `## Critical Rules` block in CLAUDE.md with `markdown` from result. Preserve any content before `## Critical Rules` and after the last generated section.
+
+6. **Merge** → ∀ section ∈ generated ∧ section.id ∉ existing.sectionIds → append section markdown after the last existing Critical Rules heading in CLAUDE.md.
+
+7. D("Critical Rules", "✅ Scaffolded ({sections.length} sections for {projectType})")
+
 ## Phase 3 — Auto-Discover Configuration
 
 Run: `bun $I_TS discover`. Parse → extract `owner`, `repo`, `projects`, `fields`, `labels`, `workflows`, `protection`, `vercel`, `env`.
