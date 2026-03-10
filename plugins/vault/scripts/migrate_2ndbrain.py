@@ -29,6 +29,10 @@ if TYPE_CHECKING:
 DEFAULT_SOURCE = Path.home() / "projects/2ndBrain/knowledge/memory.db"
 DEFAULT_KNOWLEDGE_DIR = Path.home() / "projects/2ndBrain/knowledge"
 
+
+class MigrationError(Exception):
+    """Raised when migration cannot proceed (source not found, bad schema, etc.)."""
+
 EXPECTED_COLUMNS = {"id", "category", "type", "title", "summary", "saved_at"}
 
 # Directory → (category, type) for disk-only files
@@ -53,11 +57,13 @@ SMOKE_QUERIES = [
 # T1 — Source detection + schema validation
 # ---------------------------------------------------------------------------
 def detect_source(path: str | None = None) -> Path:
-    """Resolve and validate the source memory.db path."""
+    """Resolve and validate the source memory.db path.
+
+    Raises MigrationError if source not found or schema invalid.
+    """
     p = Path(path) if path else DEFAULT_SOURCE
     if not p.exists():
-        print(json.dumps({"error": f"Source not found: {p}"}))
-        sys.exit(1)
+        raise MigrationError(f"Source not found: {p}")
 
     conn = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
     try:
@@ -66,15 +72,13 @@ def detect_source(path: str | None = None) -> Path:
         conn.close()
 
     if not cols:
-        print(json.dumps({"error": "Table 'documents' not found in source database"}))
-        sys.exit(1)
+        raise MigrationError("Table 'documents' not found in source database")
 
     missing = EXPECTED_COLUMNS - cols
     if missing:
-        print(json.dumps(
-            {"error": f"Missing columns in documents table: {sorted(missing)}"}
-        ))
-        sys.exit(1)
+        raise MigrationError(
+            f"Missing columns in documents table: {sorted(missing)}"
+        )
 
     return p
 
@@ -162,18 +166,23 @@ def embed_and_update(
     content: str,
     event_date: str | None,
 ) -> None:
-    """Compute embedding and write it (+ event_date) directly into the entries row."""
+    """Compute embedding and write it (+ event_date) directly into the entries row.
+
+    Does NOT commit — caller is responsible for batch commits.
+    """
     embedding = embedder.embed(content)
     db.connection.execute(
         "UPDATE entries SET embedding = ?, event_date = ? WHERE id = ?",
         (embedding, event_date, entry_id),
     )
-    db.connection.commit()
 
 
 # ---------------------------------------------------------------------------
 # T6 — Migration loop + broken ref detection
 # ---------------------------------------------------------------------------
+_COMMIT_BATCH_SIZE = 50
+
+
 def migrate_db_entries(
     src: Path,
     db: "MemoryDB",
@@ -183,7 +192,11 @@ def migrate_db_entries(
 ) -> dict:
     """Migrate all documents from source DB to vault. Returns stats dict."""
     docs = read_source_documents(src)
-    stats: dict = {"new": 0, "skipped": 0, "errors": 0, "broken_refs": []}
+    stats: dict = {
+        "new": 0, "skipped": 0, "errors": 0,
+        "broken_refs": [], "migrated_source_ids": set(),
+    }
+    uncommitted = 0
 
     for doc in docs:
         try:
@@ -192,6 +205,7 @@ def migrate_db_entries(
 
             if check_dedup(db.connection, str(source_id)):
                 stats["skipped"] += 1
+                stats["migrated_source_ids"].add(str(source_id))
                 continue
 
             if not dry_run:
@@ -199,8 +213,13 @@ def migrate_db_entries(
                 embed_and_update(
                     db, embedder, entry_id, mapped["content"], mapped["event_date"]
                 )
+                uncommitted += 1
+                if uncommitted >= _COMMIT_BATCH_SIZE:
+                    db.connection.commit()
+                    uncommitted = 0
 
             stats["new"] += 1
+            stats["migrated_source_ids"].add(str(source_id))
 
             # Detect broken file references
             cf = doc.get("content_file")
@@ -218,7 +237,37 @@ def migrate_db_entries(
                 file=sys.stderr,
             )
 
+    # Final commit for remaining entries
+    if uncommitted > 0 and not dry_run:
+        db.connection.commit()
+
+    # Repair pass: re-embed entries left without embedding (crash recovery)
+    if not dry_run:
+        _repair_missing_embeddings(db, embedder)
+
     return stats
+
+
+def _repair_missing_embeddings(db: "MemoryDB", embedder: "Embedder") -> int:
+    """Find vault entries with NULL embedding and re-embed them. Returns count."""
+    rows = db.connection.execute(
+        "SELECT id, content FROM entries"
+        " WHERE namespace = 'vault' AND embedding IS NULL"
+    ).fetchall()
+    for row in rows:
+        entry_id, content = row[0], row[1]
+        embedding = embedder.embed(content)
+        db.connection.execute(
+            "UPDATE entries SET embedding = ? WHERE id = ?",
+            (embedding, entry_id),
+        )
+    if rows:
+        db.connection.commit()
+        print(
+            json.dumps({"info": f"Repaired {len(rows)} entries with missing embeddings"}),
+            file=sys.stderr,
+        )
+    return len(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +283,11 @@ def scan_knowledge_dir(knowledge_dir: Path) -> list[Path]:
 # ---------------------------------------------------------------------------
 def get_vault_dest(relative_path: str) -> Path:
     """Map a source-relative path to its vault destination path."""
-    return get_vault_home() / relative_path
+    vault_home = get_vault_home().resolve()
+    dest = (vault_home / relative_path).resolve()
+    if not dest.is_relative_to(vault_home):
+        raise ValueError(f"Path traversal detected: {relative_path!r} escapes vault home")
+    return dest
 
 
 def copy_file_to_vault(src_file: Path, knowledge_dir: Path) -> Path:
@@ -432,7 +485,10 @@ def generate_report(
     fts_results: list[dict],
     broken_refs: list[str],
 ) -> dict:
-    """Assemble the final JSON report."""
+    """Assemble the final JSON report.
+
+    Reads only serializable keys from db_stats (ignores migrated_source_ids set).
+    """
     return {
         "migration": {
             "db_entries": {
@@ -450,7 +506,7 @@ def generate_report(
         "verification": {
             "counts":          count_check,
             "fts_smoke_tests": fts_results,
-            "all_fts_pass":    all(r["pass"] for r in fts_results),
+            "all_fts_pass":    all(r["pass"] for r in fts_results) if fts_results else False,
         },
         # True on a re-run: everything was already migrated
         "idempotent": db_stats["skipped"] > 0 and db_stats["new"] == 0,
@@ -480,7 +536,12 @@ def main() -> None:
 
     # Phase 1 — Detect + validate source
     print("Detecting source database...", file=sys.stderr)
-    src = detect_source(args.source)
+    try:
+        src = detect_source(args.source)
+    except MigrationError as exc:
+        print(json.dumps({"error": str(exc)}))
+        sys.exit(1)
+
     knowledge_dir = (
         Path(args.knowledge_dir) if args.knowledge_dir else DEFAULT_KNOWLEDGE_DIR
     )
@@ -510,9 +571,11 @@ def main() -> None:
         db_stats = migrate_db_entries(
             src, db, embedder, knowledge_dir, dry_run=args.dry_run
         )
+        broken_refs = db_stats["broken_refs"]
+        migrated_ids = db_stats["migrated_source_ids"]
         print(
             f"  DB: {db_stats['new']} new, {db_stats['skipped']} skipped, "
-            f"{db_stats['errors']} errors, {len(db_stats['broken_refs'])} broken refs",
+            f"{db_stats['errors']} errors, {len(broken_refs)} broken refs",
             file=sys.stderr,
         )
 
@@ -522,7 +585,7 @@ def main() -> None:
             knowledge_dir,
             db,
             embedder,
-            migrated_source_ids=set(),
+            migrated_source_ids=migrated_ids,
             dry_run=args.dry_run,
         )
         print(
@@ -536,7 +599,6 @@ def main() -> None:
         count_check = verify_counts(db, src)
         fts_results = verify_fts(db) if not args.dry_run else []
 
-        broken_refs = db_stats.pop("broken_refs", [])
         report = generate_report(
             db_stats, file_stats, count_check, fts_results, broken_refs
         )

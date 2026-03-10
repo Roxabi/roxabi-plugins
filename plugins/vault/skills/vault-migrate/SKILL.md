@@ -95,9 +95,9 @@ Progress and warnings are written to stderr. The script:
 ## Phase 4 — Migrate Files
 
 The script also handles file migration automatically in the same run:
-- Scans all 59 markdown files under knowledge/
+- Scans all markdown files under knowledge/
 - Copies each file to the corresponding `~/.roxabi-vault/` subdirectory
-- Creates vault entries for the 16 disk-only files (no DB row), auto-categorized by directory
+- Creates vault entries for disk-only files (no DB row), auto-categorized by directory
 
 Directory → category/type mapping for disk-only files:
 

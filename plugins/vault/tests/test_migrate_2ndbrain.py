@@ -584,21 +584,6 @@ class TestBrokenRefs:
         assert len(stats["broken_refs"]) == 1
         assert "does-not-exist.md" in stats["broken_refs"][0]
 
-    def test_broken_ref_no_crash(
-        self, source_db_with_broken_ref, vault_db, embedder, knowledge_dir
-    ):
-        # Arrange
-        from migrate_2ndbrain import migrate_db_entries
-
-        # Act + Assert — must not raise any exception
-        stats = migrate_db_entries(
-            source_db_with_broken_ref,
-            vault_db,
-            embedder,
-            knowledge_dir,
-            dry_run=False,
-        )
-        assert isinstance(stats, dict)
 
 
 # ---------------------------------------------------------------------------
