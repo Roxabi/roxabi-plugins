@@ -91,6 +91,7 @@ Read `docs.path` from σ. ¬set → D⏭("docs.path not set"), skip doc checks.
 - `docs.path` dir ∃ → ✅ | ⚠️ "not found on disk" (auto-fixable).
 - ∃ dir → check `architecture/` ∧ `standards/`: both → ✅ | ⚠️ "incomplete — missing: {dirs}" (auto-fixable).
 - `docs.framework: fumadocs` → `apps/docs/source.config.ts` ∃ → ✅ | ⚠️ "Fumadocs app missing" (auto-fixable).
+- **Stub detection:** ∀ file in `docs.path` (*.md, *.mdx): count files with `TODO:` markers or < 30 lines of real content. N > 0 → ⚠️ "{N} stub docs detected — run `/seed-docs` to populate from CLAUDE.md + codebase". N = 0 → ✅ "Docs populated".
 
 **Artifacts:** ∀ path ∈ `artifacts.*` → chk(∃, ✅, ⚠️ "dir not found: {path}").
 
@@ -134,9 +135,10 @@ Config ∄ → ⚠️. Config ∃ ∧ hook ∄ → ⚠️ "needs `{install-cmd}`
 Print summary:
 ```
 Stack config: N checks passed, M warnings, K errors
-Docs          ✅ docs/ present, structure complete[, Fumadocs ✅]
+Docs          ✅ docs/ present, structure complete, docs populated[, Fumadocs ✅]
               ⚠️ docs/ not found on disk — run scaffold-docs to fix
               ⚠️ docs structure incomplete (missing: {dirs}) — run scaffold-docs
+              ⚠️ {N} stub docs detected — run /seed-docs to populate
               ⏭ docs.path not set in stack.yml
 ```
 Note: Fumadocs segment appended only when `docs.framework: fumadocs`.
@@ -186,6 +188,7 @@ Ask: **Fix all** | **Select** | **Skip**
 | `.license-policy.json missing` (JS) | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && cp "${Φ}/tools/license-policy.json.example" .license-policy.json` |
 | `docs.path missing` / `docs incomplete` | `bun "${Φ}/skills/init/init.ts" scaffold-docs --format {docs.format} --path {docs.path}` — re-check + display |
 | `Fumadocs app missing` | `bun "${Φ}/skills/init/init.ts" scaffold-fumadocs --root {cwd} --docs-path {docs.path}` — re-check + display |
+| `Stub docs detected` | Run `/seed-docs` — populates TODOs from CLAUDE.md + codebase analysis |
 
 When `standards.*` paths match scaffold-docs output patterns → offer scaffold-docs instead of manual edit.
 
