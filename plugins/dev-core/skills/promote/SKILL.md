@@ -2,7 +2,7 @@
 name: promote
 argument-hint: [--dry-run | --skip-preview | --finalize]
 description: Promote staging→main — pre-flight, version bump, changelog, PR & tag. Triggers: "promote staging" | "release" | "deploy" | "cut a release" | "--finalize".
-version: 0.3.0
+version: 0.4.0
 allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch, AskUserQuestion
 ---
 
@@ -83,6 +83,15 @@ Promotion Summary
 
 `--dry-run` ⇒ display summary + changelog, stop. Inform: "Run `/promote` to create the promotion PR."
 
+## Step 6b — Changelog Commit
+
+σ may have branch protection (PRs required). If direct push to σ fails:
+1. Create temp branch: `git branch chore/$VERSION-changelog staging`
+2. Push: `git push origin chore/$VERSION-changelog`
+3. Create PR: `gh pr create --base staging --head chore/$VERSION-changelog --title "chore(release): add $VERSION changelog"`
+4. Merge: `gh pr merge <N> --squash --delete-branch`
+5. Sync local: `git fetch origin staging && git reset --hard origin/staging`
+
 ## Step 7 — Create Promotion PR
 
 ```bash
@@ -110,9 +119,14 @@ Display PR URL.
 
 ## Step 8 — Post-merge Reminder
 
+**CRITICAL: Use merge commit (not squash) when merging the promotion PR.**
+Squash-merge causes staging↔main history divergence → next promotion has conflicts on every previously-promoted file, and deleted files get resurrected.
+
 Inform:
 ```
 Promotion PR created: {URL}
+
+⚠️  MERGE WITH MERGE COMMIT (not squash) to keep histories reconciled.
 
 After merge:
   1. Vercel auto-deploys to production

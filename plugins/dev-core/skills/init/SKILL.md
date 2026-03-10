@@ -232,7 +232,7 @@ yes → `bun $I_TS protect-branches --repo <owner/repo>`
 
 This command:
 1. Applies branch protection (required `ci` check, strict up-to-date) on main + staging
-2. Creates the `PR_Main` ruleset if missing (squash/rebase only, no deletion, no force push, thread resolution required)
+2. Creates the `PR_Main` ruleset if missing (squash/rebase/merge allowed, no deletion, no force push, thread resolution required). Merge commits are needed for promotion PRs (staging→main) to keep histories reconciled.
 
 Parse result JSON. Display:
 - Branch protection: `main ✅, staging ✅` (or ❌ per branch)

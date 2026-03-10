@@ -392,18 +392,36 @@ function checkRulesets(ghOk: boolean, owner: string, repo: string): Section {
     .filter((n) => n)
   const hasRuleset = existing.includes(DEFAULT_RULESET.name)
 
-  return {
-    name: 'Rulesets',
-    checks: [
-      {
-        name: DEFAULT_RULESET.name,
-        status: hasRuleset ? 'pass' : 'warn',
-        detail: hasRuleset
-          ? 'active (squash/rebase only, no deletion, no force push, thread resolution)'
-          : 'missing — run /init to create (enforces squash/rebase merges, thread resolution)',
-      },
-    ],
+  const checks: Check[] = [
+    {
+      name: DEFAULT_RULESET.name,
+      status: hasRuleset ? 'pass' : 'warn',
+      detail: hasRuleset
+        ? 'active'
+        : 'missing — run /init to create (enforces squash/rebase/merge, thread resolution)',
+    },
+  ]
+
+  // Check that merge commit is in allowed methods (needed for promotion PRs)
+  if (hasRuleset) {
+    const detailResult = spawnSync([
+      'gh', 'api', `repos/${owner}/${repo}/rulesets`,
+      '--jq', `.[] | select(.name == "${DEFAULT_RULESET.name}") | .rules[] | select(.type == "pull_request") | .parameters.allowed_merge_methods`,
+    ])
+    if (detailResult.ok) {
+      const methods = detailResult.stdout.trim()
+      const hasMerge = methods.includes('merge')
+      checks.push({
+        name: 'Merge commit allowed',
+        status: hasMerge ? 'pass' : 'warn',
+        detail: hasMerge
+          ? 'merge commit enabled (required for promotion PRs)'
+          : 'merge commit not in allowed_merge_methods — promotion PRs will cause history divergence',
+      })
+    }
   }
+
+  return { name: 'Rulesets', checks }
 }
 
 function checkProjectStructure(): Section {

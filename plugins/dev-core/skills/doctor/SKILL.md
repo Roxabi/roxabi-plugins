@@ -41,7 +41,8 @@ Severity guide: ❌ = blocking error, ⚠️ = warning, ✅ = pass, ⏭ = skippe
 | `tools/licenseChecker.ts` missing | Run `/init` Phase 10d — copies from plugin: `cp "${CLAUDE_PLUGIN_ROOT}/tools/licenseChecker.ts" tools/licenseChecker.ts` |
 | trufflehog not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-commit.commands.trufflehog` |
 | license check not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` with `pre-push.commands.license` |
-| `PR_Main` ruleset missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts protect-branches --repo <owner/repo>` — creates ruleset enforcing squash/rebase merges, thread resolution, no deletion/force push |
+| `PR_Main` ruleset missing | Run `bun ${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts protect-branches --repo <owner/repo>` — creates ruleset enforcing squash/rebase/merge, thread resolution, no deletion/force push |
+| `PR_Main` missing `merge` method | Update ruleset: `gh api repos/:owner/:repo/rulesets/<id> --method PUT` with `allowed_merge_methods: ["squash","rebase","merge"]` — merge commits are needed for promotion PRs (staging→main) to keep histories reconciled |
 
 Issues requiring interactive GitHub auth or multi-step scaffolding → display exact command + explanation. Do not silently redirect — always show the fix.
 
