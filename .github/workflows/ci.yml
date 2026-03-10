@@ -21,7 +21,7 @@ jobs:
         run: bun typecheck
       - name: Test (vitest)
         run: bun run test
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - run: pip install pytest git+https://github.com/Roxabi/roxabi-memory.git@main
