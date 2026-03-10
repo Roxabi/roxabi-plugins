@@ -259,7 +259,22 @@ describe('detectGitHubRepo', () => {
     expect(detectGitHubRepo()).toBe('Roxabi/roxabi-plugins')
   })
 
-  it('throws when no env var and no git remote', () => {
+  it('throws when no env var, no git remote, and no gh CLI', async () => {
+    // Reset module registry and mock node modules so loadDevCoreConfig's gh fallback fails
+    vi.resetModules()
+    vi.doMock('node:child_process', () => ({
+      execSync: () => {
+        throw new Error('gh: command not found')
+      },
+    }))
+    vi.doMock('node:fs', () => ({
+      readFileSync: () => {
+        throw new Error('ENOENT')
+      },
+    }))
+
+    const { detectGitHubRepo: detect } = await import('../adapters/config-helpers')
+
     spawnSyncSpy.mockReturnValue({
       stdout: new Uint8Array(),
       stderr: new TextEncoder().encode('fatal: not a git repository\n'),
@@ -267,6 +282,9 @@ describe('detectGitHubRepo', () => {
       success: false,
     } as unknown as ReturnType<typeof Bun.spawnSync>)
 
-    expect(() => detectGitHubRepo()).toThrow('Cannot detect GitHub repo')
+    expect(() => detect()).toThrow('Cannot detect GitHub repo')
+
+    vi.doUnmock('node:child_process')
+    vi.doUnmock('node:fs')
   })
 })
