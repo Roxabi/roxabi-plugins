@@ -1,0 +1,31 @@
+{
+  "$schema": "https://roxabi.dev/schemas/external-registry.schema.json",
+  "version": "1.0",
+  "description": "Registry of all external Claude Code plugin sources endorsed or vendored by Roxabi. Source of truth for upstream URLs, sync state, and curation status. See CLAUDE.md ## External Ecosystem for full workflow documentation.",
+  "_schema": {
+    "curated_marketplaces": {
+      "name": "identifier, kebab-case",
+      "source": "GitHub repo URL (no .git suffix)",
+      "added": "ISO date (YYYY-MM-DD)",
+      "last_checked_commit": "HEAD SHA at last CI check",
+      "criteria_met": "array: marketplace_json | install_mechanism | maintained_90d | quality_content | lt50pct_overlap",
+      "status": "active | deprecated",
+      "notes": "free text"
+    },
+    "wrapped_plugins": {
+      "plugin": "plugin directory name — matches external/<name>",
+      "upstream_url": ".git URL for subtree strategy; repo URL for copy strategy",
+      "upstream_branch": "e.g. main",
+      "upstream_path": "subdirectory within repo (copy strategy only, e.g. skills/vercel-cli)",
+      "last_sync_commit": "SHA of upstream HEAD at last sync",
+      "last_sync_date": "ISO date (YYYY-MM-DD)",
+      "subtree_prefix": "external/<name> (subtree strategy only)",
+      "sync_strategy": "subtree | copy",
+      "status": "active | drift_detected | deprecated",
+      "added": "ISO date (YYYY-MM-DD)",
+      "notes": "free text — attribution, license, conflict notes"
+    }
+  },
+  "curated_marketplaces": [],
+  "wrapped_plugins": []
+}
