@@ -269,48 +269,70 @@ h. D("Pre-commit hooks", "✅ {tool} installed (lint + typecheck + trufflehog on
 
 ## Phase 3 — Marketplace Plugins
 
-Offer additional Roxabi plugins grouped by theme. dev-core already installed.
+dev-core already installed. Discover available plugins from our marketplace and curated external sources.
 
-∀ group below: display name + table, Ask: **Install all** | **Pick** | **Skip**. Pick → Ask per plugin: **Install** | **Skip**. Install: `claude plugin install <name>`.
+### 3a — Discover Roxabi plugins
 
-### Group 1 — Dev tools
+1. Ensure marketplace is registered:
+   ```bash
+   claude plugin marketplace add Roxabi/roxabi-plugins 2>/dev/null || true
+   ```
 
-| Plugin | What it does |
-|--------|-------------|
-| `compress` | Rewrite agent/skill definitions in compact math/logic notation — cuts token usage |
-| `1b1` | Walk a list one by one: brief → decide → act → next. Great for review queues |
-| `web-intel` | Scrape Twitter/X, GitHub, YouTube, Reddit, webpages — summarize, analyze, benchmark |
+2. Fetch live plugin list from GitHub:
+   ```bash
+   gh api repos/Roxabi/roxabi-plugins/contents/.claude-plugin/marketplace.json \
+     -H "Accept: application/vnd.github.raw+json" \
+     | jq -r '.plugins[] | [.name, .description, (.category // "other")] | @tsv'
+   ```
+   API failure → fall back to **Static fallback list** below.
 
-### Group 2 — Frontend quality
+3. Check already-installed plugins:
+   ```bash
+   claude plugin list --json 2>/dev/null | jq -r '.[].name' || claude plugin list 2>/dev/null
+   ```
 
-| Plugin | What it does |
-|--------|-------------|
-| `react-best-practices` | 58 React/Next.js perf rules across 8 categories, prioritized by impact |
-| `composition-patterns` | Avoid boolean prop proliferation — compound components, context providers |
-| `web-design-guidelines` | Review UI for accessibility, UX, and Web Interface Guidelines compliance |
+4. Filter: remove `dev-core` + any already-installed plugin from the discovered list.
 
-### Group 3 — Visual output
+5. Group remaining plugins by `category` (from the tsv above). ∀ group:
+   - Print: `### <Category>` + `| Plugin | Description |` table
+   - Ask: **Install all** | **Pick** | **Skip**
+   - Pick → Ask per plugin: **Install** | **Skip**
+   - Install: `claude plugin install <name>`
 
-| Plugin | What it does |
-|--------|-------------|
-| `visual-explainer` | Self-contained HTML pages with diagrams, visualizations, and data tables |
-| `frontend-slides` | Zero-dependency HTML presentations — 12 presets, PPT conversion |
-| `image-prompt-generator` | AI image prompts with visual identity and style consistency |
+### 3b — Curated external marketplaces
 
-### Group 4 — Career & content
+Offer plugins from vetted external repos. Each entry below is a `<owner/repo>` marketplace source.
 
-| Plugin | What it does |
-|--------|-------------|
-| `cv` | Generate and adapt CVs from structured JSON, tailored for specific job postings |
-| `linkedin-apply` | Scrape LinkedIn jobs and score against your profile — APPLY / REVIEW / SKIP |
-| `linkedin-post-generator` | Engaging LinkedIn posts with best practices and visual identity |
+| Source | Highlights |
+|--------|-----------|
+| `anthropics/claude-code-plugins` | Official Anthropic plugin collection |
 
-### Group 5 — Data & productivity
+∀ source:
+1. Fetch its `marketplace.json` (same API call pattern as 3a).
+2. Present plugins not already installed, grouped by category.
+3. Ask: **Install all** | **Pick** | **Skip**
+4. Install: `claude plugin marketplace add <owner/repo> 2>/dev/null || true && claude plugin install <name>`
 
-| Plugin | What it does |
-|--------|-------------|
-| `vault` | Unified local SQLite+FTS5 vault — CRUD and full-text search across Roxabi data |
-| `get-invoice-details` | Extract structured data from invoice documents (text or PDF) → JSON |
+### 3c — Static fallback (GitHub API unavailable)
+
+Use this list if `gh api` fails in 3a:
+
+| Plugin | Category | What it does |
+|--------|----------|-------------|
+| `compress` | dev-tools | Rewrite agent/skill definitions in compact math/logic notation |
+| `1b1` | dev-tools | Walk a list one by one: brief → decide → act → next |
+| `web-intel` | dev-tools | Scrape Twitter/X, GitHub, YouTube, Reddit — summarize, analyze |
+| `react-best-practices` | frontend | 58 React/Next.js perf rules across 8 categories |
+| `composition-patterns` | frontend | Avoid boolean prop proliferation — compound components |
+| `web-design-guidelines` | frontend | Review UI for accessibility, UX, and Web Interface Guidelines |
+| `visual-explainer` | visual | Self-contained HTML pages with diagrams and data tables |
+| `frontend-slides` | visual | Zero-dependency HTML presentations — 12 presets, PPT conversion |
+| `image-prompt-generator` | visual | AI image prompts with visual identity and style consistency |
+| `cv` | career | Generate and adapt CVs from structured JSON |
+| `linkedin-apply` | career | Score LinkedIn jobs against your profile — APPLY / REVIEW / SKIP |
+| `linkedin-post-generator` | career | Engaging LinkedIn posts with best practices |
+| `vault` | data | Unified local SQLite+FTS5 vault — CRUD and full-text search |
+| `get-invoice-details` | data | Extract structured data from invoice documents → JSON |
 
 After all groups: D("Marketplace plugins", "installed: name, name, ... (or: ⏭ None installed)").
 
