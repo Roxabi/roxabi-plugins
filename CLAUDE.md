@@ -214,6 +214,8 @@ Roxabi endorses and vendors external Claude Code plugins via two mechanisms. The
 
 Both appear in `.claude-plugin/marketplace.json` so users install them the same way.
 
+> **Note:** The `external/` directory is created when the first external plugin is vendored (see issue #63 — initial audit). This section documents the convention for when it exists.
+
 ### Case 1 — Curated Marketplace
 
 An external repo that is itself a proper plugin marketplace (has `marketplace.json`, versioned

@@ -1,5 +1,4 @@
 {
-  "$schema": "https://roxabi.dev/schemas/external-registry.schema.json",
   "version": "1.0",
   "description": "Registry of all external Claude Code plugin sources endorsed or vendored by Roxabi. Source of truth for upstream URLs, sync state, and curation status. See CLAUDE.md ## External Ecosystem for full workflow documentation.",
   "_schema": {
