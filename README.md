@@ -10,7 +10,7 @@ Open-source Claude Code plugins by [Roxabi](https://github.com/Roxabi). Context 
 
 | Plugin | Description |
 |--------|-------------|
-| [dev-core](plugins/dev-core/README.md) | Full development workflow — frame, shape, plan, implement, review, ship. 26 skills, 9 agents, safety hooks. Project-agnostic via stack.yml |
+| [dev-core](plugins/dev-core/README.md) | Full development workflow — frame, shape, plan, implement, review, ship. 27 skills, 9 agents, safety hooks. Project-agnostic via stack.yml |
 | [compress](plugins/compress/README.md) | Rewrite agent/skill definitions using compact math/logic notation to reduce token usage |
 | [1b1](plugins/1b1/README.md) | Walk through a list of items one by one — brief, decide, execute, repeat |
 | [web-intel](plugins/web-intel/README.md) | Multi-platform URL scraper + 6 analysis skills (scrape, summarize, analyze, roast, benchmark, adapt) |
