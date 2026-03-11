@@ -78,9 +78,12 @@ Install or skip hook runner setup.
 AskUserQuestion: **Lefthook** | **Husky** | **Skip**
 
 **Lefthook chosen, runtime = node/bun/deno (Node/TS):**
-1. Install:
+1. Install (branch on `{package_manager}`):
    ```bash
-   <package_manager> add -d lefthook
+   bun:  bun add -d lefthook
+   pnpm: pnpm add -D lefthook
+   npm:  npm install --save-dev lefthook
+   yarn: yarn add --dev lefthook
    ```
 2. Generate `.lefthook.yml`:
    ```yaml
@@ -94,7 +97,10 @@ AskUserQuestion: **Lefthook** | **Husky** | **Skip**
 3. Install hooks: `bunx lefthook install` (or `npx lefthook install` for npm/node).
 4. Install `lint-staged`, add config to `package.json`:
    ```bash
-   <package_manager> add -d lint-staged
+   bun:  bun add -d lint-staged
+   pnpm: pnpm add -D lint-staged
+   npm:  npm install --save-dev lint-staged
+   yarn: yarn add --dev lint-staged
    ```
    Add to `package.json`:
    ```json
@@ -106,10 +112,19 @@ AskUserQuestion: **Lefthook** | **Husky** | **Skip**
 6. D✅("Hook runner — .lefthook.yml")
 
 **Lefthook chosen, runtime = python:**
-1. Install:
+1. Check system install (Lefthook is a Go binary — not installable via Python PM):
    ```bash
-   <package_manager> add -d lefthook
+   which lefthook && echo "found" || echo "missing"
    ```
+   `missing` → display instructions and continue:
+   ```
+   Lefthook must be installed as a system binary:
+     brew install lefthook        # macOS / Homebrew
+     go install github.com/evilmartians/lefthook@latest  # Go toolchain
+     scoop install lefthook       # Windows
+   Install lefthook then re-run /release-setup.
+   ```
+   D⚠("Hook runner — lefthook not found") + skip to Phase 3.
 2. Generate `.lefthook.yml`:
    ```yaml
    pre-commit:
@@ -138,9 +153,12 @@ AskUserQuestion: **Lefthook** | **Husky** | **Skip**
 6. D✅("Hook runner — .lefthook.yml + .pre-commit-config.yaml")
 
 **Husky chosen:**
-1. Install `husky`:
+1. Install `husky` (branch on `{package_manager}`):
    ```bash
-   <package_manager> add -d husky
+   bun:  bun add -d husky
+   pnpm: pnpm add -D husky
+   npm:  npm install --save-dev husky
+   yarn: yarn add --dev husky
    ```
 2. Init: `bunx husky init` (or `npx husky init` for npm/node).
 3. Generate `.husky/pre-commit`:
@@ -151,7 +169,10 @@ AskUserQuestion: **Lefthook** | **Husky** | **Skip**
    ```
 4. Install `lint-staged`, add config to `package.json`:
    ```bash
-   <package_manager> add -d lint-staged
+   bun:  bun add -d lint-staged
+   pnpm: pnpm add -D lint-staged
+   npm:  npm install --save-dev lint-staged
+   yarn: yarn add --dev lint-staged
    ```
    Add to `package.json`:
    ```json
@@ -177,9 +198,12 @@ Configure Commitizen + commitlint for enforced conventional commits.
 AskUserQuestion: **Commitizen + commitlint** | **Skip**
 
 **Commitizen + commitlint chosen:**
-1. Install packages:
+1. Install packages (branch on `{package_manager}`):
    ```bash
-   <package_manager> add -d commitizen @commitlint/cli @commitlint/config-conventional
+   bun:  bun add -d commitizen @commitlint/cli @commitlint/config-conventional
+   pnpm: pnpm add -D commitizen @commitlint/cli @commitlint/config-conventional
+   npm:  npm install --save-dev commitizen @commitlint/cli @commitlint/config-conventional
+   yarn: yarn add --dev commitizen @commitlint/cli @commitlint/config-conventional
    ```
 2. Generate `.commitlintrc.cjs`:
    ```js
@@ -216,17 +240,25 @@ Configure automated versioning and changelog generation.
 AskUserQuestion: **semantic-release** | **Release Please** | **Skip**
 
 **semantic-release chosen:**
-1. Install packages:
+1. Install packages (branch on `{package_manager}`):
    ```bash
-   <package_manager> add -d semantic-release @semantic-release/git @semantic-release/changelog
+   bun:  bun add -d semantic-release @semantic-release/git @semantic-release/changelog
+   pnpm: pnpm add -D semantic-release @semantic-release/git @semantic-release/changelog
+   npm:  npm install --save-dev semantic-release @semantic-release/git @semantic-release/changelog
+   yarn: yarn add --dev semantic-release @semantic-release/git @semantic-release/changelog
    ```
 2. Determine `branches` array from `branch_list` detected in Phase 1.
-   - Multiple branches detected (e.g. main + staging): include all in branches config.
+   - `main` or `master` branch → plain string: `'main'`
+   - Any other branch (e.g. `staging`, `develop`) → object form required by semantic-release:
+     `{name: '<branch>', prerelease: true, channel: '<branch>'}`
    - Single or none detected: default to `['main']`.
 3. Generate `release.config.cjs`:
    ```js
    module.exports = {
-     branches: <branches_array>,
+     branches: [
+       'main',                                        // plain string for main
+       {name: 'staging', prerelease: true, channel: 'staging'},  // object for prerelease
+     ],
      plugins: [
        '@semantic-release/commit-analyzer',
        '@semantic-release/release-notes-generator',
@@ -237,6 +269,7 @@ AskUserQuestion: **semantic-release** | **Release Please** | **Skip**
      ],
    }
    ```
+   Populate `branches` dynamically from `branch_list`: main/master → string, others → object.
 4. Add `"release": "semantic-release"` to `package.json` scripts.
 5. Install failure → D⚠("Release automation") + continue to Phase 5.
 6. D✅("Release automation — semantic-release")

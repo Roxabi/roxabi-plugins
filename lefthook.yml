@@ -7,8 +7,8 @@ pre-commit:
       run: bun run typecheck
     trufflehog:
       run: >
-        if [ -f .git ]; then
-          trufflehog filesystem . --only-verified --fail;
+        if [ -f .git ] && grep -q '^gitdir:' .git; then
+          echo 'node_modules' > /tmp/.th_excl && trufflehog filesystem . --only-verified --fail -x /tmp/.th_excl;
         else
           trufflehog git file://. --only-verified --fail;
         fi
@@ -30,8 +30,8 @@ pre-push:
       run: bun run test
     trufflehog:
       run: >
-        if [ -f .git ]; then
-          trufflehog filesystem . --only-verified --fail;
+        if [ -f .git ] && grep -q '^gitdir:' .git; then
+          echo 'node_modules' > /tmp/.th_excl && trufflehog filesystem . --only-verified --fail -x /tmp/.th_excl;
         else
           trufflehog git file://. --only-verified --fail;
         fi
