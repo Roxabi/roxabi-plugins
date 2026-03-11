@@ -31,7 +31,8 @@ Never push without request. Never force/hard/amend. Hook fail → fix + NEW comm
 ```
 roxabi-plugins/
 ├── .claude-plugin/
-│   └── marketplace.json         # marketplace manifest (lists all plugins)
+│   ├── marketplace.json         # marketplace manifest (lists all plugins — native + wrapped)
+│   └── curated-marketplaces.json  # endorsed external plugin marketplaces (not raw skill repos)
 ├── plugins/
 │   └── <plugin-name>/
 │       ├── README.md            # human-readable docs
@@ -147,6 +148,8 @@ feat(plugins): add <plugin-name> — short description
 ## Forking an Upstream Plugin
 
 When adopting a high-quality external skill rather than building from scratch, use `git subtree` to vendor it into the marketplace while keeping the ability to pull upstream updates.
+
+> **Native vs Wrapped plugins** — plugins built by Roxabi are *native*. Plugins forked from external raw-skill repos (no versioning, no install mechanism) are *wrapped*: Roxabi adds the plugin structure (frontmatter, README, marketplace entry) and vendors the source via `git subtree`. Both appear in `marketplace.json`. For endorsed external repos that already ship as proper plugin marketplaces, add them to `curated-marketplaces.json` instead — `/ci-setup` discovers and offers them at runtime without vendoring.
 
 ### Step 1 — Add as a subtree
 
