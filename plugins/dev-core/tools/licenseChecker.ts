@@ -163,8 +163,8 @@ function readPackageInfo(pkgDir: string): RawPackageInfo | null {
       Object.create(null) as Record<string, unknown>,
       JSON.parse(raw) as Record<string, unknown>,
     )
-    if (!(pkg['name'] && pkg['version'])) return null
-    return { name: String(pkg['name']), version: String(pkg['version']), dir: realDir }
+    if (!(pkg.name && pkg.version)) return null
+    return { name: String(pkg.name), version: String(pkg.version), dir: realDir }
   } catch {
     return null
   }
@@ -266,12 +266,12 @@ export function detectLicense(
     )
 
     // 2. license field (string)
-    if (typeof pkgJson['license'] === 'string' && (pkgJson['license'] as string).trim()) {
-      return { license: (pkgJson['license'] as string).trim(), source: 'package.json' }
+    if (typeof pkgJson.license === 'string' && (pkgJson.license as string).trim()) {
+      return { license: (pkgJson.license as string).trim(), source: 'package.json' }
     }
 
     // 3. licenses array (deprecated)
-    const licenses = pkgJson['licenses']
+    const licenses = pkgJson.licenses
     if (Array.isArray(licenses) && licenses.length > 0) {
       const first = licenses[0] as string | { type?: string } | null
       const licenseStr = typeof first === 'string' ? first : (first as { type?: string } | null)?.type
