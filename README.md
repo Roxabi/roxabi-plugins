@@ -19,11 +19,21 @@ Open-source Claude Code plugins by [Roxabi](https://github.com/Roxabi). Context 
 | [cv](plugins/cv/README.md) | Generate and adapt CVs from structured data |
 | [get-invoice-details](plugins/get-invoice-details/README.md) | Extract and store invoice details from documents |
 | [linkedin-apply](plugins/linkedin-apply/README.md) | Scrape and score LinkedIn job offers with LLM matching |
-| [frontend-slides](plugins/frontend-slides/README.md) | Zero-dependency HTML presentations — 12 style presets, visual discovery, PPT conversion |
-| [visual-explainer](plugins/visual-explainer/README.md) | Self-contained HTML pages with diagrams, visualizations, and data tables |
-| [react-best-practices](plugins/react-best-practices/README.md) | React/Next.js performance optimization — 58 rules, 8 categories (Vercel Engineering) |
-| [composition-patterns](plugins/composition-patterns/README.md) | React composition patterns — compound components, context providers (Vercel) |
-| [web-design-guidelines](plugins/web-design-guidelines/README.md) | Review UI code for Web Interface Guidelines compliance (Vercel) |
+| [frontend-slides](plugins/frontend-slides/README.md) | Zero-dependency HTML presentations — 12 style presets, visual discovery, PPT conversion *(wrapped from [zarazhangrui/frontend-slides](https://github.com/zarazhangrui/frontend-slides))* |
+| [visual-explainer](plugins/visual-explainer/README.md) | Self-contained HTML pages with diagrams, visualizations, and data tables *(wrapped from [nicobailon/visual-explainer](https://github.com/nicobailon/visual-explainer))* |
+| [react-best-practices](plugins/react-best-practices/README.md) | React/Next.js performance optimization — 58 rules, 8 categories *(wrapped from [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills))* |
+| [composition-patterns](plugins/composition-patterns/README.md) | React composition patterns — compound components, context providers *(wrapped from [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills))* |
+| [web-design-guidelines](plugins/web-design-guidelines/README.md) | Review UI code for Web Interface Guidelines compliance *(wrapped from [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills))* |
+
+## Marketplace Architecture
+
+This repo contains two kinds of plugins:
+
+**Native plugins** — built and maintained by Roxabi (`compress`, `1b1`, `web-intel`, `dev-core`, `cv`, `linkedin-*`, `image-prompt-generator`, `get-invoice-details`). We own the full lifecycle.
+
+**Wrapped plugins** — high-quality external skills that only exist as raw `SKILL.md` files in their source repos (no versioning, no install mechanism). Roxabi adds the plugin structure (frontmatter, README, marketplace entry) and vendors the source via `git subtree` so they become first-class installable plugins. Attribution is always in the plugin's README. Upstream updates are pulled via `git subtree pull`.
+
+External plugin marketplaces we endorse (but haven't wrapped) are listed in [`.claude-plugin/curated-marketplaces.json`](.claude-plugin/curated-marketplaces.json). The `/dev-core ci-setup` skill reads that file at runtime and offers installation from those sources. To add an endorsed marketplace, add an entry to that file — no skill edits needed.
 
 ## Data Storage
 

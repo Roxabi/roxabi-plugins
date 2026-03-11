@@ -301,17 +301,26 @@ dev-core already installed. Discover available plugins from our marketplace and 
 
 ### 3b — Curated external marketplaces
 
-Offer plugins from vetted external repos. Each entry below is a `<owner/repo>` marketplace source.
+Fetch the endorsed external marketplaces from our catalog:
+```bash
+gh api repos/Roxabi/roxabi-plugins/contents/.claude-plugin/curated-marketplaces.json \
+  -H "Accept: application/vnd.github.raw+json" \
+  | jq -r '.marketplaces[] | [.source, .description, (.recommended // [] | join(","))] | @tsv'
+```
 
-| Source | Highlights |
-|--------|-----------|
-| `anthropics/claude-code-plugins` | Official Anthropic plugin collection |
+These are proper plugin marketplaces we endorse but haven't wrapped ourselves. Empty list → D⏭("Curated marketplaces — none configured"), skip.
 
-∀ source:
-1. Fetch its `marketplace.json` (same API call pattern as 3a).
-2. Present plugins not already installed, grouped by category.
+∀ marketplace in the result:
+1. Fetch its plugin list:
+   ```bash
+   gh api repos/<source>/contents/.claude-plugin/marketplace.json \
+     -H "Accept: application/vnd.github.raw+json" \
+     | jq -r '.plugins[] | [.name, .description] | @tsv'
+   ```
+   If `recommended` is non-empty, pre-filter to those names only.
+2. Present plugins not already installed.
 3. Ask: **Install all** | **Pick** | **Skip**
-4. Install: `claude plugin marketplace add <owner/repo> 2>/dev/null || true && claude plugin install <name>`
+4. Install: `claude plugin marketplace add <source> 2>/dev/null || true && claude plugin install <name>`
 
 ### 3c — Static fallback (GitHub API unavailable)
 

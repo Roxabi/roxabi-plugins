@@ -1,0 +1,5 @@
+{
+  "version": "1.0",
+  "description": "Curated external plugin marketplaces endorsed by Roxabi. These are proper plugin marketplaces (not raw skill repos — those are wrapped into our own marketplace). Install via: claude plugin marketplace add <source>.",
+  "marketplaces": []
+}
