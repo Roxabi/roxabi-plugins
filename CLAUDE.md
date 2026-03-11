@@ -282,25 +282,11 @@ Each project that has a plugin installed uses a specific cache dir identified by
 
 1. **Edit the repo source first** — `plugins/<plugin-name>/skills/...`, `plugins/<plugin-name>/agents/...`, etc.
 2. **Commit and push.**
-3. **Propagate to all projects** — run this script from the repo root to sync every plugin into every cache dir:
+3. **Propagate to all projects** — run from the repo root:
    ```bash
-   REPO=~/projects/roxabi-plugins
-   CACHE=~/.claude/plugins/cache/roxabi-marketplace
-   for plugin_dir in "$REPO/plugins"/*/; do
-     plugin=$(basename "$plugin_dir")
-     [ -d "$CACHE/$plugin" ] && for h in "$CACHE/$plugin"/*/; do
-       name=$(basename "$h")
-       # Skip .claude-plugin and bogus dirs (only sync into version or hex-hash dirs)
-       [[ "$name" == ".claude-plugin" ]] && continue
-       [[ ! "$name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && ! "$name" =~ ^[0-9a-f]{12}$ ]] && continue
-       rsync -a --exclude='__tests__' --exclude='node_modules' --exclude='.orphaned_at' --exclude='.dashboard.pid' \
-         "$plugin_dir" "$h"
-       # Sync roxabi_sdk into plugin root for Python imports
-       rsync -a "$REPO/roxabi_sdk/" "$h/roxabi_sdk/"
-     done
-   done
+   ./sync-plugins.sh --local
    ```
-   This covers all projects at once — no need to visit each one individually.
+   Syncs all plugins into every local cache dir (semver + hex-hash). Use `./sync-plugins.sh` to also push and sync Machine 1.
 
 **Find the active cache hash** — when a skill runs, `$CLAUDE_PLUGIN_ROOT` contains the full cache path (e.g. `~/.claude/plugins/cache/roxabi-marketplace/dev-core/6011eb380f4f/skills/init`). The hash segment (`6011eb380f4f`) identifies the active cache directory if you need to target a single one.
 

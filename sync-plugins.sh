@@ -2,16 +2,16 @@
 # sync-plugins.sh — Push, pull, and sync roxabi-plugins across machines + caches
 #
 # Usage:
-#   ./sync-plugins.sh              # sync everything
-#   ./sync-plugins.sh --local      # sync local only (no Machine 1)
-#   ./sync-plugins.sh --remote     # sync Machine 1 only (no local)
+#   ./sync-plugins.sh              # sync everything (local + remote)
+#   ./sync-plugins.sh --local      # sync local cache only
+#   ./sync-plugins.sh --remote     # sync Machine 1 cache only
 #
 # Flow:
 #   1. Push staging to origin
 #   2. Pull staging into local marketplace clone
-#   3. Rsync marketplace → local plugin cache
+#   3. Rsync all plugins → all local cache dirs (semver + hex-hash)
 #   4. Pull staging on Machine 1 marketplace
-#   5. Rsync Machine 1 marketplace → Machine 1 plugin cache
+#   5. Rsync all plugins → all Machine 1 cache dirs
 
 set -euo pipefail
 
@@ -19,8 +19,6 @@ set -euo pipefail
 REMOTE_HOST="mickael@192.168.1.16"
 MARKETPLACE_REPO="$HOME/.claude/plugins/marketplaces/roxabi-marketplace"
 CACHE_BASE="$HOME/.claude/plugins/cache/roxabi-marketplace"
-PLUGIN="dev-core"
-CACHE_VERSION="0.1.0"
 
 # Colors
 GREEN='\033[0;32m'
@@ -40,6 +38,42 @@ if [[ "${1:-}" == "--remote" ]]; then DO_LOCAL=false; fi
 step "Pushing staging to origin..."
 git push origin staging
 
+# sync_cache REPO CACHE — rsync all plugins into all discovered cache dirs
+sync_cache() {
+    local repo="$1"
+    local cache="$2"
+    local count=0
+
+    for plugin_dir in "$repo/plugins"/*/; do
+        local plugin
+        plugin=$(basename "$plugin_dir")
+        [ -d "$cache/$plugin" ] || continue
+
+        for hash_dir in "$cache/$plugin"/*/; do
+            local name
+            name=$(basename "$hash_dir")
+            # Skip non-cache dirs — only sync into semver (0.1.0) or hex-hash (6011eb380f4f)
+            [[ "$name" == ".claude-plugin" ]] && continue
+            [[ ! "$name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && ! "$name" =~ ^[0-9a-f]{12}$ ]] && continue
+
+            rsync -a \
+                --exclude='__tests__' \
+                --exclude='node_modules' \
+                --exclude='.orphaned_at' \
+                --exclude='.dashboard.pid' \
+                "$plugin_dir" "$hash_dir"
+
+            # Sync roxabi_sdk into plugin root for Python imports
+            rsync -a "$repo/roxabi_sdk/" "$hash_dir/roxabi_sdk/"
+
+            echo "  synced $plugin → $name"
+            (( count++ )) || true
+        done
+    done
+
+    echo -e "${GREEN}  $count cache dir(s) updated${NC}"
+}
+
 # Step 2-3: Local sync
 if [[ "$DO_LOCAL" == true ]]; then
     step "Pulling staging into local marketplace..."
@@ -51,32 +85,40 @@ if [[ "$DO_LOCAL" == true ]]; then
         git -C "$MARKETPLACE_REPO" checkout -b staging origin/staging
     fi
 
-    step "Syncing marketplace → local cache (${PLUGIN})..."
-    rsync -av --delete \
-        "$MARKETPLACE_REPO/plugins/$PLUGIN/" \
-        "$CACHE_BASE/$PLUGIN/$CACHE_VERSION/"
-
-    # Also sync roxabi_sdk (shared dependency)
-    rsync -av --delete \
-        "$MARKETPLACE_REPO/roxabi_sdk/" \
-        "$CACHE_BASE/$PLUGIN/$CACHE_VERSION/roxabi_sdk/"
-
+    step "Syncing all plugins → local cache..."
+    sync_cache "$MARKETPLACE_REPO" "$CACHE_BASE"
     echo -e "${GREEN}✓ Local cache updated${NC}"
 fi
 
 # Step 4-5: Remote sync (Machine 1)
 if [[ "$DO_REMOTE" == true ]]; then
     step "Pulling staging on Machine 1 marketplace..."
-    ssh "$REMOTE_HOST" "cd $MARKETPLACE_REPO && git fetch origin && git merge --ff-only origin/staging"
+    ssh "$REMOTE_HOST" "cd '$MARKETPLACE_REPO' && git fetch origin && git merge --ff-only origin/staging"
 
-    step "Syncing marketplace → cache on Machine 1 (${PLUGIN})..."
-    ssh "$REMOTE_HOST" "rsync -av --delete \
-        $MARKETPLACE_REPO/plugins/$PLUGIN/ \
-        $CACHE_BASE/$PLUGIN/$CACHE_VERSION/ && \
-        rsync -av --delete \
-        $MARKETPLACE_REPO/roxabi_sdk/ \
-        $CACHE_BASE/$PLUGIN/$CACHE_VERSION/roxabi_sdk/"
-
+    step "Syncing all plugins → Machine 1 cache..."
+    ssh "$REMOTE_HOST" "
+        set -euo pipefail
+        repo='$MARKETPLACE_REPO'
+        cache='$CACHE_BASE'
+        count=0
+        for plugin_dir in \"\$repo/plugins\"/*/; do
+            plugin=\$(basename \"\$plugin_dir\")
+            [ -d \"\$cache/\$plugin\" ] || continue
+            for hash_dir in \"\$cache/\$plugin\"/*/; do
+                name=\$(basename \"\$hash_dir\")
+                [[ \"\$name\" == '.claude-plugin' ]] && continue
+                [[ ! \"\$name\" =~ ^[0-9]+\.[0-9]+\.[0-9]+\$ && ! \"\$name\" =~ ^[0-9a-f]{12}\$ ]] && continue
+                rsync -a \
+                    --exclude='__tests__' --exclude='node_modules' \
+                    --exclude='.orphaned_at' --exclude='.dashboard.pid' \
+                    \"\$plugin_dir\" \"\$hash_dir\"
+                rsync -a \"\$repo/roxabi_sdk/\" \"\$hash_dir/roxabi_sdk/\"
+                echo \"  synced \$plugin → \$name\"
+                (( count++ )) || true
+            done
+        done
+        echo \"\$count cache dir(s) updated\"
+    "
     echo -e "${GREEN}✓ Machine 1 cache updated${NC}"
 fi
 
