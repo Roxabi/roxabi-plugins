@@ -126,14 +126,14 @@ jobs:
           CURATED=$(jq -r '
             .curated_marketplaces[]
             | select(.status == "active")
-            | [.name, .source, (.last_checked_commit // "")]
+            | [.name, .source, (.last_checked_commit // ""), (.upstream_branch // "")]
             | @tsv
           ' "$REGISTRY" 2>/dev/null || echo "")
 
           if [ -z "$CURATED" ]; then
             echo "No active curated marketplaces to check"
           else
-            while IFS=$'\t' read -r name source last_commit; do
+            while IFS=$'\t' read -r name source last_commit upstream_branch; do
               [[ -z "$name" ]] && continue  # guard against empty heredoc line
 
               echo "Checking curated: $name ($source)"
@@ -143,7 +143,13 @@ jobs:
                 continue
               fi
 
-              current=$(timeout 30 git ls-remote --refs -- "$url" HEAD 2>/dev/null | awk '{print $1}')
+              # Use refs/heads/<upstream_branch> when set; fall back to HEAD
+              if [ -n "$upstream_branch" ]; then
+                ref="refs/heads/$upstream_branch"
+              else
+                ref="HEAD"
+              fi
+              current=$(timeout 30 git ls-remote --refs -- "$url" "$ref" 2>/dev/null | awk '{print $1}')
 
               if [ -z "$current" ]; then
                 echo "  WARNING: could not reach $url — skipping"

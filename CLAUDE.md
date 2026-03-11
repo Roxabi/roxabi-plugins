@@ -232,6 +232,7 @@ no vendoring into this repo.
 **To add a curated marketplace:**
 1. Verify all criteria above manually
 2. Add entry to `.claude-plugin/external-registry.json` under `curated_marketplaces`
+   - Optional: set `upstream_branch` to track a specific branch (e.g. `main`). Without it, CI checks `HEAD`.
 3. Sync to `.claude-plugin/curated-marketplaces.json` `marketplaces` array
 
 ### Case 2 — Wrapped Plugin

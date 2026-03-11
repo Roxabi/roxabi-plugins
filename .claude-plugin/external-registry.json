@@ -1,12 +1,13 @@
 {
   "version": "1.0",
   "description": "Registry of all external Claude Code plugin sources endorsed or vendored by Roxabi. Source of truth for upstream URLs, sync state, and curation status. See CLAUDE.md ## External Ecosystem for full workflow documentation.",
-  "_schema": {
+  "_docs": {
     "curated_marketplaces": {
       "name": "identifier, kebab-case",
       "source": "GitHub repo URL (no .git suffix)",
       "added": "ISO date (YYYY-MM-DD)",
-      "last_checked_commit": "HEAD SHA at last CI check",
+      "last_checked_commit": "HEAD SHA at last CI check (HEAD — no branch tracking unless upstream_branch set)",
+      "upstream_branch": "(optional) branch to check instead of HEAD, e.g. main",
       "criteria_met": "array: marketplace_json | install_mechanism | maintained_90d | quality_content | lt50pct_overlap",
       "status": "active | deprecated",
       "notes": "free text"
