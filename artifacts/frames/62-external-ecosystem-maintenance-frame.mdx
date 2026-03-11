@@ -1,0 +1,70 @@
+---
+title: "External Ecosystem Maintenance Framework"
+issue: 62
+status: approved
+tier: F-full
+date: 2026-03-11
+---
+
+## Problem
+
+The roxabi-plugins marketplace currently has no strategy for the external Claude Code ecosystem:
+`curated-marketplaces.json` is empty, no wrapped plugins exist, and the CLAUDE.md documents a
+`git subtree` wrapping workflow that has never been exercised. As the ecosystem grows, three
+distinct cases need distinct handling policies — and without a framework, each case gets
+improvised separately, leading to drift, stale endorsements, and manually-broken subtree links.
+
+Beyond the initial audit, the real pain is **ongoing maintenance**: if an endorsed upstream
+marketplace releases a breaking change, if a wrapped plugin's upstream is deprecated, or if a
+native plugin becomes redundant against a better external option — there is no detection,
+no process, and no automation to catch any of it.
+
+## Who
+
+- **Primary:** Roxabi maintainers (currently: Mickael) deciding what to endorse, wrap, or deprecate
+- **Secondary:** Users installing roxabi-plugins who trust the marketplace to curate quality
+
+## The Three Cases
+
+The framework must explicitly address:
+
+| Case | Description | Handling |
+|------|-------------|----------|
+| **Curated marketplaces** | External repos that are proper plugin marketplaces | Add to `curated-marketplaces.json` with criteria + watch mechanism |
+| **Wrapped plugins** | High-quality raw-skill repos vendored via `git subtree` | Wrapping policy + upstream drift detection |
+| **Native plugins** | Built by Roxabi, owned fully | Quality pass + deprecation/merge criteria |
+
+## Requirements
+
+1. **Decision framework** — explicit criteria for each of the 3 cases (what qualifies, what disqualifies)
+2. **Subtree maintenance tooling** — a script or manifest that records upstream URLs + last-sync commit, making `git subtree pull` one command per plugin
+3. **Upstream watch** — a mechanism to detect when a wrapped or curated upstream has new commits / releases / deprecation notices (GitHub Actions or a watch manifest checked in CI)
+4. **Deprecation policy** — conditions under which a plugin is removed from the marketplace (native or wrapped), and the process for clean removal
+5. **Initial audit** — apply the framework to the current state: evaluate known external repos, populate `curated-marketplaces.json`, decide on any wrapping candidates, flag any native plugins for deprecation
+
+## Constraints
+
+- Must not require external services beyond GitHub Actions (no third-party bots)
+- Subtree maintenance must stay simple enough for a solo maintainer — automation helps but manual override must always be possible
+- No personal data in any new scripts or manifests
+
+## Out of Scope
+
+- Building a CI bot that auto-merges upstream changes (too risky — upstream updates require human review)
+- Automated quality scoring of external plugins (no LLM-in-CI)
+- Wrapping every external skill repo found — selectivity is the point
+
+## Complexity
+
+**Tier: F-full** — crosses 3 domains (marketplace policy, git tooling/automation, CI), introduces new
+architectural patterns (subtree manifest, watch workflow), and has 2+ open unknowns (what upstream
+watch mechanism to use, how to structure the subtree registry).
+
+Signals:
+- Files touched: CLAUDE.md, curated-marketplaces.json, new tooling scripts, possibly CI workflow — 8–12 files
+- Technical risk: new patterns (subtree registry + watch CI) — moderate-high
+- Architectural impact: defines cross-cutting policy for all external plugins going forward
+- Unknowns: watch mechanism design, subtree registry schema
+- Domain breadth: policy + tooling + CI = 3 domains
+
+κ ≈ 7 → F-full
