@@ -13,7 +13,7 @@ jobs:
   check-upstreams:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
 
       - name: Check upstream drift
         env:
@@ -26,16 +26,6 @@ jobs:
             echo "No external-registry.json found — nothing to check"
             exit 0
           fi
-
-          # Validate URL is a well-formed GitHub HTTPS URL (prevents injection via registry entries)
-          validate_url() {
-            local u="$1"
-            if [[ ! "$u" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(\.git)?$ ]]; then
-              echo "  SKIP: URL failed allowlist check — $u"
-              return 1
-            fi
-            return 0
-          }
 
           DRIFT_COUNT=0
 
@@ -51,15 +41,8 @@ jobs:
             echo "No active wrapped plugins to check"
           else
             while IFS=$'\t' read -r plugin url branch last_commit upstream_path; do
-              [[ -z "$plugin" ]] && continue  # guard against empty heredoc line
-
               echo "Checking wrapped: $plugin ($url @ $branch)"
-
-              if ! validate_url "$url"; then
-                continue
-              fi
-
-              current=$(timeout 30 git ls-remote --refs -- "$url" "refs/heads/$branch" 2>/dev/null | awk '{print $1}')
+              current=$(git ls-remote --refs "$url" "refs/heads/$branch" 2>/dev/null | awk '{print $1}')
 
               if [ -z "$current" ]; then
                 echo "  WARNING: could not reach $url — skipping"
@@ -68,21 +51,6 @@ jobs:
 
               if [ "$current" != "$last_commit" ]; then
                 echo "  DRIFT: $plugin — $last_commit → $current"
-
-                # Skip if an open drift issue already exists for this plugin
-                existing=$(gh issue list \
-                  --label "upstream-update" \
-                  --search "upstream drift: $plugin" \
-                  --state open \
-                  --json number \
-                  --jq 'length' \
-                  --repo "$GITHUB_REPOSITORY" 2>/dev/null || echo "0")
-                if [ "$existing" -gt 0 ]; then
-                  echo "  SKIP: drift issue already open for $plugin (#$existing open)"
-                  DRIFT_COUNT=$((DRIFT_COUNT + 1))
-                  continue
-                fi
-
                 DRIFT_COUNT=$((DRIFT_COUNT + 1))
 
                 BODY="## Upstream drift detected: \`$plugin\`
@@ -126,30 +94,17 @@ jobs:
           CURATED=$(jq -r '
             .curated_marketplaces[]
             | select(.status == "active")
-            | [.name, .source, (.last_checked_commit // ""), (.upstream_branch // "")]
+            | [.name, .source, (.last_checked_commit // "")]
             | @tsv
           ' "$REGISTRY" 2>/dev/null || echo "")
 
           if [ -z "$CURATED" ]; then
             echo "No active curated marketplaces to check"
           else
-            while IFS=$'\t' read -r name source last_commit upstream_branch; do
-              [[ -z "$name" ]] && continue  # guard against empty heredoc line
-
+            while IFS=$'\t' read -r name source last_commit; do
               echo "Checking curated: $name ($source)"
               url="${source%.git}.git"
-
-              if ! validate_url "$url"; then
-                continue
-              fi
-
-              # Use refs/heads/<upstream_branch> when set; fall back to HEAD
-              if [ -n "$upstream_branch" ]; then
-                ref="refs/heads/$upstream_branch"
-              else
-                ref="HEAD"
-              fi
-              current=$(timeout 30 git ls-remote --refs -- "$url" "$ref" 2>/dev/null | awk '{print $1}')
+              current=$(git ls-remote --refs "$url" HEAD 2>/dev/null | awk '{print $1}')
 
               if [ -z "$current" ]; then
                 echo "  WARNING: could not reach $url — skipping"
@@ -158,21 +113,6 @@ jobs:
 
               if [ -z "$last_commit" ] || [ "$current" != "$last_commit" ]; then
                 echo "  UPDATE available: $name — ${last_commit:-new entry} → $current"
-
-                # Skip if an open drift issue already exists for this marketplace
-                existing=$(gh issue list \
-                  --label "upstream-update" \
-                  --search "upstream drift: $name" \
-                  --state open \
-                  --json number \
-                  --jq 'length' \
-                  --repo "$GITHUB_REPOSITORY" 2>/dev/null || echo "0")
-                if [ "$existing" -gt 0 ]; then
-                  echo "  SKIP: drift issue already open for $name"
-                  DRIFT_COUNT=$((DRIFT_COUNT + 1))
-                  continue
-                fi
-
                 DRIFT_COUNT=$((DRIFT_COUNT + 1))
 
                 gh issue create \
