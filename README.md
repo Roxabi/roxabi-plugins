@@ -114,9 +114,9 @@ Two kinds of plugins live in this repo:
 
 **Native plugins** — built and maintained by Roxabi. We own the full lifecycle: `dev-core`, `compress`, `1b1`, `web-intel`, `cv`, `linkedin-post-generator`, `image-prompt-generator`, `get-invoice-details`, `linkedin-apply`.
 
-**Wrapped plugins** — high-quality external skills with no versioning or install mechanism in their source repo. Roxabi adds plugin structure and vendors the source via `git subtree` so they become installable: `frontend-slides`, `visual-explainer`, `react-best-practices`, `composition-patterns`, `web-design-guidelines`.
+**Wrapped plugins** — high-quality external skills with no versioning or install mechanism in their source repo. Roxabi adds plugin structure and vendors the source (via `git subtree` or file copy) so they become installable. Existing wrapped plugins live in `plugins/`: `frontend-slides`, `visual-explainer`, `react-best-practices`, `composition-patterns`, `web-design-guidelines`. New wrapped plugins go into `external/`.
 
-External plugin marketplaces we endorse but haven't wrapped are listed in [`.claude-plugin/curated-marketplaces.json`](.claude-plugin/curated-marketplaces.json). The `/dev-core ci-setup` skill reads that file at runtime and offers installation — no skill edits needed to add a new endorsed source.
+External plugin marketplaces we endorse are tracked in [`.claude-plugin/external-registry.json`](.claude-plugin/external-registry.json) (source of truth). [`.claude-plugin/curated-marketplaces.json`](.claude-plugin/curated-marketplaces.json) mirrors the curated list for runtime discovery — the `/dev-core ci-setup` skill reads it and offers installation — no skill edits needed to add a new endorsed source.
 
 ## Contributing
 
