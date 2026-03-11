@@ -130,7 +130,10 @@ Config ∄ → ⚠️. Config ∃ ∧ hook ∄ → ⚠️ "needs `{install-cmd}`
 
 **VS Code MDX preview:** Only if `.mdx` files ∃ ∨ `docs.format: mdx`. `.vscode/settings.json` has `"*.mdx": "markdown"` → ✅ | ⚠️. ∄ .mdx → ⏭.
 
-**LSP support:** `lsp.enabled: false` → ⏭. Else: `ENABLE_LSP_TOOL` in .env → ✅ | ⚠️ (auto-fixable). Detect binary from `lsp.server`/`runtime` (bun/node/deno→`typescript-language-server`, python→`pyright`, rust→`rust-analyzer`, go→`gopls`). `which <binary>` → ✅ | ⚠️ + install hint (auto-fixable).
+**LSP support:** `lsp.enabled: false` → ⏭. Else:
+- `ENABLE_LSP_TOOL` in .env → ✅ | ⚠️ (auto-fixable).
+- Detect binary from `lsp.server`/`runtime` (bun/node/deno→`typescript-language-server`, python→`pyright`, rust→`rust-analyzer`, go→`gopls`). `which <binary>` → ✅ | ⚠️ + install hint (auto-fixable).
+- **Claude Code LSP plugin:** detect plugin name (bun/node/deno→`typescript-lsp`, python→`pyright-lsp`, rust/go→skip). `claude plugin list 2>/dev/null | grep -q '<plugin-name>'` → ✅ | ⚠️ "LSP plugin not installed — run `claude plugin install <plugin-name>`" (auto-fixable).
 
 Print summary:
 ```
@@ -159,6 +162,7 @@ Auto-fixable issues:
   [ ] VS Code MDX preview missing
   [ ] ENABLE_LSP_TOOL not set
   [ ] LSP server not installed
+  [ ] LSP plugin not installed
   ...
 ```
 
@@ -184,6 +188,7 @@ Ask: **Fix all** | **Select** | **Skip**
 | `VS Code MDX preview missing` | Merge `"*.mdx": "markdown"` into `.vscode/settings.json` |
 | `ENABLE_LSP_TOOL not set` | `echo 'ENABLE_LSP_TOOL=1' >> .env && grep -q '^ENABLE_LSP_TOOL=' .env.example 2>/dev/null \|\| echo 'ENABLE_LSP_TOOL=1' >> .env.example` |
 | `LSP server not installed` | TS→`{package_manager} add -d typescript-language-server typescript`, Python→`uv tool install pyright`, Rust→`rustup component add rust-analyzer`, Go→`go install golang.org/x/tools/gopls@latest` |
+| `LSP plugin not installed` | Ask: **Global** | **Project** | **Skip**. Global→`claude plugin install <plugin-name>`. Project→`claude plugin install <plugin-name> --scope project` |
 | `tools/licenseChecker.ts missing` | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && mkdir -p tools && cp "${Φ}/tools/licenseChecker.ts" tools/licenseChecker.ts` |
 | `.license-policy.json missing` (JS) | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && cp "${Φ}/tools/license-policy.json.example" .license-policy.json` |
 | `docs.path missing` / `docs incomplete` | `bun "${Φ}/skills/init/init.ts" scaffold-docs --format {docs.format} --path {docs.path}` — re-check + display |

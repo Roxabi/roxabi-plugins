@@ -132,10 +132,22 @@ Enable `ENABLE_LSP_TOOL` for richer code intelligence in Claude Code sessions.
       | `go` | gopls | `go install golang.org/x/tools/gopls@latest` | `gopls` |
 
    c. Check: `which <binary> 2>/dev/null`. missing → run install → re-check. still-missing → ⚠️ "not in PATH — restart shell".
-   d. D("LSP", "✅ ENABLE_LSP_TOOL=1 set, <server> installed").
+   d. **Claude Code LSP plugin** — detect plugin name from runtime:
+
+      | runtime | claude plugin name |
+      |---------|--------------------|
+      | `bun`/`node`/`deno` | `typescript-lsp` |
+      | `python` | `pyright-lsp` |
+      | `rust`/`go` | (none — skip plugin step) |
+
+      Check: `claude plugin list 2>/dev/null | grep -q '<plugin-name>'` → already installed → skip.
+      Not installed → Ask: **Global** (recommended for solo) | **Project** (commits to `.claude/settings.json`, recommended for teams) | **Skip**.
+      - Global: `claude plugin install <plugin-name>`
+      - Project: `claude plugin install <plugin-name> --scope project`
+   e. D("LSP", "✅ ENABLE_LSP_TOOL=1 set, <server> installed, <plugin-name> plugin active").
 
 5. Skip → D⏭("LSP").
-6. Already set ∧ binary ∃ → D("LSP", "✅ Already configured (<binary>)").
+6. Already set ∧ binary ∃ → check Claude Code plugin (step 4d check). D("LSP", "✅ Already configured (<binary>[, plugin missing → run fix])").
 
 ## Phase 6 — Report
 
