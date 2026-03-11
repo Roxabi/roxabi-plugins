@@ -119,7 +119,12 @@ Check Playwright:
 ```bash
 bunx playwright --version 2>/dev/null
 ```
-¬installed ⇒ inform: "Run `{package_manager} add -d @playwright/test && {package_manager}x playwright install`." Stop (¬install deps).
+¬installed ⇒ inform install command for `{package_manager}`:
+- bun: `bun add -d @playwright/test && bunx playwright install`
+- pnpm: `pnpm add -D @playwright/test && pnpm exec playwright install`
+- npm: `npm install --save-dev @playwright/test && npx playwright install`
+- yarn: `yarn add --dev @playwright/test && yarn playwright install`
+Stop (¬install deps).
 
 E2E dir: `{frontend.path}/e2e/` (fall back to `e2e/` if `{frontend.path}` not set).
 Check existing patterns first. Name: `{feature}.spec.ts`.

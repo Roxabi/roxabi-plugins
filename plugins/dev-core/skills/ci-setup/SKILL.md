@@ -150,7 +150,8 @@ test -f .pre-commit-config.yaml && echo found || echo missing
 test -f .git/hooks/pre-commit && echo found || echo missing
 ```
 
-∃ any → D("Pre-commit hooks", "✅ Already configured"), skip.
+∃ any ∧ ¬F → D("Pre-commit hooks", "✅ Already configured"), skip.
+∃ any ∧ F → AskUserQuestion: **Overwrite** (regenerate from stack.yml) | **Skip** (keep existing). Skip → D⏭("Pre-commit hooks"), stop Phase 2.
 
 ### 2b — Resolve tool
 
@@ -170,7 +171,12 @@ Let: lintCmd := stackVal(`commands.lint`) (default `bun run lint`), tchkCmd := s
 
 **lefthook:**
 a. Detect license cmd: Python → `uv run tools/license_check.py` | JS → `bun tools/licenseChecker.ts`.
-b. `bun add -d lefthook`
+b. Install lefthook (branch on `{package_manager}`):
+   - `bun`: `bun add -d lefthook`
+   - `pnpm`: `pnpm add -D lefthook`
+   - `npm`: `npm install --save-dev lefthook`
+   - `yarn`: `yarn add --dev lefthook`
+   - `python` runtime: Lefthook is a Go binary — check `which lefthook`; missing → display `brew install lefthook` / `go install github.com/evilmartians/lefthook@latest` and continue without installing
 c. Write `lefthook.yml`:
    ```yaml
    pre-commit:

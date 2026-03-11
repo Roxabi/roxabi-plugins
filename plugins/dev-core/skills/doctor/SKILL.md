@@ -187,7 +187,7 @@ Ask: **Fix all** | **Select** | **Skip**
 | `pre-commit not activated` | `uv run pre-commit install` |
 | `VS Code MDX preview missing` | Merge `"*.mdx": "markdown"` into `.vscode/settings.json` |
 | `ENABLE_LSP_TOOL not set` | `echo 'ENABLE_LSP_TOOL=1' >> .env && grep -q '^ENABLE_LSP_TOOL=' .env.example 2>/dev/null \|\| echo 'ENABLE_LSP_TOOL=1' >> .env.example` |
-| `LSP server not installed` | TS→`{package_manager} add -d typescript-language-server typescript`, Python→`uv tool install pyright`, Rust→`rustup component add rust-analyzer`, Go→`go install golang.org/x/tools/gopls@latest` |
+| `LSP server not installed` | TS→ bun: `bun add -d typescript-language-server typescript` / pnpm: `pnpm add -D typescript-language-server typescript` / npm: `npm install --save-dev typescript-language-server typescript` / yarn: `yarn add --dev typescript-language-server typescript`. Python→`uv tool install pyright`. Rust→`rustup component add rust-analyzer`. Go→`go install golang.org/x/tools/gopls@latest` |
 | `LSP plugin not installed` | Ask: **Global** | **Project** | **Skip**. Global→`claude plugin install <plugin-name>`. Project→`claude plugin install <plugin-name> --scope project` |
 | `tools/licenseChecker.ts missing` | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && mkdir -p tools && cp "${Φ}/tools/licenseChecker.ts" tools/licenseChecker.ts` |
 | `.license-policy.json missing` (JS) | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && cp "${Φ}/tools/license-policy.json.example" .license-policy.json` |
