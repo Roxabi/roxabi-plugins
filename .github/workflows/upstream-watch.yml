@@ -1,0 +1,141 @@
+name: Upstream Watch
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Mondays 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-upstreams:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+
+      - name: Check upstream drift
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REGISTRY=".claude-plugin/external-registry.json"
+
+          if [ ! -f "$REGISTRY" ]; then
+            echo "No external-registry.json found — nothing to check"
+            exit 0
+          fi
+
+          DRIFT_COUNT=0
+
+          # ── Wrapped plugins ──────────────────────────────────────────────
+          WRAPPED=$(jq -r '
+            .wrapped_plugins[]
+            | select(.status == "active")
+            | [.plugin, .upstream_url, .upstream_branch, .last_sync_commit, (.upstream_path // "")]
+            | @tsv
+          ' "$REGISTRY" 2>/dev/null || echo "")
+
+          if [ -z "$WRAPPED" ]; then
+            echo "No active wrapped plugins to check"
+          else
+            while IFS=$'\t' read -r plugin url branch last_commit upstream_path; do
+              echo "Checking wrapped: $plugin ($url @ $branch)"
+              current=$(git ls-remote --refs "$url" "refs/heads/$branch" 2>/dev/null | awk '{print $1}')
+
+              if [ -z "$current" ]; then
+                echo "  WARNING: could not reach $url — skipping"
+                continue
+              fi
+
+              if [ "$current" != "$last_commit" ]; then
+                echo "  DRIFT: $plugin — $last_commit → $current"
+                DRIFT_COUNT=$((DRIFT_COUNT + 1))
+
+                BODY="## Upstream drift detected: \`$plugin\`
+
+          | Field | Value |
+          |-------|-------|
+          | Plugin | \`external/$plugin\` |
+          | Upstream | \`$url\` |
+          | Branch | \`$branch\` |
+          | Old SHA | \`$last_commit\` |
+          | New SHA | \`$current\` |"
+
+                if [ -n "$upstream_path" ]; then
+                  BODY="$BODY
+          | Path | \`$upstream_path\` _(note: SHA is repo HEAD — path-unaware; false positives possible)_ |"
+                fi
+
+                BODY="$BODY
+
+          ### Next steps
+          1. Review upstream changes: \`$url/compare/$last_commit...$current\`
+          2. If changes are relevant: update via \`sync_strategy\` (\`subtree pull\` or re-copy)
+          3. Update \`last_sync_commit\` and \`last_sync_date\` in \`external-registry.json\`
+          4. Close this issue once resolved
+
+          > This issue was opened automatically by the Upstream Watch workflow. CI never auto-merges."
+
+                gh issue create \
+                  --title "upstream drift: $plugin" \
+                  --body "$BODY" \
+                  --label "upstream-update" \
+                  --repo "$GITHUB_REPOSITORY" \
+                || echo "  WARNING: failed to create issue for $plugin (label may not exist yet)"
+              else
+                echo "  OK: $plugin is current ($current)"
+              fi
+            done <<< "$WRAPPED"
+          fi
+
+          # ── Curated marketplaces ─────────────────────────────────────────
+          CURATED=$(jq -r '
+            .curated_marketplaces[]
+            | select(.status == "active")
+            | [.name, .source, (.last_checked_commit // "")]
+            | @tsv
+          ' "$REGISTRY" 2>/dev/null || echo "")
+
+          if [ -z "$CURATED" ]; then
+            echo "No active curated marketplaces to check"
+          else
+            while IFS=$'\t' read -r name source last_commit; do
+              echo "Checking curated: $name ($source)"
+              url="${source%.git}.git"
+              current=$(git ls-remote --refs "$url" HEAD 2>/dev/null | awk '{print $1}')
+
+              if [ -z "$current" ]; then
+                echo "  WARNING: could not reach $url — skipping"
+                continue
+              fi
+
+              if [ -z "$last_commit" ] || [ "$current" != "$last_commit" ]; then
+                echo "  UPDATE available: $name — ${last_commit:-new entry} → $current"
+                DRIFT_COUNT=$((DRIFT_COUNT + 1))
+
+                gh issue create \
+                  --title "upstream drift: $name (curated marketplace)" \
+                  --body "## Curated marketplace updated: \`$name\`
+
+          | Field | Value |
+          |-------|-------|
+          | Marketplace | [$name]($source) |
+          | Old SHA | \`${last_commit:-none}\` |
+          | New SHA | \`$current\` |
+
+          Review the upstream changelog. Once verified, update \`last_checked_commit\` in \`external-registry.json\`.
+
+          > This issue was opened automatically by the Upstream Watch workflow. CI never auto-merges." \
+                  --label "upstream-update" \
+                  --repo "$GITHUB_REPOSITORY" \
+                || echo "  WARNING: failed to create issue for $name"
+              else
+                echo "  OK: $name is current ($current)"
+              fi
+            done <<< "$CURATED"
+          fi
+
+          echo ""
+          echo "Upstream Watch complete. $DRIFT_COUNT drift(s) detected."
