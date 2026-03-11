@@ -311,7 +311,6 @@ Offer additional Roxabi plugins grouped by theme. dev-core already installed.
 |--------|-------------|
 | `vault` | Unified local SQLite+FTS5 vault — CRUD and full-text search across Roxabi data |
 | `get-invoice-details` | Extract structured data from invoice documents (text or PDF) → JSON |
-| `voice-cli` | Author TTS scripts, generate speech, clone voices, transcribe audio |
 
 After all groups: D("Marketplace plugins", "installed: name, name, ... (or: ⏭ None installed)").
 

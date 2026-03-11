@@ -33,12 +33,6 @@
       "version": "1.0.1"
     },
     {
-      "name": "voice-cli",
-      "description": "VoiceCLI assistant — author TTS scripts, generate speech, clone voices, transcribe audio. Knows engine capabilities, markdown format, and all CLI commands.",
-      "source": "./plugins/voice-cli",
-      "category": "productivity"
-    },
-    {
       "name": "linkedin-post-generator",
       "description": "Generate engaging LinkedIn posts with best practices and visual identity.",
       "source": "./plugins/linkedin-post-generator",
