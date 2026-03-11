@@ -1,7 +1,7 @@
 ---
 name: init
 argument-hint: '[--force]'
-description: 'Initialize project for dev-core — orchestrates env-setup, github-setup, ci-setup. Triggers: "init" | "setup dev-core" | "initialize dev-core".'
+description: 'Initialize project for dev-core — orchestrates env-setup, github-setup, ci-setup, release-setup. Triggers: "init" | "setup dev-core" | "initialize dev-core".'
 version: 0.7.0
 allowed-tools: Bash, Skill, ToolSearch, AskUserQuestion
 ---
@@ -20,6 +20,7 @@ Full project initialization harness. Orchestrates three focused sub-skills in se
 | `/env-setup` | stack.yml, CLAUDE.md rules, docs stubs, VS Code, LSP |
 | `/github-setup` | GitHub Project V2 board, labels, branch protection, workspace |
 | `/ci-setup` | GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins |
+| `/release-setup` | Commit standards (Commitizen), hook additions, release automation (semantic-release / Release Please) |
 
 Run sub-skills directly to reconfigure a single concern without re-running the full init.
 
@@ -55,6 +56,10 @@ skill: "github-setup", args: "{args}"
 skill: "ci-setup", args: "{args}"
 ```
 
+```
+skill: "release-setup", args: "{args}"
+```
+
 ## Phase 4 — Report
 
 ```
@@ -74,6 +79,7 @@ Next steps:
   /env-setup             Re-run environment setup only
   /github-setup          Re-run GitHub project setup only
   /ci-setup              Re-run CI/CD setup only
+  /release-setup         Re-run release setup only
 ```
 
 ## Safety Rules
