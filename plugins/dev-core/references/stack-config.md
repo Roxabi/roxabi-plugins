@@ -59,6 +59,12 @@ Add `@.claude/stack.yml` as **first line** of CLAUDE.md. ¬∃ `.claude/stack.ym
 | `testing.unit` | tester | Unit test framework |
 | `testing.e2e` | tester | E2E test framework |
 
+### `hooks.*`
+
+| σ | α | Purpose |
+|---|---|---------|
+| `hooks.tool` | ci-setup, release-setup | Hook runner selection: `auto` \| `lefthook` \| `pre-commit` \| `husky` \| `none`. `auto` → infers from runtime (Python → pre-commit, else lefthook). Consumed by `/ci-setup` (installs pre-commit hooks) and `/release-setup` (wires commit-msg hook). |
+
 ### `deploy.*`
 
 | σ | α | Purpose |
