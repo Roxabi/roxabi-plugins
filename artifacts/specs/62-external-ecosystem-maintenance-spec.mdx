@@ -11,6 +11,8 @@ date: 2026-03-11
 Promoted from: `artifacts/analyses/62-external-ecosystem-maintenance-analysis.mdx`
 Shape selected: **Shape 3 — two-step rollout** (registry JSON + CI watch this cycle; TypeScript CLI deferred to Step B when first real entry is added)
 
+**Directory convention (added post-analysis):** `plugins/` = native Roxabi plugins. `external/` = curated/vendored external plugins. Both listed in `marketplace.json`.
+
 ## Goal
 
 Define and implement a framework for managing the external Claude Code ecosystem: explicit decision criteria for three cases (curated marketplaces, wrapped plugins, native plugins), a machine-readable registry tracking all external sources, a CI workflow that detects upstream drift without auto-merging, and CLAUDE.md documentation that makes the full workflow self-contained for a solo maintainer.
@@ -128,13 +130,13 @@ flowchart LR
 
 1. Maintainer verifies repo: SKILL.md quality, maintained ≤90 days, gap fill, compatible license
 2. Decides `sync_strategy: copy` (flat SKILL.md files, no meaningful directory structure)
-3. Copies SKILL.md into `plugins/<name>/skills/<name>/SKILL.md`, rewrites frontmatter, adds README, adds to `marketplace.json`
+3. Copies plugin into `external/<name>/`, rewrites frontmatter if needed, adds to `marketplace.json` with `"source": "./external/<name>"`
 4. Adds entry to `external-registry.json` with `last_sync_commit` = current upstream HEAD SHA, `sync_strategy: copy`
 5. CI watches `upstream_url` weekly; on drift → opens issue with instructions for maintainer to review + re-copy
 
 ### Wrapping an external plugin (subtree strategy)
 
-Same as above but step 3 uses `git subtree add --prefix=plugins/<name> <url> <branch> --squash`. `subtree_prefix` field in registry enables future `git subtree pull`.
+Same as above but step 3 uses `git subtree add --prefix=external/<name> <url> <branch> --squash`. `subtree_prefix` field in registry (`external/<name>`) enables future `git subtree pull`.
 
 ### CI upstream watch (weekly)
 
