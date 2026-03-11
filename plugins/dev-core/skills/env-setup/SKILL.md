@@ -126,7 +126,7 @@ Enable `ENABLE_LSP_TOOL` for richer code intelligence in Claude Code sessions.
 
       | runtime | server | install | binary |
       |---------|--------|---------|--------|
-      | `bun`/`node`/`deno` | typescript-language-server | bun: `bun add -d typescript-language-server typescript` / pnpm: `pnpm add -D …` / npm: `npm install --save-dev …` / yarn: `yarn add --dev …` | `typescript-language-server` |
+      | `bun`/`node`/`deno` | typescript-language-server | bun: `bun add -d typescript-language-server typescript` / pnpm: `pnpm add -D typescript-language-server typescript` / npm: `npm install --save-dev typescript-language-server typescript` / yarn: `yarn add --dev typescript-language-server typescript` | `typescript-language-server` |
       | `python` | pyright | `uv tool install pyright` or `pip install pyright` | `pyright` |
       | `rust` | rust-analyzer | `rustup component add rust-analyzer` | `rust-analyzer` |
       | `go` | gopls | `go install golang.org/x/tools/gopls@latest` | `gopls` |
