@@ -1,6 +1,7 @@
 {
   "enabledPlugins": {
     "dev-core@roxabi-marketplace": true,
-    "compress@roxabi-marketplace": true
+    "compress@roxabi-marketplace": true,
+    "typescript-lsp@claude-plugins-official": true
   }
 }
