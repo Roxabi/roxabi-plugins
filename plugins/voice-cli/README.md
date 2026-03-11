@@ -11,6 +11,7 @@ Gives Claude Code deep knowledge of the VoiceCLI CLI so it can:
 - **Pick the right engine** — knows the full capability matrix (Qwen, Qwen-Fast, Chatterbox Multilingual, Turbo) and recommends the best fit
 - **Chunked output** — progressive audio generation for long texts and Telegram integration
 - **Daemon mode** — start `voicecli serve` to keep models warm; subsequent generates run in ~2–5s instead of ~60s
+- **Dictation** — configure and use `voicecli dictate` with overlay UI, AHK shortcuts, and auto-paste on WSL2
 - **Manage the workflow** — samples, output formats, language settings, expressiveness controls
 
 ## Install
@@ -40,10 +41,11 @@ Trigger phrases:
 - Starting or querying the daemon for warm-model fast generation
 - Managing voice samples and cloning workflows
 - Transcribing audio files or doing real-time speech-to-text
+- Setting up and using the dictation workflow (STT daemon, overlay, AHK, auto-paste)
 
 ## How It Works
 
-The plugin embeds the full VoiceCLI knowledge base: engine capability matrix, unified markdown format, CLI command reference, and workflow patterns. When triggered, Claude auto-discovers the voiceCLI project directory and operates from there.
+The plugin's `SKILL.md` is a symlink to the voiceCLI project's own skill file (`voiceCLI/.claude/skills/voicecli/SKILL.md`), so the knowledge base is always in sync with the upstream project — no manual copy needed. When triggered, Claude auto-discovers the voiceCLI project directory and operates from there.
 
 The plugin does not include the AI models — those live in the voiceCLI project. It provides the intelligence layer that lets Claude Code drive the VoiceCLI CLI effectively.
 
