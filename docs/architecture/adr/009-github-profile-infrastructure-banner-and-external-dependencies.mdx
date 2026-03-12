@@ -1,0 +1,75 @@
+---
+title: "ADR-009: GitHub Profile Infrastructure — Banner Pipeline, External Dependencies, and Branch Alignment"
+description: Records the decisions around self-hosted GIF banners, external service dependencies (demolab typing SVG, Vercel stats card), banner update workflow, and branch naming for the Roxabi org profile.
+---
+
+## Status
+
+Accepted
+
+## Context
+
+The personal profile (MickaelV0/MickaelV0) and the Roxabi org profile (Roxabi/.github/profile) each contain a README that serves as the public face of the builder and the org. Both use animated GIF banners self-hosted in the repos (3.3 MB personal, 2.1 MB org), generated via a Playwright canvas capture → ffmpeg palettegen pipeline. Both READMEs also embed two external services: a typing SVG from demolab.com and a GitHub stats card hosted on vercel.app (anuraghazra/github-readme-stats).
+
+Several concerns required explicit decisions:
+
+1. **GIF size vs. user-perceived quality.** 3.3 MB is above the threshold where GitHub CDN serves the raw blob without compression. Visitors on slow connections may see a blank space while the GIF loads. Animated WebP or MP4 reduce size by 40–70% but have inconsistent GitHub Markdown support.
+2. **External service availability.** Both demolab.com and the Vercel stats card are third-party services with no SLA. A single outage produces a broken image element visible to every profile visitor, creating a silent reliability hole.
+3. **Banner regeneration friction.** There is no script or workflow that documents or automates the Playwright → ffmpeg pipeline. The steps live only in the author's mental model, making the process non-reproducible for any collaborator or future maintainer.
+4. **Branch naming divergence.** The org profile repo uses `master`; the personal profile repo uses `main`. All active Roxabi project repos (lyra, voiceCLI, imageCLI, roxabi-plugins) use `main`. The divergence is a minor but persistent friction point for contributors and tooling.
+5. **Missing technical signals.** The READMEs do not expose CI status, test coverage, or package version badges — signals senior engineers check when evaluating a project's health at a glance.
+
+## Options Considered
+
+### Option A: Self-hosted GIF, no automation, status quo
+
+Keep 3.3 MB / 2.1 MB GIFs as-is, retain external service embeds, take no action on branch naming or banner automation.
+
+- **Pros:** Zero maintenance work. No risk of breaking anything during migration.
+- **Cons:** GIF sizes remain above comfortable thresholds. External SPOFs unaddressed. Banner regeneration stays undocumented and non-reproducible. Branch divergence persists.
+
+### Option B: Compress GIFs + document pipeline + rename org branch + retain external services
+
+Reduce GIF sizes via `gifsicle -O3 --lossy=80` or palettegen re-tuning (targeting ≤1.5 MB each). Commit a `scripts/generate-banner.sh` (or equivalent) capturing the Playwright → ffmpeg pipeline. Rename the org profile branch from `master` to `main`. Keep demolab and Vercel stats card as-is but add HTML comment noting the SPOF risk.
+
+- **Pros:** Addresses the highest-impact issues (size, reproducibility, branch alignment) with minimal risk. Retains the visual richness of the current design. No new infrastructure required.
+- **Cons:** External service SPOFs remain live. Pipeline script adds a maintenance artifact.
+
+### Option C: Replace GIFs with static image + self-host all widgets
+
+Replace animated banners with a static SVG/PNG (eliminating size concern entirely). Replace demolab SVG and Vercel stats card with static badge equivalents (shields.io cached, or SVG embedded directly).
+
+- **Pros:** Eliminates all external SPOFs and removes size concerns permanently.
+- **Cons:** Loses the animated banner that differentiates the profiles visually. Static shields.io badges are themselves hosted externally (same SPOF class). Embedded SVG stats require a local generation step and go stale.
+
+## Decision
+
+**Option B** — compress GIFs, document the generation pipeline in a script, rename the org profile branch to `main`, and retain external services with acknowledged SPOF notes.
+
+Rationale:
+
+- The animated banner is a deliberate design choice (Playwright + ffmpeg pipeline) that differentiates the profiles. Removing it (Option C) abandons this investment without proportional reliability gain, since static shields.io badges introduce the same class of external dependency.
+- GIF compression via `gifsicle -O3 --lossy=80` is a low-risk, non-visual change. Target ≤1.5 MB for the personal banner and ≤1.2 MB for the org banner. If palettegen tuning achieves this without `gifsicle`, that is preferable to avoid a new tool dependency.
+- The demolab and Vercel stats card SPOFs are accepted as low-severity: GitHub profile READMEs are decorative surfaces, not operational dashboards. A broken image badge on a profile does not degrade any service. The risk is noted and accepted, not ignored.
+- Branch rename from `master` to `main` in the org profile repo is a one-time housekeeping step with no downstream integration dependencies (no CD pipeline, no external references to the `master` branch in other repos).
+- A `scripts/generate-banner.sh` (or `Makefile` target) must capture the full pipeline so it is reproducible by any contributor without oral knowledge transfer.
+
+### Missing technical signals — deferred
+
+Adding CI status badges, test coverage, or package version badges is deferred. The profile repos are not software packages — they have no tests, no package.json, and no CI. Adding badges pointing to other repos (e.g., lyra CI status in the profile README) would create cross-repo coupling on a decorative surface and would need ongoing maintenance as repos evolve. This is left as an open improvement, not a decision.
+
+## Consequences
+
+### Positive
+- GIF file sizes reduced to ≤1.5 MB / ≤1.2 MB, improving load time on slow connections.
+- Banner generation pipeline is reproducible and documented; no oral knowledge dependency.
+- Org profile branch aligns with `main` convention used across all active Roxabi repos.
+- SPOF risk of external services is explicitly acknowledged in a tracked decision, not silently ignored.
+
+### Negative
+- `gifsicle` (or re-tuned palettegen) must be available in the generation environment; adds one tool to the banner generation prerequisite list.
+- Branch rename requires a one-time update to any local clones of the org profile repo (`git branch -m master main && git push --set-upstream origin main`).
+
+### Neutral
+- External services (demolab.com, vercel.app stats card) remain. Their SPOF status is accepted and noted here, not remediated.
+- No CI, test coverage, or package version badges are added to the profile READMEs at this time.
