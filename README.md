@@ -84,6 +84,18 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 | [1b1](plugins/1b1/README.md) | Walk through a list of items one by one — brief, decide, execute, repeat |
 | [get-invoice-details](plugins/get-invoice-details/README.md) | Extract and store invoice details from documents |
 
+### Endorsed marketplaces
+
+External plugin marketplaces we endorse. Install them directly — no vendoring needed.
+
+```bash
+claude plugin marketplace add <source>
+```
+
+| Marketplace | Description | Source |
+|-------------|-------------|--------|
+| agent-browser | Headless browser automation CLI for AI agents — navigate, click, fill, screenshot, scrape | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) |
+
 ### Wrapped plugins
 
 High-quality external skills packaged as first-class installable plugins. Roxabi adds versioning, install support, and a README; the source is vendored via `git subtree`. Attribution is in each plugin's README.

@@ -1,5 +1,11 @@
 {
   "version": "1.0",
   "description": "Curated external plugin marketplaces endorsed by Roxabi. Source of truth: .claude-plugin/external-registry.json (curated_marketplaces array) — this file mirrors it for Claude Code runtime discovery. Install via: claude plugin marketplace add <source>.",
-  "marketplaces": []
+  "marketplaces": [
+    {
+      "name": "agent-browser",
+      "source": "https://github.com/vercel-labs/agent-browser",
+      "description": "Headless browser automation CLI for AI agents — navigate, click, fill, screenshot, scrape."
+    }
+  ]
 }

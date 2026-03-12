@@ -26,6 +26,17 @@
       "notes": "free text — attribution, license, conflict notes"
     }
   },
-  "curated_marketplaces": [],
+  "curated_marketplaces": [
+    {
+      "name": "agent-browser",
+      "source": "https://github.com/vercel-labs/agent-browser",
+      "added": "2026-03-12",
+      "last_checked_commit": "f2d40892848188dc1d4c5e9142bf3753bc4265c8",
+      "upstream_branch": "main",
+      "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
+      "status": "active",
+      "notes": "Headless browser automation CLI for AI agents (Rust + Playwright). Ships agent-browser skill with snapshot-ref navigation, session management, auth, proxy, and video recording. Complements web-intel (scraping) — browser fills the interactive/auth gap."
+    }
+  ],
   "wrapped_plugins": []
 }
