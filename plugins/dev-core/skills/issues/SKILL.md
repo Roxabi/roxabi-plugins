@@ -77,7 +77,7 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
    bun ${CLAUDE_PLUGIN_ROOT}/skills/issues/fetch-issues.ts
    ```
 
-2. Present output in code block. ¬reformat — script produces formatted table.
+2. Present output in code block. ¬reformat — script produces formatted table. **Display ALL lines of the output verbatim — do NOT truncate, summarize, or omit any rows.**
 
 3. Recommendations (2-3 lines max):
    - ✅ ∧ P0/P1 → prioritize
