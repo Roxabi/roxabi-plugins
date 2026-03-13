@@ -359,7 +359,7 @@ All plugins use `roxabi_sdk/paths.py` for path resolution. The canonical copy li
 
 Key functions: `get_vault_home()`, `get_plugin_data(name)`, `get_shared_dir(name)`, `get_config(name)`, `ensure_dir(path)`.
 
-Vault/indexing functionality has moved to [roxabi-memory](https://github.com/Roxabi/roxabi-memory).
+Vault/indexing functionality has moved to [roxabi-vault](https://github.com/Roxabi/roxabi-vault).
 
 ### Rules
 

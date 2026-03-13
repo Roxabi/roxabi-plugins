@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: pip install pytest git+https://github.com/Roxabi/roxabi-memory.git@main
+      - run: pip install pytest git+https://github.com/Roxabi/roxabi-vault.git@main
       - name: Test (pytest)
         run: python3 -m pytest tests/ -v
       - name: Validate registry sync

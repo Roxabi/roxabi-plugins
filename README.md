@@ -110,7 +110,7 @@ High-quality external skills packaged as first-class installable plugins. Roxabi
 
 ## Data storage
 
-Data-producing plugins store user data in `~/.roxabi-vault/` — never in the repo. Override the location with the `ROXABI_VAULT_HOME` environment variable. Vault functionality is provided by [roxabi-memory](https://github.com/Roxabi/roxabi-memory).
+Data-producing plugins store user data in `~/.roxabi-vault/` — never in the repo. Override the location with the `ROXABI_VAULT_HOME` environment variable. Vault functionality is provided by [roxabi-vault](https://github.com/Roxabi/roxabi-vault).
 
 | Plugin | Data location |
 |--------|--------------|
