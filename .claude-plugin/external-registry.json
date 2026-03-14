@@ -31,7 +31,7 @@
       "name": "agent-browser",
       "source": "https://github.com/vercel-labs/agent-browser",
       "added": "2026-03-12",
-      "last_checked_commit": "f2d40892848188dc1d4c5e9142bf3753bc4265c8",
+      "last_checked_commit": "c4a40033e0c8c8d84a2cb4619091669ba82b6ff1",
       "upstream_branch": "main",
       "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
       "status": "active",
