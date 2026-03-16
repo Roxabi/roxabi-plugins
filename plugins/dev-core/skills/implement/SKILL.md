@@ -3,7 +3,7 @@ name: implement
 argument-hint: '[--issue <N> | --plan <path> | --audit]'
 description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "implement" | "build this" | "execute plan" | "start coding".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch, AskUserQuestion
 ---
 
 # Implement
@@ -11,7 +11,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch, Ask
 Let:
   π := artifacts/plans/{N}-{slug}.mdx
   τ := tier (S | F-lite | F-full)
-  ω := worktree path `../${REPO}-<N>`
+  ω := worktree (managed via EnterWorktree/ExitWorktree)
   β := base branch (staging if ∃ origin/staging, else main)
   QG := `{commands.lint} && {commands.typecheck} && {commands.test}`
 
@@ -59,7 +59,7 @@ REPO=$(gh repo view --json name --jq '.name')
 BASE=$(git branch -r | grep -q 'origin/staging' && echo staging || echo main)
 ```
 
-ω: `../${REPO}-<N>`. Branch base: `${BASE}`.
+ω: `.claude/worktrees/{N}-{slug}` (via EnterWorktree). Branch base: `${BASE}`.
 
 **2c. Status:**
 
@@ -79,19 +79,27 @@ git fetch origin ${BASE}
 
 ∃ ω → check dirty state:
 ```bash
-cd ../${REPO}-<N> && git status --porcelain
+git status --porcelain
 ```
 ¬empty ⇒ AskUserQuestion: **Stash changes** (`git stash`) | **Reset** (`git checkout .`) | **Continue with dirty state** | **Abort**
 
 **2e. Worktree:**
 
+Use `EnterWorktree` with name `{N}-{slug}` to create an isolated worktree session:
+
+```
+EnterWorktree(name: "{N}-{slug}")
+```
+
+Then inside the worktree, set up the feature branch on the correct base:
+
 ```bash
-git worktree add ../${REPO}-<N> -b feat/<N>-<slug> ${BASE}
-cd ../${REPO}-<N> && cp .env.example .env 2>/dev/null; {package_manager} install
+git checkout -b feat/<N>-<slug> origin/${BASE}
+cp .env.example .env 2>/dev/null; {package_manager} install
 # Optional: {commands.worktree_setup} <N>  (configure in stack.yml for DB branch creation etc.)
 ```
 
-XS exception: AskUserQuestion → if approved, `git checkout -b feat/<N>-<slug> ${BASE}`.
+XS exception: AskUserQuestion → if approved, skip worktree — `git checkout -b feat/<N>-<slug> ${BASE}` in main repo.
 
 ## Step 3 — Context Injection (τ=F only)
 
@@ -137,13 +145,14 @@ Agents create files from scratch (¬stubs). Include target path, shape/skeleton,
 
 ## Step 5 — Quality Gate
 
+Run quality gates inside the worktree (session is already in ω after EnterWorktree):
+
 ```bash
-cd ../${REPO}-<N>
 {commands.lint} && {commands.typecheck} && {commands.test}
 ```
 
 ✓ → Step 6.
-✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → AskUserQuestion: **Escalate to lead** | **Continue with failures** | **Abandon worktree** (removes ω + branch).
+✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → AskUserQuestion: **Escalate to lead** | **Continue with failures** | **Abandon worktree** (`ExitWorktree(action: "remove")` + delete branch).
 
 ## Step 6 — Summary
 
@@ -151,7 +160,7 @@ cd ../${REPO}-<N>
 Implement Complete
   Issue:    #N — title
   Branch:   feat/N-slug
-  Worktree: ../${REPO}-N
+  Worktree: .claude/worktrees/{N}-{slug}
   Tier:     S|F-lite|F-full
   Agents:   list
   Files:    created/modified list
@@ -161,9 +170,15 @@ Implement Complete
 
 ## Rollback
 
+Use `ExitWorktree` to leave and clean up the worktree:
+
+```
+ExitWorktree(action: "remove", discard_changes: true)
+```
+
+Then clean up the branch:
+
 ```bash
-REPO=$(gh repo view --json name --jq '.name')
-git worktree remove ../${REPO}-<N>
 git branch -D feat/<N>-<slug>
 # Optional: {commands.worktree_teardown} <N>
 ```
@@ -173,7 +188,7 @@ git branch -D feat/<N>-<slug>
 Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 
 | Merge conflict (worktree setup) | `git rebase --abort` → AskUserQuestion: **Resolve manually** (fix conflicts → `git rebase --continue`) \| **Abort** |
-| Abandon after 3✗ gate failures | `git worktree remove ../${REPO}-<N> --force && git branch -D feat/<N>-<slug>` |
+| Abandon after 3✗ gate failures | `ExitWorktree(action: "remove", discard_changes: true)` then `git branch -D feat/<N>-<slug>` |
 
 ## Safety
 

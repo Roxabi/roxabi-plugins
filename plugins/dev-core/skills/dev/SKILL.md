@@ -3,7 +3,7 @@ name: dev
 argument-hint: '[#N | "idea" | --from <step> | --audit]'
 description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "develop".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch, AskUserQuestion
 ---
 
 # Dev
@@ -78,9 +78,9 @@ ls artifacts/specs/ 2>/dev/null | grep "^{N}-"
 # Plan
 ls artifacts/plans/ 2>/dev/null | grep "^{N}-"
 
-# Worktree (repo name is dynamic — detect once)
+# Worktree (check both .claude/worktrees/ and legacy parent-dir worktrees)
 REPO=$(gh repo view --json name --jq '.name')
-git worktree list | grep "${REPO}-{N}"
+git worktree list | grep -E "${REPO}-{N}|worktrees/{N}-"
 
 # Branch
 git branch -a | grep "{N}-{slug}"
@@ -103,7 +103,7 @@ gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "
   analyze:   analysis artifact ∃,
   spec:      spec artifact ∃,
   plan:      plan artifact ∃,
-  implement: worktree ∃ (path: `../${REPO}-{N}`) ∧ branch has commits beyond staging,
+  implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ branch has commits beyond staging,
   pr:        PR ∃,
   validate:  null,         # no artifact — uses Σ_s only
   review:    PR ∃ ∧ (PR.reviewDecision ∈ ('APPROVED','CHANGES_REQUESTED') ∨ pr_has_review_comment(PR)),

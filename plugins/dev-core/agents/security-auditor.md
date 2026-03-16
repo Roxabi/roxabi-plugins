@@ -11,7 +11,7 @@ description: |
   assistant: "I'll use the security-auditor agent to perform a security audit."
   </example>
 color: white
-tools: ["Read", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "SendMessage"]
+tools: ["Read", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "EnterWorktree", "ExitWorktree", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "TaskOutput", "TaskStop", "SendMessage"]
 permissionMode: bypassPermissions
 maxTurns: 30
 # capabilities: write_knowledge=false, write_code=false, review_code=true, run_tests=false
