@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>roxabi-plugins — Logo Gallery v3 (Hex Cell DNA)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #08080a; color: #e0e0e0; font-family: 'Inter', sans-serif; padding: 40px 20px; }
+  h1 { text-align: center; font-size: 28px; font-weight: 600; margin-bottom: 8px; color: #fff; }
+  .subtitle { text-align: center; font-size: 13px; color: #666; margin-bottom: 40px; font-family: 'JetBrains Mono', monospace; }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 20px; max-width: 1400px; margin: 0 auto; }
+  .card {
+    background: #111114; border: 1px solid #1a1a1f; border-radius: 12px;
+    padding: 24px 16px 16px; display: flex; flex-direction: column; align-items: center;
+    transition: border-color 0.2s, transform 0.2s; cursor: pointer; position: relative;
+  }
+  .card:hover { border-color: #333; transform: translateY(-2px); }
+  .card .number { position: absolute; top: 8px; left: 10px; font-size: 10px; color: #444; font-family: 'JetBrains Mono', monospace; }
+  .card svg { width: 120px; height: 120px; margin-bottom: 14px; }
+  .card .name { font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 4px; }
+  .card .concept { font-size: 10px; color: #666; text-align: center; font-family: 'JetBrains Mono', monospace; }
+  .card .palette { display: flex; gap: 4px; margin-top: 8px; }
+  .card .palette .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #2a2a2f; }
+  .section-label {
+    grid-column: 1 / -1; font-size: 12px; font-weight: 500; color: #555;
+    text-transform: uppercase; letter-spacing: 0.15em; padding: 10px 0 0;
+    border-top: 1px solid #1a1a1f; font-family: 'JetBrains Mono', monospace;
+  }
+</style>
+</head>
+<body>
+
+<h1>roxabi-plugins</h1>
+<p class="subtitle">25 hex-cell variations — v3</p>
+
+<div class="grid" id="gallery"></div>
+
+<script>
+const PAL = {
+  orange: { primary: "#FF6B35", secondary: "#FF8F5E", bg: "#0D0D0D", surface: "#1C1C1E", nameColor: "#FF6B35" },
+  cyan:   { primary: "#06B6D4", secondary: "#67E8F9", bg: "#0A0F1A", surface: "#111827", nameColor: "#67E8F9" },
+  purple: { primary: "#8B5CF6", secondary: "#C084FC", bg: "#0D0B14", surface: "#1A1625", nameColor: "#C084FC" },
+  green:  { primary: "#4ADE80", secondary: "#86EFAC", bg: "#000000", surface: "#0A0A0A", nameColor: "#4ADE80" },
+  gold:   { primary: "#F59E0B", secondary: "#FBBF24", bg: "#0D0B14", surface: "#1A1625", nameColor: "#FBBF24" },
+  earth:  { primary: "#6B8F71", secondary: "#C4A87C", bg: "#1A1A18", surface: "#252520", nameColor: "#6B8F71" },
+};
+
+// hex geometry helpers
+function hexVerts(cx, cy, r, startAngle = -Math.PI/2) {
+  const pts = [];
+  for (let i = 0; i < 6; i++) {
+    const a = startAngle + (Math.PI / 3) * i;
+    pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+  }
+  return pts;
+}
+function hexPath(cx, cy, r, startAngle) {
+  const v = hexVerts(cx, cy, r, startAngle);
+  return `M ${v.map(p => p.join(',')).join(' L ')} Z`;
+}
+function dot(cx, cy, r, fill, op=1) {
+  return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" opacity="${op}"/>`;
+}
+function ln(x1, y1, x2, y2, stroke, w=1, op=0.3) {
+  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${w}" opacity="${op}"/>`;
+}
+function hexEdges(verts, stroke, w=1.2, op=0.25) {
+  let s = '';
+  for (let i = 0; i < 6; i++) s += ln(verts[i][0],verts[i][1],verts[(i+1)%6][0],verts[(i+1)%6][1], stroke, w, op);
+  return s;
+}
+function hexDots(verts, p, s, r=3.5, op=0.7) {
+  let svg = '';
+  for (let i = 0; i < 6; i++) svg += dot(verts[i][0],verts[i][1], r, i%2===0?p:s, op);
+  return svg;
+}
+// neighbor hex centers (flat-top)
+function hexNeighbors(cx, cy, size) {
+  const h = size * Math.sqrt(3);
+  return [
+    [cx + size * 1.5, cy - h/2],  // top-right
+    [cx + size * 1.5, cy + h/2],  // bottom-right
+    [cx, cy + h],                  // bottom
+    [cx - size * 1.5, cy + h/2],  // bottom-left
+    [cx - size * 1.5, cy - h/2],  // top-left
+    [cx, cy - h],                  // top
+  ];
+}
+
+const concepts = [
+
+  // ── SINGLE HEX VARIATIONS ────────────────────────────────────
+  {
+    section: "Single Hex — Core Form",
+    label: "Pure Hex",
+    concept: "Clean single hex — dots at vertices",
+    pal: "green",
+    mark: (p, s) => {
+      const v = hexVerts(50, 55, 28);
+      return hexEdges(v, s, 1.5, 0.3) + hexDots(v, p, s, 4, 0.8) + dot(50,55,5,p,0.95) + dot(50,55,2,'#fff',0.8);
+    }
+  },
+  {
+    label: "Double Ring",
+    concept: "Nested hex — inner + outer shell",
+    pal: "cyan",
+    mark: (p, s) => {
+      const outer = hexVerts(50, 55, 30);
+      const inner = hexVerts(50, 55, 16);
+      let svg = hexEdges(outer, s, 1.2, 0.2) + hexEdges(inner, p, 1.5, 0.35);
+      for (let i = 0; i < 6; i++) svg += ln(inner[i][0],inner[i][1],outer[i][0],outer[i][1], s, 0.8, 0.15);
+      svg += hexDots(outer, s, s, 3, 0.5) + hexDots(inner, p, s, 3.5, 0.8);
+      svg += dot(50,55,4,p,0.9) + dot(50,55,1.5,'#fff',0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Triple Nest",
+    concept: "3 concentric hexes — depth, layers",
+    pal: "purple",
+    mark: (p, s) => {
+      const r1 = hexVerts(50,55,32), r2 = hexVerts(50,55,20), r3 = hexVerts(50,55,10);
+      let svg = hexEdges(r1,s,1,0.15) + hexEdges(r2,s,1.2,0.25) + hexEdges(r3,p,1.5,0.35);
+      svg += hexDots(r1,s,s,2.5,0.35) + hexDots(r2,s,p,3,0.6) + hexDots(r3,p,p,3,0.8);
+      svg += dot(50,55,4,p,0.95) + dot(50,55,1.5,'#fff',0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Open Hex",
+    concept: "Broken edges — partial, breathing",
+    pal: "orange",
+    mark: (p, s) => {
+      const v = hexVerts(50, 55, 28);
+      let svg = '';
+      // only draw 4 of 6 edges
+      for (let i of [0,1,3,4]) svg += ln(v[i][0],v[i][1],v[(i+1)%6][0],v[(i+1)%6][1], s, 1.5, 0.3);
+      svg += hexDots(v, p, s, 4, 0.8);
+      svg += dot(50,55,5,p,0.95) + dot(50,55,2,'#fff',0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Hex + Spokes",
+    concept: "Hex with radial lines from center",
+    pal: "gold",
+    mark: (p, s) => {
+      const v = hexVerts(50,55,28);
+      let svg = hexEdges(v,s,1.2,0.25);
+      for (let i = 0; i < 6; i++) svg += ln(50,55,v[i][0],v[i][1], p, 1, 0.2);
+      svg += hexDots(v, p, s, 3.5, 0.75) + dot(50,55,5,p,0.95) + dot(50,55,2,'#fff',0.8);
+      // edge midpoints
+      for (let i = 0; i < 6; i++) {
+        const mx = (v[i][0]+v[(i+1)%6][0])/2, my = (v[i][1]+v[(i+1)%6][1])/2;
+        svg += dot(mx,my, 2, s, 0.4);
+      }
+      return svg;
+    }
+  },
+
+  // ── HONEYCOMB / CLUSTER ───────────────────────────────────────
+  {
+    section: "Honeycomb — Clusters",
+    label: "Honeycomb 7",
+    concept: "Central hex + 6 neighbors — full comb",
+    pal: "green",
+    mark: (p, s) => {
+      const size = 12;
+      const centers = [[50,55], ...hexNeighbors(50,55,size)];
+      let svg = '';
+      for (let c = 0; c < centers.length; c++) {
+        const v = hexVerts(centers[c][0], centers[c][1], size);
+        svg += hexEdges(v, s, 0.8, c===0?0.3:0.15);
+        svg += dot(centers[c][0],centers[c][1], c===0?4:2.5, c===0?p:s, c===0?0.9:0.5);
+      }
+      svg += dot(50,55,1.5,'#fff',0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Honeycomb 3",
+    concept: "Trio of hexes — minimal cluster",
+    pal: "cyan",
+    mark: (p, s) => {
+      const size = 15;
+      const h = size * Math.sqrt(3);
+      const centers = [[50,42],[50-size*0.75, 42+h/2],[50+size*0.75, 42+h/2]];
+      let svg = '';
+      for (let c = 0; c < 3; c++) {
+        const v = hexVerts(centers[c][0], centers[c][1], size);
+        svg += hexEdges(v, s, 1, 0.25);
+        svg += dot(centers[c][0],centers[c][1], c===0?5:4, c===0?p:s, c===0?0.9:0.7);
+      }
+      // shared vertex dots
+      const v0 = hexVerts(centers[0][0],centers[0][1],size);
+      for (const pt of v0) svg += dot(pt[0],pt[1], 2.5, s, 0.4);
+      svg += dot(centers[0][0],centers[0][1], 2, '#fff', 0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Honeycomb L",
+    concept: "L-shaped cluster — asymmetric, organic",
+    pal: "orange",
+    mark: (p, s) => {
+      const size = 12;
+      const n = hexNeighbors(50,55,size);
+      const centers = [[50,55], n[5], n[4], n[3]]; // top, top-left, bottom-left
+      let svg = '';
+      for (let c = 0; c < centers.length; c++) {
+        const v = hexVerts(centers[c][0], centers[c][1], size);
+        svg += hexEdges(v, s, 0.8, c===0?0.3:0.18);
+        svg += dot(centers[c][0],centers[c][1], c===0?4.5:3, c===0?p:s, c===0?0.9:0.6);
+      }
+      svg += dot(50,55,1.5,'#fff',0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Half Comb",
+    concept: "Center + 3 top neighbors — crown",
+    pal: "purple",
+    mark: (p, s) => {
+      const size = 13;
+      const n = hexNeighbors(50,58,size);
+      const centers = [[50,58], n[5], n[0], n[4]];
+      let svg = '';
+      for (let c = 0; c < centers.length; c++) {
+        const v = hexVerts(centers[c][0], centers[c][1], size);
+        svg += hexEdges(v, s, 0.8, c===0?0.3:0.18);
+        svg += dot(centers[c][0],centers[c][1], c===0?5:3, c===0?p:s, c===0?0.9:0.6);
+      }
+      svg += dot(50,58,2,'#fff',0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Comb Ring",
+    concept: "6 hexes around empty center — donut",
+    pal: "gold",
+    mark: (p, s) => {
+      const size = 11;
+      const centers = hexNeighbors(50,55,size);
+      let svg = '';
+      for (let c = 0; c < centers.length; c++) {
+        const v = hexVerts(centers[c][0], centers[c][1], size);
+        svg += hexEdges(v, s, 0.7, 0.2);
+        svg += dot(centers[c][0],centers[c][1], 3, c%2===0?p:s, 0.7);
+      }
+      // center empty but with a glow dot
+      svg += dot(50,55,4,p,0.5);
+      svg += dot(50,55,1.5,'#fff',0.6);
+      return svg;
+    }
+  },
+
+  // ── HEX + CONNECTIONS ─────────────────────────────────────────
+  {
+    section: "Hex + Connections",
+    label: "Hex Star",
+    concept: "Star of David inside hex — inner structure",
+    pal: "cyan",
+    mark: (p, s) => {
+      const v = hexVerts(50,55,28);
+      let svg = hexEdges(v,s,1.2,0.25);
+      // star: connect every other vertex
+      for (let i = 0; i < 6; i++) {
+        svg += ln(v[i][0],v[i][1],v[(i+2)%6][0],v[(i+2)%6][1], p, 1, 0.2);
+      }
+      svg += hexDots(v, p, s, 4, 0.8) + dot(50,55,5,p,0.95) + dot(50,55,2,'#fff',0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Hex Web",
+    concept: "All vertices connected — fully meshed",
+    pal: "purple",
+    mark: (p, s) => {
+      const v = hexVerts(50,55,28);
+      let svg = '';
+      for (let i = 0; i < 6; i++) for (let j = i+1; j < 6; j++) {
+        svg += ln(v[i][0],v[i][1],v[j][0],v[j][1], s, 0.6, 0.1);
+      }
+      svg += hexEdges(v,p,1.5,0.35) + hexDots(v,p,s,4,0.8) + dot(50,55,5,p,0.95) + dot(50,55,2,'#fff',0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Hex Burst",
+    concept: "Hex with rays extending beyond vertices",
+    pal: "orange",
+    mark: (p, s) => {
+      const v = hexVerts(50,55,22);
+      const outer = hexVerts(50,55,36);
+      let svg = hexEdges(v,s,1.2,0.3);
+      for (let i = 0; i < 6; i++) {
+        svg += ln(v[i][0],v[i][1],outer[i][0],outer[i][1], p, 1, 0.2);
+        svg += dot(outer[i][0],outer[i][1], 2.5, s, 0.4);
+      }
+      svg += hexDots(v,p,s,3.5,0.8) + dot(50,55,4.5,p,0.95) + dot(50,55,1.5,'#fff',0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Hex Chain",
+    concept: "3 hexes in a row — linked modules",
+    pal: "earth",
+    mark: (p, s) => {
+      const size = 14;
+      const centers = [[50-size*1.5, 55],[50,55],[50+size*1.5,55]];
+      let svg = '';
+      for (let c = 0; c < 3; c++) {
+        const v = hexVerts(centers[c][0],centers[c][1], size);
+        svg += hexEdges(v,s, 1, c===1?0.3:0.2);
+        svg += dot(centers[c][0],centers[c][1], c===1?4.5:3, c===1?p:s, c===1?0.9:0.6);
+      }
+      // connecting dots at shared boundaries
+      svg += dot(50-size*0.75,55, 2.5, p, 0.5);
+      svg += dot(50+size*0.75,55, 2.5, p, 0.5);
+      svg += dot(50,55,1.5,'#fff',0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Hex Pulse",
+    concept: "Hex with concentric pulse rings",
+    pal: "green",
+    mark: (p, s) => {
+      const v = hexVerts(50,55,26);
+      let svg = hexEdges(v,s,1.5,0.3);
+      // pulse rings
+      svg += `<circle cx="50" cy="55" r="14" fill="none" stroke="${p}" stroke-width="0.8" opacity="0.2"/>`;
+      svg += `<circle cx="50" cy="55" r="20" fill="none" stroke="${s}" stroke-width="0.6" opacity="0.12"/>`;
+      svg += `<circle cx="50" cy="55" r="32" fill="none" stroke="${p}" stroke-width="0.5" opacity="0.08"/>`;
+      svg += hexDots(v,p,s,3.5,0.75) + dot(50,55,5,p,0.95) + dot(50,55,2,'#fff',0.8);
+      return svg;
+    }
+  },
+
+  // ── HEX ROTATIONS / TILTS ────────────────────────────────────
+  {
+    section: "Rotations & Tilts",
+    label: "Flat-Top Hex",
+    concept: "Rotated 30° — flat top instead of pointy",
+    pal: "gold",
+    mark: (p, s) => {
+      const v = hexVerts(50,55,28, 0); // flat-top
+      let svg = hexEdges(v,s,1.5,0.3) + hexDots(v,p,s,4,0.8) + dot(50,55,5,p,0.95) + dot(50,55,2,'#fff',0.8);
+      // inner flat-top
+      const vi = hexVerts(50,55,14, 0);
+      svg += hexEdges(vi,p,1,0.2);
+      for (let i = 0; i < 6; i++) svg += ln(vi[i][0],vi[i][1],v[i][0],v[i][1], s, 0.6, 0.12);
+      return svg;
+    }
+  },
+  {
+    label: "Tilted Duo",
+    concept: "Pointy + flat-top overlapping — duality",
+    pal: "purple",
+    mark: (p, s) => {
+      const v1 = hexVerts(50,55,26, -Math.PI/2); // pointy
+      const v2 = hexVerts(50,55,26, 0); // flat
+      let svg = hexEdges(v1,p,1.2,0.3) + hexEdges(v2,s,1,0.18);
+      // intersection dots
+      svg += hexDots(v1,p,p,3,0.7) + hexDots(v2,s,s,2.5,0.5);
+      svg += dot(50,55,5,p,0.95) + dot(50,55,2,'#fff',0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Hex Diamond",
+    concept: "Hex stretched vertically — elegant, tall",
+    pal: "cyan",
+    mark: (p, s) => {
+      const v = [];
+      for (let i = 0; i < 6; i++) {
+        const a = -Math.PI/2 + (Math.PI / 3) * i;
+        v.push([50 + 22 * Math.cos(a), 55 + 32 * Math.sin(a)]);
+      }
+      let svg = '';
+      for (let i = 0; i < 6; i++) svg += ln(v[i][0],v[i][1],v[(i+1)%6][0],v[(i+1)%6][1], s, 1.5, 0.3);
+      for (let i = 0; i < 6; i++) svg += dot(v[i][0],v[i][1], i%2===0?4:3.5, i%2===0?p:s, 0.8);
+      svg += dot(50,55,5,p,0.95) + dot(50,55,2,'#fff',0.8);
+      // cross lines
+      svg += ln(v[0][0],v[0][1],v[3][0],v[3][1], p, 0.8, 0.12);
+      svg += ln(v[1][0],v[1][1],v[4][0],v[4][1], s, 0.8, 0.12);
+      svg += ln(v[2][0],v[2][1],v[5][0],v[5][1], p, 0.8, 0.12);
+      return svg;
+    }
+  },
+  {
+    label: "Hex Wide",
+    concept: "Hex stretched horizontally — panoramic",
+    pal: "orange",
+    mark: (p, s) => {
+      const v = [];
+      for (let i = 0; i < 6; i++) {
+        const a = -Math.PI/2 + (Math.PI / 3) * i;
+        v.push([50 + 34 * Math.cos(a), 55 + 20 * Math.sin(a)]);
+      }
+      let svg = '';
+      for (let i = 0; i < 6; i++) svg += ln(v[i][0],v[i][1],v[(i+1)%6][0],v[(i+1)%6][1], s, 1.5, 0.3);
+      for (let i = 0; i < 6; i++) svg += dot(v[i][0],v[i][1], 4, i%2===0?p:s, 0.8);
+      svg += dot(50,55,5,p,0.95) + dot(50,55,2,'#fff',0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Hex Spin",
+    concept: "3 rotated hexes — motion, energy",
+    pal: "earth",
+    mark: (p, s) => {
+      let svg = '';
+      const angles = [-Math.PI/2, -Math.PI/2 + Math.PI/9, -Math.PI/2 + Math.PI/4.5];
+      const opacities = [0.35, 0.22, 0.12];
+      const colors = [p, s, s];
+      for (let a = 2; a >= 0; a--) {
+        const v = hexVerts(50,55,26, angles[a]);
+        svg += hexEdges(v, colors[a], a===0?1.5:1, opacities[a]);
+        if (a === 0) svg += hexDots(v,p,s,3.5,0.75);
+      }
+      svg += dot(50,55,5,p,0.9) + dot(50,55,2,'#fff',0.8);
+      return svg;
+    }
+  },
+
+  // ── HEX + SYMBOLISM ───────────────────────────────────────────
+  {
+    section: "Hex + Symbolism",
+    label: "Hex Shield",
+    concept: "Hex as protective frame — trust",
+    pal: "green",
+    mark: (p, s) => {
+      const v = hexVerts(50,50,30);
+      let svg = hexEdges(v,s,2,0.35);
+      // checkmark inside
+      svg += `<path d="M 38,52 L 47,62 L 66,40" fill="none" stroke="${p}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>`;
+      svg += hexDots(v,p,s,3.5,0.6);
+      return svg;
+    }
+  },
+  {
+    label: "Hex Core",
+    concept: "Solid center, fading outward — nucleus",
+    pal: "cyan",
+    mark: (p, s) => {
+      const v = hexVerts(50,55,30);
+      let svg = hexEdges(v,s,1,0.15);
+      svg += hexDots(v,s,s,2.5,0.35);
+      // gradient center
+      svg += `<defs><radialGradient id="hcg"><stop offset="0%" stop-color="${p}" stop-opacity="0.6"/><stop offset="100%" stop-color="${p}" stop-opacity="0"/></radialGradient></defs>`;
+      svg += `<circle cx="50" cy="55" r="18" fill="url(#hcg)"/>`;
+      svg += dot(50,55,7,p,0.95) + dot(50,55,3,'#fff',0.8);
+      // inner ring of dots
+      const inner = hexVerts(50,55,13);
+      for (let i = 0; i < 6; i++) {
+        svg += dot(inner[i][0],inner[i][1], 2, s, 0.5);
+        svg += ln(50,55,inner[i][0],inner[i][1], s, 0.5, 0.15);
+      }
+      return svg;
+    }
+  },
+  {
+    label: "Hex Grid 4",
+    concept: "2×2 hex grid — building blocks",
+    pal: "gold",
+    mark: (p, s) => {
+      const size = 13;
+      const h = size * Math.sqrt(3);
+      const centers = [
+        [50-size*0.75, 55-h/2],
+        [50+size*0.75, 55-h/2],
+        [50-size*0.75, 55+h/2],
+        [50+size*0.75, 55+h/2]
+      ];
+      let svg = '';
+      for (let c = 0; c < 4; c++) {
+        const v = hexVerts(centers[c][0],centers[c][1], size);
+        svg += hexEdges(v, s, 0.8, 0.2);
+        svg += dot(centers[c][0],centers[c][1], 3.5, c<2?p:s, 0.7);
+      }
+      // center between all 4
+      svg += dot(50,55, 3, p, 0.5);
+      return svg;
+    }
+  },
+  {
+    label: "Hex Fragment",
+    concept: "Deconstructed hex — edges as separate lines",
+    pal: "purple",
+    mark: (p, s) => {
+      const v = hexVerts(50,55,28);
+      let svg = '';
+      // draw edges with gaps (shorter lines)
+      for (let i = 0; i < 6; i++) {
+        const j = (i+1)%6;
+        const mx = (v[i][0]+v[j][0])/2, my = (v[i][1]+v[j][1])/2;
+        // from vertex toward mid, stop short
+        const dx1 = (mx-v[i][0])*0.7, dy1 = (my-v[i][1])*0.7;
+        const dx2 = (mx-v[j][0])*0.7, dy2 = (my-v[j][1])*0.7;
+        svg += ln(v[i][0],v[i][1], v[i][0]+dx1, v[i][1]+dy1, s, 1.5, 0.3);
+        svg += ln(v[j][0],v[j][1], v[j][0]+dx2, v[j][1]+dy2, s, 1.5, 0.3);
+      }
+      svg += hexDots(v,p,s,4,0.85) + dot(50,55,5,p,0.95) + dot(50,55,2,'#fff',0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Hex Bloom",
+    concept: "Hex with petal arcs — organic growth",
+    pal: "earth",
+    mark: (p, s) => {
+      const v = hexVerts(50,55,26);
+      let svg = hexEdges(v,s,1,0.2);
+      // arcs between alternate vertices, curving outward
+      for (let i = 0; i < 6; i += 2) {
+        const j = (i+2)%6;
+        const mx = (v[i][0]+v[j][0])/2, my = (v[i][1]+v[j][1])/2;
+        // control point pushed outward from center
+        const dx = mx - 50, dy = my - 55;
+        const cx2 = mx + dx * 0.6, cy2 = my + dy * 0.6;
+        svg += `<path d="M ${v[i][0]},${v[i][1]} Q ${cx2},${cy2} ${v[j][0]},${v[j][1]}" fill="none" stroke="${p}" stroke-width="1.2" opacity="0.3"/>`;
+      }
+      svg += hexDots(v,p,s,3.5,0.75) + dot(50,55,5,p,0.9) + dot(50,55,2,'#fff',0.8);
+      return svg;
+    }
+  }
+];
+
+// ═══════════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════════
+const gallery = document.getElementById('gallery');
+let num = 0;
+
+for (const c of concepts) {
+  if (c.section) {
+    const div = document.createElement('div');
+    div.className = 'section-label';
+    div.textContent = c.section;
+    gallery.appendChild(div);
+  }
+  num++;
+  const pal = PAL[c.pal];
+  const p = pal.primary, s = pal.secondary;
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `
+    <span class="number">#${String(num).padStart(2,'0')}</span>
+    <svg viewBox="0 0 100 110" xmlns="http://www.w3.org/2000/svg">
+      ${typeof c.mark === 'function' ? c.mark(p, s) : ''}
+    </svg>
+    <div class="name" style="color: ${pal.nameColor}">roxabi-plugins</div>
+    <div class="concept">${c.concept}</div>
+    <div class="palette">
+      <div class="swatch" style="background: ${pal.primary}" title="primary"></div>
+      <div class="swatch" style="background: ${pal.secondary}" title="secondary"></div>
+      <div class="swatch" style="background: ${pal.bg}" title="bg"></div>
+      <div class="swatch" style="background: ${pal.surface}" title="surface"></div>
+    </div>
+  `;
+  gallery.appendChild(card);
+}
+</script>
+</body>
+</html>

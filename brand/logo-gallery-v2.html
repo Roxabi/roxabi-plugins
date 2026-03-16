@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>roxabi-plugins — Logo Gallery v2 (Dot + Line)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600&family=DM+Sans:wght@500&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #08080a;
+    color: #e0e0e0;
+    font-family: 'Inter', sans-serif;
+    padding: 40px 20px;
+  }
+  h1 { text-align: center; font-size: 28px; font-weight: 600; margin-bottom: 8px; color: #fff; }
+  .subtitle { text-align: center; font-size: 13px; color: #666; margin-bottom: 40px; font-family: 'JetBrains Mono', monospace; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .card {
+    background: #111114;
+    border: 1px solid #1a1a1f;
+    border-radius: 12px;
+    padding: 24px 16px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    transition: border-color 0.2s, transform 0.2s;
+    cursor: pointer;
+    position: relative;
+  }
+  .card:hover { border-color: #333; transform: translateY(-2px); }
+  .card .number {
+    position: absolute; top: 8px; left: 10px;
+    font-size: 10px; color: #444; font-family: 'JetBrains Mono', monospace;
+  }
+  .card svg { width: 120px; height: 120px; margin-bottom: 14px; }
+  .card .name { font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 4px; }
+  .card .concept { font-size: 10px; color: #666; text-align: center; font-family: 'JetBrains Mono', monospace; }
+  .card .palette { display: flex; gap: 4px; margin-top: 8px; }
+  .card .palette .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #2a2a2f; }
+  .section-label {
+    grid-column: 1 / -1; font-size: 12px; font-weight: 500; color: #555;
+    text-transform: uppercase; letter-spacing: 0.15em; padding: 10px 0 0;
+    border-top: 1px solid #1a1a1f; font-family: 'JetBrains Mono', monospace;
+  }
+</style>
+</head>
+<body>
+
+<h1>roxabi-plugins</h1>
+<p class="subtitle">25 dot + line concepts — v2</p>
+
+<div class="grid" id="gallery"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// PALETTES
+// ═══════════════════════════════════════════════════════════
+const PAL = {
+  orange:  { primary: "#FF6B35", secondary: "#FF8F5E", bg: "#0D0D0D", surface: "#1C1C1E", nameColor: "#FF6B35" },
+  cyan:    { primary: "#06B6D4", secondary: "#67E8F9", bg: "#0A0F1A", surface: "#111827", nameColor: "#67E8F9" },
+  purple:  { primary: "#8B5CF6", secondary: "#C084FC", bg: "#0D0B14", surface: "#1A1625", nameColor: "#C084FC" },
+  green:   { primary: "#4ADE80", secondary: "#22D3EE", bg: "#000000", surface: "#0A0A0A", nameColor: "#4ADE80" },
+  gold:    { primary: "#F59E0B", secondary: "#FBBF24", bg: "#0D0B14", surface: "#1A1625", nameColor: "#FBBF24" },
+  earth:   { primary: "#6B8F71", secondary: "#C4A87C", bg: "#1A1A18", surface: "#252520", nameColor: "#6B8F71" },
+};
+
+// helpers
+function dot(cx, cy, r, fill, op=1) {
+  return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" opacity="${op}"/>`;
+}
+function line(x1, y1, x2, y2, stroke, w=1, op=0.3) {
+  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${w}" opacity="${op}"/>`;
+}
+function connect(nodes, edges, p, s, opts={}) {
+  const lw = opts.lineWidth || 1;
+  const lo = opts.lineOpacity || 0.25;
+  let svg = '';
+  for (const [a, b] of edges) {
+    const na = nodes[a], nb = nodes[b];
+    svg += line(na[0], na[1], nb[0], nb[1], opts.lineColor || s, lw, lo);
+  }
+  for (let i = 0; i < nodes.length; i++) {
+    const [cx, cy, r, color, opacity] = nodes[i];
+    svg += dot(cx, cy, r, color || p, opacity || 0.8);
+  }
+  return svg;
+}
+
+const concepts = [
+
+  // ── KEPT FAVORITES (refined) ──────────────────────────────────
+  {
+    section: "Favorites (refined)",
+    label: "Hex Cell",
+    concept: "Hexagonal lattice — modular tessellation",
+    pal: "green",
+    mark: (p, s) => {
+      const hex = (cx, cy, r) => {
+        let pts = [];
+        for (let i = 0; i < 6; i++) {
+          const a = Math.PI / 3 * i - Math.PI / 2;
+          pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+        }
+        return pts;
+      };
+      const center = hex(50, 55, 24);
+      let svg = '';
+      // edges of center hex
+      for (let i = 0; i < 6; i++) {
+        const j = (i + 1) % 6;
+        svg += line(center[i][0], center[i][1], center[j][0], center[j][1], s, 1.5, 0.3);
+      }
+      // dots at vertices
+      for (let i = 0; i < 6; i++) {
+        svg += dot(center[i][0], center[i][1], 3.5, i % 2 === 0 ? p : s, 0.7);
+      }
+      // center dot
+      svg += dot(50, 55, 5, p, 0.9);
+      svg += dot(50, 55, 2, '#fff', 0.8);
+      // outer hints
+      const outer = hex(50, 55, 40);
+      for (let i = 0; i < 6; i++) {
+        svg += line(center[i][0], center[i][1], outer[i][0], outer[i][1], s, 0.8, 0.15);
+        svg += dot(outer[i][0], outer[i][1], 2, s, 0.3);
+      }
+      return svg;
+    }
+  },
+  {
+    label: "Orbital Rings",
+    concept: "Concentric orbits — ecosystem layers",
+    pal: "cyan",
+    mark: (p, s) => {
+      let svg = '';
+      svg += `<circle cx="50" cy="55" r="32" fill="none" stroke="${s}" stroke-width="1" opacity="0.15"/>`;
+      svg += `<circle cx="50" cy="55" r="22" fill="none" stroke="${p}" stroke-width="1" opacity="0.2"/>`;
+      svg += `<circle cx="50" cy="55" r="12" fill="none" stroke="${s}" stroke-width="1" opacity="0.25"/>`;
+      // orbital dots
+      svg += dot(50, 23, 4, s, 0.8);
+      svg += dot(74, 62, 3.5, p, 0.7);
+      svg += dot(30, 73, 3, s, 0.6);
+      svg += dot(60, 39, 2.5, p, 0.6);
+      svg += dot(38, 42, 2, s, 0.5);
+      // center
+      svg += dot(50, 55, 5, p, 0.95);
+      svg += dot(50, 55, 2, '#fff', 0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Trinity",
+    concept: "3-node graph — minimal, essential",
+    pal: "orange",
+    mark: (p, s) => connect(
+      [[50,25,6,p,0.95], [25,78,5,s,0.8], [75,78,5,s,0.8], [50,25,2.5,'#fff',0.8]],
+      [[0,1],[0,2],[1,2]],
+      p, s, { lineOpacity: 0.3, lineWidth: 1.5 }
+    )
+  },
+  {
+    label: "Constellation",
+    concept: "Star map — discovery, navigation",
+    pal: "purple",
+    mark: (p, s) => connect(
+      [[50,28,5,p,0.9],[28,52,4,s,0.7],[72,48,4,s,0.7],[50,78,4,p,0.7],[85,72,2.5,s,0.4],[15,38,2.5,s,0.4],[50,28,2,'#fff',0.8]],
+      [[0,1],[0,2],[1,3],[2,3],[2,4],[1,5]],
+      p, s, { lineOpacity: 0.2 }
+    )
+  },
+  {
+    label: "Mosaic Grid",
+    concept: "3×3 dot matrix — systematic, modular",
+    pal: "gold",
+    mark: (p, s) => {
+      let svg = '';
+      const nodes = [];
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 3; c++) {
+          const cx = 28 + c * 22, cy = 33 + r * 22;
+          const isCenter = r === 1 && c === 1;
+          nodes.push([cx, cy]);
+          svg += dot(cx, cy, isCenter ? 6 : 3.5, (r+c)%2===0 ? p : s, isCenter ? 1 : 0.6);
+        }
+      }
+      // connect adjacent
+      const adj = [[0,1],[1,2],[3,4],[4,5],[6,7],[7,8],[0,3],[1,4],[2,5],[3,6],[4,7],[5,8]];
+      for (const [a,b] of adj) {
+        svg += line(nodes[a][0],nodes[a][1],nodes[b][0],nodes[b][1], s, 0.8, 0.15);
+      }
+      svg += dot(50, 55, 2.5, '#fff', 0.8);
+      return svg;
+    }
+  },
+
+  // ── TOPOLOGY VARIATIONS ───────────────────────────────────────
+  {
+    section: "Topology Variations",
+    label: "Molecule",
+    concept: "Chemical bond — organic connection",
+    pal: "cyan",
+    mark: (p, s) => connect(
+      [[50,40,6,p,0.95],[30,60,4,s,0.7],[70,60,4,s,0.7],[50,80,3.5,p,0.6],[15,45,3,s,0.5],[85,45,3,s,0.5],[50,40,2.5,'#fff',0.8]],
+      [[0,1],[0,2],[1,3],[2,3],[0,4],[0,5]],
+      p, s, { lineWidth: 2, lineOpacity: 0.3 }
+    )
+  },
+  {
+    label: "Neural Layer",
+    concept: "2-layer network — input→output",
+    pal: "purple",
+    mark: (p, s) => {
+      let svg = '';
+      const left = [[25,30],[25,50],[25,70]];
+      const right = [[75,35],[75,55],[75,75]];
+      for (const l of left) for (const r of right) {
+        svg += line(l[0],l[1],r[0],r[1], s, 0.8, 0.15);
+      }
+      for (const l of left) svg += dot(l[0],l[1], 4, p, 0.8);
+      for (const r of right) svg += dot(r[0],r[1], 4, s, 0.7);
+      // center highlight
+      svg += dot(50, 50, 2, p, 0.3);
+      return svg;
+    }
+  },
+  {
+    label: "Binary Tree",
+    concept: "Hierarchical branching — structure",
+    pal: "orange",
+    mark: (p, s) => connect(
+      [[50,22,5,p,0.95],[30,48,4,s,0.75],[70,48,4,s,0.75],[18,74,3,p,0.6],[42,74,3,s,0.6],[58,74,3,s,0.6],[82,74,3,p,0.6],[50,22,2,'#fff',0.8]],
+      [[0,1],[0,2],[1,3],[1,4],[2,5],[2,6]],
+      p, s, { lineWidth: 1.5, lineOpacity: 0.25 }
+    )
+  },
+  {
+    label: "Ring Network",
+    concept: "Circular topology — every node connects",
+    pal: "green",
+    mark: (p, s) => {
+      const n = 6, r = 28, cx = 50, cy = 55;
+      const nodes = [];
+      for (let i = 0; i < n; i++) {
+        const a = (Math.PI * 2 / n) * i - Math.PI / 2;
+        nodes.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+      }
+      let svg = '';
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        svg += line(nodes[i][0],nodes[i][1],nodes[j][0],nodes[j][1], s, 1.2, 0.25);
+      }
+      for (let i = 0; i < n; i++) {
+        svg += dot(nodes[i][0],nodes[i][1], 4, i%2===0 ? p : s, 0.8);
+      }
+      svg += dot(cx, cy, 5, p, 0.9);
+      svg += dot(cx, cy, 2, '#fff', 0.8);
+      // spokes
+      for (let i = 0; i < n; i++) {
+        svg += line(cx, cy, nodes[i][0],nodes[i][1], s, 0.8, 0.12);
+      }
+      return svg;
+    }
+  },
+  {
+    label: "Bridge",
+    concept: "Two clusters linked — integration",
+    pal: "gold",
+    mark: (p, s) => {
+      let svg = '';
+      const L = [[25,35],[18,55],[32,55],[25,72]];
+      const R = [[75,35],[68,55],[82,55],[75,72]];
+      // internal edges
+      const int = [[0,1],[0,2],[1,3],[2,3],[1,2]];
+      for (const [a,b] of int) {
+        svg += line(L[a][0],L[a][1],L[b][0],L[b][1], p, 1, 0.2);
+        svg += line(R[a][0],R[a][1],R[b][0],R[b][1], s, 1, 0.2);
+      }
+      // bridge
+      svg += line(32,55,68,55, p, 2, 0.4);
+      svg += line(25,35,75,35, s, 0.8, 0.12);
+      svg += line(25,72,75,72, s, 0.8, 0.12);
+      for (const n of L) svg += dot(n[0],n[1], 4, p, 0.8);
+      for (const n of R) svg += dot(n[0],n[1], 4, s, 0.8);
+      return svg;
+    }
+  },
+
+  // ── DENSITY VARIATIONS ────────────────────────────────────────
+  {
+    section: "Density Variations",
+    label: "Sparse Trio",
+    concept: "3 dots, 2 lines — extreme minimalism",
+    pal: "earth",
+    mark: (p, s) => {
+      let svg = '';
+      svg += line(30,55,50,35, s, 1.5, 0.3);
+      svg += line(50,35,70,55, s, 1.5, 0.3);
+      svg += dot(30, 55, 5, p, 0.8);
+      svg += dot(50, 35, 6, p, 0.95);
+      svg += dot(70, 55, 5, s, 0.8);
+      svg += dot(50, 35, 2.5, '#fff', 0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Dense Mesh",
+    concept: "Interconnected web — rich ecosystem",
+    pal: "cyan",
+    mark: (p, s) => {
+      const pts = [[50,20],[25,35],[75,35],[18,55],[50,55],[82,55],[30,75],[70,75],[50,90]];
+      let svg = '';
+      // connect many
+      const edges = [[0,1],[0,2],[1,3],[1,4],[2,4],[2,5],[3,6],[4,6],[4,7],[5,7],[6,8],[7,8],[0,4],[3,4],[4,5],[1,2]];
+      for (const [a,b] of edges) {
+        svg += line(pts[a][0],pts[a][1],pts[b][0],pts[b][1], s, 0.8, 0.15);
+      }
+      for (let i = 0; i < pts.length; i++) {
+        const isKey = i === 0 || i === 4 || i === 8;
+        svg += dot(pts[i][0],pts[i][1], isKey ? 5 : 3, isKey ? p : s, isKey ? 0.9 : 0.5);
+      }
+      svg += dot(50, 55, 2, '#fff', 0.7);
+      return svg;
+    }
+  },
+  {
+    label: "Scatter Cloud",
+    concept: "Particle cloud — organic, alive",
+    pal: "purple",
+    mark: (p, s) => {
+      const pts = [[50,30],[35,42],[65,38],[28,58],[72,56],[40,72],[60,70],[50,55],[22,40],[78,68],[45,88],[55,22]];
+      let svg = '';
+      // faint connections from center
+      for (let i = 0; i < pts.length; i++) {
+        if (i === 7) continue;
+        const d = Math.hypot(pts[i][0]-50, pts[i][1]-55);
+        if (d < 30) svg += line(50,55,pts[i][0],pts[i][1], s, 0.6, 0.12);
+      }
+      for (let i = 0; i < pts.length; i++) {
+        const r = i === 7 ? 5 : 1.5 + Math.random() * 2.5;
+        svg += dot(pts[i][0],pts[i][1], r, i%3===0 ? p : s, i===7 ? 0.9 : 0.3 + Math.random()*0.4);
+      }
+      return svg;
+    }
+  },
+  {
+    label: "Dual Axis",
+    concept: "Vertical + horizontal cross — structure",
+    pal: "orange",
+    mark: (p, s) => {
+      let svg = '';
+      // vertical
+      svg += line(50,20,50,90, s, 1, 0.15);
+      // horizontal
+      svg += line(15,55,85,55, s, 1, 0.15);
+      // dots
+      const vDots = [[50,20],[50,38],[50,55],[50,72],[50,90]];
+      const hDots = [[15,55],[32,55],[68,55],[85,55]];
+      for (const d of vDots) svg += dot(d[0],d[1], d[0]===50&&d[1]===55 ? 6 : 3.5, p, d[1]===55 ? 0.95 : 0.6);
+      for (const d of hDots) svg += dot(d[0],d[1], 3.5, s, 0.6);
+      svg += dot(50, 55, 2.5, '#fff', 0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Asymmetric Cluster",
+    concept: "Off-center weight — organic balance",
+    pal: "earth",
+    mark: (p, s) => {
+      let svg = '';
+      const nodes = [[38,42,6,p],[28,62,4,s],[52,58,4,s],[42,75,3.5,p],[18,48,3,s],[55,38,3,s],[68,52,2.5,s],[75,68,2,s]];
+      const edges = [[0,1],[0,2],[0,4],[0,5],[1,3],[2,3],[2,6],[6,7]];
+      for (const [a,b] of edges) svg += line(nodes[a][0],nodes[a][1],nodes[b][0],nodes[b][1], s, 1, 0.2);
+      for (const n of nodes) svg += dot(n[0],n[1],n[2],n[3],0.8);
+      svg += dot(38,42,2.5,'#fff',0.7);
+      return svg;
+    }
+  },
+
+  // ── SHAPE FORMATIONS ──────────────────────────────────────────
+  {
+    section: "Shape Formations",
+    label: "Diamond",
+    concept: "4 points — cardinal directions, compass",
+    pal: "cyan",
+    mark: (p, s) => connect(
+      [[50,18,5,p,0.95],[82,55,4.5,s,0.8],[50,92,4.5,s,0.8],[18,55,4.5,p,0.8],[50,18,2,'#fff',0.8],[50,55,3,p,0.3]],
+      [[0,1],[1,2],[2,3],[3,0],[0,5],[1,5],[2,5],[3,5]],
+      p, s, { lineWidth: 1.5, lineOpacity: 0.25 }
+    )
+  },
+  {
+    label: "Pentagon",
+    concept: "5-sided star — balance, wholeness",
+    pal: "purple",
+    mark: (p, s) => {
+      const n = 5, r = 30, cx = 50, cy = 55;
+      const nodes = [];
+      for (let i = 0; i < n; i++) {
+        const a = (Math.PI * 2 / n) * i - Math.PI / 2;
+        nodes.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+      }
+      let svg = '';
+      // outer edges
+      for (let i = 0; i < n; i++) {
+        const j = (i+1)%n;
+        svg += line(nodes[i][0],nodes[i][1],nodes[j][0],nodes[j][1], s, 1.2, 0.25);
+      }
+      // star inner connections
+      for (let i = 0; i < n; i++) {
+        const j = (i+2)%n;
+        svg += line(nodes[i][0],nodes[i][1],nodes[j][0],nodes[j][1], p, 0.8, 0.1);
+      }
+      for (let i = 0; i < n; i++) svg += dot(nodes[i][0],nodes[i][1], 4, i%2===0?p:s, 0.8);
+      svg += dot(cx,cy, 4, p, 0.6);
+      return svg;
+    }
+  },
+  {
+    label: "Pyramid",
+    concept: "Triangular hierarchy — layered",
+    pal: "gold",
+    mark: (p, s) => connect(
+      [[50,20,6,p,0.95],[28,50,4,s,0.75],[72,50,4,s,0.75],[15,80,3.5,p,0.6],[42,80,3,s,0.55],[58,80,3,s,0.55],[85,80,3.5,p,0.6],[50,20,2.5,'#fff',0.8]],
+      [[0,1],[0,2],[1,3],[1,4],[2,5],[2,6],[1,2],[3,4],[4,5],[5,6]],
+      p, s, { lineWidth: 1, lineOpacity: 0.2 }
+    )
+  },
+  {
+    label: "Spiral Dots",
+    concept: "Fibonacci spiral — natural growth",
+    pal: "orange",
+    mark: (p, s) => {
+      let svg = '';
+      const n = 12;
+      const pts = [];
+      for (let i = 0; i < n; i++) {
+        const angle = i * 0.8;
+        const r = 5 + i * 2.5;
+        const cx = 50 + r * Math.cos(angle);
+        const cy = 55 + r * Math.sin(angle);
+        pts.push([cx, cy]);
+      }
+      for (let i = 1; i < n; i++) {
+        svg += line(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1], s, 0.8, 0.2);
+      }
+      for (let i = 0; i < n; i++) {
+        const sz = 4.5 - i * 0.25;
+        svg += dot(pts[i][0], pts[i][1], Math.max(sz, 1.5), i%2===0?p:s, 0.9 - i*0.05);
+      }
+      return svg;
+    }
+  },
+  {
+    label: "Arch",
+    concept: "Arc of dots — gateway, portal",
+    pal: "green",
+    mark: (p, s) => {
+      let svg = '';
+      const n = 7;
+      const pts = [];
+      for (let i = 0; i < n; i++) {
+        const a = Math.PI + (Math.PI / (n-1)) * i;
+        const cx = 50 + 35 * Math.cos(a);
+        const cy = 75 + 35 * Math.sin(a);
+        pts.push([cx, cy]);
+      }
+      for (let i = 1; i < n; i++) {
+        svg += line(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1], s, 1.2, 0.25);
+      }
+      // pillars
+      svg += line(pts[0][0],pts[0][1],pts[0][0],85, s, 1, 0.2);
+      svg += line(pts[n-1][0],pts[n-1][1],pts[n-1][0],85, s, 1, 0.2);
+      svg += dot(pts[0][0],85, 3, s, 0.5);
+      svg += dot(pts[n-1][0],85, 3, s, 0.5);
+      for (let i = 0; i < n; i++) {
+        const isTop = i === Math.floor(n/2);
+        svg += dot(pts[i][0],pts[i][1], isTop?5:3.5, isTop?p:s, isTop?0.95:0.7);
+      }
+      svg += dot(pts[3][0],pts[3][1], 2, '#fff', 0.8);
+      return svg;
+    }
+  },
+
+  // ── ICONIC / SYMBOLIC ─────────────────────────────────────────
+  {
+    section: "Iconic / Symbolic",
+    label: "Plug Nodes",
+    concept: "Two halves meeting — plug-in action",
+    pal: "green",
+    mark: (p, s) => {
+      let svg = '';
+      // left cluster
+      const L = [[28,35],[20,55],[28,75],[38,55]];
+      // right cluster
+      const R = [[72,35],[80,55],[72,75],[62,55]];
+      const le = [[0,3],[1,3],[2,3],[0,1],[1,2]];
+      for (const [a,b] of le) svg += line(L[a][0],L[a][1],L[b][0],L[b][1], p, 1, 0.2);
+      for (const [a,b] of le) svg += line(R[a][0],R[a][1],R[b][0],R[b][1], s, 1, 0.2);
+      // bridge
+      svg += line(38,55,62,55, p, 2.5, 0.5);
+      svg += dot(50,55, 3, '#fff', 0.7);
+      for (const n of L) svg += dot(n[0],n[1], 4, p, 0.8);
+      for (const n of R) svg += dot(n[0],n[1], 4, s, 0.8);
+      return svg;
+    }
+  },
+  {
+    label: "Growth Arrow",
+    concept: "Dots forming ↗ — progress, momentum",
+    pal: "gold",
+    mark: (p, s) => {
+      let svg = '';
+      const pts = [[20,78],[32,68],[44,60],[56,48],[68,32],[78,22]];
+      for (let i = 1; i < pts.length; i++) {
+        svg += line(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1], s, 1.2, 0.25);
+      }
+      for (let i = 0; i < pts.length; i++) {
+        const isLast = i === pts.length-1;
+        svg += dot(pts[i][0],pts[i][1], isLast?6:3+i*0.4, isLast?p:s, 0.5+i*0.1);
+      }
+      svg += dot(78,22, 2.5, '#fff', 0.8);
+      // arrow head hints
+      svg += line(78,22,72,24, p, 1.5, 0.5);
+      svg += line(78,22,76,30, p, 1.5, 0.5);
+      return svg;
+    }
+  },
+  {
+    label: "Heartbeat",
+    concept: "Pulse line with nodes — alive, active",
+    pal: "orange",
+    mark: (p, s) => {
+      let svg = '';
+      const pts = [[10,55],[25,55],[35,55],[42,35],[50,75],[58,25],[65,55],[75,55],[90,55]];
+      for (let i = 1; i < pts.length; i++) {
+        svg += line(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1], s, 1.5, 0.35);
+      }
+      for (let i = 0; i < pts.length; i++) {
+        const isPeak = i===3||i===4||i===5;
+        svg += dot(pts[i][0],pts[i][1], isPeak?4:2.5, isPeak?p:s, isPeak?0.9:0.4);
+      }
+      return svg;
+    }
+  },
+  {
+    label: "Orbit Lock",
+    concept: "Ring with key node — secure ecosystem",
+    pal: "purple",
+    mark: (p, s) => {
+      let svg = '';
+      svg += `<circle cx="50" cy="55" r="28" fill="none" stroke="${s}" stroke-width="1.5" opacity="0.2"/>`;
+      const n = 8;
+      for (let i = 0; i < n; i++) {
+        const a = (Math.PI * 2 / n) * i - Math.PI / 2;
+        const cx = 50 + 28 * Math.cos(a);
+        const cy = 55 + 28 * Math.sin(a);
+        const isKey = i === 0;
+        svg += dot(cx, cy, isKey?5:3, isKey?p:s, isKey?0.9:0.5);
+      }
+      svg += dot(50, 55, 6, p, 0.9);
+      svg += dot(50, 55, 2.5, '#fff', 0.8);
+      // connect center to all
+      for (let i = 0; i < n; i++) {
+        const a = (Math.PI * 2 / n) * i - Math.PI / 2;
+        const cx = 50 + 28 * Math.cos(a);
+        const cy = 55 + 28 * Math.sin(a);
+        svg += line(50,55,cx,cy, s, 0.6, 0.1);
+      }
+      return svg;
+    }
+  },
+  {
+    label: "Infinity Nodes",
+    concept: "∞ made of dots — endless composability",
+    pal: "earth",
+    mark: (p, s) => {
+      let svg = '';
+      const n = 16;
+      const pts = [];
+      for (let i = 0; i < n; i++) {
+        const t = (Math.PI * 2 / n) * i;
+        // lemniscate of Bernoulli
+        const scale = 35;
+        const denom = 1 + Math.sin(t) * Math.sin(t);
+        const cx = 50 + scale * Math.cos(t) / denom;
+        const cy = 55 + scale * Math.sin(t) * Math.cos(t) / denom;
+        pts.push([cx, cy]);
+      }
+      for (let i = 0; i < n; i++) {
+        const j = (i+1)%n;
+        svg += line(pts[i][0],pts[i][1],pts[j][0],pts[j][1], s, 0.8, 0.2);
+      }
+      for (let i = 0; i < n; i++) {
+        svg += dot(pts[i][0],pts[i][1], 2.5, i%3===0?p:s, 0.6);
+      }
+      svg += dot(50,55, 4, p, 0.9);
+      svg += dot(50,55, 1.5, '#fff', 0.7);
+      return svg;
+    }
+  }
+];
+
+// ═══════════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════════
+const gallery = document.getElementById('gallery');
+let num = 0;
+
+for (const c of concepts) {
+  if (c.section) {
+    const div = document.createElement('div');
+    div.className = 'section-label';
+    div.textContent = c.section;
+    gallery.appendChild(div);
+  }
+  num++;
+  const pal = PAL[c.pal];
+  const p = pal.primary, s = pal.secondary;
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `
+    <span class="number">#${String(num).padStart(2,'0')}</span>
+    <svg viewBox="0 0 100 110" xmlns="http://www.w3.org/2000/svg">
+      ${typeof c.mark === 'function' ? c.mark(p, s) : ''}
+    </svg>
+    <div class="name" style="color: ${pal.nameColor}">roxabi-plugins</div>
+    <div class="concept">${c.concept}</div>
+    <div class="palette">
+      <div class="swatch" style="background: ${pal.primary}" title="primary"></div>
+      <div class="swatch" style="background: ${pal.secondary}" title="secondary"></div>
+      <div class="swatch" style="background: ${pal.bg}" title="bg"></div>
+      <div class="swatch" style="background: ${pal.surface}" title="surface"></div>
+    </div>
+  `;
+  gallery.appendChild(card);
+}
+</script>
+</body>
+</html>
