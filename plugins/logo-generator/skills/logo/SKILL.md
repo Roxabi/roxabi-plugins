@@ -135,7 +135,26 @@ open "<project-root>/brand/<name>-logo.html" 2>/dev/null || \
 echo "Open in browser: <project-root>/brand/<name>-logo.html"
 ```
 
-4. Tell the user: "Preview is open. Use the gear icon (top-right) to tweak colors, sizes, and animation in real time. When you're happy, say 'export' or tell me what to change."
+4. **IMPORTANT:** When injecting into the engine template, add these CSS keyframes inside the `<style>` block (after `* { margin: 0; ... }`). The engine template does not include them:
+
+```css
+@keyframes wordmarkIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+```
+
+5. Tell the user: "Preview is open. Use the gear icon (top-right) to tweak colors, sizes, and animation in real time. When you're happy, say 'export' or tell me what to change."
+
+6. After showing the preview, ask the user via `AskUserQuestion`:
+   - **"What's next?"** with options:
+     - "Export GIF + PNG" — proceed to Phase 6
+     - "Tweak it" — proceed to Phase 5
+     - "Start over" — go back to Phase 2
 
 ## Phase 5 — Iterate
 
@@ -150,16 +169,29 @@ If the user used the controls panel and exported a brief from the browser, load 
 
 When the user is satisfied, run the export pipeline:
 
-```bash
-# Ensure puppeteer is available
-cd "<project-root>" && npm list puppeteer 2>/dev/null || npm install puppeteer
+1. Copy the export script and engine locally (the script resolves the engine from `__dirname`, and Puppeteer must be installed in the project's `node_modules`):
 
-# Run export
-node "${CLAUDE_PLUGIN_ROOT}/scripts/export-logo.mjs" \
-  "$HOME/.roxabi-vault/config/logo-briefs/<name>-logo-brief.json" \
-  --output "<project-root>/brand/" \
-  --gif --png
+```bash
+cp "${CLAUDE_PLUGIN_ROOT}/scripts/export-logo.mjs" "<project-root>/brand/capture-gif.mjs"
+cp "${CLAUDE_PLUGIN_ROOT}/scripts/logo-engine.html" "<project-root>/brand/_logo-engine.html"
 ```
+
+2. Patch `capture-gif.mjs`: replace `'logo-engine.html'` with `'_logo-engine.html'` in the `readFileSync` call, and add `import { resolve } from 'path'` then wrap `tempHtml` with `resolve()` so Puppeteer gets an absolute `file://` path.
+
+3. Patch `_logo-engine.html`: add the `@keyframes wordmarkIn` and `@keyframes fadeIn` CSS (same as Phase 4 step 4).
+
+4. Install Puppeteer and run:
+
+```bash
+cd "<project-root>" && npm list puppeteer 2>/dev/null || npm install --no-save puppeteer
+
+node brand/capture-gif.mjs \
+  "$HOME/.roxabi-vault/config/logo-briefs/<name>-logo-brief.json" \
+  --output brand/ \
+  --gif --png --duration 8 --fps 15
+```
+
+5. Verify the outputs exist and show the PNG to the user for confirmation.
 
 This produces:
 - `<name>-logo.html` — standalone animated preview

@@ -10,7 +10,7 @@ import puppeteer from 'puppeteer';
 import { readFileSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'fs';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
-import { dirname, join, basename } from 'path';
+import { dirname, join, resolve } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -68,7 +68,7 @@ const injectedHtml = engineHtml.replace(
 );
 
 mkdirSync(outputDir, { recursive: true });
-const tempHtml = join(outputDir, `_${name}-preview.html`);
+const tempHtml = resolve(join(outputDir, `_${name}-preview.html`));
 writeFileSync(tempHtml, injectedHtml);
 
 // ── Capture ──────────────────────────────────────────────────────────
