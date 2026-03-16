@@ -1,10 +1,16 @@
-# Roxabi-plugins
+<p align="center">
+  <img src="brand/roxabi-plugins-logo.gif" alt="roxabi-plugins logo" width="400">
+</p>
 
-![License](https://img.shields.io/badge/license-MIT-22c55e)
-![Bun](https://img.shields.io/badge/Bun-runtime-FBF0DF?logo=bun&logoColor=black)
-![Claude Code](https://img.shields.io/badge/Claude%20Code-plugins-CC785C)
+<h1 align="center">Roxabi-plugins</h1>
 
-Open-source Claude Code plugins by [Roxabi](https://github.com/Roxabi). Context engineering tools for teams using Claude Code.
+<p align="center">
+  <img src="https://img.shields.io/badge/license-MIT-22c55e" alt="License">
+  <img src="https://img.shields.io/badge/Bun-runtime-FBF0DF?logo=bun&logoColor=black" alt="Bun">
+  <img src="https://img.shields.io/badge/Claude%20Code-plugins-CC785C" alt="Claude Code">
+</p>
+
+<p align="center">Open-source Claude Code plugins by <a href="https://github.com/Roxabi">Roxabi</a>. Context engineering tools for teams using Claude Code.</p>
 
 ## Why
 
@@ -68,6 +74,7 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 |--------|-------------|
 | [linkedin-post-generator](plugins/linkedin-post-generator/README.md) | Generate LinkedIn posts with best practices and visual identity |
 | [image-prompt-generator](plugins/image-prompt-generator/README.md) | Generate AI image prompts with style consistency |
+| [logo-generator](plugins/logo-generator/README.md) | Animated SVG logos from brand briefs — interactive design, live preview, GIF export |
 
 ### Career tools
 
