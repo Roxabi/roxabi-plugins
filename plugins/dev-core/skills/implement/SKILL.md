@@ -165,7 +165,7 @@ Implement Complete
   Agents:   list
   Files:    created/modified list
   Verify:   N/total first-try (%)
-  Next:     /pr → /review → /1b1 → merge
+  Next:     /pr → /code-review → /1b1 → merge
 ```
 
 ## Rollback

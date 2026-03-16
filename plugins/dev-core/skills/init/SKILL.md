@@ -66,11 +66,11 @@ skill: "release-setup", args: "{args}"
 dev-core initialized
 ====================
 
-  Run /doctor    to verify full configuration health
+  Run /checkup   to verify full configuration health
   Run /seed-docs to populate docs stubs from CLAUDE.md + codebase
 
 Next steps:
-  /doctor                Verify full configuration health
+  /checkup               Verify full configuration health
   /seed-docs             Populate scaffolded docs with content from CLAUDE.md + codebase
   roxabi dashboard       Launch the issues dashboard  (restart shell or: source ~/.bashrc)
   /issues                View issues in CLI

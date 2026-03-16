@@ -255,7 +255,7 @@ Stack configuration written
   ⚠️  Missing standards docs: (list any configured paths that don't exist on disk)
 
 Next:
-  /doctor     Verify all checks pass
+  /checkup    Verify all checks pass
   /dev #N     Start working on an issue
 ```
 

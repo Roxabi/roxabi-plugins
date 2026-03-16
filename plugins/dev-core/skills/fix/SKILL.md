@@ -28,7 +28,7 @@ Let:
 ## Phase 1 — Gather Findings
 
 1. PR# → `gh pr view <#> --json comments --jq '.comments[].body'`; parse Conventional Comments
-2. ¬PR# → scan conversation for latest `/review` output
+2. ¬PR# → scan conversation for latest `/code-review` output
 3. F = ∅ → halt
 4. ∀ f: parse → label, file:line, agent, root cause, solutions, C(f)
 5. Malformed (missing fields ∨ C ∉ ℤ ∩ [0,100]) → C(f) := 0

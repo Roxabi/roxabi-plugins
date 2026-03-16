@@ -112,8 +112,8 @@ gh issue edit <number> --body "$BODY
 | Score | Tier | Process | Agent Mode |
 |-------|------|---------|-----------|
 | 1-3 | **S** | Worktree + direct implementation + PR | Single session, no agents |
-| 4-6 | **F-lite** | Worktree + subagents + /review | Task subagents (1-2 domain + tester) |
-| 7-10 | **F-full** | Bootstrap + worktree + agent team + /review | TeamCreate (3+ agents, test-first) |
+| 4-6 | **F-lite** | Worktree + subagents + /code-review | Task subagents (1-2 domain + tester) |
+| 7-10 | **F-full** | Bootstrap + worktree + agent team + /code-review | TeamCreate (3+ agents, test-first) |
 
 κ is advisory. Human judgment overrides. AskUserQuestion if score ≠ intuition.
 

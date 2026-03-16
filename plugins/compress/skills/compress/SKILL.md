@@ -11,7 +11,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep
 Formal notation rewrite — reduce tokens, preserve semantics.
 
 ```
-/compress review    → .claude/skills/review/SKILL.md
+/compress code-review → .claude/skills/code-review/SKILL.md
 /compress fixer     → .claude/agents/fixer.md
 /compress file.md   → direct path
 ```

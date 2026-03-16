@@ -30,7 +30,7 @@ claude plugin install compress
 
 ## Usage
 
-- `compress review` — compresses the skill at `.claude/skills/review/SKILL.md`
+- `compress code-review` — compresses the skill at `.claude/skills/code-review/SKILL.md`
 - `compress fixer` — compresses the agent at `.claude/agents/fixer.md`
 - `compress path/to/file.md` — compresses a file directly
 

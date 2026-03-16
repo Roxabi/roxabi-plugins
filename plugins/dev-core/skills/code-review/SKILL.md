@@ -1,7 +1,7 @@
 ---
-name: review
+name: code-review
 argument-hint: [#PR]
-description: Multi-domain code review (agents + Conventional Comments → findings + verdict). Triggers: "review changes" | "review PR #42" | "code review" | "check my code".
+description: Multi-domain code review (agents + Conventional Comments → findings + verdict). Triggers: "code review" | "review changes" | "review PR #42" | "check my code".
 version: 0.2.0
 allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill, ToolSearch, AskUserQuestion
 ---
@@ -13,8 +13,8 @@ Review branch/PR via fresh domain-specific agents → Conventional Comments → 
 **⚠ Flow: single continuous pipeline (Phases 1→4 + 6 + 8). ¬stop between phases. AskUserQuestion response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, or Phase 8 completion.**
 
 ```
-/review          → diff ${BASE}...HEAD  (BASE = staging if exists, else main)
-/review #42      → gh pr diff 42
+/code-review          → diff ${BASE}...HEAD  (BASE = staging if exists, else main)
+/code-review #42      → gh pr diff 42
 ```
 
 Let:
@@ -180,7 +180,7 @@ AskUserQuestion:
 3. Yes → `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"` → squash merge on green CI
 4. No → inform manual
 
-> `/review` ¬fixes code. Fixing = `/fix` skill.
+> `/code-review` ¬fixes code. Fixing = `/fix` skill.
 
 ## Edge Cases
 

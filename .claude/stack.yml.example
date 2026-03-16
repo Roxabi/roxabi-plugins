@@ -6,7 +6,7 @@
 #   1. Copy to your project: cp stack.yml.example .claude/stack.yml
 #   2. Add as first line of CLAUDE.md: @.claude/stack.yml
 #   3. Fill in the values below for your project's stack.
-#   4. Run /init to verify setup, /doctor to health-check.
+#   4. Run /init to verify setup, /checkup to health-check.
 
 schema_version: "1.0"
 

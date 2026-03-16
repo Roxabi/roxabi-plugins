@@ -127,7 +127,7 @@ C < 60 → ¬report φ. Ambiguous σ → default higher, note uncertainty.
     2. <alternative>
 ```
 
-`/review` usage → wrap φ in Conventional Comments:
+`/code-review` usage → wrap φ in Conventional Comments:
 ```
 issue(blocking): <title>
   <file>:<line>
