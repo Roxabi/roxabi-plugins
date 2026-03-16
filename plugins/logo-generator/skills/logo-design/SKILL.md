@@ -1,13 +1,13 @@
 ---
-name: logo
-description: 'Generate animated SVG logos from a brand brief — interactive design, live preview, GIF export. Triggers: "logo" | "generate logo" | "create logo" | "brand logo" | "logo generator".'
-version: 0.1.0
+name: logo-design
+description: 'Design an animated SVG logo with live preview and export to GIF/PNG/HTML — config-driven, interactive controls. Triggers: "logo" | "create logo" | "generate logo" | "brand logo" | "design logo" | "animated logo" | "logo export".'
+version: 0.2.0
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch, AskUserQuestion
 ---
 
-# Logo Generator
+# Logo Design (Animated SVG)
 
-**Goal:** Generate a config-driven animated SVG logo for any project, with live preview and export to GIF/PNG/HTML.
+**Goal:** Create a production animated SVG logo with live interactive preview and export to GIF/PNG/HTML.
 
 ## Phase 1 — Context Discovery
 
@@ -18,11 +18,11 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch, AskUserQuestion
 2. Check for existing brand assets:
 
 ```bash
-# Check for existing logo brief
+# Existing logo briefs
 brief="$HOME/.roxabi-vault/config/logo-briefs"
 ls "$brief/" 2>/dev/null && echo "EXISTING_BRIEFS_FOUND" || echo "NO_BRIEFS"
 
-# Check for visual charter (shared with image-prompt-generator)
+# Visual charter
 charter="$HOME/.roxabi-vault/config/visual-charter.json"
 [ -f "$charter" ] && echo "CHARTER_FOUND" && cat "$charter" || echo "NO_CHARTER"
 ```
@@ -58,11 +58,7 @@ Metaphor A: "Convergence" (V-shape)
   Why: Multiple pipelines merge into one output
   Shape: Two arms descending to a single apex node
 
-Metaphor B: "Lyre" (stringed instrument)
-  Why: Name reference + harmony of multiple channels
-  Shape: Curved arms with strings connecting to a base hub
-
-Metaphor C: "Constellation" (star network)
+Metaphor B: "Constellation" (star network)
   Why: Always-on presence + connected nodes
   Shape: Central bright node with radiating connections
 ```
@@ -79,8 +75,6 @@ Propose 2-3 color palettes with rationale. Each palette needs:
 - **Background** — page background (near-black recommended)
 - **Surface** — inner frame fill
 - **Highlight** — node centres, text accents
-
-Explain the emotional meaning of each pairing (e.g., "Teal/amber = electric + warm", "Cyan/violet = digital + cognitive").
 
 ### 2.4 Frame & Typography
 
@@ -115,27 +109,13 @@ mkdir -p "$HOME/.roxabi-vault/config/logo-briefs"
 
 ## Phase 4 — Render & Preview
 
-1. Copy the logo engine into the project's brand directory:
+1. Create `<project-root>/brand/` directory
 
-```bash
-brand_dir="<project-root>/brand"
-mkdir -p "$brand_dir"
-```
+2. Read `${CLAUDE_PLUGIN_ROOT}/scripts/logo-engine.html`
 
-2. Generate the preview HTML by injecting the brief into the engine template:
-   - Read `${CLAUDE_PLUGIN_ROOT}/scripts/logo-engine.html`
-   - Inject the brief as `var LOGO_BRIEF = <brief>;` before the init call
-   - Write the result to `<project-root>/brand/<name>-logo.html`
+3. Inject the brief as `var LOGO_BRIEF = <brief>;` before the `init();` call
 
-3. Open in browser for live preview:
-
-```bash
-xdg-open "<project-root>/brand/<name>-logo.html" 2>/dev/null || \
-open "<project-root>/brand/<name>-logo.html" 2>/dev/null || \
-echo "Open in browser: <project-root>/brand/<name>-logo.html"
-```
-
-4. **IMPORTANT:** When injecting into the engine template, add these CSS keyframes inside the `<style>` block (after `* { margin: 0; ... }`). The engine template does not include them:
+4. Add CSS keyframes before `</style>`:
 
 ```css
 @keyframes wordmarkIn {
@@ -148,13 +128,14 @@ echo "Open in browser: <project-root>/brand/<name>-logo.html"
 }
 ```
 
-5. Tell the user: "Preview is open. Use the gear icon (top-right) to tweak colors, sizes, and animation in real time. When you're happy, say 'export' or tell me what to change."
+5. Write to `<project-root>/brand/<name>-logo.html`
+6. Open in browser: `xdg-open "<project-root>/brand/<name>-logo.html"`
+7. Tell the user: "Preview is open. Use the gear icon (top-right) to tweak colors, sizes, and animation in real time."
 
-6. After showing the preview, ask the user via `AskUserQuestion`:
-   - **"What's next?"** with options:
-     - "Export GIF + PNG" — proceed to Phase 6
-     - "Tweak it" — proceed to Phase 5
-     - "Start over" — go back to Phase 2
+8. Ask via `AskUserQuestion`: "What's next?"
+   - "Export GIF + PNG" → Phase 6
+   - "Tweak it" → Phase 5
+   - "Start over" → Phase 2
 
 ## Phase 5 — Iterate
 
@@ -167,18 +148,18 @@ If the user used the controls panel and exported a brief from the browser, load 
 
 ## Phase 6 — Export
 
-When the user is satisfied, run the export pipeline:
+When satisfied, run the export pipeline:
 
-1. Copy the export script and engine locally (the script resolves the engine from `__dirname`, and Puppeteer must be installed in the project's `node_modules`):
+1. Copy scripts locally:
 
 ```bash
 cp "${CLAUDE_PLUGIN_ROOT}/scripts/export-logo.mjs" "<project-root>/brand/capture-gif.mjs"
 cp "${CLAUDE_PLUGIN_ROOT}/scripts/logo-engine.html" "<project-root>/brand/_logo-engine.html"
 ```
 
-2. Patch `capture-gif.mjs`: replace `'logo-engine.html'` with `'_logo-engine.html'` in the `readFileSync` call, and add `import { resolve } from 'path'` then wrap `tempHtml` with `resolve()` so Puppeteer gets an absolute `file://` path.
+2. Patch `capture-gif.mjs`: replace `'logo-engine.html'` with `'_logo-engine.html'`, add `import { resolve } from 'path'`, wrap `tempHtml` with `resolve()`.
 
-3. Patch `_logo-engine.html`: add the `@keyframes wordmarkIn` and `@keyframes fadeIn` CSS (same as Phase 4 step 4).
+3. Patch `_logo-engine.html`: add `@keyframes wordmarkIn` and `@keyframes fadeIn` CSS.
 
 4. Install Puppeteer and run:
 
@@ -191,16 +172,11 @@ node brand/capture-gif.mjs \
   --gif --png --duration 8 --fps 15
 ```
 
-5. Verify the outputs exist and show the PNG to the user for confirmation.
-
-This produces:
-- `<name>-logo.html` — standalone animated preview
-- `<name>-logo.gif` — animated GIF for sharing
-- `<name>-logo.png` — static snapshot
+Outputs: `<name>-logo.html`, `<name>-logo.gif`, `<name>-logo.png`.
 
 ## Phase 7 — Brand Identity Document
 
-Generate a `BRAND-IDENTITY.md` following the Valora/Lyra creative process format:
+Generate `<project-root>/brand/BRAND-IDENTITY.md`:
 
 1. Starting Point — what the project does and how it should feel
 2. Core Metaphor — why this shape was chosen
@@ -209,7 +185,5 @@ Generate a `BRAND-IDENTITY.md` following the Valora/Lyra creative process format
 5. Typography — font choices and rationale
 6. Animation — intro sequence + idle loops explained
 7. Design Principles — rules for extending the identity
-
-Save to `<project-root>/brand/BRAND-IDENTITY.md`.
 
 $ARGUMENTS
