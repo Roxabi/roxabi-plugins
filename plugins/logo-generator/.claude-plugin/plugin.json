@@ -1,0 +1,25 @@
+{
+  "name": "logo-generator",
+  "version": "0.1.0",
+  "description": "Generate animated SVG logos from a config-driven brand brief — interactive design, live preview, GIF/PNG export",
+  "author": { "name": "Roxabi" },
+  "data": {
+    "root": "logo-briefs",
+    "directories": [],
+    "files": {
+      "logo-brief.json": {
+        "description": "Logo configuration brief — colors, mark geometry, animation, typography",
+        "sensitive": false,
+        "example": "examples/logo-brief.example.json"
+      }
+    },
+    "shared": []
+  },
+  "vault": {
+    "optional": true,
+    "indexes": {
+      "category": "logo-generator",
+      "types": ["brief", "export"]
+    }
+  }
+}

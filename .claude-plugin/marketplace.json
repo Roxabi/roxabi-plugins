@@ -96,6 +96,13 @@
       "source": "./plugins/web-design-guidelines",
       "category": "development",
       "version": "0.1.0"
+    },
+    {
+      "name": "logo-generator",
+      "description": "Generate animated SVG logos from a config-driven brand brief — interactive design, live preview, GIF/PNG export.",
+      "source": "./plugins/logo-generator",
+      "category": "branding",
+      "version": "0.1.0"
     }
   ]
 }
