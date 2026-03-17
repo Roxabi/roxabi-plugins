@@ -122,99 +122,88 @@ def _extract_scene_frames(
     frames_dir: str,
     scene_threshold: float = 0.2,
     scale_height: int = 480,
+    max_frames: int = 150,
 ) -> dict[str, Any]:
     """Extract frames at scene changes + downscale for faster VLM inference.
 
-    Uses ffmpeg's scene detection filter to only capture frames when the
-    visual content actually changes, dramatically reducing redundant frames.
-    Also downscales to 480p to reduce image token count.
-
-    A 1fps sampling is added as a floor to ensure at least 1 frame per second
-    of video, preventing gaps in slow-moving scenes.
+    Auto-tunes the scene threshold to keep frames within budget, then fills
+    gaps between scene changes with interval frames at an adaptive rate.
     """
     import re
 
-    # Step 1: Get scene-change timestamps (without writing frames yet)
-    # Use select + showinfo to detect scene changes and extract PTS times
-    detect_cmd = [
-        "ffmpeg",
-        "-i", video_path,
-        "-vf", f"select='gt(scene,{scene_threshold})',showinfo",
-        "-vsync", "0",
-        "-loglevel", "info",
-        "-f", "null", "-",
-    ]
-
     try:
-        detect_result = subprocess.run(
-            detect_cmd, capture_output=True, text=True, timeout=300,
-        )
+        # Step 1: Auto-tune scene threshold to stay within max_frames
+        threshold = scene_threshold
+        timestamps: list[float] = []
 
-        # Parse timestamps from showinfo output (in stderr)
-        timestamps = []
-        for line in detect_result.stderr.splitlines():
-            m = re.search(r"pts_time:\s*([\d.]+)", line)
-            if m:
-                timestamps.append(float(m.group(1)))
+        for _ in range(5):
+            detect_cmd = [
+                "ffmpeg", "-i", video_path,
+                "-vf", f"select='gt(scene,{threshold})',showinfo",
+                "-vsync", "0", "-loglevel", "info", "-f", "null", "-",
+            ]
+            detect_result = subprocess.run(
+                detect_cmd, capture_output=True, text=True, timeout=300,
+            )
+            timestamps = [
+                float(m.group(1))
+                for line in detect_result.stderr.splitlines()
+                if (m := re.search(r"pts_time:\s*([\d.]+)", line))
+            ]
+            if len(timestamps) <= max_frames:
+                break
+            threshold = min(threshold + 0.1, 0.8)
 
-        # Step 2: Extract scene-change frames (now that we know the count)
+        scene_threshold = threshold
+
+        # Step 2: Extract scene-change frames at final threshold
         scene_cmd = [
-            "ffmpeg",
-            "-i", video_path,
-            "-vf", (
-                f"select='gt(scene,{scene_threshold})',"
-                f"scale=-2:{scale_height}"
-            ),
-            "-vsync", "0",
-            "-q:v", "3",
-            "-loglevel", "error",
+            "ffmpeg", "-i", video_path,
+            "-vf", f"select='gt(scene,{scene_threshold})',scale=-2:{scale_height}",
+            "-vsync", "0", "-q:v", "3", "-loglevel", "error",
             os.path.join(frames_dir, "scene_%04d.jpg"),
         ]
         subprocess.run(scene_cmd, capture_output=True, text=True, timeout=300)
         scene_frames = sorted(Path(frames_dir).glob("scene_*.jpg"))
 
-        # Step 2: Also extract 1 frame every 5s to fill gaps in slow scenes
+        # Step 3: Compute adaptive gap-fill interval
+        duration = _get_video_duration(video_path)
+        remaining_budget = max(max_frames - len(scene_frames), 0)
+
+        if remaining_budget > 0 and duration and duration > 0:
+            scene_times = sorted(timestamps)
+            boundaries = [0.0] + scene_times + [duration]
+            total_gap = sum(
+                max(b - a - 3, 0)
+                for a, b in zip(boundaries[:-1], boundaries[1:])
+            )
+            gap_interval = max(total_gap / remaining_budget, 3) if remaining_budget > 0 else 999
+        else:
+            gap_interval = 10
+
+        gap_fps = 1.0 / gap_interval
+
+        # Step 4: Extract gap-fill frames
         fps_cmd = [
-            "ffmpeg",
-            "-i", video_path,
-            "-vf", f"fps=0.2,scale=-2:{scale_height}",
-            "-q:v", "3",
-            "-loglevel", "error",
+            "ffmpeg", "-i", video_path,
+            "-vf", f"fps={gap_fps},scale=-2:{scale_height}",
+            "-q:v", "3", "-loglevel", "error",
             os.path.join(frames_dir, "fps_%04d.jpg"),
         ]
         subprocess.run(fps_cmd, capture_output=True, text=True, timeout=300)
         fps_frames = sorted(Path(frames_dir).glob("fps_*.jpg"))
 
-        # Step 3: Merge — keep all scene frames, then fill gaps > 5s
-        # with 1fps interval frames to avoid missing slow-panning scenes.
-        GAP_THRESHOLD = 5  # seconds — only fill gaps larger than this
+        # Step 5: Merge scene + gap-fill frames
+        merged: list[dict[str, Any]] = []
 
-        merged = []
-
-        # Add all scene-change frames
-        for i, (frame, ts) in enumerate(zip(scene_frames, timestamps)):
+        for frame, ts in zip(scene_frames, timestamps):
             merged.append({"path": str(frame), "second": ts, "type": "scene_change"})
 
-        # Sort scene frames by time to find gaps
-        merged.sort(key=lambda x: x["second"])
+        for i, frame in enumerate(fps_frames):
+            second = float(i) * gap_interval
+            if not any(abs(second - st) < 2 for st in timestamps):
+                merged.append({"path": str(frame), "second": second, "type": "interval"})
 
-        # Find gaps between consecutive scene frames
-        gap_fill = []
-        scene_times = sorted(timestamps) if timestamps else []
-
-        # Add boundaries: start=0, end=video duration
-        duration = _get_video_duration(video_path)
-        boundaries = [0.0] + scene_times + ([duration] if duration else [])
-
-        for a, b in zip(boundaries[:-1], boundaries[1:]):
-            if b - a > GAP_THRESHOLD:
-                # Fill this gap with interval frames (1 per 5s)
-                for i, frame in enumerate(fps_frames):
-                    second = float(i * 5)  # fps=0.2 → 1 frame per 5s
-                    if a < second < b:
-                        gap_fill.append({"path": str(frame), "second": second, "type": "interval"})
-
-        merged.extend(gap_fill)
         merged.sort(key=lambda x: x["second"])
 
         if not merged:
