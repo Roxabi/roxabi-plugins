@@ -104,16 +104,169 @@ def download_video(url: str, output_dir: str, max_height: int = 1080) -> dict[st
         return {"success": False, "error": str(e)}
 
 
-def extract_frames(video_path: str, output_dir: str, fps: float = 1.0) -> dict[str, Any]:
-    """Extract frames from video at given FPS using ffmpeg."""
+def _get_video_duration(video_path: str) -> Optional[float]:
+    """Get video duration in seconds via ffprobe."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+            capture_output=True, text=True, timeout=10,
+        )
+        return float(result.stdout.strip())
+    except Exception:
+        return None
+
+
+def _extract_scene_frames(
+    video_path: str,
+    frames_dir: str,
+    scene_threshold: float = 0.2,
+    scale_height: int = 480,
+) -> dict[str, Any]:
+    """Extract frames at scene changes + downscale for faster VLM inference.
+
+    Uses ffmpeg's scene detection filter to only capture frames when the
+    visual content actually changes, dramatically reducing redundant frames.
+    Also downscales to 480p to reduce image token count.
+
+    A 1fps sampling is added as a floor to ensure at least 1 frame per second
+    of video, preventing gaps in slow-moving scenes.
+    """
+    import re
+
+    # Step 1: Get scene-change timestamps (without writing frames yet)
+    # Use select + showinfo to detect scene changes and extract PTS times
+    detect_cmd = [
+        "ffmpeg",
+        "-i", video_path,
+        "-vf", f"select='gt(scene,{scene_threshold})',showinfo",
+        "-vsync", "0",
+        "-loglevel", "info",
+        "-f", "null", "-",
+    ]
+
+    try:
+        detect_result = subprocess.run(
+            detect_cmd, capture_output=True, text=True, timeout=300,
+        )
+
+        # Parse timestamps from showinfo output (in stderr)
+        timestamps = []
+        for line in detect_result.stderr.splitlines():
+            m = re.search(r"pts_time:\s*([\d.]+)", line)
+            if m:
+                timestamps.append(float(m.group(1)))
+
+        # Step 2: Extract scene-change frames (now that we know the count)
+        scene_cmd = [
+            "ffmpeg",
+            "-i", video_path,
+            "-vf", (
+                f"select='gt(scene,{scene_threshold})',"
+                f"scale=-2:{scale_height}"
+            ),
+            "-vsync", "0",
+            "-q:v", "3",
+            "-loglevel", "error",
+            os.path.join(frames_dir, "scene_%04d.jpg"),
+        ]
+        subprocess.run(scene_cmd, capture_output=True, text=True, timeout=300)
+        scene_frames = sorted(Path(frames_dir).glob("scene_*.jpg"))
+
+        # Step 2: Also extract 1 frame every 5s to fill gaps in slow scenes
+        fps_cmd = [
+            "ffmpeg",
+            "-i", video_path,
+            "-vf", f"fps=0.2,scale=-2:{scale_height}",
+            "-q:v", "3",
+            "-loglevel", "error",
+            os.path.join(frames_dir, "fps_%04d.jpg"),
+        ]
+        subprocess.run(fps_cmd, capture_output=True, text=True, timeout=300)
+        fps_frames = sorted(Path(frames_dir).glob("fps_*.jpg"))
+
+        # Step 3: Merge — keep all scene frames, then fill gaps > 5s
+        # with 1fps interval frames to avoid missing slow-panning scenes.
+        GAP_THRESHOLD = 5  # seconds — only fill gaps larger than this
+
+        merged = []
+
+        # Add all scene-change frames
+        for i, (frame, ts) in enumerate(zip(scene_frames, timestamps)):
+            merged.append({"path": str(frame), "second": ts, "type": "scene_change"})
+
+        # Sort scene frames by time to find gaps
+        merged.sort(key=lambda x: x["second"])
+
+        # Find gaps between consecutive scene frames
+        gap_fill = []
+        scene_times = sorted(timestamps) if timestamps else []
+
+        # Add boundaries: start=0, end=video duration
+        duration = _get_video_duration(video_path)
+        boundaries = [0.0] + scene_times + ([duration] if duration else [])
+
+        for a, b in zip(boundaries[:-1], boundaries[1:]):
+            if b - a > GAP_THRESHOLD:
+                # Fill this gap with interval frames (1 per 5s)
+                for i, frame in enumerate(fps_frames):
+                    second = float(i * 5)  # fps=0.2 → 1 frame per 5s
+                    if a < second < b:
+                        gap_fill.append({"path": str(frame), "second": second, "type": "interval"})
+
+        merged.extend(gap_fill)
+        merged.sort(key=lambda x: x["second"])
+
+        if not merged:
+            return {"success": False, "error": "No frames extracted"}
+
+        return {
+            "success": True,
+            "frames_dir": frames_dir,
+            "frame_count": len(merged),
+            "scene_frames": len(scene_frames),
+            "interval_frames": len(merged) - len(scene_frames),
+            "mode": "scene_detection",
+            "scene_threshold": scene_threshold,
+            "scale_height": scale_height,
+            "frames": merged,
+            "frame_paths": [f["path"] for f in merged],
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": "Frame extraction timed out"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def extract_frames(
+    video_path: str,
+    output_dir: str,
+    fps: float = 1.0,
+    scene_detection: bool = True,
+    scene_threshold: float = 0.2,
+    scale_height: int = 480,
+) -> dict[str, Any]:
+    """Extract frames from video.
+
+    Two modes:
+    - scene_detection=True (default): Smart extraction — scene changes +
+      1fps floor, downscaled to 480p. Typically 5-10x fewer frames.
+    - scene_detection=False: Uniform extraction at given FPS, full resolution.
+    """
     frames_dir = os.path.join(output_dir, "frames")
     os.makedirs(frames_dir, exist_ok=True)
 
+    if scene_detection:
+        return _extract_scene_frames(
+            video_path, frames_dir, scene_threshold, scale_height,
+        )
+
+    # Legacy: uniform FPS extraction
     cmd = [
         "ffmpeg",
         "-i", video_path,
-        "-vf", f"fps={fps}",
-        "-q:v", "2",
+        "-vf", f"fps={fps},scale=-2:{scale_height}",
+        "-q:v", "3",
         "-loglevel", "error",
         os.path.join(frames_dir, "frame_%04d.jpg"),
     ]
@@ -132,6 +285,8 @@ def extract_frames(video_path: str, output_dir: str, fps: float = 1.0) -> dict[s
             "frames_dir": frames_dir,
             "frame_count": len(frames),
             "fps": fps,
+            "mode": "uniform",
+            "scale_height": scale_height,
             "frame_paths": [str(f) for f in frames],
         }
     except subprocess.TimeoutExpired:
@@ -227,23 +382,40 @@ def batch_describe_frames(
     model: str,
     prompt: str = FRAME_PROMPT,
     progress: bool = True,
+    frame_metadata: Optional[list[dict[str, Any]]] = None,
 ) -> list[dict[str, Any]]:
-    """Batch-describe all frames. Returns list of {frame, second, description}."""
+    """Batch-describe all frames. Returns list of {frame, second, description}.
+
+    Args:
+        frame_paths: List of frame image paths.
+        model: Ollama model name.
+        prompt: VLM prompt.
+        progress: Show progress bar on stderr.
+        frame_metadata: Optional list of dicts with 'second' and 'type' keys
+            from scene detection. If None, assumes uniform 1fps.
+    """
     results = []
     total = len(frame_paths)
     start_time = time.time()
 
     for i, path in enumerate(frame_paths):
-        # Frame number = second (at 1fps)
-        frame_num = int(Path(path).stem.split("_")[1])
-        second = frame_num - 1  # frame_0001 = second 0
+        # Get timestamp from metadata or infer from filename
+        if frame_metadata and i < len(frame_metadata):
+            second = frame_metadata[i].get("second", i)
+            frame_type = frame_metadata[i].get("type", "unknown")
+        else:
+            frame_num = int(Path(path).stem.split("_")[1])
+            second = frame_num - 1
+            frame_type = "uniform"
 
+        second_int = int(second)
         result = describe_frame_ollama(path, model, prompt)
 
         entry = {
-            "frame": frame_num,
+            "frame": i + 1,
             "second": second,
-            "timestamp": f"{second // 60}:{second % 60:02d}",
+            "timestamp": f"{second_int // 60}:{second_int % 60:02d}",
+            "type": frame_type,
             "path": path,
         }
 
@@ -280,15 +452,19 @@ def analyze_video(
     model: Optional[str] = None,
     output_path: Optional[str] = None,
     keep_frames: bool = False,
+    scene_detection: bool = True,
+    scene_threshold: float = 0.2,
 ) -> dict[str, Any]:
     """Full video analysis pipeline.
 
     Args:
         url: YouTube URL
-        fps: Frames per second to extract (default: 1.0)
+        fps: Frames per second to extract (when scene_detection=False)
         model: Ollama model override (auto-detects if None)
         output_path: Where to save JSON output (prints to stdout if None)
         keep_frames: Keep extracted frames after analysis
+        scene_detection: Use smart scene-change detection (default: True)
+        scene_threshold: Scene change sensitivity 0-1 (default: 0.3)
 
     Returns:
         Combined analysis dict with metadata, transcript, and frame descriptions.
@@ -366,21 +542,30 @@ def analyze_video(
         return result
     result["download"] = {"size_mb": dl["size_mb"]}
 
-    extraction = extract_frames(dl["path"], work_dir, fps=fps)
+    extraction = extract_frames(
+        dl["path"], work_dir,
+        fps=fps,
+        scene_detection=scene_detection,
+        scene_threshold=scene_threshold,
+    )
     if not extraction["success"]:
         result["success"] = False
         result["error"] = f"Frame extraction failed: {extraction['error']}"
         return result
     result["extraction"] = {
         "frame_count": extraction["frame_count"],
-        "fps": extraction["fps"],
+        "mode": extraction.get("mode", "unknown"),
+        "scene_frames": extraction.get("scene_frames"),
+        "interval_frames": extraction.get("interval_frames"),
     }
+    print(f"  Extracted {extraction['frame_count']} frames ({extraction.get('mode')})", file=sys.stderr)
 
     # --- Step 6: Batch describe frames ---
     print(f"Step 6/6: Describing {extraction['frame_count']} frames with {selected_model}...", file=sys.stderr)
     descriptions = batch_describe_frames(
         extraction["frame_paths"],
         selected_model,
+        frame_metadata=extraction.get("frames"),
     )
 
     result["success"] = True
@@ -424,10 +609,12 @@ def main():
         description="Analyze a YouTube video: metadata + transcript + frame-by-frame visual descriptions",
     )
     parser.add_argument("url", help="YouTube video URL")
-    parser.add_argument("--fps", type=float, default=1.0, help="Frames per second to extract (default: 1)")
+    parser.add_argument("--fps", type=float, default=1.0, help="Frames per second (when --no-scene-detection, default: 1)")
     parser.add_argument("--model", help="Ollama model override (auto-detects if omitted)")
     parser.add_argument("--output", "-o", help="Output JSON path (prints to stdout if omitted)")
     parser.add_argument("--keep-frames", action="store_true", help="Keep extracted frame files")
+    parser.add_argument("--no-scene-detection", action="store_true", help="Disable scene detection, use uniform FPS instead")
+    parser.add_argument("--scene-threshold", type=float, default=0.2, help="Scene change sensitivity 0-1 (default: 0.2, lower=more frames)")
 
     args = parser.parse_args()
 
@@ -437,6 +624,8 @@ def main():
         model=args.model,
         output_path=args.output,
         keep_frames=args.keep_frames,
+        scene_detection=not args.no_scene_detection,
+        scene_threshold=args.scene_threshold,
     )
 
     if not args.output:
