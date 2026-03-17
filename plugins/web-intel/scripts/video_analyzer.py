@@ -49,13 +49,17 @@ from gpu_detector import detect_gpu, detect_ollama, select_best_model, list_pull
 # SSL cert path for yt-dlp on Linux
 SSL_CERT = "/etc/ssl/certs/ca-certificates.crt"
 
-# Frame description prompt — tuned for video analysis
-# /no_think disables qwen3-vl's internal reasoning to avoid wasting tokens
+# Frame description prompt — extracts component-relevant visual properties.
+# NOTE: qwen3-vl routes vision output to the `thinking` field instead of
+# `content` (Ollama bug #14716). We use /api/chat + read from `thinking`
+# when `content` is empty. The `think: false` param has no effect on vision.
 FRAME_PROMPT = (
-    "/no_think Describe this video frame concisely in 2-3 sentences. "
-    "Include: what is shown (objects, characters, text), the visual style "
-    "(3D render, 2D graphics, photography, illustration), dominant colors, "
-    "and any on-screen text verbatim. Be factual, not interpretive."
+    "Describe this video frame for recreating it as a React component. "
+    "Include: scene type (3d_scene, 2d_graphics, text_card, illustration, mixed), "
+    "main objects with positions, background type and colors, "
+    "color palette (3-5 colors), on-screen text verbatim, "
+    "visual effects (chromatic_aberration, glow, blur, fog, none), "
+    "what appears animated, and suggest a React component name."
 )
 
 
@@ -167,23 +171,31 @@ def ensure_model_pulled(model: str) -> dict[str, Any]:
 
 
 def describe_frame_ollama(image_path: str, model: str, prompt: str = FRAME_PROMPT) -> dict[str, Any]:
-    """Describe a single frame using Ollama's vision API."""
+    """Describe a single frame using Ollama's vision API.
+
+    Uses /api/chat endpoint. Due to Ollama bug #14716, qwen3-vl routes
+    vision output to the `thinking` field instead of `content`. We read
+    from both and use whichever has content.
+    """
     with open(image_path, "rb") as f:
         image_b64 = base64.b64encode(f.read()).decode("utf-8")
 
     payload = json.dumps({
         "model": model,
-        "prompt": prompt,
-        "images": [image_b64],
+        "messages": [{
+            "role": "user",
+            "content": prompt,
+            "images": [image_b64],
+        }],
         "stream": False,
         "options": {
             "temperature": 0.1,
-            "num_predict": 500,
+            "num_predict": 800,
         },
     }).encode("utf-8")
 
     req = urllib.request.Request(
-        "http://localhost:11434/api/generate",
+        "http://localhost:11434/api/chat",
         data=payload,
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -192,9 +204,16 @@ def describe_frame_ollama(image_path: str, model: str, prompt: str = FRAME_PROMP
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             data = json.loads(resp.read())
+            msg = data.get("message", {})
+            # Workaround for Ollama #14716: vision output may land in
+            # the `thinking` field instead of `content`
+            content = msg.get("content", "").strip()
+            thinking = msg.get("thinking", "").strip()
+            description = content or thinking
             return {
-                "success": True,
-                "description": data.get("response", "").strip(),
+                "success": bool(description),
+                "description": description,
+                "source_field": "content" if content else "thinking",
                 "eval_duration_ms": data.get("eval_duration", 0) // 1_000_000,
             }
     except urllib.error.URLError as e:
