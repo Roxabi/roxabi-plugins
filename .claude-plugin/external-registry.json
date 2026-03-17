@@ -36,6 +36,66 @@
       "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
       "status": "active",
       "notes": "Headless browser automation CLI for AI agents (Rust + Playwright). Ships agent-browser skill with snapshot-ref navigation, session management, auth, proxy, and video recording. Complements web-intel (scraping) — browser fills the interactive/auth gap."
+    },
+    {
+      "name": "roxabi-memory-marketplace",
+      "source": "https://github.com/Roxabi/roxabi-vault",
+      "added": "2026-03-17",
+      "last_checked_commit": "7f2e1f67ba34c09750074cc8126853b882488dae",
+      "upstream_branch": "main",
+      "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
+      "status": "active",
+      "notes": "Roxabi-owned. Persistent memory for agents — SQLite+FTS5 knowledge base with CLI, library, and vault skills. 1 plugin (roxabi-memory)."
+    },
+    {
+      "name": "claude-plugins-official",
+      "source": "https://github.com/anthropics/claude-plugins-official",
+      "added": "2026-03-17",
+      "last_checked_commit": "78497c524da3762865d47377357c30af5b50d522",
+      "upstream_branch": "main",
+      "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
+      "status": "active",
+      "notes": "Official Anthropic plugin marketplace. 83 plugins including LSPs, integrations (Supabase, Stripe, Vercel, GitHub, etc.), and workflow skills. Superset of claude-code-plugins (anthropics/claude-code)."
+    },
+    {
+      "name": "knowledge-work-plugins",
+      "source": "https://github.com/anthropics/knowledge-work-plugins",
+      "added": "2026-03-17",
+      "last_checked_commit": "89f6599ddfe72ea9e3380975390d301c5cdb9c04",
+      "upstream_branch": "main",
+      "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
+      "status": "active",
+      "notes": "Official Anthropic knowledge-work plugins — design, legal, marketing, product-management, sales, brand-voice. Non-engineering workflows."
+    },
+    {
+      "name": "anthropic-agent-skills",
+      "source": "https://github.com/anthropics/skills",
+      "added": "2026-03-17",
+      "last_checked_commit": "b0cbd3df1533b396d281a6886d5132f623393a9c",
+      "upstream_branch": "main",
+      "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
+      "status": "active",
+      "notes": "Official Anthropic agent skills repository. Referenced in plugins-config.json but not yet installed locally."
+    },
+    {
+      "name": "context7-marketplace",
+      "source": "https://github.com/upstash/context7",
+      "added": "2026-03-17",
+      "last_checked_commit": "383e127bd5ba8e7108812a393966cce972cbb0b4",
+      "upstream_branch": "master",
+      "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
+      "status": "active",
+      "notes": "Upstash Context7 MCP server — up-to-date documentation lookup. Pulls version-specific docs and code examples from source repos into LLM context. 1 plugin (context7-plugin)."
+    },
+    {
+      "name": "ui-ux-pro-max-skill",
+      "source": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
+      "added": "2026-03-17",
+      "last_checked_commit": "07f4ef3ac2568c25a3b0c8ef5165a86abc3e56e4",
+      "upstream_branch": "main",
+      "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
+      "status": "active",
+      "notes": "Community. UI/UX design intelligence — 67 styles, 96 palettes, 57 font pairings, 25 charts, 13 stack guidelines. By nextlevelbuilder."
     }
   ],
   "wrapped_plugins": []

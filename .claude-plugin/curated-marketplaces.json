@@ -6,6 +6,36 @@
       "name": "agent-browser",
       "source": "https://github.com/vercel-labs/agent-browser",
       "description": "Headless browser automation CLI for AI agents — navigate, click, fill, screenshot, scrape."
+    },
+    {
+      "name": "roxabi-memory-marketplace",
+      "source": "https://github.com/Roxabi/roxabi-vault",
+      "description": "Persistent memory for agents — SQLite+FTS5 knowledge base with CLI, library, and vault skills."
+    },
+    {
+      "name": "claude-plugins-official",
+      "source": "https://github.com/anthropics/claude-plugins-official",
+      "description": "Official Anthropic plugin marketplace — 83 plugins including LSPs, integrations, and workflow skills."
+    },
+    {
+      "name": "knowledge-work-plugins",
+      "source": "https://github.com/anthropics/knowledge-work-plugins",
+      "description": "Official Anthropic knowledge-work plugins — design, legal, marketing, product-management, sales."
+    },
+    {
+      "name": "anthropic-agent-skills",
+      "source": "https://github.com/anthropics/skills",
+      "description": "Official Anthropic agent skills repository."
+    },
+    {
+      "name": "context7-marketplace",
+      "source": "https://github.com/upstash/context7",
+      "description": "Upstash Context7 MCP server — version-specific documentation lookup from source repos."
+    },
+    {
+      "name": "ui-ux-pro-max-skill",
+      "source": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
+      "description": "UI/UX design intelligence — 67 styles, 96 palettes, 57 font pairings, 25 charts, 13 stack guidelines."
     }
   ]
 }
