@@ -1,6 +1,6 @@
 # web-intel
 
-Multi-platform URL scraper and content analysis engine for Claude Code. Extracts structured content from Twitter/X, GitHub, YouTube, Reddit, and any webpage — then powers 6 analysis skills on top.
+Multi-platform URL scraper and content analysis engine for Claude Code. Extracts structured content from Twitter/X, GitHub, YouTube, Reddit, and any webpage — then powers 6 analysis skills on top. Includes a video frame analysis pipeline for deep visual understanding of YouTube videos.
 
 ## Skills
 
@@ -28,11 +28,16 @@ Multi-platform URL scraper and content analysis engine for Claude Code. Extracts
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) package manager
 
-Optional:
+Optional — per-platform:
 - `gh` CLI (for GitHub repo scraping)
 - `playwright` (for Twitter/X articles): `uv sync --extra twitter && playwright install chromium`
 - `yt-dlp` + `youtube-transcript-api` (for YouTube rich metadata + transcripts): `uv sync --extra youtube`
 - `trafilatura` (for generic webpage extraction): `uv sync --extra scraper`
+
+Optional — video analysis pipeline:
+- `ffmpeg` — frame extraction: `sudo apt install ffmpeg`
+- `ollama` — local VLM inference: [ollama.com](https://ollama.com/)
+- NVIDIA GPU with `nvidia-smi` — required for VLM acceleration (2GB VRAM minimum)
 
 ## Setup
 
@@ -62,15 +67,57 @@ The doctor checks:
 - `youtube-transcript-api` — YouTube transcripts (fallback when yt-dlp has no subtitles)
 - `gh` CLI — GitHub repos and gists
 
+**Video Analysis** (frame-by-frame descriptions):
+- `ffmpeg` — video frame extraction
+- `ollama` — local VLM inference server
+- NVIDIA GPU — VLM acceleration (reports GPU name, total VRAM, free VRAM)
+
 Doctor runs automatically on first use of any web-intel skill in a session. Run it manually at any time to diagnose issues.
 
 ## Usage
 
-### CLI
+### CLI — Scraper
 
 ```bash
 cd plugins/web-intel
 SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt uv run python scripts/scraper.py <url>
+```
+
+### CLI — Video Analyzer
+
+Analyze a YouTube video end-to-end: metadata + transcript + frame-by-frame visual descriptions.
+
+```bash
+cd plugins/web-intel
+
+# Basic — auto-selects best model for your GPU
+uv run python scripts/video_analyzer.py https://youtube.com/watch?v=<id>
+
+# Custom frame rate (0.5 = one frame every 2 seconds)
+uv run python scripts/video_analyzer.py https://youtube.com/watch?v=<id> --fps 0.5
+
+# Override model (skip auto-detection)
+uv run python scripts/video_analyzer.py https://youtube.com/watch?v=<id> --model qwen3-vl:8b
+
+# Save output to file instead of stdout
+uv run python scripts/video_analyzer.py https://youtube.com/watch?v=<id> --output /tmp/analysis.json
+
+# Keep extracted frame files after analysis
+uv run python scripts/video_analyzer.py https://youtube.com/watch?v=<id> --keep-frames
+```
+
+### CLI — GPU Detector
+
+Check GPU availability and which vision model will be selected:
+
+```bash
+cd plugins/web-intel
+
+# Full JSON report: GPU VRAM, Ollama models, selection decision
+uv run python scripts/gpu_detector.py
+
+# Quick readiness check (exit 0 if ready, 1 if not)
+uv run python scripts/gpu_detector.py --check
 ```
 
 ### As Claude Code Skills
@@ -84,12 +131,61 @@ Once installed via the plugin, use any skill directly:
 /benchmark https://competitor.com --focus features
 ```
 
+## Video Analysis Pipeline
+
+The video analyzer performs a 6-step pipeline to produce a combined JSON output:
+
+```mermaid
+flowchart LR
+    A[YouTube URL] --> B[Scrape metadata\n+ transcript]
+    B --> C[Detect GPU\n+ select model]
+    C --> D[Download video\nyt-dlp · 1080p max]
+    D --> E[Extract frames\nffmpeg · 1fps default]
+    E --> F[Batch describe\nframes via Ollama]
+    F --> G[JSON output\nmetadata + transcript\n+ frame descriptions]
+```
+
+**Model selection** is automatic — `gpu_detector.py` queries `nvidia-smi` for free VRAM and picks the best `qwen3-vl` variant that fits:
+
+| Model | Min VRAM | Quality |
+|-------|----------|---------|
+| `qwen3-vl:32b` | 20 GB | best |
+| `qwen3-vl:8b` | 6 GB | high |
+| `qwen3-vl:4b` | 3.5 GB | good |
+| `qwen3-vl:2b` | 2 GB | basic |
+
+Selection priorities:
+1. Model already loaded in Ollama VRAM — zero extra memory cost, used immediately
+2. Best already-pulled model that fits in free VRAM
+3. Best model that fits (will be auto-pulled)
+
+**Output schema:**
+
+```json
+{
+  "url": "...",
+  "pipeline": "web-intel/video-analyzer",
+  "success": true,
+  "model": "qwen3-vl:8b",
+  "model_selection": { "quality": "high", "already_loaded": false, ... },
+  "metadata": { "title": "...", "transcript": [...], ... },
+  "extraction": { "frame_count": 120, "fps": 1.0 },
+  "frame_descriptions": [
+    { "frame": 1, "second": 0, "timestamp": "0:00", "description": "..." },
+    ...
+  ],
+  "stats": { "total_frames": 120, "described": 118, "failed": 2, "avg_inference_ms": 340 }
+}
+```
+
 ## Architecture
 
 ```
 scripts/
 ├── scraper.py           # Main entry point — URL routing + CLI
-├── doctor.py            # Dependency checker — core + optional status report
+├── doctor.py            # Dependency checker — core + optional + video status report
+├── video_analyzer.py    # Video frame analysis pipeline — download → extract → describe
+├── gpu_detector.py      # GPU/Ollama detection + qwen3-vl model selection
 ├── fetchers/            # Platform-specific extractors
 │   ├── base.py          # Abstract base class + shared utilities
 │   ├── twitter.py       # Twitter/X (syndication API + FxTwitter + Playwright)

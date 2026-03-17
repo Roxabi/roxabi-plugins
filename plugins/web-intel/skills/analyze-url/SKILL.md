@@ -72,6 +72,34 @@ From the scraped content, analyze across these dimensions:
 5. **Community** — issues, PRs, discussions activity
 6. **Notable Patterns** — interesting technical choices worth adopting
 
+### For YouTube Videos
+
+If the URL is a YouTube video, run the **full video analysis pipeline** which includes visual frame-by-frame descriptions:
+
+```bash
+cd "$PLUGIN_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt uv run python scripts/video_analyzer.py "$URL" --output /tmp/video_analysis.json
+```
+
+This pipeline will:
+1. Scrape metadata + transcript (via web-intel scraper)
+2. Download the video (yt-dlp, 1080p max)
+3. Extract frames at 1fps (ffmpeg)
+4. Auto-detect the best local VLM based on GPU VRAM (qwen3-vl family via Ollama)
+5. Batch-describe every frame with the local VLM
+6. Output combined JSON
+
+Then read `/tmp/video_analysis.json` and analyze:
+
+1. **Video Overview** — title, channel, duration, views, engagement rate
+2. **Content Analysis** — from transcript: thesis, structure, rhetorical techniques
+3. **Visual Analysis** — from frame descriptions: visual techniques (3D, 2D, photography), color palette, composition patterns, scene transitions
+4. **Production Quality** — animation quality, visual variety, text/typography usage, pacing
+5. **Scene Breakdown** — timeline of visual scenes mapped to narration segments
+6. **Strengths** — what works well visually and narratively (3-5 bullets)
+7. **Weaknesses** — gaps or issues (3-5 bullets)
+
+If the video analyzer fails (no GPU, no Ollama), fall back to transcript-only analysis using the standard scraper output.
+
 ### For Articles / Content
 
 1. **Thesis** — main argument or claim

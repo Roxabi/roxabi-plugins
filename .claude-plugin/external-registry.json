@@ -97,6 +97,17 @@
       "status": "active",
       "notes": "Community. UI/UX design intelligence — 67 styles, 96 palettes, 57 font pairings, 25 charts, 13 stack guidelines. By nextlevelbuilder."
     }
+    ,
+    {
+      "name": "roxabi-video-engine",
+      "source": "https://github.com/Roxabi/roxabi-production",
+      "added": "2026-03-17",
+      "last_checked_commit": "79f1f2efb48a2b66edb097de319d8951e5c62f61",
+      "upstream_branch": "main",
+      "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
+      "status": "active",
+      "notes": "Roxabi-owned. Programmatic video generation — 55 React components, 13 kits, headless MP4 rendering. 1 plugin (roxabi-video-engine) with 3 skills: generate, render, analyze."
+    }
   ],
   "wrapped_plugins": []
 }

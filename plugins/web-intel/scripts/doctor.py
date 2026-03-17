@@ -107,6 +107,57 @@ def check_youtube_transcript() -> tuple[str, str]:
         )
 
 
+def check_ffmpeg() -> tuple[str, str]:
+    """Check ffmpeg (optional — video frame extraction)."""
+    path = shutil.which('ffmpeg')
+    if not path:
+        return 'warn', 'ffmpeg not found. Install: sudo apt install ffmpeg'
+    try:
+        result = subprocess.run(
+            ['ffmpeg', '-version'],
+            capture_output=True, text=True, timeout=5,
+        )
+        first_line = result.stdout.strip().split('\n')[0]
+        return 'ok', first_line.split(' Copyright')[0]  # e.g. "ffmpeg version 6.1"
+    except Exception:
+        return 'ok', f'ffmpeg found at {path}'
+
+
+def check_ollama() -> tuple[str, str]:
+    """Check Ollama (optional — local VLM for video frame descriptions)."""
+    path = shutil.which('ollama')
+    if not path:
+        return 'warn', 'ollama not found. Install: https://ollama.com/'
+    try:
+        result = subprocess.run(
+            ['ollama', '--version'],
+            capture_output=True, text=True, timeout=5,
+        )
+        version = result.stdout.strip() or result.stderr.strip()
+        return 'ok', version
+    except Exception:
+        return 'ok', f'ollama found at {path}'
+
+
+def check_gpu() -> tuple[str, str]:
+    """Check NVIDIA GPU availability (optional — local VLM acceleration)."""
+    path = shutil.which('nvidia-smi')
+    if not path:
+        return 'warn', 'No NVIDIA GPU detected (nvidia-smi not found)'
+    try:
+        result = subprocess.run(
+            ['nvidia-smi', '--query-gpu=name,memory.total,memory.free',
+             '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=10,
+        )
+        parts = [p.strip() for p in result.stdout.strip().split(',')]
+        if len(parts) >= 3:
+            return 'ok', f'{parts[0]} ({parts[1]}MB total, {parts[2]}MB free)'
+        return 'ok', result.stdout.strip()
+    except Exception:
+        return 'warn', 'nvidia-smi found but query failed'
+
+
 def check_gh_cli() -> tuple[str, str]:
     """Check GitHub CLI (optional — GitHub repo/gist scraping)."""
     path = shutil.which('gh')
@@ -151,6 +202,12 @@ def main() -> int:
         ('gh CLI (GitHub repos/gists)',                check_gh_cli()),
     ]
 
+    video_checks = [
+        ('ffmpeg (video frame extraction)',            check_ffmpeg()),
+        ('ollama (local VLM inference)',               check_ollama()),
+        ('NVIDIA GPU (VLM acceleration)',              check_gpu()),
+    ]
+
     has_core_failure = False
 
     print('Core Dependencies')
@@ -171,14 +228,25 @@ def main() -> int:
         print(f'         {detail}')
     print()
 
+    print('Video Analysis (frame-by-frame descriptions)')
+    print('-' * 40)
+    for name, (status, detail) in video_checks:
+        symbol = STATUS_SYMBOLS[status]
+        print(f'  [{symbol}] {name}')
+        print(f'         {detail}')
+    print()
+
     core_ok = sum(1 for _, (s, _) in core_checks if s == 'ok')
     core_total = len(core_checks)
     opt_ok = sum(1 for _, (s, _) in optional_checks if s == 'ok')
     opt_total = len(optional_checks)
+    vid_ok = sum(1 for _, (s, _) in video_checks if s == 'ok')
+    vid_total = len(video_checks)
 
     print('=' * 40)
     print(f'Core: {core_ok}/{core_total} passed')
     print(f'Optional: {opt_ok}/{opt_total} available')
+    print(f'Video: {vid_ok}/{vid_total} available')
 
     if has_core_failure:
         print()
