@@ -1,0 +1,8 @@
+{
+  "name": "content-lab",
+  "version": "0.1.0",
+  "description": "Video content analysis — extract narrative structure, VAKOG sensory predicates, and reusable creation recipes from YouTube videos.",
+  "author": {
+    "name": "Roxabi"
+  }
+}

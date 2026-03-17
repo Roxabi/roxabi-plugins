@@ -103,6 +103,13 @@
       "source": "./plugins/logo-generator",
       "category": "branding",
       "version": "0.1.0"
+    },
+    {
+      "name": "content-lab",
+      "description": "Analyze YouTube videos to extract narrative structure, VAKOG sensory predicates, and reusable content creation recipes.",
+      "source": "./plugins/content-lab",
+      "category": "content",
+      "version": "0.1.0"
     }
   ]
 }
