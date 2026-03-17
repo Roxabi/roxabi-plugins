@@ -206,6 +206,11 @@ def _extract_scene_frames(
 
         merged.sort(key=lambda x: x["second"])
 
+        # Fix #1: Enforce total frame cap — evenly sample if over budget
+        if len(merged) > max_frames:
+            step = len(merged) / max_frames
+            merged = [merged[int(i * step)] for i in range(max_frames)]
+
         if not merged:
             return {"success": False, "error": "No frames extracted"}
 
@@ -314,6 +319,23 @@ def ensure_model_pulled(model: str) -> dict[str, Any]:
         return {"success": False, "error": "Model pull timed out (10 min)"}
 
 
+def _strip_thinking_preamble(text: str) -> str:
+    """Remove LLM thinking preamble from descriptions.
+
+    qwen3-vl often starts with 'Got it, let's break down...' or
+    'Okay, let me analyze...' before the actual description.
+    """
+    import re
+    # Strip common thinking prefixes up to the first actual content line
+    text = re.sub(
+        r"^(?:Got it|Okay|Alright|Let me|Sure|I'll)[^.\n]*\.\s*",
+        "", text, count=1,
+    )
+    # Strip "Wait, ..." false starts
+    text = re.sub(r"Wait,\s+[^.]*\.\s*", "", text)
+    return text.strip()
+
+
 def describe_frame_ollama(image_path: str, model: str, prompt: str = FRAME_PROMPT) -> dict[str, Any]:
     """Describe a single frame using Ollama's vision API.
 
@@ -334,7 +356,7 @@ def describe_frame_ollama(image_path: str, model: str, prompt: str = FRAME_PROMP
         "stream": False,
         "options": {
             "temperature": 0.1,
-            "num_predict": 800,
+            "num_predict": 400,
         },
     }).encode("utf-8")
 
@@ -353,7 +375,7 @@ def describe_frame_ollama(image_path: str, model: str, prompt: str = FRAME_PROMP
             # the `thinking` field instead of `content`
             content = msg.get("content", "").strip()
             thinking = msg.get("thinking", "").strip()
-            description = content or thinking
+            description = _strip_thinking_preamble(content or thinking)
             return {
                 "success": bool(description),
                 "description": description,
@@ -372,6 +394,7 @@ def batch_describe_frames(
     prompt: str = FRAME_PROMPT,
     progress: bool = True,
     frame_metadata: Optional[list[dict[str, Any]]] = None,
+    checkpoint_path: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Batch-describe all frames. Returns list of {frame, second, description}.
 
@@ -382,12 +405,26 @@ def batch_describe_frames(
         progress: Show progress bar on stderr.
         frame_metadata: Optional list of dicts with 'second' and 'type' keys
             from scene detection. If None, assumes uniform 1fps.
+        checkpoint_path: If set, save progress after each frame and resume
+            from last checkpoint on restart.
     """
-    results = []
+    # Resume from checkpoint if available
+    results: list[dict[str, Any]] = []
+    start_from = 0
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        try:
+            with open(checkpoint_path) as f:
+                results = json.load(f)
+            start_from = len(results)
+            print(f"  Resuming from frame {start_from}/{len(frame_paths)}", file=sys.stderr)
+        except (json.JSONDecodeError, KeyError):
+            results = []
+
     total = len(frame_paths)
     start_time = time.time()
 
-    for i, path in enumerate(frame_paths):
+    for i in range(start_from, total):
+        path = frame_paths[i]
         # Get timestamp from metadata or infer from filename
         if frame_metadata and i < len(frame_metadata):
             second = frame_metadata[i].get("second", i)
@@ -417,9 +454,15 @@ def batch_describe_frames(
 
         results.append(entry)
 
+        # Save checkpoint after each frame
+        if checkpoint_path:
+            with open(checkpoint_path, "w") as f:
+                json.dump(results, f, ensure_ascii=False)
+
         if progress:
             elapsed = time.time() - start_time
-            rate = (i + 1) / elapsed if elapsed > 0 else 0
+            done_this_run = i - start_from + 1
+            rate = done_this_run / elapsed if elapsed > 0 else 0
             eta = (total - i - 1) / rate if rate > 0 else 0
             print(
                 f"\r  [{i+1}/{total}] {entry['timestamp']} "
@@ -431,6 +474,10 @@ def batch_describe_frames(
     if progress:
         elapsed = time.time() - start_time
         print(f"\n  Done: {total} frames in {elapsed:.0f}s", file=sys.stderr)
+
+    # Clean up checkpoint on success
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        os.remove(checkpoint_path)
 
     return results
 
@@ -551,10 +598,12 @@ def analyze_video(
 
     # --- Step 6: Batch describe frames ---
     print(f"Step 6/6: Describing {extraction['frame_count']} frames with {selected_model}...", file=sys.stderr)
+    checkpoint = os.path.join(work_dir, "checkpoint.json") if work_dir else None
     descriptions = batch_describe_frames(
         extraction["frame_paths"],
         selected_model,
         frame_metadata=extraction.get("frames"),
+        checkpoint_path=checkpoint,
     )
 
     result["success"] = True
