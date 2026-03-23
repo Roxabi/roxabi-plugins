@@ -11,14 +11,12 @@ dependencies = [
 
 [project.optional-dependencies]
 scraper = ["trafilatura>=1.8"]
-twitter = ["playwright>=1.40"]
+twitter = ["playwright>=1.40", "playwright-stealth>=2.0.2"]
 youtube = ["youtube-transcript-api>=0.6", "yt-dlp>=2024.1"]
 all = [
     "trafilatura>=1.8",
     "playwright>=1.40",
+    "playwright-stealth>=2.0.2",
     "youtube-transcript-api>=0.6",
     "yt-dlp>=2024.1",
 ]
-
-[dependency-groups]
-dev = []

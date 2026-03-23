@@ -418,6 +418,18 @@ wheels = [
 ]
 
 [[package]]
+name = "playwright-stealth"
+version = "2.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "playwright" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/61/ee/871901103c7b2a12070011fd4d978191f8f962837bf8bb51847274f528fa/playwright_stealth-2.0.2.tar.gz", hash = "sha256:ac57e51873190da5e653e03720e948c8f0a3d06b098f1d56763103d23ee48143", size = 24902, upload-time = "2026-02-13T02:36:25.137Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f1/30/f95f087f4b071611a7f63a2a0c9af4df3ac046dae2a693bfdacd70512867/playwright_stealth-2.0.2-py3-none-any.whl", hash = "sha256:37a5733f481b9c0ad602cf71491aa5a7c96c2a2fe4fa1e7ab764d2cd35520f2f", size = 33209, upload-time = "2026-02-13T02:36:26.334Z" },
+]
+
+[[package]]
 name = "pyee"
 version = "13.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -582,6 +594,7 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "playwright" },
+    { name = "playwright-stealth" },
     { name = "trafilatura" },
     { name = "youtube-transcript-api" },
     { name = "yt-dlp" },
@@ -591,6 +604,7 @@ scraper = [
 ]
 twitter = [
     { name = "playwright" },
+    { name = "playwright-stealth" },
 ]
 youtube = [
     { name = "youtube-transcript-api" },
@@ -603,6 +617,8 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "playwright", marker = "extra == 'all'", specifier = ">=1.40" },
     { name = "playwright", marker = "extra == 'twitter'", specifier = ">=1.40" },
+    { name = "playwright-stealth", marker = "extra == 'all'", specifier = ">=2.0.2" },
+    { name = "playwright-stealth", marker = "extra == 'twitter'", specifier = ">=2.0.2" },
     { name = "requests", specifier = ">=2.31" },
     { name = "trafilatura", marker = "extra == 'all'", specifier = ">=1.8" },
     { name = "trafilatura", marker = "extra == 'scraper'", specifier = ">=1.8" },
@@ -612,9 +628,6 @@ requires-dist = [
     { name = "yt-dlp", marker = "extra == 'youtube'", specifier = ">=2024.1" },
 ]
 provides-extras = ["scraper", "twitter", "youtube", "all"]
-
-[package.metadata.requires-dev]
-dev = []
 
 [[package]]
 name = "six"

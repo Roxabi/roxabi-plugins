@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Optional
+
+import requests
 
 # Add paths for imports
 SHARED_DIR = Path(__file__).resolve().parents[2] / "_shared"
@@ -43,6 +46,13 @@ try:
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
+
+try:
+    from playwright_stealth import Stealth as _Stealth
+
+    PLAYWRIGHT_STEALTH_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_STEALTH_AVAILABLE = False
 
 
 def load_x_cookies(cookies_path: Optional[str] = None) -> list:
@@ -86,6 +96,105 @@ def load_x_cookies(cookies_path: Optional[str] = None) -> list:
         ]
 
     return []
+
+
+# Twitter/X public web-client bearer token (used by the x.com SPA itself)
+_TWITTER_BEARER = (
+    "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs"
+    "%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
+)
+
+# GraphQL Viewer endpoint — returns 403 when no auth cookies are present,
+# any other status (200/422) when the bearer+cookie layer was accepted.
+# Used as a lightweight "is the session recognised at all?" probe.
+_VIEWER_ENDPOINT = (
+    "https://x.com/i/api/graphql/NimuplG1OB7Fd2btCLdBOw/Viewer"
+    "?variables=%7B%7D&features=%7B%7D"
+)
+
+_COOKIE_REFRESH_GUIDE = (
+    "To refresh your cookies:\n"
+    "  1. Log into x.com in your browser\n"
+    "  2. Export cookies with Cookie-Editor or EditThisCookie\n"
+    "  3. Save as ~/.config/x_cookies.json"
+)
+
+
+def validate_x_session(cookies_path: Optional[str] = None) -> tuple[bool, Optional[str]]:
+    """Validate X session cookies before attempting any authenticated fetch.
+
+    Runs two checks in order:
+      1. Structural — file exists and contains auth_token + ct0
+      2. Live       — lightweight API call to verify the session is still active
+
+    The live check uses a fast HTTP request (no browser overhead) and fails
+    open on network errors so a transient DNS/timeout issue won't block fetches.
+
+    Args:
+        cookies_path: Optional override path to the cookies JSON file.
+
+    Returns:
+        ``(True, None)`` when the session is valid.
+        ``(False, error_message)`` when cookies are missing, incomplete, or expired.
+    """
+    # 1. File existence
+    path = cookies_path or os.path.expanduser("~/.config/x_cookies.json")
+    if not os.path.exists(path):
+        return False, f"No X cookies found at {path}\n{_COOKIE_REFRESH_GUIDE}"
+
+    cookies = load_x_cookies(cookies_path)
+    cookie_dict = {c["name"]: c["value"] for c in cookies}
+
+    # 2. Structural check — required keys must be present and non-empty
+    required = ["auth_token", "ct0"]
+    missing = [k for k in required if not cookie_dict.get(k)]
+    if missing:
+        return False, (
+            f"Missing required X cookies: {', '.join(missing)}\n{_COOKIE_REFRESH_GUIDE}"
+        )
+
+    # 3. Live session check — single HTTP call, no browser spin-up.
+    #
+    #    We probe the GraphQL Viewer endpoint with an intentionally minimal
+    #    (malformed) query. X's auth layer runs before query validation:
+    #      • HTTP 403  → bearer+cookie rejected outright → session invalid
+    #      • HTTP 200  → valid session, query accepted
+    #      • HTTP 4xx  → session was processed (auth ok), query malformed → treat as valid
+    #      • HTTP 5xx / network error → X infra issue → fail open, don't block
+    try:
+        resp = requests.get(
+            _VIEWER_ENDPOINT,
+            cookies=cookie_dict,
+            headers={
+                "Authorization": f"Bearer {_TWITTER_BEARER}",
+                "x-csrf-token": cookie_dict["ct0"],
+                "x-twitter-active-user": "yes",
+                "x-twitter-client-language": "en",
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+            },
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            logger.debug("X session valid (Viewer → 200)")
+            return True, None
+        if resp.status_code == 403:
+            # 403 is the unambiguous "auth rejected" signal from X's auth layer
+            return False, (
+                "X cookies are expired or invalid (HTTP 403).\n"
+                f"{_COOKIE_REFRESH_GUIDE}"
+            )
+        # 4xx (e.g. 422 query-validation error) means auth was accepted, query rejected
+        # 5xx means X infra is down — proceed optimistically in both cases
+        logger.debug("X session check returned HTTP %s, proceeding", resp.status_code)
+        return True, None
+    except Exception as exc:
+        # Network error — fail open so a transient issue doesn't block fetches
+        logger.warning("X session validation request failed: %s — proceeding anyway", exc)
+        return True, None
 
 
 def _accept_x_cookies(page: Any, timeout: int = 5000) -> bool:
@@ -348,6 +457,14 @@ def fetch_article_agent_browser(
                 "error": "Could not extract article content. X may require login.",
             }
 
+        # Detect X's "This page is down" error — return False so Playwright
+        # can fall through and do the auth-vs-downtime disambiguation.
+        if "this page is down" in content.lower():
+            return {
+                "success": False,
+                "error": "X returned 'This page is down' — checking auth status via Playwright.",
+            }
+
         return {
             "success": True,
             "type": "article",
@@ -389,6 +506,13 @@ def fetch_article_playwright(
                 context.add_cookies(cookies)
 
             page = context.new_page()
+
+            if PLAYWRIGHT_STEALTH_AVAILABLE:
+                _Stealth().use_sync(page)
+                logger.debug("Playwright stealth patches applied")
+            else:
+                logger.debug("playwright-stealth not installed; running without stealth")
+
             page.goto(url, timeout=timeout, wait_until="domcontentloaded")
 
             # Dismiss cookie consent banner if present
@@ -412,6 +536,36 @@ def fetch_article_playwright(
             title = _extract_article_title(page)
             author = _extract_article_author(page)
             date = _extract_article_date(page)
+
+            # Detect X's "This page is down" error before closing the browser so
+            # we can navigate to /home and disambiguate auth failure from article
+            # downtime without spinning up a second browser instance.
+            if "this page is down" in content.lower():
+                auth_ok = True
+                try:
+                    page.goto("https://x.com/home", timeout=10000, wait_until="domcontentloaded")
+                    page.wait_for_timeout(2000)
+                    home_url = page.url
+                    auth_ok = "login" not in home_url and "/flow/" not in home_url
+                except Exception:
+                    pass  # Can't determine — don't falsely flag as auth issue
+                browser.close()
+                if not auth_ok:
+                    return {
+                        "success": False,
+                        "error": (
+                            "X cookies are expired or invalid "
+                            "(session check redirected to login).\n"
+                            f"{_COOKIE_REFRESH_GUIDE}"
+                        ),
+                    }
+                return {
+                    "success": False,
+                    "error": (
+                        "X Article is unavailable. "
+                        "The article may have been deleted or is temporarily offline."
+                    ),
+                }
 
             browser.close()
 
@@ -450,6 +604,10 @@ def fetch_article(
 ) -> Optional[dict[str, Any]]:
     """Fetch X Article using agent-browser (primary) or Playwright (fallback).
 
+    Validates the X session via a lightweight API call before spinning up
+    any browser, and returns a clear actionable error if cookies are missing
+    or expired.
+
     Args:
         article_id: X Article ID
         timeout: Timeout in seconds
@@ -458,6 +616,11 @@ def fetch_article(
     Returns:
         Dict with article data or error
     """
+    # Pre-flight: validate session before spinning up any browser
+    is_valid, session_error = validate_x_session(cookies_path)
+    if not is_valid:
+        return {"success": False, "error": session_error}
+
     # Try agent-browser first (fast Rust CLI)
     if AGENT_BROWSER_AVAILABLE:
         logger.info("Fetching article %s via agent-browser", article_id)
