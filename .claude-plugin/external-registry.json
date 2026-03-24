@@ -119,5 +119,53 @@
       "notes": "Roxabi-owned. Programmatic video generation — 55 React components, 13 kits, headless MP4 rendering. 1 plugin (roxabi-video-engine) with 3 skills: generate, render, analyze."
     }
   ],
-  "wrapped_plugins": []
+  "wrapped_plugins": [
+    {
+      "plugin": "frontend-slides",
+      "upstream_url": "https://github.com/zarazhangrui/frontend-slides",
+      "upstream_branch": "main",
+      "last_sync_commit": "384d1a07ba1fd59ff626b141caa65f51a44ccc73",
+      "last_sync_date": "2026-03-24",
+      "sync_strategy": "copy",
+      "status": "active",
+      "added": "2026-03-10",
+      "notes": "Flat SKILL.md repo. We restructured into skills/ layout and added frontmatter (version, allowed-tools, Triggers)."
+    },
+    {
+      "plugin": "react-best-practices",
+      "upstream_url": "https://github.com/vercel-labs/agent-skills",
+      "upstream_branch": "main",
+      "upstream_path": "skills/react-best-practices",
+      "last_sync_commit": "9aec8ee6aaf702e49312a071e672f1c1b7b7e948",
+      "last_sync_date": "2026-03-24",
+      "sync_strategy": "copy",
+      "status": "active",
+      "added": "2026-03-10",
+      "notes": "Upstream files in rules/ mapped to references/rules/. SKILL.md rewritten with Roxabi frontmatter + condensed workflow. 6 new rules synced 2026-03-24."
+    },
+    {
+      "plugin": "composition-patterns",
+      "upstream_url": "https://github.com/vercel-labs/agent-skills",
+      "upstream_branch": "main",
+      "upstream_path": "skills/composition-patterns",
+      "last_sync_commit": "9aec8ee6aaf702e49312a071e672f1c1b7b7e948",
+      "last_sync_date": "2026-03-24",
+      "sync_strategy": "copy",
+      "status": "active",
+      "added": "2026-03-10",
+      "notes": "Upstream files in rules/ mapped to references/rules/. SKILL.md rewritten with Roxabi frontmatter + condensed workflow. No content drift at sync."
+    },
+    {
+      "plugin": "web-design-guidelines",
+      "upstream_url": "https://github.com/vercel-labs/agent-skills",
+      "upstream_branch": "main",
+      "upstream_path": "skills/web-design-guidelines",
+      "last_sync_commit": "9aec8ee6aaf702e49312a071e672f1c1b7b7e948",
+      "last_sync_date": "2026-03-24",
+      "sync_strategy": "copy",
+      "status": "active",
+      "added": "2026-03-10",
+      "notes": "Upstream SKILL.md fetches guidelines at runtime from vercel-labs/web-interface-guidelines. Our version adds Roxabi frontmatter. No content drift at sync."
+    }
+  ]
 }
