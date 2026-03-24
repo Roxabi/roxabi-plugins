@@ -70,13 +70,6 @@
       "version": "0.1.0"
     },
     {
-      "name": "visual-explainer",
-      "description": "Generate self-contained HTML pages with diagrams, visualizations, and data tables from any input.",
-      "source": "./plugins/visual-explainer",
-      "category": "productivity",
-      "version": "0.5.0"
-    },
-    {
       "name": "react-best-practices",
       "description": "React and Next.js performance optimization guidelines — 58 rules across 8 categories, prioritized by impact.",
       "source": "./plugins/react-best-practices",

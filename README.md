@@ -102,6 +102,7 @@ claude plugin marketplace add <source>
 | Marketplace | Description | Source |
 |-------------|-------------|--------|
 | agent-browser | Headless browser automation CLI for AI agents — navigate, click, fill, screenshot, scrape | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) |
+| visual-explainer | Self-contained HTML pages with diagrams, visualizations, data tables, and slide decks | [nicobailon/visual-explainer](https://github.com/nicobailon/visual-explainer) |
 
 ### Wrapped plugins
 
@@ -110,7 +111,6 @@ High-quality external skills packaged as first-class installable plugins. Roxabi
 | Plugin | Description | Source |
 |--------|-------------|--------|
 | [frontend-slides](plugins/frontend-slides/README.md) | Zero-dependency HTML presentations — 12 presets, PPT conversion | [zarazhangrui/frontend-slides](https://github.com/zarazhangrui/frontend-slides) |
-| [visual-explainer](plugins/visual-explainer/README.md) | Self-contained HTML pages with diagrams and data tables | [nicobailon/visual-explainer](https://github.com/nicobailon/visual-explainer) |
 | [react-best-practices](plugins/react-best-practices/README.md) | React/Next.js performance optimization — 58 rules, 8 categories | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) |
 | [composition-patterns](plugins/composition-patterns/README.md) | React composition patterns — compound components, context providers | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) |
 | [web-design-guidelines](plugins/web-design-guidelines/README.md) | Review UI code for Web Interface Guidelines compliance | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) |
@@ -133,7 +133,7 @@ Two kinds of plugins live in this repo:
 
 **Native plugins** — built and maintained by Roxabi. We own the full lifecycle: `dev-core`, `compress`, `1b1`, `web-intel`, `cv`, `linkedin-post-generator`, `image-prompt-generator`, `get-invoice-details`, `linkedin-apply`.
 
-**Wrapped plugins** — high-quality external skills with no versioning or install mechanism in their source repo. Roxabi adds plugin structure and vendors the source (via `git subtree` or file copy) so they become installable. Existing wrapped plugins live in `plugins/`: `frontend-slides`, `visual-explainer`, `react-best-practices`, `composition-patterns`, `web-design-guidelines`. New wrapped plugins go into `external/`.
+**Wrapped plugins** — high-quality external skills with no versioning or install mechanism in their source repo. Roxabi adds plugin structure and vendors the source (via `git subtree` or file copy) so they become installable. Existing wrapped plugins live in `plugins/`: `frontend-slides`, `react-best-practices`, `composition-patterns`, `web-design-guidelines`. New wrapped plugins go into `external/`.
 
 External plugin marketplaces we endorse are tracked in [`.claude-plugin/external-registry.json`](.claude-plugin/external-registry.json) (source of truth). [`.claude-plugin/curated-marketplaces.json`](.claude-plugin/curated-marketplaces.json) mirrors the curated list for runtime discovery — the `/dev-core ci-setup` skill reads it and offers installation — no skill edits needed to add a new endorsed source.
 

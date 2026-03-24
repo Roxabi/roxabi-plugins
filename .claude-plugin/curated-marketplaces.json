@@ -8,9 +8,9 @@
       "description": "Headless browser automation CLI for AI agents — navigate, click, fill, screenshot, scrape."
     },
     {
-      "name": "roxabi-memory-marketplace",
+      "name": "roxabi-vault",
       "source": "https://github.com/Roxabi/roxabi-vault",
-      "description": "Persistent memory for agents — SQLite+FTS5 knowledge base with CLI, library, and vault skills."
+      "description": "Persistent memory for agents — SQLite+FTS5 knowledge base with CLI, library, and 7 vault skills."
     },
     {
       "name": "claude-plugins-official",
@@ -31,6 +31,11 @@
       "name": "context7-marketplace",
       "source": "https://github.com/upstash/context7",
       "description": "Upstash Context7 MCP server — version-specific documentation lookup from source repos."
+    },
+    {
+      "name": "visual-explainer",
+      "source": "https://github.com/nicobailon/visual-explainer",
+      "description": "Self-contained HTML pages with diagrams, visualizations, data tables, and slide decks."
     },
     {
       "name": "ui-ux-pro-max-skill",
