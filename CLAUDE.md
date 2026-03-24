@@ -205,6 +205,8 @@ Keep local changes (frontmatter, README) minimal to avoid merge conflicts. Put t
 Roxabi endorses and vendors external Claude Code plugins via two mechanisms. The registry
 `.claude-plugin/external-registry.json` is the source of truth for all external sources.
 
+> **Upstream sync** — see [CONTRIBUTING.md § Upstream sync](CONTRIBUTING.md#upstream-sync) for the full process to check drift, pull changes, promote wrapped plugins, and run consistency checks.
+
 ### Directory convention
 
 | Directory | Contents |
