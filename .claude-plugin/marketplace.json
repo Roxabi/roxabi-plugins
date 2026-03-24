@@ -30,7 +30,7 @@
       "description": "Full development workflow — frame, shape, plan, implement, review, ship. Opinionated Roxabi process with 21 skills, 9 agents, and safety hooks.",
       "source": "./plugins/dev-core",
       "category": "development",
-      "version": "1.0.1"
+      "version": "0.1.0"
     },
     {
       "name": "linkedin-post-generator",
@@ -95,7 +95,7 @@
       "description": "Generate animated SVG logos from a config-driven brand brief — interactive design, live preview, GIF/PNG export.",
       "source": "./plugins/logo-generator",
       "category": "branding",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "name": "content-lab",

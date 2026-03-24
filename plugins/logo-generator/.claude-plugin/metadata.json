@@ -1,0 +1,21 @@
+{
+  "data": {
+    "root": "logo-briefs",
+    "directories": ["prompts", "concepts"],
+    "files": {
+      "logo-brief.json": {
+        "description": "Logo configuration brief — colors, mark geometry, animation, typography",
+        "sensitive": false,
+        "example": "examples/logo-brief.example.json"
+      }
+    },
+    "shared": []
+  },
+  "vault": {
+    "optional": true,
+    "indexes": {
+      "category": "logo-generator",
+      "types": ["brief", "export"]
+    }
+  }
+}

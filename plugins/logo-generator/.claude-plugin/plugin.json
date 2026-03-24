@@ -2,24 +2,5 @@
   "name": "logo-generator",
   "version": "0.2.0",
   "description": "Generate logos using AI image generation, programmatic SVG galleries, or animated SVG engine — explore, iterate, export",
-  "author": { "name": "Roxabi" },
-  "data": {
-    "root": "logo-briefs",
-    "directories": ["prompts", "concepts"],
-    "files": {
-      "logo-brief.json": {
-        "description": "Logo configuration brief — colors, mark geometry, animation, typography",
-        "sensitive": false,
-        "example": "examples/logo-brief.example.json"
-      }
-    },
-    "shared": []
-  },
-  "vault": {
-    "optional": true,
-    "indexes": {
-      "category": "logo-generator",
-      "types": ["brief", "export"]
-    }
-  }
+  "author": { "name": "Roxabi" }
 }

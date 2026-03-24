@@ -1,0 +1,23 @@
+{
+  "data": {
+    "root": "linkedin-apply",
+    "directories": ["applications"],
+    "files": {
+      "candidate.yaml": {
+        "description": "Candidate personal profile for job matching",
+        "sensitive": true,
+        "example": "examples/candidate.example.yaml"
+      },
+      "criteria.yaml": {
+        "description": "Optional user override of scoring criteria",
+        "sensitive": false,
+        "example": "config/criteria.yaml"
+      }
+    },
+    "shared": []
+  },
+  "vault": {
+    "optional": true,
+    "indexes": { "category": "linkedin-apply", "types": ["job-analysis", "application"] }
+  }
+}
