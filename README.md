@@ -102,7 +102,14 @@ claude plugin marketplace add <source>
 | Marketplace | Description | Source |
 |-------------|-------------|--------|
 | agent-browser | Headless browser automation CLI for AI agents — navigate, click, fill, screenshot, scrape | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) |
+| roxabi-vault | Persistent memory for agents — SQLite+FTS5 knowledge base with 7 vault skills | [Roxabi/roxabi-vault](https://github.com/Roxabi/roxabi-vault) |
+| claude-plugins-official | Official Anthropic plugin marketplace — LSPs, integrations, and workflow skills | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) |
+| knowledge-work-plugins | Official Anthropic knowledge-work plugins — design, legal, marketing, product-management, sales | [anthropics/knowledge-work-plugins](https://github.com/anthropics/knowledge-work-plugins) |
+| anthropic-agent-skills | Official Anthropic agent skills repository | [anthropics/skills](https://github.com/anthropics/skills) |
+| context7 | Upstash Context7 MCP server — version-specific documentation lookup from source repos | [upstash/context7](https://github.com/upstash/context7) |
 | visual-explainer | Self-contained HTML pages with diagrams, visualizations, data tables, and slide decks | [nicobailon/visual-explainer](https://github.com/nicobailon/visual-explainer) |
+| ui-ux-pro-max-skill | UI/UX design intelligence — 67 styles, 96 palettes, 57 font pairings, 25 charts | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) |
+| roxabi-video-engine | Programmatic video generation — 55 React components, 13 kits, headless MP4 rendering | [Roxabi/roxabi-production](https://github.com/Roxabi/roxabi-production) |
 
 ### Wrapped plugins
 
