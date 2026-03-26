@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roxabi Plugins — Brand Asset Gallery</title>
+<!-- diagram-meta:start -->
+<meta name="diagram:title"     content="Roxabi Plugins — Brand Asset Gallery">
+<meta name="diagram:date"      content="2026-03-26">
+<meta name="diagram:category"  content="brand">
+<meta name="diagram:cat-label" content="Roxabi Brand">
+<meta name="diagram:color"     content="green">
+<meta name="diagram:badges"    content="latest,showcase">
+<!-- diagram-meta:end -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --void: #08080a;
+  --surface: #111114;
+  --surface2: #1a1a1f;
+  --border: #222228;
+  --spark: #eee;
+  --dim: #666;
+  --xdim: #444;
+  --hex-orange: #FF6B35;
+  --hex-glow: #FF8C5A;
+  --hex-dim: rgba(255,107,53,0.12);
+  --cyan: #22d3ee;
+  --green: #34d399;
+  --purple: #a78bfa;
+  --amber: #f59e0b;
+}
+
+html { scroll-behavior: smooth; }
+body { background: var(--void); color: var(--spark); font-family: 'Inter', sans-serif; min-height: 100vh; }
+
+/* ── Header ── */
+.header { text-align: center; padding: 48px 24px 16px; }
+.header h1 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700; font-size: 28px;
+  letter-spacing: -0.01em;
+  background: linear-gradient(135deg, var(--hex-orange), var(--hex-glow));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.header .sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--dim);
+  letter-spacing: 0.08em; margin-top: 8px;
+}
+
+/* ── Nav ── */
+.nav {
+  display: flex; justify-content: center; gap: 6px;
+  padding: 16px 24px 24px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 10;
+  background: var(--void);
+}
+.nav a {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--dim);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.05em;
+  padding: 6px 12px; cursor: pointer;
+  border-radius: 5px; text-decoration: none;
+  transition: all 0.2s;
+}
+.nav a:hover { color: var(--spark); border-color: var(--hex-orange); }
+
+/* ── Section ── */
+.section { max-width: 1200px; margin: 0 auto; padding: 40px 32px 24px; }
+.section-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700; font-size: 18px;
+  letter-spacing: 0.02em;
+  margin-bottom: 6px;
+  display: flex; align-items: center; gap: 10px;
+}
+.section-title .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.section-desc { font-size: 13px; color: var(--dim); margin-bottom: 24px; max-width: 640px; }
+.section + .section { border-top: 1px solid var(--border); }
+
+/* ── Grid ── */
+.grid { display: grid; gap: 16px; }
+.grid-2 { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.grid-3 { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.grid-5 { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+
+/* ── Cards ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.3s, transform 0.2s;
+  text-decoration: none; color: inherit;
+  display: block; cursor: pointer;
+}
+.card:hover { border-color: var(--hex-orange); transform: translateY(-2px); }
+
+.card-preview {
+  width: 100%; aspect-ratio: 1/1;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; background: var(--void);
+}
+.card-preview img {
+  width: 100%; height: 100%;
+  object-fit: cover; display: block;
+}
+
+.card-preview iframe {
+  width: 200%; height: 400px;
+  border: none; pointer-events: none;
+  transform: scale(0.5); transform-origin: top left;
+}
+
+.card-info { padding: 10px 14px; border-top: 1px solid var(--border); }
+.card-label {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 600; font-size: 13px;
+  color: var(--spark);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.card-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; color: var(--dim);
+  margin-top: 2px; letter-spacing: 0.04em;
+}
+.card-badge {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; font-weight: 500;
+  padding: 2px 6px; border-radius: 3px;
+  margin-top: 5px; letter-spacing: 0.06em;
+}
+.badge-main { background: rgba(255,107,53,0.15); color: var(--hex-orange); }
+.badge-variant { background: rgba(167,139,250,0.15); color: var(--purple); }
+
+/* ── Lightbox ── */
+.lightbox {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.94); z-index: 100;
+  justify-content: center; align-items: center;
+  flex-direction: column; cursor: pointer;
+}
+.lightbox.active { display: flex; }
+.lightbox img { max-width: 80vw; max-height: 75vh; border-radius: 10px; object-fit: contain; }
+.lightbox .caption {
+  margin-top: 14px; color: var(--dim); font-size: 13px;
+  font-family: 'JetBrains Mono', monospace; text-align: center;
+  max-width: 600px; line-height: 1.5;
+}
+.lb-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  font-size: 32px; color: var(--xdim); cursor: pointer;
+  padding: 20px; user-select: none; transition: color 0.15s;
+}
+.lb-nav:hover { color: var(--spark); }
+.lb-prev { left: 16px; }
+.lb-next { right: 16px; }
+.lb-close {
+  position: absolute; top: 16px; right: 20px;
+  font-size: 22px; color: var(--dim); cursor: pointer;
+}
+.lb-close:hover { color: var(--spark); }
+.lb-num {
+  position: absolute; top: 18px; left: 20px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; color: var(--xdim);
+}
+
+/* ── Footer ── */
+.footer {
+  text-align: center; padding: 32px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; color: var(--xdim);
+  letter-spacing: 0.06em;
+  border-top: 1px solid var(--border);
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Roxabi Plugins — Brand Gallery</h1>
+  <div class="sub">25 AI logo concepts &middot; 4 color variants &middot; generated with logo-generator + imageCLI</div>
+</div>
+
+<nav class="nav">
+  <a href="#main">Main Logo</a>
+  <a href="#variants">Color Variants</a>
+  <a href="#concepts">25 Concepts</a>
+  <a href="#prompts">About</a>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- MAIN LOGO                                                  -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="section" id="main">
+  <div class="section-title"><span class="dot" style="background:var(--hex-orange)"></span> Main Logo</div>
+  <div class="section-desc">Animated SVG logo with wordmark — the current roxabi-plugins identity.</div>
+
+  <div class="grid grid-2">
+    <a class="card" href="roxabi-plugins-logo.html" target="_blank">
+      <div class="card-preview" style="background:#0D0D0D;">
+        <iframe src="roxabi-plugins-logo.html" loading="lazy"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-label">Animated SVG Logo</div>
+        <div class="card-meta">roxabi-plugins-logo.html</div>
+        <div class="card-badge badge-main">CURRENT</div>
+      </div>
+    </a>
+
+    <div class="card" onclick="openLightbox(-1)">
+      <div class="card-preview" style="background:#0D0D0D;">
+        <img src="roxabi-plugins-logo.png" alt="Logo PNG" style="object-fit:contain; padding:32px;">
+      </div>
+      <div class="card-info">
+        <div class="card-label">Static PNG Export</div>
+        <div class="card-meta">roxabi-plugins-logo.png</div>
+      </div>
+    </div>
+
+    <div class="card" onclick="openLightbox(-2)">
+      <div class="card-preview" style="background:#0D0D0D;">
+        <img src="roxabi-plugins-logo.gif" alt="Logo GIF" style="object-fit:contain; padding:32px;">
+      </div>
+      <div class="card-info">
+        <div class="card-label">Animated GIF Export</div>
+        <div class="card-meta">roxabi-plugins-logo.gif</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- COLOR VARIANTS                                             -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="section" id="variants">
+  <div class="section-title"><span class="dot" style="background:var(--purple)"></span> Color Variants</div>
+  <div class="section-desc">Four alternative color directions — same hexagonal structure, different palettes.</div>
+
+  <div class="grid grid-2">
+    <a class="card" href="roxabi-plugins-cool-technical.html" target="_blank">
+      <div class="card-preview">
+        <iframe src="roxabi-plugins-cool-technical.html" loading="lazy"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-label">Cool Technical</div>
+        <div class="card-meta">roxabi-plugins-cool-technical.html</div>
+        <div class="card-badge badge-variant">VARIANT</div>
+      </div>
+    </a>
+
+    <a class="card" href="roxabi-plugins-dark-premium.html" target="_blank">
+      <div class="card-preview">
+        <iframe src="roxabi-plugins-dark-premium.html" loading="lazy"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-label">Dark Premium</div>
+        <div class="card-meta">roxabi-plugins-dark-premium.html</div>
+        <div class="card-badge badge-variant">VARIANT</div>
+      </div>
+    </a>
+
+    <a class="card" href="roxabi-plugins-earth-craft.html" target="_blank">
+      <div class="card-preview">
+        <iframe src="roxabi-plugins-earth-craft.html" loading="lazy"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-label">Earth Craft</div>
+        <div class="card-meta">roxabi-plugins-earth-craft.html</div>
+        <div class="card-badge badge-variant">VARIANT</div>
+      </div>
+    </a>
+
+    <a class="card" href="roxabi-plugins-neon-minimal.html" target="_blank">
+      <div class="card-preview">
+        <iframe src="roxabi-plugins-neon-minimal.html" loading="lazy"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-label">Neon Minimal</div>
+        <div class="card-meta">roxabi-plugins-neon-minimal.html</div>
+        <div class="card-badge badge-variant">VARIANT</div>
+      </div>
+    </a>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- 25 AI CONCEPTS                                             -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="section" id="concepts">
+  <div class="section-title"><span class="dot" style="background:var(--cyan)"></span> AI-Generated Concepts</div>
+  <div class="section-desc">25 logo explorations generated with Flux via imageCLI. Click any image to enlarge and browse prompts.</div>
+
+  <div class="grid grid-5" id="concept-grid"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- ABOUT                                                      -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="section" id="prompts">
+  <div class="section-title"><span class="dot" style="background:var(--green)"></span> About</div>
+  <div class="section-desc">
+    All concepts generated with <strong>Flux2-Klein</strong> via imageCLI (1024&times;1024, 28 steps, guidance 4.5).
+    Each concept has a dedicated prompt file in <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--hex-orange);">brand/prompts/</code>.
+    The hexagonal motif references the plugin ecosystem — modular, interlocking, extensible.
+  </div>
+</div>
+
+<div class="footer">ROXABI PLUGINS &middot; Brand Asset Gallery &middot; 2026-03-26</div>
+
+<!-- ── Lightbox ── -->
+<div class="lightbox" id="lightbox" onclick="if(event.target===this)closeLb()">
+  <span class="lb-close" onclick="closeLb()">&#x2715;</span>
+  <span class="lb-num" id="lb-num"></span>
+  <span class="lb-nav lb-prev" onclick="event.stopPropagation();navLb(-1)">&#x2039;</span>
+  <span class="lb-nav lb-next" onclick="event.stopPropagation();navLb(1)">&#x203A;</span>
+  <img id="lb-img" src="" alt="">
+  <div class="caption" id="lb-caption"></div>
+</div>
+
+<script>
+const concepts = [
+  { file: "01-hex-3d-glass",       label: "3D Glass Hex",        style: "Frosted glass, orange glow" },
+  { file: "02-hex-neon-wireframe", label: "Neon Wireframe",      style: "Cyan neon lines on black" },
+  { file: "03-honeycomb-metallic", label: "Metallic Honeycomb",  style: "Brushed titanium, orange core" },
+  { file: "04-constellation-dots", label: "Constellation",       style: "Luminous dots, thin lines" },
+  { file: "05-plug-abstract-3d",   label: "Abstract Plug",       style: "Purple + gold 3D halves" },
+  { file: "06-node-graph-glow",    label: "Node Graph",          style: "Glass spheres, cyan threads" },
+  { file: "07-hex-gem-faceted",    label: "Faceted Gem",         style: "Cut hexagonal gemstone" },
+  { file: "08-circuit-hex-flat",   label: "Circuit Board",       style: "Flat PCB traces, green" },
+  { file: "09-particle-sphere",    label: "Particle Sphere",     style: "Dot sphere, orange network" },
+  { file: "10-origami-hex",        label: "Origami Hex",         style: "Folded paper, rim light" },
+  { file: "11-hex-hologram",       label: "Hologram",            style: "Holographic projection" },
+  { file: "12-mosaic-dots-grid",   label: "Mosaic Grid",         style: "Glass bead grid, orange" },
+  { file: "13-liquid-metal-hex",   label: "Liquid Metal",        style: "Gunmetal + lava cracks" },
+  { file: "14-blueprint-hex",      label: "Blueprint",           style: "Technical drawing, cyan" },
+  { file: "15-nebula-hex",         label: "Nebula Hex",          style: "Cosmic gas in hex shape" },
+  { file: "16-isometric-blocks",   label: "Isometric Blocks",    style: "Hex columns, purple+gold" },
+  { file: "17-zen-stones-hex",     label: "Zen Stones",          style: "River stones, orange vein" },
+  { file: "18-electric-nodes",     label: "Electric Nodes",      style: "Chrome spheres, arcs" },
+  { file: "19-stained-glass-hex",  label: "Stained Glass",       style: "Backlit glass panels" },
+  { file: "20-magnetic-field",     label: "Magnetic Field",      style: "Iron filing pattern" },
+  { file: "21-embossed-leather",   label: "Embossed Leather",    style: "Leather + orange foil" },
+  { file: "22-data-flow-hex",      label: "Data Flow",           style: "Green data particles" },
+  { file: "23-crystal-growth",     label: "Crystal Growth",      style: "Obsidian hex columns" },
+  { file: "24-sound-wave-hex",     label: "Sound Wave",          style: "Waveform hex edges" },
+  { file: "25-ink-brush-hex",      label: "Ink Brush",           style: "Bold brush stroke hex" },
+];
+
+// Build concept grid
+const grid = document.getElementById('concept-grid');
+concepts.forEach((c, i) => {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.onclick = () => openLightbox(i);
+  card.innerHTML = `
+    <div class="card-preview">
+      <img src="generated/${c.file}.png" alt="${c.label}" loading="lazy"
+        onerror="this.style.background='var(--surface)';this.style.minHeight='160px';this.alt='missing'">
+    </div>
+    <div class="card-info">
+      <div class="card-label">${c.label}</div>
+      <div class="card-meta">#${String(i+1).padStart(2,'0')} &middot; ${c.style}</div>
+    </div>`;
+  grid.appendChild(card);
+});
+
+// Lightbox
+let lbIdx = 0;
+const lb = document.getElementById('lightbox');
+const lbImg = document.getElementById('lb-img');
+const lbCap = document.getElementById('lb-caption');
+const lbNum = document.getElementById('lb-num');
+
+function openLightbox(idx) {
+  if (idx === -1) { // PNG
+    lb.classList.add('active');
+    lbImg.src = 'roxabi-plugins-logo.png';
+    lbCap.textContent = 'roxabi-plugins-logo.png';
+    lbNum.textContent = '';
+    lbIdx = -1;
+    return;
+  }
+  if (idx === -2) { // GIF
+    lb.classList.add('active');
+    lbImg.src = 'roxabi-plugins-logo.gif';
+    lbCap.textContent = 'roxabi-plugins-logo.gif';
+    lbNum.textContent = '';
+    lbIdx = -2;
+    return;
+  }
+  lbIdx = idx;
+  showLb();
+  lb.classList.add('active');
+}
+
+function showLb() {
+  const c = concepts[lbIdx];
+  lbImg.src = `generated/${c.file}.png`;
+  lbCap.innerHTML = `<strong>${c.label}</strong><br>${c.style}`;
+  lbNum.textContent = `${lbIdx + 1} / ${concepts.length}`;
+}
+
+function closeLb() { lb.classList.remove('active'); }
+
+function navLb(dir) {
+  if (lbIdx < 0) return;
+  lbIdx = (lbIdx + dir + concepts.length) % concepts.length;
+  showLb();
+}
+
+document.addEventListener('keydown', e => {
+  if (!lb.classList.contains('active')) return;
+  if (e.key === 'Escape') closeLb();
+  if (e.key === 'ArrowLeft') navLb(-1);
+  if (e.key === 'ArrowRight') navLb(1);
+});
+</script>
+</body>
+</html>
