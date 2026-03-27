@@ -42,8 +42,8 @@ Canonical rules for classifying work into S / F-lite / F-full. Referenced by `/f
 | C | τ | Process | α Mode |
 |---|---|---------|--------|
 | 1–3 | **S** | Worktree + direct impl + PR | Single session, ¬α |
-| 4–6 | **F-lite** | Worktree + subagents + /review | Task subagents (1–2 domain + tester) |
-| 7–10 | **F-full** | Bootstrap + worktree + α team + /review | TeamCreate (3+ α, test-first) |
+| 4–6 | **F-lite** | Worktree + subagents + /code-review | Task subagents (1–2 domain + tester) |
+| 7–10 | **F-full** | Bootstrap + worktree + α team + /code-review | TeamCreate (3+ α, test-first) |
 
 ## Resolution Rules
 

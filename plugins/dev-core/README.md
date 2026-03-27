@@ -1,6 +1,6 @@
 # dev-core
 
-Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 21 skills, 9 specialized agents, and safety hooks.
+Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 28 skills, 9 specialized agents, and safety hooks.
 
 ## Prerequisites
 
@@ -56,13 +56,18 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 ## Skills
 
-21 skills organized by workflow phase:
+27 skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
-| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, CI/CD workflows, branch protection, env vars, workspace.json registration, VS Code MDX preview). Pushes workflow files directly via GitHub REST API — no local git required. Auto-sets PAT secret after workflow creation. Lists built-in project workflow status; GitHub has no API to enable them programmatically — provides direct settings URL. TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
+| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, CI/CD workflows, branch protection, env vars, workspace.json registration, VS Code MDX preview, LSP plugin install). Pushes workflow files directly via GitHub REST API — no local git required. Auto-sets PAT secret after workflow creation. Lists built-in project workflow status; GitHub has no API to enable them programmatically — provides direct settings URL. TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
+| `env-setup` | Setup | Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, VS Code MDX, LSP. Triggered by `/init` or standalone |
+| `github-setup` | Setup | Connect project to GitHub Project V2 board — discover or create board, labels, branch protection, workspace registration |
+| `ci-setup` | Setup | Set up CI/CD — GitHub Actions workflows, TruffleHog, Dependabot, pre-commit hooks, marketplace plugins. Discovers Roxabi plugins live from `marketplace.json` and endorsed external marketplaces from `curated-marketplaces.json` |
 | `stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.claude/stack.yml`. Single confirmation screen — no wizard questions |
-| `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows (checks both local files and remote via REST API), required secrets (PAT for auto-merge.yml), branch protection, stack.yml, workspace.json registration, and VS Code MDX preview. Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
+| `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows (checks both local files and remote via REST API), required secrets (PAT for auto-merge.yml), branch protection, stack.yml, workspace.json registration, VS Code MDX preview, and LSP plugin install (typescript-lsp / pyright-lsp with auto-fix). Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
+| `seed-docs` | Setup | Populates scaffolded architecture/standards docs with real content — reads CLAUDE.md for conventions, optionally scans codebase (entry points, import graph, naming patterns), fills TODO stubs, writes AI Quick Reference sections. Idempotent: skips already-populated files |
+| `seed-community` | Setup | Bootstraps OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), `.github/PULL_REQUEST_TEMPLATE.md`, issue templates. Reads project metadata + CLAUDE.md; generates missing files idempotently |
 | `dev` | Orchestrator | Routes issues through the full workflow |
 | `frame` | Frame | Creates initial feature frame from issue |
 | `analyze` | Shape | Deep analysis with expert consultation |
@@ -81,6 +86,8 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 | `issue-triage` | Supporting | Triages GitHub issues with labels/priority |
 | `adr` | Supporting | Creates Architecture Decision Records |
 | `doc-sync` | Supporting | Syncs CLAUDE.md, README.md, and plugin SKILL.md after a code change |
+| `readme-upgrade` | Supporting | Audits and improves root README, CONTRIBUTING.md, and plugin READMEs against the developer-tool quality pattern (Why, Quick Start, How it works, categorized tables, diagrams). Auto-detects Mermaid vs ASCII based on host |
+| `cleanup-context` | Supporting | Audits and cleans CLAUDE.md, memory, skills, and rules — resolves every finding (fix/promote/relocate/delete), tracks recurrences, targets bloat=0 |
 
 ## Agents
 

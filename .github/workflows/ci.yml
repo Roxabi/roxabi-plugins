@@ -12,7 +12,7 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4
       - uses: oven-sh/setup-bun@ecf28ddc73e819eb6fa29df6b34ef8921c743461  # v2
       - run: bun install
       - name: Lint
@@ -24,6 +24,29 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: pip install pytest git+https://github.com/Roxabi/roxabi-memory.git@main
+      - run: pip install pytest git+https://github.com/Roxabi/roxabi-vault.git@main
       - name: Test (pytest)
-        run: python3 -m pytest tests/ plugins/vault/tests/ -v
+        run: python3 -m pytest tests/ -v
+      - name: Validate registry sync
+        run: |
+          set -euo pipefail
+          REGISTRY=".claude-plugin/external-registry.json"
+          CURATED_FILE=".claude-plugin/curated-marketplaces.json"
+
+          if [ ! -f "$REGISTRY" ] || [ ! -f "$CURATED_FILE" ]; then
+            echo "Registry files not found — skipping sync check"
+            exit 0
+          fi
+
+          REG_NAMES=$(jq -r '.curated_marketplaces[].name' "$REGISTRY" 2>/dev/null | sort || echo "")
+          FILE_NAMES=$(jq -r '.marketplaces[].name' "$CURATED_FILE" 2>/dev/null | sort || echo "")
+
+          if [ "$REG_NAMES" != "$FILE_NAMES" ]; then
+            echo "ERROR: curated_marketplaces in external-registry.json and curated-marketplaces.json are out of sync"
+            echo "  external-registry.json names: $(echo "$REG_NAMES" | tr '\n' ',' | sed 's/,$//')"
+            echo "  curated-marketplaces.json names: $(echo "$FILE_NAMES" | tr '\n' ',' | sed 's/,$//')"
+            echo "  Update curated-marketplaces.json to mirror external-registry.json curated_marketplaces[]"
+            exit 1
+          fi
+
+          echo "Registry sync OK — both files agree on curated marketplace names"

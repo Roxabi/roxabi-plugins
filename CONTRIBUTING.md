@@ -71,3 +71,77 @@ plugins/
 ```
 
 Source of truth is always this repo. Installed cache copies are ephemeral.
+
+## Upstream sync
+
+Wrapped plugins and curated marketplaces drift over time. Run this process periodically (or when CI opens an `upstream-update` issue).
+
+### 1. Check curated marketplaces for drift
+
+For each entry in `external-registry.json` → `curated_marketplaces`:
+
+```bash
+# Compare stored SHA against upstream HEAD
+git ls-remote <source>.git refs/heads/<branch> | awk '{print $1}'
+```
+
+If the SHA differs from `last_checked_commit`:
+- Fetch the changelog: `gh api repos/<owner>/<repo>/compare/<old_sha>...<branch>`
+- Review commits for breaking changes (renamed skills, removed files, new dependencies)
+- Update `last_checked_commit` in `external-registry.json`
+
+### 2. Check wrapped plugins for content changes
+
+For each entry in `wrapped_plugins`:
+
+```bash
+# Clone upstream shallow
+git clone --depth 1 <upstream_url> /tmp/<name>-upstream
+
+# Diff file trees (our references/ layout vs upstream flat layout)
+diff <(cd /tmp/<name>-upstream/<path> && find . -type f | sort) \
+     <(cd plugins/<name>/skills/<skill>/references && find . -type f | sort)
+
+# Diff content of matching files
+diff /tmp/<name>-upstream/<path>/rules/<file>.md \
+     plugins/<name>/skills/<skill>/references/rules/<file>.md
+```
+
+- **New files upstream** → copy into `references/`
+- **Changed content** → review and merge (our frontmatter is intentionally different — skip those diffs)
+- Update `last_sync_commit` and `last_sync_date` in `external-registry.json`
+
+### 3. Check if wrapped plugins should be promoted
+
+For each wrapped plugin, check if upstream now ships a proper marketplace:
+
+```bash
+curl -s "https://api.github.com/repos/<owner>/<repo>/contents/.claude-plugin" | jq '.[].name'
+```
+
+If upstream has `.claude-plugin/marketplace.json` with versioned plugins → **promote to curated**:
+
+1. `git rm -r plugins/<name>/`
+2. Remove from `.claude-plugin/marketplace.json`
+3. Add to `curated_marketplaces` in `external-registry.json`
+4. Add to `.claude-plugin/curated-marketplaces.json`
+5. Move to endorsed marketplaces table in `README.md`
+
+### 4. Consistency check
+
+Verify all registry files agree:
+
+- `external-registry.json` curated names == `curated-marketplaces.json` marketplace names
+- All `marketplace.json` sources point to existing directories on disk
+- No orphan directories in `plugins/` missing from `marketplace.json`
+- All endorsed marketplaces listed in `README.md`
+
+### 5. Commit and push
+
+One commit per logical change, conventional commit format. Examples:
+
+```
+chore(plugins): sync upstream — 6 new react rules + register wrapped plugins
+refactor(plugins): promote visual-explainer to curated marketplace
+fix(registry): add missing entry to curated-marketplaces
+```

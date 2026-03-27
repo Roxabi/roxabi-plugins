@@ -5,7 +5,7 @@ Let: α := agent(s) | σ := stack.yml field
 `stack.yml` makes dev-core agents project-agnostic. Agents reference `{backend.path}`, `{commands.test}`, etc. from `.claude/stack.yml`, imported via CLAUDE.md `@import`.
 
 Add `@.claude/stack.yml` as **first line** of CLAUDE.md. ¬∃ `.claude/stack.yml` → agents output:
-> "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init` to generate the file, or `/doctor` to diagnose."
+> "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init` to generate the file, or `/checkup` to diagnose."
 
 ## Field Reference
 
@@ -13,7 +13,7 @@ Add `@.claude/stack.yml` as **first line** of CLAUDE.md. ¬∃ `.claude/stack.ym
 
 | σ | Type | α | Purpose |
 |---|------|---|---------|
-| `schema_version` | string | doctor | Schema compat check |
+| `schema_version` | string | checkup | Schema compat check |
 | `runtime` | string | — | Runtime ID (informational) |
 | `package_manager` | string | security-auditor, devops | Pkg mgr for audit/lockfile |
 
@@ -58,6 +58,12 @@ Add `@.claude/stack.yml` as **first line** of CLAUDE.md. ¬∃ `.claude/stack.ym
 |---|---|---------|
 | `testing.unit` | tester | Unit test framework |
 | `testing.e2e` | tester | E2E test framework |
+
+### `hooks.*`
+
+| σ | α | Purpose |
+|---|---|---------|
+| `hooks.tool` | ci-setup, release-setup | Hook runner selection: `auto` \| `lefthook` \| `pre-commit` \| `husky` \| `none`. `auto` → infers from runtime (Python → pre-commit, else lefthook). Consumed by `/ci-setup` (installs pre-commit hooks) and `/release-setup` (wires commit-msg hook). |
 
 ### `deploy.*`
 
@@ -113,7 +119,7 @@ Add `@.claude/stack.yml` as **first line** of CLAUDE.md. ¬∃ `.claude/stack.ym
 
 ## Required Fields
 
-`/doctor` flags absence of: `schema_version`, `backend.path`, `frontend.path`, `commands.test`, `commands.lint`, `commands.typecheck`, `standards.testing`, `standards.backend`, `standards.frontend`
+`/checkup` flags absence of: `schema_version`, `backend.path`, `frontend.path`, `commands.test`, `commands.lint`, `commands.typecheck`, `standards.testing`, `standards.backend`, `standards.frontend`
 
 ## Writing Good Standards Docs
 

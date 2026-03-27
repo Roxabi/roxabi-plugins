@@ -14,7 +14,8 @@ Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies
 
 ## Instructions
 
-1. List untriaged: `bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts list`
+1. List all open issues: `bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts list`
+   List untriaged only: `bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts list --untriaged`
 2. ∀ issue: determine Size, Priority, κ (see [Complexity Scoring](#complexity-scoring))
 3. Set values: `bun τ set <number> --size <S> --priority <P>`
 4. Update status: `bun τ set <number> --status "In Progress"`
@@ -42,12 +43,13 @@ Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies
 
 ## Commands
 
-### `list` — Show untriaged issues
+### `list` — Show open issues
 
 | Flag | Description |
 |------|-------------|
-| *(none)* | Table of issues missing Size or Priority |
-| `--json` | JSON output for programmatic use |
+| *(none)* | Tree of all open issues with N-level parent-child hierarchy. Parents with ≥1 closed child show `… ✓ Done`. |
+| `--untriaged` | Flat table of issues missing Size or Priority |
+| `--json` | JSON output (all open issues); combine with `--untriaged` to filter |
 
 ### `set <num>` — Update an existing issue
 
@@ -110,8 +112,8 @@ gh issue edit <number> --body "$BODY
 | Score | Tier | Process | Agent Mode |
 |-------|------|---------|-----------|
 | 1-3 | **S** | Worktree + direct implementation + PR | Single session, no agents |
-| 4-6 | **F-lite** | Worktree + subagents + /review | Task subagents (1-2 domain + tester) |
-| 7-10 | **F-full** | Bootstrap + worktree + agent team + /review | TeamCreate (3+ agents, test-first) |
+| 4-6 | **F-lite** | Worktree + subagents + /code-review | Task subagents (1-2 domain + tester) |
+| 7-10 | **F-full** | Bootstrap + worktree + agent team + /code-review | TeamCreate (3+ agents, test-first) |
 
 κ is advisory. Human judgment overrides. AskUserQuestion if score ≠ intuition.
 
@@ -133,6 +135,7 @@ Reference: `artifacts/analyses/280-token-consumption.mdx` for scoring examples.
 
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts list
+bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts list --untriaged
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set 42 --size M --priority High
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set 42 --status "In Progress"
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set 91 --blocked-by 117

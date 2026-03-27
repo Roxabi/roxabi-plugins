@@ -34,15 +34,25 @@ function shortTitle(title: string, maxLen: number): string {
   return title
 }
 
-function formatChildRow(
+// Base tree indent for level-1 children: "       │   " (11 chars)
+const BASE_TREE_INDENT = '       \u2502   '
+
+// cTitleWidth formula: total title column inner = titleLen + 2
+// Chars used after the opening "       │": (indent.length - 8) + numStr.length + 1 (space)
+// => cTitleWidth = titleLen + 2 - (indent.length - 8) - numStr.length - 1
+//               = titleLen + 9 - indent.length - numStr.length
+function childTitleWidth(indent: string, numStr: string, titleLen: number): number {
+  return Math.max(4, titleLen + 9 - indent.length - numStr.length)
+}
+
+function formatChildRowLine(
   sub: { number: number; state: string; title: string },
   childItem: RawItem | undefined,
-  prefix: string,
+  indent: string,
   titleLen: number,
 ): string {
   const numStr = `#${sub.number}`
-  const prefixLen = numStr.length + 7 // "       │   " + prefix + "#NN "
-  const cTitleWidth = titleLen + 3 - prefixLen
+  const cTitleWidth = childTitleWidth(indent, numStr, titleLen)
 
   if (childItem) {
     const cStatus = fieldValue(childItem, 'Status')
@@ -50,18 +60,49 @@ function formatChildRow(
     const cPri = fieldValue(childItem, 'Priority')
     const cBlock = computeBlockStatus(childItem)
     const cDeps = formatDepsFromRaw(childItem)
-    const cTitle =
-      shortTitle(childItem.content.title, cTitleWidth - 4) +
-      (childItem.content.title.length > cTitleWidth - 4 ? '' : '')
+    const cTitle = shortTitle(childItem.content.title, cTitleWidth - 4)
     const cTitlePadded = pad(cTitle, cTitleWidth)
-
-    return `       \u2502   ${prefix}${numStr} ${cTitlePadded}\u2502 ${pad(STATUS_SHORT[cStatus] ?? cStatus, 9)}\u2502 ${pad(cSize, 5)}\u2502 ${pad(PRIORITY_SHORT[cPri] ?? cPri, 4)}\u2502 ${blockIcon(cBlock)} \u2502 ${cDeps}`
+    return `${indent}${numStr} ${cTitlePadded}\u2502 ${pad(STATUS_SHORT[cStatus] ?? cStatus, 9)}\u2502 ${pad(cSize, 5)}\u2502 ${pad(PRIORITY_SHORT[cPri] ?? cPri, 4)}\u2502 ${blockIcon(cBlock)} \u2502 ${cDeps}`
   }
 
-  // Closed child — show with Done status
+  // Open child not in project board — show with partial data
   const cTitle = shortTitle(sub.title || '?', cTitleWidth - 4)
   const cTitlePadded = pad(cTitle, cTitleWidth)
-  return `       \u2502   ${prefix}${numStr} ${cTitlePadded}\u2502 ${pad('Done', 9)}\u2502 ${pad('-', 5)}\u2502 ${pad('-', 4)}\u2502   \u2502`
+  return `${indent}${numStr} ${cTitlePadded}\u2502 ${pad('-', 9)}\u2502 ${pad('-', 5)}\u2502 ${pad('-', 4)}\u2502   \u2502`
+}
+
+function formatChildRows(
+  subs: { number: number; state: string; title: string }[],
+  byNum: Map<number, RawItem>,
+  baseIndent: string,
+  titleLen: number,
+): string[] {
+  const openSubs = subs.filter((s) => s.state === 'OPEN')
+  const closedCount = subs.length - openSubs.length
+  const hasClosedSummary = closedCount > 0
+
+  const lines: string[] = []
+  for (let i = 0; i < openSubs.length; i++) {
+    const sub = openSubs[i]
+    const isLast = i === openSubs.length - 1 && !hasClosedSummary
+    const connector = isLast ? '\u2514 ' : '\u251C '
+    const childItem = byNum.get(sub.number)
+    lines.push(formatChildRowLine(sub, childItem, baseIndent + connector, titleLen))
+
+    if (childItem) {
+      const grandSubs = childItem.content.subIssues?.nodes ?? []
+      if (grandSubs.length > 0) {
+        const nextBase = baseIndent + (isLast ? '    ' : '\u2502   ')
+        lines.push(...formatChildRows(grandSubs, byNum, nextBase, titleLen))
+      }
+    }
+  }
+
+  if (hasClosedSummary) {
+    lines.push(`${baseIndent}\u2514 \u00B7\u00B7\u00B7 (${closedCount} done)`)
+  }
+
+  return lines
 }
 
 function fieldValue(item: RawItem, name: string): string {
@@ -143,15 +184,10 @@ export function formatTable(allItems: RawItem[], opts: FormatOptions): string {
       `  ${pad(`#${num}`, 5)}\u2502 ${pad(title, tl + 2)}\u2502 ${pad(STATUS_SHORT[status] ?? status, 9)}\u2502 ${pad(size, 5)}\u2502 ${pad(PRIORITY_SHORT[priority] ?? priority, 4)}\u2502 ${blockIcon(bStatus)} \u2502 ${deps}`,
     )
 
-    // Children
+    // Children (recursive — handles grandchildren and collapsed done rows)
     const subs = item.content.subIssues?.nodes ?? []
     if (subs.length > 0) {
-      for (let i = 0; i < subs.length; i++) {
-        const isLast = i === subs.length - 1
-        const prefix = isLast ? '\u2514 ' : '\u251C '
-        const childItem = byNum.get(subs[i].number)
-        lines.push(formatChildRow(subs[i], childItem, prefix, tl))
-      }
+      lines.push(...formatChildRows(subs, byNum, BASE_TREE_INDENT, tl))
     }
   }
 

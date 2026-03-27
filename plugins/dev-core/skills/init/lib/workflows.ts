@@ -17,8 +17,9 @@ export interface WorkflowOpts {
  *  updates behind PRs on push, closes linked issues on merge. */
 export function generateAutoMergeYml(): string {
   return `# Auto-merge PRs that have been reviewed and passed all required checks.
-# Adds the PR to GitHub's merge queue (squash) once the "reviewed" label is present.
+# Adds the PR to GitHub's merge queue (merge commit) once the "reviewed" label is present.
 # GitHub natively waits for all required status checks before merging.
+# Uses merge commit (not squash) to preserve history — required for staging→main promotions.
 #
 # Also closes linked issues after merge, because GITHUB_TOKEN-initiated
 # auto-merges don't trigger GitHub's native "Closes #X" issue closure.
@@ -46,8 +47,8 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'reviewed')
     timeout-minutes: 5
     steps:
-      - name: Enable auto-merge (squash)
-        run: gh pr merge "$PR_NUMBER" --auto --squash --repo "$GITHUB_REPOSITORY"
+      - name: Enable auto-merge (merge commit)
+        run: gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: \${{ secrets.PAT }}
           PR_NUMBER: \${{ github.event.pull_request.number }}

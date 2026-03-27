@@ -172,6 +172,59 @@ describe('table-formatter', () => {
       expect(output).toContain('#11')
     })
 
+    it('renders grandchildren recursively under their parent child', () => {
+      const grandparent = makeRawItem(
+        {
+          number: 10,
+          title: 'Grandparent',
+          subIssues: { nodes: [{ number: 11, state: 'OPEN', title: 'Child' }] },
+        },
+        { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' },
+      )
+      const child = makeRawItem(
+        {
+          number: 11,
+          title: 'Child',
+          parent: { number: 10, state: 'OPEN' },
+          subIssues: { nodes: [{ number: 12, state: 'OPEN', title: 'Grandchild' }] },
+        },
+        { Status: 'Backlog', Priority: 'P2 - Medium', Size: 'S' },
+      )
+      const grandchild = makeRawItem(
+        { number: 12, title: 'Grandchild', parent: { number: 11, state: 'OPEN' } },
+        { Status: 'In Progress', Priority: 'P2 - Medium', Size: 'XS' },
+      )
+      const output = formatTable([grandparent, child, grandchild], { sortBy: 'priority', titleLength: 55 })
+      expect(output).toContain('#12')
+      expect(output).toContain('1 issues') // only grandparent is root
+    })
+
+    it('collapses closed children into a done summary row', () => {
+      const parent = makeRawItem(
+        {
+          number: 10,
+          title: 'Parent',
+          subIssues: {
+            nodes: [
+              { number: 11, state: 'OPEN', title: 'Open child' },
+              { number: 12, state: 'CLOSED', title: 'Done child 1' },
+              { number: 13, state: 'CLOSED', title: 'Done child 2' },
+            ],
+          },
+        },
+        { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' },
+      )
+      const openChild = makeRawItem(
+        { number: 11, title: 'Open child', parent: { number: 10, state: 'OPEN' } },
+        { Status: 'In Progress', Priority: 'P2 - Medium', Size: 'S' },
+      )
+      const output = formatTable([parent, openChild], { sortBy: 'priority', titleLength: 55 })
+      expect(output).toContain('#11')
+      expect(output).not.toContain('#12')
+      expect(output).not.toContain('#13')
+      expect(output).toContain('2 done')
+    })
+
     it('skips children from root list (shown inline)', () => {
       const parent = makeRawItem(
         {

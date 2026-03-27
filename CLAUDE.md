@@ -31,7 +31,8 @@ Never push without request. Never force/hard/amend. Hook fail → fix + NEW comm
 ```
 roxabi-plugins/
 ├── .claude-plugin/
-│   └── marketplace.json         # marketplace manifest (lists all plugins)
+│   ├── marketplace.json         # marketplace manifest (lists all plugins — native + wrapped)
+│   └── curated-marketplaces.json  # endorsed external plugin marketplaces (not raw skill repos)
 ├── plugins/
 │   └── <plugin-name>/
 │       ├── README.md            # human-readable docs
@@ -148,6 +149,8 @@ feat(plugins): add <plugin-name> — short description
 
 When adopting a high-quality external skill rather than building from scratch, use `git subtree` to vendor it into the marketplace while keeping the ability to pull upstream updates.
 
+> **Native vs Wrapped plugins** — plugins built by Roxabi are *native*. Plugins forked from external raw-skill repos (no versioning, no install mechanism) are *wrapped*: Roxabi adds the plugin structure (frontmatter, README, marketplace entry) and vendors the source via `git subtree`. Both appear in `marketplace.json`. For endorsed external repos that already ship as proper plugin marketplaces, add them to `curated-marketplaces.json` instead — `/ci-setup` discovers and offers them at runtime without vendoring.
+
 ### Step 1 — Add as a subtree
 
 ```bash
@@ -197,6 +200,109 @@ git subtree pull --prefix=plugins/<plugin-name> \
 
 Keep local changes (frontmatter, README) minimal to avoid merge conflicts. Put the pull command in the commit message for easy reference.
 
+## External Ecosystem
+
+Roxabi endorses and vendors external Claude Code plugins via two mechanisms. The registry
+`.claude-plugin/external-registry.json` is the source of truth for all external sources.
+
+> **Upstream sync** — see [CONTRIBUTING.md § Upstream sync](CONTRIBUTING.md#upstream-sync) for the full process to check drift, pull changes, promote wrapped plugins, and run consistency checks.
+
+### Directory convention
+
+| Directory | Contents |
+|-----------|----------|
+| `plugins/` | Native Roxabi plugins — built and owned by Roxabi |
+| `external/` | Curated/vendored external plugins — sourced from upstream repos |
+
+Both appear in `.claude-plugin/marketplace.json` so users install them the same way.
+
+> **Note:** The `external/` directory is created when the first external plugin is vendored (see issue #63 — initial audit). This section documents the convention for when it exists.
+
+### Case 1 — Curated Marketplace
+
+An external repo that is itself a proper plugin marketplace (has `marketplace.json`, versioned
+installs, works with `claude plugin marketplace add <url>`). Users install from it directly —
+no vendoring into this repo.
+
+**Qualify if ALL:**
+- [ ] Ships `marketplace.json` with versioned plugins
+- [ ] Has working install mechanism (`claude plugin marketplace add <url>`)
+- [ ] Last commit ≤ 90 days ago
+- [ ] Reviewed skills with clear descriptions + trigger phrases
+- [ ] < 50% overlap with native Roxabi plugins
+
+**To add a curated marketplace:**
+1. Verify all criteria above manually
+2. Add entry to `.claude-plugin/external-registry.json` under `curated_marketplaces`
+   - Optional: set `upstream_branch` to track a specific branch (e.g. `main`). Without it, CI checks `HEAD`.
+3. Sync to `.claude-plugin/curated-marketplaces.json` `marketplaces` array
+
+### Case 2 — Wrapped Plugin
+
+A raw skill repo (SKILL.md files, no install mechanism) vendored into `external/`. Choose
+strategy at wrapping time — record in `sync_strategy` field.
+
+**Qualify if ALL:**
+- [ ] High-quality SKILL.md (clear instructions, scoped triggers)
+- [ ] Last commit ≤ 90 days ago
+- [ ] Fills a gap not covered by native plugins
+- [ ] Compatible license (MIT, Apache 2.0, etc.)
+- [ ] Upstream author notified/credited in plugin README
+
+**Copy strategy** (flat SKILL.md repos — simpler, no merge conflicts):
+```bash
+# 1. Copy files into external/
+cp -r <upstream-skill-dir>/ external/<name>/
+# 2. Record upstream HEAD SHA
+SHA=$(git ls-remote <repo-url>.git refs/heads/main | awk '{print $1}')
+# 3. Add to external-registry.json (sync_strategy: "copy", last_sync_commit: "$SHA")
+# 4. Add to marketplace.json ("source": "./external/<name>")
+```
+
+**Subtree strategy** (plugins with meaningful directory structure):
+```bash
+git subtree add --prefix=external/<name> <url>.git <branch> --squash
+# Add to external-registry.json (sync_strategy: "subtree", subtree_prefix: "external/<name>")
+# Add to marketplace.json ("source": "./external/<name>")
+```
+
+**To update a wrapped plugin:**
+
+Copy strategy:
+```bash
+SHA=$(git ls-remote <repo-url>.git refs/heads/main | awk '{print $1}')
+cp -r <upstream-skill-dir>/ external/<name>/
+# Update external-registry.json: last_sync_commit, last_sync_date
+```
+
+Subtree strategy:
+```bash
+git subtree pull --prefix=external/<name> <url>.git <branch> --squash
+# Update external-registry.json: last_sync_commit, last_sync_date
+```
+
+### Case 3 — Deprecation
+
+**Trigger if ANY:**
+- Upstream archived/deleted with no suitable replacement
+- > 12 months since last commit (any commit counts)
+- Superseded by a better native or external alternative
+- License changed to incompatible terms
+
+**To deprecate:**
+1. Set `status: deprecated` in `external-registry.json` entry
+2. Remove from `marketplace.json` (wrapped) or `curated-marketplaces.json` (curated)
+3. Optionally remove plugin directory: `git rm -r external/<name>` (wrapped only)
+4. Add deprecation date + reason to `notes` field in registry
+
+### Upstream drift detection
+
+CI runs weekly (Mondays 09:00 UTC) and on manual dispatch via `.github/workflows/upstream-watch.yml`.
+When upstream has new commits vs `last_sync_commit`, it opens a GitHub issue labelled `upstream-update`.
+Review the diff and decide: update, skip, or deprecate. **CI never auto-merges.**
+
+Trigger manually: GitHub Actions → Upstream Watch → Run workflow.
+
 ## Documentation
 
 All READMEs must be kept up to date at all times. When adding, modifying, or removing a plugin, update:
@@ -241,10 +347,6 @@ Plugins with data declare it in `plugin.json`:
       }
     },
     "shared": []
-  },
-  "vault": {
-    "optional": true,
-    "indexes": { "category": "cv", "types": ["cv", "cover-letter"] }
   }
 }
 ```
@@ -252,28 +354,14 @@ Plugins with data declare it in `plugin.json`:
 - `data.root` must be unique across all plugins (enforced by `tools/validate_plugins.py`)
 - `data.shared` lists shared directories the plugin reads/writes
 - `data.files[].example` points to a template with fictional data in `examples/`
-- `vault.optional: true` means the plugin works without vault installed
 
 ### Path resolution
 
 All plugins use `roxabi_sdk/paths.py` for path resolution. The canonical copy lives at `roxabi_sdk/paths.py` (repo root). The sync script copies `roxabi_sdk/` into each plugin cache dir so imports work in both repo and installed contexts.
 
-Key functions: `get_vault_home()`, `get_plugin_data(name)`, `get_shared_dir(name)`, `get_config(name)`, `ensure_dir(path)`, `vault_available()`, `vault_healthy()`.
+Key functions: `get_vault_home()`, `get_plugin_data(name)`, `get_shared_dir(name)`, `get_config(name)`, `ensure_dir(path)`.
 
-### Vault integration pattern
-
-```python
-# ALWAYS: save to ~/.roxabi-vault/
-save_dir = ensure_dir(get_vault_home() / 'content')
-(save_dir / filename).write_text(content)
-
-# OPTIONAL: index if vault is healthy
-if vault_healthy():
-    try:
-        index_content(...)
-    except Exception:
-        pass  # degraded: file saved, not indexed
-```
+Vault/indexing functionality has moved to [roxabi-vault](https://github.com/Roxabi/roxabi-vault).
 
 ### Rules
 
@@ -297,27 +385,15 @@ Each project that has a plugin installed uses a specific cache dir identified by
 
 1. **Edit the repo source first** — `plugins/<plugin-name>/skills/...`, `plugins/<plugin-name>/agents/...`, etc.
 2. **Commit and push.**
-3. **Propagate to all projects** — run this script from the repo root to sync every plugin into every cache dir:
+3. **Propagate to all projects** — run from the repo root:
    ```bash
-   REPO=~/projects/roxabi-plugins
-   CACHE=~/.claude/plugins/cache/roxabi-marketplace
-   for plugin_dir in "$REPO/plugins"/*/; do
-     plugin=$(basename "$plugin_dir")
-     [ -d "$CACHE/$plugin" ] && for h in "$CACHE/$plugin"/*/; do
-       name=$(basename "$h")
-       # Skip .claude-plugin and bogus dirs (only sync into version or hex-hash dirs)
-       [[ "$name" == ".claude-plugin" ]] && continue
-       [[ ! "$name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && ! "$name" =~ ^[0-9a-f]{12}$ ]] && continue
-       rsync -a --exclude='__tests__' --exclude='node_modules' --exclude='.orphaned_at' --exclude='.dashboard.pid' \
-         "$plugin_dir" "$h"
-       # Sync roxabi_sdk into plugin root for Python imports
-       rsync -a "$REPO/roxabi_sdk/" "$h/roxabi_sdk/"
-     done
-   done
+   ./sync-plugins.sh --local
    ```
-   This covers all projects at once — no need to visit each one individually.
+   Syncs all plugins into every local cache dir (semver + hex-hash). Use `./sync-plugins.sh` to also push and sync Machine 1.
 
 **Find the active cache hash** — when a skill runs, `$CLAUDE_PLUGIN_ROOT` contains the full cache path (e.g. `~/.claude/plugins/cache/roxabi-marketplace/dev-core/6011eb380f4f/skills/init`). The hash segment (`6011eb380f4f`) identifies the active cache directory if you need to target a single one.
+
+**Skill path variables** — use `${CLAUDE_SKILL_DIR}` for files under the skill's own directory; use `${CLAUDE_PLUGIN_ROOT}` for cross-skill references (e.g., `shared/references/`).
 
 ### Rules
 
@@ -332,4 +408,5 @@ Each project that has a plugin installed uses a specific cache dir identified by
 
 ## Gotchas
 
-<!-- Add project-specific gotchas here -->
+- Always run the rsync sync script after editing plugin source — the cache is not updated automatically
+- `${CLAUDE_SKILL_DIR}` / `${CLAUDE_PLUGIN_ROOT}` links in SKILL.md files are runtime-resolved and do not render in GitHub or VS Code previews

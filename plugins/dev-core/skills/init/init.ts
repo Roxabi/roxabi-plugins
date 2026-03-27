@@ -210,7 +210,7 @@ switch (command) {
   default:
     console.error(`Unknown command: ${command}`)
     console.error(
-      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|scaffold-rules|scaffold|scaffold-fumadocs|scaffold-fumadocs-vercel]',
+      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|scaffold-docs|scaffold-rules|scaffold|scaffold-fumadocs|scaffold-fumadocs-vercel]',
     )
     process.exit(1)
 }

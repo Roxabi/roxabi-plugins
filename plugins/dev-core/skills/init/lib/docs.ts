@@ -1,10 +1,16 @@
 /**
- * Docs scaffolding — creates standard documentation directory structure.
- * Generates minimal template files based on project type and docs format.
+ * Docs scaffolding — copies template files from templates/docs/ into the project.
+ *
+ * Templates are real markdown files that can be previewed and edited directly.
+ * They provide project-specific scaffolding that complements the universal
+ * domain knowledge embedded in agent definitions (## Domain Reference).
+ *
+ * Agent embedded knowledge = universal (Clean Architecture, REST, WCAG — never changes)
+ * docs/standards/ templates = project-specific (YOUR ORM, YOUR component library, YOUR CI)
  */
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import type { TemplateFile } from './types'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 
 export interface DocsScaffoldOpts {
   format: 'md' | 'mdx'
@@ -18,164 +24,44 @@ export interface DocsScaffoldResult {
   filesSkipped: string[]
 }
 
-function buildTemplates(format: 'md' | 'mdx'): TemplateFile[] {
-  const ext = format === 'mdx' ? 'mdx' : 'md'
-  return [
-    {
-      relativePath: `architecture/index.${ext}`,
-      content: `# Architecture
+/** Resolve the templates/docs/ directory relative to this file's location. */
+function getTemplatesDir(): string {
+  // lib/docs.ts → ../templates/docs/
+  return resolve(__dirname, '..', 'templates', 'docs')
+}
 
-Overview of the project architecture, key design decisions, and system boundaries.
+/** Recursively collect all files in a directory, returning paths relative to root. */
+function walkDir(dir: string, root?: string): string[] {
+  const base = root ?? dir
+  const entries: string[] = []
 
-## High-Level Overview
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry)
+    if (statSync(full).isDirectory()) {
+      entries.push(...walkDir(full, base))
+    } else {
+      entries.push(relative(base, full))
+    }
+  }
 
-TODO: Add architecture diagram or description.
+  return entries
+}
 
-## Key Decisions
-
-See the \`adr/\` directory for Architecture Decision Records.
-`,
-    },
-    {
-      relativePath: `architecture/patterns.${ext}`,
-      content: `# Patterns
-
-Recurring patterns and conventions used in this project.
-
-## TODO
-
-- Document naming conventions
-- Document error handling patterns
-- Document data flow patterns
-`,
-    },
-    {
-      relativePath: `architecture/ubiquitous-language.${ext}`,
-      content: `# Ubiquitous Language
-
-Glossary of domain terms used in this project. Keeps agents and contributors aligned on vocabulary.
-
-## Glossary
-
-| Term | Definition | Source |
-|------|-----------|--------|
-
-TODO: Add domain-specific terms as they emerge from codebase analysis.
-
-## Common Confusions
-
-TODO: Document terms that are easily mixed up (e.g., "engine" vs "pipeline", "user" vs "account").
-`,
-    },
-    {
-      relativePath: `standards/backend-patterns.${ext}`,
-      content: `# Backend Patterns
-
-Conventions and patterns for backend code in this project.
-
-## Module Structure
-
-TODO: Document module/file organization.
-
-## Error Handling
-
-TODO: Document error handling conventions.
-
-## Data Access
-
-TODO: Document data access patterns.
-
-## AI Quick Reference
-
-<!-- Compressed imperative rules for dev-core agents. Keep under 10 lines. -->
-
-TODO: Add concise, imperative rules that agents can quickly consume (e.g., "NEVER import X from Y", "ALWAYS use Z pattern for error handling").
-`,
-    },
-    {
-      relativePath: `standards/testing.${ext}`,
-      content: `# Testing Standards
-
-Testing conventions and requirements for this project.
-
-## Test Structure
-
-TODO: Document test file organization and naming.
-
-## Coverage Requirements
-
-TODO: Document minimum coverage thresholds.
-
-## Test Patterns
-
-TODO: Document common test patterns (fixtures, mocks, etc.).
-
-## AI Quick Reference
-
-<!-- Compressed imperative rules for dev-core agents. Keep under 10 lines. -->
-
-TODO: Add concise, imperative rules that agents can quickly consume (e.g., "NEVER import X from Y", "ALWAYS use Z pattern for error handling").
-`,
-    },
-    {
-      relativePath: `standards/code-review.${ext}`,
-      content: `# Code Review Standards
-
-Guidelines for reviewing code in this project.
-
-## Review Checklist
-
-- [ ] Code follows project patterns (see \`backend-patterns\`)
-- [ ] Tests added/updated for changes
-- [ ] No security vulnerabilities introduced
-- [ ] Documentation updated if needed
-
-## AI Quick Reference
-
-<!-- Compressed imperative rules for dev-core agents. Keep under 10 lines. -->
-
-TODO: Add concise, imperative rules that agents can quickly consume (e.g., "NEVER import X from Y", "ALWAYS use Z pattern for error handling").
-`,
-    },
-    {
-      relativePath: `configuration.${ext}`,
-      content: `# Configuration
-
-How the project is configured — environment variables, config files, and discovery mechanisms.
-
-## Environment Variables
-
-TODO: Document required and optional environment variables.
-
-## Config Files
-
-TODO: Document configuration file locations and formats.
-
-## Priority Chain
-
-TODO: Document precedence when multiple config sources exist (e.g., env var > config file > default).
-`,
-    },
-    {
-      relativePath: `contributing.${ext}`,
-      content: `# Contributing
-
-How to contribute to this project.
-
-## Getting Started
-
-TODO: Document setup steps.
-
-## Development Workflow
-
-TODO: Document branch strategy, PR process, commit conventions.
-`,
-    },
-  ]
+/**
+ * Rename template extension if the target format differs.
+ * Templates are stored as .md; if format is .mdx, rename the extension.
+ */
+function renameExt(relPath: string, format: 'md' | 'mdx'): string {
+  if (format === 'mdx' && relPath.endsWith('.md')) {
+    return relPath.replace(/\.md$/, '.mdx')
+  }
+  return relPath
 }
 
 export function scaffoldDocs(opts: DocsScaffoldOpts): DocsScaffoldResult {
   const { format, path: docsPath } = opts
+  const templatesDir = getTemplatesDir()
+
   const result: DocsScaffoldResult = {
     docsPath,
     dirsCreated: [],
@@ -183,26 +69,50 @@ export function scaffoldDocs(opts: DocsScaffoldOpts): DocsScaffoldResult {
     filesSkipped: [],
   }
 
-  const dirs = ['architecture', 'architecture/adr', 'standards', 'guides']
+  if (!existsSync(templatesDir)) {
+    return result
+  }
 
-  for (const dir of dirs) {
-    const fullDir = `${docsPath}/${dir}`
+  // Ensure standard directories exist (including adr/ which has no template files)
+  const standardDirs = ['architecture', 'architecture/adr', 'standards', 'guides', 'processes']
+  for (const dir of standardDirs) {
+    const fullDir = join(docsPath, dir)
     if (!existsSync(fullDir)) {
       mkdirSync(fullDir, { recursive: true })
       result.dirsCreated.push(dir)
     }
   }
 
-  const templates = buildTemplates(format)
+  // Walk templates and copy each file
+  const templateFiles = walkDir(templatesDir)
 
-  for (const tpl of templates) {
-    const fullPath = `${docsPath}/${tpl.relativePath}`
-    if (existsSync(fullPath)) {
-      result.filesSkipped.push(tpl.relativePath)
-    } else {
-      writeFileSync(fullPath, tpl.content)
-      result.filesCreated.push(tpl.relativePath)
+  for (const relPath of templateFiles) {
+    // Guard against path traversal (e.g. symlinks producing "../" relative paths)
+    if (relPath.includes('..')) continue
+
+    const targetRelPath = renameExt(relPath, format)
+    const sourcePath = join(templatesDir, relPath)
+    const targetPath = join(docsPath, targetRelPath)
+
+    // Verify resolved path stays within docsPath boundary
+    const resolvedTarget = resolve(targetPath)
+    const resolvedBase = resolve(docsPath)
+    if (!resolvedTarget.startsWith(resolvedBase + sep) && resolvedTarget !== resolvedBase) continue
+
+    if (existsSync(targetPath)) {
+      result.filesSkipped.push(targetRelPath)
+      continue
     }
+
+    // Ensure parent directory exists
+    const parentDir = dirname(targetPath)
+    if (!existsSync(parentDir)) {
+      mkdirSync(parentDir, { recursive: true })
+    }
+
+    const content = readFileSync(sourcePath, 'utf-8')
+    writeFileSync(targetPath, content)
+    result.filesCreated.push(targetRelPath)
   }
 
   return result

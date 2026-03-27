@@ -30,13 +30,7 @@
       "description": "Full development workflow — frame, shape, plan, implement, review, ship. Opinionated Roxabi process with 21 skills, 9 agents, and safety hooks.",
       "source": "./plugins/dev-core",
       "category": "development",
-      "version": "1.0.1"
-    },
-    {
-      "name": "voice-cli",
-      "description": "VoiceCLI assistant — author TTS scripts, generate speech, clone voices, transcribe audio. Knows engine capabilities, markdown format, and all CLI commands.",
-      "source": "./plugins/voice-cli",
-      "category": "productivity"
+      "version": "0.1.0"
     },
     {
       "name": "linkedin-post-generator",
@@ -49,12 +43,6 @@
       "description": "Generate AI image prompts with visual identity and style consistency.",
       "source": "./plugins/image-prompt-generator",
       "category": "productivity"
-    },
-    {
-      "name": "vault",
-      "description": "Unified local data vault — SQLite+FTS5 index, CRUD, full-text search across all Roxabi plugins.",
-      "source": "./plugins/vault",
-      "category": "data"
     },
     {
       "name": "cv",
@@ -78,31 +66,43 @@
       "name": "frontend-slides",
       "description": "Create zero-dependency, animation-rich HTML presentations from scratch or by converting PowerPoint files. 12 curated style presets, visual style discovery, PPT conversion.",
       "source": "./plugins/frontend-slides",
-      "category": "productivity"
-    },
-    {
-      "name": "visual-explainer",
-      "description": "Generate self-contained HTML pages with diagrams, visualizations, and data tables from any input.",
-      "source": "./plugins/visual-explainer",
-      "category": "productivity"
+      "category": "productivity",
+      "version": "0.1.0"
     },
     {
       "name": "react-best-practices",
       "description": "React and Next.js performance optimization guidelines — 58 rules across 8 categories, prioritized by impact.",
       "source": "./plugins/react-best-practices",
-      "category": "development"
+      "category": "development",
+      "version": "0.1.0"
     },
     {
       "name": "composition-patterns",
       "description": "React composition patterns — avoid boolean prop proliferation, compound components, context providers.",
       "source": "./plugins/composition-patterns",
-      "category": "development"
+      "category": "development",
+      "version": "0.1.0"
     },
     {
       "name": "web-design-guidelines",
       "description": "Review UI code for Web Interface Guidelines compliance — accessibility, UX, design best practices.",
       "source": "./plugins/web-design-guidelines",
-      "category": "development"
+      "category": "development",
+      "version": "0.1.0"
+    },
+    {
+      "name": "logo-generator",
+      "description": "Generate animated SVG logos from a config-driven brand brief — interactive design, live preview, GIF/PNG export.",
+      "source": "./plugins/logo-generator",
+      "category": "branding",
+      "version": "0.2.0"
+    },
+    {
+      "name": "content-lab",
+      "description": "Analyze YouTube videos to extract narrative structure, VAKOG sensory predicates, and reusable content creation recipes.",
+      "source": "./plugins/content-lab",
+      "category": "content",
+      "version": "0.1.0"
     }
   ]
 }

@@ -1,6 +1,16 @@
 {
   "enabledPlugins": {
     "dev-core@roxabi-marketplace": true,
-    "compress@roxabi-marketplace": true
+    "compress@roxabi-marketplace": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "agent-browser@agent-browser": true
+  },
+  "extraKnownMarketplaces": {
+    "agent-browser": {
+      "source": {
+        "source": "github",
+        "repo": "vercel-labs/agent-browser"
+      }
+    }
   }
 }

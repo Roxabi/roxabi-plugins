@@ -4,7 +4,9 @@
     "primary": "#2563EB",
     "secondary": "#7C3AED",
     "accent": "#F59E0B",
-    "background": "#F8FAFC"
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "highlight": "#1E293B"
   },
   "style": {
     "aesthetic": "modern minimalist",
@@ -12,8 +14,18 @@
     "photography_style": "clean, well-lit, natural",
     "illustration_style": "flat design with subtle gradients"
   },
+  "typography": {
+    "primary_font": "Inter, sans-serif",
+    "mono_font": "JetBrains Mono, monospace",
+    "weight": 400
+  },
   "preferences": {
     "avoid": ["dark themes", "cluttered compositions", "stock photo feel"],
     "prefer": ["clean backgrounds", "geometric shapes", "natural lighting"]
+  },
+  "logo": {
+    "brief_path": "~/.roxabi-vault/config/logo-briefs/acme-logo-brief.json",
+    "metaphor": "convergence",
+    "frame_shape": "hexagon"
   }
 }

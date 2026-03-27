@@ -4,5 +4,6 @@
   "description": "Create zero-dependency, animation-rich HTML presentations from scratch or by converting PowerPoint files. 12 curated style presets, visual style discovery, PPT conversion.",
   "author": {
     "name": "Roxabi"
-  }
+  },
+  "license": "MIT"
 }

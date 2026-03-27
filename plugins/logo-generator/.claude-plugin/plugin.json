@@ -1,0 +1,6 @@
+{
+  "name": "logo-generator",
+  "version": "0.2.0",
+  "description": "Generate logos using AI image generation, programmatic SVG galleries, or animated SVG engine — explore, iterate, export",
+  "author": { "name": "Roxabi" }
+}

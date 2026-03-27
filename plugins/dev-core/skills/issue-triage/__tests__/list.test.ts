@@ -29,6 +29,7 @@ function makeItem(
   priority: string | null,
   state = 'OPEN',
   labels: string[] = [],
+  subIssues: { number: number; state: string; title: string }[] = [],
 ) {
   return {
     id: `item-${number}`,
@@ -39,6 +40,8 @@ function makeItem(
       state,
       url: `https://github.com/test/repo/issues/${number}`,
       labels: { nodes: labels.map((name) => ({ name })) },
+      subIssues: { nodes: subIssues },
+      parent: null,
     },
     fieldValues: {
       nodes: [
@@ -49,7 +52,7 @@ function makeItem(
   }
 }
 
-describe('issue-triage/list > filtering', () => {
+describe('issue-triage/list --untriaged > filtering', () => {
   beforeEach(() => mockGhGraphQL.mockReset())
   afterEach(() => vi.restoreAllMocks())
 
@@ -65,7 +68,7 @@ describe('issue-triage/list > filtering', () => {
 
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     const { listIssues } = await import('../lib/list')
-    await listIssues([])
+    await listIssues(['--untriaged'])
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n')
     expect(output).toContain('#2')
@@ -83,7 +86,7 @@ describe('issue-triage/list > filtering', () => {
 
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     const { listIssues } = await import('../lib/list')
-    await listIssues([])
+    await listIssues(['--untriaged'])
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n')
     expect(output).toContain('All issues triaged')
@@ -91,7 +94,7 @@ describe('issue-triage/list > filtering', () => {
   })
 })
 
-describe('issue-triage/list > output format', () => {
+describe('issue-triage/list --untriaged > output format', () => {
   beforeEach(() => mockGhGraphQL.mockReset())
   afterEach(() => vi.restoreAllMocks())
 
@@ -116,10 +119,116 @@ describe('issue-triage/list > output format', () => {
 
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     const { listIssues } = await import('../lib/list')
-    await listIssues([])
+    await listIssues(['--untriaged'])
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n')
     expect(output).toContain('All issues triaged')
+    consoleSpy.mockRestore()
+  })
+})
+
+describe('issue-triage/list (default tree view)', () => {
+  beforeEach(() => mockGhGraphQL.mockReset())
+  afterEach(() => vi.restoreAllMocks())
+
+  it('shows all open issues', async () => {
+    mockGhGraphQL.mockResolvedValueOnce(
+      makeProjectResponse([
+        makeItem(1, 'Has both', 'M', 'P1 - High'),
+        makeItem(2, 'Missing size', null, 'P2 - Medium'),
+        makeItem(3, 'Closed', 'S', 'P1 - High', 'CLOSED'),
+      ]),
+    )
+
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { listIssues } = await import('../lib/list')
+    await listIssues([])
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n')
+    expect(output).toContain('#1')
+    expect(output).toContain('#2')
+    expect(output).not.toContain('#3')
+    expect(output).toContain('2 open issues')
+    consoleSpy.mockRestore()
+  })
+
+  it('shows "No open issues." when all issues are closed', async () => {
+    mockGhGraphQL.mockResolvedValueOnce(makeProjectResponse([makeItem(1, 'Closed', 'M', 'P1 - High', 'CLOSED')]))
+
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { listIssues } = await import('../lib/list')
+    await listIssues([])
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n')
+    expect(output).toContain('No open issues.')
+    consoleSpy.mockRestore()
+  })
+
+  it('indents children under their parent', async () => {
+    mockGhGraphQL.mockResolvedValueOnce(
+      makeProjectResponse([
+        makeItem(10, 'Parent issue', 'L', 'P1 - High', 'OPEN', [], [{ number: 11, state: 'OPEN', title: 'Child' }]),
+        makeItem(11, 'Child issue', 'S', 'P2 - Medium'),
+      ]),
+    )
+
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { listIssues } = await import('../lib/list')
+    await listIssues([])
+
+    const lines = consoleSpy.mock.calls.map((c) => c[0] as string)
+    const parentLine = lines.find((l) => l.includes('#10'))
+    const childLine = lines.find((l) => l.includes('#11'))
+    expect(parentLine).toBeDefined()
+    expect(childLine).toBeDefined()
+    // Parent has no leading spaces, child is indented
+    expect(parentLine?.startsWith('#10')).toBe(true)
+    expect(childLine?.startsWith('  #11')).toBe(true)
+    consoleSpy.mockRestore()
+  })
+
+  it('shows "… ✓ Done" hint when parent has at least one closed child', async () => {
+    mockGhGraphQL.mockResolvedValueOnce(
+      makeProjectResponse([
+        makeItem(
+          20,
+          'Epic',
+          'XL',
+          'P1 - High',
+          'OPEN',
+          [],
+          [
+            { number: 21, state: 'CLOSED', title: 'Done child' },
+            { number: 22, state: 'OPEN', title: 'Open child' },
+          ],
+        ),
+        makeItem(22, 'Open child', 'S', 'P2 - Medium'),
+      ]),
+    )
+
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { listIssues } = await import('../lib/list')
+    await listIssues([])
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n')
+    expect(output).toContain('\u2026 \u2713 Done')
+    consoleSpy.mockRestore()
+  })
+
+  it('does not show done hint when all children are open', async () => {
+    mockGhGraphQL.mockResolvedValueOnce(
+      makeProjectResponse([
+        makeItem(30, 'Epic', 'L', 'P1 - High', 'OPEN', [], [{ number: 31, state: 'OPEN', title: 'Child' }]),
+        makeItem(31, 'Child', 'S', 'P2 - Medium'),
+      ]),
+    )
+
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { listIssues } = await import('../lib/list')
+    await listIssues([])
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n')
+    expect(output).not.toContain('\u2026 \u2713 Done')
     consoleSpy.mockRestore()
   })
 })
@@ -155,7 +264,7 @@ describe('issue-triage/list > priority mismatch detection', () => {
     expect(detectPriorityMismatch(item)).toBe(false)
   })
 
-  it('shows warning marker in table output for mismatched issues', async () => {
+  it('shows warning marker in tree output for mismatched issues', async () => {
     mockGhGraphQL.mockResolvedValueOnce(
       makeProjectResponse([makeItem(10, 'Mismatched', null, 'P1 - High', 'OPEN', ['P3-low'])]),
     )

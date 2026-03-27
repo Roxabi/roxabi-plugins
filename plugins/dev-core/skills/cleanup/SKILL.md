@@ -3,7 +3,7 @@ name: cleanup
 argument-hint: [--branches | --worktrees | --all]
 description: Clean git branches/worktrees/remotes after merge-status verification. Triggers: "cleanup" | "clean branches" | "cleanup worktrees" | "remove stale branches".
 version: 0.2.0
-allowed-tools: Bash, ToolSearch, AskUserQuestion
+allowed-tools: Bash, EnterWorktree, ExitWorktree, ToolSearch, AskUserQuestion
 ---
 
 # Git Cleanup
@@ -18,7 +18,7 @@ Safely clean local β, ω, and remote branches with **mandatory merge-status ver
 
 ```bash
 git branch -vv
-git worktree list
+git worktree list                    # includes both .claude/worktrees/ and legacy parent-dir worktrees
 gh pr list --state open 2>/dev/null || echo "No gh CLI or no remote"
 git branch --show-current
 # Configure {commands.worktree_list} in stack.yml if applicable
@@ -74,6 +74,8 @@ AskUserQuestion:
 # [ -n "{commands.worktree_teardown}" ] && {commands.worktree_teardown} <issue_number>
 
 # ω ∃ for β → remove ω FIRST
+# For .claude/worktrees/ (EnterWorktree-created): ExitWorktree(action: "remove") if in active session
+# For legacy/manual worktrees: git worktree remove <path>
 git worktree remove <path>
 
 git branch -d <branch>        # merged branches (safe)
@@ -179,5 +181,6 @@ Cleanup Complete
 - **Remote tracking branches**: Step 6 scans **all** remote β independently (not just locally deleted ones). Always require explicit confirmation before remote deletion.
 - **Squash merges on remote**: `git branch -r --merged` does NOT detect squash merges. Verify via issue# grep in main history AND `gh pr list --state all --head <branch>` for `MERGED`. Post-merge commits on a `MERGED` PR → still safe to delete.
 - **Stale worktrees**: ω path ∉ disk → `git worktree prune` cleans it up.
+- **EnterWorktree worktrees**: worktrees in `.claude/worktrees/` are session-managed — `git worktree list` shows them alongside legacy worktrees. Clean up with `git worktree remove` or `ExitWorktree` if in active session.
 
 $ARGUMENTS

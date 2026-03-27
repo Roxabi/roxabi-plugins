@@ -1,0 +1,51 @@
+{
+  "version": "1.0",
+  "description": "Curated external plugin marketplaces endorsed by Roxabi. Source of truth: .claude-plugin/external-registry.json (curated_marketplaces array) — this file mirrors it for Claude Code runtime discovery. Install via: claude plugin marketplace add <source>.",
+  "marketplaces": [
+    {
+      "name": "agent-browser",
+      "source": "https://github.com/vercel-labs/agent-browser",
+      "description": "Headless browser automation CLI for AI agents — navigate, click, fill, screenshot, scrape."
+    },
+    {
+      "name": "roxabi-vault",
+      "source": "https://github.com/Roxabi/roxabi-vault",
+      "description": "Persistent memory for agents — SQLite+FTS5 knowledge base with CLI, library, and 7 vault skills."
+    },
+    {
+      "name": "claude-plugins-official",
+      "source": "https://github.com/anthropics/claude-plugins-official",
+      "description": "Official Anthropic plugin marketplace — 83 plugins including LSPs, integrations, and workflow skills."
+    },
+    {
+      "name": "knowledge-work-plugins",
+      "source": "https://github.com/anthropics/knowledge-work-plugins",
+      "description": "Official Anthropic knowledge-work plugins — design, legal, marketing, product-management, sales."
+    },
+    {
+      "name": "anthropic-agent-skills",
+      "source": "https://github.com/anthropics/skills",
+      "description": "Official Anthropic agent skills repository."
+    },
+    {
+      "name": "context7-marketplace",
+      "source": "https://github.com/upstash/context7",
+      "description": "Upstash Context7 MCP server — version-specific documentation lookup from source repos."
+    },
+    {
+      "name": "visual-explainer",
+      "source": "https://github.com/nicobailon/visual-explainer",
+      "description": "Self-contained HTML pages with diagrams, visualizations, data tables, and slide decks."
+    },
+    {
+      "name": "ui-ux-pro-max-skill",
+      "source": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
+      "description": "UI/UX design intelligence — 67 styles, 96 palettes, 57 font pairings, 25 charts, 13 stack guidelines."
+    },
+    {
+      "name": "roxabi-video-engine",
+      "source": "https://github.com/Roxabi/roxabi-production",
+      "description": "Programmatic video generation — 55 React components, 13 kits, headless MP4 rendering."
+    }
+  ]
+}

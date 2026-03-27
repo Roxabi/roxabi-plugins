@@ -1,0 +1,133 @@
+{
+  "schema_version": "1.0",
+
+  "identity": {
+    "name": "Acme",
+    "tagline": "Build faster, ship smarter",
+    "essence": "A CLI tool that orchestrates CI/CD pipelines with AI assistance"
+  },
+
+  "metaphor": {
+    "primary": "convergence",
+    "secondary": "circuit",
+    "narrative": "Many pipelines converge into a single, intelligent outcome",
+    "shape_hint": "V-shape with data nodes along two arms meeting at an apex"
+  },
+
+  "personality": {
+    "tone": ["precise", "technical", "confident", "minimal"],
+    "not": ["corporate", "playful", "generic-AI", "cluttered"]
+  },
+
+  "colors": {
+    "primary":    "#00d4ff",
+    "secondary":  "#8b5cf6",
+    "background": "#060b17",
+    "surface":    "#0b1422",
+    "highlight":  "#eef4ff",
+    "gradient_direction": "primary-to-secondary"
+  },
+
+  "typography": {
+    "wordmark_font": "Century Gothic, Questrial, sans-serif",
+    "wordmark_weight": 300,
+    "wordmark_tracking_em": 0.28,
+    "tagline_font": "Courier New, monospace",
+    "tagline_tracking_em": 0.35,
+    "google_font_import": ""
+  },
+
+  "frame": {
+    "shape": "hexagon",
+    "border_width": 2,
+    "border_style": "gradient-traced",
+    "inner_border": true,
+    "connectors": {
+      "enabled": true,
+      "positions": ["left", "right", "top", "bottom"]
+    }
+  },
+
+  "mark": {
+    "type": "custom",
+    "description": "Two arms descending from top, converging at a bottom apex — a V shape representing pipeline convergence",
+    "elements": [
+      {
+        "id": "left-arm",
+        "type": "path",
+        "d": "M 160,90 C 150,150 170,220 200,310",
+        "stroke": "gradient",
+        "stroke_width": 2.5,
+        "fill": "none",
+        "animation": "trace",
+        "trace_duration": 1.0,
+        "trace_delay": 2.0
+      },
+      {
+        "id": "right-arm",
+        "type": "path",
+        "d": "M 240,90 C 250,150 230,220 200,310",
+        "stroke": "gradient",
+        "stroke_width": 2.5,
+        "fill": "none",
+        "animation": "trace",
+        "trace_duration": 1.0,
+        "trace_delay": 2.0
+      },
+      {
+        "id": "crossbar",
+        "type": "line",
+        "x1": 160, "y1": 90, "x2": 240, "y2": 90,
+        "stroke": "primary",
+        "stroke_width": 2,
+        "animation": "trace",
+        "trace_duration": 0.5,
+        "trace_delay": 2.8
+      }
+    ],
+    "nodes": [
+      { "id": "top-left",   "cx": 160, "cy": 90,  "r": 4,   "color": "primary",   "delay": 3.0 },
+      { "id": "top-right",  "cx": 240, "cy": 90,  "r": 4,   "color": "primary",   "delay": 3.1 },
+      { "id": "mid-left",   "cx": 170, "cy": 170, "r": 3.5, "color": "blend",     "delay": 3.2 },
+      { "id": "mid-right",  "cx": 230, "cy": 170, "r": 3.5, "color": "blend",     "delay": 3.3 },
+      { "id": "low-left",   "cx": 180, "cy": 240, "r": 3,   "color": "secondary", "delay": 3.4 },
+      { "id": "low-right",  "cx": 220, "cy": 240, "r": 3,   "color": "secondary", "delay": 3.4 }
+    ],
+    "hub": {
+      "cx": 200, "cy": 310,
+      "color": "secondary",
+      "glow_radius": 28,
+      "main_radius": 7,
+      "center_radius": 2.5,
+      "shockwave_rings": 3,
+      "delay": 3.5
+    }
+  },
+
+  "animation": {
+    "intro_duration_s": 5,
+    "sequence": [
+      { "step": "frame_bg",       "delay": 0.3, "duration": 0.6 },
+      { "step": "border_trace",   "delay": 0.5, "duration": 1.5 },
+      { "step": "inner_border",   "delay": 1.8, "duration": 0.6 },
+      { "step": "mark_elements",  "delay": 2.0, "note": "uses per-element trace_delay" },
+      { "step": "nodes_spring",   "delay": 3.0, "note": "uses per-node delay" },
+      { "step": "hub_shockwave",  "delay": 3.5, "duration": 1.2 },
+      { "step": "connectors",     "delay": 3.6, "duration": 0.5 },
+      { "step": "wordmark",       "delay": 4.2, "duration": 0.8 },
+      { "step": "tagline",        "delay": 5.0, "duration": 1.0 }
+    ],
+    "idle": {
+      "hub_pulse":       { "enabled": true, "duration": 2.5 },
+      "node_breathing":  { "enabled": true, "duration": 2.0 },
+      "border_glow":     { "enabled": true, "duration": 4.0 },
+      "data_particles":  { "enabled": true, "count_per_path": 1 },
+      "bg_particles":    { "enabled": true, "count": 55, "direction": "up" }
+    }
+  },
+
+  "export": {
+    "gif": { "duration_s": 10, "fps": 20, "width": 520, "height": 680, "scale": 2 },
+    "variants": ["full", "icon-only", "monochrome"]
+  }
+}

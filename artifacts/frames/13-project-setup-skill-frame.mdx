@@ -1,0 +1,78 @@
+---
+title: "project-setup skill — stack selection, CI/CD, hooks & release tooling"
+issue: 13
+status: approved
+tier: F-lite
+date: 2026-03-11
+---
+
+## Problem
+
+Setting up a new project's tooling layer — CI/CD workflows, git hooks, commit standards, and automated
+releases — is repetitive, error-prone, and poorly documented. Developers either skip it entirely, copy
+configs from previous projects, or spend hours assembling tools manually.
+
+However, the dev-core plugin already addresses a significant portion of this through `/init` and its
+sub-skills (`/env-setup`, `/github-setup`, `/ci-setup`). Before building a new plugin, we must first
+answer: **is this a gap in dev-core, or a genuinely distinct plugin?**
+
+Current `/init` coverage:
+- `/env-setup` — stack.yml, CLAUDE.md rules, docs stubs, VS Code, LSP
+- `/github-setup` — GitHub Project V2, labels, branch protection
+- `/ci-setup` — GitHub Actions workflows (CI, auto-merge, PR title), TruffleHog, Dependabot, pre-commit hooks
+
+What `/init` does NOT cover (the real gap):
+- **Commit standards** — Commitizen, conventional commits config
+- **Automated releases** — semantic-release or Release Please setup
+- **Stack-specific linter/formatter wiring** — Biome, ESLint, Ruff, mypy
+- **Polyglot hook runners** — Lefthook vs Husky selection and configuration
+- **Python-specific tooling** — pyproject.toml, uv, pre-commit hooks
+
+The pain is felt at project creation and onboarding: dev-core sets up the Claude Code workflow, but
+does not set up the project's own release and commit discipline tooling.
+
+## Who
+
+- **Primary:** Developers starting a new Node/TS, Python, or monorepo project who want commit standards
+  and automated releases wired up, not just CI/CD.
+- **Secondary:** Teams adopting dev-core who realize `/init` got them 80% there but left release
+  automation and commit standards unconfigured.
+
+## Constraints
+
+- **MVP stacks:** Node/TS (bun/npm/pnpm), Python (pyproject.toml + uv/pip), Monorepo (Turbo/Nx).
+- **Relationship to dev-core is the key architectural decision** — see options below.
+- **Wraps existing CLI tools** — does not re-implement; orchestrates Lefthook/Husky, Commitizen,
+  semantic-release/Release Please conversationally.
+- **No app code generation** — tooling only.
+- **Init-only for MVP** — no migration of existing configs.
+
+## Out of Scope
+
+- Generating application code or scaffolding app boilerplate.
+- Runtime or framework selection (user already knows their stack).
+- Database setup, cloud resource provisioning, or infrastructure management.
+- Migrating or updating existing project tooling configurations.
+
+## Positioning — Decision
+
+**New `/release-setup` sub-skill in dev-core**, wired into `/init` Phase 3 alongside `/ci-setup`.
+
+Rationale:
+- Dev-core is already installed — zero additional install friction for existing users
+- Users get commit standards + releases automatically as part of `/init`
+- Callable standalone (`/release-setup`) for projects that ran `/init` before this skill existed
+- Keeps CI/CD concerns in `/ci-setup`, release discipline in `/release-setup` — clean separation
+- Rename framing: "project-setup" → "release-setup" (scope is commit standards + release automation,
+  not full project scaffolding which `/init` already handles)
+
+## Complexity
+
+**Tier: F-lite** — Once positioning is decided, implementation is a single skill with a linear
+interview → config generation workflow. The architecture question (A/B/C) is the main unknown.
+
+Signals observed:
+- Single skill entrypoint regardless of option chosen
+- Clear terminal state (tooling files generated + committed)
+- Well-researched existing tools to wrap
+- No cross-domain coordination needed

@@ -12,7 +12,7 @@ description: |
   assistant: "I'll use the product-lead agent to define requirements."
   </example>
 color: white
-tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "TeamCreate", "TeamDelete", "SendMessage"]
+tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "EnterWorktree", "ExitWorktree", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "TaskOutput", "TaskStop", "TeamCreate", "TeamDelete", "SendMessage"]
 permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=true, write_code=false, review_code=false, run_tests=false

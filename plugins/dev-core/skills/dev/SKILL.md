@@ -3,7 +3,7 @@ name: dev
 argument-hint: '[#N | "idea" | --from <step> | --audit]'
 description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "develop".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch, AskUserQuestion
 ---
 
 # Dev
@@ -78,9 +78,9 @@ ls artifacts/specs/ 2>/dev/null | grep "^{N}-"
 # Plan
 ls artifacts/plans/ 2>/dev/null | grep "^{N}-"
 
-# Worktree (repo name is dynamic — detect once)
+# Worktree (check both .claude/worktrees/ and legacy parent-dir worktrees)
 REPO=$(gh repo view --json name --jq '.name')
-git worktree list | grep "${REPO}-{N}"
+git worktree list | grep -E "${REPO}-{N}|worktrees/{N}-"
 
 # Branch
 git branch -a | grep "{N}-{slug}"
@@ -103,7 +103,7 @@ gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "
   analyze:   analysis artifact ∃,
   spec:      spec artifact ∃,
   plan:      plan artifact ∃,
-  implement: worktree ∃ (path: `../${REPO}-{N}`) ∧ branch has commits beyond staging,
+  implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ branch has commits beyond staging,
   pr:        PR ∃,
   validate:  null,         # no artifact — uses Σ_s only
   review:    PR ∃ ∧ (PR.reviewDecision ∈ ('APPROVED','CHANGES_REQUESTED') ∨ pr_has_review_comment(PR)),
@@ -195,7 +195,7 @@ Walk: Σ[step] == true ∨ Σ_s[step] == true ∨ should_skip(step) ⇒ done/ski
 | S* == frame (Σ.triage ∧ ¬Σ.frame) | Show φ if ∃ draft, ask approval |
 | S* == spec (Σ.frame ∧ ¬Σ.spec) | Gate after spec runs |
 | S* == plan (Σ.spec ∧ ¬Σ.plan) | Gate after plan runs |
-| S* == review | Post-review gate handled inside /review |
+| S* == review | Post-review gate handled inside /code-review |
 
 Gate fires → Step 7 skips its own prompt (gate IS confirmation). ¬double-prompt.
 
@@ -238,7 +238,7 @@ auto_advance  := {triage, analyze, implement, pr, validate, review, fix, cleanup
 | implement | `skill: "implement", args: "--issue N"` |
 | pr | `skill: "pr"` (auto-detects branch + issue from worktree context) |
 | validate | `skill: "validate"` (runs in current worktree) |
-| review | `skill: "review"` (auto-detects PR from current branch) |
+| review | `skill: "code-review"` (auto-detects PR from current branch) |
 | fix | `skill: "fix", args: "#{PR_NUMBER}"` (PR# from Σ scan) |
 | promote | `skill: "promote"` (standalone staging→main — skipped by default) |
 | cleanup | `skill: "cleanup", args: "--scope #N"` (scoped to current issue's branch/worktree) |
@@ -262,7 +262,7 @@ auto_advance → re-scan → progress → Step 7 immediately.
 | Frame | triage → frame | frame approval (status: approved) |
 | Shape | analyze → spec | spec approval |
 | Build | plan → implement → pr | plan approval (then auto-chains implement → pr) |
-| Verify | validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /review Phase 8). |
+| Verify | validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /code-review Phase 8). |
 | Ship | promote → cleanup | promote always skipped. cleanup runs if worktree/branches stale. |
 
 ## Tier Skip Matrix

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Logo Gallery</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #08080a; color: #e0e0e0; font-family: 'Inter', sans-serif; padding: 48px 24px 64px; min-height: 100vh; }
+
+header { text-align: center; margin-bottom: 48px; }
+header h1 { font-size: 28px; font-weight: 600; color: #fff; margin-bottom: 8px; }
+header p { font-size: 12px; color: #555; font-family: 'JetBrains Mono', monospace; }
+
+.grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 20px; max-width: 1600px; margin: 0 auto; }
+@media (max-width: 1024px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 600px)  { .grid { grid-template-columns: 1fr; } }
+
+.card {
+  background: #111114; border: 1px solid #1a1a1f; border-radius: 12px;
+  overflow: hidden; cursor: pointer; position: relative;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+.card:hover { border-color: #333; transform: translateY(-3px); box-shadow: 0 8px 32px rgba(0,0,0,0.55); }
+
+.badge {
+  position: absolute; top: 8px; left: 10px; z-index: 2;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #fff;
+  background: rgba(0,0,0,0.65); padding: 2px 7px; border-radius: 4px;
+}
+.card img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: #0d0d10; }
+.info { padding: 12px 14px 14px; }
+.info .label { font-size: 12px; font-weight: 600; color: #e8e8e8; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.info .style-desc { font-size: 10px; color: #555; font-family: 'JetBrains Mono', monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.lightbox {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.93);
+  z-index: 1000; flex-direction: column; justify-content: center; align-items: center;
+}
+.lightbox.open { display: flex; }
+.lb-img { max-width: 80vw; max-height: 78vh; border-radius: 10px; object-fit: contain; display: block; }
+.lb-caption { margin-top: 18px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #666; text-align: center; }
+
+.lb-btn {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  font-size: 40px; color: #444; cursor: pointer; padding: 16px 24px;
+  user-select: none; line-height: 1; transition: color 0.15s;
+}
+.lb-btn:hover { color: #ddd; }
+.lb-prev { left: 12px; }
+.lb-next { right: 12px; }
+.lb-close { position: absolute; top: 18px; right: 22px; font-size: 22px; color: #555; cursor: pointer; transition: color 0.15s; }
+.lb-close:hover { color: #fff; }
+
+footer { text-align: center; margin-top: 56px; font-size: 11px; color: #333; font-family: 'JetBrains Mono', monospace; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1 id="proj-name">Logo Gallery</h1>
+  <p id="proj-subtitle"></p>
+</header>
+
+<div class="grid" id="gallery"></div>
+
+<div class="lightbox" id="lightbox">
+  <span class="lb-close" id="lb-close">✕</span>
+  <span class="lb-btn lb-prev" id="lb-prev">&#x2039;</span>
+  <span class="lb-btn lb-next" id="lb-next">&#x203a;</span>
+  <img class="lb-img" id="lb-img" src="" alt="">
+  <div class="lb-caption" id="lb-caption"></div>
+</div>
+
+<footer>Generated with Flux</footer>
+
+<script>
+// __IMAGES_DATA__
+// Skill injects: const IMAGES = [{ src, label, style, num }, ...];
+// Optionally: const PROJECT_NAME = "My Project";
+
+const IMAGES = [];
+
+(function () {
+  const gallery  = document.getElementById('gallery');
+  const lightbox = document.getElementById('lightbox');
+  const lbImg    = document.getElementById('lb-img');
+  const lbCap    = document.getElementById('lb-caption');
+
+  if (typeof PROJECT_NAME !== 'undefined') document.getElementById('proj-name').textContent = PROJECT_NAME;
+  document.getElementById('proj-subtitle').textContent = IMAGES.length + ' AI-generated logo concepts — click to enlarge';
+
+  let current = 0;
+
+  IMAGES.forEach((item, i) => {
+    const num  = String(item.num ?? i + 1).padStart(2, '0');
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML =
+      '<span class="badge">#' + num + '</span>' +
+      '<img src="' + item.src + '" alt="' + item.label + '" loading="lazy">' +
+      '<div class="info">' +
+        '<div class="label">' + item.label + '</div>' +
+        '<div class="style-desc">' + item.style + '</div>' +
+      '</div>';
+    card.addEventListener('click', () => open(i));
+    gallery.appendChild(card);
+  });
+
+  function open(i) {
+    current = i;
+    const item = IMAGES[i];
+    const num  = String(item.num ?? i + 1).padStart(2, '0');
+    lbImg.src  = item.src;
+    lbImg.alt  = item.label;
+    lbCap.textContent = '#' + num + ' ' + item.label + ' — ' + item.style;
+    lightbox.classList.add('open');
+  }
+
+  function close() { lightbox.classList.remove('open'); }
+  function nav(dir) { open((current + dir + IMAGES.length) % IMAGES.length); }
+
+  document.getElementById('lb-close').addEventListener('click', close);
+  document.getElementById('lb-prev').addEventListener('click', (e) => { e.stopPropagation(); nav(-1); });
+  document.getElementById('lb-next').addEventListener('click', (e) => { e.stopPropagation(); nav(1); });
+  lightbox.addEventListener('click', (e) => { if (e.target === lightbox) close(); });
+  document.addEventListener('keydown', (e) => {
+    if (!lightbox.classList.contains('open')) return;
+    if (e.key === 'Escape')     close();
+    if (e.key === 'ArrowLeft')  nav(-1);
+    if (e.key === 'ArrowRight') nav(1);
+  });
+}());
+</script>
+</body>
+</html>

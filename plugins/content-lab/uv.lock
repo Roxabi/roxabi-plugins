@@ -1,0 +1,13 @@
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[[package]]
+name = "roxabi-content-lab"
+version = "0.1.0"
+source = { virtual = "." }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = []

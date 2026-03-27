@@ -3,7 +3,7 @@
 
 Checks:
 - No personal data in plugin source files
-- No references to memory.db (should be vault.db)
+- No references to memory.db (legacy)
 - No references to _shared/ (2ndBrain legacy)
 - data.root is unique across all plugin.json files
 - Example files referenced in plugin.json exist
@@ -17,7 +17,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGINS_DIR = REPO_ROOT / 'plugins'
-CANONICAL_PATHS = PLUGINS_DIR / 'vault' / '_lib' / 'paths.py'
+CANONICAL_PATHS = REPO_ROOT / 'roxabi_sdk' / 'paths.py'
 
 
 def run_grep(pattern: str, path: str = 'plugins/', case_insensitive: bool = True) -> list[str]:
@@ -117,14 +117,14 @@ def check_vendored_paths() -> list[str]:
     """Vendored paths.py copies must match the canonical version."""
     errors = []
     if not CANONICAL_PATHS.exists():
-        errors.append('Canonical paths.py not found at plugins/vault/_lib/paths.py')
+        errors.append('Canonical paths.py not found at roxabi_sdk/paths.py')
         return errors
     for vendored in PLUGINS_DIR.glob('*/scripts/_lib/paths.py'):
         plugin_name = vendored.parent.parent.parent.name
         if not filecmp.cmp(CANONICAL_PATHS, vendored, shallow=False):
             errors.append(
                 f'{plugin_name}: vendored paths.py differs from canonical '
-                f'(plugins/vault/_lib/paths.py)'
+                f'(roxabi_sdk/paths.py)'
             )
     return errors
 

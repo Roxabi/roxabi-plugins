@@ -11,7 +11,7 @@ description: |
   </example>
 model: sonnet
 color: white
-tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "SendMessage"]
+tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "EnterWorktree", "ExitWorktree", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "TaskOutput", "TaskStop", "SendMessage"]
 permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=true, run_tests=true
@@ -55,6 +55,13 @@ Use `Task` only when φ scope outside assigned domain ∧ lead ¬spawned domain 
 ## Parallel Pattern
 
 Multi-domain → lead spawns parallel fixers (one/domain). ≥6 φ in 1 domain spanning distinct modules → multiple fixers/domain. Stay within assigned dirs. Lead handles combined commit.
+
+## Boundaries
+
+- ¬create new files; ¬modify files outside φ scope
+- ¬refactor surrounding code; ¬add features
+- ¬change public API signatures without architect approval
+- ¬auto-apply data/schema changes (→ manual review)
 
 ## Auto-Apply Rules
 

@@ -46,6 +46,8 @@ interface ScaffoldRulesResult {
 
 // ---------------------------------------------------------------------------
 // Stack.yml parser (minimal YAML — no dependency needed)
+// NOTE: Only supports 2-level nesting (top-level keys + 2-space-indented children).
+// If the stack.yml schema grows to need deeper nesting, replace with a proper YAML parser.
 // ---------------------------------------------------------------------------
 
 function parseSimpleYaml(text: string): Record<string, unknown> {
@@ -121,16 +123,20 @@ function detectProjectType(stack: StackConfig): ProjectType {
 // Project name detection
 // ---------------------------------------------------------------------------
 
+function sanitizeName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 64)
+}
+
 function detectProjectName(explicit?: string): string {
-  if (explicit) return explicit
+  if (explicit) return sanitizeName(explicit)
   try {
     const remoteUrl = Bun.spawnSync(['git', 'remote', 'get-url', 'origin']).stdout.toString().trim()
     const match = remoteUrl.match(/\/([^/]+?)(?:\.git)?$/)
-    if (match) return match[1]
+    if (match) return sanitizeName(match[1])
   } catch {
     /* ignore */
   }
-  return basename(process.cwd())
+  return sanitizeName(basename(process.cwd()))
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +160,7 @@ function tldr(_stack: StackConfig, projectName: string, projectType: ProjectType
   parts.push('- **Always** use appropriate skill even without slash command')
 
   if (projectType === 'full-app' || projectType === 'backend-only' || projectType === 'frontend-only') {
-    parts.push('- **Before code:** Read relevant standards doc (see [Coding Standards](#9-coding-standards))')
+    parts.push('- **Before code:** Read relevant standards doc (see Coding Standards section below)')
     parts.push('- **Orchestrator** delegates to agents — only minor fixes directly')
   }
 
@@ -174,13 +180,13 @@ function devProcess(_stack: StackConfig, _projectType: ProjectType): Section {
 
 Phases: **Frame** (problem) → **Shape** (spec) → **Build** (code) → **Verify** (review) → **Ship** (release).`
 
-  return { id: 'dev-process', title: '1. Dev Process', content }
+  return { id: 'dev-process', title: 'Dev Process', content }
 }
 
 function askUserQuestion(): Section {
   return {
     id: 'ask-user-question',
-    title: '2. AskUserQuestion',
+    title: 'AskUserQuestion',
     content: `Always \`AskUserQuestion\` for: decisions, choices (≥2 options), approach proposals.
 **Never** plain-text "Do you want..." / "Should I..." → use the tool.`,
   }
@@ -189,7 +195,7 @@ function askUserQuestion(): Section {
 function orchestratorDelegation(): Section {
   return {
     id: 'orchestrator-delegation',
-    title: '3. Orchestrator Delegation',
+    title: 'Orchestrator Delegation',
     content: `Orchestrator does not modify code/docs directly. Delegate: FE→\`frontend-dev\` | BE→\`backend-dev\` | Infra→\`devops\` | Docs→\`doc-writer\` | Tests→\`tester\` | Fixes→\`fixer\`. Exception: typo/single-line. Deploy→\`devops\` only.`,
   }
 }
@@ -197,7 +203,7 @@ function orchestratorDelegation(): Section {
 function parallelExecution(): Section {
   return {
     id: 'parallel-execution',
-    title: '4. Parallel Execution',
+    title: 'Parallel Execution',
     content: `≥3 complex tasks → AskUserQuestion: Sequential | Parallel (Recommended).
 F-full + ≥4 independent tasks in 1 domain → multiple same-type agents on separate file groups.`,
   }
@@ -206,7 +212,7 @@ F-full + ≥4 independent tasks in 1 domain → multiple same-type agents on sep
 function gitRules(): Section {
   return {
     id: 'git',
-    title: '5. Git',
+    title: 'Git',
     content: `Format: \`<type>(<scope>): <desc>\` + \`Co-Authored-By: Claude <model> <noreply@anthropic.com>\`
 Types: feat|fix|refactor|docs|style|test|chore|ci|perf
 Never push without request. Never force/hard/amend. Hook fail → fix + NEW commit.`,
@@ -230,7 +236,7 @@ function artifactModel(stack: StackConfig): Section {
 | **Spec** | \`${artifacts.specs ?? 'artifacts/specs'}/\` | What will we build? |
 | **Plan** | \`${artifacts.plans ?? 'artifacts/plans'}/\` | How do we build it? |`
 
-  return { id: 'artifact-model', title: '6. Artifact Model', content }
+  return { id: 'artifact-model', title: 'Artifact Model', content }
 }
 
 function mandatoryWorktree(projectName: string): Section {
@@ -242,14 +248,14 @@ cd ../${projectName}-XXX && cp .env.example .env && bun install
 Exceptions: XS (confirm via AskUserQuestion) | \`/dev\` pre-implementation artifacts (frame, analysis, spec, plan) | \`/promote\` release artifacts.
 **Never code on main/staging without worktree.**`
 
-  return { id: 'mandatory-worktree', title: '7. Mandatory Worktree', content }
+  return { id: 'mandatory-worktree', title: 'Mandatory Worktree', content }
 }
 
 function codeReview(stack: StackConfig): Section {
   const reviewPath = stack.standards?.code_review ?? 'docs/standards/code-review.mdx'
   return {
     id: 'code-review',
-    title: '8. Code Review',
+    title: 'Code Review',
     content: `MUST read [code-review](${reviewPath}). Conventional Comments. Block only: security, correctness, standard violations.`,
   }
 }
@@ -273,7 +279,7 @@ function codingStandards(stack: StackConfig, projectType: ProjectType): Section 
 |---------|------|
 ${rows.join('\n')}`
 
-  return { id: 'coding-standards', title: '9. Coding Standards', content }
+  return { id: 'coding-standards', title: 'Coding Standards', content }
 }
 
 function skillsAndAgents(): Section {
@@ -295,49 +301,25 @@ function gotchas(): Section {
 // Section selection per project type
 // ---------------------------------------------------------------------------
 
+const APP_SECTIONS = [
+  'tldr',
+  'dev-process',
+  'ask-user-question',
+  'orchestrator-delegation',
+  'parallel-execution',
+  'git',
+  'artifact-model',
+  'mandatory-worktree',
+  'code-review',
+  'coding-standards',
+  'skills-agents',
+  'gotchas',
+]
+
 const SECTION_MAP: Record<ProjectType, string[]> = {
-  'full-app': [
-    'tldr',
-    'dev-process',
-    'ask-user-question',
-    'orchestrator-delegation',
-    'parallel-execution',
-    'git',
-    'artifact-model',
-    'mandatory-worktree',
-    'code-review',
-    'coding-standards',
-    'skills-agents',
-    'gotchas',
-  ],
-  'backend-only': [
-    'tldr',
-    'dev-process',
-    'ask-user-question',
-    'orchestrator-delegation',
-    'parallel-execution',
-    'git',
-    'artifact-model',
-    'mandatory-worktree',
-    'code-review',
-    'coding-standards',
-    'skills-agents',
-    'gotchas',
-  ],
-  'frontend-only': [
-    'tldr',
-    'dev-process',
-    'ask-user-question',
-    'orchestrator-delegation',
-    'parallel-execution',
-    'git',
-    'artifact-model',
-    'mandatory-worktree',
-    'code-review',
-    'coding-standards',
-    'skills-agents',
-    'gotchas',
-  ],
+  'full-app': APP_SECTIONS,
+  'backend-only': APP_SECTIONS,
+  'frontend-only': APP_SECTIONS,
   'cli-library': ['tldr', 'dev-process', 'ask-user-question', 'git', 'artifact-model', 'coding-standards', 'gotchas'],
   'docs-content': ['tldr', 'ask-user-question', 'git', 'gotchas'],
   stub: ['tldr', 'ask-user-question', 'git'],
@@ -370,6 +352,7 @@ function generateSections(stack: StackConfig, projectType: ProjectType, projectN
 
 function sectionsToMarkdown(sections: Section[]): string {
   const parts: string[] = []
+  let ruleNumber = 0
 
   for (const section of sections) {
     if (section.id === 'tldr') {
@@ -377,7 +360,8 @@ function sectionsToMarkdown(sections: Section[]): string {
     } else if (section.id === 'skills-agents' || section.id === 'gotchas') {
       parts.push(`## ${section.title}`, '', section.content, '')
     } else {
-      parts.push(`### ${section.title}`, '', section.content, '')
+      ruleNumber++
+      parts.push(`### ${ruleNumber}. ${section.title}`, '', section.content, '')
     }
   }
 
@@ -406,15 +390,15 @@ function analyzeExistingClaudeMd(claudeMdPath: string): ExistingSections {
   // Detect which Critical Rules sections already exist
   const sectionPatterns: Record<string, RegExp> = {
     tldr: /^## TL;DR/i,
-    'dev-process': /^###?\s*(?:1[.\s]*)?Dev Process/i,
-    'ask-user-question': /^###?\s*(?:2[.\s]*)?AskUserQuestion/i,
-    'orchestrator-delegation': /^###?\s*(?:3[.\s]*)?Orchestrator/i,
-    'parallel-execution': /^###?\s*(?:4[.\s]*)?Parallel/i,
-    git: /^###?\s*(?:5[.\s]*)?Git/i,
-    'artifact-model': /^###?\s*(?:6[.\s]*)?Artifact/i,
-    'mandatory-worktree': /^###?\s*(?:7[.\s]*)?Mandatory Worktree/i,
-    'code-review': /^###?\s*(?:8[.\s]*)?Code Review/i,
-    'coding-standards': /^###?\s*(?:9[.\s]*)?Coding Standards/i,
+    'dev-process': /^###?\s*(?:\d+[.\s]*)?Dev Process/i,
+    'ask-user-question': /^###?\s*(?:\d+[.\s]*)?AskUserQuestion/i,
+    'orchestrator-delegation': /^###?\s*(?:\d+[.\s]*)?Orchestrator/i,
+    'parallel-execution': /^###?\s*(?:\d+[.\s]*)?Parallel/i,
+    git: /^###?\s*(?:\d+[.\s]*)?Git/i,
+    'artifact-model': /^###?\s*(?:\d+[.\s]*)?Artifact/i,
+    'mandatory-worktree': /^###?\s*(?:\d+[.\s]*)?Mandatory Worktree/i,
+    'code-review': /^###?\s*(?:\d+[.\s]*)?Code Review/i,
+    'coding-standards': /^###?\s*(?:\d+[.\s]*)?Coding Standards/i,
     'skills-agents': /^## Skills/i,
     gotchas: /^## Gotchas/i,
   }

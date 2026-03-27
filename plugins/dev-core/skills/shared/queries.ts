@@ -62,6 +62,37 @@ query($projectId: ID!, $cursor: String) {
   }
 }`
 
+/** Full list query — includes hierarchy (subIssues, parent) and triage fields. */
+export const LIST_QUERY = `
+query($projectId: ID!, $cursor: String) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      items(first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          content {
+            ... on Issue {
+              number title body state url
+              labels(first: 10) { nodes { name } }
+              subIssues(first: 50) { nodes { number state title } }
+              parent { number state }
+            }
+          }
+          fieldValues(first: 10) {
+            nodes {
+              ... on ProjectV2ItemFieldSingleSelectValue {
+                name
+                field { ... on ProjectV2SingleSelectField { name } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+
 /** Get project item ID for an issue. */
 export const ITEM_ID_QUERY = `
 query($owner: String!, $repo: String!, $number: Int!) {
