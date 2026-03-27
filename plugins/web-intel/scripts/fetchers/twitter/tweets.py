@@ -110,6 +110,28 @@ def fetch_tweet_fxtwitter(
         return {"success": False, "error": "FxTwitter: no tweet data in response"}
 
     author = tweet.get("author", {})
+
+    # X Article: tweet body is just a t.co link, real content is in tweet.article
+    article = tweet.get("article")
+    if article:
+        blocks = article.get("content", {}).get("blocks", [])
+        text_parts = [b.get("text", "").strip() for b in blocks if b.get("text", "").strip()]
+        return {
+            "success": True,
+            "type": "article",
+            "id": tweet_id,
+            "title": article.get("title", ""),
+            "text": "\n\n".join(text_parts),
+            "preview_text": article.get("preview_text", ""),
+            "author": f"@{author.get('screen_name', 'unknown')}",
+            "author_name": author.get("name", ""),
+            "created_at": tweet.get("created_at", ""),
+            "likes": tweet.get("likes", 0),
+            "retweets": tweet.get("retweets", 0),
+            "media": [],
+            "is_note_tweet": False,
+        }
+
     return {
         "success": True,
         "type": "tweet",

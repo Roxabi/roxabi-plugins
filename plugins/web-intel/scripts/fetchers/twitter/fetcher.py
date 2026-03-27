@@ -177,6 +177,16 @@ class TwitterFetcher(BaseFetcher):
                     # Case 1: t.co → Twitter Article
                     if resolved.get("is_twitter") and is_article_url(resolved_url):
                         logger.info("t.co resolved to X Article: %s", resolved_url)
+
+                        # Try FxTwitter first — works without browser automation
+                        fx_result = fetch_tweet_fxtwitter(tweet_id, max_content_size=max_content_size)
+                        if fx_result.get("success") and fx_result.get("type") == "article":
+                            logger.info("X Article extracted via FxTwitter (no browser needed)")
+                            fx_result["shared_via_tweet"] = url
+                            return fx_result
+
+                        # Fallback: browser-based article extraction
+                        logger.info("FxTwitter article extraction failed, falling back to browser")
                         article_id = extract_tweet_id(resolved_url)
                         if article_id:
                             article_result = fetch_article(article_id)
