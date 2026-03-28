@@ -410,3 +410,4 @@ Each project that has a plugin installed uses a specific cache dir identified by
 
 - Always run the rsync sync script after editing plugin source — the cache is not updated automatically
 - `${CLAUDE_SKILL_DIR}` / `${CLAUDE_PLUGIN_ROOT}` links in SKILL.md files are runtime-resolved and do not render in GitHub or VS Code previews
+- **Third-party plugin MCP servers** — external plugins (e.g. `knowledge-work-plugins/design`) can bundle `.mcp.json` files with MCP servers (Slack, Figma, Linear, etc.) that cause auth warnings on startup. To disable without removing the plugin: empty `mcpServers` in both `~/.claude/plugins/marketplaces/<marketplace>/<plugin>/.mcp.json` and `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/.mcp.json`, then run `git update-index --skip-worktree <path>` in the marketplace repo to prevent `git pull` from restoring them
