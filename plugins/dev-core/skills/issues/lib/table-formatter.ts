@@ -27,7 +27,7 @@ export function formatDeps(issue: Issue): string {
     parts.push(`\uD83D\uDD13#${b.number}`)
   }
   if (parts.length === 0) return '-'
-  if (parts.length > 4) return parts.slice(0, 3).join(' ') + ' [...]'
+  if (parts.length > 4) return `${parts.slice(0, 3).join(' ')} [...]`
   return parts.join(' ')
 }
 
@@ -132,7 +132,7 @@ function formatDepsFromRaw(item: RawItem): string {
     parts.push(`\uD83D\uDD13#${b.number}`)
   }
   if (parts.length === 0) return '-'
-  if (parts.length > 4) return parts.slice(0, 3).join(' ') + ' [...]'
+  if (parts.length > 4) return `${parts.slice(0, 3).join(' ')} [...]`
   return parts.join(' ')
 }
 
