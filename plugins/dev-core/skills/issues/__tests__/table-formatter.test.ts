@@ -91,6 +91,38 @@ describe('table-formatter', () => {
       expect(deps).toContain('#5')
       expect(deps).toContain('#10')
     })
+
+    it('shows all deps when 4 or fewer', () => {
+      const issue = makeIssue({
+        blockedBy: [
+          { number: 1, state: 'OPEN' },
+          { number: 2, state: 'OPEN' },
+          { number: 3, state: 'OPEN' },
+          { number: 4, state: 'OPEN' },
+        ],
+      })
+      const deps = formatDeps(issue)
+      expect(deps).toContain('#4')
+      expect(deps).not.toContain('[...]')
+    })
+
+    it('truncates to 3 with [...] when more than 4 deps', () => {
+      const issue = makeIssue({
+        blockedBy: [
+          { number: 1, state: 'OPEN' },
+          { number: 2, state: 'OPEN' },
+          { number: 3, state: 'OPEN' },
+          { number: 4, state: 'OPEN' },
+          { number: 5, state: 'OPEN' },
+        ],
+      })
+      const deps = formatDeps(issue)
+      expect(deps).toContain('#1')
+      expect(deps).toContain('#2')
+      expect(deps).toContain('#3')
+      expect(deps).not.toContain('#4')
+      expect(deps).toContain('[...]')
+    })
   })
 
   describe('sortIssues', () => {

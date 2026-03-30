@@ -26,7 +26,9 @@ export function formatDeps(issue: Issue): string {
   for (const b of issue.blocking) {
     parts.push(`\uD83D\uDD13#${b.number}`)
   }
-  return parts.length > 0 ? parts.join(' ') : '-'
+  if (parts.length === 0) return '-'
+  if (parts.length > 4) return parts.slice(0, 3).join(' ') + ' [...]'
+  return parts.join(' ')
 }
 
 function shortTitle(title: string, maxLen: number): string {
@@ -129,7 +131,9 @@ function formatDepsFromRaw(item: RawItem): string {
   for (const b of item.content.blocking?.nodes ?? []) {
     parts.push(`\uD83D\uDD13#${b.number}`)
   }
-  return parts.length > 0 ? parts.join(' ') : '-'
+  if (parts.length === 0) return '-'
+  if (parts.length > 4) return parts.slice(0, 3).join(' ') + ' [...]'
+  return parts.join(' ')
 }
 
 export interface FormatOptions {

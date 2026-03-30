@@ -69,7 +69,9 @@ export function formatDeps(issue: Issue): string {
   for (const b of issue.blocking) {
     parts.push(`<span class="dep dep-blocking">\ud83d\udd13#${b.number}</span>`)
   }
-  return parts.length > 0 ? parts.join(' ') : '<span class="dep-none">-</span>'
+  if (parts.length === 0) return '<span class="dep-none">-</span>'
+  if (parts.length > 4) return parts.slice(0, 3).join(' ') + ' <span class="dep-overflow">[...]</span>'
+  return parts.join(' ')
 }
 
 export function issueRow(issue: Issue, indent = 0, prefix = '', showProject = false): string {
