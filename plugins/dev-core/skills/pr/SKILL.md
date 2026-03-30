@@ -84,6 +84,12 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <ISSUE_NUMBER> --sta
 
 Updating existing PR → `gh pr edit <number> --title "<title>" --body "<body>"`.
 
+## Step 7 — Watch CI
+
+After PR creation, inform the user that CI is now running and suggest watching it live:
+
+> "CI is running on the PR — use `/ci-watch` to monitor it live."
+
 ## PR Body Template
 
 ```markdown

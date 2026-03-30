@@ -105,6 +105,7 @@ gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "
   plan:      plan artifact ∃,
   implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ branch has commits beyond staging,
   pr:        PR ∃,
+  ci-watch:  null,         # no artifact — uses Σ_s only
   validate:  null,         # no artifact — uses Σ_s only
   review:    PR ∃ ∧ (PR.reviewDecision ∈ ('APPROVED','CHANGES_REQUESTED') ∨ pr_has_review_comment(PR)),
   fix:       PR ∃ ∧ pr_has_fix_comment(PR),
@@ -143,7 +144,7 @@ Bar: `██` per completed/skipped, `░░` per pending. Phase steps:
 - Frame: triage, frame
 - Shape: analyze, spec
 - Build: plan, implement, pr
-- Verify: validate, review, fix
+- Verify: ci-watch, validate, review, fix
 - Ship: promote, cleanup
 
 Status: `✓ {name}` (done) | `skipped` | `pending` | `→ next`.
@@ -157,6 +158,7 @@ should_skip(step, τ, Σ):
   analyze  ∧ τ ∈ {S, F-lite}             → skip (frame sufficient)
   spec     ∧ τ == S                       → skip
   plan     ∧ τ == S                       → skip
+  ci-watch ∧ ¬PR ∃                         → skip
   fix      ∧ (Σ.fix ∨ Σ_s.fix)            → skip (fixes already applied)
   promote                                  → skip (/promote is standalone staging→main; ¬auto-triggered by /dev)
   cleanup  ∧ ¬has_stale(N)               → skip
@@ -176,6 +178,7 @@ STEPS = [
   (Build,  plan,      plan),
   (Build,  implement, implement),
   (Build,  pr,        pr),
+  (Verify, ci-watch,  ci-watch),
   (Verify, validate,  validate),
   (Verify, review,    review),
   (Verify, fix,       fix),
@@ -219,7 +222,7 @@ audit_enabled ∧ S* ∈ critical_steps → present reasoning audit per [reasoni
 
 ```
 gate_steps    := {frame, spec, plan}
-auto_advance  := {triage, analyze, implement, pr, validate, review, fix, cleanup}
+auto_advance  := {triage, analyze, implement, pr, ci-watch, validate, review, fix, cleanup}
 ```
 
 **gate_steps:** Step 6 already AskUserQuestion'd → invoke skill immediately. ¬double-prompt.
@@ -237,6 +240,7 @@ auto_advance  := {triage, analyze, implement, pr, validate, review, fix, cleanup
 | plan | `skill: "plan", args: "--issue N"` |
 | implement | `skill: "implement", args: "--issue N"` |
 | pr | `skill: "pr"` (auto-detects branch + issue from worktree context) |
+| ci-watch | `skill: "ci-watch", args: "--pr {PR#}"` (PR# from Σ scan) |
 | validate | `skill: "validate"` (runs in current worktree) |
 | review | `skill: "code-review"` (auto-detects PR from current branch) |
 | fix | `skill: "fix", args: "#{PR_NUMBER}"` (PR# from Σ scan) |
@@ -262,7 +266,7 @@ auto_advance → re-scan → progress → Step 7 immediately.
 | Frame | triage → frame | frame approval (status: approved) |
 | Shape | analyze → spec | spec approval |
 | Build | plan → implement → pr | plan approval (then auto-chains implement → pr) |
-| Verify | validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /code-review Phase 8). |
+| Verify | ci-watch → validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /code-review Phase 8). |
 | Ship | promote → cleanup | promote always skipped. cleanup runs if worktree/branches stale. |
 
 ## Tier Skip Matrix
@@ -276,6 +280,7 @@ auto_advance → re-scan → progress → Step 7 immediately.
 | plan | skip | run + gate | run + gate |
 | implement | run | run | run |
 | pr | run | run | run |
+| ci-watch | cond | cond | cond |
 | validate | run | run | run |
 | review | run | run | run |
 | fix | cond | cond | cond |
