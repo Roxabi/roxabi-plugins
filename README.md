@@ -60,7 +60,7 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 
 | Plugin | Description |
 |--------|-------------|
-| [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. 28 skills, 9 agents, safety hooks. Project-agnostic via `stack.yml` |
+| [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. 29 skills, 9 agents, safety hooks. Project-agnostic via `stack.yml` |
 
 ### Research & analysis
 
