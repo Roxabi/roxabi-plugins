@@ -35,7 +35,7 @@ export async function fetchAllItems(): Promise<RawItem[]> {
   if (!GH_PROJECT_ID) {
     throw new Error(
       'GH_PROJECT_ID not configured and no GitHub Project V2 board linked to this repo.\n' +
-      'Run `/github-setup` to create one, or set gh_project_id in .claude/dev-core.yml',
+        'Run `/github-setup` to create one, or set gh_project_id in .claude/dev-core.yml',
     )
   }
   return fetchAllItemsForProject(GH_PROJECT_ID)

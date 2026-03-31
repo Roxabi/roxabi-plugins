@@ -47,10 +47,10 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
       if (repo) {
         const [owner, name] = repo.split('/')
         const query = `{ repository(owner: \\"${owner}\\", name: \\"${name}\\") { projectsV2(first: 1) { nodes { id } } } }`
-        const id = execSync(
-          `gh api graphql -f query="${query}" --jq '.data.repository.projectsV2.nodes[0].id'`,
-          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
-        ).trim()
+        const id = execSync(`gh api graphql -f query="${query}" --jq '.data.repository.projectsV2.nodes[0].id'`, {
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }).trim()
         if (id && id !== 'null') return id
       }
     } catch {

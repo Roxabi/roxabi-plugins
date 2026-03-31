@@ -388,7 +388,7 @@ describe('table-formatter', () => {
   })
 
   describe('formatTree', () => {
-    it('includes issue count header', () => {
+    it('includes issue count header with (tree) label', () => {
       const items = [
         makeRawItem({ number: 1, title: 'Root issue' }, { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' }),
       ]
@@ -396,14 +396,23 @@ describe('table-formatter', () => {
       expect(output).toContain('1 issues (tree)')
     })
 
-    it('shows root issue with inline metadata', () => {
+    it('produces same columnar format as formatTable', () => {
       const items = [
         makeRawItem({ number: 42, title: 'My epic' }, { Status: 'Backlog', Priority: 'P1 - High', Size: 'XL' }),
       ]
-      const output = formatTree(items, { sortBy: 'priority', titleLength: 55 })
-      expect(output).toContain('#42')
-      expect(output).toContain('My epic')
-      expect(output).toContain('XL')
+      const treeOutput = formatTree(items, { sortBy: 'priority', titleLength: 55 })
+      const tableOutput = formatTable(items, { sortBy: 'priority', titleLength: 55 })
+      // Only difference is the "(tree)" label
+      expect(treeOutput).toBe(tableOutput.replace(/(\d+ issues)/, '$1 (tree)'))
+    })
+
+    it('includes column headers', () => {
+      const output = formatTree([], { sortBy: 'priority', titleLength: 55 })
+      expect(output).toContain('Title')
+      expect(output).toContain('Status')
+      expect(output).toContain('Size')
+      expect(output).toContain('Pri')
+      expect(output).toContain('Deps')
     })
 
     it('shows children with tree connectors', () => {
@@ -422,7 +431,6 @@ describe('table-formatter', () => {
       const output = formatTree([parent, child], { sortBy: 'priority', titleLength: 55 })
       expect(output).toContain('#10')
       expect(output).toContain('#11')
-      // Last child uses └
       expect(output).toContain('└')
     })
 
