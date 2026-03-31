@@ -12,7 +12,7 @@ import type { WorkspaceProject } from '../ports/workspace'
  * Load a config value from .claude/dev-core.yml with 3-tier fallback:
  *   1st: .claude/dev-core.yml (YAML key lookup)
  *   2nd: process.env[envKey]
- *   3rd: gh repo view (github_repo key only)
+ *   3rd: gh CLI auto-detect (github_repo, gh_project_id)
  */
 function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
   // 1st: Try .claude/dev-core.yml
@@ -29,12 +29,32 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
   const envValue = process.env[envKey ?? key.toUpperCase()]
   if (envValue) return envValue
 
-  // 3rd: For github_repo only, try gh CLI
+  // 3rd: Auto-detect via gh CLI for supported keys
   if (key === 'github_repo') {
     try {
       return execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', { encoding: 'utf-8' }).trim()
     } catch {
       /* gh not available */
+    }
+  }
+
+  if (key === 'gh_project_id') {
+    try {
+      const repo = execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim()
+      if (repo) {
+        const [owner, name] = repo.split('/')
+        const query = `{ repository(owner: \\"${owner}\\", name: \\"${name}\\") { projectsV2(first: 1) { nodes { id } } } }`
+        const id = execSync(
+          `gh api graphql -f query="${query}" --jq '.data.repository.projectsV2.nodes[0].id'`,
+          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+        ).trim()
+        if (id && id !== 'null') return id
+      }
+    } catch {
+      /* gh not available or no project linked */
     }
   }
 
