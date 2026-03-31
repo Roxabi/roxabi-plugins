@@ -389,13 +389,17 @@ describe('table-formatter', () => {
 
   describe('formatTree', () => {
     it('includes issue count header', () => {
-      const items = [makeRawItem({ number: 1, title: 'Root issue' }, { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' })]
+      const items = [
+        makeRawItem({ number: 1, title: 'Root issue' }, { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' }),
+      ]
       const output = formatTree(items, { sortBy: 'priority', titleLength: 55 })
       expect(output).toContain('1 issues (tree)')
     })
 
     it('shows root issue with inline metadata', () => {
-      const items = [makeRawItem({ number: 42, title: 'My epic' }, { Status: 'Backlog', Priority: 'P1 - High', Size: 'XL' })]
+      const items = [
+        makeRawItem({ number: 42, title: 'My epic' }, { Status: 'Backlog', Priority: 'P1 - High', Size: 'XL' }),
+      ]
       const output = formatTree(items, { sortBy: 'priority', titleLength: 55 })
       expect(output).toContain('#42')
       expect(output).toContain('My epic')
