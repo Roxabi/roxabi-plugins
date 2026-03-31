@@ -249,7 +249,7 @@ export const DEFAULT_RULESET = {
   enforcement: 'active',
   conditions: {
     ref_name: {
-      include: ['~DEFAULT_BRANCH'],
+      include: ['refs/heads/main'],
       exclude: [],
     },
   },
