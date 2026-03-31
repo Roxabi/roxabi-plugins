@@ -39,12 +39,13 @@ function shortTitle(title: string, maxLen: number): string {
 // Base tree indent for level-1 children: "       │   " (11 chars)
 const BASE_TREE_INDENT = '       \u2502   '
 
-// cTitleWidth formula: total title column inner = titleLen + 2
+// cTitleWidth formula: total title column inner = titleLen + 3
+// (header: "│ " prefix + pad('Title', tl+2) → 1 space + tl+2 chars = tl+3 chars between │ separators)
 // Chars used after the opening "       │": (indent.length - 8) + numStr.length + 1 (space)
-// => cTitleWidth = titleLen + 2 - (indent.length - 8) - numStr.length - 1
-//               = titleLen + 9 - indent.length - numStr.length
+// => cTitleWidth = titleLen + 3 - (indent.length - 8) - numStr.length - 1
+//               = titleLen + 10 - indent.length - numStr.length
 function childTitleWidth(indent: string, numStr: string, titleLen: number): number {
-  return Math.max(4, titleLen + 9 - indent.length - numStr.length)
+  return Math.max(4, titleLen + 10 - indent.length - numStr.length)
 }
 
 function formatChildRowLine(
@@ -287,6 +288,89 @@ function buildChains(allItems: RawItem[]): string[] {
 
   const emitted = topologicalSort(blockers, graph)
   return formatChainLines(emitted, graph)
+}
+
+// ---------------------------------------------------------------------------
+// Tree view
+// ---------------------------------------------------------------------------
+
+const TREE_BASE = '  '
+const TREE_LEVEL = '\u2502   ' // │   (4 chars per depth level)
+
+function treeMeta(item: RawItem): string {
+  const status = fieldValue(item, 'Status')
+  const size = fieldValue(item, 'Size')
+  const pri = fieldValue(item, 'Priority')
+  const bStatus = computeBlockStatus(item)
+  const s = STATUS_SHORT[status] ?? status
+  const p = PRIORITY_SHORT[pri] ?? pri
+  return `[${s} \u00B7 ${size} \u00B7 ${p} \u00B7 ${blockIcon(bStatus)}]`
+}
+
+function treeChildRows(
+  subs: { number: number; state: string; title: string }[],
+  byNum: Map<number, RawItem>,
+  baseIndent: string,
+  tl: number,
+): string[] {
+  const openSubs = subs.filter((s) => s.state === 'OPEN')
+  const closedCount = subs.length - openSubs.length
+  const lines: string[] = []
+
+  for (let i = 0; i < openSubs.length; i++) {
+    const sub = openSubs[i]
+    const isLast = i === openSubs.length - 1 && closedCount === 0
+    const connector = isLast ? '\u2514 ' : '\u251C '
+    const childItem = byNum.get(sub.number)
+    const title = shortTitle((childItem?.content.title ?? sub.title) || '?', tl)
+    const meta = childItem ? `  ${treeMeta(childItem)}` : ''
+    lines.push(`${baseIndent}${connector}#${sub.number}  ${title}${meta}`)
+
+    if (childItem) {
+      const grandSubs = childItem.content.subIssues?.nodes ?? []
+      if (grandSubs.length > 0) {
+        const nextBase = baseIndent + (isLast ? '    ' : TREE_LEVEL)
+        lines.push(...treeChildRows(grandSubs, byNum, nextBase, tl))
+      }
+    }
+  }
+
+  if (closedCount > 0) {
+    lines.push(`${baseIndent}\u2514 \u00B7\u00B7\u00B7 (${closedCount} done)`)
+  }
+
+  return lines
+}
+
+/** Format a compact tree view — full titles, inline metadata, no column alignment. */
+export function formatTree(allItems: RawItem[], opts: FormatOptions): string {
+  const openItems = allItems.filter((i) => i.content?.state === 'OPEN')
+  const byNum = new Map<number, RawItem>()
+  for (const item of openItems) byNum.set(item.content.number, item)
+
+  const roots = openItems.filter((i) => !i.content.parent || i.content.parent.state === 'CLOSED')
+  const sorted = sortIssues(roots)
+  const tl = opts.titleLength
+
+  const lines: string[] = []
+  lines.push(`\u25CF ${sorted.length} issues (tree)`)
+  lines.push('')
+
+  for (const item of sorted) {
+    const title = shortTitle(item.content.title, tl)
+    lines.push(`${TREE_BASE}#${item.content.number}  ${title}  ${treeMeta(item)}`)
+
+    const subs = item.content.subIssues?.nodes ?? []
+    if (subs.length > 0) {
+      lines.push(...treeChildRows(subs, byNum, TREE_BASE, tl))
+    }
+  }
+
+  lines.push('')
+  lines.push('  \u26D4=blocked  \uD83D\uDD13=blocking  \u2705=ready')
+  lines.push('')
+
+  return lines.join('\n')
 }
 
 /** Format raw items as JSON (matching old fetch_issues.sh --json output). */

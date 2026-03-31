@@ -1,6 +1,6 @@
 ---
 name: issues
-argument-hint: [--dashboard | --stop | --json | --priority]
+argument-hint: [--dashboard | --stop | --json | --tree | -T | --priority]
 description: List/dashboard GitHub issues — status, dependencies, backlog. Triggers: "list issues" | "show issues" | "backlog" | "issue dashboard" | "what's blocked".
 version: 0.2.0
 allowed-tools: Bash, Read
@@ -70,6 +70,10 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
 
 ---
 
+**`--tree` ∨ `-T` ∈ $ARGUMENTS →** Pass flag to fetch script (step 1 below), then present output verbatim. **Stop here** — ¬show WIP section.
+
+---
+
 **Default (CLI table):**
 
 1. Fetch:
@@ -104,6 +108,7 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
 | `--dashboard` | Launch live HTML δ as background daemon |
 | `--stop` | Stop δ daemon |
 | (none) | Table sorted by Priority, then Size |
+| `--tree` / `-T` | Compact tree view — full titles, inline metadata, all depths |
 | `--json` | Raw JSON |
 | `--priority` | Sort by priority (default) |
 | `--size` | Sort by size |
