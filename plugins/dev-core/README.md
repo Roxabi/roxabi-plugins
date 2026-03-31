@@ -82,7 +82,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 | `cleanup` | Ship | Post-merge cleanup |
 | `promote` | Ship | Promotes to staging/production |
 | `test` | Supporting | Runs and manages tests |
-| `issues` | Supporting | Lists/dashboards GitHub issues — status, dependencies, backlog |
+| `issues` | Supporting | Lists/dashboards GitHub issues — status, deps, backlog; `--tree`/`-T` for compact hierarchy view |
 | `issue-triage` | Supporting | Triages GitHub issues with labels/priority |
 | `adr` | Supporting | Creates Architecture Decision Records |
 | `doc-sync` | Supporting | Syncs CLAUDE.md, README.md, and plugin SKILL.md after a code change |
