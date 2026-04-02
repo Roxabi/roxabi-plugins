@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ═══════════════════════════════════════════════════════════════
+     CUSTOMISE: diagram-meta — update title, date, color, badges
+     ═══════════════════════════════════════════════════════════════ -->
+<title>{{TITLE}}</title>
+<!-- diagram-meta:start -->
+<meta name="diagram:title"     content="{{TITLE}}">
+<meta name="diagram:date"      content="{{DATE}}">
+<meta name="diagram:category"  content="{{CATEGORY}}">
+<meta name="diagram:cat-label" content="{{CAT_LABEL}}">
+<meta name="diagram:color"     content="{{COLOR}}">
+<meta name="diagram:badges"    content="latest">
+<!-- diagram-meta:end -->
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════════
+   TOKENS — replace --accent and --accent-dim with project brand color
+   ══════════════════════════════════════════════════════════════════ */
+:root {
+  --bg:#0c0e16; --surface:#13161f; --surface2:#1a1d2a; --card:#1e2133;
+  --border:rgba(255,255,255,0.07); --border2:rgba(255,255,255,0.13);
+  --text:#dde4f0; --text-dim:#7d8799; --text-xdim:#3e4556;
+  /* CUSTOMISE: swap this accent color for your project brand */
+  --accent:{{ACCENT_COLOR}};   /* e.g. #e8a030 */
+  --accent-dim:{{ACCENT_DIM}}; /* e.g. rgba(232,160,48,0.12) */
+  --green:#34d399; --green-dim:rgba(52,211,153,0.12);
+  --blue:#60a5fa;  --blue-dim:rgba(96,165,250,0.12);
+  --purple:#a78bfa;--purple-dim:rgba(167,139,250,0.12);
+  --orange:#fb923c;--orange-dim:rgba(251,146,60,0.12);
+  --red:#f87171;   --red-dim:rgba(248,113,113,0.12);
+  --amber:#e8a030; --amber-dim:rgba(232,160,48,0.12);
+  --font:'Plus Jakarta Sans',system-ui,sans-serif;
+  --mono:'JetBrains Mono',monospace;
+}
+[data-theme="light"] {
+  --bg:#f5f2ec; --surface:#ede9e0; --surface2:#e5e0d5; --card:#faf8f4;
+  --border:rgba(0,0,0,0.08); --border2:rgba(0,0,0,0.15);
+  --text:#1a1d2b; --text-dim:#5a6070; --text-xdim:#9aa0ae;
+  --green:#047857; --green-dim:rgba(4,120,87,0.1);
+  --red:#dc2626; --red-dim:rgba(220,38,38,0.1);
+  --amber:#b8760a; --amber-dim:rgba(184,118,10,0.1);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   BASE — do not edit
+   ══════════════════════════════════════════════════════════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;transition:background .2s,color .2s}
+.layout{max-width:1400px;margin:0 auto;padding:24px 24px 64px}
+
+/* ── Header ── */
+.header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:20px;border-bottom:1px solid var(--border);margin-bottom:18px}
+.header-left h1{font-size:1.4rem;font-weight:700;letter-spacing:-0.02em}
+.header-left h1 span{color:var(--accent)}
+.header-left .sub{font-size:.78rem;color:var(--text-dim);margin-top:4px;line-height:1.5}
+.theme-btn{background:var(--surface);border:1px solid var(--border2);border-radius:6px;color:var(--text-dim);cursor:pointer;font-size:.85rem;padding:5px 10px;flex-shrink:0}
+.theme-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── Toolbar ── */
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
+.toolbar:last-of-type{margin-bottom:16px}
+.ctrl{display:flex;align-items:center;gap:4px}
+.ctrl-label{font-size:.58rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xdim);font-family:var(--mono)}
+
+/* Segmented controls */
+.segs{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:5px;overflow:hidden}
+.seg{background:none;border:none;border-right:1px solid var(--border);color:var(--text-dim);cursor:pointer;font-family:var(--font);font-size:.65rem;font-weight:500;padding:4px 9px;transition:background .1s,color .1s;white-space:nowrap}
+.seg:last-child{border-right:none}
+.seg:hover{background:var(--surface2);color:var(--text)}
+.seg.on{background:var(--accent-dim);color:var(--accent);font-weight:600}
+
+/* Checkbox toggle buttons (OFF = inactive = show all) */
+.check-group{display:flex;gap:3px;flex-wrap:wrap}
+.check-btn{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:.6rem;padding:3px 6px;font-family:var(--mono);transition:all .1s}
+.check-btn.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
+.check-btn:hover{border-color:var(--accent)}
+
+/* Size +/- — controls card min-width */
+.size-btn{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:.85rem;font-weight:700;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-family:var(--mono)}
+.size-btn:hover{border-color:var(--accent);color:var(--accent)}
+.size-label{font-size:.6rem;color:var(--text-xdim);font-family:var(--mono);min-width:28px;text-align:center}
+
+/* Inputs */
+.filter-input{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono);font-size:.65rem;padding:4px 8px;outline:none}
+.filter-input:focus{border-color:var(--accent)}
+.search-input{width:160px}
+
+/* Stats */
+.stats{font-family:var(--mono);font-size:.6rem;color:var(--text-xdim);margin-left:auto}
+
+/* ── Section headers ── */
+.section-hdr{margin:28px 0 14px;padding-top:20px;border-top:1px solid var(--border)}
+.section-hdr h2{font-size:1.1rem;font-weight:600;color:var(--text);margin-bottom:4px}
+.section-hdr .section-sub{font-size:.75rem;color:var(--text-dim);line-height:1.5}
+.section-hdr:first-child{margin-top:0;padding-top:0;border-top:none}
+
+/* ── Card grid ── */
+.card-grid{display:grid;gap:16px}
+.comp-card{background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;transition:border-color .15s}
+.comp-card:hover{border-color:var(--border2)}
+.comp-card.hidden{display:none}
+
+/* Card image */
+.comp-card .card-img{width:100%;aspect-ratio:1;object-fit:cover;display:block;cursor:zoom-in;background:var(--surface)}
+
+/* Card body */
+.comp-card .card-body{padding:14px 16px}
+.comp-card .card-title{font-size:.95rem;font-weight:600;color:var(--text);margin-bottom:8px;line-height:1.4}
+
+/* Badges */
+.badges{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px}
+.bdg{display:inline-block;padding:2px 7px;border-radius:4px;font-family:var(--mono);font-size:.58rem;font-weight:600;letter-spacing:.04em;border:1px solid}
+/* CUSTOMISE: add badge variants matching your data — or reuse these built-ins */
+.bdg-clean  {background:var(--green-dim); color:var(--green); border-color:var(--green)}
+.bdg-bad    {background:var(--red-dim);   color:var(--red);   border-color:var(--red)}
+.bdg-mid    {background:var(--amber-dim); color:var(--amber); border-color:var(--amber)}
+.bdg-ref    {background:var(--blue-dim);  color:var(--blue);  border-color:var(--blue)}
+.bdg-a      {background:var(--accent-dim);color:var(--accent);border-color:var(--accent)}
+.bdg-b      {background:var(--purple-dim);color:var(--purple);border-color:var(--purple)}
+.bdg-c      {background:var(--orange-dim);color:var(--orange);border-color:var(--orange)}
+
+/* Specs table */
+.specs-table{width:100%;border-collapse:collapse;margin:8px 0;font-size:.76rem}
+.specs-table td{padding:3px 0;vertical-align:top}
+.specs-table td:first-child{color:var(--text-xdim);width:110px;white-space:nowrap;padding-right:10px}
+.specs-table td:last-child{color:var(--text-dim)}
+.specs-table td code{font-family:var(--mono);font-size:.7rem;background:var(--surface);padding:1px 4px;border-radius:3px}
+
+/* Verdict */
+.verdict{margin-top:10px;padding:8px 12px;border-radius:6px;font-size:.78rem;line-height:1.5}
+.verdict-clean{background:var(--green-dim);border:1px solid rgba(52,211,153,.25);color:#6ee7b7}
+.verdict-bad  {background:var(--red-dim);  border:1px solid rgba(248,113,113,.25);color:#fca5a5}
+.verdict-mid  {background:var(--amber-dim);border:1px solid rgba(232,160,48,.25); color:#fcd34d}
+/* CUSTOMISE: add more verdict types if needed */
+
+/* ── Lightbox ── */
+.lb{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:100;justify-content:center;align-items:center;cursor:zoom-out}
+.lb.active{display:flex}
+.lb img{max-width:90vw;max-height:90vh;object-fit:contain}
+.lb-label{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);color:var(--text-dim);font-family:var(--mono);font-size:.7rem;white-space:nowrap}
+.lb-close{position:absolute;top:16px;right:20px;font-size:20px;color:var(--text-xdim);cursor:pointer;transition:color .15s}
+.lb-close:hover{color:var(--text)}
+
+/* ── Empty ── */
+.empty{text-align:center;padding:64px 24px;color:var(--text-xdim);font-size:.84rem}
+
+/* ── Responsive ── */
+@media(max-width:860px){.ctrl-label{display:none}}
+@media(max-width:600px){.toolbar{gap:4px}.seg{font-size:.58rem;padding:3px 5px}.search-input{width:110px}}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- ═══════════════════════════════════════════════════════════════
+     CUSTOMISE: header — update title, subtitle
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="header">
+  <div class="header-left">
+    <h1>{{TITLE_PLAIN}} <span>{{TITLE_ACCENT}}</span></h1>
+    <div class="sub">{{SUBTITLE}}</div>
+  </div>
+  <button class="theme-btn" id="themeBtn" title="Toggle theme">&#127769;</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     TOOLBAR ROW 1: sort + size
+     CUSTOMISE: sort options should match meaningful card fields
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="toolbar">
+  <div class="ctrl"><span class="ctrl-label">Sort</span>
+    <div class="segs" id="sortSegs">
+      <button class="seg on" data-v="default">Default</button>
+      <button class="seg" data-v="title">Title A–Z</button>
+      <!-- CUSTOMISE: add sort modes matching card fields, e.g. data-v="verdict" -->
+    </div>
+  </div>
+  <div class="ctrl"><span class="ctrl-label">Size</span>
+    <button class="size-btn" onclick="resizeCards(-40)">&#8722;</button>
+    <span class="size-label" id="sizeLabel">380</span>
+    <button class="size-btn" onclick="resizeCards(+40)">+</button>
+  </div>
+  <span class="stats" id="stats"></span>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     TOOLBAR ROW 2: dynamic filters + search
+     Filters auto-built from FILTERS_DIMS — no hardcoded buttons
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="toolbar" id="filterBar">
+  <div class="ctrl"><span class="ctrl-label">Search</span>
+    <input class="filter-input search-input" id="searchInput" type="text" placeholder="filter..." oninput="render()">
+  </div>
+</div>
+
+<!-- Sections + cards rendered here -->
+<div id="gallery"></div>
+</div>
+
+<!-- Lightbox -->
+<div class="lb" id="lb" onclick="closeLbOutside(event)">
+  <span class="lb-close" onclick="closeLb()">&#10005;</span>
+  <img id="lbImg" src="" alt="">
+  <div class="lb-label" id="lbLabel"></div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: SECTIONS + CARDS config
+
+   SECTIONS define group headings. Each section has:
+     { id, title, subtitle }
+
+   CARDS define individual comparison items. Each card has:
+     {
+       section:  'section-id',        // which section this card belongs to
+       image:    'path/to/image.png', // relative to HTML file
+       title:    'Card title',
+       badges:   [                    // array of badge objects
+         { text: 'CLEAN', type: 'clean' },  // type maps to .bdg-{type} CSS class
+       ],
+       specs:    {                    // key-value pairs for the specs table
+         'Engine': 'Klein 4B',
+         'Steps':  '28',
+       },
+       verdict:  {                    // optional verdict box
+         text: 'Clean output. No banding.',
+         type: 'clean',              // 'clean', 'bad', 'mid' — maps to .verdict-{type}
+       },
+       tags:     ['tag1','tag2'],    // used for dynamic filters (badge types work too)
+     }
+
+   Example SECTIONS:
+   const SECTIONS = [
+     { id:'baseline', title:'Baseline Tests', subtitle:'No modification — isolating the baseline.' },
+     { id:'tuning',   title:'Tuning Tests',   subtitle:'Same model, varying one parameter at a time.' },
+   ];
+
+   Example CARDS:
+   const CARDS = [
+     {
+       section: 'baseline',
+       image:   'images/001-baseline.png',
+       title:   'Baseline — Default Settings',
+       badges:  [{ text:'REF', type:'ref' }, { text:'CLEAN', type:'clean' }],
+       specs:   { 'Model': 'Klein 4B', 'Steps': '28', 'VRAM': '8.5 GB' },
+       verdict: { text:'Reference output. No artifacts visible.', type:'clean' },
+       tags:    ['baseline','clean'],
+     },
+     {
+       section: 'tuning',
+       image:   'images/002-tuning-a.png',
+       title:   'Tuning — Strength 0.8',
+       badges:  [{ text:'CHECK', type:'mid' }],
+       specs:   { 'Strength': '0.8', 'Steps': '4' },
+       verdict: { text:'Reduced artifacts. Identity partially preserved.', type:'mid' },
+       tags:    ['tuning','mid'],
+     },
+   ];
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── SECTIONS ───────────────────────────────────────────────────── */
+const SECTIONS = [
+  /* {{SECTIONS_CONFIG}} */
+];
+
+/* ── CARDS ──────────────────────────────────────────────────────── */
+const CARDS = [
+  /* {{CARDS_CONFIG}} */
+];
+
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: FILTERS_DIMS — which card properties generate filter buttons.
+   fn(card) must return a string category used as a filter bucket.
+   Rule: all buttons OFF = inactive = show all cards.
+
+   Example:
+   const FILTERS_DIMS = {
+     verdict: {
+       label: 'Verdict',
+       fn: card => card.verdict?.type || 'none',
+       order: ['clean','mid','bad'],
+     },
+     section: {
+       label: 'Section',
+       fn: card => card.section,
+     },
+   };
+   ══════════════════════════════════════════════════════════════════ */
+const FILTERS_DIMS = {
+  /* {{FILTERS_DIMS_CONFIG}} */
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: localStorage key prefix — change per project
+   ══════════════════════════════════════════════════════════════════ */
+const STORE_KEY = '{{STORE_KEY_PREFIX}}';  /* e.g. 'lyra-comparison' */
+
+/* ══════════════════════════════════════════════════════════════════
+   ENGINE — do not edit below unless extending functionality
+   ══════════════════════════════════════════════════════════════════ */
+
+const filters = {};  /* dim key → Set; empty = inactive = show all */
+let sortMode = 'default';
+let cardMinWidth = 380;
+
+const S = {
+  theme: localStorage.getItem(STORE_KEY + '-theme') || 'dark',
+};
+
+/* ── Dynamic filter builder ── */
+
+function buildFilters() {
+  const bar = document.getElementById('filterBar');
+
+  for (const [key, dim] of Object.entries(FILTERS_DIMS)) {
+    const counts = {};
+    CARDS.forEach(card => {
+      const v = dim.fn(card);
+      counts[v] = (counts[v] || 0) + 1;
+    });
+    const values = Object.keys(counts).sort((a, b) => {
+      if (dim.order) {
+        const ia = dim.order.indexOf(a), ib = dim.order.indexOf(b);
+        if (ia >= 0 && ib >= 0) return ia - ib;
+        if (ia >= 0) return -1;
+        if (ib >= 0) return 1;
+      }
+      return a.localeCompare(b);
+    });
+
+    if (values.length < 2) continue;
+
+    filters[key] = new Set();  /* empty = inactive */
+
+    const ctrl = document.createElement('div');
+    ctrl.className = 'ctrl';
+    ctrl.innerHTML = '<span class="ctrl-label">' + dim.label + '</span>';
+    const group = document.createElement('div');
+    group.className = 'check-group';
+
+    for (const v of values) {
+      const btn = document.createElement('button');
+      btn.className = 'check-btn';
+      btn.textContent = v + ' (' + counts[v] + ')';
+      btn.onclick = () => {
+        btn.classList.toggle('on');
+        if (btn.classList.contains('on')) filters[key].add(v);
+        else filters[key].delete(v);
+        render();
+      };
+      group.appendChild(btn);
+    }
+    ctrl.appendChild(group);
+    bar.insertBefore(ctrl, bar.firstChild);
+  }
+}
+
+/* ── Filtering ── */
+
+function getFiltered() {
+  let cards = [...CARDS];
+
+  /* Dynamic filters — empty set = inactive = show all */
+  for (const [dim, activeSet] of Object.entries(filters)) {
+    if (activeSet.size === 0) continue;
+    const fn = FILTERS_DIMS[dim]?.fn;
+    if (fn) cards = cards.filter(c => activeSet.has(fn(c)));
+  }
+
+  /* Search */
+  const q = (document.getElementById('searchInput').value || '').toLowerCase();
+  if (q) cards = cards.filter(c => {
+    const hay = [
+      c.title,
+      ...(c.badges || []).map(b => b.text),
+      ...Object.entries(c.specs || {}).map(([k, v]) => k + ' ' + v),
+      c.verdict?.text || '',
+      ...(c.tags || []),
+    ].join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+
+  return cards;
+}
+
+/* ── Sorting ── */
+
+function sortCards(cards) {
+  if (sortMode === 'title') return [...cards].sort((a, b) => a.title.localeCompare(b.title));
+  /* CUSTOMISE: add more sort modes here */
+  return cards;  /* default: CARDS array order */
+}
+
+/* ── Size ── */
+
+function resizeCards(d) {
+  cardMinWidth = Math.max(200, Math.min(800, cardMinWidth + d));
+  document.getElementById('sizeLabel').textContent = cardMinWidth;
+  /* Re-apply grid column width */
+  document.querySelectorAll('.card-grid').forEach(g => {
+    g.style.gridTemplateColumns = 'repeat(auto-fill,minmax(' + cardMinWidth + 'px,1fr))';
+  });
+}
+
+/* ── Card renderer ── */
+
+function mkCard(card) {
+  const badges = (card.badges || []).map(b =>
+    `<span class="bdg bdg-${b.type}">${b.text}</span>`
+  ).join('');
+
+  const specs = Object.entries(card.specs || {}).map(([k, v]) =>
+    `<tr><td>${k}</td><td>${v}</td></tr>`
+  ).join('');
+
+  const verdict = card.verdict
+    ? `<div class="verdict verdict-${card.verdict.type}">${card.verdict.text}</div>`
+    : '';
+
+  return `<div class="comp-card" data-card-id="${card._idx}">
+    <img class="card-img" src="${card.image}" onclick="openLb('${card.image}','${escHtml(card.title)}')" loading="lazy" alt="${escHtml(card.title)}">
+    <div class="card-body">
+      <div class="card-title">${escHtml(card.title)}</div>
+      ${badges ? '<div class="badges">' + badges + '</div>' : ''}
+      ${specs ? '<table class="specs-table">' + specs + '</table>' : ''}
+      ${verdict}
+    </div>
+  </div>`;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ── Render ── */
+
+function render() {
+  const el = document.getElementById('gallery');
+  const filtered = sortCards(getFiltered());
+  const total = CARDS.length;
+
+  if (!filtered.length) {
+    el.innerHTML = '<div class="empty">No cards match the current filters.</div>';
+    document.getElementById('stats').textContent = '0 / ' + total;
+    return;
+  }
+
+  /* Index visible cards for reference */
+  filtered.forEach((c, i) => c._idx = i);
+
+  if (!SECTIONS.length) {
+    /* No sections — flat grid */
+    el.innerHTML = `<div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(${cardMinWidth}px,1fr))">` +
+      filtered.map(mkCard).join('') + '</div>';
+  } else {
+    /* Group by section */
+    let html = '';
+    for (const sec of SECTIONS) {
+      const secCards = filtered.filter(c => c.section === sec.id);
+      if (!secCards.length) continue;
+      html += `<div class="section-hdr">
+        <h2>${escHtml(sec.title)}</h2>
+        ${sec.subtitle ? '<div class="section-sub">' + escHtml(sec.subtitle) + '</div>' : ''}
+      </div>
+      <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(${cardMinWidth}px,1fr))">
+        ${secCards.map(mkCard).join('')}
+      </div>`;
+    }
+    /* Cards with no matching section */
+    const orphans = filtered.filter(c => !SECTIONS.find(s => s.id === c.section));
+    if (orphans.length) {
+      html += `<div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(${cardMinWidth}px,1fr))">` +
+        orphans.map(mkCard).join('') + '</div>';
+    }
+    el.innerHTML = html;
+  }
+
+  document.getElementById('stats').textContent = filtered.length + ' / ' + total;
+}
+
+/* ── Lightbox ── */
+
+function openLb(src, label) {
+  document.getElementById('lbImg').src = src;
+  document.getElementById('lbLabel').textContent = label || '';
+  document.getElementById('lb').classList.add('active');
+}
+
+function closeLb() { document.getElementById('lb').classList.remove('active'); }
+
+function closeLbOutside(e) {
+  if (e.target === document.getElementById('lb')) closeLb();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeLb();
+});
+
+/* ── Sort wiring ── */
+
+document.querySelectorAll('#sortSegs .seg').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('#sortSegs .seg').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    sortMode = btn.dataset.v;
+    render();
+  };
+});
+
+/* ── Theme ── */
+
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('themeBtn').textContent = t === 'dark' ? '\u{1F319}' : '\u2600\uFE0F';
+  localStorage.setItem(STORE_KEY + '-theme', t);
+  S.theme = t;
+}
+document.getElementById('themeBtn').addEventListener('click', () => {
+  applyTheme(S.theme === 'dark' ? 'light' : 'dark');
+});
+
+/* ── Boot ── */
+
+applyTheme(S.theme);
+
+if (!CARDS.length) {
+  document.getElementById('gallery').innerHTML = '<div class="empty">No CARDS configured — fill in the CARDS array.</div>';
+  document.getElementById('stats').textContent = '0 / 0';
+} else {
+  buildFilters();
+  render();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{TITLE}}</title>
+<!-- diagram-meta:start -->
+<meta name="diagram:title"     content="{{TITLE}}">
+<meta name="diagram:date"      content="{{DATE}}">
+<meta name="diagram:category"  content="gallery">
+<meta name="diagram:cat-label" content="Gallery">
+<meta name="diagram:color"     content="{{COLOR}}">
+<meta name="diagram:badges"    content="latest">
+<!-- diagram-meta:end -->
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════════
+   TOKENS — replace with project brand tokens from tokens.md
+   ══════════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#0c0e16;--surface:#13161f;--surface2:#1a1d2a;--card:#1e2133;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);
+  --text:#dde4f0;--text-dim:#7d8799;--text-xdim:#3e4556;
+  --accent:#e8a030;--accent-dim:rgba(232,160,48,0.12);
+  --green:#34d399;--blue:#60a5fa;--purple:#a78bfa;--orange:#fb923c;
+  --font:'Plus Jakarta Sans',system-ui,sans-serif;
+  --mono:'JetBrains Mono',monospace;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   BASE — do not edit
+   ══════════════════════════════════════════════════════════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;padding:16px}
+.layout{max-width:100%;margin:0 auto}
+h1{font-size:1.3rem;font-weight:700;margin-bottom:4px}
+h1 span{color:var(--accent)}
+.sub{font-size:.72rem;color:var(--text-dim);margin-bottom:12px;line-height:1.4}
+
+/* Reference image */
+.ref{display:inline-block;margin-bottom:10px}
+.ref img{height:100px;border-radius:6px;border:2px solid var(--accent);cursor:zoom-in}
+.ref span{display:block;font-size:.6rem;color:var(--text-xdim);margin-top:2px;text-align:center}
+
+/* ── Toolbar ── */
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)}
+.toolbar:last-of-type{margin-bottom:12px}
+.ctrl{display:flex;align-items:center;gap:4px}
+.ctrl-label{font-size:.58rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xdim);font-family:var(--mono)}
+
+/* Segmented control (mutually exclusive) */
+.segs{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:5px;overflow:hidden}
+.seg{background:none;border:none;border-right:1px solid var(--border);color:var(--text-dim);cursor:pointer;font-family:var(--font);font-size:.65rem;font-weight:500;padding:4px 8px;transition:background .1s,color .1s;white-space:nowrap}
+.seg:last-child{border-right:none}
+.seg:hover{background:var(--surface2);color:var(--text)}
+.seg.on{background:var(--accent-dim);color:var(--accent);font-weight:600}
+
+/* Checkbox toggle buttons (multi-select, OFF=inactive=show all) */
+.check-group{display:flex;gap:3px;flex-wrap:wrap}
+.check-btn{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:.6rem;padding:3px 6px;font-family:var(--mono);transition:all .1s}
+.check-btn.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
+.check-btn:hover{border-color:var(--accent)}
+
+/* Size +/- */
+.size-btn{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:.85rem;font-weight:700;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-family:var(--mono)}
+.size-btn:hover{border-color:var(--accent);color:var(--accent)}
+.size-label{font-size:.6rem;color:var(--text-xdim);font-family:var(--mono);min-width:24px;text-align:center}
+
+/* Inputs */
+.filter-input{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono);font-size:.65rem;padding:4px 8px;outline:none}
+.filter-input:focus{border-color:var(--accent)}
+.search-input{width:140px}
+.score-input{width:48px;text-align:center}
+
+/* Stats */
+.stats{font-family:var(--mono);font-size:.6rem;color:var(--text-xdim);margin-left:auto}
+
+/* ── Matrix table ── */
+.matrix{overflow-x:auto}
+.matrix table{border-collapse:collapse;width:100%}
+.matrix th{font-size:.62rem;font-weight:600;padding:5px 4px;text-align:center;color:var(--accent);background:var(--surface);border:1px solid var(--border);font-family:var(--mono);white-space:nowrap;position:sticky;top:0;z-index:2}
+.matrix th.row-hdr{text-align:right;padding-right:6px;color:var(--text-dim);position:sticky;left:0;z-index:3}
+.matrix th.corner{position:sticky;left:0;top:0;z-index:4;background:var(--surface)}
+.matrix td{border:1px solid var(--border);padding:2px;vertical-align:top;background:var(--bg)}
+.matrix td.row-hdr{font-size:.6rem;font-weight:600;color:var(--text-dim);font-family:var(--mono);text-align:right;padding:4px 6px;background:var(--surface);position:sticky;left:0;z-index:1;white-space:nowrap}
+.cell-grid{display:flex;flex-wrap:wrap;gap:2px;min-height:20px}
+.cell-count{font-size:.5rem;color:var(--text-xdim);font-family:var(--mono);text-align:center;padding-top:1px}
+
+/* ── Thumbnails ── */
+.thumb{border-radius:2px;object-fit:cover;cursor:zoom-in;border:1px solid var(--border);transition:border-color .1s}
+.thumb:hover{border-color:var(--accent)}
+
+/* ── Flat grid ── */
+.flat-grid{display:grid;gap:4px}
+.flat-card{position:relative;border-radius:3px;overflow:hidden;border:1px solid var(--border);transition:border-color .1s}
+.flat-card:hover{border-color:var(--accent)}
+.flat-card img{width:100%;aspect-ratio:1;object-fit:cover;display:block;cursor:zoom-in}
+.flat-card .tag{position:absolute;top:2px;right:2px;font-size:.48rem;font-weight:600;padding:1px 3px;border-radius:2px;background:rgba(0,0,0,0.7);color:var(--accent);font-family:var(--mono)}
+.flat-card .sc{position:absolute;bottom:2px;right:2px;font-size:.48rem;font-weight:600;padding:1px 3px;border-radius:2px;background:rgba(0,0,0,0.7);font-family:var(--mono)}
+.sc-h{color:var(--green)}.sc-m{color:var(--accent)}.sc-l{color:var(--text-xdim)}
+
+/* ── Group headers ── */
+.group-hdr{display:flex;align-items:center;gap:8px;margin:14px 0 6px;padding:4px 0;border-top:1px solid var(--border)}
+.group-tag{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;border-radius:4px;font-family:var(--mono);background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent)}
+.group-cnt{font-family:var(--mono);font-size:.58rem;color:var(--text-xdim)}
+
+/* ── Lightbox ── */
+.lb{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:100;justify-content:center;align-items:center;cursor:zoom-out;flex-direction:column}
+.lb.active{display:flex}
+.lb img{max-width:95vw;max-height:90vh;object-fit:contain}
+.lb-label{color:var(--text-dim);font-size:.72rem;margin-top:8px;font-family:var(--mono)}
+
+/* ── Responsive ── */
+@media(max-width:860px){.ctrl-label{display:none}}
+@media(max-width:600px){.toolbar{gap:4px}.seg{font-size:.58rem;padding:3px 5px}.search-input{width:100px}}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- ═══════════════════════════════════════════════════════════════
+     CUSTOMISE: title, subtitle, reference image
+     ═══════════════════════════════════════════════════════════════ -->
+<h1>{{TITLE}}</h1>
+<p class="sub">{{SUBTITLE}}</p>
+
+<!-- Optional: reference image for comparison. Remove if not needed. -->
+<div class="ref">
+  <img src="{{REF_IMAGE_PATH}}" onclick="openLb(this,'Reference')" alt="Ref">
+  <span>{{REF_LABEL}}</span>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     TOOLBAR ROW 1: pivot axes + sort + size
+     CUSTOMISE: add/remove pivot dimensions in the seg buttons.
+     The 'data-v' values must match keys in the DIMS object below.
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="toolbar">
+  <div class="ctrl"><span class="ctrl-label">Col</span>
+    <div class="segs" id="colSegs">
+      <button class="seg on" data-v="none">None</button>
+      <!-- Add dimensions here. data-v must match a DIMS key. -->
+      <button class="seg" data-v="batch">Batch</button>
+      <button class="seg" data-v="score">Score</button>
+    </div>
+  </div>
+  <div class="ctrl"><span class="ctrl-label">Row</span>
+    <div class="segs" id="rowSegs">
+      <button class="seg" data-v="none">None</button>
+      <button class="seg on" data-v="batch">Batch</button>
+      <button class="seg" data-v="score">Score</button>
+    </div>
+  </div>
+  <div class="ctrl"><span class="ctrl-label">Sort</span>
+    <div class="segs" id="sortSegs">
+      <button class="seg on" data-v="score-desc">Score ↓</button>
+      <button class="seg" data-v="score-asc">Score ↑</button>
+      <button class="seg" data-v="name">Name</button>
+    </div>
+  </div>
+  <div class="ctrl"><span class="ctrl-label">Size</span>
+    <button class="size-btn" onclick="resizeThumb(-20)">−</button>
+    <span class="size-label" id="sizeLabel">80</span>
+    <button class="size-btn" onclick="resizeThumb(+20)">+</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     TOOLBAR ROW 2: dynamic filters + search
+     Filters are auto-built from data. No hardcoded buttons needed.
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="toolbar" id="filterBar">
+  <div class="ctrl"><span class="ctrl-label">Min score</span>
+    <input class="filter-input score-input" id="minScore" type="number" step="0.05" min="0" max="1" value="0" onchange="render()">
+  </div>
+  <div class="ctrl"><span class="ctrl-label">Search</span>
+    <input class="filter-input search-input" id="searchInput" type="text" placeholder="filter..." oninput="render()">
+  </div>
+  <span class="stats" id="stats"></span>
+</div>
+
+<div class="matrix" id="gallery"></div>
+</div>
+
+<!-- Lightbox -->
+<div class="lb" id="lb" onclick="closeLb()">
+  <img id="lbImg" src="">
+  <div class="lb-label" id="lbLbl"></div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: config
+   ══════════════════════════════════════════════════════════════════ */
+
+// Directory containing images (relative to gallery HTML location)
+const DIR = '{{IMAGE_DIR}}';
+
+// Optional: path to data JSON (scores, clusters, groups).
+// Set to null if no data file exists — filters will be filename-only.
+const DATA_URL = '{{DATA_JSON_PATH}}';  // e.g. DIR + 'face-scores.json' or null
+
+// Image extension
+const EXT = '.png';
+
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: dimensions
+   Each dimension = a way to classify images.
+   - key:   must match data-v in the pivot seg buttons
+   - label: shown on dynamic filter buttons
+   - fn:    filename → category string
+   - order: preferred sort order of categories (optional)
+
+   The fn function receives a filename like "A-001.png".
+   Return a string category. Unknown → return 'other'.
+   ══════════════════════════════════════════════════════════════════ */
+const DIMS = {
+  batch: {
+    label: 'Batch',
+    fn: f => f[0],  // first character: A, B, C, D...
+    order: ['A','B','C','D'],
+  },
+  score: {
+    label: 'Score',
+    fn: f => {
+      const s = scores[f];
+      if (s == null) return 'no face';
+      if (s > 0.5) return '>0.50';
+      if (s > 0.4) return '0.40–0.50';
+      if (s > 0.3) return '0.30–0.40';
+      return '<0.30';
+    },
+    order: ['>0.50', '0.40–0.50', '0.30–0.40', '<0.30', 'no face'],
+  },
+  // Add more dimensions here. Examples:
+  // shot: { label:'Shot', fn: f => { ... }, order: ['headshot','half-body','full-body'] },
+  // cluster: { label:'Cluster', fn: f => { ... } },
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   ENGINE — do not edit below unless extending functionality
+   ══════════════════════════════════════════════════════════════════ */
+
+let data = null, scores = {};
+let colDim = 'none', rowDim = 'batch', sortMode = 'score-desc', thumbSize = 80;
+const filters = {}; // dim → Set. empty Set = inactive = show all
+
+// ── Data loading ──
+
+async function loadData() {
+  if (DATA_URL) {
+    try {
+      const r = await fetch(DATA_URL);
+      if (r.ok) data = await r.json();
+    } catch (_) {}
+  }
+  if (data && data.ref_scores) scores = data.ref_scores;
+}
+
+async function discoverFiles() {
+  // Try manifest.json
+  try {
+    const r = await fetch(DIR + 'manifest.json');
+    if (r.ok) {
+      const listing = await r.json();
+      return listing.filter(f => f.name.endsWith(EXT)).map(f => f.name).sort();
+    }
+  } catch (_) {}
+  // Fallback: /api/list/
+  try {
+    const r = await fetch('/api/list/' + DIR);
+    if (r.ok) {
+      const listing = await r.json();
+      return listing.filter(f => f.name.endsWith(EXT)).map(f => f.name).sort();
+    }
+  } catch (_) {}
+  // Fallback: keys from data
+  if (data && data.ref_scores) return [...Object.keys(data.ref_scores), ...(data.no_face || [])].sort();
+  return [];
+}
+
+// ── Dynamic filter builder ──
+// Rule: all buttons OFF = filter inactive = show everything.
+// Clicking a button activates filtering for that dimension.
+
+function buildFilters(allFiles) {
+  const bar = document.getElementById('filterBar');
+
+  for (const [key, dim] of Object.entries(DIMS)) {
+    const counts = {};
+    allFiles.forEach(f => { const v = dim.fn(f); counts[v] = (counts[v] || 0) + 1; });
+    const values = Object.keys(counts).sort((a, b) => {
+      if (dim.order) {
+        const ia = dim.order.indexOf(a), ib = dim.order.indexOf(b);
+        if (ia >= 0 && ib >= 0) return ia - ib;
+        if (ia >= 0) return -1;
+        if (ib >= 0) return 1;
+      }
+      return a.localeCompare(b);
+    });
+
+    if (values.length < 2) continue;
+
+    filters[key] = new Set(); // empty = inactive
+
+    const ctrl = document.createElement('div');
+    ctrl.className = 'ctrl';
+    ctrl.innerHTML = '<span class="ctrl-label">' + dim.label + '</span>';
+    const group = document.createElement('div');
+    group.className = 'check-group';
+
+    for (const v of values) {
+      const btn = document.createElement('button');
+      btn.className = 'check-btn'; // OFF by default
+      btn.dataset.b = v;
+      btn.textContent = v + ' (' + counts[v] + ')';
+      btn.onclick = () => {
+        btn.classList.toggle('on');
+        if (btn.classList.contains('on')) filters[key].add(v);
+        else filters[key].delete(v);
+        render();
+      };
+      group.appendChild(btn);
+    }
+    ctrl.appendChild(group);
+    bar.insertBefore(ctrl, bar.firstChild);
+  }
+}
+
+// ── Filtering ──
+
+function getFiltered(allFiles) {
+  let files = [...allFiles];
+
+  // Dynamic filters — empty set = inactive = no filtering
+  for (const [dim, activeSet] of Object.entries(filters)) {
+    if (activeSet.size === 0) continue;
+    const fn = DIMS[dim]?.fn;
+    if (fn) files = files.filter(f => activeSet.has(fn(f)));
+  }
+
+  // Min score
+  const minSc = parseFloat(document.getElementById('minScore').value) || 0;
+  if (minSc > 0) files = files.filter(f => (scores[f] || 0) >= minSc);
+
+  // Search
+  const query = (document.getElementById('searchInput').value || '').toLowerCase();
+  if (query) files = files.filter(f => f.toLowerCase().includes(query));
+
+  return files;
+}
+
+// ── Sorting ──
+
+function sortFiles(files) {
+  if (sortMode === 'score-desc') return files.sort((a, b) => (scores[b] || 0) - (scores[a] || 0));
+  if (sortMode === 'score-asc') return files.sort((a, b) => (scores[a] || 0) - (scores[b] || 0));
+  return files.sort();
+}
+
+// ── Size ──
+
+function resizeThumb(d) {
+  thumbSize = Math.max(40, Math.min(200, thumbSize + d));
+  document.getElementById('sizeLabel').textContent = thumbSize;
+  render();
+}
+
+// ── Rendering ──
+
+function mkThumb(f) {
+  const s = scores[f];
+  return '<img class="thumb" style="width:' + thumbSize + 'px;height:' + thumbSize + 'px" ' +
+    'src="' + DIR + f + '" onclick="openLb(this,\'' + f.replace(EXT, '') +
+    (s ? ' · ' + s.toFixed(3) : '') + '\')" loading="lazy" title="' + f.replace(EXT, '') + '">';
+}
+
+function renderCell(files) {
+  if (!files.length) return '<span class="cell-count">0</span>';
+  files = sortFiles([...files]);
+  return '<div class="cell-grid">' + files.map(mkThumb).join('') +
+    '</div><div class="cell-count">' + files.length + '</div>';
+}
+
+function renderFlat(files) {
+  files = sortFiles([...files]);
+  const cols = Math.max(2, Math.floor((window.innerWidth - 40) / (thumbSize + 8)));
+  return '<div class="flat-grid" style="grid-template-columns:repeat(' + cols + ',1fr)">' +
+    files.map(f => {
+      const s = scores[f];
+      const scCls = s > 0.5 ? 'sc-h' : s > 0.4 ? 'sc-m' : 'sc-l';
+      return '<div class="flat-card"><img src="' + DIR + f +
+        '" onclick="openLb(this,\'' + f.replace(EXT, '') + (s ? ' · ' + s.toFixed(3) : '') +
+        '\')" loading="lazy"><div class="tag">' + f[0] + '</div>' +
+        (s != null ? '<div class="sc ' + scCls + '">' + s.toFixed(3) + '</div>' : '') +
+        '</div>';
+    }).join('') + '</div>';
+}
+
+let allFiles = [];
+
+function render() {
+  const el = document.getElementById('gallery');
+  const files = getFiltered(allFiles);
+  const total = allFiles.length;
+
+  if (colDim === 'none' && rowDim === 'none') {
+    el.innerHTML = renderFlat(files);
+    document.getElementById('stats').textContent = files.length + ' / ' + total;
+    return;
+  }
+
+  // One or both dimensions active
+  const hasCols = colDim !== 'none', hasRows = rowDim !== 'none';
+  const cD = hasCols ? DIMS[colDim] : null;
+  const rD = hasRows ? DIMS[rowDim] : null;
+
+  if (!hasCols || !hasRows) {
+    // Single dimension → grouped
+    const dim = hasCols ? cD : rD;
+    const fn = dim.fn;
+    const order = dim.order || [...new Set(files.map(fn))].sort();
+    const groups = {};
+    order.forEach(k => groups[k] = []);
+    files.forEach(f => { const k = fn(f); if (!groups[k]) groups[k] = []; groups[k].push(f); });
+
+    if (!hasCols) {
+      // Row grouping
+      let html = '';
+      order.forEach(k => {
+        if (!groups[k] || !groups[k].length) return;
+        html += '<div class="group-hdr"><span class="group-tag">' + k +
+          '</span><span class="group-cnt">' + groups[k].length + '</span></div>';
+        html += renderFlat(groups[k]);
+      });
+      el.innerHTML = html;
+    } else {
+      // Column grouping
+      const ne = order.filter(k => groups[k] && groups[k].length);
+      let h = '<table><tr><th class="corner"></th>';
+      ne.forEach(k => h += '<th>' + k + ' (' + groups[k].length + ')</th>');
+      h += '</tr><tr><td class="row-hdr">All</td>';
+      ne.forEach(k => h += '<td>' + renderCell(groups[k]) + '</td>');
+      el.innerHTML = h + '</tr></table>';
+    }
+    document.getElementById('stats').textContent = files.length + ' / ' + total;
+    return;
+  }
+
+  // Full pivot
+  const rFn = rD.fn, cFn = cD.fn;
+  const rOrd = rD.order || [...new Set(files.map(rFn))].sort();
+  const cOrd = cD.order || [...new Set(files.map(cFn))].sort();
+  const mx = {};
+  rOrd.forEach(r => { mx[r] = {}; cOrd.forEach(c => mx[r][c] = []); });
+  files.forEach(f => {
+    const r = rFn(f), c = cFn(f);
+    if (!mx[r]) mx[r] = {};
+    if (!mx[r][c]) mx[r][c] = [];
+    mx[r][c].push(f);
+  });
+  const ac = cOrd.filter(c => rOrd.some(r => mx[r]?.[c]?.length));
+  const ar = rOrd.filter(r => ac.some(c => mx[r]?.[c]?.length));
+
+  let h = '<table><tr><th class="corner">' + rowDim + ' \\ ' + colDim + '</th>';
+  ac.forEach(c => {
+    const t = ar.reduce((s, r) => s + (mx[r]?.[c]?.length || 0), 0);
+    h += '<th>' + c + '<br><span style="font-weight:400;font-size:.5rem">(' + t + ')</span></th>';
+  });
+  h += '</tr>';
+  ar.forEach(r => {
+    const t = ac.reduce((s, c) => s + (mx[r]?.[c]?.length || 0), 0);
+    h += '<tr><td class="row-hdr">' + r + ' (' + t + ')</td>';
+    ac.forEach(c => h += '<td>' + renderCell(mx[r]?.[c] || []) + '</td>');
+    h += '</tr>';
+  });
+  el.innerHTML = h + '</table>';
+  document.getElementById('stats').textContent = files.length + ' / ' + total + ' · ' + ar.length + '×' + ac.length;
+}
+
+// ── Segmented control wiring ──
+
+function wireSegs(id, setter) {
+  document.querySelectorAll('#' + id + ' .seg').forEach(b => {
+    b.onclick = () => {
+      document.querySelectorAll('#' + id + ' .seg').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      setter(b.dataset.v);
+      render();
+    };
+  });
+}
+wireSegs('colSegs', v => { colDim = v; });
+wireSegs('rowSegs', v => { rowDim = v; });
+wireSegs('sortSegs', v => { sortMode = v; });
+
+// ── Lightbox ──
+
+function openLb(el, label) {
+  document.getElementById('lbImg').src = el.src;
+  document.getElementById('lbLbl').textContent = label;
+  document.getElementById('lb').classList.add('active');
+}
+function closeLb() { document.getElementById('lb').classList.remove('active'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLb(); });
+
+// ── Boot ──
+
+async function boot() {
+  await loadData();
+  allFiles = await discoverFiles();
+  buildFilters(allFiles);
+  render();
+}
+boot();
+</script>
+</body>
+</html>

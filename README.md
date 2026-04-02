@@ -75,6 +75,7 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 | [linkedin-post-generator](plugins/linkedin-post-generator/README.md) | Generate LinkedIn posts with best practices and visual identity |
 | [image-prompt-generator](plugins/image-prompt-generator/README.md) | Generate AI image prompts with style consistency |
 | [logo-generator](plugins/logo-generator/README.md) | Animated SVG logos from brand briefs — interactive design, live preview, GIF export |
+| [forge](plugins/forge/README.md) | Forge HTML for `~/.roxabi/forge/` — forge-guide (multi-tab doc), forge-epic (issue-linked), forge-chart (Mermaid), forge-gallery (4 templates: pivot, simple, comparison, audio) |
 
 ### Career tools
 

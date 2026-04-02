@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ═══════════════════════════════════════════════════════════════
+     CUSTOMISE: diagram-meta — update title, date, color, badges
+     ═══════════════════════════════════════════════════════════════ -->
+<title>{{TITLE}}</title>
+<!-- diagram-meta:start -->
+<meta name="diagram:title"     content="{{TITLE}}">
+<meta name="diagram:date"      content="{{DATE}}">
+<meta name="diagram:category"  content="{{CATEGORY}}">
+<meta name="diagram:cat-label" content="{{CAT_LABEL}}">
+<meta name="diagram:color"     content="{{COLOR}}">
+<meta name="diagram:badges"    content="latest,voice">
+<!-- diagram-meta:end -->
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════════
+   TOKENS — replace --accent and --accent-dim with project brand color
+   ══════════════════════════════════════════════════════════════════ */
+:root {
+  --bg:#0c0e16; --surface:#13161f; --surface2:#1a1d2a; --card:#1e2133;
+  --border:rgba(255,255,255,0.07); --border2:rgba(255,255,255,0.13);
+  --text:#dde4f0; --text-dim:#7d8799; --text-xdim:#3e4556;
+  /* CUSTOMISE: swap this accent color for your project brand */
+  --accent:{{ACCENT_COLOR}};   /* e.g. #c084fc (purple), #e8a030 (amber) */
+  --accent-dim:{{ACCENT_DIM}}; /* e.g. rgba(192,132,252,0.12) */
+  --green:#34d399; --green-dim:rgba(52,211,153,0.12);
+  --blue:#60a5fa;  --blue-dim:rgba(96,165,250,0.12);
+  --purple:#a78bfa;--purple-dim:rgba(167,139,250,0.12);
+  --orange:#fb923c;--orange-dim:rgba(251,146,60,0.12);
+  --cyan:#22d3ee;  --cyan-dim:rgba(34,211,238,0.12);
+  --amber:#e8a030; --amber-dim:rgba(232,160,48,0.12);
+  --font:'Plus Jakarta Sans',system-ui,sans-serif;
+  --mono:'JetBrains Mono',monospace;
+}
+[data-theme="light"] {
+  --bg:#f5f2ec; --surface:#ede9e0; --surface2:#e5e0d5; --card:#faf8f4;
+  --border:rgba(0,0,0,0.08); --border2:rgba(0,0,0,0.15);
+  --text:#1a1d2b; --text-dim:#5a6070; --text-xdim:#9aa0ae;
+  --green:#047857; --green-dim:rgba(4,120,87,0.1);
+  --blue:#1d4ed8;  --blue-dim:rgba(29,78,216,0.1);
+  --purple:#7c3aed;--purple-dim:rgba(124,58,237,0.1);
+  --orange:#ea580c;--orange-dim:rgba(234,88,12,0.1);
+  --cyan:#0891b2;  --cyan-dim:rgba(8,145,178,0.1);
+  --amber:#b8760a; --amber-dim:rgba(184,118,10,0.1);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   BASE — do not edit
+   ══════════════════════════════════════════════════════════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;transition:background .2s,color .2s}
+.layout{max-width:1400px;margin:0 auto;padding:24px 24px 64px}
+
+/* ── Header ── */
+.header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:20px;border-bottom:1px solid var(--border);margin-bottom:18px}
+.header-left h1{font-size:1.4rem;font-weight:700;letter-spacing:-0.02em}
+.header-left h1 span{color:var(--accent)}
+.header-left .sub{font-size:.78rem;color:var(--text-dim);margin-top:4px;line-height:1.5}
+.header-left .tech{font-family:var(--mono);font-size:.65rem;color:var(--text-xdim);margin-top:2px}
+.theme-btn{background:var(--surface);border:1px solid var(--border2);border-radius:6px;color:var(--text-dim);cursor:pointer;font-size:.85rem;padding:5px 10px;flex-shrink:0}
+.theme-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── Source text block (optional) ── */
+.text-block{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:.8rem;color:var(--text-dim);line-height:1.7;font-style:italic}
+.text-block .text-label{font-family:var(--mono);font-size:.58rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--text-xdim);margin-bottom:6px;font-style:normal}
+
+/* ── Toolbar ── */
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
+.toolbar:last-of-type{margin-bottom:16px}
+.ctrl{display:flex;align-items:center;gap:4px}
+.ctrl-label{font-size:.58rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xdim);font-family:var(--mono)}
+
+/* Segmented controls */
+.segs{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:5px;overflow:hidden}
+.seg{background:none;border:none;border-right:1px solid var(--border);color:var(--text-dim);cursor:pointer;font-family:var(--font);font-size:.65rem;font-weight:500;padding:4px 9px;transition:background .1s,color .1s;white-space:nowrap}
+.seg:last-child{border-right:none}
+.seg:hover{background:var(--surface2);color:var(--text)}
+.seg.on{background:var(--accent-dim);color:var(--accent);font-weight:600}
+
+/* Checkbox toggle buttons (OFF = inactive = show all) */
+.check-group{display:flex;gap:3px;flex-wrap:wrap}
+.check-btn{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:.6rem;padding:3px 6px;font-family:var(--mono);transition:all .1s}
+.check-btn.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
+.check-btn:hover{border-color:var(--accent)}
+
+/* Size +/- — controls card min-width */
+.size-btn{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:.85rem;font-weight:700;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-family:var(--mono)}
+.size-btn:hover{border-color:var(--accent);color:var(--accent)}
+.size-label{font-size:.6rem;color:var(--text-xdim);font-family:var(--mono);min-width:28px;text-align:center}
+
+/* Search */
+.search-wrap{position:relative;flex:1;max-width:260px}
+.search-wrap::before{content:'⌕';position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--text-xdim);font-size:.9rem;pointer-events:none}
+.search-wrap input{background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:var(--mono);font-size:.72rem;padding:5px 10px 5px 28px;width:100%;outline:none;transition:border-color .15s}
+.search-wrap input:focus{border-color:var(--accent)}
+.search-wrap input::placeholder{color:var(--text-xdim)}
+
+/* Stats */
+.stats{font-family:var(--mono);font-size:.6rem;color:var(--text-xdim);margin-left:auto;white-space:nowrap}
+
+/* ── Group section ── */
+.group-sec{margin-bottom:28px}
+.group-hdr{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.group-tag{font-size:.61rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;padding:2px 8px;border-radius:4px;font-family:var(--mono)}
+/* CUSTOMISE: color variants for group tags — add/remove to match your engines */
+.group-tag.blue  {background:var(--blue-dim);  color:var(--blue);  border:1px solid var(--blue)}
+.group-tag.cyan  {background:var(--cyan-dim);  color:var(--cyan);  border:1px solid var(--cyan)}
+.group-tag.green {background:var(--green-dim); color:var(--green); border:1px solid var(--green)}
+.group-tag.orange{background:var(--orange-dim);color:var(--orange);border:1px solid var(--orange)}
+.group-tag.purple{background:var(--purple-dim);color:var(--purple);border:1px solid var(--purple)}
+.group-tag.amber {background:var(--amber-dim); color:var(--amber); border:1px solid var(--amber)}
+.group-tag.neutral{background:var(--surface2);color:var(--text-dim);border:1px solid var(--border2)}
+.group-name{font-size:.88rem;font-weight:600;color:var(--text)}
+.group-cnt{font-family:var(--mono);font-size:.62rem;color:var(--text-xdim)}
+
+/* ── Card grid ── */
+.card-grid{display:grid;gap:8px}
+.audio-card{background:var(--card);border:1px solid var(--border);border-radius:9px;padding:12px 14px;display:flex;flex-direction:column;gap:5px;transition:border-color .15s,transform .1s}
+.audio-card:hover{transform:translateY(-1px)}
+.audio-card.playing{border-color:var(--accent)}
+.audio-card.starred{border-color:var(--amber)}
+.audio-card.hidden{display:none}
+
+/* Card top row */
+.card-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.card-title{font-size:.82rem;font-weight:600;color:var(--text);flex:1;min-width:0}
+.card-file{font-family:var(--mono);font-size:.58rem;color:var(--text-xdim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.6}
+
+/* Metadata row */
+.card-meta{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-family:var(--mono);font-size:.64rem;color:var(--text-xdim);line-height:1.5}
+.card-meta .key{color:var(--text-xdim)}
+.card-meta .val{color:var(--text-dim)}
+.card-meta .sep{opacity:.4}
+
+/* Phrase / transcript */
+.card-phrase{font-size:.76rem;color:var(--text-dim);font-style:italic;line-height:1.5}
+
+/* Actions row */
+.card-actions{display:flex;align-items:center;justify-content:space-between;margin-top:2px}
+.star-btn{background:none;border:none;color:var(--text-xdim);font-size:13px;cursor:pointer;transition:color .15s;padding:0}
+.star-btn:hover{color:var(--amber)}
+.audio-card.starred .star-btn{color:var(--amber)}
+
+/* ── Badges ── */
+.bdg{font-family:var(--mono);font-size:.56rem;font-weight:600;padding:1px 5px;border-radius:3px;text-transform:uppercase;letter-spacing:.05em;border:1px solid}
+/* CUSTOMISE: badge color variants — add entries matching your ENGINE_META keys */
+.bdg.blue  {background:var(--blue-dim);  color:var(--blue);  border-color:var(--blue)}
+.bdg.cyan  {background:var(--cyan-dim);  color:var(--cyan);  border-color:var(--cyan)}
+.bdg.green {background:var(--green-dim); color:var(--green); border-color:var(--green)}
+.bdg.orange{background:var(--orange-dim);color:var(--orange);border-color:var(--orange)}
+.bdg.purple{background:var(--purple-dim);color:var(--purple);border-color:var(--purple)}
+.bdg.amber {background:var(--amber-dim); color:var(--amber); border-color:var(--amber)}
+.bdg.neutral{background:var(--surface2);color:var(--text-dim);border-color:var(--border2)}
+
+/* ── List view ── */
+.list-view{display:flex;flex-direction:column;gap:2px}
+.list-item{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:7px;background:var(--card);border:1px solid var(--border);transition:background .12s}
+.list-item:hover{background:var(--surface2)}
+.list-item.playing{border-color:var(--accent)}
+.list-item.starred{border-color:var(--amber)}
+.list-item.hidden{display:none}
+.li-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.li-dot.blue{background:var(--blue)}.li-dot.cyan{background:var(--cyan)}.li-dot.green{background:var(--green)}
+.li-dot.orange{background:var(--orange)}.li-dot.purple{background:var(--purple)}.li-dot.amber{background:var(--amber)}
+.li-title{font-size:.8rem;font-weight:500;color:var(--text);flex-shrink:0;min-width:140px}
+.li-badges{display:flex;gap:3px;flex-shrink:0}
+.li-desc{font-family:var(--mono);font-size:.64rem;color:var(--text-dim);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li-audio{flex-shrink:0;width:200px}
+.li-star{background:none;border:none;color:var(--text-xdim);font-size:12px;cursor:pointer;padding:0 4px;flex-shrink:0}
+.li-star:hover{color:var(--amber)}
+.list-item.starred .li-star{color:var(--amber)}
+@media(max-width:860px){.li-desc{display:none}.li-audio{width:160px}}
+@media(max-width:600px){.li-audio{width:120px}.li-title{min-width:80px;font-size:.72rem}}
+
+/* ── Audio player ── */
+audio{width:100%;height:34px;border-radius:5px;margin-top:3px}
+[data-theme="dark"] audio{color-scheme:dark}
+[data-theme="light"] audio{color-scheme:light}
+
+/* ── Notes box ── */
+.notes{margin-top:24px;padding:14px 18px;border-radius:10px;border:1px solid var(--border);background:var(--card);font-size:.77rem;line-height:1.8;color:var(--text-dim)}
+.notes strong{color:var(--text)}
+
+/* ── Empty ── */
+.empty{padding:48px 0;text-align:center;font-size:.84rem;color:var(--text-xdim)}
+
+/* ── Responsive ── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+@media(max-width:860px){.ctrl-label{display:none}}
+@media(max-width:580px){.seg{padding:4px 7px;font-size:.62rem}}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- ═══════════════════════════════════════════════════════════════
+     CUSTOMISE: header — update title, subtitle, tech line
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="header">
+  <div class="header-left">
+    <h1>{{TITLE_PLAIN}} <span>{{TITLE_ACCENT}}</span></h1>
+    <div class="sub" id="subtitle">{{SUBTITLE}}</div>
+    <div class="tech">{{TECH_LINE}}</div>
+  </div>
+  <button class="theme-btn" id="themeBtn" title="Toggle theme">&#127769;</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     CUSTOMISE: source text block — remove if not needed
+     ═══════════════════════════════════════════════════════════════ -->
+<!-- <div class="text-block">
+  <div class="text-label">{{SOURCE_TEXT_LABEL}}</div>
+  {{SOURCE_TEXT_CONTENT}}
+</div> -->
+
+<!-- ═══════════════════════════════════════════════════════════════
+     TOOLBAR ROW 1: group + view + sort + size
+     CUSTOMISE: add/remove group options matching your data keys
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="toolbar">
+  <div class="ctrl"><span class="ctrl-label">Group</span>
+    <div class="segs">
+      <!-- CUSTOMISE: data-v must match a grouping key — 'engine', 'quality', 'batch', 'none' -->
+      <button class="seg on" data-k="group" data-v="engine">Engine</button>
+      <button class="seg" data-k="group" data-v="quality">Quality</button>
+      <button class="seg" data-k="group" data-v="batch">Batch</button>
+      <button class="seg" data-k="group" data-v="none">None</button>
+    </div>
+  </div>
+  <div class="ctrl"><span class="ctrl-label">View</span>
+    <div class="segs">
+      <button class="seg on" data-k="view" data-v="card">&#8862; Cards</button>
+      <button class="seg" data-k="view" data-v="list">&#8801; List</button>
+    </div>
+  </div>
+  <div class="ctrl"><span class="ctrl-label">Sort</span>
+    <div class="segs">
+      <button class="seg on" data-k="sort" data-v="default">Default</button>
+      <button class="seg" data-k="sort" data-v="title">Title</button>
+      <!-- CUSTOMISE: add sort options e.g. data-k="sort" data-v="engine" -->
+    </div>
+  </div>
+  <div class="ctrl"><span class="ctrl-label">Width</span>
+    <button class="size-btn" onclick="resizeCards(-20)">&#8722;</button>
+    <span class="size-label" id="sizeLabel">280</span>
+    <button class="size-btn" onclick="resizeCards(+20)">+</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     TOOLBAR ROW 2: dynamic filters + search + stats
+     Filters auto-built from FILTERS_DIMS — do not hardcode buttons
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="toolbar" id="filterBar">
+  <div class="search-wrap">
+    <input type="search" id="searchInput" placeholder="Filter…" autocomplete="off">
+  </div>
+  <span class="stats" id="stats"></span>
+</div>
+
+<div id="content"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     CUSTOMISE: notes — remove or update
+     ═══════════════════════════════════════════════════════════════ -->
+<!-- <div class="notes">
+  <strong>Notes</strong><br>
+  {{NOTES_CONTENT}}
+</div> -->
+
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: ENGINE_META
+   Maps engine key → { color, label, order }.
+   color must match a .bdg.{color} and .li-dot.{color} CSS class.
+   order controls default display order (lower = first).
+
+   Example:
+   const ENGINE_META = {
+     'qwen':       { color:'blue',   label:'Qwen3 TTS',           order:0 },
+     'chatterbox': { color:'green',  label:'Chatterbox',          order:1 },
+     'voxtral':    { color:'purple', label:'Voxtral 4B (int4)',   order:2 },
+   };
+   ══════════════════════════════════════════════════════════════════ */
+const ENGINE_META = {
+  /* {{ENGINE_META_CONFIG}} */
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: QUALITY_META (optional)
+   Maps quality key → { color, label, order }.
+
+   Example:
+   const QUALITY_META = {
+     'default': { color:'neutral', label:'Default',   order:0 },
+     'fast':    { color:'amber',   label:'Fast',      order:1 },
+     'q8':      { color:'green',   label:'Quality q8',order:2 },
+     'clone':   { color:'cyan',    label:'Voice Clone',order:3 },
+   };
+   ══════════════════════════════════════════════════════════════════ */
+const QUALITY_META = {
+  /* {{QUALITY_META_CONFIG}} */
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: BATCHES
+   Array of batch configs — one entry per audio directory.
+   Discovery loads manifest.json from each batch dir.
+   Each manifest entry must have: { file, engine, label, ... }
+
+   If you have a single manifest at the root, use one batch with dir:''.
+   If your manifest has a flat list of objects, the ENGINE_META key
+   must be present on each object as d.engine.
+
+   Example:
+   const BATCHES = [
+     { id:'b1', label:'FR Instruct', dir:'samples/b1/', manifest:'manifest.json' },
+     { id:'b2', label:'EN Instruct', dir:'samples/b2/', manifest:'manifest.json' },
+   ];
+
+   When using a single root manifest:
+   const BATCHES = [
+     { id:'main', label:'All Samples', dir:'', manifest:'manifest.json' },
+   ];
+   ══════════════════════════════════════════════════════════════════ */
+const BATCHES = [
+  /* {{BATCHES_CONFIG}} */
+];
+
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: FILTERS_DIMS — which data fields generate filter buttons.
+   fn(item) must return a string category.
+   Rule: all buttons OFF = inactive = show all items.
+
+   Example:
+   const FILTERS_DIMS = {
+     engine: {
+       label: 'Engine',
+       fn: item => item.engine || 'unknown',
+     },
+     quality: {
+       label: 'Quality',
+       fn: item => item.quality || 'default',
+       order: ['default','fast','q8','clone'],
+     },
+   };
+   ══════════════════════════════════════════════════════════════════ */
+const FILTERS_DIMS = {
+  /* {{FILTERS_DIMS_CONFIG}} */
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: how to build search index string from an item
+   ══════════════════════════════════════════════════════════════════ */
+function itemSearchStr(d) {
+  return [
+    d.label || '',
+    d.engine || '',
+    d.quality || '',
+    d.voice || '',
+    d.phrase_text || '',
+    d.file || '',
+    ...(d.tags || []),
+  ].join(' ').toLowerCase();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: how to render extra metadata for a card / list item.
+   Return an HTML string (will be placed in .card-meta div).
+   Return '' to skip.
+   ══════════════════════════════════════════════════════════════════ */
+function itemMeta(d, forHtml) {
+  const parts = [];
+  const kv = (k, v) => forHtml
+    ? `<span class="key">${k}</span> <span class="val">${v}</span>`
+    : `${k} ${v}`;
+  if (d.voice)       parts.push(kv('voice', d.voice));
+  if (d.language)    parts.push(kv('lang', d.language));
+  if (d.personality) parts.push(d.personality);
+  if (d.emotion)     parts.push(d.emotion);
+  /* CUSTOMISE: add more fields as needed */
+  return parts.join(forHtml ? ' <span class="sep">·</span> ' : ' · ');
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: audio file type — change if not wav
+   ══════════════════════════════════════════════════════════════════ */
+const AUDIO_TYPE = '{{AUDIO_MIME_TYPE}}';  /* e.g. 'audio/wav', 'audio/mp3', 'audio/ogg' */
+
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: localStorage key prefix — change per project
+   ══════════════════════════════════════════════════════════════════ */
+const STORE_KEY = '{{STORE_KEY_PREFIX}}';  /* e.g. 'audio-gallery' */
+
+/* ══════════════════════════════════════════════════════════════════
+   ENGINE — do not edit below unless extending functionality
+   ══════════════════════════════════════════════════════════════════ */
+
+let DATA = [];
+let starred = new Set(JSON.parse(localStorage.getItem(STORE_KEY + '-stars') || '[]'));
+const filters = {};  /* dim key → Set; empty = inactive = show all */
+
+const S = {
+  theme:  localStorage.getItem(STORE_KEY + '-theme')  || 'dark',
+  view:   localStorage.getItem(STORE_KEY + '-view')   || 'card',
+  group:  localStorage.getItem(STORE_KEY + '-group')  || 'engine',
+  sort:   'default',
+  q: '',
+};
+
+let cardMinWidth = 280;
+
+const contentEl = document.getElementById('content');
+const statsEl   = document.getElementById('stats');
+
+/* ── Helpers ── */
+
+function engineMeta(key) {
+  return ENGINE_META[key] || { color:'neutral', label: key || 'unknown', order: 99 };
+}
+
+function qualityMeta(key) {
+  return QUALITY_META[key] || { color:'neutral', label: key || 'default', order: 99 };
+}
+
+function qualityBadge(d) {
+  if (!d.quality) return '';
+  const m = qualityMeta(d.quality);
+  return `<span class="bdg ${m.color}">${m.label}</span>`;
+}
+
+/* ── Discovery ── */
+
+async function discoverBatch(cfg) {
+  const manifest = cfg.manifest || 'manifest.json';
+  const base = cfg.dir || '';
+  try {
+    /* Try manifest.json */
+    const r = await fetch(base + manifest + '?_=' + Date.now());
+    if (r.ok) {
+      const data = await r.json();
+      return data.map(d => ({ ...d, batch: cfg.id, _base: base }));
+    }
+  } catch (_) {}
+  /* Fallback: /api/list/ */
+  try {
+    const r = await fetch('/api/list/' + base);
+    if (r.ok) {
+      const listing = await r.json();
+      const audioExts = ['.wav','.mp3','.ogg','.flac'];
+      return listing
+        .filter(f => audioExts.some(e => f.name.endsWith(e)))
+        .map(f => ({
+          file: f.name,
+          label: f.name.replace(/\.[^.]+$/, '').replace(/-/g, ' '),
+          engine: 'unknown',
+          batch: cfg.id,
+          _base: base,
+        }));
+    }
+  } catch (_) {}
+  return [];
+}
+
+/* ── Dynamic filter builder ── */
+
+function buildFilters(items) {
+  const bar = document.getElementById('filterBar');
+
+  for (const [key, dim] of Object.entries(FILTERS_DIMS)) {
+    const counts = {};
+    items.forEach(d => {
+      const v = dim.fn(d);
+      counts[v] = (counts[v] || 0) + 1;
+    });
+    const values = Object.keys(counts).sort((a, b) => {
+      if (dim.order) {
+        const ia = dim.order.indexOf(a), ib = dim.order.indexOf(b);
+        if (ia >= 0 && ib >= 0) return ia - ib;
+        if (ia >= 0) return -1;
+        if (ib >= 0) return 1;
+      }
+      return a.localeCompare(b);
+    });
+
+    if (values.length < 2) continue;
+
+    filters[key] = new Set();  /* empty = inactive */
+
+    const ctrl = document.createElement('div');
+    ctrl.className = 'ctrl';
+    ctrl.innerHTML = '<span class="ctrl-label">' + dim.label + '</span>';
+    const group = document.createElement('div');
+    group.className = 'check-group';
+
+    for (const v of values) {
+      const btn = document.createElement('button');
+      btn.className = 'check-btn';
+      btn.textContent = v + ' (' + counts[v] + ')';
+      btn.onclick = () => {
+        btn.classList.toggle('on');
+        if (btn.classList.contains('on')) filters[key].add(v);
+        else filters[key].delete(v);
+        render();
+      };
+      group.appendChild(btn);
+    }
+    ctrl.appendChild(group);
+    /* Insert before search */
+    bar.insertBefore(ctrl, bar.firstChild);
+  }
+}
+
+/* ── Filtering ── */
+
+function getFiltered() {
+  let items = [...DATA];
+
+  /* Dynamic filters — empty set = inactive = show all */
+  for (const [dim, activeSet] of Object.entries(filters)) {
+    if (activeSet.size === 0) continue;
+    const fn = FILTERS_DIMS[dim]?.fn;
+    if (fn) items = items.filter(d => activeSet.has(fn(d)));
+  }
+
+  /* Search */
+  const q = S.q.toLowerCase();
+  if (q) items = items.filter(d => itemSearchStr(d).includes(q));
+
+  return items;
+}
+
+/* ── Sorting ── */
+
+function sortItems(items) {
+  return [...items].sort((a, b) => {
+    if (S.sort === 'title') return (a.label || '').localeCompare(b.label || '');
+    /* Default: by engine order, then voice, then file */
+    const oa = engineMeta(a.engine).order, ob = engineMeta(b.engine).order;
+    if (oa !== ob) return oa - ob;
+    const va = a.voice || '', vb = b.voice || '';
+    if (va !== vb) return va.localeCompare(vb);
+    return (a.file || '').localeCompare(b.file || '');
+  });
+}
+
+/* ── Size ── */
+
+function resizeCards(d) {
+  cardMinWidth = Math.max(160, Math.min(600, cardMinWidth + d));
+  document.getElementById('sizeLabel').textContent = cardMinWidth;
+  document.querySelectorAll('.card-grid').forEach(g => {
+    g.style.gridTemplateColumns = 'repeat(auto-fill,minmax(' + cardMinWidth + 'px,1fr))';
+  });
+}
+
+/* ── Card renderer ── */
+
+function mkCard(d) {
+  const m = engineMeta(d.engine);
+  const meta = itemMeta(d, true);
+  const isStarred = starred.has(d.file);
+  return `<div class="audio-card${isStarred ? ' starred' : ''}" data-file="${d.file}">
+    <div class="card-top">
+      <span class="bdg ${m.color}">${d.engine}</span>
+      ${qualityBadge(d)}
+      <span class="card-title">${d.label || d.file}</span>
+    </div>
+    ${d.phrase_text ? `<div class="card-phrase">"${d.phrase_text}"</div>` : ''}
+    ${meta ? `<div class="card-meta">${meta}</div>` : ''}
+    <audio controls preload="metadata"><source src="${(d._base||'')+d.file}" type="${AUDIO_TYPE||'audio/wav'}"></audio>
+    <div class="card-actions">
+      <button class="star-btn" title="Star">${isStarred ? '\u2605' : '\u2606'}</button>
+      <span class="card-file">${d.file}</span>
+    </div>
+  </div>`;
+}
+
+/* ── List renderer ── */
+
+function mkRow(d) {
+  const m = engineMeta(d.engine);
+  const meta = itemMeta(d, true);
+  const isStarred = starred.has(d.file);
+  return `<div class="list-item${isStarred ? ' starred' : ''}" data-file="${d.file}">
+    <span class="li-dot ${m.color}"></span>
+    <span class="li-title">${d.label || d.file}</span>
+    <div class="li-badges"><span class="bdg ${m.color}">${d.engine}</span>${qualityBadge(d)}</div>
+    <span class="li-desc">${meta}</span>
+    <div class="li-audio"><audio controls preload="metadata" style="width:100%;height:30px"><source src="${(d._base||'')+d.file}" type="${AUDIO_TYPE||'audio/wav'}"></audio></div>
+    <button class="li-star" title="Star">${isStarred ? '\u2605' : '\u2606'}</button>
+  </div>`;
+}
+
+/* ── Section builder ── */
+
+function mkSection(label, color, items) {
+  const grid = S.view === 'card'
+    ? `<div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(${cardMinWidth}px,1fr))">${items.map(mkCard).join('')}</div>`
+    : `<div class="list-view">${items.map(mkRow).join('')}</div>`;
+
+  const hdr = label
+    ? `<div class="group-hdr">
+        <span class="group-tag ${color || 'neutral'}">${label}</span>
+        <span class="group-cnt">${items.length} sample${items.length !== 1 ? 's' : ''}</span>
+       </div>`
+    : '';
+
+  return `<div class="group-sec">${hdr}${grid}</div>`;
+}
+
+/* ── Main render ── */
+
+function render() {
+  const filtered = sortItems(getFiltered());
+  const total = DATA.length;
+
+  contentEl.innerHTML = '';
+
+  if (!filtered.length) {
+    contentEl.innerHTML = `<div class="empty">No samples match the current filters.</div>`;
+    statsEl.textContent = '0 / ' + total;
+    return;
+  }
+
+  if (S.group === 'none') {
+    contentEl.innerHTML = mkSection(null, null, filtered);
+  } else if (S.group === 'quality') {
+    const byQ = new Map();
+    filtered.forEach(d => {
+      const q = d.quality || 'default';
+      if (!byQ.has(q)) byQ.set(q, []);
+      byQ.get(q).push(d);
+    });
+    byQ.forEach((items, q) => {
+      const m = qualityMeta(q);
+      contentEl.innerHTML += mkSection(m.label, m.color, items);
+    });
+  } else if (S.group === 'batch') {
+    const byBatch = new Map();
+    filtered.forEach(d => {
+      const b = d.batch || 'main';
+      if (!byBatch.has(b)) byBatch.set(b, []);
+      byBatch.get(b).push(d);
+    });
+    byBatch.forEach((items, b) => {
+      const cfg = BATCHES.find(c => c.id === b) || {};
+      contentEl.innerHTML += mkSection(cfg.label || b, 'neutral', items);
+    });
+  } else {
+    /* Default: group by engine */
+    const byEngine = new Map();
+    filtered.forEach(d => {
+      const e = d.engine || 'unknown';
+      if (!byEngine.has(e)) byEngine.set(e, []);
+      byEngine.get(e).push(d);
+    });
+    byEngine.forEach((items, engine) => {
+      const m = engineMeta(engine);
+      contentEl.innerHTML += mkSection(m.label, m.color, items);
+    });
+  }
+
+  statsEl.textContent = filtered.length < total
+    ? `${filtered.length} of ${total}`
+    : `${total} samples`;
+
+  wireInteractions();
+}
+
+/* ── Interaction wiring ── */
+
+function wireInteractions() {
+  /* Stop other audio on play, highlight playing card */
+  contentEl.querySelectorAll('audio').forEach(audio => {
+    audio.addEventListener('play', () => {
+      contentEl.querySelectorAll('audio').forEach(o => {
+        if (o !== audio) { o.pause(); o.currentTime = 0; }
+      });
+      contentEl.querySelectorAll('.playing').forEach(c => c.classList.remove('playing'));
+      audio.closest('.audio-card,.list-item')?.classList.add('playing');
+    });
+    audio.addEventListener('pause', () => audio.closest('.audio-card,.list-item')?.classList.remove('playing'));
+    audio.addEventListener('ended', () => audio.closest('.audio-card,.list-item')?.classList.remove('playing'));
+  });
+
+  /* Stars */
+  contentEl.querySelectorAll('.star-btn,.li-star').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const row = btn.closest('.audio-card,.list-item');
+      const file = row.dataset.file;
+      if (starred.has(file)) {
+        starred.delete(file);
+        row.classList.remove('starred');
+        btn.textContent = '\u2606';
+      } else {
+        starred.add(file);
+        row.classList.add('starred');
+        btn.textContent = '\u2605';
+      }
+      localStorage.setItem(STORE_KEY + '-stars', JSON.stringify([...starred]));
+    });
+  });
+}
+
+/* ── Toolbar wiring ── */
+
+document.querySelectorAll('.seg').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const k = btn.dataset.k, v = btn.dataset.v;
+    S[k] = v;
+    if (k === 'view')  localStorage.setItem(STORE_KEY + '-view',  v);
+    if (k === 'group') localStorage.setItem(STORE_KEY + '-group', v);
+    document.querySelectorAll(`[data-k="${k}"]`).forEach(b => b.classList.toggle('on', b === btn));
+    render();
+  });
+});
+
+document.getElementById('searchInput').addEventListener('input', e => {
+  S.q = e.target.value;
+  render();
+});
+
+/* ── Theme ── */
+
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('themeBtn').textContent = t === 'dark' ? '\u{1F319}' : '\u2600\uFE0F';
+  localStorage.setItem(STORE_KEY + '-theme', t);
+  S.theme = t;
+}
+document.getElementById('themeBtn').addEventListener('click', () => {
+  applyTheme(S.theme === 'dark' ? 'light' : 'dark');
+});
+
+/* ── Init ── */
+
+applyTheme(S.theme);
+['view','group'].forEach(k => {
+  document.querySelectorAll(`[data-k="${k}"]`).forEach(b => b.classList.toggle('on', b.dataset.v === S[k]));
+});
+
+(async () => {
+  if (!BATCHES.length) {
+    contentEl.innerHTML = '<div class="empty">No BATCHES configured — fill in the BATCHES array.</div>';
+    statsEl.textContent = '0 / 0';
+    return;
+  }
+
+  const results = await Promise.all(BATCHES.map(discoverBatch));
+  DATA = results.flat();
+
+  if (!DATA.length) {
+    contentEl.innerHTML = '<div class="empty">No audio found. Check BATCHES dirs and manifest.json.</div>';
+    statsEl.textContent = '0 / 0';
+    return;
+  }
+
+  buildFilters(DATA);
+
+  /* Update subtitle */
+  const engineCounts = {};
+  DATA.forEach(d => { engineCounts[d.engine] = (engineCounts[d.engine] || 0) + 1; });
+  const engines = Object.keys(engineCounts);
+  document.getElementById('subtitle').textContent =
+    `${engines.length} engine${engines.length !== 1 ? 's' : ''} · ${DATA.length} samples`;
+
+  render();
+})();
+</script>
+</body>
+</html>
