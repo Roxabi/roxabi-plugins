@@ -40,24 +40,55 @@ Not found → use fallback:
 
 ## Serving
 
+### Quick (no setup)
+
 ```bash
-# Full gallery — diagrams supervisord on :8080
-http://localhost:8080/
-
-# Standalone (split-file guide or epic)
+# Split-file guide or epic — serve from the visuals dir
 cd ~/.roxabi/forge/<project>/visuals && python3 -m http.server 8080
+# → http://localhost:8080/<name>.html
 
-# Chart — no server needed
-file://~/.roxabi/forge/<project>/visuals/<name>.html
+# Chart — no server needed (single-file, all inline)
+# open file://~/.roxabi/forge/<project>/visuals/<name>.html
+
+# Gallery — serve from the forge root (galleries use relative paths to _shared/)
+cd ~/.roxabi/forge && python3 -m http.server 8080
+# → http://localhost:8080/<project>/<gallery>.html
 ```
+
+### Persistent daemon (optional)
+
+For always-on serving with live reload and manifest auto-regen, set up the diagrams daemon.
+Requires: `lyra-stack` repo with supervisord (see `~/projects/lyra-stack/docs/supervisor-pattern.md`).
+
+```bash
+# If lyra-stack is set up:
+make diagrams start     # start serve.py on :8080
+make diagrams status    # check if running
+make diagrams logs      # tail stdout
+make diagrams reload    # restart after config changes
+```
+
+The daemon (`serve.py`) provides:
+- Auto-regenerates `manifest.json` on HTML file changes
+- SSE live reload in the browser
+- `/api/list/` endpoint for image/audio discovery
+- Gallery index UI at `http://localhost:8080/`
+
+If not using lyra-stack, inform the user they can serve with `python3 -m http.server` and that `manifest.json` must be regenerated manually after adding new diagrams.
 
 ---
 
 ## Deploy
 
+### Cloudflare Pages (requires lyra-stack + wrangler)
+
 ```bash
 cd ~/projects/lyra-stack && make diagrams deploy
 ```
+
+### No lyra-stack
+
+Build and deploy are optional — galleries work locally via `python3 -m http.server`. Inform the user that Cloudflare deploy requires the lyra-stack repo.
 
 ---
 
