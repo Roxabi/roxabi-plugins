@@ -1,14 +1,27 @@
-# Playbook: Syncthing Setup for ~/.agent Sync
+# Playbook: Syncthing Setup for Multi-Machine Sync
 
-> Keep `~/.agent/` (exploration artifacts, diagrams, brand assets) in bidirectional real-time sync between two machines using Syncthing.
+> Keep shared data directories in bidirectional real-time sync between two machines using Syncthing.
 
-**Proven on:** ROXABITOWER (local) <-> roxabituwer (production at 192.168.1.16), ~464MB, ~3200 files
+**Proven on:** ROXABITOWER (local) <-> roxabituwer (production at 192.168.1.16)
+
+---
+
+## Synced Folders
+
+| Folder ID | Path | Purpose |
+|-----------|------|---------|
+| `agent-sync` | `~/.agent` | Exploration artifacts, diagrams, brand assets (~464MB, ~3200 files) |
+| `claude-projects-sync` | `~/.claude/projects` | Claude Code memory, conversation history, project configs |
+| `lyra-sync` | `~/.lyra` | Lyra agent data |
+| `vault-sync` | `~/.roxabi-vault` | Roxabi knowledge vault |
+| `default` | `~/Sync` | General file sync |
 
 ---
 
 ## Why Syncthing
 
 - `~/.agent/` contains images, MP4s, diagrams — too large/binary for git
+- `~/.claude/projects/` contains memory and conversation history — needed on both machines
 - Two machines need the same content, edits happen on both sides
 - Syncthing: bidirectional, real-time, no cloud, no manual push/pull, set-and-forget
 
@@ -17,7 +30,7 @@
 ## Prerequisites
 
 - Two Linux machines with SSH access between them
-- `~/.agent/` directory exists on both machines
+- Target directories exist on both machines
 - `apt` package manager (adjust for other distros)
 
 ---
@@ -67,17 +80,15 @@ ssh PROD_HOST 'systemctl --user is-active syncthing'
 LOCAL_ID=$(syncthing cli show system | python3 -c "import sys,json; print(json.load(sys.stdin)['myID'])")
 PROD_ID=$(ssh PROD_HOST 'syncthing cli show system' | python3 -c "import sys,json; print(json.load(sys.stdin)['myID'])")
 
-# API keys (from config XML)
-LOCAL_API=$(grep -oP "(?<=<apikey>)[^<]+" ~/.local/state/syncthing/config.xml)
-PROD_API=$(ssh PROD_HOST 'grep -oP "(?<=<apikey>)[^<]+" ~/.local/state/syncthing/config.xml')
+# API keys
+LOCAL_API=$(syncthing cli config gui apikey get)
+PROD_API=$(ssh PROD_HOST 'syncthing cli config gui apikey get')
 
 echo "Local ID:  $LOCAL_ID"
 echo "Prod ID:   $PROD_ID"
 echo "Local API: $LOCAL_API"
 echo "Prod API:  $PROD_API"
 ```
-
-> Config may be at `~/.config/syncthing/config.xml` on some distros.
 
 ---
 
@@ -111,7 +122,7 @@ ssh PROD_HOST "curl -s -X POST 'http://127.0.0.1:8384/rest/config/devices' \
 
 ---
 
-## Step 5: Create .stignore
+## Step 5: Create .stignore files
 
 Create `~/.agent/.stignore` on the local machine (it will sync to production):
 
@@ -130,7 +141,9 @@ __pycache__
 
 ---
 
-## Step 6: Share the folder on both sides
+## Step 6: Share folders on both sides
+
+For each folder, run on both machines. Example for `agent-sync`:
 
 ```bash
 # On local
@@ -142,6 +155,7 @@ curl -s -X POST "http://127.0.0.1:8384/rest/config/folders" \
     \"label\": \".agent\",
     \"path\": \"$HOME/.agent\",
     \"type\": \"sendreceive\",
+    \"markerName\": \".stfolder\",
     \"devices\": [
       {\"deviceID\": \"$LOCAL_ID\"},
       {\"deviceID\": \"$PROD_ID\"}
@@ -157,31 +171,37 @@ curl -s -X POST "http://127.0.0.1:8384/rest/config/folders" \
       \"cleanupIntervalS\": 3600
     }
   }"
+```
 
-# On production
-ssh PROD_HOST "curl -s -X POST 'http://127.0.0.1:8384/rest/config/folders' \
+Repeat for each folder in the [Synced Folders](#synced-folders) table, adjusting `id`, `label`, and `path`.
+
+### Folder markers
+
+By default Syncthing uses `.stfolder` as the marker. For directories where a stable subdirectory
+always exists, set `markerName` to that subdirectory instead — this prevents false "marker missing"
+errors if `.stfolder` gets accidentally deleted.
+
+| Folder ID | Recommended marker |
+|-----------|-------------------|
+| `agent-sync` | `.stfolder` (default) |
+| `claude-projects-sync` | `-home-mickael-projects` (always created by Claude Code) |
+| `lyra-sync` | `.stfolder` (default) |
+| `vault-sync` | `.stfolder` (default) |
+
+To update a marker on a running instance:
+
+```bash
+# Local
+curl -s -X PATCH "http://127.0.0.1:8384/rest/config/folders/claude-projects-sync" \
+  -H "X-API-Key: $LOCAL_API" \
+  -H "Content-Type: application/json" \
+  -d '{"markerName": "-home-mickael-projects"}'
+
+# Production
+ssh PROD_HOST "curl -s -X PATCH 'http://127.0.0.1:8384/rest/config/folders/claude-projects-sync' \
   -H 'X-API-Key: $PROD_API' \
   -H 'Content-Type: application/json' \
-  -d '{
-    \"id\": \"agent-sync\",
-    \"label\": \".agent\",
-    \"path\": \"/home/$USER/.agent\",
-    \"type\": \"sendreceive\",
-    \"devices\": [
-      {\"deviceID\": \"$PROD_ID\"},
-      {\"deviceID\": \"$LOCAL_ID\"}
-    ],
-    \"fsWatcherEnabled\": true,
-    \"fsWatcherDelayS\": 10,
-    \"versioning\": {
-      \"type\": \"staggered\",
-      \"params\": {
-        \"cleanInterval\": \"3600\",
-        \"maxAge\": \"7776000\"
-      },
-      \"cleanupIntervalS\": 3600
-    }
-  }'"
+  -d '{\"markerName\": \"-home-mickael-projects\"}'"
 ```
 
 ---
@@ -196,7 +216,7 @@ import sys, json
 for did, info in json.load(sys.stdin)['connections'].items():
     print(f'{did[:7]}... connected={info[\"connected\"]}')"
 
-# Check sync status (both sides)
+# Check sync status for a folder
 curl -s "http://127.0.0.1:8384/rest/db/status?folder=agent-sync" \
   -H "X-API-Key: $LOCAL_API" | python3 -c "
 import sys, json
@@ -204,17 +224,13 @@ s = json.load(sys.stdin)
 print(f'State: {s[\"state\"]}')
 print(f'Synced: {s[\"inSyncFiles\"]}/{s[\"globalFiles\"]} files')
 print(f'Need: {s[\"needBytes\"] / 1024 / 1024:.0f} MB')"
-
-# Compare both sides
-echo "=== LOCAL ===" && du -sh ~/.agent/ && find ~/.agent -type f | wc -l
-echo "=== PRODUCTION ===" && ssh PROD_HOST 'du -sh ~/.agent/ && find ~/.agent -type f | wc -l'
 ```
 
 ---
 
 ## Versioning: Staggered retention
 
-Old versions are stored in `~/.agent/.stversions/` with this retention:
+Old versions are stored in `<folder>/.stversions/` with this retention:
 
 | Window | Kept |
 |--|--|
@@ -231,13 +247,38 @@ Cleanup runs every hour. Max age is 90 days (`7776000` seconds).
 ## Troubleshooting
 
 ### "folder marker missing" error
-The `.stfolder` marker is missing from the sync directory. Usually caused by auto-accept creating a folder at the wrong path. Fix:
+
+Syncthing refuses to sync as a safety measure when it can't find the marker file/directory.
+
+**Preferred fix — use a stable marker** (permanent, won't recur):
 ```bash
-# Delete the bad folder config
-curl -s -X DELETE "http://127.0.0.1:8384/rest/config/folders/agent-sync" -H "X-API-Key: $API_KEY"
-# Remove any accidental directory (e.g. ~/agent-sync)
-rm -rf ~/agent-sync
-# Re-create with the correct path (Step 6)
+# Check what's in the folder that always exists
+ls ~/.claude/projects/
+
+# Set markerName to a directory that's always there
+KEY=$(syncthing cli config gui apikey get)
+curl -s -X PATCH "http://127.0.0.1:8384/rest/config/folders/<folder-id>" \
+  -H "X-API-Key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"markerName": "<always-present-subdir>"}'
+```
+
+**Quick fix — recreate the marker** (may recur):
+```bash
+mkdir -p <folder-path>/.stfolder
+```
+
+### Folder stuck in "error" state with no reported errors
+
+Check what file is pending:
+```bash
+KEY=$(syncthing cli config gui apikey get)
+curl -s -H "X-API-Key: $KEY" "http://127.0.0.1:8384/rest/db/need?folder=<folder-id>"
+```
+
+Force a rescan:
+```bash
+curl -s -X POST -H "X-API-Key: $KEY" "http://127.0.0.1:8384/rest/db/scan?folder=<folder-id>"
 ```
 
 ### Check logs
@@ -262,9 +303,8 @@ systemctl --user restart syncthing
 |--|--|
 | **Service** | `systemctl --user {status,restart,stop} syncthing` |
 | **Web UI** | `http://localhost:8384` |
-| **Config** | `~/.local/state/syncthing/config.xml` |
-| **Ignored files** | `~/.agent/.stignore` |
-| **Old versions** | `~/.agent/.stversions/` |
-| **Folder ID** | `agent-sync` |
+| **API key** | `syncthing cli config gui apikey get` |
+| **Ignored files** | `<folder>/.stignore` |
+| **Old versions** | `<folder>/.stversions/` |
 | **Sync mode** | Send & Receive (bidirectional) |
 | **Versioning** | Staggered, 90-day max age |
