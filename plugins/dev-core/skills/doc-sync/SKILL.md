@@ -3,7 +3,7 @@ name: doc-sync
 argument-hint: '[description of change]'
 description: 'Sync all project docs after a code change — scans every doc for stale references, updates affected sections. Triggers: "sync docs" | "update docs" | "doc sync" | "sync plugin docs" | "update skill docs" | "update the docs".'
 version: 0.4.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---
 
 # Doc Sync
@@ -32,7 +32,7 @@ git diff --cached --stat   # 2. staged
 git diff HEAD~1..HEAD --stat && git log -1 --format="%s%n%b"  # 3. last commit
 ```
 
-Record SRC. ¬δ after scan → AskUserQuestion: describe change.
+Record SRC. ¬δ after scan → Ask directly (Pattern B — no protocol read needed): describe change.
 
 ## Phase 2 — Discover Context
 
@@ -52,9 +52,9 @@ First hit → `PLUGINS_REPO`. ¬found → warn + skip plugin docs.
 REPO=$(gh repo view --json name --jq '.name')
 ls "$PLUGINS_REPO/plugins/"
 ```
-Exact ∨ kebab-case match → auto-set. Multiple/¬match → AskUserQuestion. ¬found → warn + skip SKILL.md.
+Exact ∨ kebab-case match → auto-set. Multiple/¬match → Ask directly (Pattern B — no protocol read needed). ¬found → warn + skip SKILL.md.
 
-**2e.** `ls "$PLUGINS_REPO/plugins/$PLUGIN_NAME/skills/"` → one → use. Multiple → AskUserQuestion.
+**2e.** `ls "$PLUGINS_REPO/plugins/$PLUGIN_NAME/skills/"` → one → use. Multiple → Ask directly (Pattern B — no protocol read needed).
 
 ## Phase 3 — Read Changes + Extract K
 
@@ -96,7 +96,7 @@ Docs referencing changed concepts:
 {|D|} docs to review.
 ```
 
-|D| = 0 (only always-included, 0 matches) → AskUserQuestion: **Force update core docs** | **Skip** → Skip: Phase 6.
+|D| = 0 (only always-included, 0 matches) → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Force update core docs** | **Skip** → Skip: Phase 6.
 
 ## Phase 5 — Update Docs
 
@@ -142,7 +142,7 @@ Doc Sync Complete
   {|EDITED|} files updated, {|D| - |EDITED|} skipped.
 ```
 
-AskUserQuestion: **Commit project docs** | **Commit all (project + plugin)** | **Skip**
+Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Commit project docs** | **Commit all (project + plugin)** | **Skip**
 
 Commit → `git add ${EDITED}` + `docs:` prefix. Plugin repo ≠ CWD ∧ plugin files ∈ EDITED → "Commit `$PLUGINS_REPO` separately."
 
@@ -154,11 +154,11 @@ Commit → `git add ${EDITED}` + `docs:` prefix. Plugin repo ≠ CWD ∧ plugin 
 | ¬CLAUDE.md ∨ ¬README.md | Skip, warn |
 | ¬PLUGINS_REPO | Project docs only |
 | ¬plugin dir | Project docs only, warn |
-| δ vague | AskUserQuestion: narrow to one feature |
+| δ vague | Ask directly (Pattern B — no protocol read needed): narrow to one feature |
 | Unrelated files changed | Focus on δ only |
 | SRC=working-tree ∧ ¬PLUGINS_REPO | Warn to set `$ROXABI_PLUGINS_DIR` |
 | Rename A → B | K includes both; grep finds stale A |
 | ADR references K | Warn, ¬edit |
-| |D| > 20 | List, AskUserQuestion: **Update all** ∨ **Select** ∨ **Skip** |
+| |D| > 20 | List, present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Update all** ∨ **Select** ∨ **Skip** |
 
 $ARGUMENTS

@@ -2,7 +2,7 @@
 name: logo-design
 description: 'Design an animated SVG logo with live preview and export to GIF/PNG/HTML — config-driven, interactive controls. Triggers: "logo" | "create logo" | "generate logo" | "brand logo" | "design logo" | "animated logo" | "logo export".'
 version: 0.2.0
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch, AskUserQuestion
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch
 ---
 
 # Logo Design (Animated SVG)
@@ -30,7 +30,7 @@ charter="$HOME/.roxabi-vault/config/visual-charter.json"
 
 ## Phase 2 — Creative Brief Intake
 
-Use `AskUserQuestion` ∀ decision.
+Present decisions via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A).
 
 ### 2.1 Identity
 Confirm: **Name** (wordmark), **Tagline**, **Essence** (one sentence: what it is + how it should feel).
@@ -74,7 +74,7 @@ mkdir -p "$HOME/.roxabi-vault/config/logo-briefs"
 ```
 5. Write to `BD/<name>-logo.html`; `xdg-open` it.
 6. Tell user: "Preview is open. Use the gear icon (top-right) to tweak colors, sizes, and animation in real time."
-7. Ask via `AskUserQuestion`: "What's next?" → Export GIF+PNG (Phase 6) | Tweak (Phase 5) | Start over (Phase 2).
+7. Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Export GIF+PNG** (Phase 6) | **Tweak** (Phase 5) | **Start over** (Phase 2).
 
 ## Phase 5 — Iterate
 

@@ -3,7 +3,7 @@ name: implement
 argument-hint: '[--issue <N> | --plan <path> | --audit]'
 description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "implement" | "build this" | "execute plan" | "start coding".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch
 ---
 
 # Implement
@@ -17,7 +17,7 @@ Let:
 
 Plan → ω → agents (test-first) → passing QG.
 
-**Flow: single continuous pipeline. ¬stop between steps. AskUserQuestion response → immediately execute next step. Stop only on: explicit Cancel/Abort or Step 6 completion.**
+**Flow: single continuous pipeline. ¬stop between steps. Decision response → immediately execute next step. Stop only on: explicit Cancel/Abort or Step 6 completion.**
 
 ```
 /implement --issue 42        Execute plan for issue #42
@@ -50,7 +50,7 @@ Extract from frontmatter: `issue`, `tier`, `spec` path. From body: agent list, t
 
 ## Step 2 — Setup
 
-**2a. Issue check:** `gh issue view <N>` — ∄ ⇒ draft + AskUserQuestion (Create|Edit|Skip) + `gh issue create`.
+**2a. Issue check:** `gh issue view <N>` — ∄ ⇒ draft + present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Create** | **Edit** | **Skip** + `gh issue create`.
 
 **2b. Repo + β:**
 
@@ -75,13 +75,13 @@ ls -d ../${REPO}-<N> 2>/dev/null
 git fetch origin ${BASE}
 ```
 
-∃ branch ⇒ AskUserQuestion: Reuse | Recreate | Abort
+∃ branch ⇒ Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Reuse** | **Recreate** | **Abort**
 
 ∃ ω → check dirty state:
 ```bash
 git status --porcelain
 ```
-¬empty ⇒ AskUserQuestion: **Stash changes** (`git stash`) | **Reset** (`git checkout .`) | **Continue with dirty state** | **Abort**
+¬empty ⇒ Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Stash changes** (`git stash`) | **Reset** (`git checkout .`) | **Continue with dirty state** | **Abort**
 
 **2e. Worktree:**
 
@@ -96,7 +96,7 @@ cp .env.example .env 2>/dev/null; {package_manager} install
 # Optional: {commands.worktree_setup} <N>
 ```
 
-XS exception: AskUserQuestion → approved → skip ω, `git checkout -b feat/<N>-<slug> ${BASE}` in main repo.
+XS exception: Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Skip worktree (XS exception)** | **Use worktree** → approved → skip ω, `git checkout -b feat/<N>-<slug> ${BASE}` in main repo.
 
 ## Step 3 — Context Injection (τ=F only)
 
@@ -117,7 +117,7 @@ Ref file paths from `/plan` Step 3.
 ## Step 3b — Reasoning Audit (optional)
 
 `--audit` → present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Read π/spec in full first.
-→ AskUserQuestion: **Proceed** | **Adjust approach** | **Abort**
+→ Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Proceed** | **Adjust approach** | **Abort**
 ¬`--audit` → skip to Step 4.
 
 ## Step 4 — Implement
@@ -149,7 +149,7 @@ Run QG inside ω (session already in ω after EnterWorktree):
 ```
 
 ✓ → Step 6.
-✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → AskUserQuestion: **Escalate to lead** | **Continue with failures** | **Abandon ω** (`ExitWorktree(action: "remove")` + delete branch).
+✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Escalate to lead** | **Continue with failures** | **Abandon ω** (`ExitWorktree(action: "remove")` + delete branch).
 
 ## Step 6 — Summary
 
@@ -180,7 +180,7 @@ git branch -D feat/<N>-<slug>
 
 Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 
-| Merge conflict (ω setup) | `git rebase --abort` → AskUserQuestion: **Resolve manually** (fix conflicts → `git rebase --continue`) \| **Abort** |
+| Merge conflict (ω setup) | `git rebase --abort` → present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Resolve manually** (fix conflicts → `git rebase --continue`) \| **Abort** |
 | Abandon after 3✗ gate failures | `ExitWorktree(action: "remove", discard_changes: true)` then `git branch -D feat/<N>-<slug>` |
 
 ## Safety

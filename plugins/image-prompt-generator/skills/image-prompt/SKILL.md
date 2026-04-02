@@ -32,7 +32,7 @@ Check φ and load if ∃.
 
 ## Phase 2 — Accept Concept & Intake
 
-1. Concept ∄ via $ARGUMENTS → AskUserQuestion: "What image do you want to create? Describe subject, context, any specific requirements."
+1. Concept ∄ via $ARGUMENTS → Ask directly (Pattern B — no protocol read needed): "What image do you want to create? Describe subject, context, any specific requirements."
 
 2. Ask structured follow-up (one message, all at once):
    - **Platform**: Instagram / LinkedIn / website / presentation / thumbnail / other
@@ -43,7 +43,7 @@ Check φ and load if ∃.
 
 3. Parse into creative brief: Subject | Context | Platform | Content type | Mood | Style | Aspect ratio
 
-4. AskUserQuestion: "Do you want your face/likeness in the image? (yes/no)"
+4. Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): "Do you want your face/likeness in the image?" Options: **Yes** | **No**
    - yes → Phase 2.5
    - no → Phase 2.75 (skip to Phase 3)
 
@@ -139,7 +139,7 @@ Mood: [atmosphere]
 Best for: [recommended platform/use case]
 ```
 
-AskUserQuestion: **Pick one** (variant number) | **Refine** (variant + changes) | **Regenerate** (different styles) | **Batch** (run generate_prompt_variants.py)
+Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Pick one** (variant number) | **Refine** (variant + changes) | **Regenerate** (different styles) | **Batch** (run generate_prompt_variants.py)
 
 ## Phase 7 — Batch Generation (Optional)
 

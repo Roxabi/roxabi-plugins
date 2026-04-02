@@ -2,7 +2,7 @@
 name: logo-explore-svg
 description: 'Generate 25+ programmatic SVG logo variations in a comparison gallery — explore shapes, topologies, palettes. Triggers: "logo shapes" | "svg logo gallery" | "shape exploration" | "dot and line logo" | "logo shape variations".'
 version: 0.2.0
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch, AskUserQuestion
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch
 ---
 
 # Logo Explore (SVG)
@@ -23,7 +23,7 @@ charter="$HOME/.roxabi-vault/config/visual-charter.json"
 
 ## Phase 2 — Theme Selection
 
-Ask via `AskUserQuestion`:
+Present via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern C):
 - **Dot + Line** — nodes connected by thin lines (constellation, network, molecule, trinity)
 - **Hex Cells** — hexagonal tessellation, honeycomb clusters, nested hexes
 - **Concentric Rings** — orbital circles with satellite dots, ring networks
@@ -57,7 +57,7 @@ SVG helpers: `dot(cx,cy,r,fill,opacity)→<circle>`; `line(x1,y1,x2,y2,stroke,wi
 
 ## Phase 5 — Pick & Iterate
 
-Ask via `AskUserQuestion`: "Pick favorites by number, new theme, or done?"
+Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Pick favorites** (by number) | **New theme** | **Done**
 
 - Favorites + new gallery → 25 variations on selected shapes (vary density/palette/rotation/hybridize).
 - New theme → Phase 2.

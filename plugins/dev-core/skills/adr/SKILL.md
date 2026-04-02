@@ -3,7 +3,7 @@ name: adr
 argument-hint: ["Title of decision" | --list]
 description: Create/list Architecture Decision Records. Triggers: "create an ADR" | "architecture decision" | "document why we chose" | "list ADRs".
 version: 0.3.0
-allowed-tools: Write, Read, Glob, ToolSearch, AskUserQuestion
+allowed-tools: Write, Read, Glob, ToolSearch
 ---
 
 # ADR (Architecture Decision Record)
@@ -12,7 +12,7 @@ Let:
   D := `docs/architecture/adr/`
   NNN := zero-padded 3-digit sequence number
   M := `D/meta.json`
-  AQ := AskUserQuestion
+  AQ := Ask directly (Pattern B — no protocol read needed)
 
 Create and manage ADRs — document **why** technical choices were made.
 

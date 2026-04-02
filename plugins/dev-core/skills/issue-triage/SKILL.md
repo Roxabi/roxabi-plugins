@@ -3,7 +3,7 @@ name: issue-triage
 argument-hint: [list | set <num> | create --title "..." [--parent N] [--size S] [--priority P]]
 description: Triage/create GitHub issues — set size/priority/status, manage dependencies & parent/child. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue".
 version: 0.2.0
-allowed-tools: Bash, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, ToolSearch
 ---
 
 # Issue Triage
@@ -19,7 +19,7 @@ Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies
 3. Set values: `τ set <number> --size <S> --priority <P>`
 4. Update status: `τ set <number> --status "In Progress"`
 5. Create issues: `τ create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--parent 163]`
-6. AskUserQuestion if unsure about Size ∨ Priority.
+6. Ask directly (Pattern B — no protocol read needed) if unsure about Size ∨ Priority.
 
 ## Size Guidelines
 
@@ -114,7 +114,7 @@ gh issue edit <number> --body "$BODY
 | 4-6 | **F-lite** | Worktree + subagents + /code-review | Task subagents (1-2 domain + tester) |
 | 7-10 | **F-full** | Bootstrap + worktree + agent team + /code-review | TeamCreate (3+ agents, test-first) |
 
-κ is advisory. Human judgment overrides. AskUserQuestion if score ≠ intuition.
+κ is advisory. Human judgment overrides. Ask directly (Pattern B — no protocol read needed) if score ≠ intuition.
 
 See [Tier Classification Reference](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/tier-classification.md) for full rules.
 Reference: `artifacts/analyses/280-token-consumption.mdx` for scoring examples.

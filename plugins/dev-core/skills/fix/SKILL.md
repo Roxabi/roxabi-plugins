@@ -3,7 +3,7 @@ name: fix
 argument-hint: '[#PR]'
 description: 'Apply review findings — auto-apply high-confidence, 1b1 for rest, then batch-apply. Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these".'
 version: 0.4.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill, ToolSearch
 ---
 
 # Fix
@@ -96,7 +96,7 @@ Alternative: Solution 2 — {rationale}
 
 Demoted from auto-apply → prepend: `Auto-apply failed: {reason}`
 
-AskUserQuestion (single per finding): **Solution 1** | **Solution 2** | **Defer** (→ create issue) | **Skip**
+Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A) (single per finding): **Solution 1** | **Solution 2** | **Defer** (→ create issue) | **Skip**
 
 Defer → `gh issue create --title "{cat}: {summary}" --body "{details}"` immediately.
 

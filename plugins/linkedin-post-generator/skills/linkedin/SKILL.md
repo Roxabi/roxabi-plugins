@@ -20,7 +20,7 @@ Load LC if ∃: author name, default language, tone, hashtag sets, post signatur
 
 ## Phase 2 — Topic Input
 
-∃ topic in $ARGUMENTS → use it. Otherwise AskUserQuestion: topic/idea. AskUserQuestion for preferences: tone override, target audience, content type (story/insight/question/how-to), hashtag set.
+∃ topic in $ARGUMENTS → use it. Otherwise ask directly (Pattern B — no protocol read needed): topic/idea. Present via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern C) for preferences: tone override, target audience, content type (story/insight/question/how-to), hashtag set.
 
 ## Phase 3 — Research (Optional)
 
@@ -60,7 +60,7 @@ Apply rules: 1300-2000 chars; strong hook (pattern interrupt/bold claim/question
 
 ## Phase 5 — Review
 
-Present post in code block. Show stats: character count, word count, estimated read time, hashtag count. AskUserQuestion:
+Present post in code block. Show stats: character count, word count, estimated read time, hashtag count. Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A):
 - **Publish as-is** → Phase 6
 - **Edit** → describe changes → regenerate
 - **Regenerate** → different angle → Phase 4

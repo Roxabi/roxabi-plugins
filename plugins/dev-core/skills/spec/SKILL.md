@@ -3,7 +3,7 @@ name: spec
 argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit]'
 description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ---
 
 # Spec
@@ -15,7 +15,7 @@ Let:
   ρ := reviewer set
   χ := `[NEEDS CLARIFICATION]`
   Ω := `skill: "interview"`
-  Q := AskUserQuestion
+  Q := Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md`
   SRC := source doc (α ∨ φ)
 
 Analysis (or frame) → approved spec. Interview → pre-check → expert review → user approval.

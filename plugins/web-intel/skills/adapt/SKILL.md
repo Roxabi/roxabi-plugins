@@ -19,7 +19,7 @@ Scrape URL → extract what works → suggest adaptations for your project.
 /adapt https://example.com
 ```
 
-¬U → `AskUserQuestion` to get one.
+¬U → Ask directly (Pattern B — no protocol read needed) to get one.
 
 ## Step 1 — Locate Plugin
 
@@ -76,6 +76,6 @@ Sort into priority matrix:
 
 ## Step 5 — Present
 
-Output structured markdown. `AskUserQuestion`: Implement a specific adaptation? | Deep-dive a pattern? | Adapt from another URL?
+Output structured markdown. Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Implement a specific adaptation** | **Deep-dive a pattern** | **Adapt from another URL**
 
 $ARGUMENTS

@@ -21,7 +21,7 @@ Scrape + screenshot U → deliver brutally honest, constructive critique.
 /roast https://example.com
 ```
 
-¬U → `AskUserQuestion` to get one.
+¬U → Ask directly (Pattern B — no protocol read needed) to get one.
 
 ## Step 1 — Locate Plugin
 

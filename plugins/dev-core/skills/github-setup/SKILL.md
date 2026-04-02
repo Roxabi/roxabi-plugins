@@ -3,7 +3,7 @@ name: github-setup
 argument-hint: '[--force]'
 description: 'Connect project to GitHub Project V2 board — discover or create board, labels, branch protection, workspace registration. Triggers: "github setup" | "setup github project" | "connect github board" | "setup project board".'
 version: 0.1.0
-allowed-tools: Bash, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, ToolSearch
 ---
 
 # GitHub Setup
@@ -227,7 +227,7 @@ Next: run /ci-setup to configure GitHub Actions and pre-commit hooks.
 ## Safety Rules
 
 1. **Never overwrite δ or `.env` values** without F or explicit confirmation
-2. **Always AskUserQuestion** before destructive or write operations
+2. **Always present decisions via protocol** before destructive or write operations
 3. **Never commit δ or `.env`** — ensure both are in `.gitignore`
 4. **Never store secrets in `.env.example`** — use empty placeholder values
 5. **Idempotent** — safe to re-run, merges rather than overwrites

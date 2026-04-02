@@ -2,7 +2,7 @@
 name: checkup
 description: 'Health check — verify dev-core config, GitHub project, labels, workflows, branch protection. Triggers: "checkup" | "health check" | "check setup" | "verify config".'
 version: 0.7.0
-allowed-tools: Bash, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, ToolSearch
 ---
 
 # Checkup
@@ -14,7 +14,7 @@ Let:
   δ := `.claude/dev-core.yml`
   I_TS := `${Φ}/skills/init/init.ts`
   D(label, result) := Display: `{label} {result}`
-  Ask(opts) := AskUserQuestion with given options
+  Ask(opts) := Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A) with given options
   chk(cond, pass, fail) := cond → ✅ pass | fail
   stackVal(key) := value read from σ
   ensureGitignore(entry) := append entry to .gitignore if missing

@@ -3,7 +3,7 @@ name: ci-setup
 argument-hint: '[--force]'
 description: 'Set up CI/CD — GitHub Actions workflows, TruffleHog, Dependabot, pre-commit hooks, marketplace plugins. Triggers: "ci setup" | "setup ci" | "configure ci" | "setup hooks" | "setup github actions".'
 version: 0.1.0
-allowed-tools: Bash, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, ToolSearch
 ---
 
 # CI Setup
@@ -48,7 +48,7 @@ CI Setup Complete
 ## Safety Rules
 
 1. **Never push to remote** without user confirmation
-2. **Always AskUserQuestion** before installing hooks or plugins
+2. **Always present decisions via protocol** before installing hooks or plugins
 3. **Idempotent** — skip already-configured items unless F
 
 $ARGUMENTS

@@ -3,14 +3,14 @@ name: code-review
 argument-hint: [#PR]
 description: Multi-domain code review (agents + Conventional Comments → findings + verdict). Triggers: "code review" | "review changes" | "review PR #42" | "check my code".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill, ToolSearch
 ---
 
 # Code Review
 
 Review branch/PR via fresh domain-specific agents → Conventional Comments → findings + verdict.
 
-**⚠ Flow: single continuous pipeline (Phases 1→4 + 6 + 8). ¬stop between phases. AskUserQuestion response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, or Phase 8 completion.**
+**⚠ Flow: single continuous pipeline (Phases 1→4 + 6 + 8). ¬stop between phases. Decision response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, or Phase 8 completion.**
 
 ```
 /code-review          → diff ${BASE}...HEAD  (BASE = staging if exists, else main)
@@ -21,7 +21,7 @@ Let:
   F := set of all findings | f ∈ F := single finding
   C(f) ∈ [0,100] ∩ ℤ — confidence | cat(f) ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
   Δ := changed files | BASE := staging ∨ main
-  Q := AskUserQuestion
+  Q := present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A)
 
 ## Pipeline
 
@@ -55,7 +55,7 @@ git diff ${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]
 ⚠️  Potential secrets found in diff — review before proceeding:
   <file>: <matched line with secret value redacted to first 2 + last 2 chars>
 ```
-Q: **Review and proceed** | **Abort**
+Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Review and proceed** | **Abort**
 ∅ → continue silently.
 
 ## Phase 2 — Spec Compliance

@@ -3,7 +3,7 @@ name: env-setup
 argument-hint: '[--force]'
 description: 'Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, VS Code MDX, LSP. Triggered by /init or standalone. Triggers: "env setup" | "setup environment" | "configure stack" | "scaffold rules".'
 version: 0.1.0
-allowed-tools: Bash, Read, Write, Edit, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, ToolSearch
 ---
 
 # Env Setup
@@ -38,7 +38,7 @@ Set up σ early — later phases read runtime, package manager, commands, deploy
 
 ## Phase 2 — Scaffold CLAUDE.md Critical Rules
 
-Generate governance rules (dev process, AskUserQuestion, git conventions, etc.) from σ values. Sections vary by project type.
+Generate governance rules (dev process, decision protocol, git conventions, etc.) from σ values. Sections vary by project type.
 
 σ ∄ → D("Critical Rules", "⏭ Skipped — requires stack.yml"), skip to Phase 3.
 
@@ -147,7 +147,7 @@ Next: run /seed-docs to populate docs stubs, or /github-setup to connect GitHub 
 ## Safety Rules
 
 1. **Never overwrite existing `.claude/stack.yml` values** without F or explicit confirmation
-2. **Always AskUserQuestion** before any write operation
+2. **Always present decisions via protocol** before any write operation
 3. **Never commit `.claude/stack.yml`** — only `.claude/stack.yml.example`
 4. **Idempotent** — skip already-configured items unless F
 

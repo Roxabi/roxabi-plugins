@@ -3,7 +3,7 @@ name: seed-community
 argument-hint: '[--only <file,...>] [--force]'
 description: 'Bootstrap OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), .github/PULL_REQUEST_TEMPLATE.md, .github/ISSUE_TEMPLATE/. Reads project metadata and CLAUDE.md; generates missing files idempotently. Triggers: "seed community" | "bootstrap community files" | "add contributing" | "add license" | "add security policy" | "github community files".'
 version: 0.1.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---
 
 # Seed Community
@@ -83,9 +83,9 @@ MISSING = ∅ → "All community files are present. Use --force to regenerate." 
 
 ## Phase 3 — Confirm + Gather Options
 
-AskUserQuestion:
+Present via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern C):
 1. **License type** (LICENSE ∈ MISSING) → MIT | Apache-2.0 | GPL-3.0 | Skip
-2. **Author / org name** (∄ in M) → free text
+2. **Author / org name** (∄ in M) → Ask directly (Pattern B — no protocol read needed).
 3. **Optional extras** (multiSelect) → FUNDING.yml | CODEOWNERS | Contributor Covenant v2.1 wording (for CoC)
 
 ## Phase 4 — Generate Files
@@ -193,7 +193,7 @@ Seed Community Complete
     LICENSE                                  ⏭ exists
 ```
 
-AskUserQuestion: **Commit generated files** | **Review first, commit manually** | **Skip**
+Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Commit generated files** | **Review first, commit manually** | **Skip**
 
 "Commit" → `git add {GENERATED}` + commit:
 ```

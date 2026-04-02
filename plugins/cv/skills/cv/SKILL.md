@@ -42,7 +42,7 @@ Parse $ARGUMENTS:
 | **Adapt** | "adapt", "tailor", "for [job]", URL or job description | Adapt CV for role |
 | **Update** | "update", "add", "change", "edit" | Modify D |
 
-Ambiguous → AskUserQuestion.
+Ambiguous → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Generate** | **Adapt** | **Update**
 
 ## Phase 2 — Generate
 
@@ -56,7 +56,7 @@ python3 <plugin>/scripts/generate_cv.py --data ~/.roxabi-vault/cv/cv_data.json -
 
 ## Phase 3 — Adapt
 
-1. Read D. Gather job posting from $ARGUMENTS (URL or text); AskUserQuestion if missing.
+1. Read D. Gather job posting from $ARGUMENTS (URL or text); Ask directly (Pattern B — no protocol read needed) if missing: "Provide the job posting URL or paste the job description."
 2. Analyze posting: extract requirements, skills, keywords.
 3. Adapt CV: reorder experience → relevant roles; emphasize matching skills; adjust summary → target role. ¬fabricate experience.
 4. Write adapted data → `/tmp/cv_adapted.json`, generate:
@@ -67,7 +67,7 @@ python3 <plugin>/scripts/generate_cv.py --data /tmp/cv_adapted.json --output ~/.
 
 ## Phase 4 — Update
 
-Read D → present structure → AskUserQuestion (experience/skills/education/personal info) → apply changes → validate JSON.
+Read D → present structure → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Experience** | **Skills** | **Education** | **Personal info** → apply changes → validate JSON.
 
 ## Vault Integration (Optional)
 

@@ -3,7 +3,7 @@ name: video-recipe
 argument-hint: '<youtube-url> [--compare] [--list] [--html]'
 description: 'Analyze a YouTube video to extract narrative structure, VAKOG sensory predicates, and reusable content creation recipes. Triggers: "video-recipe" | "analyze video" | "video recipe" | "content recipe" | "extract recipe".'
 version: 0.1.0
-allowed-tools: Bash, Read, Write, Glob, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Glob, ToolSearch
 ---
 
 # Video Recipe
@@ -23,7 +23,7 @@ Analyze a YouTube video → extract narrative structure, VAKOG sensory predicate
 /video-recipe --list
 ```
 
-URL ∄ ∧ flag ∄ → `AskUserQuestion` for YouTube URL.
+URL ∄ ∧ flag ∄ → Ask directly (Pattern B — no protocol read needed) for YouTube URL.
 
 ## Flags
 

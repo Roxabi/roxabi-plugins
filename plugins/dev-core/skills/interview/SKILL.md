@@ -3,7 +3,7 @@ name: interview
 argument-hint: [topic | --promote <path>]
 description: Structured interview → brainstorm | analysis | spec (with promotion). Triggers: "create a spec" | "interview" | "brainstorm" | "write analysis" | "promote to spec".
 version: 0.2.0
-allowed-tools: Write, Read, Edit, Glob, ToolSearch, AskUserQuestion
+allowed-tools: Write, Read, Edit, Glob, ToolSearch
 ---
 
 # Interview
@@ -12,7 +12,7 @@ Let:
   β := Brainstorm | α := Analysis | σ := Spec
   τ := document type ∈ {β, α, σ}
   A := `artifacts/analyses/` | S := `artifacts/specs/`
-  AQ := AskUserQuestion
+  AQ := Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md`
 
 Conduct structured interview → produce one of {β, α, σ}. Supports promoting existing doc to next level.
 

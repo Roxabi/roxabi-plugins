@@ -3,7 +3,7 @@ name: test
 argument-hint: [file | --e2e | --run]
 description: Generate/run unit, integration & Playwright e2e tests. Triggers: "test this file" | "write tests" | "add coverage" | "run tests" | "e2e tests".
 version: 0.4.0
-allowed-tools: Bash, Read, Write, Glob, Grep, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Glob, Grep, ToolSearch
 ---
 
 # Test
@@ -100,13 +100,13 @@ it('should return user by id', () => {
 
 ## Step 6 — Approval
 
-AskUserQuestion: **Approve and write all** | **Approve with modifications** | **Skip specific files**
+Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Approve and write all** | **Approve with modifications** | **Skip specific files**
 ¬write without approval.
 
 ## Step 7 — Write + Verify
 
 ∀ approved τ: write via Write tool → `{commands.test} {test_file_path}` → report pass/fail.
-∃ failures ⇒ AskUserQuestion: show failing test + error → propose fix → re-run.
+∃ failures ⇒ Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): show failing test + error → propose fix → re-run.
 
 ## E2E Mode (`--e2e`)
 
@@ -176,7 +176,7 @@ Selectors: `page.getByRole()`, `page.getByLabel()`, `page.getByText()` (¬`page.
 |----------|----------|
 | File has no exports | Skip, inform user |
 | Tests already exist | Offer to add missing coverage, ¬overwrite |
-| Test framework not detected | AskUserQuestion |
+| Test framework not detected | Ask directly (Pattern B — no protocol read needed): which framework to use |
 | `--run` flag | Run `{commands.test}` and report only |
 | React component | Generate component tests with appropriate render approach |
 | File in monorepo package | Place tests relative to package, ¬root |

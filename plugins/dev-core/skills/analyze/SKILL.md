@@ -3,7 +3,7 @@ name: analyze
 argument-hint: '[--issue <N> | --frame <path>]'
 description: Deep technical analysis — explore existing code, risks, alternatives. Triggers: "analyze" | "technical analysis" | "explore the problem" | "how deep is it".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch
 ---
 
 # Analyze
@@ -13,7 +13,7 @@ Let:
   φ := artifacts/frames/{slug}-frame.mdx
   ρ := expert reviewer set
   Ω := `skill: "interview"`
-  Q := AskUserQuestion
+  Q := decision presentation (Pattern A — read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md`)
 
 Frame → analysis. Codebase exploration → expert review → user approval gate.
 ¬spec, ¬worktree. Shape phase only. Spec → `/spec`.
@@ -38,7 +38,7 @@ ls artifacts/frames/*.mdx 2>/dev/null
 ```
 
 `--frame path` → read directly.
-¬φ found → Q: "No frame doc found. Run `/frame --issue N` first, or provide path directly?"
+¬φ found → Ask directly (Pattern B — no protocol read needed): "No frame doc found. Run `/frame --issue N` first, or provide path directly?"
 
 Read φ → extract: `title`, `issue`, `tier`, problem statement, constraints.
 
@@ -48,7 +48,7 @@ Glob `artifacts/analyses/*` — match issue# or slug from φ.
 
 ∃ α:
 - `type: brainstorm` ∈ frontmatter → treat as brainstorm (¬analysis), offer to promote.
-- Q: **Reuse existing** (→ Step 3) | **Start fresh**
+- Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Reuse existing** (→ Step 3) | **Start fresh**
 
 ## Step 2 — Codebase Exploration + Interview
 
@@ -137,7 +137,7 @@ Skip if ¬technical uncertainty in Step 2 findings.
 
 **Signals:** unfamiliar 3rd-party behavior | undocumented internal APIs | performance unknowns | conflicting docs.
 
-∃ signals → Q: **Spike now** (throwaway worktree, test hypothesis) | **Skip** (→ expert review).
+∃ signals → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Spike now** (throwaway worktree, test hypothesis) | **Skip** (→ expert review).
 
 **Spike flow:**
 1. `EnterWorktree(name: "spike-{N}")` — creates isolated throwaway worktree
@@ -169,7 +169,7 @@ Open α: `code artifacts/analyses/{N}-{slug}-analysis.mdx`.
 
 Present summary: shapes found, trade-offs, recommended shape, unresolved concerns.
 
-Q: **Approve** → update issue status → done | **Revise** → collect feedback → revise α → loop from Step 3.
+Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Approve** → update issue status → done | **Revise** → collect feedback → revise α → loop from Step 3.
 
 On approval → commit: `git add artifacts/analyses/{N}-{slug}-analysis.mdx` + commit per CLAUDE.md Rule 5.
 
@@ -183,7 +183,7 @@ Inform: "Analysis complete. Run `/spec --issue <N>` to generate the solution spe
 
 | Scenario | Behavior |
 |----------|----------|
-| No frame found | Q: run `/frame` first or provide path |
+| No frame found | Ask directly (Pattern B — no protocol read needed): run `/frame` first or provide path |
 | ∃ brainstorm (¬analysis) | Treat as no analysis — offer to promote via interview |
 | ∃ analysis, user picks reuse | Present existing → jump to Step 3 |
 | Expert subagent fails | Report error, continue without that reviewer |

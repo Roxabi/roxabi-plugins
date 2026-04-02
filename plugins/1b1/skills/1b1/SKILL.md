@@ -3,7 +3,7 @@ name: 1b1
 description: 'Walk through items 1-by-1 (findings, tasks, issues, TODOs). Triggers: "one by one" | "walk through" | "1b1" | "process each item".'
 version: 0.2.0
 argument-hint: '[items description]'
-allowed-tools: Read, Write, Edit, Bash, Grep, Glob, ToolSearch, AskUserQuestion
+allowed-tools: Read, Write, Edit, Bash, Grep, Glob, ToolSearch
 ---
 
 # 1b1 — One by One
@@ -25,8 +25,8 @@ Argument ∃ (e.g. `/1b1 review findings`) → narrow to matching list.
 
 | Condition | Action |
 |-----------|--------|
-| Ι ∄ | `AskUserQuestion`: what items to walk through |
-| Multiple lists ∃ | `AskUserQuestion`: which list to process |
+| Ι ∄ | Ask directly (Pattern B — no protocol read needed). |
+| Multiple lists ∃ | Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A). |
 
 ### 2. ∀ ι ∈ Ι (sequential)
 
@@ -49,7 +49,7 @@ Recommendation: {Fix now | Defer | Skip | Reject} — {1-line rationale}
 
 #### 2c. Ask Decision
 
-`AskUserQuestion` with options adapted to ι type. Always include **Skip**.
+Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A). Options adapted to ι type. Always include **Skip**.
 
 | Item type | Options |
 |-----------|---------|
@@ -66,7 +66,7 @@ Recommendation: {Fix now | Defer | Skip | Reject} — {1-line rationale}
 | Reject | Acknowledge invalid, discard, continue |
 | Skip | Next ι silently |
 | Defer | Append to D, continue |
-| Modify | `AskUserQuestion` for changes → execute modified |
+| Modify | Ask directly (Pattern B — no protocol read needed) for changes → execute modified |
 | Remove | Acknowledge, continue |
 
 ### 3. Summary
@@ -86,14 +86,14 @@ Deferred items:
   2. {title}
 ```
 
-D ≠ ∅ → `AskUserQuestion`: **Process deferred now** | **Done**.
+D ≠ ∅ → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Process deferred now** | **Done**.
 
 ## Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| Ι ∄ | Ask user what to walk through |
-| Multiple lists ∃ | Ask user which list |
+| Ι ∄ | Ask directly (Pattern B — no protocol read needed) what to walk through |
+| Multiple lists ∃ | Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A) |
 | User stops mid-way | End early, show summary of processed |
 | ι references files | Read relevant sections before brief |
 | ι already resolved | Note in brief, ask user to confirm skip |

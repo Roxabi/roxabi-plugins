@@ -3,7 +3,7 @@ name: pr
 argument-hint: [--draft | --base <branch>]
 description: Create/update PRs with Conventional Commits title, issue linking & guard rails. Triggers: "create PR" | "open PR" | "submit PR" | "update PR" | "/pr --draft".
 version: 0.4.0
-allowed-tools: Bash, Read, Grep, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Grep, ToolSearch
 ---
 
 # Pull Request
@@ -33,9 +33,9 @@ gh pr list --head "$BRANCH" --json number,title,url,state
 |-------|-----------|--------|
 | Protected branch | Β ∈ {staging, main, master} | **REFUSE.** Create feature branch first. Stop. |
 | No commits | `git log ${β}..HEAD` empty | **REFUSE.** Nothing to PR. Stop. |
-| PR exists | gh pr list → result | AskUserQuestion: **Update** (`gh pr edit`) \| **Cancel** |
+| PR exists | gh pr list → result | Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Update** (`gh pr edit`) \| **Cancel** |
 | Branch not pushed | `git ls-remote --heads origin $BRANCH` empty | `git push -u origin $BRANCH` |
-| Behind base | `git rev-list HEAD..${β} --count` > 0 | Warn + AskUserQuestion: **Continue** \| **Rebase first** |
+| Behind base | `git rev-list HEAD..${β} --count` > 0 | Warn + present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Continue** \| **Rebase first** |
 | Quality gates | `{commands.lint} && {commands.typecheck}` | Warn on failure, ¬block. Note in PR body if proceeding. |
 
 ## Step 3 — Generate Content
@@ -55,7 +55,7 @@ gh issue view "$ISSUE_NUM" --json title,state,labels 2>/dev/null
 git diff ${BASE}...HEAD --name-only | grep -c '\.test\.\|\.spec\.' || echo 0
 ```
 
-N detection: first number after `/` in Β (e.g. `feat/42-slug` → `#42`). ¬found → AskUserQuestion.
+N detection: first number after `/` in Β (e.g. `feat/42-slug` → `#42`). ¬found → Ask directly (Pattern B — no protocol read needed): "Which issue number does this PR close, if any?"
 
 **3c. Title:** `<type>(<scope>): <desc>` (≤70 chars). Type from primary commit purpose. Scope from files: `web | api | ui | config` ∨ omit if cross-cutting.
 
@@ -64,7 +64,7 @@ N detection: first number after `/` in Β (e.g. `feat/42-slug` → `#42`). ¬fou
 ## Step 4 — Create + Update Issue
 
 Show generated title + body → create immediately (¬ask how). `--draft` → draft.
-Failure ∨ explicit edit request → AskUserQuestion: **Edit title/body** | **Cancel**.
+Failure ∨ explicit edit request → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Edit title/body** | **Cancel**
 
 ```bash
 gh pr create --title "<title>" --body "<body>" --base ${BASE} [--draft]
@@ -126,16 +126,16 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 | Β ∈ {staging, main, master} | REFUSE: "Create a feature branch first" |
 | ¬commits ahead | REFUSE: "Nothing to create a PR for" |
 | PR already exists | Offer `gh pr edit` to update |
-| ¬N in branch | AskUserQuestion: link issue or skip |
+| ¬N in branch | Ask directly (Pattern B — no protocol read needed): link issue or skip |
 | Multiple commit types | Use primary type only |
-| Lint/typecheck fail | Warn + AskUserQuestion: proceed or fix first |
+| Lint/typecheck fail | Warn + present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Proceed anyway** \| **Fix first** |
 
 ## Safety Rules
 
 1. ¬PR from `staging`, `main`, `master`
 2. ¬force-push
 3. Always show PR content before creation
-4. AskUserQuestion for all decisions (proceed despite warnings, edit)
+4. Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A) for all decisions (proceed despite warnings, edit)
 5. Always display PR URL after creation
 
 $ARGUMENTS

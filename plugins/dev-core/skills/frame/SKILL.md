@@ -3,7 +3,7 @@ name: frame
 argument-hint: '["idea" | --issue <N>]'
 description: Problem framing — capture problem, constraints, scope, tier. Triggers: "frame" | "frame this" | "what's the problem" | "define the problem".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---
 
 # Frame
@@ -12,7 +12,7 @@ Let:
   φ := artifacts/frames/{N}-{slug}-frame.mdx (∃N) ∨ artifacts/frames/{slug}-frame.mdx (frame-only)
   N := issue number (∅ if free text)
   τ := tier ∈ {S, F-lite, F-full}
-  AQ := AskUserQuestion
+  AQ := Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md`
 
 idea | issue → approved frame doc. Interview → detect τ → write φ → user approves.
 Standalone-safe: callable without `/dev`. Output consumed by `/analyze`, `/spec`, `/dev`.

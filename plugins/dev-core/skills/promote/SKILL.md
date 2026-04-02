@@ -3,12 +3,12 @@ name: promote
 argument-hint: [--dry-run | --skip-preview | --finalize]
 description: Promote staging→main — pre-flight, version bump, changelog, PR & tag. Triggers: "promote staging" | "release" | "deploy" | "cut a release" | "--finalize".
 version: 0.4.0
-allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch
 ---
 
 # Promote
 
-Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := AskUserQuestion
+Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := decision presentation (Pattern A)
 
 σ → μ for production. Pre-flight → version → changelog → commit → preview → PR.
 `--finalize`: post-merge tag + GitHub Release.

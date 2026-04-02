@@ -3,7 +3,7 @@ name: readme-upgrade
 argument-hint: '[--target root|plugins|contributing|all] [--plugin <name>] [--force]'
 description: 'Audit and upgrade project documentation quality — README.md, CONTRIBUTING.md, plugin READMEs — against the developer-tool pattern (Why, Quick Start, How it works, command tables with categories, diagram). Triggers: "improve readme" | "upgrade docs" | "readme quality" | "improve docs" | "doc audit" | "readme upgrade" | "improve contributing" | "docs health".'
 version: 0.1.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---
 
 # Readme Upgrade
@@ -168,7 +168,7 @@ Summary: {total_missing} missing, {total_weak} weak, {total_pass} passing
          across {N} files
 ```
 
-AskUserQuestion: **Fix all findings** | **Select files** | **Show me a preview first** | **Cancel**
+Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Fix all findings** | **Select files** | **Show me a preview first** | **Cancel**
 - "Select" → numbered list, ask which to fix (comma-separated). "Preview" → before/after for first ❌, then re-ask.
 
 ## Phase 5 — Improve Docs
@@ -179,7 +179,7 @@ AskUserQuestion: **Fix all findings** | **Select files** | **Show me a preview f
 
 - **Tone:** direct, imperative ("Install with..." not "You can install with..."). No filler.
 - **Length:** each new section ≤ 150 words unless reference table.
-- **No fabrication:** M.description ∄ → AskUserQuestion: "One-liner for {project}?"
+- **No fabrication:** M.description ∄ → Ask directly (Pattern B — no protocol read needed): "One-liner for {project}?"
 - **Diagrams:** use DIAGRAM format. Mermaid → `flowchart LR` unless another type fits better.
 - **Tables:** 2–3 columns max. features > 8 → group into categories (H3 headers or "Category" column).
 - **Callout blocks** (`> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`) — use for key warnings/tips.
@@ -259,7 +259,7 @@ Readme Upgrade Complete
   {|EDITED|} files improved, {skipped} skipped.
 ```
 
-AskUserQuestion: **Commit improvements** | **Review first, commit manually** | **Skip**
+Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Commit improvements** | **Review first, commit manually** | **Skip**
 "Commit" → `git add ${EDITED}` + commit:
 ```
 docs: improve readme and contributing quality
@@ -273,12 +273,12 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 |----------|----------|
 | ¬κ | Note: "run /seed-community to create it" |
 | Plugin README ∄ | Note: "run /seed-community or create manually" |
-| `--plugin` names unknown plugin | List available plugins, AskUserQuestion |
+| `--plugin` names unknown plugin | List available plugins, present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A) |
 | Mermaid + npm publish | Warn: "npm pages don't render Mermaid — switching to ASCII" |
-| M.description ∅ ∧ ¬gh CLI | AskUserQuestion: "One-liner for <name>?" |
+| M.description ∅ ∧ ¬gh CLI | Ask directly (Pattern B — no protocol read needed): "One-liner for <name>?" |
 | Wrapped plugin (git subtree) | Note attribution requirement in finding if missing |
 | ¬git repo | Skip commit offer |
 | Findings = 0 | "All docs pass the quality checklist. Use --force to re-audit." |
-| `--force` on large repo | AskUserQuestion: **Confirm re-audit of {N} passing files** |
+| `--force` on large repo | Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Confirm re-audit of {N} passing files** |
 
 $ARGUMENTS
