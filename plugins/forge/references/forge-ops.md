@@ -57,38 +57,24 @@ cd ~/.roxabi/forge && python3 -m http.server 8080
 
 ### Persistent daemon (optional)
 
-For always-on serving with live reload and manifest auto-regen, set up the diagrams daemon.
-Requires: `lyra-stack` repo with supervisord (see `~/projects/lyra-stack/docs/supervisor-pattern.md`).
+If the project has a supervisor setup with a `make diagrams` target, use that instead:
 
 ```bash
-# If lyra-stack is set up:
-make diagrams start     # start serve.py on :8080
+make diagrams start     # start dev server on :8080
 make diagrams status    # check if running
 make diagrams logs      # tail stdout
 make diagrams reload    # restart after config changes
 ```
 
-The daemon (`serve.py`) provides:
-- Auto-regenerates `manifest.json` on HTML file changes
-- SSE live reload in the browser
-- `/api/list/` endpoint for image/audio discovery
-- Gallery index UI at `http://localhost:8080/`
+A dedicated dev server can provide: auto-regeneration of `manifest.json` on HTML changes, SSE live reload, `/api/list/` endpoint for image/audio discovery, and a gallery index UI.
 
-If not using lyra-stack, inform the user they can serve with `python3 -m http.server` and that `manifest.json` must be regenerated manually after adding new diagrams.
+If no daemon is available, `python3 -m http.server` works fine — just regenerate `manifest.json` manually after adding new diagrams.
 
 ---
 
 ## Deploy
 
-### Cloudflare Pages (requires lyra-stack + wrangler)
-
-```bash
-cd ~/projects/lyra-stack && make diagrams deploy
-```
-
-### No lyra-stack
-
-Build and deploy are optional — galleries work locally via `python3 -m http.server`. Inform the user that Cloudflare deploy requires the lyra-stack repo.
+If the project has a `make diagrams deploy` target, use it. Otherwise, deploy is optional — galleries work locally via `python3 -m http.server`.
 
 ---
 
