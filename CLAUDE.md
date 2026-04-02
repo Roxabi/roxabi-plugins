@@ -11,14 +11,19 @@ This repo is a **marketplace** — a collection of independent plugins. Each plu
 
 - **Project:** roxabi-plugins
 - **Before work:** Use `/dev #N` as the single entry point — it determines tier (S / F-lite / F-full) and drives the full lifecycle
-- **Always** `AskUserQuestion` for choices — never plain-text questions
+- **Decisions:** summarize context → numbered options + recommendation → wait for reply (see [Decision Protocol](#decision-protocol))
 - **Never** commit without asking, push without request, or use `--force`/`--hard`/`--amend`
 - **Always** use appropriate skill even without slash command
 
-### AskUserQuestion
+### Decision Protocol
 
-Always `AskUserQuestion` for: decisions, choices (≥2 options), approach proposals.
-**Never** plain-text "Do you want..." / "Should I..." → use the tool.
+Never use `AskUserQuestion`. For all decisions, choices (≥2 options), approach proposals:
+
+1. **Summarize** — why / root cause / current behavior / target / path to reach it
+2. **Propose** — numbered options, one marked as recommended
+3. **Explain** — why the recommended option is recommended
+
+Then wait for reply. Full patterns in `plugins/shared/references/decision-presentation.md`.
 
 ### Git
 
@@ -34,6 +39,9 @@ roxabi-plugins/
 │   ├── marketplace.json         # marketplace manifest (lists all plugins — native + wrapped)
 │   └── curated-marketplaces.json  # endorsed external plugin marketplaces (not raw skill repos)
 ├── plugins/
+│   ├── shared/
+│   │   └── references/          # cross-plugin shared references (accessible via ${CLAUDE_PLUGIN_ROOT}/../shared/)
+│   │       └── decision-presentation.md  # decision protocol (Pattern A/B/C)
 │   └── <plugin-name>/
 │       ├── README.md            # human-readable docs
 │       ├── skills/
@@ -71,7 +79,7 @@ The file has two parts: a YAML frontmatter header and a markdown body with instr
 - `name` — the skill identifier, in kebab-case (e.g. `compress`)
 - `description` — one-line purpose followed by `Triggers: "phrase1" | "phrase2"`. This is how Claude decides when to activate the skill, so be specific
 - `version` — semantic version starting at `0.1.0`
-- `allowed-tools` — comma-separated list of tools the skill can use (e.g. `Read, Edit, Write, Bash, Glob`). To use `AskUserQuestion`, include both `ToolSearch` and `AskUserQuestion` — `ToolSearch` is required to load the deferred tool before calling it.
+- `allowed-tools` — comma-separated list of tools the skill can use (e.g. `Read, Edit, Write, Bash, Glob`). Always include `ToolSearch` — required to load deferred tools (`EnterWorktree`, `Task*`, `WebFetch`, etc.). Always include `Read` if the skill presents decisions (needed to load the decision protocol from `plugins/shared/references/`).
 
 **Example frontmatter:**
 
@@ -91,7 +99,7 @@ allowed-tools: Read, Edit, Write, Bash, Glob
 - Structure the workflow in numbered phases so Claude follows a clear sequence
 - End with `$ARGUMENTS` so the skill can accept user-provided arguments
 - The skill must be project-agnostic — auto-discover project structure instead of hardcoding paths
-- Use `AskUserQuestion` before any destructive action so the user stays in control
+- Present a decision before any destructive action (Pattern A — see `plugins/shared/references/decision-presentation.md`)
 
 ### Step 3 — Write a README for the plugin
 
@@ -313,7 +321,7 @@ All READMEs must be kept up to date at all times. When adding, modifying, or rem
 ## Design Principles
 
 1. **Project-agnostic** — auto-discover structure (CLAUDE.md files, agents, docs dirs), don't assume layout
-2. **User is the gate** — always `AskUserQuestion` before destructive actions
+2. **User is the gate** — always present a decision (Pattern A) before destructive actions
 3. **Compressed notation** — use formal symbols where they reduce tokens without losing semantics
 4. **Append-only logs** — plugins that track state should use append-only logs for auditability
 5. **Recurrence detection** — if a plugin solves recurring problems, track occurrences to find root causes
@@ -391,9 +399,12 @@ Each project that has a plugin installed uses a specific cache dir identified by
    ```
    Syncs all plugins into every local cache dir (semver + hex-hash). Use `./sync-plugins.sh` to also push and sync Machine 1.
 
-**Find the active cache hash** — when a skill runs, `$CLAUDE_PLUGIN_ROOT` contains the full cache path (e.g. `~/.claude/plugins/cache/roxabi-marketplace/dev-core/6011eb380f4f/skills/init`). The hash segment (`6011eb380f4f`) identifies the active cache directory if you need to target a single one.
+**Skill path variables** — substituted at skill load time by Claude Code (not shell env vars):
+- `${CLAUDE_SKILL_DIR}` — resolves to the skill's own directory (e.g. `…/plugins/dev-core/skills/implement`)
+- `${CLAUDE_PLUGIN_ROOT}` — resolves to the plugin root in the **marketplace clone** (e.g. `~/.claude/plugins/marketplaces/roxabi-marketplace/plugins/dev-core`)
 
-**Skill path variables** — use `${CLAUDE_SKILL_DIR}` for files under the skill's own directory; use `${CLAUDE_PLUGIN_ROOT}` for cross-skill references (e.g., `shared/references/`).
+Use `${CLAUDE_PLUGIN_ROOT}` for cross-skill references within the same plugin (e.g. `${CLAUDE_PLUGIN_ROOT}/skills/shared/references/`).
+Use `${CLAUDE_PLUGIN_ROOT}/../shared/` to reference cross-plugin shared files in `plugins/shared/` (e.g. the decision protocol).
 
 ### Rules
 
