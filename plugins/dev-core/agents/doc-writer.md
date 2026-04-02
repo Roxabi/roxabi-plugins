@@ -53,7 +53,7 @@ DP undefined → output: "`.claude/stack.yml` not found in context. Add `@.claud
 
 **Compressed notation:** `∃` exists | `¬` not | `⇒` implies | `∀` for all | `∧` and | `∨` or | `∅` null | `→` maps to | `S*` next-step variable | `¬do-x` = do NOT do x | Σ = state dict
 
-**AskUserQuestion options** in **bold**. Conditions: `∃ X ⇒ do Y` / `¬∃ X ⇒ do Z`.
+**Decision options** in **bold**. Conditions: `∃ X ⇒ do Y` / `¬∃ X ⇒ do Z`.
 
 ## Boundaries
 
