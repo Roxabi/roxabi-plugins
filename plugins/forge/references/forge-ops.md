@@ -26,12 +26,15 @@ Not found → use fallback:
 
 ## Output Paths
 
-| Context | Path |
-|---------|------|
-| Exploration / iteration (default) | `~/.roxabi/forge/<project>/visuals/` |
-| Final / canonical (ARGS contains "final" or "docs") | `~/projects/<project>/docs/visuals/` |
-| Gallery | `~/.roxabi/forge/<project>/` |
-| Cross-project chart | `~/.roxabi/forge/_shared/diagrams/` |
+| Context | Skills | Path |
+|---------|--------|------|
+| Exploration / iteration (default) | guide, epic, chart | `~/.roxabi/forge/<project>/visuals/` |
+| Final / canonical (ARGS contains "final" or "docs") | guide only | `~/projects/<project>/docs/visuals/` |
+| Gallery HTML | gallery | `~/.roxabi/forge/<project>/` |
+| Gallery shared assets | gallery | `~/.roxabi/forge/_shared/gallery-base.css` + `.js` |
+| Cross-project chart | chart | `~/.roxabi/forge/_shared/diagrams/` |
+
+**Gallery shared assets:** `gallery-base.css` and `gallery-base.js` must exist at `~/.roxabi/forge/_shared/`. Gallery HTMLs link to them via relative path (e.g. `../../_shared/gallery-base.css`). Copy from `references/gallery-templates/` on first deploy.
 
 ---
 
@@ -60,4 +63,12 @@ cd ~/projects/lyra-stack && make diagrams deploy
 
 ## Project Detection
 
-Detect project from ARGS or cwd. Signals: `CLAUDE.md`, `pyproject.toml`, `package.json`, git remote name. Unknown → DP(B): ask.
+Detect project from ARGS or cwd. Check in order:
+
+1. Explicit project name in ARGS
+2. `CLAUDE.md` in cwd (project name often in heading)
+3. `pyproject.toml` → `[project] name`
+4. `package.json` → `name`
+5. `git remote -v` → extract repo name from origin URL
+
+Unknown → DP(B): ask.
