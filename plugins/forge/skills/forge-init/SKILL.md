@@ -70,7 +70,35 @@ ls -la ~/.roxabi/forge/_shared/gallery-base.*
 
 ---
 
-## Phase 5 — Report
+## Phase 5 — Makefile Integration (optional)
+
+Check if the current project has a Makefile:
+
+```bash
+ls Makefile 2>/dev/null
+```
+
+If Makefile exists → DP(A):
+
+```
+── Decision: Add forge make targets? ──
+
+Context: A Makefile exists in this project. Adding `make forge` targets
+         lets you start/stop the dev server from this project.
+Target:  `make forge serve` / `make forge stop` shortcuts.
+
+Options:
+  1. Add minimal targets (serve + stop) — appends to existing Makefile
+  2. Skip — use `python3 serve.py` directly
+
+Recommended: Option 1 — convenient for repeated use
+```
+
+If Option 1 → read `${CLAUDE_PLUGIN_ROOT}/references/forge-makefile.md` "Minimal" section and append to the project Makefile. Set `FORGE_SERVER` to `~/.roxabi/forge/serve.py`.
+
+---
+
+## Phase 6 — Report
 
 ```
 ── Forge Initialized ──
@@ -83,11 +111,11 @@ Shared:  ~/.roxabi/forge/_shared/gallery-base.{css,js}
 Quick start:
   cd ~/.roxabi/forge && python3 serve.py
   → http://localhost:8080/
+```
 
-Or set FORGE_DIR and FORGE_PORT:
-  FORGE_DIR=~/.roxabi/forge FORGE_PORT=9090 python3 ~/.roxabi/forge/serve.py
-
-See references/forge-makefile.md for Makefile + supervisor integration.
+If Makefile targets added:
+```
+Makefile: `make forge serve` / `make forge stop` added
 ```
 
 $ARGUMENTS

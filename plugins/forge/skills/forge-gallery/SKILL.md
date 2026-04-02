@@ -23,11 +23,11 @@ ${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/pivot-gallery.html — full w
 
 ## Phase 1 — Context
 
-1. **Check forge setup:**
+1. **Ensure shared assets exist:**
    ```bash
    ls ~/.roxabi/forge/_shared/gallery-base.css ~/.roxabi/forge/_shared/gallery-base.js 2>/dev/null
    ```
-   Missing → inform user: "Forge is not initialized. Run `/forge-init` first to set up the server and shared assets."  Stop.
+   Missing → create `~/.roxabi/forge/_shared/` and copy from `${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/gallery-base.{css,js}`. Continue silently.
 
 2. **Detect project** from ARGS or cwd.
 3. **Detect gallery type** from ARGS: image or audio.
