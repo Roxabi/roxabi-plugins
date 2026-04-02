@@ -8,6 +8,10 @@ allowed-tools: Bash, Read, Write, Glob, ToolSearch, AskUserQuestion
 
 # Video Recipe
 
+Let:
+  α := `~/.roxabi-vault/content-lab/analyses`
+  Ω := analyzer JSON output
+
 Analyze a YouTube video → extract narrative structure, VAKOG sensory predicates, content creation techniques, and a reusable recipe.
 
 ## Entry
@@ -19,13 +23,15 @@ Analyze a YouTube video → extract narrative structure, VAKOG sensory predicate
 /video-recipe --list
 ```
 
-If no URL and no flag provided → `AskUserQuestion` to get a YouTube URL.
+URL ∄ ∧ flag ∄ → `AskUserQuestion` for YouTube URL.
 
 ## Flags
 
-- `--html` — after markdown output, generate a visual HTML report via `visual-explainer` and upload to gui.new
-- `--compare` — after analysis, compare with previously stored analyses in vault
-- `--list` — list all stored analyses (no URL needed)
+| Flag | Action |
+|------|--------|
+| `--html` | After markdown output, generate visual HTML via `visual-explainer`, upload to gui.new |
+| `--compare` | After analysis, compare with stored analyses in vault |
+| `--list` | List all stored analyses (no URL needed) |
 
 ## Step 1 — Locate Plugins
 
@@ -40,30 +46,24 @@ fi
 
 ## First Use
 
-On the **first invocation** in this session:
-
-1. Run the doctor check:
+First invocation in session only:
 
 ```bash
 cd "$CONTENT_LAB_ROOT" && uv run python scripts/doctor.py
 ```
 
-2. If doctor reports core failures (exit code 1) → show output and stop.
-3. Skip on subsequent invocations in the same session.
+Doctor exit 1 → show output and stop. Skip on subsequent invocations.
 
 ## Step 2 — Handle --list
 
-If `--list` flag is present:
-
-1. Read `~/.roxabi-vault/content-lab/analyses/index.json`
-2. Present a table:
+`--list` ∃ → read `α/index.json` → present table:
 
 ```
 # | Date       | Channel          | Title                              | VAKOG Signature | Lang
 1 | 2026-03-17 | Le SamourAI      | -4800$/client: L'ardoise salée...  | Ad42-K27-V19-A12| fr
 ```
 
-3. Stop here. No further steps.
+Stop here.
 
 ## Step 3 — Scrape Video
 
@@ -71,9 +71,7 @@ If `--list` flag is present:
 cd "$WEB_INTEL_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt uv run python scripts/scraper.py "$URL"
 ```
 
-Save the raw JSON output to a temp file for the analyzer.
-
-If `success: false` or no transcript → inform the user and stop.
+Save raw JSON to temp file. `success: false` ∨ no transcript → inform user and stop.
 
 ## Step 4 — Run Analyzer
 
@@ -81,66 +79,43 @@ If `success: false` or no transcript → inform the user and stop.
 cd "$CONTENT_LAB_ROOT" && uv run python scripts/analyze.py /tmp/content-lab-scrape.json
 ```
 
-This returns structured JSON with:
-- `metadata` — title, author, duration, language, segment count
-- `vakog` — global distribution, temporal blocks, choreography, signature, examples
-- `techniques` — detected content creation patterns with confidence levels
+Ω contains: `metadata` (title, author, duration, language, segment count) | `vakog` (distribution, temporal blocks, choreography, signature, examples) | `techniques` (detected patterns with confidence).
 
-## Step 5 — Interpret and Present (Claude reasoning)
+## Step 5 — Interpret and Present
 
-Parse the analyzer JSON. Present the analysis in markdown with these sections:
+Parse Ω → present in markdown:
 
 ### Section 1 — Video Card
-
-Table with: title, channel, duration, language, segments count.
+Table: title, channel, duration, language, segment count.
 
 ### Section 2 — VAKOG Profile
 
-1. **Signature** — the compact code (e.g. `Ad42-K27-V19-A12`)
-2. **Archetype name** — give a 2-word name based on the dominant pair:
-   - Ad+K = "Analyste visceral"
-   - K+V = "Conteur immersif"
-   - V+Ad = "Vulgarisateur visuel"
-   - Ad+A = "Pedagogue structure"
-   - K+A = "Storyteller emotionnel"
-   - (use judgment for other combos)
-3. **Global distribution** — bar chart in text
+1. **Signature** — compact code (e.g. `Ad42-K27-V19-A12`)
+2. **Archetype** — 2-word name from dominant pair:
+
+| Pair | Name |
+|------|------|
+| Ad+K | Analyste visceral |
+| K+V | Conteur immersif |
+| V+Ad | Vulgarisateur visuel |
+| Ad+A | Pedagogue structure |
+| K+A | Storyteller emotionnel |
+
+3. **Global distribution** — text bar chart
 4. **Temporal choreography** — table of blocks with dominant system per phase
-5. **Pattern** — describe the choreography (e.g. "K→Ad→K sandwich sensoriel")
-6. **Interpretation** — explain WHY this pattern works for retention/persuasion:
-   - What does the hook system activate (limbique, cortex, etc.)?
-   - Why is the body system appropriate for credibility?
-   - How do the relances reset attention?
-   - What does the close system trigger (urgency, emotion)?
-7. **Top examples** — 3-5 best examples per system with timestamp
+5. **Pattern** — describe choreography (e.g. "K→Ad→K sandwich sensoriel")
+6. **Interpretation** — WHY the pattern works: hook system (limbique/cortex), body credibility, relances attention reset, close trigger
+7. **Top examples** — 3-5 best per system with timestamp
 
 ### Section 3 — Narrative Structure
 
-Analyze the transcript to identify phases:
-
-1. **Hook** — what technique opens the video, how long, what makes it work
-2. **Setup** — how the creator sets expectations and promises value
-3. **Body** — main argument structure (cases, expansion, synthesis)
-4. **Relances** — attention reset moments (visual pivots, new sub-topics)
-5. **CTA** — how the call-to-action is integrated (interrupting or narrative?)
-6. **Close** — how the video ends, callback to hook?, provocative clip?
-
-Present as a timing table + analysis.
+Analyze transcript: Hook | Setup | Body | Relances | CTA | Close. Present as timing table + analysis.
 
 ### Section 4 — Techniques Detected
 
-Present each detected technique with:
-- Name (FR + EN)
-- Confidence (high/medium/low)
-- Location in video
-- Evidence / example from transcript
-- Reusable takeaway (1-sentence recipe)
-
-Add any techniques you identify through reasoning that the script may have missed.
+∀ technique: Name (FR+EN) | Confidence | Location | Evidence | 1-sentence reusable takeaway. Add techniques identified via reasoning.
 
 ### Section 5 — Reusable Recipe
-
-A synthesis table:
 
 ```
 | Component    | Pattern                        | When to use            |
@@ -149,48 +124,26 @@ A synthesis table:
 | ...         | ...                           | ...                    |
 ```
 
-Include the **target VAKOG ratio** for this type of content.
+Include **target VAKOG ratio** for this content type.
 
 ## Step 6 — Store Analysis
 
-Save the analysis to vault for future `--compare` and `--list`:
-
-1. Ensure directory exists: `mkdir -p ~/.roxabi-vault/content-lab/analyses`
-2. Write the raw analyzer JSON to `~/.roxabi-vault/content-lab/analyses/YYYY-MM-DD_<slug>.json`
-   - Slug: lowercase channel + title keywords, max 50 chars, hyphens
-3. Update `~/.roxabi-vault/content-lab/analyses/index.json`:
-   - Append entry: `{date, channel, title, url, signature, language, file}`
-   - Create the file if it does not exist
+1. `mkdir -p α`
+2. Write raw Ω → `α/YYYY-MM-DD_<slug>.json` (slug: lowercase channel+title, max 50 chars, hyphens)
+3. Update `α/index.json` — append `{date, channel, title, url, signature, language, file}`, create if ∄
 
 ## Step 7 — Handle --compare
 
-If `--compare` flag is present:
-
-1. Read all previous analyses from index.json
-2. For each previous analysis, compare:
-   - VAKOG signature delta (shift in percentages)
-   - Shared vs unique techniques
-   - Choreography pattern similarity
-3. Present a comparison table:
-   - Which patterns are universal (appear in all videos)?
-   - Which are specific to this creator?
-   - What is the "meta-recipe" emerging from the corpus?
+`--compare` ∃: read all entries from index.json → ∀ previous: compare VAKOG delta, shared vs unique techniques, choreography similarity → table: universal patterns | creator-specific | meta-recipe.
 
 ## Step 8 — Handle --html
 
-If `--html` flag is present:
-
-1. Invoke the `visual-explainer` skill with the full analysis markdown as input
-2. Request a self-contained HTML page with:
-   - VAKOG bar charts and temporal heatmap
-   - Narrative structure timeline
-   - Technique cards
-3. Upload to gui.new and share the URL
+`--html` ∃: invoke `visual-explainer` with full analysis markdown → self-contained HTML (VAKOG charts + temporal heatmap, narrative timeline, technique cards) → upload to gui.new → share URL.
 
 ## Error Handling
 
-- If scraper fails → suggest checking the URL or trying `WebFetch` as fallback
-- If no transcript → inform user this video has no captions available
-- If analyzer fails → show raw error, suggest running doctor check
+- Scraper fails → suggest checking URL or `WebFetch` fallback
+- No transcript → inform user captions unavailable
+- Analyzer fails → show raw error, suggest doctor check
 
 $ARGUMENTS

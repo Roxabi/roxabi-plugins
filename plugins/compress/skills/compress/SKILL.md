@@ -27,7 +27,7 @@ Formal notation rewrite — reduce tokens, preserve semantics.
 **2 — Analyze:** Read target. Identify: repeated nouns (≥3×) | verbose conditionals | iteration prose | magic numbers | redundant examples | filler. L_before := line count (excl. frontmatter).
 
 **3 — Transform (R1–R10):**
-- **R1** Definitions: concept ≥ 3× → Greek var in `Let:` block (after title). Lowercase, mnemonic when possible. Template:
+- **R1** Definitions: concept ≥ 3× → Greek var in `Let:` block (after title). Lowercase, mnemonic. Template:
   ```
   Let:
     φ := set of all findings

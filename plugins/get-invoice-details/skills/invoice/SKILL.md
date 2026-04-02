@@ -7,55 +7,44 @@ allowed-tools: Read, Write, Bash, Glob
 
 # Get Invoice Details
 
-**Goal:** Extract structured data from an invoice document and store it as JSON in `~/.roxabi-vault/invoices/`.
+Let:
+  V := `~/.roxabi-vault/invoices`
+
+**Goal:** Extract structured data from an invoice → store as JSON in V.
 
 ## Workflow
 
 ### Phase 1 — Accept Input
 
-1. Accept invoice file path or pasted content from the user via `$ARGUMENTS`.
-2. If no input provided, AskUserQuestion: "Provide the path to the invoice file or paste the invoice content."
-3. Verify the file exists (if a path was given).
+1. Accept invoice file path or pasted content via `$ARGUMENTS`.
+2. Input ∄ → AskUserQuestion: "Provide the path to the invoice file or paste the invoice content."
+3. Path given → verify file ∃.
 
 ### Phase 2 — Extract Details
 
-1. Read the invoice content. For PDF files, run the extraction script:
+1. Read invoice content. PDF → run extraction script:
 ```bash
 python3 plugins/get-invoice-details/scripts/extract.py --input "<file_path>"
 ```
-2. Extract the following fields:
-   - `vendor` — company or person who issued the invoice
-   - `invoice_number` — unique invoice identifier
-   - `date` — invoice issue date (ISO 8601)
-   - `due_date` — payment due date (ISO 8601)
-   - `currency` — three-letter currency code
-   - `subtotal` — total before tax
-   - `tax` — tax amount
-   - `total` — final amount due
-   - `line_items` — array of `{description, quantity, unit_price, amount}`
-   - `payment_terms` — payment terms (e.g. "Net 30")
-   - `status` — "pending", "paid", or "overdue"
+2. Extract fields: `vendor` | `invoice_number` | `date` (ISO 8601) | `due_date` (ISO 8601) | `currency` (3-letter) | `subtotal` | `tax` | `total` | `line_items` (array of `{description, quantity, unit_price, amount}`) | `payment_terms` | `status` ("pending" | "paid" | "overdue")
 
 ### Phase 3 — Save to Vault
 
-1. Auto-create the invoices directory on first use:
+1. Create V on first use:
 ```bash
 mkdir -p -m 700 ~/.roxabi-vault/invoices
 ```
-2. Save the structured JSON to `~/.roxabi-vault/invoices/<invoice_number>.json`.
-3. If `vault_healthy()`, index the result in the vault database.
-4. Graceful fallback: if vault is unavailable, save the JSON file only and inform the user.
+2. Save JSON → `V/<invoice_number>.json`.
+3. `vault_healthy()` → index in vault database. ∄ → save JSON only, inform user.
 
 ### Phase 4 — Display Results
 
-1. Display the extracted invoice details to the user in a readable format.
-2. Confirm the save location.
-3. Report vault indexing status (indexed / vault unavailable).
+Display extracted details in readable format. Confirm save location. Report vault indexing status (indexed ∨ vault unavailable).
 
 ### Self-Check
 
-- Directory `~/.roxabi-vault/invoices/` is created automatically — no manual init required.
-- The extraction script handles text and PDF input.
-- Vault indexing is optional — the plugin works without a vault.
+- V created automatically — ¬manual init required
+- Extraction script handles text ∧ PDF
+- Vault indexing optional — plugin works without vault
 
 $ARGUMENTS

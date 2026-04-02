@@ -28,7 +28,7 @@ test -d ~/.roxabi-vault/cv/adapted && echo "adapted/: EXISTS" || echo "adapted/:
 test -f ~/.roxabi-vault/config/cv.json && echo "Config: EXISTS" || echo "Config: MISSING"
 ```
 
-If D exists, AskUserQuestion: "cv_data.json already exists. Overwrite with template? (yes/no)". If no, skip data file creation.
+∃D → AskUserQuestion: "cv_data.json already exists. Overwrite with template? (yes/no)". No → skip data file creation.
 
 ## Phase 2 — Create Directories
 
@@ -39,17 +39,11 @@ chmod 700 ~/.roxabi-vault/cv
 
 ## Phase 3 — Copy Starter Data
 
-If D does not exist (or user approved overwrite):
-
-1. Read E (the example file bundled with the plugin).
-2. Write it to D.
-3. Inform the user: "Created cv_data.json from template. Edit it with your real information before generating a CV."
+¬D ∨ user approved overwrite → read E, write to D. Inform: "Created cv_data.json from template. Edit it with your real information before generating a CV."
 
 ## Phase 4 — Create Config
 
-If C does not exist:
-
-Write default config:
+¬C → write default:
 ```json
 {
   "default_language": "en",
@@ -61,7 +55,7 @@ Write default config:
 }
 ```
 
-If C exists but is missing `default_language` or `supported_languages` keys, add them with defaults (`"en"` and `["en"]`) and inform the user: "Updated cv.json with language configuration keys."
+∃C but missing `default_language`/`supported_languages` → add defaults (`"en"`, `["en"]`); inform user: "Updated cv.json with language configuration keys."
 
 ## Phase 5 — Report
 

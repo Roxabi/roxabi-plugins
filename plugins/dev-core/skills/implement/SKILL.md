@@ -15,9 +15,9 @@ Let:
   β := base branch (staging if ∃ origin/staging, else main)
   QG := `{commands.lint} && {commands.typecheck} && {commands.test}`
 
-Plan → worktree → agents (test-first) → passing quality gate.
+Plan → ω → agents (test-first) → passing QG.
 
-**Flow: single continuous pipeline. ¬stop between steps. AskUserQuestion response → immediately execute next step. Stop only on: explicit Cancel/Abort, or Step 6 completion.**
+**Flow: single continuous pipeline. ¬stop between steps. AskUserQuestion response → immediately execute next step. Stop only on: explicit Cancel/Abort or Step 6 completion.**
 
 ```
 /implement --issue 42        Execute plan for issue #42
@@ -44,13 +44,13 @@ Does NOT create a PR — that is `/pr` (next step).
 `--plan <path>` → read directly.
 ¬found ⇒ suggest `/plan`. **Stop.**
 
-**S-tier exception:** τ=S ∧ ¬π → locate spec (`ls artifacts/specs/N-*.mdx`) or issue body (`gh issue view N --json body`). Skip to Step 4 (Tier S). ¬require plan for S-tier.
+**S-tier exception:** τ=S ∧ ¬π → locate spec (`ls artifacts/specs/N-*.mdx`) or issue body (`gh issue view N --json body`). Skip to Step 4 (Tier S). ¬require π for τ=S.
 
 Extract from frontmatter: `issue`, `tier`, `spec` path. From body: agent list, task list, slice structure.
 
 ## Step 2 — Setup
 
-**2a. Issue check:** `gh issue view <N>` — ¬∃ ⇒ draft + AskUserQuestion (Create|Edit|Skip) + `gh issue create`.
+**2a. Issue check:** `gh issue view <N>` — ∄ ⇒ draft + AskUserQuestion (Create|Edit|Skip) + `gh issue create`.
 
 **2b. Repo + β:**
 
@@ -85,21 +85,18 @@ git status --porcelain
 
 **2e. Worktree:**
 
-Use `EnterWorktree` with name `{N}-{slug}` to create an isolated worktree session:
-
 ```
 EnterWorktree(name: "{N}-{slug}")
 ```
 
-Then inside the worktree, set up the feature branch on the correct base:
-
+Inside ω:
 ```bash
 git checkout -b feat/<N>-<slug> origin/${BASE}
 cp .env.example .env 2>/dev/null; {package_manager} install
-# Optional: {commands.worktree_setup} <N>  (configure in stack.yml for DB branch creation etc.)
+# Optional: {commands.worktree_setup} <N>
 ```
 
-XS exception: AskUserQuestion → if approved, skip worktree — `git checkout -b feat/<N>-<slug> ${BASE}` in main repo.
+XS exception: AskUserQuestion → approved → skip ω, `git checkout -b feat/<N>-<slug> ${BASE}` in main repo.
 
 ## Step 3 — Context Injection (τ=F only)
 
@@ -115,11 +112,11 @@ Template: "Read `{doc}` sections: {sections}. Read `{ref_file}` for conventions.
 | architect | frontend-patterns + backend-patterns: AI Quick Ref | ✗ |
 | devops, security-auditor, doc-writer | ∅ | ✗ |
 
-Ref file paths from `/plan` Step 3. Inject the 1-2 ref files stored there.
+Ref file paths from `/plan` Step 3.
 
 ## Step 3b — Reasoning Audit (optional)
 
-`--audit` → present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) (implement guidance). Read plan/spec in full before presenting.
+`--audit` → present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Read π/spec in full first.
 → AskUserQuestion: **Proceed** | **Adjust approach** | **Abort**
 ¬`--audit` → skip to Step 4.
 
@@ -145,14 +142,14 @@ Agents create files from scratch (¬stubs). Include target path, shape/skeleton,
 
 ## Step 5 — Quality Gate
 
-Run quality gates inside the worktree (session is already in ω after EnterWorktree):
+Run QG inside ω (session already in ω after EnterWorktree):
 
 ```bash
 {commands.lint} && {commands.typecheck} && {commands.test}
 ```
 
 ✓ → Step 6.
-✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → AskUserQuestion: **Escalate to lead** | **Continue with failures** | **Abandon worktree** (`ExitWorktree(action: "remove")` + delete branch).
+✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → AskUserQuestion: **Escalate to lead** | **Continue with failures** | **Abandon ω** (`ExitWorktree(action: "remove")` + delete branch).
 
 ## Step 6 — Summary
 
@@ -170,13 +167,9 @@ Implement Complete
 
 ## Rollback
 
-Use `ExitWorktree` to leave and clean up the worktree:
-
 ```
 ExitWorktree(action: "remove", discard_changes: true)
 ```
-
-Then clean up the branch:
 
 ```bash
 git branch -D feat/<N>-<slug>
@@ -187,7 +180,7 @@ git branch -D feat/<N>-<slug>
 
 Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 
-| Merge conflict (worktree setup) | `git rebase --abort` → AskUserQuestion: **Resolve manually** (fix conflicts → `git rebase --continue`) \| **Abort** |
+| Merge conflict (ω setup) | `git rebase --abort` → AskUserQuestion: **Resolve manually** (fix conflicts → `git rebase --continue`) \| **Abort** |
 | Abandon after 3✗ gate failures | `ExitWorktree(action: "remove", discard_changes: true)` then `git branch -D feat/<N>-<slug>` |
 
 ## Safety
@@ -195,7 +188,7 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 1. ¬`git add -A` ∨ `git add .` — specific files only
 2. ¬push without PR via `/pr`
 3. ¬create issue without user approval
-4. Always worktree (XS exception w/ explicit lead approval)
+4. Always ω (XS exception w/ explicit lead approval)
 5. Always HEREDOC for commit messages
 6. Pre-commit hook failure → fix, re-stage, NEW commit (¬amend)
 

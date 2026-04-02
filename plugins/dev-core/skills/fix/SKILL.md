@@ -24,6 +24,7 @@ Let:
   T := 80 — auto-apply threshold
   Q_auto := {f | cat(f) ∈ actionable ∧ C(f) ≥ T ∧ |A(f)| ≥ 2}
   Q_1b1 := {f | cat(f) ∈ actionable ∧ f ∉ Q_auto}
+  O_push(N, scope, msg) { lint+test gate (max 3 retries) → stage specific files (¬`git add -A`) → commit `fix(<scope>): <msg>` → `git push` }
 
 ## Phase 1 — Gather Findings
 
@@ -73,12 +74,7 @@ Applied: N | Failed → 1b1: M
 
 ## Phase 4 — Push Auto-Applied
 
-∃ applied → validate + commit + push:
-1. `{commands.lint} && {commands.test}` — quality gate. Fail → auto-fix + retry (max 3); still failing → halt
-2. Stage specific files only (¬`git add -A`)
-3. Commit: `fix(<scope>): auto-apply N review findings` + list in body
-4. `git push`
-
+∃ applied → O_push(N, scope, "auto-apply N review findings" + list in body). Fail after 3 → halt.
 ¬∃ applied → skip.
 
 ## Phase 5 — 1b1 Walkthrough
@@ -126,12 +122,7 @@ Fixer constraints: re-read targets before editing (Phase 3 may have changed them
 
 ## Phase 7 — Final Push + Approve
 
-1. ∃ Phase 6 changes → validate + commit + push:
-   - `{commands.lint} && {commands.test}` — quality gate. Fail → auto-fix + retry (max 3); halt if stuck
-   - Stage specific files (¬`git add -A`)
-   - Commit: `fix(<scope>): apply N review findings from 1b1` + list in body
-   - `git push`
-
+1. ∃ Phase 6 changes → O_push(N, scope, "apply N review findings from 1b1" + list in body). Fail after 3 → halt.
 2. ∃ PR → `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"`
 
 ## Phase 8 — Post Follow-Up Comment

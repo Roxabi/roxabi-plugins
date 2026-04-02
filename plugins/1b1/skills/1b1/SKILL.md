@@ -32,9 +32,9 @@ Argument ∃ (e.g. `/1b1 review findings`) → narrow to matching list.
 
 #### 2a. Investigate
 
-ι references file → read relevant lines + surrounding context. ι references issue → `gh issue view`. Trace the root cause — don't stop at the symptom.
+ι references file → read relevant lines + surrounding context. ι references issue → `gh issue view`. Trace root cause — ¬stop at symptom.
 
-**Root cause first:** before presenting options, understand *why* the item exists. Read code, check history, follow references. The analysis must be grounded in evidence, not speculation.
+**Root cause first:** before presenting options, understand *why* ι exists. Read code, check history, follow references. Analysis must be grounded in evidence, ¬speculation.
 
 #### 2b. Brief
 
@@ -53,9 +53,9 @@ Recommendation: {Fix now | Defer | Skip | Reject} — {1-line rationale}
 
 | Item type | Options |
 |-----------|---------|
-| Code findings | **Fix now** (apply fix) · **Reject** (invalid, discard) · **Skip** · **Defer** (valid, not urgent) |
-| Tasks / plan items | **Do it** (execute) · **Skip** · **Modify** (change approach first) · **Remove** (drop) |
-| Issues / TODOs | **Act on it** (triage/assign/close) · **Skip** · **Defer** |
+| Code findings | **Fix now** · **Reject** (invalid) · **Skip** · **Defer** (valid, not urgent) |
+| Tasks / plan items | **Do it** · **Skip** · **Modify** · **Remove** |
+| Issues / TODOs | **Act on it** · **Skip** · **Defer** |
 | Generic | **Act** · **Skip** · **Defer** |
 
 #### 2d. Execute

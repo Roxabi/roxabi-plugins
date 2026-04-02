@@ -62,7 +62,7 @@ Paths from stack.yml. ¬set → file domain heuristics (component/hook → FE; s
 Always: **tester**. Add: architect (new modules), security-auditor (auth/validation), doc-writer (new APIs).
 τ=S → skip agent assignment (single session).
 
-**Intra-domain parallel:** ≥4 independent tasks in 1 domain → multiple same-type agents (F-full only). Shared barrel files → merge into single agent.
+Intra-domain parallel: ≥4 independent tasks in 1 domain → multiple same-type agents (F-full only). Shared barrel files → merge into single agent.
 
 **2d. Tasks:** ∀ task: description, files, agent, dependencies, parallel-safe (Y/N).
 Order: types → backend → frontend → tests → docs → config.
@@ -133,8 +133,8 @@ Include:
 ### Mermaid Diagrams
 
 `## Architecture` must include:
-1. **Data flow diagram** (`flowchart TD`) — full pipeline: config files → loader functions → data structures → composition → runtime injection. Group nodes into subgraphs by file. Highlight key paths with distinct styles.
-2. **File × Function map** (`flowchart LR`) — which functions/classes live in which files, how they call each other. Group by source file. Show test files as consumers.
+1. **Data flow** (`flowchart TD`) — full pipeline: config files → loader functions → data structures → composition → runtime injection. Group nodes into subgraphs by file. Highlight key paths with distinct styles.
+2. **File × Function map** (`flowchart LR`) — functions/classes per file, call relationships. Group by source file. Show test files as consumers.
 
 Diagrams go AFTER Summary, BEFORE Bootstrap Context.
 

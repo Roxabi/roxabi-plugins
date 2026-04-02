@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch, AskUserQuestion
 
 # Promote
 
-Let: σ := staging | μ := main | V := release version (vX.Y.Z)
+Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := AskUserQuestion
 
 σ → μ for production. Pre-flight → version → changelog → commit → preview → PR.
 `--finalize`: post-merge tag + GitHub Release.
@@ -35,7 +35,7 @@ gh pr list --base staging --state open --json number,title,headRefName
 | Check | Condition | Action |
 |-------|-----------|--------|
 | No commits | `git log main..staging` empty | **REFUSE.** Stop. |
-| Open PRs on σ | `gh pr list --base staging` → results | **WARN** + AskUserQuestion: **Continue** \| **Wait** |
+| Open PRs on σ | `gh pr list --base staging` → results | **WARN** + Q: **Continue** \| **Wait** |
 | CI status | Latest σ commit | **WARN** if ¬passing |
 
 ```bash
@@ -58,7 +58,7 @@ RUN_ID=$(gh run list --workflow=deploy-preview.yml --limit=1 --json databaseId -
 gh run watch $RUN_ID --exit-status
 ```
 
-AskUserQuestion: **Looks good — proceed** | **Issues — abort** | **Skip preview, proceed**
+Q: **Looks good — proceed** | **Issues — abort** | **Skip preview, proceed**
 
 `--skip-preview` ⇒ skip.
 
@@ -142,7 +142,7 @@ gh pr list --base main --head staging --state merged --limit 1 --json number,tit
 ```bash
 grep -oP '## \[\Kv[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1
 ```
-AskUserQuestion: **Use {detected}** | **Custom version**
+Q: **Use {detected}** | **Custom version**
 
 **9c.** Tag:
 ```bash
@@ -172,9 +172,9 @@ Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
 | Scenario | Behavior |
 |----------|----------|
 | Nothing to promote | REFUSE: σ up to date with μ |
-| Open PRs on σ | Warn, list, AskUserQuestion |
-| CI failing | Warn, show failures, AskUserQuestion |
-| Preview fails | Show error, AskUserQuestion |
+| Open PRs on σ | Warn, list, Q |
+| CI failing | Warn, show failures, Q |
+| Preview fails | Show error, Q |
 | PR already exists | Detect via `gh pr list`, offer update |
 | `--dry-run` | Summary only, ¬create PR/commit |
 | ¬merged (`--finalize`) | REFUSE: merge first |

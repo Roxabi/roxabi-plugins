@@ -97,19 +97,13 @@ grep -A5 '^\[project\.scripts\]' pyproject.toml 2>/dev/null | grep -v '^\[' | he
   || echo ""
 ```
 
-**Runtime/PM → command prefix:**
-- `uv` → `runtime: python`, `package_manager: uv`; prefix `uv run`
-- `bun` → `runtime: bun`, `package_manager: bun`; prefix `bun run`
-- `npm/pnpm/yarn` → `runtime: node`, `package_manager: {pm}`; prefix `{pm} run`
+**Runtime/PM → prefix:** `uv` → python/uv/`uv run` | `bun` → bun/bun/`bun run` | `npm/pnpm/yarn` → node/{pm}/`{pm} run`
 
 **Commands by runtime:**
 - Python/uv: `dev: uv run <first-script>` | `test: uv run pytest` | `lint: uv run ruff check .` | `format: uv run ruff format .` | `typecheck: uv run ruff check --select=PYI .` | `install: uv sync`
 - Node/Bun: `dev/test/lint/format/typecheck: {pm} run <key>` | `install: {pm} install`
 
-**Formatter fix command:**
-- ruff → `uv run ruff format . && uv run ruff check --fix .`
-- biome → `bunx biome check --write` (or `npx`)
-- eslint → `npx eslint --fix .`
+**Formatter fix:** ruff → `uv run ruff format . && uv run ruff check --fix .` | biome → `bunx biome check --write` | eslint → `npx eslint --fix .`
 
 **Mixed-stack monorepos** (JS/TS + Python): `formatters:` array instead of `formatter_fix_cmd`:
 ```yaml
@@ -120,9 +114,9 @@ build:
     - cmd: "ruff format"
       ext: [".py"]
 ```
-Each formatter receives only matching `ext` files. `formatter_fix_cmd` = fallback for single-formatter projects.
+∀ formatter receives only matching `ext` files. `formatter_fix_cmd` = fallback for single-formatter projects.
 
-**Standards paths** — include only if `docs/` ∃: backend, testing, code_review, architecture, configuration, contributing.
+**Standards paths** — `docs/` ∃ → include: backend, testing, code_review, architecture, configuration, contributing.
 
 ## Phase 3 — Confirm
 
@@ -152,7 +146,7 @@ Detected configuration
 
 AskUserQuestion: **Looks good — write it** | **Edit a field** | **Abort**
 
-"Edit a field" → ask which field + new value; apply; re-display π. Repeat until confirmed.
+"Edit a field" → ask which + new value; apply; re-display π. Repeat until confirmed.
 
 ## Phase 4 — Write stack.yml
 

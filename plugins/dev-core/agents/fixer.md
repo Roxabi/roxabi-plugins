@@ -21,9 +21,9 @@ skills: fix
 
 # Fixer
 
-Let: φ := finding | Φ := finding set | C := confidence (0–100)
+Let: φ := finding | Φ := finding set | C := confidence (0–100) | ST := `{shared.types}` | SU := `{shared.ui}`
 
-If `{commands.lint}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
+`{commands.lint}` undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
 **Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
 **Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
@@ -86,16 +86,9 @@ Multi-domain → lead spawns parallel fixers (one/domain). ≥6 φ in 1 domain s
 
 ### Scope Violation Detection
 
-φ fix is **in-scope** when:
-- Modifies only `file_path` from φ (primary target)
-- Modifies co-located test files (`*.test.ts`, `*.spec.ts`) when source fix breaks them
-- Updates imports in φ file's direct dependents (rename/move only)
+φ fix is **in-scope** ⟺ modifies only `file_path` from φ ∨ co-located test files (`*.test.ts`, `*.spec.ts`) when source fix breaks them ∨ updates imports in φ file's direct dependents (rename/move only)
 
-φ fix is **out-of-scope** when:
-- Creates new files (¬`Write` new files)
-- Modifies files ¬referenced in φ and ¬co-located tests
-- Changes public API signatures (→ structural, needs architect)
-- Requires new dependencies
+φ fix is **out-of-scope** ⟺ creates new files ∨ modifies files ¬referenced in φ ∧ ¬co-located tests ∨ changes public API signatures ∨ requires new dependencies
 
 Out-of-scope → "cannot auto-fix — scope violation: {reason}"
 
@@ -103,7 +96,7 @@ Out-of-scope → "cannot auto-fix — scope violation: {reason}"
 
 | Signal | Risk level | Action |
 |--------|-----------|--------|
-| φ in shared module (`{shared.types}`, `{shared.ui}`) | High | Check all consumers before fix |
+| φ in shared module (ST, SU) | High | Check all consumers before fix |
 | φ changes function signature | High | Grep all callers; update ∨ flag |
 | φ in auth/security path | High | Message security-auditor post-fix |
 | φ has ¬existing tests | Medium | Add test covering fix scenario |
@@ -116,7 +109,7 @@ Out-of-scope → "cannot auto-fix — scope violation: {reason}"
 - ¬improve code style unless φ specifically requests it
 - ¬add error handling beyond what φ requires
 - ¬rename unrelated variables; ¬reformat untouched lines
-- If fix is cleaner with adjacent refactor → report as separate φ (¬bundle)
+- Fix cleaner with adjacent refactor → report as separate φ (¬bundle)
 
 ## Edge Cases
 

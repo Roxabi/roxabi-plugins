@@ -61,34 +61,26 @@ N detection: first number after `/` in Β (e.g. `feat/42-slug` → `#42`). ¬fou
 
 **3d. Body:** template below.
 
-## Step 4 — Create
+## Step 4 — Create + Update Issue
 
 Show generated title + body → create immediately (¬ask how). `--draft` → draft.
 Failure ∨ explicit edit request → AskUserQuestion: **Edit title/body** | **Cancel**.
-
-## Step 5 — Create PR
 
 ```bash
 gh pr create --title "<title>" --body "<body>" --base ${BASE} [--draft]
 # --base <branch> if flag specified (overrides BASE)
 ```
 
-Display PR URL.
-
-## Step 6 — Update Issue Status
-
-∃ N →
+Display PR URL. ∃ N →
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <ISSUE_NUMBER> --status Review
 ```
 
 Updating existing PR → `gh pr edit <number> --title "<title>" --body "<body>"`.
 
-## Step 7 — Watch CI
+## Step 5 — Watch CI
 
-After PR creation, inform the user that CI is now running and suggest watching it live:
-
-> "CI is running on the PR — use `/ci-watch` to monitor it live."
+Inform: "CI is running on the PR — use `/ci-watch` to monitor it live."
 
 ## PR Body Template
 

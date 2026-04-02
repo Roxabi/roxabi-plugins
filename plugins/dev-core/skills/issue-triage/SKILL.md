@@ -8,18 +8,17 @@ allowed-tools: Bash, ToolSearch, AskUserQuestion
 
 # Issue Triage
 
-Let: τ := triage.ts at ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts | κ := complexity score
+Let: τ := `bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts` | κ := complexity score
 
 Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies and parent/child relationships.
 
 ## Instructions
 
-1. List all open issues: `bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts list`
-   List untriaged only: `bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts list --untriaged`
+1. List all open issues: `τ list` | List untriaged only: `τ list --untriaged`
 2. ∀ issue: determine Size, Priority, κ (see [Complexity Scoring](#complexity-scoring))
-3. Set values: `bun τ set <number> --size <S> --priority <P>`
-4. Update status: `bun τ set <number> --status "In Progress"`
-5. Create issues: `bun τ create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--parent 163]`
+3. Set values: `τ set <number> --size <S> --priority <P>`
+4. Update status: `τ set <number> --status "In Progress"`
+5. Create issues: `τ create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--parent 163]`
 6. AskUserQuestion if unsure about Size ∨ Priority.
 
 ## Size Guidelines
@@ -134,24 +133,24 @@ Reference: `artifacts/analyses/280-token-consumption.mdx` for scoring examples.
 ## Example Workflow
 
 ```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts list
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts list --untriaged
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set 42 --size M --priority High
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set 42 --status "In Progress"
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set 91 --blocked-by 117
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set 117 --blocks 91,118
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set 91 --rm-blocked-by 117
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set 164 --parent 163
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set 163 --add-child 164,165,166
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set 164 --rm-parent
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set 163 --rm-child 166
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \
+τ list
+τ list --untriaged
+τ set 42 --size M --priority High
+τ set 42 --status "In Progress"
+τ set 91 --blocked-by 117
+τ set 117 --blocks 91,118
+τ set 91 --rm-blocked-by 117
+τ set 164 --parent 163
+τ set 163 --add-child 164,165,166
+τ set 164 --rm-parent
+τ set 163 --rm-child 166
+τ create \
   --title "research: compare against example/repo" \
   --body "Deep analysis of example/repo" \
   --label "research" \
   --size S --priority Medium \
   --parent 163
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \
+τ create \
   --title "epic: improve CI pipeline" \
   --size L --priority High \
   --add-child 150,151,152
@@ -161,12 +160,14 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \
 
 Run `/init` to auto-detect and populate env vars. Field operations (status, size, priority) require a configured project board — without it, issue creation and dependency management still work but field updates are skipped with a clear error.
 
-- `GH_PROJECT_ID` — GitHub Project V2 ID (**required** for field updates)
-- `STATUS_FIELD_ID` — Project field ID for Status
-- `SIZE_FIELD_ID` — Project field ID for Size
-- `PRIORITY_FIELD_ID` — Project field ID for Priority
-- `STATUS_OPTIONS_JSON` — JSON map of status names → option IDs
-- `SIZE_OPTIONS_JSON` — JSON map of size names → option IDs
-- `PRIORITY_OPTIONS_JSON` — JSON map of priority names → option IDs
+| Var | Purpose | Required |
+|-----|---------|---------|
+| `GH_PROJECT_ID` | GitHub Project V2 ID | ✅ field updates |
+| `STATUS_FIELD_ID` | Project field ID for Status | ✅ field updates |
+| `SIZE_FIELD_ID` | Project field ID for Size | ✅ field updates |
+| `PRIORITY_FIELD_ID` | Project field ID for Priority | ✅ field updates |
+| `STATUS_OPTIONS_JSON` | JSON map status names → option IDs | ✅ field updates |
+| `SIZE_OPTIONS_JSON` | JSON map size names → option IDs | ✅ field updates |
+| `PRIORITY_OPTIONS_JSON` | JSON map priority names → option IDs | ✅ field updates |
 
 $ARGUMENTS

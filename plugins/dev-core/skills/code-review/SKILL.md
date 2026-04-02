@@ -21,6 +21,7 @@ Let:
   F := set of all findings | f ∈ F := single finding
   C(f) ∈ [0,100] ∩ ℤ — confidence | cat(f) ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
   Δ := changed files | BASE := staging ∨ main
+  Q := AskUserQuestion
 
 ## Pipeline
 
@@ -54,7 +55,7 @@ git diff ${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]
 ⚠️  Potential secrets found in diff — review before proceeding:
   <file>: <matched line with secret value redacted to first 2 + last 2 chars>
 ```
-AskUserQuestion: **Review and proceed** | **Abort**
+Q: **Review and proceed** | **Abort**
 ∅ → continue silently.
 
 ## Phase 2 — Spec Compliance
@@ -166,7 +167,7 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 
 ## Phase 8 — Next Step
 
-AskUserQuestion:
+Q:
 - **Fix now (`/fix`)** — invoke `/fix` (auto-apply + 1b1 + spawn fixers; `/fix` Phase 8 offers rebase + label + merge)
 - **Merge as-is** — rebase + label + squash merge (below)
 - **Stop** — exit
@@ -176,7 +177,7 @@ AskUserQuestion:
 1. `git fetch origin ${BASE} && git rev-list HEAD..origin/${BASE} --count`
    - count > 0 → `git rebase origin/${BASE}` + `git push --force-with-lease`
    - conflict → halt (¬label)
-2. AskUserQuestion: "Add `reviewed` label?" → Yes / No
+2. Q: "Add `reviewed` label?" → Yes / No
 3. Yes → `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"` → squash merge on green CI
 4. No → inform manual
 
@@ -204,6 +205,6 @@ AskUserQuestion:
 2. ¬auto-merge, ¬approve PRs on GitHub
 3. ¬fix code — findings only. Fixing = `/fix` skill
 4. ∃ PR → must post comment (Phase 6)
-5. Human decides at Phase 8 — ¬proceed without AskUserQuestion
+5. Human decides at Phase 8 — ¬proceed without Q
 
 $ARGUMENTS

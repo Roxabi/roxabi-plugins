@@ -48,7 +48,6 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
    ```
 
 2. Verify: `curl -s -o /dev/null -w "HTTP %{http_code}" http://localhost:3333`
-
 3. Inform: "Dashboard at http://localhost:3333 — refresh for latest. Stop with `/issues --stop`."
 4. **Stop here** — ¬run CLI table.
 
@@ -70,7 +69,7 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
 
 ---
 
-**`--tree` ∨ `-T` ∈ $ARGUMENTS →** Pass flag to fetch script (step 1 below), then present output verbatim. **Stop here** — ¬show WIP section.
+**`--tree` ∨ `-T` ∈ $ARGUMENTS →** Pass flag to fetch script (step 1 below), present output verbatim. **Stop here** — ¬show WIP section.
 
 ---
 
@@ -81,7 +80,7 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
    bun ${CLAUDE_PLUGIN_ROOT}/skills/issues/fetch-issues.ts
    ```
 
-2. Present output in code block. ¬reformat — script produces formatted table. **Display ALL lines of the output verbatim — do NOT truncate, summarize, or omit any rows.**
+2. Present output in code block. ¬reformat — script produces formatted table. **Display ALL lines verbatim — ¬truncate, summarize, or omit rows.**
 
 3. Recommendations (2-3 lines max):
    - ✅ ∧ P0/P1 → prioritize
@@ -95,11 +94,8 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
    gh pr list --state open --json number,title,headRefName,isDraft,labels
    ```
 
-   Present as "Work in Progress":
-   - Worktrees beyond main
-   - Feature branches related to issues
-   - PRs: title + PR# + status, branch indented with `└`
-   - **PR status**: `DRAFT` if draft | `REVIEWED` if label "reviewed" ∃ | else `REVIEW`
+   Present as "Work in Progress": worktrees beyond main; feature branches related to issues; PRs: title + PR# + status, branch indented with `└`.
+   **PR status**: `DRAFT` if draft | `REVIEWED` if label "reviewed" ∃ | else `REVIEW`
 
 ## Options
 

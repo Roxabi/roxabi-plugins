@@ -19,9 +19,7 @@ Let:
   D✅(label)       := D(label, "✅ Created")
   D⏭(label)       := D(label, "⏭ Skipped")
 
-Connect the current project to GitHub: Project V2 board, field IDs, labels, branch protection, Vercel, issue migration, workspace registration.
-
-Can run standalone (`/github-setup`) or be called by `/init`.
+Connect to GitHub: Project V2 board, field IDs, labels, branch protection, Vercel, issue migration, workspace registration. Standalone or called by `/init`.
 
 ## Phase 1 — Auto-Discover Configuration
 
@@ -80,9 +78,7 @@ Run: `bun $I_TS labels --repo <owner/repo> --scope <all|type|area>`
 Ask: **Set up branch protection** | **Skip**.
 yes → `bun $I_TS protect-branches --repo <owner/repo>`
 
-This command: applies branch protection (required `ci` check, strict up-to-date) on main + staging; creates `PR_Main` ruleset if missing (squash/rebase/merge allowed, no deletion/force push, thread resolution required — merge commits needed for promotion PRs staging→main).
-
-Parse result. Display per-branch ✅/❌ + Ruleset status (Created | Already exists | Failed).
+Applies: branch protection (required `ci`, strict up-to-date) on main + staging; `PR_Main` ruleset if missing (squash/rebase/merge, ¬deletion/force-push, thread resolution — merge commits needed for staging→main). Display per-branch ✅/❌ + Ruleset status.
 
 ### 1d. Vercel (Optional)
 
@@ -139,13 +135,11 @@ Ensure δ ∈ `.gitignore`.
 
 Run: `bun $I_TS scaffold --github-repo <owner/repo> --project-id <PVT_...> --status-field-id <PVTSSF_...> --size-field-id <PVTSSF_...> --priority-field-id <PVTSSF_...> --status-options-json '<json>' --size-options-json '<json>' --priority-options-json '<json>' [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
 
-Also writes `.env`/`.env.example` for backward compat. δ takes precedence at runtime via `loadDevCoreConfig()`.
-
-Installs `roxabi` shim at `~/.local/bin/roxabi` (or `~/bin/roxabi`) — self-healing shell script resolving latest active dev-core plugin cache at runtime. Run `roxabi dashboard` to launch. Shim survives plugin updates.
+Also writes `.env`/`.env.example` for backward compat. δ takes precedence at runtime via `loadDevCoreConfig()`. Installs `roxabi` shim at `~/.local/bin/roxabi` (or `~/bin/roxabi`) — self-healing, survives plugin updates. Run `roxabi dashboard` to launch.
 
 ## Phase 4 — Workspace Registration
 
-Register current project in shared workspace config (enables multi-project dashboard).
+Register in shared workspace config (enables multi-project dashboard).
 
 1. Check:
    ```bash
@@ -197,16 +191,13 @@ Scan filesystem for repos with dev-core configured but ∉ workspace.json.
    grep -E "^(GITHUB_REPO|GH_PROJECT_ID|VERCEL_PROJECT_ID|VERCEL_TEAM_ID)=" <path>/.env 2>/dev/null
    ```
 
-3. Filter: current project + already-registered.
+3. Filter: current project + already-registered. ∄ candidates → skip silently.
 
-4. ∄ candidates → skip silently.
+4. ∃ candidates → display list, Ask: **Add all** | **Select** | **Skip**.
 
-5. ∃ candidates → display list, Ask: **Add all** | **Select** | **Skip**.
+5. Add → ∀ chosen: derive label from repo name, append to workspace.json (Vercel IDs only if ∃). D("workspace.json", "✅ Added N projects (repo-a, repo-b, ...)").
 
-6. Add → ∀ chosen: read config, derive label from repo name, append to workspace.json (include Vercel IDs only if ∃).
-   D("workspace.json", "✅ Added N projects (repo-a, repo-b, ...)").
-
-7. Skip → D⏭("Bulk discovery").
+6. Skip → D⏭("Bulk discovery").
 
 ## Phase 6 — Report
 
@@ -235,9 +226,9 @@ Next: run /ci-setup to configure GitHub Actions and pre-commit hooks.
 
 ## Safety Rules
 
-1. **Never overwrite `.claude/dev-core.yml` or `.env` values** without F or explicit confirmation
+1. **Never overwrite δ or `.env` values** without F or explicit confirmation
 2. **Always AskUserQuestion** before destructive or write operations
-3. **Never commit `.claude/dev-core.yml` or `.env`** — ensure both are in `.gitignore`
+3. **Never commit δ or `.env`** — ensure both are in `.gitignore`
 4. **Never store secrets in `.env.example`** — use empty placeholder values
 5. **Idempotent** — safe to re-run, merges rather than overwrites
 

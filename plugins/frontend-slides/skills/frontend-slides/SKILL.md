@@ -7,145 +7,122 @@ allowed-tools: Read, Write, Bash, Glob
 
 # Frontend Slides
 
+Let:
+  VP := viewport fitting invariants
+  DL := content density limits per slide
+
 Create zero-dependency, animation-rich HTML presentations that run entirely in the browser.
 
 ## Core Principles
 
-1. **Zero Dependencies** — Single HTML files with inline CSS/JS. No npm, no build tools.
-2. **Show, Don't Tell** — Generate visual previews, not abstract choices. People discover what they want by seeing it.
-3. **Distinctive Design** — No generic "AI slop." Every presentation must feel custom-crafted.
-4. **Viewport Fitting (NON-NEGOTIABLE)** — Every slide MUST fit exactly within 100vh. No scrolling within slides, ever. Content overflows? Split into multiple slides.
+1. **Zero Dependencies** — Single HTML files with inline CSS/JS. ¬npm, ¬build tools.
+2. **Show, Don't Tell** — Generate visual previews, not abstract choices.
+3. **Distinctive Design** — ¬generic "AI slop." Every presentation feels custom-crafted.
+4. **VP (NON-NEGOTIABLE)** — Every slide MUST fit exactly within 100vh. ¬scrolling within slides. Content overflows → split into multiple slides.
 
 ## Design Aesthetics
 
-You tend to converge toward generic, "on distribution" outputs. In frontend design, this creates what users call the "AI slop" aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight.
+Avoid "AI slop" aesthetic — make creative, distinctive frontends that surprise and delight.
 
-Focus on:
-- Typography: Choose fonts that are beautiful, unique, and interesting. Avoid generic fonts like Arial and Inter; opt instead for distinctive choices that elevate the frontend's aesthetics.
-- Color & Theme: Commit to a cohesive aesthetic. Use CSS variables for consistency. Dominant colors with sharp accents outperform timid, evenly-distributed palettes. Draw from IDE themes and cultural aesthetics for inspiration.
-- Motion: Use animations for effects and micro-interactions. Prioritize CSS-only solutions for HTML. Use Motion library for React when available. Focus on high-impact moments: one well-orchestrated page load with staggered reveals (animation-delay) creates more delight than scattered micro-interactions.
-- Backgrounds: Create atmosphere and depth rather than defaulting to solid colors. Layer CSS gradients, use geometric patterns, or add contextual effects that match the overall aesthetic.
+- **Typography**: beautiful, unique fonts — ¬Arial, ¬Inter, ¬generic system fonts
+- **Color & Theme**: cohesive aesthetic with CSS variables; dominant colors + sharp accents; draw from IDE themes / cultural aesthetics
+- **Motion**: CSS-only animations; prioritize page-load staggered reveals over scattered micro-interactions
+- **Backgrounds**: atmosphere + depth via CSS gradients, geometric patterns, contextual effects
 
-Avoid generic AI-generated aesthetics:
-- Overused font families (Inter, Roboto, Arial, system fonts)
-- Cliched color schemes (particularly purple gradients on white backgrounds)
-- Predictable layouts and component patterns
-- Cookie-cutter design that lacks context-specific character
+Avoid: overused fonts (Inter, Roboto, Arial) | cliché color schemes (purple gradients on white) | predictable layouts | Space Grotesk convergence. Think outside the box — vary light/dark themes, fonts, aesthetics per generation.
 
-Interpret creatively and make unexpected choices that feel genuinely designed for the context. Vary between light and dark themes, different fonts, different aesthetics. You still tend to converge on common choices (Space Grotesk, for example) across generations. Avoid this: it is critical that you think outside the box!
+## VP Rules (∀ slide)
 
-## Viewport Fitting Rules
-
-These invariants apply to EVERY slide in EVERY presentation:
-
-- Every `.slide` must have `height: 100vh; height: 100dvh; overflow: hidden;`
-- ALL font sizes and spacing must use `clamp(min, preferred, max)` — never fixed px/rem
+- `.slide` → `height: 100vh; height: 100dvh; overflow: hidden;`
+- ALL font sizes/spacing → `clamp(min, preferred, max)` — ¬fixed px/rem
 - Content containers need `max-height` constraints
 - Images: `max-height: min(50vh, 400px)`
 - Breakpoints required for heights: 700px, 600px, 500px
 - Include `prefers-reduced-motion` support
-- Never negate CSS functions directly (`-clamp()`, `-min()`, `-max()` are silently ignored) — use `calc(-1 * clamp(...))` instead
+- ¬negate CSS functions directly (`-clamp()` silently ignored) → use `calc(-1 * clamp(...))`
 
-**When generating, read `viewport-base.css` and include its full contents in every presentation.**
+**Before generating, read `viewport-base.css` and include its full contents in every presentation.**
 
-### Content Density Limits Per Slide
+### DL Per Slide
 
 | Slide Type | Maximum Content |
 |------------|-----------------|
-| Title slide | 1 heading + 1 subtitle + optional tagline |
-| Content slide | 1 heading + 4-6 bullet points OR 1 heading + 2 paragraphs |
-| Feature grid | 1 heading + 6 cards maximum (2x3 or 3x2) |
-| Code slide | 1 heading + 8-10 lines of code |
-| Quote slide | 1 quote (max 3 lines) + attribution |
-| Image slide | 1 heading + 1 image (max 60vh height) |
+| Title | 1 heading + 1 subtitle + optional tagline |
+| Content | 1 heading + 4-6 bullets OR 1 heading + 2 paragraphs |
+| Feature grid | 1 heading + 6 cards max (2×3 or 3×2) |
+| Code | 1 heading + 8-10 lines of code |
+| Quote | 1 quote (max 3 lines) + attribution |
+| Image | 1 heading + 1 image (max 60vh) |
 
-**Content exceeds limits? Split into multiple slides. Never cram, never scroll.**
+Content exceeds DL → split. ¬cram, ¬scroll.
 
 ---
 
 ## Phase 0: Detect Mode
 
-Determine what the user wants:
+- **Mode A: New Presentation** → Phase 1
+- **Mode B: PPT Conversion** → Phase 4
+- **Mode C: Enhancement** → read existing, enhance per Mode C rules
 
-- **Mode A: New Presentation** — Create from scratch. Go to Phase 1.
-- **Mode B: PPT Conversion** — Convert a .pptx file. Go to Phase 4.
-- **Mode C: Enhancement** — Improve an existing HTML presentation. Read it, understand it, enhance. **Follow Mode C modification rules below.**
+### Mode C Rules
 
-### Mode C: Modification Rules
+VP is the biggest risk when enhancing:
 
-When enhancing existing presentations, viewport fitting is the biggest risk:
+1. Before adding content: count elements, check against DL
+2. Adding images: `max-height: min(50vh, 400px)`. Slide at max content → split first
+3. Adding text: max 4-6 bullets. Exceeds DL → split into continuation slides
+4. After ANY modification verify: `.slide` has `overflow: hidden` | new elements use `clamp()` | images have viewport-relative max-height | fits at 1280×720
+5. Modifications will cause overflow → auto-split and inform user. ¬wait to be asked
 
-1. **Before adding content:** Count existing elements, check against density limits
-2. **Adding images:** Must have `max-height: min(50vh, 400px)`. If slide already has max content, split into two slides
-3. **Adding text:** Max 4-6 bullets per slide. Exceeds limits? Split into continuation slides
-4. **After ANY modification, verify:** `.slide` has `overflow: hidden`, new elements use `clamp()`, images have viewport-relative max-height, content fits at 1280x720
-5. **Proactively reorganize:** If modifications will cause overflow, automatically split content and inform the user. Don't wait to be asked
-
-**When adding images to existing slides:** Move image to new slide or reduce other content first. Never add images without checking if existing content already fills the viewport.
+Adding images to existing slides → move image to new slide or reduce other content first.
 
 ---
 
 ## Phase 1: Content Discovery (New Presentations)
 
-**Ask ALL questions in a single AskUserQuestion call** so the user fills everything out at once:
+Ask ALL questions in a single AskUserQuestion call:
 
-**Question 1 — Purpose** (header: "Purpose"):
-What is this presentation for? Options: Pitch deck / Teaching-Tutorial / Conference talk / Internal presentation
+- **Purpose**: Pitch deck / Teaching-Tutorial / Conference talk / Internal
+- **Length**: Short 5-10 / Medium 10-20 / Long 20+
+- **Content**: All ready / Rough notes / Topic only
+- **Inline Editing**: Yes (Recommended — edit in-browser, auto-save to localStorage, export) / No
 
-**Question 2 — Length** (header: "Length"):
-Approximately how many slides? Options: Short 5-10 / Medium 10-20 / Long 20+
+Remember editing choice — determines whether edit-related code is included in Phase 3. Content ∃ → ask user to share it.
 
-**Question 3 — Content** (header: "Content"):
-Do you have content ready? Options: All content ready / Rough notes / Topic only
+### Step 1.2: Image Evaluation
 
-**Question 4 — Inline Editing** (header: "Editing"):
-Do you need to edit text directly in the browser after generation? Options:
-- "Yes (Recommended)" — Can edit text in-browser, auto-save to localStorage, export file
-- "No" — Presentation only, keeps file smaller
+User selected "No images" → skip to Phase 2.
 
-**Remember the user's editing choice — it determines whether edit-related code is included in Phase 3.**
+User provides image folder:
+1. Scan — list all image files (.png, .jpg, .svg, .webp, etc.)
+2. View each via Read tool (multimodal)
+3. ∀ image: what it shows | USABLE / NOT USABLE (with reason) | concept | dominant colors
+4. Co-design outline — curated images inform slide structure alongside text (¬"plan slides then add images" — design around both from start)
+5. AskUserQuestion (header: "Outline"): "Does this slide outline and image selection look right?" Options: Looks good / Adjust images / Adjust outline
 
-If user has content, ask them to share it.
-
-### Step 1.2: Image Evaluation (if images provided)
-
-If user selected "No images" → skip to Phase 2.
-
-If user provides an image folder:
-1. **Scan** — List all image files (.png, .jpg, .svg, .webp, etc.)
-2. **View each image** — Use the Read tool (Claude is multimodal)
-3. **Evaluate** — For each: what it shows, USABLE or NOT USABLE (with reason), what concept it represents, dominant colors
-4. **Co-design the outline** — Curated images inform slide structure alongside text. This is NOT "plan slides then add images" — design around both from the start (e.g., 3 screenshots → 3 feature slides, 1 logo → title/closing slide)
-5. **Confirm via AskUserQuestion** (header: "Outline"): "Does this slide outline and image selection look right?" Options: Looks good / Adjust images / Adjust outline
-
-**Logo in previews:** If a usable logo was identified, embed it (base64) into each style preview in Phase 2 — the user sees their brand styled three different ways.
+Logo ∃ → embed (base64) into each Phase 2 style preview.
 
 ---
 
 ## Phase 2: Style Discovery
 
-**This is the "show, don't tell" phase.** Most people can't articulate design preferences in words.
-
 ### Step 2.0: Style Path
 
-Ask how they want to choose (header: "Style"):
-- "Show me options" (recommended) — Generate 3 previews based on mood
-- "I know what I want" — Pick from preset list directly
+Ask (header: "Style"): "Show me options" (recommended) / "I know what I want"
 
-**If direct selection:** Show preset picker and skip to Phase 3. Available presets are defined in [STYLE_PRESETS.md](STYLE_PRESETS.md).
+Direct selection → show preset picker from [STYLE_PRESETS.md](STYLE_PRESETS.md) → skip to Phase 3.
 
-### Step 2.1: Mood Selection (Guided Discovery)
+### Step 2.1: Mood Selection
 
-Ask (header: "Vibe", multiSelect: true, max 2):
-What feeling should the audience have? Options:
-- Impressed/Confident — Professional, trustworthy
-- Excited/Energized — Innovative, bold
-- Calm/Focused — Clear, thoughtful
-- Inspired/Moved — Emotional, memorable
+Ask (header: "Vibe", multiSelect, max 2):
+- Impressed/Confident — professional, trustworthy
+- Excited/Energized — innovative, bold
+- Calm/Focused — clear, thoughtful
+- Inspired/Moved — emotional, memorable
 
 ### Step 2.2: Generate 3 Style Previews
 
-Based on mood, generate 3 distinct single-slide HTML previews showing typography, colors, animation, and overall aesthetic. Read [STYLE_PRESETS.md](STYLE_PRESETS.md) for available presets and their specifications.
+Read [STYLE_PRESETS.md](STYLE_PRESETS.md). Generate 3 distinct single-slide HTML previews (typography, colors, animation, overall aesthetic).
 
 | Mood | Suggested Presets |
 |------|-------------------|
@@ -154,68 +131,52 @@ Based on mood, generate 3 distinct single-slide HTML previews showing typography
 | Calm/Focused | Notebook Tabs, Paper & Ink, Swiss Modern |
 | Inspired/Moved | Dark Botanical, Vintage Editorial, Pastel Geometry |
 
-Save previews to `.claude-design/slide-previews/` (style-a.html, style-b.html, style-c.html). Each should be self-contained, ~50-100 lines, showing one animated title slide.
-
-Open each preview automatically for the user.
+Save → `.claude-design/slide-previews/` (style-a.html, style-b.html, style-c.html) — self-contained, ~50-100 lines, one animated title slide each. Open each automatically.
 
 ### Step 2.3: User Picks
 
-Ask (header: "Style"):
-Which style preview do you prefer? Options: Style A: [Name] / Style B: [Name] / Style C: [Name] / Mix elements
+Ask (header: "Style"): Style A: [Name] / Style B: [Name] / Style C: [Name] / Mix elements
 
-If "Mix elements", ask for specifics.
+"Mix elements" → ask for specifics.
 
 ---
 
 ## Phase 3: Generate Presentation
 
-Generate the full presentation using content from Phase 1 (text, or text + curated images) and style from Phase 2.
+Use content from Phase 1 + style from Phase 2. Images ∃ → outline already incorporates them from Step 1.2. ∄ → CSS-generated visuals (gradients, shapes, patterns) — fully supported.
 
-If images were provided, the slide outline already incorporates them from Step 1.2. If not, CSS-generated visuals (gradients, shapes, patterns) provide visual interest — this is a fully supported first-class path.
-
-**Before generating, read these supporting files:**
+Read before generating:
 - [html-template.md](html-template.md) — HTML architecture and JS features
 - [viewport-base.css](viewport-base.css) — Mandatory CSS (include in full)
-- [animation-patterns.md](animation-patterns.md) — Animation reference for the chosen feeling
+- [animation-patterns.md](animation-patterns.md) — Animation reference for chosen feeling
 
-**Key requirements:**
-- Single self-contained HTML file, all CSS/JS inline
-- Include the FULL contents of viewport-base.css in the `<style>` block
-- Use fonts from Fontshare or Google Fonts — never system fonts
-- Add detailed comments explaining each section
-- Every section needs a clear `/* === SECTION NAME === */` comment block
+Requirements: single self-contained HTML | full viewport-base.css in `<style>` | fonts from Fontshare or Google Fonts | detailed comments | `/* === SECTION NAME === */` per section.
 
 ---
 
 ## Phase 4: PPT Conversion
 
-When converting PowerPoint files:
-
-1. **Extract content** — Run `python scripts/extract-pptx.py <input.pptx> <output_dir>` (install python-pptx if needed: `pip install python-pptx`)
-2. **Confirm with user** — Present extracted slide titles, content summaries, and image counts
-3. **Style selection** — Proceed to Phase 2 for style discovery
-4. **Generate HTML** — Convert to chosen style, preserving all text, images (from assets/), slide order, and speaker notes (as HTML comments)
+1. Extract: `python scripts/extract-pptx.py <input.pptx> <output_dir>` (install python-pptx if needed: `pip install python-pptx`)
+2. Confirm — present extracted slide titles, content summaries, image counts
+3. Style selection → Phase 2
+4. Generate HTML — preserve text, images (from assets/), slide order, speaker notes (as HTML comments)
 
 ---
 
 ## Phase 5: Delivery
 
-1. **Clean up** — Delete `.claude-design/slide-previews/` if it exists
-2. **Open** — Use `open [filename].html` to launch in browser
-3. **Summarize** — Tell the user:
-   - File location, style name, slide count
-   - Navigation: Arrow keys, Space, scroll/swipe, click nav dots
-   - How to customize: `:root` CSS variables for colors, font link for typography, `.reveal` class for animations
-   - If inline editing was enabled: Hover top-left corner or press E to enter edit mode, click any text to edit, Ctrl+S to save
+1. Delete `.claude-design/slide-previews/` if ∃
+2. `open [filename].html`
+3. Report: file location | style name | slide count | navigation (arrows, space, scroll/swipe, nav dots) | customization (`:root` CSS vars, font link, `.reveal` class) | edit mode if enabled (hover top-left or E → edit mode, click text to edit, Ctrl+S to save)
 
 ---
 
 ## Supporting Files
 
-| File | Purpose | When to Read |
-|------|---------|-------------|
-| [STYLE_PRESETS.md](STYLE_PRESETS.md) | 12 curated visual presets with colors, fonts, and signature elements | Phase 2 (style selection) |
-| [viewport-base.css](viewport-base.css) | Mandatory responsive CSS — copy into every presentation | Phase 3 (generation) |
-| [html-template.md](html-template.md) | HTML structure, JS features, code quality standards | Phase 3 (generation) |
-| [animation-patterns.md](animation-patterns.md) | CSS/JS animation snippets and effect-to-feeling guide | Phase 3 (generation) |
-| [scripts/extract-pptx.py](scripts/extract-pptx.py) | Python script for PPT content extraction | Phase 4 (conversion) |
+| File | Purpose | When |
+|------|---------|------|
+| [STYLE_PRESETS.md](STYLE_PRESETS.md) | 12 curated visual presets | Phase 2 |
+| [viewport-base.css](viewport-base.css) | Mandatory responsive CSS | Phase 3 |
+| [html-template.md](html-template.md) | HTML structure, JS features | Phase 3 |
+| [animation-patterns.md](animation-patterns.md) | CSS/JS animation snippets | Phase 3 |
+| [scripts/extract-pptx.py](scripts/extract-pptx.py) | PPT content extraction | Phase 4 |

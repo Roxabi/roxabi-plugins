@@ -16,6 +16,10 @@ Let:
   Σ_s  := session state map (step → bool), in-memory only, lost on restart
   S*   := next step to execute
   φ    := frame artifact
+  gate := {frame, spec, plan}
+  adv  := {triage, analyze, implement, pr, ci-watch, validate, review, fix, cleanup}
+  ψ_r(P) ⟺ P.comments ∃ body: "## Code Review"
+  ψ_f(P) ⟺ P.comments ∃ body: "## Review Fixes Applied"
 
 Single entry point: scan artifacts → detect state → show progress → delegate to step skill → loop.
 ¬rewrite step skill logic. ¬auto-advance phases. AskUserQuestion at each gate.
@@ -88,10 +92,10 @@ git branch -a | grep "{N}-{slug}"
 # PR
 gh pr list --search "#{N}" --json number,state,reviewDecision,merged --jq '.[]'
 
-# Review comment marker (fallback when reviewDecision is null)
+# Review (ψ_r fallback when reviewDecision is null)
 gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "^## Code Review" && echo "review_comment=true"
 
-# Fix comment marker (fallback for fix detection)
+# Fix (ψ_f fallback)
 gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "^## Review Fixes Applied" && echo "fix_comment=true"
 ```
 
@@ -105,19 +109,16 @@ gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "
   plan:      plan artifact ∃,
   implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ branch has commits beyond staging,
   pr:        PR ∃,
-  ci-watch:  null,         # no artifact — uses Σ_s only
-  validate:  null,         # no artifact — uses Σ_s only
-  review:    PR ∃ ∧ (PR.reviewDecision ∈ ('APPROVED','CHANGES_REQUESTED') ∨ pr_has_review_comment(PR)),
-  fix:       PR ∃ ∧ pr_has_fix_comment(PR),
-  promote:   skipped,  # /promote is standalone staging→main. ¬part of feature cycle. Skip unless explicitly requested.
+  ci-watch:  null,       # Σ_s only
+  validate:  null,       # Σ_s only
+  review:    PR ∃ ∧ (PR.reviewDecision ∈ ('APPROVED','CHANGES_REQUESTED') ∨ ψ_r(PR)),
+  fix:       PR ∃ ∧ ψ_f(PR),
+  promote:   skipped,  # standalone staging→main, ¬feature cycle
   cleanup:   ¬worktree ∃ ∧ ¬stale_branch ∃,
 }
 
 Σ_s = {} initially. Populated in Step 8 after each skill completes. Lost on restart.
 Σ[step] == null → relies on Σ_s for within-session advancement.
-
-pr_has_review_comment(PR) ⟺ PR comments ∃ body starting with "## Code Review"
-pr_has_fix_comment(PR)    ⟺ PR comments ∃ body starting with "## Review Fixes Applied"
 
 τ = φ.tier || issue_size_label_to_tier(issue.labels) || null
 
@@ -140,12 +141,7 @@ pr_has_fix_comment(PR)    ⟺ PR comments ∃ body starting with "## Review Fixe
 → Next: {S*} — {one-line description}
 ```
 
-Bar: `██` per completed/skipped, `░░` per pending. Phase steps:
-- Frame: triage, frame
-- Shape: analyze, spec
-- Build: plan, implement, pr
-- Verify: ci-watch, validate, review, fix
-- Ship: promote, cleanup
+Bar: `██`=done/skipped, `░░`=pending. Phases: Frame:{triage,frame} | Shape:{analyze,spec} | Build:{plan,implement,pr} | Verify:{ci-watch,validate,review,fix} | Ship:{promote,cleanup}
 
 Status: `✓ {name}` (done) | `skipped` | `pending` | `→ next`.
 
@@ -204,29 +200,17 @@ Gate fires → Step 7 skips its own prompt (gate IS confirmation). ¬double-prom
 
 ## Step 6b — Reasoning Audit (optional)
 
-**Trigger:** `--audit` ∨ S* ∈ `stack.yml` `workflow.reasoning_audit` list.
+**Trigger:** `--audit` ∨ S* ∈ `workflow.reasoning_audit` (stack.yml). critical := {spec, plan, implement}.
 
-Let: critical_steps := {spec, plan, implement}.
+audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Gate ∃ for S* → audit **replaces** it (¬double-prompt). ¬pass `--audit` to child skills.
+→ AskUserQuestion: **Proceed** | **Adjust approach** (max 3 rounds) | **Abort** (→ skipped, Step 5)
 
-audit_enabled ∧ S* ∈ critical_steps → present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md), using field guidance for S*.
-
-**Merge rule:** Step 6 gate ∃ for S* → audit **replaces** gate — single combined AskUserQuestion. ¬two consecutive prompts.
-
-→ AskUserQuestion: **Proceed** | **Adjust approach** (max 3 rounds) | **Abort step** (→ skipped, return to Step 5)
-
-¬audit_enabled ∨ S* ∉ critical_steps → skip to Step 7 (Step 6 gate still applies independently).
-
-**Important:** ¬pass `--audit` to child skills in Step 7. Audit fires at orchestrator level only. ¬double-gate.
+¬audit ∨ S* ∉ critical → skip (Step 6 gate still applies).
 
 ## Step 7 — Execute Step
 
-```
-gate_steps    := {frame, spec, plan}
-auto_advance  := {triage, analyze, implement, pr, ci-watch, validate, review, fix, cleanup}
-```
-
-**gate_steps:** Step 6 already AskUserQuestion'd → invoke skill immediately. ¬double-prompt.
-**auto_advance:** Show `→ Running {S*}…`, invoke immediately. ¬AskUserQuestion.
+**gate:** Step 6 already AskUserQuestion'd → invoke skill immediately. ¬double-prompt.
+**adv:** Show `→ Running {S*}…`, invoke immediately. ¬AskUserQuestion.
 **Exception:** user may type "stop"/"skip to X" before skill completes.
 
 **Skill invocation map:**
@@ -255,9 +239,9 @@ auto_advance  := {triage, analyze, implement, pr, ci-watch, validate, review, fi
 
 Skill completes → Σ_s[step] = true → goto Step 1 (re-scan Σ).
 Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix).
-Session restart → Σ_s = ∅ → artifact-less steps re-run (desired: results go stale).
-Gates (frame, spec, plan) → re-scan detects updated artifact → progress → Step 6 gate → Step 7 immediately (¬second prompt).
-auto_advance → re-scan → progress → Step 7 immediately.
+Session restart → Σ_s = ∅ → artifact-less steps re-run.
+gate → re-scan detects updated artifact → Step 6 gate → Step 7 immediately (¬second prompt).
+adv → re-scan → Step 7 immediately.
 
 ## Phases + Gate Summary
 
@@ -287,7 +271,7 @@ auto_advance → re-scan → progress → Step 7 immediately.
 | promote | cond | cond | cond |
 | cleanup | cond | cond | cond |
 
-cond = run only if applicable (see skip logic).
+cond = applicable only (see skip logic).
 
 ## Completion
 

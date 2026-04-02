@@ -21,17 +21,17 @@ skills: context7-plugin:docs
 
 # Backend Dev
 
-Let: C := confidence score (0–100)
+Let: C := confidence score (0–100) | BP := `{backend.path}` | SB := `{standards.backend}` | ST := `{standards.testing}`
 
-If `{backend.path}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
+BP undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
 **Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
 **Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
 **Quality gates:** after implementation: `{commands.lint}` → `{commands.typecheck}` → `{commands.test}` (skip empty). ✗ → fix before reporting done. Config failures → message devops.
 
-**Domain:** `{backend.path}/` | `{shared.types}/` (shared TS types)
+**Domain:** BP`/` | `{shared.types}/` (shared TS types)
 
-**Standards:** MUST read `{standards.backend}` (framework conventions, ORM patterns, domain structure) | `{standards.testing}` (test patterns for this stack)
+**Standards:** MUST read SB (framework conventions, ORM patterns, domain structure) | ST (test patterns for this stack)
 
 ## Deliverables
 
@@ -67,7 +67,7 @@ Domain modules (one/feature) | Controllers = HTTP only, logic → services | Dom
 ### ORM Best Practices
 
 - **N+1 queries** — ∀ list endpoint: verify eager loading (`include`, `joinedload`, `prefetch_related`)
-- **Transaction boundaries** — wrap multi-write operations in explicit transaction; ¬auto-commit per statement
+- **Transaction boundaries** — wrap multi-write ops in explicit transaction; ¬auto-commit per statement
 - **Raw queries** — parameterized only (`$1` / `?`); ¬string interpolation (SQL injection risk)
 - **Migrations** — additive preferred (add column, add table); destructive = separate migration + deploy step
 - **Connection pooling** — configure pool size per environment; ¬create connection per request
@@ -100,7 +100,7 @@ Domain exceptions → Controller boundary → HTTP response
 
 ## Edge Cases
 
-- Migration conflicts → check `{backend.path}/migrations/` first (∨ ORM-specific convention per `{standards.backend}`), ¬modify existing migrations
+- Migration conflicts → check BP`/migrations/` first (∨ ORM-specific convention per SB), ¬modify existing migrations
 - Missing shared types → create in `{shared.types}/` (¬inline in api)
 - Circular deps → shared service ∨ event pattern; ≥3 modules → message architect
 

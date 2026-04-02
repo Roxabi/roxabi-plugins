@@ -43,16 +43,16 @@ Git Cleanup Summary
 ═══════════════════
 
 Branches:
-  Branch              │ Merged │ PR    │ Worktree │ Last Commit  │ Action
-  feat/19-auth        │ ✅ yes │ —     │ —        │ 3 days ago   │ 🗑 Safe to delete
+  Branch              │ Merged │ PR    │ Worktree  │ Last Commit  │ Action
+  feat/19-auth        │ ✅ yes │ —     │ —         │ 3 days ago   │ 🗑 Safe to delete
   feat/33-i18n        │ ❌ no  │ #42   │ ../repo-33│ 2 hours ago  │ ⚠️ Active work
-  fix/old-bug         │ ✅ yes │ —     │ —        │ 2 weeks ago  │ 🗑 Safe to delete
-  experiment/test     │ ❌ no  │ —     │ —        │ 1 month ago  │ ⚠️ Unmerged
+  fix/old-bug         │ ✅ yes │ —     │ —         │ 2 weeks ago  │ 🗑 Safe to delete
+  experiment/test     │ ❌ no  │ —     │ —         │ 1 month ago  │ ⚠️ Unmerged
 
 Worktrees:
-  Path                │ Branch          │ Status
-  /home/user/project  │ main            │ Main (keep)
-  /home/user/rox-33   │ feat/33-i18n    │ Active PR #42
+  Path                │ Branch        │ Status
+  /home/user/project  │ main          │ Main (keep)
+  /home/user/rox-33   │ feat/33-i18n  │ Active PR #42
 
 Legend: 🗑 = safe to delete, ⚠️ = needs attention, 🔒 = protected
 ```
@@ -60,7 +60,7 @@ Legend: 🗑 = safe to delete, ⚠️ = needs attention, 🔒 = protected
 ### 4. Ask for Confirmation
 
 AskUserQuestion:
-- Present only safe-to-delete items as default selections
+- Present only safe(β) items as default selections
 - Show unmerged β separately with warning; **NEVER auto-select unmerged β**
 - ∃ unmerged β → separate question with explicit warning
 - Always include "Skip / Do nothing"
@@ -110,7 +110,7 @@ gh pr list --state open --json headRefName --jq '.[].headRefName' 2>/dev/null
 1. Issue number in main's commit history (`git log --grep="#<issue>"`)
 2. PR state via `gh pr list --state all --head <branch>` — look for `MERGED`
 
-Post-merge commits (e.g. review fixes) on a `MERGED` PR β → still safe to delete.
+Post-merge commits on a `MERGED` PR β → still safe to delete.
 
 #### 6c. Present remote summary table
 
@@ -169,18 +169,17 @@ Cleanup Complete
 3. **NEVER delete a branch with an open PR** unless explicitly confirmed
 4. **NEVER delete an unmerged branch** without a separate, explicit confirmation
 5. **ALWAYS show merge status** before any deletion
-6. **ALWAYS use `git branch -d`** (safe delete) for merged branches
-7. **ONLY use `git branch -D`** (force delete) when user explicitly confirms unmerged deletion
-8. **ALWAYS remove worktree before deleting its branch**
-9. **NEVER delete remote branches automatically** — always require explicit confirmation per branch
-10. **ALWAYS scan all remote branches** for stale merged branches, not just locally deleted ones
+6. **ALWAYS use `git branch -d`** for merged branches; **`git branch -D` only** when user explicitly confirms unmerged deletion
+7. **ALWAYS remove worktree before deleting its branch**
+8. **NEVER delete remote branches automatically** — always require explicit confirmation per branch
+9. **ALWAYS scan all remote branches** for stale merged branches, not just locally deleted ones
 
 ## Edge Cases
 
-- **Squash merges**: `git branch -d` won't detect squash merges. Use `git log --oneline --grep` to check β name or issue# in main's history.
-- **Remote tracking branches**: Step 6 scans **all** remote β independently (not just locally deleted ones). Always require explicit confirmation before remote deletion.
-- **Squash merges on remote**: `git branch -r --merged` does NOT detect squash merges. Verify via issue# grep in main history AND `gh pr list --state all --head <branch>` for `MERGED`. Post-merge commits on a `MERGED` PR → still safe to delete.
-- **Stale worktrees**: ω path ∉ disk → `git worktree prune` cleans it up.
-- **EnterWorktree worktrees**: worktrees in `.claude/worktrees/` are session-managed — `git worktree list` shows them alongside legacy worktrees. Clean up with `git worktree remove` or `ExitWorktree` if in active session.
+- **Squash merges**: `git branch -d` won't detect squash merges → use `git log --oneline --grep` on β name or issue# in main.
+- **Squash merges on remote**: `git branch -r --merged` does NOT detect squash merges → verify via issue# grep AND `gh pr list --state all --head <branch>` for `MERGED`. Post-merge commits on a `MERGED` PR → still safe.
+- **Remote tracking branches**: Step 6 scans **all** remote β independently — always require explicit confirmation.
+- **Stale worktrees**: ω path ∉ disk → `git worktree prune`.
+- **EnterWorktree worktrees**: worktrees in `.claude/worktrees/` are session-managed — `git worktree list` shows them alongside legacy worktrees; clean with `git worktree remove` or `ExitWorktree` if in active session.
 
 $ARGUMENTS

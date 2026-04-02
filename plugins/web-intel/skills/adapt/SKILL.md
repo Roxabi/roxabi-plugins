@@ -8,7 +8,10 @@ allowed-tools: Bash, Read
 
 # Adapt
 
-Scrape a URL → extract what works → suggest how to adapt patterns, copy, and design for your project.
+Let:
+  P(x) := pattern of type x (content | design | technical | business)
+
+Scrape URL → extract what works → suggest adaptations for your project.
 
 ## Entry
 
@@ -16,7 +19,7 @@ Scrape a URL → extract what works → suggest how to adapt patterns, copy, and
 /adapt https://example.com
 ```
 
-If no URL provided → `AskUserQuestion` to get one.
+¬U → `AskUserQuestion` to get one.
 
 ## Step 1 — Locate Plugin
 
@@ -30,17 +33,14 @@ fi
 
 ## First Use
 
-On the **first invocation** of any web-intel skill in this session:
-
-1. Run the doctor check:
+First invocation in session only:
 
 ```bash
 cd "$PLUGIN_ROOT" && uv run python scripts/doctor.py
 ```
 
-2. If doctor reports core failures (exit code 1) → show output to the user and stop. Guide them through the install commands listed in the report.
-3. If doctor reports optional warnings → inform the user which platforms have limited support, then continue.
-4. Skip this check on subsequent invocations in the same session.
+- exit 1 → show output, stop, guide install. Optional warnings → inform user, continue.
+- Skip on subsequent invocations.
 
 ## Step 2 — Scrape
 
@@ -50,54 +50,32 @@ cd "$PLUGIN_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt REQUESTS_C
 
 ## Step 3 — Extract What Works
 
-Analyze the scraped content to identify reusable patterns:
+Identify reusable patterns across 4 domains:
 
-### Content & Copy
-- **Headlines & CTAs** — effective copy patterns, power words, structure
-- **Value Propositions** — how they frame their product/service
-- **Social Proof** — how they build trust (testimonials, logos, metrics)
-- **Microcopy** — button text, error messages, onboarding flows
-
-### Design Patterns
-- **Layout** — page structure, section ordering, visual hierarchy
-- **Navigation** — menu structure, breadcrumbs, search UX
-- **Component Patterns** — cards, pricing tables, feature grids, hero sections
-- **Color & Typography** — palette choices, font pairing, heading scale
-
-### Technical Patterns
-- **Architecture** — SSR/SPA, API patterns, auth flows
-- **Performance** — lazy loading, caching strategies, CDN usage
-- **Integrations** — analytics, payment, auth providers
-- **Developer Experience** — docs structure, API design, SDK patterns
-
-### Business Patterns
-- **Pricing Structure** — tiers, free plan, enterprise
-- **Growth Mechanics** — referral, viral loops, community
-- **Onboarding** — signup flow, activation steps, first value
+| Domain | Patterns to extract |
+|--------|-------------------|
+| **Content & Copy** | Headlines/CTAs, value props, social proof, microcopy |
+| **Design** | Layout/section order, nav UX, component patterns, color/typography |
+| **Technical** | Architecture (SSR/SPA/API), performance strategies, integrations, DX |
+| **Business** | Pricing tiers, growth mechanics, onboarding/activation flow |
 
 ## Step 4 — Adaptation Recommendations
 
-For each identified pattern, provide:
+∀ identified pattern → provide:
+1. What they do (concrete description)
+2. Why it works (underlying principle)
+3. How to adapt → specific suggestion for YOUR project (¬copy, adaptation)
+4. Effort: S (hours) | M (days) | L (weeks)
+5. Impact: High | Medium | Low
 
-1. **What they do** — describe the pattern concretely
-2. **Why it works** — the principle behind it
-3. **How to adapt** — specific suggestion for YOUR project (not a copy, an adaptation)
-4. **Implementation effort** — S (hours) / M (days) / L (weeks)
-5. **Impact estimate** — High / Medium / Low
-
-### Priority Matrix
-
-Sort recommendations into:
-- **Quick wins** (low effort, high impact) — do these first
-- **Strategic bets** (high effort, high impact) — plan for these
-- **Nice to have** (low effort, low impact) — do if time permits
-- **Skip** (high effort, low impact) — not worth it
+Sort into priority matrix:
+- **Quick wins** (low effort ∧ high impact) — do first
+- **Strategic bets** (high effort ∧ high impact) — plan
+- **Nice to have** (low effort ∧ low impact) — if time permits
+- **Skip** (high effort ∧ low impact) — ¬worth it
 
 ## Step 5 — Present
 
-Output structured markdown. End with `AskUserQuestion`:
-- Implement a specific adaptation? → hand off to appropriate skill
-- Deep-dive a specific pattern? → provide more detail
-- Adapt from another URL? → loop back
+Output structured markdown. `AskUserQuestion`: Implement a specific adaptation? | Deep-dive a pattern? | Adapt from another URL?
 
 $ARGUMENTS

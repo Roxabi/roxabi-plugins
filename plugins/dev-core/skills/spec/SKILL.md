@@ -15,6 +15,7 @@ Let:
   ρ := reviewer set
   χ := `[NEEDS CLARIFICATION]`
   Ω := `skill: "interview"`
+  Q := AskUserQuestion
   SRC := source doc (α ∨ φ)
 
 Analysis (or frame) → approved spec. Interview → pre-check → expert review → user approval.
@@ -41,7 +42,7 @@ grep -rl "issue: N" artifacts/frames/ 2>/dev/null | head -1
 ```
 
 `--analysis path` / `--frame path` → read directly.
-¬SRC found → AskUserQuestion: "Run `/analyze --issue N` first, or provide path directly?"
+¬SRC found → Q: "Run `/analyze --issue N` first, or provide path directly?"
 
 Read SRC → extract: title, issue#, tier, problem, outcome, appetite, recommended shape (if α).
 
@@ -60,12 +61,12 @@ Capture returned issue #N.
 ## Step 1 — Scan Existing Spec
 
 Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*`.
-∃ σ → AskUserQuestion: **Reuse existing** (→ Step 3) | **Start fresh**
+∃ σ → Q: **Reuse existing** (→ Step 3) | **Start fresh**
 
 ## Step 1b — Reasoning Audit (optional)
 
 `--audit` → after reading SRC, present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) (spec guidance).
-→ AskUserQuestion: **Proceed** | **Adjust approach** | **Abort**
+→ Q: **Proceed** | **Adjust approach** | **Abort**
 ¬`--audit` → skip to Step 2.
 
 ## Step 2 — Generate Spec
@@ -121,7 +122,7 @@ Pre-check: 2 of 5 checks failed
   ✗ Ambiguity budget: 7 [NEEDS CLARIFICATION] items found (max 5)
 ```
 
-AskUserQuestion: **Fix spec first** (open σ, collect corrections, revise, re-check) | **Continue to review anyway**
+Q: **Fix spec first** (open σ, collect corrections, revise, re-check) | **Continue to review anyway**
 
 ## Step 4 — Expert Review
 
@@ -144,7 +145,7 @@ Open σ: `code artifacts/specs/{N}-{slug}-spec.mdx`.
 
 Present summary: scope, |slices|, |acceptance criteria|, |χ|, pre-check results, unresolved expert concerns.
 
-AskUserQuestion: **Approve** → continue pipeline | **Revise** → collect feedback → revise σ → loop from Step 3.
+Q: **Approve** → continue pipeline | **Revise** → collect feedback → revise σ → loop from Step 3.
 
 On approval → commit: `git add artifacts/specs/{N}-{slug}-spec.mdx` + commit per CLAUDE.md Rule 5.
 
@@ -171,7 +172,7 @@ Tier S → skip. Read [references/smart-splitting.md](${CLAUDE_SKILL_DIR}/refere
 
 | Scenario | Behavior |
 |----------|----------|
-| ¬α ∧ ¬φ found | AskUserQuestion: run `/analyze` first or provide path |
+| ¬α ∧ ¬φ found | Q: run `/analyze` first or provide path |
 | ∃ σ, user picks reuse | Present existing → jump to Step 3 |
 | Analysis skipped (F-lite) | Use frame as SRC for interview promotion |
 | `--issue N` ∧ ¬GitHub issue | Create issue from SRC content |
