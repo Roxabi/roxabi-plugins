@@ -75,7 +75,7 @@ Audio players with engine/quality badges. Card and list views. Best for: TTS eng
 </tr>
 </table>
 
-All templates share: same CSS tokens, dynamic filters (OFF = inactive = show all), search, sort, size controls, lightbox, manifest.json discovery.
+All templates share `gallery-base.css` (tokens, toolbar, controls) + `gallery-base.js` (theme, filters, discovery, batch bar, starring). Dynamic filters (OFF = inactive = show all), search, sort, size controls, lightbox, manifest.json discovery.
 
 See `references/gallery-templates/README.md` for customisation guide.
 
