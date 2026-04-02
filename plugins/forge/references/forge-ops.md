@@ -57,13 +57,13 @@ cd ~/.roxabi/forge && python3 -m http.server 8080
 
 ### Persistent daemon (optional)
 
-If the project has a supervisor setup with a `make diagrams` target, use that instead:
+If the project has a supervisor setup with a `make forge` target, use that instead:
 
 ```bash
-make diagrams start     # start dev server on :8080
-make diagrams status    # check if running
-make diagrams logs      # tail stdout
-make diagrams reload    # restart after config changes
+make forge start     # start dev server on :8080
+make forge status    # check if running
+make forge logs      # tail stdout
+make forge reload    # restart after config changes
 ```
 
 A dedicated dev server can provide: auto-regeneration of `manifest.json` on HTML changes, SSE live reload, `/api/list/` endpoint for image/audio discovery, and a gallery index UI.
@@ -74,7 +74,7 @@ If no daemon is available, `python3 -m http.server` works fine — just regenera
 
 ## Deploy
 
-If the project has a `make diagrams deploy` target, use it. Otherwise, deploy is optional — galleries work locally via `python3 -m http.server`.
+If the project has a `make forge deploy` target, use it. Otherwise, deploy is optional — galleries work locally via `python3 -m http.server`.
 
 ---
 
