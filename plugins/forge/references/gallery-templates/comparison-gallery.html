@@ -16,82 +16,31 @@
 <meta name="diagram:badges"    content="latest">
 <!-- diagram-meta:end -->
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- CUSTOMISE: adjust path to gallery-base.css for your deploy location -->
+<link rel="stylesheet" href="gallery-base.css">
 <style>
 /* ══════════════════════════════════════════════════════════════════
-   TOKENS — replace --accent and --accent-dim with project brand color
+   CUSTOMISE: override accent tokens for your project brand
    ══════════════════════════════════════════════════════════════════ */
 :root {
-  --bg:#0c0e16; --surface:#13161f; --surface2:#1a1d2a; --card:#1e2133;
-  --border:rgba(255,255,255,0.07); --border2:rgba(255,255,255,0.13);
-  --text:#dde4f0; --text-dim:#7d8799; --text-xdim:#3e4556;
-  /* CUSTOMISE: swap this accent color for your project brand */
   --accent:{{ACCENT_COLOR}};   /* e.g. #e8a030 */
   --accent-dim:{{ACCENT_DIM}}; /* e.g. rgba(232,160,48,0.12) */
-  --green:#34d399; --green-dim:rgba(52,211,153,0.12);
-  --blue:#60a5fa;  --blue-dim:rgba(96,165,250,0.12);
-  --purple:#a78bfa;--purple-dim:rgba(167,139,250,0.12);
-  --orange:#fb923c;--orange-dim:rgba(251,146,60,0.12);
-  --red:#f87171;   --red-dim:rgba(248,113,113,0.12);
-  --amber:#e8a030; --amber-dim:rgba(232,160,48,0.12);
-  --font:'Plus Jakarta Sans',system-ui,sans-serif;
-  --mono:'JetBrains Mono',monospace;
-}
-[data-theme="light"] {
-  --bg:#f5f2ec; --surface:#ede9e0; --surface2:#e5e0d5; --card:#faf8f4;
-  --border:rgba(0,0,0,0.08); --border2:rgba(0,0,0,0.15);
-  --text:#1a1d2b; --text-dim:#5a6070; --text-xdim:#9aa0ae;
-  --green:#047857; --green-dim:rgba(4,120,87,0.1);
-  --red:#dc2626; --red-dim:rgba(220,38,38,0.1);
-  --amber:#b8760a; --amber-dim:rgba(184,118,10,0.1);
 }
 
-/* ══════════════════════════════════════════════════════════════════
-   BASE — do not edit
-   ══════════════════════════════════════════════════════════════════ */
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html{-webkit-font-smoothing:antialiased}
-body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;transition:background .2s,color .2s}
+/* ── Layout ── */
 .layout{max-width:1400px;margin:0 auto;padding:24px 24px 64px}
 
-/* ── Header ── */
-.header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:20px;border-bottom:1px solid var(--border);margin-bottom:18px}
-.header-left h1{font-size:1.4rem;font-weight:700;letter-spacing:-0.02em}
-.header-left h1 span{color:var(--accent)}
-.header-left .sub{font-size:.78rem;color:var(--text-dim);margin-top:4px;line-height:1.5}
-.theme-btn{background:var(--surface);border:1px solid var(--border2);border-radius:6px;color:var(--text-dim);cursor:pointer;font-size:.85rem;padding:5px 10px;flex-shrink:0}
-.theme-btn:hover{border-color:var(--accent);color:var(--accent)}
+/* ── Header overrides ── */
+.header{padding-bottom:20px;margin-bottom:18px}
+.header-left h1{font-size:1.4rem;letter-spacing:-0.02em}
+.header-left .sub{font-size:.78rem;margin-top:4px;line-height:1.5}
 
-/* ── Toolbar ── */
-.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
+/* ── Toolbar overrides ── */
+.toolbar{padding:8px 0}
 .toolbar:last-of-type{margin-bottom:16px}
-.ctrl{display:flex;align-items:center;gap:4px}
-.ctrl-label{font-size:.58rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xdim);font-family:var(--mono)}
-
-/* Segmented controls */
-.segs{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:5px;overflow:hidden}
-.seg{background:none;border:none;border-right:1px solid var(--border);color:var(--text-dim);cursor:pointer;font-family:var(--font);font-size:.65rem;font-weight:500;padding:4px 9px;transition:background .1s,color .1s;white-space:nowrap}
-.seg:last-child{border-right:none}
-.seg:hover{background:var(--surface2);color:var(--text)}
-.seg.on{background:var(--accent-dim);color:var(--accent);font-weight:600}
-
-/* Checkbox toggle buttons (OFF = inactive = show all) */
-.check-group{display:flex;gap:3px;flex-wrap:wrap}
-.check-btn{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:.6rem;padding:3px 6px;font-family:var(--mono);transition:all .1s}
-.check-btn.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
-.check-btn:hover{border-color:var(--accent)}
-
-/* Size +/- — controls card min-width */
-.size-btn{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:.85rem;font-weight:700;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-family:var(--mono)}
-.size-btn:hover{border-color:var(--accent);color:var(--accent)}
-.size-label{font-size:.6rem;color:var(--text-xdim);font-family:var(--mono);min-width:28px;text-align:center}
-
-/* Inputs */
-.filter-input{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono);font-size:.65rem;padding:4px 8px;outline:none}
-.filter-input:focus{border-color:var(--accent)}
+.seg{padding:4px 9px}
+.size-label{min-width:28px}
 .search-input{width:160px}
-
-/* Stats */
-.stats{font-family:var(--mono);font-size:.6rem;color:var(--text-xdim);margin-left:auto}
 
 /* ── Section headers ── */
 .section-hdr{margin:28px 0 14px;padding-top:20px;border-top:1px solid var(--border)}
@@ -146,12 +95,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .lb-close{position:absolute;top:16px;right:20px;font-size:20px;color:var(--text-xdim);cursor:pointer;transition:color .15s}
 .lb-close:hover{color:var(--text)}
 
-/* ── Empty ── */
-.empty{text-align:center;padding:64px 24px;color:var(--text-xdim);font-size:.84rem}
-
-/* ── Responsive ── */
-@media(max-width:860px){.ctrl-label{display:none}}
-@media(max-width:600px){.toolbar{gap:4px}.seg{font-size:.58rem;padding:3px 5px}.search-input{width:110px}}
 </style>
 </head>
 <body>
@@ -209,6 +152,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   <div class="lb-label" id="lbLabel"></div>
 </div>
 
+<script src="gallery-base.js"></script>
 <script>
 /* ══════════════════════════════════════════════════════════════════
    CUSTOMISE: SECTIONS + CARDS config
@@ -309,69 +253,12 @@ const filters = {};  /* dim key → Set; empty = inactive = show all */
 let sortMode = 'default';
 let cardMinWidth = 380;
 
-const S = {
-  theme: localStorage.getItem(STORE_KEY + '-theme') || 'dark',
-};
-
-/* ── Dynamic filter builder ── */
-
-function buildFilters() {
-  const bar = document.getElementById('filterBar');
-
-  for (const [key, dim] of Object.entries(FILTERS_DIMS)) {
-    const counts = {};
-    CARDS.forEach(card => {
-      const v = dim.fn(card);
-      counts[v] = (counts[v] || 0) + 1;
-    });
-    const values = Object.keys(counts).sort((a, b) => {
-      if (dim.order) {
-        const ia = dim.order.indexOf(a), ib = dim.order.indexOf(b);
-        if (ia >= 0 && ib >= 0) return ia - ib;
-        if (ia >= 0) return -1;
-        if (ib >= 0) return 1;
-      }
-      return a.localeCompare(b);
-    });
-
-    if (values.length < 2) continue;
-
-    filters[key] = new Set();  /* empty = inactive */
-
-    const ctrl = document.createElement('div');
-    ctrl.className = 'ctrl';
-    ctrl.innerHTML = '<span class="ctrl-label">' + dim.label + '</span>';
-    const group = document.createElement('div');
-    group.className = 'check-group';
-
-    for (const v of values) {
-      const btn = document.createElement('button');
-      btn.className = 'check-btn';
-      btn.textContent = v + ' (' + counts[v] + ')';
-      btn.onclick = () => {
-        btn.classList.toggle('on');
-        if (btn.classList.contains('on')) filters[key].add(v);
-        else filters[key].delete(v);
-        render();
-      };
-      group.appendChild(btn);
-    }
-    ctrl.appendChild(group);
-    bar.insertBefore(ctrl, bar.firstChild);
-  }
-}
+/* ── Dynamic filter builder (delegated to gallery-base.js) ── */
 
 /* ── Filtering ── */
 
 function getFiltered() {
-  let cards = [...CARDS];
-
-  /* Dynamic filters — empty set = inactive = show all */
-  for (const [dim, activeSet] of Object.entries(filters)) {
-    if (activeSet.size === 0) continue;
-    const fn = FILTERS_DIMS[dim]?.fn;
-    if (fn) cards = cards.filter(c => activeSet.has(fn(c)));
-  }
+  let cards = applyDimFilters([...CARDS], FILTERS_DIMS, filters);
 
   /* Search */
   const q = (document.getElementById('searchInput').value || '').toLowerCase();
@@ -502,38 +389,21 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeLb();
 });
 
-/* ── Sort wiring ── */
+/* ── Sort wiring (delegated to gallery-base.js) ── */
 
-document.querySelectorAll('#sortSegs .seg').forEach(btn => {
-  btn.onclick = () => {
-    document.querySelectorAll('#sortSegs .seg').forEach(b => b.classList.remove('on'));
-    btn.classList.add('on');
-    sortMode = btn.dataset.v;
-    render();
-  };
-});
+wireSegs('sortSegs', v => { sortMode = v; render(); });
 
-/* ── Theme ── */
-
-function applyTheme(t) {
-  document.documentElement.setAttribute('data-theme', t);
-  document.getElementById('themeBtn').textContent = t === 'dark' ? '\u{1F319}' : '\u2600\uFE0F';
-  localStorage.setItem(STORE_KEY + '-theme', t);
-  S.theme = t;
-}
-document.getElementById('themeBtn').addEventListener('click', () => {
-  applyTheme(S.theme === 'dark' ? 'light' : 'dark');
-});
+/* ── Theme (delegated to gallery-base.js) ── */
 
 /* ── Boot ── */
 
-applyTheme(S.theme);
+const S = initTheme(STORE_KEY);
 
 if (!CARDS.length) {
   document.getElementById('gallery').innerHTML = '<div class="empty">No CARDS configured — fill in the CARDS array.</div>';
   document.getElementById('stats').textContent = '0 / 0';
 } else {
-  buildFilters();
+  buildDimFilters(CARDS, FILTERS_DIMS, filters, 'filterBar', render);
   render();
 }
 </script>

@@ -16,80 +16,25 @@
 <meta name="diagram:badges"    content="latest">
 <!-- diagram-meta:end -->
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- CUSTOMISE: adjust path to gallery-base.css for your deploy location -->
+<link rel="stylesheet" href="gallery-base.css">
 <style>
 /* ══════════════════════════════════════════════════════════════════
-   TOKENS — replace --accent and --accent-dim with project brand color
+   CUSTOMISE: override accent tokens for your project brand
    ══════════════════════════════════════════════════════════════════ */
 :root {
-  --bg:#0c0e16; --surface:#13161f; --surface2:#1a1d2a; --card:#1e2133;
-  --border:rgba(255,255,255,0.07); --border2:rgba(255,255,255,0.13);
-  --text:#dde4f0; --text-dim:#7d8799; --text-xdim:#3e4556;
-  /* CUSTOMISE: swap this accent color for your project brand */
-  --accent:{{ACCENT_COLOR}};        /* e.g. #e8a030 (amber), #c084fc (purple), #60a5fa (blue) */
-  --accent-dim:{{ACCENT_DIM}};      /* e.g. rgba(232,160,48,0.12) */
-  --green:#34d399; --blue:#60a5fa; --purple:#a78bfa; --orange:#fb923c;
-  --font:'Plus Jakarta Sans',system-ui,sans-serif;
-  --mono:'JetBrains Mono',monospace;
-}
-[data-theme="light"] {
-  --bg:#f5f2ec; --surface:#ede9e0; --surface2:#e5e0d5; --card:#faf8f4;
-  --border:rgba(0,0,0,0.08); --border2:rgba(0,0,0,0.15);
-  --text:#1a1d2b; --text-dim:#5a6070; --text-xdim:#9aa0ae;
+  --accent:{{ACCENT_COLOR}};   /* e.g. #e8a030 (amber), #c084fc (purple), #60a5fa (blue) */
+  --accent-dim:{{ACCENT_DIM}}; /* e.g. rgba(232,160,48,0.12) */
 }
 
-/* ══════════════════════════════════════════════════════════════════
-   BASE — do not edit
-   ══════════════════════════════════════════════════════════════════ */
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html{-webkit-font-smoothing:antialiased}
-body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;transition:background .2s,color .2s}
+/* ── Layout ── */
 .layout{max-width:100%;margin:0 auto;padding:20px 20px 64px}
-
-/* ── Header ── */
-.header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:16px;border-bottom:1px solid var(--border);margin-bottom:14px}
-.header-left h1{font-size:1.3rem;font-weight:700;letter-spacing:-0.01em}
-.header-left h1 span{color:var(--accent)}
-.header-left .sub{font-size:.72rem;color:var(--text-dim);margin-top:3px;line-height:1.4}
-.theme-btn{background:var(--surface);border:1px solid var(--border2);border-radius:6px;color:var(--text-dim);cursor:pointer;font-size:.85rem;padding:5px 10px;flex-shrink:0}
-.theme-btn:hover{border-color:var(--accent);color:var(--accent)}
 
 /* ── Batch bar ── */
 .batch-bar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
 .batch-btn{background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text-dim);cursor:pointer;font-family:var(--mono);font-size:.65rem;font-weight:500;padding:5px 12px;transition:all .15s;white-space:nowrap}
 .batch-btn:hover{border-color:var(--border2);color:var(--text)}
 .batch-btn.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent);font-weight:600}
-
-/* ── Toolbar ── */
-.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)}
-.toolbar:last-of-type{margin-bottom:12px}
-.ctrl{display:flex;align-items:center;gap:4px}
-.ctrl-label{font-size:.58rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xdim);font-family:var(--mono)}
-
-/* Segmented controls */
-.segs{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:5px;overflow:hidden}
-.seg{background:none;border:none;border-right:1px solid var(--border);color:var(--text-dim);cursor:pointer;font-family:var(--font);font-size:.65rem;font-weight:500;padding:4px 8px;transition:background .1s,color .1s;white-space:nowrap}
-.seg:last-child{border-right:none}
-.seg:hover{background:var(--surface2);color:var(--text)}
-.seg.on{background:var(--accent-dim);color:var(--accent);font-weight:600}
-
-/* Checkbox toggle buttons (OFF = inactive = show all) */
-.check-group{display:flex;gap:3px;flex-wrap:wrap}
-.check-btn{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:.6rem;padding:3px 6px;font-family:var(--mono);transition:all .1s}
-.check-btn.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
-.check-btn:hover{border-color:var(--accent)}
-
-/* Size +/- */
-.size-btn{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:.85rem;font-weight:700;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-family:var(--mono)}
-.size-btn:hover{border-color:var(--accent);color:var(--accent)}
-.size-label{font-size:.6rem;color:var(--text-xdim);font-family:var(--mono);min-width:24px;text-align:center}
-
-/* Inputs */
-.filter-input{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono);font-size:.65rem;padding:4px 8px;outline:none}
-.filter-input:focus{border-color:var(--accent)}
-.search-input{width:140px}
-
-/* Stats */
-.stats{font-family:var(--mono);font-size:.6rem;color:var(--text-xdim);margin-left:auto}
 
 /* ── Image grid ── */
 .grid{display:grid;gap:6px}
@@ -110,11 +55,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .star-btn:hover{color:var(--orange)}
 .img-card.starred .star-btn{color:var(--orange)}
 
-/* ── Group headers ── */
-.group-hdr{display:flex;align-items:center;gap:8px;margin:16px 0 8px;padding:4px 0;border-top:1px solid var(--border)}
-.group-tag{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;border-radius:4px;font-family:var(--mono);background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent)}
-.group-cnt{font-family:var(--mono);font-size:.58rem;color:var(--text-xdim)}
-
 /* ── Lightbox ── */
 .lb{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:100;flex-direction:column;justify-content:center;align-items:center}
 .lb.open{display:flex}
@@ -129,12 +69,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .lb-close{position:absolute;top:16px;right:20px;font-size:18px;color:var(--text-xdim);cursor:pointer;transition:color .15s}
 .lb-close:hover{color:var(--text)}
 
-/* ── Empty state ── */
-.empty{text-align:center;padding:64px 24px;color:var(--text-xdim);font-size:.84rem}
-
-/* ── Responsive ── */
-@media(max-width:860px){.ctrl-label{display:none}}
-@media(max-width:600px){.toolbar{gap:4px}.seg{font-size:.58rem;padding:3px 5px}.search-input{width:100px}}
 </style>
 </head>
 <body>
@@ -200,6 +134,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   <span class="lb-btn lb-next" onclick="lbNav(1,event)">&#8250;</span>
 </div>
 
+<!-- CUSTOMISE: adjust path to gallery-base.js for your deploy location -->
+<script src="gallery-base.js"></script>
 <script>
 /* ══════════════════════════════════════════════════════════════════
    CUSTOMISE: BATCHES config
@@ -266,11 +202,17 @@ const DIMS = {
 const STORE_KEY = '{{STORE_KEY_PREFIX}}';  /* e.g. 'lyra-avatar' */
 
 /* ══════════════════════════════════════════════════════════════════
-   ENGINE — do not edit below unless extending functionality
+   ENGINE — uses gallery-base.js utilities
    ══════════════════════════════════════════════════════════════════ */
 
-const starred = new Set(JSON.parse(localStorage.getItem(STORE_KEY + '-starred') || '[]'));
-const filters = {};  /* dim key → Set; empty = inactive = show all */
+const starred = initStarred(STORE_KEY);
+const filters = {};
+
+/* Wrap DIMS.fn to receive item (not item.tags) for buildDimFilters compatibility */
+const DIMS_WRAPPED = {};
+for (const [k, dim] of Object.entries(DIMS)) {
+  DIMS_WRAPPED[k] = { ...dim, fn: item => dim.fn(item.tags) };
+}
 
 let allItems = [];
 let visibleItems = [];
@@ -279,113 +221,12 @@ let sortMode = 'default';
 let thumbSize = 160;
 let currentBatch = 'all';
 
-const S = {
-  theme: localStorage.getItem(STORE_KEY + '-theme') || 'dark',
-};
-
-/* ── Discovery ── */
-
-async function discoverBatch(cfg) {
-  const ext = cfg.ext || '.png';
-  /* Try manifest.json */
-  try {
-    const r = await fetch(cfg.dir + 'manifest.json');
-    if (r.ok) {
-      const listing = await r.json();
-      return listing
-        .filter(f => f.name.endsWith(ext))
-        .map(f => f.name.replace(ext, ''))
-        .sort()
-        .map(stem => itemFromStem(stem, cfg));
-    }
-  } catch (_) {}
-  /* Fallback: /api/list/ */
-  try {
-    const r = await fetch('/api/list/' + cfg.dir);
-    if (r.ok) {
-      const listing = await r.json();
-      return listing
-        .filter(f => f.name.endsWith(ext))
-        .map(f => f.name.replace(ext, ''))
-        .sort()
-        .map(stem => itemFromStem(stem, cfg));
-    }
-  } catch (_) {}
-  /* Fallback: catalogue keys */
-  if (cfg.catalogue && Object.keys(cfg.catalogue).length) {
-    return Object.keys(cfg.catalogue).map(stem => itemFromStem(stem, cfg));
-  }
-  return [];
-}
-
-function itemFromStem(stem, cfg) {
-  const ext = cfg.ext || '.png';
-  const meta = (cfg.catalogue && cfg.catalogue[stem]) || { label: stem.replace(/-/g, ' '), tags: [] };
-  return { stem, file: stem + ext, label: meta.label, tags: meta.tags || [], batch: cfg.id, dir: cfg.dir };
-}
-
-/* ── Dynamic filter builder ── */
-
-function buildFilters(items) {
-  const bar = document.getElementById('filterBar');
-
-  for (const [key, dim] of Object.entries(DIMS)) {
-    const counts = {};
-    items.forEach(item => {
-      const v = dim.fn(item.tags);
-      counts[v] = (counts[v] || 0) + 1;
-    });
-    const values = Object.keys(counts).sort((a, b) => {
-      if (dim.order) {
-        const ia = dim.order.indexOf(a), ib = dim.order.indexOf(b);
-        if (ia >= 0 && ib >= 0) return ia - ib;
-        if (ia >= 0) return -1;
-        if (ib >= 0) return 1;
-      }
-      return a.localeCompare(b);
-    });
-
-    if (values.length < 2) continue;
-
-    filters[key] = new Set();  /* empty = inactive */
-
-    const ctrl = document.createElement('div');
-    ctrl.className = 'ctrl';
-    ctrl.innerHTML = '<span class="ctrl-label">' + dim.label + '</span>';
-    const group = document.createElement('div');
-    group.className = 'check-group';
-
-    for (const v of values) {
-      const btn = document.createElement('button');
-      btn.className = 'check-btn';
-      btn.dataset.b = v;
-      btn.textContent = v + ' (' + counts[v] + ')';
-      btn.onclick = () => {
-        btn.classList.toggle('on');
-        if (btn.classList.contains('on')) filters[key].add(v);
-        else filters[key].delete(v);
-        render();
-      };
-      group.appendChild(btn);
-    }
-    ctrl.appendChild(group);
-    bar.insertBefore(ctrl, bar.firstChild);
-  }
-}
-
 /* ── Filtering ── */
 
 function getFiltered() {
   let items = allItems.filter(item => currentBatch === 'all' || item.batch === currentBatch);
+  items = applyDimFilters(items, DIMS_WRAPPED, filters);
 
-  /* Dynamic tag filters — empty set = inactive = show all */
-  for (const [dim, activeSet] of Object.entries(filters)) {
-    if (activeSet.size === 0) continue;
-    const fn = DIMS[dim]?.fn;
-    if (fn) items = items.filter(item => activeSet.has(fn(item.tags)));
-  }
-
-  /* Search */
   const q = (document.getElementById('searchInput').value || '').toLowerCase();
   if (q) items = items.filter(item =>
     item.label.toLowerCase().includes(q) ||
@@ -400,7 +241,7 @@ function getFiltered() {
 
 function sortItems(items) {
   if (sortMode === 'name') return [...items].sort((a, b) => a.label.localeCompare(b.label));
-  return items;  /* default: discovery order */
+  return items;
 }
 
 /* ── Size ── */
@@ -438,16 +279,9 @@ function render() {
       e.stopPropagation();
       const card = btn.closest('.img-card');
       const stem = card.dataset.stem;
-      if (starred.has(stem)) {
-        starred.delete(stem);
-        card.classList.remove('starred');
-        btn.textContent = '\u2606';
-      } else {
-        starred.add(stem);
-        card.classList.add('starred');
-        btn.textContent = '\u2605';
-      }
-      localStorage.setItem(STORE_KEY + '-starred', JSON.stringify([...starred]));
+      const isNowStarred = starred.toggle(stem);
+      card.classList.toggle('starred', isNowStarred);
+      btn.textContent = isNowStarred ? '\u2605' : '\u2606';
     });
   });
 
@@ -477,37 +311,7 @@ function mkCard(item, idx) {
   </div>`;
 }
 
-/* ── Batch bar ── */
-
-function buildBatchBar(counts) {
-  const bar = document.getElementById('batchBar');
-  bar.innerHTML = '';
-
-  const total = allItems.length;
-  const allBtn = document.createElement('button');
-  allBtn.className = 'batch-btn active';
-  allBtn.dataset.batch = 'all';
-  allBtn.textContent = 'ALL (' + total + ')';
-  allBtn.onclick = () => setBatch(allBtn, 'all');
-  bar.appendChild(allBtn);
-
-  for (const b of BATCHES) {
-    if (!(counts[b.id] > 0)) continue;
-    const btn = document.createElement('button');
-    btn.className = 'batch-btn';
-    btn.dataset.batch = b.id;
-    btn.textContent = b.id.toUpperCase() + ' — ' + b.label + ' (' + (counts[b.id] || 0) + ')';
-    btn.onclick = () => setBatch(btn, b.id);
-    bar.appendChild(btn);
-  }
-}
-
-function setBatch(btn, id) {
-  currentBatch = id;
-  document.querySelectorAll('.batch-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  render();
-}
+/* ── Batch bar — delegates to gallery-base.js ── */
 
 /* ── Lightbox ── */
 
@@ -548,41 +352,21 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Escape') closeLb();
 });
 
-/* ── Sort wiring ── */
+/* ── Sort + theme wiring — delegates to gallery-base.js ── */
 
-document.querySelectorAll('#sortSegs .seg').forEach(btn => {
-  btn.onclick = () => {
-    document.querySelectorAll('#sortSegs .seg').forEach(b => b.classList.remove('on'));
-    btn.classList.add('on');
-    sortMode = btn.dataset.v;
-    render();
-  };
-});
-
-/* ── Theme ── */
-
-function applyTheme(t) {
-  document.documentElement.setAttribute('data-theme', t);
-  document.getElementById('themeBtn').textContent = t === 'dark' ? '\u{1F319}' : '\u2600\uFE0F';
-  localStorage.setItem(STORE_KEY + '-theme', t);
-  S.theme = t;
-}
-document.getElementById('themeBtn').addEventListener('click', () => {
-  applyTheme(S.theme === 'dark' ? 'light' : 'dark');
-});
+wireSegs('sortSegs', v => { sortMode = v; render(); });
+const S = initTheme(STORE_KEY);
 
 /* ── Boot ── */
 
 (async () => {
-  applyTheme(S.theme);
-
   if (!BATCHES.length) {
     document.getElementById('gallery').innerHTML = '<div class="empty">No BATCHES configured — fill in the BATCHES array.</div>';
     document.getElementById('stats').textContent = '0 / 0';
     return;
   }
 
-  const results = await Promise.all(BATCHES.map(discoverBatch));
+  const results = await Promise.all(BATCHES.map(b => discoverBatch(b)));
   allItems = results.flat();
 
   if (!allItems.length) {
@@ -591,17 +375,16 @@ document.getElementById('themeBtn').addEventListener('click', () => {
     return;
   }
 
-  /* Build batch counts */
   const counts = {};
   allItems.forEach(item => { counts[item.batch] = (counts[item.batch] || 0) + 1; });
 
-  buildBatchBar(counts);
-  buildFilters(allItems);
+  buildBatchBar({ barId:'batchBar', batches:BATCHES, counts, total:allItems.length,
+    onSelect: id => { currentBatch = id; render(); } });
+  buildDimFilters(allItems, DIMS_WRAPPED, filters, 'filterBar', render);
   render();
 
-  /* Update subtitle with counts */
-  document.getElementById('subtitle').textContent = allItems.length + ' images · ' +
-    BATCHES.filter(b => counts[b.id] > 0).map(b => b.id.toUpperCase() + ': ' + counts[b.id]).join(' · ');
+  document.getElementById('subtitle').textContent = allItems.length + ' images \u00b7 ' +
+    BATCHES.filter(b => counts[b.id] > 0).map(b => b.id.toUpperCase() + ': ' + counts[b.id]).join(' \u00b7 ');
 })();
 </script>
 </body>

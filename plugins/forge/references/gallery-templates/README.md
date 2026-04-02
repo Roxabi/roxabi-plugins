@@ -100,12 +100,16 @@ Working HTML templates for the `forge-gallery` skill. Copy the right template, f
 | `audio-gallery.html` | Audio/voice engine comparison | 37K | Audio players, engine/quality badges, grouping, card/list view, starring |
 
 All templates share:
-- Same CSS token system (`:root` variables from `tokens.md`)
+- **`gallery-base.css`** — shared CSS foundation (tokens, resets, header, toolbar, controls, stats, group headers, empty state, responsive). Each template links to it and adds template-specific styles inline.
+- **`gallery-base.js`** — shared JS utilities: `initTheme()`, `buildDimFilters()`, `applyDimFilters()`, `wireSegs()`, `discoverBatch()`, `discoverFiles()`, `buildBatchBar()`, `initStarred()`. Each template loads it and uses these instead of inline duplicates.
+- Same CSS token system (`:root` variables from `tokens.md`) — override `--accent` / `--accent-dim` per project
 - Same toolbar pattern (`.toolbar > .ctrl > .ctrl-label + .segs/.check-group`)
 - Dynamic filters (OFF by default = inactive = show everything)
 - Search, sort, size +/−, stats counter, lightbox
 - manifest.json + /api/list/ discovery
 - `{{PLACEHOLDER}}` markers + `CUSTOMISE` comment sections
+
+**Deploy path:** copy `gallery-base.css` and `gallery-base.js` to `~/.roxabi/forge/_shared/`. Gallery HTMLs link to them via relative path (e.g. `../../_shared/gallery-base.css`, `../../_shared/gallery-base.js`).
 
 ## How to customise `pivot-gallery.html`
 
