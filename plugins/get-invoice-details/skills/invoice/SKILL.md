@@ -1,6 +1,6 @@
 ---
 name: get-invoice-details
-description: 'Extract and store invoice details from documents — vendor, date, amount, line items, tax, payment terms. Saves structured JSON to vault. Triggers: "get-invoice-details" | "extract invoice" | "parse invoice" | "invoice details" | "read invoice".'
+description: 'Extract and store invoice details from documents — vendor, date, amount, line items, tax, payment terms. Saves structured JSON to vault. Triggers: "get-invoice-details" | "extract invoice" | "parse invoice" | "invoice details" | "read invoice" | "analyze this invoice" | "process this invoice" | "analyse cette facture" | "extract this invoice" | "get invoice data".'
 version: 0.1.0
 allowed-tools: Read, Write, Bash, Glob
 ---

@@ -1,7 +1,7 @@
 ---
 name: analyze
 argument-hint: '[--issue <N> | --frame <path>]'
-description: Deep technical analysis — explore existing code, risks, alternatives. Triggers: "analyze" | "technical analysis" | "explore the problem" | "how deep is it".
+description: Deep technical analysis — explore existing code, risks, alternatives. Triggers: "analyze" | "technical analysis" | "explore the problem" | "how deep is it" | "deep dive" | "investigate this" | "analyze this feature" | "what are the risks" | "explore the codebase" | "look into this".
 version: 0.2.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch
 ---

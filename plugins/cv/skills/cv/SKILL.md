@@ -1,6 +1,6 @@
 ---
 name: cv
-description: 'Generate, adapt, and update CVs from structured data stored in cv_data.json. Triggers: "cv" | "generate cv" | "adapt cv" | "update cv" | "tailor cv".'
+description: 'Generate, adapt, and update CVs from structured data stored in cv_data.json. Triggers: "cv" | "generate cv" | "generate my cv" | "adapt cv" | "update cv" | "tailor cv" | "make my resume" | "update my resume" | "write my cv" | "adapt my resume for" | "tailor my cv for".'
 version: 0.1.0
 allowed-tools: Read, Edit, Write, Bash, Glob, Grep
 ---

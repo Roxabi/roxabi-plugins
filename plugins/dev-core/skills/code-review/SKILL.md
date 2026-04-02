@@ -1,7 +1,7 @@
 ---
 name: code-review
 argument-hint: [#PR]
-description: Multi-domain code review (agents + Conventional Comments → findings + verdict). Triggers: "code review" | "review changes" | "review PR #42" | "check my code".
+description: Multi-domain code review (agents + Conventional Comments → findings + verdict). Triggers: "code review" | "review changes" | "review PR #42" | "check my code" | "review my changes" | "review this PR" | "do a code review" | "review the diff" | "look at my code".
 version: 0.2.0
 allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill, ToolSearch
 ---

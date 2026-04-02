@@ -1,6 +1,6 @@
 ---
 name: compress
-description: 'Compress agent/skill definitions using math/logic notation. Triggers: "compress" | "compress skill" | "compress agent" | "shorten this" | "make it formal".'
+description: 'Compress agent/skill definitions using math/logic notation. Triggers: "compress" | "compress skill" | "compress agent" | "compress context" | "shorten this" | "make it formal" | "use formal notation" | "make this more compact" | "compress this".'
 version: 0.1.0
 argument-hint: '[file path | agent name | skill name]'
 allowed-tools: Read, Write, Edit, Glob, Grep

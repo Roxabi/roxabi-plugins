@@ -1,6 +1,6 @@
 ---
 name: image-prompt
-description: 'Generate AI image prompts with visual identity and style consistency — reads brand charter, applies artistic styles, outputs multiple prompt variants. Triggers: "image-prompt" | "generate image prompt" | "image prompt" | "prompt for image" | "visual prompt".'
+description: 'Generate AI image prompts with visual identity and style consistency — reads brand charter, applies artistic styles, outputs multiple prompt variants. Triggers: "image-prompt" | "generate image prompt" | "image prompt" | "prompt for image" | "visual prompt" | "generate a prompt for Grok" | "generate a prompt for Midjourney" | "generate a prompt for flux" | "image generation prompt" | "create image prompt" | "prompt for dall-e".'
 version: 0.1.0
 allowed-tools: Read, Write, Bash, Glob
 ---

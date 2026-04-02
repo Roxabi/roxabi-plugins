@@ -1,6 +1,6 @@
 ---
 name: 1b1
-description: 'Walk through items 1-by-1 (findings, tasks, issues, TODOs). Triggers: "one by one" | "walk through" | "1b1" | "process each item".'
+description: 'Walk through items 1-by-1 (findings, tasks, issues, TODOs). Triggers: "one by one" | "walk through" | "1b1" | "process each item" | "review one by one" | "go through each" | "handle them one at a time" | "step through".'
 version: 0.2.0
 argument-hint: '[items description]'
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob, ToolSearch

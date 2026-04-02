@@ -1,6 +1,6 @@
 ---
 name: linkedin-post-generator
-description: 'Generate engaging LinkedIn posts with best practices, visual identity, and vault integration. Triggers: "linkedin post" | "write linkedin" | "generate linkedin" | "linkedin content" | "post for linkedin".'
+description: 'Generate engaging LinkedIn posts with best practices, visual identity, and vault integration. Triggers: "linkedin post" | "write linkedin" | "generate linkedin" | "linkedin content" | "post for linkedin" | "create a linkedin post" | "draft a linkedin post" | "write a post for linkedin" | "linkedin update".'
 version: 0.1.0
 allowed-tools: Read, Write, Bash, Glob, Grep
 ---

@@ -1,7 +1,7 @@
 ---
 name: issues
 argument-hint: [--dashboard | --stop | --json | --tree | -T | --priority]
-description: List/dashboard GitHub issues — status, dependencies, backlog. Triggers: "list issues" | "show issues" | "backlog" | "issue dashboard" | "what's blocked".
+description: List/dashboard GitHub issues — status, dependencies, backlog. Triggers: "list issues" | "show issues" | "backlog" | "issue dashboard" | "what's blocked" | "what issues are open" | "show backlog" | "show the board" | "what are we working on" | "issue status".
 version: 0.2.0
 allowed-tools: Bash, Read
 ---

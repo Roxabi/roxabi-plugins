@@ -1,7 +1,7 @@
 ---
 name: summarize
 argument-hint: '<url>'
-description: Scrape a URL and produce a concise summary — key points, takeaways, who/what/why. Triggers: "summarize url" | "tldr" | "summarize this".
+description: Scrape a URL and produce a concise summary — key points, takeaways, who/what/why. Triggers: "summarize url" | "tldr" | "summarize this" | "summarize https://" | "/summarize" | "give me a summary of" | "what's this article about" | "summarize this link" | "what does this page say".
 version: 0.1.0
 allowed-tools: Bash, Read
 ---

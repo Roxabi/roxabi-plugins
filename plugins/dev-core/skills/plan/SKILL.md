@@ -1,7 +1,7 @@
 ---
 name: plan
 argument-hint: '[--issue <N> | --spec <path> | --audit]'
-description: Implementation plan — tasks, agents, file groups, dependencies. Triggers: "plan" | "plan this" | "implementation plan" | "break it down".
+description: Implementation plan — tasks, agents, file groups, dependencies. Triggers: "plan" | "plan this" | "implementation plan" | "break it down" | "plan this feature" | "how should we build this" | "make a plan" | "create a plan" | "break this down into tasks" | "task breakdown".
 version: 0.2.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch
 ---

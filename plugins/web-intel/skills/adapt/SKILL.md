@@ -1,7 +1,7 @@
 ---
 name: adapt
 argument-hint: '<url>'
-description: Extract what works from a URL and suggest how to adapt patterns/copy/design for your project. Triggers: "adapt" | "inspire from" | "steal from" | "adapt this".
+description: Extract what works from a URL and suggest how to adapt patterns/copy/design for your project. Triggers: "adapt" | "inspire from" | "steal from" | "adapt this" | "take inspiration from" | "borrow from this site" | "how do they do it" | "what can we learn from" | "model after".
 version: 0.1.0
 allowed-tools: Bash, Read
 ---

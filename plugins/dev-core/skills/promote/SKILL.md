@@ -1,7 +1,7 @@
 ---
 name: promote
 argument-hint: [--dry-run | --skip-preview | --finalize]
-description: Promote staging→main — pre-flight, version bump, changelog, PR & tag. Triggers: "promote staging" | "release" | "deploy" | "cut a release" | "--finalize".
+description: Promote staging→main — pre-flight, version bump, changelog, PR & tag. Triggers: "promote staging" | "release" | "deploy" | "cut a release" | "--finalize" | "merge to main" | "promote to production" | "ship a release" | "tag and release" | "publish release".
 version: 0.4.0
 allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch
 ---

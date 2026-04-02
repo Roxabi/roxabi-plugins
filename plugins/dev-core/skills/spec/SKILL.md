@@ -1,7 +1,7 @@
 ---
 name: spec
 argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit]'
-description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build".
+description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build" | "design the solution" | "acceptance criteria" | "define acceptance criteria" | "spec it out" | "write the spec".
 version: 0.2.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ---

@@ -1,7 +1,7 @@
 ---
 name: roast
 argument-hint: '<url>'
-description: Brutally honest critique of a website — design, UX, copy, performance, a11y. Triggers: "roast" | "critique site" | "roast this site".
+description: Brutally honest critique of a website — design, UX, copy, performance, a11y. Triggers: "roast" | "critique site" | "roast this site" | "roast https://" | "tear apart this website" | "honest critique" | "what's wrong with this site" | "rip apart" | "brutal feedback on this site".
 version: 0.1.0
 allowed-tools: Bash, Read
 ---

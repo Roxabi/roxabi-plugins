@@ -1,6 +1,6 @@
 ---
 name: linkedin-apply
-description: 'Scrape a LinkedIn job offer and score it against your profile using Claude LLM — produces APPLY / REVIEW / SKIP decision with 4-dimension scores. Triggers: "linkedin apply" | "analyze job" | "job match" | "linkedin-apply" | "score this job".'
+description: 'Scrape a LinkedIn job offer and score it against your profile using Claude LLM — produces APPLY / REVIEW / SKIP decision with 4-dimension scores. Triggers: "linkedin apply" | "analyze job" | "job match" | "linkedin-apply" | "score this job" | "should i apply for this job" | "evaluate this job posting" | "is this job a good fit" | "check this job offer" | "rate this job".'
 version: 0.1.0
 allowed-tools: Read, Write, Bash, Glob
 ---
