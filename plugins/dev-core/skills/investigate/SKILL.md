@@ -1,5 +1,5 @@
 ---
-name: _investigate
+name: investigate
 description: 'Temporary investigation skill — plugin system internals. Triggers: "roxabi investigate" | "run investigate skill".'
 version: 0.1.0
 allowed-tools: Bash
