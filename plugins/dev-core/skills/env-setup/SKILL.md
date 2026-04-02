@@ -36,6 +36,17 @@ Set up σ early — later phases read runtime, package manager, commands, deploy
 6. ¬`.claude/stack.yml.example` → `cp "${Φ}/stack.yml.example" .claude/stack.yml.example`. D("stack.yml.example", "✅ Created (commit this file)").
 7. existing → D("stack.yml", "✅ Already exists"), skip.
 
+### Phase 1b — Global Patterns Injection
+
+Inject plugin-managed always-on behavioral patterns (decision protocol, agent discipline, context discipline, dev process, worktree, parallel execution, git) into the project via a gitignored file loaded by CLAUDE.md.
+
+1. `cp "${Φ}/../shared/references/global-patterns.md" .claude/dev-core.md`. D✅("global-patterns").
+2. `grep -q '@.claude/dev-core.md' CLAUDE.md 2>/dev/null` → ∃ → D("@.claude/dev-core.md", "✅ Already present"), skip.
+   ¬∃ → prepend `@.claude/dev-core.md\n` to CLAUDE.md (after `@.claude/stack.yml` line if present, otherwise at top). D✅("@.claude/dev-core.md").
+3. ensureGitignore(`.claude/dev-core.md`). D✅(".gitignore entry").
+
+Re-run (`--force`): always overwrite `.claude/dev-core.md` with latest plugin version.
+
 ## Phase 2 — Scaffold CLAUDE.md Critical Rules
 
 Generate governance rules (dev process, decision protocol, git conventions, etc.) from σ values. Sections vary by project type.
