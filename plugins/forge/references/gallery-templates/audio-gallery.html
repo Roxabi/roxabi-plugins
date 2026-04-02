@@ -329,12 +329,12 @@ function itemSearchStr(d) {
 function itemMeta(d, forHtml) {
   const parts = [];
   const kv = (k, v) => forHtml
-    ? `<span class="key">${k}</span> <span class="val">${v}</span>`
+    ? `<span class="key">${escHtml(k)}</span> <span class="val">${escHtml(v)}</span>`
     : `${k} ${v}`;
   if (d.voice)       parts.push(kv('voice', d.voice));
   if (d.language)    parts.push(kv('lang', d.language));
-  if (d.personality) parts.push(d.personality);
-  if (d.emotion)     parts.push(d.emotion);
+  if (d.personality) parts.push(escHtml(d.personality));
+  if (d.emotion)     parts.push(escHtml(d.emotion));
   /* CUSTOMISE: add more fields as needed */
   return parts.join(forHtml ? ' <span class="sep">·</span> ' : ' · ');
 }
@@ -383,12 +383,13 @@ function qualityMeta(key) {
 function qualityBadge(d) {
   if (!d.quality) return '';
   const m = qualityMeta(d.quality);
-  return `<span class="bdg ${m.color}">${m.label}</span>`;
+  return `<span class="bdg ${safeClass(m.color)}">${escHtml(m.label)}</span>`;
 }
 
 /* ── Discovery ── */
 
-async function discoverBatch(cfg) {
+// Audio-specific discovery — manifest entries are full objects (not filename-only)
+async function discoverAudioBatch(cfg) {
   const manifest = cfg.manifest || 'manifest.json';
   const base = cfg.dir || '';
   try {
@@ -400,22 +401,24 @@ async function discoverBatch(cfg) {
     }
   } catch (_) {}
   /* Fallback: /api/list/ */
-  try {
-    const r = await fetch('/api/list/' + base);
-    if (r.ok) {
-      const listing = await r.json();
-      const audioExts = ['.wav','.mp3','.ogg','.flac'];
-      return listing
-        .filter(f => audioExts.some(e => f.name.endsWith(e)))
-        .map(f => ({
-          file: f.name,
-          label: f.name.replace(/\.[^.]+$/, '').replace(/-/g, ' '),
-          engine: 'unknown',
-          batch: cfg.id,
-          _base: base,
-        }));
-    }
-  } catch (_) {}
+  if (/^[\w./-]*$/.test(base)) {
+    try {
+      const r = await fetch('/api/list/' + base);
+      if (r.ok) {
+        const listing = await r.json();
+        const audioExts = ['.wav','.mp3','.ogg','.flac'];
+        return listing
+          .filter(f => audioExts.some(e => f.name.endsWith(e)))
+          .map(f => ({
+            file: f.name,
+            label: f.name.replace(/\.[^.]+$/, '').replace(/-/g, ' '),
+            engine: 'unknown',
+            batch: cfg.id,
+            _base: base,
+          }));
+      }
+    } catch (_) {}
+  }
   return [];
 }
 
@@ -463,18 +466,18 @@ function mkCard(d) {
   const m = engineMeta(d.engine);
   const meta = itemMeta(d, true);
   const isStarred = starred.has(d.file);
-  return `<div class="audio-card${isStarred ? ' starred' : ''}" data-file="${d.file}">
+  return `<div class="audio-card${isStarred ? ' starred' : ''}" data-file="${escHtml(d.file)}">
     <div class="card-top">
-      <span class="bdg ${m.color}">${d.engine}</span>
+      <span class="bdg ${safeClass(m.color)}">${escHtml(d.engine)}</span>
       ${qualityBadge(d)}
-      <span class="card-title">${d.label || d.file}</span>
+      <span class="card-title">${escHtml(d.label || d.file)}</span>
     </div>
-    ${d.phrase_text ? `<div class="card-phrase">"${d.phrase_text}"</div>` : ''}
+    ${d.phrase_text ? `<div class="card-phrase">"${escHtml(d.phrase_text)}"</div>` : ''}
     ${meta ? `<div class="card-meta">${meta}</div>` : ''}
-    <audio controls preload="metadata"><source src="${(d._base||'')+d.file}" type="${AUDIO_TYPE||'audio/wav'}"></audio>
+    <audio controls preload="metadata"><source src="${escHtml((d._base||'')+d.file)}" type="${AUDIO_TYPE||'audio/wav'}"></audio>
     <div class="card-actions">
       <button class="star-btn" title="Star">${isStarred ? '\u2605' : '\u2606'}</button>
-      <span class="card-file">${d.file}</span>
+      <span class="card-file">${escHtml(d.file)}</span>
     </div>
   </div>`;
 }
@@ -485,12 +488,12 @@ function mkRow(d) {
   const m = engineMeta(d.engine);
   const meta = itemMeta(d, true);
   const isStarred = starred.has(d.file);
-  return `<div class="list-item${isStarred ? ' starred' : ''}" data-file="${d.file}">
-    <span class="li-dot ${m.color}"></span>
-    <span class="li-title">${d.label || d.file}</span>
-    <div class="li-badges"><span class="bdg ${m.color}">${d.engine}</span>${qualityBadge(d)}</div>
+  return `<div class="list-item${isStarred ? ' starred' : ''}" data-file="${escHtml(d.file)}">
+    <span class="li-dot ${safeClass(m.color)}"></span>
+    <span class="li-title">${escHtml(d.label || d.file)}</span>
+    <div class="li-badges"><span class="bdg ${safeClass(m.color)}">${escHtml(d.engine)}</span>${qualityBadge(d)}</div>
     <span class="li-desc">${meta}</span>
-    <div class="li-audio"><audio controls preload="metadata" style="width:100%;height:30px"><source src="${(d._base||'')+d.file}" type="${AUDIO_TYPE||'audio/wav'}"></audio></div>
+    <div class="li-audio"><audio controls preload="metadata" style="width:100%;height:30px"><source src="${escHtml((d._base||'')+d.file)}" type="${AUDIO_TYPE||'audio/wav'}"></audio></div>
     <button class="li-star" title="Star">${isStarred ? '\u2605' : '\u2606'}</button>
   </div>`;
 }
@@ -504,7 +507,7 @@ function mkSection(label, color, items) {
 
   const hdr = label
     ? `<div class="group-hdr">
-        <span class="group-tag ${color || 'neutral'}">${label}</span>
+        <span class="group-tag ${safeClass(color || 'neutral')}">${escHtml(label)}</span>
         <span class="group-cnt">${items.length} sample${items.length !== 1 ? 's' : ''}</span>
        </div>`
     : '';
@@ -634,7 +637,7 @@ initTheme(STORE_KEY);
     return;
   }
 
-  const results = await Promise.all(BATCHES.map(discoverBatch));
+  const results = await Promise.all(BATCHES.map(discoverAudioBatch));
   DATA = results.flat();
 
   if (!DATA.length) {

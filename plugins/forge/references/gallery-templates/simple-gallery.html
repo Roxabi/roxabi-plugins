@@ -298,14 +298,14 @@ function render() {
 function mkCard(item, idx) {
   const isStarred = starred.has(item.stem);
   const num = item.stem.split('-')[0] || '';
-  return `<div class="img-card${isStarred ? ' starred' : ''}" data-stem="${item.stem}" data-idx="${idx}">
-    <span class="badge-top">${item.tags[0] ? item.tags[0].toUpperCase() : item.batch.toUpperCase()}</span>
-    ${item.batch !== BATCHES[0]?.id ? `<span class="badge-batch">${item.batch.toUpperCase()}</span>` : ''}
-    <img src="${item.dir}${item.file}" alt="${item.label}" loading="lazy" style="height:${thumbSize}px;min-height:${thumbSize}px">
+  return `<div class="img-card${isStarred ? ' starred' : ''}" data-stem="${escHtml(item.stem)}" data-idx="${idx}">
+    <span class="badge-top">${escHtml(item.tags[0] ? item.tags[0].toUpperCase() : item.batch.toUpperCase())}</span>
+    ${item.batch !== BATCHES[0]?.id ? `<span class="badge-batch">${escHtml(item.batch.toUpperCase())}</span>` : ''}
+    <img src="${escHtml(item.dir + item.file)}" alt="${escHtml(item.label)}" loading="lazy" style="height:${thumbSize}px;min-height:${thumbSize}px">
     <div class="info">
-      <div class="num">${num}</div>
-      <div class="lbl">${item.label}</div>
-      <div class="tags">${item.tags.map(t => `<span class="img-tag">${t}</span>`).join('')}</div>
+      <div class="num">${escHtml(num)}</div>
+      <div class="lbl">${escHtml(item.label)}</div>
+      <div class="tags">${item.tags.map(t => `<span class="img-tag">${escHtml(t)}</span>`).join('')}</div>
     </div>
     <button class="star-btn" title="Star">${isStarred ? '\u2605' : '\u2606'}</button>
   </div>`;
@@ -327,7 +327,14 @@ function renderLb() {
   document.getElementById('lbImg').src = item.dir + item.file;
   document.getElementById('lbImg').alt = item.label;
   document.getElementById('lbTitle').textContent = item.stem.split('-')[0] + ' — ' + item.label;
-  document.getElementById('lbTags').innerHTML = item.tags.map(t => `<span class="img-tag">${t}</span>`).join('');
+  const tagsEl = document.getElementById('lbTags');
+  tagsEl.innerHTML = '';
+  item.tags.forEach(t => {
+    const span = document.createElement('span');
+    span.className = 'img-tag';
+    span.textContent = t;
+    tagsEl.appendChild(span);
+  });
   document.getElementById('lbCaption').textContent = item.file;
 }
 

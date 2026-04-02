@@ -73,7 +73,7 @@ h1 span{color:var(--accent)}
 
 <!-- Optional: reference image for comparison. Remove if not needed. -->
 <div class="ref">
-  <img src="{{REF_IMAGE_PATH}}" onclick="openLb(this,'Reference')" alt="Ref">
+  <img src="{{REF_IMAGE_PATH}}" data-label="Reference" alt="Ref" style="cursor:zoom-in">
   <span>{{REF_LABEL}}</span>
 </div>
 
@@ -205,24 +205,12 @@ async function loadData() {
   if (data && data.ref_scores) scores = data.ref_scores;
 }
 
-async function discoverFiles() {
-  // Try manifest.json
-  try {
-    const r = await fetch(DIR + 'manifest.json');
-    if (r.ok) {
-      const listing = await r.json();
-      return listing.filter(f => f.name.endsWith(EXT)).map(f => f.name).sort();
-    }
-  } catch (_) {}
-  // Fallback: /api/list/
-  try {
-    const r = await fetch('/api/list/' + DIR);
-    if (r.ok) {
-      const listing = await r.json();
-      return listing.filter(f => f.name.endsWith(EXT)).map(f => f.name).sort();
-    }
-  } catch (_) {}
-  // Fallback: keys from data
+// Pivot-specific discovery — extends base discoverFiles with data.ref_scores fallback
+async function discoverPivotFiles() {
+  // Try standard discovery (manifest.json + /api/list/)
+  const files = await discoverFiles(DIR, EXT);
+  if (files.length) return files;
+  // Fallback: keys from data JSON (pivot-specific)
   if (data && data.ref_scores) return [...Object.keys(data.ref_scores), ...(data.no_face || [])].sort();
   return [];
 }
@@ -265,9 +253,10 @@ function resizeThumb(d) {
 
 function mkThumb(f) {
   const s = scores[f];
+  const stem = f.replace(EXT, '');
+  const label = stem + (s ? ' \u00b7 ' + s.toFixed(3) : '');
   return '<img class="thumb" style="width:' + thumbSize + 'px;height:' + thumbSize + 'px" ' +
-    'src="' + DIR + f + '" onclick="openLb(this,\'' + f.replace(EXT, '') +
-    (s ? ' · ' + s.toFixed(3) : '') + '\')" loading="lazy" title="' + f.replace(EXT, '') + '">';
+    'src="' + DIR + escHtml(f) + '" data-label="' + escHtml(label) + '" loading="lazy" title="' + escHtml(stem) + '">';
 }
 
 function renderCell(files) {
@@ -284,9 +273,10 @@ function renderFlat(files) {
     files.map(f => {
       const s = scores[f];
       const scCls = s > 0.5 ? 'sc-h' : s > 0.4 ? 'sc-m' : 'sc-l';
-      return '<div class="flat-card"><img src="' + DIR + f +
-        '" onclick="openLb(this,\'' + f.replace(EXT, '') + (s ? ' · ' + s.toFixed(3) : '') +
-        '\')" loading="lazy"><div class="tag">' + f[0] + '</div>' +
+      const stem = f.replace(EXT, '');
+      const label = stem + (s ? ' \u00b7 ' + s.toFixed(3) : '');
+      return '<div class="flat-card"><img src="' + DIR + escHtml(f) +
+        '" data-label="' + escHtml(label) + '" loading="lazy"><div class="tag">' + escHtml(f[0]) + '</div>' +
         (s != null ? '<div class="sc ' + scCls + '">' + s.toFixed(3) + '</div>' : '') +
         '</div>';
     }).join('') + '</div>';
@@ -381,19 +371,25 @@ wireSegs('sortSegs', v => { sortMode = v; render(); });
 
 // ── Lightbox ──
 
-function openLb(el, label) {
-  document.getElementById('lbImg').src = el.src;
+function openLb(src, label) {
+  document.getElementById('lbImg').src = src;
   document.getElementById('lbLbl').textContent = label;
   document.getElementById('lb').classList.add('active');
 }
 function closeLb() { document.getElementById('lb').classList.remove('active'); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLb(); });
 
+// Delegated click handler for thumbnails (avoids inline onclick with user data)
+document.querySelector('.layout').addEventListener('click', e => {
+  const img = e.target.closest('[data-label]');
+  if (img) openLb(img.src, img.dataset.label);
+});
+
 // ── Boot ──
 
 async function boot() {
   await loadData();
-  allFiles = await discoverFiles();
+  allFiles = await discoverPivotFiles();
   buildDimFilters(allFiles, DIMS, filters, 'filterBar', render);
   render();
 }

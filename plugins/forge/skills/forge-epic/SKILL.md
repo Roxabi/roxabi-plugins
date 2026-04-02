@@ -8,13 +8,13 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch
 # Epic — Issue-Linked Visual Analysis
 
 Create a visual analysis document tied to a specific GitHub issue or epic (`#N`).
-Style reference: `tool-registry-477.html`.
 
 Output: `~/.roxabi/forge/<project>/visuals/{N}-{slug}.html` (split-file).
 
 **Read before generating:**
 
 ```
+${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md     — brand detection, output paths, deploy commands
 ${CLAUDE_PLUGIN_ROOT}/references/split-file.md    — templates + CSS/JS skeletons
 ${CLAUDE_PLUGIN_ROOT}/references/tokens.md        — CSS tokens + dark mode rules
 ${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md  — meta tag format + categories
@@ -34,11 +34,7 @@ Let:
 
 2. **Detect project** from ARGS or cwd.
 
-3. **Brand book** (first found):
-   ```bash
-   ls ~/.roxabi/forge/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null
-   ls ~/projects/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null
-   ```
+3. **Brand book** — follow `forge-ops.md` brand detection.
 
 4. **Slug** from ARGS title or issue title (kebab-case). Filename: `{ISSUE}-{slug}.html`.
    Check: `ls ~/.roxabi/forge/{PROJ}/visuals/{ISSUE}-*.html 2>/dev/null`
@@ -146,10 +142,7 @@ Created:
   ~/.roxabi/forge/{PROJ}/visuals/js/{ISSUE}-{slug}.js
   ~/.roxabi/forge/{PROJ}/visuals/tabs/{ISSUE}-{slug}/tab-*.html
 
-Serve:   cd ~/.roxabi/forge/{PROJ}/visuals && python3 -m http.server 8080
-         → http://localhost:8080/{ISSUE}-{slug}.html
-
-Deploy:  cd ~/projects/lyra-stack && make diagrams deploy
+Serve + Deploy: see forge-ops.md
 ```
 
 $ARGUMENTS

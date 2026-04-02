@@ -156,16 +156,18 @@ async function discoverFiles(dir, ext) {
         .sort()
     }
   } catch (_) {}
-  try {
-    const r = await fetch(`/api/list/${dir}`)
-    if (r.ok) {
-      const listing = await r.json()
-      return listing
-        .filter((f) => f.name.endsWith(ext))
-        .map((f) => f.name)
-        .sort()
-    }
-  } catch (_) {}
+  if (/^[\w./-]+$/.test(dir)) {
+    try {
+      const r = await fetch(`/api/list/${dir}`)
+      if (r.ok) {
+        const listing = await r.json()
+        return listing
+          .filter((f) => f.name.endsWith(ext))
+          .map((f) => f.name)
+          .sort()
+      }
+    } catch (_) {}
+  }
   return []
 }
 
@@ -199,17 +201,19 @@ async function discoverBatch(cfg, itemBuilder) {
     }
   } catch (_) {}
   /* Fallback: /api/list/ */
-  try {
-    const r = await fetch(`/api/list/${cfg.dir}`)
-    if (r.ok) {
-      const listing = await r.json()
-      return listing
-        .filter((f) => f.name.endsWith(ext))
-        .map((f) => f.name.replace(ext, ''))
-        .sort()
-        .map((stem) => build(stem, cfg))
-    }
-  } catch (_) {}
+  if (/^[\w./-]+$/.test(cfg.dir)) {
+    try {
+      const r = await fetch(`/api/list/${cfg.dir}`)
+      if (r.ok) {
+        const listing = await r.json()
+        return listing
+          .filter((f) => f.name.endsWith(ext))
+          .map((f) => f.name.replace(ext, ''))
+          .sort()
+          .map((stem) => build(stem, cfg))
+      }
+    } catch (_) {}
+  }
   /* Fallback: catalogue keys */
   if (cfg.catalogue && Object.keys(cfg.catalogue).length) {
     return Object.keys(cfg.catalogue).map((stem) => build(stem, cfg))
@@ -288,4 +292,29 @@ function initStarred(storeKey, suffix) {
       return set.size
     },
   }
+}
+
+/* ── HTML escaping ── */
+
+/**
+ * Escape a string for safe insertion into innerHTML / attribute contexts.
+ * Covers &, <, >, ", ' to prevent XSS via user-controlled data
+ * (filenames, manifest fields, tags, labels).
+ *
+ * @param {string} s - Raw string
+ * @returns {string} HTML-safe string
+ */
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
+/**
+ * Validate a string as a safe CSS class name suffix.
+ * Returns the string if it matches [a-zA-Z0-9_-]+, otherwise returns 'unknown'.
+ *
+ * @param {string} s - Raw class name candidate
+ * @returns {string} Safe class name
+ */
+function safeClass(s) {
+  return /^[a-zA-Z0-9_-]+$/.test(s) ? s : 'unknown'
 }

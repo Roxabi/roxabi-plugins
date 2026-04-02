@@ -299,19 +299,19 @@ function resizeCards(d) {
 
 function mkCard(card) {
   const badges = (card.badges || []).map(b =>
-    `<span class="bdg bdg-${b.type}">${b.text}</span>`
+    `<span class="bdg bdg-${safeClass(b.type)}">${escHtml(b.text)}</span>`
   ).join('');
 
   const specs = Object.entries(card.specs || {}).map(([k, v]) =>
-    `<tr><td>${k}</td><td>${v}</td></tr>`
+    `<tr><td>${escHtml(k)}</td><td>${escHtml(v)}</td></tr>`
   ).join('');
 
   const verdict = card.verdict
-    ? `<div class="verdict verdict-${card.verdict.type}">${card.verdict.text}</div>`
+    ? `<div class="verdict verdict-${safeClass(card.verdict.type)}">${escHtml(card.verdict.text)}</div>`
     : '';
 
   return `<div class="comp-card" data-card-id="${card._idx}">
-    <img class="card-img" src="${card.image}" onclick="openLb('${card.image}','${escHtml(card.title)}')" loading="lazy" alt="${escHtml(card.title)}">
+    <img class="card-img" src="${escHtml(card.image)}" data-label="${escHtml(card.title)}" loading="lazy" alt="${escHtml(card.title)}">
     <div class="card-body">
       <div class="card-title">${escHtml(card.title)}</div>
       ${badges ? '<div class="badges">' + badges + '</div>' : ''}
@@ -319,10 +319,6 @@ function mkCard(card) {
       ${verdict}
     </div>
   </div>`;
-}
-
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 /* ── Render ── */
@@ -387,6 +383,12 @@ function closeLbOutside(e) {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeLb();
+});
+
+// Delegated click handler for card images (avoids inline onclick with user data)
+document.getElementById('gallery').addEventListener('click', e => {
+  const img = e.target.closest('[data-label]');
+  if (img) openLb(img.src, img.dataset.label);
 });
 
 /* ── Sort wiring (delegated to gallery-base.js) ── */

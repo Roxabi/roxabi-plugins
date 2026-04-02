@@ -1,5 +1,18 @@
 # Brand Tokens & Dark Mode Rules
 
+This file covers two token systems. Choose based on the output type:
+
+| Output type | Token system | Font pair | Used by |
+|-------------|-------------|-----------|---------|
+| Split-file docs, charts, epics | **Baseline** (below) | IBM Plex Sans + IBM Plex Mono | forge-guide, forge-epic, forge-chart |
+| Gallery templates | **Gallery extended** (see `gallery-base.css`) | Plus Jakarta Sans + JetBrains Mono | forge-gallery |
+
+The gallery system extends the baseline with extra surface tiers (`--surface2`, `--card`), a dimmer text tier (`--text-xdim`), and a semantic color palette (`--green`, `--blue`, `--purple`, `--orange`, `--cyan`, `--amber`, `--red` each with `*-dim` variants). Gallery tokens are defined in `gallery-base.css` — do not duplicate them here.
+
+---
+
+## Baseline Tokens (Split-File / Chart / Epic)
+
 ## Which Theme to Use
 
 1. Check `~/.roxabi/forge/<project>/brand/BRAND-BOOK.md` or `~/projects/<project>/brand/BRAND-BOOK.md`

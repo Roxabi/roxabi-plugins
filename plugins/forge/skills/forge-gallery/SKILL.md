@@ -12,6 +12,7 @@ Create a self-contained HTML gallery from a template. Galleries live at `~/.roxa
 **Read before generating:**
 
 ```
+${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md                       — brand detection, output paths, deploy commands
 ${CLAUDE_PLUGIN_ROOT}/references/tokens.md                          — CSS tokens + dark mode rules
 ${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md                    — meta tag format + categories
 ${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/README.md        — template guide + customisation steps
@@ -26,7 +27,7 @@ ${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/pivot-gallery.html — full w
 2. **Detect gallery type** from ARGS: image or audio.
 3. **Gallery slug** (kebab-case) from ARGS.
 4. **Check existing:** offer to add batch or start fresh.
-5. **Brand book check** for token overrides.
+5. **Brand book** — follow `forge-ops.md` brand detection.
 6. **Check for data JSON** (`face-scores.json` etc.) — enables score/cluster filtering.
 
 ---
@@ -93,8 +94,7 @@ Replace CSS custom properties in `:root` with project tokens from `tokens.md`.
 Created: ~/.roxabi/forge/{PROJ}/{SLUG}.html
 Template: {template name}
 
-Serve:   http://localhost:8080/{PROJ}/{SLUG}.html
-Deploy:  cd ~/projects/lyra-stack && make diagrams deploy
+Serve + Deploy: see forge-ops.md
 ```
 
 ---

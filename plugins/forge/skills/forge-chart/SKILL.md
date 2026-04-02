@@ -15,6 +15,7 @@ Output: `~/.roxabi/forge/<project>/visuals/{slug}.html` or `~/.roxabi/forge/_sha
 **Read before generating:**
 
 ```
+${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md     — brand detection, output paths, deploy commands
 ${CLAUDE_PLUGIN_ROOT}/references/tokens.md        — CSS tokens + dark mode rules
 ${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md  — meta tag format + categories
 ```
@@ -31,7 +32,7 @@ Let:
 1. Detect project from ARGS or cwd.
 2. Issue number in ARGS (`#N` or `NNN-`) → filename `{N}-{slug}.html`, set `diagram:issue` meta.
 3. Cross-project / no project → `~/.roxabi/forge/_shared/diagrams/`.
-4. Brand book check (same as other skills).
+4. Brand book — follow `forge-ops.md` brand detection.
 
 ---
 
@@ -173,9 +174,8 @@ flowchart TD
 Created: {path}/{slug}.html
 
 Open:    file://{path}/{slug}.html     (no server needed)
-  or:    cd {path} && python3 -m http.server 8080
 
-Deploy:  cd ~/projects/lyra-stack && make diagrams deploy
+Serve + Deploy: see forge-ops.md
 ```
 
 $ARGUMENTS

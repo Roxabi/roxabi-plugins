@@ -15,6 +15,7 @@ Covers: user guides, architecture overviews, project recaps, analysis/comparison
 **Read before generating:**
 
 ```
+${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md     — brand detection, output paths, deploy commands
 ${CLAUDE_PLUGIN_ROOT}/references/split-file.md    — templates + CSS/JS skeletons
 ${CLAUDE_PLUGIN_ROOT}/references/tokens.md        — CSS tokens + dark mode rules
 ${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md  — meta tag format + categories
@@ -29,17 +30,11 @@ Let:
 
 ## Phase 1 — Context Discovery
 
-1. **Detect project** from ARGS or cwd (`CLAUDE.md` / `pyproject.toml` / `package.json`). Unknown → DP(B).
+1. **Detect project** from ARGS or cwd. Unknown → DP(B). (See `forge-ops.md` for detection signals.)
 
-2. **Brand book** (first found wins):
-   ```bash
-   ls ~/.roxabi/forge/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null
-   ls ~/projects/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null
-   ```
+2. **Brand book** — follow `forge-ops.md` brand detection.
 
-3. **Output root:**
-   - ARGS contains "final" or "docs" → `~/projects/{PROJ}/docs/visuals/`
-   - Otherwise → `~/.roxabi/forge/{PROJ}/visuals/`
+3. **Output root** — follow `forge-ops.md` output paths.
 
 4. **Slug** (kebab-case ≤30 chars). Check existing versions:
    ```bash
@@ -117,10 +112,7 @@ Created:
   {ROOT}/js/{SLUG}.js
   {ROOT}/tabs/{SLUG}/tab-{ID}.html  (×N)
 
-Serve:   cd {ROOT} && python3 -m http.server 8080
-         → http://localhost:8080/{SLUG}.html
-
-Deploy:  cd ~/projects/lyra-stack && make diagrams deploy
+Serve + Deploy: see forge-ops.md
 ```
 
 $ARGUMENTS
