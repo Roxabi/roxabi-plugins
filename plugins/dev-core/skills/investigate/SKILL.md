@@ -44,4 +44,11 @@ Present all results as a single table:
 | CLAUDE_PLUGINS_ROOT | ? | ? |
 | CLAUDE_PLUGINS_DIR | ? | ? |
 
+# Investigation 3 — @ include with variable path
+
+@${CLAUDE_PLUGIN_ROOT}/../shared/references/test-include.md
+
+If you saw the content of that file above, report: **@ + variable path works**.
+If the line above is literal, report: **@ + variable path does NOT work**.
+
 $ARGUMENTS
