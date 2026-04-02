@@ -59,7 +59,7 @@ Legend: 🗑 = safe to delete, ⚠️ = needs attention, 🔒 = protected
 
 ### 4. Ask for Confirmation
 
-Present via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern C):
+→ DP(C)
 - Present only safe(β) items as default selections
 - Show unmerged β separately with warning; **NEVER auto-select unmerged β**
 - ∃ unmerged β → separate question with explicit warning
@@ -127,7 +127,7 @@ Remote Branch Cleanup
 
 #### 6d. Ask for confirmation
 
-Present via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern C): present merged remote β with ¬π as safe; show unmerged separately; **NEVER auto-delete remote β**; always include "Skip / Keep all remote branches".
+→ DP(C) present merged remote β with ¬π as safe; show unmerged separately; **NEVER auto-delete remote β**; always include "Skip / Keep all remote branches".
 
 #### 6e. Execute remote cleanup
 

@@ -25,8 +25,8 @@ Argument ∃ (e.g. `/1b1 review findings`) → narrow to matching list.
 
 | Condition | Action |
 |-----------|--------|
-| Ι ∄ | Ask directly (Pattern B — no protocol read needed). |
-| Multiple lists ∃ | Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A). |
+| Ι ∄ | → DP(B) |
+| Multiple lists ∃ | → DP(A) |
 
 ### 2. ∀ ι ∈ Ι (sequential)
 
@@ -49,7 +49,7 @@ Recommendation: {Fix now | Defer | Skip | Reject} — {1-line rationale}
 
 #### 2c. Ask Decision
 
-Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A). Options adapted to ι type. Always include **Skip**.
+→ DP(A) Options adapted to ι type. Always include **Skip**.
 
 | Item type | Options |
 |-----------|---------|
@@ -66,7 +66,7 @@ Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/
 | Reject | Acknowledge invalid, discard, continue |
 | Skip | Next ι silently |
 | Defer | Append to D, continue |
-| Modify | Ask directly (Pattern B — no protocol read needed) for changes → execute modified |
+| Modify | → DP(B)for changes → execute modified |
 | Remove | Acknowledge, continue |
 
 ### 3. Summary
@@ -86,14 +86,14 @@ Deferred items:
   2. {title}
 ```
 
-D ≠ ∅ → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Process deferred now** | **Done**.
+D ≠ ∅ → → DP(A) **Process deferred now** | **Done**.
 
 ## Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| Ι ∄ | Ask directly (Pattern B — no protocol read needed) what to walk through |
-| Multiple lists ∃ | Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A) |
+| Ι ∄ | → DP(B)what to walk through |
+| Multiple lists ∃ | → DP(A)|
 | User stops mid-way | End early, show summary of processed |
 | ι references files | Read relevant sections before brief |
 | ι already resolved | Note in brief, ask user to confirm skip |

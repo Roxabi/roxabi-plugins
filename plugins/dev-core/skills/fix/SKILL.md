@@ -96,7 +96,7 @@ Alternative: Solution 2 — {rationale}
 
 Demoted from auto-apply → prepend: `Auto-apply failed: {reason}`
 
-Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A) (single per finding): **Solution 1** | **Solution 2** | **Defer** (→ create issue) | **Skip**
+→ DP(A)(single per finding): **Solution 1** | **Solution 2** | **Defer** (→ create issue) | **Skip**
 
 Defer → `gh issue create --title "{cat}: {summary}" --body "{details}"` immediately.
 

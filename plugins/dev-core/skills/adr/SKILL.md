@@ -12,7 +12,7 @@ Let:
   D := `docs/architecture/adr/`
   NNN := zero-padded 3-digit sequence number
   M := `D/meta.json`
-  AQ := Ask directly (Pattern B — no protocol read needed)
+  AQ := DP(B)
 
 Create and manage ADRs — document **why** technical choices were made.
 

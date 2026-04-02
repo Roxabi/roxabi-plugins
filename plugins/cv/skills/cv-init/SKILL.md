@@ -28,7 +28,7 @@ test -d ~/.roxabi-vault/cv/adapted && echo "adapted/: EXISTS" || echo "adapted/:
 test -f ~/.roxabi-vault/config/cv.json && echo "Config: EXISTS" || echo "Config: MISSING"
 ```
 
-∃D → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): "cv_data.json already exists. Overwrite with template?" Options: **Yes, overwrite** | **No, keep existing** No → skip data file creation.
+∃D → → DP(A) "cv_data.json already exists. Overwrite with template?" Options: **Yes, overwrite** | **No, keep existing** No → skip data file creation.
 
 ## Phase 2 — Create Directories
 

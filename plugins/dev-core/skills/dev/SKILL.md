@@ -42,13 +42,13 @@ Single entry point: scan artifacts → detect state → show progress → delega
 ```bash
 gh issue view N --json number,title,labels,state
 ```
-¬∃ → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Create issue** | **Proceed without issue** (frame-only).
+¬∃ → → DP(A) **Create issue** | **Proceed without issue** (frame-only).
 
 Free text ⇒ slug from text:
 ```bash
 gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 ```
-∃ match → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Use #{N}: {title}** | **Create new** | **Proceed without issue**.
+∃ match → → DP(A) **Use #{N}: {title}** | **Create new** | **Proceed without issue**.
 
 `--from <step>` ⇒ record override. Warn if prerequisite artifacts ¬∃:
 
@@ -125,7 +125,7 @@ gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "
 ## Step 2 — Determine Tier
 
 τ ∃ → skip.
-¬τ → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **S** (≤3 files, no arch) | **F-lite** (clear scope, 1 domain) | **F-full** (complex, multi-domain).
+¬τ → → DP(A) **S** (≤3 files, no arch) | **F-lite** (clear scope, 1 domain) | **F-full** (complex, multi-domain).
 
 ## Step 3 — Progress Display
 
@@ -203,7 +203,7 @@ Gate fires → Step 7 skips its own prompt (gate IS confirmation). ¬double-prom
 **Trigger:** `--audit` ∨ S* ∈ `workflow.reasoning_audit` (stack.yml). critical := {spec, plan, implement}.
 
 audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Gate ∃ for S* → audit **replaces** it (¬double-prompt). ¬pass `--audit` to child skills.
-→ Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Proceed** | **Adjust approach** (max 3 rounds) | **Abort** (→ skipped, Step 5)
+→ → DP(A) **Proceed** | **Adjust approach** (max 3 rounds) | **Abort** (→ skipped, Step 5)
 
 ¬audit ∨ S* ∉ critical → skip (Step 6 gate still applies).
 
@@ -231,7 +231,7 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 | promote | `skill: "promote"` (standalone staging→main — skipped by default) |
 | cleanup | `skill: "cleanup", args: "--scope #N"` (scoped to current issue's branch/worktree) |
 
-**Skip to X** ⇒ Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Proceed anyway** | **Cancel**. Missing artifacts → warn first. Proceed ⇒ mark prior steps skipped, S* = X.
+**Skip to X** ⇒ → DP(A) **Proceed anyway** | **Cancel**. Missing artifacts → warn first. Proceed ⇒ mark prior steps skipped, S* = X.
 
 **Stop** ⇒ "Stopped at {S*}. Run `/dev #N` to resume."
 
@@ -295,9 +295,9 @@ To promote to production → run `/promote`
 ## Edge Cases
 
 - Session dies mid-step → `/dev #N` resumes. Re-scan detects partial state. Half-written artifact → step skill handles.
-- `--from <step>` ∧ missing deps → warn + Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Proceed** | **Cancel**.
-- Issue ¬∃ ∧ free text → frame-only mode. φ approved → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Create GitHub issue** | **Continue without**.
+- `--from <step>` ∧ missing deps → warn + → DP(A) **Proceed** | **Cancel**.
+- Issue ¬∃ ∧ free text → frame-only mode. φ approved → → DP(A) **Create GitHub issue** | **Continue without**.
 - S* == validate → Σ.validate always null. Σ_s advances within session. New session → re-runs.
-- Multiple PRs for same issue → list, Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): select which.
+- Multiple PRs for same issue → list, → DP(A) select which.
 
 $ARGUMENTS

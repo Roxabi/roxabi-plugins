@@ -17,7 +17,7 @@ Let:
 ### Phase 1 — Accept Input
 
 1. Accept invoice file path or pasted content via `$ARGUMENTS`.
-2. Input ∄ → Ask directly (Pattern B — no protocol read needed): "Provide the path to the invoice file or paste the invoice content."
+2. Input ∄ → → DP(B) "Provide the path to the invoice file or paste the invoice content."
 3. Path given → verify file ∃.
 
 ### Phase 2 — Extract Details

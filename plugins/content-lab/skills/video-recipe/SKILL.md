@@ -23,7 +23,7 @@ Analyze a YouTube video → extract narrative structure, VAKOG sensory predicate
 /video-recipe --list
 ```
 
-URL ∄ ∧ flag ∄ → Ask directly (Pattern B — no protocol read needed) for YouTube URL.
+URL ∄ ∧ flag ∄ → → DP(B)for YouTube URL.
 
 ## Flags
 

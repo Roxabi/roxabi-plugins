@@ -27,7 +27,7 @@ Run sub-skills directly to reconfigure a single concern without re-running the f
 ## Phase 1 — Parse Input + Idempotency
 
 ¬F → check existing: `test -f .claude/dev-core.yml && echo "1" || grep -c 'dev-core' .env 2>/dev/null || echo "0"`.
-result > 0 → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Re-configure** (≡F) | **Skip** (abort).
+result > 0 → → DP(A) **Re-configure** (≡F) | **Skip** (abort).
 
 ## Phase 2 — Prerequisites
 
@@ -38,7 +38,7 @@ Run: `bun $I_TS prereqs`. Parse JSON → display ✅/❌ table for bun, gh, git 
 - gh: https://cli.github.com/ then `gh auth login`
 - git remote: `git remote add origin <url>`
 
-Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Abort** | **Continue anyway** (warn: some features won't work).
+→ DP(A) **Abort** | **Continue anyway** (warn: some features won't work).
 
 ## Phase 3 — Orchestrate
 

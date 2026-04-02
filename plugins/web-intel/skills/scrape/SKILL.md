@@ -16,7 +16,7 @@ Extract structured content from a URL → JSON with content, metadata, and platf
 /scrape https://example.com
 ```
 
-¬U → Ask directly (Pattern B — no protocol read needed) to get one.
+¬U → → DP(B)to get one.
 
 ## Step 1 — Locate Plugin
 

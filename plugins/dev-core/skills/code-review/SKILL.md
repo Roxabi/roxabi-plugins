@@ -55,7 +55,7 @@ git diff ${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]
 ⚠️  Potential secrets found in diff — review before proceeding:
   <file>: <matched line with secret value redacted to first 2 + last 2 chars>
 ```
-Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Review and proceed** | **Abort**
+→ DP(A) **Review and proceed** | **Abort**
 ∅ → continue silently.
 
 ## Phase 2 — Spec Compliance

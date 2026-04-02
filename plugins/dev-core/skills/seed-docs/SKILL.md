@@ -31,7 +31,7 @@ Read σ (`cat .claude/stack.yml 2>/dev/null`). Record DOCS, FMT, `runtime`, `bac
 
 ¬σ → DOCS=`docs`, FMT=`md`. `--docs-path <p>` ∈ $ARGUMENTS → DOCS=p. `--no-scan` ∈ $ARGUMENTS → skip Phase 3.
 
-DOCS dir ∄ → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Run /init first** | **Create docs dir and seed** | **Cancel**
+DOCS dir ∄ → → DP(A) **Run /init first** | **Create docs dir and seed** | **Cancel**
 - "Run /init" → explain Phase 7a creates stubs, exit.
 - "Create" → `mkdir -p {DOCS}/{architecture,standards,guides,processes}`, continue.
 
@@ -89,7 +89,7 @@ Already populated ({M} files) — will skip.
 
 N=0 → "All docs appear populated. Use --force to re-seed (not implemented). Exiting." → exit.
 
-Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Populate {N} stub files** | **Select files** | **Cancel**
+→ DP(A) **Populate {N} stub files** | **Select files** | **Cancel**
 - "Select" → list files numbered, present via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern C): which to include (comma-separated indices).
 
 ## Phase 5 — Populate Stubs
@@ -147,7 +147,7 @@ Seed Docs Complete
     ...
 ```
 
-Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Commit seeded docs** | **Review first, commit manually** | **Skip**
+→ DP(A) **Commit seeded docs** | **Review first, commit manually** | **Skip**
 
 "Commit" → `git add {DOCS}` + commit:
 ```

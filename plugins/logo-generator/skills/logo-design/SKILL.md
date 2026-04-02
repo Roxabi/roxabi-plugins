@@ -74,7 +74,7 @@ mkdir -p "$HOME/.roxabi-vault/config/logo-briefs"
 ```
 5. Write to `BD/<name>-logo.html`; `xdg-open` it.
 6. Tell user: "Preview is open. Use the gear icon (top-right) to tweak colors, sizes, and animation in real time."
-7. Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Export GIF+PNG** (Phase 6) | **Tweak** (Phase 5) | **Start over** (Phase 2).
+7. → DP(A) **Export GIF+PNG** (Phase 6) | **Tweak** (Phase 5) | **Start over** (Phase 2).
 
 ## Phase 5 — Iterate
 

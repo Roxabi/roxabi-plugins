@@ -32,7 +32,7 @@ git diff --cached --stat   # 2. staged
 git diff HEAD~1..HEAD --stat && git log -1 --format="%s%n%b"  # 3. last commit
 ```
 
-Record SRC. ¬δ after scan → Ask directly (Pattern B — no protocol read needed): describe change.
+Record SRC. ¬δ after scan → → DP(B) describe change.
 
 ## Phase 2 — Discover Context
 
@@ -52,9 +52,9 @@ First hit → `PLUGINS_REPO`. ¬found → warn + skip plugin docs.
 REPO=$(gh repo view --json name --jq '.name')
 ls "$PLUGINS_REPO/plugins/"
 ```
-Exact ∨ kebab-case match → auto-set. Multiple/¬match → Ask directly (Pattern B — no protocol read needed). ¬found → warn + skip SKILL.md.
+Exact ∨ kebab-case match → auto-set. Multiple/¬match → → DP(B) ¬found → warn + skip SKILL.md.
 
-**2e.** `ls "$PLUGINS_REPO/plugins/$PLUGIN_NAME/skills/"` → one → use. Multiple → Ask directly (Pattern B — no protocol read needed).
+**2e.** `ls "$PLUGINS_REPO/plugins/$PLUGIN_NAME/skills/"` → one → use. Multiple → → DP(B)
 
 ## Phase 3 — Read Changes + Extract K
 
@@ -96,7 +96,7 @@ Docs referencing changed concepts:
 {|D|} docs to review.
 ```
 
-|D| = 0 (only always-included, 0 matches) → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Force update core docs** | **Skip** → Skip: Phase 6.
+|D| = 0 (only always-included, 0 matches) → → DP(A) **Force update core docs** | **Skip** → Skip: Phase 6.
 
 ## Phase 5 — Update Docs
 
@@ -142,7 +142,7 @@ Doc Sync Complete
   {|EDITED|} files updated, {|D| - |EDITED|} skipped.
 ```
 
-Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Commit project docs** | **Commit all (project + plugin)** | **Skip**
+→ DP(A) **Commit project docs** | **Commit all (project + plugin)** | **Skip**
 
 Commit → `git add ${EDITED}` + `docs:` prefix. Plugin repo ≠ CWD ∧ plugin files ∈ EDITED → "Commit `$PLUGINS_REPO` separately."
 
@@ -154,7 +154,7 @@ Commit → `git add ${EDITED}` + `docs:` prefix. Plugin repo ≠ CWD ∧ plugin 
 | ¬CLAUDE.md ∨ ¬README.md | Skip, warn |
 | ¬PLUGINS_REPO | Project docs only |
 | ¬plugin dir | Project docs only, warn |
-| δ vague | Ask directly (Pattern B — no protocol read needed): narrow to one feature |
+| δ vague | → DP(B) narrow to one feature |
 | Unrelated files changed | Focus on δ only |
 | SRC=working-tree ∧ ¬PLUGINS_REPO | Warn to set `$ROXABI_PLUGINS_DIR` |
 | Rename A → B | K includes both; grep finds stale A |

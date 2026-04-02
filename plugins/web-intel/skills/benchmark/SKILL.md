@@ -21,7 +21,7 @@ Scrape U → screenshot → analyze repo → compare → report.
 /benchmark https://example.com --focus ui   → UI/design focus
 ```
 
-¬U → Ask directly (Pattern B — no protocol read needed). Parse `--focus <area>` if provided.
+¬U → → DP(B) Parse `--focus <area>` if provided.
 
 ## Step 1 — Locate Plugin
 
@@ -87,7 +87,7 @@ Build comparison matrix based on F:
 
 Output structured markdown: Target Overview → Comparison Matrix → Overall Score (weighted %) → Gap Analysis → Priority-ordered Recommendations.
 
-Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Create issues for gaps** | **Deep-dive a dimension** | **Benchmark another URL** | **Done**
+→ DP(A) **Create issues for gaps** | **Deep-dive a dimension** | **Benchmark another URL** | **Done**
 
 ## Safety Rules
 

@@ -75,13 +75,13 @@ ls -d ../${REPO}-<N> 2>/dev/null
 git fetch origin ${BASE}
 ```
 
-∃ branch ⇒ Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Reuse** | **Recreate** | **Abort**
+∃ branch ⇒ → DP(A) **Reuse** | **Recreate** | **Abort**
 
 ∃ ω → check dirty state:
 ```bash
 git status --porcelain
 ```
-¬empty ⇒ Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Stash changes** (`git stash`) | **Reset** (`git checkout .`) | **Continue with dirty state** | **Abort**
+¬empty ⇒ → DP(A) **Stash changes** (`git stash`) | **Reset** (`git checkout .`) | **Continue with dirty state** | **Abort**
 
 **2e. Worktree:**
 
@@ -96,7 +96,7 @@ cp .env.example .env 2>/dev/null; {package_manager} install
 # Optional: {commands.worktree_setup} <N>
 ```
 
-XS exception: Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Skip worktree (XS exception)** | **Use worktree** → approved → skip ω, `git checkout -b feat/<N>-<slug> ${BASE}` in main repo.
+XS exception: → DP(A) **Skip worktree (XS exception)** | **Use worktree** → approved → skip ω, `git checkout -b feat/<N>-<slug> ${BASE}` in main repo.
 
 ## Step 3 — Context Injection (τ=F only)
 
@@ -117,7 +117,7 @@ Ref file paths from `/plan` Step 3.
 ## Step 3b — Reasoning Audit (optional)
 
 `--audit` → present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Read π/spec in full first.
-→ Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Proceed** | **Adjust approach** | **Abort**
+→ → DP(A) **Proceed** | **Adjust approach** | **Abort**
 ¬`--audit` → skip to Step 4.
 
 ## Step 4 — Implement
@@ -149,7 +149,7 @@ Run QG inside ω (session already in ω after EnterWorktree):
 ```
 
 ✓ → Step 6.
-✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Escalate to lead** | **Continue with failures** | **Abandon ω** (`ExitWorktree(action: "remove")` + delete branch).
+✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → → DP(A) **Escalate to lead** | **Continue with failures** | **Abandon ω** (`ExitWorktree(action: "remove")` + delete branch).
 
 ## Step 6 — Summary
 

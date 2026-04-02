@@ -80,7 +80,7 @@ Adding images to existing slides → move image to new slide or reduce other con
 
 ## Phase 1: Content Discovery (New Presentations)
 
-Present via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern C) — all questions in a single call:
+→ DP(C)— all questions in a single call:
 
 - **Purpose**: Pitch deck / Teaching-Tutorial / Conference talk / Internal
 - **Length**: Short 5-10 / Medium 10-20 / Long 20+
@@ -98,7 +98,7 @@ User provides image folder:
 2. View each via Read tool (multimodal)
 3. ∀ image: what it shows | USABLE / NOT USABLE (with reason) | concept | dominant colors
 4. Co-design outline — curated images inform slide structure alongside text (¬"plan slides then add images" — design around both from start)
-5. Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A) (header: "Outline"): **Looks good** | **Adjust images** | **Adjust outline**
+5. → DP(A)(header: "Outline"): **Looks good** | **Adjust images** | **Adjust outline**
 
 Logo ∃ → embed (base64) into each Phase 2 style preview.
 

@@ -32,7 +32,7 @@ Spec → micro-tasks → agent assignments → plan artifact.
 ### Pre-flight: Ambiguity Check
 
 Grep `\[NEEDS CLARIFICATION` in σ (count).
-count > 0 → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Resolve now** | **Return to spec** | **Proceed anyway**
+count > 0 → → DP(A) **Resolve now** | **Return to spec** | **Proceed anyway**
 
 ## Step 2 — Plan
 
@@ -41,7 +41,7 @@ Read `docs/processes/dev-process.mdx` + σ.
 ### Step 2a-pre — Reasoning Audit (optional)
 
 `--audit` → after reading σ, present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) (plan guidance).
-→ Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Proceed** | **Adjust approach** | **Abort**
+→ → DP(A) **Proceed** | **Adjust approach** | **Abort**
 ¬`--audit` → continue to Step 2a.
 
 **2a. Scope:** Glob + Grep → files to create/modify + reference features for patterns.
@@ -67,10 +67,10 @@ Intra-domain parallel: ≥4 independent tasks in 1 domain → multiple same-type
 **2d. Tasks:** ∀ task: description, files, agent, dependencies, parallel-safe (Y/N).
 Order: types → backend → frontend → tests → docs → config.
 
-**2e. Slice Selection (multi-slice only):** ≥2 slices → Present via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern C): 1 option/slice `V{N}: {desc} ({files}, {agents})`.
+**2e. Slice Selection (multi-slice only):** ≥2 slices → → DP(C) 1 option/slice `V{N}: {desc} ({files}, {agents})`.
 Default: next unimplemented slice. Respect deps. Re-run `/plan` for remaining.
 
-**2f. Present Plan:** Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): τ, slices, files, agents, tasks with `[parallel-safe: Y/N]`.
+**2f. Present Plan:** → DP(A) τ, slices, files, agents, tasks with `[parallel-safe: Y/N]`.
 Options: **Approve** | **Modify** | **Cancel**
 **Approve → immediately continue to Step 3 (¬stop).**
 
@@ -140,7 +140,7 @@ Diagrams go AFTER Summary, BEFORE Bootstrap Context.
 
 ## Step 6 — Approve + Commit
 
-Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): complexity, τ, task count, agents, consistency, slices.
+→ DP(A) complexity, τ, task count, agents, consistency, slices.
 Options: **Approve** | **Modify** | **Return to spec**
 
 On Approve → commit: `git add artifacts/plans/{N}-{slug}-plan.mdx` + commit per CLAUDE.md Rule 5.

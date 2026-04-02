@@ -1,3 +1,8 @@
+# Decision Presentation Protocol — DP(n)
+
+Shorthand used in SKILL.md files: `→ DP(A)` | `→ DP(B)` | `→ DP(C)`
+Load this file via `Read \`${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md\`` when a pattern is invoked.
+
 # Decision Presentation Protocol
 
 Use this protocol whenever a user decision is required. Never use AskUserQuestion.

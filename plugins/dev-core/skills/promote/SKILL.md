@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch
 
 # Promote
 
-Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := decision presentation (Pattern A)
+Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := DP(A)
 
 σ → μ for production. Pre-flight → version → changelog → commit → preview → PR.
 `--finalize`: post-merge tag + GitHub Release.

@@ -22,7 +22,7 @@ Formal notation rewrite — reduce tokens, preserve semantics.
 
 ## Phases
 
-**1 — Resolve:** Parse `$ARGUMENTS`: `*.md` → direct | agent name → `.claude/agents/<name>.md` | skill name → `.claude/skills/<name>/SKILL.md` | ∅ → Ask directly (Pattern B — no protocol read needed). file ∃ → read. ∄ → halt.
+**1 — Resolve:** Parse `$ARGUMENTS`: `*.md` → direct | agent name → `.claude/agents/<name>.md` | skill name → `.claude/skills/<name>/SKILL.md` | ∅ → → DP(B) file ∃ → read. ∄ → halt.
 
 **2 — Analyze:** Read target. Identify: repeated nouns (≥3×) | verbose conditionals | iteration prose | magic numbers | redundant examples | filler. L_before := line count (excl. frontmatter).
 
@@ -46,7 +46,7 @@ Formal notation rewrite — reduce tokens, preserve semantics.
 
 **¬compress:** frontmatter | code blocks | `$ARGUMENTS` | file paths | tool names | safety rules | table structure
 
-**4 — Present:** Show `L_before → L_after (N%)` + substitutions. Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Yes** | **Preview** | **Adjust**. Preview → show, re-ask. Adjust → apply, re-present.
+**4 — Present:** Show `L_before → L_after (N%)` + substitutions. → DP(A) **Yes** | **Preview** | **Adjust**. Preview → show, re-ask. Adjust → apply, re-present.
 
 **5 — Write:** Write file. Verify: frontmatter ∧ `$ARGUMENTS` ∧ safety rules ∧ ¬semantic loss. Report L + %.
 

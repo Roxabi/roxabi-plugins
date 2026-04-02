@@ -16,7 +16,7 @@ Let: σ := `.claude/stack.yml` | π := proposed config table
 
 `test -f .claude/stack.yml && echo exists || echo missing`
 
-σ ∃ ∧ `--force` ∉ `$ARGUMENTS` → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Re-configure** | **Skip**
+σ ∃ ∧ `--force` ∉ `$ARGUMENTS` → → DP(A) **Re-configure** | **Skip**
 → Skip: "Keeping existing σ. Run with `--force` to reconfigure."
 
 σ ∄ → `mkdir -p .claude`
@@ -25,7 +25,7 @@ Let: σ := `.claude/stack.yml` | π := proposed config table
 
 `test -f .claude/dev-core.yml && grep -q 'gh_project_id' .claude/dev-core.yml && echo done || (test -f .env && grep -q 'GH_PROJECT_ID' .env && echo done || echo missing)`
 
-`missing` → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Continue anyway** | **Abort (run /init first)**
+`missing` → → DP(A) **Continue anyway** | **Abort (run /init first)**
 
 ## Phase 2 — Auto-discover
 
@@ -144,7 +144,7 @@ Detected configuration
     install:    {install_cmd}
 ```
 
-Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Looks good — write it** | **Edit a field** | **Abort**
+→ DP(A) **Looks good — write it** | **Edit a field** | **Abort**
 
 "Edit a field" → ask which + new value; apply; re-display π. Repeat until confirmed.
 

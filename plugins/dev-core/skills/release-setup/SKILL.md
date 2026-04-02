@@ -28,7 +28,7 @@ Check prerequisites and per-component state before any installation.
    test -f .claude/stack.yml && echo "found" || echo "missing"
    ```
    missing → warn: "stack.yml not found — release-setup reads runtime and hook runner from it."
-   Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Run `/env-setup` first** | **Proceed manually**
+   → DP(A) **Run `/env-setup` first** | **Proceed manually**
    Proceed manually → continue with defaults (runtime: node, package_manager: npm, hooks.tool: none).
 
 2. Check per-component config file existence in parallel:

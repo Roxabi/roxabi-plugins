@@ -35,7 +35,7 @@ nvidia-smi --query-gpu=name,memory.free,memory.total --format=csv,noheader 2>/de
 nvidia-smi --query-compute-apps=pid,process_name --format=csv,noheader,nounits 2>/dev/null
 ```
 
-¬GPU ∨ ¬venv → abort with instructions. GPU conflict found → Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Stop conflicting process first** | **Proceed anyway** Do NOT auto-kill.
+¬GPU ∨ ¬venv → abort with instructions. GPU conflict found → → DP(A) **Stop conflicting process first** | **Proceed anyway** Do NOT auto-kill.
 
 ## Phase 2 — Concept Directions
 
@@ -82,7 +82,7 @@ Model loads once, generates sequentially (~20s each, int8 quantization). Failure
 
 ## Phase 6 — Pick & Iterate
 
-Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Pick favorites** (by number) | **Generate more variations** | **Done**
+→ DP(A) **Pick favorites** (by number) | **Generate more variations** | **Done**
 
 - Favorites + variations → new prompts (different angles/lighting/colors/materials) → re-run batch (existing PNGs skipped) → regenerate gallery.
 - Done → summarize favorites; suggest: `/logo-design` for animated SVG, `/logo-explore-svg` for shape variations.

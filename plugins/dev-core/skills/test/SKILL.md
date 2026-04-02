@@ -100,13 +100,13 @@ it('should return user by id', () => {
 
 ## Step 6 — Approval
 
-Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Approve and write all** | **Approve with modifications** | **Skip specific files**
+→ DP(A) **Approve and write all** | **Approve with modifications** | **Skip specific files**
 ¬write without approval.
 
 ## Step 7 — Write + Verify
 
 ∀ approved τ: write via Write tool → `{commands.test} {test_file_path}` → report pass/fail.
-∃ failures ⇒ Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): show failing test + error → propose fix → re-run.
+∃ failures ⇒ → DP(A) show failing test + error → propose fix → re-run.
 
 ## E2E Mode (`--e2e`)
 
@@ -176,7 +176,7 @@ Selectors: `page.getByRole()`, `page.getByLabel()`, `page.getByText()` (¬`page.
 |----------|----------|
 | File has no exports | Skip, inform user |
 | Tests already exist | Offer to add missing coverage, ¬overwrite |
-| Test framework not detected | Ask directly (Pattern B — no protocol read needed): which framework to use |
+| Test framework not detected | → DP(B) which framework to use |
 | `--run` flag | Run `{commands.test}` and report only |
 | React component | Generate component tests with appropriate render approach |
 | File in monorepo package | Place tests relative to package, ¬root |
