@@ -6,10 +6,11 @@ Drop-in Makefile snippet for projects that want `make forge` targets. Copy the r
 
 ## Minimal (serve only)
 
-For projects that just need local serving — no daemon, no deploy.
+For projects that just need local serving — no daemon, no deploy. Uses the bundled `serve.py` from `references/server/`.
 
 ```makefile
-FORGE_DIR ?= $(HOME)/.roxabi/forge
+FORGE_DIR    ?= $(HOME)/.roxabi/forge
+FORGE_SERVER ?= path/to/references/server/serve.py
 
 .PHONY: forge
 
@@ -18,10 +19,10 @@ forge:
 
 forge-serve:
 	@echo "Serving $(FORGE_DIR) on :8080…"
-	@cd $(FORGE_DIR) && python3 -m http.server 8080
+	@FORGE_DIR=$(FORGE_DIR) python3 $(FORGE_SERVER)
 
 forge-stop:
-	@pkill -f "http.server 8080" 2>/dev/null || echo "Not running"
+	@pkill -f "serve.py" 2>/dev/null || echo "Not running"
 ```
 
 ---
@@ -61,11 +62,13 @@ endif
 
 ### Supervisor config (`conf.d/forge.conf`)
 
+`serve.py` and `index.html` are bundled in `references/server/`.
+
 ```ini
 [program:forge]
-command=%(ENV_HOME)s/path/to/serve.py
+command=python3 %(ENV_HOME)s/path/to/references/server/serve.py
 directory=%(ENV_HOME)s/.roxabi/forge
-environment=DIAGRAMS_DIR="%(ENV_HOME)s/.roxabi/forge"
+environment=FORGE_DIR="%(ENV_HOME)s/.roxabi/forge"
 autostart=true
 autorestart=true
 startsecs=3
