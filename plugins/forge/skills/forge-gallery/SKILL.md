@@ -23,12 +23,18 @@ ${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/pivot-gallery.html — full w
 
 ## Phase 1 — Context
 
-1. **Detect project** from ARGS or cwd.
-2. **Detect gallery type** from ARGS: image or audio.
-3. **Gallery slug** (kebab-case) from ARGS.
-4. **Check existing:** offer to add batch or start fresh.
-5. **Brand book** — follow `forge-ops.md` brand detection.
-6. **Check for data JSON** (`face-scores.json` etc.) — enables score/cluster filtering.
+1. **Check forge setup:**
+   ```bash
+   ls ~/.roxabi/forge/_shared/gallery-base.css ~/.roxabi/forge/_shared/gallery-base.js 2>/dev/null
+   ```
+   Missing → inform user: "Forge is not initialized. Run `/forge-init` first to set up the server and shared assets."  Stop.
+
+2. **Detect project** from ARGS or cwd.
+3. **Detect gallery type** from ARGS: image or audio.
+4. **Gallery slug** (kebab-case) from ARGS.
+5. **Check existing:** offer to add batch or start fresh.
+6. **Brand book** — follow `forge-ops.md` brand detection.
+7. **Check for data JSON** (`face-scores.json` etc.) — enables score/cluster filtering.
 
 ---
 
