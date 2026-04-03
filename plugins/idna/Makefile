@@ -1,8 +1,9 @@
 IDNA_DIR        ?= $(HOME)/.roxabi/idna
-SUPERVISORCTL   := $(HOME)/projects/lyra-stack/scripts/supervisorctl.sh
+SUPERVISOR_HUB  ?= $(HOME)/projects
+SUPERVISORCTL   := $(SUPERVISOR_HUB)/scripts/supervisorctl.sh
 REFS_DIR        := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))references
 
-.PHONY: deploy start stop reload status logs errlogs ls clean help
+.PHONY: deploy register start stop reload status logs errlogs ls clean help
 
 .DEFAULT_GOAL := help
 
@@ -10,6 +11,7 @@ help:
 	@echo "Usage: make <target>"
 	@echo ""
 	@echo "  deploy   copy references/ → $(IDNA_DIR)/"
+	@echo "  register symlink supervisor config into hub"
 	@echo "  start    start idna service"
 	@echo "  stop     stop idna service"
 	@echo "  reload   restart idna service (after deploy)"
@@ -23,6 +25,15 @@ deploy:
 	@echo "── deploy references/ → $(IDNA_DIR)/ ──"
 	@rsync -av --exclude "__pycache__/" --exclude "*.pyc" \
 		$(REFS_DIR)/ $(IDNA_DIR)/
+	@echo "Done."
+
+register:
+	@echo "Registering IDNA with supervisor hub..."
+	@mkdir -p "$(SUPERVISOR_HUB)/conf.d"
+	@ln -sf "$(abspath supervisor/conf.d/idna.conf)" "$(SUPERVISOR_HUB)/conf.d/idna.conf"
+	@if [ -S "$(SUPERVISOR_HUB)/supervisor.sock" ]; then \
+		$(SUPERVISORCTL) reread && $(SUPERVISORCTL) update; \
+	fi
 	@echo "Done."
 
 start:
