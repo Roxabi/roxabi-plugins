@@ -3,6 +3,22 @@ SUPERVISOR_HUB  ?= $(HOME)/projects
 SUPERVISORCTL   := $(SUPERVISOR_HUB)/scripts/supervisorctl.sh
 REFS_DIR        := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))references
 
+define ensure_idna_init
+	@if [ ! -f "$(IDNA_DIR)/idna_server.py" ]; then \
+		echo "Error: idna not initialized at $(IDNA_DIR)/"; \
+		echo "       Run 'make deploy' or use /idna-init first."; \
+		exit 1; \
+	fi
+endef
+
+define ensure_idna_registered
+	@if [ ! -L "$(SUPERVISOR_HUB)/conf.d/idna.conf" ]; then \
+		echo "Error: idna not registered with supervisor hub."; \
+		echo "       Run 'make register' first."; \
+		exit 1; \
+	fi
+endef
+
 .PHONY: deploy register start stop reload status logs errlogs ls clean help
 
 .DEFAULT_GOAL := help
@@ -37,16 +53,20 @@ register:
 	@echo "Done."
 
 start:
+	$(ensure_idna_init)
+	$(ensure_idna_registered)
 	$(SUPERVISORCTL) start idna
 
 stop:
 	$(SUPERVISORCTL) stop idna
 
 reload:
+	$(ensure_idna_init)
+	$(ensure_idna_registered)
 	$(SUPERVISORCTL) restart idna
 
 status:
-	$(SUPERVISORCTL) status idna
+	@$(SUPERVISORCTL) status idna || true
 
 logs:
 	$(SUPERVISORCTL) tail -f idna

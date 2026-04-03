@@ -3,6 +3,22 @@ SUPERVISOR_HUB  ?= $(HOME)/projects
 SUPERVISORCTL   := $(SUPERVISOR_HUB)/scripts/supervisorctl.sh
 PLUGIN_DIR      := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
+define ensure_forge_init
+	@if [ ! -f "$(FORGE_DIR)/serve.py" ] || [ ! -f "$(FORGE_DIR)/run.sh" ]; then \
+		echo "Error: forge not initialized at $(FORGE_DIR)/"; \
+		echo "       Run 'make deploy' or use /forge-init first."; \
+		exit 1; \
+	fi
+endef
+
+define ensure_forge_registered
+	@if [ ! -L "$(SUPERVISOR_HUB)/conf.d/forge.conf" ]; then \
+		echo "Error: forge not registered with supervisor hub."; \
+		echo "       Run 'make register' first."; \
+		exit 1; \
+	fi
+endef
+
 .PHONY: deploy register start stop reload status logs errlogs help
 
 .DEFAULT_GOAL := help
@@ -38,16 +54,20 @@ register:
 	@echo "Done."
 
 start:
+	$(ensure_forge_init)
+	$(ensure_forge_registered)
 	$(SUPERVISORCTL) start forge
 
 stop:
 	$(SUPERVISORCTL) stop forge
 
 reload:
+	$(ensure_forge_init)
+	$(ensure_forge_registered)
 	$(SUPERVISORCTL) restart forge
 
 status:
-	$(SUPERVISORCTL) status forge
+	@$(SUPERVISORCTL) status forge || true
 
 logs:
 	$(SUPERVISORCTL) tail -f forge
