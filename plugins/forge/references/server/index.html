@@ -16,6 +16,8 @@
   --purple:#a78bfa; --purple-dim:rgba(167,139,250,0.12);
   --orange:#fb923c; --orange-dim:rgba(251,146,60,0.12);
   --cyan:#22d3ee;   --cyan-dim:rgba(34,211,238,0.12);
+  --red:#f87171;    --red-dim:rgba(248,113,113,0.12);
+  --gold:#fbbf24;   --gold-dim:rgba(251,191,36,0.12);
   --font:'Plus Jakarta Sans',system-ui,sans-serif;
   --mono:'JetBrains Mono',monospace;
 }
@@ -29,6 +31,8 @@
   --purple:#7c3aed;--purple-dim:rgba(124,58,237,0.1);
   --orange:#ea580c; --orange-dim:rgba(234,88,12,0.1);
   --cyan:#0891b2;   --cyan-dim:rgba(8,145,178,0.1);
+  --red:#dc2626;    --red-dim:rgba(220,38,38,0.1);
+  --gold:#d97706;   --gold-dim:rgba(217,119,6,0.1);
 }
 
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -74,6 +78,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .group-tag.purple{background:var(--purple-dim);color:var(--purple);border:1px solid var(--purple)}
 .group-tag.orange{background:var(--orange-dim);color:var(--orange);border:1px solid var(--orange)}
 .group-tag.cyan{background:var(--cyan-dim);color:var(--cyan);border:1px solid var(--cyan)}
+.group-tag.red{background:var(--red-dim);color:var(--red);border:1px solid var(--red)}
+.group-tag.gold{background:var(--gold-dim);color:var(--gold);border:1px solid var(--gold)}
 .group-tag.neutral{background:var(--surface2);color:var(--text-dim);border:1px solid var(--border2)}
 .group-name{font-size:.9rem;font-weight:600;color:var(--text)}
 .group-cnt{font-family:var(--mono);font-size:.64rem;color:var(--text-xdim)}
@@ -88,6 +94,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .card.purple:hover{border-color:var(--purple);box-shadow:0 5px 18px rgba(167,139,250,.12)}
 .card.orange:hover{border-color:var(--orange);box-shadow:0 5px 18px rgba(251,146,60,.12)}
 .card.cyan:hover{border-color:var(--cyan);box-shadow:0 5px 18px rgba(34,211,238,.12)}
+.card.red:hover{border-color:var(--red);box-shadow:0 5px 18px rgba(248,113,113,.12)}
+.card.gold:hover{border-color:var(--gold);box-shadow:0 5px 18px rgba(251,191,36,.12)}
 .card-title{font-size:.83rem;font-weight:600;color:var(--text);line-height:1.4}
 .card-meta{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
 .card-meta span{font-family:var(--mono);font-size:.62rem;color:var(--text-xdim)}
@@ -104,6 +112,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .li-dot.purple{background:var(--purple)}
 .li-dot.orange{background:var(--orange)}
 .li-dot.cyan{background:var(--cyan)}
+.li-dot.red{background:var(--red)}
+.li-dot.gold{background:var(--gold)}
 .li-title{font-size:.82rem;font-weight:500;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .li-cat{font-family:var(--mono);font-size:.62rem;color:var(--text-xdim);flex-shrink:0;min-width:90px}
 .li-file{font-family:var(--mono);font-size:.62rem;color:var(--text-xdim);flex-shrink:0}
@@ -183,7 +193,7 @@ let DATA = [];
 // ── State ─────────────────────────────────────────────────────────
 const S = {
   theme: localStorage.getItem('idx-theme') || 'dark',
-  group: localStorage.getItem('idx-group') || 'date',
+  group: localStorage.getItem('idx-group') || 'cat',
   sort:  localStorage.getItem('idx-sort')  || 'date-desc',
   view:  localStorage.getItem('idx-view')  || 'card',
   q: '',

@@ -189,7 +189,7 @@ cp pivot-gallery.html ~/.roxabi/forge/{project}/{slug}.html
 # Edit placeholders + DIMS
 
 # Deploy
-cd ~/projects/lyra-stack && make diagrams deploy
+cd ~/projects/lyra-stack && make forge deploy
 ```
 
 ## How to customise `simple-gallery.html`

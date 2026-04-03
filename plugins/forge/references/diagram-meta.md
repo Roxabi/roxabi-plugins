@@ -100,5 +100,5 @@ The manifest entry generated from the above:
 After adding/editing diagrams, re-index:
 
 ```bash
-cd ~/projects/lyra-stack && make diagrams deploy
+cd ~/projects/lyra-stack && make forge deploy
 ```

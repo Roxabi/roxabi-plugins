@@ -21,6 +21,18 @@ META_RE = re.compile(r'<meta\s+name="diagram:([\w-]+)"\s+content="([^"]*)"', re.
 TITLE_RE = re.compile(r'<title>([^<]+)</title>', re.IGNORECASE)
 END_MARKER = '<!-- diagram-meta:end -->'
 
+VALID_COLORS = {'amber', 'blue', 'green', 'purple', 'orange', 'cyan', 'red', 'gold'}
+
+
+def normalize_color(color, filepath=''):
+    """Map unknown color values (hex codes, typos) to valid CSS class names."""
+    if color in VALID_COLORS:
+        return color
+    if not color:
+        return 'blue'
+    print(f'  ⚠ unknown color "{color}" in {filepath} — falling back to orange')
+    return 'orange'
+
 # ── Manifest generation (same logic as gen-manifest.py) ──────────
 
 def parse_html(filepath):
@@ -64,8 +76,7 @@ def parse_html(filepath):
             cat, cat_label, color = 've', 'Visual Explainer', 'purple'
         else:
             cat, cat_label, color = 'ext', 'External', 'green'
-    if not color:
-        color = 'blue'
+    color = normalize_color(color, filepath)
 
     # Infer date from file mtime when not in meta
     date = metas.get('date', '')

@@ -319,5 +319,5 @@ cd ~/.roxabi/forge/<project>/visuals && python3 -m http.server 8080
 
 After creating / editing:
 ```bash
-cd ~/projects/lyra-stack && make diagrams deploy
+cd ~/projects/lyra-stack && make forge deploy
 ```
