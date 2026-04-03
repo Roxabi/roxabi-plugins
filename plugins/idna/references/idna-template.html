@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lyra Avatar Forge</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0c0e16; --surface:#13161f; --surface2:#1a1d2a; --card:#1e2133;
+  --border:rgba(255,255,255,0.07); --border2:rgba(255,255,255,0.13);
+  --text:#dde4f0; --text-dim:#7d8799; --text-xdim:#3e4556;
+  --accent:#e8a030; --accent-dim:rgba(232,160,48,0.15);
+  --teal:#22d3ee; --teal-dim:rgba(34,211,238,0.12);
+  --font:'Plus Jakarta Sans',system-ui,sans-serif;
+  --mono:'JetBrains Mono',monospace;
+  --radius:12px;
+}
+[data-theme="light"] {
+  --bg:#f5f2ec; --surface:#ede9e0; --surface2:#e5e0d5; --card:#faf8f4;
+  --border:rgba(0,0,0,0.08); --border2:rgba(0,0,0,0.15);
+  --text:#1a1d2b; --text-dim:#5a6070; --text-xdim:#9aa0ae;
+  --accent:#b8760a; --accent-dim:rgba(184,118,10,0.1);
+  --teal:#0891b2; --teal-dim:rgba(8,145,178,0.1);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:15px;-webkit-font-smoothing:antialiased}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh}
+.layout{max-width:900px;margin:0 auto;padding:32px 24px 80px}
+
+.header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:28px}
+.project{font-size:.72rem;font-family:var(--mono);color:var(--teal);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}
+.title{font-size:1.5rem;font-weight:700;letter-spacing:-.02em}
+.title span{color:var(--accent)}
+.subtitle{font-size:.82rem;color:var(--text-dim);margin-top:4px}
+.theme-btn{background:var(--surface);border:1px solid var(--border2);border-radius:6px;color:var(--text-dim);cursor:pointer;font-size:.82rem;padding:5px 12px;flex-shrink:0;margin-top:4px}
+.theme-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+.phasebar{display:flex;align-items:center;gap:8px;margin-bottom:28px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px}
+.phase{display:flex;align-items:center;gap:6px;font-size:.78rem;font-weight:500;color:var(--text-xdim)}
+.phase.done{color:var(--text-dim)}
+.phase.active{color:var(--text)}
+.phase-dot{width:8px;height:8px;border-radius:50%;background:var(--text-xdim);flex-shrink:0}
+.phase.done .phase-dot{background:var(--teal)}
+.phase.active .phase-dot{background:var(--accent)}
+.phase-sep{flex:1;height:1px;background:var(--border)}
+.round-badge{margin-left:auto;font-size:.72rem;font-family:var(--mono);color:var(--accent);background:var(--accent-dim);border:1px solid var(--accent);border-radius:5px;padding:3px 8px}
+
+.winner-strip{display:flex;align-items:center;gap:10px;margin-bottom:20px;padding:10px 14px;background:var(--surface);border:1px solid var(--teal);border-radius:8px;font-size:.78rem;color:var(--text-dim)}
+.winner-strip .w-label{color:var(--teal);font-family:var(--mono);font-size:.72rem;font-weight:600;flex-shrink:0}
+.winner-strip .w-desc{color:var(--text);flex:1}
+.mutation-pills{display:flex;gap:6px;flex-shrink:0}
+.pill{font-size:.67rem;font-family:var(--mono);padding:2px 7px;border-radius:4px;border:1px solid;font-weight:600}
+
+.grid-4{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:24px}
+@media(max-width:640px){.grid-4,.grid-3{grid-template-columns:1fr}}
+
+.card{position:relative;border-radius:var(--radius);border:2px solid var(--border);background:var(--surface);overflow:hidden;cursor:pointer;transition:border-color .18s,transform .15s,box-shadow .18s;user-select:none}
+.card:hover{border-color:var(--border2);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.card.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 8px 32px rgba(232,160,48,.25)}
+.card.selected::after{content:'';position:absolute;inset:0;border-radius:calc(var(--radius) - 2px);background:rgba(232,160,48,.06);pointer-events:none}
+.card img{display:block;width:100%;aspect-ratio:3/4;object-fit:cover}
+
+.card-label{position:absolute;top:10px;left:10px;background:rgba(0,0,0,.65);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.12);border-radius:6px;font-family:var(--mono);font-size:.72rem;font-weight:600;color:#fff;padding:3px 8px}
+.card.selected .card-label{background:rgba(232,160,48,.85);color:#0c0e16;border-color:transparent}
+
+.card-mutation-badge{position:absolute;top:10px;right:10px;font-size:.65rem;font-family:var(--mono);padding:2px 7px;border-radius:4px;border:1px solid;font-weight:700}
+.mut-amplify{color:#f97316;border-color:rgba(249,115,22,.4);background:rgba(249,115,22,.15)}
+.mut-blend{color:#a78bfa;border-color:rgba(167,139,250,.4);background:rgba(167,139,250,.15)}
+.mut-refine{color:#34d399;border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.15)}
+
+.card-check{position:absolute;bottom:10px;right:10px;width:24px;height:24px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;opacity:0;transform:scale(.6);transition:opacity .18s,transform .18s}
+.card.selected .card-check{opacity:1;transform:scale(1)}
+.card-check svg{width:12px;height:12px;stroke:#0c0e16;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+
+.card-params{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,rgba(0,0,0,.88) 0%,transparent 100%);padding:28px 10px 10px;opacity:0;transition:opacity .2s}
+.card:hover .card-params,.card.selected .card-params{opacity:1}
+.param-row{font-size:.68rem;color:rgba(255,255,255,.75);line-height:1.6;font-family:var(--mono)}
+.param-key{color:var(--teal);margin-right:4px}
+
+.footer{display:flex;align-items:center;gap:12px}
+.pick-display{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 16px;font-size:.85rem;color:var(--text-dim)}
+.pick-display.has-pick{border-color:var(--accent);color:var(--text)}
+.pick-value{font-family:var(--mono);color:var(--accent);font-weight:600}
+.confirm-btn{background:var(--accent);color:#0c0e16;border:none;border-radius:8px;font-family:var(--font);font-size:.88rem;font-weight:700;padding:11px 24px;cursor:pointer;opacity:.35;pointer-events:none;flex-shrink:0;transition:opacity .18s}
+.confirm-btn.ready{opacity:1;pointer-events:auto}
+.confirm-btn.ready:hover{opacity:.88}
+.finalize-btn{background:transparent;color:var(--teal);border:1px solid var(--teal);border-radius:8px;font-family:var(--font);font-size:.82rem;font-weight:600;padding:10px 16px;cursor:pointer;flex-shrink:0;transition:opacity .18s,background .18s}
+.finalize-btn:hover{background:var(--teal-dim)}
+
+.info-strip{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:20px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px}
+.info-item{font-size:.74rem;color:var(--text-dim);display:flex;gap:5px;align-items:center}
+.info-item .label{color:var(--text-xdim);font-family:var(--mono)}
+.info-item .val{color:var(--text)}
+
+/* ── Generation overlay ───────────────────────────────────────────────────── */
+.gen-overlay{display:none;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:60px 20px;text-align:center}
+.gen-overlay.visible{display:flex}
+.spinner{width:48px;height:48px;border:3px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.gen-title{font-size:1.1rem;font-weight:600}
+.gen-progress{font-size:.82rem;color:var(--text-dim);font-family:var(--mono)}
+.gen-steps{display:flex;gap:8px;margin-top:8px}
+.gen-step{font-size:.72rem;font-family:var(--mono);padding:3px 10px;border-radius:20px;border:1px solid var(--border2);color:var(--text-xdim)}
+.gen-step.done{border-color:var(--teal);color:var(--teal);background:var(--teal-dim)}
+.gen-step.active{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+
+/* ── Finalize / Done ─────────────────────────────────────────────────────── */
+.done-panel{display:none;flex-direction:column;align-items:center;gap:20px;padding:40px 20px;text-align:center}
+.done-panel.visible{display:flex}
+.done-panel img{width:200px;border-radius:var(--radius);border:2px solid var(--teal)}
+.done-title{font-size:1.3rem;font-weight:700}
+.done-sub{font-size:.85rem;color:var(--text-dim)}
+
+/* ── Server error ────────────────────────────────────────────────────────── */
+.error-bar{display:none;padding:10px 16px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);border-radius:8px;font-size:.8rem;color:#f87171;margin-bottom:16px;font-family:var(--mono)}
+.error-bar.visible{display:block}
+</style>
+</head>
+<body>
+<div class="layout" id="app">
+
+  <div class="header">
+    <div>
+      <div class="project">Lyra / Avatar / Forge</div>
+      <div class="title" id="title">Loading…</div>
+      <div class="subtitle" id="subtitle"></div>
+    </div>
+    <button class="theme-btn" onclick="toggleTheme()">☀ / ☾</button>
+  </div>
+
+  <div class="error-bar" id="error-bar"></div>
+
+  <div id="main-content"></div>
+
+</div>
+
+<script>
+const SERVER = 'http://localhost:8082';
+const IMG_BASE = '';  // images served relative to this HTML file
+
+let state = null;
+let selected = null;
+let pollTimer = null;
+let confirming = false;
+
+// ── Theme ────────────────────────────────────────────────────────────────────
+function toggleTheme() {
+  document.documentElement.dataset.theme =
+    document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+}
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 't') { toggleTheme(); return; }
+  if (!state || state.status !== 'ready' || !state.rounds) return;
+  const round = currentRound();
+  if (!round) return;
+  const ids = round.variants.map(v => v.id);
+  const keys = ['1','2','3','4','a','b','c','d'];
+  const idx = keys.indexOf(e.key);
+  if (idx >= 0 && idx < ids.length) { pick(ids[idx]); return; }
+  if (e.key === 'Enter') confirmPick();
+  if (e.key === 'f' && state.phase === 'converge') finalize();
+});
+
+// ── State helpers ─────────────────────────────────────────────────────────────
+function currentRound() {
+  if (!state || !state.rounds) return null;
+  return state.rounds.find(r => r.round === state.round) || null;
+}
+
+function mutClass(mutation) {
+  if (!mutation) return '';
+  const m = mutation.toLowerCase();
+  if (m === 'amplify') return 'mut-amplify';
+  if (m === 'blend')   return 'mut-blend';
+  if (m === 'refine')  return 'mut-refine';
+  return '';
+}
+
+function mutPillHTML(mutation) {
+  if (!mutation) return '';
+  return `<span class="pill ${mutClass(mutation)}">${mutation}</span>`;
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render() {
+  if (!state) {
+    document.getElementById('title').textContent = 'Connecting…';
+    return;
+  }
+
+  if (state.status === 'done') {
+    renderDone();
+    return;
+  }
+
+  if (state.status === 'generating') {
+    renderGenerating();
+    return;
+  }
+
+  if (state.status === 'error') {
+    showError('Generation error: ' + (state.error || 'unknown'));
+  } else {
+    hideError();
+  }
+
+  const round = currentRound();
+  const isExplore = state.phase === 'explore' || (round && round.phase === 'explore');
+  const roundNum = state.round;
+  const varCount = round ? round.variants.length : 0;
+
+  // Title
+  const phaseLabel = isExplore ? 'Explore' : 'Converge';
+  document.getElementById('title').innerHTML =
+    `${phaseLabel} <span>Round ${roundNum}</span>`;
+  document.getElementById('subtitle').textContent = isExplore
+    ? 'Four diverse starting points — pick the strongest'
+    : 'Amplify · Blend · Refine — pick the best mutation';
+
+  // Phase bar
+  const explorePhase = roundNum > 0 ? 'done' : 'active';
+  const convergePhase = roundNum >= 1 && state.phase !== 'finalize' ? 'active' : (roundNum === 0 ? '' : 'done');
+  const finalizePhase = state.phase === 'finalize' ? 'active' : '';
+
+  let html = `
+  <div class="phasebar">
+    <div class="phase-dot" style="background:${explorePhase === 'done' ? 'var(--teal)' : 'var(--accent)'}"></div>
+    <div class="phase ${explorePhase}">Explore</div>
+    <div class="phase-sep"></div>
+    <div class="phase-dot" style="background:${convergePhase === 'active' ? 'var(--accent)' : (convergePhase === 'done' ? 'var(--teal)' : 'var(--text-xdim)')}"></div>
+    <div class="phase ${convergePhase}">Converge</div>
+    <div class="phase-sep"></div>
+    <div class="phase-dot"></div>
+    <div class="phase ${finalizePhase}">Finalize</div>
+    <div class="round-badge">Round ${roundNum} / ${state.phase}</div>
+  </div>`;
+
+  // Winner strip (show from round 1+)
+  if (state.winner && roundNum >= 1) {
+    const w = state.winner;
+    const params = w.params || {};
+    const desc = [params.expression, params.lighting, params.framing].filter(Boolean).join(' · ');
+    const hasMuts = round && round.variants.some(v => v.mutation);
+    html += `
+  <div class="winner-strip">
+    <span class="w-label">Winner R${w.round ?? roundNum - 1}</span>
+    <span class="w-desc">${w.label} — ${desc || 'selected'}</span>
+    ${hasMuts ? `<div class="mutation-pills">
+      <span class="pill mut-amplify">Va amplify</span>
+      <span class="pill mut-blend">Vb blend</span>
+      <span class="pill mut-refine">Vc refine</span>
+    </div>` : ''}
+  </div>`;
+  }
+
+  // Info strip
+  html += `
+  <div class="info-strip">
+    <div class="info-item"><span class="label">engine</span><span class="val">flux2-klein · fp8</span></div>
+    <div class="info-item"><span class="label">res</span><span class="val">768 × 1024</span></div>
+    <div class="info-item"><span class="label">steps</span><span class="val">28</span></div>
+    <div class="info-item"><span class="label">method</span><span class="val">2-phase (encode → generate)</span></div>
+  </div>`;
+
+  // Grid
+  if (round) {
+    const gridClass = round.variants.length <= 3 ? 'grid-3' : 'grid-4';
+    html += `<div class="${gridClass}" id="grid">`;
+    round.variants.forEach((v, i) => {
+      const imgPath = v.image || `round_${roundNum}/${v.id}.png`;
+      const keyHint = round.variants.length <= 3
+        ? String.fromCharCode(65 + i).toLowerCase()  // a/b/c
+        : String(i + 1);                              // 1/2/3/4
+      const params = v.params || {};
+      const paramRows = Object.entries(params)
+        .map(([k, val]) => `<div class="param-row"><span class="param-key">${k}</span>${val}</div>`)
+        .join('');
+      html += `
+    <div class="card" id="card-${v.id}" onclick="pick('${v.id}')">
+      <img src="${imgPath}" alt="${v.label}" loading="eager">
+      <div class="card-label">${v.label}</div>
+      ${v.mutation ? `<div class="card-mutation-badge ${mutClass(v.mutation)}">${v.mutation}</div>` : ''}
+      <div class="card-check"><svg viewBox="0 0 16 16"><polyline points="3,8 6.5,11.5 13,5"/></svg></div>
+      ${paramRows ? `<div class="card-params">${paramRows}</div>` : ''}
+    </div>`;
+    });
+    html += `</div>`;
+  }
+
+  // Footer
+  html += `
+  <div class="footer">
+    <div class="pick-display ${selected ? 'has-pick' : ''}" id="pick-display">
+      ${selected
+        ? `Selected: <span class="pick-value">${selected.toUpperCase()}</span>`
+        : `Click a variant · or press ${round && round.variants.length <= 3 ? 'a / b / c' : '1 / 2 / 3 / 4'} · Enter to confirm`}
+    </div>
+    ${state.phase === 'converge'
+      ? `<button class="finalize-btn" onclick="finalize()">Finalize ✓</button>`
+      : ''}
+    <button class="confirm-btn ${selected ? 'ready' : ''}" id="confirm-btn" onclick="confirmPick()">Confirm →</button>
+  </div>`;
+
+  document.getElementById('main-content').innerHTML = html;
+
+  // Re-apply selection highlight if any
+  if (selected) {
+    document.getElementById('card-' + selected)?.classList.add('selected');
+  }
+}
+
+function renderGenerating() {
+  const progress = state.progress || 'working';
+  document.getElementById('title').innerHTML = 'Generating <span>Next Round</span>';
+  document.getElementById('subtitle').textContent = 'Claude is designing mutations · images are rendering…';
+
+  const steps = ['asking_claude', 'encoding', 'generating_images'];
+  const labels = { asking_claude: 'Claude: prompts', encoding: 'Encode', generating_images: 'Generate' };
+  const current = steps.indexOf(progress);
+
+  let stepsHTML = steps.map((s, i) => {
+    const cls = i < current ? 'done' : i === current ? 'active' : '';
+    return `<div class="gen-step ${cls}">${labels[s]}</div>`;
+  }).join('');
+
+  document.getElementById('main-content').innerHTML = `
+  <div class="gen-overlay visible">
+    <div class="spinner"></div>
+    <div>
+      <div class="gen-title">Generating round ${state.round + 1}…</div>
+      <div class="gen-progress">${progress.replace(/_/g, ' ')}</div>
+      <div class="gen-steps">${stepsHTML}</div>
+    </div>
+  </div>`;
+}
+
+function renderDone() {
+  const w = state.winner || {};
+  const imgPath = w.image || '';
+  document.getElementById('title').innerHTML = 'Avatar <span>Locked</span>';
+  document.getElementById('subtitle').textContent = 'Lyra's visual identity is set.';
+  document.getElementById('main-content').innerHTML = `
+  <div class="done-panel visible">
+    ${imgPath ? `<img src="${imgPath}" alt="Lyra avatar">` : ''}
+    <div class="done-title">${w.label || 'Winner'} — Round ${w.round ?? state.round}</div>
+    <div class="done-sub">${w.params ? Object.values(w.params).join(' · ') : ''}</div>
+  </div>`;
+}
+
+// ── Pick / confirm ────────────────────────────────────────────────────────────
+function pick(id) {
+  if (state && state.status !== 'ready') return;
+  if (selected && selected !== id) {
+    document.getElementById('card-' + selected)?.classList.remove('selected');
+  }
+  selected = id;
+  document.getElementById('card-' + id)?.classList.add('selected');
+  const d = document.getElementById('pick-display');
+  if (d) {
+    d.innerHTML = `Selected: <span class="pick-value">${id.toUpperCase()}</span>`;
+    d.classList.add('has-pick');
+  }
+  const btn = document.getElementById('confirm-btn');
+  if (btn) btn.classList.add('ready');
+}
+
+async function confirmPick() {
+  if (!selected || confirming) return;
+  confirming = true;
+  try {
+    const resp = await fetch(SERVER + '/api/pick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ variant_id: selected }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      showError('Pick failed: ' + (err.error || resp.status));
+      return;
+    }
+    selected = null;
+    startPolling();
+  } catch (e) {
+    showError('Server unreachable: ' + e.message);
+  } finally {
+    confirming = false;
+  }
+}
+
+async function finalize() {
+  try {
+    await fetch(SERVER + '/api/finalize', { method: 'POST' });
+    await loadStatus();
+  } catch (e) {
+    showError('Server unreachable: ' + e.message);
+  }
+}
+
+// ── Polling ───────────────────────────────────────────────────────────────────
+async function loadStatus() {
+  try {
+    const resp = await fetch(SERVER + '/api/status');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    hideError();
+    const prevRound = state ? state.round : -1;
+    const prevStatus = state ? state.status : null;
+    state = data;
+    // If we moved to a new round, reset selection
+    if (state.round !== prevRound) selected = null;
+    render();
+    // Stop polling when ready or done
+    if (state.status === 'ready' || state.status === 'done' || state.status === 'error') {
+      stopPolling();
+    }
+  } catch (e) {
+    showError('Forge server offline — start it with: uv run forge_server.py');
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  loadStatus();
+  pollTimer = setInterval(loadStatus, 2000);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+// ── Error helpers ─────────────────────────────────────────────────────────────
+function showError(msg) {
+  const el = document.getElementById('error-bar');
+  el.textContent = msg;
+  el.classList.add('visible');
+}
+
+function hideError() {
+  document.getElementById('error-bar').classList.remove('visible');
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+loadStatus();
+// Auto-poll if server is generating on page load
+setInterval(async () => {
+  if (state && (state.status === 'generating')) {
+    await loadStatus();
+  }
+}, 2000);
+</script>
+</body>
+</html>
