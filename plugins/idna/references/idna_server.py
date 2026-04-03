@@ -22,8 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -41,6 +40,88 @@ TREE_WIDTH   = 384   # low-res for all tree nodes (fast selection)
 TREE_HEIGHT  = 512
 FINAL_WIDTH  = 768   # hi-res re-gen of winner at finalize
 FINAL_HEIGHT = 1024
+
+# ── imageCLI daemon client ───────────────────────────────────────────────────
+DAEMON_SOCK = Path.home() / ".local" / "share" / "imagecli" / "daemon.sock"
+
+
+def _daemon_generate(jobs: list[dict], timeout: int = 600) -> dict:
+    """Send a generate request to the imageCLI daemon via unix socket.
+
+    Each job: {"id", "embed_path", "out_path", "seed", "width", "height", "steps"}
+    Returns {"ok": True, "generated": [...]} or {"ok": False, "error": "..."}.
+    Progress lines are logged as they arrive.
+    """
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect(str(DAEMON_SOCK))
+        payload = json.dumps({"action": "generate", "jobs": jobs}) + "\n"
+        sock.sendall(payload.encode())
+
+        buf = bytearray()
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            buf.extend(chunk)
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                if not line:
+                    continue
+                obj = json.loads(line)
+                if "ok" in obj:
+                    return obj
+                if "progress" in obj:
+                    log.info("[daemon] %s", obj["progress"])
+        return {"ok": False, "error": "daemon closed connection unexpectedly"}
+    finally:
+        sock.close()
+
+
+def _daemon_ping() -> bool:
+    """Check if the imageCLI daemon is alive."""
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect(str(DAEMON_SOCK))
+        sock.sendall((json.dumps({"action": "ping"}) + "\n").encode())
+        data = sock.recv(4096)
+        sock.close()
+        return json.loads(data.split(b"\n")[0]).get("ok", False)
+    except Exception:
+        return False
+
+
+def _build_daemon_jobs(sdir: Path, node_ids: list[str], session: dict, steps: int = 15) -> list[dict]:
+    """Build daemon job dicts from node IDs, reading job files for metadata."""
+    jobs = []
+    nodes = session.get("nodes", {})
+    for nid in node_ids:
+        node = nodes.get(nid)
+        if not node:
+            continue
+        round_num = node["round"]
+        round_dir = sdir / f"round_{round_num}"
+        embed_path = round_dir / "embeds" / f"{nid}.pt"
+        out_path = round_dir / f"{nid}.png"
+        # Read job file for seed/width/height
+        job_file = round_dir / "prompts" / f"{nid}.json"
+        if job_file.exists():
+            jdata = json.loads(job_file.read_text())
+        else:
+            jdata = {}
+        jobs.append({
+            "id": nid,
+            "embed_path": str(embed_path),
+            "out_path": str(out_path),
+            "seed": jdata.get("seed", round_num * 100),
+            "width": jdata.get("width", TREE_WIDTH),
+            "height": jdata.get("height", TREE_HEIGHT),
+            "steps": steps,
+        })
+    return jobs
+
 
 # ── Per-session state ─────────────────────────────────────────────────────────
 
@@ -181,9 +262,8 @@ def _get_artifact_type(session: dict) -> str:
 
 
 def _generation_worker(project: str, subject: str) -> None:
-    """BFS generation worker: processes queue in batches grouped by round."""
+    """BFS generation worker: sends batches to the imageCLI daemon."""
     sdir = _session_dir(project, subject)
-    generate_script = Path(__file__).parent / "idna_generate_round.py"
 
     log.info("Generation worker started: %s/%s", project, subject)
 
@@ -201,6 +281,12 @@ def _generation_worker(project: str, subject: str) -> None:
     if artifact_type == "audio":
         log.warning("Generation worker: audio artifact_type — voiceCLI integration TODO")
         session["gen_status"] = "idle"
+        write_session(project, subject, session)
+        return
+
+    if not _daemon_ping():
+        log.error("imageCLI daemon not running — cannot generate images")
+        session["gen_status"] = "error"
         write_session(project, subject, session)
         return
 
@@ -233,35 +319,27 @@ def _generation_worker(project: str, subject: str) -> None:
 
         log.info("Generating batch: round %d, %d nodes (%s)", batch_round, len(batch), batch)
 
-        # Kill any orphaned imageCLI processes before loading VRAM
-        _kill_stale_imagecli()
-
         # Ensure job files exist for all batch nodes
         for nid in batch:
             node = nodes.get(nid)
             if node and node.get("prompt"):
                 _ensure_job_file(sdir, node, session)
 
-        # Run idna_generate_round.py for this round directory
+        # Ensure embed/output dirs exist
         round_dir = sdir / f"round_{batch_round}"
         round_dir.mkdir(parents=True, exist_ok=True)
         (round_dir / "embeds").mkdir(exist_ok=True)
 
-        result = subprocess.run(
-            [
-                "uv", "run", "--project", str(IMAGECLI_PROJECT),
-                "python", str(generate_script),
-                str(round_dir), "--steps", "15",
-            ],
-            capture_output=False, text=True,
-        )
+        # Send batch to imageCLI daemon
+        daemon_jobs = _build_daemon_jobs(sdir, batch, session, steps=15)
+        result = _daemon_generate(daemon_jobs)
 
         # Re-read session in case queue was reordered by pick
         session = read_session(project, subject)
         nodes = session["nodes"]
 
-        if result.returncode != 0:
-            log.error("idna_generate_round.py failed for round %d (exit %d)", batch_round, result.returncode)
+        if not result.get("ok"):
+            log.error("Daemon generation failed for round %d: %s", batch_round, result.get("error"))
             for nid in batch:
                 if nid in nodes:
                     nodes[nid]["status"] = "error"
@@ -282,26 +360,6 @@ def _generation_worker(project: str, subject: str) -> None:
         write_session(project, subject, session)
 
     log.info("Generation worker exited: %s/%s", project, subject)
-
-
-def _kill_stale_imagecli() -> None:
-    """Kill any orphaned imageCLI python processes holding VRAM before starting a new one."""
-    try:
-        result = subprocess.run(
-            ["pgrep", "-f", "idna_generate_round.py"],
-            capture_output=True, text=True,
-        )
-        for pid_str in result.stdout.strip().splitlines():
-            pid = int(pid_str.strip())
-            if pid == os.getpid():
-                continue
-            try:
-                os.kill(pid, signal.SIGTERM)
-                log.info("Killed stale imageCLI process pid=%d", pid)
-            except ProcessLookupError:
-                pass
-    except Exception as e:
-        log.warning("_kill_stale_imagecli: %s", e)
 
 
 def _ensure_worker(project: str, subject: str) -> None:
@@ -1126,29 +1184,46 @@ def _regen_winner_hires(project: str, subject: str, winner_id: str) -> None:
     prompts_dir = hires_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write hi-res job file
+    # Write hi-res job file (kept for reproducibility / audit trail)
+    seed = node.get("seed", round_num * 100)
     job = {
         "id": winner_id,
         "label": node["label"],
-        "seed": node.get("seed", round_num * 100),
+        "seed": seed,
         "width": FINAL_WIDTH,
         "height": FINAL_HEIGHT,
         "prompt": node["prompt"],
     }
     (prompts_dir / f"{winner_id}.json").write_text(json.dumps(job, indent=2))
 
-    generate_script = Path(__file__).parent / "idna_generate_round.py"
-    log.info("Re-generating winner %s at %dx%d...", winner_id, FINAL_WIDTH, FINAL_HEIGHT)
-    result = subprocess.run(
-        ["uv", "run", "--project", str(IMAGECLI_PROJECT),
-         "python", str(generate_script), str(hires_dir), "--steps", "40"],
-        capture_output=False, text=True,
-    )
-    if result.returncode != 0:
-        log.error("Hi-res re-gen failed (exit %d)", result.returncode)
+    # Re-use the low-res embed from the tree (same prompt, just higher resolution output)
+    tree_round = _node_round(winner_id)
+    embed_path = sdir / f"round_{tree_round}" / "embeds" / f"{winner_id}.pt"
+    if not embed_path.exists():
+        log.error("Embed not found for winner %s at %s", winner_id, embed_path)
         session = read_session(project, subject)
         session["phase"] = "error"
-        session["error"] = "hi-res re-gen failed"
+        session["error"] = f"embed not found: {embed_path}"
+        write_session(project, subject, session)
+        return
+
+    # Generate via daemon
+    log.info("Re-generating winner %s at %dx%d via daemon...", winner_id, FINAL_WIDTH, FINAL_HEIGHT)
+    daemon_jobs = [{
+        "id": winner_id,
+        "embed_path": str(embed_path),
+        "out_path": str(hires_dir / f"{winner_id}.png"),
+        "seed": seed,
+        "width": FINAL_WIDTH,
+        "height": FINAL_HEIGHT,
+        "steps": 40,
+    }]
+    result = _daemon_generate(daemon_jobs)
+    if not result.get("ok"):
+        log.error("Hi-res re-gen failed: %s", result.get("error"))
+        session = read_session(project, subject)
+        session["phase"] = "error"
+        session["error"] = f"hi-res re-gen failed: {result.get('error')}"
         write_session(project, subject, session)
         return
 
@@ -1322,11 +1397,10 @@ class IDNAHandler(BaseHTTPRequestHandler):
 
             if template_name in ("avatar", "logo"):
                 # Step 3 — encode all prompts (text encoder only, one pass for all nodes)
-                _kill_stale_imagecli()
                 emit({"step": "encode", "status": "running", "message": "Loading text encoder\u2026"})
                 encode_script = server_dir / "idna_encode_all.py"
                 enc_proc = subprocess.Popen(
-                    ["uv", "run", "--project", str(Path.home() / "projects/imageCLI"),
+                    ["uv", "run", "--project", str(IMAGECLI_PROJECT),
                      "python", str(encode_script), str(sdir)],
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, bufsize=1,
@@ -1341,29 +1415,22 @@ class IDNAHandler(BaseHTTPRequestHandler):
                     return
                 emit({"step": "encode", "status": "done", "message": "All prompts encoded"})
 
-                # Step 4 — generate round 0 (transformer + VAE only, embeds cached)
-                _kill_stale_imagecli()
-                emit({"step": "generate", "status": "running", "message": "Loading FLUX into VRAM\u2026"})
-                gen_script = server_dir / "idna_generate_round.py"
-                round0_dir = sdir / "round_0"
-                gen_proc = subprocess.Popen(
-                    ["uv", "run", "--project", str(Path.home() / "projects/imageCLI"),
-                     "python", str(gen_script), str(round0_dir), "--steps", "15"],
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, bufsize=1,
-                )
-                for line in gen_proc.stdout:
-                    line = line.strip()
-                    if line:
-                        emit({"step": "generate", "status": "running", "message": line})
-                gen_proc.wait()
-                if gen_proc.returncode != 0:
-                    emit({"step": "generate", "status": "error", "message": "Round 0 generation failed"})
+                # Step 4 — generate round 0 via imageCLI daemon
+                emit({"step": "generate", "status": "running", "message": "Generating round 0 via daemon\u2026"})
+                if not _daemon_ping():
+                    emit({"step": "generate", "status": "error", "message": "imageCLI daemon not running"})
+                    return
+                sess = read_session(project, subject)
+                w = sess.get("width", 4)
+                round0_ids = [f"v{i}" for i in range(w)]
+                daemon_jobs = _build_daemon_jobs(sdir, round0_ids, sess, steps=15)
+                result = _daemon_generate(daemon_jobs)
+                if not result.get("ok"):
+                    emit({"step": "generate", "status": "error", "message": result.get("error", "daemon failed")})
                     return
                 # Mark round 0 nodes ready
                 sess = read_session(project, subject)
-                w = sess.get("width", 4)
-                for nid in [f"v{i}" for i in range(w)]:
+                for nid in round0_ids:
                     if nid in sess.get("nodes", {}):
                         sess["nodes"][nid]["status"] = "ready"
                 write_session(project, subject, sess)
