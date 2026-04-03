@@ -12,9 +12,9 @@ define ensure_idna_init
 endef
 
 define ensure_idna_registered
-	@if [ ! -L "$(SUPERVISOR_HUB)/conf.d/idna.conf" ]; then \
-		echo "Error: idna not registered with supervisor hub."; \
-		echo "       Run 'make register' first."; \
+	@if ! $(SUPERVISORCTL) avail 2>/dev/null | grep -q "^idna"; then \
+		echo "idna is not registered with any supervisor."; \
+		echo "Register with the local hub? Run: make register"; \
 		exit 1; \
 	fi
 endef

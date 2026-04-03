@@ -12,9 +12,9 @@ define ensure_forge_init
 endef
 
 define ensure_forge_registered
-	@if [ ! -L "$(SUPERVISOR_HUB)/conf.d/forge.conf" ]; then \
-		echo "Error: forge not registered with supervisor hub."; \
-		echo "       Run 'make register' first."; \
+	@if ! $(SUPERVISORCTL) avail 2>/dev/null | grep -q "^forge"; then \
+		echo "forge is not registered with any supervisor."; \
+		echo "Register with the local hub? Run: make register"; \
 		exit 1; \
 	fi
 endef
