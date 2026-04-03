@@ -1,7 +1,7 @@
 FORGE_DIR       ?= $(HOME)/.roxabi/forge
-SUPERVISOR_HUB  ?= $(HOME)/projects
-SUPERVISORCTL   := $(SUPERVISOR_HUB)/scripts/supervisorctl.sh
 PLUGIN_DIR      := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+
+-include $(SUPERVISOR_HUB)/hub.mk
 
 .PHONY: deploy register help
 
@@ -11,7 +11,7 @@ help:
 	@echo "Usage: make <target>"
 	@echo ""
 	@echo "  deploy   copy server files, scripts, and runtime Makefile → $(FORGE_DIR)/"
-	@echo "  register symlink supervisor config into hub"
+	@echo "  register symlink supervisor config + generate hub delegation"
 	@echo ""
 	@echo "For day-to-day operations (build/deploy-cf/deploy-prod/start/stop/etc.):"
 	@echo "  make -C $(FORGE_DIR) <target>"
@@ -40,9 +40,7 @@ deploy:
 
 register:
 	@echo "Registering forge with supervisor hub..."
-	@mkdir -p "$(SUPERVISOR_HUB)/conf.d"
-	@ln -sf "$(abspath $(PLUGIN_DIR)supervisor/conf.d/forge.conf)" "$(SUPERVISOR_HUB)/conf.d/forge.conf"
-	@if [ -S "$(SUPERVISOR_HUB)/supervisor.sock" ]; then \
-		$(SUPERVISORCTL) reread && $(SUPERVISORCTL) update; \
-	fi
+	@$(HUB_GEN_MK) forge "$(FORGE_DIR)" forge
+	$(call hub-link-conf,forge,$(PLUGIN_DIR)supervisor/conf.d/forge.conf)
+	$(hub_reread)
 	@echo "Done."

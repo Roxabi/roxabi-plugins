@@ -93,7 +93,7 @@ Every HTML file includes `diagram:*` meta tags parsed by `serve.py` and `gen-man
 ### Cloudflare Pages
 
 ```bash
-cd ~/projects/lyra-stack && make forge deploy
+make forge deploy-cf    # from the supervisor hub directory
 ```
 
 ### BATCHES pattern (galleries)

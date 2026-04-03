@@ -1,19 +1,11 @@
 IDNA_DIR        := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
-SUPERVISOR_HUB  ?= $(HOME)/projects
-SUPERVISORCTL   := $(SUPERVISOR_HUB)/scripts/supervisorctl.sh
+
+-include $(SUPERVISOR_HUB)/hub.mk
 
 define ensure_idna_init
 	@if [ ! -f "$(IDNA_DIR)idna_server.py" ]; then \
 		echo "Error: idna not initialized at $(IDNA_DIR)"; \
 		echo "       Run 'make idna install' first."; \
-		exit 1; \
-	fi
-endef
-
-define ensure_idna_registered
-	@if ! $(SUPERVISORCTL) avail 2>/dev/null | grep -q "^idna"; then \
-		echo "idna is not registered with any supervisor."; \
-		echo "Register with the local hub? Run: make -C ~/projects/roxabi-plugins/plugins/idna register"; \
 		exit 1; \
 	fi
 endef
@@ -36,25 +28,23 @@ help:
 
 start:
 	$(ensure_idna_init)
-	$(ensure_idna_registered)
-	$(SUPERVISORCTL) start idna
+	@$(HUB_SVC) idna start
 
 stop:
-	$(SUPERVISORCTL) stop idna
+	@$(HUB_SVC) idna stop
 
 reload:
 	$(ensure_idna_init)
-	$(ensure_idna_registered)
-	$(SUPERVISORCTL) restart idna
+	@$(HUB_SVC) idna reload
 
 status:
-	@$(SUPERVISORCTL) status idna || true
+	@$(HUB_SVC) idna status
 
 logs:
-	$(SUPERVISORCTL) tail -f idna
+	@$(HUB_SVC) idna logs
 
 errlogs:
-	$(SUPERVISORCTL) tail -f idna stderr
+	@$(HUB_SVC) idna errlogs
 
 ls:
 	@ls "$(IDNA_DIR)"

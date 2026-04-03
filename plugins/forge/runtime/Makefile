@@ -1,7 +1,7 @@
 FORGE_DIR       := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
-SUPERVISOR_HUB  ?= $(HOME)/projects
-SUPERVISORCTL   := $(SUPERVISOR_HUB)/scripts/supervisorctl.sh
 SCRIPTS_DIR     := $(FORGE_DIR)scripts
+
+-include $(SUPERVISOR_HUB)/hub.mk
 
 -include $(FORGE_DIR).env
 export CLOUDFLARE_ACCOUNT_ID
@@ -11,14 +11,6 @@ define ensure_forge_init
 	@if [ ! -f "$(FORGE_DIR)serve.py" ] || [ ! -f "$(FORGE_DIR)run.sh" ]; then \
 		echo "Error: forge not initialized at $(FORGE_DIR)"; \
 		echo "       Run 'make forge install' first."; \
-		exit 1; \
-	fi
-endef
-
-define ensure_forge_registered
-	@if ! $(SUPERVISORCTL) avail 2>/dev/null | grep -q "^forge"; then \
-		echo "forge is not registered with any supervisor."; \
-		echo "Register with the local hub? Run: make -C ~/projects/roxabi-plugins/plugins/forge register"; \
 		exit 1; \
 	fi
 endef
@@ -45,7 +37,7 @@ build:
 	@bash "$(SCRIPTS_DIR)/build.sh"
 
 deploy-cf: build
-	@echo "▸ Deploying to Cloudflare Pages..."
+	@echo "Deploying to Cloudflare Pages..."
 	@npx wrangler pages deploy "$(FORGE_DIR)_dist" --project-name=diagrams --branch=main --commit-dirty=true
 
 deploy-prod:
@@ -68,22 +60,20 @@ du:
 
 start:
 	$(ensure_forge_init)
-	$(ensure_forge_registered)
-	$(SUPERVISORCTL) start forge
+	@$(HUB_SVC) forge start
 
 stop:
-	$(SUPERVISORCTL) stop forge
+	@$(HUB_SVC) forge stop
 
 reload:
 	$(ensure_forge_init)
-	$(ensure_forge_registered)
-	$(SUPERVISORCTL) restart forge
+	@$(HUB_SVC) forge reload
 
 status:
-	@$(SUPERVISORCTL) status forge || true
+	@$(HUB_SVC) forge status
 
 logs:
-	$(SUPERVISORCTL) tail -f forge
+	@$(HUB_SVC) forge logs
 
 errlogs:
-	$(SUPERVISORCTL) tail -f forge stderr
+	@$(HUB_SVC) forge errlogs

@@ -1,8 +1,8 @@
 IDNA_DIR        ?= $(HOME)/.roxabi/idna
-SUPERVISOR_HUB  ?= $(HOME)/projects
-SUPERVISORCTL   := $(SUPERVISOR_HUB)/scripts/supervisorctl.sh
 PLUGIN_DIR      := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 REFS_DIR        := $(PLUGIN_DIR)references
+
+-include $(SUPERVISOR_HUB)/hub.mk
 
 .PHONY: deploy register help
 
@@ -12,7 +12,7 @@ help:
 	@echo "Usage: make <target>"
 	@echo ""
 	@echo "  deploy   copy references/ and runtime Makefile → $(IDNA_DIR)/"
-	@echo "  register symlink supervisor config into hub"
+	@echo "  register symlink supervisor config + generate hub delegation"
 	@echo ""
 	@echo "For day-to-day operations (start/stop/reload/logs/ls/clean/etc.):"
 	@echo "  make -C $(IDNA_DIR) <target>"
@@ -28,9 +28,7 @@ deploy:
 
 register:
 	@echo "Registering IDNA with supervisor hub..."
-	@mkdir -p "$(SUPERVISOR_HUB)/conf.d"
-	@ln -sf "$(abspath $(PLUGIN_DIR)supervisor/conf.d/idna.conf)" "$(SUPERVISOR_HUB)/conf.d/idna.conf"
-	@if [ -S "$(SUPERVISOR_HUB)/supervisor.sock" ]; then \
-		$(SUPERVISORCTL) reread && $(SUPERVISORCTL) update; \
-	fi
+	@$(HUB_GEN_MK) idna "$(IDNA_DIR)" idna
+	$(call hub-link-conf,idna,$(PLUGIN_DIR)supervisor/conf.d/idna.conf)
+	$(hub_reread)
 	@echo "Done."
