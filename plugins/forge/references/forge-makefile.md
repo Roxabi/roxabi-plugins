@@ -31,6 +31,26 @@ forge-stop:
 
 For projects with supervisord. Assumes a `forge` program in supervisor config and a `serve.py` dev server.
 
+**Important:** The forge Makefile at `~/.roxabi/forge/Makefile` includes `hub.mk` via `$(SUPERVISOR_HUB)`. This variable must point to the directory containing `hub.mk` (typically `~/projects`). If forge commands fail with `forge: No such file or directory`, set this in the forge Makefile:
+
+```makefile
+SUPERVISOR_HUB ?= $(HOME)/projects
+```
+
+### Supervisor config
+
+Symlink the forge conf into the hub's `conf.d/` (`~/projects/conf.d/`) and create the log directory:
+
+```bash
+# From the roxabi-plugins repo:
+ln -sf "$(pwd)/plugins/forge/supervisor/conf.d/forge.conf" ~/projects/conf.d/forge.conf
+mkdir -p ~/.local/state/forge/logs
+# Then reload supervisor:
+make forge reload
+```
+
+### Makefile snippet
+
 ```makefile
 FORGE_DIR     ?= $(HOME)/.roxabi/forge
 SUPERVISORCTL ?= supervisorctl -c supervisord.conf
