@@ -29,9 +29,9 @@ claude plugin install forge
 
 **`gallery`** — comparing brand iterations, avatar batches, TTS engine outputs, voice clones. Uses HTML templates with dynamic filtering, sorting, search, and pivot grouping.
 
-### Gallery templates (v0.3.0)
+### Gallery templates (v0.4.0)
 
-4 ready-to-use templates in `references/gallery-templates/`:
+5 ready-to-use templates in `references/gallery-templates/`:
 
 <table>
 <tr>
@@ -74,11 +74,24 @@ Audio players with engine/quality badges. Card and list views. Best for: TTS eng
 
 </td>
 </tr>
+<tr>
+<td colspan="2">
+
+**Multi-Mode Gallery** — `multi-mode-gallery.html` *(new in v0.4.0)*
+
+Mode tab bar with per-mode DIMS, atomic mode switching, downloads dropdown, pixel-art rendering. Best for: multi-dataset visualizations where each mode has its own dimensions (sprite browsers, A/B/C dataset comparisons, mode-based tabs).
+
+Uses the items-as-objects pattern: each mode's `buildItems()` returns `{file, dir, label, ...customFields}` and `dim.fn` reads fields directly. Includes a 5-step incremental upgrade path documented in `references/gallery-templates/README.md` for migrating existing single-mode galleries.
+
+*Example: PI Buddy sprite gallery — 3 modes (Baby Showcase 512×512, Full Set 256×256, Production 32×32 sprites) × 24 species*
+
+</td>
+</tr>
 </table>
 
-All templates share `gallery-base.css` (tokens, toolbar, controls) + `gallery-base.js` (theme, filters, discovery, batch bar, starring). Dynamic filters (OFF = inactive = show all), search, sort, size controls, lightbox, manifest.json discovery.
+All templates share `gallery-base.css` (tokens, toolbar, controls, `.pixelated` utility, downloads dropdown `.dl-*`, toast `.toast-*`) + `gallery-base.js` (theme, dual-API filter builder, segmented controls, file discovery, batch bar, starring, `initDownloads` dropdown, `buildPivotSegsFromDims` dynamic pivot, `showToast` with a11y). Dynamic filters (OFF = inactive = show all), search, sort, size controls, lightbox, manifest.json discovery.
 
-See `references/gallery-templates/README.md` for customisation guide.
+See `references/gallery-templates/README.md` for customisation guide, including the "Items-as-objects vs filename-strings" pattern, downloads dropdown + CSP requirements, dynamic pivot seg construction, pixel-art rendering, and the incremental single-mode → multi-mode upgrade path.
 
 ## How it works
 
