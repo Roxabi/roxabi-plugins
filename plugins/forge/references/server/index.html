@@ -131,6 +131,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .badge.draft{background:var(--orange-dim);color:var(--orange);border:1px solid var(--orange)}
 .badge.showcase{background:var(--cyan-dim);color:var(--cyan);border:1px solid var(--cyan)}
 
+/* ── Star / Favorite ── */
+.star-btn{background:none;border:none;cursor:pointer;font-size:.92rem;line-height:1;padding:2px;color:var(--text-xdim);transition:color .12s,transform .12s;flex-shrink:0}
+.star-btn:hover{color:var(--gold);transform:scale(1.2)}
+.star-btn.on{color:var(--gold)}
+.card .star-btn{position:absolute;top:10px;right:10px}
+.card{position:relative}
+
 .empty{padding:48px 0;text-align:center;font-size:.84rem;color:var(--text-xdim)}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -160,6 +167,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     <div class="ctrl-group">
       <span class="ctrl-label">Group</span>
       <div class="segs">
+        <button class="seg" data-k="group" data-v="starred">★ Starred</button>
         <button class="seg" data-k="group" data-v="cat">Category</button>
         <button class="seg" data-k="group" data-v="date">Date</button>
         <button class="seg" data-k="group" data-v="none">None</button>
@@ -198,6 +206,13 @@ const S = {
   view:  localStorage.getItem('idx-view')  || 'card',
   q: '',
 };
+const stars = new Set(JSON.parse(localStorage.getItem('idx-stars') || '[]'));
+function saveStar() { localStorage.setItem('idx-stars', JSON.stringify([...stars])); }
+function toggleStar(file, e) {
+  e.preventDefault(); e.stopPropagation();
+  stars.has(file) ? stars.delete(file) : stars.add(file);
+  saveStar(); render();
+}
 
 const html_el    = document.documentElement;
 const contentEl  = document.getElementById('content');
@@ -226,14 +241,17 @@ function mkCard(d, showCat) {
   const a = document.createElement('a');
   a.className = `card ${d.c}`;
   a.href = d.f; a.target = '_blank';
+  const starred = stars.has(d.f);
   const catSpan = showCat
     ? `<span style="color:var(--${d.c==='amber'?'accent':d.c})">${d.cl}</span><span>·</span>`
     : '';
   a.innerHTML = `
+    <button class="star-btn${starred?' on':''}" title="${starred?'Unstar':'Star'}" aria-label="${starred?'Unstar':'Star'}">${starred?'★':'☆'}</button>
     ${d.b.length ? `<div class="badges">${badges(d.b)}</div>` : ''}
     <div class="card-title">${d.t}</div>
     <div class="card-meta">${catSpan}<span>${fmtDate(d.d)}</span><span>·</span><span>${d.kb} kb</span></div>
     <div class="card-file">${d.f}</div>`;
+  a.querySelector('.star-btn').addEventListener('click', e => toggleStar(d.f, e));
   return a;
 }
 
@@ -241,7 +259,9 @@ function mkRow(d, showCat) {
   const a = document.createElement('a');
   a.className = 'list-item';
   a.href = d.f; a.target = '_blank';
+  const starred = stars.has(d.f);
   a.innerHTML = `
+    <button class="star-btn${starred?' on':''}" title="${starred?'Unstar':'Star'}" aria-label="${starred?'Unstar':'Star'}">${starred?'★':'☆'}</button>
     <span class="li-dot ${d.c}"></span>
     <span class="li-title">${d.t}</span>
     ${d.b.length ? `<span class="badges">${badges(d.b)}</span>` : ''}
@@ -249,6 +269,7 @@ function mkRow(d, showCat) {
     <span class="li-file">${d.f}</span>
     <span class="li-date">${fmtDate(d.d)}</span>
     <span class="li-size">${d.kb} kb</span>`;
+  a.querySelector('.star-btn').addEventListener('click', e => toggleStar(d.f, e));
   return a;
 }
 
@@ -298,7 +319,13 @@ function render() {
   }
 
   // Group + render
-  if (S.group === 'none') {
+  if (S.group === 'starred') {
+    const starred = items.filter(d => stars.has(d.f));
+    const rest    = items.filter(d => !stars.has(d.f));
+    if (starred.length) contentEl.appendChild(mkSection('★ Starred', 'gold', starred, true));
+    if (rest.length)    contentEl.appendChild(mkSection('Everything else', 'neutral', rest, true));
+    if (!starred.length && !rest.length) contentEl.innerHTML = `<div class="empty">No diagrams</div>`;
+  } else if (S.group === 'none') {
     contentEl.appendChild(mkSection(null, null, items, true));
   } else if (S.group === 'cat') {
     const bycat = groupByKey(items, d => d.cat);
