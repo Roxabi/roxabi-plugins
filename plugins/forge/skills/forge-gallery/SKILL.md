@@ -1,7 +1,7 @@
 ---
 name: forge-gallery
-description: 'Create or update an image or audio gallery from HTML templates — pivot grouping, dynamic filtering, sorting, search, size controls, lightbox. Triggers: "showcase" | "compare visually" | "gallery" | "side by side" | "create a gallery" | "show iterations".'
-version: 0.3.0
+description: 'Create or update an image or audio gallery from HTML templates — pivot grouping, dynamic filtering, sorting, search, size controls, lightbox, multi-mode datasets, downloads dropdown. Triggers: "showcase" | "compare visually" | "gallery" | "side by side" | "create a gallery" | "show iterations" | "multi-mode gallery" | "sprite gallery".'
+version: 0.4.0
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch
 ---
 
@@ -48,8 +48,18 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/README.md` for the full
 | Basic batch comparison | `simple-gallery.html` | Batch tabs, lightbox, search, size |
 | Side-by-side with specs | `comparison-gallery.html` | Cards with metadata tables |
 | Audio/voice comparison | `audio-gallery.html` | Audio players, engine grouping |
+| **Multi-dataset / multi-mode** | **`multi-mode-gallery.html`** | **Mode tabs, per-mode DIMS, dynamic pivot segs, downloads dropdown, sprite/pixel support** |
 
 Copy the chosen template to `~/.roxabi/forge/{PROJ}/{SLUG}.html`.
+
+### When to use items-as-objects vs filename-strings
+
+`buildDimFilters` and `applyDimFilters` are **dual-API** — each element of the `items` array is passed verbatim to `dim.fn`. You pick the representation:
+
+- **Filename-strings** — each item is a string, `dim.fn` parses substrings. Fast to set up, no item-building pipeline. Used by `pivot-gallery.html`. Good when filenames already encode all metadata and there's one dataset.
+- **Items-as-objects** — each item is `{file, dir, label, ...custom fields}`, `dim.fn` reads fields directly (e.g. `it => it.rarity`). Cleaner for multiple dimensions, multiple modes, or data composed from multiple sources. Used by `comparison-gallery.html`, `audio-gallery.html`, `multi-mode-gallery.html`.
+
+For multi-mode galleries, always use items-as-objects — each mode's dims read different fields from the same item shape. See the gallery-templates README § "Items-as-objects vs filename-strings" for worked examples.
 
 ---
 
@@ -78,9 +88,11 @@ const DIMS = {
 
 Values are **auto-discovered** from data — the template creates filter buttons with counts automatically. No hardcoded button lists.
 
-### 3. Match pivot seg buttons to DIMS
+### 3. Pivot seg buttons — prefer dynamic construction
 
-For each DIMS key, add a `<button class="seg" data-v="KEY">Label</button>` in both the Col and Row segmented controls.
+**Modern approach** (`pivot-gallery.html`, `multi-mode-gallery.html`): leave the Col/Row `<div class="segs">` containers empty and call `buildPivotSegsFromDims(DIMS, 'colSegs', 'rowSegs', onChange, initial?)` at boot. The helper iterates `Object.entries(dims)` and builds the buttons automatically. Add a new DIMS key and the button appears — no HTML sync needed.
+
+**Legacy approach** (other templates): for each DIMS key, add a `<button class="seg" data-v="KEY">Label</button>` in both the Col and Row segmented controls manually. Kept for compat with existing galleries — new templates should use the helper.
 
 ### 4. Remove unused features
 

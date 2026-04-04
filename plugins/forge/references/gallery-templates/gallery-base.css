@@ -96,6 +96,38 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 /* ── Empty state ── */
 .empty{text-align:center;padding:64px 24px;color:var(--text-xdim);font-size:.84rem}
 
+/* ── Pixel-art rendering utility ──
+   Apply to <img> in sprite galleries (32×32, 64×64, etc.) to disable
+   browser smoothing and preserve crisp pixel edges at any scale.
+   Declaration order matters: last supported value wins. `pixelated` goes
+   last so modern browsers (Chromium/Firefox/Safari all support it natively
+   as of 2021+) use nearest-neighbour scaling rather than `crisp-edges`
+   (which is W3C-defined as edge-preserving, potentially with smoothing). */
+.pixelated{image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;image-rendering:pixelated}
+
+/* ── Downloads dropdown ──
+   Wire via initDownloads({dropdownId, toggleId, menuId, entries}). */
+.dl-wrap{position:relative;display:inline-block}
+.dl-toggle{background:var(--surface);border:1px solid var(--border2);border-radius:6px;color:var(--text-dim);cursor:pointer;font-size:.72rem;padding:5px 10px;font-family:var(--mono);display:flex;align-items:center;gap:4px}
+.dl-toggle:hover{border-color:var(--accent);color:var(--accent)}
+.dl-menu{display:none;position:absolute;top:calc(100% + 4px);right:0;background:var(--card);border:1px solid var(--border2);border-radius:8px;padding:6px 0;min-width:240px;z-index:50;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+.dl-menu.open{display:block}
+.dl-item{display:block;width:100%;background:none;border:none;color:var(--text-dim);cursor:pointer;font-family:var(--mono);font-size:.6rem;padding:7px 14px;text-align:left;transition:all .1s}
+.dl-item:hover{background:var(--accent-dim);color:var(--accent)}
+.dl-item[data-loading="true"]{opacity:.5;cursor:wait;pointer-events:none}
+.dl-item[data-loading="true"]::after{content:" ⏳"}
+.dl-hint{display:block;font-size:.48rem;color:var(--text-xdim);margin-top:1px}
+.dl-item:hover .dl-hint{color:var(--accent)}
+
+/* ── Toast stack ──
+   Populated by showToast(message, variant, duration). */
+.toast-stack{position:fixed;bottom:16px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:200;pointer-events:none}
+.toast{background:var(--card);border:1px solid var(--border2);border-radius:6px;padding:10px 14px;font-family:var(--mono);font-size:.65rem;color:var(--text);max-width:340px;box-shadow:0 4px 16px rgba(0,0,0,.35);pointer-events:auto;animation:toast-in .2s ease-out}
+.toast-info{border-color:var(--blue);color:var(--blue)}
+.toast-error{border-color:var(--red);color:var(--red)}
+.toast-leaving{opacity:0;transform:translateX(8px);transition:all .2s ease-in}
+@keyframes toast-in{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:translateX(0)}}
+
 /* ── Responsive ── */
 @media(max-width:860px){.ctrl-label{display:none}}
-@media(max-width:600px){.toolbar{gap:4px}.seg{font-size:.58rem;padding:3px 5px}.search-input{width:100px}}
+@media(max-width:600px){.toolbar{gap:4px}.seg{font-size:.58rem;padding:3px 5px}.search-input{width:100px}.dl-menu{min-width:200px}}

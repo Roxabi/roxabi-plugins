@@ -42,7 +42,22 @@ function initTheme(storeKey) {
  * Build check-btn filter buttons from data + dimension definitions.
  * Rule: all buttons OFF = inactive = show everything.
  *
- * @param {Array} items - Data array to scan (objects, strings, anything dim.fn accepts)
+ * @remarks
+ * **Dual-API contract:** this function is type-agnostic about the items it receives.
+ * `dim.fn` is called with each element of `items` verbatim — whether that's a filename
+ * string (as in pivot-gallery.html) or a structured item object (as in comparison-gallery,
+ * audio-gallery, and multi-mode-gallery). The caller picks the representation and
+ * defines `dim.fn` accordingly. No runtime type inspection happens inside this function.
+ *
+ * Filename-string example:
+ *     buildDimFilters(files, { batch: { label:'Batch', fn: f => f[0] } }, ...)
+ *
+ * Item-object example:
+ *     buildDimFilters(items, { rarity: { label:'Rarity', fn: it => it.rarity } }, ...)
+ *
+ * See README §"Items-as-objects vs filename-strings" for when to pick each.
+ *
+ * @param {Array} items - Data array to scan. Elements can be strings, objects, or anything `dim.fn` accepts.
  * @param {Object} dims - { key: { label: string, fn: item => string, order?: string[] } }
  * @param {Object} filters - Mutable map: dim key → Set (empty = inactive). Populated by this function.
  * @param {string} barId - ID of the toolbar element to insert buttons into
@@ -74,7 +89,7 @@ function buildDimFilters(items, dims, filters, barId, renderFn) {
 
     const ctrl = document.createElement('div')
     ctrl.className = 'ctrl'
-    ctrl.innerHTML = `<span class="ctrl-label">${dim.label}</span>`
+    ctrl.innerHTML = `<span class="ctrl-label">${escHtml(dim.label)}</span>`
     const group = document.createElement('div')
     group.className = 'check-group'
 
@@ -101,7 +116,15 @@ function buildDimFilters(items, dims, filters, barId, renderFn) {
 /**
  * Apply active dimension filters to an array of items.
  *
- * @param {Array} items - Items to filter
+ * @remarks
+ * **Dual-API contract:** like {@link buildDimFilters}, this function is type-agnostic.
+ * `dim.fn` receives whatever `items` contains — strings, objects, anything — and the
+ * caller is responsible for defining `dim.fn` to match. No type inspection happens here.
+ *
+ * See {@link buildDimFilters} JSDoc for worked examples and the README subsection
+ * "Items-as-objects vs filename-strings" for guidance on picking a representation.
+ *
+ * @param {Array} items - Items to filter (strings, objects, or anything `dim.fn` accepts)
  * @param {Object} dims - Dimension definitions with fn(item) → category
  * @param {Object} filters - Active filters: dim key → Set of selected values
  * @returns {Array} Filtered items (new array)
@@ -322,4 +345,158 @@ function escHtml(s) {
  */
 function safeClass(s) {
   return /^[a-zA-Z0-9_-]+$/.test(s) ? s : 'unknown'
+}
+
+/* ── Toast ── */
+
+/**
+ * Show a transient toast message. Auto-dismisses after duration ms.
+ * Multiple toasts stack vertically.
+ *
+ * @param {string} message - Text to display
+ * @param {'info'|'error'} [variant='info'] - Visual variant (sets .toast-info or .toast-error)
+ * @param {number} [duration=3000] - Auto-dismiss delay in ms
+ */
+function showToast(message, variant = 'info', duration = 3000) {
+  let stack = document.getElementById('toast-stack')
+  if (!stack) {
+    stack = document.createElement('div')
+    stack.id = 'toast-stack'
+    stack.className = 'toast-stack'
+    /* aria-live announces toasts to screen readers without stealing focus.
+       'polite' batches announcements; individual error toasts escalate to
+       'assertive' via role="alert" below. */
+    stack.setAttribute('aria-live', 'polite')
+    stack.setAttribute('aria-atomic', 'false')
+    document.body.appendChild(stack)
+  }
+  const isError = variant === 'error'
+  const toast = document.createElement('div')
+  toast.className = `toast toast-${isError ? 'error' : 'info'}`
+  /* Error toasts get role="alert" → assertive announcement; info toasts
+     inherit polite announcement from the stack container. */
+  if (isError) toast.setAttribute('role', 'alert')
+  toast.textContent = message
+  stack.appendChild(toast)
+  setTimeout(() => {
+    toast.classList.add('toast-leaving')
+    setTimeout(() => toast.remove(), 200)
+  }, duration)
+}
+
+/* ── Downloads dropdown ── */
+
+/**
+ * Initialize a downloads dropdown with async handlers and error toasts.
+ *
+ * Behavior:
+ * - Clicking the toggle toggles `.open` class on the menu (CSS handles visibility)
+ * - Clicking outside the dropdown closes it
+ * - Each entry button gets a click handler that invokes entry.handler
+ * - During async handlers, the button gets `data-loading="true"` (CSS handles visual)
+ * - On handler rejection, shows an error toast via showToast + logs to console.error
+ * - Loading state is always cleared in `finally`, even on error
+ *
+ * The button's innerHTML (label + hint) is preserved — loading state is purely attribute-based.
+ *
+ * @param {Object} config
+ * @param {string} config.dropdownId - ID of the .dl-wrap container
+ * @param {string} config.toggleId - ID of the .dl-toggle button
+ * @param {string} config.menuId - ID of the .dl-menu panel
+ * @param {Array<{id: string, label: string, hint?: string, handler: () => (Promise<void>|void)}>} config.entries
+ */
+function initDownloads(config) {
+  const wrap = document.getElementById(config.dropdownId)
+  const toggle = document.getElementById(config.toggleId)
+  const menu = document.getElementById(config.menuId)
+  if (!wrap || !toggle || !menu) return
+
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation()
+    menu.classList.toggle('open')
+  })
+  /* Guard the document-level outside-click listener with a dataset sentinel
+     so repeated initDownloads calls on the same wrap don't stack listeners. */
+  if (!wrap.dataset.dlInitialised) {
+    wrap.dataset.dlInitialised = 'true'
+    document.addEventListener('click', (e) => {
+      if (!wrap.contains(e.target)) menu.classList.remove('open')
+    })
+  }
+
+  menu.innerHTML = ''
+  for (const entry of config.entries) {
+    const btn = document.createElement('button')
+    btn.className = 'dl-item'
+    /* Validate id to prevent accidental selector breakage or multi-word IDs
+       from crafted config. safeClass returns 'unknown' for invalid input. */
+    btn.id = safeClass(entry.id)
+    btn.type = 'button'
+    btn.innerHTML = `${escHtml(entry.label)}${entry.hint ? `<span class="dl-hint">${escHtml(entry.hint)}</span>` : ''}`
+    btn.addEventListener('click', async () => {
+      btn.dataset.loading = 'true'
+      try {
+        await entry.handler()
+      } catch (err) {
+        const msg = err?.message ? err.message : String(err)
+        showToast(`Download failed: ${msg}`, 'error', 5000)
+        /* Log only the message — avoid dumping full error objects that may
+           carry response bodies, headers, or other sensitive details. */
+        console.error('[initDownloads]', entry.id, msg)
+      } finally {
+        /* Use removeAttribute — delete btn.dataset.loading is not guaranteed
+           by the spec to remove the underlying data-loading DOM attribute. */
+        btn.removeAttribute('data-loading')
+      }
+    })
+    menu.appendChild(btn)
+  }
+}
+
+/* ── Dynamic pivot seg builder ── */
+
+/**
+ * Build Col/Row segmented control buttons from a DIMS object.
+ *
+ * Replaces hardcoded `<button class="seg" data-v="...">` HTML in a template
+ * with dynamic buttons iterating Object.entries(dims). Each dim becomes a seg
+ * button; a "None" button is auto-prepended as the first option.
+ *
+ * **Initial active state:** controlled by the `initial` argument. Defaults to
+ * `{col: 'none', row: 'none'}`. Pass `{col, row}` to restore a specific axis
+ * selection — used by pivot-gallery to preserve its `Row: Batch` default, and
+ * by multi-mode templates that want to rehydrate state on mode switch.
+ *
+ * Wires click handlers via the existing `wireSegs` pattern — clicking a button
+ * toggles its `.on` class and invokes `onChange(axis, dimKey)`.
+ *
+ * @param {Object} dims - { key: { label: string, fn: Function, order?: string[] } }
+ * @param {string} colBarId - ID of the Col .segs container
+ * @param {string} rowBarId - ID of the Row .segs container
+ * @param {(axis: 'col'|'row', dimKey: string) => void} onChange - Called on selection change
+ * @param {{col?: string, row?: string}} [initial] - Initial active dim per axis. Defaults to none/none.
+ */
+function buildPivotSegsFromDims(dims, colBarId, rowBarId, onChange, initial) {
+  const colBar = document.getElementById(colBarId)
+  const rowBar = document.getElementById(rowBarId)
+  if (!colBar || !rowBar) return
+
+  const colActive = initial?.col || 'none'
+  const rowActive = initial?.row || 'none'
+
+  const mkSegs = (active) => {
+    const parts = [`<button class="seg${active === 'none' ? ' on' : ''}" data-v="none">None</button>`]
+    for (const [key, dim] of Object.entries(dims)) {
+      parts.push(
+        `<button class="seg${active === key ? ' on' : ''}" data-v="${escHtml(key)}">${escHtml(dim.label)}</button>`,
+      )
+    }
+    return parts.join('')
+  }
+
+  colBar.innerHTML = mkSegs(colActive)
+  rowBar.innerHTML = mkSegs(rowActive)
+
+  wireSegs(colBarId, (v) => onChange('col', v))
+  wireSegs(rowBarId, (v) => onChange('row', v))
 }
