@@ -308,7 +308,19 @@ Best for galleries with **multiple independent datasets** — each mode has its 
 
 ### Step 1 — Fill placeholders
 
-Same markers as the other templates (`{{TITLE}}`, `{{DATE}}`, `{{COLOR}}`, `{{ACCENT_COLOR}}`, `{{SUBTITLE}}`, `{{STORE_KEY_PREFIX}}`).
+| Placeholder | Example | Where |
+|-------------|---------|-------|
+| `{{TITLE}}` | `PI Buddy — Sprite Gallery` | `<title>`, diagram-meta |
+| `{{TITLE_PLAIN}}` | `PI Buddy` | First part of `<h1>` (neutral color) |
+| `{{TITLE_ACCENT}}` | `Sprite Gallery` | Second part of `<h1>` (accent-colored span) |
+| `{{DATE}}` | `2026-04-04` | diagram-meta |
+| `{{COLOR}}` | `purple` | diagram-meta (semantic color name) |
+| `{{ACCENT_COLOR}}` | `#a78bfa` | CSS `--accent` custom property |
+| `{{ACCENT_DIM}}` | `rgba(167,139,250,0.12)` | CSS `--accent-dim` custom property |
+| `{{SUBTITLE}}` | `24 species · 3 modes · 360 images` | `<div class="sub">` header subtitle |
+| `{{STORE_KEY_PREFIX}}` | `pi-buddy-gallery` | localStorage key prefix for theme + starring |
+
+If `{{STORE_KEY_PREFIX}}` is left unsubstituted, the template falls back to `'multi-mode-gallery'` at runtime to avoid polluting localStorage with literal brace syntax — but you should always substitute it to avoid collisions with other galleries on the same origin.
 
 ### Step 2 — Define `MODES`
 

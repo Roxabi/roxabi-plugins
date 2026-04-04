@@ -98,8 +98,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 
 /* ── Pixel-art rendering utility ──
    Apply to <img> in sprite galleries (32×32, 64×64, etc.) to disable
-   browser smoothing and preserve crisp pixel edges at any scale. */
-.pixelated{image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges}
+   browser smoothing and preserve crisp pixel edges at any scale.
+   Declaration order matters: last supported value wins. `pixelated` goes
+   last so modern browsers (Chromium/Firefox/Safari all support it natively
+   as of 2021+) use nearest-neighbour scaling rather than `crisp-edges`
+   (which is W3C-defined as edge-preserving, potentially with smoothing). */
+.pixelated{image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;image-rendering:pixelated}
 
 /* ── Downloads dropdown ──
    Wire via initDownloads({dropdownId, toggleId, menuId, entries}). */

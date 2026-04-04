@@ -89,7 +89,7 @@ function buildDimFilters(items, dims, filters, barId, renderFn) {
 
     const ctrl = document.createElement('div')
     ctrl.className = 'ctrl'
-    ctrl.innerHTML = `<span class="ctrl-label">${dim.label}</span>`
+    ctrl.innerHTML = `<span class="ctrl-label">${escHtml(dim.label)}</span>`
     const group = document.createElement('div')
     group.className = 'check-group'
 
@@ -406,9 +406,14 @@ function initDownloads(config) {
     e.stopPropagation()
     menu.classList.toggle('open')
   })
-  document.addEventListener('click', (e) => {
-    if (!wrap.contains(e.target)) menu.classList.remove('open')
-  })
+  /* Guard the document-level outside-click listener with a dataset sentinel
+     so repeated initDownloads calls on the same wrap don't stack listeners. */
+  if (!wrap.dataset.dlInitialised) {
+    wrap.dataset.dlInitialised = 'true'
+    document.addEventListener('click', (e) => {
+      if (!wrap.contains(e.target)) menu.classList.remove('open')
+    })
+  }
 
   menu.innerHTML = ''
   for (const entry of config.entries) {
@@ -424,9 +429,13 @@ function initDownloads(config) {
       } catch (err) {
         const msg = err?.message ? err.message : String(err)
         showToast(`Download failed: ${msg}`, 'error', 5000)
-        console.error('[initDownloads]', entry.id, err)
+        /* Log only the message — avoid dumping full error objects that may
+           carry response bodies, headers, or other sensitive details. */
+        console.error('[initDownloads]', entry.id, msg)
       } finally {
-        delete btn.dataset.loading
+        /* Use removeAttribute — delete btn.dataset.loading is not guaranteed
+           by the spec to remove the underlying data-loading DOM attribute. */
+        btn.removeAttribute('data-loading')
       }
     })
     menu.appendChild(btn)

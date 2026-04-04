@@ -206,8 +206,11 @@ const MODES = [
   },
 ];
 
-/* CUSTOMISE: localStorage key prefix — change per project */
-const STORE_KEY = '{{STORE_KEY_PREFIX}}';  /* e.g. 'pi-buddy-gallery' */
+/* CUSTOMISE: localStorage key prefix — change per project to avoid collisions.
+   The placeholder falls back to 'multi-mode-gallery' if left unsubstituted,
+   so opening the template file raw doesn't pollute localStorage with literal
+   brace syntax. */
+const STORE_KEY = '{{STORE_KEY_PREFIX}}'.includes('{{') ? 'multi-mode-gallery' : '{{STORE_KEY_PREFIX}}'  /* e.g. 'pi-buddy-gallery' */
 
 /* ══════════════════════════════════════════════════════════════════
    ENGINE — uses gallery-base.js helpers. Avoid editing below unless
@@ -344,7 +347,9 @@ function render() {
   }
 
   document.getElementById('stats').textContent = filtered.length + ' / ' + total
-  wireCardClicks()
+  /* Card clicks handled by a single delegated listener wired at boot (see below).
+     No per-render wireup required — rebuilding #gallery via innerHTML doesn't
+     lose the listener since it lives on the parent #gallery element. */
 }
 
 function groupByDim(arr, dim) {
@@ -376,13 +381,18 @@ function mkCell(cellItems, startIdx, pixelated) {
   return '<div class="cell-grid">' + html + '</div><div class="cell-count">' + cellItems.length + '</div>'
 }
 
-function wireCardClicks() {
-  document.querySelectorAll('#gallery .img-card img, #gallery .thumb').forEach(img => {
-    img.onclick = () => {
-      const card = img.closest('[data-idx]') || img
-      lbIndex = parseInt(card.dataset.idx, 10)
-      openLb()
-    }
+/* Delegated click handler — attached once at boot to #gallery.
+   Survives innerHTML rebuilds in render(). O(1) listener instead of O(N)
+   per render. Uses .closest([data-idx]) to find the clicked card/thumb. */
+function wireCardClicksOnce() {
+  const gallery = document.getElementById('gallery')
+  if (!gallery || gallery.dataset.cardClicksWired) return
+  gallery.dataset.cardClicksWired = 'true'
+  gallery.addEventListener('click', (e) => {
+    const target = e.target.closest('[data-idx]')
+    if (!target) return
+    lbIndex = parseInt(target.dataset.idx, 10)
+    openLb()
   })
 }
 
@@ -494,8 +504,17 @@ initTheme(STORE_KEY)
 /* ── Boot ── */
 buildModeBar()
 setupDownloads()
-switchMode(activeMode)  /* runs the atomic sequence: filters → segs → filter bar → render */
-window.addEventListener('resize', render)
+wireCardClicksOnce()     /* single delegated listener on #gallery */
+switchMode(activeMode)   /* runs the atomic sequence: filters → segs → filter bar → render */
+
+/* Debounced resize handler — avoids O(N) innerHTML rebuilds on every pixel
+   of a drag-resize. 150ms trailing delay is imperceptible but caps render
+   frequency to <7/sec during active resizing. */
+let resizeTimer
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer)
+  resizeTimer = setTimeout(render, 150)
+})
 </script>
 </body>
 </html>
