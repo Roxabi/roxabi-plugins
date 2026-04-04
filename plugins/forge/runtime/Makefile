@@ -15,7 +15,7 @@ define ensure_forge_init
 	fi
 endef
 
-.PHONY: build deploy-cf deploy-prod du start stop reload status logs errlogs help
+.PHONY: build deploy-cf du start stop reload status logs errlogs help
 
 .DEFAULT_GOAL := help
 
@@ -24,7 +24,6 @@ help:
 	@echo ""
 	@echo "  build        regenerate manifest + sync to _dist/"
 	@echo "  deploy-cf    build then deploy to Cloudflare Pages"
-	@echo "  deploy-prod  rsync $(FORGE_DIR) to DEPLOY_HOST"
 	@echo "  du           disk usage by project"
 	@echo "  start        start forge service"
 	@echo "  stop         stop forge service"
@@ -39,21 +38,6 @@ build:
 deploy-cf: build
 	@echo "Deploying to Cloudflare Pages..."
 	@npx wrangler pages deploy "$(FORGE_DIR)_dist" --project-name=diagrams --branch=main --commit-dirty=true
-
-deploy-prod:
-	@test -n "$(DEPLOY_HOST)" || (echo "ERROR: DEPLOY_HOST not set in $(FORGE_DIR).env" && exit 1)
-	@echo "── rsync $(FORGE_DIR) → production ──"
-	@rsync -avz --delete \
-		--exclude "__pycache__/" \
-		--exclude "*.pyc" \
-		--exclude ".DS_Store" \
-		--exclude ".sync.log" \
-		--exclude "_dist/" \
-		--exclude "*.py" \
-		--exclude "build.sh" \
-		--exclude "manifest.json" \
-		"$(FORGE_DIR)" "$(DEPLOY_HOST):$(FORGE_DIR)"
-	@echo "Done."
 
 du:
 	@du -sh "$(FORGE_DIR)"*/
