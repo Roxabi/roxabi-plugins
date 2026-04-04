@@ -98,10 +98,11 @@ Working HTML templates for the `forge-gallery` skill. Copy the right template, f
 | `simple-gallery.html` | Batch-based image gallery (V1/V2 iterations) | 27K | BATCHES tabs, starring, tag filters, search, sort, size +/−, lightbox with nav |
 | `comparison-gallery.html` | Side-by-side cards with detailed specs | 25K | CARDS array config, spec tables, verdict badges, filters, search, size +/− |
 | `audio-gallery.html` | Audio/voice engine comparison | 37K | Audio players, engine/quality badges, grouping, card/list view, starring |
+| `multi-mode-gallery.html` | Multi-dataset galleries (modes/tabs) with per-mode dimensions | ~20K | Mode tab bar, per-mode DIMS, dynamic pivot segs, downloads dropdown, items-as-objects, pixel-art support |
 
 All templates share:
-- **`gallery-base.css`** — shared CSS foundation (tokens, resets, header, toolbar, controls, stats, group headers, empty state, responsive). Each template links to it and adds template-specific styles inline.
-- **`gallery-base.js`** — shared JS utilities: `initTheme()`, `buildDimFilters()`, `applyDimFilters()`, `wireSegs()`, `discoverBatch()`, `discoverFiles()`, `buildBatchBar()`, `initStarred()`. Each template loads it and uses these instead of inline duplicates.
+- **`gallery-base.css`** — shared CSS foundation (tokens, resets, header, toolbar, controls, stats, group headers, empty state, responsive, plus `.pixelated`, `.dl-wrap`/`.dl-menu`, `.toast` utilities). Each template links to it and adds template-specific styles inline.
+- **`gallery-base.js`** — shared JS utilities: `initTheme()`, `buildDimFilters()`, `applyDimFilters()`, `wireSegs()`, `discoverBatch()`, `discoverFiles()`, `buildBatchBar()`, `initStarred()`, `buildPivotSegsFromDims()`, `initDownloads()`, `showToast()`, `escHtml()`, `safeClass()`. Each template loads it and uses these instead of inline duplicates.
 - Same CSS token system (`:root` variables from `tokens.md`) — override `--accent` / `--accent-dim` per project
 - Same toolbar pattern (`.toolbar > .ctrl > .ctrl-label + .segs/.check-group`)
 - Dynamic filters (OFF by default = inactive = show everything)
@@ -298,3 +299,258 @@ Filters are auto-generated from data at load time. Each dimension discovers its 
 | Score | Batch | Transposed matrix |
 
 The matrix cells contain thumbnails. Size is controlled by the +/− buttons. Sorting applies within each cell.
+
+---
+
+## How to customise `multi-mode-gallery.html`
+
+Best for galleries with **multiple independent datasets** — each mode has its own dimensions (pivot axes), its own item-building function, and its own display settings. PI Buddy's sprite gallery is the reference consumer: Baby Showcase 512×512 · Full Set 256×256 · Production 32×32, each with distinct dim combinations (rarity × style for Baby; rarity × stage × species for Full Set).
+
+### Step 1 — Fill placeholders
+
+Same markers as the other templates (`{{TITLE}}`, `{{DATE}}`, `{{COLOR}}`, `{{ACCENT_COLOR}}`, `{{SUBTITLE}}`, `{{STORE_KEY_PREFIX}}`).
+
+### Step 2 — Define `MODES`
+
+Each mode entry owns its own dims + items:
+
+```javascript
+const MODES = [
+  {
+    id: 'baby',
+    label: 'Baby Showcase',
+    countLabel: '512px',
+    dir: 'images/baby/',
+    pixelated: false,
+    dims: {
+      rarity: { label: 'Rarity', fn: it => it.rarity, order: ['common','rare','epic'] },
+      style:  { label: 'Style',  fn: it => it.style,  order: ['gbc','snes','modern'] },
+    },
+    buildItems: () => [
+      { file: '01-blob-baby-gbc.png', dir: 'images/baby/', label: 'Blob', rarity: 'common', style: 'gbc' },
+      // ...
+    ],
+  },
+  // ...more modes
+];
+```
+
+### Step 3 — Atomic mode switch
+
+`switchMode(newMode)` runs an **8-step atomic sequence** that MUST be preserved when you customize it:
+
+```javascript
+function switchMode(newMode) {
+  activeMode = newMode                                           // 1
+  filters = {}                                                   // 2 — reset stale dim keys
+  colDim = 'none'                                                // 3
+  rowDim = 'none'                                                // 4
+  visibleItems = []                                              // 5 — reset lightbox state
+  items = getActiveMode().buildItems()
+  buildPivotSegsFromDims(getActiveMode().dims, 'colSegs', 'rowSegs', onPivotChange)  // 6
+  document.getElementById('filterBar').innerHTML = '/* search input markup */'       // 7 — clear old .check-btn state
+  buildDimFilters(items, getActiveMode().dims, filters, 'filterBar', render)         // 7 cont.
+  render()                                                       // 8
+}
+```
+
+**⚠ Do not skip any step.** Omitting the filter reset (step 2) or the filterBar innerHTML clear (step 7) causes the **stale-key / stale-UI bug**: old filter state carries into the new mode and UI buttons show the wrong active state. Dim-key collisions between modes with different value vocabularies can produce wrong filter results.
+
+### Step 4 — Configure downloads (optional)
+
+See "Downloads dropdown helper" below. Leave the `entries: [...]` array empty to hide the dropdown.
+
+### Step 5 — Sprite/pixel-art rendering
+
+Set `pixelated: true` on a mode's config to apply `image-rendering: pixelated` to all thumbs + lightbox image. Use with NEAREST-scale downsamples for crisp retro sprite rendering.
+
+---
+
+## Items-as-objects vs filename-strings
+
+`buildDimFilters` and `applyDimFilters` are **dual-API** — they pass each element of the `items` array to `dim.fn` verbatim, without inspecting the type. This lets you choose between two representations:
+
+### Filename-strings (simple)
+
+Each item is a string (typically a filename). `dim.fn` parses the string to extract a category. Used by `pivot-gallery.html`.
+
+```javascript
+const items = ['A-001.png', 'A-002.png', 'B-001.png']
+
+const DIMS = {
+  batch: { label: 'Batch', fn: f => f[0] },  // 'A' or 'B'
+}
+
+buildDimFilters(items, DIMS, filters, 'filterBar', render)
+```
+
+**Use when:** filenames already encode all the metadata you need, there's one dataset, and you don't want to build an item-object pipeline.
+
+### Items-as-objects (structured)
+
+Each item is an object with explicit fields. `dim.fn` reads fields directly. Used by `comparison-gallery.html`, `audio-gallery.html`, `multi-mode-gallery.html`.
+
+```javascript
+const items = [
+  { file: '01-blob.png', species: 'blob', rarity: 'common', stage: 'baby' },
+  { file: '02-wisp.png', species: 'wisp', rarity: 'common', stage: 'adult' },
+]
+
+const DIMS = {
+  rarity: { label: 'Rarity', fn: it => it.rarity },
+  stage:  { label: 'Stage',  fn: it => it.stage  },
+}
+
+buildDimFilters(items, DIMS, filters, 'filterBar', render)
+```
+
+**Use when:** you have multiple dimensions, need custom display labels, plan to support multiple modes, or want to compose items from multiple data sources (e.g. manifest + scores JSON).
+
+### Legacy wrapper pattern (avoid in new code)
+
+`simple-gallery.html` uses an older `DIMS_WRAPPED` indirection where `dim.fn` takes `item.tags` (a subfield) instead of the full item:
+
+```javascript
+// LEGACY — do not copy into new galleries
+const DIMS_WRAPPED = {}
+for (const [k, dim] of Object.entries(DIMS)) {
+  DIMS_WRAPPED[k] = { ...dim, fn: item => dim.fn(item.tags) }
+}
+```
+
+New galleries should define `dim.fn` to read from the item directly (e.g. `fn: it => it.tags[0]`) and skip the wrapper. The wrapper exists only because simple-gallery predates the formal dual-API contract.
+
+---
+
+## Incremental upgrade path — single-mode to multi-mode
+
+If you have an existing `pivot-gallery.html`-based gallery and want to add a second mode (or just adopt the helpers) without rewriting from scratch, follow these **5 steps**:
+
+1. **Wrap existing data in a `MODES` array** with one entry:
+   ```javascript
+   const MODES = [{
+     id: 'main', label: 'Main', dims: DIMS, buildItems: () => currentItems,
+   }]
+   ```
+
+2. **Add the mode tab bar markup** above your existing toolbar:
+   ```html
+   <div class="mode-bar" id="modeBar"></div>
+   ```
+
+3. **Replace hardcoded Col/Row seg buttons** with empty containers and a helper call. Before:
+   ```html
+   <div class="segs" id="colSegs">
+     <button class="seg on" data-v="none">None</button>
+     <button class="seg" data-v="batch">Batch</button>
+   </div>
+   ```
+   After:
+   ```html
+   <div class="segs" id="colSegs"></div>
+   ```
+   ```javascript
+   buildPivotSegsFromDims(DIMS, 'colSegs', 'rowSegs', onPivotChange, { col: 'none', row: 'batch' })
+   ```
+
+4. **Add the atomic `switchMode` sequence** (see "How to customise multi-mode-gallery.html" above). **⚠ Must include all 8 steps** — skipping any causes stale-key/stale-UI bugs.
+
+5. **Add a second mode entry** to `MODES` when ready. Mode tab bar rebuilds automatically. No other code changes required.
+
+---
+
+## Dynamic pivot seg construction
+
+Use `buildPivotSegsFromDims` to avoid hardcoding Col/Row seg buttons that must be manually kept in sync with DIMS keys.
+
+```javascript
+buildPivotSegsFromDims(
+  dims,                       // your DIMS object
+  'colSegs',                  // id of Col .segs container (empty div)
+  'rowSegs',                  // id of Row .segs container (empty div)
+  (axis, dimKey) => {         // called on button click
+    if (axis === 'col') colDim = dimKey
+    else rowDim = dimKey
+    render()
+  },
+  { col: 'none', row: 'batch' }  // optional: initial active dim per axis
+)
+```
+
+The function:
+- Auto-prepends a "None" button (active by default unless `initial` says otherwise)
+- Appends one button per `Object.entries(dims)`, labeled with `dim.label`
+- Resets active state on every call — caller restores via `initial` parameter if needed
+- Wires click handlers via existing `wireSegs` (handles `.on` toggling)
+
+Add a new dim to `DIMS` and the button appears automatically — no HTML sync required.
+
+---
+
+## Downloads dropdown helper
+
+`initDownloads` wires a downloads dropdown with async handlers, automatic loading state, and error toasts. Use for playbook downloads, prompt bundles, or lazy-loaded JSZip image archives.
+
+### HTML markup
+
+```html
+<div class="dl-wrap" id="dlWrap">
+  <button class="dl-toggle" id="dlToggle" type="button">&#x2B73; Downloads</button>
+  <div class="dl-menu" id="dlMenu"></div>
+</div>
+```
+
+### JavaScript configuration
+
+```javascript
+initDownloads({
+  dropdownId: 'dlWrap',
+  toggleId: 'dlToggle',
+  menuId: 'dlMenu',
+  entries: [
+    {
+      id: 'dlPlaybook',
+      label: '⬇ Playbook',
+      hint: 'Project README / docs',
+      handler: async () => {
+        const r = await fetch('README.md')
+        if (!r.ok) throw new Error(r.status)
+        triggerDownload(await r.blob(), 'README.md')
+      },
+    },
+    // Add more entries
+  ],
+})
+```
+
+### Async handlers + loading state
+
+Each entry's `handler` can be async. While it's running, the button's `data-loading="true"` attribute is set (CSS adds a spinner + dims the button). On rejection, a toast is automatically shown via `showToast` and the error is logged to console. The button's label/hint text is never mutated.
+
+### CSP directive (important)
+
+If your `handler` lazy-loads libraries from a CDN (e.g. JSZip), your site's Content-Security-Policy **must** allow the CDN:
+
+```
+script-src 'self' https://cdn.jsdelivr.net;
+```
+
+Without this directive, the dynamic `<script>` load fails and `initDownloads` surfaces a toast: *"Download failed: JSZip blocked by CSP"*. Deploy your gallery with the directive in place, or host the library alongside the gallery and load it directly.
+
+---
+
+## Pixel-art rendering
+
+Sprite galleries (32×32, 64×64, buddy creatures, retro game assets) need `image-rendering: pixelated` to disable browser smoothing. The `.pixelated` utility class in `gallery-base.css` handles this with vendor fallbacks:
+
+```css
+.pixelated {
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+}
+```
+
+Apply to `<img>` elements in sprite galleries. In `multi-mode-gallery.html`, set `pixelated: true` on a mode's config and the class is added to all thumbs + lightbox image automatically.
+
+Pair with a NEAREST-resample downscale pipeline (e.g. `PIL.Image.resize((32,32), Image.NEAREST)`) for best results — linear/bilinear downsamples blur the pixels before the CSS can help.

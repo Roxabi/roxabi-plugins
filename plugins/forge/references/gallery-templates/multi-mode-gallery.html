@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ═══════════════════════════════════════════════════════════════
+     CUSTOMISE: diagram-meta — update title, date, color, badges
+     ═══════════════════════════════════════════════════════════════ -->
+<title>{{TITLE}}</title>
+<!-- diagram-meta:start -->
+<meta name="diagram:title"     content="{{TITLE}}">
+<meta name="diagram:date"      content="{{DATE}}">
+<meta name="diagram:category"  content="gallery">
+<meta name="diagram:cat-label" content="Gallery">
+<meta name="diagram:color"     content="{{COLOR}}">
+<meta name="diagram:badges"    content="latest">
+<!-- diagram-meta:end -->
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- CUSTOMISE: adjust path to gallery-base.css for your deploy location -->
+<link rel="stylesheet" href="gallery-base.css">
+<style>
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: override accent tokens for your project brand
+   Reference impl: ~/.roxabi/forge/pi-buddy/prompt-gallery.html
+   ══════════════════════════════════════════════════════════════════ */
+:root {
+  --accent:{{ACCENT_COLOR}};   /* e.g. #a78bfa (purple), #e8a030 (amber), #60a5fa (blue) */
+  --accent-dim:{{ACCENT_DIM}}; /* e.g. rgba(167,139,250,0.12) */
+}
+
+.layout{max-width:1400px;margin:0 auto;padding:20px 20px 64px}
+
+/* ── Mode tab bar ── */
+.mode-bar{display:flex;gap:6px;margin-bottom:14px}
+.mode-btn{background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text-dim);cursor:pointer;font-family:var(--font);font-size:.72rem;font-weight:600;padding:8px 18px;transition:all .15s;white-space:nowrap}
+.mode-btn:hover{border-color:var(--border2);color:var(--text)}
+.mode-btn.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
+.mode-btn .mode-count{font-family:var(--mono);font-size:.55rem;color:var(--text-xdim);margin-left:4px}
+.mode-btn.active .mode-count{color:var(--accent)}
+
+/* ── Image grid + matrix ── */
+.grid{display:grid;gap:8px}
+.img-card{position:relative;border-radius:6px;overflow:hidden;border:1px solid var(--border);background:var(--card);transition:border-color .15s,transform .12s}
+.img-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.img-card img{width:100%;aspect-ratio:1;object-fit:cover;display:block;cursor:zoom-in;background:var(--surface)}
+.img-card .badge-tl{position:absolute;top:4px;left:4px;font-family:var(--mono);font-size:.48rem;font-weight:600;padding:2px 5px;border-radius:3px;background:rgba(0,0,0,.7);color:var(--accent);letter-spacing:.04em}
+.img-card .info{padding:5px 7px 7px}
+.img-card .info .lbl{font-size:.62rem;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.img-card .info .meta{font-size:.5rem;color:var(--text-xdim);font-family:var(--mono)}
+
+/* Pivot matrix cells */
+.matrix{overflow-x:auto;margin-top:4px}
+.matrix table{border-collapse:collapse;width:100%}
+.matrix th{font-size:.62rem;font-weight:700;padding:6px;text-align:center;color:var(--accent);background:var(--surface);border:1px solid var(--border);font-family:var(--mono);white-space:nowrap;position:sticky;top:0;z-index:2;text-transform:capitalize}
+.matrix th.corner{position:sticky;left:0;top:0;z-index:4;background:var(--surface);color:var(--text-dim)}
+.matrix td{border:1px solid var(--border);padding:3px;vertical-align:top;background:var(--bg)}
+.matrix td.row-hdr{font-size:.62rem;font-weight:700;color:var(--accent);font-family:var(--mono);text-align:right;padding:6px 10px;background:var(--surface);position:sticky;left:0;z-index:1;white-space:nowrap;text-transform:capitalize}
+.cell-grid{display:flex;flex-wrap:wrap;gap:3px;min-height:20px}
+.cell-count{font-size:.5rem;color:var(--text-xdim);font-family:var(--mono);text-align:center;padding-top:2px}
+.thumb{border-radius:3px;object-fit:cover;cursor:zoom-in;border:1px solid var(--border);display:block;background:var(--surface)}
+.thumb:hover{border-color:var(--accent)}
+
+/* Lightbox */
+.lb{display:none;position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:100;flex-direction:column;justify-content:center;align-items:center}
+.lb.open{display:flex}
+.lb-img{max-width:80vmin;max-height:80vmin;border-radius:8px;object-fit:contain;display:block}
+.lb-meta{margin-top:12px;text-align:center}
+.lb-title{font-size:.82rem;font-weight:600;color:var(--text)}
+.lb-sub{font-family:var(--mono);font-size:.6rem;color:var(--text-xdim);margin-top:4px}
+.lb-btn{position:absolute;top:50%;transform:translateY(-50%);font-size:36px;color:var(--text-xdim);cursor:pointer;padding:16px 20px;user-select:none}
+.lb-btn:hover{color:var(--accent)}
+.lb-prev{left:8px}.lb-next{right:8px}
+.lb-close{position:absolute;top:16px;right:20px;font-size:18px;color:var(--text-xdim);cursor:pointer}
+.lb-close:hover{color:var(--text)}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- ═══════════════════════════════════════════════════════════════
+     CUSTOMISE: header + downloads dropdown
+     Wire downloads via initDownloads() in the script block below.
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="header">
+  <div class="header-left">
+    <h1>{{TITLE_PLAIN}} <span>{{TITLE_ACCENT}}</span></h1>
+    <div class="sub" id="subtitle">{{SUBTITLE}}</div>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center">
+    <div class="dl-wrap" id="dlWrap">
+      <button class="dl-toggle" id="dlToggle" type="button">&#x2B73; Downloads</button>
+      <div class="dl-menu" id="dlMenu"></div>
+    </div>
+    <button class="theme-btn" id="themeBtn" title="Toggle theme">&#127769;</button>
+  </div>
+</div>
+
+<!-- Mode tab bar — populated from MODES config at boot -->
+<div class="mode-bar" id="modeBar"></div>
+
+<!-- Toolbar: pivot axes + sort + size
+     Col/Row seg containers are empty — buildPivotSegsFromDims()
+     populates them from the active mode's DIMS on mode switch. -->
+<div class="toolbar">
+  <div class="ctrl"><span class="ctrl-label">Col</span>
+    <div class="segs" id="colSegs"></div>
+  </div>
+  <div class="ctrl"><span class="ctrl-label">Row</span>
+    <div class="segs" id="rowSegs"></div>
+  </div>
+  <div class="ctrl"><span class="ctrl-label">Sort</span>
+    <div class="segs" id="sortSegs">
+      <button class="seg on" data-v="default">Default</button>
+      <button class="seg" data-v="name">Name</button>
+    </div>
+  </div>
+  <div class="ctrl"><span class="ctrl-label">Size</span>
+    <button class="size-btn" onclick="resizeThumb(-20)" type="button">&#8722;</button>
+    <span class="size-label" id="sizeLabel">140</span>
+    <button class="size-btn" onclick="resizeThumb(+20)" type="button">+</button>
+  </div>
+  <span class="stats" id="stats"></span>
+</div>
+
+<!-- Dynamic filter bar (buildDimFilters populates this per active mode) -->
+<div class="toolbar" id="filterBar">
+  <div class="ctrl"><span class="ctrl-label">Search</span>
+    <input class="filter-input search-input" id="searchInput" type="text" placeholder="filter..." oninput="render()">
+  </div>
+</div>
+
+<div id="gallery"></div>
+</div>
+
+<!-- Lightbox -->
+<div class="lb" id="lb" onclick="closeLbOutside(event)">
+  <span class="lb-close" onclick="closeLb()">&#10005;</span>
+  <span class="lb-btn lb-prev" onclick="lbNav(-1,event)">&#8249;</span>
+  <img class="lb-img" id="lbImg" src="" alt="">
+  <div class="lb-meta">
+    <div class="lb-title" id="lbTitle"></div>
+    <div class="lb-sub" id="lbSub"></div>
+  </div>
+  <span class="lb-btn lb-next" onclick="lbNav(1,event)">&#8250;</span>
+</div>
+
+<!-- CUSTOMISE: adjust path to gallery-base.js for your deploy location -->
+<script src="gallery-base.js"></script>
+<script>
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: MODES — one entry per dataset. Each mode owns its own
+   DIMS (pivot axes) and a buildItems() function that returns an array
+   of item objects. Items are structured objects (items-as-objects
+   pattern) — each dim.fn reads fields like `item.rarity`, not
+   filename substrings.
+
+   Reference impl: ~/.roxabi/forge/pi-buddy/prompt-gallery.html
+   (three modes: Baby Showcase 512×512, Full Set 256×256, Production 32×32)
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Example DIMS — replace with your own. Each dim.fn receives an item object. */
+const EXAMPLE_DIMS_A = {
+  category: { label: 'Category', fn: it => it.category, order: ['alpha','beta','gamma'] },
+  tier:     { label: 'Tier',     fn: it => it.tier,     order: ['S','A','B','C'] },
+};
+
+const EXAMPLE_DIMS_B = {
+  category: { label: 'Category', fn: it => it.category, order: ['alpha','beta','gamma'] },
+  stage:    { label: 'Stage',    fn: it => it.stage,    order: ['v1','v2','v3'] },
+};
+
+const MODES = [
+  {
+    id: 'mode-a',
+    label: 'Mode A',
+    countLabel: '512px',
+    dir: 'images/mode-a/',
+    pixelated: false,
+    dims: EXAMPLE_DIMS_A,
+    /* buildItems returns an array of {file, dir, label, ...custom} objects.
+       Replace with your real data source. */
+    buildItems: () => [
+      /* Example — delete and replace with real data:
+         { file: '01-foo.png', dir: 'images/mode-a/', label: 'Foo', category: 'alpha', tier: 'S' },
+         { file: '02-bar.png', dir: 'images/mode-a/', label: 'Bar', category: 'beta',  tier: 'A' },
+      */
+    ],
+  },
+  {
+    id: 'mode-b',
+    label: 'Mode B',
+    countLabel: '256px',
+    dir: 'images/mode-b/',
+    pixelated: false,
+    dims: EXAMPLE_DIMS_B,
+    buildItems: () => [],
+  },
+  {
+    id: 'mode-c',
+    label: 'Mode C — Sprites',
+    countLabel: '32px',
+    dir: 'images/mode-c/',
+    pixelated: true,  /* Adds .pixelated class to thumbs for sprite galleries */
+    dims: EXAMPLE_DIMS_B,
+    buildItems: () => [],
+  },
+];
+
+/* CUSTOMISE: localStorage key prefix — change per project */
+const STORE_KEY = '{{STORE_KEY_PREFIX}}';  /* e.g. 'pi-buddy-gallery' */
+
+/* ══════════════════════════════════════════════════════════════════
+   ENGINE — uses gallery-base.js helpers. Avoid editing below unless
+   extending behavior beyond what the helpers provide.
+   ══════════════════════════════════════════════════════════════════ */
+
+let activeMode = MODES[0].id
+let items = []
+let visibleItems = []
+let filters = {}
+let colDim = 'none'
+let rowDim = 'none'
+let sortMode = 'default'
+let thumbSize = 140
+let lbIndex = 0
+
+function getActiveMode() { return MODES.find(m => m.id === activeMode) }
+
+/* ── Atomic mode switch —— critical sequence ──
+   Reference impl: ~/.roxabi/forge/pi-buddy/prompt-gallery.html switchMode()
+   All 8 steps must run in order. Skipping any causes the stale-key bug:
+   old filter keys silently discard all items in the new mode. */
+function switchMode(newMode) {
+  activeMode = newMode                                            // 1
+  filters = {}                                                    // 2 — reset stale dim keys
+  colDim = 'none'                                                 // 3
+  rowDim = 'none'                                                 // 4
+  visibleItems = []                                               // 5 — reset lightbox state
+  items = getActiveMode().buildItems()                            // items refresh
+  buildPivotSegsFromDims(getActiveMode().dims, 'colSegs', 'rowSegs', onPivotChange)  // 6
+  document.getElementById('filterBar').innerHTML =
+    '<div class="ctrl"><span class="ctrl-label">Search</span><input class="filter-input search-input" id="searchInput" type="text" placeholder="filter..." oninput="render()"></div>'
+  buildDimFilters(items, getActiveMode().dims, filters, 'filterBar', render)  // 7
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === newMode))
+  render()                                                        // 8
+}
+
+function onPivotChange(axis, v) {
+  if (axis === 'col') colDim = v
+  else rowDim = v
+  render()
+}
+
+/* ── Filtering ── */
+
+function getFiltered() {
+  let result = applyDimFilters([...items], getActiveMode().dims, filters)
+  const q = (document.getElementById('searchInput')?.value || '').toLowerCase()
+  if (q) result = result.filter(it => (it.label || '').toLowerCase().includes(q) || (it.file || '').toLowerCase().includes(q))
+  return result
+}
+
+function sortItems(arr) {
+  if (sortMode === 'name') return [...arr].sort((a, b) => (a.label || a.file).localeCompare(b.label || b.file))
+  return arr
+}
+
+function resizeThumb(d) {
+  thumbSize = Math.max(40, Math.min(320, thumbSize + d))
+  document.getElementById('sizeLabel').textContent = thumbSize
+  render()
+}
+
+/* ── Rendering: flat | grouped | pivot ──
+   Reference impl: ~/.roxabi/forge/pi-buddy/prompt-gallery.html render() */
+
+function render() {
+  const el = document.getElementById('gallery')
+  const filtered = sortItems(getFiltered())
+  visibleItems = filtered
+  const total = items.length
+  const dims = getActiveMode().dims
+  const pixelated = getActiveMode().pixelated
+
+  if (!filtered.length) {
+    el.innerHTML = '<div class="empty">No items match the current filters.</div>'
+    document.getElementById('stats').textContent = '0 / ' + total
+    return
+  }
+
+  const hasCol = colDim !== 'none' && dims[colDim]
+  const hasRow = rowDim !== 'none' && dims[rowDim]
+
+  if (!hasCol && !hasRow) {
+    /* Flat grid */
+    const cols = Math.max(2, Math.floor((window.innerWidth - 48) / (thumbSize + 12)))
+    el.innerHTML = '<div class="grid" style="grid-template-columns:repeat(' + cols + ',1fr)">' +
+      filtered.map((it, i) => mkCard(it, i, pixelated)).join('') + '</div>'
+  } else if (!hasCol || !hasRow) {
+    /* Single-axis grouping */
+    const dim = hasCol ? dims[colDim] : dims[rowDim]
+    const { groups, keys } = groupByDim(filtered, dim)
+    let cursor = 0
+    el.innerHTML = keys.map(k => {
+      const gItems = groups[k]
+      if (!gItems.length) return ''
+      const startIdx = cursor
+      cursor += gItems.length
+      return '<div class="group-hdr"><span class="group-tag">' + escHtml(String(k)) +
+        '</span><span class="group-cnt">' + gItems.length + '</span></div>' +
+        '<div class="grid" style="grid-template-columns:repeat(' + Math.max(2, Math.floor((window.innerWidth - 48) / (thumbSize + 12))) + ',1fr)">' +
+        gItems.map((it, i) => mkCard(it, startIdx + i, pixelated)).join('') + '</div>'
+    }).join('')
+  } else {
+    /* Full pivot matrix */
+    const rD = dims[rowDim], cD = dims[colDim]
+    const rKeys = rD.order || [...new Set(filtered.map(rD.fn))].sort()
+    const cKeys = cD.order || [...new Set(filtered.map(cD.fn))].sort()
+    const mx = {}
+    rKeys.forEach(r => { mx[r] = {}; cKeys.forEach(c => { mx[r][c] = [] }) })
+    filtered.forEach(it => {
+      const r = rD.fn(it), c = cD.fn(it)
+      if (!mx[r]) mx[r] = {}
+      if (!mx[r][c]) mx[r][c] = []
+      mx[r][c].push(it)
+    })
+    const activeC = cKeys.filter(c => rKeys.some(r => mx[r]?.[c]?.length))
+    const activeR = rKeys.filter(r => activeC.some(c => mx[r]?.[c]?.length))
+    let cursor = 0
+    let html = '<div class="matrix"><table><tr><th class="corner">' + escHtml(rD.label) + ' \\ ' + escHtml(cD.label) + '</th>'
+    activeC.forEach(c => { html += '<th>' + escHtml(String(c)) + '</th>' })
+    html += '</tr>'
+    activeR.forEach(r => {
+      html += '<tr><td class="row-hdr">' + escHtml(String(r)) + '</td>'
+      activeC.forEach(c => {
+        const cell = mx[r]?.[c] || []
+        const startIdx = cursor
+        cursor += cell.length
+        html += '<td>' + mkCell(cell, startIdx, pixelated) + '</td>'
+      })
+      html += '</tr>'
+    })
+    el.innerHTML = html + '</table></div>'
+  }
+
+  document.getElementById('stats').textContent = filtered.length + ' / ' + total
+  wireCardClicks()
+}
+
+function groupByDim(arr, dim) {
+  const keys = dim.order || [...new Set(arr.map(dim.fn))].sort()
+  const groups = {}
+  keys.forEach(k => { groups[k] = [] })
+  arr.forEach(it => {
+    const k = dim.fn(it)
+    if (!groups[k]) groups[k] = []
+    groups[k].push(it)
+  })
+  return { groups, keys }
+}
+
+function mkCard(item, idx, pixelated) {
+  return '<div class="img-card" data-idx="' + idx + '">' +
+    '<img class="' + (pixelated ? 'pixelated' : '') + '" src="' + escHtml(item.dir + item.file) + '" alt="' + escHtml(item.label || item.file) + '" loading="lazy" style="height:' + thumbSize + 'px;min-height:' + thumbSize + 'px">' +
+    '<div class="info"><div class="lbl">' + escHtml(item.label || item.file) + '</div><div class="meta">' + escHtml(item.file) + '</div></div>' +
+    '</div>'
+}
+
+function mkCell(cellItems, startIdx, pixelated) {
+  if (!cellItems.length) return '<span class="cell-count">0</span>'
+  const sorted = sortItems(cellItems)
+  const s = Math.max(40, Math.min(thumbSize, 100))
+  const html = sorted.map((it, i) =>
+    '<img class="thumb' + (pixelated ? ' pixelated' : '') + '" style="width:' + s + 'px;height:' + s + 'px" src="' + escHtml(it.dir + it.file) + '" alt="' + escHtml(it.label || it.file) + '" loading="lazy" data-idx="' + (startIdx + i) + '">',
+  ).join('')
+  return '<div class="cell-grid">' + html + '</div><div class="cell-count">' + cellItems.length + '</div>'
+}
+
+function wireCardClicks() {
+  document.querySelectorAll('#gallery .img-card img, #gallery .thumb').forEach(img => {
+    img.onclick = () => {
+      const card = img.closest('[data-idx]') || img
+      lbIndex = parseInt(card.dataset.idx, 10)
+      openLb()
+    }
+  })
+}
+
+/* ── Lightbox (reference: PI Buddy) ── */
+function openLb() {
+  const item = visibleItems[lbIndex]
+  if (!item) return
+  const img = document.getElementById('lbImg')
+  img.src = item.dir + item.file
+  img.alt = item.label || item.file
+  img.className = 'lb-img' + (getActiveMode().pixelated ? ' pixelated' : '')
+  document.getElementById('lbTitle').textContent = item.label || item.file
+  document.getElementById('lbSub').textContent = item.file
+  document.getElementById('lb').classList.add('open')
+}
+function lbNav(d, e) {
+  if (e) e.stopPropagation()
+  if (!visibleItems.length) return
+  lbIndex = (lbIndex + d + visibleItems.length) % visibleItems.length
+  openLb()
+}
+function closeLb() { document.getElementById('lb').classList.remove('open') }
+function closeLbOutside(e) { if (e.target === document.getElementById('lb')) closeLb() }
+document.addEventListener('keydown', e => {
+  if (!document.getElementById('lb').classList.contains('open')) return
+  if (e.key === 'ArrowLeft') lbNav(-1)
+  else if (e.key === 'ArrowRight') lbNav(1)
+  else if (e.key === 'Escape') closeLb()
+})
+
+/* ── Mode tab bar builder ── */
+function buildModeBar() {
+  const bar = document.getElementById('modeBar')
+  bar.innerHTML = MODES.map(m =>
+    `<button class="mode-btn${m.id === activeMode ? ' active' : ''}" data-mode="${escHtml(m.id)}" type="button">${escHtml(m.label)}<span class="mode-count">${escHtml(m.countLabel || '')}</span></button>`,
+  ).join('')
+  bar.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchMode(btn.dataset.mode))
+  })
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMISE: downloads dropdown — define your entries here.
+   Each entry.handler is async; thrown errors become toasts automatically.
+   Reference impl: ~/.roxabi/forge/pi-buddy/prompt-gallery.html initDownloads()
+   CSP note: if you lazy-load libraries from CDN (e.g. JSZip), your site's
+   CSP must allow `script-src 'self' https://cdn.jsdelivr.net`.
+   ══════════════════════════════════════════════════════════════════ */
+function setupDownloads() {
+  initDownloads({
+    dropdownId: 'dlWrap',
+    toggleId: 'dlToggle',
+    menuId: 'dlMenu',
+    entries: [
+      {
+        id: 'dlReadme',
+        label: '⬇ Playbook',
+        hint: 'Project README / docs',
+        handler: async () => {
+          const r = await fetch('README.md')
+          if (!r.ok) throw new Error(r.status)
+          const blob = await r.blob()
+          triggerDownload(blob, 'README.md')
+        },
+      },
+      /* Example: zip of visible images (requires JSZip from CDN)
+      {
+        id: 'dlZip',
+        label: '⬇ All images (ZIP)',
+        hint: 'Lazy-loads JSZip; requires CDN CSP',
+        handler: async () => {
+          if (!window.JSZip) {
+            await new Promise((ok, fail) => {
+              const s = document.createElement('script')
+              s.src = 'https://cdn.jsdelivr.net/npm/jszip@3/dist/jszip.min.js'
+              s.onload = ok; s.onerror = () => fail(new Error('JSZip blocked by CSP'))
+              document.head.appendChild(s)
+            })
+          }
+          const zip = new window.JSZip()
+          for (const it of visibleItems) {
+            const r = await fetch(it.dir + it.file)
+            if (r.ok) zip.file(it.file, await r.blob())
+          }
+          const blob = await zip.generateAsync({ type: 'blob' })
+          triggerDownload(blob, 'images.zip')
+        },
+      },
+      */
+    ],
+  })
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+/* ── Sort + theme wiring (delegated to gallery-base.js) ── */
+wireSegs('sortSegs', v => { sortMode = v; render() })
+initTheme(STORE_KEY)
+
+/* ── Boot ── */
+buildModeBar()
+setupDownloads()
+switchMode(activeMode)  /* runs the atomic sequence: filters → segs → filter bar → render */
+window.addEventListener('resize', render)
+</script>
+</body>
+</html>

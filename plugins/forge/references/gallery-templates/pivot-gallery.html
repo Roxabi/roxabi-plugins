@@ -79,24 +79,16 @@ h1 span{color:var(--accent)}
 
 <!-- ═══════════════════════════════════════════════════════════════
      TOOLBAR ROW 1: pivot axes + sort + size
-     CUSTOMISE: add/remove pivot dimensions in the seg buttons.
-     The 'data-v' values must match keys in the DIMS object below.
+     Col/Row seg buttons are built at boot time by
+     buildPivotSegsFromDims() from the DIMS object — no hardcoded buttons
+     to keep in sync with DIMS. Add a new dim to DIMS and it appears here.
      ═══════════════════════════════════════════════════════════════ -->
 <div class="toolbar">
   <div class="ctrl"><span class="ctrl-label">Col</span>
-    <div class="segs" id="colSegs">
-      <button class="seg on" data-v="none">None</button>
-      <!-- Add dimensions here. data-v must match a DIMS key. -->
-      <button class="seg" data-v="batch">Batch</button>
-      <button class="seg" data-v="score">Score</button>
-    </div>
+    <div class="segs" id="colSegs"></div>
   </div>
   <div class="ctrl"><span class="ctrl-label">Row</span>
-    <div class="segs" id="rowSegs">
-      <button class="seg" data-v="none">None</button>
-      <button class="seg on" data-v="batch">Batch</button>
-      <button class="seg" data-v="score">Score</button>
-    </div>
+    <div class="segs" id="rowSegs"></div>
   </div>
   <div class="ctrl"><span class="ctrl-label">Sort</span>
     <div class="segs" id="sortSegs">
@@ -365,8 +357,10 @@ function render() {
 
 // ── Segmented control wiring (delegated to gallery-base.js) ──
 
-wireSegs('colSegs', v => { colDim = v; render(); });
-wireSegs('rowSegs', v => { rowDim = v; render(); });
+buildPivotSegsFromDims(DIMS, 'colSegs', 'rowSegs', (axis, v) => {
+  if (axis === 'col') colDim = v; else rowDim = v;
+  render();
+}, { col: colDim, row: rowDim });
 wireSegs('sortSegs', v => { sortMode = v; render(); });
 
 // ── Lightbox ──

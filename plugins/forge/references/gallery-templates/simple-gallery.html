@@ -208,7 +208,12 @@ const STORE_KEY = '{{STORE_KEY_PREFIX}}';  /* e.g. 'lyra-avatar' */
 const starred = initStarred(STORE_KEY);
 const filters = {};
 
-/* Wrap DIMS.fn to receive item (not item.tags) for buildDimFilters compatibility */
+/* LEGACY WORKAROUND — items-as-objects is now the preferred pattern.
+   This wrapper exists because this template's DIMS.fn signature takes
+   `item.tags` (a subfield), while buildDimFilters passes the full item.
+   New galleries should define DIMS.fn to read directly from the item object
+   (e.g. `fn: it => it.tags[0]`) and skip this wrapper. See README section
+   "Items-as-objects vs filename-strings" for guidance. */
 const DIMS_WRAPPED = {};
 for (const [k, dim] of Object.entries(DIMS)) {
   DIMS_WRAPPED[k] = { ...dim, fn: item => dim.fn(item.tags) };
