@@ -363,10 +363,19 @@ function showToast(message, variant = 'info', duration = 3000) {
     stack = document.createElement('div')
     stack.id = 'toast-stack'
     stack.className = 'toast-stack'
+    /* aria-live announces toasts to screen readers without stealing focus.
+       'polite' batches announcements; individual error toasts escalate to
+       'assertive' via role="alert" below. */
+    stack.setAttribute('aria-live', 'polite')
+    stack.setAttribute('aria-atomic', 'false')
     document.body.appendChild(stack)
   }
+  const isError = variant === 'error'
   const toast = document.createElement('div')
-  toast.className = `toast toast-${variant === 'error' ? 'error' : 'info'}`
+  toast.className = `toast toast-${isError ? 'error' : 'info'}`
+  /* Error toasts get role="alert" → assertive announcement; info toasts
+     inherit polite announcement from the stack container. */
+  if (isError) toast.setAttribute('role', 'alert')
   toast.textContent = message
   stack.appendChild(toast)
   setTimeout(() => {
@@ -419,7 +428,9 @@ function initDownloads(config) {
   for (const entry of config.entries) {
     const btn = document.createElement('button')
     btn.className = 'dl-item'
-    btn.id = entry.id
+    /* Validate id to prevent accidental selector breakage or multi-word IDs
+       from crafted config. safeClass returns 'unknown' for invalid input. */
+    btn.id = safeClass(entry.id)
     btn.type = 'button'
     btn.innerHTML = `${escHtml(entry.label)}${entry.hint ? `<span class="dl-hint">${escHtml(entry.hint)}</span>` : ''}`
     btn.addEventListener('click', async () => {

@@ -229,6 +229,12 @@ let lbIndex = 0
 
 function getActiveMode() { return MODES.find(m => m.id === activeMode) }
 
+/* Normalize every mode.dir to end with a trailing slash at boot so item
+   src concatenation (`item.dir + item.file`) never silently 404s because
+   the author forgot the slash. Mutates MODES in place — safe because
+   MODES is the canonical config source. */
+MODES.forEach(m => { if (m.dir && !m.dir.endsWith('/')) m.dir = m.dir + '/' })
+
 /* ── Atomic mode switch —— critical sequence ──
    Reference impl: ~/.roxabi/forge/pi-buddy/prompt-gallery.html switchMode()
    All 8 steps must run in order. Skipping any causes the stale-key bug:
@@ -244,7 +250,11 @@ function switchMode(newMode) {
   document.getElementById('filterBar').innerHTML =
     '<div class="ctrl"><span class="ctrl-label">Search</span><input class="filter-input search-input" id="searchInput" type="text" placeholder="filter..." oninput="render()"></div>'
   buildDimFilters(items, getActiveMode().dims, filters, 'filterBar', render)  // 7
-  document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === newMode))
+  document.querySelectorAll('.mode-btn').forEach(b => {
+    const isActive = b.dataset.mode === newMode
+    b.classList.toggle('active', isActive)
+    b.setAttribute('aria-pressed', String(isActive))
+  })
   render()                                                        // 8
 }
 
@@ -426,8 +436,9 @@ document.addEventListener('keydown', e => {
 /* ── Mode tab bar builder ── */
 function buildModeBar() {
   const bar = document.getElementById('modeBar')
+  bar.setAttribute('role', 'tablist')
   bar.innerHTML = MODES.map(m =>
-    `<button class="mode-btn${m.id === activeMode ? ' active' : ''}" data-mode="${escHtml(m.id)}" type="button">${escHtml(m.label)}<span class="mode-count">${escHtml(m.countLabel || '')}</span></button>`,
+    `<button class="mode-btn${m.id === activeMode ? ' active' : ''}" data-mode="${escHtml(m.id)}" type="button" role="tab" aria-pressed="${m.id === activeMode}">${escHtml(m.label)}<span class="mode-count">${escHtml(m.countLabel || '')}</span></button>`,
   ).join('')
   bar.querySelectorAll('.mode-btn').forEach(btn => {
     btn.addEventListener('click', () => switchMode(btn.dataset.mode))
@@ -467,8 +478,16 @@ function setupDownloads() {
           if (!window.JSZip) {
             await new Promise((ok, fail) => {
               const s = document.createElement('script')
-              s.src = 'https://cdn.jsdelivr.net/npm/jszip@3/dist/jszip.min.js'
-              s.onload = ok; s.onerror = () => fail(new Error('JSZip blocked by CSP'))
+              /* CUSTOMISE: pin to an exact JSZip version and add SRI hash to
+                 defend against a compromised jsDelivr release.
+                 Generate the hash with:
+                   curl -sL https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js \
+                     | openssl dgst -sha384 -binary | openssl base64 -A
+                 Replace PLACEHOLDER below with the generated value. */
+              s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js'
+              // s.integrity = 'sha384-PLACEHOLDER' // uncomment after generating hash
+              s.crossOrigin = 'anonymous'
+              s.onload = ok; s.onerror = () => fail(new Error('JSZip blocked by CSP or SRI mismatch'))
               document.head.appendChild(s)
             })
           }
