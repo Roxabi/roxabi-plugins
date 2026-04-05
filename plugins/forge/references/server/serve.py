@@ -182,8 +182,26 @@ FAVICON_SVG = (
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    # Text assets we do NOT want browsers to cache — galleries, styles, scripts,
+    # and data JSONs all change during active development. Images (png/jpg/webp)
+    # and svgs keep default caching: they live at stable unique filenames and
+    # are too large to re-fetch on every pageview.
+    _NO_CACHE_EXTS = ('.html', '.htm', '.css', '.js', '.mjs', '.json')
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(DIR), **kwargs)
+
+    def end_headers(self):
+        # Inject Cache-Control: no-cache for dev-iteration assets before the
+        # base class flushes the header buffer. Custom handlers above (favicon,
+        # /api/list, /api/events) already set their own Cache-Control — they
+        # short-circuit on the extension check anyway (.ico, no extension,
+        # api path) so no duplicate header is emitted.
+        path = self.path.split('?', 1)[0].split('#', 1)[0].lower()
+        # `/` serves the dashboard index.html; treat it the same.
+        if path == '/' or path.endswith(self._NO_CACHE_EXTS):
+            self.send_header('Cache-Control', 'no-cache, must-revalidate')
+        super().end_headers()
 
     def do_GET(self):
         # Serve gallery UI (index.html) from the script directory, not the data directory
