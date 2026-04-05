@@ -223,7 +223,7 @@ let allItems = [];
 let visibleItems = [];
 let lbIndex = 0;
 let sortMode = 'default';
-let thumbSize = 160;
+window.thumbSize = 160;
 let currentBatch = 'all';
 
 /* ── Filtering ── */
@@ -247,14 +247,6 @@ function getFiltered() {
 function sortItems(items) {
   if (sortMode === 'name') return [...items].sort((a, b) => a.label.localeCompare(b.label));
   return items;
-}
-
-/* ── Size ── */
-
-function resizeThumb(d) {
-  thumbSize = Math.max(60, Math.min(400, thumbSize + d));
-  document.getElementById('sizeLabel').textContent = thumbSize;
-  render();
 }
 
 /* ── Rendering ── */

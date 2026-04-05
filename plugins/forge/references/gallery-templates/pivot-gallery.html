@@ -182,7 +182,8 @@ const DIMS = {
    ══════════════════════════════════════════════════════════════════ */
 
 let data = null, scores = {};
-let colDim = 'none', rowDim = 'batch', sortMode = 'score-desc', thumbSize = 80;
+let colDim = 'none', rowDim = 'batch', sortMode = 'score-desc';
+window.thumbSize = 80;
 const filters = {}; // dim → Set. empty Set = inactive = show all
 
 // ── Data loading ──
@@ -231,14 +232,6 @@ function sortFiles(files) {
   if (sortMode === 'score-desc') return files.sort((a, b) => (scores[b] || 0) - (scores[a] || 0));
   if (sortMode === 'score-asc') return files.sort((a, b) => (scores[a] || 0) - (scores[b] || 0));
   return files.sort();
-}
-
-// ── Size ──
-
-function resizeThumb(d) {
-  thumbSize = Math.max(40, Math.min(200, thumbSize + d));
-  document.getElementById('sizeLabel').textContent = thumbSize;
-  render();
 }
 
 // ── Rendering ──

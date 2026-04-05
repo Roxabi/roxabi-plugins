@@ -537,6 +537,27 @@ function initDownloads(config) {
   }
 }
 
+/* ── Thumbnail resize ──
+   Galleries expose state as `window.thumbSize = N` and define a top-level
+   `function render()`. The shared resizeThumb clamps by window.THUMB_MIN/MAX,
+   updates #sizeLabel, and calls render(). Override MIN/MAX per-gallery before
+   first call if a different range is needed. */
+
+window.THUMB_MIN = 40
+window.THUMB_MAX = 400
+
+/**
+ * Clamp window.thumbSize by delta, update #sizeLabel, re-render.
+ * @param {number} d - Delta in px (e.g. -20, +20)
+ */
+function resizeThumb(d) {
+  const cur = typeof window.thumbSize === 'number' ? window.thumbSize : 120
+  window.thumbSize = Math.max(window.THUMB_MIN, Math.min(window.THUMB_MAX, cur + d))
+  const lbl = document.getElementById('sizeLabel')
+  if (lbl) lbl.textContent = window.thumbSize
+  if (typeof render === 'function') render()
+}
+
 /* ── Dynamic pivot seg builder ── */
 
 /**

@@ -224,7 +224,7 @@ let filters = {}
 let colDim = 'none'
 let rowDim = 'none'
 let sortMode = 'default'
-let thumbSize = 140
+window.thumbSize = 140
 let lbIndex = 0
 
 function getActiveMode() { return MODES.find(m => m.id === activeMode) }
@@ -276,12 +276,6 @@ function getFiltered() {
 function sortItems(arr) {
   if (sortMode === 'name') return [...arr].sort((a, b) => (a.label || a.file).localeCompare(b.label || b.file))
   return arr
-}
-
-function resizeThumb(d) {
-  thumbSize = Math.max(40, Math.min(320, thumbSize + d))
-  document.getElementById('sizeLabel').textContent = thumbSize
-  render()
 }
 
 /* ── Rendering: flat | grouped | pivot ──
