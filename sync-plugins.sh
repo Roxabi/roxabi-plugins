@@ -74,6 +74,43 @@ sync_cache() {
     echo -e "${GREEN}  $count cache dir(s) updated${NC}"
 }
 
+# sync_cache_safe REPO CACHE — snapshot cache, sync, restore on failure
+# Wraps sync_cache with rollback-on-failure. Prevents partial-sync inconsistency
+# when editing many SKILL.md files at once (e.g. the dev-core chain contract refactor).
+sync_cache_safe() {
+    local repo="$1"
+    local cache="$2"
+    local backup
+    backup="$(mktemp -d "${TMPDIR:-/tmp}/sync-plugins-backup.XXXXXX")"
+
+    # Rollback closure — restores cache from snapshot on ERR or INT
+    _sync_rollback() {
+        warn "Sync failed — rolling back cache from $backup"
+        rsync -a --delete "$backup/" "$cache/"
+        rm -rf "$backup"
+        warn "Rollback complete — cache restored to pre-sync state"
+        exit 1
+    }
+
+    step "Snapshotting cache to $backup before sync..."
+    if [ -d "$cache" ]; then
+        rsync -a "$cache/" "$backup/"
+    else
+        warn "Cache dir $cache does not exist — nothing to snapshot"
+    fi
+
+    # Install trap AFTER snapshot so the snapshot itself failing doesn't trigger rollback
+    trap _sync_rollback ERR INT
+
+    # Delegate to the regular sync function — any rsync failure triggers the trap
+    sync_cache "$repo" "$cache"
+
+    # Success — remove trap + backup
+    trap - ERR INT
+    rm -rf "$backup"
+    echo -e "${GREEN}  rollback snapshot discarded (sync succeeded)${NC}"
+}
+
 # Step 2-3: Local sync
 if [[ "$DO_LOCAL" == true ]]; then
     step "Pulling staging into local marketplace..."
@@ -85,8 +122,8 @@ if [[ "$DO_LOCAL" == true ]]; then
         git -C "$MARKETPLACE_REPO" checkout -b staging origin/staging
     fi
 
-    step "Syncing all plugins → local cache..."
-    sync_cache "$MARKETPLACE_REPO" "$CACHE_BASE"
+    step "Syncing all plugins → local cache (with rollback-on-failure)..."
+    sync_cache_safe "$MARKETPLACE_REPO" "$CACHE_BASE"
     echo -e "${GREEN}✓ Local cache updated${NC}"
 fi
 

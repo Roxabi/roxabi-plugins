@@ -174,4 +174,24 @@ Fixer constraints: re-read targets before editing (Phase 3 may have changed them
 4. Stage specific files only — ¬`git add -A` (risk of .env, secrets)
 5. ¬auto-merge — label `reviewed` only, human merges
 
+## Chain Position
+
+- **Phase:** Verify
+- **Predecessor:** `/code-review` (findings)
+- **Successor:** `/code-review` (re-review after fix) — LOOP
+- **Class:** loop (bounded, max 2 iterations)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- Sub-tasks created: none directly (findings are ephemeral — tracked in-skill via F, Q_auto, Q_1b1)
+- Follow-up tasks: on success → `TaskCreate` new review task with `metadata: { kind: "dev-pipeline", step: "review", follow_up: true, iteration: N+1, blockedBy: [this.id] }`
+
+## Exit
+
+- **Success via `/dev`:** fixes applied + committed + pushed + PR comment posted → `TaskCreate` follow-up review task → return silently. `/dev` picks up the new review task.
+- **Success standalone:** print summary (Applied/Skipped/Deferred/Failed) + `Next: /code-review` (re-verify). Stop.
+- **Failure (quality gate, ¬findings, unrecoverable):** return error. `/dev` presents Retry | Skip | Abort.
+- **Loop cap:** `metadata.iteration ≥ 2` on entry → refuse another iteration; return with message "Max fix iterations reached — resolve remaining manually". `/dev` presents Abort.
+
 $ARGUMENTS

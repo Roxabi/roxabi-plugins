@@ -206,4 +206,24 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 3. Always present plan (2f) before writing artifact
 4. Show full task list (¬truncate) when |tasks| > 30
 
+## Chain Position
+
+- **Phase:** Build
+- **Predecessor:** `/spec` (artifact: `artifacts/specs/{N}-{slug}-spec.mdx`)
+- **Successor:** `/implement` (auto-chain after approval)
+- **Class:** gate (user approval of plan artifact required) → adv (auto-chain to `/implement`)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- This skill does NOT update its own dev-pipeline task
+- Sub-tasks created: plan-tasks (one per micro-task, `kind: "plan-task"`) via Step 6a, IDs persisted in artifact's `## Task IDs` section (Step 6b)
+
+## Exit
+
+- **Approved via `/dev`:** run Steps 6a/6b/6c (seed tasks, persist IDs, commit) → return silently. ¬ask "proceed to /implement?". `/dev` re-scans and auto-chains to `/implement` **in the same turn** (no second prompt).
+- **Approved standalone:** print one line: `Approved. Next: /implement --issue N`. Stop.
+- **Modify requested:** loop in-skill, re-present.
+- **Rejected/aborted:** return → `/dev` marks task `cancelled`.
+
 $ARGUMENTS

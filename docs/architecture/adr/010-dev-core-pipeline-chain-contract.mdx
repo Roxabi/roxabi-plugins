@@ -1,0 +1,135 @@
+---
+title: "ADR-010: dev-core Pipeline Chain Contract — Distributed Declaration + /dev-Owns-Lifecycle"
+description: Records the decision to establish a formal chain contract for dev-core pipeline skills, with /dev owning the dev-pipeline task lifecycle centrally and each skill declaring its position, task integration, and exit behavior inline in its body.
+---
+
+## Status
+
+Accepted
+
+## Context
+
+The `dev-core` plugin orchestrates a 13-step development lifecycle pipeline via the `/dev` meta-skill:
+
+```
+issue-triage → frame → analyze → spec → plan → implement → pr
+            → ci-watch → validate → code-review → {fix ↺ review | merge → cleanup}
+```
+
+Despite `/dev` explicitly instructing "single continuous pipeline. ¬stop between steps. Decision response → immediately execute next step", the model repeatedly gated at phase boundaries, asking "Proceed to /X?" after each step. This created friction in the user's dev workflow and contradicted the orchestration intent.
+
+**Root cause investigation (2026-04-05)** revealed three compounding factors:
+
+1. **Silent skill bodies.** 10 of 13 pipeline skills had no next-step declaration in their body text. Only `/implement` and `/code-review` referenced their successor. When a child skill finished, the model had no chain context co-located with the skill it was actively executing — the chain lived only in `/dev` Step 5, which was loaded at entry but diluted by long context during skill execution.
+
+2. **Competing default caution.** Claude's base training biases toward asking for confirmation before continuing. The skill's lone "¬stop between steps" line (1× weight) could not reliably override the trained caution prior (5×+ weight) plus Claude Code's "Executing actions with care" section (3× weight).
+
+3. **Cache drift.** The `/dev` SKILL.md in the plugin cache was stale relative to the source tree — missing the Step 2b task-seeding logic added in commit `8dbc042`. Even when the source had the right instructions, the runtime was running an older version.
+
+Previous attempts to fix this — promoting the "don't gate" rule to memory, then to `~/.claude/CLAUDE.md` — were patches that did not address the root cause.
+
+## Decision
+
+Establish a formal **Pipeline Chain Contract** with three properties:
+
+### 1. `/dev` owns the dev-pipeline task lifecycle (centralized state)
+
+- `/dev` Step 2b seeds the full chain of dev-pipeline tasks upfront with sequential `blockedBy` wiring (DAG, no cycles)
+- `/dev` Step 7 sets `in_progress` before invoking each skill
+- `/dev` Step 8 sets `completed` on return and re-scans state
+- Individual skills are **passive participants** — they do NOT update their own dev-pipeline task
+- Skills MAY create their own sub-tasks with distinct `kind` values (e.g., `plan-task`, `review-finding`) for work they own internally
+
+### 2. Each skill declares its chain position inline (distributed, body text)
+
+Every pipeline skill must include three sections in its SKILL.md body (no frontmatter — Claude Code does not honor custom frontmatter fields):
+
+- **Chain Position** — phase, predecessor, successor, class (adv|gate|verdict|loop|standalone)
+- **Task Integration** — ownership model (passive), sub-tasks created, follow-up behavior
+- **Exit** — success-via-dev (return silently) vs success-standalone (inform next skill) vs failure (return error for /dev recovery)
+
+This is **redundancy-with-locality**: the contract is co-located with the skill's execution instructions, arriving at the exact moment in the model's attention when the skill is running. A centralized `chain-contract.md` exists as a human reference but is NOT runtime-included.
+
+### 3. Skill classes with distinct Exit patterns
+
+| Class | Example skills | Exit behavior |
+|---|---|---|
+| **adv** | issue-triage, analyze, implement, pr, ci-watch, validate, cleanup | Return silently; `/dev` auto-advances |
+| **gate** | frame, spec, plan | Present artifact for approval; on approve return silently; `/dev` auto-chains |
+| **verdict** | code-review | APPROVED → merge → cleanup; CHANGES_REQUESTED → `/fix` (follow-up task) |
+| **loop** | fix | On success → TaskCreate follow-up review task; max 2 iterations |
+| **standalone** | promote | Never auto-triggered by `/dev`; manual invocation only |
+
+### 4. Loops as follow-up task creation, not cycles
+
+The chain is expressed as a DAG. Loops (review ↔ fix) use follow-up `TaskCreate` with `metadata.iteration` counters, not cycles in the `blockedBy` graph. This preserves DAG semantics and enables a loop cap (max 2 fix↔review iterations).
+
+### 5. `/dev` Step 7/8 use unconditional imperatives
+
+Descriptive language ("auto-advance") is replaced with imperative prohibitions:
+
+- ¬ask "Ready to proceed to /X?"
+- ¬ask "Shall I continue?"
+- ¬summarize "Just completed /X, moving to /Y"
+- ¬announce "Moving to the next step"
+- The next skill's first output IS the next message
+
+## Consequences
+
+### Positive
+
+- **Root cause addressed.** Chain context reaches the model at skill execution time, not just at `/dev` entry.
+- **Standalone invocation preserved.** Each skill's Exit section has a standalone branch, so skills remain usable outside of `/dev`.
+- **Loop handling is safe.** Bounded via `metadata.iteration`, DAG preserved, clear abort condition.
+- **Contract is discoverable.** New contributors see the three required sections in every pipeline skill — the pattern is self-documenting.
+- **Gate semantics preserved.** Carve-out between adv/gate/verdict/loop classes prevents accidental auto-advance of user-approval steps.
+
+### Negative
+
+- **14 files to maintain.** Every pipeline skill now has three additional sections that must stay consistent. Drift between skills is possible.
+- **Cache fan-out.** Edits to 13+ SKILL.md files require `sync-plugins.sh --local` to propagate to the plugin cache. Partial sync would leave inconsistent state. Mitigation: `sync-plugins.sh` was hardened with rollback-on-failure as part of this change.
+- **Redundancy with `/dev`.** The suppression imperatives exist in both `/dev` Step 7/8 and each skill's Exit section. Intentional (the model reads them at different moments), but duplication is a maintenance cost.
+- **New skills require discipline.** Adding a pipeline skill now requires following the pattern — Chain Position, Task Integration, Exit sections with correct class. Documented in `chain-contract.md` and this ADR.
+
+### Neutral
+
+- The pattern is specific to `/dev` pipeline skills. Non-pipeline skills (interview, compress, forge-*, etc.) are not affected and do not need chain sections.
+- No Claude Code frontmatter extension is required — the contract lives entirely in body text, which Claude Code treats as instructions.
+
+## Alternatives considered
+
+### (a) Centralized chain config read by `/dev` only
+
+Put the full chain in `/dev` alone, leave skill bodies silent. Rejected: does not address root cause (chain context absent from active skill execution).
+
+### (b) Runtime `TaskGet` lookup for successor
+
+Have each skill call `TaskGet` to read its successor from task metadata. Rejected: session-scoped, fails on restart; creates circular dependency (task metadata defines successor, but `/dev` must set it at seed time).
+
+### (c) Fix `/dev` Step 7 alone (strengthen "return silently" imperative)
+
+Edit only `/dev` with stronger imperatives. Considered as Phase 1 test. Rejected as sufficient alone because:
+- Long context during skill execution dilutes the `/dev` entry instructions
+- 2/13 skills already had chain hints and still saw gating in practice
+- Cache drift risk means `/dev` updates may not even reach the runtime without proper sync
+
+This option was rolled INTO the final decision as the first layer (alongside distributed declaration).
+
+### (d) Frontmatter `next:` / `chain:` field
+
+Add structured chain metadata to SKILL.md frontmatter. Rejected: Claude Code does not recognize custom frontmatter fields. Only `name`, `description`, `version`, `allowed-tools`, `argument-hint` are honored.
+
+## Implementation notes
+
+- Commit: `feat(dev-core): pipeline chain contract + gate/adv classification` (branch: `feat/dev-core-chain-contract`)
+- Files touched: 14 skill edits + 1 new shared reference + 1 new ADR + 1 infrastructure (sync-plugins.sh rollback)
+- Stale reference fix: `/implement` Step 6 Summary block — `/1b1` → `/fix`
+- `/pr` Step 5 added: rebase on base (post-create) with `--force-with-lease`
+
+## Related
+
+- ADR-008: dev-core config resolution
+- `plugins/dev-core/skills/shared/references/chain-contract.md` (human reference)
+- `plugins/dev-core/skills/dev/SKILL.md` (orchestrator, Step 2b/7/8)
+- `plugins/dev-core/skills/plan/SKILL.md` (reference sub-task creation)
+- `plugins/dev-core/skills/implement/SKILL.md` (reference sub-task consumption)

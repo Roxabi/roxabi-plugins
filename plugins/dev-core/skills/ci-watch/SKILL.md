@@ -65,4 +65,24 @@ AM_eligible(pr) ⟺ PR# known ∧ `autoMergeRequest` ¬null ∧ label `reviewed`
 - `MERGED` → confirm PR merged automatically.
 - `CLOSED` → warn PR closed without merging.
 
+## Chain Position
+
+- **Phase:** Verify
+- **Predecessor:** `/pr` (PR exists)
+- **Successor:** `/validate`
+- **Class:** adv (continuous flow, no gate)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- This skill does NOT update its own dev-pipeline task
+- Sub-tasks created: none
+- Follow-up: CI failure → `/dev` may create a re-run / fix follow-up task
+
+## Exit
+
+- **CI green via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/validate`. `/dev` re-scans and advances.
+- **CI green standalone:** print one line: `CI passed. Next: /validate`. Stop.
+- **CI failed/cancelled:** return error. `/dev` presents Retry | Skip | Abort (or creates a follow-up fix task depending on failure type).
+
 $ARGUMENTS

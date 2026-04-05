@@ -190,4 +190,23 @@ Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
 5. Always warn about open PRs on σ
 6. ¬push directly to μ — changelog reaches μ via promotion PR
 
+## Chain Position
+
+- **Phase:** Ship
+- **Predecessor:** — (standalone, NOT auto-triggered by `/dev`)
+- **Successor:** — (manual `--finalize` follow-up)
+- **Class:** standalone (user explicitly invokes `/promote`, never chained from a feature pipeline)
+
+## Task Integration
+
+- `/dev` SKIPS this step by default (Step 4 skip logic: `promote → skip`)
+- This skill does NOT participate in dev-pipeline tasks
+- Sub-tasks created: none
+- When invoked manually: runs without any `/dev`-owned task lifecycle
+
+## Exit
+
+- **Success standalone:** print PR URL + manual next step (`--finalize` after merge). Stop.
+- **Failure:** return error to user. No `/dev` recovery path (standalone).
+
 $ARGUMENTS

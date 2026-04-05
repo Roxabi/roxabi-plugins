@@ -182,4 +182,24 @@ Tier S → skip. Read [references/smart-splitting.md](${CLAUDE_SKILL_DIR}/refere
 | Tier S | Skip Breadboard + Slices |
 | Circular deps in split | Reject split proposal, inform user |
 
+## Chain Position
+
+- **Phase:** Shape
+- **Predecessor:** `/analyze` (F-full) ∨ `/frame` (F-lite, analyze skipped)
+- **Successor:** `/plan`
+- **Class:** gate (user approval of spec artifact required)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- This skill does NOT update its own dev-pipeline task
+- Sub-tasks created: none
+
+## Exit
+
+- **Approved via `/dev`:** write artifact with `status: approved`, commit, return silently. ¬ask "proceed to /plan?". `/dev` re-scans and auto-chains to `/plan` in the same turn.
+- **Approved standalone:** print one line: `Approved. Next: /plan --issue N`. Stop.
+- **Modify requested:** loop in-skill, re-present.
+- **Rejected/aborted:** return → `/dev` marks task `cancelled`.
+
 $ARGUMENTS

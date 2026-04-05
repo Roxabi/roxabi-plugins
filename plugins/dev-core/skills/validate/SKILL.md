@@ -116,4 +116,23 @@ Test:
 3. **Run ALL χ** — ¬short-circuit on first failure
 4. **`{commands.*}`** — always use commands from stack.yml, never raw runner (Bun runner ≠ Vitest)
 
+## Chain Position
+
+- **Phase:** Verify
+- **Predecessor:** `/ci-watch`
+- **Successor:** `/code-review`
+- **Class:** adv (continuous flow, no gate)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- This skill does NOT update its own dev-pipeline task
+- Sub-tasks created: none
+
+## Exit
+
+- **All pass via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/code-review`. `/dev` re-scans and advances.
+- **All pass standalone:** print verdict block + `Next: /code-review`. Stop.
+- **Failure:** return error. `/dev` presents Retry | Skip | Abort.
+
 $ARGUMENTS

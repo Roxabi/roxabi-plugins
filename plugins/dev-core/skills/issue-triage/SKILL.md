@@ -156,6 +156,25 @@ Reference: `artifacts/analyses/280-token-consumption.mdx` for scoring examples.
   --add-child 150,151,152
 ```
 
+## Chain Position
+
+- **Phase:** Frame
+- **Predecessor:** — (entry point)
+- **Successor:** `/frame`
+- **Class:** adv (continuous flow, no gate)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- This skill does NOT update its own dev-pipeline task
+- Sub-tasks created: none
+
+## Exit
+
+- **Success via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/frame`. `/dev` re-scans and advances.
+- **Success standalone:** print one line: `Done. Next: /frame --issue N`. Stop.
+- **Failure:** return error. `/dev` presents Retry | Skip | Abort.
+
 ## Configuration
 
 Run `/init` to auto-detect and populate env vars. Field operations (status, size, priority) require a configured project board — without it, issue creation and dependency management still work but field updates are skipped with a clear error.

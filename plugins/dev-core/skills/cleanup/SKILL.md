@@ -182,4 +182,23 @@ Cleanup Complete
 - **Stale worktrees**: ω path ∉ disk → `git worktree prune`.
 - **EnterWorktree worktrees**: worktrees in `.claude/worktrees/` are session-managed — `git worktree list` shows them alongside legacy worktrees; clean with `git worktree remove` or `ExitWorktree` if in active session.
 
+## Chain Position
+
+- **Phase:** Ship
+- **Predecessor:** merge (after `/code-review` APPROVED → merge)
+- **Successor:** — (pipeline complete)
+- **Class:** adv (tail — last step in `/dev` pipeline)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- This skill does NOT update its own dev-pipeline task
+- Sub-tasks created: none
+
+## Exit
+
+- **Success via `/dev`:** stale branches/worktrees removed → return control silently. ¬write summary. `/dev` re-scans, all steps done/skipped, shows completion banner.
+- **Success standalone:** print summary (branches deleted, worktrees pruned). Stop.
+- **Failure:** return error. `/dev` presents Retry | Skip | Abort.
+
 $ARGUMENTS

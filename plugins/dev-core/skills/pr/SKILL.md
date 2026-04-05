@@ -35,8 +35,9 @@ gh pr list --head "$BRANCH" --json number,title,url,state
 | No commits | `git log ${β}..HEAD` empty | **REFUSE.** Nothing to PR. Stop. |
 | PR exists | gh pr list → result | → DP(A) **Update** (`gh pr edit`) \| **Cancel** |
 | Branch not pushed | `git ls-remote --heads origin $BRANCH` empty | `git push -u origin $BRANCH` |
-| Behind base | `git rev-list HEAD..${β} --count` > 0 | Warn + present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Continue** \| **Rebase first** |
 | Quality gates | `{commands.lint} && {commands.typecheck}` | Warn on failure, ¬block. Note in PR body if proceeding. |
+
+(Note: "behind base" is no longer a guard rail — Step 5 rebases post-create automatically.)
 
 ## Step 3 — Generate Content
 
@@ -78,7 +79,29 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <ISSUE_NUMBER> --sta
 
 Updating existing PR → `gh pr edit <number> --title "<title>" --body "<body>"`.
 
-## Step 5 — Watch CI
+## Step 5 — Rebase on Base (post-create)
+
+After PR creation, rebase Β on latest β → force-push with lease → PR updates with current base.
+
+```bash
+git fetch origin ${BASE}
+BEHIND=$(git rev-list HEAD..origin/${BASE} --count)
+```
+
+`BEHIND == 0` → skip rebase, skip push. Log: "Already up to date with origin/${BASE}."
+
+`BEHIND > 0`:
+```bash
+git rebase origin/${BASE}
+# On conflict: → DP(A) **Resolve manually then re-run /pr** | **Abort rebase** (`git rebase --abort`)
+git push --force-with-lease origin ${BRANCH}
+```
+
+**Safety:** only `--force-with-lease` (not `--force`) — refuses push if remote moved unexpectedly. Only on the feature branch (Β ∉ {staging, main, master} is already enforced in Step 2).
+
+**Why post-create:** ensures the PR reflects the latest base from the moment it lands, so reviewers see a minimal diff and CI runs against current base. Staging can move between branch creation and PR create — this step closes that gap.
+
+## Step 6 — Watch CI
 
 Inform: "CI is running on the PR — use `/ci-watch` to monitor it live."
 
@@ -133,9 +156,29 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 ## Safety Rules
 
 1. ¬PR from `staging`, `main`, `master`
-2. ¬force-push
+2. ¬`git push --force` — only `--force-with-lease`, and only during Step 5 rebase on feature branches
 3. Always show PR content before creation
-4. → DP(A)for all decisions (proceed despite warnings, edit)
+4. → DP(A) for all decisions (proceed despite warnings, edit)
 5. Always display PR URL after creation
+6. Rebase conflicts → abort + defer to user — ¬auto-resolve
+
+## Chain Position
+
+- **Phase:** Build
+- **Predecessor:** `/implement` (worktree with commits)
+- **Successor:** `/ci-watch`
+- **Class:** adv (continuous flow, no gate)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- This skill does NOT update its own dev-pipeline task
+- Sub-tasks created: none
+
+## Exit
+
+- **Success via `/dev`:** PR created + rebased + pushed → return control silently. ¬write summary. ¬ask user. ¬announce `/ci-watch`. `/dev` re-scans and advances.
+- **Success standalone:** print PR URL + `Next: /ci-watch --pr {PR#}`. Stop.
+- **Failure (REFUSE, rebase conflict, gh error):** return error. `/dev` presents Retry | Skip | Abort.
 
 $ARGUMENTS

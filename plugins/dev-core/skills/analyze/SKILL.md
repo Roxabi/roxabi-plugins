@@ -190,4 +190,23 @@ Inform: "Analysis complete. Run `/spec --issue <N>` to generate the solution spe
 | Tier S | Skip Shapes + Fit Check |
 | Frame lacks appetite | Ask user during interview Phase 1 |
 
+## Chain Position
+
+- **Phase:** Shape
+- **Predecessor:** `/frame` (artifact: `artifacts/frames/{N}-{slug}-frame.mdx`)
+- **Successor:** `/spec`
+- **Class:** adv (continuous flow, no gate — user approves α inline in Step 4, not a pipeline gate)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- This skill does NOT update its own dev-pipeline task
+- Sub-tasks created: none
+
+## Exit
+
+- **Success via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/spec`. `/dev` re-scans and advances.
+- **Success standalone:** print one line: `Done. Next: /spec --issue N`. Stop.
+- **Failure:** return error. `/dev` presents Retry | Skip | Abort.
+
 $ARGUMENTS

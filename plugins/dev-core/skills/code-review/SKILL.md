@@ -207,4 +207,24 @@ Q:
 4. ∃ PR → must post comment (Phase 6)
 5. Human decides at Phase 8 — ¬proceed without Q
 
+## Chain Position
+
+- **Phase:** Verify
+- **Predecessor:** `/validate`
+- **Successor:** conditional — APPROVED → merge → `/cleanup` | CHANGES_REQUESTED → `/fix`
+- **Class:** verdict (branching based on findings)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- Sub-tasks created: review findings (`kind: "review-finding"`) if applicable
+- Follow-up tasks: on CHANGES_REQUESTED (user picks `/fix` at Phase 8) → `TaskCreate` fix task with `metadata: { kind: "dev-pipeline", follow_up: true, iteration: N, blockedBy: [this.id] }`
+
+## Exit
+
+- **APPROVED via `/dev`** (user picks Merge as-is at Phase 8): rebase + label + merge → return. `/dev` advances to `/cleanup`.
+- **CHANGES_REQUESTED via `/dev`** (user picks `/fix` at Phase 8): `TaskCreate` follow-up fix task → return silently. `/dev` picks up the new task and invokes `/fix`.
+- **Stop (user)**: return → `/dev` presents Abort | Resume.
+- **Loop cap:** max 2 fix→review iterations (tracked via `metadata.iteration`). 3rd review iteration → Phase 8 must recommend Merge as-is or Stop, not Fix. `/dev` presents Abort if 3rd fix attempted.
+
 $ARGUMENTS

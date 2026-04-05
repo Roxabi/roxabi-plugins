@@ -139,4 +139,24 @@ Inform: "Frame approved. Run `/dev #N` to continue, or `/analyze --issue N` for 
 - Tier contested (signals split evenly) → default to higher τ; note: "Defaulted to {τ} — downgrade if scope narrows."
 - User approves then requests major change → reset `status: draft`, revise, re-approve.
 
+## Chain Position
+
+- **Phase:** Frame
+- **Predecessor:** `/issue-triage` (or free-text entry)
+- **Successor:** `/analyze` (F-full) ∨ `/spec` (F-lite)
+- **Class:** gate (user approval of frame artifact required)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- This skill does NOT update its own dev-pipeline task
+- Sub-tasks created: none
+
+## Exit
+
+- **Approved via `/dev`:** write artifact with `status: approved`, commit, return silently. ¬ask "proceed to /analyze?". `/dev` re-scans and auto-chains to successor in the same turn.
+- **Approved standalone:** print one line: `Approved. Next: /analyze --issue N` (F-full) or `/spec --issue N` (F-lite). Stop.
+- **Modify requested:** loop in-skill, re-present.
+- **Rejected/aborted:** return → `/dev` marks task `cancelled`.
+
 $ARGUMENTS

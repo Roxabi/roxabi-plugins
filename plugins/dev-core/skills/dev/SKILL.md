@@ -246,29 +246,37 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 
 **Before invocation:** `TaskUpdate(task_id_map[S*], status: "in_progress")`. ¬∃ id → `TaskCreate` on-the-fly (drift safety net: a step not seeded in 2b that became active later).
 
-**gate:** Step 6 already presented decision → invoke skill immediately. ¬double-prompt.
-**adv:** Show `→ Running {S*}…`, invoke immediately. ¬decision prompt.
+**Invocation rules — CRITICAL for continuous flow:**
+
+- **gate skills** (frame, spec, plan): Step 6 already presented decision → invoke skill immediately. ¬double-prompt. ¬write transition message.
+- **adv skills** (all others): invoke skill immediately. ¬write "Running /X…" preamble. ¬ask permission. ¬summarize prior step.
+
+**¬ask** "Ready to proceed to /X?" — the task list IS the commitment.
+**¬ask** "Shall I continue?" — Step 8 re-scan IS the continuation.
+**¬summarize** "Just completed /X, moving to /Y" — the next skill's output IS the signal.
+**¬announce** "Moving to the next step" — silent transition only.
+
 **Exception:** user may type "stop"/"skip to X" before skill completes.
 
 **Follow-up tasks:** child skill surfaces new work (e.g. `/code-review` emits findings that require a fix iteration, `/ci-watch` detects flakes needing re-run) → `TaskCreate` a follow-up task with metadata `{ kind: "dev-pipeline", issue: N, step: "{step}", follow_up: true }` and `addBlockedBy: [task_id_map[S*]]`.
 
 **Skill invocation map:**
 
-| Step | Skill invocation |
-|------|-----------------|
-| triage | `skill: "issue-triage", args: "N"` (set size + priority) |
-| frame | `skill: "frame", args: "--issue N"` |
-| analyze | `skill: "analyze", args: "--issue N"` |
-| spec | `skill: "spec", args: "--issue N"` |
-| plan | `skill: "plan", args: "--issue N"` |
-| implement | `skill: "implement", args: "--issue N"` |
-| pr | `skill: "pr"` (auto-detects branch + issue from worktree context) |
-| ci-watch | `skill: "ci-watch", args: "--pr {PR#}"` (PR# from Σ scan) |
-| validate | `skill: "validate"` (runs in current worktree) |
-| review | `skill: "code-review"` (auto-detects PR from current branch) |
-| fix | `skill: "fix", args: "#{PR_NUMBER}"` (PR# from Σ scan) |
-| promote | `skill: "promote"` (standalone staging→main — skipped by default) |
-| cleanup | `skill: "cleanup", args: "--scope #N"` (scoped to current issue's branch/worktree) |
+| Step | Class | Skill invocation | On success → |
+|------|-------|------------------|--------------|
+| triage | adv | `skill: "issue-triage", args: "N"` | frame |
+| frame | gate | `skill: "frame", args: "--issue N"` | analyze (F-full) ∨ spec (F-lite) |
+| analyze | adv | `skill: "analyze", args: "--issue N"` | spec |
+| spec | gate | `skill: "spec", args: "--issue N"` | plan |
+| plan | gate | `skill: "plan", args: "--issue N"` | implement (auto-chain after approval) |
+| implement | adv | `skill: "implement", args: "--issue N"` | pr |
+| pr | adv | `skill: "pr"` (auto-detects branch + issue) | ci-watch |
+| ci-watch | adv | `skill: "ci-watch", args: "--pr {PR#}"` | validate |
+| validate | adv | `skill: "validate"` | code-review |
+| review | verdict | `skill: "code-review"` | APPROVED → merge → cleanup \| CHANGES_REQUESTED → fix |
+| fix | loop | `skill: "fix", args: "#{PR_NUMBER}"` | code-review (max 2 iters, then Abort) |
+| promote | — | `skill: "promote"` (standalone — never auto-triggered) | — |
+| cleanup | adv | `skill: "cleanup", args: "--scope #N"` | pipeline complete |
 
 **Skip to X** ⇒ → DP(A) **Proceed anyway** | **Cancel**. Missing artifacts → warn first. Proceed ⇒ mark prior steps skipped, S* = X.
 
@@ -276,7 +284,18 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 
 ## Step 8 — Post-skill Re-scan
 
-Skill completes successfully → `TaskUpdate(task_id_map[S*], status: "completed")` → Σ_s[step] = true → goto Step 1 (re-scan Σ).
+Skill returns → **IMMEDIATELY in the same turn, silently:**
+
+1. `TaskUpdate(task_id_map[S*], status: "completed")`
+2. `Σ_s[step] = true`
+3. Goto Step 1 (re-scan Σ)
+4. Execute Step 7 for new S*
+
+**¬write** "Step X complete" message between skill return and re-scan.
+**¬write** "Moving to Y" message between re-scan and Step 7.
+**¬ask** anything. The next skill's first output IS your next message.
+**¬summarize** what just happened. The task list reflects state.
+
 Skill fails/aborts → leave task `in_progress` → present recovery decision via protocol (Pattern A): **Retry** | **Skip** | **Abort**.
 Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix).
 Session restart → Σ_s = ∅ → artifact-less steps re-run. 2b.1 will find the existing tasks (status possibly `completed` from last run) and skip re-seeding.

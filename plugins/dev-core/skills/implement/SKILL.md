@@ -27,6 +27,25 @@ Plan → ω → agents (test-first) → passing QG.
 
 Does NOT create a PR — that is `/pr` (next step).
 
+## Chain Position
+
+- **Phase:** Build
+- **Predecessor:** `/plan` (artifact: `artifacts/plans/{N}-{slug}-plan.mdx`)
+- **Successor:** `/pr`
+- **Class:** adv (continuous flow, no gate)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally (TaskUpdate in_progress before invoke, completed after return)
+- This skill does NOT update its own dev-pipeline task
+- Sub-tasks managed: reads plan-tasks created by `/plan` (Step 6a), flips their lifecycle as agents execute them (Step 1b + Step 4)
+
+## Exit
+
+- **Success via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/pr`. `/dev` re-scans and advances.
+- **Success standalone:** print final status block (below) + `Next: /pr`. Stop.
+- **Failure:** return error. `/dev` presents Retry | Skip | Abort.
+
 ## Pipeline
 
 | Step | ID | Required | Notes |
@@ -189,7 +208,7 @@ Implement Complete
   Files:    created/modified list
   Tasks:    N/total completed (stragglers: ...)
   Verify:   N/total first-try (%)
-  Next:     /pr → /code-review → /1b1 → merge
+  Next:     /pr → /ci-watch → /validate → /code-review → /fix (if findings) → merge → /cleanup
 ```
 
 ## Rollback
