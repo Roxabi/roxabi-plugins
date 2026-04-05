@@ -221,6 +221,63 @@ async function discoverFiles(dir, ext) {
 }
 
 /**
+ * Discover subdirectories of a parent directory via manifest.json → /api/list/ fallback.
+ * Returns sorted array of subdirectory names (no trailing slash).
+ *
+ * Symmetric with {@link discoverFiles}: manifest.json is tried first for static /
+ * file:// hosting (Cloudflare Pages), then /api/list/ for the forge dev server.
+ * Manifest entries must include `is_dir:true` to be treated as directories.
+ *
+ * Use this for **two-level** galleries where the parent dir contains one subdir
+ * per group (run, batch, LoRA, engine…) and each subdir contains the actual
+ * image/audio files. The typical flow:
+ *
+ *     const DIR = 'concepts/avatar-lyra-v23/'
+ *     const discovered = await discoverDirs(DIR)
+ *     // → ['v23a-rank', 'v23c-dop', 'v23d-island0', 'v23d-island1', …]
+ *     for (const run of discovered) {
+ *       const files = await discoverFiles(DIR + run + '/', '.jpg')
+ *       // …
+ *     }
+ *
+ * See the "Dynamic subdirectory discovery" section in the gallery-templates
+ * README for worked examples and the ordering-with-metadata pattern.
+ *
+ * **Static-hosting requirement:** on static hosts, the parent directory must
+ * contain a manifest.json listing its subdirs as `is_dir:true` entries. The
+ * forge `gen-image-manifests.py` build step generates these automatically.
+ *
+ * @param {string} dir - Parent directory path (relative to HTML)
+ * @returns {Promise<string[]>} Sorted subdirectory names
+ */
+async function discoverDirs(dir) {
+  try {
+    const r = await fetch(`${dir}manifest.json`)
+    if (r.ok) {
+      const listing = await r.json()
+      return listing
+        .filter((e) => e.is_dir)
+        .map((e) => e.name)
+        .sort()
+    }
+  } catch (_) {}
+  const apiPath = resolveApiListPath(dir)
+  if (apiPath) {
+    try {
+      const r = await fetch(`/api/list/${apiPath}`)
+      if (r.ok) {
+        const listing = await r.json()
+        return listing
+          .filter((e) => e.is_dir)
+          .map((e) => e.name)
+          .sort()
+      }
+    } catch (_) {}
+  }
+  return []
+}
+
+/**
  * Discover batch of items with catalogue metadata.
  * Used by simple-gallery for multi-batch image galleries.
  *

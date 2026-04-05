@@ -17,11 +17,16 @@ python3 "$SCRIPT_DIR/gen-image-manifests.py"
 
 echo "▸ Syncing to _dist/…"
 mkdir -p "$DIST"
-rsync -a --delete \
+# -L dereferences symlinks as real files so deployed _dist/ ships actual
+# content rather than dangling symlinks. Required for galleries that
+# symlink into external directories (e.g. ai-toolkit training output).
+rsync -aL --delete --delete-excluded \
   --exclude='_dist/' \
   --exclude='*.py' \
   --exclude='__pycache__/' \
   --exclude='.git/' \
+  --exclude='.stversions/' \
+  --exclude='lyra/brand/prompts/' \
   "$FORGE_DIR/" "$DIST/"
 
 # Copy gallery UI from canonical forge location into _dist

@@ -102,7 +102,7 @@ Working HTML templates for the `forge-gallery` skill. Copy the right template, f
 
 All templates share:
 - **`gallery-base.css`** — shared CSS foundation (tokens, resets, header, toolbar, controls, stats, group headers, empty state, responsive, plus `.pixelated`, `.dl-wrap`/`.dl-menu`, `.toast` utilities). Each template links to it and adds template-specific styles inline.
-- **`gallery-base.js`** — shared JS utilities: `initTheme()`, `buildDimFilters()`, `applyDimFilters()`, `wireSegs()`, `discoverBatch()`, `discoverFiles()`, `buildBatchBar()`, `initStarred()`, `buildPivotSegsFromDims()`, `initDownloads()`, `showToast()`, `escHtml()`, `safeClass()`. Each template loads it and uses these instead of inline duplicates.
+- **`gallery-base.js`** — shared JS utilities: `initTheme()`, `buildDimFilters()`, `applyDimFilters()`, `wireSegs()`, `discoverFiles()`, `discoverDirs()`, `discoverBatch()`, `buildBatchBar()`, `initStarred()`, `buildPivotSegsFromDims()`, `initDownloads()`, `showToast()`, `escHtml()`, `safeClass()`. Each template loads it and uses these instead of inline duplicates.
 - Same CSS token system (`:root` variables from `tokens.md`) — override `--accent` / `--accent-dim` per project
 - Same toolbar pattern (`.toolbar > .ctrl > .ctrl-label + .segs/.check-group`)
 - Dynamic filters (OFF by default = inactive = show everything)
@@ -417,6 +417,74 @@ buildDimFilters(items, DIMS, filters, 'filterBar', render)
 ```
 
 **Use when:** you have multiple dimensions, need custom display labels, plan to support multiple modes, or want to compose items from multiple data sources (e.g. manifest + scores JSON).
+
+### Dynamic subdirectory discovery (`discoverDirs`)
+
+When a gallery has a **parent dir containing one subdir per group** — LoRA variants, training runs, engine checkpoints, prompt batches — hardcoding the group list means every new variant added to disk is silently ignored. Use `discoverDirs(dir)` to enumerate subdirs at load time.
+
+**API**
+
+```javascript
+const subdirs = await discoverDirs('concepts/avatar-lyra-benchmark/')
+// → ['v22_face', 'v22_island0', 'v22_top30', 'v23d_2000', …, 'v23f_4000']
+```
+
+Symmetric with `discoverFiles`: tries `{dir}/manifest.json` first (static hosts), then `/api/list/{dir}` (forge dev server). Manifest entries must have `is_dir: true` to be treated as directories. Returns sorted array of names, `[]` if neither path resolves.
+
+**Static-hosting requirement.** On static hosts (Cloudflare Pages, file://), the parent dir needs a `manifest.json` listing its subdirs. The `gen-image-manifests.py` build step writes these automatically at every directory level whose subtree contains image files — no manual curation needed.
+
+**Worked example — two-level gallery with metadata overlay**
+
+The pattern: declare metadata for *known* groups (labels, badges, display order) and let `discoverDirs` find everything on disk. Unknown groups (added after the gallery was written) fall back to a default style and append alphabetically after the known ones — so new variants just show up.
+
+```javascript
+const DIR = 'concepts/avatar-lyra-benchmark/'
+const EXT = '.png'
+
+// Canonical order + per-group metadata. Keys define display order; dirs
+// discovered on disk but absent from this map append alphabetically after.
+const LORA_META = {
+  v22_top30:   { version: 'v22', label: 'top30 baseline',   baseline: true },
+  v22_island0: { version: 'v22', label: 'island0 baseline', baseline: true },
+  v23d_2000:   { version: 'v23' },
+  v23d_2500:   { version: 'v23' },
+  v23d_3000:   { version: 'v23' },
+}
+
+function inferMeta(name) {
+  if (name.startsWith('v22_')) return { version: 'v22' }
+  if (name.startsWith('v23')) return { version: 'v23' }
+  return {}
+}
+const getMeta = (name) => LORA_META[name] || inferMeta(name)
+
+// Mutable array — DIMS.lora.order keeps a reference to this, so mutating
+// in place (push) updates the dim ordering without reassignment.
+const LORAS = []
+
+const DIMS = {
+  lora: { label: 'LoRA', fn: getLora, order: LORAS },
+  // …
+}
+
+async function boot() {
+  const discovered = await discoverDirs(DIR)
+  const known = Object.keys(LORA_META).filter((k) => discovered.includes(k))
+  const extra = discovered.filter((k) => !LORA_META[k]).sort()
+  LORAS.push(...known, ...extra)
+
+  buildLoraStrip() // build pills dynamically from LORAS + getMeta
+  allFiles = await discoverAllLoras() // iterate LORAS, discoverFiles per subdir
+  buildDimFilters(allFiles, DIMS, filters, 'filterBar', render)
+  render()
+}
+```
+
+**Key rules:**
+- Use `const LORAS = []` + `LORAS.push(...)` — **never** `let LORAS = []; LORAS = [...]`. Reassignment breaks the reference captured by `DIMS.lora.order`.
+- Build pill/badge HTML from the populated array in JS (`strip.innerHTML = LORAS.map(...)`) — hardcoded HTML pills leave newly-discovered groups without an element to update.
+- When updating pill text after file discovery, store the base text in `dataset.baseText` on first write so re-renders can rebuild `base + ' · ' + count` instead of appending. `pill.textContent += …` is an anti-pattern — it duplicates on re-run.
+- Existing galleries using this pattern: `~/.roxabi/forge/lyra/brand/v23-gallery.html`, `v23-benchmark-gallery.html`.
 
 ### Legacy wrapper pattern (avoid in new code)
 
