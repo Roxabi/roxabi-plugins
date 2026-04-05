@@ -208,7 +208,7 @@ Implement Complete
   Files:    created/modified list
   Tasks:    N/total completed (stragglers: ...)
   Verify:   N/total first-try (%)
-  Next:     /pr → /ci-watch → /validate → /code-review → /fix (if findings) → merge → /cleanup
+  Next:     /pr → /code-review → /1b1 → merge
 ```
 
 ## Rollback
