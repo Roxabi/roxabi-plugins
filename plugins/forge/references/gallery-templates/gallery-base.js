@@ -161,6 +161,31 @@ function wireSegs(containerId, handler) {
 /* ── File discovery ── */
 
 /**
+ * Resolve a gallery-relative directory path to its forge-root-relative form
+ * for /api/list/ calls. Galleries nested under project subdirs (e.g.
+ * lyra/brand/v23-gallery.html loading concepts/avatar-lyra-v23/) need the
+ * full path from the forge root, not from the browser origin.
+ *
+ * Returns null if the resolved path fails same-origin or character checks.
+ *
+ * @param {string} dir - Directory path (relative or absolute from origin)
+ * @returns {string|null} Forge-root-relative path (no leading slash), or null
+ */
+function resolveApiListPath(dir) {
+  try {
+    const resolved = new URL(dir, window.location.href)
+    if (resolved.origin !== window.location.origin) return null
+    const pathPart = resolved.pathname.replace(/^\//, '')
+    // Same character allowlist as the pre-fix guard — applied to the resolved
+    // path so '../' and './' in dir don't slip past validation.
+    if (!/^[\w./-]+$/.test(pathPart)) return null
+    return pathPart
+  } catch (_) {
+    return null
+  }
+}
+
+/**
  * Discover files via manifest.json → /api/list/ fallback.
  * Returns array of filename strings.
  *
@@ -179,9 +204,10 @@ async function discoverFiles(dir, ext) {
         .sort()
     }
   } catch (_) {}
-  if (/^[\w./-]+$/.test(dir)) {
+  const apiPath = resolveApiListPath(dir)
+  if (apiPath) {
     try {
-      const r = await fetch(`/api/list/${dir}`)
+      const r = await fetch(`/api/list/${apiPath}`)
       if (r.ok) {
         const listing = await r.json()
         return listing
@@ -224,9 +250,10 @@ async function discoverBatch(cfg, itemBuilder) {
     }
   } catch (_) {}
   /* Fallback: /api/list/ */
-  if (/^[\w./-]+$/.test(cfg.dir)) {
+  const apiPath = resolveApiListPath(cfg.dir)
+  if (apiPath) {
     try {
-      const r = await fetch(`/api/list/${cfg.dir}`)
+      const r = await fetch(`/api/list/${apiPath}`)
       if (r.ok) {
         const listing = await r.json()
         return listing
