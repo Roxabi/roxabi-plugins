@@ -3,7 +3,7 @@ name: implement
 argument-hint: '[--issue <N> | --plan <path> | --audit]'
 description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "implement" | "build this" | "execute plan" | "start coding" | "write the code" | "code this up" | "let's build it" | "build it out" | "ship it".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
 # Implement
@@ -47,6 +47,16 @@ Does NOT create a PR — that is `/pr` (next step).
 **S-tier exception:** τ=S ∧ ¬π → locate spec (`ls artifacts/specs/N-*.mdx`) or issue body (`gh issue view N --json body`). Skip to Step 4 (Tier S). ¬require π for τ=S.
 
 Extract from frontmatter: `issue`, `tier`, `spec` path. From body: agent list, task list, slice structure.
+
+### Step 1b — Attach to Plan Tasks
+
+Parse π's `## Task IDs` section → {T1: id, T2: id, ...} map. ¬section → `/plan` pre-dates task-tool integration → fall through to 1b.3 (re-seed).
+
+**1b.1 Verify ids:** ∀ id → `TaskGet(id)`. All succeed → cache map, goto Step 2.
+**1b.2 Partial miss:** ¬some id (session restart invalidated state) → re-seed only the missing ones by running Step 6a logic from `/plan` on the corresponding micro-tasks, then rewrite `## Task IDs` section in π with refreshed ids.
+**1b.3 Total miss (legacy plan):** section absent → run Step 6a from `/plan` for every micro-task, append `## Task IDs` section to π, commit the update (`git add` π + commit `chore(plan): attach task ids`).
+
+τ=S without π → `TaskCreate` 3–6 coarse tasks directly from spec acceptance criteria: `{ kind: "plan-task", issue: N, tier: "S" }`. No artifact update.
 
 ## Step 2 — Setup
 
@@ -122,23 +132,37 @@ Ref file paths from `/plan` Step 3.
 
 ## Step 4 — Implement
 
+**Task lifecycle (all tiers):**
+- Before starting a micro-task → `TaskUpdate(id, status: "in_progress", owner: "{agent-name or 'lead'}")`.
+- Success (verify ✓) → `TaskUpdate(id, status: "completed")`.
+- Retry (≤3) → leave `in_progress`, add comment via `TaskUpdate(id, metadata: { last_error: "..." })`.
+- 3× fail → leave `in_progress`, escalation decision (see Step 5).
+
 ### Tier S — Direct
 
-Read spec + ref patterns → create + implement → tests → QG → loop until ✓. Single session, ¬agent spawning.
+Read spec + ref patterns → create + implement → tests → QG → loop until ✓. Single session, ¬agent spawning. Flip each task `in_progress` → `completed` as you progress through the list.
 
 ### Tier F — Agent-Driven (test-first)
 
 Spawn via `Task` (subagent/domain). Sequential ∨ parallel (2–3 max).
 
+**Per agent spawn:**
+1. `TaskUpdate(task_id, status: "in_progress", owner: "{agent}")`.
+2. `TaskGet(task_id)` → inject `description` + `metadata` verbatim into the subagent's prompt. The agent reads its own task context from the task list.
+3. Subagent runs → returns.
+4. Verify → ✓ → `TaskUpdate(task_id, status: "completed")`. ✗ → retry (≤3).
+
 **RED → GREEN → REFACTOR:**
-1. **RED** — tester: write failing tests from spec. Structural verify only (grep test structure). Tests expected to fail pre-impl. Create RED-GATE sentinel per slice.
-2. **GREEN** — domain agents ∥: implement to pass. `ready` verify → run now; `deferred` → wait RED-GATE.
+1. **RED** — tester: write failing tests from spec. Structural verify only (grep test structure). Tests expected to fail pre-impl. Create RED-GATE sentinel per slice. RED tasks flip `completed` as each test file lands.
+2. **GREEN** — domain agents ∥: implement to pass. `ready` verify → run now; `deferred` → wait RED-GATE. Blocked-by wiring from Step 6a/6b of `/plan` means task list already reflects these dependencies — advance in `blockedBy`-clear order.
 3. **REFACTOR** — domain agents: refactor, keep tests ✓.
 4. **Verify** — tester: coverage + edge cases.
 
+**Parallel spawn:** `TaskList` → pick N tasks with empty `blockedBy` and matching phase → spawn N agents simultaneously, each with its own `TaskGet`-injected prompt.
+
 **Per-task:** verify → ✓ | ✗ fix (max 3) | 3✗ → escalate to lead. Track first-try pass rate.
 
-Agents create files from scratch (¬stubs). Include target path, shape/skeleton, ref pattern file in each Task prompt.
+Agents create files from scratch (¬stubs). Include target path, shape/skeleton, ref pattern file in each Task prompt (in addition to `TaskGet` content).
 
 ## Step 5 — Quality Gate
 
@@ -153,6 +177,8 @@ Run QG inside ω (session already in ω after EnterWorktree):
 
 ## Step 6 — Summary
 
+Before printing summary → `TaskList` → assert every plan-task with `metadata.issue == N` is `completed`. ¬all completed → highlight stragglers in the summary (blockers for `/pr`).
+
 ```
 Implement Complete
   Issue:    #N — title
@@ -161,6 +187,7 @@ Implement Complete
   Tier:     S|F-lite|F-full
   Agents:   list
   Files:    created/modified list
+  Tasks:    N/total completed (stragglers: ...)
   Verify:   N/total first-try (%)
   Next:     /pr → /code-review → /1b1 → merge
 ```

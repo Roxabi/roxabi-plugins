@@ -3,7 +3,7 @@ name: dev
 argument-hint: '[#N | "idea" | --from <step> | --audit]'
 description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "work on #" | "develop" | "pick up issue" | "tackle issue" | "let's work on".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
 # Dev
@@ -127,6 +127,41 @@ gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "
 τ ∃ → skip.
 ¬τ → → DP(A) **S** (≤3 files, no arch) | **F-lite** (clear scope, 1 domain) | **F-full** (complex, multi-domain).
 
+## Step 2b — Seed Pipeline Tasks
+
+Claude Code task list drives in-session progress for the dev pipeline. Treat it as authoritative for within-session state — artifacts remain authoritative across sessions.
+
+**2b.1 Check existing:** `TaskList` → filter where `metadata.issue == N` ∧ `metadata.kind == 'dev-pipeline'`. ∃ matches → skip seeding (tasks already exist from a prior `/dev` invocation in this session). Cache {step → task.id} map from the matches. Goto 2b.4.
+
+**2b.2 Build active sequence:** Apply Step 4 skip logic to τ + Σ. Skipped steps are **not** created — keeps the timeline clean.
+
+Ordered step list:
+```
+triage → frame → analyze → spec → plan → implement → pr →
+ci-watch → validate → review → fix → promote → cleanup
+```
+
+**2b.3 Create tasks:** ∀ step ∈ active_list:
+
+```
+TaskCreate(
+  subject: "{step} — #{N} {title}",
+  description: "{one-line step purpose from dev-process.mdx}",
+  activeForm: "{present-continuous of step} #{N}",
+  metadata: {
+    kind: "dev-pipeline",
+    issue: N,
+    step: "{step}",
+    phase: "Frame|Shape|Build|Verify|Ship",
+    tier: τ,
+  },
+)
+```
+
+Wire dependencies sequentially — ∀ i > 0: `TaskUpdate(task[i].id, addBlockedBy: [task[i-1].id])`. Cache {step → task.id} map in-memory.
+
+**2b.4 Mark done from Σ:** ∀ step where Σ[step] == true ∨ Σ_s[step] == true → `TaskUpdate(task.id, status: "completed")`. Artifacts on disk mean the step is done even on first `/dev` entry of the session.
+
 ## Step 3 — Progress Display
 
 ```
@@ -209,9 +244,13 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 
 ## Step 7 — Execute Step
 
+**Before invocation:** `TaskUpdate(task_id_map[S*], status: "in_progress")`. ¬∃ id → `TaskCreate` on-the-fly (drift safety net: a step not seeded in 2b that became active later).
+
 **gate:** Step 6 already presented decision → invoke skill immediately. ¬double-prompt.
 **adv:** Show `→ Running {S*}…`, invoke immediately. ¬decision prompt.
 **Exception:** user may type "stop"/"skip to X" before skill completes.
+
+**Follow-up tasks:** child skill surfaces new work (e.g. `/code-review` emits findings that require a fix iteration, `/ci-watch` detects flakes needing re-run) → `TaskCreate` a follow-up task with metadata `{ kind: "dev-pipeline", issue: N, step: "{step}", follow_up: true }` and `addBlockedBy: [task_id_map[S*]]`.
 
 **Skill invocation map:**
 
@@ -237,9 +276,10 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 
 ## Step 8 — Post-skill Re-scan
 
-Skill completes → Σ_s[step] = true → goto Step 1 (re-scan Σ).
+Skill completes successfully → `TaskUpdate(task_id_map[S*], status: "completed")` → Σ_s[step] = true → goto Step 1 (re-scan Σ).
+Skill fails/aborts → leave task `in_progress` → present recovery decision via protocol (Pattern A): **Retry** | **Skip** | **Abort**.
 Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix).
-Session restart → Σ_s = ∅ → artifact-less steps re-run.
+Session restart → Σ_s = ∅ → artifact-less steps re-run. 2b.1 will find the existing tasks (status possibly `completed` from last run) and skip re-seeding.
 gate → re-scan detects updated artifact → Step 6 gate → Step 7 immediately (¬second prompt).
 adv → re-scan → Step 7 immediately.
 
