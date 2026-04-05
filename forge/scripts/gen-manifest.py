@@ -24,6 +24,24 @@ TITLE_RE = re.compile(r'<title>([^<]+)</title>', re.IGNORECASE)
 
 END_MARKER = '<!-- diagram-meta:end -->'
 
+VALID_COLORS = {'amber', 'blue', 'green', 'purple', 'orange', 'cyan', 'red', 'gold'}
+
+
+def normalize_color(color, filepath=''):
+    """Map unknown color values (hex codes, typos) to valid CSS class names.
+
+    The index.html list view renders `<span class="li-dot {color}">` — only
+    names in VALID_COLORS match a CSS rule. Anything else (e.g. a hex code
+    copy-pasted from a design token) would silently render as an invisible dot.
+    """
+    if color in VALID_COLORS:
+        return color
+    if not color:
+        return 'blue'
+    print(f'  ⚠ unknown color "{color}" in {filepath} — falling back to orange')
+    return 'orange'
+
+
 def parse(filepath, rel=''):
     # Read until our end marker or </head>
     buf = ''
@@ -62,8 +80,7 @@ def parse(filepath, rel=''):
             cat, cat_label, color = 've', 'Visual Explainer', 'purple'
         else:
             cat, cat_label, color = 'ext', 'External', 'green'
-    if not color:
-        color = 'blue'
+    color = normalize_color(color, filepath)
 
     # Infer date from file mtime when not in meta
     date = metas.get('date', '')
