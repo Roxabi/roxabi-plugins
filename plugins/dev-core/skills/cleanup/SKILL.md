@@ -17,12 +17,10 @@ Safely clean local β, ω, and remote branches with **mandatory merge-status ver
 ### 1. Gather State
 
 ```bash
-git branch -vv
-git worktree list                    # includes both .claude/worktrees/ and legacy parent-dir worktrees
-gh pr list --state open 2>/dev/null || echo "No gh CLI or no remote"
-git branch --show-current
-# Configure {commands.worktree_list} in stack.yml if applicable
+bash ${CLAUDE_SKILL_DIR}/gather-state.sh
 ```
+
+Emits: `current`, branch list with tracking info, worktree list, open PRs.
 
 ### 2. Analyze Each Branch
 

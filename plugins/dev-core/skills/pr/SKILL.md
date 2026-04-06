@@ -20,12 +20,10 @@ Let:
 ## Step 1 — Gather State
 
 ```bash
-BRANCH=$(git branch --show-current)
-BASE=$(git branch -r | grep -q 'origin/staging' && echo staging || echo main)
-git log ${BASE}..HEAD --oneline
-git diff ${BASE}...HEAD --stat
-gh pr list --head "$BRANCH" --json number,title,url,state
+bash ${CLAUDE_SKILL_DIR}/gather-state.sh
 ```
+
+Emits: `branch`, `base`, commit log, diff stat, existing PR, issue number, lifecycle artifacts (analysis, spec), test file count.
 
 ## Step 2 — Guard Rails
 
@@ -47,14 +45,7 @@ git log ${BASE}..HEAD --format="%h %s%n%b"
 git diff ${BASE}...HEAD --stat
 ```
 
-**3b. Lifecycle artifacts:**
-```bash
-ISSUE_NUM=$(echo "$BRANCH" | grep -oP '(?<=/)\d+')
-ls artifacts/analyses/${ISSUE_NUM}-*.mdx 2>/dev/null
-ls artifacts/specs/${ISSUE_NUM}-*.mdx 2>/dev/null
-gh issue view "$ISSUE_NUM" --json title,state,labels 2>/dev/null
-git diff ${BASE}...HEAD --name-only | grep -c '\.test\.\|\.spec\.' || echo 0
-```
+**3b. Lifecycle artifacts:** already emitted by Step 1 (`issue`, `analysis`, `spec`, `issue_data`, `test_files`).
 
 N detection: first number after `/` in Β (e.g. `feat/42-slug` → `#42`). ¬found → → DP(B) "Which issue number does this PR close, if any?"
 

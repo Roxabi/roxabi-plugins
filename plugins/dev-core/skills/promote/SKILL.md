@@ -25,23 +25,16 @@ Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := DP(A)
 ## Step 1 — Pre-flight
 
 ```bash
-git fetch origin staging main
-git checkout staging && git pull origin staging
-git log main..staging --oneline
-git diff main...staging --stat
-gh pr list --base staging --state open --json number,title,headRefName
+bash ${CLAUDE_SKILL_DIR}/preflight.sh
 ```
+
+Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI check results.
 
 | Check | Condition | Action |
 |-------|-----------|--------|
-| No commits | `git log main..staging` empty | **REFUSE.** Stop. |
-| Open PRs on σ | `gh pr list --base staging` → results | **WARN** + Q: **Continue** \| **Wait** |
-| CI status | Latest σ commit | **WARN** if ¬passing |
-
-```bash
-gh api repos/:owner/:repo/commits/staging/check-runs \
-  --jq '[.check_runs[] | {name, conclusion}] | group_by(.conclusion) | map({conclusion: .[0].conclusion, count: length})'
-```
+| No commits | `commits_ahead=0` | **REFUSE.** Stop. |
+| Open PRs on σ | open_prs section non-empty | **WARN** + Q: **Continue** \| **Wait** |
+| CI status | ci section | **WARN** if ¬passing |
 
 ## Steps 2-4 — Version, Changelog, Commit
 

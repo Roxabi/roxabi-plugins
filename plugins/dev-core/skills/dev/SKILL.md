@@ -67,36 +67,7 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 ## Step 1 — Scan State (parallel, <3s)
 
 ```bash
-# Issue
-gh issue view N --json state 2>/dev/null && echo "triage=true"
-
-# Frame (handles both {N}-{slug}.mdx and {slug}.mdx patterns)
-ls artifacts/frames/ 2>/dev/null | grep -iE "^{N}-{slug}|^{slug}"
-
-# Analysis
-ls artifacts/analyses/ 2>/dev/null | grep -E "^{N}-|{slug}"
-
-# Spec
-ls artifacts/specs/ 2>/dev/null | grep "^{N}-"
-
-# Plan
-ls artifacts/plans/ 2>/dev/null | grep "^{N}-"
-
-# Worktree (check both .claude/worktrees/ and legacy parent-dir worktrees)
-REPO=$(gh repo view --json name --jq '.name')
-git worktree list | grep -E "${REPO}-{N}|worktrees/{N}-"
-
-# Branch
-git branch -a | grep "{N}-{slug}"
-
-# PR
-gh pr list --search "#{N}" --json number,state,reviewDecision,merged --jq '.[]'
-
-# Review (ψ_r fallback when reviewDecision is null)
-gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "^## Code Review" && echo "review_comment=true"
-
-# Fix (ψ_f fallback)
-gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "^## Review Fixes Applied" && echo "fix_comment=true"
+bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
 ```
 
 φ ∃ → read frontmatter → extract `status`, `tier`.

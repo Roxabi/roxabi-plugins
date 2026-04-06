@@ -81,14 +81,15 @@ Parse π's `## Task IDs` section → {T1: id, T2: id, ...} map. ¬section → `/
 
 **2a. Issue check:** `gh issue view <N>` — ∄ ⇒ draft + present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Create** | **Edit** | **Skip** + `gh issue create`.
 
-**2b. Repo + β:**
+**2b+2d. Repo, base + pre-flight:**
 
 ```bash
-REPO=$(gh repo view --json name --jq '.name')
-BASE=$(git branch -r | grep -q 'origin/staging' && echo staging || echo main)
+bash ${CLAUDE_SKILL_DIR}/setup-preflight.sh {N} {slug}
 ```
 
-ω: `.claude/worktrees/{N}-{slug}` (via EnterWorktree). Branch base: `${BASE}`.
+Emits: `repo`, `base`, `branch_exists`, `legacy_worktree`, `worktree`, `dirty` (if worktree found), `fetch`.
+
+ω: `.claude/worktrees/{N}-{slug}` (via EnterWorktree). Branch base: `base` from output.
 
 **2c. Status:**
 
@@ -96,21 +97,9 @@ BASE=$(git branch -r | grep -q 'origin/staging' && echo staging || echo main)
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status "In Progress"
 ```
 
-**2d. Pre-flight:**
+`branch_exists` ≠ false ⇒ → DP(A) **Reuse** | **Recreate** | **Abort**
 
-```bash
-git branch --list "feat/<N>-*"
-ls -d ../${REPO}-<N> 2>/dev/null
-git fetch origin ${BASE}
-```
-
-∃ branch ⇒ → DP(A) **Reuse** | **Recreate** | **Abort**
-
-∃ ω → check dirty state:
-```bash
-git status --porcelain
-```
-¬empty ⇒ → DP(A) **Stash changes** (`git stash`) | **Reset** (`git checkout .`) | **Continue with dirty state** | **Abort**
+`worktree` ≠ false ∧ `dirty=true` ⇒ → DP(A) **Stash changes** (`git stash`) | **Reset** (`git checkout .`) | **Continue with dirty state** | **Abort**
 
 **2e. Worktree:**
 
