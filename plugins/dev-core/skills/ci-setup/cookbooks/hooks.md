@@ -10,26 +10,39 @@ Let:
 
 ## Phase 2 — Pre-commit Hooks (Optional)
 
-### 2a — Detect existing hooks
+### 2a — Resolve tool from stack.yml first
+
+Read `hooks.tool` from σ (stack.yml). σ ∄ → use `auto`.
+
+- `none` → D⏭("Pre-commit hooks — Disabled in stack.yml"), skip Phase 2.
+- `auto` ∨ absent → infer from `runtime`: `python` → **pre-commit**, else → **lefthook**.
+- explicit (`lefthook`|`pre-commit`|`husky`) → use directly.
+
+Let: tool := resolved tool name.
+Let: configFile := tool=`pre-commit` ? `.pre-commit-config.yaml` | tool=`lefthook` ? `lefthook.yml` | tool=`husky` ? `.husky/`.
+Let: hooksInstalled := `test -f .git/hooks/pre-commit && echo yes || echo no`.
+
+### 2b — Detect state
 
 Check in parallel:
 ```bash
-test -f lefthook.yml && echo found || echo missing
-test -d .husky && echo found || echo missing
-test -f .pre-commit-config.yaml && echo found || echo missing
-test -f .git/hooks/pre-commit && echo found || echo missing
+test -f lefthook.yml && echo found || echo missing        # lefthook config
+test -d .husky && echo found || echo missing              # husky config
+test -f .pre-commit-config.yaml && echo found || echo missing  # pre-commit config
+test -f .git/hooks/pre-commit && echo yes || echo no      # hooks actually installed
 ```
 
-∃ any ∧ ¬F → D("Pre-commit hooks", "✅ Already configured"), skip.
-∃ any ∧ F → AskUserQuestion: **Overwrite** (regenerate from stack.yml) | **Skip** (keep existing). Skip → D⏭("Pre-commit hooks"), stop Phase 2.
+Detect mismatch: if a config file for a *different* tool exists (not configFile for resolved tool) → warn:
+```
+⚠️  stack.yml specifies <tool> but <other-tool> config found. Run /ci-setup --force to reconfigure.
+```
+Then skip Phase 2 (don't clobber existing setup without --force).
 
-### 2b — Resolve tool
-
-Read `hooks.tool` from σ.
-
-- `none` → D⏭("Pre-commit hooks — Disabled in stack.yml"), skip.
-- `auto` ∨ absent → infer: `python` → **pre-commit**, else → **lefthook**.
-- explicit (`lefthook`|`pre-commit`|`husky`) → use directly.
+Cases (for the resolved tool):
+- configFile ∃ + hooksInstalled=yes + ¬F → D("Pre-commit hooks", "✅ Already configured"), skip Phase 2.
+- configFile ∃ + hooksInstalled=no + ¬F → config exists but hooks not installed → skip to **2d-install-only** (run install without regenerating config).
+- configFile ∃ + F → AskUserQuestion: **Overwrite** (regenerate from stack.yml) | **Skip** (keep existing). Skip → D⏭("Pre-commit hooks"), stop Phase 2.
+- configFile ∄ → proceed to 2c (full setup).
 
 ### 2c — Offer setup
 
@@ -111,6 +124,16 @@ c. Write `.pre-commit-config.yaml`:
            stages: [pre-push]
    ```
 d. `uv run pre-commit install && uv run pre-commit install --hook-type pre-push`
+
+### 2d-install-only — Re-install hooks (config exists, hooks missing)
+
+Skip config generation. Run only the install step for the resolved tool:
+- `lefthook`: `bunx lefthook install` (or `lefthook install` if Go binary)
+- `pre-commit`: `uv run pre-commit install && uv run pre-commit install --hook-type pre-push`
+- `husky`: `bunx husky`
+
+D("Pre-commit hooks", "✅ Hooks re-installed (config already present)").
+Then jump to **Common post-install** below.
 
 **Common post-install ∀ tool:**
 
