@@ -127,7 +127,17 @@ d. `uv run pre-commit install && uv run pre-commit install --hook-type pre-push`
 
 ### 2d-install-only — Re-install hooks (config exists, hooks missing)
 
-Skip config generation. Run only the install step for the resolved tool:
+Skip config generation. Before running install, check for `core.hooksPath`:
+```bash
+git config --get core.hooksPath 2>/dev/null || echo ""
+```
+∃ non-empty value → unset it (pre-commit refuses to install when set, even to the default):
+```bash
+git config --unset-all core.hooksPath
+```
+Display: `⚠️  core.hooksPath was set — unset before installing hooks.`
+
+Run only the install step for the resolved tool:
 - `lefthook`: `bunx lefthook install` (or `lefthook install` if Go binary)
 - `pre-commit`: `uv run pre-commit install && uv run pre-commit install --hook-type pre-push`
 - `husky`: `bunx husky`
