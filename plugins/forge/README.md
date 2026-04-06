@@ -106,7 +106,7 @@ Every HTML file includes `diagram:*` meta tags parsed by `serve.py` and `gen-man
 ### Cloudflare Pages
 
 ```bash
-make forge deploy-cf    # from the supervisor hub directory
+make forge deploy       # from the supervisor hub directory
 ```
 
 ### BATCHES pattern (galleries)

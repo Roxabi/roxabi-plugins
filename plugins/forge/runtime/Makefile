@@ -15,7 +15,7 @@ define ensure_forge_init
 	fi
 endef
 
-.PHONY: build deploy-cf du start stop reload status logs errlogs help
+.PHONY: build deploy du start stop reload status logs errlogs help
 
 .DEFAULT_GOAL := help
 
@@ -23,7 +23,7 @@ help:
 	@echo "Usage: make <target>"
 	@echo ""
 	@echo "  build        regenerate manifest + sync to _dist/"
-	@echo "  deploy-cf    build then deploy to Cloudflare Pages"
+	@echo "  deploy       build then deploy to Cloudflare Pages"
 	@echo "  du           disk usage by project"
 	@echo "  start        start forge service"
 	@echo "  stop         stop forge service"
@@ -35,7 +35,7 @@ help:
 build:
 	@bash "$(SCRIPTS_DIR)/build.sh"
 
-deploy-cf: build
+deploy: build
 	@echo "Deploying to Cloudflare Pages..."
 	@npx wrangler pages deploy "$(FORGE_DIR)_dist" --project-name=diagrams --branch=main --commit-dirty=true
 

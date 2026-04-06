@@ -13,7 +13,7 @@ help:
 	@echo "  deploy   copy server files, scripts, and runtime Makefile → $(FORGE_DIR)/"
 	@echo "  register symlink supervisor config + generate hub delegation"
 	@echo ""
-	@echo "For day-to-day operations (build/deploy-cf/deploy-prod/start/stop/etc.):"
+	@echo "For day-to-day operations (build/deploy/start/stop/etc.):"
 	@echo "  make -C $(FORGE_DIR) <target>"
 	@echo "  or: make forge <target>  (from ~/projects/)"
 
