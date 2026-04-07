@@ -301,9 +301,14 @@ async function discoverBatch(cfg, itemBuilder) {
       const listing = await r.json()
       return listing
         .filter((f) => f.name.endsWith(ext))
-        .map((f) => f.name.replace(ext, ''))
-        .sort()
-        .map((stem) => build(stem, cfg))
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((f) => {
+          const stem = f.name.replace(ext, '')
+          /* Enriched manifest: entry carries label + tags — no catalogue lookup needed */
+          if (f.label !== undefined || f.tags !== undefined)
+            return { stem, file: f.name, label: f.label || stem, tags: f.tags || [], batch: c.id, dir: c.dir }
+          return build(stem, cfg)
+        })
     }
   } catch (_) {}
   /* Fallback: /api/list/ */

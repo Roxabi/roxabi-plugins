@@ -197,6 +197,37 @@ cd ~/projects/lyra-stack && make forge deploy
 
 Best for iterative exploration (V1 → V2 → V3 batches) with starring.
 
+### Generated batches — enriched manifest (no hardcoded CATALOGUE)
+
+When images are script-generated (e.g. `generate_prompts.py` producing 2000+ images), the
+`manifest.json` inside the image dir carries `label` and `tags` per entry. `discoverBatch`
+reads them directly — no `CATALOGUE_VNN` object needed:
+
+```javascript
+const BATCHES = [
+  // Hand-curated batch — static catalogue
+  { id:'v1', label:'V1 Exploration', dir:'concepts/avatar-v1/', catalogue: CATALOGUE_V1 },
+  // Generated batch — enriched manifest, no catalogue
+  { id:'vNNN', label:'V24 — 2000 images', dir:'concepts/avatar-vNNN/' },
+];
+```
+
+The enriched `manifest.json` format (written by `generate_prompts.py`):
+```json
+[
+  { "name": "P0012.png", "label": "Headshot · Three-quarter right · Soft smirk · Studio · Dark",
+    "tags": ["headshot", "3Q-right", "soft-smirk", "studio", "dark"], "size": 0, "mtime": 0 }
+]
+```
+
+`discoverBatch` checks `f.label !== undefined || f.tags !== undefined` on each entry and short-circuits
+the catalogue lookup when the manifest is enriched. Backwards-compatible: non-enriched manifests
+(`{name, size, mtime}` only) continue to use `catalogue?.[stem]` as before.
+
+**Rule:** use enriched manifest for any batch where the label/tags are derivable from prompt axes.
+Use a static `CATALOGUE` only for hand-curated batches where you want custom labels or tags that
+can't be inferred from filenames.
+
 ### Key config objects:
 
 ```javascript
