@@ -67,13 +67,21 @@ interface ER {
   ch: CI[]
 }
 
-function countAll(items: any[]): number {
+interface RawNode {
+  number: number
+  title: string
+  state: string
+  body?: string
+  subIssues?: { nodes: RawNode[] }
+}
+
+function countAll(items: RawNode[]): number {
   return items.reduce((acc, i) => acc + 1 + (i.subIssues?.nodes?.length ?? 0), 0)
 }
-function countClosed(items: any[]): number {
+function countClosed(items: RawNode[]): number {
   return items.reduce((acc, i) => {
     const self = i.state === 'CLOSED' ? 1 : 0
-    const subs = (i.subIssues?.nodes ?? []).filter((c: any) => c.state === 'CLOSED').length
+    const subs = (i.subIssues?.nodes ?? []).filter((c) => c.state === 'CLOSED').length
     return acc + self + subs
   }, 0)
 }
@@ -106,7 +114,7 @@ const issueFields = `
 `
 const aliases = epics.map((e, i) => `e${i}: issue(number: ${e.number}) { ${issueFields} }`).join('\n')
 const query = `{ repository(owner: "${owner}", name: "${repo}") { ${aliases} } }`
-const raw = ghGraphQL(query) as { data: { repository: Record<string, any> } }
+const raw = ghGraphQL(query) as { data: { repository: Record<string, RawNode> } }
 const repoData = raw.data.repository
 
 // ── 3. Build structured data ─────────────────────────────────────────────────
@@ -114,22 +122,22 @@ const result: ER[] = epics.flatMap((_epic, i) => {
   const data = repoData[`e${i}`]
   if (!data) return []
 
-  const rawCh: any[] = data.subIssues?.nodes ?? []
+  const rawCh: RawNode[] = data.subIssues?.nodes ?? []
   const pr = { d: countClosed(rawCh), tot: countAll(rawCh) }
 
-  const ch: CI[] = rawCh.map((c: any) => ({
+  const ch: CI[] = rawCh.map((c) => ({
     n: c.number,
     t: c.title,
     s: c.state === 'OPEN' ? 'O' : ('C' as 'O' | 'C'),
-    bl: parseBlockedBy(c.body),
-    ch: (c.subIssues?.nodes ?? []).map((gc: any) => ({
+    bl: parseBlockedBy(c.body ?? null),
+    ch: (c.subIssues?.nodes ?? []).map((gc) => ({
       n: gc.number,
       t: gc.title,
       s: gc.state === 'OPEN' ? 'O' : ('C' as 'O' | 'C'),
     })),
   }))
 
-  return [{ n: data.number, t: data.title, pr, bl: parseBlockedBy(data.body), ch }]
+  return [{ n: data.number, t: data.title, pr, bl: parseBlockedBy(data.body ?? null), ch }]
 })
 
 // ── 4. Render status table ───────────────────────────────────────────────────
