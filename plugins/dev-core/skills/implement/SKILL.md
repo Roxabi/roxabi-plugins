@@ -152,13 +152,21 @@ Read spec + ref patterns → create + implement → tests → QG → loop until 
 
 ### Tier F — Agent-Driven (test-first)
 
-Spawn via `Task` (subagent/domain). Sequential ∨ parallel (2–3 max).
+Spawn via `Task` tool (subagent/domain). Sequential ∨ parallel (2–3 max).
 
 **Per agent spawn:**
 1. `TaskUpdate(task_id, status: "in_progress", owner: "{agent}")`.
 2. `TaskGet(task_id)` → inject `description` + `metadata` verbatim into the subagent's prompt. The agent reads its own task context from the task list.
-3. Subagent runs → returns.
-4. Verify → ✓ → `TaskUpdate(task_id, status: "completed")`. ✗ → retry (≤3).
+3. Spawn:
+   ```
+   Task(
+     subagent_type: "dev-core:{agent}",
+     description: "{agent}: {phase} — #{N} {slug}",
+     prompt: "Issue #{N}. Task: {TaskGet.description}. Target: {file_path}. Skeleton: {code_snippet}. Verify: {verify_command}. Ref pattern: {pattern_file}. ¬TaskCreate — task lifecycle managed by lead."
+   )
+   ```
+   Agent name map: `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `doc-writer` → `dev-core:doc-writer` | `architect` → `dev-core:architect` | `security-auditor` → `dev-core:security-auditor`
+4. Subagent returns → verify → ✓ → `TaskUpdate(task_id, status: "completed")`. ✗ → retry (≤3).
 
 **RED → GREEN → REFACTOR:**
 1. **RED** — tester: write failing tests from spec. Structural verify only (grep test structure). Tests expected to fail pre-impl. Create RED-GATE sentinel per slice. RED tasks flip `completed` as each test file lands.

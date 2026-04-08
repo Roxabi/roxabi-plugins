@@ -135,7 +135,15 @@ Auto-select ρ (¬ask user). Architect always included:
 | product-lead | Always | Criteria quality, scope, user story validity |
 | devops | ∃ CI/CD / deploy / infra criteria | Operational feasibility |
 
-∀ r ∈ ρ → spawn ∥ `Task(subagent_type: "<r>", prompt: "Review σ for <focus>. Check pre-check results. Return: good / needs improvement / concerns.")`.
+∀ r ∈ ρ → spawn ∥:
+```
+Task(
+  subagent_type: "dev-core:<r>",
+  description: "<r> spec review — #{N}",
+  prompt: "Review the spec at {σ_path} for <focus>. Check pre-check results: {pre_check_summary}. ¬TaskCreate. Return: good / needs improvement / concerns + specific line references."
+)
+```
+Agent name map: `architect` → `dev-core:architect` | `doc-writer` → `dev-core:doc-writer` | `product-lead` → `dev-core:product-lead` | `devops` → `dev-core:devops`
 
 Incorporate feedback → revise σ → note unresolved concerns.
 

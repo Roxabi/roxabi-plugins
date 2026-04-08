@@ -99,6 +99,18 @@ Skip rules: architect → |Δ| ≤ 5 ∧ ¬arch keywords | product-lead → spec
 
 3. scope = Δ ∪ ⋃{resolve(imports(f)) | f ∈ Δ} ∪ `{backend.path}/src/auth/**` — deduplicate
 
+### Spawn template
+
+```
+Task(
+  subagent_type: "dev-core:{agent}",
+  description: "{agent} review — {PR#|branch}",
+  prompt: "Code review task. Focus: {focus}. Output Conventional Comments findings only. ¬TaskCreate.\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\n---DIFF---\n{diff}\n\n---FILES---\n{changed file contents}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
+)
+```
+
+Agent name map: `security-auditor` → `dev-core:security-auditor` | `architect` → `dev-core:architect` | `product-lead` → `dev-core:product-lead` | `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops`
+
 ### Agent payload
 
 Each agent receives: full diff + Δ + spec (if ∃) + "output Conventional Comments".
