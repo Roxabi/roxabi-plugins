@@ -78,8 +78,11 @@ Let N := issue number extracted from $ARGUMENTS (e.g. `--show 42` → N=42).
 
 **`--digest` ∨ `-D` ∈ $ARGUMENTS →**
 
-1. `Φ_i/digest.ts`
-2. Output verbatim. ⊣ — ¬trailing summary. ¬WIP.
+1. `Φ_i/digest.ts` — outputs pre-rendered markdown + a `<!-- lanes:{…} -->` comment
+2. Print the markdown section verbatim (table already rendered — ¬re-render).
+3. Generate `## Execution order — N parallel lanes` using the `lanes` JSON comment:
+   `[{n, bl:[blockerNums], sub:[subEpicNums]}]` — titles visible in table above.
+   Group by dependency chain → lanes → phases. ⊣ — ¬trailing summary. ¬WIP.
 
 ---
 

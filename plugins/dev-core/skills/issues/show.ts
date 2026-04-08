@@ -40,7 +40,10 @@ function parseBlockedBy(body: string | null): number[] {
   const nums: number[] = []
   let inSection = false
   for (const line of body.split('\n')) {
-    if (/^##\s+blocked by/i.test(line)) { inSection = true; continue }
+    if (/^##\s+blocked by/i.test(line)) {
+      inSection = true
+      continue
+    }
     if (inSection && /^##/.test(line)) break
     if (inSection) {
       for (const m of line.matchAll(/#(\d+)/g)) nums.push(parseInt(m[1]))
@@ -54,7 +57,10 @@ function stripBlockedBySection(body: string): string {
   const out: string[] = []
   let skip = false
   for (const line of lines) {
-    if (/^##\s+blocked by/i.test(line)) { skip = true; continue }
+    if (/^##\s+blocked by/i.test(line)) {
+      skip = true
+      continue
+    }
     if (skip && /^##/.test(line)) skip = false
     if (!skip) out.push(line)
   }
@@ -99,7 +105,11 @@ const raw = execSync(
 const issue: GhIssue = JSON.parse(raw)
 
 // ── 2. Sub-issues via GraphQL ────────────────────────────────────────────────
-interface SubIssue { number: number; title: string; state: 'OPEN' | 'CLOSED' }
+interface SubIssue {
+  number: number
+  title: string
+  state: 'OPEN' | 'CLOSED'
+}
 
 const { owner, repo } = detectRepo()
 const gqlRaw = ghGraphQL(`{
@@ -115,7 +125,11 @@ const gqlRaw = ghGraphQL(`{
 const subIssues: SubIssue[] = gqlRaw.data.repository.issue?.subIssues?.nodes ?? []
 
 // ── 3. Blocked-by state via GraphQL (actual GitHub blockers, not just body) ──
-interface BlockerNode { number: number; title: string; state: 'OPEN' | 'CLOSED' }
+interface BlockerNode {
+  number: number
+  title: string
+  state: 'OPEN' | 'CLOSED'
+}
 
 const blockersRaw = ghGraphQL(`{
   repository(owner: "${owner}", name: "${repo}") {
@@ -157,7 +171,9 @@ if (issue.assignees.length) meta.push(`Assignees: ${issue.assignees.map((a) => '
 if (issue.milestone) meta.push(`Milestone: ${issue.milestone.title}`)
 lines.push(meta.join(' | '))
 
-lines.push(`Created: ${fmtDate(issue.createdAt)} | Updated: ${fmtDate(issue.updatedAt)}${issue.closedAt ? ` | Closed: ${fmtDate(issue.closedAt)}` : ''}`)
+lines.push(
+  `Created: ${fmtDate(issue.createdAt)} | Updated: ${fmtDate(issue.updatedAt)}${issue.closedAt ? ` | Closed: ${fmtDate(issue.closedAt)}` : ''}`,
+)
 lines.push('')
 
 // Description (body minus Blocked by section)
