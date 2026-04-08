@@ -1,6 +1,6 @@
 ---
 name: issues
-argument-hint: [--dashboard | --stop | --digest | -D | --json | --tree | -T | --priority]
+argument-hint: [--dashboard | --stop | --digest | -D | --show <N> | --json | --tree | -T | --priority]
 description: List/dashboard GitHub issues — status, dependencies, backlog. Triggers: "list issues" | "show issues" | "backlog" | "issue dashboard" | "what's blocked" | "what issues are open" | "show backlog" | "show the board" | "what are we working on" | "issue status" | "digest" | "roadmap" | "phase view" | "execution order" | "what should I work on".
 version: 0.3.0
 allowed-tools: Bash, Read
@@ -63,6 +63,15 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
 
 ---
 
+**`--show <N>` ∈ $ARGUMENTS →**
+
+Let N := issue number extracted from $ARGUMENTS (e.g. `--show 42` → N=42).
+
+1. `Φ_i/show.ts N`
+2. Output verbatim. ⊣ — ¬WIP, ¬recommendations
+
+---
+
 **`--tree` ∨ `-T` ∈ $ARGUMENTS →** Pass flag to fetch script (step 1), output verbatim. ⊣ — ¬WIP.
 
 ---
@@ -70,39 +79,7 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
 **`--digest` ∨ `-D` ∈ $ARGUMENTS →**
 
 1. `Φ_i/digest.ts`
-
-2. JSON → **Current stat**:
-
-   ```
-   ## Current stat
-   | # | Epic | Progress | Open | Next |
-   |---|------|----------|------|------|
-   | #N | Title | ████░ X/Y | Z open | #N title |
-   ```
-
-   - Progress: 5 blocks, filled = `round(closed/total×5)`. All closed → `✅`
-   - Open: |OPEN issues| across full sub-tree
-   - Next: first OPEN child ∧ ¬open blockers. `⏸` if ∀ open children blocked
-   - Sub-epic ∈ parent epic → indent, ¬top-level row
-
-3. JSON → **Execution order** — workstreams = independent (¬shared files/domain, ¬mutual blockers), named by theme, one phase/row:
-
-   ```
-   ## Execution order — N parallel lanes
-
-   Phase  Lane A            Lane B              Notes
-   ─────  ──────            ──────              ─────
-     1    #N desc           #N desc             note
-     2    ↓ #N desc         ⏸ parked: #ext      reason
-   ```
-
-   - `⏸ parked: #N` → blocked by external (¬epic tree) issue
-   - `✅ #N` → closed, shown for dep-chain context only
-   - Same phase ∀ items ∧ ¬mutual dep
-   - Notes: file conflicts, deferral gates, architectural constraints
-   - |lane| = 1 → fold into adjacent lane
-
-4. ⊣ — ¬trailing summary. ¬WIP.
+2. Output verbatim. ⊣ — ¬trailing summary. ¬WIP.
 
 ---
 
@@ -129,6 +106,7 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
 | `--dashboard` | Launch live HTML δ as background daemon |
 | `--stop` | Stop δ daemon |
 | `--digest` / `-D` | Epic progress + parallel execution order digest |
+| `--show <N>` | Full details for issue #N — body, sub-issues, blockers, comments |
 | (none) | Table sorted by Priority, then Size |
 | `--tree` / `-T` | Compact tree view — full titles, inline metadata, all depths |
 | `--json` | Raw JSON |
