@@ -1,14 +1,14 @@
 ---
 name: issues
-argument-hint: [--dashboard | --stop | --json | --tree | -T | --priority]
-description: List/dashboard GitHub issues — status, dependencies, backlog. Triggers: "list issues" | "show issues" | "backlog" | "issue dashboard" | "what's blocked" | "what issues are open" | "show backlog" | "show the board" | "what are we working on" | "issue status".
-version: 0.2.0
+argument-hint: [--dashboard | --stop | --digest | -D | --json | --tree | -T | --priority]
+description: List/dashboard GitHub issues — status, dependencies, backlog. Triggers: "list issues" | "show issues" | "backlog" | "issue dashboard" | "what's blocked" | "what issues are open" | "show backlog" | "show the board" | "what are we working on" | "issue status" | "digest" | "roadmap" | "phase view" | "execution order" | "what should I work on".
+version: 0.3.0
 allowed-tools: Bash, Read
 ---
 
 # Issues
 
-Let: δ := dashboard | Φ := CLAUDE_PLUGIN_ROOT
+Let: δ := dashboard | Φ := CLAUDE_PLUGIN_ROOT | Φ_i := bun ${CLAUDE_PLUGIN_ROOT}/skills/issues | ⊣ := Stop here | HOST := http://localhost:3333
 
 List open GitHub issues with Status, Size, Priority, dependency relationships.
 
@@ -22,7 +22,6 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
    PID_FILE="$DASH_DIR/.dashboard.pid"
    LOG_FILE="$DASH_DIR/.dashboard.log"
 
-   # Kill previous instance if running
    if [ -f "$PID_FILE" ]; then
      OLD_PID=$(cat "$PID_FILE")
      kill "$OLD_PID" 2>/dev/null && echo "Stopped previous dashboard (PID $OLD_PID)" || true
@@ -30,15 +29,10 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
      sleep 1
    fi
 
-   # Launch as detached daemon
    nohup bun "${CLAUDE_PLUGIN_ROOT}/skills/issues/dashboard.ts" > "$LOG_FILE" 2>&1 &
    disown
 
-   # Wait for PID file to appear (confirms server started)
-   for i in 1 2 3 4 5; do
-     [ -f "$PID_FILE" ] && break
-     sleep 1
-   done
+   for i in 1 2 3 4 5; do [ -f "$PID_FILE" ] && break; sleep 1; done
 
    if [ -f "$PID_FILE" ]; then
      echo "Dashboard running (PID $(cat "$PID_FILE"))"
@@ -47,9 +41,9 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
    fi
    ```
 
-2. Verify: `curl -s -o /dev/null -w "HTTP %{http_code}" http://localhost:3333`
-3. Inform: "Dashboard at http://localhost:3333 — refresh for latest. Stop with `/issues --stop`."
-4. **Stop here** — ¬run CLI table.
+2. Verify: `curl -s -o /dev/null -w "HTTP %{http_code}" HOST`
+3. Inform: "Dashboard at HOST — refresh for latest. Stop with `/issues --stop`."
+4. ⊣ — ¬run CLI table.
 
 ---
 
@@ -65,37 +59,68 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
      echo "No dashboard running."
    fi
    ```
-2. **Stop here.**
+2. ⊣
 
 ---
 
-**`--tree` ∨ `-T` ∈ $ARGUMENTS →** Pass flag to fetch script (step 1 below), present output verbatim. **Stop here** — ¬show WIP section.
+**`--tree` ∨ `-T` ∈ $ARGUMENTS →** Pass flag to fetch script (step 1), output verbatim. ⊣ — ¬WIP.
+
+---
+
+**`--digest` ∨ `-D` ∈ $ARGUMENTS →**
+
+1. `Φ_i/digest.ts`
+
+2. JSON → **Current stat**:
+
+   ```
+   ## Current stat
+   | # | Epic | Progress | Open | Next |
+   |---|------|----------|------|------|
+   | #N | Title | ████░ X/Y | Z open | #N title |
+   ```
+
+   - Progress: 5 blocks, filled = `round(closed/total×5)`. All closed → `✅`
+   - Open: |OPEN issues| across full sub-tree
+   - Next: first OPEN child ∧ ¬open blockers. `⏸` if ∀ open children blocked
+   - Sub-epic ∈ parent epic → indent, ¬top-level row
+
+3. JSON → **Execution order** — workstreams = independent (¬shared files/domain, ¬mutual blockers), named by theme, one phase/row:
+
+   ```
+   ## Execution order — N parallel lanes
+
+   Phase  Lane A            Lane B              Notes
+   ─────  ──────            ──────              ─────
+     1    #N desc           #N desc             note
+     2    ↓ #N desc         ⏸ parked: #ext      reason
+   ```
+
+   - `⏸ parked: #N` → blocked by external (¬epic tree) issue
+   - `✅ #N` → closed, shown for dep-chain context only
+   - Same phase ∀ items ∧ ¬mutual dep
+   - Notes: file conflicts, deferral gates, architectural constraints
+   - |lane| = 1 → fold into adjacent lane
+
+4. ⊣ — ¬trailing summary. ¬WIP.
 
 ---
 
 **Default (CLI table):**
 
-1. Fetch:
-   ```bash
-   bun ${CLAUDE_PLUGIN_ROOT}/skills/issues/fetch-issues.ts
-   ```
+1. `Φ_i/fetch-issues.ts`
 
-2. Present output in code block. ¬reformat — script produces formatted table. **Display ALL lines verbatim — ¬truncate, summarize, or omit rows.**
+2. Output verbatim in code block. ¬reformat. ¬truncate/summarize/omit rows.
 
-3. Recommendations (2-3 lines max):
-   - ✅ ∧ P0/P1 → prioritize
-   - Missing Size ∨ Priority → suggest `/issue-triage`
-   - Many blocked → identify critical blocker
+3. Recommendations (≤3 lines): ✅ ∧ P0/P1 → prioritize | ¬Size ∨ ¬Priority → suggest `/issue-triage` | many blocked → identify critical blocker
 
-4. Work in progress:
+4. WIP:
    ```bash
    git worktree list
    git branch --list | grep -v -E '^\*?\s*(main|master)$'
    gh pr list --state open --json number,title,headRefName,isDraft,labels
    ```
-
-   Present as "Work in Progress": worktrees beyond main; feature branches related to issues; PRs: title + PR# + status, branch indented with `└`.
-   **PR status**: `DRAFT` if draft | `REVIEWED` if label "reviewed" ∃ | else `REVIEW`
+   Present: worktrees ¬main; issue-related branches; PRs: title + PR# + status, branch → `└`. Status: `DRAFT` if draft | `REVIEWED` if "reviewed" label ∃ | else `REVIEW`
 
 ## Options
 
@@ -103,6 +128,7 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
 |------|-------------|
 | `--dashboard` | Launch live HTML δ as background daemon |
 | `--stop` | Stop δ daemon |
+| `--digest` / `-D` | Epic progress + parallel execution order digest |
 | (none) | Table sorted by Priority, then Size |
 | `--tree` / `-T` | Compact tree view — full titles, inline metadata, all depths |
 | `--json` | Raw JSON |
@@ -151,11 +177,11 @@ List open GitHub issues with Status, Size, Priority, dependency relationships.
 
 ## Dependencies
 
-Displays dependency relationships. To **modify** deps → use `/issue-triage`.
+Dep view only. Modify → `/issue-triage`.
 
 ## Configuration
 
-`/init` auto-detects env vars. `GITHUB_REPO` from git remote if ¬set. `GH_PROJECT_ID` required for project board.
+`/init` auto-detects. `GITHUB_REPO` ← git remote. `GH_PROJECT_ID` required.
 
 - `GH_PROJECT_ID` — GitHub Project V2 ID (**required**)
 - `GITHUB_REPO` — `owner/repo` (auto-detected)
