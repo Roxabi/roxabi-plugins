@@ -38,14 +38,16 @@ Set up σ early — later phases read runtime, package manager, commands, deploy
 
 ### Phase 1b — Global Patterns Injection
 
-Inject plugin-managed always-on behavioral patterns (decision protocol, agent discipline, context discipline, dev process, worktree, parallel execution, git) into the project via a gitignored file loaded by CLAUDE.md.
+Inject plugin-managed always-on behavioral patterns (decision protocol, agent discipline, context discipline, dev process, worktree, parallel execution, git) into `~/.claude/shared/global-patterns.md` (one shared copy) and reference it directly from CLAUDE.md.
 
-1. `cp "${Φ}/../shared/references/global-patterns.md" .claude/dev-core.md`. D✅("global-patterns").
-2. `grep -q '@.claude/dev-core.md' CLAUDE.md 2>/dev/null` → ∃ → D("@.claude/dev-core.md", "✅ Already present"), skip.
-   ¬∃ → prepend `@.claude/dev-core.md\n` to CLAUDE.md (after `@.claude/stack.yml` line if present, otherwise at top). D✅("@.claude/dev-core.md").
-3. ensureGitignore(`.claude/dev-core.md`). D✅(".gitignore entry").
+1. `mkdir -p ~/.claude/shared/`
+2. [F ∨ `¬test -f ~/.claude/shared/global-patterns.md`] → `cp "${Φ}/../shared/references/global-patterns.md" ~/.claude/shared/global-patterns.md`. D✅("~/.claude/shared/global-patterns.md").
+   ∃ ∧ ¬F → D("~/.claude/shared/global-patterns.md", "✅ Already present"), skip copy.
+3. `grep -q '@~/.claude/shared/global-patterns.md' CLAUDE.md 2>/dev/null` → ∃ → D("@global-patterns", "✅ Already present"), skip.
+   ¬∃ → remove `@.claude/dev-core.md` line from CLAUDE.md if present. Prepend `@~/.claude/shared/global-patterns.md\n` (after `@.claude/stack.yml` line if present, otherwise at top). D✅("@~/.claude/shared/global-patterns.md").
+4. `test -f .claude/dev-core.md` → `rm .claude/dev-core.md`. Remove `.claude/dev-core.md` from .gitignore if present. D✅("removed .claude/dev-core.md").
 
-Re-run (`--force`): always overwrite `.claude/dev-core.md` with latest plugin version.
+Re-run (`--force`): overwrite `~/.claude/shared/global-patterns.md` with latest plugin version.
 
 ## Phase 2 — Scaffold CLAUDE.md Critical Rules
 

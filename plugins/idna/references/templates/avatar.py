@@ -1,7 +1,39 @@
-from .base import BaseTemplate
+from .base import AxisTemplate
+
+DEFAULT_ANCHOR = "personnal avatar"
+
+DEFAULT_AXES = [
+    {"name": "medium",      "low": "photo, photorealistic, camera",               "high": "illustration, painterly, stylized"},
+    {"name": "proportion",  "low": "chibi, super-deformed, SD, big head small body", "high": "realistic proportions, anatomical, normal body ratio"},
+    {"name": "aesthetic",   "low": "kawaii, pastel colors, cute, soft, adorable",  "high": "manga, ink lines, screentone, graphic novel, black and white"},
+    {"name": "finish",      "low": "matte, flat, minimal rendering",               "high": "glossy, detailed, rich texture"},
+    {"name": "energy",      "low": "calm, serene, soft, gentle",                   "high": "dynamic, bold, expressive, intense"},
+    {"name": "geometry",    "low": "organic shapes, flowing curves",               "high": "geometric, angular, sharp edges"},
+    {"name": "weight",      "low": "light, airy, delicate strokes",                "high": "bold, heavy, impactful, saturated"},
+    {"name": "saturation",  "low": "desaturated, muted, neutral, grey",            "high": "vibrant, saturated, vivid color"},
+    {"name": "hue_shift",   "low": "green, teal, emerald, jade tones",             "high": "purple, violet, magenta tones"},
+    {"name": "warmth",      "low": "cool tones, blue-grey palette",                "high": "warm tones, amber-golden palette"},
+    {"name": "hue",         "low": "cool, blue-purple dominant",                   "high": "warm, red-orange dominant"},
+    {"name": "background",  "low": "light background, white, bright",              "high": "dark background, black, deep"},
+    {"name": "complexity",  "low": "minimal, clean, simple composition",           "high": "complex, layered, detailed, busy"},
+    {"name": "lighting",    "low": "flat, even, ambient light, soft fill",          "high": "dramatic, rim light, chiaroscuro, strong shadows"},
+    {"name": "line_weight", "low": "thin, delicate, hairline linework",              "high": "thick, bold, heavy outlines, strong contours"},
+    {"name": "perspective", "low": "close-up portrait, face only, bust",             "high": "full body, wide shot, head-to-toe"},
+    {"name": "expression",  "low": "neutral, calm, serene, resting face",            "high": "intense, emotional, dramatic expression"},
+    {"name": "age",         "low": "young, youthful, fresh-faced, childlike",        "high": "mature, weathered, aged, adult"},
+    {"name": "texture",     "low": "smooth, clean, digital, polished",               "high": "rough, painterly, textured brush strokes"},
+]
+
+DEFAULT_AXIS_PRIORITY = [
+    "medium", "proportion", "aesthetic",
+    "finish", "energy", "saturation",
+    "hue_shift", "warmth", "hue",
+    "geometry", "weight", "background", "complexity",
+    "lighting", "line_weight", "perspective", "expression", "age", "texture",
+]
 
 
-class AvatarTemplate(BaseTemplate):
+class AvatarTemplate(AxisTemplate):
     name = "avatar"
     artifact_type = "image"
 
@@ -10,52 +42,5 @@ class AvatarTemplate(BaseTemplate):
     FINAL_WIDTH = 768
     FINAL_HEIGHT = 1024
 
-    def build_params(self, pole: dict, vocabulary: dict) -> dict:
-        return {
-            "pole_name": pole["name"],
-            "tags": list(pole["tags"]),
-            "style_string": ", ".join(pole["tags"]),
-        }
-
-    def mutate(self, parent_params: dict, mutation: str, vocabulary: dict, parent_id: str) -> dict:
-        vocab = vocabulary.get("mutation_vocab", {})
-        tags = list(parent_params.get("tags", []))
-        pole_name = parent_params.get("pole_name", "")
-
-        if mutation == "amplify":
-            mods = vocab.get("amplify_mods", ["extreme", "maximum intensity", "pushed to the limit"])
-            mod = mods[hash(parent_id) % len(mods)]
-            tags = [f"{t}, {mod}" if i == 0 else t for i, t in enumerate(tags)]
-            pole_name = f"{pole_name}-amplified"
-
-        elif mutation == "blend":
-            contrast_name = parent_params.get("contrast_pole")
-            contrast_tags = []
-            for pole in vocabulary.get("poles", []):
-                if pole["name"] == contrast_name:
-                    contrast_tags = pole["tags"]
-                    break
-            if contrast_tags:
-                n_parent = max(1, int(len(tags) * 0.6))
-                n_contrast = max(1, int(len(contrast_tags) * 0.4))
-                tags = tags[:n_parent] + contrast_tags[:n_contrast]
-            pole_name = f"{pole_name}-blended"
-
-        elif mutation == "refine":
-            refiners = vocab.get("refine_mods", ["polished", "cleaner composition", "more natural"])
-            mod = refiners[hash(parent_id) % len(refiners)]
-            tags = tags + [mod]
-            pole_name = f"{pole_name}-refined"
-
-        return {
-            "pole_name": pole_name,
-            "tags": tags,
-            "style_string": ", ".join(tags),
-        }
-
-    def build_prompt(self, params: dict, anchor: str) -> str:
-        style = params.get("style_string", "")
-        return f"{anchor}, {style}, portrait photography, professional"
-
-    def artifact_path(self, node_id: str, round_num: int) -> str:
-        return f"round_{round_num}/{node_id}.png"
+    def _prompt_template(self, anchor: str, tags: str) -> str:
+        return f"{anchor}, {tags}, portrait photography, professional"

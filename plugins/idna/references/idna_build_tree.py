@@ -9,6 +9,7 @@ Usage:
     python idna_build_tree.py <session_dir> [--depth 3]
 
 Reads session.json (must have 'vocabulary' from idna_setup.py).
+Width is read from session.json (set by idna_setup.py).
 Writes all node params/prompts + job files. Zero LLM calls.
 """
 
@@ -21,18 +22,18 @@ from pathlib import Path
 
 # ── Tree structure helpers ────────────────────────────────────────────────────
 
-MUTATIONS = [("va", "amplify"), ("vb", "blend"), ("vc", "refine")]
+_CHILD_SUFFIXES = ["va", "vb", "vc", "vd", "ve", "vf", "vg", "vh", "vi"]
 
 
-def node_count(depth: int) -> int:
-    return sum(4 * (3 ** r) for r in range(depth + 1))
+def node_count(depth: int, width: int) -> int:
+    return sum(width * (width ** r) for r in range(depth + 1))
 
 
-def round_nodes(round_num: int) -> list[str]:
+def round_nodes(round_num: int, width: int) -> list[str]:
     if round_num == 0:
-        return [f"v{i}" for i in range(4)]
-    parents = round_nodes(round_num - 1)
-    return [f"{p}-{suffix}" for p in parents for suffix, _ in MUTATIONS]
+        return [f"v{i}" for i in range(width)]
+    parents = round_nodes(round_num - 1, width)
+    return [f"{p}-{_CHILD_SUFFIXES[i]}" for p in parents for i in range(width)]
 
 
 def node_seed(node_id: str) -> int:
@@ -40,24 +41,18 @@ def node_seed(node_id: str) -> int:
     if round_num == 0:
         return int(node_id[1:])
     suffix = node_id.rsplit("-", 1)[1]
-    return round_num * 100 + {"va": 0, "vb": 1, "vc": 2}[suffix]
+    idx = _CHILD_SUFFIXES.index(suffix) if suffix in _CHILD_SUFFIXES else 0
+    return round_num * 100 + idx
 
 
 def node_parent(node_id: str) -> str | None:
     return node_id.rsplit("-", 1)[0] if "-" in node_id else None
 
 
-def node_mutation(node_id: str) -> str | None:
-    if "-" not in node_id:
-        return None
-    return {"va": "amplify", "vb": "blend", "vc": "refine"}.get(node_id.rsplit("-", 1)[1])
-
-
 def node_label(node_id: str) -> str:
     if "-" not in node_id:
         return f"V{node_id[1:]}"
-    suffix = node_id.rsplit("-", 1)[1]
-    return {"va": "Va", "vb": "Vb", "vc": "Vc"}[suffix]
+    return node_id.rsplit("-", 1)[1].upper()
 
 
 # ── Tree builder ──────────────────────────────────────────────────────────────
@@ -71,6 +66,7 @@ def build_tree(session_dir: Path, depth: int) -> None:
         print("ERROR: session.json missing 'vocabulary'. Run idna_setup.py first.", file=sys.stderr)
         sys.exit(1)
 
+    width = session.get("width", 3)
     template_name = session.get("template", "avatar")
     anchor = session.get("anchor", "")
 
@@ -79,18 +75,18 @@ def build_tree(session_dir: Path, depth: int) -> None:
     tmpl = get_template(template_name)
 
     poles = vocabulary.get("poles", [])
-    if len(poles) < 4:
-        print(f"ERROR: vocabulary needs 4 poles, got {len(poles)}", file=sys.stderr)
+    if len(poles) < width:
+        print(f"ERROR: vocabulary needs {width} poles, got {len(poles)}", file=sys.stderr)
         sys.exit(1)
 
-    total = node_count(depth)
-    print(f"IDNA tree builder — template={template_name}, depth={depth}, total={total} nodes (0 LLM calls)")
+    total = node_count(depth, width)
+    print(f"IDNA tree builder — template={template_name}, depth={depth}, width={width}, total={total} nodes (0 LLM calls)")
     print()
 
     nodes = session.get("nodes", {})
 
     # Build round 0 from poles
-    for i, node_id in enumerate(round_nodes(0)):
+    for i, node_id in enumerate(round_nodes(0, width)):
         if node_id in nodes:
             continue
         pole = poles[i]
@@ -109,15 +105,23 @@ def build_tree(session_dir: Path, depth: int) -> None:
             "anchor": anchor,
         }
 
-    # Build subsequent rounds via mutation
+    # Build subsequent rounds via axis mutation
     for round_num in range(1, depth + 1):
-        for node_id in round_nodes(round_num):
+        for node_id in round_nodes(round_num, width):
             if node_id in nodes:
                 continue
             parent_id = node_parent(node_id)
-            mutation = node_mutation(node_id)
+            suffix = node_id.rsplit("-", 1)[1]
+            child_index = _CHILD_SUFFIXES.index(suffix) if suffix in _CHILD_SUFFIXES else 0
             parent_params = nodes[parent_id]["params"]
-            params = tmpl.mutate(parent_params, mutation, vocabulary, parent_id)
+            parent_round = round_num - 1  # parent is one round up
+
+            # Use template's child_mutation_key (axis-aware for image templates)
+            mutation = tmpl.child_mutation_key(child_index, parent_params, vocabulary, parent_round, width)
+
+            # Salt only for legacy (non-axis) templates to vary hash-based selection
+            salt = "" if mutation.startswith("axis:") else (f":{child_index // 3}" if child_index >= 3 else "")
+            params = tmpl.mutate(parent_params, mutation, vocabulary, parent_id + salt)
             prompt = tmpl.build_prompt(params, anchor)
             nodes[node_id] = {
                 "id": node_id,
@@ -134,7 +138,7 @@ def build_tree(session_dir: Path, depth: int) -> None:
 
     print(f"  → {len(nodes)} nodes built from vocabulary")
 
-    # Write job files (for image/audio templates that need external rendering)
+    # Write job files
     print(f"\nWriting job files...")
     for nid, node in nodes.items():
         round_num = node["round"]
@@ -174,8 +178,8 @@ def build_tree(session_dir: Path, depth: int) -> None:
                 nodes[nid]["status"] = "ready"
         print(f"  → {rendered} artifacts rendered")
 
-    # BFS queue
-    bfs_queue = [nid for r in range(depth + 1) for nid in round_nodes(r) if nid in nodes]
+    # BFS queue (round 0 only — subsequent rounds generated on demand)
+    bfs_queue = list(round_nodes(0, width))
 
     # Save session
     session["nodes"] = nodes
@@ -189,27 +193,18 @@ def build_tree(session_dir: Path, depth: int) -> None:
     session_file.write_text(json.dumps(session, indent=2))
 
     print(f"\nDone. {len(nodes)}/{total} nodes built.")
-    print(f"Template: {template_name} ({tmpl.artifact_type})")
+    print(f"Template: {template_name} ({tmpl.artifact_type}), width={width}")
 
     if tmpl.artifact_type == "image":
         print(f"\nNext steps:")
-        print(f"  1. uv run --project ~/projects/imageCLI python idna_encode_all.py {session_dir}")
-        print(f"  2. make idna start  (server auto-BFS generates images)")
-        print(f"  3. open http://localhost:8082/{session_dir.parent.name}/{session_dir.name}/")
-    elif tmpl.artifact_type == "audio":
-        print(f"\nNext steps:")
-        print(f"  1. make idna start  (server generates audio via voiceCLI)")
+        print(f"  1. make idna start  (server encodes+generates lazily per pick)")
         print(f"  2. open http://localhost:8082/{session_dir.parent.name}/{session_dir.name}/")
-    else:
-        print(f"\nAll artifacts rendered. Open:")
-        print(f"  make idna start")
-        print(f"  open http://localhost:8082/{session_dir.parent.name}/{session_dir.name}/")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Build IDNA prompt tree (no LLM)")
     parser.add_argument("session_dir", help="Path to session dir")
-    parser.add_argument("--depth", type=int, default=3, choices=[1, 2, 3, 4])
+    parser.add_argument("--depth", type=int, default=3)
     args = parser.parse_args()
     build_tree(Path(args.session_dir).expanduser().resolve(), args.depth)
 

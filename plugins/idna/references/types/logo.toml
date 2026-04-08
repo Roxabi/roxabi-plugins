@@ -1,0 +1,37 @@
+[meta]
+name = "logo"
+artifact_type = "image"
+anchor = "logo, no letters, no text"
+
+[dimensions]
+tree_width = 256
+tree_height = 256
+final_width = 1024
+final_height = 1024
+
+[prompt]
+template = "logo design for {anchor}, {tags}, pure symbol mark, no text, no letters, no words, no typography, vector art, professional branding"
+
+shared_axes = ["geometry", "complexity", "weight", "energy", "hue", "saturation"]
+
+[axis_priority]
+order = [
+  "abstraction", "geometry", "complexity", "weight", "energy",
+  "style", "hue", "saturation", "symmetry", "openness",
+]
+
+[axes.abstraction]
+low = "literal, representational, figurative"
+high = "abstract, symbolic, non-representational"
+
+[axes.style]
+low = "flat, 2D, clean vector"
+high = "dimensional, depth, 3D-feel"
+
+[axes.symmetry]
+low = "asymmetric, dynamic, off-balance"
+high = "symmetric, balanced, centred"
+
+[axes.openness]
+low = "enclosed, contained, tight"
+high = "open, airy, breathing space"

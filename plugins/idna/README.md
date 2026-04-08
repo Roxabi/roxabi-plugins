@@ -1,68 +1,83 @@
-# forge-ideas
+# idna
 
-Evolutionary idea selector for creative assets. Explore diverse variants, pick a winner, converge through mutations, finalize.
+Evolutionary asset selector. Explore diverse variants, pick a direction, converge through mutations, finalize a winner.
 
 ## What it does
 
-Bootstraps a self-driving selection session: the browser lets you pick, a local server calls Claude to generate mutation prompts, imageCLI/voiceCLI renders the next round, and the browser auto-advances — no back-and-forth needed.
+Creates a self-driving selection session: a shared local server calls Claude to generate mutation prompts, imageCLI renders the next round, and the browser auto-advances — no back-and-forth needed.
 
-**Supports:** avatar images, voice styles, writing tones, logo concepts, or any asset that can be generated in variants.
+**Supports:** avatar images, logo concepts, voice styles, writing tones, or any asset that can be generated in variants.
 
 ## Install
 
 ```bash
 claude plugin marketplace add Roxabi/roxabi-plugins
-claude plugin install forge-ideas
+claude plugin install idna
 ```
 
 ## Use
 
 Trigger phrases:
-- `forge ideas` / `evolutionary selector` / `explore and converge`
-- `selection forge for <subject>` / `refine to a winner`
+- `idna for <subject>` / `evolutionary selector` / `explore and converge`
+- `selection session for <subject>` / `refine to a winner`
 
 Example:
-> "forge ideas for Lyra's avatar — young woman, warm approachable feel"
+> "idna for Lyra's avatar — young woman, warm approachable feel"
 
 The skill will:
-1. Create a session at `~/.roxabi/forge/<project>/<subject>/`
+1. Create a session at `~/.roxabi/idna/<project>/<subject>/`
 2. Generate round 0 (4 diverse variants)
-3. Start the forge server on port 8082
-4. Tell you to open `http://localhost:8080/...`
+3. Open `http://localhost:8082/<project>/<subject>/` in the browser
 
 From there, pick in the browser — everything else is automatic.
+
+## Configuration
+
+| Env var | Default | Description |
+|---------|---------|-------------|
+| `IDNA_DIR` | `~/.roxabi/idna/` | Root directory for sessions and server package |
 
 ## How it works
 
 ```
-Browser → POST /api/pick → forge_server.py
-  → Claude API: generates 3 mutation prompts (amplify / blend / refine)
-  → generate_round.py: 2-phase FLUX.2-klein (encode all → generate all)
-  → session.json: status=ready
-Browser polls → auto-renders new round
+Browser → POST /api/pick → idna server (port 8082)
+  → Claude API: generates mutation prompts (amplify / blend / refine)
+  → imageCLI daemon: 2-phase encode all → generate all
+  → session.json: gen_status=idle
+Browser polls /api/status → auto-renders new round
 ```
 
 ## Session anatomy
 
 ```
-~/.roxabi/forge/<project>/<subject>/
-  session.json          ← state machine
-  forge.html            ← browser picker
-  forge_server.py       ← autonomous backend (port 8082)
-  generate_round.py     ← image gen (imageCLI)
+~/.roxabi/idna/<project>/<subject>/
+  session.json          ← state machine (phase, path, nodes, winner)
   round_0/
     v0.png … v3.png     ← explore variants
     prompts/            ← job JSON files
     embeds/             ← cached text embeddings
   round_1/
-    va.png vb.png vc.png ← amplify / blend / refine
+    v0va.png  v0vb.png  v0vc.png   ← amplify / blend / refine
     ...
 ```
 
 ## Keyboard shortcuts (in browser)
 
-| Phase | Keys |
-|-------|------|
-| Explore | `1` `2` `3` `4` to select · `Enter` to confirm |
-| Converge | `a` `b` `c` to select · `Enter` to confirm · `f` to finalize |
-| Both | `t` to toggle dark/light mode |
+| Keys | Action |
+|------|--------|
+| `1` `2` `3` `4` | Select card |
+| `Enter` | Confirm pick |
+| `←` (parent card) | Reroll — fresh variants from same parent |
+| `b` | Back — undo last pick |
+| `f` | Finalize — lock winner, trigger hi-res |
+| `t` | Toggle dark/light mode |
+
+## Server management
+
+```bash
+make idna start    # start server
+make idna reload   # restart
+make idna stop     # stop
+make idna logs     # stdout
+make idna errlogs  # stderr
+```
