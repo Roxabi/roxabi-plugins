@@ -41,7 +41,7 @@ function parseBlockedBy(body: string | null): number[] {
     }
     if (inSection && /^##/.test(line)) break
     if (inSection) {
-      for (const m of line.matchAll(/#(\d+)/g)) nums.push(parseInt(m[1]))
+      for (const m of line.matchAll(/#(\d+)/g)) nums.push(parseInt(m[1], 10))
     }
   }
   return nums
