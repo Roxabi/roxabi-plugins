@@ -7,7 +7,7 @@
  */
 
 import { execSync } from 'node:child_process'
-import { writeFileSync, unlinkSync } from 'node:fs'
+import { unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -35,7 +35,10 @@ function parseBlockedBy(body: string | null): number[] {
   const nums: number[] = []
   let inSection = false
   for (const line of body.split('\n')) {
-    if (/^##\s+blocked by/i.test(line)) { inSection = true; continue }
+    if (/^##\s+blocked by/i.test(line)) {
+      inSection = true
+      continue
+    }
     if (inSection && /^##/.test(line)) break
     if (inSection) {
       for (const m of line.matchAll(/#(\d+)/g)) nums.push(parseInt(m[1]))
@@ -44,9 +47,25 @@ function parseBlockedBy(body: string | null): number[] {
   return nums
 }
 
-interface GCI { n: number; t: string; s: 'O' | 'C' }
-interface CI  { n: number; t: string; s: 'O' | 'C'; bl: number[]; ch: GCI[] }
-interface ER  { n: number; t: string; pr: { d: number; tot: number }; bl: number[]; ch: CI[] }
+interface GCI {
+  n: number
+  t: string
+  s: 'O' | 'C'
+}
+interface CI {
+  n: number
+  t: string
+  s: 'O' | 'C'
+  bl: number[]
+  ch: GCI[]
+}
+interface ER {
+  n: number
+  t: string
+  pr: { d: number; tot: number }
+  bl: number[]
+  ch: CI[]
+}
 
 function countAll(items: any[]): number {
   return items.reduce((acc, i) => acc + 1 + (i.subIssues?.nodes?.length ?? 0), 0)
@@ -99,14 +118,14 @@ const result: ER[] = epics.flatMap((epic, i) => {
   const pr = { d: countClosed(rawCh), tot: countAll(rawCh) }
 
   const ch: CI[] = rawCh.map((c: any) => ({
-    n:  c.number,
-    t:  c.title,
-    s:  c.state === 'OPEN' ? 'O' : 'C' as 'O' | 'C',
+    n: c.number,
+    t: c.title,
+    s: c.state === 'OPEN' ? 'O' : ('C' as 'O' | 'C'),
     bl: parseBlockedBy(c.body),
     ch: (c.subIssues?.nodes ?? []).map((gc: any) => ({
       n: gc.number,
       t: gc.title,
-      s: gc.state === 'OPEN' ? 'O' : 'C' as 'O' | 'C',
+      s: gc.state === 'OPEN' ? 'O' : ('C' as 'O' | 'C'),
     })),
   }))
 
@@ -114,8 +133,8 @@ const result: ER[] = epics.flatMap((epic, i) => {
 })
 
 // ── 4. Render status table ───────────────────────────────────────────────────
-const epicNums = new Set(result.map(e => e.n))
-const epicMap  = new Map(result.map(e => [e.n, e]))
+const epicNums = new Set(result.map((e) => e.n))
+const epicMap = new Map(result.map((e) => [e.n, e]))
 
 function bar(d: number, tot: number): string {
   if (tot === 0) return '░░░░░ 0/0'
@@ -124,15 +143,15 @@ function bar(d: number, tot: number): string {
 }
 
 function nextCell(ch: CI[]): string {
-  const open = ch.filter(c => c.s === 'O')
+  const open = ch.filter((c) => c.s === 'O')
   if (open.length === 0) return '—'
-  const cand = open.find(c => c.bl.length === 0) ?? open[0]
+  const cand = open.find((c) => c.bl.length === 0) ?? open[0]
   if (epicNums.has(cand.n)) {
     const sub = epicMap.get(cand.n)
     if (sub) {
-      const subOpen = sub.ch.filter(c => c.s === 'O')
+      const subOpen = sub.ch.filter((c) => c.s === 'O')
       if (subOpen.length > 0) {
-        const nc = subOpen.find(c => c.bl.length === 0) ?? subOpen[0]
+        const nc = subOpen.find((c) => c.bl.length === 0) ?? subOpen[0]
         return `#${nc.n} (via #${cand.n})`
       }
     }
@@ -141,10 +160,7 @@ function nextCell(ch: CI[]): string {
   return `#${cand.n} ${cand.t}`
 }
 
-const rows = [
-  '| # | Epic | Progress | Open | Next |',
-  '|---|------|----------|------|------|',
-]
+const rows = ['| # | Epic | Progress | Open | Next |', '|---|------|----------|------|------|']
 
 const seenChild = new Set<number>()
 
@@ -154,10 +170,10 @@ for (const epic of result) {
 
   for (const child of epic.ch) {
     if (child.s !== 'O' || !epicNums.has(child.n)) continue
-    const sub  = epicMap.get(child.n)!
+    const sub = epicMap.get(child.n)!
     const seen = seenChild.has(child.n)
     seenChild.add(child.n)
-    const title  = seen ? '*(see above)*' : sub.t
+    const title = seen ? '*(see above)*' : sub.t
     const subOpen = sub.pr.tot - sub.pr.d
     rows.push(`|  ↳ #${sub.n} | ${title} | ${bar(sub.pr.d, sub.pr.tot)} | ${subOpen} | ${nextCell(sub.ch)} |`)
   }
@@ -165,10 +181,10 @@ for (const epic of result) {
 
 // ── 5. Build minimal lanes JSON (structure only, no titles) ──────────────────
 // Claude uses this to generate the parallel-lanes section; titles are in the table above.
-const lanesData = result.map(e => ({
+const lanesData = result.map((e) => ({
   n: e.n,
   bl: e.bl,
-  sub: e.ch.filter(c => epicNums.has(c.n)).map(c => c.n),
+  sub: e.ch.filter((c) => epicNums.has(c.n)).map((c) => c.n),
 }))
 
 // ── 6. Output ────────────────────────────────────────────────────────────────
