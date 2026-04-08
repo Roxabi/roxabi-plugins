@@ -110,7 +110,7 @@ const raw = ghGraphQL(query) as { data: { repository: Record<string, any> } }
 const repoData = raw.data.repository
 
 // ── 3. Build structured data ─────────────────────────────────────────────────
-const result: ER[] = epics.flatMap((epic, i) => {
+const result: ER[] = epics.flatMap((_epic, i) => {
   const data = repoData[`e${i}`]
   if (!data) return []
 
@@ -139,7 +139,7 @@ const epicMap = new Map(result.map((e) => [e.n, e]))
 function bar(d: number, tot: number): string {
   if (tot === 0) return '░░░░░ 0/0'
   const f = Math.round((d / tot) * 5)
-  return '█'.repeat(f) + '░'.repeat(5 - f) + ` ${d}/${tot}`
+  return `${'█'.repeat(f) + '░'.repeat(5 - f)} ${d}/${tot}`
 }
 
 function nextCell(ch: CI[]): string {
