@@ -1,17 +1,33 @@
-import * as fs from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Store the original readFileSync before we spy on it
-const originalReadFileSync = fs.readFileSync
-
-// Spy on fs.readFileSync to prevent loading .claude/dev-core.yml at import time.
-// This ensures tests see the "no config" defaults, not values from the repo's YAML file.
-// Using spy instead of mock preserves real fs behavior for other tests (docs.ts, etc).
-const readFileSyncSpy = vi.spyOn(fs, 'readFileSync').mockImplementation((path, encoding) => {
-  if (path === '.claude/dev-core.yml') {
-    throw new Error('ENOENT')
+// Mock fs to block only .claude/dev-core.yml, pass through everything else.
+// vi.spyOn doesn't work on ESM namespace objects (non-configurable exports).
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
+  return {
+    ...actual,
+    readFileSync: (path: string, encoding?: BufferEncoding) => {
+      if (path === '.claude/dev-core.yml') {
+        throw new Error('ENOENT')
+      }
+      return actual.readFileSync(path, encoding ?? 'utf-8')
+    },
   }
-  return originalReadFileSync(path as string, encoding as BufferEncoding | undefined)
+})
+
+// Mock child_process.execSync to prevent gh CLI fallback in detectGitHubRepo
+vi.mock('node:child_process', async () => {
+  const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process')
+  return {
+    ...actual,
+    execSync: (...args: Parameters<typeof actual.execSync>) => {
+      const cmd = String(args[0])
+      if (cmd.includes('gh repo view') || cmd.includes('gh api graphql')) {
+        throw new Error('gh not available')
+      }
+      return actual.execSync(...args)
+    },
+  }
 })
 
 // Clear option env vars before config module loads so defaults apply (not .env values)
