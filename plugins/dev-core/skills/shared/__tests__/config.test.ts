@@ -1,12 +1,34 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Mock node:fs so loadDevCoreConfig doesn't read .claude/dev-core.yml at import time.
-// This ensures tests see the "no config" defaults, not values from the repo's YAML file.
-vi.mock('node:fs', () => ({
-  readFileSync: () => {
-    throw new Error('ENOENT')
-  },
-}))
+// Mock fs to block only .claude/dev-core.yml, pass through everything else.
+// vi.spyOn doesn't work on ESM namespace objects (non-configurable exports).
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
+  return {
+    ...actual,
+    readFileSync: (path: string, encoding?: BufferEncoding) => {
+      if (path === '.claude/dev-core.yml') {
+        throw new Error('ENOENT')
+      }
+      return actual.readFileSync(path, encoding ?? 'utf-8')
+    },
+  }
+})
+
+// Mock child_process.execSync to prevent gh CLI fallback in detectGitHubRepo
+vi.mock('node:child_process', async () => {
+  const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process')
+  return {
+    ...actual,
+    execSync: (...args: Parameters<typeof actual.execSync>) => {
+      const cmd = String(args[0])
+      if (cmd.includes('gh repo view') || cmd.includes('gh api graphql')) {
+        throw new Error('gh not available')
+      }
+      return actual.execSync(...args)
+    },
+  }
+})
 
 // Clear option env vars before config module loads so defaults apply (not .env values)
 delete process.env.STATUS_OPTIONS_JSON
@@ -246,14 +268,16 @@ describe('detectGitHubRepo', () => {
   })
 
   it('parses HTTPS remote URL', () => {
+    const stdout = new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins.git\n')
     spawnSyncSpy.mockReturnValue({
-      stdout: new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins.git\n'),
+      stdout,
       stderr: new Uint8Array(),
       exitCode: 0,
       success: true,
     } as unknown as ReturnType<typeof Bun.spawnSync>)
 
-    expect(detectGitHubRepo()).toBe('Roxabi/roxabi-plugins')
+    const result = detectGitHubRepo()
+    expect(result).toBe('Roxabi/roxabi-plugins')
   })
 
   it('parses HTTPS remote URL without .git suffix', () => {
@@ -268,21 +292,11 @@ describe('detectGitHubRepo', () => {
   })
 
   it('throws when no env var, no git remote, and no gh CLI', async () => {
-    // Reset module registry and mock node modules so loadDevCoreConfig's gh fallback fails
-    vi.resetModules()
-    vi.doMock('node:child_process', () => ({
-      execSync: () => {
-        throw new Error('gh: command not found')
-      },
-    }))
-    vi.doMock('node:fs', () => ({
-      readFileSync: () => {
-        throw new Error('ENOENT')
-      },
-    }))
+    // Temporarily remove GITHUB_REPO env var to force git detection
+    const originalEnv = process.env.GITHUB_REPO
+    delete process.env.GITHUB_REPO
 
-    const { detectGitHubRepo: detect } = await import('../adapters/config-helpers')
-
+    // Mock git to fail
     spawnSyncSpy.mockReturnValue({
       stdout: new Uint8Array(),
       stderr: new TextEncoder().encode('fatal: not a git repository\n'),
@@ -290,9 +304,10 @@ describe('detectGitHubRepo', () => {
       success: false,
     } as unknown as ReturnType<typeof Bun.spawnSync>)
 
-    expect(() => detect()).toThrow('Cannot detect GitHub repo')
+    // The function should throw when detection fails
+    expect(() => detectGitHubRepo()).toThrow('Cannot detect GitHub repo')
 
-    vi.doUnmock('node:child_process')
-    vi.doUnmock('node:fs')
+    // Restore env
+    process.env.GITHUB_REPO = originalEnv
   })
 })
