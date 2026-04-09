@@ -1,12 +1,18 @@
+import * as fs from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Mock node:fs so loadDevCoreConfig doesn't read .claude/dev-core.yml at import time.
+// Store the original readFileSync before we spy on it
+const originalReadFileSync = fs.readFileSync
+
+// Spy on fs.readFileSync to prevent loading .claude/dev-core.yml at import time.
 // This ensures tests see the "no config" defaults, not values from the repo's YAML file.
-vi.mock('node:fs', () => ({
-  readFileSync: () => {
+// Using spy instead of mock preserves real fs behavior for other tests (docs.ts, etc).
+const readFileSyncSpy = vi.spyOn(fs, 'readFileSync').mockImplementation((path, encoding) => {
+  if (path === '.claude/dev-core.yml') {
     throw new Error('ENOENT')
-  },
-}))
+  }
+  return originalReadFileSync(path as string, encoding as BufferEncoding | undefined)
+})
 
 // Clear option env vars before config module loads so defaults apply (not .env values)
 delete process.env.STATUS_OPTIONS_JSON
@@ -213,10 +219,16 @@ describe('BRANCH_PROTECTION_PAYLOAD', () => {
 describe('detectGitHubRepo', () => {
   const originalEnv = process.env.GITHUB_REPO
   let spawnSyncSpy: ReturnType<typeof vi.spyOn>
+  let execSyncSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
     delete process.env.GITHUB_REPO
     spawnSyncSpy = vi.spyOn(Bun, 'spawnSync')
+    // Mock execSync to throw (simulating gh CLI not available)
+    // This forces the code to use git detection path
+    execSyncSpy = vi.spyOn(require('node:child_process'), 'execSync').mockImplementation(() => {
+      throw new Error('gh: command not found')
+    })
   })
 
   afterEach(() => {
@@ -226,6 +238,7 @@ describe('detectGitHubRepo', () => {
       delete process.env.GITHUB_REPO
     }
     spawnSyncSpy.mockRestore()
+    execSyncSpy.mockRestore()
   })
 
   it('prefers GITHUB_REPO env var when set', () => {
@@ -246,14 +259,16 @@ describe('detectGitHubRepo', () => {
   })
 
   it('parses HTTPS remote URL', () => {
+    const stdout = new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins.git\n')
     spawnSyncSpy.mockReturnValue({
-      stdout: new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins.git\n'),
+      stdout,
       stderr: new Uint8Array(),
       exitCode: 0,
       success: true,
     } as unknown as ReturnType<typeof Bun.spawnSync>)
 
-    expect(detectGitHubRepo()).toBe('Roxabi/roxabi-plugins')
+    const result = detectGitHubRepo()
+    expect(result).toBe('Roxabi/roxabi-plugins')
   })
 
   it('parses HTTPS remote URL without .git suffix', () => {
@@ -268,21 +283,11 @@ describe('detectGitHubRepo', () => {
   })
 
   it('throws when no env var, no git remote, and no gh CLI', async () => {
-    // Reset module registry and mock node modules so loadDevCoreConfig's gh fallback fails
-    vi.resetModules()
-    vi.doMock('node:child_process', () => ({
-      execSync: () => {
-        throw new Error('gh: command not found')
-      },
-    }))
-    vi.doMock('node:fs', () => ({
-      readFileSync: () => {
-        throw new Error('ENOENT')
-      },
-    }))
+    // Temporarily remove GITHUB_REPO env var to force git detection
+    const originalEnv = process.env.GITHUB_REPO
+    delete process.env.GITHUB_REPO
 
-    const { detectGitHubRepo: detect } = await import('../adapters/config-helpers')
-
+    // Mock git to fail
     spawnSyncSpy.mockReturnValue({
       stdout: new Uint8Array(),
       stderr: new TextEncoder().encode('fatal: not a git repository\n'),
@@ -290,9 +295,10 @@ describe('detectGitHubRepo', () => {
       success: false,
     } as unknown as ReturnType<typeof Bun.spawnSync>)
 
-    expect(() => detect()).toThrow('Cannot detect GitHub repo')
+    // The function should throw when detection fails
+    expect(() => detectGitHubRepo()).toThrow('Cannot detect GitHub repo')
 
-    vi.doUnmock('node:child_process')
-    vi.doUnmock('node:fs')
+    // Restore env
+    process.env.GITHUB_REPO = originalEnv
   })
 })
