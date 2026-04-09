@@ -1,0 +1,160 @@
+---
+title: "ADR-011: forge Plugin Design System — Extract CSS/JS from Markdown into Code Files"
+description: Records the decision to replace prose-embedded CSS/JS templates in forge references (tokens.md, split-file.md) with actual code files (base/, aesthetics/, shells/) that Claude reads verbatim, mirroring the gallery-base.css/js model already proven in forge-gallery.
+---
+
+## Status
+
+Accepted
+
+## Context
+
+The forge plugin generates self-contained HTML visualizations: quick diagrams (`forge-chart`), multi-tab guides (`forge-guide`), epic views (`forge-epic`), and galleries (`forge-gallery`).
+
+The gallery side solved generation consistency in v0.1.0 by shipping `gallery-base.css` and `gallery-base.js` as actual code files that Claude reads once and lifts verbatim into output. Gallery output is consistent across runs.
+
+The diagram/guide side did not follow this model. CSS tokens, layout, component classes, and JS logic (theme toggle, tab switching, Mermaid init) live as fenced code blocks inside markdown prose files (`tokens.md`, `split-file.md`). This means:
+
+1. **Claude re-generates on every call.** Reading prose + re-synthesizing code produces drift: token values slightly reordered, component classes renamed, JS guard conditions omitted.
+2. **High token cost.** `split-file.md` alone is ~300 lines; `tokens.md` is ~110 lines. Both are read every `forge-guide` invocation to re-derive what could be copied verbatim.
+3. **No aesthetic system.** All output shares a single visual identity. The `nats-arch-roadmap.html` analysis revealed a gap: forge cannot produce diagrams with semantic colors (`--green`, `--amber`, `--red`), phase badges, dependency paths, or lane containers — all standard technical diagram components.
+4. **No enforcement.** There is no structural mechanism to prevent Claude from introducing anti-patterns (gradients, shadows, glassmorphism) or misusing token values.
+
+The Blueprinter skill analysis added a key insight: **constraints enforce aesthetics more reliably than descriptions**. A file that says `/* NO box-shadow */` in its header produces more consistent output than prose that says "avoid shadows".
+
+## Options Considered
+
+### Option A: Extract to code files (`base/` + `aesthetics/` + `shells/`)
+
+Replace the prose-embedded CSS/JS with actual files that Claude reads and copies verbatim:
+
+```
+references/
+  base/             — reset, layout, typography, components CSS
+  aesthetics/       — one CSS file per visual identity (editorial, blueprint, ...)
+  shells/           — single.html and split.html template files with {PLACEHOLDER}s
+  gallery-templates/ — unchanged (already working)
+```
+
+Skills update: instead of "derive CSS from tokens.md", instructions become "read `base/*.css` + `aesthetics/{name}.css` → inline into output shell".
+
+- **Pros:** Eliminates re-generation drift. Matches gallery-base model. Enables aesthetic system. Component classes are machine-copyable. Anti-pattern lists live in CSS comments.
+- **Cons:** One more read step per generation. Placeholder substitution still required for `{NAME}` in shell JS.
+
+### Option B: TypeScript template engine (visual-explainer-pi model)
+
+Ship a build-time TS engine that compiles typed aesthetics + content into HTML output files.
+
+- **Pros:** Full type safety for palette. Compile-time palette validation. No placeholder misses.
+- **Cons:** Build step breaks "works with `file://`" for `forge-chart` outputs. Requires Node.js toolchain in the forge plugin context. Claude Code skills do not have a TypeScript runtime. Does not fit the skill model.
+
+### Option C: Strengthen prose instructions
+
+Add more specific CSS rules, more examples, more explicit component definitions to `split-file.md` and `tokens.md`.
+
+- **Pros:** No structural change. Zero migration cost.
+- **Cons:** Does not address root cause. Token cost increases further. Drift continues. No aesthetic differentiation possible.
+
+## Decision
+
+Adopt **Option A**: extract CSS/JS from markdown prose into actual code files, mirroring the `gallery-base.css/js` model.
+
+**Structure:**
+
+```
+references/
+  base/
+    reset.css          — box-sizing, margin reset, antialiasing
+    layout.css         — grid/flex utilities, .container, .diagram-canvas
+    typography.css     — font-face loading, body/code rules, type scale
+    components.css     — .badge, .connector, .card, .phase, .lane,
+                         .dep-path, .item-list, .data-table, .eyebrow;
+                         semantic color vars (--green, --amber, --red, etc.)
+    tab-loader.js      — loadPanel(), activate(); {NAME} placeholder; no theme
+    mermaid-init.js    — window.__postLoad + window.__initPanZoom
+
+  aesthetics/
+    editorial.css      — dark bg, warm palette, semantic colors (default)
+    blueprint.css      — light bg, flat borders, monospace-heavy, engineering tone
+
+  shells/
+    single.html        — self-contained diagram; all CSS/JS inline; file:// safe
+    split.html         — multi-tab shell; CSS link + JS src; requires HTTP serve
+
+  gallery-templates/   — unchanged
+  tokens.md            — slimmed: semantic meaning + brand detection rules only (no code)
+  split-file.md        — slimmed: file layout + serving rules only (no CSS/JS blocks)
+```
+
+**Aesthetic scope — start minimal:**
+
+Launch with two aesthetics: `editorial` (dark, warm, default for lyra/voicecli/cross-project) and `blueprint` (light technical, for architecture-heavy content). Lyra and Roxabi brand tokens become overrides applied on top of `editorial` at generation time, not separate aesthetic files. New aesthetics require a new ADR before being added — prevents aesthetic proliferation without documented rationale.
+
+**Theme toggle placement:**
+
+Theme toggle JS stays inside `shells/single.html` and `shells/split.html` directly, not extracted to a separate file. It is 15 lines, diagram-slug-keyed (`THEME_KEY = 'diag-{NAME}-theme'`), and shell-specific. Extraction would save nothing and add one more file to read.
+
+**Semantic colors:**
+
+`base/components.css` introduces semantic color tokens (`--success`, `--warning`, `--error`, `--info` and dim variants) that close the nats-roadmap gap. Aesthetics override their values. This enables phase badges, severity cards, and dependency paths without per-diagram custom CSS.
+
+**SKILL.md updates:**
+
+Each diagram/guide skill replaces "derive CSS from tokens.md" with:
+- "Read `base/*.css` — inline into output"
+- "Read `aesthetics/{selected}.css` — append after base CSS"
+- "Copy shell from `shells/{single|split}.html` — substitute all `{PLACEHOLDER}` values"
+- "For `tab-loader.js`: substitute `{NAME}` with diagram slug before inlining"
+
+The SKILL.md for each skill must include: "inline, never link — base/ files are generation source, not runtime dependencies".
+
+## Consequences
+
+### Positive
+
+- **Consistent output across runs.** Claude copies code verbatim instead of re-generating it.
+- **Lower token cost.** Structured CSS files replace 400+ lines of prose-embedded code blocks.
+- **Aesthetic system enabled.** Switching `editorial` to `blueprint` changes visual identity without touching component markup.
+- **Nats-roadmap gap closed.** Semantic color tokens + component classes (phase, lane, dep-path, eyebrow) make previously impossible diagram types producible.
+- **Anti-patterns enforceable.** CSS file headers can carry `/* NO box-shadow */` directives that Claude treats as hard constraints co-located with the code.
+- **Gallery model unified.** The same "read code files → inline" pattern applies to both gallery and diagram sides.
+
+### Negative
+
+- **Placeholder substitution is still required.** `tab-loader.js` contains `{NAME}` that must be replaced at generation time. If Claude copies without substituting, tab loading silently breaks. Mitigation: comment in `tab-loader.js` header + explicit SKILL.md step.
+- **Inlining constraint must be enforced.** Claude must inline `base/*.css` into output rather than emit `<link>` to them. If it emits a link, `file://` output breaks for `forge-chart`. Mitigation: explicit "inline, never link" directive in each SKILL.md.
+- **Migration of existing docs.** Existing `tokens.md` and `split-file.md` must be slimmed without breaking forge-chart (which currently reads them). Mitigation: keep token values and brand detection rules in `tokens.md`; extract only code blocks to `base/`.
+- **Two aesthetics to maintain.** `editorial` and `blueprint` share the same component class names but can diverge in behavior (e.g., `.badge` padding). A base component test output (single reference diagram) would catch divergence — not implemented in v1.
+
+### Neutral
+
+- `gallery-templates/` is untouched. Gallery and diagram sides remain structurally parallel.
+- Mermaid theme variables remain inline in skill instructions (they require per-diagram brand color injection and cannot be fully extracted to a static file).
+- Old forge outputs on disk are static HTML — no migration needed. The change affects generation, not existing files.
+
+## Alternatives considered
+
+See Options B and C above. The TS engine was rejected for build-step incompatibility with the Claude Code skill execution model. Prose strengthening was rejected for not addressing root cause.
+
+## Implementation notes
+
+**Migration sequence (6 steps):**
+
+1. Write `base/*.css` — extract from `split-file.md` CSS skeleton
+2. Write `base/tab-loader.js`, `base/mermaid-init.js` — extract from `split-file.md` JS skeleton
+3. Write `aesthetics/editorial.css`, `aesthetics/blueprint.css`
+4. Write `shells/single.html`, `shells/split.html` from current templates
+5. Slim `tokens.md` (remove code, keep semantic rules + brand detection), slim `split-file.md` (remove code, keep layout + serving rules)
+6. Update SKILL.md files for `forge-chart`, `forge-guide`, `forge-epic`
+
+**Files to create:** `base/` (5 files), `aesthetics/` (2 files), `shells/` (2 files)
+**Files to modify:** `tokens.md`, `split-file.md`, `forge-chart/SKILL.md`, `forge-guide/SKILL.md`, `forge-epic/SKILL.md`
+**Files unchanged:** all `gallery-templates/`, `forge-gallery/SKILL.md`, `mermaid-guide.md`, `diagram-meta.md`, `forge-ops.md`
+
+## Related
+
+- `plugins/forge/references/gallery-templates/gallery-base.css` — the proven model this mirrors
+- `plugins/forge/references/gallery-templates/gallery-base.js` — same
+- `plugins/forge/references/tokens.md` — to be slimmed
+- `plugins/forge/references/split-file.md` — to be slimmed
+- ADR-007: Documentation strategy

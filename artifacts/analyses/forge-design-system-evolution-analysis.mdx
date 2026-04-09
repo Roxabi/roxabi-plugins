@@ -1,0 +1,324 @@
+---
+title: "Forge Design System Evolution"
+description: "Extract CSS/JS into real files, add aesthetic system + component library to eliminate per-invocation regeneration and unlock missing component vocabulary."
+---
+
+## Epic
+
+**GitHub:** Roxabi/roxabi-plugins#77 — forge design system — extract CSS/JS + aesthetic system + component library
+
+| Issue | Slice | Size | Blocked by |
+|-------|-------|------|------------|
+| #78 | S1–S3: Foundation (base/ + shells/) | M | — |
+| #79 | S4: Lyra + Roxabi aesthetics | S | #78 |
+| #80 | S5: Blueprint + Terminal aesthetics | S | #78 |
+| #81 | S6: Editorial aesthetic | S | #78 |
+| #82 | S7: Component library | M | #78 |
+| #83 | S8: Skill rewrites | M | #79, #80, #81, #82 |
+
+## Source
+
+> "The diagram/guide side of forge produces inconsistent output because the design system lives in markdown prose (tokens.md, split-file.md — 2000+ lines). Claude re-reads and re-generates CSS/HTML/JS every invocation."
+> — Mickael, 2026-04-09, context brief
+
+> "Missing component vocabulary (forge couldn't produce a nats-arch-roadmap.html that was hand-built instead)."
+
+> "Architect says start with 2 aesthetics — user overruled, wants 5."
+
+## Architecture Decision
+
+ADR-011 written and accepted: `docs/architecture/adr/011-forge-design-system-extraction.mdx`
+
+## Inspirations
+
+### visual-explainer-pi (github.com/MonsieurBarti/visual-explainer-pi)
+- TypeScript extension for PI that generates self-contained HTML visualizations
+- 8 named aesthetics (blueprint, editorial, paper, terminal, dracula, nord, solarized, gruvbox) — each with font pairing + full color palette
+- Typed palette system: surface layers, text variants, semantic colors (green, orange, teal, plum) with dim variants
+- Architecture template: CSS Grid with flow arrows, 3-column layouts, pipeline steps, nested grids
+- Data table template: typed columns, status indicators, sticky headers, hover, row animations
+- Anti-AI-slop philosophy: rejects neon glows, animated effects, overused typefaces
+- Self-contained output: no external API calls after generation, works offline
+
+### Blueprinter (skills.sh/yofine/skills/blueprinter)
+- ~120 lines total — single SKILL.md with strict design constraints
+- One aesthetic: "flat engineering blueprint" — light bg, 1-2px borders, monospace for data
+- Explicit anti-pattern list: NO shadows, NO gradients, NO glassmorphism, NO rounded buttons
+- 6 CSS variables, 2 font families, 5 component classes
+- Key insight: **constraints enforce aesthetics more reliably than descriptions**
+- High compliance rate: Claude follows "NO gradients" better than "use tokens.md"
+
+### nats-arch-roadmap.html (~/.roxabi/forge/lyra/visuals/)
+- Hand-built because forge couldn't produce it — proves the component gap
+- 5 tabs, dark theme, 1029 lines, fully self-contained
+- Patterns forge lacks: semantic colors (green/amber/cyan/red/purple + dim), phase badges (M0-M3), dependency paths (→ and ∥), lane containers, colored ASCII architecture, eyebrow headers, severity cards, item lists with color arrows, gradient dividers
+- Design system: Space Mono + Inter + Outfit, ~15 CSS custom properties, tab switching JS
+- Micro-interactions: 0.15-0.18s transitions on hover, opacity/color only, no transforms
+
+## Problem
+
+Forge's design system exists only as markdown prose. Every invocation causes Claude to re-read 2000+ lines of token/layout descriptions and regenerate CSS from scratch — producing visual drift across outputs and preventing use of advanced components (phase badges, lane containers, dependency paths) that had to be hand-built in nats-arch-roadmap.html instead.
+
+## Outcome
+
+A forge invocation for any project produces a visually consistent, component-rich output in one session, without Claude reinventing CSS. The nats-arch-roadmap pattern (phase badges, lane containers, severity cards, dep paths) is reproducible through the plugin, not around it.
+
+## Appetite
+
+1–2 weeks total. All 5 aesthetics ship in the initial release — no phased aesthetic rollout.
+
+## Context
+
+### What exists today
+
+- `references/tokens.md` — CSS token values in markdown prose (theme colors, typography rules, forbidden colors, dark mode hierarchy)
+- `references/split-file.md` — split-file structure described in prose + skeleton snippets inline in markdown
+- `references/forge-ops.md` — brand detection, output paths, serving commands
+- `references/gallery-templates/` — actual `.css` + `.js` files (gallery-base.css, gallery-base.js) + HTML templates. **This system already works well and is the model to follow.**
+- SKILL.md files for forge-chart and forge-guide reference and embed token values inline, leading to drift when tokens.md is updated
+
+### What was hand-built instead
+
+`nats-arch-roadmap.html` — a complex architecture + roadmap visualization that forge could not produce. It uses: semantic colors, phase badges (.m0–.m3), dependency paths with arrows, lane containers, severity cards, eyebrow headers, colored ASCII architecture blocks, item lists with color arrows. None of these components exist in forge's current reference files.
+
+### Inspirations
+
+- **visual-explainer-pi** — 8 named aesthetics, each with font pairing + full palette. Professional, anti-AI-slop design.
+- **Blueprinter** — ~120 lines, one aesthetic, strict NO list. Works because constraints &gt; options for LLM output.
+- **gallery-base.css/js** — proof the actual-file pattern works for Claude: read once, embed directly, no prose re-derivation.
+
+### ADR-011
+
+Approved decomposition. Architect decisions incorporated:
+- `theme-toggle.js` stays inline in shells (15 lines, not worth extracting)
+- Semantic color tokens (`--success`, `--warning`, `--error`, `--info` + dim variants) live in base/components.css; aesthetics override values
+- Anti-pattern enforcement via CSS comments (structural, not advisory)
+
+## Questions Explored
+
+1. Does the aesthetic system solve the right problem, or is consistency alone enough?
+2. What is the MVP? Ship base/ + shells/ first, or full 5-aesthetic release?
+3. How should aesthetic selection work in skills — auto-detect or explicit?
+4. Are we over-building? 5 aesthetics × 2 shells × N components = combinatorial risk?
+5. Where should anti-patterns live — per-aesthetic or shared?
+
+## Analysis
+
+### Q1 — Consistency vs. aesthetics
+
+Both are needed, but they address different failure modes:
+
+- **Consistency** (base/ extraction) → eliminates per-invocation CSS drift. Solved by actual files.
+- **Aesthetics** → enables intentional visual differentiation. Solved by named CSS profiles.
+
+The nats-arch-roadmap case shows the component gap is the primary blocker. Even with consistent tokens, forge couldn't produce that output because the components didn't exist as embeddable classes. Base extraction + components.css unlock this immediately.
+
+Aesthetics add a second tier of value: architectural diagrams for Roxabi branding should look different from terminal-style CLI tool docs. Without aesthetics, forge defaults to "dark with orange accent" for everything, which is already causing visual homogeneity across lyra, roxabi-plugins, voiceCLI outputs.
+
+**Conclusion:** both layers are justified. Components solve the gap problem; aesthetics solve the homogeneity problem.
+
+### Q2 — MVP scope
+
+The architect recommended 2 aesthetics; user decision is all 5 on day one. This is sound because:
+- The 5 aesthetics (blueprint, editorial, terminal, lyra, roxabi) map 1:1 to actual use cases, not hypothetical ones
+- lyra and roxabi are already needed (projects exist, output is produced regularly)
+- blueprint and terminal are needed for architecture diagrams (the exact use case that triggered this)
+- editorial is needed for rich guides (lyra-user-guide pattern)
+
+Shipping 2 and expanding later would mean immediate rework in the same session cycle.
+
+**Conclusion:** all 5 aesthetics in MVP. Sliced by layer, not by aesthetic count.
+
+### Q3 — Aesthetic selection UX
+
+Project-scoped detection by default, explicit override per invocation:
+
+| Detection order | Signal | Aesthetic |
+|-----------------|--------|-----------|
+| 1 | Explicit arg (`--aesthetic blueprint`) | As specified |
+| 2 | Brand book found at `~/.roxabi/forge/{proj}/brand/BRAND-BOOK.md` | Derived from palette |
+| 3 | Project name = `lyra` or `voicecli` | lyra |
+| 4 | Project name = `roxabi*` or `2ndBrain` | roxabi |
+| 5 | Content type = architecture/roadmap | blueprint |
+| 6 | Content type = terminal/CLI doc | terminal |
+| 7 | Default fallback | lyra |
+
+Content-type signals (step 5–6) bridge cases where project name doesn't determine aesthetic (e.g., a nats architecture diagram for lyra should use blueprint, not lyra aesthetic).
+
+### Q4 — Combinatorial complexity risk
+
+The 5 × 2 × N matrix is manageable because:
+- Shells are aesthetic-agnostic — they link to base/ + one aesthetic/ file. Adding a 6th aesthetic does not require a new shell.
+- Components are aesthetic-agnostic — `.phase.m0` renders correctly in all aesthetics because semantic color tokens (`--success`, `--warning`, etc.) are defined in each aesthetic file.
+- The combinatorial surface is linear, not multiplicative: N components + M aesthetics, not N × M.
+
+Risk remains in the initial aesthetic CSS authoring — 5 files to write correctly, each with full token overrides. Mitigated by defining a shared contract: every aesthetic must define the same token set (base tokens + semantic tokens).
+
+### Q5 — Anti-patterns
+
+Shared anti-pattern list as CSS comments in base/ files (structural enforcement, not advisory):
+
+```css
+/* FORGE ANTI-PATTERNS — DO NOT USE
+   - No box-shadow with multiple blur layers (glassmorphism)
+   - No text-shadow except .c-* colored ASCII blocks
+   - No gradient backgrounds (use flat surface tokens)
+   - No border-radius > 8px on content cards
+   - No decorative ::before/::after icons (use text or svg)
+   - No animation/transition except theme-toggle (0.15s max)
+*/
+```
+
+This comment block appears at the top of components.css where Claude reads it before generating component HTML. It applies to all aesthetics uniformly.
+
+## Shapes
+
+### Shape A: Prose-to-File extraction only (no aesthetics)
+
+- **Description:** Convert tokens.md + split-file.md content into actual .css/.js files. No aesthetic system. Skills embed base files directly.
+- **Trade-offs:** Eliminates token cost and CSS drift. Does not solve visual homogeneity or component gaps for nats-arch-roadmap patterns.
+- **Rough scope:** 4–6 files, ~2 days. Low risk.
+
+### Shape B: Full design system — base/ + aesthetics/ + components + shells (proposed)
+
+- **Description:** Extract base CSS/JS, add 5 aesthetic files, build component library from nats-arch-roadmap patterns, add shell HTML templates with placeholders.
+- **Trade-offs:** Solves all three problems (drift, token cost, missing components). Higher authoring effort upfront. Aesthetic CSS contract must be maintained across all 5 files.
+- **Rough scope:** 14–16 files, ~1.5 weeks.
+
+### Shape C: Aesthetic system only (no base extraction)
+
+- **Description:** Add 5 aesthetic CSS files that include their own tokens. No base/ separation. Skills choose an aesthetic file and embed it.
+- **Trade-offs:** Simpler structure. But duplicates reset, layout, and typography across 5 files. Drift re-emerges at the aesthetic level. Not recommended.
+- **Rough scope:** 5–7 files, ~3 days.
+
+## Fit Check
+
+| Requirement | Shape A | Shape B | Shape C |
+|-------------|---------|---------|---------|
+| Eliminate CSS regeneration per invocation | ✅ | ✅ | ✅ |
+| Token cost reduction | ✅ | ✅ | ✅ |
+| Visual consistency across outputs | ✅ | ✅ | ❌ |
+| Visual differentiation by project/content | ❌ | ✅ | ✅ |
+| nats-arch-roadmap component vocabulary | ❌ | ✅ | ❌ |
+| No duplication across aesthetic files | ✅ | ✅ | ❌ |
+| No breaking changes to gallery system | ✅ | ✅ | ✅ |
+| Marketplace-distributable (clean structure) | ✅ | ✅ | ⚠️ |
+
+**Selected shape:** Shape B — solves all three problems; the additional authoring effort is a one-time cost that pays off on every subsequent forge invocation.
+
+## Implementation Slices
+
+Ordered for independent deliverability and early validation:
+
+| Slice | Deliverable | Files | Demo |
+|-------|-------------|-------|------|
+| S1 | `base/` layer | reset.css, layout.css, typography.css, components.css, tab-loader.js, mermaid-init.js | forge-guide embeds base files; output matches current visual quality |
+| S2 | Anti-pattern block | CSS comment block in components.css | Review comment placement in rendered output |
+| S3 | `shells/` templates | single.html, split.html | forge-chart uses single.html shell; forge-guide uses split.html shell |
+| S4 | lyra + roxabi aesthetics | lyra.css, roxabi.css | Existing lyra + roxabi project outputs use aesthetic files |
+| S5 | blueprint + terminal aesthetics | blueprint.css, terminal.css | nats-arch-roadmap rebuilt using forge (architecture diagram test) |
+| S6 | editorial aesthetic | editorial.css | lyra-user-guide rebuilt using editorial aesthetic |
+| S7 | Component library | .phase, .card.severity, .lane, .connector, .dep-path, .arch, .eyebrow, .item-list, .data-table, .component-box | Reproduce nats-arch-roadmap fully through forge skills |
+| S8 | Skill rewrites | forge-chart/SKILL.md, forge-guide/SKILL.md updated to reference new file paths | Both skills produce correct output using new structure |
+
+S1 → S3 are the foundation. S4–S6 are parallel once S1 is done. S7 depends on S1 (needs token contract from base/components.css). S8 closes the loop.
+
+## Risk Assessment
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Aesthetic token contract drift — one aesthetic missing a required token | Medium | Medium | Define required token list in components.css header; validate at authoring time |
+| Shell placeholders misused — skill generates content that doesn't match shell structure | Low | High | Shells include placeholder comments with explicit instructions for each slot |
+| Gallery system regression — base/ changes bleed into gallery styles | Low | High | Gallery uses gallery-base.css (separate file, separate path); no cross-dependency |
+| Component class naming conflicts — .card, .phase clash with browser or existing styles | Low | Medium | Scope all components under a forge-specific namespace or use reset.css to normalize |
+| 5 aesthetics under-differentiated — all look similar in practice | Medium | Low | blueprint (light bg) and terminal (green/mono) are visually distinct by definition; lyra/roxabi differ only in accent color (acceptable) |
+
+## Conclusions
+
+1. Shape B is the correct approach. The gallery-base.css pattern proves the model works.
+2. All 5 aesthetics ship in the initial release — the use cases exist and the combinatorial complexity is linear.
+3. Aesthetic selection is project-scoped by default with content-type fallback; explicit override available.
+4. Anti-patterns are shared, structural (CSS comments), and live in components.css.
+5. `theme-toggle.js` stays inline in shells per architect decision.
+6. Semantic color tokens (`--success`, `--warning`, `--error`, `--info` + dim) are defined in base/components.css; each aesthetic overrides their values.
+7. No breaking changes to the gallery system — gallery-base.css/js are independent and untouched.
+
+## Target Structure
+
+```
+references/
+  base/                        # Shared code files (read once, inline into output)
+    reset.css                  # box-sizing, margin reset, antialiasing
+    layout.css                 # grid/flex utilities, .container, .diagram-canvas
+    typography.css             # font-face loading, .text-mono, .text-ui, type scale
+    components.css             # all component classes + semantic color tokens + anti-pattern block
+    tab-loader.js              # loadPanel(), activate() with {NAME} placeholder
+    mermaid-init.js            # window.__postLoad + svg-pan-zoom init
+
+  aesthetics/                  # One CSS file per visual identity
+    blueprint.css              # light bg (#f8fafc), flat borders, monospace-heavy, red accent
+    editorial.css              # dark bg (#0a0a0f), warm palette, Outfit+Inter+Space Mono
+    terminal.css               # dark bg (#0c0c0c), green/cyan, monospace-only
+    lyra.css                   # dark bg (#0a0a0f), orange accent (#e85d04)
+    roxabi.css                 # dark bg (#111210), gold accent (#f0b429)
+
+  shells/                      # HTML templates with {PLACEHOLDER}s
+    single.html                # self-contained diagram (file:// safe, theme-toggle inline)
+    split.html                 # multi-tab shell with nav + panels (theme-toggle inline)
+
+  gallery-templates/           # UNCHANGED — already working
+  tokens.md                    # SLIMMED — design rationale + brand detection only (no code)
+  split-file.md                # SLIMMED — architecture explanation + serving rules only (no code)
+  forge-ops.md                 # UNCHANGED
+  diagram-meta.md              # UNCHANGED
+  mermaid-guide.md             # UNCHANGED
+```
+
+## Aesthetic Selection Logic
+
+| Order | Signal | Aesthetic |
+|-------|--------|-----------|
+| 1 | Explicit arg (`--aesthetic blueprint`) | As specified |
+| 2 | Brand book found | Derived from palette |
+| 3 | Project = lyra / voicecli | lyra |
+| 4 | Project = roxabi* / 2ndBrain | roxabi |
+| 5 | Content = architecture / spec | blueprint |
+| 6 | Content = CLI / terminal doc | terminal |
+| 7 | Default fallback | editorial |
+
+## Component Library (S7)
+
+| Component | Classes | Source |
+|-----------|---------|--------|
+| Phase badge | `.phase`, `.phase.m0` … `.phase.m3` | nats-arch-roadmap |
+| Severity card | `.card.critical`, `.card.warning`, `.card.info` | nats-arch-roadmap |
+| Connector | `.connector`, `.connector-dashed` | Blueprinter |
+| Dependency path | `.dep-path`, `.arrow`, `.parallel` | nats-arch-roadmap |
+| Lane container | `.lane`, `.lane-header`, `.lane-body` | nats-arch-roadmap |
+| Architecture block | `.arch`, `.c-green` … `.c-purple`, `.c-dim`, `.c-bright` | nats-arch-roadmap |
+| Eyebrow header | `.eyebrow` | nats-arch-roadmap |
+| Item list | `.item-list`, `.green-arrow`, `.red-arrow`, `.cyan-arrow`, `.amber-arrow` | nats-arch-roadmap |
+| Data table | `.data-table` (sticky header, hover, alternating rows) | visual-explainer-pi |
+| Component box | `.component`, `.component-label`, `.component-value` | Blueprinter |
+
+## Anti-Pattern Block (shared, in components.css)
+
+```css
+/* FORGE ANTI-PATTERNS — DO NOT USE
+   - No box-shadow with multiple blur layers (glassmorphism)
+   - No text-shadow except .c-* colored ASCII blocks
+   - No gradient backgrounds (use flat surface tokens)
+   - No border-radius > 8px on content cards
+   - No decorative ::before/::after icons (use text or svg)
+   - No animation/transition except theme-toggle (0.15s max)
+*/
+```
+
+## Next Steps
+
+- [x] Create GitHub epic (#77) and child issues (#78–#83)
+- [x] ADR-011 written and accepted
+- [ ] Write spec (`/spec`) for #78: base/ layer — exact file contents + token contract definition
+- [ ] Write spec for #82: component library — class names, HTML patterns, semantic color usage
+- [ ] Write spec for #83: skill rewrites — updated SKILL.md read-before-generate lists
+- [ ] Architect review of token contract before #79–#81 authoring begins
