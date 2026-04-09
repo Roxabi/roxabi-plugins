@@ -11,9 +11,9 @@
 
 ;(() => {
   function loadPanel(id) {
-    var panel = document.querySelector('[data-panel="' + id + '"]')
+    var panel = document.querySelector(`[data-panel="${id}"]`)
     if (!panel || panel._loaded) return
-    fetch('tabs/{NAME}/tab-' + id + '.html')
+    fetch(`tabs/{NAME}/tab-${id}.html`)
       .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
       .then((html) => {
         panel.innerHTML = html
@@ -23,7 +23,7 @@
       .catch((e) => {
         var err = document.createElement('p')
         err.style.cssText = 'padding:2rem;color:var(--text-muted)'
-        err.textContent = 'Failed to load (' + e + ')'
+        err.textContent = `Failed to load (${e})`
         panel.innerHTML = ''
         panel.appendChild(err)
       })

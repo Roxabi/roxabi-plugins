@@ -10,7 +10,7 @@ import { unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const issueNum = parseInt(process.argv[2] ?? '')
+const issueNum = parseInt(process.argv[2] ?? '', 10)
 if (!issueNum) {
   console.error('Usage: bun show.ts <issue-number>')
   process.exit(1)
@@ -46,7 +46,7 @@ function parseBlockedBy(body: string | null): number[] {
     }
     if (inSection && /^##/.test(line)) break
     if (inSection) {
-      for (const m of line.matchAll(/#(\d+)/g)) nums.push(parseInt(m[1]))
+      for (const m of line.matchAll(/#(\d+)/g)) nums.push(parseInt(m[1], 10))
     }
   }
   return nums
@@ -167,7 +167,7 @@ const meta: string[] = []
 if (otherLabels.length) meta.push(`Labels: ${otherLabels.join(', ')}`)
 meta.push(`Size: ${size}`)
 meta.push(`Priority: ${priority}`)
-if (issue.assignees.length) meta.push(`Assignees: ${issue.assignees.map((a) => '@' + a.login).join(', ')}`)
+if (issue.assignees.length) meta.push(`Assignees: ${issue.assignees.map((a) => `@${a.login}`).join(', ')}`)
 if (issue.milestone) meta.push(`Milestone: ${issue.milestone.title}`)
 lines.push(meta.join(' | '))
 

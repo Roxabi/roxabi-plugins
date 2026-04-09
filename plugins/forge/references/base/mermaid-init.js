@@ -19,7 +19,7 @@ window.__postLoad = async (id, panel) => {
     theme: 'base',
     flowchart: { useMaxWidth: false, curve: 'basis' },
   })
-  var { svg, bindFunctions } = await mermaid.render('mermaid-' + id, srcEl.textContent.trim())
+  var { svg, bindFunctions } = await mermaid.render(`mermaid-${id}`, srcEl.textContent.trim())
   container.innerHTML = svg
   if (bindFunctions) bindFunctions(container.querySelector('svg'))
   if (typeof window.__initPanZoom === 'function') window.__initPanZoom(container)
