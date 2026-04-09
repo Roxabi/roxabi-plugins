@@ -60,7 +60,9 @@ def handle_new(handler: "IDNAHandler") -> None:
     handler.send_header("Content-Type", "text/event-stream")
     handler.send_header("Cache-Control", "no-cache")
     handler.send_header("X-Accel-Buffering", "no")
-    handler.send_header("Access-Control-Allow-Origin", "*")
+    cors = handler._cors_origin()
+    if cors:
+        handler.send_header("Access-Control-Allow-Origin", cors)
     handler.end_headers()
 
     def emit(data: dict) -> None:

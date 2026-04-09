@@ -202,6 +202,37 @@ describe('detectLicense', () => {
     expect(result.source).toBe('LICENSE file')
   })
 
+  it.each([
+    ['Apache License, Version 2.0', 'Apache-2.0'],
+    ['BSD 3-Clause License', 'BSD-3-Clause'],
+    ['BSD 2-Clause License', 'BSD-2-Clause'],
+    ['BSD Zero Clause License', '0BSD'],
+    ['Permission to use, copy, modify, and/or distribute this software without fee', 'ISC'],
+    ['ISC License', 'ISC'],
+    ['The Unlicense', 'Unlicense'],
+    ['CC0 1.0 Universal', 'CC0-1.0'],
+    ['Creative Commons Attribution 4.0 International', 'CC-BY-4.0'],
+    ['Blue Oak Model License 1.0.0', 'BlueOak-1.0.0'],
+    ['Mozilla Public License, Version 2.0', 'MPL-2.0'],
+    ['Python Software Foundation License', 'Python-2.0'],
+    ['PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2', 'Python-2.0'],
+    ['MIT No Attribution', 'MIT-0'],
+  ])('detects %s from LICENSE file as %s', (content, expected) => {
+    const pkg = makePackageDir(tmpDir, `lic-${expected.toLowerCase().replace(/[^a-z0-9]/g, '-')}`, { name: `lic-${expected}`, version: '1.0.0' })
+    fs.writeFileSync(path.join(pkg.dir, 'LICENSE'), content)
+    const result = detectLicense(pkg, policy)
+    expect(result.license).toBe(expected)
+    expect(result.source).toBe('LICENSE file')
+  })
+
+  it('returns null for unrecognized LICENSE file content', () => {
+    const pkg = makePackageDir(tmpDir, 'unknown-lic', { name: 'unknown-lic', version: '1.0.0' })
+    fs.writeFileSync(path.join(pkg.dir, 'LICENSE'), 'Some custom proprietary license text that matches no known pattern.')
+    const result = detectLicense(pkg, policy)
+    expect(result.license).toBeNull()
+    expect(result.source).toBeNull()
+  })
+
   it('returns null when no license info found', () => {
     const pkg = makePackageDir(tmpDir, 'mystery', { name: 'mystery', version: '1.0.0' })
     const result = detectLicense(pkg, policy)
