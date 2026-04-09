@@ -219,13 +219,19 @@ const contentEl  = document.getElementById('content');
 const countEl    = document.getElementById('count');
 
 // ── Helpers ───────────────────────────────────────────────────────
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
 function fmtDate(iso) {
   const [y,m,day] = iso.split('-');
   return `${'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ')[+m-1]} ${+day}, ${y}`;
 }
 
 function badges(list) {
-  return list.map(b => `<span class="badge ${b}">${b}</span>`).join('');
+  return list.map(b => `<span class="badge ${escHtml(b)}">${escHtml(b)}</span>`).join('');
 }
 
 function groupByKey(items, fn) {
@@ -243,14 +249,14 @@ function mkCard(d, showCat) {
   a.href = d.f; a.target = '_blank';
   const starred = stars.has(d.f);
   const catSpan = showCat
-    ? `<span style="color:var(--${d.c==='amber'?'accent':d.c})">${d.cl}</span><span>·</span>`
+    ? `<span style="color:var(--${d.c==='amber'?'accent':d.c})">${escHtml(d.cl)}</span><span>·</span>`
     : '';
   a.innerHTML = `
     <button class="star-btn${starred?' on':''}" title="${starred?'Unstar':'Star'}" aria-label="${starred?'Unstar':'Star'}">${starred?'★':'☆'}</button>
     ${d.b.length ? `<div class="badges">${badges(d.b)}</div>` : ''}
-    <div class="card-title">${d.t}</div>
+    <div class="card-title">${escHtml(d.t)}</div>
     <div class="card-meta">${catSpan}<span>${fmtDate(d.d)}</span><span>·</span><span>${d.kb} kb</span></div>
-    <div class="card-file">${d.f}</div>`;
+    <div class="card-file">${escHtml(d.f)}</div>`;
   a.querySelector('.star-btn').addEventListener('click', e => toggleStar(d.f, e));
   return a;
 }
@@ -263,10 +269,10 @@ function mkRow(d, showCat) {
   a.innerHTML = `
     <button class="star-btn${starred?' on':''}" title="${starred?'Unstar':'Star'}" aria-label="${starred?'Unstar':'Star'}">${starred?'★':'☆'}</button>
     <span class="li-dot ${d.c}"></span>
-    <span class="li-title">${d.t}</span>
+    <span class="li-title">${escHtml(d.t)}</span>
     ${d.b.length ? `<span class="badges">${badges(d.b)}</span>` : ''}
-    ${showCat ? `<span class="li-cat">${d.cl}</span>` : ''}
-    <span class="li-file">${d.f}</span>
+    ${showCat ? `<span class="li-cat">${escHtml(d.cl)}</span>` : ''}
+    <span class="li-file">${escHtml(d.f)}</span>
     <span class="li-date">${fmtDate(d.d)}</span>
     <span class="li-size">${d.kb} kb</span>`;
   a.querySelector('.star-btn').addEventListener('click', e => toggleStar(d.f, e));
@@ -313,7 +319,7 @@ function render() {
   contentEl.innerHTML = '';
 
   if (!items.length) {
-    contentEl.innerHTML = `<div class="empty">No diagrams match "${S.q}"</div>`;
+    contentEl.innerHTML = `<div class="empty">No diagrams match "${escHtml(S.q)}"</div>`;
     countEl.textContent = '0 results';
     return;
   }

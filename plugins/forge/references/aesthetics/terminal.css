@@ -26,6 +26,11 @@
   /* Accent — cyan secondary */
   --accent:     #00d4ff;     /* cyan */
   --accent-dim: rgba(0,212,255,0.1);
+
+  /* Shape — flat terminal, no rounding, no shadows */
+  --radius:     0;
+  --radius-sm:  0;
+  --shadow:     none;
 }
 
 /* ── Light Mode Override (optional, keeps terminal feel) ── */
@@ -100,19 +105,7 @@ code, pre {
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* ── Cards — Minimal Borders, Flat ── */
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 0;
-  padding: 1rem;
-  box-shadow: none;
-}
-
-.card.accent {
-  border-left: 2px solid var(--accent);
-  border-radius: 0;
-}
+/* Cards use --radius/--shadow tokens from :root above */
 
 .card-label {
   color: var(--accent);

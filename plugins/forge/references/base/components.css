@@ -8,7 +8,7 @@
 
 /* FORGE ANTI-PATTERNS — DO NOT USE
    - No box-shadow with multiple blur layers (glassmorphism)
-   - No text-shadow except .c-* colored ASCII blocks
+   - No text-shadow except .c-* colored ASCII blocks and terminal .glow
    - No gradient backgrounds (use flat surface tokens)
    - No border-radius > 8px on content cards
    - No decorative ::before/::after icons (use text or svg)
@@ -42,7 +42,7 @@
 /* ── Cards ── */
 .card {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 8px; padding: 1.25rem;
+  border-radius: var(--radius); padding: 1.25rem;
 }
 .card.accent { border-left: 3px solid var(--accent); }
 .card-label {
@@ -59,7 +59,7 @@
 /* ── Tables ── */
 .table-wrap {
   overflow-x: auto; margin-bottom: 1.5rem;
-  border: 1px solid var(--border); border-radius: 6px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
 }
 table { width: 100%; border-collapse: collapse; }
 thead th {

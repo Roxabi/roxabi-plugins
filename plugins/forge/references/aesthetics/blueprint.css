@@ -27,6 +27,11 @@
   /* Accent — minimal, errors/warnings only */
   --accent:     #dc2626;     /* red-600 — warning/error accent */
   --accent-dim: #fef2f2;     /* red-50 — dim surface */
+
+  /* Shape — flat, no rounding, no shadows */
+  --radius:     0;
+  --radius-sm:  0;
+  --shadow:     none;
 }
 
 /* ── Dark Mode Override ── */
@@ -91,25 +96,7 @@ code, pre, .mono {
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* ── Flat Cards — No Radius, No Shadow ── */
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 0;           /* flat */
-  padding: 1.25rem;
-  box-shadow: none;           /* no shadow */
-}
-
-.card.accent {
-  border-left: 3px solid var(--accent);
-  border-radius: 0;
-}
-
-/* ── Flat Tables ── */
-.table-wrap {
-  border: 1px solid var(--border);
-  border-radius: 0;
-}
+/* Cards and tables use --radius/--radius-sm/--shadow tokens from :root above */
 
 thead th {
   background: var(--bg);      /* lighter header bg */
