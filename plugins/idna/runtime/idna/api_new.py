@@ -94,10 +94,10 @@ def handle_new(handler: "IDNAHandler") -> None:
         (sdir / "session.json").write_text(json.dumps({"ratio": ratio}))
         setup_args = [
             sys.executable, str(IDNA_DIR / "idna_setup.py"),
-            str(sdir), f"--depth={depth}", f"--width={width}", f"--intent={intent}",
+            str(sdir), "--depth", str(depth), "--width", str(width), "--intent", intent,
         ]
         if template:
-            setup_args.append(f"--template={template}")
+            setup_args.extend(["--template", template])
         result = subprocess.run(setup_args, capture_output=True, text=True, timeout=180)
         if result.returncode != 0:
             emit({"step": "vocabulary", "status": "error", "message": result.stderr.strip()})

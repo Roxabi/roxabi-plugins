@@ -35,6 +35,11 @@ if [[ "${1:-}" == "--local" ]]; then DO_REMOTE=false; fi
 if [[ "${1:-}" == "--remote" ]]; then DO_LOCAL=false; fi
 
 # Step 1: Push current branch to origin
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [[ "$CURRENT_BRANCH" != "staging" ]]; then
+    warn "Not on staging (on '$CURRENT_BRANCH') — aborting push to prevent pushing wrong branch"
+    exit 1
+fi
 step "Pushing staging to origin..."
 git push origin staging
 

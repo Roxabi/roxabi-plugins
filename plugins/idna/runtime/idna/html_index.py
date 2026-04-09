@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html as _html
+
 from .html_index_css import INDEX_CSS
 from .html_index_js import INDEX_JS
 
@@ -23,6 +25,7 @@ def _index_html(sessions: list[dict], daemon_ok: bool = True) -> str:
         '<code style="font-family:monospace;background:rgba(0,0,0,.3);padding:1px 5px;border-radius:3px;margin:0 4px">'
         'make gen start</code> to generate images</div>'
     )
+    _e = _html.escape
     cards = ""
     for s in sessions:
         phase = s.get("phase", "picking")
@@ -30,18 +33,18 @@ def _index_html(sessions: list[dict], daemon_ok: bool = True) -> str:
         label = phase if phase in ("done", "finalizing") else (gen_status or s.get("status", "unknown"))
         color = _STATUS_COLOR.get(label, "#7d8799")
         display_img = s.get("display_img")
-        thumb = f'<img src="{display_img}" alt="preview">' if display_img else ""
-        ratio = s.get("ratio", "3:4")
+        thumb = f'<img src="{_e(display_img)}" alt="preview">' if display_img else ""
+        ratio = _e(s.get("ratio", "3:4"))
         ratio_css = ratio.replace(":", "/")
-        tmpl = s.get("template", "")
+        tmpl = _e(s.get("template", ""))
         cards += f"""
-    <a class="card" href="{s['url']}">
+    <a class="card" href="{_e(s['url'])}">
       <div class="card-thumb" style="aspect-ratio:{ratio_css}">{thumb}</div>
       <div class="card-body">
-        <div class="card-project">{s['project']}</div>
-        <div class="card-subject">{s['subject']}</div>
+        <div class="card-project">{_e(s['project'])}</div>
+        <div class="card-subject">{_e(s['subject'])}</div>
         <div class="card-meta">
-          <span class="badge" style="border-color:{color};color:{color}">{label}</span>
+          <span class="badge" style="border-color:{color};color:{color}">{_e(label)}</span>
           <span class="dim">r{s['round']} \u00b7 {ratio}{' \u00b7 ' + tmpl if tmpl else ''}</span>
         </div>
       </div>

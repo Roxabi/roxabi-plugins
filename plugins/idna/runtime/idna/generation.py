@@ -16,7 +16,7 @@ from .nodes import (
     _node_children_ids,
     _node_round,
 )
-from .session import _key, _session_dir, _is_new_format, read_session, write_session, _workers
+from .session import _key, _session_dir, _is_new_format, read_session, write_session, _workers, _workers_lock
 
 
 def _get_artifact_type(session: dict) -> str:
@@ -186,7 +186,8 @@ def _generation_worker(project: str, subject: str) -> None:
 def _ensure_worker(project: str, subject: str) -> None:
     """Start generation worker if not already running."""
     k = _key(project, subject)
-    if k not in _workers or not _workers[k].is_alive():
-        t = threading.Thread(target=_generation_worker, args=(project, subject), daemon=True)
-        _workers[k] = t
-        t.start()
+    with _workers_lock:
+        if k not in _workers or not _workers[k].is_alive():
+            t = threading.Thread(target=_generation_worker, args=(project, subject), daemon=True)
+            _workers[k] = t
+            t.start()

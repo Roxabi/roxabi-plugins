@@ -10,6 +10,7 @@ from .config import IDNA_DIR
 
 _locks: dict[str, threading.Lock] = {}
 _workers: dict[str, threading.Thread] = {}
+_workers_lock = threading.Lock()
 
 
 def _key(project: str, subject: str) -> str:

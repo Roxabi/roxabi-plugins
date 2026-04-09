@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -17,12 +18,17 @@ from .nodes import _node_children_ids
 from .session import _is_new_format, _session_dir, discover_sessions, read_session
 
 
+_SAFE_SEGMENT = re.compile(r"[a-z0-9][a-z0-9\-]{0,63}$")
+
+
 def _parse_path(path: str) -> tuple[str | None, str | None, str]:
     """Return (project, subject, rest) or (None, None, path) for index."""
     parts = [p for p in path.split("/") if p]
     if len(parts) < 2:
         return None, None, path
     project, subject = parts[0], parts[1]
+    if not _SAFE_SEGMENT.match(project) or not _SAFE_SEGMENT.match(subject):
+        return None, None, path
     rest = "/" + "/".join(parts[2:]) if len(parts) > 2 else "/"
     if path.endswith("/") and not rest.endswith("/"):
         rest += "/"
@@ -100,6 +106,9 @@ class IDNAHandler(BaseHTTPRequestHandler):
 
         # Static files (images, etc.)
         file_path = sdir / rest.lstrip("/")
+        if not file_path.resolve().is_relative_to(sdir.resolve()):
+            self._json(403, {"error": "forbidden"})
+            return
         if file_path.exists() and file_path.is_file():
             mime = MIME.get(file_path.suffix.lower(), "application/octet-stream")
             self._send(200, file_path.read_bytes(), mime)
