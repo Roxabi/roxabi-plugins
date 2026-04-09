@@ -10,6 +10,23 @@ import { execSync } from 'node:child_process'
 import { unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import {
+  buildCols,
+  buildEpicData,
+  COL,
+  type EpicData,
+  type EpicRow,
+  isActive,
+  lane,
+  nextIssue,
+  openCount,
+  progressBar,
+  renderCols,
+  SEP,
+  stripType,
+  trow,
+  trunc,
+} from './lib/digest-helpers'
 
 // ─── Fetch helpers ────────────────────────────────────────────────────────────
 
@@ -30,42 +47,6 @@ function detectRepo(): { owner: string; repo: string } {
   }).trim()
   const [owner, repo] = nwo.split('/')
   return { owner, repo }
-}
-
-function parseBlockedBy(body: string | null): number[] {
-  if (!body) return []
-  const nums: number[] = []
-  let inSection = false
-  for (const line of body.split('\n')) {
-    if (/^##\s+blocked by/i.test(line)) {
-      inSection = true
-      continue
-    }
-    if (inSection && /^##/.test(line)) break
-    if (inSection) {
-      for (const m of line.matchAll(/#(\d+)/g)) nums.push(parseInt(m[1], 10))
-    }
-  }
-  return nums
-}
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface Leaf {
-  number: number
-  title: string
-  state: 'OPEN' | 'CLOSED'
-  blockedBy: number[]
-}
-
-interface EpicData {
-  number: number
-  title: string
-  state: 'OPEN' | 'CLOSED'
-  blockedBy: number[]
-  leaves: Leaf[] // all leaf issues (depth 1 or 2)
-  subEpics: number[] // child issue numbers that are also epics
-  rawSubEpics: unknown[]
 }
 
 // ─── Fetch ────────────────────────────────────────────────────────────────────
@@ -108,56 +89,8 @@ for (let i = 0; i < topEpics.length; i++) {
   if (data) richData.set(data.number, data)
 }
 
-// Build EpicData from raw node, using richData for grandchildren if available
-// biome-ignore lint/suspicious/noExplicitAny: raw GraphQL node
-function buildEpicData(data: any): EpicData {
-  const leaves: Leaf[] = []
-  const subEpics: number[] = []
-
-  for (const child of data.subIssues?.nodes ?? []) {
-    const grandchildren = child.subIssues?.nodes ?? []
-    const isSubEpic = grandchildren.length > 0
-
-    if (isSubEpic) {
-      subEpics.push(child.number)
-      // Use richData for this child if available (has full body+blockedBy for each grandchild)
-      const richChild = richData.get(child.number)
-      const gcNodes = richChild?.subIssues?.nodes ?? grandchildren
-      for (const gc of gcNodes) {
-        leaves.push({
-          number: gc.number,
-          title: gc.title,
-          state: gc.state,
-          blockedBy: parseBlockedBy(gc.body ?? null),
-        })
-      }
-    } else {
-      leaves.push({
-        number: child.number,
-        title: child.title,
-        state: child.state,
-        blockedBy: parseBlockedBy(child.body ?? null),
-      })
-    }
-  }
-
-  // Collect raw sub-epic nodes (for those not in richData)
-  // biome-ignore lint/suspicious/noExplicitAny: raw GraphQL nodes
-  const rawSubEpics: any[] = (data.subIssues?.nodes ?? []).filter(
-    // biome-ignore lint/suspicious/noExplicitAny: raw GraphQL node
-    (child: any) => (child.subIssues?.nodes ?? []).length > 0,
-  )
-
-  return {
-    number: data.number,
-    title: data.title,
-    state: data.state,
-    blockedBy: parseBlockedBy(data.body ?? null),
-    leaves,
-    subEpics,
-    rawSubEpics,
-  }
-}
+// buildEpicData imported from digest-helpers — pass richData as parameter
+const _buildEpicData = (data: unknown) => buildEpicData(data, richData)
 
 // ─── Build rows ───────────────────────────────────────────────────────────────
 
@@ -169,15 +102,6 @@ for (const [, data] of richData) {
       childEpicNums.add(child.number)
     }
   }
-}
-
-interface EpicRow {
-  number: number
-  title: string
-  state: 'OPEN' | 'CLOSED'
-  progress: { closed: number; total: number }
-  depth: number
-  data: EpicData
 }
 
 const rows: EpicRow[] = []
@@ -206,7 +130,7 @@ function addRow(data: EpicData, depth: number) {
     const rawChild = _rawChild as any
     if (rawChild.state === 'CLOSED') continue
     const subRaw = richData.get(rawChild.number) ?? rawChild
-    addRow(buildEpicData(subRaw), depth + 1)
+    addRow(_buildEpicData(subRaw), depth + 1)
   }
 }
 
@@ -215,60 +139,10 @@ for (let i = 0; i < topEpics.length; i++) {
   if (!data || data.state === 'CLOSED') continue
   // Skip if already shown as a ↳ child
   if (childEpicNums.has(data.number)) continue
-  addRow(buildEpicData(data), 0)
-}
-
-// ─── Formatting helpers ───────────────────────────────────────────────────────
-
-function progressBar(closed: number, total: number): string {
-  if (total === 0) return '░░░░░'
-  const filled = Math.round((closed / total) * 5)
-  return '█'.repeat(filled) + '░'.repeat(5 - filled)
-}
-
-function pad(s: string, n: number, align: 'l' | 'r' | 'c' = 'l'): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: strip ANSI escape codes
-  const vis = s.replace(/\x1b\[[0-9;]*m/g, '').length
-  if (vis >= n) return s
-  const gap = n - vis
-  if (align === 'r') return ' '.repeat(gap) + s
-  if (align === 'c') {
-    const l = Math.floor(gap / 2)
-    return ' '.repeat(l) + s + ' '.repeat(gap - l)
-  }
-  return s + ' '.repeat(gap)
-}
-
-function trunc(s: string, n: number): string {
-  return s.length <= n ? s : `${s.slice(0, n - 1)}…`
-}
-
-function stripType(title: string): string {
-  return title
-    .replace(/^(feat|fix|chore|refactor|docs|test|ops|style)\([^)]+\):\s*/i, '')
-    .replace(/^(feat|fix|chore|refactor|docs|test|ops|style):\s*/i, '')
-}
-
-function nextIssue(row: EpicRow): string {
-  const open = row.data.leaves.filter((l) => l.state === 'OPEN')
-  if (open.length === 0) return '✓ done'
-  const unblocked = open.filter((l) => l.blockedBy.length === 0)
-  const pick = unblocked[0] ?? open[0]
-  return `#${pick.number} ${trunc(stripType(pick.title), 24)}`
-}
-
-function openCount(row: EpicRow): number {
-  return row.data.leaves.filter((l) => l.state === 'OPEN').length
+  addRow(_buildEpicData(data), 0)
 }
 
 // ─── Table ────────────────────────────────────────────────────────────────────
-
-const COL = { num: 8, epic: 52, prog: 11, open: 4, next: 26 }
-const SEP = ' │ '
-
-function trow(num: string, epic: string, prog: string, open: string, next: string): string {
-  return `${pad(num, COL.num)}${SEP}${pad(epic, COL.epic)}${SEP}${pad(prog, COL.prog)}${SEP}${pad(open, COL.open, 'r')}${SEP}${pad(next, COL.next)}`
-}
 
 const totalWidth = COL.num + COL.epic + COL.prog + COL.open + COL.next + SEP.length * 4
 
@@ -288,18 +162,6 @@ for (const r of rows) {
 console.log(lines.join('\n'))
 
 // ─── Execution lanes ──────────────────────────────────────────────────────────
-
-function lane(title: string): 'A' | 'B' | 'C' {
-  const t = title.toLowerCase()
-  if (/brand|lora|v23|v24|avatar|pulid/.test(t)) return 'C'
-  if (/infra|nats|security|ops\(infra|ops\(sec|quadlet|podman|docker|supervisor|\bci\b|provision/.test(t)) return 'A'
-  return 'B'
-}
-
-// Active = has its own progress
-function isActive(r: EpicRow): boolean {
-  return r.progress.closed > 0
-}
 
 // Collect all open leaves from active epics only, with their open-issue context
 const activeOpenNums = new Set<number>()
@@ -330,11 +192,7 @@ for (const r of [...rows].sort((a, b) => a.depth - b.depth)) {
   }
 }
 
-type LTask = { num: number; title: string; blockedBy: number[] }
-
-const phase1: LTask[] = []
-const _phase2: LTask[] = []
-const _phase3: LTask[] = []
+const phase1: { num: number; title: string; blockedBy: number[] }[] = []
 
 for (const [num, v] of leafMap) {
   if (!v.active) continue
@@ -345,7 +203,6 @@ for (const [num, v] of leafMap) {
 const p1nums = new Set<number>()
 const p2nums = new Set<number>()
 const p3nums = new Set<number>()
-const _deferred: LTask[] = []
 
 for (const t of phase1) {
   const openB = t.blockedBy.filter((b) => allOpenNums.has(b))
@@ -362,55 +219,25 @@ for (const t of phase1) {
   if (openB.length === 0) p3nums.add(t.num)
 }
 
-function buildCols(
-  nums: Set<number>,
-  prevNums?: Set<number>,
-): Record<'A' | 'B' | 'C', Array<{ label: string; chained: boolean }>> {
-  const cols: Record<'A' | 'B' | 'C', Array<{ label: string; chained: boolean }>> = { A: [], B: [], C: [] }
-  for (const [num, v] of leafMap) {
-    if (!nums.has(num)) continue
-    const l = lane(v.title)
-    const chained = !!prevNums && v.blockedBy.some((b) => prevNums.has(b))
-    const short = trunc(stripType(v.title), 34)
-    cols[l].push({ label: `#${num} ${short}`, chained })
-  }
-  return cols
-}
+const _buildCols = (nums: Set<number>, prevNums?: Set<number>) => buildCols(leafMap, nums, prevNums)
 
 const WA = 38,
   WB = 38,
   WC = 34
+const W = { A: WA, B: WB, C: WC }
 const hdr = `  ${'Phase'.padEnd(5)}  ${'Lane A (Infra/NATS)'.padEnd(WA)}  ${'Lane B (Features/Core)'.padEnd(WB)}  ${'Lane C (Brand ops)'.padEnd(WC)}`
 const sep = `  ${'─'.repeat(5)}  ${'─'.repeat(WA)}  ${'─'.repeat(WB)}  ${'─'.repeat(WC)}`
 
-function renderCols(
-  label: string,
-  cols: Record<'A' | 'B' | 'C', Array<{ label: string; chained: boolean }>>,
-): string[] {
-  const max = Math.max(cols.A.length, cols.B.length, cols.C.length)
-  if (max === 0) return []
-  const out: string[] = []
-  for (let i = 0; i < max; i++) {
-    const a = cols.A[i] ? (cols.A[i].chained ? '↓ ' : '') + cols.A[i].label : ''
-    const b = cols.B[i] ? (cols.B[i].chained ? '↓ ' : '') + cols.B[i].label : ''
-    const c = cols.C[i] ? (cols.C[i].chained ? '↓ ' : '') + cols.C[i].label : ''
-    out.push(
-      `  ${pad(i === 0 ? label : '', 5)}  ${pad(trunc(a, WA), WA)}  ${pad(trunc(b, WB), WB)}  ${pad(trunc(c, WC), WC)}`,
-    )
-  }
-  return out
-}
-
 const laneOut: string[] = ['', 'Execution order — 3 parallel lanes', hdr, sep]
 
-if (p1nums.size > 0) laneOut.push(...renderCols('1', buildCols(p1nums)))
+if (p1nums.size > 0) laneOut.push(...renderCols('1', _buildCols(p1nums), W))
 if (p2nums.size > 0) {
   laneOut.push(sep)
-  laneOut.push(...renderCols('2', buildCols(p2nums, p1nums)))
+  laneOut.push(...renderCols('2', _buildCols(p2nums, p1nums), W))
 }
 if (p3nums.size > 0) {
   laneOut.push(sep)
-  laneOut.push(...renderCols('3', buildCols(p3nums, p2nums)))
+  laneOut.push(...renderCols('3', _buildCols(p3nums, p2nums), W))
 }
 
 // Deferred: inactive epics (top-level or sub-epics with no progress)
@@ -422,7 +249,7 @@ if (deferredRows.length > 0) {
     const l = lane(r.title)
     dCols[l].push({ label: `⏸ #${r.number} ${trunc(stripType(r.title), 30)}`, chained: false })
   }
-  laneOut.push(...renderCols('—', dCols))
+  laneOut.push(...renderCols('—', dCols, W))
 }
 
 console.log(laneOut.join('\n'))

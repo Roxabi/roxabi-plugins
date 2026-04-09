@@ -218,7 +218,10 @@ describe('detectLicense', () => {
     ['PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2', 'Python-2.0'],
     ['MIT No Attribution', 'MIT-0'],
   ])('detects %s from LICENSE file as %s', (content, expected) => {
-    const pkg = makePackageDir(tmpDir, `lic-${expected.toLowerCase().replace(/[^a-z0-9]/g, '-')}`, { name: `lic-${expected}`, version: '1.0.0' })
+    const pkg = makePackageDir(tmpDir, `lic-${expected.toLowerCase().replace(/[^a-z0-9]/g, '-')}`, {
+      name: `lic-${expected}`,
+      version: '1.0.0',
+    })
     fs.writeFileSync(path.join(pkg.dir, 'LICENSE'), content)
     const result = detectLicense(pkg, policy)
     expect(result.license).toBe(expected)
@@ -227,7 +230,10 @@ describe('detectLicense', () => {
 
   it('returns null for unrecognized LICENSE file content', () => {
     const pkg = makePackageDir(tmpDir, 'unknown-lic', { name: 'unknown-lic', version: '1.0.0' })
-    fs.writeFileSync(path.join(pkg.dir, 'LICENSE'), 'Some custom proprietary license text that matches no known pattern.')
+    fs.writeFileSync(
+      path.join(pkg.dir, 'LICENSE'),
+      'Some custom proprietary license text that matches no known pattern.',
+    )
     const result = detectLicense(pkg, policy)
     expect(result.license).toBeNull()
     expect(result.source).toBeNull()

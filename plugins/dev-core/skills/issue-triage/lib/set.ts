@@ -15,7 +15,6 @@ import {
   SIZE_OPTIONS,
   STATUS_FIELD_ID,
   STATUS_OPTIONS,
-  syncPriorityLabel,
 } from '../../shared/adapters/config-helpers'
 import {
   addBlockedBy,
@@ -27,6 +26,7 @@ import {
   removeSubIssue,
   updateField,
 } from '../../shared/adapters/github-adapter'
+import { syncPriorityLabel } from '../../shared/adapters/github-infra'
 
 interface SetOptions {
   issueNumber: number

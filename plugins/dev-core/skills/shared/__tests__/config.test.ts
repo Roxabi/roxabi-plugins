@@ -51,13 +51,13 @@ const {
   resolveSize,
   resolveStatus,
   SIZE_OPTIONS,
-  STANDARD_LABELS,
-  STANDARD_WORKFLOWS,
-  PROTECTED_BRANCHES,
-  BRANCH_PROTECTION_PAYLOAD,
   STATUS_ALIASES,
   STATUS_OPTIONS,
 } = await import('../adapters/config-helpers')
+
+const { STANDARD_LABELS, STANDARD_WORKFLOWS, PROTECTED_BRANCHES, BRANCH_PROTECTION_PAYLOAD } = await import(
+  '../adapters/github-infra'
+)
 
 describe('shared/config', () => {
   describe('option maps', () => {

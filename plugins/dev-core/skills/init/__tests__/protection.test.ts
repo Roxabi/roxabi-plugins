@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../shared/adapters/config-helpers', () => ({
+vi.mock('../../shared/adapters/github-infra', () => ({
   PROTECTED_BRANCHES: ['main', 'staging'],
   BRANCH_PROTECTION_PAYLOAD: {
     required_status_checks: { strict: true, contexts: ['ci'] },

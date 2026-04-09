@@ -2,8 +2,8 @@
  * Create standard dev-core labels on the GitHub repo.
  */
 
-import { type LabelDef, STANDARD_LABELS } from '../../shared/adapters/config-helpers'
 import { run } from '../../shared/adapters/github-adapter'
+import { type LabelDef, STANDARD_LABELS } from '../../shared/adapters/github-infra'
 
 export type LabelScope = 'all' | 'type' | 'area'
 

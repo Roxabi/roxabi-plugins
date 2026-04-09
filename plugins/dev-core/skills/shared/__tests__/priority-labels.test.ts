@@ -7,7 +7,8 @@ vi.mock('../adapters/github-adapter', () => ({
 const { updateLabels } = await import('../adapters/github-adapter')
 const mockUpdateLabels = updateLabels as ReturnType<typeof vi.fn>
 
-const { PRIORITY_LABEL_MAP, PRIORITY_LABELS_SET, syncPriorityLabel } = await import('../adapters/config-helpers')
+const { PRIORITY_LABEL_MAP, PRIORITY_LABELS_SET } = await import('../adapters/config-helpers')
+const { syncPriorityLabel } = await import('../adapters/github-infra')
 
 describe('PRIORITY_LABEL_MAP', () => {
   it('maps all 4 canonical priorities to label names', () => {

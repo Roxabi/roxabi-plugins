@@ -86,6 +86,9 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
     }
     return aliases[input.toUpperCase()]
   },
+}))
+
+vi.mock('../../shared/adapters/github-infra', () => ({
   syncPriorityLabel: vi.fn(),
 }))
 
@@ -106,8 +109,8 @@ const mockUpdateField = github.updateField as ReturnType<typeof vi.fn>
 const mockAddBlockedBy = github.addBlockedBy as ReturnType<typeof vi.fn>
 const mockAddSubIssue = github.addSubIssue as ReturnType<typeof vi.fn>
 
-const configHelpers = await import('../../shared/adapters/config-helpers')
-const mockSyncPriorityLabel = configHelpers.syncPriorityLabel as ReturnType<typeof vi.fn>
+const githubInfra = await import('../../shared/adapters/github-infra')
+const mockSyncPriorityLabel = githubInfra.syncPriorityLabel as ReturnType<typeof vi.fn>
 
 const { createIssue } = await import('../lib/create')
 

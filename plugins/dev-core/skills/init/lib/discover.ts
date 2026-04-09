@@ -3,13 +3,13 @@
  * Returns structured JSON for the init orchestrator.
  */
 
+import { getBoardIssueNumbers, parseProjectFields, run } from '../../shared/adapters/github-adapter'
 import {
   DEFAULT_RULESET,
   PROTECTED_BRANCHES,
   STANDARD_LABELS,
   STANDARD_WORKFLOWS,
-} from '../../shared/adapters/config-helpers'
-import { getBoardIssueNumbers, parseProjectFields, run } from '../../shared/adapters/github-adapter'
+} from '../../shared/adapters/github-infra'
 import { checkPrereqs } from '../../shared/prereqs'
 
 export interface DiscoveryResult {
