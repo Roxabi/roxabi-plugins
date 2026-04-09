@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { formatJson, formatTable, formatTree } from '../../skills/issues/lib/table-formatter'
-import { ISSUES_QUERY, buildBatchedQuery, buildBatchedVariables } from '../../skills/shared/queries'
+import { buildBatchedQuery, buildBatchedVariables, ISSUES_QUERY } from '../../skills/shared/queries'
 import type { RawItem } from '../../skills/shared/types'
 import { readWorkspace } from '../lib/workspace'
 
@@ -64,14 +64,11 @@ async function fetchProjectItems(projectId: string, token: string): Promise<RawI
 }
 
 /** Match cwd against localPath entries in workspace. Returns the first match or null. */
-function resolveCurrentProject(
-  projects: IssuesCommandProject[],
-  cwd: string,
-): IssuesCommandProject | null {
+function resolveCurrentProject(projects: IssuesCommandProject[], cwd: string): IssuesCommandProject | null {
   // Exact match first, then prefix match (cwd is inside localPath)
   return (
     projects.find((p) => p.localPath && cwd === p.localPath) ??
-    projects.find((p) => p.localPath && cwd.startsWith(p.localPath + '/')) ??
+    projects.find((p) => p.localPath && cwd.startsWith(`${p.localPath}/`)) ??
     null
   )
 }
