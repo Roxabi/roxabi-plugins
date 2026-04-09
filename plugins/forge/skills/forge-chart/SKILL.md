@@ -16,9 +16,17 @@ Output: `~/.roxabi/forge/<project>/visuals/{slug}.html` or `~/.roxabi/forge/_sha
 
 ```
 ${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md     — brand detection, output paths, deploy commands
-${CLAUDE_PLUGIN_ROOT}/references/tokens.md        — CSS tokens + dark mode rules
+${CLAUDE_PLUGIN_ROOT}/references/aesthetics/      — lyra.css, roxabi.css (copy full token blocks)
 ${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md  — meta tag format + categories
 ```
+
+**Aesthetic selection:**
+
+| Project | Aesthetic file |
+|---------|---------------|
+| lyra, voicecli | `aesthetics/lyra.css` |
+| roxabi*, 2ndBrain | `aesthetics/roxabi.css` |
+| Unknown | `aesthetics/lyra.css` (default) |
 
 Mermaid note: single-file has **no dynamic-tab pitfalls** — use standard `startOnLoad: true`. No need for `mermaid.render()`, no `rgba()` restriction.
 
@@ -76,6 +84,7 @@ Single HTML file. Everything inline.
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
   <style>
+    /* Token block — copy from aesthetics/{project}.css */
     :root, [data-theme="dark"] {
       --bg: #0a0a0f; --surface: #18181f; --border: #2a2a35;
       --text: #fafafa; --text-muted: #9ca3af; --text-dim: #6b7280;
@@ -160,7 +169,7 @@ flowchart TD
 </html>
 ```
 
-**Token overrides:** replace the token block with brand tokens if brand book found.
+**Token block:** read `{aesthetics/{project}.css}` and copy the full `:root` / `[data-theme]` blocks. Do not hardcode individual values.
 
 **Mermaid theme variables:** adjust `primaryBorderColor` to brand accent. Use hex colors only in `style` node directives.
 

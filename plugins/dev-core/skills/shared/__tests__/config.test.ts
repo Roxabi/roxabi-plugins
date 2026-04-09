@@ -235,10 +235,16 @@ describe('BRANCH_PROTECTION_PAYLOAD', () => {
 describe('detectGitHubRepo', () => {
   const originalEnv = process.env.GITHUB_REPO
   let spawnSyncSpy: ReturnType<typeof vi.spyOn>
+  let execSyncSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
     delete process.env.GITHUB_REPO
     spawnSyncSpy = vi.spyOn(Bun, 'spawnSync')
+    // Mock execSync to throw (simulating gh CLI not available)
+    // This forces the code to use git detection path
+    execSyncSpy = vi.spyOn(require('node:child_process'), 'execSync').mockImplementation(() => {
+      throw new Error('gh: command not found')
+    })
   })
 
   afterEach(() => {
@@ -248,6 +254,7 @@ describe('detectGitHubRepo', () => {
       delete process.env.GITHUB_REPO
     }
     spawnSyncSpy.mockRestore()
+    execSyncSpy.mockRestore()
   })
 
   it('prefers GITHUB_REPO env var when set', () => {

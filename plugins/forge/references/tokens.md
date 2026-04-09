@@ -23,55 +23,16 @@ The gallery system extends the baseline with extra surface tiers (`--surface2`, 
 
 ---
 
-## Lyra Theme — Forge Orange
+## Theme CSS Files
 
-```css
-:root, [data-theme="dark"] {
-  --bg:         #0a0a0f;
-  --surface:    #18181f;
-  --border:     #2a2a35;
-  --text:       #fafafa;
-  --text-muted: #9ca3af;
-  --text-dim:   #6b7280;
-  --accent:     #e85d04;
-  --accent-dim: #7c2d0e;
-}
-[data-theme="light"] {
-  --bg:         #fafaf9;
-  --surface:    #f4f4f0;
-  --border:     #d1ccc7;
-  --text:       #1c1917;
-  --text-muted: #57534e;
-  --text-dim:   #78716c;
-  --accent:     #c2410c;
-  --accent-dim: #fef2e8;
-}
-```
+Full token definitions live in dedicated aesthetic files:
 
-## Roxabi Theme — Gold
+| Project | Aesthetic file | Accent |
+|---------|---------------|--------|
+| lyra, voicecli | `aesthetics/lyra.css` | Forge Orange `#e85d04` |
+| roxabi*, 2ndBrain | `aesthetics/roxabi.css` | Gold `#f0b429` |
 
-```css
-:root, [data-theme="dark"] {
-  --bg:         #111210;
-  --surface:    #1a1b18;
-  --border:     #2e3028;
-  --text:       #f0ede6;
-  --text-muted: #9ca3af;
-  --text-dim:   #7a7468;
-  --accent:     #f0b429;
-  --accent-dim: #78460d;
-}
-[data-theme="light"] {
-  --bg:         #f8f7f4;
-  --surface:    #f0ede8;
-  --border:     #d6cfc8;
-  --text:       #1c1917;
-  --text-muted: #57534e;
-  --text-dim:   #78716c;
-  --accent:     #d97706;
-  --accent-dim: #fef3c7;
-}
-```
+**Usage in skills:** Copy brand token blocks (`--bg`, `--surface`, `--border`, `--text*`, `--accent*`) from the aesthetic file. Semantic colors (`--success*`, `--warning*`, `--error*`, `--info*`) come from `base/components.css`. Typography comes from `base/typography.css`.
 
 ---
 
