@@ -32,6 +32,9 @@
   <!-- CONTENT: Self-contained diagram body (cards, grids, Mermaid containers, etc.) -->
   {CONTENT}
 
+  <!-- Theme Toggle: Position as needed for diagram type -->
+  <button class="theme-btn" id="theme-toggle" aria-label="Toggle color theme" aria-pressed="false">◑ light</button>
+
   <script>
     /* ── Theme Toggle (inline per ADR-011) ── */
     ;(function () {
@@ -41,12 +44,14 @@
       var themeBtn = document.getElementById('theme-toggle')
       if (themeBtn) {
         themeBtn.textContent = saved === 'dark' ? '◑ light' : '◑ dark'
+        themeBtn.setAttribute('aria-pressed', saved === 'light' ? 'true' : 'false')
         themeBtn.addEventListener('click', function () {
           var cur  = document.documentElement.getAttribute('data-theme')
           var next = cur === 'dark' ? 'light' : 'dark'
           document.documentElement.setAttribute('data-theme', next)
           localStorage.setItem(THEME_KEY, next)
           this.textContent = next === 'dark' ? '◑ light' : '◑ dark'
+          this.setAttribute('aria-pressed', next === 'light' ? 'true' : 'false')
         })
       }
     })()

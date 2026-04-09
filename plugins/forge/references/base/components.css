@@ -12,7 +12,7 @@
    - No gradient backgrounds (use flat surface tokens)
    - No border-radius > 8px on content cards
    - No decorative ::before/::after icons (use text or svg)
-   - No animation/transition except theme-toggle (0.15s max)
+   - No animation/transition except theme-toggle and tab hover (0.15s max)
 */
 
 /* ── Semantic Color Tokens — Dark ── */

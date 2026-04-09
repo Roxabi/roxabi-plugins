@@ -29,14 +29,14 @@
   </style>
 </head>
 <body>
-  <nav class="topnav">
+  <nav class="topnav" aria-label="Main">
     <span class="nav-title">{TITLE}</span>
     <div class="tabs" role="tablist">
       <!-- TABS: Tab button elements — one per tab -->
       <!-- Example: <button class="tab-btn" data-tab="overview" role="tab">Overview</button> -->
       {TABS}
     </div>
-    <button class="theme-btn" id="theme-toggle">◑ light</button>
+    <button class="theme-btn" id="theme-toggle" aria-label="Toggle color theme" aria-pressed="false">◑ light</button>
   </nav>
   <main>
     <!-- PANELS: Panel container elements — one per tab, matching data-tab IDs -->
@@ -53,12 +53,14 @@
       var themeBtn = document.getElementById('theme-toggle')
       if (themeBtn) {
         themeBtn.textContent = saved === 'dark' ? '◑ light' : '◑ dark'
+        themeBtn.setAttribute('aria-pressed', saved === 'light' ? 'true' : 'false')
         themeBtn.addEventListener('click', function () {
           var cur  = document.documentElement.getAttribute('data-theme')
           var next = cur === 'dark' ? 'light' : 'dark'
           document.documentElement.setAttribute('data-theme', next)
           localStorage.setItem(THEME_KEY, next)
           this.textContent = next === 'dark' ? '◑ light' : '◑ dark'
+          this.setAttribute('aria-pressed', next === 'light' ? 'true' : 'false')
         })
       }
     })()
