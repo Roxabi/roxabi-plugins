@@ -1,0 +1,43 @@
+/* ══════════════════════════════════════════════════════════════════
+   typography.css — font loading, type scale, code blocks
+   Part of forge base/ layer. Inline after layout.css.
+
+   Preconnect (add to <head> of output HTML):
+     <link rel="preconnect" href="https://fonts.googleapis.com">
+     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Body ── */
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── Headings ── */
+h1, h2, h3, h4 { color: var(--text); font-weight: 600; }
+h1 { font-size: 1.75rem; margin-bottom: 0.75rem; }
+h2 { font-size: 1.25rem; margin: 2rem 0 0.75rem; }
+h3 { font-size: 1rem;    margin: 1.5rem 0 0.5rem; }
+
+/* ── Body Text ── */
+p  { color: var(--text-muted); margin-bottom: 0.875rem; }
+ul, ol { color: var(--text-muted); padding-left: 1.5rem; margin-bottom: 0.875rem; }
+li { margin-bottom: 0.25rem; }
+
+/* ── Code ── */
+code {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.875em;
+  background: var(--surface); border: 1px solid var(--border);
+  padding: 0.125em 0.35em; border-radius: 3px; color: var(--text);
+}
+pre {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 1rem; overflow-x: auto; margin-bottom: 1rem;
+}
+pre code {
+  background: none; border: none; padding: 0;
+  font-size: 0.875rem; white-space: pre-wrap;
+}
