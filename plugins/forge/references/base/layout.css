@@ -1,0 +1,51 @@
+/* ══════════════════════════════════════════════════════════════════
+   layout.css — navigation, panels, grid utilities, responsive
+   Part of forge base/ layer. Inline after reset.css.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Nav ── */
+.topnav {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; gap: 1rem;
+  padding: 0 1.5rem; height: 3rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.nav-title {
+  font-size: 0.875rem; font-weight: 600;
+  color: var(--text); margin-right: auto; white-space: nowrap;
+}
+.tabs { display: flex; gap: 0.25rem; }
+.tab-btn {
+  padding: 0.375rem 0.875rem; font-size: 0.8125rem;
+  font-family: inherit; font-weight: 500;
+  color: var(--text-dim); background: transparent;
+  border: none; border-radius: 4px; cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.tab-btn:hover  { color: var(--text-muted); background: var(--bg); }
+.tab-btn.active { color: var(--accent);     background: var(--bg); }
+.theme-btn {
+  padding: 0.25rem 0.5rem; font-size: 0.75rem;
+  color: var(--text-dim); background: transparent;
+  border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
+}
+.theme-btn:hover { color: var(--text-muted); }
+
+/* ── Panels ── */
+.panel { display: none; padding: 2rem 1.5rem; max-width: 960px; margin: 0 auto; }
+.panel.active { display: block; }
+
+/* ── Cards Grid ── */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem; margin-bottom: 1.5rem;
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .topnav { padding: 0 1rem; flex-wrap: wrap; height: auto; padding-block: 0.5rem; }
+  .tabs { overflow-x: auto; width: 100%; }
+  .panel { padding: 1.5rem 1rem; }
+}

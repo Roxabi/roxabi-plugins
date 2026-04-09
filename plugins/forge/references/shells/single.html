@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{TITLE}</title>
+  <!-- diagram-meta:start -->
+  <meta name="diagram:title"     content="{TITLE}">
+  <meta name="diagram:date"      content="{DATE}">
+  <meta name="diagram:category"  content="{CATEGORY}">
+  <meta name="diagram:cat-label" content="{CAT_LABEL}">
+  <meta name="diagram:color"     content="{COLOR}">
+  <meta name="diagram:badges"    content="{BADGES}">
+  <!-- diagram-meta:end -->
+  <!-- PRECONNECT: Add Google Fonts links for the aesthetic's font pair -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+  <!-- HEAD_EXTRAS: Optional <head> tags (e.g., svg-pan-zoom CDN for Mermaid pan/zoom) -->
+  {HEAD_EXTRAS}
+  <style>
+    /* BASE_STYLES: Concatenate base/*.css in order: reset → layout → typography → components */
+    {BASE_STYLES}
+
+    /* AESTHETIC_STYLES: Aesthetic CSS override (empty if no aesthetic selected) */
+    {AESTHETIC_STYLES}
+
+    /* EXTRA_STYLES: Diagram-specific CSS additions */
+    {EXTRA_STYLES}
+  </style>
+</head>
+<body>
+  <!-- CONTENT: Self-contained diagram body (cards, grids, Mermaid containers, etc.) -->
+  {CONTENT}
+
+  <script>
+    /* ── Theme Toggle (inline per ADR-011) ── */
+    ;(function () {
+      var THEME_KEY = 'diag-{NAME}-theme'
+      var saved = localStorage.getItem(THEME_KEY) || 'dark'
+      document.documentElement.setAttribute('data-theme', saved)
+      var themeBtn = document.getElementById('theme-toggle')
+      if (themeBtn) {
+        themeBtn.textContent = saved === 'dark' ? '◑ light' : '◑ dark'
+        themeBtn.addEventListener('click', function () {
+          var cur  = document.documentElement.getAttribute('data-theme')
+          var next = cur === 'dark' ? 'light' : 'dark'
+          document.documentElement.setAttribute('data-theme', next)
+          localStorage.setItem(THEME_KEY, next)
+          this.textContent = next === 'dark' ? '◑ light' : '◑ dark'
+        })
+      }
+    })()
+  </script>
+  <!-- EXTRA_SCRIPTS: Optional — mermaid-init.js or custom JS -->
+  <script>
+    {EXTRA_SCRIPTS}
+  </script>
+</body>
+</html>
