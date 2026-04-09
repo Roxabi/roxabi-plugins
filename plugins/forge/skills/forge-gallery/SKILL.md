@@ -13,7 +13,7 @@ Create a self-contained HTML gallery from a template. Galleries live at `~/.roxa
 
 ```
 ${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md                       — brand detection, output paths, deploy commands
-${CLAUDE_PLUGIN_ROOT}/references/tokens.md                          — CSS tokens + dark mode rules
+${CLAUDE_PLUGIN_ROOT}/references/aesthetics/                        — lyra.css, roxabi.css (brand tokens)
 ${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md                    — meta tag format + categories
 ${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/README.md        — template guide + customisation steps
 ${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/pivot-gallery.html — full working template

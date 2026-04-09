@@ -16,7 +16,7 @@ Output: `~/.roxabi/forge/<project>/visuals/{N}-{slug}.html` (split-file).
 ```
 ${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md     — brand detection, output paths, deploy commands
 ${CLAUDE_PLUGIN_ROOT}/references/split-file.md    — templates + CSS/JS skeletons
-${CLAUDE_PLUGIN_ROOT}/references/tokens.md        — CSS tokens + dark mode rules
+${CLAUDE_PLUGIN_ROOT}/references/aesthetics/      — lyra.css, roxabi.css (copy full token blocks)
 ${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md  — meta tag format + categories
 ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md — dependency/breakdown diagrams
 ```

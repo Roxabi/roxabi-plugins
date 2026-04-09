@@ -17,7 +17,7 @@ Covers: user guides, architecture overviews, project recaps, analysis/comparison
 ```
 ${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md     — brand detection, output paths, deploy commands
 ${CLAUDE_PLUGIN_ROOT}/references/split-file.md    — templates + CSS/JS skeletons
-${CLAUDE_PLUGIN_ROOT}/references/tokens.md        — CSS tokens + dark mode rules
+${CLAUDE_PLUGIN_ROOT}/references/aesthetics/      — lyra.css, roxabi.css (copy full token blocks)
 ${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md  — meta tag format + categories
 ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md — only if a tab will contain a Mermaid diagram
 ```
@@ -82,7 +82,7 @@ Use exact templates from `references/split-file.md`. Replace all `{PLACEHOLDER}`
 
 **Shell HTML:** diagram-meta block, Google Fonts link, CSS link, nav with tab buttons + theme toggle, panel placeholders, JS script.
 
-**CSS:** token block (brand or default from `references/tokens.md`) + full skeleton.
+**CSS:** token block (copy from `references/aesthetics/{project}.css`) + full skeleton.
 
 **JS:** IIFE with theme, `loadPanel`, `activate`. Add `window.__postLoad` + `window.__initPanZoom` if Mermaid tabs exist (from `references/mermaid-guide.md`).
 
