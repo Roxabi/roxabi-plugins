@@ -1,6 +1,9 @@
 /* ══════════════════════════════════════════════════════════════════
    lyra.css — Lyra brand aesthetic (Forge Orange)
    Used by: lyra, voicecli projects
+
+   Brand tokens only. Semantic colors and typography come from
+   base/components.css and base/typography.css respectively.
    ══════════════════════════════════════════════════════════════════ */
 
 /* ── Brand Tokens — Dark (default) ── */
@@ -26,31 +29,3 @@
   --accent:     #c2410c;
   --accent-dim: #fef2e8;
 }
-
-/* ── Semantic Color Tokens — Dark ── */
-:root, [data-theme="dark"] {
-  --success:     #34d399;
-  --success-dim: rgba(52,211,153,0.12);
-  --warning:     #fbbf24;
-  --warning-dim: rgba(251,191,36,0.12);
-  --error:       #f87171;
-  --error-dim:   rgba(248,113,113,0.12);
-  --info:        #60a5fa;
-  --info-dim:    rgba(96,165,250,0.12);
-}
-
-/* ── Semantic Color Tokens — Light ── */
-[data-theme="light"] {
-  --success:     #047857;
-  --success-dim: rgba(4,120,87,0.1);
-  --warning:     #d97706;
-  --warning-dim: rgba(217,119,6,0.1);
-  --error:       #dc2626;
-  --error-dim:   rgba(220,38,38,0.1);
-  --info:        #2563eb;
-  --info-dim:    rgba(37,99,235,0.1);
-}
-
-/* ── Typography ── */
-body        { font-family: 'IBM Plex Sans', system-ui, sans-serif; }
-code, pre   { font-family: 'IBM Plex Mono', monospace; }

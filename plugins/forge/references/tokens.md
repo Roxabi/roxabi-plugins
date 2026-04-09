@@ -32,7 +32,7 @@ Full token definitions live in dedicated aesthetic files:
 | lyra, voicecli | `aesthetics/lyra.css` | Forge Orange `#e85d04` |
 | roxabi*, 2ndBrain | `aesthetics/roxabi.css` | Gold `#f0b429` |
 
-**Usage in skills:** Copy the entire `:root` / `[data-theme]` block from the appropriate aesthetic file. Do not hardcode individual token values.
+**Usage in skills:** Copy brand token blocks (`--bg`, `--surface`, `--border`, `--text*`, `--accent*`) from the aesthetic file. Semantic colors (`--success*`, `--warning*`, `--error*`, `--info*`) come from `base/components.css`. Typography comes from `base/typography.css`.
 
 ---
 
