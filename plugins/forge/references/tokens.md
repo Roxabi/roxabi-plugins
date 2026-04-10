@@ -13,7 +13,7 @@ The gallery system extends the baseline with extra surface tiers (`--surface2`, 
 
 ## Baseline Tokens (Split-File / Chart / Epic)
 
-## Which Theme to Use
+### Which Theme to Use
 
 1. Check `~/.roxabi/forge/<project>/brand/BRAND-BOOK.md` or `~/projects/<project>/brand/BRAND-BOOK.md`
 2. Brand book found → derive tokens from its palette
@@ -31,6 +31,7 @@ Full token definitions live in dedicated aesthetic files:
 |---------|---------------|--------|
 | lyra, voicecli | `aesthetics/lyra.css` | Forge Orange `#e85d04` |
 | roxabi*, 2ndBrain | `aesthetics/roxabi.css` | Gold `#f0b429` |
+| default (unknown) | `aesthetics/editorial.css` | Slate `#64748b` |
 
 **Usage in skills:** Copy brand token blocks (`--bg`, `--surface`, `--border`, `--text*`, `--accent*`) from the aesthetic file. Semantic colors (`--success*`, `--warning*`, `--error*`, `--info*`) come from `base/components.css`. Typography comes from `base/typography.css`.
 
@@ -59,15 +60,9 @@ Common trap: setting `--text-muted` and `--text-dim` to the same value (`#6b7280
 
 ## Typography (Default)
 
-```html
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
-```
+Use IBM Plex Sans + IBM Plex Mono (loaded via Google Fonts in the shell templates).
 
-```css
-body        { font-family: 'IBM Plex Sans', system-ui, sans-serif; }
-code, pre   { font-family: 'IBM Plex Mono', monospace; }
-```
+Typography rules are defined in `base/typography.css` — skills should read and inline that file.
 
-Other acceptable pairs: DM Sans + Fira Code, Plus Jakarta Sans + Azeret Mono.  
+Other acceptable pairs: DM Sans + Fira Code, Plus Jakarta Sans + Azeret Mono.
 **Forbidden as primary fonts:** Inter, Roboto, Arial, bare `system-ui`.

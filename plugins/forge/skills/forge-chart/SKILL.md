@@ -1,7 +1,7 @@
 ---
 name: forge-chart
 description: 'Create a quick self-contained single-file HTML visual — Mermaid flowchart, dependency tree, sequence diagram, or CSS layout. No server needed, works with file://. Triggers: "draw" | "diagram" | "visualize" | "sketch" | "map" | "show the flow" | "quick visual".'
-version: 0.1.0
+version: 0.2.0
 allowed-tools: Read, Write, Bash, Glob, Grep, ToolSearch
 ---
 
@@ -15,18 +15,49 @@ Output: `~/.roxabi/forge/<project>/visuals/{slug}.html` or `~/.roxabi/forge/_sha
 **Read before generating:**
 
 ```
-${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md     — brand detection, output paths, deploy commands
-${CLAUDE_PLUGIN_ROOT}/references/aesthetics/      — lyra.css, roxabi.css (copy full token blocks)
-${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md  — meta tag format + categories
+${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md        — brand detection, output paths, deploy commands
+${CLAUDE_PLUGIN_ROOT}/references/base/reset.css      — concatenate first
+${CLAUDE_PLUGIN_ROOT}/references/base/layout.css     — concatenate second
+${CLAUDE_PLUGIN_ROOT}/references/base/typography.css — concatenate third
+${CLAUDE_PLUGIN_ROOT}/references/base/components.css — concatenate last
+${CLAUDE_PLUGIN_ROOT}/references/aesthetics/         — select one based on detection logic
+${CLAUDE_PLUGIN_ROOT}/references/shells/single.html  — HTML template with placeholders
+${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md     — meta tag format + categories
 ```
 
-**Aesthetic selection:**
+**Directive: inline, never link** — `base/` and `aesthetics/` files are generation source, not runtime dependencies. Read → inline into output `<style>` block.
 
-| Project | Aesthetic file |
-|---------|---------------|
-| lyra, voicecli | `aesthetics/lyra.css` |
-| roxabi*, 2ndBrain | `aesthetics/roxabi.css` |
-| Unknown | `aesthetics/lyra.css` (default) |
+---
+
+## Aesthetic Detection
+
+| Priority | Signal | Aesthetic |
+|----------|--------|-----------|
+| 1 | Explicit `--aesthetic` arg | As specified |
+| 2 | Brand book found (`BRAND-BOOK.md`) | Derived from palette |
+| 3 | Project = `lyra` / `voicecli` | `lyra.css` |
+| 4 | Project = `roxabi*` / `2ndBrain` | `roxabi.css` |
+| 5 | Content = architecture / spec | `blueprint.css` |
+| 6 | Content = CLI / terminal doc | `terminal.css` |
+| 7 | Default | `editorial.css` |
+
+---
+
+## Shell Processing
+
+1. Read `shells/single.html` template
+2. Concatenate base CSS files in order: `reset → layout → typography → components`
+3. Read selected aesthetic CSS
+4. Substitute placeholders:
+   - `{NAME}` → diagram slug (for localStorage key scoping)
+   - `{BASE_STYLES}` → concatenated base CSS
+   - `{AESTHETIC_STYLES}` → aesthetic CSS (editorial.css if default)
+   - `{TITLE}`, `{DATE}`, `{CATEGORY}`, `{CAT_LABEL}`, `{COLOR}`, `{BADGES}` → diagram metadata
+   - `{HEAD_EXTRAS}` → mermaid CDN script (for Mermaid diagrams)
+   - `{CONTENT}` → diagram body (Mermaid container, cards, etc.)
+   - `{EXTRA_STYLES}` → diagram-specific CSS (if any)
+   - `{EXTRA_SCRIPTS}` → theme toggle JS (from shell)
+5. Output: single self-contained HTML file (file:// safe)
 
 Mermaid note: single-file has **no dynamic-tab pitfalls** — use standard `startOnLoad: true`. No need for `mermaid.render()`, no `rgba()` restriction.
 
@@ -41,6 +72,7 @@ Let:
 2. Issue number in ARGS (`#N` or `NNN-`) → filename `{N}-{slug}.html`, set `diagram:issue` meta.
 3. Cross-project / no project → `~/.roxabi/forge/_shared/diagrams/`.
 4. Brand book — follow `forge-ops.md` brand detection.
+5. Apply aesthetic detection logic to select the correct aesthetic file.
 
 ---
 
@@ -63,115 +95,29 @@ Choose `diagram:category` + `diagram:color` from `references/diagram-meta.md`.
 
 ## Phase 3 — Generate
 
-Single HTML file. Everything inline.
+Read `shells/single.html` → substitute placeholders with content. The shell already contains:
+- Theme toggle JS
+- Diagram meta placeholders
+- CSS placeholder slots
 
+**Mermaid diagrams:** add to `{HEAD_EXTRAS}`:
 ```html
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{TITLE}</title>
-  <!-- diagram-meta:start -->
-  <meta name="diagram:title"     content="{TITLE}">
-  <meta name="diagram:date"      content="{YYYY-MM-DD}">
-  <meta name="diagram:category"  content="{category}">
-  <meta name="diagram:cat-label" content="{Label}">
-  <meta name="diagram:color"     content="{color}">
-  <meta name="diagram:badges"    content="latest">
-  <!-- optional: <meta name="diagram:issue" content="{N}"> -->
-  <!-- diagram-meta:end -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
-  <style>
-    /* Token block — copy from aesthetics/{project}.css */
-    :root, [data-theme="dark"] {
-      --bg: #0a0a0f; --surface: #18181f; --border: #2a2a35;
-      --text: #fafafa; --text-muted: #9ca3af; --text-dim: #6b7280;
-      --accent: #e85d04;
-    }
-    [data-theme="light"] {
-      --bg: #fafaf9; --surface: #f4f4f0; --border: #d1ccc7;
-      --text: #1c1917; --text-muted: #57534e; --text-dim: #78716c;
-      --accent: #c2410c;
-    }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0 }
-    body {
-      background: var(--bg); color: var(--text);
-      font-family: 'IBM Plex Sans', system-ui, sans-serif;
-      padding: 2rem 1.5rem; line-height: 1.6;
-    }
-    header {
-      display: flex; align-items: baseline; gap: 1rem;
-      margin-bottom: 2rem; flex-wrap: wrap;
-    }
-    header h1 { font-size: 1.25rem; font-weight: 600; flex: 1; }
-    .issue-tag {
-      font-family: 'IBM Plex Mono', monospace; font-size: 0.8125rem;
-      color: var(--accent); font-weight: 600;
-    }
-    .theme-btn {
-      padding: 0.2rem 0.5rem; font-size: 0.75rem;
-      color: var(--text-dim); background: transparent;
-      border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
-    }
-    .mermaid-wrap {
-      display: flex; justify-content: center; align-items: flex-start;
-      overflow: auto; padding: 1.5rem; margin-bottom: 1.5rem;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-    }
-    .mermaid svg { max-width: none; }
-    p { color: var(--text-muted); margin-bottom: 0.75rem; }
-  </style>
-  <script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs'
-    mermaid.initialize({
-      startOnLoad: true, theme: 'base',
-      themeVariables: {
-        primaryColor: '#18181f', primaryTextColor: '#fafafa',
-        primaryBorderColor: '#e85d04', lineColor: '#6b7280',
-        secondaryColor: '#2a2a35', background: '#0a0a0f',
-        edgeLabelBackground: '#18181f', nodeTextColor: '#9ca3af',
-      },
-      flowchart: { useMaxWidth: false, curve: 'basis' }
-    })
-  </script>
-</head>
-<body>
-  <header>
-    <!-- include .issue-tag span only if issue-linked -->
-    <span class="issue-tag">#{ISSUE}</span>
-    <h1>{TITLE}</h1>
-    <button class="theme-btn" id="theme-toggle">◑ light</button>
-  </header>
-
-  <div class="mermaid-wrap">
-    <div class="mermaid">
-flowchart TD
-    A["Node A"] --> B["Node B"]
-    </div>
-  </div>
-
-  <script>
-    var K = 'chart-{SLUG}-theme'
-    var s = localStorage.getItem(K) || 'dark'
-    document.documentElement.setAttribute('data-theme', s)
-    var b = document.getElementById('theme-toggle')
-    b.textContent = s === 'dark' ? '◑ light' : '◑ dark'
-    b.addEventListener('click', function () {
-      var n = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'
-      document.documentElement.setAttribute('data-theme', n)
-      localStorage.setItem(K, n)
-      this.textContent = n === 'dark' ? '◑ light' : '◑ dark'
-    })
-  </script>
-</body>
-</html>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs'
+  mermaid.initialize({
+    startOnLoad: true, theme: 'base',
+    themeVariables: {
+      primaryColor: 'var(--surface)', primaryTextColor: 'var(--text)',
+      primaryBorderColor: 'var(--accent)', lineColor: 'var(--text-dim)',
+      secondaryColor: 'var(--border)', background: 'var(--bg)',
+      edgeLabelBackground: 'var(--surface)', nodeTextColor: 'var(--text-muted)',
+    },
+    flowchart: { useMaxWidth: false, curve: 'basis' }
+  })
+</script>
 ```
 
-**Token block:** read `{aesthetics/{project}.css}` and copy the full `:root` / `[data-theme]` blocks. Do not hardcode individual values.
-
-**Mermaid theme variables:** adjust `primaryBorderColor` to brand accent. Use hex colors only in `style` node directives.
+**Content:** diagram body (Mermaid container, cards, grids, etc.) goes into `{CONTENT}` placeholder.
 
 **Dark mode text:** any descriptive `<p>` → `color: var(--text-muted)`. Metadata → `color: var(--text-dim)`.
 

@@ -1,7 +1,7 @@
 ---
 name: forge-epic
 description: 'Create an issue/epic-linked visual analysis — overview, scope breakdown, dependency graph, acceptance criteria. Filename always includes the issue number. Triggers: "visualize #N" | "preview #N" | "illustrate issue" | "map issue" | "epic preview" | "show epic".'
-version: 0.1.0
+version: 0.2.0
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch
 ---
 
@@ -14,12 +14,55 @@ Output: `~/.roxabi/forge/<project>/visuals/{N}-{slug}.html` (split-file).
 **Read before generating:**
 
 ```
-${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md     — brand detection, output paths, deploy commands
-${CLAUDE_PLUGIN_ROOT}/references/split-file.md    — templates + CSS/JS skeletons
-${CLAUDE_PLUGIN_ROOT}/references/aesthetics/      — lyra.css, roxabi.css (copy full token blocks)
-${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md  — meta tag format + categories
-${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md — dependency/breakdown diagrams
+${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md        — brand detection, output paths, deploy commands
+${CLAUDE_PLUGIN_ROOT}/references/base/reset.css      — concatenate first
+${CLAUDE_PLUGIN_ROOT}/references/base/layout.css     — concatenate second
+${CLAUDE_PLUGIN_ROOT}/references/base/typography.css — concatenate third
+${CLAUDE_PLUGIN_ROOT}/references/base/components.css — concatenate last
+${CLAUDE_PLUGIN_ROOT}/references/aesthetics/         — select one based on detection logic
+${CLAUDE_PLUGIN_ROOT}/references/shells/split.html   — HTML template with placeholders
+${CLAUDE_PLUGIN_ROOT}/references/base/tab-loader.js  — substitute {NAME}, then inline
+${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md     — meta tag format + categories
+${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md    — dependency/breakdown diagrams
 ```
+
+**Directive: inline, never link** — `base/` and `aesthetics/` files are generation source, not runtime dependencies. Read → inline into output `<style>` block.
+
+---
+
+## Aesthetic Detection
+
+| Priority | Signal | Aesthetic |
+|----------|--------|-----------|
+| 1 | Explicit `--aesthetic` arg | As specified |
+| 2 | Brand book found (`BRAND-BOOK.md`) | Derived from palette |
+| 3 | Project = `lyra` / `voicecli` | `lyra.css` |
+| 4 | Project = `roxabi*` / `2ndBrain` | `roxabi.css` |
+| 5 | Content = architecture / spec | `blueprint.css` |
+| 6 | Content = CLI / terminal doc | `terminal.css` |
+| 7 | Default | `editorial.css` |
+
+---
+
+## Shell Processing
+
+1. Read `shells/split.html` template
+2. Concatenate base CSS files in order: `reset → layout → typography → components`
+3. Read selected aesthetic CSS
+4. Read `base/tab-loader.js`, substitute `{NAME}` with `{ISSUE}-{slug}`
+5. Substitute placeholders:
+   - `{NAME}` → `{ISSUE}-{slug}` (for localStorage key scoping + tab-loader.js)
+   - `{BASE_STYLES}` → concatenated base CSS
+   - `{AESTHETIC_STYLES}` → selected aesthetic CSS
+   - `{TITLE}` → `{PROJ} #{ISSUE} — {Short Title}` (e.g. "Lyra #477 — Tool Registry")
+   - `{DATE}`, `{CATEGORY}`, `{CAT_LABEL}`, `{COLOR}`, `{BADGES}` → diagram metadata
+   - `{TABS}` → tab button elements (one per tab)
+   - `{PANELS}` → panel container elements (one per tab)
+   - `{TAB_LOADER_JS}` → tab-loader.js with `{NAME}` substituted
+   - `{HEAD_EXTRAS}` → optional (e.g., svg-pan-zoom CDN for Mermaid)
+   - `{EXTRA_STYLES}` → epic-specific CSS (epic-hero, status badges, etc.)
+   - `{EXTRA_SCRIPTS}` → optional (e.g., mermaid-init.js)
+6. Output: split-file HTML (requires HTTP serve)
 
 Let:
   ARGS   := $ARGUMENTS
@@ -43,6 +86,8 @@ Let:
 5. **Read issue context** if accessible:
    - Check `~/projects/{PROJ}/` for relevant CLAUDE.md, specs, or any `docs/` referencing `#{ISSUE}`
    - Check git log: `cd ~/projects/{PROJ} && git log --oneline --grep="#{ISSUE}" 2>/dev/null | head -10`
+
+6. **Apply aesthetic detection logic** to select the correct aesthetic file.
 
 ---
 
@@ -76,6 +121,8 @@ Adjust tabs to what the issue actually contains — simpler epics may need only 
 ~/.roxabi/forge/{PROJ}/visuals/tabs/{ISSUE}-{slug}/tab-{ID}.html
 ```
 
+Read `shells/split.html` → substitute placeholders. The shell contains all structure.
+
 **Shell HTML** — include `diagram:issue` meta:
 ```html
 <!-- diagram-meta:start -->
@@ -88,8 +135,6 @@ Adjust tabs to what the issue actually contains — simpler epics may need only 
 <meta name="diagram:issue"     content="{ISSUE}">
 <!-- diagram-meta:end -->
 ```
-
-**Page title convention:** `{PROJ} #{ISSUE} — {Short Title}` (e.g. "Lyra #477 — Tool Registry: Ecosystem Analysis").
 
 **Overview tab** — hero section with context:
 ```html
@@ -105,7 +150,7 @@ Adjust tabs to what the issue actually contains — simpler epics may need only 
 </div>
 ```
 
-CSS for epic-hero (add to `{ISSUE}-{slug}.css`):
+CSS for epic-hero (add to `{EXTRA_STYLES}`):
 ```css
 .epic-hero { margin-bottom: 2rem; }
 .epic-number { font-family: 'IBM Plex Mono', monospace; font-size: 0.875rem; color: var(--accent); font-weight: 600; margin-bottom: 0.5rem; }
@@ -120,16 +165,16 @@ CSS for epic-hero (add to `{ISSUE}-{slug}.css`):
 ```
 ```css
 .status { display: inline-block; padding: 0.125rem 0.5rem; border-radius: 3px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
-.status.done { background: #14532d; color: #86efac; }
-.status.wip  { background: #78350f; color: #fcd34d; }
-.status.todo { background: #1e3a5f; color: #93c5fd; }
+.status.done { background: var(--success-dim); color: var(--success); }
+.status.wip  { background: var(--warning-dim); color: var(--warning); }
+.status.todo { background: var(--info-dim); color: var(--info); }
 ```
 
 **Deps tab** — Mermaid dependency diagram. Follow `references/mermaid-guide.md` checklist exactly (dynamic tab pitfalls).
 
 **Acceptance criteria tab** — table: | Criterion | Type | Status |
 
-Dark mode text rules always apply (see `references/tokens.md`).
+Dark mode text rules always apply — use semantic tokens from `base/components.css`.
 
 ---
 
