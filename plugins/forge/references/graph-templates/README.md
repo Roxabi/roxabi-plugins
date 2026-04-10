@@ -45,6 +45,63 @@ tweak coordinates, inline the CSS. Done.
 Reference consumer: `~/.roxabi/forge/lyra/visuals/tabs/nats-roadmap/tab-current.html`
 (2.1 Process Map — lyra's NATS hub-and-spoke).
 
+### Linear Flow
+
+> 3 stages in a horizontal pipe — source → middle → sink. Unidirectional
+> arrows with labels above. Use for data flows, request/response paths,
+> inbound/outbound pipelines, any left-to-right narrative.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                                                               │
+│       publish subject           subscribe queue               │
+│       ─────────────             ────────────────              │
+│                                                               │
+│  ┌────────┐    ───▶    ╭────────╮    ───▶    ┌──────────┐   │
+│  │ source │            │  bus   │             │   sink   │   │
+│  │  cyan  │            │ amber  │             │  amber   │   │
+│  │        │            │  pill  │             │   wide   │   │
+│  └────────┘            ╰────────╯             └──────────┘   │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+  one-way arrows · labels above · 16/6 aspect · middle can be pill or wide
+```
+
+Reference consumers:
+- `tab-current.html` 2.3 Inbound Flow (adapter → NATS → hub)
+- `tab-current.html` 2.4 Outbound Streaming (middle card holds 4-step publish sequence)
+
+### Dual Cluster
+
+> 2 peers at the top sharing 2 central resources. Wide-bulge arrow routing
+> avoids center-crossing. Use for HA pairs, dual-replica workers, any
+> cluster where 2 components share a session store + a message bus.
+
+```
+┌────── Machine 1 · dual hub cluster ──────┐
+│                                            │
+│  ┌────────┐              ┌────────┐       │
+│  │ peer-1 │              │ peer-2 │       │
+│  │ purple │              │ purple │       │
+│  └─┬────┬─┘              └─┬────┬─┘       │
+│    │    ╲                  ╱    │          │
+│    │     ╲  SET/GET · ..  ╱     │          │
+│    │      ╲───╭──────╮───╱      │          │
+│    │          │res-a │          │          │
+│    │          │ pill │          │          │
+│    │          ╰──────╯          │          │
+│    │                             │          │
+│    ╲       HUB_INBOUND           ╱          │
+│     ╲───────╭──────╮────────────╱           │
+│             │res-b │                        │
+│             │ pill │                        │
+│             ╰──────╯                        │
+└────────────────────────────────────────────┘
+  4 bidirectional edges · bulge-routed · single centered labels
+```
+
+Reference consumer: `tab-target.html` M3 (dual-hub lyra_hub-1 + lyra_hub-2 sharing Redis + NATS).
+
 ---
 
 ## Templates
@@ -52,6 +109,8 @@ Reference consumer: `~/.roxabi/forge/lyra/visuals/tabs/nats-roadmap/tab-current.
 | Template | When to use | Size | Key features |
 |----------|------------|------|--------------|
 | `radial-hub.html` | Hub-and-spoke / message bus / gateway with 4–6 peers | ~4K | Center pill hub + 5 satellites, bidirectional labeled arrows, dashed machine frame, pills, fragility warn sub, hover glow |
+| `linear-flow.html` | 3-stage pipeline (source → middle → sink) | ~3K | 3 horizontal cards, single-direction arrows, labels above, 16/6 aspect, middle pill or wide, any-tone edges |
+| `dual-cluster.html` | 2 peers sharing 2 central resources (HA pair + session + bus) | ~4K | 2 top peers + center resource + bottom bus, 4 bidirectional arrows with wide-bulge routing, single centered labels, square aspect |
 
 All templates share **`fgraph-base.css`** — the CSS primitives for graphs.
 Distribution model depends on the consumer (see "Inlined vs shared" below).
@@ -172,6 +231,25 @@ This is the same pattern galleries already use:
 
 ---
 
+## Shape picker — which template?
+
+Pick by layout intent, not by domain. Any template can be re-tinted
+(tones, pills) to match the domain.
+
+| Your diagram shape | Template | Reference |
+|--------------------|----------|-----------|
+| 1 center + 4–6 peers radiating out | `radial-hub.html` | 2.1, M1, M2 |
+| 3 stages in a horizontal pipe (source → middle → sink) | `linear-flow.html` | 2.3, 2.4 |
+| 2 peers + 2 shared resources (HA pair cluster) | `dual-cluster.html` | M3 |
+| Something that doesn't fit | start from the closest template, reposition nodes via `--x`/`--y`, repaint arrow paths to match |
+
+All three templates share the same `fgraph-base.css` primitives.
+Differences live only in layout coordinates, not in CSS — so mixing
+features (e.g. a linear-flow with a dashed machine frame borrowed from
+radial-hub) is just copy-paste.
+
+---
+
 ## How to customise `radial-hub.html`
 
 ### Step 1 — Fill placeholders
@@ -259,6 +337,125 @@ with the content of `fgraph-base.css`. Forge directive: inline, never link.
 
 ---
 
+## How to customise `linear-flow.html`
+
+3 nodes on a horizontal line. Much simpler than radial-hub — fewer
+placeholders, fewer coordinate knobs.
+
+### Step 1 — Placeholders
+
+| Placeholder | Example | Notes |
+|-------------|---------|-------|
+| `{{TITLE}}` / `{{DATE}}` / `{{CATEGORY}}` / etc. | standard diagram-meta | same as radial-hub |
+| `{{WRAP_TONE}}` | `green` / `amber` / `cyan` | container border color |
+| `{{SOURCE_NAME}}` / `{{SOURCE_SUB}}` / `{{SOURCE_SUB_MUTED}}` | `lyra_telegram` / `aiogram handler` / `NatsBus.put` | left card |
+| `{{SOURCE_TONE}}` | `cyan` | left card tone |
+| `{{MIDDLE_NAME}}` / `{{MIDDLE_SUB}}` / `{{MIDDLE_SUB_MUTED}}` | `nats.container` / `single-node broker` / `` | center card |
+| `{{MIDDLE_TONE}}` | `amber` | center card tone |
+| `{{SINK_NAME}}` / `{{SINK_SUB_1}}` / `{{SINK_SUB_2}}` / `{{SINK_SUB_MUTED}}` | `lyra_hub` / `staging.put_nowait` / `hub.run → middleware` / `→ Pool._inbox` | right card (wide by default, fits 4 lines) |
+| `{{SINK_TONE}}` | `amber` | right card tone |
+| `{{EDGE_1_TONE}}` / `{{EDGE_2_TONE}}` | `cyan` / `amber` | arrow + label colors |
+| `{{EDGE_1_LABEL}}` / `{{EDGE_1_HINT}}` | `publish` / `lyra.inbound.telegram.<bot>` | label above first arrow, 2 lines |
+| `{{EDGE_2_LABEL}}` / `{{EDGE_2_HINT}}` | `subscribe` / `HUB_INBOUND queue group` | label above second arrow |
+| `{{LEGEND}}` | `one-way publish · all (platform, bot_id) pairs fan into single staging queue` | bottom strip |
+
+### Step 2 — Middle card shape
+
+Default is `pill` (for buses, brokers, routers). For an action node
+that holds a numbered sequence of steps (like 2.4 Outbound with 4
+publish steps), swap `pill` → `wide`:
+
+```html
+<!-- bus / broker -->
+<div class="fgraph-node amber pill" style="--x:50;--y:55;">
+  <div class="fgraph-title amber">nats.container</div>
+  ...
+
+<!-- action node with 4 numbered substeps -->
+<div class="fgraph-node amber wide" style="--x:50;--y:55;">
+  <div class="fgraph-title amber">NatsChannelProxy.send_streaming</div>
+  <div class="fgraph-sub">1. publish stream_start</div>
+  <div class="fgraph-sub">2. publish chunks</div>
+  <div class="fgraph-sub">3. publish stream_end</div>
+  <div class="fgraph-sub warn">4. on exception → stream_error</div>
+</div>
+```
+
+When using `wide`, bump aspect-ratio from `16/6` → `16/7` so the taller
+middle card doesn't push labels off-screen.
+
+### Step 3 — Bidirectional arrows (optional)
+
+Default is single-direction (marker-end only). For request/reply:
+
+```html
+<path class="fg-edge cyan" d="M 25,55 L 39,55"
+      marker-start="url(#fg-arr-cyan-lf)"
+      marker-end="url(#fg-arr-cyan-lf)"/>
+```
+
+### Step 4 — Coordinates (rarely need to touch)
+
+Defaults assume 3 default-width cards at x = 14 / 50 / 85. If the middle
+is `wide` (30% width vs 22%), it extends further left/right; nudge the
+arrow endpoints from `39,55 → 35,55` and `61,55 → 65,55`.
+
+---
+
+## How to customise `dual-cluster.html`
+
+2 peers sharing 2 central resources. Use for HA pairs, dual-replica
+workers, any cluster with 2 shared dependencies.
+
+### Step 1 — Placeholders
+
+| Placeholder | Example | Notes |
+|-------------|---------|-------|
+| `{{TITLE}}` / `{{DATE}}` / etc. | standard diagram-meta | |
+| `{{WRAP_TONE}}` | `purple` | container border color |
+| `{{FRAME_LABEL}}` / `{{FRAME_SUB}}` | `Machine 1 · dual hub cluster` / `stateless routers + shared state` | dashed frame caption |
+| `{{PEER_TONE}}` | `purple` | both peers share the same tone |
+| `{{PEER_1_NAME}}` / `{{PEER_1_PILL}}` / `{{PEER_1_SUB}}` / `{{PEER_1_SUB_MUTED}}` | `lyra_hub-1` / `p=100` / `stateless router` / `no Pool in-memory` | top-left peer |
+| `{{PEER_2_NAME}}` / `{{PEER_2_PILL}}` / `{{PEER_2_SUB}}` / `{{PEER_2_SUB_MUTED}}` | `lyra_hub-2` / `p=100` / ... | top-right peer (symmetric) |
+| `{{RESOURCE_A_TONE}}` | `purple` | center resource tone |
+| `{{RESOURCE_A_NAME}}` / `{{RESOURCE_A_SUB}}` / `{{RESOURCE_A_SUB_MUTED}}` | `Redis` / `AOF persistence` / `lyra:session:*` | center resource (pill by default) |
+| `{{RESOURCE_A_LABEL}}` / `{{RESOURCE_A_HINT}}` | `SET / GET` / `lyra:session:<pool_id>` | single centered label above resource-a |
+| `{{RESOURCE_B_TONE}}` | `amber` | bottom bus tone |
+| `{{RESOURCE_B_NAME}}` / `{{RESOURCE_B_SUB}}` | `nats.container` / `shared HUB_INBOUND` | bottom bus (pill by default) |
+| `{{RESOURCE_B_LABEL}}` / `{{RESOURCE_B_HINT}}` | `HUB_INBOUND` / `shared queue group` | single centered label above resource-b |
+| `{{LEGEND}}` | `any user → either hub · state in Redis · adapters unchanged` | bottom strip |
+
+### Step 2 — When you only have 1 shared resource
+
+Strip the bottom half: remove the `{{RESOURCE_B_*}}` node, the 2 bus
+arrows (lines with `d="M 15,21 Q 15,55 42,81"` and its symmetric pair),
+and the `{{RESOURCE_B_LABEL}}` line. Change container aspect to `16/10`
+(wide) — the cluster + 1 resource doesn't need square.
+
+### Step 3 — When you have different tones per peer
+
+Swap `{{PEER_TONE}}` for explicit per-peer tones by duplicating the node
+block with different classes. You'll lose the symmetric look but it's
+useful for primary/standby patterns (e.g. amber + green).
+
+### Step 4 — Coordinates (if peers move)
+
+Default peer positions are `(20, 16)` and `(80, 16)`. If you move them
+further apart or closer, update arrow endpoints:
+
+| Arrow | Current | Rule of thumb |
+|-------|---------|---------------|
+| peer-1 ↔ resource-a | `M 25,21 Q 32,36 44,50` | start at peer-1 bottom-right, end at resource-a top-left |
+| peer-2 ↔ resource-a | `M 75,21 Q 68,36 56,50` | symmetric |
+| peer-1 ↔ resource-b | `M 15,21 Q 15,55 42,81` | start at peer-1 bottom-left, bulge far-left to route around resource-a, end at resource-b top-left |
+| peer-2 ↔ resource-b | `M 85,21 Q 85,55 58,81` | symmetric, bulge far-right |
+
+The bulge control points at `x=15` / `x=85` are what route the long
+arrows around resource-a. Don't lower them toward the center or they'll
+cross through the resource card.
+
+---
+
 ## When NOT to use radial-hub
 
 | If your diagram is… | Use instead |
@@ -326,5 +523,3 @@ effort.
 | `deployment-tiers.html` | Dev / staging / prod stacked with data-flow arrows |
 
 Contributions welcome — mirror the `radial-hub.html` + README pattern.
-</content>
-</invoke>

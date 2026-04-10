@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- diagram-meta:start -->
+<meta name="diagram:title"     content="{{TITLE}}">
+<meta name="diagram:date"      content="{{DATE}}">
+<meta name="diagram:category"  content="{{CATEGORY}}">
+<meta name="diagram:cat-label" content="{{CAT_LABEL}}">
+<meta name="diagram:color"     content="{{COLOR}}">
+<!-- diagram-meta:end -->
+<title>{{TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* {{BASE_STYLES}} — inline reset.css + layout.css + typography.css + components.css */
+/* {{AESTHETIC_STYLES}} — inline the chosen aesthetic */
+
+/* ══════════════════════════════════════════════════════════════════
+   fgraph primitives — inlined from references/graph-templates/fgraph-base.css
+   ══════════════════════════════════════════════════════════════════ */
+/* {{FGRAPH_BASE}} — inline fgraph-base.css here */
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-eyebrow">{{CATEGORY_LABEL}}</div>
+  <h1>{{TITLE_PLAIN}} <span class="accent">{{TITLE_ACCENT}}</span></h1>
+  <p class="header-subtitle">{{SUBTITLE}}</p>
+</header>
+
+<main>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     CUSTOMISE — 3-node horizontal flow: source → middle → sink
+
+     Aspect ratio:
+       16/6  — 3-line cards (default)
+       16/7  — 4-5 line cards (for cards with numbered substeps)
+       16/8  — bigger, safer when labels wrap
+
+     Arrows are single-direction by default. Change marker-end to
+     marker-start for reversed arrows, or add both for bidirectional
+     edges (request/reply pattern).
+
+     Middle-card shape:
+       pill   — use for buses / brokers / routers (rounded ends)
+       wide   — use for action nodes / steps with numbered substeps
+       (default — same as source/sink, for transformation / filter nodes)
+
+     Card widths: source + middle(pill|default) + sink(wide) fits
+     within 100% with ~5-unit gaps. If middle is wide, adjust sink to
+     default width to keep spacing even.
+     ══════════════════════════════════════════════════════════════════ -->
+
+<div class="fgraph-wrap {{WRAP_TONE}}"
+     style="aspect-ratio: 16/6; max-width: 900px;"
+     role="img"
+     aria-label="{{DIAGRAM_ARIA_LABEL}}">
+
+  <svg class="fgraph-edges" viewBox="0 0 100 100" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="fg-arr-amber-lf"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-amber"/></marker>
+      <marker id="fg-arr-cyan-lf"   viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-cyan"/></marker>
+      <marker id="fg-arr-purple-lf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-purple"/></marker>
+      <marker id="fg-arr-green-lf"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-green"/></marker>
+      <marker id="fg-arr-red-lf"    viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-red"/></marker>
+    </defs>
+
+    <!-- source → middle -->
+    <path class="fg-edge {{EDGE_1_TONE}}" d="M 25,55 L 39,55"
+          marker-end="url(#fg-arr-{{EDGE_1_TONE}}-lf)"/>
+    <!-- middle → sink -->
+    <path class="fg-edge {{EDGE_2_TONE}}" d="M 61,55 L 73,55"
+          marker-end="url(#fg-arr-{{EDGE_2_TONE}}-lf)"/>
+  </svg>
+
+  <!-- Edge labels — positioned above the arrows -->
+  <div class="fgraph-lbl {{EDGE_1_TONE}}" style="--x:32;--y:30;">
+    {{EDGE_1_LABEL}}<br/><span class="dim">{{EDGE_1_HINT}}</span>
+  </div>
+  <div class="fgraph-lbl {{EDGE_2_TONE}}" style="--x:66;--y:30;">
+    {{EDGE_2_LABEL}}<br/><span class="dim">{{EDGE_2_HINT}}</span>
+  </div>
+
+  <!-- Source (left, x=14) -->
+  <div class="fgraph-node {{SOURCE_TONE}}" style="--x:14;--y:55;">
+    <div class="fgraph-title {{SOURCE_TONE}}">{{SOURCE_NAME}}</div>
+    <div class="fgraph-sub">{{SOURCE_SUB}}</div>
+    <div class="fgraph-sub muted">{{SOURCE_SUB_MUTED}}</div>
+  </div>
+
+  <!-- Middle (center, x=50) — change `pill` to `wide` for action nodes -->
+  <div class="fgraph-node {{MIDDLE_TONE}} pill" style="--x:50;--y:55;">
+    <div class="fgraph-title {{MIDDLE_TONE}}">{{MIDDLE_NAME}}</div>
+    <div class="fgraph-sub">{{MIDDLE_SUB}}</div>
+    <div class="fgraph-sub muted">{{MIDDLE_SUB_MUTED}}</div>
+  </div>
+
+  <!-- Sink (right, x=85) — `wide` gives it room for multi-line content -->
+  <div class="fgraph-node {{SINK_TONE}} wide" style="--x:85;--y:55;">
+    <div class="fgraph-title {{SINK_TONE}}">{{SINK_NAME}}</div>
+    <div class="fgraph-sub">{{SINK_SUB_1}}</div>
+    <div class="fgraph-sub">{{SINK_SUB_2}}</div>
+    <div class="fgraph-sub muted">{{SINK_SUB_MUTED}}</div>
+  </div>
+
+  <div class="fgraph-legend">{{LEGEND}}</div>
+</div>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- diagram-meta:start -->
+<meta name="diagram:title"     content="{{TITLE}}">
+<meta name="diagram:date"      content="{{DATE}}">
+<meta name="diagram:category"  content="{{CATEGORY}}">
+<meta name="diagram:cat-label" content="{{CAT_LABEL}}">
+<meta name="diagram:color"     content="{{COLOR}}">
+<!-- diagram-meta:end -->
+<title>{{TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* {{BASE_STYLES}} — inline reset.css + layout.css + typography.css + components.css */
+/* {{AESTHETIC_STYLES}} — inline the chosen aesthetic */
+
+/* ══════════════════════════════════════════════════════════════════
+   fgraph primitives — inlined from references/graph-templates/fgraph-base.css
+   ══════════════════════════════════════════════════════════════════ */
+/* {{FGRAPH_BASE}} — inline fgraph-base.css here */
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-eyebrow">{{CATEGORY_LABEL}}</div>
+  <h1>{{TITLE_PLAIN}} <span class="accent">{{TITLE_ACCENT}}</span></h1>
+  <p class="header-subtitle">{{SUBTITLE}}</p>
+</header>
+
+<main>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     CUSTOMISE — 2-peer cluster sharing 2 shared resources.
+
+     Layout (square container):
+       peer-1 (top-left, x=20 y=16)    peer-2 (top-right, x=80 y=16)
+                              │                │
+                              ├── resource-a ──┤   (center, x=50 y=55)
+                              │                │
+                              └── resource-b ──┘   (bottom,  x=50 y=85)
+
+     Use for:
+       - 2 stateless routers sharing a session store + queue group
+       - 2 workers sharing a cache + message bus
+       - 2 replicas sharing a database + broker
+       - any HA pair + 2 shared dependencies
+
+     Arrow routing:
+       - Short curves go to resource-a (inner, near center of y-axis)
+       - Long curves bulge LEFT/RIGHT to resource-b (bottom), avoiding
+         resource-a by swinging wide. Control points at x=15 / x=85.
+
+     Labels:
+       - Single label centered between the converging arrow pairs
+         (not duplicated per peer) — cleaner than 4 labels
+
+     If you only have 1 shared resource: remove resource-b nodes +
+     edges + label, change container aspect to 16/10 wide.
+     ══════════════════════════════════════════════════════════════════ -->
+
+<div class="fgraph-wrap {{WRAP_TONE}} square"
+     role="img"
+     aria-label="{{DIAGRAM_ARIA_LABEL}}">
+
+  <div class="fgraph-frame"></div>
+  <div class="fgraph-frame-lbl">{{FRAME_LABEL}}</div>
+  <div class="fgraph-frame-sub">{{FRAME_SUB}}</div>
+
+  <svg class="fgraph-edges" viewBox="0 0 100 100" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="fg-arr-a-dc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-{{RESOURCE_A_TONE}}"/></marker>
+      <marker id="fg-arr-b-dc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-{{RESOURCE_B_TONE}}"/></marker>
+    </defs>
+
+    <!-- peer-1 bottom (x=25, y=21) ↔ resource-a top-left (x=44, y=50) -->
+    <path class="fg-edge {{RESOURCE_A_TONE}}" d="M 25,21 Q 32,36 44,50"
+          marker-start="url(#fg-arr-a-dc)" marker-end="url(#fg-arr-a-dc)"/>
+
+    <!-- peer-2 bottom (x=75, y=21) ↔ resource-a top-right (x=56, y=50) -->
+    <path class="fg-edge {{RESOURCE_A_TONE}}" d="M 75,21 Q 68,36 56,50"
+          marker-start="url(#fg-arr-a-dc)" marker-end="url(#fg-arr-a-dc)"/>
+
+    <!-- peer-1 bottom-left (x=15, y=21) ↔ resource-b top-left (x=42, y=81)
+         Bulges LEFT (control x=15) to route around resource-a -->
+    <path class="fg-edge {{RESOURCE_B_TONE}}" d="M 15,21 Q 15,55 42,81"
+          marker-start="url(#fg-arr-b-dc)" marker-end="url(#fg-arr-b-dc)"/>
+
+    <!-- peer-2 bottom-right (x=85, y=21) ↔ resource-b top-right (x=58, y=81)
+         Bulges RIGHT (control x=85) — symmetric -->
+    <path class="fg-edge {{RESOURCE_B_TONE}}" d="M 85,21 Q 85,55 58,81"
+          marker-start="url(#fg-arr-b-dc)" marker-end="url(#fg-arr-b-dc)"/>
+  </svg>
+
+  <!-- Single labels centered between the converging arrow pairs -->
+  <div class="fgraph-lbl {{RESOURCE_A_TONE}}" style="--x:50;--y:36;">
+    {{RESOURCE_A_LABEL}}<br/><span class="dim">{{RESOURCE_A_HINT}}</span>
+  </div>
+  <div class="fgraph-lbl {{RESOURCE_B_TONE}}" style="--x:50;--y:76;">
+    {{RESOURCE_B_LABEL}}<br/><span class="dim">{{RESOURCE_B_HINT}}</span>
+  </div>
+
+  <!-- Peers (top row) -->
+  <div class="fgraph-node {{PEER_TONE}}" style="--x:20;--y:16;">
+    <div class="fgraph-title {{PEER_TONE}}">
+      {{PEER_1_NAME}} <span class="fgraph-pill {{PEER_TONE}}">{{PEER_1_PILL}}</span>
+    </div>
+    <div class="fgraph-sub">{{PEER_1_SUB}}</div>
+    <div class="fgraph-sub muted">{{PEER_1_SUB_MUTED}}</div>
+  </div>
+
+  <div class="fgraph-node {{PEER_TONE}}" style="--x:80;--y:16;">
+    <div class="fgraph-title {{PEER_TONE}}">
+      {{PEER_2_NAME}} <span class="fgraph-pill {{PEER_TONE}}">{{PEER_2_PILL}}</span>
+    </div>
+    <div class="fgraph-sub">{{PEER_2_SUB}}</div>
+    <div class="fgraph-sub muted">{{PEER_2_SUB_MUTED}}</div>
+  </div>
+
+  <!-- Resource A — center (session store / cache / database) -->
+  <div class="fgraph-node {{RESOURCE_A_TONE}} pill" style="--x:50;--y:55;">
+    <div class="fgraph-title {{RESOURCE_A_TONE}}">{{RESOURCE_A_NAME}}</div>
+    <div class="fgraph-sub">{{RESOURCE_A_SUB}}</div>
+    <div class="fgraph-sub muted">{{RESOURCE_A_SUB_MUTED}}</div>
+  </div>
+
+  <!-- Resource B — bottom (message bus / queue / broker) -->
+  <div class="fgraph-node {{RESOURCE_B_TONE}} pill" style="--x:50;--y:85;">
+    <div class="fgraph-title {{RESOURCE_B_TONE}}">{{RESOURCE_B_NAME}}</div>
+    <div class="fgraph-sub muted">{{RESOURCE_B_SUB}}</div>
+  </div>
+
+  <div class="fgraph-legend">{{LEGEND}}</div>
+</div>
+
+</main>
+
+</body>
+</html>
