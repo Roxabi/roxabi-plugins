@@ -1,0 +1,100 @@
+# forge.yml — Example: Lyra
+#
+# A concrete, fully-filled brand book for the Lyra project, derived from
+# ~/projects/lyra/brand/BRAND-BOOK.md (v2.1, 2026-03-24).
+#
+# Place this file at ONE of:
+#   ~/projects/lyra/brand/forge.yml           (preferred, versioned in repo)
+#   ~/.roxabi/forge/lyra/brand/forge.yml      (runtime mirror, not versioned)
+#
+# Schema: see ../brand-book-schema.md
+
+schema_version: 1
+
+# ── Aesthetic ──────────────────────────────────────────────────
+aesthetic: lyra.css
+
+# ── Palette (Forge direction — chosen in brand book v2) ────────
+palette:
+  dark:
+    bg:         '#0a0a0f'   # Obsidian — near-absolute dark
+    surface:    '#18181f'   # Forge Floor — elevated panels
+    border:     '#2a2a35'   # Steel
+    text:       '#fafafa'   # Spark White
+    text-muted: '#9ca3af'   # body copy dark mode
+    text-dim:   '#6b7280'   # Steel Gray — metadata, labels
+    accent:     '#e85d04'   # Forge Orange — brand signal (one per composition)
+    accent-dim: '#7c2d0e'   # Ember damped
+  light:
+    bg:         '#fafaf9'   # warm stone
+    surface:    '#f4f4f0'
+    border:     '#d1ccc7'
+    text:       '#1c1917'   # near-black
+    text-muted: '#57534e'   # warm gray
+    text-dim:   '#78716c'
+    accent:     '#c2410c'   # Forge Orange darkened for light contrast
+    accent-dim: '#fef2e8'
+
+# ── Typography (from BRAND-BOOK.md § 6 Visual Identity) ────────
+typography:
+  display:  'Chakra Petch'    # hero headlines only — angular, industrial, forge energy
+  sans:     'Outfit'          # 800 weight — section titles, wordmark, nav
+  body:     'Inter'           # 400/500 — all prose, captions, UI text
+  mono:     'JetBrains Mono'  # CLI commands, config values, file paths ONLY
+
+# ── Component defaults ──────────────────────────────────────────
+components:
+  hero:              left-border    # matches Lyra's understated, technical tone
+  section_label:     dot            # consistent with existing nats-roadmap examples
+  card_default:      accent         # .card.accent — Forge Orange border-left
+  timeline:          steps          # .steps component for sequential walks
+  badges:            verdict        # .verdict-badge for built/active/planned states
+  mermaid_theme_bias: dark          # Lyra is dark-first; light mode is docs-only
+
+# ── Structure preferences ───────────────────────────────────────
+structure_defaults:
+  prefer_fgraph_under: 6     # hub-and-spoke ≤ 6 peers → fgraph (matches existing visuals)
+  prefer_mermaid_over: 8     # > 8 nodes → mermaid regardless
+  comparison_as_table: true  # matrices as HTML tables, not grid cards
+
+# ── Canonical examples ──────────────────────────────────────────
+# Plugin uses these as "wow examples" during Deliver verification.
+# Spot-check generated output against these files for visual consistency.
+examples:
+  - ~/.roxabi/forge/lyra/visuals/tabs/nats-roadmap/tab-current.html
+  # Add more as canonical outputs stabilize:
+  # - ~/.roxabi/forge/lyra/visuals/tabs/agent-arch/tab-overview.html
+  # - ~/.roxabi/forge/lyra/visuals/tabs/memory-model/tab-semantic.html
+
+# ── Deliver constraints ─────────────────────────────────────────
+# Hard verification rules — Deliver phase checks every generated output
+# against these and fails loudly if any rule is violated.
+deliver_must_match:
+  - 'accent color is Forge Orange (#e85d04 dark / #c2410c light)'
+  - 'hero uses .hero.left-border variant (not .elevated, not .top-border)'
+  - 'section labels use .section-label.dot prefix'
+  - 'body copy color is var(--text-muted), not var(--text-dim)'
+  - 'Mermaid diagrams wrapped in .diagram-shell with zoom controls'
+  - 'no emoji in section headers'
+  - 'no ASCII art in <pre class="arch"> blocks'
+  - 'no "AI-powered", "next-generation", "seamless" in copy (banned vocabulary)'
+  - 'Chakra Petch reserved for hero-level headlines only'
+  - 'JetBrains Mono reserved for CLI commands / config / file paths'
+
+# ── Override policy ─────────────────────────────────────────────
+# Lyra's brand is mature and tightly controlled. Lock most decisions.
+allow_override:
+  aesthetic:  locked     # Forge aesthetic is v2 authoritative — never deviate
+  palette:    locked     # Do not introduce new colors without updating brand book
+  typography: locked     # Four fonts, no exceptions
+  components: partial    # Hero/label/card default from brand; content may flex for audit/review layouts
+  structure:  open       # Content topology decides; brand is tiebreak only
+  examples:   advisory   # Examples guide; don't hard-fail if new content legitimately diverges
+
+# ── Project metadata ────────────────────────────────────────────
+project:
+  name: 'Lyra'
+  full_name: 'Lyra by Roxabi'
+  tagline: 'Your intelligence, compounded.'
+  category: 'Personal Intelligence Engine'
+  brand_book: '~/projects/lyra/brand/BRAND-BOOK.md'  # source of truth for everything not in this file

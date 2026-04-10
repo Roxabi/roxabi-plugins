@@ -51,18 +51,28 @@ Sequence: Think produces a candidate → Detection validates against higher-prio
 Check these paths in order (first found wins):
 
 ```bash
+# 1. Preferred — structured config (full schema, locks decisions)
+ls ~/projects/{PROJ}/brand/forge.yml 2>/dev/null
+ls ~/.roxabi/forge/{PROJ}/brand/forge.yml 2>/dev/null
+
+# 2. Legacy — palette-only Markdown brand book
 ls ~/.roxabi/forge/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null
 ls ~/projects/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null
 ```
 
-Found → derive CSS tokens from its palette (override defaults in `tokens.md`).
-Not found → use fallback:
+**`forge.yml` found** → load as full decision substrate. Aesthetic, palette, typography, components, examples, and deliver constraints all apply per the schema in `brand-book-schema.md`. Skills skip Frame phase and enter **branded mode**.
+
+**Legacy `BRAND-BOOK.md` found** → derive CSS tokens from its palette table only (override defaults in `tokens.md`). Components, structure, and deliver constraints fall through to plugin defaults.
+
+**Nothing found** → use project-name fallback:
 
 | Project | Theme |
 |---------|-------|
 | `lyra`, `voicecli` | Lyra / Forge Orange |
 | `roxabi*`, `2ndBrain` | Roxabi / Gold |
 | Unknown | Lyra (default) |
+
+Schema reference: `references/brand-book-schema.md`. Concrete example: `references/examples/forge.yml.example`.
 
 ---
 
