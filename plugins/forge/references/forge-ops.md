@@ -4,45 +4,52 @@ Shared operational details for all forge skills. Read this once per invocation.
 
 ---
 
-## Design Thinking — Think → Structure → Style → Deliver
+## Design Flow — Frame → Structure → Style → Deliver
 
-All forge skills follow a creative process before generation:
+All forge skills follow this judgment flow during phases 1–4 (it is an overlay on top of the mechanical phases, not a separate pre-phase):
 
-1. **Think** — Pick aesthetic based on content type (base matrix below)
-2. **Structure** — Choose rendering approach (skill-specific — see each SKILL.md)
-3. **Style** — Select components (skill-specific — see each SKILL.md)
-4. **Deliver** — Generate + verify against the skill's Deliver checklist
+1. **Frame** (Phase 1) — Define **purpose**: who reads this, what do they do next, what tone does the content deserve. Full reference: [`frame-phase.md`](frame-phase.md) — three Frame questions, reader-action matrix, tone dimensions.
+2. **Structure** (Phase 2) — Choose topology / template / tab set (skill-specific — see each SKILL.md).
+3. **Style** (Phase 3) — Select component variants (skill-specific — see each SKILL.md).
+4. **Deliver** (Phase 4) — Verify against the skill's Deliver checklist and the brand book's `deliver_must_match` rules (if `forge.yml` is present).
 
-### Base aesthetic matrix (shared across all skills)
+**Frame does not select aesthetics.** Aesthetic selection is mechanical — handled entirely by the precedence algorithm below. Frame produces a *purpose statement* that informs Structure (topology bias), Style (component variant), and Deliver (verification criterion).
 
-| Content type | Aesthetic | Reason |
+### Content-type fallback matrix
+
+Used only when the Aesthetic Detection chain reaches priority 5 (no explicit arg, no brand book, no project-name match). Derived from Frame Q1 (reader) + Q3 (tone). Full reader-action matrix lives in `frame-phase.md`.
+
+| Content signal | Fallback aesthetic | Reason |
 |---|---|---|
-| Personal AI / agent | `lyra.css` | Warm amber, human tone |
-| Brand / company | `roxabi.css` | Gold, professional |
-| Technical architecture / specs | `blueprint.css` | Clean lines, monospace |
-| CLI / terminal | `terminal.css` | Monospace-heavy, dark |
-| Blog / editorial / narrative | `editorial.css` | Serif titles, magazine feel |
+| Personal AI / agent / warm narrative | `lyra.css` | Warm amber, human tone |
+| Brand / company / pitch | `roxabi.css` | Gold, professional |
+| Technical architecture / debug / audit | `blueprint.css` | Clean lines, monospace |
+| CLI / terminal reference | `terminal.css` | Monospace-heavy, dark |
+| Editorial / long-form / browsing | `editorial.css` | Serif titles, magazine feel |
 
-**Ask:** What is the viewer's mental state? Technical exploration → Blueprint. Brand impression → Roxabi. Quick reference → Terminal. Narrative → Editorial.
-
-Each skill may add skill-specific delta rows (e.g. `forge-gallery` adds *Design iterations → editorial* for visual exploration). Deltas live in each SKILL.md under its Design Phase section.
+This table is a **mechanical fallback** for the precedence chain, not a judgment prompt. The judgment lives in `frame-phase.md`.
 
 ---
 
 ## Aesthetic Detection — Precedence Algorithm
 
-The base matrix above is **judgment** (content-driven). The algorithm below is **precedence**: it runs top-to-bottom and the first match wins. Explicit args and brand book always override the Think matrix.
+Runs top-to-bottom; first match wins. Explicit args and brand book always override Frame-driven fallback.
 
 | Priority | Signal | Aesthetic |
 |---|---|---|
 | 1 | Explicit `--aesthetic` arg | As specified |
-| 2 | Brand book found (`BRAND-BOOK.md`) | Derived from palette |
-| 3 | Project = `lyra` / `voicecli` | `lyra.css` |
-| 4 | Project = `roxabi*` / `2ndBrain` | `roxabi.css` |
-| 5 | **Think matrix output** (content type) | Per matrix above |
+| 2 | **`forge.yml` present** (structured brand book — see `brand-book-schema.md`) | Per brand book `aesthetic:` field; full component/palette lock applies |
+| 3 | Legacy `BRAND-BOOK.md` found (palette only) | Derived from palette table |
+| 4 | Project = `lyra` / `voicecli` / `roxabi*` / `2ndBrain` | `lyra.css` or `roxabi.css` per project |
+| 5 | **Frame content-type fallback** (from matrix above, using Frame Q1+Q3 output) | Per matrix |
 | 6 | Default | `editorial.css` |
 
-Sequence: Think produces a candidate → Detection validates against higher-priority signals → higher signals override. When nothing above priority 5 matches, the Think matrix is the answer.
+**Two-track mode based on priority 2:**
+
+- **Track A — branded mode** (`forge.yml` present): priority 2 fires. Frame runs in reduced form — tone is pre-constrained by brand book's `deliver_must_match` rules. Structure/Style pre-fill from brand book's `components:` field. Aesthetic is locked.
+- **Track B — exploration mode** (no `forge.yml`): priority 2 skips. Frame runs in full — all four Frame questions asked. Aesthetic falls through to priority 3/4/5 as normal.
+
+When priority 5 fires (exploration mode, unknown project), the fallback matrix maps Frame's purpose statement to one of the 5 aesthetic CSS files. When nothing matches, priority 6 (`editorial.css`) is the last resort.
 
 ---
 

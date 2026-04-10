@@ -30,20 +30,17 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md    — dependency/breakdown di
 
 ---
 
-## Design Phase — Think → Structure → Style → Deliver
+## Design Phase — Frame → Structure → Style → Deliver
 
-Before generating, apply design thinking to match content to visual form.
+Decisions made across Phases 1–4 follow this lens. It is an overlay on the procedural phases below, not a separate pre-phase: Frame runs in Phase 1 (context), Structure in Phase 2 (epic structure / tab set), Style in Phase 3 (generate), Deliver in Phase 4 (report + verify).
 
-### Think — Which aesthetic?
+### Frame — What's this visual for?
 
-Base matrix + precedence algorithm in `forge-ops.md` § Design Thinking and § Aesthetic Detection. Read it once per invocation. The precedence algorithm (explicit arg → brand book → project → Think matrix → default) is the final word.
+Full reference: `${CLAUDE_PLUGIN_ROOT}/references/frame-phase.md` — three Frame questions, reader-action matrix, tone dimensions, example trace.
 
-**forge-epic deltas** — add to the base matrix:
+**For forge-epic specifically, Q1 (reader-action) is the most useful prompt.** An epic preview is read by contributors (who need scope + dependencies) OR by stakeholders (who need status + next milestone) OR by reviewers during acceptance (who need criteria). The same issue produces different tab sets for different readers. Commit to one reader before picking tabs.
 
-| Epic type | Aesthetic | Reason |
-|---|---|---|
-| Feature implementation / spec | `blueprint.css` | Technical, clean for scope breakdown |
-| Refactor / maintenance epic | `terminal.css` | Monospace, code-focused |
+Aesthetic is **not** chosen by Frame — it's mechanical (see `forge-ops.md § Aesthetic Detection`). Frame produces purpose, not CSS.
 
 ### Structure — Which tabs?
 
@@ -127,7 +124,7 @@ Let:
    - Check `~/projects/{PROJ}/` for relevant CLAUDE.md, specs, or any `docs/` referencing `#{ISSUE}`
    - Check git log: `cd ~/projects/{PROJ} && git log --oneline --grep="#{ISSUE}" 2>/dev/null | head -10`
 
-6. **Apply aesthetic detection logic** to select the correct aesthetic file.
+6. **Apply the Aesthetic Detection precedence algorithm** (see `${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md` § Aesthetic Detection) to select the correct aesthetic file.
 
 ---
 

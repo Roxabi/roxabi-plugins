@@ -21,30 +21,27 @@ ${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/pivot-gallery.html — full w
 
 ---
 
-## Design Phase — Think → Structure → Style → Deliver
+## Design Phase — Frame → Structure → Style → Deliver
 
-Before generating, apply design thinking to match content to visual form.
+Decisions made across Phases 1–4 follow this lens. It is an overlay on the procedural phases below, not a separate pre-phase: Frame runs in Phase 1 (context), Structure in Phase 2 (template pick), Style in Phase 3 (customize), Deliver in Phase 4 (report + verify).
 
-### Think — Which aesthetic?
+### Frame — What's this visual for?
 
-Base matrix + precedence algorithm in `forge-ops.md` § Design Thinking and § Aesthetic Detection. Read it once per invocation.
+Full reference: `${CLAUDE_PLUGIN_ROOT}/references/frame-phase.md` — three Frame questions, reader-action matrix, tone dimensions, example trace.
 
-**forge-gallery deltas** — add to the base matrix:
+**For forge-gallery specifically, Q1 (reader-action) is the most useful prompt.** A gallery is consumed differently depending on whether the viewer is *deciding* (pick one concept) or *exploring* (browse the space). Deciding → `comparison-gallery.html` with verdict badges. Exploring → `pivot-gallery.html` or `simple-gallery.html` with filters. The same 20 images need different templates for different reader actions.
 
-| Gallery type | Aesthetic | Reason |
-|---|---|---|
-| Design iterations / visual exploration | `editorial.css` | Magazine feel for creative browsing |
-| Voice / audio comparison | `lyra.css` | Amber, warm for audio vibes |
+Aesthetic is **not** chosen by Frame — it's mechanical (see `forge-ops.md § Aesthetic Detection`). Frame produces purpose, not CSS.
 
 ### Structure — Which template?
 
-See **Phase 2 — Pick Template** below for the full template table (single source of truth). The Think→Structure phase is about answering *how many dimensions of comparison?* before you get to Phase 2:
+See **Phase 2 — Pick Template** below for the full template table (single source of truth). Frame's reader-action output (decide vs. explore vs. audit) maps to templates as follows:
 
-- 1 dimension → `simple-gallery.html`
-- 2+ dimensions → `pivot-gallery.html`
-- Spec-rich side-by-side → `comparison-gallery.html`
-- Audio playback → `audio-gallery.html`
-- Multiple datasets / modes → `multi-mode-gallery.html`
+- Deciding between spec-rich options → `comparison-gallery.html`
+- Exploring 1 dimension → `simple-gallery.html`
+- Exploring 2+ dimensions → `pivot-gallery.html`
+- Comparing audio clips → `audio-gallery.html`
+- Browsing multiple datasets → `multi-mode-gallery.html`
 
 ### Style — Which components?
 
@@ -56,7 +53,7 @@ See **Phase 2 — Pick Template** below for the full template table (single sour
 | Audio | Engine groups | Dynamic | `<audio>` player + metadata |
 | Multi-mode | Mode tabs + segs + downloads | Per-mode DIMS | Mode-specific cards |
 
-**Ask:** What controls does the viewer need? Pivot/compare → Col/Row segs. Just browse → Simple tabs. Download → Dropdown.
+**Ask:** Is the viewer DECIDING or EXPLORING? Deciding needs spec tables + verdict badges + a single clear recommendation. Exploring needs filters + sort + size controls + low-friction browse. If the same gallery has to serve both, build two views, not one.
 
 ### Deliver — Generate + verify
 

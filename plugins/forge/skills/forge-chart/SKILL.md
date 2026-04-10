@@ -37,19 +37,17 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md          — Mermaid patterns 
 
 ---
 
-## Design Phase — Think → Structure → Style → Deliver
+## Design Phase — Frame → Structure → Style → Deliver
 
-Before generating, apply design thinking to match content to visual form.
+Decisions made across Phases 1–4 follow this lens. It is an overlay on the procedural phases below, not a separate pre-phase: Frame runs in Phase 1 (context + aesthetic detection), Structure in Phase 2 (visual type), Style in Phase 3 (generate), Deliver in Phase 4 (report + verify).
 
-### Think — Which aesthetic?
+### Frame — What's this visual for?
 
-Base matrix + precedence algorithm in `forge-ops.md` § Design Thinking and § Aesthetic Detection. Read it once per invocation. The precedence algorithm (explicit arg → brand book → project → Think matrix → default) is the final word.
+Full reference: `${CLAUDE_PLUGIN_ROOT}/references/frame-phase.md` — three Frame questions, reader-action matrix, tone dimensions, example trace.
 
-**forge-chart deltas** — add to the base matrix:
+**For forge-chart specifically, Q4 (sentence verb) is the most useful prompt.** A chart is usually a single visual with one dominant reader action — *see*, *debug*, *decide*, *learn*, *trust*. Commit to the verb before picking topology: a *see* verb tolerates spacious fgraph; a *debug* verb demands dense stat-grid + high contrast.
 
-| Content type | Aesthetic | Reason |
-|---|---|---|
-| Single diagram in a long Markdown doc | `editorial.css` | Matches surrounding prose rhythm |
+Aesthetic is **not** chosen by Frame — it's mechanical (see `forge-ops.md § Aesthetic Detection`). Frame produces purpose, not CSS.
 
 ### Structure — Which visual type?
 
@@ -67,21 +65,24 @@ Base matrix + precedence algorithm in `forge-ops.md` § Design Thinking and § A
 
 **Decision rule:** > 8 nodes or linear → Mermaid. ≤ 6 radial with rich cards → fgraph. Tabular → HTML table. Stacked text → Grid.
 
-**Ask:** Does the content have a natural topology? Radial → fgraph. Linear → Mermaid. Rows × cols → table. Text blocks → Grid.
+**Ask:** How many nodes? Any cycles? If you sketch the content twice — once radial, once linear — which reads faster on a 1200px screen? Content that takes two sketches to understand is a signal to split the diagram, not to cram both into one.
 
 ### Style — Which components?
 
-All classes below exist in `base/components.css` + `base/explainer-base.css`.
+All classes below exist in `base/components.css` + `base/explainer-base.css`. Every Structure output has a matching Style row — if a content type isn't listed, pick the closest match and justify the deviation in the diagram-meta `note:` field.
 
 | Visual type | Hero | Sections | Extra |
 |---|---|---|---|
-| Flowchart | `.hero.left-border` | `.section-label.dot` + diagram shell | `.phases` + `.phase-card` |
-| Architecture | `.hero.elevated` | `.section-label.square` | `.stat-grid` + `.stat` |
+| Flowchart (`flowchart TD/LR`) | `.hero.left-border` | `.section-label.dot` + diagram shell | `.phases` + `.phase-card` |
+| Sequence (`sequenceDiagram`) | `.hero.left-border` | `.section-label.dot` + diagram shell | `.phases` (time-grouped arcs) + `.card.accent` legend |
+| State machine (`stateDiagram-v2`) | `.hero.left-border` | `.section-label.dot` + diagram shell | `.card.accent` legend for state meanings |
+| Radial hub (fgraph, ≤ 7 nodes) | `.hero.left-border` | `.section-label.dot` | `.card.accent` legend for edge types (pills/warn/ok) |
+| Architecture layers | `.hero.elevated` | `.section-label.square` | `.stat-grid` + `.stat` |
 | Timeline | `.hero.top-border` | `.section-label.triangle` | `.steps` + `.step` + `.step-num` |
 | Explainer | `.hero.left-border` | `.section-label.dot` | `.io-strip` + `.io-box` + `.io-arrow` |
 | Comparison | `.hero.left-border` | `.section-label.dot` | `.table-wrap > table` |
 
-**Ask:** What visual hierarchy does this need? Quick overview → stat grid. Process steps → phase cards. Ordered walk → steps timeline. Tabular compare → table.
+**Ask:** What's the ONE thing the reader should walk away remembering? A number → `.stat-grid`. A path through steps → `.steps` timeline. A comparison → `.table-wrap > table`. A decision with trade-offs → `.io-strip`. If more than one answer fits, the diagram is doing too much — Frame Q2 is underspecified.
 
 ### Deliver — Generate + verify
 
@@ -132,7 +133,7 @@ Let:
 2. Issue number in ARGS (`#N` or `NNN-`) → filename `{N}-{slug}.html`, set `diagram:issue` meta.
 3. Cross-project / no project → `~/.roxabi/forge/_shared/diagrams/`.
 4. Brand book — follow `forge-ops.md` brand detection.
-5. Apply aesthetic detection logic to select the correct aesthetic file.
+5. Apply the Aesthetic Detection precedence algorithm (see `${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md` § Aesthetic Detection) to select the correct aesthetic file.
 
 ---
 

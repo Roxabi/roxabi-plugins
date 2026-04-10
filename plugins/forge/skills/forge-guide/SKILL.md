@@ -32,19 +32,17 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md    — only if a tab will cont
 
 ---
 
-## Design Phase — Think → Structure → Style → Deliver
+## Design Phase — Frame → Structure → Style → Deliver
 
-Before generating, apply design thinking to match content to visual form.
+Decisions made across Phases 1–4 follow this lens. It is an overlay on the procedural phases below, not a separate pre-phase: Frame runs in Phase 1 (context + aesthetic detection), Structure in Phase 2 (tab planning), Style in Phase 3 (generate), Deliver in Phase 4 (report + verify).
 
-### Think — Which aesthetic?
+### Frame — What's this visual for?
 
-Base matrix + precedence algorithm in `forge-ops.md` § Design Thinking and § Aesthetic Detection. Read it once per invocation. The precedence algorithm (explicit arg → brand book → project → Think matrix → default) is the final word.
+Full reference: `${CLAUDE_PLUGIN_ROOT}/references/frame-phase.md` — three Frame questions, reader-action matrix, tone dimensions, example trace.
 
-**forge-guide deltas** — add to the base matrix:
+**For forge-guide specifically, Q2 (the ONE takeaway) is the most useful prompt.** A guide is a multi-tab document with multiple sections — without a committed Q2 takeaway, the tab set sprawls and the reader loses the thread. State Q2 in one sentence before picking tabs. If you can't, the scope is too wide — split into multiple guides.
 
-| Content type | Aesthetic | Reason |
-|---|---|---|
-| Single-page audit / review | `blueprint.css` | Clean, scannable, finding cards read well on it |
+Aesthetic is **not** chosen by Frame — it's mechanical (see `forge-ops.md § Aesthetic Detection`). Frame produces purpose, not CSS.
 
 ### Structure — Which rendering approach?
 
@@ -57,11 +55,11 @@ Base matrix + precedence algorithm in `forge-ops.md` § Design Thinking and § A
 | Data comparison (≥4 rows or ≥3 cols) | HTML tables |
 | Single-page audit / long-form | TOC sidebar layout |
 
-**Ask:** Does the content have a natural shape? Linear → Mermaid. Radial → fgraph. Text blocks → Grid. Rows × cols → table.
+**Ask:** Is the content scannable (headings + lists + tables) or narrative (paragraphs + inline diagrams)? Scannable → TOC sidebar or multi-tab with stat-grid heroes. Narrative → flat long-form with inline diagrams. A guide that is both scannable and narrative is a sign of unclear Frame Q2 — one takeaway can be skimmed *or* read, not both.
 
 ### Style — Which components?
 
-All classes below exist in `base/components.css` + `base/explainer-base.css`.
+All classes below exist in `base/components.css` + `base/explainer-base.css`. Rows are keyed on **doc type** (what the guide is) — rendering wrappers are orthogonal and listed separately below.
 
 | Doc type | Hero | Sections | Cards |
 |---|---|---|---|
@@ -69,10 +67,21 @@ All classes below exist in `base/components.css` + `base/explainer-base.css`.
 | Architecture | `.hero.elevated` | `.section-label.square` | `.card.accent` (accent border-left) |
 | Status / recap | `.hero` + `.stat-grid` | `.section-label.triangle` | `.phases` + `.phase-card.p1..p4` |
 | Audit / review | `.hero.elevated` + `.verdict-badge` | `.section-label.dot` | `.finding.finding--high/medium/low` |
+| Analysis / comparison | `.hero.left-border` | `.section-label.dot` | `.card` grid + `.table-wrap > table` |
 
-Cross-doc: use `.card.info` / `.card.warning` / `.card.critical` for inline tonal callouts (colored `border-left`, verified in `components.css`).
+**Rendering wrappers** — orthogonal to doc type. Apply these to whatever rendering the Structure phase chose:
 
-**Ask:** What visual hierarchy does this need? Quick scan → stat grid. Deep dive → finding cards. Ordered walk → phase cards.
+| Rendering | Wrapper / component |
+|---|---|
+| Mermaid (any type) | `.diagram-shell` with `.zoom-controls` (never bare `<pre class="mermaid">`) |
+| fgraph radial | `.fgraph-wrap` + `.fgraph-frame` + `.fgraph-edges` + `.fgraph-node.{tone}` (see `graph-templates/`) |
+| HTML table | `.table-wrap > table` with `<thead>` (enables sticky header + horizontal scroll) |
+| CSS Grid cards | `.cards` container + `.card`/`.card.accent` per row |
+| TOC sidebar | `.wrap--toc > .toc + .main--toc` layout (see Phase 3 TOC Sidebar section) |
+
+Cross-doc: use `.card.info` / `.card.warning` / `.card.critical` for inline tonal callouts.
+
+**Ask:** What visual hierarchy does this need? Quick scan → `.stat-grid`. Deep dive → `.finding` cards by severity. Ordered walk → `.phases`. Data compare → `.table-wrap > table`. Pick one — if two apply equally, the Frame Q2 takeaway is underspecified.
 
 ### Deliver — Generate + verify
 
@@ -132,7 +141,7 @@ Let:
    ```
    ∃ v<N> → propose vN+1 and offer to mark old version `archived` in its meta.
 
-5. **Apply aesthetic detection logic** to select the correct aesthetic file.
+5. **Apply the Aesthetic Detection precedence algorithm** (see `${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md` § Aesthetic Detection) to select the correct aesthetic file.
 
 ---
 
