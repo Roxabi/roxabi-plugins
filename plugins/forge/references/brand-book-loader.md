@@ -34,17 +34,17 @@ Check order (first match wins — do not continue after a match):
 1. If --brand-book PATH was passed as an explicit arg:
      → Load from PATH. If file does not exist, report error and fall through to step 2.
 
-2. Check ~/projects/{PROJECT}/brand/forge.yml
-     → If exists, load as Track A (full schema).
+2. Check ~/.roxabi/forge/{PROJECT}/brand/forge.yml
+     → If exists, load as Track A (full schema). This is the runtime mirror (local override).
 
-3. Check ~/.roxabi/forge/{PROJECT}/brand/forge.yml
-     → If exists, load as Track A (full schema). This is the runtime mirror.
+3. Check ~/projects/{PROJECT}/brand/forge.yml
+     → If exists, load as Track A (full schema). This is the repo version (committed base).
 
-4. Check ~/projects/{PROJECT}/brand/BRAND-BOOK.md
-     → If exists, load as palette-only mode (partial Track A).
-
-5. Check ~/.roxabi/forge/{PROJECT}/brand/BRAND-BOOK.md
+4. Check ~/.roxabi/forge/{PROJECT}/brand/BRAND-BOOK.md
      → If exists, load as palette-only mode (partial Track A). Runtime mirror.
+
+5. Check ~/projects/{PROJECT}/brand/BRAND-BOOK.md
+     → If exists, load as palette-only mode (partial Track A).
 
 6. If none found → Track B (exploration mode, no brand book).
 ```
@@ -63,11 +63,32 @@ Resolution rules:
 After resolution, state the outcome explicitly before proceeding:
 
 ```text
+Good: "Brand book loaded: ~/.roxabi/forge/lyra/brand/forge.yml (Track A, full schema)"
 Good: "Brand book loaded: ~/projects/lyra/brand/forge.yml (Track A, full schema)"
 Good: "Brand book loaded: ~/.roxabi/forge/lyra/brand/BRAND-BOOK.md (palette-only mode)"
 Good: "No brand book found — Track B exploration mode"
 Bad:  (silently applying or skipping brand book with no report)
 ```
+
+---
+
+## Discovery Rationale
+
+The runtime mirror (`~/.roxabi/forge/{proj}/brand/`) is intended for **local override and
+experimentation**. Edit it, test it, commit back to the repo when stable. It wins over the repo
+version because a local tweak should be visible immediately without requiring a commit.
+
+The repo version (`~/projects/{proj}/brand/forge.yml`) is the **committed base**. It lives with the
+code, is version-controlled, and is what `git clone` delivers to any machine. Without an override in
+the mirror, the repo wins by falling through to step 3.
+
+With a mirror file present the mirror wins — allowing machine-local tweaks without touching the
+repo. Without a mirror file the repo version is used, so the behavior on a fresh clone is
+predictable.
+
+**Warning:** the mirror is machine-local and is overwritten by `make forge sync` if the repo
+version diverges. Experimentation in the mirror should be short-lived. Once a change is stable,
+commit it back to `~/projects/{proj}/brand/forge.yml` and let the repo be the long-term record.
 
 ---
 
@@ -136,6 +157,92 @@ not affect any Design Phase decision.
 | `components.*` value not in the allowed enum for that field | Warn `"components.{field} value '{value}' not valid — using plugin default"`; apply plugin default for that slot only |
 | `allow_override.*` value not in `{locked, partial, open, advisory}` | Warn `"allow_override.{key} has unknown value '{value}' — treating as partial"`; continue |
 | YAML parse error | Report error with line number if available; fall back to Track B (exploration mode); do not crash |
+
+**Known top-level keys** (do NOT flag these as unrecognized): `schema_version`, `extends`,
+`aesthetic`, `palette`, `typography`, `components`, `structure_defaults`, `examples`,
+`deliver_must_match`, `allow_override`, `project`. Any key not in this list triggers the
+"unrecognized key" warning above.
+
+---
+
+## Extends
+
+The optional top-level key `extends:` allows one brand book to inherit from another. The motivating
+use case: a project like voicecli wants to reuse lyra's aesthetic, palette, and typography but
+override its own `project.name` and a few delivery rules — without copy-pasting the entire file.
+
+### Syntax
+
+`extends:` takes a single path string (not a list — one parent only, per file). The path may be:
+
+- **Absolute** — `/home/mickael/projects/lyra/brand/forge.yml`
+- **Home-relative** — `~/projects/lyra/brand/forge.yml`
+- **Relative to the current file's directory** — `../lyra/brand/forge.yml`
+
+Resolve relative paths before loading. Do not traverse symlinks outside the user's home.
+
+### Load order
+
+The parent is loaded **first and fully** (including its own `extends:` chain, recursively). Then the
+child overlays its fields on top. The child's values always win on conflict. Think of it as
+`Object.assign(parent, child)` with per-field merge rules (see table below).
+
+### Merge rules
+
+| Field | Merge rule |
+|---|---|
+| `schema_version` | Child wins. If parent and child values differ, warn: `"schema_version mismatch: parent={N}, child={M} — using child value {M}"`; continue. |
+| `project` | Child wins (scalar — child redefines its own project name/slug). |
+| `aesthetic` | Child wins (scalar — child may override aesthetic file entirely, or keep parent's by omitting). |
+| `palette.dark` / `palette.light` | **Per-key merge** — child keys override matching parent keys; parent keys the child does not mention remain. |
+| `typography` | **Per-key merge** — child font families override per-font; unspecified fonts keep parent values. |
+| `components` | **Per-key merge** — child slots override parent slots; unspecified slots keep parent values. |
+| `structure_defaults` | **Per-key merge**. |
+| `allow_override` | **Per-key merge**. |
+| `examples` | **Concatenation with dedup** — parent examples first, then child examples appended; duplicates removed by path string. |
+| `deliver_must_match` | **Concatenation with dedup** — parent rules first, then child rules appended; duplicates removed by exact string match. |
+
+List fields (`examples`, `deliver_must_match`) use concatenation because a child that inherits from
+a shared base typically wants to **add** its own constraints, not replace them wholesale. If a child
+truly wants to replace a list entirely, it must omit `extends:` and define everything itself.
+
+### Chain depth
+
+The loader supports at least 5 levels of `extends:` (A → B → C → D → E). Hard-cap at 10 levels.
+If the chain exceeds 10, warn: `"extends: chain exceeds 10 levels — stopping at {path}"` and use
+whatever has been loaded up to the cutoff.
+
+### Cycle detection
+
+Track visited absolute paths during chain resolution. If a cycle is detected (e.g. A extends B
+extends A), warn: `"extends: cycle detected: {path-A} → {path-B} → {path-A} — stopping chain at
+repeat"` and use whatever has been loaded up to that point.
+
+### Missing parent
+
+If `extends:` resolves to a path that does not exist, warn:
+
+```text
+extends: {path} not found — ignoring extends, using child file alone
+```
+
+Do not abort. Load only the child file.
+
+### Reporting with extends
+
+When a brand book is loaded via `extends:`, expand the report to show the chain:
+
+```text
+Brand book: voicecli (forge.yml) extends lyra (forge.yml)
+Chain: ~/projects/voicecli/brand/forge.yml → ~/projects/lyra/brand/forge.yml
+Track: A (branded, inherited)
+Locked fields: aesthetic, palette, typography (from lyra)
+Partial fields: components (from lyra)
+Child overrides: project.name, 3 deliver_must_match rules
+```
+
+Omit any line whose count is zero (same rule as the main report). "Child overrides" counts the
+number of fields or list items the child file defines that differ from or extend the parent.
 
 ---
 
@@ -238,6 +345,10 @@ detail that the user can act on a failure without reading the brand book themsel
 | `allow_override` key has an unknown value | Treat as `partial`. Warn: `"allow_override.{key}: unknown value '{value}' — treating as partial"`. Continue. |
 | Explicit `--brand-book PATH` resolves to a file that does not exist | Report: `"--brand-book {PATH} not found"`. Fall through to step 2 of the Discovery order and continue. |
 | Content Structure output has no matching Style row AND brand book does not lock that slot | Do not silently pick. Ask the user which Style row to use. Offer the closest match as a suggestion. |
+| `extends:` path resolves to a file that does not exist | Warn `"extends: {path} not found — ignoring extends, using child file alone"`. Load only the child. Do not abort. |
+| `extends:` chain exceeds 10 levels | Warn `"extends: chain exceeds 10 levels — stopping at {path}"`. Use the merged result up to the cutoff. |
+| `extends:` cycle detected | Warn `"extends: cycle detected: {path-A} → ... → {path-A} — stopping chain at repeat"`. Use the merged result up to the repeat. |
+| Parent and child `schema_version` differ | Warn `"schema_version mismatch: parent={N}, child={M} — using child value {M}"`. Continue. |
 
 Recovery principle: brand book failures are recoverable. The goal is always to produce output —
 even if degraded (Track B instead of Track A). Never halt a forge skill invocation because the

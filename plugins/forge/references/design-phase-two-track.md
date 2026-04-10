@@ -33,10 +33,10 @@ Track assignment happens at Phase 1 start and does not change for the duration o
 At Phase 1 start:
   brand_book = run brand-book-loader discovery
     # check --brand-book arg (explicit override)
-    # check ~/projects/{PROJ}/brand/forge.yml    (repo, source of truth)
-    # check ~/.roxabi/forge/{PROJ}/brand/forge.yml  (runtime mirror)
-    # check ~/projects/{PROJ}/brand/BRAND-BOOK.md  (legacy palette-only)
+    # check ~/.roxabi/forge/{PROJ}/brand/forge.yml  (runtime mirror — local override wins)
+    # check ~/projects/{PROJ}/brand/forge.yml    (repo, committed base)
     # check ~/.roxabi/forge/{PROJ}/brand/BRAND-BOOK.md  (legacy mirror)
+    # check ~/projects/{PROJ}/brand/BRAND-BOOK.md  (legacy palette-only)
 
   if brand_book found:
     track = A  (branded)
@@ -172,6 +172,12 @@ The spot-check helps catch visual drift that rule strings cannot express.
 processes talk to which."*
 
 ### Track A trace — `forge.yml` found at `~/projects/lyra/brand/forge.yml`
+
+> **Note — mirror override:** This trace loads from the repo path. If
+> `~/.roxabi/forge/lyra/brand/forge.yml` exists on the machine, that mirror file would be loaded
+> instead (discovery step 2 fires before step 3). The trace and behavior are identical once loaded —
+> only the reported source path changes:
+> `"Brand book loaded: ~/.roxabi/forge/lyra/brand/forge.yml (Track A, full schema)"`.
 
 **Phase 1 — Track selection:**
 Brand book loaded. Locked fields: aesthetic (`lyra.css`), palette (Forge Orange dark/light),

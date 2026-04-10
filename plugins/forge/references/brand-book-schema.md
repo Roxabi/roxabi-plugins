@@ -26,16 +26,17 @@ When absent: plugin runs in **exploration mode** with the full Design Phase.
 
 ## Discovery order
 
-Skills check these paths in order; first match wins. Repo paths win over runtime mirror paths — the repo is versioned and committed, the mirror may be stale.
+Skills check these paths in order; first match wins. The runtime mirror wins over the repo path —
+the mirror is for local override and experimentation; the repo is the committed base.
 
 ```bash
 # 1. Preferred — structured config
-ls ~/projects/{PROJ}/brand/forge.yml 2>/dev/null          # repo, source of truth
-ls ~/.roxabi/forge/{PROJ}/brand/forge.yml 2>/dev/null     # runtime mirror
+ls ~/.roxabi/forge/{PROJ}/brand/forge.yml 2>/dev/null     # runtime mirror (local override wins)
+ls ~/projects/{PROJ}/brand/forge.yml 2>/dev/null          # repo, committed base
 
 # 2. Legacy — palette-only BRAND-BOOK.md (parse color table)
-ls ~/projects/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null      # repo, source of truth
 ls ~/.roxabi/forge/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null # runtime mirror
+ls ~/projects/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null      # repo, committed base
 ```
 
 If `forge.yml` is found → use it as the full decision substrate.
@@ -158,6 +159,7 @@ project:
 | Key | Type | Required? | Default | Role |
 |---|---|---|---|---|
 | `schema_version` | int | no | `1` | Schema version for migration compatibility |
+| `extends` | string | no | (none) | Path to a parent brand book to inherit from — see `§ Extends` below |
 | `aesthetic` | string | no | plugin default (`editorial.css` or project-derived) | Which aesthetic CSS file to use |
 | `palette` | object | no | aesthetic file defaults | CSS custom property overrides |
 | `typography` | object | no | aesthetic file defaults | Font family overrides |
@@ -211,6 +213,47 @@ Everything else falls through to plugin defaults.
 
 ---
 
+## Extends
+
+The optional `extends:` key lets one brand book inherit from another. Use it when a project wants
+to reuse an existing brand (aesthetic, palette, typography, components) but override a few fields —
+without copy-pasting the entire file.
+
+### Syntax
+
+```yaml
+extends: ~/projects/lyra/brand/forge.yml
+```
+
+Value is a single path string. Accepted forms: absolute, home-relative (`~/...`), or relative to
+the current file's directory (`../lyra/brand/forge.yml`). Lists are not supported — one parent per
+file.
+
+### Merge rules
+
+| Field | Rule |
+|---|---|
+| `schema_version` | Child wins; mismatch → warn |
+| `project` | Child wins |
+| `aesthetic` | Child wins |
+| `palette.dark` / `palette.light` | Per-key merge — child keys override matching parent keys |
+| `typography` | Per-key merge |
+| `components` | Per-key merge |
+| `structure_defaults` | Per-key merge |
+| `allow_override` | Per-key merge |
+| `examples` | Concatenation with dedup (parent first) |
+| `deliver_must_match` | Concatenation with dedup (parent first) |
+
+Full load-order semantics, cycle detection, chain depth cap (10 levels), and missing-parent
+behavior are documented in `brand-book-loader.md § Extends`.
+
+### Minimal example — voicecli inherits lyra
+
+See `references/examples/forge.yml.extends-example` for a complete minimal example showing voicecli
+inheriting lyra's brand and overriding only `project` metadata and two delivery rules.
+
+---
+
 ## How each skill consumes `forge.yml`
 
 | Skill | Fields it reads | What it does with them |
@@ -241,7 +284,7 @@ When `forge.yml` is found, it supersedes the current priority chain in `forge-op
 
 1. **Audit current state** — what aesthetic is the project already using? What components appear in its canonical outputs?
 2. **Write `forge.yml`** — fill in the fields from what's already in use. Start minimal (aesthetic + palette) and extend as needed.
-3. **Place it** — at `~/projects/{proj}/brand/forge.yml` (preferred, versioned in the project repo) or `~/.roxabi/forge/{proj}/brand/forge.yml` (runtime mirror, not versioned).
+3. **Place it** — at `~/projects/{proj}/brand/forge.yml` (committed base, versioned in the project repo). Optionally also place a copy at `~/.roxabi/forge/{proj}/brand/forge.yml` (runtime mirror) if you want a machine-local override. The mirror wins over the repo when both are present — see `brand-book-loader.md § Discovery Rationale`.
 4. **Verify** — run a forge skill and confirm it reports the brand book was loaded. Plugin should log: *"Brand book loaded from {path} — applying locked fields: aesthetic, palette, components.hero, components.section_label"*.
 5. **Iterate** — when generated outputs drift from brand, tighten `allow_override` (e.g. flip `components: partial` → `locked`).
 
