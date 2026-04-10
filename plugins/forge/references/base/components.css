@@ -263,3 +263,38 @@ table.data-table td.num {
   color: var(--text);
   padding: 0.375rem 0.5rem;
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   Responsive — collapse gracefully at 768px
+   ══════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .dep-path { flex-wrap: wrap; }
+
+  .component {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .lane-header,
+  .lane-body { padding: 0.5rem; }
+
+  .card { padding: 1rem; }
+  .card-label { font-size: 0.625rem; }
+  .card-title { font-size: 0.875rem; }
+
+  table.data-table th,
+  table.data-table td {
+    font-size: 0.75rem;
+    padding: 0.375rem 0.5rem;
+  }
+
+  .arch { font-size: 0.75rem; }
+
+  .item-list li { gap: 0.25rem; }
+
+  .phase,
+  .eyebrow { font-size: 0.625rem; }
+
+  .phase { padding: 0.0625rem 0.375rem; }
+}
