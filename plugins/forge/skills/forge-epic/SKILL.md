@@ -32,7 +32,18 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md    — dependency/breakdown di
 
 ## Design Phase — Frame → Structure → Style → Deliver
 
-Decisions made across Phases 1–4 follow this lens. It is an overlay on the procedural phases below, not a separate pre-phase: Frame runs in Phase 1 (context), Structure in Phase 2 (epic structure / tab set), Style in Phase 3 (generate), Deliver in Phase 4 (report + verify).
+Decisions made across Phases 1–4 follow this lens. It is an overlay on the procedural phases, not a separate pre-phase: Frame runs in Phase 1 (context), Structure in Phase 2 (epic structure / tab set), Style in Phase 3 (generate), Deliver in Phase 4 (report + verify).
+
+### Track selection (Phase 1 start)
+
+Run the brand book loader (`${CLAUDE_PLUGIN_ROOT}/references/brand-book-loader.md`) before any other decision:
+
+- **Track A (branded)** — `forge.yml` found in project `brand/` → aesthetic/palette/typography locked; `deliver_must_match` rules enforced at Deliver.
+- **Track B (exploration)** — no brand book → full Frame judgment.
+
+Full track-by-track behavior: `${CLAUDE_PLUGIN_ROOT}/references/design-phase-two-track.md`.
+
+Report the loaded brand book (or its absence) before starting Frame. Track is fixed at Phase 1 and does not change.
 
 ### Frame — What's this visual for?
 
@@ -40,7 +51,10 @@ Full reference: `${CLAUDE_PLUGIN_ROOT}/references/frame-phase.md` — three Fram
 
 **For forge-epic specifically, Q1 (reader-action) is the most useful prompt.** An epic preview is read by contributors (who need scope + dependencies) OR by stakeholders (who need status + next milestone) OR by reviewers during acceptance (who need criteria). The same issue produces different tab sets for different readers. Commit to one reader before picking tabs.
 
-Aesthetic is **not** chosen by Frame — it's mechanical (see `forge-ops.md § Aesthetic Detection`). Frame produces purpose, not CSS.
+- **Track A:** ask Q1 (reader-action) and Q2 (takeaway). **Skip Q3 (tone)** — tone is pre-constrained by brand voice rules.
+- **Track B:** ask Q1, Q2, and full Q3.
+
+Aesthetic is never chosen by Frame — it's mechanical (see `forge-ops.md § Aesthetic Detection`). Frame produces purpose, not CSS.
 
 ### Structure — Which tabs?
 
@@ -69,15 +83,20 @@ All classes below exist in `base/components.css` + `base/explainer-base.css`, or
 
 ### Deliver — Generate + verify
 
-**Always:**
+**Always** (both tracks):
 - `.epic-hero` shows issue number prominently.
 - Status badges use correct colors (green `done`, amber `wip`, cyan `todo`) via the inline `.status` styles in Phase 3.
 - Mermaid dep diagram wrapped in `.diagram-shell` — never bare `<pre class="mermaid">`.
-- Dark mode text uses semantic tokens (`var(--text-muted)` for body, `var(--text-dim)` for metadata only).
+- **Body copy uses `var(--text)` for maximum readability on dark backgrounds.** `var(--text-muted)` is for intermediate emphasis only (subtitles, label rows); `var(--text-dim)` is for metadata only.
 - `diagram:issue` meta tag present and matches filename.
 - No ASCII art, no emoji in headers.
 - Tab buttons have `role="tab"` + `aria-selected` semantics.
 - Interactive controls (theme toggle, zoom, tab buttons) have visible `:focus-visible` styling.
+- Verify Frame Q2 takeaway is visible in the Overview tab — the reader should know the epic's one goal within 10 seconds.
+
+**Track A additionally:**
+- Run every `brand.deliver_must_match` rule against the generated tab fragments and shell. Report pass/fail per rule with the tab/line location. Do not write any file until all rules pass or the user overrides.
+- If `brand.examples` list is non-empty, offer to visually diff the generated output against one canonical example.
 
 ---
 
@@ -114,7 +133,7 @@ Let:
 
 2. **Detect project** from ARGS or cwd.
 
-3. **Brand book** — follow `forge-ops.md` brand detection.
+3. **Run the brand book loader** (`${CLAUDE_PLUGIN_ROOT}/references/brand-book-loader.md`): Discovery → Parse → Apply. Determine Track A or Track B. Report the result before continuing.
 
 4. **Slug** from ARGS title or issue title (kebab-case). Filename: `{ISSUE}-{slug}.html`.
    Check: `ls ~/.roxabi/forge/{PROJ}/visuals/{ISSUE}-*.html 2>/dev/null`

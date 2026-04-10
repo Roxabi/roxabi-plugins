@@ -34,7 +34,18 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md    — only if a tab will cont
 
 ## Design Phase — Frame → Structure → Style → Deliver
 
-Decisions made across Phases 1–4 follow this lens. It is an overlay on the procedural phases below, not a separate pre-phase: Frame runs in Phase 1 (context + aesthetic detection), Structure in Phase 2 (tab planning), Style in Phase 3 (generate), Deliver in Phase 4 (report + verify).
+Decisions made across Phases 1–4 follow this lens. It is an overlay on the procedural phases, not a separate pre-phase: Frame runs in Phase 1 (context + aesthetic detection), Structure in Phase 2 (tab planning), Style in Phase 3 (generate), Deliver in Phase 4 (report + verify).
+
+### Track selection (Phase 1 start)
+
+Run the brand book loader (`${CLAUDE_PLUGIN_ROOT}/references/brand-book-loader.md`) before any other decision:
+
+- **Track A (branded)** — `forge.yml` found in project `brand/` → aesthetic/palette/typography locked; components pre-filled; `deliver_must_match` rules enforced at Deliver.
+- **Track B (exploration)** — no brand book → full Frame judgment; Frame output drives aesthetic fallback via `forge-ops.md § Aesthetic Detection` priority 5.
+
+Full track-by-track behavior: `${CLAUDE_PLUGIN_ROOT}/references/design-phase-two-track.md`.
+
+Report the loaded brand book (or its absence) before starting Frame. Track is fixed at Phase 1 and does not change.
 
 ### Frame — What's this visual for?
 
@@ -42,7 +53,10 @@ Full reference: `${CLAUDE_PLUGIN_ROOT}/references/frame-phase.md` — three Fram
 
 **For forge-guide specifically, Q2 (the ONE takeaway) is the most useful prompt.** A guide is a multi-tab document with multiple sections — without a committed Q2 takeaway, the tab set sprawls and the reader loses the thread. State Q2 in one sentence before picking tabs. If you can't, the scope is too wide — split into multiple guides.
 
-Aesthetic is **not** chosen by Frame — it's mechanical (see `forge-ops.md § Aesthetic Detection`). Frame produces purpose, not CSS.
+- **Track A:** ask Q1 (reader-action) and Q2 (takeaway). **Skip Q3 (tone)** — tone is pre-constrained by brand voice rules in `deliver_must_match`. Q4 optional.
+- **Track B:** ask Q1, Q2, and full Q3 (all four tone axes). Frame output produces a content-type signal for Aesthetic Detection priority 5.
+
+Aesthetic is never chosen by Frame — it's mechanical (see `forge-ops.md § Aesthetic Detection`). Frame produces purpose, not CSS.
 
 ### Structure — Which rendering approach?
 
@@ -60,6 +74,9 @@ Aesthetic is **not** chosen by Frame — it's mechanical (see `forge-ops.md § A
 ### Style — Which components?
 
 All classes below exist in `base/components.css` + `base/explainer-base.css`. Rows are keyed on **doc type** (what the guide is) — rendering wrappers are orthogonal and listed separately below.
+
+- **Track A:** `brand.components.hero` / `.section_label` / `.card_default` pre-fill the matching slots in the row for your doc type. Override only when content has no valid rendering using the brand default (see `design-phase-two-track.md § Style`).
+- **Track B:** pick the row that matches your doc type. Frame tone drives variant selection when multiple rows apply.
 
 | Doc type | Hero | Sections | Cards |
 |---|---|---|---|
@@ -85,16 +102,21 @@ Cross-doc: use `.card.info` / `.card.warning` / `.card.critical` for inline tona
 
 ### Deliver — Generate + verify
 
-**Always:**
+**Always** (both tracks):
 - Hero section present with eyebrow + title accent + subtitle.
 - Section titles use `.section-title` or `.section-label` (never plain `<h2>`).
 - Mermaid (if used) wrapped in `.diagram-shell` — never bare `<pre class="mermaid">`.
-- Dark mode text uses semantic tokens (`var(--text-muted)` for body, `var(--text-dim)` for metadata only).
+- **Body copy uses `var(--text)` for maximum readability on dark backgrounds.** `var(--text-muted)` is for intermediate emphasis only (subtitles, label rows); `var(--text-dim)` is for metadata only.
 - No ASCII art, no emoji in headers.
 - Tab buttons have `role="tab"` + `aria-selected` semantics.
 - Interactive controls (theme toggle, zoom, tab buttons) have visible `:focus-visible` styling.
-- Color pairs used for body copy meet 4.5:1 contrast.
+- Color pairs used for body copy meet 4.5:1 contrast (AAA when possible).
 - Mermaid container is responsive — no horizontal scroll below 375px viewport.
+- Verify Frame Q2 takeaway is visually emphasized in the Overview tab — the reader should spot it within 10 seconds of landing.
+
+**Track A additionally:**
+- Run every `brand.deliver_must_match` rule against the generated tab fragments and shell. Report pass/fail per rule with the tab/line location. Do not write any file until all rules pass or the user explicitly overrides a failing rule.
+- If `brand.examples` list is non-empty, offer to visually diff the generated output against one canonical example tab before writing.
 
 **If the doc has a TOC sidebar (audit / long-form):**
 - TOC scroll observer wired (see Phase 3).
@@ -131,7 +153,7 @@ Let:
 
 1. **Detect project** from ARGS or cwd. Unknown → DP(B). (See `forge-ops.md` for detection signals.)
 
-2. **Brand book** — follow `forge-ops.md` brand detection.
+2. **Run the brand book loader** (`${CLAUDE_PLUGIN_ROOT}/references/brand-book-loader.md`): Discovery → Parse → Apply. Determine Track A or Track B. Report the result before continuing.
 
 3. **Output root** — follow `forge-ops.md` output paths.
 

@@ -39,7 +39,18 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md          — Mermaid patterns 
 
 ## Design Phase — Frame → Structure → Style → Deliver
 
-Decisions made across Phases 1–4 follow this lens. It is an overlay on the procedural phases below, not a separate pre-phase: Frame runs in Phase 1 (context + aesthetic detection), Structure in Phase 2 (visual type), Style in Phase 3 (generate), Deliver in Phase 4 (report + verify).
+Decisions made across Phases 1–4 follow this lens. It is an overlay on the procedural phases, not a separate pre-phase: Frame runs in Phase 1 (context + aesthetic detection), Structure in Phase 2 (visual type), Style in Phase 3 (generate), Deliver in Phase 4 (report + verify).
+
+### Track selection (Phase 1 start)
+
+Run the brand book loader (`${CLAUDE_PLUGIN_ROOT}/references/brand-book-loader.md`) before any other decision:
+
+- **Track A (branded)** — `forge.yml` found in project `brand/` → aesthetic/palette/typography locked; components pre-filled; `deliver_must_match` rules enforced at Deliver.
+- **Track B (exploration)** — no brand book → full Frame judgment; Frame output drives aesthetic fallback via `forge-ops.md § Aesthetic Detection` priority 5.
+
+Full track-by-track behavior: `${CLAUDE_PLUGIN_ROOT}/references/design-phase-two-track.md`.
+
+Report the loaded brand book (or its absence) before starting Frame. Track is fixed at Phase 1 and does not change.
 
 ### Frame — What's this visual for?
 
@@ -47,9 +58,14 @@ Full reference: `${CLAUDE_PLUGIN_ROOT}/references/frame-phase.md` — three Fram
 
 **For forge-chart specifically, Q4 (sentence verb) is the most useful prompt.** A chart is usually a single visual with one dominant reader action — *see*, *debug*, *decide*, *learn*, *trust*. Commit to the verb before picking topology: a *see* verb tolerates spacious fgraph; a *debug* verb demands dense stat-grid + high contrast.
 
-Aesthetic is **not** chosen by Frame — it's mechanical (see `forge-ops.md § Aesthetic Detection`). Frame produces purpose, not CSS.
+- **Track A:** ask Q1 (reader-action) and Q2 (takeaway). **Skip Q3 (tone)** — tone is pre-constrained by brand voice rules in `deliver_must_match`. Q4 optional.
+- **Track B:** ask Q1, Q2, and full Q3 (all four tone axes). Frame output produces a content-type signal for Aesthetic Detection priority 5.
+
+Aesthetic is never chosen by Frame — it's mechanical (see `forge-ops.md § Aesthetic Detection`). Frame produces purpose, not CSS.
 
 ### Structure — Which visual type?
+
+Content-driven in both tracks. Brand `structure_defaults` (if present) act as **tiebreakers only** when content topology is genuinely ambiguous.
 
 | Content | Approach | Why |
 |---|---|---|
@@ -69,7 +85,10 @@ Aesthetic is **not** chosen by Frame — it's mechanical (see `forge-ops.md § A
 
 ### Style — Which components?
 
-All classes below exist in `base/components.css` + `base/explainer-base.css`. Every Structure output has a matching Style row — if a content type isn't listed, pick the closest match and justify the deviation in the diagram-meta `note:` field.
+All classes below exist in `base/components.css` + `base/explainer-base.css`.
+
+- **Track A:** component slots (hero, section-label, card, timeline, badges) are **pre-filled** from `brand.components.*`. Override a slot only when the content's Structure output has no valid rendering using the brand default (see `design-phase-two-track.md § Style` partial override rule). Stylistic preference is not a valid reason.
+- **Track B:** pick the row that matches your Structure output. Frame tone drives variant selection when multiple rows could apply.
 
 | Visual type | Hero | Sections | Extra |
 |---|---|---|---|
@@ -86,12 +105,18 @@ All classes below exist in `base/components.css` + `base/explainer-base.css`. Ev
 
 ### Deliver — Generate + verify
 
-**Always:**
+**Always** (both tracks):
 - Mermaid (if used) wrapped in `.diagram-shell` with zoom controls — never bare `<pre class="mermaid">`.
 - SVG gets `height: 100%; width: 100%; max-width: none` after `mermaid.render()`.
 - No ASCII art, no emoji in section headers.
 - Interactive controls (zoom, theme) are `<button>` with visible `:focus-visible` styling.
-- Color pairs meet 4.5:1 contrast — never use `var(--text-dim)` on `var(--surface)` for body copy.
+- **Body copy uses `var(--text)` for maximum readability on dark backgrounds.** `var(--text-muted)` is for intermediate emphasis only (subtitles, label rows); `var(--text-dim)` is for metadata only. Never `var(--text-dim)` on `var(--surface)` for any body copy.
+- Color pairs meet 4.5:1 contrast minimum (body text AAA when possible).
+- Verify Frame Q2 takeaway is visually emphasized — the reader should spot it without reading the whole diagram.
+
+**Track A additionally:**
+- Run every `brand.deliver_must_match` rule against the generated output. Report pass/fail per rule with location. Do not write the file until all rules pass or the user explicitly overrides a failing rule.
+- If `brand.examples` list is non-empty, offer to visually diff the generated output against one example before writing.
 
 **If the chart is a rich explainer** (multi-section, long-form):
 - Hero section present (`.hero.left-border` / `.elevated` / `.top-border`) with eyebrow + title accent.
@@ -132,8 +157,8 @@ Let:
 1. Detect project from ARGS or cwd.
 2. Issue number in ARGS (`#N` or `NNN-`) → filename `{N}-{slug}.html`, set `diagram:issue` meta.
 3. Cross-project / no project → `~/.roxabi/forge/_shared/diagrams/`.
-4. Brand book — follow `forge-ops.md` brand detection.
-5. Apply the Aesthetic Detection precedence algorithm (see `${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md` § Aesthetic Detection) to select the correct aesthetic file.
+4. **Run the brand book loader** (`${CLAUDE_PLUGIN_ROOT}/references/brand-book-loader.md`): Discovery → Parse → Apply. Determine Track A or Track B. Report the result before continuing.
+5. Apply the Aesthetic Detection precedence algorithm (see `${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md` § Aesthetic Detection) to select the correct aesthetic file. If Track A, `forge.yml` already locks it at priority 2.
 
 ---
 

@@ -26,16 +26,16 @@ When absent: plugin runs in **exploration mode** with the full Design Phase.
 
 ## Discovery order
 
-Skills check these paths in order; first match wins:
+Skills check these paths in order; first match wins. Repo paths win over runtime mirror paths — the repo is versioned and committed, the mirror may be stale.
 
 ```bash
 # 1. Preferred — structured config
-ls ~/.roxabi/forge/{PROJ}/brand/forge.yml 2>/dev/null
-ls ~/projects/{PROJ}/brand/forge.yml 2>/dev/null
+ls ~/projects/{PROJ}/brand/forge.yml 2>/dev/null          # repo, source of truth
+ls ~/.roxabi/forge/{PROJ}/brand/forge.yml 2>/dev/null     # runtime mirror
 
 # 2. Legacy — palette-only BRAND-BOOK.md (parse color table)
-ls ~/.roxabi/forge/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null
-ls ~/projects/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null
+ls ~/projects/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null      # repo, source of truth
+ls ~/.roxabi/forge/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null # runtime mirror
 ```
 
 If `forge.yml` is found → use it as the full decision substrate.

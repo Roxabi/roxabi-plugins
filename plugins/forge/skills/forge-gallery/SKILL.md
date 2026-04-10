@@ -23,7 +23,18 @@ ${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/pivot-gallery.html — full w
 
 ## Design Phase — Frame → Structure → Style → Deliver
 
-Decisions made across Phases 1–4 follow this lens. It is an overlay on the procedural phases below, not a separate pre-phase: Frame runs in Phase 1 (context), Structure in Phase 2 (template pick), Style in Phase 3 (customize), Deliver in Phase 4 (report + verify).
+Decisions made across Phases 1–4 follow this lens. It is an overlay on the procedural phases, not a separate pre-phase: Frame runs in Phase 1 (context), Structure in Phase 2 (template pick), Style in Phase 3 (customize), Deliver in Phase 4 (report + verify).
+
+### Track selection (Phase 1 start)
+
+Run the brand book loader (`${CLAUDE_PLUGIN_ROOT}/references/brand-book-loader.md`) before any other decision:
+
+- **Track A (branded)** — `forge.yml` found in project `brand/` → aesthetic/palette/typography locked; `deliver_must_match` rules enforced at Deliver. Template selection is content-driven in both tracks (gallery templates serve reader-action, not brand).
+- **Track B (exploration)** — no brand book → full Frame judgment.
+
+Full track-by-track behavior: `${CLAUDE_PLUGIN_ROOT}/references/design-phase-two-track.md`.
+
+Report the loaded brand book (or its absence) before starting Frame. Track is fixed at Phase 1 and does not change.
 
 ### Frame — What's this visual for?
 
@@ -31,7 +42,10 @@ Full reference: `${CLAUDE_PLUGIN_ROOT}/references/frame-phase.md` — three Fram
 
 **For forge-gallery specifically, Q1 (reader-action) is the most useful prompt.** A gallery is consumed differently depending on whether the viewer is *deciding* (pick one concept) or *exploring* (browse the space). Deciding → `comparison-gallery.html` with verdict badges. Exploring → `pivot-gallery.html` or `simple-gallery.html` with filters. The same 20 images need different templates for different reader actions.
 
-Aesthetic is **not** chosen by Frame — it's mechanical (see `forge-ops.md § Aesthetic Detection`). Frame produces purpose, not CSS.
+- **Track A:** ask Q1 (reader-action) and Q2 (takeaway). **Skip Q3 (tone)** — tone is pre-constrained by brand voice rules. Template is still content-driven.
+- **Track B:** ask Q1, Q2, and full Q3.
+
+Aesthetic is never chosen by Frame — it's mechanical (see `forge-ops.md § Aesthetic Detection`). Frame produces purpose, not CSS.
 
 ### Structure — Which template?
 
@@ -57,7 +71,7 @@ See **Phase 2 — Pick Template** below for the full template table (single sour
 
 ### Deliver — Generate + verify
 
-**Always:**
+**Always** (both tracks):
 - DIMS object defines all grouping dimensions.
 - Filter buttons auto-built from data (not hardcoded — use `buildDimFilters`).
 - Lightbox works (click → overlay, Escape to close).
@@ -69,6 +83,11 @@ See **Phase 2 — Pick Template** below for the full template table (single sour
 - Stats counter shows "visible / total".
 - Interactive controls (tabs, segs, size buttons) have visible `:focus-visible` styling.
 - Gallery layout reflows without horizontal scroll below 375px viewport.
+- **Body copy (card labels, metadata rows) uses `var(--text)` for dark-mode readability.** `var(--text-muted)` for subtitles; `var(--text-dim)` for metadata only.
+
+**Track A additionally:**
+- Run every `brand.deliver_must_match` rule against the generated gallery HTML. Report pass/fail per rule. Do not write the file until all rules pass or the user overrides.
+- If `brand.examples` list is non-empty, offer to visually compare the generated gallery against one canonical brand gallery before writing.
 
 ---
 
@@ -84,7 +103,7 @@ See **Phase 2 — Pick Template** below for the full template table (single sour
 3. **Detect gallery type** from ARGS: image or audio.
 4. **Gallery slug** (kebab-case) from ARGS.
 5. **Check existing:** offer to add batch or start fresh.
-6. **Brand book** — follow `forge-ops.md` brand detection.
+6. **Run the brand book loader** (`${CLAUDE_PLUGIN_ROOT}/references/brand-book-loader.md`): Discovery → Parse → Apply. Determine Track A or Track B. Report the result before continuing.
 7. **Check for data JSON** (`face-scores.json` etc.) — enables score/cluster filtering.
 
 ---
