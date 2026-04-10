@@ -36,63 +36,60 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md    — only if a tab will cont
 
 Before generating, apply design thinking to match content to visual form.
 
-### Think — Which aesthetic? Why?
+### Think — Which aesthetic?
 
-| Content type | Recommended aesthetic | Reason |
-|--------------|----------------------|--------|
-| Personal AI / agent docs | `lyra.css` | Warm amber, human tone |
-| Brand / company docs | `roxabi.css` | Gold, professional |
-| Technical architecture | `blueprint.css` | Clean lines, monospace, technical |
-| CLI / terminal guides | `terminal.css` | Monospace-heavy, dark |
-| Blog / editorial content | `editorial.css` | Serif titles, magazine feel |
+Base matrix + precedence algorithm in `forge-ops.md` § Design Thinking and § Aesthetic Detection. Read it once per invocation. The precedence algorithm (explicit arg → brand book → project → Think matrix → default) is the final word.
 
-**Ask:** What is the reader's mental state? Technical exploration → Blueprint. Narrative reading → Editorial. Brand showcase → Roxabi.
+**forge-guide deltas** — add to the base matrix:
+
+| Content type | Aesthetic | Reason |
+|---|---|---|
+| Single-page audit / review | `blueprint.css` | Clean, scannable, finding cards read well on it |
 
 ### Structure — Which rendering approach?
 
 | Content | Rendering |
-|---------|-----------|
+|---|---|
 | Flow / topology / > 8 nodes | Mermaid `flowchart` (dagre auto-layout) |
 | Hub-and-spoke ≤ 6 peers with rich cards | fgraph (`graph-templates/`) |
+| 7 radial nodes | fgraph with narrow nodes, or split into sub-diagrams |
 | Stacked text-heavy pipelines | CSS Grid cards |
-| Data comparison | HTML tables (≥4 rows or ≥3 cols) |
+| Data comparison (≥4 rows or ≥3 cols) | HTML tables |
 | Single-page audit / long-form | TOC sidebar layout |
 
-**Ask:** Does the content have a natural shape? Linear → Mermaid. Radial → fgraph. Text blocks → Grid.
+**Ask:** Does the content have a natural shape? Linear → Mermaid. Radial → fgraph. Text blocks → Grid. Rows × cols → table.
 
 ### Style — Which components?
 
-| Doc type | Hero | Sections | Cards |
-|----------|------|----------|-------|
-| User guide | Left-border hero | Dot section labels | Info cards |
-| Architecture | Elevated hero | Square labels | Tech cards |
-| Status / recap | Stat-grid hero | Triangle labels | Phase cards |
-| Audit / review | Elevated hero + badges | Dot labels | Finding cards (high/medium/low) |
+All classes below exist in `base/components.css` + `base/explainer-base.css`.
 
-**Ask:** What visual hierarchy does this need? Quick scan → Stat grid. Deep dive → Finding cards.
+| Doc type | Hero | Sections | Cards |
+|---|---|---|---|
+| User guide | `.hero.left-border` | `.section-label.dot` | `.card` (generic) |
+| Architecture | `.hero.elevated` | `.section-label.square` | `.card.accent` (accent border-left) |
+| Status / recap | `.hero` + `.stat-grid` | `.section-label.triangle` | `.phases` + `.phase-card.p1..p4` |
+| Audit / review | `.hero.elevated` + `.verdict-badge` | `.section-label.dot` | `.finding.finding--high/medium/low` |
+
+Cross-doc: use `.card.info` / `.card.warning` / `.card.critical` for inline tonal callouts (colored `border-left`, verified in `components.css`).
+
+**Ask:** What visual hierarchy does this need? Quick scan → stat grid. Deep dive → finding cards. Ordered walk → phase cards.
 
 ### Deliver — Generate + verify
 
-After generation, verify against wow examples:
-- Hero section present with eyebrow + title accent + subtitle?
-- Section titles use `.section-title` class (not plain `<h2>`)?
-- Mermaid in diagram shell (not bare `<pre class="mermaid">`)?
-- Dark mode text uses semantic tokens (`var(--text-muted)`, `var(--text-dim)`)?
-- No ASCII art, no emoji in headers?
+**Always:**
+- Hero section present with eyebrow + title accent + subtitle.
+- Section titles use `.section-title` or `.section-label` (never plain `<h2>`).
+- Mermaid (if used) wrapped in `.diagram-shell` — never bare `<pre class="mermaid">`.
+- Dark mode text uses semantic tokens (`var(--text-muted)` for body, `var(--text-dim)` for metadata only).
+- No ASCII art, no emoji in headers.
+- Tab buttons have `role="tab"` + `aria-selected` semantics.
+- Interactive controls (theme toggle, zoom, tab buttons) have visible `:focus-visible` styling.
+- Color pairs used for body copy meet 4.5:1 contrast.
+- Mermaid container is responsive — no horizontal scroll below 375px viewport.
 
----
-
-## Aesthetic Detection
-
-| Priority | Signal | Aesthetic |
-|----------|--------|-----------|
-| 1 | Explicit `--aesthetic` arg | As specified |
-| 2 | Brand book found (`BRAND-BOOK.md`) | Derived from palette |
-| 3 | Project = `lyra` / `voicecli` | `lyra.css` |
-| 4 | Project = `roxabi*` / `2ndBrain` | `roxabi.css` |
-| 5 | Content = architecture / spec | `blueprint.css` |
-| 6 | Content = CLI / terminal doc | `terminal.css` |
-| 7 | Default | `editorial.css` |
+**If the doc has a TOC sidebar (audit / long-form):**
+- TOC scroll observer wired (see Phase 3).
+- Sections have stable `id` anchors matching TOC links.
 
 ---
 

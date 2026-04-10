@@ -25,52 +25,53 @@ ${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/pivot-gallery.html — full w
 
 Before generating, apply design thinking to match content to visual form.
 
-### Think — Which aesthetic? Why?
+### Think — Which aesthetic?
 
-| Gallery type | Recommended aesthetic | Reason |
-|--------------|----------------------|--------|
-| Brand assets (logos, avatars) | `roxabi.css` | Gold, professional showcase |
+Base matrix + precedence algorithm in `forge-ops.md` § Design Thinking and § Aesthetic Detection. Read it once per invocation.
+
+**forge-gallery deltas** — add to the base matrix:
+
+| Gallery type | Aesthetic | Reason |
+|---|---|---|
+| Design iterations / visual exploration | `editorial.css` | Magazine feel for creative browsing |
 | Voice / audio comparison | `lyra.css` | Amber, warm for audio vibes |
-| Technical screenshots | `blueprint.css` | Clean, technical |
-| Design iterations | `editorial.css` | Magazine feel for visual exploration |
-
-**Ask:** What is the viewer's goal? Brand decision → Roxabi. Technical evaluation → Blueprint. Creative exploration → Editorial.
 
 ### Structure — Which template?
 
-| Need | Template | Key features |
-|------|----------|-------------|
-| Score-based comparison with pivot | `pivot-gallery.html` | Col/Row matrix, score filtering, sort |
-| Simple batch comparison | `simple-gallery.html` | Batch tabs, lightbox, search |
-| Side-by-side with specs | `comparison-gallery.html` | Metadata tables, verdict badges |
-| Audio / voice clips | `audio-gallery.html` | Audio players, engine grouping |
-| **Multiple datasets / modes** | **`multi-mode-gallery.html`** | Mode tabs, per-mode DIMS, downloads dropdown |
+See **Phase 2 — Pick Template** below for the full template table (single source of truth). The Think→Structure phase is about answering *how many dimensions of comparison?* before you get to Phase 2:
 
-**Ask:** How many dimensions of comparison? 1 dimension → Simple. 2+ dimensions → Pivot. Multiple datasets → Multi-mode.
+- 1 dimension → `simple-gallery.html`
+- 2+ dimensions → `pivot-gallery.html`
+- Spec-rich side-by-side → `comparison-gallery.html`
+- Audio playback → `audio-gallery.html`
+- Multiple datasets / modes → `multi-mode-gallery.html`
 
 ### Style — Which components?
 
 | Gallery type | Toolbar | Filters | Cards |
-|-------------|---------|---------|-------|
-| Pivot | Col/Row segs + score input | Dynamic from DIMS | Thumbnail + metadata |
+|---|---|---|---|
+| Pivot | Col/Row segs + score input | Dynamic from DIMS (auto-built) | Thumbnail + metadata |
 | Simple | Batch tabs + search + size | Optional | Thumbnail |
 | Comparison | Sort dropdown | None (flat) | Card with spec table |
-| Audio | Engine groups | Dynamic | Audio player + metadata |
+| Audio | Engine groups | Dynamic | `<audio>` player + metadata |
 | Multi-mode | Mode tabs + segs + downloads | Per-mode DIMS | Mode-specific cards |
 
 **Ask:** What controls does the viewer need? Pivot/compare → Col/Row segs. Just browse → Simple tabs. Download → Dropdown.
 
 ### Deliver — Generate + verify
 
-After generation, verify:
-- DIMS object defines all grouping dimensions?
-- Filter buttons auto-built from data (not hardcoded)?
-- Lightbox works (click → overlay, Escape to close)?
-- Lazy loading on all images?
-- Size controls (±) work for thumbnails?
-- Search filters visible items?
-- diagram-meta tags present?
-- Stats counter shows "visible / total"?
+**Always:**
+- DIMS object defines all grouping dimensions.
+- Filter buttons auto-built from data (not hardcoded — use `buildDimFilters`).
+- Lightbox works (click → overlay, Escape to close).
+- Lazy loading on all images (`loading="lazy"`).
+- All images have meaningful `alt` text (fallback to filename if nothing better).
+- Size controls (±) work for thumbnails (image galleries).
+- Search filters visible items.
+- `diagram-meta` tags present.
+- Stats counter shows "visible / total".
+- Interactive controls (tabs, segs, size buttons) have visible `:focus-visible` styling.
+- Gallery layout reflows without horizontal scroll below 375px viewport.
 
 ---
 

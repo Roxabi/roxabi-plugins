@@ -34,63 +34,53 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md    — dependency/breakdown di
 
 Before generating, apply design thinking to match content to visual form.
 
-### Think — Which aesthetic? Why?
+### Think — Which aesthetic?
 
-| Epic type | Recommended aesthetic | Reason |
-|-----------|----------------------|--------|
-| Feature implementation | `blueprint.css` | Technical, clean for scope breakdown |
-| Brand / UX work | `roxabi.css` | Gold for design epics |
-| Personal AI features | `lyra.css` | Amber, warm for agent work |
-| Refactor / maintenance | `terminal.css` | Monospace, code-focused |
+Base matrix + precedence algorithm in `forge-ops.md` § Design Thinking and § Aesthetic Detection. Read it once per invocation. The precedence algorithm (explicit arg → brand book → project → Think matrix → default) is the final word.
 
-**Ask:** What is the issue about? Technical implementation → Blueprint. Design/brand → Roxabi. Agent features → Lyra.
+**forge-epic deltas** — add to the base matrix:
+
+| Epic type | Aesthetic | Reason |
+|---|---|---|
+| Feature implementation / spec | `blueprint.css` | Technical, clean for scope breakdown |
+| Refactor / maintenance epic | `terminal.css` | Monospace, code-focused |
 
 ### Structure — Which tabs?
 
 | Epic scope | Tabs | Rationale |
-|-----------|------|-----------|
+|---|---|---|
 | Large feature (spec + impl) | `overview`, `breakdown`, `deps`, `criteria` | Full context needed |
 | Medium feature | `overview`, `deps`, `criteria` | Skip breakdown if ≤3 tasks |
 | Small fix / refactor | `overview`, `criteria` | Minimal, focused |
-| Research / investigation | `overview`, `findings`, `next` | No deps tab, add findings |
 
-**Ask:** How complex is the issue? Multi-milestone → All tabs. Simple fix → Overview + criteria only.
+**Ask:** How complex is the issue? Multi-milestone → all tabs. Simple fix → overview + criteria only.
+
+The four tab IDs above (`overview`, `breakdown`, `deps`, `criteria`) are the only ones the epic shell supports today. Do not invent new tab IDs without adding the matching tab fragment pattern in Phase 3.
 
 ### Style — Which components?
 
-| Tab | Components |
-|-----|------------|
-| Overview | Epic hero (issue number + title + goal) + scope cards |
-| Breakdown | Cards grid OR table with status badges (done/wip/todo) |
-| Deps | Mermaid flowchart in diagram shell + zoom controls |
-| Criteria | Checklist table with status column |
-| Findings | Finding cards (high/medium/low severity) |
+All classes below exist in `base/components.css` + `base/explainer-base.css`, or are defined inline in Phase 3 under `{EXTRA_STYLES}`.
 
-**Ask:** What visual signals does the reader need? Progress → Status badges. Risk → Finding cards. Dependencies → Mermaid.
+| Tab | Components |
+|---|---|
+| Overview | `.epic-hero` (inline — see Phase 3) + `.cards` grid with `.card.accent` |
+| Breakdown | `.cards` grid or `.table-wrap > table` with `.status.done/wip/todo` badges (inline styles — see Phase 3) |
+| Deps | Mermaid flowchart in `.diagram-shell` with zoom controls |
+| Criteria | `.table-wrap > table` — checklist with status column |
+
+**Ask:** What visual signals does the reader need? Progress → status badges. Dependencies → Mermaid. Acceptance → checklist.
 
 ### Deliver — Generate + verify
 
-After generation, verify:
-- Epic hero shows issue number prominently?
-- Status badges use correct colors (green done, amber wip, cyan todo)?
-- Mermaid dep diagram in shell with zoom controls?
-- Dark mode text uses semantic tokens?
-- diagram:issue meta tag present?
-- No ASCII art, no emoji in headers?
-
----
-
-## Aesthetic Detection
-
-| Priority | Signal | Aesthetic |
-|----------|--------|-----------|
-| 1 | Explicit `--aesthetic` arg | As specified |
-| 2 | Brand book found (`BRAND-BOOK.md`) | Derived from palette |
-| 3 | Project = `lyra` / `voicecli` | `lyra.css` |
-| 4 | Project = `roxabi*` / `2ndBrain` | `roxabi.css` |
-| 5 | Content = architecture / spec | `blueprint.css` |
-| 6 | Content = CLI / terminal doc | `terminal.css` |
-| 7 | Default | `editorial.css` |
+**Always:**
+- `.epic-hero` shows issue number prominently.
+- Status badges use correct colors (green `done`, amber `wip`, cyan `todo`) via the inline `.status` styles in Phase 3.
+- Mermaid dep diagram wrapped in `.diagram-shell` — never bare `<pre class="mermaid">`.
+- Dark mode text uses semantic tokens (`var(--text-muted)` for body, `var(--text-dim)` for metadata only).
+- `diagram:issue` meta tag present and matches filename.
+- No ASCII art, no emoji in headers.
+- Tab buttons have `role="tab"` + `aria-selected` semantics.
+- Interactive controls (theme toggle, zoom, tab buttons) have visible `:focus-visible` styling.
 
 ---
 

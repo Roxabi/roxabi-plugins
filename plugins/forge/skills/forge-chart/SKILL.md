@@ -41,68 +41,65 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md          — Mermaid patterns 
 
 Before generating, apply design thinking to match content to visual form.
 
-### Think — Which aesthetic? Why?
+### Think — Which aesthetic?
 
-| Content type | Recommended aesthetic | Reason |
-|--------------|----------------------|--------|
-| Personal AI / agent diagrams | `lyra.css` | Warm amber, human tone |
-| Brand / company diagrams | `roxabi.css` | Gold, professional |
-| Technical architecture / specs | `blueprint.css` | Clean lines, monospace, technical |
-| CLI / terminal visuals | `terminal.css` | Monospace-heavy, dark |
-| Blog / editorial diagrams | `editorial.css` | Serif titles, magazine feel |
+Base matrix + precedence algorithm in `forge-ops.md` § Design Thinking and § Aesthetic Detection. Read it once per invocation. The precedence algorithm (explicit arg → brand book → project → Think matrix → default) is the final word.
 
-**Ask:** What is the viewer's mental state? Technical exploration → Blueprint. Brand impression → Roxabi. Quick reference → Terminal.
+**forge-chart deltas** — add to the base matrix:
+
+| Content type | Aesthetic | Reason |
+|---|---|---|
+| Single diagram in a long Markdown doc | `editorial.css` | Matches surrounding prose rhythm |
 
 ### Structure — Which visual type?
 
 | Content | Approach | Why |
-|---------|----------|-----|
+|---|---|---|
 | Task / dependency graph | Mermaid `flowchart TD` | Dagre auto-layout for trees |
 | Data flow (linear) | Mermaid `flowchart LR` | Left-to-right reads naturally |
 | API sequence | Mermaid `sequenceDiagram` | Time-ordered interactions |
-| State machine | Mermaid `stateDiagram-v2` | State/transition semantics |
-| **Hub-and-spoke ≤ 6 peers** | **fgraph** | Rich cards with pills, warn lines |
+| State machine | Mermaid `stateDiagram-v2` | Native cycle support |
+| **Hub-and-spoke, ≤ 6 peers, rich cards** | **fgraph radial** | Pills, warn lines, multi-line |
+| 7 radial nodes | fgraph with narrow nodes, or split into sub-diagrams | fgraph caps at ~6 before labels collide |
 | Architecture layers | CSS Grid cards | Stacked, text-heavy |
-| Simple timeline | CSS flex + connectors | Minimal, no auto-layout needed |
+| **Comparison / matrix (≥4 rows or ≥3 cols)** | **HTML `<table>`** | Tabular data is not a graph |
+| Simple timeline | `.steps` timeline component | Shared CSS, no auto-layout needed |
 
-**Decision rule:** > 8 nodes or linear → Mermaid. ≤ 6 radial with rich cards → fgraph. Stacked text → Grid.
+**Decision rule:** > 8 nodes or linear → Mermaid. ≤ 6 radial with rich cards → fgraph. Tabular → HTML table. Stacked text → Grid.
 
-**Ask:** Does the content have a natural topology? Radial → fgraph. Linear → Mermaid. Text blocks → Grid.
+**Ask:** Does the content have a natural topology? Radial → fgraph. Linear → Mermaid. Rows × cols → table. Text blocks → Grid.
 
 ### Style — Which components?
 
-| Visual type | Hero | Sections | Extra |
-|-------------|------|----------|-------|
-| Flowchart | Left-border hero | Dot labels + diagram shell | Phase cards |
-| Architecture | Elevated hero | Square labels | Stat grid |
-| Timeline | Top-border hero | Triangle labels | Steps timeline |
-| Explainer | Left-border hero | Dot labels | IO strip, decision table |
+All classes below exist in `base/components.css` + `base/explainer-base.css`.
 
-**Ask:** What visual hierarchy does this need? Quick overview → Stat grid. Process steps → Phase cards. Decision logic → IO strip.
+| Visual type | Hero | Sections | Extra |
+|---|---|---|---|
+| Flowchart | `.hero.left-border` | `.section-label.dot` + diagram shell | `.phases` + `.phase-card` |
+| Architecture | `.hero.elevated` | `.section-label.square` | `.stat-grid` + `.stat` |
+| Timeline | `.hero.top-border` | `.section-label.triangle` | `.steps` + `.step` + `.step-num` |
+| Explainer | `.hero.left-border` | `.section-label.dot` | `.io-strip` + `.io-box` + `.io-arrow` |
+| Comparison | `.hero.left-border` | `.section-label.dot` | `.table-wrap > table` |
+
+**Ask:** What visual hierarchy does this need? Quick overview → stat grid. Process steps → phase cards. Ordered walk → steps timeline. Tabular compare → table.
 
 ### Deliver — Generate + verify
 
-After generation, verify:
-- Hero section present with eyebrow + title accent + tags?
-- Section labels use correct prefix (dot/triangle/square)?
-- Mermaid in diagram shell with zoom controls?
-- SVG gets `height: 100%; width: 100%; max-width: none` after render?
-- Reveal observer added for `.reveal` elements?
-- No ASCII art, no emoji in headers?
+**Always:**
+- Mermaid (if used) wrapped in `.diagram-shell` with zoom controls — never bare `<pre class="mermaid">`.
+- SVG gets `height: 100%; width: 100%; max-width: none` after `mermaid.render()`.
+- No ASCII art, no emoji in section headers.
+- Interactive controls (zoom, theme) are `<button>` with visible `:focus-visible` styling.
+- Color pairs meet 4.5:1 contrast — never use `var(--text-dim)` on `var(--surface)` for body copy.
 
----
+**If the chart is a rich explainer** (multi-section, long-form):
+- Hero section present (`.hero.left-border` / `.elevated` / `.top-border`) with eyebrow + title accent.
+- Section labels present (`.section-label.dot` / `.triangle` / `.square`).
+- Reveal observer wired for `.reveal` elements.
 
-## Aesthetic Detection
-
-| Priority | Signal | Aesthetic |
-|----------|--------|-----------|
-| 1 | Explicit `--aesthetic` arg | As specified |
-| 2 | Brand book found (`BRAND-BOOK.md`) | Derived from palette |
-| 3 | Project = `lyra` / `voicecli` | `lyra.css` |
-| 4 | Project = `roxabi*` / `2ndBrain` | `roxabi.css` |
-| 5 | Content = architecture / spec | `blueprint.css` |
-| 6 | Content = CLI / terminal doc | `terminal.css` |
-| 7 | Default | `editorial.css` |
+**If the chart is a single quick diagram** (one Mermaid / fgraph block, no narrative):
+- Hero and section labels are **optional** — a minimal title + diagram is acceptable.
+- Reveal observer is **not needed** (no `.reveal` elements to observe).
 
 ---
 

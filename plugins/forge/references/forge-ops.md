@@ -8,12 +8,41 @@ Shared operational details for all forge skills. Read this once per invocation.
 
 All forge skills follow a creative process before generation:
 
-1. **Think** — Pick aesthetic based on content type (Blueprint for tech, Editorial for narrative, Lyra for personal AI)
-2. **Structure** — Choose rendering approach (Mermaid for flows, fgraph for radial, Grid for text-heavy)
-3. **Style** — Select components (hero variant, section labels, card types)
-4. **Deliver** — Generate + verify against wow examples
+1. **Think** — Pick aesthetic based on content type (base matrix below)
+2. **Structure** — Choose rendering approach (skill-specific — see each SKILL.md)
+3. **Style** — Select components (skill-specific — see each SKILL.md)
+4. **Deliver** — Generate + verify against the skill's Deliver checklist
 
-Each skill has its own Design Phase section with specific decision tables. Read the skill's SKILL.md for content-specific guidance.
+### Base aesthetic matrix (shared across all skills)
+
+| Content type | Aesthetic | Reason |
+|---|---|---|
+| Personal AI / agent | `lyra.css` | Warm amber, human tone |
+| Brand / company | `roxabi.css` | Gold, professional |
+| Technical architecture / specs | `blueprint.css` | Clean lines, monospace |
+| CLI / terminal | `terminal.css` | Monospace-heavy, dark |
+| Blog / editorial / narrative | `editorial.css` | Serif titles, magazine feel |
+
+**Ask:** What is the viewer's mental state? Technical exploration → Blueprint. Brand impression → Roxabi. Quick reference → Terminal. Narrative → Editorial.
+
+Each skill may add skill-specific delta rows (e.g. `forge-gallery` adds *Design iterations → editorial* for visual exploration). Deltas live in each SKILL.md under its Design Phase section.
+
+---
+
+## Aesthetic Detection — Precedence Algorithm
+
+The base matrix above is **judgment** (content-driven). The algorithm below is **precedence**: it runs top-to-bottom and the first match wins. Explicit args and brand book always override the Think matrix.
+
+| Priority | Signal | Aesthetic |
+|---|---|---|
+| 1 | Explicit `--aesthetic` arg | As specified |
+| 2 | Brand book found (`BRAND-BOOK.md`) | Derived from palette |
+| 3 | Project = `lyra` / `voicecli` | `lyra.css` |
+| 4 | Project = `roxabi*` / `2ndBrain` | `roxabi.css` |
+| 5 | **Think matrix output** (content type) | Per matrix above |
+| 6 | Default | `editorial.css` |
+
+Sequence: Think produces a candidate → Detection validates against higher-priority signals → higher signals override. When nothing above priority 5 matches, the Think matrix is the answer.
 
 ---
 
