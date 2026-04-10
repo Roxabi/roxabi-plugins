@@ -15,17 +15,23 @@ Output: `~/.roxabi/forge/<project>/visuals/{slug}.html` or `~/.roxabi/forge/_sha
 **Read before generating:**
 
 ```
-${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md        — brand detection, output paths, deploy commands
-${CLAUDE_PLUGIN_ROOT}/references/base/reset.css      — concatenate first
-${CLAUDE_PLUGIN_ROOT}/references/base/layout.css     — concatenate second
-${CLAUDE_PLUGIN_ROOT}/references/base/typography.css — concatenate third
-${CLAUDE_PLUGIN_ROOT}/references/base/components.css — concatenate last
-${CLAUDE_PLUGIN_ROOT}/references/aesthetics/         — select one based on detection logic
-${CLAUDE_PLUGIN_ROOT}/references/shells/single.html  — HTML template with placeholders
-${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md     — meta tag format + categories
+${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md              — brand detection, output paths, deploy commands
+${CLAUDE_PLUGIN_ROOT}/references/base/reset.css            — concatenate first
+${CLAUDE_PLUGIN_ROOT}/references/base/layout.css           — concatenate second
+${CLAUDE_PLUGIN_ROOT}/references/base/typography.css       — concatenate third
+${CLAUDE_PLUGIN_ROOT}/references/base/components.css       — concatenate last
+${CLAUDE_PLUGIN_ROOT}/references/aesthetics/               — select one based on detection logic
+${CLAUDE_PLUGIN_ROOT}/references/shells/single.html        — HTML template with placeholders
+${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md           — meta tag format + categories
+${CLAUDE_PLUGIN_ROOT}/references/graph-templates/README.md — graph/topology templates (read when visual type = architecture/topology)
 ```
 
 **Directive: inline, never link** — `base/` and `aesthetics/` files are generation source, not runtime dependencies. Read → inline into output `<style>` block.
+
+**Exception — graph-templates/fgraph-base.css has two distribution modes:**
+- **Mode A (default — single-file HTML):** inline into output `<style>` block, same as `base/`. Required for anything that must work with `file://`.
+- **Mode B (multi-tab docs):** copy to `~/.roxabi/forge/_shared/fgraph-base.css` once, then reference via `<link rel="stylesheet" href="../../_shared/fgraph-base.css">` in the shell `<head>`. Use when ≥ 2 tabs in the same doc use fgraph classes. Matches the `gallery-base.{css,js}` precedent.
+- Decision rule: `forge-chart` single-file output → Mode A. Multi-tab roadmap / spec shell → Mode B. See `references/graph-templates/README.md` "Inlined vs shared" for the full rulebook.
 
 ---
 
@@ -78,16 +84,23 @@ Let:
 
 ## Phase 2 — Visual Type
 
-| Content | Mermaid type |
-|---------|-------------|
-| Task / issue dependency graph | `flowchart TD` or `LR` |
-| Data flow between services | `flowchart LR` |
-| API / message sequence | `sequenceDiagram` |
-| State machine | `stateDiagram-v2` |
-| Architecture layers | CSS Grid cards (no Mermaid) |
+| Content | Approach |
+|---------|----------|
+| Task / issue dependency graph | Mermaid `flowchart TD` or `LR` |
+| Data flow between services (linear) | Mermaid `flowchart LR` |
+| API / message sequence | Mermaid `sequenceDiagram` |
+| State machine | Mermaid `stateDiagram-v2` |
+| **Hub-and-spoke / message bus / gateway (≤ 6 peers, rich cards)** | **fgraph — `graph-templates/radial-hub.html` + `fgraph-base.css`** |
+| Architecture layers (stacked, text-heavy) | CSS Grid cards (no Mermaid) |
 | Simple timeline | CSS flex with connectors |
 
-Max 12 nodes per diagram. Split into multiple diagrams if more complex.
+**Decision rule for architecture diagrams:**
+- Linear flow / topology / > 8 nodes → Mermaid (dagre auto-layout wins)
+- Radial / hub-and-spoke with rich cards (pills, warn, multi-line) → fgraph
+- Stacked text-heavy pipelines → CSS Grid cards
+- See `references/graph-templates/README.md` for the full decision matrix.
+
+Max 12 nodes per Mermaid diagram (split if more). fgraph-radial caps at ~6 satellites before labels collide.
 
 Choose `diagram:category` + `diagram:color` from `references/diagram-meta.md`.
 
