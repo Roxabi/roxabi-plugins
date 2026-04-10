@@ -32,6 +32,8 @@ Full token definitions live in dedicated aesthetic files:
 | lyra, voicecli | `aesthetics/lyra.css` | Forge Orange `#e85d04` |
 | roxabi*, 2ndBrain | `aesthetics/roxabi.css` | Gold `#f0b429` |
 | default (unknown) | `aesthetics/editorial.css` | Slate `#64748b` |
+| stark / caveman style | `aesthetics/caveman.css` | Orange-red `#ff3300` |
+| terminal / CLI style | `aesthetics/terminal.css` | Cyan `#00d4ff` |
 
 **Usage in skills:** Copy brand token blocks (`--bg`, `--surface`, `--border`, `--text*`, `--accent*`) from the aesthetic file. Semantic colors (`--success*`, `--warning*`, `--error*`, `--info*`) come from `base/components.css`. Typography comes from `base/typography.css`.
 
@@ -66,3 +68,41 @@ Typography rules are defined in `base/typography.css` — skills should read and
 
 Other acceptable pairs: DM Sans + Fira Code, Plus Jakarta Sans + Azeret Mono.
 **Forbidden as primary fonts:** Inter, Roboto, Arial, bare `system-ui`.
+
+---
+
+## Caveman Aesthetic
+
+Ultra-stark dark theme inspired by [juliusbrussee.github.io/caveman](https://juliusbrussee.github.io/caveman/).
+
+**Identity:** Pure black base, single orange-red accent, grid background, cursor spotlight, glassmorphism cards.
+
+| Token | Dark | Light |
+|-------|------|-------|
+| `--bg` | `#000000` | `#fafafa` |
+| `--border` | `#1a1a1a` | `#e5e5e5` |
+| `--text` | `#ffffff` | `#0a0a0a` |
+| `--text-muted` | `#888888` | `#525252` |
+| `--accent` | `#ff3300` | `#dc2626` |
+
+**Key features:**
+- Grid background: 40px grid with radial mask fade (adapts to light)
+- Cursor spotlight: `mousemove` glow that follows cursor
+- Breathing aura: 15s ambient pulse in hero sections
+- Glassmorphism: `backdrop-filter: blur(10px)` + `rgba(5,5,5,0.9)` cards
+
+**Dark is canonical.** Original caveman style is dark-only. Light mode added for forge gallery theme-toggle compatibility, but dark is the intended aesthetic.
+
+**When to use:**
+- Landing pages, product showcases
+- CLI tool documentation
+- Galleries with stark, minimal vibe
+- Projects wanting a bold, high-contrast dark theme
+
+**Integration with galleries:**
+```html
+<link rel="stylesheet" href="../../_shared/gallery-base.css">
+<link rel="stylesheet" href="../../_shared/caveman.css">
+<div class="caveman-grid"></div>
+<div class="caveman-spotlight"></div>
+```
