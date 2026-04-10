@@ -1,7 +1,7 @@
 {
   "name": "roxabi-marketplace",
   "version": "1.0.0",
-  "description": "Open-source Claude Code plugins by Roxabi \u2014 context engineering tools for teams.",
+  "description": "Open-source Claude Code plugins by Roxabi — context engineering tools for teams.",
   "owner": {
     "name": "Roxabi",
     "url": "https://github.com/Roxabi"
@@ -15,7 +15,7 @@
     },
     {
       "name": "1b1",
-      "description": "Walk through a list of items one by one \u2014 brief, decide, execute, repeat.",
+      "description": "Walk through a list of items one by one — brief, decide, execute, repeat.",
       "source": "./plugins/1b1",
       "category": "workflow"
     },
@@ -27,7 +27,7 @@
     },
     {
       "name": "dev-core",
-      "description": "Full development workflow \u2014 frame, shape, plan, implement, review, ship. Opinionated Roxabi process with 29 skills, 9 agents, and safety hooks.",
+      "description": "Full development workflow — frame, shape, plan, implement, review, ship. Opinionated Roxabi process with 29 skills, 9 agents, and safety hooks.",
       "source": "./plugins/dev-core",
       "category": "development",
       "version": "0.1.0"
@@ -58,7 +58,7 @@
     },
     {
       "name": "linkedin-apply",
-      "description": "Scrape LinkedIn job offers and score them against your profile with Claude LLM \u2014 APPLY / REVIEW / SKIP decisions with 4-dimension scoring.",
+      "description": "Scrape LinkedIn job offers and score them against your profile with Claude LLM — APPLY / REVIEW / SKIP decisions with 4-dimension scoring.",
       "source": "./plugins/linkedin-apply",
       "category": "productivity"
     },
@@ -71,28 +71,28 @@
     },
     {
       "name": "react-best-practices",
-      "description": "React and Next.js performance optimization guidelines \u2014 58 rules across 8 categories, prioritized by impact.",
+      "description": "React and Next.js performance optimization guidelines — 58 rules across 8 categories, prioritized by impact.",
       "source": "./plugins/react-best-practices",
       "category": "development",
       "version": "0.1.0"
     },
     {
       "name": "composition-patterns",
-      "description": "React composition patterns \u2014 avoid boolean prop proliferation, compound components, context providers.",
+      "description": "React composition patterns — avoid boolean prop proliferation, compound components, context providers.",
       "source": "./plugins/composition-patterns",
       "category": "development",
       "version": "0.1.0"
     },
     {
       "name": "web-design-guidelines",
-      "description": "Review UI code for Web Interface Guidelines compliance \u2014 accessibility, UX, design best practices.",
+      "description": "Review UI code for Web Interface Guidelines compliance — accessibility, UX, design best practices.",
       "source": "./plugins/web-design-guidelines",
       "category": "development",
       "version": "0.1.0"
     },
     {
       "name": "logo-generator",
-      "description": "Generate animated SVG logos from a config-driven brand brief \u2014 interactive design, live preview, GIF/PNG export.",
+      "description": "Generate animated SVG logos from a config-driven brand brief — interactive design, live preview, GIF/PNG export.",
       "source": "./plugins/logo-generator",
       "category": "branding",
       "version": "0.2.0"
@@ -106,16 +106,23 @@
     },
     {
       "name": "forge",
-      "description": "Forge HTML visuals for ~/.roxabi/forge/ \u2014 forge-guide (split-file multi-tab doc), forge-epic (issue-linked analysis), forge-chart (single-file Mermaid), forge-gallery (image/audio with shared gallery-base.css/js). Brand-aware, manifest-indexed, Cloudflare Pages ready.",
+      "description": "Forge HTML visuals for ~/.roxabi/forge/ — forge-guide (split-file multi-tab doc), forge-epic (issue-linked analysis), forge-chart (single-file Mermaid), forge-gallery (image/audio with shared gallery-base.css/js). Brand-aware, manifest-indexed, Cloudflare Pages ready.",
       "source": "./plugins/forge",
       "category": "productivity",
       "version": "0.1.0"
     },
     {
       "name": "idna",
-      "description": "IDNA \u2014 Idea DNA evolutionary selector. Explore variants, pick a winner, converge through amplify/blend/refine mutations. Self-driving: browser \u2192 Claude CLI \u2192 imageCLI \u2192 auto-advance.",
+      "description": "IDNA — Idea DNA evolutionary selector. Explore variants, pick a winner, converge through amplify/blend/refine mutations. Self-driving: browser → Claude CLI → imageCLI → auto-advance.",
       "source": "./plugins/idna",
       "category": "productivity",
+      "version": "0.1.0"
+    },
+    {
+      "name": "gitnexus",
+      "description": "GitNexus CLI integration — code knowledge graph tools (impact analysis, symbol context, query). CLI-only alternative to MCP for minimal token overhead.",
+      "source": "./plugins/gitnexus",
+      "category": "development",
       "version": "0.1.0"
     }
   ]
