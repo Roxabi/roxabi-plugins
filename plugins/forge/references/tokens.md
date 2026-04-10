@@ -59,15 +59,9 @@ Common trap: setting `--text-muted` and `--text-dim` to the same value (`#6b7280
 
 ## Typography (Default)
 
-```html
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
-```
+Use IBM Plex Sans + IBM Plex Mono (loaded via Google Fonts in the shell templates).
 
-```css
-body        { font-family: 'IBM Plex Sans', system-ui, sans-serif; }
-code, pre   { font-family: 'IBM Plex Mono', monospace; }
-```
+Typography rules are defined in `base/typography.css` — skills should read and inline that file.
 
-Other acceptable pairs: DM Sans + Fira Code, Plus Jakarta Sans + Azeret Mono.  
+Other acceptable pairs: DM Sans + Fira Code, Plus Jakarta Sans + Azeret Mono.
 **Forbidden as primary fonts:** Inter, Roboto, Arial, bare `system-ui`.
