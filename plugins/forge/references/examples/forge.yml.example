@@ -1,15 +1,12 @@
 # forge.yml — Example: Lyra
 #
 # A concrete, fully-filled brand book for the Lyra project, derived from
-# ~/projects/lyra/brand/BRAND-BOOK.md (v2.1, 2026-03-24).
+# ~/.roxabi/forge/lyra/brand/BRAND-BOOK.md (v2.1, 2026-03-24).
 #
 # Placement:
-#   ~/projects/lyra/brand/forge.yml           — committed base (versioned in repo, what git clone delivers)
-#   ~/.roxabi/forge/lyra/brand/forge.yml      — runtime mirror (local override; wins over repo when present)
+#   ~/.roxabi/forge/lyra/brand/forge.yml      — canonical location, synced via `make forge sync`
 #
-# Convention: keep the repo version as the stable baseline. Use the mirror for
-# local experimentation only — commit changes back to the repo when stable.
-# The mirror is overwritten by `make forge sync` if the repo diverges.
+# Project repos do not hold brand books. See ADR-042 in the lyra repo for rationale.
 #
 # Schema: see ../brand-book-schema.md
 # Inheritance example: see ../examples/forge.yml.extends-example
@@ -102,4 +99,4 @@ project:
   full_name: 'Lyra by Roxabi'
   tagline: 'Your intelligence, compounded.'
   category: 'Personal Intelligence Engine'
-  brand_book: '~/projects/lyra/brand/BRAND-BOOK.md'  # source of truth for everything not in this file
+  brand_book: '~/.roxabi/forge/lyra/brand/BRAND-BOOK.md'  # source of truth for everything not in this file

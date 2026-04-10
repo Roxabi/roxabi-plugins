@@ -31,22 +31,16 @@ Frame runs in full or reduced form.
 Check order (first match wins — do not continue after a match):
 
 ```text
-1. If --brand-book PATH was passed as an explicit arg:
-     → Load from PATH. If file does not exist, report error and fall through to step 2.
+1. If --brand-book PATH was passed explicitly:
+     → Load from PATH. If not found, report error and fall through to step 2.
 
 2. Check ~/.roxabi/forge/{PROJECT}/brand/forge.yml
-     → If exists, load as Track A (full schema). This is the runtime mirror (local override).
+     → If exists, load as Track A (full schema).
 
-3. Check ~/projects/{PROJECT}/brand/forge.yml
-     → If exists, load as Track A (full schema). This is the repo version (committed base).
+3. Check ~/.roxabi/forge/{PROJECT}/brand/BRAND-BOOK.md
+     → If exists, load as palette-only mode (partial Track A). Legacy fallback.
 
-4. Check ~/.roxabi/forge/{PROJECT}/brand/BRAND-BOOK.md
-     → If exists, load as palette-only mode (partial Track A). Runtime mirror.
-
-5. Check ~/projects/{PROJECT}/brand/BRAND-BOOK.md
-     → If exists, load as palette-only mode (partial Track A).
-
-6. If none found → Track B (exploration mode, no brand book).
+4. If none found → Track B (exploration mode).
 ```
 
 Resolution rules:
@@ -64,7 +58,6 @@ After resolution, state the outcome explicitly before proceeding:
 
 ```text
 Good: "Brand book loaded: ~/.roxabi/forge/lyra/brand/forge.yml (Track A, full schema)"
-Good: "Brand book loaded: ~/projects/lyra/brand/forge.yml (Track A, full schema)"
 Good: "Brand book loaded: ~/.roxabi/forge/lyra/brand/BRAND-BOOK.md (palette-only mode)"
 Good: "No brand book found — Track B exploration mode"
 Bad:  (silently applying or skipping brand book with no report)
@@ -74,21 +67,12 @@ Bad:  (silently applying or skipping brand book with no report)
 
 ## Discovery Rationale
 
-The runtime mirror (`~/.roxabi/forge/{proj}/brand/`) is intended for **local override and
-experimentation**. Edit it, test it, commit back to the repo when stable. It wins over the repo
-version because a local tweak should be visible immediately without requiring a commit.
+Brand books live in `~/.roxabi/forge/{proj}/brand/` only. This is the single source of truth,
+synced across machines via `make forge sync` (Google Drive). Project repos do not contain brand
+assets — see ADR-042 in the lyra repo for the rationale and migration record.
 
-The repo version (`~/projects/{proj}/brand/forge.yml`) is the **committed base**. It lives with the
-code, is version-controlled, and is what `git clone` delivers to any machine. Without an override in
-the mirror, the repo wins by falling through to step 3.
-
-With a mirror file present the mirror wins — allowing machine-local tweaks without touching the
-repo. Without a mirror file the repo version is used, so the behavior on a fresh clone is
-predictable.
-
-**Warning:** the mirror is machine-local and is overwritten by `make forge sync` if the repo
-version diverges. Experimentation in the mirror should be short-lived. Once a change is stable,
-commit it back to `~/projects/{proj}/brand/forge.yml` and let the repo be the long-term record.
+The loader checks one canonical location, plus an explicit `--brand-book PATH` override for
+ad-hoc use.
 
 ---
 
@@ -175,9 +159,9 @@ override its own `project.name` and a few delivery rules — without copy-pastin
 
 `extends:` takes a single path string (not a list — one parent only, per file). The path may be:
 
-- **Absolute** — `/home/mickael/projects/lyra/brand/forge.yml`
-- **Home-relative** — `~/projects/lyra/brand/forge.yml`
-- **Relative to the current file's directory** — `../lyra/brand/forge.yml`
+- **Absolute** — `/home/mickael/.roxabi/forge/lyra/brand/forge.yml`
+- **Home-relative** — `~/.roxabi/forge/lyra/brand/forge.yml`
+- **Relative to the current file's directory** — `../../lyra/brand/forge.yml`
 
 Resolve relative paths before loading. Do not traverse symlinks outside the user's home.
 
@@ -234,7 +218,7 @@ When a brand book is loaded via `extends:`, expand the report to show the chain:
 
 ```text
 Brand book: voicecli (forge.yml) extends lyra (forge.yml)
-Chain: ~/projects/voicecli/brand/forge.yml → ~/projects/lyra/brand/forge.yml
+Chain: ~/.roxabi/forge/voicecli/brand/forge.yml → ~/.roxabi/forge/lyra/brand/forge.yml
 Track: A (branded, inherited)
 Locked fields: aesthetic, palette, typography (from lyra)
 Partial fields: components (from lyra)
@@ -343,7 +327,7 @@ detail that the user can act on a failure without reading the brand book themsel
 | `examples:` list contains paths that do not exist | Report each missing path at Deliver time: `"example not found: {path} — skipping"`. Continue with remaining valid examples. If all examples are missing, skip spot-check offer silently. |
 | `deliver_must_match` rule is ambiguous (cannot be mechanically verified against the output) | Report: `"Rule '{rule}' cannot be mechanically verified — human review required"`. Do not fail the Deliver phase; surface it as a manual item. |
 | `allow_override` key has an unknown value | Treat as `partial`. Warn: `"allow_override.{key}: unknown value '{value}' — treating as partial"`. Continue. |
-| Explicit `--brand-book PATH` resolves to a file that does not exist | Report: `"--brand-book {PATH} not found"`. Fall through to step 2 of the Discovery order and continue. |
+| Explicit `--brand-book PATH` resolves to a file that does not exist | Report: `"--brand-book {PATH} not found"`. Fall through to step 2 (mirror path) and continue. |
 | Content Structure output has no matching Style row AND brand book does not lock that slot | Do not silently pick. Ask the user which Style row to use. Offer the closest match as a suggestion. |
 | `extends:` path resolves to a file that does not exist | Warn `"extends: {path} not found — ignoring extends, using child file alone"`. Load only the child. Do not abort. |
 | `extends:` chain exceeds 10 levels | Warn `"extends: chain exceeds 10 levels — stopping at {path}"`. Use the merged result up to the cutoff. |

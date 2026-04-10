@@ -16,7 +16,7 @@
 
 schema_version: 1
 
-extends: ~/projects/lyra/brand/forge.yml
+extends: ~/.roxabi/forge/lyra/brand/forge.yml
 
 # Override project identity only — all other fields come from lyra.
 project:

@@ -59,12 +59,10 @@ Check these paths in order (first found wins):
 
 ```bash
 # 1. Preferred — structured config (full schema, locks decisions)
-ls ~/.roxabi/forge/{PROJ}/brand/forge.yml 2>/dev/null     # runtime mirror (local override wins)
-ls ~/projects/{PROJ}/brand/forge.yml 2>/dev/null          # repo, committed base
+ls ~/.roxabi/forge/{PROJ}/brand/forge.yml 2>/dev/null
 
 # 2. Legacy — palette-only Markdown brand book
-ls ~/.roxabi/forge/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null # runtime mirror
-ls ~/projects/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null      # repo, committed base
+ls ~/.roxabi/forge/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null
 ```
 
 **`forge.yml` found** → load as full decision substrate. Aesthetic, palette, typography, components, examples, and deliver constraints all apply per the schema in `brand-book-schema.md`. Skills skip Frame phase and enter **branded mode**.

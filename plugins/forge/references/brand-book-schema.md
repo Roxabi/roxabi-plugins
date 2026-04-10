@@ -26,17 +26,14 @@ When absent: plugin runs in **exploration mode** with the full Design Phase.
 
 ## Discovery order
 
-Skills check these paths in order; first match wins. The runtime mirror wins over the repo path —
-the mirror is for local override and experimentation; the repo is the committed base.
+Skills check these paths in order; first match wins.
 
 ```bash
 # 1. Preferred — structured config
-ls ~/.roxabi/forge/{PROJ}/brand/forge.yml 2>/dev/null     # runtime mirror (local override wins)
-ls ~/projects/{PROJ}/brand/forge.yml 2>/dev/null          # repo, committed base
+ls ~/.roxabi/forge/{PROJ}/brand/forge.yml 2>/dev/null
 
 # 2. Legacy — palette-only BRAND-BOOK.md (parse color table)
-ls ~/.roxabi/forge/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null # runtime mirror
-ls ~/projects/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null      # repo, committed base
+ls ~/.roxabi/forge/{PROJ}/brand/BRAND-BOOK.md 2>/dev/null
 ```
 
 If `forge.yml` is found → use it as the full decision substrate.
@@ -222,11 +219,11 @@ without copy-pasting the entire file.
 ### Syntax
 
 ```yaml
-extends: ~/projects/lyra/brand/forge.yml
+extends: ~/.roxabi/forge/lyra/brand/forge.yml
 ```
 
 Value is a single path string. Accepted forms: absolute, home-relative (`~/...`), or relative to
-the current file's directory (`../lyra/brand/forge.yml`). Lists are not supported — one parent per
+the current file's directory (`../../lyra/brand/forge.yml`). Lists are not supported — one parent per
 file.
 
 ### Merge rules
@@ -284,7 +281,7 @@ When `forge.yml` is found, it supersedes the current priority chain in `forge-op
 
 1. **Audit current state** — what aesthetic is the project already using? What components appear in its canonical outputs?
 2. **Write `forge.yml`** — fill in the fields from what's already in use. Start minimal (aesthetic + palette) and extend as needed.
-3. **Place it** — at `~/projects/{proj}/brand/forge.yml` (committed base, versioned in the project repo). Optionally also place a copy at `~/.roxabi/forge/{proj}/brand/forge.yml` (runtime mirror) if you want a machine-local override. The mirror wins over the repo when both are present — see `brand-book-loader.md § Discovery Rationale`.
+3. **Place it** — at `~/.roxabi/forge/{proj}/brand/forge.yml`. This is the canonical location, synced across machines via `make forge sync`. Project repos do not hold brand books — see ADR-042 in the lyra repo for the rationale.
 4. **Verify** — run a forge skill and confirm it reports the brand book was loaded. Plugin should log: *"Brand book loaded from {path} — applying locked fields: aesthetic, palette, components.hero, components.section_label"*.
 5. **Iterate** — when generated outputs drift from brand, tighten `allow_override` (e.g. flip `components: partial` → `locked`).
 

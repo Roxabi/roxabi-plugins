@@ -15,7 +15,7 @@ The gallery system extends the baseline with extra surface tiers (`--surface2`, 
 
 ### Which Theme to Use
 
-1. Check `~/.roxabi/forge/<project>/brand/BRAND-BOOK.md` or `~/projects/<project>/brand/BRAND-BOOK.md`
+1. Check `~/.roxabi/forge/<project>/brand/BRAND-BOOK.md`
 2. Brand book found → derive tokens from its palette
 3. No brand book, project is `lyra` / `voicecli` → **Lyra theme** (Forge Orange)
 4. No brand book, project is `roxabi*` / `2ndBrain` → **Roxabi theme** (Gold)

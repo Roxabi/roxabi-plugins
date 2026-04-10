@@ -97,7 +97,7 @@ See `references/gallery-templates/README.md` for customisation guide, including 
 
 ### Brand-aware
 
-Checks `~/.roxabi/forge/<project>/brand/BRAND-BOOK.md` and `~/projects/<project>/brand/BRAND-BOOK.md` before choosing a palette. Fallback: Lyra → Forge Orange, Roxabi/2ndBrain → Gold.
+Checks `~/.roxabi/forge/<project>/brand/forge.yml` (full schema) and `~/.roxabi/forge/<project>/brand/BRAND-BOOK.md` (legacy palette-only) before choosing a palette. Fallback: Lyra → Forge Orange, Roxabi/2ndBrain → Gold.
 
 ### Manifest-indexed
 
