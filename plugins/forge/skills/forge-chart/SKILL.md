@@ -37,6 +37,61 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md          — Mermaid patterns 
 
 ---
 
+## Design Phase — Think → Structure → Style → Deliver
+
+Before generating, apply design thinking to match content to visual form.
+
+### Think — Which aesthetic? Why?
+
+| Content type | Recommended aesthetic | Reason |
+|--------------|----------------------|--------|
+| Personal AI / agent diagrams | `lyra.css` | Warm amber, human tone |
+| Brand / company diagrams | `roxabi.css` | Gold, professional |
+| Technical architecture / specs | `blueprint.css` | Clean lines, monospace, technical |
+| CLI / terminal visuals | `terminal.css` | Monospace-heavy, dark |
+| Blog / editorial diagrams | `editorial.css` | Serif titles, magazine feel |
+
+**Ask:** What is the viewer's mental state? Technical exploration → Blueprint. Brand impression → Roxabi. Quick reference → Terminal.
+
+### Structure — Which visual type?
+
+| Content | Approach | Why |
+|---------|----------|-----|
+| Task / dependency graph | Mermaid `flowchart TD` | Dagre auto-layout for trees |
+| Data flow (linear) | Mermaid `flowchart LR` | Left-to-right reads naturally |
+| API sequence | Mermaid `sequenceDiagram` | Time-ordered interactions |
+| State machine | Mermaid `stateDiagram-v2` | State/transition semantics |
+| **Hub-and-spoke ≤ 6 peers** | **fgraph** | Rich cards with pills, warn lines |
+| Architecture layers | CSS Grid cards | Stacked, text-heavy |
+| Simple timeline | CSS flex + connectors | Minimal, no auto-layout needed |
+
+**Decision rule:** > 8 nodes or linear → Mermaid. ≤ 6 radial with rich cards → fgraph. Stacked text → Grid.
+
+**Ask:** Does the content have a natural topology? Radial → fgraph. Linear → Mermaid. Text blocks → Grid.
+
+### Style — Which components?
+
+| Visual type | Hero | Sections | Extra |
+|-------------|------|----------|-------|
+| Flowchart | Left-border hero | Dot labels + diagram shell | Phase cards |
+| Architecture | Elevated hero | Square labels | Stat grid |
+| Timeline | Top-border hero | Triangle labels | Steps timeline |
+| Explainer | Left-border hero | Dot labels | IO strip, decision table |
+
+**Ask:** What visual hierarchy does this need? Quick overview → Stat grid. Process steps → Phase cards. Decision logic → IO strip.
+
+### Deliver — Generate + verify
+
+After generation, verify:
+- Hero section present with eyebrow + title accent + tags?
+- Section labels use correct prefix (dot/triangle/square)?
+- Mermaid in diagram shell with zoom controls?
+- SVG gets `height: 100%; width: 100%; max-width: none` after render?
+- Reveal observer added for `.reveal` elements?
+- No ASCII art, no emoji in headers?
+
+---
+
 ## Aesthetic Detection
 
 | Priority | Signal | Aesthetic |

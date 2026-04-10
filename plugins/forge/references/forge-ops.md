@@ -4,6 +4,19 @@ Shared operational details for all forge skills. Read this once per invocation.
 
 ---
 
+## Design Thinking — Think → Structure → Style → Deliver
+
+All forge skills follow a creative process before generation:
+
+1. **Think** — Pick aesthetic based on content type (Blueprint for tech, Editorial for narrative, Lyra for personal AI)
+2. **Structure** — Choose rendering approach (Mermaid for flows, fgraph for radial, Grid for text-heavy)
+3. **Style** — Select components (hero variant, section labels, card types)
+4. **Deliver** — Generate + verify against wow examples
+
+Each skill has its own Design Phase section with specific decision tables. Read the skill's SKILL.md for content-specific guidance.
+
+---
+
 ## Brand Book Detection
 
 Check these paths in order (first found wins):

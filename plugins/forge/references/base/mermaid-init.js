@@ -33,14 +33,14 @@ window.__postLoad = async (id, panel) => {
     startOnLoad: false,
     theme: 'base',
     themeVariables: {
-      primaryColor:       'var(--surface)',
-      primaryTextColor:   'var(--text)',
+      primaryColor: 'var(--surface)',
+      primaryTextColor: 'var(--text)',
       primaryBorderColor: 'var(--accent)',
-      lineColor:          'var(--text-dim)',
-      secondaryColor:     'var(--border)',
-      background:         'var(--bg)',
-      edgeLabelBackground:'var(--surface)',
-      nodeTextColor:      'var(--text-muted)',
+      lineColor: 'var(--text-dim)',
+      secondaryColor: 'var(--border)',
+      background: 'var(--bg)',
+      edgeLabelBackground: 'var(--surface)',
+      nodeTextColor: 'var(--text-muted)',
     },
     flowchart: { useMaxWidth: false, curve: 'basis' },
   })
@@ -70,7 +70,7 @@ window.__initPanZoom = (container) => {
   var pz = svgPanZoom(svgEl, {
     zoomEnabled: true,
     panEnabled: true,
-    controlIconsEnabled: false,  // use custom HTML buttons
+    controlIconsEnabled: false, // use custom HTML buttons
     fit: true,
     center: true,
     minZoom: 0.15,
@@ -80,16 +80,23 @@ window.__initPanZoom = (container) => {
 
   // Wire custom zoom buttons (search up to mermaid-wrap, then down)
   var wrap = container.closest('.mermaid-wrap') || container.parentElement
-  var zIn  = wrap.querySelector('[data-zoom="in"]')
+  var zIn = wrap.querySelector('[data-zoom="in"]')
   var zOut = wrap.querySelector('[data-zoom="out"]')
   var zFit = wrap.querySelector('[data-zoom="fit"]')
 
-  if (zIn)  zIn.addEventListener('click', function () { pz.zoomIn() })
-  if (zOut) zOut.addEventListener('click', function () { pz.zoomOut() })
-  if (zFit) zFit.addEventListener('click', function () {
-    pz.resetZoom()
-    pz.resetPan()
-    pz.fit()
-    pz.center()
-  })
+  if (zIn)
+    zIn.addEventListener('click', () => {
+      pz.zoomIn()
+    })
+  if (zOut)
+    zOut.addEventListener('click', () => {
+      pz.zoomOut()
+    })
+  if (zFit)
+    zFit.addEventListener('click', () => {
+      pz.resetZoom()
+      pz.resetPan()
+      pz.fit()
+      pz.center()
+    })
 }

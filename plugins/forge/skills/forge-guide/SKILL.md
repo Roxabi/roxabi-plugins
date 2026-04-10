@@ -32,6 +32,56 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md    — only if a tab will cont
 
 ---
 
+## Design Phase — Think → Structure → Style → Deliver
+
+Before generating, apply design thinking to match content to visual form.
+
+### Think — Which aesthetic? Why?
+
+| Content type | Recommended aesthetic | Reason |
+|--------------|----------------------|--------|
+| Personal AI / agent docs | `lyra.css` | Warm amber, human tone |
+| Brand / company docs | `roxabi.css` | Gold, professional |
+| Technical architecture | `blueprint.css` | Clean lines, monospace, technical |
+| CLI / terminal guides | `terminal.css` | Monospace-heavy, dark |
+| Blog / editorial content | `editorial.css` | Serif titles, magazine feel |
+
+**Ask:** What is the reader's mental state? Technical exploration → Blueprint. Narrative reading → Editorial. Brand showcase → Roxabi.
+
+### Structure — Which rendering approach?
+
+| Content | Rendering |
+|---------|-----------|
+| Flow / topology / > 8 nodes | Mermaid `flowchart` (dagre auto-layout) |
+| Hub-and-spoke ≤ 6 peers with rich cards | fgraph (`graph-templates/`) |
+| Stacked text-heavy pipelines | CSS Grid cards |
+| Data comparison | HTML tables (≥4 rows or ≥3 cols) |
+| Single-page audit / long-form | TOC sidebar layout |
+
+**Ask:** Does the content have a natural shape? Linear → Mermaid. Radial → fgraph. Text blocks → Grid.
+
+### Style — Which components?
+
+| Doc type | Hero | Sections | Cards |
+|----------|------|----------|-------|
+| User guide | Left-border hero | Dot section labels | Info cards |
+| Architecture | Elevated hero | Square labels | Tech cards |
+| Status / recap | Stat-grid hero | Triangle labels | Phase cards |
+| Audit / review | Elevated hero + badges | Dot labels | Finding cards (high/medium/low) |
+
+**Ask:** What visual hierarchy does this need? Quick scan → Stat grid. Deep dive → Finding cards.
+
+### Deliver — Generate + verify
+
+After generation, verify against wow examples:
+- Hero section present with eyebrow + title accent + subtitle?
+- Section titles use `.section-title` class (not plain `<h2>`)?
+- Mermaid in diagram shell (not bare `<pre class="mermaid">`)?
+- Dark mode text uses semantic tokens (`var(--text-muted)`, `var(--text-dim)`)?
+- No ASCII art, no emoji in headers?
+
+---
+
 ## Aesthetic Detection
 
 | Priority | Signal | Aesthetic |

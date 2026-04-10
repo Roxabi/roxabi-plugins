@@ -30,6 +30,56 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md    — dependency/breakdown di
 
 ---
 
+## Design Phase — Think → Structure → Style → Deliver
+
+Before generating, apply design thinking to match content to visual form.
+
+### Think — Which aesthetic? Why?
+
+| Epic type | Recommended aesthetic | Reason |
+|-----------|----------------------|--------|
+| Feature implementation | `blueprint.css` | Technical, clean for scope breakdown |
+| Brand / UX work | `roxabi.css` | Gold for design epics |
+| Personal AI features | `lyra.css` | Amber, warm for agent work |
+| Refactor / maintenance | `terminal.css` | Monospace, code-focused |
+
+**Ask:** What is the issue about? Technical implementation → Blueprint. Design/brand → Roxabi. Agent features → Lyra.
+
+### Structure — Which tabs?
+
+| Epic scope | Tabs | Rationale |
+|-----------|------|-----------|
+| Large feature (spec + impl) | `overview`, `breakdown`, `deps`, `criteria` | Full context needed |
+| Medium feature | `overview`, `deps`, `criteria` | Skip breakdown if ≤3 tasks |
+| Small fix / refactor | `overview`, `criteria` | Minimal, focused |
+| Research / investigation | `overview`, `findings`, `next` | No deps tab, add findings |
+
+**Ask:** How complex is the issue? Multi-milestone → All tabs. Simple fix → Overview + criteria only.
+
+### Style — Which components?
+
+| Tab | Components |
+|-----|------------|
+| Overview | Epic hero (issue number + title + goal) + scope cards |
+| Breakdown | Cards grid OR table with status badges (done/wip/todo) |
+| Deps | Mermaid flowchart in diagram shell + zoom controls |
+| Criteria | Checklist table with status column |
+| Findings | Finding cards (high/medium/low severity) |
+
+**Ask:** What visual signals does the reader need? Progress → Status badges. Risk → Finding cards. Dependencies → Mermaid.
+
+### Deliver — Generate + verify
+
+After generation, verify:
+- Epic hero shows issue number prominently?
+- Status badges use correct colors (green done, amber wip, cyan todo)?
+- Mermaid dep diagram in shell with zoom controls?
+- Dark mode text uses semantic tokens?
+- diagram:issue meta tag present?
+- No ASCII art, no emoji in headers?
+
+---
+
 ## Aesthetic Detection
 
 | Priority | Signal | Aesthetic |

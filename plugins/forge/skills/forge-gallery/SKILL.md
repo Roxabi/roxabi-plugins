@@ -21,6 +21,59 @@ ${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/pivot-gallery.html — full w
 
 ---
 
+## Design Phase — Think → Structure → Style → Deliver
+
+Before generating, apply design thinking to match content to visual form.
+
+### Think — Which aesthetic? Why?
+
+| Gallery type | Recommended aesthetic | Reason |
+|--------------|----------------------|--------|
+| Brand assets (logos, avatars) | `roxabi.css` | Gold, professional showcase |
+| Voice / audio comparison | `lyra.css` | Amber, warm for audio vibes |
+| Technical screenshots | `blueprint.css` | Clean, technical |
+| Design iterations | `editorial.css` | Magazine feel for visual exploration |
+
+**Ask:** What is the viewer's goal? Brand decision → Roxabi. Technical evaluation → Blueprint. Creative exploration → Editorial.
+
+### Structure — Which template?
+
+| Need | Template | Key features |
+|------|----------|-------------|
+| Score-based comparison with pivot | `pivot-gallery.html` | Col/Row matrix, score filtering, sort |
+| Simple batch comparison | `simple-gallery.html` | Batch tabs, lightbox, search |
+| Side-by-side with specs | `comparison-gallery.html` | Metadata tables, verdict badges |
+| Audio / voice clips | `audio-gallery.html` | Audio players, engine grouping |
+| **Multiple datasets / modes** | **`multi-mode-gallery.html`** | Mode tabs, per-mode DIMS, downloads dropdown |
+
+**Ask:** How many dimensions of comparison? 1 dimension → Simple. 2+ dimensions → Pivot. Multiple datasets → Multi-mode.
+
+### Style — Which components?
+
+| Gallery type | Toolbar | Filters | Cards |
+|-------------|---------|---------|-------|
+| Pivot | Col/Row segs + score input | Dynamic from DIMS | Thumbnail + metadata |
+| Simple | Batch tabs + search + size | Optional | Thumbnail |
+| Comparison | Sort dropdown | None (flat) | Card with spec table |
+| Audio | Engine groups | Dynamic | Audio player + metadata |
+| Multi-mode | Mode tabs + segs + downloads | Per-mode DIMS | Mode-specific cards |
+
+**Ask:** What controls does the viewer need? Pivot/compare → Col/Row segs. Just browse → Simple tabs. Download → Dropdown.
+
+### Deliver — Generate + verify
+
+After generation, verify:
+- DIMS object defines all grouping dimensions?
+- Filter buttons auto-built from data (not hardcoded)?
+- Lightbox works (click → overlay, Escape to close)?
+- Lazy loading on all images?
+- Size controls (±) work for thumbnails?
+- Search filters visible items?
+- diagram-meta tags present?
+- Stats counter shows "visible / total"?
+
+---
+
 ## Phase 1 — Context
 
 1. **Ensure shared assets exist:**
