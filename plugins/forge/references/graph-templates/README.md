@@ -436,16 +436,44 @@ The defaults place nodes on a symmetric radial layout:
 | node-5 (bot-right) | 87 | 80 |
 
 **If you move a node**, update the corresponding arrow path's endpoints too.
-Arrow endpoints sit roughly at the node's visible edge, not its center (so the
-arrowhead isn't covered by the card). For the default layout:
+Arrow endpoints sit at the node's visible **edge**, not its center (so the
+arrowhead isn't covered by the card).
 
-| Edge | Path |
-|------|------|
-| node-1 ↔ hub (vertical) | `M 50,22 L 50,50` |
-| node-2 ↔ hub (curve) | `M 25,38 Q 33,48 42,55` |
-| node-3 ↔ hub (curve) | `M 75,38 Q 67,48 58,55` |
-| node-4 ↔ hub (curve) | `M 25,75 Q 32,68 42,62` |
-| node-5 ↔ hub (curve) | `M 75,75 Q 68,68 58,62` |
+### Edge endpoint calculation
+
+For a node at `--y:Y` with height `--h:H` (default 22%, wide=30%, narrow=18%):
+
+```
+node_top_edge    = Y - (H / 2)
+node_bottom_edge = Y + (H / 2)
+node_left_edge   = X - (W / 2)
+node_right_edge  = X + (W / 2)
+```
+
+**Example:** Node at `--x:50;--y:14` with `--w:30%` (wide):
+- Height ≈ 16% of container (card padding + content)
+- Top edge ≈ y=14 - 8 = **6** (but card extends, so visible top is ~y=10)
+- Bottom edge ≈ y=14 + 8 = **22** (arrow starts here)
+- Left edge ≈ x=50 - 15 = **35**
+- Right edge ≈ x=50 + 15 = **65**
+
+For the hub pill at `--y:58`:
+- Top edge ≈ **50** (arrow from node-1 ends here)
+- Bottom edge ≈ **66**
+
+**Rule of thumb:** Add ~8 units padding from the edge to prevent arrowheads
+from touching the card border. For curves, the control point should bulge
+away from the center to route around intervening nodes.
+
+For the default layout:
+
+| Edge | Path | Calculation |
+|------|------|-------------|
+| node-1 ↔ hub (vertical) | `M 50,22 L 50,50` | node-1 bottom (14+8=22) → hub top (58-8=50) |
+| node-2 ↔ hub (curve) | `M 25,38 Q 33,48 42,55` | node-2 bottom-right (13+12=25, 34+4=38) → hub top-left |
+| node-3 ↔ hub (curve) | `M 75,38 Q 67,48 58,55` | node-3 bottom-left (87-12=75, 34+4=38) → hub top-right |
+| node-4 ↔ hub (curve) | `M 25,75 Q 32,68 42,62` | node-4 top-right (13+12=25, 80-5=75) → hub bottom-left |
+| node-5 ↔ hub (curve) | `M 75,75 Q 68,68 58,62` | node-5 top-left (87-12=75, 80-5=75) → hub bottom-right |
 
 ### Step 5 — Inline fgraph-base.css
 

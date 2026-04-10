@@ -50,6 +50,14 @@
      Strokes stay crisp via vector-effect: non-scaling-stroke.
      Markers (arrowheads) may render slightly stretched on non-square
      containers — set .fgraph-wrap.square for pixel-perfect markers.
+
+   Arrow endpoint calculation:
+     Paths must end at node EDGES, not centers, so arrowheads are visible.
+     For a node at --y:Y with height ~16% (default card):
+       top_edge    = Y - 8
+       bottom_edge = Y + 8
+     Add 2-4 units padding from edge for visual breathing room.
+     See graph-templates/README.md for full formula and examples.
    ══════════════════════════════════════════════════════════════════ */
 
 /* ── container ── */

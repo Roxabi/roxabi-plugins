@@ -1,7 +1,7 @@
 ---
 name: forge-guide
 description: 'Create a split-file multi-tab HTML document — user guide, architecture overview, project recap, comparison analysis, roadmap, or any rich multi-section doc. Triggers: "document" | "explain" | "illustrate" | "write a guide" | "create a guide" | "create a doc" | "make a recap" | "document this".'
-version: 0.2.0
+version: 0.3.0
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch
 ---
 
@@ -19,7 +19,8 @@ ${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md        — brand detection, output
 ${CLAUDE_PLUGIN_ROOT}/references/base/reset.css      — concatenate first
 ${CLAUDE_PLUGIN_ROOT}/references/base/layout.css     — concatenate second
 ${CLAUDE_PLUGIN_ROOT}/references/base/typography.css — concatenate third
-${CLAUDE_PLUGIN_ROOT}/references/base/components.css — concatenate last
+${CLAUDE_PLUGIN_ROOT}/references/base/components.css — concatenate fourth
+${CLAUDE_PLUGIN_ROOT}/references/base/explainer-base.css — concatenate fifth (visual explainer components)
 ${CLAUDE_PLUGIN_ROOT}/references/aesthetics/         — select one based on detection logic
 ${CLAUDE_PLUGIN_ROOT}/references/shells/split.html   — HTML template with placeholders
 ${CLAUDE_PLUGIN_ROOT}/references/base/tab-loader.js  — substitute {NAME}, then inline
@@ -48,7 +49,7 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md    — only if a tab will cont
 ## Shell Processing
 
 1. Read `shells/split.html` template
-2. Concatenate base CSS files in order: `reset → layout → typography → components`
+2. Concatenate base CSS files in order: `reset → layout → typography → components → explainer-base`
 3. Read selected aesthetic CSS
 4. Read `base/tab-loader.js`, substitute `{NAME}` with diagram slug
 5. Substitute placeholders:
@@ -110,6 +111,10 @@ Let:
 
 3. **Note Mermaid tabs** — if any tab needs a diagram, follow `references/mermaid-guide.md` checklist.
 
+4. **Determine layout mode:**
+   - **Standard multi-tab** — nav with tabs, panels switch on click
+   - **Mono-page with TOC sidebar** — single panel with sticky TOC navigation (for audits, long-form docs)
+
 ---
 
 ## Phase 3 — Generate
@@ -130,20 +135,157 @@ Read `shells/split.html` → substitute placeholders. The shell contains all str
 
 **JS file:** write `{TAB_LOADER_JS}` (tab-loader.js with `{NAME}` substituted) + Mermaid init (if needed) to `{ROOT}/js/{SLUG}.js`.
 
-**Tab fragments** — content patterns by tab type:
+### Header (REQUIRED for multi-tab)
+
+Replace the plain nav title with a styled header:
+
+```html
+<header>
+  <div class="header-eyebrow">{{EYEBROW}}</div>
+  <h1>{{TITLE_PLAIN}} <span class="accent">{{TITLE_ACCENT}}</span></h1>
+  <div class="header-subtitle">{{SUBTITLE}}</div>
+  <div class="header-row">
+    <span class="verdict-badge green">✓ {{BADGE_1}}</span>
+    <span class="verdict-badge amber">⚠ {{BADGE_2}}</span>
+  </div>
+</header>
+<nav class="topnav" aria-label="Main">
+  <div class="tabs" role="tablist">
+    {TABS}
+  </div>
+  <button class="theme-btn" id="theme-toggle" ...>◑ light</button>
+</nav>
+```
+
+### TOC Sidebar (for mono-page guides)
+
+For audit-style or long-form single-page docs, use the TOC sidebar layout:
+
+```html
+<div class="wrap--toc">
+  <aside class="toc">
+    <div class="toc-title">Contents</div>
+    <a href="#overview">Overview</a>
+    <a href="#section-1">1. Section Name</a>
+    <a href="#section-2">2. Another Section</a>
+  </aside>
+  <main class="main--toc">
+    <!-- content here -->
+  </main>
+</div>
+```
+
+Add TOC scroll observer to `{EXTRA_SCRIPTS}`:
+
+```javascript
+// TOC scroll observer
+const tocLinks = document.querySelectorAll('.toc a')
+const sections = document.querySelectorAll('.sec-head')
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      tocLinks.forEach(l => l.classList.remove('active'))
+      const id = e.target.getAttribute('id')
+      document.querySelector(`.toc a[href="#${id}"]`)?.classList.add('active')
+    }
+  })
+}, { rootMargin: '-20% 0px -80% 0px' })
+sections.forEach(s => observer.observe(s))
+```
+
+### Section Titles (REQUIRED)
+
+Use styled section titles instead of plain `<h2>`:
+
+```html
+<div class="section-title">2.1 — Section Name</div>
+```
+
+Or with section label:
+
+```html
+<div class="section-label dot">1.1</div>
+<h2>Section Name</h2>
+```
+
+### Finding Cards (for audit-style content)
+
+For code/design reviews, use finding cards with severity:
+
+```html
+<div class="finding finding--high">
+  <div class="finding-header">
+    <span class="badge badge--risk high">HIGH</span>
+    <span class="finding-title">{{ISSUE_TITLE}}</span>
+  </div>
+  <div class="finding-body">{{DESCRIPTION}}</div>
+  <div class="finding-files"><code>{{FILE_NAME}}</code></div>
+</div>
+```
+
+Severity levels: `finding--high` (red), `finding--medium` (amber), `finding--low` (cyan).
+
+### Stat Grid (for overview tabs)
+
+```html
+<div class="stat-grid">
+  <div class="stat">
+    <span class="stat__value">{{NUMBER}}</span>
+    <span class="stat__label">{{LABEL}}</span>
+  </div>
+</div>
+```
+
+### Diagram Shell (REQUIRED for Mermaid tabs)
+
+**NEVER use bare `<pre class="mermaid">`.** Always wrap in the diagram shell:
+
+```html
+<div class="diagram-shell">
+  <div class="zoom-controls">
+    <button data-zoom="in" title="Zoom in">+</button>
+    <button data-zoom="fit" title="Fit">⤢</button>
+    <button data-zoom="out" title="Zoom out">−</button>
+  </div>
+  <div class="mermaid-container" data-mermaid-out id="diagram-{{TAB_ID}}"></div>
+  <script type="text/plain" data-mermaid>
+    {{MERMAID_SOURCE}}
+  </script>
+</div>
+```
+
+See `references/mermaid-guide.md` for the full checklist on dynamic tab rendering.
+
+### Tab fragments — content patterns by tab type:
 
 | Tab type | Content |
 |----------|---------|
-| Overview / intro | `<h1>`, 1–2 `<p>`, `.cards` grid (2–4 cards) |
-| Step-by-step | `<h2>` sections + `<ol>` + `<pre><code>` |
-| Architecture | Mermaid diagram (checklist) + description |
-| Comparison | `.table-wrap > table` with `<thead>` |
-| Status / KPIs | `.cards` grid with stat cards |
+| Overview / intro | Header + `<p>` + `.stat-grid` + `.cards` grid (2–4 cards) |
+| Step-by-step | Section titles + `<ol>` + `<pre><code>` |
+| Architecture | Section title + Mermaid diagram (in shell) + description |
+| Comparison | Section title + `.table-wrap > table` with `<thead>` |
+| Status / KPIs | Section title + `.stat-grid` + progress indicators |
 | Decisions / log | `<h3>` entries with date + rationale `<p>` |
+| Audit / Review | TOC sidebar + `.finding` cards by severity |
 
 **Dark mode text — always:**
 - Paragraphs, list items, card body → `color: var(--text-muted)` (`#9ca3af`)
 - Column headers, dates, metadata → `color: var(--text-dim)` (`#6b7280`)
+
+---
+
+## Anti-Patterns (FORBIDDEN)
+
+| Anti-Pattern | Fix |
+|--------------|-----|
+| Bare `<pre class="mermaid">` | Use diagram shell with `.mermaid-wrap` |
+| ASCII art in `<pre class="arch">` | Convert to Mermaid flowchart or fgraph |
+| Emoji in headers | Remove — use text only |
+| `rgba()` in Mermaid `style` directives | Use hex colors only |
+| `theme: 'dark'` in Mermaid config | Use `theme: 'base'` + custom `themeVariables` |
+| Plain `<h2>` for section titles | Use `.section-title` class |
+| No header on multi-tab | Add styled header with eyebrow + badges |
+| Plain nav title only | Replace with full header component |
 
 ---
 

@@ -14,11 +14,11 @@
   <!-- diagram-meta:end -->
   <!-- PRECONNECT: Add Google Fonts links for the aesthetic's font pair -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
-  <!-- HEAD_EXTRAS: Optional <head> tags (e.g., svg-pan-zoom CDN for Mermaid pan/zoom) -->
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <!-- HEAD_EXTRAS: Mermaid ESM + svg-pan-zoom CDN -->
   {HEAD_EXTRAS}
   <style>
-    /* BASE_STYLES: Concatenate base/*.css in order: reset → layout → typography → components */
+    /* BASE_STYLES: Concatenate base/*.css in order: reset → layout → typography → components → explainer-base */
     {BASE_STYLES}
 
     /* AESTHETIC_STYLES: Aesthetic CSS override (empty if no aesthetic selected) */
@@ -29,10 +29,10 @@
   </style>
 </head>
 <body>
-  <!-- CONTENT: Self-contained diagram body (cards, grids, Mermaid containers, etc.) -->
+  <!-- CONTENT: Self-contained diagram body — hero section + sections + diagrams + cards -->
   {CONTENT}
 
-  <!-- Theme Toggle: Position as needed for diagram type -->
+  <!-- Theme Toggle -->
   <button class="theme-btn" id="theme-toggle" aria-label="Toggle color theme" aria-pressed="false">◑ light</button>
 
   <script>
@@ -56,7 +56,7 @@
       }
     })()
   </script>
-  <!-- EXTRA_SCRIPTS: Optional — mermaid-init.js or custom JS -->
+  <!-- EXTRA_SCRIPTS: Mermaid init + pan/zoom + reveal observer -->
   <script>
     {EXTRA_SCRIPTS}
   </script>
