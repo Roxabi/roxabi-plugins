@@ -38,6 +38,7 @@ Read `shells/split.html` for the complete template. It contains all necessary pl
 
 | Placeholder | Content |
 |-------------|---------|
+| `{NAME}` | Diagram slug (for localStorage key scoping) |
 | `{TITLE}`, `{DATE}`, `{CATEGORY}`, `{CAT_LABEL}`, `{COLOR}`, `{BADGES}` | Diagram metadata |
 | `{BASE_STYLES}` | Concatenated base CSS (reset → layout → typography → components) |
 | `{AESTHETIC_STYLES}` | Selected aesthetic CSS |

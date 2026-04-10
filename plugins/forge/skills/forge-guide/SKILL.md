@@ -52,8 +52,9 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md    — only if a tab will cont
 3. Read selected aesthetic CSS
 4. Read `base/tab-loader.js`, substitute `{NAME}` with diagram slug
 5. Substitute placeholders:
+   - `{NAME}` → diagram slug (for localStorage key scoping + tab-loader.js)
    - `{BASE_STYLES}` → concatenated base CSS
-   - `{AESTHETIC_STYLES}` → aesthetic CSS (or empty if default)
+   - `{AESTHETIC_STYLES}` → aesthetic CSS (editorial.css if default)
    - `{TITLE}`, `{DATE}`, `{CATEGORY}`, `{CAT_LABEL}`, `{COLOR}`, `{BADGES}` → diagram metadata
    - `{TABS}` → tab button elements (one per tab)
    - `{PANELS}` → panel container elements (one per tab)

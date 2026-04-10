@@ -49,8 +49,9 @@ ${CLAUDE_PLUGIN_ROOT}/references/diagram-meta.md     — meta tag format + categ
 2. Concatenate base CSS files in order: `reset → layout → typography → components`
 3. Read selected aesthetic CSS
 4. Substitute placeholders:
+   - `{NAME}` → diagram slug (for localStorage key scoping)
    - `{BASE_STYLES}` → concatenated base CSS
-   - `{AESTHETIC_STYLES}` → aesthetic CSS (or empty if default)
+   - `{AESTHETIC_STYLES}` → aesthetic CSS (editorial.css if default)
    - `{TITLE}`, `{DATE}`, `{CATEGORY}`, `{CAT_LABEL}`, `{COLOR}`, `{BADGES}` → diagram metadata
    - `{HEAD_EXTRAS}` → mermaid CDN script (for Mermaid diagrams)
    - `{CONTENT}` → diagram body (Mermaid container, cards, etc.)

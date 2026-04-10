@@ -51,8 +51,9 @@ ${CLAUDE_PLUGIN_ROOT}/references/mermaid-guide.md    — dependency/breakdown di
 3. Read selected aesthetic CSS
 4. Read `base/tab-loader.js`, substitute `{NAME}` with `{ISSUE}-{slug}`
 5. Substitute placeholders:
+   - `{NAME}` → `{ISSUE}-{slug}` (for localStorage key scoping + tab-loader.js)
    - `{BASE_STYLES}` → concatenated base CSS
-   - `{AESTHETIC_STYLES}` → aesthetic CSS (or empty if default)
+   - `{AESTHETIC_STYLES}` → selected aesthetic CSS
    - `{TITLE}` → `{PROJ} #{ISSUE} — {Short Title}` (e.g. "Lyra #477 — Tool Registry")
    - `{DATE}`, `{CATEGORY}`, `{CAT_LABEL}`, `{COLOR}`, `{BADGES}` → diagram metadata
    - `{TABS}` → tab button elements (one per tab)
