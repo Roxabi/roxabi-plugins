@@ -27,8 +27,8 @@ palette:
     surface:    '#1a1b18'   # elevated panels / cards
     border:     '#2e3028'   # warm dark border
     text:       '#f0ede6'   # warm off-white
-    text-muted: '#9ca3af'   # body copy in dark mode
-    text-dim:   '#7a7468'   # metadata, labels (warm gray)
+    text-muted: '#9ca3af'   # intermediate emphasis only — subtitles, label rows. NOT body copy (use --text).
+    text-dim:   '#7a7468'   # metadata, secondary labels (warm gray)
     accent:     '#f0b429'   # Roxabi Gold — brand signal (one per composition)
     accent-dim: '#78460d'   # damped gold for borders / secondary highlights
   light:
@@ -91,7 +91,9 @@ deliver_must_match:
   - 'no emoji in section headers'
   - 'no ASCII art in <pre class="arch"> blocks'
   - 'JetBrains Mono reserved for CLI commands / config / file paths'
-  - 'no "AI-powered", "next-generation", "seamless" in marketing copy'
+  - 'body copy color is var(--text) — never var(--text-muted) or var(--text-dim) which are dim on dark backgrounds'
+  # Banned marketing cliches — generic (no Lyra-specific terms like "chatbot" / "on-premise" / "consumer")
+  - 'copy must not contain: AI-powered, next-generation, cutting-edge, seamless, game-changer, revolutionize, leverage, ecosystem'
 
 # ── Override policy ─────────────────────────────────────────────
 # roxabi-plugins brand is less mature than Lyra's — lock the aesthetic
@@ -111,4 +113,8 @@ project:
   full_name: 'Roxabi Plugins'
   tagline: 'Context engineering tools for teams using Claude Code.'
   category: 'Claude Code plugin marketplace'
-  brand_book: 'pending'  # no BRAND-BOOK.md yet — this file is the source of truth
+  # TODO — a dedicated BRAND-BOOK.md is still to be written. Interim brand
+  # uses roxabi.css (Roxabi Gold — one of the forge aesthetics) as the
+  # authoritative visual direction. This file is the source of truth until
+  # the full brand book exists.
+  brand_book: 'pending — interim brand is roxabi.css (Roxabi Gold)'
