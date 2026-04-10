@@ -79,6 +79,18 @@ All classes below exist in `base/components.css` + `base/explainer-base.css`, or
 | Deps | Mermaid flowchart in `.diagram-shell` with zoom controls |
 | Criteria | `.table-wrap > table` — checklist with status column |
 
+**Rendering wrappers** — orthogonal to tab identity. Apply these to whatever rendering the Structure phase chose per tab:
+
+| Rendering | Wrapper / component |
+|---|---|
+| Mermaid dependency diagram | `.diagram-shell` with `.zoom-controls` (never bare `<pre class="mermaid">`) |
+| HTML table (breakdown / criteria) | `.table-wrap > table` with `<thead>` (enables sticky header + horizontal scroll) |
+| CSS Grid cards | `.cards` container + `.card.accent` per row |
+| Epic hero (Overview tab) | `.epic-hero > .epic-number + h1 + .epic-goal` (defined inline in Phase 3 `{EXTRA_STYLES}`) |
+| Status badges | `.status.done` / `.status.wip` / `.status.todo` (defined inline in Phase 3 `{EXTRA_STYLES}`) |
+
+Cross-tab: use `.card.info` / `.card.warning` / `.card.critical` for inline tonal callouts.
+
 **Ask:** What visual signals does the reader need? Progress → status badges. Dependencies → Mermaid. Acceptance → checklist.
 
 ### Deliver — Generate + verify

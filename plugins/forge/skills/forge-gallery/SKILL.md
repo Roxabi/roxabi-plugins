@@ -170,9 +170,10 @@ Values are **auto-discovered** from data — the template creates filter buttons
 - No score data → set `DATA_URL = null`, remove score dim
 - No pivot → remove Col/Row controls (defaults to flat grid)
 
-### 5. Update brand tokens
+### 5. Brand tokens
 
-Replace CSS custom properties in `:root` with project tokens from `tokens.md`.
+- **Track A** — skip. The loader already resolved `brand.aesthetic` at Phase 1 and the aesthetic file (e.g. `lyra.css`) owns `:root`. Do not rewrite tokens; `deliver_must_match` will flag any accent or palette drift at Deliver.
+- **Track B** — inline the chosen aesthetic's `:root` block into the gallery template's `<style>` (reference: `${CLAUDE_PLUGIN_ROOT}/references/aesthetics/*.css`). Override `--accent` / `--accent-dim` only if the gallery is a cross-project showcase that needs its own accent.
 
 ---
 

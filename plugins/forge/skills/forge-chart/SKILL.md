@@ -101,6 +101,19 @@ All classes below exist in `base/components.css` + `base/explainer-base.css`.
 | Explainer | `.hero.left-border` | `.section-label.dot` | `.io-strip` + `.io-box` + `.io-arrow` |
 | Comparison | `.hero.left-border` | `.section-label.dot` | `.table-wrap > table` |
 
+**Rendering wrappers** — orthogonal to visual type. Apply these to whatever rendering the Structure phase chose:
+
+| Rendering | Wrapper / component |
+|---|---|
+| Mermaid (flowchart / sequence / state / class) | `.diagram-shell` with `.zoom-controls` (never bare `<pre class="mermaid">`) |
+| fgraph radial | `.fgraph-wrap` + `.fgraph-frame` + `.fgraph-edges` + `.fgraph-node.{tone}` (see `graph-templates/`) |
+| HTML table | `.table-wrap > table` with `<thead>` (enables sticky header + horizontal scroll) |
+| CSS Grid cards | `.cards` container + `.card`/`.card.accent` per row |
+| Timeline | `.steps` container + `.step > .step-num` per entry |
+| Explainer I/O flow | `.io-strip` + `.io-box` + `.io-arrow` |
+
+Cross-type: use `.card.info` / `.card.warning` / `.card.critical` for inline tonal callouts.
+
 **Ask:** What's the ONE thing the reader should walk away remembering? A number → `.stat-grid`. A path through steps → `.steps` timeline. A comparison → `.table-wrap > table`. A decision with trade-offs → `.io-strip`. If more than one answer fits, the diagram is doing too much — Frame Q2 is underspecified.
 
 ### Deliver — Generate + verify
