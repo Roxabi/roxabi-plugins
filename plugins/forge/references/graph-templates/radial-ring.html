@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- diagram-meta:start -->
+<meta name="diagram:title"     content="{{TITLE}}">
+<meta name="diagram:date"      content="{{DATE}}">
+<meta name="diagram:category"  content="{{CATEGORY}}">
+<meta name="diagram:cat-label" content="{{CAT_LABEL}}">
+<meta name="diagram:color"     content="{{COLOR}}">
+<!-- diagram-meta:end -->
+<title>{{TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* {{BASE_STYLES}} — inline reset.css + layout.css + typography.css + components.css */
+/* {{AESTHETIC_STYLES}} — inline the chosen aesthetic */
+
+/* ══════════════════════════════════════════════════════════════════
+   fgraph primitives — inlined from references/graph-templates/fgraph-base.css
+   ══════════════════════════════════════════════════════════════════ */
+/* {{FGRAPH_BASE}} — inline fgraph-base.css here */
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-eyebrow">{{CATEGORY_LABEL}}</div>
+  <h1>{{TITLE_PLAIN}} <span class="accent">{{TITLE_ACCENT}}</span></h1>
+  <p class="header-subtitle">{{SUBTITLE}}</p>
+</header>
+
+<main>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     CUSTOMISE — N-node ring topology (no center hub).
+
+     Layout:
+       6 nodes arranged in a circle at radius ~35% from center.
+       Each node connects to its 2 neighbors (clockwise edges).
+       Optional: cross-ring edges (skip connections) can be added.
+
+     Use for:
+       - Peer-to-peer networks / mesh topologies
+       - Circular pipelines / ring buffers
+       - Consensus rings (Raft / Paxos participant sets)
+       - Microservice meshes where every node talks to neighbors
+
+     Coordinates (6-node ring, center at 50,50, radius ~35):
+       node-1 (top):        x=50  y=15
+       node-2 (top-right):  x=80  y=30
+       node-3 (bot-right):  x=80  y=70
+       node-4 (bottom):     x=50  y=85
+       node-5 (bot-left):   x=20  y=70
+       node-6 (top-left):   x=20  y=30
+
+     Edge paths connect neighbors around the ring:
+       node-1 → node-2 (curve right-down)
+       node-2 → node-3 (curve down-left)
+       ... and so on clockwise
+
+     For bidirectional communication, add marker-start to each path.
+     ══════════════════════════════════════════════════════════════════ -->
+
+<div class="fgraph-wrap {{WRAP_TONE}} square"
+     role="img"
+     aria-label="{{DIAGRAM_ARIA_LABEL}}">
+
+  <svg class="fgraph-edges" viewBox="0 0 100 100" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="fg-arr-amber-rr"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-amber"/></marker>
+      <marker id="fg-arr-cyan-rr"   viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-cyan"/></marker>
+      <marker id="fg-arr-purple-rr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-purple"/></marker>
+      <marker id="fg-arr-green-rr"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-green"/></marker>
+      <marker id="fg-arr-red-rr"    viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-red"/></marker>
+    </defs>
+
+    <!-- Ring edges (clockwise) — node-1 → node-2 → node-3 → node-4 → node-5 → node-6 → node-1 -->
+
+    <!-- node-1 (top) → node-2 (top-right) -->
+    <path class="fg-edge {{EDGE_1_TONE}}" d="M 62,18 Q 72,22 75,30"
+          marker-end="url(#fg-arr-{{EDGE_1_TONE}}-rr)"/>
+
+    <!-- node-2 (top-right) → node-3 (bot-right) -->
+    <path class="fg-edge {{EDGE_2_TONE}}" d="M 82,42 Q 84,50 82,58"
+          marker-end="url(#fg-arr-{{EDGE_2_TONE}}-rr)"/>
+
+    <!-- node-3 (bot-right) → node-4 (bottom) -->
+    <path class="fg-edge {{EDGE_3_TONE}}" d="M 75,70 Q 68,80 58,82"
+          marker-end="url(#fg-arr-{{EDGE_3_TONE}}-rr)"/>
+
+    <!-- node-4 (bottom) → node-5 (bot-left) -->
+    <path class="fg-edge {{EDGE_4_TONE}}" d="M 42,82 Q 32,80 25,70"
+          marker-end="url(#fg-arr-{{EDGE_4_TONE}}-rr)"/>
+
+    <!-- node-5 (bot-left) → node-6 (top-left) -->
+    <path class="fg-edge {{EDGE_5_TONE}}" d="M 18,58 Q 16,50 18,42"
+          marker-end="url(#fg-arr-{{EDGE_5_TONE}}-rr)"/>
+
+    <!-- node-6 (top-left) → node-1 (top) -->
+    <path class="fg-edge {{EDGE_6_TONE}}" d="M 25,30 Q 28,22 38,18"
+          marker-end="url(#fg-arr-{{EDGE_6_TONE}}-rr)"/>
+  </svg>
+
+  <!-- Edge labels — positioned outside the ring near each edge midpoint -->
+  <div class="fgraph-lbl {{EDGE_1_TONE}}" style="--x:72;--y:22;">{{EDGE_1_LABEL}}</div>
+  <div class="fgraph-lbl {{EDGE_2_TONE}}" style="--x:88;--y:50;">{{EDGE_2_LABEL}}</div>
+  <div class="fgraph-lbl {{EDGE_3_TONE}}" style="--x:72;--y:78;">{{EDGE_3_LABEL}}</div>
+  <div class="fgraph-lbl {{EDGE_4_TONE}}" style="--x:28;--y:78;">{{EDGE_4_LABEL}}</div>
+  <div class="fgraph-lbl {{EDGE_5_TONE}}" style="--x:12;--y:50;">{{EDGE_5_LABEL}}</div>
+  <div class="fgraph-lbl {{EDGE_6_TONE}}" style="--x:28;--y:22;">{{EDGE_6_LABEL}}</div>
+
+  <!-- Ring nodes -->
+
+  <!-- node-1 (top) -->
+  <div class="fgraph-node {{NODE_1_TONE}}" style="--x:50;--y:15;">
+    <div class="fgraph-title {{NODE_1_TONE}}">
+      {{NODE_1_NAME}} <span class="fgraph-pill {{NODE_1_TONE}}">{{NODE_1_PILL}}</span>
+    </div>
+    <div class="fgraph-sub">{{NODE_1_SUB}}</div>
+    <div class="fgraph-sub muted">{{NODE_1_SUB_MUTED}}</div>
+  </div>
+
+  <!-- node-2 (top-right) -->
+  <div class="fgraph-node {{NODE_2_TONE}}" style="--x:80;--y:30;">
+    <div class="fgraph-title {{NODE_2_TONE}}">
+      {{NODE_2_NAME}} <span class="fgraph-pill {{NODE_2_TONE}}">{{NODE_2_PILL}}</span>
+    </div>
+    <div class="fgraph-sub">{{NODE_2_SUB}}</div>
+    <div class="fgraph-sub muted">{{NODE_2_SUB_MUTED}}</div>
+  </div>
+
+  <!-- node-3 (bot-right) -->
+  <div class="fgraph-node {{NODE_3_TONE}}" style="--x:80;--y:70;">
+    <div class="fgraph-title {{NODE_3_TONE}}">
+      {{NODE_3_NAME}} <span class="fgraph-pill {{NODE_3_TONE}}">{{NODE_3_PILL}}</span>
+    </div>
+    <div class="fgraph-sub">{{NODE_3_SUB}}</div>
+    <div class="fgraph-sub muted">{{NODE_3_SUB_MUTED}}</div>
+  </div>
+
+  <!-- node-4 (bottom) -->
+  <div class="fgraph-node {{NODE_4_TONE}}" style="--x:50;--y:85;">
+    <div class="fgraph-title {{NODE_4_TONE}}">
+      {{NODE_4_NAME}} <span class="fgraph-pill {{NODE_4_TONE}}">{{NODE_4_PILL}}</span>
+    </div>
+    <div class="fgraph-sub">{{NODE_4_SUB}}</div>
+    <div class="fgraph-sub muted">{{NODE_4_SUB_MUTED}}</div>
+  </div>
+
+  <!-- node-5 (bot-left) -->
+  <div class="fgraph-node {{NODE_5_TONE}}" style="--x:20;--y:70;">
+    <div class="fgraph-title {{NODE_5_TONE}}">
+      {{NODE_5_NAME}} <span class="fgraph-pill {{NODE_5_TONE}}">{{NODE_5_PILL}}</span>
+    </div>
+    <div class="fgraph-sub">{{NODE_5_SUB}}</div>
+    <div class="fgraph-sub muted">{{NODE_5_SUB_MUTED}}</div>
+  </div>
+
+  <!-- node-6 (top-left) -->
+  <div class="fgraph-node {{NODE_6_TONE}}" style="--x:20;--y:30;">
+    <div class="fgraph-title {{NODE_6_TONE}}">
+      {{NODE_6_NAME}} <span class="fgraph-pill {{NODE_6_TONE}}">{{NODE_6_PILL}}</span>
+    </div>
+    <div class="fgraph-sub">{{NODE_6_SUB}}</div>
+    <div class="fgraph-sub muted">{{NODE_6_SUB_MUTED}}</div>
+  </div>
+
+  <div class="fgraph-legend">{{LEGEND}}</div>
+</div>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- diagram-meta:start -->
+<meta name="diagram:title"     content="{{TITLE}}">
+<meta name="diagram:date"      content="{{DATE}}">
+<meta name="diagram:category"  content="{{CATEGORY}}">
+<meta name="diagram:cat-label" content="{{CAT_LABEL}}">
+<meta name="diagram:color"     content="{{COLOR}}">
+<!-- diagram-meta:end -->
+<title>{{TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* {{BASE_STYLES}} — inline reset.css + layout.css + typography.css + components.css */
+/* {{AESTHETIC_STYLES}} — inline the chosen aesthetic */
+
+/* ══════════════════════════════════════════════════════════════════
+   fgraph primitives — inlined from references/graph-templates/fgraph-base.css
+   ══════════════════════════════════════════════════════════════════ */
+/* {{FGRAPH_BASE}} — inline fgraph-base.css here */
+
+/* ── Machine frame styling (overridden from base) ── */
+.machine-frame {
+  position: absolute;
+  border: 2px dashed var(--border-bright);
+  border-radius: 14px;
+  background: transparent;
+  pointer-events: none;
+}
+.machine-lbl {
+  position: absolute;
+  top: 8px;
+  left: 14px;
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.machine-sub {
+  position: absolute;
+  top: 24px;
+  left: 14px;
+  font-family: 'Space Mono', monospace;
+  font-size: 9px;
+  color: var(--text-muted);
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-eyebrow">{{CATEGORY_LABEL}}</div>
+  <h1>{{TITLE_PLAIN}} <span class="accent">{{TITLE_ACCENT}}</span></h1>
+  <p class="header-subtitle">{{SUBTITLE}}</p>
+</header>
+
+<main>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     CUSTOMISE — 3 machine frames side-by-side with cross-machine edges.
+
+     Layout (wide container, aspect 16/9):
+       Machine-1 (left):   x = 0–30%
+       Machine-2 (center): x = 35–65%
+       Machine-3 (right):  x = 70–100%
+
+     Each machine has its own dashed frame + label/sub.
+     Cross-machine edges route through gaps between frames.
+
+     Use for:
+       - Multi-host deployments
+       - Dev / staging / prod side-by-side
+       - Microservices distributed across machines
+       - Cluster topology with per-node services
+
+     Machine frame coordinates (wide container):
+       Machine-1: left=2%,  top=10%,  width=26%, height=70%
+       Machine-2: left=35%, top=10%,  width=30%, height=70%
+       Machine-3: left=68%, top=10%,  width=30%, height=70%
+
+     Nodes are placed inside each frame:
+       Machine-1: 2 nodes (hub + adapter)
+       Machine-2: 2 nodes (hub + shared)
+       Machine-3: 1 node (external)
+
+     Cross-machine edges use curves that bulge into the gaps
+     between frames to avoid crossing other nodes.
+     ══════════════════════════════════════════════════════════════════ -->
+
+<div class="fgraph-wrap {{WRAP_TONE}} wide"
+     style="aspect-ratio: 16/9; max-width: 1000px;"
+     role="img"
+     aria-label="{{DIAGRAM_ARIA_LABEL}}">
+
+  <!-- Machine frames -->
+  <div class="machine-frame" style="left: 2%; top: 10%; width: 26%; height: 75%; border-color: rgba(251,191,36,0.4);"></div>
+  <div class="machine-lbl" style="left: 4%; top: 12%; color: var(--amber);">{{MACHINE_1_LABEL}}</div>
+  <div class="machine-sub" style="left: 4%; top: 26%;">{{MACHINE_1_SUB}}</div>
+
+  <div class="machine-frame" style="left: 35%; top: 10%; width: 30%; height: 75%; border-color: rgba(34,211,238,0.4);"></div>
+  <div class="machine-lbl" style="left: 37%; top: 12%; color: var(--cyan);">{{MACHINE_2_LABEL}}</div>
+  <div class="machine-sub" style="left: 37%; top: 26%;">{{MACHINE_2_SUB}}</div>
+
+  <div class="machine-frame" style="left: 68%; top: 10%; width: 30%; height: 75%; border-color: rgba(192,132,252,0.4);"></div>
+  <div class="machine-lbl" style="left: 70%; top: 12%; color: var(--purple);">{{MACHINE_3_LABEL}}</div>
+  <div class="machine-sub" style="left: 70%; top: 26%;">{{MACHINE_3_SUB}}</div>
+
+  <svg class="fgraph-edges" viewBox="0 0 100 100" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="fg-arr-amber-mc"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-amber"/></marker>
+      <marker id="fg-arr-cyan-mc"   viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-cyan"/></marker>
+      <marker id="fg-arr-purple-mc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-purple"/></marker>
+      <marker id="fg-arr-green-mc"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-green"/></marker>
+      <marker id="fg-arr-red-mc"    viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-red"/></marker>
+    </defs>
+
+    <!-- Intra-machine edges (Machine-1 internal) -->
+    <path class="fg-edge {{MACHINE_1_EDGE_TONE}}" d="M 15,42 L 15,58"
+          marker-start="url(#fg-arr-{{MACHINE_1_EDGE_TONE}}-mc)"
+          marker-end="url(#fg-arr-{{MACHINE_1_EDGE_TONE}}-mc)"/>
+
+    <!-- Cross-machine edges: Machine-1 → Machine-2 -->
+    <!-- Bulges into the gap at x=32% -->
+    <path class="fg-edge {{CROSS_1_TONE}}" d="M 22,50 Q 32,45 40,50"
+          marker-start="url(#fg-arr-{{CROSS_1_TONE}}-mc)"
+          marker-end="url(#fg-arr-{{CROSS_1_TONE}}-mc)"/>
+
+    <!-- Intra-machine edges (Machine-2 internal) -->
+    <path class="fg-edge {{MACHINE_2_EDGE_TONE}}" d="M 50,42 L 50,58"
+          marker-start="url(#fg-arr-{{MACHINE_2_EDGE_TONE}}-mc)"
+          marker-end="url(#fg-arr-{{MACHINE_2_EDGE_TONE}}-mc)"/>
+
+    <!-- Cross-machine edges: Machine-2 → Machine-3 -->
+    <!-- Bulges into the gap at x=67% -->
+    <path class="fg-edge {{CROSS_2_TONE}}" d="M 60,50 Q 67,45 75,50"
+          marker-start="url(#fg-arr-{{CROSS_2_TONE}}-mc)"
+          marker-end="url(#fg-arr-{{CROSS_2_TONE}}-mc)"/>
+  </svg>
+
+  <!-- Edge labels -->
+  <div class="fgraph-lbl {{MACHINE_1_EDGE_TONE}}" style="--x:18;--y:50;">{{MACHINE_1_EDGE_LABEL}}</div>
+  <div class="fgraph-lbl {{CROSS_1_TONE}}" style="--x:31;--y:42;">{{CROSS_1_LABEL}}</div>
+  <div class="fgraph-lbl {{MACHINE_2_EDGE_TONE}}" style="--x:54;--y:50;">{{MACHINE_2_EDGE_LABEL}}</div>
+  <div class="fgraph-lbl {{CROSS_2_TONE}}" style="--x:66;--y:42;">{{CROSS_2_LABEL}}</div>
+
+  <!-- Machine-1 nodes -->
+  <div class="fgraph-node {{M1_NODE_1_TONE}} narrow" style="--x:15;--y:42;">
+    <div class="fgraph-title {{M1_NODE_1_TONE}}">{{M1_NODE_1_NAME}}</div>
+    <div class="fgraph-sub">{{M1_NODE_1_SUB}}</div>
+  </div>
+
+  <div class="fgraph-node {{M1_NODE_2_TONE}} narrow" style="--x:15;--y:68;">
+    <div class="fgraph-title {{M1_NODE_2_TONE}}">{{M1_NODE_2_NAME}}</div>
+    <div class="fgraph-sub">{{M1_NODE_2_SUB}}</div>
+  </div>
+
+  <!-- Machine-2 nodes -->
+  <div class="fgraph-node {{M2_NODE_1_TONE}} narrow" style="--x:50;--y:42;">
+    <div class="fgraph-title {{M2_NODE_1_TONE}}">{{M2_NODE_1_NAME}}</div>
+    <div class="fgraph-sub">{{M2_NODE_1_SUB}}</div>
+  </div>
+
+  <div class="fgraph-node {{M2_NODE_2_TONE}} narrow" style="--x:50;--y:68;">
+    <div class="fgraph-title {{M2_NODE_2_TONE}}">{{M2_NODE_2_NAME}}</div>
+    <div class="fgraph-sub">{{M2_NODE_2_SUB}}</div>
+  </div>
+
+  <!-- Machine-3 nodes -->
+  <div class="fgraph-node {{M3_NODE_1_TONE}} narrow" style="--x:83;--y:55;">
+    <div class="fgraph-title {{M3_NODE_1_TONE}}">{{M3_NODE_1_NAME}}</div>
+    <div class="fgraph-sub">{{M3_NODE_1_SUB}}</div>
+  </div>
+
+  <div class="fgraph-legend">{{LEGEND}}</div>
+</div>
+
+</main>
+
+</body>
+</html>

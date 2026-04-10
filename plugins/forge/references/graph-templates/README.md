@@ -102,6 +102,115 @@ Reference consumers:
 
 Reference consumer: `tab-target.html` M3 (dual-hub lyra_hub-1 + lyra_hub-2 sharing Redis + NATS).
 
+### Radial Ring
+
+> N satellites in a true ring (no center hub). Inter-peer edges connect
+> neighbors around the circle. Use for peer-to-peer meshes, ring buffers,
+> consensus rings (Raft participants), any topology where nodes talk to
+> their neighbors.
+
+```
+        node-1 (top)
+       ╱          ╲
+  node-6            node-2
+   │                  │
+   │     ring ring    │
+   │                  │
+  node-5            node-3
+       ╲          ╱
+        node-4 (bottom)
+```
+
+Reference consumer: (future) consensus-visualizer for distributed systems.
+
+### Layered
+
+> 4 horizontal layers stacked vertically — ingress → hub → workers → storage.
+> Each layer has a dashed frame + label. Use for classic 3-tier / 4-tier
+> architectures, request processing pipelines, clean architecture layers.
+
+```
+┌──────────── Ingress ────────────┐
+│  ┌──────────────────────────┐   │
+│  │      gateway / API       │   │
+│  └──────────────────────────┘   │
+└──────────────────────────────────┘
+                │
+                ▼
+┌──────────── Router ────────────┐
+│  ╭────────────────────────────╮ │
+│  │      message bus pill      │ │
+│  ╰────────────────────────────╯ │
+└──────────────────────────────────┘
+           ╱     ╲
+          ▼       ▼
+┌────── Workers ───────┐
+│  ┌────┐    ┌────┐     │
+│  │w-1 │    │w-2 │     │
+│  └────┘    └────┘     │
+└───────────────────────┘
+           ╲     ╱
+            ▼   ▼
+┌──────── Storage ───────────────┐
+│  ┌──────────────────────────┐  │
+│  │    database / cache      │  │
+│  └──────────────────────────┘  │
+└────────────────────────────────┘
+```
+
+Reference consumer: (future) service-architecture explainer.
+
+### Machine Clusters
+
+> 3 machine frames side-by-side with cross-machine edges. Each frame has its
+> own dashed border + label. Use for multi-host deployments, dev/staging/prod
+> side-by-side, microservices distributed across machines.
+
+```
+┌────── Machine-1 ──────┐  ┌────── Machine-2 ──────┐  ┌────── Machine-3 ──────┐
+│  ┌────┐               │  │  ┌────┐               │  │               ┌────┐ │
+│  │hub │               │  │  │hub │               │  │               │ext │ │
+│  └────┘               │  │  └────┘               │  │               └────┘ │
+│    │                  │  │    │                  │  │                  │    │
+│  ┌────┐               │  │  ┌────┐               │  │                  │    │
+│  │adapter│            │  │  │shared│             │  │                  │    │
+│  └────┘               │  │  └────┘               │  │                  │    │
+└───────────────────────┘  └───────────────────────┘  └───────────────────────┘
+         │                            │                           │
+         └────────────────────────────┴───────────────────────────┘
+                    cross-machine edges (bulge routing)
+```
+
+Reference consumer: (future) distributed-deployment map.
+
+### Deployment Tiers
+
+> 3 deployment tiers stacked vertically — dev / staging / prod. Each tier
+> has a colored stripe + label. Promotion arrows flow upward (dev → staging → prod).
+> Data sync arrows flow between tiers. Use for CI/CD pipeline visualization.
+
+```
+┌────────────────── Production (green) ──────────────────┐
+│  ┌──────────┐        ┌─────────┐                       │
+│  │ service  │◀──────▶│   db    │   ← data sync        │
+│  └──────────┘        └─────────┘                       │
+│         ▲                                              │
+│         │ promote                                      │
+├────────────────── Staging (cyan) ─────────────────────┤
+│  ┌──────────┐        ┌─────────┐                       │
+│  │ service  │◀──────▶│   db    │                       │
+│  └──────────┘        └─────────┘                       │
+│         ▲                                              │
+│         │ promote                                      │
+├────────────────── Dev (amber) ────────────────────────┤
+│  ┌─────────────────────────┐                          │
+│  │    local dev env        │                          │
+│  └─────────────────────────┘                          │
+└───────────────────────────────────────────────────────┘
+```
+
+Reference consumer: (future) deployment-flow explainer.
+
 ---
 
 ## Templates
@@ -111,6 +220,10 @@ Reference consumer: `tab-target.html` M3 (dual-hub lyra_hub-1 + lyra_hub-2 shari
 | `radial-hub.html` | Hub-and-spoke / message bus / gateway with 4–6 peers | ~4K | Center pill hub + 5 satellites, bidirectional labeled arrows, dashed machine frame, pills, fragility warn sub, hover glow |
 | `linear-flow.html` | 3-stage pipeline (source → middle → sink) | ~3K | 3 horizontal cards, single-direction arrows, labels above, 16/6 aspect, middle pill or wide, any-tone edges |
 | `dual-cluster.html` | 2 peers sharing 2 central resources (HA pair + session + bus) | ~4K | 2 top peers + center resource + bottom bus, 4 bidirectional arrows with wide-bulge routing, single centered labels, square aspect |
+| `radial-ring.html` | Peer-to-peer mesh / ring buffer / consensus ring (no center hub) | ~4K | 6 nodes in a circle, clockwise inter-peer edges, labels outside ring, square aspect |
+| `layered.html` | 3–4 horizontal layers (ingress → hub → workers → storage) | ~5K | 4 stacked layers with dashed frames, vertical fan-out/fan-in arrows, tall aspect (3/4), optional 3-layer variant |
+| `machine-clusters.html` | Multi-host deployment / distributed services across machines | ~5K | 3 machine frames side-by-side, cross-machine edge routing, wide aspect (16/9), per-machine labels |
+| `deployment-tiers.html` | CI/CD pipeline / dev → staging → prod promotion | ~5K | 3 colored tier stripes, promotion arrows upward, data sync arrows, tall aspect (4/5), tier-specific tones |
 
 All templates share **`fgraph-base.css`** — the CSS primitives for graphs.
 Distribution model depends on the consumer (see "Inlined vs shared" below).
@@ -241,6 +354,10 @@ Pick by layout intent, not by domain. Any template can be re-tinted
 | 1 center + 4–6 peers radiating out | `radial-hub.html` | 2.1, M1, M2 |
 | 3 stages in a horizontal pipe (source → middle → sink) | `linear-flow.html` | 2.3, 2.4 |
 | 2 peers + 2 shared resources (HA pair cluster) | `dual-cluster.html` | M3 |
+| N nodes in a ring, each talks to neighbors | `radial-ring.html` | consensus visualizer |
+| 3–4 horizontal layers stacked vertically | `layered.html` | service architecture |
+| 2–3 machine frames side-by-side | `machine-clusters.html` | distributed deployment |
+| Dev / staging / prod tiers stacked | `deployment-tiers.html` | CI/CD pipeline |
 | Something that doesn't fit | start from the closest template, reposition nodes via `--x`/`--y`, repaint arrow paths to match |
 
 All three templates share the same `fgraph-base.css` primitives.
@@ -456,6 +573,194 @@ cross through the resource card.
 
 ---
 
+## How to customise `radial-ring.html`
+
+6 nodes arranged in a circle, each connected to its neighbors. No center
+hub — the topology is a true ring. Use for peer-to-peer meshes, ring
+buffers, consensus rings.
+
+### Step 1 — Placeholders
+
+| Placeholder | Example | Notes |
+|-------------|---------|-------|
+| `{{TITLE}}` / `{{DATE}}` / etc. | standard diagram-meta | |
+| `{{WRAP_TONE}}` | `amber` | container border color |
+| `{{NODE_1_NAME}}` / `{{NODE_1_PILL}}` / `{{NODE_1_SUB}}` / `{{NODE_1_SUB_MUTED}}` | `node-alpha` / `leader` / `consensus participant` / `port:8001` | top node |
+| `{{NODE_2_NAME}}` ... `{{NODE_6_NAME}}` | ... | clockwise around the ring |
+| `{{NODE_1_TONE}}` ... `{{NODE_6_TONE}}` | `amber` / `cyan` / `purple` / `green` / `amber` / `cyan` | per-node border color |
+| `{{EDGE_1_TONE}}` ... `{{EDGE_6_TONE}}` | `cyan` | edge colors (can match node tones) |
+| `{{EDGE_1_LABEL}}` ... `{{EDGE_6_LABEL}}` | `gossip` / `replicate` / `vote` | labels outside ring near each edge |
+| `{{LEGEND}}` | `clockwise message flow · each node talks to neighbors` | bottom strip |
+
+### Step 2 — Ring coordinates
+
+Nodes are positioned at ~35% radius from center:
+
+| Node | x | y | Position |
+|------|---|---|----------|
+| node-1 | 50 | 15 | top |
+| node-2 | 80 | 30 | top-right |
+| node-3 | 80 | 70 | bot-right |
+| node-4 | 50 | 85 | bottom |
+| node-5 | 20 | 70 | bot-left |
+| node-6 | 20 | 30 | top-left |
+
+### Step 3 — Edge paths (clockwise)
+
+Each edge curves from one node to the next:
+
+| Edge | Path |
+|------|------|
+| node-1 → node-2 | `M 62,18 Q 72,22 75,30` |
+| node-2 → node-3 | `M 82,42 Q 84,50 82,58` |
+| node-3 → node-4 | `M 75,70 Q 68,80 58,82` |
+| node-4 → node-5 | `M 42,82 Q 32,80 25,70` |
+| node-5 → node-6 | `M 18,58 Q 16,50 18,42` |
+| node-6 → node-1 | `M 25,30 Q 28,22 38,18` |
+
+For **bidirectional** edges (full-duplex ring), add `marker-start` to each path.
+
+### Step 4 — Cross-ring edges (optional)
+
+For skip connections (e.g. leader → all followers), add straight or curved
+paths that cross the center:
+
+```html
+<!-- Leader (node-1) broadcasts to node-4 (opposite) -->
+<path class="fg-edge amber" d="M 50,22 L 50,78"
+      marker-end="url(#fg-arr-amber-rr)"/>
+```
+
+---
+
+## How to customise `layered.html`
+
+4 horizontal layers stacked vertically. Each layer has a dashed frame +
+label. Use for classic tiered architectures.
+
+### Step 1 — Placeholders
+
+| Placeholder | Example | Notes |
+|-------------|---------|-------|
+| `{{WRAP_TONE}}` | `amber` | container border color |
+| `{{LAYER_1_LABEL}}` | `INGRESS` | top layer label |
+| `{{LAYER_2_LABEL}}` | `ROUTER` | second layer |
+| `{{LAYER_3_LABEL}}` | `WORKERS` | third layer |
+| `{{LAYER_4_LABEL}}` | `STORAGE` | bottom layer |
+| `{{LAYER_1_NODE_NAME}}` / `{{LAYER_1_NODE_SUB}}` | `gateway` / `nginx · TLS termination` | top node |
+| `{{LAYER_2_NODE_NAME}}` / `{{LAYER_2_NODE_SUB}}` | `message-bus` / `NATS · subject routing` | center hub (pill) |
+| `{{LAYER_3A_NAME}}` / `{{LAYER_3B_NAME}}` | `worker-a` / `worker-b` | side-by-side workers |
+| `{{LAYER_4_NODE_NAME}}` / `{{LAYER_4_NODE_SUB}}` | `postgres` / `primary + replica` | bottom storage |
+| `{{EDGE_1_TONE}}` / `{{EDGE_2_TONE}}` / `{{EDGE_3_TONE}}` | `cyan` / `amber` / `green` | vertical arrow colors |
+| `{{EDGE_1_LABEL}}` / `{{EDGE_2_LABEL}}` / `{{EDGE_3_LABEL}}` | `request` / `dispatch` / `persist` | edge annotations |
+| `{{LEGEND}}` | `request → router → workers → db` | bottom strip |
+
+### Step 2 — 3-layer variant
+
+Remove layer-4 (storage) for a simpler 3-tier:
+
+1. Delete the layer-4 frame + label HTML
+2. Delete the layer-4 node + fan-in arrows
+3. Change container aspect from `tall` (4/5) → `square` (1/1)
+
+### Step 3 — Fan-out / fan-in
+
+Default layout has 1 → 1 → 2 → 1 nodes (fan-out to workers, fan-in to storage).
+To change:
+
+- **All layers single-node**: remove `{{LAYER_3B_*}}` node and one arrow from
+  each fan-out/fan-in pair.
+- **More workers**: add additional nodes at y=56 with x spaced evenly (20, 40,
+  60, 80 for 4 workers).
+
+---
+
+## How to customise `machine-clusters.html`
+
+3 machine frames side-by-side with cross-machine edges. Each frame has its
+own dashed border + label.
+
+### Step 1 — Placeholders
+
+| Placeholder | Example | Notes |
+|-------------|---------|-------|
+| `{{WRAP_TONE}}` | `amber` | container border color |
+| `{{MACHINE_1_LABEL}}` / `{{MACHINE_1_SUB}}` | `Machine-1` / `192.168.1.10` | left frame |
+| `{{MACHINE_2_LABEL}}` / `{{MACHINE_2_SUB}}` | `Machine-2` / `192.168.1.11` | center frame |
+| `{{MACHINE_3_LABEL}}` / `{{MACHINE_3_SUB}}` | `Machine-3` / `192.168.1.12` | right frame |
+| `{{M1_NODE_1_NAME}}` / `{{M1_NODE_1_SUB}}` | `hub` / `pool manager` | machine-1 node |
+| `{{M1_NODE_2_NAME}}` / `{{M1_NODE_2_SUB}}` | `adapter` / `telegram` | machine-1 second node |
+| `{{M2_NODE_1_NAME}}` ... `{{M3_NODE_1_NAME}}` | ... | per-machine nodes |
+| `{{MACHINE_1_EDGE_TONE}}` / `{{MACHINE_1_EDGE_LABEL}}` | `amber` / `internal` | intra-machine edge |
+| `{{CROSS_1_TONE}}` / `{{CROSS_1_LABEL}}` | `cyan` / `replicate` | cross-machine edge 1 |
+| `{{CROSS_2_TONE}}` / `{{CROSS_2_LABEL}}` | `purple` / `sync` | cross-machine edge 2 |
+| `{{LEGEND}}` | `each machine runs hub + adapter · cross-machine sync via NATS` | bottom strip |
+
+### Step 2 — 2-machine variant
+
+Remove machine-3 for a simpler side-by-side:
+
+1. Delete the machine-3 frame + nodes
+2. Delete the `CROSS_2_*` edge + label
+3. Adjust container width / frame positions
+
+### Step 3 — Cross-machine edge routing
+
+Edges bulge into the gaps between frames to avoid crossing nodes:
+
+| Edge | Path | Bulge point |
+|------|------|-------------|
+| Machine-1 → Machine-2 | `M 22,50 Q 32,45 40,50` | x=32 (gap between frames) |
+| Machine-2 → Machine-3 | `M 60,50 Q 67,45 75,50` | x=67 (gap between frames) |
+
+The control point y=45 lifts the curve slightly above center for visual clarity.
+
+---
+
+## How to customise `deployment-tiers.html`
+
+3 deployment tiers stacked vertically with colored stripes. Promotion arrows
+flow upward; data sync arrows flow between tiers.
+
+### Step 1 — Placeholders
+
+| Placeholder | Example | Notes |
+|-------------|---------|-------|
+| `{{WRAP_TONE}}` | `amber` | container border color |
+| `{{TIER_1_LABEL}}` / `{{TIER_1_SUB}}` | `PRODUCTION` / `live · users online` | top tier (green) |
+| `{{TIER_2_LABEL}}` / `{{TIER_2_SUB}}` | `STAGING` / `pre-prod · QA testing` | middle tier (cyan) |
+| `{{TIER_3_LABEL}}` / `{{TIER_3_SUB}}` | `DEV` / `local · development` | bottom tier (amber) |
+| `{{TIER_1_SERVICE_NAME}}` / `{{TIER_1_SERVICE_SUB}}` | `lyra-hub-prod` / `p=100 · primary` | prod service |
+| `{{TIER_1_DB_NAME}}` / `{{TIER_1_DB_SUB}}` | `postgres-prod` / `primary + replica` | prod database (pill) |
+| `{{TIER_2_*}}` / `{{TIER_3_*}}` | ... | staging + dev nodes |
+| `{{TIER_1_EDGE_LABEL}}` | `req ↔ db` | intra-tier edge label |
+| `{{PROMOTE_1_LABEL}}` | `promote` | dev → staging arrow |
+| `{{PROMOTE_2_LABEL}}` | `promote` | staging → prod arrow |
+| `{{SYNC_LABEL}}` | `seed data` | prod → staging sync arrow |
+| `{{LEGEND}}` | `promote upward · seed data downward · each tier isolated` | bottom strip |
+
+### Step 2 — Tier tones (fixed)
+
+Tiers use consistent colors for immediate recognition:
+
+| Tier | Tone | CSS class |
+|------|------|-----------|
+| Production | green | `.fgraph-node.green` |
+| Staging | cyan | `.fgraph-node.cyan` |
+| Dev | amber | `.fgraph-node.amber` |
+
+Data sync arrows use `purple` to distinguish from promotion flow.
+
+### Step 3 — 2-tier variant
+
+Remove the dev tier for a staging → prod view:
+
+1. Delete tier-3 stripe + nodes
+2. Delete `PROMOTE_1_*` placeholder and arrow
+3. Adjust tier positions: prod at 20%, staging at 60%
+
+---
+
 ## When NOT to use radial-hub
 
 | If your diagram is… | Use instead |
@@ -513,13 +818,13 @@ effort.
 
 ---
 
-## Future templates (not yet written)
+## Extending the template set
 
-| Template | Shape |
-|----------|-------|
-| `radial-ring.html` | N satellites in a true ring (no center hub) — inter-peer edges |
-| `layered.html` | 3–4 horizontal layers (ingress → hub → workers → storage) with rich cards |
-| `machine-clusters.html` | Multiple dashed machine frames side-by-side with cross-machine edges |
-| `deployment-tiers.html` | Dev / staging / prod stacked with data-flow arrows |
+All core topologies are now covered. If you need a new shape:
+
+1. Start from the closest template
+2. Reposition nodes via `--x`/`--y`
+3. Adjust arrow paths to match
+4. Add new CSS primitives to `fgraph-base.css` if needed (e.g. new tones, shapes)
 
 Contributions welcome — mirror the `radial-hub.html` + README pattern.

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- diagram-meta:start -->
+<meta name="diagram:title"     content="{{TITLE}}">
+<meta name="diagram:date"      content="{{DATE}}">
+<meta name="diagram:category"  content="{{CATEGORY}}">
+<meta name="diagram:cat-label" content="{{CAT_LABEL}}">
+<meta name="diagram:color"     content="{{COLOR}}">
+<!-- diagram-meta:end -->
+<title>{{TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* {{BASE_STYLES}} — inline reset.css + layout.css + typography.css + components.css */
+/* {{AESTHETIC_STYLES}} — inline the chosen aesthetic */
+
+/* ══════════════════════════════════════════════════════════════════
+   fgraph primitives — inlined from references/graph-templates/fgraph-base.css
+   ══════════════════════════════════════════════════════════════════ */
+/* {{FGRAPH_BASE}} — inline fgraph-base.css here */
+
+/* ── Tier stripe styling ── */
+.tier-stripe {
+  position: absolute;
+  left: 5%;
+  width: 90%;
+  border-radius: 8px;
+  pointer-events: none;
+}
+.tier-lbl {
+  position: absolute;
+  left: 8%;
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.tier-sub {
+  position: absolute;
+  left: 8%;
+  font-family: 'Space Mono', monospace;
+  font-size: 9px;
+  color: var(--text-muted);
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-eyebrow">{{CATEGORY_LABEL}}</div>
+  <h1>{{TITLE_PLAIN}} <span class="accent">{{TITLE_ACCENT}}</span></h1>
+  <p class="header-subtitle">{{SUBTITLE}}</p>
+</header>
+
+<main>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     CUSTOMISE — 3 deployment tiers stacked vertically.
+
+     Layout (tall container, aspect 4/5):
+       Tier 1 (top):    Production (live, users)
+       Tier 2 (middle): Staging (pre-prod, QA)
+       Tier 3 (bottom): Dev (local, development)
+
+     Each tier has a colored stripe + label on the left.
+     Horizontal arrows show promotion flow (dev → staging → prod).
+     Vertical arrows show data sync / rollback paths.
+
+     Use for:
+       - CI/CD pipeline visualization
+       - Environment promotion flows
+       - Dev → staging → prod deployment maps
+       - Data migration between tiers
+
+     Tier stripe coordinates:
+       Tier 1 (prod):    y = 6–32%
+       Tier 2 (staging): y = 38–64%
+       Tier 3 (dev):     y = 70–96%
+
+     Nodes per tier:
+       Tier 1: 2 nodes (service + db) — tone: green
+       Tier 2: 2 nodes (service + db) — tone: cyan
+       Tier 3: 1 node (local dev)     — tone: amber
+
+     Promotion arrows go LEFT-to-RIGHT (dev → staging → prod).
+     Data sync arrows go TOP-to-BOTTOM (prod → staging for seeding).
+     ══════════════════════════════════════════════════════════════════ -->
+
+<div class="fgraph-wrap {{WRAP_TONE}} tall"
+     style="aspect-ratio: 4/5; max-width: 700px;"
+     role="img"
+     aria-label="{{DIAGRAM_ARIA_LABEL}}">
+
+  <!-- Tier stripes -->
+  <div class="tier-stripe" style="top: 6%; height: 26%; background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.25);"></div>
+  <div class="tier-lbl" style="top: 10%; color: var(--green);">{{TIER_1_LABEL}}</div>
+  <div class="tier-sub" style="top: 22%;">{{TIER_1_SUB}}</div>
+
+  <div class="tier-stripe" style="top: 38%; height: 26%; background: rgba(34,211,238,0.08); border: 1px solid rgba(34,211,238,0.25);"></div>
+  <div class="tier-lbl" style="top: 42%; color: var(--cyan);">{{TIER_2_LABEL}}</div>
+  <div class="tier-sub" style="top: 54%;">{{TIER_2_SUB}}</div>
+
+  <div class="tier-stripe" style="top: 70%; height: 26%; background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.25);"></div>
+  <div class="tier-lbl" style="top: 74%; color: var(--amber);">{{TIER_3_LABEL}}</div>
+  <div class="tier-sub" style="top: 86%;">{{TIER_3_SUB}}</div>
+
+  <svg class="fgraph-edges" viewBox="0 0 100 100" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="fg-arr-green-dt"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-green"/></marker>
+      <marker id="fg-arr-cyan-dt"   viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-cyan"/></marker>
+      <marker id="fg-arr-amber-dt"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-amber"/></marker>
+      <marker id="fg-arr-purple-dt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-purple"/></marker>
+    </defs>
+
+    <!-- Intra-tier edges (service ↔ db) -->
+    <path class="fg-edge green" d="M 52,20 L 70,20"
+          marker-start="url(#fg-arr-green-dt)" marker-end="url(#fg-arr-green-dt)"/>
+    <path class="fg-edge cyan" d="M 52,52 L 70,52"
+          marker-start="url(#fg-arr-cyan-dt)" marker-end="url(#fg-arr-cyan-dt)"/>
+
+    <!-- Promotion arrows (dev → staging → prod) — curving RIGHT -->
+    <path class="fg-edge cyan" d="M 42,82 Q 52,82 52,60"
+          marker-end="url(#fg-arr-cyan-dt)"/>
+    <path class="fg-edge green" d="M 42,52 Q 52,52 52,30"
+          marker-end="url(#fg-arr-green-dt)"/>
+
+    <!-- Data sync arrows (prod → staging) — curving LEFT -->
+    <path class="fg-edge purple" d="M 70,28 Q 78,40 70,48"
+          marker-end="url(#fg-arr-purple-dt)"/>
+  </svg>
+
+  <!-- Tier labels (right side, edge annotations) -->
+  <div class="fgraph-lbl green" style="--x:60;--y:20;">{{TIER_1_EDGE_LABEL}}</div>
+  <div class="fgraph-lbl cyan" style="--x:60;--y:52;">{{TIER_2_EDGE_LABEL}}</div>
+  <div class="fgraph-lbl cyan" style="--x:48;--y:72;">{{PROMOTE_1_LABEL}}</div>
+  <div class="fgraph-lbl green" style="--x:48;--y:42;">{{PROMOTE_2_LABEL}}</div>
+  <div class="fgraph-lbl purple" style="--x:78;--y:38;">{{SYNC_LABEL}}</div>
+
+  <!-- Tier 1 (Production) nodes -->
+  <div class="fgraph-node green narrow" style="--x:40;--y:19;">
+    <div class="fgraph-title green">{{TIER_1_SERVICE_NAME}}</div>
+    <div class="fgraph-sub">{{TIER_1_SERVICE_SUB}}</div>
+  </div>
+
+  <div class="fgraph-node green pill" style="--x:78;--y:19;">
+    <div class="fgraph-title green">{{TIER_1_DB_NAME}}</div>
+    <div class="fgraph-sub muted">{{TIER_1_DB_SUB}}</div>
+  </div>
+
+  <!-- Tier 2 (Staging) nodes -->
+  <div class="fgraph-node cyan narrow" style="--x:40;--y:51;">
+    <div class="fgraph-title cyan">{{TIER_2_SERVICE_NAME}}</div>
+    <div class="fgraph-sub">{{TIER_2_SERVICE_SUB}}</div>
+  </div>
+
+  <div class="fgraph-node cyan pill" style="--x:78;--y:51;">
+    <div class="fgraph-title cyan">{{TIER_2_DB_NAME}}</div>
+    <div class="fgraph-sub muted">{{TIER_2_DB_SUB}}</div>
+  </div>
+
+  <!-- Tier 3 (Dev) node -->
+  <div class="fgraph-node amber" style="--x:40;--y:83;">
+    <div class="fgraph-title amber">{{TIER_3_SERVICE_NAME}}</div>
+    <div class="fgraph-sub">{{TIER_3_SERVICE_SUB}}</div>
+    <div class="fgraph-sub muted">{{TIER_3_SERVICE_SUB_MUTED}}</div>
+  </div>
+
+  <div class="fgraph-legend">{{LEGEND}}</div>
+</div>
+
+</main>
+
+</body>
+</html>
