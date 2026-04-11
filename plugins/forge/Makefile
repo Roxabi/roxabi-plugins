@@ -1,6 +1,7 @@
 FORGE_DIR       ?= $(HOME)/.roxabi/forge
 PLUGIN_DIR      := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
+SUPERVISOR_HUB  ?= $(HOME)/projects
 -include $(SUPERVISOR_HUB)/hub.mk
 
 .PHONY: deploy register help

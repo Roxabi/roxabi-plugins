@@ -1,6 +1,8 @@
 FORGE_DIR       := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 SCRIPTS_DIR     := $(FORGE_DIR)scripts
 
+SUPERVISOR_HUB  ?= $(HOME)/projects
+HUB_SERVICES    := forge
 -include $(SUPERVISOR_HUB)/hub.mk
 
 -include $(FORGE_DIR).env
@@ -15,22 +17,17 @@ define ensure_forge_init
 	fi
 endef
 
-.PHONY: build deploy du start stop reload status logs errlogs help
+.PHONY: build deploy du forge help
 
 .DEFAULT_GOAL := help
 
 help:
 	@echo "Usage: make <target>"
 	@echo ""
-	@echo "  build        regenerate manifest + sync to _dist/"
-	@echo "  deploy       build then deploy to Cloudflare Pages"
-	@echo "  du           disk usage by project"
-	@echo "  start        start forge service"
-	@echo "  stop         stop forge service"
-	@echo "  reload       restart forge service"
-	@echo "  status       show forge service status"
-	@echo "  logs         tail stdout log"
-	@echo "  errlogs      tail stderr log"
+	@echo "  build                   regenerate manifest + sync to _dist/"
+	@echo "  deploy                  build then deploy to Cloudflare Pages"
+	@echo "  du                      disk usage by project"
+	@echo "  forge <action>          start|stop|reload|status|logs|errlogs"
 
 build:
 	@bash "$(SCRIPTS_DIR)/build.sh"
@@ -42,22 +39,17 @@ deploy: build
 du:
 	@du -sh "$(FORGE_DIR)"*/
 
-start:
-	$(ensure_forge_init)
-	@$(HUB_SVC) forge start
+# ── Supervisor service (hub-dispatched) ─────────────────────────────────────────
+# Usage (from this dir or from ~/projects):
+#   make forge start|stop|reload|status|logs|errlogs
 
-stop:
-	@$(HUB_SVC) forge stop
-
-reload:
-	$(ensure_forge_init)
-	@$(HUB_SVC) forge reload
-
-status:
-	@$(HUB_SVC) forge status
-
-logs:
-	@$(HUB_SVC) forge logs
-
-errlogs:
-	@$(HUB_SVC) forge errlogs
+forge:
+	@case "$(SVC_CMD)" in \
+		start|reload) \
+			if [ ! -f "$(FORGE_DIR)serve.py" ] || [ ! -f "$(FORGE_DIR)run.sh" ]; then \
+				echo "Error: forge not initialized at $(FORGE_DIR)"; \
+				echo "       Run 'make forge install' first."; \
+				exit 1; \
+			fi ;; \
+	esac
+	@$(HUB_SVC) forge $(SVC_CMD)
