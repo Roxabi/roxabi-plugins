@@ -1,6 +1,6 @@
 # web-intel
 
-Multi-platform URL scraper and content analysis engine for Claude Code. Extracts structured content from Twitter/X, GitHub, YouTube, Reddit, and any webpage — then powers 6 analysis skills on top. Includes a video frame analysis pipeline for deep visual understanding of YouTube videos.
+Multi-platform URL scraper and content analysis engine for Claude Code. Extracts structured content from Twitter/X, GitHub, YouTube, Reddit, and any webpage — then powers 6 analysis skills on top. Includes a headless-Chromium stealth fallback for anti-bot protected sites, full-page screenshots for visual critiques, and a video frame analysis pipeline for deep visual understanding of YouTube videos.
 
 ## Skills
 
@@ -30,7 +30,7 @@ Multi-platform URL scraper and content analysis engine for Claude Code. Extracts
 
 Optional — per-platform:
 - `gh` CLI (for GitHub repo scraping)
-- `playwright` (for Twitter/X articles): `uv sync --extra twitter && playwright install chromium`
+- `playwright` + `playwright-stealth` (for X articles, `/scrape` stealth fallback, and `/roast`/`/benchmark` screenshots): `uv sync --extra twitter && uv run playwright install chromium`
 - `yt-dlp` + `youtube-transcript-api` (for YouTube rich metadata + transcripts): `uv sync --extra youtube`
 - `trafilatura` (for generic webpage extraction): `uv sync --extra scraper`
 
@@ -43,8 +43,8 @@ Optional — video analysis pipeline:
 
 ```bash
 cd plugins/web-intel
-uv sync --extra all          # Install all optional dependencies
-playwright install chromium  # Only if you need Twitter article support
+uv sync --extra all                    # Install all optional dependencies
+uv run playwright install chromium     # Required for X articles, stealth fallback, screenshots
 ```
 
 ## Doctor
@@ -82,6 +82,17 @@ Doctor runs automatically on first use of any web-intel skill in a session. Run 
 cd plugins/web-intel
 SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt uv run python scripts/scraper.py <url>
 ```
+
+### CLI — Screenshot
+
+Full-page PNG via headless Chromium + playwright-stealth. Used as a fallback by `/roast` and `/benchmark` when the `agent-browser` CLI is not installed.
+
+```bash
+cd plugins/web-intel
+REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt uv run python scripts/screenshot.py <url> <output.png>
+```
+
+Exit codes: `0` on success (path printed to stdout), `1` on failure (actionable error on stderr).
 
 ### CLI — Video Analyzer
 
@@ -183,17 +194,19 @@ Selection priorities:
 ```
 scripts/
 ├── scraper.py           # Main entry point — URL routing + CLI
+├── screenshot.py        # Full-page PNG CLI — Playwright + stealth (fallback for /roast, /benchmark)
 ├── doctor.py            # Dependency checker — core + optional + video status report
 ├── video_analyzer.py    # Video frame analysis pipeline — download → extract → describe
 ├── gpu_detector.py      # GPU/Ollama detection + qwen3-vl model selection
 ├── fetchers/            # Platform-specific extractors
 │   ├── base.py          # Abstract base class + shared utilities
-│   ├── twitter.py       # Twitter/X (syndication API + FxTwitter + Playwright)
+│   ├── stealth.py       # Headless-Chromium anti-bot fallback (reused by generic.py)
+│   ├── twitter/         # Twitter/X (syndication API + FxTwitter + Playwright for articles)
 │   ├── github.py        # GitHub (gh CLI)
 │   ├── gist.py          # GitHub Gists (gh API)
 │   ├── youtube.py       # YouTube (yt-dlp primary; oEmbed + transcript API fallback)
 │   ├── reddit.py        # Reddit (JSON API)
-│   └── generic.py       # Any webpage (Trafilatura)
+│   └── generic.py       # Any webpage (Trafilatura + stealth fallback + metadata-only fallback)
 ├── utils/
 │   └── url_detector.py  # URL type detection for routing
 └── _shared/             # Vendored security + caching utilities
@@ -204,6 +217,46 @@ scripts/
     ├── retry.py         # Exponential backoff for transient errors
     └── timeouts.py      # Configurable timeout management
 ```
+
+## Fetch strategy (generic webpages)
+
+The generic fetcher runs a three-step chain, each step falling through only on failure:
+
+```
+1. Fast path   — safe_fetch (plain HTTPS) + Trafilatura extraction
+         │
+         │  anti-bot signature? (HTTP 403/429/503 · Cloudflare markers · <50 chars)
+         ▼
+2. Stealth     — headless Chromium + playwright-stealth + Trafilatura
+         │
+         │  still nothing extractable?
+         ▼
+3. Metadata    — synthesize text from Open Graph / Twitter Card tags
+                 (for SPAs with empty bodies but rich meta tags)
+         │
+         ▼  final failure
+   Error message concatenates every attempted step:
+     "HTTP 403 · stealth retry fetched the page but extracted only 0 chars"
+     "HTTP 503 · stealth retry failed: playwright not installed — install with …"
+```
+
+**Non-silent errors:** every failure mode surfaces its root cause. Stealth failures (missing dep, SSRF block, timeout, still-CF-blocked) are appended to the fast-path reason via `·` so the caller sees the full story, not just `HTTP 403`.
+
+**When stealth does NOT fire:** genuine 5xx errors (500), DNS failures, connection errors — these aren't bot-protection signals and get the plain error. See `tests/test_generic_fallback.py::TestStealthSkipped`.
+
+**Turnstile note:** the stealth fallback only bypasses plain-TLS / headless-fingerprint heuristics. It does *not* solve Cloudflare Turnstile challenges — if a site is still gated after the retry, the final error says so.
+
+## Testing
+
+```bash
+cd plugins/web-intel
+uv run --with pytest pytest tests/ -v
+```
+
+Coverage highlights:
+- `test_generic_fallback.py` — pins the fast → stealth → meta chain against every branch, including the 5xx retry-exhausted regression (see commit `7f58dbd`)
+- `test_stealth.py` — anti-bot signature detection (every CF marker, every status code, edge cases) + tuple contract for `fetch_html_stealth`
+- `test_screenshot.py` — graceful degradation when Playwright is absent + CLI exit codes
 
 ## Cache
 
