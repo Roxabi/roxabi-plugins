@@ -6,6 +6,12 @@ Used as a fallback by ``/roast`` and ``/benchmark`` when the agent-browser
 CLI is not installed. Reuses the Playwright stack already required for X
 articles — no new dependencies.
 
+TODO(#93): The Playwright + stealth bootstrap below duplicates
+``fetchers/stealth.py`` (sync) and ``plugins/linkedin-apply/scripts/scraper.py``
+(async). Extract to ``roxabi_sdk/browser.py`` so all three sites share one
+``launch_stealth_sync()`` / ``launch_stealth_async()`` primitive.
+See Roxabi/roxabi-plugins#93 for the full refactor plan.
+
 Usage:
     uv run python scripts/screenshot.py <url> <output_path>
 

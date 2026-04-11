@@ -273,6 +273,13 @@ async def get_browser_context(
 
     Raises:
         PlaywrightNotAvailableError: If playwright or playwright-stealth not installed
+
+    TODO(#93): The Playwright + stealth bootstrap below duplicates the sync
+    variant in ``plugins/web-intel/scripts/fetchers/stealth.py`` and
+    ``plugins/web-intel/scripts/screenshot.py``. Extract to
+    ``roxabi_sdk/browser.py`` as ``launch_stealth_async(user_data_dir=...)``
+    so all three sites share one primitive. See Roxabi/roxabi-plugins#93
+    for the full refactor plan.
     """
     try:
         from playwright.async_api import async_playwright
