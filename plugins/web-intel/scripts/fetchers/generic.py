@@ -5,16 +5,27 @@ Generic webpage content extraction module.
 Uses Trafilatura for robust article extraction from any website.
 Fallback scraper when URL doesn't match a specialized fetcher.
 
+Fetch strategy:
+  1. Fast path — plain HTTP via ``safe_fetch`` + Trafilatura extraction
+  2. Stealth fallback — if the fast path returns an anti-bot signature
+     (HTTP 403/429/503, Cloudflare challenge markers, or < 50 chars
+     extracted), retry via headless Chromium + playwright-stealth and
+     re-run Trafilatura on the rendered HTML.
+
+The stealth fallback reuses the Playwright stack already required for
+Twitter/X articles — no new dependencies.
+
 Security:
-- SSRF protection via validate_url_ssrf
+- SSRF protection via validate_url_ssrf (safe_fetch + stealth pre-flight)
 - Content size limits via safe_fetch
 """
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 # Add paths for imports (needed when running as script or from tests)
 SHARED_DIR = Path(__file__).resolve().parents[1] / "_shared"
@@ -29,6 +40,9 @@ from base import (
     sanitize_content,
     safe_fetch,
 )
+from stealth import fetch_html_stealth, has_antibot_signature
+
+logger = logging.getLogger(__name__)
 
 # Optional - graceful handling if not installed
 try:
@@ -41,51 +55,12 @@ except ImportError:
     TRAFILATURA_AVAILABLE = False
 
 
-def fetch_webpage_content(
-    url: str,
-    max_content_size: int = DEFAULT_MAX_CONTENT_SIZE,
-) -> dict[str, Any]:
-    """Fetch and extract content from a webpage.
-
-    Args:
-        url: Webpage URL to fetch
-        max_content_size: Maximum response size in bytes (default: 5MB)
-
-    Returns:
-        Dict with extracted content or error
-
-    Security:
-        - Validates URL against SSRF attacks
-        - Limits response size to prevent memory exhaustion
-    """
-    if not TRAFILATURA_AVAILABLE:
-        return {
-            "success": False,
-            "error": "trafilatura not installed. Run: uv add trafilatura",
-            "_do_not_cache": True,
-        }
-
-    # Fetch HTML content with SSRF protection
-    result = safe_fetch(url, max_size=max_content_size, fetcher_name="generic")
-
-    if not result["success"]:
-        return {"success": False, "error": result["error"]}
-
-    if result["status_code"] != 200:
-        return {"success": False, "error": f"HTTP {result['status_code']}"}
-
-    try:
-        html_content = result["content"].decode("utf-8", errors="replace")
-    except Exception as e:
-        return {"success": False, "error": f"Failed to decode content: {e}"}
-
-    # Configure trafilatura for better extraction
+def _extract_with_trafilatura(html: str, url: str) -> Optional[str]:
+    """Run Trafilatura article extraction on an HTML string."""
     config = use_config()
     config.set("DEFAULT", "EXTRACTION_TIMEOUT", "30")
-
-    # Extract content with metadata
-    extracted = extract(
-        html_content,
+    return extract(
+        html,
         url=url,
         include_comments=False,
         include_tables=True,
@@ -95,13 +70,84 @@ def fetch_webpage_content(
         config=config,
     )
 
+
+def fetch_webpage_content(
+    url: str,
+    max_content_size: int = DEFAULT_MAX_CONTENT_SIZE,
+) -> dict[str, Any]:
+    """Fetch and extract content from a webpage.
+
+    Fast path (plain HTTP) first; if it trips an anti-bot signature, retry
+    via stealth browser and re-run Trafilatura on the rendered HTML.
+
+    Args:
+        url: Webpage URL to fetch
+        max_content_size: Maximum response size in bytes (default: 5MB)
+
+    Returns:
+        Dict with extracted content or error
+
+    Security:
+        - Validates URL against SSRF attacks (fast path + stealth pre-flight)
+        - Limits fast-path response size to prevent memory exhaustion
+    """
+    if not TRAFILATURA_AVAILABLE:
+        return {
+            "success": False,
+            "error": "trafilatura not installed. Run: uv add trafilatura",
+            "_do_not_cache": True,
+        }
+
+    # ---- Fast path: plain HTTP fetch ----
+    result = safe_fetch(url, max_size=max_content_size, fetcher_name="generic")
+
+    html_content: Optional[str] = None
+    fast_path_status: Optional[int] = None
+    fast_path_error: Optional[str] = None
+
+    if result["success"]:
+        fast_path_status = result.get("status_code")
+        if fast_path_status == 200:
+            try:
+                html_content = result["content"].decode("utf-8", errors="replace")
+            except Exception as e:
+                fast_path_error = f"Failed to decode content: {e}"
+        else:
+            fast_path_error = f"HTTP {fast_path_status}"
+    else:
+        fast_path_error = result.get("error", "fetch failed")
+
+    # Try extraction on whatever fast-path HTML we got
+    extracted: Optional[str] = (
+        _extract_with_trafilatura(html_content, url) if html_content else None
+    )
+    text_len = len(extracted.strip()) if extracted else 0
+
+    # ---- Stealth fallback trigger ----
+    if has_antibot_signature(
+        status_code=fast_path_status,
+        html=html_content,
+        text_length=text_len if html_content is not None else None,
+    ):
+        logger.info(
+            "Anti-bot signature for %s (status=%s, text_len=%d) — retrying via stealth browser",
+            url,
+            fast_path_status,
+            text_len,
+        )
+        stealth_html = fetch_html_stealth(url)
+        if stealth_html:
+            html_content = stealth_html
+            extracted = _extract_with_trafilatura(html_content, url)
+
+    # ---- Final validity check ----
     if not extracted or len(extracted.strip()) < 50:
         return {
             "success": False,
-            "error": "Could not extract meaningful content from page",
+            "error": fast_path_error or "Could not extract meaningful content from page",
         }
 
-    # Extract metadata separately
+    # ---- Metadata (from whichever HTML we ended up using) ----
     metadata = trafilatura.extract_metadata(html_content, default_url=url)
 
     title = ""

@@ -197,7 +197,7 @@ def main() -> int:
 
     optional_checks = [
         ('trafilatura (generic webpages)',             check_trafilatura()),
-        ('playwright + chromium (Twitter/X articles)', check_playwright()),
+        ('playwright + chromium (X articles + stealth fallback)', check_playwright()),
         ('youtube-transcript-api (YouTube)',           check_youtube_transcript()),
         ('gh CLI (GitHub repos/gists)',                check_gh_cli()),
     ]
