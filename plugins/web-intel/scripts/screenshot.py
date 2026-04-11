@@ -52,15 +52,25 @@ _DEFAULT_USER_AGENT = (
 )
 _DEFAULT_VIEWPORT = {"width": 1280, "height": 900}
 
+from roxabi_sdk.browser import (  # noqa: E402
+    PlaywrightNotAvailableError,
+    close_stealth,
+    launch_stealth_sync,
+)
+
+# Independent module-level pre-flight flags — kept separate from
+# roxabi_sdk.browser._raise_if_unavailable so any future test that
+# wants to monkey-patch them (mirroring tests/test_stealth.py:104) can
+# still drive the "missing dep" branch without reaching into SDK internals.
 try:
-    from playwright.sync_api import sync_playwright
+    import playwright  # noqa: F401
 
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
 try:
-    from playwright_stealth import Stealth as _Stealth
+    import playwright_stealth  # noqa: F401
 
     PLAYWRIGHT_STEALTH_AVAILABLE = True
 except ImportError:
@@ -93,28 +103,31 @@ def capture_full_page(
     if not is_valid:
         return False, f"URL rejected by SSRF validation: {err}"
 
+    pw = ctx = None
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
+        try:
+            pw, ctx, page = launch_stealth_sync(
                 user_agent=_DEFAULT_USER_AGENT,
                 viewport=_DEFAULT_VIEWPORT,
                 locale="en-US",
             )
-            page = context.new_page()
+        except PlaywrightNotAvailableError as exc:
+            return False, str(exc)
 
-            if PLAYWRIGHT_STEALTH_AVAILABLE:
-                _Stealth().use_sync(page)
-
-            page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
-            # Let fonts, lazy images, and CF auto-redirects settle
-            page.wait_for_timeout(POST_LOAD_WAIT_MS)
-            page.screenshot(path=output_path, full_page=True)
-            browser.close()
-            return True, output_path
+        page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+        # Let fonts, lazy images, and CF auto-redirects settle
+        page.wait_for_timeout(POST_LOAD_WAIT_MS)
+        page.screenshot(path=output_path, full_page=True)
+        return True, output_path
 
     except Exception as exc:
         return False, f"Screenshot failed: {exc}"
+    finally:
+        if pw is not None and ctx is not None:
+            try:
+                close_stealth(pw, ctx)
+            except Exception:
+                pass
 
 
 def main() -> int:

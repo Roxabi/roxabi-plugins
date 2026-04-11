@@ -77,15 +77,27 @@ _DEFAULT_USER_AGENT = (
 )
 _DEFAULT_VIEWPORT = {"width": 1280, "height": 900}
 
+from roxabi_sdk.browser import (
+    PlaywrightNotAvailableError,
+    close_stealth,
+    launch_stealth_sync,
+)
+
+# These two probe flags stay independent of the SDK so the existing
+# test suite (test_stealth.py:104) can keep monkey-patching
+# PLAYWRIGHT_AVAILABLE to drive the "missing dep" branch without having
+# to reach into roxabi_sdk internals. They serve a different role from
+# roxabi_sdk.browser._raise_if_unavailable: this is a module-level
+# pre-flight gate, not the eager import probe used by the launcher.
 try:
-    from playwright.sync_api import sync_playwright
+    import playwright  # noqa: F401
 
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
 try:
-    from playwright_stealth import Stealth as _Stealth
+    import playwright_stealth  # noqa: F401
 
     PLAYWRIGHT_STEALTH_AVAILABLE = True
 except ImportError:
@@ -153,47 +165,45 @@ def fetch_html_stealth(
         logger.warning("Stealth fetch refused: %s", msg)
         return None, msg
 
+    pw = ctx = None
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            try:
-                context = browser.new_context(
-                    user_agent=_DEFAULT_USER_AGENT,
-                    viewport=_DEFAULT_VIEWPORT,
-                    locale="en-US",
-                )
-                page = context.new_page()
+        try:
+            pw, ctx, page = launch_stealth_sync(
+                user_agent=_DEFAULT_USER_AGENT,
+                viewport=_DEFAULT_VIEWPORT,
+                locale="en-US",
+            )
+        except PlaywrightNotAvailableError as exc:
+            # SDK probe failed even though our PLAYWRIGHT_AVAILABLE flag passed
+            # — surface the SDK install hint verbatim so the user can act on it.
+            logger.info("Stealth fallback unavailable: %s", exc)
+            return None, str(exc)
 
-                if PLAYWRIGHT_STEALTH_AVAILABLE:
-                    _Stealth().use_sync(page)
-                    logger.debug("playwright-stealth patches applied")
-                else:
-                    logger.info(
-                        "playwright-stealth not installed; stealth fetch running "
-                        "without fingerprint patches (less effective)"
-                    )
+        page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+        # Let dynamic content settle — CF challenge pages typically
+        # auto-redirect after ~1-2s when the stealth patches work
+        page.wait_for_timeout(POST_LOAD_WAIT_MS)
 
-                page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
-                # Let dynamic content settle — CF challenge pages typically
-                # auto-redirect after ~1-2s when the stealth patches work
-                page.wait_for_timeout(POST_LOAD_WAIT_MS)
+        html = page.content()
 
-                html = page.content()
-            finally:
-                browser.close()
+        # If we STILL see a challenge marker, stealth didn't bypass it —
+        # don't pretend success, let the caller surface a clear error
+        for marker in CF_CHALLENGE_MARKERS:
+            if marker in html:
+                msg = f"still blocked by anti-bot challenge after stealth retry ({marker!r})"
+                logger.info("Stealth fetch: %s", msg)
+                return None, msg
 
-            # If we STILL see a challenge marker, stealth didn't bypass it —
-            # don't pretend success, let the caller surface a clear error
-            for marker in CF_CHALLENGE_MARKERS:
-                if marker in html:
-                    msg = f"still blocked by anti-bot challenge after stealth retry ({marker!r})"
-                    logger.info("Stealth fetch: %s", msg)
-                    return None, msg
-
-            return html, None
+        return html, None
 
     except Exception as exc:
         # Preserve exception type so callers can see e.g. "TimeoutError: ..."
         msg = f"{type(exc).__name__}: {exc}"
         logger.warning("Stealth fetch failed for %s: %s", url, msg)
         return None, msg
+    finally:
+        if pw is not None and ctx is not None:
+            try:
+                close_stealth(pw, ctx)
+            except Exception:
+                logger.debug("close_stealth raised during cleanup", exc_info=True)
