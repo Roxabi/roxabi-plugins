@@ -612,11 +612,11 @@ table.data-table {
   border-collapse: collapse;
 }
 
-table.data-table thead {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-}
+/* No sticky thead: `.tbl-wrap` has `overflow-x: auto` which makes it the
+   sticky scroll container. Page-scroll sticky and overflow-x wrappers
+   are incompatible — the thead ends up scoped to the wrapper instead of
+   the viewport. Removed rather than left as a trap. If a future long-form
+   doc actually needs a sticky thead, do it without the overflow wrapper. */
 
 table.data-table th {
   background: var(--surface);

@@ -67,7 +67,11 @@ thead th {
   font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.06em;
   padding: 0.5rem 0.75rem; text-align: left;
   border-bottom: 1px solid var(--border);
-  position: sticky; top: 3rem;
+  /* No sticky: `.table-wrap` has `overflow-x: auto` which makes it a
+     sticky scroll container, so `top: 3rem` would be measured from the
+     wrapper — not the viewport — pushing the thead down inside the
+     table and making the first tbody row render above it. Page-scroll
+     sticky and overflow-x wrappers are incompatible; pick overflow. */
 }
 tbody td {
   padding: 0.5rem 0.75rem;
@@ -202,8 +206,9 @@ table.data-table th {
   padding: 0.5rem 0.75rem;
   text-align: left;
   border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 3rem;
+  /* No sticky — see .table-wrap/thead th note above. Same constraint:
+     any ancestor with overflow-x: auto becomes the sticky scroll
+     container and breaks page-scroll sticky. */
 }
 table.data-table td {
   padding: 0.5rem 0.75rem;
