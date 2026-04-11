@@ -140,15 +140,29 @@ def fetch_webpage_content(
             html_content = stealth_html
             extracted = _extract_with_trafilatura(html_content, url)
 
-    # ---- Final validity check ----
-    if not extracted or len(extracted.strip()) < 50:
-        return {
-            "success": False,
-            "error": fast_path_error or "Could not extract meaningful content from page",
-        }
+    # ---- Metadata (used for both normal path and SPA fallback) ----
+    metadata = trafilatura.extract_metadata(html_content, default_url=url) if html_content else None
 
-    # ---- Metadata (from whichever HTML we ended up using) ----
-    metadata = trafilatura.extract_metadata(html_content, default_url=url)
+    # ---- Final validity check + metadata fallback ----
+    # Many SPAs (React/Vue product pages, marketing sites) have empty
+    # HTML bodies but rich Open Graph / Twitter Card tags. When trafilatura
+    # finds no body, synthesize text from metadata instead of failing.
+    meta_fallback = False
+    if not extracted or len(extracted.strip()) < 50:
+        if metadata and (metadata.title or metadata.description):
+            synth_parts = [
+                p for p in [metadata.title, metadata.description] if p
+            ]
+            synth_text = "\n\n".join(synth_parts)
+            if len(synth_text) >= 30:
+                logger.info("Generic fetcher: metadata-only fallback for %s", url)
+                extracted = synth_text
+                meta_fallback = True
+        if not extracted or len(extracted.strip()) < 30:
+            return {
+                "success": False,
+                "error": fast_path_error or "Could not extract meaningful content from page",
+            }
 
     title = ""
     author = ""
@@ -163,7 +177,7 @@ def fetch_webpage_content(
         description = metadata.description or ""
         sitename = metadata.sitename or ""
 
-    return {
+    result_dict: dict[str, Any] = {
         "success": True,
         "type": "webpage",
         "url": url,
@@ -175,6 +189,9 @@ def fetch_webpage_content(
         "text": sanitize_content(extracted),
         "text_length": len(extracted),
     }
+    if meta_fallback:
+        result_dict["_meta_fallback"] = True
+    return result_dict
 
 
 class GenericWebFetcher(BaseFetcher):
