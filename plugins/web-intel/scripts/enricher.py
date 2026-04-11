@@ -113,6 +113,26 @@ def parse_llm_response(text: str) -> dict[str, Any]:
 
     text = text.strip()
 
+    def clean_summary(s: str) -> str:
+        """Clean up summary: remove drafts, newlines, artifacts."""
+        # Remove "Draft 1:", "Draft 2:", "Refinement:" prefixes
+        s = re.sub(r'\*?\*?Draft\s*\d*:?\s*', '', s, flags=re.IGNORECASE)
+        s = re.sub(r'\*?\*?Refinement:?\s*', '', s, flags=re.IGNORECASE)
+        # Remove newlines and extra spaces
+        s = s.replace('\\n', ' ').replace('\n', ' ')
+        s = re.sub(r'\s+', ' ', s)
+        # Remove markdown bold/italic artifacts
+        s = re.sub(r'\*+', '', s)
+        # Truncate at sentence end if possible, else at 200 chars
+        if len(s) > 200:
+            # Find last complete sentence
+            match = re.search(r'^(.+?[.!?])\s', s[:250])
+            if match:
+                s = match.group(1)
+            else:
+                s = s[:200].rsplit(' ', 1)[0]
+        return s.strip()
+
     # Try to find JSON - but skip if it's the example schema (tag1, tag2, point1, point2)
     json_match = re.search(r'\{[^{}]*"tags"[^{}]*\}', text, re.DOTALL)
     if json_match:
@@ -122,7 +142,10 @@ def parse_llm_response(text: str) -> dict[str, Any]:
             pass  # Skip example schema
         else:
             try:
-                return json.loads(json_str)
+                result = json.loads(json_str)
+                if result.get("summary"):
+                    result["summary"] = clean_summary(result["summary"])
+                return result
             except json.JSONDecodeError:
                 pass
 
@@ -130,12 +153,10 @@ def parse_llm_response(text: str) -> dict[str, Any]:
     result = {"tags": [], "summary": "", "key_points": []}
 
     # Look for actual tag values in reasoning
-    # Pattern: "tags": ["value1", "value2"] or Tags: ["value1", "value2"]
     tags_in_json = re.search(r'"tags"\s*:\s*\[([^\]]+)\]', text)
     if tags_in_json:
         tags_str = tags_in_json.group(1)
         tags = re.findall(r'"([^"]+)"', tags_str)
-        # Filter out example values
         tags = [t for t in tags if t not in ('tag1', 'tag2')]
         if tags:
             result["tags"] = tags[:5]
@@ -144,16 +165,14 @@ def parse_llm_response(text: str) -> dict[str, Any]:
     summary_in_json = re.search(r'"summary"\s*:\s*"([^"]+)"', text)
     if summary_in_json:
         summary = summary_in_json.group(1)
-        # Skip if it's the example
         if summary != "one sentence summary":
-            result["summary"] = summary[:200]
+            result["summary"] = clean_summary(summary)
 
     # Look for key_points in JSON
     points_in_json = re.search(r'"key_points"\s*:\s*\[([^\]]+)\]', text)
     if points_in_json:
         points_str = points_in_json.group(1)
         points = re.findall(r'"([^"]+)"', points_str)
-        # Filter out example values
         points = [p for p in points if p not in ('point1', 'point2')]
         if points:
             result["key_points"] = points[:5]
@@ -163,7 +182,6 @@ def parse_llm_response(text: str) -> dict[str, Any]:
         return result
 
     # Fallback: extract from reasoning sections
-    # Tags from bullet lists or quoted items
     tags_section = re.search(r'Tags:\s*\n?(.*?)(?=Summary:|$)', text, re.DOTALL | re.IGNORECASE)
     if tags_section:
         tags_text = tags_section.group(1)
@@ -175,7 +193,7 @@ def parse_llm_response(text: str) -> dict[str, Any]:
     # Summary from reasoning
     summary_section = re.search(r'Summary:\s*["\']?([^"\']+)["\']?', text, re.IGNORECASE)
     if summary_section:
-        result["summary"] = summary_section.group(1).strip()[:200]
+        result["summary"] = clean_summary(summary_section.group(1))
 
     return result
 
