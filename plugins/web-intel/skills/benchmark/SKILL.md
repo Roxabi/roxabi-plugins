@@ -11,6 +11,8 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch
 Let:
   U := target URL
   F := focus area (ui | features | stack | performance | ux | all), default `all`
+  AB := agent-browser (preferred — adds `snapshot -i` for interactive refs)
+  PW := `uv run python scripts/screenshot.py` (fallback — reuses web-intel's Playwright extra)
 
 Scrape U → screenshot → analyze repo → compare → report.
 
@@ -55,14 +57,22 @@ Parse JSON: `data.text` (features/copy/value props), `data.title`, `data.descrip
 
 ## Step 3 — Screenshot
 
+∃ AB:
+
 ```bash
-agent-browser open "$URL"
-agent-browser wait --load networkidle
-agent-browser screenshot --full /tmp/benchmark-screenshot.png
+agent-browser open "$URL" && \
+agent-browser wait --load networkidle && \
+agent-browser screenshot --full /tmp/benchmark-screenshot.png && \
 agent-browser snapshot -i
 ```
 
-agent-browser unavailable → skip, note in report.
+¬∃ AB → PW fallback (web-intel already ships Playwright):
+
+```bash
+cd "$PLUGIN_ROOT" && uv run python scripts/screenshot.py "$URL" /tmp/benchmark-screenshot.png
+```
+
+Neither available → skip UI/Design dimension, note in report (other dimensions still scored).
 
 ## Step 4 — Analyze Repo
 

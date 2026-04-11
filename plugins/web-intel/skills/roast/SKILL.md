@@ -11,7 +11,8 @@ allowed-tools: Bash, Read
 Let:
   U := target URL
   PR := `$PLUGIN_ROOT`
-  AB := agent-browser
+  AB := agent-browser (preferred — adds `snapshot -i` for interactive refs)
+  PW := `uv run python scripts/screenshot.py` (fallback — reuses web-intel's Playwright extra)
 
 Scrape + screenshot U → deliver brutally honest, constructive critique.
 
@@ -50,18 +51,24 @@ cd "$PLUGIN_ROOT" && uv run python scripts/doctor.py
 cd "$PLUGIN_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt uv run python scripts/scraper.py "$URL"
 ```
 
-## Step 3 — Screenshot (Optional)
+## Step 3 — Screenshot
 
 ∃ AB:
 
 ```bash
-agent-browser open "$URL"
-agent-browser wait --load networkidle
-agent-browser screenshot --full /tmp/roast-screenshot.png
+agent-browser open "$URL" && \
+agent-browser wait --load networkidle && \
+agent-browser screenshot --full /tmp/roast-screenshot.png && \
 agent-browser snapshot -i
 ```
 
-¬∃ AB → skip, note in output.
+¬∃ AB → PW fallback (web-intel already ships Playwright):
+
+```bash
+cd "$PLUGIN_ROOT" && uv run python scripts/screenshot.py "$URL" /tmp/roast-screenshot.png
+```
+
+Neither available → skip, note in output.
 
 ## Step 4 — The Roast
 
