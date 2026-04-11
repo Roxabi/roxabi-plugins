@@ -82,7 +82,9 @@ def call_llm(prompt: str, model: str = DEFAULT_MODEL) -> str:
 
     payload = {
         "model": model,
-        "max_tokens": 500,
+        # GLM5 emits chain-of-thought inline before the JSON block; 500 tokens
+        # truncate the response mid-reasoning and the JSON never appears.
+        "max_tokens": 2000,
         "messages": [{"role": "user", "content": prompt}],
     }
 
@@ -112,6 +114,28 @@ def parse_llm_response(text: str) -> dict[str, Any]:
     import re
 
     text = text.strip()
+
+    def is_valid_tag(t: str) -> bool:
+        """Reject reasoning-text noise. Real tags are short keyword phrases."""
+        t = t.strip()
+        if not t or len(t) > 40:
+            return False
+        if t in ('tag1', 'tag2'):
+            return False
+        # Tags should look like "ai", "claude-code", "svg" — not sentence fragments
+        # with colons, brackets, stray punctuation, or repeated commas.
+        if any(ch in t for ch in (':', '[', ']', '{', '}', '\n')):
+            return False
+        # Reject "tags" that are just punctuation
+        if not re.search(r'[a-zA-Z0-9]', t):
+            return False
+        # Reject sentence-like fragments (more than ~4 words)
+        if len(t.split()) > 4:
+            return False
+        return True
+
+    def sanitize_tags(tags: list) -> list:
+        return [t.strip() for t in tags if is_valid_tag(t)]
 
     def clean_summary(s: str) -> str:
         """Clean up summary: remove drafts, newlines, artifacts."""
@@ -145,6 +169,8 @@ def parse_llm_response(text: str) -> dict[str, Any]:
                 result = json.loads(json_str)
                 if result.get("summary"):
                     result["summary"] = clean_summary(result["summary"])
+                if result.get("tags"):
+                    result["tags"] = sanitize_tags(result["tags"])
                 return result
             except json.JSONDecodeError:
                 pass
@@ -157,7 +183,7 @@ def parse_llm_response(text: str) -> dict[str, Any]:
     if tags_in_json:
         tags_str = tags_in_json.group(1)
         tags = re.findall(r'"([^"]+)"', tags_str)
-        tags = [t for t in tags if t not in ('tag1', 'tag2')]
+        tags = sanitize_tags(tags)
         if tags:
             result["tags"] = tags[:5]
 
@@ -188,7 +214,7 @@ def parse_llm_response(text: str) -> dict[str, Any]:
         tags = re.findall(r'["\']([^"\']+)["\']', tags_text)
         if not tags:
             tags = re.findall(r'^\s*[-*]\s*(.+?)$', tags_text, re.MULTILINE)
-        result["tags"] = [t.strip().lower() for t in tags[:5] if t.strip() and t not in ('tag1', 'tag2')]
+        result["tags"] = sanitize_tags([t.lower() for t in tags])[:5]
 
     # Summary from reasoning
     summary_section = re.search(r'Summary:\s*["\']?([^"\']+)["\']?', text, re.IGNORECASE)
@@ -234,10 +260,11 @@ def enrich_content(scraped_data: dict[str, Any]) -> dict[str, Any]:
         response = call_llm(prompt)
         enriched = parse_llm_response(response)
 
-        # Validate and sanitize
+        # Validate and sanitize — clean_summary already enforces the length
+        # boundary at a sentence/word break; re-slicing here re-cuts mid-word.
         return {
             "tags": enriched.get("tags", [])[:5],
-            "summary": enriched.get("summary", "")[:200],
+            "summary": enriched.get("summary", ""),
             "key_points": enriched.get("key_points", [])[:5],
         }
     except Exception as e:
