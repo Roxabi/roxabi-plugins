@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 # Add _shared to path for sibling imports (consistent with other fetchers)
 SHARED_DIR = Path(__file__).resolve().parents[1] / "_shared"
@@ -116,65 +116,78 @@ def has_antibot_signature(
 def fetch_html_stealth(
     url: str,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
-) -> Optional[str]:
+) -> Tuple[Optional[str], Optional[str]]:
     """Fetch a URL's rendered HTML using headless Chromium + stealth patches.
 
-    Intended as a fallback for anti-bot protected pages. Returns ``None`` on
-    failure — the caller decides how to surface the error (typically by
-    falling back to the original fast-path error message).
+    Intended as a fallback for anti-bot protected pages. Returns a
+    ``(html, error)`` tuple so the caller can surface *why* the stealth
+    retry failed (missing dep, SSRF block, timeout, still-blocked, etc.)
+    instead of collapsing every failure into a bare ``None``.
 
     Args:
         url:        URL to fetch. Re-validated for SSRF before launching.
         timeout_ms: Navigation timeout in milliseconds.
 
     Returns:
-        Rendered HTML string on success, ``None`` on any failure.
+        On success: ``(html, None)``.
+        On failure: ``(None, error_message)``.
     """
     if not PLAYWRIGHT_AVAILABLE:
-        logger.debug("Playwright unavailable — cannot run stealth fallback")
-        return None
+        msg = (
+            "playwright not installed — install with "
+            "`uv sync --extra twitter && uv run playwright install chromium`"
+        )
+        logger.info("Stealth fallback unavailable: %s", msg)
+        return None, msg
 
     # SSRF pre-flight — the fast path already validated, but defense in depth
     is_valid, err = validate_url_ssrf(url)
     if not is_valid:
-        logger.warning("Stealth fetch refused by SSRF validation: %s", err)
-        return None
+        msg = f"SSRF validation rejected URL: {err}"
+        logger.warning("Stealth fetch refused: %s", msg)
+        return None, msg
 
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent=_DEFAULT_USER_AGENT,
-                viewport=_DEFAULT_VIEWPORT,
-                locale="en-US",
-            )
-            page = context.new_page()
+            try:
+                context = browser.new_context(
+                    user_agent=_DEFAULT_USER_AGENT,
+                    viewport=_DEFAULT_VIEWPORT,
+                    locale="en-US",
+                )
+                page = context.new_page()
 
-            if PLAYWRIGHT_STEALTH_AVAILABLE:
-                _Stealth().use_sync(page)
-                logger.debug("playwright-stealth patches applied")
-            else:
-                logger.debug("playwright-stealth not installed; running without stealth")
+                if PLAYWRIGHT_STEALTH_AVAILABLE:
+                    _Stealth().use_sync(page)
+                    logger.debug("playwright-stealth patches applied")
+                else:
+                    logger.info(
+                        "playwright-stealth not installed; stealth fetch running "
+                        "without fingerprint patches (less effective)"
+                    )
 
-            page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
-            # Let dynamic content settle — CF challenge pages typically
-            # auto-redirect after ~1-2s when the stealth patches work
-            page.wait_for_timeout(POST_LOAD_WAIT_MS)
+                page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+                # Let dynamic content settle — CF challenge pages typically
+                # auto-redirect after ~1-2s when the stealth patches work
+                page.wait_for_timeout(POST_LOAD_WAIT_MS)
 
-            html = page.content()
-            browser.close()
+                html = page.content()
+            finally:
+                browser.close()
 
             # If we STILL see a challenge marker, stealth didn't bypass it —
-            # don't pretend success, let the caller surface the original error
+            # don't pretend success, let the caller surface a clear error
             for marker in CF_CHALLENGE_MARKERS:
                 if marker in html:
-                    logger.info(
-                        "Stealth fetch still blocked by anti-bot challenge: %s", marker
-                    )
-                    return None
+                    msg = f"still blocked by anti-bot challenge after stealth retry ({marker!r})"
+                    logger.info("Stealth fetch: %s", msg)
+                    return None, msg
 
-            return html
+            return html, None
 
     except Exception as exc:
-        logger.warning("Stealth fetch failed for %s: %s", url, exc)
-        return None
+        # Preserve exception type so callers can see e.g. "TimeoutError: ..."
+        msg = f"{type(exc).__name__}: {exc}"
+        logger.warning("Stealth fetch failed for %s: %s", url, msg)
+        return None, msg

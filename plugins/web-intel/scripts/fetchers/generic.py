@@ -56,19 +56,33 @@ except ImportError:
 
 
 def _extract_with_trafilatura(html: str, url: str) -> Optional[str]:
-    """Run Trafilatura article extraction on an HTML string."""
+    """Run Trafilatura article extraction on an HTML string.
+
+    Wraps the extractor so a malformed-HTML exception cannot crash the
+    whole fetch — a failure here just means "no body text found", and
+    the caller falls through to the metadata-only path.
+    """
     config = use_config()
     config.set("DEFAULT", "EXTRACTION_TIMEOUT", "30")
-    return extract(
-        html,
-        url=url,
-        include_comments=False,
-        include_tables=True,
-        include_images=False,
-        include_links=False,
-        output_format="txt",
-        config=config,
-    )
+    try:
+        return extract(
+            html,
+            url=url,
+            include_comments=False,
+            include_tables=True,
+            include_images=False,
+            include_links=False,
+            output_format="txt",
+            config=config,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Trafilatura extraction failed for %s: %s: %s",
+            url,
+            type(exc).__name__,
+            exc,
+        )
+        return None
 
 
 def fetch_webpage_content(
@@ -105,8 +119,12 @@ def fetch_webpage_content(
     fast_path_status: Optional[int] = None
     fast_path_error: Optional[str] = None
 
+    # Pull status_code regardless of the success flag — safe_fetch exposes
+    # it for retry-exhausted 5xx responses too, and the anti-bot detector
+    # needs it to decide whether to run a stealth retry.
+    fast_path_status = result.get("status_code")
+
     if result["success"]:
-        fast_path_status = result.get("status_code")
         if fast_path_status == 200:
             try:
                 html_content = result["content"].decode("utf-8", errors="replace")
@@ -124,6 +142,9 @@ def fetch_webpage_content(
     text_len = len(extracted.strip()) if extracted else 0
 
     # ---- Stealth fallback trigger ----
+    # Track the outcome so we can surface it in the final error message
+    # instead of collapsing everything into a generic "HTTP 403".
+    stealth_note: Optional[str] = None
     if has_antibot_signature(
         status_code=fast_path_status,
         html=html_content,
@@ -135,10 +156,20 @@ def fetch_webpage_content(
             fast_path_status,
             text_len,
         )
-        stealth_html = fetch_html_stealth(url)
+        stealth_html, stealth_error = fetch_html_stealth(url)
         if stealth_html:
             html_content = stealth_html
             extracted = _extract_with_trafilatura(html_content, url)
+            stealth_text_len = len(extracted.strip()) if extracted else 0
+            if stealth_text_len < 50:
+                # Fetch worked but the page had nothing to extract — note it
+                # so a downstream failure can surface the full story.
+                stealth_note = (
+                    f"stealth retry fetched the page but extracted only "
+                    f"{stealth_text_len} chars"
+                )
+        elif stealth_error:
+            stealth_note = f"stealth retry failed: {stealth_error}"
 
     # ---- Metadata (used for both normal path and SPA fallback) ----
     metadata = trafilatura.extract_metadata(html_content, default_url=url) if html_content else None
@@ -159,9 +190,18 @@ def fetch_webpage_content(
                 extracted = synth_text
                 meta_fallback = True
         if not extracted or len(extracted.strip()) < 30:
+            # Compose the richest possible error: fast-path reason +
+            # stealth outcome (if one was attempted). Never drop info.
+            error_parts: list[str] = []
+            if fast_path_error:
+                error_parts.append(fast_path_error)
+            else:
+                error_parts.append("Could not extract meaningful content from page")
+            if stealth_note:
+                error_parts.append(stealth_note)
             return {
                 "success": False,
-                "error": fast_path_error or "Could not extract meaningful content from page",
+                "error": " · ".join(error_parts),
             }
 
     title = ""
