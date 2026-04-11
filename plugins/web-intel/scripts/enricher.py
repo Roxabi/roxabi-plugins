@@ -63,9 +63,34 @@ FIREWORKS_PROXY = "http://localhost:4000/fw-anthropic"
 FIREWORKS_TOKEN = _get_fireworks_token()
 DEFAULT_MODEL = "accounts/fireworks/routers/glm-5-fast"
 
-ENRICHMENT_PROMPT = """Extract metadata from this content. Output ONLY a JSON object, no other text.
+ENRICHMENT_PROMPT = """Extract metadata from the content below.
 
-{{"tags":["tag1","tag2"],"summary":"one sentence summary","key_points":["point1","point2"]}}
+Output exactly one JSON object on a single line. No prose, no reasoning, no
+markdown, no code fences, no explanation before or after. Start with `{{` and
+end with `}}`.
+
+Schema (replace the example values — do NOT keep "tag1"/"point1" literals):
+{{"tags":["keyword","keyword"],"summary":"one complete sentence","key_points":["fact","fact"]}}
+
+Rules:
+- tags: 3-5 short noun phrases, each under 4 words, no punctuation other than
+  hyphens/spaces, no backticks, no parentheses, no question marks
+- summary: one complete sentence under 200 chars, no markdown, no "Draft",
+  no "one sentence", no meta-commentary about your answer
+- key_points: 2-5 short factual bullets, each under 150 chars
+
+Title: {title}
+Platform: {platform}
+Content: {content}
+
+JSON:"""
+
+# Second-attempt prompt used when the first response fails validation.
+STRICT_RETRY_PROMPT = """Your previous answer was not valid JSON. Reply with exactly one
+minified JSON object and nothing else. Do not think out loud. Do not wrap in
+markdown. Do not prefix with "JSON:" or similar.
+
+Schema: {{"tags":["kw","kw"],"summary":"one sentence","key_points":["p","p"]}}
 
 Title: {title}
 Platform: {platform}
@@ -115,22 +140,47 @@ def parse_llm_response(text: str) -> dict[str, Any]:
 
     text = text.strip()
 
+    # Bleed-signal words that show up when the model ignores "JSON only" and
+    # echoes prompt language or its own chain-of-thought. Case-insensitive.
+    _BLEED_WORDS = re.compile(
+        r'\b(draft|encapsulat|one sentence|keywords?\?|refinement|let me|'
+        r'thinking|first,|finally,|here(?:\'s| is) (?:my|the|a)|'
+        r'revised)\b',
+        re.IGNORECASE,
+    )
+
     def is_valid_tag(t: str) -> bool:
         """Reject reasoning-text noise. Real tags are short keyword phrases."""
         t = t.strip()
         if not t or len(t) > 40:
             return False
-        if t in ('tag1', 'tag2'):
+        if t in ('tag1', 'tag2', 'keyword', 'kw'):
             return False
-        # Tags should look like "ai", "claude-code", "svg" — not sentence fragments
-        # with colons, brackets, stray punctuation, or repeated commas.
-        if any(ch in t for ch in (':', '[', ']', '{', '}', '\n')):
+        # Disallow any punctuation that indicates prose rather than a keyword:
+        # brackets, parentheses, question marks, backticks, asterisks, braces.
+        if any(ch in t for ch in (':', '[', ']', '{', '}', '(', ')', '?', '`', '*', '\n')):
             return False
         # Reject "tags" that are just punctuation
         if not re.search(r'[a-zA-Z0-9]', t):
             return False
         # Reject sentence-like fragments (more than ~4 words)
         if len(t.split()) > 4:
+            return False
+        # Reject tags that echo prompt / reasoning vocabulary.
+        if _BLEED_WORDS.search(t):
+            return False
+        return True
+
+    def is_valid_summary(s: str) -> bool:
+        """Reject summaries that contain markdown bleed or meta-commentary."""
+        s = s.strip()
+        if not s or len(s) < 10:
+            return False
+        # Leading markdown bullet / bold / italic.
+        if s.startswith(('*', '-', '`', '#', '>')):
+            return False
+        # Bleed words anywhere.
+        if _BLEED_WORDS.search(s):
             return False
         return True
 
@@ -168,7 +218,8 @@ def parse_llm_response(text: str) -> dict[str, Any]:
             try:
                 result = json.loads(json_str)
                 if result.get("summary"):
-                    result["summary"] = clean_summary(result["summary"])
+                    cleaned = clean_summary(result["summary"])
+                    result["summary"] = cleaned if is_valid_summary(cleaned) else ""
                 if result.get("tags"):
                     result["tags"] = sanitize_tags(result["tags"])
                 return result
@@ -219,7 +270,13 @@ def parse_llm_response(text: str) -> dict[str, Any]:
     # Summary from reasoning
     summary_section = re.search(r'Summary:\s*["\']?([^"\']+)["\']?', text, re.IGNORECASE)
     if summary_section:
-        result["summary"] = clean_summary(summary_section.group(1))
+        cleaned = clean_summary(summary_section.group(1))
+        if is_valid_summary(cleaned):
+            result["summary"] = cleaned
+
+    # Final gate on summary regardless of which branch produced it.
+    if result.get("summary") and not is_valid_summary(result["summary"]):
+        result["summary"] = ""
 
     return result
 
@@ -252,24 +309,42 @@ def enrich_content(scraped_data: dict[str, Any]) -> dict[str, Any]:
     if not content.strip():
         return {"tags": [], "summary": "", "key_points": []}
 
-    prompt = ENRICHMENT_PROMPT.format(
-        title=title, platform=platform, content=content
-    )
+    def _has_content(enriched: dict) -> bool:
+        """True if enrichment produced at least one usable field."""
+        return bool(
+            enriched.get("tags")
+            or enriched.get("summary")
+            or enriched.get("key_points")
+        )
 
+    # First attempt with the main prompt.
     try:
-        response = call_llm(prompt)
+        response = call_llm(
+            ENRICHMENT_PROMPT.format(title=title, platform=platform, content=content)
+        )
         enriched = parse_llm_response(response)
-
-        # Validate and sanitize — clean_summary already enforces the length
-        # boundary at a sentence/word break; re-slicing here re-cuts mid-word.
-        return {
-            "tags": enriched.get("tags", [])[:5],
-            "summary": enriched.get("summary", ""),
-            "key_points": enriched.get("key_points", [])[:5],
-        }
     except Exception as e:
         print(f"  Enrichment failed: {e}", file=sys.stderr)
-        return {"tags": [], "summary": "", "key_points": []}
+        enriched = {}
+
+    # Retry once with the stricter prompt if the first round yielded nothing.
+    # Don't retry on a partially-valid result — accept what we got.
+    if not _has_content(enriched):
+        try:
+            print("  Enrichment empty, retrying with strict prompt", file=sys.stderr)
+            response = call_llm(
+                STRICT_RETRY_PROMPT.format(title=title, platform=platform, content=content)
+            )
+            enriched = parse_llm_response(response)
+        except Exception as e:
+            print(f"  Strict retry failed: {e}", file=sys.stderr)
+            enriched = enriched or {}
+
+    return {
+        "tags": enriched.get("tags", [])[:5],
+        "summary": enriched.get("summary", ""),
+        "key_points": enriched.get("key_points", [])[:5],
+    }
 
 
 def main():
