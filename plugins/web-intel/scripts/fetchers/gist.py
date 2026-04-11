@@ -14,6 +14,7 @@ Security:
 from __future__ import annotations
 
 import json
+import logging
 import re
 import subprocess
 import sys
@@ -30,12 +31,15 @@ for _dir in [SHARED_DIR, FETCHERS_DIR]:
 
 from base import (
     BaseFetcher,
+    safe_fetch,
     sanitize_content,
     build_result,
 )
 from validators import validate_url_ssrf
 from timeouts import get_timeout
 from retry import retry_call, RetryConfig
+
+logger = logging.getLogger(__name__)
 
 # Maximum total content size for all gist files (default: 200KB)
 MAX_GIST_CONTENT_SIZE = 200_000
@@ -163,6 +167,208 @@ def fetch_gist_gh_api(gist_id: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
+# ── Raw fallback (used when gh api fails) ────────────────────────────────────
+#
+# Some gists consistently return 5xx from the GitHub API even though the web
+# page + raw content are served fine (e.g. Karpathy's 442a6bf... returns
+# HTTP 502 from /gists/{id} but 200 from gist.githubusercontent.com/.../raw).
+# This fallback scrapes the HTML page for file names then fetches each file
+# via its raw URL — no auth, no API.
+
+# Map common file extensions to language labels used in code fences.
+_LANG_BY_EXT: dict[str, str] = {
+    "py": "python",
+    "js": "javascript",
+    "ts": "typescript",
+    "tsx": "typescript",
+    "jsx": "javascript",
+    "rb": "ruby",
+    "rs": "rust",
+    "go": "go",
+    "java": "java",
+    "kt": "kotlin",
+    "c": "c",
+    "h": "c",
+    "cpp": "cpp",
+    "cc": "cpp",
+    "hpp": "cpp",
+    "cs": "csharp",
+    "sh": "bash",
+    "bash": "bash",
+    "zsh": "bash",
+    "md": "markdown",
+    "yml": "yaml",
+    "yaml": "yaml",
+    "json": "json",
+    "toml": "toml",
+    "html": "html",
+    "css": "css",
+    "sql": "sql",
+}
+
+
+def _parse_gist_page(html: str, gist_id: str) -> dict[str, Any]:
+    """Extract owner, description, and file names from a gist HTML page.
+
+    All fields are best-effort: missing fields are returned as empty.
+    """
+    meta: dict[str, Any] = {"owner": "", "description": "", "files": []}
+
+    # og:title is typically either the description or the first filename.
+    og = re.search(r'<meta[^>]+property="og:title"[^>]+content="([^"]*)"', html)
+    if og:
+        meta["description"] = og.group(1).strip()
+
+    # Owner shows up in many links like /{owner}/{gist_id}. Pick the first
+    # plausible match. GitHub usernames: alphanumeric + dashes, max 39 chars.
+    owner_re = re.compile(
+        rf"gist\.github\.com/([a-zA-Z0-9][a-zA-Z0-9-]{{0,38}})/{re.escape(gist_id)}"
+    )
+    owner_match = owner_re.search(html)
+    if owner_match:
+        meta["owner"] = owner_match.group(1)
+
+    # File list: each file has raw links like /{owner}/{gist_id}/raw/{rev}/{name}.
+    # Capture filenames, dedupe preserving order.
+    files_re = re.compile(
+        rf"/{re.escape(meta['owner'] or '[^/]+')}/{re.escape(gist_id)}"
+        r"/raw/[a-f0-9]+/([A-Za-z0-9._-]+)"
+    )
+    seen: set[str] = set()
+    for fn in files_re.findall(html):
+        if fn not in seen:
+            seen.add(fn)
+            meta["files"].append(fn)
+
+    return meta
+
+
+def fetch_gist_raw_fallback(gist_id: str, url: str) -> dict:
+    """Fetch a gist without the GitHub API — HTML page + raw file URLs.
+
+    Used when ``fetch_gist_gh_api`` fails. Does not require auth.
+
+    Limitations:
+    - file sizes / languages are best-effort (from extension)
+    - created_at, updated_at, comment count, public flag are unknown
+    - may miss files if the HTML page layout changes
+
+    Args:
+        gist_id: Extracted gist ID (hex string, already validated).
+        url: Original gist URL (may or may not include the owner segment).
+
+    Returns:
+        Dict in the same shape as ``fetch_gist_gh_api``.
+    """
+    # Owner may or may not be in the URL — gist.github.com/{id} alone also
+    # resolves. Use it when present to avoid an extra round-trip.
+    owner_from_url = ""
+    m = re.search(rf"gist\.github\.com/([^/]+)/{re.escape(gist_id)}", url)
+    if m:
+        owner_from_url = m.group(1)
+
+    page_url = (
+        f"https://gist.github.com/{owner_from_url}/{gist_id}"
+        if owner_from_url
+        else f"https://gist.github.com/{gist_id}"
+    )
+    page_res = safe_fetch(page_url, fetcher_name="gist", max_size=2_000_000)
+    if not page_res.get("success"):
+        return {
+            "success": False,
+            "error": f"Raw fallback: page fetch failed: {page_res.get('error', 'unknown')}",
+        }
+    if page_res.get("status_code") != 200:
+        return {
+            "success": False,
+            "error": f"Raw fallback: page HTTP {page_res.get('status_code')}",
+        }
+
+    try:
+        html = page_res["content"].decode("utf-8", errors="replace")
+    except Exception as e:  # pragma: no cover - defensive
+        return {"success": False, "error": f"Raw fallback: HTML decode failed: {e}"}
+
+    meta = _parse_gist_page(html, gist_id)
+    owner = owner_from_url or meta.get("owner", "")
+    if not owner:
+        return {"success": False, "error": "Raw fallback: could not determine gist owner"}
+
+    description = meta.get("description", "") or ""
+    filenames: list[str] = meta.get("files", [])
+
+    # Even if HTML parsing yielded no filenames, the /raw endpoint without a
+    # filename returns the gist's first file — use that as a last-resort path.
+    if not filenames:
+        filenames = ["gist-content"]
+        raw_url_override: Optional[str] = (
+            f"https://gist.githubusercontent.com/{owner}/{gist_id}/raw"
+        )
+    else:
+        raw_url_override = None
+
+    files: list[dict[str, Any]] = []
+    total_content: list[str] = []
+    total_size = 0
+
+    for fn in filenames:
+        raw_url = raw_url_override or (
+            f"https://gist.githubusercontent.com/{owner}/{gist_id}/raw/{fn}"
+        )
+        raw_res = safe_fetch(raw_url, fetcher_name="gist", max_size=MAX_GIST_CONTENT_SIZE)
+        if not raw_res.get("success") or raw_res.get("status_code") != 200:
+            logger.warning(
+                "gist raw fallback: skipping %s (%s)",
+                fn,
+                raw_res.get("error", raw_res.get("status_code")),
+            )
+            continue
+
+        try:
+            raw_content = raw_res["content"].decode("utf-8", errors="replace")
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning("gist raw fallback: decode failed for %s: %s", fn, e)
+            continue
+
+        ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
+        language = _LANG_BY_EXT.get(ext, ext)
+
+        files.append(
+            {
+                "name": fn,
+                "language": language,
+                "size": len(raw_content),
+            }
+        )
+
+        if total_size + len(raw_content) <= MAX_GIST_CONTENT_SIZE:
+            total_content.append(f"### {fn}\n\n```{language}\n{raw_content}\n```")
+            total_size += len(raw_content)
+
+    if not files:
+        return {"success": False, "error": "Raw fallback: no files could be fetched"}
+
+    title = description or files[0]["name"]
+    gist_url = f"https://gist.github.com/{owner}/{gist_id}"
+
+    return build_result(
+        title=title,
+        description=description,
+        url=gist_url,
+        type_name="gist",
+        gist_id=gist_id,
+        owner=owner,
+        public=True,  # unknown via raw path; gists visible without auth are public
+        files=files,
+        file_count=len(files),
+        comments=0,
+        created_at="",
+        updated_at="",
+        content=sanitize_content("\n\n".join(total_content), content_format="markdown"),
+        partial=True,  # signal: some metadata is missing vs API path
+    )
+
+
 def format_for_prompt(data: dict) -> str:
     """Format gist data as text for Claude prompt."""
     if not data.get("success"):
@@ -234,6 +440,21 @@ class GistFetcher(BaseFetcher):
             return {"success": False, "error": "Could not extract gist ID from URL"}
 
         result = fetch_gist_gh_api(gist_id)
+
+        # Fallback: some gists consistently return 5xx from the GitHub API
+        # even when the web page + raw content are serving fine. When the
+        # API path fails, scrape HTML + raw URLs directly (no auth).
+        if not result.get("success"):
+            api_error = result.get("error", "unknown")
+            logger.info("gh api failed for gist %s (%s), trying raw fallback", gist_id, api_error)
+            fallback = fetch_gist_raw_fallback(gist_id, url)
+            if fallback.get("success"):
+                logger.info("gist %s recovered via raw fallback", gist_id)
+                result = fallback
+            else:
+                # Propagate the original API error — more informative than
+                # "fallback failed: ...".
+                return result
 
         if result.get("success"):
             result["text"] = sanitize_content(format_for_prompt(result), content_format="markdown")
