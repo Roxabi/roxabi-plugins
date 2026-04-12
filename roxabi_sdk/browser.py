@@ -25,6 +25,7 @@ installed (CI guard test SC-17).
 """
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -70,7 +71,7 @@ def _raise_if_unavailable() -> None:
         import playwright  # noqa: F401
         import playwright_stealth  # noqa: F401
     except ImportError as exc:
-        raise PlaywrightNotAvailableError(f"{_INSTALL_HINT} ({exc})") from exc
+        raise PlaywrightNotAvailableError(_INSTALL_HINT) from exc
 
 
 _DEFAULT_UA = (
@@ -84,13 +85,13 @@ _DEFAULT_LAUNCH_ARGS = [
     "--no-first-run",
     "--no-default-browser-check",
 ]
-_DEFAULT_STEALTH_FLAGS = dict(
-    navigator_webdriver=True,
-    chrome_runtime=True,
-    navigator_plugins=True,
-    navigator_permissions=True,
-    webgl_vendor=True,
-)
+_DEFAULT_STEALTH_FLAGS = {
+    "navigator_webdriver": True,
+    "chrome_runtime": True,
+    "navigator_plugins": True,
+    "navigator_permissions": True,
+    "webgl_vendor": True,
+}
 
 
 def launch_stealth_sync(
@@ -102,7 +103,7 @@ def launch_stealth_sync(
     locale: str = "en-US",
     stealth_flags: dict | None = None,
     launch_args: list[str] | None = None,
-) -> "tuple[SyncPlaywright, SyncBrowserContext, SyncPage]":
+) -> tuple[SyncPlaywright, SyncBrowserContext, SyncPage]:
     """Launch a stealth-patched Chromium and return ``(playwright, context, page)``.
 
     Either ephemeral (``user_data_dir=None``, default) or persistent (when
@@ -133,8 +134,6 @@ def launch_stealth_sync(
     pw = sync_playwright().start()
     try:
         if user_data_dir is not None:
-            import os
-
             os.makedirs(user_data_dir, exist_ok=True)
             ctx = pw.chromium.launch_persistent_context(
                 user_data_dir=user_data_dir,
@@ -148,7 +147,7 @@ def launch_stealth_sync(
             browser = pw.chromium.launch(headless=headless, args=la)
             ctx = browser.new_context(user_agent=ua, viewport=vp, locale=locale)
         Stealth(**sf).apply_stealth_sync(ctx)
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        page = ctx.new_page()
         return pw, ctx, page
     except Exception:
         pw.stop()
@@ -164,7 +163,7 @@ async def launch_stealth_async(
     locale: str = "en-US",
     stealth_flags: dict | None = None,
     launch_args: list[str] | None = None,
-) -> "tuple[AsyncPlaywright, AsyncBrowserContext, AsyncPage]":
+) -> tuple[AsyncPlaywright, AsyncBrowserContext, AsyncPage]:
     """Async mirror of :func:`launch_stealth_sync`.
 
     Must run inside the caller's existing event loop. This function does
@@ -184,8 +183,6 @@ async def launch_stealth_async(
     pw = await async_playwright().start()
     try:
         if user_data_dir is not None:
-            import os
-
             os.makedirs(user_data_dir, exist_ok=True)
             ctx = await pw.chromium.launch_persistent_context(
                 user_data_dir=user_data_dir,
@@ -199,14 +196,16 @@ async def launch_stealth_async(
             browser = await pw.chromium.launch(headless=headless, args=la)
             ctx = await browser.new_context(user_agent=ua, viewport=vp, locale=locale)
         await Stealth(**sf).apply_stealth_async(ctx)
-        page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+        page = await ctx.new_page()
         return pw, ctx, page
     except Exception:
         await pw.stop()
         raise
 
 
-def close_stealth(playwright, context) -> None:
+def close_stealth(
+    playwright: SyncPlaywright, context: SyncBrowserContext
+) -> None:
     """Tear down a sync stealth session.
 
     Closes the right object based on context shape:
@@ -229,7 +228,9 @@ def close_stealth(playwright, context) -> None:
         playwright.stop()
 
 
-async def close_stealth_async(playwright, context) -> None:
+async def close_stealth_async(
+    playwright: AsyncPlaywright, context: AsyncBrowserContext
+) -> None:
     """Async mirror of :func:`close_stealth`."""
     try:
         browser = context.browser

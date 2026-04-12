@@ -187,6 +187,7 @@ class ScraperTimeoutError(LinkedInScraperError):
 # launcher will carry self.url=None, which is harmless but non-obvious.
 from roxabi_sdk.browser import (  # noqa: E402
     PlaywrightNotAvailableError as _SdkPlaywrightNotAvailableError,
+    launch_stealth_async as _sdk_launch_stealth_async,
 )
 
 
@@ -295,17 +296,12 @@ async def get_browser_context(
         PlaywrightNotAvailableError: If playwright or playwright-stealth is
             not installed (catchable as :class:`LinkedInScraperError` too).
     """
-    from roxabi_sdk.browser import (
-        PlaywrightNotAvailableError as _SdkPWError,
-        launch_stealth_async,
-    )
-
     try:
-        playwright, context, _page = await launch_stealth_async(
+        playwright, context, _page = await _sdk_launch_stealth_async(
             user_data_dir=LINKEDIN_PROFILE_DIR,
             headless=headless,
         )
-    except _SdkPWError as exc:
+    except _SdkPlaywrightNotAvailableError as exc:
         raise PlaywrightNotAvailableError(str(exc)) from exc
 
     logger.info("Browser context created with stealth mode")

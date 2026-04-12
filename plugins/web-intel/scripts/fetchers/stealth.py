@@ -69,14 +69,6 @@ DEFAULT_TIMEOUT_MS = 30_000
 # Wait after domcontentloaded for dynamic content / CF auto-redirect
 POST_LOAD_WAIT_MS = 2_500
 
-# Viewport + UA tuned to match a common desktop Chrome fingerprint
-_DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
-)
-_DEFAULT_VIEWPORT = {"width": 1280, "height": 900}
-
 from roxabi_sdk.browser import (
     PlaywrightNotAvailableError,
     close_stealth,
@@ -168,15 +160,11 @@ def fetch_html_stealth(
     pw = ctx = None
     try:
         try:
-            pw, ctx, page = launch_stealth_sync(
-                user_agent=_DEFAULT_USER_AGENT,
-                viewport=_DEFAULT_VIEWPORT,
-                locale="en-US",
-            )
+            pw, ctx, page = launch_stealth_sync()
         except PlaywrightNotAvailableError as exc:
             # SDK probe failed even though our PLAYWRIGHT_AVAILABLE flag passed
             # — surface the SDK install hint verbatim so the user can act on it.
-            logger.info("Stealth fallback unavailable: %s", exc)
+            logger.info("Stealth fallback unavailable: %s", exc, exc_info=True)
             return None, str(exc)
 
         page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")

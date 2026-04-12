@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 import types
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -126,7 +126,7 @@ async def test_close_stealth_async_persistent_awaits_close():
 # ---------------------------------------------------------------------------
 
 
-def _install_fake_playwright(monkeypatch) -> tuple[MagicMock, MagicMock, MagicMock]:
+def _install_fake_playwright(monkeypatch) -> tuple[MagicMock, MagicMock, MagicMock, MagicMock, MagicMock, MagicMock]:
     """Inject minimal fake ``playwright.sync_api`` and ``playwright_stealth``.
 
     Returns ``(launch_mock, new_context_mock, stealth_cls)`` so the test
@@ -173,12 +173,21 @@ def _install_fake_playwright(monkeypatch) -> tuple[MagicMock, MagicMock, MagicMo
     # and braces: short-circuit it so the test never depends on import resolution.
     monkeypatch.setattr(browser, "_raise_if_unavailable", lambda: None)
 
-    return fake_chromium.launch, fake_browser.new_context, fake_stealth_cls
+    return (
+        fake_chromium.launch,
+        fake_browser.new_context,
+        fake_stealth_cls,
+        fake_pw,
+        fake_context,
+        fake_page,
+    )
 
 
 def test_launch_kwargs_defaults_applied(monkeypatch):
     """Default launch must pass the 3 anti-detection args + UA / viewport / locale."""
-    launch_mock, new_context_mock, stealth_cls = _install_fake_playwright(monkeypatch)
+    launch_mock, new_context_mock, stealth_cls, fake_pw, fake_context, fake_page = (
+        _install_fake_playwright(monkeypatch)
+    )
 
     pw, ctx, page = launch_stealth_sync()
 
@@ -204,6 +213,88 @@ def test_launch_kwargs_defaults_applied(monkeypatch):
     stealth_instance = stealth_cls.return_value
     stealth_instance.apply_stealth_sync.assert_called_once_with(ctx)
 
-    # 4) The 3-tuple shape is honoured and the page came from new_page()
-    assert (pw, ctx, page) == (pw, ctx, page)
-    assert page is not None
+    # 4) The 3-tuple shape is honoured and values are the fakes we injected
+    assert pw is fake_pw
+    assert ctx is fake_context
+    assert page is fake_page
+
+
+def test_close_stealth_ephemeral_still_stops_when_browser_close_raises():
+    """Ephemeral: ``browser.close()`` raises → ``playwright.stop()`` still fires."""
+    pw = MagicMock(name="playwright")
+    ctx = MagicMock(name="context")
+    ctx.browser = MagicMock(name="browser")
+    ctx.browser.close.side_effect = RuntimeError("chromium crashed")
+
+    with pytest.raises(RuntimeError, match="chromium crashed"):
+        close_stealth(pw, ctx)
+
+    pw.stop.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 7. Async launch path (mirrors sync defaults test)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_launch_stealth_async_defaults_applied(monkeypatch):
+    """Async launcher must await apply_stealth_async and use the same defaults."""
+    from roxabi_sdk.browser import launch_stealth_async
+
+    fake_page = MagicMock(name="page")
+    fake_context = MagicMock(name="context")
+    fake_context.pages = []
+    fake_context.new_page = AsyncMock(return_value=fake_page)
+
+    fake_browser = MagicMock(name="browser")
+    fake_browser.new_context = AsyncMock(return_value=fake_context)
+
+    fake_chromium = MagicMock(name="chromium")
+    fake_chromium.launch = AsyncMock(return_value=fake_browser)
+
+    fake_pw = MagicMock(name="playwright")
+    fake_pw.chromium = fake_chromium
+
+    fake_factory = MagicMock(name="async_playwright_factory")
+    fake_factory.start = AsyncMock(return_value=fake_pw)
+
+    fake_async_playwright = MagicMock(name="async_playwright", return_value=fake_factory)
+
+    async_api_mod = types.ModuleType("playwright.async_api")
+    async_api_mod.async_playwright = fake_async_playwright
+
+    fake_stealth_cls = MagicMock(name="StealthClass")
+    fake_stealth_instance = MagicMock(name="StealthInstance")
+    fake_stealth_instance.apply_stealth_async = AsyncMock()
+    fake_stealth_cls.return_value = fake_stealth_instance
+
+    stealth_mod = types.ModuleType("playwright_stealth")
+    stealth_mod.Stealth = fake_stealth_cls
+
+    pw_root = types.ModuleType("playwright")
+    pw_root.async_api = async_api_mod
+
+    monkeypatch.setitem(sys.modules, "playwright", pw_root)
+    monkeypatch.setitem(sys.modules, "playwright.async_api", async_api_mod)
+    monkeypatch.setitem(sys.modules, "playwright_stealth", stealth_mod)
+    monkeypatch.setattr(browser, "_raise_if_unavailable", lambda: None)
+
+    pw, ctx, page = await launch_stealth_async()
+
+    # apply_stealth_async must be awaited (not just called)
+    fake_stealth_instance.apply_stealth_async.assert_awaited_once_with(fake_context)
+
+    # Same default launch args as sync
+    fake_chromium.launch.assert_awaited_once()
+    _, launch_kwargs = fake_chromium.launch.await_args
+    assert launch_kwargs["args"] == [
+        "--disable-blink-features=AutomationControlled",
+        "--no-first-run",
+        "--no-default-browser-check",
+    ]
+
+    # 3-tuple shape honoured
+    assert pw is fake_pw
+    assert ctx is fake_context
+    assert page is fake_page

@@ -28,9 +28,12 @@ Security:
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from typing import Tuple
+
+logger = logging.getLogger(__name__)
 
 # Add _shared to path for sibling imports (consistent with fetchers/*.py)
 SHARED_DIR = Path(__file__).resolve().parent / "_shared"
@@ -44,13 +47,6 @@ DEFAULT_TIMEOUT_MS = 30_000
 
 # Wait after domcontentloaded for dynamic content / fonts to settle
 POST_LOAD_WAIT_MS = 2_500
-
-_DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
-)
-_DEFAULT_VIEWPORT = {"width": 1280, "height": 900}
 
 from roxabi_sdk.browser import (  # noqa: E402
     PlaywrightNotAvailableError,
@@ -106,11 +102,7 @@ def capture_full_page(
     pw = ctx = None
     try:
         try:
-            pw, ctx, page = launch_stealth_sync(
-                user_agent=_DEFAULT_USER_AGENT,
-                viewport=_DEFAULT_VIEWPORT,
-                locale="en-US",
-            )
+            pw, ctx, page = launch_stealth_sync()
         except PlaywrightNotAvailableError as exc:
             return False, str(exc)
 
@@ -127,7 +119,7 @@ def capture_full_page(
             try:
                 close_stealth(pw, ctx)
             except Exception:
-                pass
+                logger.debug("close_stealth raised during screenshot cleanup", exc_info=True)
 
 
 def main() -> int:

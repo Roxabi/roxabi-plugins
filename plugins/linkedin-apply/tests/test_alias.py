@@ -52,3 +52,9 @@ def test_alias_has_url_attribute_none() -> None:
     """
     exc = PlaywrightNotAvailableError("test msg")
     assert exc.url is None
+
+
+def test_alias_url_kwarg_stored() -> None:
+    """When a ``url`` is provided, the LinkedIn-side ``__init__`` must store it."""
+    exc = PlaywrightNotAvailableError("test msg", url="https://linkedin.com/jobs/123")
+    assert exc.url == "https://linkedin.com/jobs/123"
