@@ -105,13 +105,6 @@
       "version": "0.1.0"
     },
     {
-      "name": "forge",
-      "description": "Forge HTML visuals for ~/.roxabi/forge/ — forge-guide (split-file multi-tab doc), forge-epic (issue-linked analysis), forge-chart (single-file Mermaid), forge-gallery (image/audio with shared gallery-base.css/js). Brand-aware, manifest-indexed, Cloudflare Pages ready.",
-      "source": "./plugins/forge",
-      "category": "productivity",
-      "version": "0.1.0"
-    },
-    {
       "name": "idna",
       "description": "IDNA — Idea DNA evolutionary selector. Explore variants, pick a winner, converge through amplify/blend/refine mutations. Self-driving: browser → Claude CLI → imageCLI → auto-advance.",
       "source": "./plugins/idna",
