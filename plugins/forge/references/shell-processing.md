@@ -2,6 +2,8 @@
 
 Shared pipeline for all split-file skills (forge-guide, forge-epic). Each skill defines `{NAME}` and skill-specific placeholder values; the pipeline steps are identical.
 
+See also: `split-file.md` for the file layout pattern (version isolation, tab fragments, serving).
+
 ## Steps
 
 1. Read `shells/split.html` template

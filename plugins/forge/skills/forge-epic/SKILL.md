@@ -59,6 +59,8 @@ Aesthetic is never chosen by Frame — it's mechanical (see `forge-ops.md § Aes
 
 ### Structure — Which tabs?
 
+> **Tab IDs are fixed:** only `overview`, `breakdown`, `deps`, `criteria` are supported. Do not invent new IDs without adding the matching tab fragment pattern in Phase 3.
+
 | Epic scope | Tabs | Rationale |
 |---|---|---|
 | Large feature (spec + impl) | `overview`, `breakdown`, `deps`, `criteria` | Full context needed |

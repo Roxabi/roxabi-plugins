@@ -99,7 +99,7 @@ Ultra-stark dark theme inspired by [juliusbrussee.github.io/caveman](https://jul
 - Galleries with stark, minimal vibe
 - Projects wanting a bold, high-contrast dark theme
 
-**Integration with galleries:**
+**Integration with galleries** (note: `caveman.css` must be manually copied to `_shared/` — `forge-init` does not install it):
 ```html
 <link rel="stylesheet" href="../../_shared/gallery-base.css">
 <link rel="stylesheet" href="../../_shared/caveman.css">

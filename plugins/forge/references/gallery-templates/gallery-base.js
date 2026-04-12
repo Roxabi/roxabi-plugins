@@ -1,6 +1,6 @@
 /* ══════════════════════════════════════════════════════════════════
    gallery-base.js — shared utilities for forge gallery templates
-   v0.1.0
+   v0.4.0
 
    Provides: theme toggle, dynamic filter builder, filter application,
    segmented control wiring, file discovery.

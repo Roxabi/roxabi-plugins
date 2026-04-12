@@ -206,9 +206,9 @@ Read `shells/single.html` → substitute placeholders with content. The shell al
 - Diagram meta placeholders
 - CSS placeholder slots
 
-### Hero Section (REQUIRED)
+### Hero Section
 
-Every chart MUST have a hero section. Use the **left border variant** by default:
+Every chart SHOULD have a hero section. Use the **left border variant** by default. Exception: single quick diagrams (one Mermaid / fgraph block, no narrative) — a minimal title + diagram is acceptable without a hero.
 
 ```html
 <section class="hero left-border">
@@ -330,9 +330,9 @@ For process flows with distinct phases, use phase cards:
 </div>
 ```
 
-### Reveal Animation (REQUIRED)
+### Reveal Animation
 
-Add reveal observer to `{EXTRA_SCRIPTS}`:
+Add reveal observer to `{EXTRA_SCRIPTS}` (skip for single quick diagrams with no `.reveal` elements):
 
 ```javascript
 // Reveal on scroll
@@ -353,13 +353,13 @@ document.querySelectorAll('.reveal').forEach(el => obs.observe(el))
 
 | Anti-Pattern | Fix |
 |--------------|-----|
-| Bare `<pre class="mermaid">` | Use diagram shell with `.mermaid-wrap` |
+| Bare `<pre class="mermaid">` | Use `.diagram-shell` with zoom controls |
 | ASCII art in `<pre class="arch">` | Convert to Mermaid flowchart or fgraph |
 | Emoji in headers | Remove — use text only |
 | `rgba()` in Mermaid `style` directives | Use hex colors only |
 | `theme: 'dark'` in Mermaid config | Use `theme: 'base'` + custom `themeVariables` |
 | Plain `<h2>` for section titles | Use `.section-title` class |
-| No hero section | Add hero with left-border variant |
+| No hero section (multi-section chart) | Add hero with left-border variant |
 
 ---
 
