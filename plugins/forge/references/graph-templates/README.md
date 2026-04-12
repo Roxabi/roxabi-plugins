@@ -241,7 +241,15 @@ Distribution model depends on the consumer (see "Inlined vs shared" below).
 | `.fgraph-node` | Absolute-positioned HTML card via `--x` / `--y` / `--w` custom props (all in %) |
 | `.fgraph-node.{tone}` | Node border + tint (amber/cyan/purple/green/red) |
 | `.fgraph-node.wide` / `.narrow` | Width modifier (30% / 18%, default 22%) |
-| `.fgraph-node.pill` | Pill-shaped border-radius 999px — use for the central hub |
+| `.fgraph-node.pill` | Pill-shaped — use for the central hub / bus / broker |
+| `.fgraph-node.circle` | Circle — event, trigger, start/end (`border-radius: 50%; aspect-ratio: 1`) |
+| `.fgraph-node.hexagon` | Hexagon — agent, worker, autonomous unit (`clip-path` polygon) |
+| `.fgraph-node.diamond` | Diamond — decision, gate, conditional (`clip-path` polygon) |
+| `.fgraph-node.cylinder` | Cylinder — database, storage, queue (ellipse caps via `::before`/`::after`) |
+| `.fgraph-node.folded` | Folded corner — file, config, document (`clip-path` with corner notch) |
+| `.fg-edge.dashed` | Dashed stroke — optional / async / planned path |
+| `.fg-edge.thick` | Thick stroke (2.8px) — primary data flow / critical path |
+| `.fg-edge.animated` | Animated dashes — live stream / active connection |
 | `.fgraph-title.{tone}` | Colored node title with flex for inline pills |
 | `.fgraph-pill.{tone}` | Inline badge (priority, port, status) |
 | `.fgraph-sub` / `.muted` / `.warn` / `.ok` | Node subtitles (default / muted / red / green) |
@@ -261,6 +269,32 @@ The SVG layer uses `viewBox="0 0 100 100" preserveAspectRatio="none"` so 1
 viewBox unit = 1% of container (width or height). Strokes stay crisp via
 `vector-effect: non-scaling-stroke`. Markers may render slightly stretched on
 non-square containers — use `.fgraph-wrap.square` for pixel-perfect arrowheads.
+
+### Shape vocabulary
+
+Shapes are semantic — pick by **what the node is**, not how you want it to look.
+Full reference: [`../shape-vocabulary.md`](../shape-vocabulary.md).
+
+| Shape | Class | Use when node is... |
+|-------|-------|---------------------|
+| Rounded rect | *(default)* | A service, process, or generic component |
+| Pill | `.pill` | A bus, broker, router, or relay |
+| Circle | `.circle` | An event, trigger, signal, or lifecycle point |
+| Hexagon | `.hexagon` | An agent, worker, or autonomous unit |
+| Diamond | `.diamond` | A decision, gate, or conditional branch |
+| Cylinder | `.cylinder` | A database, cache, queue, or data store |
+| Folded | `.folded` | A file, config, document, or static asset |
+
+Arrow modifiers compose with tones on `.fg-edge`:
+
+| Modifier | Class | Use when path is... |
+|----------|-------|---------------------|
+| Dashed | `.dashed` | Optional, async, planned, or fallback |
+| Thick | `.thick` | Critical path or primary data flow |
+| Animated | `.animated` | Live stream or real-time connection |
+
+Shapes compose with tones and sizes: `<div class="fgraph-node hexagon amber wide">`.
+Arrow modifiers stack: `<path class="fg-edge cyan thick animated">`.
 
 ---
 

@@ -81,6 +81,10 @@ Content-driven in both tracks. Brand `structure_defaults` (if present) act as **
 
 **Decision rule:** > 8 nodes or linear → Mermaid. ≤ 6 radial with rich cards → fgraph. Tabular → HTML table. Stacked text → Grid.
 
+**Node shapes (fgraph):** When using fgraph, pick the right shape modifier for each node. Read [`${CLAUDE_PLUGIN_ROOT}/references/shape-vocabulary.md`](${CLAUDE_PLUGIN_ROOT}/references/shape-vocabulary.md) for the full semantic mapping. Quick reference: `.cylinder` = database, `.hexagon` = agent/worker, `.diamond` = decision/gate, `.circle` = event/trigger, `.folded` = file/config, `.pill` = bus/broker, default rect = service/process.
+
+**Arrow modifiers (fgraph):** `.dashed` = optional/async, `.thick` = critical path, `.animated` = live stream. Compose with tones: `<path class="fg-edge amber thick">`.
+
 **Ask:** How many nodes? Any cycles? If you sketch the content twice — once radial, once linear — which reads faster on a 1200px screen? Content that takes two sketches to understand is a signal to split the diagram, not to cram both into one.
 
 ### Style — Which components?
@@ -106,7 +110,7 @@ All classes below exist in `base/components.css` + `base/explainer-base.css`.
 | Rendering | Wrapper / component |
 |---|---|
 | Mermaid (flowchart / sequence / state / class) | `.diagram-shell` with `.zoom-controls` (never bare `<pre class="mermaid">`) |
-| fgraph radial | `.fgraph-wrap` + `.fgraph-frame` + `.fgraph-edges` + `.fgraph-node.{tone}` (see `graph-templates/`) |
+| fgraph radial | `.fgraph-wrap` + `.fgraph-frame` + `.fgraph-edges` + `.fgraph-node.{shape}.{tone}` (shapes: `.cylinder`/`.hexagon`/`.diamond`/`.circle`/`.folded`/`.pill` — see `shape-vocabulary.md`) |
 | HTML table | `.table-wrap > table` with `<thead>` (enables sticky header + horizontal scroll) |
 | CSS Grid cards | `.cards` container + `.card`/`.card.accent` per row |
 | Timeline | `.steps` container + `.step > .step-num` per entry |
