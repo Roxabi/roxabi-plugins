@@ -403,42 +403,48 @@ export function writeReport(report: LicenseReport, repoRoot: string): string {
 
 // ─── CLI Output ──────────────────────────────────────────────────────────────
 
-function printLicenseDistribution(licenses: Record<string, number>): void {
+export function formatLicenseDistribution(licenses: Record<string, number>): string {
   const sorted = Object.entries(licenses).sort((a, b) => b[1] - a[1])
-  if (sorted.length === 0) return
-  console.log('Licenses found:')
+  if (sorted.length === 0) return ''
   const maxNameLen = Math.max(...sorted.map(([name]) => name.length))
+  const lines = ['Licenses found:']
   for (const [name, count] of sorted) {
-    console.log(`  ${name.padEnd(maxNameLen + 2)}${count}`)
+    lines.push(`  ${name.padEnd(maxNameLen + 2)}${count}`)
   }
-  console.log()
+  lines.push('')
+  return lines.join('\n')
 }
 
-function printViolations(violations: PackageEntry[]): void {
-  if (violations.length === 0) return
+export function formatViolations(violations: PackageEntry[]): string {
+  if (violations.length === 0) return ''
   const s = violations.length > 1 ? 's' : ''
-  console.log(`\u274c ${violations.length} violation${s}:`)
+  const lines = [`\u274c ${violations.length} violation${s}:`]
   for (const v of violations) {
-    console.log(`  ${v.name}@${v.version}    ${v.license}`)
+    lines.push(`  ${v.name}@${v.version}    ${v.license}`)
   }
-  console.log()
+  lines.push('')
+  return lines.join('\n')
 }
 
-function printWarnings(warnings: LicenseReport['warnings']): void {
-  if (warnings.length === 0) return
+export function formatWarnings(warnings: LicenseReport['warnings']): string {
+  if (warnings.length === 0) return ''
   const s = warnings.length > 1 ? 's' : ''
-  console.log(`\u26a0  ${warnings.length} package${s} with unknown license (see report)`)
+  const lines = [`\u26a0  ${warnings.length} package${s} with unknown license (see report)`]
   for (const w of warnings) {
-    console.log(`  ${w.name}@${w.version}    UNKNOWN`)
+    lines.push(`  ${w.name}@${w.version}    UNKNOWN`)
   }
-  console.log()
+  lines.push('')
+  return lines.join('\n')
 }
 
 export function printSummary(report: LicenseReport, reportPath: string): void {
   console.log(`\nLicense Check — ${report.summary.totalPackages} packages scanned\n`)
-  printLicenseDistribution(report.summary.licenses)
-  printViolations(report.violations)
-  printWarnings(report.warnings)
+  const dist = formatLicenseDistribution(report.summary.licenses)
+  if (dist) console.log(dist)
+  const viol = formatViolations(report.violations)
+  if (viol) console.log(viol)
+  const warn = formatWarnings(report.warnings)
+  if (warn) console.log(warn)
   if (report.violations.length === 0) {
     console.log('\u2705 No violations found')
   }
