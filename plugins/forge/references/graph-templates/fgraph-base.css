@@ -326,6 +326,14 @@
 .fgraph-node.pill.green,
 .fgraph-node.pill.red { background: var(--bg-panel); }
 
+/* clip-path + tone: keep transparent so pseudo-elements define the shape */
+.fgraph-node.hexagon.amber, .fgraph-node.hexagon.cyan, .fgraph-node.hexagon.purple, .fgraph-node.hexagon.green, .fgraph-node.hexagon.red,
+.fgraph-node.diamond.amber, .fgraph-node.diamond.cyan, .fgraph-node.diamond.purple, .fgraph-node.diamond.green, .fgraph-node.diamond.red,
+.fgraph-node.folded.amber,  .fgraph-node.folded.cyan,  .fgraph-node.folded.purple,  .fgraph-node.folded.green,  .fgraph-node.folded.red {
+  background: none;
+  border: none;
+}
+
 /* clip-path tone overrides — ::after is the border layer */
 .fgraph-node.hexagon.amber::after,  .fgraph-node.diamond.amber::after,  .fgraph-node.folded.amber::after  { background: var(--amber); }
 .fgraph-node.hexagon.cyan::after,   .fgraph-node.diamond.cyan::after,   .fgraph-node.folded.cyan::after   { background: var(--cyan); }
