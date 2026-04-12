@@ -20,14 +20,18 @@ mkdir -p "$DIST"
 # -L dereferences symlinks as real files so deployed _dist/ ships actual
 # content rather than dangling symlinks. Required for galleries that
 # symlink into external directories (e.g. ai-toolkit training output).
-rsync -aL --delete --delete-excluded \
+rsync -aL --delete --delete-excluded --ignore-errors \
   --exclude='_dist/' \
   --exclude='*.py' \
   --exclude='__pycache__/' \
   --exclude='.git/' \
   --exclude='.stversions/' \
   --exclude='lyra/brand/prompts/' \
-  "$FORGE_DIR/" "$DIST/"
+  "$FORGE_DIR/" "$DIST/" || {
+    RC=$?
+    # exit code 23 = partial transfer (e.g. dangling symlinks) — non-fatal
+    [ $RC -eq 23 ] && echo "  ⚠ rsync: skipped some files (broken symlinks?) — continuing" || exit $RC
+  }
 
 # Copy gallery UI from canonical forge location into _dist
 cp "$FORGE_DIR/index.html" "$DIST/index.html"

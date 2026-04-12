@@ -34,7 +34,7 @@ build:
 
 deploy: build
 	@echo "Deploying to Cloudflare Pages..."
-	@npx wrangler pages deploy "$(FORGE_DIR)_dist" --project-name=diagrams --branch=main --commit-dirty=true
+	@npx wrangler pages deploy "$(FORGE_DIR)_dist" --project-name=forge --branch=main --commit-dirty=true
 
 du:
 	@du -sh "$(FORGE_DIR)"*/
