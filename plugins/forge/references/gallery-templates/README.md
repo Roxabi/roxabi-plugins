@@ -108,9 +108,11 @@ All templates share:
 - Dynamic filters (OFF by default = inactive = show everything)
 - Search, sort, size +/−, stats counter, lightbox
 - manifest.json + /api/list/ discovery
-- `{{PLACEHOLDER}}` markers + `CUSTOMISE` comment sections
+- `{{PLACEHOLDER}}` markers for all customisation points
 
-**Deploy path:** copy `gallery-base.css` and `gallery-base.js` to `~/.roxabi/forge/_shared/`. Gallery HTMLs link to them via relative path (e.g. `../../_shared/gallery-base.css`, `../../_shared/gallery-base.js`).
+**Asset path placeholders:** all templates use `{{GALLERY_BASE_CSS}}` and `{{GALLERY_BASE_JS}}` for the shared asset paths. Replace with the correct relative path for your deploy location (e.g. `../../_shared/gallery-base.css`, `../../_shared/gallery-base.js`).
+
+**Deploy path:** copy `gallery-base.css` and `gallery-base.js` to `~/.roxabi/forge/_shared/`.
 
 ## How to customise `pivot-gallery.html`
 
@@ -190,7 +192,7 @@ cp pivot-gallery.html ~/.roxabi/forge/{project}/{slug}.html
 # Edit placeholders + DIMS
 
 # Deploy
-cd ~/projects/lyra-stack && make forge deploy
+cd ~/projects && make forge deploy
 ```
 
 ## How to customise `simple-gallery.html`

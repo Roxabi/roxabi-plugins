@@ -16,8 +16,7 @@
 <meta name="diagram:badges"    content="latest">
 <!-- diagram-meta:end -->
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<!-- CUSTOMISE: adjust path to gallery-base.css for your deploy location -->
-<link rel="stylesheet" href="gallery-base.css">
+<link rel="stylesheet" href="{{GALLERY_BASE_CSS}}">
 <style>
 /* ══════════════════════════════════════════════════════════════════
    CUSTOMISE: override accent tokens for your project brand
@@ -144,8 +143,7 @@
   <span class="lb-btn lb-next" onclick="lbNav(1,event)">&#8250;</span>
 </div>
 
-<!-- CUSTOMISE: adjust path to gallery-base.js for your deploy location -->
-<script src="gallery-base.js"></script>
+<script src="{{GALLERY_BASE_JS}}"></script>
 <script>
 /* ══════════════════════════════════════════════════════════════════
    CUSTOMISE: MODES — one entry per dataset. Each mode owns its own

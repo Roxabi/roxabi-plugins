@@ -1,6 +1,6 @@
 {
   "name": "forge",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Forge HTML for ~/.roxabi/forge/ — forge-guide (multi-tab doc), forge-epic (issue-linked analysis), forge-chart (single-file Mermaid), forge-gallery (image/audio). Brand-aware, manifest-indexed, Cloudflare Pages ready.",
   "author": { "name": "Roxabi" }
 }

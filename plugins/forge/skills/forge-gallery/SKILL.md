@@ -139,7 +139,7 @@ Follow the steps in the template's README:
 
 ### 1. Fill `{{PLACEHOLDERS}}`
 
-Replace all `{{...}}` in the HTML: title, date, subtitle, image directory, data JSON path, reference image.
+Replace all `{{...}}` in the HTML: title, date, subtitle, image directory, data JSON path, reference image, `{{GALLERY_BASE_CSS}}` → `../../_shared/gallery-base.css`, `{{GALLERY_BASE_JS}}` → `../../_shared/gallery-base.js`.
 
 ### 2. Define dimensions (`DIMS` object)
 

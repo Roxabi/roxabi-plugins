@@ -2,7 +2,7 @@
 
 ## Critical Rules
 
-1. **Never use bare `<pre class="mermaid">`** — always wrap in `.mermaid-wrap` shell with zoom/pan
+1. **Never use bare `<pre class="mermaid">`** — always wrap in `.diagram-shell` with zoom/pan
 2. **Never use `rgba()` in style directives** — hex colors only
 3. **Never define `.node` as page-level CSS** — breaks Mermaid's internal classes
 4. **Never use `theme: 'dark'`** — always use `theme: 'base'` with custom `themeVariables`

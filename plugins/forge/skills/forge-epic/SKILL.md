@@ -18,7 +18,8 @@ ${CLAUDE_PLUGIN_ROOT}/references/forge-ops.md        — brand detection, output
 ${CLAUDE_PLUGIN_ROOT}/references/base/reset.css      — concatenate first
 ${CLAUDE_PLUGIN_ROOT}/references/base/layout.css     — concatenate second
 ${CLAUDE_PLUGIN_ROOT}/references/base/typography.css — concatenate third
-${CLAUDE_PLUGIN_ROOT}/references/base/components.css — concatenate last
+${CLAUDE_PLUGIN_ROOT}/references/base/components.css — concatenate fourth
+${CLAUDE_PLUGIN_ROOT}/references/base/explainer-base.css — concatenate fifth (visual explainer components)
 ${CLAUDE_PLUGIN_ROOT}/references/aesthetics/         — select one based on detection logic
 ${CLAUDE_PLUGIN_ROOT}/references/shells/split.html   — HTML template with placeholders
 ${CLAUDE_PLUGIN_ROOT}/references/base/tab-loader.js  — substitute {NAME}, then inline
@@ -114,23 +115,15 @@ Cross-tab: use `.card.info` / `.card.warning` / `.card.critical` for inline tona
 
 ## Shell Processing
 
-1. Read `shells/split.html` template
-2. Concatenate base CSS files in order: `reset → layout → typography → components`
-3. Read selected aesthetic CSS
-4. Read `base/tab-loader.js`, substitute `{NAME}` with `{ISSUE}-{slug}`
-5. Substitute placeholders:
-   - `{NAME}` → `{ISSUE}-{slug}` (for localStorage key scoping + tab-loader.js)
-   - `{BASE_STYLES}` → concatenated base CSS
-   - `{AESTHETIC_STYLES}` → selected aesthetic CSS
-   - `{TITLE}` → `{PROJ} #{ISSUE} — {Short Title}` (e.g. "Lyra #477 — Tool Registry")
-   - `{DATE}`, `{CATEGORY}`, `{CAT_LABEL}`, `{COLOR}`, `{BADGES}` → diagram metadata
-   - `{TABS}` → tab button elements (one per tab)
-   - `{PANELS}` → panel container elements (one per tab)
-   - `{TAB_LOADER_JS}` → tab-loader.js with `{NAME}` substituted
-   - `{HEAD_EXTRAS}` → optional (e.g., svg-pan-zoom CDN for Mermaid)
-   - `{EXTRA_STYLES}` → epic-specific CSS (epic-hero, status badges, etc.)
-   - `{EXTRA_SCRIPTS}` → optional (e.g., mermaid-init.js)
-6. Output: split-file HTML (requires HTTP serve)
+Follow `${CLAUDE_PLUGIN_ROOT}/references/shell-processing.md` — the shared split-file pipeline.
+
+**Epic-specific overrides:**
+
+| Placeholder | Value |
+|---|---|
+| `{NAME}` | `{ISSUE}-{slug}` |
+| `{TITLE}` | `{PROJ} #{ISSUE} — {Short Title}` (e.g. "Lyra #477 — Tool Registry") |
+| `{EXTRA_STYLES}` | epic-hero + status badge CSS (see Phase 3) |
 
 Let:
   ARGS   := $ARGUMENTS

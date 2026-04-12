@@ -126,22 +126,15 @@ Cross-doc: use `.card.info` / `.card.warning` / `.card.critical` for inline tona
 
 ## Shell Processing
 
-1. Read `shells/split.html` template
-2. Concatenate base CSS files in order: `reset → layout → typography → components → explainer-base`
-3. Read selected aesthetic CSS
-4. Read `base/tab-loader.js`, substitute `{NAME}` with diagram slug
-5. Substitute placeholders:
-   - `{NAME}` → diagram slug (for localStorage key scoping + tab-loader.js)
-   - `{BASE_STYLES}` → concatenated base CSS
-   - `{AESTHETIC_STYLES}` → aesthetic CSS (editorial.css if default)
-   - `{TITLE}`, `{DATE}`, `{CATEGORY}`, `{CAT_LABEL}`, `{COLOR}`, `{BADGES}` → diagram metadata
-   - `{TABS}` → tab button elements (one per tab)
-   - `{PANELS}` → panel container elements (one per tab)
-   - `{TAB_LOADER_JS}` → tab-loader.js with `{NAME}` substituted
-   - `{HEAD_EXTRAS}` → optional (e.g., svg-pan-zoom CDN for Mermaid)
-   - `{EXTRA_STYLES}` → guide-specific CSS additions (if any)
-   - `{EXTRA_SCRIPTS}` → optional (e.g., mermaid-init.js)
-6. Output: split-file HTML (requires HTTP serve)
+Follow `${CLAUDE_PLUGIN_ROOT}/references/shell-processing.md` — the shared split-file pipeline.
+
+**Guide-specific overrides:**
+
+| Placeholder | Value |
+|---|---|
+| `{NAME}` | diagram slug |
+| `{TITLE}` | free-form title from ARGS |
+| `{EXTRA_STYLES}` | guide-specific CSS additions (if any) |
 
 Let:
   ARGS := $ARGUMENTS

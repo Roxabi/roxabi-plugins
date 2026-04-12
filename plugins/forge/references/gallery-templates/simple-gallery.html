@@ -16,8 +16,7 @@
 <meta name="diagram:badges"    content="latest">
 <!-- diagram-meta:end -->
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<!-- CUSTOMISE: adjust path to gallery-base.css for your deploy location -->
-<link rel="stylesheet" href="gallery-base.css">
+<link rel="stylesheet" href="{{GALLERY_BASE_CSS}}">
 <style>
 /* ══════════════════════════════════════════════════════════════════
    CUSTOMISE: override accent tokens for your project brand
@@ -134,8 +133,7 @@
   <span class="lb-btn lb-next" onclick="lbNav(1,event)">&#8250;</span>
 </div>
 
-<!-- CUSTOMISE: adjust path to gallery-base.js for your deploy location -->
-<script src="gallery-base.js"></script>
+<script src="{{GALLERY_BASE_JS}}"></script>
 <script>
 /* ══════════════════════════════════════════════════════════════════
    CUSTOMISE: BATCHES config
@@ -193,7 +191,7 @@ const BATCHES = [
    };
    ══════════════════════════════════════════════════════════════════ */
 const DIMS = {
-  /* {{DIMS_CONFIG}} */
+  /* {{DIMS_CONFIG}} — each dim.fn takes the full item object (e.g. fn: it => it.tags[0]) */
 };
 
 /* ══════════════════════════════════════════════════════════════════
@@ -208,17 +206,6 @@ const STORE_KEY = '{{STORE_KEY_PREFIX}}';  /* e.g. 'lyra-avatar' */
 const starred = initStarred(STORE_KEY);
 const filters = {};
 
-/* LEGACY WORKAROUND — items-as-objects is now the preferred pattern.
-   This wrapper exists because this template's DIMS.fn signature takes
-   `item.tags` (a subfield), while buildDimFilters passes the full item.
-   New galleries should define DIMS.fn to read directly from the item object
-   (e.g. `fn: it => it.tags[0]`) and skip this wrapper. See README section
-   "Items-as-objects vs filename-strings" for guidance. */
-const DIMS_WRAPPED = {};
-for (const [k, dim] of Object.entries(DIMS)) {
-  DIMS_WRAPPED[k] = { ...dim, fn: item => dim.fn(item.tags) };
-}
-
 let allItems = [];
 let visibleItems = [];
 let lbIndex = 0;
@@ -230,7 +217,7 @@ let currentBatch = 'all';
 
 function getFiltered() {
   let items = allItems.filter(item => currentBatch === 'all' || item.batch === currentBatch);
-  items = applyDimFilters(items, DIMS_WRAPPED, filters);
+  items = applyDimFilters(items, DIMS, filters);
 
   const q = (document.getElementById('searchInput').value || '').toLowerCase();
   if (q) items = items.filter(item =>
@@ -384,7 +371,7 @@ const S = initTheme(STORE_KEY);
 
   buildBatchBar({ barId:'batchBar', batches:BATCHES, counts, total:allItems.length,
     onSelect: id => { currentBatch = id; render(); } });
-  buildDimFilters(allItems, DIMS_WRAPPED, filters, 'filterBar', render);
+  buildDimFilters(allItems, DIMS, filters, 'filterBar', render);
   render();
 
   document.getElementById('subtitle').textContent = allItems.length + ' images \u00b7 ' +

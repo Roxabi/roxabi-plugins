@@ -33,7 +33,9 @@ deploy:
 	@cp -v $(PLUGIN_DIR)../../forge/scripts/gen-image-manifests.py $(FORGE_DIR)/scripts/gen-image-manifests.py
 	@cp -v $(PLUGIN_DIR)../../forge/scripts/seed-meta.py $(FORGE_DIR)/scripts/seed-meta.py
 	@cp -v $(PLUGIN_DIR)../../forge/scripts/update-meta.py $(FORGE_DIR)/scripts/update-meta.py
+	@cp -v $(PLUGIN_DIR)../../forge/scripts/render-md.py $(FORGE_DIR)/scripts/render-md.py
 	@chmod +x $(FORGE_DIR)/scripts/build.sh
+	@chmod +x $(FORGE_DIR)/scripts/render-md.py
 	@echo "Done."
 	@echo ""
 	@echo "Note: if $(FORGE_DIR)/.env doesn't exist yet, copy .env.example and fill in credentials:"

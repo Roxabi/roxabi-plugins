@@ -19,6 +19,7 @@ Run once per machine. Safe to re-run — skips files that already exist.
 ls -la ~/.roxabi/forge/ 2>/dev/null
 ls ~/.roxabi/forge/_shared/gallery-base.css 2>/dev/null
 ls ~/.roxabi/forge/_shared/gallery-base.js 2>/dev/null
+ls ~/.roxabi/forge/_shared/fgraph-base.css 2>/dev/null
 ls ~/.roxabi/forge/serve.py 2>/dev/null
 ls ~/.roxabi/forge/index.html 2>/dev/null
 ```
@@ -45,8 +46,9 @@ Copy from plugin references. Source files:
 ```
 ${CLAUDE_PLUGIN_ROOT}/references/server/serve.py      → ~/.roxabi/forge/serve.py
 ${CLAUDE_PLUGIN_ROOT}/references/server/index.html     → ~/.roxabi/forge/index.html
-${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/gallery-base.css → ~/.roxabi/forge/_shared/gallery-base.css
-${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/gallery-base.js  → ~/.roxabi/forge/_shared/gallery-base.js
+${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/gallery-base.css  → ~/.roxabi/forge/_shared/gallery-base.css
+${CLAUDE_PLUGIN_ROOT}/references/gallery-templates/gallery-base.js   → ~/.roxabi/forge/_shared/gallery-base.js
+${CLAUDE_PLUGIN_ROOT}/references/graph-templates/fgraph-base.css     → ~/.roxabi/forge/_shared/fgraph-base.css
 ```
 
 For each file:
@@ -66,6 +68,7 @@ chmod +x ~/.roxabi/forge/serve.py
 ```bash
 ls -la ~/.roxabi/forge/serve.py ~/.roxabi/forge/index.html
 ls -la ~/.roxabi/forge/_shared/gallery-base.*
+ls -la ~/.roxabi/forge/_shared/fgraph-base.css
 ```
 
 ---
@@ -107,6 +110,7 @@ Root:    ~/.roxabi/forge/
 Server:  ~/.roxabi/forge/serve.py
 Index:   ~/.roxabi/forge/index.html
 Shared:  ~/.roxabi/forge/_shared/gallery-base.{css,js}
+         ~/.roxabi/forge/_shared/fgraph-base.css
 
 Quick start:
   cd ~/.roxabi/forge && python3 serve.py
