@@ -29,16 +29,5 @@
       "!.cache"
     ]
   },
-  "overrides": [
-    {
-      "includes": ["plugins/forge/references/gallery-templates/gallery-base.js"],
-      "linter": {
-        "rules": {
-          "correctness": {
-            "noUnusedVariables": "off"
-          }
-        }
-      }
-    }
-  ]
+  "overrides": []
 }
