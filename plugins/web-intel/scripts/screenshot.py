@@ -6,12 +6,6 @@ Used as a fallback by ``/roast`` and ``/benchmark`` when the agent-browser
 CLI is not installed. Reuses the Playwright stack already required for X
 articles — no new dependencies.
 
-TODO(#93): The Playwright + stealth bootstrap below duplicates
-``fetchers/stealth.py`` (sync) and ``plugins/linkedin-apply/scripts/scraper.py``
-(async). Extract to ``roxabi_sdk/browser.py`` so all three sites share one
-``launch_stealth_sync()`` / ``launch_stealth_async()`` primitive.
-See Roxabi/roxabi-plugins#93 for the full refactor plan.
-
 Usage:
     uv run python scripts/screenshot.py <url> <output_path>
 
@@ -28,9 +22,11 @@ Security:
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
-from typing import Tuple
+
+logger = logging.getLogger(__name__)
 
 # Add _shared to path for sibling imports (consistent with fetchers/*.py)
 SHARED_DIR = Path(__file__).resolve().parent / "_shared"
@@ -45,22 +41,25 @@ DEFAULT_TIMEOUT_MS = 30_000
 # Wait after domcontentloaded for dynamic content / fonts to settle
 POST_LOAD_WAIT_MS = 2_500
 
-_DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
+from roxabi_sdk.browser import (  # noqa: E402
+    PlaywrightNotAvailableError,
+    close_stealth,
+    launch_stealth_sync,
 )
-_DEFAULT_VIEWPORT = {"width": 1280, "height": 900}
 
+# Independent module-level pre-flight flags — kept separate from
+# roxabi_sdk.browser._raise_if_unavailable so any future test that
+# wants to monkey-patch them (mirroring tests/test_stealth.py:104) can
+# still drive the "missing dep" branch without reaching into SDK internals.
 try:
-    from playwright.sync_api import sync_playwright
+    import playwright  # noqa: F401
 
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
 try:
-    from playwright_stealth import Stealth as _Stealth
+    import playwright_stealth  # noqa: F401
 
     PLAYWRIGHT_STEALTH_AVAILABLE = True
 except ImportError:
@@ -71,7 +70,7 @@ def capture_full_page(
     url: str,
     output_path: str,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """Capture a full-page PNG screenshot to disk.
 
     Args:
@@ -93,28 +92,27 @@ def capture_full_page(
     if not is_valid:
         return False, f"URL rejected by SSRF validation: {err}"
 
+    pw = ctx = None
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent=_DEFAULT_USER_AGENT,
-                viewport=_DEFAULT_VIEWPORT,
-                locale="en-US",
-            )
-            page = context.new_page()
+        try:
+            pw, ctx, page = launch_stealth_sync()
+        except PlaywrightNotAvailableError as exc:
+            return False, str(exc)
 
-            if PLAYWRIGHT_STEALTH_AVAILABLE:
-                _Stealth().use_sync(page)
-
-            page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
-            # Let fonts, lazy images, and CF auto-redirects settle
-            page.wait_for_timeout(POST_LOAD_WAIT_MS)
-            page.screenshot(path=output_path, full_page=True)
-            browser.close()
-            return True, output_path
+        page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+        # Let fonts, lazy images, and CF auto-redirects settle
+        page.wait_for_timeout(POST_LOAD_WAIT_MS)
+        page.screenshot(path=output_path, full_page=True)
+        return True, output_path
 
     except Exception as exc:
         return False, f"Screenshot failed: {exc}"
+    finally:
+        if pw is not None and ctx is not None:
+            try:
+                close_stealth(pw, ctx)
+            except Exception:
+                logger.debug("close_stealth raised during screenshot cleanup", exc_info=True)
 
 
 def main() -> int:
