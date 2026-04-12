@@ -19,6 +19,11 @@ for _dir in [SHARED_DIR, FETCHERS_DIR]:
         sys.path.insert(0, str(_dir))
 
 from base import sanitize_content
+from roxabi_sdk.browser import (
+    PlaywrightNotAvailableError,
+    close_stealth,
+    launch_stealth_sync,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,19 +40,14 @@ ARTICLE_CONTENT_SELECTORS: tuple[str, ...] = (
 # Wait time for dynamic content to load (ms)
 ARTICLE_CONTENT_WAIT_MS = 5000
 
+# Module-level pre-flight flag for callers that gate on availability
+# before calling fetch_article_playwright.
 try:
-    from playwright.sync_api import sync_playwright
+    import playwright  # noqa: F401
 
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
-
-try:
-    from playwright_stealth import Stealth as _Stealth
-
-    PLAYWRIGHT_STEALTH_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_STEALTH_AVAILABLE = False
 
 
 def load_x_cookies(cookies_path: Optional[str] = None) -> list:
@@ -312,109 +312,107 @@ def fetch_article_playwright(
     url = f"https://x.com/i/article/{article_id}"
     cookies = load_x_cookies(cookies_path)
 
+    pw = ctx = None
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        try:
+            pw, ctx, page = launch_stealth_sync(
                 viewport={"width": 1280, "height": 2000},  # Taller viewport for articles
             )
+        except PlaywrightNotAvailableError as exc:
+            return {"success": False, "error": str(exc)}
 
-            if cookies:
-                context.add_cookies(cookies)
+        if cookies:
+            ctx.add_cookies(cookies)
 
-            page = context.new_page()
+        page.goto(url, timeout=timeout, wait_until="domcontentloaded")
 
-            if PLAYWRIGHT_STEALTH_AVAILABLE:
-                _Stealth().use_sync(page)
-                logger.debug("Playwright stealth patches applied")
-            else:
-                logger.debug("playwright-stealth not installed; running without stealth")
+        # Dismiss cookie consent banner if present
+        _accept_x_cookies(page)
 
-            page.goto(url, timeout=timeout, wait_until="domcontentloaded")
+        page.wait_for_timeout(ARTICLE_CONTENT_WAIT_MS)
 
-            # Dismiss cookie consent banner if present
-            _accept_x_cookies(page)
+        # Wait for article content to appear
+        try:
+            page.wait_for_selector("article", timeout=15000)
+        except Exception:
+            pass  # Continue even if selector not found
 
-            page.wait_for_timeout(ARTICLE_CONTENT_WAIT_MS)
+        page.wait_for_timeout(ARTICLE_CONTENT_WAIT_MS)
 
-            # Wait for article content to appear
+        if debug:
+            page.screenshot(path="/tmp/x_article_debug.png", full_page=True)
+
+        # Extract all metadata
+        content = _extract_article_content(page)
+        title = _extract_article_title(page)
+        author = _extract_article_author(page)
+        date = _extract_article_date(page)
+
+        # Detect X's "This page is down" error before closing the browser so
+        # we can navigate to /home and disambiguate auth failure from article
+        # downtime without spinning up a second browser instance.
+        if "this page is down" in content.lower():
+            auth_ok = True
             try:
-                page.wait_for_selector("article", timeout=15000)
+                page.goto("https://x.com/home", timeout=10000, wait_until="domcontentloaded")
+                page.wait_for_timeout(2000)
+                home_url = page.url
+                auth_ok = "login" not in home_url and "/flow/" not in home_url
             except Exception:
-                pass  # Continue even if selector not found
-
-            page.wait_for_timeout(ARTICLE_CONTENT_WAIT_MS)
-
-            if debug:
-                page.screenshot(path="/tmp/x_article_debug.png", full_page=True)
-
-            # Extract all metadata
-            content = _extract_article_content(page)
-            title = _extract_article_title(page)
-            author = _extract_article_author(page)
-            date = _extract_article_date(page)
-
-            # Detect X's "This page is down" error before closing the browser so
-            # we can navigate to /home and disambiguate auth failure from article
-            # downtime without spinning up a second browser instance.
-            if "this page is down" in content.lower():
-                auth_ok = True
-                try:
-                    page.goto("https://x.com/home", timeout=10000, wait_until="domcontentloaded")
-                    page.wait_for_timeout(2000)
-                    home_url = page.url
-                    auth_ok = "login" not in home_url and "/flow/" not in home_url
-                except Exception:
-                    pass  # Can't determine — don't falsely flag as auth issue
-                browser.close()
-                if not auth_ok:
-                    return {
-                        "success": False,
-                        "error": (
-                            "X cookies are expired or invalid "
-                            "(session check redirected to login).\n"
-                            f"{_COOKIE_REFRESH_GUIDE}"
-                        ),
-                    }
+                pass  # Can't determine — don't falsely flag as auth issue
+            close_stealth(pw, ctx)
+            pw = ctx = None
+            if not auth_ok:
                 return {
                     "success": False,
                     "error": (
-                        "X Article is unavailable. "
-                        "The article may have been deleted or is temporarily offline."
+                        "X cookies are expired or invalid "
+                        "(session check redirected to login).\n"
+                        f"{_COOKIE_REFRESH_GUIDE}"
                     ),
                 }
-
-            browser.close()
-
-            # Check if we got cookie banner instead of real content
-            if _looks_like_cookie_banner(content):
-                return {
-                    "success": False,
-                    "error": "Could not dismiss cookie banner. Content extraction failed.",
-                    "debug_screenshot": "/tmp/x_article_debug.png" if debug else None,
-                }
-
-            if not content or len(content) < 50:
-                return {
-                    "success": False,
-                    "error": "Could not extract article content. X may require login.",
-                    "debug_screenshot": "/tmp/x_article_debug.png" if debug else None,
-                }
-
             return {
-                "success": True,
-                "type": "article",
-                "id": article_id,
-                "title": title,
-                "text": sanitize_content(content),
-                "author": author,
-                "created_at": date,
-                "url": url,
+                "success": False,
+                "error": (
+                    "X Article is unavailable. "
+                    "The article may have been deleted or is temporarily offline."
+                ),
             }
+
+        # Check if we got cookie banner instead of real content
+        if _looks_like_cookie_banner(content):
+            return {
+                "success": False,
+                "error": "Could not dismiss cookie banner. Content extraction failed.",
+                "debug_screenshot": "/tmp/x_article_debug.png" if debug else None,
+            }
+
+        if not content or len(content) < 50:
+            return {
+                "success": False,
+                "error": "Could not extract article content. X may require login.",
+                "debug_screenshot": "/tmp/x_article_debug.png" if debug else None,
+            }
+
+        return {
+            "success": True,
+            "type": "article",
+            "id": article_id,
+            "title": title,
+            "text": sanitize_content(content),
+            "author": author,
+            "created_at": date,
+            "url": url,
+        }
 
     except Exception as e:
         return {"success": False, "error": f"Playwright error: {str(e)}"}
+    finally:
+        if pw is not None and ctx is not None:
+            try:
+                close_stealth(pw, ctx)
+            except Exception:
+                logger.debug("close_stealth raised during cleanup", exc_info=True)
 
 
 def fetch_article(
