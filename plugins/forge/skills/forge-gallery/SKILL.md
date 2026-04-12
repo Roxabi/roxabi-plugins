@@ -183,7 +183,9 @@ Values are **auto-discovered** from data — the template creates filter buttons
 Created: ~/.roxabi/forge/{PROJ}/{SLUG}.html
 Template: {template name}
 
-Serve + Deploy: see forge-ops.md
+View:    make forge → http://localhost:8080/{PROJ}/{SLUG}.html
+         (or: cd ~/.roxabi/forge && python3 -m http.server 8080)
+Deploy:  make forge deploy
 ```
 
 ---

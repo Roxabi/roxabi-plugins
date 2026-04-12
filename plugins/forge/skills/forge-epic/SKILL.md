@@ -248,7 +248,9 @@ Created:
   ~/.roxabi/forge/{PROJ}/visuals/js/{ISSUE}-{slug}.js
   ~/.roxabi/forge/{PROJ}/visuals/tabs/{ISSUE}-{slug}/tab-*.html
 
-Serve + Deploy: see forge-ops.md
+View:    make forge → http://localhost:8080/{PROJ}/visuals/{ISSUE}-{slug}.html
+         (or: cd ~/.roxabi/forge && python3 -m http.server 8080)
+Deploy:  make forge deploy
 ```
 
 $ARGUMENTS
