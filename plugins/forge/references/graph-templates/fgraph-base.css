@@ -5,6 +5,20 @@
    with an SVG overlay layer for arrows. Inline into the output
    <style> block (forge directive: inline, never link).
 
+   Shape modifiers (semantic node shapes):
+     .pill      — bus, broker, router (border-radius 999px)
+     .circle    — event, trigger, start/end (border-radius 50%)
+     .hexagon   — agent, worker, autonomous (clip-path polygon)
+     .diamond   — decision, gate, conditional (clip-path polygon)
+     .cylinder  — database, storage, queue (ellipse caps)
+     .folded    — file, config, document (clip-path corner notch)
+   See references/shape-vocabulary.md for semantic mapping.
+
+   Arrow modifiers (compose with tone classes on .fg-edge):
+     .dashed    — optional / async / planned
+     .thick     — primary data flow / critical path
+     .animated  — live stream / active connection
+
    Authoring API:
 
      <div class="fgraph-wrap green">
@@ -136,6 +150,12 @@
 .fgraph-edges .fg-edge.red    { stroke: var(--red); }
 .fgraph-edges .fg-edge.dim    { stroke: var(--text-muted); opacity: 0.5; }
 
+/* arrow modifiers — compose with tone classes */
+.fgraph-edges .fg-edge.dashed   { stroke-dasharray: 4 3; }
+.fgraph-edges .fg-edge.thick    { stroke-width: 2.8; }
+.fgraph-edges .fg-edge.animated { stroke-dasharray: 8 4; animation: fg-dash 1s linear infinite; }
+@keyframes fg-dash { to { stroke-dashoffset: -12; } }
+
 /* arrowhead marker fill classes — apply to <path> inside <marker> */
 .fgraph-edges .mk-amber  { fill: var(--amber); }
 .fgraph-edges .mk-cyan   { fill: var(--cyan); }
@@ -164,9 +184,11 @@
   z-index: 3;
 }
 
-/* shape modifiers */
+/* size modifiers */
 .fgraph-node.wide   { --w: 30%; }
 .fgraph-node.narrow { --w: 18%; }
+
+/* ── shape: pill (bus, broker, router) ── */
 .fgraph-node.pill {
   border-radius: 999px;
   border-width: 2px;
@@ -174,7 +196,121 @@
   text-align: center;
   padding: 10px 12px;
 }
-.fgraph-node.pill .fgraph-title { justify-content: center; }
+
+/* ── shape: circle (event, trigger, start/end) ── */
+.fgraph-node.circle {
+  border-radius: 50%;
+  aspect-ratio: 1;
+  --w: 14%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 10px;
+}
+
+/* ── clip-path shape foundation ──
+   clip-path clips borders, so hexagon/diamond/folded use
+   ::before (fill) + ::after (border outline) pseudo-elements.
+   The node itself has no background — visual shape comes from pseudos. */
+.fgraph-node.hexagon,
+.fgraph-node.diamond,
+.fgraph-node.folded {
+  border: none;
+  background: none;
+  border-radius: 0;
+}
+.fgraph-node.hexagon::before,
+.fgraph-node.hexagon::after,
+.fgraph-node.diamond::before,
+.fgraph-node.diamond::after,
+.fgraph-node.folded::before,
+.fgraph-node.folded::after {
+  content: '';
+  position: absolute;
+  transition: inset 0.15s;
+}
+/* fill layer */
+.fgraph-node.hexagon::before,
+.fgraph-node.diamond::before,
+.fgraph-node.folded::before {
+  inset: 0;
+  background: var(--bg-card);
+  z-index: -1;
+}
+/* border layer (slightly larger, behind fill) */
+.fgraph-node.hexagon::after,
+.fgraph-node.diamond::after,
+.fgraph-node.folded::after {
+  inset: -2px;
+  background: var(--border-bright);
+  z-index: -2;
+}
+
+/* ── shape: hexagon (agent, worker, autonomous unit) ── */
+.fgraph-node.hexagon {
+  text-align: center;
+  padding: 14px 22px;
+}
+.fgraph-node.hexagon::before,
+.fgraph-node.hexagon::after {
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+}
+
+/* ── shape: diamond (decision, gate, conditional) ── */
+.fgraph-node.diamond {
+  --w: 18%;
+  text-align: center;
+  padding: 20px 16px;
+}
+.fgraph-node.diamond::before,
+.fgraph-node.diamond::after {
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+}
+
+/* ── shape: folded (file, config, document) ── */
+.fgraph-node.folded {
+  text-align: center;
+  padding: 10px 10px 9px;
+}
+.fgraph-node.folded::before,
+.fgraph-node.folded::after {
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+}
+
+/* ── shape: cylinder (database, storage, queue) ──
+   Uses border-left/right for the body + ::before/::after for ellipse caps. */
+.fgraph-node.cylinder {
+  border: none;
+  border-left: 1.5px solid var(--border-bright);
+  border-right: 1.5px solid var(--border-bright);
+  border-radius: 0;
+  background: var(--bg-card);
+  text-align: center;
+  padding: 14px 10px 10px;
+}
+.fgraph-node.cylinder::before,
+.fgraph-node.cylinder::after {
+  content: '';
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  height: 22%;
+  border-radius: 50%;
+  background: inherit;
+  border: 1.5px solid var(--border-bright);
+}
+.fgraph-node.cylinder::before { top: -11%; z-index: 1; }
+.fgraph-node.cylinder::after  { bottom: -11%; z-index: -1; }
+
+/* centered titles for all semantic shapes */
+.fgraph-node.pill .fgraph-title,
+.fgraph-node.circle .fgraph-title,
+.fgraph-node.hexagon .fgraph-title,
+.fgraph-node.diamond .fgraph-title,
+.fgraph-node.folded .fgraph-title,
+.fgraph-node.cylinder .fgraph-title { justify-content: center; }
 
 /* tone modifiers (border color + translucent background tint) */
 .fgraph-node.amber  { border-color: var(--amber);  background: var(--amber-dim); }
@@ -189,6 +325,47 @@
 .fgraph-node.pill.purple,
 .fgraph-node.pill.green,
 .fgraph-node.pill.red { background: var(--bg-panel); }
+
+/* clip-path tone overrides — ::after is the border layer */
+.fgraph-node.hexagon.amber::after,  .fgraph-node.diamond.amber::after,  .fgraph-node.folded.amber::after  { background: var(--amber); }
+.fgraph-node.hexagon.cyan::after,   .fgraph-node.diamond.cyan::after,   .fgraph-node.folded.cyan::after   { background: var(--cyan); }
+.fgraph-node.hexagon.purple::after, .fgraph-node.diamond.purple::after, .fgraph-node.folded.purple::after { background: var(--purple); }
+.fgraph-node.hexagon.green::after,  .fgraph-node.diamond.green::after,  .fgraph-node.folded.green::after  { background: var(--green); }
+.fgraph-node.hexagon.red::after,    .fgraph-node.diamond.red::after,    .fgraph-node.folded.red::after    { background: var(--red); }
+
+/* clip-path tone overrides — ::before is the fill layer */
+.fgraph-node.hexagon.amber::before,  .fgraph-node.diamond.amber::before,  .fgraph-node.folded.amber::before  { background: var(--amber-dim); }
+.fgraph-node.hexagon.cyan::before,   .fgraph-node.diamond.cyan::before,   .fgraph-node.folded.cyan::before   { background: var(--cyan-dim); }
+.fgraph-node.hexagon.purple::before, .fgraph-node.diamond.purple::before, .fgraph-node.folded.purple::before { background: var(--purple-dim); }
+.fgraph-node.hexagon.green::before,  .fgraph-node.diamond.green::before,  .fgraph-node.folded.green::before  { background: var(--green-dim); }
+.fgraph-node.hexagon.red::before,    .fgraph-node.diamond.red::before,    .fgraph-node.folded.red::before    { background: var(--red-dim); }
+
+/* clip-path hover: enlarge border + glow via filter (box-shadow is clipped) */
+.fgraph-node.hexagon:hover::after,
+.fgraph-node.diamond:hover::after,
+.fgraph-node.folded:hover::after { inset: -3px; }
+.fgraph-node.hexagon:hover,
+.fgraph-node.diamond:hover,
+.fgraph-node.folded:hover {
+  box-shadow: none;
+  filter: drop-shadow(0 0 10px var(--accent-glow));
+}
+
+/* cylinder tone overrides */
+.fgraph-node.cylinder.amber  { border-color: var(--amber);  background: var(--amber-dim); }
+.fgraph-node.cylinder.cyan   { border-color: var(--cyan);   background: var(--cyan-dim); }
+.fgraph-node.cylinder.purple { border-color: var(--purple); background: var(--purple-dim); }
+.fgraph-node.cylinder.green  { border-color: var(--green);  background: var(--green-dim); }
+.fgraph-node.cylinder.red    { border-color: var(--red);    background: var(--red-dim); }
+.fgraph-node.cylinder.amber::before,  .fgraph-node.cylinder.amber::after  { border-color: var(--amber);  background: var(--amber-dim); }
+.fgraph-node.cylinder.cyan::before,   .fgraph-node.cylinder.cyan::after   { border-color: var(--cyan);   background: var(--cyan-dim); }
+.fgraph-node.cylinder.purple::before, .fgraph-node.cylinder.purple::after { border-color: var(--purple); background: var(--purple-dim); }
+.fgraph-node.cylinder.green::before,  .fgraph-node.cylinder.green::after  { border-color: var(--green);  background: var(--green-dim); }
+.fgraph-node.cylinder.red::before,    .fgraph-node.cylinder.red::after    { border-color: var(--red);    background: var(--red-dim); }
+/* cylinder hover */
+.fgraph-node.cylinder:hover { border-width: 2px; }
+.fgraph-node.cylinder:hover::before,
+.fgraph-node.cylinder:hover::after { border-width: 2px; }
 
 /* ── title, subtitle ── */
 .fgraph-title {
