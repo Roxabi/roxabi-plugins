@@ -8,12 +8,6 @@ fallback utility invoked by ``generic.py`` when the fast path (plain HTTP
 via ``safe_fetch`` + Trafilatura) fails to extract meaningful content or
 hits an anti-bot signature.
 
-TODO(#93): The Playwright + stealth bootstrap below (launch → context →
-page → apply stealth patches) duplicates the async variant in
-``plugins/linkedin-apply/scripts/scraper.py:get_browser_context``. Extract
-to ``roxabi_sdk/browser.py`` as ``launch_stealth_sync()`` so both plugins
-share one primitive. See Roxabi/roxabi-plugins#93 for the full refactor plan.
-
 Triggers for a stealth retry:
   - HTTP 403 / 429 / 503 from the fast path
   - Cloudflare / generic anti-bot challenge markers in the body
@@ -35,7 +29,6 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Optional, Tuple
 
 # Add _shared to path for sibling imports (consistent with other fetchers)
 SHARED_DIR = Path(__file__).resolve().parents[1] / "_shared"
@@ -97,9 +90,9 @@ except ImportError:
 
 
 def has_antibot_signature(
-    status_code: Optional[int] = None,
-    html: Optional[str] = None,
-    text_length: Optional[int] = None,
+    status_code: int | None = None,
+    html: str | None = None,
+    text_length: int | None = None,
 ) -> bool:
     """Detect whether a fast-path fetch looks like it hit anti-bot protection.
 
@@ -126,7 +119,7 @@ def has_antibot_signature(
 def fetch_html_stealth(
     url: str,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
-) -> Tuple[Optional[str], Optional[str]]:
+) -> tuple[str | None, str | None]:
     """Fetch a URL's rendered HTML using headless Chromium + stealth patches.
 
     Intended as a fallback for anti-bot protected pages. Returns a
