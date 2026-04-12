@@ -28,10 +28,13 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Add _shared to path for sibling imports (consistent with fetchers/*.py)
+# Add _shared and repo root to path for sibling / SDK imports
+# (consistent with fetchers/__init__.py).
 SHARED_DIR = Path(__file__).resolve().parent / "_shared"
-if str(SHARED_DIR) not in sys.path:
-    sys.path.insert(0, str(SHARED_DIR))
+REPO_ROOT = Path(__file__).resolve().parents[3]  # roxabi-plugins/ (hosts roxabi_sdk)
+for _dir in [SHARED_DIR, REPO_ROOT]:
+    if str(_dir) not in sys.path:
+        sys.path.insert(0, str(_dir))
 
 from validators_ssrf import validate_url_ssrf  # noqa: E402
 
