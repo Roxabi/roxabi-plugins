@@ -1,0 +1,83 @@
+---
+title: "ADR-012: Adopt foreignObject+CSS Flexbox for Architecture Layer Diagrams"
+description: Add foreignObject+CSS Flexbox as a new visual type in forge-chart for architecture layer diagrams with node topology and arrows, alongside CSS Grid cards as fallback for text-heavy stacked layouts.
+---
+
+## Status
+
+Accepted
+
+## Context
+
+forge-chart's Structure dispatch table lists a single visual type for "Architecture layers": CSS Grid cards. This approach works well for text-heavy stacked layouts (pipeline stages, stack descriptions) but has a hard limitation — it does not support arrows between layers and requires no node topology.
+
+When a diagram needs node-to-node connections (e.g. service-to-service calls, dependency arrows between architecture boxes), CSS Grid cards cannot express that relationship. The LLM would need to compute pixel coordinates to position SVG arrows manually over the card grid — an error-prone, brittle approach.
+
+The gmdiagram design system (`ZeroZ-lab/gmdiagram`) demonstrates an alternative: `<foreignObject>` + CSS Flexbox embedded inside SVG. This approach:
+
+- Places HTML nodes at semantic positions inside an SVG viewport
+- Lets CSS handle label centering, wrapping, and sizing (no pixel math for text)
+- Preserves native SVG `<line>`/`<path>` elements for edges between nodes
+- Produces a single inline SVG with zero JavaScript (unless zoom is enabled)
+
+The constraint is scope: foreignObject renders reliably for ≤8 nodes. Beyond that, dagre auto-layout (Mermaid) outperforms manual SVG positioning.
+
+## Options Considered
+
+### Option A: Keep CSS Grid cards only
+
+Retain the current single row in the Structure table. Architecture diagrams that need arrows remain unsupported; users must work around this with Mermaid flowcharts even when a custom layout is desired.
+
+- **Pros:** no new complexity in the dispatch table; no foreignObject pitfalls to document
+- **Cons:** no arrow support for architecture topology; LLM must approximate arrows with ASCII or accept Mermaid auto-layout even for small node counts where manual positioning would be cleaner
+
+### Option B: Replace CSS Grid cards with foreignObject+CSS Flexbox (full substitution)
+
+Remove CSS Grid cards from the dispatch table and use foreignObject+CSS Flexbox for all architecture layer diagrams.
+
+- **Pros:** single consistent rendering path
+- **Cons:** foreignObject is unsuitable for text-heavy stacked content with no topology (verbose descriptions, long labels exceeding 24 chars, print/PDF contexts); CSS Grid cards are more readable in those cases
+
+### Option C: Add foreignObject+CSS Flexbox as a second row; keep CSS Grid cards as fallback (recommended)
+
+Split the "Architecture layers" row into two rows differentiated by content topology:
+
+- `foreignObject+CSS Flexbox SVG` for node topology diagrams with arrows, ≤8 nodes
+- `CSS Grid cards` retained as fallback for text-heavy stacked layouts with no node connections
+
+- **Pros:** each rendering path is matched to the content it handles best; LLM gets a clear decision signal (node topology + arrows → foreignObject; text blocks + no arrows → Grid cards); CSS Grid cards remain available for print-safe contexts
+- **Cons:** two rows in the dispatch table for what the user may perceive as one content type; requires clear decision criteria to avoid ambiguity
+
+## Decision
+
+Adopt **Option C**. The Structure table gains two rows for architecture content:
+
+| Content | Approach |
+|---|---|
+| Architecture layers (node topology, arrows needed, ≤8 nodes) | foreignObject+CSS Flexbox SVG |
+| Architecture layers (text-heavy, stacked, no arrows) | CSS Grid cards |
+
+The decision signal is unambiguous: if the diagram has node-to-node connections (arrows), use foreignObject+CSS Flexbox. If it is purely descriptive stacked content, use CSS Grid cards.
+
+Scoping to ≤8 nodes avoids the pain point where manual SVG positioning degrades — beyond that threshold, Mermaid flowchart dagre layout is the correct tool.
+
+## Consequences
+
+### Positive
+
+- LLM no longer needs to compute pixel coordinates for label placement — CSS Flexbox handles centering and wrapping
+- Arrow paths (SVG `<line>`/`<path>`) are drawn between named node positions, not between hardcoded pixel offsets
+- Output is a portable inline SVG with zero JavaScript when zoom is not required
+- Architecture diagrams can express actual connectivity, not just stacked text proximity
+
+### Negative
+
+- `<foreignObject>` requires `xmlns="http://www.w3.org/1999/xhtml"` on every root element — omitting it causes silent render failure in Chrome and Edge (no error, blank content). This is a mandatory rule, not a best practice.
+- Chromium's print/PDF pipeline drops `foreignObject` content — diagrams using this type are not suitable for PDF export. CSS Grid cards remain the correct choice when PDF output is required.
+- Text overflow clips silently if a node label exceeds the declared foreignObject width. Node labels must be capped at 24 characters. Labels longer than this should be split across two lines or abbreviated.
+- When svg-pan-zoom is enabled for interactive zoom, the output is no longer zero-JS. The zero-JS claim holds only for static (no zoom) SVG output.
+
+### Neutral
+
+- The Rendering wrappers table in the Style phase must gain a row for `foreignObject SVG` to specify how the SVG container and zoom wrapper integrate
+- SKILL.md gains a mandatory foreignObject rules block to capture the xmlns, label length, draw order, and print limitations as explicit constraints rather than tribal knowledge
