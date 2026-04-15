@@ -27,10 +27,10 @@ Triggers: `"release setup"` | `"setup releases"` | `"commit standards"` | `"setu
 
 **Phase 4 — Release automation** — choice of:
 - **semantic-release** — `release.config.cjs` for automatic versioning from commit history
-- **Release Please** — `release-please-config.json` for PR-based release flow
+- **Release Please** — `release-please-config.json` + `.release-please-manifest.json` **and** the runner `.github/workflows/release-please.yml` (config alone is a no-op — config-without-workflow was a known gap in versions ≤ 0.1.0)
 
 **Phase 5 — Summary** — lists all generated files and the suggested commit command. Does NOT auto-commit.
 
 ## Generated files
 
-`.lefthook.yml` | `.commitlintrc.cjs` | `release.config.cjs` | `release-please-config.json` | `.release-please-manifest.json`
+`.lefthook.yml` | `.commitlintrc.cjs` | `release.config.cjs` | `release-please-config.json` | `.release-please-manifest.json` | `.github/workflows/release-please.yml`

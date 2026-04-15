@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'bun:test'
-import { spawnSync } from 'bun'
+import { describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
+import { spawnSync } from 'bun'
 
 const CLI = resolve(import.meta.dir, '../index.ts')
 

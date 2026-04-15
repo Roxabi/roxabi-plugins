@@ -32,9 +32,10 @@ Set up σ early — later phases read runtime, package manager, commands, deploy
    - Ask ∀ critical field: **Runtime** → bun|node|python → `runtime`+`package_manager` | **Backend path** (e.g. `apps/api`, blank=none) | **Frontend path** (e.g. `apps/web`, blank=none) | **Test command** → `commands.test`
    - Write values into σ. Inform: "Fill in remaining fields in σ before running agents."
 4. `head -1 CLAUDE.md` → ¬`@.claude/stack.yml` → prepend `@.claude/stack.yml\n`. D✅("@import").
-5. ensureGitignore(`.claude/stack.yml`). D✅(".gitignore").
-6. ¬`.claude/stack.yml.example` → `cp "${Φ}/stack.yml.example" .claude/stack.yml.example`. D("stack.yml.example", "✅ Created (commit this file)").
-7. existing → D("stack.yml", "✅ Already exists"), skip.
+5. ¬`.claude/stack.yml.example` → `cp "${Φ}/stack.yml.example" .claude/stack.yml.example`. D("stack.yml.example", "✅ Created (reference template)").
+6. existing → D("stack.yml", "✅ Already exists"), skip.
+
+Note: `.claude/stack.yml` is **committed** (project stack conventions — no secrets). Only `.env` and `.claude/dev-core.yml` are gitignored by dev-core.
 
 ### Phase 1b — Global Patterns Injection
 
@@ -161,7 +162,7 @@ Next: run /seed-docs to populate docs stubs, or /github-setup to connect GitHub 
 
 1. **Never overwrite existing `.claude/stack.yml` values** without F or explicit confirmation
 2. **Always present decisions via protocol** before any write operation
-3. **Never commit `.claude/stack.yml`** — only `.claude/stack.yml.example`
+3. **Commit `.claude/stack.yml`** — it holds project stack conventions, not secrets. Gitignore `.env` and `.claude/dev-core.yml` instead.
 4. **Idempotent** — skip already-configured items unless F
 
 $ARGUMENTS

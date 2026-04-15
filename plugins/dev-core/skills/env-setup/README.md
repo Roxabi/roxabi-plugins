@@ -17,7 +17,7 @@ Triggers: `"env setup"` | `"setup environment"` | `"configure stack"` | `"scaffo
 
 ## Phases
 
-**Phase 1 — Stack configuration** — copies `stack.yml.example` to `.claude/stack.yml`, asks for critical fields (runtime, backend/frontend paths, test command), prepends `@.claude/stack.yml` import to CLAUDE.md, adds to `.gitignore`.
+**Phase 1 — Stack configuration** — copies `stack.yml.example` to `.claude/stack.yml`, asks for critical fields (runtime, backend/frontend paths, test command), prepends `@.claude/stack.yml` import to CLAUDE.md. `stack.yml` is committed (project conventions, no secrets); only `.env` and `.claude/dev-core.yml` are gitignored.
 
 **Phase 1b — Global patterns** — copies `global-patterns.md` (decision protocol, agent discipline, git conventions) to `~/.claude/shared/` and references it from CLAUDE.md.
 
@@ -32,5 +32,5 @@ Triggers: `"env setup"` | `"setup environment"` | `"configure stack"` | `"scaffo
 ## Safety
 
 - Never overwrites existing `stack.yml` values without `--force` or confirmation
-- Never commits `stack.yml` — only `.claude/stack.yml.example`
+- Commits `stack.yml` (project conventions); gitignores `.env` and `.claude/dev-core.yml` (per-machine secrets)
 - Idempotent — all phases skip already-configured items
