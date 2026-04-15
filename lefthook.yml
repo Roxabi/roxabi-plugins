@@ -1,7 +1,7 @@
 pre-commit:
   commands:
     lint:
-      run: bunx biome check --write {staged_files}
+      run: bunx biome check --write --no-errors-on-unmatched {staged_files}
       glob: "*.{ts,tsx,js,jsx}"
     typecheck:
       run: bun run typecheck
