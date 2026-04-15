@@ -78,6 +78,14 @@ describe('parseGitRemoteUrl', () => {
   it('rejects slugs with whitespace or control characters in the name', () => {
     expect(parseGitRemoteUrl('https://github.com/owner/name with space')).toBeNull()
   })
+
+  it('rejects slugs where the owner segment starts with a dot', () => {
+    expect(parseGitRemoteUrl('git@github.com:.owner/name.git')).toBeNull()
+  })
+
+  it('rejects slugs where the name segment starts with a dot', () => {
+    expect(parseGitRemoteUrl('git@github.com:owner/.name.git')).toBeNull()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -252,13 +260,32 @@ describe('detectLocalPath', () => {
     expect(detectLocalPath('Roxabi/does-not-exist')).toBeUndefined()
   })
 
-  it('rejects repo names containing path-traversal segments', () => {
-    // Plant a .git dir at $HOME/.. so the traversal would succeed if the guard were absent.
-    // The guard must reject the name before existsSync is ever called.
+  it('rejects ".." as the name segment — guard provably fires', () => {
+    // Without the guard, existsSync('$HOME/projects/../.git') would match $HOME/.git
+    // and detectLocalPath would return '$HOME/projects/..'. Planting both parents
+    // makes the test discriminate "guard rejected" from "path didn't exist".
+    mkdirSync(join(tmpDir, 'projects'))
+    mkdirSync(join(tmpDir, '.git'))
     process.env.HOME = tmpDir
     process.chdir(tmpDir)
     expect(detectLocalPath('Roxabi/..')).toBeUndefined()
+  })
+
+  it('rejects multi-segment traversal like "../etc"', () => {
+    // Plant $HOME/etc/.git so the normalized path $HOME/projects/../etc/.git
+    // would resolve to an existing dir without the `/` / `..` guards.
+    mkdirSync(join(tmpDir, 'projects'))
+    mkdirSync(join(tmpDir, 'etc', '.git'), { recursive: true })
+    process.env.HOME = tmpDir
+    process.chdir(tmpDir)
     expect(detectLocalPath('Roxabi/../etc')).toBeUndefined()
+  })
+
+  it('rejects dot-prefixed name like ".hidden"', () => {
+    // Plant $HOME/projects/.hidden/.git so the lookup would succeed without the guard.
+    mkdirSync(join(tmpDir, 'projects', '.hidden', '.git'), { recursive: true })
+    process.env.HOME = tmpDir
+    process.chdir(tmpDir)
     expect(detectLocalPath('Roxabi/.hidden')).toBeUndefined()
   })
 })

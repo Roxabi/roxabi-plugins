@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 
-// GitHub repo slugs: owner/name — allowed chars per GitHub's validation rules.
-const REPO_SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
+// GitHub repo slugs: owner/name. First character of each segment must be alphanumeric
+// (matches GitHub's own rule that usernames and repo names cannot start with . - or _).
+const REPO_SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/
 // Cap on .roxabi marker size. Defense against memory-pressure from a crafted file planted on walk-up path.
 const ROXABI_MAX_BYTES = 64 * 1024
 
@@ -117,6 +118,14 @@ export function parseGitRemoteUrl(url: string): string | null {
  * Resolve the repository slug ('owner/name') for a working directory.
  * Order: .roxabi marker walk-up → `git remote get-url origin` parse.
  * Returns null if no source yields a slug.
+ *
+ * `.roxabi` marker format:
+ *   - JSON object with a single required `repo` field (string, `REPO_SLUG_RE`).
+ *   - Extra fields are ignored (forward-compatible).
+ *   - Size cap: `ROXABI_MAX_BYTES` (64 KB).
+ *   - Example: `{ "repo": "Roxabi/my-sub-project" }`
+ * Markers that fail size, JSON, shape, or slug validation are silently
+ * ignored so resolution falls through to `git remote origin`.
  */
 export function resolveRepoFromCwd(cwd: string): string | null {
   // 1. .roxabi marker walk-up (supports monorepos / subdirs)
