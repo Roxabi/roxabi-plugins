@@ -2,7 +2,7 @@
 import { formatJson, formatTable, formatTree } from '../../skills/issues/lib/table-formatter'
 import { buildBatchedQuery, buildBatchedVariables, ISSUES_QUERY } from '../../skills/shared/queries'
 import type { RawItem } from '../../skills/shared/types'
-import { readWorkspace } from '../lib/workspace'
+import { readWorkspace, resolveRepoFromCwd } from '../lib/workspace'
 
 export interface IssuesCommandProject {
   repo: string
@@ -63,14 +63,21 @@ async function fetchProjectItems(projectId: string, token: string): Promise<RawI
   return allItems
 }
 
-/** Match cwd against localPath entries in workspace. Returns the first match or null. */
-function resolveCurrentProject(projects: IssuesCommandProject[], cwd: string): IssuesCommandProject | null {
-  // Exact match first, then prefix match (cwd is inside localPath)
-  return (
+/**
+ * Resolve cwd to a registered project.
+ * Order: exact localPath → prefix localPath → .roxabi marker or git remote origin.
+ * The git-remote fallback means registered repos work without localPath being set.
+ */
+export function resolveCurrentProject(projects: IssuesCommandProject[], cwd: string): IssuesCommandProject | null {
+  const byPath =
     projects.find((p) => p.localPath && cwd === p.localPath) ??
-    projects.find((p) => p.localPath && cwd.startsWith(`${p.localPath}/`)) ??
-    null
-  )
+    projects.find((p) => p.localPath && cwd.startsWith(`${p.localPath}/`))
+  if (byPath) return byPath
+
+  const slug = resolveRepoFromCwd(cwd)
+  if (!slug) return null
+  const needle = slug.toLowerCase()
+  return projects.find((p) => p.repo.toLowerCase() === needle) ?? null
 }
 
 /**
@@ -93,10 +100,11 @@ export async function runIssuesCommand(opts: IssuesCommandOptions = {}): Promise
     const cwd = process.cwd()
     const matched = resolveCurrentProject(ws.projects, cwd)
     if (!matched) {
-      return (
-        `No project found for current directory: ${cwd}\n` +
-        `Run with -A to show all projects, or register this path with: roxabi workspace add owner/repo`
-      )
+      const slug = resolveRepoFromCwd(cwd)
+      const hint = slug
+        ? `Detected repo: ${slug} — not registered.\nRun: roxabi workspace add ${slug}`
+        : `Run with -A to show all projects, or register this path with: roxabi workspace add owner/repo`
+      return `No project found for current directory: ${cwd}\n${hint}`
     }
     const projectId = matched.projectId ?? matched.id ?? ''
     const items = await fetchProjectItems(projectId, token)

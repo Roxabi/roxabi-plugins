@@ -9,6 +9,7 @@ export interface WorkspaceProject {
   repo: string // 'owner/name'
   projectId: string // 'PVT_...'
   label: string // display name shown in dashboard tab
+  localPath?: string // absolute path to local clone — used by dashboard for git ops
   vercelProjectId?: string // single Vercel project ID (legacy / single-project)
   vercelTeamId?: string // Vercel team ID for single project
   vercelProjects?: VercelProjectRef[] // multiple Vercel projects (overrides vercelProjectId)
@@ -76,9 +77,81 @@ export async function discoverProject(repo: string): Promise<WorkspaceProject[]>
   const json = (await res.json()) as {
     data: { repository: { projectsV2: { nodes: { id: string; title: string }[] } } }
   }
+  const localPath = detectLocalPath(repo)
   return (json.data?.repository?.projectsV2?.nodes ?? []).map((n) => ({
     repo,
     projectId: n.id,
     label: n.title,
+    ...(localPath ? { localPath } : {}),
   }))
+}
+
+/**
+ * Parse a git remote URL into 'owner/name'.
+ * Handles SSH (git@host:owner/name.git), HTTPS (https://host/owner/name[.git]),
+ * and ssh:// / git:// URLs. Returns null if the URL is not recognizable.
+ */
+export function parseGitRemoteUrl(url: string): string | null {
+  const trimmed = url.trim().replace(/\.git$/, '')
+  // SSH shorthand: git@github.com:owner/name
+  const ssh = trimmed.match(/^[^@\s]+@[^:\s]+:([^/\s]+)\/(.+)$/)
+  if (ssh) return `${ssh[1]}/${ssh[2]}`
+  // Protocol URLs: https://, ssh://, git://
+  const web = trimmed.match(/^(?:https?|ssh|git):\/\/[^/]+\/([^/]+)\/(.+?)$/)
+  if (web) return `${web[1]}/${web[2]}`
+  return null
+}
+
+/**
+ * Resolve the repository slug ('owner/name') for a working directory.
+ * Order: .roxabi marker walk-up → `git remote get-url origin` parse.
+ * Returns null if no source yields a slug.
+ */
+export function resolveRepoFromCwd(cwd: string): string | null {
+  // 1. .roxabi marker walk-up (supports monorepos / subdirs)
+  let dir = cwd
+  while (dir.length > 1) {
+    const marker = `${dir}/.roxabi`
+    if (existsSync(marker)) {
+      try {
+        const data = JSON.parse(readFileSync(marker, 'utf8')) as { repo?: string }
+        if (data.repo) return data.repo
+      } catch {
+        // ignore malformed marker, fall through to git remote
+      }
+    }
+    const parent = dir.substring(0, dir.lastIndexOf('/')) || '/'
+    if (parent === dir) break
+    dir = parent
+  }
+
+  // 2. git remote origin
+  try {
+    const proc = Bun.spawnSync(['git', '-C', cwd, 'remote', 'get-url', 'origin'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    if (proc.exitCode !== 0) return null
+    const url = new TextDecoder().decode(proc.stdout).trim()
+    return parseGitRemoteUrl(url)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Try to find the local clone of a repo.
+ * Prefers cwd if it is the repo itself, otherwise scans common directories.
+ */
+export function detectLocalPath(repo: string): string | undefined {
+  const cwd = process.cwd()
+  if (resolveRepoFromCwd(cwd)?.toLowerCase() === repo.toLowerCase()) return cwd
+
+  const home = process.env.HOME
+  const [, name] = repo.split('/')
+  if (!home || !name) return undefined
+  for (const dir of [`${home}/projects/${name}`, `${home}/${name}`, `${home}/src/${name}`]) {
+    if (existsSync(`${dir}/.git`)) return dir
+  }
+  return undefined
 }
