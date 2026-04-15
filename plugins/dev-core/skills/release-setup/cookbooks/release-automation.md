@@ -53,10 +53,11 @@ AskUserQuestion: **semantic-release** | **Release Please** | **Skip**
 
 **Release Please chosen:**
 1. Determine `package_type`: `python` → `"python"` | else → `"node"`.
-2. Generate `release-please-config.json`:
+2. Generate `release-please-config.json`. Set `target-branch` to the branch releases are cut from (typically `main`). Without it, release-please defaults to the repo's default branch — which is `staging` in the staging→main promotion flow, causing release-please to open bootstrap PRs on staging instead of tagging from main:
    ```json
    {
      "release-type": "<package_type>",
+     "target-branch": "main",
      "packages": {
        ".": {}
      }
