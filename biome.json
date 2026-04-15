@@ -25,7 +25,6 @@
       "**/*.js",
       "!node_modules",
       "!plugins/web-intel/.venv",
-      "!plugins/dev-core/cli/__tests__",
       "!.cache"
     ]
   },

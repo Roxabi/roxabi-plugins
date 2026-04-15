@@ -1,15 +1,7 @@
-import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 
-/**
- * RED tests for multi-project issues command (SC-10, SC-11).
- *
- * These tests will fail until the following implementations exist:
- *   - cli/commands/issues.ts           (issues command with workspace support)
- *   - buildBatchedQuery() exported from plugins/dev-core/skills/shared/queries.ts
- *
- * SC-10: A single HTTP request is sent for all projects in the workspace.
- * SC-11: Output includes the project label column for each project's issues.
- */
+// Integration tests for multi-project batched GraphQL (SC-10, SC-11) plus the
+// default single-project (`!opts.all`) cwd-resolution path.
 
 // ---------------------------------------------------------------------------
 // Workspace fixture — inline JSON, no real files needed
@@ -220,5 +212,44 @@ describe('issues command - batched GraphQL', () => {
 
     expect(typeof output).toBe('string')
     expect(output).toContain('0 issues')
+  })
+
+  // Default (`!opts.all`) path: cwd → resolveCurrentProject (via localPath match) →
+  // single-project ISSUES_QUERY. Uses localPath matching cwd so resolution does not
+  // shell out to git remote. Response shape differs from the batched path.
+  it('default path: resolves cwd via localPath and fetches a single project', async () => {
+    const issue = makeIssueNode(42, 'Single project test')
+    fetchMock = mock(async () => ({
+      ok: true,
+      json: async () => ({
+        data: {
+          node: {
+            items: {
+              nodes: [issue],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        },
+      }),
+    }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const workspace = {
+      projects: [
+        {
+          projectId: 'PVT_kwSINGLE',
+          label: 'current-project',
+          repo: 'Roxabi/single',
+          localPath: process.cwd(),
+        },
+      ],
+    }
+
+    const { runIssuesCommand } = await import('../commands/issues')
+    const output = await runIssuesCommand({ workspace, format: 'table' })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(output).toContain('## current-project')
+    expect(output).toContain('#42')
   })
 })

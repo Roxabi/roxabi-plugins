@@ -14,8 +14,8 @@
  *        with 0700 parent dir when neither vault nor config dir exist
  */
 
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test'
-import { mkdtempSync, rmSync, mkdirSync, existsSync, statSync, readFileSync } from 'node:fs'
+import { describe, expect, it, mock } from 'bun:test'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -31,7 +31,7 @@ function makeTmpDir(): string {
  * Build a minimal workspace.json fixture with the given projects.
  */
 function makeWorkspaceJson(projects: Array<{ repo: string; projectId: string; label: string }>) {
-  return JSON.stringify({ projects }, null, 2) + '\n'
+  return `${JSON.stringify({ projects }, null, 2)}\n`
 }
 
 // ---------------------------------------------------------------------------
@@ -50,7 +50,7 @@ describe('workspace list', () => {
       makeWorkspaceJson([
         { repo: 'Roxabi/roxabi-plugins', projectId: 'PVT_kwDORa9q-M4Aqkwn', label: 'Roxabi Plugins' },
         { repo: 'mickaelV0/repo-b', projectId: 'PVT_aabbcc', label: 'Personal Repo B' },
-      ])
+      ]),
     )
     const originalHome = process.env.HOME
     process.env.HOME = tmpDir
@@ -82,10 +82,7 @@ describe('workspace list', () => {
     const tmpDir = makeTmpDir()
     const vaultDir = join(tmpDir, '.roxabi-vault')
     mkdirSync(vaultDir, { recursive: true })
-    require('node:fs').writeFileSync(
-      join(vaultDir, 'workspace.json'),
-      makeWorkspaceJson([])
-    )
+    require('node:fs').writeFileSync(join(vaultDir, 'workspace.json'), makeWorkspaceJson([]))
     const originalHome = process.env.HOME
     process.env.HOME = tmpDir
 
@@ -131,14 +128,12 @@ describe('workspace add (single project found)', () => {
             data: {
               repository: {
                 projectsV2: {
-                  nodes: [
-                    { id: 'PVT_kwDORa9q-M4Aqkwn', title: 'Roxabi Plugins' },
-                  ],
+                  nodes: [{ id: 'PVT_kwDORa9q-M4Aqkwn', title: 'Roxabi Plugins' }],
                 },
               },
             },
           }),
-      })
+      }),
     )
     const originalFetch = globalThis.fetch
     globalThis.fetch = mockFetch as unknown as typeof fetch
@@ -150,7 +145,9 @@ describe('workspace add (single project found)', () => {
 
       let exitCode: number | undefined
       const originalExit = process.exit
-      process.exit = ((code?: number) => { exitCode = code ?? 0 }) as typeof process.exit
+      process.exit = ((code?: number) => {
+        exitCode = code ?? 0
+      }) as typeof process.exit
 
       const { run } = await import('../commands/workspace')
       await run(['add', 'Roxabi/roxabi-plugins'])
@@ -199,7 +196,7 @@ describe('workspace remove (registered repo)', () => {
       makeWorkspaceJson([
         { repo: 'Roxabi/roxabi-plugins', projectId: 'PVT_aaa', label: 'Plugins' },
         { repo: 'mickaelV0/repo-b', projectId: 'PVT_bbb', label: 'Repo B' },
-      ])
+      ]),
     )
     const originalHome = process.env.HOME
     process.env.HOME = tmpDir
@@ -211,7 +208,9 @@ describe('workspace remove (registered repo)', () => {
 
       let exitCode: number | undefined
       const originalExit = process.exit
-      process.exit = ((code?: number) => { exitCode = code ?? 0 }) as typeof process.exit
+      process.exit = ((code?: number) => {
+        exitCode = code ?? 0
+      }) as typeof process.exit
 
       const { run } = await import('../commands/workspace')
       await run(['remove', 'Roxabi/roxabi-plugins'])
@@ -245,9 +244,7 @@ describe('workspace remove (unregistered repo)', () => {
     const workspacePath = join(vaultDir, 'workspace.json')
     require('node:fs').writeFileSync(
       workspacePath,
-      makeWorkspaceJson([
-        { repo: 'mickaelV0/repo-b', projectId: 'PVT_bbb', label: 'Repo B' },
-      ])
+      makeWorkspaceJson([{ repo: 'mickaelV0/repo-b', projectId: 'PVT_bbb', label: 'Repo B' }]),
     )
     const originalHome = process.env.HOME
     process.env.HOME = tmpDir
@@ -259,7 +256,9 @@ describe('workspace remove (unregistered repo)', () => {
 
       let exitCode: number | undefined
       const originalExit = process.exit
-      process.exit = ((code?: number) => { exitCode = code }) as typeof process.exit
+      process.exit = ((code?: number) => {
+        exitCode = code
+      }) as typeof process.exit
 
       const { run } = await import('../commands/workspace')
       await run(['remove', 'unknown/repo'])
@@ -336,7 +335,7 @@ describe('path resolution', () => {
               },
             },
           }),
-      })
+      }),
     )
     const originalFetch = globalThis.fetch
     globalThis.fetch = mockFetch as unknown as typeof fetch
