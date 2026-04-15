@@ -173,7 +173,6 @@ START_SECONDS=$SECONDS
 
 # State tracking for incremental output
 declare -A PREV_JOB_STATES
-declare -A PREV_STEP_STATES
 PREV_RUN_STATE=""
 
 # Initial output
@@ -219,23 +218,6 @@ while true; do
       PREV_JOB_STATES[$JOB_KEY]="$JOB_STATE"
     fi
 
-    # Track step changes
-    STEP_COUNT=$(echo "$JOB" | jq '.steps | length')
-    for (( j=0; j<STEP_COUNT; j++ )); do
-      STEP=$(echo "$JOB" | jq ".steps[$j]")
-      STEP_NAME=$(echo "$STEP"       | jq -r '.name')
-      STEP_STATUS=$(echo "$STEP"     | jq -r '.status')
-      STEP_CONCLUSION=$(echo "$STEP" | jq -r '.conclusion // ""')
-      STEP_EMOJI=$(status_emoji "$STEP_STATUS" "$STEP_CONCLUSION")
-
-      STEP_STATE="${STEP_STATUS}:${STEP_CONCLUSION}"
-      STEP_KEY="step:${JOB_NAME}:${STEP_NAME}"
-
-      if [[ "${PREV_STEP_STATES[$STEP_KEY]:-}" != "$STEP_STATE" ]]; then
-        echo "     ${STEP_EMOJI} ${STEP_NAME}"
-        PREV_STEP_STATES[$STEP_KEY]="$STEP_STATE"
-      fi
-    done
   done
 
   # Check completion
