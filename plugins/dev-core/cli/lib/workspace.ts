@@ -114,8 +114,11 @@ export function resolveRepoFromCwd(cwd: string): string | null {
     const marker = `${dir}/.roxabi`
     if (existsSync(marker)) {
       try {
-        const data = JSON.parse(readFileSync(marker, 'utf8')) as { repo?: string }
-        if (data.repo) return data.repo
+        const data = JSON.parse(readFileSync(marker, 'utf8')) as unknown
+        if (data && typeof data === 'object' && 'repo' in data) {
+          const repo = (data as { repo: unknown }).repo
+          if (typeof repo === 'string' && repo.length > 0) return repo
+        }
       } catch {
         // ignore malformed marker, fall through to git remote
       }
