@@ -17,8 +17,8 @@ import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
 
 const TWO_PROJECT_WORKSPACE = {
   projects: [
-    { id: 'PVT_kwABC123', label: 'frontend', repo: 'Roxabi/frontend-app' },
-    { id: 'PVT_kwDEF456', label: 'backend', repo: 'Roxabi/backend-api' },
+    { projectId: 'PVT_kwABC123', label: 'frontend', repo: 'Roxabi/frontend-app' },
+    { projectId: 'PVT_kwDEF456', label: 'backend', repo: 'Roxabi/backend-api' },
   ],
 }
 
@@ -145,7 +145,7 @@ describe('issues command - batched GraphQL', () => {
   it('SC-10: fires exactly 1 HTTP request for a 2-project workspace', async () => {
     const { runIssuesCommand } = await import('../commands/issues')
 
-    await runIssuesCommand({ workspace: TWO_PROJECT_WORKSPACE, format: 'table' })
+    await runIssuesCommand({ workspace: TWO_PROJECT_WORKSPACE, format: 'table', all: true })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
@@ -153,7 +153,7 @@ describe('issues command - batched GraphQL', () => {
   it('SC-10: the single request targets the GitHub GraphQL endpoint', async () => {
     const { runIssuesCommand } = await import('../commands/issues')
 
-    await runIssuesCommand({ workspace: TWO_PROJECT_WORKSPACE, format: 'table' })
+    await runIssuesCommand({ workspace: TWO_PROJECT_WORKSPACE, format: 'table', all: true })
 
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('https://api.github.com/graphql')
@@ -174,13 +174,14 @@ describe('issues command - batched GraphQL', () => {
     const output = await runIssuesCommand({
       workspace: TWO_PROJECT_WORKSPACE,
       format: 'table',
+      all: true,
     })
 
     expect(output).toContain('frontend')
     expect(output).toContain('backend')
   })
 
-  it('SC-11: each issue row is annotated with its project label', async () => {
+  it('SC-11: each issue is grouped under its project label section', async () => {
     const project0Issue = makeIssueNode(10, 'Add dark mode')
     const project1Issue = makeIssueNode(20, 'Fix DB connection pool')
 
@@ -195,11 +196,17 @@ describe('issues command - batched GraphQL', () => {
     const output = await runIssuesCommand({
       workspace: TWO_PROJECT_WORKSPACE,
       format: 'table',
+      all: true,
     })
 
     expect(output).toContain('#10')
     expect(output).toContain('#20')
-    expect(output).toContain('Project')
+    // Each issue lives under its project's `## <label>` section header — assert
+    // both the label appears AND it appears before the issue number for that project.
+    expect(output.indexOf('## frontend')).toBeGreaterThanOrEqual(0)
+    expect(output.indexOf('## backend')).toBeGreaterThanOrEqual(0)
+    expect(output.indexOf('## frontend')).toBeLessThan(output.indexOf('#10'))
+    expect(output.indexOf('## backend')).toBeLessThan(output.indexOf('#20'))
   })
 
   it('returns empty table gracefully when all projects have no issues', async () => {
@@ -208,6 +215,7 @@ describe('issues command - batched GraphQL', () => {
     const output = await runIssuesCommand({
       workspace: TWO_PROJECT_WORKSPACE,
       format: 'table',
+      all: true,
     })
 
     expect(typeof output).toBe('string')
