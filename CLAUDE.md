@@ -1,4 +1,6 @@
 @.claude/stack.yml
+@~/.claude/shared/global-patterns.md
+
 # Roxabi Plugins
 
 Open-source Claude Code plugins by Roxabi. Context engineering tools for teams using Claude Code.
@@ -10,26 +12,9 @@ This repo is a **marketplace** — a collection of independent plugins. Each plu
 ## TL;DR
 
 - **Project:** roxabi-plugins
-- **Before work:** Use `/dev #N` as the single entry point — it determines tier (S / F-lite / F-full) and drives the full lifecycle
-- **Decisions:** summarize context → numbered options + recommendation → wait for reply (see [Decision Protocol](#decision-protocol))
+- **Before work:** Use `/dev #N` as the single entry point — it determines tier and drives the full lifecycle
 - **Never** use `--force`/`--hard`/`--amend`
 - **Always** use appropriate skill even without slash command
-
-### Decision Protocol
-
-For all decisions, choices (≥2 options), approach proposals:
-
-1. **Summarize** — why / root cause / current behavior / target / path to reach it
-2. **Propose** — numbered options, one marked as recommended
-3. **Explain** — why the recommended option is recommended
-
-Then wait for reply. Full patterns in `plugins/shared/references/decision-presentation.md`.
-
-### Git
-
-Format: `<type>(<scope>): <desc>` + `Co-Authored-By: Claude <model> <noreply@anthropic.com>`
-Types: feat|fix|refactor|docs|style|test|chore|ci|perf
-Never force/hard/amend. Hook fail → fix + NEW commit.
 
 ## Structure
 
