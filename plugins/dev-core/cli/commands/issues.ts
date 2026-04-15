@@ -2,7 +2,7 @@
 import { formatJson, formatTable, formatTree } from '../../skills/issues/lib/table-formatter'
 import { buildBatchedQuery, buildBatchedVariables, ISSUES_QUERY } from '../../skills/shared/queries'
 import type { RawItem } from '../../skills/shared/types'
-import { readWorkspace, resolveRepoFromCwd } from '../lib/workspace'
+import { readWorkspace, resolveCurrentProject, resolveRepoFromCwd } from '../lib/workspace'
 
 export interface IssuesCommandProject {
   repo: string
@@ -61,23 +61,6 @@ async function fetchProjectItems(projectId: string, token: string): Promise<RawI
     cursor = page.pageInfo.hasNextPage ? (page.pageInfo.endCursor ?? undefined) : undefined
   } while (cursor)
   return allItems
-}
-
-/**
- * Resolve cwd to a registered project.
- * Order: exact localPath → prefix localPath → .roxabi marker or git remote origin.
- * The git-remote fallback means registered repos work without localPath being set.
- */
-export function resolveCurrentProject(projects: IssuesCommandProject[], cwd: string): IssuesCommandProject | null {
-  const byPath =
-    projects.find((p) => p.localPath && cwd === p.localPath) ??
-    projects.find((p) => p.localPath && cwd.startsWith(`${p.localPath}/`))
-  if (byPath) return byPath
-
-  const slug = resolveRepoFromCwd(cwd)
-  if (!slug) return null
-  const needle = slug.toLowerCase()
-  return projects.find((p) => p.repo.toLowerCase() === needle) ?? null
 }
 
 /**

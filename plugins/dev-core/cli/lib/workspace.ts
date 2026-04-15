@@ -143,6 +143,26 @@ export function resolveRepoFromCwd(cwd: string): string | null {
 }
 
 /**
+ * Resolve a cwd to a registered project entry.
+ * Order: exact localPath → prefix localPath → .roxabi marker or git remote origin.
+ * Generic over project shape — any record with `repo` (and optional `localPath`) works.
+ */
+export function resolveCurrentProject<P extends { repo: string; localPath?: string }>(
+  projects: P[],
+  cwd: string,
+): P | null {
+  const byPath =
+    projects.find((p) => p.localPath && cwd === p.localPath) ??
+    projects.find((p) => p.localPath && cwd.startsWith(`${p.localPath}/`))
+  if (byPath) return byPath
+
+  const slug = resolveRepoFromCwd(cwd)
+  if (!slug) return null
+  const needle = slug.toLowerCase()
+  return projects.find((p) => p.repo.toLowerCase() === needle) ?? null
+}
+
+/**
  * Try to find the local clone of a repo.
  * Prefers cwd if it is the repo itself, otherwise scans common directories.
  */
