@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ci-watch.sh — Watch a GitHub Actions CI run with live emoji status dashboard.
-# Polls every N seconds, clears screen on each tick, dumps failed logs on failure.
+# ci-watch.sh — Watch a GitHub Actions CI run with incremental status updates.
+# Polls every N seconds, outputs state changes as single lines, dumps failed logs on failure.
 
 # ── Dependency check ──────────────────────────────────────────────────────────
 for cmd in gh jq; do
@@ -145,8 +145,7 @@ watch_automerge() {
     return 0
   fi
 
-  echo ""
-  echo "🔀 Auto-merge enabled + 'reviewed' label found — watching for merge..."
+  echo "🔀 Auto-merge enabled + 'reviewed' label — watching for merge..."
 
   local merge_start=$SECONDS
 
@@ -161,18 +160,24 @@ watch_automerge() {
       echo "✅ PR #${pr} merged! ($(format_elapsed "$merge_elapsed"))"
       return 0
     elif [[ "$state" == "CLOSED" ]]; then
-      echo "🚫 PR #${pr} was closed without merging."
+      echo "🚫 PR #${pr} closed without merging."
       return 0
     fi
 
-    local merge_elapsed=$(( SECONDS - merge_start ))
-    printf "   ⏳ Waiting for merge... (%s elapsed)\r" "$(format_elapsed "$merge_elapsed")"
     sleep "$INTERVAL"
   done
 }
 
 # ── Main watch loop ───────────────────────────────────────────────────────────
 START_SECONDS=$SECONDS
+
+# State tracking for incremental output
+declare -A PREV_JOB_STATES
+declare -A PREV_STEP_STATES
+PREV_RUN_STATE=""
+
+# Initial output
+echo "🔄 run #${RUN_ID} ${BRANCH}"
 
 while true; do
   # Fetch run data
@@ -187,80 +192,73 @@ while true; do
   ELAPSED=$(( SECONDS - START_SECONDS ))
   ELAPSED_FMT=$(format_elapsed "$ELAPSED")
 
-  # Clear screen
-  printf '\033[2J\033[H'
+  # Track run-level changes
+  RUN_STATE="${RUN_STATUS}:${RUN_CONCLUSION}"
+  if [[ "$RUN_STATE" != "${PREV_RUN_STATE:-}" ]]; then
+    if [[ "$RUN_STATUS" == "completed" ]]; then
+      RUN_EMOJI=$(status_emoji "$RUN_STATUS" "$RUN_CONCLUSION")
+      echo "${RUN_EMOJI} run #${RUN_ID} ${RUN_CONCLUSION} (${ELAPSED_FMT})"
+    fi
+    PREV_RUN_STATE="$RUN_STATE"
+  fi
 
-  echo "🔄 Watching run #${RUN_ID} — ${BRANCH}"
-  echo "   Refreshing every ${INTERVAL}s..."
-  echo ""
-
-  # Render each job and its steps
+  # Track job/step changes
   JOB_COUNT=$(echo "$RUN_JSON" | jq '.jobs | length')
   for (( i=0; i<JOB_COUNT; i++ )); do
     JOB=$(echo "$RUN_JSON" | jq ".jobs[$i]")
-    JOB_NAME=$(echo "$JOB"        | jq -r '.name')
-    JOB_STATUS=$(echo "$JOB"      | jq -r '.status')
-    JOB_CONCLUSION=$(echo "$JOB"  | jq -r '.conclusion // ""')
-    JOB_STARTED=$(echo "$JOB"     | jq -r '.startedAt // ""')
-    JOB_COMPLETED=$(echo "$JOB"   | jq -r '.completedAt // ""')
-
+    JOB_NAME=$(echo "$JOB"       | jq -r '.name')
+    JOB_STATUS=$(echo "$JOB"     | jq -r '.status')
+    JOB_CONCLUSION=$(echo "$JOB" | jq -r '.conclusion // ""')
     JOB_EMOJI=$(status_emoji "$JOB_STATUS" "$JOB_CONCLUSION")
 
-    # Compute job duration when completed
-    JOB_DUR=""
-    if [[ "$JOB_STATUS" == "completed" && -n "$JOB_STARTED" && "$JOB_STARTED" != "null" && -n "$JOB_COMPLETED" && "$JOB_COMPLETED" != "null" ]]; then
-      T_START=$(date -d "$JOB_STARTED"   +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$JOB_STARTED"   +%s 2>/dev/null || echo 0)
-      T_END=$(date   -d "$JOB_COMPLETED" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$JOB_COMPLETED" +%s 2>/dev/null || echo 0)
-      if (( T_END > T_START )); then
-        JOB_DUR=" ($(format_elapsed $(( T_END - T_START ))))"
-      fi
+    JOB_STATE="${JOB_STATUS}:${JOB_CONCLUSION}"
+    JOB_KEY="job:${JOB_NAME}"
+
+    if [[ "${PREV_JOB_STATES[$JOB_KEY]:-}" != "$JOB_STATE" ]]; then
+      echo "  ${JOB_EMOJI} ${JOB_NAME}"
+      PREV_JOB_STATES[$JOB_KEY]="$JOB_STATE"
     fi
 
-    echo "  ${JOB_EMOJI} ${JOB_NAME}${JOB_DUR}"
-
-    # Render steps
+    # Track step changes
     STEP_COUNT=$(echo "$JOB" | jq '.steps | length')
     for (( j=0; j<STEP_COUNT; j++ )); do
       STEP=$(echo "$JOB" | jq ".steps[$j]")
-      STEP_NAME=$(echo "$STEP"        | jq -r '.name')
-      STEP_STATUS=$(echo "$STEP"      | jq -r '.status')
-      STEP_CONCLUSION=$(echo "$STEP"  | jq -r '.conclusion // ""')
+      STEP_NAME=$(echo "$STEP"       | jq -r '.name')
+      STEP_STATUS=$(echo "$STEP"     | jq -r '.status')
+      STEP_CONCLUSION=$(echo "$STEP" | jq -r '.conclusion // ""')
       STEP_EMOJI=$(status_emoji "$STEP_STATUS" "$STEP_CONCLUSION")
-      echo "     ${STEP_EMOJI} ${STEP_NAME}"
+
+      STEP_STATE="${STEP_STATUS}:${STEP_CONCLUSION}"
+      STEP_KEY="step:${JOB_NAME}:${STEP_NAME}"
+
+      if [[ "${PREV_STEP_STATES[$STEP_KEY]:-}" != "$STEP_STATE" ]]; then
+        echo "     ${STEP_EMOJI} ${STEP_NAME}"
+        PREV_STEP_STATES[$STEP_KEY]="$STEP_STATE"
+      fi
     done
   done
-
-  echo ""
-  echo "── ${ELAPSED_FMT} elapsed ──────────────────────────────────────"
 
   # Check completion
   if [[ "$RUN_STATUS" == "completed" ]]; then
     case "$RUN_CONCLUSION" in
       success)
-        echo ""
-        echo "── PASSED in ${ELAPSED_FMT} ──────────────────────────────────────"
+        echo "✅ PASSED (${ELAPSED_FMT})"
         if [[ -n "$PR_NUMBER" ]]; then
           watch_automerge "$PR_NUMBER"
         fi
         exit 0
         ;;
       failure)
-        echo ""
-        echo "── FAILED after ${ELAPSED_FMT} ──────────────────────────────────────"
-        echo ""
-        echo "📋 Failed step logs:"
-        echo ""
+        echo "❌ FAILED (${ELAPSED_FMT})"
         gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>&1 | tail -60
         exit 1
         ;;
       cancelled)
-        echo ""
-        echo "── CANCELLED after ${ELAPSED_FMT} ──────────────────────────────────────"
+        echo "🚫 CANCELLED (${ELAPSED_FMT})"
         exit 2
         ;;
       *)
-        echo ""
-        echo "── Completed with conclusion: ${RUN_CONCLUSION} ──────────────────────────────────────"
+        echo "❓ ${RUN_CONCLUSION} (${ELAPSED_FMT})"
         exit 3
         ;;
     esac
