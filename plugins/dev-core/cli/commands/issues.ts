@@ -2,18 +2,11 @@
 import { formatJson, formatTable, formatTree } from '../../skills/issues/lib/table-formatter'
 import { buildBatchedQuery, buildBatchedVariables, ISSUES_QUERY } from '../../skills/shared/queries'
 import type { RawItem } from '../../skills/shared/types'
+import type { WorkspaceProject } from '../lib/workspace'
 import { readWorkspace, resolveCurrentProject, resolveRepoFromCwd } from '../lib/workspace'
 
-export interface IssuesCommandProject {
-  repo: string
-  projectId?: string
-  id?: string
-  label: string
-  localPath?: string
-}
-
 export interface IssuesCommandWorkspace {
-  projects: IssuesCommandProject[]
+  projects: WorkspaceProject[]
 }
 
 export interface IssuesCommandOptions {
@@ -89,12 +82,11 @@ export async function runIssuesCommand(opts: IssuesCommandOptions = {}): Promise
         : `Run with -A to show all projects, or register this path with: roxabi workspace add owner/repo`
       return `No project found for current directory: ${cwd}\n${hint}`
     }
-    const projectId = matched.projectId ?? matched.id ?? ''
-    const items = await fetchProjectItems(projectId, token)
+    const items = await fetchProjectItems(matched.projectId, token)
     byProject.set(matched.label, items)
   } else {
     // -A: all projects via batched query (100-item cap per project)
-    const projectIds = ws.projects.map((p) => p.projectId ?? p.id ?? '')
+    const projectIds = ws.projects.map((p) => p.projectId)
     const query = buildBatchedQuery(projectIds)
     const variables = buildBatchedVariables(projectIds)
     const json = (await ghGraphQL(query, variables, token)) as {
