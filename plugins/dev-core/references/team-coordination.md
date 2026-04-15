@@ -91,7 +91,6 @@ When `/plan` generates μ, α receive structured work units via TaskCreate.
 **RED-GATE:** Sentinel/slice → tester (`phase: RED-GATE`). Tester marks complete after all RED μ done → orchestrator spawns GREEN α.
 
 **Shared α rules:**
-- ¬commit/push (lead handles git)
 - ¬force/hard/amend
 - Stage specific files only
 - Escalate blockers → lead

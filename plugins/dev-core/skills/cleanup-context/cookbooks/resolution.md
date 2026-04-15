@@ -95,4 +95,4 @@ Files modified:
   {file_b} — {description}
 ```
 
-¬commit automatically. User decides when.
+Commit after all fixes applied.

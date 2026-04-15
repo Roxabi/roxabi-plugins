@@ -49,7 +49,7 @@ Main context = coordination, decisions, summaries. α = implementation.
 
 F-full + ≥4 independent tasks in 1 domain → spawn multiple same-type α on separate file groups.
 
-Shared α rules: ¬commit/push (lead handles git) | ¬force/hard/amend | stage specific files only | escalate blockers → lead | message lead on completion.
+Shared α rules: ¬force/hard/amend | stage specific files only | escalate blockers → lead | message lead on completion.
 
 ---
 
@@ -102,5 +102,4 @@ XS exception: single-line fix, confirm with user first.
 Format: `<type>(<scope>): <desc>` + `Co-Authored-By: Claude <model> <noreply@anthropic.com>`
 Types: `feat|fix|refactor|docs|style|test|chore|ci|perf`
 
-¬commit without explicit request. ¬push without explicit request.
 ¬`--force` | ¬`--hard` | ¬`--amend`. Hook fail → fix + NEW commit.

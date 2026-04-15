@@ -81,8 +81,7 @@ Types: `feat` | `fix` | `refactor` | `docs` | `style` | `test` | `chore` | `ci` 
 
 1. **AskUserQuestion:** Always for decisions, choices (≥2 options), approach proposals. ¬plain-text questions.
 2. **¬force/amend:** ¬`--force`, ¬`--hard`, ¬`--amend`. Hook fail → fix + NEW commit.
-3. **¬push w/o request:** ¬push unless explicit user request.
-4. **Orchestrator delegation:** Orchestrator ¬modify code/docs directly → delegate to domain α. Exception: typo/single-line.
+3. **Orchestrator delegation:** Orchestrator ¬modify code/docs directly → delegate to domain α. Exception: typo/single-line.
 5. **Skill usage:** Always use appropriate skill, even w/o slash command.
 6. **Standards reading:** Read relevant standards before code changes.
 7. **Test command:** Use `bun run test` (Vitest), ¬`bun test` (Bun runner — CPU spin). Hook blocks wrong cmd.

@@ -156,7 +156,7 @@ function tldr(_stack: StackConfig, projectName: string, projectType: ProjectType
   }
 
   parts.push('- **Always** `AskUserQuestion` for choices — never plain-text questions')
-  parts.push('- **Never** commit without asking, push without request, or use `--force`/`--hard`/`--amend`')
+  parts.push('- **Never** use `--force`/`--hard`/`--amend`')
   parts.push('- **Always** use appropriate skill even without slash command')
 
   if (projectType === 'full-app' || projectType === 'backend-only' || projectType === 'frontend-only') {
@@ -289,7 +289,7 @@ function skillsAndAgents(): Section {
     content: `Skills: always use appropriate skill. Workflow skills → \`dev-core\` plugin.
 Agents: Sonnet = all agents (frontend-dev, backend-dev, devops, doc-writer, fixer, tester, architect, product-lead, security-auditor).
 
-**Shared agent rules:** Never commit/push (lead handles git) | Never force/hard/amend | Stage specific files only | Escalate blockers → lead | Message lead on completion.`,
+**Shared agent rules:** Never force/hard/amend | Stage specific files only | Escalate blockers → lead | Message lead on completion.`,
   }
 }
 
