@@ -154,8 +154,7 @@ Assemble σ. Omit `none`/empty keys entirely.
 
 ```yaml
 # .claude/stack.yml — dev-core stack configuration
-# DO NOT commit this file. Add .claude/stack.yml to .gitignore.
-# Commit .claude/stack.yml.example instead.
+# Commit this file with the project. Secrets live in .env / .claude/dev-core.yml.
 schema_version: "1.0"
 
 runtime: {RUNTIME}
@@ -222,11 +221,12 @@ artifacts:
 #   contributing: {docs}/contributing.md
 ```
 
-## Phase 5 — CLAUDE.md and .gitignore
+## Phase 5 — CLAUDE.md and reference template
 
 1. **@import:** `head -1 CLAUDE.md` ≠ `@.claude/stack.yml` → prepend; else already present.
-2. **Gitignore:** `grep -q '\.claude/stack\.yml' .gitignore 2>/dev/null` → ∄ → append `.claude/stack.yml`; ∃ → skip.
-3. **Example:** `.claude/stack.yml.example` ∄ → copy σ → "Created — commit this file as reference."
+2. **Example:** `.claude/stack.yml.example` ∄ → copy σ → "Created as reference template."
+
+Note: `.claude/stack.yml` itself is committed (project stack conventions — no secrets). Only `.env` and `.claude/dev-core.yml` are gitignored by dev-core.
 
 ## Phase 6 — Summary
 

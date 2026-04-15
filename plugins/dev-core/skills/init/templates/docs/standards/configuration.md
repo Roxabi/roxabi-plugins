@@ -19,8 +19,10 @@ TODO: Document environment variables.
 <!-- Document configuration files and their purpose. Example:
   | File | Purpose | Committed? |
   |------|---------|:---:|
-  | .claude/stack.yml | Dev-core stack config | No (.gitignored) |
-  | .claude/dev-core.yml | Dev-core plugin config | No (.gitignored) |
+  | .claude/stack.yml | Dev-core stack config | Yes |
+  | .claude/stack.yml.example | Reference template for fresh clones | Yes |
+  | .claude/dev-core.yml | Dev-core plugin config (GitHub IDs, Vercel) | No (.gitignored) |
+  | .env | Per-machine secrets / env vars | No (.gitignored) |
   | biome.json | Linter/formatter config | Yes |
   | tsconfig.json | TypeScript config | Yes |
 -->
