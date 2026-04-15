@@ -1,4 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+
+// GitHub repo slugs: owner/name — allowed chars per GitHub's validation rules.
+const REPO_SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
+// Cap on .roxabi marker size. Defense against memory-pressure from a crafted file planted on walk-up path.
+const ROXABI_MAX_BYTES = 64 * 1024
 
 export interface VercelProjectRef {
   projectId: string
@@ -95,10 +100,16 @@ export function parseGitRemoteUrl(url: string): string | null {
   const trimmed = url.trim().replace(/\.git$/, '')
   // SSH shorthand: git@github.com:owner/name
   const ssh = trimmed.match(/^[^@\s]+@[^:\s]+:([^/\s]+)\/(.+)$/)
-  if (ssh) return `${ssh[1]}/${ssh[2]}`
+  if (ssh) {
+    const slug = `${ssh[1]}/${ssh[2]}`
+    return REPO_SLUG_RE.test(slug) ? slug : null
+  }
   // Protocol URLs: https://, ssh://, git://
   const web = trimmed.match(/^(?:https?|ssh|git):\/\/[^/]+\/([^/]+)\/(.+?)$/)
-  if (web) return `${web[1]}/${web[2]}`
+  if (web) {
+    const slug = `${web[1]}/${web[2]}`
+    return REPO_SLUG_RE.test(slug) ? slug : null
+  }
   return null
 }
 
@@ -114,10 +125,12 @@ export function resolveRepoFromCwd(cwd: string): string | null {
     const marker = `${dir}/.roxabi`
     if (existsSync(marker)) {
       try {
-        const data = JSON.parse(readFileSync(marker, 'utf8')) as unknown
-        if (data && typeof data === 'object' && 'repo' in data) {
-          const repo = (data as { repo: unknown }).repo
-          if (typeof repo === 'string' && repo.length > 0) return repo
+        if (statSync(marker).size <= ROXABI_MAX_BYTES) {
+          const data = JSON.parse(readFileSync(marker, 'utf8')) as unknown
+          if (data && typeof data === 'object' && 'repo' in data) {
+            const repo = (data as { repo: unknown }).repo
+            if (typeof repo === 'string' && REPO_SLUG_RE.test(repo)) return repo
+          }
         }
       } catch {
         // ignore malformed marker, fall through to git remote
@@ -173,6 +186,8 @@ export function detectLocalPath(repo: string): string | undefined {
   const home = process.env.HOME
   const [, name] = repo.split('/')
   if (!home || !name) return undefined
+  // Reject path-traversal / hidden segments — the probe must stay inside $HOME.
+  if (name.includes('/') || name.includes('..') || name.startsWith('.')) return undefined
   for (const dir of [`${home}/projects/${name}`, `${home}/${name}`, `${home}/src/${name}`]) {
     if (existsSync(`${dir}/.git`)) return dir
   }

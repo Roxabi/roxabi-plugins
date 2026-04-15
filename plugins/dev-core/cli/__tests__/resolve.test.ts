@@ -66,6 +66,18 @@ describe('parseGitRemoteUrl', () => {
   it('returns null for an empty string', () => {
     expect(parseGitRemoteUrl('')).toBeNull()
   })
+
+  it('rejects slugs containing terminal escape sequences', () => {
+    expect(parseGitRemoteUrl('git@github.com:owner/\x1b]8;;evil\x07name.git')).toBeNull()
+  })
+
+  it('rejects slugs containing path-traversal segments', () => {
+    expect(parseGitRemoteUrl('https://github.com/owner/../etc/passwd')).toBeNull()
+  })
+
+  it('rejects slugs with whitespace or control characters in the name', () => {
+    expect(parseGitRemoteUrl('https://github.com/owner/name with space')).toBeNull()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -124,6 +136,20 @@ describe('resolveRepoFromCwd', () => {
   it('falls through to git remote when .roxabi repo field is empty string', () => {
     initGitRepo(tmpDir, 'git@github.com:Roxabi/fallback.git')
     writeFileSync(join(tmpDir, '.roxabi'), JSON.stringify({ repo: '' }))
+    expect(resolveRepoFromCwd(tmpDir)).toBe('Roxabi/fallback')
+  })
+
+  it('rejects .roxabi repo field containing escape sequences', () => {
+    initGitRepo(tmpDir, 'git@github.com:Roxabi/fallback.git')
+    writeFileSync(join(tmpDir, '.roxabi'), JSON.stringify({ repo: 'owner/\x1b]8;;evil\x07name' }))
+    expect(resolveRepoFromCwd(tmpDir)).toBe('Roxabi/fallback')
+  })
+
+  it('ignores .roxabi markers larger than the size cap', () => {
+    initGitRepo(tmpDir, 'git@github.com:Roxabi/fallback.git')
+    // 100 KB of padding inside a harmless JSON wrapper — above the 64 KB cap.
+    const padding = 'x'.repeat(100 * 1024)
+    writeFileSync(join(tmpDir, '.roxabi'), JSON.stringify({ repo: 'Roxabi/planted', pad: padding }))
     expect(resolveRepoFromCwd(tmpDir)).toBe('Roxabi/fallback')
   })
 
@@ -224,5 +250,15 @@ describe('detectLocalPath', () => {
     process.env.HOME = tmpDir
     process.chdir(tmpDir)
     expect(detectLocalPath('Roxabi/does-not-exist')).toBeUndefined()
+  })
+
+  it('rejects repo names containing path-traversal segments', () => {
+    // Plant a .git dir at $HOME/.. so the traversal would succeed if the guard were absent.
+    // The guard must reject the name before existsSync is ever called.
+    process.env.HOME = tmpDir
+    process.chdir(tmpDir)
+    expect(detectLocalPath('Roxabi/..')).toBeUndefined()
+    expect(detectLocalPath('Roxabi/../etc')).toBeUndefined()
+    expect(detectLocalPath('Roxabi/.hidden')).toBeUndefined()
   })
 })
