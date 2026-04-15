@@ -29,7 +29,7 @@ Triggers: `"stack setup"` | `"setup stack"` | `"configure stack"` | `"fill stack
    - Build orchestrator (Turbo, Nx)
    - Docs path
 3. **Confirm** — displays detected configuration table; lets you edit any field before writing.
-4. **Write** — creates `.claude/stack.yml`, prepends `@.claude/stack.yml` to CLAUDE.md, adds to `.gitignore`, creates `.claude/stack.yml.example` (safe to commit).
+4. **Write** — creates `.claude/stack.yml` (committed with project), prepends `@.claude/stack.yml` to CLAUDE.md, creates `.claude/stack.yml.example` (reference template).
 
 ## Mixed-stack monorepos
 
