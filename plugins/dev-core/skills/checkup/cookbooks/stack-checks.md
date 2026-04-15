@@ -74,6 +74,11 @@ Config ∄ → ⚠️. Config ∃ ∧ hook ∄ → ⚠️ "needs `{install-cmd}`
 - exit 1 → ⚠️ "N violations". Policy ∄ → auto-fixable. ∃ → ⚠️ "update policy".
 - exit 2 → ⚠️ "run checker to debug"
 
+**Release automation:** Only check if `release-please-config.json` ∃ ∨ `release.config.cjs` ∃.
+- `release-please-config.json` ∃ → also require `.github/workflows/release-please.yml` ∃ → ✅ | ⚠️ "Release Please config present but no workflow — config alone is a no-op. Run `/release-setup` or copy the workflow template from the cookbook." (auto-fixable)
+- `release.config.cjs` ∃ → semantic-release; `package.json` `scripts.release = "semantic-release"` → ✅ | ⚠️.
+- Neither → ⏭ (release automation not configured).
+
 **VS Code MDX preview:** Only if `.mdx` files ∃ ∨ `docs.format: mdx`. `.vscode/settings.json` has `"*.mdx": "markdown"` → ✅ | ⚠️. ∄ .mdx → ⏭.
 
 **LSP support:** `lsp.enabled: false` → ⏭. Else:
@@ -132,6 +137,7 @@ Ask: **Fix all** | **Select** | **Skip**
 | `pre-commit config missing` | Write `.pre-commit-config.yaml`; install hooks |
 | `pre-commit not activated` | `uv run pre-commit install` |
 | `VS Code MDX preview missing` | Merge `"*.mdx": "markdown"` into `.vscode/settings.json` |
+| `release-please workflow missing` | `mkdir -p .github/workflows`; write the workflow template from the release-setup cookbook (Release Please block, step 4) |
 | `ENABLE_LSP_TOOL not set` | `echo 'ENABLE_LSP_TOOL=1' >> .env && grep -q '^ENABLE_LSP_TOOL=' .env.example 2>/dev/null \|\| echo 'ENABLE_LSP_TOOL=1' >> .env.example` |
 | `LSP server not installed` | TS→ bun: `bun add -d typescript-language-server typescript` / pnpm: `pnpm add -D typescript-language-server typescript` / npm: `npm install --save-dev typescript-language-server typescript` / yarn: `yarn add --dev typescript-language-server typescript`. Python→`uv tool install pyright`. Rust→`rustup component add rust-analyzer`. Go→`go install golang.org/x/tools/gopls@latest` |
 | `LSP plugin not installed` | Ask: **Global** | **Project** | **Skip**. Global→`claude plugin install <plugin-name>`. Project→`claude plugin install <plugin-name> --scope project` |
