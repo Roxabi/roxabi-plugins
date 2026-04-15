@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { detectLocalPath, parseGitRemoteUrl, resolveCurrentProject, resolveRepoFromCwd } from '../lib/workspace'
+import { detectLocalPath, parseGitRemoteUrl, resolveCurrentProject, resolveRepoFromCwd } from '../lib/cwd-resolver'
 
 function makeTmpDir(): string {
   return mkdtempSync(join(tmpdir(), 'roxabi-resolve-test-'))

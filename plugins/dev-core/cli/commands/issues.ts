@@ -2,15 +2,12 @@
 import { formatJson, formatTable, formatTree } from '../../skills/issues/lib/table-formatter'
 import { buildBatchedQuery, buildBatchedVariables, ISSUES_QUERY } from '../../skills/shared/queries'
 import type { RawItem } from '../../skills/shared/types'
-import type { WorkspaceProject } from '../lib/workspace'
-import { readWorkspace, resolveCurrentProject, resolveRepoFromCwd } from '../lib/workspace'
-
-export interface IssuesCommandWorkspace {
-  projects: WorkspaceProject[]
-}
+import { resolveCurrentProject, resolveRepoFromCwd } from '../lib/cwd-resolver'
+import type { Workspace } from '../lib/workspace-store'
+import { readWorkspace } from '../lib/workspace-store'
 
 export interface IssuesCommandOptions {
-  workspace?: IssuesCommandWorkspace
+  workspace?: Workspace
   format?: 'table' | 'tree' | 'json'
   all?: boolean
 }
@@ -61,7 +58,7 @@ async function fetchProjectItems(projectId: string, token: string): Promise<RawI
  * Returns formatted output as a string instead of printing to stdout.
  */
 export async function runIssuesCommand(opts: IssuesCommandOptions = {}): Promise<string> {
-  const ws = opts.workspace ?? (readWorkspace() as IssuesCommandWorkspace)
+  const ws = opts.workspace ?? readWorkspace()
   if (ws.projects.length === 0) {
     return 'No projects in workspace.\nRun: roxabi workspace add owner/repo'
   }

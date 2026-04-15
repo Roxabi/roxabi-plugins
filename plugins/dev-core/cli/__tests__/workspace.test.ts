@@ -291,7 +291,7 @@ describe('path resolution', () => {
     process.env.HOME = tmpDir
 
     try {
-      const { getWorkspacePath } = await import('../lib/workspace')
+      const { getWorkspacePath } = await import('../lib/workspace-store')
       const resolved = getWorkspacePath()
 
       expect(resolved).toBe(join(tmpDir, '.roxabi-vault', 'workspace.json'))
@@ -307,7 +307,7 @@ describe('path resolution', () => {
     process.env.HOME = tmpDir
 
     try {
-      const { getWorkspacePath } = await import('../lib/workspace')
+      const { getWorkspacePath } = await import('../lib/workspace-store')
       const resolved = getWorkspacePath()
 
       expect(resolved).toBe(join(tmpDir, '.config', 'roxabi', 'workspace.json'))
@@ -341,7 +341,7 @@ describe('path resolution', () => {
     globalThis.fetch = mockFetch as unknown as typeof fetch
 
     try {
-      const { writeWorkspace } = await import('../lib/workspace')
+      const { writeWorkspace } = await import('../lib/workspace-store')
       writeWorkspace({ projects: [{ repo: 'test/repo', projectId: 'PVT_fresh', label: 'Fresh Project' }] })
 
       const configDir = join(tmpDir, '.config', 'roxabi')
@@ -358,5 +358,74 @@ describe('path resolution', () => {
       process.env.HOME = originalHome
       rmSync(tmpDir, { recursive: true, force: true })
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parseWorkspace — fail-loud validation at the workspace.json boundary
+// ---------------------------------------------------------------------------
+
+describe('parseWorkspace', () => {
+  it('accepts a valid workspace with multiple projects', async () => {
+    const { parseWorkspace } = await import('../lib/workspace-store')
+    const result = parseWorkspace({
+      projects: [
+        { repo: 'Roxabi/a', projectId: 'PVT_a', label: 'A' },
+        { repo: 'Roxabi/b', projectId: 'PVT_b', label: 'B', localPath: '/path/b' },
+      ],
+    })
+    expect(result.projects).toHaveLength(2)
+    expect(result.projects[0].repo).toBe('Roxabi/a')
+    expect(result.projects[1].localPath).toBe('/path/b')
+  })
+
+  it('accepts an empty projects array', async () => {
+    const { parseWorkspace } = await import('../lib/workspace-store')
+    expect(parseWorkspace({ projects: [] })).toEqual({ projects: [] })
+  })
+
+  it('throws with field path when projects is missing', async () => {
+    const { parseWorkspace } = await import('../lib/workspace-store')
+    expect(() => parseWorkspace({})).toThrow(/projects/)
+  })
+
+  it('throws when projects is not an array', async () => {
+    const { parseWorkspace } = await import('../lib/workspace-store')
+    expect(() => parseWorkspace({ projects: 'not an array' })).toThrow(/array/)
+  })
+
+  it('throws with index when a required field is missing', async () => {
+    const { parseWorkspace } = await import('../lib/workspace-store')
+    expect(() =>
+      parseWorkspace({
+        projects: [
+          { repo: 'Roxabi/a', projectId: 'PVT_a', label: 'A' },
+          { repo: 'Roxabi/b', label: 'B' }, // missing projectId
+        ],
+      }),
+    ).toThrow(/projects\[1\]\.projectId/)
+  })
+
+  it('throws when a required field is an empty string', async () => {
+    const { parseWorkspace } = await import('../lib/workspace-store')
+    expect(() =>
+      parseWorkspace({
+        projects: [{ repo: 'Roxabi/a', projectId: '', label: 'A' }],
+      }),
+    ).toThrow(/projects\[0\]\.projectId.*non-empty/)
+  })
+
+  it('throws when localPath is present but not a string', async () => {
+    const { parseWorkspace } = await import('../lib/workspace-store')
+    expect(() =>
+      parseWorkspace({
+        projects: [{ repo: 'Roxabi/a', projectId: 'PVT_a', label: 'A', localPath: 42 }],
+      }),
+    ).toThrow(/localPath/)
+  })
+
+  it('throws on null input', async () => {
+    const { parseWorkspace } = await import('../lib/workspace-store')
+    expect(() => parseWorkspace(null)).toThrow()
   })
 })
