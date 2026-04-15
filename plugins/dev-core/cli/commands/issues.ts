@@ -2,22 +2,12 @@
 import { formatJson, formatTable, formatTree } from '../../skills/issues/lib/table-formatter'
 import { buildBatchedQuery, buildBatchedVariables, ISSUES_QUERY } from '../../skills/shared/queries'
 import type { RawItem } from '../../skills/shared/types'
-import { readWorkspace } from '../lib/workspace'
-
-export interface IssuesCommandProject {
-  repo: string
-  projectId?: string
-  id?: string
-  label: string
-  localPath?: string
-}
-
-export interface IssuesCommandWorkspace {
-  projects: IssuesCommandProject[]
-}
+import { resolveCurrentProject, resolveRepoFromCwd } from '../lib/cwd-resolver'
+import type { Workspace } from '../lib/workspace-store'
+import { readWorkspace } from '../lib/workspace-store'
 
 export interface IssuesCommandOptions {
-  workspace?: IssuesCommandWorkspace
+  workspace?: Workspace
   format?: 'table' | 'tree' | 'json'
   all?: boolean
 }
@@ -63,22 +53,12 @@ async function fetchProjectItems(projectId: string, token: string): Promise<RawI
   return allItems
 }
 
-/** Match cwd against localPath entries in workspace. Returns the first match or null. */
-function resolveCurrentProject(projects: IssuesCommandProject[], cwd: string): IssuesCommandProject | null {
-  // Exact match first, then prefix match (cwd is inside localPath)
-  return (
-    projects.find((p) => p.localPath && cwd === p.localPath) ??
-    projects.find((p) => p.localPath && cwd.startsWith(`${p.localPath}/`)) ??
-    null
-  )
-}
-
 /**
  * Testable core of the issues command.
  * Returns formatted output as a string instead of printing to stdout.
  */
 export async function runIssuesCommand(opts: IssuesCommandOptions = {}): Promise<string> {
-  const ws = opts.workspace ?? (readWorkspace() as IssuesCommandWorkspace)
+  const ws = opts.workspace ?? readWorkspace()
   if (ws.projects.length === 0) {
     return 'No projects in workspace.\nRun: roxabi workspace add owner/repo'
   }
@@ -93,17 +73,17 @@ export async function runIssuesCommand(opts: IssuesCommandOptions = {}): Promise
     const cwd = process.cwd()
     const matched = resolveCurrentProject(ws.projects, cwd)
     if (!matched) {
-      return (
-        `No project found for current directory: ${cwd}\n` +
-        `Run with -A to show all projects, or register this path with: roxabi workspace add owner/repo`
-      )
+      const slug = resolveRepoFromCwd(cwd)
+      const hint = slug
+        ? `Detected repo: ${slug} — not registered.\nRun: roxabi workspace add ${slug}`
+        : `Run with -A to show all projects, or register this path with: roxabi workspace add owner/repo`
+      return `No project found for current directory: ${cwd}\n${hint}`
     }
-    const projectId = matched.projectId ?? matched.id ?? ''
-    const items = await fetchProjectItems(projectId, token)
+    const items = await fetchProjectItems(matched.projectId, token)
     byProject.set(matched.label, items)
   } else {
     // -A: all projects via batched query (100-item cap per project)
-    const projectIds = ws.projects.map((p) => p.projectId ?? p.id ?? '')
+    const projectIds = ws.projects.map((p) => p.projectId)
     const query = buildBatchedQuery(projectIds)
     const variables = buildBatchedVariables(projectIds)
     const json = (await ghGraphQL(query, variables, token)) as {

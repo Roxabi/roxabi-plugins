@@ -1,4 +1,5 @@
-import { discoverProject, readWorkspace, writeWorkspace } from '../lib/workspace'
+import { discoverProject } from '../lib/github-discovery'
+import { readWorkspace, writeWorkspace } from '../lib/workspace-store'
 
 const USAGE = `
 Usage:

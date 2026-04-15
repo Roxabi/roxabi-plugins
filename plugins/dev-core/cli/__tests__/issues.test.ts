@@ -1,15 +1,7 @@
-import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 
-/**
- * RED tests for multi-project issues command (SC-10, SC-11).
- *
- * These tests will fail until the following implementations exist:
- *   - cli/commands/issues.ts           (issues command with workspace support)
- *   - buildBatchedQuery() exported from plugins/dev-core/skills/shared/queries.ts
- *
- * SC-10: A single HTTP request is sent for all projects in the workspace.
- * SC-11: Output includes the project label column for each project's issues.
- */
+// Integration tests for multi-project batched GraphQL (SC-10, SC-11) plus the
+// default single-project (`!opts.all`) cwd-resolution path.
 
 // ---------------------------------------------------------------------------
 // Workspace fixture — inline JSON, no real files needed
@@ -17,8 +9,8 @@ import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
 
 const TWO_PROJECT_WORKSPACE = {
   projects: [
-    { id: 'PVT_kwABC123', label: 'frontend', repo: 'Roxabi/frontend-app' },
-    { id: 'PVT_kwDEF456', label: 'backend', repo: 'Roxabi/backend-api' },
+    { projectId: 'PVT_kwABC123', label: 'frontend', repo: 'Roxabi/frontend-app' },
+    { projectId: 'PVT_kwDEF456', label: 'backend', repo: 'Roxabi/backend-api' },
   ],
 }
 
@@ -145,7 +137,7 @@ describe('issues command - batched GraphQL', () => {
   it('SC-10: fires exactly 1 HTTP request for a 2-project workspace', async () => {
     const { runIssuesCommand } = await import('../commands/issues')
 
-    await runIssuesCommand({ workspace: TWO_PROJECT_WORKSPACE, format: 'table' })
+    await runIssuesCommand({ workspace: TWO_PROJECT_WORKSPACE, format: 'table', all: true })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
@@ -153,7 +145,7 @@ describe('issues command - batched GraphQL', () => {
   it('SC-10: the single request targets the GitHub GraphQL endpoint', async () => {
     const { runIssuesCommand } = await import('../commands/issues')
 
-    await runIssuesCommand({ workspace: TWO_PROJECT_WORKSPACE, format: 'table' })
+    await runIssuesCommand({ workspace: TWO_PROJECT_WORKSPACE, format: 'table', all: true })
 
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('https://api.github.com/graphql')
@@ -174,13 +166,14 @@ describe('issues command - batched GraphQL', () => {
     const output = await runIssuesCommand({
       workspace: TWO_PROJECT_WORKSPACE,
       format: 'table',
+      all: true,
     })
 
     expect(output).toContain('frontend')
     expect(output).toContain('backend')
   })
 
-  it('SC-11: each issue row is annotated with its project label', async () => {
+  it('SC-11: each issue is grouped under its project label section', async () => {
     const project0Issue = makeIssueNode(10, 'Add dark mode')
     const project1Issue = makeIssueNode(20, 'Fix DB connection pool')
 
@@ -195,11 +188,17 @@ describe('issues command - batched GraphQL', () => {
     const output = await runIssuesCommand({
       workspace: TWO_PROJECT_WORKSPACE,
       format: 'table',
+      all: true,
     })
 
     expect(output).toContain('#10')
     expect(output).toContain('#20')
-    expect(output).toContain('Project')
+    // Each issue lives under its project's `## <label>` section header — assert
+    // both the label appears AND it appears before the issue number for that project.
+    expect(output.indexOf('## frontend')).toBeGreaterThanOrEqual(0)
+    expect(output.indexOf('## backend')).toBeGreaterThanOrEqual(0)
+    expect(output.indexOf('## frontend')).toBeLessThan(output.indexOf('#10'))
+    expect(output.indexOf('## backend')).toBeLessThan(output.indexOf('#20'))
   })
 
   it('returns empty table gracefully when all projects have no issues', async () => {
@@ -208,9 +207,49 @@ describe('issues command - batched GraphQL', () => {
     const output = await runIssuesCommand({
       workspace: TWO_PROJECT_WORKSPACE,
       format: 'table',
+      all: true,
     })
 
     expect(typeof output).toBe('string')
     expect(output).toContain('0 issues')
+  })
+
+  // Default (`!opts.all`) path: cwd → resolveCurrentProject (via localPath match) →
+  // single-project ISSUES_QUERY. Uses localPath matching cwd so resolution does not
+  // shell out to git remote. Response shape differs from the batched path.
+  it('default path: resolves cwd via localPath and fetches a single project', async () => {
+    const issue = makeIssueNode(42, 'Single project test')
+    fetchMock = mock(async () => ({
+      ok: true,
+      json: async () => ({
+        data: {
+          node: {
+            items: {
+              nodes: [issue],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        },
+      }),
+    }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const workspace = {
+      projects: [
+        {
+          projectId: 'PVT_kwSINGLE',
+          label: 'current-project',
+          repo: 'Roxabi/single',
+          localPath: process.cwd(),
+        },
+      ],
+    }
+
+    const { runIssuesCommand } = await import('../commands/issues')
+    const output = await runIssuesCommand({ workspace, format: 'table' })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(output).toContain('## current-project')
+    expect(output).toContain('#42')
   })
 })
