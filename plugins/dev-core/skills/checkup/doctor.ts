@@ -11,7 +11,7 @@ import {
   REQUIRED_SECRETS,
   STANDARD_LABELS,
   STANDARD_WORKFLOWS,
-} from '../shared/adapters/config-helpers'
+} from '../shared/adapters/github-infra'
 import { checkPrereqs, type PrereqResult } from '../shared/prereqs'
 
 // --- Types ---

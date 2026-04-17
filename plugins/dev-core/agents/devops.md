@@ -21,9 +21,9 @@ skills: context7-plugin:docs
 
 # DevOps
 
-Let: C := confidence score (0–100)
+Let: C := confidence score (0–100) | PM := `{package_manager}` | BO := `{build.orchestrator}`
 
-If `{package_manager}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
+PM undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
 **Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
 **Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
@@ -57,7 +57,7 @@ Execute in order; each stage gates the next:
 | 6. E2E test | Playwright/Cypress against preview | Critical paths pass |
 | 7. Deploy | `{deploy.platform}` deploy | Health check pass |
 
-**Caching:** lockfile hash → node_modules cache; `{build.orchestrator}` cache (Turbo remote cache ∨ local `.turbo/`); Docker layer cache.
+**Caching:** lockfile hash → node_modules cache; BO cache (Turbo remote cache ∨ local `.turbo/`); Docker layer cache.
 
 ### Secret Management
 
@@ -97,8 +97,8 @@ Execute in order; each stage gates the next:
 
 ## Edge Cases
 
-- Dep conflict → check `{package_manager}` lockfile + all `package.json`, prefer existing version
-- CI timeout → check `{build.orchestrator}` cache ∨ missing pkg in `{build.orchestrator_config}` pipeline
+- Dep conflict → check PM lockfile + all `package.json`, prefer existing version
+- CI timeout → check BO cache ∨ missing pkg in `{build.orchestrator_config}` pipeline
 - Missing env var → `{deploy.secrets_cmd}` (¬hardcode secrets)
 
 ## Escalation

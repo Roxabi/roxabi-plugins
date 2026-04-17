@@ -1,0 +1,27 @@
+# Shared axis definitions.
+# Types reference these via: shared_axes = ["geometry", "energy", ...]
+# Type-local [axes.name] definitions OVERRIDE shared ones if same name.
+
+[axes.geometry]
+low = "organic shapes, flowing curves"
+high = "geometric, angular, sharp edges"
+
+[axes.complexity]
+low = "minimal, clean, simple composition"
+high = "complex, layered, detailed"
+
+[axes.weight]
+low = "thin, light, delicate"
+high = "bold, heavy, filled, solid"
+
+[axes.energy]
+low = "calm, static, stable, grounded"
+high = "dynamic, expressive, motion, tension"
+
+[axes.hue]
+low = "cool, blue dominant"
+high = "warm, red-orange dominant"
+
+[axes.saturation]
+low = "desaturated, muted, neutral, grey"
+high = "vibrant, saturated, vivid color"

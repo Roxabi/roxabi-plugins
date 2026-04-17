@@ -109,6 +109,16 @@
       "notes": "Community. Self-contained HTML diagrams, visualizations, data tables, slide decks. By nicobailon. Previously wrapped in plugins/ — upstream now ships proper marketplace.json."
     },
     {
+      "name": "roxabi-forge",
+      "source": "https://github.com/Roxabi/roxabi-forge",
+      "added": "2026-04-12",
+      "last_checked_commit": "b13a8fd063ba3c83e113a5ab6c271c73677354e0",
+      "upstream_branch": "main",
+      "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
+      "status": "active",
+      "notes": "Roxabi-owned. Forge — HTML visual artifacts (diagrams, galleries, guides, epics). Extracted from roxabi-plugins. 1 plugin (forge) with 5 skills."
+    },
+    {
       "name": "roxabi-video-engine",
       "source": "https://github.com/Roxabi/roxabi-production",
       "added": "2026-03-17",

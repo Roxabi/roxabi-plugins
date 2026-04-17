@@ -1,9 +1,9 @@
 ---
 name: spec
 argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit]'
-description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build".
+description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build" | "design the solution" | "acceptance criteria" | "define acceptance criteria" | "spec it out" | "write the spec".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ---
 
 # Spec
@@ -15,6 +15,7 @@ Let:
   ρ := reviewer set
   χ := `[NEEDS CLARIFICATION]`
   Ω := `skill: "interview"`
+  Q := Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md`
   SRC := source doc (α ∨ φ)
 
 Analysis (or frame) → approved spec. Interview → pre-check → expert review → user approval.
@@ -41,7 +42,7 @@ grep -rl "issue: N" artifacts/frames/ 2>/dev/null | head -1
 ```
 
 `--analysis path` / `--frame path` → read directly.
-¬SRC found → AskUserQuestion: "Run `/analyze --issue N` first, or provide path directly?"
+¬SRC found → Q: "Run `/analyze --issue N` first, or provide path directly?"
 
 Read SRC → extract: title, issue#, tier, problem, outcome, appetite, recommended shape (if α).
 
@@ -60,12 +61,12 @@ Capture returned issue #N.
 ## Step 1 — Scan Existing Spec
 
 Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*`.
-∃ σ → AskUserQuestion: **Reuse existing** (→ Step 3) | **Start fresh**
+∃ σ → Q: **Reuse existing** (→ Step 3) | **Start fresh**
 
 ## Step 1b — Reasoning Audit (optional)
 
 `--audit` → after reading SRC, present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) (spec guidance).
-→ AskUserQuestion: **Proceed** | **Adjust approach** | **Abort**
+→ Q: **Proceed** | **Adjust approach** | **Abort**
 ¬`--audit` → skip to Step 2.
 
 ## Step 2 — Generate Spec
@@ -121,7 +122,7 @@ Pre-check: 2 of 5 checks failed
   ✗ Ambiguity budget: 7 [NEEDS CLARIFICATION] items found (max 5)
 ```
 
-AskUserQuestion: **Fix spec first** (open σ, collect corrections, revise, re-check) | **Continue to review anyway**
+Q: **Fix spec first** (open σ, collect corrections, revise, re-check) | **Continue to review anyway**
 
 ## Step 4 — Expert Review
 
@@ -134,7 +135,15 @@ Auto-select ρ (¬ask user). Architect always included:
 | product-lead | Always | Criteria quality, scope, user story validity |
 | devops | ∃ CI/CD / deploy / infra criteria | Operational feasibility |
 
-∀ r ∈ ρ → spawn ∥ `Task(subagent_type: "<r>", prompt: "Review σ for <focus>. Check pre-check results. Return: good / needs improvement / concerns.")`.
+∀ r ∈ ρ → spawn ∥:
+```
+Task(
+  subagent_type: "dev-core:<r>",
+  description: "<r> spec review — #{N}",
+  prompt: "Review the spec at {σ_path} for <focus>. Check pre-check results: {pre_check_summary}. ¬TaskCreate. Return: good / needs improvement / concerns + specific line references."
+)
+```
+Agent name map: `architect` → `dev-core:architect` | `doc-writer` → `dev-core:doc-writer` | `product-lead` → `dev-core:product-lead` | `devops` → `dev-core:devops`
 
 Incorporate feedback → revise σ → note unresolved concerns.
 
@@ -144,7 +153,7 @@ Open σ: `code artifacts/specs/{N}-{slug}-spec.mdx`.
 
 Present summary: scope, |slices|, |acceptance criteria|, |χ|, pre-check results, unresolved expert concerns.
 
-AskUserQuestion: **Approve** → continue pipeline | **Revise** → collect feedback → revise σ → loop from Step 3.
+Q: **Approve** → continue pipeline | **Revise** → collect feedback → revise σ → loop from Step 3.
 
 On approval → commit: `git add artifacts/specs/{N}-{slug}-spec.mdx` + commit per CLAUDE.md Rule 5.
 
@@ -171,7 +180,7 @@ Tier S → skip. Read [references/smart-splitting.md](${CLAUDE_SKILL_DIR}/refere
 
 | Scenario | Behavior |
 |----------|----------|
-| ¬α ∧ ¬φ found | AskUserQuestion: run `/analyze` first or provide path |
+| ¬α ∧ ¬φ found | Q: run `/analyze` first or provide path |
 | ∃ σ, user picks reuse | Present existing → jump to Step 3 |
 | Analysis skipped (F-lite) | Use frame as SRC for interview promotion |
 | `--issue N` ∧ ¬GitHub issue | Create issue from SRC content |
@@ -180,5 +189,25 @@ Tier S → skip. Read [references/smart-splitting.md](${CLAUDE_SKILL_DIR}/refere
 | |χ| > 5 | Pre-check failure — inform, request reduction |
 | Tier S | Skip Breadboard + Slices |
 | Circular deps in split | Reject split proposal, inform user |
+
+## Chain Position
+
+- **Phase:** Shape
+- **Predecessor:** `/analyze` (F-full) ∨ `/frame` (F-lite, analyze skipped)
+- **Successor:** `/plan`
+- **Class:** gate (user approval of spec artifact required)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- This skill does NOT update its own dev-pipeline task
+- Sub-tasks created: none
+
+## Exit
+
+- **Approved via `/dev`:** write artifact with `status: approved`, commit, return silently. ¬ask "proceed to /plan?". `/dev` re-scans and auto-chains to `/plan` in the same turn.
+- **Approved standalone:** print one line: `Approved. Next: /plan --issue N`. Stop.
+- **Modify requested:** loop in-skill, re-present.
+- **Rejected/aborted:** return → `/dev` marks task `cancelled`.
 
 $ARGUMENTS

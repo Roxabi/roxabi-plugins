@@ -1,9 +1,9 @@
 ---
 name: test
 argument-hint: [file | --e2e | --run]
-description: Generate/run unit, integration & Playwright e2e tests. Triggers: "test this file" | "write tests" | "add coverage" | "run tests" | "e2e tests".
+description: Generate/run unit, integration & Playwright e2e tests. Triggers: "test this file" | "write tests" | "add coverage" | "run tests" | "e2e tests" | "add tests" | "test coverage" | "generate tests" | "test this" | "write unit tests" | "add integration tests".
 version: 0.4.0
-allowed-tools: Bash, Read, Write, Glob, Grep, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Glob, Grep, ToolSearch
 ---
 
 # Test
@@ -74,9 +74,7 @@ Mock factory hoisting: Bun validates `vi.mock` factories against real module at 
 
 ## Step 4 — Check Existing Coverage
 
-∀ τ → check for π.
-∃ π ⇒ read, compare with source exports, offer to add missing coverage (¬overwrite).
-¬π ⇒ generate full test file.
+∀ τ → check for π. ∃ π ⇒ read, compare with source exports, offer to add missing coverage (¬overwrite). ¬π ⇒ generate full test file.
 
 ## Step 5 — Generate Tests
 
@@ -102,16 +100,13 @@ it('should return user by id', () => {
 
 ## Step 6 — Approval
 
-AskUserQuestion: **Approve and write all** | **Approve with modifications** | **Skip specific files**
+→ DP(A) **Approve and write all** | **Approve with modifications** | **Skip specific files**
 ¬write without approval.
 
 ## Step 7 — Write + Verify
 
-∀ approved τ:
-1. Write via Write tool
-2. `{commands.test} {test_file_path}`
-3. Report pass/fail
-4. ∃ failures ⇒ AskUserQuestion: show failing test + error → propose fix → re-run
+∀ approved τ: write via Write tool → `{commands.test} {test_file_path}` → report pass/fail.
+∃ failures ⇒ → DP(A) show failing test + error → propose fix → re-run.
 
 ## E2E Mode (`--e2e`)
 
@@ -181,7 +176,7 @@ Selectors: `page.getByRole()`, `page.getByLabel()`, `page.getByText()` (¬`page.
 |----------|----------|
 | File has no exports | Skip, inform user |
 | Tests already exist | Offer to add missing coverage, ¬overwrite |
-| Test framework not detected | AskUserQuestion |
+| Test framework not detected | → DP(B) which framework to use |
 | `--run` flag | Run `{commands.test}` and report only |
 | React component | Generate component tests with appropriate render approach |
 | File in monorepo package | Place tests relative to package, ¬root |

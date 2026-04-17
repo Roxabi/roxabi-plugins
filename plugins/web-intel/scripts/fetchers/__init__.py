@@ -16,10 +16,14 @@ All fetchers inherit from BaseFetcher and provide both:
 import sys
 from pathlib import Path
 
-# Add paths for imports (needed when running as script or from tests)
+# Add paths for imports (needed when running as script or from tests).
+# REPO_ROOT hosts roxabi_sdk/ in the source repo (in cache dirs the sync
+# script copies roxabi_sdk/ into each plugin — both paths resolve).
 SHARED_DIR = Path(__file__).resolve().parents[1] / "_shared"
 FETCHERS_DIR = Path(__file__).resolve().parent
-for _dir in [SHARED_DIR, FETCHERS_DIR]:
+REPO_ROOT = Path(__file__).resolve().parents[4]      # source repo: roxabi-plugins/
+PLUGIN_ROOT = Path(__file__).resolve().parents[2]    # cache: web-intel/<ver>/ (roxabi_sdk copied here)
+for _dir in [SHARED_DIR, FETCHERS_DIR, REPO_ROOT, PLUGIN_ROOT]:
     if str(_dir) not in sys.path:
         sys.path.insert(0, str(_dir))
 

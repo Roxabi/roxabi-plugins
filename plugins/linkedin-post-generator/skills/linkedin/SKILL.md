@@ -1,6 +1,6 @@
 ---
 name: linkedin-post-generator
-description: 'Generate engaging LinkedIn posts with best practices, visual identity, and vault integration. Triggers: "linkedin post" | "write linkedin" | "generate linkedin" | "linkedin content" | "post for linkedin".'
+description: 'Generate engaging LinkedIn posts with best practices, visual identity, and vault integration. Triggers: "linkedin post" | "write linkedin" | "generate linkedin" | "linkedin content" | "post for linkedin" | "create a linkedin post" | "draft a linkedin post" | "write a post for linkedin" | "linkedin update".'
 version: 0.1.0
 allowed-tools: Read, Write, Bash, Glob, Grep
 ---
@@ -9,24 +9,21 @@ allowed-tools: Read, Write, Bash, Glob, Grep
 
 **Goal:** Generate a publish-ready LinkedIn post from a topic or idea, following best practices and the author's visual identity.
 
-## Instructions
+Let:
+  LC := ~/.roxabi-vault/config/linkedin.json    — author config (optional)
+  CH := ~/.roxabi-vault/config/visual-charter.json — visual charter (optional)
+  VC := ~/.roxabi-vault/content/               — post output dir
 
-### Phase 1 — Configuration
+## Phase 1 — Configuration
 
-1. Check for author config at `~/.roxabi-vault/config/linkedin.json` (optional).
-2. Check for visual charter at `~/.roxabi-vault/config/visual-charter.json` (optional).
-3. If config exists, load author name, default language, tone, hashtag sets, and post signature.
-4. If no config exists, proceed with sensible defaults (professional-casual tone, English).
+Load LC if ∃: author name, default language, tone, hashtag sets, post signature. ¬LC → defaults (professional-casual tone, English). Load CH if ∃.
 
-### Phase 2 — Topic Input
+## Phase 2 — Topic Input
 
-1. If the user provided a topic or idea via arguments, use it.
-2. Otherwise, AskUserQuestion: "What topic or idea should the LinkedIn post be about?"
-3. AskUserQuestion for any preferences: tone override, target audience, content type (story, insight, question, how-to), hashtag set.
+∃ topic in $ARGUMENTS → use it. Otherwise → DP(B): topic/idea. → DP(C) for preferences: tone override, target audience, content type (story/insight/question/how-to), hashtag set.
 
-### Phase 3 — Research (Optional)
+## Phase 3 — Research (Optional)
 
-1. Check if vault is available by running:
 ```bash
 python3 -c "
 import sys; sys.path.insert(0, '$CLAUDE_PLUGIN_ROOT/../..')
@@ -34,7 +31,8 @@ from roxabi_sdk.paths import vault_healthy
 print('VAULT_OK' if vault_healthy() else 'VAULT_UNAVAILABLE')
 "
 ```
-2. If vault is healthy, search for related content that could enrich the post:
+
+VAULT_OK → search related content:
 ```bash
 python3 -c "
 import sqlite3, json
@@ -48,49 +46,35 @@ conn.close()
 for r in rows: print(json.dumps({'title': r[0], 'preview': r[1]}))
 "
 ```
-3. If vault is unavailable, skip this phase — the post will be generated from the topic alone.
 
-### Phase 4 — Generate Post
+VAULT_UNAVAILABLE → skip; generate from topic alone.
 
-1. Read the best practices reference:
+## Phase 4 — Generate Post
+
 ```bash
 cat "$CLAUDE_PLUGIN_ROOT/../../references/linkedin_best_practices.md"
-```
-2. Read the emoji guide reference:
-```bash
 cat "$CLAUDE_PLUGIN_ROOT/../../references/emoji_guide.md"
 ```
-3. Generate the post applying these rules:
-   - Length: 1300-2000 characters (the LinkedIn sweet spot)
-   - Strong hook in the first line (pattern interrupt, bold claim, question, or story opener)
-   - Short paragraphs (1-3 sentences max)
-   - Line breaks between paragraphs for readability
-   - Use bullet points or numbered lists where appropriate
-   - 3-5 relevant hashtags at the end
-   - Clear call-to-action in the closing
-   - Emojis used sparingly per the emoji guide
-4. If visual charter exists, apply tone and voice guidelines from it.
-5. If author config has a post signature, append it.
 
-### Phase 5 — Review
+Apply rules: 1300-2000 chars; strong hook (pattern interrupt/bold claim/question/story opener); 1-3 sentence paragraphs; line breaks between paragraphs; bullet/numbered lists where appropriate; 3-5 hashtags at end; clear CTA in closing; emojis sparingly per guide. ∃CH → apply tone/voice. ∃LC signature → append.
 
-1. Present the generated post to the user in a code block.
-2. Show post statistics: character count, word count, estimated read time, hashtag count.
-3. AskUserQuestion with options:
-   - **Publish as-is** — save the post
-   - **Edit** — describe changes to make
-   - **Regenerate** — start over with different angle
-   - **Cancel** — discard
+## Phase 5 — Review
 
-### Phase 6 — Save
+Present post in code block. Show stats: character count, word count, estimated read time, hashtag count. → DP(A)
+- **Publish as-is** → Phase 6
+- **Edit** → describe changes → regenerate
+- **Regenerate** → different angle → Phase 4
+- **Cancel** → discard
 
-1. Save the post to `~/.roxabi-vault/content/` with timestamp filename:
+## Phase 6 — Save
+
 ```bash
 mkdir -p -m 700 ~/.roxabi-vault/content
 timestamp=$(date +%Y%m%d_%H%M%S)
-# File will be written as: linkedin_${timestamp}.md
+# Write as: linkedin_${timestamp}.md
 ```
-2. Write the file with YAML frontmatter:
+
+Write with YAML frontmatter:
 ```yaml
 ---
 type: linkedin-post
@@ -100,11 +84,11 @@ status: draft
 hashtags: [<hashtags used>]
 ---
 ```
-3. Followed by the post body.
+Followed by post body.
 
-### Phase 7 — Index (Optional)
+## Phase 7 — Index (Optional)
 
-1. If vault is healthy, index the new post:
+VAULT_OK → index:
 ```bash
 python3 -c "
 import sqlite3, json
@@ -119,10 +103,10 @@ conn.commit()
 conn.close()
 "
 ```
-2. If vault is unavailable, skip — the file is saved locally regardless.
+VAULT_UNAVAILABLE → skip; file saved locally.
 
-### Phase 8 — Visual Companion
+## Phase 8 — Visual Companion
 
-To generate a matching visual for this post, run the **image-prompt** skill next.
+To generate a matching visual, run the **image-prompt** skill next.
 
 $ARGUMENTS

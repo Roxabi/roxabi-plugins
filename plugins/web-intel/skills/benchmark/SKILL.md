@@ -10,10 +10,11 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch
 
 Let:
   U := target URL
-  B := agent-browser CLI
-  F := optional focus area (ui | features | stack | performance | ux | all)
+  F := focus area (ui | features | stack | performance | ux | all), default `all`
+  AB := agent-browser (preferred — adds `snapshot -i` for interactive refs)
+  PW := `uv run python scripts/screenshot.py` (fallback — reuses web-intel's Playwright extra)
 
-Scrape target URL → screenshot → analyze repo capabilities → compare → generate report.
+Scrape U → screenshot → analyze repo → compare → report.
 
 ## Entry
 
@@ -22,11 +23,7 @@ Scrape target URL → screenshot → analyze repo capabilities → compare → g
 /benchmark https://example.com --focus ui   → UI/design focus
 ```
 
-## Step 0 — Parse Input
-
-Extract U from arguments. If no URL provided → `AskUserQuestion` to get one.
-
-Parse optional `--focus <area>` flag. Default F = `all`.
+¬U → → DP(B) Parse `--focus <area>` if provided.
 
 ## Step 1 — Locate Plugin
 
@@ -40,17 +37,14 @@ fi
 
 ## First Use
 
-On the **first invocation** of any web-intel skill in this session:
-
-1. Run the doctor check:
+First invocation in session only:
 
 ```bash
 cd "$PLUGIN_ROOT" && uv run python scripts/doctor.py
 ```
 
-2. If doctor reports core failures (exit code 1) → show output to the user and stop. Guide them through the install commands listed in the report.
-3. If doctor reports optional warnings → inform the user which platforms have limited support, then continue.
-4. Skip this check on subsequent invocations in the same session.
+- exit 1 → show output, stop, guide install. Optional warnings → inform user, continue.
+- Skip on subsequent invocations.
 
 ## Step 2 — Scrape Target
 
@@ -58,43 +52,43 @@ cd "$PLUGIN_ROOT" && uv run python scripts/doctor.py
 cd "$PLUGIN_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt uv run python scripts/scraper.py "$URL"
 ```
 
-Parse JSON output. Extract:
-- `data.text` → main content (features, copy, value props)
-- `data.title` → page title
-- `data.description` → meta description
-- `content_type` → source type
+Parse JSON: `data.text` (features/copy/value props), `data.title`, `data.description`, `content_type`.
+`success: false` → fall back to WebFetch.
 
-If `success: false` → fall back to WebFetch tool for content extraction.
+## Step 3 — Screenshot
 
-## Step 3 — Screenshot & Visual Capture
-
-Use agent-browser to capture visual state:
+Tempfile per `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md`:
 
 ```bash
-agent-browser open "$URL"
-agent-browser wait --load networkidle
-agent-browser screenshot --full /tmp/benchmark-screenshot.png
+TMPDIR=$(mktemp -d -t "web-intel-benchmark-XXXXXX")
+trap 'rm -rf "$TMPDIR"' EXIT
+SHOT="$TMPDIR/screenshot.png"
+```
+
+∃ AB:
+
+```bash
+agent-browser open "$URL" && \
+agent-browser wait --load networkidle && \
+agent-browser screenshot --full "$SHOT" && \
 agent-browser snapshot -i
 ```
 
-If agent-browser unavailable → skip visual capture, note in report.
+¬∃ AB → PW fallback (web-intel already ships Playwright):
 
-## Step 4 — Analyze Current Repo
+```bash
+cd "$PLUGIN_ROOT" && uv run python scripts/screenshot.py "$URL" "$SHOT"
+```
 
-Scan the project repo to build a capability inventory:
+Neither available → skip UI/Design dimension, note in report (other dimensions still scored).
 
-- **Pages/routes** → feature surface area
-- **API modules** → backend capabilities
-- **UI components** → design system coverage
-- **Auth flows** → authentication patterns
-- **i18n** → localization support
-- **Email templates** → transactional email coverage
+## Step 4 — Analyze Repo
 
-Use Glob and Grep to discover these patterns.
+Use Glob + Grep to build capability inventory: pages/routes, API modules, UI components, auth flows, i18n, email templates.
 
 ## Step 5 — Compare & Score
 
-Build a comparison matrix across dimensions based on F:
+Build comparison matrix based on F:
 
 | Dimension | Weight | What to compare |
 |-----------|--------|-----------------|
@@ -105,27 +99,18 @@ Build a comparison matrix across dimensions based on F:
 | **Performance** | 10% | SSR, caching, bundle optimization signals |
 | **UX Patterns** | 15% | Loading states, error handling, a11y, i18n |
 
-For each dimension, assign:
-- **Ahead** — our repo has stronger implementation
-- **Parity** — roughly equivalent
-- **Gap** — target has something we lack
-- **Missing** — target has it, we don't at all
+∀ dimension → assign: **Ahead** | **Parity** | **Gap** | **Missing**
 
 ## Step 6 — Present Results
 
-Output structured markdown with:
-1. **Target Overview** — what the site is/does
-2. **Comparison Matrix** — dimension-by-dimension table
-3. **Overall Score** — weighted percentage
-4. **Gap Analysis** — what they have that we don't, and vice versa
-5. **Actionable Recommendations** — priority-ordered improvements
+Output structured markdown: Target Overview → Comparison Matrix → Overall Score (weighted %) → Gap Analysis → Priority-ordered Recommendations.
 
-`AskUserQuestion`: Create issues for gaps? | Deep-dive a dimension? | Benchmark another URL? | Done
+→ DP(A) **Create issues for gaps** | **Deep-dive a dimension** | **Benchmark another URL** | **Done**
 
 ## Safety Rules
 
-- Read-only analysis of the repo (no modifications)
+- Read-only repo analysis (no modifications)
 - Single scrape per URL per invocation
-- No credentials or tokens stored from scraped sites
+- No credentials/tokens stored from scraped sites
 
 $ARGUMENTS

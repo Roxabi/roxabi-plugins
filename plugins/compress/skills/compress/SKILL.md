@@ -1,6 +1,6 @@
 ---
 name: compress
-description: 'Compress agent/skill definitions using math/logic notation. Triggers: "compress" | "compress skill" | "compress agent" | "shorten this" | "make it formal".'
+description: 'Compress agent/skill definitions using math/logic notation. Triggers: "compress" | "compress skill" | "compress agent" | "compress context" | "shorten this" | "make it formal" | "use formal notation" | "make this more compact" | "compress this".'
 version: 0.1.0
 argument-hint: '[file path | agent name | skill name]'
 allowed-tools: Read, Write, Edit, Glob, Grep
@@ -22,12 +22,12 @@ Formal notation rewrite — reduce tokens, preserve semantics.
 
 ## Phases
 
-**1 — Resolve:** Parse `$ARGUMENTS`: `*.md` → direct | agent name → `.claude/agents/<name>.md` | skill name → `.claude/skills/<name>/SKILL.md` | ∅ → AskUserQuestion. file ∃ → read. ∄ → halt.
+**1 — Resolve:** Parse `$ARGUMENTS`: `*.md` → direct | agent name → `.claude/agents/<name>.md` | skill name → `.claude/skills/<name>/SKILL.md` | ∅ → → DP(B) file ∃ → read. ∄ → halt.
 
 **2 — Analyze:** Read target. Identify: repeated nouns (≥3×) | verbose conditionals | iteration prose | magic numbers | redundant examples | filler. L_before := line count (excl. frontmatter).
 
 **3 — Transform (R1–R10):**
-- **R1** Definitions: concept ≥ 3× → Greek var in `Let:` block (after title). Lowercase, mnemonic when possible. Template:
+- **R1** Definitions: concept ≥ 3× → Greek var in `Let:` block (after title). Lowercase, mnemonic. Template:
   ```
   Let:
     φ := set of all findings
@@ -46,7 +46,7 @@ Formal notation rewrite — reduce tokens, preserve semantics.
 
 **¬compress:** frontmatter | code blocks | `$ARGUMENTS` | file paths | tool names | safety rules | table structure
 
-**4 — Present:** Show `L_before → L_after (N%)` + substitutions. AskUserQuestion: "Yes" / "Preview" / "Adjust". Preview → show, re-ask. Adjust → apply, re-present.
+**4 — Present:** Show `L_before → L_after (N%)` + substitutions. → DP(A) **Yes** | **Preview** | **Adjust**. Preview → show, re-ask. Adjust → apply, re-present.
 
 **5 — Write:** Write file. Verify: frontmatter ∧ `$ARGUMENTS` ∧ safety rules ∧ ¬semantic loss. Report L + %.
 

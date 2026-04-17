@@ -1,17 +1,12 @@
 pre-commit:
   commands:
     lint:
-      run: bunx biome check --write {staged_files}
+      run: bunx biome check --write --no-errors-on-unmatched {staged_files}
       glob: "*.{ts,tsx,js,jsx}"
     typecheck:
       run: bun run typecheck
     trufflehog:
-      run: >
-        if [ -f .git ] && grep -q '^gitdir:' .git; then
-          echo 'node_modules' > /tmp/.th_excl.$$ && trufflehog filesystem . --only-verified --fail -x /tmp/.th_excl.$$;
-        else
-          trufflehog git file://. --only-verified --fail;
-        fi
+      run: scripts/trufflehog-check.sh
       skip:
         - merge
         - rebase
@@ -29,9 +24,4 @@ pre-push:
     test:
       run: bun run test
     trufflehog:
-      run: >
-        if [ -f .git ] && grep -q '^gitdir:' .git; then
-          echo 'node_modules' > /tmp/.th_excl.$$ && trufflehog filesystem . --only-verified --fail -x /tmp/.th_excl.$$;
-        else
-          trufflehog git file://. --only-verified --fail;
-        fi
+      run: scripts/trufflehog-check.sh

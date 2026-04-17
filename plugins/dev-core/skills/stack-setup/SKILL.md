@@ -3,7 +3,7 @@ name: stack-setup
 argument-hint: '[--force]'
 description: 'Interactive wizard to fill in .claude/stack.yml through guided questions — asks about runtime, backend, frontend, build, testing, deploy, docs, commands, and standards paths, then writes the file. Triggers: "stack setup" | "setup stack" | "configure stack" | "fill stack.yml" | "stack wizard" | "stack-setup".'
 version: 0.3.0
-allowed-tools: Read, Edit, Write, Bash, Glob, ToolSearch, AskUserQuestion
+allowed-tools: Read, Edit, Write, Bash, Glob, ToolSearch
 ---
 
 # Stack Setup Wizard
@@ -16,7 +16,7 @@ Let: σ := `.claude/stack.yml` | π := proposed config table
 
 `test -f .claude/stack.yml && echo exists || echo missing`
 
-σ ∃ ∧ `--force` ∉ `$ARGUMENTS` → AskUserQuestion: **Re-configure** | **Skip**
+σ ∃ ∧ `--force` ∉ `$ARGUMENTS` → → DP(A) **Re-configure** | **Skip**
 → Skip: "Keeping existing σ. Run with `--force` to reconfigure."
 
 σ ∄ → `mkdir -p .claude`
@@ -25,7 +25,7 @@ Let: σ := `.claude/stack.yml` | π := proposed config table
 
 `test -f .claude/dev-core.yml && grep -q 'gh_project_id' .claude/dev-core.yml && echo done || (test -f .env && grep -q 'GH_PROJECT_ID' .env && echo done || echo missing)`
 
-`missing` → AskUserQuestion: **Continue anyway** | **Abort (run /init first)**
+`missing` → → DP(A) **Continue anyway** | **Abort (run /init first)**
 
 ## Phase 2 — Auto-discover
 
@@ -97,19 +97,13 @@ grep -A5 '^\[project\.scripts\]' pyproject.toml 2>/dev/null | grep -v '^\[' | he
   || echo ""
 ```
 
-**Runtime/PM → command prefix:**
-- `uv` → `runtime: python`, `package_manager: uv`; prefix `uv run`
-- `bun` → `runtime: bun`, `package_manager: bun`; prefix `bun run`
-- `npm/pnpm/yarn` → `runtime: node`, `package_manager: {pm}`; prefix `{pm} run`
+**Runtime/PM → prefix:** `uv` → python/uv/`uv run` | `bun` → bun/bun/`bun run` | `npm/pnpm/yarn` → node/{pm}/`{pm} run`
 
 **Commands by runtime:**
 - Python/uv: `dev: uv run <first-script>` | `test: uv run pytest` | `lint: uv run ruff check .` | `format: uv run ruff format .` | `typecheck: uv run ruff check --select=PYI .` | `install: uv sync`
 - Node/Bun: `dev/test/lint/format/typecheck: {pm} run <key>` | `install: {pm} install`
 
-**Formatter fix command:**
-- ruff → `uv run ruff format . && uv run ruff check --fix .`
-- biome → `bunx biome check --write` (or `npx`)
-- eslint → `npx eslint --fix .`
+**Formatter fix:** ruff → `uv run ruff format . && uv run ruff check --fix .` | biome → `bunx biome check --write` | eslint → `npx eslint --fix .`
 
 **Mixed-stack monorepos** (JS/TS + Python): `formatters:` array instead of `formatter_fix_cmd`:
 ```yaml
@@ -120,9 +114,9 @@ build:
     - cmd: "ruff format"
       ext: [".py"]
 ```
-Each formatter receives only matching `ext` files. `formatter_fix_cmd` = fallback for single-formatter projects.
+∀ formatter receives only matching `ext` files. `formatter_fix_cmd` = fallback for single-formatter projects.
 
-**Standards paths** — include only if `docs/` ∃: backend, testing, code_review, architecture, configuration, contributing.
+**Standards paths** — `docs/` ∃ → include: backend, testing, code_review, architecture, configuration, contributing.
 
 ## Phase 3 — Confirm
 
@@ -150,9 +144,9 @@ Detected configuration
     install:    {install_cmd}
 ```
 
-AskUserQuestion: **Looks good — write it** | **Edit a field** | **Abort**
+→ DP(A) **Looks good — write it** | **Edit a field** | **Abort**
 
-"Edit a field" → ask which field + new value; apply; re-display π. Repeat until confirmed.
+"Edit a field" → ask which + new value; apply; re-display π. Repeat until confirmed.
 
 ## Phase 4 — Write stack.yml
 
@@ -160,8 +154,7 @@ Assemble σ. Omit `none`/empty keys entirely.
 
 ```yaml
 # .claude/stack.yml — dev-core stack configuration
-# DO NOT commit this file. Add .claude/stack.yml to .gitignore.
-# Commit .claude/stack.yml.example instead.
+# Commit this file with the project. Secrets live in .env / .claude/dev-core.yml.
 schema_version: "1.0"
 
 runtime: {RUNTIME}
@@ -228,11 +221,12 @@ artifacts:
 #   contributing: {docs}/contributing.md
 ```
 
-## Phase 5 — CLAUDE.md and .gitignore
+## Phase 5 — CLAUDE.md and reference template
 
 1. **@import:** `head -1 CLAUDE.md` ≠ `@.claude/stack.yml` → prepend; else already present.
-2. **Gitignore:** `grep -q '\.claude/stack\.yml' .gitignore 2>/dev/null` → ∄ → append `.claude/stack.yml`; ∃ → skip.
-3. **Example:** `.claude/stack.yml.example` ∄ → copy σ → "Created — commit this file as reference."
+2. **Example:** `.claude/stack.yml.example` ∄ → copy σ → "Created as reference template."
+
+Note: `.claude/stack.yml` itself is committed (project stack conventions — no secrets). Only `.env` and `.claude/dev-core.yml` are gitignored by dev-core.
 
 ## Phase 6 — Summary
 

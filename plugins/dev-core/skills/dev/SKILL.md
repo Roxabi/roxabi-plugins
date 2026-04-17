@@ -1,9 +1,9 @@
 ---
 name: dev
 argument-hint: '[#N | "idea" | --from <step> | --audit]'
-description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "develop".
+description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "work on #" | "develop" | "pick up issue" | "tackle issue" | "let's work on".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
 # Dev
@@ -16,9 +16,13 @@ Let:
   Σ_s  := session state map (step → bool), in-memory only, lost on restart
   S*   := next step to execute
   φ    := frame artifact
+  gate := {frame, spec, plan}
+  adv  := {triage, analyze, implement, pr, ci-watch, validate, review, fix, cleanup}
+  ψ_r(P) ⟺ P.comments ∃ body: "## Code Review"
+  ψ_f(P) ⟺ P.comments ∃ body: "## Review Fixes Applied"
 
 Single entry point: scan artifacts → detect state → show progress → delegate to step skill → loop.
-¬rewrite step skill logic. ¬auto-advance phases. AskUserQuestion at each gate.
+¬rewrite step skill logic. ¬auto-advance phases. Present decision at each gate via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A).
 
 ## Entry
 
@@ -38,13 +42,13 @@ Single entry point: scan artifacts → detect state → show progress → delega
 ```bash
 gh issue view N --json number,title,labels,state
 ```
-¬∃ → AskUserQuestion: **Create issue** | **Proceed without issue** (frame-only).
+¬∃ → → DP(A) **Create issue** | **Proceed without issue** (frame-only).
 
 Free text ⇒ slug from text:
 ```bash
 gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 ```
-∃ match → AskUserQuestion: **Use #{N}: {title}** | **Create new** | **Proceed without issue**.
+∃ match → → DP(A) **Use #{N}: {title}** | **Create new** | **Proceed without issue**.
 
 `--from <step>` ⇒ record override. Warn if prerequisite artifacts ¬∃:
 
@@ -63,36 +67,7 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 ## Step 1 — Scan State (parallel, <3s)
 
 ```bash
-# Issue
-gh issue view N --json state 2>/dev/null && echo "triage=true"
-
-# Frame (handles both {N}-{slug}.mdx and {slug}.mdx patterns)
-ls artifacts/frames/ 2>/dev/null | grep -iE "^{N}-{slug}|^{slug}"
-
-# Analysis
-ls artifacts/analyses/ 2>/dev/null | grep -E "^{N}-|{slug}"
-
-# Spec
-ls artifacts/specs/ 2>/dev/null | grep "^{N}-"
-
-# Plan
-ls artifacts/plans/ 2>/dev/null | grep "^{N}-"
-
-# Worktree (check both .claude/worktrees/ and legacy parent-dir worktrees)
-REPO=$(gh repo view --json name --jq '.name')
-git worktree list | grep -E "${REPO}-{N}|worktrees/{N}-"
-
-# Branch
-git branch -a | grep "{N}-{slug}"
-
-# PR
-gh pr list --search "#{N}" --json number,state,reviewDecision,merged --jq '.[]'
-
-# Review comment marker (fallback when reviewDecision is null)
-gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "^## Code Review" && echo "review_comment=true"
-
-# Fix comment marker (fallback for fix detection)
-gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "^## Review Fixes Applied" && echo "fix_comment=true"
+bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
 ```
 
 φ ∃ → read frontmatter → extract `status`, `tier`.
@@ -105,25 +80,58 @@ gh pr view {PR#} --json comments --jq '.comments[].body' 2>/dev/null | grep -q "
   plan:      plan artifact ∃,
   implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ branch has commits beyond staging,
   pr:        PR ∃,
-  validate:  null,         # no artifact — uses Σ_s only
-  review:    PR ∃ ∧ (PR.reviewDecision ∈ ('APPROVED','CHANGES_REQUESTED') ∨ pr_has_review_comment(PR)),
-  fix:       PR ∃ ∧ pr_has_fix_comment(PR),
-  promote:   skipped,  # /promote is standalone staging→main. ¬part of feature cycle. Skip unless explicitly requested.
+  ci-watch:  null,       # Σ_s only
+  validate:  null,       # Σ_s only
+  review:    PR ∃ ∧ (PR.reviewDecision ∈ ('APPROVED','CHANGES_REQUESTED') ∨ ψ_r(PR)),
+  fix:       PR ∃ ∧ ψ_f(PR),
+  promote:   skipped,  # standalone staging→main, ¬feature cycle
   cleanup:   ¬worktree ∃ ∧ ¬stale_branch ∃,
 }
 
 Σ_s = {} initially. Populated in Step 8 after each skill completes. Lost on restart.
 Σ[step] == null → relies on Σ_s for within-session advancement.
 
-pr_has_review_comment(PR) ⟺ PR comments ∃ body starting with "## Code Review"
-pr_has_fix_comment(PR)    ⟺ PR comments ∃ body starting with "## Review Fixes Applied"
-
 τ = φ.tier || issue_size_label_to_tier(issue.labels) || null
 
 ## Step 2 — Determine Tier
 
 τ ∃ → skip.
-¬τ → AskUserQuestion: **S** (≤3 files, no arch) | **F-lite** (clear scope, 1 domain) | **F-full** (complex, multi-domain).
+¬τ → → DP(A) **S** (≤3 files, no arch) | **F-lite** (clear scope, 1 domain) | **F-full** (complex, multi-domain).
+
+## Step 2b — Seed Pipeline Tasks
+
+Claude Code task list drives in-session progress for the dev pipeline. Treat it as authoritative for within-session state — artifacts remain authoritative across sessions.
+
+**2b.1 Check existing:** `TaskList` → filter where `metadata.issue == N` ∧ `metadata.kind == 'dev-pipeline'`. ∃ matches → skip seeding (tasks already exist from a prior `/dev` invocation in this session). Cache {step → task.id} map from the matches. Goto 2b.4.
+
+**2b.2 Build active sequence:** Apply Step 4 skip logic to τ + Σ. Skipped steps are **not** created — keeps the timeline clean.
+
+Ordered step list:
+```
+triage → frame → analyze → spec → plan → implement → pr →
+ci-watch → validate → review → fix → promote → cleanup
+```
+
+**2b.3 Create tasks:** ∀ step ∈ active_list:
+
+```
+TaskCreate(
+  subject: "{step} — #{N} {title}",
+  description: "{one-line step purpose from dev-process.mdx}",
+  activeForm: "{present-continuous of step} #{N}",
+  metadata: {
+    kind: "dev-pipeline",
+    issue: N,
+    step: "{step}",
+    phase: "Frame|Shape|Build|Verify|Ship",
+    tier: τ,
+  },
+)
+```
+
+Wire dependencies sequentially — ∀ i > 0: `TaskUpdate(task[i].id, addBlockedBy: [task[i-1].id])`. Cache {step → task.id} map in-memory.
+
+**2b.4 Mark done from Σ:** ∀ step where Σ[step] == true ∨ Σ_s[step] == true → `TaskUpdate(task.id, status: "completed")`. Artifacts on disk mean the step is done even on first `/dev` entry of the session.
 
 ## Step 3 — Progress Display
 
@@ -139,12 +147,7 @@ pr_has_fix_comment(PR)    ⟺ PR comments ∃ body starting with "## Review Fixe
 → Next: {S*} — {one-line description}
 ```
 
-Bar: `██` per completed/skipped, `░░` per pending. Phase steps:
-- Frame: triage, frame
-- Shape: analyze, spec
-- Build: plan, implement, pr
-- Verify: validate, review, fix
-- Ship: promote, cleanup
+Bar: `██`=done/skipped, `░░`=pending. Phases: Frame:{triage,frame} | Shape:{analyze,spec} | Build:{plan,implement,pr} | Verify:{ci-watch,validate,review,fix} | Ship:{promote,cleanup}
 
 Status: `✓ {name}` (done) | `skipped` | `pending` | `→ next`.
 
@@ -157,6 +160,7 @@ should_skip(step, τ, Σ):
   analyze  ∧ τ ∈ {S, F-lite}             → skip (frame sufficient)
   spec     ∧ τ == S                       → skip
   plan     ∧ τ == S                       → skip
+  ci-watch ∧ ¬PR ∃                         → skip
   fix      ∧ (Σ.fix ∨ Σ_s.fix)            → skip (fixes already applied)
   promote                                  → skip (/promote is standalone staging→main; ¬auto-triggered by /dev)
   cleanup  ∧ ¬has_stale(N)               → skip
@@ -176,6 +180,7 @@ STEPS = [
   (Build,  plan,      plan),
   (Build,  implement, implement),
   (Build,  pr,        pr),
+  (Verify, ci-watch,  ci-watch),
   (Verify, validate,  validate),
   (Verify, review,    review),
   (Verify, fix,       fix),
@@ -201,59 +206,72 @@ Gate fires → Step 7 skips its own prompt (gate IS confirmation). ¬double-prom
 
 ## Step 6b — Reasoning Audit (optional)
 
-**Trigger:** `--audit` ∨ S* ∈ `stack.yml` `workflow.reasoning_audit` list.
+**Trigger:** `--audit` ∨ S* ∈ `workflow.reasoning_audit` (stack.yml). critical := {spec, plan, implement}.
 
-Let: critical_steps := {spec, plan, implement}.
+audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Gate ∃ for S* → audit **replaces** it (¬double-prompt). ¬pass `--audit` to child skills.
+→ → DP(A) **Proceed** | **Adjust approach** (max 3 rounds) | **Abort** (→ skipped, Step 5)
 
-audit_enabled ∧ S* ∈ critical_steps → present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md), using field guidance for S*.
-
-**Merge rule:** Step 6 gate ∃ for S* → audit **replaces** gate — single combined AskUserQuestion. ¬two consecutive prompts.
-
-→ AskUserQuestion: **Proceed** | **Adjust approach** (max 3 rounds) | **Abort step** (→ skipped, return to Step 5)
-
-¬audit_enabled ∨ S* ∉ critical_steps → skip to Step 7 (Step 6 gate still applies independently).
-
-**Important:** ¬pass `--audit` to child skills in Step 7. Audit fires at orchestrator level only. ¬double-gate.
+¬audit ∨ S* ∉ critical → skip (Step 6 gate still applies).
 
 ## Step 7 — Execute Step
 
-```
-gate_steps    := {frame, spec, plan}
-auto_advance  := {triage, analyze, implement, pr, validate, review, fix, cleanup}
-```
+**Before invocation:** `TaskUpdate(task_id_map[S*], status: "in_progress")`. ¬∃ id → `TaskCreate` on-the-fly (drift safety net: a step not seeded in 2b that became active later).
 
-**gate_steps:** Step 6 already AskUserQuestion'd → invoke skill immediately. ¬double-prompt.
-**auto_advance:** Show `→ Running {S*}…`, invoke immediately. ¬AskUserQuestion.
+**Invocation rules — CRITICAL for continuous flow:**
+
+- **gate skills** (frame, spec, plan): Step 6 already presented decision → invoke skill immediately. ¬double-prompt. ¬write transition message.
+- **adv skills** (all others): invoke skill immediately. ¬write "Running /X…" preamble. ¬ask permission. ¬summarize prior step.
+
+**¬ask** "Ready to proceed to /X?" — the task list IS the commitment.
+**¬ask** "Shall I continue?" — Step 8 re-scan IS the continuation.
+**¬summarize** "Just completed /X, moving to /Y" — the next skill's output IS the signal.
+**¬announce** "Moving to the next step" — silent transition only.
+
 **Exception:** user may type "stop"/"skip to X" before skill completes.
+
+**Follow-up tasks:** child skill surfaces new work (e.g. `/code-review` emits findings that require a fix iteration, `/ci-watch` detects flakes needing re-run) → `TaskCreate` a follow-up task with metadata `{ kind: "dev-pipeline", issue: N, step: "{step}", follow_up: true }` and `addBlockedBy: [task_id_map[S*]]`.
 
 **Skill invocation map:**
 
-| Step | Skill invocation |
-|------|-----------------|
-| triage | `skill: "issue-triage", args: "N"` (set size + priority) |
-| frame | `skill: "frame", args: "--issue N"` |
-| analyze | `skill: "analyze", args: "--issue N"` |
-| spec | `skill: "spec", args: "--issue N"` |
-| plan | `skill: "plan", args: "--issue N"` |
-| implement | `skill: "implement", args: "--issue N"` |
-| pr | `skill: "pr"` (auto-detects branch + issue from worktree context) |
-| validate | `skill: "validate"` (runs in current worktree) |
-| review | `skill: "code-review"` (auto-detects PR from current branch) |
-| fix | `skill: "fix", args: "#{PR_NUMBER}"` (PR# from Σ scan) |
-| promote | `skill: "promote"` (standalone staging→main — skipped by default) |
-| cleanup | `skill: "cleanup", args: "--scope #N"` (scoped to current issue's branch/worktree) |
+| Step | Class | Skill invocation | On success → |
+|------|-------|------------------|--------------|
+| triage | adv | `skill: "issue-triage", args: "N"` | frame |
+| frame | gate | `skill: "frame", args: "--issue N"` | analyze (F-full) ∨ spec (F-lite) |
+| analyze | adv | `skill: "analyze", args: "--issue N"` | spec |
+| spec | gate | `skill: "spec", args: "--issue N"` | plan |
+| plan | gate | `skill: "plan", args: "--issue N"` | implement (auto-chain after approval) |
+| implement | adv | `skill: "implement", args: "--issue N"` | pr |
+| pr | adv | `skill: "pr"` (auto-detects branch + issue) | ci-watch |
+| ci-watch | adv | `skill: "ci-watch", args: "--pr {PR#}"` | validate |
+| validate | adv | `skill: "validate"` | code-review |
+| review | verdict | `skill: "code-review"` | APPROVED → merge → cleanup \| CHANGES_REQUESTED → fix |
+| fix | loop | `skill: "fix", args: "#{PR_NUMBER}"` | code-review (max 2 iters, then Abort) |
+| promote | — | `skill: "promote"` (standalone — never auto-triggered) | — |
+| cleanup | adv | `skill: "cleanup", args: "--scope #N"` | pipeline complete |
 
-**Skip to X** ⇒ AskUserQuestion: **Proceed anyway** | **Cancel**. Missing artifacts → warn first. Proceed ⇒ mark prior steps skipped, S* = X.
+**Skip to X** ⇒ → DP(A) **Proceed anyway** | **Cancel**. Missing artifacts → warn first. Proceed ⇒ mark prior steps skipped, S* = X.
 
 **Stop** ⇒ "Stopped at {S*}. Run `/dev #N` to resume."
 
 ## Step 8 — Post-skill Re-scan
 
-Skill completes → Σ_s[step] = true → goto Step 1 (re-scan Σ).
+Skill returns → **IMMEDIATELY in the same turn, silently:**
+
+1. `TaskUpdate(task_id_map[S*], status: "completed")`
+2. `Σ_s[step] = true`
+3. Goto Step 1 (re-scan Σ)
+4. Execute Step 7 for new S*
+
+**¬write** "Step X complete" message between skill return and re-scan.
+**¬write** "Moving to Y" message between re-scan and Step 7.
+**¬ask** anything. The next skill's first output IS your next message.
+**¬summarize** what just happened. The task list reflects state.
+
+Skill fails/aborts → leave task `in_progress` → present recovery decision via protocol (Pattern A): **Retry** | **Skip** | **Abort**.
 Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix).
-Session restart → Σ_s = ∅ → artifact-less steps re-run (desired: results go stale).
-Gates (frame, spec, plan) → re-scan detects updated artifact → progress → Step 6 gate → Step 7 immediately (¬second prompt).
-auto_advance → re-scan → progress → Step 7 immediately.
+Session restart → Σ_s = ∅ → artifact-less steps re-run. 2b.1 will find the existing tasks (status possibly `completed` from last run) and skip re-seeding.
+gate → re-scan detects updated artifact → Step 6 gate → Step 7 immediately (¬second prompt).
+adv → re-scan → Step 7 immediately.
 
 ## Phases + Gate Summary
 
@@ -262,7 +280,7 @@ auto_advance → re-scan → progress → Step 7 immediately.
 | Frame | triage → frame | frame approval (status: approved) |
 | Shape | analyze → spec | spec approval |
 | Build | plan → implement → pr | plan approval (then auto-chains implement → pr) |
-| Verify | validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /code-review Phase 8). |
+| Verify | ci-watch → validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /code-review Phase 8). |
 | Ship | promote → cleanup | promote always skipped. cleanup runs if worktree/branches stale. |
 
 ## Tier Skip Matrix
@@ -276,13 +294,14 @@ auto_advance → re-scan → progress → Step 7 immediately.
 | plan | skip | run + gate | run + gate |
 | implement | run | run | run |
 | pr | run | run | run |
+| ci-watch | cond | cond | cond |
 | validate | run | run | run |
 | review | run | run | run |
 | fix | cond | cond | cond |
 | promote | cond | cond | cond |
 | cleanup | cond | cond | cond |
 
-cond = run only if applicable (see skip logic).
+cond = applicable only (see skip logic).
 
 ## Completion
 
@@ -306,9 +325,9 @@ To promote to production → run `/promote`
 ## Edge Cases
 
 - Session dies mid-step → `/dev #N` resumes. Re-scan detects partial state. Half-written artifact → step skill handles.
-- `--from <step>` ∧ missing deps → warn + AskUserQuestion: **Proceed** | **Cancel**.
-- Issue ¬∃ ∧ free text → frame-only mode. φ approved → AskUserQuestion: **Create GitHub issue** | **Continue without**.
+- `--from <step>` ∧ missing deps → warn + → DP(A) **Proceed** | **Cancel**.
+- Issue ¬∃ ∧ free text → frame-only mode. φ approved → → DP(A) **Create GitHub issue** | **Continue without**.
 - S* == validate → Σ.validate always null. Σ_s advances within session. New session → re-runs.
-- Multiple PRs for same issue → list, AskUserQuestion: select which.
+- Multiple PRs for same issue → list, → DP(A) select which.
 
 $ARGUMENTS

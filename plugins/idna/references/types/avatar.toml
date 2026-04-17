@@ -1,0 +1,76 @@
+[meta]
+name = "avatar"
+artifact_type = "image"
+anchor = "personal avatar"
+
+[dimensions]
+tree_width = 256
+tree_height = 320
+final_width = 768
+final_height = 1024
+
+[prompt]
+template = "{anchor}, {tags}, portrait photography, professional"
+
+shared_axes = ["geometry", "complexity", "weight", "energy", "hue", "saturation"]
+
+[axis_priority]
+order = [
+  "medium", "proportion", "aesthetic",
+  "finish", "energy", "saturation",
+  "hue_shift", "warmth", "hue",
+  "geometry", "weight", "background", "complexity",
+  "lighting", "line_weight", "perspective", "expression", "age", "texture",
+]
+
+[axes.medium]
+low = "photo, photorealistic, camera"
+high = "illustration, painterly, stylized"
+
+[axes.proportion]
+low = "chibi, super-deformed, SD, big head small body"
+high = "realistic proportions, anatomical, normal body ratio"
+
+[axes.aesthetic]
+low = "kawaii, pastel colors, cute, soft, adorable"
+high = "manga, ink lines, screentone, graphic novel, black and white"
+
+[axes.finish]
+low = "matte, flat, minimal rendering"
+high = "glossy, detailed, rich texture"
+
+[axes.warmth]
+low = "cool tones, blue-grey palette"
+high = "warm tones, amber-golden palette"
+
+[axes.hue_shift]
+low = "green, teal, emerald, jade tones"
+high = "purple, violet, magenta tones"
+
+[axes.background]
+low = "light background, white, bright"
+high = "dark background, black, deep"
+
+[axes.lighting]
+low = "flat, even, ambient light, soft fill"
+high = "dramatic, rim light, chiaroscuro, strong shadows"
+
+[axes.line_weight]
+low = "thin, delicate, hairline linework"
+high = "thick, bold, heavy outlines, strong contours"
+
+[axes.perspective]
+low = "close-up portrait, face only, bust"
+high = "full body, wide shot, head-to-toe"
+
+[axes.expression]
+low = "neutral, calm, serene, resting face"
+high = "intense, emotional, dramatic expression"
+
+[axes.age]
+low = "young, youthful, fresh-faced, childlike"
+high = "mature, weathered, aged, adult"
+
+[axes.texture]
+low = "smooth, clean, digital, polished"
+high = "rough, painterly, textured brush strokes"

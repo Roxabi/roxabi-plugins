@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RawItem } from '../../shared/types'
-import { formatDeps, formatJson, formatTable, pad, sortIssues } from '../lib/table-formatter'
+import { formatDeps, formatJson, formatTable, formatTree, pad, sortIssues } from '../lib/table-formatter'
 import type { Issue } from '../lib/types'
 
 function makeRawItem(overrides: Partial<RawItem['content']> = {}, fields: Record<string, string> = {}): RawItem {
@@ -91,6 +91,38 @@ describe('table-formatter', () => {
       expect(deps).toContain('#5')
       expect(deps).toContain('#10')
     })
+
+    it('shows all deps when 4 or fewer', () => {
+      const issue = makeIssue({
+        blockedBy: [
+          { number: 1, state: 'OPEN' },
+          { number: 2, state: 'OPEN' },
+          { number: 3, state: 'OPEN' },
+          { number: 4, state: 'OPEN' },
+        ],
+      })
+      const deps = formatDeps(issue)
+      expect(deps).toContain('#4')
+      expect(deps).not.toContain('[...]')
+    })
+
+    it('truncates to 3 with [...] when more than 4 deps', () => {
+      const issue = makeIssue({
+        blockedBy: [
+          { number: 1, state: 'OPEN' },
+          { number: 2, state: 'OPEN' },
+          { number: 3, state: 'OPEN' },
+          { number: 4, state: 'OPEN' },
+          { number: 5, state: 'OPEN' },
+        ],
+      })
+      const deps = formatDeps(issue)
+      expect(deps).toContain('#1')
+      expect(deps).toContain('#2')
+      expect(deps).toContain('#3')
+      expect(deps).not.toContain('#4')
+      expect(deps).toContain('[...]')
+    })
   })
 
   describe('sortIssues', () => {
@@ -170,6 +202,43 @@ describe('table-formatter', () => {
       const output = formatTable([parent, child], { sortBy: 'priority', titleLength: 55 })
       // Should contain tree connector character
       expect(output).toContain('#11')
+    })
+
+    it('aligns │ after title at the same column for root, children, and grandchildren', () => {
+      const tl = 40
+      const grandparent = makeRawItem(
+        {
+          number: 10,
+          title: 'A'.repeat(tl + 10),
+          subIssues: { nodes: [{ number: 11, state: 'OPEN', title: 'B'.repeat(tl + 10) }] },
+        },
+        { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' },
+      )
+      const child = makeRawItem(
+        {
+          number: 11,
+          title: 'B'.repeat(tl + 10),
+          parent: { number: 10, state: 'OPEN' },
+          subIssues: { nodes: [{ number: 12, state: 'OPEN', title: 'C'.repeat(tl + 10) }] },
+        },
+        { Status: 'Backlog', Priority: 'P2 - Medium', Size: 'S' },
+      )
+      const grandchild = makeRawItem(
+        { number: 12, title: 'C'.repeat(tl + 10), parent: { number: 11, state: 'OPEN' } },
+        { Status: 'Backlog', Priority: 'P2 - Medium', Size: 'XS' },
+      )
+      const output = formatTable([grandparent, child, grandchild], { sortBy: 'priority', titleLength: tl })
+      const lines = output.split('\n')
+      // Collect column positions of the first │ that ends the title column (after the row number)
+      const titleEndPositions = lines
+        .filter((l) => l.includes('│') && (l.includes('#10') || l.includes('#11') || l.includes('#12')))
+        .map((l) => {
+          // The title-ending │ is always the 2nd │ in each data row
+          const first = l.indexOf('│')
+          return l.indexOf('│', first + 1)
+        })
+      // All rows must have their title-column │ at the same position
+      expect(new Set(titleEndPositions).size).toBe(1)
     })
 
     it('renders grandchildren recursively under their parent child', () => {
@@ -315,6 +384,113 @@ describe('table-formatter', () => {
       const result = JSON.parse(formatJson(items))
       expect(result[0].sub_issues).toEqual([{ number: 2, state: 'OPEN', title: 'Sub' }])
       expect(result[0].parent_issue).toEqual({ number: 99, state: 'OPEN' })
+    })
+  })
+
+  describe('formatTree', () => {
+    it('includes issue count header with (tree) label', () => {
+      const items = [
+        makeRawItem({ number: 1, title: 'Root issue' }, { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' }),
+      ]
+      const output = formatTree(items, { sortBy: 'priority', titleLength: 55 })
+      expect(output).toContain('1 issues (tree)')
+    })
+
+    it('produces same columnar format as formatTable', () => {
+      const items = [
+        makeRawItem({ number: 42, title: 'My epic' }, { Status: 'Backlog', Priority: 'P1 - High', Size: 'XL' }),
+      ]
+      const treeOutput = formatTree(items, { sortBy: 'priority', titleLength: 55 })
+      const tableOutput = formatTable(items, { sortBy: 'priority', titleLength: 55 })
+      // Only difference is the "(tree)" label
+      expect(treeOutput).toBe(tableOutput.replace(/(\d+ issues)/, '$1 (tree)'))
+    })
+
+    it('includes column headers', () => {
+      const output = formatTree([], { sortBy: 'priority', titleLength: 55 })
+      expect(output).toContain('Title')
+      expect(output).toContain('Status')
+      expect(output).toContain('Size')
+      expect(output).toContain('Pri')
+      expect(output).toContain('Deps')
+    })
+
+    it('shows children with tree connectors', () => {
+      const parent = makeRawItem(
+        {
+          number: 10,
+          title: 'Parent',
+          subIssues: { nodes: [{ number: 11, state: 'OPEN', title: 'Child' }] },
+        },
+        { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' },
+      )
+      const child = makeRawItem(
+        { number: 11, title: 'Child', parent: { number: 10, state: 'OPEN' } },
+        { Status: 'In Progress', Priority: 'P2 - Medium', Size: 'S' },
+      )
+      const output = formatTree([parent, child], { sortBy: 'priority', titleLength: 55 })
+      expect(output).toContain('#10')
+      expect(output).toContain('#11')
+      expect(output).toContain('└')
+    })
+
+    it('shows grandchildren recursively', () => {
+      const grandparent = makeRawItem(
+        {
+          number: 10,
+          title: 'Grandparent',
+          subIssues: { nodes: [{ number: 11, state: 'OPEN', title: 'Child' }] },
+        },
+        { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' },
+      )
+      const child = makeRawItem(
+        {
+          number: 11,
+          title: 'Child',
+          parent: { number: 10, state: 'OPEN' },
+          subIssues: { nodes: [{ number: 12, state: 'OPEN', title: 'Grandchild' }] },
+        },
+        { Status: 'Backlog', Priority: 'P2 - Medium', Size: 'S' },
+      )
+      const grandchild = makeRawItem(
+        { number: 12, title: 'Grandchild', parent: { number: 11, state: 'OPEN' } },
+        { Status: 'Backlog', Priority: 'P2 - Medium', Size: 'XS' },
+      )
+      const output = formatTree([grandparent, child, grandchild], { sortBy: 'priority', titleLength: 55 })
+      expect(output).toContain('#10')
+      expect(output).toContain('#11')
+      expect(output).toContain('#12')
+    })
+
+    it('summarises closed children as done count', () => {
+      const parent = makeRawItem(
+        {
+          number: 10,
+          title: 'Parent',
+          subIssues: {
+            nodes: [
+              { number: 11, state: 'OPEN', title: 'Open' },
+              { number: 12, state: 'CLOSED', title: 'Done' },
+            ],
+          },
+        },
+        { Status: 'Backlog', Priority: 'P1 - High', Size: 'M' },
+      )
+      const openChild = makeRawItem(
+        { number: 11, title: 'Open', parent: { number: 10, state: 'OPEN' } },
+        { Status: 'In Progress', Priority: 'P2 - Medium', Size: 'S' },
+      )
+      const output = formatTree([parent, openChild], { sortBy: 'priority', titleLength: 55 })
+      expect(output).toContain('#11')
+      expect(output).not.toContain('#12')
+      expect(output).toContain('1 done')
+    })
+
+    it('includes legend', () => {
+      const output = formatTree([], { sortBy: 'priority', titleLength: 55 })
+      expect(output).toContain('blocked')
+      expect(output).toContain('blocking')
+      expect(output).toContain('ready')
     })
   })
 })

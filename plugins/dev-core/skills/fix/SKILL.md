@@ -1,9 +1,9 @@
 ---
 name: fix
 argument-hint: '[#PR]'
-description: 'Apply review findings — auto-apply high-confidence, 1b1 for rest, then batch-apply. Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these".'
+description: 'Apply review findings — auto-apply high-confidence, 1b1 for rest, then batch-apply. Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".'
 version: 0.4.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill, ToolSearch
 ---
 
 # Fix
@@ -24,6 +24,7 @@ Let:
   T := 80 — auto-apply threshold
   Q_auto := {f | cat(f) ∈ actionable ∧ C(f) ≥ T ∧ |A(f)| ≥ 2}
   Q_1b1 := {f | cat(f) ∈ actionable ∧ f ∉ Q_auto}
+  O_push(N, scope, msg) { lint+test gate (max 3 retries) → stage specific files (¬`git add -A`) → commit `fix(<scope>): <msg>` → `git push` }
 
 ## Phase 1 — Gather Findings
 
@@ -73,12 +74,7 @@ Applied: N | Failed → 1b1: M
 
 ## Phase 4 — Push Auto-Applied
 
-∃ applied → validate + commit + push:
-1. `{commands.lint} && {commands.test}` — quality gate. Fail → auto-fix + retry (max 3); still failing → halt
-2. Stage specific files only (¬`git add -A`)
-3. Commit: `fix(<scope>): auto-apply N review findings` + list in body
-4. `git push`
-
+∃ applied → O_push(N, scope, "auto-apply N review findings" + list in body). Fail after 3 → halt.
 ¬∃ applied → skip.
 
 ## Phase 5 — 1b1 Walkthrough
@@ -100,7 +96,7 @@ Alternative: Solution 2 — {rationale}
 
 Demoted from auto-apply → prepend: `Auto-apply failed: {reason}`
 
-AskUserQuestion (single per finding): **Solution 1** | **Solution 2** | **Defer** (→ create issue) | **Skip**
+→ DP(A)(single per finding): **Solution 1** | **Solution 2** | **Defer** (→ create issue) | **Skip**
 
 Defer → `gh issue create --title "{cat}: {summary}" --body "{details}"` immediately.
 
@@ -126,19 +122,21 @@ Fixer constraints: re-read targets before editing (Phase 3 may have changed them
 
 ## Phase 7 — Final Push + Approve
 
-1. ∃ Phase 6 changes → validate + commit + push:
-   - `{commands.lint} && {commands.test}` — quality gate. Fail → auto-fix + retry (max 3); halt if stuck
-   - Stage specific files (¬`git add -A`)
-   - Commit: `fix(<scope>): apply N review findings from 1b1` + list in body
-   - `git push`
-
+1. ∃ Phase 6 changes → O_push(N, scope, "apply N review findings from 1b1" + list in body). Fail after 3 → halt.
 2. ∃ PR → `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"`
 
 ## Phase 8 — Post Follow-Up Comment
 
 ∄ PR → skip.
 
-`/tmp/review-fixes.md` → `gh pr comment <#> --body-file /tmp/review-fixes.md`
+Tempfile per `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md`:
+```bash
+[[ "$PR" =~ ^[0-9]+$ ]] || { echo "Invalid PR number: $PR" >&2; exit 1; }
+TMPDIR=$(mktemp -d -t "dev-core-review-fixes-PR${PR}-XXXXXX")
+trap 'rm -rf "$TMPDIR"' EXIT
+BODY="$TMPDIR/body.md"
+```
+Write summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 
 ```markdown
 ## Review Fixes Applied
@@ -182,5 +180,25 @@ Fixer constraints: re-read targets before editing (Phase 3 may have changed them
 3. Fixer agents ¬have implementation context → spawn fresh
 4. Stage specific files only — ¬`git add -A` (risk of .env, secrets)
 5. ¬auto-merge — label `reviewed` only, human merges
+
+## Chain Position
+
+- **Phase:** Verify
+- **Predecessor:** `/code-review` (findings)
+- **Successor:** `/code-review` (re-review after fix) — LOOP
+- **Class:** loop (bounded, max 2 iterations)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- Sub-tasks created: none directly (findings are ephemeral — tracked in-skill via F, Q_auto, Q_1b1)
+- Follow-up tasks: on success → `TaskCreate` new review task with `metadata: { kind: "dev-pipeline", step: "review", follow_up: true, iteration: N+1, blockedBy: [this.id] }`
+
+## Exit
+
+- **Success via `/dev`:** fixes applied + committed + pushed + PR comment posted → `TaskCreate` follow-up review task → return silently. `/dev` picks up the new review task.
+- **Success standalone:** print summary (Applied/Skipped/Deferred/Failed) + `Next: /code-review` (re-verify). Stop.
+- **Failure (quality gate, ¬findings, unrecoverable):** return error. `/dev` presents Retry | Skip | Abort.
+- **Loop cap:** `metadata.iteration ≥ 2` on entry → refuse another iteration; return with message "Max fix iterations reached — resolve remaining manually". `/dev` presents Abort.
 
 $ARGUMENTS

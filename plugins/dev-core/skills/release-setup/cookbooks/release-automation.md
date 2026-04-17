@@ -53,10 +53,11 @@ AskUserQuestion: **semantic-release** | **Release Please** | **Skip**
 
 **Release Please chosen:**
 1. Determine `package_type`: `python` → `"python"` | else → `"node"`.
-2. Generate `release-please-config.json`:
+2. Generate `release-please-config.json`. Set `target-branch` to the branch releases are cut from (typically `main`). Without it, release-please defaults to the repo's default branch — which is `staging` in the staging→main promotion flow, causing release-please to open bootstrap PRs on staging instead of tagging from main:
    ```json
    {
      "release-type": "<package_type>",
+     "target-branch": "main",
      "packages": {
        ".": {}
      }
@@ -66,6 +67,30 @@ AskUserQuestion: **semantic-release** | **Release Please** | **Skip**
    ```json
    {}
    ```
-4. D✅("Release automation — Release Please")
+4. Generate `.github/workflows/release-please.yml` (the runner — config alone is a no-op):
+   ```yaml
+   name: release-please
+
+   on:
+     push:
+       branches:
+         - main
+
+   permissions:
+     contents: write
+     pull-requests: write
+
+   jobs:
+     release-please:
+       runs-on: ubuntu-latest
+       steps:
+         - uses: googleapis/release-please-action@v4
+           with:
+             config-file: release-please-config.json
+             manifest-file: .release-please-manifest.json
+             token: ${{ secrets.PAT }}
+   ```
+   `mkdir -p .github/workflows` first. Use `secrets.PAT` (set during `/init` Phase 3) so the release PR can trigger `ci.yml` — the default `GITHUB_TOKEN` can't fan out to other workflows. Existing file + ¬F → skip with D⏭. `.github/workflows/release-please.yml` already present, but no config → restore config and keep workflow.
+5. D✅("Release automation — Release Please (config + workflow)")
 
 **Skip:** D⏭("Release automation")

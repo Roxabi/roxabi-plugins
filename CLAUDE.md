@@ -1,4 +1,6 @@
 @.claude/stack.yml
+@~/.claude/shared/global-patterns.md
+
 # Roxabi Plugins
 
 Open-source Claude Code plugins by Roxabi. Context engineering tools for teams using Claude Code.
@@ -10,21 +12,9 @@ This repo is a **marketplace** — a collection of independent plugins. Each plu
 ## TL;DR
 
 - **Project:** roxabi-plugins
-- **Before work:** Use `/dev #N` as the single entry point — it determines tier (S / F-lite / F-full) and drives the full lifecycle
-- **Always** `AskUserQuestion` for choices — never plain-text questions
-- **Never** commit without asking, push without request, or use `--force`/`--hard`/`--amend`
+- **Before work:** Use `/dev #N` as the single entry point — it determines tier and drives the full lifecycle
+- **Never** use `--force`/`--hard`/`--amend`
 - **Always** use appropriate skill even without slash command
-
-### AskUserQuestion
-
-Always `AskUserQuestion` for: decisions, choices (≥2 options), approach proposals.
-**Never** plain-text "Do you want..." / "Should I..." → use the tool.
-
-### Git
-
-Format: `<type>(<scope>): <desc>` + `Co-Authored-By: Claude <model> <noreply@anthropic.com>`
-Types: feat|fix|refactor|docs|style|test|chore|ci|perf
-Never push without request. Never force/hard/amend. Hook fail → fix + NEW commit.
 
 ## Structure
 
@@ -34,6 +24,9 @@ roxabi-plugins/
 │   ├── marketplace.json         # marketplace manifest (lists all plugins — native + wrapped)
 │   └── curated-marketplaces.json  # endorsed external plugin marketplaces (not raw skill repos)
 ├── plugins/
+│   ├── shared/
+│   │   └── references/          # cross-plugin shared references (accessible via ${CLAUDE_PLUGIN_ROOT}/../shared/)
+│   │       └── decision-presentation.md  # decision protocol (Pattern A/B/C)
 │   └── <plugin-name>/
 │       ├── README.md            # human-readable docs
 │       ├── skills/
@@ -48,260 +41,15 @@ roxabi-plugins/
 └── LICENSE                      # MIT
 ```
 
-## Creating a New Plugin
+## Creating or Forking Plugins
 
-Follow these steps in order to add a new plugin to the marketplace.
-
-### Step 1 — Create the plugin directory
-
-Each plugin lives in its own folder under `plugins/`. Create the directory and add a `skills/` subfolder for the main skill. You can also add `agents/` or `commands/` folders if the plugin needs them.
-
-```bash
-mkdir -p plugins/<plugin-name>/skills/<skill-name>
-```
-
-### Step 2 — Write the skill file (SKILL.md)
-
-Create `plugins/<plugin-name>/skills/<skill-name>/SKILL.md`. This is the core of the plugin — it tells Claude what the skill does and how to run it.
-
-The file has two parts: a YAML frontmatter header and a markdown body with instructions.
-
-**Frontmatter (required fields):**
-
-- `name` — the skill identifier, in kebab-case (e.g. `compress`)
-- `description` — one-line purpose followed by `Triggers: "phrase1" | "phrase2"`. This is how Claude decides when to activate the skill, so be specific
-- `version` — semantic version starting at `0.1.0`
-- `allowed-tools` — comma-separated list of tools the skill can use (e.g. `Read, Edit, Write, Bash, Glob`). To use `AskUserQuestion`, include both `ToolSearch` and `AskUserQuestion` — `ToolSearch` is required to load the deferred tool before calling it.
-
-**Example frontmatter:**
-
-```yaml
----
-name: compress
-description: 'Rewrite agent/skill definitions using compact math/logic notation. Triggers: "compress" | "compress skill" | "shorten this" | "make it formal".'
-version: 0.1.0
-allowed-tools: Read, Edit, Write, Bash, Glob
----
-```
-
-**Body guidelines:**
-
-- Write in imperative form ("Scan the directory", not "You should scan the directory")
-- Keep it under 3,000 words — move detailed content to `references/` files if needed
-- Structure the workflow in numbered phases so Claude follows a clear sequence
-- End with `$ARGUMENTS` so the skill can accept user-provided arguments
-- The skill must be project-agnostic — auto-discover project structure instead of hardcoding paths
-- Use `AskUserQuestion` before any destructive action so the user stays in control
-
-### Step 3 — Write a README for the plugin
-
-Create `plugins/<plugin-name>/README.md` in plain English. This is for humans browsing the repo or the marketplace. It should cover:
-
-- What the plugin does and why it's useful
-- How to install it (`claude plugin marketplace add Roxabi/roxabi-plugins` then `claude plugin install <plugin-name>`)
-- How to use it (trigger phrases, example workflows)
-- When to use it (typical scenarios)
-- How it works (brief explanation of the approach, no code notation)
-
-See `plugins/compress/README.md` for an example.
-
-### Step 4 — Register the plugin in marketplace.json
-
-Add an entry to the `plugins` array in `.claude-plugin/marketplace.json`:
-
-```json
-{
-  "name": "plugin-name",
-  "description": "One-line description of what the plugin does.",
-  "source": "./plugins/plugin-name",
-  "category": "category"
-}
-```
-
-Categories used so far: `maintenance`. Pick the closest fit or create a new one if needed.
-
-### Step 5 — Add the plugin to the root README
-
-Add a row to the Plugins table in `README.md`:
-
-```markdown
-| [plugin-name](plugins/plugin-name/README.md) | One-line description |
-```
-
-### Step 6 — Validate and commit
-
-Run the plugin validator and test suite:
-
-```bash
-claude plugin validate .
-bun lint && bun typecheck && bun test
-```
-
-CI (`bun lint`, `bun typecheck`, `bun test`) runs automatically on push to `main`/`staging` via `.github/workflows/ci.yml`. PRs must be green before merging.
-
-Then commit with the standard format:
-
-```
-feat(plugins): add <plugin-name> — short description
-```
-
-## Forking an Upstream Plugin
-
-When adopting a high-quality external skill rather than building from scratch, use `git subtree` to vendor it into the marketplace while keeping the ability to pull upstream updates.
-
-> **Native vs Wrapped plugins** — plugins built by Roxabi are *native*. Plugins forked from external raw-skill repos (no versioning, no install mechanism) are *wrapped*: Roxabi adds the plugin structure (frontmatter, README, marketplace entry) and vendors the source via `git subtree`. Both appear in `marketplace.json`. For endorsed external repos that already ship as proper plugin marketplaces, add them to `curated-marketplaces.json` instead — `/ci-setup` discovers and offers them at runtime without vendoring.
-
-### Step 1 — Add as a subtree
-
-```bash
-git subtree add --prefix=plugins/<plugin-name> \
-  https://github.com/<owner>/<repo>.git main --squash
-```
-
-This copies all files into `plugins/<plugin-name>/` as a normal commit (no submodule complexity).
-
-### Step 2 — Restructure into marketplace layout
-
-The external skill likely has a flat structure. Move files into the standard layout:
-
-```bash
-mkdir -p plugins/<plugin-name>/skills/<skill-name>
-mv plugins/<plugin-name>/SKILL.md plugins/<plugin-name>/skills/<skill-name>/
-# move any supporting files alongside SKILL.md
-```
-
-### Step 3 — Adapt the frontmatter
-
-The upstream SKILL.md frontmatter won't have the required fields. Update it:
-
-```yaml
----
-name: skill-name
-description: 'One-line description. Triggers: "phrase1" | "phrase2".'
-version: 0.1.0
-allowed-tools: Read, Write, Bash, Glob
----
-```
-
-### Step 4 — Replace the README
-
-Overwrite the upstream README with a Roxabi marketplace README (install instructions, trigger phrases, how it works). Credit the upstream author with a "Forked from" line.
-
-### Steps 5–6 — Register and commit
-
-Follow Steps 4–6 from "Creating a New Plugin" above (marketplace.json, root README, commit).
-
-### Pulling upstream updates later
-
-```bash
-git subtree pull --prefix=plugins/<plugin-name> \
-  https://github.com/<owner>/<repo>.git main --squash
-```
-
-Keep local changes (frontmatter, README) minimal to avoid merge conflicts. Put the pull command in the commit message for easy reference.
+→ [./docs/CREATE-PLUGIN-GUIDE.md](./docs/CREATE-PLUGIN-GUIDE.md) — step-by-step: create plugin (6 steps), fork upstream, git subtree, pull updates.
+Triggers: "create plugin" | "new plugin" | "fork plugin" | "add plugin" | "subtree"
 
 ## External Ecosystem
 
-Roxabi endorses and vendors external Claude Code plugins via two mechanisms. The registry
-`.claude-plugin/external-registry.json` is the source of truth for all external sources.
-
-> **Upstream sync** — see [CONTRIBUTING.md § Upstream sync](CONTRIBUTING.md#upstream-sync) for the full process to check drift, pull changes, promote wrapped plugins, and run consistency checks.
-
-### Directory convention
-
-| Directory | Contents |
-|-----------|----------|
-| `plugins/` | Native Roxabi plugins — built and owned by Roxabi |
-| `external/` | Curated/vendored external plugins — sourced from upstream repos |
-
-Both appear in `.claude-plugin/marketplace.json` so users install them the same way.
-
-> **Note:** The `external/` directory is created when the first external plugin is vendored (see issue #63 — initial audit). This section documents the convention for when it exists.
-
-### Case 1 — Curated Marketplace
-
-An external repo that is itself a proper plugin marketplace (has `marketplace.json`, versioned
-installs, works with `claude plugin marketplace add <url>`). Users install from it directly —
-no vendoring into this repo.
-
-**Qualify if ALL:**
-- [ ] Ships `marketplace.json` with versioned plugins
-- [ ] Has working install mechanism (`claude plugin marketplace add <url>`)
-- [ ] Last commit ≤ 90 days ago
-- [ ] Reviewed skills with clear descriptions + trigger phrases
-- [ ] < 50% overlap with native Roxabi plugins
-
-**To add a curated marketplace:**
-1. Verify all criteria above manually
-2. Add entry to `.claude-plugin/external-registry.json` under `curated_marketplaces`
-   - Optional: set `upstream_branch` to track a specific branch (e.g. `main`). Without it, CI checks `HEAD`.
-3. Sync to `.claude-plugin/curated-marketplaces.json` `marketplaces` array
-
-### Case 2 — Wrapped Plugin
-
-A raw skill repo (SKILL.md files, no install mechanism) vendored into `external/`. Choose
-strategy at wrapping time — record in `sync_strategy` field.
-
-**Qualify if ALL:**
-- [ ] High-quality SKILL.md (clear instructions, scoped triggers)
-- [ ] Last commit ≤ 90 days ago
-- [ ] Fills a gap not covered by native plugins
-- [ ] Compatible license (MIT, Apache 2.0, etc.)
-- [ ] Upstream author notified/credited in plugin README
-
-**Copy strategy** (flat SKILL.md repos — simpler, no merge conflicts):
-```bash
-# 1. Copy files into external/
-cp -r <upstream-skill-dir>/ external/<name>/
-# 2. Record upstream HEAD SHA
-SHA=$(git ls-remote <repo-url>.git refs/heads/main | awk '{print $1}')
-# 3. Add to external-registry.json (sync_strategy: "copy", last_sync_commit: "$SHA")
-# 4. Add to marketplace.json ("source": "./external/<name>")
-```
-
-**Subtree strategy** (plugins with meaningful directory structure):
-```bash
-git subtree add --prefix=external/<name> <url>.git <branch> --squash
-# Add to external-registry.json (sync_strategy: "subtree", subtree_prefix: "external/<name>")
-# Add to marketplace.json ("source": "./external/<name>")
-```
-
-**To update a wrapped plugin:**
-
-Copy strategy:
-```bash
-SHA=$(git ls-remote <repo-url>.git refs/heads/main | awk '{print $1}')
-cp -r <upstream-skill-dir>/ external/<name>/
-# Update external-registry.json: last_sync_commit, last_sync_date
-```
-
-Subtree strategy:
-```bash
-git subtree pull --prefix=external/<name> <url>.git <branch> --squash
-# Update external-registry.json: last_sync_commit, last_sync_date
-```
-
-### Case 3 — Deprecation
-
-**Trigger if ANY:**
-- Upstream archived/deleted with no suitable replacement
-- > 12 months since last commit (any commit counts)
-- Superseded by a better native or external alternative
-- License changed to incompatible terms
-
-**To deprecate:**
-1. Set `status: deprecated` in `external-registry.json` entry
-2. Remove from `marketplace.json` (wrapped) or `curated-marketplaces.json` (curated)
-3. Optionally remove plugin directory: `git rm -r external/<name>` (wrapped only)
-4. Add deprecation date + reason to `notes` field in registry
-
-### Upstream drift detection
-
-CI runs weekly (Mondays 09:00 UTC) and on manual dispatch via `.github/workflows/upstream-watch.yml`.
-When upstream has new commits vs `last_sync_commit`, it opens a GitHub issue labelled `upstream-update`.
-Review the diff and decide: update, skip, or deprecate. **CI never auto-merges.**
-
-Trigger manually: GitHub Actions → Upstream Watch → Run workflow.
+→ [./docs/EXTERNAL-ECOSYSTEM.md](./docs/EXTERNAL-ECOSYSTEM.md) — curated marketplaces, wrapped plugins (copy/subtree), deprecation, upstream drift detection.
+Triggers: "external plugin" | "upstream sync" | "curated marketplace" | "wrapped plugin" | "drift"
 
 ## Documentation
 
@@ -313,7 +61,7 @@ All READMEs must be kept up to date at all times. When adding, modifying, or rem
 ## Design Principles
 
 1. **Project-agnostic** — auto-discover structure (CLAUDE.md files, agents, docs dirs), don't assume layout
-2. **User is the gate** — always `AskUserQuestion` before destructive actions
+2. **User is the gate** — always present a decision (Pattern A) before destructive actions
 3. **Compressed notation** — use formal symbols where they reduce tokens without losing semantics
 4. **Append-only logs** — plugins that track state should use append-only logs for auditability
 5. **Recurrence detection** — if a plugin solves recurring problems, track occurrences to find root causes
@@ -391,9 +139,12 @@ Each project that has a plugin installed uses a specific cache dir identified by
    ```
    Syncs all plugins into every local cache dir (semver + hex-hash). Use `./sync-plugins.sh` to also push and sync Machine 1.
 
-**Find the active cache hash** — when a skill runs, `$CLAUDE_PLUGIN_ROOT` contains the full cache path (e.g. `~/.claude/plugins/cache/roxabi-marketplace/dev-core/6011eb380f4f/skills/init`). The hash segment (`6011eb380f4f`) identifies the active cache directory if you need to target a single one.
+**Skill path variables** — substituted at skill load time by Claude Code (not shell env vars):
+- `${CLAUDE_SKILL_DIR}` — resolves to the skill's own directory (e.g. `…/plugins/dev-core/skills/implement`)
+- `${CLAUDE_PLUGIN_ROOT}` — resolves to the plugin root in the **marketplace clone** (e.g. `~/.claude/plugins/marketplaces/roxabi-marketplace/plugins/dev-core`)
 
-**Skill path variables** — use `${CLAUDE_SKILL_DIR}` for files under the skill's own directory; use `${CLAUDE_PLUGIN_ROOT}` for cross-skill references (e.g., `shared/references/`).
+Use `${CLAUDE_PLUGIN_ROOT}` for cross-skill references within the same plugin (e.g. `${CLAUDE_PLUGIN_ROOT}/skills/shared/references/`).
+Use `${CLAUDE_PLUGIN_ROOT}/../shared/` to reference cross-plugin shared files in `plugins/shared/` (e.g. the decision protocol).
 
 ### Rules
 
@@ -410,3 +161,4 @@ Each project that has a plugin installed uses a specific cache dir identified by
 
 - Always run the rsync sync script after editing plugin source — the cache is not updated automatically
 - `${CLAUDE_SKILL_DIR}` / `${CLAUDE_PLUGIN_ROOT}` links in SKILL.md files are runtime-resolved and do not render in GitHub or VS Code previews
+- **Third-party plugin MCP servers** — external plugins (e.g. `knowledge-work-plugins/design`) can bundle `.mcp.json` files with MCP servers (Slack, Figma, Linear, etc.) that cause auth warnings on startup. To disable without removing the plugin: empty `mcpServers` in both `~/.claude/plugins/marketplaces/<marketplace>/<plugin>/.mcp.json` and `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/.mcp.json`, then run `git update-index --skip-worktree <path>` in the marketplace repo to prevent `git pull` from restoring them

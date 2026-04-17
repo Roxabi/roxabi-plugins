@@ -3,7 +3,7 @@ name: adr
 argument-hint: ["Title of decision" | --list]
 description: Create/list Architecture Decision Records. Triggers: "create an ADR" | "architecture decision" | "document why we chose" | "list ADRs".
 version: 0.3.0
-allowed-tools: Write, Read, Glob, ToolSearch, AskUserQuestion
+allowed-tools: Write, Read, Glob, ToolSearch
 ---
 
 # ADR (Architecture Decision Record)
@@ -12,6 +12,7 @@ Let:
   D := `docs/architecture/adr/`
   NNN := zero-padded 3-digit sequence number
   M := `D/meta.json`
+  AQ := DP(B)
 
 Create and manage ADRs — document **why** technical choices were made.
 
@@ -24,9 +25,9 @@ Create and manage ADRs — document **why** technical choices were made.
 
 **1. Next NNN:** Scan D for `{NNN}-*.mdx` → highest + 1. ¬D ∨ ¬files → create D, start at `001`.
 
-**2. Resolve title:** ∃ title in `$ARGUMENTS` → use. ¬title → AskUserQuestion.
+**2. Resolve title:** ∃ title in `$ARGUMENTS` → use. ¬title → AQ.
 
-**3. Interview:** AskUserQuestion (1–2 calls, ≤3 questions). Skip if clear from title:
+**3. Interview:** AQ (1–2 calls, ≤3 questions). Skip if clear from title:
 
 | Topic | Ask |
 |-------|-----|
@@ -107,7 +108,7 @@ Architecture Decision Records
 | Scenario | Behavior |
 |----------|----------|
 | First ADR ever | Create D + M from scratch |
-| ¬title provided | AskUserQuestion before proceeding |
+| ¬title provided | AQ before proceeding |
 | Superseding an ADR | Update old status to `Superseded by ADR-{NNN}`; reference old in new context |
 | M out of sync | Rebuild from file frontmatter |
 | M in legacy format | Migrate transparently; user sees only new ADR confirmed |

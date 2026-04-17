@@ -1,12 +1,10 @@
-"""X Article extraction via agent-browser and Playwright."""
+"""X Article extraction via headless Playwright + playwright-stealth."""
 
 from __future__ import annotations
 
 import json
 import logging
 import os
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -21,6 +19,11 @@ for _dir in [SHARED_DIR, FETCHERS_DIR]:
         sys.path.insert(0, str(_dir))
 
 from base import sanitize_content
+from roxabi_sdk.browser import (
+    PlaywrightNotAvailableError,
+    close_stealth,
+    launch_stealth_sync,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,22 +40,14 @@ ARTICLE_CONTENT_SELECTORS: tuple[str, ...] = (
 # Wait time for dynamic content to load (ms)
 ARTICLE_CONTENT_WAIT_MS = 5000
 
-# Browser automation: agent-browser (primary) or Playwright (fallback)
-AGENT_BROWSER_AVAILABLE = shutil.which("agent-browser") is not None
-
+# Module-level pre-flight flag for callers that gate on availability
+# before calling fetch_article_playwright.
 try:
-    from playwright.sync_api import sync_playwright
+    import playwright  # noqa: F401
 
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
-
-try:
-    from playwright_stealth import Stealth as _Stealth
-
-    PLAYWRIGHT_STEALTH_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_STEALTH_AVAILABLE = False
 
 
 def load_x_cookies(cookies_path: Optional[str] = None) -> list:
@@ -304,165 +299,99 @@ def _extract_article_date(page: Any) -> str:
     return ""
 
 
-def _run_agent_browser(*args: str, timeout: int = 30) -> Optional[str]:
-    """Run an agent-browser CLI command and return stdout.
-
-    Args:
-        *args: CLI arguments (e.g., "open", url)
-        timeout: Command timeout in seconds
-
-    Returns:
-        stdout string on success, None on failure
-    """
-    try:
-        result = subprocess.run(
-            ["agent-browser", *args],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        if result.returncode != 0:
-            logger.debug("agent-browser %s failed: %s", args[0], result.stderr.strip())
-            return None
-        return result.stdout
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        logger.debug("agent-browser %s error: %s", args[0], e)
-        return None
-
-
-def _agent_browser_close() -> None:
-    """Close agent-browser, ignoring errors."""
-    try:
-        subprocess.run(
-            ["agent-browser", "close"],
-            capture_output=True,
-            timeout=5,
-        )
-    except Exception:
-        pass
-
-
-def fetch_article_agent_browser(
-    article_id: str,
-    timeout: int = 60,
-    cookies_path: Optional[str] = None,
+def fetch_article_playwright(
+    article_id: str, timeout: int = 60000, debug: bool = False, cookies_path: Optional[str] = None
 ) -> Optional[dict[str, Any]]:
-    """Fetch X Article content via agent-browser CLI.
-
-    Primary method for article extraction. Falls back to None if
-    agent-browser is not installed.
-
-    Args:
-        article_id: X Article ID
-        timeout: Navigation timeout in seconds
-        cookies_path: Optional path to X cookies JSON file
-
-    Returns:
-        Dict with article data, or None if agent-browser unavailable
-    """
-    if not AGENT_BROWSER_AVAILABLE:
-        return None
+    """Fetch X Article content via Playwright headless browser."""
+    if not PLAYWRIGHT_AVAILABLE:
+        return {
+            "success": False,
+            "error": "Playwright not installed. Run: uv sync --extra twitter && playwright install chromium",
+        }
 
     url = f"https://x.com/i/article/{article_id}"
+    cookies = load_x_cookies(cookies_path)
 
+    pw = ctx = None
     try:
-        # Open a page first so we have a browser context for cookies
-        _run_agent_browser("open", "https://x.com", timeout=timeout)
+        try:
+            pw, ctx, page = launch_stealth_sync(
+                viewport={"width": 1280, "height": 2000},  # Taller viewport for articles
+            )
+        except PlaywrightNotAvailableError as exc:
+            return {"success": False, "error": str(exc)}
 
-        # Load cookies before navigating to article (auth required)
-        cookies = load_x_cookies(cookies_path)
         if cookies:
-            for cookie in cookies:
-                _run_agent_browser(
-                    "cookies", "set",
-                    cookie["name"], cookie["value"],
-                    "--domain", cookie.get("domain", ".x.com"),
-                    "--path", cookie.get("path", "/"),
-                    timeout=5,
-                )
+            ctx.add_cookies(cookies)
 
-        # Navigate to article (with cookies applied)
-        nav_result = _run_agent_browser("open", url, timeout=timeout)
-        if nav_result is None:
-            _agent_browser_close()
-            return {"success": False, "error": "agent-browser: failed to open URL"}
+        page.goto(url, timeout=timeout, wait_until="domcontentloaded")
 
-        # Try to dismiss cookie banner
-        for btn_text in ["Accept all cookies", "Accept all", "Allow all"]:
-            result = _run_agent_browser("find", "text", btn_text, "click", timeout=3)
-            if result is not None:
-                import time
-                time.sleep(1)
-                break
+        # Dismiss cookie consent banner if present
+        _accept_x_cookies(page)
 
-        # Wait for dynamic content to load
-        import time
-        time.sleep(ARTICLE_CONTENT_WAIT_MS / 1000)
+        page.wait_for_timeout(ARTICLE_CONTENT_WAIT_MS)
 
-        # Extract content using CSS selectors
-        # Unlike Playwright's inner_text(), agent-browser's "get text" includes
-        # noscript/hidden content. So we stop at the first good match instead
-        # of keeping the longest (body would always win with garbage).
-        content = ""
-        for selector in ARTICLE_CONTENT_SELECTORS:
-            text = _run_agent_browser("get", "text", selector, timeout=10)
-            if text and len(text.strip()) > 200:
-                content = text.strip()
-                break
+        # Wait for article content to appear
+        try:
+            page.wait_for_selector("article", timeout=15000)
+        except Exception:
+            pass  # Continue even if selector not found
 
-        # Extract title (h1, then page title)
-        title_js = (
-            "(() => {"
-            'const h1 = document.querySelector("h1");'
-            "if (h1 && h1.innerText.trim()) return h1.innerText.trim();"
-            "return document.title || '';"
-            "})()"
-        )
-        title = (_run_agent_browser("eval", title_js, timeout=5) or "").strip()[:200]
+        page.wait_for_timeout(ARTICLE_CONTENT_WAIT_MS)
 
-        # Extract author from links
-        author_js = (
-            "(() => {"
-            'const links = document.querySelectorAll(\'a[href^="/"]\');'
-            "for (const link of [...links].slice(0, 10)) {"
-            '  const href = link.getAttribute("href");'
-            '  if (href && href.split("/").length === 2 && !href.startsWith("/i/")) {'
-            '    return "@" + href.replace("/", "");'
-            "  }"
-            '} return "";})()'
-        )
-        author = (_run_agent_browser("eval", author_js, timeout=5) or "").strip()
+        if debug:
+            page.screenshot(path="/tmp/x_article_debug.png", full_page=True)
 
-        # Extract date
-        date_js = (
-            "(() => {"
-            'const t = document.querySelector("time");'
-            'return t ? (t.getAttribute("datetime") || t.innerText) : "";'
-            "})()"
-        )
-        date = (_run_agent_browser("eval", date_js, timeout=5) or "").strip()
+        # Extract all metadata
+        content = _extract_article_content(page)
+        title = _extract_article_title(page)
+        author = _extract_article_author(page)
+        date = _extract_article_date(page)
 
-        _agent_browser_close()
+        # Detect X's "This page is down" error before closing the browser so
+        # we can navigate to /home and disambiguate auth failure from article
+        # downtime without spinning up a second browser instance.
+        if "this page is down" in content.lower():
+            auth_ok = True
+            try:
+                page.goto("https://x.com/home", timeout=10000, wait_until="domcontentloaded")
+                page.wait_for_timeout(2000)
+                home_url = page.url
+                auth_ok = "login" not in home_url and "/flow/" not in home_url
+            except Exception:
+                pass  # Can't determine — don't falsely flag as auth issue
+            close_stealth(pw, ctx)
+            pw = ctx = None
+            if not auth_ok:
+                return {
+                    "success": False,
+                    "error": (
+                        "X cookies are expired or invalid "
+                        "(session check redirected to login).\n"
+                        f"{_COOKIE_REFRESH_GUIDE}"
+                    ),
+                }
+            return {
+                "success": False,
+                "error": (
+                    "X Article is unavailable. "
+                    "The article may have been deleted or is temporarily offline."
+                ),
+            }
 
-        # Validate content
+        # Check if we got cookie banner instead of real content
         if _looks_like_cookie_banner(content):
             return {
                 "success": False,
                 "error": "Could not dismiss cookie banner. Content extraction failed.",
+                "debug_screenshot": "/tmp/x_article_debug.png" if debug else None,
             }
 
         if not content or len(content) < 50:
             return {
                 "success": False,
                 "error": "Could not extract article content. X may require login.",
-            }
-
-        # Detect X's "This page is down" error — return False so Playwright
-        # can fall through and do the auth-vs-downtime disambiguation.
-        if "this page is down" in content.lower():
-            return {
-                "success": False,
-                "error": "X returned 'This page is down' — checking auth status via Playwright.",
+                "debug_screenshot": "/tmp/x_article_debug.png" if debug else None,
             }
 
         return {
@@ -477,135 +406,22 @@ def fetch_article_agent_browser(
         }
 
     except Exception as e:
-        _agent_browser_close()
-        return {"success": False, "error": f"agent-browser error: {str(e)}"}
-
-
-def fetch_article_playwright(
-    article_id: str, timeout: int = 60000, debug: bool = False, cookies_path: Optional[str] = None
-) -> Optional[dict[str, Any]]:
-    """Fetch X Article content via Playwright headless browser."""
-    if not PLAYWRIGHT_AVAILABLE:
-        return {
-            "success": False,
-            "error": "Playwright not installed. Run: uv sync --extra twitter && playwright install chromium",
-        }
-
-    url = f"https://x.com/i/article/{article_id}"
-    cookies = load_x_cookies(cookies_path)
-
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                viewport={"width": 1280, "height": 2000},  # Taller viewport for articles
-            )
-
-            if cookies:
-                context.add_cookies(cookies)
-
-            page = context.new_page()
-
-            if PLAYWRIGHT_STEALTH_AVAILABLE:
-                _Stealth().use_sync(page)
-                logger.debug("Playwright stealth patches applied")
-            else:
-                logger.debug("playwright-stealth not installed; running without stealth")
-
-            page.goto(url, timeout=timeout, wait_until="domcontentloaded")
-
-            # Dismiss cookie consent banner if present
-            _accept_x_cookies(page)
-
-            page.wait_for_timeout(ARTICLE_CONTENT_WAIT_MS)
-
-            # Wait for article content to appear
-            try:
-                page.wait_for_selector("article", timeout=15000)
-            except Exception:
-                pass  # Continue even if selector not found
-
-            page.wait_for_timeout(ARTICLE_CONTENT_WAIT_MS)
-
-            if debug:
-                page.screenshot(path="/tmp/x_article_debug.png", full_page=True)
-
-            # Extract all metadata
-            content = _extract_article_content(page)
-            title = _extract_article_title(page)
-            author = _extract_article_author(page)
-            date = _extract_article_date(page)
-
-            # Detect X's "This page is down" error before closing the browser so
-            # we can navigate to /home and disambiguate auth failure from article
-            # downtime without spinning up a second browser instance.
-            if "this page is down" in content.lower():
-                auth_ok = True
-                try:
-                    page.goto("https://x.com/home", timeout=10000, wait_until="domcontentloaded")
-                    page.wait_for_timeout(2000)
-                    home_url = page.url
-                    auth_ok = "login" not in home_url and "/flow/" not in home_url
-                except Exception:
-                    pass  # Can't determine — don't falsely flag as auth issue
-                browser.close()
-                if not auth_ok:
-                    return {
-                        "success": False,
-                        "error": (
-                            "X cookies are expired or invalid "
-                            "(session check redirected to login).\n"
-                            f"{_COOKIE_REFRESH_GUIDE}"
-                        ),
-                    }
-                return {
-                    "success": False,
-                    "error": (
-                        "X Article is unavailable. "
-                        "The article may have been deleted or is temporarily offline."
-                    ),
-                }
-
-            browser.close()
-
-            # Check if we got cookie banner instead of real content
-            if _looks_like_cookie_banner(content):
-                return {
-                    "success": False,
-                    "error": "Could not dismiss cookie banner. Content extraction failed.",
-                    "debug_screenshot": "/tmp/x_article_debug.png" if debug else None,
-                }
-
-            if not content or len(content) < 50:
-                return {
-                    "success": False,
-                    "error": "Could not extract article content. X may require login.",
-                    "debug_screenshot": "/tmp/x_article_debug.png" if debug else None,
-                }
-
-            return {
-                "success": True,
-                "type": "article",
-                "id": article_id,
-                "title": title,
-                "text": sanitize_content(content),
-                "author": author,
-                "created_at": date,
-                "url": url,
-            }
-
-    except Exception as e:
         return {"success": False, "error": f"Playwright error: {str(e)}"}
+    finally:
+        if pw is not None and ctx is not None:
+            try:
+                close_stealth(pw, ctx)
+            except Exception:
+                logger.debug("close_stealth raised during cleanup", exc_info=True)
 
 
 def fetch_article(
     article_id: str, timeout: int = 60, cookies_path: Optional[str] = None
 ) -> Optional[dict[str, Any]]:
-    """Fetch X Article using agent-browser (primary) or Playwright (fallback).
+    """Fetch X Article via headless Playwright.
 
     Validates the X session via a lightweight API call before spinning up
-    any browser, and returns a clear actionable error if cookies are missing
+    the browser, and returns a clear actionable error if cookies are missing
     or expired.
 
     Args:
@@ -616,34 +432,21 @@ def fetch_article(
     Returns:
         Dict with article data or error
     """
-    # Pre-flight: validate session before spinning up any browser
+    # Pre-flight: validate session before spinning up the browser
     is_valid, session_error = validate_x_session(cookies_path)
     if not is_valid:
         return {"success": False, "error": session_error}
 
-    # Try agent-browser first (fast Rust CLI)
-    if AGENT_BROWSER_AVAILABLE:
-        logger.info("Fetching article %s via agent-browser", article_id)
-        result = fetch_article_agent_browser(article_id, timeout=timeout, cookies_path=cookies_path)
-        if result is not None and result.get("success"):
-            return result
-        if result is not None:
-            logger.warning(
-                "agent-browser failed for article %s: %s, trying Playwright",
-                article_id,
-                result.get("error", "unknown"),
-            )
+    if not PLAYWRIGHT_AVAILABLE:
+        return {
+            "success": False,
+            "error": (
+                "Playwright not installed. "
+                "Run: uv sync --extra twitter && uv run playwright install chromium"
+            ),
+        }
 
-    # Fallback to Playwright
-    if PLAYWRIGHT_AVAILABLE:
-        logger.info("Fetching article %s via Playwright", article_id)
-        return fetch_article_playwright(article_id, timeout=timeout * 1000, cookies_path=cookies_path)
-
-    return {
-        "success": False,
-        "error": (
-            "No browser automation available. Install one of:\n"
-            "  - agent-browser: npm install -g agent-browser && agent-browser install\n"
-            "  - Playwright: uv sync --extra twitter && uv run playwright install chromium"
-        ),
-    }
+    logger.info("Fetching article %s via Playwright", article_id)
+    return fetch_article_playwright(
+        article_id, timeout=timeout * 1000, cookies_path=cookies_path
+    )

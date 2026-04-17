@@ -2,105 +2,54 @@
 name: logo-design
 description: 'Design an animated SVG logo with live preview and export to GIF/PNG/HTML — config-driven, interactive controls. Triggers: "logo" | "create logo" | "generate logo" | "brand logo" | "design logo" | "animated logo" | "logo export".'
 version: 0.2.0
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch, AskUserQuestion
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch
 ---
 
 # Logo Design (Animated SVG)
 
 **Goal:** Create a production animated SVG logo with live interactive preview and export to GIF/PNG/HTML.
 
+Let:
+  BR := `$HOME/.roxabi-vault/config/logo-briefs`
+  CH := `$HOME/.roxabi-vault/config/visual-charter.json`
+  BD := `<project-root>/brand/`
+
 ## Phase 1 — Context Discovery
 
-1. Identify the target project. Check (in order):
-   - `$ARGUMENTS` for a project name or path
-   - Current working directory for `CLAUDE.md`, `README.md`, `package.json`, `pyproject.toml`
+1. Identify target project: `$ARGUMENTS` name/path → cwd (`CLAUDE.md`, `README.md`, `package.json`, `pyproject.toml`).
 
-2. Check for existing brand assets:
-
+2. Check brand assets:
 ```bash
-# Existing logo briefs
-brief="$HOME/.roxabi-vault/config/logo-briefs"
-ls "$brief/" 2>/dev/null && echo "EXISTING_BRIEFS_FOUND" || echo "NO_BRIEFS"
-
-# Visual charter
+ls "$HOME/.roxabi-vault/config/logo-briefs/" 2>/dev/null && echo "EXISTING_BRIEFS_FOUND" || echo "NO_BRIEFS"
 charter="$HOME/.roxabi-vault/config/visual-charter.json"
 [ -f "$charter" ] && echo "CHARTER_FOUND" && cat "$charter" || echo "NO_CHARTER"
 ```
 
-3. If an existing brief is found for this project, ask: "Found existing brief. Load it, or start fresh?"
-
-4. Research the project to understand its identity:
-   - Read `CLAUDE.md`, `README.md`, docs, config files
-   - Understand what the project does, its architecture, key concepts
-   - Identify potential metaphors, shapes, and personality traits
+3. ∃ brief for project → ask: "Found existing brief. Load it, or start fresh?"
+4. Research project identity: read `CLAUDE.md`, `README.md`, docs, configs — extract purpose, architecture, metaphors, personality.
 
 ## Phase 2 — Creative Brief Intake
 
-Use `AskUserQuestion` for each decision. Present options with clear rationale.
+Present decisions via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A).
 
 ### 2.1 Identity
-
-Ask for or confirm:
-- **Name** — project name as it should appear in the wordmark
-- **Tagline** — short descriptor (e.g., "AI Workflow Orchestration")
-- **Essence** — one sentence capturing what the project is and how it should feel
+Confirm: **Name** (wordmark), **Tagline**, **Essence** (one sentence: what it is + how it should feel).
 
 ### 2.2 Metaphor Exploration
-
-Based on the project research, propose 2-3 core metaphors. Each metaphor should:
-- Map naturally to a visual shape
-- Connect to the project's architecture or purpose
-- Have both literal and abstract readings
-
-Example format:
-```
-Metaphor A: "Convergence" (V-shape)
-  Why: Multiple pipelines merge into one output
-  Shape: Two arms descending to a single apex node
-
-Metaphor B: "Constellation" (star network)
-  Why: Always-on presence + connected nodes
-  Shape: Central bright node with radiating connections
-```
-
-Ask the user to pick one or combine elements.
+Propose 2-3 metaphors, each mapping to a visual shape connected to project architecture/purpose with literal + abstract readings. Ask user to pick or combine.
 
 ### 2.3 Colors
-
-If a visual charter exists, propose using its colors. Otherwise:
-
-Propose 2-3 color palettes with rationale. Each palette needs:
-- **Primary** — the input/activity/energy color
-- **Secondary** — the output/resolution/intelligence color
-- **Background** — page background (near-black recommended)
-- **Surface** — inner frame fill
-- **Highlight** — node centres, text accents
+CH exists → propose using its colors. Otherwise propose 2-3 palettes, each with: **Primary** (input/energy), **Secondary** (output/intelligence), **Background** (near-black), **Surface** (inner frame), **Highlight** (nodes/text accents).
 
 ### 2.4 Frame & Typography
-
-Ask preferences:
-- **Frame shape** — hexagon (technical), circle (organic), rounded square (modern), none
-- **Font direction** — geometric sans-serif (Century Gothic, Questrial) vs. sharp sans (Inter, DM Sans) vs. custom
-- **Connectors** — pipeline lines extending from frame (yes/no)
+Ask: frame shape (hexagon/circle/rounded square/none); font direction (geometric sans vs. sharp sans vs. custom); connectors (yes/no).
 
 ### 2.5 Animation
-
-Ask:
-- **Animation speed** — normal / fast / slow
-- **Idle effects** — which to include: hub pulse, data particles, node breathing, border glow, background particles
-- **Particle density** — sparse / normal / dense
+Ask: speed (normal/fast/slow); idle effects (hub pulse, data particles, node breathing, border glow, background particles); particle density (sparse/normal/dense).
 
 ## Phase 3 — Brief Generation
 
-Compose the full `logo-brief.json` from all answers. Use the schema at `${CLAUDE_PLUGIN_ROOT}/examples/logo-brief.example.json` as reference.
-
-Key decisions to make during brief generation:
-- Translate the chosen metaphor into concrete SVG elements (paths, lines, nodes)
-- Design the mark geometry — actual SVG `d` attributes for paths, coordinates for nodes
-- Set animation timing sequence
-- Configure idle animation parameters
-
-Save the brief:
+Compose `logo-brief.json` using `${CLAUDE_PLUGIN_ROOT}/examples/logo-brief.example.json` schema. Translate metaphor → concrete SVG elements (paths, lines, nodes, coordinates). Set animation timing + idle parameters.
 
 ```bash
 mkdir -p "$HOME/.roxabi-vault/config/logo-briefs"
@@ -109,14 +58,10 @@ mkdir -p "$HOME/.roxabi-vault/config/logo-briefs"
 
 ## Phase 4 — Render & Preview
 
-1. Create `<project-root>/brand/` directory
-
-2. Read `${CLAUDE_PLUGIN_ROOT}/scripts/logo-engine.html`
-
-3. Inject the brief as `var LOGO_BRIEF = <brief>;` before the `init();` call
-
-4. Add CSS keyframes before `</style>`:
-
+1. Create BD.
+2. Read `${CLAUDE_PLUGIN_ROOT}/scripts/logo-engine.html`.
+3. Inject `var LOGO_BRIEF = <brief>;` before `init();`.
+4. Add before `</style>`:
 ```css
 @keyframes wordmarkIn {
   from { opacity: 0; transform: translateY(10px); }
@@ -127,63 +72,34 @@ mkdir -p "$HOME/.roxabi-vault/config/logo-briefs"
   to { opacity: 1; }
 }
 ```
-
-5. Write to `<project-root>/brand/<name>-logo.html`
-6. Open in browser: `xdg-open "<project-root>/brand/<name>-logo.html"`
-7. Tell the user: "Preview is open. Use the gear icon (top-right) to tweak colors, sizes, and animation in real time."
-
-8. Ask via `AskUserQuestion`: "What's next?"
-   - "Export GIF + PNG" → Phase 6
-   - "Tweak it" → Phase 5
-   - "Start over" → Phase 2
+5. Write to `BD/<name>-logo.html`; `xdg-open` it.
+6. Tell user: "Preview is open. Use the gear icon (top-right) to tweak colors, sizes, and animation in real time."
+7. → DP(A) **Export GIF+PNG** (Phase 6) | **Tweak** (Phase 5) | **Start over** (Phase 2).
 
 ## Phase 5 — Iterate
 
-If the user wants changes:
-- For color/size tweaks: update the brief and re-render
-- For shape changes: redesign the mark elements in the brief
-- For metaphor changes: go back to Phase 2.2
-
-If the user used the controls panel and exported a brief from the browser, load that brief and use it as the new source of truth.
+Color/size tweaks → update brief + re-render. Shape changes → redesign mark elements. Metaphor changes → Phase 2.2. User exported brief from browser → load it as new source of truth.
 
 ## Phase 6 — Export
 
-When satisfied, run the export pipeline:
-
-1. Copy scripts locally:
-
 ```bash
-cp "${CLAUDE_PLUGIN_ROOT}/scripts/export-logo.mjs" "<project-root>/brand/capture-gif.mjs"
-cp "${CLAUDE_PLUGIN_ROOT}/scripts/logo-engine.html" "<project-root>/brand/_logo-engine.html"
+cp "${CLAUDE_PLUGIN_ROOT}/scripts/export-logo.mjs" "BD/capture-gif.mjs"
+cp "${CLAUDE_PLUGIN_ROOT}/scripts/logo-engine.html" "BD/_logo-engine.html"
 ```
 
-2. Patch `capture-gif.mjs`: replace `'logo-engine.html'` with `'_logo-engine.html'`, add `import { resolve } from 'path'`, wrap `tempHtml` with `resolve()`.
-
-3. Patch `_logo-engine.html`: add `@keyframes wordmarkIn` and `@keyframes fadeIn` CSS.
-
-4. Install Puppeteer and run:
+Patch `capture-gif.mjs`: replace `'logo-engine.html'` → `'_logo-engine.html'`; add `import { resolve } from 'path'`; wrap `tempHtml` with `resolve()`. Patch `_logo-engine.html`: add `@keyframes wordmarkIn` + `@keyframes fadeIn`.
 
 ```bash
 cd "<project-root>" && npm list puppeteer 2>/dev/null || npm install --no-save puppeteer
-
 node brand/capture-gif.mjs \
   "$HOME/.roxabi-vault/config/logo-briefs/<name>-logo-brief.json" \
-  --output brand/ \
-  --gif --png --duration 8 --fps 15
+  --output brand/ --gif --png --duration 8 --fps 15
 ```
 
 Outputs: `<name>-logo.html`, `<name>-logo.gif`, `<name>-logo.png`.
 
 ## Phase 7 — Brand Identity Document
 
-Generate `<project-root>/brand/BRAND-IDENTITY.md`:
-
-1. Starting Point — what the project does and how it should feel
-2. Core Metaphor — why this shape was chosen
-3. Mark Anatomy — every element explained (frame, arms, nodes, hub, etc.)
-4. Colour System — table of all colors with roles
-5. Typography — font choices and rationale
-6. Animation — intro sequence + idle loops explained
-7. Design Principles — rules for extending the identity
+Generate `BD/BRAND-IDENTITY.md` with sections: Starting Point | Core Metaphor | Mark Anatomy | Colour System (table) | Typography | Animation | Design Principles.
 
 $ARGUMENTS

@@ -60,7 +60,7 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 
 | Plugin | Description |
 |--------|-------------|
-| [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. 28 skills, 9 agents, safety hooks. Project-agnostic via `stack.yml` |
+| [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. 29 skills, 9 agents, safety hooks. Project-agnostic via `stack.yml` |
 
 ### Research & analysis
 
@@ -75,6 +75,9 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 | [linkedin-post-generator](plugins/linkedin-post-generator/README.md) | Generate LinkedIn posts with best practices and visual identity |
 | [image-prompt-generator](plugins/image-prompt-generator/README.md) | Generate AI image prompts with style consistency |
 | [logo-generator](plugins/logo-generator/README.md) | Animated SVG logos from brand briefs — interactive design, live preview, GIF export |
+| [idna](plugins/idna/README.md) | Evolutionary idea selector — explore variants, pick, converge (amplify/blend/refine), finalize. Self-driving: browser → Claude API → imageCLI → auto-advance. |
+
+> **Forge** has moved to its own marketplace: [Roxabi/roxabi-forge](https://github.com/Roxabi/roxabi-forge). Install: `claude plugin marketplace add Roxabi/roxabi-forge`
 
 ### Career tools
 

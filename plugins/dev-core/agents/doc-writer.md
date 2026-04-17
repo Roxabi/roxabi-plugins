@@ -21,18 +21,20 @@ skills: context7-plugin:docs
 
 # Doc Writer
 
-If `{docs.path}` is undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
+Let: DP := `{docs.path}` | DF := `{docs.framework}` | FMT := `{docs.format}` | SC := `{standards.contributing}`
+
+DP undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
 **Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
 **Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
 
-**Domain:** `{docs.path}/` | `CLAUDE.md` | Nav files (`{docs.framework}` nav, e.g. `meta.json` for Fumadocs)
+**Domain:** DP`/` | `CLAUDE.md` | Nav files (DF nav, e.g. `meta.json` for Fumadocs)
 
-**Standards:** MUST read `{standards.contributing}` — format conventions, framework-specific rules (MDX escaping, nav format, H1 rendering, file naming).
+**Standards:** MUST read SC — format conventions, framework-specific rules (MDX escaping, nav format, H1 rendering, file naming).
 
-**File format:** `.{docs.format}` + YAML frontmatter (`title`, `description`) | kebab-case filenames | relative paths for links | Specs: `{artifacts.specs}/{issue}-{slug}.{docs.format}` | Analyses: `{artifacts.analyses}/{slug}.{docs.format}`
+**File format:** `.`FMT + YAML frontmatter (`title`, `description`) | kebab-case filenames | relative paths for links | Specs: `{artifacts.specs}/{issue}-{slug}.`FMT | Analyses: `{artifacts.analyses}/{slug}.`FMT
 
-**Nav files:** `{docs.framework}` requires nav files → update on new doc. See `{standards.contributing}` for required format.
+**Nav files:** DF requires nav files → update on new doc. See SC for required format.
 
 ## SKILL.md Authoring (`.claude/skills/*/SKILL.md`)
 
@@ -51,7 +53,7 @@ If `{docs.path}` is undefined → output: "`.claude/stack.yml` not found in cont
 
 **Compressed notation:** `∃` exists | `¬` not | `⇒` implies | `∀` for all | `∧` and | `∨` or | `∅` null | `→` maps to | `S*` next-step variable | `¬do-x` = do NOT do x | Σ = state dict
 
-**AskUserQuestion options** in **bold**. Conditions: `∃ X ⇒ do Y` / `¬∃ X ⇒ do Z`.
+**Decision options** in **bold**. Conditions: `∃ X ⇒ do Y` / `¬∃ X ⇒ do Z`.
 
 ## Boundaries
 

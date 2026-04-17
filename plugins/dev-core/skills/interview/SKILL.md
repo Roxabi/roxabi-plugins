@@ -1,9 +1,9 @@
 ---
 name: interview
 argument-hint: [topic | --promote <path>]
-description: Structured interview → brainstorm | analysis | spec (with promotion). Triggers: "create a spec" | "interview" | "brainstorm" | "write analysis" | "promote to spec".
+description: Structured interview → brainstorm | analysis | spec (with promotion). Triggers: "create a spec" | "interview" | "brainstorm" | "write analysis" | "promote to spec" | "let's brainstorm" | "think through this" | "help me brainstorm" | "let's think this through" | "explore ideas".
 version: 0.2.0
-allowed-tools: Write, Read, Edit, Glob, ToolSearch, AskUserQuestion
+allowed-tools: Write, Read, Edit, Glob, ToolSearch
 ---
 
 # Interview
@@ -12,6 +12,7 @@ Let:
   β := Brainstorm | α := Analysis | σ := Spec
   τ := document type ∈ {β, α, σ}
   A := `artifacts/analyses/` | S := `artifacts/specs/`
+  AQ := Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md`
 
 Conduct structured interview → produce one of {β, α, σ}. Supports promoting existing doc to next level.
 
@@ -33,7 +34,7 @@ Conduct structured interview → produce one of {β, α, σ}. Supports promoting
 
 Glob A, S — match topic by issue#, keywords, or slug.
 
-∃ related docs → AskUserQuestion:
+∃ related docs → AQ:
 > "Found existing documents: {list with paths}. How to proceed?"
 - **Build on existing** — use as context, extend
 - **Promote to next level** — α → σ or β → α
@@ -43,7 +44,7 @@ Glob A, S — match topic by issue#, keywords, or slug.
 
 ## Step 2 — Determine Document Type
 
-∃ `--promote` → skip (already determined). Else AskUserQuestion:
+∃ `--promote` → skip (already determined). Else AQ:
 
 | τ | Purpose | Output Path |
 |---|---------|-------------|
@@ -53,7 +54,7 @@ Glob A, S — match topic by issue#, keywords, or slug.
 
 ## Step 3 — Structured Interview
 
-AskUserQuestion per phase. Group 2–4 questions/call. Skip questions obvious from context, arguments, or source doc.
+AQ per phase. Group 2–4 questions/call. Skip questions obvious from context, arguments, or source doc.
 
 #### Phase 1 — Context & Framing (2–3 questions)
 

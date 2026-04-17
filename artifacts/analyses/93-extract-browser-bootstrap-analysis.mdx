@@ -1,0 +1,297 @@
+---
+title: "Extract browser bootstrap — sync/async reconciliation, lifecycle ownership, typed error"
+description: "Shape options for roxabi_sdk/browser.py covering 3 call sites (web-intel sync × 2, linkedin-apply async), with divergent stealth idioms and a latent AttributeError in the persistent-context path."
+---
+
+## Source
+
+> "Two plugins currently duplicate the `playwright` + `playwright-stealth` bootstrap. […] Bug fixes already apply to one side and not the other — e.g. the error-surfacing refactor in commits 80387a7..7f58dbd is not mirrored in linkedin-apply."
+>
+> — issue #93, body (2026-04-11)
+
+Three in-source `TODO(#93)` markers already point at this extraction:
+- `plugins/web-intel/scripts/fetchers/stealth.py:11-15`
+- `plugins/web-intel/scripts/screenshot.py:9-13`
+- `plugins/linkedin-apply/scripts/scraper.py:277-282`
+
+## Problem
+
+Three call sites hand-roll the same launch → context → page → stealth pipeline with enough divergence that a single fix to one never lands in the others. Empirical probing of the pinned `playwright-stealth==2.0.2` also surfaced a **preexisting latent bug** in the linkedin-apply path (detailed under Divergence 1).
+
+### Divergence 1 — stealth application idiom (one of the three is broken)
+
+Both web-intel call sites target `playwright-stealth >= 2.0.2`; linkedin-apply has no pinned dep but its README says `pip install playwright-stealth`. All three use different patterns:
+
+| Call site | Pattern | Status |
+|---|---|---|
+| `web-intel/fetchers/stealth.py:168` | `_Stealth().use_sync(page)` | ✓ works — page-level patch |
+| `web-intel/screenshot.py:107` | `_Stealth().use_sync(page)` | ✓ works — page-level patch |
+| `linkedin-apply/scraper.py:306` | `stealth.use_async(async_playwright()).start()` | **✗ broken in 2.0.2** |
+
+Empirically verified against `playwright-stealth==2.0.2`:
+
+```
+use_async() → AsyncWrappingContextManager
+  has .start:        False
+  has __aenter__:    True
+AttributeError: 'AsyncWrappingContextManager' object has no attribute 'start'
+```
+
+The v2 wrapping API is a context manager, not a factory with `.start()`. The linkedin-apply line was presumably written against an older playwright-stealth release with a different surface. It has never run successfully against 2.0.2; the error would surface at the first call to `get_browser_context()` (scraper.py:415). This means the refactor must **fix** this path, not carry it forward.
+
+The clean, documented v2 API is a pair of explicit apply methods:
+
+```python
+Stealth().apply_stealth_sync(page_or_context) -> None
+Stealth().apply_stealth_async(page_or_context) -> None
+```
+
+Both accept `Page | BrowserContext`, so one idiom covers every call site — ephemeral or persistent, page-level or context-level.
+
+Additionally, the async site passes explicit flags that web-intel does not:
+
+```python
+Stealth(
+    navigator_webdriver=True,
+    chrome_runtime=True,
+    navigator_plugins=True,
+    navigator_permissions=True,
+    webgl_vendor=True,
+)
+```
+
+web-intel relies on defaults. A shared helper must pick one policy — either "always pass these flags" or "use library defaults".
+
+### Divergence 2 — context lifecycle
+
+| Call site | Launch | Context creation | Cleanup owner |
+|---|---|---|---|
+| `web-intel/stealth.py:157-183` | `p.chromium.launch(headless=True)` | `browser.new_context(ua, viewport, locale)` | `try/finally: browser.close()` |
+| `web-intel/screenshot.py:97-113` | `p.chromium.launch(headless=True)` | `browser.new_context(ua, viewport, locale)` | `browser.close()` after screenshot |
+| `linkedin-apply/scraper.py:309-318` | *(no separate launch)* | `playwright.chromium.launch_persistent_context(user_data_dir, headless, viewport, args)` | caller holds `(playwright, context)` across the full scrape |
+
+Persistent context returns a `BrowserContext` directly with no intermediate `Browser` handle — callers must not assume they own a browser they can close. Ephemeral context has the opposite shape: the `Browser` instance **is** the thing you close.
+
+The architect review verified Playwright's internals: `context.browser` is `None` for persistent contexts (the `_did_create_context` hook is not called for the persistent path), and returns the `Browser` instance for ephemeral contexts. That property is the key that lets a single helper close both shapes correctly.
+
+### Divergence 3 — error surfacing
+
+| Call site | Mechanism | Current behavior on missing dep |
+|---|---|---|
+| `web-intel/stealth.py:141-147` | returns tuple | `(None, "playwright not installed — install with …")` |
+| `web-intel/screenshot.py:85-90` | returns tuple | `(False, "Playwright not installed. Run: uv sync …")` |
+| `linkedin-apply/scraper.py:287-291` | raises exception | `PlaywrightNotAvailableError(LinkedInScraperError)` — plugin-local |
+
+The issue body calls for "a typed `PlaywrightNotAvailableError` with install instructions". Today that class lives inside `linkedin-apply` and subclasses a LinkedIn-specific base, so web-intel cannot import it without a cross-plugin dependency. The right home is `roxabi_sdk.browser`, with a `linkedin-apply`-local re-export alias for back-compat.
+
+### Divergence 4 — launch args (latent parity bug)
+
+Only linkedin-apply passes:
+
+```
+--disable-blink-features=AutomationControlled
+--no-first-run
+--no-default-browser-check
+```
+
+web-intel passes no args. These flags are well-established anti-detection hardening that web-intel would benefit from too. Extracting the bootstrap is the natural moment to close this gap. Product-lead review confirmed: not scope creep — it is the direct consequence of "one module, consistent behavior".
+
+## Outcome
+
+A single `roxabi_sdk/browser.py` module that:
+
+1. Lets any plugin (Python, sync or async) launch a stealth-patched Chromium with one call.
+2. Raises one typed error for missing `playwright` / `playwright-stealth`, with the install command in the message.
+3. Supports both ephemeral (`new_context`) and persistent (`launch_persistent_context`) lifecycles behind a single `user_data_dir: str | None` parameter.
+4. Applies a single stealth policy via `Stealth().apply_stealth_{sync,async}(context)` — identical flags, identical launch args — regardless of which plugin calls it.
+5. Hands lifecycle ownership back to the caller (returns a tuple). No context managers imposed.
+6. Provides a `close_stealth(playwright, context)` companion that handles the ephemeral/persistent asymmetry via `context.browser`.
+7. Is covered by unit tests verifying: (a) missing-dep raises typed error with install hint, (b) both variants return the documented tuple shape, (c) the close helper closes the right thing for both lifecycles. No live network required.
+8. Ships through the existing `sync-plugins.sh` flow at lines 72 and 157 — no new sync infrastructure.
+
+The refactor also **fixes two latent bugs** it finds along the way:
+- The `stealth.use_async(…).start()` `AttributeError` in `linkedin-apply/scraper.py:306`.
+- The missing anti-detection launch args in web-intel's two launches (Divergence 4).
+
+Non-outcomes (reinforcing the frame's Out of Scope):
+- No change to `fetch_html_stealth`'s retry logic, anti-bot detection markers, or the `(html, error)` tuple contract.
+- No change to LinkedIn scraper selectors, delays, or session-check logic.
+- No Turnstile solving, no new stealth flags beyond current parity.
+
+## Appetite
+
+**F-full, 1 session** — the new module is ~150–180 LoC (including `close_stealth` + `PlaywrightNotAvailableError`), each call-site refactor is a ~20-line swap. Test scaffolding reuses existing `monkeypatch` patterns from `plugins/web-intel/tests/test_stealth.py`. Budget on:
+
+- Picking the error-translation pattern in web-intel's two call sites (helper raises typed, caller catches and converts to its tuple-string contract).
+- Manual LinkedIn session-reuse verification after the swap — no CI-level LinkedIn live test exists, so this is a pre-merge checklist item.
+- Verifying that `apply_stealth_sync(context)` applied once to the context equals the current per-page `use_sync(page)` behavior for web-intel's single-page flows (the architect flagged this as the one behavior-equivalence claim the spec must confirm).
+
+## Shapes
+
+### Shape 1 — Two free functions + `close_stealth` helper, unified via `apply_stealth_*` *(recommended)*
+
+```python
+# roxabi_sdk/browser.py
+
+class PlaywrightNotAvailableError(RuntimeError):
+    """Raised when playwright or playwright-stealth is not importable,
+    or when a launch fails before a context is returned."""
+
+_DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 …"
+_DEFAULT_VIEWPORT = {"width": 1280, "height": 900}
+_DEFAULT_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--no-first-run",
+    "--no-default-browser-check",
+]
+_DEFAULT_STEALTH_FLAGS = dict(
+    navigator_webdriver=True,
+    chrome_runtime=True,
+    navigator_plugins=True,
+    navigator_permissions=True,
+    webgl_vendor=True,
+)
+
+def launch_stealth_sync(
+    *,
+    user_data_dir: str | None = None,
+    headless: bool = True,
+    user_agent: str | None = None,
+    viewport: dict | None = None,
+    locale: str = "en-US",
+    stealth_flags: dict | None = None,
+    launch_args: list[str] | None = None,
+) -> tuple["Playwright", "BrowserContext", "Page"]: ...
+
+async def launch_stealth_async(
+    *,  # same kwargs
+) -> tuple["Playwright", "BrowserContext", "Page"]: ...
+
+def close_stealth(playwright: "Playwright", context: "BrowserContext") -> None: ...
+async def close_stealth_async(playwright: "Playwright", context: "BrowserContext") -> None: ...
+```
+
+**Key design decisions:**
+
+1. **Stealth idiom = `apply_stealth_{sync,async}(context)`, called once per context.** This is the documented v2 API, accepts both ephemeral and persistent contexts, and is the only idiom that sidesteps the `AsyncWrappingContextManager.start` bug. Unified across all three call sites.
+
+2. **Uniform 3-tuple return.** Both launchers return `(playwright, context, page)`. For ephemeral: `playwright.chromium.launch() → browser → browser.new_context(...) → context.new_page()`. For persistent: `playwright.chromium.launch_persistent_context(...) → context → context.pages[0] or context.new_page()`. Caller never sees the Browser handle.
+
+3. **`close_stealth(playwright, context)` hides lifecycle asymmetry** via:
+
+   ```python
+   def close_stealth(playwright, context):
+       if context.browser is not None:   # ephemeral
+           context.browser.close()
+       else:                              # persistent
+           context.close()
+       playwright.stop()
+   ```
+
+   The architect verified this against Playwright source: `context.browser is None` for persistent contexts; the ephemeral path sets `context._browser` during `_did_create_context`. The async variant uses `await` for `close()` and `stop()`.
+
+4. **`PlaywrightNotAvailableError` subclasses `RuntimeError`.** Architect review confirmed `ImportError` would be semantically wrong — the library is present but the runtime launch may also fail without a missing-import cause. `RuntimeError` is the correct base.
+
+5. **`linkedin-apply` keeps its local class as a thin alias:**
+
+   ```python
+   # plugins/linkedin-apply/scripts/scraper.py
+   from roxabi_sdk.browser import PlaywrightNotAvailableError as _SdkPWError
+
+   class PlaywrightNotAvailableError(LinkedInScraperError, _SdkPWError):
+       """Shim for back-compat with existing except clauses."""
+   ```
+
+   This preserves every existing `except PlaywrightNotAvailableError` in the plugin and keeps it catchable by SDK-aware code too.
+
+6. **web-intel keeps returning tuples, not raising.** `fetch_html_stealth` and `capture_full_page` catch `PlaywrightNotAvailableError` and convert to their existing tuple-string contracts. The `test_stealth.py:100-109` test continues passing without modification — see Unresolved Concern 1 for the monkeypatch compatibility detail.
+
+7. **Async event-loop ownership.** `launch_stealth_async` relies on the caller's running event loop — it never calls `asyncio.run()` or `asyncio.get_event_loop()`. It uses `await async_playwright().start()` inside the current running loop. The architect flagged this as worth one sentence in the spec so no future caller adds a nested loop.
+
+**Trade-offs:**
+- Pro: Matches the issue's proposed API literally. Minimum call-site churn. Unifies launch args, stealth idiom, and error surface in one pass. Fixes a latent runtime bug. Typed error available to both plugins.
+- Pro: `close_stealth()` helper keeps the tricky ephemeral/persistent asymmetry hidden and testable in isolation.
+- Con: Three return handles in a tuple — less ergonomic than a context manager. But all three current call sites already structure their code around explicit `close()` calls, so migration cost is zero.
+- Con: Sync and async are two separate functions with no shared body — unavoidable since `playwright.sync_api` and `playwright.async_api` are distinct modules.
+
+**Rough scope:** **M** — new module + 3 refactors + tests + typed-error alias + the two latent-bug fixes. Zero infrastructure changes.
+
+### Shape 2 — Class-based context managers
+
+```python
+class StealthBrowser:
+    def __init__(self, *, user_data_dir=None, headless=True, ...): ...
+    def __enter__(self): ...
+    async def __aenter__(self): ...
+    def __exit__(self, *exc): ...
+    async def __aexit__(self, *exc): ...
+```
+
+Callers write `with StealthBrowser() as (ctx, page):` and `async with StealthBrowser(user_data_dir=LINKEDIN_PROFILE_DIR) as (ctx, page):`.
+
+**Trade-offs:**
+- Pro: Caller cannot leak resources.
+- Pro: Two-tuple return (`ctx, page`) at the call site.
+- Con: **Rewrites the lifecycle in all three files.** linkedin-apply's scraper currently holds `(playwright, context)` across multiple top-level methods that accept an injected context — it doesn't fit in a single `with` block without restructuring `check_login`, `try_selector`, and friends.
+- Con: Violates the frame constraint "Refactor scope … retry logic, screenshot capture pipeline, and LinkedIn scraper selectors are untouched" — restructuring linkedin-apply around a `with` block is more than a bootstrap swap.
+- Con: One class with both `__enter__` and `__aenter__` confuses type checkers; splitting into two classes erases the "one concept" argument.
+
+**Rough scope:** **L** — same new module plus linkedin-apply scraper restructuring plus likely a small refactor of `check_login`, `try_selector`, etc.
+
+### Shape 3 — Config dataclass + factory
+
+```python
+@dataclass
+class StealthBrowserConfig: ...
+def launch_stealth_sync(config: StealthBrowserConfig = StealthBrowserConfig()) -> tuple[...]: ...
+```
+
+**Trade-offs:**
+- Pro: Typed, self-documenting, easy to extend.
+- Con: Three call sites, each configures differently — web-intel uses defaults, linkedin-apply sets `user_data_dir` and `headless=False`. Dataclass is ceremony without payoff.
+- Con: `roxabi_sdk` has no config-dataclass precedent. Introducing one here is speculative typing for a helper with 3 consumers.
+- Con: Memory `feedback_reuse_over_add` eliminates this shape — no existing SDK pattern to lean on.
+
+**Rough scope:** **M** — same as Shape 1 plus ceremony.
+
+## Fit Check
+
+**Shape 2 is eliminated by the frame.** Its Out of Scope lists "Rewriting the call sites beyond the bootstrap swap" and its test-contract constraint names `fetch_html_stealth`'s tuple shape. A context manager forces restructuring of `linkedin-apply`'s scraper, which passes `context` across multiple methods.
+
+**Shape 3 is eliminated by appetite + memory.** The dataclass is ceremony for three call sites. `roxabi_sdk` has no config-dataclass precedent; introducing one here is speculative typing.
+
+**Shape 1 is the recommended path.** It matches the issue's API literally, preserves every lifecycle pattern, fixes the `AsyncWrappingContextManager.start` bug for free, upgrades web-intel to parity launch args, unifies the stealth idiom on the one documented method that works for every shape of context, and contains the ephemeral/persistent asymmetry in a `close_stealth` helper that can be unit-tested in isolation.
+
+### Files impacted (Shape 1)
+
+| File | Change | LoC delta (est.) |
+|---|---|---|
+| `roxabi_sdk/browser.py` | new module | +170 / -0 |
+| `plugins/web-intel/scripts/fetchers/stealth.py` | replace lines 80-92 (import guards) + 156-183 (launch block) with `launch_stealth_sync()` + typed-error catch | +15 / -50 |
+| `plugins/web-intel/scripts/screenshot.py` | same treatment for lines 55-67 (imports) + 96-113 (launch) | +12 / -40 |
+| `plugins/linkedin-apply/scripts/scraper.py` | replace `get_browser_context` body (lines 284-321) with `launch_stealth_async(user_data_dir=LINKEDIN_PROFILE_DIR, headless=headless)`; alias `PlaywrightNotAvailableError` | +10 / -40 |
+| `tests/test_browser.py` | new — unit tests for both launchers with `monkeypatch` simulating missing deps + `close_stealth` lifecycle assertions | +130 / -0 |
+| `plugins/web-intel/tests/test_stealth.py` | **no change expected** — tuple contract preserved, `PLAYWRIGHT_AVAILABLE` monkeypatch still valid (see Unresolved Concern 1) | 0 |
+| `plugins/web-intel/scripts/doctor.py` | optional — touch only to point `check_playwright` at `roxabi_sdk.browser` for messaging | +0–5 |
+| `sync-plugins.sh` | **no change** — already rsyncs `roxabi_sdk/` into every plugin cache dir (lines 72, 157) | 0 |
+
+### Settled design decisions
+
+These were open during drafting and are now locked for the spec step to pick up as given, not re-litigate:
+
+1. **Module lives in `roxabi_sdk/browser.py`**, not in a new `plugins/shared/python/` tree. Architect confirmed the tradeoff (zero-dep → conditional-dep on playwright) is acceptable because the import is guarded.
+2. **`PlaywrightNotAvailableError` extends `RuntimeError`**, not `ImportError`.
+3. **3-tuple return `(playwright, context, page)`** paired with `close_stealth(playwright, context)` — not a 4-tuple, not a context manager.
+4. **Stealth idiom = `Stealth().apply_stealth_{sync,async}(context)`** called once per context creation — not `use_sync(page)`, not `use_async(...).start()` (which is broken).
+
+### Unresolved concerns for the spec step
+
+1. **web-intel `PLAYWRIGHT_AVAILABLE` monkeypatch compatibility.** `test_stealth.py:100-109` does `monkeypatch.setattr(stealth, "PLAYWRIGHT_AVAILABLE", False)`. After refactor, the module imports `launch_stealth_sync` from the SDK and catches `PlaywrightNotAvailableError`. Spec must decide between:
+   - **(a)** Keep `PLAYWRIGHT_AVAILABLE` as a thin probe (`try/except ImportError`) at module level, used only as a pre-flight check; the test still patches it and `fetch_html_stealth` still early-returns the tuple-error when it's `False`. Lowest-risk; preserves the test verbatim.
+   - **(b)** Drop the module flag, port the test to monkeypatch the SDK import directly. Cleaner but more churn.
+
+   **Recommendation for spec: option (a).**
+
+2. **LinkedIn persistent-context smoke test.** There is no automated LinkedIn login test. The frame acknowledges this as a risk. Spec must define a manual verification checklist (e.g. "after refactor, run `python plugins/linkedin-apply/scripts/scraper.py <known-job-url>` and confirm a job is returned without re-login"). CI cannot cover this.
+
+3. **`apply_stealth_sync(context)` behavior equivalence with `use_sync(page)`.** For web-intel's single-page flows, applying stealth to the context before creating the page should be equivalent to applying it to the page. Spec must confirm this via a small scratch script (or an inline test) before the refactor lands — this is the one behavior-change claim Shape 1 rests on.

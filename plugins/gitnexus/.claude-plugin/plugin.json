@@ -1,0 +1,13 @@
+{
+  "name": "gitnexus",
+  "version": "0.1.0",
+  "description": "GitNexus CLI integration — code knowledge graph tools for impact analysis, symbol context, and safe exploration. CLI-only (no MCP required).",
+  "author": {
+    "name": "Roxabi"
+  },
+  "requirements": {
+    "npm": [
+      "gitnexus"
+    ]
+  }
+}

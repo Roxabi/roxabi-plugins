@@ -7,29 +7,25 @@ allowed-tools: Read, Glob, Grep
 
 # React Composition Patterns
 
-Apply composition patterns for building flexible, maintainable React components. Avoid boolean prop proliferation by using compound components, lifting state, and composing internals.
+Let:
+  Φ := `references/AGENTS.md`
+
+Apply composition patterns for flexible, maintainable React components. Avoid boolean prop proliferation via compound components, state lifting, and composed internals.
 
 ## Workflow
 
-1. Read the compiled rules reference:
-   ```
-   references/AGENTS.md
-   ```
-   This contains all rules across 4 priority categories with code examples.
+1. Read Φ — all rules across 4 priority categories with code examples.
 
-2. If the user provided files or a pattern via `$ARGUMENTS`, read those files. Otherwise, ask which files to review.
+2. $ARGUMENTS ∃ → read those files. ∄ → ask which files to review.
 
 3. Apply rules by priority:
-   - **HIGH**: Component architecture (`architecture-`) — avoid boolean props, compound components
-   - **MEDIUM**: State management (`state-`) — decouple implementation, context interfaces, lift state
-   - **MEDIUM**: Implementation patterns (`patterns-`) — explicit variants, children over render props
-   - **MEDIUM**: React 19 APIs (`react19-`) — no forwardRef, use() instead of useContext()
+   - **HIGH**: `architecture-` — avoid boolean props, compound components
+   - **MEDIUM**: `state-` — decouple impl, context interfaces, lift state
+   - **MEDIUM**: `patterns-` — explicit variants, children over render props
+   - **MEDIUM**: `react19-` — ¬forwardRef, use() instead of useContext()
 
-4. For each finding, output in terse format:
-   ```
-   file:line — rule-id — description of the issue
-   ```
+4. ∀ finding → `file:line — rule-id — description`
 
-5. Group findings by priority. Summarize total findings per category.
+5. Group by priority. Summarize total findings per category.
 
 $ARGUMENTS

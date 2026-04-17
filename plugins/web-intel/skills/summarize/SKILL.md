@@ -1,14 +1,14 @@
 ---
 name: summarize
 argument-hint: '<url>'
-description: Scrape a URL and produce a concise summary — key points, takeaways, who/what/why. Triggers: "summarize url" | "tldr" | "summarize this".
+description: Scrape a URL and produce a concise summary — key points, takeaways, who/what/why. Triggers: "summarize url" | "tldr" | "summarize this" | "summarize https://" | "/summarize" | "give me a summary of" | "what's this article about" | "summarize this link" | "what does this page say".
 version: 0.1.0
 allowed-tools: Bash, Read
 ---
 
 # Summarize
 
-Scrape a URL → produce a concise, actionable summary.
+Scrape URL → concise, actionable summary.
 
 ## Entry
 
@@ -16,7 +16,7 @@ Scrape a URL → produce a concise, actionable summary.
 /summarize https://example.com
 ```
 
-If no URL provided → `AskUserQuestion` to get one.
+¬U → → DP(B)to get one.
 
 ## Step 1 — Locate Plugin
 
@@ -30,17 +30,14 @@ fi
 
 ## First Use
 
-On the **first invocation** of any web-intel skill in this session:
-
-1. Run the doctor check:
+First invocation in session only:
 
 ```bash
 cd "$PLUGIN_ROOT" && uv run python scripts/doctor.py
 ```
 
-2. If doctor reports core failures (exit code 1) → show output to the user and stop. Guide them through the install commands listed in the report.
-3. If doctor reports optional warnings → inform the user which platforms have limited support, then continue.
-4. Skip this check on subsequent invocations in the same session.
+- exit 1 → show output, stop, guide install. Optional warnings → inform user, continue.
+- Skip on subsequent invocations.
 
 ## Step 2 — Scrape
 
@@ -50,28 +47,26 @@ cd "$PLUGIN_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt REQUESTS_C
 
 ## Step 3 — Analyze & Summarize
 
-From the scraped content, produce:
-
-### Summary Structure
-
-1. **TL;DR** (1-2 sentences) — the core message
-2. **Key Points** (3-5 bullets) — main ideas, ordered by importance
-3. **Who** — author/org and their credibility/context
-4. **What** — the subject matter
+Produce:
+1. **TL;DR** (1-2 sentences) — core message
+2. **Key Points** (3-5 bullets) — main ideas, importance-ordered
+3. **Who** — author/org + credibility/context
+4. **What** — subject matter
 5. **Why it matters** — relevance, implications, so-what
-6. **Takeaways** (2-3 bullets) — actionable insights or things to remember
+6. **Takeaways** (2-3 bullets) — actionable insights
 
-### Platform-Specific Enrichment
+Platform-specific enrichment:
 
-- **Twitter/X**: Include engagement metrics (likes, RTs), thread context if applicable
-- **GitHub**: Include stars, language, key features from README
-- **YouTube**: Include duration, key timestamps if transcript available
-- **Reddit**: Include score, top comment highlights, community sentiment
+| Platform | Extra fields |
+|----------|-------------|
+| Twitter/X | Engagement metrics (likes, RTs), thread context |
+| GitHub | Stars, language, key README features |
+| YouTube | Duration, key timestamps (∃ transcript) |
+| Reddit | Score, top comment highlights, community sentiment |
 
 ## Step 4 — Present
 
-Output the summary in clean markdown. Include source URL and scrape date at the bottom.
-
-If `success: false` → fall back to `WebFetch` tool and summarize from that.
+Output in clean markdown. Include source URL + scrape date.
+`success: false` → fall back to WebFetch, summarize from that.
 
 $ARGUMENTS

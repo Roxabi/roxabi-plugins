@@ -1,17 +1,20 @@
 ---
 name: image-prompt
-description: 'Generate AI image prompts with visual identity and style consistency — reads brand charter, applies artistic styles, outputs multiple prompt variants. Triggers: "image-prompt" | "generate image prompt" | "image prompt" | "prompt for image" | "visual prompt".'
+description: 'Generate AI image prompts with visual identity and style consistency — reads brand charter, applies artistic styles, outputs multiple prompt variants. Triggers: "image-prompt" | "generate image prompt" | "image prompt" | "prompt for image" | "visual prompt" | "generate a prompt for Grok" | "generate a prompt for Midjourney" | "generate a prompt for flux" | "image generation prompt" | "create image prompt" | "prompt for dall-e".'
 version: 0.1.0
 allowed-tools: Read, Write, Bash, Glob
 ---
 
 # Image Prompt Generator
 
+Let:
+  χ := `~/.roxabi-vault/config/visual-charter.json`
+  φ := `~/.roxabi-vault/config/face-reference.json`
+  FACE_DESC := face description (set in Phase 2.5 if user wants their face in image)
+
 **Goal:** Transform a concept into multiple ready-to-use image generation prompts, optionally aligned to a brand visual charter.
 
 ## Phase 1 — Load Visual Charter
-
-1. Check for visual charter at `~/.roxabi-vault/config/visual-charter.json`:
 
 ```bash
 charter="$HOME/.roxabi-vault/config/visual-charter.json"
@@ -23,45 +26,35 @@ else
 fi
 ```
 
-2. If charter exists, parse brand identity: colors, style preferences, mood, avoidances.
-3. If absent, proceed without brand constraints — inform user they can create one from the example at `examples/visual-charter.example.json`.
-4. Check for face reference at `~/.roxabi-vault/config/face-reference.json` and load if present.
+χ ∃ → parse brand identity: colors, style preferences, mood, avoidances.
+χ ∄ → proceed without brand constraints — inform user they can create one from `examples/visual-charter.example.json`.
+Check φ and load if ∃.
 
 ## Phase 2 — Accept Concept & Intake
 
-1. If no concept provided via $ARGUMENTS, AskUserQuestion:
-   - "What image do you want to create? Describe the subject, context, and any specific requirements."
+1. Concept ∄ via $ARGUMENTS → → DP(B) "What image do you want to create? Describe subject, context, any specific requirements."
 
-2. Ask structured follow-up questions (one message, all at once):
-   - **Platform** — "Where will this image be used?" (Instagram, LinkedIn, website, presentation, thumbnail, other)
-   - **Content type** — "What kind of content?" (personal brand, product, educational, promotional, lifestyle, other)
-   - **Mood/tone** — "What feeling should it convey?" (professional, warm, dramatic, energetic, minimal, mysterious, other)
-   - **Style preference** — "Any style direction?" (photographic, illustrated, 3D, no preference — optional override)
-   - **Aspect ratio** — "What format?" (square 1:1, portrait 4:5 or 9:16, landscape 16:9, no preference)
+2. Ask structured follow-up (one message, all at once):
+   - **Platform**: Instagram / LinkedIn / website / presentation / thumbnail / other
+   - **Content type**: personal brand / product / educational / promotional / lifestyle / other
+   - **Mood/tone**: professional / warm / dramatic / energetic / minimal / mysterious / other
+   - **Style preference**: photographic / illustrated / 3D / no preference (optional override)
+   - **Aspect ratio**: square 1:1 / portrait 4:5 or 9:16 / landscape 16:9 / no preference
 
-3. Parse all answers into a creative brief:
-   - **Subject** — main focus of the image
-   - **Context** — setting, environment, background
-   - **Platform** — target platform (drives aspect ratio and style decisions)
-   - **Content type** — purpose of the image
-   - **Mood** — emotional tone and atmosphere
-   - **Style** — preferred visual direction (or "open" if no preference)
-   - **Aspect ratio** — target format
+3. Parse into creative brief: Subject | Context | Platform | Content type | Mood | Style | Aspect ratio
 
-4. AskUserQuestion: "Do you want your face/likeness to appear in the image? (yes/no)"
-   - If yes → proceed to Phase 2.5
-   - If no → skip to Phase 2.75
+4. → DP(A) "Do you want your face/likeness in the image?" Options: **Yes** | **No**
+   - yes → Phase 2.5
+   - no → Phase 2.75 (skip to Phase 3)
 
 ## Phase 2.5 — Face Reference Resolution
 
-Only execute if user confirmed they want their face in the image.
+Execute only if user confirmed face in image.
 
-1. If `face-reference.json` was found in Phase 1, display a summary and confirm:
-   - "Using your saved face reference: [description]. Is this still accurate? (yes/update)"
-   - If update → ask for new description and overwrite the file
-2. If not found, ask the user:
-   - "Please describe your appearance for the prompt (e.g. hair color and style, eye color, age range, skin tone, any distinctive features)."
-3. Save to vault for future sessions:
+1. φ found in Phase 1 → display summary: "Using your saved face reference: [description]. Still accurate? (yes/update)"
+   - update → ask new description, overwrite file
+2. φ ∄ → ask: "Describe your appearance (hair color/style, eye color, age range, skin tone, distinctive features)."
+3. Save to vault:
 
 ```bash
 mkdir -p "$HOME/.roxabi-vault/config"
@@ -73,11 +66,9 @@ cat > "$HOME/.roxabi-vault/config/face-reference.json" << EOF
 EOF
 ```
 
-4. Store the face description as `FACE_DESC` — it will be injected into the Subject component of every prompt variant in Phase 4.
+4. Store as FACE_DESC — injected into Subject component of ∀ prompt variant in Phase 4.
 
 ## Phase 3 — Load Style References
-
-1. Read reference files for style guidance:
 
 ```bash
 echo "=== Loading references ==="
@@ -89,46 +80,37 @@ for ref in references/artistic_styles.md references/prompt_best_practices.md; do
 done
 ```
 
-2. Read `references/artistic_styles.md` for available styles.
-3. Read `references/prompt_best_practices.md` for prompt structure and platform tips.
+Read `references/artistic_styles.md` (available styles) and `references/prompt_best_practices.md` (prompt structure, platform tips).
 
 ## Phase 4 — Generate Prompt Variants
 
-Generate 4-6 prompt variants informed by the creative brief from Phase 2. Each variant must include:
+Generate 4-6 variants from creative brief. ∀ variant includes:
 
 | Component | Description |
 |-----------|-------------|
-| **Style** | Artistic style from references — if user specified a style preference, lead with that; otherwise distribute across categories |
-| **Subject** | Detailed subject description — if `FACE_DESC` is set, prepend it: "[FACE_DESC], [rest of subject]" |
-| **Composition** | Framing and perspective matched to the target aspect ratio from the brief |
-| **Lighting** | Light source and quality matched to the mood from the brief |
-| **Color palette** | Dominant colors and harmony — informed by brand charter if present |
-| **Mood** | Emotional tone matched to the mood/tone answer from the brief |
-| **Technical** | Resolution, aspect ratio (from brief), platform-specific rendering details |
+| **Style** | Artistic style from references — user style preference → lead with that; ∄ → distribute across categories |
+| **Subject** | Detailed description — FACE_DESC ∃ → prepend: "[FACE_DESC], [rest of subject]" |
+| **Composition** | Framing/perspective matched to target aspect ratio |
+| **Lighting** | Source and quality matched to mood |
+| **Color palette** | Dominant colors/harmony — χ ∃ → informed by brand charter |
+| **Mood** | Emotional tone matched to brief |
+| **Technical** | Resolution, aspect ratio, platform-specific rendering |
 
-Variant distribution — adapt based on style preference:
-- If style preference given: 2-3 variants in that direction + 1-2 creative divergences
-- If no preference: 1-2 photographic, 1-2 illustration/digital art, 1 stylized, 1 experimental
-
-Use face description (if set in Phase 2.5) and creative brief (from Phase 2) to add contextual depth to subject descriptions and mood.
+Variant distribution: style preference given → 2-3 in that direction + 1-2 creative divergences. ∄ preference → 1-2 photographic, 1-2 illustration/digital art, 1 stylized, 1 experimental.
 
 ## Phase 5 — Apply Brand Identity
 
-If charter exists, apply brand constraints to each variant:
-
+χ ∃ → apply to ∀ variant:
 1. **Colors** — incorporate brand palette (primary, secondary, accent)
 2. **Style alignment** — match brand aesthetic and mood
-3. **Avoidances** — exclude anything in the brand's avoid list
-4. **Preferences** — emphasize items in the brand's prefer list
+3. **Avoidances** — exclude brand avoid list
+4. **Preferences** — emphasize brand prefer list
 
-Mark each variant as:
-- **On-brand** — fully aligned with charter
-- **Near-brand** — partially aligned, creative interpretation
-- **Off-brand** — deliberately divergent (for exploration)
+Mark each: **On-brand** / **Near-brand** / **Off-brand** (deliberate divergence).
 
 ## Phase 6 — Present Variants
 
-Auto-save all variants to vault before presenting:
+Auto-save all variants before presenting:
 
 ```bash
 save_dir="$HOME/.roxabi-vault/image-prompts"
@@ -143,7 +125,7 @@ echo "Date: $date_prefix" >> "$save_file"
 echo "Saved to: $save_file"
 ```
 
-Present all variants in a structured format:
+Present in structured format:
 
 ```
 Variant 1 — [Style Name] [Brand Alignment]
@@ -157,15 +139,9 @@ Mood: [atmosphere]
 Best for: [recommended platform/use case]
 ```
 
-AskUserQuestion:
-- **Pick one** — select a variant number to use
-- **Refine** — pick a variant and request changes
-- **Regenerate** — try again with different styles
-- **Batch** — run generate_prompt_variants.py for more variants
+→ DP(A) **Pick one** (variant number) | **Refine** (variant + changes) | **Regenerate** (different styles) | **Batch** (run generate_prompt_variants.py)
 
 ## Phase 7 — Batch Generation (Optional)
-
-If user requests batch generation, run the Python script:
 
 ```bash
 python3 scripts/generate_prompt_variants.py \

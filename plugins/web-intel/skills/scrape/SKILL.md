@@ -1,14 +1,14 @@
 ---
 name: scrape
 argument-hint: '<url>'
-description: Extract structured content from a URL — Twitter/X, GitHub, YouTube, Reddit, or any webpage. Triggers: "scrape" | "fetch url" | "extract content".
+description: Extract structured content from a URL — Twitter/X, GitHub, YouTube, Reddit, or any webpage. Triggers: "scrape" | "fetch url" | "extract content" | "scrape https://" | "get content from" | "extract this page" | "pull data from" | "fetch this page".
 version: 0.1.0
 allowed-tools: Bash, Read
 ---
 
 # Scrape
 
-Extract structured content from a URL. Returns JSON with content, metadata, and platform-specific fields.
+Extract structured content from a URL → JSON with content, metadata, and platform-specific fields.
 
 ## Entry
 
@@ -16,7 +16,7 @@ Extract structured content from a URL. Returns JSON with content, metadata, and 
 /scrape https://example.com
 ```
 
-If no URL provided → `AskUserQuestion` to get one.
+¬U → → DP(B)to get one.
 
 ## Step 1 — Locate Plugin
 
@@ -30,17 +30,14 @@ fi
 
 ## First Use
 
-On the **first invocation** of any web-intel skill in this session:
-
-1. Run the doctor check:
+First invocation in session only:
 
 ```bash
 cd "$PLUGIN_ROOT" && uv run python scripts/doctor.py
 ```
 
-2. If doctor reports core failures (exit code 1) → show output to the user and stop. Guide them through the install commands listed in the report.
-3. If doctor reports optional warnings → inform the user which platforms have limited support, then continue.
-4. Skip this check on subsequent invocations in the same session.
+- exit 1 → show output, stop, guide install. Optional warnings → inform user, continue.
+- Skip on subsequent invocations.
 
 ## Step 2 — Run Scraper
 
@@ -50,19 +47,11 @@ cd "$PLUGIN_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt REQUESTS_C
 
 ## Step 3 — Present Results
 
-Parse the JSON output. Present a clean summary:
-
-- **Content type**: twitter | github | youtube | reddit | webpage
-- **Title**: page/post/repo title
-- **Author**: if available
-- **Content preview**: first 500 chars of extracted text
-- **Metadata**: platform-specific fields (stars, score, view_count, like_count, upload_date, tags, chapters, transcript, etc.)
-
-Show the full JSON in a `<details>` block for reference.
+Parse JSON → clean summary: content type (twitter|github|youtube|reddit|webpage), title, author (if ∃), content preview (first 500 chars), platform-specific metadata (stars, score, view_count, like_count, upload_date, tags, chapters, transcript, etc.). Show full JSON in `<details>` block.
 
 ## Error Handling
 
-- If `success: false` → show the error message and suggest alternatives (WebFetch, manual input)
-- If scraper not installed → show install instructions: `cd $PLUGIN_ROOT && uv sync --extra all`
+- `success: false` → show error, suggest alternatives (WebFetch, manual input)
+- Scraper ¬installed → `cd $PLUGIN_ROOT && uv sync --extra all`
 
 $ARGUMENTS

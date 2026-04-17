@@ -1,14 +1,20 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   checkCompliance,
   detectLicense,
+  formatLicenseDistribution,
+  formatViolations,
+  formatWarnings,
   isLicenseAllowed,
   type LicensePolicy,
+  type LicenseReport,
   loadPolicy,
+  type PackageEntry,
   parseSpdxExpression,
+  printSummary,
   type RawPackageInfo,
   scanDependencies,
   writeReport,
@@ -200,6 +206,43 @@ describe('detectLicense', () => {
     const result = detectLicense(pkg, policy)
     expect(result.license).toBe('MIT')
     expect(result.source).toBe('LICENSE file')
+  })
+
+  it.each([
+    ['Apache License, Version 2.0', 'Apache-2.0'],
+    ['BSD 3-Clause License', 'BSD-3-Clause'],
+    ['BSD 2-Clause License', 'BSD-2-Clause'],
+    ['BSD Zero Clause License', '0BSD'],
+    ['Permission to use, copy, modify, and/or distribute this software without fee', 'ISC'],
+    ['ISC License', 'ISC'],
+    ['The Unlicense', 'Unlicense'],
+    ['CC0 1.0 Universal', 'CC0-1.0'],
+    ['Creative Commons Attribution 4.0 International', 'CC-BY-4.0'],
+    ['Blue Oak Model License 1.0.0', 'BlueOak-1.0.0'],
+    ['Mozilla Public License, Version 2.0', 'MPL-2.0'],
+    ['Python Software Foundation License', 'Python-2.0'],
+    ['PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2', 'Python-2.0'],
+    ['MIT No Attribution', 'MIT-0'],
+  ])('detects %s from LICENSE file as %s', (content, expected) => {
+    const pkg = makePackageDir(tmpDir, `lic-${expected.toLowerCase().replace(/[^a-z0-9]/g, '-')}`, {
+      name: `lic-${expected}`,
+      version: '1.0.0',
+    })
+    fs.writeFileSync(path.join(pkg.dir, 'LICENSE'), content)
+    const result = detectLicense(pkg, policy)
+    expect(result.license).toBe(expected)
+    expect(result.source).toBe('LICENSE file')
+  })
+
+  it('returns null for unrecognized LICENSE file content', () => {
+    const pkg = makePackageDir(tmpDir, 'unknown-lic', { name: 'unknown-lic', version: '1.0.0' })
+    fs.writeFileSync(
+      path.join(pkg.dir, 'LICENSE'),
+      'Some custom proprietary license text that matches no known pattern.',
+    )
+    const result = detectLicense(pkg, policy)
+    expect(result.license).toBeNull()
+    expect(result.source).toBeNull()
   })
 
   it('returns null when no license info found', () => {
@@ -493,5 +536,306 @@ describe('CLI — subprocess integration', () => {
     fs.copyFileSync(scriptSrc, path.join(toolsDir, 'licenseChecker.ts'))
     const result = run(path.join(toolsDir, 'licenseChecker.ts'), ['--json'])
     expect(result.exitCode).toBe(2)
+  })
+})
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function makePackageEntry(overrides: Partial<PackageEntry> = {}): PackageEntry {
+  return {
+    name: 'pkg',
+    version: '1.0.0',
+    license: 'MIT',
+    status: 'allowed',
+    source: 'package.json',
+    ...overrides,
+  }
+}
+
+function makeReport(overrides: Partial<LicenseReport> = {}): LicenseReport {
+  return {
+    timestamp: '2025-01-01T00:00:00.000Z',
+    summary: { totalPackages: 1, licenses: { MIT: 1 }, violations: 0, warnings: 0 },
+    packages: [makePackageEntry()],
+    violations: [],
+    warnings: [],
+    ...overrides,
+  }
+}
+
+// ─── formatLicenseDistribution ───────────────────────────────────────────────
+
+describe('formatLicenseDistribution', () => {
+  it('returns empty string for empty licenses object', () => {
+    // Arrange
+    const licenses: Record<string, number> = {}
+    // Act
+    const result = formatLicenseDistribution(licenses)
+    // Assert
+    expect(result).toBe('')
+  })
+
+  it('returns header + one row for a single license', () => {
+    // Arrange
+    const licenses = { MIT: 5 }
+    // Act
+    const result = formatLicenseDistribution(licenses)
+    // Assert
+    expect(result).toContain('Licenses found:')
+    expect(result).toContain('MIT')
+    expect(result).toContain('5')
+  })
+
+  it('sorts licenses by count descending', () => {
+    // Arrange
+    const licenses = { ISC: 2, MIT: 10, Apache: 1 }
+    // Act
+    const result = formatLicenseDistribution(licenses)
+    // Assert
+    const mitPos = result.indexOf('MIT')
+    const iscPos = result.indexOf('ISC')
+    const apachePos = result.indexOf('Apache')
+    expect(mitPos).toBeLessThan(iscPos)
+    expect(iscPos).toBeLessThan(apachePos)
+  })
+
+  it('pads short license names so counts appear at the same column', () => {
+    // Arrange — MIT (3 chars) and BlueOak (7 chars) — no digits in names to avoid false regex match
+    const licenses = { MIT: 3, BlueOak: 1 }
+    // Act
+    const result = formatLicenseDistribution(licenses)
+    // Assert — both data rows end with a space-separated count; widths must match
+    const dataLines = result.split('\n').filter((l) => l.startsWith('  '))
+    // Trim trailing count and compare the padded-name prefix length
+    const prefixLengths = dataLines.map((l) => l.trimEnd().lastIndexOf(' ') + 1)
+    expect(prefixLengths[0]).toBe(prefixLengths[1])
+  })
+
+  it('ends with a trailing blank line (newline separator)', () => {
+    // Arrange
+    const licenses = { MIT: 1 }
+    // Act
+    const result = formatLicenseDistribution(licenses)
+    // Assert
+    expect(result.endsWith('\n')).toBe(true)
+  })
+})
+
+// ─── formatViolations ────────────────────────────────────────────────────────
+
+describe('formatViolations', () => {
+  it('returns empty string when there are no violations', () => {
+    // Arrange / Act / Assert
+    expect(formatViolations([])).toBe('')
+  })
+
+  it('returns header + one entry for a single violation', () => {
+    // Arrange
+    const violations = [makePackageEntry({ name: 'bad', version: '2.0.0', license: 'GPL-3.0', status: 'violation' })]
+    // Act
+    const result = formatViolations(violations)
+    // Assert
+    expect(result).toContain('1 violation:')
+    expect(result).toContain('bad@2.0.0')
+    expect(result).toContain('GPL-3.0')
+  })
+
+  it('uses plural "violations" for multiple entries', () => {
+    // Arrange
+    const violations = [
+      makePackageEntry({ name: 'a', status: 'violation', license: 'GPL-3.0' }),
+      makePackageEntry({ name: 'b', status: 'violation', license: 'LGPL-2.1' }),
+    ]
+    // Act
+    const result = formatViolations(violations)
+    // Assert
+    expect(result).toContain('2 violations:')
+  })
+
+  it('lists every violation entry', () => {
+    // Arrange
+    const violations = [
+      makePackageEntry({ name: 'first', version: '1.0.0', license: 'GPL-2.0', status: 'violation' }),
+      makePackageEntry({ name: 'second', version: '3.1.0', license: 'LGPL-3.0', status: 'violation' }),
+    ]
+    // Act
+    const result = formatViolations(violations)
+    // Assert
+    expect(result).toContain('first@1.0.0')
+    expect(result).toContain('second@3.1.0')
+  })
+
+  it('ends with a trailing blank line (newline separator)', () => {
+    // Arrange
+    const violations = [makePackageEntry({ status: 'violation', license: 'GPL-3.0' })]
+    // Act
+    const result = formatViolations(violations)
+    // Assert
+    expect(result.endsWith('\n')).toBe(true)
+  })
+})
+
+// ─── formatWarnings ──────────────────────────────────────────────────────────
+
+describe('formatWarnings', () => {
+  it('returns empty string when there are no warnings', () => {
+    // Arrange / Act / Assert
+    expect(formatWarnings([])).toBe('')
+  })
+
+  it('returns header + one entry for a single warning', () => {
+    // Arrange
+    const warnings = [{ name: 'mystery', version: '0.1.0', reason: 'No license found' }]
+    // Act
+    const result = formatWarnings(warnings)
+    // Assert
+    expect(result).toContain('1 package with unknown license')
+    expect(result).toContain('mystery@0.1.0')
+    expect(result).toContain('UNKNOWN')
+  })
+
+  it('uses plural "packages" for multiple warnings', () => {
+    // Arrange
+    const warnings = [
+      { name: 'a', version: '1.0.0', reason: 'No license' },
+      { name: 'b', version: '2.0.0', reason: 'No license' },
+    ]
+    // Act
+    const result = formatWarnings(warnings)
+    // Assert
+    expect(result).toContain('2 packages with unknown license')
+  })
+
+  it('lists every warning entry', () => {
+    // Arrange
+    const warnings = [
+      { name: 'pkg-one', version: '1.0.0', reason: 'x' },
+      { name: 'pkg-two', version: '4.2.0', reason: 'y' },
+    ]
+    // Act
+    const result = formatWarnings(warnings)
+    // Assert
+    expect(result).toContain('pkg-one@1.0.0')
+    expect(result).toContain('pkg-two@4.2.0')
+  })
+
+  it('ends with a trailing blank line (newline separator)', () => {
+    // Arrange
+    const warnings = [{ name: 'x', version: '1.0.0', reason: 'unknown' }]
+    // Act
+    const result = formatWarnings(warnings)
+    // Assert
+    expect(result.endsWith('\n')).toBe(true)
+  })
+})
+
+// ─── printSummary ─────────────────────────────────────────────────────────────
+
+describe('printSummary', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('logs the package count header', () => {
+    // Arrange
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const report = makeReport({ summary: { totalPackages: 7, licenses: { MIT: 7 }, violations: 0, warnings: 0 } })
+    // Act
+    printSummary(report, '/tmp/report.json')
+    // Assert
+    const calls = spy.mock.calls.map((c) => c[0])
+    expect(calls.some((c) => String(c).includes('7 packages scanned'))).toBe(true)
+  })
+
+  it('logs license distribution when licenses are present', () => {
+    // Arrange
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const report = makeReport({ summary: { totalPackages: 2, licenses: { MIT: 2 }, violations: 0, warnings: 0 } })
+    // Act
+    printSummary(report, '/tmp/report.json')
+    // Assert
+    const output = spy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(output).toContain('Licenses found:')
+    expect(output).toContain('MIT')
+  })
+
+  it('logs no-violations message when report is clean', () => {
+    // Arrange
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const report = makeReport()
+    // Act
+    printSummary(report, '/tmp/report.json')
+    // Assert
+    const output = spy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(output).toContain('No violations found')
+  })
+
+  it('does NOT log no-violations message when violations exist', () => {
+    // Arrange
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const violation = makePackageEntry({ name: 'bad', status: 'violation', license: 'GPL-3.0' })
+    const report = makeReport({
+      violations: [violation],
+      summary: { totalPackages: 1, licenses: { 'GPL-3.0': 1 }, violations: 1, warnings: 0 },
+    })
+    // Act
+    printSummary(report, '/tmp/report.json')
+    // Assert
+    const output = spy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(output).not.toContain('No violations found')
+    expect(output).toContain('violation')
+  })
+
+  it('logs violation details when violations are present', () => {
+    // Arrange
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const violation = makePackageEntry({ name: 'evil-pkg', version: '2.0.0', status: 'violation', license: 'GPL-3.0' })
+    const report = makeReport({
+      violations: [violation],
+      summary: { totalPackages: 1, licenses: { 'GPL-3.0': 1 }, violations: 1, warnings: 0 },
+    })
+    // Act
+    printSummary(report, '/tmp/report.json')
+    // Assert
+    const output = spy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(output).toContain('evil-pkg@2.0.0')
+  })
+
+  it('logs warning details when warnings are present', () => {
+    // Arrange
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const report = makeReport({
+      warnings: [{ name: 'unknown-pkg', version: '1.0.0', reason: 'No license' }],
+      summary: { totalPackages: 1, licenses: {}, violations: 0, warnings: 1 },
+    })
+    // Act
+    printSummary(report, '/tmp/report.json')
+    // Assert
+    const output = spy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(output).toContain('unknown-pkg@1.0.0')
+    expect(output).toContain('UNKNOWN')
+  })
+
+  it('logs the report path at the end', () => {
+    // Arrange
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const report = makeReport()
+    // Act
+    printSummary(report, '/some/path/reports/licenses.json')
+    // Assert
+    const calls = spy.mock.calls.map((c) => String(c[0]))
+    expect(calls.some((c) => c.includes('/some/path/reports/licenses.json'))).toBe(true)
+  })
+
+  it('handles empty license distribution (no licenses logged)', () => {
+    // Arrange
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const report = makeReport({ summary: { totalPackages: 0, licenses: {}, violations: 0, warnings: 0 } })
+    // Act
+    printSummary(report, '/tmp/report.json')
+    // Assert — should not throw and should still log header + report path
+    const output = spy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(output).toContain('0 packages scanned')
+    expect(output).toContain('/tmp/report.json')
   })
 })

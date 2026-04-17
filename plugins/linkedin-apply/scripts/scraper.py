@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # Type checking imports
 if TYPE_CHECKING:
-    from playwright.async_api import Page, BrowserContext
+    from playwright.async_api import BrowserContext, Page, Playwright as AsyncPlaywright
 
 
 # ============================================================================
@@ -181,10 +181,31 @@ class ScraperTimeoutError(LinkedInScraperError):
     pass
 
 
-class PlaywrightNotAvailableError(LinkedInScraperError):
-    """Raised when Playwright is not installed."""
+# Import the SDK error so the local alias can be caught from both
+# hierarchies (see #93 spec S3a). MRO is left-first, so __init__ resolves
+# to LinkedInScraperError(message, url=None) — instances raised by the SDK
+# launcher will carry self.url=None, which is harmless but non-obvious.
+from roxabi_sdk.browser import (  # noqa: E402
+    PlaywrightNotAvailableError as _SdkPlaywrightNotAvailableError,
+    close_stealth_async as _sdk_close_stealth_async,
+    launch_stealth_async as _sdk_launch_stealth_async,
+)
 
-    pass
+
+class PlaywrightNotAvailableError(
+    LinkedInScraperError, _SdkPlaywrightNotAvailableError
+):
+    """Alias error catchable from both LinkedIn and SDK exception hierarchies.
+
+    Allows ``except PlaywrightNotAvailableError`` and
+    ``except LinkedInScraperError`` clauses to both catch the same instance,
+    so existing LinkedIn callers keep working while cross-cutting SDK
+    callers (e.g. dashboards that aggregate browser-bootstrap failures)
+    can also handle it uniformly with web-intel.
+
+    ``self.url`` will be ``None`` for errors raised by the SDK launcher
+    (the SDK does not know which URL the caller was about to fetch).
+    """
 
 
 # ============================================================================
@@ -264,54 +285,28 @@ def validate_linkedin_url(url: str) -> bool:
 
 async def get_browser_context(
     headless: bool = False,
-) -> tuple[Any, "BrowserContext"]:
-    """
-    Create browser context with persistent profile and stealth mode.
+) -> tuple[AsyncPlaywright, BrowserContext, Page]:
+    """Create a stealth-patched persistent LinkedIn browser context.
 
-    Returns:
-        Tuple of (playwright instance, browser context)
+    Delegates to :func:`roxabi_sdk.browser.launch_stealth_async` with the
+    LinkedIn profile directory. Returns ``(playwright, context, page)`` — the
+    caller owns the lifecycle and must call
+    :func:`roxabi_sdk.browser.close_stealth_async` when done.
 
     Raises:
-        PlaywrightNotAvailableError: If playwright or playwright-stealth not installed
+        PlaywrightNotAvailableError: If playwright or playwright-stealth is
+            not installed (catchable as :class:`LinkedInScraperError` too).
     """
     try:
-        from playwright.async_api import async_playwright
-        from playwright_stealth import Stealth
-    except ImportError as e:
-        raise PlaywrightNotAvailableError(
-            f"Playwright or playwright-stealth not installed: {e}\n"
-            "Run: pip install playwright playwright-stealth && playwright install chromium"
+        playwright, context, page = await _sdk_launch_stealth_async(
+            user_data_dir=LINKEDIN_PROFILE_DIR,
+            headless=headless,
         )
-
-    # Ensure profile directory exists
-    os.makedirs(LINKEDIN_PROFILE_DIR, exist_ok=True)
-
-    # Create stealth instance
-    stealth = Stealth(
-        navigator_webdriver=True,
-        chrome_runtime=True,
-        navigator_plugins=True,
-        navigator_permissions=True,
-        webgl_vendor=True,
-    )
-
-    # Use stealth-instrumented playwright
-    playwright = await stealth.use_async(async_playwright()).start()
-
-    # Launch persistent context
-    context = await playwright.chromium.launch_persistent_context(
-        user_data_dir=LINKEDIN_PROFILE_DIR,
-        headless=headless,
-        viewport={"width": 1280, "height": 900},
-        args=[
-            "--disable-blink-features=AutomationControlled",
-            "--no-first-run",
-            "--no-default-browser-check",
-        ],
-    )
+    except _SdkPlaywrightNotAvailableError as exc:
+        raise PlaywrightNotAvailableError(str(exc)) from exc
 
     logger.info("Browser context created with stealth mode")
-    return playwright, context
+    return playwright, context, page
 
 
 async def check_login(page: "Page") -> bool:
@@ -404,12 +399,8 @@ async def scrape_job(
     context = None
 
     try:
-        # Get browser context
-        playwright, context = await get_browser_context(headless=headless)
-
-        # Get or create page
-        pages = context.pages
-        page = pages[0] if pages else await context.new_page()
+        # Get browser context + stealth-patched page from SDK
+        playwright, context, page = await get_browser_context(headless=headless)
 
         # Navigate to job page
         logger.debug("Navigating to job page...")
@@ -532,17 +523,11 @@ async def scrape_job(
         return job
 
     finally:
-        # Cleanup
-        if context:
+        if playwright and context:
             try:
-                await context.close()
+                await _sdk_close_stealth_async(playwright, context)
             except Exception as e:
-                logger.warning(f"Error closing context: {e}")
-        if playwright:
-            try:
-                await playwright.stop()
-            except Exception as e:
-                logger.warning(f"Error stopping playwright: {e}")
+                logger.warning(f"Error during browser cleanup: {e}")
 
 
 async def scrape_job_with_retry(

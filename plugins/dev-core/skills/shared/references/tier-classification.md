@@ -49,5 +49,5 @@ Canonical rules for classifying work into S / F-lite / F-full. Referenced by `/f
 
 - C + signals agree → use that τ.
 - C + signals conflict → default **higher** τ, note: "Defaulted to {τ} — downgrade if scope narrows."
-- Human judgment always overrides. AskUserQuestion if C + intuition disagree.
+- Human judgment always overrides. → DP(A) if C + intuition disagree.
 - Scope vs complexity: small but complex fix (1 file, tricky logic) stays S. Large but simple change (10 files, config tweak) may stay F-lite.

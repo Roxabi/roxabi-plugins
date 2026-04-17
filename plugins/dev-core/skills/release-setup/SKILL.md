@@ -3,7 +3,7 @@ name: release-setup
 argument-hint: '[--force]'
 description: 'Set up commit standards and release automation — Commitizen, commitlint, semantic-release, Release Please, Lefthook/Husky. Triggers: "release setup" | "setup releases" | "commit standards" | "setup release automation".'
 version: 0.1.0
-allowed-tools: Bash, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, ToolSearch
 ---
 
 # Release Setup
@@ -28,7 +28,7 @@ Check prerequisites and per-component state before any installation.
    test -f .claude/stack.yml && echo "found" || echo "missing"
    ```
    missing → warn: "stack.yml not found — release-setup reads runtime and hook runner from it."
-   AskUserQuestion: **Run `/env-setup` first** | **Proceed manually**
+   → DP(A) **Run `/env-setup` first** | **Proceed manually**
    Proceed manually → continue with defaults (runtime: node, package_manager: npm, hooks.tool: none).
 
 2. Check per-component config file existence in parallel:
@@ -38,12 +38,13 @@ Check prerequisites and per-component state before any installation.
    test -f .commitlintrc.cjs && echo "has_commits" || echo "no_commits"
    test -f release.config.cjs && echo "has_sr" || echo "no_sr"
    test -f release-please-config.json && echo "has_rp" || echo "no_rp"
+   test -f .github/workflows/release-please.yml && echo "has_rp_wf" || echo "no_rp_wf"
    ```
 
 3. Set booleans from results:
    - `has_hook_runner` := `has_lefthook` ∨ `has_husky`
    - `has_commits` := `.commitlintrc.cjs` ∃
-   - `has_releases` := `release.config.cjs` ∃ ∨ `release-please-config.json` ∃
+   - `has_releases` := `release.config.cjs` ∃ ∨ (`release-please-config.json` ∃ ∧ `.github/workflows/release-please.yml` ∃). Release Please config without the workflow is **not** complete — Phase 4 will add the missing workflow.
    - `has_lefthook` := `.lefthook.yml` ∃
 
 4. F overrides all guards → treat all booleans as false (re-run all components).
@@ -100,6 +101,7 @@ Display results and generated files. Do NOT run `git add` or `git commit`.
      release.config.cjs            (semantic-release chosen)
      release-please-config.json    (Release Please chosen)
      .release-please-manifest.json (Release Please chosen)
+     .github/workflows/release-please.yml  (Release Please chosen)
    ```
 
 3. Display suggested commit command:
@@ -112,7 +114,7 @@ Display results and generated files. Do NOT run `git add` or `git commit`.
 ## Safety Rules
 
 1. **Never push to remote** without user confirmation
-2. **Always AskUserQuestion** before installing packages or writing config files
+2. **Always present decisions via protocol** before installing packages or writing config files
 3. **Idempotent** — skip already-configured components unless F
 4. **No auto-commit** — sub-skill pattern: display files, let user review and commit
 

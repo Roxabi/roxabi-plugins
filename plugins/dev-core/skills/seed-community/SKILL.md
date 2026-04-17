@@ -3,7 +3,7 @@ name: seed-community
 argument-hint: '[--only <file,...>] [--force]'
 description: 'Bootstrap OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), .github/PULL_REQUEST_TEMPLATE.md, .github/ISSUE_TEMPLATE/. Reads project metadata and CLAUDE.md; generates missing files idempotently. Triggers: "seed community" | "bootstrap community files" | "add contributing" | "add license" | "add security policy" | "github community files".'
 version: 0.1.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---
 
 # Seed Community
@@ -11,15 +11,17 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch, AskUserQuestion
 Let:
   σ := `.claude/stack.yml` config
   M := project metadata (name, description, license, author, repo URL)
-  MISSING := community health files not yet present or below stub threshold (< 20 lines)
+  χ := community health file
+  θ := stub threshold (< 20 lines of real content)
+  MISSING := χ not present or below θ
   GENERATED := [] — accumulator
 
-**Goal:** detect missing community health files, generate them with project-specific content, leave existing populated files untouched.
+**Goal:** detect MISSING χ, generate with project-specific content, leave existing populated files untouched.
 
-**Idempotent** — files ≥ 20 lines of real content are skipped unless `--force` is passed.
+**Idempotent** — files ≥ 20 lines skipped unless `--force`.
 
 ```
-/seed-community                          → detect + generate all missing files
+/seed-community                          → detect + generate all MISSING
 /seed-community --only SECURITY,CoC     → comma-separated subset
 /seed-community --force                 → overwrite even populated files
 ```
@@ -43,17 +45,11 @@ cat go.mod 2>/dev/null | head -5
 gh repo view --json nameWithOwner,description,licenseInfo,url 2>/dev/null
 ```
 
-**1d.** Read `CLAUDE.md` (∃). Extract:
-- Project purpose (1–3 sentences)
-- Commit format / branch conventions
-- PR / review process
-- Stack notes (framework, commands)
-
-Merge into M: `{name, description, license, author, repo_url, commit_format, pr_process, stack}`.
+**1d.** Read `CLAUDE.md` (∃). Extract: purpose (1–3 sentences), commit format, branch conventions, PR/review process, stack notes. Merge into M: `{name, description, license, author, repo_url, commit_format, pr_process, stack}`.
 
 ## Phase 2 — Detect Missing Files
 
-Check presence and line count for each target:
+Check presence + line count ∀ target:
 
 | Target | Path | Stub if |
 |--------|------|---------|
@@ -66,8 +62,7 @@ Check presence and line count for each target:
 | Issue: Bug | `.github/ISSUE_TEMPLATE/bug_report.md` | ∄ |
 | Issue: Feature | `.github/ISSUE_TEMPLATE/feature_request.md` | ∄ |
 
-`--only X,Y` → filter MISSING to those names only.
-`--force` → include all targets regardless of line count.
+`--only X,Y` → filter MISSING to those names. `--force` → include all targets regardless of line count.
 
 Display:
 ```
@@ -88,9 +83,9 @@ MISSING = ∅ → "All community files are present. Use --force to regenerate." 
 
 ## Phase 3 — Confirm + Gather Options
 
-AskUserQuestion:
-1. **License type** (if LICENSE ∈ MISSING) → MIT | Apache-2.0 | GPL-3.0 | Skip
-2. **Author / org name** (if not found in M) → free text
+→ DP(C)
+1. **License type** (LICENSE ∈ MISSING) → MIT | Apache-2.0 | GPL-3.0 | Skip
+2. **Author / org name** (∄ in M) → → DP(B)
 3. **Optional extras** (multiSelect) → FUNDING.yml | CODEOWNERS | Contributor Covenant v2.1 wording (for CoC)
 
 ## Phase 4 — Generate Files
@@ -99,13 +94,11 @@ Process MISSING in order: LICENSE → CODE_OF_CONDUCT → SECURITY → CONTRIBUT
 
 ### LICENSE
 
-Detect year from: `git log --reverse --format="%ad" --date=format:"%Y" | head -1` or current year.
-
-Generate standard SPDX text for chosen license. Author = M.author or org from repo URL.
+`git log --reverse --format="%ad" --date=format:"%Y" | head -1` → year (else current year). Generate standard SPDX text. Author = M.author or org from repo URL.
 
 ### CODE_OF_CONDUCT.md
 
-Use Contributor Covenant v2.1 (industry standard). Replace `[INSERT CONTACT METHOD]` with M.author email if available from package.json / git config, else leave placeholder.
+Contributor Covenant v2.1. Replace `[INSERT CONTACT METHOD]` with M.author email if available, else leave placeholder.
 
 ### SECURITY.md
 
@@ -133,11 +126,11 @@ We aim to respond within 48 hours and patch within 14 days.
 ### CONTRIBUTING.md (if stub/missing)
 
 Pull from M + σ:
-- **Development setup** — clone, `{commands.install}`, `{commands.dev}`
-- **Running tests** — `{commands.test}`
-- **Commit format** — from CLAUDE.md `commit_format` or conventional commits default
+- **Dev setup** — clone, `{commands.install}`, `{commands.dev}`
+- **Tests** — `{commands.test}`
+- **Commit format** — M.commit_format or conventional commits default
 - **Branch naming** — `feat/`, `fix/`, `chore/` prefixes
-- **PR process** — from M.pr_process or standard checklist
+- **PR process** — M.pr_process or standard checklist
 - **Code style** — `{build.formatter}` + `{build.formatter_fix_cmd}`
 
 ### .github/PULL_REQUEST_TEMPLATE.md
@@ -163,23 +156,20 @@ Pull from M + σ:
 - [ ] Commit messages follow `{commit_format}`
 ```
 
-### .github/ISSUE_TEMPLATE/bug_report.md
+### Issue Templates
 
-Standard bug report: Steps to reproduce, Expected behavior, Actual behavior, Environment (OS, runtime version, plugin version), Additional context.
+**bug_report.md** — Steps to reproduce, Expected behavior, Actual behavior, Environment (OS, runtime version, plugin version), Additional context.
 
-### .github/ISSUE_TEMPLATE/feature_request.md
-
-Standard feature request: Problem statement, Proposed solution, Alternatives considered, Additional context.
+**feature_request.md** — Problem statement, Proposed solution, Alternatives considered, Additional context.
 
 ### README.md — missing sections
 
-Read existing README. Identify missing standard sections. Inject **after the first `##` section** or at end if no sections exist:
+Read existing README. Inject **after first `##`** or at end if ¬sections:
+- **Getting Started** — prerequisites, install command, quick usage
+- **Installation** — if ∄ as heading
+- **Badges** — ∄ badge lines near top → add CI status + license badge using M.repo_url
 
-- **Getting Started** — prerequisites, install command (`claude plugin marketplace add` + `claude plugin install`), quick usage example
-- **Installation** — if not already present as a heading
-- **Badges** — if ∄ any badge lines near top: add CI status badge + license badge using M.repo_url
-
-Never overwrite existing content — only append missing sections or insert badges at top.
+¬overwrite existing content — append missing sections or insert badges at top only.
 
 After each file: display `✅ {path} — generated ({N} lines)` and append to GENERATED.
 
@@ -203,7 +193,7 @@ Seed Community Complete
     LICENSE                                  ⏭ exists
 ```
 
-AskUserQuestion: **Commit generated files** | **Review first, commit manually** | **Skip**
+→ DP(A) **Commit generated files** | **Review first, commit manually** | **Skip**
 
 "Commit" → `git add {GENERATED}` + commit:
 ```
@@ -216,11 +206,11 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 
 | Scenario | Behavior |
 |----------|----------|
-| ¬git repo | Skip badges (no repo URL), skip GitHub-specific files; generate root files only |
-| ¬package.json + ¬pyproject.toml | Use git remote for name; prompt for author |
+| ¬git repo | Skip badges + GitHub-specific files; generate root files only |
+| ¬package.json ∧ ¬pyproject.toml | Use git remote for name; prompt for author |
 | LICENSE already exists | Skip regardless of `--force` (license changes are intentional) |
 | Private repo | Omit public security advisory link; use email only |
-| Monorepo | Generate at root; note that sub-packages may need their own LICENSE |
+| Monorepo | Generate at root; note sub-packages may need own LICENSE |
 | README.md has badges already | Skip badge insertion |
 | ¬.github dir | `mkdir -p .github/ISSUE_TEMPLATE` before writing templates |
 

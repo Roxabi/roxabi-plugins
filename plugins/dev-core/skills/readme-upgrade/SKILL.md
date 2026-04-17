@@ -3,7 +3,7 @@ name: readme-upgrade
 argument-hint: '[--target root|plugins|contributing|all] [--plugin <name>] [--force]'
 description: 'Audit and upgrade project documentation quality — README.md, CONTRIBUTING.md, plugin READMEs — against the developer-tool pattern (Why, Quick Start, How it works, command tables with categories, diagram). Triggers: "improve readme" | "upgrade docs" | "readme quality" | "improve docs" | "doc audit" | "readme upgrade" | "improve contributing" | "docs health".'
 version: 0.1.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---
 
 # Readme Upgrade
@@ -11,6 +11,8 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch, AskUserQuestion
 Let:
   σ := `.claude/stack.yml` config
   M := project metadata (name, description, repo URL, license)
+  ρ := `README.md`
+  κ := `CONTRIBUTING.md`
   TARGET ∈ {root, plugins, contributing, all} — default: all
   DIAGRAM ∈ {mermaid, ascii} — auto-detected
   FINDINGS := [] — audit findings per file
@@ -22,9 +24,9 @@ Let:
 
 ```
 /readme-upgrade                            → audit + improve all docs
-/readme-upgrade --target root              → root README.md only
+/readme-upgrade --target root              → root ρ only
 /readme-upgrade --target plugins           → all plugin READMEs
-/readme-upgrade --target contributing      → CONTRIBUTING.md only
+/readme-upgrade --target contributing      → κ only
 /readme-upgrade --plugin dev-core          → one plugin README only
 /readme-upgrade --force                    → re-audit even passing sections
 ```
@@ -45,7 +47,7 @@ The quality standard used by this skill. Applied to all docs.
 | 6 | How it works | ✅ | Mental model + optional diagram (≤ 200 words) |
 | 7 | Feature/command table | ✅ | Grouped by category, 2–3 columns |
 | 8 | Configuration | if applicable | Key config reference |
-| 9 | Contributing | ✅ | Link to CONTRIBUTING.md + 1-liner |
+| 9 | Contributing | ✅ | Link to κ + 1-liner |
 | 10 | License | ✅ | `MIT` one-liner |
 
 ### Plugin README checklist
@@ -77,15 +79,15 @@ Auto-detect:
 git remote get-url origin 2>/dev/null
 ```
 
-- GitHub URL (`github.com`) → DIAGRAM=`mermaid` — GitHub renders ` ```mermaid ` natively since 2022
-- npm publish target (check `package.json` `"publishConfig"` or `scripts.publish`) → DIAGRAM=`ascii` — npm page does not render Mermaid
+- GitHub URL → DIAGRAM=`mermaid` (renders natively since 2022)
+- npm publish target (`"publishConfig"` or `scripts.publish` in `package.json`) → DIAGRAM=`ascii`
 - No remote or other host → DIAGRAM=`ascii`
 
-Use Mermaid `flowchart LR` for workflow diagrams. Use ASCII for sequence/timing if Mermaid adds no clarity.
+Use Mermaid `flowchart LR` for workflows; ASCII for sequence/timing if Mermaid adds no clarity.
 
 ## Phase 1 — Load Context
 
-**1a.** Read σ (`cat .claude/stack.yml 2>/dev/null`). Extract: `runtime`, `package_manager`, `docs.path`.
+**1a.** Read σ. Extract: `runtime`, `package_manager`, `docs.path`.
 
 **1b.** Project metadata M:
 ```bash
@@ -95,42 +97,30 @@ cat package.json 2>/dev/null | python3 -m json.tool 2>/dev/null | grep -E '"name
 cat pyproject.toml 2>/dev/null | grep -E '^name|^description|^version|^license'
 ```
 
-**1c.** Detect diagram format (see above).
-
-**1d.** Detect plugin marketplace:
+**1c.** Detect diagram format (see above). **1d.** Detect plugin marketplace:
 ```bash
 ls .claude-plugin/marketplace.json 2>/dev/null && echo "marketplace"
 ls plugins/ 2>/dev/null && echo "has-plugins"
 ```
 
-**1e.** Parse `$ARGUMENTS`:
-- `--target <t>` → TARGET=t
-- `--plugin <n>` → TARGET=plugins, filter to `plugins/<n>/README.md`
-- `--force` → override idempotency check
+**1e.** Parse `$ARGUMENTS`: `--target <t>` → TARGET=t | `--plugin <n>` → TARGET=plugins, filter to `plugins/<n>/README.md` | `--force` → override idempotency.
 
 ## Phase 2 — Discover Target Files
 
-Based on TARGET:
-
 | TARGET | Files to audit |
 |--------|---------------|
-| `root` | `README.md` |
-| `contributing` | `CONTRIBUTING.md` |
+| `root` | ρ |
+| `contributing` | κ |
 | `plugins` | `plugins/*/README.md` (∀ plugins) |
 | `all` | all of the above |
 
-For each file: check existence. Missing files → note in FINDINGS as `missing` severity; do not create (use `/seed-community` for that). ¬exist + ≥ 1 file missing → warn once at end.
+∀ file: check existence. ¬exist → note in FINDINGS as `missing` severity; do not create (use `/seed-community`). ≥ 1 missing → warn once at end.
 
 ## Phase 3 — Audit Each File
 
-∀ file ∈ targets (order: README.md → CONTRIBUTING.md → plugins/* alphabetically):
+∀ file ∈ targets (order: ρ → κ → plugins/* alphabetically):
 
-**3a.** Read the file.
-
-**3b.** Run checklist for its type (root / plugin / contributing). For each item:
-- ✅ **Pass** — section exists and has ≥ 3 lines of real content
-- ⚠️ **Weak** — section exists but is < 3 lines, lacks examples, or is a stub
-- ❌ **Missing** — section not found at all
+**3a.** Read file. **3b.** Run checklist for its type. ∀ item: ✅ Pass (≥ 3 lines real content) | ⚠️ Weak (< 3 lines, no examples, or stub) | ❌ Missing (not found).
 
 **3c.** Append to FINDINGS:
 ```
@@ -141,7 +131,7 @@ For each file: check existence. Missing files → note in FINDINGS as `missing` 
   ✅ Pass:    License
 ```
 
-**3d.** Skip ✅ items unless `--force`.
+**3d.** `--force` ∉ args → skip ✅ items.
 
 ## Phase 4 — Present Findings
 
@@ -178,25 +168,22 @@ Summary: {total_missing} missing, {total_weak} weak, {total_pass} passing
          across {N} files
 ```
 
-AskUserQuestion: **Fix all findings** | **Select files** | **Show me a preview first** | **Cancel**
-- "Select" → list files numbered, ask which to fix (comma-separated indices).
-- "Preview" → show a before/after for the first ❌ Missing finding, then re-ask.
+→ DP(A) **Fix all findings** | **Select files** | **Show me a preview first** | **Cancel**
+- "Select" → numbered list, ask which to fix (comma-separated). "Preview" → before/after for first ❌, then re-ask.
 
 ## Phase 5 — Improve Docs
 
-∀ file ∈ selected (order: root README → CONTRIBUTING → plugins/*):
-
-For each ❌/⚠️ finding in the file, apply a targeted improvement:
+∀ file ∈ selected (order: root ρ → κ → plugins/*): ∀ ❌/⚠️ finding → apply targeted improvement.
 
 ### Writing rules
 
 - **Tone:** direct, imperative ("Install with..." not "You can install with..."). No filler.
-- **Length:** each new section ≤ 150 words unless it's a reference table.
-- **No fabrication:** if M has no description, ask once: AskUserQuestion: "One-liner for {project}?"
+- **Length:** each new section ≤ 150 words unless reference table.
+- **No fabrication:** M.description ∄ → → DP(B) "One-liner for {project}?"
 - **Diagrams:** use DIAGRAM format. Mermaid → `flowchart LR` unless another type fits better.
-- **Tables:** 2–3 columns max. If features > 8, group into categories (H3 headers above each sub-table or a "Category" first column).
-- **Callout blocks** (`> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`) — use for key warnings or tips. GitHub renders them as colored panels.
-- **Preserve existing structure** — insert new sections at the logical position; don't reorder what already works.
+- **Tables:** 2–3 columns max. features > 8 → group into categories (H3 headers or "Category" column).
+- **Callout blocks** (`> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`) — use for key warnings/tips.
+- **Preserve existing structure** — insert new sections at logical position; don't reorder what works.
 
 ### Section templates
 
@@ -250,8 +237,7 @@ flowchart LR
 ```
 ```
 
-After each file: display `✅ {file} — {N} sections improved`.
-Append file to EDITED.
+After each file: display `✅ {file} — {N} sections improved`. Append file to EDITED.
 
 ## Phase 6 — Summary
 
@@ -273,8 +259,7 @@ Readme Upgrade Complete
   {|EDITED|} files improved, {skipped} skipped.
 ```
 
-AskUserQuestion: **Commit improvements** | **Review first, commit manually** | **Skip**
-
+→ DP(A) **Commit improvements** | **Review first, commit manually** | **Skip**
 "Commit" → `git add ${EDITED}` + commit:
 ```
 docs: improve readme and contributing quality
@@ -286,14 +271,14 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 
 | Scenario | Behavior |
 |----------|----------|
-| ¬CONTRIBUTING.md | Note in summary: "run /seed-community to create it" |
-| Plugin README missing entirely | Note: "run /seed-community or create manually" |
-| `--plugin` names unknown plugin | List available plugins, AskUserQuestion |
+| ¬κ | Note: "run /seed-community to create it" |
+| Plugin README ∄ | Note: "run /seed-community or create manually" |
+| `--plugin` names unknown plugin | List available plugins, present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A) |
 | Mermaid + npm publish | Warn: "npm pages don't render Mermaid — switching to ASCII" |
-| M.description empty + ¬gh CLI | AskUserQuestion: "One-liner for <name>?" |
+| M.description ∅ ∧ ¬gh CLI | → DP(B) "One-liner for <name>?" |
 | Wrapped plugin (git subtree) | Note attribution requirement in finding if missing |
 | ¬git repo | Skip commit offer |
-| Finding count = 0 | "All docs pass the quality checklist. Use --force to re-audit." |
-| `--force` on large repo | AskUserQuestion: **Confirm re-audit of {N} passing files** |
+| Findings = 0 | "All docs pass the quality checklist. Use --force to re-audit." |
+| `--force` on large repo | → DP(A) **Confirm re-audit of {N} passing files** |
 
 $ARGUMENTS

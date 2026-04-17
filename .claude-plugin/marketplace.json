@@ -27,7 +27,7 @@
     },
     {
       "name": "dev-core",
-      "description": "Full development workflow — frame, shape, plan, implement, review, ship. Opinionated Roxabi process with 21 skills, 9 agents, and safety hooks.",
+      "description": "Full development workflow — frame, shape, plan, implement, review, ship. Opinionated Roxabi process with 29 skills, 9 agents, and safety hooks.",
       "source": "./plugins/dev-core",
       "category": "development",
       "version": "0.1.0"
@@ -102,6 +102,20 @@
       "description": "Analyze YouTube videos to extract narrative structure, VAKOG sensory predicates, and reusable content creation recipes.",
       "source": "./plugins/content-lab",
       "category": "content",
+      "version": "0.1.0"
+    },
+    {
+      "name": "idna",
+      "description": "IDNA — Idea DNA evolutionary selector. Explore variants, pick a winner, converge through amplify/blend/refine mutations. Self-driving: browser → Claude CLI → imageCLI → auto-advance.",
+      "source": "./plugins/idna",
+      "category": "productivity",
+      "version": "0.1.0"
+    },
+    {
+      "name": "gitnexus",
+      "description": "GitNexus CLI integration — code knowledge graph tools (impact analysis, symbol context, query). CLI-only alternative to MCP for minimal token overhead.",
+      "source": "./plugins/gitnexus",
+      "category": "development",
       "version": "0.1.0"
     }
   ]

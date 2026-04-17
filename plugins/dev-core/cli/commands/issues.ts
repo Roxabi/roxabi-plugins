@@ -1,22 +1,56 @@
 #!/usr/bin/env bun
-import { buildBatchedQuery, buildBatchedVariables } from '../../skills/shared/queries'
+import { formatJson, formatTable, formatTree } from '../../skills/issues/lib/table-formatter'
+import { buildBatchedQuery, buildBatchedVariables, ISSUES_QUERY } from '../../skills/shared/queries'
 import type { RawItem } from '../../skills/shared/types'
-import { readWorkspace } from '../lib/workspace'
-
-export interface IssuesCommandProject {
-  repo: string
-  projectId?: string
-  id?: string
-  label: string
-}
-
-export interface IssuesCommandWorkspace {
-  projects: IssuesCommandProject[]
-}
+import { resolveCurrentProject, resolveRepoFromCwd } from '../lib/cwd-resolver'
+import type { Workspace } from '../lib/workspace-store'
+import { readWorkspace } from '../lib/workspace-store'
 
 export interface IssuesCommandOptions {
-  workspace?: IssuesCommandWorkspace
-  format?: 'table' | 'json'
+  workspace?: Workspace
+  format?: 'table' | 'tree' | 'json'
+  all?: boolean
+}
+
+function resolveToken(): string {
+  const token =
+    process.env.GITHUB_TOKEN ||
+    (() => {
+      const proc = Bun.spawnSync(['gh', 'auth', 'token'], { stdout: 'pipe', stderr: 'pipe' })
+      return new TextDecoder().decode(proc.stdout).trim()
+    })()
+  if (!token) throw new Error('Not authenticated. Run: gh auth login or set GITHUB_TOKEN env var')
+  return token
+}
+
+async function ghGraphQL(query: string, variables: Record<string, string>, token: string): Promise<unknown> {
+  const res = await fetch('https://api.github.com/graphql', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'roxabi-cli' },
+    body: JSON.stringify({ query, variables }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`GitHub GraphQL error (${res.status}): ${text}`)
+  }
+  return res.json()
+}
+
+/** Fetch all items for a single project with full cursor-based pagination (no 100-item cap). */
+async function fetchProjectItems(projectId: string, token: string): Promise<RawItem[]> {
+  const allItems: RawItem[] = []
+  let cursor: string | undefined
+  do {
+    const variables: Record<string, string> = { projectId }
+    if (cursor) variables.cursor = cursor
+    const data = (await ghGraphQL(ISSUES_QUERY, variables, token)) as {
+      data: { node: { items: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: RawItem[] } } }
+    }
+    const page = data.data.node.items
+    allItems.push(...page.nodes)
+    cursor = page.pageInfo.hasNextPage ? (page.pageInfo.endCursor ?? undefined) : undefined
+  } while (cursor)
+  return allItems
 }
 
 /**
@@ -24,74 +58,73 @@ export interface IssuesCommandOptions {
  * Returns formatted output as a string instead of printing to stdout.
  */
 export async function runIssuesCommand(opts: IssuesCommandOptions = {}): Promise<string> {
-  const ws = opts.workspace ?? (readWorkspace() as IssuesCommandWorkspace)
+  const ws = opts.workspace ?? readWorkspace()
   if (ws.projects.length === 0) {
     return 'No projects in workspace.\nRun: roxabi workspace add owner/repo'
   }
 
-  // Normalise: accept either `projectId` or `id` field
-  const projectIds = ws.projects.map((p) => p.projectId ?? p.id ?? '')
-  const query = buildBatchedQuery(projectIds)
-  const variables = buildBatchedVariables(projectIds)
+  const token = resolveToken()
+  const format = opts.format ?? 'table'
+  const formatOpts = { sortBy: 'priority' as const, titleLength: 55 }
+  const byProject = new Map<string, RawItem[]>()
 
-  const token = process.env.GITHUB_TOKEN ?? ''
-  const res = await fetch('https://api.github.com/graphql', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'User-Agent': 'roxabi-cli',
-    },
-    body: JSON.stringify({ query, variables }),
-  })
-
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`GitHub GraphQL error (${res.status}): ${text}`)
+  if (!opts.all) {
+    // Default: single project matched to cwd
+    const cwd = process.cwd()
+    const matched = resolveCurrentProject(ws.projects, cwd)
+    if (!matched) {
+      const slug = resolveRepoFromCwd(cwd)
+      const hint = slug
+        ? `Detected repo: ${slug} — not registered.\nRun: roxabi workspace add ${slug}`
+        : `Run with -A to show all projects, or register this path with: roxabi workspace add owner/repo`
+      return `No project found for current directory: ${cwd}\n${hint}`
+    }
+    const items = await fetchProjectItems(matched.projectId, token)
+    byProject.set(matched.label, items)
+  } else {
+    // -A: all projects via batched query (100-item cap per project)
+    const projectIds = ws.projects.map((p) => p.projectId)
+    const query = buildBatchedQuery(projectIds)
+    const variables = buildBatchedVariables(projectIds)
+    const json = (await ghGraphQL(query, variables, token)) as {
+      data: Record<string, { items: { nodes: RawItem[] } } | null>
+    }
+    for (let i = 0; i < ws.projects.length; i++) {
+      const node = json.data[`project${i}`]
+      byProject.set(ws.projects[i].label, node?.items?.nodes ?? [])
+    }
   }
 
-  const json = (await res.json()) as { data: Record<string, { items: { nodes: RawItem[] } } | null> }
-
-  // Build a map of label → items
-  const byProject = new Map<string, RawItem[]>()
-  for (let i = 0; i < ws.projects.length; i++) {
-    const node = json.data[`project${i}`]
-    byProject.set(ws.projects[i].label, node?.items?.nodes ?? [])
+  if (format === 'json') {
+    const allItems: RawItem[] = []
+    for (const items of byProject.values()) allItems.push(...items)
+    return formatJson(allItems)
   }
 
   const lines: string[] = []
 
   for (const [label, items] of byProject) {
+    lines.push(`\n## ${label}`)
     const open = items.filter((i) => i.content?.state === 'OPEN')
     if (open.length === 0) {
-      lines.push(`\n## ${label}\n  0 issues`)
+      lines.push('  0 issues')
       continue
     }
-    lines.push(`\n## ${label}`)
-    lines.push(`${'#'.padEnd(6)} ${'Title'.padEnd(60)} ${'Status'.padEnd(14)} ${'Size'.padEnd(6)} Project`)
-    lines.push('-'.repeat(100))
-    for (const item of open) {
-      const field = (name: string) => {
-        for (const fv of item.fieldValues.nodes) {
-          if (fv.field?.name === name && fv.name) return fv.name
-        }
-        return '-'
-      }
-      const num = `#${item.content.number}`.padEnd(6)
-      const title = (item.content.title ?? '').slice(0, 58).padEnd(60)
-      const status = field('Status').padEnd(14)
-      const size = field('Size').padEnd(6)
-      lines.push(`${num} ${title} ${status} ${size} ${label}`)
-    }
+    lines.push(format === 'tree' ? formatTree(items, formatOpts) : formatTable(items, formatOpts))
   }
 
   return lines.join('\n')
 }
 
-export async function run(_args: string[]): Promise<void> {
-  if (!process.env.GITHUB_TOKEN) {
-    throw new Error('GITHUB_TOKEN is not set. Export it or run: gh auth login')
+export async function run(args: string[]): Promise<void> {
+  let format: 'table' | 'tree' | 'json' = 'table'
+  let all = false
+  for (const arg of args) {
+    if (arg === '--tree' || arg === '-T') format = 'tree'
+    else if (arg === '--json') format = 'json'
+    else if (arg === '--all' || arg === '-A') all = true
   }
-  const output = await runIssuesCommand()
+
+  const output = await runIssuesCommand({ format, all })
   console.log(output)
 }

@@ -8,9 +8,11 @@ Checks:
 - data.root is unique across all plugin.json files
 - Example files referenced in plugin.json exist
 - Vendored paths.py copies match the canonical version
+- Fixed /tmp/ literals in SKILL.md files (tempfile-convention.md)
 """
 import filecmp
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -129,6 +131,32 @@ def check_vendored_paths() -> list[str]:
     return errors
 
 
+def check_tempfile_convention() -> list[str]:
+    """SKILL.md files must not hardcode /tmp/<name> literals.
+
+    Enforces plugins/shared/references/tempfile-convention.md.
+    Any fixed path must be replaced by `mktemp -d -t <plugin>-<purpose>-<scope>-XXXXXX`
+    with a `trap 'rm -rf "$TMPDIR"' EXIT` cleanup.
+    """
+    errors = []
+    # Match any /tmp/<name> where <name> is at least 4 chars of [a-z0-9_-]
+    tmp_pattern = re.compile(r'/tmp/[a-z0-9_-]{4,}')
+    # Exempt lines that are part of a mktemp invocation or a template XXXXXX marker
+    exempt_pattern = re.compile(r'mktemp|XXXXX')
+
+    for skill_md in PLUGINS_DIR.glob('*/skills/**/SKILL.md'):
+        plugin_name = skill_md.relative_to(PLUGINS_DIR).parts[0]
+        with open(skill_md) as f:
+            for lineno, line in enumerate(f, start=1):
+                if tmp_pattern.search(line) and not exempt_pattern.search(line):
+                    rel = skill_md.relative_to(REPO_ROOT)
+                    errors.append(
+                        f'{plugin_name}: fixed /tmp/ literal at {rel}:{lineno} '
+                        f'→ {line.strip()[:80]}'
+                    )
+    return errors
+
+
 def main() -> int:
     all_errors = []
     checks = [
@@ -137,6 +165,7 @@ def main() -> int:
         ('data.root uniqueness', check_data_root_uniqueness),
         ('Example files exist', check_examples_exist),
         ('Vendored paths.py sync', check_vendored_paths),
+        ('Tempfile convention', check_tempfile_convention),
     ]
 
     for name, check_fn in checks:

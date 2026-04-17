@@ -1,6 +1,6 @@
 # dev-core
 
-Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 28 skills, 9 specialized agents, and safety hooks.
+Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 29 skills, 9 specialized agents, and safety hooks.
 
 ## Prerequisites
 
@@ -56,7 +56,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 ## Skills
 
-27 skills organized by workflow phase:
+28 skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
@@ -82,12 +82,13 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 | `cleanup` | Ship | Post-merge cleanup |
 | `promote` | Ship | Promotes to staging/production |
 | `test` | Supporting | Runs and manages tests |
-| `issues` | Supporting | Lists/dashboards GitHub issues — status, dependencies, backlog |
+| `issues` | Supporting | Lists/dashboards GitHub issues — status, deps, backlog; `--tree`/`-T` for compact hierarchy view |
 | `issue-triage` | Supporting | Triages GitHub issues with labels/priority |
 | `adr` | Supporting | Creates Architecture Decision Records |
 | `doc-sync` | Supporting | Syncs CLAUDE.md, README.md, and plugin SKILL.md after a code change |
 | `readme-upgrade` | Supporting | Audits and improves root README, CONTRIBUTING.md, and plugin READMEs against the developer-tool quality pattern (Why, Quick Start, How it works, categorized tables, diagrams). Auto-detects Mermaid vs ASCII based on host |
 | `cleanup-context` | Supporting | Audits and cleans CLAUDE.md, memory, skills, and rules — resolves every finding (fix/promote/relocate/delete), tracks recurrences, targets bloat=0 |
+| `ci-watch` | Supporting | Watch a CI run with live emoji dashboard — polls every Ns, shows job/step status, dumps failed logs on error. Auto-detects `ci.yml` workflow |
 
 ## Agents
 

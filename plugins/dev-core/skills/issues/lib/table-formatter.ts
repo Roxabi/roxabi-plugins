@@ -26,7 +26,9 @@ export function formatDeps(issue: Issue): string {
   for (const b of issue.blocking) {
     parts.push(`\uD83D\uDD13#${b.number}`)
   }
-  return parts.length > 0 ? parts.join(' ') : '-'
+  if (parts.length === 0) return '-'
+  if (parts.length > 4) return `${parts.slice(0, 3).join(' ')} [...]`
+  return parts.join(' ')
 }
 
 function shortTitle(title: string, maxLen: number): string {
@@ -37,12 +39,13 @@ function shortTitle(title: string, maxLen: number): string {
 // Base tree indent for level-1 children: "       │   " (11 chars)
 const BASE_TREE_INDENT = '       \u2502   '
 
-// cTitleWidth formula: total title column inner = titleLen + 2
+// cTitleWidth formula: total title column inner = titleLen + 3
+// (header: "│ " prefix + pad('Title', tl+2) → 1 space + tl+2 chars = tl+3 chars between │ separators)
 // Chars used after the opening "       │": (indent.length - 8) + numStr.length + 1 (space)
-// => cTitleWidth = titleLen + 2 - (indent.length - 8) - numStr.length - 1
-//               = titleLen + 9 - indent.length - numStr.length
+// => cTitleWidth = titleLen + 3 - (indent.length - 8) - numStr.length - 1
+//               = titleLen + 10 - indent.length - numStr.length
 function childTitleWidth(indent: string, numStr: string, titleLen: number): number {
-  return Math.max(4, titleLen + 9 - indent.length - numStr.length)
+  return Math.max(4, titleLen + 10 - indent.length - numStr.length)
 }
 
 function formatChildRowLine(
@@ -129,7 +132,9 @@ function formatDepsFromRaw(item: RawItem): string {
   for (const b of item.content.blocking?.nodes ?? []) {
     parts.push(`\uD83D\uDD13#${b.number}`)
   }
-  return parts.length > 0 ? parts.join(' ') : '-'
+  if (parts.length === 0) return '-'
+  if (parts.length > 4) return `${parts.slice(0, 3).join(' ')} [...]`
+  return parts.join(' ')
 }
 
 export interface FormatOptions {
@@ -152,8 +157,7 @@ export function sortIssues(items: RawItem[]): RawItem[] {
   })
 }
 
-/** Format a complete table from raw items (matching old fetch_issues.sh output). */
-export function formatTable(allItems: RawItem[], opts: FormatOptions): string {
+function formatTableImpl(allItems: RawItem[], opts: FormatOptions, treeMode: boolean): string {
   const openItems = allItems.filter((i) => i.content?.state === 'OPEN')
   const byNum = new Map<number, RawItem>()
   for (const item of openItems) byNum.set(item.content.number, item)
@@ -165,7 +169,7 @@ export function formatTable(allItems: RawItem[], opts: FormatOptions): string {
   const tl = opts.titleLength
 
   const lines: string[] = []
-  lines.push(`\u25CF ${sorted.length} issues`)
+  lines.push(`\u25CF ${sorted.length} issues${treeMode ? ' (tree)' : ''}`)
   lines.push('')
   lines.push(
     `  ${pad('#', 5)}\u2502 ${pad('Title', tl + 2)}\u2502 ${pad('Status', 9)}\u2502 ${pad('Size', 5)}\u2502 ${pad('Pri', 4)}\u2502 \u26A1 \u2502 Deps`,
@@ -203,6 +207,11 @@ export function formatTable(allItems: RawItem[], opts: FormatOptions): string {
   }
 
   return lines.join('\n')
+}
+
+/** Format a complete table from raw items (matching old fetch_issues.sh output). */
+export function formatTable(allItems: RawItem[], opts: FormatOptions): string {
+  return formatTableImpl(allItems, opts, false)
 }
 
 function shortName(title: string): string {
@@ -283,6 +292,11 @@ function buildChains(allItems: RawItem[]): string[] {
 
   const emitted = topologicalSort(blockers, graph)
   return formatChainLines(emitted, graph)
+}
+
+/** Format a tree view — same columnar layout as formatTable, with "(tree)" label. */
+export function formatTree(allItems: RawItem[], opts: FormatOptions): string {
+  return formatTableImpl(allItems, opts, true)
 }
 
 /** Format raw items as JSON (matching old fetch_issues.sh --json output). */

@@ -1,0 +1,7 @@
+{
+  "release-type": "node",
+  "target-branch": "main",
+  "packages": {
+    ".": {}
+  }
+}

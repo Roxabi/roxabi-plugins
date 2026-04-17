@@ -12,7 +12,7 @@ import type { WorkspaceProject } from '../ports/workspace'
  * Load a config value from .claude/dev-core.yml with 3-tier fallback:
  *   1st: .claude/dev-core.yml (YAML key lookup)
  *   2nd: process.env[envKey]
- *   3rd: gh repo view (github_repo key only)
+ *   3rd: gh CLI auto-detect (github_repo, gh_project_id)
  */
 function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
   // 1st: Try .claude/dev-core.yml
@@ -29,12 +29,32 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
   const envValue = process.env[envKey ?? key.toUpperCase()]
   if (envValue) return envValue
 
-  // 3rd: For github_repo only, try gh CLI
+  // 3rd: Auto-detect via gh CLI for supported keys
   if (key === 'github_repo') {
     try {
       return execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', { encoding: 'utf-8' }).trim()
     } catch {
       /* gh not available */
+    }
+  }
+
+  if (key === 'gh_project_id') {
+    try {
+      const repo = execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim()
+      if (repo) {
+        const [owner, name] = repo.split('/')
+        const query = `{ repository(owner: \\"${owner}\\", name: \\"${name}\\") { projectsV2(first: 1) { nodes { id } } } }`
+        const id = execSync(`gh api graphql -f query="${query}" --jq '.data.repository.projectsV2.nodes[0].id'`, {
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }).trim()
+        if (id && id !== 'null') return id
+      }
+    } catch {
+      /* gh not available or no project linked */
     }
   }
 
@@ -210,74 +230,6 @@ export const STATUS_SHORT: Record<string, string> = {
   Done: 'Done',
 }
 
-export interface LabelDef {
-  name: string
-  color: string
-  description: string
-  category: 'type' | 'area'
-}
-
-export const STANDARD_LABELS: LabelDef[] = [
-  { name: 'bug', color: 'd73a4a', description: "Something isn't working", category: 'type' },
-  { name: 'feature', color: '0075ca', description: 'New functionality', category: 'type' },
-  { name: 'enhancement', color: 'a2eeef', description: 'Improve existing functionality', category: 'type' },
-  { name: 'docs', color: '5319e7', description: 'Documentation only', category: 'type' },
-  { name: 'chore', color: 'ededed', description: 'Maintenance, deps, config', category: 'type' },
-  { name: 'research', color: 'd4c5f9', description: 'Investigation or spike', category: 'type' },
-  { name: 'frontend', color: '1d76db', description: 'Frontend', category: 'area' },
-  { name: 'backend', color: 'e99695', description: 'Backend', category: 'area' },
-  { name: 'infra', color: 'f9d0c4', description: 'Infrastructure', category: 'area' },
-  { name: 'api', color: 'bfd4f2', description: 'API', category: 'area' },
-  { name: 'design', color: 'c5def5', description: 'Design', category: 'area' },
-]
-
-export const STANDARD_WORKFLOWS = ['ci.yml', 'auto-merge.yml', 'pr-title.yml', 'deploy-preview.yml'] as const
-/** Secrets required by standard workflows. auto-merge.yml needs PAT. */
-export const REQUIRED_SECRETS: Record<string, string> = {
-  'auto-merge.yml': 'PAT',
-}
-export const PROTECTED_BRANCHES = ['main', 'staging'] as const
-export const BRANCH_PROTECTION_PAYLOAD = {
-  required_status_checks: { strict: true, contexts: ['ci'] },
-  enforce_admins: false,
-  restrictions: null,
-}
-
-export const DEFAULT_RULESET = {
-  name: 'PR_Main',
-  target: 'branch',
-  enforcement: 'active',
-  conditions: {
-    ref_name: {
-      include: ['~DEFAULT_BRANCH'],
-      exclude: [],
-    },
-  },
-  rules: [
-    { type: 'deletion' },
-    { type: 'non_fast_forward' },
-    {
-      type: 'pull_request',
-      parameters: {
-        required_approving_review_count: 0,
-        dismiss_stale_reviews_on_push: true,
-        required_reviewers: [],
-        require_code_owner_review: false,
-        require_last_push_approval: false,
-        required_review_thread_resolution: true,
-        allowed_merge_methods: ['squash', 'rebase', 'merge'],
-      },
-    },
-  ],
-  bypass_actors: [
-    {
-      actor_id: 5,
-      actor_type: 'RepositoryRole',
-      bypass_mode: 'always',
-    },
-  ],
-} as const
-
 export const PRIORITY_ORDER: Record<string, number> = {
   'P0 - Urgent': 0,
   'P1 - High': 1,
@@ -308,22 +260,4 @@ export const BLOCK_ORDER: Record<string, number> = {
   blocking: 0,
   ready: 1,
   blocked: 2,
-}
-
-/**
- * Sync priority label on a GitHub issue. Adds the target label and removes stale ones.
- * Non-fatal: logs a warning on failure but does not throw.
- */
-export async function syncPriorityLabel(issueNumber: number, canonical: string): Promise<void> {
-  const target = PRIORITY_LABEL_MAP[canonical]
-  if (!target) return
-
-  const stale = [...PRIORITY_LABELS_SET].filter((l) => l !== target)
-
-  try {
-    const { updateLabels } = await import('./github-adapter')
-    await updateLabels(issueNumber, [target], stale)
-  } catch (err) {
-    console.error(`Warning: Failed to sync priority label for #${issueNumber}: ${err}`)
-  }
 }

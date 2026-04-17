@@ -2,8 +2,8 @@
  * Apply branch protection rules and rulesets to standard branches.
  */
 
-import { BRANCH_PROTECTION_PAYLOAD, DEFAULT_RULESET, PROTECTED_BRANCHES } from '../../shared/adapters/config-helpers'
 import { run } from '../../shared/adapters/github-adapter'
+import { BRANCH_PROTECTION_PAYLOAD, DEFAULT_RULESET, PROTECTED_BRANCHES } from '../../shared/adapters/github-infra'
 
 export interface ProtectionResult {
   branches: Record<string, boolean>

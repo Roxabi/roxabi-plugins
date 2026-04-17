@@ -1,9 +1,9 @@
 ---
 name: analyze
 argument-hint: '[--issue <N> | --frame <path>]'
-description: Deep technical analysis — explore existing code, risks, alternatives. Triggers: "analyze" | "technical analysis" | "explore the problem" | "how deep is it".
+description: Deep technical analysis — explore existing code, risks, alternatives. Triggers: "analyze" | "technical analysis" | "explore the problem" | "how deep is it" | "deep dive" | "investigate this" | "analyze this feature" | "what are the risks" | "explore the codebase" | "look into this".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch
 ---
 
 # Analyze
@@ -13,6 +13,7 @@ Let:
   φ := artifacts/frames/{slug}-frame.mdx
   ρ := expert reviewer set
   Ω := `skill: "interview"`
+  Q := decision presentation (Pattern A — read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md`)
 
 Frame → analysis. Codebase exploration → expert review → user approval gate.
 ¬spec, ¬worktree. Shape phase only. Spec → `/spec`.
@@ -26,7 +27,7 @@ Frame → analysis. Codebase exploration → expert review → user approval gat
 
 ## Step 0 — Resolve Input
 
-Parse args → locate frame doc.
+Parse args → locate φ.
 
 `--issue N`:
 ```bash
@@ -37,23 +38,23 @@ ls artifacts/frames/*.mdx 2>/dev/null
 ```
 
 `--frame path` → read directly.
-¬frame found → AskUserQuestion: "No frame doc found. Run `/frame --issue N` first, or provide path directly?"
+¬φ found → → DP(B) "No frame doc found. Run `/frame --issue N` first, or provide path directly?"
 
-Read frame → extract: `title`, `issue`, `tier`, problem statement, constraints.
+Read φ → extract: `title`, `issue`, `tier`, problem statement, constraints.
 
 ## Step 1 — Scan Existing Analysis
 
-Glob `artifacts/analyses/*` — match issue# or slug from frame.
+Glob `artifacts/analyses/*` — match issue# or slug from φ.
 
 ∃ α:
 - `type: brainstorm` ∈ frontmatter → treat as brainstorm (¬analysis), offer to promote.
-- AskUserQuestion: **Reuse existing** (→ Step 3) | **Start fresh**
+- → DP(A) **Reuse existing** (→ Step 3) | **Start fresh**
 
 ## Step 2 — Codebase Exploration + Interview
 
 ### 2a. Glob + Grep
 
-Search codebase based on frame problem + constraints:
+Search codebase based on φ problem + constraints:
 
 ```bash
 # Find files relevant to the domain (adapt to actual problem):
@@ -70,7 +71,7 @@ Read key files (max 5–8 most relevant). Note: paths, patterns, dependencies, r
 
 Captures: source (verbatim trigger) | problem (broken/missing) | outcome (success ¬prescribing solution) | appetite (time budget) | shapes (2–3 mutually exclusive arch approaches: name + trade-offs + scope) | constraint alignment (which constraints eliminate which shapes).
 
-Pre-fill context from frame — skip answered questions.
+Pre-fill context from φ — skip answered questions.
 
 ## Step 2c — Generate Analysis
 
@@ -136,13 +137,13 @@ Skip if ¬technical uncertainty in Step 2 findings.
 
 **Signals:** unfamiliar 3rd-party behavior | undocumented internal APIs | performance unknowns | conflicting docs.
 
-∃ signals → AskUserQuestion: **Spike now** (throwaway worktree, test hypothesis) | **Skip** (→ expert review).
+∃ signals → → DP(A) **Spike now** (throwaway worktree, test hypothesis) | **Skip** (→ expert review).
 
 **Spike flow:**
 1. `EnterWorktree(name: "spike-{N}")` — creates isolated throwaway worktree
 2. Inside worktree: `git checkout -b spike/{N} origin/${BASE}` (where BASE = staging ∨ main)
 3. Investigate: minimal code, isolated test, confirm/reject hypothesis
-4. Report findings → incorporate into analysis
+4. Report findings → incorporate into α
 5. `ExitWorktree(action: "remove", discard_changes: true)` — clean up throwaway worktree
 
 See [references/investigation.md](${CLAUDE_SKILL_DIR}/references/investigation.md) if ∃, else use inline flow above.
@@ -168,7 +169,7 @@ Open α: `code artifacts/analyses/{N}-{slug}-analysis.mdx`.
 
 Present summary: shapes found, trade-offs, recommended shape, unresolved concerns.
 
-AskUserQuestion: **Approve** → update issue status → done | **Revise** → collect feedback → revise α → loop from Step 3.
+→ DP(A) **Approve** → update issue status → done | **Revise** → collect feedback → revise α → loop from Step 3.
 
 On approval → commit: `git add artifacts/analyses/{N}-{slug}-analysis.mdx` + commit per CLAUDE.md Rule 5.
 
@@ -182,11 +183,30 @@ Inform: "Analysis complete. Run `/spec --issue <N>` to generate the solution spe
 
 | Scenario | Behavior |
 |----------|----------|
-| No frame found | AskUserQuestion: run `/frame` first or provide path |
+| No frame found | → DP(B) run `/frame` first or provide path |
 | ∃ brainstorm (¬analysis) | Treat as no analysis — offer to promote via interview |
 | ∃ analysis, user picks reuse | Present existing → jump to Step 3 |
 | Expert subagent fails | Report error, continue without that reviewer |
 | Tier S | Skip Shapes + Fit Check |
 | Frame lacks appetite | Ask user during interview Phase 1 |
+
+## Chain Position
+
+- **Phase:** Shape
+- **Predecessor:** `/frame` (artifact: `artifacts/frames/{N}-{slug}-frame.mdx`)
+- **Successor:** `/spec`
+- **Class:** adv (continuous flow, no gate — user approves α inline in Step 4, not a pipeline gate)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- This skill does NOT update its own dev-pipeline task
+- Sub-tasks created: none
+
+## Exit
+
+- **Success via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/spec`. `/dev` re-scans and advances.
+- **Success standalone:** print one line: `Done. Next: /spec --issue N`. Stop.
+- **Failure:** return error. `/dev` presents Retry | Skip | Abort.
 
 $ARGUMENTS

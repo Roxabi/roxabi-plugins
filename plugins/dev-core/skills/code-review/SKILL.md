@@ -1,16 +1,16 @@
 ---
 name: code-review
 argument-hint: [#PR]
-description: Multi-domain code review (agents + Conventional Comments → findings + verdict). Triggers: "code review" | "review changes" | "review PR #42" | "check my code".
+description: Multi-domain code review (agents + Conventional Comments → findings + verdict). Triggers: "code review" | "review changes" | "review PR #42" | "check my code" | "review my changes" | "review this PR" | "do a code review" | "review the diff" | "look at my code".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill, ToolSearch
 ---
 
 # Code Review
 
 Review branch/PR via fresh domain-specific agents → Conventional Comments → findings + verdict.
 
-**⚠ Flow: single continuous pipeline (Phases 1→4 + 6 + 8). ¬stop between phases. AskUserQuestion response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, or Phase 8 completion.**
+**⚠ Flow: single continuous pipeline (Phases 1→4 + 6 + 8). ¬stop between phases. Decision response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, or Phase 8 completion.**
 
 ```
 /code-review          → diff ${BASE}...HEAD  (BASE = staging if exists, else main)
@@ -21,6 +21,7 @@ Let:
   F := set of all findings | f ∈ F := single finding
   C(f) ∈ [0,100] ∩ ℤ — confidence | cat(f) ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
   Δ := changed files | BASE := staging ∨ main
+  Q := present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A)
 
 ## Pipeline
 
@@ -54,7 +55,7 @@ git diff ${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]
 ⚠️  Potential secrets found in diff — review before proceeding:
   <file>: <matched line with secret value redacted to first 2 + last 2 chars>
 ```
-AskUserQuestion: **Review and proceed** | **Abort**
+→ DP(A) **Review and proceed** | **Abort**
 ∅ → continue silently.
 
 ## Phase 2 — Spec Compliance
@@ -97,6 +98,18 @@ Skip rules: architect → |Δ| ≤ 5 ∧ ¬arch keywords | product-lead → spec
    | External | skip |
 
 3. scope = Δ ∪ ⋃{resolve(imports(f)) | f ∈ Δ} ∪ `{backend.path}/src/auth/**` — deduplicate
+
+### Spawn template
+
+```
+Task(
+  subagent_type: "dev-core:{agent}",
+  description: "{agent} review — {PR#|branch}",
+  prompt: "Code review task. Focus: {focus}. Output Conventional Comments findings only. ¬TaskCreate.\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\n---DIFF---\n{diff}\n\n---FILES---\n{changed file contents}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
+)
+```
+
+Agent name map: `security-auditor` → `dev-core:security-auditor` | `architect` → `dev-core:architect` | `product-lead` → `dev-core:product-lead` | `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops`
 
 ### Agent payload
 
@@ -159,14 +172,21 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 ## Phase 6 — Post to PR
 
 1. PR# = provided ∨ `gh pr list --head "$(git branch --show-current)" --json number --jq '.[0].number'`; ¬∃ → skip
-2. `/tmp/review-comment.md` → `gh pr comment <#> --body-file /tmp/review-comment.md`
+2. Tempfile per `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md`:
+   ```bash
+   [[ "$PR" =~ ^[0-9]+$ ]] || { echo "Invalid PR number: $PR" >&2; exit 1; }
+   TMPDIR=$(mktemp -d -t "dev-core-review-comment-PR${PR}-XXXXXX")
+   trap 'rm -rf "$TMPDIR"' EXIT
+   BODY="$TMPDIR/body.md"
+   ```
+   Write grouped findings to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 3. `## Code Review` header; grouped findings + summary + verdict; ∀C included
 
 **→ immediately continue to Phase 8.**
 
 ## Phase 8 — Next Step
 
-AskUserQuestion:
+Q:
 - **Fix now (`/fix`)** — invoke `/fix` (auto-apply + 1b1 + spawn fixers; `/fix` Phase 8 offers rebase + label + merge)
 - **Merge as-is** — rebase + label + squash merge (below)
 - **Stop** — exit
@@ -176,7 +196,7 @@ AskUserQuestion:
 1. `git fetch origin ${BASE} && git rev-list HEAD..origin/${BASE} --count`
    - count > 0 → `git rebase origin/${BASE}` + `git push --force-with-lease`
    - conflict → halt (¬label)
-2. AskUserQuestion: "Add `reviewed` label?" → Yes / No
+2. Q: "Add `reviewed` label?" → Yes / No
 3. Yes → `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"` → squash merge on green CI
 4. No → inform manual
 
@@ -204,6 +224,26 @@ AskUserQuestion:
 2. ¬auto-merge, ¬approve PRs on GitHub
 3. ¬fix code — findings only. Fixing = `/fix` skill
 4. ∃ PR → must post comment (Phase 6)
-5. Human decides at Phase 8 — ¬proceed without AskUserQuestion
+5. Human decides at Phase 8 — ¬proceed without Q
+
+## Chain Position
+
+- **Phase:** Verify
+- **Predecessor:** `/validate`
+- **Successor:** conditional — APPROVED → merge → `/cleanup` | CHANGES_REQUESTED → `/fix`
+- **Class:** verdict (branching based on findings)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- Sub-tasks created: review findings (`kind: "review-finding"`) if applicable
+- Follow-up tasks: on CHANGES_REQUESTED (user picks `/fix` at Phase 8) → `TaskCreate` fix task with `metadata: { kind: "dev-pipeline", follow_up: true, iteration: N, blockedBy: [this.id] }`
+
+## Exit
+
+- **APPROVED via `/dev`** (user picks Merge as-is at Phase 8): rebase + label + merge → return. `/dev` advances to `/cleanup`.
+- **CHANGES_REQUESTED via `/dev`** (user picks `/fix` at Phase 8): `TaskCreate` follow-up fix task → return silently. `/dev` picks up the new task and invokes `/fix`.
+- **Stop (user)**: return → `/dev` presents Abort | Resume.
+- **Loop cap:** max 2 fix→review iterations (tracked via `metadata.iteration`). 3rd review iteration → Phase 8 must recommend Merge as-is or Stop, not Fix. `/dev` presents Abort if 3rd fix attempted.
 
 $ARGUMENTS

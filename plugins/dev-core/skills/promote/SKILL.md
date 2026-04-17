@@ -1,14 +1,14 @@
 ---
 name: promote
 argument-hint: [--dry-run | --skip-preview | --finalize]
-description: Promote staging→main — pre-flight, version bump, changelog, PR & tag. Triggers: "promote staging" | "release" | "deploy" | "cut a release" | "--finalize".
+description: Promote staging→main — pre-flight, version bump, changelog, PR & tag. Triggers: "promote staging" | "release" | "deploy" | "cut a release" | "--finalize" | "merge to main" | "promote to production" | "ship a release" | "tag and release" | "publish release".
 version: 0.4.0
-allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch
 ---
 
 # Promote
 
-Let: σ := staging | μ := main | V := release version (vX.Y.Z)
+Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := DP(A)
 
 σ → μ for production. Pre-flight → version → changelog → commit → preview → PR.
 `--finalize`: post-merge tag + GitHub Release.
@@ -25,23 +25,16 @@ Let: σ := staging | μ := main | V := release version (vX.Y.Z)
 ## Step 1 — Pre-flight
 
 ```bash
-git fetch origin staging main
-git checkout staging && git pull origin staging
-git log main..staging --oneline
-git diff main...staging --stat
-gh pr list --base staging --state open --json number,title,headRefName
+bash ${CLAUDE_SKILL_DIR}/preflight.sh
 ```
+
+Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI check results.
 
 | Check | Condition | Action |
 |-------|-----------|--------|
-| No commits | `git log main..staging` empty | **REFUSE.** Stop. |
-| Open PRs on σ | `gh pr list --base staging` → results | **WARN** + AskUserQuestion: **Continue** \| **Wait** |
-| CI status | Latest σ commit | **WARN** if ¬passing |
-
-```bash
-gh api repos/:owner/:repo/commits/staging/check-runs \
-  --jq '[.check_runs[] | {name, conclusion}] | group_by(.conclusion) | map({conclusion: .[0].conclusion, count: length})'
-```
+| No commits | `commits_ahead=0` | **REFUSE.** Stop. |
+| Open PRs on σ | open_prs section non-empty | **WARN** + Q: **Continue** \| **Wait** |
+| CI status | ci section | **WARN** if ¬passing |
 
 ## Steps 2-4 — Version, Changelog, Commit
 
@@ -58,7 +51,7 @@ RUN_ID=$(gh run list --workflow=deploy-preview.yml --limit=1 --json databaseId -
 gh run watch $RUN_ID --exit-status
 ```
 
-AskUserQuestion: **Looks good — proceed** | **Issues — abort** | **Skip preview, proceed**
+Q: **Looks good — proceed** | **Issues — abort** | **Skip preview, proceed**
 
 `--skip-preview` ⇒ skip.
 
@@ -142,7 +135,7 @@ gh pr list --base main --head staging --state merged --limit 1 --json number,tit
 ```bash
 grep -oP '## \[\Kv[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1
 ```
-AskUserQuestion: **Use {detected}** | **Custom version**
+Q: **Use {detected}** | **Custom version**
 
 **9c.** Tag:
 ```bash
@@ -172,9 +165,9 @@ Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
 | Scenario | Behavior |
 |----------|----------|
 | Nothing to promote | REFUSE: σ up to date with μ |
-| Open PRs on σ | Warn, list, AskUserQuestion |
-| CI failing | Warn, show failures, AskUserQuestion |
-| Preview fails | Show error, AskUserQuestion |
+| Open PRs on σ | Warn, list, Q |
+| CI failing | Warn, show failures, Q |
+| Preview fails | Show error, Q |
 | PR already exists | Detect via `gh pr list`, offer update |
 | `--dry-run` | Summary only, ¬create PR/commit |
 | ¬merged (`--finalize`) | REFUSE: merge first |
@@ -189,5 +182,24 @@ Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
 4. Always check CI before promoting
 5. Always warn about open PRs on σ
 6. ¬push directly to μ — changelog reaches μ via promotion PR
+
+## Chain Position
+
+- **Phase:** Ship
+- **Predecessor:** — (standalone, NOT auto-triggered by `/dev`)
+- **Successor:** — (manual `--finalize` follow-up)
+- **Class:** standalone (user explicitly invokes `/promote`, never chained from a feature pipeline)
+
+## Task Integration
+
+- `/dev` SKIPS this step by default (Step 4 skip logic: `promote → skip`)
+- This skill does NOT participate in dev-pipeline tasks
+- Sub-tasks created: none
+- When invoked manually: runs without any `/dev`-owned task lifecycle
+
+## Exit
+
+- **Success standalone:** print PR URL + manual next step (`--finalize` after merge). Stop.
+- **Failure:** return error to user. No `/dev` recovery path (standalone).
 
 $ARGUMENTS

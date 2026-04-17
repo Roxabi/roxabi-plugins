@@ -3,7 +3,7 @@ name: cleanup
 argument-hint: [--branches | --worktrees | --all]
 description: Clean git branches/worktrees/remotes after merge-status verification. Triggers: "cleanup" | "clean branches" | "cleanup worktrees" | "remove stale branches".
 version: 0.2.0
-allowed-tools: Bash, EnterWorktree, ExitWorktree, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, EnterWorktree, ExitWorktree, ToolSearch
 ---
 
 # Git Cleanup
@@ -17,12 +17,10 @@ Safely clean local β, ω, and remote branches with **mandatory merge-status ver
 ### 1. Gather State
 
 ```bash
-git branch -vv
-git worktree list                    # includes both .claude/worktrees/ and legacy parent-dir worktrees
-gh pr list --state open 2>/dev/null || echo "No gh CLI or no remote"
-git branch --show-current
-# Configure {commands.worktree_list} in stack.yml if applicable
+bash ${CLAUDE_SKILL_DIR}/gather-state.sh
 ```
+
+Emits: `current`, branch list with tracking info, worktree list, open PRs.
 
 ### 2. Analyze Each Branch
 
@@ -43,24 +41,24 @@ Git Cleanup Summary
 ═══════════════════
 
 Branches:
-  Branch              │ Merged │ PR    │ Worktree │ Last Commit  │ Action
-  feat/19-auth        │ ✅ yes │ —     │ —        │ 3 days ago   │ 🗑 Safe to delete
+  Branch              │ Merged │ PR    │ Worktree  │ Last Commit  │ Action
+  feat/19-auth        │ ✅ yes │ —     │ —         │ 3 days ago   │ 🗑 Safe to delete
   feat/33-i18n        │ ❌ no  │ #42   │ ../repo-33│ 2 hours ago  │ ⚠️ Active work
-  fix/old-bug         │ ✅ yes │ —     │ —        │ 2 weeks ago  │ 🗑 Safe to delete
-  experiment/test     │ ❌ no  │ —     │ —        │ 1 month ago  │ ⚠️ Unmerged
+  fix/old-bug         │ ✅ yes │ —     │ —         │ 2 weeks ago  │ 🗑 Safe to delete
+  experiment/test     │ ❌ no  │ —     │ —         │ 1 month ago  │ ⚠️ Unmerged
 
 Worktrees:
-  Path                │ Branch          │ Status
-  /home/user/project  │ main            │ Main (keep)
-  /home/user/rox-33   │ feat/33-i18n    │ Active PR #42
+  Path                │ Branch        │ Status
+  /home/user/project  │ main          │ Main (keep)
+  /home/user/rox-33   │ feat/33-i18n  │ Active PR #42
 
 Legend: 🗑 = safe to delete, ⚠️ = needs attention, 🔒 = protected
 ```
 
 ### 4. Ask for Confirmation
 
-AskUserQuestion:
-- Present only safe-to-delete items as default selections
+→ DP(C)
+- Present only safe(β) items as default selections
 - Show unmerged β separately with warning; **NEVER auto-select unmerged β**
 - ∃ unmerged β → separate question with explicit warning
 - Always include "Skip / Do nothing"
@@ -110,7 +108,7 @@ gh pr list --state open --json headRefName --jq '.[].headRefName' 2>/dev/null
 1. Issue number in main's commit history (`git log --grep="#<issue>"`)
 2. PR state via `gh pr list --state all --head <branch>` — look for `MERGED`
 
-Post-merge commits (e.g. review fixes) on a `MERGED` PR β → still safe to delete.
+Post-merge commits on a `MERGED` PR β → still safe to delete.
 
 #### 6c. Present remote summary table
 
@@ -127,7 +125,7 @@ Remote Branch Cleanup
 
 #### 6d. Ask for confirmation
 
-AskUserQuestion: present merged remote β with ¬π as safe; show unmerged separately; **NEVER auto-delete remote β**; always include "Skip / Keep all remote branches".
+→ DP(C) present merged remote β with ¬π as safe; show unmerged separately; **NEVER auto-delete remote β**; always include "Skip / Keep all remote branches".
 
 #### 6e. Execute remote cleanup
 
@@ -169,18 +167,36 @@ Cleanup Complete
 3. **NEVER delete a branch with an open PR** unless explicitly confirmed
 4. **NEVER delete an unmerged branch** without a separate, explicit confirmation
 5. **ALWAYS show merge status** before any deletion
-6. **ALWAYS use `git branch -d`** (safe delete) for merged branches
-7. **ONLY use `git branch -D`** (force delete) when user explicitly confirms unmerged deletion
-8. **ALWAYS remove worktree before deleting its branch**
-9. **NEVER delete remote branches automatically** — always require explicit confirmation per branch
-10. **ALWAYS scan all remote branches** for stale merged branches, not just locally deleted ones
+6. **ALWAYS use `git branch -d`** for merged branches; **`git branch -D` only** when user explicitly confirms unmerged deletion
+7. **ALWAYS remove worktree before deleting its branch**
+8. **NEVER delete remote branches automatically** — always require explicit confirmation per branch
+9. **ALWAYS scan all remote branches** for stale merged branches, not just locally deleted ones
 
 ## Edge Cases
 
-- **Squash merges**: `git branch -d` won't detect squash merges. Use `git log --oneline --grep` to check β name or issue# in main's history.
-- **Remote tracking branches**: Step 6 scans **all** remote β independently (not just locally deleted ones). Always require explicit confirmation before remote deletion.
-- **Squash merges on remote**: `git branch -r --merged` does NOT detect squash merges. Verify via issue# grep in main history AND `gh pr list --state all --head <branch>` for `MERGED`. Post-merge commits on a `MERGED` PR → still safe to delete.
-- **Stale worktrees**: ω path ∉ disk → `git worktree prune` cleans it up.
-- **EnterWorktree worktrees**: worktrees in `.claude/worktrees/` are session-managed — `git worktree list` shows them alongside legacy worktrees. Clean up with `git worktree remove` or `ExitWorktree` if in active session.
+- **Squash merges**: `git branch -d` won't detect squash merges → use `git log --oneline --grep` on β name or issue# in main.
+- **Squash merges on remote**: `git branch -r --merged` does NOT detect squash merges → verify via issue# grep AND `gh pr list --state all --head <branch>` for `MERGED`. Post-merge commits on a `MERGED` PR → still safe.
+- **Remote tracking branches**: Step 6 scans **all** remote β independently — always require explicit confirmation.
+- **Stale worktrees**: ω path ∉ disk → `git worktree prune`.
+- **EnterWorktree worktrees**: worktrees in `.claude/worktrees/` are session-managed — `git worktree list` shows them alongside legacy worktrees; clean with `git worktree remove` or `ExitWorktree` if in active session.
+
+## Chain Position
+
+- **Phase:** Ship
+- **Predecessor:** merge (after `/code-review` APPROVED → merge)
+- **Successor:** — (pipeline complete)
+- **Class:** adv (tail — last step in `/dev` pipeline)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- This skill does NOT update its own dev-pipeline task
+- Sub-tasks created: none
+
+## Exit
+
+- **Success via `/dev`:** stale branches/worktrees removed → return control silently. ¬write summary. `/dev` re-scans, all steps done/skipped, shows completion banner.
+- **Success standalone:** print summary (branches deleted, worktrees pruned). Stop.
+- **Failure:** return error. `/dev` presents Retry | Skip | Abort.
 
 $ARGUMENTS

@@ -1,9 +1,9 @@
 ---
 name: plan
 argument-hint: '[--issue <N> | --spec <path> | --audit]'
-description: Implementation plan — tasks, agents, file groups, dependencies. Triggers: "plan" | "plan this" | "implementation plan" | "break it down".
+description: Implementation plan — tasks, agents, file groups, dependencies. Triggers: "plan" | "plan this" | "implementation plan" | "break it down" | "plan this feature" | "how should we build this" | "make a plan" | "create a plan" | "break this down into tasks" | "task breakdown".
 version: 0.2.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
 # Plan
@@ -15,7 +15,7 @@ Let:
 
 Spec → micro-tasks → agent assignments → plan artifact.
 
-**Flow: single continuous pipeline. ¬stop between steps. AskUserQuestion response → immediately execute next step. Stop only on: Cancel/Abort or Step 6 completion.**
+**Flow: single continuous pipeline. ¬stop between steps. Decision response → immediately execute next step. Stop only on: Cancel/Abort or Step 6 completion.**
 
 ```
 /plan --issue 42         Generate plan from spec for issue #42
@@ -32,7 +32,7 @@ Spec → micro-tasks → agent assignments → plan artifact.
 ### Pre-flight: Ambiguity Check
 
 Grep `\[NEEDS CLARIFICATION` in σ (count).
-count > 0 → AskUserQuestion: **Resolve now** | **Return to spec** | **Proceed anyway**
+count > 0 → → DP(A) **Resolve now** | **Return to spec** | **Proceed anyway**
 
 ## Step 2 — Plan
 
@@ -41,7 +41,7 @@ Read `docs/processes/dev-process.mdx` + σ.
 ### Step 2a-pre — Reasoning Audit (optional)
 
 `--audit` → after reading σ, present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) (plan guidance).
-→ AskUserQuestion: **Proceed** | **Adjust approach** | **Abort**
+→ → DP(A) **Proceed** | **Adjust approach** | **Abort**
 ¬`--audit` → continue to Step 2a.
 
 **2a. Scope:** Glob + Grep → files to create/modify + reference features for patterns.
@@ -62,15 +62,15 @@ Paths from stack.yml. ¬set → file domain heuristics (component/hook → FE; s
 Always: **tester**. Add: architect (new modules), security-auditor (auth/validation), doc-writer (new APIs).
 τ=S → skip agent assignment (single session).
 
-**Intra-domain parallel:** ≥4 independent tasks in 1 domain → multiple same-type agents (F-full only). Shared barrel files → merge into single agent.
+Intra-domain parallel: ≥4 independent tasks in 1 domain → multiple same-type agents (F-full only). Shared barrel files → merge into single agent.
 
 **2d. Tasks:** ∀ task: description, files, agent, dependencies, parallel-safe (Y/N).
 Order: types → backend → frontend → tests → docs → config.
 
-**2e. Slice Selection (multi-slice only):** ≥2 slices → AskUserQuestion (multiSelect): 1 option/slice `V{N}: {desc} ({files}, {agents})`.
+**2e. Slice Selection (multi-slice only):** ≥2 slices → → DP(C) 1 option/slice `V{N}: {desc} ({files}, {agents})`.
 Default: next unimplemented slice. Respect deps. Re-run `/plan` for remaining.
 
-**2f. Present Plan:** AskUserQuestion: τ, slices, files, agents, tasks with `[parallel-safe: Y/N]`.
+**2f. Present Plan:** → DP(A) τ, slices, files, agents, tasks with `[parallel-safe: Y/N]`.
 Options: **Approve** | **Modify** | **Cancel**
 **Approve → immediately continue to Step 3 (¬stop).**
 
@@ -133,17 +133,67 @@ Include:
 ### Mermaid Diagrams
 
 `## Architecture` must include:
-1. **Data flow diagram** (`flowchart TD`) — full pipeline: config files → loader functions → data structures → composition → runtime injection. Group nodes into subgraphs by file. Highlight key paths with distinct styles.
-2. **File × Function map** (`flowchart LR`) — which functions/classes live in which files, how they call each other. Group by source file. Show test files as consumers.
+1. **Data flow** (`flowchart TD`) — full pipeline: config files → loader functions → data structures → composition → runtime injection. Group nodes into subgraphs by file. Highlight key paths with distinct styles.
+2. **File × Function map** (`flowchart LR`) — functions/classes per file, call relationships. Group by source file. Show test files as consumers.
 
 Diagrams go AFTER Summary, BEFORE Bootstrap Context.
 
 ## Step 6 — Approve + Commit
 
-AskUserQuestion: complexity, τ, task count, agents, consistency, slices.
+→ DP(A) complexity, τ, task count, agents, consistency, slices.
 Options: **Approve** | **Modify** | **Return to spec**
 
-On Approve → commit: `git add artifacts/plans/{N}-{slug}-plan.mdx` + commit per CLAUDE.md Rule 5.
+On Approve → **immediately** continue to 6a (seed tasks), 6b (persist IDs), 6c (commit). ¬stop between substeps.
+
+### Step 6a — Seed Claude Code Tasks
+
+∀ micro-task in π:
+
+```
+TaskCreate(
+  subject: "{task description}",
+  description: "{files}\n\nVerify: {verify_command}\nExpected: {expected_output}\nRef: {pattern_file}\nSpec trace: {spec_trace}",
+  activeForm: "{present-continuous form}",
+  metadata: {
+    kind: "plan-task",
+    issue: N,
+    plan: "{path to π}",
+    slice: "V{n}",
+    phase: "RED|GREEN|REFACTOR|RED-GATE",
+    agent: "{agent name}",
+    spec_trace: "{SC-N or U1→N1→S1}",
+    difficulty: {1-5},
+    parallel_safe: {true|false},
+  },
+)
+```
+
+Cache returned id in {task# → task.id} map.
+
+**Dependencies:** ∀ micro-task: `TaskUpdate(id, addBlockedBy: [deps...])` where deps come from:
+1. Explicit `dependencies` field in the micro-task definition → map task numbers to task ids.
+2. Phase order within a slice: GREEN tasks blocked by their slice's RED tasks; REFACTOR blocked by GREEN; RED-GATE sentinels blocked by all RED in the slice.
+
+τ=S → still seed tasks (3–6 is typical) — gives visibility even in single-session flow. Skip phase-based dependency wiring when π has no slice structure.
+
+### Step 6b — Persist Task IDs in Artifact
+
+Append a `## Task IDs` section to π before committing:
+
+```markdown
+## Task IDs
+
+<!-- Generated by /plan. Used by /implement to resume tasks on session restart. -->
+- T1: {task_id} — {subject}
+- T2: {task_id} — {subject}
+...
+```
+
+This lets `/implement` re-attach to tasks after a session restart (TaskList would return empty for new sessions).
+
+### Step 6c — Commit
+
+`git add artifacts/plans/{N}-{slug}-plan.mdx` + commit per CLAUDE.md Rule 5.
 
 ## Edge Cases
 
@@ -155,5 +205,25 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 2. ¬create issue without user approval
 3. Always present plan (2f) before writing artifact
 4. Show full task list (¬truncate) when |tasks| > 30
+
+## Chain Position
+
+- **Phase:** Build
+- **Predecessor:** `/spec` (artifact: `artifacts/specs/{N}-{slug}-spec.mdx`)
+- **Successor:** `/implement` (auto-chain after approval)
+- **Class:** gate (user approval of plan artifact required) → adv (auto-chain to `/implement`)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- This skill does NOT update its own dev-pipeline task
+- Sub-tasks created: plan-tasks (one per micro-task, `kind: "plan-task"`) via Step 6a, IDs persisted in artifact's `## Task IDs` section (Step 6b)
+
+## Exit
+
+- **Approved via `/dev`:** run Steps 6a/6b/6c (seed tasks, persist IDs, commit) → return silently. ¬ask "proceed to /implement?". `/dev` re-scans and auto-chains to `/implement` **in the same turn** (no second prompt).
+- **Approved standalone:** print one line: `Approved. Next: /implement --issue N`. Stop.
+- **Modify requested:** loop in-skill, re-present.
+- **Rejected/aborted:** return → `/dev` marks task `cancelled`.
 
 $ARGUMENTS
