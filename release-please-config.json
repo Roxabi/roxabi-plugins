@@ -2,6 +2,10 @@
   "release-type": "node",
   "target-branch": "main",
   "packages": {
-    ".": {}
+    ".": {
+      "component": "roxabi-plugins",
+      "package-name": "roxabi-plugins",
+      "tag-separator": "/"
+    }
   }
 }
