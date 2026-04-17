@@ -30,7 +30,33 @@ Same rule in multiple files (exact/near-dup) | overlapping trigger phrases | mem
 ### 2d. Bloat
 CLAUDE.md > 500 lines | memory > κ lines | > 10 skills | overly specific rules.
 
-### 2e. Memory Entries (μ + τ + α)
+### 2e. Tempfile Hygiene
+
+SKILL.md files writing fixed `/tmp/<name>` paths → collision risk across parallel runs / branches. Enforces `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md` (bidirectional: if you rename the convention doc, update this reference and the pointer inside the doc's **Enforced by** section).
+
+**Broad pattern (catches any `/tmp/<name>` regardless of extension or lack thereof):**
+
+```bash
+grep -rnE '/tmp/[a-z0-9_-]{4,}' plugins/*/skills/**/SKILL.md 2>/dev/null \
+  | grep -v -E 'mktemp|XXXXX'
+```
+
+Hits → Resolution: **Fix** (migrate to `mktemp -d -t <plugin>-<purpose>-<scope>-XXXXXX` + `trap 'rm -rf "$TMPDIR"' EXIT`, files as `$TMPDIR/<name>`).
+
+**Stale-tempfile sweep** — orphaned `/tmp/<plugin>-*` older than 24h (SIGKILL / crash survivors):
+
+```bash
+find /tmp -maxdepth 1 -name 'dev-core-*' -o -name 'web-intel-*' -o -name 'cv-*' \
+  -o -name 'linkedin-apply-*' -o -name 'content-lab-*' 2>/dev/null \
+  | xargs -r stat -c '%Y %n' \
+  | awk -v cutoff=$(($(date +%s) - 86400)) '$1 < cutoff {print $2}'
+```
+
+Report paths, ask user before `rm -rf`.
+
+Exempt: tests under `tests/` / `__tests__/` (fixtures may hardcode paths intentionally).
+
+### 2f. Memory Entries (μ + τ + α)
 
 ∀ entry, classify:
 

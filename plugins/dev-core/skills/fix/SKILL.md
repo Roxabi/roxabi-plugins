@@ -129,7 +129,14 @@ Fixer constraints: re-read targets before editing (Phase 3 may have changed them
 
 ∄ PR → skip.
 
-`/tmp/review-fixes.md` → `gh pr comment <#> --body-file /tmp/review-fixes.md`
+Tempfile per `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md`:
+```bash
+[[ "$PR" =~ ^[0-9]+$ ]] || { echo "Invalid PR number: $PR" >&2; exit 1; }
+TMPDIR=$(mktemp -d -t "dev-core-review-fixes-PR${PR}-XXXXXX")
+trap 'rm -rf "$TMPDIR"' EXIT
+BODY="$TMPDIR/body.md"
+```
+Write summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 
 ```markdown
 ## Review Fixes Applied

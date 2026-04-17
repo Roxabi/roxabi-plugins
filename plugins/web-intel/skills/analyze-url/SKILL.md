@@ -66,15 +66,18 @@ cd "$PLUGIN_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt REQUESTS_C
 
 ### YouTube Videos
 
-Run full video analysis pipeline:
+Run full video analysis pipeline (tempfile per `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md`):
 
 ```bash
-cd "$PLUGIN_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt uv run python scripts/video_analyzer.py "$URL" --output /tmp/video_analysis.json
+TMPDIR=$(mktemp -d -t "web-intel-video-analysis-XXXXXX")
+trap 'rm -rf "$TMPDIR"' EXIT
+ANALYSIS="$TMPDIR/analysis.json"
+cd "$PLUGIN_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt uv run python scripts/video_analyzer.py "$URL" --output "$ANALYSIS"
 ```
 
 Pipeline: scrape metadata + transcript → download video (yt-dlp, 1080p max) → extract frames at 1fps (ffmpeg) → auto-detect best local VLM by GPU VRAM (qwen3-vl via Ollama) → batch-describe frames → output JSON.
 
-Read `/tmp/video_analysis.json` → analyze:
+Read `"$ANALYSIS"` → analyze:
 1. Video overview — title, channel, duration, views, engagement rate
 2. Content analysis — thesis, structure, rhetorical techniques (from transcript)
 3. Visual analysis — techniques (3D/2D/photography), palette, composition, transitions (from frames)

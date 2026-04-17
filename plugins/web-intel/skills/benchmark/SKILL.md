@@ -57,19 +57,27 @@ Parse JSON: `data.text` (features/copy/value props), `data.title`, `data.descrip
 
 ## Step 3 — Screenshot
 
+Tempfile per `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md`:
+
+```bash
+TMPDIR=$(mktemp -d -t "web-intel-benchmark-XXXXXX")
+trap 'rm -rf "$TMPDIR"' EXIT
+SHOT="$TMPDIR/screenshot.png"
+```
+
 ∃ AB:
 
 ```bash
 agent-browser open "$URL" && \
 agent-browser wait --load networkidle && \
-agent-browser screenshot --full /tmp/benchmark-screenshot.png && \
+agent-browser screenshot --full "$SHOT" && \
 agent-browser snapshot -i
 ```
 
 ¬∃ AB → PW fallback (web-intel already ships Playwright):
 
 ```bash
-cd "$PLUGIN_ROOT" && uv run python scripts/screenshot.py "$URL" /tmp/benchmark-screenshot.png
+cd "$PLUGIN_ROOT" && uv run python scripts/screenshot.py "$URL" "$SHOT"
 ```
 
 Neither available → skip UI/Design dimension, note in report (other dimensions still scored).

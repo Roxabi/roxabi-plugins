@@ -172,7 +172,14 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 ## Phase 6 — Post to PR
 
 1. PR# = provided ∨ `gh pr list --head "$(git branch --show-current)" --json number --jq '.[0].number'`; ¬∃ → skip
-2. `/tmp/review-comment.md` → `gh pr comment <#> --body-file /tmp/review-comment.md`
+2. Tempfile per `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md`:
+   ```bash
+   [[ "$PR" =~ ^[0-9]+$ ]] || { echo "Invalid PR number: $PR" >&2; exit 1; }
+   TMPDIR=$(mktemp -d -t "dev-core-review-comment-PR${PR}-XXXXXX")
+   trap 'rm -rf "$TMPDIR"' EXIT
+   BODY="$TMPDIR/body.md"
+   ```
+   Write grouped findings to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 3. `## Code Review` header; grouped findings + summary + verdict; ∀C included
 
 **→ immediately continue to Phase 8.**

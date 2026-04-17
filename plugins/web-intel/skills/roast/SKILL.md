@@ -53,19 +53,27 @@ cd "$PLUGIN_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt REQUESTS_C
 
 ## Step 3 — Screenshot
 
+Tempfile per `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md`:
+
+```bash
+TMPDIR=$(mktemp -d -t "web-intel-roast-XXXXXX")
+trap 'rm -rf "$TMPDIR"' EXIT
+SHOT="$TMPDIR/screenshot.png"
+```
+
 ∃ AB:
 
 ```bash
 agent-browser open "$URL" && \
 agent-browser wait --load networkidle && \
-agent-browser screenshot --full /tmp/roast-screenshot.png && \
+agent-browser screenshot --full "$SHOT" && \
 agent-browser snapshot -i
 ```
 
 ¬∃ AB → PW fallback (web-intel already ships Playwright):
 
 ```bash
-cd "$PLUGIN_ROOT" && uv run python scripts/screenshot.py "$URL" /tmp/roast-screenshot.png
+cd "$PLUGIN_ROOT" && uv run python scripts/screenshot.py "$URL" "$SHOT"
 ```
 
 Neither available → skip, note in output.

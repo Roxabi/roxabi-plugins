@@ -59,9 +59,14 @@ python3 <plugin>/scripts/generate_cv.py --data ~/.roxabi-vault/cv/cv_data.json -
 1. Read D. Gather job posting from $ARGUMENTS (URL or text); → DP(B)if missing: "Provide the job posting URL or paste the job description."
 2. Analyze posting: extract requirements, skills, keywords.
 3. Adapt CV: reorder experience → relevant roles; emphasize matching skills; adjust summary → target role. ¬fabricate experience.
-4. Write adapted data → `/tmp/cv_adapted.json`, generate:
+4. Write adapted data + generate (tempfile per `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md`):
 ```bash
-python3 <plugin>/scripts/generate_cv.py --data /tmp/cv_adapted.json --output ~/.roxabi-vault/cv/adapted/cv_<company>_<date>.<format> --format <format>
+COMPANY_SAFE=$(echo "$COMPANY" | tr -c '[:alnum:]-' '-' | head -c 40)
+TMPDIR=$(mktemp -d -t "cv-adapt-${COMPANY_SAFE}-XXXXXX")
+trap 'rm -rf "$TMPDIR"' EXIT
+ADAPTED="$TMPDIR/adapted.json"
+# write adapted JSON → "$ADAPTED"
+python3 <plugin>/scripts/generate_cv.py --data "$ADAPTED" --output ~/.roxabi-vault/cv/adapted/cv_<company>_<date>.<format> --format <format>
 ```
 5. Report changes + output path.
 

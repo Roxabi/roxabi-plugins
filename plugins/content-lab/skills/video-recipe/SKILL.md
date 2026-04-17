@@ -67,16 +67,21 @@ Stop here.
 
 ## Step 3 — Scrape Video
 
+Tempfile per `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md`:
+
 ```bash
-cd "$WEB_INTEL_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt uv run python scripts/scraper.py "$URL"
+TMPDIR=$(mktemp -d -t "content-lab-scrape-XXXXXX")
+trap 'rm -rf "$TMPDIR"' EXIT
+SCRAPE="$TMPDIR/scrape.json"
+cd "$WEB_INTEL_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt uv run python scripts/scraper.py "$URL" > "$SCRAPE"
 ```
 
-Save raw JSON to temp file. `success: false` ∨ no transcript → inform user and stop.
+Save raw JSON to `"$SCRAPE"`. `success: false` ∨ no transcript → inform user and stop.
 
 ## Step 4 — Run Analyzer
 
 ```bash
-cd "$CONTENT_LAB_ROOT" && uv run python scripts/analyze.py /tmp/content-lab-scrape.json
+cd "$CONTENT_LAB_ROOT" && uv run python scripts/analyze.py "$SCRAPE"
 ```
 
 Ω contains: `metadata` (title, author, duration, language, segment count) | `vakog` (distribution, temporal blocks, choreography, signature, examples) | `techniques` (detected patterns with confidence).
