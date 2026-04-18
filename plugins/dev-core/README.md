@@ -56,7 +56,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 ## Skills
 
-28 skills organized by workflow phase:
+30 skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
@@ -89,6 +89,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 | `readme-upgrade` | Supporting | Audits and improves root README, CONTRIBUTING.md, and plugin READMEs against the developer-tool quality pattern (Why, Quick Start, How it works, categorized tables, diagrams). Auto-detects Mermaid vs ASCII based on host |
 | `cleanup-context` | Supporting | Audits and cleans CLAUDE.md, memory, skills, and rules — resolves every finding (fix/promote/relocate/delete), tracks recurrences, targets bloat=0 |
 | `ci-watch` | Supporting | Watch a CI run with live emoji dashboard — polls every Ns, shows job/step status, dumps failed logs on error. Auto-detects `ci.yml` workflow |
+| `release-setup` | Supporting | Wires release-please for a repo — tag convention, manifest, config, workflow. Re-run with `--force` to patch. **Quality gates** (Python only) — optional `quality_gates:` section in `stack.yml` installs file-length / folder-size / import-layer pre-commit hooks. See [`skills/release-setup/cookbooks/quality-gates.md`](skills/release-setup/cookbooks/quality-gates.md) |
 
 ## Agents
 

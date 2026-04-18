@@ -68,6 +68,28 @@ docs:
   path: docs                      # path to documentation directory
   format: mdx                     # mdx | md
 
+# Quality gates — Python code-hygiene contracts (opt-in).
+# When section is absent: all gates OFF (backwards-compatible).
+# When section is present but a sub-block is absent: that gate OFF.
+# Gates are installed/synced by /release-setup --force via the quality-gates cookbook
+# (plugins/dev-core/skills/release-setup/cookbooks/quality-gates.md).
+# Python-only — stack-setup skips this section when runtime != python.
+quality_gates:
+  file_length:
+    enabled: true
+    max_lines: 300                             # default 300
+    globs: ["src/**/*.py"]
+    exemptions_file: tools/file_exemptions.txt # format: <path> <issue-url> (space-separated)
+  folder_size:
+    enabled: true
+    max_files: 12                              # default 12
+    globs: ["src/**"]
+    exemptions_file: tools/folder_exemptions.txt
+  import_layers:
+    enabled: true
+    stage: pre-push                            # pre-commit | pre-push (default pre-push; lint-imports is slow)
+    config: .importlinter
+
 # Commands used by agents to perform standard tasks.
 # These are passed to agents that invoke quality gates and CI steps.
 commands:
