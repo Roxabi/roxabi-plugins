@@ -190,6 +190,22 @@ testing:
   unit: {UNIT_TEST}
   # e2e: (only if playwright/cypress detected)
 
+# quality_gates: (python only — opt-in code-hygiene guards; omit section entirely when runtime != python)
+#   file_length:
+#     enabled: true
+#     max_lines: 300
+#     globs: ["src/**/*.py"]
+#     exemptions_file: tools/file_exemptions.txt
+#   folder_size:
+#     enabled: true
+#     max_files: 12
+#     globs: ["src/**"]
+#     exemptions_file: tools/folder_exemptions.txt
+#   import_layers:
+#     enabled: true
+#     stage: pre-push
+#     config: .importlinter
+
 deploy:
   platform: none
 
@@ -220,6 +236,11 @@ artifacts:
 #   configuration: {docs}/configuration.md
 #   contributing: {docs}/contributing.md
 ```
+
+**Conditional rendering rules for the template above:**
+- `frontend:` — include (uncommented) only if a frontend framework was detected; otherwise omit entirely.
+- `shared:` — include only if a monorepo layout was detected; otherwise omit entirely.
+- `quality_gates:` — include (uncommented, all three sub-blocks) only if `runtime == python`; otherwise omit the section entirely.
 
 ## Phase 5 — CLAUDE.md and reference template
 
