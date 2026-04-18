@@ -111,6 +111,7 @@ Display results and generated files. Do NOT run `git add` or `git commit`.
      tools/check_folder_size.sh          (python + quality_gates only)
      tools/file_exemptions.txt           (python + quality_gates only)
      tools/folder_exemptions.txt         (python + quality_gates only)
+     tools/qg.conf                       (python + quality_gates only — regenerated from stack.yml)
      .importlinter                       (python + import_layers only)
    ```
 

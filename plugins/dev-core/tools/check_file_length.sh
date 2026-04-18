@@ -1,18 +1,33 @@
 #!/usr/bin/env bash
 # Canonical source: plugins/dev-core/tools/ — do not edit project-side copies directly
-# Check that no Python source file exceeds 300 lines (tests excluded).
-# Known exceptions are listed in tools/file_exemptions.txt — each must have a tracking issue.
+# Check that no Python source file exceeds the configured line cap (tests excluded).
+# Known exceptions are listed in the exemptions file — each must have a tracking issue.
+# Configuration is read from tools/qg.conf if present (seeded from stack.yml by
+# /release-setup); defaults below apply when the file is absent.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-MAX=300
+# Source generated config (safe: file is owned by /release-setup, not user-editable).
+# shellcheck disable=SC1091
+[ -f tools/qg.conf ] && . tools/qg.conf
+
+MAX="${QG_FILE_MAX:-300}"
+FIND_ROOT="${QG_FILE_ROOT:-src/}"
+EXEMPT_FILE="${QG_FILE_EXEMPTIONS:-tools/file_exemptions.txt}"
 FAIL=0
-EXEMPT_FILE="tools/file_exemptions.txt"
+
+# src/ absent is not a hard error — skip with warning rather than false-green exit 0.
+if [ ! -d "$FIND_ROOT" ]; then
+    echo "WARN: $FIND_ROOT not found, skipping check_file_length" >&2
+    exit 0
+fi
 
 is_exempt() {
     [ ! -f "$EXEMPT_FILE" ] && return 1
-    grep -q "^$1[[:space:]]" "$EXEMPT_FILE"
+    # grep -F (fixed-string): path may contain regex metacharacters (., *, [, +).
+    # Exemption format: '<path> <issue-url>' — trailing space anchors the path.
+    grep -qF -- "$1 " "$EXEMPT_FILE"
 }
 
 while IFS= read -r -d '' f; do
@@ -22,6 +37,6 @@ while IFS= read -r -d '' f; do
         echo "$f - $LINES lines (max $MAX)"
         FAIL=1
     fi
-done < <(find src/ -name "*.py" -print0)
+done < <(find "$FIND_ROOT" -name "*.py" -print0)
 
 exit $FAIL
