@@ -39,7 +39,7 @@ Check prerequisites and per-component state before any installation.
    test -f release.config.cjs && echo "has_sr" || echo "no_sr"
    test -f release-please-config.json && echo "has_rp" || echo "no_rp"
    test -f .github/workflows/release-please.yml && echo "has_rp_wf" || echo "no_rp_wf"
-   test -x tools/check_file_length.sh && test -x tools/check_folder_size.sh && echo "has_qg" || echo "no_qg"
+   test -x tools/check_file_length.sh && test -x tools/check_folder_size.sh && echo "has_qg_scripts" || echo "no_qg"
    ```
 
 3. Set booleans from results:
@@ -47,7 +47,7 @@ Check prerequisites and per-component state before any installation.
    - `has_commits` := `.commitlintrc.cjs` ∃
    - `has_releases` := `release.config.cjs` ∃ ∨ (`release-please-config.json` ∃ ∧ `.github/workflows/release-please.yml` ∃). Release Please config without the workflow is **not** complete — Phase 4 will add the missing workflow.
    - `has_lefthook` := `.lefthook.yml` ∃
-   - `has_qg` := `"has_qg"` ∈ output
+   - `has_qg_scripts` := `"has_qg_scripts"` ∈ output
 
 4. F overrides all guards → treat all booleans as false (re-run all components).
 
@@ -57,7 +57,7 @@ Read configuration and detect environment.
 
 1. Read σ fields: `runtime`, `package_manager`, `hooks.tool`, `commands.lint`, `commands.typecheck`, `quality_gates`.
    Defaults if σ missing: runtime=`node`, package_manager=`npm`, hooks.tool=`none`, commands.lint=`npm run lint`, commands.typecheck=`npm run typecheck`.
-   Set `has_qg_section` := `quality_gates` key ∃ ∈ σ. Default when σ absent: `has_qg_section = false`.
+   Set `has_qg_scripts_section` := `quality_gates` key ∃ ∈ σ. Default when σ absent: `has_qg_scripts_section = false`.
 
 2. Detect existing hook runner via file checks:
    ```bash

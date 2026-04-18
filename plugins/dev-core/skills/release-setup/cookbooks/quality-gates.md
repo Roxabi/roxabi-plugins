@@ -20,7 +20,14 @@ Parse σ. Emit D⏭("Quality gates — Skipped") and return immediately if ANY o
 - `quality_gates:` key absent from σ
 - All three sub-blocks (`file_length`, `folder_size`, `import_layers`) either absent or each has `enabled: false`
 
-If `quality_gates:` is present and at least one sub-block is `enabled: true`, continue to N2.
+**Schema version guard (N1a).** Read `σ.schema_version`. Missing or < `"1.0"` → emit
+`D⚠("Quality gates — schema_version missing or < 1.0; run /stack-setup --force first")`
+and return without touching any files. This prevents silent mis-parse when a future schema
+rename is introduced on either side of the stack-setup/release-setup contract. Comparison
+is string-literal on the major.minor prefix — no semver library needed.
+
+If `quality_gates:` is present, `schema_version >= "1.0"`, and at least one sub-block is
+`enabled: true`, continue to N2.
 
 Special case: all three sub-blocks present but each `enabled: false` → emit
 `Quality gates ⏭ All gates disabled` and return (D6 — no install, no removal).
@@ -155,10 +162,12 @@ PY
 - Exit 0 → `import-linter` already in `[dependency-groups].dev` → D⏭("import-linter dep")
 - Exit 1 → run:
   ```bash
-  uv add --group dev import-linter
+  uv add --group dev "import-linter>=2.0,<3.0"
   ```
-  NEVER invoke `uv sync --group dev` alone — per Decision D3, it rewrites `uv.lock`
-  non-deterministically. `uv add` performs an atomic `pyproject.toml` + `uv.lock` update.
+  Lower-bound pin matches the 2.x API the scaffold template targets; upper-bound guards
+  against silent breaking changes in a future 3.x release. NEVER invoke `uv sync --group dev`
+  alone — per Decision D3, it rewrites `uv.lock` non-deterministically. `uv add` performs
+  an atomic `pyproject.toml` + `uv.lock` update.
 
 - `uv` absent or network failure → D⚠("import-linter dep — uv add failed. Install import-linter manually, then re-run /release-setup.") Continue to N6 (hooks still get wired; they will fail at pre-push time until the dep is present, which is visible to the user).
 
@@ -175,7 +184,13 @@ Resolution order:
 2. Fallback: first entry under `[tool.uv.workspace].packages` (strip `src/` prefix if present)
 3. Last fallback: name of the single directory directly under `src/`
 
-Write `.importlinter` with substituted package name (see scaffold template section below).
+**Validate the resolved name** against PEP 508's PyPI-distribution-name charset:
+`re.match(r'^[A-Za-z0-9._-]+$', name)`. Fail-fast with
+`D⚠(".importlinter — invalid package name '<name>'; expected [A-Za-z0-9._-]+")`
+and skip N6 if the name doesn't match. Prevents INI injection via structural chars
+(`[`, `]`, `\n`) from a malformed or tampered `pyproject.toml`.
+
+Write `.importlinter` with the validated package name (see scaffold template section below).
 
 ## N7 — Hook merge
 
@@ -234,6 +249,13 @@ with open(CONFIG, 'r') as f:
     raw = f.read()
 
 data = yaml.safe_load(raw)
+
+# PyYAML does not preserve YAML comments. This is a known, accepted limitation —
+# adding ruamel.yaml as a fallback was considered and rejected (dual code paths,
+# extra dep on every Python project). Warn explicitly so projects with annotated
+# .pre-commit-config.yaml files know comments will be lost on write.
+print('WARN: PyYAML will strip comments from .pre-commit-config.yaml on write. '
+      'Re-add any inline documentation after this run.', file=sys.stderr)
 
 NEW_HOOKS = {
     'check-file-length': {
@@ -312,7 +334,7 @@ print('HOOK_MERGE_OK', flush=True)
 PY
 ```
 
-**Comment preservation note:** PyYAML does not preserve comments. If the project uses `ruamel.yaml` (already in the dev dep group), substitute `yaml` with `ruamel.yaml` for round-trip fidelity. The script above uses stdlib-compatible PyYAML as the default fallback.
+**Comment preservation note:** PyYAML does not preserve YAML comments. A `ruamel.yaml` fallback was considered and rejected: two diverging code paths are hard to test and forcing ruamel as a dev dep on every Python project is disproportionate. The heredoc emits an explicit `WARN: PyYAML will strip comments from .pre-commit-config.yaml on write.` on every run so projects with annotated hook files know the comments are being dropped and can re-add them afterward.
 
 **DP(A) fallback — no `id: typecheck` anchor:**
 
