@@ -175,11 +175,10 @@ frontend:
       })
 
       // Assert
-      expect(result.sections).toHaveLength(12)
+      expect(result.sections).toHaveLength(11)
       expect(result.sections.map((s) => s.id)).toEqual([
         'tldr',
         'dev-process',
-        'ask-user-question',
         'orchestrator-delegation',
         'parallel-execution',
         'git',
@@ -213,7 +212,6 @@ frontend:
       expect(result.sections.map((s) => s.id)).toEqual([
         'tldr',
         'dev-process',
-        'ask-user-question',
         'git',
         'artifact-model',
         'coding-standards',
@@ -240,7 +238,7 @@ docs:
       })
 
       // Assert
-      expect(result.sections.map((s) => s.id)).toEqual(['tldr', 'ask-user-question', 'git', 'gotchas'])
+      expect(result.sections.map((s) => s.id)).toEqual(['tldr', 'git', 'gotchas'])
     })
 
     it('generates minimal sections for stub', () => {
@@ -253,7 +251,7 @@ docs:
       })
 
       // Assert
-      expect(result.sections.map((s) => s.id)).toEqual(['tldr', 'ask-user-question', 'git'])
+      expect(result.sections.map((s) => s.id)).toEqual(['tldr', 'git'])
     })
   })
 
@@ -278,7 +276,7 @@ frontend:
       // Assert
       expect(result.markdown).toContain('## TL;DR')
       expect(result.markdown).toContain('### 1. Dev Process')
-      expect(result.markdown).toContain('### 5. Git')
+      expect(result.markdown).toContain('### 4. Git')
       expect(result.markdown).toContain('## Gotchas')
     })
 
@@ -301,12 +299,11 @@ frontend:
 
       // Assert — cli-library skips orchestrator-delegation and parallel-execution
       expect(result.markdown).toContain('### 1. Dev Process')
-      expect(result.markdown).toContain('### 2. AskUserQuestion')
-      expect(result.markdown).toContain('### 3. Git')
-      expect(result.markdown).toContain('### 4. Artifact Model')
-      expect(result.markdown).toContain('### 5. Coding Standards')
-      // No gaps — 3 and 4 are not skipped numbers
-      expect(result.markdown).not.toContain('### 6.')
+      expect(result.markdown).toContain('### 2. Git')
+      expect(result.markdown).toContain('### 3. Artifact Model')
+      expect(result.markdown).toContain('### 4. Coding Standards')
+      // No gaps
+      expect(result.markdown).not.toContain('### 5.')
     })
 
     it('includes project name in TL;DR', () => {
@@ -449,7 +446,7 @@ Commit rules
       const ids = expectedSections('full-app')
 
       // Assert
-      expect(ids).toHaveLength(12)
+      expect(ids).toHaveLength(11)
       expect(ids).toContain('tldr')
       expect(ids).toContain('mandatory-worktree')
     })
@@ -459,7 +456,7 @@ Commit rules
       const ids = expectedSections('cli-library')
 
       // Assert
-      expect(ids).toHaveLength(7)
+      expect(ids).toHaveLength(6)
       expect(ids).not.toContain('mandatory-worktree')
       expect(ids).not.toContain('orchestrator-delegation')
     })
@@ -469,7 +466,7 @@ Commit rules
       const ids = expectedSections('stub')
 
       // Assert
-      expect(ids).toHaveLength(3)
+      expect(ids).toHaveLength(2)
     })
   })
 })

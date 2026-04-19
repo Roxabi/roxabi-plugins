@@ -155,7 +155,6 @@ function tldr(_stack: StackConfig, projectName: string, projectType: ProjectType
     parts.push(`- **All code changes** → worktree: \`git worktree add ../${projectName}-XXX -b feat/XXX-slug staging\``)
   }
 
-  parts.push('- **Always** `AskUserQuestion` for choices — never plain-text questions')
   parts.push('- **Never** use `--force`/`--hard`/`--amend`')
   parts.push('- **Always** use appropriate skill even without slash command')
 
@@ -183,15 +182,6 @@ Phases: **Frame** (problem) → **Shape** (spec) → **Build** (code) → **Veri
   return { id: 'dev-process', title: 'Dev Process', content }
 }
 
-function askUserQuestion(): Section {
-  return {
-    id: 'ask-user-question',
-    title: 'AskUserQuestion',
-    content: `Always \`AskUserQuestion\` for: decisions, choices (≥2 options), approach proposals.
-**Never** plain-text "Do you want..." / "Should I..." → use the tool.`,
-  }
-}
-
 function orchestratorDelegation(): Section {
   return {
     id: 'orchestrator-delegation',
@@ -204,7 +194,7 @@ function parallelExecution(): Section {
   return {
     id: 'parallel-execution',
     title: 'Parallel Execution',
-    content: `≥3 complex tasks → AskUserQuestion: Sequential | Parallel (Recommended).
+    content: `≥3 complex tasks → propose Sequential | Parallel (Recommended).
 F-full + ≥4 independent tasks in 1 domain → multiple same-type agents on separate file groups.`,
   }
 }
@@ -245,7 +235,7 @@ git worktree add ../${projectName}-XXX -b feat/XXX-slug staging
 cd ../${projectName}-XXX && cp .env.example .env && bun install
 \`\`\`
 
-Exceptions: XS (confirm via AskUserQuestion) | \`/dev\` pre-implementation artifacts (frame, analysis, spec, plan) | \`/promote\` release artifacts.
+Exceptions: XS (confirm first) | \`/dev\` pre-implementation artifacts (frame, analysis, spec, plan) | \`/promote\` release artifacts.
 **Never code on main/staging without worktree.**`
 
   return { id: 'mandatory-worktree', title: 'Mandatory Worktree', content }
@@ -304,7 +294,6 @@ function gotchas(): Section {
 const APP_SECTIONS = [
   'tldr',
   'dev-process',
-  'ask-user-question',
   'orchestrator-delegation',
   'parallel-execution',
   'git',
@@ -320,9 +309,9 @@ const SECTION_MAP: Record<ProjectType, string[]> = {
   'full-app': APP_SECTIONS,
   'backend-only': APP_SECTIONS,
   'frontend-only': APP_SECTIONS,
-  'cli-library': ['tldr', 'dev-process', 'ask-user-question', 'git', 'artifact-model', 'coding-standards', 'gotchas'],
-  'docs-content': ['tldr', 'ask-user-question', 'git', 'gotchas'],
-  stub: ['tldr', 'ask-user-question', 'git'],
+  'cli-library': ['tldr', 'dev-process', 'git', 'artifact-model', 'coding-standards', 'gotchas'],
+  'docs-content': ['tldr', 'git', 'gotchas'],
+  stub: ['tldr', 'git'],
 }
 
 // ---------------------------------------------------------------------------
@@ -335,7 +324,6 @@ function generateSections(stack: StackConfig, projectType: ProjectType, projectN
   const generators: Record<string, () => Section> = {
     tldr: () => tldr(stack, projectName, projectType),
     'dev-process': () => devProcess(stack, projectType),
-    'ask-user-question': () => askUserQuestion(),
     'orchestrator-delegation': () => orchestratorDelegation(),
     'parallel-execution': () => parallelExecution(),
     git: () => gitRules(),
