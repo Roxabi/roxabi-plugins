@@ -60,7 +60,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
-| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, CI/CD workflows, branch protection, env vars, workspace.json registration, VS Code MDX preview, LSP plugin install). Pushes workflow files directly via GitHub REST API — no local git required. Auto-sets PAT secret after workflow creation. Lists built-in project workflow status; GitHub has no API to enable them programmatically — provides direct settings URL. TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
+| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, CI/CD workflows, branch protection, env vars, workspace.json registration, VS Code MDX preview, LSP plugin install). Pushes workflow files directly via GitHub REST API — no local git required. Auto-sets PAT secret after workflow creation. Lists built-in project workflow status; GitHub has no API to enable them programmatically — provides direct settings URL. TypeScript CLI with subcommands, SKILL.md orchestrates via DP(n) decisions |
 | `env-setup` | Setup | Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, VS Code MDX, LSP. Triggered by `/init` or standalone |
 | `github-setup` | Setup | Connect project to GitHub Project V2 board — discover or create board, labels, branch protection, workspace registration |
 | `ci-setup` | Setup | Set up CI/CD — GitHub Actions workflows, TruffleHog, Dependabot, pre-commit hooks, marketplace plugins. Discovers Roxabi plugins live from `marketplace.json` and endorsed external marketplaces from `curated-marketplaces.json` |

@@ -14,7 +14,7 @@ Configure automated versioning and changelog generation.
 `has_releases = true` ∧ ¬F:
 - D⏭("Release automation"), skip to Phase 5.
 
-AskUserQuestion: **semantic-release** | **Release Please** | **Skip**
+→ DP(A): **semantic-release** | **Release Please** | **Skip**
 
 **semantic-release chosen:**
 1. Install packages (branch on `{package_manager}`):

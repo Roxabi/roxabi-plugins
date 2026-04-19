@@ -379,7 +379,7 @@ function analyzeExistingClaudeMd(claudeMdPath: string): ExistingSections {
   const sectionPatterns: Record<string, RegExp> = {
     tldr: /^## TL;DR/i,
     'dev-process': /^###?\s*(?:\d+[.\s]*)?Dev Process/i,
-    'ask-user-question': /^###?\s*(?:\d+[.\s]*)?AskUserQuestion/i,
+    'decision-presentation': /^###?\s*(?:\d+[.\s]*)?Decision Presentation/i,
     'orchestrator-delegation': /^###?\s*(?:\d+[.\s]*)?Orchestrator/i,
     'parallel-execution': /^###?\s*(?:\d+[.\s]*)?Parallel/i,
     git: /^###?\s*(?:\d+[.\s]*)?Git/i,

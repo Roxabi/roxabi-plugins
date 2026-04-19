@@ -13,7 +13,7 @@ After Gate 2 approval. Decomposes feature → sub-issues. Always optional — us
 gh api graphql -f query='{ repository(owner: "{owner}", name: "{repo}") { issue(number: {N}) { subIssues(first: 10) { nodes { number title state } } } } }'
 ```
 
-∃ sub-issues ⇒ AskUserQuestion: Keep existing | Replace (close old) | Add additional
+∃ sub-issues ⇒ → DP(A): Keep existing | Replace (close old) | Add additional
 
 ## Trigger Detection
 
@@ -42,7 +42,7 @@ Split heuristics (priority order):
 | Size | XS/S/M/L/XL from τ |
 | Priority | Inherit parent ∨ default Medium |
 
-Present via AskUserQuestion:
+Present via DP(A):
 
 ```
 Smart Split: {title}

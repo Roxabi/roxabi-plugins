@@ -85,7 +85,7 @@ When `/plan` generates μ, α receive structured work units via TaskCreate.
 ## Spawning Rules
 
 **Parallel:**
-- ≥3 complex tasks → AskUserQuestion: Sequential ∨ Parallel (Recommended)
+- ≥3 complex tasks → → DP(A): Sequential ∨ Parallel (Recommended)
 - F-full + ≥4 independent tasks in 1 domain → multiple same-type α on separate file groups
 
 **RED-GATE:** Sentinel/slice → tester (`phase: RED-GATE`). Tester marks complete after all RED μ done → orchestrator spawns GREEN α.

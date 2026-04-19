@@ -84,7 +84,7 @@ Partial (one of Breadboard/Slices ¬both): fallback if ∃ Success Criteria, els
 | F-lite | 5–15 | 2 |
 | F-full | 15–30 | 2 |
 
-\> 30 ⇒ AskUserQuestion: warn, suggest splitting. Show full list (¬truncate).
+\> 30 ⇒ → DP(A): warn, suggest splitting. Show full list (¬truncate).
 < 2 ⇒ warn, suggest text tasks from Step 2d.
 
 ## 4f.5 Consistency Check
@@ -145,7 +145,7 @@ generated: {ISO}
 
 ## 4f.7 Present for Approval
 
-AskUserQuestion: complexity, τ, μ count, α, consistency, slices.
+→ DP(A): complexity, τ, μ count, α, consistency, slices.
 Options: **Approve** | **Modify** | **Return to spec**
 
 ## 4f.8 Commit Plan

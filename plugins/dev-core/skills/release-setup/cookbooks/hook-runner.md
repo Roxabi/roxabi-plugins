@@ -16,7 +16,7 @@ Install or skip hook runner setup.
 - Skip install step; proceed to Phase 3.
 
 `has_hook_runner = false` ∨ F:
-AskUserQuestion: **Lefthook** | **Husky** | **Skip**
+→ DP(A): **Lefthook** | **Husky** | **Skip**
 
 **Lefthook chosen, runtime = node/bun/deno (Node/TS):**
 1. Install (branch on `{package_manager}`):

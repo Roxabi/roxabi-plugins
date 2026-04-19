@@ -51,7 +51,7 @@ cd ../roxabi-XXX && cp .env.example .env && bun install
 cd apps/api && bun run db:branch:create --force XXX
 ```
 
-**Exceptions:** XS issues (confirm via AskUserQuestion), `/dev` pre-impl artifacts (frame, analysis, spec, plan), `/promote` release artifacts.
+**Exceptions:** XS issues (confirm via DP(B)), `/dev` pre-impl artifacts (frame, analysis, spec, plan), `/promote` release artifacts.
 
 ¬code on main/staging w/o worktree.
 
