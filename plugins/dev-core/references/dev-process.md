@@ -77,7 +77,7 @@ Types: `feat` | `fix` | `refactor` | `docs` | `style` | `test` | `chore` | `ci` 
 
 ## Mandatory Rules
 
-1. **AskUserQuestion:** Always for decisions, choices (≥2 options), approach proposals. ¬plain-text questions.
+1. **Decision Presentation:** Use DP(n) protocol for decisions/choices — never AskUserQuestion tool. Load `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` when invoking DP(A|B|C).
 2. **¬force/amend:** ¬`--force`, ¬`--hard`, ¬`--amend`. Hook fail → fix + NEW commit.
 3. **Orchestrator delegation:** Orchestrator ¬modify code/docs directly → delegate to domain α. Exception: typo/single-line.
 5. **Skill usage:** Always use appropriate skill, even w/o slash command.
