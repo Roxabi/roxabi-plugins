@@ -103,3 +103,17 @@ Format: `<type>(<scope>): <desc>`
 Types: `feat|fix|refactor|docs|style|test|chore|ci|perf`
 
 ¬`--force` | ¬`--hard` | ¬`--amend`. Hook fail → fix + NEW commit.
+
+---
+
+## 8. Project Overrides
+
+Project CLAUDE.md may **strengthen** global rules (stricter), but ¬relax them.
+
+| Global rule | Can strengthen | Example override |
+|-------------|----------------|------------------|
+| Worktree | S=Optional → S=Mandatory | "ALL code changes → worktree" |
+| Agent discipline | Add domain-specific α | New agent type for project |
+| Git | Add commit hooks | Extra validation |
+
+¬relax: S=Mandatory → S=Optional, ¬force → allow force, etc.
