@@ -198,8 +198,6 @@ Seed Community Complete
 "Commit" → `git add {GENERATED}` + commit:
 ```
 chore: add community health files (SECURITY, CoC, issue templates)
-
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ```
 
 ## Edge Cases

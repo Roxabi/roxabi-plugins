@@ -61,8 +61,6 @@ cd apps/api && bun run db:branch:create --force XXX
 <type>(<scope>): <desc>
 ```
 
-Followed by: `Co-Authored-By: Claude <model> <noreply@anthropic.com>`
-
 Types: `feat` | `fix` | `refactor` | `docs` | `style` | `test` | `chore` | `ci` | `perf`
 
 ### Branch Naming

@@ -99,7 +99,7 @@ XS exception: single-line fix, confirm with user first.
 
 ## 7. Git
 
-Format: `<type>(<scope>): <desc>` + `Co-Authored-By: Claude <model> <noreply@anthropic.com>`
+Format: `<type>(<scope>): <desc>`
 Types: `feat|fix|refactor|docs|style|test|chore|ci|perf`
 
 ¬`--force` | ¬`--hard` | ¬`--amend`. Hook fail → fix + NEW commit.

@@ -203,7 +203,7 @@ function gitRules(): Section {
   return {
     id: 'git',
     title: 'Git',
-    content: `Format: \`<type>(<scope>): <desc>\` + \`Co-Authored-By: Claude <model> <noreply@anthropic.com>\`
+    content: `Format: \`<type>(<scope>): <desc>\`
 Types: feat|fix|refactor|docs|style|test|chore|ci|perf
 Never push without request. Never force/hard/amend. Hook fail → fix + NEW commit.`,
   }
