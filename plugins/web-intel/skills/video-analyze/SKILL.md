@@ -19,6 +19,12 @@ Download video → scene-detect frames → two-pass VLM (classify → deep-OCR) 
 
 ¬ URL → DP(B) for URL.
 
+## Flags
+
+| Flag | Default | Description |
+|-----|---------|-------------|
+| `--no-derivatives` | off | Skip Step 4 — emit raw `analysis.json` + frames only (no digest, terms, text_frames, top20_dense) |
+
 ## Prerequisites
 
 1. **VLM server running** — llama-server with Qwen3-VL (default `qwen3-vl-8b` @ `:8093`)
