@@ -158,7 +158,7 @@ Outputs:
 
 ## Synthesis (next step, manual)
 
-For a full understanding-layer write-up, author `ANALYSIS.md` by hand — cross-check VLM frames against transcript (see [VIDEO-VOICE-PLAYBOOK Phase 1](../../../../../playbooks/VIDEO-VOICE-PLAYBOOK.md)). Use confidence markers:
+For a full understanding-layer write-up, author `ANALYSIS.md` by hand — cross-check VLM frames against transcript (see [VIDEO-VOICE-PLAYBOOK Phase 1](../../../../playbooks/VIDEO-VOICE-PLAYBOOK.md)). Use confidence markers:
 
 - ★ verbatim from ≥2 sources (frame ∧ transcript)
 - ◐ inferred / single-source

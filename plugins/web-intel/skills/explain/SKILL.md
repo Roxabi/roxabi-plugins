@@ -32,7 +32,7 @@ Sits between `summarize` (shallow TL;DR) and `analyze-url` (fixed tech/business 
 | `--concept` | "Explain the core concept for an informed but non-expert reader. Structure: TL;DR · key claim · how it works (mechanism) · what's genuinely novel · where it falls apart / open questions." |
 | `--digest` | "Produce a multi-angle digest. Sections: Who · What · Why now · How it works · Who benefits · Who loses · What would make this fail · What this unlocks next." |
 | `--steelman` | "Build the strongest possible version of the argument, even improving on weak parts. Then list 3 toughest counter-arguments with honest weight." |
-| `--compare <url-b>` | Scrape both URLs. Produce a head-to-head comparison — common ground · true disagreements · false disagreements (same idea, different words) · which is more compelling and why." |
+| `--compare <url-b>` | "Scrape both URLs. Produce a head-to-head comparison — common ground · true disagreements · false disagreements (same idea, different words) · which is more compelling and why." |
 
 Free-form prompt → used verbatim as extraction instruction.
 
