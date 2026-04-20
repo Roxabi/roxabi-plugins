@@ -58,6 +58,15 @@ exit 1 → show, stop, guide install. Skip on subsequent invocations.
 
 ## Step 2 — Scrape
 
+**URL scheme guard** — only accept http/https to prevent `data:`, `javascript:`, `file:` injection vectors:
+
+```bash
+case "$URL" in
+  http://*|https://*) ;;
+  *) echo "ERROR: only http/https URLs accepted (got: $URL)" >&2; exit 1 ;;
+esac
+```
+
 Single URL:
 
 ```bash
