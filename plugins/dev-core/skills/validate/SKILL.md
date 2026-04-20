@@ -29,6 +29,13 @@ Run all χ sequentially → single structured pass/fail report. ¬stop on first 
 | 4 | failure-details | — | error lines shown | ∃ failures |
 | 5 | verdict | ✓ | pass/fail declared | — |
 
+## Pre-flight
+
+Success: ∀ χ ∈ scope → σ = pass
+Evidence: Report shows "Result: All checks passed"
+Steps: scope → run-checks → report → verdict
+¬clear → STOP + ask: "Quick or full validation?"
+
 ## Usage
 
 ```

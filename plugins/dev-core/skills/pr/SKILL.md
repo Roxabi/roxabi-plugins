@@ -33,6 +33,13 @@ Let:
 | 5 | rebase | ✓ | `git push` success | — |
 | 6 | watch | — | — | inform only |
 
+## Pre-flight
+
+Success: PR created ∧ pushed ∧ rebased on base
+Evidence: `gh pr view {N}` returns valid PR
+Steps: gather-state → guard-rails → generate → create → rebase
+¬clear → STOP + ask: "Which branch are you PR-ing from?"
+
 ## Step 1 — Gather State
 
 ```bash

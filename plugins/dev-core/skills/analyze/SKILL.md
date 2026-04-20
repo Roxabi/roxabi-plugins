@@ -41,6 +41,13 @@ Frame → analysis. Codebase exploration → expert review → user approval gat
 | 3 | review | — | agents return | ∥ spawn |
 | 4 | approval | ✓ | `git log` shows commit | gate |
 
+## Pre-flight
+
+Success: α written ∧ committed ∧ shapes ∃
+Evidence: `git log --oneline -1 | grep analysis`
+Steps: resolve → scan → explore → review → approval
+¬clear → STOP + ask: "Is this technical analysis or framing?"
+
 ## Step 0 — Resolve Input
 
 Parse args → locate φ.

@@ -46,6 +46,13 @@ Analysis (or frame) → approved spec. Interview → pre-check → expert review
 | 4 | review | — | agents return | ∥ spawn |
 | 5 | approval | ✓ | `git log` shows commit | gate |
 
+## Pre-flight
+
+Success: σ written ∧ pre-check pass ∧ |χ| ≤ 5
+Evidence: `ls artifacts/specs/` ∧ pre-check output
+Steps: resolve → generate → pre-check → review → approval
+¬clear → STOP + ask: "What artifact should this spec derive from?"
+
 ## Step 0 — Resolve Input + Ensure GitHub Issue
 
 ### 0a. Resolve SRC

@@ -62,6 +62,13 @@ Does NOT create a PR — that is `/pr` (next step).
 | 5 | quality-gate | ✓ | QG exit 0 | retry 3, rollback on failure |
 | 6 | summary | ✓ | all tasks done | — |
 
+## Pre-flight
+
+Success: QG pass ∧ worktree ∃ ∧ commits > 0
+Evidence: QG exit 0 inside .claude/worktrees/{N}-{slug}
+Steps: locate-plan → setup → context-inject → implement → quality-gate → summary
+¬clear → STOP + ask: "Do you have a plan to implement?"
+
 ## Step 1 — Locate Plan
 
 `--issue N` → `ls artifacts/plans/N-*.mdx` → read full → extract tasks, agents, τ, slug.

@@ -39,6 +39,13 @@ Standalone-safe: callable without `/dev`. Output consumed by `/analyze`, `/spec`
 | 3 | write | ✓ | φ ∃ | — |
 | 4 | approval | ✓ | `status: approved` | gate |
 
+## Pre-flight
+
+Success: φ written ∧ status: approved
+Evidence: `ls artifacts/frames/` after execution
+Steps: parse → interview → tier → write → approval
+¬clear → STOP + ask: "What problem are you solving?"
+
 ## Step 0 — Parse + Seed
 
 `--issue N` →

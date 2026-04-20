@@ -39,6 +39,13 @@ Spec → micro-tasks → agent assignments → plan artifact.
 | 5 | write | ✓ | π ∃ | — |
 | 6 | approve | ✓ | `git log` shows commit | gate |
 
+## Pre-flight
+
+Success: π written ∧ ## Task IDs section ∃
+Evidence: `grep "## Task IDs" artifacts/plans/{N}-*.mdx`
+Steps: locate-spec → plan → refs → micro-tasks → write → approve
+¬clear → STOP + ask: "Do you have a spec to plan from?"
+
 ## Step 1 — Locate Spec
 
 `--issue N` → `ls artifacts/specs/N-*.mdx` → read full → extract title, criteria, files.

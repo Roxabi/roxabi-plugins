@@ -35,6 +35,13 @@ Two-pass pipeline: auto-apply high-C findings (C≥T, 2+ agents), then 1b1 for r
 | 7 | final-push | ✓ | `git push` success | — |
 | 8 | post-comment | — | comment posted | ∄ PR → skip |
 
+## Pre-flight
+
+Success: ∀ actionable → applied ∨ deferred ∧ PR comment posted
+Evidence: `gh pr view {N} --comments | grep "## Review Fixes Applied"`
+Steps: gather → triage → auto-apply → walkthrough → apply-1b1 → final-push → post-comment
+¬clear → STOP + ask: "Do you have review findings to fix?"
+
 Let:
   F := all findings | f ∈ F | C(f) ∈ [0,100] ∩ ℤ — confidence
   A(f) := {agents that flagged f} | cat(f) ∈ {issue, suggestion, todo, nitpick, thought, question, praise}

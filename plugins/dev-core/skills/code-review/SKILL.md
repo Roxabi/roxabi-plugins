@@ -40,6 +40,13 @@ Let:
 | 6 | post-to-pr | — | comment posted | PR ∃ |
 | 8 | next-step | ✓ | decision made | — |
 
+## Pre-flight
+
+Success: F collected ∧ verdict posted ∧ Phase 8 decision made
+Evidence: `gh pr view {N} --comments | grep "## Code Review"`
+Steps: gather-changes → secret-scan → multi-domain-review → merge-and-present → post-to-pr → next-step
+¬clear → STOP + ask: "Which branch/PR to review?"
+
 ## Phase 1 — Gather Changes
 
 0. `BASE=$(git branch -r | grep -q 'origin/staging' && echo staging || echo main)`

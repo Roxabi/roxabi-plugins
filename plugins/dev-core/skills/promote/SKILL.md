@@ -33,6 +33,13 @@ Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := DP(A)
 | 8 | post-merge | — | — | reminder |
 | 9 | finalize | — | tag + release ∃ | `--finalize` only |
 
+## Pre-flight
+
+Success: PR created (promote) ∨ tag+release (finalize)
+Evidence: PR URL shown ∨ `git tag -l $VERSION`
+Steps: pre-flight → version → changelog → commit → preview → create-pr
+¬clear → STOP + ask: "Full promote or --finalize?"
+
 ## Usage
 
 ```

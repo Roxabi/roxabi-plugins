@@ -41,6 +41,13 @@ Generate tests for changed/specified files. Follow existing codebase patterns.
 | 6 | approval | ✓ | user confirms | — |
 | 7 | write-and-verify | ✓ | test exit 0 | retry 1 |
 
+## Pre-flight
+
+Success: π written ∧ test passes
+Evidence: `{commands.test} {test_file}` exit 0
+Steps: identify-targets → read-standards → check-coverage → generate-tests → approval → write-and-verify
+¬clear → STOP + ask: "Which file(s) need tests?"
+
 ## Step 1 — `--run` Shortcut
 
 `--run` ⇒ `{commands.test}` → report results → stop.
