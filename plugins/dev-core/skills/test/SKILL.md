@@ -8,6 +8,11 @@ allowed-tools: Bash, Read, Write, Glob, Grep, ToolSearch
 
 # Test
 
+## Success
+
+I := π written ∧ test passes
+V := `{commands.test} {test_file}` → exit 0
+
 Let:
   τ := target file(s) under test
   π := test file adjacent to source (`{name}.test.ts` | `{name}.spec.ts` | `__tests__/{name}.test.ts`)

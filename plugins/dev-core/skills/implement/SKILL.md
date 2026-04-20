@@ -8,6 +8,11 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree,
 
 # Implement
 
+## Success
+
+I := QG pass ∧ worktree ∃ ∧ commits > 0
+V := `cd .claude/worktrees/{N}-{slug} && {lint} && {typecheck} && {test}` → exit 0
+
 Let:
   π := artifacts/plans/{N}-{slug}.mdx
   τ := tier (S | F-lite | F-full)

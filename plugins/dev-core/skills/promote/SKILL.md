@@ -8,6 +8,11 @@ allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch
 
 # Promote
 
+## Success
+
+I₀ := PR created (staging→main) | I₁ := tag pushed + release created (--finalize)
+V₀ := `gh pr list --base main --head staging --state open` | V₁ := `git tag -l $VERSION` ∧ `gh release view $VERSION`
+
 Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := DP(A)
 
 σ → μ for production. Pre-flight → version → changelog → commit → preview → PR.

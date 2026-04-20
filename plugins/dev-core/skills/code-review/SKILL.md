@@ -8,6 +8,11 @@ allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill, ToolSearch
 
 # Code Review
 
+## Success
+
+I := F collected ∧ verdict posted (PR ∃) ∧ Phase 8 decision made
+V := `gh pr view {N} --comments | grep "## Code Review"` ∧ verdict ∈ {Approve, Request changes}
+
 Review branch/PR via fresh domain-specific agents → Conventional Comments → findings + verdict.
 
 **⚠ Flow: single continuous pipeline (Phases 1→4 + 6 + 8). ¬stop between phases. Decision response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, or Phase 8 completion.**

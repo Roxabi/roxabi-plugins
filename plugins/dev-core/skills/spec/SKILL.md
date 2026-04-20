@@ -8,6 +8,11 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 
 # Spec
 
+## Success
+
+I := σ written ∧ pre-check pass ∧ |χ| ≤ 5
+V := `ls artifacts/specs/{N}-*.mdx` ∧ pre-check: 0 failures
+
 Let:
   α := artifacts/analyses/{N}-{slug}-analysis.mdx
   σ := artifacts/specs/{N}-{slug}-spec.mdx

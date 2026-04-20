@@ -8,6 +8,11 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree,
 
 # Analyze
 
+## Success
+
+I := α written ∧ committed ∧ shapes ∃
+V := `git log --oneline -1 | grep analysis` ∧ `ls artifacts/analyses/{N}-*.mdx`
+
 Let:
   α := artifacts/analyses/{N}-{slug}-analysis.mdx
   φ := artifacts/frames/{slug}-frame.mdx

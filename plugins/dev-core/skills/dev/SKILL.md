@@ -8,6 +8,11 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree,
 
 # Dev
 
+## Success
+
+I := ∀ steps ∈ pipeline → done ∨ skipped (per tier) ∧ issue closed
+V := TaskList: all `status: completed` ∨ Σ.step == true ∨ should_skip(step)
+
 Let:
   N    := issue number
   slug := kebab-case title slug

@@ -8,6 +8,11 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 
 # Frame
 
+## Success
+
+I := φ written ∧ status: approved
+V := `cat artifacts/frames/{N}-{slug}-frame.mdx | head -10 | grep "status: approved"`
+
 Let:
   φ := artifacts/frames/{N}-{slug}-frame.mdx (∃N) ∨ artifacts/frames/{slug}-frame.mdx (frame-only)
   N := issue number (∅ if free text)

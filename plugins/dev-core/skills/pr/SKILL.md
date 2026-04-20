@@ -8,6 +8,11 @@ allowed-tools: Bash, Read, Grep, ToolSearch
 
 # Pull Request
 
+## Success
+
+I := PR created ∧ pushed ∧ rebased on base
+V := `gh pr view {N}` ∧ `git log origin/${BASE}..HEAD` non-empty
+
 Let:
   β := `staging` (∃ origin/staging) ∨ `main`
   Β := current branch

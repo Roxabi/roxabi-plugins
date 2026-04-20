@@ -8,6 +8,11 @@ allowed-tools: Bash, Read
 
 # Validate
 
+## Success
+
+I := ∀ χ ∈ scope → σ = pass
+V := Report shows "Result: All checks passed"
+
 Let:
   χ := quality check (name, command from `{commands.*}`, timeout, result)
   σ := {✅ pass (exit 0), ❌ FAIL (exit ≠0), ⚠️ warn (exit 0 + warnings), ⏭ skip (¬in scope)}

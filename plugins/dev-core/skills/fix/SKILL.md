@@ -8,6 +8,11 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill, ToolS
 
 # Fix
 
+## Success
+
+I := ∀ f ∈ actionable → applied ∨ deferred (issue ∃) ∨ skipped (user) ∧ PR comment posted
+V := `gh pr view {N} --comments | grep "## Review Fixes Applied"`
+
 Two-pass pipeline: auto-apply high-C findings (C≥T, 2+ agents), then 1b1 for rest.
 
 **⚠ Continuous pipeline. ¬stop between phases. Stop only on: unrecoverable failure or Phase 8 completion.**

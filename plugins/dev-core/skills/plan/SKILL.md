@@ -8,6 +8,11 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree,
 
 # Plan
 
+## Success
+
+I := π written ∧ ## Task IDs section ∃
+V := `ls artifacts/plans/{N}-*.mdx` ∧ `grep "## Task IDs" artifacts/plans/{N}-*.mdx`
+
 Let:
   σ := spec artifact
   π := plan artifact at `artifacts/plans/{issue}-{slug}.mdx`
