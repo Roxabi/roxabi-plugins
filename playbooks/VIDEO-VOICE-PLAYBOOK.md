@@ -21,7 +21,7 @@ Each phase below points to the **specialized skill / playbook**. This doc is the
 9  companion-page     ─ forge slides / guide / epic
 ```
 
-Skills marked **✱** = gap (skill doesn't exist yet — see [§ Gaps](#gaps)).
+All phase-1 gaps shipped 2026-04-20 (see [§ Gaps](#gaps)). Next gaps will re-populate as usage surfaces them.
 
 ---
 
@@ -114,7 +114,7 @@ Extract *how* the creator speaks — register, fillers, FR/EN mix, sentence shap
 
 | Skill | Status |
 |---|---|
-| `content-lab:voice-style` **✱** | gap — to be created |
+| `content-lab:voice-style` | shipped v1 (2026-04-20) |
 | manual notes from transcript | fallback today |
 
 Output → **creator-style card** (~20 lines):
@@ -139,7 +139,7 @@ moves:         analogy-first · friend-explaining framing
 | Case | Skill |
 |---|---|
 | YouTube source | [`voiceCLI:yt-clone`](~/projects/voiceCLI/skills/yt-clone/SKILL.md) |
-| Local video / audio | `voiceCLI:sample-pick` **✱** (gap) + `voicecli samples add` |
+| Local video / audio | `voiceCLI:sample-pick` + `voicecli samples add` |
 | Invent personality | `voiceCLI:voice-design` |
 
 **Clean-segment picker** (once `sample-pick` exists — currently manual `--start`/`--duration`):
@@ -274,11 +274,11 @@ reference type?
 ├── narrative / script            ─▶  content-lab:video-recipe
 ├── visuals / style               ─▶  web-intel:video-analyze   (Phase 1.2)
 ├── recreate components           ─▶  video-engine:reverse-engineer
-└── concept / article URL         ─▶  web-intel:explain ✱       (custom prompt)
+└── concept / article URL         ─▶  web-intel:explain          (custom prompt)
 
 voice source?
 ├── YouTube URL                   ─▶  voiceCLI:yt-clone         (one-shot)
-├── local video / audio file      ─▶  voiceCLI:sample-pick ✱ + voice
+├── local video / audio file      ─▶  voiceCLI:sample-pick + voice
 └── no source (invent)            ─▶  voiceCLI:voice-design
 
 companion page?
@@ -298,8 +298,8 @@ companion page?
 | 1.1 | `yt-dlp` · `voiceCLI:voice` (transcribe) | ext · `voiceCLI` |
 | 1.2 | `web-intel:video-analyze` | `roxabi-plugins` |
 | 1.5 / 9 | `forge:forge-{slides,guide,epic,md}` | `roxabi-forge` |
-| 2 | `content-lab:voice-style` **✱** | `roxabi-plugins` (proposed) |
-| 3 | `voiceCLI:yt-clone` · `voiceCLI:voice` · `voiceCLI:voice-design` · `voiceCLI:sample-pick` **✱** | `voiceCLI` |
+| 2 | `content-lab:voice-style` | `roxabi-plugins` |
+| 3 | `voiceCLI:yt-clone` · `voiceCLI:voice` · `voiceCLI:voice-design` · `voiceCLI:sample-pick` | `voiceCLI` |
 | 4 | `video-engine:storyboard` | `roxabi-production` |
 | 5 | `video-engine:voice-over` · `voiceCLI:voice` | `roxabi-production` · `voiceCLI` |
 | 6 | `video-engine:compose` | `roxabi-production` |
@@ -339,15 +339,18 @@ companion page?
 
 ## Gaps
 
-Proposed skills to create (blockers for a fully-automated run):
+### Shipped v1 — 2026-04-20
 
 | # | Skill | Purpose | Phase |
 |---|---|---|---|
 | 1 | `web-intel:explain` | scrape URL + LLM(custom prompt) — concept explainer · digest · steelman · compare | 1 (ref URL) |
 | 2 | `content-lab:voice-style` | creator writing-style card from transcript | 2 |
-| 3 | `voiceCLI:sample-pick` | VAD + music-reject + scoring → ranked clean-speech segments | 3 |
+| 3 | `voiceCLI:sample-pick` | silence-based VAD + scoring → ranked clean-speech segments | 3 |
 
-Each will get its own spec before implementation.
+### Open
+
+None currently. Next gaps will be identified from usage signal on the first
+real run of the pipeline end-to-end.
 
 ---
 
