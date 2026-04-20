@@ -16,6 +16,7 @@ Takes a YouTube video URL, scrapes the transcript, and produces a multi-dimensio
 | Skill | Trigger | Description |
 |-------|---------|-------------|
 | `video-recipe` | `/video-recipe <url>` | Full video analysis → VAKOG + structure + recipe |
+| `voice-style` | `/voice-style <url-or-transcript>` | Extract a creator's writing-style card — register, fillers, code-switching, sentence shape, signature moves |
 
 ### Flags
 

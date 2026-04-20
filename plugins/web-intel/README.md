@@ -1,6 +1,6 @@
 # web-intel
 
-Multi-platform URL scraper and content analysis engine for Claude Code. Extracts structured content from Twitter/X, GitHub, YouTube, Reddit, and any webpage — then powers 6 analysis skills on top. Includes a headless-Chromium stealth fallback for anti-bot protected sites, full-page screenshots for visual critiques, and a video frame analysis pipeline for deep visual understanding of YouTube videos.
+Multi-platform URL scraper and content analysis engine for Claude Code. Extracts structured content from Twitter/X, GitHub, YouTube, Reddit, and any webpage — then powers 8 analysis skills on top. Includes a headless-Chromium stealth fallback for anti-bot protected sites, full-page screenshots for visual critiques, and a video frame analysis pipeline with two-pass VLM classify + deep-OCR for deep visual understanding of YouTube videos.
 
 ## Skills
 
@@ -8,10 +8,12 @@ Multi-platform URL scraper and content analysis engine for Claude Code. Extracts
 |-------|---------|-------------|
 | `/scrape <url>` | "scrape", "fetch url" | Raw structured extraction — returns JSON with content, metadata, platform-specific fields |
 | `/summarize <url>` | "summarize url", "tldr" | Scrape → concise summary (key points, takeaways, who/what/why) |
-| `/analyze-url <url>` | "analyze url", "deep dive url" | Scrape → deep analysis (tech stack, architecture, business model, competitive positioning) |
+| `/analyze-url <url>` | "analyze url", "deep dive url" | Scrape → deep analysis (fixed schema: tech stack, architecture, business model, competitive positioning) |
+| `/explain <url> [prompt\|--concept\|--digest\|--steelman\|--compare]` | "explain url", "steelman", "digest url" | Scrape → apply custom prompt or preset (concept explainer · digest · steelman · compare two URLs) |
 | `/roast <url>` | "roast", "critique site" | Scrape + screenshot → brutally honest critique (design, UX, copy, performance, a11y) |
 | `/benchmark <url>` | "benchmark", "compare with" | Scrape + screenshot → compare against current repo (features, UI, stack, auth, UX). Gap report |
 | `/adapt <url>` | "adapt", "inspire from" | Scrape → extract what works → suggest how to adapt patterns/copy/design for your project |
+| `/video-analyze <url>` | "video analyze", "vlm video" | Scene-detect frames → two-pass VLM (classify → deep-OCR) → frame descriptions + OCR derivatives (text frames · terms · top-dense · digest) |
 
 ## Supported Platforms
 

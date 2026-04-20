@@ -21,7 +21,7 @@
     },
     {
       "name": "web-intel",
-      "description": "Multi-platform URL scraper (Twitter/X, GitHub, YouTube, Reddit, webpages) with 6 analysis skills: scrape, summarize, analyze, roast, benchmark, adapt.",
+      "description": "Multi-platform URL scraper (Twitter/X, GitHub, YouTube, Reddit, webpages) with 8 analysis skills: scrape, summarize, analyze-url, explain, roast, benchmark, adapt, video-analyze.",
       "source": "./plugins/web-intel",
       "category": "analysis"
     },
