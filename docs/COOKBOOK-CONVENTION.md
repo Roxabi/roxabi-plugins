@@ -110,6 +110,7 @@ When adding a new cookbook/playbook:
 | File | Description |
 |------|-------------|
 | `first-principles.md` | 8 recipes for AI code dev (intent, decomposition, verification) |
+| `musk-algorithm.md` | 5-step anti-bureaucracy algorithm (question → delete → simplify → accelerate → automate) |
 
 ### Plugin Cookbooks (`plugins/*/cookbooks/`)
 
@@ -132,6 +133,7 @@ When adding a new cookbook/playbook:
 | `AVATAR-PIPELINES.md` | Pipeline details |
 | `AVATAR-LESSONS.md` | Lessons learned |
 | `AVATAR-LOG.md` | Log entries |
+| `VIDEO-VOICE-PLAYBOOK.md` | Video analyze → voice clone → render pipeline |
 
 ---
 
