@@ -127,6 +127,16 @@
       "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
       "status": "active",
       "notes": "Roxabi-owned. Programmatic video generation — 55 React components, 13 kits, headless MP4 rendering. 1 plugin (roxabi-video-engine) with 3 skills: generate, render, analyze."
+    },
+    {
+      "name": "impeccable",
+      "source": "https://github.com/pbakaus/impeccable",
+      "added": "2026-04-20",
+      "last_checked_commit": "00d485659af82982aef0328d0419c49a2716d123",
+      "upstream_branch": "main",
+      "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
+      "status": "active",
+      "notes": "Community. Design fluency — extends Anthropic's frontend-design skill with 7 domain refs (typography, OKLCH color, spatial, motion, interaction, responsive, UX writing), 18 steering commands (/audit, /critique, /polish, /distill, /animate, /typeset, etc.), curated anti-patterns, and standalone CLI (`npx impeccable detect`). Apache-2.0. By Paul Bakaus (paulbakaus.com). Plugin v2.1.1."
     }
   ],
   "wrapped_plugins": [

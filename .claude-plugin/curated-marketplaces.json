@@ -51,6 +51,11 @@
       "name": "roxabi-video-engine",
       "source": "https://github.com/Roxabi/roxabi-production",
       "description": "Programmatic video generation — 55 React components, 13 kits, headless MP4 rendering."
+    },
+    {
+      "name": "impeccable",
+      "source": "https://github.com/pbakaus/impeccable",
+      "description": "Design fluency for AI harnesses — 1 skill (7 domain refs), 18 steering commands (/audit, /critique, /polish, /distill, /animate …), anti-patterns, standalone CLI."
     }
   ]
 }
