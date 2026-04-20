@@ -29,6 +29,8 @@ from typing import Any
 _TERM_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,9}(?:[-/][A-Z0-9]{1,10})?\b")
 
 # Stop words — common false positives (English boilerplate, single-letter acronyms).
+# Compound terms (e.g. "AI-NATIVE") are kept intentionally — they are meaningful
+# multi-word concepts even when a component appears in the stop list.
 _STOP_TERMS = {
     "A", "I", "AND", "OR", "THE", "OF", "ON", "IN", "TO", "IS", "IT",
     "AS", "AT", "BE", "BY", "FOR", "FROM", "HAS", "HAVE", "NOT", "WITH",
@@ -101,19 +103,23 @@ def write_terms(frames: list[dict], out: Path, min_count: int = 3, top_n: int = 
 
 
 def write_top_dense(frames: list[dict], out: Path, top_n: int = 20) -> None:
-    """Top-N frames by description character count."""
+    """Top-N frames by description character count.
+
+    Tie-break on timestamp (ascending) so output is stable if frames are
+    ever reordered in the source JSON.
+    """
     scored = [
-        (len(f.get("description") or ""), f)
+        (len(f.get("description") or ""), float(f.get("second") or 0), f)
         for f in frames
         if f.get("description")
     ]
-    scored.sort(key=lambda x: x[0], reverse=True)
+    scored.sort(key=lambda x: (-x[0], x[1]))
     top = scored[:top_n]
     if not top:
         out.write_text(f"# Top-{top_n} dense frames\n\n_No frames with descriptions._\n", encoding="utf-8")
         return
     lines = [f"# Top-{top_n} densest frames (by description length)", ""]
-    for chars, f in top:
+    for chars, _second, f in top:
         ts = _ts_str(f.get("second", 0))
         kind = f.get("kind") or f.get("scene_type") or "?"
         desc = (f.get("description") or "").strip()
