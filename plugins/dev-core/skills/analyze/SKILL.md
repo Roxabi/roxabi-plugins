@@ -30,6 +30,17 @@ Frame → analysis. Codebase exploration → expert review → user approval gat
 /analyze --frame path → read frame at path, produce α
 ```
 
+## Pipeline
+
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 0 | resolve | ✓ | φ ∃ | — |
+| 1 | scan | — | α ∃? | — |
+| 2 | explore | ✓ | α written | Glob+Grep+interview |
+| 2.5 | investigate | — | hypothesis resolved | optional spike |
+| 3 | review | — | agents return | ∥ spawn |
+| 4 | approval | ✓ | `git log` shows commit | gate |
+
 ## Step 0 — Resolve Input
 
 Parse args → locate φ.

@@ -21,13 +21,13 @@ Run all χ sequentially → single structured pass/fail report. ¬stop on first 
 
 ## Pipeline
 
-| Step | ID | Required | Notes |
-|------|----|----------|-------|
-| 1 | scope | ✓ | — |
-| 2 | run-checks | ✓ | continue-on-failure |
-| 3 | report | ✓ | — |
-| 4 | failure-details | — | ∃ failures |
-| 5 | verdict | ✓ | — |
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 1 | scope | ✓ | χ set defined | — |
+| 2 | run-checks | ✓ | exit codes captured | continue-on-failure |
+| 3 | report | ✓ | report printed | — |
+| 4 | failure-details | — | error lines shown | ∃ failures |
+| 5 | verdict | ✓ | pass/fail declared | — |
 
 ## Usage
 

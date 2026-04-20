@@ -22,6 +22,19 @@ Two-pass pipeline: auto-apply high-C findings (C≥T, 2+ agents), then 1b1 for r
 /fix #42    → gather findings from PR #42 comments
 ```
 
+## Pipeline
+
+| Phase | ID | Required | Verifies via | Notes |
+|-------|----|----------|---------------|-------|
+| 1 | gather | ✓ | F parsed | — |
+| 2 | triage | ✓ | Q_auto + Q_1b1 split | — |
+| 3 | auto-apply | — | applied count | Q_auto = ∅ → skip |
+| 4 | push-auto | — | `git push` success | ¬applied → skip |
+| 5 | walkthrough | — | decisions recorded | Q_1b1 = ∅ → skip |
+| 6 | apply-1b1 | — | applied count | acc = ∅ → skip |
+| 7 | final-push | ✓ | `git push` success | — |
+| 8 | post-comment | — | comment posted | ∄ PR → skip |
+
 Let:
   F := all findings | f ∈ F | C(f) ∈ [0,100] ∩ ℤ — confidence
   A(f) := {agents that flagged f} | cat(f) ∈ {issue, suggestion, todo, nitpick, thought, question, praise}

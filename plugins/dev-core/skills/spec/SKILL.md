@@ -34,6 +34,18 @@ Analysis (or frame) → approved spec. Interview → pre-check → expert review
 /spec --frame path       → use provided frame (analysis was skipped)
 ```
 
+## Pipeline
+
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 0 | resolve | ✓ | SRC ∃ | — |
+| 1 | scan | — | σ ∃? | — |
+| 1b | audit | — | — | `--audit` only |
+| 2 | generate | ✓ | σ written | Ω interview |
+| 3 | pre-check | ✓ | 0 failures | — |
+| 4 | review | — | agents return | ∥ spawn |
+| 5 | approval | ✓ | `git log` shows commit | gate |
+
 ## Step 0 — Resolve Input + Ensure GitHub Issue
 
 ### 0a. Resolve SRC

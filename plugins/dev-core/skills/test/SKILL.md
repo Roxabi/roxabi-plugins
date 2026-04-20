@@ -31,15 +31,15 @@ Generate tests for changed/specified files. Follow existing codebase patterns.
 
 ## Pipeline
 
-| Step | ID | Required | Notes |
-|------|----|----------|-------|
-| 1 | run-shortcut | — | `--run` flag only, early exit |
-| 2 | identify-targets | ✓ | — |
-| 3 | read-standards | ✓ | — |
-| 4 | check-coverage | ✓ | — |
-| 5 | generate-tests | ✓ | — |
-| 6 | approval | ✓ | — |
-| 7 | write-and-verify | ✓ | retry 1 |
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 1 | run-shortcut | — | `{commands.test}` exit 0 | `--run` flag only |
+| 2 | identify-targets | ✓ | Δ files listed | — |
+| 3 | read-standards | ✓ | Σ read | — |
+| 4 | check-coverage | ✓ | π ∃? | — |
+| 5 | generate-tests | ✓ | tests generated | — |
+| 6 | approval | ✓ | user confirms | — |
+| 7 | write-and-verify | ✓ | test exit 0 | retry 1 |
 
 ## Step 1 — `--run` Shortcut
 

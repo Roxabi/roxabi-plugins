@@ -18,6 +18,21 @@ Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := DP(A)
 σ → μ for production. Pre-flight → version → changelog → commit → preview → PR.
 `--finalize`: post-merge tag + GitHub Release.
 
+## Pipeline
+
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 1 | pre-flight | ✓ | ¬REFUSE | — |
+| 2 | version | ✓ | V detected | — |
+| 3 | changelog | ✓ | CHANGELOG.md updated | — |
+| 4 | commit | ✓ | `git log` shows commit | — |
+| 5 | preview | — | deploy success | `--skip-preview` skips |
+| 6 | summary | ✓ | summary printed | — |
+| 6b | changelog-commit | — | PR merged → staging | branch protection |
+| 7 | create-pr | ✓ | PR URL shown | — |
+| 8 | post-merge | — | — | reminder |
+| 9 | finalize | — | tag + release ∃ | `--finalize` only |
+
 ## Usage
 
 ```

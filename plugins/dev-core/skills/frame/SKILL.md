@@ -29,6 +29,16 @@ Standalone-safe: callable without `/dev`. Output consumed by `/analyze`, `/spec`
 /frame --issue N    → seed from GitHub issue title + body
 ```
 
+## Pipeline
+
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 0 | parse | ✓ | `gh issue view N` → JSON | — |
+| 1 | interview | — | — | 3–5 Q max |
+| 2 | tier | ✓ | τ ∈ frontmatter | — |
+| 3 | write | ✓ | φ ∃ | — |
+| 4 | approval | ✓ | `status: approved` | gate |
+
 ## Step 0 — Parse + Seed
 
 `--issue N` →

@@ -53,14 +53,14 @@ Does NOT create a PR — that is `/pr` (next step).
 
 ## Pipeline
 
-| Step | ID | Required | Notes |
-|------|----|----------|-------|
-| 1 | locate-plan | ✓ | — |
-| 2 | setup | ✓ | rollback on failure |
-| 3 | context-inject | — | τ=F only |
-| 4 | implement | ✓ | parallel: conditional, retry 3 |
-| 5 | quality-gate | ✓ | retry 3, rollback on failure |
-| 6 | summary | ✓ | — |
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 1 | locate-plan | ✓ | π ∃ ∨ σ ∃ (S-tier) | — |
+| 2 | setup | ✓ | ω ∃ ∧ branch ∃ | rollback on failure |
+| 3 | context-inject | — | — | τ=F only |
+| 4 | implement | ✓ | tasks `completed` | parallel: conditional, retry 3 |
+| 5 | quality-gate | ✓ | QG exit 0 | retry 3, rollback on failure |
+| 6 | summary | ✓ | all tasks done | — |
 
 ## Step 1 — Locate Plan
 

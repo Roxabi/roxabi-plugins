@@ -28,6 +28,17 @@ Spec → micro-tasks → agent assignments → plan artifact.
 /plan --issue 42 --audit Show reasoning checkpoint before planning
 ```
 
+## Pipeline
+
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 1 | locate-spec | ✓ | σ ∃ | — |
+| 2 | plan | ✓ | τ + agents defined | — |
+| 3 | refs | — | ref paths noted | — |
+| 4 | micro-tasks | — | tasks ∃ in π | Tier F only |
+| 5 | write | ✓ | π ∃ | — |
+| 6 | approve | ✓ | `git log` shows commit | gate |
+
 ## Step 1 — Locate Spec
 
 `--issue N` → `ls artifacts/specs/N-*.mdx` → read full → extract title, criteria, files.

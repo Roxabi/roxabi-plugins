@@ -22,6 +22,17 @@ Let:
 
 **Flow: single continuous pipeline. ¬stop between steps. Stop only on: REFUSE, explicit Cancel, or Step 6 completion.**
 
+## Pipeline
+
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 1 | gather-state | ✓ | state JSON emitted | — |
+| 2 | guard-rails | ✓ | ¬REFUSE | — |
+| 3 | generate | ✓ | title + body ready | — |
+| 4 | create | ✓ | `gh pr create` success | — |
+| 5 | rebase | ✓ | `git push` success | — |
+| 6 | watch | — | — | inform only |
+
 ## Step 1 — Gather State
 
 ```bash

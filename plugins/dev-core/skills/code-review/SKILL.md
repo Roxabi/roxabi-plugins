@@ -30,15 +30,15 @@ Let:
 
 ## Pipeline
 
-| Phase | ID | Required | Notes |
-|-------|----|----------|-------|
-| 1 | gather-changes | ✓ | — |
-| 1.5 | secret-scan | ✓ | — |
-| 2 | spec-compliance | — | spec ∃ |
-| 3 | multi-domain-review | ✓ | parallel |
-| 4 | merge-and-present | ✓ | — |
-| 6 | post-to-pr | — | PR ∃ |
-| 8 | next-step | ✓ | — |
+| Phase | ID | Required | Verifies via | Notes |
+|-------|----|----------|---------------|-------|
+| 1 | gather-changes | ✓ | Δ listed | — |
+| 1.5 | secret-scan | ✓ | ∅ matches (or ACK) | — |
+| 2 | spec-compliance | — | criteria checked | spec ∃ |
+| 3 | multi-domain-review | ✓ | agents return | parallel |
+| 4 | merge-and-present | ✓ | F + verdict | — |
+| 6 | post-to-pr | — | comment posted | PR ∃ |
+| 8 | next-step | ✓ | decision made | — |
 
 ## Phase 1 — Gather Changes
 
