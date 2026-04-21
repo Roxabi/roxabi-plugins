@@ -169,6 +169,6 @@ Dep view only. Modify → `/issue-triage`.
 
 ## Related
 
-- Taxonomy SSoT → `plugins/dev-core/references/issue-taxonomy.md` — GraphQL fetch contract, field/Issue-Type reader conventions
+- [Taxonomy SSoT](../../references/issue-taxonomy.md) — GraphQL fetch contract, field/Issue-Type reader conventions
 
 $ARGUMENTS

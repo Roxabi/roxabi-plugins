@@ -10,12 +10,12 @@ Single fact source for issue metadata across every Roxabi repo (`lyra`, `voiceCL
 
 | Field | GH object | Values | Scope | Reader(s) | Writer(s) |
 |---|---|---|---|---|---|
-| **Lane** | Project V2 single_select | `a` `b` `c` `d` `…` `standalone` | Hub project (spans all repos) | dep-graph · dashboard | issue-triage |
+| **Lane** | Project V2 single_select | `a1` `a2` `a3` `b` `c1` `c2` `c3` `d` `e` `f` `g` `h` `i` `j` `k` `l` `m` `n` `o` `standalone` | Hub project (spans all repos) | dep-graph · dashboard | issue-triage |
 | **Priority** | Project V2 single_select | `P0` `P1` `P2` `P3` | Hub project | dashboard · issues | issue-triage |
 | **Size** | Project V2 single_select | `S` `F-lite` `F-full` | Hub project | dep-graph · issues | issue-triage |
 | **Status** | Project V2 built-in | `Todo` `Ready` `In Progress` `Blocked` `Done` | Hub project | dep-graph · dashboard | issue-triage · auto-derived |
 | **Milestone** | Native GH milestone | `M0` `M1` `M2` `…` | **Per-repo** (names kept consistent) | dep-graph (band headers) | issue-triage · milestones-sync |
-| **Issue Type** | Org-level native | `Bug` `Feature` `Epic` `Chore` `Research` | Org (applies to every repo) | dep-graph · dashboard | issue-triage · github-setup (org bootstrap) |
+| **Issue Type** | Org-level native | Current (pre-Phase 1): `Bug` `Feature` `Epic` `Chore` `Research` → Target (post-Phase 1): `feat` `fix` `refactor` `docs` `test` `chore` `ci` `perf` `epic` `research` | Org (applies to every repo) | dep-graph · dashboard | issue-triage · github-setup (org bootstrap) |
 | **Assignees** | Native | users | Repo (GH native) | dashboard | manual · issue-triage |
 
 **Native relations (no field needed):**
@@ -74,10 +74,12 @@ Single fact source for issue metadata across every Roxabi repo (`lyra`, `voiceCL
 - **Inputs:** user triage prompt + issue context
 - **Mutates:** GH Project V2 items (field values) + native issue fields + native relations
 - **Never writes:** raw labels for taxonomy (domain tags only)
+- **Phase 3 dual-write override:** during dual-write, also writes `graph:lane/*`, `size:*`, and Conventional Commits title prefix alongside hub fields.
+- "Never writes labels for taxonomy" is the **post-Phase 6** invariant; pre-cutover, the override above applies.
 
 ### `dev-core:github-setup`
 - **One-shot org bootstrap:**
-  - Create/verify org-level Issue Types (Bug/Feature/Epic/Chore/Research)
+  - Create/verify org-level Issue Types (post-Phase 1 target set: feat/fix/refactor/docs/test/chore/ci/perf/epic/research — pre-migration names Bug/Feature/Chore/Research get renamed; Epic retained as-is)
   - Create/verify hub Project V2 + 4 custom fields (Lane/Priority/Size + Status options)
 - **Per-repo bootstrap (opt-in flag `--hub-enroll`):**
   - Add repo to hub project via auto-add workflow
@@ -116,6 +118,7 @@ Shape verified end-to-end by spike on `Roxabi/lyra#717` in hub project #23 (2026
 Fact source for the migration spec. Do not execute from this doc.
 
 ```
+0. Publish SSoT + link from consumer SKILL.md files    (discoverability)
 1. Create hub project + fields + Issue Types           (setup)
 2. Dual-write: issue-triage writes labels AND fields   (safety window)
 3. Backfill: script label → field per repo             (migrate data)
@@ -134,4 +137,5 @@ Fact source for the migration spec. Do not execute from this doc.
 - ❌ Using a custom "Phase" field **and** milestones — pick one (milestones win)
 - ❌ Setting `Lane` via label — the field is the fact source
 - ❌ `dev-core:github-setup` auto-enrolling every new org repo — opt-in only
-- ❌ Reading field values without caching — preview APIs, cache to `gh.json` / `corpus.db`
+- ❌ Reading field values without caching — always populate `gh.json` (dep-graph) / `corpus.db` (corpus) first
+- ❌ Using preview APIs in the hot read path — all fields consumed by dep-graph and `dev-core:issues` must be GA

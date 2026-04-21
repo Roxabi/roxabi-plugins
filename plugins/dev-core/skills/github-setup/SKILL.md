@@ -234,6 +234,6 @@ Next: run /ci-setup to configure GitHub Actions and pre-commit hooks.
 
 ## Related
 
-- Taxonomy SSoT → `plugins/dev-core/references/issue-taxonomy.md` — field set, cross-repo behavior, org-bootstrap contract for hub project + Issue Types
+- [Taxonomy SSoT](../../references/issue-taxonomy.md) — field set, cross-repo behavior, org-bootstrap contract for hub project + Issue Types
 
 $ARGUMENTS

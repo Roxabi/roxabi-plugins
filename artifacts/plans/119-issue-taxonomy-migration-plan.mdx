@@ -70,8 +70,8 @@ flowchart LR
     REF -.->|"## Related link"| ITMD
     REF -.->|"## Related link"| GSMD
     REF -.->|"## Related link"| ISMD
-    CHILD_A -->|"parent"| CHILD_B
-    CHILD_B -->|"parent"| CHILD_C
+    CHILD_A -->|"blocks"| CHILD_B
+    CHILD_B -->|"blocks"| CHILD_C
 ```
 
 ## Bootstrap Context
@@ -111,7 +111,7 @@ No analysis artifact — spec approved directly (out-of-order state, user-accept
     --title "refactor(dev-core): #119.c cutover + guardrail (phases 6+7)" \
     --parent 119 --size L --priority High
   ```
-- **Verify:** `bun /home/mickael/.claude/plugins/cache/roxabi-marketplace/dev-core/0.1.0/skills/issue-triage/triage.ts list --json | jq '[.[] | select(.parent == 119)] | length'`
+- **Verify:** `bun ${CLAUDE_SKILL_DIR}/triage.ts list --json | jq '[.[] | select(.parent == 119)] | length'`
 - **Expected:** `3`
 - **Time:** 5 min
 - **Difficulty:** 2

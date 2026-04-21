@@ -191,6 +191,6 @@ Run `/init` to auto-detect and populate env vars. Field operations (status, size
 
 ## Related
 
-- Taxonomy SSoT → `plugins/dev-core/references/issue-taxonomy.md` — field set, cross-repo behavior, plugin contracts, anti-patterns
+- [Taxonomy SSoT](../../references/issue-taxonomy.md) — field set, cross-repo behavior, plugin contracts, anti-patterns
 
 $ARGUMENTS
