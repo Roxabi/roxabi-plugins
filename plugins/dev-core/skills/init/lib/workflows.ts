@@ -226,6 +226,7 @@ ${setupStep}
 
 /** Auto-add-to-project workflow: adds every new issue/PR to the given Project V2 URL. */
 export function generateAutoAddToProjectYml(projectUrl: string): string {
+  const quotedUrl = `'${projectUrl.replace(/'/g, "''")}'`
   return `name: Add to Roxabi Hub
 
 on:
@@ -236,6 +237,8 @@ on:
 
 permissions:
   repository-projects: write
+  issues: write
+  pull-requests: write
 
 jobs:
   add:
@@ -244,8 +247,8 @@ jobs:
     steps:
       - uses: actions/add-to-project@v1
         with:
-          project-url: ${projectUrl}
-          github-token: \${{ secrets.PAT }}
+          project-url: ${quotedUrl}
+          github-token: \${{ secrets.GITHUB_TOKEN }} # for cross-org projects, replace with secrets.PAT having read:org + project
 `
 }
 
@@ -296,54 +299,15 @@ async function getToken(): Promise<string> {
   return (await run(['gh', 'auth', 'token'])).trim()
 }
 
-async function pushWorkflowFile(
-  owner: string,
-  repo: string,
-  filename: string,
-  content: string,
-  token: string,
-  branch = 'main',
-): Promise<'created' | 'updated'> {
-  const b64 = Buffer.from(content).toString('base64')
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/.github/workflows/${filename}`
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
-    Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-  }
-
-  const checkRes = await fetch(url, { headers })
-  const existing = checkRes.ok ? ((await checkRes.json()) as { sha: string }) : null
-
-  const body: Record<string, string> = {
-    message: `chore: ${existing ? 'update' : 'add'} ${filename} workflow`,
-    content: b64,
-    branch,
-  }
-  if (existing?.sha) body.sha = existing.sha
-
-  const res = await fetch(url, {
-    method: 'PUT',
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-
-  if (!res.ok) {
-    const err = (await res.json()) as { message?: string }
-    throw new Error(`Failed to push ${filename}: ${err.message ?? JSON.stringify(err)}`)
-  }
-
-  return existing ? 'updated' : 'created'
-}
-
-/** Push a single workflow file to a repo via the GH contents API (create-or-update). */
-export async function pushWorkflow(
+/** Push a single file to a repo via the GH contents API (create-or-update).
+ *  `path` is the full repo-relative path (e.g. `.github/workflows/hub-add.yml`). */
+export async function pushWorkflowFile(
   owner: string,
   repo: string,
   path: string,
   content: string,
   opts?: { message?: string; branch?: string },
-): Promise<void> {
+): Promise<'created' | 'updated'> {
   const token = await getToken()
   const branch = opts?.branch ?? 'main'
   const b64 = Buffer.from(content).toString('base64')
@@ -374,6 +338,8 @@ export async function pushWorkflow(
     const err = (await res.json()) as { message?: string }
     throw new Error(`Failed to push ${path}: ${err.message ?? JSON.stringify(err)}`)
   }
+
+  return existing ? 'updated' : 'created'
 }
 
 export interface PushResult {
@@ -388,7 +354,6 @@ export async function pushWorkflows(
   opts: WorkflowOpts,
   branch = 'main',
 ): Promise<PushResult[]> {
-  const token = await getToken()
   const files: Array<{ name: string; content: string }> = [
     { name: 'auto-merge.yml', content: generateAutoMergeYml() },
     { name: 'pr-title.yml', content: generatePrTitleYml() },
@@ -400,7 +365,7 @@ export async function pushWorkflows(
 
   const results: PushResult[] = []
   for (const { name, content } of files) {
-    const status = await pushWorkflowFile(owner, repo, name, content, token, branch)
+    const status = await pushWorkflowFile(owner, repo, `.github/workflows/${name}`, content, { branch })
     results.push({ file: name, status })
   }
   return results
@@ -408,14 +373,13 @@ export async function pushWorkflows(
 
 /** Push a specific subset of workflow files (e.g. only the generic ones). */
 export async function pushGenericWorkflows(owner: string, repo: string, branch = 'main'): Promise<PushResult[]> {
-  const token = await getToken()
   const files = [
     { name: 'auto-merge.yml', content: generateAutoMergeYml() },
     { name: 'pr-title.yml', content: generatePrTitleYml() },
   ]
   const results: PushResult[] = []
   for (const { name, content } of files) {
-    const status = await pushWorkflowFile(owner, repo, name, content, token, branch)
+    const status = await pushWorkflowFile(owner, repo, `.github/workflows/${name}`, content, { branch })
     results.push({ file: name, status })
   }
   return results

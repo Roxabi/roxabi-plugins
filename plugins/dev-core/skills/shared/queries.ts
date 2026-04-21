@@ -343,6 +343,64 @@ export function buildBatchedVariables(projectIds: string[]): Record<string, stri
   return Object.fromEntries(projectIds.map((id, i) => [`project${i}Id`, id]))
 }
 
+/** Fetch all fields (including Status options) for a ProjectV2 node. */
+export const PROJECT_FIELDS_QUERY = `
+  # projectV2 fields query
+  query($id: ID!) {
+    node(id: $id) {
+      ... on ProjectV2 {
+        fields(first: 20) {
+          nodes {
+            ... on ProjectV2FieldCommon {
+              id
+              name
+            }
+            ... on ProjectV2SingleSelectField {
+              id
+              name
+              dataType
+              options {
+                id
+                name
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`
+
+/** Fetch milestones for a repository. */
+export const MILESTONE_QUERY = `
+  query($owner: String!, $repo: String!) {
+    repository(owner: $owner, name: $repo) {
+      milestones(first: 50, states: OPEN) {
+        nodes {
+          id
+          title
+        }
+      }
+    }
+  }
+`
+
+/** Lightweight probe: fetch first item of a ProjectV2 node. */
+export const VERIFY_PROJECT_ITEMS_QUERY = `
+  # projectV2 item probe
+  query($projectId: ID!) {
+    node(id: $projectId) {
+      ... on ProjectV2 {
+        items(first: 1) {
+          nodes {
+            id
+          }
+        }
+      }
+    }
+  }
+`
+
 export const CREATE_PROJECT_V2_MUTATION = `
 mutation($ownerId: ID!, $title: String!) {
   createProjectV2(input: { ownerId: $ownerId, title: $title }) {

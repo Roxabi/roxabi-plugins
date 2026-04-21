@@ -52,6 +52,8 @@ Enrolls a repo into the `Roxabi Hub` Project V2:
 - Pushes the auto-add-to-project workflow (`.github/workflows/hub-add.yml`).
 - Checks `M0`/`M1`/`M2` milestones — **warns if missing**; does not seed (run `make milestones-sync` separately).
 
+`hub-bootstrap` writes `artifacts/migration/hub-project.json` with `{ projectId, projectUrl, number, createdAt }`. `hub-enroll` reads this file automatically — `--project-url` is only required when bootstrap was skipped.
+
 > Milestone seeding is a hard dependency on the external `milestones-sync` helper (out of scope here). Enrollment logs gaps but never mutates milestones.
 
 See [`references/issue-taxonomy.md`](../../references/issue-taxonomy.md) for the cross-repo field contract.

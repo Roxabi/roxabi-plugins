@@ -68,11 +68,11 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
 // Mock workflows — generateAutoAddToProjectYml + pushWorkflow
 // ---------------------------------------------------------------------------
 
-const pushWorkflowMock = vi.fn(async () => ({ file: 'auto-add-to-project.yml', status: 'created' as const }))
+const pushWorkflowMock = vi.fn(async () => 'created' as const)
 
 vi.mock('../lib/workflows', () => ({
   generateAutoAddToProjectYml: vi.fn(() => 'stub-auto-add-yml-content'),
-  pushWorkflow: pushWorkflowMock,
+  pushWorkflowFile: pushWorkflowMock,
 }))
 
 // ---------------------------------------------------------------------------
@@ -83,6 +83,7 @@ let enrollRepo: (opts: {
   org: string
   repo: string
   projectUrl: string
+  projectId: string
   dryRun?: boolean
 }) => Promise<{ enrolled: boolean; milestonesMissing: string[]; verified: boolean; dryRun?: boolean }>
 
@@ -129,6 +130,7 @@ describe('hub-enroll', () => {
           org: 'Roxabi',
           repo: 'test-repo',
           projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
+          projectId: 'PVT_test42',
         }),
       ).rejects.toThrow(/issue type|missing/i)
     })
@@ -141,6 +143,7 @@ describe('hub-enroll', () => {
         org: 'Roxabi',
         repo: 'test-repo',
         projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
+        projectId: 'PVT_test42',
       })
 
       // Assert — pushWorkflow called once
@@ -151,6 +154,7 @@ describe('hub-enroll', () => {
         org: 'Roxabi',
         repo: 'test-repo',
         projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
+        projectId: 'PVT_test42',
       })
 
       // Assert — called once more (total 2) — content unchanged is acceptable
@@ -167,6 +171,7 @@ describe('hub-enroll', () => {
         org: 'Roxabi',
         repo: 'test-repo',
         projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
+        projectId: 'PVT_test42',
       })
 
       // Assert — warn called with milestones-sync hint
@@ -185,6 +190,7 @@ describe('hub-enroll', () => {
         org: 'Roxabi',
         repo: 'test-repo',
         projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
+        projectId: 'PVT_test42',
       })
 
       // Assert
@@ -203,6 +209,7 @@ describe('hub-enroll', () => {
         org: 'Roxabi',
         repo: 'test-repo',
         projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
+        projectId: 'PVT_test42',
         dryRun: true,
       })
 

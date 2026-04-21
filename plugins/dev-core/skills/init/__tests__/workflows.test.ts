@@ -58,9 +58,13 @@ describe('generateDeployYml', () => {
 })
 
 describe('generateAutoAddToProjectYml', () => {
-  it('injects project URL', () => {
+  it('injects project URL (quoted)', () => {
     const yml = generateAutoAddToProjectYml('https://github.com/orgs/Roxabi/projects/42')
-    expect(yml).toContain('project-url: https://github.com/orgs/Roxabi/projects/42')
+    expect(yml).toContain("project-url: 'https://github.com/orgs/Roxabi/projects/42'")
+  })
+  it('escapes single quotes in project URL', () => {
+    const yml = generateAutoAddToProjectYml("https://github.com/orgs/O'rg/projects/42")
+    expect(yml).toContain("project-url: 'https://github.com/orgs/O''rg/projects/42'")
   })
   it('uses actions/add-to-project@v1', () => {
     const yml = generateAutoAddToProjectYml('https://github.com/orgs/Roxabi/projects/42')

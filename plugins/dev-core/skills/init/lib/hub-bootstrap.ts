@@ -7,7 +7,12 @@ import {
   listOrgProjects,
   updateIssueType as updateIssueTypeWrapper,
 } from '../../shared/adapters/github-adapter'
-import { CREATE_PROJECT_V2_FIELD_MUTATION, CREATE_PROJECT_V2_MUTATION } from '../../shared/queries'
+import {
+  CREATE_PROJECT_V2_FIELD_MUTATION,
+  CREATE_PROJECT_V2_MUTATION,
+  PROJECT_FIELDS_QUERY,
+  UPDATE_FIELD_OPTIONS_MUTATION,
+} from '../../shared/queries'
 
 const HUB_PROJECT_TITLE = 'Roxabi Hub'
 
@@ -55,34 +60,6 @@ const TARGET_ISSUE_TYPES: Array<{ name: string; color: string }> = [
   { name: 'research', color: 'PURPLE' },
 ]
 
-// GraphQL query to fetch project fields
-const PROJECT_FIELDS_QUERY = `
-  # projectV2 fields query
-  query($id: ID!) {
-    node(id: $id) {
-      ... on ProjectV2 {
-        fields(first: 20) {
-          nodes {
-            ... on ProjectV2FieldCommon {
-              id
-              name
-            }
-            ... on ProjectV2SingleSelectField {
-              id
-              name
-              dataType
-              options {
-                id
-                name
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-`
-
 export interface HubProject {
   id: string
   number: number
@@ -93,16 +70,13 @@ export interface HubProject {
 // T4: bootstrapProject + bootstrapFields
 // ---------------------------------------------------------------------------
 
-export async function bootstrapProject(ownerLogin: string): Promise<HubProject> {
+export async function bootstrapProject(ownerLogin: string, ownerId: string): Promise<HubProject> {
   const existing = await listOrgProjects(ownerLogin)
   const hit = existing.find((p) => p.title === HUB_PROJECT_TITLE)
   if (hit) return hit
 
-  // Need ownerId — fetch it if not in the project list
-  // We resolve it lazily via a separate query; for now pass ownerLogin as ownerId fallback
-  // Callers that need the new project created should use bootstrapProjectWithOwnerId
   const data = (await ghGraphQL(CREATE_PROJECT_V2_MUTATION, {
-    ownerId: ownerLogin,
+    ownerId,
     title: HUB_PROJECT_TITLE,
   })) as { data: { createProjectV2: { projectV2: HubProject } } }
   return data.data.createProjectV2.projectV2
@@ -137,9 +111,9 @@ export async function bootstrapFields(projectId: string): Promise<void> {
   const existingOptionNames = new Set((statusField.options ?? []).map((o) => o.name))
   const missingOptions = REQUIRED_STATUS_OPTIONS.filter((o) => !existingOptionNames.has(o))
   if (missingOptions.length > 0) {
-    throw new Error(
-      `Status field missing required options: ${missingOptions.join(', ')} — expected all of ${REQUIRED_STATUS_OPTIONS.join(', ')}`,
-    )
+    // Patch Status options to the required set instead of throwing
+    const options = REQUIRED_STATUS_OPTIONS.map((name) => ({ name, color: 'GRAY', description: '' }))
+    await ghGraphQL(UPDATE_FIELD_OPTIONS_MUTATION, { fieldId: statusField.id, options })
   }
 
   // Create missing custom fields
@@ -163,8 +137,8 @@ export async function bootstrapFields(projectId: string): Promise<void> {
 // T5: bootstrapIssueTypes
 // ---------------------------------------------------------------------------
 
-export async function bootstrapIssueTypes(ownerId: string): Promise<void> {
-  const existing = await listOrgIssueTypes(ownerId)
+export async function bootstrapIssueTypes(ownerLogin: string, ownerId: string): Promise<void> {
+  const existing = await listOrgIssueTypes(ownerLogin)
   const existingNames = new Set(existing.map((t) => t.name))
   for (const target of TARGET_ISSUE_TYPES) {
     if (!existingNames.has(target.name)) {
@@ -193,7 +167,7 @@ export interface SpikeSnapshot {
   }
 }
 
-export async function runRenameSpike(opts: { snapshotPath: string }): Promise<void> {
+export async function runRenameSpike(opts: { snapshotPath: string; ownerLogin: string }): Promise<void> {
   // Use hardcoded Bug type ID (from spec 119 §Context) to avoid consuming listOrgIssueTypes mock early
   const bugIds: string[] = [BUG_TYPE_ID]
   const featIds: string[] = [FEATURE_TYPE_ID]
@@ -206,40 +180,46 @@ export async function runRenameSpike(opts: { snapshotPath: string }): Promise<vo
   // Attempt rename via updateIssueType
   const updated = await updateIssueTypeWrapper(BUG_TYPE_ID, { name: 'fix' })
 
-  // Read back via a fresh listOrgIssueTypes call
-  const afterList = await listOrgIssueTypes('')
-  const afterEntry = afterList.find((t) => t.id === BUG_TYPE_ID)
-  if (afterEntry) {
-    readBackName = afterEntry.name
-    readBackEnabled = afterEntry.isEnabled ?? false
-    preserved = afterEntry.name === 'fix' && afterEntry.isEnabled === true
-  } else {
-    // Fall back to the updateIssueType return value if read-back list doesn't include the entry
-    readBackName = updated.name ?? null
-    readBackEnabled = updated.isEnabled ?? false
-    preserved = readBackName === 'fix' && readBackEnabled === true
-  }
+  try {
+    // Read back via a fresh listOrgIssueTypes call
+    const afterList = await listOrgIssueTypes(opts.ownerLogin)
+    const afterEntry = afterList.find((t) => t.id === BUG_TYPE_ID)
+    if (afterEntry) {
+      readBackName = afterEntry.name
+      readBackEnabled = afterEntry.isEnabled ?? false
+      preserved = afterEntry.name === 'fix' && afterEntry.isEnabled === true
+    } else {
+      // Fall back to the updateIssueType return value if read-back list doesn't include the entry
+      readBackName = updated.name ?? null
+      readBackEnabled = updated.isEnabled ?? false
+      preserved = readBackName === 'fix' && readBackEnabled === true
+    }
 
-  const snapshot: SpikeSnapshot = {
-    generatedAt: new Date().toISOString(),
-    preserved,
-    bugCount: bugIds.length,
-    featCount: featIds.length,
-    bugIds,
-    featIds,
-    probe: {
-      issueTypeId: BUG_TYPE_ID,
-      originalName: 'Bug',
-      renamedName: 'fix',
-      readBackName,
-      readBackEnabled,
-    },
-  }
+    const snapshot: SpikeSnapshot = {
+      generatedAt: new Date().toISOString(),
+      preserved,
+      bugCount: bugIds.length,
+      featCount: featIds.length,
+      bugIds,
+      featIds,
+      probe: {
+        issueTypeId: BUG_TYPE_ID,
+        originalName: 'Bug',
+        renamedName: 'fix',
+        readBackName,
+        readBackEnabled,
+      },
+    }
 
-  // Ensure parent directory exists
-  const dir = dirname(opts.snapshotPath)
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(opts.snapshotPath, JSON.stringify(snapshot, null, 2))
+    // Ensure parent directory exists
+    const dir = dirname(opts.snapshotPath)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(opts.snapshotPath, JSON.stringify(snapshot, null, 2))
+  } catch (err) {
+    // Rollback: restore Bug type name before rethrowing
+    await updateIssueTypeWrapper(BUG_TYPE_ID, { name: 'Bug' })
+    throw err
+  }
 }
 
 // ---------------------------------------------------------------------------

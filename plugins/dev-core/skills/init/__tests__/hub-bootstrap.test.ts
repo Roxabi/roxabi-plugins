@@ -103,10 +103,10 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
 // Lazy import — will fail with "Cannot find module" until hub-bootstrap.ts exists
 // ---------------------------------------------------------------------------
 
-let bootstrapProject: (login: string) => Promise<{ id: string; number: number; title: string }>
+let bootstrapProject: (ownerLogin: string, ownerId: string) => Promise<{ id: string; number: number; title: string }>
 let bootstrapFields: (projectId: string) => Promise<void>
-let bootstrapIssueTypes: (ownerId: string) => Promise<void>
-let runRenameSpike: (opts: { snapshotPath: string }) => Promise<void>
+let bootstrapIssueTypes: (ownerLogin: string, ownerId: string) => Promise<void>
+let runRenameSpike: (opts: { snapshotPath: string; ownerLogin: string }) => Promise<void>
 let applyRenames: (opts: { confirmRenames: boolean; spikeSnapshot?: string }) => Promise<void>
 
 beforeEach(async () => {
@@ -143,7 +143,7 @@ describe('hub-bootstrap', () => {
       const { ghGraphQL } = await import('../../shared/adapters/github-adapter')
 
       // Act
-      const result = await bootstrapProject('Roxabi')
+      const result = await bootstrapProject('Roxabi', 'ORG_id')
 
       // Assert — no createProjectV2 mutation should have been fired
       const calls = (ghGraphQL as ReturnType<typeof vi.fn>).mock.calls as Array<[string, ...unknown[]]>
@@ -156,7 +156,7 @@ describe('hub-bootstrap', () => {
       // Arrange — state.projects is empty
 
       // Act
-      const result = await bootstrapProject('Roxabi')
+      const result = await bootstrapProject('Roxabi', 'ORG_id')
 
       // Assert
       expect(result).toBeDefined()
@@ -223,8 +223,8 @@ describe('hub-bootstrap', () => {
       expect(state.projectFieldCalls).toBe(1)
     })
 
-    it('throws when Status built-in field is missing required options', async () => {
-      // Arrange — Status field present but without required options
+    it('patches Status options via UPDATE_FIELD_OPTIONS_MUTATION when options mismatch', async () => {
+      // Arrange — Status field present but with only default GitHub options (missing Ready/Blocked)
       const { ghGraphQL } = await import('../../shared/adapters/github-adapter')
       ;(ghGraphQL as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         data: {
@@ -243,8 +243,13 @@ describe('hub-bootstrap', () => {
         },
       })
 
-      // Act + Assert
-      await expect(bootstrapFields('PVT_test')).rejects.toThrow(/Status/)
+      // Act — should not throw; should call UPDATE_FIELD_OPTIONS_MUTATION
+      await bootstrapFields('PVT_test')
+
+      // Assert — ghGraphQL called with updateProjectV2Field (patch) + createProjectV2Field calls for Lane/Priority/Size
+      const calls = (ghGraphQL as ReturnType<typeof vi.fn>).mock.calls as Array<[string, ...unknown[]]>
+      const patchCall = calls.find(([q]) => typeof q === 'string' && q.includes('updateProjectV2Field'))
+      expect(patchCall).toBeDefined()
     })
   })
 
@@ -262,7 +267,7 @@ describe('hub-bootstrap', () => {
       const { createIssueType } = await import('../../shared/adapters/github-adapter')
 
       // Act
-      await bootstrapIssueTypes('ORG_id')
+      await bootstrapIssueTypes('Roxabi', 'ORG_id')
 
       // Assert — 8 new types created (10 - 2 existing)
       expect((createIssueType as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(8)
@@ -280,7 +285,7 @@ describe('hub-bootstrap', () => {
       const { createIssueType } = await import('../../shared/adapters/github-adapter')
 
       // Act
-      await bootstrapIssueTypes('ORG_id')
+      await bootstrapIssueTypes('Roxabi', 'ORG_id')
 
       // Assert
       expect((createIssueType as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0)
@@ -302,7 +307,7 @@ describe('hub-bootstrap', () => {
 
       try {
         // Act
-        await runRenameSpike({ snapshotPath })
+        await runRenameSpike({ snapshotPath, ownerLogin: 'Roxabi' })
 
         // Assert — snapshot file must exist with expected shape
         const { readFile } = await import('node:fs/promises')
@@ -345,7 +350,7 @@ describe('hub-bootstrap', () => {
 
       try {
         // Act
-        await runRenameSpike({ snapshotPath })
+        await runRenameSpike({ snapshotPath, ownerLogin: 'Roxabi' })
 
         // Assert
         const { readFile } = await import('node:fs/promises')
@@ -373,12 +378,46 @@ describe('hub-bootstrap', () => {
 
       try {
         // Act
-        await runRenameSpike({ snapshotPath })
+        await runRenameSpike({ snapshotPath, ownerLogin: 'Roxabi' })
 
         // Assert
         const { readFile } = await import('node:fs/promises')
         const snapshot = JSON.parse(await readFile(snapshotPath, 'utf8')) as { preserved: boolean }
         expect(snapshot.preserved).toBe(false)
+      } finally {
+        await unlink(snapshotPath).catch(() => {})
+      }
+    })
+
+    it('rolls back Bug rename to "Bug" when post-rename block throws', async () => {
+      // Arrange — updateIssueType succeeds for rename, but listOrgIssueTypes throws
+      const snapshotPath = join(tmpdir(), `hub-bootstrap-spike-rollback-${Date.now()}.json`)
+      state.issueTypes = [{ id: 'IT_kwDOB8J6DM4BJQ3X', name: 'Bug', color: 'RED', isEnabled: true }]
+      const { updateIssueType, listOrgIssueTypes } = await import('../../shared/adapters/github-adapter')
+      ;(updateIssueType as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'IT_kwDOB8J6DM4BJQ3X',
+        name: 'fix',
+        color: 'RED',
+        isEnabled: true,
+      })
+      // Second updateIssueType call = rollback restore
+      ;(updateIssueType as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'IT_kwDOB8J6DM4BJQ3X',
+        name: 'Bug',
+        color: 'RED',
+        isEnabled: true,
+      })
+      // listOrgIssueTypes throws to trigger rollback path
+      ;(listOrgIssueTypes as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('network error'))
+
+      try {
+        // Act + Assert — spike should rethrow after rollback
+        await expect(runRenameSpike({ snapshotPath, ownerLogin: 'Roxabi' })).rejects.toThrow(/network error/)
+
+        // Assert — rollback: updateIssueType called twice (rename then rollback)
+        const calls = (updateIssueType as ReturnType<typeof vi.fn>).mock.calls as Array<[string, { name?: string }]>
+        expect(calls).toHaveLength(2)
+        expect(calls[1]?.[1]).toMatchObject({ name: 'Bug' })
       } finally {
         await unlink(snapshotPath).catch(() => {})
       }

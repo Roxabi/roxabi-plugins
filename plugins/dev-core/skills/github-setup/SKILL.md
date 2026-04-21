@@ -109,6 +109,7 @@ Flags:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--repo <owner/name>` | auto-detect | Target repo for enrollment. |
+| `--project-url <url>` | auto-read from `artifacts/migration/hub-project.json` | Hub Project V2 URL. Optional after `hub-bootstrap` (written automatically). Required only if bootstrap was skipped. |
 | `--dry-run` | off | Log planned actions; no mutation. |
 
 D✅("Hub enroll") on success; D⏭ on skip. Missing milestones → D("Hub enroll", "⚠️ enrolled; missing milestones: M1,M2 — run make milestones-sync").

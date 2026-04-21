@@ -9,7 +9,8 @@
  */
 
 import { ghGraphQL, listOrgIssueTypes } from '../../shared/adapters/github-adapter'
-import { generateAutoAddToProjectYml, pushWorkflow } from './workflows'
+import { MILESTONE_QUERY, VERIFY_PROJECT_ITEMS_QUERY } from '../../shared/queries'
+import { generateAutoAddToProjectYml, pushWorkflowFile } from './workflows'
 
 export interface EnrollResult {
   enrolled: boolean
@@ -33,42 +34,14 @@ const REQUIRED_ISSUE_TYPE_NAMES = new Set([
 
 const REQUIRED_MILESTONES = ['M0', 'M1', 'M2']
 
-const MILESTONE_QUERY = `
-  query($owner: String!, $repo: String!) {
-    repository(owner: $owner, name: $repo) {
-      milestones(first: 50, states: OPEN) {
-        nodes {
-          id
-          title
-        }
-      }
-    }
-  }
-`
-
-/** Probe query: fetch first item of a projectV2 node (lightweight verify). */
-const VERIFY_PROJECT_ITEMS_QUERY = `
-  # projectV2 item probe
-  query($projectId: ID!) {
-    node(id: $projectId) {
-      ... on ProjectV2 {
-        items(first: 1) {
-          nodes {
-            id
-          }
-        }
-      }
-    }
-  }
-`
-
 export async function enrollRepo(opts: {
   org: string
   repo: string
   projectUrl: string
+  projectId: string
   dryRun?: boolean
 }): Promise<EnrollResult> {
-  const { org, repo, projectUrl, dryRun = false } = opts
+  const { org, repo, projectUrl, projectId, dryRun = false } = opts
 
   // Step 1: Verify all 10 Issue Types exist
   const types = await listOrgIssueTypes(org)
@@ -86,7 +59,7 @@ export async function enrollRepo(opts: {
   }
 
   // Step 3: Push auto-add workflow (idempotent create-or-update)
-  await pushWorkflow(org, repo, '.github/workflows/hub-add.yml', generateAutoAddToProjectYml(projectUrl))
+  await pushWorkflowFile(org, repo, '.github/workflows/hub-add.yml', generateAutoAddToProjectYml(projectUrl))
 
   // Step 4: Check milestones M0/M1/M2 — warn only, no mutation
   const milestonesResult = (await ghGraphQL(MILESTONE_QUERY, { owner: org, repo })) as {
@@ -99,11 +72,7 @@ export async function enrollRepo(opts: {
   }
 
   // Step 5: Verify project has items (lightweight probe — first 1 item)
-  // Derive a stable node-ID-like token from the project URL for the probe.
-  // In production this would be the actual ProjectV2 node ID obtained from
-  // organization.projectV2(number:N).id; here we pass the URL as a stand-in so
-  // the query is always dispatched (the test mock keys on query content, not vars).
-  const verifyResult = (await ghGraphQL(VERIFY_PROJECT_ITEMS_QUERY, { projectId: projectUrl })) as {
+  const verifyResult = (await ghGraphQL(VERIFY_PROJECT_ITEMS_QUERY, { projectId })) as {
     data?: { node?: { items?: { nodes: Array<{ id: string }> } } }
   }
   const items = verifyResult?.data?.node?.items?.nodes ?? []
