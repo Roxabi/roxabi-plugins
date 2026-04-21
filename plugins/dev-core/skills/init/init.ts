@@ -207,6 +207,22 @@ switch (command) {
     break
   }
 
+  case 'hub-enroll': {
+    const { enrollRepo } = await import('./lib/hub-enroll')
+    const org = parseFlag('--org', 'Roxabi')
+    const repoFlag = parseFlag('--repo', '')
+    if (!repoFlag) {
+      console.error('Usage: init.ts hub-enroll --repo <owner/name> [--org <org>] [--project-url <url>] [--dry-run]')
+      process.exit(1)
+    }
+    const [maybeOrg, maybeRepo] = repoFlag.includes('/') ? repoFlag.split('/') : [org, repoFlag]
+    const projectUrl = parseFlag('--project-url', '') || `https://github.com/orgs/${maybeOrg}/projects/<HUB_NUMBER>`
+    const dryRun = hasFlag('--dry-run')
+    const result = await enrollRepo({ org: maybeOrg, repo: maybeRepo, projectUrl, dryRun })
+    console.log(JSON.stringify({ step: 'hub-enroll', ...result }))
+    break
+  }
+
   case 'hub-bootstrap': {
     const { bootstrapProject, bootstrapFields, bootstrapIssueTypes, runRenameSpike, applyRenames } = await import(
       './lib/hub-bootstrap'
@@ -248,7 +264,7 @@ switch (command) {
   default:
     console.error(`Unknown command: ${command}`)
     console.error(
-      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|scaffold-docs|scaffold-rules|scaffold|scaffold-fumadocs|scaffold-fumadocs-vercel|hub-bootstrap]',
+      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|scaffold-docs|scaffold-rules|scaffold|scaffold-fumadocs|scaffold-fumadocs-vercel|hub-bootstrap|hub-enroll]',
     )
     process.exit(1)
 }

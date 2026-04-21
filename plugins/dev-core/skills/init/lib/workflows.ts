@@ -224,6 +224,31 @@ ${setupStep}
 `
 }
 
+/** Auto-add-to-project workflow: adds every new issue/PR to the given Project V2 URL. */
+export function generateAutoAddToProjectYml(projectUrl: string): string {
+  return `name: Add to Roxabi Hub
+
+on:
+  issues:
+    types: [opened, transferred]
+  pull_request:
+    types: [opened]
+
+permissions:
+  repository-projects: write
+
+jobs:
+  add:
+    name: Add to project
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/add-to-project@v1
+        with:
+          project-url: ${projectUrl}
+          github-token: \${{ secrets.PAT }}
+`
+}
+
 export function generateDeployYml(opts: WorkflowOpts): string {
   const setupStep =
     opts.stack === 'bun'
@@ -309,6 +334,46 @@ async function pushWorkflowFile(
   }
 
   return existing ? 'updated' : 'created'
+}
+
+/** Push a single workflow file to a repo via the GH contents API (create-or-update). */
+export async function pushWorkflow(
+  owner: string,
+  repo: string,
+  path: string,
+  content: string,
+  opts?: { message?: string; branch?: string },
+): Promise<void> {
+  const token = await getToken()
+  const branch = opts?.branch ?? 'main'
+  const b64 = Buffer.from(content).toString('base64')
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  }
+
+  const checkRes = await fetch(url, { headers })
+  const existing = checkRes.ok ? ((await checkRes.json()) as { sha: string }) : null
+
+  const body: Record<string, string> = {
+    message: opts?.message ?? `chore: ${existing ? 'update' : 'add'} ${path}`,
+    content: b64,
+    branch,
+  }
+  if (existing?.sha) body.sha = existing.sha
+
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const err = (await res.json()) as { message?: string }
+    throw new Error(`Failed to push ${path}: ${err.message ?? JSON.stringify(err)}`)
+  }
 }
 
 export interface PushResult {

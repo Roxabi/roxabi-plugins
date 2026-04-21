@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateCiYml, generateDeployYml } from '../lib/workflows'
+import { generateAutoAddToProjectYml, generateCiYml, generateDeployYml } from '../lib/workflows'
 
 describe('generateCiYml', () => {
   it('generates bun + vitest CI', () => {
@@ -54,5 +54,24 @@ describe('generateDeployYml', () => {
   it('has workflow_dispatch trigger', () => {
     const yml = generateDeployYml({ stack: 'bun', test: 'none', deploy: 'none' })
     expect(yml).toContain('workflow_dispatch')
+  })
+})
+
+describe('generateAutoAddToProjectYml', () => {
+  it('injects project URL', () => {
+    const yml = generateAutoAddToProjectYml('https://github.com/orgs/Roxabi/projects/42')
+    expect(yml).toContain('project-url: https://github.com/orgs/Roxabi/projects/42')
+  })
+  it('uses actions/add-to-project@v1', () => {
+    const yml = generateAutoAddToProjectYml('https://github.com/orgs/Roxabi/projects/42')
+    expect(yml).toMatch(/uses:\s*actions\/add-to-project@v\d/)
+  })
+  it('grants repository-projects:write permission', () => {
+    const yml = generateAutoAddToProjectYml('https://github.com/orgs/Roxabi/projects/42')
+    expect(yml).toMatch(/repository-projects:\s*write/)
+  })
+  it('triggers on issue opened and transferred', () => {
+    const yml = generateAutoAddToProjectYml('https://github.com/orgs/Roxabi/projects/42')
+    expect(yml).toMatch(/issues:\s*\{?\s*types:\s*\[\s*opened\s*,\s*transferred\s*\]/)
   })
 })
