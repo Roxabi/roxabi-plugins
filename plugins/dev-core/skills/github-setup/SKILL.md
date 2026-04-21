@@ -1,6 +1,6 @@
 ---
 name: github-setup
-argument-hint: '[--force]'
+argument-hint: '[--force] [--hub-enroll]'
 description: 'Connect project to GitHub Project V2 board — discover or create board, labels, branch protection, workspace registration. Triggers: "github setup" | "setup github project" | "connect github board" | "setup project board".'
 version: 0.1.0
 allowed-tools: Bash, Read, ToolSearch
@@ -89,6 +89,30 @@ yes → Ask for `VERCEL_TOKEN` (free text — Vercel Settings → Tokens).
 
 `issues.orphaned > 0` in disc → Ask: **Add N open issues to board** | **Skip**.
 yes → `bun $I_TS migrate-issues --owner <owner> --repo <repo> --project-number <N>`. Parse → D("Issues", "Added {added}/{total} to board").
+
+### 1f. Hub Enroll (opt-in)
+
+`--hub-enroll` ∈ $ARGUMENTS → per-repo enrollment into the `Roxabi Hub` hub project (cross-repo taxonomy SSoT — see [Issue taxonomy SSoT](../../references/issue-taxonomy.md)).
+
+Ask: **Enroll this repo in Roxabi Hub** | **Skip**.
+
+yes → `bun $I_TS hub-enroll --repo <owner/repo>`
+
+Delegates to `init.ts hub-enroll` (Phase 1+2 infra from #120):
+- Verifies 10 org-level Issue Types exist (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `ci`, `perf`, `epic`, `research`). Fails fast if any missing — run `bun $I_TS hub-bootstrap` first.
+- Pushes `.github/workflows/hub-add.yml` via GH contents API (idempotent create-or-update).
+- Checks milestones `M0`, `M1`, `M2` per repo. **Missing milestones → warn only** (no mutation). Seed via `make milestones-sync` (external sibling task, out of scope here).
+- Verifies a test issue surfaces in the hub project before reporting success.
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--repo <owner/name>` | auto-detect | Target repo for enrollment. |
+| `--project-url <url>` | auto-read from `artifacts/migration/hub-project.json` | Hub Project V2 URL. Optional after `hub-bootstrap` (written automatically). Required only if bootstrap was skipped. |
+| `--dry-run` | off | Log planned actions; no mutation. |
+
+D✅("Hub enroll") on success; D⏭ on skip. Missing milestones → D("Hub enroll", "⚠️ enrolled; missing milestones: M1,M2 — run make milestones-sync").
 
 ## Phase 2 — Confirm Values
 
@@ -213,6 +237,7 @@ GitHub Setup Complete
   Labels            ✅ N labels created / ⏭ Skipped
   Project workflows ✅ Displayed / ⏭ Skipped
   Branch protection ✅ Created / ⏭ Skipped
+  Hub enroll        ✅ Enrolled / ⚠️ Enrolled w/ milestone gaps / ⏭ Skipped
   Ruleset PR_Main   ✅ Created / ✅ Already exists / ⏭ Skipped
   roxabi shim       ✅ Installed (~/.local/bin/roxabi)
   PATH              ✅ ~/.local/bin added to .bashrc/.zshrc  (or ⏭ already present)

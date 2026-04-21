@@ -207,10 +207,95 @@ switch (command) {
     break
   }
 
+  case 'hub-enroll': {
+    const { enrollRepo } = await import('./lib/hub-enroll')
+    const { readFileSync: readFS } = await import('node:fs')
+    const org = parseFlag('--org', 'Roxabi')
+    const repoFlag = parseFlag('--repo', '')
+    if (!repoFlag) {
+      console.error('Usage: init.ts hub-enroll --repo <owner/name> [--org <org>] [--project-url <url>] [--dry-run]')
+      process.exit(1)
+    }
+    const [maybeOrg, maybeRepo] = repoFlag.includes('/') ? repoFlag.split('/') : [org, repoFlag]
+
+    // Resolve projectUrl + projectId: prefer --project-url flag, then artifacts/migration/hub-project.json
+    let projectUrl = parseFlag('--project-url', '')
+    let projectId = ''
+    if (!projectUrl) {
+      const hubProjectFile = 'artifacts/migration/hub-project.json'
+      try {
+        const hubData = JSON.parse(readFS(hubProjectFile, 'utf-8')) as { projectId: string; projectUrl: string }
+        projectUrl = hubData.projectUrl
+        projectId = hubData.projectId
+      } catch {
+        console.error(
+          `[hub-enroll] --project-url not provided and ${hubProjectFile} not found. Run hub-bootstrap first.`,
+        )
+        process.exit(1)
+      }
+    }
+
+    const dryRun = hasFlag('--dry-run')
+    const result = await enrollRepo({ org: maybeOrg, repo: maybeRepo, projectUrl, projectId, dryRun })
+    console.log(JSON.stringify({ step: 'hub-enroll', ...result }))
+    break
+  }
+
+  case 'hub-bootstrap': {
+    const { bootstrapProject, bootstrapFields, bootstrapIssueTypes, runRenameSpike, applyRenames } = await import(
+      './lib/hub-bootstrap'
+    )
+    const { ghGraphQL } = await import('../shared/adapters/github-adapter')
+    const { mkdirSync: mkdirSyncHub, writeFileSync: writeFileSyncHub } = await import('node:fs')
+
+    const owner = parseFlag('--owner', 'Roxabi')
+    const spikeOnly = hasFlag('--spike-only')
+    const confirmRenames = hasFlag('--confirm-renames')
+    const spikeSnapshot = parseFlag('--spike-snapshot', '')
+
+    // Resolve ownerId via organization GraphQL query
+    const orgIdOut = (await ghGraphQL('query($l:String!){organization(login:$l){id}}', { l: owner })) as {
+      data: { organization: { id: string } }
+    }
+    const ownerId = orgIdOut.data.organization.id
+
+    if (spikeOnly) {
+      const defaultSnapshotPath = `artifacts/migration/119-rename-spike-${new Date().toISOString().slice(0, 10)}.json`
+      const snapshotPath = spikeSnapshot || defaultSnapshotPath
+      await runRenameSpike({ snapshotPath, ownerLogin: owner })
+      console.log(JSON.stringify({ step: 'spike-only', snapshotPath }))
+      break
+    }
+
+    // Full bootstrap flow (1.1–1.6)
+    const project = await bootstrapProject(owner, ownerId)
+    await bootstrapFields(project.id)
+    await bootstrapIssueTypes(owner, ownerId)
+
+    // Persist hub project metadata for downstream hub-enroll calls (B6)
+    const projectUrl = `https://github.com/orgs/${owner}/projects/${project.number}`
+    const hubProjectData = {
+      projectId: project.id,
+      projectUrl,
+      number: project.number,
+      createdAt: new Date().toISOString(),
+    }
+    mkdirSyncHub('artifacts/migration', { recursive: true })
+    writeFileSyncHub('artifacts/migration/hub-project.json', JSON.stringify(hubProjectData, null, 2))
+
+    console.log(JSON.stringify({ step: 'bootstrap', project: { id: project.id, number: project.number } }))
+
+    if (confirmRenames) {
+      await applyRenames({ confirmRenames: true, spikeSnapshot: spikeSnapshot || undefined })
+      console.log(JSON.stringify({ step: 'renames-applied' }))
+    }
+    break
+  }
+
   default:
     console.error(`Unknown command: ${command}`)
     console.error(
-      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|scaffold-docs|scaffold-rules|scaffold|scaffold-fumadocs|scaffold-fumadocs-vercel]',
+      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|scaffold-docs|scaffold-rules|scaffold|scaffold-fumadocs|scaffold-fumadocs-vercel|hub-bootstrap|hub-enroll]',
     )
     process.exit(1)
 }

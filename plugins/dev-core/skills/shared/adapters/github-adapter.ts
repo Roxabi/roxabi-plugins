@@ -12,15 +12,19 @@ import {
   ADD_BLOCKED_BY_MUTATION,
   ADD_SUB_ISSUE_MUTATION,
   ADD_TO_PROJECT_MUTATION,
+  CREATE_ISSUE_TYPE_MUTATION,
   DELETE_PROJECT_ITEM_MUTATION,
   ITEM_ID_QUERY,
   LINK_PROJECT_TO_REPO_MUTATION,
+  ORG_ISSUE_TYPES_QUERY,
+  ORG_PROJECTS_QUERY,
   PARENT_QUERY,
   PROJECT_TITLE_QUERY,
   REMOVE_BLOCKED_BY_MUTATION,
   REMOVE_SUB_ISSUE_MUTATION,
   REPO_ID_QUERY,
   UPDATE_FIELD_MUTATION,
+  UPDATE_ISSUE_TYPE_MUTATION,
 } from '../queries'
 
 const GITHUB_API = 'https://api.github.com'
@@ -394,7 +398,7 @@ export async function run(cmd: string[], cwd?: string): Promise<string> {
 }
 
 /** Execute a GraphQL query/mutation against GitHub API. */
-export async function ghGraphQL(query: string, variables: Record<string, string | number | boolean>): Promise<unknown> {
+export async function ghGraphQL(query: string, variables: Record<string, unknown>): Promise<unknown> {
   const res = await fetch(GRAPHQL_URL, {
     method: 'POST',
     headers: authHeaders(),
@@ -560,6 +564,62 @@ export async function linkProjectToRepo(projectId: string, owner: string, repoNa
   }
   const repositoryId = repoData.data.repository.id
   await ghGraphQL(LINK_PROJECT_TO_REPO_MUTATION, { projectId, repositoryId })
+}
+
+export interface OrgProject {
+  id: string
+  number: number
+  title: string
+}
+export interface OrgIssueType {
+  id: string
+  name: string
+  color: string
+  isEnabled: boolean
+}
+
+export async function listOrgProjects(login: string): Promise<OrgProject[]> {
+  const data = (await ghGraphQL(ORG_PROJECTS_QUERY, { login, first: 100 })) as {
+    data: { organization: { projectsV2: { nodes: OrgProject[] } } }
+  }
+  return data.data.organization.projectsV2.nodes
+}
+
+export async function listOrgIssueTypes(login: string): Promise<OrgIssueType[]> {
+  const data = (await ghGraphQL(ORG_ISSUE_TYPES_QUERY, { login })) as {
+    data: { organization: { issueTypes: { nodes: OrgIssueType[] } } }
+  }
+  return data.data.organization.issueTypes.nodes
+}
+
+export async function createIssueType(
+  ownerId: string,
+  name: string,
+  color: string,
+  opts?: { description?: string; isEnabled?: boolean },
+): Promise<OrgIssueType> {
+  const data = (await ghGraphQL(CREATE_ISSUE_TYPE_MUTATION, {
+    ownerId,
+    name,
+    description: opts?.description ?? '',
+    color,
+    isEnabled: opts?.isEnabled ?? true,
+  })) as { data: { createIssueType: { issueType: OrgIssueType } } }
+  return data.data.createIssueType.issueType
+}
+
+export async function updateIssueType(
+  issueTypeId: string,
+  patch: { name?: string; description?: string; color?: string; isEnabled?: boolean },
+): Promise<OrgIssueType> {
+  const data = (await ghGraphQL(UPDATE_ISSUE_TYPE_MUTATION, {
+    issueTypeId,
+    ...(patch.name !== undefined && { name: patch.name }),
+    ...(patch.description !== undefined && { description: patch.description }),
+    ...(patch.color !== undefined && { color: patch.color }),
+    ...(patch.isEnabled !== undefined && { isEnabled: patch.isEnabled }),
+  })) as { data: { updateIssueType: { issueType: OrgIssueType } } }
+  return data.data.updateIssueType.issueType
 }
 
 /** Update labels on a GitHub issue: add and/or remove labels. */

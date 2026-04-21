@@ -342,3 +342,115 @@ query($id: ID!) {
 export function buildBatchedVariables(projectIds: string[]): Record<string, string> {
   return Object.fromEntries(projectIds.map((id, i) => [`project${i}Id`, id]))
 }
+
+/** Fetch all fields (including Status options) for a ProjectV2 node. */
+export const PROJECT_FIELDS_QUERY = `
+  # projectV2 fields query
+  query($id: ID!) {
+    node(id: $id) {
+      ... on ProjectV2 {
+        fields(first: 20) {
+          nodes {
+            ... on ProjectV2FieldCommon {
+              id
+              name
+            }
+            ... on ProjectV2SingleSelectField {
+              id
+              name
+              dataType
+              options {
+                id
+                name
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`
+
+/** Fetch milestones for a repository. */
+export const MILESTONE_QUERY = `
+  query($owner: String!, $repo: String!) {
+    repository(owner: $owner, name: $repo) {
+      milestones(first: 50, states: OPEN) {
+        nodes {
+          id
+          title
+        }
+      }
+    }
+  }
+`
+
+/** Lightweight probe: fetch first item of a ProjectV2 node. */
+export const VERIFY_PROJECT_ITEMS_QUERY = `
+  # projectV2 item probe
+  query($projectId: ID!) {
+    node(id: $projectId) {
+      ... on ProjectV2 {
+        items(first: 1) {
+          nodes {
+            id
+          }
+        }
+      }
+    }
+  }
+`
+
+export const CREATE_PROJECT_V2_MUTATION = `
+mutation($ownerId: ID!, $title: String!) {
+  createProjectV2(input: { ownerId: $ownerId, title: $title }) {
+    projectV2 { id number title }
+  }
+}`
+
+export const CREATE_PROJECT_V2_FIELD_MUTATION = `
+mutation($projectId: ID!, $name: String!, $dataType: ProjectV2CustomFieldType!, $singleSelectOptions: [ProjectV2SingleSelectFieldOptionInput!]) {
+  createProjectV2Field(input: { projectId: $projectId, name: $name, dataType: $dataType, singleSelectOptions: $singleSelectOptions }) {
+    projectV2Field {
+      ... on ProjectV2SingleSelectField { id name options { id name } }
+      ... on ProjectV2Field { id name }
+    }
+  }
+}`
+
+export const CREATE_ISSUE_TYPE_MUTATION = `
+mutation($ownerId: ID!, $name: String!, $description: String, $color: IssueTypeColor!, $isEnabled: Boolean!) {
+  createIssueType(input: { ownerId: $ownerId, name: $name, description: $description, color: $color, isEnabled: $isEnabled }) {
+    issueType { id name color isEnabled }
+  }
+}`
+
+export const UPDATE_ISSUE_TYPE_MUTATION = `
+mutation($issueTypeId: ID!, $name: String, $description: String, $color: IssueTypeColor, $isEnabled: Boolean) {
+  updateIssueType(input: { issueTypeId: $issueTypeId, name: $name, description: $description, color: $color, isEnabled: $isEnabled }) {
+    issueType { id name color isEnabled }
+  }
+}`
+
+export const UPDATE_ISSUE_ISSUE_TYPE_MUTATION = `
+mutation($issueId: ID!, $issueTypeId: ID) {
+  updateIssueIssueType(input: { issueId: $issueId, issueTypeId: $issueTypeId }) {
+    issue { id issueType { id name } }
+  }
+}`
+
+export const ORG_ISSUE_TYPES_QUERY = `
+query($login: String!) {
+  organization(login: $login) {
+    id
+    issueTypes(first: 50) { nodes { id name color isEnabled } }
+  }
+}`
+
+export const ORG_PROJECTS_QUERY = `
+query($login: String!, $first: Int!) {
+  organization(login: $login) {
+    id
+    projectsV2(first: $first) { nodes { id number title } }
+  }
+}`
