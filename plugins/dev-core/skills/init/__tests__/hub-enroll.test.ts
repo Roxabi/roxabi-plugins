@@ -161,7 +161,6 @@ describe('hub-enroll', () => {
       // Arrange — two milestones missing
       state.milestonesMissing = ['M1', 'M2']
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      const { listOrgIssueTypes } = await import('../../shared/adapters/github-adapter')
 
       // Act
       const result = await enrollRepo({
