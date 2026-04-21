@@ -207,10 +207,48 @@ switch (command) {
     break
   }
 
+  case 'hub-bootstrap': {
+    const { bootstrapProject, bootstrapFields, bootstrapIssueTypes, runRenameSpike, applyRenames } = await import(
+      './lib/hub-bootstrap'
+    )
+    const { ghGraphQL } = await import('../shared/adapters/github-adapter')
+
+    const owner = parseFlag('--owner', 'Roxabi')
+    const spikeOnly = hasFlag('--spike-only')
+    const confirmRenames = hasFlag('--confirm-renames')
+    const spikeSnapshot = parseFlag('--spike-snapshot', '')
+
+    // Resolve ownerId via organization GraphQL query
+    const orgIdOut = (await ghGraphQL('query($l:String!){organization(login:$l){id}}', { l: owner })) as {
+      data: { organization: { id: string } }
+    }
+    const ownerId = orgIdOut.data.organization.id
+
+    if (spikeOnly) {
+      const defaultSnapshotPath = `artifacts/migration/119-rename-spike-${new Date().toISOString().slice(0, 10)}.json`
+      const snapshotPath = spikeSnapshot || defaultSnapshotPath
+      await runRenameSpike({ snapshotPath })
+      console.log(JSON.stringify({ step: 'spike-only', snapshotPath }))
+      break
+    }
+
+    // Full bootstrap flow (1.1–1.6)
+    const project = await bootstrapProject(owner)
+    await bootstrapFields(project.id)
+    await bootstrapIssueTypes(ownerId)
+    console.log(JSON.stringify({ step: 'bootstrap', project: { id: project.id, number: project.number } }))
+
+    if (confirmRenames) {
+      await applyRenames({ confirmRenames: true, spikeSnapshot: spikeSnapshot || undefined })
+      console.log(JSON.stringify({ step: 'renames-applied' }))
+    }
+    break
+  }
+
   default:
     console.error(`Unknown command: ${command}`)
     console.error(
-      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|scaffold-docs|scaffold-rules|scaffold|scaffold-fumadocs|scaffold-fumadocs-vercel]',
+      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|scaffold-docs|scaffold-rules|scaffold|scaffold-fumadocs|scaffold-fumadocs-vercel|hub-bootstrap]',
     )
     process.exit(1)
 }
