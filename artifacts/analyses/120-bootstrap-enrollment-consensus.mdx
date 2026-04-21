@@ -1,0 +1,122 @@
+---
+title: "PR #124 Review Findings — Expert Consensus"
+issue: 120
+pr: 124
+status: consensus-reached
+date: 2026-04-21
+panel: architect, backend-dev, devops
+confidence: high
+---
+
+## Problem
+
+PR #124 (`feat(dev-core): #120 bootstrap + enroll`) received a first-pass code review identifying **15 blockers, 8 warnings, 7 nitpicks** across five review domains. The review recommended `/fix` before merge.
+
+Goal of this consensus round: converge a 3-expert panel on per-finding dispositions and a single ship/fix recommendation so the Phase 8 decision is defensible.
+
+## Panel
+
+| α | Focus |
+|---|-------|
+| architect | SSoT invariants, contract soundness, maintainability |
+| backend-dev | GraphQL correctness, type contracts, error surface |
+| devops | Supply-chain, blast radius, deploy safety |
+
+## Consensus ρ
+
+**Fix-first before merge.** 12 findings promote to confirmed blockers; 3 findings originally flagged as blockers (B12, B13, B15) downgrade to warn/nitpick.
+
+### Confirmed blockers (fix before merge)
+
+| # | Title | Vote |
+|---|---|---|
+| B1 | `bootstrapProject` ownerLogin↔ownerId | 2-1 |
+| B2 | `runRenameSpike` no rollback | 2-1 |
+| B3 | `listOrgIssueTypes('')` empty login | 2-1 |
+| B4 | `bootstrapIssueTypes` ownerId used as $login | 2-1 |
+| B5 | `enrollRepo` projectUrl as projectId | 2-1 |
+| **B6** | `<HUB_NUMBER>` literal in committed YAML | **3-0** |
+| B7 | `secrets.PAT` hardcoded | 2-1 |
+| B8 | `bootstrapFields` throws vs patches | 2-1 |
+| B9 | Workflow missing `issues/pull-requests:write` | 2-1 |
+| B10 | Inline GraphQL strings break SSoT | 2-1 |
+| B11 | `pushWorkflow` duplicates `pushWorkflowFile` | 2-1 |
+| **B14** | Unquoted `project-url` in YAML template | **3-0** |
+
+Unanimous blockers: **B6** (documented command writes broken YAML to 8 repos — self-inflicted, no gate) and **B14** (YAML injection in generated artifact).
+
+### Downgraded from blocker
+
+- **B12** → **warn** — ghGraphQL free fn widened but class method narrow. Contract split, but all in-PR callers use the free fn. Architect + devops: warn; backend-dev: block. **2-1 not-block.**
+- **B13** → **warn/nitpick** — TOCTOU surfaces as a 422 from the API, not silent corruption. Noisy failure ≠ blocker.
+- **B15** → **warn** — `applyRenames` boolean gate (`snap.preserved`) is still sound; ignoring `snap.probe.renamedName` is a contract-trim concern, not a correctness one.
+
+### Warnings / nitpicks
+
+Warnings W1–W8 all **confirmed as warn** (unanimous across panel). W3 (SHA-pinning) argued for block by devops but rejected 2-1 — supply-chain risk is real but one-line post-merge fix acceptable.
+
+All 7 nitpicks confirmed as nitpick; no promotions.
+
+### Rationale
+
+Three separate angles converge on fix-first:
+
+1. **Architect:** B6 + B14 generate external data corruption (broken YAML committed to 8 repos). This damage is not contained in this repo and is expensive to revert. SSoT invariant (B10) is architecturally load-bearing.
+2. **Backend-dev:** B1/B4 will hard-fail with GraphQL type errors on first live `createProjectV2` / `createIssueType` call. Feature is entirely dead, not degraded. Fixes are trivial (thread `ownerId` through two signatures).
+3. **Devops:** Even granting T9 RED-GATE supervises B1–B5 failures, B6 + B7 + B9 + B14 affect the generated artifact that's pushed to downstream repos *before* any live API call; these fire outside the gate.
+
+The majority argues that deferring B1–B5 to T9 saves nothing because:
+- The type-mismatch is already diagnosed (not a discovery problem)
+- Fixes are small parameter threads (not architectural)
+- Catching them under supervised operator gaze only converts a cryptic failure into a painful one; it doesn't avoid the fix
+
+### Trade-offs
+
+1. **Fix-first delay vs downstream blast-radius.** Fix delay is 1–2 hours of agent work; broken YAML committed to 8 repos requires force-push coordination or revert commits in each downstream repo. Asymmetric — fix-first wins.
+2. **SSoT enforcement (B10) vs pragmatism.** Backend-dev argued post-hoc with a tracked ticket is acceptable. Architect + devops pushed for pre-merge because test mocks already erode around query substring matching — keeping the invariant strict prevents further drift.
+3. **B1–B5 type fixes vs test coverage.** Tests pass because mocks key on query substrings not variable shapes. Fix-first means fixing the bugs without adding variable-shape validation to tests (tracked as W2 follow-up).
+
+## Alternatives
+
+| ω | Proposed by | Rejected because |
+|---|-------------|------------------|
+| Merge-as-is + post-hoc | — (implicit PR option) | B6 + B14 commit broken/injectable YAML to downstream repos before any gate fires |
+| Hybrid: fix only B6, B7, B9, B14, W3 (5 items); defer B1–B5 to T9 | devops | Majority: B1–B5 fixes are trivial parameter threads; T9 gate doesn't make them cheaper to fix later, only more painful to diagnose |
+| Full fix-first (all 15 + 8 warnings) | — | Warnings W1–W8 carry genuine post-hoc acceptance — not all require merge-blocking |
+
+## Dissent
+
+**devops** argues B1–B5 should downgrade to warn on the grounds that T9 RED-GATE is an operator-supervised single-run gate. In their framing, failures there are recoverable and visible, not silent-in-production.
+
+**Panel majority response:** accepted as technically correct — B1–B5 *are* gated by T9 — but rejected as an ordering argument. The cost of fixing B1–B5 pre-merge (minutes, mechanical) is less than the cost of hitting them during T9 execution (operator-blocking, context-switched, spike ends in error state needing retry). Fix-first wins on effort-per-defect, not just blast-radius.
+
+Dissent recorded for audit.
+
+## Implementation Notes
+
+**Invoke `/fix` with the following priority order:**
+
+1. **Parameter-type bugs** (B1, B3, B4, B5) — thread correct types through `bootstrapProject`, `bootstrapIssueTypes`, `runRenameSpike`, `enrollRepo`. Purely mechanical.
+2. **YAML-level bugs** (B6, B14, B7, B9) — fix `generateAutoAddToProjectYml` template: quote `projectUrl`, default to `GITHUB_TOKEN`, add `issues:write` + `pull-requests:write`, resolve `<HUB_NUMBER>` placeholder (persist project URL in `artifacts/migration/hub-project.json` during bootstrap).
+3. **First-run path** (B8) — switch `bootstrapFields` from throw to `UPDATE_FIELD_OPTIONS_MUTATION` patch.
+4. **Rollback safety** (B2) — wrap post-rename block in try/catch with rename-back on exception.
+5. **SSoT cleanup** (B10, B11) — promote 3 inline queries to `shared/queries.ts`; delete `pushWorkflow`, widen `pushWorkflowFile` to accept arbitrary path.
+
+**Defer to follow-up tickets (tracked, non-blocking):**
+- B12 (ghGraphQL contract alignment)
+- B13 (TOCTOU 422 idempotency)
+- B15 (snapshot readBack assertion)
+- W1–W8 (dry-run milestone, test gaps, SHA pinning, concurrency, snapshot HMAC, cachedToken audit, orphan mutation, field pagination)
+
+**Test additions required before re-review:**
+- Variable-shape validation in GraphQL mocks (not just query substring)
+- `bootstrapFields` Status-absent branch
+- `pushWorkflow` (direct tests)
+- `applyRenames` non-existent-file branch
+
+## Next
+
+1. `/fix #124` — auto-apply high-confidence blockers 1–5, 1b1 the rest
+2. Re-run `/code-review #124`
+3. Green pass → merge
+4. Post-merge: RED-GATE T9 live spike (operator-triggered) + T17 pilot enrollment
