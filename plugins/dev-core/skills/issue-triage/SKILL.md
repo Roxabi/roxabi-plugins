@@ -189,4 +189,8 @@ Run `/init` to auto-detect and populate env vars. Field operations (status, size
 | `SIZE_OPTIONS_JSON` | JSON map size names → option IDs | ✅ field updates |
 | `PRIORITY_OPTIONS_JSON` | JSON map priority names → option IDs | ✅ field updates |
 
+## Related
+
+- Taxonomy SSoT → `plugins/dev-core/references/issue-taxonomy.md` — field set, cross-repo behavior, plugin contracts, anti-patterns
+
 $ARGUMENTS
