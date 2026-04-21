@@ -103,7 +103,6 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
 // Lazy import — will fail with "Cannot find module" until hub-bootstrap.ts exists
 // ---------------------------------------------------------------------------
 
-// biome-ignore lint: top-level await in module scope not allowed before import
 let bootstrapProject: (login: string) => Promise<{ id: string; number: number; title: string }>
 let bootstrapFields: (projectId: string) => Promise<void>
 let bootstrapIssueTypes: (ownerId: string) => Promise<void>
