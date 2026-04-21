@@ -1,9 +1,9 @@
 ---
 name: voice-style
-argument-hint: '<url-or-transcript-path> [--list]'
-description: 'Extract a creator''s writing-style card from a transcript — register, fillers, FR/EN code-switching, sentence shape, signature tics, analogy style. Input: YouTube URL or transcript file. Triggers: "voice style" | "writing style" | "style card" | "creator tone" | "tone extract" | "extract style" | "style signature".'
-version: 0.1.0
-allowed-tools: Bash, Read, Write, Glob
+argument-hint: '<transcript-path> [--list]'
+description: 'Extract a creator''s writing-style card from a transcript file — register, fillers, FR/EN code-switching, sentence shape, signature tics, analogy style. Input: path to a transcript.md produced by Phase 1.1 of VIDEO-VOICE-PLAYBOOK (yt-dlp captions or web-intel:scrape). Triggers: "voice style" | "writing style" | "style card" | "creator tone" | "tone extract" | "extract style" | "style signature".'
+version: 0.2.0
+allowed-tools: Read, Write, Glob
 ---
 
 # Voice Style
@@ -15,18 +15,34 @@ Let:
 
 Extract *how* a creator speaks from a transcript — compact "voice print" usable to author new copy that sounds like them.
 
+**Single responsibility: read words → produce card.** Transcript acquisition lives in Phase 1.1 of [VIDEO-VOICE-PLAYBOOK](../../../../playbooks/VIDEO-VOICE-PLAYBOOK.md) (`yt-dlp --write-auto-subs` or `web-intel:scrape`). If the user passes a URL, stop and redirect them upstream.
+
 Complements `video-recipe` (narrative arc) and `video-analyze` (on-screen visuals). This one reads **words**.
 
 ## Entry
 
 ```
-/voice-style https://youtube.com/watch?v=...        # scrape + extract
-/voice-style ./transcript.md                        # local transcript
-/voice-style ~/.roxabi/forge/qaya-analysis/transcript.md
+/voice-style ./transcript.md
+/voice-style ~/.roxabi/forge/<project>/transcript.md
 /voice-style --list                                 # browse stored cards
 ```
 
-¬ arg → DP(B) for URL or path.
+¬ arg → DP(B) for transcript path.
+
+**URL input is rejected.** If `$ARGUMENTS` matches `^https?://`:
+
+```
+✗ voice-style takes a transcript FILE, not a URL.
+
+First produce a transcript (Phase 1.1):
+  yt-dlp --write-auto-subs --sub-lang en --skip-download -o "captions.%(ext)s" "$URL"
+  # or for non-YouTube URLs:
+  cd ~/projects/roxabi-plugins/plugins/web-intel && uv run python scripts/scraper.py "$URL" > transcript.json
+
+Then: /voice-style ./transcript.md
+```
+
+Stop. Do not scrape.
 
 ## Flags
 
@@ -34,42 +50,30 @@ Complements `video-recipe` (narrative arc) and `video-analyze` (on-screen visual
 |------|--------|
 | `--list` | List stored style cards (no input needed) |
 
-## Step 1 — Locate Plugins
+## Step 1 — Locate Plugin
 
 ```bash
 CONTENT_LAB_ROOT=$(find ~/projects -maxdepth 4 -path "*/content-lab/pyproject.toml" -print -quit 2>/dev/null | xargs dirname)
-WEB_INTEL_ROOT=$(find ~/projects -maxdepth 4 -path "*/web-intel/pyproject.toml" -print -quit 2>/dev/null | xargs dirname)
 if [ -z "$CONTENT_LAB_ROOT" ]; then
   echo "ERROR: content-lab plugin not found"
   exit 1
 fi
 ```
 
+No `web-intel` dependency — v2 dropped URL scraping to keep the skill single-purpose.
+
 ## Step 2 — Handle `--list`
 
 `--list` ∃ → `ls -1 α/*.md 2>/dev/null` → present table (date · creator · language · signature line). Stop.
 
-## Step 3 — Acquire Transcript
+## Step 3 — Read Transcript
 
 ```
-input ∈ URL  → scrape (needs WEB_INTEL_ROOT)
-input ∈ path → read file
+input matches ^https?://  → error (see Entry § URL rejection), stop.
+input is a file path       → read via Read tool.
+file missing / empty       → error, stop.
+T < 500 chars              → error "transcript too short for reliable extraction", stop.
 ```
-
-**URL path:**
-
-```bash
-TMPDIR=$(mktemp -d -t "voice-style-XXXXXX")
-trap 'rm -rf "$TMPDIR"' EXIT
-SCRAPE="$TMPDIR/scrape.json"
-cd "$WEB_INTEL_ROOT" && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt uv run python scripts/scraper.py "$URL" > "$SCRAPE"
-# Transcript field name varies by platform; try .transcript, .content.transcript, .body
-T=$(jq -r '.transcript // .content.transcript // .body // empty' "$SCRAPE")
-```
-
-¬ T (empty transcript) → inform user captions/transcript unavailable → stop.
-
-**File path:** read directly.
 
 Trim T to first 12000 chars if longer (context budget). Note truncation in the card footer.
 
@@ -177,7 +181,8 @@ Write Σ → `$OUT`. Echo path. Render Σ inline to the user.
 
 ## Error Handling
 
-- Scraper returns `success: false` → fall back to asking user for transcript path
+- URL passed instead of path → show Phase 1.1 redirect from Entry, stop (no scrape attempt)
+- File not found / unreadable → surface OS error, stop
 - Transcript < 500 chars → inform user too short for reliable extraction, stop
 - Multiple speakers in T → note it in footer, extract dominant speaker only (first-person lines + longest runs)
 

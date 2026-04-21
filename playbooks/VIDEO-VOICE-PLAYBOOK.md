@@ -62,6 +62,49 @@ Output → `transcript.md` (timestamped).
 
 ### 1.2 Visual VLM (two-pass)
 
+#### 1.2.0 Preflight — VLM server + VRAM
+
+The skill assumes `llama-server` is already running with a vision model on `:8093`. It does **not** auto-start it.
+
+**Health check first:**
+
+```bash
+curl -sf http://127.0.0.1:8093/health && echo "✓ VLM up" || echo "✗ VLM down — start it"
+```
+
+**Start command** (qaya config, 480p sweet-spot — RTX 5070 Ti / RTX 3080):
+
+```bash
+llama-server \
+  -m ~/.cache/llama-models/Qwen3-VL-8B-Instruct-Q5_K_M.gguf \
+  --mmproj ~/.cache/llama-models/mmproj-Qwen3-VL-8B-BF16.gguf \
+  --host 127.0.0.1 --port 8093 \
+  --n-gpu-layers 99 --ctx-size 8192
+```
+
+**VRAM budget** (peaks, concurrent):
+
+| Service | VRAM |
+|---|---|
+| VLM (Qwen3-VL-8B Q5_K_M + mmproj BF16) | ~7–8 GB |
+| `voicecli_tts` daemon (qwen-fast) | ~7.4 GB |
+| `voicecli_stt` daemon | ~2.2 GB |
+| Compositor (cosmic-comp / KDE / GNOME) | ~0.5–6 GB (workstation) |
+
+**Free VRAM before starting VLM** — on RTX 3080 (10 GB) this is mandatory, on RTX 5070 Ti (16 GB) recommended when compositor is heavy:
+
+```bash
+make -C ~/projects stt stop
+make -C ~/projects tts stop
+nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits   # expect ≥ 10 GB
+```
+
+Restart TTS/STT after Phase 1.2 completes (VLM can stay loaded through Phase 1.4 synthesis, must be stopped before Phase 5 VO render on 10 GB cards).
+
+→ Full per-phase VRAM choreography: see [§ VRAM choreography](#vram-choreography) at end of file.
+
+#### 1.2.1 Run
+
 ```bash
 /video-analyze <url>
 # pass 1: classify (b_roll / text / mixed / schema / ui)
@@ -112,12 +155,18 @@ Structure:
 
 Extract *how* the creator speaks — register, fillers, FR/EN mix, sentence shape, signature tics.
 
+**Input contract:** `transcript.md` **file path** (Phase 1.1 output). URL input is out-of-scope for this phase — transcript acquisition belongs to Phase 1.1 (`yt-dlp` captions or `web-intel:scrape`). Each phase has a single responsibility.
+
+```bash
+/voice-style ~/.roxabi/forge/<project>/transcript.md
+```
+
 | Skill | Status |
 |---|---|
-| `content-lab:voice-style` | shipped v1 (2026-04-20) |
+| `content-lab:voice-style` | shipped v1 (2026-04-20) — ⚠ currently also accepts URLs by invoking `web-intel:scraper.py`; scheduled to drop URL handling in v2 |
 | manual notes from transcript | fallback today |
 
-Output → **creator-style card** (~20 lines):
+Output → **creator-style card** (~40–80 lines):
 
 ```
 register:      casual / direct
@@ -127,6 +176,8 @@ sentence:      short, punchy · explains complex → simple
 tone:          confident, assertive, conversational
 moves:         analogy-first · friend-explaining framing
 ```
+
+Stored → `~/.roxabi-vault/content-lab/voice-styles/<YYYY-MM-DD>_<slug>.md`
 
 ¬ use `brand-voice:*` (enterprise-scope, wrong tool).
 
@@ -337,6 +388,39 @@ companion page?
 
 ---
 
+## VRAM choreography
+
+Two services compete for GPU: **VLM** (Phase 1.2) and **TTS daemon** (Phase 5). STT should be stopped through the whole pipeline — not used anywhere. Compositor eats 0.5–6 GB and can't be moved.
+
+**Per-phase plan (10 GB card — RTX 3080 prod):**
+
+| Phase | VLM | TTS | STT | Command |
+|---|---|---|---|---|
+| 0 frame | — | — | — | — |
+| 1.1 transcript | — | — | stop | `make stt stop` |
+| 1.2 VLM analysis | **start** | **stop** | stop | `make tts stop && make stt stop && llama-server … :8093` |
+| 1.3–1.4 derivatives + synthesis | idle | stop | stop | VLM can idle (no GPU load between requests) |
+| 1.5 forge page | kill | — | — | `pkill -f llama-server` |
+| 2 voice-style | — | — | — | CPU-only, no VRAM needed |
+| 3 yt-clone / sample-pick | — | **start** | stop | `make tts start` (auto-stops STT if running) |
+| 4 storyboard | — | — | — | CPU-only |
+| 5 VO render (qwen-fast) | — | running | stop | `make stt stop && voicecli clone …` |
+| 6–7 compose / soundtrack | — | — | — | CPU-only |
+| 8 render MP4 | — | — | — | Puppeteer + FFmpeg, negligible VRAM |
+
+**16 GB card (RTX 5070 Ti dev):** VLM + TTS daemon *can* coexist (7.4 + 7.5 = 14.9 GB) iff compositor < 1 GB. Otherwise treat like 10 GB card. Always stop STT regardless — it's never read in this pipeline.
+
+**Diagnostics:**
+
+```bash
+nvidia-smi --query-gpu=memory.used,memory.free,memory.total --format=csv
+nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+```
+
+If `memory.used` ≫ sum of listed compute apps, the delta is the graphics compositor — not killable without logout.
+
+---
+
 ## Gaps
 
 ### Shipped v1 — 2026-04-20
@@ -347,10 +431,13 @@ companion page?
 | 2 | `content-lab:voice-style` | creator writing-style card from transcript | 2 |
 | 3 | `voiceCLI:sample-pick` | silence-based VAD + scoring → ranked clean-speech segments | 3 |
 
-### Open
+### Open — surfaced by IndyDevDan M5 Max run (2026-04-21)
 
-None currently. Next gaps will be identified from usage signal on the first
-real run of the pipeline end-to-end.
+| # | Issue | Where | Fix |
+|---|---|---|---|
+| 1 | `qwen-fast` clone crashes on multi-segment narration with `<!-- emotion: -->` directives — `generate_voice_clone()` rejects `instruct` kwarg | `voiceCLI:src/voicecli/engines/qwen_fast.py:98` | Gate `kw["instruct"] = seg.instruct` on `method == "custom_voice"`; log WARNING at `clone()` entry when instruct present on fast; add `ENGINE_CAPS` flag in `translate.py` |
+| 2 | `content-lab:voice-style` accepts URLs by shelling out to `web-intel:scraper.py` — cross-plugin coupling, duplicates Phase 1.1 responsibility | `content-lab/skills/voice-style/SKILL.md` step 3 | v2: accept file path only, error on URL with "run Phase 1.1 first" |
+| 3 | `/video-analyze` preflight had no "how to start the VLM" guidance; VRAM contention between VLM and TTS daemon not documented | playbook Phase 1.2 | **fixed** — Preflight block + VRAM choreography table added |
 
 ---
 
