@@ -167,4 +167,8 @@ Dep view only. Modify → `/issue-triage`.
 - `GH_PROJECT_ID` — GitHub Project V2 ID (**required**)
 - `GITHUB_REPO` — `owner/repo` (auto-detected)
 
+## Related
+
+- [Taxonomy SSoT](../../references/issue-taxonomy.md) — GraphQL fetch contract, field/Issue-Type reader conventions
+
 $ARGUMENTS
