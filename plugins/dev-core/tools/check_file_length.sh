@@ -25,9 +25,10 @@ fi
 
 is_exempt() {
     [ ! -f "$EXEMPT_FILE" ] && return 1
-    # grep -F (fixed-string): path may contain regex metacharacters (., *, [, +).
-    # Exemption format: '<path> <issue-url>' — trailing space anchors the path.
-    grep -qF -- "$1 " "$EXEMPT_FILE"
+    # Exact match on the first whitespace-delimited field — no regex, no escaping,
+    # left-anchored (awk field split) so a path substring elsewhere on the line
+    # cannot cause a false positive. Exemption format: '<path> <issue-url>'.
+    awk -v p="$1" '$1 == p { found = 1 } END { exit !found }' "$EXEMPT_FILE"
 }
 
 while IFS= read -r -d '' f; do
