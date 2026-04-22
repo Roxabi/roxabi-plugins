@@ -5,11 +5,7 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  MILESTONE_QUERY,
-  REPO_DEFAULT_BRANCH_QUERY,
-  VERIFY_PROJECT_ITEMS_QUERY,
-} from '../../shared/queries'
+import { MILESTONE_QUERY, REPO_DEFAULT_BRANCH_QUERY, VERIFY_PROJECT_ITEMS_QUERY } from '../../shared/queries'
 
 // ---------------------------------------------------------------------------
 // In-memory state shared by adapter mocks
