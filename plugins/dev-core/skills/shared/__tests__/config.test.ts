@@ -69,8 +69,8 @@ describe('shared/config', () => {
   })
 
   describe('FIELD_MAP', () => {
-    it('contains status, size, and priority', () => {
-      expect(Object.keys(FIELD_MAP)).toEqual(['status', 'size', 'priority'])
+    it('contains status, size, priority, and lane', () => {
+      expect(Object.keys(FIELD_MAP)).toEqual(['status', 'size', 'priority', 'lane'])
     })
 
     it('each entry has a fieldId and options object', () => {

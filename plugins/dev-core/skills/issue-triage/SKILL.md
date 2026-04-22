@@ -1,8 +1,8 @@
 ---
 name: issue-triage
-argument-hint: [list | set <num> | create --title "..." [--parent N] [--size S] [--priority P]]
-description: Triage/create GitHub issues — set size/priority/status, manage dependencies & parent/child. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue".
-version: 0.2.0
+argument-hint: [list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] | migrate <audit-schema|backfill|rewrite-titles|revert>]
+description: Triage/create GitHub issues — set size/priority/status/lane/type, manage dependencies & parent/child, migrate legacy data. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type" | "migrate" | "backfill" | "audit schema".
+version: 0.3.0
 allowed-tools: Bash, Read, ToolSearch
 ---
 
@@ -65,6 +65,8 @@ Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies
 | `--add-child <N>[,<N>...]` | Add child sub-issues |
 | `--rm-parent` | Remove parent relationship |
 | `--rm-child <N>[,<N>...]` | Remove child sub-issues |
+| `--lane <L>` | Set lane on hub project (optional, additive). Valid: `a1`, `a2`, `a3`, `b`, `c1`, `c2`, `c3`, `d`–`o`, `standalone` |
+| `--type <T>` | Set org issueType (optional, additive). Valid: `fix`, `feat`, `docs`, `test`, `chore`, `ci`, `perf`, `epic`, `research`, `refactor` |
 
 ### `create` — Create a new issue
 
@@ -80,6 +82,55 @@ Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies
 | `--add-child <N>[,<N>...]` | Add existing issues as children |
 | `--blocked-by <N>[,<N>...]` | Set blocked-by on creation |
 | `--blocks <N>[,<N>...]` | Set blocking on creation |
+
+### `migrate` — Schema validation and data migration
+
+> Operational context (7-day soak, 7 enrolled repos, serial-per-repo rollout, `flagged.txt` review gate): `artifacts/specs/121-dual-write-migration-spec.mdx`
+
+#### `migrate audit-schema`
+
+Validates that the live hub project's Size/Lane/Priority/Status single-select fields match the local `*_OPTIONS` constants.
+
+```bash
+τ migrate audit-schema
+```
+
+- Exits 0 on match; exits 1 with a field-by-field diff on any drift.
+
+#### `migrate backfill --repo OWNER/REPO`
+
+Walks open issues in the repo, maps legacy labels/title-prefixes to hub fields via `LEGACY_LABEL_MAP`, and writes field values. Idempotent — skips already-set fields.
+
+```bash
+τ migrate backfill --repo OWNER/REPO
+τ migrate backfill --repo OWNER/REPO --dry-run
+τ migrate backfill --repo OWNER/REPO --snapshot artifacts/migration/backfill-snapshot-YYYYMMDD-HHMM.json
+```
+
+- Writes `artifacts/migration/backfill-snapshot-<YYYYMMDD-HHMM>.json` + `flagged.txt` for manual review.
+
+#### `migrate rewrite-titles --repo OWNER/REPO`
+
+Strips conventional-commit prefixes (e.g. `feat:`, `fix(scope):`) from open issue titles. Idempotent.
+
+```bash
+τ migrate rewrite-titles --repo OWNER/REPO
+τ migrate rewrite-titles --repo OWNER/REPO --dry-run
+τ migrate rewrite-titles --repo OWNER/REPO --snapshot artifacts/migration/rewrite-snapshot-<ts>.json
+```
+
+- Writes `artifacts/migration/rewrite-snapshot-<ts>.json`; `--dry-run` prints changes without applying.
+
+#### `migrate revert --snapshot PATH`
+
+Reads a backfill or rewrite snapshot and inverts the mutations. Idempotent.
+
+```bash
+τ migrate revert --snapshot artifacts/migration/backfill-snapshot-20240101-1200.json
+τ migrate revert --snapshot artifacts/migration/rewrite-snapshot-20240101-1200.json
+```
+
+- Restores all mutated fields/titles to their pre-migration values.
 
 ## Complexity Scoring
 
@@ -154,6 +205,19 @@ Reference: `artifacts/analyses/280-token-consumption.mdx` for scoring examples.
   --title "epic: improve CI pipeline" \
   --size L --priority High \
   --add-child 150,151,152
+
+# Lane and type (additive, optional)
+τ set 42 --lane b
+τ set 42 --type feat
+τ set 42 --size M --priority High --lane c1 --type fix
+
+# Migrate
+τ migrate audit-schema
+τ migrate backfill --repo Roxabi/my-repo --dry-run
+τ migrate backfill --repo Roxabi/my-repo
+τ migrate rewrite-titles --repo Roxabi/my-repo --dry-run
+τ migrate rewrite-titles --repo Roxabi/my-repo
+τ migrate revert --snapshot artifacts/migration/backfill-snapshot-20240101-1200.json
 ```
 
 ## Chain Position
@@ -185,9 +249,11 @@ Run `/init` to auto-detect and populate env vars. Field operations (status, size
 | `STATUS_FIELD_ID` | Project field ID for Status | ✅ field updates |
 | `SIZE_FIELD_ID` | Project field ID for Size | ✅ field updates |
 | `PRIORITY_FIELD_ID` | Project field ID for Priority | ✅ field updates |
+| `LANE_FIELD_ID` | Project field ID for Lane | ✅ lane updates |
 | `STATUS_OPTIONS_JSON` | JSON map status names → option IDs | ✅ field updates |
 | `SIZE_OPTIONS_JSON` | JSON map size names → option IDs | ✅ field updates |
 | `PRIORITY_OPTIONS_JSON` | JSON map priority names → option IDs | ✅ field updates |
+| `LANE_OPTIONS_JSON` | JSON map lane names → option IDs | ✅ lane updates |
 
 ## Related
 
