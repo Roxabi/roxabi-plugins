@@ -429,19 +429,19 @@ describe('migrate > TITLE_PREFIX_RE', () => {
     const match = title.match(TITLE_PREFIX_RE)
     // Assert
     expect(match).not.toBeNull()
-    expect(match![1]).toBe('feat')
+    expect(match?.[1]).toBe('feat')
   })
 
   it('matches chore: baz and captures chore as group 1', () => {
     const match = 'chore: baz'.match(TITLE_PREFIX_RE)
     expect(match).not.toBeNull()
-    expect(match![1]).toBe('chore')
+    expect(match?.[1]).toBe('chore')
   })
 
   it('matches fix(complex-scope): x and captures fix as group 1', () => {
     const match = 'fix(complex-scope): x'.match(TITLE_PREFIX_RE)
     expect(match).not.toBeNull()
-    expect(match![1]).toBe('fix')
+    expect(match?.[1]).toBe('fix')
   })
 
   it('does not match plain title without conventional prefix', () => {
@@ -460,7 +460,7 @@ describe('migrate > TITLE_PREFIX_RE', () => {
       const match = `${type}: something`.match(TITLE_PREFIX_RE)
       // Assert
       expect(match).not.toBeNull()
-      expect(match![1]).toBe(type)
+      expect(match?.[1]).toBe(type)
     }
   })
 })
