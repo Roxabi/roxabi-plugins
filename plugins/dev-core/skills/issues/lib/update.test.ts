@@ -39,7 +39,7 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
   updateField: mockUpdateField,
 }))
 
-vi.mock('../../shared/adapters/workspace-helpers', () => ({
+vi.mock('../../../cli/lib/workspace-store', () => ({
   readWorkspace: mockReadWorkspace,
   writeWorkspace: vi.fn(() => {}),
 }))

@@ -118,7 +118,7 @@ export interface WorkflowRun {
 }
 
 export interface ProjectFieldIds {
-  status: string
+  status?: string
   col2?: string
   col3?: string
   statusOptions?: Record<string, string>

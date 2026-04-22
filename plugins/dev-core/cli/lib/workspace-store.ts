@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import type { ProjectFieldIds } from '../../skills/shared/domain/types'
 
 export interface VercelProjectRef {
   projectId: string
@@ -10,6 +11,8 @@ export interface WorkspaceProject {
   projectId: string // 'PVT_...'
   label: string // display name shown in dashboard tab
   localPath?: string // absolute path to local clone — used by dashboard for git ops
+  type?: 'technical' | 'company' // project type for field slot naming
+  fieldIds?: ProjectFieldIds // per-project field IDs and option IDs
   vercelProjectId?: string // single Vercel project ID (legacy / single-project)
   vercelTeamId?: string // Vercel team ID for single project
   vercelProjects?: VercelProjectRef[] // multiple Vercel projects (overrides vercelProjectId)
@@ -17,6 +20,7 @@ export interface WorkspaceProject {
 
 export interface Workspace {
   projects: WorkspaceProject[]
+  roadmapProjectId?: string // optional roadmap project for cross-repo items
 }
 
 export function getWorkspacePath(): string {
@@ -43,11 +47,14 @@ export function parseWorkspace(raw: unknown): Workspace {
   if (!raw || typeof raw !== 'object' || !('projects' in raw)) {
     throw new Error('workspace.json: expected object with `projects` array')
   }
-  const projects = (raw as { projects: unknown }).projects
+  const obj = raw as Record<string, unknown>
+  const projects = obj.projects
   if (!Array.isArray(projects)) {
     throw new Error('workspace.json: `projects` must be an array')
   }
-  return { projects: projects.map(validateProject) }
+  const roadmapProjectId =
+    obj.roadmapProjectId !== undefined && typeof obj.roadmapProjectId === 'string' ? obj.roadmapProjectId : undefined
+  return { projects: projects.map(validateProject), roadmapProjectId }
 }
 
 function validateProject(p: unknown, i: number): WorkspaceProject {

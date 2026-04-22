@@ -8,6 +8,8 @@
  * Features: in-memory cache, background polling, SSE live updates, multi-project workspace.
  */
 
+import { discoverProject } from '../../cli/lib/github-discovery'
+import { readWorkspace, writeWorkspace } from '../../cli/lib/workspace-store'
 import {
   addToProject,
   getItemId,
@@ -15,7 +17,6 @@ import {
   getProjectTitle,
   removeFromProject,
 } from '../shared/adapters/github-adapter'
-import { discoverProject, readWorkspace, writeWorkspace } from '../shared/adapters/workspace-helpers'
 import type { VercelProjectRef, WorkspaceProject } from '../shared/ports/workspace'
 import {
   fetchAllProjects,

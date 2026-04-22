@@ -1,3 +1,4 @@
+import { readWorkspace } from '../../../cli/lib/workspace-store'
 import {
   FIELD_MAP,
   isProjectConfigured,
@@ -5,7 +6,6 @@ import {
   resolveFieldIds,
 } from '../../shared/adapters/config-helpers'
 import { getItemId, updateField } from '../../shared/adapters/github-adapter'
-import { readWorkspace } from '../../shared/adapters/workspace-helpers'
 import type { ProjectFieldIds } from '../../shared/domain/types'
 
 // Map legacy field names (from browser context menu) to slot names
