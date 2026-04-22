@@ -1,0 +1,69 @@
+---
+title: "PR #126 Review Findings Disposition — Expert Consensus"
+issue: 125
+status: consensus-reached
+date: 2026-04-22
+panel: architect, backend-dev, tester
+confidence: high
+---
+
+## Problem
+
+PR #126 fixes the `hub-enroll` default-branch bug (#125). Code review produced 4 findings across 3 agents. No blockers, CI green. Question: which findings to fix inline vs. defer to follow-up issues.
+
+## Panel
+
+| α | Focus |
+|---|-------|
+| architect | arch soundness, root-cause policy |
+| backend-dev | API design, scope discipline |
+| tester | test quality, coverage gaps |
+
+## Findings
+
+| # | Label | Source | Summary | C |
+|---|-------|--------|---------|---|
+| 1 | issue | backend-dev | `pushWorkflows` / `pushGenericWorkflows` still default `branch='main'` — same latent bug one level up | 85% |
+| 2 | issue | tester | Test mock dispatches on `query.includes('defaultBranchRef')` — fragile | 70% |
+| 3 | suggestion | tester | Redundant `state.defaultBranch = 'staging'` + misleading comment in test 1 | 60% |
+| 4 | suggestion | tester | Missing `repository: null` test case | 50% |
+
+## Consensus ρ
+
+**Option A — Apply #1 + #3 inline, defer #2 + #4 to follow-up issues.**
+
+### Rationale
+
+- **#1 shares the exact root cause the PR was opened to fix.** Leaving two sibling callers with the same silent-failure pattern violates the "fix the class, not the instance" policy. Cost: ~2 lines + minor test touch.
+- **#3 is zero-risk cleanup** (redundant assignment, misleading comment). Trivial; deferring creates tech debt.
+- **#2 is a test-infra decision** (stub at transport layer vs. query constants) with cross-file impact — deserves its own issue.
+- **#4 is additive coverage**, not a regression guard for this fix — belongs in a follow-up.
+
+### Trade-offs
+
+- Slight scope expansion over strict S-tier minimum (3 files → 3 files, but 2 extra lines).
+- Adds a `getRepoDefaultBranch`-equivalent call to `pushWorkflows` / `pushGenericWorkflows` call path (or pushes resolution responsibility up to their callers).
+- Two follow-up issues to track (minor admin cost).
+
+## Alternatives
+
+| ω | Rejected because |
+|---|------------------|
+| B — Apply all 4 inline | #2 is a test-architecture decision (not mechanical); #4 adds behavior coverage outside fix scope. Both expand review surface. |
+| C — Apply #3 only | Leaves #1 (2-line root-cause recurrence) open — violates policy. |
+| D — Merge as-is | Same as C plus leaves #3 noise. No upside. |
+
+## Dissent
+
+None — unanimous.
+
+## Implementation Notes
+
+1. **#1 fix:** Remove `branch = 'main'` defaults from `pushWorkflows` and `pushGenericWorkflows`. Require callers to pass `branch` explicitly. Audit the 2 internal call sites — if any, swap to resolved default branch via `getRepoDefaultBranch` (could be hoisted to a shared helper or re-exported from `hub-enroll`). No external callers exist.
+2. **#3 fix:** Delete the redundant `state.defaultBranch = 'staging'` assignment and the misleading comment in the "detected default branch" test.
+3. **#2 follow-up:** File issue — "Refactor hub-enroll.test.ts mock dispatch to use query constants or typed request stubs."
+4. **#4 follow-up:** File issue — "Add `repository: null` (missing-repo) test case to `getRepoDefaultBranch`."
+
+## Next
+
+Apply #1 + #3 inline (in current PR #126), then file follow-up issues for #2 + #4. Re-review minimal (mechanical changes only), then merge.
