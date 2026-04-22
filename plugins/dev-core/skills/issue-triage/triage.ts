@@ -10,6 +10,7 @@
  *   bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts migrate audit-schema
  *   bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts migrate backfill --repo OWNER/REPO [--dry-run] [--snapshot <path>]
  *   bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts migrate rewrite-titles --repo OWNER/REPO [--dry-run] [--snapshot <path>]
+ *   bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts migrate revert --snapshot <path>
  */
 
 const args = process.argv.slice(2)
@@ -57,6 +58,36 @@ function parseMigrateBackfillArgs(argv: string[]): { repo: string; dryRun: boole
   return { repo, dryRun, snapshotPath }
 }
 
+function parseMigrateRevertArgs(argv: string[]): { snapshotPath: string } {
+  let snapshotPath: string | undefined
+  let i = 0
+
+  while (i < argv.length) {
+    const flag = argv[i]
+    if (flag === '--snapshot') {
+      snapshotPath = argv[i + 1]
+      if (!snapshotPath) {
+        console.error('Error: --snapshot requires a path value')
+        console.error('Usage: triage.ts migrate revert --snapshot <path>')
+        process.exit(1)
+      }
+      i += 2
+    } else {
+      console.error(`Error: unknown flag "${flag}"`)
+      console.error('Usage: triage.ts migrate revert --snapshot <path>')
+      process.exit(1)
+    }
+  }
+
+  if (!snapshotPath) {
+    console.error('Error: --snapshot <path> is required')
+    console.error('Usage: triage.ts migrate revert --snapshot <path>')
+    process.exit(1)
+  }
+
+  return { snapshotPath }
+}
+
 switch (command) {
   case 'list': {
     const { listIssues } = await import('./lib/list')
@@ -94,8 +125,14 @@ switch (command) {
         await rewriteTitles(opts)
         break
       }
+      case 'revert': {
+        const { revert } = await import('./lib/migrate')
+        const opts = parseMigrateRevertArgs(subArgs)
+        await revert(opts)
+        break
+      }
       default:
-        console.error('Usage: triage.ts migrate <audit-schema|backfill|rewrite-titles> [args]')
+        console.error('Usage: triage.ts migrate <audit-schema|backfill|rewrite-titles|revert> [args]')
         process.exit(1)
     }
     break
