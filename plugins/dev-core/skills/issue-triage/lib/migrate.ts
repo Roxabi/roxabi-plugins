@@ -463,3 +463,46 @@ export async function backfill(opts: { repo: string; dryRun: boolean; snapshotPa
     `Processed ${issues.length}, updated ${updated}${dryRunNote}, skipped ${skipped}, flagged ${flagged.length}`,
   )
 }
+
+// ---------------------------------------------------------------------------
+// rewriteTitles
+// ---------------------------------------------------------------------------
+
+interface RewriteRow {
+  repo: string
+  number: number
+  old_title: string
+  new_title: string
+}
+
+export async function rewriteTitles(opts: { repo: string; dryRun: boolean; snapshotPath?: string }): Promise<void> {
+  const issuesJson = execSync(`gh issue list --repo ${opts.repo} --state open --limit 1000 --json number,title`, {
+    encoding: 'utf-8',
+  })
+  const issues = JSON.parse(issuesJson) as Array<{ number: number; title: string }>
+
+  const rows: RewriteRow[] = []
+
+  for (const issue of issues) {
+    if (!TITLE_PREFIX_RE.test(issue.title)) continue
+
+    const new_title = issue.title.replace(TITLE_PREFIX_RE, '')
+    rows.push({ repo: opts.repo, number: issue.number, old_title: issue.title, new_title })
+  }
+
+  if (!opts.dryRun) {
+    for (const row of rows) {
+      execSync(`gh issue edit ${row.number} --repo ${opts.repo} --title ${JSON.stringify(row.new_title)}`, {
+        encoding: 'utf-8',
+      })
+    }
+  }
+
+  const migrationDir = 'artifacts/migration'
+  mkdirSync(migrationDir, { recursive: true })
+
+  const snapshotFile = opts.snapshotPath ?? join(migrationDir, `rewrite-snapshot-${formatTimestamp()}.json`)
+  await writeFile(snapshotFile, JSON.stringify(rows, null, 2), 'utf-8')
+
+  console.log(`Stripped ${rows.length} titles across repo ${opts.repo}`)
+}
