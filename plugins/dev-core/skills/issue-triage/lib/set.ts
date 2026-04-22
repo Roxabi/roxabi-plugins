@@ -4,10 +4,14 @@
  */
 
 import {
+  GITHUB_REPO,
   isProjectConfigured,
+  LANE_FIELD_ID,
+  LANE_OPTIONS,
   NOT_CONFIGURED_MSG,
   PRIORITY_FIELD_ID,
   PRIORITY_OPTIONS,
+  resolveLane,
   resolvePriority,
   resolveSize,
   resolveStatus,
@@ -24,7 +28,9 @@ import {
   getParentNumber,
   removeBlockedBy,
   removeSubIssue,
+  resolveIssueTypeId,
   updateField,
+  updateIssueIssueType,
 } from '../../shared/adapters/github-adapter'
 import { syncPriorityLabel } from '../../shared/adapters/github-infra'
 
@@ -33,6 +39,8 @@ interface SetOptions {
   size?: string
   priority?: string
   status?: string
+  lane?: string
+  type?: string
   blockedBy?: string
   blocks?: string
   rmBlockedBy?: string
@@ -58,6 +66,12 @@ function parseArgs(args: string[]): SetOptions {
         break
       case '--status':
         opts.status = args[++i]
+        break
+      case '--lane':
+        opts.lane = args[++i]
+        break
+      case '--type':
+        opts.type = args[++i]
         break
       case '--blocked-by':
         opts.blockedBy = args[++i]
@@ -142,8 +156,33 @@ async function applyPriority(itemId: string, issueNumber: number, priority: stri
   console.log(`Priority=${canonical} #${issueNumber}`)
 }
 
+async function applyLane(itemId: string, issueNumber: number, lane: string): Promise<void> {
+  const canonical = resolveLane(lane)
+  if (!(canonical && LANE_OPTIONS[canonical])) {
+    console.error(`Error: Invalid lane. Valid: ${Object.keys(LANE_OPTIONS).join(', ')}`)
+    process.exit(1)
+  }
+  await updateField(itemId, LANE_FIELD_ID, LANE_OPTIONS[canonical])
+  console.log(`Lane=${canonical} #${issueNumber}`)
+}
+
+const VALID_TYPES = ['fix', 'feat', 'docs', 'test', 'chore', 'ci', 'perf', 'epic', 'research', 'refactor']
+
+async function applyType(issueNumber: number, type: string): Promise<void> {
+  const canonical = type.toLowerCase()
+  if (!VALID_TYPES.includes(canonical)) {
+    console.error(`Error: Invalid type. Valid: ${VALID_TYPES.join(', ')}`)
+    process.exit(1)
+  }
+  const issueNodeId = await getNodeId(issueNumber)
+  const org = GITHUB_REPO.split('/')[0]
+  const typeId = await resolveIssueTypeId(org, canonical)
+  await updateIssueIssueType(issueNodeId, typeId)
+  console.log(`Type=${canonical} #${issueNumber}`)
+}
+
 async function applyProjectFields(issueNumber: number, opts: SetOptions): Promise<void> {
-  if (!(opts.size || opts.priority || opts.status)) return
+  if (!(opts.size || opts.priority || opts.status || opts.lane || opts.type)) return
 
   if (!isProjectConfigured()) {
     console.error(NOT_CONFIGURED_MSG)
@@ -156,6 +195,8 @@ async function applyProjectFields(issueNumber: number, opts: SetOptions): Promis
   if (opts.status) await applyStatus(itemId, issueNumber, opts.status)
   if (opts.size) await applySize(itemId, issueNumber, opts.size)
   if (opts.priority) await applyPriority(itemId, issueNumber, opts.priority)
+  if (opts.lane) await applyLane(itemId, issueNumber, opts.lane)
+  if (opts.type) await applyType(issueNumber, opts.type)
 }
 
 async function applyDependencies(issueNumber: number, opts: SetOptions): Promise<void> {
@@ -248,6 +289,8 @@ export async function setIssue(args: string[]): Promise<void> {
     opts.size ||
     opts.priority ||
     opts.status ||
+    opts.lane ||
+    opts.type ||
     opts.blockedBy ||
     opts.blocks ||
     opts.rmBlockedBy ||
@@ -259,7 +302,7 @@ export async function setIssue(args: string[]): Promise<void> {
 
   if (!hasAction) {
     console.error(
-      'Error: Specify --size, --priority, --status, --blocked-by, --blocks, --rm-blocked-by, --rm-blocks, --parent, --add-child, --rm-parent, and/or --rm-child',
+      'Error: Specify --size, --priority, --status, --lane, --type, --blocked-by, --blocks, --rm-blocked-by, --rm-blocks, --parent, --add-child, --rm-parent, and/or --rm-child',
     )
     process.exit(1)
   }
