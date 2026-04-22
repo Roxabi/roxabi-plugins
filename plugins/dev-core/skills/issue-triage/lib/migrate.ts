@@ -3,10 +3,12 @@
  * See artifacts/specs/121-dual-write-migration-spec.mdx.
  */
 
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
+import * as path from 'node:path'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   DEFAULT_LANE_OPTIONS,
   GH_PROJECT_ID,
@@ -21,11 +23,34 @@ import {
 import {
   clearField,
   ghGraphQL,
-  resolveIssueTypeId,
+  listOrgIssueTypes,
   run,
   updateField,
   updateIssueIssueType,
 } from '../../shared/adapters/github-adapter'
+
+// ---------------------------------------------------------------------------
+// Repo-root-anchored migrationDir (fix #3: CWD-relative → anchor to repo root)
+// ---------------------------------------------------------------------------
+
+const __dir = path.dirname(fileURLToPath(import.meta.url))
+// migrate.ts lives at plugins/dev-core/skills/issue-triage/lib — repo root is 5 levels up
+const REPO_ROOT = path.resolve(__dir, '..', '..', '..', '..', '..', '..')
+const migrationDir = path.join(REPO_ROOT, 'artifacts', 'migration')
+
+// ---------------------------------------------------------------------------
+// Path-traversal guard for --snapshot (fix #2)
+// ---------------------------------------------------------------------------
+
+export function validateSnapshotPath(p: string, allowedDir?: string): string {
+  const resolved = path.resolve(p)
+  const allowed = path.resolve(allowedDir ?? migrationDir)
+  if (!resolved.startsWith(allowed + path.sep) && resolved !== allowed) {
+    console.error(`Error: --snapshot path must be within ${allowed}`)
+    process.exit(1)
+  }
+  return resolved
+}
 
 interface FieldSchema {
   id: string
@@ -59,12 +84,20 @@ const EXPECTED_FIELDS: Array<{ name: string; options: Record<string, string> }> 
 ]
 
 export async function auditSchema(): Promise<void> {
-  const data = (await ghGraphQL(PROJECT_FIELDS_QUERY, { projectId: GH_PROJECT_ID })) as {
+  // fix #10: wrap ghGraphQL in try/catch
+  let data: {
     node: {
       fields: {
         nodes: Array<Partial<FieldSchema>>
       }
     }
+  }
+  try {
+    data = (await ghGraphQL(PROJECT_FIELDS_QUERY, { projectId: GH_PROJECT_ID })) as typeof data
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error(`Error: audit-schema failed to query project. Check GH_PROJECT_ID and GH token. Underlying: ${msg}`)
+    process.exit(1)
   }
 
   const liveNodes = data.node.fields.nodes.filter((n): n is FieldSchema => Array.isArray((n as FieldSchema).options))
@@ -114,6 +147,8 @@ export async function auditSchema(): Promise<void> {
 export const LEGACY_LABEL_MAP = {
   lane: Object.fromEntries(DEFAULT_LANE_OPTIONS.map((l) => [l, l])) as Record<string, string>,
   size: {
+    // XS → S: collapsed to smallest new-schema bucket; XS has no equivalent in S/F-lite/F-full
+    XS: 'S',
     S: 'S',
     M: 'F-lite',
     L: 'F-full',
@@ -185,6 +220,22 @@ interface LegacyValues {
   size?: string
   priority?: string
   issueType?: string
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot envelope types (fix #12)
+// ---------------------------------------------------------------------------
+
+interface BackfillSnapshot {
+  kind: 'backfill'
+  generatedAt: string
+  rows: BackfillRow[]
+}
+
+interface RewriteSnapshot {
+  kind: 'rewrite'
+  generatedAt: string
+  rows: RewriteRow[]
 }
 
 // ---------------------------------------------------------------------------
@@ -265,17 +316,36 @@ export async function backfill(opts: { repo: string; dryRun: boolean; snapshotPa
 
   const [owner, repoName] = opts.repo.split('/')
 
-  // List open issues
-  const issuesJson = execSync(
-    `gh issue list --repo ${opts.repo} --state open --limit 1000 --json number,title,labels,id`,
+  // fix #1: execFileSync instead of execSync (shell injection guard)
+  const issuesJson = execFileSync(
+    'gh',
+    ['issue', 'list', '--repo', opts.repo, '--state', 'open', '--limit', '1000', '--json', 'number,title,labels,id'],
     { encoding: 'utf-8' },
   )
   const issues = JSON.parse(issuesJson) as GhIssueListItem[]
+
+  // fix #5: warn when limit ceiling is hit
+  if (issues.length >= 1000) {
+    const ts = formatTimestamp()
+    console.warn(`Warning: hit --limit 1000 ceiling on repo ${opts.repo}; some issues may be truncated`)
+    mkdirSync(migrationDir, { recursive: true })
+    const flaggedFile = join(migrationDir, `flagged-${ts}.txt`)
+    await writeFile(
+      flaggedFile,
+      `DIAGNOSTIC: hit --limit 1000 ceiling on repo ${opts.repo} at ${new Date().toISOString()} — some issues may be truncated\n`,
+      'utf-8',
+    )
+  }
 
   const rows: Row[] = []
   const flagged: FlaggedEntry[] = []
   let updated = 0
   let skipped = 0
+
+  // fix #4: pre-resolve issue type IDs once (N+1 guard)
+  const org = opts.repo.split('/')[0]
+  const orgTypes = await listOrgIssueTypes(org)
+  const typeIdByName = new Map<string, string>(orgTypes.map((t) => [t.name.toLowerCase(), t.id]))
 
   for (const issue of issues) {
     // Fetch project item field values
@@ -385,17 +455,18 @@ export async function backfill(opts: { repo: string; dryRun: boolean; snapshotPa
         currentValue: currentIssueType,
         legacyToken: legacyValues.issueType,
         map: LEGACY_LABEL_MAP.issueType,
+        // fix #4: use pre-resolved typeIdByName instead of per-issue resolveIssueTypeId
         apply: async (canonical) => {
-          const org = opts.repo.split('/')[0]
-          const typeId = await resolveIssueTypeId(org, canonical)
+          const typeId = typeIdByName.get(canonical.toLowerCase())
+          if (!typeId) throw new Error(`Unknown issue type: ${canonical}`)
           await updateIssueIssueType(issueNodeId, typeId)
         },
       },
     ]
 
     for (const def of fieldDefs) {
-      // Already set — skip (idempotent)
-      if (def.currentValue) {
+      // fix #15: explicit non-null + non-empty-string check (idempotency)
+      if (def.currentValue != null && def.currentValue !== '') {
         skipped++
         rows.push({
           repo: opts.repo,
@@ -451,14 +522,18 @@ export async function backfill(opts: { repo: string; dryRun: boolean; snapshotPa
   }
 
   // Write snapshot and flagged.txt
-  const migrationDir = 'artifacts/migration'
   mkdirSync(migrationDir, { recursive: true })
 
-  const snapshotFile = opts.snapshotPath ?? join(migrationDir, `backfill-snapshot-${formatTimestamp()}.json`)
-  await writeFile(snapshotFile, JSON.stringify(rows, null, 2), 'utf-8')
+  const ts = formatTimestamp()
+  const snapshotFile = opts.snapshotPath ?? join(migrationDir, `backfill-snapshot-${ts}.json`)
+
+  // fix #12: wrap snapshot with kind marker
+  const snapshot: BackfillSnapshot = { kind: 'backfill', generatedAt: new Date().toISOString(), rows }
+  await writeFile(snapshotFile, JSON.stringify(snapshot, null, 2), 'utf-8')
 
   if (flagged.length > 0) {
-    const flaggedFile = join(migrationDir, 'flagged.txt')
+    // fix #11: timestamped flagged filename
+    const flaggedFile = join(migrationDir, `flagged-${ts}.txt`)
     const flaggedLines = flagged.map(
       (f) => `${f.repo}#${f.number} [${f.field}] observed="${f.observed}" title="${f.title}"`,
     )
@@ -480,13 +555,30 @@ interface RewriteRow {
   number: number
   old_title: string
   new_title: string
+  applied?: boolean
 }
 
 export async function rewriteTitles(opts: { repo: string; dryRun: boolean; snapshotPath?: string }): Promise<void> {
-  const issuesJson = execSync(`gh issue list --repo ${opts.repo} --state open --limit 1000 --json number,title`, {
-    encoding: 'utf-8',
-  })
+  // fix #1: execFileSync instead of execSync (shell injection guard)
+  const issuesJson = execFileSync(
+    'gh',
+    ['issue', 'list', '--repo', opts.repo, '--state', 'open', '--limit', '1000', '--json', 'number,title'],
+    { encoding: 'utf-8' },
+  )
   const issues = JSON.parse(issuesJson) as Array<{ number: number; title: string }>
+
+  // fix #5: warn when limit ceiling is hit
+  if (issues.length >= 1000) {
+    console.warn(`Warning: hit --limit 1000 ceiling on repo ${opts.repo}; some issues may be truncated`)
+    mkdirSync(migrationDir, { recursive: true })
+    const ts = formatTimestamp()
+    const flaggedFile = join(migrationDir, `flagged-${ts}.txt`)
+    await writeFile(
+      flaggedFile,
+      `DIAGNOSTIC: hit --limit 1000 ceiling on repo ${opts.repo} at ${new Date().toISOString()} — some issues may be truncated\n`,
+      'utf-8',
+    )
+  }
 
   const rows: RewriteRow[] = []
 
@@ -494,22 +586,31 @@ export async function rewriteTitles(opts: { repo: string; dryRun: boolean; snaps
     if (!TITLE_PREFIX_RE.test(issue.title)) continue
 
     const new_title = issue.title.replace(TITLE_PREFIX_RE, '')
-    rows.push({ repo: opts.repo, number: issue.number, old_title: issue.title, new_title })
+    rows.push({ repo: opts.repo, number: issue.number, old_title: issue.title, new_title, applied: false })
   }
+
+  mkdirSync(migrationDir, { recursive: true })
+
+  const ts = formatTimestamp()
+  const snapshotFile = opts.snapshotPath ?? join(migrationDir, `rewrite-snapshot-${ts}.json`)
+
+  // fix #6: write snapshot BEFORE live edits (with applied: false on all rows)
+  // fix #12: wrap snapshot with kind marker
+  const snapshot: RewriteSnapshot = { kind: 'rewrite', generatedAt: new Date().toISOString(), rows }
+  await writeFile(snapshotFile, JSON.stringify(snapshot, null, 2), 'utf-8')
 
   if (!opts.dryRun) {
     for (const row of rows) {
-      execSync(`gh issue edit ${row.number} --repo ${opts.repo} --title ${JSON.stringify(row.new_title)}`, {
+      // fix #1: execFileSync with argv array (no shell injection)
+      execFileSync('gh', ['issue', 'edit', String(row.number), '--repo', opts.repo, '--title', row.new_title], {
         encoding: 'utf-8',
       })
+      row.applied = true
     }
+    // Rewrite snapshot with applied flags set correctly
+    const updatedSnapshot: RewriteSnapshot = { kind: 'rewrite', generatedAt: snapshot.generatedAt, rows }
+    await writeFile(snapshotFile, JSON.stringify(updatedSnapshot, null, 2), 'utf-8')
   }
-
-  const migrationDir = 'artifacts/migration'
-  mkdirSync(migrationDir, { recursive: true })
-
-  const snapshotFile = opts.snapshotPath ?? join(migrationDir, `rewrite-snapshot-${formatTimestamp()}.json`)
-  await writeFile(snapshotFile, JSON.stringify(rows, null, 2), 'utf-8')
 
   console.log(`Stripped ${rows.length} titles across repo ${opts.repo}`)
 }
@@ -538,6 +639,34 @@ interface RevertError {
   number: number
   field?: string
   error: string
+}
+
+// ---------------------------------------------------------------------------
+// Row validators (fix #12)
+// ---------------------------------------------------------------------------
+
+const VALID_BACKFILL_FIELDS = new Set(['Lane', 'Size', 'Priority', 'issueType'])
+
+function isValidBackfillRow(row: unknown): row is BackfillRow {
+  const r = row as Record<string, unknown>
+  return (
+    typeof r.repo === 'string' &&
+    /^[^/]+\/[^/]+$/.test(r.repo) &&
+    typeof r.number === 'number' &&
+    r.number > 0 &&
+    typeof r.field === 'string' &&
+    VALID_BACKFILL_FIELDS.has(r.field)
+  )
+}
+
+function isValidRewriteRow(row: unknown): row is RewriteRow {
+  const r = row as Record<string, unknown>
+  return (
+    typeof r.repo === 'string' &&
+    typeof r.number === 'number' &&
+    typeof r.old_title === 'string' &&
+    typeof r.new_title === 'string'
+  )
 }
 
 async function fetchIssueFieldState(
@@ -599,6 +728,8 @@ async function revertBackfillRow(row: BackfillRow): Promise<'reverted' | 'skippe
       console.log(`skip #${row.number}.issueType`)
       return 'skipped'
     }
+    // FIXME(#121): revert with null issueTypeId is unverified — schema allows it but API behaviour unconfirmed.
+    // Manual verification needed before production revert.
     await updateIssueIssueType(issueNodeId, null)
     return 'reverted'
   }
@@ -616,7 +747,7 @@ async function revertBackfillRow(row: BackfillRow): Promise<'reverted' | 'skippe
 }
 
 async function revertRewriteRow(row: RewriteRow): Promise<'reverted' | 'skipped'> {
-  const currentTitle = await run([
+  const currentTitleRaw = await run([
     'gh',
     'issue',
     'view',
@@ -628,6 +759,8 @@ async function revertRewriteRow(row: RewriteRow): Promise<'reverted' | 'skipped'
     '--jq',
     '.title',
   ])
+  // fix #8: trim output before comparison (trailing newline defeats idempotency)
+  const currentTitle = currentTitleRaw.trim()
 
   if (currentTitle === row.old_title) {
     console.log(`skip #${row.number}`)
@@ -641,16 +774,41 @@ async function revertRewriteRow(row: RewriteRow): Promise<'reverted' | 'skipped'
 export async function revert(opts: { snapshotPath: string }): Promise<void> {
   const { readFile } = await import('node:fs/promises')
   const raw = await readFile(opts.snapshotPath, 'utf-8')
-  const rows = JSON.parse(raw) as unknown[]
+  const parsed = JSON.parse(raw) as unknown
 
-  if (!Array.isArray(rows) || rows.length === 0) {
-    console.error('Snapshot is empty or not an array')
-    process.exit(1)
+  // fix #12: detect kind marker; fall back to duck-typing for backwards compat
+  let isBackfill: boolean
+  let isRewrite: boolean
+  let rawRows: unknown[]
+
+  if (
+    parsed !== null &&
+    typeof parsed === 'object' &&
+    !Array.isArray(parsed) &&
+    'kind' in (parsed as Record<string, unknown>)
+  ) {
+    const envelope = parsed as { kind: string; rows: unknown[] }
+    rawRows = Array.isArray(envelope.rows) ? envelope.rows : []
+    isBackfill = envelope.kind === 'backfill'
+    isRewrite = envelope.kind === 'rewrite'
+  } else {
+    // Backwards compat: legacy plain array snapshots
+    if (!Array.isArray(parsed)) {
+      console.error('Snapshot is not an array or envelope object')
+      process.exit(1)
+      return
+    }
+    rawRows = parsed as unknown[]
+    const first = rawRows[0] as Record<string, unknown> | undefined
+    isBackfill = first != null && 'field' in first && 'old_value' in first && 'new_value' in first && 'flagged' in first
+    isRewrite = first != null && 'old_title' in first && 'new_title' in first && !('field' in first)
   }
 
-  const first = rows[0] as Record<string, unknown>
-  const isBackfill = 'field' in first && 'old_value' in first && 'new_value' in first && 'flagged' in first
-  const isRewrite = 'old_title' in first && 'new_title' in first && !('field' in first)
+  // fix #7: empty array → log + return (not exit 1)
+  if (rawRows.length === 0) {
+    console.log('Snapshot is empty — nothing to revert')
+    return
+  }
 
   if (!isBackfill && !isRewrite) {
     console.error('Unknown snapshot format')
@@ -662,8 +820,12 @@ export async function revert(opts: { snapshotPath: string }): Promise<void> {
   const errors: RevertError[] = []
 
   if (isBackfill) {
-    const backfillRows = rows as BackfillRow[]
-    for (const row of backfillRows) {
+    for (const row of rawRows) {
+      // fix #12: per-row validation
+      if (!isValidBackfillRow(row)) {
+        console.log(`skip invalid backfill row: ${JSON.stringify(row)}`)
+        continue
+      }
       try {
         const outcome = await revertBackfillRow(row)
         if (outcome === 'reverted') reverted++
@@ -675,8 +837,12 @@ export async function revert(opts: { snapshotPath: string }): Promise<void> {
       }
     }
   } else {
-    const rewriteRows = rows as RewriteRow[]
-    for (const row of rewriteRows) {
+    for (const row of rawRows) {
+      // fix #12: per-row validation
+      if (!isValidRewriteRow(row)) {
+        console.log(`skip invalid rewrite row: ${JSON.stringify(row)}`)
+        continue
+      }
       try {
         const outcome = await revertRewriteRow(row)
         if (outcome === 'reverted') reverted++

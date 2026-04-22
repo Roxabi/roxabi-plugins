@@ -55,6 +55,12 @@ function parseMigrateBackfillArgs(argv: string[]): { repo: string; dryRun: boole
     process.exit(1)
   }
 
+  // fix #9: validate --repo format
+  if (!/^[^/\s]+\/[^/\s]+$/.test(repo)) {
+    console.error('Error: --repo must be OWNER/REPO format')
+    process.exit(1)
+  }
+
   return { repo, dryRun, snapshotPath }
 }
 
@@ -114,20 +120,26 @@ switch (command) {
         break
       }
       case 'backfill': {
-        const { backfill } = await import('./lib/migrate')
+        const { backfill, validateSnapshotPath } = await import('./lib/migrate')
         const opts = parseMigrateBackfillArgs(subArgs)
+        // fix #2: validate user-supplied snapshot path at CLI layer
+        if (opts.snapshotPath) opts.snapshotPath = validateSnapshotPath(opts.snapshotPath)
         await backfill(opts)
         break
       }
       case 'rewrite-titles': {
-        const { rewriteTitles } = await import('./lib/migrate')
+        const { rewriteTitles, validateSnapshotPath } = await import('./lib/migrate')
         const opts = parseMigrateBackfillArgs(subArgs)
+        // fix #2: validate user-supplied snapshot path at CLI layer
+        if (opts.snapshotPath) opts.snapshotPath = validateSnapshotPath(opts.snapshotPath)
         await rewriteTitles(opts)
         break
       }
       case 'revert': {
-        const { revert } = await import('./lib/migrate')
+        const { revert, validateSnapshotPath } = await import('./lib/migrate')
         const opts = parseMigrateRevertArgs(subArgs)
+        // fix #2: validate user-supplied snapshot path at CLI layer
+        opts.snapshotPath = validateSnapshotPath(opts.snapshotPath)
         await revert(opts)
         break
       }

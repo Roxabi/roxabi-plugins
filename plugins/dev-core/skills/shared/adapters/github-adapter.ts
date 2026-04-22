@@ -645,7 +645,8 @@ export async function updateLabels(issueNumber: number, add: string[], remove: s
 
 /** Update the issue type on a GitHub issue. Pass null issueTypeId to clear. */
 export async function updateIssueIssueType(issueNodeId: string, issueTypeId: string | null): Promise<void> {
-  // Note: GitHub GraphQL may reject null issueTypeId — if so, use updateIssueType to clear instead.
+  // FIXME(#121): revert with null issueTypeId is unverified — schema allows it but API behaviour unconfirmed.
+  // Manual verification needed before production revert. Raw mutation error surfaces via ghGraphQL throw.
   await ghGraphQL(UPDATE_ISSUE_ISSUE_TYPE_MUTATION, { issueId: issueNodeId, issueTypeId })
 }
 
