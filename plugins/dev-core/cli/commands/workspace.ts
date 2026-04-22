@@ -4,9 +4,18 @@ import { readWorkspace, writeWorkspace } from '../lib/workspace-store'
 const USAGE = `
 Usage:
   roxabi workspace list
-  roxabi workspace add <owner/repo>
+  roxabi workspace add <owner/repo> [--local <path>]
   roxabi workspace remove <owner/repo>
 `.trim()
+
+function validateLocalPath(path: string): string {
+  // Reject path traversal — the only security guard needed for user-provided paths.
+  // Absolute paths (/home/user/repo) and relative paths (./repo) are valid.
+  if (path.includes('..')) {
+    throw new Error(`Invalid --local path: '${path}' must not contain '..'`)
+  }
+  return path
+}
 
 function printTable(projects: { repo: string; projectId: string; label: string }[]): void {
   if (projects.length === 0) {
@@ -32,13 +41,22 @@ async function cmdList(): Promise<void> {
   printTable(ws.projects)
 }
 
-async function cmdAdd(repo: string): Promise<void> {
+async function cmdAdd(repo: string, localPath?: string): Promise<void> {
   if (!repo) {
-    console.error('Usage: roxabi workspace add <owner/repo>')
+    console.error('Usage: roxabi workspace add <owner/repo> [--local <path>]')
     process.exit(1)
   }
 
-  let nodes: { repo: string; projectId: string; label: string }[]
+  if (localPath !== undefined) {
+    try {
+      validateLocalPath(localPath)
+    } catch (e) {
+      console.error(String(e))
+      process.exit(1)
+    }
+  }
+
+  let nodes: { repo: string; projectId: string; label: string; localPath?: string }[]
   try {
     nodes = await discoverProject(repo)
   } catch (e) {
@@ -51,7 +69,7 @@ async function cmdAdd(repo: string): Promise<void> {
     process.exit(1)
   }
 
-  let chosen: { repo: string; projectId: string; label: string }
+  let chosen: { repo: string; projectId: string; label: string; localPath?: string }
 
   if (nodes.length === 1) {
     chosen = nodes[0]
@@ -70,6 +88,11 @@ async function cmdAdd(repo: string): Promise<void> {
       process.exit(1)
     }
     chosen = nodes[idx]
+  }
+
+  // Override localPath if explicitly provided via --local
+  if (localPath !== undefined) {
+    chosen = { ...chosen, localPath }
   }
 
   const ws = readWorkspace()
@@ -111,9 +134,13 @@ export async function run(args: string[]): Promise<void> {
       await cmdList()
       break
 
-    case 'add':
-      await cmdAdd(args[1] ?? '')
+    case 'add': {
+      const localIdx = args.indexOf('--local')
+      const localPath = localIdx !== -1 ? args[localIdx + 1] : undefined
+      const repo = args[1] && args[1] !== '--local' ? args[1] : ''
+      await cmdAdd(repo, localPath)
       break
+    }
 
     case 'remove':
       await cmdRemove(args[1] ?? '')
