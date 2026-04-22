@@ -12,6 +12,7 @@ import {
   ADD_BLOCKED_BY_MUTATION,
   ADD_SUB_ISSUE_MUTATION,
   ADD_TO_PROJECT_MUTATION,
+  CLEAR_FIELD_MUTATION,
   CREATE_ISSUE_TYPE_MUTATION,
   DELETE_PROJECT_ITEM_MUTATION,
   ITEM_ID_QUERY,
@@ -24,6 +25,7 @@ import {
   REMOVE_SUB_ISSUE_MUTATION,
   REPO_ID_QUERY,
   UPDATE_FIELD_MUTATION,
+  UPDATE_ISSUE_ISSUE_TYPE_MUTATION,
   UPDATE_ISSUE_TYPE_MUTATION,
 } from '../queries'
 
@@ -537,6 +539,17 @@ export async function updateField(
   })
 }
 
+/** Clear a single-select project field value (set to null/unset). */
+export async function clearField(itemId: string, fieldId: string, overrideProjectId?: string): Promise<void> {
+  const pid = overrideProjectId ?? GH_PROJECT_ID
+  if (!pid) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
+  await ghGraphQL(CLEAR_FIELD_MUTATION, {
+    projectId: pid,
+    itemId,
+    fieldId,
+  })
+}
+
 /** Add a blocked-by dependency between two issues. */
 export async function addBlockedBy(issueId: string, blockingId: string): Promise<void> {
   await ghGraphQL(ADD_BLOCKED_BY_MUTATION, { issueId, blockingId })
@@ -628,6 +641,24 @@ export async function updateLabels(issueNumber: number, add: string[], remove: s
   if (add.length) args.push('--add-label', add.join(','))
   if (remove.length) args.push('--remove-label', remove.join(','))
   await run(args)
+}
+
+/** Update the issue type on a GitHub issue. Pass null issueTypeId to clear. */
+export async function updateIssueIssueType(issueNodeId: string, issueTypeId: string | null): Promise<void> {
+  // FIXME(#121): revert with null issueTypeId is unverified — schema allows it but API behaviour unconfirmed.
+  // Manual verification needed before production revert. Raw mutation error surfaces via ghGraphQL throw.
+  await ghGraphQL(UPDATE_ISSUE_ISSUE_TYPE_MUTATION, { issueId: issueNodeId, issueTypeId })
+}
+
+/** Resolve an issue type name to its node ID for a given org (case-insensitive). */
+export async function resolveIssueTypeId(org: string, typeName: string): Promise<string> {
+  const types = await listOrgIssueTypes(org)
+  const match = types.find((t) => t.name.toLowerCase() === typeName.toLowerCase())
+  if (!match) {
+    const valid = types.map((t) => t.name).join(', ')
+    throw new Error(`Unknown issue type: ${typeName}. Valid: ${valid}`)
+  }
+  return match.id
 }
 
 /** Get the parent issue number for an issue, or null if none. */

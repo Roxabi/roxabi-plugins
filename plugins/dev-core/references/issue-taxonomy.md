@@ -1,6 +1,8 @@
 # Issue Taxonomy — Roxabi SSoT
 
-Single fact source for issue metadata across every Roxabi repo (`lyra`, `voiceCLI`, `roxabi-vault`, `imageCLI`, `roxabi-forge`, `roxabi-intel`, `roxabi-idna`, `roxabi-plugins`).
+Single fact source for issue metadata across every Roxabi repo (`lyra`, `voiceCLI`, `roxabi-vault`, `imageCLI`, `roxabi-forge`, `roxabi-intel`, `roxabi-idna`, `roxabi-plugins`) — 7 repos total.[^2ndbrain]
+
+[^2ndbrain]: `2ndBrain` is a local-only project (see `~/projects/CLAUDE.md`) — it is not a GitHub repo and is excluded from the migration.
 
 **Who reads this:** `dev-core:issue-triage` · `dev-core:github-setup` · `dev-core:issues` · `lyra/scripts/dep-graph` · `lyra/scripts/corpus` · future `roxabi-dashboard`.
 
@@ -17,6 +19,8 @@ Single fact source for issue metadata across every Roxabi repo (`lyra`, `voiceCL
 | **Milestone** | Native GH milestone | `M0` `M1` `M2` `…` | **Per-repo** (names kept consistent) | dep-graph (band headers) | issue-triage · milestones-sync |
 | **Issue Type** | Org-level native | Current (pre-Phase 1): `Bug` `Feature` `Epic` `Chore` `Research` → Target (post-Phase 1): `feat` `fix` `refactor` `docs` `test` `chore` `ci` `perf` `epic` `research` | Org (applies to every repo) | dep-graph · dashboard | issue-triage · github-setup (org bootstrap) |
 | **Assignees** | Native | users | Repo (GH native) | dashboard | manual · issue-triage |
+
+**Size schema reconciliation:** `config-helpers.ts:DEFAULT_SIZE_OPTIONS` currently holds `['XS', 'S', 'M', 'L', 'XL']`; `init/lib/hub-bootstrap.ts:SIZE_OPTIONS` uses `['S', 'F-lite', 'F-full']`. The live hub project schema is the source of truth. `bun triage.ts migrate audit-schema` reports any drift. `DEFAULT_SIZE_OPTIONS` will be reconciled to the live set once the audit runs against a real project (tracked via `TODO(#121)` in `config-helpers.ts`).
 
 **Native relations (no field needed):**
 - **Sub-issues** — parent/child, cross-org since 2025-09 · REST `…/sub_issues` · `…/parent`
@@ -50,6 +54,21 @@ Single fact source for issue metadata across every Roxabi repo (`lyra`, `voiceCL
 | Label-drift audit (`make dep-graph audit`) | **Repurpose** to validate project-field coverage | no labels to audit |
 
 **Kept as domain tags (per-repo, unchanged):** `deploy` · `ci` · `security` · `docs` · `performance` · etc. These are technical domain markers, not taxonomy.
+
+### LEGACY_LABEL_MAP
+
+| Legacy input | Source | Mapped field | Target value |
+|---|---|---|---|
+| `graph:lane/<X>` | label | Lane | `<X>` (identity — all 20 canonical lanes) |
+| `size:S` | label | Size | `S` |
+| `size:M` | label | Size | `F-lite` |
+| `size:L` | label | Size | `F-full` |
+| `size:XL` | label | Size | `F-full` |
+| `P0-*` | label | Priority | `P0 - Urgent` |
+| `P1-*` | label | Priority | `P1 - High` |
+| `P2-*` | label | Priority | `P2 - Medium` |
+| `P3-*` | label | Priority | `P3 - Low` |
+| `feat(...): ...` etc | title prefix | issueType | `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `ci`, `perf` |
 
 ---
 

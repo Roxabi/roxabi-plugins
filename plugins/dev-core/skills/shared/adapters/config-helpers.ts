@@ -78,6 +78,7 @@ export const GH_PROJECT_ID = loadDevCoreConfig('gh_project_id', 'GH_PROJECT_ID')
 export const STATUS_FIELD_ID = loadDevCoreConfig('status_field_id', 'STATUS_FIELD_ID') ?? ''
 export const SIZE_FIELD_ID = loadDevCoreConfig('size_field_id', 'SIZE_FIELD_ID') ?? ''
 export const PRIORITY_FIELD_ID = loadDevCoreConfig('priority_field_id', 'PRIORITY_FIELD_ID') ?? ''
+export const LANE_FIELD_ID = loadDevCoreConfig('lane_field_id', 'LANE_FIELD_ID') ?? ''
 
 /** Parse a JSON string into a Record, falling back to the provided default. */
 function parseOptionsValue(raw: string | undefined, fallback: Record<string, string>): Record<string, string> {
@@ -101,6 +102,10 @@ export const PRIORITY_OPTIONS: Record<string, string> = parseOptionsValue(
   loadDevCoreConfig('priority_options_json', 'PRIORITY_OPTIONS_JSON'),
   {},
 )
+export const LANE_OPTIONS: Record<string, string> = parseOptionsValue(
+  loadDevCoreConfig('lane_options_json', 'LANE_OPTIONS_JSON'),
+  {},
+)
 
 /** True when GH_PROJECT_ID and at least one option map are configured via env or YAML. */
 export function isProjectConfigured(): boolean {
@@ -111,6 +116,7 @@ export const FIELD_MAP: Record<string, { fieldId: string; options: Record<string
   status: { fieldId: STATUS_FIELD_ID, options: STATUS_OPTIONS },
   size: { fieldId: SIZE_FIELD_ID, options: SIZE_OPTIONS },
   priority: { fieldId: PRIORITY_FIELD_ID, options: PRIORITY_OPTIONS },
+  lane: { fieldId: LANE_FIELD_ID, options: LANE_OPTIONS },
 }
 
 // CLI aliases — map loose user input to canonical option keys
@@ -138,12 +144,36 @@ export const PRIORITY_ALIASES: Record<string, string> = {
 
 // Canonical field option arrays — single source of truth for field creation and validation
 export const DEFAULT_STATUS_OPTIONS = ['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done']
+// TODO(#121): reconcile with hub-bootstrap.ts SIZE_OPTIONS after migrate audit-schema run
 export const DEFAULT_SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL']
 export const DEFAULT_PRIORITY_OPTIONS = ['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low']
+export const DEFAULT_LANE_OPTIONS = [
+  'a1',
+  'a2',
+  'a3',
+  'b',
+  'c1',
+  'c2',
+  'c3',
+  'd',
+  'e',
+  'f',
+  'g',
+  'h',
+  'i',
+  'j',
+  'k',
+  'l',
+  'm',
+  'n',
+  'o',
+  'standalone',
+]
 
 const CANONICAL_STATUSES = new Set(DEFAULT_STATUS_OPTIONS)
 const CANONICAL_SIZES = new Set(DEFAULT_SIZE_OPTIONS)
 const CANONICAL_PRIORITIES = new Set(DEFAULT_PRIORITY_OPTIONS)
+export const CANONICAL_LANES = new Set(DEFAULT_LANE_OPTIONS)
 
 /** Resolve loose user input to a canonical status key, or undefined. */
 export function resolveStatus(input: string): string | undefined {
@@ -161,6 +191,12 @@ export function resolvePriority(input: string): string | undefined {
 export function resolveSize(input: string): string | undefined {
   const upper = input.toUpperCase()
   if (CANONICAL_SIZES.has(upper)) return upper
+  return
+}
+
+/** Resolve loose user input to a canonical lane key, or undefined. */
+export function resolveLane(input: string): string | undefined {
+  if (CANONICAL_LANES.has(input)) return input
   return
 }
 
