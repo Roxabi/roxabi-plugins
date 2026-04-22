@@ -162,10 +162,22 @@ describe('issue-triage/create > relationships', () => {
     expect(mockAddSubIssue).toHaveBeenCalledWith('node-50', 'node-99')
   })
 
+  it('sets cross-repo parent relationship', async () => {
+    await createIssue(['--title', 'Child', '--parent', 'Roxabi/lyra#100'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(100, 'Roxabi/lyra')
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-100', 'node-99')
+  })
+
   it('adds children', async () => {
     await createIssue(['--title', 'Epic', '--add-child', '60,61'])
     expect(mockAddSubIssue).toHaveBeenCalledWith('node-99', 'node-60')
     expect(mockAddSubIssue).toHaveBeenCalledWith('node-99', 'node-61')
+  })
+
+  it('adds cross-repo children', async () => {
+    await createIssue(['--title', 'Epic', '--add-child', 'Roxabi/lyra#60'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(60, 'Roxabi/lyra')
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-99', 'node-60')
   })
 
   it('sets blocked-by dependencies', async () => {
@@ -174,9 +186,29 @@ describe('issue-triage/create > relationships', () => {
     expect(mockAddBlockedBy).toHaveBeenCalledWith('node-99', 'node-11')
   })
 
+  it('sets cross-repo blocked-by dependencies', async () => {
+    await createIssue(['--title', 'Test', '--blocked-by', 'Roxabi/lyra#728'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(728, 'Roxabi/lyra')
+    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-99', 'node-728')
+  })
+
   it('sets blocking dependencies', async () => {
     await createIssue(['--title', 'Test', '--blocks', '20'])
     expect(mockAddBlockedBy).toHaveBeenCalledWith('node-20', 'node-99')
+  })
+
+  it('sets cross-repo blocking dependencies', async () => {
+    await createIssue(['--title', 'Test', '--blocks', 'Roxabi/voiceCLI#94'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(94, 'Roxabi/voiceCLI')
+    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-94', 'node-99')
+  })
+
+  it('handles mixed local and cross-repo refs', async () => {
+    await createIssue(['--title', 'Test', '--blocked-by', '10, Roxabi/lyra#728, #11'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(10, undefined)
+    expect(mockGetNodeId).toHaveBeenCalledWith(728, 'Roxabi/lyra')
+    expect(mockGetNodeId).toHaveBeenCalledWith(11, undefined)
+    expect(mockAddBlockedBy).toHaveBeenCalledTimes(3)
   })
 })
 

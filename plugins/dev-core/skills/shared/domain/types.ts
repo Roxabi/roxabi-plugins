@@ -125,3 +125,10 @@ export interface ProjectFieldIds {
   col2Options?: Record<string, string>
   col3Options?: Record<string, string>
 }
+
+/** Parsed issue reference — local (#123) or cross-repo (owner/repo#123). */
+export interface ParsedIssueRef {
+  number: number
+  /** Undefined for local refs (use default repo). */
+  repo?: string
+}

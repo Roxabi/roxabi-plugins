@@ -174,7 +174,7 @@ describe('issue-triage/set > dependencies', () => {
   it('adds blocked-by dependency', async () => {
     await setIssue(['42', '--blocked-by', '100'])
     expect(mockGetNodeId).toHaveBeenCalledWith(42)
-    expect(mockGetNodeId).toHaveBeenCalledWith(100)
+    expect(mockGetNodeId).toHaveBeenCalledWith(100, undefined)
     expect(mockAddBlockedBy).toHaveBeenCalledWith('node-42', 'node-100')
   })
 
@@ -197,6 +197,26 @@ describe('issue-triage/set > dependencies', () => {
     await setIssue(['42', '--rm-blocks', '50'])
     expect(mockRemoveBlockedBy).toHaveBeenCalledWith('node-50', 'node-42')
   })
+
+  it('adds cross-repo blocked-by dependency', async () => {
+    await setIssue(['42', '--blocked-by', 'Roxabi/lyra#728'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(728, 'Roxabi/lyra')
+    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-42', 'node-728')
+  })
+
+  it('adds cross-repo blocks dependency', async () => {
+    await setIssue(['42', '--blocks', 'Roxabi/voiceCLI#94'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(94, 'Roxabi/voiceCLI')
+    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-94', 'node-42')
+  })
+
+  it('handles mixed local and cross-repo refs', async () => {
+    await setIssue(['42', '--blocked-by', '100, Roxabi/lyra#728, #101'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(100, undefined)
+    expect(mockGetNodeId).toHaveBeenCalledWith(728, 'Roxabi/lyra')
+    expect(mockGetNodeId).toHaveBeenCalledWith(101, undefined)
+    expect(mockAddBlockedBy).toHaveBeenCalledTimes(3)
+  })
 })
 
 describe('issue-triage/set > parent-child relationships', () => {
@@ -208,10 +228,22 @@ describe('issue-triage/set > parent-child relationships', () => {
     expect(mockAddSubIssue).toHaveBeenCalledWith('node-10', 'node-42')
   })
 
+  it('sets cross-repo parent relationship', async () => {
+    await setIssue(['42', '--parent', 'Roxabi/lyra#100'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(100, 'Roxabi/lyra')
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-100', 'node-42')
+  })
+
   it('adds children', async () => {
     await setIssue(['42', '--add-child', '50,51'])
     expect(mockAddSubIssue).toHaveBeenCalledWith('node-42', 'node-50')
     expect(mockAddSubIssue).toHaveBeenCalledWith('node-42', 'node-51')
+  })
+
+  it('adds cross-repo children', async () => {
+    await setIssue(['42', '--add-child', 'Roxabi/lyra#50'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(50, 'Roxabi/lyra')
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-42', 'node-50')
   })
 
   it('removes parent', async () => {
@@ -238,7 +270,7 @@ describe('issue-triage/set > combined flags', () => {
 
   it('strips # prefix from issue numbers', async () => {
     await setIssue(['42', '--blocked-by', '#100'])
-    expect(mockGetNodeId).toHaveBeenCalledWith(100)
+    expect(mockGetNodeId).toHaveBeenCalledWith(100, undefined)
   })
 })
 

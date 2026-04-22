@@ -25,6 +25,7 @@ import {
   updateField,
 } from '../../shared/adapters/github-adapter'
 import { syncPriorityLabel } from '../../shared/adapters/github-infra'
+import { parseIssueRefs } from '../../shared/domain/parse-issue-ref'
 
 interface CreateOptions {
   title: string
@@ -86,14 +87,6 @@ function parseArgs(args: string[]): CreateOptions {
   return opts
 }
 
-function parseNumberList(input: string): number[] {
-  return input
-    .split(',')
-    .map((s) => s.trim().replace(/^#/, ''))
-    .filter(Boolean)
-    .map(Number)
-}
-
 async function applyProjectFields(itemId: string, issueNumber: number, opts: CreateOptions): Promise<void> {
   if (opts.status) {
     const canonical = resolveStatus(opts.status)
@@ -128,33 +121,39 @@ async function applyProjectFields(itemId: string, issueNumber: number, opts: Cre
 
 async function applyRelationships(nodeId: string, issueNumber: number, opts: CreateOptions): Promise<void> {
   if (opts.parent) {
-    const parentNum = opts.parent.replace(/^#/, '')
-    const parentNodeId = await getNodeId(parentNum)
-    await addSubIssue(parentNodeId, nodeId)
-    console.log(`Parent=#${parentNum} #${issueNumber}`)
+    const parentRef = parseIssueRefs(opts.parent)[0]
+    if (parentRef) {
+      const parentNodeId = await getNodeId(parentRef.number, parentRef.repo)
+      await addSubIssue(parentNodeId, nodeId)
+      const refStr = parentRef.repo ? `${parentRef.repo}#${parentRef.number}` : `#${parentRef.number}`
+      console.log(`Parent=${refStr} #${issueNumber}`)
+    }
   }
 
   if (opts.addChild) {
-    for (const child of parseNumberList(opts.addChild)) {
-      const childNodeId = await getNodeId(child)
+    for (const childRef of parseIssueRefs(opts.addChild)) {
+      const childNodeId = await getNodeId(childRef.number, childRef.repo)
       await addSubIssue(nodeId, childNodeId)
-      console.log(`Child=#${child} #${issueNumber}`)
+      const refStr = childRef.repo ? `${childRef.repo}#${childRef.number}` : `#${childRef.number}`
+      console.log(`Child=${refStr} #${issueNumber}`)
     }
   }
 
   if (opts.blockedBy) {
-    for (const dep of parseNumberList(opts.blockedBy)) {
-      const blockingNodeId = await getNodeId(dep)
+    for (const ref of parseIssueRefs(opts.blockedBy)) {
+      const blockingNodeId = await getNodeId(ref.number, ref.repo)
       await addBlockedBy(nodeId, blockingNodeId)
-      console.log(`BlockedBy=#${dep} #${issueNumber}`)
+      const refStr = ref.repo ? `${ref.repo}#${ref.number}` : `#${ref.number}`
+      console.log(`BlockedBy=${refStr} #${issueNumber}`)
     }
   }
 
   if (opts.blocks) {
-    for (const dep of parseNumberList(opts.blocks)) {
-      const blockedNodeId = await getNodeId(dep)
+    for (const ref of parseIssueRefs(opts.blocks)) {
+      const blockedNodeId = await getNodeId(ref.number, ref.repo)
       await addBlockedBy(blockedNodeId, nodeId)
-      console.log(`Blocks=#${dep} #${issueNumber}`)
+      const refStr = ref.repo ? `${ref.repo}#${ref.number}` : `#${ref.number}`
+      console.log(`Blocks=${refStr} #${issueNumber}`)
     }
   }
 }

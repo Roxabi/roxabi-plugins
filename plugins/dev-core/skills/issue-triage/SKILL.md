@@ -57,14 +57,14 @@ Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies
 | `--size <S>` | Set size (XS, S, M, L, XL) |
 | `--priority <P>` | Set priority (Urgent, High, Medium, Low) |
 | `--status <S>` | Set status (Backlog, Analysis, Specs, "In Progress", Review, Done) |
-| `--blocked-by <N>[,<N>...]` | Add blocked-by dependency |
-| `--blocks <N>[,<N>...]` | Add blocking dependency |
-| `--rm-blocked-by <N>[,<N>...]` | Remove blocked-by dependency |
-| `--rm-blocks <N>[,<N>...]` | Remove blocking dependency |
-| `--parent <N>` | Set parent issue (make this a sub-issue of #N) |
-| `--add-child <N>[,<N>...]` | Add child sub-issues |
+| `--blocked-by <REF>[,<REF>...]` | Add blocked-by dependency. REF = `#N` or `owner/repo#N` |
+| `--blocks <REF>[,<REF>...]` | Add blocking dependency. REF = `#N` or `owner/repo#N` |
+| `--rm-blocked-by <REF>[,<REF>...]` | Remove blocked-by dependency |
+| `--rm-blocks <REF>[,<REF>...]` | Remove blocking dependency |
+| `--parent <REF>` | Set parent issue. REF = `#N` or `owner/repo#N` |
+| `--add-child <REF>[,<REF>...]` | Add child sub-issues |
 | `--rm-parent` | Remove parent relationship |
-| `--rm-child <N>[,<N>...]` | Remove child sub-issues |
+| `--rm-child <REF>[,<REF>...]` | Remove child sub-issues |
 | `--lane <L>` | Set lane on hub project (optional, additive). Valid: `a1`, `a2`, `a3`, `b`, `c1`, `c2`, `c3`, `d`–`o`, `standalone` |
 | `--type <T>` | Set org issueType (optional, additive). Valid: `fix`, `feat`, `docs`, `test`, `chore`, `ci`, `perf`, `epic`, `research`, `refactor` |
 
@@ -78,10 +78,10 @@ Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies
 | `--size <S>` | Set size on creation |
 | `--priority <P>` | Set priority on creation |
 | `--status <S>` | Set status on creation (default: added to project as-is) |
-| `--parent <N>` | Set parent issue on creation |
-| `--add-child <N>[,<N>...]` | Add existing issues as children |
-| `--blocked-by <N>[,<N>...]` | Set blocked-by on creation |
-| `--blocks <N>[,<N>...]` | Set blocking on creation |
+| `--parent <REF>` | Set parent issue on creation. REF = `#N` or `owner/repo#N` |
+| `--add-child <REF>[,<REF>...]` | Add existing issues as children |
+| `--blocked-by <REF>[,<REF>...]` | Set blocked-by on creation |
+| `--blocks <REF>[,<REF>...]` | Set blocking on creation |
 
 ### `migrate` — Schema validation and data migration
 
@@ -195,6 +195,11 @@ Reference: `artifacts/analyses/280-token-consumption.mdx` for scoring examples.
 τ set 163 --add-child 164,165,166
 τ set 164 --rm-parent
 τ set 163 --rm-child 166
+
+# Cross-repo dependencies (owner/repo#N format)
+τ set 42 --blocked-by Roxabi/lyra#728
+τ set 42 --blocks Roxabi/voiceCLI#94
+
 τ create \
   --title "research: compare against example/repo" \
   --body "Deep analysis of example/repo" \
