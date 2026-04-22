@@ -186,6 +186,12 @@ fi
 # Step 4-5: Remote sync (Machine 1)
 if [[ "$DO_REMOTE" == true ]]; then
     for marketplace in $ROXABI_MARKETPLACES; do
+        # Skip if marketplace doesn't exist on remote
+        if ! ssh "$REMOTE_HOST" "[ -d '$MARKETPLACES_DIR/$marketplace' ]" 2>/dev/null; then
+            warn "Marketplace $marketplace not found on M1 — skipping"
+            continue
+        fi
+
         step "Pulling staging on Machine 1 for $marketplace..."
         ssh "$REMOTE_HOST" "cd '$MARKETPLACES_DIR/$marketplace' && git fetch origin && git merge --ff-only origin/staging"
 
