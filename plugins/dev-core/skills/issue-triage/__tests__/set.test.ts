@@ -6,6 +6,7 @@ process.env.GH_PROJECT_ID = 'PVT_test'
 process.env.STATUS_FIELD_ID = 'SF_test'
 process.env.SIZE_FIELD_ID = 'SZF_test'
 process.env.PRIORITY_FIELD_ID = 'PF_test'
+process.env.LANE_FIELD_ID = 'LF_test'
 process.env.STATUS_OPTIONS_JSON = JSON.stringify({
   Backlog: 'status-backlog',
   Analysis: 'status-analysis',
@@ -27,16 +28,25 @@ process.env.PRIORITY_OPTIONS_JSON = JSON.stringify({
   'P2 - Medium': 'pri-medium',
   'P3 - Low': 'pri-low',
 })
+process.env.LANE_OPTIONS_JSON = JSON.stringify({
+  a1: 'lane-a1',
+  a2: 'lane-a2',
+  b: 'lane-b',
+  c1: 'lane-c1',
+  c2: 'lane-c2',
+})
 
 // Mock config before github — vi.mock is hoisted before process.env assignments,
 // so importOriginal would load config.ts with empty env vars. Manual factory is required.
 vi.mock('../../shared/adapters/config-helpers', () => ({
   isProjectConfigured: () => true,
   NOT_CONFIGURED_MSG: 'GitHub Project V2 is not configured.',
+  GITHUB_REPO: 'Test/test-repo',
   GH_PROJECT_ID: 'PVT_test',
   STATUS_FIELD_ID: 'SF_test',
   SIZE_FIELD_ID: 'SZF_test',
   PRIORITY_FIELD_ID: 'PF_test',
+  LANE_FIELD_ID: 'LF_test',
   STATUS_OPTIONS: {
     Backlog: 'status-backlog',
     Analysis: 'status-analysis',
@@ -52,6 +62,7 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
     'P2 - Medium': 'pri-medium',
     'P3 - Low': 'pri-low',
   },
+  LANE_OPTIONS: { a1: 'lane-a1', a2: 'lane-a2', b: 'lane-b', c1: 'lane-c1', c2: 'lane-c2' },
   resolveStatus: (input: string) => {
     const canonical = new Set(['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'])
     if (canonical.has(input)) return input
@@ -86,6 +97,10 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
     }
     return aliases[input.toUpperCase()]
   },
+  resolveLane: (input: string) => {
+    const valid = new Set(['a1', 'a2', 'b', 'c1', 'c2', 'c3', 'd', 'e', 'f', 'standalone'])
+    return valid.has(input) ? input : undefined
+  },
 }))
 
 vi.mock('../../shared/adapters/github-infra', () => ({
@@ -101,6 +116,8 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
   removeBlockedBy: vi.fn(),
   addSubIssue: vi.fn(),
   removeSubIssue: vi.fn(),
+  resolveIssueTypeId: vi.fn(),
+  updateIssueIssueType: vi.fn(),
 }))
 
 const github = await import('../../shared/adapters/github-adapter')
@@ -112,6 +129,8 @@ const mockRemoveBlockedBy = github.removeBlockedBy as ReturnType<typeof vi.fn>
 const mockAddSubIssue = github.addSubIssue as ReturnType<typeof vi.fn>
 const mockRemoveSubIssue = github.removeSubIssue as ReturnType<typeof vi.fn>
 const mockGetParentNumber = github.getParentNumber as ReturnType<typeof vi.fn>
+const mockResolveIssueTypeId = github.resolveIssueTypeId as ReturnType<typeof vi.fn>
+const mockUpdateIssueIssueType = github.updateIssueIssueType as ReturnType<typeof vi.fn>
 
 const githubInfra = await import('../../shared/adapters/github-infra')
 const mockSyncPriorityLabel = githubInfra.syncPriorityLabel as ReturnType<typeof vi.fn>
@@ -122,6 +141,7 @@ function setupMocks() {
   vi.clearAllMocks()
   mockGetItemId.mockResolvedValue('item-123')
   mockGetNodeId.mockImplementation(async (num) => `node-${num}`)
+  mockResolveIssueTypeId.mockResolvedValue('type-id-feat')
   vi.spyOn(console, 'log').mockImplementation(() => {})
   vi.spyOn(console, 'error').mockImplementation(() => {})
 }
@@ -234,5 +254,94 @@ describe('issue-triage/set > priority label sync', () => {
   it('does not sync priority label when --priority is not provided', async () => {
     await setIssue(['42', '--size', 'M'])
     expect(mockSyncPriorityLabel).not.toHaveBeenCalled()
+  })
+})
+
+describe('issue-triage/set > --lane flag', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  it('updates lane field with valid lane key', async () => {
+    // Arrange
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
+    // Act
+    await setIssue(['123', '--lane', 'c1'])
+    // Assert
+    expect(mockUpdateField).toHaveBeenCalledWith('item-123', 'LF_test', 'lane-c1')
+    expect(exitSpy).not.toHaveBeenCalled()
+  })
+
+  it('calls process.exit(1) and prints error for invalid lane key', async () => {
+    // Arrange
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
+    // Act
+    await setIssue(['123', '--lane', 'zzz'])
+    // Assert
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(errCalls.some((msg) => msg.includes('Invalid lane') || msg.includes('Valid'))).toBe(true)
+  })
+})
+
+describe('issue-triage/set > --type flag', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  it('resolves type id and calls updateIssueIssueType for valid type', async () => {
+    // Arrange
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
+    // Act
+    await setIssue(['123', '--type', 'feat'])
+    // Assert
+    expect(mockResolveIssueTypeId).toHaveBeenCalledWith('Test', 'feat')
+    expect(mockUpdateIssueIssueType).toHaveBeenCalledWith('node-123', 'type-id-feat')
+    expect(exitSpy).not.toHaveBeenCalled()
+  })
+
+  it('calls process.exit(1) and prints error for invalid type', async () => {
+    // Arrange
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
+    // Act
+    await setIssue(['123', '--type', 'bogus'])
+    // Assert
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(errCalls.some((msg) => msg.includes('Invalid type') || msg.includes('Valid'))).toBe(true)
+  })
+})
+
+describe('issue-triage/set > additive regression', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  it('--size alone does not call lane or type mutations', async () => {
+    // Arrange & Act
+    await setIssue(['123', '--size', 'S'])
+    // Assert — size field updated, but not lane or type
+    expect(mockUpdateField).toHaveBeenCalledWith('item-123', 'SZF_test', 'size-s')
+    const laneFieldCalls = (mockUpdateField as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c: unknown[]) => c[1] === 'LF_test',
+    )
+    expect(laneFieldCalls).toHaveLength(0)
+    expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+  })
+})
+
+describe('issue-triage/set > combined --lane + --type + --size', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  it('applies all three mutations when combined flags provided', async () => {
+    // Arrange
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
+    // Act
+    await setIssue(['123', '--lane', 'a1', '--type', 'feat', '--size', 'S'])
+    // Assert — size field
+    expect(mockUpdateField).toHaveBeenCalledWith('item-123', 'SZF_test', 'size-s')
+    // Assert — lane field
+    expect(mockUpdateField).toHaveBeenCalledWith('item-123', 'LF_test', 'lane-a1')
+    // Assert — type mutation
+    expect(mockUpdateIssueIssueType).toHaveBeenCalledWith('node-123', 'type-id-feat')
+    expect(exitSpy).not.toHaveBeenCalled()
   })
 })
