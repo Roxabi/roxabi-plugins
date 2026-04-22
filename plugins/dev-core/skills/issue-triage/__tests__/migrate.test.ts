@@ -225,6 +225,8 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
   removeSubIssue: vi.fn(),
   resolveIssueTypeId: vi.fn(),
   updateIssueIssueType: vi.fn(),
+  clearField: vi.fn(),
+  run: vi.fn(),
 }))
 
 vi.mock('node:child_process', () => ({
@@ -236,11 +238,15 @@ const mockGhGraphQL = github.ghGraphQL as ReturnType<typeof vi.fn>
 const mockUpdateField = github.updateField as ReturnType<typeof vi.fn>
 const mockResolveIssueTypeId = github.resolveIssueTypeId as ReturnType<typeof vi.fn>
 const mockUpdateIssueIssueType = github.updateIssueIssueType as ReturnType<typeof vi.fn>
+const mockClearField = github.clearField as ReturnType<typeof vi.fn>
+const mockRun = github.run as ReturnType<typeof vi.fn>
 
 const childProcess = await import('node:child_process')
 const mockExecSync = childProcess.execSync as ReturnType<typeof vi.fn>
 
-const { LEGACY_LABEL_MAP, TITLE_PREFIX_RE, auditSchema, backfill, rewriteTitles } = await import('../lib/migrate')
+const { LEGACY_LABEL_MAP, TITLE_PREFIX_RE, auditSchema, backfill, rewriteTitles, revert } = await import(
+  '../lib/migrate'
+)
 
 // Local mirror of RewriteRow (not exported from migrate.ts)
 interface RewriteRow {
@@ -248,6 +254,16 @@ interface RewriteRow {
   number: number
   old_title: string
   new_title: string
+}
+
+// Local mirror of BackfillRow (not exported from migrate.ts)
+interface BackfillRow {
+  repo: string
+  number: number
+  field: string
+  old_value: string | null
+  new_value: string | null
+  flagged: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -962,6 +978,217 @@ describe('migrate > rewriteTitles', () => {
       // Assert
       const logCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]))
       expect(logCalls.some((msg) => msg.includes('Stripped 0 titles'))).toBe(true)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 8. revert
+// ---------------------------------------------------------------------------
+
+import { writeFile } from 'node:fs/promises'
+
+describe('migrate > revert', () => {
+  let snapshotPath: string
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    snapshotPath = join(tmpdir(), `revert-test-snapshot-${Date.now()}.json`)
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockClearField.mockResolvedValue(undefined)
+    mockUpdateIssueIssueType.mockResolvedValue(undefined)
+    mockRun.mockResolvedValue('')
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  describe('backfill snapshot kind', () => {
+    it('detects backfill snapshot and calls clearField for non-flagged rows with non-null new_value', async () => {
+      // Arrange
+      const rows: BackfillRow[] = [
+        { repo: 'Roxabi/test', number: 10, field: 'Lane', old_value: null, new_value: 'c1', flagged: false },
+        { repo: 'Roxabi/test', number: 10, field: 'Size', old_value: null, new_value: 'S', flagged: false },
+        { repo: 'Roxabi/test', number: 10, field: 'Priority', old_value: null, new_value: 'P1 - High', flagged: false },
+      ]
+      await writeFile(snapshotPath, JSON.stringify(rows), 'utf-8')
+
+      mockGhGraphQL.mockResolvedValue(
+        makeItemFieldsResponse({
+          issueId: 'node-10',
+          itemId: 'item-10',
+          fields: { Lane: 'c1', Size: 'S', Priority: 'P1 - High' },
+        }),
+      )
+
+      // Act
+      await revert({ snapshotPath })
+
+      // Assert — clearField called once per row (Lane, Size, Priority)
+      expect(mockClearField).toHaveBeenCalledTimes(3)
+    })
+
+    it('calls updateIssueIssueType(issueNodeId, null) for issueType rows', async () => {
+      // Arrange
+      const rows: BackfillRow[] = [
+        { repo: 'Roxabi/test', number: 11, field: 'issueType', old_value: null, new_value: 'feat', flagged: false },
+      ]
+      await writeFile(snapshotPath, JSON.stringify(rows), 'utf-8')
+
+      mockGhGraphQL.mockResolvedValue(
+        makeItemFieldsResponse({
+          issueId: 'node-11',
+          itemId: 'item-11',
+          fields: {},
+          issueTypeName: 'feat',
+        }),
+      )
+
+      // Act
+      await revert({ snapshotPath })
+
+      // Assert
+      expect(mockUpdateIssueIssueType).toHaveBeenCalledWith('node-11', null)
+    })
+  })
+
+  describe('rewrite snapshot kind', () => {
+    it('detects rewrite snapshot and calls gh issue edit --title <old_title> per row', async () => {
+      // Arrange
+      const rows: RewriteRow[] = [
+        { repo: 'Roxabi/test', number: 20, old_title: 'feat: add login', new_title: 'add login' },
+        { repo: 'Roxabi/test', number: 21, old_title: 'fix: null ptr', new_title: 'null ptr' },
+      ]
+      await writeFile(snapshotPath, JSON.stringify(rows), 'utf-8')
+
+      // Mock gh issue view to return the new_title (migration applied) so revert should trigger
+      mockRun.mockImplementation(async (cmd: string[]) => {
+        if (cmd.includes('view')) {
+          const idx = rows.findIndex((r) => cmd.includes(String(r.number)))
+          return idx >= 0 ? rows[idx].new_title : ''
+        }
+        return ''
+      })
+
+      // Act
+      await revert({ snapshotPath })
+
+      // Assert — gh issue edit called for both rows
+      const editCalls = mockRun.mock.calls.filter((c: string[][]) => c[0].includes('edit'))
+      expect(editCalls).toHaveLength(2)
+
+      const firstEdit = editCalls[0][0] as string[]
+      expect(firstEdit).toContain('--title')
+      expect(firstEdit).toContain('feat: add login')
+    })
+  })
+
+  describe('idempotency', () => {
+    it('skips backfill row when field is already cleared (currentFields has no value for that field)', async () => {
+      // Arrange — new_value set but project field already cleared
+      const rows: BackfillRow[] = [
+        { repo: 'Roxabi/test', number: 30, field: 'Lane', old_value: null, new_value: 'a1', flagged: false },
+      ]
+      await writeFile(snapshotPath, JSON.stringify(rows), 'utf-8')
+
+      // Field is absent from live data (already reverted)
+      mockGhGraphQL.mockResolvedValue(
+        makeItemFieldsResponse({
+          issueId: 'node-30',
+          itemId: 'item-30',
+          fields: {},
+        }),
+      )
+
+      // Act
+      await revert({ snapshotPath })
+
+      // Assert
+      expect(mockClearField).not.toHaveBeenCalled()
+      const logCalls = (console.log as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
+      expect(logCalls.some((msg) => msg.includes('skip #30'))).toBe(true)
+    })
+
+    it('skips rewrite row when current title already matches old_title', async () => {
+      // Arrange — issue already reverted: current title = old_title
+      const rows: RewriteRow[] = [
+        { repo: 'Roxabi/test', number: 40, old_title: 'feat: add login', new_title: 'add login' },
+      ]
+      await writeFile(snapshotPath, JSON.stringify(rows), 'utf-8')
+
+      // gh issue view returns old_title (already restored)
+      mockRun.mockResolvedValue('feat: add login')
+
+      // Act
+      await revert({ snapshotPath })
+
+      // Assert
+      const editCalls = mockRun.mock.calls.filter((c: string[][]) => c[0].includes('edit'))
+      expect(editCalls).toHaveLength(0)
+      const logCalls = (console.log as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
+      expect(logCalls.some((msg) => msg.includes('skip #40'))).toBe(true)
+    })
+  })
+
+  describe('unknown snapshot format', () => {
+    it('calls process.exit(1) with a message when snapshot is not a recognized format', async () => {
+      // Arrange — array of objects that match neither backfill nor rewrite shape
+      const unknown = [{ foo: 'bar' }]
+      await writeFile(snapshotPath, JSON.stringify(unknown), 'utf-8')
+
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
+
+      // Act
+      await revert({ snapshotPath })
+
+      // Assert
+      expect(exitSpy).toHaveBeenCalledWith(1)
+      const errorCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
+      expect(errorCalls.some((msg) => /unknown snapshot format/i.test(msg))).toBe(true)
+    })
+  })
+
+  describe('flagged rows', () => {
+    it('skips clearField for flagged backfill rows', async () => {
+      // Arrange
+      const rows: BackfillRow[] = [
+        { repo: 'Roxabi/test', number: 50, field: 'Lane', old_value: null, new_value: null, flagged: true },
+      ]
+      await writeFile(snapshotPath, JSON.stringify(rows), 'utf-8')
+
+      // Act
+      await revert({ snapshotPath })
+
+      // Assert — flagged row skipped, no field fetched, no clearField called
+      expect(mockGhGraphQL).not.toHaveBeenCalled()
+      expect(mockClearField).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('summary line', () => {
+    it('prints a line matching /Reverted \\d+ rows/', async () => {
+      // Arrange — one non-flagged row that will be reverted
+      const rows: BackfillRow[] = [
+        { repo: 'Roxabi/test', number: 60, field: 'Size', old_value: null, new_value: 'S', flagged: false },
+      ]
+      await writeFile(snapshotPath, JSON.stringify(rows), 'utf-8')
+
+      mockGhGraphQL.mockResolvedValue(
+        makeItemFieldsResponse({
+          issueId: 'node-60',
+          itemId: 'item-60',
+          fields: { Size: 'S' },
+        }),
+      )
+
+      const logSpy = console.log as ReturnType<typeof vi.fn>
+
+      // Act
+      await revert({ snapshotPath })
+
+      // Assert
+      const logCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+      expect(logCalls.some((msg) => /Reverted \d+ rows/.test(msg))).toBe(true)
     })
   })
 })
