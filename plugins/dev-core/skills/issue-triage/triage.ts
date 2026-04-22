@@ -9,6 +9,7 @@
  *   bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create --title "Title" [--body "Body"] ...
  *   bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts migrate audit-schema
  *   bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts migrate backfill --repo OWNER/REPO [--dry-run] [--snapshot <path>]
+ *   bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts migrate rewrite-titles --repo OWNER/REPO [--dry-run] [--snapshot <path>]
  */
 
 const args = process.argv.slice(2)
@@ -87,8 +88,14 @@ switch (command) {
         await backfill(opts)
         break
       }
+      case 'rewrite-titles': {
+        const { rewriteTitles } = await import('./lib/migrate')
+        const opts = parseMigrateBackfillArgs(subArgs)
+        await rewriteTitles(opts)
+        break
+      }
       default:
-        console.error('Usage: triage.ts migrate <audit-schema|backfill> [args]')
+        console.error('Usage: triage.ts migrate <audit-schema|backfill|rewrite-titles> [args]')
         process.exit(1)
     }
     break
