@@ -306,10 +306,10 @@ export async function pushWorkflowFile(
   repo: string,
   path: string,
   content: string,
-  opts?: { message?: string; branch?: string },
+  opts: { branch: string; message?: string },
 ): Promise<'created' | 'updated'> {
   const token = await getToken()
-  const branch = opts?.branch ?? 'main'
+  const { branch } = opts
   const b64 = Buffer.from(content).toString('base64')
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`
   const headers: Record<string, string> = {
