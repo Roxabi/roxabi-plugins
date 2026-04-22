@@ -53,9 +53,7 @@ export function parseWorkspace(raw: unknown): Workspace {
     throw new Error('workspace.json: `projects` must be an array')
   }
   const roadmapProjectId =
-    obj.roadmapProjectId !== undefined && typeof obj.roadmapProjectId === 'string'
-      ? obj.roadmapProjectId
-      : undefined
+    obj.roadmapProjectId !== undefined && typeof obj.roadmapProjectId === 'string' ? obj.roadmapProjectId : undefined
   return { projects: projects.map(validateProject), roadmapProjectId }
 }
 
