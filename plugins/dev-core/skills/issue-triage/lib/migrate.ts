@@ -18,7 +18,14 @@ import {
   SIZE_OPTIONS,
   STATUS_OPTIONS,
 } from '../../shared/adapters/config-helpers'
-import { ghGraphQL, resolveIssueTypeId, updateField, updateIssueIssueType } from '../../shared/adapters/github-adapter'
+import {
+  clearField,
+  ghGraphQL,
+  resolveIssueTypeId,
+  run,
+  updateField,
+  updateIssueIssueType,
+} from '../../shared/adapters/github-adapter'
 
 interface FieldSchema {
   id: string
@@ -505,4 +512,188 @@ export async function rewriteTitles(opts: { repo: string; dryRun: boolean; snaps
   await writeFile(snapshotFile, JSON.stringify(rows, null, 2), 'utf-8')
 
   console.log(`Stripped ${rows.length} titles across repo ${opts.repo}`)
+}
+
+// ---------------------------------------------------------------------------
+// revert
+// ---------------------------------------------------------------------------
+
+const FIELD_ID_MAP: Record<string, string> = {
+  Lane: LANE_FIELD_ID,
+  Size: SIZE_FIELD_ID,
+  Priority: PRIORITY_FIELD_ID,
+}
+
+interface BackfillRow {
+  repo: string
+  number: number
+  field: string
+  old_value: string | null
+  new_value: string | null
+  flagged: boolean
+}
+
+interface RevertError {
+  repo: string
+  number: number
+  field?: string
+  error: string
+}
+
+async function fetchIssueFieldState(
+  repo: string,
+  issueNumber: number,
+): Promise<{
+  itemId: string
+  issueNodeId: string
+  currentFields: Record<string, string>
+  currentIssueType: string | undefined
+}> {
+  const [owner, repoName] = repo.split('/')
+  const data = (await ghGraphQL(ITEM_FIELDS_QUERY, {
+    owner,
+    repo: repoName,
+    number: issueNumber,
+  })) as {
+    repository: {
+      issue: {
+        id: string
+        issueType: { id: string; name: string } | null
+        projectItems: {
+          nodes: Array<{
+            id: string
+            project: { id: string }
+            fieldValues: ProjectItemFieldValues['fieldValues']
+          }>
+        }
+      }
+    }
+  }
+
+  const issueData = data.repository.issue
+  const projectItem = issueData.projectItems.nodes.find((n) => n.project.id === GH_PROJECT_ID)
+  if (!projectItem) throw new Error(`Issue #${issueNumber} not found in project`)
+
+  const currentFields: Record<string, string> = {}
+  for (const fv of projectItem.fieldValues.nodes) {
+    if (fv.name && fv.field?.name) {
+      currentFields[fv.field.name] = fv.name
+    }
+  }
+
+  return {
+    itemId: projectItem.id,
+    issueNodeId: issueData.id,
+    currentFields,
+    currentIssueType: issueData.issueType?.name,
+  }
+}
+
+async function revertBackfillRow(row: BackfillRow): Promise<'reverted' | 'skipped'> {
+  if (row.flagged || row.new_value === null) return 'skipped'
+
+  const { itemId, issueNodeId, currentFields, currentIssueType } = await fetchIssueFieldState(row.repo, row.number)
+
+  if (row.field === 'issueType') {
+    if (currentIssueType === undefined) {
+      console.log(`skip #${row.number}.issueType`)
+      return 'skipped'
+    }
+    await updateIssueIssueType(issueNodeId, null)
+    return 'reverted'
+  }
+
+  const fieldId = FIELD_ID_MAP[row.field]
+  if (!fieldId) throw new Error(`Unknown field: ${row.field}`)
+
+  if (currentFields[row.field] === undefined) {
+    console.log(`skip #${row.number}.${row.field}`)
+    return 'skipped'
+  }
+
+  await clearField(itemId, fieldId)
+  return 'reverted'
+}
+
+async function revertRewriteRow(row: RewriteRow): Promise<'reverted' | 'skipped'> {
+  const currentTitle = await run([
+    'gh',
+    'issue',
+    'view',
+    String(row.number),
+    '--repo',
+    row.repo,
+    '--json',
+    'title',
+    '--jq',
+    '.title',
+  ])
+
+  if (currentTitle === row.old_title) {
+    console.log(`skip #${row.number}`)
+    return 'skipped'
+  }
+
+  await run(['gh', 'issue', 'edit', String(row.number), '--repo', row.repo, '--title', row.old_title])
+  return 'reverted'
+}
+
+export async function revert(opts: { snapshotPath: string }): Promise<void> {
+  const { readFile } = await import('node:fs/promises')
+  const raw = await readFile(opts.snapshotPath, 'utf-8')
+  const rows = JSON.parse(raw) as unknown[]
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    console.error('Snapshot is empty or not an array')
+    process.exit(1)
+  }
+
+  const first = rows[0] as Record<string, unknown>
+  const isBackfill = 'field' in first && 'old_value' in first && 'new_value' in first && 'flagged' in first
+  const isRewrite = 'old_title' in first && 'new_title' in first && !('field' in first)
+
+  if (!isBackfill && !isRewrite) {
+    console.error('Unknown snapshot format')
+    process.exit(1)
+  }
+
+  let reverted = 0
+  let skipped = 0
+  const errors: RevertError[] = []
+
+  if (isBackfill) {
+    const backfillRows = rows as BackfillRow[]
+    for (const row of backfillRows) {
+      try {
+        const outcome = await revertBackfillRow(row)
+        if (outcome === 'reverted') reverted++
+        else skipped++
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        errors.push({ repo: row.repo, number: row.number, field: row.field, error: message })
+        console.error(`error #${row.number}.${row.field}: ${message}`)
+      }
+    }
+  } else {
+    const rewriteRows = rows as RewriteRow[]
+    for (const row of rewriteRows) {
+      try {
+        const outcome = await revertRewriteRow(row)
+        if (outcome === 'reverted') reverted++
+        else skipped++
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        errors.push({ repo: row.repo, number: row.number, error: message })
+        console.error(`error #${row.number}: ${message}`)
+      }
+    }
+  }
+
+  console.log(`Reverted ${reverted} rows, skipped ${skipped} already-reverted, errors ${errors.length}`)
+  if (errors.length > 0) {
+    for (const e of errors) {
+      const loc = e.field ? `${e.repo}#${e.number} [${e.field}]` : `${e.repo}#${e.number}`
+      console.error(`  ${loc}: ${e.error}`)
+    }
+  }
 }

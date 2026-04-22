@@ -12,6 +12,7 @@ import {
   ADD_BLOCKED_BY_MUTATION,
   ADD_SUB_ISSUE_MUTATION,
   ADD_TO_PROJECT_MUTATION,
+  CLEAR_FIELD_MUTATION,
   CREATE_ISSUE_TYPE_MUTATION,
   DELETE_PROJECT_ITEM_MUTATION,
   ITEM_ID_QUERY,
@@ -535,6 +536,17 @@ export async function updateField(
     itemId,
     fieldId,
     optionId,
+  })
+}
+
+/** Clear a single-select project field value (set to null/unset). */
+export async function clearField(itemId: string, fieldId: string, overrideProjectId?: string): Promise<void> {
+  const pid = overrideProjectId ?? GH_PROJECT_ID
+  if (!pid) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
+  await ghGraphQL(CLEAR_FIELD_MUTATION, {
+    projectId: pid,
+    itemId,
+    fieldId,
   })
 }
 
