@@ -429,3 +429,158 @@ describe('parseWorkspace', () => {
     expect(() => parseWorkspace(null)).toThrow()
   })
 })
+
+// ---------------------------------------------------------------------------
+// workspace add --local flag
+// ---------------------------------------------------------------------------
+
+describe('workspace add --local', () => {
+  it('persists --local path to workspace.json', async () => {
+    const tmpDir = makeTmpDir()
+    const vaultDir = join(tmpDir, '.roxabi-vault')
+    mkdirSync(vaultDir, { recursive: true })
+    const workspacePath = join(vaultDir, 'workspace.json')
+    require('node:fs').writeFileSync(workspacePath, makeWorkspaceJson([]))
+
+    const originalHome = process.env.HOME
+    process.env.HOME = tmpDir
+
+    const mockFetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              repository: {
+                projectsV2: {
+                  nodes: [{ id: 'PVT_test', title: 'Test Project' }],
+                },
+              },
+            },
+          }),
+      }),
+    )
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = mockFetch as unknown as typeof fetch
+
+    try {
+      const lines: string[] = []
+      const originalLog = console.log
+      console.log = (...args: unknown[]) => lines.push(args.join(' '))
+
+      const { run } = await import('../commands/workspace')
+      await run(['add', 'Roxabi/test-repo', '--local', '/custom/path/to/repo'])
+
+      console.log = originalLog
+
+      const written = JSON.parse(readFileSync(workspacePath, 'utf8'))
+      expect(written.projects).toHaveLength(1)
+      expect(written.projects[0].localPath).toBe('/custom/path/to/repo')
+    } finally {
+      globalThis.fetch = originalFetch
+      process.env.HOME = originalHome
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects --local path with ".." traversal', async () => {
+    const tmpDir = makeTmpDir()
+    const vaultDir = join(tmpDir, '.roxabi-vault')
+    mkdirSync(vaultDir, { recursive: true })
+    const workspacePath = join(vaultDir, 'workspace.json')
+    require('node:fs').writeFileSync(workspacePath, makeWorkspaceJson([]))
+
+    const originalHome = process.env.HOME
+    process.env.HOME = tmpDir
+
+    const mockFetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              repository: {
+                projectsV2: {
+                  nodes: [{ id: 'PVT_test', title: 'Test Project' }],
+                },
+              },
+            },
+          }),
+      }),
+    )
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = mockFetch as unknown as typeof fetch
+
+    try {
+      const errorLines: string[] = []
+      const originalError = console.error
+      console.error = (...args: unknown[]) => errorLines.push(args.join(' '))
+
+      let exitCode: number | undefined
+      const originalExit = process.exit
+      process.exit = ((code?: number) => {
+        exitCode = code
+      }) as typeof process.exit
+
+      const { run } = await import('../commands/workspace')
+      await run(['add', 'Roxabi/test-repo', '--local', '/path/../etc'])
+
+      console.error = originalError
+      process.exit = originalExit
+
+      expect(exitCode).toBe(1)
+      expect(errorLines.join('\n')).toContain('Invalid --local path')
+    } finally {
+      globalThis.fetch = originalFetch
+      process.env.HOME = originalHome
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts relative path with "./"', async () => {
+    const tmpDir = makeTmpDir()
+    const vaultDir = join(tmpDir, '.roxabi-vault')
+    mkdirSync(vaultDir, { recursive: true })
+    const workspacePath = join(vaultDir, 'workspace.json')
+    require('node:fs').writeFileSync(workspacePath, makeWorkspaceJson([]))
+
+    const originalHome = process.env.HOME
+    process.env.HOME = tmpDir
+
+    const mockFetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              repository: {
+                projectsV2: {
+                  nodes: [{ id: 'PVT_test', title: 'Test Project' }],
+                },
+              },
+            },
+          }),
+      }),
+    )
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = mockFetch as unknown as typeof fetch
+
+    try {
+      const lines: string[] = []
+      const originalLog = console.log
+      console.log = (...args: unknown[]) => lines.push(args.join(' '))
+
+      const { run } = await import('../commands/workspace')
+      await run(['add', 'Roxabi/test-repo', '--local', './local-repo'])
+
+      console.log = originalLog
+
+      const written = JSON.parse(readFileSync(workspacePath, 'utf8'))
+      expect(written.projects[0].localPath).toBe('./local-repo')
+    } finally {
+      globalThis.fetch = originalFetch
+      process.env.HOME = originalHome
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+})

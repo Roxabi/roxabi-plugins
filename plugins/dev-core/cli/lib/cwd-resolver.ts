@@ -96,20 +96,10 @@ export function resolveCurrentProject(projects: WorkspaceProject[], cwd: string)
 }
 
 /**
- * Try to find the local clone of a repo.
- * Prefers cwd if it is the repo itself, otherwise scans common directories.
+ * Return cwd if it matches the requested repo slug.
+ * Users must provide --local <path> when their clone is not at cwd.
  */
 export function detectLocalPath(repo: string): string | undefined {
   const cwd = process.cwd()
-  if (resolveRepoFromCwd(cwd)?.toLowerCase() === repo.toLowerCase()) return cwd
-
-  const home = process.env.HOME
-  const [, name] = repo.split('/')
-  if (!home || !name) return undefined
-  // Reject path-traversal / hidden segments — the probe must stay inside $HOME.
-  if (name.includes('/') || name.includes('..') || name.startsWith('.')) return undefined
-  for (const dir of [`${home}/projects/${name}`, `${home}/${name}`, `${home}/src/${name}`]) {
-    if (existsSync(`${dir}/.git`)) return dir
-  }
-  return undefined
+  return resolveRepoFromCwd(cwd)?.toLowerCase() === repo.toLowerCase() ? cwd : undefined
 }
