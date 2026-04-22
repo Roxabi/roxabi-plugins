@@ -5,6 +5,8 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { MILESTONE_QUERY, REPO_DEFAULT_BRANCH_QUERY, VERIFY_PROJECT_ITEMS_QUERY } from '../../shared/queries'
+
 // ---------------------------------------------------------------------------
 // In-memory state shared by adapter mocks
 // ---------------------------------------------------------------------------
@@ -28,10 +30,13 @@ const ALL_TEN_ISSUE_TYPES = ['fix', 'feat', 'docs', 'test', 'chore', 'ci', 'perf
 // Mock github-adapter — intercepted at module resolution time
 // ---------------------------------------------------------------------------
 
+// Mock routing: exact-match on imported query constants.
+// If a query doesn't match, throw explicit error (no silent {} fallback).
+// This makes query refactors immediately visible in test output.
 vi.mock('../../shared/adapters/github-adapter', () => ({
   ghGraphQL: vi.fn(async (query: string, _vars: Record<string, unknown>) => {
     // default branch query
-    if (query.includes('defaultBranchRef')) {
+    if (query === REPO_DEFAULT_BRANCH_QUERY) {
       return {
         data: {
           repository: state.defaultBranch
@@ -41,7 +46,7 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
       }
     }
     // milestone query
-    if (query.includes('milestone')) {
+    if (query === MILESTONE_QUERY) {
       const ALL_MILESTONES = ['M0', 'M1', 'M2']
       return {
         data: {
@@ -57,7 +62,7 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
       }
     }
     // projectV2 verify test issue
-    if (query.includes('projectV2')) {
+    if (query === VERIFY_PROJECT_ITEMS_QUERY) {
       return {
         data: {
           node: {
@@ -68,7 +73,7 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
         },
       }
     }
-    return {}
+    throw new Error(`Unexpected GraphQL query: ${query.slice(0, 50)}...`)
   }),
 
   listOrgIssueTypes: vi.fn(async () => state.issueTypes),
@@ -284,6 +289,11 @@ describe('hub-enroll', () => {
 
       // Assert — result signals dry-run mode
       expect(result.dryRun).toBe(true)
+    })
+
+    it('throws on unexpected GraphQL query', async () => {
+      const { ghGraphQL } = await import('../../shared/adapters/github-adapter')
+      await expect(ghGraphQL('bad query', {})).rejects.toThrow(/Unexpected GraphQL query/)
     })
   })
 })
