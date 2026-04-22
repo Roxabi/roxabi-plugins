@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readFile } from 'node:fs/promises'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Env vars must be set before config-helpers module loads
 process.env.GITHUB_REPO = 'Roxabi/test'
@@ -34,18 +34,52 @@ process.env.PRIORITY_OPTIONS_JSON = JSON.stringify({
 process.env.LANE_OPTIONS_JSON = JSON.stringify(
   Object.fromEntries(
     [
-      'a1', 'a2', 'a3', 'b', 'c1', 'c2', 'c3',
-      'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k',
-      'l', 'm', 'n', 'o', 'standalone',
+      'a1',
+      'a2',
+      'a3',
+      'b',
+      'c1',
+      'c2',
+      'c3',
+      'd',
+      'e',
+      'f',
+      'g',
+      'h',
+      'i',
+      'j',
+      'k',
+      'l',
+      'm',
+      'n',
+      'o',
+      'standalone',
     ].map((k) => [k, `lane-${k}`]),
   ),
 )
 
 // Full DEFAULT_LANE_OPTIONS list (20 entries) — mirrors config-helpers.ts
 const ALL_LANE_KEYS = [
-  'a1', 'a2', 'a3', 'b', 'c1', 'c2', 'c3',
-  'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k',
-  'l', 'm', 'n', 'o', 'standalone',
+  'a1',
+  'a2',
+  'a3',
+  'b',
+  'c1',
+  'c2',
+  'c3',
+  'd',
+  'e',
+  'f',
+  'g',
+  'h',
+  'i',
+  'j',
+  'k',
+  'l',
+  'm',
+  'n',
+  'o',
+  'standalone',
 ]
 
 vi.mock('../../shared/adapters/config-helpers', () => ({
@@ -74,21 +108,60 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
   },
   LANE_OPTIONS: Object.fromEntries(
     [
-      'a1', 'a2', 'a3', 'b', 'c1', 'c2', 'c3',
-      'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k',
-      'l', 'm', 'n', 'o', 'standalone',
+      'a1',
+      'a2',
+      'a3',
+      'b',
+      'c1',
+      'c2',
+      'c3',
+      'd',
+      'e',
+      'f',
+      'g',
+      'h',
+      'i',
+      'j',
+      'k',
+      'l',
+      'm',
+      'n',
+      'o',
+      'standalone',
     ].map((k) => [k, `lane-${k}`]),
   ),
   DEFAULT_LANE_OPTIONS: [
-    'a1', 'a2', 'a3', 'b', 'c1', 'c2', 'c3',
-    'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k',
-    'l', 'm', 'n', 'o', 'standalone',
+    'a1',
+    'a2',
+    'a3',
+    'b',
+    'c1',
+    'c2',
+    'c3',
+    'd',
+    'e',
+    'f',
+    'g',
+    'h',
+    'i',
+    'j',
+    'k',
+    'l',
+    'm',
+    'n',
+    'o',
+    'standalone',
   ],
   resolveStatus: (input: string) => {
     const aliases: Record<string, string> = {
-      BACKLOG: 'Backlog', ANALYSIS: 'Analysis', SPECS: 'Specs',
-      'IN PROGRESS': 'In Progress', IN_PROGRESS: 'In Progress',
-      INPROGRESS: 'In Progress', REVIEW: 'Review', DONE: 'Done',
+      BACKLOG: 'Backlog',
+      ANALYSIS: 'Analysis',
+      SPECS: 'Specs',
+      'IN PROGRESS': 'In Progress',
+      IN_PROGRESS: 'In Progress',
+      INPROGRESS: 'In Progress',
+      REVIEW: 'Review',
+      DONE: 'Done',
     }
     const canonical = new Set(['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'])
     if (canonical.has(input)) return input
@@ -102,16 +175,39 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
     const canonical = new Set(['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'])
     if (canonical.has(input)) return input
     const aliases: Record<string, string> = {
-      URGENT: 'P0 - Urgent', HIGH: 'P1 - High', MEDIUM: 'P2 - Medium', LOW: 'P3 - Low',
-      P0: 'P0 - Urgent', P1: 'P1 - High', P2: 'P2 - Medium', P3: 'P3 - Low',
+      URGENT: 'P0 - Urgent',
+      HIGH: 'P1 - High',
+      MEDIUM: 'P2 - Medium',
+      LOW: 'P3 - Low',
+      P0: 'P0 - Urgent',
+      P1: 'P1 - High',
+      P2: 'P2 - Medium',
+      P3: 'P3 - Low',
     }
     return aliases[input.toUpperCase()]
   },
   resolveLane: (input: string) => {
     const valid = new Set([
-      'a1', 'a2', 'a3', 'b', 'c1', 'c2', 'c3',
-      'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k',
-      'l', 'm', 'n', 'o', 'standalone',
+      'a1',
+      'a2',
+      'a3',
+      'b',
+      'c1',
+      'c2',
+      'c3',
+      'd',
+      'e',
+      'f',
+      'g',
+      'h',
+      'i',
+      'j',
+      'k',
+      'l',
+      'm',
+      'n',
+      'o',
+      'standalone',
     ])
     return valid.has(input) ? input : undefined
   },
@@ -144,7 +240,15 @@ const mockUpdateIssueIssueType = github.updateIssueIssueType as ReturnType<typeo
 const childProcess = await import('node:child_process')
 const mockExecSync = childProcess.execSync as ReturnType<typeof vi.fn>
 
-const { LEGACY_LABEL_MAP, TITLE_PREFIX_RE, auditSchema, backfill } = await import('../lib/migrate')
+const { LEGACY_LABEL_MAP, TITLE_PREFIX_RE, auditSchema, backfill, rewriteTitles } = await import('../lib/migrate')
+
+// Local mirror of RewriteRow (not exported from migrate.ts)
+interface RewriteRow {
+  repo: string
+  number: number
+  old_title: string
+  new_title: string
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -156,19 +260,23 @@ function makeAuditSchemaResponse(laneOptions: string[]) {
       fields: {
         nodes: [
           {
-            id: 'f-size', name: 'Size',
+            id: 'f-size',
+            name: 'Size',
             options: ['XS', 'S', 'M', 'L', 'XL'].map((n) => ({ id: `s-${n}`, name: n })),
           },
           {
-            id: 'f-lane', name: 'Lane',
+            id: 'f-lane',
+            name: 'Lane',
             options: laneOptions.map((n) => ({ id: `l-${n}`, name: n })),
           },
           {
-            id: 'f-priority', name: 'Priority',
+            id: 'f-priority',
+            name: 'Priority',
             options: ['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'].map((n) => ({ id: `p-${n}`, name: n })),
           },
           {
-            id: 'f-status', name: 'Status',
+            id: 'f-status',
+            name: 'Status',
             options: ['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'].map((n) => ({
               id: `st-${n}`,
               name: n,
@@ -393,11 +501,7 @@ describe('migrate > backfill --dry-run', () => {
   const labeledIssue = {
     number: 1,
     title: 'feat(x): hi',
-    labels: [
-      { name: 'graph:lane/c1' },
-      { name: 'size:M' },
-      { name: 'P1-high' },
-    ],
+    labels: [{ name: 'graph:lane/c1' }, { name: 'size:M' }, { name: 'P1-high' }],
     id: 'node-1',
   }
 
@@ -490,11 +594,7 @@ describe('migrate > backfill idempotency', () => {
   const fullyPopulatedIssue = {
     number: 10,
     title: 'feat(y): already done',
-    labels: [
-      { name: 'graph:lane/a1' },
-      { name: 'size:S' },
-      { name: 'P2-medium' },
-    ],
+    labels: [{ name: 'graph:lane/a1' }, { name: 'size:S' }, { name: 'P2-medium' }],
     id: 'node-10',
   }
 
@@ -549,5 +649,319 @@ describe('migrate > backfill idempotency', () => {
     expect(callsAfterFirst).toBe(0)
     expect(mockUpdateField).not.toHaveBeenCalled()
     expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 7. rewriteTitles
+// ---------------------------------------------------------------------------
+
+describe('migrate > rewriteTitles', () => {
+  let snapshotPath: string
+
+  // 16 synthetic issues: all 8 types × (with scope + without scope)
+  const matchingIssues = [
+    { number: 101, title: 'feat: add login' },
+    { number: 102, title: 'feat(auth): add oauth' },
+    { number: 103, title: 'fix: null pointer' },
+    { number: 104, title: 'fix(parser): handle empty input' },
+    { number: 105, title: 'refactor: extract service' },
+    { number: 106, title: 'refactor(core): simplify logic' },
+    { number: 107, title: 'docs: update readme' },
+    { number: 108, title: 'docs(api): add examples' },
+    { number: 109, title: 'test: add unit tests' },
+    { number: 110, title: 'test(auth): cover edge cases' },
+    { number: 111, title: 'chore: bump deps' },
+    { number: 112, title: 'chore(ci): update actions' },
+    { number: 113, title: 'ci: fix pipeline' },
+    { number: 114, title: 'ci(deploy): add staging step' },
+    { number: 115, title: 'perf: reduce bundle size' },
+    { number: 116, title: 'perf(render): memoize component' },
+  ]
+
+  const nonMatchingIssues = [
+    { number: 201, title: 'random title' },
+    { number: 202, title: 'colon: but no type keyword' },
+    { number: 203, title: 'foo(scope): bar but no type keyword either' },
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    snapshotPath = join(tmpdir(), `rewrite-test-snapshot-${Date.now()}.json`)
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  describe('dry-run with all 8 conventional-commit types (with and without scope)', () => {
+    it('writes snapshot with 16 rows — one per matching title', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(JSON.stringify(matchingIssues))
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: true, snapshotPath })
+
+      // Assert
+      const raw = await readFile(snapshotPath, 'utf-8')
+      const rows = JSON.parse(raw) as RewriteRow[]
+      expect(rows).toHaveLength(16)
+    })
+
+    it('each snapshot row has repo, number, old_title, new_title fields', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(JSON.stringify(matchingIssues))
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: true, snapshotPath })
+
+      // Assert
+      const raw = await readFile(snapshotPath, 'utf-8')
+      const rows = JSON.parse(raw) as RewriteRow[]
+      for (const row of rows) {
+        expect(row).toHaveProperty('repo', 'Roxabi/test')
+        expect(row).toHaveProperty('number')
+        expect(row).toHaveProperty('old_title')
+        expect(row).toHaveProperty('new_title')
+      }
+    })
+
+    it('strips prefix from all 8 types without scope', async () => {
+      // Arrange
+      const withoutScope = matchingIssues.filter((_, i) => i % 2 === 0) // even indices = no scope
+      mockExecSync.mockReturnValue(JSON.stringify(withoutScope))
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: true, snapshotPath })
+
+      // Assert
+      const raw = await readFile(snapshotPath, 'utf-8')
+      const rows = JSON.parse(raw) as RewriteRow[]
+      expect(rows).toHaveLength(8)
+      for (const row of rows) {
+        // new_title must not start with any conventional-commit prefix
+        expect(row.new_title).not.toMatch(/^(feat|fix|refactor|docs|test|chore|ci|perf)(\(.+?\))?:\s*/)
+      }
+    })
+
+    it('strips prefix from all 8 types with scope', async () => {
+      // Arrange
+      const withScope = matchingIssues.filter((_, i) => i % 2 === 1) // odd indices = with scope
+      mockExecSync.mockReturnValue(JSON.stringify(withScope))
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: true, snapshotPath })
+
+      // Assert
+      const raw = await readFile(snapshotPath, 'utf-8')
+      const rows = JSON.parse(raw) as RewriteRow[]
+      expect(rows).toHaveLength(8)
+      for (const row of rows) {
+        expect(row.new_title).not.toMatch(/^(feat|fix|refactor|docs|test|chore|ci|perf)(\(.+?\))?:\s*/)
+      }
+    })
+
+    it('does not call gh issue edit in dry-run mode', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(JSON.stringify(matchingIssues))
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: true, snapshotPath })
+
+      // Assert — only the gh issue list call happened, no edit calls
+      const calls = mockExecSync.mock.calls as string[][]
+      const editCalls = calls.filter((args) => String(args[0]).includes('gh issue edit'))
+      expect(editCalls).toHaveLength(0)
+    })
+
+    it('preserves body text after stripping prefix (no scope)', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(JSON.stringify([{ number: 101, title: 'feat: add login' }]))
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: true, snapshotPath })
+
+      // Assert
+      const raw = await readFile(snapshotPath, 'utf-8')
+      const rows = JSON.parse(raw) as RewriteRow[]
+      expect(rows[0].new_title).toBe('add login')
+    })
+
+    it('preserves body text after stripping prefix (with scope)', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(JSON.stringify([{ number: 102, title: 'feat(auth): add oauth' }]))
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: true, snapshotPath })
+
+      // Assert
+      const raw = await readFile(snapshotPath, 'utf-8')
+      const rows = JSON.parse(raw) as RewriteRow[]
+      expect(rows[0].new_title).toBe('add oauth')
+    })
+  })
+
+  describe('non-matching titles are left untouched', () => {
+    it('writes empty snapshot when no titles match', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(JSON.stringify(nonMatchingIssues))
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: true, snapshotPath })
+
+      // Assert
+      const raw = await readFile(snapshotPath, 'utf-8')
+      const rows = JSON.parse(raw) as RewriteRow[]
+      expect(rows).toHaveLength(0)
+    })
+
+    it('does not emit a row for plain title without colon', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(JSON.stringify([{ number: 201, title: 'random title' }]))
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: true, snapshotPath })
+
+      // Assert
+      const raw = await readFile(snapshotPath, 'utf-8')
+      const rows = JSON.parse(raw) as RewriteRow[]
+      expect(rows).toHaveLength(0)
+    })
+
+    it('does not emit a row for colon present but no valid type keyword', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(JSON.stringify([{ number: 202, title: 'colon: but no type keyword' }]))
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: true, snapshotPath })
+
+      // Assert
+      const raw = await readFile(snapshotPath, 'utf-8')
+      const rows = JSON.parse(raw) as RewriteRow[]
+      expect(rows).toHaveLength(0)
+    })
+
+    it('does not emit a row for scope-like prefix without valid type keyword', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(
+        JSON.stringify([{ number: 203, title: 'foo(scope): bar but no type keyword either' }]),
+      )
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: true, snapshotPath })
+
+      // Assert
+      const raw = await readFile(snapshotPath, 'utf-8')
+      const rows = JSON.parse(raw) as RewriteRow[]
+      expect(rows).toHaveLength(0)
+    })
+
+    it('does not call gh issue edit for non-matching titles', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(JSON.stringify(nonMatchingIssues))
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: false, snapshotPath })
+
+      // Assert
+      const calls = mockExecSync.mock.calls as string[][]
+      const editCalls = calls.filter((args) => String(args[0]).includes('gh issue edit'))
+      expect(editCalls).toHaveLength(0)
+    })
+  })
+
+  describe('live run calls gh issue edit', () => {
+    it('calls gh issue edit with --repo, --title, and issue number', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(JSON.stringify([{ number: 101, title: 'feat: add login' }]))
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: false, snapshotPath })
+
+      // Assert
+      const calls = mockExecSync.mock.calls as string[][]
+      const editCalls = calls.filter((args) => String(args[0]).includes('gh issue edit'))
+      expect(editCalls).toHaveLength(1)
+      const cmd = String(editCalls[0][0])
+      expect(cmd).toContain('gh issue edit 101')
+      expect(cmd).toContain('--repo Roxabi/test')
+      expect(cmd).toContain('--title')
+      expect(cmd).toContain('add login')
+    })
+
+    it('writes snapshot even in live mode', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(JSON.stringify([{ number: 101, title: 'feat: add login' }]))
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: false, snapshotPath })
+
+      // Assert
+      const raw = await readFile(snapshotPath, 'utf-8')
+      const rows = JSON.parse(raw) as RewriteRow[]
+      expect(rows).toHaveLength(1)
+      expect(rows[0].number).toBe(101)
+    })
+
+    it('calls gh issue edit once per matching issue', async () => {
+      // Arrange — 3 matching + 1 non-matching
+      mockExecSync.mockReturnValue(
+        JSON.stringify([
+          { number: 101, title: 'feat: add login' },
+          { number: 102, title: 'fix: null pointer' },
+          { number: 103, title: 'chore: bump deps' },
+          { number: 201, title: 'random title' },
+        ]),
+      )
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: false, snapshotPath })
+
+      // Assert
+      const calls = mockExecSync.mock.calls as string[][]
+      const editCalls = calls.filter((args) => String(args[0]).includes('gh issue edit'))
+      expect(editCalls).toHaveLength(3)
+    })
+  })
+
+  describe('summary line', () => {
+    it('prints a line matching /Stripped \\d+ titles/', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(JSON.stringify(matchingIssues))
+      const logSpy = console.log as ReturnType<typeof vi.fn>
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: true, snapshotPath })
+
+      // Assert
+      const logCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+      expect(logCalls.some((msg) => /Stripped \d+ titles/.test(msg))).toBe(true)
+    })
+
+    it('reports 16 stripped titles when all 16 matching issues provided', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(JSON.stringify(matchingIssues))
+      const logSpy = console.log as ReturnType<typeof vi.fn>
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: true, snapshotPath })
+
+      // Assert
+      const logCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+      expect(logCalls.some((msg) => msg.includes('Stripped 16 titles'))).toBe(true)
+    })
+
+    it('reports 0 stripped titles when no issues match', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(JSON.stringify(nonMatchingIssues))
+      const logSpy = console.log as ReturnType<typeof vi.fn>
+
+      // Act
+      await rewriteTitles({ repo: 'Roxabi/test', dryRun: true, snapshotPath })
+
+      // Assert
+      const logCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+      expect(logCalls.some((msg) => msg.includes('Stripped 0 titles'))).toBe(true)
+    })
   })
 })
