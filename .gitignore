@@ -11,3 +11,6 @@ node_modules/
 
 # Upstream skill cache (used by tools/sync-vercel-skills.sh)
 .cache/
+
+# Git worktrees created by dev-core
+.claude/worktrees/
