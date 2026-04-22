@@ -9,8 +9,19 @@
  */
 
 import { ghGraphQL, listOrgIssueTypes } from '../../shared/adapters/github-adapter'
-import { MILESTONE_QUERY, VERIFY_PROJECT_ITEMS_QUERY } from '../../shared/queries'
+import { MILESTONE_QUERY, REPO_DEFAULT_BRANCH_QUERY, VERIFY_PROJECT_ITEMS_QUERY } from '../../shared/queries'
 import { generateAutoAddToProjectYml, pushWorkflowFile } from './workflows'
+
+async function getRepoDefaultBranch(owner: string, repo: string): Promise<string> {
+  const res = (await ghGraphQL(REPO_DEFAULT_BRANCH_QUERY, { owner, repo })) as {
+    data?: { repository?: { defaultBranchRef?: { name?: string } | null } | null }
+  }
+  const name = res?.data?.repository?.defaultBranchRef?.name
+  if (!name) {
+    throw new Error(`Unable to resolve default branch for ${owner}/${repo}`)
+  }
+  return name
+}
 
 export interface EnrollResult {
   enrolled: boolean
@@ -58,8 +69,13 @@ export async function enrollRepo(opts: {
     return { enrolled: true, dryRun: true, milestonesMissing: [], verified: false }
   }
 
-  // Step 3: Push auto-add workflow (idempotent create-or-update)
-  await pushWorkflowFile(org, repo, '.github/workflows/hub-add.yml', generateAutoAddToProjectYml(projectUrl))
+  // Step 3: Push auto-add workflow (idempotent create-or-update) to the repo's default branch.
+  // GitHub Actions reads issue-scoped workflows from the default branch only — pushing to any
+  // other branch is a silent failure.
+  const defaultBranch = await getRepoDefaultBranch(org, repo)
+  await pushWorkflowFile(org, repo, '.github/workflows/hub-add.yml', generateAutoAddToProjectYml(projectUrl), {
+    branch: defaultBranch,
+  })
 
   // Step 4: Check milestones M0/M1/M2 — warn only, no mutation
   const milestonesResult = (await ghGraphQL(MILESTONE_QUERY, { owner: org, repo })) as {

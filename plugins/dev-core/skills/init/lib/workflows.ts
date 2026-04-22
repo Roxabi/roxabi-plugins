@@ -306,10 +306,10 @@ export async function pushWorkflowFile(
   repo: string,
   path: string,
   content: string,
-  opts?: { message?: string; branch?: string },
+  opts: { branch: string; message?: string },
 ): Promise<'created' | 'updated'> {
   const token = await getToken()
-  const branch = opts?.branch ?? 'main'
+  const { branch } = opts
   const b64 = Buffer.from(content).toString('base64')
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`
   const headers: Record<string, string> = {
@@ -352,7 +352,7 @@ export async function pushWorkflows(
   owner: string,
   repo: string,
   opts: WorkflowOpts,
-  branch = 'main',
+  branch: string,
 ): Promise<PushResult[]> {
   const files: Array<{ name: string; content: string }> = [
     { name: 'auto-merge.yml', content: generateAutoMergeYml() },
@@ -372,7 +372,7 @@ export async function pushWorkflows(
 }
 
 /** Push a specific subset of workflow files (e.g. only the generic ones). */
-export async function pushGenericWorkflows(owner: string, repo: string, branch = 'main'): Promise<PushResult[]> {
+export async function pushGenericWorkflows(owner: string, repo: string, branch: string): Promise<PushResult[]> {
   const files = [
     { name: 'auto-merge.yml', content: generateAutoMergeYml() },
     { name: 'pr-title.yml', content: generatePrTitleYml() },

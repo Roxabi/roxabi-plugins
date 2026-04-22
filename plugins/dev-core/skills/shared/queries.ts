@@ -385,6 +385,15 @@ export const MILESTONE_QUERY = `
   }
 `
 
+/** Fetch a repository's default branch name. */
+export const REPO_DEFAULT_BRANCH_QUERY = `
+  query($owner: String!, $repo: String!) {
+    repository(owner: $owner, name: $repo) {
+      defaultBranchRef { name }
+    }
+  }
+`
+
 /** Lightweight probe: fetch first item of a ProjectV2 node. */
 export const VERIFY_PROJECT_ITEMS_QUERY = `
   # projectV2 item probe

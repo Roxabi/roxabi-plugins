@@ -13,10 +13,12 @@ const state: {
   issueTypes: Array<{ id: string; name: string; color: string; isEnabled: boolean }>
   milestonesMissing: string[]
   testIssueInHub: boolean
+  defaultBranch: string | null
 } = {
   issueTypes: [],
   milestonesMissing: [],
   testIssueInHub: true,
+  defaultBranch: 'staging',
 }
 
 // All 10 required issue type names
@@ -28,6 +30,16 @@ const ALL_TEN_ISSUE_TYPES = ['fix', 'feat', 'docs', 'test', 'chore', 'ci', 'perf
 
 vi.mock('../../shared/adapters/github-adapter', () => ({
   ghGraphQL: vi.fn(async (query: string, _vars: Record<string, unknown>) => {
+    // default branch query
+    if (query.includes('defaultBranchRef')) {
+      return {
+        data: {
+          repository: state.defaultBranch
+            ? { defaultBranchRef: { name: state.defaultBranch } }
+            : { defaultBranchRef: null },
+        },
+      }
+    }
     // milestone query
     if (query.includes('milestone')) {
       const ALL_MILESTONES = ['M0', 'M1', 'M2']
@@ -102,6 +114,7 @@ beforeEach(() => {
   }))
   state.milestonesMissing = []
   state.testIssueInHub = true
+  state.defaultBranch = 'staging'
   vi.clearAllMocks()
 })
 
@@ -199,6 +212,59 @@ describe('hub-enroll', () => {
         milestonesMissing: [],
         verified: true,
       })
+    })
+
+    it("pushes the workflow to the repo's detected default branch (not hardcoded 'main')", async () => {
+      // Act
+      await enrollRepo({
+        org: 'Roxabi',
+        repo: 'test-repo',
+        projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
+        projectId: 'PVT_test42',
+      })
+
+      // Assert — pushWorkflowFile called with branch: 'staging'
+      expect(pushWorkflowMock).toHaveBeenCalledWith(
+        'Roxabi',
+        'test-repo',
+        '.github/workflows/hub-add.yml',
+        expect.any(String),
+        expect.objectContaining({ branch: 'staging' }),
+      )
+    })
+
+    it('threads non-standard default branches (e.g. trunk) through to pushWorkflowFile', async () => {
+      state.defaultBranch = 'trunk'
+
+      await enrollRepo({
+        org: 'Roxabi',
+        repo: 'weird-repo',
+        projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
+        projectId: 'PVT_test42',
+      })
+
+      expect(pushWorkflowMock).toHaveBeenCalledWith(
+        'Roxabi',
+        'weird-repo',
+        '.github/workflows/hub-add.yml',
+        expect.any(String),
+        expect.objectContaining({ branch: 'trunk' }),
+      )
+    })
+
+    it('throws when default branch cannot be resolved', async () => {
+      state.defaultBranch = null
+
+      await expect(
+        enrollRepo({
+          org: 'Roxabi',
+          repo: 'ghost-repo',
+          projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
+          projectId: 'PVT_test42',
+        }),
+      ).rejects.toThrow(/default branch/i)
+
+      expect(pushWorkflowMock).not.toHaveBeenCalled()
     })
 
     it('dry-run emits planned actions without executing', async () => {
