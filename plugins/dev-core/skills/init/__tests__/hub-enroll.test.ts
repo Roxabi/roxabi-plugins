@@ -215,9 +215,6 @@ describe('hub-enroll', () => {
     })
 
     it("pushes the workflow to the repo's detected default branch (not hardcoded 'main')", async () => {
-      // Arrange — repo default branch is 'staging' (set by beforeEach)
-      state.defaultBranch = 'staging'
-
       // Act
       await enrollRepo({
         org: 'Roxabi',
