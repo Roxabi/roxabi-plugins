@@ -13,6 +13,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import {
+  CREATE_PROJECT_V2_FIELD_MUTATION,
+  CREATE_PROJECT_V2_MUTATION,
+  PROJECT_FIELDS_QUERY,
+  UPDATE_FIELD_OPTIONS_MUTATION,
+} from '../../shared/queries'
+
 // ---------------------------------------------------------------------------
 // In-memory state shared by adapter mocks
 // ---------------------------------------------------------------------------
@@ -33,21 +40,24 @@ const state: {
 // Mock github-adapter — intercepted at module resolution time
 // ---------------------------------------------------------------------------
 
+// Mock routing: exact-match on imported query constants.
+// If a query doesn't match, throw explicit error (no silent {} fallback).
+// This makes query refactors immediately visible in test output.
 vi.mock('../../shared/adapters/github-adapter', () => ({
   ghGraphQL: vi.fn(async (query: string, _vars: Record<string, unknown>) => {
-    // createProjectV2Field (checked before createProjectV2 to avoid prefix match)
-    if (query.includes('createProjectV2Field')) {
+    // createProjectV2Field
+    if (query === CREATE_PROJECT_V2_FIELD_MUTATION) {
       state.projectFieldCalls++
       return { data: { createProjectV2Field: { projectV2Field: { id: 'FIELD_new', name: 'unknown' } } } }
     }
     // createProjectV2
-    if (query.includes('createProjectV2')) {
+    if (query === CREATE_PROJECT_V2_MUTATION) {
       const proj = { id: 'PVT_new', number: 23, title: 'Roxabi Hub' }
       state.projects.push(proj)
       return { data: { createProjectV2: { projectV2: proj } } }
     }
     // projectV2 fields query (used to verify Status)
-    if (query.includes('projectV2') && query.includes('fields')) {
+    if (query === PROJECT_FIELDS_QUERY) {
       return {
         data: {
           node: {
@@ -71,7 +81,17 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
         },
       }
     }
-    return {}
+    // updateFieldOptions (used in patch test)
+    if (query === UPDATE_FIELD_OPTIONS_MUTATION) {
+      return {
+        data: {
+          updateProjectV2Field: {
+            projectV2Field: { id: 'SF_status', name: 'Status' },
+          },
+        },
+      }
+    }
+    throw new Error(`Unexpected GraphQL query: ${query.slice(0, 50)}...`)
   }),
 
   listOrgProjects: vi.fn(async () => state.projects),
@@ -504,6 +524,13 @@ describe('hub-bootstrap', () => {
       } finally {
         await unlink(snapshotPath).catch(() => {})
       }
+    })
+  })
+
+  describe('ghGraphQL mock', () => {
+    it('throws on unexpected GraphQL query', async () => {
+      const { ghGraphQL } = await import('../../shared/adapters/github-adapter')
+      await expect(ghGraphQL('bad query', {})).rejects.toThrow(/Unexpected GraphQL query/)
     })
   })
 })

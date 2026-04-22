@@ -1,5 +1,10 @@
 /**
  * All GraphQL query and mutation strings — single source of truth.
+ *
+ * Mock routing pattern (for tests):
+ * Import constants and route via exact match: `if (query === MILESTONE_QUERY)`.
+ * Throw explicit error on unexpected queries — no silent {} fallback.
+ * This makes query refactors immediately visible in test output.
  */
 
 /** Full issue query with dependencies, sub-issues, and URL (issues dashboard + CLI). */
