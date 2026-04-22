@@ -24,6 +24,7 @@ import {
   REMOVE_SUB_ISSUE_MUTATION,
   REPO_ID_QUERY,
   UPDATE_FIELD_MUTATION,
+  UPDATE_ISSUE_ISSUE_TYPE_MUTATION,
   UPDATE_ISSUE_TYPE_MUTATION,
 } from '../queries'
 
@@ -628,6 +629,23 @@ export async function updateLabels(issueNumber: number, add: string[], remove: s
   if (add.length) args.push('--add-label', add.join(','))
   if (remove.length) args.push('--remove-label', remove.join(','))
   await run(args)
+}
+
+/** Update the issue type on a GitHub issue. Pass null issueTypeId to clear. */
+export async function updateIssueIssueType(issueNodeId: string, issueTypeId: string | null): Promise<void> {
+  // Note: GitHub GraphQL may reject null issueTypeId — if so, use updateIssueType to clear instead.
+  await ghGraphQL(UPDATE_ISSUE_ISSUE_TYPE_MUTATION, { issueId: issueNodeId, issueTypeId })
+}
+
+/** Resolve an issue type name to its node ID for a given org (case-insensitive). */
+export async function resolveIssueTypeId(org: string, typeName: string): Promise<string> {
+  const types = await listOrgIssueTypes(org)
+  const match = types.find((t) => t.name.toLowerCase() === typeName.toLowerCase())
+  if (!match) {
+    const valid = types.map((t) => t.name).join(', ')
+    throw new Error(`Unknown issue type: ${typeName}. Valid: ${valid}`)
+  }
+  return match.id
 }
 
 /** Get the parent issue number for an issue, or null if none. */
