@@ -5,6 +5,16 @@ pre-commit:
       glob: "*.{ts,tsx,js,jsx}"
     typecheck:
       run: bun run typecheck
+    detectLocalPath-guard:
+      run: |
+        # Fail on detectLocalPath imports outside canonical module
+        # Allowed: cwd-resolver.ts (definition), github-discovery.ts (canonical consumer)
+        bad=$(grep -l "detectLocalPath" plugins/dev-core/cli/lib/*.ts 2>/dev/null | grep -v "cwd-resolver.ts\|github-discovery.ts" || true)
+        if [ -n "$bad" ]; then
+          echo "ERROR: detectLocalPath imported outside canonical modules (cwd-resolver.ts, github-discovery.ts):"
+          echo "$bad"
+          exit 1
+        fi
     trufflehog:
       run: scripts/trufflehog-check.sh
       skip:

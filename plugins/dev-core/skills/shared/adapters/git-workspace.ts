@@ -1,13 +1,11 @@
 /**
  * GitWorkspaceAdapter — concrete WorkspacePort backed by git + filesystem.
  */
+
+import { discoverProject as discoverProjectFn } from '../../../cli/lib/github-discovery'
+import { readWorkspace as readWorkspaceFn, writeWorkspace as writeWorkspaceFn } from '../../../cli/lib/workspace-store'
 import type { Branch, Worktree } from '../domain/types'
 import type { Workspace, WorkspacePort, WorkspaceProject } from '../ports/workspace'
-import {
-  discoverProject as discoverProjectFn,
-  readWorkspace as readWorkspaceFn,
-  writeWorkspace as writeWorkspaceFn,
-} from './workspace-helpers'
 
 export class GitWorkspaceAdapter implements WorkspacePort {
   readWorkspace(): Workspace {

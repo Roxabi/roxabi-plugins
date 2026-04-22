@@ -19,8 +19,8 @@ export {
 
 export { ISSUES_QUERY as QUERY, ITEM_ID_QUERY, UPDATE_FIELD_MUTATION } from '../../shared/queries'
 
+import { readWorkspace } from '../../../cli/lib/workspace-store'
 import { detectGitHubRepo } from '../../shared/adapters/config-helpers'
-import { readWorkspace } from '../../shared/adapters/workspace-helpers'
 
 /**
  * Resolve project config for the current repo.
