@@ -34,11 +34,7 @@ describe('parseIssueRef', () => {
 
 describe('parseIssueRefs', () => {
   it('parses comma-separated local refs', () => {
-    expect(parseIssueRefs('100,101,102')).toEqual([
-      { number: 100 },
-      { number: 101 },
-      { number: 102 },
-    ])
+    expect(parseIssueRefs('100,101,102')).toEqual([{ number: 100 }, { number: 101 }, { number: 102 }])
   })
 
   it('parses mixed local and cross-repo refs', () => {
