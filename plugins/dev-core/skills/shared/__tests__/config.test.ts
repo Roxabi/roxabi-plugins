@@ -159,16 +159,26 @@ describe('shared/config', () => {
   })
 
   describe('resolveSize', () => {
-    it('resolves all valid sizes (case-insensitive)', () => {
-      expect(resolveSize('xs')).toBe('XS')
+    it('resolves tier-based sizes', () => {
       expect(resolveSize('S')).toBe('S')
-      expect(resolveSize('m')).toBe('M')
-      expect(resolveSize('L')).toBe('L')
-      expect(resolveSize('xl')).toBe('XL')
+      expect(resolveSize('F-lite')).toBe('F-lite')
+      expect(resolveSize('F-full')).toBe('F-full')
+    })
+
+    it('maps legacy sizes to new tiers', () => {
+      expect(resolveSize('XS')).toBe('S')
+      expect(resolveSize('xs')).toBe('S')
+      expect(resolveSize('M')).toBe('F-lite')
+      expect(resolveSize('m')).toBe('F-lite')
+      expect(resolveSize('L')).toBe('F-full')
+      expect(resolveSize('l')).toBe('F-full')
+      expect(resolveSize('XL')).toBe('F-full')
+      expect(resolveSize('xl')).toBe('F-full')
     })
 
     it('returns undefined for invalid input', () => {
       expect(resolveSize('XXL')).toBeUndefined()
+      expect(resolveSize('unknown')).toBeUndefined()
     })
   })
 

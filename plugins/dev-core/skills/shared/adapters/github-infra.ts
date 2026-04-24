@@ -5,7 +5,14 @@
  * Dependency direction: github-infra → github-adapter (clean, no cycle).
  */
 
-import { PRIORITY_LABEL_MAP, PRIORITY_LABELS_SET } from './config-helpers'
+import {
+  LANE_LABEL_MAP,
+  LANE_LABELS_SET,
+  PRIORITY_LABEL_MAP,
+  PRIORITY_LABELS_SET,
+  SIZE_LABEL_MAP,
+  SIZE_LABELS_SET,
+} from './config-helpers'
 
 export interface LabelDef {
   name: string
@@ -93,5 +100,41 @@ export async function syncPriorityLabel(issueNumber: number, canonical: string):
     await updateLabels(issueNumber, [target], stale)
   } catch (err) {
     console.error(`Warning: Failed to sync priority label for #${issueNumber}: ${err}`)
+  }
+}
+
+/**
+ * Sync size label on a GitHub issue. Adds the target label and removes stale ones.
+ * Non-fatal: logs a warning on failure but does not throw.
+ */
+export async function syncSizeLabel(issueNumber: number, canonical: string): Promise<void> {
+  const target = SIZE_LABEL_MAP[canonical]
+  if (!target) return
+
+  const stale = [...SIZE_LABELS_SET].filter((l) => l !== target)
+
+  try {
+    const { updateLabels } = await import('./github-adapter')
+    await updateLabels(issueNumber, [target], stale)
+  } catch (err) {
+    console.error(`Warning: Failed to sync size label for #${issueNumber}: ${err}`)
+  }
+}
+
+/**
+ * Sync lane label on a GitHub issue. Adds the target label and removes stale ones.
+ * Non-fatal: logs a warning on failure but does not throw.
+ */
+export async function syncLaneLabel(issueNumber: number, canonical: string): Promise<void> {
+  const target = LANE_LABEL_MAP[canonical]
+  if (!target) return
+
+  const stale = [...LANE_LABELS_SET].filter((l) => l !== target)
+
+  try {
+    const { updateLabels } = await import('./github-adapter')
+    await updateLabels(issueNumber, [target], stale)
+  } catch (err) {
+    console.error(`Warning: Failed to sync lane label for #${issueNumber}: ${err}`)
   }
 }

@@ -16,11 +16,9 @@ process.env.STATUS_OPTIONS_JSON = JSON.stringify({
   Done: 'status-done',
 })
 process.env.SIZE_OPTIONS_JSON = JSON.stringify({
-  XS: 'size-xs',
   S: 'size-s',
-  M: 'size-m',
-  L: 'size-l',
-  XL: 'size-xl',
+  'F-lite': 'size-f-lite',
+  'F-full': 'size-f-full',
 })
 process.env.PRIORITY_OPTIONS_JSON = JSON.stringify({
   'P0 - Urgent': 'pri-urgent',
@@ -55,7 +53,7 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
     Review: 'status-review',
     Done: 'status-done',
   },
-  SIZE_OPTIONS: { XS: 'size-xs', S: 'size-s', M: 'size-m', L: 'size-l', XL: 'size-xl' },
+  SIZE_OPTIONS: { S: 'size-s', 'F-lite': 'size-f-lite', 'F-full': 'size-f-full' },
   PRIORITY_OPTIONS: {
     'P0 - Urgent': 'pri-urgent',
     'P1 - High': 'pri-high',
@@ -79,8 +77,15 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
     return aliases[input.toUpperCase()]
   },
   resolveSize: (input: string) => {
-    const u = input.toUpperCase()
-    return new Set(['XS', 'S', 'M', 'L', 'XL']).has(u) ? u : undefined
+    const valid = new Set(['S', 'F-lite', 'F-full'])
+    if (valid.has(input)) return input
+    const u = input.toUpperCase().replace(/[-\s]/g, '-')
+    if (valid.has(u as 'S' | 'F-lite' | 'F-full')) return u
+    // Aliases
+    if (u === 'XS') return 'S'
+    if (u === 'M') return 'F-lite'
+    if (u === 'L' || u === 'XL') return 'F-full'
+    return undefined
   },
   resolvePriority: (input: string) => {
     const canonical = new Set(['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'])
@@ -105,6 +110,8 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
 
 vi.mock('../../shared/adapters/github-infra', () => ({
   syncPriorityLabel: vi.fn(),
+  syncSizeLabel: vi.fn(),
+  syncLaneLabel: vi.fn(),
 }))
 
 vi.mock('../../shared/adapters/github-adapter', () => ({
@@ -134,6 +141,8 @@ const mockUpdateIssueIssueType = github.updateIssueIssueType as ReturnType<typeo
 
 const githubInfra = await import('../../shared/adapters/github-infra')
 const mockSyncPriorityLabel = githubInfra.syncPriorityLabel as ReturnType<typeof vi.fn>
+const mockSyncSizeLabel = githubInfra.syncSizeLabel as ReturnType<typeof vi.fn>
+const mockSyncLaneLabel = githubInfra.syncLaneLabel as ReturnType<typeof vi.fn>
 
 const { setIssue } = await import('../lib/set')
 
@@ -150,10 +159,9 @@ describe('issue-triage/set > field updates', () => {
   beforeEach(setupMocks)
   afterEach(() => vi.restoreAllMocks())
 
-  it('updates size field', async () => {
-    await setIssue(['42', '--size', 'M'])
-    expect(mockGetItemId).toHaveBeenCalledWith(42)
-    expect(mockUpdateField).toHaveBeenCalledWith('item-123', expect.any(String), 'size-m')
+  it('updates size via label', async () => {
+    await setIssue(['42', '--size', 'F-lite'])
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(42, 'F-lite')
   })
 
   it('updates priority field with alias', async () => {
@@ -263,8 +271,10 @@ describe('issue-triage/set > combined flags', () => {
   afterEach(() => vi.restoreAllMocks())
 
   it('handles multiple flags at once', async () => {
-    await setIssue(['42', '--size', 'L', '--priority', 'Urgent', '--blocked-by', '99'])
-    expect(mockUpdateField).toHaveBeenCalledTimes(2) // size + priority
+    await setIssue(['42', '--size', 'F-full', '--priority', 'Urgent', '--blocked-by', '99'])
+    // size via label, priority via field + label
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(42, 'F-full')
+    expect(mockUpdateField).toHaveBeenCalledTimes(1) // priority only
     expect(mockAddBlockedBy).toHaveBeenCalledTimes(1)
   })
 
@@ -284,7 +294,7 @@ describe('issue-triage/set > priority label sync', () => {
   })
 
   it('does not sync priority label when --priority is not provided', async () => {
-    await setIssue(['42', '--size', 'M'])
+    await setIssue(['42', '--size', 'F-lite'])
     expect(mockSyncPriorityLabel).not.toHaveBeenCalled()
   })
 })
@@ -293,25 +303,14 @@ describe('issue-triage/set > --lane flag', () => {
   beforeEach(setupMocks)
   afterEach(() => vi.restoreAllMocks())
 
-  it('updates lane field with valid lane key', async () => {
-    // Arrange
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
-    // Act
+  it('updates lane via label', async () => {
     await setIssue(['123', '--lane', 'c1'])
-    // Assert
-    expect(mockUpdateField).toHaveBeenCalledWith('item-123', 'LF_test', 'lane-c1')
-    expect(exitSpy).not.toHaveBeenCalled()
+    expect(mockSyncLaneLabel).toHaveBeenCalledWith(123, 'c1')
   })
 
-  it('calls process.exit(1) and prints error for invalid lane key', async () => {
-    // Arrange
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
-    // Act
+  it('does nothing for invalid lane key (resolveLane returns undefined)', async () => {
     await setIssue(['123', '--lane', 'zzz'])
-    // Assert
-    expect(exitSpy).toHaveBeenCalledWith(1)
-    const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
-    expect(errCalls.some((msg) => msg.includes('Invalid lane') || msg.includes('Valid'))).toBe(true)
+    expect(mockSyncLaneLabel).not.toHaveBeenCalled()
   })
 })
 
@@ -347,14 +346,10 @@ describe('issue-triage/set > additive regression', () => {
   afterEach(() => vi.restoreAllMocks())
 
   it('--size alone does not call lane or type mutations', async () => {
-    // Arrange & Act
     await setIssue(['123', '--size', 'S'])
-    // Assert — size field updated, but not lane or type
-    expect(mockUpdateField).toHaveBeenCalledWith('item-123', 'SZF_test', 'size-s')
-    const laneFieldCalls = (mockUpdateField as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (c: unknown[]) => c[1] === 'LF_test',
-    )
-    expect(laneFieldCalls).toHaveLength(0)
+    // size via label sync
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(123, 'S')
+    expect(mockSyncLaneLabel).not.toHaveBeenCalled()
     expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
   })
 })
@@ -364,16 +359,12 @@ describe('issue-triage/set > combined --lane + --type + --size', () => {
   afterEach(() => vi.restoreAllMocks())
 
   it('applies all three mutations when combined flags provided', async () => {
-    // Arrange
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
-    // Act
     await setIssue(['123', '--lane', 'a1', '--type', 'feat', '--size', 'S'])
-    // Assert — size field
-    expect(mockUpdateField).toHaveBeenCalledWith('item-123', 'SZF_test', 'size-s')
-    // Assert — lane field
-    expect(mockUpdateField).toHaveBeenCalledWith('item-123', 'LF_test', 'lane-a1')
+    // Assert — size label
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(123, 'S')
+    // Assert — lane label
+    expect(mockSyncLaneLabel).toHaveBeenCalledWith(123, 'a1')
     // Assert — type mutation
     expect(mockUpdateIssueIssueType).toHaveBeenCalledWith('node-123', 'type-id-feat')
-    expect(exitSpy).not.toHaveBeenCalled()
   })
 })

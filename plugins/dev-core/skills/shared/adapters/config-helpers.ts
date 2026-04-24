@@ -144,8 +144,8 @@ export const PRIORITY_ALIASES: Record<string, string> = {
 
 // Canonical field option arrays — single source of truth for field creation and validation
 export const DEFAULT_STATUS_OPTIONS = ['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done']
-// TODO(#121): reconcile with hub-bootstrap.ts SIZE_OPTIONS after migrate audit-schema run
-export const DEFAULT_SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL']
+// Tier-based sizes: S (simple), F-lite (subagents), F-full (agent team)
+export const DEFAULT_SIZE_OPTIONS = ['S', 'F-lite', 'F-full']
 export const DEFAULT_PRIORITY_OPTIONS = ['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low']
 export const DEFAULT_LANE_OPTIONS = [
   'a1',
@@ -189,8 +189,19 @@ export function resolvePriority(input: string): string | undefined {
 
 /** Resolve loose user input to a canonical size key, or undefined. */
 export function resolveSize(input: string): string | undefined {
-  const upper = input.toUpperCase()
+  // Direct match
+  if (CANONICAL_SIZES.has(input)) return input
+  // Case-insensitive match
+  const upper = input.toUpperCase().replace(/[-\s]/g, '-')
   if (CANONICAL_SIZES.has(upper)) return upper
+  // Aliases: XS → S, M → F-lite, L/XL → F-full
+  if (upper === 'XS') return 'S'
+  if (upper === 'M') return 'F-lite'
+  if (upper === 'L' || upper === 'XL') return 'F-full'
+  // F-lite variations
+  if (upper === 'FLITE' || upper === 'F_LITE' || upper === 'F-LITE') return 'F-lite'
+  // F-full variations
+  if (upper === 'FFULL' || upper === 'F_FULL' || upper === 'F-FULL') return 'F-full'
   return
 }
 
@@ -257,6 +268,24 @@ export const PRIORITY_LABEL_MAP: Record<string, string> = {
 /** Set of all priority label names (for stale label removal). */
 export const PRIORITY_LABELS_SET = new Set(Object.values(PRIORITY_LABEL_MAP))
 
+/** Map canonical size → GitHub label name. */
+export const SIZE_LABEL_MAP: Record<string, string> = {
+  S: 'size:S',
+  'F-lite': 'size:F-lite',
+  'F-full': 'size:F-full',
+}
+
+/** Set of all size label names (for stale label removal). */
+export const SIZE_LABELS_SET = new Set(Object.values(SIZE_LABEL_MAP))
+
+/** Map canonical lane → GitHub label name. */
+export const LANE_LABEL_MAP: Record<string, string> = Object.fromEntries(
+  DEFAULT_LANE_OPTIONS.map((lane) => [lane, `graph:lane/${lane}`]),
+)
+
+/** Set of all lane label names (for stale label removal). */
+export const LANE_LABELS_SET = new Set(Object.values(LANE_LABEL_MAP))
+
 export const STATUS_SHORT: Record<string, string> = {
   'In Progress': 'In Prog',
   Backlog: 'Backlog',
@@ -275,11 +304,9 @@ export const PRIORITY_ORDER: Record<string, number> = {
 }
 
 export const SIZE_ORDER: Record<string, number> = {
-  XL: 0,
-  L: 1,
-  M: 2,
-  S: 3,
-  XS: 4,
+  'F-full': 0,
+  'F-lite': 1,
+  S: 2,
   '-': 99,
 }
 

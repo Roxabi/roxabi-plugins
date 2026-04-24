@@ -149,11 +149,11 @@ describe('table-formatter', () => {
       expect(sorted.map((i) => i.content.number)).toEqual([2, 1])
     })
 
-    it('sorts by size XL → XS within same priority', () => {
+    it('sorts by size F-full → S within same priority', () => {
       const items = [
         makeRawItem({ number: 1 }, { Priority: 'P1 - High', Size: 'S' }),
-        makeRawItem({ number: 2 }, { Priority: 'P1 - High', Size: 'XL' }),
-        makeRawItem({ number: 3 }, { Priority: 'P1 - High', Size: 'M' }),
+        makeRawItem({ number: 2 }, { Priority: 'P1 - High', Size: 'F-full' }),
+        makeRawItem({ number: 3 }, { Priority: 'P1 - High', Size: 'F-lite' }),
       ]
 
       const sorted = sortIssues(items)

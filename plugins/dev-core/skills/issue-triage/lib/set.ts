@@ -6,8 +6,6 @@
 import {
   GITHUB_REPO,
   isProjectConfigured,
-  LANE_FIELD_ID,
-  LANE_OPTIONS,
   NOT_CONFIGURED_MSG,
   PRIORITY_FIELD_ID,
   PRIORITY_OPTIONS,
@@ -15,8 +13,6 @@ import {
   resolvePriority,
   resolveSize,
   resolveStatus,
-  SIZE_FIELD_ID,
-  SIZE_OPTIONS,
   STATUS_FIELD_ID,
   STATUS_OPTIONS,
 } from '../../shared/adapters/config-helpers'
@@ -32,7 +28,7 @@ import {
   updateField,
   updateIssueIssueType,
 } from '../../shared/adapters/github-adapter'
-import { syncPriorityLabel } from '../../shared/adapters/github-infra'
+import { syncPriorityLabel, syncSizeLabel, syncLaneLabel } from '../../shared/adapters/github-infra'
 import { parseIssueRefs } from '../../shared/domain/parse-issue-ref'
 
 interface SetOptions {
@@ -129,16 +125,6 @@ async function applyStatus(itemId: string, issueNumber: number, status: string):
   console.log(`Status=${canonical} #${issueNumber}`)
 }
 
-async function applySize(itemId: string, issueNumber: number, size: string): Promise<void> {
-  const canonical = resolveSize(size)
-  if (!(canonical && SIZE_OPTIONS[canonical])) {
-    console.error(`Error: Invalid size. Valid: ${Object.keys(SIZE_OPTIONS).join(', ')}`)
-    process.exit(1)
-  }
-  await updateField(itemId, SIZE_FIELD_ID, SIZE_OPTIONS[canonical])
-  console.log(`Size=${canonical} #${issueNumber}`)
-}
-
 async function applyPriority(itemId: string, issueNumber: number, priority: string): Promise<void> {
   const canonical = resolvePriority(priority)
   if (!(canonical && PRIORITY_OPTIONS[canonical])) {
@@ -147,16 +133,6 @@ async function applyPriority(itemId: string, issueNumber: number, priority: stri
   }
   await updateField(itemId, PRIORITY_FIELD_ID, PRIORITY_OPTIONS[canonical])
   console.log(`Priority=${canonical} #${issueNumber}`)
-}
-
-async function applyLane(itemId: string, issueNumber: number, lane: string): Promise<void> {
-  const canonical = resolveLane(lane)
-  if (!(canonical && LANE_OPTIONS[canonical])) {
-    console.error(`Error: Invalid lane. Valid: ${Object.keys(LANE_OPTIONS).join(', ')}`)
-    process.exit(1)
-  }
-  await updateField(itemId, LANE_FIELD_ID, LANE_OPTIONS[canonical])
-  console.log(`Lane=${canonical} #${issueNumber}`)
 }
 
 const VALID_TYPES = ['fix', 'feat', 'docs', 'test', 'chore', 'ci', 'perf', 'epic', 'research', 'refactor']
@@ -175,7 +151,7 @@ async function applyType(issueNumber: number, type: string): Promise<void> {
 }
 
 async function applyProjectFields(issueNumber: number, opts: SetOptions): Promise<void> {
-  if (!(opts.size || opts.priority || opts.status || opts.lane || opts.type)) return
+  if (!(opts.priority || opts.status || opts.type)) return
 
   if (!isProjectConfigured()) {
     console.error(NOT_CONFIGURED_MSG)
@@ -186,9 +162,7 @@ async function applyProjectFields(issueNumber: number, opts: SetOptions): Promis
   if (!itemId) return
 
   if (opts.status) await applyStatus(itemId, issueNumber, opts.status)
-  if (opts.size) await applySize(itemId, issueNumber, opts.size)
   if (opts.priority) await applyPriority(itemId, issueNumber, opts.priority)
-  if (opts.lane) await applyLane(itemId, issueNumber, opts.lane)
   if (opts.type) await applyType(issueNumber, opts.type)
 }
 
@@ -311,10 +285,24 @@ export async function setIssue(args: string[]): Promise<void> {
 
   await applyProjectFields(opts.issueNumber, opts)
 
-  // Sync priority label (independent of project board)
+  // Sync labels (independent of project board)
   if (opts.priority) {
     const canonical = resolvePriority(opts.priority)
     if (canonical) await syncPriorityLabel(opts.issueNumber, canonical)
+  }
+  if (opts.size) {
+    const canonical = resolveSize(opts.size)
+    if (canonical) {
+      await syncSizeLabel(opts.issueNumber, canonical)
+      console.log(`Size=${canonical} #${opts.issueNumber}`)
+    }
+  }
+  if (opts.lane) {
+    const canonical = resolveLane(opts.lane)
+    if (canonical) {
+      await syncLaneLabel(opts.issueNumber, canonical)
+      console.log(`Lane=${canonical} #${opts.issueNumber}`)
+    }
   }
 
   await applyDependencies(opts.issueNumber, opts)
