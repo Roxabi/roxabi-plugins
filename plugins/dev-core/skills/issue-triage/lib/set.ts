@@ -28,7 +28,7 @@ import {
   updateField,
   updateIssueIssueType,
 } from '../../shared/adapters/github-adapter'
-import { syncPriorityLabel, syncSizeLabel, syncLaneLabel } from '../../shared/adapters/github-infra'
+import { syncLaneLabel, syncPriorityLabel, syncSizeLabel } from '../../shared/adapters/github-infra'
 import { parseIssueRefs } from '../../shared/domain/parse-issue-ref'
 
 interface SetOptions {

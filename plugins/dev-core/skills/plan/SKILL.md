@@ -150,8 +150,10 @@ Include:
 - Architecture diagrams (mermaid, see below)
 - Bootstrap Context (from analysis if ∃, omit if ¬∃)
 - Agents table (agent, task count, files)
+- Wave Structure table (see below)
 - Consistency Report (covered/total, uncovered, untraced, exemptions)
 - Micro-Tasks (grouped by slice/criteria, with RED-GATE sentinels)
+- Task Seeding Blueprint (see below)
 
 ### Mermaid Diagrams
 
@@ -160,6 +162,63 @@ Include:
 2. **File × Function map** (`flowchart LR`) — functions/classes per file, call relationships. Group by source file. Show test files as consumers.
 
 Diagrams go AFTER Summary, BEFORE Bootstrap Context.
+
+### Wave Structure
+
+After micro-tasks, derive waves from the dependency graph. Name parallel agent instances (tester-A/B, backend-dev-A/B/C, devops-A/B) so `/implement` can spawn distinct agents per wave. Include this table in π:
+
+```markdown
+## Wave Structure
+
+{N} waves, max {K} parallel agents. Elapsed ~{X} weeks vs ~{Y} sequential.
+
+| Wave | Trigger | Agents | Tasks |
+|------|---------|--------|-------|
+| 1 | start | {K} ∥ | {agent-A}: T{n} · {agent-B}: T{m} |
+| 2 | Wave 1 done | {K} ∥ | ... |
+```
+
+Rules:
+- Wave 1 = all tasks with no deps.
+- Wave N = tasks whose deps are all in earlier waves.
+- Tasks chained within a wave (A→B) on one agent instance → note as `T{n}→T{m}` in the Tasks column.
+- Include total elapsed estimate vs sequential.
+
+### Task Seeding Blueprint
+
+After `## Wave Structure`, include a `## Task Seeding Blueprint` section in π. This is the machine-readable input for `/implement` task seeding.
+
+```markdown
+## Task Seeding Blueprint
+
+<!-- Used by /implement to seed TaskCreate calls on session start.
+     Format: T{n} | agent-instance | blockedBy | subject
+     blockedBy refs T-numbers within this list (not session task IDs).
+     Agent instances are named (tester-A/B, backend-dev-A/B/C, devops-A/B)
+     so parallel tasks map to distinct spawned agents.
+     Seed in wave order; within a wave all rows are parallel (∥). -->
+
+### Wave 1 — no deps, {K} agents ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T1 | tester-A | — | {subject} |
+| T2 | backend-dev-A | — | {subject} |
+
+### Wave 2 — after Wave 1, {K} agents ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T3 | devops-A | T2 | {subject} |
+| T4 | tester-A | T3 | {subject} |
+```
+
+Rules:
+- One row per micro-task (including RED-GATE sentinels).
+- `blockedBy` = comma-separated T-numbers (within this blueprint, ¬task IDs).
+- `agent-instance` = named instance; same instance = same agent session in `/implement`.
+- Tasks that chain sequentially on the same agent instance (T11→T12) still get separate rows.
+- Wave heading comment states the trigger condition so `/implement` knows when to start each wave.
 
 ## Step 6 — Approve + Commit
 
@@ -182,8 +241,10 @@ TaskCreate(
     issue: N,
     plan: "{path to π}",
     slice: "V{n}",
+    wave: {wave number},
     phase: "RED|GREEN|REFACTOR|RED-GATE",
-    agent: "{agent name}",
+    agent: "{agent type}",
+    agent_instance: "{tester-A|backend-dev-B|devops-A|…}",
     spec_trace: "{SC-N or U1→N1→S1}",
     difficulty: {1-5},
     parallel_safe: {true|false},
@@ -191,13 +252,13 @@ TaskCreate(
 )
 ```
 
-Cache returned id in {task# → task.id} map.
+Cache returned id in {task# → task.id} map. Attach `agent_instance` from blueprint row to metadata so `/implement` can group tasks by agent session.
 
-**Dependencies:** ∀ micro-task: `TaskUpdate(id, addBlockedBy: [deps...])` where deps come from:
-1. Explicit `dependencies` field in the micro-task definition → map task numbers to task ids.
-2. Phase order within a slice: GREEN tasks blocked by their slice's RED tasks; REFACTOR blocked by GREEN; RED-GATE sentinels blocked by all RED in the slice.
+**Dependencies:** ∀ micro-task: `TaskUpdate(id, addBlockedBy: [deps...])` where deps come from the blueprint's `blockedBy` column — map T-numbers to real task IDs using the cache.
 
-τ=S → still seed tasks (3–6 is typical) — gives visibility even in single-session flow. Skip phase-based dependency wiring when π has no slice structure.
+Fallback (no blueprint): derive from phase order within a slice (GREEN blocked by RED, RED-GATE blocked by all RED in slice).
+
+τ=S → still seed tasks (3–6 is typical). Skip wave/blueprint wiring when π has no slice structure.
 
 ### Step 6b — Persist Task IDs in Artifact
 

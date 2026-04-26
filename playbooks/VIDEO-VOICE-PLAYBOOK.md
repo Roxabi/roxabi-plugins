@@ -140,14 +140,15 @@ Structure:
 
 ### 1.5 Companion page (optional)
 
-| Output | Skill |
-|---|---|
-| Slide deck | [`forge:forge-slides`](~/.claude/plugins/cache/roxabi-forge/) |
-| Long-form analysis | `forge:forge-guide` |
-| Issue-linked | `forge:forge-epic` |
-| Render existing md | `forge:forge-md` |
+| Output | Skill | Path |
+|---|---|---|
+| Long-form scroll onepage | `forge:forge-presentation` | `~/.roxabi/forge/<project>/visuals/<name>.html` |
+| Slide deck | `forge:forge-slides` | `~/.roxabi/forge/<project>/slides/<name>.html` |
+| Long-form multi-tab guide | `forge:forge-guide` | `~/.roxabi/forge/<project>/guide/` |
+| Issue-linked analysis | `forge:forge-epic` | `~/.roxabi/forge/<project>/epic-<N>.html` |
+| Render existing md as-is | `forge:forge-md` | `<input>.preview.html` |
 
-→ `~/.roxabi/forge/<project>/presentation.html`
+**Default pick:** `forge:forge-presentation` — hero + §01..§N sections, scroll reveals, offline single-file. Use `forge-slides` only when building an actual slide deck for screen-share/live presentation.
 
 ---
 
@@ -333,8 +334,9 @@ voice source?
 └── no source (invent)            ─▶  voiceCLI:voice-design
 
 companion page?
-├── slide deck                    ─▶  forge:forge-slides
-├── long-form analysis            ─▶  forge:forge-guide
+├── scroll onepage (default)      ─▶  forge:forge-presentation
+├── slide deck (live/screen-share)─▶  forge:forge-slides
+├── long-form multi-tab guide     ─▶  forge:forge-guide
 ├── issue-linked breakdown        ─▶  forge:forge-epic
 └── render existing markdown      ─▶  forge:forge-md
 ```

@@ -71,6 +71,15 @@ flowchart LR
 |-------|-----------|-------|
 | {agent} | {N} | {comma-separated file list} |
 
+## Wave Structure
+
+{N} waves, max {K} parallel agents. Elapsed ~{X} weeks vs ~{Y} sequential.
+
+| Wave | Trigger | Agents | Tasks |
+|------|---------|--------|-------|
+| 1 | start | {K} ∥ | {agent-A}: T{n} · {agent-B}: T{m} |
+| 2 | Wave 1 done | {K} ∥ | {agent}: T{n}+T{m} |
+
 ## Consistency Report
 
 - Criteria covered: {N}/{total}
@@ -113,3 +122,26 @@ flowchart LR
 ### Slice V2: {Description}
 
 ...
+
+## Task Seeding Blueprint
+
+<!-- Used by /implement to seed TaskCreate calls on session start.
+     Format: T{n} | agent-instance | blockedBy | subject
+     blockedBy refs T-numbers within this list (not session task IDs).
+     Agent instances are named (tester-A/B, backend-dev-A/B/C, devops-A/B)
+     so parallel tasks map to distinct spawned agents.
+     Seed in wave order; within a wave all rows are parallel (∥). -->
+
+### Wave 1 — no deps, {K} agents ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T1 | tester-A | — | {subject} |
+| T2 | backend-dev-A | — | {subject} |
+
+### Wave 2 — after Wave 1, {K} agents ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T3 | devops-A | T2 | {subject} |
+| T4 | tester-A | T3 | {subject} |
