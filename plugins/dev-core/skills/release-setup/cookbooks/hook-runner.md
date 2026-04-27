@@ -78,16 +78,21 @@ Install or skip hook runner setup.
    repos:
      - repo: local
        hooks:
-         - id: ruff
-           name: ruff
-           language: python
-           entry: ruff check
-           types: [python]
-         - id: mypy
-           name: mypy
-           language: python
-           entry: mypy
-           types: [python]
+         - id: lint
+           name: lint
+           entry: uv run ruff check .
+           language: system
+           pass_filenames: false
+         - id: format
+           name: format
+           entry: uv run ruff format --check .
+           language: system
+           pass_filenames: false
+         - id: typecheck
+           name: typecheck
+           entry: uv run pyright
+           language: system
+           pass_filenames: false
    ```
 4. Install hooks: `bunx lefthook install` (or appropriate for package_manager).
 5. Install failure → D⚠("Hook runner") + continue to Phase 3.
