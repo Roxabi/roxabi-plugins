@@ -1,15 +1,32 @@
+---
+title: Multi-Agent Code Quality Audit Playbook
+description: 67 parallel agents across 8 domains for comprehensive code quality audit
+purpose: Generate actionable reports with prioritized findings and technical debt score
+scope:
+  - Pre-release quality gate
+  - Quarterly code health assessment
+  - Post-refactor verification
+  - Security compliance review
+dependencies:
+  - Claude Code with sub-agent support
+  - Partition scheme for codebase
+  - Manifest tracking system
+tags:
+  - code-quality
+  - audit
+  - parallel-agents
+  - tech-debt
+  - security
+  - architecture
+version: "1.0"
+last_updated: "2026-04-22"
+---
+
 # Multi-Agent Code Quality Audit Playbook
 
 ## Overview
 
 A reusable pattern for running comprehensive code quality audits using 67 parallel agents across 8 analysis domains. Produces actionable reports with prioritized findings and a technical debt score.
-
-## Use Case
-
-- Pre-release quality gate
-- Quarterly code health assessment
-- Post-refactor verification
-- Security compliance review
 
 ---
 
@@ -131,7 +148,7 @@ Wave 15:    Synthesis (1 agent)
 # Pseudocode for wave execution
 for wave in waves:
     agents = wave_agents[wave]
-    
+
     # Launch all agents in parallel (background)
     for agent_id in agents:
         domain, partition = parse_agent_id(agent_id)
@@ -141,15 +158,15 @@ for wave in waves:
             prompt=prompt,
             run_in_background=True
         )
-    
+
     # Wait for all agents in wave to complete
     wait_for_wave_completion(agents)
-    
+
     # Extract results and write output files
     for agent_id in agents:
         result = extract_result(agent_id)
         write_output_file(domain, partition, result)
-    
+
     # Update manifest
     update_manifest(wave, completed=agents)
 ```

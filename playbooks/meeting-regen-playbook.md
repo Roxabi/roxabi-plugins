@@ -1,3 +1,23 @@
+---
+title: Meeting Regen Playbook
+description: Regenerate audio from compressed screen recordings via voice cloning
+purpose: Recover usable audio from recordings with good audio but unusable video
+scope: Compressed screen recordings (OBS, Zoom, etc.) with exploitable audio track
+dependencies:
+  - voiceCLI (transcription, voice cloning)
+  - Whisper (large-v3 model)
+  - pyannote-audio (diarization)
+  - ffmpeg
+tags:
+  - audio
+  - transcription
+  - voice-clone
+  - meeting
+  - screen-recording
+version: "1.0"
+last_updated: "2026-04-28"
+---
+
 # Meeting Regen — Playbook
 
 **Objectif** : Regénérer l'audio d'un screen recording OBS (87 min, 2026-03-27) dont la vidéo est trop compressée (783 kb/s H.264) mais l'audio est exploitable (192 kbps AAC stéréo).

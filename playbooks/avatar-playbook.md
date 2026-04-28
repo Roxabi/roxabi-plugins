@@ -1,3 +1,23 @@
+---
+title: Avatar Creation Playbook
+description: Create, select, and deploy a photorealistic avatar for any agent
+purpose: Guide avatar creation from visual direction definition through final deployment
+scope: New agent avatar creation, existing avatar updates, face-locking pipelines
+dependencies:
+  - imageCLI (flux2-klein engine)
+  - brand directory structure
+  - HTTP gallery server (serve.py)
+tags:
+  - avatar
+  - visual-identity
+  - flux
+  - image-generation
+  - face-lock
+  - lora
+version: "1.0"
+last_updated: "2026-04-28"
+---
+
 # Avatar Creation Playbook
 
 _How to create, select, and deploy a photorealistic avatar for any agent._
@@ -347,7 +367,6 @@ For face-locked generation and LoRA training pipelines, see [AVATAR-PIPELINES.md
 - FLUX.1-dev + PuLID (for on-the-fly face lock without a trained LoRA)
 - Klein 4B LoRA training (Strategy C)
 - **Klein 4B + LoRA via runtime NVFP4 (Strategy D — current production choice, V22 validated)**
-- Strategy comparison and decision matrix
 
 > **Production default (V22 validated 2026-04-05):** use the `flux2-klein-fp4 --lora PATH` engine path. ~4s per 1024×1024 image, ~3 GB VRAM, ~0.64 centroid similarity to training set. Long descriptive prompts, 8 steps, scale 1.0 (do not touch the scale lever — see [AVATAR-LESSONS.md](AVATAR-LESSONS.md)).
 

@@ -1,3 +1,25 @@
+---
+title: Comprehensive Codebase Documentation Playbook
+description: Generate a full HTML documentation site for any open-source project using parallel sub-agents
+purpose: Create production-quality documentation from zero in a single session
+scope: Open-source projects, documented codebases, projects needing comprehensive docs
+dependencies:
+  - Claude Code with sub-agent support
+  - Target repo cloned locally
+  - "~/.agent/<project>/ directory for output"
+  - ui-ux-pro-max skill
+  - web-design-guidelines skill
+  - frontend-design skill
+tags:
+  - documentation
+  - html
+  - parallel-agents
+  - open-source
+  - codebase-analysis
+version: "1.0"
+last_updated: "2026-04-28"
+---
+
 # Playbook: Comprehensive Codebase Documentation
 
 > Generate a full HTML documentation site for any open-source project — from zero to production-quality — using parallel sub-agents at every stage.

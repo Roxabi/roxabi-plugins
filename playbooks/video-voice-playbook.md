@@ -1,3 +1,25 @@
+---
+title: VIDEO-VOICE Playbook
+description: End-to-end pipeline from reference video to production with voice cloning
+purpose: Analyze reference video → understand content → clone voice → write script → render → companion page
+scope: Video content analysis, voice cloning, video production workflows
+dependencies:
+  - voiceCLI (TTS/STT/voice cloning)
+  - web-intel:video-analyze (VLM analysis)
+  - forge (companion pages)
+  - roxabi-production (video rendering)
+  - llama-server + VLM model (Qwen3-VL-8B)
+tags:
+  - video
+  - voice-clone
+  - production
+  - vlm
+  - transcription
+  - tts
+version: "1.0"
+last_updated: "2026-04-21"
+---
+
 # VIDEO-VOICE Playbook — Umbrella
 
 End-to-end: **reference video → full understanding → creator style → voice clone → script → render → companion page**.

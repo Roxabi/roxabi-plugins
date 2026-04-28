@@ -1,9 +1,30 @@
+---
+title: Brand Exploration Playbook
+description: From rough identity to locked brand book in one session using parallel agents
+purpose: Orchestrate brand exploration with AI agents — positioning, personas, voice, visual identity, messaging
+scope: Products with existing codebase and at least a rough vision statement
+dependencies:
+  - dev-core agent types (product-lead, frontend-dev, doc-writer, architect)
+  - marketing skills (brand-review, campaign-plan, content-creation)
+  - design skills (design-handoff, ux-copy, design-critique)
+  - logo-generator skills
+  - visual-explainer skills
+tags:
+  - brand
+  - positioning
+  - visual-identity
+  - messaging
+  - personas
+  - logo
+  - parallel-agents
+version: "2.2"
+last_updated: "2026-03-18"
+---
+
 # Brand Exploration Playbook
 
-**Version:** 2.2 (2026-03-18)
 **Source:** Lyra brand exploration session — reconstructed as a reusable process.
-**Changelog:** v2.2 — Phase 8 Video Production section; font-drift, logo fidelity, palette contamination, and gui.new font-exploration learnings from Lyra launch trailer session. v2.1 — sub-variant funnel, kill list pattern, animation-as-narrative learning from v0.2.2 forge session. v2.0 — expanded skills inventory, detailed Phase 7 iteration workflow, new learnings from logo forge session.
-**Applies to:** Any product with an existing codebase and at least a rough vision statement.
+**Changelog:** v2.2 — Phase 8 Video Production section; font-drift, logo fidelity, palette contamination, and gui.new font-exploration learnings from Lyra launch trailer session.
 
 ---
 
