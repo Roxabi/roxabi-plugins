@@ -36,31 +36,44 @@ from typing import Any
 
 def _get_fireworks_token() -> str:
     """Get Fireworks API token from multiple sources."""
-    # 1. Check env var
-    token = os.environ.get("FIREWORKS_TOKEN", "")
-    if token:
-        return token
+    import re
 
-    # 2. Check ~/.env file
+    def _parse_env_file(path: Path, *keys: str) -> str:
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            for key in keys:
+                if line.startswith(f"{key}="):
+                    return line.split("=", 1)[1].strip().strip("\"'")
+        return ""
+
+    # 1. Check env vars
+    for key in ("FIREWORKS_TOKEN", "LITELLM_MASTER_KEY"):
+        token = os.environ.get(key, "")
+        if token:
+            return token
+
+    # 2. Check ~/.claude/.env (LITELLM_MASTER_KEY = proxy master key)
+    claude_env = Path.home() / ".claude" / ".env"
+    if claude_env.exists():
+        token = _parse_env_file(claude_env, "LITELLM_MASTER_KEY", "FIREWORKS_TOKEN")
+        if token:
+            return token
+
+    # 3. Check ~/.env
     env_path = Path.home() / ".env"
     if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            if line.startswith("FIREWORKS_TOKEN="):
-                return line.split("=", 1)[1].strip().strip("\"'")
+        token = _parse_env_file(env_path, "FIREWORKS_TOKEN", "LITELLM_MASTER_KEY")
+        if token:
+            return token
 
-    # 3. Parse from ~/.bash_aliases
+    # 4. Parse literal token from ~/.bash_aliases (skip shell variable refs)
     aliases_path = Path.home() / ".bash_aliases"
     if aliases_path.exists():
         content = aliases_path.read_text()
-        # Look for token in _cc_fireworks function
-        import re
-        match = re.search(r'ANTHROPIC_AUTH_TOKEN="([^"]+)"', content)
-        if match:
-            return match.group(1)
-        # Also check for FIREWORKS_TOKEN
-        match = re.search(r'FIREWORKS_TOKEN="([^"]+)"', content)
-        if match:
-            return match.group(1)
+        for pattern in (r'FIREWORKS_TOKEN="([^"$]+)"', r'ANTHROPIC_AUTH_TOKEN="([^"$]+)"'):
+            match = re.search(pattern, content)
+            if match:
+                return match.group(1)
 
     return ""
 
