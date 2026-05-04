@@ -149,9 +149,13 @@ const { setIssue } = await import('../lib/set')
 function setupMocks() {
   vi.clearAllMocks()
   mockGetItemId.mockResolvedValue('item-123')
-  mockGetNodeId.mockImplementation(async (num) => `node-${num}`)
+  // repo included in key so cross-repo calls return distinguishable node IDs
+  mockGetNodeId.mockImplementation(async (num, repo?: string) =>
+    repo ? `node-${repo.replace('/', '-')}-${num}` : `node-${num}`,
+  )
   mockResolveIssueTypeId.mockResolvedValue('type-id-feat')
   vi.spyOn(console, 'log').mockImplementation(() => {})
+  // console.error spy installed here — .mock.calls still accessible when impl is () => {}
   vi.spyOn(console, 'error').mockImplementation(() => {})
 }
 
@@ -209,13 +213,13 @@ describe('issue-triage/set > dependencies', () => {
   it('adds cross-repo blocked-by dependency', async () => {
     await setIssue(['42', '--blocked-by', 'Roxabi/lyra#728'])
     expect(mockGetNodeId).toHaveBeenCalledWith(728, 'Roxabi/lyra')
-    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-42', 'node-728')
+    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-42', 'node-Roxabi-lyra-728')
   })
 
   it('adds cross-repo blocks dependency', async () => {
     await setIssue(['42', '--blocks', 'Roxabi/voiceCLI#94'])
     expect(mockGetNodeId).toHaveBeenCalledWith(94, 'Roxabi/voiceCLI')
-    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-94', 'node-42')
+    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-Roxabi-voiceCLI-94', 'node-42')
   })
 
   it('handles mixed local and cross-repo refs', async () => {
@@ -239,7 +243,7 @@ describe('issue-triage/set > parent-child relationships', () => {
   it('sets cross-repo parent relationship', async () => {
     await setIssue(['42', '--parent', 'Roxabi/lyra#100'])
     expect(mockGetNodeId).toHaveBeenCalledWith(100, 'Roxabi/lyra')
-    expect(mockAddSubIssue).toHaveBeenCalledWith('node-100', 'node-42')
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-Roxabi-lyra-100', 'node-42')
   })
 
   it('adds children', async () => {
@@ -251,7 +255,7 @@ describe('issue-triage/set > parent-child relationships', () => {
   it('adds cross-repo children', async () => {
     await setIssue(['42', '--add-child', 'Roxabi/lyra#50'])
     expect(mockGetNodeId).toHaveBeenCalledWith(50, 'Roxabi/lyra')
-    expect(mockAddSubIssue).toHaveBeenCalledWith('node-42', 'node-50')
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-42', 'node-Roxabi-lyra-50')
   })
 
   it('removes parent', async () => {
@@ -357,21 +361,21 @@ describe('issue-triage/set > cross-repo subject', () => {
     await setIssue(['Roxabi/voiceCLI#144', '--blocks', 'Roxabi/lyra#200'])
     expect(mockGetNodeId).toHaveBeenCalledWith(144, 'Roxabi/voiceCLI')
     expect(mockGetNodeId).toHaveBeenCalledWith(200, 'Roxabi/lyra')
-    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-200', 'node-144')
+    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-Roxabi-lyra-200', 'node-Roxabi-voiceCLI-144')
   })
 
   it('resolves cross-repo subject for --parent', async () => {
     await setIssue(['Roxabi/voiceCLI#144', '--parent', 'Roxabi/lyra#10'])
     expect(mockGetNodeId).toHaveBeenCalledWith(144, 'Roxabi/voiceCLI')
     expect(mockGetNodeId).toHaveBeenCalledWith(10, 'Roxabi/lyra')
-    expect(mockAddSubIssue).toHaveBeenCalledWith('node-10', 'node-144')
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-Roxabi-lyra-10', 'node-Roxabi-voiceCLI-144')
   })
 
   it('resolves cross-repo subject for --add-child', async () => {
     await setIssue(['Roxabi/voiceCLI#144', '--add-child', 'Roxabi/lyra#50'])
     expect(mockGetNodeId).toHaveBeenCalledWith(144, 'Roxabi/voiceCLI')
     expect(mockGetNodeId).toHaveBeenCalledWith(50, 'Roxabi/lyra')
-    expect(mockAddSubIssue).toHaveBeenCalledWith('node-144', 'node-50')
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-Roxabi-voiceCLI-144', 'node-Roxabi-lyra-50')
   })
 
   it('skips project field updates for cross-repo subject', async () => {
@@ -383,10 +387,19 @@ describe('issue-triage/set > cross-repo subject', () => {
     expect(errCalls.some((m) => m.includes('not supported for cross-repo'))).toBe(true)
   })
 
+  it('skips label sync for cross-repo subject with --size', async () => {
+    await setIssue(['Roxabi/voiceCLI#144', '--size', 'S'])
+    expect(mockSyncSizeLabel).not.toHaveBeenCalled()
+    const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(errCalls.some((m) => m.includes('label sync') && m.includes('cross-repo'))).toBe(true)
+  })
+
   it('exits with error for --rm-parent on cross-repo subject', async () => {
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
     await setIssue(['Roxabi/voiceCLI#144', '--rm-parent'])
     expect(exitSpy).toHaveBeenCalledWith(1)
+    const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(errCalls.some((m) => m.includes('--rm-parent') && m.includes('cross-repo'))).toBe(true)
   })
 
   it('log output shows cross-repo subject correctly', async () => {
@@ -394,6 +407,37 @@ describe('issue-triage/set > cross-repo subject', () => {
     vi.spyOn(console, 'log').mockImplementation((...args) => logs.push(String(args[0])))
     await setIssue(['Roxabi/voiceCLI#144', '--blocked-by', '100'])
     expect(logs.some((l) => l.includes('Roxabi/voiceCLI#144'))).toBe(true)
+    expect(logs.some((l) => l.includes('#100'))).toBe(true)
+  })
+
+  it('removes blocked-by with cross-repo subject', async () => {
+    await setIssue(['Roxabi/voiceCLI#144', '--rm-blocked-by', 'Roxabi/lyra#1063'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(144, 'Roxabi/voiceCLI')
+    expect(mockGetNodeId).toHaveBeenCalledWith(1063, 'Roxabi/lyra')
+    expect(mockRemoveBlockedBy).toHaveBeenCalledWith(
+      'node-Roxabi-voiceCLI-144',
+      'node-Roxabi-lyra-1063',
+    )
+  })
+
+  it('removes blocks with cross-repo subject', async () => {
+    await setIssue(['Roxabi/voiceCLI#144', '--rm-blocks', 'Roxabi/lyra#200'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(144, 'Roxabi/voiceCLI')
+    expect(mockGetNodeId).toHaveBeenCalledWith(200, 'Roxabi/lyra')
+    expect(mockRemoveBlockedBy).toHaveBeenCalledWith(
+      'node-Roxabi-lyra-200',
+      'node-Roxabi-voiceCLI-144',
+    )
+  })
+
+  it('removes child with cross-repo subject', async () => {
+    await setIssue(['Roxabi/voiceCLI#144', '--rm-child', 'Roxabi/lyra#50'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(144, 'Roxabi/voiceCLI')
+    expect(mockGetNodeId).toHaveBeenCalledWith(50, 'Roxabi/lyra')
+    expect(mockRemoveSubIssue).toHaveBeenCalledWith(
+      'node-Roxabi-voiceCLI-144',
+      'node-Roxabi-lyra-50',
+    )
   })
 })
 
