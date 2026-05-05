@@ -16,7 +16,10 @@ async function getRepoDefaultBranch(owner: string, repo: string): Promise<string
   const res = (await ghGraphQL(REPO_DEFAULT_BRANCH_QUERY, { owner, repo })) as {
     data?: { repository?: { defaultBranchRef?: { name?: string } | null } | null }
   }
-  const name = res?.data?.repository?.defaultBranchRef?.name
+  if (!res?.data?.repository) {
+    throw new Error(`Repository not found: ${owner}/${repo}`)
+  }
+  const name = res.data.repository.defaultBranchRef?.name
   if (!name) {
     throw new Error(`Unable to resolve default branch for ${owner}/${repo}`)
   }
