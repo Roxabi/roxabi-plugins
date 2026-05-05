@@ -6,6 +6,8 @@ export default defineConfig({
       '**/node_modules/**',
       // cli/__tests__ use bun:test (not vitest) — run via `bun test` in the cli package
       '**/cli/__tests__/**',
+      // worktrees are isolated checkouts — their tests run in their own context
+      '**/.claude/worktrees/**',
     ],
     setupFiles: ['./vitest.setup.ts'],
     env: {
