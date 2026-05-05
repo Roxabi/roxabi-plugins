@@ -73,10 +73,7 @@ describe('branch protection trufflehog context check', () => {
     makeFakeExec(
       tmpDir,
       'git',
-      [
-        'if [ "$1" = "remote" ]; then echo "git@github.com:TestOrg/test-repo.git"; exit 0; fi',
-        'exit 0',
-      ].join('\n'),
+      ['if [ "$1" = "remote" ]; then echo "git@github.com:TestOrg/test-repo.git"; exit 0; fi', 'exit 0'].join('\n'),
     )
 
     // Write .env with required config

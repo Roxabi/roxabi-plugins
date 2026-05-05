@@ -139,7 +139,9 @@ describe('protectBranches', () => {
   })
 
   it('passes hasSecretScan: true to buildBranchProtectionPayload when secret-scan.yml is present', async () => {
-    const { detectSecretScanWorkflow, buildBranchProtectionPayload } = await import('../../shared/adapters/github-infra')
+    const { detectSecretScanWorkflow, buildBranchProtectionPayload } = await import(
+      '../../shared/adapters/github-infra'
+    )
 
     ;(detectSecretScanWorkflow as ReturnType<typeof vi.fn>).mockResolvedValue(true)
 

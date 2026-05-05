@@ -393,9 +393,7 @@ function checkBranchProtection(ghOk: boolean, owner: string, repo: string): Sect
     }
 
   const checks: Check[] = []
-  const secretScanResult = spawnSync([
-    'gh', 'api', `repos/${owner}/${repo}/contents/.github/workflows/secret-scan.yml`,
-  ])
+  const secretScanResult = spawnSync(['gh', 'api', `repos/${owner}/${repo}/contents/.github/workflows/secret-scan.yml`])
   const secretScanPresent = secretScanResult.ok
   for (const branch of PROTECTED_BRANCHES) {
     // Check branch exists before checking protection
@@ -408,13 +406,19 @@ function checkBranchProtection(ghOk: boolean, owner: string, repo: string): Sect
     checks.push({ name: branch, status: result.ok ? 'pass' : 'fail', detail: result.ok ? 'protected' : 'unprotected' })
     if (secretScanPresent && result.ok) {
       const contextsResult = spawnSync([
-        'gh', 'api',
+        'gh',
+        'api',
         `repos/${owner}/${repo}/branches/${branch}/protection`,
-        '--jq', '.required_status_checks.contexts // []',
+        '--jq',
+        '.required_status_checks.contexts // []',
       ])
       if (contextsResult.ok) {
         let contexts: string[] = []
-        try { contexts = JSON.parse(contextsResult.stdout || '[]') } catch { contexts = [] }
+        try {
+          contexts = JSON.parse(contextsResult.stdout || '[]')
+        } catch {
+          contexts = []
+        }
         if (!contexts.includes('trufflehog')) {
           checks.push({
             name: `${branch}:trufflehog-context`,
