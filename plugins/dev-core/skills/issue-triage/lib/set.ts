@@ -29,10 +29,11 @@ import {
   updateIssueIssueType,
 } from '../../shared/adapters/github-adapter'
 import { syncLaneLabel, syncPriorityLabel, syncSizeLabel } from '../../shared/adapters/github-infra'
-import { parseIssueRefs } from '../../shared/domain/parse-issue-ref'
+import { parseIssueRef, parseIssueRefs } from '../../shared/domain/parse-issue-ref'
 
 interface SetOptions {
   issueNumber: number
+  subjectRepo?: string
   size?: string
   priority?: string
   status?: string
@@ -95,8 +96,16 @@ function parseArgs(args: string[]): SetOptions {
         opts.rmChild = args[++i]
         break
       default:
-        if (!opts.issueNumber && /^\d+$/.test(arg)) {
-          opts.issueNumber = Number(arg)
+        if (!opts.issueNumber) {
+          if (/^\d+$/.test(arg)) {
+            opts.issueNumber = Number(arg)
+          } else {
+            const ref = parseIssueRef(arg)
+            if (ref) {
+              opts.issueNumber = ref.number
+              opts.subjectRepo = ref.repo
+            }
+          }
         }
         break
     }
@@ -104,6 +113,10 @@ function parseArgs(args: string[]): SetOptions {
   }
 
   return opts
+}
+
+function subjectStr(issueNumber: number, repo?: string): string {
+  return repo ? `${repo}#${issueNumber}` : `#${issueNumber}`
 }
 
 function resolveItemId(issueNumber: number): Promise<string | undefined> {
@@ -153,6 +166,13 @@ async function applyType(issueNumber: number, type: string): Promise<void> {
 async function applyProjectFields(issueNumber: number, opts: SetOptions): Promise<void> {
   if (!(opts.priority || opts.status || opts.type)) return
 
+  if (opts.subjectRepo) {
+    console.error(
+      `Warning: --status/--priority/--type are not supported for cross-repo subjects (${opts.subjectRepo}#${issueNumber}) — skipped`,
+    )
+    return
+  }
+
   if (!isProjectConfigured()) {
     console.error(NOT_CONFIGURED_MSG)
     process.exit(1)
@@ -167,88 +187,96 @@ async function applyProjectFields(issueNumber: number, opts: SetOptions): Promis
 }
 
 async function applyDependencies(issueNumber: number, opts: SetOptions): Promise<void> {
+  const subjStr = subjectStr(issueNumber, opts.subjectRepo)
+
   if (opts.blockedBy) {
-    const issueNodeId = await getNodeId(issueNumber)
+    const issueNodeId = await getNodeId(issueNumber, opts.subjectRepo)
     for (const ref of parseIssueRefs(opts.blockedBy)) {
       const blockingNodeId = await getNodeId(ref.number, ref.repo)
       await addBlockedBy(issueNodeId, blockingNodeId)
       const refStr = ref.repo ? `${ref.repo}#${ref.number}` : `#${ref.number}`
-      console.log(`BlockedBy=${refStr} #${issueNumber}`)
+      console.log(`BlockedBy=${refStr} ${subjStr}`)
     }
   }
 
   if (opts.blocks) {
-    const blockingNodeId = await getNodeId(issueNumber)
+    const blockingNodeId = await getNodeId(issueNumber, opts.subjectRepo)
     for (const ref of parseIssueRefs(opts.blocks)) {
       const blockedNodeId = await getNodeId(ref.number, ref.repo)
       await addBlockedBy(blockedNodeId, blockingNodeId)
       const refStr = ref.repo ? `${ref.repo}#${ref.number}` : `#${ref.number}`
-      console.log(`Blocks=${refStr} #${issueNumber}`)
+      console.log(`Blocks=${refStr} ${subjStr}`)
     }
   }
 
   if (opts.rmBlockedBy) {
-    const issueNodeId = await getNodeId(issueNumber)
+    const issueNodeId = await getNodeId(issueNumber, opts.subjectRepo)
     for (const ref of parseIssueRefs(opts.rmBlockedBy)) {
       const blockingNodeId = await getNodeId(ref.number, ref.repo)
       await removeBlockedBy(issueNodeId, blockingNodeId)
       const refStr = ref.repo ? `${ref.repo}#${ref.number}` : `#${ref.number}`
-      console.log(`RemovedBlockedBy=${refStr} #${issueNumber}`)
+      console.log(`RemovedBlockedBy=${refStr} ${subjStr}`)
     }
   }
 
   if (opts.rmBlocks) {
-    const blockingNodeId = await getNodeId(issueNumber)
+    const blockingNodeId = await getNodeId(issueNumber, opts.subjectRepo)
     for (const ref of parseIssueRefs(opts.rmBlocks)) {
       const blockedNodeId = await getNodeId(ref.number, ref.repo)
       await removeBlockedBy(blockedNodeId, blockingNodeId)
       const refStr = ref.repo ? `${ref.repo}#${ref.number}` : `#${ref.number}`
-      console.log(`RemovedBlocks=${refStr} #${issueNumber}`)
+      console.log(`RemovedBlocks=${refStr} ${subjStr}`)
     }
   }
 }
 
 async function applyParentChild(issueNumber: number, opts: SetOptions): Promise<void> {
+  const subjStr = subjectStr(issueNumber, opts.subjectRepo)
+
   if (opts.parent) {
     const parentRef = parseIssueRefs(opts.parent)[0]
     if (parentRef) {
-      const issueNodeId = await getNodeId(issueNumber)
+      const issueNodeId = await getNodeId(issueNumber, opts.subjectRepo)
       const parentNodeId = await getNodeId(parentRef.number, parentRef.repo)
       await addSubIssue(parentNodeId, issueNodeId)
       const refStr = parentRef.repo ? `${parentRef.repo}#${parentRef.number}` : `#${parentRef.number}`
-      console.log(`Parent=${refStr} #${issueNumber}`)
+      console.log(`Parent=${refStr} ${subjStr}`)
     }
   }
 
   if (opts.addChild) {
-    const issueNodeId = await getNodeId(issueNumber)
+    const issueNodeId = await getNodeId(issueNumber, opts.subjectRepo)
     for (const childRef of parseIssueRefs(opts.addChild)) {
       const childNodeId = await getNodeId(childRef.number, childRef.repo)
       await addSubIssue(issueNodeId, childNodeId)
       const refStr = childRef.repo ? `${childRef.repo}#${childRef.number}` : `#${childRef.number}`
-      console.log(`Child=${refStr} #${issueNumber}`)
+      console.log(`Child=${refStr} ${subjStr}`)
     }
   }
 
   if (opts.rmParent) {
+    if (opts.subjectRepo) {
+      console.error(`Error: --rm-parent is not supported for cross-repo subjects (${subjStr}) — use direct GraphQL`)
+      process.exit(1)
+    }
     const parentNum = await getParentNumber(issueNumber)
     if (parentNum) {
       const issueNodeId = await getNodeId(issueNumber)
       const parentNodeId = await getNodeId(parentNum)
       await removeSubIssue(parentNodeId, issueNodeId)
-      console.log(`RemovedParent=#${parentNum} #${issueNumber}`)
+      console.log(`RemovedParent=#${parentNum} ${subjStr}`)
     } else {
-      console.log(`No parent found for #${issueNumber}`)
+      console.log(`No parent found for ${subjStr}`)
     }
   }
 
   if (opts.rmChild) {
-    const issueNodeId = await getNodeId(issueNumber)
+    const issueNodeId = await getNodeId(issueNumber, opts.subjectRepo)
     for (const childRef of parseIssueRefs(opts.rmChild)) {
       const childNodeId = await getNodeId(childRef.number, childRef.repo)
       await removeSubIssue(issueNodeId, childNodeId)
       const refStr = childRef.repo ? `${childRef.repo}#${childRef.number}` : `#${childRef.number}`
-      console.log(`RemovedChild=${refStr} #${issueNumber}`)
+      console.log(`RemovedChild=${refStr} ${subjStr}`)
     }
   }
 }
@@ -285,23 +313,29 @@ export async function setIssue(args: string[]): Promise<void> {
 
   await applyProjectFields(opts.issueNumber, opts)
 
-  // Sync labels (independent of project board)
-  if (opts.priority) {
-    const canonical = resolvePriority(opts.priority)
-    if (canonical) await syncPriorityLabel(opts.issueNumber, canonical)
-  }
-  if (opts.size) {
-    const canonical = resolveSize(opts.size)
-    if (canonical) {
-      await syncSizeLabel(opts.issueNumber, canonical)
-      console.log(`Size=${canonical} #${opts.issueNumber}`)
+  // Sync labels (independent of project board) — skipped for cross-repo subjects
+  if (opts.subjectRepo && (opts.priority || opts.size || opts.lane)) {
+    console.error(
+      `Warning: --size/--priority/--lane label sync is not supported for cross-repo subjects (${opts.subjectRepo}#${opts.issueNumber}) — skipped`,
+    )
+  } else {
+    if (opts.priority) {
+      const canonical = resolvePriority(opts.priority)
+      if (canonical) await syncPriorityLabel(opts.issueNumber, canonical)
     }
-  }
-  if (opts.lane) {
-    const canonical = resolveLane(opts.lane)
-    if (canonical) {
-      await syncLaneLabel(opts.issueNumber, canonical)
-      console.log(`Lane=${canonical} #${opts.issueNumber}`)
+    if (opts.size) {
+      const canonical = resolveSize(opts.size)
+      if (canonical) {
+        await syncSizeLabel(opts.issueNumber, canonical)
+        console.log(`Size=${canonical} #${opts.issueNumber}`)
+      }
+    }
+    if (opts.lane) {
+      const canonical = resolveLane(opts.lane)
+      if (canonical) {
+        await syncLaneLabel(opts.issueNumber, canonical)
+        console.log(`Lane=${canonical} #${opts.issueNumber}`)
+      }
     }
   }
 
