@@ -12,7 +12,7 @@ vi.mock('../../shared/adapters/github-infra', () => ({
     name: 'PR_Main',
     target: 'branch',
     enforcement: 'active',
-    conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+    conditions: { ref_name: { include: ['refs/heads/main'], exclude: [] } },
     rules: [{ type: 'deletion' }, { type: 'non_fast_forward' }, { type: 'pull_request', parameters: {} }],
     bypass_actors: [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' }],
   },
@@ -143,7 +143,7 @@ describe('protectBranches', () => {
       '../../shared/adapters/github-infra'
     )
 
-    ;(detectSecretScanWorkflow as ReturnType<typeof vi.fn>).mockResolvedValue(true)
+    ;(detectSecretScanWorkflow as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true)
 
     spawnSyncSpy.mockReturnValue({
       stdout: new Uint8Array(),

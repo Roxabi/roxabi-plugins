@@ -45,9 +45,9 @@ yes:
 2. Push via REST API:
    ```bash
    CONTENT=$(base64 < .github/workflows/secret-scan.yml | tr -d '\n')
-   BRANCH=$(git symbolic-ref --short HEAD)
+   BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD)
    EXISTING_SHA=$(gh api "repos/<owner>/<repo>/contents/.github/workflows/secret-scan.yml" \
-     --jq '.sha // empty' 2>/dev/null)
+     --jq '.sha // empty') || EXISTING_SHA=""
    gh api repos/<owner>/<repo>/contents/.github/workflows/secret-scan.yml \
      --method PUT \
      --field message="ci: add standalone secret-scan.yml workflow" \
@@ -105,9 +105,9 @@ yes:
 3. Push via REST API:
    ```bash
    CONTENT=$(base64 < .github/dependabot.yml | tr -d '\n')
-   BRANCH=$(git symbolic-ref --short HEAD)
+   BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD)
    EXISTING_SHA=$(gh api "repos/<owner>/<repo>/contents/.github/dependabot.yml" \
-     --jq '.sha // empty' 2>/dev/null)
+     --jq '.sha // empty') || EXISTING_SHA=""
    gh api repos/<owner>/<repo>/contents/.github/dependabot.yml \
      --method PUT \
      --field message="chore: add dependabot.yml" \

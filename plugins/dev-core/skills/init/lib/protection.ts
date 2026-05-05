@@ -17,7 +17,12 @@ export interface ProtectionResult {
 
 export async function protectBranches(repo: string): Promise<ProtectionResult> {
   const result: ProtectionResult = { branches: {}, ruleset: false }
-  const hasSecretScan = await detectSecretScanWorkflow(repo)
+  let hasSecretScan = false
+  try {
+    hasSecretScan = await detectSecretScanWorkflow(repo)
+  } catch {
+    // invalid repo or network error — proceed without secret-scan context
+  }
 
   for (const branch of PROTECTED_BRANCHES) {
     try {
