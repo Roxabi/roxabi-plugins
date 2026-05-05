@@ -36,12 +36,19 @@ classes:
       Safety hardening applied to one entry point but not its sibling
       (e.g. HTTP handler secured, WebSocket handler left open).
 
-  - class: bash-safety
-    origin: RC-4
+  - class: bash-arithmetic-trap
+    origin: RC-4a
     description: >
-      Specific bash anti-patterns: `((c++))` with `set -e` · `return >255` ·
-      `jq -r` returning literal `"null"` · `2>/dev/null` silencing errors ·
-      `jq //` coercing `false` to a default.
+      Bash arithmetic that silently corrupts exit codes: `((c++))` with `set -e`
+      (zero value exits the script) · `return >255` (truncated to 8-bit,
+      return 256 = return 0).
+
+  - class: bash-error-suppression
+    origin: RC-4b
+    description: >
+      Bash patterns that silently discard errors or coerce unexpected values:
+      `2>/dev/null` swallowing stderr · `jq -r` returning literal `"null"` string ·
+      `jq //` coercing `false` to a default value.
 
   # ── OWASP classes ───────────────────────────────────────────────────────────
 
@@ -106,7 +113,16 @@ classes:
 # Candidates are NOT listed here. They live in:
 #   ~/.dev-core/candidate-classes.jsonl
 #
+# Slug format: ^candidate/[a-z][a-z0-9-]{1,48}$  — enforced at write AND parse time.
+#   Invalid slug → entry dropped + C(f) := 0. No path components, no whitespace.
+#
 # Schema per entry:
-#   { class: "candidate/<slug>", finding_id, pr, hit_at, agent_src }
+#   { class: "candidate/<slug>", finding_id, pr: str (required), hit_at, agent_src }
+#
+#   pr: PR identifier (e.g. "146") or synthetic "local:<branch-slug>:<sha8>" for non-PR runs.
+#   pr is REQUIRED — never null or absent.
+#   Graduation rule "≥2 distinct PRs" counts distinct pr values where pr does NOT start
+#   with "local:". local:* hits count toward frequency (≥3×/30d) but not toward the
+#   ≥2-distinct-PRs promotion gate (advisory only).
 #
 # Findings tagged candidate/* are advisory only — never trigger recall.
