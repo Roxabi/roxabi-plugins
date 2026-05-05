@@ -415,7 +415,8 @@ function checkBranchProtection(ghOk: boolean, owner: string, repo: string): Sect
       if (contextsResult.ok) {
         let contexts: string[] = []
         try {
-          contexts = JSON.parse(contextsResult.stdout || '[]')
+          const parsed = JSON.parse(contextsResult.stdout || '[]')
+          contexts = Array.isArray(parsed) ? parsed : []
         } catch {
           contexts = []
         }
