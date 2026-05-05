@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../shared/adapters/github-infra', () => ({
   PROTECTED_BRANCHES: ['main', 'staging'],
-  BRANCH_PROTECTION_PAYLOAD: {
+  buildBranchProtectionPayload: vi.fn(() => ({
     required_status_checks: { strict: true, contexts: ['ci'] },
     enforce_admins: false,
     restrictions: null,
-  },
+  })),
+  detectSecretScanWorkflow: vi.fn(async () => false),
   DEFAULT_RULESET: {
     name: 'PR_Main',
     target: 'branch',

@@ -44,10 +44,30 @@ export const REQUIRED_SECRETS: Record<string, string> = {
 
 export const PROTECTED_BRANCHES = ['main', 'staging'] as const
 
-export const BRANCH_PROTECTION_PAYLOAD = {
-  required_status_checks: { strict: true, contexts: ['ci'] },
-  enforce_admins: false,
-  restrictions: null,
+export interface BranchProtectionOpts {
+  hasSecretScan: boolean
+}
+
+export function buildBranchProtectionPayload(opts: BranchProtectionOpts) {
+  const contexts = ['ci']
+  if (opts.hasSecretScan) contexts.push('trufflehog')
+  return {
+    required_status_checks: { strict: true, contexts },
+    enforce_admins: false,
+    restrictions: null,
+  }
+}
+
+export async function detectSecretScanWorkflow(repo: string): Promise<boolean> {
+  try {
+    const proc = Bun.spawnSync(['gh', 'api', `repos/${repo}/contents/.github/workflows/secret-scan.yml`], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    return proc.exitCode === 0
+  } catch {
+    return false
+  }
 }
 
 export const DEFAULT_RULESET = {

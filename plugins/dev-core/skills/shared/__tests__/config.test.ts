@@ -55,7 +55,7 @@ const {
   STATUS_OPTIONS,
 } = await import('../adapters/config-helpers')
 
-const { STANDARD_LABELS, STANDARD_WORKFLOWS, PROTECTED_BRANCHES, BRANCH_PROTECTION_PAYLOAD } = await import(
+const { STANDARD_LABELS, STANDARD_WORKFLOWS, PROTECTED_BRANCHES, buildBranchProtectionPayload } = await import(
   '../adapters/github-infra'
 )
 
@@ -232,13 +232,23 @@ describe('PROTECTED_BRANCHES', () => {
   })
 })
 
-describe('BRANCH_PROTECTION_PAYLOAD', () => {
+describe('buildBranchProtectionPayload', () => {
   it('does not require approving reviews (reviewed label is the gate)', () => {
-    expect(BRANCH_PROTECTION_PAYLOAD).not.toHaveProperty('required_pull_request_reviews')
+    expect(buildBranchProtectionPayload({ hasSecretScan: false })).not.toHaveProperty('required_pull_request_reviews')
   })
 
   it('has strict status checks', () => {
-    expect(BRANCH_PROTECTION_PAYLOAD.required_status_checks.strict).toBe(true)
+    expect(buildBranchProtectionPayload({ hasSecretScan: false }).required_status_checks.strict).toBe(true)
+  })
+
+  it('includes trufflehog context when hasSecretScan is true', () => {
+    const payload = buildBranchProtectionPayload({ hasSecretScan: true })
+    expect(payload.required_status_checks.contexts).toContain('trufflehog')
+  })
+
+  it('excludes trufflehog context when hasSecretScan is false', () => {
+    const payload = buildBranchProtectionPayload({ hasSecretScan: false })
+    expect(payload.required_status_checks.contexts).not.toContain('trufflehog')
   })
 })
 
