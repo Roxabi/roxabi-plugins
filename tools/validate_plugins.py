@@ -172,10 +172,13 @@ def check_class_list_sync() -> list[str]:
         errors.append(f'code-review/SKILL.md not found at {skill_path}')
         return errors
 
-    yaml_slugs: set[str] = set()
-    with open(yaml_path) as f:
-        data = yaml.safe_load(f)
-    yaml_slugs = {c['class'] for c in data.get('classes', [])}
+    try:
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        errors.append(f'review-classes.yml is invalid YAML: {e}')
+        return errors
+    yaml_slugs = {c['class'] for c in (data or {}).get('classes', []) if 'class' in c}
 
     inline_slugs: set[str] = set()
     with open(skill_path) as f:

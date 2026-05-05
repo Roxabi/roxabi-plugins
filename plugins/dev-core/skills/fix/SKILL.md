@@ -54,7 +54,7 @@ Let:
 ## Phase 0 — Load Taxonomy
 
 Read `${CLAUDE_SKILL_DIR}/review-classes.yml` → extract `classes[].class` slugs → `canonical_slugs`.
-File absent or unreadable → HALT: `[taxonomy-error] review-classes.yml not found at ${CLAUDE_SKILL_DIR}/review-classes.yml — reinstall dev-core plugin.`
+File absent, unreadable, or parse error → HALT: `[taxonomy-error] review-classes.yml {reason} at ${CLAUDE_SKILL_DIR}/review-classes.yml — reinstall dev-core plugin.`
 Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬LLM memory).
 
 ## Phase 1 — Gather Findings
