@@ -63,13 +63,6 @@
       "category": "productivity"
     },
     {
-      "name": "frontend-slides",
-      "description": "Create zero-dependency, animation-rich HTML presentations from scratch or by converting PowerPoint files. 12 curated style presets, visual style discovery, PPT conversion.",
-      "source": "./plugins/frontend-slides",
-      "category": "productivity",
-      "version": "0.1.0"
-    },
-    {
       "name": "react-best-practices",
       "description": "React and Next.js performance optimization guidelines — 58 rules across 8 categories, prioritized by impact.",
       "source": "./plugins/react-best-practices",
