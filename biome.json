@@ -20,7 +20,7 @@
     }
   },
   "files": {
-    "includes": ["**/*.ts", "**/*.js", "!node_modules", "!**/.venv", "!.cache", "!.claude/worktrees"]
+    "includes": ["**/*.ts", "**/*.js", "!**/node_modules", "!**/.venv", "!**/.cache", "!.claude/worktrees"]
   },
   "overrides": []
 }

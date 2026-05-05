@@ -28,9 +28,16 @@ is_exempt() {
     # Exact match on the first whitespace-delimited field — no regex, no escaping,
     # left-anchored (awk field split) so a path substring elsewhere on the line
     # cannot cause a false positive. Exemption format: '<path> <issue-url>'.
+    # Paths must not contain spaces — field splitting would break the match.
     # ENVIRON avoids awk's -v escape processing (backslash sequences in path → corrupted match).
     P="$1" awk '$1 == ENVIRON["P"] { found = 1 } END { exit !found }' "$EXEMPT_FILE"
 }
+
+# Guard: exemption paths must not contain spaces (NF>2 means path has embedded whitespace).
+if [ -f "$EXEMPT_FILE" ] && awk 'NF > 2 { exit 0 } END { exit 1 }' "$EXEMPT_FILE"; then
+    echo "ERROR: $EXEMPT_FILE: exemption path contains spaces — paths with spaces are not supported" >&2
+    exit 1
+fi
 
 while IFS= read -r -d '' f; do
     is_exempt "$f" && continue
