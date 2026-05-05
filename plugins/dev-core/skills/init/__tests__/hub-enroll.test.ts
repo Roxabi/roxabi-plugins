@@ -16,11 +16,13 @@ const state: {
   milestonesMissing: string[]
   testIssueInHub: boolean
   defaultBranch: string | null
+  repositoryNull: boolean
 } = {
   issueTypes: [],
   milestonesMissing: [],
   testIssueInHub: true,
   defaultBranch: 'staging',
+  repositoryNull: false,
 }
 
 // All 10 required issue type names
@@ -39,9 +41,11 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
     if (query === REPO_DEFAULT_BRANCH_QUERY) {
       return {
         data: {
-          repository: state.defaultBranch
-            ? { defaultBranchRef: { name: state.defaultBranch } }
-            : { defaultBranchRef: null },
+          repository: state.repositoryNull
+            ? null
+            : state.defaultBranch
+              ? { defaultBranchRef: { name: state.defaultBranch } }
+              : { defaultBranchRef: null },
         },
       }
     }
@@ -120,6 +124,7 @@ beforeEach(() => {
   state.milestonesMissing = []
   state.testIssueInHub = true
   state.defaultBranch = 'staging'
+  state.repositoryNull = false
   vi.clearAllMocks()
 })
 
@@ -264,6 +269,21 @@ describe('hub-enroll', () => {
         enrollRepo({
           org: 'Roxabi',
           repo: 'ghost-repo',
+          projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
+          projectId: 'PVT_test42',
+        }),
+      ).rejects.toThrow(/default branch/i)
+
+      expect(pushWorkflowMock).not.toHaveBeenCalled()
+    })
+
+    it('throws when repository is null (wrong org / missing repo)', async () => {
+      state.repositoryNull = true
+
+      await expect(
+        enrollRepo({
+          org: 'Roxabi',
+          repo: 'nonexistent-repo',
           projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
           projectId: 'PVT_test42',
         }),
