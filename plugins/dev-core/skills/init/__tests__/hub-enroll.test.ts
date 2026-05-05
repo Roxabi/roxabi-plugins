@@ -290,7 +290,7 @@ describe('hub-enroll', () => {
           projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
           projectId: 'PVT_test42',
         }),
-      ).rejects.toThrow(/nonexistent-repo/)
+      ).rejects.toThrow(/Repository not found: Roxabi\/nonexistent-repo/)
 
       expect(pushWorkflowMock).not.toHaveBeenCalled()
     })
