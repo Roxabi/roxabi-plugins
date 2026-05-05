@@ -32,8 +32,9 @@ is_exempt() {
     P="$1" awk '$1 == ENVIRON["P"] { found = 1 } END { exit !found }' "$EXEMPT_FILE"
 }
 
-# Guard: exemption paths must not contain spaces (NF>2 means path has embedded whitespace).
-if [ -f "$EXEMPT_FILE" ] && awk 'NF > 2 { exit 0 } END { exit 1 }' "$EXEMPT_FILE"; then
+# Guard: exemption paths must not contain spaces (NF>2 on a non-comment line means embedded whitespace).
+# Skips comment lines (#) to avoid false-positives on scaffold-generated exemption file headers.
+if [ -f "$EXEMPT_FILE" ] && awk '/^[[:space:]]*#/ { next } NF > 2 { found=1 } END { exit !found }' "$EXEMPT_FILE"; then
     echo "ERROR: $EXEMPT_FILE: exemption path contains spaces — paths with spaces are not supported" >&2
     exit 1
 fi
