@@ -39,6 +39,7 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
   ghGraphQL: vi.fn(async (query: string, _vars: Record<string, unknown>) => {
     // default branch query
     if (query === REPO_DEFAULT_BRANCH_QUERY) {
+      // repositoryNull checked first — overrides defaultBranch
       return {
         data: {
           repository: state.repositoryNull
@@ -278,8 +279,10 @@ describe('hub-enroll', () => {
     })
 
     it('throws when repository is null (wrong org / missing repo)', async () => {
+      // Arrange
       state.repositoryNull = true
 
+      // Act + Assert
       await expect(
         enrollRepo({
           org: 'Roxabi',
@@ -287,7 +290,7 @@ describe('hub-enroll', () => {
           projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
           projectId: 'PVT_test42',
         }),
-      ).rejects.toThrow(/default branch/i)
+      ).rejects.toThrow(/nonexistent-repo/)
 
       expect(pushWorkflowMock).not.toHaveBeenCalled()
     })
