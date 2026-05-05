@@ -37,32 +37,6 @@ function runDoctor(tmpDir: string, args: string[] = []) {
   }
 }
 
-/** Write a minimal fake gh that handles auth, token, project list, label list, graphql,
- *  and delegates branch-protection calls to a caller-supplied case block. */
-function makeFakeGh(tmpDir: string, branchProtectionCases: string) {
-  makeFakeExec(
-    tmpDir,
-    'gh',
-    [
-      'case "$*" in',
-      '  "--version") echo "gh version 2.40.0"; exit 0 ;;',
-      '  "auth status") exit 0 ;;',
-      '  "auth token") echo "ghp_test"; exit 0 ;;',
-      '  "project list"*) echo \'{"projects":[{"id":"PVT_123"}]}\'; exit 0 ;;',
-      '  "label list"*) echo \'[]\'; exit 0 ;;',
-      '  "repo view"*) echo "false"; exit 0 ;;',
-      '  "api graphql"*) echo \'{"data":{"node":{"workflows":{"nodes":[]}}}}\'; exit 0 ;;',
-      // Catch-all for rulesets, workflows listing, secrets, etc.
-      '  "api"*"/rulesets"*) echo ""; exit 0 ;;',
-      '  "api"*"/contents/.github/workflows"*"secret-scan.yml"*)',
-      branchProtectionCases,
-      '  "api"*) echo ""; exit 0 ;;',
-      '  *) exit 0 ;;',
-      'esac',
-    ].join('\n'),
-  )
-}
-
 describe('branch protection trufflehog context check', () => {
   let tmpDir: string
 
@@ -108,10 +82,8 @@ describe('branch protection trufflehog context check', () => {
         // branch existence checks
         '  "api"*"/branches/main") echo \'{"name":"main"}\'; exit 0 ;;',
         '  "api"*"/branches/staging") exit 1 ;;',
-        // branch protection (plain call — no --jq)
-        '  "api"*"/branches/main/protection") echo \'{"required_status_checks":{"contexts":["ci"]}}\'; exit 0 ;;',
-        // contexts query (--jq flag present)
-        '  "api"*"/branches/main/protection"*"--jq"*) echo \'["ci"]\'; exit 0 ;;',
+        // protection endpoint — returns contexts array (merged --jq call)
+        '  "api"*"/branches/main/protection"*) echo \'["ci"]\'; exit 0 ;;',
         '  "api"*) echo ""; exit 0 ;;',
         '  *) exit 0 ;;',
         'esac',
@@ -147,10 +119,8 @@ describe('branch protection trufflehog context check', () => {
         // branch existence checks
         '  "api"*"/branches/main") echo \'{"name":"main"}\'; exit 0 ;;',
         '  "api"*"/branches/staging") exit 1 ;;',
-        // branch protection (plain call)
-        '  "api"*"/branches/main/protection") echo \'{"required_status_checks":{"contexts":["ci","trufflehog"]}}\'; exit 0 ;;',
-        // contexts query (--jq flag)
-        '  "api"*"/branches/main/protection"*"--jq"*) echo \'["ci","trufflehog"]\'; exit 0 ;;',
+        // protection endpoint — returns contexts array (merged --jq call)
+        '  "api"*"/branches/main/protection"*) echo \'["ci","trufflehog"]\'; exit 0 ;;',
         '  "api"*) echo ""; exit 0 ;;',
         '  *) exit 0 ;;',
         'esac',
@@ -185,8 +155,8 @@ describe('branch protection trufflehog context check', () => {
         // branch existence checks
         '  "api"*"/branches/main") echo \'{"name":"main"}\'; exit 0 ;;',
         '  "api"*"/branches/staging") exit 1 ;;',
-        // branch protection (plain call)
-        '  "api"*"/branches/main/protection") echo \'{"required_status_checks":{"contexts":[]}}\'; exit 0 ;;',
+        // protection endpoint — returns empty contexts (secretScanPresent=false so context check skipped)
+        '  "api"*"/branches/main/protection"*) echo \'[]\'; exit 0 ;;',
         '  "api"*) echo ""; exit 0 ;;',
         '  *) exit 0 ;;',
         'esac',

@@ -28,7 +28,7 @@ describe('protectBranches', () => {
   let spawnSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
-    vi.restoreAllMocks()
+    vi.clearAllMocks()
     const github = await import('../../shared/adapters/github-adapter')
     mockRun = github.run as ReturnType<typeof vi.fn>
     mockRun.mockResolvedValue('')
@@ -161,6 +161,8 @@ describe('protectBranches', () => {
     const { protectBranches } = await import('../lib/protection')
     await protectBranches('Org/repo')
 
-    expect(buildBranchProtectionPayload).toHaveBeenCalledWith({ hasSecretScan: true })
+    expect(buildBranchProtectionPayload).toHaveBeenCalledTimes(2)
+    expect(buildBranchProtectionPayload).toHaveBeenNthCalledWith(1, { hasSecretScan: true })
+    expect(buildBranchProtectionPayload).toHaveBeenNthCalledWith(2, { hasSecretScan: true })
   })
 })

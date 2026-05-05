@@ -48,6 +48,12 @@ export interface BranchProtectionOpts {
   hasSecretScan: boolean
 }
 
+const REPO_FORMAT = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/
+
+function assertValidRepo(repo: string): void {
+  if (!REPO_FORMAT.test(repo)) throw new Error(`Invalid repo format: ${repo}`)
+}
+
 export function buildBranchProtectionPayload(opts: BranchProtectionOpts) {
   const contexts = ['ci']
   if (opts.hasSecretScan) contexts.push('trufflehog')
@@ -59,6 +65,7 @@ export function buildBranchProtectionPayload(opts: BranchProtectionOpts) {
 }
 
 export async function detectSecretScanWorkflow(repo: string): Promise<boolean> {
+  assertValidRepo(repo)
   try {
     const proc = Bun.spawnSync(['gh', 'api', `repos/${repo}/contents/.github/workflows/secret-scan.yml`], {
       stdout: 'pipe',

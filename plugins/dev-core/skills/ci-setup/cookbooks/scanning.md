@@ -33,22 +33,27 @@ yes:
        runs-on: ubuntu-latest
        timeout-minutes: 5
        steps:
-         - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+         - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
            with:
              fetch-depth: 0
 
          - name: TruffleHog secret scan
-           uses: trufflesecurity/trufflehog@47e7b7cd74f578e1e3145d48f669f22fd1330ca6  # v3.94.3
+           uses: trufflesecurity/trufflehog@17456f8c7d042d8c82c9a8ca9e937231f9f42e26  # v3.95.2
            with:
              extra_args: --only-verified
    ```
 2. Push via REST API:
    ```bash
-   CONTENT=$(base64 -w0 .github/workflows/secret-scan.yml 2>/dev/null || base64 .github/workflows/secret-scan.yml)
+   CONTENT=$(base64 < .github/workflows/secret-scan.yml | tr -d '\n')
+   BRANCH=$(git symbolic-ref --short HEAD)
+   EXISTING_SHA=$(gh api "repos/<owner>/<repo>/contents/.github/workflows/secret-scan.yml" \
+     --jq '.sha // empty' 2>/dev/null)
    gh api repos/<owner>/<repo>/contents/.github/workflows/secret-scan.yml \
      --method PUT \
      --field message="ci: add standalone secret-scan.yml workflow" \
-     --field content="$CONTENT"
+     --field content="$CONTENT" \
+     --field branch="$BRANCH" \
+     ${EXISTING_SHA:+--field sha="$EXISTING_SHA"}
    ```
 3. Check local binary:
    ```bash
@@ -99,11 +104,16 @@ yes:
    ```
 3. Push via REST API:
    ```bash
-   CONTENT=$(base64 -w0 .github/dependabot.yml 2>/dev/null || base64 .github/dependabot.yml)
+   CONTENT=$(base64 < .github/dependabot.yml | tr -d '\n')
+   BRANCH=$(git symbolic-ref --short HEAD)
+   EXISTING_SHA=$(gh api "repos/<owner>/<repo>/contents/.github/dependabot.yml" \
+     --jq '.sha // empty' 2>/dev/null)
    gh api repos/<owner>/<repo>/contents/.github/dependabot.yml \
      --method PUT \
      --field message="chore: add dependabot.yml" \
-     --field content="$CONTENT"
+     --field content="$CONTENT" \
+     --field branch="$BRANCH" \
+     ${EXISTING_SHA:+--field sha="$EXISTING_SHA"}
    ```
 4. D("Dependabot", "✅ .github/dependabot.yml created (<ecosystem> + github-actions)").
 

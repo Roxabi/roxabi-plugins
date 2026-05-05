@@ -17,6 +17,7 @@ export interface ProtectionResult {
 
 export async function protectBranches(repo: string): Promise<ProtectionResult> {
   const result: ProtectionResult = { branches: {}, ruleset: false }
+  const hasSecretScan = await detectSecretScanWorkflow(repo)
 
   for (const branch of PROTECTED_BRANCHES) {
     try {
@@ -28,7 +29,6 @@ export async function protectBranches(repo: string): Promise<ProtectionResult> {
       }
 
       // Apply protection via GitHub API (pipe JSON body to stdin)
-      const hasSecretScan = await detectSecretScanWorkflow(repo)
       const payload = JSON.stringify(buildBranchProtectionPayload({ hasSecretScan }))
       const proc = Bun.spawn(
         ['gh', 'api', `repos/${repo}/branches/${branch}/protection`, '-X', 'PUT', '--input', '-'],
