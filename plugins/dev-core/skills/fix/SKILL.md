@@ -56,8 +56,10 @@ Let:
 1. PR# → `gh pr view <#> --json comments --jq '.comments[].body'`; parse Conventional Comments
 2. ¬PR# → scan conversation for latest `/code-review` output
 3. F = ∅ → halt
-4. ∀ f: parse → label, file:line, agent, root cause, solutions, C(f)
-5. Malformed (missing fields ∨ C ∉ ℤ ∩ [0,100]) → C(f) := 0
+4. ∀ f: parse → label, file:line, agent, root cause, class[], raw_callsites[], solutions, C(f)
+   - `class[]` — 0–N canonical slugs from `review-classes.yml` + 0–1 `candidate/<slug>`; absent field → class[] = []
+   - `raw_callsites[]` — [{file, line}] list; required when class[] ≠ []; absent when class[] = []
+5. Malformed (missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label not in canonical list and not `candidate/*`) → C(f) := 0
 
 ## Phase 2 — Triage + Verify
 
@@ -141,7 +143,7 @@ acc = ∅ → skip to Phase 7.
 |acc| ≥ 3  → spawn agent(s) per dispatch + batching rules
 ```
 
-Payload = findings + chosen solution + diff context + "fix using chosen solution; re-read files before editing; lint + test after each fix."
+Payload = findings (with class[] + raw_callsites[] per finding) + chosen solution + diff context + "fix using chosen solution; re-read targets before editing; lint + test after each fix; sweep file for same-class anti-pattern — justify or fix any uncited hit."
 
 Fixer constraints: re-read targets before editing (Phase 3 may have changed them). CI fail → retry max 3; `[failed]` if stuck.
 

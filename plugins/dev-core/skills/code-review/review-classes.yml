@@ -1,0 +1,104 @@
+# T2 Canonical taxonomy — review classes
+# Version: 1.0.0
+# Path: plugins/dev-core/skills/code-review/review-classes.yml
+#
+# Rules:
+#   - canonical classes: use exactly as listed (slug only, no free text)
+#   - candidate classes: prefix "candidate/<slug>", stored in ~/.dev-core/candidate-classes.jsonl
+#   - multi-tag: a finding may carry 0–N canonical tags + 0–1 candidate tag
+#   - raw_callsites: required when class is set; format: [{file: str, line: int}]
+#
+# Graduation (weekly cron):
+#   candidate/<slug> hit ≥3× / 30d across ≥2 distinct PRs → file PR to roxabi-plugins
+#   canonical class hit ≥5× / 90d → file issue (priority/high, blocks-merges)
+
+version: "1.0.0"
+
+classes:
+
+  # ── Roxabi-origin classes (RC-*) ────────────────────────────────────────────
+
+  - class: test-tautology
+    origin: RC-1
+    description: >
+      Test passes when the guard it validates is removed (tautological assertion).
+
+  - class: generator-drift
+    origin: RC-2
+    description: >
+      Hand-edit to a file that has a generator script (e.g. acl-matrix,
+      importlinter contracts, CONFIGURATION.md). The generator will overwrite
+      the manual change on next run.
+
+  - class: parallel-path-drift
+    origin: RC-3
+    description: >
+      Safety hardening applied to one entry point but not its sibling
+      (e.g. HTTP handler secured, WebSocket handler left open).
+
+  - class: bash-safety
+    origin: RC-4
+    description: >
+      Specific bash anti-patterns: `((c++))` with `set -e` · `return >255` ·
+      `jq -r` returning literal `"null"` · `2>/dev/null` silencing errors ·
+      `jq //` coercing `false` to a default.
+
+  # ── OWASP classes ───────────────────────────────────────────────────────────
+
+  - class: shell-injection
+    origin: OWASP
+    description: >
+      `subprocess.run(..., shell=True)` (or equivalent) with user-derived input
+      reaching the shell string.
+
+  - class: sql-injection
+    origin: OWASP
+    description: >
+      String-concatenated SQL query with user-derived input; parameterized
+      queries not used.
+
+  - class: missing-error-handling
+    origin: OWASP
+    description: >
+      `except: pass` · bare `except` · uncaught coroutine exception ·
+      ignored `Result` / `Option` return value.
+
+  - class: missing-input-validation
+    origin: OWASP
+    description: >
+      External input (HTTP, CLI, env, file) reaches a sensitive sink
+      (filesystem, exec, DB, network) without prior validation or sanitization.
+
+  - class: secret-leak
+    origin: OWASP
+    description: >
+      Credentials, API keys, tokens, or private keys present in code, log
+      statements, or commit history.
+
+  - class: bare-except
+    origin: OWASP
+    description: >
+      `except Exception: pass` (or equivalent) swallowing errors without
+      logging or re-raising.
+
+  - class: path-traversal
+    origin: OWASP
+    description: >
+      User-derived path passed to filesystem operations without normalization
+      or containment check (e.g. missing `Path.resolve()` + prefix assertion).
+
+  - class: unbounded-loop
+    origin: OWASP
+    description: >
+      Loop or recursion without a bound, timeout, or circuit-breaker; can
+      exhaust CPU or memory under adversarial or unexpected input.
+
+# ── Candidate namespace (runtime, per-machine) ──────────────────────────────
+#
+# Candidates are NOT listed here. They live in:
+#   ~/.dev-core/candidate-classes.jsonl
+#
+# Schema per entry:
+#   { class: "candidate/<slug>", finding_id, pr, hit_at, agent_src }
+#
+# Findings tagged candidate/* are advisory only — never trigger recall.
