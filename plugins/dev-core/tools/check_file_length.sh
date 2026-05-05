@@ -28,7 +28,8 @@ is_exempt() {
     # Exact match on the first whitespace-delimited field — no regex, no escaping,
     # left-anchored (awk field split) so a path substring elsewhere on the line
     # cannot cause a false positive. Exemption format: '<path> <issue-url>'.
-    awk -v p="$1" '$1 == p { found = 1 } END { exit !found }' "$EXEMPT_FILE"
+    # ENVIRON avoids awk's -v escape processing (backslash sequences in path → corrupted match).
+    P="$1" awk '$1 == ENVIRON["P"] { found = 1 } END { exit !found }' "$EXEMPT_FILE"
 }
 
 while IFS= read -r -d '' f; do
