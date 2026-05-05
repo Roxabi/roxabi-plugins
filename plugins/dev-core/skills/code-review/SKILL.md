@@ -111,6 +111,7 @@ Skip rules: architect → |Δ| ≤ 5 ∧ ¬arch keywords | product-lead → spec
 
 3. scope = Δ ∪ ⋃{resolve(imports(f)) | f ∈ Δ} ∪ `{backend.path}/src/auth/**` — deduplicate
 
+# SYNC REQUIRED: inline class list must match review-classes.yml slugs — see #149
 ### Spawn template
 
 ```
@@ -152,6 +153,7 @@ correctness | security | performance | architecture | tests | readability | obse
 - Free-text labels not in the canonical list and not prefixed `candidate/` → invalid; treat as C(f) := 0
 - `candidate/<slug>` must match `^candidate/[a-z][a-z0-9-]{1,48}$`; slug violating format → invalid, C(f) := 0
 - `Raw callsites` required when `Class` is set; list ALL locations of the anti-pattern in the diff + resolved imports, never just the cited line; format: `[{file: <path>, line: <n>}, ...]`
+- Subsumption: `bare-except` subsumes `missing-error-handling` — when both could apply, tag `bare-except` only
 
 C(f) = min(diagnostic_certainty, fix_certainty)
 

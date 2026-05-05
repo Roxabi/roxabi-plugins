@@ -60,6 +60,7 @@ Let:
    - `class[]` — 0–N canonical slugs from `review-classes.yml` + 0–1 `candidate/<slug>`; absent field → class[] = []
    - `raw_callsites[]` — [{file, line}] list; required when class[] ≠ []; absent when class[] = []
 5. Malformed (missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label not in canonical list and not `candidate/*` ∨ `candidate/<slug>` violates `^candidate/[a-z][a-z0-9-]{1,48}$`) → C(f) := 0
+5b. Subsumption strip: ∃ `bare-except` ∧ `missing-error-handling` in same finding's class[] → strip `missing-error-handling`, emit `[subsumption-violation]` at <file>:<line>; ¬set C(f) := 0
 
 ## Phase 2 — Triage + Verify
 
