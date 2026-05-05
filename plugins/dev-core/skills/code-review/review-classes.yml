@@ -1,0 +1,131 @@
+# T2 Canonical taxonomy — review classes
+# Version: 1.0.0
+# Path: plugins/dev-core/skills/code-review/review-classes.yml
+#
+# Rules:
+#   - canonical classes: use exactly as listed (slug only, no free text)
+#   - candidate classes: prefix "candidate/<slug>", stored in ~/.dev-core/candidate-classes.jsonl
+#   - multi-tag: a finding may carry 0–N canonical tags + 0–1 candidate tag
+#   - raw_callsites: required when class is set; format: [{file: str, line: int}]
+#
+# Graduation (weekly cron):
+#   candidate/<slug> hit ≥3× / 30d across ≥2 distinct PRs → file PR to roxabi-plugins
+#   canonical class hit ≥5× / 90d → file issue (priority/high, blocks-merges)
+
+version: "1.0.0"
+
+classes:
+
+  # ── Roxabi-origin classes (RC-*) ────────────────────────────────────────────
+
+  - class: test-tautology
+    origin: RC-1
+    description: >
+      Test passes when the guard it validates is removed (tautological assertion).
+
+  - class: generator-drift
+    origin: RC-2
+    description: >
+      Hand-edit to a file that has a generator script (e.g. acl-matrix,
+      importlinter contracts, CONFIGURATION.md). The generator will overwrite
+      the manual change on next run.
+
+  - class: parallel-path-drift
+    origin: RC-3
+    description: >
+      Safety hardening applied to one entry point but not its sibling
+      (e.g. HTTP handler secured, WebSocket handler left open).
+
+  - class: bash-arithmetic-trap
+    origin: RC-4a
+    description: >
+      Bash arithmetic that silently corrupts exit codes: `((c++))` with `set -e`
+      (zero value exits the script) · `return >255` (truncated to 8-bit,
+      return 256 = return 0).
+
+  - class: bash-error-suppression
+    origin: RC-4b
+    description: >
+      Bash patterns that silently discard errors or coerce unexpected values:
+      `2>/dev/null` swallowing stderr · `jq -r` returning literal `"null"` string ·
+      `jq //` coercing `false` to a default value.
+
+  # ── OWASP classes ───────────────────────────────────────────────────────────
+
+  - class: shell-injection
+    origin: OWASP
+    description: >
+      `subprocess.run(..., shell=True)` (or equivalent) with user-derived input
+      reaching the shell string.
+
+  - class: sql-injection
+    origin: OWASP
+    description: >
+      String-concatenated SQL query with user-derived input; parameterized
+      queries not used.
+
+  - class: missing-error-handling
+    origin: OWASP
+    description: >
+      Uncaught coroutine exception · ignored `Result` / `Option` return value.
+      See `bare-except` for swallowed-exception patterns (`except: pass`, bare `except`).
+    note: >
+      Subsumption: when `bare-except` applies to a callsite, tag it as
+      `bare-except` only — omit `missing-error-handling` to prevent
+      double-counting graduation hits.
+
+  - class: missing-input-validation
+    origin: OWASP
+    description: >
+      External input (HTTP, CLI, env, file) reaches a sensitive sink
+      (filesystem, exec, DB, network) without prior validation or sanitization.
+
+  - class: secret-leak
+    origin: OWASP
+    description: >
+      Credentials, API keys, tokens, or private keys present in code, log
+      statements, or commit history.
+
+  - class: bare-except
+    origin: OWASP
+    severity: critical  # advisory only — no consumer reads severity in Slice 1; reserved for Slice 3 dispatch routing
+    description: >
+      `except Exception: pass` (or equivalent) swallowing errors without
+      logging or re-raising.
+    note: >
+      Strict subset of `missing-error-handling`. Always tag as `bare-except`
+      alone; omit `missing-error-handling` (see subsumption rule above).
+
+  - class: path-traversal
+    origin: OWASP
+    description: >
+      User-derived path passed to filesystem operations without normalization
+      or containment check (e.g. missing `Path.resolve()` + prefix assertion).
+
+  - class: unbounded-loop
+    origin: OWASP
+    description: >
+      Loop or recursion without a bound, timeout, or circuit-breaker; can
+      exhaust CPU or memory under adversarial or unexpected input.
+
+# ── Candidate namespace (runtime, per-machine) ──────────────────────────────
+#
+# Candidates are NOT listed here. They live in:
+#   ~/.dev-core/candidate-classes.jsonl
+#
+# Slug format: ^candidate/[a-z][a-z0-9-]{1,48}$  — enforced at write AND parse time.
+#   # total max 59 chars (10-char prefix "candidate/" + 1 required-start + up to 48-char suffix)
+#   Invalid slug → entry dropped + C(f) := 0. No path components, no whitespace.
+#
+# Schema per entry:
+#   { class: "candidate/<slug>", finding_id, pr: str (required), hit_at, agent_src }
+#
+#   pr: PR identifier (e.g. "146") or synthetic "local:<branch-slug>:<sha8>" for non-PR runs.
+#   branch-slug component: [a-z0-9-]+, max 60 chars; slugify branch name
+#     (lowercase, non-[a-z0-9] chars → -, strip leading/trailing -).
+#   pr is REQUIRED — never null or absent.
+#   Graduation rule "≥2 distinct PRs" counts distinct pr values where pr does NOT start
+#   with "local:". local:* hits count toward frequency (≥3×/30d) but not toward the
+#   ≥2-distinct-PRs promotion gate (advisory only).
+#
+# Findings tagged candidate/* are advisory only — never trigger recall.

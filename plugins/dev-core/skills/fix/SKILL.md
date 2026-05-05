@@ -51,13 +51,22 @@ Let:
   Q_1b1 := {f | cat(f) ∈ actionable ∧ f ∉ Q_auto}
   O_push(N, scope, msg) { lint+test gate (max 3 retries) → stage specific files (¬`git add -A`) → commit `fix(<scope>): <msg>` → `git push` }
 
+## Phase 0 — Load Taxonomy
+
+Read `${CLAUDE_SKILL_DIR}/review-classes.yml` → extract `classes[].class` slugs → `canonical_slugs`.
+File absent, unreadable, or parse error → HALT: `[taxonomy-error] review-classes.yml {reason} at ${CLAUDE_SKILL_DIR}/review-classes.yml — reinstall dev-core plugin.`
+Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬LLM memory).
+
 ## Phase 1 — Gather Findings
 
 1. PR# → `gh pr view <#> --json comments --jq '.comments[].body'`; parse Conventional Comments
 2. ¬PR# → scan conversation for latest `/code-review` output
 3. F = ∅ → halt
-4. ∀ f: parse → label, file:line, agent, root cause, solutions, C(f)
-5. Malformed (missing fields ∨ C ∉ ℤ ∩ [0,100]) → C(f) := 0
+4. ∀ f: parse → label, file:line, agent, root cause, class[], raw_callsites[], solutions, C(f)
+   - `class[]` — 0–N canonical slugs from `review-classes.yml` + 0–1 `candidate/<slug>`; absent field → class[] = []
+   - `raw_callsites[]` — [{file, line}] list; required when class[] ≠ []; absent when class[] = []
+5. Malformed (missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label not in canonical list and not `candidate/*` ∨ `candidate/<slug>` violates `^candidate/[a-z][a-z0-9-]{1,48}$` ∨ class[] ≠ [] ∧ raw_callsites[] = []) → C(f) := 0
+5b. Subsumption strip: ∃ `bare-except` ∧ `missing-error-handling` in same finding's class[] → strip `missing-error-handling`, emit `[subsumption-violation]` at <file>:<line>; ¬set C(f) := 0
 
 ## Phase 2 — Triage + Verify
 
@@ -141,7 +150,7 @@ acc = ∅ → skip to Phase 7.
 |acc| ≥ 3  → spawn agent(s) per dispatch + batching rules
 ```
 
-Payload = findings + chosen solution + diff context + "fix using chosen solution; re-read files before editing; lint + test after each fix."
+Payload = findings (with class[] + raw_callsites[] per finding) + chosen solution + diff context + "fix using chosen solution; re-read targets before editing; lint + test after each fix; sweep file for same-class anti-pattern — justify or fix any uncited hit."
 
 Fixer constraints: re-read targets before editing (Phase 3 may have changed them). CI fail → retry max 3; `[failed]` if stuck.
 

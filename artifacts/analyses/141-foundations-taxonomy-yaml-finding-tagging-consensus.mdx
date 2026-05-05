@@ -1,0 +1,150 @@
+---
+title: "T2 Taxonomy Design Decisions — Expert Consensus"
+issue: 141
+status: consensus-reached
+date: 2026-05-05
+panel: architect, security-auditor, product-lead
+confidence: high
+---
+
+## Problem
+
+PR #146 review surfaced 5 open design questions on the T2 taxonomy (review-classes.yml) and the class[]/raw_callsites[] pipeline. Decisions made here are baked into Slices 2–5 — the recall index (Slice 2) in particular will be keyed on class slugs, making post-merge slug changes expensive.
+
+## Panel
+
+| α | Focus |
+|---|-------|
+| architect | arch soundness, maintainability, scalability across all 5 slices |
+| security-auditor | taxonomy as trust boundary, input validation, injection surface |
+| product-lead | slice velocity, rework cost, graduation UX |
+
+## Consensus ρ
+
+### F1 — class[] validation: zero-whole-finding vs. per-entry-drop
+
+**Decision: keep zero-whole-finding (current behavior in step 5).**
+
+| Vote | α | Rationale |
+|------|---|-----------|
+| zero-whole | security-auditor | partial class[] survives as a silent corruption; downstream routing keys on class[] without knowing it was stripped |
+| zero-whole | product-lead | zeroing routes to 1b1; a human sees the invalid label explicitly — that is the correct recovery path |
+| per-entry | architect (dissent) | location signal is preserved; one bad tag shouldn't destroy the finding |
+
+No code change needed. The current step 5 rule is correct.
+
+**Recorded dissent (architect):** if agents frequently produce one valid + one invalid class per finding, recall coverage degrades. Revisit in Slice 3 if hit rate data shows the problem.
+
+---
+
+### F2 — Spawn template hardcodes canonical class list
+
+**Decision: CI lint rule (unanimous).**
+
+Add a validator in `tools/validate_plugins.py` (or a standalone `tools/check_taxonomy_sync.py`) that:
+- Reads all `class:` slugs from `review-classes.yml`
+- Asserts the inline list in `code-review/SKILL.md` Phase 3 spawn template matches exactly
+- Runs as a lefthook pre-commit hook and in CI
+
+Option A (dynamic YAML read at spawn time) rejected: `${CLAUDE_SKILL_DIR}` resolves at runtime, not at prompt-construction time; YAML read failure would silently produce an empty class list, zeroing every tagged finding.
+Option C (accept drift) rejected unconditionally.
+
+**Implementation:** add to `tools/validate_plugins.py` or new `tools/check_taxonomy_sync.py`. Wire into lefthook `pre-commit` in `.lefthook.yml`.
+
+---
+
+### F4 — candidate/<slug> accepts arbitrary free-text
+
+**Decision: slug format constraint (unanimous).**
+
+Constraint: `^candidate/[a-z][a-z0-9-]{1,48}$`
+
+Applied at:
+- Write time: wherever `candidate-classes.jsonl` entries are created
+- Parse time: `fix/SKILL.md` Phase 1 and any Slice 3+ reader
+
+Invalid slugs → entry dropped + C(f) := 0 (same rule as canonical validation).
+
+Option B (enumerate candidates in YAML) rejected: defeats the open-world semantics of the candidate namespace.
+
+**Implementation:** add constraint docs to `review-classes.yml` candidate namespace comment block. Validation rule added to `code-review/SKILL.md` + `fix/SKILL.md`.
+
+---
+
+### F5 — JSONL `pr` field: required vs. nullable
+
+**Decision: required field with synthetic fallback for non-PR runs (2-1).**
+
+| Vote | α | Rationale |
+|------|---|-----------|
+| required + synthetic | architect | nullable `pr` breaks `≥2 distinct PRs` guard; synthetic fallback preserves gate integrity |
+| required + synthetic | security-auditor | null-as-virtual-PR collapses the anti-noise gate; synthetic `local:<branch>:<sha8>` is structurally distinct per run |
+| null = single virtual PR | product-lead (dissent) | required field + synthetic adds complexity; null-as-virtual-PR is safe at current scale |
+
+**Synthetic fallback format:** `local:<branch-slug>:<sha8>` (e.g. `local:feat-141-foundations:baa8548`).
+**Graduation rule:** `≥2 distinct pr values` where `local:*` values are treated as advisory — they count toward hit frequency but not toward the `≥2 distinct PRs` promotion gate unless explicitly opted in.
+
+Document in `review-classes.yml` candidate namespace comment.
+
+**Recorded dissent (product-lead):** null-as-virtual-PR is simpler and safe if graduation cron treats null as "0 distinct PRs from local runs." Revisit if synthetic fallback causes implementation friction.
+
+---
+
+### F6 — bash-safety conflates 4 anti-patterns
+
+**Decision: split now, before Slice 2 bakes the slug into the recall index (2-1).**
+
+| Vote | α | Rationale |
+|------|---|-----------|
+| split | architect | orthogonal failure modes; merged class → ambiguous recall vector; post-Slice-2 split = JSONL migration |
+| split | product-lead | slug is a recall key; polysemous key degrades Slice 3 targeted recall from day 1 |
+| keep merged | security-auditor (dissent) | 4 sub-patterns share the same root origin (RC-4); splitting inflates slug count; precision concern, not trust boundary |
+
+**New classes:**
+
+| Old slug | New slug | RC | Patterns |
+|----------|----------|-----|----------|
+| `bash-safety` | `bash-arithmetic-trap` | RC-4a | `((c++))` with `set -e`; `return >255` |
+| `bash-safety` | `bash-error-suppression` | RC-4b | `2>/dev/null` silencing; `jq -r` literal `"null"`; `jq //` coercing `false` |
+
+Remove `bash-safety` from `review-classes.yml`. Update spawn template inline list. No JSONL migration needed (no production entries yet).
+
+**Recorded dissent (security-auditor):** two classes with shared RC-4 origin may be recombined at graduation if hit patterns correlate. The split is recoverable.
+
+---
+
+## Alternatives
+
+| ω | Proposed by | Rejected because |
+|---|-------------|------------------|
+| F1: per-entry class[] drop | architect | silent partial corruption; routing keys on truncated class[] without error signal |
+| F2: dynamic YAML read at spawn | architect | YAML parse failure → empty class list → all findings zeroed; runtime coupling |
+| F4: enumerate candidates in YAML | security-auditor | defeats open-world semantics of candidate namespace |
+| F5: null = single virtual PR | product-lead | collapses multi-PR anti-noise gate; 3 local hits = graduation |
+| F5: defer to Slice 5 | — | JSONL written starting Slice 1; ambiguous schema grows with each slice |
+| F6: keep merged with hints | security-auditor | sub-pattern hints not machine-parseable; recall index polysemous from day 1 |
+
+## Dissent Summary
+
+| Finding | Dissenter | Position |
+|---------|-----------|----------|
+| F1 | architect | per-entry drop preserves location signal; revisit if recall coverage degrades |
+| F5 | product-lead | null-as-virtual-PR is simpler and safe; synthetic fallback may be over-engineering |
+| F6 | security-auditor | RC-4 patterns share origin; merge recoverable at graduation |
+
+## Implementation Notes
+
+Apply in this PR (before Slice 2):
+1. **F4:** add `candidate/` slug constraint docs to `review-classes.yml` + validation rules in SKILL.md files
+2. **F5:** document `pr` field schema + synthetic fallback in `review-classes.yml` candidate namespace
+3. **F6:** split `bash-safety` → `bash-arithmetic-trap` + `bash-error-suppression` in YAML + spawn template
+
+Defer to tooling PR:
+4. **F2:** `tools/check_taxonomy_sync.py` + lefthook hook
+
+F1: no change needed.
+
+## Next
+
+Apply F4 + F5 + F6 in current branch → push → re-review PR #146.
+F2 (CI lint) → separate tooling issue.

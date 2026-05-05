@@ -111,13 +111,14 @@ Skip rules: architect → |Δ| ≤ 5 ∧ ¬arch keywords | product-lead → spec
 
 3. scope = Δ ∪ ⋃{resolve(imports(f)) | f ∈ Δ} ∪ `{backend.path}/src/auth/**` — deduplicate
 
+# SYNC REQUIRED: inline class list must match review-classes.yml slugs — see #149
 ### Spawn template
 
 ```
 Task(
   subagent_type: "dev-core:{agent}",
   description: "{agent} review — {PR#|branch}",
-  prompt: "Code review task. Focus: {focus}. Output Conventional Comments findings only. ¬TaskCreate.\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\n---DIFF---\n{diff}\n\n---FILES---\n{changed file contents}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
+  prompt: "Code review task. Focus: {focus}. Output Conventional Comments findings only. ¬TaskCreate.\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all locations of this anti-pattern; required when Class is set; never empty\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$. Subsumption: bare-except subsumes missing-error-handling — when both apply, tag bare-except only.\n\n---DIFF---\n{diff}\n\n---FILES---\n{changed file contents}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
 )
 ```
 
@@ -130,19 +131,29 @@ Each agent receives: full diff + Δ + spec (if ∃) + "output Conventional Comme
 ### Review dimensions
 correctness | security | performance | architecture | tests | readability | observability
 
-### Finding format (ALL fields mandatory)
+### Finding format (ALL fields mandatory except Class/Raw callsites)
 
 ```
 <label>: <description>
   <file>:<line>
   -- <agent>
   Root cause: <why, not what>
+  Class: [<canonical-class>, ...] [candidate/<slug>?]
+  Raw callsites: [{file: <path>, line: <n>}, ...]
   Solutions:
     1. <primary> (recommended)
     2. <alternative>
     3. <alternative> [optional]
   Confidence: <0-100>%
 ```
+
+**Class field rules:**
+- 0–N canonical tags from `${CLAUDE_SKILL_DIR}/review-classes.yml` + 0–1 `candidate/<slug>` tag
+- Omit the `Class:` field entirely when no class applies (¬write `Class: []`)
+- Free-text labels not in the canonical list and not prefixed `candidate/` → invalid; treat as C(f) := 0
+- `candidate/<slug>` must match `^candidate/[a-z][a-z0-9-]{1,48}$`; slug violating format → invalid, C(f) := 0
+- `Raw callsites` required when `Class` is set; list ALL locations of the anti-pattern in the diff + resolved imports, never just the cited line; format: `[{file: <path>, line: <n>}, ...]`
+- Subsumption: `bare-except` subsumes `missing-error-handling` — when both could apply, tag `bare-except` only
 
 C(f) = min(diagnostic_certainty, fix_certainty)
 
@@ -153,7 +164,7 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 | Moderate | 40-69 | Probable, context-dependent |
 | Low | 0-39 | Speculative, competing explanations |
 
-**Validation:** missing fields ∨ C ∉ ℤ ∩ [0,100] → C(f) := 0 (noted; `/fix` routes to 1b1).
+**Validation:** missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label → C(f) := 0 (noted; `/fix` routes to 1b1).
 
 ### Finding categories
 
@@ -168,7 +179,7 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 ## Phase 4 — Merge & Present
 
 1. Collect F from all agents
-2. Dedup: same file:line + issue → keep max C
+2. Dedup: same file:line + issue → keep max C; ∀ pair sharing file:line with class[] sets that intersect after subsumption → merge: max C, union class[] (apply subsumption strip), union raw_callsites[]
 3. Sort: C desc within category
 4. Group: Blockers → Warnings → Suggestions → Praise
 
