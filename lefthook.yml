@@ -23,7 +23,7 @@ pre-commit:
     license-check:
       run: "[ -f .venv/bin/python ] && .venv/bin/python tools/license_check.py || true"
     taxonomy-sync:
-      run: "[ -f .venv/bin/python ] && .venv/bin/python tools/validate_plugins.py || true"
+      run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py; else echo 'SKIP: taxonomy-sync (no .venv)' >&2; fi"
 
 commit-msg:
   commands:

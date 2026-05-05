@@ -17,6 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGINS_DIR = REPO_ROOT / 'plugins'
 CANONICAL_PATHS = REPO_ROOT / 'roxabi_sdk' / 'paths.py'
@@ -172,10 +174,8 @@ def check_class_list_sync() -> list[str]:
 
     yaml_slugs: set[str] = set()
     with open(yaml_path) as f:
-        for line in f:
-            m = re.match(r'\s+-\s+class:\s+(\S+)', line)
-            if m:
-                yaml_slugs.add(m.group(1))
+        data = yaml.safe_load(f)
+    yaml_slugs = {c['class'] for c in data.get('classes', [])}
 
     inline_slugs: set[str] = set()
     with open(skill_path) as f:
