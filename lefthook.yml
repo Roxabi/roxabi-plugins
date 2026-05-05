@@ -22,6 +22,8 @@ pre-commit:
         - rebase
     license-check:
       run: "[ -f .venv/bin/python ] && .venv/bin/python tools/license_check.py || true"
+    taxonomy-sync:
+      run: "[ -f .venv/bin/python ] && .venv/bin/python tools/validate_plugins.py || true"
 
 commit-msg:
   commands:

@@ -157,6 +157,51 @@ def check_tempfile_convention() -> list[str]:
     return errors
 
 
+def check_class_list_sync() -> list[str]:
+    """Inline class list in code-review/SKILL.md spawn template must match review-classes.yml."""
+    errors = []
+    yaml_path = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'review-classes.yml'
+    skill_path = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'SKILL.md'
+
+    if not yaml_path.exists():
+        errors.append(f'review-classes.yml not found at {yaml_path}')
+        return errors
+    if not skill_path.exists():
+        errors.append(f'code-review/SKILL.md not found at {skill_path}')
+        return errors
+
+    yaml_slugs: set[str] = set()
+    with open(yaml_path) as f:
+        for line in f:
+            m = re.match(r'\s+-\s+class:\s+(\S+)', line)
+            if m:
+                yaml_slugs.add(m.group(1))
+
+    inline_slugs: set[str] = set()
+    with open(skill_path) as f:
+        content = f.read()
+    m = re.search(r'Canonical classes \(use slug only\):\s+([^.\\]+)\.', content)
+    if not m:
+        errors.append('code-review/SKILL.md: canonical class list not found in spawn template')
+        return errors
+    for slug in m.group(1).split(','):
+        slug = slug.strip()
+        if slug:
+            inline_slugs.add(slug)
+
+    missing = yaml_slugs - inline_slugs
+    extra = inline_slugs - yaml_slugs
+    if missing:
+        errors.append(
+            f'code-review/SKILL.md spawn template missing slugs from review-classes.yml: {sorted(missing)}'
+        )
+    if extra:
+        errors.append(
+            f'code-review/SKILL.md spawn template has extra slugs not in review-classes.yml: {sorted(extra)}'
+        )
+    return errors
+
+
 def main() -> int:
     all_errors = []
     checks = [
@@ -166,6 +211,7 @@ def main() -> int:
         ('Example files exist', check_examples_exist),
         ('Vendored paths.py sync', check_vendored_paths),
         ('Tempfile convention', check_tempfile_convention),
+        ('Class list sync', check_class_list_sync),
     ]
 
     for name, check_fn in checks:

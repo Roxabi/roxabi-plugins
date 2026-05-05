@@ -51,6 +51,11 @@ Let:
   Q_1b1 := {f | cat(f) ∈ actionable ∧ f ∉ Q_auto}
   O_push(N, scope, msg) { lint+test gate (max 3 retries) → stage specific files (¬`git add -A`) → commit `fix(<scope>): <msg>` → `git push` }
 
+## Phase 0 — Load Taxonomy
+
+Read `${CLAUDE_SKILL_DIR}/review-classes.yml` → extract `classes[].class` slugs → `canonical_slugs`.
+Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬LLM memory).
+
 ## Phase 1 — Gather Findings
 
 1. PR# → `gh pr view <#> --json comments --jq '.comments[].body'`; parse Conventional Comments
@@ -59,7 +64,7 @@ Let:
 4. ∀ f: parse → label, file:line, agent, root cause, class[], raw_callsites[], solutions, C(f)
    - `class[]` — 0–N canonical slugs from `review-classes.yml` + 0–1 `candidate/<slug>`; absent field → class[] = []
    - `raw_callsites[]` — [{file, line}] list; required when class[] ≠ []; absent when class[] = []
-5. Malformed (missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label not in canonical list and not `candidate/*` ∨ `candidate/<slug>` violates `^candidate/[a-z][a-z0-9-]{1,48}$`) → C(f) := 0
+5. Malformed (missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label not in canonical list and not `candidate/*` ∨ `candidate/<slug>` violates `^candidate/[a-z][a-z0-9-]{1,48}$` ∨ class[] ≠ [] ∧ raw_callsites[] = []) → C(f) := 0
 5b. Subsumption strip: ∃ `bare-except` ∧ `missing-error-handling` in same finding's class[] → strip `missing-error-handling`, emit `[subsumption-violation]` at <file>:<line>; ¬set C(f) := 0
 
 ## Phase 2 — Triage + Verify

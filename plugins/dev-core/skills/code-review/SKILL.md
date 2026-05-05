@@ -118,7 +118,7 @@ Skip rules: architect → |Δ| ≤ 5 ∧ ¬arch keywords | product-lead → spec
 Task(
   subagent_type: "dev-core:{agent}",
   description: "{agent} review — {PR#|branch}",
-  prompt: "Code review task. Focus: {focus}. Output Conventional Comments findings only. ¬TaskCreate.\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all locations of this anti-pattern; required when Class is set; never empty\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$.\n\n---DIFF---\n{diff}\n\n---FILES---\n{changed file contents}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
+  prompt: "Code review task. Focus: {focus}. Output Conventional Comments findings only. ¬TaskCreate.\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all locations of this anti-pattern; required when Class is set; never empty\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$. Subsumption: bare-except subsumes missing-error-handling — when both apply, tag bare-except only.\n\n---DIFF---\n{diff}\n\n---FILES---\n{changed file contents}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
 )
 ```
 
@@ -179,7 +179,7 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 ## Phase 4 — Merge & Present
 
 1. Collect F from all agents
-2. Dedup: same file:line + issue → keep max C
+2. Dedup: same file:line + issue → keep max C; ∀ pair sharing file:line with class[] sets that intersect after subsumption → merge: max C, union class[] (apply subsumption strip), union raw_callsites[]
 3. Sort: C desc within category
 4. Group: Blockers → Warnings → Suggestions → Praise
 
