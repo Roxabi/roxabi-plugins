@@ -2,16 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../shared/adapters/github-infra', () => ({
   PROTECTED_BRANCHES: ['main', 'staging'],
-  BRANCH_PROTECTION_PAYLOAD: {
+  buildBranchProtectionPayload: vi.fn(() => ({
     required_status_checks: { strict: true, contexts: ['ci'] },
     enforce_admins: false,
     restrictions: null,
-  },
+  })),
+  detectSecretScanWorkflow: vi.fn(async () => false),
   DEFAULT_RULESET: {
     name: 'PR_Main',
     target: 'branch',
     enforcement: 'active',
-    conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+    conditions: { ref_name: { include: ['refs/heads/main'], exclude: [] } },
     rules: [{ type: 'deletion' }, { type: 'non_fast_forward' }, { type: 'pull_request', parameters: {} }],
     bypass_actors: [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' }],
   },
@@ -27,7 +28,7 @@ describe('protectBranches', () => {
   let spawnSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
-    vi.restoreAllMocks()
+    vi.clearAllMocks()
     const github = await import('../../shared/adapters/github-adapter')
     mockRun = github.run as ReturnType<typeof vi.fn>
     mockRun.mockResolvedValue('')
@@ -135,5 +136,33 @@ describe('protectBranches', () => {
 
     expect(result.branches.main).toBe(false)
     expect(result.branches.staging).toBe(false)
+  })
+
+  it('passes hasSecretScan: true to buildBranchProtectionPayload when secret-scan.yml is present', async () => {
+    const { detectSecretScanWorkflow, buildBranchProtectionPayload } = await import(
+      '../../shared/adapters/github-infra'
+    )
+
+    ;(detectSecretScanWorkflow as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true)
+
+    spawnSyncSpy.mockReturnValue({
+      stdout: new Uint8Array(),
+      stderr: new Uint8Array(),
+      exitCode: 0,
+      success: true,
+    } as unknown as ReturnType<typeof Bun.spawnSync>)
+
+    spawnSpy.mockReturnValue({
+      exited: Promise.resolve(0),
+      stdout: new ReadableStream(),
+      stderr: new ReadableStream(),
+    } as unknown as ReturnType<typeof Bun.spawn>)
+
+    const { protectBranches } = await import('../lib/protection')
+    await protectBranches('Org/repo')
+
+    expect(buildBranchProtectionPayload).toHaveBeenCalledTimes(2)
+    expect(buildBranchProtectionPayload).toHaveBeenNthCalledWith(1, { hasSecretScan: true })
+    expect(buildBranchProtectionPayload).toHaveBeenNthCalledWith(2, { hasSecretScan: true })
   })
 })

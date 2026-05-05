@@ -3,7 +3,12 @@
  */
 
 import { run } from '../../shared/adapters/github-adapter'
-import { BRANCH_PROTECTION_PAYLOAD, DEFAULT_RULESET, PROTECTED_BRANCHES } from '../../shared/adapters/github-infra'
+import {
+  buildBranchProtectionPayload,
+  DEFAULT_RULESET,
+  detectSecretScanWorkflow,
+  PROTECTED_BRANCHES,
+} from '../../shared/adapters/github-infra'
 
 export interface ProtectionResult {
   branches: Record<string, boolean>
@@ -12,6 +17,12 @@ export interface ProtectionResult {
 
 export async function protectBranches(repo: string): Promise<ProtectionResult> {
   const result: ProtectionResult = { branches: {}, ruleset: false }
+  let hasSecretScan = false
+  try {
+    hasSecretScan = await detectSecretScanWorkflow(repo)
+  } catch {
+    // invalid repo or network error — proceed without secret-scan context
+  }
 
   for (const branch of PROTECTED_BRANCHES) {
     try {
@@ -23,7 +34,7 @@ export async function protectBranches(repo: string): Promise<ProtectionResult> {
       }
 
       // Apply protection via GitHub API (pipe JSON body to stdin)
-      const payload = JSON.stringify(BRANCH_PROTECTION_PAYLOAD)
+      const payload = JSON.stringify(buildBranchProtectionPayload({ hasSecretScan }))
       const proc = Bun.spawn(
         ['gh', 'api', `repos/${repo}/branches/${branch}/protection`, '-X', 'PUT', '--input', '-'],
         { stdin: new TextEncoder().encode(payload), stdout: 'pipe', stderr: 'pipe' },
