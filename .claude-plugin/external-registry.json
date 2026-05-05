@@ -176,6 +176,17 @@
       "notes": "Upstream files in rules/ mapped to references/rules/. SKILL.md rewritten with Roxabi frontmatter + condensed workflow. No content drift at sync."
     },
     {
+      "plugin": "mattpocock-skills",
+      "upstream_url": "https://github.com/mattpocock/skills",
+      "upstream_branch": "main",
+      "last_sync_commit": "b843cb5ea74b1fe5e58a0fc23cddef9e66076fb8",
+      "last_sync_date": "2026-05-05",
+      "sync_strategy": "copy",
+      "status": "active",
+      "added": "2026-05-05",
+      "notes": "5 skills: grill-me, caveman, diagnose, to-issues, grill-with-docs. Copied from skills/productivity/ and skills/engineering/. MIT license."
+    },
+    {
       "plugin": "web-design-guidelines",
       "upstream_url": "https://github.com/vercel-labs/agent-skills",
       "upstream_branch": "main",

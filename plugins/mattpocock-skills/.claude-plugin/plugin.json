@@ -1,0 +1,10 @@
+{
+  "name": "mattpocock-skills",
+  "version": "1.0.0",
+  "description": "Curated skills by Matt Pocock — grill-me (relentless plan interviewer), caveman (compressed mode), diagnose (feedback-loop-first debugging), to-issues (tracer-bullet slicing), grill-with-docs (domain-model stress-test).",
+  "author": {
+    "name": "Matt Pocock",
+    "url": "https://github.com/mattpocock"
+  },
+  "license": "MIT"
+}

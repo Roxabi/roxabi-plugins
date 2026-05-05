@@ -84,6 +84,13 @@
       "version": "0.1.0"
     },
     {
+      "name": "mattpocock-skills",
+      "description": "Curated skills by Matt Pocock — grill-me (relentless plan interviewer), caveman (compressed mode), diagnose (feedback-loop-first debugging), to-issues (tracer-bullet slicing), grill-with-docs (domain-model stress-test).",
+      "source": "./plugins/mattpocock-skills",
+      "category": "workflow",
+      "version": "1.0.0"
+    },
+    {
       "name": "web-design-guidelines",
       "description": "Review UI code for Web Interface Guidelines compliance — accessibility, UX, design best practices.",
       "source": "./plugins/web-design-guidelines",
