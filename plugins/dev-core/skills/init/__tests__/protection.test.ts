@@ -137,4 +137,28 @@ describe('protectBranches', () => {
     expect(result.branches.main).toBe(false)
     expect(result.branches.staging).toBe(false)
   })
+
+  it('passes hasSecretScan: true to buildBranchProtectionPayload when secret-scan.yml is present', async () => {
+    const { detectSecretScanWorkflow, buildBranchProtectionPayload } = await import('../../shared/adapters/github-infra')
+
+    ;(detectSecretScanWorkflow as ReturnType<typeof vi.fn>).mockResolvedValue(true)
+
+    spawnSyncSpy.mockReturnValue({
+      stdout: new Uint8Array(),
+      stderr: new Uint8Array(),
+      exitCode: 0,
+      success: true,
+    } as unknown as ReturnType<typeof Bun.spawnSync>)
+
+    spawnSpy.mockReturnValue({
+      exited: Promise.resolve(0),
+      stdout: new ReadableStream(),
+      stderr: new ReadableStream(),
+    } as unknown as ReturnType<typeof Bun.spawn>)
+
+    const { protectBranches } = await import('../lib/protection')
+    await protectBranches('Org/repo')
+
+    expect(buildBranchProtectionPayload).toHaveBeenCalledWith({ hasSecretScan: true })
+  })
 })
