@@ -24,6 +24,9 @@ pre-commit:
       run: "[ -f .venv/bin/python ] && .venv/bin/python tools/license_check.py || true"
     taxonomy-sync:
       run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py; else echo 'SKIP: taxonomy-sync (no .venv)' >&2; fi"
+    taxonomy-class-list-sync:
+      run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py --check class-list-sync; else echo 'SKIP: taxonomy-class-list-sync (no .venv)' >&2; fi"
+      glob: "plugins/dev-core/skills/code-review/{review-classes.yml,SKILL.md}"
 
 commit-msg:
   commands:

@@ -9,7 +9,13 @@ Checks:
 - Example files referenced in plugin.json exist
 - Vendored paths.py copies match the canonical version
 - Fixed /tmp/ literals in SKILL.md files (tempfile-convention.md)
+- Inline class list in code-review/SKILL.md spawn template matches review-classes.yml
+
+Usage:
+  python3 tools/validate_plugins.py                     # run all checks
+  python3 tools/validate_plugins.py --check class-list-sync  # run only class-list-sync
 """
+import argparse
 import filecmp
 import json
 import re
@@ -22,6 +28,14 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGINS_DIR = REPO_ROOT / 'plugins'
 CANONICAL_PATHS = REPO_ROOT / 'roxabi_sdk' / 'paths.py'
+
+_DEFAULT_YAML_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'review-classes.yml'
+_DEFAULT_SKILL_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'SKILL.md'
+
+# Anchor in SKILL.md: "Canonical classes (use slug only): <slug1>, ...<slugN>."
+_SPAWN_LIST_RE = re.compile(
+    r'Canonical classes \(use slug only\):\s+([^.\r\n]+)\.',
+)
 
 
 def run_grep(pattern: str, path: str = 'plugins/', case_insensitive: bool = True) -> list[str]:
@@ -159,11 +173,17 @@ def check_tempfile_convention() -> list[str]:
     return errors
 
 
-def check_class_list_sync() -> list[str]:
-    """Inline class list in code-review/SKILL.md spawn template must match review-classes.yml."""
+def check_class_list_sync(
+    yaml_path: Path = _DEFAULT_YAML_PATH,
+    skill_path: Path = _DEFAULT_SKILL_PATH,
+) -> list[str]:
+    """Inline class list in code-review/SKILL.md spawn template must match review-classes.yml.
+
+    Exit semantics when called from main():
+      - errors containing 'not found' or 'parse' → caller returns 2 (IO/parse failure)
+      - mismatch errors → caller returns 1 (drift)
+    """
     errors = []
-    yaml_path = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'review-classes.yml'
-    skill_path = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'SKILL.md'
 
     if not yaml_path.exists():
         errors.append(f'review-classes.yml not found at {yaml_path}')
@@ -174,19 +194,39 @@ def check_class_list_sync() -> list[str]:
 
     try:
         with open(yaml_path) as f:
-            data = yaml.safe_load(f)
-    except yaml.YAMLError as e:
-        errors.append(f'review-classes.yml is invalid YAML: {e}')
+            text = f.read()
+    except UnicodeDecodeError as e:
+        errors.append(f'review-classes.yml is not valid UTF-8: {e}')
         return errors
-    yaml_slugs = {c['class'] for c in (data or {}).get('classes', []) if 'class' in c}
 
-    inline_slugs: set[str] = set()
-    with open(skill_path) as f:
-        content = f.read()
-    m = re.search(r'Canonical classes \(use slug only\):\s+([^.\\]+)\.', content)
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        errors.append(f'failed to parse review-classes.yml: invalid YAML syntax: {e}')
+        return errors
+
+    classes = (data or {}).get('classes', [])
+    if not classes:
+        errors.append(
+            'review-classes.yml contains no class entries — possible parse or schema error'
+        )
+        return errors
+
+    yaml_slugs = {c['class'] for c in classes if isinstance(c, dict) and 'class' in c}
+
+    try:
+        with open(skill_path) as f:
+            content = f.read()
+    except UnicodeDecodeError as e:
+        errors.append(f'code-review/SKILL.md is not valid UTF-8: {e}')
+        return errors
+
+    m = _SPAWN_LIST_RE.search(content)
     if not m:
         errors.append('code-review/SKILL.md: canonical class list not found in spawn template')
         return errors
+
+    inline_slugs: set[str] = set()
     for slug in m.group(1).split(','):
         slug = slug.strip()
         if slug:
@@ -205,7 +245,39 @@ def check_class_list_sync() -> list[str]:
     return errors
 
 
-def main() -> int:
+def _is_io_error(msg: str) -> bool:
+    """Return True when the error message signals an IO/parse failure (exit 2).
+
+    File-not-found messages match 'not found at' (path present).
+    Anchor-not-found is drift (exit 1) and does NOT match this filter.
+    """
+    lower = msg.lower()
+    # 'not found at' matches file-missing errors; bare 'not found in' is anchor drift
+    if 'not found at' in lower:
+        return True
+    return any(k in lower for k in ('failed to parse', 'not valid utf-8', 'no class entries'))
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description='Validate plugin structure and data conventions.')
+    parser.add_argument(
+        '--check',
+        choices=['class-list-sync'],
+        help='Run only the named check (default: run all checks)',
+    )
+    args = parser.parse_args(argv)
+
+    if args.check == 'class-list-sync':
+        errors = check_class_list_sync()
+        if errors:
+            print('FAIL: Class list sync', file=sys.stderr)
+            for e in errors:
+                print(f'  {e}', file=sys.stderr)
+            # exit 2 for IO/parse failures, 1 for slug drift
+            return 2 if any(_is_io_error(e) for e in errors) else 1
+        return 0
+
+    # Default: run all checks
     all_errors = []
     checks = [
         ('Personal data scan', check_personal_data),
