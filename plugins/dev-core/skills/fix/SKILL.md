@@ -50,6 +50,9 @@ Let:
   Q_auto := {f | cat(f) ∈ actionable ∧ C(f) ≥ T ∧ |A(f)| ≥ 2}
   Q_1b1 := {f | cat(f) ∈ actionable ∧ f ∉ Q_auto}
   O_push(N, scope, msg) { lint+test gate (max 3 retries) → stage specific files (¬`git add -A`) → commit `fix(<scope>): <msg>` → `git push` }
+  D := [] — diagnostic set; append-only; entry format: `[<tag>] <file>:<line> — <description>`
+         populated through Phase 1 by enforcement checks (¬findings, ¬affects C(f) unless noted)
+         rendered in Phase 8 when |D| > 0; future invariants (F6 write-time, candidate-pr regex, agent_src trust) append here
 
 ## Phase 0 — Load Taxonomy
 
@@ -66,7 +69,7 @@ Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬
    - `class[]` — 0–N canonical slugs from `review-classes.yml` + 0–1 `candidate/<slug>`; absent field → class[] = []
    - `raw_callsites[]` — [{file, line}] list; required when class[] ≠ []; absent when class[] = []
 5. Malformed (missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label not in canonical list and not `candidate/*` ∨ `candidate/<slug>` violates `^candidate/[a-z][a-z0-9-]{1,48}$` ∨ class[] ≠ [] ∧ raw_callsites[] = []) → C(f) := 0
-5b. Subsumption strip: ∃ `bare-except` ∧ `missing-error-handling` in same finding's class[] → strip `missing-error-handling`, emit `[subsumption-violation]` at <file>:<line>; ¬set C(f) := 0
+5b. Subsumption strip: ∃ `bare-except` ∧ `missing-error-handling` in same finding's class[] → strip `missing-error-handling`; D.append(`[subsumption-violation] <file>:<line> — bare-except subsumes missing-error-handling, duplicate tag stripped`); ¬set C(f) := 0
 
 ## Phase 2 — Triage + Verify
 
@@ -180,6 +183,7 @@ Write summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 **Deferred (issues created):** J finding(s)
 **Skipped:** K finding(s)
 **Failed:** L finding(s)
+**Subsumption violations corrected:** |D_subsumption| (0 if none)
 
 ### Auto-Applied
 - [applied] issue(blocking): SQL injection in users.service.ts:42 (92%)
@@ -192,6 +196,10 @@ Write summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 
 ### Failed
 - [failed] nitpick: Unused import in dashboard.tsx:3 -- test failure
+
+### Schema violations
+_(omit section when |D| = 0)_
+- [subsumption-violation] auth.service.ts:42 — bare-except subsumes missing-error-handling, duplicate tag stripped
 ```
 
 ## Edge Cases
