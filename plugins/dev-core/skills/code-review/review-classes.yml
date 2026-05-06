@@ -125,12 +125,17 @@ classes:
 #     this field. Current value: "1".
 #
 #   pr: PR identifier (e.g. "146") or synthetic "local:<branch-slug>:<sha8>" for non-PR runs.
-#   branch-slug component: [a-z0-9-]+, max 60 chars; slugify branch name
+#   branch-slug component: first/last chars MUST be alphanumeric ([a-z0-9]), interior
+#     may contain hyphens; max 60 chars total; slugify branch name
 #     (lowercase, non-[a-z0-9] chars → -, strip leading/trailing -).
 #   pr is REQUIRED — never null or absent.
 #
-#   pr write-time validation (enforced — see fix/SKILL.md F6 invariant):
-#     regex: ^(local:[a-z0-9-]{1,60}:[0-9a-f]{8}|[0-9]+)$
+#   pr write-time validation (enforced — see fix/SKILL.md → "F6 — write-time validation, candidate pr field"):
+#     regex: ^(local:[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?:[0-9a-f]{8}|[1-9][0-9]{0,9})$
+#     Numeric branch: [1-9][0-9]{0,9} — non-zero leading digit blocks 01/001 graduation-gate bypass;
+#       max 10 digits caps at ~10^10 covering all foreseeable GitHub PRs.
+#     Branch-slug: [a-z0-9]([a-z0-9-]{0,58}[a-z0-9])? — first/last chars MUST be alphanumeric,
+#       enforces strip-hyphen rule above; matches slugs of length 1–60.
 #     Enforced as a pre-write assertion at every candidate-classes.jsonl write site.
 #     On failure: entry dropped (no coercion, no fallback identity);
 #       D.append({tag: "candidate-pr-malformed", ...}) via Diagnostics Bus.
@@ -138,6 +143,7 @@ classes:
 #       - JSONL injection: sha8 containing \n{...} → manufactured graduation hits
 #       - shell injection: sha8 containing $(...) → code execution if pr interpolated unquoted
 #       - path-traversal: branch-slug containing / → mktemp path escape (per tempfile-convention.md)
+#       - zero-padded numeric bypass: "01" or "001" no longer matches numeric branch
 #     Graduation cron (Slice 2): enforce at write AND parse time; reject, never coerce.
 #
 #   Graduation rule "≥2 distinct PRs" counts distinct pr values where pr does NOT start

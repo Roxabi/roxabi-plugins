@@ -61,19 +61,29 @@ d ∈ D := {tag: str, file: str, line: int, description: str, phase: str}
 
 - **Initial value:** `[]` (empty)
 - **Append-only invariant:** entries are never removed or mutated after insertion
-- **Lifecycle:** written in Phase 1 (enforcement checks) and at any candidate-classes.jsonl write site when implemented; rendered in Phase 8 when `|D| > 0`
-- **F6 — write-time validation, candidate `pr` field:** ∀ candidate-classes.jsonl write: assert `pr` matches `^(local:[a-z0-9-]{1,60}:[0-9a-f]{8}|[0-9]+)$`; on failure →
-  ```
-  D.append({
-    tag: "candidate-pr-malformed",
-    file: <source>,
-    line: <n>,
-    description: "candidate pr field violates ^(local:[a-z0-9-]{1,60}:[0-9a-f]{8}|[0-9]+)$ — entry dropped (no coercion)",
-    phase: "<write-phase>"
-  })
-  ```
-  Drop semantics: same as invalid slug — entry silently dropped, ¬coercion, ¬fallback identity.
-- **Future invariant slots:** agent_src trust (append here when landed)
+- **Lifecycle:** written in Phase 1 (enforcement checks) and at any candidate-classes.jsonl write site when implemented; rendered in Phase 8 when `|D| > 0`. When F6 fires outside the /fix lifecycle (e.g. inside the graduation cron, Slice 2), D entries are written to a persistent sidecar at `~/.dev-core/diagnostics.jsonl` rather than the in-memory D bus. Slice 2 MUST define the render path for sidecar entries (the in-memory D bus is per /fix invocation and ephemeral).
+
+#### F6 — write-time validation, candidate `pr` field
+
+∀ candidate-classes.jsonl write: assert `pr` matches `^(local:[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?:[0-9a-f]{8}|[1-9][0-9]{0,9})$`; on failure →
+
+```
+D.append({
+  tag: "candidate-pr-malformed",
+  file: <write-site-identifier>,
+  line: <n>,
+  description: "candidate pr field violates ^(local:[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?:[0-9a-f]{8}|[1-9][0-9]{0,9})$ — entry dropped (no coercion)",
+  phase: "<cron-write>"
+})
+```
+
+Drop semantics: same as unknown agent_slug — entry silently dropped before the confidence-scoring path; ¬coercion, ¬fallback identity. C(f) does not apply (record never reaches scoring).
+
+**File/line provenance constraint:** the `file` field in the D.append call MUST be the statically-known write-site identifier; `line` MUST be a non-negative integer from the parser's own position tracking. NEITHER field may be derived from candidate entry content (prevents JSONL/shell injection via crafted `\n`/`"`/`}` in candidate fields from corrupting the diagnostic emission path).
+
+> Note: `<cron-write>` is a documentation-only placeholder. The Slice 2 implementation MUST set `phase` to a concrete non-empty string matching `^[a-z0-9-]+$` (e.g. `"cron-graduation"`, `"cron-purge"`); the literal string `<cron-write>` MUST NOT appear in any written D record.
+
+- **Future invariant slots:** agent_src trust (append here when landed) (when promoting, set `phase` to non-empty `^[a-z0-9-]+$`; do not leave angle-bracket placeholders in shipped records)
 
 ## Phase 0 — Load Taxonomy
 
