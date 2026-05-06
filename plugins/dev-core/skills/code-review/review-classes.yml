@@ -118,7 +118,11 @@ classes:
 #   Invalid slug → entry dropped + C(f) := 0. No path components, no whitespace.
 #
 # Schema per entry:
-#   { class: "candidate/<slug>", finding_id, pr: str (required), hit_at, agent_src }
+#   { class: "candidate/<slug>", finding_id, pr: str (required), hit_at,
+#     agent_slug, spec_version: "1" }
+#
+#   spec_version: REQUIRED — Slice 5 implementation MUST reject entries lacking
+#     this field. Current value: "1".
 #
 #   pr: PR identifier (e.g. "146") or synthetic "local:<branch-slug>:<sha8>" for non-PR runs.
 #   branch-slug component: [a-z0-9-]+, max 60 chars; slugify branch name
@@ -129,3 +133,60 @@ classes:
 #   ≥2-distinct-PRs promotion gate (advisory only).
 #
 # Findings tagged candidate/* are advisory only — never trigger recall.
+#
+# ── agent_slug: authorization field (NOT audit-only) ────────────────────────
+#
+# agent_slug is a CLOSED ENUMERATION of trusted identities. Graduation cron MUST
+# reject (drop, not coerce) any entry where agent_slug is absent or not in this list.
+#
+# Threat: a single subagent writing the same slug across ≥2 PRs 3× trivially
+# satisfies the graduation gate (hit ≥3×/30d, ≥2 distinct PRs). Restricting
+# writes to trusted identities raises the bar without requiring human sign-off
+# on every individual JSONL entry.
+#
+# Trusted agent identities — normative derivation (SSoT):
+#   trusted_agents := { name from each plugins/dev-core/agents/*.md }
+#   derivation: `grep -h '^name:' plugins/dev-core/agents/*.md | awk '{print $2}'`
+#   SSoT: agents/*.md (no other location is authoritative)
+#
+# Authoritative listing as of 30c092b (derived from agents/; do NOT update by hand
+# — re-run the derivation above):
+#   architect | backend-dev | devops | doc-writer | fixer
+#   frontend-dev | product-lead | security-auditor | tester
+#
+# Filter implementation (Slice 5 cron): MUST scan plugins/dev-core/agents/*.md at
+# runtime and extract name: fields — the inline listing above is documentation-only.
+# When recall.md (Slice 3) ships, no spec change is needed — the filter automatically
+# picks it up.
+#
+# Enforcement point: graduation cron (Slice 5 — docs/analysis-review-fix-strategy.md §4.3).
+# Until Slice 5 is implemented, this comment IS the binding spec.
+#
+# Failure mode: entry with unknown or absent agent_slug → dropped silently. This
+# is NOT the same as invalid slug: an invalid-slug entry also gets C(f) := 0 (never
+# processed far enough to produce a confidence score); an unknown agent_slug entry
+# is skipped at parse time, no JSONL re-write, audit log entry per the WARN
+# requirement below. No coercion, no fallback identity.
+#
+# Audit channel (REQUIRED — operator visibility without weakening the security gate):
+# The graduation cron MUST, per dropped entry (unknown or absent agent_slug):
+#   1. Emit a WARN-level log line including: raw agent_slug value + source PR identifier
+#      (e.g. "WARN: dropped entry pr=146 agent_slug=<raw-value> — not in trusted list")
+#   2. At end of each cron run, print: "N entries dropped (unknown agent_slug)"
+#      (the drop-count metric). N=0 → still print.
+# The silent-drop OUTCOME is preserved — no error surfaced to the entry writer,
+# no coercion, no fallback identity. The audit is for operators, not attackers.
+#
+# Belt-and-suspenders invariant (Option 2):
+# Graduation PRs MUST be human-reviewed before merge. No automation may auto-merge
+# a graduation PR. The assignee: @human field in the cron output (§4.3) is
+# mandatory, not advisory. Auto-merge on graduation PRs is explicitly forbidden.
+# Enforcement mechanism: TBD — Slice 5 acceptance MUST include a concrete mechanism
+# (branch protection rule on the PR's target ref disabling auto-merge, OR a runtime
+# check in the cron that refuses to file the PR if auto-merge is enabled). Until
+# then, this invariant is documentation-only.
+#
+# @human placeholder: @human is a placeholder — Slice 5 implementation MUST resolve
+# it to a concrete GitHub user, team handle, or CODEOWNERS entry before this spec
+# can be considered enforceable. The branch-protection rule (per above) is the
+# structural complement to this resolution.
