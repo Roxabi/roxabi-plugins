@@ -72,8 +72,8 @@ D.append({
   tag: "candidate-pr-malformed",
   file: <write-site-identifier>,
   line: <n>,
-  description: "candidate pr field violates ^(local:[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?:[0-9a-f]{8}|[1-9][0-9]{0,9})$ — entry dropped (no coercion)",
-  phase: "<cron-write>"
+  description: "candidate pr field violates pr-format-regex (see fix/SKILL.md F6) — entry dropped (no coercion)",
+  phase: "cron-graduation"  # replace with actual phase slug
 })
 ```
 
@@ -81,7 +81,7 @@ Drop semantics: same as unknown agent_slug — entry silently dropped before the
 
 **File/line provenance constraint:** the `file` field in the D.append call MUST be the statically-known write-site identifier; `line` MUST be a non-negative integer from the parser's own position tracking. NEITHER field may be derived from candidate entry content (prevents JSONL/shell injection via crafted `\n`/`"`/`}` in candidate fields from corrupting the diagnostic emission path).
 
-> Note: `<cron-write>` is a documentation-only placeholder. The Slice 2 implementation MUST set `phase` to a concrete non-empty string matching `^[a-z0-9-]+$` (e.g. `"cron-graduation"`, `"cron-purge"`); the literal string `<cron-write>` MUST NOT appear in any written D record.
+> Note: `cron-graduation` is shown as a concrete example. The Slice 2 implementation MUST set `phase` to a non-empty string matching `^[a-z0-9-]+$` per the actual phase invoking the write (e.g. `"cron-graduation"`, `"cron-purge"`).
 
 - **Future invariant slots:** agent_src trust (append here when landed) (when promoting, set `phase` to non-empty `^[a-z0-9-]+$`; do not leave angle-bracket placeholders in shipped records)
 

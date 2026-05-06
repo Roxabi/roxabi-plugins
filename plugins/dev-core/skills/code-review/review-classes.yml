@@ -130,7 +130,7 @@ classes:
 #     (lowercase, non-[a-z0-9] chars → -, strip leading/trailing -).
 #   pr is REQUIRED — never null or absent.
 #
-#   pr write-time validation (enforced — see fix/SKILL.md → "F6 — write-time validation, candidate pr field"):
+#   pr write-time validation (enforced — see fix/SKILL.md → "F6 — write-time validation, candidate `pr` field"):
 #     regex: ^(local:[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?:[0-9a-f]{8}|[1-9][0-9]{0,9})$
 #     Numeric branch: [1-9][0-9]{0,9} — non-zero leading digit blocks 01/001 graduation-gate bypass;
 #       max 10 digits caps at ~10^10 covering all foreseeable GitHub PRs.
