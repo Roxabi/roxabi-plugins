@@ -61,8 +61,19 @@ d ∈ D := {tag: str, file: str, line: int, description: str, phase: str}
 
 - **Initial value:** `[]` (empty)
 - **Append-only invariant:** entries are never removed or mutated after insertion
-- **Lifecycle:** written in Phase 1 (enforcement checks); rendered in Phase 8 when `|D| > 0`
-- **Future invariant slots:** F6 write-time validation, candidate-pr regex, agent_src trust (append here when landed)
+- **Lifecycle:** written in Phase 1 (enforcement checks) and at any candidate-classes.jsonl write site when implemented; rendered in Phase 8 when `|D| > 0`
+- **F6 — write-time validation, candidate `pr` field:** ∀ candidate-classes.jsonl write: assert `pr` matches `^(local:[a-z0-9-]{1,60}:[0-9a-f]{8}|[0-9]+)$`; on failure →
+  ```
+  D.append({
+    tag: "candidate-pr-malformed",
+    file: <source>,
+    line: <n>,
+    description: "candidate pr field violates ^(local:[a-z0-9-]{1,60}:[0-9a-f]{8}|[0-9]+)$ — entry dropped (no coercion)",
+    phase: "<write-phase>"
+  })
+  ```
+  Drop semantics: same as invalid slug — entry silently dropped, ¬coercion, ¬fallback identity.
+- **Future invariant slots:** agent_src trust (append here when landed)
 
 ## Phase 0 — Load Taxonomy
 

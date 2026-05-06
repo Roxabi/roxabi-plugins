@@ -128,6 +128,18 @@ classes:
 #   branch-slug component: [a-z0-9-]+, max 60 chars; slugify branch name
 #     (lowercase, non-[a-z0-9] chars → -, strip leading/trailing -).
 #   pr is REQUIRED — never null or absent.
+#
+#   pr write-time validation (enforced — see fix/SKILL.md F6 invariant):
+#     regex: ^(local:[a-z0-9-]{1,60}:[0-9a-f]{8}|[0-9]+)$
+#     Enforced as a pre-write assertion at every candidate-classes.jsonl write site.
+#     On failure: entry dropped (no coercion, no fallback identity);
+#       D.append({tag: "candidate-pr-malformed", ...}) via Diagnostics Bus.
+#     Attack vectors blocked by this regex:
+#       - JSONL injection: sha8 containing \n{...} → manufactured graduation hits
+#       - shell injection: sha8 containing $(...) → code execution if pr interpolated unquoted
+#       - path-traversal: branch-slug containing / → mktemp path escape (per tempfile-convention.md)
+#     Graduation cron (Slice 2): enforce at write AND parse time; reject, never coerce.
+#
 #   Graduation rule "≥2 distinct PRs" counts distinct pr values where pr does NOT start
 #   with "local:". local:* hits count toward frequency (≥3×/30d) but not toward the
 #   ≥2-distinct-PRs promotion gate (advisory only).
