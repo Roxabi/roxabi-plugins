@@ -50,9 +50,19 @@ Let:
   Q_auto := {f | cat(f) ∈ actionable ∧ C(f) ≥ T ∧ |A(f)| ≥ 2}
   Q_1b1 := {f | cat(f) ∈ actionable ∧ f ∉ Q_auto}
   O_push(N, scope, msg) { lint+test gate (max 3 retries) → stage specific files (¬`git add -A`) → commit `fix(<scope>): <msg>` → `git push` }
-  D := [] — diagnostic set; append-only; entry format: `[<tag>] <file>:<line> — <description>`
-         populated through Phase 1 by enforcement checks (¬findings, ¬affects C(f) unless noted)
-         rendered in Phase 8 when |D| > 0; future invariants (F6 write-time, candidate-pr regex, agent_src trust) append here
+  D_subsumption := {d ∈ D | d.tag = "subsumption-violation"}
+
+## Diagnostics Bus
+
+```
+D := []   — ordered list of records; insertion-ordered; duplicates permitted iff (tag, file, line) tuple differs
+d ∈ D := {tag: str, file: str, line: int, description: str, phase: str}
+```
+
+- **Initial value:** `[]` (empty)
+- **Append-only invariant:** entries are never removed or mutated after insertion
+- **Lifecycle:** written in Phase 1 (enforcement checks); rendered in Phase 8 when `|D| > 0`
+- **Future invariant slots:** F6 write-time validation, candidate-pr regex, agent_src trust (append here when landed)
 
 ## Phase 0 — Load Taxonomy
 
@@ -69,7 +79,8 @@ Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬
    - `class[]` — 0–N canonical slugs from `review-classes.yml` + 0–1 `candidate/<slug>`; absent field → class[] = []
    - `raw_callsites[]` — [{file, line}] list; required when class[] ≠ []; absent when class[] = []
 5. Malformed (missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label not in canonical list and not `candidate/*` ∨ `candidate/<slug>` violates `^candidate/[a-z][a-z0-9-]{1,48}$` ∨ class[] ≠ [] ∧ raw_callsites[] = []) → C(f) := 0
-5b. Subsumption strip: ∃ `bare-except` ∧ `missing-error-handling` in same finding's class[] → strip `missing-error-handling`; D.append(`[subsumption-violation] <file>:<line> — bare-except subsumes missing-error-handling, duplicate tag stripped`); ¬set C(f) := 0
+   Step 5 fires first; step 5b applies only to findings that passed step 5 (C(f) ≠ 0 after step 5).
+5b. [only if step 5 did not fire for f] Subsumption strip: ∃ `bare-except` ∧ `missing-error-handling` in same finding's class[] → strip `missing-error-handling`; D.append({tag: "subsumption-violation", file: f.file, line: f.line, description: "bare-except subsumes missing-error-handling, duplicate tag stripped", phase: "1"}); ¬set C(f) := 0
 
 ## Phase 2 — Triage + Verify
 
@@ -183,7 +194,7 @@ Write summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 **Deferred (issues created):** J finding(s)
 **Skipped:** K finding(s)
 **Failed:** L finding(s)
-**Subsumption violations corrected:** |D_subsumption| (0 if none)
+**Enforcement diagnostics:** |D_subsumption| subsumption violation(s) (0 if none)
 
 ### Auto-Applied
 - [applied] issue(blocking): SQL injection in users.service.ts:42 (92%)
@@ -197,9 +208,9 @@ Write summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 ### Failed
 - [failed] nitpick: Unused import in dashboard.tsx:3 -- test failure
 
-### Schema violations
-_(omit section when |D| = 0)_
-- [subsumption-violation] auth.service.ts:42 — bare-except subsumes missing-error-handling, duplicate tag stripped
+### Enforcement diagnostics
+_(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]** (N) sub-groupings)_
+- `[subsumption-violation]` `auth.service.ts`:`42` — bare-except subsumes missing-error-handling, duplicate tag stripped
 ```
 
 ## Edge Cases
