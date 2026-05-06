@@ -136,6 +136,8 @@ Skip rules: architect → |Δ| ≤ 5 ∧ ¬arch keywords | product-lead → spec
 # SYNC REQUIRED: inline class list must match review-classes.yml slugs — see #149
 ### Spawn template
 
+> **Note (orchestrator):** The `{format_digest_for_agent(d) for d in digests if d.chunk_index != i}` placeholder is a Python expression evaluated by the orchestrator (Claude main context) BEFORE the Task call — substitute its rendered value into the prompt string. It is NOT a runtime-resolved placeholder. All other `{...}` placeholders are simple value substitutions.
+
 **Single-chunk (|chunks| = 1):** identical to pre-Slice-2 — agents receive full diff.
 
 **Multi-chunk (|chunks| > 1) — Lane A per-chunk:**

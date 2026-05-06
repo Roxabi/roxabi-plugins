@@ -13,6 +13,7 @@ from chunker import Chunk, DiffFile  # noqa: E402
 from digest import (  # noqa: E402
     BoundaryDigest,
     FileDigest,
+    FORMAT_VERSION,
     emit_digest,
     emit_all_digests,
     format_digest_for_agent,
@@ -68,10 +69,18 @@ class TestExtractSignatures:
         sigs = _extract_signatures(hunk)
         assert 'handleRequest' in sigs
 
-    def test_typescript_const_arrow(self):
+    def test_typescript_const_function(self):
+        # const pattern: const processData = async (input) => {
         hunk = '+const processData = async (input) => {\n'
         sigs = _extract_signatures(hunk)
         assert 'processData' in sigs
+
+    def test_typescript_bare_arrow_no_const(self):
+        # Bare arrow without const keyword should NOT match the const-anchored pattern
+        hunk = '+ processData = (x) => {\n'
+        sigs = _extract_signatures(hunk)
+        # No const anchor → should not be captured by any signature pattern
+        assert 'processData' not in sigs
 
     def test_dunder_names_skipped(self):
         hunk = '+def __init__(self):\n+def __repr__(self):\n'
@@ -181,6 +190,13 @@ class TestFormatDigestForAgent:
         rendered = format_digest_for_agent(digest)
         assert 'chunk 2' in rendered
 
+    def test_format_version_in_header(self):
+        """Rendered output must embed FORMAT_VERSION (Architect F5)."""
+        digest = emit_digest(make_chunk(make_diff_file('a.py')), chunk_index=0)
+        rendered = format_digest_for_agent(digest)
+        assert f'v{FORMAT_VERSION}' in rendered
+        assert 'v1' in rendered
+
     def test_contains_file_path(self):
         digest = emit_digest(make_chunk(make_diff_file('src/main.py', lines=42)), 0)
         rendered = format_digest_for_agent(digest)
@@ -205,3 +221,43 @@ class TestFormatDigestForAgent:
         digest = emit_digest(make_chunk(f), 0)
         rendered = format_digest_for_agent(digest)
         assert 'compute' in rendered
+
+
+# ---------------------------------------------------------------------------
+# Path sanitization (B1 — prompt-injection-via-path)
+# ---------------------------------------------------------------------------
+
+class TestPathSanitization:
+    def test_newline_in_path_is_escaped(self):
+        """File path with \\n must render as <LF>, not a real newline (B1)."""
+        f = make_diff_file('src/foo\nbar.py', lines=10)
+        digest = emit_digest(make_chunk(f), chunk_index=0)
+        # The stored path must have the escape applied
+        assert digest.files[0].path == 'src/foo<LF>bar.py'
+
+    def test_carriage_return_in_path_is_escaped(self):
+        f = make_diff_file('src/foo\rbar.py', lines=5)
+        digest = emit_digest(make_chunk(f), chunk_index=0)
+        assert digest.files[0].path == 'src/foo<CR>bar.py'
+
+    def test_newline_in_path_renders_without_actual_newline(self):
+        """Rendered output must contain <LF> placeholder, no actual newline mid-path."""
+        f = make_diff_file('evil\npath.py', lines=3)
+        digest = emit_digest(make_chunk(f), chunk_index=0)
+        rendered = format_digest_for_agent(digest)
+        assert '<LF>' in rendered
+        # No raw newline in the file-path segment of the rendered line
+        lines = rendered.splitlines()
+        assert any('<LF>' in line for line in lines)
+
+    def test_old_path_sanitized_on_rename(self):
+        """old_path must also be sanitized at construction time."""
+        f = make_diff_file('new/foo.py', old_path='old/\nfoo.py')
+        digest = emit_digest(make_chunk(f), chunk_index=0)
+        assert digest.files[0].old_path == 'old/<LF>foo.py'
+
+    def test_clean_path_unchanged(self):
+        """Normal paths must pass through without modification."""
+        f = make_diff_file('src/normal/path.py', lines=20)
+        digest = emit_digest(make_chunk(f), chunk_index=0)
+        assert digest.files[0].path == 'src/normal/path.py'

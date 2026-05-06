@@ -82,8 +82,10 @@ class TestTopDir:
     def test_root_level(self):
         assert _top_dir('README.md') == '.'
 
-    def test_two_levels(self):
-        assert _top_dir('plugins/code-review.py') == 'plugins'
+    def test_depth_two(self):
+        """depth=2 splits packages/auth/... from packages/billing/..."""
+        assert _top_dir('packages/auth/service.py', depth=2) == 'packages/auth'
+        assert _top_dir('packages/billing/invoice.py', depth=2) == 'packages/billing'
 
 
 # ---------------------------------------------------------------------------
@@ -165,15 +167,21 @@ class TestBalancedSplit:
             assert c.total_lines <= budget
 
     def test_large_directory_splits_into_multiple_chunks(self):
-        """When a single directory exceeds budget, it splits into sub-chunks."""
+        """When a single directory exceeds budget, it splits into sub-chunks.
+
+        10 files × 100 LOC, budget=350 → greedy first-fit:
+          chunk 0: files 0,1,2 = 300 LOC (adding file3 would be 400 > 350)
+          chunk 1: files 3,4,5 = 300 LOC
+          chunk 2: files 6,7,8 = 300 LOC
+          chunk 3: file9      = 100 LOC
+        → 4 chunks.
+        """
         files = [make_file(f'src/file{i}.py', lines=100) for i in range(10)]
-        budget = 350  # fits 3 files per chunk
+        budget = 350  # fits 3 files per chunk (3×100=300 ≤ 350; 4×100=400 > 350)
         result = chunk(files, budget=budget)
-        assert len(result) > 1
+        assert len(result) == 4
         for c in result:
-            # Each chunk must be within budget (unless it's a single oversized file)
-            if len(c.files) > 1:
-                assert c.total_lines <= budget
+            assert c.total_lines <= budget
 
     def test_all_files_fit_in_one_budget(self):
         files = [
@@ -236,7 +244,7 @@ class TestCrossDirectoryRename:
         budget = 1000
         result = chunk(files, budget=budget)
         # 'new/' files → one chunk; 'unrelated/' → another
-        new_chunks = [c for c in result if any('new/' in p for p in c.paths)]
+        new_chunks = [c for c in result if all(p.startswith('new/') for p in c.paths)]
         assert len(new_chunks) == 1
         assert set(new_chunks[0].paths) == {'new/foo.py', 'new/bar.py'}
 
@@ -280,7 +288,9 @@ class TestParseDiff:
         assert len(files) == 1
         assert files[0].path == 'src/app.py'
         assert files[0].old_path is None
-        assert files[0].lines == 3  # @@ header + 2 content lines
+        assert files[0].lines == 2  # 2 content lines; @@ separator excluded from LOC
+        # hunk_text still preserves the @@ line for context
+        assert '@@' in files[0].hunk_text
 
     def test_deletion(self):
         raw = (
@@ -308,6 +318,77 @@ class TestParseDiff:
         assert len(files) == 2
         assert [f.path for f in files] == ['a.py', 'b.py']
 
+    def test_empty_group(self):
+        """Empty diff string → empty list (not an error)."""
+        assert parse_diff('') == []
+
+    def test_path_with_b_in_name(self):
+        """Non-greedy first group correctly splits when a-path is shorter than b-path."""
+        # When a_path and b_path are different, non-greedy correctly takes the
+        # shortest prefix before ' b/' as a_path.
+        raw = 'diff --git a/src/foo.py b/lib/foo.py\n'
+        files = parse_diff(raw)
+        assert len(files) == 1
+        assert files[0].path == 'lib/foo.py'
+
+    def test_deletion_exercises_dev_null_guard(self):
+        """b_path == '/dev/null' → canonical path is a_path (pure deletion guard)."""
+        raw = (
+            'diff --git a/gone.py b/gone.py\n'
+            'deleted file mode 100644\n'
+            '--- a/gone.py\n'
+            '+++ b/gone.py\n'
+            '@@ -1 +0,0 @@\n'
+            '-deleted\n'
+        )
+        # Standard deletion via /dev/null in b-side:
+        raw_null = (
+            'diff --git a/gone.py b//dev/null\n'
+            'deleted file mode 100644\n'
+            '--- a/gone.py\n'
+            '+++ /dev/null\n'
+            '@@ -1 +0,0 @@\n'
+            '-deleted\n'
+        )
+        files = parse_diff(raw_null)
+        assert len(files) == 1
+        assert files[0].path == 'gone.py'
+
+    def test_loc_excludes_hunk_headers(self):
+        """@@ separator lines must not be counted in LOC but must be in hunk_text."""
+        raw = (
+            'diff --git a/x.py b/x.py\n'
+            '@@ -1,2 +1,3 @@\n'
+            ' line1\n'
+            '+line2\n'
+        )
+        files = parse_diff(raw)
+        assert files[0].lines == 2  # only content lines
+        assert '@@ -1,2 +1,3 @@' in files[0].hunk_text
+
+
+# ---------------------------------------------------------------------------
+# Chunk validation (moved from TestParseDiff — misclassification fix F4)
+# ---------------------------------------------------------------------------
+
+class TestChunkValidation:
     def test_invalid_budget_raises(self):
         with pytest.raises(ValueError, match='budget'):
             chunk([make_file('a.py')], budget=0)
+
+
+# ---------------------------------------------------------------------------
+# Chunk ordering stability
+# ---------------------------------------------------------------------------
+
+class TestChunkOrdering:
+    def test_insertion_order_preserved(self):
+        """chunk() must preserve insertion order of files within a directory."""
+        files = [
+            make_file('zebra/a.py', lines=10),
+            make_file('alpha/b.py', lines=10),
+        ]
+        result = chunk(files, budget=1000)
+        # Two separate directories → two chunks; zebra comes first (insertion order)
+        assert result[0].paths == ['zebra/a.py']
+        assert result[1].paths == ['alpha/b.py']

@@ -19,13 +19,18 @@ Recall wiring is deferred to Slice 3.
 from __future__ import annotations
 
 import re
-import sys as _sys
 from dataclasses import dataclass, field
-from pathlib import Path as _Path
 
-# Allow both package-style and direct-script imports
-_sys.path.insert(0, str(_Path(__file__).parent))
-from chunker import Chunk, DiffFile  # noqa: E402
+try:
+    from .chunker import Chunk, DiffFile
+except ImportError:
+    from chunker import Chunk, DiffFile  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Format versioning
+# ---------------------------------------------------------------------------
+
+FORMAT_VERSION = '1'
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +73,20 @@ class BoundaryDigest:
 
 
 # ---------------------------------------------------------------------------
+# Path sanitization (render-stage concern)
+# ---------------------------------------------------------------------------
+
+def _sanitize_path(path: str) -> str:
+    """Escape control characters that could break prompt delimiters.
+
+    Replaces literal newlines/carriage-returns with visible placeholders so
+    that untrusted file paths from a diff cannot escape ``---SPEC---`` or
+    similar section boundaries in the agent prompt.
+    """
+    return path.replace('\n', '<LF>').replace('\r', '<CR>')
+
+
+# ---------------------------------------------------------------------------
 # Signature extraction (best-effort, stdlib only)
 # ---------------------------------------------------------------------------
 
@@ -80,22 +99,21 @@ _SIG_PATTERNS = [
     # TypeScript/JavaScript: function foo / export function foo / const foo = (
     re.compile(r'^[+ ][ \t]*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)'),
     re.compile(r'^[+ ][ \t]*(?:export\s+)?const\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s*)?\('),
-    # Arrow: export const foo = async (...) =>
-    re.compile(r'^[+ ][ \t]*(?:export\s+)?(?:default\s+)?(?:async\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:=\s*)?(?:async\s*)?\(.*\)\s*(?::\s*\S+\s*)?=>'),
+    # Arrow with const anchor: export const foo = async (...) => / export default const foo = ...
+    re.compile(r'^[+ ][ \t]*(?:export\s+)?(?:default\s+)?(?:async\s+)?const\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s*)?\(.*\)\s*(?::\s*\S+\s*)?=>'),
 ]
-
-# Dunder/private names to skip from signatures (not useful for cross-chunk analysis)
-_SKIP_NAMES = frozenset({
-    '__init__', '__repr__', '__str__', '__eq__', '__hash__',
-    '__lt__', '__le__', '__gt__', '__ge__', '__ne__',
-})
-
 
 def _extract_signatures(hunk_text: str) -> list[str]:
     """Return deduplicated function/class names visible in hunk_text.
 
     Only scans added/context lines (prefix '+' or ' '). Removed lines are
     excluded — they represent the before state, not what the agent is reviewing.
+
+    Dunder names (starting with '__') are skipped — not useful for cross-chunk
+    analysis. Single-underscore privates are intentionally INCLUDED in signatures.
+
+    TODO(Slice3): extract call-edge patterns per §5 F2 (call-graph edges to
+    named entry points + modified ACL/contract hunks).
     """
     seen: dict[str, None] = {}  # ordered set via dict keys
     for line in hunk_text.splitlines():
@@ -103,7 +121,7 @@ def _extract_signatures(hunk_text: str) -> list[str]:
             m = pat.match(line)
             if m:
                 name = m.group(1)
-                if name not in _SKIP_NAMES and not name.startswith('__'):
+                if not name.startswith('__'):
                     seen[name] = None
                 break
     return list(seen.keys())
@@ -126,9 +144,12 @@ def emit_digest(chunk: Chunk, chunk_index: int) -> BoundaryDigest:
     file_digests: list[FileDigest] = []
     for diff_file in chunk.files:
         sigs = _extract_signatures(diff_file.hunk_text)
+        # Sanitize paths at construction time (render-stage boundary).
+        # Newlines in file paths (untrusted diff data) could escape prompt
+        # section delimiters (e.g. ---SPEC---) in format_digest_for_agent.
         file_digests.append(FileDigest(
-            path=diff_file.path,
-            old_path=diff_file.old_path,
+            path=_sanitize_path(diff_file.path),
+            old_path=_sanitize_path(diff_file.old_path) if diff_file.old_path is not None else None,
             lines=diff_file.lines,
             signatures=sigs,
         ))
@@ -151,7 +172,7 @@ def format_digest_for_agent(digest: BoundaryDigest) -> str:
     full diff of that chunk.
     """
     lines: list[str] = [
-        f'## Boundary digest — chunk {digest.chunk_index}',
+        f'## Boundary digest v{FORMAT_VERSION} — chunk {digest.chunk_index}',
         f'Total diff lines: {digest.total_lines}',
         '',
     ]

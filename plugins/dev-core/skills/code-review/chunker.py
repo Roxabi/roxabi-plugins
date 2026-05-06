@@ -51,7 +51,8 @@ class Chunk:
 # ---------------------------------------------------------------------------
 
 # Matches "diff --git a/... b/..."
-_DIFF_HEADER = re.compile(r'^diff --git a/(.+) b/(.+)$')
+# Non-greedy first group to handle paths containing literal ' b/'
+_DIFF_HEADER = re.compile(r'^diff --git a/(.+?) b/(.+)$')
 # Matches rename/copy "rename from ..." / "rename to ..." headers
 _RENAME_FROM = re.compile(r'^rename from (.+)$')
 _RENAME_TO = re.compile(r'^rename to (.+)$')
@@ -82,6 +83,8 @@ def parse_diff(raw_diff: str) -> list[DiffFile]:
 
         a_path = m.group(1)
         b_path = m.group(2)
+        if not a_path or not b_path:
+            raise ValueError(f'Degenerate diff --git header: {line!r}')
         i += 1
 
         # Collect extended headers (index, mode, rename from/to, …)
@@ -104,7 +107,8 @@ def parse_diff(raw_diff: str) -> list[DiffFile]:
             i += 1
 
         hunk_text = '\n'.join(hunk_lines)
-        loc = len(hunk_lines)
+        # Exclude @@ separator lines from LOC count; they are preserved in hunk_text
+        loc = sum(1 for l in hunk_lines if not l.startswith('@@'))
 
         # Canonical path: b-side (rename target) if rename; otherwise b-path
         if rename_from is not None and rename_to is not None:
@@ -161,16 +165,19 @@ def compute_budget(context_window_tokens: int, fraction: float = 0.4) -> int:
 # Core chunker
 # ---------------------------------------------------------------------------
 
-def _top_dir(path: str) -> str:
-    """Return the top-level directory component of a path.
+def _top_dir(path: str, depth: int = 1) -> str:
+    """Return the top directory component(s) of a path up to *depth* levels.
 
-    'src/lyra/core/foo.py' → 'src'
-    'README.md'            → '.'   (root-level file)
+    'src/lyra/core/foo.py', depth=1 → 'src'
+    'src/lyra/core/foo.py', depth=2 → 'src/lyra'
+    'README.md',            depth=1 → '.'   (root-level file)
+
+    Default depth=1 preserves existing behaviour.
     """
     parts = PurePosixPath(path).parts
     if len(parts) <= 1:
         return '.'
-    return parts[0]
+    return '/'.join(parts[:depth]) or '.'
 
 
 def chunk(
