@@ -81,6 +81,28 @@ git diff ${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]
 
 Spawn fresh agents via Task (¬implementation context → ¬bias).
 
+### Chunking (Slice 2 — O2)
+
+Before dispatching agents, partition Δ into chunks using the Python chunker
+(`${CLAUDE_SKILL_DIR}/chunker.py`). Recall wiring is deferred to Slice 3.
+
+```python
+# Pseudo-code — orchestrator executes this logic inline
+from chunker import parse_diff, chunk, compute_budget
+from digest import emit_all_digests, format_digest_for_agent
+
+raw_diff   = <diff text from Phase 1>
+ctx_window = <active model context window, e.g. 200_000>
+
+files   = parse_diff(raw_diff)
+budget  = compute_budget(ctx_window)          # 0.4 × ctx_window
+chunks  = chunk(files, budget)                # list[Chunk]
+digests = emit_all_digests(chunks)            # list[BoundaryDigest]
+```
+
+- If `len(chunks) == 1` → single-chunk path (identical to pre-Slice-2 behaviour; all agents receive the full diff as before).
+- If `len(chunks) > 1` → per-chunk Lane A dispatch (see below).
+
 ### Agent dispatch
 
 | Agent | Condition | Focus |
@@ -95,7 +117,7 @@ Spawn fresh agents via Task (¬implementation context → ¬bias).
 
 Skip rules: architect → |Δ| ≤ 5 ∧ ¬arch keywords | product-lead → spec ∄ | tester → Δ ⊂ {config, docs, infra}
 
-**Subdomain split:** |files_domain| ≥ 8 ∧ distinct modules → N agents, 1/module. Default: 1/domain.
+**Subdomain split (multi-chunk):** For each chunk `c_i`, apply the dispatch table against `c_i.files` only (not full Δ). Default: 1 agent per domain per chunk.
 
 ### Security-auditor scoping
 
@@ -114,11 +136,19 @@ Skip rules: architect → |Δ| ≤ 5 ∧ ¬arch keywords | product-lead → spec
 # SYNC REQUIRED: inline class list must match review-classes.yml slugs — see #149
 ### Spawn template
 
+> **Note (orchestrator):** The `{format_digest_for_agent(d) for d in digests if d.chunk_index != i}` placeholder is a Python expression evaluated by the orchestrator (Claude main context) BEFORE the Task call — substitute its rendered value into the prompt string. It is NOT a runtime-resolved placeholder. All other `{...}` placeholders are simple value substitutions.
+
+**Single-chunk (|chunks| = 1):** identical to pre-Slice-2 — agents receive full diff.
+
+**Multi-chunk (|chunks| > 1) — Lane A per-chunk:**
+
+For each chunk `c_i`, spawn the applicable domain agents in parallel:
+
 ```
 Task(
   subagent_type: "dev-core:{agent}",
-  description: "{agent} review — {PR#|branch}",
-  prompt: "Code review task. Focus: {focus}. Output Conventional Comments findings only. ¬TaskCreate.\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all locations of this anti-pattern; required when Class is set; never empty\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$. Subsumption: bare-except subsumes missing-error-handling — when both apply, tag bare-except only.\n\n---DIFF---\n{diff}\n\n---FILES---\n{changed file contents}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
+  description: "{agent} review — chunk {i}/{N} — {PR#|branch}",
+  prompt: "Code review task. Focus: {focus}. Output Conventional Comments findings only. ¬TaskCreate.\n\nYou are reviewing chunk {i} of {N}. Review ONLY the files in this chunk.\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all locations of this anti-pattern; required when Class is set; never empty\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$. Subsumption: bare-except subsumes missing-error-handling — when both apply, tag bare-except only.\n\n---CHUNK DIFF (chunk {i})---\n{c_i.hunk_text for all files in chunk}\n\n---CHUNK FILES---\n{contents of files in c_i}\n\n---BOUNDARY DIGESTS (other chunks)---\n{format_digest_for_agent(d) for d in digests if d.chunk_index != i}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
 )
 ```
 
@@ -126,7 +156,9 @@ Agent name map: `security-auditor` → `dev-core:security-auditor` | `architect`
 
 ### Agent payload
 
-Each agent receives: full diff + Δ + spec (if ∃) + "output Conventional Comments".
+**Single-chunk:** each agent receives full diff + Δ + spec (if ∃) + "output Conventional Comments".
+
+**Multi-chunk (Lane A):** each agent receives chunk diff + chunk file contents + boundary digests of all *other* chunks + spec (if ∃).
 
 ### Review dimensions
 correctness | security | performance | architecture | tests | readability | observability
