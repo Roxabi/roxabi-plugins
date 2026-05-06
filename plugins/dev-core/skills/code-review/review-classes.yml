@@ -129,3 +129,31 @@ classes:
 #   ≥2-distinct-PRs promotion gate (advisory only).
 #
 # Findings tagged candidate/* are advisory only — never trigger recall.
+#
+# ── agent_src: authorization field (NOT audit-only) ─────────────────────────
+#
+# agent_src is a CLOSED ENUMERATION of trusted identities. Graduation cron MUST
+# reject (drop, not coerce) any entry where agent_src is absent or not in this list.
+#
+# Threat: a single subagent writing the same slug across ≥2 PRs 3× trivially
+# satisfies the graduation gate (hit ≥3×/30d, ≥2 distinct PRs). Restricting
+# writes to trusted identities raises the bar without requiring human sign-off
+# on every individual JSONL entry.
+#
+# Trusted agent identities — must match agent slugs in plugins/dev-core/agents/:
+#   architect | backend-dev | devops | doc-writer | fixer
+#   frontend-dev | product-lead | security-auditor | tester
+#
+# SSoT: agent slugs are derived from plugins/dev-core/agents/*.md (name: field).
+# When a new agent is added to that directory, update this list to keep them in sync.
+#
+# Enforcement point: graduation cron (Slice 5 — docs/analysis-review-fix-strategy.md §4.3).
+# Until Slice 5 is implemented, this comment IS the binding spec.
+#
+# Failure mode: entry with unknown or absent agent_src → dropped silently (same
+# as invalid slug). No coercion, no fallback identity.
+#
+# Belt-and-suspenders invariant (Option 2):
+# Graduation PRs MUST be human-reviewed before merge. No automation may auto-merge
+# a graduation PR. The assignee: @human field in the cron output (§4.3) is
+# mandatory, not advisory. Auto-merge on graduation PRs is explicitly forbidden.

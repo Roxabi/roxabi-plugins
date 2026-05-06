@@ -226,9 +226,37 @@ Path: `plugins/dev-core/skills/code-review/review-classes.yml` (new)
 
 ### 4.3 Graduation cron
 
+**Trust boundary (agent_src allowlist) — REQUIRED before processing any entry:**
+
+Before counting occurrences or distinct PRs, the cron MUST filter the JSONL:
+
+```
+parse-time filter:
+  ∀ entry in candidate-classes.jsonl:
+    IF entry.agent_src is absent OR entry.agent_src NOT IN trusted_agents:
+      drop entry — do NOT count toward graduation threshold
+
+trusted_agents (closed enumeration, derived from plugins/dev-core/agents/*.md):
+  { architect, backend-dev, devops, doc-writer, fixer,
+    frontend-dev, product-lead, security-auditor, tester }
+```
+
+Rationale: without this gate a single subagent can write the same slug across
+≥2 PRs 3× and trivially trigger a graduation PR. `agent_src` is an authorization
+field, not an audit field. Dropped entries are not logged as errors — they are
+silently discarded (same as invalid slug). No coercion, no fallback identity.
+
+SSoT for the trusted list: agent slugs in `plugins/dev-core/agents/` (name: field).
+If this list drifts from the agents directory, the agents directory wins.
+
+**Human-in-the-loop invariant (mandatory, not advisory):**
+Graduation PRs filed by this cron MUST be human-reviewed before merge.
+`assignee: @human` is required in every filed PR. Auto-merge on graduation PRs
+is explicitly forbidden.
+
 ```
 weekly:
-  ∀ candidate/<slug> in jsonl:
+  ∀ candidate/<slug> in jsonl [after trust-boundary filter above]:
     occurrences = count(slug, last 30d)
     distinct_prs = count(distinct pr, last 30d)
 
@@ -237,7 +265,7 @@ weekly:
           - add canonical entry to review-classes.yml
           - body: list of (pr, finding_id, agent_src) evidence
           - label: graduate-class
-          - assignee: @human (manual review required)
+          - assignee: @human (manual review required — auto-merge forbidden)
 
   ∀ canonical class in review-classes.yml:
     occurrences = count(class, last 90d, across all repos)
