@@ -61,7 +61,7 @@ d ∈ D := {tag: str, file: str, line: int, description: str, phase: str}
 
 - **Initial value:** `[]` (empty)
 - **Append-only invariant:** entries are never removed or mutated after insertion
-- **Lifecycle:** written in Phase 1 (enforcement checks) and at any candidate-classes.jsonl write site when implemented; rendered in Phase 8 when `|D| > 0`. When F6 fires outside the /fix lifecycle (e.g. inside the graduation cron, Slice 2), D entries are written to a persistent sidecar at `~/.dev-core/diagnostics.jsonl` rather than the in-memory D bus. Slice 2 MUST define the render path for sidecar entries (the in-memory D bus is per /fix invocation and ephemeral).
+- **Lifecycle:** written in Phase 1 (enforcement checks) and at any candidate-classes.jsonl write site when implemented; rendered in Phase 8 when `|D| > 0`. D is per-invocation and ephemeral — no persistent sidecar. Diagnostics outside the /fix lifecycle (e.g. graduation cron) surface via PR comments on the relevant candidate/* PR; the conversation-history memory module recovers that data without a separate file or cron.
 
 #### F6 — write-time validation, candidate `pr` field
 
@@ -73,15 +73,13 @@ D.append({
   file: <write-site-identifier>,
   line: <n>,
   description: "candidate pr field violates pr-format-regex (see fix/SKILL.md F6) — entry dropped (no coercion)",
-  phase: "cron-graduation"  # replace with actual phase slug
+  phase: "fix"
 })
 ```
 
 Drop semantics: same as unknown agent_slug — entry silently dropped before the confidence-scoring path; ¬coercion, ¬fallback identity. C(f) does not apply (record never reaches scoring).
 
 **File/line provenance constraint:** the `file` field in the D.append call MUST be the statically-known write-site identifier; `line` MUST be a non-negative integer from the parser's own position tracking. NEITHER field may be derived from candidate entry content (prevents JSONL/shell injection via crafted `\n`/`"`/`}` in candidate fields from corrupting the diagnostic emission path).
-
-> Note: `cron-graduation` is shown as a concrete example. The Slice 2 implementation MUST set `phase` to a non-empty string matching `^[a-z0-9-]+$` per the actual phase invoking the write (e.g. `"cron-graduation"`, `"cron-purge"`).
 
 - **Future invariant slots:** agent_src trust (append here when landed) (when promoting, set `phase` to non-empty `^[a-z0-9-]+$`; do not leave angle-bracket placeholders in shipped records)
 
