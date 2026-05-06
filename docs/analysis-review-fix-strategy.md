@@ -220,39 +220,73 @@ Path: `plugins/dev-core/skills/code-review/review-classes.yml` (new)
 ### 4.2 Candidate namespace (runtime, ephemeral)
 
 - Storage: `~/.dev-core/candidate-classes.jsonl` (per-machine, append-only)
-- Schema per entry: `{ class: "candidate/<slug>", finding_id, pr, hit_at, agent_src }`
+- Schema per entry: `{ class: "candidate/<slug>", finding_id, pr, hit_at, agent_slug, spec_version: "1" }`
+  - `spec_version`: REQUIRED — Slice 5 implementation MUST reject entries lacking this field. Current value: `"1"`.
+  - `agent_slug`: replaces former `agent_src` field — authorization field, not audit-only (see §4.3).
 - Findings tagged `candidate/*` are **advisory only** — never trigger recall
 - Multi-tag allowed: a finding can carry one canonical + one candidate tag
 
 ### 4.3 Graduation cron
 
-**Trust boundary (agent_src allowlist) — REQUIRED before processing any entry:**
+#### 4.3.1 Trust boundary
+
+**Trust boundary (agent_slug allowlist) — REQUIRED before processing any entry:**
 
 Before counting occurrences or distinct PRs, the cron MUST filter the JSONL:
 
 ```
 parse-time filter:
   ∀ entry in candidate-classes.jsonl:
-    IF entry.agent_src is absent OR entry.agent_src NOT IN trusted_agents:
+    IF entry.spec_version is absent:
       drop entry — do NOT count toward graduation threshold
+    IF entry.agent_slug is absent OR entry.agent_slug NOT IN trusted_agents:
+      drop entry — do NOT count toward graduation threshold
+      EMIT WARN log: "WARN: dropped entry pr=<pr> agent_slug=<raw-value> — not in trusted list"
 
-trusted_agents (closed enumeration, derived from plugins/dev-core/agents/*.md):
-  { architect, backend-dev, devops, doc-writer, fixer,
-    frontend-dev, product-lead, security-auditor, tester }
+  AT END OF RUN: print "N entries dropped (unknown agent_slug)" (N=0 → still print)
+
+trusted_agents (normative derivation — SSoT: agents/*.md):
+  trusted_agents := { name from each plugins/dev-core/agents/*.md }
+  derivation: `grep -h '^name:' plugins/dev-core/agents/*.md | awk '{print $2}'`
+  SSoT: agents/*.md (no other location is authoritative)
+
+  Authoritative listing as of 30c092b (derived from agents/; do NOT update by hand
+  — re-run the derivation):
+    { architect, backend-dev, devops, doc-writer, fixer,
+      frontend-dev, product-lead, security-auditor, tester }
+
+  Filter implementation: MUST scan plugins/dev-core/agents/*.md at runtime and
+  extract name: fields — the inline listing is documentation-only. When recall.md
+  (Slice 3) ships, no spec change is needed — the filter automatically picks it up.
 ```
 
 Rationale: without this gate a single subagent can write the same slug across
-≥2 PRs 3× and trivially trigger a graduation PR. `agent_src` is an authorization
-field, not an audit field. Dropped entries are not logged as errors — they are
-silently discarded (same as invalid slug). No coercion, no fallback identity.
+≥2 PRs 3× and trivially trigger a graduation PR. `agent_slug` is an authorization
+field, not an audit field. The silent-drop OUTCOME is preserved — no error surfaced
+to the entry writer, no coercion, no fallback identity. The WARN log + drop-count
+metric are for operators only.
 
-SSoT for the trusted list: agent slugs in `plugins/dev-core/agents/` (name: field).
-If this list drifts from the agents directory, the agents directory wins.
+Dropped entry semantics (NOT the same as invalid slug): an invalid-slug entry also
+gets `C(f) := 0` (never processed far enough to produce a confidence score); an
+unknown `agent_slug` entry is skipped at parse time, no JSONL re-write, audit log
+entry per the WARN requirement above.
+
+#### 4.3.2 Human-in-the-loop invariant
 
 **Human-in-the-loop invariant (mandatory, not advisory):**
 Graduation PRs filed by this cron MUST be human-reviewed before merge.
 `assignee: @human` is required in every filed PR. Auto-merge on graduation PRs
 is explicitly forbidden.
+
+`@human` is a placeholder — Slice 5 implementation MUST resolve it to a concrete
+GitHub user, team handle, or CODEOWNERS entry before this spec can be considered
+enforceable. The branch-protection rule (see below) is the structural complement
+to this resolution.
+
+Enforcement mechanism: TBD — Slice 5 acceptance MUST include a concrete mechanism
+(branch protection rule on the PR's target ref disabling auto-merge, OR a runtime
+check in the cron that refuses to file the PR if auto-merge is enabled). Until
+then, this invariant is documentation-only.
 
 ```
 weekly:
@@ -263,9 +297,11 @@ weekly:
     occurrences ≥ 3 AND distinct_prs ≥ 2
       → file PR to roxabi-plugins:
           - add canonical entry to review-classes.yml
-          - body: list of (pr, finding_id, agent_src) evidence
+          - body: list of (pr, finding_id, agent_slug) evidence
           - label: graduate-class
           - assignee: @human (manual review required — auto-merge forbidden)
+            (@human = placeholder; resolve to concrete GitHub user/team/CODEOWNERS
+             entry in Slice 5 implementation)
 
   ∀ canonical class in review-classes.yml:
     occurrences = count(class, last 90d, across all repos)
