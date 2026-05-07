@@ -65,26 +65,9 @@ d ∈ D := {tag: str, file: str, line: int, description: str, phase: str}
 
 #### F6 — write-time validation, candidate `pr` field
 
-∀ candidate-classes.jsonl write site — three cases:
+∀ candidate-classes.jsonl write site: follow `${CLAUDE_SKILL_DIR}/candidate-write-helper.md` — pr field rules, schema, provenance constraint, agent_slug authorization, finding_id derivation, write-site checklist.
 
-1. `pr = null` → drop entry silently (no PR context; cannot count toward graduation gate). ¬D.append.
-2. `pr` does not match `^(local:[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?:[0-9a-f]{8}|[1-9][0-9]{0,9})$` → drop + D.append:
-
-```
-D.append({
-  tag: "candidate-pr-malformed",
-  file: <write-site-identifier>,
-  line: <n>,
-  description: "candidate pr field violates pr-format-regex (see fix/SKILL.md F6) — entry dropped (no coercion)",
-  phase: "1"
-})
-```
-
-3. `pr` matches regex → proceed with write.
-
-Drop semantics (cases 1–2): same as unknown agent_slug — entry silently dropped before the confidence-scoring path; ¬coercion, ¬fallback identity. C(f) does not apply (record never reaches scoring).
-
-**File/line provenance constraint:** the `file` field in the D.append call MUST be the statically-known write-site identifier; `line` MUST be a non-negative integer from the parser's own position tracking. NEITHER field may be derived from candidate entry content (prevents JSONL/shell injection via crafted `\n`/`"`/`}` in candidate fields from corrupting the diagnostic emission path).
+For Phase 1 write sites: use `phase: "1"` in any D.append call.
 
 - **Future invariant slots:** agent_src trust (append here when landed) (when promoting, set `phase` to non-empty `^[a-z0-9-]+$`; do not leave angle-bracket placeholders in shipped records)
 
@@ -93,6 +76,9 @@ Drop semantics (cases 1–2): same as unknown agent_slug — entry silently drop
 Read `${CLAUDE_SKILL_DIR}/review-classes.yml` → extract `classes[].class` slugs → `canonical_slugs`.
 File absent, unreadable, or parse error → HALT: `[taxonomy-error] review-classes.yml {reason} at ${CLAUDE_SKILL_DIR}/review-classes.yml — reinstall dev-core plugin.`
 Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬LLM memory).
+
+Read `${CLAUDE_SKILL_DIR}/candidate-write-helper.md` → confirm reachable.
+File absent → HALT: `[write-helper-missing] candidate-write-helper.md not found at ${CLAUDE_SKILL_DIR}/candidate-write-helper.md — reinstall dev-core plugin.`
 
 ## Phase 1 — Gather Findings
 

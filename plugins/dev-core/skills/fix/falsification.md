@@ -56,31 +56,7 @@ Phase 6.5 in SKILL.md consumes `class_result` (boolean per class). Per-finding r
 
 Any new finding surfaced during falsification (same class or different class), including coverage gaps:
 
-Before appending, assert `pr` matches F6 regex:
-`^(local:[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?:[0-9a-f]{8}|[1-9][0-9]{0,9})$`
-
-On failure: `D.append({tag: "candidate-pr-malformed", file: <write-site>, line: <n>, description: "pr field violates pr-format-regex — parking lot entry dropped", phase: "6.5"})` and drop the entry (¬coercion).
-
-**Provenance constraint:** `file` MUST be the statically-known write-site identifier (e.g. `"falsification.md"`); `line` MUST be a non-negative integer from the gate's own position tracking. NEITHER field may be derived from entry content — prevents JSONL injection via crafted `\n`/`"`/`}` in candidate fields corrupting the diagnostic bus.
-
-`pr = null` → drop the entry silently (no PR context = cannot count toward graduation gate).
-
-On success:
-
-```
-parking_lot.append({
-  class:        <finding class>,
-  finding_id:   <sha8 of class+file+line>,
-  pr:           <pr>,
-  hit_at:       <ISO-8601 timestamp>,
-  agent_slug:   <agent_slug>,
-  spec_version: "1",
-  file:         <file>,
-  line:         <line>,
-  description:  <description>,
-  source:       "falsification-gate"
-})
-```
+Follow `${CLAUDE_SKILL_DIR}/candidate-write-helper.md` — pr field rules (null-drop, regex, D.append), schema (class, finding_id, pr, hit_at, agent_slug, spec_version: "1"), provenance constraint. Use `phase: "6.5"` in any D.append call. Add `file`, `line`, `description`, `source: "falsification-gate"` as supplementary fields.
 
 ¬reopen the current `/fix` loop for parking lot entries. ¬increment the 2-iter cap.
 Parking lot entries are surfaced in Phase 8 under a dedicated `### Parking Lot` section.
