@@ -178,14 +178,41 @@ acc := {f ∈ Q_1b1 | decision ∈ {solution1, solution2}}, each with chosen sol
 
 acc = ∅ → skip to Phase 7.
 
+Group acc by class, then dispatch per class:
+
 ```
-|acc| ≤ 2  → orchestrator applies directly (inline)
-|acc| ≥ 3  → spawn agent(s) per dispatch + batching rules
+classes = { c | ∃ f ∈ acc: cls(f) = c }
+
+∀ class ∈ classes:
+  files_in_class = unique({ file(f) | f ∈ acc, cls(f) = class })
+
+  |files_in_class| ≤ 3  →  single fixer agent for the class
+  |files_in_class| > 3  →  shard by file: ⌈|files| / 3⌉ fixer agents
+                            each fixer owns ≤3 files of the same class
 ```
 
-Payload = findings (with class[] + raw_callsites[] per finding) + chosen solution + diff context + "fix using chosen solution; re-read targets before editing; lint + test after each fix; sweep file for same-class anti-pattern — justify or fix any uncited hit."
+Fixer payload per agent:
+- findings (with class + raw_callsites) for owned files
+- chosen solution per finding
+- diff context for owned files
+- instructions: "re-read targets before editing; lint + test after each fix; sweep file for same-class anti-pattern — justify or fix any uncited hit."
 
 Fixer constraints: re-read targets before editing (Phase 3 may have changed them). CI fail → retry max 3; `[failed]` if stuck.
+
+`pattern-class` findings (Lane B tag) → same class-shard dispatch as Lane A findings.
+
+## Phase 6.5 — Falsification Gate
+
+∀ class ∈ classes (from Phase 6):
+
+Run falsification gate per `${CLAUDE_SKILL_DIR}/falsification.md`. Gate emits boolean per class:
+
+```
+pass  →  fix accepted; continue
+fail  →  fix tautological (RC-1); re-open finding for that class in current loop (max 1 retry)
+```
+
+New findings surfaced during falsification → **parking lot**: file as candidate finding for next PR cycle. ¬reopen current `/fix` loop. ¬increment 3-iter cap. Applies to same-class and cross-class anti-patterns alike.
 
 ## Phase 7 — Final Push + Approve
 
@@ -226,6 +253,10 @@ Write summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 
 ### Failed
 - [failed] nitpick: Unused import in dashboard.tsx:3 -- test failure
+
+### Parking Lot
+_(omit section when parking_lot = ∅)_
+- candidate/missing-test-coverage: users.service.ts:88 — no covering test for fixed guard (falsification-gate)
 
 ### Enforcement diagnostics
 _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]** (N) sub-groupings)_
