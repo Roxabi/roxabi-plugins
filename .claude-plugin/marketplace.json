@@ -117,6 +117,13 @@
       "source": "./plugins/gitnexus",
       "category": "development",
       "version": "0.1.0"
+    },
+    {
+      "name": "cocoindex-code",
+      "description": "AST-based semantic code search via the ccc CLI — mirrored from cocoindex-io/cocoindex-code under Apache-2.0. CLI-only, no MCP required.",
+      "source": "./plugins/cocoindex-code",
+      "category": "development",
+      "version": "0.1.0"
     }
   ]
 }
