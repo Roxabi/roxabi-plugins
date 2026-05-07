@@ -65,7 +65,10 @@ d ∈ D := {tag: str, file: str, line: int, description: str, phase: str}
 
 #### F6 — write-time validation, candidate `pr` field
 
-∀ candidate-classes.jsonl write: assert `pr` matches `^(local:[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?:[0-9a-f]{8}|[1-9][0-9]{0,9})$`; on failure →
+∀ candidate-classes.jsonl write site — three cases:
+
+1. `pr = null` → drop entry silently (no PR context; cannot count toward graduation gate). ¬D.append.
+2. `pr` does not match `^(local:[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?:[0-9a-f]{8}|[1-9][0-9]{0,9})$` → drop + D.append:
 
 ```
 D.append({
@@ -73,11 +76,13 @@ D.append({
   file: <write-site-identifier>,
   line: <n>,
   description: "candidate pr field violates pr-format-regex (see fix/SKILL.md F6) — entry dropped (no coercion)",
-  phase: "fix"
+  phase: "1"
 })
 ```
 
-Drop semantics: same as unknown agent_slug — entry silently dropped before the confidence-scoring path; ¬coercion, ¬fallback identity. C(f) does not apply (record never reaches scoring).
+3. `pr` matches regex → proceed with write.
+
+Drop semantics (cases 1–2): same as unknown agent_slug — entry silently dropped before the confidence-scoring path; ¬coercion, ¬fallback identity. C(f) does not apply (record never reaches scoring).
 
 **File/line provenance constraint:** the `file` field in the D.append call MUST be the statically-known write-site identifier; `line` MUST be a non-negative integer from the parser's own position tracking. NEITHER field may be derived from candidate entry content (prevents JSONL/shell injection via crafted `\n`/`"`/`}` in candidate fields from corrupting the diagnostic emission path).
 
@@ -187,8 +192,11 @@ classes = { c | ∃ f ∈ acc: cls(f) = c }
   files_in_class = unique({ file(f) | f ∈ acc, cls(f) = class })
 
   |files_in_class| ≤ 3  →  single fixer agent for the class
-  |files_in_class| > 3  →  shard by file: ⌈|files| / 3⌉ fixer agents
+  |files_in_class| > 3  →  shard by file: ⌈|files_in_class| / 3⌉ fixer agents
                             each fixer owns ≤3 files of the same class
+
+unclassified = { f ∈ acc | cls(f) = ∅ }
+¬∅ → single fixer agent for unclassified findings (same path as |files_in_class| ≤ 3)
 ```
 
 Fixer payload per agent:
@@ -200,6 +208,7 @@ Fixer payload per agent:
 Fixer constraints: re-read targets before editing (Phase 3 may have changed them). CI fail → retry max 3; `[failed]` if stuck.
 
 `pattern-class` findings (Lane B tag) → same class-shard dispatch as Lane A findings.
+_(TODO: `pattern-class` tag and Lane B defined in Slice 3 — targeted recall. Until Slice 3 lands, this clause is a forward-reference only; `pattern-class` is not yet in review-classes.yml.)_
 
 ## Phase 6.5 — Falsification Gate
 
@@ -209,10 +218,11 @@ Run falsification gate per `${CLAUDE_SKILL_DIR}/falsification.md`. Gate emits bo
 
 ```
 pass  →  fix accepted; continue
-fail  →  fix tautological (RC-1); re-open finding for that class in current loop (max 1 retry)
+fail  →  fix tautological (RC-1); re-open each failed finding for that class
+          (max 1 falsification-retry per finding — independent of CI retry budget in Phase 6)
 ```
 
-New findings surfaced during falsification → **parking lot**: file as candidate finding for next PR cycle. ¬reopen current `/fix` loop. ¬increment 3-iter cap. Applies to same-class and cross-class anti-patterns alike.
+New findings surfaced during falsification → **parking lot**: file as candidate finding for next PR cycle. ¬reopen current `/fix` loop. ¬increment 2-iter cap. Applies to same-class and cross-class anti-patterns alike.
 
 ## Phase 7 — Final Push + Approve
 
@@ -256,7 +266,7 @@ Write summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 
 ### Parking Lot
 _(omit section when parking_lot = ∅)_
-- candidate/missing-test-coverage: users.service.ts:88 — no covering test for fixed guard (falsification-gate)
+- {class}: {file}:{line} — {description} (falsification-gate)
 
 ### Enforcement diagnostics
 _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]** (N) sub-groupings)_
@@ -275,6 +285,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | 1b1 fix fails | `[failed]`, continue |
 | Quality gate fails 3× | Halt, leave uncommitted |
 | ¬∃ PR | Skip Phase 8, local only, no label |
+| cls(f) = ∅ for some f ∈ acc | Route to `unclassified` fixer agent (single agent, ≤3 files path) |
 
 ## Safety Rules
 
