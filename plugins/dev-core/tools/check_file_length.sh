@@ -2,6 +2,8 @@
 # Canonical source: plugins/dev-core/tools/ — do not edit project-side copies directly
 # Check that no Python source file exceeds the configured line cap (tests excluded).
 # Known exceptions are listed in the exemptions file — each must have a tracking issue.
+# Exemption lines may declare a local cap: "# <N> lines" — the file must not exceed N.
+# Exemptions without a declared count are back-compat: full bypass (no cap enforced).
 # Configuration is read from tools/qg.conf if present (seeded from stack.yml by
 # /release-setup); defaults below apply when the file is absent.
 set -euo pipefail
@@ -33,6 +35,22 @@ is_exempt() {
     P="$1" awk '$1 == ENVIRON["P"] { found = 1 } END { exit !found }' "$EXEMPT_FILE"
 }
 
+# Parse the declared cap from the matching exemption line.
+# Looks for "# <N> lines" anywhere after the path field (case-insensitive N).
+# Returns the integer N, or empty string if not present (back-compat: full bypass).
+exempt_cap() {
+    [ ! -f "$EXEMPT_FILE" ] && return 0
+    P="$1" awk '
+        $1 == ENVIRON["P"] {
+            # Scan for pattern: # <digits> lines
+            if (match($0, /# *([0-9]+) *lines/, arr)) {
+                print arr[1]
+            }
+            exit
+        }
+    ' "$EXEMPT_FILE"
+}
+
 # Guard: exemption paths must not contain spaces (NF>2 on a non-comment line means embedded whitespace).
 # Skips comment lines (#) to avoid false-positives on scaffold-generated exemption file headers.
 if [ -f "$EXEMPT_FILE" ] && awk '/^[[:space:]]*#/ { next } NF > 2 { found=1 } END { exit !found }' "$EXEMPT_FILE"; then
@@ -41,8 +59,16 @@ if [ -f "$EXEMPT_FILE" ] && awk '/^[[:space:]]*#/ { next } NF > 2 { found=1 } EN
 fi
 
 while IFS= read -r -d '' f; do
-    is_exempt "$f" && continue
     LINES=$(wc -l < "$f")
+    if is_exempt "$f"; then
+        CAP=$(exempt_cap "$f")
+        if [ -n "$CAP" ] && [ "$LINES" -gt "$CAP" ]; then
+            echo "$f - $LINES lines (exceeds declared exemption cap of $CAP — refactor or update exemption with new count and rationale)"
+            FAIL=1
+        fi
+        # No declared cap → back-compat full bypass; silently continue.
+        continue
+    fi
     if [ "$LINES" -gt "$MAX" ]; then
         echo "$f - $LINES lines (max $MAX)"
         FAIL=1

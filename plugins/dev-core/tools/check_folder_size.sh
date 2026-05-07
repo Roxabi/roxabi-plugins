@@ -2,6 +2,8 @@
 # Canonical source: plugins/dev-core/tools/ — do not edit project-side copies directly
 # Check that no folder contains more than the configured cap of Python source files.
 # Forces early splits and keeps folder lists graspable.
+# Exemption lines may declare a local cap: "# <N> files" — the folder must not exceed N.
+# Exemptions without a declared count are back-compat: full bypass (no cap enforced).
 # Configuration is read from tools/qg.conf if present (seeded from stack.yml by
 # /release-setup); defaults below apply when the file is absent.
 set -euo pipefail
@@ -32,6 +34,22 @@ is_exempt() {
     P="$1" awk '$1 == ENVIRON["P"] { found = 1 } END { exit !found }' "$EXEMPT_FILE"
 }
 
+# Parse the declared cap from the matching exemption line.
+# Looks for "# <N> files" anywhere after the path field (case-insensitive N).
+# Returns the integer N, or empty string if not present (back-compat: full bypass).
+exempt_cap() {
+    [ ! -f "$EXEMPT_FILE" ] && return 0
+    P="$1" awk '
+        $1 == ENVIRON["P"] {
+            # Scan for pattern: # <digits> files
+            if (match($0, /# *([0-9]+) *files/, arr)) {
+                print arr[1]
+            }
+            exit
+        }
+    ' "$EXEMPT_FILE"
+}
+
 # Guard: exemption paths must not contain spaces (NF>2 on a non-comment line means embedded whitespace).
 # Skips comment lines (#) to avoid false-positives on scaffold-generated exemption file headers.
 if [ -f "$EXEMPT_FILE" ] && awk '/^[[:space:]]*#/ { next } NF > 2 { found=1 } END { exit !found }' "$EXEMPT_FILE"; then
@@ -40,12 +58,20 @@ if [ -f "$EXEMPT_FILE" ] && awk '/^[[:space:]]*#/ { next } NF > 2 { found=1 } EN
 fi
 
 while IFS= read -r -d '' d; do
-    is_exempt "$d" && continue
     # Portable NUL-delimited count — works on macOS bash 3.2 (no mapfile/readarray).
     COUNT=0
     while IFS= read -r -d '' _; do
         COUNT=$((COUNT + 1))
     done < <(find "$d" -maxdepth 1 -name "*.py" -type f -print0)
+    if is_exempt "$d"; then
+        CAP=$(exempt_cap "$d")
+        if [ -n "$CAP" ] && [ "$COUNT" -gt "$CAP" ]; then
+            echo "$d - $COUNT files (exceeds declared exemption cap of $CAP — refactor or update exemption with new count and rationale)"
+            FAIL=1
+        fi
+        # No declared cap → back-compat full bypass; silently continue.
+        continue
+    fi
     if [ "$COUNT" -gt "$MAX" ]; then
         echo "$d - $COUNT files (max $MAX)"
         FAIL=1
