@@ -61,13 +61,7 @@ d ∈ D := {tag: str, file: str, line: int, description: str, phase: str}
 
 - **Initial value:** `[]` (empty)
 - **Append-only invariant:** entries are never removed or mutated after insertion
-- **Lifecycle:** written in Phase 1 (enforcement checks) and at any candidate-classes.jsonl write site when implemented; rendered in Phase 8 when `|D| > 0`. D is per-invocation and ephemeral — no persistent sidecar. Diagnostics outside the /fix lifecycle (e.g. graduation cron) surface via PR comments on the relevant candidate/* PR; the conversation-history memory module recovers that data without a separate file or cron.
-
-#### F6 — write-time validation, candidate `pr` field
-
-∀ candidate-classes.jsonl write site: follow `${CLAUDE_SKILL_DIR}/candidate-write-helper.md` — pr field rules, schema, provenance constraint, agent_slug authorization, finding_id derivation, write-site checklist.
-
-For Phase 1 write sites: use `phase: "1"` in any D.append call.
+- **Lifecycle:** written in Phase 1 (enforcement checks); rendered in Phase 8 when `|D| > 0`. D is per-invocation and ephemeral.
 
 - **Future invariant slots:** agent_src trust (append here when landed) (when promoting, set `phase` to non-empty `^[a-z0-9-]+$`; do not leave angle-bracket placeholders in shipped records)
 
@@ -77,8 +71,6 @@ Read `${CLAUDE_SKILL_DIR}/review-classes.yml` → extract `classes[].class` slug
 File absent, unreadable, or parse error → HALT: `[taxonomy-error] review-classes.yml {reason} at ${CLAUDE_SKILL_DIR}/review-classes.yml — reinstall dev-core plugin.`
 Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬LLM memory).
 
-Read `${CLAUDE_SKILL_DIR}/candidate-write-helper.md` → confirm reachable.
-File absent → HALT: `[write-helper-missing] candidate-write-helper.md not found at ${CLAUDE_SKILL_DIR}/candidate-write-helper.md — reinstall dev-core plugin.`
 
 ## Phase 1 — Gather Findings
 

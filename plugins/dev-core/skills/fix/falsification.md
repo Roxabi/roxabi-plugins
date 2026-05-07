@@ -11,10 +11,8 @@ If the test still passes → tautological.
 ## Input
 
 ```
-class:       string         — the class being verified (e.g. "test-tautology")
-findings:    finding[]      — findings of this class that were fixed in Phase 6
-agent_slug:  string         — slug of the fixer agent that applied the changes
-pr:          string | null  — current PR identifier (passed by Phase 6.5); null if /fix run without PR
+class:     string    — the class being verified (e.g. "test-tautology")
+findings:  finding[] — findings of this class that were fixed in Phase 6
 ```
 
 ## Procedure
@@ -30,8 +28,8 @@ For each fixed finding in the class:
 5. Restore the removed code.
 
 If no test covers the fixed line (no test to falsify) → emit `pass` with note:
-`"no covering test — falsification skipped; coverage gap logged as parking lot finding."`
-File a parking lot entry for the coverage gap (see Parking Lot Protocol below).
+`"no covering test — falsification skipped; coverage gap noted as parking lot finding."`
+Record a parking lot entry for the coverage gap (see Parking Lot Protocol below).
 
 ## Output
 
@@ -56,7 +54,15 @@ Phase 6.5 in SKILL.md consumes `class_result` (boolean per class). Per-finding r
 
 Any new finding surfaced during falsification (same class or different class), including coverage gaps:
 
-Follow `${CLAUDE_SKILL_DIR}/candidate-write-helper.md` — pr field rules (null-drop, regex, D.append), schema (class, finding_id, pr, hit_at, agent_slug, spec_version: "1"), provenance constraint. Use `phase: "6.5"` in any D.append call. Add `file`, `line`, `description`, `source: "falsification-gate"` as supplementary fields.
+```
+parking_lot.append({
+  class:       <finding class>,
+  file:        <file>,
+  line:        <line>,
+  description: <description>,
+  source:      "falsification-gate"
+})
+```
 
 ¬reopen the current `/fix` loop for parking lot entries. ¬increment the 2-iter cap.
 Parking lot entries are surfaced in Phase 8 under a dedicated `### Parking Lot` section.
