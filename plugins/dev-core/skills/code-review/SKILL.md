@@ -84,7 +84,7 @@ Spawn fresh agents via Task (¬implementation context → ¬bias).
 ### Chunking (Slice 2 — O2)
 
 Before dispatching agents, partition Δ into chunks using the Python chunker
-(`${CLAUDE_SKILL_DIR}/chunker.py`). Recall wiring is deferred to Slice 3.
+(`${CLAUDE_SKILL_DIR}/chunker.py`).
 
 ```python
 # Pseudo-code — orchestrator executes this logic inline
@@ -152,13 +152,59 @@ Task(
 )
 ```
 
-Agent name map: `security-auditor` → `dev-core:security-auditor` | `architect` → `dev-core:architect` | `product-lead` → `dev-core:product-lead` | `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops`
+Agent name map: `security-auditor` → `dev-core:security-auditor` | `architect` → `dev-core:architect` | `product-lead` → `dev-core:product-lead` | `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `recall` → `dev-core:recall`
 
 ### Agent payload
 
 **Single-chunk:** each agent receives full diff + Δ + spec (if ∃) + "output Conventional Comments".
 
 **Multi-chunk (Lane A):** each agent receives chunk diff + chunk file contents + boundary digests of all *other* chunks + spec (if ∃).
+
+### Phase 3b — Cross-chunk class join + recall trigger (multi-chunk only)
+
+After all Lane A agents complete, the orchestrator builds a cross-chunk index and triggers recall agents where warranted.
+
+**Step 1 — Build index:**
+
+```
+class_index = {}   # class_slug → {chunks: set[int], callsites: [{file, line}]}
+
+∀ chunk c_i, ∀ finding f with class[] ≠ []:
+  ∀ cls in f.class[] where ¬cls.startswith("candidate/"):
+    class_index[cls].chunks.add(i)
+    class_index[cls].callsites.extend(f.raw_callsites)
+```
+
+`candidate/*` classes → ¬join (advisory only, never trigger recall).
+
+**Step 2 — Trigger condition (per class):**
+
+```
+|class_index[cls].chunks| ≥ 2                         → trigger (cross-chunk spread)
+|class_index[cls].callsites| ≥ 3 within single chunk  → trigger (density)
+```
+
+**Step 3 — Spawn recall agent per triggered class:**
+
+```
+Task(
+  subagent_type: "dev-core:recall",
+  description:   "recall — {cls} — {PR#|branch}",
+  prompt: "Targeted recall task for class '{cls}'.
+Input:
+  class: {cls}
+  callsites: {class_index[cls].callsites}
+  context_lines: 10
+  cross_chunk_index: {chunks: {class_index[cls].chunks}, agents: {agents_that_flagged}}
+
+Follow agents/recall.md procedure. Output Conventional Comments findings only.
+All recall findings MUST use label `issue(blocking):`. ¬TaskCreate."
+)
+```
+
+Recall agents run ∥. Collect findings → Phase 4 merge.
+
+**Single-chunk path:** skip Phase 3b entirely (no cross-chunk index needed).
 
 ### Review dimensions
 correctness | security | performance | architecture | tests | readability | observability
@@ -210,17 +256,23 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 
 ## Phase 4 — Merge & Present
 
-1. Collect F from all agents
+1. Collect F from all agents (Lane A + recall agents + Lane B)
 2. Dedup: same file:line + issue → keep max C; ∀ pair sharing file:line with class[] sets that intersect after subsumption → merge: max C, union class[] (apply subsumption strip), union raw_callsites[]
 3. Sort: C desc within category
 4. Group: Blockers → Warnings → Suggestions → Praise
+
+**Source classification before verdict:**
+- Lane A findings: standard blocking/advisory per category label
+- Recall findings (`source: recall`): always **blocking** regardless of label — override to `issue(blocking):` if not already
+- Lane B findings (`pattern-class` tag): **advisory only** — cap at `Approve with comments`; ¬Request changes from Lane B alone
 
 **Verdict:**
 
 | Condition | Verdict |
 |-----------|---------|
-| ∃f: blocks(f) | Request changes |
-| ∃f: warns(f) ∧ ¬blocks | Approve with comments |
+| ∃f: recall finding (source: recall) | Request changes |
+| ∃f: blocks(f) ∧ ¬recall | Request changes |
+| Lane B advisory ∨ warns(f) only ∧ ¬blocks | Approve with comments |
 | suggestions/praise only | Approve |
 | F = ∅ | Approve (clean) |
 
