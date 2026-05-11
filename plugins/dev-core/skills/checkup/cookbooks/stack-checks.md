@@ -42,7 +42,6 @@ Read `docs.path` from σ. ¬set → D⏭("docs.path not set"), skip doc checks.
 **Artifacts:** ∀ path ∈ `artifacts.*` → chk(∃, ✅, ⚠️ "dir not found: {path}").
 
 **Security:**
-- σ ∈ `.gitignore` → ✅ | ❌ "not in .gitignore".
 - δ ∈ `.gitignore` → ✅ | ❌ "not in .gitignore (contains project field IDs)".
 
 **Hooks formatter:** `build.formatter_fix_cmd` contains `biome` → confirm `hooks.json` PostToolUse runs `format.js` → ✅ | ⚠️ "formatter mismatch".
