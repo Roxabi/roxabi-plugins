@@ -15,3 +15,5 @@ node_modules/
 # Git worktrees created by dev-core
 .claude/worktrees/
 .claire/
+# CocoIndex Code (ccc)
+/.cocoindex_code/
