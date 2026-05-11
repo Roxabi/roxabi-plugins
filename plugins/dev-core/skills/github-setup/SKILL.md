@@ -251,7 +251,7 @@ Next: run /ci-setup to configure GitHub Actions and pre-commit hooks.
 
 1. **Never overwrite δ or `.env` values** without F or explicit confirmation
 2. **Always present decisions via protocol** before destructive or write operations
-3. **Never commit δ or `.env`** — ensure both are in `.gitignore`
+3. **Commit δ** (public GitHub Project node IDs); gitignore `.env` only
 4. **Never store secrets in `.env.example`** — use empty placeholder values
 5. **Idempotent** — safe to re-run, merges rather than overwrites
 
