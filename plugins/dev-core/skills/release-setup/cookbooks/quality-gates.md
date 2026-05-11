@@ -100,7 +100,7 @@ Applies to shell-script gates only. One iteration per gate.
 Each exemption line: `<path>  # <N> <unit> — <tracking-issue> <rationale>`
 
 - `<path>` — repo-relative path, no spaces
-- `# <N> lines` (file gate) or `# <N> files` (folder gate) — **local cap**: the path must not exceed this count or the gate fails
+- `# <N> lines` (file gate) or `# <N> files` (folder gate) — **local cap**: the path must not exceed this count or the gate fails. Must be the **first** `# <N>` token after the path — the regex matches leftmost, so a count appearing later in the rationale would be ignored
 - `<tracking-issue>` — required for auditability
 
 **Examples — `tools/file_exemptions.txt`:**
