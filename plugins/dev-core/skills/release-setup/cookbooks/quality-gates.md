@@ -95,19 +95,49 @@ Applies to shell-script gates only. One iteration per gate.
 | `file_length` | `tools/file_exemptions.txt` |
 | `folder_size` | `tools/folder_exemptions.txt` |
 
+### Exemption format
+
+Each exemption line: `<path>  # <N> <unit> — <tracking-issue> <rationale>`
+
+- `<path>` — repo-relative path, no spaces
+- `# <N> lines` (file gate) or `# <N> files` (folder gate) — **local cap**: the path must not exceed this count or the gate fails. Must be the **first** `# <N>` token after the path — the regex matches leftmost, so a count appearing later in the rationale would be ignored
+- `<tracking-issue>` — required for auditability
+
+**Examples — `tools/file_exemptions.txt`:**
+```
+src/lyra/core/pool/pool.py  # 326 lines — #858 backward-compat param overrides
+```
+
+**Examples — `tools/folder_exemptions.txt`:**
+```
+src/lyra/core           # 14 files — #858 config dataclass extraction (pending cleanup)
+src/lyra/infrastructure/stores  # 14 files — #935 ADR-048 store migration
+```
+
+**Local cap semantics:** the declared `N` acts as the ceiling for that path. If the file or folder grows past `N`, the gate **fails** with:
+```
+<path> - <actual> lines (exceeds declared exemption cap of <N> — refactor or update exemption with new count and rationale)
+```
+
+**Back-compat — no declared count:** exemption lines that do not contain `# <N> lines` / `# <N> files` behave as before — full bypass, no cap enforced. This preserves existing exemption files that predate this feature.
+
 **File absent → create with header (never overwrite existing content):**
 
 For `file_exemptions.txt`:
 ```
 # Exemptions — file_length gate
-# Format: <path> <issue-url>  (single-space separator)
+# Format: <path>  # <N> lines — <issue-url> <rationale>
+# The declared count is a local cap — exceeding it fails the gate.
+# Omitting the count gives a full bypass (back-compat, avoid for new entries).
 # Each entry MUST reference a tracking issue so the exemption is recoverable.
 ```
 
 For `folder_exemptions.txt`:
 ```
 # Exemptions — folder_size gate
-# Format: <path> <issue-url>  (single-space separator)
+# Format: <path>  # <N> files — <issue-url> <rationale>
+# The declared count is a local cap — exceeding it fails the gate.
+# Omitting the count gives a full bypass (back-compat, avoid for new entries).
 # Each entry MUST reference a tracking issue so the exemption is recoverable.
 ```
 
@@ -422,6 +452,8 @@ With `[importlinter]` header + `root_packages` present and zero active contracts
 |---|---|
 | `quality_gates:` present but all sub-blocks have `enabled: false` | Phase 4.5 emits `Quality gates ⏭ All gates disabled`, installs nothing, removes nothing (D6) |
 | Gate previously installed, then flipped to `enabled: false` | No-op per D6. Files, hooks, and `.importlinter` all remain. Removal is a manual user action |
+| Exemption line has declared cap and file/folder now exceeds it | Gate fails with "exceeds declared exemption cap of N — refactor or update exemption with new count and rationale" |
+| Exemption line has no declared count (legacy format) | Full bypass — back-compat, no cap enforced. Avoid for new exemption entries |
 | User customized `tools/check_file_length.sh` (e.g. MAX=250), runs without `--force` | Drift warning printed (N3). No file changed |
 | User customized script and runs with `--force` | Canonical overwrites project copy. Customization is lost. Acceptable because `--force` is explicit |
 | `.importlinter` already exists with active contracts (lyra pattern) | Cookbook never rewrites `.importlinter` — D1 applies regardless of contract state or `--force` |
