@@ -76,7 +76,6 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
 let enrollRepo: (opts: {
   org: string
   repo: string
-  projectUrl: string
   projectId: string
   dryRun?: boolean
 }) => Promise<{ enrolled: boolean; milestonesMissing: string[]; verified: boolean; dryRun?: boolean }>
@@ -123,7 +122,6 @@ describe('hub-enroll', () => {
         enrollRepo({
           org: 'Roxabi',
           repo: 'test-repo',
-          projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
           projectId: 'PVT_test42',
         }),
       ).rejects.toThrow(/issue type|missing/i)
@@ -138,7 +136,6 @@ describe('hub-enroll', () => {
       const result = await enrollRepo({
         org: 'Roxabi',
         repo: 'test-repo',
-        projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
         projectId: 'PVT_test42',
       })
 
@@ -157,7 +154,6 @@ describe('hub-enroll', () => {
       const result = await enrollRepo({
         org: 'Roxabi',
         repo: 'test-repo',
-        projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
         projectId: 'PVT_test42',
       })
 
@@ -170,16 +166,21 @@ describe('hub-enroll', () => {
     })
 
     it('dry-run returns dryRun:true without executing milestone/verify queries', async () => {
+      const { ghGraphQL } = await import('../../shared/adapters/github-adapter')
+
       const result = await enrollRepo({
         org: 'Roxabi',
         repo: 'test-repo',
-        projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
         projectId: 'PVT_test42',
         dryRun: true,
       })
 
-      expect(result.dryRun).toBe(true)
-      expect(result.enrolled).toBe(true)
+      expect(result).toMatchObject({ dryRun: true, enrolled: true, verified: false })
+
+      // Negative guard: dry-run must short-circuit before milestone + verify queries.
+      const queries = vi.mocked(ghGraphQL).mock.calls.map((call) => call[0])
+      expect(queries).not.toContain(MILESTONE_QUERY)
+      expect(queries).not.toContain(VERIFY_PROJECT_ITEMS_QUERY)
     })
 
     it('throws on unexpected GraphQL query', async () => {

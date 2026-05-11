@@ -35,7 +35,6 @@ const REQUIRED_MILESTONES = ['M0', 'M1', 'M2']
 export async function enrollRepo(opts: {
   org: string
   repo: string
-  projectUrl: string
   projectId: string
   dryRun?: boolean
 }): Promise<EnrollResult> {
@@ -66,13 +65,12 @@ export async function enrollRepo(opts: {
     console.warn(`[${org}/${repo}] milestones missing: ${milestonesMissing.join(',')} — run make milestones-sync`)
   }
 
-  // Step 5: Verify project has items (lightweight probe — first 1 item)
+  // Step 4: Verify project has items (lightweight probe — first 1 item)
   const verifyResult = (await ghGraphQL(VERIFY_PROJECT_ITEMS_QUERY, { projectId })) as {
     data?: { node?: { items?: { nodes: Array<{ id: string }> } } }
   }
   const items = verifyResult?.data?.node?.items?.nodes ?? []
   const verified = items.length > 0
 
-  // Step 6: Return result
   return { enrolled: true, milestonesMissing, verified }
 }
