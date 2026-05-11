@@ -5,7 +5,7 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { MILESTONE_QUERY, REPO_DEFAULT_BRANCH_QUERY, VERIFY_PROJECT_ITEMS_QUERY } from '../../shared/queries'
+import { MILESTONE_QUERY, VERIFY_PROJECT_ITEMS_QUERY } from '../../shared/queries'
 
 // ---------------------------------------------------------------------------
 // In-memory state shared by adapter mocks
@@ -15,14 +15,10 @@ const state: {
   issueTypes: Array<{ id: string; name: string; color: string; isEnabled: boolean }>
   milestonesMissing: string[]
   testIssueInHub: boolean
-  defaultBranch: string | null
-  repositoryNull: boolean
 } = {
   issueTypes: [],
   milestonesMissing: [],
   testIssueInHub: true,
-  defaultBranch: 'staging',
-  repositoryNull: false,
 }
 
 // All 10 required issue type names
@@ -37,19 +33,6 @@ const ALL_TEN_ISSUE_TYPES = ['fix', 'feat', 'docs', 'test', 'chore', 'ci', 'perf
 // This makes query refactors immediately visible in test output.
 vi.mock('../../shared/adapters/github-adapter', () => ({
   ghGraphQL: vi.fn(async (query: string, _vars: Record<string, unknown>) => {
-    // default branch query
-    if (query === REPO_DEFAULT_BRANCH_QUERY) {
-      // repositoryNull checked first — overrides defaultBranch
-      return {
-        data: {
-          repository: state.repositoryNull
-            ? null
-            : state.defaultBranch
-              ? { defaultBranchRef: { name: state.defaultBranch } }
-              : { defaultBranchRef: null },
-        },
-      }
-    }
     // milestone query
     if (query === MILESTONE_QUERY) {
       const ALL_MILESTONES = ['M0', 'M1', 'M2']
@@ -87,18 +70,7 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
 }))
 
 // ---------------------------------------------------------------------------
-// Mock workflows — generateAutoAddToProjectYml + pushWorkflow
-// ---------------------------------------------------------------------------
-
-const pushWorkflowMock = vi.fn(async () => 'created' as const)
-
-vi.mock('../lib/workflows', () => ({
-  generateAutoAddToProjectYml: vi.fn(() => 'stub-auto-add-yml-content'),
-  pushWorkflowFile: pushWorkflowMock,
-}))
-
-// ---------------------------------------------------------------------------
-// Lazy import — will fail with "Cannot find module" until hub-enroll.ts exists
+// Lazy import
 // ---------------------------------------------------------------------------
 
 let enrollRepo: (opts: {
@@ -124,8 +96,6 @@ beforeEach(() => {
   }))
   state.milestonesMissing = []
   state.testIssueInHub = true
-  state.defaultBranch = 'staging'
-  state.repositoryNull = false
   vi.clearAllMocks()
 })
 
@@ -157,32 +127,6 @@ describe('hub-enroll', () => {
           projectId: 'PVT_test42',
         }),
       ).rejects.toThrow(/issue type|missing/i)
-    })
-
-    it('pushes auto-add workflow to the repo (idempotent)', async () => {
-      // Arrange — all 10 types present (set by beforeEach)
-
-      // Act
-      await enrollRepo({
-        org: 'Roxabi',
-        repo: 'test-repo',
-        projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
-        projectId: 'PVT_test42',
-      })
-
-      // Assert — pushWorkflow called once
-      expect(pushWorkflowMock).toHaveBeenCalledTimes(1)
-
-      // Act again (idempotent: same content, overwriting OK)
-      await enrollRepo({
-        org: 'Roxabi',
-        repo: 'test-repo',
-        projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
-        projectId: 'PVT_test42',
-      })
-
-      // Assert — called once more (total 2) — content unchanged is acceptable
-      expect(pushWorkflowMock).toHaveBeenCalledTimes(2)
     })
 
     it('warns when milestones M0/M1/M2 missing — emits no mutation', async () => {
@@ -225,80 +169,7 @@ describe('hub-enroll', () => {
       })
     })
 
-    it("pushes the workflow to the repo's detected default branch (not hardcoded 'main')", async () => {
-      // Act
-      await enrollRepo({
-        org: 'Roxabi',
-        repo: 'test-repo',
-        projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
-        projectId: 'PVT_test42',
-      })
-
-      // Assert — pushWorkflowFile called with branch: 'staging'
-      expect(pushWorkflowMock).toHaveBeenCalledWith(
-        'Roxabi',
-        'test-repo',
-        '.github/workflows/hub-add.yml',
-        expect.any(String),
-        expect.objectContaining({ branch: 'staging' }),
-      )
-    })
-
-    it('threads non-standard default branches (e.g. trunk) through to pushWorkflowFile', async () => {
-      state.defaultBranch = 'trunk'
-
-      await enrollRepo({
-        org: 'Roxabi',
-        repo: 'weird-repo',
-        projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
-        projectId: 'PVT_test42',
-      })
-
-      expect(pushWorkflowMock).toHaveBeenCalledWith(
-        'Roxabi',
-        'weird-repo',
-        '.github/workflows/hub-add.yml',
-        expect.any(String),
-        expect.objectContaining({ branch: 'trunk' }),
-      )
-    })
-
-    it('throws when default branch cannot be resolved', async () => {
-      state.defaultBranch = null
-
-      await expect(
-        enrollRepo({
-          org: 'Roxabi',
-          repo: 'ghost-repo',
-          projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
-          projectId: 'PVT_test42',
-        }),
-      ).rejects.toThrow(/default branch/i)
-
-      expect(pushWorkflowMock).not.toHaveBeenCalled()
-    })
-
-    it('throws when repository is null (wrong org / missing repo)', async () => {
-      // Arrange
-      state.repositoryNull = true
-
-      // Act + Assert
-      await expect(
-        enrollRepo({
-          org: 'Roxabi',
-          repo: 'nonexistent-repo',
-          projectUrl: 'https://github.com/orgs/Roxabi/projects/42',
-          projectId: 'PVT_test42',
-        }),
-      ).rejects.toThrow(/Repository not found: Roxabi\/nonexistent-repo/)
-
-      expect(pushWorkflowMock).not.toHaveBeenCalled()
-    })
-
-    it('dry-run emits planned actions without executing', async () => {
-      // Arrange — dryRun flag
-
-      // Act
+    it('dry-run returns dryRun:true without executing milestone/verify queries', async () => {
       const result = await enrollRepo({
         org: 'Roxabi',
         repo: 'test-repo',
@@ -307,11 +178,8 @@ describe('hub-enroll', () => {
         dryRun: true,
       })
 
-      // Assert — no pushWorkflow call
-      expect(pushWorkflowMock).not.toHaveBeenCalled()
-
-      // Assert — result signals dry-run mode
       expect(result.dryRun).toBe(true)
+      expect(result.enrolled).toBe(true)
     })
 
     it('throws on unexpected GraphQL query', async () => {
