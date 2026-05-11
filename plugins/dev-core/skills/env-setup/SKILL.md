@@ -35,7 +35,7 @@ Set up σ early — later phases read runtime, package manager, commands, deploy
 5. ¬`.claude/stack.yml.example` → `cp "${Φ}/stack.yml.example" .claude/stack.yml.example`. D("stack.yml.example", "✅ Created (reference template)").
 6. existing → D("stack.yml", "✅ Already exists"), skip.
 
-Note: `.claude/stack.yml` is **committed** (project stack conventions — no secrets). Only `.env` and `.claude/dev-core.yml` are gitignored by dev-core.
+Note: `.claude/stack.yml` is **committed** (project stack conventions — no secrets). Only `.env` is gitignored by dev-core. `.claude/dev-core.yml` contains only public GitHub Project node IDs and is committed.
 
 ### Phase 1b — Global Patterns Injection
 
@@ -162,7 +162,7 @@ Next: run /seed-docs to populate docs stubs, or /github-setup to connect GitHub 
 
 1. **Never overwrite existing `.claude/stack.yml` values** without F or explicit confirmation
 2. **Always present decisions via protocol** before any write operation
-3. **Commit `.claude/stack.yml`** — it holds project stack conventions, not secrets. Gitignore `.env` and `.claude/dev-core.yml` instead.
+3. **Commit `.claude/stack.yml`** — it holds project stack conventions, not secrets. Gitignore `.env` only.
 4. **Idempotent** — skip already-configured items unless F
 
 $ARGUMENTS

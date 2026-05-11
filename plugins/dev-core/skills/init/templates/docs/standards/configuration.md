@@ -21,7 +21,7 @@ TODO: Document environment variables.
   |------|---------|:---:|
   | .claude/stack.yml | Dev-core stack config | Yes |
   | .claude/stack.yml.example | Reference template for fresh clones | Yes |
-  | .claude/dev-core.yml | Dev-core plugin config (GitHub IDs, Vercel) | No (.gitignored) |
+  | .claude/dev-core.yml | Dev-core plugin config (GitHub IDs, Vercel) | Yes |
   | .env | Per-machine secrets / env vars | No (.gitignored) |
   | biome.json | Linter/formatter config | Yes |
   | tsconfig.json | TypeScript config | Yes |

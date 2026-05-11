@@ -153,8 +153,6 @@ size_options_json: '<json>'
 priority_options_json: '<json>'
 ```
 
-Ensure δ ∈ `.gitignore`.
-
 ### 3b. Scaffold (legacy .env + shim + artifacts)
 
 Run: `bun $I_TS scaffold --github-repo <owner/repo> --project-id <PVT_...> --status-field-id <PVTSSF_...> --size-field-id <PVTSSF_...> --priority-field-id <PVTSSF_...> --status-options-json '<json>' --size-options-json '<json>' --priority-options-json '<json>' [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
@@ -253,7 +251,7 @@ Next: run /ci-setup to configure GitHub Actions and pre-commit hooks.
 
 1. **Never overwrite δ or `.env` values** without F or explicit confirmation
 2. **Always present decisions via protocol** before destructive or write operations
-3. **Never commit δ or `.env`** — ensure both are in `.gitignore`
+3. **Commit δ** (public GitHub Project node IDs); gitignore `.env` only
 4. **Never store secrets in `.env.example`** — use empty placeholder values
 5. **Idempotent** — safe to re-run, merges rather than overwrites
 

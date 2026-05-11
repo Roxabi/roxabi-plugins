@@ -84,7 +84,7 @@ Next steps:
 
 ## Safety Rules
 
-1. **Never commit secrets** — `.claude/dev-core.yml`, `.env` must be gitignored
+1. **Never commit secrets** — `.env` must be gitignored (`.claude/dev-core.yml` contains only public GitHub Project node IDs — commit it)
 2. **Always present decisions via protocol** before destructive operations (delegated to sub-skills)
 3. **Idempotent** — safe to re-run; sub-skills merge rather than overwrite
 
