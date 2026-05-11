@@ -346,9 +346,6 @@ export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
     if (!lines.some((l: string) => l.trim() === '.env')) {
       additions.push('.env')
     }
-    if (!lines.some((l: string) => l.trim() === '.claude/dev-core.yml')) {
-      additions.push('.claude/dev-core.yml')
-    }
     if (additions.length > 0) {
       fs.appendFileSync('.gitignore', `\n${additions.join('\n')}\n`)
       result.gitignoreUpdated = true

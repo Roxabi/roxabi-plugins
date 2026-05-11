@@ -39,5 +39,5 @@ Each sub-skill is independently re-runnable to reconfigure a single concern:
 
 ## Safety
 
-- Never commits secrets — `.claude/dev-core.yml` and `.env` are gitignored automatically.
+- Never commits secrets — `.env` is gitignored. `.claude/dev-core.yml` contains only public GitHub Project node IDs and is committed.
 - Idempotent — sub-skills skip already-configured items unless `--force`.

@@ -211,5 +211,6 @@ describe('scaffold', () => {
     })
 
     expect(result.gitignoreUpdated).toBe(true)
+    expect(writtenFiles['.gitignore']).not.toContain('.claude/dev-core.yml')
   })
 })

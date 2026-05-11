@@ -1,7 +1,7 @@
 # .claude/stack.yml — dev-core stack configuration
 # COMMIT this file — it declares project stack conventions (paths, commands,
-# formatter, test runner). No secrets go here; `.env` and `.claude/dev-core.yml`
-# hold per-machine credentials and stay gitignored.
+# formatter, test runner). No secrets go here; only `.env` stays gitignored.
+# `.claude/dev-core.yml` holds GitHub Project node IDs (public, not secrets) — commit it too.
 #
 # stack.yml.example remains as a reference template for fresh clones.
 #
