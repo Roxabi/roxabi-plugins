@@ -35,24 +35,28 @@ is_exempt() {
 }
 
 # Parse the declared cap from the matching exemption line.
-# Looks for "# <N> files" anywhere after the path field (case-insensitive N).
+# Looks for "# <N> files" anywhere after the path field.
 # Returns the integer N, or empty string if not present (back-compat: full bypass).
+# POSIX-portable: uses two-arg match() + substr() instead of gawk's three-arg match()
+# so the script works on mawk (Ubuntu/Pop!_OS default /usr/bin/awk).
 exempt_cap() {
     [ ! -f "$EXEMPT_FILE" ] && return 0
     P="$1" awk '
         $1 == ENVIRON["P"] {
-            # Scan for pattern: # <digits> files
-            if (match($0, /# *([0-9]+) *files/, arr)) {
-                print arr[1]
+            if (match($0, /# *[0-9]+ *files/)) {
+                s = substr($0, RSTART, RLENGTH)
+                if (match(s, /[0-9]+/)) print substr(s, RSTART, RLENGTH)
             }
             exit
         }
     ' "$EXEMPT_FILE"
 }
 
-# Guard: exemption paths must not contain spaces (NF>2 on a non-comment line means embedded whitespace).
-# Skips comment lines (#) to avoid false-positives on scaffold-generated exemption file headers.
-if [ -f "$EXEMPT_FILE" ] && awk '/^[[:space:]]*#/ { next } NF > 2 { found=1 } END { exit !found }' "$EXEMPT_FILE"; then
+# Guard: exemption paths must not contain spaces.
+# A space-embedded path produces NF>2 with $2 being a path fragment (not a comment),
+# while the new exemption format "path  # N files — issue desc..." has $2 == "#".
+# Skips comment lines (#) to avoid false-positives on scaffold-generated headers.
+if [ -f "$EXEMPT_FILE" ] && awk '/^[[:space:]]*#/ { next } NF > 2 && $2 !~ /^#/ { found=1 } END { exit !found }' "$EXEMPT_FILE"; then
     echo "ERROR: $EXEMPT_FILE: exemption path contains spaces — paths with spaces are not supported" >&2
     exit 1
 fi
