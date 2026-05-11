@@ -236,7 +236,7 @@ switch (command) {
     }
 
     const dryRun = hasFlag('--dry-run')
-    const result = await enrollRepo({ org: maybeOrg, repo: maybeRepo, projectUrl, projectId, dryRun })
+    const result = await enrollRepo({ org: maybeOrg, repo: maybeRepo, projectId, dryRun })
     console.log(JSON.stringify({ step: 'hub-enroll', ...result }))
     break
   }

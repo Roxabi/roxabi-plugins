@@ -49,7 +49,6 @@ bun plugins/dev-core/skills/init/init.ts hub-enroll --repo Roxabi/<repo>
 
 Enrolls a repo into the `Roxabi Hub` Project V2:
 - Verifies the 10 org-level Issue Types exist (bootstrap prereq).
-- Pushes the auto-add-to-project workflow (`.github/workflows/hub-add.yml`).
 - Checks `M0`/`M1`/`M2` milestones — **warns if missing**; does not seed (run `make milestones-sync` separately).
 
 `hub-bootstrap` writes `artifacts/migration/hub-project.json` with `{ projectId, projectUrl, number, createdAt }`. `hub-enroll` reads this file automatically — `--project-url` is only required when bootstrap was skipped.

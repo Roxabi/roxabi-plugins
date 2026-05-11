@@ -100,7 +100,6 @@ yes → `bun $I_TS hub-enroll --repo <owner/repo>`
 
 Delegates to `init.ts hub-enroll` (Phase 1+2 infra from #120):
 - Verifies 10 org-level Issue Types exist (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `ci`, `perf`, `epic`, `research`). Fails fast if any missing — run `bun $I_TS hub-bootstrap` first.
-- Pushes `.github/workflows/hub-add.yml` via GH contents API (idempotent create-or-update).
 - Checks milestones `M0`, `M1`, `M2` per repo. **Missing milestones → warn only** (no mutation). Seed via `make milestones-sync` (external sibling task, out of scope here).
 - Verifies a test issue surfaces in the hub project before reporting success.
 
