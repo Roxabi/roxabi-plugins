@@ -27,14 +27,14 @@ Triggers: `"github setup"` | `"setup github project"` | `"connect github board"`
 
 **Phase 2 — Confirm values** — displays the full configuration table; allows editing individual fields before writing.
 
-**Phase 3 — Write config** — writes `.claude/dev-core.yml` (gitignored); runs scaffold script for `.env` and `.env.example`; installs `roxabi` shim at `~/.local/bin/roxabi`.
+**Phase 3 — Write config** — writes `.claude/dev-core.yml`; runs scaffold script for `.env` and `.env.example`; installs `roxabi` shim at `~/.local/bin/roxabi`.
 
 **Phase 4 — Workspace registration** — registers the project in the shared `workspace.json`; scans for other dev-core-configured repos on the filesystem and offers to bulk-register them.
 
 ## Safety
 
 - Never overwrites `.claude/dev-core.yml` or `.env` without `--force` or confirmation
-- Both files are always added to `.gitignore`
+- `.env` is always added to `.gitignore`; `.claude/dev-core.yml` is committed (public GitHub Project node IDs)
 - Never stores secrets in `.env.example`
 
 ## Hub Enroll (opt-in, cross-repo taxonomy)

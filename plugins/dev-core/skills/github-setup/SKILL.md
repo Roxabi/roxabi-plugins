@@ -153,8 +153,6 @@ size_options_json: '<json>'
 priority_options_json: '<json>'
 ```
 
-Ensure δ ∈ `.gitignore`.
-
 ### 3b. Scaffold (legacy .env + shim + artifacts)
 
 Run: `bun $I_TS scaffold --github-repo <owner/repo> --project-id <PVT_...> --status-field-id <PVTSSF_...> --size-field-id <PVTSSF_...> --priority-field-id <PVTSSF_...> --status-options-json '<json>' --size-options-json '<json>' --priority-options-json '<json>' [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`

@@ -41,9 +41,6 @@ Read `docs.path` from σ. ¬set → D⏭("docs.path not set"), skip doc checks.
 
 **Artifacts:** ∀ path ∈ `artifacts.*` → chk(∃, ✅, ⚠️ "dir not found: {path}").
 
-**Security:**
-- δ ∈ `.gitignore` → ✅ | ❌ "not in .gitignore (contains project field IDs)".
-
 **Hooks formatter:** `build.formatter_fix_cmd` contains `biome` → confirm `hooks.json` PostToolUse runs `format.js` → ✅ | ⚠️ "formatter mismatch".
 
 **Pre-commit hooks:**
@@ -125,7 +122,6 @@ Ask: **Fix all** | **Select** | **Skip**
 | `stack.yml.example missing` | `cp "${Φ}/stack.yml.example" .claude/stack.yml.example` |
 | `CLAUDE.md import missing` | Prepend `@.claude/stack.yml\n` to CLAUDE.md |
 | `Critical Rules missing/incomplete` | Run `bun $I_TS scaffold-rules`, then append/merge generated markdown into CLAUDE.md (same logic as `/init` Phase 2c) |
-| `dev-core.yml not in .gitignore` | ensureGitignore(`.claude/dev-core.yml`) |
 | `dev-core.yml missing` | Run `/init` |
 | `artifacts.* dir missing` | `mkdir -p {path}` ∀ missing |
 | `hooks.tool not set` | Append `hooks:\n  tool: auto` to σ |

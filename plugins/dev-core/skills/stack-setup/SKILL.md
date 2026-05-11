@@ -154,7 +154,7 @@ Assemble σ. Omit `none`/empty keys entirely.
 
 ```yaml
 # .claude/stack.yml — dev-core stack configuration
-# Commit this file with the project. Secrets live in .env / .claude/dev-core.yml.
+# Commit this file with the project. Secrets live in .env only.
 schema_version: "1.0"
 
 runtime: {RUNTIME}
@@ -247,7 +247,7 @@ artifacts:
 1. **@import:** `head -1 CLAUDE.md` ≠ `@.claude/stack.yml` → prepend; else already present.
 2. **Example:** `.claude/stack.yml.example` ∄ → copy σ → "Created as reference template."
 
-Note: `.claude/stack.yml` itself is committed (project stack conventions — no secrets). Only `.env` and `.claude/dev-core.yml` are gitignored by dev-core.
+Note: `.claude/stack.yml` itself is committed (project stack conventions — no secrets). Only `.env` is gitignored by dev-core. `.claude/dev-core.yml` contains only public GitHub Project node IDs and is committed.
 
 ## Phase 6 — Summary
 
