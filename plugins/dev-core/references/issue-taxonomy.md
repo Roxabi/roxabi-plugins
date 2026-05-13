@@ -100,8 +100,7 @@ Single fact source for issue metadata across every Roxabi repo (`lyra`, `voiceCL
 - **One-shot org bootstrap:**
   - Create/verify org-level Issue Types (post-Phase 1 target set: feat/fix/refactor/docs/test/chore/ci/perf/epic/research — pre-migration names Bug/Feature/Chore/Research get renamed; Epic retained as-is)
   - Create/verify hub Project V2 + 4 custom fields (Lane/Priority/Size + Status options)
-- **Per-repo bootstrap (opt-in flag `--hub-enroll`):**
-  - Add repo to hub project via auto-add workflow
+- **Per-repo bootstrap:**
   - Seed milestones (`M0…MN`) with consistent names
   - Does **not** auto-enroll experimental or archived repos
 
@@ -144,7 +143,7 @@ Fact source for the migration spec. Do not execute from this doc.
 4. Flip dep-graph fetch to read fields                 (cutover)
 5. Stop writing labels; drop graph:* labels per repo   (cleanup)
 6. Repurpose audit to validate field coverage          (guardrail)
-7. Roll out to new repos via --hub-enroll              (default)
+7. Roll out to new repos via hub-bootstrap             (default)
 ```
 
 ---
