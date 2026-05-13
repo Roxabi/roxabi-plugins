@@ -8,24 +8,12 @@
 
 export type CostClass = 'trivial' | 'bounded' | 'judgmental' | 'exploratory'
 
-export interface OpsRange {
-  min: number
-  max: number
-}
-
 /** Mid-point estimate used for total roll-up. */
 export const OPS_MID: Record<CostClass, number> = {
   trivial: 1.5,
   bounded: 2.5,
   judgmental: 5,
   exploratory: 11.5,
-}
-
-export const OPS_RANGE: Record<CostClass, OpsRange> = {
-  trivial: { min: 1, max: 2 },
-  bounded: { min: 2, max: 3 },
-  judgmental: { min: 4, max: 6 },
-  exploratory: { min: 8, max: 15 },
 }
 
 export interface TaskBudgetInput {

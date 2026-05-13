@@ -103,8 +103,6 @@ Cost classes:
 
 Rule: if `estimated_total_ops > 50` for a task → **force-split** the task into smaller sub-tasks, or present a DP(A) **Split now** | **Keep as-is (flag)** decision before proceeding.
 
-Implementation helper: `plugins/dev-core/skills/plan/lib/budget.ts` — exports `classifyTask`, `computeBudget`, `renderBudgetTable`.
-
 **2e. Slice Selection (multi-slice only):** ≥2 slices → → DP(C) 1 option/slice `V{N}: {desc} ({files}, {agents})`.
 Default: next unimplemented slice. Respect deps. Re-run `/plan` for remaining.
 
