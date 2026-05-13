@@ -187,12 +187,13 @@ describe('resolveTagAtSha', () => {
     expect(tag).toBeNull()
   })
 
-  it('returns null when ls-remote fails', async () => {
+  it('throws with remote details when ls-remote fails (network/auth/timeout)', async () => {
     const deps: Pick<Deps, 'run'> = {
-      run: vi.fn().mockRejectedValue(new Error('network error')),
+      run: vi.fn().mockRejectedValue(new Error('Connection timed out')),
     }
-    const tag = await resolveTagAtSha(gitUrl, sha, 'roxabi-nats', deps)
-    expect(tag).toBeNull()
+    await expect(resolveTagAtSha(gitUrl, sha, 'roxabi-nats', deps)).rejects.toThrow(
+      /Failed to query.*for tags at.*Connection timed out/,
+    )
   })
 
   it('returns null when ls-remote output is empty', async () => {
@@ -206,6 +207,18 @@ describe('resolveTagAtSha', () => {
     const deps = makeDeps(lsRemote)
     const tag = await resolveTagAtSha(gitUrl, sha, 'roxabi-nats', deps)
     expect(tag).toBeNull()
+  })
+
+  it('picks highest semver tag numerically, not lexicographically', async () => {
+    // lexicographic would pick v1.9.0 over v1.10.0 — numeric must pick v1.10.0
+    const lsRemote = [
+      `${sha}\trefs/tags/v1.10.0^{}`,
+      `${sha}\trefs/tags/v1.9.0^{}`,
+      `${sha}\trefs/tags/v1.2.0^{}`,
+    ].join('\n')
+    const deps = makeDeps(lsRemote)
+    const tag = await resolveTagAtSha(gitUrl, sha, 'some-pkg', deps)
+    expect(tag).toBe('v1.10.0')
   })
 })
 
@@ -428,6 +441,25 @@ describe('applyPinSwap', () => {
     }
     const result = await applyPinSwap('/repo', plan, deps)
     expect(result).toEqual({ written: true, staged: true })
+  })
+
+  it('restores original pyproject.toml and rethrows when uv lock fails', async () => {
+    const writes: [string, string][] = []
+    const deps: Deps = {
+      readFile: vi.fn(() => pyproject),
+      writeFile: vi.fn((path, content) => writes.push([path, content])),
+      run: vi.fn(async (cmd: string[]) => {
+        if (cmd[0] === 'uv') throw new Error('lock resolution failed')
+        return ''
+      }),
+    }
+    await expect(applyPinSwap('/repo', plan, deps)).rejects.toThrow(
+      /uv lock failed; pyproject\.toml restored: lock resolution failed/,
+    )
+    // writeFile called twice: once to write new content, once to restore original
+    expect(writes).toHaveLength(2)
+    const [, restoredContent] = writes[1]
+    expect(restoredContent).toBe(pyproject)
   })
 })
 

@@ -181,8 +181,8 @@ export async function resolveTagAtSha(
   let lsRemoteOut: string
   try {
     lsRemoteOut = await deps.run(['git', 'ls-remote', '--tags', gitUrl])
-  } catch {
-    return null
+  } catch (err) {
+    throw new Error(`Failed to query ${gitUrl} for tags at ${sha}: ${err instanceof Error ? err.message : String(err)}`)
   }
 
   if (!lsRemoteOut) return null
@@ -223,8 +223,17 @@ export async function resolveTagAtSha(
   const monorepoMatch = matchingTags.find((t) => t.toLowerCase().startsWith(`${normalizedPkg}/`))
   if (monorepoMatch) return monorepoMatch
 
-  // Fall back to bare version tag
-  return matchingTags.sort().reverse()[0] ?? null
+  // Fall back to bare version tag — sort numerically to avoid lexicographic misorder (v1.9 > v1.10)
+  const parseVersion = (tag: string): [number, number, number] => {
+    const m = tag.replace(/^v/, '').match(/^(\d+)\.(\d+)\.(\d+)/)
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [0, 0, 0]
+  }
+  const compareSemver = (a: string, b: string) => {
+    const [a1, a2, a3] = parseVersion(a)
+    const [b1, b2, b3] = parseVersion(b)
+    return a1 - b1 || a2 - b2 || a3 - b3
+  }
+  return [...matchingTags].sort(compareSemver).reverse()[0] ?? null
 }
 
 // ─── pyproject rewriting ──────────────────────────────────────────────────────
@@ -348,7 +357,8 @@ export async function buildPinSwapPlan(cwd: string, deps: Deps): Promise<PinSwap
 export async function applyPinSwap(cwd: string, plan: PinSwapPlan, deps: Deps): Promise<ApplyResult> {
   if (plan.candidates.length === 0) return { written: false, staged: false }
 
-  let pyprojectText = deps.readFile(`${cwd}/pyproject.toml`)
+  const originalPyproject = deps.readFile(`${cwd}/pyproject.toml`)
+  let pyprojectText = originalPyproject
 
   for (const candidate of plan.candidates) {
     pyprojectText = rewritePyproject(pyprojectText, candidate.name, candidate.tag)
@@ -356,8 +366,13 @@ export async function applyPinSwap(cwd: string, plan: PinSwapPlan, deps: Deps): 
 
   deps.writeFile(`${cwd}/pyproject.toml`, pyprojectText)
 
-  // Regenerate lock file
-  await deps.run(['uv', 'lock'], cwd)
+  // Regenerate lock file — restore pyproject on failure to avoid corrupted working tree
+  try {
+    await deps.run(['uv', 'lock'], cwd)
+  } catch (err) {
+    deps.writeFile(`${cwd}/pyproject.toml`, originalPyproject)
+    throw new Error(`uv lock failed; pyproject.toml restored: ${err instanceof Error ? err.message : String(err)}`)
+  }
 
   // Stage both files
   await deps.run(['git', 'add', 'pyproject.toml', 'uv.lock'], cwd)
