@@ -2,7 +2,7 @@
 name: frame
 argument-hint: '["idea" | --issue <N>]'
 description: Problem framing — capture problem, constraints, scope, tier. Triggers: "frame" | "frame this" | "what's the problem" | "define the problem" | "scope this out" | "define the scope" | "what are we solving" | "help me think through this problem" | "problem statement".
-version: 0.2.0
+version: 0.3.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---
 
@@ -35,6 +35,7 @@ Standalone-safe: callable without `/dev`. Output consumed by `/analyze`, `/spec`
 |------|----|----------|---------------|-------|
 | 0 | parse | ✓ | `gh issue view N` → JSON | — |
 | 1 | interview | — | — | 3–5 Q max |
+| 1b | premise | ✓ | 3 fields non-empty | **gate** — blocks Step 2 |
 | 2 | tier | ✓ | τ ∈ frontmatter | — |
 | 3 | write | ✓ | φ ∃ | — |
 | 4 | approval | ✓ | `status: approved` | gate |
@@ -43,7 +44,7 @@ Standalone-safe: callable without `/dev`. Output consumed by `/analyze`, `/spec`
 
 Success: φ written ∧ status: approved
 Evidence: `ls artifacts/frames/` after execution
-Steps: parse → interview → tier → write → approval
+Steps: parse → interview → premise-gate → tier → write → approval
 ¬clear → STOP + ask: "What problem are you solving?"
 
 ## Step 0 — Parse + Seed
@@ -78,6 +79,28 @@ Check ∃ φ:
 | 5 | Related work, prior attempts, adjacent issues? | ∅ context → optional |
 
 ¬ask all 5 if seed is rich — ask only what's missing.
+
+## Step 1b — Premise-Validity Gate
+
+**Gate: cannot proceed to Step 2 without all 3 fields answered.**
+
+Capture in a single AQ (present all 3 together):
+
+| Field | Prompt | Requirement |
+|-------|--------|-------------|
+| `success_in_6mo` | "What does success look like in 6 months?" | Concrete, observable outcome — ¬vague ("things are better") |
+| `failure_in_6mo` | "What does failure look like in 6 months?" | Must be **falsifiable** — a condition you could actually observe ∧ decide to abort |
+| `simplest_alternative` | "What's the simplest version that would meet the goal — and why isn't it enough?" | Forces explicit comparison; the "why not" is required, ¬optional |
+
+Evaluation rules:
+
+- `failure_in_6mo` ¬falsifiable (e.g. "people aren't happy") → reject, re-ask. Example of falsifiable: "DEBT count stays flat or rises despite 3 sprint cycles." Example of non-falsifiable: "the team doesn't feel better."
+- `simplest_alternative` answer omits the "why not" half → re-ask: "You described the simpler version — why won't it be enough?"
+- Any field empty or answered with ≤5 words → treat as unanswered, re-ask.
+
+**Abort signal:** if the user answers `failure_in_6mo` with a description that matches "we'd still have the problem but with extra bookkeeping" (i.e. the initiative measures proxy metrics, ¬the underlying issue) → surface: "This failure mode suggests the premise may be invalid. Do you want to reframe the problem or abort?" AQ: **Reframe** | **Abort**.
+
+Origin: pattern surfaced by Roxabi/lyra#1162 — quality-debt annotation infrastructure (~1100 LOC + 6 registry files) where the ratchet measured bookkeeping compliance, not code quality. A falsification check at /frame would have caught this.
 
 ## Step 2 — Tier Detection
 
@@ -125,6 +148,17 @@ date: {YYYY-MM-DD}
 ## Out of Scope
 
 - {explicit non-goals as bullets}
+
+## Premise Validity
+
+**Required — populated from Step 1b. ¬leave blank.**
+
+**Success in 6 months:** {concrete, observable outcome}
+
+**Failure in 6 months:** {falsifiable condition — observable ∧ actionable}
+
+**Simplest alternative:** {minimal version that meets the goal}
+**Why not simplest:** {explicit reason the simpler path is insufficient}
 
 ## Complexity
 
