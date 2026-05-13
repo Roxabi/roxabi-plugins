@@ -90,6 +90,21 @@ Intra-domain parallel: ≥4 independent tasks in 1 domain → multiple same-type
 **2d. Tasks:** ∀ task: description, files, agent, dependencies, parallel-safe (Y/N).
 Order: types → backend → frontend → tests → docs → config.
 
+**Budget heuristic (ops estimate):** After listing tasks, classify each by cost class and compute estimated tool-call ops. Record in the plan artifact's Wave Structure section as a Budget Table.
+
+Cost classes:
+
+| Class | Ops/item | Examples |
+|-------|----------|---------|
+| `trivial` | 1–2 | string replace, single grep |
+| `bounded` | 2–3 | read + edit known file |
+| `judgmental` | 4–6 | read + context + judge + edit |
+| `exploratory` | 8–15 | open-ended cross-file search |
+
+Rule: if `estimated_total_ops > 50` for a task → **force-split** the task into smaller sub-tasks, or present a DP(A) **Split now** | **Keep as-is (flag)** decision before proceeding.
+
+Implementation helper: `plugins/dev-core/skills/plan/lib/budget.ts` — exports `classifyTask`, `computeBudget`, `renderBudgetTable`.
+
 **2e. Slice Selection (multi-slice only):** ≥2 slices → → DP(C) 1 option/slice `V{N}: {desc} ({files}, {agents})`.
 Default: next unimplemented slice. Respect deps. Re-run `/plan` for remaining.
 
@@ -177,6 +192,21 @@ After micro-tasks, derive waves from the dependency graph. Name parallel agent i
 | 1 | start | {K} ∥ | {agent-A}: T{n} · {agent-B}: T{m} |
 | 2 | Wave 1 done | {K} ∥ | ... |
 ```
+
+After the wave table, include a **Budget Table** derived from Step 2d classification:
+
+```markdown
+### Budget
+
+| Task | Items | Class | Est. ops | Split? |
+|------|-------|-------|----------|--------|
+| {task name} | {N} | {class} | {ops} | — |
+| {large task} | {N} | exploratory | {ops} | YES — split required |
+
+**Total estimated ops: {total}**
+```
+
+Tasks marked `YES — split required` must be resolved (split or DP-approved) before the plan is finalized.
 
 Rules:
 - Wave 1 = all tasks with no deps.
