@@ -20,6 +20,7 @@ Triggers: `"promote staging"` | `"release"` | `"deploy"` | `"cut a release"` | `
 ## How it works
 
 1. **Pre-flight** — checks commits ahead of main, open PRs on staging, CI status. Refuses if nothing to promote.
+1b. **Pin-swap** — detects `branch=` git deps in `[tool.uv.sources]`, resolves each to a release tag at the locked SHA, rewrites `pyproject.toml`, regenerates `uv.lock`. No-op if zero `branch=` git deps. Fails loud if SHA has no matching tag (forces upstream to cut a release first).
 2. **Version + changelog** — bumps version, writes changelog (see `references/release-artifacts.md`).
 3. **Deploy preview** (optional) — triggers `deploy-preview.yml` workflow and waits for it.
 4. **Summary** — shows version, commit count, file count, CI status, preview result.

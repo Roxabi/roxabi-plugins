@@ -224,34 +224,6 @@ ${setupStep}
 `
 }
 
-/** Auto-add-to-project workflow: adds every new issue/PR to the given Project V2 URL. */
-export function generateAutoAddToProjectYml(projectUrl: string): string {
-  const quotedUrl = `'${projectUrl.replace(/'/g, "''")}'`
-  return `name: Add to Roxabi Hub
-
-on:
-  issues:
-    types: [opened, transferred]
-  pull_request:
-    types: [opened]
-
-permissions:
-  repository-projects: write
-  issues: write
-  pull-requests: write
-
-jobs:
-  add:
-    name: Add to project
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/add-to-project@v1
-        with:
-          project-url: ${quotedUrl}
-          github-token: \${{ secrets.GITHUB_TOKEN }} # for cross-org projects, replace with secrets.PAT having read:org + project
-`
-}
-
 export function generateDeployYml(opts: WorkflowOpts): string {
   const setupStep =
     opts.stack === 'bun'
