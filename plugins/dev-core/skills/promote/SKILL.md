@@ -23,6 +23,7 @@ Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := DP(A)
 | Step | ID | Required | Verifies via | Notes |
 |------|----|----------|---------------|-------|
 | 1 | pre-flight | ✓ | ¬REFUSE | — |
+| 1b | pin-swap | — | ¬branch= deps remain | no-op if zero branch= deps |
 | 2 | version | ✓ | V detected | — |
 | 3 | changelog | ✓ | CHANGELOG.md updated | — |
 | 4 | commit | ✓ | `git log` shows commit | — |
@@ -62,6 +63,81 @@ Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI
 | No commits | `commits_ahead=0` | **REFUSE.** Stop. |
 | Open PRs on σ | open_prs section non-empty | **WARN** + Q: **Continue** \| **Wait** |
 | CI status | ci section | **WARN** if ¬passing |
+
+## Step 1b — Pin-swap Phase
+
+Runs after pre-flight, before version bump. Rewrites mutable `branch=` git deps in `[tool.uv.sources]` to immutable `tag=` pins for the promotion commit.
+
+**Trigger:** `pyproject.toml` exists AND `[tool.uv.sources]` contains at least one entry with `branch=`.
+
+**No-op:** if zero `branch=` git deps found → silent skip, continue to Step 2.
+
+### Detection
+
+Scan `pyproject.toml` `[tool.uv.sources]`:
+
+```toml
+# Detected — has branch=
+roxabi-nats = { git = "https://github.com/Roxabi/roxabi-nats", branch = "staging" }
+
+# Ignored — already pinned
+roxabi-nats = { git = "https://github.com/Roxabi/roxabi-nats", tag = "v1.2.3" }
+```
+
+### Resolution
+
+For each detected dep:
+1. Read pinned SHA from `uv.lock` (`rev = "<sha>"` in package source)
+2. Run `git ls-remote --tags <gitUrl>` on the remote
+3. Match SHA → release tag at that exact commit
+4. Tag matching: prefer `<pkg>/vX.Y.Z` (monorepo subdirectory style), fall back to bare `vX.Y.Z`
+
+### DP(A) gate
+
+```
+── Decision: Pin uv git deps ──
+Context:     N branch= git deps found; will be rewritten for promotion
+Target:      Immutable tag pins in pyproject.toml before staging→main
+Path:        Rewrite pyproject.toml, run uv lock, stage both files
+
+Deps:
+  - roxabi-nats: branch=staging → tag=roxabi-nats/v1.2.3 (SHA: abc123def456)
+
+Options:
+  1. Apply — rewrite + regenerate uv.lock + stage
+  2. Abort — stop promotion, no changes
+Recommended: Option 1
+```
+
+### On Apply
+
+```bash
+# Rewrite pyproject.toml (branch= → tag=) for each dep
+# Then regenerate:
+uv lock
+git add pyproject.toml uv.lock
+```
+
+### On Abort
+
+Revert `pyproject.toml` to original (no changes were written). Stop promotion.
+
+### Error: no tag at SHA
+
+```
+FAIL: No release tag found at roxabi-nats@abc123def4 on https://github.com/Roxabi/roxabi-nats.
+Cut a release tag (e.g. roxabi-nats/vX.Y.Z) at abc123def4 upstream first.
+```
+
+Stops promotion. User must cut a tag upstream before retrying.
+
+### `--dry-run`
+
+Show pin-swap plan (deps + resolved tags) but do NOT write files. Continue to show version/changelog summary, then stop.
+
+### Implementation
+
+Logic lives in `lib/pin-swap.ts` (pure functions, I/O-injected). Tests in `__tests__/pin-swap.test.ts`.
 
 ## Steps 2-4 — Version, Changelog, Commit
 
