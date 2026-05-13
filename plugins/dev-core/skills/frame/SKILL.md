@@ -94,11 +94,19 @@ Capture in a single AQ (present all 3 together):
 
 Evaluation rules:
 
+- `failure_in_6mo` falsifiability rule: must reference a **measurable outcome** (number, threshold, or boolean state) AND a **time horizon**. Vibes-only failure modes are rejected.
 - `failure_in_6mo` ¬falsifiable (e.g. "people aren't happy") → reject, re-ask. Example of falsifiable: "DEBT count stays flat or rises despite 3 sprint cycles." Example of non-falsifiable: "the team doesn't feel better."
 - `simplest_alternative` answer omits the "why not" half → re-ask: "You described the simpler version — why won't it be enough?"
 - Any field empty or answered with ≤5 words → treat as unanswered, re-ask.
 
 **Abort signal:** if the user answers `failure_in_6mo` with a description that matches "we'd still have the problem but with extra bookkeeping" (i.e. the initiative measures proxy metrics, ¬the underlying issue) → surface: "This failure mode suggests the premise may be invalid. Do you want to reframe the problem or abort?" AQ: **Reframe** | **Abort**.
+
+Canonical proxy-metric patterns (LLM anchors — any of these triggers the abort signal):
+- "compliance count stays the same / unchanged"
+- "annotation density doesn't move"
+- "ticket-close rate doesn't improve"
+- "dashboard stays red / metric won't budge"
+- "we'd still have the underlying problem but with extra bookkeeping"
 
 Origin: pattern surfaced by Roxabi/lyra#1162 — quality-debt annotation infrastructure (~1100 LOC + 6 registry files) where the ratchet measured bookkeeping compliance, not code quality. A falsification check at /frame would have caught this.
 
