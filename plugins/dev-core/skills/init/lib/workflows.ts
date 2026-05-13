@@ -272,7 +272,7 @@ async function getToken(): Promise<string> {
 }
 
 /** Push a single file to a repo via the GH contents API (create-or-update).
- *  `path` is the full repo-relative path (e.g. `.github/workflows/hub-add.yml`). */
+ *  `path` is the full repo-relative path (e.g. `.github/workflows/ci.yml`). */
 export async function pushWorkflowFile(
   owner: string,
   repo: string,
