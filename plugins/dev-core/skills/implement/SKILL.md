@@ -126,7 +126,7 @@ cp .env.example .env 2>/dev/null; {package_manager} install
 # Optional: {commands.worktree_setup} <N>
 ```
 
-XS exception: → DP(A) **Skip worktree (XS exception)** | **Use worktree** → approved → skip ω, `git checkout -b feat/<N>-<slug> ${BASE}` in main repo.
+ω **mandatory** ∀ τ (XS, S, F-lite, F-full) — ¬exception. ¬"skip worktree" branch.
 
 ## Step 3 — Context Injection (τ=F only)
 
@@ -243,7 +243,7 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 1. ¬`git add -A` ∨ `git add .` — specific files only
 2. ¬push without PR via `/pr`
 3. ¬create issue without user approval
-4. Always ω (XS exception w/ explicit lead approval)
+4. Always ω ∀ τ — ¬exception (XS, S, F-lite, F-full all require ω)
 5. Always HEREDOC for commit messages
 6. Pre-commit hook failure → fix, re-stage, NEW commit (¬amend)
 

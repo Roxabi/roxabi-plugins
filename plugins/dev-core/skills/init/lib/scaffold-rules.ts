@@ -235,7 +235,7 @@ git worktree add ../${projectName}-XXX -b feat/XXX-slug staging
 cd ../${projectName}-XXX && cp .env.example .env && bun install
 \`\`\`
 
-Exceptions: XS (confirm first) | \`/dev\` pre-implementation artifacts (frame, analysis, spec, plan) | \`/promote\` release artifacts.
+Worktree **mandatory** for all tiers (XS, S, F-lite, F-full) — no exceptions. Only skipped for \`/dev\` pre-implementation artifacts (frame, analysis, spec, plan) and \`/promote\` release artifacts.
 **Never code on main/staging without worktree.**`
 
   return { id: 'mandatory-worktree', title: 'Mandatory Worktree', content }
