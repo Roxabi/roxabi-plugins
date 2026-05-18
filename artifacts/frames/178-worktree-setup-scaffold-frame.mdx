@@ -1,0 +1,69 @@
+---
+title: Runtime-aware worktree_setup scaffolding during dev-core init
+issue: 178
+status: approved
+tier: F-lite
+date: 2026-05-18
+---
+
+## Problem
+
+Every dev-core project — regardless of stack — hits friction when creating worktrees because per-runtime artifacts (`.venv`, `node_modules`, `.env`, git hooks path, per-worktree DB branches) don't carry over from the main checkout. Today, `git worktree add` only copies the working tree; everything else must be re-prepared by hand.
+
+The symptom varies by stack but the failure mode is the same: the worktree boots into a broken state.
+
+- **Python/uv (lyra)** — Pyright resolves from `<cwd>/.venv`, finds nothing, every third-party import shows red. Fix today: manual `uv sync` (~30s + disk bloat) or symlink `.venv` from main.
+- **Node/Bun (roxabi-boilerplate)** — `node_modules` missing, lefthook `core.hooksPath` points at the wrong location after `bun install`, `.env` not copied, `apps/api` needs its DB branch. Fix today: a documented sequence in `CONTRIBUTING.md` plus a hand-rolled `scripts/prepare.sh` that unsets `core.hooksPath` inside worktrees.
+
+`/implement` already interpolates a `{commands.worktree_setup}` hook at Step 2e of its SKILL.md, but the field is invisible to anyone running `/init`:
+
+| Layer | Should expose `worktree_setup` | Today |
+|---|---|---|
+| `stack.yml.example` | Yes, commented stub | absent |
+| `stack-setup` Phase 4 (template emission) | Yes, runtime-aware | emits same 7 keys regardless of runtime |
+| `env-setup` Phase 1 | Yes, ask when stack picked | no question |
+| `/implement` Step 2e | Consumes it | only place it appears, marked `# Optional` |
+
+`stack-setup` Phase 2 already detects `runtime` and `package_manager` correctly — Phase 4 just ignores that signal.
+
+## Who
+
+- **Primary:** any developer running `/dev` or `/implement` on a dev-core-initialized project. The pain scales with `# active worktrees × project age` — biggest hit on multi-app monorepos (boilerplate-style) and projects with heavy install steps.
+- **Secondary:** future dev-core adopters who run `/init` and silently inherit the broken default.
+
+## Constraints
+
+- **Per-project hand-rolled.** No single script can serve every project — each repo has its own mix (lefthook fix, DB branches, env files, `.venv` strategy). Scaffolding must produce a script the LLM tailors at init-time, not a static template imported at runtime.
+- **Runtime-detection lives in `stack-setup` Phase 2** — already implemented, must reuse the signal in Phase 4.
+- **Hook contract lives in `stack.yml`** under `commands.worktree_setup` — already consumed by `/implement` Step 2e, no new harness wiring needed.
+- **Checklist is the source of truth.** A growing list of "things a worktree might need" lives in dev-core (e.g. `references/worktree-setup-checklist.md`). The LLM walks the checklist with the project context (runtime, monorepo layout, hooks tool, env files) and produces the tailored script. New patterns get added to the checklist as they surface in real projects.
+- **Symmetry:** scaffold both `worktree_setup` AND `worktree_teardown` (cleanup of symlinks, dropped DB branches, etc.).
+- **No backwards-compat shim.** Projects already on dev-core re-run `/init` (or just `/stack-setup`) to opt in. The scaffolder must be idempotent — skip if the script already exists, offer DP(A) to regenerate if stale.
+
+## Out of Scope
+
+- A general "post-worktree-create" event in the Claude Code harness — `commands.worktree_setup` already covers it via dev-core.
+- Building runtime-specific helpers beyond what the existing reference impls cover (Python/uv symlink, Node/Bun install + hooksPath). Rust (`target`), Go (`vendor`), Ruby (`bundle`), etc. — open separate issues when those projects hit the pain.
+- Migrating existing dev-core projects automatically. Opt-in re-run of `/init`/`/stack-setup`.
+- Replacing per-project scripts like `roxabi-boilerplate/scripts/prepare.sh` — we surface the *concerns* in the checklist; the script the LLM emits may reuse or call into existing helpers.
+
+## Premise Validity
+
+**Success in 6 months:** Every new dev-core-initialized project — Python or Node — gets a runtime-appropriate `tools/worktree-setup.sh` scaffolded at `/init` time, with the hook registered in `stack.yml`. No `/dev` worktree starts with broken imports/hooks/env across ≥3 active projects using dev-core. The checklist has grown by ≥2 entries from real-project feedback.
+
+**Failure in 6 months:** Worktree-setup friction reports continue at current cadence in ≥2 dev-core projects despite the scaffold shipping — OR ≥50% of projects delete/disable the generated script because the default is wrong for their layout. Either signals the checklist-driven approach is too generic to actually unblock people.
+
+**Simplest alternative:** Doc-only — add a "worktree setup" section to dev-core docs explaining the lyra symlink pattern and the boilerplate install+hooksPath pattern, leave it to each project to hand-roll the script themselves.
+
+**Why not simplest:** Doc-only doesn't force adoption. `/implement`'s hook field stays invisible to anyone running `/init`, so the docs get ignored and the broken-worktree pain keeps recurring. The whole point of dev-core is to scaffold the right setup so users don't have to know which docs to read.
+
+## Complexity
+
+**Tier: F-lite** — single domain (dev-core skills), clear scope (3 SKILL.md surfaces + 1 reference doc + 1 example stub), reference implementations already exist on lyra (uv) and roxabi-boilerplate (bun).
+
+Signals observed:
+- Single domain: all changes inside `plugins/dev-core/`
+- Clear scope: known files (`stack.yml.example`, `stack-setup/SKILL.md` Phase 4, `env-setup/SKILL.md` Phase 1, new `references/worktree-setup-checklist.md`)
+- No unknowns: pattern validated twice in production projects
+- No new architecture: reuses existing `commands.worktree_setup` contract, `/implement` Step 2e already wired
+- Multi-runtime is just a per-runtime branch in the scaffolder; checklist abstracts the rest
