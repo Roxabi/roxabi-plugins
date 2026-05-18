@@ -62,9 +62,12 @@ function extractYamlBlock(raw: string): string {
 function parseInlineArray(value: string): string[] {
   const trimmed = value.trim()
   if (!trimmed.startsWith('[')) return [trimmed.replace(/^["']|["']$/g, '')]
-  // Normalise single-quoted YAML arrays to valid JSON before parsing
-  const json = trimmed.replace(/'/g, '"')
-  return JSON.parse(json) as string[]
+  // Require JSON-style double-quoted strings; single-quote rewriting corrupts apostrophes
+  try {
+    return JSON.parse(trimmed) as string[]
+  } catch {
+    throw new Error('applies_when must be a JSON-style array of strings (use double quotes)')
+  }
 }
 
 function parseBlockScalar(lines: string[], startIndex: number): { value: string; nextIndex: number } {
@@ -73,6 +76,11 @@ function parseBlockScalar(lines: string[], startIndex: number): { value: string;
   let i = startIndex
   while (i < lines.length) {
     const line = lines[i]
+    if (line.startsWith('\t')) {
+      throw new Error(
+        `tab indentation not supported in concern block scalar (line: ${JSON.stringify(line)}). Use 4 spaces.`,
+      )
+    }
     if (line === '' || line.startsWith('    ')) {
       collected.push(line.startsWith('    ') ? line.slice(4) : '')
       i++
@@ -142,7 +150,9 @@ function parseConcerns(yaml: string): Concern[] {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export function parseChecklist(filePath: string): Checklist {
-  const raw = readFileSync(filePath, 'utf-8')
+  let raw = readFileSync(filePath, 'utf-8')
+  // Normalise CRLF → LF before any splitting so the parser never sees \r
+  raw = raw.replace(/\r\n/g, '\n')
   const version = parseFrontmatterVersion(raw)
   const yamlBlock = extractYamlBlock(raw)
   const concerns = parseConcerns(yamlBlock)
@@ -193,11 +203,18 @@ export function composeScript(concerns: Concern[], mode: 'setup' | 'teardown'): 
 
   const snippet = (c: Concern) => (mode === 'setup' ? c.setup_snippet : c.teardown_snippet)
 
-  // For teardown, trivially empty concerns (body is just `:` after trim) go last
+  // For teardown, trivially empty concerns (bare `:` or `: # comment`) go last.
+  // Recognised no-op forms: `:`, `: # comment`, `:\t`, etc.
+  function isNoopTeardown(body: string): boolean {
+    return /^:\s*(#.*)?\s*$/.test(body.trim())
+  }
+
   let ordered = concerns
   if (mode === 'teardown') {
-    const isNoop = (c: Concern) => snippet(c).trim() === ':'
-    ordered = [...concerns.filter((c) => !isNoop(c)), ...concerns.filter((c) => isNoop(c))]
+    ordered = [
+      ...concerns.filter((c) => !isNoopTeardown(snippet(c))),
+      ...concerns.filter((c) => isNoopTeardown(snippet(c))),
+    ]
   }
 
   for (const concern of ordered) {
@@ -215,8 +232,10 @@ export function composeScript(concerns: Concern[], mode: 'setup' | 'teardown'): 
 
 export function shouldOfferRetrofit(stackYamlContent: string, repoRoot: string): boolean {
   if (/worktree_setup:/m.test(stackYamlContent)) return false
-  const runtimeMatch = stackYamlContent.match(/^runtime:\s*(\S+)/m)
-  const runtime = runtimeMatch ? runtimeMatch[1] : ''
+  // Strip optional quotes and trailing comments; be permissive if unparseable (offer retrofit)
+  const runtimeMatch = stackYamlContent.match(/^runtime:\s*["']?([\w-]+)["']?\s*(#.*)?$/m)
+  if (!runtimeMatch) return true
+  const runtime = runtimeMatch[1]
   if (!['python', 'bun', 'node'].includes(runtime)) return false
   if (existsSync(join(repoRoot, 'tools/worktree-setup.sh'))) return false
   return true

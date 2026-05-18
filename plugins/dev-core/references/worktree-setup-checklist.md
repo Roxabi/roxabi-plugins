@@ -86,12 +86,24 @@ This file is parsed by `tools/worktreeScaffold.ts` (dev-core). The scaffolder re
   setup_snippet: |
     N="${1:-}"
     [ -z "${N}" ] && exit 0
+    # Constrain N to safe identifier chars before passing to db:branch:create.
+    # Even though "${N}" is quoted, downstream consumers may interpolate it into SQL or shell.
+    if ! printf '%s' "${N}" | grep -qE '^[a-zA-Z0-9_/-]{1,100}$'; then
+      echo "neon-db-branch: refusing unsafe N='${N}'" >&2
+      exit 0
+    fi
     [ -d apps/api ] && (cd apps/api && bun run db:branch:create --force "${N}" 2>/dev/null) || true
   teardown_snippet: |
     N="${1:-}"
     [ -z "${N}" ] && exit 0
+    # Constrain N to safe identifier chars before passing to db:branch:drop.
+    # Even though "${N}" is quoted, downstream consumers may interpolate it into SQL or shell.
+    if ! printf '%s' "${N}" | grep -qE '^[a-zA-Z0-9_/-]{1,100}$'; then
+      echo "neon-db-branch: refusing unsafe N='${N}'" >&2
+      exit 0
+    fi
     [ -d apps/api ] && (cd apps/api && bun run db:branch:drop --force "${N}" 2>/dev/null) || true
-  validation: "exits 0 when N is missing; never errors fatally even if db command fails"
+  validation: "exits 0 when N is missing or does not match ^[a-zA-Z0-9_/-]{1,100}$; never errors fatally even if db command fails"
 ```
 
 ## Extending the checklist

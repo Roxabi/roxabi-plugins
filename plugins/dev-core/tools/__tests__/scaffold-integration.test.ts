@@ -2,7 +2,7 @@ import { execSync, spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   composeScript,
   type ProjectContext,
@@ -18,40 +18,40 @@ const REAL_CHECKLIST = path.join(REPO_ROOT, 'plugins/dev-core/references/worktre
 const FIXTURES_ROOT = path.join(import.meta.dirname, '__fixtures__/projects')
 const SCAFFOLD_TS = path.join(REPO_ROOT, 'plugins/dev-core/tools/worktreeScaffold.ts')
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Tool availability (module-level, for skipIf) ────────────────────────────
 
-function makeTmpDir(prefix: string): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
-}
-
-function gitAvailable(): boolean {
+const gitAvailable: boolean = (() => {
   try {
     execSync('command -v git', { stdio: 'ignore' })
     return true
   } catch {
     return false
   }
-}
+})()
 
-function bunAvailable(): boolean {
+const bunAvailable: boolean = (() => {
   try {
     execSync('bun --version', { stdio: 'ignore' })
     return true
   } catch {
     return false
   }
-}
+})()
 
-let shellcheckAvailable = false
-
-beforeAll(() => {
+const shellcheckAvailable: boolean = (() => {
   try {
     execSync('command -v shellcheck', { stdio: 'ignore' })
-    shellcheckAvailable = true
+    return true
   } catch {
-    shellcheckAvailable = false
+    return false
   }
-})
+})()
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function makeTmpDir(prefix: string): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+}
 
 function copyDirRecursive(src: string, dest: string): void {
   fs.mkdirSync(dest, { recursive: true })
@@ -88,6 +88,20 @@ function initGitRepo(dir: string): void {
   git('git -c user.email=t@t -c user.name=t commit -q -m init', dir)
 }
 
+// Run scaffold compose via spawnSync (avoids shell-quoting issues with JSON args)
+function runCompose(ctx: ProjectContext, mode: 'setup' | 'teardown'): string {
+  const ctxJson = JSON.stringify(ctx)
+  const result = spawnSync(
+    'bun',
+    [SCAFFOLD_TS, 'compose', '--checklist', REAL_CHECKLIST, '--context-json', ctxJson, '--mode', mode],
+    { encoding: 'utf-8', env: CLEAN_ENV },
+  )
+  if (result.status !== 0) {
+    throw new Error(`compose failed: ${result.stderr}`)
+  }
+  return result.stdout
+}
+
 // ─── T8 — python.uv fixture integration ─────────────────────────────────────
 
 describe('python.uv fixture integration', () => {
@@ -107,9 +121,17 @@ describe('python.uv fixture integration', () => {
     }
   })
 
-  it('scaffolds and symlinks .venv in a fresh worktree', () => {
-    if (!gitAvailable()) return
+  const pythonUvCtx: ProjectContext = {
+    runtime: 'python',
+    package_manager: 'uv',
+    monorepo: false,
+    hooks_tool: 'lefthook',
+    env_files: ['.env'],
+    database: 'none',
+    backend_paths: [],
+  }
 
+  it.skipIf(!gitAvailable)('scaffolds and symlinks .venv in a fresh worktree', () => {
     tmpMain = makeTmpDir('wt-py-main-')
     copyDirRecursive(path.join(FIXTURES_ROOT, 'python-uv'), tmpMain)
     initGitRepo(tmpMain)
@@ -120,22 +142,8 @@ describe('python.uv fixture integration', () => {
     tmpWt = path.join(path.dirname(tmpMain), `wt-py-wt-${Date.now()}`)
     execSync(`git worktree add -q "${tmpWt}" -b feat/x-${Date.now()}`, { cwd: tmpMain, env: CLEAN_ENV })
 
-    const ctx: ProjectContext = {
-      runtime: 'python',
-      package_manager: 'uv',
-      monorepo: false,
-      hooks_tool: 'lefthook',
-      env_files: ['.env'],
-      database: 'none',
-      backend_paths: [],
-    }
-    const ctxJson = JSON.stringify(ctx)
-
     fs.mkdirSync(path.join(tmpWt, 'tools'), { recursive: true })
-    const scriptContent = execSync(
-      `bun "${SCAFFOLD_TS}" compose --checklist "${REAL_CHECKLIST}" --context-json '${ctxJson}' --mode setup`,
-      { encoding: 'utf-8' },
-    )
+    const scriptContent = runCompose(pythonUvCtx, 'setup')
     const scriptPath = path.join(tmpWt, 'tools', 'worktree-setup.sh')
     fs.writeFileSync(scriptPath, scriptContent)
     fs.chmodSync(scriptPath, 0o755)
@@ -150,9 +158,7 @@ describe('python.uv fixture integration', () => {
     expect(target).toContain(tmpMain)
   })
 
-  it('script exits 0 when run inside main checkout (refuses self-symlink)', () => {
-    if (!gitAvailable()) return
-
+  it.skipIf(!gitAvailable)('script exits 0 when run inside main checkout (refuses self-symlink)', () => {
     tmpMain = makeTmpDir('wt-py-self-')
     copyDirRecursive(path.join(FIXTURES_ROOT, 'python-uv'), tmpMain)
     initGitRepo(tmpMain)
@@ -160,22 +166,8 @@ describe('python.uv fixture integration', () => {
     fs.mkdirSync(path.join(tmpMain, '.venv'), { recursive: true })
     fs.writeFileSync(path.join(tmpMain, '.venv', 'marker'), 'x')
 
-    const ctx: ProjectContext = {
-      runtime: 'python',
-      package_manager: 'uv',
-      monorepo: false,
-      hooks_tool: 'lefthook',
-      env_files: ['.env'],
-      database: 'none',
-      backend_paths: [],
-    }
-    const ctxJson = JSON.stringify(ctx)
-
     fs.mkdirSync(path.join(tmpMain, 'tools'), { recursive: true })
-    const scriptContent = execSync(
-      `bun "${SCAFFOLD_TS}" compose --checklist "${REAL_CHECKLIST}" --context-json '${ctxJson}' --mode setup`,
-      { encoding: 'utf-8' },
-    )
+    const scriptContent = runCompose(pythonUvCtx, 'setup')
     const scriptPath = path.join(tmpMain, 'tools', 'worktree-setup.sh')
     fs.writeFileSync(scriptPath, scriptContent)
     fs.chmodSync(scriptPath, 0o755)
@@ -189,20 +181,109 @@ describe('python.uv fixture integration', () => {
     expect(content).toBe('x')
   })
 
-  it('compose output is shellcheck-clean', () => {
-    if (!shellcheckAvailable) return
+  it.skipIf(!gitAvailable)('skips when .venv exists as a real directory (preserves diverged-deps state)', () => {
+    tmpMain = makeTmpDir('wt-py-realdir-')
+    copyDirRecursive(path.join(FIXTURES_ROOT, 'python-uv'), tmpMain)
+    initGitRepo(tmpMain)
 
+    // main repo needs a .venv for the guard to pass the "main .venv exists" check
+    fs.mkdirSync(path.join(tmpMain, '.venv'), { recursive: true })
+    fs.writeFileSync(path.join(tmpMain, '.venv', 'marker'), 'main')
+
+    tmpWt = path.join(path.dirname(tmpMain), `wt-py-realdir-wt-${Date.now()}`)
+    execSync(`git worktree add -q "${tmpWt}" -b feat/realdir-${Date.now()}`, { cwd: tmpMain, env: CLEAN_ENV })
+
+    // worktree already has a real .venv directory with its own state
+    fs.mkdirSync(path.join(tmpWt, '.venv'), { recursive: true })
+    fs.writeFileSync(path.join(tmpWt, '.venv', 'diverged-marker'), 'wt-local')
+
+    fs.mkdirSync(path.join(tmpWt, 'tools'), { recursive: true })
+    const scriptContent = runCompose(pythonUvCtx, 'setup')
+    const scriptPath = path.join(tmpWt, 'tools', 'worktree-setup.sh')
+    fs.writeFileSync(scriptPath, scriptContent)
+    fs.chmodSync(scriptPath, 0o755)
+
+    execSync('bash tools/worktree-setup.sh', { cwd: tmpWt, env: CLEAN_ENV })
+
+    const stat = fs.lstatSync(path.join(tmpWt, '.venv'))
+    expect(stat.isDirectory()).toBe(true)
+    expect(stat.isSymbolicLink()).toBe(false)
+
+    // marker file must be untouched — real dir was not replaced
+    const markerContent = fs.readFileSync(path.join(tmpWt, '.venv', 'diverged-marker'), 'utf-8')
+    expect(markerContent).toBe('wt-local')
+  })
+
+  it.skipIf(!gitAvailable)('replaces stale symlink pointing nowhere with a fresh symlink', () => {
+    tmpMain = makeTmpDir('wt-py-stale-')
+    copyDirRecursive(path.join(FIXTURES_ROOT, 'python-uv'), tmpMain)
+    initGitRepo(tmpMain)
+
+    fs.mkdirSync(path.join(tmpMain, '.venv'), { recursive: true })
+    fs.writeFileSync(path.join(tmpMain, '.venv', 'marker'), 'main')
+
+    tmpWt = path.join(path.dirname(tmpMain), `wt-py-stale-wt-${Date.now()}`)
+    execSync(`git worktree add -q "${tmpWt}" -b feat/stale-${Date.now()}`, { cwd: tmpMain, env: CLEAN_ENV })
+
+    // pre-existing stale symlink pointing to a non-existent path
+    fs.symlinkSync('/tmp/does-not-exist-ever', path.join(tmpWt, '.venv'))
+
+    fs.mkdirSync(path.join(tmpWt, 'tools'), { recursive: true })
+    const scriptContent = runCompose(pythonUvCtx, 'setup')
+    const scriptPath = path.join(tmpWt, 'tools', 'worktree-setup.sh')
+    fs.writeFileSync(scriptPath, scriptContent)
+    fs.chmodSync(scriptPath, 0o755)
+
+    execSync('bash tools/worktree-setup.sh', { cwd: tmpWt, env: CLEAN_ENV })
+
+    const stat = fs.lstatSync(path.join(tmpWt, '.venv'))
+    expect(stat.isSymbolicLink()).toBe(true)
+
+    const target = fs.readlinkSync(path.join(tmpWt, '.venv'))
+    expect(target).toBe(path.join(tmpMain, '.venv'))
+  })
+
+  it.skipIf(!gitAvailable)('teardown removes the .venv symlink but leaves a real .venv untouched', () => {
+    tmpMain = makeTmpDir('wt-py-teardown-')
+    copyDirRecursive(path.join(FIXTURES_ROOT, 'python-uv'), tmpMain)
+    initGitRepo(tmpMain)
+
+    fs.mkdirSync(path.join(tmpMain, '.venv'), { recursive: true })
+    fs.writeFileSync(path.join(tmpMain, '.venv', 'marker'), 'main')
+
+    tmpWt = path.join(path.dirname(tmpMain), `wt-py-teardown-wt-${Date.now()}`)
+    execSync(`git worktree add -q "${tmpWt}" -b feat/teardown-${Date.now()}`, { cwd: tmpMain, env: CLEAN_ENV })
+
+    fs.mkdirSync(path.join(tmpWt, 'tools'), { recursive: true })
+
+    // Run setup first to create the symlink
+    const setupContent = runCompose(pythonUvCtx, 'setup')
+    const setupPath = path.join(tmpWt, 'tools', 'worktree-setup.sh')
+    fs.writeFileSync(setupPath, setupContent)
+    fs.chmodSync(setupPath, 0o755)
+    execSync('bash tools/worktree-setup.sh', { cwd: tmpWt, env: CLEAN_ENV })
+
+    // Confirm symlink exists before teardown
+    expect(fs.lstatSync(path.join(tmpWt, '.venv')).isSymbolicLink()).toBe(true)
+
+    // Run teardown — should remove the symlink
+    const teardownContent = runCompose(pythonUvCtx, 'teardown')
+    const teardownPath = path.join(tmpWt, 'tools', 'worktree-teardown.sh')
+    fs.writeFileSync(teardownPath, teardownContent)
+    fs.chmodSync(teardownPath, 0o755)
+    execSync('bash tools/worktree-teardown.sh', { cwd: tmpWt, env: CLEAN_ENV })
+
+    expect(fs.existsSync(path.join(tmpWt, '.venv'))).toBe(false)
+
+    // Real .venv in main checkout must be untouched
+    expect(fs.existsSync(path.join(tmpMain, '.venv'))).toBe(true)
+    const markerContent = fs.readFileSync(path.join(tmpMain, '.venv', 'marker'), 'utf-8')
+    expect(markerContent).toBe('main')
+  })
+
+  it.skipIf(!shellcheckAvailable)('compose output is shellcheck-clean', () => {
     const checklist = parseChecklist(REAL_CHECKLIST)
-    const ctx: ProjectContext = {
-      runtime: 'python',
-      package_manager: 'uv',
-      monorepo: false,
-      hooks_tool: 'lefthook',
-      env_files: ['.env'],
-      database: 'none',
-      backend_paths: [],
-    }
-    const selected = selectConcerns(ctx, checklist)
+    const selected = selectConcerns(pythonUvCtx, checklist)
     const script = composeScript(selected, 'setup')
 
     const result = execSync('shellcheck -S warning -', {
@@ -210,7 +291,8 @@ describe('python.uv fixture integration', () => {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     })
-    expect(result).toBeDefined()
+    // shellcheck emits nothing to stdout when the script is clean
+    expect(result).toBe('')
   })
 })
 
@@ -260,10 +342,7 @@ describe('bun.monorepo+neon fixture integration', () => {
     expect(script).toContain('cp .env.example .env')
   })
 
-  it('re-running script in same worktree is idempotent (no errors)', () => {
-    if (!gitAvailable()) return
-    if (!bunAvailable()) return
-
+  it.skipIf(!gitAvailable || !bunAvailable)('re-running script in same worktree is idempotent (no errors)', () => {
     tmpDir = makeTmpDir('wt-bun-mono-')
     copyDirRecursive(path.join(FIXTURES_ROOT, 'bun-monorepo'), tmpDir)
     initGitRepo(tmpDir)
@@ -272,12 +351,8 @@ describe('bun.monorepo+neon fixture integration', () => {
     execSync(`git worktree add -q "${wtPath}" -b feat/bun-${Date.now()}`, { cwd: tmpDir, env: CLEAN_ENV })
 
     try {
-      const ctxJson = JSON.stringify(bunNeonCtx)
       fs.mkdirSync(path.join(wtPath, 'tools'), { recursive: true })
-      const scriptContent = execSync(
-        `bun "${SCAFFOLD_TS}" compose --checklist "${REAL_CHECKLIST}" --context-json '${ctxJson}' --mode setup`,
-        { encoding: 'utf-8' },
-      )
+      const scriptContent = runCompose(bunNeonCtx, 'setup')
       const scriptPath = path.join(wtPath, 'tools', 'worktree-setup.sh')
       fs.writeFileSync(scriptPath, scriptContent)
       fs.chmodSync(scriptPath, 0o755)
@@ -296,9 +371,7 @@ describe('bun.monorepo+neon fixture integration', () => {
     }
   })
 
-  it('compose teardown is shellcheck-clean', () => {
-    if (!shellcheckAvailable) return
-
+  it.skipIf(!shellcheckAvailable)('compose teardown is shellcheck-clean', () => {
     const checklist = parseChecklist(REAL_CHECKLIST)
     const selected = selectConcerns(bunNeonCtx, checklist)
     const script = composeScript(selected, 'teardown')
@@ -308,7 +381,8 @@ describe('bun.monorepo+neon fixture integration', () => {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     })
-    expect(result).toBeDefined()
+    // shellcheck emits nothing to stdout when the script is clean
+    expect(result).toBe('')
   })
 })
 

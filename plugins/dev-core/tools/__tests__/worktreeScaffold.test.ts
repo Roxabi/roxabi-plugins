@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { composeScript, type ProjectContext, parseChecklist, selectConcerns } from '../worktreeScaffold'
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
@@ -9,6 +9,17 @@ const FIXTURES = path.join(import.meta.dirname, '__fixtures__')
 const REFERENCES = path.join(import.meta.dirname, '../../references')
 const REAL_CHECKLIST = path.join(REFERENCES, 'worktree-setup-checklist.md')
 const BUN_FIXTURE = path.join(FIXTURES, 'checklist-bun.md')
+
+// ─── Tool availability (module-level, for skipIf) ────────────────────────────
+
+const shellcheckAvailable: boolean = (() => {
+  try {
+    execSync('command -v shellcheck', { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+})()
 
 // ─── Contexts ────────────────────────────────────────────────────────────────
 
@@ -123,24 +134,10 @@ describe('composeScript', () => {
   })
 })
 
-// ─── shellcheck (optional) ───────────────────────────────────────────────────
-
-let shellcheckAvailable = false
-
-beforeAll(() => {
-  try {
-    execSync('command -v shellcheck', { stdio: 'ignore' })
-    shellcheckAvailable = true
-  } catch {
-    shellcheckAvailable = false
-  }
-})
+// ─── shellcheck (optional — skipped when shellcheck is not installed) ─────────
 
 describe('shellcheck', () => {
-  it('test_compose_shellcheck_python', () => {
-    if (!shellcheckAvailable) {
-      return
-    }
+  it.skipIf(!shellcheckAvailable)('test_compose_shellcheck_python', () => {
     const checklist = parseChecklist(REAL_CHECKLIST)
     const selected = selectConcerns(CTX_PYTHON_UV, checklist)
     const script = composeScript(selected, 'setup')
@@ -149,13 +146,11 @@ describe('shellcheck', () => {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     })
-    expect(result).toBeDefined()
+    // shellcheck emits nothing to stdout when the script is clean
+    expect(result).toBe('')
   })
 
-  it('test_compose_shellcheck_bun', () => {
-    if (!shellcheckAvailable) {
-      return
-    }
+  it.skipIf(!shellcheckAvailable)('test_compose_shellcheck_bun', () => {
     const checklist = parseChecklist(REAL_CHECKLIST)
     const selected = selectConcerns(CTX_BUN_NEON_MONOREPO, checklist)
     const script = composeScript(selected, 'setup')
@@ -164,6 +159,7 @@ describe('shellcheck', () => {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     })
-    expect(result).toBeDefined()
+    // shellcheck emits nothing to stdout when the script is clean
+    expect(result).toBe('')
   })
 })
