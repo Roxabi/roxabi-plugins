@@ -66,10 +66,26 @@ function copyDirRecursive(src: string, dest: string): void {
   }
 }
 
+// Isolate tmp-repo git operations from the developer's environment:
+// (1) scrub GIT_* env vars so a parent git process (e.g. pre-push hook setting
+//     GIT_DIR/GIT_WORK_TREE on the outer push) doesn't hijack subprocess git calls
+// (2) point GIT_CONFIG_GLOBAL/SYSTEM at /dev/null so global config (e.g. gpg
+//     signing requiring an agent that isn't reachable in subprocess context)
+//     doesn't leak into the test's throwaway commits
+const CLEAN_ENV: NodeJS.ProcessEnv = {
+  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))),
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_SYSTEM: '/dev/null',
+}
+
+function git(cmd: string, cwd: string): void {
+  execSync(cmd, { cwd, env: CLEAN_ENV })
+}
+
 function initGitRepo(dir: string): void {
-  execSync('git init -q', { cwd: dir })
-  execSync('git add -A', { cwd: dir })
-  execSync('git -c user.email=t@t -c user.name=t commit -q -m init', { cwd: dir })
+  git('git init -q', dir)
+  git('git add -A', dir)
+  git('git -c user.email=t@t -c user.name=t commit -q -m init', dir)
 }
 
 // ─── T8 — python.uv fixture integration ─────────────────────────────────────
@@ -81,7 +97,7 @@ describe('python.uv fixture integration', () => {
   afterEach(() => {
     if (tmpWt && fs.existsSync(tmpWt)) {
       try {
-        execSync(`git worktree remove --force "${tmpWt}"`, { cwd: tmpMain, stdio: 'ignore' })
+        execSync(`git worktree remove --force "${tmpWt}"`, { cwd: tmpMain, stdio: 'ignore', env: CLEAN_ENV })
       } catch {
         /* ignore */
       }
@@ -102,7 +118,7 @@ describe('python.uv fixture integration', () => {
     fs.writeFileSync(path.join(tmpMain, '.venv', 'marker'), 'x')
 
     tmpWt = path.join(path.dirname(tmpMain), `wt-py-wt-${Date.now()}`)
-    execSync(`git worktree add -q "${tmpWt}" -b feat/x-${Date.now()}`, { cwd: tmpMain })
+    execSync(`git worktree add -q "${tmpWt}" -b feat/x-${Date.now()}`, { cwd: tmpMain, env: CLEAN_ENV })
 
     const ctx: ProjectContext = {
       runtime: 'python',
@@ -124,7 +140,7 @@ describe('python.uv fixture integration', () => {
     fs.writeFileSync(scriptPath, scriptContent)
     fs.chmodSync(scriptPath, 0o755)
 
-    execSync('bash tools/worktree-setup.sh', { cwd: tmpWt })
+    execSync('bash tools/worktree-setup.sh', { cwd: tmpWt, env: CLEAN_ENV })
 
     const stat = fs.lstatSync(path.join(tmpWt, '.venv'))
     expect(stat.isSymbolicLink()).toBe(true)
@@ -164,7 +180,7 @@ describe('python.uv fixture integration', () => {
     fs.writeFileSync(scriptPath, scriptContent)
     fs.chmodSync(scriptPath, 0o755)
 
-    const result = spawnSync('bash', ['tools/worktree-setup.sh'], { cwd: tmpMain })
+    const result = spawnSync('bash', ['tools/worktree-setup.sh'], { cwd: tmpMain, env: CLEAN_ENV })
     expect(result.status).toBe(0)
 
     const markerStat = fs.statSync(path.join(tmpMain, '.venv', 'marker'))
@@ -253,7 +269,7 @@ describe('bun.monorepo+neon fixture integration', () => {
     initGitRepo(tmpDir)
 
     const wtPath = path.join(path.dirname(tmpDir), `wt-bun-wt-${Date.now()}`)
-    execSync(`git worktree add -q "${wtPath}" -b feat/bun-${Date.now()}`, { cwd: tmpDir })
+    execSync(`git worktree add -q "${wtPath}" -b feat/bun-${Date.now()}`, { cwd: tmpDir, env: CLEAN_ENV })
 
     try {
       const ctxJson = JSON.stringify(bunNeonCtx)
@@ -266,14 +282,14 @@ describe('bun.monorepo+neon fixture integration', () => {
       fs.writeFileSync(scriptPath, scriptContent)
       fs.chmodSync(scriptPath, 0o755)
 
-      const run1 = spawnSync('bash', ['tools/worktree-setup.sh'], { cwd: wtPath })
+      const run1 = spawnSync('bash', ['tools/worktree-setup.sh'], { cwd: wtPath, env: CLEAN_ENV })
       expect(run1.status).toBe(0)
 
-      const run2 = spawnSync('bash', ['tools/worktree-setup.sh'], { cwd: wtPath })
+      const run2 = spawnSync('bash', ['tools/worktree-setup.sh'], { cwd: wtPath, env: CLEAN_ENV })
       expect(run2.status).toBe(0)
     } finally {
       try {
-        execSync(`git worktree remove --force "${wtPath}"`, { cwd: tmpDir, stdio: 'ignore' })
+        execSync(`git worktree remove --force "${wtPath}"`, { cwd: tmpDir, stdio: 'ignore', env: CLEAN_ENV })
       } catch {
         /* ignore */
       }
