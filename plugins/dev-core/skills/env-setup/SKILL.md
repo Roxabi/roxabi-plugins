@@ -50,6 +50,29 @@ Inject plugin-managed always-on behavioral patterns (decision protocol, agent di
 
 Re-run (`--force`): overwrite `~/.claude/shared/global-patterns.md` with latest plugin version.
 
+### Phase 1c — Worktree-setup retrofit
+
+For projects that already have σ but pre-date the worktree-setup hook. Detect the
+gap and offer to scaffold the same `tools/worktree-setup.sh` + teardown that
+`/stack-setup` Phase 4b produces.
+
+Let:
+  WS := tools/worktree-setup.sh
+  σ_has_hook := `grep -q 'worktree_setup:' .claude/stack.yml`
+  runtime_supported := σ.runtime ∈ {python, bun, node}
+
+1. **σ missing** → D⏭("Worktree-setup retrofit — requires stack.yml"), skip.
+2. **σ_has_hook true** → D("Worktree-setup retrofit", "✅ Already configured"), skip.
+3. **runtime_supported false** → D⏭("Worktree-setup retrofit — runtime not in scope"), skip.
+4. **test -f tools/worktree-setup.sh** ∧ ¬F → D("Worktree-setup retrofit", "⏭ Script present, σ key missing — fix σ only").
+   - Append `commands.worktree_setup: tools/worktree-setup.sh` + `commands.worktree_teardown: tools/worktree-teardown.sh` under `commands:` in σ.
+   - D✅("Worktree-setup retrofit — σ keys added"), skip remainder.
+5. **Both absent** → → DP(A) **Scaffold worktree-setup hook now** | **Skip**.
+   - **Skip** → D⏭("Worktree-setup retrofit"), continue.
+   - **Scaffold** → run Phase 4b steps 3–8 of `/stack-setup` (build CTX from σ, preview via `bun "${Φ}/tools/worktreeScaffold.ts" list-selected`, confirm DP(A), compose setup + teardown, chmod +x, register σ keys).
+
+Re-run idempotency: any subsequent `/env-setup` invocation re-evaluates the predicate — once σ has the key, step 2 short-circuits silently.
+
 ## Phase 2 — Scaffold CLAUDE.md Critical Rules
 
 Generate governance rules (dev process, decision protocol, git conventions, etc.) from σ values. Sections vary by project type.
@@ -154,6 +177,7 @@ Env Setup Complete
   Fumadocs app      ✅ Created / ⏭ Skipped / ⏭ Not configured
   VS Code MDX       ✅ Added / ✅ Already configured / ⏭ Skipped
   LSP               ✅ Configured / ✅ Already set / ⏭ Disabled / ⏭ Skipped
+  Worktree-setup    ✅ Scaffolded / ✅ Already configured / ⏭ Skipped
 
 Next: run /seed-docs to populate docs stubs, or /github-setup to connect GitHub Project.
 ```

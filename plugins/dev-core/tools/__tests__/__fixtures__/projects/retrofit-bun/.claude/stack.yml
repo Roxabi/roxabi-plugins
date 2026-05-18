@@ -1,0 +1,9 @@
+schema_version: "1.0"
+
+runtime: bun
+package_manager: bun
+
+commands:
+  install: bun install
+  test: bun run test
+  lint: bun run lint

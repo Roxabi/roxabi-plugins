@@ -242,6 +242,76 @@ artifacts:
 - `shared:` — include only if a monorepo layout was detected; otherwise omit entirely.
 - `quality_gates:` — include (uncommented, all three sub-blocks) only if `runtime == python`; otherwise omit the section entirely.
 
+## Phase 4b — Worktree-setup scaffold
+
+Compose `tools/worktree-setup.sh` + `tools/worktree-teardown.sh` from the checklist
+and register both hooks in σ. Skipped for unsupported runtimes.
+
+Let:
+  WS := tools/worktree-setup.sh
+  WT := tools/worktree-teardown.sh
+  CL := ${CLAUDE_PLUGIN_ROOT}/references/worktree-setup-checklist.md
+  TS := ${CLAUDE_PLUGIN_ROOT}/tools/worktreeScaffold.ts
+  CTX := ProjectContext built from Phase 2 detection
+
+1. **Runtime gate.** runtime ∉ {python, bun, node} → D⏭("Worktree-setup scaffold — runtime not supported"), skip phase.
+
+2. **Existence check.** `test -f tools/worktree-setup.sh` →
+   - ∃ ∧ ¬`--force` → D("Worktree-setup scaffold", "⏭ Already present"), skip.
+   - ∃ ∧ `--force` → DP(A) **Regenerate** | **Keep existing** | **Abort**. "Keep" / "Abort" → skip / abort wizard.
+
+3. **Build ProjectContext** from Phase 2 detection results:
+   ```bash
+   CTX_JSON=$(cat <<EOF
+   {
+     "runtime": "${RUNTIME}",
+     "package_manager": "${PM}",
+     "monorepo": ${MONOREPO_BOOL:-false},
+     "hooks_tool": "${HOOKS_TOOL:-lefthook}",
+     "env_files": ["${ENV_FILE:-.env}"],
+     "database": "${DATABASE:-none}",
+     "backend_paths": [${BE_PATH:+\"${BE_PATH}\"}]
+   }
+   EOF
+   )
+   ```
+
+4. **Preview.** Run:
+   ```bash
+   IDS=$(bun "${TS}" list-selected --checklist "${CL}" --context-json "${CTX_JSON}")
+   COUNT=$(echo "$IDS" | awk -F, '{print NF}')
+   ```
+   Echo: `Worktree-setup scaffold preview — {RUNTIME}/{PM} · ${COUNT} concerns: ${IDS}`
+   ${COUNT} == 0 → D⏭("Worktree-setup scaffold — no concerns matched"), skip.
+
+5. **Confirm.** → DP(A) **Write scripts** | **Show diff** | **Abort**.
+   - **Show diff** → if existing WS ∃, run `diff -u <(bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode setup) tools/worktree-setup.sh | head -80` then re-present DP(A) **Write scripts** | **Abort**.
+   - **Abort** → D⏭("Worktree-setup scaffold"), skip.
+
+6. **Write scripts.**
+   ```bash
+   mkdir -p tools
+   bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode setup > tools/worktree-setup.sh
+   bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode teardown > tools/worktree-teardown.sh
+   chmod +x tools/worktree-setup.sh tools/worktree-teardown.sh
+   ```
+
+7. **Register keys in σ.** Append under `commands:` block of `.claude/stack.yml`:
+   ```yaml
+     worktree_setup: tools/worktree-setup.sh
+     worktree_teardown: tools/worktree-teardown.sh
+   ```
+   Idempotent: skip lines already present.
+
+8. **Report.**
+   ```
+   Worktree-setup scaffold
+     tools/worktree-setup.sh       ✅ Written (${COUNT} concerns: ${IDS})
+     tools/worktree-teardown.sh    ✅ Written
+     commands.worktree_setup       ✅ Registered in σ
+     commands.worktree_teardown    ✅ Registered in σ
+   ```
+
 ## Phase 5 — CLAUDE.md and reference template
 
 1. **@import:** `head -1 CLAUDE.md` ≠ `@.claude/stack.yml` → prepend; else already present.
@@ -266,6 +336,10 @@ Stack configuration written
   CLAUDE.md @import           ✅ Added / Already present
   .gitignore                  ✅ Updated / Already set
   .claude/stack.yml.example   ✅ Created / Already exists
+  tools/worktree-setup.sh     ✅ Written / Skipped (unsupported runtime | already present)
+  tools/worktree-teardown.sh  ✅ Written / Skipped (unsupported runtime | already present)
+  commands.worktree_setup     ✅ Registered in σ / Skipped
+  commands.worktree_teardown  ✅ Registered in σ / Skipped
 
   ⚠️  Missing standards docs: (list any configured paths that don't exist on disk)
 
