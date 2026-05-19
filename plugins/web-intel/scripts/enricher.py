@@ -47,22 +47,22 @@ def _get_fireworks_token() -> str:
         return ""
 
     # 1. Check env vars
-    for key in ("FIREWORKS_TOKEN", "LITELLM_MASTER_KEY"):
+    for key in ("FIREWORKS_TOKEN", "LLMCLI_API_KEY"):
         token = os.environ.get(key, "")
         if token:
             return token
 
-    # 2. Check ~/.claude/.env (LITELLM_MASTER_KEY = proxy master key)
+    # 2. Check ~/.claude/.env (LLMCLI_API_KEY = proxy master key)
     claude_env = Path.home() / ".claude" / ".env"
     if claude_env.exists():
-        token = _parse_env_file(claude_env, "LITELLM_MASTER_KEY", "FIREWORKS_TOKEN")
+        token = _parse_env_file(claude_env, "LLMCLI_API_KEY", "FIREWORKS_TOKEN")
         if token:
             return token
 
     # 3. Check ~/.env
     env_path = Path.home() / ".env"
     if env_path.exists():
-        token = _parse_env_file(env_path, "FIREWORKS_TOKEN", "LITELLM_MASTER_KEY")
+        token = _parse_env_file(env_path, "FIREWORKS_TOKEN", "LLMCLI_API_KEY")
         if token:
             return token
 
