@@ -50,6 +50,20 @@ classes:
       `2>/dev/null` swallowing stderr · `jq -r` returning literal `"null"` string ·
       `jq //` coercing `false` to a default value.
 
+  - class: target-axis-trap
+    origin: RC-5
+    description: >
+      Duplication along the non-primary axis of decomposition (N×M drift).
+      Same concern (try/except, circuit breaker, retry, log, sanitize) appears
+      in ≥3 sibling target/adapter dirs instead of being composed as a
+      primary-axis primitive. Detected against the project's axial ADR
+      (`axial: true` frontmatter in `docs/architecture/adr/`).
+    note: >
+      Subsumption: `parallel-path-drift` (RC-3) is the security-flavoured cousin
+      — when a hardening is on one entry point but not its sibling, prefer
+      `parallel-path-drift`. `target-axis-trap` is architectural (concern
+      duplicated across axis), not security (hardening missing on a sibling).
+
   # ── OWASP classes ───────────────────────────────────────────────────────────
 
   - class: shell-injection
