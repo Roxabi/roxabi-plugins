@@ -59,6 +59,7 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 
 | Step | Required artifacts |
 |------|-------------------|
+| recheck | issue (triage) — no on-disk prereq; always runs from session state |
 | frame | issue (triage) |
 | analyze | `artifacts/frames/{N}-{slug}-frame.mdx` or `artifacts/frames/{slug}-frame.mdx` (approved) |
 | spec | `artifacts/frames/{slug}-frame.mdx` or `artifacts/analyses/{N}-{slug}-analysis.mdx` |
@@ -79,6 +80,7 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
 
 Σ = {
   triage:    issue ∃,
+  recheck:   null,       # Σ_s only — runs every session, no on-disk state
   frame:     φ ∃ ∧ φ.status == 'approved',
   analyze:   analysis artifact ∃,
   spec:      spec artifact ∃,
@@ -113,7 +115,7 @@ Claude Code task list drives in-session progress for the dev pipeline. Treat it 
 
 Ordered step list:
 ```
-triage → frame → analyze → spec → plan → implement → pr →
+triage → recheck → frame → analyze → spec → plan → implement → pr →
 ci-watch → validate → review → fix → promote → cleanup
 ```
 
@@ -152,7 +154,7 @@ Wire dependencies sequentially — ∀ i > 0: `TaskUpdate(task[i].id, addBlocked
 → Next: {S*} — {one-line description}
 ```
 
-Bar: `██`=done/skipped, `░░`=pending. Phases: Frame:{triage,frame} | Shape:{analyze,spec} | Build:{plan,implement,pr} | Verify:{ci-watch,validate,review,fix} | Ship:{promote,cleanup}
+Bar: `██`=done/skipped, `░░`=pending. Phases: Frame:{triage,recheck,frame} | Shape:{analyze,spec} | Build:{plan,implement,pr} | Verify:{ci-watch,validate,review,fix} | Ship:{promote,cleanup}
 
 Status: `✓ {name}` (done) | `skipped` | `pending` | `→ next`.
 
@@ -161,6 +163,7 @@ Status: `✓ {name}` (done) | `skipped` | `pending` | `→ next`.
 ```
 should_skip(step, τ, Σ):
   triage   ∧ Σ.triage                    → skip (already done)
+  recheck                                 → false (never skipped — explicit decision per frame #181)
   frame    ∧ τ == S                       → skip
   analyze  ∧ τ ∈ {S, F-lite}             → skip (frame sufficient)
   spec     ∧ τ == S                       → skip
@@ -179,6 +182,7 @@ should_skip(step, τ, Σ):
 ```
 STEPS = [
   (Frame,  triage,    issue-triage),
+  (Frame,  recheck,   recheck),
   (Frame,  frame,     frame),
   (Shape,  analyze,   analyze),
   (Shape,  spec,      spec),
@@ -240,7 +244,8 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 
 | Step | Class | Skill invocation | On success → |
 |------|-------|------------------|--------------|
-| triage | adv | `skill: "issue-triage", args: "N"` | frame |
+| triage | adv | `skill: "issue-triage", args: "N"` | recheck |
+| recheck | adv | `skill: "recheck", args: "--from-dev #N"` | frame |
 | frame | gate | `skill: "frame", args: "--issue N"` | analyze (F-full) ∨ spec (F-lite) |
 | analyze | adv | `skill: "analyze", args: "--issue N"` | spec |
 | spec | gate | `skill: "spec", args: "--issue N"` | plan |
@@ -282,7 +287,7 @@ adv → re-scan → Step 7 immediately.
 
 | Phase | Steps | Gate after |
 |-------|-------|-----------|
-| Frame | triage → frame | frame approval (status: approved) |
+| Frame | triage → recheck → frame | frame approval (status: approved) |
 | Shape | analyze → spec | spec approval |
 | Build | plan → implement → pr | plan approval (then auto-chains implement → pr) |
 | Verify | ci-watch → validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /code-review Phase 8). |
@@ -293,6 +298,7 @@ adv → re-scan → Step 7 immediately.
 | Step | S | F-lite | F-full |
 |------|---|--------|--------|
 | triage | run | run | run |
+| recheck | run | run | run |
 | frame | skip | run + gate | run + gate |
 | analyze | skip | skip | run |
 | spec | skip | run + gate | run + gate |
