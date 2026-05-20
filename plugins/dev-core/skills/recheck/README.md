@@ -48,3 +48,12 @@ The **Update issue first** option is not available in standalone mode because th
 ## State
 
 No on-disk artifact (per frame Out-of-Scope). Session-only tracking inside `/dev` (`Σ_s`), the same pattern used by `validate` and `ci-watch`. Starting a new `/dev` session on the same issue re-runs the check fresh — this is intentional, as deterministic checks are cheap and fresh state is more reliable than stale cached results.
+
+## Effectiveness tracking
+
+`/recheck` only earns its place in the pipeline if it actually catches stale issues. The original frame defines two checkpoints:
+
+- **Success in 6 months:** at least one stale issue caught per month before `/implement` runs; zero S-tier issues silently re-implementing already-fixed bugs.
+- **Revisit trigger (3-month window):** if `/recheck` fires zero signals across three months of usage, **or** users skip past the prompt more than 80% of the time when signals fire, the cost-benefit no longer holds — re-open the design.
+
+Tracking is **manual**: no metric is written to disk by design (no recheck-log artifact). Operators should periodically grep recent `/dev` runs for "Drift Signals" appearances and note skip-rate informally. If the revisit trigger fires, open an issue to re-evaluate.
