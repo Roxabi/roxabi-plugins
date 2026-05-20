@@ -15,7 +15,9 @@ FRAME=$(ls artifacts/frames/ 2>/dev/null | grep -iE "^${N}-${SLUG}|^${SLUG}" | h
 [ -n "$FRAME" ] && echo "frame=$FRAME" || echo "frame=false"
 
 # recheck (session-only state — no on-disk artifact, /dev tracks via Σ_s)
-echo "recheck=session"
+# Value is always `null` (sentinel); /dev never parses it for truthiness — recheck always
+# runs via Σ_s (see Step 1 — Scan State in dev/SKILL.md). Line exists for parser uniformity.
+echo "recheck=null"
 
 # analyze
 ANALYZE=$(ls artifacts/analyses/ 2>/dev/null | grep -E "^${N}-|${SLUG}" | head -1)

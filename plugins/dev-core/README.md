@@ -22,6 +22,20 @@ Install the plugin:
 claude plugin install dev-core
 ```
 
+### Keeping your install up to date
+
+`dev-core` ships through a hash-keyed cache at `~/.claude/plugins/cache/roxabi-marketplace/dev-core/<hash>/`. When new versions land on `staging`/`main`, pull the latest by either:
+
+```bash
+# preferred — re-installs the plugin from the marketplace
+claude plugin install dev-core
+
+# OR — for contributors with a local clone of roxabi-plugins
+./sync-plugins.sh --local
+```
+
+Without this step, recently-added skills (e.g. `/recheck`) won't appear in your trigger list even though they're in the repo.
+
 ## Getting Started
 
 After installing, run init to configure your project:

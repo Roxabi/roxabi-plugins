@@ -59,6 +59,7 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 
 | Step | Required artifacts |
 |------|-------------------|
+| recheck | issue (triage) — no on-disk prereq; always runs from session state |
 | frame | issue (triage) |
 | analyze | `artifacts/frames/{N}-{slug}-frame.mdx` or `artifacts/frames/{slug}-frame.mdx` (approved) |
 | spec | `artifacts/frames/{slug}-frame.mdx` or `artifacts/analyses/{N}-{slug}-analysis.mdx` |
@@ -162,6 +163,7 @@ Status: `✓ {name}` (done) | `skipped` | `pending` | `→ next`.
 ```
 should_skip(step, τ, Σ):
   triage   ∧ Σ.triage                    → skip (already done)
+  recheck                                 → false (never skipped — explicit decision per frame #181)
   frame    ∧ τ == S                       → skip
   analyze  ∧ τ ∈ {S, F-lite}             → skip (frame sufficient)
   spec     ∧ τ == S                       → skip
@@ -170,7 +172,6 @@ should_skip(step, τ, Σ):
   fix      ∧ (Σ.fix ∨ Σ_s.fix)            → skip (fixes already applied)
   promote                                  → skip (/promote is standalone staging→main; ¬auto-triggered by /dev)
   cleanup  ∧ ¬has_stale(N)               → skip
-  recheck                                 → false (never skipped — explicit decision per frame #181)
   default                                 → false
 ```
 
@@ -243,8 +244,8 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 
 | Step | Class | Skill invocation | On success → |
 |------|-------|------------------|--------------|
-| triage | adv | `skill: "issue-triage", args: "N"` | frame |
-| recheck | adv | `skill: "recheck", args: "#N"` | frame |
+| triage | adv | `skill: "issue-triage", args: "N"` | recheck |
+| recheck | adv | `skill: "recheck", args: "--from-dev #N"` | frame |
 | frame | gate | `skill: "frame", args: "--issue N"` | analyze (F-full) ∨ spec (F-lite) |
 | analyze | adv | `skill: "analyze", args: "--issue N"` | spec |
 | spec | gate | `skill: "spec", args: "--issue N"` | plan |
