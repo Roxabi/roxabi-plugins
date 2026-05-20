@@ -14,6 +14,9 @@ gh issue view "$N" --json state 2>/dev/null \
 FRAME=$(ls artifacts/frames/ 2>/dev/null | grep -iE "^${N}-${SLUG}|^${SLUG}" | head -1)
 [ -n "$FRAME" ] && echo "frame=$FRAME" || echo "frame=false"
 
+# recheck (session-only state — no on-disk artifact, /dev tracks via Σ_s)
+echo "recheck=session"
+
 # analyze
 ANALYZE=$(ls artifacts/analyses/ 2>/dev/null | grep -E "^${N}-|${SLUG}" | head -1)
 [ -n "$ANALYZE" ] && echo "analyze=$ANALYZE" || echo "analyze=false"
