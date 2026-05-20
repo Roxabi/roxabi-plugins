@@ -114,7 +114,7 @@ digests = emit_all_digests(chunks)            # list[BoundaryDigest]
 | **frontend-dev** | Δ ∩ {`{frontend.path}`, `{shared.ui}`} ≠ ∅ | FE patterns, components, hooks |
 | **backend-dev** | Δ ∩ {`{backend.path}`, `{shared.types}`} ≠ ∅ | BE patterns, API, errors |
 | **devops** | Δ ∩ {configs, CI} ≠ ∅ | config, deploy, infra |
-| **axial-adr** | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ Δ ∩ {`infrastructure/`, `adapters/`, `domains/`, `stages/`} ≠ ∅ | Drift along non-primary axis (target × concern duplication) — review mode |
+| **axial-adr-review** | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ Δ ∩ {`infrastructure/`, `adapters/`, `domains/`, `stages/`} ≠ ∅ | Drift along non-primary axis (target × concern duplication) — read-only review agent (no Write/Edit/Bash tools) |
 
 Skip rules: architect → |Δ| ≤ 5 ∧ ¬arch keywords | product-lead → spec ∄ | tester → Δ ⊂ {config, docs, infra}
 
@@ -153,7 +153,7 @@ Task(
 )
 ```
 
-Agent name map: `security-auditor` → `dev-core:security-auditor` | `architect` → `dev-core:architect` | `product-lead` → `dev-core:product-lead` | `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `recall` → `dev-core:recall` | `axial-adr` → `dev-core:axial-adr`
+Agent name map: `security-auditor` → `dev-core:security-auditor` | `architect` → `dev-core:architect` | `product-lead` → `dev-core:product-lead` | `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `recall` → `dev-core:recall` | `axial-adr-review` → `dev-core:axial-adr-review`
 
 ### Agent payload
 
@@ -233,7 +233,7 @@ correctness | security | performance | architecture | tests | readability | obse
 - `candidate/<slug>` must match `^candidate/[a-z][a-z0-9-]{1,48}$`; slug violating format → invalid, C(f) := 0
 - `Raw callsites` required when `Class` is set; list ALL locations of the anti-pattern in the diff + resolved imports, never just the cited line; format: `[{file: <path>, line: <n>}, ...]`
 - Subsumption: `bare-except` subsumes `missing-error-handling` — when both could apply, tag `bare-except` only
-- Subsumption: `parallel-path-drift` and `target-axis-trap` are siblings, ¬overlap — `parallel-path-drift` for security hardening missing on a sibling entry point (auth/validation/sanitization absent); `target-axis-trap` for architectural concern duplication across the non-primary axis (try/except/CB/retry/log copy-pasted in ≥3 sibling dirs). Tag exactly one; do not double-tag
+- Subsumption: `parallel-path-drift` ⊥ `target-axis-trap` (siblings, ¬overlap). Authoritative definition + threshold (≥3 sibling dirs) lives in `review-classes.yml` RC-3 and RC-5 — see the `note:` fields there. Tag exactly one; do not double-tag. Enforced by `tools/validate_plugins.py --check subsumption-pairs`.
 
 C(f) = min(diagnostic_certainty, fix_certainty)
 

@@ -54,15 +54,21 @@ classes:
     origin: RC-5
     description: >
       Duplication along the non-primary axis of decomposition (N×M drift).
-      Same concern (try/except, circuit breaker, retry, log, sanitize) appears
-      in ≥3 sibling target/adapter dirs instead of being composed as a
-      primary-axis primitive. Detected against the project's axial ADR
-      (`axial: true` frontmatter in `docs/architecture/adr/`).
+      The same architectural concern (try/except, circuit breaker, retry,
+      log, sanitize) appears in ≥3 sibling target/adapter dirs instead of
+      being composed as a primary-axis primitive.
+      Threshold: ≥3 sibling dirs is the canonical trigger (the "three-strikes"
+      rule from shared/references/axial-decomposition.md — 2 = coincidence,
+      3+ = duplication that must be promoted to a shared primitive).
+      Detected against the project's axial ADR (`axial: true` frontmatter
+      in `docs/architecture/adr/`).
     note: >
       Subsumption: `parallel-path-drift` (RC-3) is the security-flavoured cousin
       — when a hardening is on one entry point but not its sibling, prefer
       `parallel-path-drift`. `target-axis-trap` is architectural (concern
       duplicated across axis), not security (hardening missing on a sibling).
+      The pair MUST be mentioned together in any prose subsumption note —
+      enforced by `tools/validate_plugins.py --check subsumption-pairs`.
 
   # ── OWASP classes ───────────────────────────────────────────────────────────
 

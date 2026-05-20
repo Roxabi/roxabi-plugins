@@ -1,24 +1,25 @@
 ---
 name: init
-argument-hint: '[--force]'
+argument-hint: '[--force] [--skip-axial]'
 description: 'Initialize project for dev-core — orchestrates env-setup, github-setup, ci-setup, release-setup. Triggers: "init" | "setup dev-core" | "initialize dev-core".'
-version: 0.8.0
+version: 0.9.0
 allowed-tools: Bash, Read, Skill, ToolSearch
 ---
 
 # Init
 
 Let:
-  I_TS := `${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts`
-  F    := `--force` flag present in `$ARGUMENTS`
-  args := F ? "--force" : ""
+  I_TS       := `${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts`
+  F          := `--force` flag present in `$ARGUMENTS`
+  SKIP_AXIAL := `--skip-axial` flag present in `$ARGUMENTS`
+  args       := join(F ? "--force" : "", SKIP_AXIAL ? "--skip-axial" : "")
 
 Full project initialization harness. Orchestrates three focused sub-skills in sequence, each independently re-runnable:
 
 | Sub-skill | Concern |
 |-----------|---------|
 | `/env-setup` | stack.yml, CLAUDE.md rules, docs stubs, VS Code, LSP |
-| `axial-adr` (agent) | **Axis of decomposition ADR** — mandatory drift prevention (N×M trap). See `shared/references/axial-decomposition.md` |
+| `axial-adr-create` (agent) | **Axis of decomposition ADR** — mandatory drift prevention (N×M trap). Skippable via `--skip-axial` for trivial single-axis projects. See `shared/references/axial-decomposition.md` |
 | `/github-setup` | GitHub Project V2 board, labels, branch protection, workspace |
 | `/ci-setup` | GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins |
 | `/release-setup` | Commit standards (Commitizen), hook additions, release automation (semantic-release / Release Please) |
@@ -55,23 +56,35 @@ Foundational decision: which axis of variation is **primary** in this system. `/
 
 Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
 
+**Skip path:** `SKIP_AXIAL ∨ F` → emit `D("Axial ADR", "⏭️  skipped via --skip-axial")` (or `--force` for blanket override), continue. Trivial single-axis projects (single-purpose CLI utilities, libraries with no transport/adapter axis) legitimately exit here.
+
+**Gate path** (¬SKIP_AXIAL ∧ ¬F):
+
 1. Check existing:
-   ```bash
-   grep -rli "^axial: true\|axis of decomposition" docs/architecture/adr/ 2>/dev/null | head -1
    ```
-2. ∃ → D("Axial ADR", "✅ Already present"), continue.
-3. ∄ → spawn the `axial-adr` sub-agent via Agent tool:
+   Grep tool: pattern="^axial: true|axis of decomposition", path="docs/architecture/adr/", -l, -i
    ```
-   subagent_type: "axial-adr"
+2. ≥1 match → D("Axial ADR", "✅ Already present"), continue. (Singleton invariant — if >1 match, dispatch `axial-adr-review` later to surface the violation.)
+3. ∅ → spawn the `axial-adr-create` sub-agent via Agent tool:
+   ```
+   subagent_type: "axial-adr-create"
    description:   "Elicit axial decomposition decision"
-   prompt:        "Conduct the axial-decomposition interview for this project. Read ${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md first. Output: ADR file in docs/architecture/adr/ with `axial: true` frontmatter (grep-discoverable canonical marker — no YAML pointer needed)."
+   prompt:        "Conduct the axial-decomposition interview for this project. Read ${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md first. Output: ADR file in docs/architecture/adr/ with `axial: true` frontmatter (grep-discoverable canonical marker — singleton invariant)."
    ```
 4. Agent exit status:
    - `created` ∨ `superseded` ∨ `kept` → D("Axial ADR", "✅ {status}"), continue.
    - `cancelled` ∧ ¬F → halt `/init`:
      ```
      ⛔ Axial ADR required before scaffolding can continue.
-        Re-run /init when ready, or invoke the axial-adr agent standalone.
+
+        State: env-setup has already completed (idempotent on re-run).
+               github-setup, ci-setup, release-setup have NOT run.
+
+        Options:
+          • Re-run `/init` — will redo env-setup (idempotent) + re-prompt axial-adr-create.
+          • Invoke the agent standalone: spawn `axial-adr-create` directly, then re-run `/init`.
+          • Skip if this is a trivial single-axis project: `/init --skip-axial` (re-runs env-setup; documents the skip in dev-core.yml).
+
         Rationale: shared/references/axial-decomposition.md
      ```
    - `cancelled` ∧ F → ⚠️ warn "axial ADR skipped via --force — drift risk acknowledged", continue.

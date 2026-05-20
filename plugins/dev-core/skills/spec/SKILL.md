@@ -158,7 +158,7 @@ Auto-select ρ (¬ask user). Architect always included:
 | doc-writer | Always | Structure, clarity, breadboard completeness |
 | product-lead | Always | Criteria quality, scope, user story validity |
 | devops | ∃ CI/CD / deploy / infra criteria | Operational feasibility |
-| axial-adr | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ (spec adds adapter/integration/target ∨ touches `infrastructure/`) | Drift along non-primary axis (N×M trap) — review mode |
+| axial-adr-review | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ (spec adds adapter/integration/target ∨ touches `infrastructure/`) | Drift along non-primary axis (N×M trap) — read-only review |
 
 ∀ r ∈ ρ → spawn ∥:
 ```
@@ -168,7 +168,7 @@ Task(
   prompt: "Review the spec at {σ_path} for <focus>. Check pre-check results: {pre_check_summary}. ¬TaskCreate. Return: good / needs improvement / concerns + specific line references."
 )
 ```
-Agent name map: `architect` → `dev-core:architect` | `doc-writer` → `dev-core:doc-writer` | `product-lead` → `dev-core:product-lead` | `devops` → `dev-core:devops` | `axial-adr` → `dev-core:axial-adr`
+Agent name map: `architect` → `dev-core:architect` | `doc-writer` → `dev-core:doc-writer` | `product-lead` → `dev-core:product-lead` | `devops` → `dev-core:devops` | `axial-adr-review` → `dev-core:axial-adr-review`
 
 Incorporate feedback → revise σ → note unresolved concerns.
 

@@ -79,7 +79,7 @@ Dependencies point inward only: **Domain ← Application ← Infrastructure**
 | Generic exception in domain | Throwing base `Error`/`Exception` | Domain-specific exception |
 | God service | Single service >300 lines, mixed concerns | Split by aggregate / use case |
 | Circular deps between modules | A imports B imports A | Shared interface ∨ event |
-| Wrong-axis duplication | Same concern (try/except, CB, retry, log) in ≥3 sibling dirs along non-primary axis | Compose along primary axis — see ADR with `axial: true` frontmatter + `shared/references/axial-decomposition.md` |
+| Wrong-axis duplication (N×M trap) | — | Owned end-to-end by the `axial-adr-review` agent — see `shared/references/axial-decomposition.md`. ¬flag here; dispatch the agent instead. |
 
 ### Decision Signals
 
