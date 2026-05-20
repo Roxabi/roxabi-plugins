@@ -1,0 +1,118 @@
+---
+title: "PR #184 axial-adr Agent — Expert Consensus"
+issue: null
+pr: 184
+status: consensus-reached
+date: 2026-05-20
+panel: architect, security-auditor, devops
+confidence: high
+---
+
+## Problem
+
+PR #184 adds a foundational `axial-adr` sub-agent (dual-mode: Create via interview / Review via diff or spec) + canonical class `target-axis-trap` to prevent N×M architectural drift. Code review surfaced 5 blockers + 5 suggestions. The lynchpin question:
+
+> Should we split `axial-adr` into two agent files (`axial-adr-create` with `Write+Edit+Bash`, `axial-adr-review` with `Read+Glob+Grep+Bash` only), or apply in-prompt mitigations on the single dual-mode agent?
+
+Plus four subordinate questions (B2 SSoT, B4 init re-run ergonomics, S2 architect.md row, S3 escape flag).
+
+## Panel
+
+| α | Focus |
+|---|-------|
+| architect | arch soundness, maintainability, scalability |
+| security-auditor | attack surface, trust boundaries, prompt-injection resistance |
+| devops | sync cost, dispatcher maintenance, debuggability across 16 projects |
+
+## Consensus ρ
+
+**SPLIT** the agent into two files: `axial-adr-create.md` (Create mode, `tools: ["Read","Write","Edit","Glob","Grep","Bash","Skill"]`) and `axial-adr-review.md` (Review mode, `tools: ["Read","Glob","Grep","Bash"]`). Adopt **hybrid layout** to address dissent: shared interview/parse logic referenced via `plugins/shared/references/axial-decomposition.md` rather than duplicated across the two agent files; atomic dispatcher updates in `/init`, `/spec`, `/code-review` in the same commit as the split.
+
+### Rationale
+
+1. **Capability boundary > prose boundary.** With `permissionMode: bypassPermissions` (line 30 of `axial-adr.md`), Review-mode's "writes ZERO files" guarantee (line 350) is enforced only by natural language inside a 362-line agent file. A sufficiently long-tail inference path (or an injected instruction via untrusted ADR content — see B3/B5) can call `Write`/`Edit` against the prose contract. The only structural enforcement is the `tools:` array. Splitting makes the boundary mechanical, not behavioural.
+
+2. **Defence-in-depth pairs cleanly with B3+B5 fixes.** After sanitization of `ANTI_PATTERN.pattern` + forcing the `Grep` tool over `Bash` in Review, an injected payload still cannot exfiltrate via file writes if the Review agent has no `Write`/`Edit` tools. Two independent walls instead of one.
+
+3. **Aligns with the single-purpose pattern.** Existing dev-core agents (`security-auditor` Read-only, `recall` Read-only, `architect` Write to ADRs only) follow one-agent-one-capability-profile. This PR is the first dual-mode agent; making it the exception introduces a pattern that will be copied across the planned 16-project rollout.
+
+### Trade-offs
+
+- **+ Eliminates B1 structurally** (tool-permission leak in Review mode).
+- **+ Reduces B3+B5 blast radius** from "arbitrary file write" to "Read + sanitized Bash" — meaningful reduction even after the input-validation fix.
+- **+ Removes mode-detection fragility** (S5) entirely — dispatch becomes explicit at the caller, no keyword sniffing.
+- **− Doubles agent file count** for this concept. One-time sync cost across 16 projects; the hybrid layout (shared reference) caps ongoing maintenance to ≤2× of current.
+- **− Three dispatcher updates** required (`/init` Phase 3a, `/spec` Step 4 reviewer table, `/code-review` Phase 3 dispatch table) — all atomic in the same PR.
+
+## Alternatives
+
+| ω | Proposed by | Rejected because |
+|---|-------------|------------------|
+| Keep single agent + in-prompt write-guard (B1 solution 2) | devops | Prose inside a `bypassPermissions` agent file is not a capability boundary. Cannot prevent the LLM from calling `Write`/`Edit` if the prompt redirects it; only document the intent. |
+| Drop `Bash` from Review entirely | considered | Phase R3 ("Wrong-axis duplication" uses grep to confirm sibling occurrences) is functionally load-bearing — needs file-system traversal. Better to keep `Bash` but sanitize the only untrusted-string input that reaches it. |
+| Narrow `tools:` globally on the single agent | considered | Would break Create mode (Phase 4 calls `Write`, Phase 5 calls `Edit`, Phase 1 uses `Bash` for mkdir + grep). No narrowing preserves Create while closing Review. |
+
+## Dissent
+
+**devops** preferred single-agent + write-guard, citing:
+- Sync churn across 16 projects on every agent edit
+- Dispatcher entries duplicated across 3 callers
+- Current write-guard ("Never silently switch modes" line 76 + R5 line 350) is debuggable via Claude's tool log
+
+The majority counter: sync churn is a one-time cost in this PR (the shared reference caps ongoing duplication); the 3 dispatchers must be touched anyway (canonical class addition, axial-adr addition to reviewer tables); tool-log debuggability is a *detection* mechanism after a write has already occurred, not *prevention*. A capability that cannot be revoked by prose should not depend on prose enforcement.
+
+The hybrid (split + shared reference) addresses devops' #1 concern (sync cost) and #2 concern (dispatcher coherence — atomic commit).
+
+## Positions on subordinate questions
+
+### B2 — Subsumption rule SSoT (`target-axis-trap` ⊥ `parallel-path-drift`) — UNANIMOUS
+
+**Decision:** `plugins/dev-core/skills/code-review/review-classes.yml` is the SSoT. Enrich the `description:` field on `target-axis-trap` to include the ≥3-sibling-dir threshold currently only in the SKILL.md spawn template. `code-review/SKILL.md` Subsumption bullet becomes a one-line pointer ("see `review-classes.yml` RC-5"). Add a lint check in `tools/validate_plugins.py` that asserts: "if `target-axis-trap` ∈ yaml_slugs, then the sibling slug `parallel-path-drift` must appear in the corresponding SKILL.md subsumption section" — targeted grep, not codegen.
+
+### B4 — `/init` Phase 3a re-run ergonomics — MAJORITY (architect + devops vs security)
+
+**Decision:** Amend the ⛔ message at `init/SKILL.md:71–77` to include:
+- "env-setup already completed — re-run will redo env-setup (idempotent) + re-prompt axial-adr"
+- Standalone invocation: spawn `axial-adr-create` directly (post-split)
+
+**Rejected:** persist partial-init state in `.claude/dev-core.yml` (security's proposal). The file is committed for public Project IDs; adding ephemeral init-progress flags pollutes committed history and introduces a state machine that must be read/validated/migrated for a single cancel path.
+
+### S2 — `architect.md` "Wrong-axis duplication" row — UNANIMOUS
+
+**Decision:** Remove the row added at `architect.md:82`. Replace with a one-line pointer in the same table: "N×M / wrong-axis drift → see `axial-adr` agent." Having both agents flag the same class in the same Phase 3 produces duplicate findings with mismatched class tags (free-text in architect vs canonical slug in axial-adr); Phase 4 dedup keys on `file:line` and class[] union becomes ambiguous.
+
+### S3 — `--skip-axial` flag — UNANIMOUS
+
+**Decision:** Add a surgical `--skip-axial` flag to `/init`. Gate Phase 3a on `(¬F ∧ ¬SKIP_AXIAL)`. Trivial single-axis projects (CLI utilities, libraries) opt out without triggering full `--force` reconfiguration.
+
+## Implementation Notes
+
+Recommended order (each step independently mergeable, but bundled for this PR):
+
+1. **B1 + S5 (split)** — Create `plugins/dev-core/agents/axial-adr-create.md` (Create mode only, full tools) and `plugins/dev-core/agents/axial-adr-review.md` (Review mode only, `tools: ["Read","Glob","Grep","Bash"]`). Delete `axial-adr.md`. Move shared interview framework + ADR parsing rules into existing `plugins/shared/references/axial-decomposition.md`. Update dispatcher names in `/init` Phase 3a, `/spec` Step 4, `/code-review` Phase 3 dispatch table + agent name map.
+
+2. **B3 + B5 (untrusted ADR content + shell injection)** — In `axial-adr-review.md` Phase R1: add sanitization step on `ANTI_PATTERN.pattern` extraction (regex assert, max length, no prose-shaped whitespace runs). Force use of `Grep` tool (quoted) for Phase R3 detection, never `Bash` interpolation.
+
+3. **B2 (subsumption SSoT)** — Enrich `review-classes.yml` `target-axis-trap` description. Trim `code-review/SKILL.md` subsumption bullet to a pointer. Add lint check in `tools/validate_plugins.py`.
+
+4. **B4 (init message)** — Amend ⛔ block in `init/SKILL.md:71–77` (one-line addition).
+
+5. **S1 (supersede strips `axial: true`)** — In `axial-adr-create.md` Phase 5: explicitly `Edit` old ADR to remove `axial: true` from frontmatter when superseding. Add to Phase 5 checklist.
+
+6. **S2 (architect.md row removal)** — Delete row at `architect.md:82`; replace with pointer.
+
+7. **S3 (`--skip-axial` flag)** — Update `/init` `argument-hint` + Phase 3a gate condition.
+
+8. **S4 (`/spec` vs `/code-review` asymmetry)** — Defer to follow-up. Document the intent split (semantic vs structural) in both dispatch tables for now; deeper alignment is a separate decision.
+
+## Next
+
+After applying these fixes via `/fix`, the verdict from `/code-review` Phase 4 should flip to **Approve with comments** (S4 advisory only). The merge gate is:
+
+- All 5 blockers (B1–B5) addressed
+- 4 of 5 suggestions (S1, S2, S3, S5) addressed (S5 dissolves with the split)
+- S4 documented as deferred follow-up
+
+Ship: rebase on `origin/staging`, label `reviewed`, squash merge.
+
+Then pilot on `lyra` (already has documented N×M drift per Lyra issue #1277), validate, propagate to 15 remaining Roxabi projects.
