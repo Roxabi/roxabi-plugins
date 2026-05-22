@@ -107,22 +107,22 @@ Render the variants as text files or show them inline in forge.html.
 
 ## Phase 4 — Start the forge server
 
-Add to supervisord (`~/projects/lyra-stack/conf.d/`) with `autostart=false`:
+Forge subprocesses are **ephemeral, per-task** — launched via `systemd-run --user` (transient scope, auto-GC on exit). NOT a Quadlet: forge is short-lived and per-task; Quadlet's persistent declarative model is the wrong fit. Transient `--scope`/`--unit` is the correct primitive.
 
-```ini
-[program:forge-<subject>]
-command=uv run <output_dir>/forge_server.py
-directory=<output_dir>
-environment=HOME="%(ENV_HOME)s",PATH="%(ENV_HOME)s/.local/bin:%(ENV_PATH)s"
-autostart=false
-autorestart=true
-...
+```bash
+# Launch forge subprocess (transient unit, auto-collected on exit)
+systemd-run --user --scope --unit=forge-<subject> --collect \
+  uv run <output_dir>/forge_server.py
 ```
 
-Then start:
+Unit name pattern: `forge-<subject>.scope` (e.g. `forge-lyra-avatar.scope`).
+
 ```bash
-supervisorctl reread && supervisorctl update
-supervisorctl start forge-<subject>
+# List active forge tasks
+systemctl --user list-units 'forge-*.scope' --no-pager
+
+# Inspect / kill a stuck forge task
+systemctl --user stop forge-<subject>.scope
 ```
 
 ---

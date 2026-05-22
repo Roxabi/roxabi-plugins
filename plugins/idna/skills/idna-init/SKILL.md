@@ -11,7 +11,7 @@ Bootstrap a new evolutionary selector session for any creative asset.
 
 **Read before starting:**
 ```
-${CLAUDE_PLUGIN_ROOT}/references/idna-ops.md       — dir layout, ports, supervisord, state machine
+${CLAUDE_PLUGIN_ROOT}/references/idna-ops.md       — dir layout, ports, service management, state machine
 ${CLAUDE_PLUGIN_ROOT}/references/idna-session-schema.md  — session.json format
 ```
 
@@ -127,11 +127,15 @@ Takes ~30–60s. Much faster than encoding per-round during generation.
 ## Phase 8 — Start the central IDNA server
 
 The central server at `~/.roxabi/idna/idna_server.py` handles all sessions.
-It is registered as program `idna` in `~/projects/lyra-stack/conf.d/idna.conf`.
+IDNA runs natively — Quadlet à venir.
 
 ```bash
-cd ~/projects/lyra-stack
-make idna start    # or: supervisorctl start idna
+# If a systemd unit exists:
+systemctl --user start idna.service
+
+# Dev / no unit file:
+cd ~/.roxabi/idna
+uv run idna_server.py
 ```
 
 On start, the server auto-detects all `session.json` files and begins BFS image generation
@@ -156,7 +160,8 @@ Tree: depth=3 → 160 nodes pre-prompted (2 Claude calls)
 Generation: auto-BFS in background (round 0 first, ~60–90s)
 
 Controls:
-  make idna start|stop|logs        (from ~/projects/lyra-stack)
+  systemctl --user start|stop|restart idna.service
+  journalctl --user -u idna.service -f
   Click/keyboard to pick variants in browser
 ```
 
