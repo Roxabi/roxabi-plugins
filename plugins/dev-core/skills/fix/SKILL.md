@@ -74,7 +74,7 @@ Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬
 
 ## Phase 1 — Gather Findings
 
-1. PR# → `gh pr view <#> --json comments --jq '.comments[].body'`; parse Conventional Comments
+1. PR# → `gh pr view <#> --json comments,closingIssuesReferences`; parse Conventional Comments from `.comments[].body`; capture `SOURCE_ISSUE` = `.closingIssuesReferences[0].number` (∅ if none — used in Phase 5 Defer to wire blocked-by)
 2. ¬PR# → scan conversation for latest `/code-review` output
 3. F = ∅ → halt
 4. ∀ f: parse → label, file:line, agent, root cause, class[], raw_callsites[], solutions, C(f)
@@ -148,7 +148,27 @@ Demoted from auto-apply → prepend: `Auto-apply failed: {reason}`
 
 → DP(A)(single per finding): **Solution 1** | **Solution 2** | **Defer** (→ create issue) | **Skip**
 
-Defer → `gh issue create --title "{cat}: {summary}" --body "{details}"` immediately.
+Defer → create linked follow-up issue via `/issue-triage` (¬raw `gh issue create` — global rule: issue mutations go through the skill so blocked-by is wired atomically):
+
+```bash
+bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \
+  --title "{cat}: {summary}" \
+  --body "{details}" \
+  ${SOURCE_ISSUE:+--blocked-by "#${SOURCE_ISSUE}"}
+```
+
+`SOURCE_ISSUE` (captured Phase 1, step 1) → blocked-by ensures the deferred finding is traceable back to the issue whose review surfaced it. ∄ SOURCE_ISSUE → create without `--blocked-by`; `{details}` MUST include `**Origin:** PR #<N>` so traceability is preserved.
+
+`{details}` template:
+```markdown
+**Origin:** PR #<N> review <comment-id> (deferred per `/fix` walkthrough).
+
+{root-cause + agent finding text}
+
+**Action:** {chosen path or open question}
+```
+
+Triage.ts `--blocked-by` accepts issues only (¬PRs) — when the source review is on a PR with no closing-issue reference, fall back to no `--blocked-by` and rely on the `Origin: PR #N` body line.
 
 ```
 ── Walkthrough Complete ──
