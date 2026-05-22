@@ -74,10 +74,15 @@ Browser polls /api/status → auto-renders new round
 
 ## Server management
 
+IDNA runs natively — Quadlet à venir.
+
 ```bash
-make idna start    # start server
-make idna reload   # restart
-make idna stop     # stop
-make idna logs     # stdout
-make idna errlogs  # stderr
+# If a systemd unit exists:
+systemctl --user start idna.service
+systemctl --user stop idna.service
+systemctl --user restart idna.service
+journalctl --user -u idna.service -f
+
+# Dev / no unit file:
+cd ~/.roxabi/idna && uv run idna_server.py
 ```
