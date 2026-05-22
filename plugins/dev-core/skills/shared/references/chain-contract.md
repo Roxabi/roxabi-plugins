@@ -156,14 +156,13 @@ When adding a new skill to the dev-core pipeline:
 
 ## Cache synchronization
 
-Edits to SKILL.md files must be propagated to the plugin cache:
+Edits to SKILL.md files must be propagated to the plugin cache by re-installing the plugin from the marketplace:
 
 ```bash
-cd ~/projects/roxabi-plugins
-./sync-plugins.sh --local
+claude plugin install dev-core
 ```
 
-The sync script has rollback-on-failure (as of the chain-contract refactor) to prevent partial-sync inconsistency across the 13 pipeline skills.
+This pulls the marketplace clone and repopulates the hash-keyed cache dir, ensuring all 13 pipeline skills land atomically.
 
 ## Related documents
 

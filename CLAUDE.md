@@ -76,7 +76,7 @@ Keep all READMEs current. Adding/modifying/removing a plugin → update:
 
 - **Source of truth** = repo: `plugins/<plugin-name>/`. Cache @ `~/.claude/plugins/cache/roxabi-marketplace/<plugin-name>/<hash>/` is a copy.
 - **Never edit cache only** — changes lost on plugin update/reinstall.
-- **Workflow:** edit repo source → commit + push → `./sync-plugins.sh --local` (∨ `./sync-plugins.sh` for push + Machine 1).
+- **Workflow:** edit repo source → commit + push → re-install via `claude plugin install <plugin-name>` to refresh local cache.
 
 → [`docs/plugin-cache.md`](docs/plugin-cache.md) — how the hash-keyed cache works, `${CLAUDE_SKILL_DIR}` vs `${CLAUDE_PLUGIN_ROOT}`, sync script details.
 

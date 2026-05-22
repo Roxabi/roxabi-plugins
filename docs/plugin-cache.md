@@ -20,13 +20,13 @@ Each project that has a plugin installed uses a specific cache dir identified by
 
 1. **Edit the repo source first** — `plugins/<plugin-name>/skills/...`, `plugins/<plugin-name>/agents/...`, etc.
 2. **Commit and push.**
-3. **Propagate to all projects** — run from the repo root:
+3. **Refresh the local cache** — re-install the plugin from the marketplace:
 
    ```bash
-   ./sync-plugins.sh --local
+   claude plugin install <plugin-name>
    ```
 
-   Syncs all plugins into every local cache dir (semver + hex-hash). Use `./sync-plugins.sh` to also push and sync Machine 1.
+   This pulls the marketplace clone and repopulates the hash-keyed cache dir for every project that uses the plugin.
 
 ## Skill path variables
 
@@ -42,4 +42,4 @@ These are substituted at skill load time by Claude Code (not shell env vars):
 
 - **Never edit only the cache** — changes are lost on plugin update/reinstall
 - **Always commit repo source** — the cache is ephemeral, the repo is permanent
-- **Run the sync script after every push** — so all projects immediately get the latest version
+- **Re-install the plugin after every push** — so projects pick up the latest version
