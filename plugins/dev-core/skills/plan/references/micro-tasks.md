@@ -63,6 +63,8 @@ Partial (one of Breadboard/Slices ¬both): fallback if ∃ Success Criteria, els
 | Time estimate | 2–5 min (up to 8–10 for atomic ops) |
 | `[P]` marker | Parallel-safe |
 | Agent | Owner α |
+| Agent instance | Named owner (backend-dev-A, tester-B, ...) |
+| Subject | 1-word surface tag (auth, cache, http, parser, …) — drives per-instance subject-diversity cap |
 | Spec trace | SC-N ∨ U1→N1→S1 |
 | Slice | V1, V2, ... |
 | Phase | RED ∨ GREEN ∨ REFACTOR ∨ RED-GATE |
