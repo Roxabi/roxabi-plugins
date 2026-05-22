@@ -43,21 +43,42 @@ Default fallback: `~/.roxabi/idna/`
 
 ---
 
-## Supervisord
+## Service management
 
-Single program name: `idna`
+IDNA runs natively (`uv run idna_server.py`) — **Quadlet à venir**.
 
 ```bash
-make idna              # status
-make idna start        # start
-make idna stop         # stop
-make idna reload       # restart
-make idna logs         # stdout
-make idna errlogs      # stderr
+# Start / stop / restart
+systemctl --user start idna.service
+systemctl --user stop idna.service
+systemctl --user restart idna.service
+
+# Status
+systemctl --user status idna.service
+
+# Follow logs
+journalctl --user -u idna.service -f
 ```
 
-Conf: `~/projects/lyra/deploy/supervisor/conf.d/idna.conf`  
-`autostart=false` — start manually when needed.
+**Dev (no unit file):** `uv run idna_server.py` directly from `~/.roxabi/idna/`.
+
+---
+
+### Forge subprocess management
+
+Forge subprocesses (per-task, ephemeral) run via **`systemd-run --user`** — transient scope, auto-GC on exit. NOT a Quadlet (forge is short-lived, not a long-running service).
+
+```bash
+# Launch a forge subprocess
+systemd-run --user --unit=forge-<subject> --collect \
+  uv run <output_dir>/forge_server.py
+
+# List active forge tasks
+systemctl --user list-units 'forge-*.scope' --no-pager
+
+# Inspect / kill a stuck forge task
+systemctl --user stop forge-<subject>.scope
+```
 
 ---
 
