@@ -14,7 +14,9 @@ Output schema:
     - reply: str         — prose paragraph (2-5 sentences) for human reader
 
 Model profiles:
-    - glm-fast (default) — Fireworks glm-5-fast via local proxy; batch use
+    - glm-fast (default) — kimi-k2.6 (Fireworks) via llmcli proxy; batch use.
+                           Profile name kept for back-compat after retiring the
+                           old LiteLLM :4000 + glm-5-fast endpoint.
     - claude             — claude-cli subprocess; real-time chat use
 
 CLI:
@@ -34,9 +36,8 @@ from pathlib import Path
 from typing import Any
 
 
-def _get_fireworks_token() -> str:
-    """Get Fireworks API token from multiple sources."""
-    import re
+def _get_llmcli_token() -> str:
+    """Get llmcli proxy master key from multiple sources."""
 
     def _parse_env_file(path: Path, *keys: str) -> str:
         for line in path.read_text().splitlines():
@@ -46,42 +47,41 @@ def _get_fireworks_token() -> str:
                     return line.split("=", 1)[1].strip().strip("\"'")
         return ""
 
-    # 1. Check env vars
-    for key in ("FIREWORKS_TOKEN", "LLMCLI_API_KEY"):
-        token = os.environ.get(key, "")
+    # 1. Env var
+    token = os.environ.get("LLMCLI_API_KEY", "")
+    if token:
+        return token
+
+    # 2. llmcli's own env file (canonical location on hosts running the proxy)
+    proxy_env = Path.home() / ".roxabi" / "llmcli" / "env" / "proxy.env"
+    if proxy_env.exists():
+        token = _parse_env_file(proxy_env, "LLMCLI_API_KEY")
         if token:
             return token
 
-    # 2. Check ~/.claude/.env (LLMCLI_API_KEY = proxy master key)
+    # 3. ~/.claude/.env (workstation convention)
     claude_env = Path.home() / ".claude" / ".env"
     if claude_env.exists():
-        token = _parse_env_file(claude_env, "LLMCLI_API_KEY", "FIREWORKS_TOKEN")
+        token = _parse_env_file(claude_env, "LLMCLI_API_KEY")
         if token:
             return token
 
-    # 3. Check ~/.env
+    # 4. ~/.env
     env_path = Path.home() / ".env"
     if env_path.exists():
-        token = _parse_env_file(env_path, "FIREWORKS_TOKEN", "LLMCLI_API_KEY")
+        token = _parse_env_file(env_path, "LLMCLI_API_KEY")
         if token:
             return token
-
-    # 4. Parse literal token from ~/.bash_aliases (skip shell variable refs)
-    aliases_path = Path.home() / ".bash_aliases"
-    if aliases_path.exists():
-        content = aliases_path.read_text()
-        for pattern in (r'FIREWORKS_TOKEN="([^"$]+)"', r'ANTHROPIC_AUTH_TOKEN="([^"$]+)"'):
-            match = re.search(pattern, content)
-            if match:
-                return match.group(1)
 
     return ""
 
 
 # Model configuration
-FIREWORKS_PROXY = "http://localhost:4000/fw-anthropic"
-FIREWORKS_TOKEN = _get_fireworks_token()
-GLM_MODEL_ID = "accounts/fireworks/routers/glm-5-fast"
+# llmcli OpenAI-compat proxy. Default reaches M₁ over the tailnet; override per
+# host with LLMCLI_URL (e.g. http://localhost:18091 when running on M₁ itself).
+LLMCLI_URL = os.environ.get("LLMCLI_URL", "http://roxabituwer:18091")
+LLMCLI_TOKEN = _get_llmcli_token()
+KIMI_MODEL_ID = "kimi-k2.6"
 MAX_TOKENS = 4000
 
 # Model profile aliases for the --model flag.
@@ -129,21 +129,24 @@ JSON:"""
 
 
 def _call_glm_fast(prompt: str) -> str:
-    """Call glm-5-fast via Fireworks proxy (Anthropic-compatible API)."""
+    """Call kimi-k2.6 via llmcli proxy (OpenAI-compatible API).
+
+    Profile name kept as `glm-fast` for back-compat; the underlying model and
+    transport changed when LiteLLM :4000 was retired in favour of llmcli :18091.
+    """
     import httpx
 
-    url = f"{FIREWORKS_PROXY}/v1/messages"
+    url = f"{LLMCLI_URL}/v1/chat/completions"
 
     payload = {
-        "model": GLM_MODEL_ID,
+        "model": KIMI_MODEL_ID,
         "max_tokens": MAX_TOKENS,
         "messages": [{"role": "user", "content": prompt}],
     }
 
     headers = {
         "Content-Type": "application/json",
-        "x-api-key": FIREWORKS_TOKEN,
-        "anthropic-version": "2023-06-01",
+        "Authorization": f"Bearer {LLMCLI_TOKEN}",
     }
 
     try:
@@ -151,12 +154,14 @@ def _call_glm_fast(prompt: str) -> str:
             response = client.post(url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
-            for block in data.get("content", []):
-                if block.get("type") == "text":
-                    return block.get("text", "")
-            raise RuntimeError("No text block in response")
+            choices = data.get("choices") or []
+            if choices:
+                content = choices[0].get("message", {}).get("content", "")
+                if content:
+                    return content
+            raise RuntimeError("No content in response")
     except Exception as e:
-        raise RuntimeError(f"LLM call failed (glm-fast): {e}")
+        raise RuntimeError(f"LLM call failed (glm-fast → kimi-k2.6): {e}")
 
 
 def _call_claude_cli(prompt: str) -> str:
