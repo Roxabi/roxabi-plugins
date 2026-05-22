@@ -268,14 +268,30 @@ def parse_llm_response(text: str) -> dict[str, Any]:
                 s = s[:200].rsplit(' ', 1)[0]
         return s.strip()
 
-    # Try to find JSON - but skip if it's the example schema (tag1, tag2, point1, point2)
+    # Try to find JSON - but skip if it's the example schema verbatim.
     # Use greedy match to capture full nested object with reply/key_points arrays.
     json_match = re.search(r'\{.*"tags".*\}', text, re.DOTALL)
     if json_match:
         json_str = json_match.group(0)
-        # Skip if it looks like the example schema
-        if 'tag1' in json_str or 'tag2' in json_str or 'point1' in json_str:
-            pass  # Skip example schema
+        # Skip if it looks like the example schema. Covers both the legacy
+        # placeholder values (tag1/tag2/point1) and the current prompt's
+        # example tokens (kw/fact/paragraph/one sentence) — flagged only
+        # when several appear together, since each alone could legitimately
+        # occur in real content.
+        legacy_echo = any(tok in json_str for tok in ('"tag1"', '"tag2"', '"point1"'))
+        current_echo_tokens = (
+            '["kw","kw"]', '["kw", "kw"]',
+            '["fact","fact"]', '["fact", "fact"]',
+            '"reply":"paragraph"', '"reply": "paragraph"',
+            '"summary":"one sentence"', '"summary": "one sentence"',
+            '"title":"..."', '"title": "..."',
+        )
+        current_echo_hits = sum(1 for tok in current_echo_tokens if tok in json_str)
+        if legacy_echo or current_echo_hits >= 2:
+            # Schema echoed verbatim — bail out completely. Falling through
+            # to the reasoning-text fallback would re-extract "fact" /
+            # "paragraph" / "kw" via lenient regex and re-emit the echo.
+            return {"title": "", "tags": [], "summary": "", "key_points": [], "reply": ""}
         else:
             try:
                 result = json.loads(json_str)
