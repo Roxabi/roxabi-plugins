@@ -77,6 +77,7 @@ Keep all READMEs current. Adding/modifying/removing a plugin → update:
 - **Source of truth** = repo: `plugins/<plugin-name>/`. Cache @ `~/.claude/plugins/cache/roxabi-marketplace/<plugin-name>/<hash>/` is a copy.
 - **Never edit cache only** — changes lost on plugin update/reinstall.
 - **Workflow:** edit repo source → commit + push → re-install via `claude plugin install <plugin-name>` to refresh local cache.
+- **Versioning:** single source of truth = `plugins/<X>/.claude-plugin/plugin.json`. Do NOT add `version` to `marketplace.json` entries — Claude Code derives version from the local `source` path; duplicating creates drift.
 
 → [`docs/plugin-cache.md`](docs/plugin-cache.md) — how the hash-keyed cache works, `${CLAUDE_SKILL_DIR}` vs `${CLAUDE_PLUGIN_ROOT}`, sync script details.
 
