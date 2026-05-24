@@ -30,7 +30,7 @@
       "description": "Full development workflow — frame, shape, plan, implement, review, ship. Opinionated Roxabi process with 33 skills, 9 agents, and safety hooks.",
       "source": "./plugins/dev-core",
       "category": "development",
-      "version": "0.4.0"
+      "version": "0.4.2"
     },
     {
       "name": "linkedin-post-generator",
