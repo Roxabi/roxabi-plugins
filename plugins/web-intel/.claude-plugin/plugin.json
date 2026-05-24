@@ -1,6 +1,5 @@
 {
   "name": "web-intel",
-  "version": "0.1.1",
   "description": "Multi-platform URL scraper and content analysis engine for Claude Code.",
   "author": {
     "name": "Roxabi"
