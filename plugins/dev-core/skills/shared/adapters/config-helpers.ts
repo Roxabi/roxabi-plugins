@@ -189,12 +189,16 @@ export function resolvePriority(input: string): string | undefined {
 
 /** Resolve loose user input to a canonical size key, or undefined. */
 export function resolveSize(input: string): string | undefined {
-  // Direct match
-  if (CANONICAL_SIZES.has(input)) return input
-  // Case-insensitive match
   const upper = input.toUpperCase().replace(/[-\s]/g, '-')
+  // Project's actual SIZE_OPTIONS take precedence — preserves XS/M/L/XL when the
+  // project board carries the legacy 5-bucket schema (e.g. Roxabi/lyra).
+  if (Object.hasOwn(SIZE_OPTIONS, input)) return input
+  if (Object.hasOwn(SIZE_OPTIONS, upper)) return upper
+  // New tier-based schema (S / F-lite / F-full).
+  if (CANONICAL_SIZES.has(input)) return input
   if (CANONICAL_SIZES.has(upper)) return upper
-  // Aliases: XS → S, M → F-lite, L/XL → F-full
+  // Legacy → new schema aliasing — only fires when the project doesn't carry the
+  // legacy key as a real option (otherwise we'd have returned above).
   if (upper === 'XS') return 'S'
   if (upper === 'M') return 'F-lite'
   if (upper === 'L' || upper === 'XL') return 'F-full'
