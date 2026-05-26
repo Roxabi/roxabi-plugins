@@ -29,7 +29,7 @@ Single-agent high-C findings get a fresh verifier agent before being promoted to
 
 **Phase 4 — Push** — commits and pushes auto-applied changes.
 
-**Phase 5 — 1b1 walkthrough** — presents each remaining finding with root cause and solutions; you choose: Solution 1 | Solution 2 | Defer (creates a follow-up issue via `/issue-triage`, auto-linked `blocked-by` the PR's closing issue for traceability) | Skip.
+**Phase 5 — 1b1 walkthrough** — presents each remaining finding with root cause and solutions; you choose: Solution 1 | Solution 2 | Defer (creates a follow-up issue via `/issue-triage`, auto-linked `blocked-by` the PR's closing issue for traceability, and parented as a **sibling** under the closing issue's parent — see `issue-triage` sibling rule) | Skip.
 
 **Phase 6 — Apply 1b1 decisions** — applies chosen solutions (inline if ≤2, agent-spawned if ≥3); retries up to 3×.
 
