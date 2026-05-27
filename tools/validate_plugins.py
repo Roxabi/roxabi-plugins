@@ -10,10 +10,13 @@ Checks:
 - Vendored paths.py copies match the canonical version
 - Fixed /tmp/ literals in SKILL.md files (tempfile-convention.md)
 - Inline class list in code-review/SKILL.md spawn template matches review-classes.yml
+- Subsumption pairs declared in review-classes.yml notes are mentioned together in
+  code-review/SKILL.md (prevents drift in pair definitions across files)
 
 Usage:
   python3 tools/validate_plugins.py                     # run all checks
-  python3 tools/validate_plugins.py --check class-list-sync  # run only class-list-sync
+  python3 tools/validate_plugins.py --check class-list-sync     # run only class-list-sync
+  python3 tools/validate_plugins.py --check subsumption-pairs   # run only subsumption-pairs
 """
 import argparse
 import filecmp
@@ -245,6 +248,95 @@ def check_class_list_sync(
     return errors
 
 
+def check_subsumption_pairs(
+    yaml_path: Path = _DEFAULT_YAML_PATH,
+    skill_path: Path = _DEFAULT_SKILL_PATH,
+) -> list[str]:
+    """Subsumption pairs declared in review-classes.yml notes must appear together in SKILL.md.
+
+    For each class with a `note:` field, scan the note text for canonical slugs (other than
+    the class itself). Every (class_slug, mentioned_slug) pair forms a subsumption pair.
+    SKILL.md must reference both members of each pair in close proximity (within the same
+    paragraph) so that human readers can find the subsumption rule from either entry point.
+
+    This prevents the failure mode where review-classes.yml says "A subsumes B" but SKILL.md
+    only documents the rule under A (or only under B) — leading to one-sided tagging drift.
+
+    Exit semantics when called from main():
+      - errors containing 'not found at' or 'parse' or 'not valid utf-8' → caller returns 2
+      - mismatch errors → caller returns 1
+    """
+    errors: list[str] = []
+
+    if not yaml_path.exists():
+        errors.append(f'review-classes.yml not found at {yaml_path}')
+        return errors
+    if not skill_path.exists():
+        errors.append(f'code-review/SKILL.md not found at {skill_path}')
+        return errors
+
+    try:
+        with open(yaml_path) as f:
+            text = f.read()
+    except UnicodeDecodeError as e:
+        errors.append(f'review-classes.yml is not valid UTF-8: {e}')
+        return errors
+
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        errors.append(f'failed to parse review-classes.yml: invalid YAML syntax: {e}')
+        return errors
+
+    classes = (data or {}).get('classes', [])
+    if not classes:
+        errors.append('review-classes.yml contains no class entries')
+        return errors
+
+    yaml_slugs = {c['class'] for c in classes if isinstance(c, dict) and 'class' in c}
+
+    pairs: set[frozenset[str]] = set()
+    for c in classes:
+        if not isinstance(c, dict):
+            continue
+        slug = c.get('class')
+        note = c.get('note')
+        if not slug or not note or not isinstance(note, str):
+            continue
+        for other in yaml_slugs:
+            if other == slug:
+                continue
+            if re.search(rf'(?<![\w-]){re.escape(other)}(?![\w-])', note):
+                pairs.add(frozenset((slug, other)))
+
+    if not pairs:
+        return errors
+
+    try:
+        with open(skill_path) as f:
+            content = f.read()
+    except UnicodeDecodeError as e:
+        errors.append(f'code-review/SKILL.md is not valid UTF-8: {e}')
+        return errors
+
+    paragraphs = re.split(r'\n\s*\n', content)
+
+    for pair in pairs:
+        a, b = sorted(pair)
+        together = any(
+            re.search(rf'(?<![\w-]){re.escape(a)}(?![\w-])', p)
+            and re.search(rf'(?<![\w-]){re.escape(b)}(?![\w-])', p)
+            for p in paragraphs
+        )
+        if not together:
+            errors.append(
+                f'subsumption pair ({a}, {b}) declared in review-classes.yml note '
+                f'but not mentioned together in any paragraph of code-review/SKILL.md'
+            )
+
+    return errors
+
+
 def _is_io_error(msg: str) -> bool:
     """Return True when the error message signals an IO/parse failure (exit 2).
 
@@ -262,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Validate plugin structure and data conventions.')
     parser.add_argument(
         '--check',
-        choices=['class-list-sync'],
+        choices=['class-list-sync', 'subsumption-pairs'],
         help='Run only the named check (default: run all checks)',
     )
     args = parser.parse_args(argv)
@@ -277,6 +369,15 @@ def main(argv: list[str] | None = None) -> int:
             return 2 if any(_is_io_error(e) for e in errors) else 1
         return 0
 
+    if args.check == 'subsumption-pairs':
+        errors = check_subsumption_pairs()
+        if errors:
+            print('FAIL: Subsumption pairs', file=sys.stderr)
+            for e in errors:
+                print(f'  {e}', file=sys.stderr)
+            return 2 if any(_is_io_error(e) for e in errors) else 1
+        return 0
+
     # Default: run all checks
     all_errors = []
     checks = [
@@ -287,6 +388,7 @@ def main(argv: list[str] | None = None) -> int:
         ('Vendored paths.py sync', check_vendored_paths),
         ('Tempfile convention', check_tempfile_convention),
         ('Class list sync', check_class_list_sync),
+        ('Subsumption pairs', check_subsumption_pairs),
     ]
 
     for name, check_fn in checks:

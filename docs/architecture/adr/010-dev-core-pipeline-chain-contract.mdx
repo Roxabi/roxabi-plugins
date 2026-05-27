@@ -1,11 +1,14 @@
 ---
 title: "ADR-010: dev-core Pipeline Chain Contract — Distributed Declaration + /dev-Owns-Lifecycle"
 description: Records the decision to establish a formal chain contract for dev-core pipeline skills, with /dev owning the dev-pipeline task lifecycle centrally and each skill declaring its position, task integration, and exit behavior inline in its body.
+status: superseded
 ---
+
+> **Superseded (2026-05-22)** — The propagation mechanism this ADR relies on (`sync-plugins.sh` with rollback-on-failure) has been retired. Plugin cache refresh now goes through `claude plugin install <name>` from the marketplace. The chain contract itself (distributed declaration + /dev-owns-lifecycle) is still in force, but the atomic-sync drawback discussed below no longer applies as worded.
 
 ## Status
 
-Accepted
+Superseded — 2026-05-22 (sync-plugins.sh removed; cache propagation via `claude plugin install`)
 
 ## Context
 

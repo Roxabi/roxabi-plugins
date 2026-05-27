@@ -2,7 +2,7 @@
 name: implement
 argument-hint: '[--issue <N> | --plan <path> | --audit]'
 description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "implement" | "build this" | "execute plan" | "start coding" | "write the code" | "code this up" | "let's build it" | "build it out" | "ship it".
-version: 0.2.0
+version: 0.3.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
@@ -103,25 +103,23 @@ Emits: `repo`, `base`, `branch_exists`, `legacy_worktree`, `worktree`, `dirty` (
 
 ω: `.claude/worktrees/{N}-{slug}` (via EnterWorktree). Branch base: `base` from output.
 
-**2c. Status:**
+**2c. Branch guard:**
 
-```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status "In Progress"
-```
-
-`branch_exists` ≠ false ⇒ → DP(A) **Reuse** | **Recreate** | **Abort**
+`branch_exists` ≠ false ∧ `worktree` = false → branch exists but no worktree → → DP(A) **Recreate worktree** (invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"`) | **Abort**
 
 `worktree` ≠ false ∧ `dirty=true` ⇒ → DP(A) **Stash changes** (`git stash`) | **Reset** (`git checkout .`) | **Continue with dirty state** | **Abort**
 
 **2e. Worktree:**
 
+Enter existing worktree (created by `/setup-worktree` or prior `/dev` run):
 ```
-EnterWorktree(name: "{N}-{slug}")
+EnterWorktree(path: ".claude/worktrees/{N}-{slug}")
 ```
+
+`worktree` = false → fallback: invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first, then enter.
 
 Inside ω:
 ```bash
-git checkout -b feat/<N>-<slug> origin/${BASE}
 cp .env.example .env 2>/dev/null; {package_manager} install
 # Optional: {commands.worktree_setup} <N>
 ```

@@ -1,6 +1,6 @@
 # dev-core
 
-Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 32 skills, 9 specialized agents, and safety hooks.
+Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 33 skills, 9 specialized agents, and safety hooks.
 
 ## Prerequisites
 
@@ -21,6 +21,16 @@ Install the plugin:
 ```bash
 claude plugin install dev-core
 ```
+
+### Keeping your install up to date
+
+`dev-core` ships through a hash-keyed cache at `~/.claude/plugins/cache/roxabi-marketplace/dev-core/<hash>/`. When new versions land on `staging`/`main`, pull the latest by re-installing from the marketplace:
+
+```bash
+claude plugin install dev-core
+```
+
+Without this step, recently-added skills (e.g. `/recheck`) won't appear in your trigger list even though they're in the repo.
 
 ## Getting Started
 
@@ -56,7 +66,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 ## Skills
 
-32 skills organized by workflow phase:
+33 skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
@@ -69,6 +79,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 | `seed-docs` | Setup | Populates scaffolded architecture/standards docs with real content — reads CLAUDE.md for conventions, optionally scans codebase (entry points, import graph, naming patterns), fills TODO stubs, writes AI Quick Reference sections. Idempotent: skips already-populated files |
 | `seed-community` | Setup | Bootstraps OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), `.github/PULL_REQUEST_TEMPLATE.md`, issue templates. Reads project metadata + CLAUDE.md; generates missing files idempotently |
 | `dev` | Orchestrator | Routes issues through the full workflow |
+| `recheck` | Frame | Drift-check an issue (git-drift, symbol-missing, dep-resolved) before /dev work begins. Runs between /issue-triage and /frame for every tier — no skip path. Signal-clean returns silently; signal-fire blocks with DP(A) (Proceed/Update/Close/Abort) |
 | `frame` | Frame | Creates initial feature frame from issue |
 | `analyze` | Shape | Deep analysis with expert consultation |
 | `consensus` | Shape | Multi-expert panel — spawns 3 domain agents (architect + 2 context-selected) to debate and agree on best long-term solution |

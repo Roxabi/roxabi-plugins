@@ -27,6 +27,9 @@ pre-commit:
     taxonomy-class-list-sync:
       run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py --check class-list-sync; else echo 'SKIP: taxonomy-class-list-sync (no .venv)' >&2; fi"
       glob: "plugins/dev-core/skills/code-review/{review-classes.yml,SKILL.md}"
+    taxonomy-subsumption-pairs:
+      run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py --check subsumption-pairs; else echo 'SKIP: taxonomy-subsumption-pairs (no .venv)' >&2; fi"
+      glob: "plugins/dev-core/skills/code-review/{review-classes.yml,SKILL.md}"
 
 commit-msg:
   commands:

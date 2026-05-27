@@ -2,7 +2,7 @@
 name: analyze
 argument-hint: '[--issue <N> | --frame <path>]'
 description: Deep technical analysis — explore existing code, risks, alternatives. Triggers: "analyze" | "technical analysis" | "explore the problem" | "how deep is it" | "deep dive" | "investigate this" | "analyze this feature" | "what are the risks" | "explore the codebase" | "look into this".
-version: 0.2.0
+version: 0.3.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch
 ---
 
@@ -163,9 +163,8 @@ Skip if ¬technical uncertainty in Step 2 findings.
 ∃ signals → → DP(A) **Spike now** (throwaway worktree, test hypothesis) | **Skip** (→ expert review).
 
 **Spike flow:**
-1. `EnterWorktree(name: "spike-{N}")` — creates isolated throwaway worktree
-2. Inside worktree: `git checkout -b spike/{N} origin/${BASE}` (where BASE = staging ∨ main)
-3. Investigate: minimal code, isolated test, confirm/reject hypothesis
+1. `EnterWorktree(name: "spike-{N}")` — creates isolated throwaway worktree on branch `spike-{N}`
+2. Investigate: minimal code, isolated test, confirm/reject hypothesis
 4. Report findings → incorporate into α
 5. `ExitWorktree(action: "remove", discard_changes: true)` — clean up throwaway worktree
 

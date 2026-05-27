@@ -1,0 +1,57 @@
+---
+title: Add /recheck phase to dev pipeline
+issue: 181
+status: approved
+tier: F-lite
+date: 2026-05-20
+---
+
+## Problem
+
+Issues sit in the backlog for days/weeks before being picked up. By the time `/dev #N` runs, the underlying code may have evolved — the bug might already be fixed, symbols referenced in the issue may have been renamed, or blocking dependencies may have been resolved. Today `/dev` jumps straight from `triage → frame` (or `triage → implement` for S-tier) with no staleness check.
+
+The S-tier path is the most dangerous: it skips `/frame`, `/analyze`, `/spec`, `/plan` entirely, going `triage → implement`. A stale S-tier issue silently turns into wasted work — code re-fixes itself, symbols are searched and not found, premises are wrong from the first commit.
+
+Observable impact today: no telemetry distinguishes "issue still relevant" from "issue silently obsolete." Every stale-issue cost is invisible.
+
+## Who
+
+- **Primary:** developers running `/dev #N` after issue has aged in the backlog. Most acute for S-tier (no gates, no frame).
+- **Secondary:** reviewers — they see PRs whose premise no longer holds and have to bounce them; issue-triage maintainers — they re-open closed-but-still-listed issues.
+
+## Constraints
+
+- **Position fixed:** between `triage` and `frame` in the `Frame` phase — issue already labelled, no artifact yet written.
+- **No skip-logic:** runs for every issue, every tier, every invocation of `/dev`. Decision made explicitly to avoid silent bypass on the riskiest path (S-tier).
+- **Behavior split:** informative when no drift signal fires (one-line "Issue still relevant" → silent continue); blocking via DP(A) when any signal fires.
+- **Skill must be standalone-callable** (`/recheck #N`) outside `/dev` — reusable in ad-hoc workflows.
+- **Determinism:** drift checks are deterministic (git log, grep, gh dependency state) — no ML scoring, no LLM judgement of "feels stale."
+- **Speed:** drift checks parallel, target <5s end-to-end (else `/dev` UX degrades).
+
+## Out of Scope
+
+- Auto-closing stale issues — `/recheck` *proposes* close via DP, user decides.
+- Recheck for non-`/dev` flows (raw `gh issue` work, manual coding).
+- ML-based staleness scoring or LLM "vibes" check.
+- Backfilling drift checks on already-running pipelines (only new `/dev` invocations).
+- Tracking historical drift signals across runs (no recheck-log artifact).
+
+## Premise Validity
+
+**Success in 6 months:** `/recheck` catches ≥1 stale issue per month before `/implement` runs; zero S-tier issues silently re-implement already-fixed bugs.
+
+**Failure in 6 months:** After 3 months of usage, `/recheck` has never blocked or modified a single `/dev` flow — i.e. it always says "still relevant" and produces no signal. OR users skip past `/recheck` >80% of the time when signals fire (signal-to-noise too low → step becomes ritual).
+
+**Simplest alternative:** A one-line `git log --since=<issue.created>` print inside `/dev`'s Step 1 scan-state — surfaces "N commits touched cited paths since issue creation" as info only.
+**Why not simplest:** No symbol/dependency check, no DP gate, no standalone callable form. Can't catch a renamed symbol or a resolved blocker. S-tier path still races to `/implement` without confirmation. The whole point is fail-fast with user decision, which an inline print can't deliver.
+
+## Complexity
+
+**Tier: F-lite** — clear scope, single domain (dev-core plugin internals), no new architecture, well-bounded file set (~5–6 files), single integration surface (`/dev` SKILL.md + new skill dir).
+
+Signals observed:
+- Multi-file but single-domain (dev-core plugin only).
+- No new patterns — `/recheck` follows the existing skill template (SKILL.md + README.md + optional scripts).
+- Integration into `/dev` follows the same pattern used by other pipeline steps (Σ entry, STEPS array, invocation map, Tier Skip Matrix row).
+- No new dependencies, no schema migration, no cross-plugin coupling.
+- Tier-bounded between S (would skip the integration in `/dev`) and F-full (no multi-domain or unknowns).

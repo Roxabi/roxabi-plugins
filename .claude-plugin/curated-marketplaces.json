@@ -61,6 +61,11 @@
       "name": "frontend-slides",
       "source": "https://github.com/zarazhangrui/frontend-slides",
       "description": "Zero-dependency HTML presentations — 12 presets, PPT conversion, Vercel deploy + PDF export."
+    },
+    {
+      "name": "mattpocock-skills",
+      "source": "https://github.com/mattpocock/skills",
+      "description": "Matt Pocock's skills — 14 skills across productivity (caveman, grill-me, handoff, write-a-skill) and engineering (diagnose, grill-with-docs, triage, tdd, to-issues, to-prd, zoom-out, prototype, improve-codebase-architecture, setup-matt-pocock-skills)."
     }
   ]
 }
