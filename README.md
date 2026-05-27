@@ -26,7 +26,7 @@ claude plugin marketplace add Roxabi/roxabi-plugins
 
 # 2. Install the plugin you need
 claude plugin install dev-core        # full dev lifecycle
-claude plugin install web-intel       # URL research + analysis
+claude plugin install dev-init        # project initialization
 claude plugin install compress        # token-efficient skill notation
 ```
 
@@ -36,7 +36,7 @@ Then trigger any skill by describing what you want — no slash commands to memo
 "start working on issue #42"    → /dev
 "improve readme"                → /readme-upgrade
 "sync docs after this refactor" → /doc-sync
-"scrape and summarize this URL" → /summarize
+"scrape and summarize this URL" → /summarize  (install roxabi-intel marketplace)
 ```
 
 ## How it works
@@ -63,19 +63,12 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 | [dev-init](plugins/dev-init/README.md) | Project initialization harness — orchestrates env-setup, github-setup, ci-setup, release-setup in one shot. Idempotent, with axial ADR gate. |
 | [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. 33 skills, 9 agents, safety hooks. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
 
-### Research & analysis
-
-| Plugin | Description |
-|--------|-------------|
-| [web-intel](plugins/web-intel/README.md) | Multi-platform URL scraper + 6 analysis skills (scrape, summarize, analyze, roast, benchmark, adapt) |
-
 ### Content & branding
 
 | Plugin | Description |
 |--------|-------------|
 | [linkedin-post-generator](plugins/linkedin-post-generator/README.md) | Generate LinkedIn posts with best practices and visual identity |
 | [image-prompt-generator](plugins/image-prompt-generator/README.md) | Generate AI image prompts with style consistency |
-| [logo-generator](plugins/logo-generator/README.md) | Animated SVG logos from brand briefs — interactive design, live preview, GIF export |
 | [idna](plugins/idna/README.md) | Evolutionary idea selector — explore variants, pick, converge (amplify/blend/refine), finalize. Self-driving: browser → Claude API → imageCLI → auto-advance. |
 
 > **Forge** has moved to its own marketplace: [Roxabi/roxabi-forge](https://github.com/Roxabi/roxabi-forge). Install: `claude plugin marketplace add Roxabi/roxabi-forge`
@@ -132,7 +125,7 @@ Data-producing plugins store user data in `~/.roxabi-vault/` — never in the re
 
 Two kinds of plugins live in this repo:
 
-**Native plugins** — built and maintained by Roxabi. We own the full lifecycle: `dev-core`, `compress`, `1b1`, `web-intel`, `cv`, `linkedin-post-generator`, `image-prompt-generator`, `get-invoice-details`, `linkedin-apply`.
+**Native plugins** — built and maintained by Roxabi. We own the full lifecycle: `dev-core`, `dev-init`, `compress`, `1b1`, `cv`, `linkedin-post-generator`, `image-prompt-generator`, `get-invoice-details`, `linkedin-apply`.
 
 **Wrapped plugins** — high-quality external skills with no versioning or install mechanism in their source repo. Roxabi adds plugin structure and vendors the source (via `git subtree` or file copy) so they become installable. New wrapped plugins go into `external/`.
 

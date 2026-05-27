@@ -1,9 +1,0 @@
-[project]
-name = "roxabi-content-lab"
-version = "0.1.0"
-description = "Video content analysis — narrative structure, VAKOG predicates, creation recipes"
-requires-python = ">=3.11"
-dependencies = []
-
-[dependency-groups]
-dev = []
