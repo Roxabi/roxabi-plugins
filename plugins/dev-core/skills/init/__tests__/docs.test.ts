@@ -67,7 +67,7 @@ describe('scaffoldDocs', () => {
     // Verify specific files have .mdx extension
     expect(result.filesCreated).toContain('contributing.mdx')
     expect(result.filesCreated).toContain('guides/deployment.mdx')
-    expect(result.filesCreated).toContain('processes/dev-process.md')
+    expect(result.filesCreated).toContain('processes/dev-process.mdx')
   })
 
   it('skips existing files without overwriting', () => {
