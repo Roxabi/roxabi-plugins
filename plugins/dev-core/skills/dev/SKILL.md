@@ -85,7 +85,7 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
   analyze:   analysis artifact ∃,
   spec:      spec artifact ∃,
   plan:      plan artifact ∃,
-  implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ branch has commits beyond staging,
+  implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ git diff --name-only origin/staging..HEAD | grep -v '^artifacts/' is non-empty,
   pr:        PR ∃,
   ci-watch:  null,       # Σ_s only
   validate:  null,       # Σ_s only

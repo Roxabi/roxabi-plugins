@@ -3,7 +3,7 @@ name: frame
 argument-hint: '["idea" | --issue <N>]'
 description: Problem framing — capture problem, constraints, scope, tier. Triggers: "frame" | "frame this" | "what's the problem" | "define the problem" | "scope this out" | "define the scope" | "what are we solving" | "help me think through this problem" | "problem statement".
 version: 0.3.0
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch, EnterWorktree, ExitWorktree
 ---
 
 # Frame
@@ -127,6 +127,37 @@ See [tier-classification.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/tier
 
 AQ: **Confirm {τ}** | **Override → S** | **Override → F-lite** | **Override → F-full**
 
+## Step 2c — Worktree Bootstrap
+
+Create worktree + feature branch before writing the artifact. All downstream steps (analyze, spec, plan, implement) run inside this worktree.
+
+```bash
+BASE=$(git branch -r 2>/dev/null | grep -q 'origin/staging' && echo staging || echo main)
+git fetch origin "$BASE" 2>&1
+```
+
+Detect existing:
+```bash
+git worktree list | grep "worktrees/${N}-${slug}" && echo "exists" || echo "new"
+```
+
+`new` → create:
+```
+EnterWorktree(name: "{N}-{slug}")
+git checkout -b feat/<N>-<slug> origin/${BASE}
+cp .env.example .env 2>/dev/null; {package_manager} install
+```
+
+`exists` → enter:
+```
+EnterWorktree(name: "{N}-{slug}")
+git checkout feat/<N>-<slug>
+```
+
+Frame-only mode (¬N): worktree name = `{slug}`, branch = `feat/{slug}`.
+
+ω **mandatory** from frame onward — ¬exception.
+
 ## Step 3 — Write Frame Doc
 
 Write φ with `status: draft`:
@@ -189,12 +220,17 @@ AQ: **Approve** | **Revise** (specify what to change).
 
 Commit: `git add artifacts/frames/{N}-{slug}-frame.mdx` + commit per CLAUDE.md Rule 5.
 
-∃ N →
+Push branch to signal work-in-progress:
 ```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set N --status Analysis
+git push -u origin feat/<N>-<slug>
 ```
 
-Inform: "Frame approved. Run `/dev #N` to continue, or `/analyze --issue N` for deep technical exploration."
+∃ N →
+```bash
+bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set N --status "In Progress"
+```
+
+Inform: "Frame approved. Branch `feat/<N>-<slug>` pushed. Run `/dev #N` to continue, or `/analyze --issue N` for deep technical exploration."
 
 ## Edge Cases
 

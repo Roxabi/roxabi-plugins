@@ -115,12 +115,15 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status "In Pro
 
 **2e. Worktree:**
 
+`worktree` ≠ false ∧ `branch_exists` ≠ false → ω ∃, branch ∃:
 ```
 EnterWorktree(name: "{N}-{slug}")
+git checkout feat/<N>-<slug>
 ```
 
-Inside ω:
-```bash
+`worktree` = false → create:
+```
+EnterWorktree(name: "{N}-{slug}")
 git checkout -b feat/<N>-<slug> origin/${BASE}
 cp .env.example .env 2>/dev/null; {package_manager} install
 # Optional: {commands.worktree_setup} <N>
