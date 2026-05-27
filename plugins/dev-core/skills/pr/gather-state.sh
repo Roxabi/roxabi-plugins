@@ -16,7 +16,7 @@ echo "---pr---"
 gh pr list --head "$BRANCH" --json number,title,url,state 2>/dev/null || echo "none"
 
 # lifecycle artifacts
-ISSUE_NUM=$(echo "$BRANCH" | grep -oP '(?<=/)\d+' | head -1)
+ISSUE_NUM=$(echo "$BRANCH" | sed -n 's/^feat\/\([0-9]*\)-.*/\1/p')
 if [ -n "$ISSUE_NUM" ]; then
   echo "issue=$ISSUE_NUM"
   ANALYSIS=$(ls "artifacts/analyses/${ISSUE_NUM}-"*.mdx 2>/dev/null | head -1)

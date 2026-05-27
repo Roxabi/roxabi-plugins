@@ -2,7 +2,7 @@
 name: plan
 argument-hint: '[--issue <N> | --spec <path> | --audit]'
 description: Implementation plan — tasks, agents, file groups, dependencies. Triggers: "plan" | "plan this" | "implementation plan" | "break it down" | "plan this feature" | "how should we build this" | "make a plan" | "create a plan" | "break this down into tasks" | "task breakdown".
-version: 0.3.0
+version: 0.4.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
@@ -59,7 +59,7 @@ count > 0 → → DP(A) **Resolve now** | **Return to spec** | **Proceed anyway*
 
 ## Step 2 — Plan
 
-Read `docs/processes/dev-process.mdx` + σ.
+Read `${CLAUDE_PLUGIN_ROOT}/references/dev-process.md` + σ.
 
 ### Step 2a-pre — Reasoning Audit (optional)
 
@@ -69,7 +69,7 @@ Read `docs/processes/dev-process.mdx` + σ.
 
 **2a. Scope:** Glob + Grep → files to create/modify + reference features for patterns.
 
-**2b. Tier:** S | F-lite | F-full per dev-process.mdx. ∃ `artifacts/frames/` ∧ `tier` field → use it. Else assess from σ complexity.
+**2b. Tier:** S | F-lite | F-full per dev-process.md. ∃ `artifacts/frames/` ∧ `tier` field → use it. Else assess from σ complexity.
 
 **2c. Agents:**
 

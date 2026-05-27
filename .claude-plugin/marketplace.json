@@ -20,17 +20,16 @@
       "category": "workflow"
     },
     {
-      "name": "web-intel",
-      "description": "Multi-platform URL scraper (Twitter/X, GitHub, YouTube, Reddit, webpages) with 8 analysis skills: scrape, summarize, analyze-url, explain, roast, benchmark, adapt, video-analyze.",
-      "source": "./plugins/web-intel",
-      "category": "analysis"
+      "name": "dev-init",
+      "description": "Project initialization harness — orchestrates env-setup, github-setup, ci-setup, release-setup in one shot. Idempotent, with axial ADR gate.",
+      "source": "./plugins/dev-init",
+      "category": "development"
     },
     {
       "name": "dev-core",
       "description": "Full development workflow — frame, shape, plan, implement, review, ship. Opinionated Roxabi process with 33 skills, 9 agents, and safety hooks.",
       "source": "./plugins/dev-core",
-      "category": "development",
-      "version": "0.4.0"
+      "category": "development"
     },
     {
       "name": "linkedin-post-generator",
@@ -63,53 +62,16 @@
       "category": "productivity"
     },
     {
-      "name": "react-best-practices",
-      "description": "React and Next.js performance optimization guidelines — 58 rules across 8 categories, prioritized by impact.",
-      "source": "./plugins/react-best-practices",
-      "category": "development",
-      "version": "0.1.0"
-    },
-    {
-      "name": "composition-patterns",
-      "description": "React composition patterns — avoid boolean prop proliferation, compound components, context providers.",
-      "source": "./plugins/composition-patterns",
-      "category": "development",
-      "version": "0.1.0"
-    },
-    {
-      "name": "web-design-guidelines",
-      "description": "Review UI code for Web Interface Guidelines compliance — accessibility, UX, design best practices.",
-      "source": "./plugins/web-design-guidelines",
-      "category": "development",
-      "version": "0.1.0"
-    },
-    {
-      "name": "logo-generator",
-      "description": "Generate animated SVG logos from a config-driven brand brief — interactive design, live preview, GIF/PNG export.",
-      "source": "./plugins/logo-generator",
-      "category": "branding",
-      "version": "0.2.0"
-    },
-    {
-      "name": "content-lab",
-      "description": "Analyze YouTube videos to extract narrative structure, VAKOG sensory predicates, and reusable content creation recipes.",
-      "source": "./plugins/content-lab",
-      "category": "content",
-      "version": "0.1.0"
-    },
-    {
       "name": "idna",
       "description": "IDNA — Idea DNA evolutionary selector. Explore variants, pick a winner, converge through amplify/blend/refine mutations. Self-driving: browser → Claude CLI → imageCLI → auto-advance.",
       "source": "./plugins/idna",
-      "category": "productivity",
-      "version": "0.1.0"
+      "category": "productivity"
     },
     {
       "name": "gitnexus",
       "description": "GitNexus CLI integration — code knowledge graph tools (impact analysis, symbol context, query). CLI-only alternative to MCP for minimal token overhead.",
       "source": "./plugins/gitnexus",
-      "category": "development",
-      "version": "0.1.0"
+      "category": "development"
     }
   ]
 }

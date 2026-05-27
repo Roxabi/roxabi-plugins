@@ -10,19 +10,20 @@ echo "repo=$REPO"
 echo "base=$BASE"
 
 # existing feature branch
-EXISTING_BRANCH=$(git branch --list "feat/${N}-*" | head -1 | xargs)
+EXISTING_BRANCH=$(git branch -a --list "feat/${N}-*" | head -1 | xargs)
 [ -n "$EXISTING_BRANCH" ] && echo "branch_exists=$EXISTING_BRANCH" || echo "branch_exists=false"
 
 # legacy parent-dir worktree
-ls -d "../${REPO}-${N}" 2>/dev/null && echo "legacy_worktree=true" || echo "legacy_worktree=false"
+ls -d "../${REPO}-${N}" >/dev/null 2>/dev/null && echo "legacy_worktree=true" || echo "legacy_worktree=false"
 
 # .claude/worktrees/ worktree
 WORKTREE=$(git worktree list 2>/dev/null | grep "worktrees/${N}-" | head -1)
 [ -n "$WORKTREE" ] && echo "worktree=$WORKTREE" || echo "worktree=false"
 
-# dirty state (if worktree exists)
+# dirty state (inside worktree if it exists)
 if [ -n "$WORKTREE" ]; then
-  DIRTY=$(git status --porcelain 2>/dev/null)
+  WT_DIR=$(echo "$WORKTREE" | awk '{print $1}')
+  DIRTY=$(git -C "$WT_DIR" status --porcelain 2>/dev/null)
   [ -n "$DIRTY" ] && echo "dirty=true" || echo "dirty=false"
 fi
 
