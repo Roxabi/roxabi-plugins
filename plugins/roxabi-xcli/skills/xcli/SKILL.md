@@ -3,104 +3,123 @@ name: xcli
 description: 'Twitter/X CLI actions — post, read timeline, search, like, retweet, bookmark. No API keys, cookie-based auth. Triggers: "tweet" | "post on x" | "xcli" | "twitter cli" | "x post" | "timeline" | "search x" | "like tweet" | "retweet" | "bookmark".'
 version: 0.1.0
 argument-hint: '[command] [args]'
-allowed-tools: Bash
+allowed-tools: Bash, Read, Write, Edit
 ---
 
 # XCLI Skill
 
-Run Clix (Twitter/X CLI) commands inside the containerized instance on M1.
+Wrapper around the containerized Clix CLI on M1. Uses the local script `~/.roxabi/clix/bin/xcli` which reads config from `~/.roxabi/clix/config.json`.
 
-Let:
-  C := `ssh roxabituwer "podman exec clix clix"`
+## Config
 
-## Workflow
+File: `~/.roxabi/clix/config.json`
 
-1. **Map intent** → clix subcommand + args
-2. **Execute** via `$C <cmd> <args> --json`
-3. **Parse JSON** → present result
+```json
+{
+  "host": "localhost",
+  "container": "clix"
+}
+```
+
+- `host`: `localhost` for local podman exec, or `roxabituwer` for SSH remote
+- `container`: name of the running clix container
+
+## Authenticate
+
+Browser cookie extraction does not work inside the container. Use manual auth:
+
+```bash
+podman exec clix clix auth set --token <auth_token> --ct0 <ct0>
+```
+
+Or via the wrapper (reads same container):
+
+```bash
+~/.roxabi/clix/bin/xcli auth set --token <t> --ct0 <c>
+```
 
 ## Commands
+
+All commands return JSON by default. Use `--no-json` for human output.
 
 ### Post a tweet
 
 ```bash
-$C post "Hello world" --json
-$C post "Reply text" --reply-to <tweet_id> --json
+~/.roxabi/clix/bin/xcli post "Hello world"
+~/.roxabi/clix/bin/xcli post "Reply text" --reply-to <tweet_id>
 ```
 
 ### Read timeline
 
 ```bash
-$C feed --count 20 --json
-$C feed --type following --count 50 --json
+~/.roxabi/clix/bin/xcli feed --count 20
+~/.roxabi/clix/bin/xcli feed --type following --count 50
 ```
 
 ### Search
 
 ```bash
-$C search "query" --type Top --count 20 --json
-$C search "query" --type Latest --json
+~/.roxabi/clix/bin/xcli search "query" --type Top --count 20
+~/.roxabi/clix/bin/xcli search "query" --type Latest
 ```
 
 ### Tweet detail
 
 ```bash
-$C tweet <tweet_id> --json
-$C tweet <tweet_id> --thread --json
+~/.roxabi/clix/bin/xcli tweet <tweet_id>
+~/.roxabi/clix/bin/xcli tweet <tweet_id> --thread
 ```
 
 ### User info
 
 ```bash
-$C user <handle> --json
-$C user tweets <handle> --json
+~/.roxabi/clix/bin/xcli user <handle>
+~/.roxabi/clix/bin/xcli user tweets <handle>
 ```
 
 ### Interactions
 
 ```bash
-$C like <tweet_id> --json
-$C unlike <tweet_id> --json
-$C retweet <tweet_id> --json
-$C unretweet <tweet_id> --json
-$C bookmark <tweet_id> --json
-$C unbookmark <tweet_id> --json
+~/.roxabi/clix/bin/xcli like <tweet_id>
+~/.roxabi/clix/bin/xcli unlike <tweet_id>
+~/.roxabi/clix/bin/xcli retweet <tweet_id>
+~/.roxabi/clix/bin/xcli unretweet <tweet_id>
+~/.roxabi/clix/bin/xcli bookmark <tweet_id>
+~/.roxabi/clix/bin/xcli unbookmark <tweet_id>
 ```
 
 ### Bookmarks
 
 ```bash
-$C bookmarks --count 20 --json
+~/.roxabi/clix/bin/xcli bookmarks --count 20
 ```
 
 ### Auth check
 
 ```bash
-$C auth status --json
+~/.roxabi/clix/bin/xcli auth status
 ```
+
+## Workflow
+
+1. Check config exists → if not, create default `localhost` config
+2. Check auth before any write operation
+3. Run command through wrapper script
+4. Parse JSON → present result
 
 ## Safety
 
-- Check auth first on any write operation: `$C auth status --json`
-- Auth fail → instruct user to run `ssh roxabituwer "podman exec clix clix auth set --token <t> --ct0 <c>"`
+- Auth fail → instruct user to set credentials
 - Respect rate limits — add 2s delay between bulk ops
-- All commands use `--json` for structured parseable output
+- All commands use JSON by default for parseable output
 
 ## Error Handling
 
 | Exit | Meaning | Action |
 |------|---------|--------|
-| 0 | Success | Parse JSON, show result |
+| 0 | Success | Parse JSON |
+| 1 | Usage error | Show help |
 | 2 | Auth error | Ask user to set credentials |
 | 3 | Rate limit | Wait 60s, retry once |
-| 1 | Other error | Show stderr, abort |
-
-## Multi-line tweets
-
-Use heredoc or escaped newlines:
-```bash
-$C post "Line 1
-Line 2" --json
-```
 
 $ARGUMENTS

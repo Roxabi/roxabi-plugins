@@ -2,87 +2,104 @@
 name: postiz
 description: 'Postiz social media scheduler — plan, create, list, delete posts and check analytics across X, LinkedIn, Reddit, and more. Triggers: "schedule post" | "planifier" | "postiz" | "publish to x" | "social media" | "post" | "analytics" | "integrations".'
 version: 0.1.0
-argument-hint: '[action] [args]'
-allowed-tools: Read, Bash, WebFetch
+argument-hint: '[command] [args]'
+allowed-tools: Bash, Read, Write, Edit
 ---
 
 # Postiz Skill
 
-Interact with a self-hosted Postiz instance via its public API (`/public/v1`).
+Wrapper around a self-hosted Postiz instance. Uses the local CLI script `~/.roxabi/postiz/bin/postiz` which reads config from `~/.roxabi/postiz/config.json`.
 
-Let:
-  P := Postiz base URL = `http://192.168.1.16:4007/api` (M1 Quadlet)
-  T := API token (from Postiz settings → API tokens)
+## Config
 
-## Workflow
+File: `~/.roxabi/postiz/config.json`
 
-1. **Identify intent** from argument / conversation context
-2. **Build curl command** to `P/public/v1/<endpoint>`
-3. **Parse JSON** → present terse result
-
-## Actions
-
-### Create post
-
-```bash
-curl -s -X POST "$P/public/v1/posts" \
-  -H "Authorization: Bearer $T" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "schedule",
-    "posts": [
-      {
-        "value": [
-          {
-            "content": ["Hello world"],
-            "image": [],
-            "integration": "<integration_id>"
-          }
-        ]
-      }
-    ]
-  }'
+```json
+{
+  "base_url": "http://192.168.1.16:4007/api",
+  "token": "<your-api-token>"
+}
 ```
 
-### List posts
+Get the API token from Postiz Settings → API Tokens.
+
+## Commands
+
+All commands return JSON. Pipe through `jq` for pretty display.
+
+### Check connection / auth
 
 ```bash
-curl -s "$P/public/v1/posts" -H "Authorization: Bearer $T" | jq '.posts[] | {id, status, date}'
+~/.roxabi/postiz/bin/postiz status
 ```
 
-### List integrations
+### List connected platforms
 
 ```bash
-curl -s "$P/public/v1/integrations" -H "Authorization: Bearer $T" | jq '.[] | {id, name, identifier}'
+~/.roxabi/postiz/bin/postiz list-integrations
 ```
 
-### Check analytics
+### List scheduled posts
 
 ```bash
-curl -s "$P/public/v1/analytics/<integration>?date=<YYYY-MM-DD>" -H "Authorization: Bearer $T"
+~/.roxabi/postiz/bin/postiz list-posts
 ```
+
+### Create a post
+
+```bash
+~/.roxabi/postiz/bin/postiz create-post "Hello world" <integration_id>
+```
+
+For multiple platforms, comma-separate IDs:
+```bash
+~/.roxabi/postiz/bin/postiz create-post "Hello world" id1,id2,id3
+```
+
+### Delete a post
+
+```bash
+~/.roxabi/postiz/bin/postiz delete-post <post_id>
+```
+
+### Analytics
+
+```bash
+~/.roxabi/postiz/bin/postiz analytics <integration_id> [YYYY-MM-DD]
+```
+
+Default date = today.
 
 ### Upload media
 
 ```bash
-curl -s -X POST "$P/public/v1/upload" \
-  -H "Authorization: Bearer $T" \
-  -F "file=@/path/to/image.png"
+~/.roxabi/postiz/bin/postiz upload /path/to/image.png
 ```
+
+### Find next free slot
+
+```bash
+~/.roxabi/postiz/bin/postiz find-slot [integration_id]
+```
+
+## Workflow
+
+1. Check config exists → if not, ask user for `base_url` and `token`
+2. Run the requested command through the wrapper script
+3. Parse JSON output → present result
 
 ## Safety
 
-- Never expose `$T` in output
-- Validate `date` format before API call
-- Check auth first: `curl -s "$P/public/v1/is-connected"`
+- Never expose token in output
+- If `status` returns auth error → ask user to set token in config
+- Validate integration IDs exist before `create-post` if possible
 
 ## Error Handling
 
-| HTTP | Meaning | Action |
+| Exit | Meaning | Action |
 |------|---------|--------|
-| 401 | Bad token | Ask user to regenerate API token |
-| 429 | Rate limit | Backoff 5s, retry once |
-| 400 | Validation fail | Show `msg` field from response |
-| 500 | Server error | Surface error, abort |
+| 0 | Success | Parse JSON |
+| 1 | Usage error | Show help |
+| 2 | Config/auth error | Ask user to fix `config.json` |
 
 $ARGUMENTS
