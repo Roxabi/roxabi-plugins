@@ -1,8 +1,0 @@
-{
-  "name": "composition-patterns",
-  "description": "React composition patterns — avoid boolean prop proliferation, compound components, context providers.",
-  "author": {
-    "name": "Roxabi"
-  },
-  "license": "MIT"
-}

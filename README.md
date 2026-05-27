@@ -60,6 +60,7 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 
 | Plugin | Description |
 |--------|-------------|
+| [dev-init](plugins/dev-init/README.md) | Project initialization harness — orchestrates env-setup, github-setup, ci-setup, release-setup in one shot. Idempotent, with axial ADR gate. |
 | [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. 33 skills, 9 agents, safety hooks. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
 
 ### Research & analysis
@@ -115,16 +116,6 @@ claude plugin marketplace add <source>
 | roxabi-video-engine | Programmatic video generation — 55 React components, 13 kits, headless MP4 rendering | [Roxabi/roxabi-production](https://github.com/Roxabi/roxabi-production) |
 | frontend-slides | Zero-dependency HTML presentations — 12 presets, PPT conversion, Vercel deploy + PDF export | [zarazhangrui/frontend-slides](https://github.com/zarazhangrui/frontend-slides) |
 
-### Wrapped plugins
-
-High-quality external skills packaged as first-class installable plugins. Roxabi adds versioning, install support, and a README; the source is vendored via `git subtree`. Attribution is in each plugin's README.
-
-| Plugin | Description | Source |
-|--------|-------------|--------|
-| [react-best-practices](plugins/react-best-practices/README.md) | React/Next.js performance optimization — 58 rules, 8 categories | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) |
-| [composition-patterns](plugins/composition-patterns/README.md) | React composition patterns — compound components, context providers | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) |
-| [web-design-guidelines](plugins/web-design-guidelines/README.md) | Review UI code for Web Interface Guidelines compliance | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) |
-
 ## Data storage
 
 Data-producing plugins store user data in `~/.roxabi-vault/` — never in the repo. Override the location with the `ROXABI_VAULT_HOME` environment variable. Vault functionality is provided by [roxabi-vault](https://github.com/Roxabi/roxabi-vault).
@@ -143,7 +134,7 @@ Two kinds of plugins live in this repo:
 
 **Native plugins** — built and maintained by Roxabi. We own the full lifecycle: `dev-core`, `compress`, `1b1`, `web-intel`, `cv`, `linkedin-post-generator`, `image-prompt-generator`, `get-invoice-details`, `linkedin-apply`.
 
-**Wrapped plugins** — high-quality external skills with no versioning or install mechanism in their source repo. Roxabi adds plugin structure and vendors the source (via `git subtree` or file copy) so they become installable. Existing wrapped plugins live in `plugins/`: `react-best-practices`, `composition-patterns`, `web-design-guidelines`. New wrapped plugins go into `external/`.
+**Wrapped plugins** — high-quality external skills with no versioning or install mechanism in their source repo. Roxabi adds plugin structure and vendors the source (via `git subtree` or file copy) so they become installable. New wrapped plugins go into `external/`.
 
 External plugin marketplaces we endorse are tracked in [`.claude-plugin/external-registry.json`](.claude-plugin/external-registry.json) (source of truth). [`.claude-plugin/curated-marketplaces.json`](.claude-plugin/curated-marketplaces.json) mirrors the curated list for runtime discovery — the `/dev-core ci-setup` skill reads it and offers installation — no skill edits needed to add a new endorsed source.
 
