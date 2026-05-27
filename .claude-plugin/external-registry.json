@@ -168,9 +168,9 @@
       "last_sync_commit": "7defe2d03c5fa8e39b63b12648c1fa10131b422a",
       "last_sync_date": "2026-05-20",
       "sync_strategy": "copy",
-      "status": "active",
+      "status": "deprecated",
       "added": "2026-03-10",
-      "notes": "Upstream files in rules/ mapped to references/rules/. SKILL.md rewritten with Roxabi frontmatter + condensed workflow. 6 new rules synced 2026-05-05."
+      "notes": "Removed from repo 2026-05-27. Pure upstream copy with no local content modifications; not worth sync overhead. Users can install from vercel-labs/agent-skills directly."
     },
     {
       "plugin": "composition-patterns",
@@ -180,9 +180,9 @@
       "last_sync_commit": "7defe2d03c5fa8e39b63b12648c1fa10131b422a",
       "last_sync_date": "2026-05-20",
       "sync_strategy": "copy",
-      "status": "active",
+      "status": "deprecated",
       "added": "2026-03-10",
-      "notes": "Upstream files in rules/ mapped to references/rules/. SKILL.md rewritten with Roxabi frontmatter + condensed workflow. No content drift at sync."
+      "notes": "Removed from repo 2026-05-27. Pure upstream copy with no local content modifications; not worth sync overhead. Users can install from vercel-labs/agent-skills directly."
     },
     {
       "plugin": "web-design-guidelines",
@@ -192,9 +192,9 @@
       "last_sync_commit": "7defe2d03c5fa8e39b63b12648c1fa10131b422a",
       "last_sync_date": "2026-05-20",
       "sync_strategy": "copy",
-      "status": "active",
+      "status": "deprecated",
       "added": "2026-03-10",
-      "notes": "Upstream SKILL.md fetches guidelines at runtime from vercel-labs/web-interface-guidelines. Our version adds Roxabi frontmatter. No content drift at sync."
+      "notes": "Removed from repo 2026-05-27. Pure upstream copy with no local content modifications; not worth sync overhead. Users can install from vercel-labs/agent-skills directly."
     }
   ]
 }

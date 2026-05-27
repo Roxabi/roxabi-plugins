@@ -1,9 +1,9 @@
 {
   "name": "roxabi-plugins",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Open-source Claude Code plugins by Roxabi",
-  "license": "MIT",
+  "license": "AGPL-3.0",
   "type": "module",
   "scripts": {
     "dashboard": "bun .claude/run-dashboard.ts",

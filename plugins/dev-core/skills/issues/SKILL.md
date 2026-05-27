@@ -72,7 +72,7 @@ Let N := issue number extracted from $ARGUMENTS (e.g. `--show 42` → N=42).
 
 ---
 
-**`--tree` ∨ `-T` ∈ $ARGUMENTS →** Pass flag to fetch script (step 1), output verbatim. ⊣ — ¬WIP.
+**`--tree` ∨ `-T` ∈ $ARGUMENTS →** Pass flag to fetch script (step 1). Output verbatim in code block. ¬reformat. ¬collapse. ¬truncate/summarize/omit rows. ¬post-process. ⊣ — ¬WIP.
 
 ---
 

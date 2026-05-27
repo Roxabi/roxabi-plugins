@@ -116,8 +116,8 @@ llama-server \
 **Free VRAM before starting VLM** — on RTX 3080 (10 GB) this is mandatory, on RTX 5070 Ti (16 GB) recommended when compositor is heavy:
 
 ```bash
-make -C ~/projects stt stop
-make -C ~/projects tts stop
+systemctl --user stop voicecli-stt.service
+systemctl --user stop voicecli-tts.service
 nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits   # expect ≥ 10 GB
 ```
 
@@ -285,9 +285,9 @@ Second line.
 **VRAM guard** (RTX 3080 10GB): TTS daemon ~7.4GB + STT ~2.2GB → clone OOMs. `yt-clone` auto-stops STT; manual path:
 
 ```bash
-make -C ~/projects stt stop
+systemctl --user stop voicecli-stt.service
 voicecli clone narration.md -e qwen-fast
-make -C ~/projects stt start
+systemctl --user start voicecli-stt.service
 ```
 
 ---
@@ -421,14 +421,14 @@ Two services compete for GPU: **VLM** (Phase 1.2) and **TTS daemon** (Phase 5). 
 | Phase | VLM | TTS | STT | Command |
 |---|---|---|---|---|
 | 0 frame | — | — | — | — |
-| 1.1 transcript | — | — | stop | `make stt stop` |
-| 1.2 VLM analysis | **start** | **stop** | stop | `make tts stop && make stt stop && llama-server … :8093` |
+| 1.1 transcript | — | — | stop | `systemctl --user stop voicecli-stt.service` |
+| 1.2 VLM analysis | **start** | **stop** | stop | `systemctl --user stop voicecli-tts.service && systemctl --user stop voicecli-stt.service && llama-server … :8093` |
 | 1.3–1.4 derivatives + synthesis | idle | stop | stop | VLM can idle (no GPU load between requests) |
 | 1.5 forge page | kill | — | — | `pkill -f llama-server` |
 | 2 voice-style | — | — | — | CPU-only, no VRAM needed |
-| 3 yt-clone / sample-pick | — | **start** | stop | `make tts start` (auto-stops STT if running) |
+| 3 yt-clone / sample-pick | — | **start** | stop | `systemctl --user start voicecli-tts.service` (auto-stops STT if running) |
 | 4 storyboard | — | — | — | CPU-only |
-| 5 VO render (qwen-fast) | — | running | stop | `make stt stop && voicecli clone …` |
+| 5 VO render (qwen-fast) | — | running | stop | `systemctl --user stop voicecli-stt.service && voicecli clone …` |
 | 6–7 compose / soundtrack | — | — | — | CPU-only |
 | 8 render MP4 | — | — | — | Puppeteer + FFmpeg, negligible VRAM |
 

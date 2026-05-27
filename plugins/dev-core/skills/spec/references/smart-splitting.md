@@ -56,6 +56,8 @@ Options: **Approve** | **Adjust** (re-propose) | **Skip** (no split)
 
 ## Create Sub-Issues
 
+> **Decomposition pattern** (¬deferral): smart-splitting *plans* sub-deliverables, so sub-issues are `--parent <N>` of the original (N becomes the epic). This is distinct from `/fix` Phase 5 Defer, which uses the **sibling rule** (deferred issue gets the origin's parent, not the origin itself). See `issue-triage` SKILL "Deferred Follow-Ups — Sibling Rule".
+
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \
   --title "<title>" --body "<body>" \

@@ -2,7 +2,7 @@
 name: cleanup
 argument-hint: [--branches | --worktrees | --all]
 description: Clean git branches/worktrees/remotes after merge-status verification. Triggers: "cleanup" | "clean branches" | "cleanup worktrees" | "remove stale branches".
-version: 0.2.0
+version: 0.3.0
 allowed-tools: Bash, Read, EnterWorktree, ExitWorktree, ToolSearch
 ---
 
@@ -17,7 +17,7 @@ Safely clean local β, ω, and remote branches with **mandatory merge-status ver
 ### 1. Gather State
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/gather-state.sh
+bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/gather-state.sh
 ```
 
 Emits: `current`, branch list with tracking info, worktree list, open PRs.

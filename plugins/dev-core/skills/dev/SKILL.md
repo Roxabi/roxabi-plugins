@@ -2,7 +2,7 @@
 name: dev
 argument-hint: '[#N | "idea" | --from <step> | --audit]'
 description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "work on #" | "develop" | "pick up issue" | "tackle issue" | "let's work on".
-version: 0.2.0
+version: 0.3.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
@@ -85,7 +85,7 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
   analyze:   analysis artifact ∃,
   spec:      spec artifact ∃,
   plan:      plan artifact ∃,
-  implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ branch has commits beyond staging,
+  implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ git diff --name-only origin/staging..HEAD | grep -v '^artifacts/' is non-empty,
   pr:        PR ∃,
   ci-watch:  null,       # Σ_s only
   validate:  null,       # Σ_s only
@@ -124,7 +124,7 @@ ci-watch → validate → review → fix → promote → cleanup
 ```
 TaskCreate(
   subject: "{step} — #{N} {title}",
-  description: "{one-line step purpose from dev-process.mdx}",
+  description: "{one-line step purpose from dev-process.md}",
   activeForm: "{present-continuous of step} #{N}",
   metadata: {
     kind: "dev-pipeline",
@@ -224,6 +224,10 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 
 ## Step 7 — Execute Step
 
+**Worktree bootstrap (silent pre-step):** `worktree` == false ∧ S* ∈ {frame, analyze, spec, plan, implement} → invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first. After return, re-scan `worktree`. Still false → present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Retry** | **Abort**.
+
+**Artifact sync (post-bootstrap):** If S* ∈ {frame, analyze, spec, plan} and the repo principal has artifacts that the worktree lacks (e.g. from a prior standalone run) → `rsync -a ../../../artifacts/ ./artifacts/` (idempotent, preserves future commits).
+
 **Before invocation:** `TaskUpdate(task_id_map[S*], status: "in_progress")`. ¬∃ id → `TaskCreate` on-the-fly (drift safety net: a step not seeded in 2b that became active later).
 
 **Invocation rules — CRITICAL for continuous flow:**
@@ -246,11 +250,11 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 |------|-------|------------------|--------------|
 | triage | adv | `skill: "issue-triage", args: "N"` | recheck |
 | recheck | adv | `skill: "recheck", args: "--from-dev #N"` | frame |
-| frame | gate | `skill: "frame", args: "--issue N"` | analyze (F-full) ∨ spec (F-lite) |
-| analyze | adv | `skill: "analyze", args: "--issue N"` | spec |
-| spec | gate | `skill: "spec", args: "--issue N"` | plan |
-| plan | gate | `skill: "plan", args: "--issue N"` | implement (auto-chain after approval) |
-| implement | adv | `skill: "implement", args: "--issue N"` | pr |
+| frame | gate | `skill: "frame", args: "{N:+--issue $N}"` | analyze (F-full) ∨ spec (F-lite) |
+| analyze | adv | `skill: "analyze", args: "{N:+--issue $N}"` | spec |
+| spec | gate | `skill: "spec", args: "{N:+--issue $N}"` | plan |
+| plan | gate | `skill: "plan", args: "{N:+--issue $N}"` | implement (auto-chain after approval) |
+| implement | adv | `skill: "implement", args: "{N:+--issue $N}"` | pr |
 | pr | adv | `skill: "pr"` (auto-detects branch + issue) | ci-watch |
 | ci-watch | adv | `skill: "ci-watch", args: "--pr {PR#}"` | validate |
 | validate | adv | `skill: "validate"` | code-review |

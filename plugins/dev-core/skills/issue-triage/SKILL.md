@@ -83,6 +83,55 @@ Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies
 | `--blocked-by <REF>[,<REF>...]` | Set blocked-by on creation |
 | `--blocks <REF>[,<REF>...]` | Set blocking on creation |
 
+## Deferred Follow-Ups — Sibling Rule
+
+**Defer ≠ decomposition.** When an issue A defers work to a new follow-up B (out-of-scope finding, post-merge gap, "do this later"), B is a **sibling** of A under their shared parent — NOT a child of A.
+
+```
+       Epic E
+      ╱      ╲
+     A ←—————— B     B.parent = A.parent (= E)
+       blocked-by    B.blocked-by = A   (traceability of origin)
+```
+
+**Why:**
+- `gh issue view E` shows the full fan-out flat (A + B + future C…) — true scope of the epic, ¬nested cascade
+- `/dev` re-scan retombe correctement sur l'épic origin pour tout follow-up
+- Multi-level deferrals (A→B→C) stay flat under E — ¬arbre profond ingérable
+
+**Decomposition vs deferral:**
+
+| Pattern | Parent-child? | Example |
+|---------|---------------|---------|
+| **Epic → phase** (planned decomposition) | ✓ child of epic | `/spec` smart-splitting: phase 1, phase 2 are children of epic |
+| **Issue → follow-up** (deferral, post-hoc) | ✗ sibling under shared parent | `/fix` Phase 5 Defer: out-of-scope finding becomes sibling |
+| **Bug → regression** (related ¬caused) | ✗ standalone | New bug surfaced post-merge, ¬child, ¬sibling necessarily |
+
+**Recipe — defer A → create follow-up B:**
+
+```bash
+# 1. Resolve A's parent (may be null if A is top-level)
+A_PARENT=$(gh api graphql -f query="query{repository(owner:\"$OWNER\",name:\"$REPO\"){issue(number:$A){parent{number}}}}" \
+  --jq '.data.repository.issue.parent.number // empty')
+
+# 2. Create B as sibling: same parent as A, blocked-by A
+τ create \
+  --title "{deferred title}" \
+  --body "**Origin:** #${A} (deferred from ...)\n\n{details}" \
+  --blocked-by "#${A}" \
+  ${A_PARENT:+--parent "#${A_PARENT}"}
+```
+
+**Edge cases:**
+- A has no parent → B has no parent either (both top-level). Consider whether A should be re-parented under a freshly-created epic if the fan-out grows.
+- A is already top-level epic → defer creates child of A (epic decomposition pattern applies).
+- Existing follow-up issue B mis-parented under A → fix retroactively:
+  ```bash
+  τ set <B> --rm-parent
+  τ set <B> --parent "#${A_PARENT}"
+  τ set <B> --blocked-by "#${A}"  # ensure traceability link
+  ```
+
 ### `migrate` — Schema validation and data migration
 
 > Operational context (7-day soak, 7 enrolled repos, serial-per-repo rollout, `flagged.txt` review gate): `artifacts/specs/121-dual-write-migration-spec.mdx`
