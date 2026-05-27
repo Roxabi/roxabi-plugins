@@ -59,7 +59,7 @@ count > 0 → → DP(A) **Resolve now** | **Return to spec** | **Proceed anyway*
 
 ## Step 2 — Plan
 
-Read `docs/processes/dev-process.mdx` + σ.
+Read `${CLAUDE_PLUGIN_ROOT}/references/dev-process.md` + σ.
 
 ### Step 2a-pre — Reasoning Audit (optional)
 
@@ -69,7 +69,7 @@ Read `docs/processes/dev-process.mdx` + σ.
 
 **2a. Scope:** Glob + Grep → files to create/modify + reference features for patterns.
 
-**2b. Tier:** S | F-lite | F-full per dev-process.mdx. ∃ `artifacts/frames/` ∧ `tier` field → use it. Else assess from σ complexity.
+**2b. Tier:** S | F-lite | F-full per dev-process.md. ∃ `artifacts/frames/` ∧ `tier` field → use it. Else assess from σ complexity.
 
 **2c. Agents:**
 

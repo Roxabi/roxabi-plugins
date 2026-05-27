@@ -103,28 +103,23 @@ Emits: `repo`, `base`, `branch_exists`, `legacy_worktree`, `worktree`, `dirty` (
 
 ω: `.claude/worktrees/{N}-{slug}` (via EnterWorktree). Branch base: `base` from output.
 
-**2c. Status:**
+**2c. Branch guard:**
 
-```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status "In Progress"
-```
-
-`branch_exists` ≠ false ⇒ → DP(A) **Reuse** | **Recreate** | **Abort**
+`branch_exists` ≠ false ∧ `worktree` = false → branch exists but no worktree → → DP(A) **Recreate worktree** (invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"`) | **Abort**
 
 `worktree` ≠ false ∧ `dirty=true` ⇒ → DP(A) **Stash changes** (`git stash`) | **Reset** (`git checkout .`) | **Continue with dirty state** | **Abort**
 
 **2e. Worktree:**
 
-`worktree` ≠ false ∧ `branch_exists` ≠ false → ω ∃, branch ∃:
+Enter existing worktree (created by `/setup-worktree` or prior `/dev` run):
 ```
-EnterWorktree(name: "{N}-{slug}")
-git checkout feat/<N>-<slug>
+EnterWorktree(path: ".claude/worktrees/{N}-{slug}")
 ```
 
-`worktree` = false → create:
-```
-EnterWorktree(name: "{N}-{slug}")
-git checkout -b feat/<N>-<slug> origin/${BASE}
+`worktree` = false → fallback: invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first, then enter.
+
+Inside ω:
+```bash
 cp .env.example .env 2>/dev/null; {package_manager} install
 # Optional: {commands.worktree_setup} <N>
 ```

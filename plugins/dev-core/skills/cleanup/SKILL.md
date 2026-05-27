@@ -17,7 +17,7 @@ Safely clean local β, ω, and remote branches with **mandatory merge-status ver
 ### 1. Gather State
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/gather-state.sh
+bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/gather-state.sh
 ```
 
 Emits: `current`, branch list with tracking info, worktree list, open PRs.

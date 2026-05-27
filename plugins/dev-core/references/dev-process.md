@@ -43,15 +43,14 @@ Artifacts = state markers for `/dev` progress detection + resumption.
 
 ### Worktree
 
-All code changes require worktree:
+`/dev` bootstraps the worktree automatically before `frame` (Step 7 silent pre-step via `/setup-worktree`). All tiers (S, F-lite, F-full) execute inside a worktree.
 
 ```bash
-git worktree add ../roxabi-XXX -b feat/XXX-slug staging
-cd ../roxabi-XXX && cp .env.example .env && bun install
-cd apps/api && bun run db:branch:create --force XXX
+git worktree add .claude/worktrees/XXX-slug -b feat/XXX-slug origin/staging
+cd .claude/worktrees/XXX-slug && cp .env.example .env && bun install
 ```
 
-**Exceptions:** XS issues (confirm via DP(B)), `/promote` release artifacts.
+**Exceptions:** `/promote` release artifacts.
 
 ¬code on main/staging w/o worktree.
 

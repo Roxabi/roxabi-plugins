@@ -8,7 +8,8 @@ REPO=$(gh repo view --json name --jq '.name' 2>/dev/null || echo "")
 BASE=$(git branch -r 2>/dev/null | grep -q 'origin/staging' && echo staging || echo main)
 
 # worktree (.claude/worktrees/ and legacy parent-dir)
-WORKTREE=$(git worktree list 2>/dev/null | grep -E "${REPO}-${N}|worktrees/${N}-" | head -1)
+[ -n "$REPO" ] && WT_PATTERN="${REPO}-${N}|worktrees/${N}-" || WT_PATTERN="worktrees/${N}-"
+WORKTREE=$(git worktree list 2>/dev/null | grep -E "$WT_PATTERN" | head -1)
 [ -n "$WORKTREE" ] && echo "worktree=$WORKTREE" || echo "worktree=false"
 
 # Helper: look for artifacts in worktree if not found in current directory
@@ -17,7 +18,7 @@ wt_artifact() {
   local pattern=$2
   if [ -n "$WORKTREE" ]; then
     WT_PATH=$(echo "$WORKTREE" | awk '{print $1}')
-    ls "${WT_PATH}/${dir}/" 2>/dev/null | grep -iE "$pattern" | head -1
+    ls "${WT_PATH}/${dir}/" 2>/dev/null | grep -iF "$pattern" | head -1
   fi
 }
 
@@ -26,8 +27,10 @@ gh issue view "$N" --json state 2>/dev/null \
   && echo "triage=true" || echo "triage=false"
 
 # frame (handles both {N}-{slug}.mdx and {slug}.mdx patterns)
-FRAME=$(ls artifacts/frames/ 2>/dev/null | grep -iE "^${N}-${SLUG}|^${SLUG}" | head -1)
-[ -z "$FRAME" ] && FRAME=$(wt_artifact "artifacts/frames" "^${N}-${SLUG}|^${SLUG}")
+FRAME=$(ls artifacts/frames/ 2>/dev/null | grep -iF "${N}-${SLUG}" | head -1)
+[ -z "$FRAME" ] && FRAME=$(ls artifacts/frames/ 2>/dev/null | grep -iF "${SLUG}" | head -1)
+[ -z "$FRAME" ] && FRAME=$(wt_artifact "artifacts/frames" "${N}-${SLUG}")
+[ -z "$FRAME" ] && FRAME=$(wt_artifact "artifacts/frames" "${SLUG}")
 [ -n "$FRAME" ] && echo "frame=$FRAME" || echo "frame=false"
 
 # recheck (session-only state — no on-disk artifact, /dev tracks via Σ_s)
@@ -36,22 +39,24 @@ FRAME=$(ls artifacts/frames/ 2>/dev/null | grep -iE "^${N}-${SLUG}|^${SLUG}" | h
 echo "recheck=null"
 
 # analyze
-ANALYZE=$(ls artifacts/analyses/ 2>/dev/null | grep -E "^${N}-|${SLUG}" | head -1)
-[ -z "$ANALYZE" ] && ANALYZE=$(wt_artifact "artifacts/analyses" "^${N}-|${SLUG}")
+ANALYZE=$(ls artifacts/analyses/ 2>/dev/null | grep -F "${N}-" | head -1)
+[ -z "$ANALYZE" ] && ANALYZE=$(ls artifacts/analyses/ 2>/dev/null | grep -iF "${SLUG}" | head -1)
+[ -z "$ANALYZE" ] && ANALYZE=$(wt_artifact "artifacts/analyses" "${N}-")
+[ -z "$ANALYZE" ] && ANALYZE=$(wt_artifact "artifacts/analyses" "${SLUG}")
 [ -n "$ANALYZE" ] && echo "analyze=$ANALYZE" || echo "analyze=false"
 
 # spec
-SPEC=$(ls artifacts/specs/ 2>/dev/null | grep "^${N}-" | head -1)
-[ -z "$SPEC" ] && SPEC=$(wt_artifact "artifacts/specs" "^${N}-")
+SPEC=$(ls artifacts/specs/ 2>/dev/null | grep -F "${N}-" | head -1)
+[ -z "$SPEC" ] && SPEC=$(wt_artifact "artifacts/specs" "${N}-")
 [ -n "$SPEC" ] && echo "spec=$SPEC" || echo "spec=false"
 
 # plan
-PLAN=$(ls artifacts/plans/ 2>/dev/null | grep "^${N}-" | head -1)
-[ -z "$PLAN" ] && PLAN=$(wt_artifact "artifacts/plans" "^${N}-")
+PLAN=$(ls artifacts/plans/ 2>/dev/null | grep -F "${N}-" | head -1)
+[ -z "$PLAN" ] && PLAN=$(wt_artifact "artifacts/plans" "${N}-")
 [ -n "$PLAN" ] && echo "plan=$PLAN" || echo "plan=false"
 
 # branch
-BRANCH=$(git branch -a 2>/dev/null | grep "${N}-${SLUG}" | head -1 | xargs)
+BRANCH=$(git branch -a 2>/dev/null | grep -F "${N}-${SLUG}" | head -1 | xargs)
 [ -n "$BRANCH" ] && echo "branch=$BRANCH" || echo "branch=false"
 
 # implement — worktree has code changes (files outside artifacts/)
