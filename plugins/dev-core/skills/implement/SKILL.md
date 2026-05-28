@@ -164,6 +164,8 @@ Read spec + ref patterns → create + implement → tests → QG → loop until 
 
 Spawn via `Task` tool (subagent/domain). Sequential ∨ parallel (2–3 max).
 
+**Worktree isolation:** Main context is already inside ω (Step 2). Subagents spawned via `Task` inherit this CWD. All file operations must stay within `.claude/worktrees/{N}-{slug}`. Do not `cd` to repo root or other paths outside ω.
+
 **Per agent spawn:**
 1. `TaskUpdate(task_id, status: "in_progress", owner: "{agent}")`.
 2. `TaskGet(task_id)` → inject `description` + `metadata` verbatim into the subagent's prompt. The agent reads its own task context from the task list.
@@ -172,7 +174,7 @@ Spawn via `Task` tool (subagent/domain). Sequential ∨ parallel (2–3 max).
    Task(
      subagent_type: "dev-core:{agent}",
      description: "{agent}: {phase} — #{N} {slug}",
-     prompt: "Issue #{N}. Task: {TaskGet.description}. Target: {file_path}. Skeleton: {code_snippet}. Verify: {verify_command}. Ref pattern: {pattern_file}. ¬TaskCreate — task lifecycle managed by lead."
+     prompt: "Issue #{N}. Task: {TaskGet.description}. Target: {file_path}. Skeleton: {code_snippet}. Verify: {verify_command}. Ref pattern: {pattern_file}. Worktree: `.claude/worktrees/{N}-{slug}` — you are already inside it; do not leave this directory. ¬TaskCreate — task lifecycle managed by lead."
    )
    ```
    Agent name map: `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `doc-writer` → `dev-core:doc-writer` | `architect` → `dev-core:architect` | `security-auditor` → `dev-core:security-auditor`
