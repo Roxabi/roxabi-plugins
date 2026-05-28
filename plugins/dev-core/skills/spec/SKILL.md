@@ -160,6 +160,8 @@ Auto-select ρ (¬ask user). Architect always included:
 | devops | ∃ CI/CD / deploy / infra criteria | Operational feasibility |
 | axial-adr-review | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ (spec adds adapter/integration/target ∨ touches `infrastructure/`) | Drift along non-primary axis (N×M trap) — read-only review |
 
+> **Note on axial-adr-review asymmetry (intentional):** The `/spec` condition is **semantic/intent-based** — it triggers when the spec proposes adding a new adapter/integration/target or touches `infrastructure/`. The code-review phase (`/code-review`) uses a **structural** condition (diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`). The two are complementary: `/spec` catches intent-level N×M violations, `/code-review` catches implementation-level ones. A spec that adds infrastructure/ changes without proposing a new adapter is not a spec-level axial concern but may still be caught at code-review. See `plugins/shared/references/axial-decomposition.md`.
+
 ∀ r ∈ ρ → spawn ∥:
 ```
 Task(
