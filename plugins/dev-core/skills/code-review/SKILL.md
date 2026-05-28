@@ -116,6 +116,8 @@ digests = emit_all_digests(chunks)            # list[BoundaryDigest]
 | **devops** | Δ ∩ {configs, CI} ≠ ∅ | config, deploy, infra |
 | **axial-adr-review** | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ Δ ∩ {`infrastructure/`, `adapters/`, `domains/`, `stages/`} ≠ ∅ | Drift along non-primary axis (target × concern duplication) — read-only review agent (no Write/Edit/Bash tools) |
 
+> **Note on axial-adr-review asymmetry (intentional):** The `/code-review` condition is **structural** — it triggers when the diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`. The spec phase (`/spec`) uses a **semantic/intent-based** condition (spec adds adapter/integration/target ∨ touches `infrastructure/`). The two are complementary: `/spec` catches intent-level N×M violations, `/code-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
+
 Skip rules: architect → |Δ| ≤ 5 ∧ ¬arch keywords | product-lead → spec ∄ | tester → Δ ⊂ {config, docs, infra}
 
 **Subdomain split (multi-chunk):** For each chunk `c_i`, apply the dispatch table against `c_i.files` only (not full Δ). Default: 1 agent per domain per chunk.

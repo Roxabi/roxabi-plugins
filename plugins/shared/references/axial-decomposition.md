@@ -62,6 +62,17 @@ Reject vague answers. Push the user toward one of:
 
 If a concern X appears in 3+ sibling dirs, it's no longer a coincidence — it's a duplication. Promote it to a shared primitive along the **primary axis**.
 
+## Dispatch asymmetry (intentional)
+
+`/spec` and `/code-review` both dispatch `axial-adr-review`, but with different conditions:
+
+| Skill | Trigger | Nature |
+|-------|---------|--------|
+| `/spec` | spec adds adapter/integration/target ∨ touches `infrastructure/` | **Semantic/intent** — reviews design proposals |
+| `/code-review` | Δ ∩ {`infrastructure/`, `adapters/`, `domains/`, `stages/`} ≠ ∅ | **Structural** — reviews actual file changes |
+
+This asymmetry is intentional. A spec may add `infrastructure/` changes without proposing a new adapter (e.g., refactoring existing stage wiring). In that case, the axial-adr concern is not relevant at the spec level because no new axis-crossing is being proposed — but it becomes relevant at code-review if the diff shows structural drift. The two gates are complementary: `/spec` catches intent-level N×M violations, `/code-review` catches implementation-level ones.
+
 ## Boundaries
 
 This reference describes the **decision** + the **interview**. It does NOT prescribe a specific axis — every system has its own answer. Surface trade-offs; the project owner picks.
