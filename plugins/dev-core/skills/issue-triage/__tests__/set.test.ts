@@ -87,6 +87,20 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
     if (u === 'L' || u === 'XL') return 'F-full'
     return undefined
   },
+  getSizeOptionId: (input: string) => {
+    const map: Record<string, string> = { S: 'size-s', 'F-lite': 'size-f-lite', 'F-full': 'size-f-full' }
+    const valid = new Set(['S', 'F-lite', 'F-full'])
+    let canonical: string | undefined
+    if (valid.has(input)) canonical = input
+    else {
+      const u = input.toUpperCase().replace(/[-\s]/g, '-')
+      if (valid.has(u)) canonical = u
+      else if (u === 'XS') canonical = 'S'
+      else if (u === 'M') canonical = 'F-lite'
+      else if (u === 'L' || u === 'XL') canonical = 'F-full'
+    }
+    return canonical ? { optionId: map[canonical], canonical } : undefined
+  },
   resolvePriority: (input: string) => {
     const canonical = new Set(['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'])
     if (canonical.has(input)) return input
@@ -166,6 +180,7 @@ describe('issue-triage/set > field updates', () => {
   it('updates size via label', async () => {
     await setIssue(['42', '--size', 'F-lite'])
     expect(mockSyncSizeLabel).toHaveBeenCalledWith(42, 'F-lite')
+    expect(mockUpdateField).toHaveBeenCalledWith('item-123', 'SZF_test', 'size-f-lite')
   })
 
   it('updates priority field with alias', async () => {
@@ -276,9 +291,9 @@ describe('issue-triage/set > combined flags', () => {
 
   it('handles multiple flags at once', async () => {
     await setIssue(['42', '--size', 'F-full', '--priority', 'Urgent', '--blocked-by', '99'])
-    // size via label, priority via field + label
+    // size via label + board field, priority via field + label
     expect(mockSyncSizeLabel).toHaveBeenCalledWith(42, 'F-full')
-    expect(mockUpdateField).toHaveBeenCalledTimes(1) // priority only
+    expect(mockUpdateField).toHaveBeenCalledTimes(2) // size board + priority
     expect(mockAddBlockedBy).toHaveBeenCalledTimes(1)
   })
 
@@ -390,6 +405,7 @@ describe('issue-triage/set > cross-repo subject', () => {
   it('skips label sync for cross-repo subject with --size', async () => {
     await setIssue(['Roxabi/voiceCLI#144', '--size', 'S'])
     expect(mockSyncSizeLabel).not.toHaveBeenCalled()
+    expect(mockUpdateField).not.toHaveBeenCalled()
     const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
     expect(errCalls.some((m) => m.includes('label sync') && m.includes('cross-repo'))).toBe(true)
   })
@@ -438,8 +454,9 @@ describe('issue-triage/set > additive regression', () => {
 
   it('--size alone does not call lane or type mutations', async () => {
     await setIssue(['123', '--size', 'S'])
-    // size via label sync
+    // size via label sync + board field
     expect(mockSyncSizeLabel).toHaveBeenCalledWith(123, 'S')
+    expect(mockUpdateField).toHaveBeenCalledWith('item-123', 'SZF_test', 'size-s')
     expect(mockSyncLaneLabel).not.toHaveBeenCalled()
     expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
   })
