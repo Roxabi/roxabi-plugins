@@ -1,0 +1,99 @@
+---
+title: Extract shared TS helpers (string/format/query/type dedup)
+issue: 193
+status: approved
+tier: F-full
+date: 2026-05-30
+---
+
+## Problem
+
+A dev-core code audit surfaced **11 duplicated TS helpers** scattered across the
+`dev-core` plugin (`skills/issues/lib/`, `skills/issue-triage/lib/`,
+`skills/shared/{adapters,ports}/`, `cli/lib/`). Some are byte-identical copies
+(`parseBlockedBy` in `digest-helpers.ts` = `show.ts`), some are same-algorithm /
+different-name (`progressBar` vs `bar`), and some have already **diverged** —
+`WorkspaceProject`/`Workspace` interfaces in `ports/workspace.ts` vs
+`cli/lib/workspace-store.ts` carry legacy `vercel*` fields on only one side (D13).
+
+Divergence is the observable cost: a fix applied to one copy silently misses the
+others. The audit (issue body, items D5–D19) enumerates each site with file:line
+and a canonical resolution. Recheck (2026-05-30) confirmed all 11 duplication
+symbols are still present at their cited counts — the opportunity is current.
+
+## Who
+
+- **Primary:** dev-core maintainers — every future edit to a duplicated helper
+  must currently be applied N times or risk drift.
+- **Secondary:** dev-init plugin — holds its own copies of 3 of the affected
+  files (`config-helpers.ts`, `migrate.ts`, `ports/workspace.ts`); its drift
+  relationship to dev-core is an open question for `/analyze` to resolve.
+
+## Constraints
+
+- **Scope = `dev-core` only.** Whether dev-init's duplicate copies are touched is
+  deferred to `/analyze` (one of the 3 unknowns); default assumption = leave
+  dev-init untouched unless analyze finds a shared-source mechanism.
+- **Behavior-preserving** for pure extractions (D5, D6, D8, D9, D10, D14, D16,
+  D18, D19) — caller output must be unchanged.
+- **D17 is NOT pure extraction** — it also changes the topo-sort algorithm
+  (O(n²) splice+indexOf → Set-based). Requires tests proving identical ordering.
+- **D13 is reconciliation, not extraction** — must decide whether `vercel*`
+  legacy fields are dead (drop) or live (keep) before unifying. `ports/` = SSoT.
+- Canonical-source decisions from the audit are constraints: `config-helpers.ts`
+  canonical for priority maps (D10); `digest-helpers.ts` for `parseBlockedBy`
+  (D5); `components.ts` for `shortTitle`/`escHtml` (D9, D19); keep `BackfillRow`
+  name (D18).
+- Single quotes, no semicolons; biome clean; vitest green; typecheck passes.
+
+## Out of Scope
+
+- New features or behavior changes beyond the D17 algorithm fix.
+- Refactoring helpers **not** named in the audit (D1–D4, D7, D11, D12, D15 are
+  absent from the issue — not in scope).
+- Cross-plugin dedup into a shared package (dev-core ↔ dev-init unification as a
+  new module) — out unless analyze explicitly recommends it.
+- The roxabi_sdk / vault path layer.
+
+## Premise Validity
+
+**Success in 6 months:** Each of the 11 helpers has exactly one definition,
+imported at all former duplication sites; `grep` for each deduped symbol returns
+a single defining file. The 3 new shared modules (`parse-issue-ref.ts`,
+`constants.ts`, `topo-sort.ts`) exist and are the sole source. `issues` /
+`issue-triage` CLI output is byte-identical to pre-refactor for all commands;
+D17's Set-based sort produces the same ordering as the old O(n²) version (proven
+by test). D13 workspace interface unified — no `vercel*` divergence remains.
+
+**Failure in 6 months:** Any deduped symbol again has >1 definition in the tree
+(measurable: `grep -rl` count > 1), OR a regression bug is filed against an
+extracted helper (e.g. topo-sort emits a different order, a CI-check mapping
+drops a field), OR the new shared modules accrete unrelated helpers and become a
+junk-drawer (import fan-in from >2 unrelated domains within 6 months). All three
+are observable boolean/threshold conditions with a 6-month horizon.
+
+**Simplest alternative:** Do nothing (leave duplicated), OR dedup only the two
+byte-identical pairs (D5, D18) and skip the rest.
+
+**Why not simplest:** D13 already proves duplication causes *real* drift, not
+aesthetic concern — the workspace interfaces have silently diverged
+(`vercel*` legacy on one side only). With 11 instances the copy-paste is
+systemic and growing; deduping only the trivial pair leaves the divergence-prone
+ones (workspace, priority maps, CI-check mapping) to keep drifting. The cost of
+each extract is XS–S, so the cheap-but-incomplete option saves little while
+leaving the actual bug source in place.
+
+## Complexity
+
+**Tier: F-full** — single plugin but ~18 files (15 existing + 3 new), 11
+independent extraction units (parallelizable), and 3 genuine unknowns that
+warrant an `analyze` pass before committing.
+
+Signals observed:
+- ~18 files touched, ≫ the 3-file S ceiling and the 4–10 F-lite band.
+- 11 independent work units → parallel-agent execution (per global parallel rules).
+- Unknown 1: dev-init holds duplicate copies of 3 files — drift relationship TBD.
+- Unknown 2: D13 workspace divergence — reconcile `vercel*` legacy before unifying.
+- Unknown 3: D17 changes algorithm (behavior), not just location — needs tests.
+- `refactor` label, complexity hint = 5; audit pre-supplies per-item resolutions
+  (lowers spec risk) but the unknowns keep it above F-lite.
