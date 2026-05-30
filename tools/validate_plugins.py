@@ -358,6 +358,9 @@ def check_shared_sources_sync() -> list[str]:
         canonical_rel = entry.get('canonical', '')
         targets = entry.get('targets', [])
         canonical_path = REPO_ROOT / canonical_rel
+        if not canonical_path.resolve().is_relative_to(REPO_ROOT.resolve()):
+            errors.append(f'Refusing path outside repo: {canonical_rel}')
+            continue
         if not canonical_path.exists():
             errors.append(
                 f'Canonical source not found: {canonical_rel}'
@@ -367,6 +370,9 @@ def check_shared_sources_sync() -> list[str]:
 
         for target_rel in targets:
             target_path = REPO_ROOT / target_rel
+            if not target_path.resolve().is_relative_to(REPO_ROOT.resolve()):
+                errors.append(f'Refusing path outside repo: {target_rel}')
+                continue
             if not target_path.exists():
                 errors.append(
                     f'{target_rel} is missing. Run: bun run sync:shared'
@@ -431,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
             print('FAIL: Shared sources sync', file=sys.stderr)
             for e in errors:
                 print(f'  {e}', file=sys.stderr)
-            return 1
+            return 2 if any(_is_io_error(e) for e in errors) else 1
         return 0
 
     # Default: run all checks

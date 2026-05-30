@@ -480,7 +480,7 @@ describe('detectGitHubRepo', () => {
           stderr: new Uint8Array(),
           exitCode: 0,
           success: true,
-        }
+        } as unknown as ReturnType<typeof Bun.spawnSync>
       }
       // git remote should not be reached
       return {
@@ -488,7 +488,7 @@ describe('detectGitHubRepo', () => {
         stderr: new TextEncoder().encode('should not be called\n'),
         exitCode: 128,
         success: false,
-      }
+      } as unknown as ReturnType<typeof Bun.spawnSync>
     })
 
     // Act

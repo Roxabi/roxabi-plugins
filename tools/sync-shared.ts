@@ -9,7 +9,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
 
 interface SharedEntry {
   canonical: string
@@ -29,17 +29,26 @@ function buildGenerated(canonicalPath: string, canonicalContent: string): string
   return makeHeader(canonicalPath) + canonicalContent
 }
 
+function assertInRepo(abs: string, rel: string): void {
+  if (abs !== REPO_ROOT && !abs.startsWith(REPO_ROOT + sep)) {
+    throw new Error(`Refusing path outside repo: ${rel}`)
+  }
+}
+
 const checkMode = process.argv.includes('--check')
 
 let drifted = false
 
 for (const entry of manifest) {
   const canonicalAbs = resolve(REPO_ROOT, entry.canonical)
+  assertInRepo(canonicalAbs, entry.canonical)
   const canonicalContent = readFileSync(canonicalAbs, 'utf-8')
   const expected = buildGenerated(entry.canonical, canonicalContent)
+  const normalized = expected.replace(/\r\n/g, '\n')
 
   for (const target of entry.targets) {
     const targetAbs = resolve(REPO_ROOT, target)
+    assertInRepo(targetAbs, target)
 
     if (checkMode) {
       if (!existsSync(targetAbs)) {
@@ -48,14 +57,12 @@ for (const entry of manifest) {
         continue
       }
       const actual = readFileSync(targetAbs, 'utf-8')
-      if (actual !== expected) {
+      if (actual !== normalized) {
         console.error(`DRIFT: ${target} is out of sync with ${entry.canonical}. Run: bun run sync:shared`)
         drifted = true
       }
     } else {
-      // Write with explicit LF line endings
-      const lfContent = expected.replace(/\r\n/g, '\n')
-      writeFileSync(targetAbs, lfContent, { encoding: 'utf-8' })
+      writeFileSync(targetAbs, normalized, { encoding: 'utf-8' })
       console.log(`synced: ${target}`)
     }
   }
