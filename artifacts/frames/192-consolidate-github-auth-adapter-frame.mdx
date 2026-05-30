@@ -1,0 +1,54 @@
+---
+title: Consolidate GitHub auth + adapter (kill class/standalone duplication)
+issue: 192
+status: approved
+tier: F-lite
+date: 2026-05-30
+---
+
+## Problem
+
+GitHub access logic in `dev-core` is reimplemented up to 5×. The dev-core audit flagged this as the biggest dedup ROI. Four distinct duplications:
+
+- **D1** — token resolution (`env → gh auth token`) duplicated ×5: `github-adapter.ts:73`, `github-adapter.ts:359`, `cli/commands/issues.ts:15`, `cli/lib/github-discovery.ts:18`, `skills/issues/lib/fetch-workflow.ts:20`.
+- **D2** — `GitHubAdapter` class vs standalone functions: ~10 methods duplicated (`getItemId`, `addToProject`, `updateField`, `getBoardIssueNumbers`, `link`…), `github-adapter.ts:73-101` vs `:358-500`. Half-finished legacy migration (comment ~L350). This is the N×2 wrong-axis duplication the issue centers on.
+- **D3** — `ghGraphQL` (execSync + tmpfile) duplicated: `show.ts:27`, `digest.ts:33`.
+- **D4** — `detectRepo` (`gh repo view --json nameWithOwner`) ×3: `show.ts:19`, `digest.ts:44`, `config-helpers.ts:35+43` — while `config-helpers.detectGitHubRepo()` already exists.
+
+Observable impact: every change to GitHub access touches multiple copies; the adapter keeps drifting; the class/standalone split is a stalled migration that doubles maintenance.
+
+## Who
+
+- **Primary:** dev-core maintainers — any change to GitHub access currently means editing 2–5 sites.
+- **Secondary:** plugin consumers — fewer drift bugs, consistent auth behavior.
+
+## Constraints
+
+- Single domain: TypeScript GitHub-access layer under `plugins/dev-core`.
+- Must preserve existing call-site behavior (no functional change — pure dedup/refactor).
+- D2 carries the axial decision (keep standalone, drop class) — must respect the repo's axial ADR.
+- No `--force`/`--hard`/`--amend`; biome formatting; single quotes, no semicolons.
+
+## Out of Scope
+
+- Touching `dev-init` copies of `github-adapter.ts` / `config-helpers.ts` (separate plugin).
+- New GitHub features or API surface changes.
+- Changing the GraphQL queries themselves (only their execution wrapper).
+
+## Premise Validity
+
+**Success in 6 months:** One canonical `getGitHubToken()`, one `GitHubAdapter` API, one `ghGraphQL`, and reuse of `detectGitHubRepo()`. Grep for each of the 5 dup patterns returns a single definition.
+
+**Failure in 6 months:** Duplicate token/GraphQL/detectRepo implementations reappear (grep finds ≥2 definitions of any), OR the class/standalone split persists with both still called from prod paths (count >1 of equivalent method sets).
+
+**Simplest alternative:** Do only D1 (token dedup, highest ROI), leave D2–D4.
+**Why not simplest:** D2 is the N×2 wrong-axis duplication the issue centers on (~10 methods duplicated class-vs-standalone); leaving it means the adapter keeps drifting and the next change touches both copies. D3/D4 are cheap once D1 lands.
+
+## Complexity
+
+**Tier: F-lite** — clear, well-specified scope across ~8 files in a single domain, no unknowns.
+
+Signals observed:
+- 4 bounded dedup tasks (D1–D4) with exact files + targets named in the issue.
+- Single domain (GitHub-access layer), no new architecture.
+- One contained axial decision (D2 class-vs-standalone) → captured at spec gate, no full analysis phase needed.
