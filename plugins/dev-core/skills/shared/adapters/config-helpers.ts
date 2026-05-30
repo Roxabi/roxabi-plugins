@@ -82,7 +82,7 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
         }
       }
     } catch {
-      /* gh not available or no project linked */
+      /* gh not available, no project linked, or invalid slug from gh output */
     }
   }
 
