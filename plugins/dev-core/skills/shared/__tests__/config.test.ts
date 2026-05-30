@@ -298,6 +298,19 @@ describe('detectGitHubRepo', () => {
   it('throws when GITHUB_REPO has extra path segments', () => {
     process.env.GITHUB_REPO = 'owner/repo/extra'
     expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo')
+    expect(spawnSyncSpy).not.toHaveBeenCalled()
+  })
+
+  it('throws when GITHUB_REPO has a leading slash (empty owner)', () => {
+    process.env.GITHUB_REPO = '/repo'
+    expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo')
+    expect(spawnSyncSpy).not.toHaveBeenCalled()
+  })
+
+  it('throws when GITHUB_REPO is whitespace-padded', () => {
+    process.env.GITHUB_REPO = ' owner/repo '
+    expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo')
+    expect(spawnSyncSpy).not.toHaveBeenCalled()
   })
 
   it('parses SSH remote URL', () => {
