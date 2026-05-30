@@ -3,7 +3,6 @@
  * These are used by EnvConfigAdapter and re-exported from config.ts for backward compat.
  */
 
-import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import type { ProjectFieldIds } from '../domain/types'
 import type { WorkspaceProject } from '../ports/workspace'
@@ -32,7 +31,11 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
   // 3rd: Auto-detect via gh CLI for supported keys
   if (key === 'github_repo') {
     try {
-      return execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', { encoding: 'utf-8' }).trim()
+      const proc = Bun.spawnSync(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+      if (proc.exitCode === 0) return new TextDecoder().decode(proc.stdout).trim()
     } catch {
       /* gh not available */
     }
@@ -40,18 +43,24 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
 
   if (key === 'gh_project_id') {
     try {
-      const repo = execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim()
-      if (repo) {
-        const [owner, name] = repo.split('/')
-        const query = `{ repository(owner: \\"${owner}\\", name: \\"${name}\\") { projectsV2(first: 1) { nodes { id } } } }`
-        const id = execSync(`gh api graphql -f query="${query}" --jq '.data.repository.projectsV2.nodes[0].id'`, {
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-        }).trim()
-        if (id && id !== 'null') return id
+      const repoProc = Bun.spawnSync(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+      if (repoProc.exitCode === 0) {
+        const repo = new TextDecoder().decode(repoProc.stdout).trim()
+        if (repo) {
+          const [owner, name] = repo.split('/')
+          const query = `{ repository(owner: "${owner}", name: "${name}") { projectsV2(first: 1) { nodes { id } } } }`
+          const idProc = Bun.spawnSync(
+            ['gh', 'api', 'graphql', '-f', `query=${query}`, '--jq', '.data.repository.projectsV2.nodes[0].id'],
+            { stdout: 'pipe', stderr: 'pipe' },
+          )
+          if (idProc.exitCode === 0) {
+            const id = new TextDecoder().decode(idProc.stdout).trim()
+            if (id && id !== 'null') return id
+          }
+        }
       }
     } catch {
       /* gh not available or no project linked */

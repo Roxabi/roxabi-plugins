@@ -6,7 +6,6 @@
  * Usage: bun digest.ts
  */
 
-import { execSync } from 'node:child_process'
 import { detectGitHubRepo } from '../shared/adapters/config-helpers'
 import {
   buildCols,
@@ -33,10 +32,28 @@ import { ghGraphQLExec } from './lib/gh-exec'
 
 const [owner, repo] = detectGitHubRepo().split('/')
 
-const epicsRaw = execSync(
-  `gh issue list --repo ${owner}/${repo} --label epic --state open --json number,title --limit 50`,
-  { encoding: 'utf-8' },
+const epicsProc = Bun.spawnSync(
+  [
+    'gh',
+    'issue',
+    'list',
+    '--repo',
+    `${owner}/${repo}`,
+    '--label',
+    'epic',
+    '--state',
+    'open',
+    '--json',
+    'number,title',
+    '--limit',
+    '50',
+  ],
+  { stdout: 'pipe', stderr: 'pipe' },
 )
+if (epicsProc.exitCode !== 0) {
+  throw new Error(`gh issue list failed: ${new TextDecoder().decode(epicsProc.stderr).trim()}`)
+}
+const epicsRaw = new TextDecoder().decode(epicsProc.stdout).trim()
 const topEpics: Array<{ number: number; title: string }> = JSON.parse(epicsRaw)
 
 if (topEpics.length === 0) {

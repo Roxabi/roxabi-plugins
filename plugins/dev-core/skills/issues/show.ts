@@ -5,7 +5,6 @@
  * Usage: bun show.ts <issue-number>
  */
 
-import { execSync } from 'node:child_process'
 import { detectGitHubRepo } from '../shared/adapters/config-helpers'
 import { ghGraphQLExec } from './lib/gh-exec'
 
@@ -78,10 +77,21 @@ interface GhIssue {
   comments: GhComment[]
 }
 
-const raw = execSync(
-  `gh issue view ${issueNum} --json number,title,body,state,labels,assignees,milestone,createdAt,updatedAt,closedAt,comments`,
-  { encoding: 'utf-8' },
+const ghProc = Bun.spawnSync(
+  [
+    'gh',
+    'issue',
+    'view',
+    String(issueNum),
+    '--json',
+    'number,title,body,state,labels,assignees,milestone,createdAt,updatedAt,closedAt,comments',
+  ],
+  { stdout: 'pipe', stderr: 'pipe' },
 )
+if (ghProc.exitCode !== 0) {
+  throw new Error(`gh issue view failed: ${new TextDecoder().decode(ghProc.stderr).trim()}`)
+}
+const raw = new TextDecoder().decode(ghProc.stdout).trim()
 const issue: GhIssue = JSON.parse(raw)
 
 // ── 2. Sub-issues via GraphQL ────────────────────────────────────────────────
