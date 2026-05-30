@@ -28,8 +28,18 @@ import { dirname, join, resolve, sep } from 'node:path'
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface LicensePolicy {
+  /** Resolved allowed licenses — populated from allowlist (canonical) or allowedLicenses (legacy). */
   allowedLicenses: string[]
   overrides: Record<string, string>
+}
+
+/** Raw shape of .license-policy.json on disk — either key accepted. */
+interface RawLicensePolicy {
+  /** Canonical key used by Python checker and new deployments. */
+  allowlist?: string[]
+  /** Legacy key from original TS checker. */
+  allowedLicenses?: string[]
+  overrides?: Record<string, string>
 }
 
 export interface PackageEntry {
@@ -61,9 +71,9 @@ export function loadPolicy(repoRoot: string): LicensePolicy {
     throw new Error('No .license-policy.json found at repo root')
   }
   const raw = readFileSync(policyPath, 'utf-8')
-  const policy = JSON.parse(raw) as LicensePolicy
+  const policy = JSON.parse(raw) as RawLicensePolicy
   return {
-    allowedLicenses: policy.allowedLicenses ?? [],
+    allowedLicenses: policy.allowlist ?? policy.allowedLicenses ?? [],
     overrides: policy.overrides ?? {},
   }
 }

@@ -2,6 +2,8 @@
  * GitHub adapter — standalone helper functions wrapping GitHub REST + GraphQL APIs.
  * Exports canonical getGitHubToken() for auth, plus all operational helpers.
  */
+
+import { ConfigError, DevCoreError, GitHubApiError } from '../domain/errors'
 import {
   ADD_BLOCKED_BY_MUTATION,
   ADD_SUB_ISSUE_MUTATION,
@@ -78,7 +80,7 @@ export function getGitHubToken(): string {
     // gh not available
   }
 
-  throw new Error('GITHUB_TOKEN env var required (or gh auth login for local dev)')
+  throw new ConfigError('GITHUB_TOKEN env var required (or gh auth login for local dev)')
 }
 
 function authHeaders(): Record<string, string> {
@@ -97,7 +99,7 @@ export async function run(cmd: string[], cwd?: string): Promise<string> {
   const code = await proc.exited
 
   if (code !== 0) {
-    throw new Error(`Command failed (${code}): ${cmd.join(' ')}\n${stderr}`)
+    throw new DevCoreError(`Command failed (${code}): ${cmd.join(' ')}\n${stderr}`)
   }
   return stdout.trim()
 }
@@ -112,12 +114,12 @@ export async function ghGraphQL(query: string, variables: Record<string, unknown
 
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`GitHub GraphQL error (${res.status}): ${text}`)
+    throw new GitHubApiError(`GitHub GraphQL error (${res.status}): ${text}`, res.status)
   }
 
   const json = (await res.json()) as { errors?: { message: string }[] }
   if (json.errors?.length) {
-    throw new Error(`GitHub GraphQL error: ${JSON.stringify(json.errors)}`)
+    throw new GitHubApiError(`GitHub GraphQL error: ${JSON.stringify(json.errors)}`)
   }
   return json
 }
@@ -148,7 +150,7 @@ export async function getNodeId(issueNumber: number | string, repo?: string): Pr
   })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`Failed to get node ID for #${issueNumber} (${res.status}): ${text}`)
+    throw new GitHubApiError(`Failed to get node ID for #${issueNumber} (${res.status}): ${text}`, res.status)
   }
   const data = (await res.json()) as { node_id: string }
   return data.node_id
@@ -172,7 +174,7 @@ export async function createGitHubIssue(
 
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`Failed to create issue (${res.status}): ${text}`)
+    throw new GitHubApiError(`Failed to create issue (${res.status}): ${text}`, res.status)
   }
 
   const data = (await res.json()) as { html_url: string; number: number }
@@ -186,7 +188,7 @@ export async function getItemId(
 ): Promise<string> {
   const pid = overrides?.projectId ?? GH_PROJECT_ID
   const repoSlug = overrides?.repo ?? GITHUB_REPO
-  if (!pid) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
+  if (!pid) throw new ConfigError(GH_PROJECT_ID_NOT_CONFIGURED)
   const [owner, repo] = repoSlug.split('/')
   const data = (await ghGraphQL(ITEM_ID_QUERY, { owner, repo, number: issueNumber })) as {
     data: {
@@ -197,14 +199,14 @@ export async function getItemId(
   }
   const items = data.data.repository.issue.projectItems.nodes
   const item = items.find((i) => i.project.id === pid)
-  if (!item) throw new Error(`Issue #${issueNumber} not found in project`)
+  if (!item) throw new GitHubApiError(`Issue #${issueNumber} not found in project`)
   return item.id
 }
 
 /** Add an issue to the project board. Returns the new item ID. */
 export async function addToProject(nodeId: string, projectId?: string): Promise<string> {
   const pid = projectId ?? GH_PROJECT_ID
-  if (!pid) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
+  if (!pid) throw new ConfigError(GH_PROJECT_ID_NOT_CONFIGURED)
   const data = (await ghGraphQL(ADD_TO_PROJECT_MUTATION, {
     projectId: pid,
     contentId: nodeId,
@@ -233,7 +235,7 @@ export async function updateField(
   overrideProjectId?: string,
 ): Promise<void> {
   const pid = overrideProjectId ?? GH_PROJECT_ID
-  if (!pid) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
+  if (!pid) throw new ConfigError(GH_PROJECT_ID_NOT_CONFIGURED)
   await ghGraphQL(UPDATE_FIELD_MUTATION, {
     projectId: pid,
     itemId,
@@ -245,7 +247,7 @@ export async function updateField(
 /** Clear a single-select project field value (set to null/unset). */
 export async function clearField(itemId: string, fieldId: string, overrideProjectId?: string): Promise<void> {
   const pid = overrideProjectId ?? GH_PROJECT_ID
-  if (!pid) throw new Error(GH_PROJECT_ID_NOT_CONFIGURED)
+  if (!pid) throw new ConfigError(GH_PROJECT_ID_NOT_CONFIGURED)
   await ghGraphQL(CLEAR_FIELD_MUTATION, {
     projectId: pid,
     itemId,
@@ -382,7 +384,7 @@ export async function resolveIssueTypeId(org: string, typeName: string): Promise
   const match = types.find((t) => t.name.toLowerCase() === typeName.toLowerCase())
   if (!match) {
     const valid = types.map((t) => t.name).join(', ')
-    throw new Error(`Unknown issue type: ${typeName}. Valid: ${valid}`)
+    throw new GitHubApiError(`Unknown issue type: ${typeName}. Valid: ${valid}`)
   }
   return match.id
 }
