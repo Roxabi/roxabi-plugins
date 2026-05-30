@@ -1,0 +1,84 @@
+---
+title: Fix latent correctness bugs in dev-core scripts
+issue: 191
+status: approved
+tier: F-lite
+date: 2026-05-30
+---
+
+## Problem
+
+A 2026-05-30 audit of the `dev-core` plugin's TypeScript tooling surfaced 5 latent
+correctness bugs. None are user-reported yet, but each is a real defect that will
+misbehave under the right input:
+
+1. **`skills/issues/lib/components.ts:154-167` — `ciIcon` dead branch.** The guard
+   `if (status === 'COMPLETED' || status === 'SUCCESS')` at L154 already captures
+   `status === 'SUCCESS'`, so the later `if (status === 'SUCCESS')` at L164 is
+   unreachable. A `StatusContext` with `status: 'SUCCESS'` and a *non*-success
+   conclusion falls through to the wrong icon. Same pattern repeats for the CSS-class
+   variant (L171-178). StatusContext-vs-CheckRun semantics must be checked before fixing.
+2. **`skills/issues/dashboard.ts:296-303` vs `:243` — `localPath` dropped in
+   single-project path.** The single-project `wsProjects` map omits `localPath`, so
+   branches/worktrees are never fetched on that path. Likely a regression vs the
+   multi-project path.
+3. **`skills/issue-triage/lib/list.ts:93` — `renderTree()` has no cycle guard.** A
+   GitHub-returned sub-issue cycle recurses until stack overflow. Needs a
+   `visited: Set<number>` guard.
+4. **`skills/issue-triage/lib/migrate.ts:733` — unverified `issueType=null` revert.** A
+   FIXME flags that the revert path is unverified in prod; it can mass-mutate issue
+   types with no warning. Needs a CLI warning + confirmation before executing.
+5. **`tools/licenseChecker.ts:308-320` — `parseSpdxExpression` mis-parses nesting.**
+   Breaks on nested SPDX such as `(MIT OR Apache-2.0) AND BSD-2-Clause`, producing a
+   wrong component list and potentially a false license verdict.
+
+Observable impact: wrong CI icons in the issues dashboard, missing worktree/branch data
+in single-project mode, a crash on cyclic sub-issues, a risky un-gated migration revert,
+and incorrect license-compliance results.
+
+## Who
+
+- **Primary:** Roxabi maintainers using `dev-core` skills (`/issues`, `/issue-triage`,
+  license checks) day-to-day.
+- **Secondary:** Any downstream consumer of the `dev-core` marketplace plugin who runs
+  these scripts.
+
+## Constraints
+
+- All fixes live under `plugins/dev-core/` — single plugin, single domain (TS tooling).
+- Runtime = `bun`; tests = `vitest`; formatter = `biome` (single quotes, no semicolons).
+- Each bug is independently fixable — no cross-bug coupling.
+- Bug 1 requires verifying StatusContext vs CheckRun semantics before changing branch order.
+- Bugs 4 needs a behavior change (add confirmation) — must not break non-interactive callers.
+
+## Out of Scope
+
+- No refactor of the surrounding modules beyond what each fix needs.
+- No new features in `/issues`, `/issue-triage`, or the license checker.
+- No change to plugin packaging/versioning policy.
+
+## Premise Validity
+
+**Success in 6 months:** All 5 cited code locations are corrected, each covered by a
+regression test (vitest) that fails on the old code and passes on the new; the
+`dev-core` test suite is green and no new related bug reports land.
+
+**Failure in 6 months:** Any of the 5 bugs still reproduces (e.g. cyclic sub-issue still
+overflows the stack, or `parseSpdxExpression` still mis-parses a nested expression), OR
+a fix shipped without a test that pins the corrected behavior — observable by running the
+listed inputs against the merged code.
+
+**Simplest alternative:** Patch each line in place with no added tests.
+**Why not simplest:** These are *latent* bugs with no failing test guarding them — without
+regression tests the fixes can silently regress on the next refactor, which is exactly how
+they were introduced. Tests are the deliverable, not a nice-to-have.
+
+## Complexity
+
+**Tier: F-lite** — clear scope, single domain (TS tooling under `plugins/dev-core/`),
+5 files, no new architecture, no unknowns beyond the one semantics check in Bug 1.
+
+Signals observed:
+- 5 files, all under one plugin → not S (>3 files), not F-full (single domain, no new arch).
+- Each bug pre-diagnosed with file:line + fix direction → clear scope.
+- One small verification needed (StatusContext vs CheckRun) → handled in spec/implement, not an arch unknown.
