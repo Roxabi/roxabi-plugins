@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "bunx biome check .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sync:shared": "bun run tools/sync-shared.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",

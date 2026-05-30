@@ -79,6 +79,8 @@ Keep all READMEs current. Adding/modifying/removing a plugin → update:
 - **Workflow:** edit repo source → commit + push → re-install via `claude plugin install <plugin-name>` to refresh local cache.
 - **Versioning** ([docs](https://code.claude.com/docs/en/plugin-marketplaces#version-resolution-and-release-channels)): resolution order = `plugin.json.version` > marketplace entry `version` > git commit SHA (first set wins). **Default policy: omit `version` from `plugin.json`** → every commit auto-ships as a new version (SHA-based, zero discipline). Set `version` only on semver-disciplined plugins (e.g., `dev-core`); bump on every release or users will not receive updates. Never set in both `plugin.json` AND marketplace entry — `plugin.json` silently wins, masking the marketplace value.
 
+- **Shared-source TS files** — some TS files exist as a dev-core canonical + dev-init generated pair (currently `config-helpers.ts` and its `__tests__/config.test.ts`). ¬hand-edit the dev-init copy — edit the dev-core canonical, then run `bun run sync:shared` before committing. Generated copies carry a `// @generated` header and are byte-equality-gated by `tools/validate_plugins.py --check shared-sources-sync` (CI + lefthook). Manifest of synced pairs: `tools/shared-sources.json`.
+
 → [`docs/plugin-cache.md`](docs/plugin-cache.md) — how the hash-keyed cache works, `${CLAUDE_SKILL_DIR}` vs `${CLAUDE_PLUGIN_ROOT}`, sync script details.
 
 ## Style

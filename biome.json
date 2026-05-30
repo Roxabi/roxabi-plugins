@@ -22,5 +22,15 @@
   "files": {
     "includes": ["**/*.ts", "**/*.js", "!**/node_modules", "!**/.venv", "!**/.cache", "!.claude/worktrees"]
   },
-  "overrides": []
+  "overrides": [
+    {
+      "includes": [
+        "plugins/dev-init/skills/shared/adapters/config-helpers.ts",
+        "plugins/dev-init/skills/shared/__tests__/config.test.ts"
+      ],
+      "formatter": {
+        "enabled": false
+      }
+    }
+  ]
 }

@@ -337,6 +337,53 @@ def check_subsumption_pairs(
     return errors
 
 
+def check_shared_sources_sync() -> list[str]:
+    """Generated copies in shared-sources.json must match their canonical sources.
+
+    Mirrors tools/sync-shared.ts --check semantics:
+    - Strip the 2-line generated header (line 1 = @generated comment, line 2 = blank line)
+      from each target and compare the remainder against the canonical file byte-for-byte.
+    - Missing target files are also flagged as drift.
+    """
+    errors = []
+    manifest_path = REPO_ROOT / 'tools' / 'shared-sources.json'
+    if not manifest_path.exists():
+        errors.append('shared-sources.json not found at tools/shared-sources.json')
+        return errors
+
+    with open(manifest_path) as f:
+        manifest = json.load(f)
+
+    for entry in manifest:
+        canonical_rel = entry.get('canonical', '')
+        targets = entry.get('targets', [])
+        canonical_path = REPO_ROOT / canonical_rel
+        if not canonical_path.exists():
+            errors.append(
+                f'Canonical source not found: {canonical_rel}'
+            )
+            continue
+        canonical_content = canonical_path.read_text(encoding='utf-8')
+
+        for target_rel in targets:
+            target_path = REPO_ROOT / target_rel
+            if not target_path.exists():
+                errors.append(
+                    f'{target_rel} is missing. Run: bun run sync:shared'
+                )
+                continue
+            target_content = target_path.read_text(encoding='utf-8')
+            # Strip the 2-line generated header: line 1 (@generated comment) + line 2 (blank)
+            lines = target_content.split('\n')
+            # Header is 2 lines: index 0 = @generated, index 1 = blank; body starts at index 2
+            body = '\n'.join(lines[2:]) if len(lines) > 2 else ''
+            if body != canonical_content:
+                errors.append(
+                    f'{target_rel} is out of sync with {canonical_rel}. Run: bun run sync:shared'
+                )
+    return errors
+
+
 def _is_io_error(msg: str) -> bool:
     """Return True when the error message signals an IO/parse failure (exit 2).
 
@@ -354,7 +401,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Validate plugin structure and data conventions.')
     parser.add_argument(
         '--check',
-        choices=['class-list-sync', 'subsumption-pairs'],
+        choices=['class-list-sync', 'subsumption-pairs', 'shared-sources-sync'],
         help='Run only the named check (default: run all checks)',
     )
     args = parser.parse_args(argv)
@@ -378,6 +425,15 @@ def main(argv: list[str] | None = None) -> int:
             return 2 if any(_is_io_error(e) for e in errors) else 1
         return 0
 
+    if args.check == 'shared-sources-sync':
+        errors = check_shared_sources_sync()
+        if errors:
+            print('FAIL: Shared sources sync', file=sys.stderr)
+            for e in errors:
+                print(f'  {e}', file=sys.stderr)
+            return 1
+        return 0
+
     # Default: run all checks
     all_errors = []
     checks = [
@@ -389,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
         ('Tempfile convention', check_tempfile_convention),
         ('Class list sync', check_class_list_sync),
         ('Subsumption pairs', check_subsumption_pairs),
+        ('Shared sources sync', check_shared_sources_sync),
     ]
 
     for name, check_fn in checks:
