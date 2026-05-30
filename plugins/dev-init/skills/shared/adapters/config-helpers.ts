@@ -3,7 +3,6 @@
  * These are used by EnvConfigAdapter and re-exported from config.ts for backward compat.
  */
 
-import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import type { ProjectFieldIds } from '../domain/types'
 import type { WorkspaceProject } from '../ports/workspace'
@@ -32,7 +31,11 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
   // 3rd: Auto-detect via gh CLI for supported keys
   if (key === 'github_repo') {
     try {
-      return execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', { encoding: 'utf-8' }).trim()
+      const proc = Bun.spawnSync(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+      if (proc.exitCode === 0) return new TextDecoder().decode(proc.stdout).trim()
     } catch {
       /* gh not available */
     }
@@ -40,18 +43,24 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
 
   if (key === 'gh_project_id') {
     try {
-      const repo = execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim()
-      if (repo) {
-        const [owner, name] = repo.split('/')
-        const query = `{ repository(owner: \\"${owner}\\", name: \\"${name}\\") { projectsV2(first: 1) { nodes { id } } } }`
-        const id = execSync(`gh api graphql -f query="${query}" --jq '.data.repository.projectsV2.nodes[0].id'`, {
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-        }).trim()
-        if (id && id !== 'null') return id
+      const repoProc = Bun.spawnSync(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+      if (repoProc.exitCode === 0) {
+        const repo = new TextDecoder().decode(repoProc.stdout).trim()
+        if (repo) {
+          const [owner, name] = repo.split('/')
+          const query = `{ repository(owner: "${owner}", name: "${name}") { projectsV2(first: 1) { nodes { id } } } }`
+          const idProc = Bun.spawnSync(
+            ['gh', 'api', 'graphql', '-f', `query=${query}`, '--jq', '.data.repository.projectsV2.nodes[0].id'],
+            { stdout: 'pipe', stderr: 'pipe' },
+          )
+          if (idProc.exitCode === 0) {
+            const id = new TextDecoder().decode(idProc.stdout).trim()
+            if (id && id !== 'null') return id
+          }
+        }
       }
     } catch {
       /* gh not available or no project linked */
@@ -61,15 +70,43 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
   return undefined
 }
 
+/**
+ * A GitHub repo slug: exactly `owner/repo`.
+ * GitHub owner: [A-Za-z0-9-], repo name: [A-Za-z0-9._-].
+ * Callers do `detectGitHubRepo().split('/')` and expect exactly two non-empty segments.
+ */
+const REPO_SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
+
+/**
+ * Validate a candidate GitHub repo slug and throw a clear error if it doesn't match.
+ * Used by both the yaml/env path and the git-remote fallback in detectGitHubRepo().
+ */
+function assertValidRepoSlug(value: string): string {
+  if (!REPO_SLUG_RE.test(value)) {
+    throw new Error(
+      `Invalid GitHub repo "${value}". Expected "owner/repo" format ` +
+        '(set github_repo in dev-core config or the GITHUB_REPO env var).',
+    )
+  }
+  return value
+}
+
 export function detectGitHubRepo(): string {
   const fromYamlOrEnv = loadDevCoreConfig('github_repo', 'GITHUB_REPO')
-  if (fromYamlOrEnv) return fromYamlOrEnv
+  if (fromYamlOrEnv) {
+    // Guard the yaml/env path: callers do `detectGitHubRepo().split('/')` and
+    // expect `owner/repo`. A bare value (e.g. `GITHUB_REPO=myrepo`) would slip
+    // through as a silent `undefined` repo → malformed GraphQL. Fail loud here.
+    return assertValidRepoSlug(fromYamlOrEnv)
+  }
   try {
     const proc = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], { stdout: 'pipe', stderr: 'pipe' })
     const url = new TextDecoder().decode(proc.stdout).trim()
     // SSH: git@github.com:owner/repo.git  |  HTTPS: https://github.com/owner/repo.git
     const match = url.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/)
-    if (match?.[1]) return match[1]
+    // Validate the extracted candidate — a malformed remote must not silently
+    // return a bad slug that callers would split('/') into garbage GraphQL args.
+    if (match?.[1]) return assertValidRepoSlug(match[1])
   } catch {}
   throw new Error('Cannot detect GitHub repo. Set GITHUB_REPO env var or ensure git remote "origin" is configured.')
 }
