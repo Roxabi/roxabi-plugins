@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
 # Usage: preflight.sh
 # Fetches latest, reports commits ahead, open PRs on staging, and CI status.
+set -euo pipefail
+
 git fetch origin staging main 2>&1
 git checkout staging && git pull origin staging 2>&1
 
-COMMITS=$(git log main..staging --oneline | wc -l | xargs)
+# `|| true` keeps a git-log failure from aborting under `set -e` so the guard
+# below can report a structured status instead of a bare non-zero exit.
+COMMITS=$(git log main..staging --oneline 2>/dev/null | wc -l | tr -d '[:space:]' || true)
+COMMITS=${COMMITS:-0}
 echo "commits_ahead=$COMMITS"
-[ "$COMMITS" -eq 0 ] && echo "status=nothing_to_promote" || echo "status=ok"
+if ! [ "$COMMITS" -eq "$COMMITS" ] 2>/dev/null; then
+  echo "status=error_counting_commits"
+elif [ "$COMMITS" -eq 0 ]; then
+  echo "status=nothing_to_promote"
+else
+  echo "status=ok"
+fi
 
 echo "---commits---"
 git log main..staging --oneline 2>/dev/null || echo "none"

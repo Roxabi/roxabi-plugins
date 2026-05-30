@@ -109,6 +109,7 @@ Display results and generated files. Do NOT run `git add` or `git commit`.
      .github/workflows/release-please.yml  (Release Please chosen)
      tools/check_file_length.sh          (python + quality_gates only)
      tools/check_folder_size.sh          (python + quality_gates only)
+     tools/check_lib.sh                  (python + quality_gates only — sourced by both check scripts)
      tools/file_exemptions.txt           (python + quality_gates only)
      tools/folder_exemptions.txt         (python + quality_gates only)
      tools/qg.conf                       (python + quality_gates only — regenerated from stack.yml)
