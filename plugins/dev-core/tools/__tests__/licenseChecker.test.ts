@@ -156,6 +156,28 @@ describe('isLicenseAllowed', () => {
   it('returns false for empty allowed list', () => {
     expect(isLicenseAllowed('MIT', [])).toBe(false)
   })
+
+  // Precedence and grouping tests
+  it('grouped AND+OR: (MIT OR Apache-2.0) AND BSD-2-Clause — allowed=[MIT,BSD-2-Clause] → true', () => {
+    expect(isLicenseAllowed('(MIT OR Apache-2.0) AND BSD-2-Clause', ['MIT', 'BSD-2-Clause'])).toBe(true)
+  })
+
+  it('grouped AND+OR: (MIT OR Apache-2.0) AND BSD-2-Clause — allowed=[MIT] → false (BSD group unsatisfiable)', () => {
+    expect(isLicenseAllowed('(MIT OR Apache-2.0) AND BSD-2-Clause', ['MIT'])).toBe(false)
+  })
+
+  it('AND binds tighter than OR: MIT OR GPL-3.0 AND Proprietary — allowed=[MIT] → true', () => {
+    // Parsed as: MIT OR (GPL-3.0 AND Proprietary) — MIT satisfies the top-level OR
+    expect(isLicenseAllowed('MIT OR GPL-3.0 AND Proprietary', ['MIT'])).toBe(true)
+  })
+
+  it('WITH exception: Apache-2.0 WITH LLVM-exception treated as opaque atom — allowed=[Apache-2.0 WITH LLVM-exception] → true', () => {
+    expect(isLicenseAllowed('Apache-2.0 WITH LLVM-exception', ['Apache-2.0 WITH LLVM-exception'])).toBe(true)
+  })
+
+  it('trailing +: GPL-2.0+ → strip + and match bare id — allowed=[GPL-2.0] → true', () => {
+    expect(isLicenseAllowed('GPL-2.0+', ['GPL-2.0'])).toBe(true)
+  })
 })
 
 // ─── detectLicense ───────────────────────────────────────────────────────────
