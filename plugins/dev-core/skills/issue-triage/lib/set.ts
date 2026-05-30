@@ -5,6 +5,7 @@
 
 import {
   GITHUB_REPO,
+  getSizeOptionId,
   isProjectConfigured,
   NOT_CONFIGURED_MSG,
   PRIORITY_FIELD_ID,
@@ -13,6 +14,7 @@ import {
   resolvePriority,
   resolveSize,
   resolveStatus,
+  SIZE_FIELD_ID,
   STATUS_FIELD_ID,
   STATUS_OPTIONS,
 } from '../../shared/adapters/config-helpers'
@@ -128,6 +130,16 @@ function resolveItemId(issueNumber: number): Promise<string | undefined> {
   })
 }
 
+async function applySize(itemId: string, issueNumber: number, size: string): Promise<void> {
+  const resolved = getSizeOptionId(size)
+  if (!resolved) {
+    console.error('Error: Invalid size')
+    process.exit(1)
+  }
+  await updateField(itemId, SIZE_FIELD_ID, resolved.optionId)
+  console.log(`Size=${resolved.canonical} #${issueNumber}`)
+}
+
 async function applyStatus(itemId: string, issueNumber: number, status: string): Promise<void> {
   const canonical = resolveStatus(status)
   if (!(canonical && STATUS_OPTIONS[canonical])) {
@@ -164,11 +176,11 @@ async function applyType(issueNumber: number, type: string): Promise<void> {
 }
 
 async function applyProjectFields(issueNumber: number, opts: SetOptions): Promise<void> {
-  if (!(opts.priority || opts.status || opts.type)) return
+  if (!(opts.size || opts.priority || opts.status || opts.type)) return
 
   if (opts.subjectRepo) {
     console.error(
-      `Warning: --status/--priority/--type are not supported for cross-repo subjects (${opts.subjectRepo}#${issueNumber}) — skipped`,
+      `Warning: --size/--status/--priority/--type are not supported for cross-repo subjects (${opts.subjectRepo}#${issueNumber}) — skipped`,
     )
     return
   }
@@ -182,6 +194,7 @@ async function applyProjectFields(issueNumber: number, opts: SetOptions): Promis
   if (!itemId) return
 
   if (opts.status) await applyStatus(itemId, issueNumber, opts.status)
+  if (opts.size) await applySize(itemId, issueNumber, opts.size)
   if (opts.priority) await applyPriority(itemId, issueNumber, opts.priority)
   if (opts.type) await applyType(issueNumber, opts.type)
 }
@@ -325,10 +338,7 @@ export async function setIssue(args: string[]): Promise<void> {
     }
     if (opts.size) {
       const canonical = resolveSize(opts.size)
-      if (canonical) {
-        await syncSizeLabel(opts.issueNumber, canonical)
-        console.log(`Size=${canonical} #${opts.issueNumber}`)
-      }
+      if (canonical) await syncSizeLabel(opts.issueNumber, canonical)
     }
     if (opts.lane) {
       const canonical = resolveLane(opts.lane)
