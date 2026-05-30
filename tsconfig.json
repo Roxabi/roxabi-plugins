@@ -13,7 +13,8 @@
   "include": [
     "vitest.config.ts",
     "vitest.setup.ts",
-    "plugins/dev-core/**/*.ts"
+    "plugins/dev-core/**/*.ts",
+    "plugins/shared/**/*.ts"
   ],
   "exclude": [
     "node_modules",
