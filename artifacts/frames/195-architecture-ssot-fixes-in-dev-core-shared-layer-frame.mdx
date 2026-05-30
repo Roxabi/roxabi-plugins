@@ -1,0 +1,79 @@
+---
+title: Architecture + SSoT fixes in dev-core shared layer
+issue: 195
+status: approved
+tier: F-full
+date: 2026-05-30
+---
+
+## Problem
+
+A dev-core audit surfaced 7 architectural / single-source-of-truth defects in the
+shared layer. They fall into two classes:
+
+1. **Architecture** — `shared/adapters` imports from `cli/lib/` while `cli` imports
+   `shared` back, creating a dependency-inversion violation and cycle risk; a defined
+   error type (`GitHubApiError`) is never thrown, so the error hierarchy is dead code.
+2. **Single source of truth** — the same knowledge is encoded in multiple diverging
+   places: issue-type lists (`set.ts VALID_TYPES` vs `github-infra.ts`), the `stack.yml`
+   parser (duplicated ×3), and the license policy format (Python `license_check.py` vs
+   TS `licenseChecker.ts`). One copy gets updated, the others silently drift.
+
+A third class is **portability**: `digest-helpers.ts lane()` hardcodes Roxabi-specific
+patterns (`brand|lora|v23|avatar|pulid`) inside an OSS-generic plugin.
+
+Observable impact: edits to one copy desync the others (the audit exists *because* they
+already drifted); the cycle risk blocks clean module boundaries; Roxabi strings leak into
+a public marketplace plugin.
+
+Note (from recheck): finding #3 (`config-helpers.ts` `execSync`→`Bun.spawnSync`) was
+**already resolved** by commit `1644dd8` (gh CLI array-form spawn migration). Carry it as
+a verify-only line, not new work.
+
+## Who
+
+- **Primary:** dev-core maintainers — own the shared layer; pay the drift tax on every edit.
+- **Secondary:** OSS plugin users — install dev-core expecting project-agnostic behavior
+  (hardcoded Roxabi lane patterns break the "project-agnostic" design principle).
+
+## Constraints
+
+- **No behavior change** — pure refactor; existing skills/CLI/hooks must work identically.
+- **shared ¬→ cli** — the dependency arrow must point one way only (cli → shared).
+- **OSS-generic** — no Roxabi-specific strings in plugin code; config-drive or remove.
+- **Polyglot alignment** — Python and TS license/policy formats must be mutually compatible.
+- Single quotes, no semicolons (TS/JS); typecheck + tests green before ship.
+
+## Out of Scope
+
+- New features or skills — this is debt paydown only.
+- Refactoring beyond the 7 cited findings.
+- `dev-init` plugin copies of shared files (separate plugin; track separately if it drifts).
+- Finding #3 (already done) — verify-only, no edit.
+
+## Premise Validity
+
+**Success in 6 months:** All 7 findings resolved. dev-core shared layer has zero
+shared→cli import cycles, a single SSoT for {issue-types, stack.yml parsing, license
+policy}, and no Roxabi-specific strings in OSS-generic plugins. Typecheck + tests green.
+
+**Failure in 6 months:** (falsifiable) ≥1 finding reopened OR a new duplicate-SSoT
+introduced within 3 months, OR the shared→cli dependency cycle reappears. Measurable:
+import-graph cycle count > 0, or duplicate-parser count > 1 for any centralized concern.
+
+**Simplest alternative:** Fix only #1 (cycle risk) and leave the SSoT duplications.
+**Why not simplest:** The divergences (#4 VALID_TYPES, #5 stack.yml ×3, #7 license keys)
+have already drifted — that is why the audit exists. Leaving them guarantees the next edit
+to one copy silently desyncs the others; centralizing is the actual fix.
+
+## Complexity
+
+**Tier: F-full** — multi-domain refactor (TS adapters + Python tooling + JS hooks) with an
+architectural change (dependency inversion / cycle break) and a dead error hierarchy to wire.
+
+Signals observed:
+- Multiple domains: TypeScript (`adapters/`, `domain/`, `issue-triage/`, `issues/`),
+  Python (`tools/license_check.py`), JS hooks (`hooks/format.js`).
+- Architectural change: invert the `shared → cli` dependency.
+- Cross-cutting SSoT centralizations (×3) touching many call sites.
+- 7 independent findings → benefits from an analyze pass to sequence cleanly.
