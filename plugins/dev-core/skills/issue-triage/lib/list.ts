@@ -90,9 +90,18 @@ function buildRows(items: RawItem[]): IssueRow[] {
   })
 }
 
-function renderTree(roots: IssueRow[], byNumber: Map<number, IssueRow>, depth: number, lines: string[]): void {
+export function renderTree(
+  roots: IssueRow[],
+  byNumber: Map<number, IssueRow>,
+  depth: number,
+  lines: string[],
+  visited: Set<number> = new Set(),
+): void {
   const indent = '  '.repeat(depth)
   for (const row of roots) {
+    if (visited.has(row.number)) continue
+    visited.add(row.number)
+
     const maxLen = Math.max(20, 50 - depth * 2)
     const title = row.title.length > maxLen ? `${row.title.slice(0, maxLen - 3)}...` : row.title
     const size = row.size ?? '-'
@@ -104,7 +113,7 @@ function renderTree(roots: IssueRow[], byNumber: Map<number, IssueRow>, depth: n
 
     const children = row.subIssueNumbers.map((n) => byNumber.get(n)).filter((c): c is IssueRow => c !== undefined)
     if (children.length > 0) {
-      renderTree(children, byNumber, depth + 1, lines)
+      renderTree(children, byNumber, depth + 1, lines, visited)
     }
   }
 }
@@ -154,7 +163,7 @@ export async function listIssues(args: string[]): Promise<void> {
   const roots = rows.filter((r) => !allChildNumbers.has(r.number))
 
   const lines: string[] = []
-  renderTree(roots, byNumber, 0, lines)
+  renderTree(roots, byNumber, 0, lines, new Set())
   for (const line of lines) console.log(line)
   console.log('')
   console.log(`*${openItems.length} open issue${openItems.length === 1 ? '' : 's'}*`)

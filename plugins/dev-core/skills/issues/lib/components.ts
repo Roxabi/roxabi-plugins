@@ -150,8 +150,8 @@ function getPRDisplay(pr: PR): { label: string; cssClass: string } {
 
 const CI_SPINNER = '<span class="ci-spinner"></span>'
 
-function ciIcon(status: string, conclusion: string): string {
-  if (status === 'COMPLETED' || status === 'SUCCESS') {
+export function ciIcon(status: string, conclusion: string): string {
+  if (status === 'COMPLETED') {
     if (conclusion === 'SUCCESS' || conclusion === '') return '\u2705'
     if (conclusion === 'FAILURE' || conclusion === 'ERROR') return '\u274c'
     if (conclusion === 'CANCELLED' || conclusion === 'TIMED_OUT') return '\u26d4'
@@ -167,8 +167,8 @@ function ciIcon(status: string, conclusion: string): string {
   return '\u2753'
 }
 
-function ciClass(status: string, conclusion: string): string {
-  if (status === 'COMPLETED' || status === 'SUCCESS') {
+export function ciClass(status: string, conclusion: string): string {
+  if (status === 'COMPLETED') {
     if (conclusion === 'SUCCESS' || conclusion === '') return 'ci-success'
     if (conclusion === 'FAILURE' || conclusion === 'ERROR') return 'ci-failure'
     if (conclusion === 'CANCELLED' || conclusion === 'TIMED_OUT') return 'ci-cancelled'

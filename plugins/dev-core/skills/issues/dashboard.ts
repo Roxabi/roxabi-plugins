@@ -32,6 +32,7 @@ import {
 import { buildHtml } from './lib/page'
 import type { Branch, BranchCI, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './lib/types'
 import { handleUpdate } from './lib/update'
+import { toWorkspaceProject } from './lib/workspace-helpers'
 
 type ProjectMeta = {
   prs: PR[]
@@ -240,15 +241,7 @@ async function refreshCache(): Promise<void> {
       const workspaceChanged = !cache || cache.workspaceHash !== newWorkspaceHash
       const changed = workspaceChanged || !cache || cache.hash !== hash
       const updatedAt = Date.now()
-      const wsProjects = ws.projects.map((p) => ({
-        label: p.label,
-        repo: p.repo,
-        projectId: p.projectId,
-        type: p.type,
-        fieldIds: p.fieldIds,
-        vercelProjects: p.vercelProjects,
-        localPath: p.localPath,
-      })) as WorkspaceProject[]
+      const wsProjects = ws.projects.map(toWorkspaceProject)
       const roadmapProject =
         ws.roadmapProjectId && roadmapLabel ? { label: roadmapLabel, projectId: ws.roadmapProjectId } : undefined
       const html = buildHtml(
@@ -293,14 +286,7 @@ async function refreshCache(): Promise<void> {
     const changed = dataChanged || workspaceChanged
 
     const updatedAt = Date.now()
-    const wsProjects = ws.projects.map((p) => ({
-      label: p.label,
-      repo: p.repo,
-      projectId: p.projectId,
-      type: p.type,
-      fieldIds: p.fieldIds,
-      vercelProjects: p.vercelProjects,
-    })) as WorkspaceProject[]
+    const wsProjects = ws.projects.map(toWorkspaceProject)
     const html = buildHtml(
       issues,
       prs,
