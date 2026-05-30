@@ -50,10 +50,29 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
       if (repoProc.exitCode === 0) {
         const repo = new TextDecoder().decode(repoProc.stdout).trim()
         if (repo) {
-          const [owner, name] = repo.split('/')
-          const query = `{ repository(owner: "${owner}", name: "${name}") { projectsV2(first: 1) { nodes { id } } } }`
+          // Validate before splitting + interpolating. assertValidRepoSlug throws on a
+          // malformed slug; the surrounding catch turns that into a silent "no project
+          // detected" (undefined), matching the gh-not-available path. Belt-and-suspenders:
+          // owner/name are passed as typed GraphQL variables (-f) instead of interpolated,
+          // so the query string is constant and the gh CLI handles escaping.
+          const [owner, name] = assertValidRepoSlug(repo).split('/')
+          const query =
+            'query($owner: String!, $name: String!) ' +
+            '{ repository(owner: $owner, name: $name) { projectsV2(first: 1) { nodes { id } } } }'
           const idProc = Bun.spawnSync(
-            ['gh', 'api', 'graphql', '-f', `query=${query}`, '--jq', '.data.repository.projectsV2.nodes[0].id'],
+            [
+              'gh',
+              'api',
+              'graphql',
+              '-f',
+              `query=${query}`,
+              '-f',
+              `owner=${owner}`,
+              '-f',
+              `name=${name}`,
+              '--jq',
+              '.data.repository.projectsV2.nodes[0].id',
+            ],
             { stdout: 'pipe', stderr: 'pipe' },
           )
           if (idProc.exitCode === 0) {
