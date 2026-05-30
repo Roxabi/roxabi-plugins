@@ -74,7 +74,11 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
   getSizeOptionId: (input: string) => {
     const u = input.toUpperCase()
     const opts: Record<string, string> = { XS: 'size-xs', S: 'size-s', M: 'size-m', L: 'size-l', XL: 'size-xl' }
-    return opts[u]
+    // Mirror real reverse-alias: canonical names map to legacy board buckets
+    if (u === 'F-FULL' || u === 'F_FULL' || u === 'FFULL') return { optionId: 'size-xl', canonical: 'F-full' }
+    if (u === 'F-LITE' || u === 'F_LITE' || u === 'FLITE') return { optionId: 'size-m', canonical: 'F-lite' }
+    const id = opts[u]
+    return id ? { optionId: id, canonical: u } : undefined
   },
   resolvePriority: (input: string) => {
     const canonical = new Set(['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'])
@@ -150,6 +154,11 @@ describe('issue-triage/create > basic creation', () => {
   it('sets size on creation', async () => {
     await createIssue(['--title', 'Test', '--size', 'M'])
     expect(mockUpdateField).toHaveBeenCalledWith('item-99', expect.any(String), 'size-m')
+  })
+
+  it('translates canonical F-full to legacy XL board bucket on creation', async () => {
+    await createIssue(['--title', 'Test', '--size', 'F-full'])
+    expect(mockUpdateField).toHaveBeenCalledWith('item-99', expect.any(String), 'size-xl')
   })
 
   it('sets priority on creation', async () => {

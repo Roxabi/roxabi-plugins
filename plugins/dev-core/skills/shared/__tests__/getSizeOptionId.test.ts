@@ -22,6 +22,7 @@ const LEGACY_5_BUCKET = {
 
 describe('getSizeOptionId', () => {
   describe('legacy 5-bucket board {XS, S, M, L, XL}', () => {
+    // These cases also prove that lyra's dev-core.yml alias-key stopgap (adding F-lite/F-full as explicit board options) is unneeded.
     it('maps F-full to size-xl via reverse-precedence fallback (XL first)', async () => {
       // Arrange
       vi.resetModules()
@@ -32,8 +33,9 @@ describe('getSizeOptionId', () => {
       // Act
       const result = getSizeOptionId('F-full')
 
-      // Assert
-      expect(result).toBe('size-xl')
+      // Assert — optionId goes to the XL board bucket; canonical stays F-full for log output
+      expect(result?.optionId).toBe('size-xl')
+      expect(result?.canonical).toBe('F-full')
 
       delete process.env.SIZE_OPTIONS_JSON
     })
@@ -49,7 +51,7 @@ describe('getSizeOptionId', () => {
       const result = getSizeOptionId('F-lite')
 
       // Assert
-      expect(result).toBe('size-m')
+      expect(result?.optionId).toBe('size-m')
 
       delete process.env.SIZE_OPTIONS_JSON
     })
@@ -65,7 +67,7 @@ describe('getSizeOptionId', () => {
       const result = getSizeOptionId('S')
 
       // Assert
-      expect(result).toBe('size-s')
+      expect(result?.optionId).toBe('size-s')
 
       delete process.env.SIZE_OPTIONS_JSON
     })
@@ -81,8 +83,8 @@ describe('getSizeOptionId', () => {
       const result = getSizeOptionId('XS')
 
       // Assert — XS is a direct key in SIZE_OPTIONS, so it must resolve to its own id
-      expect(result).toBe('size-xs')
-      expect(result).not.toBe('size-s')
+      expect(result?.optionId).toBe('size-xs')
+      expect(result?.optionId).not.toBe('size-s')
 
       delete process.env.SIZE_OPTIONS_JSON
     })
@@ -100,7 +102,7 @@ describe('getSizeOptionId', () => {
       const result = getSizeOptionId('F-full')
 
       // Assert
-      expect(result).toBe('size-l')
+      expect(result?.optionId).toBe('size-l')
 
       delete process.env.SIZE_OPTIONS_JSON
     })
@@ -118,7 +120,7 @@ describe('getSizeOptionId', () => {
       const result = getSizeOptionId('S')
 
       // Assert
-      expect(result).toBe('size-xs')
+      expect(result?.optionId).toBe('size-xs')
 
       delete process.env.SIZE_OPTIONS_JSON
     })
@@ -133,7 +135,7 @@ describe('getSizeOptionId', () => {
       const { getSizeOptionId } = await import('../adapters/config-helpers')
 
       // Act & Assert
-      expect(getSizeOptionId('S')).toBe('size-s')
+      expect(getSizeOptionId('S')?.optionId).toBe('size-s')
 
       delete process.env.SIZE_OPTIONS_JSON
     })
@@ -146,7 +148,7 @@ describe('getSizeOptionId', () => {
       const { getSizeOptionId } = await import('../adapters/config-helpers')
 
       // Act & Assert
-      expect(getSizeOptionId('F-lite')).toBe('size-flite')
+      expect(getSizeOptionId('F-lite')?.optionId).toBe('size-flite')
 
       delete process.env.SIZE_OPTIONS_JSON
     })
@@ -159,7 +161,33 @@ describe('getSizeOptionId', () => {
       const { getSizeOptionId } = await import('../adapters/config-helpers')
 
       // Act & Assert
-      expect(getSizeOptionId('F-full')).toBe('size-ffull')
+      expect(getSizeOptionId('F-full')?.optionId).toBe('size-ffull')
+
+      delete process.env.SIZE_OPTIONS_JSON
+    })
+
+    it('maps lowercase f-full (alt-case) to size-ffull via resolveSize normalisation', async () => {
+      // Arrange
+      vi.resetModules()
+      process.env.GITHUB_REPO = 'Test/test-repo'
+      process.env.SIZE_OPTIONS_JSON = JSON.stringify({ S: 'size-s', 'F-lite': 'size-flite', 'F-full': 'size-ffull' })
+      const { getSizeOptionId } = await import('../adapters/config-helpers')
+
+      // Act & Assert
+      expect(getSizeOptionId('f-full')?.optionId).toBe('size-ffull')
+
+      delete process.env.SIZE_OPTIONS_JSON
+    })
+
+    it('maps F_FULL (underscore alt-case) to size-ffull via resolveSize normalisation', async () => {
+      // Arrange
+      vi.resetModules()
+      process.env.GITHUB_REPO = 'Test/test-repo'
+      process.env.SIZE_OPTIONS_JSON = JSON.stringify({ S: 'size-s', 'F-lite': 'size-flite', 'F-full': 'size-ffull' })
+      const { getSizeOptionId } = await import('../adapters/config-helpers')
+
+      // Act & Assert
+      expect(getSizeOptionId('F_FULL')?.optionId).toBe('size-ffull')
 
       delete process.env.SIZE_OPTIONS_JSON
     })
@@ -196,44 +224,6 @@ describe('getSizeOptionId', () => {
 
       // Assert
       expect(result).toBeUndefined()
-
-      delete process.env.SIZE_OPTIONS_JSON
-    })
-  })
-
-  describe('stopgap-removable: legacy 5-bucket aliasing without F-lite/F-full keys', () => {
-    // This test proves that once getSizeOptionId exists, the alias-key stopgap in
-    // lyra's dev-core.yml (adding 'F-lite' and 'F-full' as explicit board options to
-    // work around missing reverse-alias lookup) is no longer needed.
-    // A legacy board with only XS/S/M/L/XL can still be resolved correctly.
-    it('maps F-lite to size-m on a board that has no F-lite key (reverse-alias)', async () => {
-      // Arrange
-      vi.resetModules()
-      process.env.GITHUB_REPO = 'Test/test-repo'
-      process.env.SIZE_OPTIONS_JSON = JSON.stringify(LEGACY_5_BUCKET)
-      const { getSizeOptionId } = await import('../adapters/config-helpers')
-
-      // Act
-      const result = getSizeOptionId('F-lite')
-
-      // Assert — proves lyra's dev-core.yml alias-key stopgap is no longer needed
-      expect(result).toBe('size-m')
-
-      delete process.env.SIZE_OPTIONS_JSON
-    })
-
-    it('maps F-full to size-xl on a board that has no F-full key (reverse-alias)', async () => {
-      // Arrange
-      vi.resetModules()
-      process.env.GITHUB_REPO = 'Test/test-repo'
-      process.env.SIZE_OPTIONS_JSON = JSON.stringify(LEGACY_5_BUCKET)
-      const { getSizeOptionId } = await import('../adapters/config-helpers')
-
-      // Act
-      const result = getSizeOptionId('F-full')
-
-      // Assert — proves lyra's dev-core.yml alias-key stopgap is no longer needed
-      expect(result).toBe('size-xl')
 
       delete process.env.SIZE_OPTIONS_JSON
     })

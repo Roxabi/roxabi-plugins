@@ -10,7 +10,6 @@ import {
   PRIORITY_FIELD_ID,
   PRIORITY_OPTIONS,
   resolvePriority,
-  resolveSize,
   resolveStatus,
   SIZE_FIELD_ID,
   STATUS_FIELD_ID,
@@ -99,13 +98,13 @@ async function applyProjectFields(itemId: string, issueNumber: number, opts: Cre
   }
 
   if (opts.size) {
-    const optionId = getSizeOptionId(opts.size)
-    if (!optionId) {
+    const size = getSizeOptionId(opts.size)
+    if (!size) {
       console.error('Error: Invalid size')
       process.exit(1)
     }
-    await updateField(itemId, SIZE_FIELD_ID, optionId)
-    console.log(`Size=${resolveSize(opts.size)} #${issueNumber}`)
+    await updateField(itemId, SIZE_FIELD_ID, size.optionId)
+    console.log(`Size=${size.canonical} #${issueNumber}`)
   }
 
   if (opts.priority) {
