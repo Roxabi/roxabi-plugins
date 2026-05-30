@@ -95,7 +95,7 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
  * GitHub owner: [A-Za-z0-9-], repo name: [A-Za-z0-9._-].
  * Callers do `detectGitHubRepo().split('/')` and expect exactly two non-empty segments.
  */
-const REPO_SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
+const REPO_SLUG_RE = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/
 
 /**
  * Validate a candidate GitHub repo slug and throw a clear error if it doesn't match.

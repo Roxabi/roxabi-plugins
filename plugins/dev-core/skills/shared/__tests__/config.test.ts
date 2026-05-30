@@ -421,6 +421,33 @@ describe('detectGitHubRepo', () => {
     expect(spawnSyncSpy).not.toHaveBeenCalled()
   })
 
+  it('throws when the owner segment contains a dot', () => {
+    // GitHub owners (users/orgs) are [A-Za-z0-9-] only — no dots, unlike repo names.
+    process.env.GITHUB_REPO = 'my.org/repo'
+    expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo "my.org/repo"')
+    expect(spawnSyncSpy).not.toHaveBeenCalled()
+  })
+
+  it('throws when the owner segment contains an underscore', () => {
+    process.env.GITHUB_REPO = 'my_org/repo'
+    expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo "my_org/repo"')
+    expect(spawnSyncSpy).not.toHaveBeenCalled()
+  })
+
+  it('accepts a numeric-only owner/repo slug', () => {
+    // Digits are valid in both segments — 123/456 must pass.
+    process.env.GITHUB_REPO = '123/456'
+    expect(detectGitHubRepo()).toBe('123/456')
+    expect(spawnSyncSpy).not.toHaveBeenCalled()
+  })
+
+  it('accepts dots and underscores in the repo-name segment', () => {
+    // Repo names may contain . and _ — owner tightening must not regress this.
+    process.env.GITHUB_REPO = 'owner/my.repo_name'
+    expect(detectGitHubRepo()).toBe('owner/my.repo_name')
+    expect(spawnSyncSpy).not.toHaveBeenCalled()
+  })
+
   it('parses SSH remote URL', () => {
     spawnSyncSpy.mockImplementation((cmd: string[]) => {
       if (cmd[0] === 'gh') return { stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 1, success: false }
