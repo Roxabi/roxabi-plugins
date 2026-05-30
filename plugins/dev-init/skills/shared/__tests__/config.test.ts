@@ -283,37 +283,75 @@ describe('detectGitHubRepo', () => {
     expect(spawnSyncSpy).not.toHaveBeenCalled()
   })
 
+  it('throws when GITHUB_REPO lacks a slash (no owner/repo)', () => {
+    process.env.GITHUB_REPO = 'myrepo'
+    expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo "myrepo"')
+    // Must reject before falling through to git remote detection.
+    expect(spawnSyncSpy).not.toHaveBeenCalled()
+  })
+
+  it('throws when GITHUB_REPO has an empty segment', () => {
+    process.env.GITHUB_REPO = 'owner/'
+    expect(() => detectGitHubRepo()).toThrow('Expected "owner/repo" format')
+  })
+
+  it('throws when GITHUB_REPO has extra path segments', () => {
+    process.env.GITHUB_REPO = 'owner/repo/extra'
+    expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo')
+    expect(spawnSyncSpy).not.toHaveBeenCalled()
+  })
+
+  it('throws when GITHUB_REPO has a leading slash (empty owner)', () => {
+    process.env.GITHUB_REPO = '/repo'
+    expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo')
+    expect(spawnSyncSpy).not.toHaveBeenCalled()
+  })
+
+  it('throws when GITHUB_REPO is whitespace-padded', () => {
+    process.env.GITHUB_REPO = ' owner/repo '
+    expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo')
+    expect(spawnSyncSpy).not.toHaveBeenCalled()
+  })
+
   it('parses SSH remote URL', () => {
-    spawnSyncSpy.mockReturnValue({
-      stdout: new TextEncoder().encode('git@github.com:Roxabi/roxabi-plugins.git\n'),
-      stderr: new Uint8Array(),
-      exitCode: 0,
-      success: true,
-    } as unknown as ReturnType<typeof Bun.spawnSync>)
+    spawnSyncSpy.mockImplementation((cmd: string[]) => {
+      if (cmd[0] === 'gh') return { stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 1, success: false }
+      return {
+        stdout: new TextEncoder().encode('git@github.com:Roxabi/roxabi-plugins.git\n'),
+        stderr: new Uint8Array(),
+        exitCode: 0,
+        success: true,
+      }
+    })
 
     expect(detectGitHubRepo()).toBe('Roxabi/roxabi-plugins')
   })
 
   it('parses HTTPS remote URL', () => {
-    const stdout = new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins.git\n')
-    spawnSyncSpy.mockReturnValue({
-      stdout,
-      stderr: new Uint8Array(),
-      exitCode: 0,
-      success: true,
-    } as unknown as ReturnType<typeof Bun.spawnSync>)
+    spawnSyncSpy.mockImplementation((cmd: string[]) => {
+      if (cmd[0] === 'gh') return { stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 1, success: false }
+      return {
+        stdout: new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins.git\n'),
+        stderr: new Uint8Array(),
+        exitCode: 0,
+        success: true,
+      }
+    })
 
     const result = detectGitHubRepo()
     expect(result).toBe('Roxabi/roxabi-plugins')
   })
 
   it('parses HTTPS remote URL without .git suffix', () => {
-    spawnSyncSpy.mockReturnValue({
-      stdout: new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins\n'),
-      stderr: new Uint8Array(),
-      exitCode: 0,
-      success: true,
-    } as unknown as ReturnType<typeof Bun.spawnSync>)
+    spawnSyncSpy.mockImplementation((cmd: string[]) => {
+      if (cmd[0] === 'gh') return { stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 1, success: false }
+      return {
+        stdout: new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins\n'),
+        stderr: new Uint8Array(),
+        exitCode: 0,
+        success: true,
+      }
+    })
 
     expect(detectGitHubRepo()).toBe('Roxabi/roxabi-plugins')
   })
