@@ -64,8 +64,9 @@ function parseMigrateBackfillArgs(argv: string[]): { repo: string; dryRun: boole
   return { repo, dryRun, snapshotPath }
 }
 
-function parseMigrateRevertArgs(argv: string[]): { snapshotPath: string } {
+function parseMigrateRevertArgs(argv: string[]): { snapshotPath: string; yes?: boolean } {
   let snapshotPath: string | undefined
+  let yes: boolean | undefined
   let i = 0
 
   while (i < argv.length) {
@@ -74,24 +75,27 @@ function parseMigrateRevertArgs(argv: string[]): { snapshotPath: string } {
       snapshotPath = argv[i + 1]
       if (!snapshotPath) {
         console.error('Error: --snapshot requires a path value')
-        console.error('Usage: triage.ts migrate revert --snapshot <path>')
+        console.error('Usage: triage.ts migrate revert --snapshot <path> [--yes]')
         process.exit(1)
       }
       i += 2
+    } else if (flag === '--yes' || flag === '-y') {
+      yes = true
+      i += 1
     } else {
       console.error(`Error: unknown flag "${flag}"`)
-      console.error('Usage: triage.ts migrate revert --snapshot <path>')
+      console.error('Usage: triage.ts migrate revert --snapshot <path> [--yes]')
       process.exit(1)
     }
   }
 
   if (!snapshotPath) {
     console.error('Error: --snapshot <path> is required')
-    console.error('Usage: triage.ts migrate revert --snapshot <path>')
+    console.error('Usage: triage.ts migrate revert --snapshot <path> [--yes]')
     process.exit(1)
   }
 
-  return { snapshotPath }
+  return { snapshotPath, yes }
 }
 
 switch (command) {
@@ -140,7 +144,7 @@ switch (command) {
         const opts = parseMigrateRevertArgs(subArgs)
         // fix #2: validate user-supplied snapshot path at CLI layer
         opts.snapshotPath = validateSnapshotPath(opts.snapshotPath)
-        await revert(opts)
+        await revert({ snapshotPath: opts.snapshotPath, yes: opts.yes })
         break
       }
       default:

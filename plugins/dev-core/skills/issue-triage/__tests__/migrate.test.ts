@@ -1057,7 +1057,7 @@ describe('migrate > revert', () => {
       expect(mockClearField).toHaveBeenCalledTimes(3)
     })
 
-    it('calls updateIssueIssueType(issueNodeId, null) for issueType rows', async () => {
+    it('calls updateIssueIssueType(issueNodeId, null) for issueType rows when yes:true', async () => {
       // Arrange
       const rows: BackfillRow[] = [
         { repo: 'Roxabi/test', number: 11, field: 'issueType', old_value: null, new_value: 'feat', flagged: false },
@@ -1073,11 +1073,59 @@ describe('migrate > revert', () => {
         }),
       )
 
-      // Act
-      await revert({ snapshotPath })
+      // Act — pass yes:true to bypass the confirmation gate
+      await revert({ snapshotPath, yes: true })
 
       // Assert
       expect(mockUpdateIssueIssueType).toHaveBeenCalledWith('node-11', null)
+    })
+
+    it('skips issueType reverts and sets process.exitCode=1 in non-interactive mode without --yes', async () => {
+      // Arrange
+      const rows: BackfillRow[] = [
+        { repo: 'Roxabi/test', number: 11, field: 'issueType', old_value: null, new_value: 'feat', flagged: false },
+      ]
+      await writeFile(snapshotPath, JSON.stringify(rows), 'utf-8')
+
+      // process.stdin.isTTY is undefined (falsy) in vitest/node — non-interactive path
+
+      // Act — no yes flag
+      await revert({ snapshotPath })
+
+      // Assert
+      expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+      const logCalls = (console.log as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
+      expect(logCalls.some((msg) => /skip.*issueType/i.test(msg) || /issueType revert/i.test(msg))).toBe(true)
+      expect(process.exitCode).toBe(1)
+
+      // Cleanup
+      process.exitCode = 0
+    })
+
+    it('non-issueType backfill rows (Lane/Size/Priority) proceed regardless of issueType gate', async () => {
+      // Arrange — snapshot with only non-issueType rows
+      const rows: BackfillRow[] = [
+        { repo: 'Roxabi/test', number: 70, field: 'Lane', old_value: null, new_value: 'a1', flagged: false },
+        { repo: 'Roxabi/test', number: 70, field: 'Size', old_value: null, new_value: 'M', flagged: false },
+        { repo: 'Roxabi/test', number: 70, field: 'Priority', old_value: null, new_value: 'P1 - High', flagged: false },
+      ]
+      await writeFile(snapshotPath, JSON.stringify(rows), 'utf-8')
+
+      mockGhGraphQL.mockResolvedValue(
+        makeItemFieldsResponse({
+          issueId: 'node-70',
+          itemId: 'item-70',
+          fields: { Lane: 'a1', Size: 'M', Priority: 'P1 - High' },
+        }),
+      )
+
+      // Act — no yes flag, non-interactive
+      await revert({ snapshotPath })
+
+      // Assert — clearField called for all 3 rows, no exitCode penalty
+      expect(mockClearField).toHaveBeenCalledTimes(3)
+      expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+      expect(process.exitCode).not.toBe(1)
     })
   })
 

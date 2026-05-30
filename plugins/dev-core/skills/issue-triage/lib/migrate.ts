@@ -718,8 +718,12 @@ async function fetchIssueFieldState(
   }
 }
 
-async function revertBackfillRow(row: BackfillRow): Promise<'reverted' | 'skipped'> {
+async function revertBackfillRow(row: BackfillRow, allowIssueType = true): Promise<'reverted' | 'skipped'> {
   if (row.flagged || row.new_value === null) return 'skipped'
+
+  if (row.field === 'issueType' && !allowIssueType) {
+    return 'skipped'
+  }
 
   const { itemId, issueNodeId, currentFields, currentIssueType } = await fetchIssueFieldState(row.repo, row.number)
 
@@ -771,7 +775,7 @@ async function revertRewriteRow(row: RewriteRow): Promise<'reverted' | 'skipped'
   return 'reverted'
 }
 
-export async function revert(opts: { snapshotPath: string }): Promise<void> {
+export async function revert(opts: { snapshotPath: string; yes?: boolean }): Promise<void> {
   const { readFile } = await import('node:fs/promises')
   const raw = await readFile(opts.snapshotPath, 'utf-8')
   const parsed = JSON.parse(raw) as unknown
@@ -819,7 +823,39 @@ export async function revert(opts: { snapshotPath: string }): Promise<void> {
   let skipped = 0
   const errors: RevertError[] = []
 
+  // Confirmation gate for issueType null-reverts (FIXME #121: unverified API operation)
+  let allowIssueType = true
   if (isBackfill) {
+    const issueTypeRows = rawRows
+      .filter(isValidBackfillRow)
+      .filter((r) => r.field === 'issueType' && !r.flagged && r.new_value !== null)
+    if (issueTypeRows.length > 0) {
+      const affected = issueTypeRows.map((r) => `#${r.number}`).join(', ')
+      process.stderr.write(
+        `\nWARNING: ${issueTypeRows.length} row(s) would call updateIssueIssueType(node, null) — ` +
+          `this operation is unverified (FIXME #121). Affected: ${affected}\n\n`,
+      )
+      if (opts.yes) {
+        allowIssueType = true
+      } else if (process.stdin.isTTY) {
+        const { createInterface } = await import('node:readline')
+        const rl = createInterface({ input: process.stdin, output: process.stderr })
+        const answer = await new Promise<string>((resolve) => {
+          rl.question('Proceed with issueType reverts? [y/N] ', (ans) => {
+            rl.close()
+            resolve(ans)
+          })
+        })
+        allowIssueType = answer === 'y' || answer === 'Y'
+      } else {
+        // Non-interactive: skip issueType reverts
+        allowIssueType = false
+      }
+    }
+  }
+
+  if (isBackfill) {
+    let issueTypeSkipped = 0
     for (const row of rawRows) {
       // fix #12: per-row validation
       if (!isValidBackfillRow(row)) {
@@ -827,15 +863,33 @@ export async function revert(opts: { snapshotPath: string }): Promise<void> {
         continue
       }
       try {
-        const outcome = await revertBackfillRow(row)
+        const outcome = await revertBackfillRow(row, allowIssueType)
         if (outcome === 'reverted') reverted++
-        else skipped++
+        else {
+          skipped++
+          if (row.field === 'issueType' && !allowIssueType && !row.flagged && row.new_value !== null) {
+            issueTypeSkipped++
+          }
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         errors.push({ repo: row.repo, number: row.number, field: row.field, error: message })
         console.error(`error #${row.number}.${row.field}: ${message}`)
       }
     }
+
+    console.log(`Reverted ${reverted} rows, skipped ${skipped} already-reverted, errors ${errors.length}`)
+    if (errors.length > 0) {
+      for (const e of errors) {
+        const loc = e.field ? `${e.repo}#${e.number} [${e.field}]` : `${e.repo}#${e.number}`
+        console.error(`  ${loc}: ${e.error}`)
+      }
+    }
+    if (issueTypeSkipped > 0) {
+      console.log(`Skipped ${issueTypeSkipped} issueType revert(s) — confirmation not given`)
+      process.exitCode = 1
+    }
+    return
   } else {
     for (const row of rawRows) {
       // fix #12: per-row validation
