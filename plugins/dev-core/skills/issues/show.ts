@@ -6,29 +6,13 @@
  */
 
 import { detectGitHubRepo } from '../shared/adapters/config-helpers'
+import { parseBlockedBy } from './lib/digest-helpers'
 import { ghGraphQLExec } from './lib/gh-exec'
 
 const issueNum = parseInt(process.argv[2] ?? '', 10)
 if (!issueNum) {
   console.error('Usage: bun show.ts <issue-number>')
   process.exit(1)
-}
-
-function parseBlockedBy(body: string | null): number[] {
-  if (!body) return []
-  const nums: number[] = []
-  let inSection = false
-  for (const line of body.split('\n')) {
-    if (/^##\s+blocked by/i.test(line)) {
-      inSection = true
-      continue
-    }
-    if (inSection && /^##/.test(line)) break
-    if (inSection) {
-      for (const m of line.matchAll(/#(\d+)/g)) nums.push(parseInt(m[1], 10))
-    }
-  }
-  return nums
 }
 
 function stripBlockedBySection(body: string): string {

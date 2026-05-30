@@ -198,15 +198,6 @@ interface ProjectItemFieldValues {
   }
 }
 
-interface Row {
-  repo: string
-  number: number
-  field: string
-  old_value: string | null
-  new_value: string | null
-  flagged: boolean
-}
-
 interface FlaggedEntry {
   repo: string
   number: number
@@ -337,7 +328,7 @@ export async function backfill(opts: { repo: string; dryRun: boolean; snapshotPa
     )
   }
 
-  const rows: Row[] = []
+  const rows: BackfillRow[] = []
   const flagged: FlaggedEntry[] = []
   let updated = 0
   let skipped = 0

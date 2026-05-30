@@ -1,3 +1,4 @@
+import { FIVE_MINUTES_MS } from './constants'
 import type { BuildStep, VercelDeployment } from './types'
 
 const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID ?? ''
@@ -121,7 +122,6 @@ export async function fetchVercelDeployments(
       isCurrent: false,
     }))
 
-    const FIVE_MIN = 5 * 60 * 1000
     const now = Date.now()
     const isOngoing = (d: (typeof mapped)[0]) => ['BUILDING', 'QUEUED', 'INITIALIZING'].includes(d.state)
 
@@ -134,7 +134,7 @@ export async function fetchVercelDeployments(
     // Preview: latest ongoing preview + latest completed preview if within last 5 min
     const latestOngoingPreview = mapped.find((d) => isOngoing(d) && d.target !== 'production')
     const latestCompletedPreview = mapped.find(
-      (d) => !isOngoing(d) && d.target !== 'production' && now - d.createdAt < FIVE_MIN,
+      (d) => !isOngoing(d) && d.target !== 'production' && now - d.createdAt < FIVE_MINUTES_MS,
     )
 
     // Also include ongoing production deployments
