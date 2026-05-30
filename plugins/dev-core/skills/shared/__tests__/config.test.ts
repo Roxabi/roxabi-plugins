@@ -284,36 +284,44 @@ describe('detectGitHubRepo', () => {
   })
 
   it('parses SSH remote URL', () => {
-    spawnSyncSpy.mockReturnValue({
-      stdout: new TextEncoder().encode('git@github.com:Roxabi/roxabi-plugins.git\n'),
-      stderr: new Uint8Array(),
-      exitCode: 0,
-      success: true,
-    } as unknown as ReturnType<typeof Bun.spawnSync>)
+    spawnSyncSpy.mockImplementation((cmd: string[]) => {
+      if (cmd[0] === 'gh') return { stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 1, success: false }
+      return {
+        stdout: new TextEncoder().encode('git@github.com:Roxabi/roxabi-plugins.git\n'),
+        stderr: new Uint8Array(),
+        exitCode: 0,
+        success: true,
+      }
+    })
 
     expect(detectGitHubRepo()).toBe('Roxabi/roxabi-plugins')
   })
 
   it('parses HTTPS remote URL', () => {
-    const stdout = new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins.git\n')
-    spawnSyncSpy.mockReturnValue({
-      stdout,
-      stderr: new Uint8Array(),
-      exitCode: 0,
-      success: true,
-    } as unknown as ReturnType<typeof Bun.spawnSync>)
+    spawnSyncSpy.mockImplementation((cmd: string[]) => {
+      if (cmd[0] === 'gh') return { stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 1, success: false }
+      return {
+        stdout: new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins.git\n'),
+        stderr: new Uint8Array(),
+        exitCode: 0,
+        success: true,
+      }
+    })
 
     const result = detectGitHubRepo()
     expect(result).toBe('Roxabi/roxabi-plugins')
   })
 
   it('parses HTTPS remote URL without .git suffix', () => {
-    spawnSyncSpy.mockReturnValue({
-      stdout: new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins\n'),
-      stderr: new Uint8Array(),
-      exitCode: 0,
-      success: true,
-    } as unknown as ReturnType<typeof Bun.spawnSync>)
+    spawnSyncSpy.mockImplementation((cmd: string[]) => {
+      if (cmd[0] === 'gh') return { stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 1, success: false }
+      return {
+        stdout: new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins\n'),
+        stderr: new Uint8Array(),
+        exitCode: 0,
+        success: true,
+      }
+    })
 
     expect(detectGitHubRepo()).toBe('Roxabi/roxabi-plugins')
   })
