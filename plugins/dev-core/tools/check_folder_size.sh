@@ -33,14 +33,8 @@ if [ ! -d "$FIND_ROOT" ]; then
     exit 0
 fi
 
-# Guard: exemption paths must not contain spaces.
-# A space-embedded path produces NF>2 with $2 being a path fragment (not a comment),
-# while the new exemption format "path  # N files — issue desc..." has $2 == "#".
-# Skips comment lines (#) to avoid false-positives on scaffold-generated headers.
-if [ -f "$EXEMPT_FILE" ] && awk '/^[[:space:]]*#/ { next } NF > 2 && $2 !~ /^#/ { found=1 } END { exit !found }' "$EXEMPT_FILE"; then
-    echo "ERROR: $EXEMPT_FILE: exemption path contains spaces — paths with spaces are not supported" >&2
-    exit 1
-fi
+# Guard: exemption paths must not contain spaces (shared helper from check_lib.sh).
+assert_exempt_no_spaces
 
 while IFS= read -r -d '' d; do
     # Portable NUL-delimited count — works on macOS bash 3.2 (no mapfile/readarray).

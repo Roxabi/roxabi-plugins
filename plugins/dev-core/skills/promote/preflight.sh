@@ -3,8 +3,13 @@
 # Fetches latest, reports commits ahead, open PRs on staging, and CI status.
 set -euo pipefail
 
-git fetch origin staging main 2>&1
-git checkout staging && git pull origin staging 2>&1
+# Branch names are intentionally hardcoded: promote always operates on the fixed
+# staging→main pair, so detect_base_branch (single-base detection) does not apply here.
+# Each git op emits a machine-readable status= key before exiting non-zero so the
+# /promote skill sees a reason rather than a bare set -e abort.
+git fetch origin staging main 2>&1 || { echo "status=fetch_failed"; exit 1; }
+git checkout staging 2>&1 || { echo "status=checkout_failed"; exit 1; }
+git pull origin staging 2>&1 || { echo "status=pull_failed"; exit 1; }
 
 # `|| true` keeps a git-log failure from aborting under `set -e` so the guard
 # below can report a structured status instead of a bare non-zero exit.

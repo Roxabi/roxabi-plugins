@@ -39,7 +39,7 @@ Check prerequisites and per-component state before any installation.
    test -f release.config.cjs && echo "has_sr" || echo "no_sr"
    test -f release-please-config.json && echo "has_rp" || echo "no_rp"
    test -f .github/workflows/release-please.yml && echo "has_rp_wf" || echo "no_rp_wf"
-   test -x tools/check_file_length.sh && test -x tools/check_folder_size.sh && echo "has_qg_scripts" || echo "no_qg"
+   test -x tools/check_file_length.sh && test -x tools/check_folder_size.sh && test -f tools/check_lib.sh && echo "has_qg_scripts" || echo "no_qg"
    ```
 
 3. Set booleans from results:

@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Canonical source: plugins/dev-core/tools/ — do not edit project-side copies directly
 # Shared exemption helpers for check_file_length.sh / check_folder_size.sh.
-# Sourced, not executed. The caller must export (or set) before sourcing:
-#   EXEMPT_FILE       path to the exemptions file
-#   QG_EXEMPT_UNIT    cap unit word as it appears in exemption lines ("lines" | "files")
+# Sourced, not executed. Caller contract (shell variables — export NOT required, they
+# are read at call time, not at source time):
+#   EXEMPT_FILE       path to the exemptions file — set before calling any helper
+#   QG_EXEMPT_UNIT    cap unit word in exemption lines ("lines" | "files") — set before
+#                     calling exempt_cap (unused by is_exempt / assert_exempt_no_spaces)
 # No `set` here: sourcing must not mutate the caller's shell options.
 
 # Return 0 if "$1" is listed (exact first-field match) in the exemptions file.
@@ -34,4 +36,16 @@ exempt_cap() {
             exit
         }
     ' "$EXEMPT_FILE"
+}
+
+# Abort (exit 1) if any exemption line declares a path containing spaces.
+# A space-embedded path produces NF>2 with $2 being a path fragment (not a comment),
+# while the valid format "path  # N <unit> — issue desc..." has $2 == "#".
+# Skips comment lines (#) to avoid false-positives on scaffold-generated headers.
+assert_exempt_no_spaces() {
+    [ ! -f "$EXEMPT_FILE" ] && return 0
+    if awk '/^[[:space:]]*#/ { next } NF > 2 && $2 !~ /^#/ { found=1 } END { exit !found }' "$EXEMPT_FILE"; then
+        echo "ERROR: $EXEMPT_FILE: exemption path contains spaces — paths with spaces are not supported" >&2
+        exit 1
+    fi
 }
