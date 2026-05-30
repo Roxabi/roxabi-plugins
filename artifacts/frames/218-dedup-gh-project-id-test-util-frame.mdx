@@ -1,0 +1,86 @@
+---
+title: Dedup the detectGitHubRepo config-helpers test block into a shared util
+issue: 218
+status: approved
+tier: F-lite
+date: 2026-05-31
+---
+
+## Problem
+
+The `describe('detectGitHubRepo')` block in the shared config tests is duplicated
+across two plugins:
+
+- `plugins/dev-init/skills/shared/__tests__/config.test.ts`
+- `plugins/dev-core/skills/shared/__tests__/config.test.ts`
+
+Issue #218 framed this as a "byte-identical ~107-line block" to extract. The recheck
+step found the premise has **already drifted**: the two blocks are **no longer
+identical**. `dev-core` carries **+5 hardening `it` blocks** (slug/owner-repo
+validation: lacks-slash, empty-segment, extra-path-segments, leading-slash,
+whitespace-padded) added on 2026-05-30 via #202 (`f4cb631`) and #208 (`49dcc35`).
+`dev-init` was extracted earlier (#f24474e, 2026-05-27) and never received them.
+
+This is exactly the **parallel-path-drift** class #213 warned about — and it has
+now materialised. The fix is therefore not "extract an identical block" but
+**reconcile the divergence**: a single shared source for the `detectGitHubRepo`
+test body, imported and run by both plugins, so a new edge case is written once and
+exercised in both.
+
+(The issue body's `describe('gh_project_id auto-detect')` label is inaccurate — no
+such block exists; the real block is `detectGitHubRepo`.)
+
+## Who
+
+- **Primary:** dev-core / dev-init plugin maintainers — anyone editing repo-detection
+  test coverage, who today must apply each change twice or silently diverge.
+- **Secondary:** plugin users relying on correct `detectGitHubRepo` behaviour, whose
+  protection is only as strong as whichever copy gets the next edit.
+
+## Constraints
+
+- **Cross-cache resolution** — the shared test source must resolve from both plugins'
+  `__tests__/` dirs *and* survive the rsync sync-to-cache step (each plugin cache is a
+  standalone copy under `~/.claude/plugins/cache/...`). The util must import each
+  plugin's own `config` adapter, not a single hard-coded path.
+- `#217` (tighten `REPO_SLUG_RE`) is still **OPEN** → its `it.todo` edge-case stubs
+  (numeric `123/456`, leading/trailing dot, consecutive hyphens) stay **out of scope**.
+- Both suites must stay green; `bun run test` from repo root must pass.
+- Style: single quotes, no semicolons; vitest.
+
+## Out of Scope
+
+- The `#217`-dependent `it.todo` edge-case stubs — deferred until #217 lands.
+- Any change to the `detectGitHubRepo` *implementation* (this is test-only).
+- Deduplicating the other shared `config` describe blocks (option maps, aliases,
+  resolvers, labels) — only `detectGitHubRepo` is in scope for #218.
+
+## Premise Validity
+
+**Success in 6 months:** The `detectGitHubRepo` test body exists in exactly one
+shared source, imported by both `config.test.ts` files. A new repo-detection edge
+case is added once and runs in both plugins. Observable: a diff of the two plugins'
+`detectGitHubRepo` test bodies is empty (no independent copies to drift).
+
+**Failure in 6 months:** Six months out, the two `config.test.ts` files again contain
+independent `detectGitHubRepo` test bodies whose diff is non-empty (re-diverged), OR
+the shared util fails to resolve in one plugin cache and that plugin's test run breaks.
+Either is a measurable, observable boolean state.
+
+**Simplest alternative:** Copy the 5 missing hardening `it` blocks from `dev-core`
+into `dev-init` to re-sync the two copies, no shared util.
+**Why not simplest:** It re-establishes byte-identical duplication — the exact drift
+recurs on the very next edit. It treats the symptom (current divergence) and leaves
+the root cause (two independent copies) intact.
+
+## Complexity
+
+**Tier: F-lite** — clear scope, single domain (tests), ~3 files, but one genuine
+design unknown: the shared-util layout that resolves across both plugin caches and
+the sync script. Frame + spec de-risk that before coding.
+
+Signals observed:
+- ≤3 files touched (2 test files + 1 new shared util)
+- Single domain (test code)
+- One unknown: cross-cache import layout (sync-script aware)
+- No new runtime arch; test-only change
