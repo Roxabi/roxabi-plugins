@@ -1,4 +1,5 @@
 import { GITHUB_REPO } from '../../shared/adapters/config-helpers'
+import { getGitHubToken as _getGitHubToken } from '../../shared/adapters/github-adapter'
 import type { WorkflowRun } from './types'
 
 interface RawWorkflowRun {
@@ -18,15 +19,11 @@ interface RawWorkflowRun {
 const FIVE_MINUTES_WR = 5 * 60 * 1000
 
 function getGitHubToken(): string {
-  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN
   try {
-    const proc = Bun.spawnSync(['gh', 'auth', 'token'], { stdout: 'pipe', stderr: 'pipe' })
-    const token = new TextDecoder().decode(proc.stdout).trim()
-    if (token) return token
+    return _getGitHubToken()
   } catch {
-    // gh not available
+    return ''
   }
-  return ''
 }
 
 export async function fetchWorkflowRuns(repoSlug: string = GITHUB_REPO): Promise<WorkflowRun[]> {
