@@ -262,3 +262,22 @@ Covered: 13/13 spec success criteria. Untraced tasks: 0. Exemptions: none.
 - T10: 21 — ci-gate (devops-B)
 - T11: 22 — ci-gate (devops-B)
 - T12: 23 — ci-gate (devops-B)
+
+## Scope Correction (post-#215/#217, 2026-05-31)
+
+**T5 (tighten REPO_SLUG_RE) and T8 (regex-rejection tests) are CANCELLED** — already shipped by
+PR #217 (8c6d406). Seeded Claude Code tasks #16 (T5) and #19 (T8) were deleted.
+
+**Remaining active tasks:** T1–T4 (sync infra + initial sync), T6 (remove dead `execSyncSpy` +
+fix env-var self-shadow — still valid; sources are Bun.spawnSync-only), T7 (gh-CLI-**success**
+happy-path test — still uncovered; #217 only added git-remote-fallback tests where `gh` fails),
+T9 (docs), T10–T12 (re-sync, `validate_plugins.py` gate, CI).
+
+**Updated wave structure:**
+- Wave 1 = T1→T2→T3→T4 (devops-A, sequential) — unchanged
+- Wave 2 = T6, T7 (tester-A) ∥ T9 (doc-writer-A) — `backend-dev-A` instance dropped (T5 gone); T8 dropped from tester-A
+- Wave 3 = T10→T11→T12 (devops-B) — T10 now blocked only by T6, T7 (¬T5, ¬T8)
+
+**Agent table delta:** remove `backend-dev-A` row. tester-A tasks = T6, T7 only.
+
+**Budget delta:** −5 ops (T5: 2, T8: 3). New total: ~49 ops.

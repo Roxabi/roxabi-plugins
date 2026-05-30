@@ -206,3 +206,23 @@ propagates. N8 documents the new maintainer step.
 | First PR adds canonical + generated + gate together | Run `sync:shared` before commit → both on disk + matching → gate passes; otherwise gate correctly blocks until synced. |
 | Cluster 2c (flat `mockReturnValue` → conditional gh→fail form) | **Deferred — optional, no AC.** Not required for the dedup; left to a future test-quality pass. |
 | PR #215 touches dev-core shared layer | Rebase before merge; canonical is dev-core's file, so conflicts resolve once, in dev-core. |
+
+## Scope Correction (post-#215/#217, 2026-05-31)
+
+**D5 is OBSOLETE and was WRONG.** PR #217 (8c6d406) already tightened both `config-helpers.ts`
+copies to `/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/` — a more GitHub-accurate form. D5 cited the
+cwd-resolver form, which permits dots/underscores in the owner segment; GitHub owners allow only
+`[A-Za-z0-9-]`. Implementing D5 would REGRESS #217. **D5 is withdrawn.** Canonical regex is
+#217's form: `/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/`. N6 in the breadboard is a no-op; the regex
+success criteria line is superseded by this correction.
+
+**"Coordinate merge order with #215"** — RESOLVED. #215 (8ea3c4c) is merged.
+
+**New drift introduced by #215.** #215 refactored the dev-core shared layer so `config-helpers.ts`
+now throws `ConfigError` (from `../domain/errors`) instead of bare `Error` at 3 sites. dev-init's
+copy still throws bare `Error` — fresh drift vs the post-#215 canonical. This is additional
+evidence for the dedup; the initial sync (T4, canonical = dev-core) will propagate `ConfigError`
+usage to dev-init. `ConfigError` is already defined in
+`plugins/dev-init/skills/shared/domain/errors.ts`, so the import resolves. The dev-core-only
+`getSizeOptionId`/`SIZE_REVERSE_PRECEDENCE` block is self-contained and harmless as an unused
+export in dev-init.
