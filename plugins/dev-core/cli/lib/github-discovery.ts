@@ -1,38 +1,13 @@
-import { getGitHubToken } from '../../skills/shared/adapters/github-adapter'
+import { discoverProject as discoverProjectShared } from '../../skills/shared/adapters/github-discovery'
 import type { WorkspaceProject } from '../../skills/shared/ports/workspace'
 import { detectLocalPath } from './cwd-resolver'
 
+export type { WorkspaceProject } from '../../skills/shared/ports/workspace'
+
 /**
  * Discover GitHub Projects linked to a repo via GraphQL.
- * Returns array of WorkspaceProject (may be 0, 1, or multiple).
+ * Thin cli wrapper: auto-detects localPath from cwd, then delegates to shared impl.
  */
 export async function discoverProject(repo: string): Promise<WorkspaceProject[]> {
-  const [owner, name] = repo.split('/')
-  if (!owner || !name) throw new Error(`Invalid repo format: '${repo}'. Use 'owner/name'.`)
-
-  const query = `query($owner: String!, $name: String!) {
-    repository(owner: $owner, name: $name) {
-      projectsV2(first: 10) { nodes { id title } }
-    }
-  }`
-
-  const token = getGitHubToken()
-
-  const res = await fetch('https://api.github.com/graphql', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, variables: { owner, name } }),
-  })
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status} ${res.statusText}`)
-
-  const json = (await res.json()) as {
-    data: { repository: { projectsV2: { nodes: { id: string; title: string }[] } } }
-  }
-  const localPath = detectLocalPath(repo)
-  return (json.data?.repository?.projectsV2?.nodes ?? []).map((n) => ({
-    repo,
-    projectId: n.id,
-    label: n.title,
-    ...(localPath ? { localPath } : {}),
-  }))
+  return discoverProjectShared(repo, detectLocalPath(repo))
 }

@@ -5,6 +5,7 @@
  * Exit code: 0 = all pass, 1 = any failure.
  */
 
+import { parseStackYml } from '../../hooks/lib/parse-stack-yml.cjs'
 import {
   DEFAULT_RULESET,
   PROTECTED_BRANCHES,
@@ -244,14 +245,11 @@ function checkLabels(ghOk: boolean, owner: string, repo: string): Section {
 function readStackYml(): { hasDeployPlatform: boolean; hasFrontend: boolean } {
   try {
     const text = require('node:fs').readFileSync('.claude/stack.yml', 'utf8') as string
-    // deploy.platform: none means no deploy platform
-    const platformMatch = text.match(/^\s*platform:\s*(\S+)/m)
-    const hasDeployPlatform = !!platformMatch && platformMatch[1] !== 'none'
-    // frontend section present with a real framework
-    const frontendMatch = text.match(/^frontend:/m)
-    const frameworkMatch = text.match(/^\s+framework:\s*(\S+)/m)
-    const hasFrontend = !!frontendMatch && !!frameworkMatch && frameworkMatch[1] !== 'none'
-    return { hasDeployPlatform, hasFrontend }
+    const stack = parseStackYml(text)
+    return {
+      hasDeployPlatform: stack.platform !== null,
+      hasFrontend: stack.frontend !== null,
+    }
   } catch {
     return { hasDeployPlatform: true, hasFrontend: true } // unknown — keep checks strict
   }
@@ -561,9 +559,8 @@ function checkSecurity(): Section {
   let licenseChecker: string | null = null
   let pm = ''
   try {
-    const stack = fs.readFileSync('.claude/stack.yml', 'utf8') as string
-    const pmMatch = stack.match(/^\s*package_manager:\s*(\S+)/m)
-    pm = pmMatch?.[1] ?? ''
+    const stackText = fs.readFileSync('.claude/stack.yml', 'utf8') as string
+    pm = parseStackYml(stackText).packageManager ?? ''
     if (pm === 'uv' || pm === 'pip') {
       lockFile = 'uv.lock'
       licenseChecker = 'tools/license_check.py'
@@ -800,77 +797,65 @@ function checkStandardsPaths(): Section {
 
   try {
     const raw = fs.readFileSync('.claude/stack.yml', 'utf8') as string
-    const lines = raw.split('\n')
-    let inStandards = false
+    const standardsMap: Record<string, string> = parseStackYml(raw).standards ?? {}
 
-    for (const line of lines) {
-      if (/^standards:\s*$/.test(line)) {
-        inStandards = true
+    for (const [key, trimmedPath] of Object.entries(standardsMap)) {
+      if (!trimmedPath) continue
+      const exists = fs.existsSync(trimmedPath)
+      if (!exists) {
+        checks.push({
+          name: `standards.${key}`,
+          status: 'warn',
+          detail: `path not found: ${trimmedPath} — run /init scaffold-docs or create manually`,
+        })
         continue
       }
-      if (inStandards) {
-        if (/^\S/.test(line)) break // new top-level key
-        const match = line.match(/^\s+(\w+):\s*(.+?)\s*(#.*)?$/)
-        if (!match) continue
-        const [, key, path] = match
-        const trimmedPath = path.trim()
-        if (!trimmedPath) continue
-        const exists = fs.existsSync(trimmedPath)
-        if (!exists) {
-          checks.push({
-            name: `standards.${key}`,
-            status: 'warn',
-            detail: `path not found: ${trimmedPath} — run /init scaffold-docs or create manually`,
-          })
-          continue
-        }
 
-        const stat = fs.statSync(trimmedPath)
-        if (stat.isDirectory()) {
-          // Check if the directory has at least one non-stub file (> 10 lines)
-          let hasSubstantialFile = false
-          try {
-            const entries = fs.readdirSync(trimmedPath) as string[]
-            for (const entry of entries) {
-              const entryPath = `${trimmedPath}/${entry}`
-              const entryStat = fs.statSync(entryPath)
-              if (entryStat.isFile()) {
-                const entryContent = fs.readFileSync(entryPath, 'utf8') as string
-                if (entryContent.split('\n').length > 10) {
-                  hasSubstantialFile = true
-                  break
-                }
+      const stat = fs.statSync(trimmedPath)
+      if (stat.isDirectory()) {
+        // Check if the directory has at least one non-stub file (> 10 lines)
+        let hasSubstantialFile = false
+        try {
+          const entries = fs.readdirSync(trimmedPath) as string[]
+          for (const entry of entries) {
+            const entryPath = `${trimmedPath}/${entry}`
+            const entryStat = fs.statSync(entryPath)
+            if (entryStat.isFile()) {
+              const entryContent = fs.readFileSync(entryPath, 'utf8') as string
+              if (entryContent.split('\n').length > 10) {
+                hasSubstantialFile = true
+                break
               }
             }
-          } catch {}
-          checks.push({
-            name: `standards.${key}`,
-            status: hasSubstantialFile ? 'pass' : 'warn',
-            detail: hasSubstantialFile
-              ? trimmedPath
-              : `${trimmedPath} — all files appear to be stubs — run /analyze or fill manually`,
-          })
-        } else {
-          // File: check line count and TODO markers
-          let fileStatus: 'pass' | 'warn' = 'pass'
-          let fileDetail = trimmedPath
-          try {
-            const content = fs.readFileSync(trimmedPath, 'utf8') as string
-            const lineCount = content.split('\n').length
-            if (lineCount < 10) {
-              fileStatus = 'warn'
-              fileDetail = `${trimmedPath} — appears to be a stub (${lineCount} lines) — run /analyze or fill manually`
-            } else if (content.includes('TODO:') && lineCount < 30) {
-              fileStatus = 'warn'
-              fileDetail = `${trimmedPath} — has TODO markers — fill with project-specific content or run /analyze`
-            }
-          } catch {}
-          checks.push({
-            name: `standards.${key}`,
-            status: fileStatus,
-            detail: fileDetail,
-          })
-        }
+          }
+        } catch {}
+        checks.push({
+          name: `standards.${key}`,
+          status: hasSubstantialFile ? 'pass' : 'warn',
+          detail: hasSubstantialFile
+            ? trimmedPath
+            : `${trimmedPath} — all files appear to be stubs — run /analyze or fill manually`,
+        })
+      } else {
+        // File: check line count and TODO markers
+        let fileStatus: 'pass' | 'warn' = 'pass'
+        let fileDetail = trimmedPath
+        try {
+          const content = fs.readFileSync(trimmedPath, 'utf8') as string
+          const lineCount = content.split('\n').length
+          if (lineCount < 10) {
+            fileStatus = 'warn'
+            fileDetail = `${trimmedPath} — appears to be a stub (${lineCount} lines) — run /analyze or fill manually`
+          } else if (content.includes('TODO:') && lineCount < 30) {
+            fileStatus = 'warn'
+            fileDetail = `${trimmedPath} — has TODO markers — fill with project-specific content or run /analyze`
+          }
+        } catch {}
+        checks.push({
+          name: `standards.${key}`,
+          status: fileStatus,
+          detail: fileDetail,
+        })
       }
     }
 

@@ -3,6 +3,8 @@
  * Extracted from digest.ts so they can be imported and tested independently.
  */
 
+import { LANE_PATTERNS, type LanePatterns } from '../../shared/domain/lane-patterns'
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface Leaf {
@@ -89,10 +91,10 @@ export function stripType(title: string): string {
     .replace(/^(feat|fix|chore|refactor|docs|test|ops|style):\s*/i, '')
 }
 
-export function lane(title: string): 'A' | 'B' | 'C' {
+export function lane(title: string, patterns: LanePatterns = LANE_PATTERNS): 'A' | 'B' | 'C' {
   const t = title.toLowerCase()
-  if (/brand|lora|v23|v24|avatar|pulid/.test(t)) return 'C'
-  if (/infra|nats|security|ops\(infra|ops\(sec|quadlet|podman|docker|supervisor|\bci\b|provision/.test(t)) return 'A'
+  if (patterns.C.test(t)) return 'C'
+  if (patterns.A.test(t)) return 'A'
   return 'B'
 }
 

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
 
 // Provide project config so field updates work in tests
 process.env.GITHUB_REPO = 'Test/test-repo'
@@ -483,6 +484,35 @@ describe('issue-triage/set > additive regression', () => {
     expect(mockUpdateField).toHaveBeenCalledWith('item-123', 'SZF_test', 'size-s')
     expect(mockSyncLaneLabel).not.toHaveBeenCalled()
     expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+  })
+})
+
+describe('issue-triage/set > applyType accepts all 10 canonical values', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  const ALL_VALID_TYPES = [...ISSUE_TYPE_NAMES, ...EXTENDED_ISSUE_TYPES]
+
+  it('accepts every value in the canonical set without calling process.exit', async () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
+    for (const t of ALL_VALID_TYPES) {
+      vi.clearAllMocks()
+      mockGetNodeId.mockResolvedValue(`node-123`)
+      mockResolveIssueTypeId.mockResolvedValue(`type-id-${t}`)
+      vi.spyOn(console, 'log').mockImplementation(() => {})
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      await setIssue(['123', '--type', t])
+      expect(exitSpy).not.toHaveBeenCalled()
+      expect(mockUpdateIssueIssueType).toHaveBeenCalledWith('node-123', `type-id-${t}`)
+    }
+  })
+
+  it('rejects an unknown type and calls process.exit(1)', async () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
+    await setIssue(['123', '--type', 'unknown-type'])
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(errCalls.some((m) => m.includes('Invalid type'))).toBe(true)
   })
 })
 

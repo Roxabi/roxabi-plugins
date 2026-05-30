@@ -31,6 +31,7 @@ import {
   updateIssueIssueType,
 } from '../../shared/adapters/github-adapter'
 import { syncLaneLabel, syncPriorityLabel, syncSizeLabel } from '../../shared/adapters/github-infra'
+import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
 import { formatRef, parseIssueRef, parseIssueRefs } from '../../shared/domain/parse-issue-ref'
 
 interface SetOptions {
@@ -160,7 +161,7 @@ async function applyPriority(itemId: string, issueNumber: number, priority: stri
   console.log(`Priority=${canonical} #${issueNumber}`)
 }
 
-const VALID_TYPES = ['fix', 'feat', 'docs', 'test', 'chore', 'ci', 'perf', 'epic', 'research', 'refactor']
+const VALID_TYPES: string[] = [...ISSUE_TYPE_NAMES, ...EXTENDED_ISSUE_TYPES]
 
 async function applyType(issueNumber: number, type: string): Promise<void> {
   const canonical = type.toLowerCase()

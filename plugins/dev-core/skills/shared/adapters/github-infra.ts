@@ -5,6 +5,7 @@
  * Dependency direction: github-infra → github-adapter (clean, no cycle).
  */
 
+import { ConfigError } from '../domain/errors'
 import {
   LANE_LABEL_MAP,
   LANE_LABELS_SET,
@@ -51,7 +52,7 @@ export interface BranchProtectionOpts {
 const REPO_FORMAT = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/
 
 function assertValidRepo(repo: string): void {
-  if (!REPO_FORMAT.test(repo)) throw new Error(`Invalid repo format: ${repo}`)
+  if (!REPO_FORMAT.test(repo)) throw new ConfigError(`Invalid repo format: ${repo}`)
 }
 
 export function buildBranchProtectionPayload(opts: BranchProtectionOpts) {

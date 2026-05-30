@@ -14,6 +14,8 @@ export interface WorkspaceProject {
   label: string
   type?: 'technical' | 'company'
   fieldIds?: ProjectFieldIds
+  vercelProjectId?: string // single Vercel project ID (legacy / single-project)
+  vercelTeamId?: string // Vercel team ID for single project
   vercelProjects?: VercelProjectRef[]
   localPath?: string
 }

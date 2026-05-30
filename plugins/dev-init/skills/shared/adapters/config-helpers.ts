@@ -50,10 +50,26 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
       if (repoProc.exitCode === 0) {
         const repo = new TextDecoder().decode(repoProc.stdout).trim()
         if (repo) {
-          const [owner, name] = repo.split('/')
-          const query = `{ repository(owner: "${owner}", name: "${name}") { projectsV2(first: 1) { nodes { id } } } }`
+          // Validate before split — a malformed slug must not flow into the GraphQL
+          // call. owner/name are passed as typed -f variables (never string-interpolated)
+          // so a hostile value cannot break out of the query.
+          const [owner, name] = assertValidRepoSlug(repo).split('/')
+          const query =
+            'query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { projectsV2(first: 1) { nodes { id } } } }'
           const idProc = Bun.spawnSync(
-            ['gh', 'api', 'graphql', '-f', `query=${query}`, '--jq', '.data.repository.projectsV2.nodes[0].id'],
+            [
+              'gh',
+              'api',
+              'graphql',
+              '-f',
+              `query=${query}`,
+              '-f',
+              `owner=${owner}`,
+              '-f',
+              `name=${name}`,
+              '--jq',
+              '.data.repository.projectsV2.nodes[0].id',
+            ],
             { stdout: 'pipe', stderr: 'pipe' },
           )
           if (idProc.exitCode === 0) {
@@ -63,7 +79,7 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
         }
       }
     } catch {
-      /* gh not available or no project linked */
+      /* gh not available, no project linked, or invalid slug from gh output */
     }
   }
 
@@ -75,7 +91,7 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
  * GitHub owner: [A-Za-z0-9-], repo name: [A-Za-z0-9._-].
  * Callers do `detectGitHubRepo().split('/')` and expect exactly two non-empty segments.
  */
-const REPO_SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
+const REPO_SLUG_RE = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/
 
 /**
  * Validate a candidate GitHub repo slug and throw a clear error if it doesn't match.

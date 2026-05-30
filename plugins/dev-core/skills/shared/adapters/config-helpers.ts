@@ -4,6 +4,7 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { ConfigError } from '../domain/errors'
 import type { ProjectFieldIds } from '../domain/types'
 import type { WorkspaceProject } from '../ports/workspace'
 
@@ -94,7 +95,7 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
  * GitHub owner: [A-Za-z0-9-], repo name: [A-Za-z0-9._-].
  * Callers do `detectGitHubRepo().split('/')` and expect exactly two non-empty segments.
  */
-const REPO_SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
+const REPO_SLUG_RE = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/
 
 /**
  * Validate a candidate GitHub repo slug and throw a clear error if it doesn't match.
@@ -102,7 +103,7 @@ const REPO_SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
  */
 function assertValidRepoSlug(value: string): string {
   if (!REPO_SLUG_RE.test(value)) {
-    throw new Error(
+    throw new ConfigError(
       `Invalid GitHub repo "${value}". Expected "owner/repo" format ` +
         '(set github_repo in dev-core config or the GITHUB_REPO env var).',
     )
@@ -127,7 +128,9 @@ export function detectGitHubRepo(): string {
     // return a bad slug that callers would split('/') into garbage GraphQL args.
     if (match?.[1]) return assertValidRepoSlug(match[1])
   } catch {}
-  throw new Error('Cannot detect GitHub repo. Set GITHUB_REPO env var or ensure git remote "origin" is configured.')
+  throw new ConfigError(
+    'Cannot detect GitHub repo. Set GITHUB_REPO env var or ensure git remote "origin" is configured.',
+  )
 }
 
 export const GH_PROJECT_ID = loadDevCoreConfig('gh_project_id', 'GH_PROJECT_ID') ?? ''
@@ -306,7 +309,7 @@ export function resolveLane(input: string): string | undefined {
 export function resolveFieldIds(project: WorkspaceProject): ProjectFieldIds {
   if (project.fieldIds && Object.keys(project.fieldIds).length > 0) {
     if (!project.fieldIds.status) {
-      throw new Error(`[project ${project.label}] fieldIds.status is required`)
+      throw new ConfigError(`[project ${project.label}] fieldIds.status is required`)
     }
     return project.fieldIds
   }

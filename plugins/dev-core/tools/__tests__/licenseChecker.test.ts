@@ -68,6 +68,40 @@ describe('loadPolicy', () => {
     expect(result.allowedLicenses).toEqual([])
     expect(result.overrides).toEqual({})
   })
+
+  it('parses policy keyed allowlist (canonical Python key) into allowedLicenses', () => {
+    const policy = { allowlist: ['MIT', 'Apache-2.0'], overrides: {} }
+    fs.writeFileSync(path.join(tmpDir, '.license-policy.json'), JSON.stringify(policy))
+    const result = loadPolicy(tmpDir)
+    expect(result.allowedLicenses).toEqual(['MIT', 'Apache-2.0'])
+  })
+
+  it('allowlist and allowedLicenses produce identical allowedLicenses set', () => {
+    const licenses = ['MIT', 'ISC', 'BSD-2-Clause']
+
+    const tmpA = makeTmpDir('policy-allowlist-')
+    const tmpB = makeTmpDir('policy-allowedLicenses-')
+    try {
+      fs.writeFileSync(path.join(tmpA, '.license-policy.json'), JSON.stringify({ allowlist: licenses, overrides: {} }))
+      fs.writeFileSync(
+        path.join(tmpB, '.license-policy.json'),
+        JSON.stringify({ allowedLicenses: licenses, overrides: {} }),
+      )
+      const resultA = loadPolicy(tmpA)
+      const resultB = loadPolicy(tmpB)
+      expect(resultA.allowedLicenses).toEqual(resultB.allowedLicenses)
+    } finally {
+      fs.rmSync(tmpA, { recursive: true, force: true })
+      fs.rmSync(tmpB, { recursive: true, force: true })
+    }
+  })
+
+  it('allowlist takes precedence over allowedLicenses when both present', () => {
+    const policy = { allowlist: ['MIT'], allowedLicenses: ['Apache-2.0'], overrides: {} }
+    fs.writeFileSync(path.join(tmpDir, '.license-policy.json'), JSON.stringify(policy))
+    const result = loadPolicy(tmpDir)
+    expect(result.allowedLicenses).toEqual(['MIT'])
+  })
 })
 
 // ─── parseSpdxExpression ─────────────────────────────────────────────────────

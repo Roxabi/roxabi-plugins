@@ -29,6 +29,7 @@ import {
   updateField,
   updateIssueIssueType,
 } from '../../shared/adapters/github-adapter'
+import { ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
 
 // ---------------------------------------------------------------------------
 // Repo-root-anchored migrationDir (fix #3: CWD-relative → anchor to repo root)
@@ -156,16 +157,7 @@ export const LEGACY_LABEL_MAP = {
     XL: 'F-full',
   } as Record<string, string>,
   priority: PRIORITY_ALIASES,
-  issueType: {
-    feat: 'feat',
-    fix: 'fix',
-    docs: 'docs',
-    test: 'test',
-    chore: 'chore',
-    ci: 'ci',
-    perf: 'perf',
-    refactor: 'refactor',
-  } as Record<string, string>,
+  issueType: Object.fromEntries(ISSUE_TYPE_NAMES.map((t) => [t, t])) as Record<string, string>,
 }
 
 // ---------------------------------------------------------------------------
