@@ -252,6 +252,114 @@ describe('buildBranchProtectionPayload', () => {
   })
 })
 
+describe('gh_project_id auto-detect', () => {
+  let spawnSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    // GH_PROJECT_ID must not be set — forces the gh CLI auto-detect path
+    delete process.env.GH_PROJECT_ID
+    // GITHUB_REPO must be valid so detectGitHubRepo() resolves without spawning
+    process.env.GITHUB_REPO = 'Test/test-repo'
+  })
+
+  afterEach(() => {
+    spawnSpy?.mockRestore()
+    delete process.env.GH_PROJECT_ID
+    process.env.GITHUB_REPO = 'Test/test-repo'
+    vi.resetModules()
+  })
+
+  it('uses typed -f variables for owner and name (no interpolation in query)', async () => {
+    let capturedCmd: string[] = []
+
+    spawnSpy = vi.spyOn(Bun, 'spawnSync').mockImplementation((cmd: string[]) => {
+      if (cmd[0] === 'gh' && cmd[1] === 'repo') {
+        return {
+          stdout: new TextEncoder().encode('Owner/repo\n'),
+          stderr: new Uint8Array(),
+          exitCode: 0,
+          success: true,
+        } as unknown as ReturnType<typeof Bun.spawnSync>
+      }
+      if (cmd[0] === 'gh' && cmd[1] === 'api') {
+        capturedCmd = [...cmd]
+        return {
+          stdout: new TextEncoder().encode('PVT_test123\n'),
+          stderr: new Uint8Array(),
+          exitCode: 0,
+          success: true,
+        } as unknown as ReturnType<typeof Bun.spawnSync>
+      }
+      return {
+        stdout: new Uint8Array(),
+        stderr: new Uint8Array(),
+        exitCode: 1,
+        success: false,
+      } as unknown as ReturnType<typeof Bun.spawnSync>
+    })
+
+    vi.resetModules()
+    const mod = await import('../adapters/config-helpers')
+
+    expect(mod.GH_PROJECT_ID).toBe('PVT_test123')
+
+    // owner and name passed as typed -f variables — not interpolated into query string
+    const ownerFlagIdx = capturedCmd.indexOf('owner=Owner')
+    const nameFlagIdx = capturedCmd.indexOf('name=repo')
+    expect(ownerFlagIdx).toBeGreaterThan(-1)
+    expect(nameFlagIdx).toBeGreaterThan(-1)
+    // each typed variable must be preceded by '-f'
+    expect(capturedCmd[ownerFlagIdx - 1]).toBe('-f')
+    expect(capturedCmd[nameFlagIdx - 1]).toBe('-f')
+
+    // query= arg must use $owner / $name placeholders — NOT the literal owner value
+    const queryArg = capturedCmd.find((a) => a.startsWith('query=')) ?? ''
+    expect(queryArg).toContain('$owner')
+    expect(queryArg).toContain('$name')
+    expect(queryArg).not.toContain('"Owner"')
+    expect(queryArg).not.toContain('"repo"')
+  })
+
+  it('does not call gh api graphql when gh repo view returns a hostile slug', async () => {
+    let graphqlSpawned = false
+
+    spawnSpy = vi.spyOn(Bun, 'spawnSync').mockImplementation((cmd: string[]) => {
+      if (cmd[0] === 'gh' && cmd[1] === 'repo') {
+        return {
+          // Hostile slug — assertValidRepoSlug must reject this before graphql is called
+          stdout: new TextEncoder().encode('a") { x } #/b\n'),
+          stderr: new Uint8Array(),
+          exitCode: 0,
+          success: true,
+        } as unknown as ReturnType<typeof Bun.spawnSync>
+      }
+      if (cmd[0] === 'gh' && cmd[1] === 'api') {
+        graphqlSpawned = true
+        return {
+          stdout: new TextEncoder().encode('PVT_should_not_reach\n'),
+          stderr: new Uint8Array(),
+          exitCode: 0,
+          success: true,
+        } as unknown as ReturnType<typeof Bun.spawnSync>
+      }
+      return {
+        stdout: new Uint8Array(),
+        stderr: new Uint8Array(),
+        exitCode: 1,
+        success: false,
+      } as unknown as ReturnType<typeof Bun.spawnSync>
+    })
+
+    vi.resetModules()
+    const mod = await import('../adapters/config-helpers')
+
+    // assertValidRepoSlug throws → catch swallows → GH_PROJECT_ID falls back to ''
+    expect(mod.GH_PROJECT_ID).toBe('')
+    // graphql spawn must never have fired
+    expect(graphqlSpawned).toBe(false)
+  })
+})
+
 describe('detectGitHubRepo', () => {
   const originalEnv = process.env.GITHUB_REPO
   let spawnSyncSpy: ReturnType<typeof vi.spyOn>
