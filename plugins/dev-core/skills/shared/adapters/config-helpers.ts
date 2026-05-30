@@ -70,9 +70,23 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
   return undefined
 }
 
+/** A GitHub repo slug: exactly `owner/repo` (no empty segments, no extra slashes). */
+const REPO_SLUG_RE = /^[^/]+\/[^/]+$/
+
 export function detectGitHubRepo(): string {
   const fromYamlOrEnv = loadDevCoreConfig('github_repo', 'GITHUB_REPO')
-  if (fromYamlOrEnv) return fromYamlOrEnv
+  if (fromYamlOrEnv) {
+    // Guard the yaml/env path: callers do `detectGitHubRepo().split('/')` and
+    // expect `owner/repo`. A bare value (e.g. `GITHUB_REPO=myrepo`) would slip
+    // through as a silent `undefined` repo → malformed GraphQL. Fail loud here.
+    if (!REPO_SLUG_RE.test(fromYamlOrEnv)) {
+      throw new Error(
+        `Invalid GitHub repo "${fromYamlOrEnv}". Expected "owner/repo" format ` +
+          '(set github_repo in dev-core config or the GITHUB_REPO env var).',
+      )
+    }
+    return fromYamlOrEnv
+  }
   try {
     const proc = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], { stdout: 'pipe', stderr: 'pipe' })
     const url = new TextDecoder().decode(proc.stdout).trim()

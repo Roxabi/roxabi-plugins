@@ -283,6 +283,23 @@ describe('detectGitHubRepo', () => {
     expect(spawnSyncSpy).not.toHaveBeenCalled()
   })
 
+  it('throws when GITHUB_REPO lacks a slash (no owner/repo)', () => {
+    process.env.GITHUB_REPO = 'myrepo'
+    expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo "myrepo"')
+    // Must reject before falling through to git remote detection.
+    expect(spawnSyncSpy).not.toHaveBeenCalled()
+  })
+
+  it('throws when GITHUB_REPO has an empty segment', () => {
+    process.env.GITHUB_REPO = 'owner/'
+    expect(() => detectGitHubRepo()).toThrow('Expected "owner/repo" format')
+  })
+
+  it('throws when GITHUB_REPO has extra path segments', () => {
+    process.env.GITHUB_REPO = 'owner/repo/extra'
+    expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo')
+  })
+
   it('parses SSH remote URL', () => {
     spawnSyncSpy.mockImplementation((cmd: string[]) => {
       if (cmd[0] === 'gh') return { stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 1, success: false }
