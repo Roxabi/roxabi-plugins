@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { LanePatterns } from '../../shared/domain/lane-patterns'
 import {
   buildCols,
   buildEpicData,
@@ -170,6 +171,22 @@ describe('lane', () => {
 
   it('returns B for everything else', () => {
     expect(lane('add user profile page')).toBe('B')
+  })
+})
+
+// ─── lane — pattern override ──────────────────────────────────────────────────
+
+describe('lane — pattern override', () => {
+  it('routes "brand exploration" to C with default patterns', () => {
+    expect(lane('brand exploration')).toBe('C')
+  })
+
+  it('routes "brand exploration" to B when C pattern is overridden to not match', () => {
+    const custom: LanePatterns = {
+      C: /never-matches-anything/,
+      A: /infra|nats|security|ops\(infra|ops\(sec|quadlet|podman|docker|supervisor|\bci\b|provision/,
+    }
+    expect(lane('brand exploration', custom)).toBe('B')
   })
 })
 

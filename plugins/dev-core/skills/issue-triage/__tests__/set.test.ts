@@ -486,6 +486,35 @@ describe('issue-triage/set > additive regression', () => {
   })
 })
 
+describe('issue-triage/set > applyType accepts all 10 canonical values', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  const ALL_VALID_TYPES = ['feat', 'fix', 'docs', 'test', 'chore', 'ci', 'perf', 'refactor', 'epic', 'research']
+
+  it('accepts every value in the canonical set without calling process.exit', async () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
+    for (const t of ALL_VALID_TYPES) {
+      vi.clearAllMocks()
+      mockGetNodeId.mockResolvedValue(`node-123`)
+      mockResolveIssueTypeId.mockResolvedValue(`type-id-${t}`)
+      vi.spyOn(console, 'log').mockImplementation(() => {})
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      await setIssue(['123', '--type', t])
+      expect(exitSpy).not.toHaveBeenCalled()
+      expect(mockUpdateIssueIssueType).toHaveBeenCalledWith('node-123', `type-id-${t}`)
+    }
+  })
+
+  it('rejects an unknown type and calls process.exit(1)', async () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
+    await setIssue(['123', '--type', 'unknown-type'])
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(errCalls.some((m) => m.includes('Invalid type'))).toBe(true)
+  })
+})
+
 describe('issue-triage/set > combined --lane + --type + --size', () => {
   beforeEach(setupMocks)
   afterEach(() => vi.restoreAllMocks())
