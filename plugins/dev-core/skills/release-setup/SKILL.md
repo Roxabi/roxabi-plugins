@@ -39,7 +39,7 @@ Check prerequisites and per-component state before any installation.
    test -f release.config.cjs && echo "has_sr" || echo "no_sr"
    test -f release-please-config.json && echo "has_rp" || echo "no_rp"
    test -f .github/workflows/release-please.yml && echo "has_rp_wf" || echo "no_rp_wf"
-   test -x tools/check_file_length.sh && test -x tools/check_folder_size.sh && echo "has_qg_scripts" || echo "no_qg"
+   test -x tools/check_file_length.sh && test -x tools/check_folder_size.sh && test -f tools/check_lib.sh && echo "has_qg_scripts" || echo "no_qg"
    ```
 
 3. Set booleans from results:
@@ -109,6 +109,7 @@ Display results and generated files. Do NOT run `git add` or `git commit`.
      .github/workflows/release-please.yml  (Release Please chosen)
      tools/check_file_length.sh          (python + quality_gates only)
      tools/check_folder_size.sh          (python + quality_gates only)
+     tools/check_lib.sh                  (python + quality_gates only — sourced by both check scripts)
      tools/file_exemptions.txt           (python + quality_gates only)
      tools/folder_exemptions.txt         (python + quality_gates only)
      tools/qg.conf                       (python + quality_gates only — regenerated from stack.yml)

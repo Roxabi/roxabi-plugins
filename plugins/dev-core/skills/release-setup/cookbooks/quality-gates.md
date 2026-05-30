@@ -35,16 +35,34 @@ Special case: all three sub-blocks present but each `enabled: false` → emit
 ## N2 — Canonical source check
 
 ```bash
-test -x "${PRJ}check_file_length.sh" && test -x "${PRJ}check_folder_size.sh"
+test -x "${PRJ}check_file_length.sh" && test -x "${PRJ}check_folder_size.sh" \
+  && test -f "${PRJ}check_lib.sh"
 ```
 
-If either canonical script is missing or not executable:
+If either canonical script is missing/not executable, or `check_lib.sh` is missing:
 - D⚠("Quality gates — canonical scripts missing from ${PRJ}. Cookbook cannot proceed.")
 - Abort this cookbook (return to release-setup Phase 5 with gate status = error).
+
+`check_lib.sh` holds the shared `is_exempt`/`exempt_cap` helpers both check scripts
+source at runtime. It is sourced (not executed), so it is checked with `test -f`, not
+`test -x`, and is installed without the exec bit in N3.
 
 ## N3 — Script install and drift detection
 
 Applies to the two shell-script gates (`file_length` and `folder_size`), one iteration per gate.
+
+**Shared dependency (run once, before the per-gate loop, if EITHER shell gate is `enabled: true`):**
+Both check scripts source `tools/check_lib.sh` at runtime (the `is_exempt`/`exempt_cap`
+helpers). Install it with the same absent/`--force`/drift logic as the per-gate scripts
+below, **but without `chmod +x`** — it is sourced, not executed:
+
+```bash
+# absent or --force:
+cp "${PRJ}check_lib.sh" tools/check_lib.sh        # no chmod +x — sourced, not executed
+# present + ¬F: diff -q "${PRJ}check_lib.sh" tools/check_lib.sh → no-op | drift-warn
+```
+A missing `tools/check_lib.sh` alongside an installed `check_*.sh` makes the gate fail at
+runtime (`source: check_lib.sh: No such file`), so install it before any gate script.
 
 For each gate whose `enabled: true`:
 

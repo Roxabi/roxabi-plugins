@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Usage: gather-state.sh
 # Outputs current branch, all branches with tracking info, worktrees, and open PRs.
+set -euo pipefail
+
 echo "---current---"
 git branch --show-current 2>/dev/null || echo "current=unknown"
 
