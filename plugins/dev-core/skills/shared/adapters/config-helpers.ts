@@ -209,6 +209,32 @@ export function resolveSize(input: string): string | undefined {
   return
 }
 
+/** Canonical size → ordered legacy board keys to try when the canonical key
+ *  is absent from the project's SIZE_OPTIONS (legacy XS/S/M/L/XL boards).
+ *  F-full prefers the larger legacy bucket (XL before L).
+ *  Only canonical keys (S, F-lite, F-full) need entries here — legacy keys (XS/M/L/XL)
+ *  are resolved directly by resolveSize/the direct SIZE_OPTIONS lookup before this
+ *  table is consulted. */
+const SIZE_REVERSE_PRECEDENCE: Record<string, string[]> = {
+  'F-full': ['XL', 'L'],
+  'F-lite': ['M'],
+  S: ['S', 'XS'],
+}
+
+/** Resolve loose size input to the project board's option id and canonical key,
+ *  with reverse-alias fallback so canonical names (S/F-lite/F-full) work on legacy
+ *  XS/S/M/L/XL boards. Returns both optionId (for the board field) and canonical
+ *  (for log messages), so callers need not call resolveSize a second time. */
+export function getSizeOptionId(input: string): { optionId: string; canonical: string } | undefined {
+  const canonical = resolveSize(input)
+  if (!canonical) return undefined
+  if (Object.hasOwn(SIZE_OPTIONS, canonical)) return { optionId: SIZE_OPTIONS[canonical], canonical }
+  for (const key of SIZE_REVERSE_PRECEDENCE[canonical] ?? []) {
+    if (Object.hasOwn(SIZE_OPTIONS, key)) return { optionId: SIZE_OPTIONS[key], canonical }
+  }
+  return undefined
+}
+
 /** Resolve loose user input to a canonical lane key, or undefined. */
 export function resolveLane(input: string): string | undefined {
   if (CANONICAL_LANES.has(input)) return input
