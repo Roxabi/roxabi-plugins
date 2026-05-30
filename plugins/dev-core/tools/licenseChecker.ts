@@ -291,6 +291,7 @@ export function detectLicense(
 
 // ─── SPDX Expression Handling ────────────────────────────────────────────────
 
+/** @deprecated Superseded by the evaluator in isLicenseAllowed; retained for backward compatibility. Does not strip '+' suffixes or respect grouping. */
 export function parseSpdxExpression(expression: string): string[] {
   // Strip all parens and split on OR/AND
   const cleaned = expression.replace(/[()]/g, '')
@@ -308,7 +309,10 @@ export function parseSpdxExpression(expression: string): string[] {
 type SpdxToken = '(' | ')' | 'AND' | 'OR' | string
 
 function tokenizeSpdx(expr: string): SpdxToken[] {
-  // Split on whitespace first, then reassemble WITH pairs as single atoms
+  // Split on whitespace first, then reassemble WITH pairs as single atoms.
+  // Note: WITH must appear between two atoms (e.g. "Apache-2.0 WITH LLVM-exception").
+  // Grouped forms like "(A) WITH B" are NOT valid SPDX — the paren/length cap in
+  // isLicenseAllowed() acts as the safety net for such malformed expressions.
   const raw = expr.replace(/\(/g, ' ( ').replace(/\)/g, ' ) ').trim().split(/\s+/).filter(Boolean)
 
   const tokens: SpdxToken[] = []
@@ -382,6 +386,18 @@ export function isLicenseAllowed(license: string | null, allowedLicenses: string
 
   // Direct match (fast path — also handles simple atoms with no operators)
   if (allowedLicenses.includes(license)) return true
+
+  // Guard against pathologically large or deeply nested expressions from untrusted
+  // package.json data (e.g. 50 000 nested parens → stack overflow in the evaluator).
+  // Real SPDX expressions are short; 512 chars and 20 open-parens are well above any
+  // legitimate expression seen in the wild.
+  const openParenCount = (license.match(/\(/g) ?? []).length
+  if (license.length > 512 || openParenCount > 20) {
+    process.stderr.write(
+      `license-check: expression too complex to evaluate safely, treating as disallowed: ${license.slice(0, 60)}...\n`,
+    )
+    return false
+  }
 
   // Evaluate as SPDX expression with correct precedence and grouping
   return evaluateSpdxExpression(license, allowedLicenses)

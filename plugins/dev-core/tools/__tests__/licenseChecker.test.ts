@@ -178,6 +178,26 @@ describe('isLicenseAllowed', () => {
   it('trailing +: GPL-2.0+ → strip + and match bare id — allowed=[GPL-2.0] → true', () => {
     expect(isLicenseAllowed('GPL-2.0+', ['GPL-2.0'])).toBe(true)
   })
+
+  // ─── Recursion / complexity guard ───────────────────────────────────────────
+
+  it('50 000 nested parens: does not throw and returns false', () => {
+    const bomb = `${'('.repeat(50000)}MIT${')'.repeat(50000)}`
+    expect(() => isLicenseAllowed(bomb, ['MIT'])).not.toThrow()
+    expect(isLicenseAllowed(bomb, ['MIT'])).toBe(false)
+  })
+
+  it('>20 open-parens (moderately nested, not 50k): returns false without throwing', () => {
+    // 21 levels of nesting — exceeds the paren cap
+    const expr = `${'('.repeat(21)}MIT${')'.repeat(21)}`
+    expect(() => isLicenseAllowed(expr, ['MIT'])).not.toThrow()
+    expect(isLicenseAllowed(expr, ['MIT'])).toBe(false)
+  })
+
+  it('regression: normal nested expression within cap still evaluates correctly', () => {
+    // (MIT OR Apache-2.0) AND BSD-2-Clause — 1 open-paren, well under cap
+    expect(isLicenseAllowed('(MIT OR Apache-2.0) AND BSD-2-Clause', ['MIT', 'BSD-2-Clause'])).toBe(true)
+  })
 })
 
 // ─── detectLicense ───────────────────────────────────────────────────────────
