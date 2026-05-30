@@ -89,12 +89,13 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
   },
   getSizeOptionId: (input: string) => {
     const map: Record<string, string> = { S: 'size-s', 'F-lite': 'size-f-lite', 'F-full': 'size-f-full' }
+    // Derive canonical via the same resolution logic as the resolveSize mock above
     const valid = new Set(['S', 'F-lite', 'F-full'])
     let canonical: string | undefined
     if (valid.has(input)) canonical = input
     else {
       const u = input.toUpperCase().replace(/[-\s]/g, '-')
-      if (valid.has(u)) canonical = u
+      if (valid.has(u as 'S' | 'F-lite' | 'F-full')) canonical = u
       else if (u === 'XS') canonical = 'S'
       else if (u === 'M') canonical = 'F-lite'
       else if (u === 'L' || u === 'XL') canonical = 'F-full'
@@ -191,6 +192,29 @@ describe('issue-triage/set > field updates', () => {
   it('updates status with case normalization', async () => {
     await setIssue(['42', '--status', 'In Progress'])
     expect(mockUpdateField).toHaveBeenCalledWith('item-123', expect.any(String), 'status-inprog')
+  })
+
+  it('exits with error for invalid --size value', async () => {
+    // Arrange — throw on exit so execution stops after the guard, matching real process.exit semantics
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    // Act
+    await setIssue(['42', '--size', 'bogus']).catch(() => {})
+    // Assert
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(errCalls.some((m) => m.includes('Invalid size'))).toBe(true)
+  })
+
+  it('logs Size= exactly once for --size (no duplicate)', async () => {
+    // Arrange
+    const logs: string[] = []
+    vi.spyOn(console, 'log').mockImplementation((...args) => logs.push(String(args[0])))
+    // Act
+    await setIssue(['42', '--size', 'F-lite'])
+    // Assert
+    expect(logs.filter((l) => l.startsWith('Size=')).length).toBe(1)
   })
 })
 
