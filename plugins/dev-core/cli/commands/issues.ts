@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { formatJson, formatTable, formatTree } from '../../skills/issues/lib/table-formatter'
+import { getGitHubToken } from '../../skills/shared/adapters/github-adapter'
 import { buildBatchedQuery, buildBatchedVariables, ISSUES_QUERY } from '../../skills/shared/queries'
 import type { RawItem } from '../../skills/shared/types'
 import { resolveCurrentProject, resolveRepoFromCwd } from '../lib/cwd-resolver'
@@ -10,17 +11,6 @@ export interface IssuesCommandOptions {
   workspace?: Workspace
   format?: 'table' | 'tree' | 'json'
   all?: boolean
-}
-
-function resolveToken(): string {
-  const token =
-    process.env.GITHUB_TOKEN ||
-    (() => {
-      const proc = Bun.spawnSync(['gh', 'auth', 'token'], { stdout: 'pipe', stderr: 'pipe' })
-      return new TextDecoder().decode(proc.stdout).trim()
-    })()
-  if (!token) throw new Error('Not authenticated. Run: gh auth login or set GITHUB_TOKEN env var')
-  return token
 }
 
 async function ghGraphQL(query: string, variables: Record<string, string>, token: string): Promise<unknown> {
@@ -63,7 +53,7 @@ export async function runIssuesCommand(opts: IssuesCommandOptions = {}): Promise
     return 'No projects in workspace.\nRun: roxabi workspace add owner/repo'
   }
 
-  const token = resolveToken()
+  const token = getGitHubToken()
   const format = opts.format ?? 'table'
   const formatOpts = { sortBy: 'priority' as const, titleLength: 55 }
   const byProject = new Map<string, RawItem[]>()

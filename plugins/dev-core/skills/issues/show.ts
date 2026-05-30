@@ -6,33 +6,13 @@
  */
 
 import { execSync } from 'node:child_process'
-import { unlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { detectGitHubRepo } from '../shared/adapters/config-helpers'
+import { ghGraphQLExec } from './lib/gh-exec'
 
 const issueNum = parseInt(process.argv[2] ?? '', 10)
 if (!issueNum) {
   console.error('Usage: bun show.ts <issue-number>')
   process.exit(1)
-}
-
-function detectRepo(): { owner: string; repo: string } {
-  const nwo = execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', {
-    encoding: 'utf-8',
-  }).trim()
-  const [owner, repo] = nwo.split('/')
-  return { owner, repo }
-}
-
-function ghGraphQL(query: string): unknown {
-  const tmpFile = join(tmpdir(), `show-${Date.now()}.json`)
-  writeFileSync(tmpFile, JSON.stringify({ query }))
-  try {
-    const out = execSync(`gh api graphql --input ${tmpFile}`, { encoding: 'utf-8' })
-    return JSON.parse(out)
-  } finally {
-    unlinkSync(tmpFile)
-  }
 }
 
 function parseBlockedBy(body: string | null): number[] {
@@ -111,8 +91,8 @@ interface SubIssue {
   state: 'OPEN' | 'CLOSED'
 }
 
-const { owner, repo } = detectRepo()
-const gqlRaw = ghGraphQL(`{
+const [owner, repo] = detectGitHubRepo().split('/')
+const gqlRaw = ghGraphQLExec(`{
   repository(owner: "${owner}", name: "${repo}") {
     issue(number: ${issueNum}) {
       subIssues(first: 50) {
@@ -131,7 +111,7 @@ interface BlockerNode {
   state: 'OPEN' | 'CLOSED'
 }
 
-const blockersRaw = ghGraphQL(`{
+const blockersRaw = ghGraphQLExec(`{
   repository(owner: "${owner}", name: "${repo}") {
     issue(number: ${issueNum}) {
       trackedInIssues(first: 20) {

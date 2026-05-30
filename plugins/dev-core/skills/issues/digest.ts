@@ -7,9 +7,7 @@
  */
 
 import { execSync } from 'node:child_process'
-import { unlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { detectGitHubRepo } from '../shared/adapters/config-helpers'
 import {
   buildCols,
   buildEpicData,
@@ -27,31 +25,13 @@ import {
   trow,
   trunc,
 } from './lib/digest-helpers'
+import { ghGraphQLExec } from './lib/gh-exec'
 
 // ─── Fetch helpers ────────────────────────────────────────────────────────────
 
-function ghGraphQL(query: string): unknown {
-  const tmpFile = join(tmpdir(), `digest-${Date.now()}.json`)
-  writeFileSync(tmpFile, JSON.stringify({ query }))
-  try {
-    const out = execSync(`gh api graphql --input ${tmpFile}`, { encoding: 'utf-8' })
-    return JSON.parse(out)
-  } finally {
-    unlinkSync(tmpFile)
-  }
-}
-
-function detectRepo(): { owner: string; repo: string } {
-  const nwo = execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', {
-    encoding: 'utf-8',
-  }).trim()
-  const [owner, repo] = nwo.split('/')
-  return { owner, repo }
-}
-
 // ─── Fetch ────────────────────────────────────────────────────────────────────
 
-const { owner, repo } = detectRepo()
+const [owner, repo] = detectGitHubRepo().split('/')
 
 const epicsRaw = execSync(
   `gh issue list --repo ${owner}/${repo} --label epic --state open --json number,title --limit 50`,
@@ -79,7 +59,7 @@ const issueFields = `
 const aliases = topEpics.map((e, i) => `e${i}: issue(number: ${e.number}) { ${issueFields} }`).join('\n')
 const query = `{ repository(owner: "${owner}", name: "${repo}") { ${aliases} } }`
 // biome-ignore lint/suspicious/noExplicitAny: raw GraphQL response
-const raw = ghGraphQL(query) as { data: { repository: Record<string, any> } }
+const raw = ghGraphQLExec(query) as { data: { repository: Record<string, any> } }
 const repoData = raw.data.repository
 
 // biome-ignore lint/suspicious/noExplicitAny: raw GraphQL nodes

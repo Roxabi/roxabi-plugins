@@ -1,3 +1,4 @@
+import { getGitHubToken } from '../../skills/shared/adapters/github-adapter'
 import { detectLocalPath } from './cwd-resolver'
 import type { WorkspaceProject } from './workspace-store'
 
@@ -15,13 +16,7 @@ export async function discoverProject(repo: string): Promise<WorkspaceProject[]>
     }
   }`
 
-  const token =
-    process.env.GITHUB_TOKEN ||
-    (() => {
-      const proc = Bun.spawnSync(['gh', 'auth', 'token'], { stdout: 'pipe', stderr: 'pipe' })
-      return new TextDecoder().decode(proc.stdout).trim()
-    })()
-  if (!token) throw new Error('Not authenticated. Run: gh auth login or set GITHUB_TOKEN env var')
+  const token = getGitHubToken()
 
   const res = await fetch('https://api.github.com/graphql', {
     method: 'POST',
