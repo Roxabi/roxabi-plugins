@@ -42,3 +42,17 @@ describe('ciClass — CheckRun rows (status=COMPLETED)', () => {
     expect(ciClass('COMPLETED', 'SUCCESS')).toBe('ci-success')
   })
 })
+
+describe('ciIcon/ciClass — StatusContext-vs-CheckRun routing regression (Bug-1)', () => {
+  // Pins the fix: StatusContext row with status=SUCCESS and non-empty conclusion must NOT
+  // be misrouted to the CheckRun/COMPLETED branch.
+  // Pre-fix code returned ⛔ (CANCELLED conclusion) for ciIcon and 'ci-cancelled' for ciClass.
+  // Post-fix code correctly routes to the StatusContext SUCCESS branch.
+  it('ciIcon: SUCCESS with CANCELLED conclusion → ✅ (StatusContext SUCCESS branch, not CheckRun)', () => {
+    expect(ciIcon('SUCCESS', 'CANCELLED')).toBe('✅')
+  })
+
+  it('ciClass: SUCCESS with CANCELLED conclusion → ci-success (StatusContext SUCCESS branch, not CheckRun)', () => {
+    expect(ciClass('SUCCESS', 'CANCELLED')).toBe('ci-success')
+  })
+})

@@ -7,15 +7,7 @@ import type { WorkspaceProject } from '../../shared/ports/workspace'
  * single-project code paths in dashboard.ts so that neither path accidentally
  * drops fields.
  */
-export function toWorkspaceProject(p: {
-  label: string
-  repo: string
-  projectId: string
-  type?: WorkspaceProject['type']
-  fieldIds?: WorkspaceProject['fieldIds']
-  vercelProjects?: WorkspaceProject['vercelProjects']
-  localPath?: string
-}): WorkspaceProject {
+export function toWorkspaceProject(p: WorkspaceProject): WorkspaceProject {
   return {
     label: p.label,
     repo: p.repo,
