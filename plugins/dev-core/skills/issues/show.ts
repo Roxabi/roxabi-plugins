@@ -6,7 +6,7 @@
  */
 
 import { detectGitHubRepo } from '../shared/adapters/config-helpers'
-import { parseBlockedBy } from './lib/digest-helpers'
+import { parseBlockedBy, progressBar } from './lib/digest-helpers'
 import { ghGraphQLExec } from './lib/gh-exec'
 
 const issueNum = parseInt(process.argv[2] ?? '', 10)
@@ -32,12 +32,6 @@ function stripBlockedBySection(body: string): string {
 
 function fmtDate(iso: string): string {
   return iso ? new Date(iso).toISOString().slice(0, 10) : ''
-}
-
-function bar(closed: number, total: number): string {
-  if (total === 0) return ''
-  const filled = Math.round((closed / total) * 5)
-  return `${'█'.repeat(filled)}${'░'.repeat(5 - filled)} ${closed}/${total}`
 }
 
 // ── 1. Core fields via gh CLI ────────────────────────────────────────────────
@@ -162,7 +156,7 @@ if (description) {
 // Sub-issues
 if (subIssues.length > 0) {
   const open = subIssues.filter((s) => s.state === 'OPEN').length
-  const progress = bar(subIssues.length - open, subIssues.length)
+  const progress = progressBar(subIssues.length - open, subIssues.length, { suffix: true, emptyBar: false })
   lines.push(`### Sub-issues  ${progress}`)
   lines.push('')
   for (const s of subIssues) {

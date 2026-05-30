@@ -5,6 +5,7 @@
 
 import { PRIORITY_ORDER, PRIORITY_SHORT, SIZE_ORDER, STATUS_SHORT } from '../../shared/adapters/config-helpers'
 import type { RawItem } from '../../shared/types'
+import { cleanTitle } from './components'
 import type { Issue } from './types'
 
 export function pad(s: string, width: number): string {
@@ -215,11 +216,7 @@ export function formatTable(allItems: RawItem[], opts: FormatOptions): string {
 }
 
 function shortName(title: string): string {
-  let s = title
-    .replace(/^(feat|chore|docs|fix|refactor)\(.*?\):\s*/i, '')
-    .replace(/^Feature:\s*/i, '')
-    .replace(/^LATER:\s*/i, '')
-    .replace(/\s*\(.*?\)$/, '')
+  let s = cleanTitle(title)
   if (s.length > 20) s = `${s.slice(0, 17)}...`
   return s
 }

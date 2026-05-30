@@ -14,6 +14,7 @@ import {
   GH_PROJECT_ID,
   LANE_FIELD_ID,
   LANE_OPTIONS,
+  PRIORITY_ALIASES,
   PRIORITY_FIELD_ID,
   PRIORITY_OPTIONS,
   SIZE_FIELD_ID,
@@ -154,12 +155,7 @@ export const LEGACY_LABEL_MAP = {
     L: 'F-full',
     XL: 'F-full',
   } as Record<string, string>,
-  priority: {
-    P0: 'P0 - Urgent',
-    P1: 'P1 - High',
-    P2: 'P2 - Medium',
-    P3: 'P3 - Low',
-  } as Record<string, string>,
+  priority: PRIORITY_ALIASES,
   issueType: {
     feat: 'feat',
     fix: 'fix',
