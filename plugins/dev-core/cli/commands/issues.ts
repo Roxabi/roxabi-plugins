@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 import { formatJson, formatTable, formatTree } from '../../skills/issues/lib/table-formatter'
 import { getGitHubToken } from '../../skills/shared/adapters/github-adapter'
+import type { Workspace } from '../../skills/shared/ports/workspace'
 import { buildBatchedQuery, buildBatchedVariables, ISSUES_QUERY } from '../../skills/shared/queries'
 import type { RawItem } from '../../skills/shared/types'
 import { resolveCurrentProject, resolveRepoFromCwd } from '../lib/cwd-resolver'
-import type { Workspace } from '../lib/workspace-store'
 import { readWorkspace } from '../lib/workspace-store'
 
 export interface IssuesCommandOptions {

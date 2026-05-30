@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
-import type { WorkspaceProject } from './workspace-store'
+import type { WorkspaceProject } from '../../skills/shared/ports/workspace'
 
 // GitHub repo slugs: owner/name. First character of each segment must be alphanumeric
 // (matches GitHub's own rule that usernames and repo names cannot start with . - or _).

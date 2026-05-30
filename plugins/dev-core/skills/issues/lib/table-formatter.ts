@@ -6,6 +6,7 @@
 import { PRIORITY_ORDER, PRIORITY_SHORT, SIZE_ORDER, STATUS_SHORT } from '../../shared/adapters/config-helpers'
 import type { RawItem } from '../../shared/types'
 import { cleanTitle } from './components'
+import { topoSort } from './topo-sort'
 import type { Issue } from './types'
 
 export function pad(s: string, width: number): string {
@@ -240,26 +241,9 @@ function buildDependencyGraph(allItems: RawItem[]): Map<number, GraphNode> {
 }
 
 function topologicalSort(blockers: number[], graph: Map<number, GraphNode>): number[] {
-  const inDeps = new Map<number, number[]>()
-  for (const num of blockers) {
-    const upstream = blockers.filter((other) => other !== num && (graph.get(other)?.blocks.includes(num) ?? false))
-    inDeps.set(num, upstream)
-  }
-
-  const emitted: number[] = []
-  let remaining = [...blockers]
-  while (remaining.length > 0) {
-    const emittedSet = new Set(emitted)
-    const ready = remaining.filter((num) => (inDeps.get(num) ?? []).every((d) => emittedSet.has(d))).sort()
-    if (ready.length === 0) {
-      emitted.push(...remaining.sort())
-      remaining = []
-    } else {
-      emitted.push(...ready)
-      remaining = remaining.filter((n) => !ready.includes(n))
-    }
-  }
-  return emitted
+  const getUpstream = (num: number): number[] =>
+    blockers.filter((other) => other !== num && (graph.get(other)?.blocks.includes(num) ?? false))
+  return topoSort(blockers, getUpstream, 'string-asc')
 }
 
 function formatChainLines(emitted: number[], graph: Map<number, GraphNode>): string[] {

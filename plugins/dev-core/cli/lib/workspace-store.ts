@@ -1,27 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import type { ProjectFieldIds } from '../../skills/shared/domain/types'
-
-export interface VercelProjectRef {
-  projectId: string
-  teamId: string
-}
-
-export interface WorkspaceProject {
-  repo: string // 'owner/name'
-  projectId: string // 'PVT_...'
-  label: string // display name shown in dashboard tab
-  localPath?: string // absolute path to local clone — used by dashboard for git ops
-  type?: 'technical' | 'company' // project type for field slot naming
-  fieldIds?: ProjectFieldIds // per-project field IDs and option IDs
-  vercelProjectId?: string // single Vercel project ID (legacy / single-project)
-  vercelTeamId?: string // Vercel team ID for single project
-  vercelProjects?: VercelProjectRef[] // multiple Vercel projects (overrides vercelProjectId)
-}
-
-export interface Workspace {
-  projects: WorkspaceProject[]
-  roadmapProjectId?: string // optional roadmap project for cross-repo items
-}
+import type { Workspace, WorkspaceProject } from '../../skills/shared/ports/workspace'
 
 export function getWorkspacePath(): string {
   const home = process.env.HOME ?? ''

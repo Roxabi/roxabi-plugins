@@ -1,4 +1,5 @@
 import { escHtml, shortTitle } from './components'
+import { topoSort } from './topo-sort'
 import type { DepNode, GraphDims, Issue } from './types'
 
 export function flattenIssues(issues: Issue[]): Map<number, Issue> {
@@ -30,26 +31,12 @@ export function buildDepGraph(issues: Issue[]): DepNode[] {
     }
   }
 
-  // Topological sort
-  const emitted = new Set<number>()
-  const sorted: DepNode[] = []
-  const remaining = [...nodes]
-  while (remaining.length > 0) {
-    const ready = remaining.filter((n) =>
-      nodes.filter((o) => o.targets.includes(n.number)).every((o) => emitted.has(o.number)),
-    )
-    if (ready.length === 0) {
-      sorted.push(...remaining)
-      break
-    }
-    for (const n of ready) {
-      sorted.push(n)
-      emitted.add(n.number)
-      remaining.splice(remaining.indexOf(n), 1)
-    }
-  }
-
-  return sorted
+  // Topological sort — upstream of N = all nodes that have N in their targets
+  const nodeMap = new Map(nodes.map((n) => [n.number, n]))
+  const ids = nodes.map((n) => n.number)
+  const getUpstream = (id: number): number[] => nodes.filter((o) => o.targets.includes(id)).map((o) => o.number)
+  const order = topoSort(ids, getUpstream, 'input-order')
+  return order.map((num) => nodeMap.get(num)).filter((n): n is DepNode => n !== undefined)
 }
 
 function collectGraphNumbers(nodes: DepNode[]): Set<number> {

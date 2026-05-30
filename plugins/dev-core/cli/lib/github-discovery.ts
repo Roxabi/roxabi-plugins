@@ -1,6 +1,6 @@
 import { getGitHubToken } from '../../skills/shared/adapters/github-adapter'
+import type { WorkspaceProject } from '../../skills/shared/ports/workspace'
 import { detectLocalPath } from './cwd-resolver'
-import type { WorkspaceProject } from './workspace-store'
 
 /**
  * Discover GitHub Projects linked to a repo via GraphQL.
