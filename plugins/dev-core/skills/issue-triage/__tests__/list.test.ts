@@ -233,6 +233,76 @@ describe('issue-triage/list (default tree view)', () => {
   })
 })
 
+describe('issue-triage/list > renderTree cycle guard', () => {
+  it('does not throw or overflow when sub-issue graph has a 2-node cycle', async () => {
+    const { renderTree } = await import('../lib/list')
+
+    const row1: Parameters<typeof renderTree>[0][number] = {
+      item_id: 'item-1',
+      number: 1,
+      title: 'Issue one',
+      size: 'M',
+      priority: 'P1 - High',
+      status: 'Backlog',
+      mismatch: false,
+      subIssueNumbers: [2],
+      hasDoneChild: false,
+    }
+    const row2: Parameters<typeof renderTree>[0][number] = {
+      item_id: 'item-2',
+      number: 2,
+      title: 'Issue two',
+      size: 'S',
+      priority: 'P2 - Medium',
+      status: 'In Progress',
+      mismatch: false,
+      subIssueNumbers: [1],
+      hasDoneChild: false,
+    }
+
+    const byNumber = new Map([
+      [1, row1],
+      [2, row2],
+    ])
+
+    const lines: string[] = []
+    expect(() => renderTree([row1], byNumber, 0, lines, new Set())).not.toThrow()
+    // Each node should appear at most once
+    const numbersInOutput = lines
+      .map((l) => {
+        const m = l.match(/#(\d+)/)
+        return m ? Number(m[1]) : null
+      })
+      .filter((n): n is number => n !== null)
+    expect(numbersInOutput.filter((n) => n === 1).length).toBeLessThanOrEqual(1)
+    expect(numbersInOutput.filter((n) => n === 2).length).toBeLessThanOrEqual(1)
+  })
+
+  it('does not throw or overflow when sub-issue graph has a self-referential cycle', async () => {
+    const { renderTree } = await import('../lib/list')
+
+    const row1: Parameters<typeof renderTree>[0][number] = {
+      item_id: 'item-1',
+      number: 1,
+      title: 'Self-referential',
+      size: 'M',
+      priority: 'P1 - High',
+      status: 'Backlog',
+      mismatch: false,
+      subIssueNumbers: [1],
+      hasDoneChild: false,
+    }
+
+    const byNumber = new Map([[1, row1]])
+
+    const lines: string[] = []
+    expect(() => renderTree([row1], byNumber, 0, lines, new Set())).not.toThrow()
+    // Node 1 appears exactly once
+    const n1Count = lines.filter((l) => l.includes('#1')).length
+    expect(n1Count).toBe(1)
+  })
+})
+
 describe('issue-triage/list > priority mismatch detection', () => {
   it('no mismatch when field and label agree', async () => {
     const { detectPriorityMismatch } = await import('../lib/list')
