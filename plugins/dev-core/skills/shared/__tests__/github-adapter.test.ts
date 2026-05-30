@@ -3,12 +3,17 @@
  * Proves that HTTP/GraphQL failures throw typed domain exceptions,
  * not bare Error instances.
  */
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { GitHubApiError } from '../domain/errors'
 
 // Stub fetch before importing the module (vi.stubGlobal not supported in Bun)
+const origFetch = globalThis.fetch
 const mockFetch = vi.fn()
 ;(globalThis as unknown as { fetch: unknown }).fetch = mockFetch
+
+afterAll(() => {
+  ;(globalThis as unknown as { fetch: unknown }).fetch = origFetch
+})
 
 // GITHUB_TOKEN set so getGitHubToken() resolves without spawning gh CLI
 process.env.GITHUB_TOKEN = 'test-token'
@@ -34,6 +39,27 @@ describe('github-adapter error wiring', () => {
       expect(caught).toBeInstanceOf(GitHubApiError)
       expect((caught as GitHubApiError).statusCode).toBe(503)
       expect((caught as GitHubApiError).message).toContain('GitHub GraphQL error (503)')
+    })
+  })
+
+  describe('ghGraphQL — GraphQL application-level error (200 ok, errors array)', () => {
+    it('throws GitHubApiError with undefined statusCode when response is ok but body has errors', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ errors: [{ message: 'field not found' }] }),
+      })
+
+      let caught: unknown
+      try {
+        await ghGraphQL('query {}', {})
+      } catch (e) {
+        caught = e
+      }
+
+      expect(caught).toBeInstanceOf(GitHubApiError)
+      expect((caught as GitHubApiError).statusCode).toBeUndefined()
+      expect((caught as GitHubApiError).message).toContain('GitHub GraphQL error:')
     })
   })
 

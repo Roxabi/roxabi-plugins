@@ -103,7 +103,7 @@ const REPO_SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
  */
 function assertValidRepoSlug(value: string): string {
   if (!REPO_SLUG_RE.test(value)) {
-    throw new Error(
+    throw new ConfigError(
       `Invalid GitHub repo "${value}". Expected "owner/repo" format ` +
         '(set github_repo in dev-core config or the GITHUB_REPO env var).',
     )

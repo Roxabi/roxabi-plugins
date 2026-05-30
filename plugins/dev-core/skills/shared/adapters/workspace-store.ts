@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { WorkspaceError } from '../domain/errors'
 import type { Workspace, WorkspaceProject } from '../ports/workspace'
 
 export function getWorkspacePath(): string {
@@ -23,12 +24,12 @@ export function readWorkspace(): Workspace {
  */
 export function parseWorkspace(raw: unknown): Workspace {
   if (!raw || typeof raw !== 'object' || !('projects' in raw)) {
-    throw new Error('workspace.json: expected object with `projects` array')
+    throw new WorkspaceError('workspace.json: expected object with `projects` array')
   }
   const obj = raw as Record<string, unknown>
   const projects = obj.projects
   if (!Array.isArray(projects)) {
-    throw new Error('workspace.json: `projects` must be an array')
+    throw new WorkspaceError('workspace.json: `projects` must be an array')
   }
   const roadmapProjectId =
     obj.roadmapProjectId !== undefined && typeof obj.roadmapProjectId === 'string' ? obj.roadmapProjectId : undefined
@@ -37,17 +38,17 @@ export function parseWorkspace(raw: unknown): Workspace {
 
 function validateProject(p: unknown, i: number): WorkspaceProject {
   if (!p || typeof p !== 'object') {
-    throw new Error(`workspace.json: projects[${i}] must be an object`)
+    throw new WorkspaceError(`workspace.json: projects[${i}] must be an object`)
   }
   const obj = p as Record<string, unknown>
   for (const field of ['repo', 'projectId', 'label'] as const) {
     const v = obj[field]
     if (typeof v !== 'string' || v.length === 0) {
-      throw new Error(`workspace.json: projects[${i}].${field} must be a non-empty string`)
+      throw new WorkspaceError(`workspace.json: projects[${i}].${field} must be a non-empty string`)
     }
   }
   if (obj.localPath !== undefined && typeof obj.localPath !== 'string') {
-    throw new Error(`workspace.json: projects[${i}].localPath must be a string if present`)
+    throw new WorkspaceError(`workspace.json: projects[${i}].localPath must be a string if present`)
   }
   return obj as unknown as WorkspaceProject
 }

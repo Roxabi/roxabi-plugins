@@ -1,3 +1,4 @@
+import { ConfigError, GitHubApiError } from '../domain/errors'
 import type { WorkspaceProject } from '../ports/workspace'
 import { getGitHubToken } from './github-adapter'
 
@@ -11,7 +12,7 @@ import { getGitHubToken } from './github-adapter'
  */
 export async function discoverProject(repo: string, localPath?: string): Promise<WorkspaceProject[]> {
   const [owner, name] = repo.split('/')
-  if (!owner || !name) throw new Error(`Invalid repo format: '${repo}'. Use 'owner/name'.`)
+  if (!owner || !name) throw new ConfigError(`Invalid repo format: '${repo}'. Use 'owner/name'.`)
 
   const query = `query($owner: String!, $name: String!) {
     repository(owner: $owner, name: $name) {
@@ -26,7 +27,7 @@ export async function discoverProject(repo: string, localPath?: string): Promise
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables: { owner, name } }),
   })
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status} ${res.statusText}`)
+  if (!res.ok) throw new GitHubApiError(`GitHub API error: ${res.status} ${res.statusText}`, res.status)
 
   const json = (await res.json()) as {
     data: { repository: { projectsV2: { nodes: { id: string; title: string }[] } } }

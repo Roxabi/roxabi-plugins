@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
 
 // Provide project config so field updates work in tests
 process.env.GITHUB_REPO = 'Test/test-repo'
@@ -490,7 +491,7 @@ describe('issue-triage/set > applyType accepts all 10 canonical values', () => {
   beforeEach(setupMocks)
   afterEach(() => vi.restoreAllMocks())
 
-  const ALL_VALID_TYPES = ['feat', 'fix', 'docs', 'test', 'chore', 'ci', 'perf', 'refactor', 'epic', 'research']
+  const ALL_VALID_TYPES = [...ISSUE_TYPE_NAMES, ...EXTENDED_ISSUE_TYPES]
 
   it('accepts every value in the canonical set without calling process.exit', async () => {
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
