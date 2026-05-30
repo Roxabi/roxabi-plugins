@@ -9,32 +9,38 @@ date: 2026-05-31
 ## Problem
 
 Two copies of `config-helpers.ts` exist as parallel-path siblings:
-`plugins/dev-core/skills/shared/adapters/config-helpers.ts` (393 lines) and
-`plugins/dev-init/skills/shared/adapters/config-helpers.ts` (330 lines). They have
-**drifted** — and the issue body's premise that they are *"byte-identical in the
-security-relevant sections"* is **stale/incorrect as of today**:
+`plugins/dev-core/skills/shared/adapters/config-helpers.ts` (412 lines) and
+`plugins/dev-init/skills/shared/adapters/config-helpers.ts` (383 lines), plus two
+**byte-identical** `config.test.ts` copies (486 lines each).
 
-- **dev-core** is hardened — `Bun.spawnSync` (array-form), `REPO_SLUG_RE` +
-  `assertValidRepoSlug`, validated `detectGitHubRepo` (#202), array-form `gh api graphql`
-  for the `gh_project_id` path (#209), plus `getSizeOptionId`/`SIZE_REVERSE_PRECEDENCE`.
-- **dev-init** missed BOTH hardening passes — uses `execSync` with **shell-command
-  strings** (a shell-injection vector, not just GraphQL injection), has **no**
-  `REPO_SLUG_RE`/`assertValidRepoSlug` at all, no validation in `detectGitHubRepo`, and
-  lacks the size helpers.
+**Scope correction (post-#216):** the issue was filed when dev-init was unhardened and
+carried a shell-injection vector. PR #216 (merged to staging, closed #213) has since
+hardened the dev-init copy — `assertValidRepoSlug` + typed GraphQL vars + array-form
+`Bun.spawnSync`, no `execSync` anywhere. **The security driver is resolved.** #214 is now
+a pure **maintainability/quality refactor**, not a security fix.
 
-This is the `parallel-path-drift` / `target-axis-trap` class: every hardening fix has to
-be applied N times across non-primary-axis siblings, and dev-init silently fell behind.
-The root fix is to collapse the two copies into a single shared source so the class is
-eliminated, not patched again. Doing so **structurally subsumes #213** (port #202+#209
-into dev-init) — the shared source *is* the hardened dev-core version.
+What remains is the *root structural problem*: the two adapters are still independently
+editable parallel copies, and drift is **already re-accruing** even after #216 — the two
+`config-helpers.ts` now differ only cosmetically (security-comment wording, GraphQL query
+line-wrap) plus the dev-core-only `getSizeOptionId`/`SIZE_REVERSE_PRECEDENCE` block that
+dev-init does not import. This is the `parallel-path-drift` / `target-axis-trap` class:
+every fix must be applied N times across siblings, and dev-init has fallen behind twice
+(#202, #209) under manual mirroring. The fix is to collapse the copies into a single
+shared source synced into each plugin, so the class is eliminated rather than re-patched.
+
+Folded in (cheap residuals that live in the same shared source):
+- **Test hygiene** — remove the dead `execSyncSpy` + `vi.mock('node:child_process')` (sources
+  are `Bun.spawnSync`-only; the spy mocks a non-existent path); fix the `throws when no env
+  var` test's self-shadowed `originalEnv` + `=undefined`→`"undefined"` coercion.
+- **Hardening** — tighten `REPO_SLUG_RE` to match the anchored form in
+  `plugins/dev-core/cli/lib/cwd-resolver.ts:6`; add the missing `gh`-success happy-path test.
 
 ## Who
 
 - **Primary:** Maintainers of `roxabi-plugins` editing the shared config adapter — today
-  any change must be hand-mirrored across both copies or drift recurs.
-- **Secondary:** Plugin users — dev-init currently ships an unhardened `gh` interpolation
-  path (low practical exploitability: input is the user's own authenticated `gh repo view`
-  output, but same class flagged by security-auditor C75).
+  any change must be hand-mirrored across both copies or drift recurs (it already has).
+- **Secondary:** Plugin users — benefit indirectly from consistent, single-sourced adapter
+  behavior across both plugins. (No live security exposure remains post-#216.)
 
 ## Constraints
 
@@ -51,17 +57,18 @@ into dev-init) — the shared source *is* the hardened dev-core version.
 
 ## Out of Scope
 
-- Migrating any **other** adapter files into the shared layer (only `config-helpers.ts`).
+- Migrating any **other** adapter files into the shared layer (only `config-helpers.ts`
+  + its `config.test.ts`).
 - A general `roxabi_sdk`-wide consolidation effort beyond what this dedup requires.
-- Closing #213 itself (it is `blocked-by #214`; closes when this merges).
+- #213 (already closed by #216) — no separate hardening port needed.
 - Changing the public behavior/signatures of the exported helpers.
 
 ## Premise Validity
 
-**Success in 6 months:** A single shared `config-helpers` source exists; both dev-core and
-dev-init consume it via copy-on-build sync; `diff` of the two installed copies'
-security-relevant logic is empty; the dev-init shell-injection vector (#213) is closed;
-`REPO_SLUG_RE` is tightened to GitHub's owner rules; `config.test.ts` has no dead
+**Success in 6 months:** A single shared `config-helpers` source (+ shared `config.test.ts`)
+exists; both dev-core and dev-init consume it via copy-on-build sync; `diff` of the two
+synced copies is empty (or limited to a sanctioned, generated header); `REPO_SLUG_RE` is
+tightened to the anchored `cwd-resolver.ts` form; `config.test.ts` has no dead
 `execSync`/`vi.mock('node:child_process')` and the env-var test no longer self-shadows;
 the tier-3 `gh`-success auto-detect branch has happy-path coverage.
 
@@ -71,12 +78,14 @@ new hardening fix lands in exactly one copy (observable via `git log --oneline -
 showing a commit touching one but not the other). Either condition = the dedup failed to
 kill the drift class and we revert to manual mirroring.
 
-**Simplest alternative:** Just port #213's hardening into the dev-init copy by hand (the
-two clusters' fixes, applied twice).
-**Why not simplest:** That is precisely the manual-mirror approach whose failure produced
-*this* issue — dev-init already fell behind on #202 and #209 under that model. Patching the
-copy leaves two divergent sources, so the next hardening fix drifts again. The root fix must
-remove the second copy as an independently-editable source.
+**Simplest alternative:** Skip the dedup; just apply the residual fixes (regex tighten, test
+hygiene, happy-path test) to both copies by hand and add a `validate_plugins.py` byte-equality
+check between the two files.
+**Why not simplest:** Mirroring-by-hand is exactly the model that already let dev-init fall
+behind on #202 and #209, and cosmetic drift has *re-accrued even after #216*. A diff-check
+gate would catch drift but still forces the double-edit toil on every future change and adds
+a CI failure mode; collapsing to one synced source removes the second editable copy entirely,
+which is the actual root fix the issue calls for.
 
 ## Complexity
 
