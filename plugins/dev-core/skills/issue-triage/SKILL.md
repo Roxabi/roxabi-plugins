@@ -31,6 +31,8 @@ Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies
 | **L** | Large, 3-5 days | Complex feature, architectural changes |
 | **XL** | Very large, > 1 week | Major refactor, new system |
 
+**Canonical tier names:** `S / F-lite / F-full` (maps to dev tiers: S=simple, F-lite=subagents, F-full=agent team). Legacy boards use `XS / S / M / L / XL`. Both are accepted as `--size` input. When a canonical name is used on a legacy board it aliases to the nearest legacy option (`F-full`→`XL`/`L`, `F-lite`→`M`, `S`→`S`/`XS`) and the board displays that legacy bucket — this is expected presentation drift, not a bug.
+
 ## Priority Guidelines
 
 | Priority | Description | Action |
@@ -54,7 +56,7 @@ Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies
 
 | Flag | Description |
 |------|-------------|
-| `--size <S>` | Set size (XS, S, M, L, XL) |
+| `--size <S>` | Set size — canonical `S/F-lite/F-full` or legacy `XS/S/M/L/XL` (canonical names work on legacy boards via alias mapping) |
 | `--priority <P>` | Set priority (Urgent, High, Medium, Low) |
 | `--status <S>` | Set status (Backlog, Analysis, Specs, "In Progress", Review, Done) |
 | `--blocked-by <REF>[,<REF>...]` | Add blocked-by dependency. REF = `#N` or `owner/repo#N` |
@@ -75,7 +77,7 @@ Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies
 | `--title "..."` | Issue title (**required**) |
 | `--body "..."` | Issue body/description |
 | `--label "l1,l2"` | Comma-separated labels |
-| `--size <S>` | Set size on creation |
+| `--size <S>` | Set size on creation — canonical `S/F-lite/F-full` or legacy `XS/S/M/L/XL` accepted (legacy boards alias canonical names) |
 | `--priority <P>` | Set priority on creation |
 | `--status <S>` | Set status on creation (default: added to project as-is) |
 | `--parent <REF>` | Set parent issue on creation. REF = `#N` or `owner/repo#N` |

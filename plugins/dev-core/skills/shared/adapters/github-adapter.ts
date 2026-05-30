@@ -637,9 +637,32 @@ export async function updateIssueType(
 
 /** Update labels on a GitHub issue: add and/or remove labels. */
 export async function updateLabels(issueNumber: number, add: string[], remove: string[]): Promise<void> {
+  let removeExisting = remove
+  if (remove.length) {
+    const out = await run([
+      'gh',
+      'label',
+      'list',
+      '--repo',
+      GITHUB_REPO,
+      '--limit',
+      '200',
+      '--json',
+      'name',
+      '--jq',
+      '.[].name',
+    ])
+    const existing = new Set(
+      out
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    )
+    removeExisting = remove.filter((l) => existing.has(l))
+  }
   const args = ['gh', 'issue', 'edit', String(issueNumber), '--repo', GITHUB_REPO]
   if (add.length) args.push('--add-label', add.join(','))
-  if (remove.length) args.push('--remove-label', remove.join(','))
+  if (removeExisting.length) args.push('--remove-label', removeExisting.join(','))
   await run(args)
 }
 

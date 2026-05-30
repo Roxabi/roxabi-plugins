@@ -71,6 +71,11 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
     const u = input.toUpperCase()
     return new Set(['XS', 'S', 'M', 'L', 'XL']).has(u) ? u : undefined
   },
+  getSizeOptionId: (input: string) => {
+    const u = input.toUpperCase()
+    const opts: Record<string, string> = { XS: 'size-xs', S: 'size-s', M: 'size-m', L: 'size-l', XL: 'size-xl' }
+    return opts[u]
+  },
   resolvePriority: (input: string) => {
     const canonical = new Set(['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'])
     if (canonical.has(input)) return input

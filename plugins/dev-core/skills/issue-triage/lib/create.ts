@@ -4,6 +4,7 @@
  */
 
 import {
+  getSizeOptionId,
   isProjectConfigured,
   NOT_CONFIGURED_MSG,
   PRIORITY_FIELD_ID,
@@ -12,7 +13,6 @@ import {
   resolveSize,
   resolveStatus,
   SIZE_FIELD_ID,
-  SIZE_OPTIONS,
   STATUS_FIELD_ID,
   STATUS_OPTIONS,
 } from '../../shared/adapters/config-helpers'
@@ -99,13 +99,13 @@ async function applyProjectFields(itemId: string, issueNumber: number, opts: Cre
   }
 
   if (opts.size) {
-    const canonical = resolveSize(opts.size)
-    if (!(canonical && SIZE_OPTIONS[canonical])) {
+    const optionId = getSizeOptionId(opts.size)
+    if (!optionId) {
       console.error('Error: Invalid size')
       process.exit(1)
     }
-    await updateField(itemId, SIZE_FIELD_ID, SIZE_OPTIONS[canonical])
-    console.log(`Size=${canonical} #${issueNumber}`)
+    await updateField(itemId, SIZE_FIELD_ID, optionId)
+    console.log(`Size=${resolveSize(opts.size)} #${issueNumber}`)
   }
 
   if (opts.priority) {
