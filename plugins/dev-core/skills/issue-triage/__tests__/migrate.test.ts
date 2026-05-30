@@ -1030,7 +1030,11 @@ describe('migrate > revert', () => {
     mockRun.mockResolvedValue('')
   })
 
-  afterEach(() => vi.restoreAllMocks())
+  // FIX 2: reset process.exitCode after each test so exitCode=1 does not leak into later tests
+  afterEach(() => {
+    vi.restoreAllMocks()
+    process.exitCode = 0
+  })
 
   describe('backfill snapshot kind', () => {
     it('detects backfill snapshot and calls clearField for non-flagged rows with non-null new_value', async () => {
@@ -1087,19 +1091,25 @@ describe('migrate > revert', () => {
       ]
       await writeFile(snapshotPath, JSON.stringify(rows), 'utf-8')
 
+      // FIX 1: spy on process.stderr.write to assert the WARNING is emitted
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+
       // process.stdin.isTTY is undefined (falsy) in vitest/node — non-interactive path
 
       // Act — no yes flag
       await revert({ snapshotPath })
 
-      // Assert
+      // Assert — FIX 1: stderr WARNING must mention unverified/WARNING/issueType
+      const stderrCalls = stderrSpy.mock.calls.map((c) => String(c[0]))
+      expect(stderrCalls.some((msg) => /unverified|WARNING|issueType/i.test(msg))).toBe(true)
+      stderrSpy.mockRestore()
+
+      // Assert — FIX 3: pin skip-log to the exact production string (migrate.ts ~L889)
       expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
       const logCalls = (console.log as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
-      expect(logCalls.some((msg) => /skip.*issueType/i.test(msg) || /issueType revert/i.test(msg))).toBe(true)
+      expect(logCalls.some((msg) => msg.includes('Skipped') && msg.includes('issueType revert'))).toBe(true)
       expect(process.exitCode).toBe(1)
-
-      // Cleanup
-      process.exitCode = 0
+      // FIX 2: inline reset removed — handled by afterEach
     })
 
     it('non-issueType backfill rows (Lane/Size/Priority) proceed regardless of issueType gate', async () => {

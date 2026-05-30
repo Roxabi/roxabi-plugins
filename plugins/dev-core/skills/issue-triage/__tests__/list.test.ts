@@ -267,14 +267,15 @@ describe('issue-triage/list > renderTree cycle guard', () => {
 
     const lines: string[] = []
     expect(() => renderTree([row1], byNumber, 0, lines, new Set())).not.toThrow()
-    // Each node should appear at most once
+    // Root node (#1, the one passed into renderTree) must appear exactly once (not 0 — that would mean empty output)
+    // Non-root cycle node (#2) may or may not render depending on visited-set order
     const numbersInOutput = lines
       .map((l) => {
         const m = l.match(/#(\d+)/)
         return m ? Number(m[1]) : null
       })
       .filter((n): n is number => n !== null)
-    expect(numbersInOutput.filter((n) => n === 1).length).toBeLessThanOrEqual(1)
+    expect(numbersInOutput.filter((n) => n === 1).length).toBe(1)
     expect(numbersInOutput.filter((n) => n === 2).length).toBeLessThanOrEqual(1)
   })
 
