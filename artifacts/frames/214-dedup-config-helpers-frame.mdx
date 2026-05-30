@@ -1,0 +1,90 @@
+---
+title: "refactor: dedup dev-core/dev-init config-helpers.ts + close residual hardening gaps"
+issue: 214
+status: approved
+tier: F-lite
+date: 2026-05-31
+---
+
+## Problem
+
+Two copies of `config-helpers.ts` exist as parallel-path siblings:
+`plugins/dev-core/skills/shared/adapters/config-helpers.ts` (393 lines) and
+`plugins/dev-init/skills/shared/adapters/config-helpers.ts` (330 lines). They have
+**drifted** — and the issue body's premise that they are *"byte-identical in the
+security-relevant sections"* is **stale/incorrect as of today**:
+
+- **dev-core** is hardened — `Bun.spawnSync` (array-form), `REPO_SLUG_RE` +
+  `assertValidRepoSlug`, validated `detectGitHubRepo` (#202), array-form `gh api graphql`
+  for the `gh_project_id` path (#209), plus `getSizeOptionId`/`SIZE_REVERSE_PRECEDENCE`.
+- **dev-init** missed BOTH hardening passes — uses `execSync` with **shell-command
+  strings** (a shell-injection vector, not just GraphQL injection), has **no**
+  `REPO_SLUG_RE`/`assertValidRepoSlug` at all, no validation in `detectGitHubRepo`, and
+  lacks the size helpers.
+
+This is the `parallel-path-drift` / `target-axis-trap` class: every hardening fix has to
+be applied N times across non-primary-axis siblings, and dev-init silently fell behind.
+The root fix is to collapse the two copies into a single shared source so the class is
+eliminated, not patched again. Doing so **structurally subsumes #213** (port #202+#209
+into dev-init) — the shared source *is* the hardened dev-core version.
+
+## Who
+
+- **Primary:** Maintainers of `roxabi-plugins` editing the shared config adapter — today
+  any change must be hand-mirrored across both copies or drift recurs.
+- **Secondary:** Plugin users — dev-init currently ships an unhardened `gh` interpolation
+  path (low practical exploitability: input is the user's own authenticated `gh repo view`
+  output, but same class flagged by security-auditor C75).
+
+## Constraints
+
+- **Marketplace self-contained / individually-installable principle** — a plugin must work
+  when installed alone. So the shared logic cannot be a cross-plugin runtime import; it must
+  be a **copy-on-build sync** (mirror the existing `roxabi_sdk/` pattern: single source of
+  truth at repo root, sync script copies into each plugin's tree).
+- **Open PR #215** (`refactor(dev-core): architecture + SSoT fixes in shared layer (#195)`)
+  touches the same dev-core shared layer → merge-order/conflict coordination required.
+- `tools/validate_plugins.py` invariants (e.g. `data.root` uniqueness) must still pass.
+- Stack: `bun` + `biome` (single quotes, no semicolons) + `vitest`.
+- `detectGitHubRepo` uses `Bun.spawnSync`; the shared source must keep the runtime-agnostic
+  array-form spawn (dev-init must drop `execSync` entirely).
+
+## Out of Scope
+
+- Migrating any **other** adapter files into the shared layer (only `config-helpers.ts`).
+- A general `roxabi_sdk`-wide consolidation effort beyond what this dedup requires.
+- Closing #213 itself (it is `blocked-by #214`; closes when this merges).
+- Changing the public behavior/signatures of the exported helpers.
+
+## Premise Validity
+
+**Success in 6 months:** A single shared `config-helpers` source exists; both dev-core and
+dev-init consume it via copy-on-build sync; `diff` of the two installed copies'
+security-relevant logic is empty; the dev-init shell-injection vector (#213) is closed;
+`REPO_SLUG_RE` is tightened to GitHub's owner rules; `config.test.ts` has no dead
+`execSync`/`vi.mock('node:child_process')` and the env-var test no longer self-shadows;
+the tier-3 `gh`-success auto-detect branch has happy-path coverage.
+
+**Failure in 6 months (falsifiable):** Within 3 months of merge, either (a) `diff` of the
+two `config-helpers.ts` copies' security-relevant sections is **non-empty again**, or (b) a
+new hardening fix lands in exactly one copy (observable via `git log --oneline -- <both paths>`
+showing a commit touching one but not the other). Either condition = the dedup failed to
+kill the drift class and we revert to manual mirroring.
+
+**Simplest alternative:** Just port #213's hardening into the dev-init copy by hand (the
+two clusters' fixes, applied twice).
+**Why not simplest:** That is precisely the manual-mirror approach whose failure produced
+*this* issue — dev-init already fell behind on #202 and #209 under that model. Patching the
+copy leaves two divergent sources, so the next hardening fix drifts again. The root fix must
+remove the second copy as an independently-editable source.
+
+## Complexity
+
+**Tier: F-lite** — clear scope, single domain (TS tooling/build), one architectural decision
+(copy-on-build sync mechanism) with an existing `roxabi_sdk/` pattern to mirror, ~5–8 files.
+
+Signals observed:
+- Single domain (shared adapter + its tests + sync tooling).
+- ~5–8 files: shared source, sync script wiring, 2 cache/installed copies, 2 `config.test.ts`.
+- One design decision (sync mechanism) — gateable at spec, no full analyze phase needed.
+- External coordination (PR #215) but no new architecture beyond the established sync pattern.
