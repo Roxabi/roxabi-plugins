@@ -84,8 +84,8 @@ Extract from frontmatter: `issue`, `tier`, `spec` path. From body: agent list, t
 Parse π's `## Task IDs` section → {T1: id, T2: id, ...} map. ¬section → `/plan` pre-dates task-tool integration → fall through to 1b.3 (re-seed).
 
 **1b.1 Verify ids:** ∀ id → `TaskGet(id)`. All succeed → cache map, goto Step 2.
-**1b.2 Partial miss:** ¬some id (session restart invalidated state) → re-seed only the missing ones by running Step 6a logic from `/plan` on the corresponding micro-tasks, then rewrite `## Task IDs` section in π with refreshed ids.
-**1b.3 Total miss (legacy plan):** section absent → run Step 6a from `/plan` for every micro-task, append `## Task IDs` section to π, commit the update (`git add` π + commit `chore(plan): attach task ids`).
+**1b.2 Partial miss:** ¬some id (session restart invalidated state) → re-seed only the missing ones using the canonical schema from [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/plan-task-schema.md) on the corresponding micro-tasks, then rewrite `## Task IDs` section in π with refreshed ids.
+**1b.3 Total miss (legacy plan):** section absent → re-seed all micro-tasks using [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/plan-task-schema.md), append `## Task IDs` section to π, commit the update (`git add` π + commit `chore(plan): attach task ids`).
 
 τ=S without π → `TaskCreate` 3–6 coarse tasks directly from spec acceptance criteria: `{ kind: "plan-task", issue: N, tier: "S" }`. No artifact update.
 

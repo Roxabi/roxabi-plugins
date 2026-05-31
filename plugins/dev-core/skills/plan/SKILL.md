@@ -271,35 +271,9 @@ On Approve → **immediately** continue to 6a (seed tasks), 6b (persist IDs), 6c
 
 ### Step 6a — Seed Claude Code Tasks
 
-∀ micro-task in π:
+∀ micro-task in π — use the canonical schema from [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/plan-task-schema.md) (SSoT for `TaskCreate` shape + `blockedBy` wiring).
 
-```
-TaskCreate(
-  subject: "{task description}",
-  description: "{files}\n\nVerify: {verify_command}\nExpected: {expected_output}\nRef: {pattern_file}\nSpec trace: {spec_trace}",
-  activeForm: "{present-continuous form}",
-  metadata: {
-    kind: "plan-task",
-    issue: N,
-    plan: "{path to π}",
-    slice: "V{n}",
-    wave: {wave number},
-    phase: "RED|GREEN|REFACTOR|RED-GATE",
-    agent: "{agent type}",
-    agent_instance: "{tester-A|backend-dev-B|devops-A|…}",
-    subject: "{auth|cache|http|parser|…}",
-    spec_trace: "{SC-N or U1→N1→S1}",
-    difficulty: {1-5},
-    parallel_safe: {true|false},
-  },
-)
-```
-
-Cache returned id in {task# → task.id} map. Attach `agent_instance` from blueprint row to metadata so `/implement` can group tasks by agent session.
-
-**Dependencies:** ∀ micro-task: `TaskUpdate(id, addBlockedBy: [deps...])` where deps come from the blueprint's `blockedBy` column — map T-numbers to real task IDs using the cache.
-
-Fallback (no blueprint): derive from phase order within a slice (GREEN blocked by RED, RED-GATE blocked by all RED in slice).
+Cache returned id in {task# → task.id} map.
 
 τ=S → still seed tasks (3–6 is typical). Skip wave/blueprint wiring when π has no slice structure.
 
