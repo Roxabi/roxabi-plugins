@@ -1,0 +1,51 @@
+---
+title: Reconcile 4 drifted/divergent dev-init↔dev-core shared/ files
+issue: 240
+status: approved
+tier: F-lite
+date: 2026-05-31
+---
+
+## Problem
+
+Four files under `dev-init/skills/shared/` have drifted behind or diverged from their counterparts in `dev-core/skills/shared/`. The drift was catalogued during the #232 shared-source governance audit, where each file was assigned `leave-alone-pending-reconciliation` because the divergence wasn't trivially classifiable at that time.
+
+Three of the four divergences are latent bugs or missing exports: `github-infra.ts` throws a raw `Error` instead of the `ConfigError` class (inconsistent error handling surfaced to callers), `parse-issue-ref.ts` is missing the `formatRef()` export (dev-init callers cannot format refs), and `workspace.ts` is missing `vercelProjectId`/`vercelTeamId` fields (Vercel-aware code in dev-init has no workspace contract). The fourth file, `__tests__/domain.test.ts`, has non-trivial divergence whose nature is not yet characterised.
+
+Until reconciled, dev-init ships with a known-weaker error contract, an incomplete domain API, and an incomplete workspace type — all of which will only compound as dev-core continues to evolve.
+
+## Who
+
+- **Primary:** Roxabi plugin maintainers — work on both dev-init and dev-core, need the shared/ layer to be consistent and governed
+- **Secondary:** dev-init users — currently exposed to the latent `ConfigError` bug and incomplete API surface
+
+## Constraints
+
+- Blocked by #232 — copy-sync baseline (ADR + `tools/shared-sources.json` initial entries) must be merged first
+- Each file must resolve to one of two outcomes: added to `tools/shared-sources.json` (copy-sync, byte-identical copies) or documented as intentional fork in the ADR
+- `adapters/github-adapter.ts` is already `intentional-fork` (+272 lines) — do not revisit
+
+## Out of Scope
+
+- `adapters/github-adapter.ts` — already classified, no action
+- Any new features or API additions beyond what dev-core already has
+- Changes to copy-sync governance tooling (`validate_plugins.py`, lefthook) beyond updating `shared-sources.json`
+
+## Premise Validity
+
+**Success in 6 months:** All 4 file pairs are resolved — 3 straightforward patches applied, `domain.test.ts` divergence classified and either synced or documented. `tools/shared-sources.json` reflects the updated governance state. Diffing the 4 dev-init/dev-core file pairs returns zero unintentional deltas.
+
+**Failure in 6 months:** `dev-init/github-infra.ts` still throws raw `Error`, `formatRef()` still absent from dev-init's `parse-issue-ref.ts`, `vercelProjectId`/`vercelTeamId` still missing from dev-init's `workspace.ts` — all directly observable by diffing the file pairs and running the type-checker.
+
+**Simplest alternative:** Document all 4 as intentional forks (no code changes).
+**Why not simplest:** Three of the four divergences are bugs, not design choices — classifying them as intentional forks would permanently lower dev-init's error-handling and API quality relative to dev-core with no rationale.
+
+## Complexity
+
+**Tier: F-lite** — scope is bounded (4 files, clear per-file prescriptions for 3 of them), single domain (shared-source governance), no new architecture. `domain.test.ts` introduces one unknown that warrants a scoped spec step before implementation.
+
+Signals observed:
+- 4 files, clear per-file action for 3 → leans S
+- `domain.test.ts` non-trivial divergence: unknown classification → requires spec step
+- `tools/shared-sources.json` update required → additional file beyond the 4
+- Pure hygiene, no user-facing change
