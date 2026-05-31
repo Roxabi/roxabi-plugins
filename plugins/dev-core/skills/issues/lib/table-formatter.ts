@@ -217,7 +217,8 @@ export function formatTable(allItems: RawItem[], opts: FormatOptions): string {
 }
 
 function shortName(title: string): string {
-  let s = cleanTitle(title)
+  // stripTrailingSpace=false preserves the pre-extraction shortName regex (/\s*\(.*?\)$/) — byte-identical
+  let s = cleanTitle(title, false)
   if (s.length > 20) s = `${s.slice(0, 17)}...`
   return s
 }

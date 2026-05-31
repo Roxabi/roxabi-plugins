@@ -205,8 +205,8 @@ export const PRIORITY_ALIASES: Record<string, string> = {
 export const DEFAULT_STATUS_OPTIONS = ['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done']
 // Tier-based sizes: S (simple), F-lite (subagents), F-full (agent team)
 export const DEFAULT_SIZE_OPTIONS = ['S', 'F-lite', 'F-full']
-export const DEFAULT_PRIORITY_OPTIONS = ['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low']
 export const PRIORITY_VALUES = ['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'] as const
+export const DEFAULT_PRIORITY_OPTIONS: string[] = [...PRIORITY_VALUES]
 export const DEFAULT_LANE_OPTIONS = [
   'a1',
   'a2',

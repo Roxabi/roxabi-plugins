@@ -35,12 +35,12 @@ export function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-export function cleanTitle(title: string): string {
+export function cleanTitle(title: string, stripTrailingSpace = true): string {
   return title
     .replace(/^(feat|chore|docs|fix|refactor)\(.*?\):\s*/i, '')
     .replace(/^Feature:\s*/i, '')
     .replace(/^LATER:\s*/i, '')
-    .replace(/\s*\(.*?\)\s*$/, '')
+    .replace(stripTrailingSpace ? /\s*\(.*?\)\s*$/ : /\s*\(.*?\)$/, '')
 }
 
 export function shortTitle(title: string, max = 22): string {

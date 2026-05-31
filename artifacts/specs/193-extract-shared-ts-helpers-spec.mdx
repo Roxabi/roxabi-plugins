@@ -103,7 +103,7 @@ classDiagram
   class workspace_store
   components ..> config_helpers : imports PRIORITY_*
   table_formatter ..> components : imports cleanTitle, shortTitle
-  table_formatter ..> topo_sort : topoSort('numeric-asc')
+  table_formatter ..> topo_sort : topoSort('string-asc')
   graph ..> topo_sort : topoSort('input-order')
   show ..> digest_helpers : parseBlockedBy, progressBar
   workspace_store ..> ports_workspace : imports types (drop local + vercel*)
@@ -158,7 +158,7 @@ Affordances = extraction units **E1–E10** (one per in-scope item). Each:
 | E6 | D13 | workspace-store.ts:9-24 (local + `vercel*`) | ports/workspace.ts (SSoT) | drop local interfaces + 2 dead fields; import from ports; repoint cwd-resolver.ts:2, issues.ts:7, github-discovery.ts:3 | `vercel*` confirmed dead |
 | E7 | D14 | fetch-github.ts:206 = :262 | fetch-github.ts `mapRawCheck` (export, co-located) | both → `rawChecks.map(mapRawCheck)` | fetch-workflow has none |
 | E8 | D16 | fetch-workflow.ts:19 = fetch-vercel.ts:124 | constants.ts (new) `FIVE_MINUTES_MS` | import in both | `5*60*1000` |
-| E9 | D17 | graph.ts:33 (input-order) vs table-formatter.ts:245 (numeric-asc) | topo-sort.ts (new) `topoSort(ids,getUpstream,tieBreak)` | graph→`'input-order'`; table-formatter→`'numeric-asc'` | **order-equivalence tests required** |
+| E9 | D17 | graph.ts:33 (input-order) vs table-formatter.ts:245 (string-asc) | topo-sort.ts (new) `topoSort(ids,getUpstream,tieBreak)` | graph→`'input-order'`; table-formatter→`'string-asc'` | **order-equivalence tests required**; renamed from numeric-asc during impl — bare .sort() is lexicographic, not numeric |
 | E10 | D18 | migrate.ts:201 `Row` = :628 `BackfillRow` | keep `BackfillRow` | migrate.ts:340 → `BackfillRow[]`; drop `Row` | internal, byte-identical |
 
 **Dropped:** D19 `escHtml` — page.ts:636/649 are client-side JS; no rewire.
@@ -185,7 +185,7 @@ unchanged → independently shippable.
 ## Success Criteria
 
 - [ ] Each deduped symbol (E1–E10) is **defined exactly once** in dev-core: `grep -rn` for the *definition* (`export function`/`export const`/`function`/`interface`) returns one site for `parseBlockedBy`, `progressBar`, `formatRef`, `cleanTitle`, `mapRawCheck`, `FIVE_MINUTES_MS`, `topoSort`; `PRIORITY_SHORT`/`PRIORITY_ALIASES`/`PRIORITY_VALUES` defined only in `config-helpers.ts` (components.ts re-exports, not redefines); `interface Row` removed.
-- [ ] D17: a single `topoSort` is used by both `graph.ts` and `table-formatter.ts`, and new unit tests assert output ordering against **explicit expected-order cases** (linear / tie / cycle) that reproduce each caller's current ordering for both `input-order` and `numeric-asc` modes.
+- [ ] D17: a single `topoSort` is used by both `graph.ts` and `table-formatter.ts`, and new unit tests assert output ordering against **explicit expected-order cases** (linear / tie / cycle) that reproduce each caller's current ordering for both `input-order` and `string-asc` modes.
 - [ ] D6/D9/D10 are behavior-preserving: unit tests confirm identical output for `progressBar` (suffix + `total=0` cases), `cleanTitle`/`shortName`, and priority resolution (P0–P3 via `PRIORITY_ALIASES`).
 - [ ] D13: `vercelProjectId`/`vercelTeamId` deleted; `WorkspaceProject`/`Workspace` imported from `ports/workspace.ts`; `grep -rn '\.vercelProjectId\|\.vercelTeamId'` → 0 hits; typecheck green.
 - [ ] D19 left unchanged and `plugins/dev-init/**` untouched (`git diff --stat` shows neither `page.ts` escHtml edits nor any `dev-init/` path).

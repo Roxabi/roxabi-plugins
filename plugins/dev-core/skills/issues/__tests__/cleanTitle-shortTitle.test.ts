@@ -43,6 +43,23 @@ describe('cleanTitle', () => {
   })
 })
 
+describe('cleanTitle — shortTitle vs shortName divergence (#193 byte-identical lock)', () => {
+  it('default (stripTrailingSpace=true): strips trailing whitespace after closing paren — old shortTitle behavior', () => {
+    // 'Fix bug (WIP)  ' → trailing 2 spaces stripped along with the paren group
+    expect(cleanTitle('Fix bug (WIP)  ')).toBe('Fix bug')
+  })
+
+  it('stripTrailingSpace=false: preserves trailing whitespace after closing paren — old shortName behavior', () => {
+    // false arg = legacy shortName parity (#193 byte-identical lock): /\s*\(.*?\)$/ does NOT strip trailing space
+    expect(cleanTitle('Fix bug (WIP)  ', false)).toBe('Fix bug (WIP)  ')
+  })
+
+  it('stripTrailingSpace=false: still strips paren group when ) is the last char (no trailing space)', () => {
+    // When there is no trailing space both variants converge — confirms false still strips when ) is at end
+    expect(cleanTitle('Fix bug (WIP)', false)).toBe('Fix bug')
+  })
+})
+
 describe('shortTitle', () => {
   it('returns cleaned title unchanged when ≤ max chars (22)', () => {
     // Arrange — 22 chars exactly after cleaning

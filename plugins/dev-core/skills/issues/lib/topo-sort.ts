@@ -30,7 +30,7 @@ export function topoSort(
     const batch =
       tieBreak === 'string-asc'
         ? // legacy parity: bare .sort() sorts stringified ids (lexicographic, NOT numeric) — see #193 follow-up
-          ready.sort()
+          [...ready].sort()
         : ready // already in ids order — filter preserves remaining order, remaining preserves ids order
 
     for (const id of batch) {
