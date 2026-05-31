@@ -222,6 +222,14 @@ export function registerGitHubRepoDetectionSuite(opts: {
       expect(spawnSyncSpy).not.toHaveBeenCalled()
     })
 
+    it('accepts single-char owner and repo-name segments', () => {
+      // Each segment is [A-Za-z0-9][...]* — the continuation is optional, so a/b is valid.
+      // Pins the `*` quantifier against an accidental change to `+` (which would require ≥2 chars).
+      process.env.GITHUB_REPO = 'a/b'
+      expect(detectGitHubRepo()).toBe('a/b')
+      expect(spawnSyncSpy).not.toHaveBeenCalled()
+    })
+
     it('accepts dots and underscores in the repo-name segment', () => {
       // Repo names may contain . and _ — owner tightening must not regress this.
       process.env.GITHUB_REPO = 'owner/my.repo_name'

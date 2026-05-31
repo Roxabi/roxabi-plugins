@@ -34,7 +34,9 @@ function assertInRepo(abs: string, rel: string): void {
   try {
     real = realpathSync(abs)
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+    // Only a genuine ENOENT (path not yet written) falls back to the lexical abs;
+    // a non-Error throw or any other errno (ELOOP, EACCES, …) must rethrow.
+    if (!(e instanceof Error) || (e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
   }
   if (real !== REPO_ROOT && !real.startsWith(REPO_ROOT + sep)) {
     throw new Error(`Refusing path outside repo: ${rel}`)

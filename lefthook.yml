@@ -29,7 +29,8 @@ pre-commit:
       glob: "plugins/dev-core/skills/code-review/{review-classes.yml,SKILL.md}"
     shared-sources-sync:
       run: bun run sync:shared --check
-      glob: "**/skills/shared/adapters/config-helpers.ts"
+      # Covers the full shared-sources manifest (adapters/ + domain/), not just config-helpers.ts.
+      glob: "**/skills/shared/**/*.ts"
     taxonomy-subsumption-pairs:
       run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py --check subsumption-pairs; else echo 'SKIP: taxonomy-subsumption-pairs (no .venv)' >&2; fi"
       glob: "plugins/dev-core/skills/code-review/{review-classes.yml,SKILL.md}"
