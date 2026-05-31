@@ -80,37 +80,40 @@ interface SubIssue {
 }
 
 const [owner, repo] = detectGitHubRepo().split('/')
-const gqlRaw = ghGraphQLExec(`{
-  repository(owner: "${owner}", name: "${repo}") {
-    issue(number: ${issueNum}) {
-      subIssues(first: 50) {
-        nodes { number title state }
-      }
-    }
-  }
-}`) as { data: { repository: { issue: { subIssues: { nodes: SubIssue[] } } } } }
 
-const subIssues: SubIssue[] = gqlRaw.data.repository.issue?.subIssues?.nodes ?? []
-
-// ── 3. Blocked-by state via GraphQL (actual GitHub blockers, not just body) ──
+// ── 3. Sub-issues + blocked-by in a single GraphQL request ──────────────────
 interface BlockerNode {
   number: number
   title: string
   state: 'OPEN' | 'CLOSED'
 }
 
-const blockersRaw = ghGraphQLExec(`{
+const gqlRaw = ghGraphQLExec(`{
   repository(owner: "${owner}", name: "${repo}") {
     issue(number: ${issueNum}) {
+      subIssues(first: 50) {
+        nodes { number title state }
+      }
       trackedInIssues(first: 20) {
         nodes { number title state }
       }
     }
   }
-}`) as { data: { repository: { issue: { trackedInIssues: { nodes: BlockerNode[] } } } } }
+}`) as {
+  data: {
+    repository: {
+      issue: {
+        subIssues: { nodes: SubIssue[] }
+        trackedInIssues: { nodes: BlockerNode[] }
+      }
+    }
+  }
+}
+
+const subIssues: SubIssue[] = gqlRaw.data.repository.issue?.subIssues?.nodes ?? []
 
 // Fall back to body-parsed blockers if GraphQL returns nothing
-const graphqlBlockers: BlockerNode[] = blockersRaw.data.repository.issue?.trackedInIssues?.nodes ?? []
+const graphqlBlockers: BlockerNode[] = gqlRaw.data.repository.issue?.trackedInIssues?.nodes ?? []
 const bodyBlockerNums = parseBlockedBy(issue.body)
 const blockers: BlockerNode[] =
   graphqlBlockers.length > 0

@@ -84,6 +84,10 @@ export interface RawPackageInfo {
   name: string
   version: string
   dir: string
+  /** License string extracted from package.json at scan time (string field). */
+  license?: string
+  /** Licenses array extracted from package.json at scan time (deprecated format). */
+  licenses?: Array<string | { type?: string }>
 }
 
 const IGNORED_ENTRIES = new Set(['.cache', '.bin', '.package-lock.json'])
@@ -174,7 +178,10 @@ function readPackageInfo(pkgDir: string): RawPackageInfo | null {
       JSON.parse(raw) as Record<string, unknown>,
     )
     if (!(pkg.name && pkg.version)) return null
-    return { name: String(pkg.name), version: String(pkg.version), dir: realDir }
+    const info: RawPackageInfo = { name: String(pkg.name), version: String(pkg.version), dir: realDir }
+    if (typeof pkg.license === 'string') info.license = pkg.license
+    if (Array.isArray(pkg.licenses)) info.licenses = pkg.licenses as Array<string | { type?: string }>
+    return info
   } catch {
     return null
   }
@@ -266,29 +273,47 @@ export function detectLicense(
     return { license: policy.overrides[key], source: 'override' }
   }
 
-  // 2-3. package.json license field
-  const pkgJsonPath = join(pkg.dir, 'package.json')
-  try {
-    const raw = readFileSync(pkgJsonPath, 'utf-8')
-    const pkgJson = Object.assign(
-      Object.create(null) as Record<string, unknown>,
-      JSON.parse(raw) as Record<string, unknown>,
-    )
+  // 2-3. package.json license field — use carried fields when available, re-read only as fallback
+  const carriedLicense = pkg.license
+  const carriedLicenses = pkg.licenses
 
-    // 2. license field (string)
-    if (typeof pkgJson.license === 'string' && (pkgJson.license as string).trim()) {
-      return { license: (pkgJson.license as string).trim(), source: 'package.json' }
+  if (carriedLicense !== undefined || carriedLicenses !== undefined) {
+    // 2. license field (string) — carried from readPackageInfo
+    if (typeof carriedLicense === 'string' && carriedLicense.trim()) {
+      return { license: carriedLicense.trim(), source: 'package.json' }
     }
 
-    // 3. licenses array (deprecated)
-    const licenses = pkgJson.licenses
-    if (Array.isArray(licenses) && licenses.length > 0) {
-      const first = licenses[0] as string | { type?: string } | null
+    // 3. licenses array (deprecated) — carried from readPackageInfo
+    if (Array.isArray(carriedLicenses) && carriedLicenses.length > 0) {
+      const first = carriedLicenses[0] as string | { type?: string } | null
       const licenseStr = typeof first === 'string' ? first : (first as { type?: string } | null)?.type
       if (licenseStr) return { license: licenseStr, source: 'package.json' }
     }
-  } catch {
-    // Fall through to file detection
+  } else {
+    // Fallback: re-read package.json (e.g. RawPackageInfo constructed without carried fields)
+    const pkgJsonPath = join(pkg.dir, 'package.json')
+    try {
+      const raw = readFileSync(pkgJsonPath, 'utf-8')
+      const pkgJson = Object.assign(
+        Object.create(null) as Record<string, unknown>,
+        JSON.parse(raw) as Record<string, unknown>,
+      )
+
+      // 2. license field (string)
+      if (typeof pkgJson.license === 'string' && (pkgJson.license as string).trim()) {
+        return { license: (pkgJson.license as string).trim(), source: 'package.json' }
+      }
+
+      // 3. licenses array (deprecated)
+      const licenses = pkgJson.licenses
+      if (Array.isArray(licenses) && licenses.length > 0) {
+        const first = licenses[0] as string | { type?: string } | null
+        const licenseStr = typeof first === 'string' ? first : (first as { type?: string } | null)?.type
+        if (licenseStr) return { license: licenseStr, source: 'package.json' }
+      }
+    } catch {
+      // Fall through to file detection
+    }
   }
 
   // 4. LICENSE file

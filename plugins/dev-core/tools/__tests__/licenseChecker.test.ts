@@ -915,3 +915,139 @@ describe('printSummary', () => {
     expect(output).toContain('/tmp/report.json')
   })
 })
+
+// ─── readPackageInfo → detectLicense: single read per package (SC5) ──────────
+//
+// Strategy: ESM named imports are not configurable, so vi.spyOn(fs, 'readFileSync')
+// is not available. Instead we verify the invariant behaviorally:
+// when carried fields (license/licenses) are present on RawPackageInfo, detectLicense
+// returns immediately without needing to read package.json from disk. We prove this
+// by passing a RawPackageInfo whose dir does NOT exist on disk — if detectLicense
+// tried to re-read package.json it would fail; since it succeeds, no re-read occurred.
+
+describe('readPackageInfo → detectLicense: package.json read-once invariant', () => {
+  const policy: LicensePolicy = { allowedLicenses: ['MIT', 'ISC'], overrides: {} }
+
+  it('resolves license from carried license field without touching disk', () => {
+    // Arrange — dir does not exist; readFileSync would throw if called
+    const pkg: RawPackageInfo = {
+      name: 'carried-mit',
+      version: '1.0.0',
+      dir: '/nonexistent/__test__/carried-mit',
+      license: 'MIT',
+    }
+    // Act — if detectLicense re-reads package.json it will throw (dir missing)
+    const result = detectLicense(pkg, policy)
+    // Assert — succeeded without disk access; license came from carried field
+    expect(result.license).toBe('MIT')
+    expect(result.source).toBe('package.json')
+  })
+
+  it('resolves license from carried licenses array without touching disk', () => {
+    // Arrange — dir does not exist
+    const pkg: RawPackageInfo = {
+      name: 'carried-isc',
+      version: '2.0.0',
+      dir: '/nonexistent/__test__/carried-isc',
+      licenses: [{ type: 'ISC' }],
+    }
+    // Act
+    const result = detectLicense(pkg, policy)
+    // Assert
+    expect(result.license).toBe('ISC')
+    expect(result.source).toBe('package.json')
+  })
+
+  it('falls back to disk read only when neither license nor licenses is carried', () => {
+    // Arrange — no carried fields AND dir does not exist → detectLicense will attempt re-read
+    const pkg: RawPackageInfo = {
+      name: 'no-carry',
+      version: '1.0.0',
+      dir: '/nonexistent/__test__/no-carry',
+      // no license, no licenses
+    }
+    // Act — detectLicense catches the readFileSync error and falls through to file detection
+    // (also fails), ultimately returning null — this confirms the fallback code path executes
+    const result = detectLicense(pkg, policy)
+    // Assert — null because neither package.json nor LICENSE file is accessible
+    expect(result.license).toBeNull()
+    expect(result.source).toBeNull()
+  })
+})
+
+// ─── checkCompliance — regression pin (SC5) ──────────────────────────────────
+
+describe('checkCompliance — regression pin', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir('license-regression-')
+  })
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('returns correct report structure for a mixed fixture (allowed + violation + unknown)', () => {
+    // Arrange
+    const policy: LicensePolicy = { allowedLicenses: ['MIT', 'ISC'], overrides: { 'overridden@3.0.0': 'MIT' } }
+    const pkgMit = makePackageDir(tmpDir, 'mit-pkg', { name: 'mit-pkg', version: '1.0.0', license: 'MIT' })
+    const pkgViolation = makePackageDir(tmpDir, 'gpl-pkg', { name: 'gpl-pkg', version: '2.0.0', license: 'GPL-3.0' })
+    const pkgUnknown = makePackageDir(tmpDir, 'mystery-pkg', { name: 'mystery-pkg', version: '0.1.0' })
+    const pkgOverride = makePackageDir(tmpDir, 'overridden', {
+      name: 'overridden',
+      version: '3.0.0',
+      license: 'GPL-3.0',
+    })
+
+    // Act
+    const report = checkCompliance([pkgMit, pkgViolation, pkgUnknown, pkgOverride], policy)
+
+    // Assert — summary counts
+    expect(report.summary.totalPackages).toBe(4)
+    expect(report.summary.violations).toBe(1)
+    expect(report.summary.warnings).toBe(1)
+
+    // Assert — license distribution
+    // MIT x2 (mit-pkg + override resolves to MIT), GPL-3.0 x1; unknown not counted (null license)
+    expect(report.summary.licenses['MIT']).toBe(2)
+    expect(report.summary.licenses['GPL-3.0']).toBe(1)
+
+    // Assert — package statuses
+    const byName = Object.fromEntries(report.packages.map((p) => [p.name, p]))
+    expect(byName['mit-pkg'].status).toBe('allowed')
+    expect(byName['gpl-pkg'].status).toBe('violation')
+    expect(byName['mystery-pkg'].status).toBe('unknown')
+    expect(byName['overridden'].status).toBe('override')
+
+    // Assert — violations array
+    expect(report.violations).toHaveLength(1)
+    expect(report.violations[0].name).toBe('gpl-pkg')
+    expect(report.violations[0].license).toBe('GPL-3.0')
+
+    // Assert — warnings array (unknown license)
+    const unknownWarning = report.warnings.find((w) => w.name === 'mystery-pkg')
+    expect(unknownWarning).toBeDefined()
+    expect(unknownWarning?.reason).toContain('No license')
+
+    // Assert — timestamps and shape present
+    expect(report.timestamp).toBeDefined()
+    expect(typeof report.timestamp).toBe('string')
+  })
+
+  it('returns zero violations and zero warnings for an all-allowed fixture', () => {
+    // Arrange
+    const policy: LicensePolicy = { allowedLicenses: ['MIT', 'ISC'], overrides: {} }
+    const p1 = makePackageDir(tmpDir, 'a', { name: 'a', version: '1.0.0', license: 'MIT' })
+    const p2 = makePackageDir(tmpDir, 'b', { name: 'b', version: '1.0.0', license: 'ISC' })
+
+    // Act
+    const report = checkCompliance([p1, p2], policy)
+
+    // Assert
+    expect(report.summary.totalPackages).toBe(2)
+    expect(report.summary.violations).toBe(0)
+    expect(report.summary.warnings).toBe(0)
+    expect(report.violations).toHaveLength(0)
+    expect(report.warnings).toHaveLength(0)
+  })
+})
