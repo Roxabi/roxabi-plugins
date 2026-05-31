@@ -34,7 +34,10 @@
         "plugins/dev-init/skills/shared/ports/config.ts",
         "plugins/dev-init/skills/shared/prereqs.ts",
         "plugins/dev-init/skills/shared/queries.ts",
-        "plugins/dev-init/skills/shared/types.ts"
+        "plugins/dev-init/skills/shared/types.ts",
+        "plugins/dev-init/skills/shared/adapters/github-infra.ts",
+        "plugins/dev-init/skills/shared/domain/parse-issue-ref.ts",
+        "plugins/dev-init/skills/shared/ports/workspace.ts"
       ],
       "formatter": {
         "enabled": false
