@@ -2,7 +2,10 @@
  * Re-export raw types from shared, keep dashboard-specific types local.
  */
 
+import type { WorkspaceProject } from '../../shared/ports/workspace'
+
 export type { RawContent, RawFieldValue, RawItem, RawSubIssue } from '../../shared/types'
+export type { WorkspaceProject }
 
 export interface Issue {
   number: number
@@ -97,6 +100,33 @@ export interface WorkflowRun {
   updatedAt: string
   headBranch: string
   headCommitMessage: string
+}
+
+export type ProjectMeta = {
+  prs: PR[]
+  branchCI: BranchCI[]
+  workflowRuns: WorkflowRun[]
+  deployments: VercelDeployment[]
+  branches: Branch[]
+  worktrees: Worktree[]
+}
+
+export interface DashboardProps {
+  issues: Issue[]
+  prs: PR[]
+  branches: Branch[]
+  worktrees: Worktree[]
+  deployments: VercelDeployment[]
+  branchCI: BranchCI[]
+  workflowRuns: WorkflowRun[]
+  fetchMs: number
+  updatedAt: number
+  byProject?: Map<string, Issue[]>
+  workspaceProjects?: WorkspaceProject[]
+  byProjectMeta?: Map<string, ProjectMeta>
+  roadmapItems?: Issue[]
+  roadmapProject?: { label: string; projectId: string }
+  truncatedProjects?: string[]
 }
 
 export interface DepNode {

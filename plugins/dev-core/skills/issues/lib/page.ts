@@ -18,7 +18,7 @@ import {
 } from './components'
 import { buildDepGraph, renderDepGraph } from './graph'
 import { PAGE_STYLES } from './page-styles'
-import type { Branch, BranchCI, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './types'
+import type { BranchCI, DashboardProps, Issue } from './types'
 
 // ---------------------------------------------------------------------------
 // Per-project column helpers
@@ -95,15 +95,6 @@ function buildProjectTab(label: string, repo: string, activeTab: string): string
 
 function buildAddButton(): string {
   return `<button class="tab add-btn" onclick="openAddDialog()" title="Add project">+</button>`
-}
-
-type ProjectMeta = {
-  prs: PR[]
-  branchCI: BranchCI[]
-  workflowRuns: WorkflowRun[]
-  deployments: VercelDeployment[]
-  branches: Branch[]
-  worktrees: Worktree[]
 }
 
 function buildAllView(byProject: Map<string, Issue[]>, workspaceProjects?: WorkspaceProject[]): string {
@@ -227,23 +218,24 @@ function buildRoadmapView(items: Issue[]): string {
   </table>`
 }
 
-export function buildHtml(
-  issues: Issue[],
-  prs: PR[],
-  branches: Branch[],
-  worktrees: Worktree[],
-  deployments: VercelDeployment[],
-  branchCI: BranchCI[],
-  workflowRuns: WorkflowRun[],
-  fetchMs: number,
-  updatedAt: number,
-  byProject?: Map<string, Issue[]>,
-  workspaceProjects?: WorkspaceProject[],
-  byProjectMeta?: Map<string, ProjectMeta>,
-  roadmapItems?: Issue[],
-  roadmapProject?: { label: string; projectId: string },
-  truncatedProjects?: string[],
-): string {
+export function buildHtml(p: DashboardProps): string {
+  const {
+    issues,
+    prs,
+    branches,
+    worktrees,
+    deployments,
+    branchCI,
+    workflowRuns,
+    fetchMs,
+    updatedAt,
+    byProject,
+    workspaceProjects,
+    byProjectMeta,
+    roadmapItems,
+    roadmapProject,
+    truncatedProjects,
+  } = p
   const isMultiProject = byProject !== undefined && byProject.size > 0
   const allIssues = isMultiProject && byProject ? [...byProject.values()].flat() : issues
   const totalCount = allIssues.reduce((sum, i) => sum + 1 + i.children.length, 0)

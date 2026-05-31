@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { BackfillRow, RewriteRow } from '../lib/migrate-shared'
 
 // Env vars must be set before config-helpers module loads
 process.env.GITHUB_REPO = 'Roxabi/test'
@@ -273,27 +274,9 @@ function readSnapshotRows<T>(raw: string): T[] {
   return parsed as T[]
 }
 
-const { LEGACY_LABEL_MAP, TITLE_PREFIX_RE, auditSchema, backfill, rewriteTitles, revert } = await import(
-  '../lib/migrate'
-)
-
-// Local mirror of RewriteRow (not exported from migrate.ts)
-interface RewriteRow {
-  repo: string
-  number: number
-  old_title: string
-  new_title: string
-}
-
-// Local mirror of BackfillRow (not exported from migrate.ts)
-interface BackfillRow {
-  repo: string
-  number: number
-  field: string
-  old_value: string | null
-  new_value: string | null
-  flagged: boolean
-}
+const { LEGACY_LABEL_MAP, TITLE_PREFIX_RE, backfill, rewriteTitles } = await import('../lib/migrate-backfill')
+const { auditSchema } = await import('../lib/migrate-audit')
+const { revert } = await import('../lib/migrate-revert')
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1114,7 +1097,7 @@ describe('migrate > revert', () => {
       expect(stderrCalls.some((msg) => /unverified|WARNING|issueType/i.test(msg))).toBe(true)
       stderrSpy.mockRestore()
 
-      // Assert — FIX 3: pin skip-log to the exact production string (migrate.ts ~L889)
+      // Assert — FIX 3: pin skip-log to the exact production string
       expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
       const logCalls = (console.log as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
       expect(logCalls.some((msg) => msg.includes('Skipped') && msg.includes('issueType revert'))).toBe(true)

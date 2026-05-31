@@ -30,18 +30,9 @@ import {
   rawItemsToIssues,
 } from './lib/fetch'
 import { buildHtml } from './lib/page'
-import type { Branch, BranchCI, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './lib/types'
+import type { Branch, BranchCI, Issue, PR, ProjectMeta, VercelDeployment, WorkflowRun, Worktree } from './lib/types'
 import { handleUpdate } from './lib/update'
 import { toWorkspaceProject } from './lib/workspace-helpers'
-
-type ProjectMeta = {
-  prs: PR[]
-  branchCI: BranchCI[]
-  workflowRuns: WorkflowRun[]
-  deployments: VercelDeployment[]
-  branches: Branch[]
-  worktrees: Worktree[]
-}
 
 const PORT = Number(process.argv.find((a) => a.startsWith('--port='))?.split('=')[1] ?? 3333)
 const POLL_MS = Number(process.argv.find((a) => a.startsWith('--poll='))?.split('=')[1] ?? 60) * 1000
@@ -244,23 +235,23 @@ async function refreshCache(): Promise<void> {
       const wsProjects = ws.projects.map(toWorkspaceProject)
       const roadmapProject =
         ws.roadmapProjectId && roadmapLabel ? { label: roadmapLabel, projectId: ws.roadmapProjectId } : undefined
-      const html = buildHtml(
+      const html = buildHtml({
         issues,
         prs,
-        branches_,
-        worktrees_,
-        deployments_,
+        branches: branches_,
+        worktrees: worktrees_,
+        deployments: deployments_,
         branchCI,
         workflowRuns,
         fetchMs,
         updatedAt,
         byProject,
-        wsProjects,
+        workspaceProjects: wsProjects,
         byProjectMeta,
         roadmapItems,
         roadmapProject,
-        truncatedLabels.length > 0 ? truncatedLabels : undefined,
-      )
+        truncatedProjects: truncatedLabels.length > 0 ? truncatedLabels : undefined,
+      })
       cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
       if (changed) notifyClients()
       return
@@ -287,7 +278,7 @@ async function refreshCache(): Promise<void> {
 
     const updatedAt = Date.now()
     const wsProjects = ws.projects.map(toWorkspaceProject)
-    const html = buildHtml(
+    const html = buildHtml({
       issues,
       prs,
       branches,
@@ -297,12 +288,13 @@ async function refreshCache(): Promise<void> {
       workflowRuns,
       fetchMs,
       updatedAt,
-      byProject ?? undefined,
-      wsProjects.length > 0 ? (wsProjects as WorkspaceProject[]) : undefined,
-      undefined,
+      byProject: byProject ?? undefined,
+      workspaceProjects: wsProjects.length > 0 ? (wsProjects as WorkspaceProject[]) : undefined,
+      byProjectMeta: undefined,
       roadmapItems,
-      ws.roadmapProjectId && roadmapLabel ? { label: roadmapLabel, projectId: ws.roadmapProjectId } : undefined,
-    )
+      roadmapProject:
+        ws.roadmapProjectId && roadmapLabel ? { label: roadmapLabel, projectId: ws.roadmapProjectId } : undefined,
+    })
     cache = { html, hash, fetchMs, updatedAt, byProject, workspaceHash: newWorkspaceHash }
 
     if (changed) notifyClients()

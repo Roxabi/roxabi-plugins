@@ -1,0 +1,62 @@
+---
+title: Split oversized files in dev-core (migrate.ts, doctor.ts)
+issue: 196
+status: approved
+tier: F-lite
+date: 2026-05-31
+---
+
+## Problem
+
+A dev-core audit flagged two source files as oversized maintainability hazards:
+`skills/issue-triage/lib/migrate.ts` (898 l) and `skills/checkup/doctor.ts` (946 l).
+Both mix multiple concerns in a single module, so edits collide, review load is high,
+and the files keep growing. Two adjacent smells were caught in the same sweep:
+`buildHtml` in `skills/issues/lib/page.ts:230` takes 15 positional parameters (call sites
+are unreadable and error-prone), `ProjectMeta` is defined twice (page.ts:100 and
+dashboard.ts:37), and inline `require('node:fs')` calls persist in an ESM/Bun runtime
+(doctor.ts ×15, dashboard.ts) where a static ES import belongs.
+
+## Who
+
+- **Primary:** dev-core maintainers editing triage migration, checkup diagnostics, and the issues dashboard.
+- **Secondary:** plugin users (behavior must remain identical — refactor only).
+
+## Constraints
+
+- Behavior-preserving: zero functional change; all existing tests + typecheck stay green.
+- Single domain (dev-core plugin TS); no cross-plugin runtime imports (marketplace self-containment).
+- Style: single quotes, no semicolons (project convention).
+- Bun runtime — ESM only; no CommonJS `require`.
+
+## Out of Scope
+
+- Behavior changes or new features.
+- Touching dev-core files beyond the four cited.
+- Test rewrites beyond import-path fixes required by the moves.
+
+## Premise Validity
+
+**Success in 6 months:** No touched dev-core source file exceeds ~500 l; `buildHtml` is
+called with a single typed `DashboardProps` object; `ProjectMeta` is defined in exactly
+one place; zero inline `require('node:fs')` in the touched files; all existing tests and
+typecheck pass with zero behavior change.
+
+**Failure in 6 months:** `migrate.ts`/`doctor.ts` still exceed 800 l, OR the test/typecheck
+suite regresses, OR the split introduced a behavior bug (a proxy-split that relocated code
+without bringing any file under 500 l).
+
+**Simplest alternative:** Leave files as-is / suppress the size lint.
+**Why not simplest:** Files keep growing, concurrent edits collide, review load stays high;
+the audit explicitly flagged them as a maintainability hazard — suppressing the signal
+defers the cost without removing it.
+
+## Complexity
+
+**Tier: F-lite** — clear scope, single domain (dev-core TS), no architectural unknowns;
+~7–9 files touched (2 source splits + new modules + 2 import/interface cleanups).
+
+Signals observed:
+- Multiple files but one domain → above S, below F-full.
+- Mechanical, well-specified targets; no new patterns or design decisions.
+- complexity: 4 marker on the issue.
