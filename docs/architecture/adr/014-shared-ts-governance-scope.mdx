@@ -80,10 +80,10 @@ Until #239 lands, these files remain independent copies with no sync gate.
 | `resolveSize-legacy-schema.test.ts` | shared-import (deferred #239) | currently independent copy |
 | `__tests__/config.test.ts` | caller-parity | #218/#225; `@generated` header would break diff gate |
 | `adapters/github-adapter.ts` | intentional-fork | dev-init fork +272 lines; deliberate divergence |
-| `adapters/github-infra.ts` | leave-alone-pending-reconciliation | throws raw `Error` vs `ConfigError` — behind; #240 |
-| `domain/parse-issue-ref.ts` | leave-alone-pending-reconciliation | missing `formatRef` export — behind; #240 |
-| `ports/workspace.ts` | leave-alone-pending-reconciliation | missing `vercelProjectId`/`vercelTeamId` — behind; #240 |
-| `__tests__/domain.test.ts` | leave-alone-pending-reconciliation | divergent; #240 |
+| `adapters/github-infra.ts` | copy-sync (added #240) | was behind: throws raw `Error` vs `ConfigError`; reconciled via copy-sync |
+| `domain/parse-issue-ref.ts` | copy-sync (added #240) | was behind: missing `formatRef` export; reconciled via copy-sync |
+| `ports/workspace.ts` | copy-sync (added #240) | was behind: missing `vercelProjectId`/`vercelTeamId`; reconciled via copy-sync |
+| `__tests__/domain.test.ts` | intentional-fork | dev-init has `IssuePort`/`ProjectPort` type-level checks absent from dev-core (those ports only exist in dev-init) |
 
 ## Consequences
 
