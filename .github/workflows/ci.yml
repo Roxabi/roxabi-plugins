@@ -21,6 +21,18 @@ jobs:
         run: bun typecheck
       - name: Test (vitest)
         run: bun run test
+      - name: Shared detectGitHubRepo suite — caller parity (#218 SC3)
+        run: |
+          set -euo pipefail
+          DEV_CORE="plugins/dev-core/skills/shared/__tests__/config.test.ts"
+          DEV_INIT="plugins/dev-init/skills/shared/__tests__/config.test.ts"
+          if ! diff "$DEV_CORE" "$DEV_INIT"; then
+            echo "ERROR: dev-core and dev-init config.test.ts have diverged."
+            echo "  The registerGitHubRepoDetectionSuite caller boilerplate must stay byte-identical."
+            echo "  See #218 spec SC3 / #225 — update both files in lockstep."
+            exit 1
+          fi
+          echo "Caller parity OK — both config.test.ts are byte-identical"
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: '3.12'

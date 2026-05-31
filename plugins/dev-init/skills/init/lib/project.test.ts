@@ -69,7 +69,7 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
 const mockWriteWorkspace = vi.fn(() => {})
 const mockReadWorkspace = vi.fn(() => ({ projects: [] }))
 
-vi.mock('../../../cli/lib/workspace-store', () => ({
+vi.mock('../../shared/adapters/workspace-store', () => ({
   readWorkspace: mockReadWorkspace,
   writeWorkspace: mockWriteWorkspace,
   getWorkspacePath: () => '/tmp/test-workspace.json',
