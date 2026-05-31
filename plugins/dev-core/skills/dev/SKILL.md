@@ -253,7 +253,7 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 | frame | gate | `skill: "frame", args: "{N:+--issue $N}"` | analyze (F-full) ∨ spec (F-lite) |
 | analyze | adv | `skill: "analyze", args: "{N:+--issue $N}"` | spec |
 | spec | gate | `skill: "spec", args: "{N:+--issue $N}"` | plan |
-| plan | gate | `skill: "plan", args: "{N:+--issue $N}"` | implement (auto-chain after approval) |
+| plan | gate | `skill: "plan", args: "{N:+--issue $N}"` | implement — via Step 8b compact pause (F-lite/F-full; ¬auto-chain) |
 | implement | adv | `skill: "implement", args: "{N:+--issue $N}"` | pr |
 | pr | adv | `skill: "pr"` (auto-detects branch + issue) | ci-watch |
 | ci-watch | adv | `skill: "ci-watch", args: "--pr {PR#}"` | validate |
@@ -274,7 +274,8 @@ Skill returns → **IMMEDIATELY in the same turn, silently:**
 1. `TaskUpdate(task_id_map[S*], status: "completed")`
 2. `Σ_s[step] = true`
 3. Goto Step 1 (re-scan Σ)
-4. Execute Step 7 for new S*
+4. **Compact pause** (Step 8b) — completed step == plan ∧ τ ∈ {F-lite, F-full} ∧ new S* == implement → present pause, **STOP this turn** (¬Step 7).
+5. Execute Step 7 for new S*
 
 **¬write** "Step X complete" message between skill return and re-scan.
 **¬write** "Moving to Y" message between re-scan and Step 7.
@@ -284,8 +285,30 @@ Skill returns → **IMMEDIATELY in the same turn, silently:**
 Skill fails/aborts → leave task `in_progress` → present recovery decision via protocol (Pattern A): **Retry** | **Skip** | **Abort**.
 Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix).
 Session restart → Σ_s = ∅ → artifact-less steps re-run. 2b.1 will find the existing tasks (status possibly `completed` from last run) and skip re-seeding.
-gate → re-scan detects updated artifact → Step 6 gate → Step 7 immediately (¬second prompt).
+gate → re-scan detects updated artifact → Step 6 gate → Step 7 immediately (¬second prompt). **Exception:** completed gate == plan ∧ τ ∈ {F-lite, F-full} → Step 8b compact pause (¬Step 7 this turn).
 adv → re-scan → Step 7 immediately.
+
+## Step 8b — Compact Pause (plan→implement, F-lite/F-full)
+
+**Trigger:** in Step 8, the step that just completed == `plan` ∧ τ ∈ {F-lite, F-full} ∧ new S* == `implement`.
+τ=S never reaches here — `plan` is skipped, so the pipeline goes straight to `implement` with no pause.
+
+**Why:** `/plan` consumed heavy context (spec read, scope glob/grep, micro-task generation, mermaid). `/implement` spawns fresh agents whose context is injected from the task list + plan artifact — the planning conversation is dead weight. Tasks persist (task list + plan artifact `## Task IDs`); `/implement` Step 1b re-attaches after a context reset. `/compact` = soft restart → safe.
+
+**Behavior:** do **NOT** auto-chain to `/implement`. Print the recommendation block below and **STOP this turn** (Claude cannot invoke `/compact` — it is user-typed):
+
+```
+✓ Plan approved — {n} tasks seeded + committed ({τ}).
+  Tasks persist (task list + plan artifact ## Task IDs) → safe to compact.
+
+  Recommended before building:
+    1. /compact          clear planning context
+    2. /dev #{N}         resume → re-attaches tasks → ≡ /implement #{N}
+
+  Skip compact? → /implement --issue {N} directly.
+```
+
+**Re-fire guard:** the pause is keyed to *plan having just run this turn*, not to *implement being next*. On the resume turn (`/dev #{N}` after `/compact`), `/dev` did not execute `plan` (Σ.plan already true on disk) → Step 8b does not apply → Step 7 invokes `/implement` directly, no second prompt.
 
 ## Phases + Gate Summary
 
@@ -293,7 +316,7 @@ adv → re-scan → Step 7 immediately.
 |-------|-------|-----------|
 | Frame | triage → recheck → frame | frame approval (status: approved) |
 | Shape | analyze → spec | spec approval |
-| Build | plan → implement → pr | plan approval (then auto-chains implement → pr) |
+| Build | plan → implement → pr | plan approval → compact pause (F-lite/F-full, Step 8b) before implement → pr |
 | Verify | ci-watch → validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /code-review Phase 8). |
 | Ship | promote → cleanup | promote always skipped. cleanup runs if worktree/branches stale. |
 

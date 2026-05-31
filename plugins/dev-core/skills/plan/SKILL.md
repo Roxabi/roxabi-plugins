@@ -322,6 +322,8 @@ This lets `/implement` re-attach to tasks after a session restart (TaskList woul
 
 `git add artifacts/plans/{N}-{slug}-plan.mdx` + commit per CLAUDE.md Rule 5.
 
+→ Then **Exit** — approval lands on a compact pause (recommend `/compact` before `/implement`), ¬auto-chain. See Exit.
+
 ## Edge Cases
 
 Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
@@ -337,8 +339,8 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 
 - **Phase:** Build
 - **Predecessor:** `/spec` (artifact: `artifacts/specs/{N}-{slug}-spec.mdx`)
-- **Successor:** `/implement` (auto-chain after approval)
-- **Class:** gate (user approval of plan artifact required) → adv (auto-chain to `/implement`)
+- **Successor:** `/implement` (via compact pause — `/dev` Step 8b; ¬auto-chain for F-lite/F-full)
+- **Class:** gate (user approval of plan artifact required) → **pause** (compact recommendation before `/implement`)
 
 ## Task Integration
 
@@ -348,8 +350,14 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 
 ## Exit
 
-- **Approved via `/dev`:** run Steps 6a/6b/6c (seed tasks, persist IDs, commit) → return silently. ¬ask "proceed to /implement?". `/dev` re-scans and auto-chains to `/implement` **in the same turn** (no second prompt).
-- **Approved standalone:** print one line: `Approved. Next: /implement --issue N`. Stop.
+`/plan` runs only for τ ∈ {F-lite, F-full} (τ=S skips plan) → approval always lands on a **compact pause** before `/implement`.
+
+- **Approved via `/dev`:** run Steps 6a/6b/6c (seed tasks, persist IDs, commit) → return silently. ¬ask "proceed to /implement?". `/dev` re-scans → **Step 8b compact pause** (¬auto-chain): recommends `/compact` then `/implement` (or `/dev #N`) and stops the turn.
+- **Approved standalone:** print the compact recommendation + stop:
+  ```
+  ✓ Plan approved — {n} tasks seeded + committed.
+    Recommended: /compact → then /implement --issue {N}  (/dev #{N} ≡ /implement #{N})
+  ```
 - **Modify requested:** loop in-skill, re-present.
 - **Rejected/aborted:** return → `/dev` marks task `cancelled`.
 
