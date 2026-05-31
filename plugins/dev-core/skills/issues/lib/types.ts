@@ -6,6 +6,27 @@ import type { WorkspaceProject } from '../../shared/ports/workspace'
 
 export type { RawContent, RawFieldValue, RawItem, RawSubIssue } from '../../shared/types'
 export type { WorkspaceProject }
+export type {
+  CheckConclusionState,
+  CheckStatusState,
+  MergeableState,
+  PullRequestState,
+  StatusState,
+  VercelState,
+  WorkflowConclusion,
+  WorkflowStatus,
+} from './gh-enums'
+
+import type {
+  CheckConclusionState,
+  CheckStatusState,
+  MergeableState,
+  PullRequestState,
+  StatusState,
+  VercelState,
+  WorkflowConclusion,
+  WorkflowStatus,
+} from './gh-enums'
 
 export interface Issue {
   number: number
@@ -24,8 +45,8 @@ export interface Issue {
 
 export interface CICheck {
   name: string
-  status: string
-  conclusion: string
+  status: CheckStatusState | StatusState | ''
+  conclusion: CheckConclusionState | ''
   detailsUrl: string
 }
 
@@ -33,7 +54,7 @@ export interface PR {
   number: number
   title: string
   branch: string
-  state: string
+  state: PullRequestState
   isDraft: boolean
   url: string
   author: string
@@ -42,7 +63,7 @@ export interface PR {
   deletions: number
   reviewDecision: string
   labels: string[]
-  mergeable: string
+  mergeable: MergeableState
   checks: CICheck[]
 }
 
@@ -67,7 +88,7 @@ export interface VercelDeployment {
   uid: string
   url: string
   name: string
-  state: string
+  state: VercelState
   isCurrent?: boolean // true for the active production deployment
   target: string
   createdAt: number
@@ -93,8 +114,8 @@ export interface WorkflowRun {
   name: string
   displayTitle: string
   event: string
-  status: string
-  conclusion: string | null
+  status: WorkflowStatus
+  conclusion: WorkflowConclusion | null
   htmlUrl: string
   createdAt: string
   updatedAt: string
