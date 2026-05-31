@@ -273,9 +273,9 @@ function readSnapshotRows<T>(raw: string): T[] {
   return parsed as T[]
 }
 
-const { LEGACY_LABEL_MAP, TITLE_PREFIX_RE, auditSchema, backfill, rewriteTitles, revert } = await import(
-  '../lib/migrate'
-)
+const { LEGACY_LABEL_MAP, TITLE_PREFIX_RE, backfill, rewriteTitles } = await import('../lib/migrate-backfill')
+const { auditSchema } = await import('../lib/migrate-audit')
+const { revert } = await import('../lib/migrate-revert')
 
 // Local mirror of RewriteRow (not exported from migrate.ts)
 interface RewriteRow {

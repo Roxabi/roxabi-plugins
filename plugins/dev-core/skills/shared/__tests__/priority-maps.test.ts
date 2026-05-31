@@ -19,7 +19,7 @@ const { PRIORITY_ALIASES, PRIORITY_SHORT, PRIORITY_VALUES: PV_FROM_CONFIG } = aw
 
 const { PRIORITY_VALUES: PV_FROM_COMPONENTS } = await import('../../issues/lib/components')
 
-const { LEGACY_LABEL_MAP } = await import('../../issue-triage/lib/migrate')
+const { LEGACY_LABEL_MAP } = await import('../../issue-triage/lib/migrate-backfill')
 
 // ─── PRIORITY_ALIASES ─────────────────────────────────────────────────────────
 

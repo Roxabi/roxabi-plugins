@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -44,7 +44,7 @@ export async function run(args: string[]): Promise<void> {
       console.log(`Process ${pid} not found — already stopped.`)
     }
     try {
-      require('node:fs').unlinkSync(PID_FILE)
+      unlinkSync(PID_FILE)
     } catch {}
     process.exit(0)
   }
@@ -59,7 +59,7 @@ export async function run(args: string[]): Promise<void> {
 
   const cleanup = () => {
     try {
-      require('node:fs').unlinkSync(PID_FILE)
+      unlinkSync(PID_FILE)
     } catch {}
   }
 

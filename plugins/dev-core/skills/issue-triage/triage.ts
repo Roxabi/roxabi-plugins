@@ -119,12 +119,13 @@ switch (command) {
     const subArgs = rest.slice(1)
     switch (sub) {
       case 'audit-schema': {
-        const { auditSchema } = await import('./lib/migrate')
+        const { auditSchema } = await import('./lib/migrate-audit')
         await auditSchema()
         break
       }
       case 'backfill': {
-        const { backfill, validateSnapshotPath } = await import('./lib/migrate')
+        const { backfill } = await import('./lib/migrate-backfill')
+        const { validateSnapshotPath } = await import('./lib/migrate-shared')
         const opts = parseMigrateBackfillArgs(subArgs)
         // fix #2: validate user-supplied snapshot path at CLI layer
         if (opts.snapshotPath) opts.snapshotPath = validateSnapshotPath(opts.snapshotPath)
@@ -132,7 +133,8 @@ switch (command) {
         break
       }
       case 'rewrite-titles': {
-        const { rewriteTitles, validateSnapshotPath } = await import('./lib/migrate')
+        const { rewriteTitles } = await import('./lib/migrate-backfill')
+        const { validateSnapshotPath } = await import('./lib/migrate-shared')
         const opts = parseMigrateBackfillArgs(subArgs)
         // fix #2: validate user-supplied snapshot path at CLI layer
         if (opts.snapshotPath) opts.snapshotPath = validateSnapshotPath(opts.snapshotPath)
@@ -140,7 +142,8 @@ switch (command) {
         break
       }
       case 'revert': {
-        const { revert, validateSnapshotPath } = await import('./lib/migrate')
+        const { revert } = await import('./lib/migrate-revert')
+        const { validateSnapshotPath } = await import('./lib/migrate-shared')
         const opts = parseMigrateRevertArgs(subArgs)
         // fix #2: validate user-supplied snapshot path at CLI layer
         opts.snapshotPath = validateSnapshotPath(opts.snapshotPath)
