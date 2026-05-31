@@ -1,0 +1,81 @@
+---
+title: Silent errors, weak types, perf hotspots in dev-core
+issue: 197
+status: approved
+tier: F-lite
+date: 2026-05-31
+---
+
+## Problem
+
+A dev-core audit surfaced three classes of latent quality debt in the `issues`
+tooling and supporting hooks/tools:
+
+1. **Silent errors** — bare `catch {}` blocks swallow failures with no log, so
+   transient GitHub/git/Vercel/workflow fetch failures vanish silently and
+   degrade the dashboard with no diagnostic trail.
+2. **Weak types** — GitHub/Vercel/workflow state fields are typed `string`
+   instead of enum literal unions, so invalid states pass `tsc` unchecked and
+   typos in comparisons go undetected.
+3. **Perf hotspots** — redundant IO and roundtrips: `security-check.js` reads +
+   writes its state file once per changed file; `show.ts` issues 3 sequential
+   GraphQL roundtrips; `licenseChecker.ts` re-reads `package.json` already
+   parsed by `readPackageInfo()`.
+
+Why now: a `/recheck` confirmed 6 of 7 audited items are still live against
+current code (line numbers shifted; symbols intact). The 7th — `graph.ts` O(n²)
+topo sort — was already resolved by #193 (extracted to `topo-sort.ts`, Set-based).
+
+## Who
+
+- **Primary:** dev-core maintainers — the `issues` dashboard/show tooling and
+  CI/security hooks they run and debug.
+- **Secondary:** any plugin consumer relying on accurate dashboard state and
+  fast pre-commit security checks.
+
+## Constraints
+
+- **Staging churn** — the cited files (`fetch-*.ts`, `types.ts`, `show.ts`,
+  `licenseChecker.ts`, `security-check.js`) are hot: 8 commits in the day since
+  the audit. Expect collisions; descope contested files to the irreducible core
+  at spec time if churn continues.
+- Single domain (dev-core TS/JS); no new architecture.
+- Zero behavioral regressions — dashboard output and security-check semantics
+  must be unchanged.
+- Style: single quotes, no semicolons; biome-clean; vitest green; tsc clean.
+
+## Out of Scope
+
+- `graph.ts` topo sort (already resolved by #193 — drop).
+- Any new features or dashboard rendering/layout changes.
+- Refactors beyond the enumerated audit items.
+
+## Premise Validity
+
+**Success in 6 months:** swallowed catches log at minimum; `CICheck`/`PR`/
+`VercelDeployment`/`WorkflowRun` state fields are enum literal unions checked by
+`tsc`; `security-check.js` performs 1 state read + 1 write per run;
+`show.ts` ≤2 GraphQL roundtrips; `licenseChecker.ts` reuses the already-parsed
+`package.json`. Zero behavioral regressions.
+
+**Failure in 6 months:** `grep` still finds ≥6 bare `catch {}` in `fetch-*.ts`
+OR `: string` still typed on `status`/`conclusion`/`state` fields in `types.ts`
+after this work merges → the cleanup never landed. (falsifiable, measurable via
+grep + tsc).
+
+**Simplest alternative:** add a `console.error` to each swallowing catch and
+stop there.
+**Why not simplest:** it ignores the weak-types compile-time bug class and the
+perf hotspots; a `safeAsync<T>(fn, fallback)` helper standardizes the catch
+pattern and prevents recurrence, which scattered one-off logs do not.
+
+## Complexity
+
+**Tier: F-lite** — clear, enumerated scope across ~7 files in a single domain
+(dev-core), no architectural unknowns, but >3 files and benefits from a spec to
+sequence the independent fixes and a plan to group them by file/agent.
+
+Signals observed:
+- ~7 files, single domain, no new arch → above S, below F-full.
+- Well-bounded checklist; no cross-domain coupling.
+- `chore` label, complexity 5.
