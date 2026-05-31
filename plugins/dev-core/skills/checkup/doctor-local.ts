@@ -8,6 +8,11 @@ import { parseStackYml } from '../../hooks/lib/parse-stack-yml.cjs'
 import type { PrereqResult } from '../shared/prereqs'
 import { type Check, readConfig, type Section, spawnSync } from './doctor-shared'
 
+function readParsedStack(): ReturnType<typeof parseStackYml> {
+  const raw = fs.readFileSync('.claude/stack.yml', 'utf8') as string
+  return parseStackYml(raw)
+}
+
 export function checkPrereqsSection(prereqs: PrereqResult): Section {
   return {
     name: 'Prerequisites',
@@ -108,8 +113,7 @@ export function checkSecurity(): Section {
   let licenseChecker: string | null = null
   let pm = ''
   try {
-    const stackText = fs.readFileSync('.claude/stack.yml', 'utf8') as string
-    pm = parseStackYml(stackText).packageManager ?? ''
+    pm = readParsedStack().packageManager ?? ''
     if (pm === 'uv' || pm === 'pip') {
       lockFile = 'uv.lock'
       licenseChecker = 'tools/license_check.py'
@@ -207,8 +211,7 @@ export function checkStandardsPaths(): Section {
   }
 
   try {
-    const raw = fs.readFileSync('.claude/stack.yml', 'utf8') as string
-    const standardsMap: Record<string, string> = parseStackYml(raw).standards ?? {}
+    const standardsMap: Record<string, string> = readParsedStack().standards ?? {}
 
     for (const [key, trimmedPath] of Object.entries(standardsMap)) {
       if (!trimmedPath) continue
