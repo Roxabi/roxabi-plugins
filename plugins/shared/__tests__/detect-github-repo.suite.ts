@@ -288,6 +288,7 @@ export function registerGitHubRepoDetectionSuite(opts: {
       expect(result).toBe('Roxabi/roxabi-plugins')
       const gitCalls = spawnSyncSpy.mock.calls.filter((args: unknown[]) => (args[0] as string[])?.[0] === 'git')
       expect(gitCalls).toHaveLength(0)
+      expect(spawnSyncSpy).toHaveBeenCalledWith(expect.arrayContaining(['gh', 'repo', 'view']), expect.anything())
     })
 
     it('throws when no env var, no git remote, and no gh CLI', () => {

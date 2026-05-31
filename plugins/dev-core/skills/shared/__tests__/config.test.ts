@@ -16,21 +16,6 @@ vi.mock('node:fs', async () => {
   }
 })
 
-// Mock child_process.execSync to prevent gh CLI fallback in detectGitHubRepo
-vi.mock('node:child_process', async () => {
-  const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process')
-  return {
-    ...actual,
-    execSync: (...args: Parameters<typeof actual.execSync>) => {
-      const cmd = String(args[0])
-      if (cmd.includes('gh repo view') || cmd.includes('gh api graphql')) {
-        throw new Error('gh not available')
-      }
-      return actual.execSync(...args)
-    },
-  }
-})
-
 // Clear option env vars before config module loads so defaults apply (not .env values)
 delete process.env.STATUS_OPTIONS_JSON
 delete process.env.SIZE_OPTIONS_JSON
