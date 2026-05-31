@@ -5,7 +5,6 @@
 import type { WorkspaceProject } from '../../shared/ports/workspace'
 
 export type { RawContent, RawFieldValue, RawItem, RawSubIssue } from '../../shared/types'
-export type { WorkspaceProject }
 // re-export to expose gh-enums types to this module's consumers; import for local use in interface bodies below
 export type {
   CheckConclusionState,
@@ -17,6 +16,7 @@ export type {
   WorkflowConclusion,
   WorkflowStatus,
 } from './gh-enums'
+export type { WorkspaceProject }
 
 import type {
   CheckConclusionState,
