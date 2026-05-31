@@ -16,8 +16,8 @@ export class GitWorkspaceAdapter implements WorkspacePort {
     writeWorkspaceFn(ws)
   }
 
-  async discoverProject(repo: string): Promise<WorkspaceProject[]> {
-    return discoverProjectFn(repo)
+  async discoverProject(repo: string, localPath?: string): Promise<WorkspaceProject[]> {
+    return discoverProjectFn(repo, localPath)
   }
 
   async listBranches(): Promise<Branch[]> {
