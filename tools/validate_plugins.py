@@ -337,18 +337,21 @@ def check_subsumption_pairs(
     return errors
 
 
-def check_shared_sources_sync() -> list[str]:
+def check_shared_sources_sync(manifest_path=None, biome_path=None) -> list[str]:
     """Generated copies in shared-sources.json must match their canonical sources.
 
     Mirrors tools/sync-shared.ts --check semantics:
     - Strip the 2-line generated header (line 1 = @generated comment, line 2 = blank line)
       from each target and compare the remainder against the canonical file byte-for-byte.
     - Missing target files are also flagged as drift.
+    - Asserts that biome.json overrides[0].includes is set-equal to manifest targets.
     """
     errors = []
-    manifest_path = REPO_ROOT / 'tools' / 'shared-sources.json'
+    manifest_path = Path(manifest_path) if manifest_path is not None else (REPO_ROOT / 'tools' / 'shared-sources.json')
+    biome_path = Path(biome_path) if biome_path is not None else (REPO_ROOT / 'biome.json')
+
     if not manifest_path.exists():
-        errors.append('shared-sources.json not found at tools/shared-sources.json')
+        errors.append(f'shared-sources.json not found at {manifest_path}')
         return errors
 
     with open(manifest_path) as f:
@@ -379,7 +382,10 @@ def check_shared_sources_sync() -> list[str]:
                 )
                 continue
             target_content = target_path.read_text(encoding='utf-8')
-            # Strip the 2-line generated header: line 1 (@generated comment) + line 2 (blank)
+            # HEADER CONTRACT: the 2-line @generated header stripped here MUST stay
+            # byte-identical to tools/sync-shared.ts::makeHeader() (line 1 = @generated
+            # comment, line 2 = blank). If makeHeader changes the header shape/length,
+            # update this strip (lines[2:]) in lockstep, or byte-equality will false-fail.
             lines = target_content.split('\n')
             # Header is 2 lines: index 0 = @generated, index 1 = blank; body starts at index 2
             body = '\n'.join(lines[2:]) if len(lines) > 2 else ''
@@ -387,6 +393,31 @@ def check_shared_sources_sync() -> list[str]:
                 errors.append(
                     f'{target_rel} is out of sync with {canonical_rel}. Run: bun run sync:shared'
                 )
+
+    # Biome-vs-manifest set-equality assertion
+    if not biome_path.exists():
+        errors.append(f'biome.json not found at {biome_path}')
+        return errors
+
+    with open(biome_path) as f:
+        biome_data = json.load(f)
+
+    overrides = biome_data.get('overrides', [])
+    biome_includes = overrides[0].get('includes', []) if overrides else []
+
+    manifest_targets = [t for entry in manifest for t in entry.get('targets', [])]
+    biome_set = set(biome_includes)
+    manifest_set = set(manifest_targets)
+
+    for path in sorted(manifest_set - biome_set):
+        errors.append(
+            f'biome.json overrides[0].includes is missing copy-sync target: {path}. Run: derive biome includes from tools/shared-sources.json'
+        )
+    for path in sorted(biome_set - manifest_set):
+        errors.append(
+            f'biome.json overrides[0].includes has non-manifest entry: {path}. Either add it to tools/shared-sources.json or remove it from biome.json'
+        )
+
     return errors
 
 

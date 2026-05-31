@@ -10,5 +10,33 @@
   {
     "canonical": "plugins/dev-core/skills/shared/domain/types.ts",
     "targets": ["plugins/dev-init/skills/shared/domain/types.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/adapters/env-config.ts",
+    "targets": ["plugins/dev-init/skills/shared/adapters/env-config.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/adapters/workspace-store.ts",
+    "targets": ["plugins/dev-init/skills/shared/adapters/workspace-store.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/ports/artifacts.ts",
+    "targets": ["plugins/dev-init/skills/shared/ports/artifacts.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/ports/config.ts",
+    "targets": ["plugins/dev-init/skills/shared/ports/config.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/prereqs.ts",
+    "targets": ["plugins/dev-init/skills/shared/prereqs.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/queries.ts",
+    "targets": ["plugins/dev-init/skills/shared/queries.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/types.ts",
+    "targets": ["plugins/dev-init/skills/shared/types.ts"]
   }
 ]

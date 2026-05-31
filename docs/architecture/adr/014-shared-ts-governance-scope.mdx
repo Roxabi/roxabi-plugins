@@ -1,0 +1,104 @@
+---
+title: "ADR-014: Shared TypeScript File Governance — Full Scope Assignment"
+description: Assigns a governance mechanism (copy-sync, shared-import, caller-parity, intentional-fork, leave-alone) to every byte-identical or divergent TypeScript file shared between dev-core and dev-init, expanding copy-sync from 3 to 10 runtime files and deferring test shared-import conversion to #239.
+---
+
+## Status
+
+Accepted
+
+## Context
+
+`plugins/dev-init/skills/shared/` is a vendored subset of `plugins/dev-core/skills/shared/`. Marketplace self-containment rules forbid cross-plugin runtime imports, so files are duplicated. Before this ADR, only three files were under copy-sync governance (`adapters/config-helpers.ts`, `domain/errors.ts`, `domain/types.ts`). The remaining runtime and test files drifted silently — no mechanism tracked which pairs were intentionally forked, which were behind, and which should become single-sourced.
+
+Two related gaps were also open:
+
+1. **Biome suppression glob**: `biome.json overrides[0].includes` used a broad `plugins/dev-init/skills/shared/**/*.ts` glob to suppress lint on generated copies. This over-suppressed: 8 genuinely hand-written files in that tree would be silently un-linted (`github-adapter.ts`, `github-infra.ts`, `parse-issue-ref.ts`, `ports/workspace.ts`, `__tests__/domain.test.ts`, `services/*.ts`, `ports/issue.ts`, `ports/project.ts`). The glob was rejected.
+2. **Header contract**: `tools/sync-shared.ts::makeHeader` and `tools/validate_plugins.py::check_shared_sources_sync` both implement the 2-line `@generated` header strip. A documented comment in both files asserts they stay in lockstep — any header format change must update both.
+
+## Decision
+
+### Biome SSoT
+
+`biome.json overrides[0].includes` is now **derived** from `tools/shared-sources.json` (set-equality assertion: biome includes == flattened manifest targets). The broad glob was replaced with an explicit per-file list. Gated by `tools/validate_plugins.py --check shared-sources-sync` (CI + lefthook).
+
+### Copy-sync expanded: 3 → 10 runtime files
+
+The following runtime files are now canonical in dev-core and byte-copied into dev-init by `bun run sync:shared`. Copies carry the 2-line `@generated` header. Manifest: `tools/shared-sources.json`.
+
+| File (relative to `skills/shared/`) | Status |
+|---|---|
+| `adapters/config-helpers.ts` | copy-sync (existing) |
+| `domain/errors.ts` | copy-sync (existing) |
+| `domain/types.ts` | copy-sync (existing) |
+| `adapters/env-config.ts` | copy-sync (added #232) |
+| `adapters/workspace-store.ts` | copy-sync (added #232) |
+| `ports/artifacts.ts` | copy-sync (added #232) |
+| `ports/config.ts` | copy-sync (added #232) |
+| `prereqs.ts` | copy-sync (added #232) |
+| `queries.ts` | copy-sync (added #232) |
+| `types.ts` | copy-sync (added #232) |
+
+### Deferred: test shared-import (#239)
+
+Six byte-identical test pairs are slated to convert to shared-import (single file under `plugins/shared/__tests__/`, imported via relative path by both plugins — no copy, no `@generated` header, no sync gate). Execution deferred to follow-up issue #239.
+
+| Test file |
+|---|
+| `github.test.ts` |
+| `parse-issue-ref.test.ts` |
+| `prereqs.test.ts` |
+| `priority-labels.test.ts` |
+| `resolveFieldIds.test.ts` |
+| `resolveSize-legacy-schema.test.ts` |
+
+Until #239 lands, these files remain independent copies with no sync gate.
+
+### Excluded: caller-parity
+
+`__tests__/config.test.ts` is excluded from copy-sync — a `@generated` header would break its parity diff gate. Governed by caller-parity (#218/#225): two copies kept byte-identical by hand + CI `diff` check. No change.
+
+### Full governance table
+
+| File (relative to `skills/shared/`) | Governance | Notes |
+|---|---|---|
+| `adapters/config-helpers.ts` | copy-sync | existing |
+| `domain/errors.ts` | copy-sync | existing |
+| `domain/types.ts` | copy-sync | existing |
+| `adapters/env-config.ts` | copy-sync | added #232 |
+| `adapters/workspace-store.ts` | copy-sync | added #232 |
+| `ports/artifacts.ts` | copy-sync | added #232 |
+| `ports/config.ts` | copy-sync | added #232 |
+| `prereqs.ts` | copy-sync | added #232 |
+| `queries.ts` | copy-sync | added #232 |
+| `types.ts` | copy-sync | added #232 |
+| `github.test.ts` | shared-import (deferred #239) | currently independent copy |
+| `parse-issue-ref.test.ts` | shared-import (deferred #239) | currently independent copy |
+| `prereqs.test.ts` | shared-import (deferred #239) | currently independent copy |
+| `priority-labels.test.ts` | shared-import (deferred #239) | currently independent copy |
+| `resolveFieldIds.test.ts` | shared-import (deferred #239) | currently independent copy |
+| `resolveSize-legacy-schema.test.ts` | shared-import (deferred #239) | currently independent copy |
+| `__tests__/config.test.ts` | caller-parity | #218/#225; `@generated` header would break diff gate |
+| `adapters/github-adapter.ts` | intentional-fork | dev-init fork +272 lines; deliberate divergence |
+| `adapters/github-infra.ts` | leave-alone-pending-reconciliation | throws raw `Error` vs `ConfigError` — behind; #240 |
+| `domain/parse-issue-ref.ts` | leave-alone-pending-reconciliation | missing `formatRef` export — behind; #240 |
+| `ports/workspace.ts` | leave-alone-pending-reconciliation | missing `vercelProjectId`/`vercelTeamId` — behind; #240 |
+| `__tests__/domain.test.ts` | leave-alone-pending-reconciliation | divergent; #240 |
+
+## Consequences
+
+### Positive
+
+- Every file in `plugins/dev-init/skills/shared/` now has an explicit governance call — silent drift eliminated for the 10 copy-sync files.
+- Biome lint suppression is exact (per-file list derived from manifest) — the 8 hand-written files are no longer silently un-linted.
+- The `@generated` header contract is documented in both enforcement points (`sync-shared.ts` and `validate_plugins.py`), making header format changes safe to coordinate.
+
+### Negative
+
+- Six test file pairs (#239) remain unshared until follow-up work lands; divergence risk persists for those files until then.
+- Four files (#240) are known-behind with no immediate fix — they carry a `leave-alone` call but require active reconciliation work.
+
+### Neutral
+
+- `github-adapter.ts` intentional-fork status is explicit; its +272-line divergence is out of manifest by design and will not be flagged by the sync gate.
+- Caller-parity for `__tests__/config.test.ts` is unchanged (#218/#225 owns it).
