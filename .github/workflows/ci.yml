@@ -23,6 +23,7 @@ jobs:
         run: bun run test
       - name: Shared detectGitHubRepo suite — caller parity (#218 SC3)
         run: |
+          set -euo pipefail
           DEV_CORE="plugins/dev-core/skills/shared/__tests__/config.test.ts"
           DEV_INIT="plugins/dev-init/skills/shared/__tests__/config.test.ts"
           if ! diff "$DEV_CORE" "$DEV_INIT"; then

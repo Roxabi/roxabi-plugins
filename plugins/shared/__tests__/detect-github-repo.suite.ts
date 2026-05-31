@@ -272,10 +272,9 @@ export function registerGitHubRepoDetectionSuite(opts: {
       expect(detectGitHubRepo()).toBe('Roxabi/roxabi-plugins')
     })
 
-    it('throws when no env var, no git remote, and no gh CLI', async () => {
-      // Temporarily remove GITHUB_REPO env var to force git detection
-      const originalEnv = process.env.GITHUB_REPO
-      delete process.env.GITHUB_REPO
+    it('throws when no env var, no git remote, and no gh CLI', () => {
+      // beforeEach already deleted GITHUB_REPO; afterEach restores originalGitHubRepo.
+      // No in-test save/restore needed — that path forces git detection.
 
       // Mock git to fail
       spawnSyncSpy.mockReturnValue({
@@ -287,9 +286,6 @@ export function registerGitHubRepoDetectionSuite(opts: {
 
       // The function should throw when detection fails
       expect(() => detectGitHubRepo()).toThrow('Cannot detect GitHub repo')
-
-      // Restore env
-      process.env.GITHUB_REPO = originalEnv
     })
   })
 }
