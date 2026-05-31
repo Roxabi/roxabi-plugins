@@ -2,7 +2,7 @@
 name: implement
 argument-hint: '[--issue <N> | --plan <path> | --audit]'
 description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "implement" | "build this" | "execute plan" | "start coding" | "write the code" | "code this up" | "let's build it" | "build it out" | "ship it".
-version: 0.3.0
+version: 0.3.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
@@ -111,6 +111,11 @@ Emits: `repo`, `base`, `branch_exists`, `legacy_worktree`, `worktree`, `dirty` (
 
 **2e. Worktree:**
 
+Capture absolute path before entering (used in subagent prompts):
+```bash
+ABS_WT=$(git rev-parse --show-toplevel)/.claude/worktrees/{N}-{slug}
+```
+
 Enter existing worktree (created by `/setup-worktree` or prior `/dev` run):
 ```
 EnterWorktree(path: ".claude/worktrees/{N}-{slug}")
@@ -164,7 +169,7 @@ Read spec + ref patterns → create + implement → tests → QG → loop until 
 
 Spawn via `Task` tool (subagent/domain). Sequential ∨ parallel (2–3 max).
 
-**Worktree isolation:** Main context is already inside ω (Step 2). Subagents spawned via `Task` inherit this CWD. All file operations must stay within `.claude/worktrees/{N}-{slug}`. Do not `cd` to repo root or other paths outside ω.
+**Worktree isolation:** Main context is already inside ω (Step 2). Subagents spawned via `Task` do NOT inherit this CWD — they start at the project root. The orchestrator injects `EnterWorktree` as the first action of every subagent prompt (see spawn template below).
 
 **Per agent spawn:**
 1. `TaskUpdate(task_id, status: "in_progress", owner: "{agent}")`.
@@ -174,7 +179,7 @@ Spawn via `Task` tool (subagent/domain). Sequential ∨ parallel (2–3 max).
    Task(
      subagent_type: "dev-core:{agent}",
      description: "{agent}: {phase} — #{N} {slug}",
-     prompt: "Issue #{N}. Task: {TaskGet.description}. Target: {file_path}. Skeleton: {code_snippet}. Verify: {verify_command}. Ref pattern: {pattern_file}. Worktree: `.claude/worktrees/{N}-{slug}` — you are already inside it; do not leave this directory. ¬TaskCreate — task lifecycle managed by lead."
+     prompt: "Issue #{N}. Task: {TaskGet.description}. Target: {file_path}. Skeleton: {code_snippet}. Verify: {verify_command}. Ref pattern: {pattern_file}. First action: call EnterWorktree with path `{ABS_WT}` — do this before reading or writing any file. ¬TaskCreate — task lifecycle managed by lead."
    )
    ```
    Agent name map: `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `doc-writer` → `dev-core:doc-writer` | `architect` → `dev-core:architect` | `security-auditor` → `dev-core:security-auditor`
