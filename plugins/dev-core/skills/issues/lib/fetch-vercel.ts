@@ -1,4 +1,5 @@
 import { FIVE_MINUTES_MS } from './constants'
+import { safeAsync } from './safe-async'
 import type { BuildStep, VercelDeployment } from './types'
 
 const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID ?? ''
@@ -95,75 +96,77 @@ export async function fetchVercelDeployments(
   const token = getVercelToken()
   if (!token || !projectId || !teamId) return []
 
-  try {
-    const url = `https://api.vercel.com/v6/deployments?projectId=${projectId}&teamId=${teamId}&limit=10`
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!res.ok) return []
-    const data = (await res.json()) as { deployments: RawVercelDeployment[] }
+  return safeAsync(
+    async () => {
+      const url = `https://api.vercel.com/v6/deployments?projectId=${projectId}&teamId=${teamId}&limit=10`
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return []
+      const data = (await res.json()) as { deployments: RawVercelDeployment[] }
 
-    const mapped = data.deployments.map((d) => ({
-      uid: d.uid,
-      url: d.url,
-      name: d.name ?? '',
-      state: d.state ?? d.readyState ?? '',
-      target: d.target ?? '',
-      createdAt: d.createdAt,
-      buildingAt: d.buildingAt ?? 0,
-      ready: d.ready ?? 0,
-      source: d.source ?? '',
-      meta: {
-        githubCommitRef: d.meta?.githubCommitRef,
-        githubCommitMessage: d.meta?.githubCommitMessage,
-      },
-      inspectorUrl: d.inspectorUrl ?? '',
-      buildSteps: [] as BuildStep[],
-      isCurrent: false,
-    }))
+      const mapped = data.deployments.map((d) => ({
+        uid: d.uid,
+        url: d.url,
+        name: d.name ?? '',
+        state: (d.state ?? d.readyState ?? '') as VercelDeployment['state'],
+        target: d.target ?? '',
+        createdAt: d.createdAt,
+        buildingAt: d.buildingAt ?? 0,
+        ready: d.ready ?? 0,
+        source: d.source ?? '',
+        meta: {
+          githubCommitRef: d.meta?.githubCommitRef,
+          githubCommitMessage: d.meta?.githubCommitMessage,
+        },
+        inspectorUrl: d.inspectorUrl ?? '',
+        buildSteps: [] as BuildStep[],
+        isCurrent: false,
+      }))
 
-    const now = Date.now()
-    const isOngoing = (d: (typeof mapped)[0]) => ['BUILDING', 'QUEUED', 'INITIALIZING'].includes(d.state)
+      const now = Date.now()
+      const isOngoing = (d: (typeof mapped)[0]) => ['BUILDING', 'QUEUED', 'INITIALIZING'].includes(d.state)
 
-    // Production: current (latest READY prod) + latest prod error if newer than current
-    const currentProd = mapped.find((d) => d.state === 'READY' && d.target === 'production')
-    if (currentProd) currentProd.isCurrent = true
-    const latestProdError = mapped.find((d) => d.state === 'ERROR' && d.target === 'production')
-    const showProdError = latestProdError && (!currentProd || latestProdError.createdAt > currentProd.createdAt)
+      // Production: current (latest READY prod) + latest prod error if newer than current
+      const currentProd = mapped.find((d) => d.state === 'READY' && d.target === 'production')
+      if (currentProd) currentProd.isCurrent = true
+      const latestProdError = mapped.find((d) => d.state === 'ERROR' && d.target === 'production')
+      const showProdError = latestProdError && (!currentProd || latestProdError.createdAt > currentProd.createdAt)
 
-    // Preview: latest ongoing preview + latest completed preview if within last 5 min
-    const latestOngoingPreview = mapped.find((d) => isOngoing(d) && d.target !== 'production')
-    const latestCompletedPreview = mapped.find(
-      (d) => !isOngoing(d) && d.target !== 'production' && now - d.createdAt < FIVE_MINUTES_MS,
-    )
+      // Preview: latest ongoing preview + latest completed preview if within last 5 min
+      const latestOngoingPreview = mapped.find((d) => isOngoing(d) && d.target !== 'production')
+      const latestCompletedPreview = mapped.find(
+        (d) => !isOngoing(d) && d.target !== 'production' && now - d.createdAt < FIVE_MINUTES_MS,
+      )
 
-    // Also include ongoing production deployments
-    const ongoingProd = mapped.filter((d) => isOngoing(d) && d.target === 'production')
+      // Also include ongoing production deployments
+      const ongoingProd = mapped.filter((d) => isOngoing(d) && d.target === 'production')
 
-    const seen = new Set<string>()
-    const filtered: typeof mapped = []
-    const candidates = [
-      ...ongoingProd,
-      ...(currentProd ? [currentProd] : []),
-      ...(showProdError ? [latestProdError] : []),
-      ...(latestOngoingPreview ? [latestOngoingPreview] : []),
-      ...(latestCompletedPreview ? [latestCompletedPreview] : []),
-    ]
-    for (const d of candidates) {
-      if (!seen.has(d.uid)) {
-        seen.add(d.uid)
-        filtered.push(d)
+      const seen = new Set<string>()
+      const filtered: typeof mapped = []
+      const candidates = [
+        ...ongoingProd,
+        ...(currentProd ? [currentProd] : []),
+        ...(showProdError ? [latestProdError] : []),
+        ...(latestOngoingPreview ? [latestOngoingPreview] : []),
+        ...(latestCompletedPreview ? [latestCompletedPreview] : []),
+      ]
+      for (const d of candidates) {
+        if (!seen.has(d.uid)) {
+          seen.add(d.uid)
+          filtered.push(d)
+        }
       }
-    }
 
-    // Fetch build logs in parallel for all visible deployments
-    const logResults = await Promise.all(filtered.map((d) => fetchBuildLogs(token, d.uid, teamId)))
-    for (let i = 0; i < filtered.length; i++) {
-      filtered[i].buildSteps = parseBuildSteps(logResults[i], filtered[i].state)
-    }
+      // Fetch build logs in parallel for all visible deployments
+      const logResults = await Promise.all(filtered.map((d) => fetchBuildLogs(token, d.uid, teamId)))
+      for (let i = 0; i < filtered.length; i++) {
+        filtered[i].buildSteps = parseBuildSteps(logResults[i], filtered[i].state)
+      }
 
-    return filtered
-  } catch {
-    return []
-  }
+      return filtered
+    },
+    [],
+    'fetchVercelDeployments',
+  )
 }
