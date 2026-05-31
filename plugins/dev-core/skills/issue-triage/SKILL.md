@@ -85,6 +85,25 @@ Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies
 | `--blocked-by <REF>[,<REF>...]` | Set blocked-by on creation |
 | `--blocks <REF>[,<REF>...]` | Set blocking on creation |
 
+### Cross-repo create
+
+Set `GITHUB_REPO=<owner/repo>` to retarget the CREATE to a different repo than the cwd's git remote:
+
+```bash
+# File a voiceCLI issue while cwd is lyra (or any other repo)
+GITHUB_REPO=Roxabi/voiceCLI τ create \
+  --title 'STT: audio dropout at segment boundary' \
+  --blocked-by Roxabi/lyra#728
+```
+
+Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`) accept `OWNER/REPO#N` natively — they work regardless of `GITHUB_REPO`.
+
+**Caveat 1 — keep refs fully-qualified:** `GITHUB_REPO` retargets the entire invocation. A bare `#N` in any ref resolves against the overridden repo, not the cwd repo → always use `OWNER/REPO#N` for any cross-repo ref when the env var is set.
+
+**Caveat 2 — project board:** `addToProject` uses the single configured `GH_PROJECT_ID`. The new issue joins the board only if the target repo is linked to that project; otherwise a non-fatal warning is printed and the issue is still created.
+
+**Resolution order** (`detectGitHubRepo`): (1) `github_repo` in dev-core config ∨ `GITHUB_REPO` env var (validated as `owner/repo`) → (2) fallback `git remote get-url origin` of the cwd.
+
 ## Deferred Follow-Ups — Sibling Rule
 
 **Defer ≠ decomposition.** When an issue A defers work to a new follow-up B (out-of-scope finding, post-merge gap, "do this later"), B is a **sibling** of A under their shared parent — NOT a child of A.
