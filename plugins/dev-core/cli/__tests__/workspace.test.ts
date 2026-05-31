@@ -49,7 +49,7 @@ describe('workspace list', () => {
       workspacePath,
       makeWorkspaceJson([
         { repo: 'Roxabi/roxabi-plugins', projectId: 'PVT_kwDORa9q-M4Aqkwn', label: 'Roxabi Plugins' },
-        { repo: 'mickaelV0/repo-b', projectId: 'PVT_aabbcc', label: 'Personal Repo B' },
+        { repo: 'octocat/repo-b', projectId: 'PVT_aabbcc', label: 'Personal Repo B' },
       ]),
     )
     const originalHome = process.env.HOME
@@ -195,7 +195,7 @@ describe('workspace remove (registered repo)', () => {
       workspacePath,
       makeWorkspaceJson([
         { repo: 'Roxabi/roxabi-plugins', projectId: 'PVT_aaa', label: 'Plugins' },
-        { repo: 'mickaelV0/repo-b', projectId: 'PVT_bbb', label: 'Repo B' },
+        { repo: 'octocat/repo-b', projectId: 'PVT_bbb', label: 'Repo B' },
       ]),
     )
     const originalHome = process.env.HOME
@@ -220,7 +220,7 @@ describe('workspace remove (registered repo)', () => {
 
       const written = JSON.parse(readFileSync(workspacePath, 'utf8'))
       expect(written.projects).toHaveLength(1)
-      expect(written.projects[0].repo).toBe('mickaelV0/repo-b')
+      expect(written.projects[0].repo).toBe('octocat/repo-b')
 
       const output = lines.join('\n')
       expect(output).toContain('Roxabi/roxabi-plugins')
@@ -244,7 +244,7 @@ describe('workspace remove (unregistered repo)', () => {
     const workspacePath = join(vaultDir, 'workspace.json')
     require('node:fs').writeFileSync(
       workspacePath,
-      makeWorkspaceJson([{ repo: 'mickaelV0/repo-b', projectId: 'PVT_bbb', label: 'Repo B' }]),
+      makeWorkspaceJson([{ repo: 'octocat/repo-b', projectId: 'PVT_bbb', label: 'Repo B' }]),
     )
     const originalHome = process.env.HOME
     process.env.HOME = tmpDir
