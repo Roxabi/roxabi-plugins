@@ -47,6 +47,8 @@ jobs:
         run: python3 tools/validate_plugins.py --check class-list-sync
       - name: Shared sources sync check
         run: python3 tools/validate_plugins.py --check shared-sources-sync
+      - name: Validate plugins (full)
+        run: python3 tools/validate_plugins.py
       - name: Validate registry sync
         run: |
           set -euo pipefail
