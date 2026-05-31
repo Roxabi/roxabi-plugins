@@ -20,6 +20,16 @@ Raw GitHub issues lack structure. `/issue-triage` adds Size (XS→XL), Priority 
 
 Triggers: `"triage"` | `"create issue"` | `"set size"` | `"set priority"` | `"blocked by"` | `"set parent"` | `"sub-issue"` | `"file an issue"` | `"open an issue"`
 
+## Cross-repo create
+
+Prefix `GITHUB_REPO=<owner/repo>` to create an issue in a different repo than the current cwd:
+
+```bash
+GITHUB_REPO=Roxabi/voiceCLI /issue-triage create --title "..." --blocked-by Roxabi/lyra#728
+```
+
+Cross-repo relation flags (`--blocked-by`, `--blocks`, `--parent`, `--add-child`) accept `OWNER/REPO#N` natively and work independently of `GITHUB_REPO`. When the env var is set, always use fully-qualified refs — bare `#N` resolves against the overridden repo.
+
 ## Size Guidelines
 
 | Size | Description |

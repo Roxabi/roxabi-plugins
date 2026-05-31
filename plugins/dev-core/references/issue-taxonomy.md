@@ -38,6 +38,7 @@ Single fact source for issue metadata across every Roxabi repo (`lyra`, `voiceCL
 | Assignees | ❌ per-repo | no cross-repo user list, but user identity is org-wide |
 | Sub-issues | ✅ cross-org | |
 | blocked_by / blocking | ✅ cross-repo | `addBlockedBy` hits EMU restrictions cross-org; not a concern for Roxabi |
+| **Issue create target** | ⚙️ env/config | Fields and edges above are native cross-repo; the CREATE target is cwd-bound by default. Override: set `GITHUB_REPO=owner/repo` env var (or `github_repo` in dev-core config) to create in a different repo. Caveat 1: retargets the entire invocation — bare `#N` refs resolve against the override, not the cwd; always use `OWNER/REPO#N`. Caveat 2: `addToProject` only succeeds if the target repo is linked to the configured `GH_PROJECT_ID` (non-fatal warning otherwise). |
 
 ---
 
