@@ -30,4 +30,3 @@ export type WorkflowConclusion =
   | 'timed_out'
   | 'action_required'
   | 'stale'
-  | 'startup_failure'

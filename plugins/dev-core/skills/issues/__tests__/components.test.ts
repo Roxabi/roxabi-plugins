@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { ciClass, ciIcon } from '../lib/components'
+import { ciClass, ciIcon, ciSummary } from '../lib/components'
+import type { CICheck } from '../lib/types'
 
 const CI_SPINNER_HTML = '<span class="ci-spinner"></span>'
 
@@ -40,6 +41,46 @@ describe('ciClass — StatusContext rows (conclusion="")', () => {
 describe('ciClass — CheckRun rows (status=COMPLETED)', () => {
   it('COMPLETED,SUCCESS → ci-success', () => {
     expect(ciClass('COMPLETED', 'SUCCESS')).toBe('ci-success')
+  })
+})
+
+describe('ciSummary — failure counting, ERROR-conclusion removal regression lock', () => {
+  // Pins the invariant: 'ERROR' is not a valid CheckConclusionState value (it only appears in
+  // StatusState / StatusContext rows, not CheckRun conclusions).  ciSummary must count
+  // status='FAILURE' and status='ERROR' as failures, and conclusion='FAILURE' as a failure,
+  // but must NOT treat conclusion='ERROR' as a failure (no such conclusion exists in the type).
+
+  it('status=FAILURE counts as failing', () => {
+    const checks: CICheck[] = [{ name: 'ci', status: 'FAILURE', conclusion: '', detailsUrl: '' }]
+    const result = ciSummary(checks)
+    expect(result).toEqual({ icon: '❌', label: '1/1 failed', cssClass: 'ci-failure' })
+  })
+
+  it('status=ERROR counts as failing', () => {
+    const checks: CICheck[] = [{ name: 'ci', status: 'ERROR', conclusion: '', detailsUrl: '' }]
+    const result = ciSummary(checks)
+    expect(result).toEqual({ icon: '❌', label: '1/1 failed', cssClass: 'ci-failure' })
+  })
+
+  it('conclusion=FAILURE counts as failing', () => {
+    const checks: CICheck[] = [{ name: 'ci', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl: '' }]
+    const result = ciSummary(checks)
+    expect(result).toEqual({ icon: '❌', label: '1/1 failed', cssClass: 'ci-failure' })
+  })
+
+  it('conclusion=SUCCESS with status=COMPLETED is NOT failing', () => {
+    const checks: CICheck[] = [{ name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS', detailsUrl: '' }]
+    const result = ciSummary(checks)
+    expect(result).toEqual({ icon: '✅', label: '1 passed', cssClass: 'ci-success' })
+  })
+
+  it('mixed: 1 failure + 1 success → failure summary', () => {
+    const checks: CICheck[] = [
+      { name: 'a', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl: '' },
+      { name: 'b', status: 'COMPLETED', conclusion: 'SUCCESS', detailsUrl: '' },
+    ]
+    const result = ciSummary(checks)
+    expect(result).toEqual({ icon: '❌', label: '1/2 failed', cssClass: 'ci-failure' })
   })
 })
 

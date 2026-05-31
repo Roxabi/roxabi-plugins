@@ -178,7 +178,7 @@ export function ciClass(status: string, conclusion: string): string {
   return 'ci-pending'
 }
 
-function ciSummary(checks: PR['checks']): { icon: string; label: string; cssClass: string } {
+export function ciSummary(checks: PR['checks']): { icon: string; label: string; cssClass: string } {
   if (checks.length === 0) return { icon: '', label: '', cssClass: '' }
   const total = checks.length
   const pass = checks.filter(

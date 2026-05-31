@@ -116,7 +116,8 @@ function main() {
         }),
       )
     }
-  } catch {
+  } catch (e) {
+    process.stderr.write(`security-check: ${e?.message ? e.message : String(e)}\n`)
     process.exit(0)
   }
 }
