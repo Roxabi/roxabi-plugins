@@ -2,9 +2,5 @@
   {
     "canonical": "plugins/dev-core/skills/shared/adapters/config-helpers.ts",
     "targets": ["plugins/dev-init/skills/shared/adapters/config-helpers.ts"]
-  },
-  {
-    "canonical": "plugins/dev-core/skills/shared/__tests__/config.test.ts",
-    "targets": ["plugins/dev-init/skills/shared/__tests__/config.test.ts"]
   }
 ]

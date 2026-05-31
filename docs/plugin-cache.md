@@ -52,10 +52,12 @@ This repo has three separate flows for sharing source across plugins — do not 
 | **Gate** | none | `tools/validate_plugins.py --check shared-sources-sync` (CI + lefthook) | none |
 | **Edit rule** | edit `roxabi_sdk/` at repo root, then rsync | edit dev-core canonical only — ¬touch dev-init copy directly | edit `plugins/shared/__tests__/<file>` directly |
 
-**Selection rule:** runtime source (must be self-contained inside the installed plugin) → copy-sync. Test-only source (never ships) → shared-import preferred (no duplication, no sync gate).
+**Selection rule:** runtime source (must be self-contained inside the installed plugin) → copy-sync. Test-only logic (never ships) → shared-import preferred (no duplication, no sync gate).
 
-Currently copy-synced (TS): `config-helpers.ts` + `__tests__/config.test.ts` (dev-core → dev-init).
+Currently copy-synced (TS): `config-helpers.ts` (dev-core → dev-init).
 Currently shared-import: `plugins/shared/__tests__/detect-github-repo.suite.ts`.
+
+> **Note — `config.test.ts` is NOT copy-synced.** Its two copies (dev-core, dev-init) are thin caller boilerplate that must stay **byte-identical**, so they cannot carry a `// @generated` header. They are kept in lockstep by hand + a CI `diff` gate ("Shared detectGitHubRepo suite — caller parity #218 SC3", owned by #218/#225). A copy-sync header here would break that parity gate — the two mechanisms are mutually exclusive on this file.
 
 ## Rules
 

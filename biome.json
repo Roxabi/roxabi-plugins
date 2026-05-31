@@ -24,10 +24,7 @@
   },
   "overrides": [
     {
-      "includes": [
-        "plugins/dev-init/skills/shared/adapters/config-helpers.ts",
-        "plugins/dev-init/skills/shared/__tests__/config.test.ts"
-      ],
+      "includes": ["plugins/dev-init/skills/shared/adapters/config-helpers.ts"],
       "formatter": {
         "enabled": false
       },
