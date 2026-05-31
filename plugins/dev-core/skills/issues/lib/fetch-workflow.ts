@@ -1,6 +1,7 @@
 import { GITHUB_REPO } from '../../shared/adapters/config-helpers'
 import { getGitHubToken as _getGitHubToken } from '../../shared/adapters/github-adapter'
 import { FIVE_MINUTES_MS } from './constants'
+import { asWorkflowConclusion, asWorkflowStatus } from './gh-enums'
 import { safeAsync } from './safe-async'
 import type { WorkflowRun } from './types'
 
@@ -61,8 +62,8 @@ export async function fetchWorkflowRuns(repoSlug: string = GITHUB_REPO): Promise
           name: run.name,
           displayTitle: run.display_title,
           event: run.event,
-          status: run.status as WorkflowRun['status'],
-          conclusion: run.conclusion as WorkflowRun['conclusion'],
+          status: asWorkflowStatus(run.status),
+          conclusion: asWorkflowConclusion(run.conclusion),
           htmlUrl: run.html_url,
           createdAt: run.created_at,
           updatedAt: run.updated_at,

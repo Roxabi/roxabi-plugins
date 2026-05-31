@@ -55,7 +55,7 @@ export interface PR {
   number: number
   title: string
   branch: string
-  state: PullRequestState
+  state: PullRequestState | ''
   isDraft: boolean
   url: string
   author: string
@@ -115,7 +115,7 @@ export interface WorkflowRun {
   name: string
   displayTitle: string
   event: string
-  status: WorkflowStatus
+  status: WorkflowStatus | ''
   conclusion: WorkflowConclusion | null
   htmlUrl: string
   createdAt: string

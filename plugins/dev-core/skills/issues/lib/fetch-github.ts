@@ -8,6 +8,7 @@ import {
   PRS_QUERY,
 } from '../../shared/queries'
 import type { RawItem } from '../../shared/types'
+import { asCheckConclusionState, asCheckStatusState, asMergeableState, asPullRequestState } from './gh-enums'
 import { safeAsync } from './safe-async'
 import type { BranchCI, CICheck, Issue, PR } from './types'
 
@@ -69,8 +70,8 @@ interface RawBranchRef {
 export function mapRawCheck(node: RawCheckNode): CICheck {
   return {
     name: node.name || node.context || 'unknown',
-    status: (node.status || node.state || '') as CICheck['status'],
-    conclusion: (node.conclusion || '') as CICheck['conclusion'],
+    status: asCheckStatusState(node.status || node.state || ''),
+    conclusion: asCheckConclusionState(node.conclusion || ''),
     detailsUrl: node.detailsUrl || node.targetUrl || '',
   }
 }
@@ -219,7 +220,7 @@ export async function fetchPRs(repoSlug: string = GITHUB_REPO): Promise<PR[]> {
           number: pr.number,
           title: pr.title,
           branch: pr.headRefName,
-          state: pr.state as PR['state'],
+          state: asPullRequestState(pr.state),
           isDraft: pr.isDraft,
           url: pr.url,
           author: pr.author?.login ?? '',
@@ -228,7 +229,7 @@ export async function fetchPRs(repoSlug: string = GITHUB_REPO): Promise<PR[]> {
           deletions: pr.deletions ?? 0,
           reviewDecision: pr.reviewDecision ?? '',
           labels: pr.labels.nodes.map((l) => l.name),
-          mergeable: (pr.mergeable ?? 'UNKNOWN') as PR['mergeable'],
+          mergeable: asMergeableState(pr.mergeable ?? 'UNKNOWN'),
           checks,
         }
       })
