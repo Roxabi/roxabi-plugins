@@ -8,7 +8,7 @@ import {
   PRS_QUERY,
 } from '../../shared/queries'
 import type { RawItem } from '../../shared/types'
-
+import { safeAsync } from './safe-async'
 import type { BranchCI, CICheck, Issue, PR } from './types'
 
 interface SlotNames {
@@ -69,8 +69,8 @@ interface RawBranchRef {
 export function mapRawCheck(node: RawCheckNode): CICheck {
   return {
     name: node.name || node.context || 'unknown',
-    status: node.status || node.state || '',
-    conclusion: node.conclusion || '',
+    status: (node.status || node.state || '') as CICheck['status'],
+    conclusion: (node.conclusion || '') as CICheck['conclusion'],
     detailsUrl: node.detailsUrl || node.targetUrl || '',
   }
 }
@@ -203,77 +203,81 @@ export async function fetchIssues(): Promise<Issue[]> {
 }
 
 export async function fetchPRs(repoSlug: string = GITHUB_REPO): Promise<PR[]> {
-  try {
-    const [owner, repo] = repoSlug.split('/')
-    const data = (await ghGraphQL(PRS_QUERY, { owner, repo })) as {
-      data: { repository: { pullRequests: { nodes: RawPRNode[] } } }
-    }
-
-    return data.data.repository.pullRequests.nodes.map((pr) => {
-      const commitNode = pr.commits.nodes[0]
-      const rawChecks = commitNode?.commit.statusCheckRollup?.contexts.nodes ?? []
-      const checks: CICheck[] = rawChecks.map(mapRawCheck)
-
-      return {
-        number: pr.number,
-        title: pr.title,
-        branch: pr.headRefName,
-        state: pr.state,
-        isDraft: pr.isDraft,
-        url: pr.url,
-        author: pr.author?.login ?? '',
-        updatedAt: pr.updatedAt,
-        additions: pr.additions ?? 0,
-        deletions: pr.deletions ?? 0,
-        reviewDecision: pr.reviewDecision ?? '',
-        labels: pr.labels.nodes.map((l) => l.name),
-        mergeable: pr.mergeable ?? 'UNKNOWN',
-        checks,
+  return safeAsync(
+    async () => {
+      const [owner, repo] = repoSlug.split('/')
+      const data = (await ghGraphQL(PRS_QUERY, { owner, repo })) as {
+        data: { repository: { pullRequests: { nodes: RawPRNode[] } } }
       }
-    })
-  } catch {
-    return []
-  }
-}
 
-export async function fetchBranchCI(repoSlug: string = GITHUB_REPO): Promise<BranchCI[]> {
-  try {
-    const [owner, repo] = repoSlug.split('/')
-    const data = (await ghGraphQL(BRANCH_CI_QUERY, { owner, repo })) as {
-      data: { repository: { main: RawBranchRef | null; master: RawBranchRef | null; staging: RawBranchRef | null } }
-    }
-
-    const refs: [string, RawBranchRef | null][] = [
-      ['main', data.data.repository.main ?? data.data.repository.master],
-      ['staging', data.data.repository.staging],
-    ]
-
-    return refs
-      .filter((entry): entry is [string, RawBranchRef] => entry[1] !== null)
-      .map(([branch, ref]) => {
-        const target = ref.target
-        if (!target) {
-          return {
-            branch,
-            commitSha: '',
-            commitMessage: '',
-            committedAt: '',
-            overallState: '',
-            checks: [],
-          }
-        }
-        const rawChecks = target.statusCheckRollup?.contexts.nodes ?? []
+      return data.data.repository.pullRequests.nodes.map((pr) => {
+        const commitNode = pr.commits.nodes[0]
+        const rawChecks = commitNode?.commit.statusCheckRollup?.contexts.nodes ?? []
         const checks: CICheck[] = rawChecks.map(mapRawCheck)
+
         return {
-          branch,
-          commitSha: target.oid.slice(0, 7),
-          commitMessage: target.messageHeadline,
-          committedAt: target.committedDate,
-          overallState: target.statusCheckRollup?.state ?? '',
+          number: pr.number,
+          title: pr.title,
+          branch: pr.headRefName,
+          state: pr.state as PR['state'],
+          isDraft: pr.isDraft,
+          url: pr.url,
+          author: pr.author?.login ?? '',
+          updatedAt: pr.updatedAt,
+          additions: pr.additions ?? 0,
+          deletions: pr.deletions ?? 0,
+          reviewDecision: pr.reviewDecision ?? '',
+          labels: pr.labels.nodes.map((l) => l.name),
+          mergeable: (pr.mergeable ?? 'UNKNOWN') as PR['mergeable'],
           checks,
         }
       })
-  } catch {
-    return []
-  }
+    },
+    [],
+    'fetchPRs',
+  )
+}
+
+export async function fetchBranchCI(repoSlug: string = GITHUB_REPO): Promise<BranchCI[]> {
+  return safeAsync(
+    async () => {
+      const [owner, repo] = repoSlug.split('/')
+      const data = (await ghGraphQL(BRANCH_CI_QUERY, { owner, repo })) as {
+        data: { repository: { main: RawBranchRef | null; master: RawBranchRef | null; staging: RawBranchRef | null } }
+      }
+
+      const refs: [string, RawBranchRef | null][] = [
+        ['main', data.data.repository.main ?? data.data.repository.master],
+        ['staging', data.data.repository.staging],
+      ]
+
+      return refs
+        .filter((entry): entry is [string, RawBranchRef] => entry[1] !== null)
+        .map(([branch, ref]) => {
+          const target = ref.target
+          if (!target) {
+            return {
+              branch,
+              commitSha: '',
+              commitMessage: '',
+              committedAt: '',
+              overallState: '',
+              checks: [],
+            }
+          }
+          const rawChecks = target.statusCheckRollup?.contexts.nodes ?? []
+          const checks: CICheck[] = rawChecks.map(mapRawCheck)
+          return {
+            branch,
+            commitSha: target.oid.slice(0, 7),
+            commitMessage: target.messageHeadline,
+            committedAt: target.committedDate,
+            overallState: target.statusCheckRollup?.state ?? '',
+            checks,
+          }
+        })
+    },
+    [],
+    'fetchBranchCI',
+  )
 }

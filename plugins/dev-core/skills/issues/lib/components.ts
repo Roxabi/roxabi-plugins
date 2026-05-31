@@ -178,7 +178,7 @@ export function ciClass(status: string, conclusion: string): string {
   return 'ci-pending'
 }
 
-function ciSummary(checks: PR['checks']): { icon: string; label: string; cssClass: string } {
+export function ciSummary(checks: PR['checks']): { icon: string; label: string; cssClass: string } {
   if (checks.length === 0) return { icon: '', label: '', cssClass: '' }
   const total = checks.length
   const pass = checks.filter(
@@ -188,9 +188,7 @@ function ciSummary(checks: PR['checks']): { icon: string; label: string; cssClas
       c.conclusion === 'SKIPPED' ||
       c.conclusion === 'NEUTRAL',
   ).length
-  const fail = checks.filter(
-    (c) => c.conclusion === 'FAILURE' || c.conclusion === 'ERROR' || c.status === 'FAILURE' || c.status === 'ERROR',
-  ).length
+  const fail = checks.filter((c) => c.conclusion === 'FAILURE' || c.status === 'FAILURE' || c.status === 'ERROR').length
   const running = checks.filter((c) => c.status === 'IN_PROGRESS').length
 
   if (fail > 0) return { icon: '\u274c', label: `${fail}/${total} failed`, cssClass: 'ci-failure' }
