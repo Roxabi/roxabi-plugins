@@ -92,10 +92,12 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
 
 /**
  * A GitHub repo slug: exactly `owner/repo`.
- * GitHub owner: [A-Za-z0-9-], repo name: [A-Za-z0-9._-].
+ * Owner: alphanumeric + hyphen, must start with an alphanumeric character
+ * (GitHub username rule — dots/underscores not allowed in owner segment).
+ * Name: allows dots/underscores after a leading alphanumeric character.
  * Callers do `detectGitHubRepo().split('/')` and expect exactly two non-empty segments.
  */
-const REPO_SLUG_RE = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/
+export const REPO_SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 /**
  * Validate a candidate GitHub repo slug and throw a clear error if it doesn't match.

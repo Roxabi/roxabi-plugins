@@ -222,10 +222,32 @@ export function registerGitHubRepoDetectionSuite(opts: {
       expect(spawnSyncSpy).not.toHaveBeenCalled()
     })
 
+    it('accepts single-char owner and repo-name segments', () => {
+      // Each segment is [A-Za-z0-9][...]* — the continuation is optional, so a/b is valid.
+      // Pins the `*` quantifier against an accidental change to `+` (which would require ≥2 chars).
+      process.env.GITHUB_REPO = 'a/b'
+      expect(detectGitHubRepo()).toBe('a/b')
+      expect(spawnSyncSpy).not.toHaveBeenCalled()
+    })
+
     it('accepts dots and underscores in the repo-name segment', () => {
       // Repo names may contain . and _ — owner tightening must not regress this.
       process.env.GITHUB_REPO = 'owner/my.repo_name'
       expect(detectGitHubRepo()).toBe('owner/my.repo_name')
+      expect(spawnSyncSpy).not.toHaveBeenCalled()
+    })
+
+    it('throws when the owner segment starts with a hyphen', () => {
+      // Both segments must start with an alphanumeric — leading special chars are rejected.
+      process.env.GITHUB_REPO = '-bad/repo'
+      expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo "-bad/repo"')
+      expect(spawnSyncSpy).not.toHaveBeenCalled()
+    })
+
+    it('throws when the repo-name segment starts with a hyphen', () => {
+      // Both segments must start with an alphanumeric — leading special chars are rejected.
+      process.env.GITHUB_REPO = 'owner/-bad'
+      expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo "owner/-bad"')
       expect(spawnSyncSpy).not.toHaveBeenCalled()
     })
 

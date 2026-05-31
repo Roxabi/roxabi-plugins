@@ -1,9 +1,9 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
+// REPO_SLUG_RE — canonical slug regex defined in config-helpers.ts (owner must start alphanumeric,
+// no dots/underscores in owner; name allows dots/underscores after leading alphanumeric).
+import { REPO_SLUG_RE } from '../../skills/shared/adapters/config-helpers'
 import type { WorkspaceProject } from './workspace-store'
 
-// GitHub repo slugs: owner/name. First character of each segment must be alphanumeric
-// (matches GitHub's own rule that usernames and repo names cannot start with . - or _).
-const REPO_SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/
 // Cap on .roxabi marker size. Defense against memory-pressure from a crafted file planted on walk-up path.
 const ROXABI_MAX_BYTES = 64 * 1024
 
