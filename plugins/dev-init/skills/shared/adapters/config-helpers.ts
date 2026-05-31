@@ -380,6 +380,19 @@ export const LANE_LABEL_MAP: Record<string, string> = Object.fromEntries(
 /** Set of all lane label names (for stale label removal). */
 export const LANE_LABELS_SET = new Set(Object.values(LANE_LABEL_MAP))
 
+/** Map canonical status → GitHub label name. */
+export const STATUS_LABEL_MAP: Record<string, string> = {
+  Backlog: 'status:Backlog',
+  Analysis: 'status:Analysis',
+  Specs: 'status:Specs',
+  'In Progress': 'status:In Progress',
+  Review: 'status:Review',
+  Done: 'status:Done',
+}
+
+/** Set of all status label names (for stale label removal). */
+export const STATUS_LABELS_SET = new Set(Object.values(STATUS_LABEL_MAP))
+
 export const STATUS_SHORT: Record<string, string> = {
   'In Progress': 'In Prog',
   Backlog: 'Backlog',

@@ -7,7 +7,6 @@ import {
   GITHUB_REPO,
   getSizeOptionId,
   isProjectConfigured,
-  NOT_CONFIGURED_MSG,
   PRIORITY_FIELD_ID,
   PRIORITY_OPTIONS,
   resolveLane,
@@ -15,6 +14,7 @@ import {
   resolveSize,
   resolveStatus,
   SIZE_FIELD_ID,
+  SIZE_OPTIONS,
   STATUS_FIELD_ID,
   STATUS_OPTIONS,
 } from '../../shared/adapters/config-helpers'
@@ -30,7 +30,7 @@ import {
   updateField,
   updateIssueIssueType,
 } from '../../shared/adapters/github-adapter'
-import { syncLaneLabel, syncPriorityLabel, syncSizeLabel } from '../../shared/adapters/github-infra'
+import { syncLaneLabel, syncPriorityLabel, syncSizeLabel, syncStatusLabel } from '../../shared/adapters/github-infra'
 import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
 import { formatRef, parseIssueRef, parseIssueRefs } from '../../shared/domain/parse-issue-ref'
 
@@ -177,27 +177,32 @@ async function applyType(issueNumber: number, type: string): Promise<void> {
 }
 
 async function applyProjectFields(issueNumber: number, opts: SetOptions): Promise<void> {
-  if (!(opts.size || opts.priority || opts.status || opts.type)) return
+  if (!(opts.size || opts.priority || opts.status)) return
 
   if (opts.subjectRepo) {
     console.error(
-      `Warning: --size/--status/--priority/--type are not supported for cross-repo subjects (${opts.subjectRepo}#${issueNumber}) — skipped`,
+      `Warning: --size/--status/--priority are not supported for cross-repo subjects (${opts.subjectRepo}#${issueNumber}) — skipped`,
     )
     return
   }
 
   if (!isProjectConfigured()) {
-    console.error(NOT_CONFIGURED_MSG)
-    process.exit(1)
+    console.warn('GitHub Project V2 not configured — skipping project field updates')
+    return
   }
 
   const itemId = await resolveItemId(issueNumber)
   if (!itemId) return
 
-  if (opts.status) await applyStatus(itemId, issueNumber, opts.status)
-  if (opts.size) await applySize(itemId, issueNumber, opts.size)
-  if (opts.priority) await applyPriority(itemId, issueNumber, opts.priority)
-  if (opts.type) await applyType(issueNumber, opts.type)
+  if (opts.status && STATUS_FIELD_ID && Object.keys(STATUS_OPTIONS).length > 0) {
+    await applyStatus(itemId, issueNumber, opts.status)
+  }
+  if (opts.size && SIZE_FIELD_ID && Object.keys(SIZE_OPTIONS).length > 0) {
+    await applySize(itemId, issueNumber, opts.size)
+  }
+  if (opts.priority && PRIORITY_FIELD_ID && Object.keys(PRIORITY_OPTIONS).length > 0) {
+    await applyPriority(itemId, issueNumber, opts.priority)
+  }
 }
 
 async function applyDependencies(issueNumber: number, opts: SetOptions): Promise<void> {
@@ -320,10 +325,21 @@ export async function setIssue(args: string[]): Promise<void> {
 
   await applyProjectFields(opts.issueNumber, opts)
 
+  // Type is independent of project board
+  if (opts.type) {
+    if (opts.subjectRepo) {
+      console.error(
+        `Warning: --type is not supported for cross-repo subjects (${opts.subjectRepo}#${opts.issueNumber}) — skipped`,
+      )
+    } else {
+      await applyType(opts.issueNumber, opts.type)
+    }
+  }
+
   // Sync labels (independent of project board) — skipped for cross-repo subjects
-  if (opts.subjectRepo && (opts.priority || opts.size || opts.lane)) {
+  if (opts.subjectRepo && (opts.priority || opts.size || opts.lane || opts.status)) {
     console.error(
-      `Warning: --size/--priority/--lane label sync is not supported for cross-repo subjects (${opts.subjectRepo}#${opts.issueNumber}) — skipped`,
+      `Warning: --size/--priority/--lane/--status label sync is not supported for cross-repo subjects (${opts.subjectRepo}#${opts.issueNumber}) — skipped`,
     )
   } else {
     if (opts.priority) {
@@ -340,6 +356,10 @@ export async function setIssue(args: string[]): Promise<void> {
         await syncLaneLabel(opts.issueNumber, canonical)
         console.log(`Lane=${canonical} #${opts.issueNumber}`)
       }
+    }
+    if (opts.status) {
+      const canonical = resolveStatus(opts.status)
+      if (canonical) await syncStatusLabel(opts.issueNumber, canonical)
     }
   }
 

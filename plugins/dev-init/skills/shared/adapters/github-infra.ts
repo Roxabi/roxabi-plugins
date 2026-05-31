@@ -15,6 +15,8 @@ import {
   PRIORITY_LABELS_SET,
   SIZE_LABEL_MAP,
   SIZE_LABELS_SET,
+  STATUS_LABEL_MAP,
+  STATUS_LABELS_SET,
 } from './config-helpers'
 
 export interface LabelDef {
@@ -166,5 +168,23 @@ export async function syncLaneLabel(issueNumber: number, canonical: string): Pro
     await updateLabels(issueNumber, [target], stale)
   } catch (err) {
     console.error(`Warning: Failed to sync lane label for #${issueNumber}: ${err}`)
+  }
+}
+
+/**
+ * Sync status label on a GitHub issue. Adds the target label and removes stale ones.
+ * Non-fatal: logs a warning on failure but does not throw.
+ */
+export async function syncStatusLabel(issueNumber: number, canonical: string): Promise<void> {
+  const target = STATUS_LABEL_MAP[canonical]
+  if (!target) return
+
+  const stale = [...STATUS_LABELS_SET].filter((l) => l !== target)
+
+  try {
+    const { updateLabels } = await import('./github-adapter')
+    await updateLabels(issueNumber, [target], stale)
+  } catch (err) {
+    console.error(`Warning: Failed to sync status label for #${issueNumber}: ${err}`)
   }
 }

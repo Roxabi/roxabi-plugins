@@ -128,6 +128,7 @@ vi.mock('../../shared/adapters/github-infra', () => ({
   syncPriorityLabel: vi.fn(),
   syncSizeLabel: vi.fn(),
   syncLaneLabel: vi.fn(),
+  syncStatusLabel: vi.fn(),
 }))
 
 vi.mock('../../shared/adapters/github-adapter', () => ({
@@ -159,6 +160,7 @@ const githubInfra = await import('../../shared/adapters/github-infra')
 const mockSyncPriorityLabel = githubInfra.syncPriorityLabel as ReturnType<typeof vi.fn>
 const mockSyncSizeLabel = githubInfra.syncSizeLabel as ReturnType<typeof vi.fn>
 const mockSyncLaneLabel = githubInfra.syncLaneLabel as ReturnType<typeof vi.fn>
+const mockSyncStatusLabel = githubInfra.syncStatusLabel as ReturnType<typeof vi.fn>
 
 const { setIssue } = await import('../lib/set')
 
@@ -190,9 +192,10 @@ describe('issue-triage/set > field updates', () => {
     expect(mockUpdateField).toHaveBeenCalledWith('item-123', expect.any(String), 'pri-high')
   })
 
-  it('updates status with case normalization', async () => {
+  it('updates status via label + project field', async () => {
     await setIssue(['42', '--status', 'In Progress'])
     expect(mockUpdateField).toHaveBeenCalledWith('item-123', expect.any(String), 'status-inprog')
+    expect(mockSyncStatusLabel).toHaveBeenCalledWith(42, 'In Progress')
   })
 
   it('exits with error for invalid --size value', async () => {
