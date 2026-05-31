@@ -337,14 +337,14 @@ def check_subsumption_pairs(
     return errors
 
 
-def check_shared_sources_sync(manifest_path=None, biome_path=None) -> list[str]:
+def check_shared_sources_sync(manifest_path=None, biome_path=None, _copy_sync_prefix=None) -> list[str]:
     """Generated copies in shared-sources.json must match their canonical sources.
 
     Mirrors tools/sync-shared.ts --check semantics:
     - Strip the 2-line generated header (line 1 = @generated comment, line 2 = blank line)
       from each target and compare the remainder against the canonical file byte-for-byte.
     - Missing target files are also flagged as drift.
-    - Asserts that biome.json overrides[0].includes is set-equal to manifest targets.
+    - Asserts that biome.json's copy-sync suppression override includes is set-equal to manifest targets.
     """
     errors = []
     manifest_path = Path(manifest_path) if manifest_path is not None else (REPO_ROOT / 'tools' / 'shared-sources.json')
@@ -402,10 +402,44 @@ def check_shared_sources_sync(manifest_path=None, biome_path=None) -> list[str]:
     with open(biome_path) as f:
         biome_data = json.load(f)
 
+    # Locate the unique copy-sync suppression override: the entry in biome['overrides']
+    # whose includes are all under plugins/dev-init/skills/shared/ (the generated-copy
+    # override). Blindly indexing overrides[0] would silently pick the wrong override if the
+    # array is reordered or a new override is inserted before it.
+    # _copy_sync_prefix is injectable for tests (unit tests use scratch paths outside the
+    # canonical plugins/dev-init/ directory).
     overrides = biome_data.get('overrides', [])
-    biome_includes = overrides[0].get('includes', []) if overrides else []
+    _dev_init_shared_prefix = _copy_sync_prefix if _copy_sync_prefix is not None else 'plugins/dev-init/skills/shared/'
+
+    def _is_copy_sync_override(entry: dict) -> bool:
+        includes = entry.get('includes', [])
+        return bool(includes) and all(
+            str(inc).startswith(_dev_init_shared_prefix) for inc in includes
+        )
 
     manifest_targets = [t for entry in manifest for t in entry.get('targets', [])]
+
+    if manifest_targets:
+        # Only assert when the manifest is non-empty (no manifest targets → nothing to check)
+        matching = [o for o in overrides if _is_copy_sync_override(o)]
+        if len(matching) == 0:
+            errors.append(
+                'biome.json: could not locate the unique copy-sync suppression override '
+                f'(entry whose includes are all under {_dev_init_shared_prefix})'
+            )
+            return errors
+        if len(matching) > 1:
+            errors.append(
+                'biome.json: could not locate the unique copy-sync suppression override '
+                f'(entry whose includes are all under {_dev_init_shared_prefix}) — '
+                f'found {len(matching)} matching overrides, expected exactly 1'
+            )
+            return errors
+        biome_includes = matching[0].get('includes', [])
+    else:
+        # Empty manifest — fall back to overrides[0] for the biome check (nothing to compare)
+        biome_includes = overrides[0].get('includes', []) if overrides else []
+
     biome_set = set(biome_includes)
     manifest_set = set(manifest_targets)
 

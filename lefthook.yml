@@ -31,6 +31,9 @@ pre-commit:
       run: bun run sync:shared --check
       # Covers the full shared-sources manifest (adapters/ + domain/), not just config-helpers.ts.
       glob: "**/skills/shared/**/*.ts"
+    biome-manifest-sync:
+      run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py --check shared-sources-sync; else echo 'SKIP: biome-manifest-sync (no .venv)' >&2; fi"
+      glob: "{biome.json,tools/shared-sources.json}"
     taxonomy-subsumption-pairs:
       run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py --check subsumption-pairs; else echo 'SKIP: taxonomy-subsumption-pairs (no .venv)' >&2; fi"
       glob: "plugins/dev-core/skills/code-review/{review-classes.yml,SKILL.md}"
