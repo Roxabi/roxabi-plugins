@@ -38,5 +38,17 @@
   {
     "canonical": "plugins/dev-core/skills/shared/types.ts",
     "targets": ["plugins/dev-init/skills/shared/types.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/adapters/github-infra.ts",
+    "targets": ["plugins/dev-init/skills/shared/adapters/github-infra.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/domain/parse-issue-ref.ts",
+    "targets": ["plugins/dev-init/skills/shared/domain/parse-issue-ref.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/ports/workspace.ts",
+    "targets": ["plugins/dev-init/skills/shared/ports/workspace.ts"]
   }
 ]

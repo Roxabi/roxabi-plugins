@@ -1,0 +1,212 @@
+---
+title: "Plan: Reconcile 4 drifted/divergent dev-init↔dev-core shared/ files"
+issue: 240
+spec: artifacts/specs/240-reconcile-drifted-dev-init-dev-core-shared-spec.mdx
+complexity: 2/10
+tier: F-lite
+generated: 2026-05-31
+---
+
+## Summary
+
+Add 3 behind-dev-core files to the copy-sync manifest + run sync to overwrite dev-init copies; classify `domain.test.ts` as intentional-fork and update ADR 014 for all 4 files. Validate with `sync --check`, typecheck, lint.
+
+## Architecture
+
+```flowchart TD
+  subgraph inputs ["Inputs"]
+    SRC["tools/shared-sources.json\n(+3 entries)"]
+    BIO["biome.json\n(+3 override paths)"]
+    ADR["ADR 014\n(4 rows updated)"]
+  end
+  subgraph sync ["Sync tool"]
+    TOOL["bun run sync:shared\n(tools/sync-shared.ts)"]
+  end
+  subgraph outputs ["Generated copies (dev-init)"]
+    GI["adapters/github-infra.ts\n@generated"]
+    PIR["domain/parse-issue-ref.ts\n@generated"]
+    WS["ports/workspace.ts\n@generated"]
+  end
+  SRC --> TOOL
+  TOOL --> GI
+  TOOL --> PIR
+  TOOL --> WS
+  BIO -.->|lint suppression| GI
+  BIO -.->|lint suppression| PIR
+  BIO -.->|lint suppression| WS
+```
+
+```flowchart LR
+  subgraph devcore ["dev-core/skills/shared (canonical)"]
+    DC_GI["adapters/github-infra.ts"]
+    DC_PIR["domain/parse-issue-ref.ts"]
+    DC_WS["ports/workspace.ts"]
+  end
+  subgraph manifest ["tools/shared-sources.json"]
+    M1["entry: github-infra"]
+    M2["entry: parse-issue-ref"]
+    M3["entry: workspace"]
+  end
+  subgraph devinit ["dev-init/skills/shared (targets)"]
+    DI_GI["adapters/github-infra.ts\n@generated"]
+    DI_PIR["domain/parse-issue-ref.ts\n@generated"]
+    DI_WS["ports/workspace.ts\n@generated"]
+    DI_DT["__tests__/domain.test.ts\nintentional-fork"]
+  end
+  DC_GI --> M1 --> DI_GI
+  DC_PIR --> M2 --> DI_PIR
+  DC_WS --> M3 --> DI_WS
+  DI_DT -.->|no sync| DI_DT
+```
+
+## Agents
+
+| Agent | Instance | Tasks | Files |
+|-------|----------|-------|-------|
+| devops | devops-A | T1, T2, T4, T5 | tools/shared-sources.json, biome.json, (sync run), (validate) |
+| doc-writer | doc-writer-A | T3 | docs/architecture/adr/014-shared-ts-governance-scope.mdx |
+
+## Wave Structure
+
+3 waves, max 2 parallel agents. ~15 min vs ~20 min sequential.
+
+| Wave | Trigger | Agents | Tasks |
+|------|---------|--------|-------|
+| 1 | start | 2 ∥ | devops-A: T1→T2 · doc-writer-A: T3 |
+| 2 | T1 done | 1 | devops-A: T4 |
+| 3 | T1+T2+T3+T4 done | 1 | devops-A: T5 |
+
+### Budget — per task
+
+| Task | Class | Est. ops | Split? |
+|------|-------|----------|--------|
+| T1 shared-sources.json | bounded | 3 | — |
+| T2 biome.json | bounded | 3 | — |
+| T3 ADR 014 (4 rows) | bounded | 4 | — |
+| T4 sync run | trivial | 2 | — |
+| T5 validate | trivial | 2 | — |
+
+**Total estimated ops: 14**
+
+### Budget — per agent instance
+
+| Instance | Tasks | Σ ops | Subjects | Split? |
+|----------|-------|-------|----------|--------|
+| devops-A | T1,T2,T4,T5 | 10 | manifest,biome,sync,validate | — (trivial exception: all bounded/trivial, no context risk) |
+| doc-writer-A | T3 | 4 | adr | — |
+
+## Micro-Tasks
+
+### Slice S1 — Copy-sync 3 files
+
+<!-- RED phase: manifest + biome + sync -->
+
+**T1** `[P]` · devops-A · bounded · SC-1,SC-2 · S1
+Add 3 entries to `tools/shared-sources.json`
+
+- File: `tools/shared-sources.json`
+- Verify: `jq '. | length' tools/shared-sources.json`
+- Expected: `13`
+- Entries to add:
+  ```json
+  { "canonical": "plugins/dev-core/skills/shared/adapters/github-infra.ts", "targets": ["plugins/dev-init/skills/shared/adapters/github-infra.ts"] },
+  { "canonical": "plugins/dev-core/skills/shared/domain/parse-issue-ref.ts", "targets": ["plugins/dev-init/skills/shared/domain/parse-issue-ref.ts"] },
+  { "canonical": "plugins/dev-core/skills/shared/ports/workspace.ts", "targets": ["plugins/dev-init/skills/shared/ports/workspace.ts"] }
+  ```
+- Time: 3 min · Difficulty: 1
+
+---
+
+**T2** · devops-A · bounded · SC-2 · S1
+Add 3 copy-sync target paths to dev-init `biome.json` overrides block
+
+- File: `biome.json`
+- Verify: `grep -c 'dev-init' biome.json`
+- Expected: `13`
+- Paths to add (inside the existing dev-init overrides `includes` array):
+  - `"plugins/dev-init/skills/shared/adapters/github-infra.ts"`
+  - `"plugins/dev-init/skills/shared/domain/parse-issue-ref.ts"`
+  - `"plugins/dev-init/skills/shared/ports/workspace.ts"`
+- Time: 3 min · Difficulty: 1
+
+---
+
+**T4** · devops-A · trivial · SC-3 · S1 · _after T1_
+Run `bun run sync:shared` to overwrite dev-init copies with dev-core canonical + `@generated` header
+
+- Command: `bun run sync:shared`
+- Verify: `head -1 plugins/dev-init/skills/shared/adapters/github-infra.ts`
+- Expected: line starting with `// @generated`
+- Note: existing dev-init file content fully replaced
+- Time: 2 min · Difficulty: 1
+
+---
+
+**T3** `[P]` · doc-writer-A · bounded · SC-5 · S1+S2
+Update ADR 014 — all 4 `leave-alone-pending-reconciliation` rows
+
+- File: `docs/architecture/adr/014-shared-ts-governance-scope.mdx`
+- Lines 83–86
+- Changes:
+  - L83: `leave-alone-pending-reconciliation` → `copy-sync (added #240)`
+  - L84: `leave-alone-pending-reconciliation` → `copy-sync (added #240)`
+  - L85: `leave-alone-pending-reconciliation` → `copy-sync (added #240)`
+  - L86: `leave-alone-pending-reconciliation` → `intentional-fork` + append rationale: `dev-init has IssuePort/ProjectPort type-level checks absent from dev-core (ports only exist in dev-init)`
+- Verify: `grep -c 'leave-alone-pending-reconciliation' docs/architecture/adr/014-shared-ts-governance-scope.mdx`
+- Expected: `0`
+- Time: 4 min · Difficulty: 2
+
+### Slice S3 — Validate
+
+<!-- GREEN phase: all gates -->
+
+**T5** · devops-A · trivial · SC-4,SC-6,SC-7 · S3 · _after T1+T2+T3+T4_
+Validate: `sync --check` + typecheck + lint
+
+- Commands:
+  ```bash
+  bun run sync:shared --check
+  bun run typecheck
+  bun run lint
+  ```
+- Verify: all exit 0
+- Expected: no errors on any command
+- Time: 3 min · Difficulty: 1
+
+## Task Seeding Blueprint
+
+<!-- Used by /implement to seed TaskCreate calls on session start. -->
+
+### Wave 1 — no deps, 2 agents ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T1 | devops-A | — | manifest |
+| T3 | doc-writer-A | — | adr |
+
+### Wave 1b — after T1, same devops-A session
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T2 | devops-A | T1 | biome |
+
+### Wave 2 — after T1
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T4 | devops-A | T1 | sync |
+
+### Wave 3 — after T1+T2+T3+T4
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T5 | devops-A | T2,T3,T4 | validate |
+
+## Task IDs
+
+<!-- Generated by /plan. Used by /implement to resume tasks on session restart. -->
+- T1: 9 — manifest
+- T2: 10 — biome
+- T3: 11 — adr
+- T4: 12 — sync
+- T5: 13 — validate
