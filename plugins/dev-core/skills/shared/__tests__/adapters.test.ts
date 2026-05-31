@@ -43,10 +43,13 @@ describe('GitWorkspaceAdapter', () => {
       expect(discoverProjectFn).toHaveBeenCalledWith('Roxabi/roxabi-plugins', '/home/me/clone')
     })
 
-    it('passes localPath as undefined when the caller omits it', async () => {
+    it('forwards undefined (never an injected path) when the caller omits localPath', async () => {
       const adapter = new GitWorkspaceAdapter()
       await adapter.discoverProject('Roxabi/roxabi-plugins')
-      expect(discoverProjectFn).toHaveBeenCalledWith('Roxabi/roxabi-plugins', undefined)
+      // toStrictEqual on the exact call args (vs toHaveBeenCalledWith) guards against
+      // a regression that re-injects a detected path — e.g. discoverProjectFn(repo, detectLocalPath(repo)) —
+      // which would re-introduce the shared->cli coupling #219 removed.
+      expect(discoverProjectFn.mock.lastCall).toStrictEqual(['Roxabi/roxabi-plugins', undefined])
     })
   })
 })
