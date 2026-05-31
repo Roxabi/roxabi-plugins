@@ -96,7 +96,7 @@ Until #239 lands, these files remain independent copies with no sync gate.
 ### Negative
 
 - Six test file pairs (#239) remain unshared until follow-up work lands; divergence risk persists for those files until then.
-- Four files (#240) are known-behind with no immediate fix — they carry a `leave-alone` call but require active reconciliation work.
+- Three files from #240 (`github-infra.ts`, `parse-issue-ref.ts`, `ports/workspace.ts`) were reconciled and added to copy-sync in #240; `domain.test.ts` was classified as `intentional-fork`. No files remain in `leave-alone` status.
 
 ### Neutral
 
