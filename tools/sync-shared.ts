@@ -8,7 +8,7 @@
  *   bun run tools/sync-shared.ts --check   — verify targets match; exit 1 if drifted
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
 
 interface SharedEntry {
@@ -30,7 +30,13 @@ function buildGenerated(canonicalPath: string, canonicalContent: string): string
 }
 
 function assertInRepo(abs: string, rel: string): void {
-  if (abs !== REPO_ROOT && !abs.startsWith(REPO_ROOT + sep)) {
+  let real = abs
+  try {
+    real = realpathSync(abs)
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+  }
+  if (real !== REPO_ROOT && !real.startsWith(REPO_ROOT + sep)) {
     throw new Error(`Refusing path outside repo: ${rel}`)
   }
 }

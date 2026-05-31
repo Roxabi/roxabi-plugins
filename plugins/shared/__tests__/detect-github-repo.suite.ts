@@ -229,6 +229,20 @@ export function registerGitHubRepoDetectionSuite(opts: {
       expect(spawnSyncSpy).not.toHaveBeenCalled()
     })
 
+    it('throws when the owner segment starts with a hyphen', () => {
+      // Both segments must start with an alphanumeric — leading special chars are rejected.
+      process.env.GITHUB_REPO = '-bad/repo'
+      expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo "-bad/repo"')
+      expect(spawnSyncSpy).not.toHaveBeenCalled()
+    })
+
+    it('throws when the repo-name segment starts with a hyphen', () => {
+      // Both segments must start with an alphanumeric — leading special chars are rejected.
+      process.env.GITHUB_REPO = 'owner/-bad'
+      expect(() => detectGitHubRepo()).toThrow('Invalid GitHub repo "owner/-bad"')
+      expect(spawnSyncSpy).not.toHaveBeenCalled()
+    })
+
     it('parses SSH remote URL', () => {
       spawnSyncSpy.mockImplementation((cmd: string[]) => {
         if (cmd[0] === 'gh') return { stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 1, success: false }
