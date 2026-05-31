@@ -122,16 +122,10 @@ export function registerGitHubRepoDetectionSuite(opts: {
   describe('detectGitHubRepo', () => {
     const originalEnv = process.env.GITHUB_REPO
     let spawnSyncSpy: ReturnType<typeof vi.spyOn>
-    let execSyncSpy: ReturnType<typeof vi.spyOn>
 
     beforeEach(() => {
       delete process.env.GITHUB_REPO
       spawnSyncSpy = vi.spyOn(Bun, 'spawnSync')
-      // Mock execSync to throw (simulating gh CLI not available)
-      // This forces the code to use git detection path
-      execSyncSpy = vi.spyOn(require('node:child_process'), 'execSync').mockImplementation(() => {
-        throw new Error('gh: command not found')
-      })
     })
 
     afterEach(() => {
@@ -141,7 +135,6 @@ export function registerGitHubRepoDetectionSuite(opts: {
         delete process.env.GITHUB_REPO
       }
       spawnSyncSpy.mockRestore()
-      execSyncSpy.mockRestore()
     })
 
     it('prefers GITHUB_REPO env var when set', () => {
@@ -209,13 +202,19 @@ export function registerGitHubRepoDetectionSuite(opts: {
 
     it('parses SSH remote URL', () => {
       spawnSyncSpy.mockImplementation((cmd: string[]) => {
-        if (cmd[0] === 'gh') return { stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 1, success: false }
+        if (cmd[0] === 'gh')
+          return {
+            stdout: new Uint8Array(),
+            stderr: new Uint8Array(),
+            exitCode: 1,
+            success: false,
+          } as unknown as ReturnType<typeof Bun.spawnSync>
         return {
           stdout: new TextEncoder().encode('git@github.com:Roxabi/roxabi-plugins.git\n'),
           stderr: new Uint8Array(),
           exitCode: 0,
           success: true,
-        }
+        } as unknown as ReturnType<typeof Bun.spawnSync>
       })
 
       expect(detectGitHubRepo()).toBe('Roxabi/roxabi-plugins')
@@ -223,13 +222,19 @@ export function registerGitHubRepoDetectionSuite(opts: {
 
     it('parses HTTPS remote URL', () => {
       spawnSyncSpy.mockImplementation((cmd: string[]) => {
-        if (cmd[0] === 'gh') return { stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 1, success: false }
+        if (cmd[0] === 'gh')
+          return {
+            stdout: new Uint8Array(),
+            stderr: new Uint8Array(),
+            exitCode: 1,
+            success: false,
+          } as unknown as ReturnType<typeof Bun.spawnSync>
         return {
           stdout: new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins.git\n'),
           stderr: new Uint8Array(),
           exitCode: 0,
           success: true,
-        }
+        } as unknown as ReturnType<typeof Bun.spawnSync>
       })
 
       const result = detectGitHubRepo()
@@ -238,24 +243,55 @@ export function registerGitHubRepoDetectionSuite(opts: {
 
     it('parses HTTPS remote URL without .git suffix', () => {
       spawnSyncSpy.mockImplementation((cmd: string[]) => {
-        if (cmd[0] === 'gh') return { stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 1, success: false }
+        if (cmd[0] === 'gh')
+          return {
+            stdout: new Uint8Array(),
+            stderr: new Uint8Array(),
+            exitCode: 1,
+            success: false,
+          } as unknown as ReturnType<typeof Bun.spawnSync>
         return {
           stdout: new TextEncoder().encode('https://github.com/Roxabi/roxabi-plugins\n'),
           stderr: new Uint8Array(),
           exitCode: 0,
           success: true,
-        }
+        } as unknown as ReturnType<typeof Bun.spawnSync>
       })
 
       expect(detectGitHubRepo()).toBe('Roxabi/roxabi-plugins')
     })
 
-    it('throws when no env var, no git remote, and no gh CLI', async () => {
-      // Temporarily remove GITHUB_REPO env var to force git detection
-      const originalEnv = process.env.GITHUB_REPO
-      delete process.env.GITHUB_REPO
+    it('returns owner/repo from gh CLI when gh succeeds (no env var, no git remote needed)', () => {
+      // Arrange: gh CLI returns a valid nameWithOwner slug
+      spawnSyncSpy.mockImplementation((cmd: string[]) => {
+        if (cmd[0] === 'gh') {
+          return {
+            stdout: new TextEncoder().encode('Roxabi/roxabi-plugins\n'),
+            stderr: new Uint8Array(),
+            exitCode: 0,
+            success: true,
+          } as unknown as ReturnType<typeof Bun.spawnSync>
+        }
+        // git remote should not be reached
+        return {
+          stdout: new Uint8Array(),
+          stderr: new TextEncoder().encode('should not be called\n'),
+          exitCode: 128,
+          success: false,
+        } as unknown as ReturnType<typeof Bun.spawnSync>
+      })
 
-      // Mock git to fail
+      // Act
+      const result = detectGitHubRepo()
+
+      // Assert: slug comes from gh CLI, git remote was not the source
+      expect(result).toBe('Roxabi/roxabi-plugins')
+      const gitCalls = spawnSyncSpy.mock.calls.filter((args: unknown[]) => (args[0] as string[])?.[0] === 'git')
+      expect(gitCalls).toHaveLength(0)
+    })
+
+    it('throws when no env var, no git remote, and no gh CLI', () => {
+      // Mock all Bun.spawnSync calls to fail (gh + git remote both unavailable)
       spawnSyncSpy.mockReturnValue({
         stdout: new Uint8Array(),
         stderr: new TextEncoder().encode('fatal: not a git repository\n'),
@@ -265,9 +301,6 @@ export function registerGitHubRepoDetectionSuite(opts: {
 
       // The function should throw when detection fails
       expect(() => detectGitHubRepo()).toThrow('Cannot detect GitHub repo')
-
-      // Restore env
-      process.env.GITHUB_REPO = originalEnv
     })
   })
 }
