@@ -1,4 +1,5 @@
 import { FIVE_MINUTES_MS } from './constants'
+import { asVercelState } from './gh-enums'
 import { safeAsync } from './safe-async'
 import type { BuildStep, VercelDeployment } from './types'
 
@@ -109,7 +110,7 @@ export async function fetchVercelDeployments(
         uid: d.uid,
         url: d.url,
         name: d.name ?? '',
-        state: (d.state ?? d.readyState ?? '') as VercelDeployment['state'],
+        state: asVercelState(d.state ?? d.readyState ?? ''),
         target: d.target ?? '',
         createdAt: d.createdAt,
         buildingAt: d.buildingAt ?? 0,
