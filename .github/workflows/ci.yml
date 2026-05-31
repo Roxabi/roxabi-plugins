@@ -41,6 +41,8 @@ jobs:
         run: python3 -m pytest tests/ -v
       - name: Class list sync check
         run: python3 tools/validate_plugins.py --check class-list-sync
+      - name: Shared sources sync check
+        run: python3 tools/validate_plugins.py --check shared-sources-sync
       - name: Validate registry sync
         run: |
           set -euo pipefail

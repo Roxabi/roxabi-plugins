@@ -1,0 +1,6 @@
+[
+  {
+    "canonical": "plugins/dev-core/skills/shared/adapters/config-helpers.ts",
+    "targets": ["plugins/dev-init/skills/shared/adapters/config-helpers.ts"]
+  }
+]
