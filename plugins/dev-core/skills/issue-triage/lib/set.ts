@@ -32,7 +32,7 @@ import {
 } from '../../shared/adapters/github-adapter'
 import { syncLaneLabel, syncPriorityLabel, syncSizeLabel } from '../../shared/adapters/github-infra'
 import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
-import { parseIssueRef, parseIssueRefs } from '../../shared/domain/parse-issue-ref'
+import { formatRef, parseIssueRef, parseIssueRefs } from '../../shared/domain/parse-issue-ref'
 
 interface SetOptions {
   issueNumber: number
@@ -208,8 +208,7 @@ async function applyDependencies(issueNumber: number, opts: SetOptions): Promise
     for (const ref of parseIssueRefs(opts.blockedBy)) {
       const blockingNodeId = await getNodeId(ref.number, ref.repo)
       await addBlockedBy(issueNodeId, blockingNodeId)
-      const refStr = ref.repo ? `${ref.repo}#${ref.number}` : `#${ref.number}`
-      console.log(`BlockedBy=${refStr} ${subjStr}`)
+      console.log(`BlockedBy=${formatRef(ref)} ${subjStr}`)
     }
   }
 
@@ -218,8 +217,7 @@ async function applyDependencies(issueNumber: number, opts: SetOptions): Promise
     for (const ref of parseIssueRefs(opts.blocks)) {
       const blockedNodeId = await getNodeId(ref.number, ref.repo)
       await addBlockedBy(blockedNodeId, blockingNodeId)
-      const refStr = ref.repo ? `${ref.repo}#${ref.number}` : `#${ref.number}`
-      console.log(`Blocks=${refStr} ${subjStr}`)
+      console.log(`Blocks=${formatRef(ref)} ${subjStr}`)
     }
   }
 
@@ -228,8 +226,7 @@ async function applyDependencies(issueNumber: number, opts: SetOptions): Promise
     for (const ref of parseIssueRefs(opts.rmBlockedBy)) {
       const blockingNodeId = await getNodeId(ref.number, ref.repo)
       await removeBlockedBy(issueNodeId, blockingNodeId)
-      const refStr = ref.repo ? `${ref.repo}#${ref.number}` : `#${ref.number}`
-      console.log(`RemovedBlockedBy=${refStr} ${subjStr}`)
+      console.log(`RemovedBlockedBy=${formatRef(ref)} ${subjStr}`)
     }
   }
 
@@ -238,8 +235,7 @@ async function applyDependencies(issueNumber: number, opts: SetOptions): Promise
     for (const ref of parseIssueRefs(opts.rmBlocks)) {
       const blockedNodeId = await getNodeId(ref.number, ref.repo)
       await removeBlockedBy(blockedNodeId, blockingNodeId)
-      const refStr = ref.repo ? `${ref.repo}#${ref.number}` : `#${ref.number}`
-      console.log(`RemovedBlocks=${refStr} ${subjStr}`)
+      console.log(`RemovedBlocks=${formatRef(ref)} ${subjStr}`)
     }
   }
 }
@@ -253,8 +249,7 @@ async function applyParentChild(issueNumber: number, opts: SetOptions): Promise<
       const issueNodeId = await getNodeId(issueNumber, opts.subjectRepo)
       const parentNodeId = await getNodeId(parentRef.number, parentRef.repo)
       await addSubIssue(parentNodeId, issueNodeId)
-      const refStr = parentRef.repo ? `${parentRef.repo}#${parentRef.number}` : `#${parentRef.number}`
-      console.log(`Parent=${refStr} ${subjStr}`)
+      console.log(`Parent=${formatRef(parentRef)} ${subjStr}`)
     }
   }
 
@@ -263,8 +258,7 @@ async function applyParentChild(issueNumber: number, opts: SetOptions): Promise<
     for (const childRef of parseIssueRefs(opts.addChild)) {
       const childNodeId = await getNodeId(childRef.number, childRef.repo)
       await addSubIssue(issueNodeId, childNodeId)
-      const refStr = childRef.repo ? `${childRef.repo}#${childRef.number}` : `#${childRef.number}`
-      console.log(`Child=${refStr} ${subjStr}`)
+      console.log(`Child=${formatRef(childRef)} ${subjStr}`)
     }
   }
 
@@ -289,8 +283,7 @@ async function applyParentChild(issueNumber: number, opts: SetOptions): Promise<
     for (const childRef of parseIssueRefs(opts.rmChild)) {
       const childNodeId = await getNodeId(childRef.number, childRef.repo)
       await removeSubIssue(issueNodeId, childNodeId)
-      const refStr = childRef.repo ? `${childRef.repo}#${childRef.number}` : `#${childRef.number}`
-      console.log(`RemovedChild=${refStr} ${subjStr}`)
+      console.log(`RemovedChild=${formatRef(childRef)} ${subjStr}`)
     }
   }
 }

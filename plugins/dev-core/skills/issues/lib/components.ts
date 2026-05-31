@@ -1,11 +1,5 @@
+import { PRIORITY_SHORT } from '../../shared/adapters/config-helpers'
 import type { Branch, BranchCI, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './types'
-
-const PRIORITY_SHORT: Record<string, string> = {
-  'P0 - Urgent': 'P0',
-  'P1 - High': 'P1',
-  'P2 - Medium': 'P2',
-  'P3 - Low': 'P3',
-}
 
 const STATUS_SHORT: Record<string, string> = {
   'In Progress': 'In Prog',
@@ -34,19 +28,23 @@ const STATUS_CLASS: Record<string, string> = {
 }
 
 export const STATUS_VALUES = ['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'] as const
-export const PRIORITY_VALUES = ['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'] as const
+export { PRIORITY_VALUES } from '../../shared/adapters/config-helpers'
 export const SIZE_VALUES = ['XS', 'S', 'M', 'L', 'XL'] as const
 
 export function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-export function shortTitle(title: string, max = 22): string {
-  const cleaned = title
+export function cleanTitle(title: string, stripTrailingSpace = true): string {
+  return title
     .replace(/^(feat|chore|docs|fix|refactor)\(.*?\):\s*/i, '')
     .replace(/^Feature:\s*/i, '')
     .replace(/^LATER:\s*/i, '')
-    .replace(/\s*\(.*?\)\s*$/, '')
+    .replace(stripTrailingSpace ? /\s*\(.*?\)\s*$/ : /\s*\(.*?\)$/, '')
+}
+
+export function shortTitle(title: string, max = 22): string {
+  const cleaned = cleanTitle(title)
   return cleaned.length > max ? `${cleaned.slice(0, max - 1)}...` : cleaned
 }
 

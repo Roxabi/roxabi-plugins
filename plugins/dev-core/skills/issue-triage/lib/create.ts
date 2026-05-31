@@ -24,7 +24,7 @@ import {
   updateField,
 } from '../../shared/adapters/github-adapter'
 import { syncPriorityLabel } from '../../shared/adapters/github-infra'
-import { parseIssueRefs } from '../../shared/domain/parse-issue-ref'
+import { formatRef, parseIssueRefs } from '../../shared/domain/parse-issue-ref'
 
 interface CreateOptions {
   title: string
@@ -124,8 +124,7 @@ async function applyRelationships(nodeId: string, issueNumber: number, opts: Cre
     if (parentRef) {
       const parentNodeId = await getNodeId(parentRef.number, parentRef.repo)
       await addSubIssue(parentNodeId, nodeId)
-      const refStr = parentRef.repo ? `${parentRef.repo}#${parentRef.number}` : `#${parentRef.number}`
-      console.log(`Parent=${refStr} #${issueNumber}`)
+      console.log(`Parent=${formatRef(parentRef)} #${issueNumber}`)
     }
   }
 
@@ -133,8 +132,7 @@ async function applyRelationships(nodeId: string, issueNumber: number, opts: Cre
     for (const childRef of parseIssueRefs(opts.addChild)) {
       const childNodeId = await getNodeId(childRef.number, childRef.repo)
       await addSubIssue(nodeId, childNodeId)
-      const refStr = childRef.repo ? `${childRef.repo}#${childRef.number}` : `#${childRef.number}`
-      console.log(`Child=${refStr} #${issueNumber}`)
+      console.log(`Child=${formatRef(childRef)} #${issueNumber}`)
     }
   }
 
@@ -142,8 +140,7 @@ async function applyRelationships(nodeId: string, issueNumber: number, opts: Cre
     for (const ref of parseIssueRefs(opts.blockedBy)) {
       const blockingNodeId = await getNodeId(ref.number, ref.repo)
       await addBlockedBy(nodeId, blockingNodeId)
-      const refStr = ref.repo ? `${ref.repo}#${ref.number}` : `#${ref.number}`
-      console.log(`BlockedBy=${refStr} #${issueNumber}`)
+      console.log(`BlockedBy=${formatRef(ref)} #${issueNumber}`)
     }
   }
 
@@ -151,8 +148,7 @@ async function applyRelationships(nodeId: string, issueNumber: number, opts: Cre
     for (const ref of parseIssueRefs(opts.blocks)) {
       const blockedNodeId = await getNodeId(ref.number, ref.repo)
       await addBlockedBy(blockedNodeId, nodeId)
-      const refStr = ref.repo ? `${ref.repo}#${ref.number}` : `#${ref.number}`
-      console.log(`Blocks=${refStr} #${issueNumber}`)
+      console.log(`Blocks=${formatRef(ref)} #${issueNumber}`)
     }
   }
 }

@@ -1,5 +1,6 @@
 import { GITHUB_REPO } from '../../shared/adapters/config-helpers'
 import { getGitHubToken as _getGitHubToken } from '../../shared/adapters/github-adapter'
+import { FIVE_MINUTES_MS } from './constants'
 import type { WorkflowRun } from './types'
 
 interface RawWorkflowRun {
@@ -15,8 +16,6 @@ interface RawWorkflowRun {
   head_branch: string
   head_commit?: { message: string } | null
 }
-
-const FIVE_MINUTES_WR = 5 * 60 * 1000
 
 function getGitHubToken(): string {
   try {
@@ -46,7 +45,7 @@ export async function fetchWorkflowRuns(repoSlug: string = GITHUB_REPO): Promise
 
     const filtered = data.workflow_runs.filter((run) => {
       const ongoing = run.status === 'in_progress' || run.status === 'queued'
-      const recentCompleted = run.status === 'completed' && now - new Date(run.updated_at).getTime() < FIVE_MINUTES_WR
+      const recentCompleted = run.status === 'completed' && now - new Date(run.updated_at).getTime() < FIVE_MINUTES_MS
       return ongoing || recentCompleted
     })
 

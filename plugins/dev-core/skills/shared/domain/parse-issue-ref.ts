@@ -34,6 +34,11 @@ export function parseIssueRef(input: string): ParsedIssueRef | undefined {
   return undefined
 }
 
+/** Format a ParsedIssueRef as "repo#number" (cross-repo) or "#number" (local). */
+export function formatRef(ref: ParsedIssueRef): string {
+  return ref.repo ? `${ref.repo}#${ref.number}` : `#${ref.number}`
+}
+
 /**
  * Parse a comma-separated list of issue references.
  * Skips invalid entries (logs warning to console.error).
