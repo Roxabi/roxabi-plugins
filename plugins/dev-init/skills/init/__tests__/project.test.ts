@@ -30,7 +30,7 @@ vi.mock('../../shared/queries', () => ({
   UPDATE_FIELD_OPTIONS_MUTATION: 'UPDATE_FIELD_OPTIONS_MUTATION',
 }))
 
-vi.mock('../../../cli/lib/workspace-store', () => ({
+vi.mock('../../shared/adapters/workspace-store', () => ({
   readWorkspace: vi.fn(() => ({ projects: [] })),
   writeWorkspace: vi.fn(),
   getWorkspacePath: () => '/tmp/test-workspace.json',

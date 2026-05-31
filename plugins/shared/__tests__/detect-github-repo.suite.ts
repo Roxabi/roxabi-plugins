@@ -5,11 +5,30 @@ interface ConfigHelpersModule {
   detectGitHubRepo: () => string
 }
 
+/**
+ * Shared test suite for `detectGitHubRepo` + `gh_project_id` auto-detection.
+ *
+ * **Caller contract — required hoisted mocks.** This suite spies on the
+ * `node:child_process` mock and relies on the `node:fs` mock that each calling
+ * test file must hoist at module scope (vitest hoists `vi.mock(...)` above
+ * imports). The suite does NOT install these mocks itself:
+ *
+ * ```ts
+ * vi.mock('node:fs', ...)            // block .claude/dev-core.yml reads
+ * vi.mock('node:child_process', ...) // block gh CLI fallback in detectGitHubRepo
+ * ```
+ *
+ * Without both mocks the suite's `execSync` spy and config-helper loads behave
+ * non-deterministically (real fs/child_process reach the host environment).
+ */
 export function registerGitHubRepoDetectionSuite(opts: {
   detectGitHubRepo: () => string
   loadConfigHelpers: () => Promise<ConfigHelpersModule>
 }) {
   const { detectGitHubRepo, loadConfigHelpers } = opts
+  // Capture the live pre-test value once so both blocks restore the caller's
+  // real GITHUB_REPO (not a hardcoded sentinel) in their afterEach.
+  const originalGitHubRepo = process.env.GITHUB_REPO
 
   describe('gh_project_id auto-detect', () => {
     let spawnSpy: ReturnType<typeof vi.spyOn>
@@ -24,7 +43,11 @@ export function registerGitHubRepoDetectionSuite(opts: {
     afterEach(() => {
       spawnSpy?.mockRestore()
       delete process.env.GH_PROJECT_ID
-      process.env.GITHUB_REPO = 'Test/test-repo'
+      if (originalGitHubRepo !== undefined) {
+        process.env.GITHUB_REPO = originalGitHubRepo
+      } else {
+        delete process.env.GITHUB_REPO
+      }
       vi.resetModules()
     })
 
@@ -120,7 +143,6 @@ export function registerGitHubRepoDetectionSuite(opts: {
   })
 
   describe('detectGitHubRepo', () => {
-    const originalEnv = process.env.GITHUB_REPO
     let spawnSyncSpy: ReturnType<typeof vi.spyOn>
     let execSyncSpy: ReturnType<typeof vi.spyOn>
 
@@ -135,8 +157,8 @@ export function registerGitHubRepoDetectionSuite(opts: {
     })
 
     afterEach(() => {
-      if (originalEnv !== undefined) {
-        process.env.GITHUB_REPO = originalEnv
+      if (originalGitHubRepo !== undefined) {
+        process.env.GITHUB_REPO = originalGitHubRepo
       } else {
         delete process.env.GITHUB_REPO
       }
