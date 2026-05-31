@@ -24,6 +24,10 @@ describe('asCheckStatusState', () => {
   it('maps an empty string to sentinel empty string', () => {
     expect(asCheckStatusState('')).toBe('')
   })
+
+  it('passes ERROR through unchanged (StatusState branch)', () => {
+    expect(asCheckStatusState('ERROR')).toBe('ERROR')
+  })
 })
 
 describe('asCheckConclusionState', () => {
@@ -51,6 +55,10 @@ describe('asMergeableState', () => {
 
   it('maps an unknown string to the UNKNOWN sentinel', () => {
     expect(asMergeableState('BOGUS')).toBe('UNKNOWN')
+  })
+
+  it('passes CONFLICTING through unchanged', () => {
+    expect(asMergeableState('CONFLICTING')).toBe('CONFLICTING')
   })
 })
 

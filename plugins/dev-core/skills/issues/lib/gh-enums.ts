@@ -45,7 +45,7 @@ export type WorkflowConclusion = (typeof WORKFLOW_CONCLUSIONS)[number]
 
 const inSet = <T extends string>(set: readonly T[], v: string): v is T => (set as readonly string[]).includes(v)
 
-// CICheck.status is `CheckStatusState | StatusState | ''` — unknown → ''
+// CICheck.status is `CheckStatusState | StatusState | ''` — accepts both CheckRun status values (QUEUED, IN_PROGRESS, COMPLETED, …) and legacy StatusContext state values (ERROR, EXPECTED, SUCCESS, etc.) — unknown → ''
 export function asCheckStatusState(v: string): CheckStatusState | StatusState | '' {
   return inSet(CHECK_STATUS_STATES, v) || inSet(STATUS_STATES, v) ? (v as CheckStatusState | StatusState) : ''
 }

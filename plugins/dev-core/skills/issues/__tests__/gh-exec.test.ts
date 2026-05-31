@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockWriteFileSync = vi.fn()
 const mockUnlinkSync = vi.fn()
-const mockExecSync = vi.fn()
+const mockSpawnSync = vi.fn()
 
 vi.mock('node:fs', () => ({
   writeFileSync: mockWriteFileSync,
@@ -10,7 +10,7 @@ vi.mock('node:fs', () => ({
 }))
 
 vi.mock('node:child_process', () => ({
-  execSync: mockExecSync,
+  spawnSync: mockSpawnSync,
 }))
 
 // Import AFTER mocks are established
@@ -20,8 +20,8 @@ describe('ghGraphQLExec', () => {
   beforeEach(() => {
     mockWriteFileSync.mockClear()
     mockUnlinkSync.mockClear()
-    mockExecSync.mockClear()
-    mockExecSync.mockReturnValue(JSON.stringify({ data: {} }))
+    mockSpawnSync.mockClear()
+    mockSpawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify({ data: {} }), stderr: '' })
   })
 
   it('writes payload without variables property when no variables provided', () => {
@@ -55,17 +55,37 @@ describe('ghGraphQLExec', () => {
     expect(Object.hasOwn(payload, 'variables')).toBe(false)
   })
 
-  it('returns the parsed JSON from execSync output', () => {
+  it('writes payload without variables property when variables is an empty object', () => {
+    const query = '{ viewer { login } }'
+    ghGraphQLExec(query, {})
+
+    const [, rawPayload] = mockWriteFileSync.mock.calls[0] as [string, string]
+    const payload = JSON.parse(rawPayload)
+    expect(Object.hasOwn(payload, 'variables')).toBe(false)
+  })
+
+  it('returns the parsed JSON from spawnSync output', () => {
     const expected = { data: { viewer: { login: 'octocat' } } }
-    mockExecSync.mockReturnValue(JSON.stringify(expected))
+    mockSpawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify(expected), stderr: '' })
     const result = ghGraphQLExec('{ viewer { login } }')
     expect(result).toEqual(expected)
   })
 
-  it('calls unlinkSync to clean up the temp file even when execSync succeeds', () => {
+  it('calls unlinkSync to clean up the temp file even when spawnSync succeeds', () => {
     ghGraphQLExec('{ viewer { login } }')
     expect(mockUnlinkSync).toHaveBeenCalledOnce()
     // tmp file path passed to writeFileSync and unlinkSync must match
+    const writePath = (mockWriteFileSync.mock.calls[0] as [string, string])[0]
+    const unlinkPath = (mockUnlinkSync.mock.calls[0] as [string])[0]
+    expect(writePath).toBe(unlinkPath)
+  })
+
+  it('throws when spawnSync returns non-zero status AND still calls unlinkSync (finally guarantee)', () => {
+    mockSpawnSync.mockReturnValue({ status: 1, stderr: 'boom', stdout: '' })
+
+    expect(() => ghGraphQLExec('{ viewer { login } }')).toThrow('gh api graphql failed: boom')
+    expect(mockUnlinkSync).toHaveBeenCalledOnce()
+    // unlink path matches write path even on failure
     const writePath = (mockWriteFileSync.mock.calls[0] as [string, string])[0]
     const unlinkPath = (mockUnlinkSync.mock.calls[0] as [string])[0]
     expect(writePath).toBe(unlinkPath)
