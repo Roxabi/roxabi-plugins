@@ -56,10 +56,16 @@ export function parseBlockedBy(body: string | null): number[] {
 
 // ─── Formatting ───────────────────────────────────────────────────────────────
 
-export function progressBar(closed: number, total: number): string {
-  if (total === 0) return '░░░░░'
+export function progressBar(
+  closed: number,
+  total: number,
+  opts: { suffix?: boolean; emptyBar?: boolean } = {},
+): string {
+  const { suffix = false, emptyBar = true } = opts
+  if (total === 0) return emptyBar ? '░░░░░' : ''
   const filled = Math.round((closed / total) * 5)
-  return '█'.repeat(filled) + '░'.repeat(5 - filled)
+  const bar = '█'.repeat(filled) + '░'.repeat(5 - filled)
+  return suffix ? `${bar} ${closed}/${total}` : bar
 }
 
 export function pad(s: string, n: number, align: 'l' | 'r' | 'c' = 'l'): string {

@@ -14,6 +14,7 @@ import {
   GH_PROJECT_ID,
   LANE_FIELD_ID,
   LANE_OPTIONS,
+  PRIORITY_ALIASES,
   PRIORITY_FIELD_ID,
   PRIORITY_OPTIONS,
   SIZE_FIELD_ID,
@@ -155,12 +156,7 @@ export const LEGACY_LABEL_MAP = {
     L: 'F-full',
     XL: 'F-full',
   } as Record<string, string>,
-  priority: {
-    P0: 'P0 - Urgent',
-    P1: 'P1 - High',
-    P2: 'P2 - Medium',
-    P3: 'P3 - Low',
-  } as Record<string, string>,
+  priority: PRIORITY_ALIASES,
   issueType: Object.fromEntries(ISSUE_TYPE_NAMES.map((t) => [t, t])) as Record<string, string>,
 }
 
@@ -188,15 +184,6 @@ interface ProjectItemFieldValues {
       field?: { name?: string }
     }>
   }
-}
-
-interface Row {
-  repo: string
-  number: number
-  field: string
-  old_value: string | null
-  new_value: string | null
-  flagged: boolean
 }
 
 interface FlaggedEntry {
@@ -329,7 +316,7 @@ export async function backfill(opts: { repo: string; dryRun: boolean; snapshotPa
     )
   }
 
-  const rows: Row[] = []
+  const rows: BackfillRow[] = []
   const flagged: FlaggedEntry[] = []
   let updated = 0
   let skipped = 0

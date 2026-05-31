@@ -204,6 +204,7 @@ describe('issue-triage/create > relationships', () => {
     await createIssue(['--title', 'Test', '--blocked-by', 'Roxabi/lyra#728'])
     expect(mockGetNodeId).toHaveBeenCalledWith(728, 'Roxabi/lyra')
     expect(mockAddBlockedBy).toHaveBeenCalledWith('node-99', 'node-728')
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Roxabi/lyra#728'))
   })
 
   it('sets blocking dependencies', async () => {

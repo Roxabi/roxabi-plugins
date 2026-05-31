@@ -1,0 +1,168 @@
+import { describe, expect, it } from 'vitest'
+import { buildDepGraph } from '../lib/graph'
+import { topoSort } from '../lib/topo-sort'
+import type { Issue } from '../lib/types'
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const noEdges = (_id: number): number[] => []
+
+function makeIssue(number: number, blocking: number[] = []): Issue {
+  return {
+    number,
+    title: `Issue #${number}`,
+    url: `https://github.com/test/${number}`,
+    status: 'Backlog',
+    size: '-',
+    priority: '-',
+    blockStatus: blocking.length > 0 ? 'blocking' : 'ready',
+    blockedBy: [],
+    blocking: blocking.map((n) => ({ number: n, state: 'OPEN' })),
+    children: [],
+  }
+}
+
+// ─── A) input-order ───────────────────────────────────────────────────────────
+
+describe('topoSort — input-order', () => {
+  it('linear chain: ids=[3,1,2], 2←{3,1} → emits [3,1,2]', () => {
+    // Arrange
+    // 3 and 1 must be emitted before 2; 3 and 1 have no upstream
+    const ids = [3, 1, 2]
+    const getUpstream = (id: number): number[] => (id === 2 ? [3, 1] : [])
+    // Act
+    const result = topoSort(ids, getUpstream, 'input-order')
+    // Assert — 3 and 1 are both ready first, input order [3,1] is preserved, then 2
+    expect(result).toEqual([3, 1, 2])
+  })
+
+  it('independent nodes: ids=[5,3], no edges → preserves input order [5,3]', () => {
+    // Arrange
+    const ids = [5, 3]
+    // Act
+    const result = topoSort(ids, noEdges, 'input-order')
+    // Assert — no sort applied; input order preserved (NOT [3,5])
+    expect(result).toEqual([5, 3])
+  })
+
+  it('cycle: ids=[2,1], mutual 1←2 and 2←1 → dumps in ids order [2,1]', () => {
+    // Arrange
+    const ids = [2, 1]
+    const getUpstream = (id: number): number[] => (id === 1 ? [2] : [1])
+    // Act
+    const result = topoSort(ids, getUpstream, 'input-order')
+    // Assert — ready is always empty; cycle dump uses ids order, not sorted
+    expect(result).toEqual([2, 1])
+  })
+
+  it('single node with no edges → returns that node', () => {
+    // Arrange / Act / Assert
+    expect(topoSort([7], noEdges, 'input-order')).toEqual([7])
+  })
+
+  it('empty ids → returns []', () => {
+    // Arrange / Act / Assert
+    expect(topoSort([], noEdges, 'input-order')).toEqual([])
+  })
+})
+
+// ─── B) string-asc (LEXICOGRAPHIC — critical regression lock) ─────────────────
+
+describe('topoSort — string-asc (legacy bare .sort() parity)', () => {
+  it('multi-digit tie: ids=[2,10,1], no edges → [1,10,2] (lexicographic, NOT numeric [1,2,10])', () => {
+    // Arrange
+    const ids = [2, 10, 1]
+    // Act
+    const result = topoSort(ids, noEdges, 'string-asc')
+    // Assert
+    // DELIBERATE BEHAVIOR LOCK: this asserts legacy bare-.sort() parity (lexicographic string
+    // comparison: '1' < '10' < '2').  Changing topoSort to numeric order MUST update this test.
+    // This is an intentional latent bug preserved by the D17 refactor — see #193 follow-up.
+    expect(result).toEqual([1, 10, 2])
+    // Negative guard: numeric order would be [1,2,10] — must NOT match
+    expect(result).not.toEqual([1, 2, 10])
+  })
+
+  it('independent nodes: ids=[5,3], no edges → [3,5] (string-asc sort applied)', () => {
+    // Arrange / Act / Assert
+    // '3' < '5' lexicographically, same as numeric here — confirms sort is applied
+    expect(topoSort([5, 3], noEdges, 'string-asc')).toEqual([3, 5])
+  })
+
+  it('linear chain mixing multi-digit: ids=[10,2,1], 2←{10}, 1←{2} → [10,2,1]', () => {
+    // Arrange
+    // 10 has no upstream → emitted first (only ready node, no tie)
+    // 2 becomes ready → only ready node, emitted as [2]
+    // 1 becomes ready → emitted as [1]
+    const ids = [10, 2, 1]
+    const getUpstream = (id: number): number[] => {
+      if (id === 2) return [10]
+      if (id === 1) return [2]
+      return []
+    }
+    // Act
+    const result = topoSort(ids, getUpstream, 'string-asc')
+    // Assert — each round has exactly one ready node, so tie-break doesn't affect order
+    expect(result).toEqual([10, 2, 1])
+  })
+
+  it('cycle dump is lexicographic: ids=[10,2], mutual cycle → dump [10,2] ("10"<"2")', () => {
+    // Arrange
+    const ids = [10, 2]
+    const getUpstream = (id: number): number[] => (id === 10 ? [2] : [10])
+    // Act
+    const result = topoSort(ids, getUpstream, 'string-asc')
+    // Assert — cycle dump uses .sort(): '10' < '2' lexicographically → [10,2]
+    expect(result).toEqual([10, 2])
+  })
+
+  it('single node with no edges → returns that node', () => {
+    // Arrange / Act / Assert
+    expect(topoSort([42], noEdges, 'string-asc')).toEqual([42])
+  })
+})
+
+// ─── C) Integration: buildDepGraph (input-order caller) ────────────────────────
+//
+// buildDepGraph only includes nodes that have targets (blocking issues), not bare targets.
+// For a node to appear in the result it must: (a) be a root-level issue AND (b) block another
+// root-level issue that is open.  The targets themselves need to be in the issues array too
+// so they qualify as rootNumbers.
+
+describe('buildDepGraph — input-order integration (proves caller passes correct tie-break)', () => {
+  it('preserves input order for independent blockers: [5,3] blocking separate targets', () => {
+    // Arrange — two independent blocking issues; input order is [5, 3]
+    // #5 blocks #10, #3 blocks #20; no relationship between #5 and #3
+    // #10 and #20 must be root issues (in the issues array) so they qualify as targets
+    const issues: Issue[] = [
+      makeIssue(5, [10]), // blocker — appears first
+      makeIssue(3, [20]), // blocker — appears second
+      makeIssue(10), // target of #5
+      makeIssue(20), // target of #3
+    ]
+    // Act
+    const nodes = buildDepGraph(issues)
+    const nums = nodes.map((n) => n.number)
+    // Assert — input order preserved (NOT [3,5] which string-asc would produce)
+    // buildDepGraph passes 'input-order' to topoSort; both nodes are independent (ready in round 1)
+    expect(nums).toEqual([5, 3])
+  })
+
+  it('chain #1 blocks #2, #2 blocks #3 → emits [1,2] (blocker before intermediate)', () => {
+    // Arrange
+    // #1 blocks #2 (a blocker), #2 blocks #3 (also a blocker); #3 is a bare target
+    // In the graph: upstream(#2) = [#1] (because #1.targets includes #2); upstream(#1) = []
+    // Round 1: ready = [#1]; Round 2: ready = [#2]
+    // Only blockers (#1 and #2) appear in result — bare targets are not in the nodes list
+    const issues: Issue[] = [
+      makeIssue(2, [3]), // #2 blocks #3
+      makeIssue(1, [2]), // #1 blocks #2
+      makeIssue(3), // target of #2 — must be root issue
+    ]
+    // Act
+    const nodes = buildDepGraph(issues)
+    const nums = nodes.map((n) => n.number)
+    // Assert — #1 (no upstream) emitted before #2 (upstream #1 must be emitted first)
+    expect(nums).toEqual([1, 2])
+  })
+})

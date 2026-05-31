@@ -66,6 +66,15 @@ interface RawBranchRef {
   } | null
 }
 
+export function mapRawCheck(node: RawCheckNode): CICheck {
+  return {
+    name: node.name || node.context || 'unknown',
+    status: node.status || node.state || '',
+    conclusion: node.conclusion || '',
+    detailsUrl: node.detailsUrl || node.targetUrl || '',
+  }
+}
+
 /** Fetch all raw items for a project with full cursor-based pagination. */
 export async function fetchAllItemsForProject(projectId: string): Promise<RawItem[]> {
   const allItems: RawItem[] = []
@@ -203,12 +212,7 @@ export async function fetchPRs(repoSlug: string = GITHUB_REPO): Promise<PR[]> {
     return data.data.repository.pullRequests.nodes.map((pr) => {
       const commitNode = pr.commits.nodes[0]
       const rawChecks = commitNode?.commit.statusCheckRollup?.contexts.nodes ?? []
-      const checks: CICheck[] = rawChecks.map((c) => ({
-        name: c.name || c.context || 'unknown',
-        status: c.status || c.state || '',
-        conclusion: c.conclusion || '',
-        detailsUrl: c.detailsUrl || c.targetUrl || '',
-      }))
+      const checks: CICheck[] = rawChecks.map(mapRawCheck)
 
       return {
         number: pr.number,
@@ -259,12 +263,7 @@ export async function fetchBranchCI(repoSlug: string = GITHUB_REPO): Promise<Bra
           }
         }
         const rawChecks = target.statusCheckRollup?.contexts.nodes ?? []
-        const checks: CICheck[] = rawChecks.map((c) => ({
-          name: c.name || c.context || 'unknown',
-          status: c.status || c.state || '',
-          conclusion: c.conclusion || '',
-          detailsUrl: c.detailsUrl || c.targetUrl || '',
-        }))
+        const checks: CICheck[] = rawChecks.map(mapRawCheck)
         return {
           branch,
           commitSha: target.oid.slice(0, 7),
