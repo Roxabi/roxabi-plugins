@@ -43,11 +43,7 @@ jobs:
       - run: pip install pytest==8.3.5 pyyaml git+https://github.com/Roxabi/roxabi-vault.git@df12ba1c447ca6f01434db017c57f7645662813c  # main
       - name: Test (pytest)
         run: python3 -m pytest tests/ -v
-      - name: Class list sync check
-        run: python3 tools/validate_plugins.py --check class-list-sync
-      - name: Shared sources sync check
-        run: python3 tools/validate_plugins.py --check shared-sources-sync
-      - name: Validate plugins (full)
+      - name: Validate plugins
         run: python3 tools/validate_plugins.py
       - name: Validate registry sync
         run: |
