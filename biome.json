@@ -24,7 +24,11 @@
   },
   "overrides": [
     {
-      "includes": ["plugins/dev-init/skills/shared/adapters/config-helpers.ts"],
+      "includes": [
+        "plugins/dev-init/skills/shared/adapters/config-helpers.ts",
+        "plugins/dev-init/skills/shared/domain/errors.ts",
+        "plugins/dev-init/skills/shared/domain/types.ts"
+      ],
       "formatter": {
         "enabled": false
       },
