@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { vi } from 'vitest'
+import { registerResolveSizeLegacySuite } from '../../../../shared/__tests__/resolveSize-legacy-schema.suite'
 
 // Block .claude/dev-core.yml so SIZE_OPTIONS_JSON env var is the sole source.
 vi.mock('node:fs', async () => {
@@ -12,44 +13,6 @@ vi.mock('node:fs', async () => {
   }
 })
 
-describe('resolveSize — legacy 5-bucket project schema', () => {
-  it('preserves XS / M / L / XL when present as project options', async () => {
-    vi.resetModules()
-    process.env.GITHUB_REPO = 'Test/test-repo'
-    process.env.SIZE_OPTIONS_JSON = JSON.stringify({
-      XS: 'size-xs',
-      S: 'size-s',
-      M: 'size-m',
-      L: 'size-l',
-      XL: 'size-xl',
-    })
-    const { resolveSize } = await import('../adapters/config-helpers')
-
-    expect(resolveSize('XS')).toBe('XS')
-    expect(resolveSize('xs')).toBe('XS')
-    expect(resolveSize('S')).toBe('S')
-    expect(resolveSize('M')).toBe('M')
-    expect(resolveSize('L')).toBe('L')
-    expect(resolveSize('XL')).toBe('XL')
-
-    delete process.env.SIZE_OPTIONS_JSON
-  })
-
-  it('falls back to legacy → new-schema aliasing when project uses new schema', async () => {
-    vi.resetModules()
-    process.env.GITHUB_REPO = 'Test/test-repo'
-    process.env.SIZE_OPTIONS_JSON = JSON.stringify({
-      S: 'size-s',
-      'F-lite': 'size-flite',
-      'F-full': 'size-ffull',
-    })
-    const { resolveSize } = await import('../adapters/config-helpers')
-
-    expect(resolveSize('XS')).toBe('S')
-    expect(resolveSize('M')).toBe('F-lite')
-    expect(resolveSize('L')).toBe('F-full')
-    expect(resolveSize('XL')).toBe('F-full')
-
-    delete process.env.SIZE_OPTIONS_JSON
-  })
+registerResolveSizeLegacySuite({
+  loadConfigHelpers: () => import('../adapters/config-helpers'),
 })
