@@ -21,6 +21,10 @@ jobs:
         run: bun typecheck
       - name: Test (vitest)
         run: bun run test
+      - name: Test (cli — bun:test)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cd plugins/dev-core/cli && bun test
       - name: Shared detectGitHubRepo suite — caller parity (#218 SC3)
         run: |
           set -euo pipefail
