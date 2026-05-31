@@ -73,10 +73,15 @@ const issueFields = `
   }
 `
 
-const aliases = topEpics.map((e, i) => `e${i}: issue(number: ${e.number}) { ${issueFields} }`).join('\n')
-const query = `{ repository(owner: "${owner}", name: "${repo}") { ${aliases} } }`
+const varDecls = ['$owner: String!', '$repo: String!', ...topEpics.map((_, i) => `$n${i}: Int!`)].join(', ')
+const aliases = topEpics.map((_, i) => `e${i}: issue(number: $n${i}) { ${issueFields} }`).join('\n')
+const query = `query(${varDecls}) { repository(owner: $owner, name: $repo) { ${aliases} } }`
+const variables: Record<string, unknown> = { owner, repo }
+topEpics.forEach((e, i) => {
+  variables[`n${i}`] = Number(e.number)
+})
 // biome-ignore lint/suspicious/noExplicitAny: raw GraphQL response
-const raw = ghGraphQLExec(query) as { data: { repository: Record<string, any> } }
+const raw = ghGraphQLExec(query, variables) as { data: { repository: Record<string, any> } }
 const repoData = raw.data.repository
 
 // biome-ignore lint/suspicious/noExplicitAny: raw GraphQL nodes

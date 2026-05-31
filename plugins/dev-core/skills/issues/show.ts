@@ -88,9 +88,10 @@ interface BlockerNode {
   state: 'OPEN' | 'CLOSED'
 }
 
-const gqlRaw = ghGraphQLExec(`{
-  repository(owner: "${owner}", name: "${repo}") {
-    issue(number: ${issueNum}) {
+const gqlRaw = ghGraphQLExec(
+  `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
       subIssues(first: 50) {
         nodes { number title state }
       }
@@ -99,7 +100,9 @@ const gqlRaw = ghGraphQLExec(`{
       }
     }
   }
-}`) as {
+}`,
+  { owner, repo, number: issueNum },
+) as {
   data: {
     repository: {
       issue: {

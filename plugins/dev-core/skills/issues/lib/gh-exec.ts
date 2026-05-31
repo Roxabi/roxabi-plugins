@@ -1,14 +1,18 @@
-import { execSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-export function ghGraphQLExec(query: string): unknown {
+export function ghGraphQLExec(query: string, variables?: Record<string, unknown>): unknown {
   const tmpFile = join(tmpdir(), `gh-exec-${Date.now()}.json`)
-  writeFileSync(tmpFile, JSON.stringify({ query }))
+  const payload = variables && Object.keys(variables).length > 0 ? { query, variables } : { query }
+  writeFileSync(tmpFile, JSON.stringify(payload))
   try {
-    const out = execSync(`gh api graphql --input ${tmpFile}`, { encoding: 'utf-8' })
-    return JSON.parse(out)
+    const proc = spawnSync('gh', ['api', 'graphql', '--input', tmpFile], { encoding: 'utf-8' })
+    if (proc.status !== 0) {
+      throw new Error(`gh api graphql failed: ${proc.stderr?.trim() ?? `exit ${proc.status}`}`)
+    }
+    return JSON.parse(proc.stdout)
   } finally {
     unlinkSync(tmpFile)
   }
