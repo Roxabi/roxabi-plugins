@@ -26,8 +26,15 @@
     {
       "includes": [
         "plugins/dev-init/skills/shared/adapters/config-helpers.ts",
+        "plugins/dev-init/skills/shared/adapters/env-config.ts",
+        "plugins/dev-init/skills/shared/adapters/workspace-store.ts",
         "plugins/dev-init/skills/shared/domain/errors.ts",
-        "plugins/dev-init/skills/shared/domain/types.ts"
+        "plugins/dev-init/skills/shared/domain/types.ts",
+        "plugins/dev-init/skills/shared/ports/artifacts.ts",
+        "plugins/dev-init/skills/shared/ports/config.ts",
+        "plugins/dev-init/skills/shared/prereqs.ts",
+        "plugins/dev-init/skills/shared/queries.ts",
+        "plugins/dev-init/skills/shared/types.ts"
       ],
       "formatter": {
         "enabled": false

@@ -337,18 +337,21 @@ def check_subsumption_pairs(
     return errors
 
 
-def check_shared_sources_sync() -> list[str]:
+def check_shared_sources_sync(manifest_path=None, biome_path=None, _copy_sync_prefix=None) -> list[str]:
     """Generated copies in shared-sources.json must match their canonical sources.
 
     Mirrors tools/sync-shared.ts --check semantics:
     - Strip the 2-line generated header (line 1 = @generated comment, line 2 = blank line)
       from each target and compare the remainder against the canonical file byte-for-byte.
     - Missing target files are also flagged as drift.
+    - Asserts that biome.json's copy-sync suppression override includes is set-equal to manifest targets.
     """
     errors = []
-    manifest_path = REPO_ROOT / 'tools' / 'shared-sources.json'
+    manifest_path = Path(manifest_path) if manifest_path is not None else (REPO_ROOT / 'tools' / 'shared-sources.json')
+    biome_path = Path(biome_path) if biome_path is not None else (REPO_ROOT / 'biome.json')
+
     if not manifest_path.exists():
-        errors.append('shared-sources.json not found at tools/shared-sources.json')
+        errors.append(f'shared-sources.json not found at {manifest_path}')
         return errors
 
     with open(manifest_path) as f:
@@ -379,7 +382,10 @@ def check_shared_sources_sync() -> list[str]:
                 )
                 continue
             target_content = target_path.read_text(encoding='utf-8')
-            # Strip the 2-line generated header: line 1 (@generated comment) + line 2 (blank)
+            # HEADER CONTRACT: the 2-line @generated header stripped here MUST stay
+            # byte-identical to tools/sync-shared.ts::makeHeader() (line 1 = @generated
+            # comment, line 2 = blank). If makeHeader changes the header shape/length,
+            # update this strip (lines[2:]) in lockstep, or byte-equality will false-fail.
             lines = target_content.split('\n')
             # Header is 2 lines: index 0 = @generated, index 1 = blank; body starts at index 2
             body = '\n'.join(lines[2:]) if len(lines) > 2 else ''
@@ -387,6 +393,65 @@ def check_shared_sources_sync() -> list[str]:
                 errors.append(
                     f'{target_rel} is out of sync with {canonical_rel}. Run: bun run sync:shared'
                 )
+
+    # Biome-vs-manifest set-equality assertion
+    if not biome_path.exists():
+        errors.append(f'biome.json not found at {biome_path}')
+        return errors
+
+    with open(biome_path) as f:
+        biome_data = json.load(f)
+
+    # Locate the unique copy-sync suppression override: the entry in biome['overrides']
+    # whose includes are all under plugins/dev-init/skills/shared/ (the generated-copy
+    # override). Blindly indexing overrides[0] would silently pick the wrong override if the
+    # array is reordered or a new override is inserted before it.
+    # _copy_sync_prefix is injectable for tests (unit tests use scratch paths outside the
+    # canonical plugins/dev-init/ directory).
+    overrides = biome_data.get('overrides', [])
+    _dev_init_shared_prefix = _copy_sync_prefix if _copy_sync_prefix is not None else 'plugins/dev-init/skills/shared/'
+
+    def _is_copy_sync_override(entry: dict) -> bool:
+        includes = entry.get('includes', [])
+        return bool(includes) and all(
+            str(inc).startswith(_dev_init_shared_prefix) for inc in includes
+        )
+
+    manifest_targets = [t for entry in manifest for t in entry.get('targets', [])]
+
+    if manifest_targets:
+        # Only assert when the manifest is non-empty (no manifest targets → nothing to check)
+        matching = [o for o in overrides if _is_copy_sync_override(o)]
+        if len(matching) == 0:
+            errors.append(
+                'biome.json: could not locate the unique copy-sync suppression override '
+                f'(entry whose includes are all under {_dev_init_shared_prefix})'
+            )
+            return errors
+        if len(matching) > 1:
+            errors.append(
+                'biome.json: could not locate the unique copy-sync suppression override '
+                f'(entry whose includes are all under {_dev_init_shared_prefix}) — '
+                f'found {len(matching)} matching overrides, expected exactly 1'
+            )
+            return errors
+        biome_includes = matching[0].get('includes', [])
+    else:
+        # Empty manifest — fall back to overrides[0] for the biome check (nothing to compare)
+        biome_includes = overrides[0].get('includes', []) if overrides else []
+
+    biome_set = set(biome_includes)
+    manifest_set = set(manifest_targets)
+
+    for path in sorted(manifest_set - biome_set):
+        errors.append(
+            f'biome.json overrides[0].includes is missing copy-sync target: {path}. Run: derive biome includes from tools/shared-sources.json'
+        )
+    for path in sorted(biome_set - manifest_set):
+        errors.append(
+            f'biome.json overrides[0].includes has non-manifest entry: {path}. Either add it to tools/shared-sources.json or remove it from biome.json'
+        )
+
     return errors
 
 
