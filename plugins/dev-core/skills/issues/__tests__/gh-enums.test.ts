@@ -4,6 +4,7 @@ import {
   asCheckStatusState,
   asMergeableState,
   asPullRequestState,
+  asVercelState,
   asWorkflowConclusion,
   asWorkflowStatus,
 } from '../lib/gh-enums'
@@ -73,6 +74,28 @@ describe('asPullRequestState', () => {
 
   it('maps an unknown string to the sentinel empty string', () => {
     expect(asPullRequestState('DRAFT')).toBe('')
+  })
+})
+
+describe('asVercelState', () => {
+  it('passes a valid member through unchanged', () => {
+    expect(asVercelState('READY')).toBe('READY')
+  })
+
+  it('passes BUILDING through unchanged', () => {
+    expect(asVercelState('BUILDING')).toBe('BUILDING')
+  })
+
+  it('passes CANCELED through unchanged', () => {
+    expect(asVercelState('CANCELED')).toBe('CANCELED')
+  })
+
+  it('maps an unknown string to the sentinel empty string', () => {
+    expect(asVercelState('DEPLOYING')).toBe('')
+  })
+
+  it('maps an empty string to sentinel empty string', () => {
+    expect(asVercelState('')).toBe('')
   })
 })
 

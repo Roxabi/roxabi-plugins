@@ -89,7 +89,7 @@ export interface VercelDeployment {
   uid: string
   url: string
   name: string
-  state: VercelState
+  state: VercelState | '' // '' = sentinel for unknown/missing Vercel state (see asVercelState)
   isCurrent?: boolean // true for the active production deployment
   target: string
   createdAt: number

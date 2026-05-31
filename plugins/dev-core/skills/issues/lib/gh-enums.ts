@@ -65,6 +65,11 @@ export function asPullRequestState(v: string): PullRequestState | '' {
   return inSet(PULL_REQUEST_STATES, v) ? v : ''
 }
 
+// VercelState has no empty member — field widened to `VercelState | ''`, unknown → ''
+export function asVercelState(v: string): VercelState | '' {
+  return inSet(VERCEL_STATES, v) ? v : ''
+}
+
 // WorkflowStatus has no empty member — field widened to `WorkflowStatus | ''`, unknown → ''
 export function asWorkflowStatus(v: string): WorkflowStatus | '' {
   return inSet(WORKFLOW_STATUSES, v) ? v : ''
