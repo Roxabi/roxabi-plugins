@@ -1,0 +1,122 @@
+---
+title: Reconcile 4 drifted/divergent dev-init↔dev-core shared/ files
+issue: 240
+status: approved
+tier: F-lite
+date: 2026-05-31
+promoted-from: artifacts/frames/240-reconcile-drifted-dev-init-dev-core-shared-frame.mdx
+---
+
+## Context
+
+Promoted from: `artifacts/frames/240-reconcile-drifted-dev-init-dev-core-shared-frame.mdx`
+
+#232 established the copy-sync baseline and assigned `leave-alone-pending-reconciliation` to 4 files in `dev-init/skills/shared/` that had drifted from their dev-core counterparts. This spec resolves all 4.
+
+**Concrete diffs (audited pre-spec):**
+
+| File | Delta |
+|------|-------|
+| `adapters/github-infra.ts` | dev-init missing `import { ConfigError }` + throws raw `new Error(...)` |
+| `domain/parse-issue-ref.ts` | dev-init missing `formatRef()` (4-line function + jsdoc) |
+| `ports/workspace.ts` | dev-init missing `vercelProjectId?` and `vercelTeamId?` fields |
+| `__tests__/domain.test.ts` | dev-init AHEAD — has `IssuePort` + `ProjectPort` type checks absent from dev-core (those ports only exist in dev-init) |
+
+## Goal
+
+Bring 3 dev-init files up to dev-core parity and add them to the copy-sync manifest; classify `domain.test.ts` as intentional fork and update ADR 014 accordingly.
+
+## Users
+
+- **Primary:** Roxabi plugin maintainers — ensure dev-init ships a correct error contract, complete domain API, and full workspace type
+- **Secondary:** dev-init users — indirectly benefit from ConfigError fix and formatRef availability
+
+## Expected Behavior
+
+After this change:
+
+1. `bun run sync:shared` copies the 3 reconciled dev-core files to dev-init verbatim (with `@generated` header). The dev-init copies become byte-identical to dev-core.
+2. `bun run sync:shared --check` (lefthook `shared-sources-sync` gate) passes on all 3 files.
+3. `biome.json` explicitly suppresses lint on the 3 new copy-sync targets (consistent with existing pattern).
+4. ADR 014 row for `__tests__/domain.test.ts` reads `intentional-fork` with documented rationale: dev-init has `IssuePort`/`ProjectPort` type-level checks absent from dev-core because those ports only exist in dev-init.
+5. ADR 014 rows for the 3 reconciled files read `copy-sync` with `#240` attribution.
+6. `bun run typecheck` and `bun run lint` pass across both plugins.
+
+## Data Model & Consumers
+
+```classDiagram
+  class WorkspacePort {
+    +owner: string
+    +repo: string
+    +projectUrl: string
+    +vercelProjectId?: string
+    +vercelTeamId?: string
+  }
+  class ParsedIssueRef {
+    +number: number
+    +repo?: string
+  }
+  class ConfigError {
+    +message: string
+  }
+  note for WorkspacePort "vercelProjectId + vercelTeamId\nadded to dev-init copy"
+  note for ParsedIssueRef "formatRef() export\nadded to dev-init copy"
+  note for ConfigError "imported in github-infra\ninstead of raw Error"
+```
+
+```flowchart LR
+  subgraph dev-core ["dev-core (canonical)"]
+    DC_GI["adapters/github-infra.ts"]
+    DC_PIR["domain/parse-issue-ref.ts"]
+    DC_WS["ports/workspace.ts"]
+  end
+  subgraph dev-init ["dev-init (copy-sync targets)"]
+    DI_GI["adapters/github-infra.ts"]
+    DI_PIR["domain/parse-issue-ref.ts"]
+    DI_WS["ports/workspace.ts"]
+    DI_DT["__tests__/domain.test.ts (intentional-fork)"]
+  end
+  DC_GI -->|sync:shared| DI_GI
+  DC_PIR -->|sync:shared| DI_PIR
+  DC_WS -->|sync:shared| DI_WS
+  DI_DT -.->|no sync — intentional fork| DI_DT
+```
+
+**Consumer summary:**
+
+| Consumer | File | Fields / symbols | Status |
+|----------|------|-----------------|--------|
+| dev-init runtime callers | `github-infra.ts` | `ConfigError` (throws correctly) | this issue |
+| dev-init domain callers | `parse-issue-ref.ts` | `formatRef()` | this issue |
+| dev-init Vercel-aware code | `workspace.ts` | `vercelProjectId`, `vercelTeamId` | this issue |
+| dev-init test suite | `__tests__/domain.test.ts` | `IssuePort`, `ProjectPort` type checks | intentional-fork (no change) |
+
+## Breadboard
+
+| ID | Action | Input | Output |
+|----|--------|-------|--------|
+| U1 | Add 3 entries to `tools/shared-sources.json` | canonical paths (dev-core) + target paths (dev-init) | manifest updated |
+| U2 | Add 3 paths to dev-init `biome.json` overrides block | 3 new copy-sync target paths (full repo-relative) | lint suppression for generated files |
+| U3 | Run `bun run sync:shared` | updated manifest | existing dev-init file content replaced verbatim with dev-core content + `@generated` header |
+| U4 | Update ADR 014 — 3 reconciled rows | `leave-alone-pending-reconciliation` → `copy-sync (added #240)` | ADR current |
+| U5 | Update ADR 014 — domain.test.ts row | `leave-alone-pending-reconciliation` → `intentional-fork` + rationale | ADR current |
+| U6 | Run `bun run sync:shared --check` | manifest + file pairs | gate passes |
+| U7 | Run `bun run typecheck && bun run lint` | both plugins | clean |
+
+## Slices
+
+| # | Slice | Actions | Done signal |
+|---|-------|---------|-------------|
+| S1 | Copy-sync 3 files | U1 → U2 → U3 → U4 | `sync:shared --check` passes on all 3 |
+| S2 | Classify domain.test.ts | U5 | ADR 014 row reads `intentional-fork` |
+| S3 | Validate | U6 → U7 | typecheck + lint green; lefthook passes |
+
+## Success Criteria
+
+- [ ] `tools/shared-sources.json` contains entries for `github-infra.ts`, `parse-issue-ref.ts`, `ports/workspace.ts`
+- [ ] `biome.json` overrides include the 3 new dev-init copy paths
+- [ ] `bun run sync:shared` produces byte-identical copies with `@generated` header in dev-init
+- [ ] `bun run sync:shared --check` exits 0 (lefthook `shared-sources-sync` gate passes)
+- [ ] ADR 014 rows for 3 files show `copy-sync (added #240)`; `domain.test.ts` row shows `intentional-fork` with rationale
+- [ ] `bun run typecheck` passes across both plugins
+- [ ] `bun run lint` passes across both plugins
