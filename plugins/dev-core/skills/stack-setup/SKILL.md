@@ -190,12 +190,14 @@ testing:
   unit: {UNIT_TEST}
   # e2e: (only if playwright/cypress detected)
 
-# quality_gates: (python only — opt-in code-hygiene guards; omit section entirely when runtime != python)
+# quality_gates: (python/node — opt-in code-hygiene guards; omit section entirely when runtime not supported)
 #   file_length:
 #     enabled: true
 #     max_lines: 300
 #     globs: ["src/**/*.py"]
 #     exemptions_file: tools/file_exemptions.txt
+#     # metric: raw        # optional — "raw" (default, wc -l) or "sloc" (excludes blanks/comments/docstrings)
+#                          # sloc requires radon (python) or node+npx (node); see /release-setup N4b
 #   folder_size:
 #     enabled: true
 #     max_files: 12
@@ -240,7 +242,7 @@ artifacts:
 **Conditional rendering rules for the template above:**
 - `frontend:` — include (uncommented) only if a frontend framework was detected; otherwise omit entirely.
 - `shared:` — include only if a monorepo layout was detected; otherwise omit entirely.
-- `quality_gates:` — include (uncommented, all three sub-blocks) only if `runtime == python`; otherwise omit the section entirely.
+- `quality_gates:` — include (uncommented) only if `runtime ∈ {python, node}`; otherwise omit the section entirely. For `runtime: node`, include only the `file_length` sub-block (folder_size and import_layers are Python-only).
 
 ## Phase 4b — Worktree-setup scaffold
 
