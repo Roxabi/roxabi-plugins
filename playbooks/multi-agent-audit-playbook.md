@@ -18,8 +18,8 @@ tags:
   - tech-debt
   - security
   - architecture
-version: "1.0"
-last_updated: "2026-04-22"
+version: "1.1"
+last_updated: "2026-06-02"
 ---
 
 # Multi-Agent Code Quality Audit Playbook
@@ -61,6 +61,7 @@ Defines the audit scope, domains, partitioning scheme, and execution pattern.
 | Domain | Focus |
 |--------|-------|
 | Architecture | Layer violations, circular deps, coupling |
+| Axial Drift | Wrong-axis duplication (N×M), cross-cutting concerns |
 | Security | OWASP, credentials, injection vectors |
 | Code Smells | God classes, long functions, DRY |
 | Type Safety | Any usage, missing hints, type: ignore |
@@ -131,15 +132,16 @@ Progress tracking for resumable execution.
 ### Wave Structure
 
 ```
-Wave 1-2:   Architecture (8 agents)
-Wave 3-4:   Security (8 agents)
-Wave 5-6:   Code Smells (13 agents: 8 source + 5 test)
-Wave 7-8:   Type Safety (8 agents)
-Wave 9:     Async Patterns (8 agents)
-Wave 10-11: Error Handling (8 agents)
-Wave 12:    Test Quality (6 agents)
-Wave 13-14: Tech Debt (8 agents)
-Wave 15:    Synthesis (1 agent)
+Wave 1:     Axial Drift (2 agents: importlinter + axial-adr-review)
+Wave 2-3:   Architecture (8 agents)
+Wave 4-5:   Security (8 agents)
+Wave 6-7:   Code Smells (13 agents: 8 source + 5 test)
+Wave 8-9:   Type Safety (8 agents)
+Wave 10:    Async Patterns (8 agents)
+Wave 11-12: Error Handling (8 agents)
+Wave 13:    Test Quality (6 agents)
+Wave 14-15: Tech Debt (8 agents)
+Wave 16:    Synthesis (1 agent)
 ```
 
 ### Per-Wave Execution
@@ -173,6 +175,141 @@ for wave in waves:
 
 ---
 
+## Axial Drift Audit
+
+Axial drift is the duplication of cross-cutting concerns across non-primary axis siblings (the N×M trap). It requires **two-step verification**.
+
+### Step 1: Structural Check (`importlinter`)
+
+```bash
+# Run the existing layer contract validator
+importlinter
+# or
+uv run import-linter
+```
+
+**What it catches:**
+- Forbidden imports between layers (e.g., `adapters` → `core` direct calls)
+- Circular dependencies
+- Contract violations defined in `.importlinter`
+
+**Output:**
+- `artifacts/analyses/quality-audit/axial-drift/importlinter-report.md`
+- Exit code ≠ 0 = violations found
+
+### Step 2: Semantic Drift Check (`axial-adr-review`)
+
+Spawn the read-only `axial-adr-review` agent to check for wrong-axis duplication.
+
+**Prerequisites:**
+- Axial ADR exists (`axial: true` frontmatter in `docs/architecture/adr/`)
+- Diff or spec to review (e.g., PR diff, planned changes)
+
+**Agent invocation:**
+```
+agent: axial-adr-review
+prompt: Review this diff for drift along the non-primary axis.
+        Check for cross-cutting concerns duplicated across non-primary axis siblings.
+        Emit Conventional Comments findings tagged with `target-axis-trap`.
+```
+
+**What it catches:**
+- Same logic repeated in `infrastructure/stores/nats.py` and `infrastructure/stores/redis.py`
+- Adapter-level retry logic that should be in `transport/`
+- Parallel-path implementations of the same feature
+
+### Step 3: Cocoindex Confirmation
+
+Use semantic search to validate suspected duplication found in Steps 1–2.
+
+```bash
+# Example: confirm that "retry logic" is duplicated across stores
+ccc search "retry logic" --path "infrastructure/stores/*" --limit 20
+
+# Example: confirm that "auth middleware" pattern appears in multiple adapters
+ccc search "auth middleware" --path "adapters/*" --limit 20
+
+# Example: find all occurrences of a specific function pattern
+ccc search "def wait_for_hub" --limit 20
+```
+
+**Heuristic:**
+- If `ccc search` returns chunks with similarity > 0.85 in sibling modules on the non-primary axis, flag as `confirmed-drift`
+- If similarity is 0.6–0.85, flag as `probable-drift` requiring manual review
+- If < 0.6, discard as false positive
+
+**Output:**
+- `artifacts/analyses/quality-audit/axial-drift/cocoindex-confirmations.md`
+
+---
+
+## Cocoindex Cross-Domain Validation
+
+Use semantic search (`ccc`) as a **second-opinion validator** for findings from other domains. It is not a primary detection tool, but it confirms or refutes suspicions with high recall.
+
+### Security
+
+```bash
+# Confirm credential-handling patterns
+ccc search "password" --limit 20
+ccc search "API key" --limit 20
+ccc search "token" --path "config/*" --limit 20
+```
+
+### Code Smells (DRY)
+
+```bash
+# Confirm suspected duplicated logic
+ccc search "def extract_json" --limit 20
+ccc search "parse_timestamp" --limit 20
+```
+
+### Type Safety
+
+```bash
+# Find unannotated public functions
+ccc search "def process_" --lang python --limit 50
+# Manual check: which return types are missing?
+```
+
+### Async Patterns
+
+```bash
+# Find blocking calls inside async functions
+ccc search "requests.get" --path "adapters/*" --limit 20
+ccc search "time.sleep" --path "src/*" --limit 20
+```
+
+### Error Handling
+
+```bash
+# Find bare except patterns
+ccc search "except:" --lang python --limit 30
+ccc search "pass  # ignore" --lang python --limit 20
+```
+
+### Tech Debt
+
+```bash
+# Find TODO/FIXME markers
+ccc search "TODO:" --limit 50
+ccc search "FIXME" --limit 50
+ccc search "HACK" --limit 50
+```
+
+### Validation Heuristic
+
+| Similarity Score | Interpretation |
+|------------------|----------------|
+| > 0.90 | Confirmed duplication / exact pattern match |
+| 0.70–0.90 | Probable match; manual review required |
+| 0.50–0.70 | Weak signal; likely false positive |
+| < 0.50 | Discard |
+
+**Rule:** Any finding flagged by a primary agent (architecture, security, code-smells) with no `ccc` confirmation in the top-5 results should be downgraded one severity level.
+
+---
+
 ## Output Structure
 
 ```
@@ -181,6 +318,11 @@ artifacts/analyses/quality-audit/
 ├── AGENT_PROMPTS.md         # Agent prompt templates
 ├── manifest.json            # Progress tracking
 ├── AUDIT-SUMMARY.md         # Final synthesized report
+│
+├── axial-drift/
+│   ├── importlinter-report.md   # Layer contract violations
+│   ├── axial-adr-review.md     # Wrong-axis duplication findings
+│   └── cocoindex-confirmations.md  # Semantic-search confirmations
 │
 ├── architecture/
 │   ├── P01-core-hub.md
@@ -226,16 +368,20 @@ The synthesis agent produces `AUDIT-SUMMARY.md`:
 - Key debt items
 
 ## Critical Issues (P0)
-[Security vulns, data loss risks]
+[Security vulns, data loss risks, axial drift blocking refactor]
 
 ## High Priority (P1)
-[Bugs, significant tech debt]
+[Bugs, significant tech debt, confirmed axial drift]
 
 ## Medium Priority (P2)
-[Refactorings, improvements]
+[Refactorings, improvements, probable axial drift]
 
 ## Low Priority (P3)
-[Minor cleanups]
+[Minor cleanups, weak drift signals]
+
+## Axial Drift Summary
+| Axis | Violations | N×M Traps | Cocoindex Confirmations |
+|------|------------|-----------|------------------------|
 
 ## Metrics Dashboard
 | Domain | Issues | P0 | P1 | P2 | P3 |
@@ -288,6 +434,7 @@ The synthesis agent produces `AUDIT-SUMMARY.md`:
 | Domain | Key Metrics |
 |--------|-------------|
 | Architecture | Module coupling, circular deps, layer violations |
+| Axial Drift | `importlinter` violations, wrong-axis duplication count, N×M traps |
 | Security | OWASP coverage, credential handling, injection vectors |
 | Code Smells | Long functions, god classes, DRY violations |
 | Type Safety | `Any` count, `type: ignore` count, missing hints |
@@ -308,10 +455,14 @@ The synthesis agent produces `AUDIT-SUMMARY.md`:
 
 | Codebase Size | Agent Count | Wave Size | Est. Duration |
 |---------------|-------------|-----------|---------------|
-| <50 files | 16 | 4 | 10 min |
-| 50-200 files | 32 | 4 | 20 min |
-| 200-500 files | 48 | 5 | 40 min |
-| 500+ files | 67+ | 5 | 60+ min |
+| <50 files | 18 | 4 | 12 min |
+| 50-200 files | 34 | 4 | 22 min |
+| 200-500 files | 50 | 5 | 45 min |
+| 500+ files | 69+ | 5 | 65+ min |
+
+**Overhead additions:**
+- Axial drift: +2 agents, +3 min (importlinter + axial-adr-review)
+- Cocoindex validation: +2 min per 10 confirmed findings (batchable)
 
 ---
 
@@ -324,6 +475,8 @@ The synthesis agent produces `AUDIT-SUMMARY.md`:
 3. **Manifest tracking** - Resume capability if interrupted
 4. **Partition by code area** - Focused analysis, no duplicate work
 5. **Consistent output format** - Easy synthesis at the end
+6. **Two-step axial drift** - `importlinter` + `axial-adr-review` catches structural and semantic drift
+7. **Cocoindex confirmation** - Semantic search validates primary-agent findings with high recall
 
 ### What to Improve
 
@@ -331,6 +484,9 @@ The synthesis agent produces `AUDIT-SUMMARY.md`:
 2. **Error recovery** - Some agents hit API errors; retry logic needed
 3. **Domain-specific prompts** - Some domains need more specific focus areas
 4. **Synthesis context** - Reading 67 output files requires context management
+5. **Axial drift false positives** - `importlinter` catches structural violations, but `axial-adr-review` needs the axial ADR present; missing ADR = skip wave
+6. **Cocoindex validation latency** - Semantic search adds ~2 min per confirmation; batch confirmations to reduce overhead
+7. **N×M trap scoring** - `cocoindex` similarity > 0.85 is a reliable signal, but 0.70–0.90 requires human review; tune thresholds per project
 
 ---
 
@@ -348,7 +504,7 @@ The synthesis agent produces `AUDIT-SUMMARY.md`:
 
 ```bash
 # Initialize audit structure
-mkdir -p artifacts/analyses/quality-audit/{architecture,security,code-smells,type-safety,async-patterns,error-handling,test-quality,tech-debt}
+mkdir -p artifacts/analyses/quality-audit/{axial-drift,architecture,security,code-smells,type-safety,async-patterns,error-handling,test-quality,tech-debt}
 
 # Create manifest
 cat > artifacts/analyses/quality-audit/manifest.json << 'EOF'
@@ -368,6 +524,9 @@ EOF
 | P1 (High) | 19 |
 | P2 (Medium) | 66 |
 | P3 (Low) | 69 |
+| Axial Drift Violations | 3 |
+| N×M Traps | 2 |
+| Cocoindex Confirmations | 8 |
 | Technical Debt Score | 72/100 |
 | Duration | ~45 minutes |
 | Agents Used | 67 |
@@ -379,6 +538,8 @@ EOF
 3. **Zero test coverage** on production agents
 4. **52.51% line coverage** with critical gaps
 5. **Layer violations** between core/infrastructure
+6. **Axial drift**: `infrastructure/stores/nats.py` and `redis.py` duplicate retry logic
+7. **N×M trap**: Adapter-level auth checks duplicated across 3 adapters (confirmed by cocoindex search)
 
 ---
 
