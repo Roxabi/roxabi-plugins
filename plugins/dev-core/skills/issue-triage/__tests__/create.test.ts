@@ -33,6 +33,7 @@ process.env.PRIORITY_OPTIONS_JSON = JSON.stringify({
 vi.mock('../../shared/adapters/config-helpers', () => ({
   isProjectConfigured: () => true,
   NOT_CONFIGURED_MSG: 'GitHub Project V2 is not configured.',
+  GITHUB_REPO: 'Test/test-repo',
   GH_PROJECT_ID: 'PVT_test',
   STATUS_FIELD_ID: 'SF_test',
   SIZE_FIELD_ID: 'SZF_test',
@@ -95,10 +96,15 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
     }
     return aliases[input.toUpperCase()]
   },
+  resolveLane: (input: string) =>
+    new Set(['a1', 'a2', 'a3', 'b', 'c1', 'c2', 'c3', 'd', 'e']).has(input) ? input : undefined,
 }))
 
 vi.mock('../../shared/adapters/github-infra', () => ({
   syncPriorityLabel: vi.fn(),
+  syncSizeLabel: vi.fn(),
+  syncLaneLabel: vi.fn(),
+  syncStatusLabel: vi.fn(),
 }))
 
 vi.mock('../../shared/adapters/github-adapter', () => ({
@@ -108,6 +114,8 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
   updateField: vi.fn(),
   addBlockedBy: vi.fn(),
   addSubIssue: vi.fn(),
+  resolveIssueTypeId: vi.fn(),
+  updateIssueIssueType: vi.fn(),
 }))
 
 const github = await import('../../shared/adapters/github-adapter')
@@ -120,6 +128,11 @@ const mockAddSubIssue = github.addSubIssue as ReturnType<typeof vi.fn>
 
 const githubInfra = await import('../../shared/adapters/github-infra')
 const mockSyncPriorityLabel = githubInfra.syncPriorityLabel as ReturnType<typeof vi.fn>
+const mockSyncSizeLabel = githubInfra.syncSizeLabel as ReturnType<typeof vi.fn>
+const mockSyncLaneLabel = githubInfra.syncLaneLabel as ReturnType<typeof vi.fn>
+const mockSyncStatusLabel = githubInfra.syncStatusLabel as ReturnType<typeof vi.fn>
+const mockResolveIssueTypeId = github.resolveIssueTypeId as ReturnType<typeof vi.fn>
+const mockUpdateIssueIssueType = github.updateIssueIssueType as ReturnType<typeof vi.fn>
 
 const { createIssue } = await import('../lib/create')
 
@@ -131,6 +144,7 @@ function setupMocks() {
   })
   mockGetNodeId.mockImplementation(async (num) => `node-${num}`)
   mockAddToProject.mockResolvedValue('item-99')
+  mockResolveIssueTypeId.mockResolvedValue('issue-type-id')
   vi.spyOn(console, 'log').mockImplementation(() => {})
   vi.spyOn(console, 'error').mockImplementation(() => {})
 }
@@ -261,5 +275,56 @@ describe('issue-triage/create > priority label sync', () => {
   it('does not sync priority label when --priority is not provided', async () => {
     await createIssue(['--title', 'Test'])
     expect(mockSyncPriorityLabel).not.toHaveBeenCalled()
+  })
+
+  it('syncs size label when --size is provided', async () => {
+    await createIssue(['--title', 'Test', '--size', 'M'])
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(99, 'M')
+  })
+
+  it('syncs status label when --status is provided', async () => {
+    await createIssue(['--title', 'Test', '--status', 'In Progress'])
+    expect(mockSyncStatusLabel).toHaveBeenCalledWith(99, 'In Progress')
+  })
+})
+
+describe('issue-triage/create > type', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  it('sets issue type on creation', async () => {
+    await createIssue(['--title', 'Test', '--type', 'feat'])
+    expect(mockResolveIssueTypeId).toHaveBeenCalledWith('Test', 'feat')
+    expect(mockUpdateIssueIssueType).toHaveBeenCalledWith('node-99', 'issue-type-id')
+  })
+
+  it('accepts extended types (epic)', async () => {
+    await createIssue(['--title', 'Test', '--type', 'epic'])
+    expect(mockUpdateIssueIssueType).toHaveBeenCalledWith('node-99', 'issue-type-id')
+  })
+
+  it('normalizes type case', async () => {
+    await createIssue(['--title', 'Test', '--type', 'FIX'])
+    expect(mockResolveIssueTypeId).toHaveBeenCalledWith('Test', 'fix')
+  })
+
+  it('does not set type when --type is not provided', async () => {
+    await createIssue(['--title', 'Test'])
+    expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+  })
+})
+
+describe('issue-triage/create > lane', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  it('syncs lane label when --lane is provided', async () => {
+    await createIssue(['--title', 'Test', '--lane', 'a1'])
+    expect(mockSyncLaneLabel).toHaveBeenCalledWith(99, 'a1')
+  })
+
+  it('does not sync lane label when --lane is not provided', async () => {
+    await createIssue(['--title', 'Test'])
+    expect(mockSyncLaneLabel).not.toHaveBeenCalled()
   })
 })
