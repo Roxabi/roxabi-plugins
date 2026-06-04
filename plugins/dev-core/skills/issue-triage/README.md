@@ -15,8 +15,10 @@ Raw GitHub issues lack structure. `/issue-triage` adds Size (XS→XL), Priority 
 /issue-triage set 42 --status "In Progress"
 /issue-triage set 91 --blocked-by 117
 /issue-triage set 164 --parent 163
-/issue-triage create --title "..." --size S --priority Medium --parent 163
+/issue-triage create --title "..." --size S --priority Medium --type feat --lane b --parent 163
 ```
+
+`create` accepts the same field flags as `set`: `--size`, `--priority`, `--status`, `--lane`, `--type` (plus `--parent`, `--add-child`, `--blocked-by`, `--blocks`) — set everything in one shot at creation instead of a follow-up `set`.
 
 Triggers: `"triage"` | `"create issue"` | `"set size"` | `"set priority"` | `"blocked by"` | `"set parent"` | `"sub-issue"` | `"file an issue"` | `"open an issue"`
 

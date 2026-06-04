@@ -4,12 +4,15 @@
  */
 
 import {
+  GITHUB_REPO,
   getSizeOptionId,
   isProjectConfigured,
   NOT_CONFIGURED_MSG,
   PRIORITY_FIELD_ID,
   PRIORITY_OPTIONS,
+  resolveLane,
   resolvePriority,
+  resolveSize,
   resolveStatus,
   SIZE_FIELD_ID,
   STATUS_FIELD_ID,
@@ -21,9 +24,12 @@ import {
   addToProject,
   createGitHubIssue,
   getNodeId,
+  resolveIssueTypeId,
   updateField,
+  updateIssueIssueType,
 } from '../../shared/adapters/github-adapter'
-import { syncPriorityLabel } from '../../shared/adapters/github-infra'
+import { syncLaneLabel, syncPriorityLabel, syncSizeLabel, syncStatusLabel } from '../../shared/adapters/github-infra'
+import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
 import { formatRef, parseIssueRefs } from '../../shared/domain/parse-issue-ref'
 
 interface CreateOptions {
@@ -33,6 +39,8 @@ interface CreateOptions {
   size?: string
   priority?: string
   status?: string
+  lane?: string
+  type?: string
   parent?: string
   blockedBy?: string
   blocks?: string
@@ -63,6 +71,12 @@ function parseArgs(args: string[]): CreateOptions {
         break
       case '--status':
         opts.status = args[++i]
+        break
+      case '--lane':
+        opts.lane = args[++i]
+        break
+      case '--type':
+        opts.type = args[++i]
         break
       case '--parent':
         opts.parent = args[++i]
@@ -115,6 +129,42 @@ async function applyProjectFields(itemId: string, issueNumber: number, opts: Cre
     }
     await updateField(itemId, PRIORITY_FIELD_ID, PRIORITY_OPTIONS[canonical])
     console.log(`Priority=${canonical} #${issueNumber}`)
+  }
+}
+
+const VALID_TYPES: string[] = [...ISSUE_TYPE_NAMES, ...EXTENDED_ISSUE_TYPES]
+
+async function applyType(issueNumber: number, nodeId: string, type: string): Promise<void> {
+  const canonical = type.toLowerCase()
+  if (!VALID_TYPES.includes(canonical)) {
+    console.error(`Error: Invalid type. Valid: ${VALID_TYPES.join(', ')}`)
+    process.exit(1)
+  }
+  const org = GITHUB_REPO.split('/')[0]
+  const typeId = await resolveIssueTypeId(org, canonical)
+  await updateIssueIssueType(nodeId, typeId)
+  console.log(`Type=${canonical} #${issueNumber}`)
+}
+
+async function syncLabels(issueNumber: number, opts: CreateOptions): Promise<void> {
+  if (opts.priority) {
+    const canonical = resolvePriority(opts.priority)
+    if (canonical) await syncPriorityLabel(issueNumber, canonical)
+  }
+  if (opts.size) {
+    const canonical = resolveSize(opts.size)
+    if (canonical) await syncSizeLabel(issueNumber, canonical)
+  }
+  if (opts.lane) {
+    const canonical = resolveLane(opts.lane)
+    if (canonical) {
+      await syncLaneLabel(issueNumber, canonical)
+      console.log(`Lane=${canonical} #${issueNumber}`)
+    }
+  }
+  if (opts.status) {
+    const canonical = resolveStatus(opts.status)
+    if (canonical) await syncStatusLabel(issueNumber, canonical)
   }
 }
 
@@ -193,11 +243,13 @@ export async function createIssue(args: string[]): Promise<void> {
     console.error(NOT_CONFIGURED_MSG)
   }
 
-  // Sync priority label (independent of project board)
-  if (opts.priority) {
-    const canonical = resolvePriority(opts.priority)
-    if (canonical) await syncPriorityLabel(issueNumber, canonical)
+  // Issue type is independent of the project board
+  if (opts.type) {
+    await applyType(issueNumber, nodeId, opts.type)
   }
+
+  // Sync labels (independent of project board)
+  await syncLabels(issueNumber, opts)
 
   await applyRelationships(nodeId, issueNumber, opts)
 }

@@ -1,6 +1,6 @@
 ---
 name: issue-triage
-argument-hint: [list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] | migrate <audit-schema|backfill|rewrite-titles|revert>]
+argument-hint: [list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] [--type T] [--lane L] | migrate <audit-schema|backfill|rewrite-titles|revert>]
 description: Triage/create GitHub issues — set size/priority/status/lane/type, manage dependencies & parent/child, migrate legacy data. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type" | "migrate" | "backfill" | "audit schema".
 version: 0.3.0
 allowed-tools: Bash, Read, ToolSearch
@@ -18,7 +18,7 @@ Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies
 2. ∀ issue: determine Size, Priority, κ (see [Complexity Scoring](#complexity-scoring))
 3. Set values: `τ set <number> --size <S> --priority <P>`
 4. Update status: `τ set <number> --status "In Progress"`
-5. Create issues: `τ create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--parent 163]`
+5. Create issues: `τ create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--type feat] [--lane b] [--parent 163]`
 6. → DP(B)if unsure about Size ∨ Priority.
 
 ## Size Guidelines
@@ -80,6 +80,8 @@ Create GitHub issues, assign Size/Priority/Status, manage blockedBy dependencies
 | `--size <S>` | Set size on creation — canonical `S/F-lite/F-full` or legacy `XS/S/M/L/XL` accepted (legacy boards alias canonical names) |
 | `--priority <P>` | Set priority on creation |
 | `--status <S>` | Set status on creation (default: added to project as-is) |
+| `--lane <L>` | Set lane on creation (label-only, additive). Valid: `a1`, `a2`, `a3`, `b`, `c1`, `c2`, `c3`, `d`–`o`, `standalone` |
+| `--type <T>` | Set org issueType on creation (additive). Valid: `fix`, `feat`, `docs`, `test`, `chore`, `ci`, `perf`, `epic`, `research`, `refactor` |
 | `--parent <REF>` | Set parent issue on creation. REF = `#N` or `owner/repo#N` |
 | `--add-child <REF>[,<REF>...]` | Add existing issues as children |
 | `--blocked-by <REF>[,<REF>...]` | Set blocked-by on creation |
