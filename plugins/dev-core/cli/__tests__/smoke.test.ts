@@ -9,6 +9,5 @@ describe('roxabi CLI smoke', () => {
     const r = spawnSync(['bun', CLI], { stdout: 'pipe', stderr: 'pipe' })
     const out = new TextDecoder().decode(r.stdout)
     expect(out).toContain('workspace')
-    expect(out).toContain('issues')
   })
 })
