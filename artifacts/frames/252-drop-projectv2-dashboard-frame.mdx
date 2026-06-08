@@ -1,0 +1,82 @@
+---
+title: Drop ProjectV2 dashboard dependency
+issue: 252
+status: approved
+tier: F-lite
+date: 2026-06-08
+---
+
+## Problem
+
+`skills/issues/dashboard.ts` (522 lines) is a ProjectV2 board viewer. Its data
+layer (`lib/fetch-github.ts`) hard-errors without `GH_PROJECT_ID`:
+`fetchAllItems()` throws `'GH_PROJECT_ID not configured and no GitHub Project V2
+board linked'`, `fetchAllItemsForProject` / `fetchAllProjects` issue
+`ISSUES_QUERY` against `ProjectV2.items`, and `rawItemsToIssues` reads
+`item.fieldValues.nodes`. With ProjectV2 dropped org-wide (the direction #253
+established by switching the `roxabi issues` CLI to repo-centric reads), the
+dashboard has no data source and is dead weight.
+
+Decision (user, 2026-06-08): **remove the dashboard entirely** rather than
+reshape it onto repo-centric issues. The board's PR / branch-CI / Vercel /
+worktree "cockpit" is collateral, but the user has judged it not worth
+maintaining versus a clean removal of the ProjectV2 dependency.
+
+## Who
+
+- **Primary:** Mickael — sole operator of `roxabi dashboard`. Removal eliminates
+  a hard-erroring command and ~1k lines of ProjectV2-coupled code.
+- **Secondary:** the `roxabi issues` CLI table command (#253) — must keep working;
+  it shares `skills/issues/lib/table-formatter.ts` with the dashboard surface.
+
+## Constraints
+
+- **Shared-code guard:** `skills/issues/lib/table-formatter.ts` is imported by
+  `cli/commands/issues.ts` (surviving `roxabi issues`). It and its dependency
+  closure (notably `lib/types.ts`) MUST survive. Deletion is scoped to
+  dashboard-exclusive files only.
+- Deletion must leave zero `ProjectV2` / `GH_PROJECT_ID` / `fetchAllItems` refs
+  reachable from a `roxabi` command path. (Shared `*_LABEL_MAP` / config-helpers
+  ProjectV2 plumbing used elsewhere is out of scope — see below.)
+- QG (lint + typecheck + test) green after removal — no dangling imports, no
+  orphaned test files referencing deleted modules.
+- `cli/index.ts` `dashboard` command + usage line removed; `roxabi dashboard`
+  becomes an unknown command (or is dropped from help cleanly).
+
+## Out of Scope
+
+- Reshaping / rebuilding any dashboard view (issues board, PR/CI/Vercel/worktree
+  cockpit) onto repo-centric data. Explicitly rejected in favor of removal.
+- The roadmap board (`roadmapProjectId`) view — removed with the dashboard.
+- Any change to `roxabi issues` behavior beyond keeping it compiling/passing.
+- Broader ProjectV2 teardown in `issue-triage` / `config-helpers` / shared
+  adapters — those serve other commands and are governed separately (#240/#260).
+
+## Premise Validity
+
+**Success in 6 months:** `roxabi dashboard` no longer exists; `grep -r
+'ProjectV2\|GH_PROJECT_ID\|fetchAllItems'` finds no hit reachable from the
+dashboard path; `roxabi issues` still renders its table; QG green.
+
+**Failure in 6 months:** dashboard-path code still imports
+`ProjectV2`/`GH_PROJECT_ID`/`fetchAllItems`, OR `roxabi issues` broke because a
+shared file (`table-formatter.ts`/`types.ts`) was deleted along with the
+dashboard. Both are grep/test-observable now.
+
+**Simplest alternative:** guard `fetchAllItems()` to return `[]` instead of
+deleting anything.
+**Why not simplest:** leaves the entire dead ProjectV2 board + 1k lines of
+unreachable code in the tree — it hides the dependency rather than dropping it,
+directly contradicting the issue's intent.
+
+## Complexity
+
+**Tier: F-lite** — single domain (TS CLI), clear scope, one real risk: the
+shared/exclusive disentanglement (`table-formatter.ts` + dependency closure must
+survive while ~8 dashboard-exclusive files are deleted). The spec pins the exact
+delete-set vs keep-set; the plan sequences deletion + import cleanup + QG.
+
+Signals observed:
+- Single domain (TypeScript CLI under `plugins/dev-core/`).
+- ~8 files deleted, 1 registry edit; bounded, no new architecture.
+- Risk concentrated in not over-deleting shared code → spec enumerates the set.
