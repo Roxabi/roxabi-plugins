@@ -39,7 +39,7 @@ Let N := issue number extracted from $ARGUMENTS (e.g. `--show 42` → N=42).
 
 **Default (CLI table):**
 
-1. `Φ_i/list.ts`
+1. `bun ${CLAUDE_PLUGIN_ROOT}/cli/index.ts issues`
 
 2. Output verbatim in code block. ¬reformat. ¬truncate/summarize/omit rows.
 
@@ -63,8 +63,7 @@ Let N := issue number extracted from $ARGUMENTS (e.g. `--show 42` → N=42).
 | `--tree` / `-T` | Compact tree view — full titles, inline metadata, all depths |
 | `--json` | Raw JSON |
 | `--priority` | Sort by priority (default) |
-| `--size` | Sort by size |
-| `--title-length=N` | Truncate titles at N chars (default: 55) |
+| `--all` / `-A` | List issues across all registered projects, not just the current repo |
 
 ## Output Columns
 
