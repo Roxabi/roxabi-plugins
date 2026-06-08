@@ -192,10 +192,11 @@ describe('issue-triage/set > field updates', () => {
     expect(mockUpdateField).toHaveBeenCalledWith('item-123', expect.any(String), 'pri-high')
   })
 
-  it('updates status via label + project field', async () => {
+  it('updates status via project field only — no status:* label sync', async () => {
     await setIssue(['42', '--status', 'In Progress'])
     expect(mockUpdateField).toHaveBeenCalledWith('item-123', expect.any(String), 'status-inprog')
-    expect(mockSyncStatusLabel).toHaveBeenCalledWith(42, 'In Progress')
+    // issues-only model: status is open/closed + board field; no redundant status:* label
+    expect(mockSyncStatusLabel).not.toHaveBeenCalled()
   })
 
   it('exits with error for invalid --size value', async () => {
@@ -428,6 +429,11 @@ describe('issue-triage/set > cross-repo subject', () => {
     expect(mockUpdateField).not.toHaveBeenCalled()
     const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
     expect(errCalls.some((m) => m.includes('not supported for cross-repo'))).toBe(true)
+    // issues-only model: --status no longer participates in label sync, so the
+    // label-sync warning must NOT fire for a cross-repo --status-only call
+    // (only the board-side applyProjectFields warning above does).
+    expect(mockSyncStatusLabel).not.toHaveBeenCalled()
+    expect(errCalls.every((m) => !m.includes('label sync'))).toBe(true)
   })
 
   it('skips label sync for cross-repo subject with --size', async () => {
