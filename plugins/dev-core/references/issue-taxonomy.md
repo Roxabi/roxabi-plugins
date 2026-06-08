@@ -1,30 +1,34 @@
 # Issue Taxonomy — Roxabi SSoT
 
-Single fact source for issue metadata across every Roxabi repo (`lyra`, `voiceCLI`, `roxabi-vault`, `imageCLI`, `roxabi-forge`, `roxabi-intel`, `roxabi-idna`, `roxabi-plugins`) — 7 repos total.[^2ndbrain]
+Single fact source for issue metadata across every Roxabi repo.
 
-[^2ndbrain]: `2ndBrain` is a local-only project (see `~/projects/CLAUDE.md`) — it is not a GitHub repo and is excluded from the migration.
+**Model:** issues-only / labels-first. Issue metadata lives on **GitHub labels** + **native issue fields** (Issue Type, Milestone, Assignees, sub-issues, dependencies), scoped per-repo. There is **no required project board** — reads are repo-centric.
 
-**Who reads this:** `dev-core:issue-triage` · `dev-core:github-setup` · `lyra/scripts/dep-graph` · `lyra/scripts/corpus`.
+> **ProjectV2 is optional legacy.** The hub Project V2 board path still exists in code (`config-helpers.ts` field IDs, `addToProject`, `migrate-*` scripts) but is **gated behind `isProjectConfigured()`** and off by default. When no board is configured, every write is a label or native field. See §6 for the legacy board path and §7 for the migration history that produced this model.
+
+**Who reads this:** `dev-core:issue-triage` (writer) · `dev-core:github-setup` (label/type bootstrap) · `lyra/scripts/dep-graph` · `roxabi-live` worker (repo-centric GraphQL readers).
 
 ---
 
 ## 1. Field set
 
-| Field | GH object | Values | Scope | Reader(s) | Writer(s) |
-|---|---|---|---|---|---|
-| **Lane** | Project V2 single_select | `a1` `a2` `a3` `b` `c1` `c2` `c3` `d` `e` `f` `g` `h` `i` `j` `k` `l` `m` `n` `o` `standalone` | Hub project (spans all repos) | dep-graph | issue-triage |
-| **Priority** | Project V2 single_select | `P0` `P1` `P2` `P3` | Hub project | issues | issue-triage |
-| **Size** | Project V2 single_select | `S` `F-lite` `F-full` | Hub project | dep-graph · issues | issue-triage |
-| **Status** | Project V2 built-in | `Todo` `Ready` `In Progress` `Blocked` `Done` | Hub project | dep-graph | issue-triage · auto-derived |
-| **Milestone** | Native GH milestone | `M0` `M1` `M2` `…` | **Per-repo** (names kept consistent) | dep-graph (band headers) | issue-triage · milestones-sync |
-| **Issue Type** | Org-level native | Current (pre-Phase 1): `Bug` `Feature` `Epic` `Chore` `Research` → Target (post-Phase 1): `feat` `fix` `refactor` `docs` `test` `chore` `ci` `perf` `epic` `research` | Org (applies to every repo) | dep-graph | issue-triage · github-setup (org bootstrap) |
-| **Assignees** | Native | users | Repo (GH native) | — | manual · issue-triage |
+| Field | Storage | Values (canonical → label) | Scope | Writer |
+|---|---|---|---|---|
+| **Priority** | label | `P0→P0-critical` · `P1→P1-high` · `P2→P2-medium` · `P3→P3-low` | Per-repo | issue-triage |
+| **Size** | label | `S→size:S` · `F-lite→size:F-lite` · `F-full→size:F-full` | Per-repo | issue-triage |
+| **Lane** | label | `<lane>→graph:lane/<lane>` (20 canonical lanes, see below) | Per-repo | issue-triage |
+| **Status** | label | `status:Backlog` · `status:Analysis` · `status:Specs` · `status:In Progress` · `status:Review` · `status:Done` | Per-repo | issue-triage (`create` only — see note) |
+| **Issue Type** | org-level native | `feat` `fix` `refactor` `docs` `test` `chore` `ci` `perf` `epic` `research` | Org (every repo inherits) | issue-triage (`updateIssueIssueType`) · github-setup (org bootstrap) |
+| **Milestone** | native GH milestone | `M0` `M1` `M2` `…` | **Per-repo** (names kept consistent) | issue-triage · milestones-sync |
+| **Assignees** | native | users | Per-repo (identity is org-wide) | manual · issue-triage |
 
-**Size schema reconciliation:** `config-helpers.ts:DEFAULT_SIZE_OPTIONS` currently holds `['XS', 'S', 'M', 'L', 'XL']`; `init/lib/hub-bootstrap.ts:SIZE_OPTIONS` uses `['S', 'F-lite', 'F-full']`. The live hub project schema is the source of truth. `bun triage.ts migrate audit-schema` reports any drift. `DEFAULT_SIZE_OPTIONS` will be reconciled to the live set once the audit runs against a real project (tracked via `TODO(#121)` in `config-helpers.ts`).
+**Canonical lanes** (`config-helpers.ts:DEFAULT_LANE_OPTIONS`): `a1 a2 a3 b c1 c2 c3 d e f g h i j k l m n o standalone`.
+
+**Status note:** in the issues-only model, status is largely the native issue **open/closed** state. `issue-triage set` deliberately does **not** write `status:*` labels (dropped in #262 — redundant/noisy). `issue-triage create` does seed a `status:*` label. The board-side status write only fires when `isProjectConfigured()` (legacy path).
 
 **Native relations (no field needed):**
-- **Sub-issues** — parent/child, cross-org since 2025-09 · REST `…/sub_issues` · `…/parent`
-- **blocked_by / blocking** — cross-repo, public preview · REST `…/dependencies/*`
+- **Sub-issues** — parent/child, cross-org · REST `…/sub_issues` · `…/parent`
+- **blocked_by / blocking** — cross-repo · REST `…/dependencies/*`
 
 ---
 
@@ -32,129 +36,80 @@ Single fact source for issue metadata across every Roxabi repo (`lyra`, `voiceCL
 
 | Field | Cross-repo? | Consequence |
 |---|---|---|
-| Lane · Priority · Size · Status | ✅ one hub project | set once, read everywhere |
+| Priority · Size · Lane · Status | ❌ per-repo labels | set per repo; consistency is convention, not enforced |
 | Issue Type | ✅ org-level | defined once, every repo inherits |
-| Milestone | ❌ per-repo | `M3` must exist in every repo; keep names consistent; `make milestones-sync` helper bootstraps |
-| Assignees | ❌ per-repo | no cross-repo user list, but user identity is org-wide |
-| Sub-issues | ✅ cross-org | |
+| Milestone | ❌ per-repo | `M3` must exist in every repo; keep names consistent; `milestones-sync` helper bootstraps |
+| Assignees | ❌ per-repo | no cross-repo user list, but identity is org-wide |
+| Sub-issues | ✅ cross-org | native |
 | blocked_by / blocking | ✅ cross-repo | `addBlockedBy` hits EMU restrictions cross-org; not a concern for Roxabi |
-| **Issue create target** | ⚙️ env/config | Fields and edges above are native cross-repo; the CREATE target is cwd-bound by default. Override: set `GITHUB_REPO=owner/repo` env var (or `github_repo` in dev-core config) to create in a different repo. Caveat 1: retargets the entire invocation — bare `#N` refs resolve against the override, not the cwd; always use `OWNER/REPO#N`. Caveat 2: `addToProject` only succeeds if the target repo is linked to the configured `GH_PROJECT_ID` (non-fatal warning otherwise). |
+| **Issue create target** | ⚙️ env/config | The CREATE target is cwd-bound by default. Override: set `GITHUB_REPO=owner/repo` (or `github_repo` in dev-core config). Caveat: retargets the whole invocation — bare `#N` refs resolve against the override; always use `OWNER/REPO#N`. |
 
 ---
 
-## 3. What was removed
-
-| Removed | Replaced by | Reason |
-|---|---|---|
-| Label `graph:lane/*` | `Lane` project field | mutable, driftable, per-repo namespace |
-| Label `size:*` | `Size` project field | same |
-| Label `graph:standalone` | `Lane = standalone` option | one fact, one place |
-| Label `graph:defer` | Bump `Milestone` to later `M*` | "defer" was scheduling in disguise |
-| `layout.json meta.label_prefix` | — | no label discovery anymore |
-| `layout.json lanes[].epic` (lane-defining) | Lanes are field-defined; epics are issues with sub-issues | epic no longer anchors a lane |
-| Label-drift audit (`make dep-graph audit`) | **Repurpose** to validate project-field coverage | no labels to audit |
-
-**Kept as domain tags (per-repo, unchanged):** `deploy` · `ci` · `security` · `docs` · `performance` · etc. These are technical domain markers, not taxonomy.
-
-### LEGACY_LABEL_MAP
-
-| Legacy input | Source | Mapped field | Target value |
-|---|---|---|---|
-| `graph:lane/<X>` | label | Lane | `<X>` (identity — all 20 canonical lanes) |
-| `size:S` | label | Size | `S` |
-| `size:M` | label | Size | `F-lite` |
-| `size:L` | label | Size | `F-full` |
-| `size:XL` | label | Size | `F-full` |
-| `P0-*` | label | Priority | `P0 - Urgent` |
-| `P1-*` | label | Priority | `P1 - High` |
-| `P2-*` | label | Priority | `P2 - Medium` |
-| `P3-*` | label | Priority | `P3 - Low` |
-| `feat(...): ...` etc | title prefix | issueType | `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `ci`, `perf` |
-
----
-
-## 4. Disambiguation
+## 3. Disambiguation
 
 | Word | Meaning |
 |---|---|
 | `lane` (lowercase, layout.json key) | Dep-graph swim-lane grouping, `lanes[]` array in layout |
-| `Lane` (Titlecase) | The GH Project V2 custom field — the SSoT for lane assignment |
+| `Lane` / `graph:lane/*` | The lane label — the SSoT for lane assignment |
 | "swim-lane" | The rendered visual concept in dep-graph HTML |
-| `epic` (lowercase, layout.json deprecated) | Old lane-anchor slot — **gone** post-migration |
-| `Epic` (Titlecase) | GH org-level Issue Type; any issue with sub-issues marked as such |
+| `Epic` | GH org-level Issue Type; any issue with sub-issues marked as such |
 | `Milestone` (GH native) | The field used for roadmap phase bands on dep-graph |
 | `Phase` | Not used. If you hear "phase", they mean Milestone. |
 
 ---
 
-## 5. Plugin contracts
+## 4. Plugin contracts
 
 ### `dev-core:issue-triage`
-- **Writes:** Lane · Priority · Size · Status · Milestone · Issue Type · Assignees · sub-issue parent · blocked_by
+- **Writes:** Priority · Size · Lane · Status (create) labels · Issue Type (native) · Milestone · Assignees · sub-issue parent · blocked_by
 - **Inputs:** user triage prompt + issue context
-- **Mutates:** GH Project V2 items (field values) + native issue fields + native relations
-- **Never writes:** raw labels for taxonomy (domain tags only)
-- **Phase 3 dual-write override:** during dual-write, also writes `graph:lane/*`, `size:*`, and Conventional Commits title prefix alongside hub fields.
-- "Never writes labels for taxonomy" is the **post-Phase 6** invariant; pre-cutover, the override above applies.
+- **Mutates:** GitHub labels + native issue fields + native relations (and, when `isProjectConfigured()`, legacy ProjectV2 item fields)
+- **Stale-label hygiene:** each `sync*Label` adds the target label and removes all other labels in the same set (`*_LABELS_SET`), so a field has exactly one value.
+- **Domain tags untouched:** `deploy` · `ci` · `security` · `docs` · `performance` etc. are technical markers, not taxonomy — issue-triage never strips them.
 
 ### `dev-core:github-setup`
-- **One-shot org bootstrap:**
-  - Create/verify org-level Issue Types (post-Phase 1 target set: feat/fix/refactor/docs/test/chore/ci/perf/epic/research — pre-migration names Bug/Feature/Chore/Research get renamed; Epic retained as-is)
-  - Create/verify hub Project V2 + 4 custom fields (Lane/Priority/Size + Status options)
-- **Per-repo bootstrap:**
-  - Seed milestones (`M0…MN`) with consistent names
-  - Does **not** auto-enroll experimental or archived repos
+- **Org bootstrap:** create/verify org-level Issue Types (`feat fix refactor docs test chore ci perf epic research`).
+- **Per-repo bootstrap:** seed standard labels (priority/size/lane/status) + milestones (`M0…MN`) with consistent names. Does **not** auto-enroll experimental or archived repos.
 
-### `dep-graph`
-- **Reads:** single paginated GraphQL query on `organization.projectV2.items` — one call hydrates `fieldValues` (Lane/Priority/Size/Status), `content.milestone`, `content.blockedBy`, `content.blocking`, `content.parent`, `content.subIssues`, `content.issueType`. All fields GA — no preview APIs in the hot path.
-- **Caches:** `gh.json` (dep-graph) / `~/.roxabi/corpus.db` (corpus)
-- **Fallback:** if hub project API fails, render last good cache with a stale-banner
+### Readers (`dep-graph`, `roxabi-live` worker)
+- **Reads:** repo-centric — per-repo issues via GraphQL/REST, hydrating labels (priority/size/lane/status), `milestone`, `blockedBy`, `blocking`, `parent`, `subIssues`, `issueType`.
+- **Caches:** `gh.json` (dep-graph) · D1 / corpus (roxabi-live).
+- **Fallback:** on API failure, render last good cache with a stale-banner.
 
 ---
 
-## 6. dep-graph fetch contract
+## 5. Anti-patterns
 
-**One paginated GraphQL query** on `organization.projectV2.items` hydrates every fact. No REST fan-out, no preview APIs.
-
-| Fact | Path in GraphQL response |
-|---|---|
-| **Discovery** | `organization.projectV2(number: N).items.nodes[]` (paginated) |
-| **Lane / Priority / Size** | `item.fieldValues.nodes` → `ProjectV2ItemFieldSingleSelectValue.field.name + .name` |
-| **Status** | same node type, `field.name == "Status"`; auto-derived from issue state (CLOSED → Done) |
-| **Milestone / band headers** | `item.content.milestone.title` |
-| **Edges (blocked_by/blocking)** | `item.content.blockedBy.nodes[]` + `item.content.blocking.nodes[]` — each node carries `repository.nameWithOwner`, cross-repo native |
-| **Parent/child** | `item.content.parent` + `item.content.subIssues.nodes[]` |
-| **Epic marker** | `item.content.issueType.name == "Epic"` |
-
-Shape verified end-to-end by spike on `Roxabi/lyra#717` in hub project #23 (2026-04-21). Keep `gh.json` as a versioned cache for rate-limit resilience and offline render, shape-assert first non-empty response, fail fast on schema mismatch.
-
-**Superseded REST paths** (no longer needed): `/repos/{r}/issues/{n}` per issue · `/repos/{r}/issues/{n}/dependencies/blocked_by` · `/repos/{r}/issues/{n}/dependencies/blocking` · `gh issue list --label graph:lane/*`.
-
----
-
-## 7. Migration order (reference)
-
-Fact source for the migration spec. Do not execute from this doc.
-
-```
-0. Publish SSoT + link from consumer SKILL.md files    (discoverability)
-1. Create hub project + fields + Issue Types           (setup)
-2. Dual-write: issue-triage writes labels AND fields   (safety window)
-3. Backfill: script label → field per repo             (migrate data)
-4. Flip dep-graph fetch to read fields                 (cutover)
-5. Stop writing labels; drop graph:* labels per repo   (cleanup)
-6. Repurpose audit to validate field coverage          (guardrail)
-7. Roll out to new repos via hub-bootstrap             (default)
-```
-
----
-
-## 8. Anti-patterns
-
-- ❌ Creating a new `graph:*` label for taxonomy — use a project field
+- ❌ Writing taxonomy as a free-form label outside the canonical sets — use the `sync*Label` maps so stale values are pruned
+- ❌ Relying on `status:*` labels for lifecycle state on a normal repo — status is the native open/closed state; `set` does not write `status:*`
 - ❌ Using GH milestone for "cross-repo roadmap phase" without sync — milestones are per-repo
 - ❌ Using a custom "Phase" field **and** milestones — pick one (milestones win)
-- ❌ Setting `Lane` via label — the field is the fact source
 - ❌ `dev-core:github-setup` auto-enrolling every new org repo — opt-in only
-- ❌ Reading field values without caching — always populate `gh.json` (dep-graph) / `corpus.db` (corpus) first
-- ❌ Using preview APIs in the hot read path — all fields consumed by dep-graph must be GA
+- ❌ Reading issues without caching — always populate `gh.json` / D1 first
+
+---
+
+## 6. Legacy ProjectV2 board path (optional, gated)
+
+Retained for repos still enrolled on the hub Project V2 board. Activated only when `isProjectConfigured()` returns true (field IDs present in dev-core config). Off by default.
+
+- **Writes:** `issue-triage` mirrors Priority/Size/Lane/Status to `ProjectV2ItemFieldSingleSelectValue` items via the field IDs in `config-helpers.ts` (`PRIORITY_FIELD_ID`, `STATUS_FIELD_ID`, …) and adds the issue to `GH_PROJECT_ID`.
+- **Migration scripts** (`issue-triage/lib/migrate-*`): `migrate-backfill` (label → field), `migrate-revert` (field → label), `migrate-audit` (drift report). These are the label↔field bridge used during enroll/un-enroll.
+- **Reads (board era):** a single paginated GraphQL query on `organization.projectV2.items` hydrated every fact. The current readers no longer use this — they read per-repo.
+
+---
+
+## 7. History (reference, do not execute)
+
+The taxonomy moved **label → ProjectV2 field → label**:
+
+```
+v1  Labels-first (graph:lane/*, size:*, P*-…)              original
+v2  Migrate to hub Project V2 single-select fields          board era
+        (dual-write → backfill → flip readers → drop labels)
+v3  Revert to labels-first / repo-centric; drop ProjectV2   #262 #263 #264 (2026-06-08)
+        from the read path and from the issues-only model
+```
+
+v3 is current. The board code (§6) survives as an opt-in legacy path, not the default. `dev-core:issues` (the board-era list/dashboard reader) was removed in #265.
