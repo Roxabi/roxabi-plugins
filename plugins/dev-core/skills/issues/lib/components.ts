@@ -1,5 +1,5 @@
 import { PRIORITY_SHORT } from '../../shared/adapters/config-helpers'
-import type { Branch, BranchCI, Issue, PR, VercelDeployment, WorkflowRun, Worktree } from './types'
+import type { CICheck, Issue } from './types'
 
 const STATUS_SHORT: Record<string, string> = {
   'In Progress': 'In Prog',
@@ -109,7 +109,6 @@ export function issueRow(issue: Issue, indent = 0, prefix = '', showProject = fa
     const childPrefix = isLast ? '\u2514 ' : '\u251c '
     html += issueRow(issue.children[i], indent + 1, childPrefix, showProject)
   }
-
   return html
 }
 
@@ -135,15 +134,6 @@ export function roadmapRow(issue: Issue): string {
     <td class="col-status"><span class="badge ${statusClass}">${escHtml(status)}</span></td>
     <td class="col-pri"><span class="badge ${priClass}">${escHtml(pri)}</span></td>
   </tr>\n`
-}
-
-function getPRDisplay(pr: PR): { label: string; cssClass: string } {
-  if (pr.mergeable === 'CONFLICTING') return { label: 'Conflict', cssClass: 'pri-p0' }
-  if (pr.isDraft) return { label: 'Draft', cssClass: 'status-backlog' }
-  if (pr.reviewDecision === 'APPROVED') return { label: 'Approved', cssClass: 'status-done' }
-  if (pr.reviewDecision === 'CHANGES_REQUESTED') return { label: 'Changes', cssClass: 'pri-p1' }
-  if (pr.labels.some((l) => l.toLowerCase() === 'reviewed')) return { label: 'Reviewed', cssClass: 'status-review' }
-  return { label: 'Review', cssClass: 'status-progress' }
 }
 
 const CI_SPINNER = '<span class="ci-spinner"></span>'
@@ -178,7 +168,7 @@ export function ciClass(status: string, conclusion: string): string {
   return 'ci-pending'
 }
 
-export function ciSummary(checks: PR['checks']): { icon: string; label: string; cssClass: string } {
+export function ciSummary(checks: CICheck[]): { icon: string; label: string; cssClass: string } {
   if (checks.length === 0) return { icon: '', label: '', cssClass: '' }
   const total = checks.length
   const pass = checks.filter(
@@ -203,256 +193,4 @@ export function ciSummary(checks: PR['checks']): { icon: string; label: string; 
     label: `${pass}/${total} passed`,
     cssClass: 'ci-pending',
   }
-}
-
-export function prRows(prs: PR[]): string {
-  let html = ''
-  for (const pr of prs) {
-    const { label: statusLabel, cssClass: statusClass } = getPRDisplay(pr)
-    const age = timeAgo(pr.updatedAt)
-    const summary = ciSummary(pr.checks)
-    const hasChecks = pr.checks.length > 0
-
-    html += `<tr class="pr-row" data-pr="${pr.number}">
-      <td><a href="${escHtml(pr.url)}" target="_blank" rel="noopener">#${pr.number}</a></td>
-      <td class="col-pr-title" title="${escHtml(pr.title)}">
-        ${escHtml(pr.title)}
-        <div class="pr-branch"><span class="tree-prefix">\u2514</span><code>${escHtml(pr.branch)}</code></div>
-      </td>
-      <td><span class="badge ${statusClass}">${statusLabel}</span></td>
-      <td class="col-ci">${hasChecks ? `<button class="ci-toggle ${summary.cssClass}" onclick="toggleCI(${pr.number})" title="Toggle CI details">${summary.icon} ${summary.label}</button>` : '<span class="text-muted">-</span>'}</td>
-      <td class="changes"><span class="additions">+${pr.additions}</span> <span class="deletions">-${pr.deletions}</span></td>
-      <td class="text-muted">${age}</td>
-    </tr>`
-
-    if (hasChecks) {
-      html += `<tr class="ci-details-row" id="ci-${pr.number}" style="display:none;">
-        <td colspan="6">
-          <div class="ci-checks">`
-      for (const check of pr.checks) {
-        const icon = ciIcon(check.status, check.conclusion)
-        const cls = ciClass(check.status, check.conclusion)
-        const nameHtml = check.detailsUrl
-          ? `<a href="${escHtml(check.detailsUrl)}" target="_blank" rel="noopener">${escHtml(check.name)}</a>`
-          : escHtml(check.name)
-        html += `<div class="ci-check ${cls}">${icon} ${nameHtml}</div>`
-      }
-      html += `</div></td></tr>`
-    }
-  }
-  return html
-}
-
-export function renderPRs(prs: PR[]): string {
-  if (prs.length === 0) return '<p class="empty-state">No open pull requests</p>'
-  return `<table class="sub-table"><thead><tr>
-    <th>#</th><th>Title</th><th>Status</th><th>CI</th><th>Changes</th><th>Updated</th>
-  </tr></thead><tbody>${prRows(prs)}</tbody></table>`
-}
-
-export function renderBranchesAndWorktrees(branches: Branch[], worktrees: Worktree[]): string {
-  const featureBranches = branches.filter((b) => b.name !== 'main' && b.name !== 'master')
-  if (featureBranches.length === 0) return '<p class="empty-state">No feature branches</p>'
-
-  // Index worktrees by branch name for quick lookup
-  const wtByBranch = new Map<string, Worktree>()
-  for (const wt of worktrees) {
-    if (wt.branch) wtByBranch.set(wt.branch, wt)
-  }
-
-  let html = '<div class="branch-list">'
-  for (const b of featureBranches) {
-    const issueMatch = b.name.match(/(\d+)/)
-    const issueNum = issueMatch ? `#${issueMatch[1]}` : ''
-    const wt = wtByBranch.get(b.name)
-    const shortPath = wt ? wt.path.replace(/^\/home\/[^/]+\/projects\//, '~/') : ''
-
-    html += `<div class="branch-item">
-      <span class="branch-icon">&#9095;</span>
-      <code>${escHtml(b.name)}</code>
-      ${issueNum ? `<span class="branch-issue">${issueNum}</span>` : ''}
-      ${b.isCurrent ? '<span class="badge status-progress">current</span>' : ''}
-      ${wt ? `<span class="wt-path">${escHtml(shortPath)}</span>` : ''}
-    </div>`
-  }
-  html += '</div>'
-  return html
-}
-
-const DEPLOY_STATE_DISPLAY: Record<string, { icon: string; label: string; cls: string }> = {
-  BUILDING: { icon: '<span class="ci-spinner"></span>', label: 'Building', cls: 'vd-building' },
-  QUEUED: { icon: '<span class="ci-spinner"></span>', label: 'Queued', cls: 'vd-queued' },
-  INITIALIZING: {
-    icon: '<span class="ci-spinner"></span>',
-    label: 'Initializing',
-    cls: 'vd-queued',
-  },
-  READY: { icon: '\u2705', label: 'Ready', cls: 'vd-ready' },
-  ERROR: { icon: '\u274c', label: 'Error', cls: 'vd-error' },
-  CANCELED: { icon: '\u26d4', label: 'Canceled', cls: 'vd-error' },
-}
-
-const STEP_ICON: Record<string, string> = {
-  done: '\u2705',
-  running: '<span class="ci-spinner"></span>',
-  pending: '\u25cb',
-  error: '\u274c',
-}
-
-function renderBuildPipeline(steps: VercelDeployment['buildSteps']): string {
-  if (steps.length === 0) return ''
-  return steps
-    .map((s) => `<span class="vd-step vd-step-${s.status}">${STEP_ICON[s.status]} ${escHtml(s.name)}</span>`)
-    .join('<span class="vd-step-arrow">\u2192</span>')
-}
-
-const OVERALL_STATE_DISPLAY: Record<string, { icon: string; label: string; cls: string }> = {
-  SUCCESS: { icon: '\u2705', label: 'Passing', cls: 'ci-success' },
-  FAILURE: { icon: '\u274c', label: 'Failing', cls: 'ci-failure' },
-  ERROR: { icon: '\u274c', label: 'Error', cls: 'ci-failure' },
-  PENDING: { icon: CI_SPINNER, label: 'Pending', cls: 'ci-running' },
-  EXPECTED: { icon: CI_SPINNER, label: 'Running', cls: 'ci-running' },
-}
-
-export function branchCIRows(branches: BranchCI[], idPrefix = ''): string {
-  let html = ''
-  for (const b of branches) {
-    const stateDisplay = OVERALL_STATE_DISPLAY[b.overallState] ?? {
-      icon: '\u2753',
-      label: b.overallState || 'Unknown',
-      cls: 'ci-pending',
-    }
-    const summary = ciSummary(b.checks)
-    const hasChecks = b.checks.length > 0
-    const branchId = idPrefix ? `branch-ci-${idPrefix}-${b.branch}` : `branch-ci-${b.branch}`
-    const age = b.committedAt ? timeAgo(b.committedAt) : ''
-    const branchBadgeCls = b.branch === 'main' ? 'status-done' : 'status-review'
-
-    html += `<tr class="pr-row">
-      <td><span class="badge ${branchBadgeCls}">${escHtml(b.branch)}</span></td>
-      <td><span class="${stateDisplay.cls}">${stateDisplay.icon} ${stateDisplay.label}</span></td>
-      <td class="col-ci">${hasChecks ? `<button class="ci-toggle ${summary.cssClass}" onclick="toggleCI('${branchId}')" title="Toggle CI details">${summary.icon} ${summary.label}</button>` : '<span class="text-muted">-</span>'}</td>
-      <td class="text-muted">${b.commitSha ? `<code title="${escHtml(b.commitMessage)}">${escHtml(b.commitSha)}</code> ${escHtml(shortTitle(b.commitMessage, 30))}` : '-'}</td>
-      <td class="text-muted">${age}</td>
-    </tr>`
-
-    if (hasChecks) {
-      html += `<tr class="ci-details-row" id="${branchId}" style="display:none;">
-        <td colspan="5">
-          <div class="ci-checks">`
-      for (const check of b.checks) {
-        const icon = ciIcon(check.status, check.conclusion)
-        const cls = ciClass(check.status, check.conclusion)
-        const nameHtml = check.detailsUrl
-          ? `<a href="${escHtml(check.detailsUrl)}" target="_blank" rel="noopener">${escHtml(check.name)}</a>`
-          : escHtml(check.name)
-        html += `<div class="ci-check ${cls}">${icon} ${nameHtml}</div>`
-      }
-      html += `</div></td></tr>`
-    }
-  }
-  return html
-}
-
-export function renderBranchCI(branches: BranchCI[]): string {
-  if (branches.length === 0) return '<p class="empty-state">No CI data</p>'
-  return `<table class="sub-table"><thead><tr>
-    <th>Branch</th><th>Status</th><th>CI</th><th>Commit</th><th>Updated</th>
-  </tr></thead><tbody>${branchCIRows(branches)}</tbody></table>`
-}
-
-export function vercelCards(deployments: VercelDeployment[]): string {
-  return deployments
-    .map((d) => {
-      const display = d.isCurrent
-        ? { icon: '🟢', label: 'Current', cls: 'vd-ready' }
-        : (DEPLOY_STATE_DISPLAY[d.state] ?? { icon: '\u2753', label: d.state, cls: '' })
-      const env = d.target === 'production' ? 'prod' : 'preview'
-      const envCls = d.target === 'production' ? 'vd-env-prod' : 'vd-env-preview'
-      const branch = d.meta.githubCommitRef ?? ''
-      const msg = d.meta.githubCommitMessage ? shortTitle(d.meta.githubCommitMessage, 40) : ''
-      const age = d.createdAt ? timeAgo(new Date(d.createdAt).toISOString()) : ''
-      const deployUrl = `https://${d.url}`
-      const inspectUrl = d.inspectorUrl || `https://vercel.com`
-      const pipeline = renderBuildPipeline(d.buildSteps)
-      return `<div class="vd-card ${display.cls}">
-      <div class="vd-item">
-        <span class="vd-state">${display.icon} ${display.label}</span>
-        <span class="badge ${envCls}">${env}</span>
-        ${d.name ? `<span class="vd-project-name">${escHtml(d.name)}</span>` : ''}
-        <a href="${escHtml(deployUrl)}" target="_blank" rel="noopener" class="vd-url">${escHtml(d.url)}</a>
-        ${branch ? `<code class="vd-branch">${escHtml(branch)}</code>` : ''}
-        ${msg ? `<span class="vd-msg">${escHtml(msg)}</span>` : ''}
-        <span class="text-muted vd-age">${age}</span>
-        <a href="${escHtml(inspectUrl)}" target="_blank" rel="noopener" class="vd-inspect" title="Inspect on Vercel">\u2197</a>
-      </div>
-      ${pipeline ? `<div class="vd-pipeline">${pipeline}</div>` : ''}
-    </div>`
-    })
-    .join('')
-}
-
-export function renderVercelDeployments(deployments: VercelDeployment[]): string {
-  if (deployments.length === 0) return ''
-  return `<div class="section">
-    <h2>\u25b2 Vercel Deployments</h2>
-    <div class="vd-list">${vercelCards(deployments)}</div>
-  </div>`
-}
-
-const WR_STATUS_DISPLAY: Record<string, { icon: string; label: string; cls: string }> = {
-  in_progress: { icon: '\ud83d\udd04', label: 'Running', cls: 'wr-badge-running' },
-  queued: { icon: '\u23f3', label: 'Queued', cls: 'wr-badge-queued' },
-}
-
-const WR_CONCLUSION_DISPLAY: Record<string, { icon: string; label: string; cls: string }> = {
-  success: { icon: '\u2705', label: 'Success', cls: 'wr-badge-success' },
-  failure: { icon: '\u274c', label: 'Failed', cls: 'wr-badge-failure' },
-  cancelled: { icon: '\u2298', label: 'Cancelled', cls: 'wr-badge-cancelled' },
-  skipped: { icon: '\u23ed', label: 'Skipped', cls: 'wr-badge-cancelled' },
-}
-
-const WR_EVENT_LABEL: Record<string, string> = {
-  workflow_dispatch: 'manual',
-  pull_request: 'PR',
-  push: 'push',
-}
-
-export function workflowRunCards(runs: WorkflowRun[]): string {
-  return runs
-    .map((run) => {
-      let badge: { icon: string; label: string; cls: string }
-      if (run.status === 'completed') {
-        badge = WR_CONCLUSION_DISPLAY[run.conclusion ?? ''] ?? {
-          icon: '\u2753',
-          label: run.conclusion ?? run.status,
-          cls: 'wr-badge-queued',
-        }
-      } else {
-        badge = WR_STATUS_DISPLAY[run.status] ?? {
-          icon: '\u2753',
-          label: run.status,
-          cls: 'wr-badge-queued',
-        }
-      }
-      const eventLabel = WR_EVENT_LABEL[run.event] ?? run.event
-      const age = timeAgo(run.updatedAt)
-      const commitText = run.displayTitle || run.headCommitMessage
-      return `<div class="wr-card">
-      <div class="wr-item">
-        <span class="wr-badge ${badge.cls}">${badge.icon} ${badge.label}</span>
-        <a href="${escHtml(run.htmlUrl)}" target="_blank" rel="noopener" class="wr-name">${escHtml(run.name)}</a>
-        ${run.headBranch ? `<code class="vd-branch">${escHtml(run.headBranch)}</code>` : ''}
-        ${commitText ? `<span class="vd-msg">${escHtml(commitText)}</span>` : ''}
-        <span class="wr-event badge">${escHtml(eventLabel)}</span>
-        <span class="text-muted vd-age">${age}</span>
-      </div>
-    </div>`
-    })
-    .join('')
-}
-
-export function renderWorkflowRuns(runs: WorkflowRun[]): string {
-  if (runs.length === 0) return ''
-  return `<div class="section"><h2>Workflow Runs</h2><div class="wr-cards">${workflowRunCards(runs)}</div></div>`
 }

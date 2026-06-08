@@ -1,6 +1,6 @@
 /**
  * Scaffold dev-core configuration files.
- * Handles .env merge, .env.example, run-dashboard.ts launcher, artifacts dirs, .gitignore.
+ * Handles .env merge, .env.example, artifacts dirs, .gitignore.
  */
 
 const fs = require('node:fs')

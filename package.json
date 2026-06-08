@@ -6,7 +6,6 @@
   "license": "AGPL-3.0",
   "type": "module",
   "scripts": {
-    "dashboard": "bun .claude/run-dashboard.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "bunx biome check .",
