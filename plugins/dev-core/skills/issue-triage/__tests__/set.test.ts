@@ -429,6 +429,11 @@ describe('issue-triage/set > cross-repo subject', () => {
     expect(mockUpdateField).not.toHaveBeenCalled()
     const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
     expect(errCalls.some((m) => m.includes('not supported for cross-repo'))).toBe(true)
+    // issues-only model: --status no longer participates in label sync, so the
+    // label-sync warning must NOT fire for a cross-repo --status-only call
+    // (only the board-side applyProjectFields warning above does).
+    expect(mockSyncStatusLabel).not.toHaveBeenCalled()
+    expect(errCalls.every((m) => !m.includes('label sync'))).toBe(true)
   })
 
   it('skips label sync for cross-repo subject with --size', async () => {
