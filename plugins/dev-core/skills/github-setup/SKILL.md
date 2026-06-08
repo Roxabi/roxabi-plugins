@@ -133,11 +133,11 @@ priority_options_json: '<json>'
 
 Run: `bun $I_TS scaffold --github-repo <owner/repo> --project-id <PVT_...> --status-field-id <PVTSSF_...> --size-field-id <PVTSSF_...> --priority-field-id <PVTSSF_...> --status-options-json '<json>' --size-options-json '<json>' --priority-options-json '<json>' [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
 
-Also writes `.env`/`.env.example` for backward compat. δ takes precedence at runtime via `loadDevCoreConfig()`. Installs `roxabi` shim at `~/.local/bin/roxabi` (or `~/bin/roxabi`) — self-healing, survives plugin updates. Run `roxabi dashboard` to launch.
+Also writes `.env`/`.env.example` for backward compat. δ takes precedence at runtime via `loadDevCoreConfig()`. Installs `roxabi` shim at `~/.local/bin/roxabi` (or `~/bin/roxabi`) — self-healing, survives plugin updates.
 
 ## Phase 4 — Workspace Registration
 
-Register in shared workspace config (enables multi-project dashboard).
+Register in shared workspace config.
 
 1. Check:
    ```bash

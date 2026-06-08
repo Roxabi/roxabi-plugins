@@ -1,26 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildDepGraph } from '../lib/graph'
 import { topoSort } from '../lib/topo-sort'
-import type { Issue } from '../lib/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const noEdges = (_id: number): number[] => []
-
-function makeIssue(number: number, blocking: number[] = []): Issue {
-  return {
-    number,
-    title: `Issue #${number}`,
-    url: `https://github.com/test/${number}`,
-    status: 'Backlog',
-    size: '-',
-    priority: '-',
-    blockStatus: blocking.length > 0 ? 'blocking' : 'ready',
-    blockedBy: [],
-    blocking: blocking.map((n) => ({ number: n, state: 'OPEN' })),
-    children: [],
-  }
-}
 
 // ─── A) input-order ───────────────────────────────────────────────────────────
 
@@ -119,50 +102,5 @@ describe('topoSort — string-asc (legacy bare .sort() parity)', () => {
   it('single node with no edges → returns that node', () => {
     // Arrange / Act / Assert
     expect(topoSort([42], noEdges, 'string-asc')).toEqual([42])
-  })
-})
-
-// ─── C) Integration: buildDepGraph (input-order caller) ────────────────────────
-//
-// buildDepGraph only includes nodes that have targets (blocking issues), not bare targets.
-// For a node to appear in the result it must: (a) be a root-level issue AND (b) block another
-// root-level issue that is open.  The targets themselves need to be in the issues array too
-// so they qualify as rootNumbers.
-
-describe('buildDepGraph — input-order integration (proves caller passes correct tie-break)', () => {
-  it('preserves input order for independent blockers: [5,3] blocking separate targets', () => {
-    // Arrange — two independent blocking issues; input order is [5, 3]
-    // #5 blocks #10, #3 blocks #20; no relationship between #5 and #3
-    // #10 and #20 must be root issues (in the issues array) so they qualify as targets
-    const issues: Issue[] = [
-      makeIssue(5, [10]), // blocker — appears first
-      makeIssue(3, [20]), // blocker — appears second
-      makeIssue(10), // target of #5
-      makeIssue(20), // target of #3
-    ]
-    // Act
-    const nodes = buildDepGraph(issues)
-    const nums = nodes.map((n) => n.number)
-    // Assert — input order preserved (NOT [3,5] which string-asc would produce)
-    // buildDepGraph passes 'input-order' to topoSort; both nodes are independent (ready in round 1)
-    expect(nums).toEqual([5, 3])
-  })
-
-  it('chain #1 blocks #2, #2 blocks #3 → emits [1,2] (blocker before intermediate)', () => {
-    // Arrange
-    // #1 blocks #2 (a blocker), #2 blocks #3 (also a blocker); #3 is a bare target
-    // In the graph: upstream(#2) = [#1] (because #1.targets includes #2); upstream(#1) = []
-    // Round 1: ready = [#1]; Round 2: ready = [#2]
-    // Only blockers (#1 and #2) appear in result — bare targets are not in the nodes list
-    const issues: Issue[] = [
-      makeIssue(2, [3]), // #2 blocks #3
-      makeIssue(1, [2]), // #1 blocks #2
-      makeIssue(3), // target of #2 — must be root issue
-    ]
-    // Act
-    const nodes = buildDepGraph(issues)
-    const nums = nodes.map((n) => n.number)
-    // Assert — #1 (no upstream) emitted before #2 (upstream #1 must be emitted first)
-    expect(nums).toEqual([1, 2])
   })
 })

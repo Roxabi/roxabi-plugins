@@ -1,6 +1,6 @@
 # issues
 
-List GitHub issues with status, size, priority, dependency relationships, and a live web dashboard.
+List GitHub issues with status, size, priority, and dependency relationships.
 
 ## Why
 
@@ -10,15 +10,13 @@ GitHub's web UI doesn't show custom fields (Size, Priority, Status) in a scan-fr
 
 ```
 /issues                     CLI table (sorted by Priority, then Size)
-/issues --dashboard         Launch live web dashboard (background daemon)
-/issues --stop              Stop the dashboard daemon
 /issues --show 42           Full details for issue #42
 /issues --tree              Compact tree view with all parent/child depths
 /issues --digest            Epic progress + parallel execution order digest
 /issues --json              Raw JSON output
 ```
 
-Triggers: `"list issues"` | `"show issues"` | `"backlog"` | `"issue dashboard"` | `"what's blocked"` | `"what should I work on"` | `"digest"` | `"roadmap"`
+Triggers: `"list issues"` | `"show issues"` | `"backlog"` | `"what's blocked"` | `"what should I work on"` | `"digest"` | `"roadmap"`
 
 ## Output columns
 
@@ -36,14 +34,6 @@ Triggers: `"list issues"` | `"show issues"` | `"backlog"` | `"issue dashboard"` 
 
 Shows epic progress and a parallel execution order — which issues can be worked on simultaneously, grouped by dependency chain into lanes.
 
-## Dashboard
-
-```
-/issues --dashboard
-```
-
-Starts a background HTTP server (port 3333) with a live-updating HTML dashboard. Refresh in your browser for the latest state. Stop with `/issues --stop`.
-
 ## Configuration
 
-Requires `GH_PROJECT_ID` (auto-set by `/init`). `GITHUB_REPO` is auto-detected from git remote.
+`GITHUB_REPO` is auto-detected from git remote. No other configuration required.

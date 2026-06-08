@@ -4,7 +4,7 @@ Single fact source for issue metadata across every Roxabi repo (`lyra`, `voiceCL
 
 [^2ndbrain]: `2ndBrain` is a local-only project (see `~/projects/CLAUDE.md`) — it is not a GitHub repo and is excluded from the migration.
 
-**Who reads this:** `dev-core:issue-triage` · `dev-core:github-setup` · `dev-core:issues` · `lyra/scripts/dep-graph` · `lyra/scripts/corpus` · future `roxabi-dashboard`.
+**Who reads this:** `dev-core:issue-triage` · `dev-core:github-setup` · `dev-core:issues` · `lyra/scripts/dep-graph` · `lyra/scripts/corpus`.
 
 ---
 
@@ -12,13 +12,13 @@ Single fact source for issue metadata across every Roxabi repo (`lyra`, `voiceCL
 
 | Field | GH object | Values | Scope | Reader(s) | Writer(s) |
 |---|---|---|---|---|---|
-| **Lane** | Project V2 single_select | `a1` `a2` `a3` `b` `c1` `c2` `c3` `d` `e` `f` `g` `h` `i` `j` `k` `l` `m` `n` `o` `standalone` | Hub project (spans all repos) | dep-graph · dashboard | issue-triage |
-| **Priority** | Project V2 single_select | `P0` `P1` `P2` `P3` | Hub project | dashboard · issues | issue-triage |
+| **Lane** | Project V2 single_select | `a1` `a2` `a3` `b` `c1` `c2` `c3` `d` `e` `f` `g` `h` `i` `j` `k` `l` `m` `n` `o` `standalone` | Hub project (spans all repos) | dep-graph | issue-triage |
+| **Priority** | Project V2 single_select | `P0` `P1` `P2` `P3` | Hub project | issues | issue-triage |
 | **Size** | Project V2 single_select | `S` `F-lite` `F-full` | Hub project | dep-graph · issues | issue-triage |
-| **Status** | Project V2 built-in | `Todo` `Ready` `In Progress` `Blocked` `Done` | Hub project | dep-graph · dashboard | issue-triage · auto-derived |
+| **Status** | Project V2 built-in | `Todo` `Ready` `In Progress` `Blocked` `Done` | Hub project | dep-graph | issue-triage · auto-derived |
 | **Milestone** | Native GH milestone | `M0` `M1` `M2` `…` | **Per-repo** (names kept consistent) | dep-graph (band headers) | issue-triage · milestones-sync |
-| **Issue Type** | Org-level native | Current (pre-Phase 1): `Bug` `Feature` `Epic` `Chore` `Research` → Target (post-Phase 1): `feat` `fix` `refactor` `docs` `test` `chore` `ci` `perf` `epic` `research` | Org (applies to every repo) | dep-graph · dashboard | issue-triage · github-setup (org bootstrap) |
-| **Assignees** | Native | users | Repo (GH native) | dashboard | manual · issue-triage |
+| **Issue Type** | Org-level native | Current (pre-Phase 1): `Bug` `Feature` `Epic` `Chore` `Research` → Target (post-Phase 1): `feat` `fix` `refactor` `docs` `test` `chore` `ci` `perf` `epic` `research` | Org (applies to every repo) | dep-graph | issue-triage · github-setup (org bootstrap) |
+| **Assignees** | Native | users | Repo (GH native) | — | manual · issue-triage |
 
 **Size schema reconciliation:** `config-helpers.ts:DEFAULT_SIZE_OPTIONS` currently holds `['XS', 'S', 'M', 'L', 'XL']`; `init/lib/hub-bootstrap.ts:SIZE_OPTIONS` uses `['S', 'F-lite', 'F-full']`. The live hub project schema is the source of truth. `bun triage.ts migrate audit-schema` reports any drift. `DEFAULT_SIZE_OPTIONS` will be reconciled to the live set once the audit runs against a real project (tracked via `TODO(#121)` in `config-helpers.ts`).
 
