@@ -1,0 +1,82 @@
+---
+title: Switch CLI issues to repo-centric (drop ProjectV2)
+issue: 253
+status: approved
+tier: F-lite
+date: 2026-06-08
+---
+
+## Problem
+
+`roxabi issues` (`cli/commands/issues.ts`) reads issues by querying `ProjectV2.items`
+GraphQL — single-project via `fetchProjectItems(projectId)` and `-A` via a batched
+`buildBatchedQuery(projectIds)`. Both require every workspace repo to be attached to a
+GitHub ProjectV2 board and carry a `projectId`. The board is now redundant under the
+issues-only model adopted in #260 (status/lane/size/priority live as labels, not board
+fields). A repo with no project board returns nothing from the current read path even
+though its issues exist. The CLI must read issues directly from the repository.
+
+This is the foundational shape change that #252 (drop ProjectV2 dashboard) consumes:
+#253 defines the repo-centric fetch + label→`RawItem` mapping; #252 conforms to it.
+
+## Who
+
+- **Primary:** maintainers running `roxabi issues` / `roxabi issues -A` to triage across
+  workspace repos — today blocked on board membership + `projectId` per repo.
+- **Secondary:** #252 (dashboard) which will build on the same repo-centric fetch shape.
+
+## Constraints
+
+- **Shared-file governance — zero edits to copy-synced / held files:**
+  - `shared/types.ts` (`RawItem`) is **copy-synced** to dev-init (CI byte-equality gate).
+    → Keep `RawItem` unchanged. Build issues into the existing shape.
+  - `shared/queries.ts` (`ISSUES_QUERY`, `buildBatchedQuery`) is **copy-synced**.
+    → Keep the new repo-centric GraphQL query **local to `issues.ts`**; do not add it to
+    the shared module. Old project queries stay (still used by #252 dashboard until it lands).
+  - `shared/ports/workspace.ts` (`WorkspaceProject.projectId`) is on the **#240
+    leave-alone-pending-reconciliation hold** — ¬touch.
+- **Formatters read `item.fieldValues.nodes`** (`table-formatter.ts::fieldValue(item,'Status'|'Size'|'Priority')`).
+  → Synthesize `fieldValues.nodes` from `status:`/`size:`/`priority:`/`lane:` labels so the
+  table/tree/json formatters keep working with no downstream change.
+- Single domain (CLI/backend TS), bun + vitest + biome.
+- Preserve current UX: `--tree`/`-T`, `--json`, `--all`/`-A`, cwd→project matching.
+
+## Out of Scope
+
+- **Drop/optionalize `projectId` on `WorkspaceProject`** — deferred to #240/#252
+  (workspace.ts is on the #240 reconciliation hold). #253 leaves `projectId` required and
+  simply stops reading it in the issues fetch path.
+- **`dashboard.ts` repo-centric switch** — that is #252.
+- **Editing copy-synced shared files** (`types.ts`, `queries.ts`) — avoided by design.
+- Removing the old project GraphQL queries — they remain until #252 retires the dashboard.
+
+## Premise Validity
+
+**Success in 6 months:** `roxabi issues` and `roxabi issues -A` list open issues for every
+workspace repo with **no ProjectV2 board configured** — issues read directly from the
+repository; the issues read path issues **zero** `ProjectV2.items` GraphQL calls; #252
+builds on the repo-centric fetch without rework.
+
+**Failure in 6 months:** `issues.ts` still issues a `ProjectV2.items` query in its read
+path (grep `ISSUES_QUERY`/`node.items`/`buildBatchedQuery` in `issues.ts` > 0 matches),
+OR `roxabi issues` returns empty/errors against a repo that has no project board. Either
+is a measurable, observable boolean state at the read path.
+
+**Simplest alternative:** keep the ProjectV2 fetch but make `projectId` optional and skip
+projects that lack one.
+**Why not simplest:** it leaves the board coupling intact — a repo must still be added to a
+ProjectV2 board (with `projectId`) to show any issues. The whole point of the issues-only
+model (#260) is that the board is redundant; a skip-if-missing patch measures around the
+problem instead of removing it.
+
+## Complexity
+
+**Tier: F-lite** — clear scope, single domain, one core file + its test fixtures.
+
+Signals observed:
+- 1 core file (`cli/commands/issues.ts`) + `cli/__tests__/issues.test.ts` fixtures.
+- No new architecture; reuses the existing `RawItem` → formatter pipeline.
+- The one subtlety (synthesize `fieldValues` from labels to avoid touching copy-synced
+  shared files) is a known mapping technique, not an unknown.
+- Governance constraints push the design toward minimal blast radius — a spec is warranted
+  to lock the label→`RawItem` mapping + the local repo query shape before coding.
