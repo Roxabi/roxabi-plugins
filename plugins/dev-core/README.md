@@ -1,6 +1,6 @@
 # dev-core
 
-Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 33 skills, 9 specialized agents, and safety hooks.
+Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 32 skills, 9 specialized agents, and safety hooks.
 
 ## Prerequisites
 
@@ -66,7 +66,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 ## Skills
 
-33 skills organized by workflow phase:
+32 skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
@@ -94,7 +94,6 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 | `cleanup` | Ship | Post-merge cleanup |
 | `promote` | Ship | Promotes to staging/production |
 | `test` | Supporting | Runs and manages tests |
-| `issues` | Supporting | Lists GitHub issues — status, deps, backlog; `--tree`/`-T` for compact hierarchy view |
 | `issue-triage` | Supporting | Triages GitHub issues with labels/priority |
 | `adr` | Supporting | Creates Architecture Decision Records |
 | `clarify` | Supporting | Intent-first architecture recap — 6-section view (intent → biz-arch → UX flows → data flow per layer → use cases × layers → open intent Qs). Phase-agnostic, ephemeral, no artifact. Defers technical implementation until user approves framing |

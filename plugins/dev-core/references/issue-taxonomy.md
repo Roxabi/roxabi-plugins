@@ -4,7 +4,7 @@ Single fact source for issue metadata across every Roxabi repo (`lyra`, `voiceCL
 
 [^2ndbrain]: `2ndBrain` is a local-only project (see `~/projects/CLAUDE.md`) — it is not a GitHub repo and is excluded from the migration.
 
-**Who reads this:** `dev-core:issue-triage` · `dev-core:github-setup` · `dev-core:issues` · `lyra/scripts/dep-graph` · `lyra/scripts/corpus`.
+**Who reads this:** `dev-core:issue-triage` · `dev-core:github-setup` · `lyra/scripts/dep-graph` · `lyra/scripts/corpus`.
 
 ---
 
@@ -105,7 +105,7 @@ Single fact source for issue metadata across every Roxabi repo (`lyra`, `voiceCL
   - Seed milestones (`M0…MN`) with consistent names
   - Does **not** auto-enroll experimental or archived repos
 
-### `dev-core:issues` (and `dep-graph`)
+### `dep-graph`
 - **Reads:** single paginated GraphQL query on `organization.projectV2.items` — one call hydrates `fieldValues` (Lane/Priority/Size/Status), `content.milestone`, `content.blockedBy`, `content.blocking`, `content.parent`, `content.subIssues`, `content.issueType`. All fields GA — no preview APIs in the hot path.
 - **Caches:** `gh.json` (dep-graph) / `~/.roxabi/corpus.db` (corpus)
 - **Fallback:** if hub project API fails, render last good cache with a stale-banner
@@ -157,4 +157,4 @@ Fact source for the migration spec. Do not execute from this doc.
 - ❌ Setting `Lane` via label — the field is the fact source
 - ❌ `dev-core:github-setup` auto-enrolling every new org repo — opt-in only
 - ❌ Reading field values without caching — always populate `gh.json` (dep-graph) / `corpus.db` (corpus) first
-- ❌ Using preview APIs in the hot read path — all fields consumed by dep-graph and `dev-core:issues` must be GA
+- ❌ Using preview APIs in the hot read path — all fields consumed by dep-graph must be GA

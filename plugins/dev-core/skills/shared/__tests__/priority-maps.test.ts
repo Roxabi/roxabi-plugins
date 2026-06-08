@@ -17,8 +17,6 @@ process.env.GITHUB_REPO = 'Test/test-repo'
 
 const { PRIORITY_ALIASES, PRIORITY_SHORT, PRIORITY_VALUES: PV_FROM_CONFIG } = await import('../adapters/config-helpers')
 
-const { PRIORITY_VALUES: PV_FROM_COMPONENTS } = await import('../../issues/lib/components')
-
 const { LEGACY_LABEL_MAP } = await import('../../issue-triage/lib/migrate-backfill')
 
 // ─── PRIORITY_ALIASES ─────────────────────────────────────────────────────────
@@ -87,11 +85,6 @@ describe('PRIORITY_VALUES', () => {
 
   it('has exactly 4 elements', () => {
     expect(PV_FROM_CONFIG).toHaveLength(4)
-  })
-
-  it('is importable from components.ts (re-export lock)', () => {
-    // This assertion fails if components.ts stops re-exporting from config-helpers
-    expect(PV_FROM_COMPONENTS).toEqual(PV_FROM_CONFIG)
   })
 
   it('every element is a key in PRIORITY_SHORT', () => {
