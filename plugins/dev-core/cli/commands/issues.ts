@@ -97,6 +97,7 @@ async function ghGraphQL(query: string, variables: Record<string, string>, token
 /** Fetch all open issues for a repo with cursor-based pagination. */
 async function fetchRepoIssues(repo: string, token: string): Promise<RawItem[]> {
   const [owner, name] = repo.split('/')
+  if (!owner || !name) throw new Error(`Invalid repo "${repo}" — expected "owner/name"`)
   const allItems: RawItem[] = []
   let cursor: string | undefined
   do {
@@ -104,10 +105,12 @@ async function fetchRepoIssues(repo: string, token: string): Promise<RawItem[]> 
     if (cursor) variables.cursor = cursor
     const data = (await ghGraphQL(REPO_ISSUES_QUERY, variables, token)) as {
       data: {
-        repository: { issues: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: RepoIssueNode[] } }
+        repository: { issues: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: RepoIssueNode[] } } | null
       }
     }
-    const page = data.data.repository.issues
+    const repository = data.data.repository
+    if (!repository) throw new Error(`Repository "${repo}" not found or inaccessible`)
+    const page = repository.issues
     allItems.push(...page.nodes.map(repoIssueToRawItem))
     cursor = page.pageInfo.hasNextPage ? (page.pageInfo.endCursor ?? undefined) : undefined
   } while (cursor)

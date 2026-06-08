@@ -234,6 +234,72 @@ describe('issues command - per-repo fetch', () => {
     expect(output).toContain('#42')
   })
 
+  it('pagination: accumulates issues across 2 pages and feeds endCursor into the second request', async () => {
+    // Arrange
+    const page1Node = makeIssueNode(1, 'First page issue')
+    const page2Node = makeIssueNode(2, 'Second page issue')
+    let callIndex = 0
+    fetchMock = mock(async (_url: string, _opts: RequestInit) => {
+      const response =
+        callIndex === 0
+          ? {
+              ok: true,
+              json: async () => ({
+                data: {
+                  repository: {
+                    issues: {
+                      nodes: [page1Node],
+                      pageInfo: { hasNextPage: true, endCursor: 'CURSOR1' },
+                    },
+                  },
+                },
+              }),
+            }
+          : {
+              ok: true,
+              json: async () => ({
+                data: {
+                  repository: {
+                    issues: {
+                      nodes: [page2Node],
+                      pageInfo: { hasNextPage: false, endCursor: null },
+                    },
+                  },
+                },
+              }),
+            }
+      callIndex++
+      return response
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const workspace = {
+      projects: [
+        {
+          projectId: 'PVT_x',
+          label: 'p',
+          repo: 'Roxabi/multipage',
+          localPath: process.cwd(),
+        },
+      ],
+    }
+
+    const { runIssuesCommand } = await import('../commands/issues')
+
+    // Act
+    const output = await runIssuesCommand({ workspace, format: 'table' })
+
+    // Assert: loop made 2 requests (proves pagination was exercised)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // Assert: both pages' issues appear in the output
+    expect(output).toContain('#1')
+    expect(output).toContain('#2')
+    // Assert: second request carried the cursor from the first response
+    const calls = fetchMock.mock.calls as [string, RequestInit][]
+    const secondBody = JSON.parse(calls[1][1].body as string)
+    expect(secondBody.variables.cursor).toBe('CURSOR1')
+  })
+
   it('SC7: workspace with no projectId still fetches by repo', async () => {
     const issue = makeIssueNode(99, 'No projectId issue')
     fetchMock = mock(async () => ({
