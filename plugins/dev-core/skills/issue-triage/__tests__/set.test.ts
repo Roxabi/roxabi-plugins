@@ -192,10 +192,11 @@ describe('issue-triage/set > field updates', () => {
     expect(mockUpdateField).toHaveBeenCalledWith('item-123', expect.any(String), 'pri-high')
   })
 
-  it('updates status via label + project field', async () => {
+  it('updates status via project field only — no status:* label sync', async () => {
     await setIssue(['42', '--status', 'In Progress'])
     expect(mockUpdateField).toHaveBeenCalledWith('item-123', expect.any(String), 'status-inprog')
-    expect(mockSyncStatusLabel).toHaveBeenCalledWith(42, 'In Progress')
+    // issues-only model: status is open/closed + board field; no redundant status:* label
+    expect(mockSyncStatusLabel).not.toHaveBeenCalled()
   })
 
   it('exits with error for invalid --size value', async () => {

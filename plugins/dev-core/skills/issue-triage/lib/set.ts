@@ -30,7 +30,7 @@ import {
   updateField,
   updateIssueIssueType,
 } from '../../shared/adapters/github-adapter'
-import { syncLaneLabel, syncPriorityLabel, syncSizeLabel, syncStatusLabel } from '../../shared/adapters/github-infra'
+import { syncLaneLabel, syncPriorityLabel, syncSizeLabel } from '../../shared/adapters/github-infra'
 import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
 import { formatRef, parseIssueRef, parseIssueRefs } from '../../shared/domain/parse-issue-ref'
 
@@ -336,10 +336,15 @@ export async function setIssue(args: string[]): Promise<void> {
     }
   }
 
-  // Sync labels (independent of project board) — skipped for cross-repo subjects
-  if (opts.subjectRepo && (opts.priority || opts.size || opts.lane || opts.status)) {
+  // Sync labels (independent of project board) — skipped for cross-repo subjects.
+  // Status is intentionally excluded: in the issues-only model status is just
+  // open/closed and the dep-graph derives ready/blocked/done from edges, so a
+  // `status:*` label is redundant (and noisy on repos that lack the label). The
+  // board-side `--status` write still happens in applyProjectFields (gated on
+  // isProjectConfigured) for repos still on a ProjectV2 board.
+  if (opts.subjectRepo && (opts.priority || opts.size || opts.lane)) {
     console.error(
-      `Warning: --size/--priority/--lane/--status label sync is not supported for cross-repo subjects (${opts.subjectRepo}#${opts.issueNumber}) — skipped`,
+      `Warning: --size/--priority/--lane label sync is not supported for cross-repo subjects (${opts.subjectRepo}#${opts.issueNumber}) — skipped`,
     )
   } else {
     if (opts.priority) {
@@ -356,10 +361,6 @@ export async function setIssue(args: string[]): Promise<void> {
         await syncLaneLabel(opts.issueNumber, canonical)
         console.log(`Lane=${canonical} #${opts.issueNumber}`)
       }
-    }
-    if (opts.status) {
-      const canonical = resolveStatus(opts.status)
-      if (canonical) await syncStatusLabel(opts.issueNumber, canonical)
     }
   }
 
