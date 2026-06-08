@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 
-// Integration tests for multi-project batched GraphQL (SC-10, SC-11) plus the
-// default single-project (`!opts.all`) cwd-resolution path.
+// Integration tests for per-repo issues fetch (SC-10, SC-11) plus the
+// default single-project (!opts.all) cwd-resolution path.
 
 // ---------------------------------------------------------------------------
 // Workspace fixture — inline JSON, no real files needed
@@ -15,46 +15,30 @@ const TWO_PROJECT_WORKSPACE = {
 }
 
 // ---------------------------------------------------------------------------
-// Batched GraphQL response fixture
+// Per-repo response fixture
 // ---------------------------------------------------------------------------
-
-function makeBatchedResponse(project0Nodes = [], project1Nodes = []) {
-  return {
-    data: {
-      project0: {
-        items: {
-          nodes: project0Nodes,
-          pageInfo: { hasNextPage: false, endCursor: null },
-        },
-      },
-      project1: {
-        items: {
-          nodes: project1Nodes,
-          pageInfo: { hasNextPage: false, endCursor: null },
-        },
-      },
-    },
-  }
-}
 
 function makeIssueNode(number: number, title: string) {
   return {
-    content: {
-      number,
-      title,
-      state: 'OPEN',
-      url: `https://github.com/Roxabi/repo/issues/${number}`,
-      subIssues: { nodes: [] },
-      parent: null,
-      blockedBy: { nodes: [] },
-      blocking: { nodes: [] },
-    },
-    fieldValues: {
-      nodes: [
-        { name: 'Backlog', field: { name: 'Status' } },
-        { name: 'P1 - High', field: { name: 'Priority' } },
-        { name: 'M', field: { name: 'Size' } },
-      ],
+    number,
+    title,
+    state: 'OPEN',
+    url: `https://github.com/Roxabi/repo/issues/${number}`,
+    labels: { nodes: [{ name: 'status:Backlog' }, { name: 'P1-high' }, { name: 'size:F-lite' }] },
+    subIssues: { nodes: [] },
+    parent: null,
+  }
+}
+
+function makeRepoResponse(nodes: ReturnType<typeof makeIssueNode>[] = []) {
+  return {
+    data: {
+      repository: {
+        issues: {
+          nodes,
+          pageInfo: { hasNextPage: false, endCursor: null },
+        },
+      },
     },
   }
 }
@@ -114,18 +98,18 @@ describe('buildBatchedVariables', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Integration tests — issues command with workspace fixture (SC-10, SC-11)
+// Integration tests — issues command with per-repo fetch (SC-10, SC-11)
 // ---------------------------------------------------------------------------
 
 const originalFetch = globalThis.fetch
 
-describe('issues command - batched GraphQL', () => {
+describe('issues command - per-repo fetch', () => {
   let fetchMock: ReturnType<typeof mock>
 
   beforeEach(() => {
     fetchMock = mock(async (_url: string, _opts: RequestInit) => ({
       ok: true,
-      json: async () => makeBatchedResponse(),
+      json: async () => makeRepoResponse(),
     }))
     globalThis.fetch = fetchMock as unknown as typeof fetch
   })
@@ -134,31 +118,35 @@ describe('issues command - batched GraphQL', () => {
     globalThis.fetch = originalFetch
   })
 
-  it('SC-10: fires exactly 1 HTTP request for a 2-project workspace', async () => {
+  it('SC-10: fires exactly 2 HTTP requests for a 2-project workspace (-A)', async () => {
     const { runIssuesCommand } = await import('../commands/issues')
 
     await runIssuesCommand({ workspace: TWO_PROJECT_WORKSPACE, format: 'table', all: true })
 
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('SC-10: the single request targets the GitHub GraphQL endpoint', async () => {
+  it('SC-10: both requests target the GitHub GraphQL endpoint', async () => {
     const { runIssuesCommand } = await import('../commands/issues')
 
     await runIssuesCommand({ workspace: TWO_PROJECT_WORKSPACE, format: 'table', all: true })
 
-    const [url] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe('https://api.github.com/graphql')
+    const calls = fetchMock.mock.calls as [string, RequestInit][]
+    expect(calls[0][0]).toBe('https://api.github.com/graphql')
+    expect(calls[1][0]).toBe('https://api.github.com/graphql')
   })
 
   it('SC-11: output contains the project label for each project when issues are present', async () => {
-    const project0Issue = makeIssueNode(1, 'Frontend login page')
-    const project1Issue = makeIssueNode(2, 'Backend auth endpoint')
+    const frontendIssue = makeIssueNode(1, 'Frontend login page')
+    const backendIssue = makeIssueNode(2, 'Backend auth endpoint')
 
-    fetchMock = mock(async () => ({
-      ok: true,
-      json: async () => makeBatchedResponse([project0Issue], [project1Issue]),
-    }))
+    // Counter closure: call 0 → frontend, call 1 → backend
+    let callIndex = 0
+    fetchMock = mock(async () => {
+      const nodes = callIndex === 0 ? [frontendIssue] : [backendIssue]
+      callIndex++
+      return { ok: true, json: async () => makeRepoResponse(nodes) }
+    })
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
     const { runIssuesCommand } = await import('../commands/issues')
@@ -174,13 +162,16 @@ describe('issues command - batched GraphQL', () => {
   })
 
   it('SC-11: each issue is grouped under its project label section', async () => {
-    const project0Issue = makeIssueNode(10, 'Add dark mode')
-    const project1Issue = makeIssueNode(20, 'Fix DB connection pool')
+    const frontendIssue = makeIssueNode(10, 'Add dark mode')
+    const backendIssue = makeIssueNode(20, 'Fix DB connection pool')
 
-    fetchMock = mock(async () => ({
-      ok: true,
-      json: async () => makeBatchedResponse([project0Issue], [project1Issue]),
-    }))
+    // Counter closure: call 0 → frontend issues, call 1 → backend issues
+    let callIndex = 0
+    fetchMock = mock(async () => {
+      const nodes = callIndex === 0 ? [frontendIssue] : [backendIssue]
+      callIndex++
+      return { ok: true, json: async () => makeRepoResponse(nodes) }
+    })
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
     const { runIssuesCommand } = await import('../commands/issues')
@@ -193,15 +184,14 @@ describe('issues command - batched GraphQL', () => {
 
     expect(output).toContain('#10')
     expect(output).toContain('#20')
-    // Each issue lives under its project's `## <label>` section header — assert
-    // both the label appears AND it appears before the issue number for that project.
+    // Each issue lives under its project's `## <label>` section header
     expect(output.indexOf('## frontend')).toBeGreaterThanOrEqual(0)
     expect(output.indexOf('## backend')).toBeGreaterThanOrEqual(0)
     expect(output.indexOf('## frontend')).toBeLessThan(output.indexOf('#10'))
     expect(output.indexOf('## backend')).toBeLessThan(output.indexOf('#20'))
   })
 
-  it('returns empty table gracefully when all projects have no issues', async () => {
+  it('returns "0 issues" gracefully when all projects have no issues', async () => {
     const { runIssuesCommand } = await import('../commands/issues')
 
     const output = await runIssuesCommand({
@@ -214,23 +204,14 @@ describe('issues command - batched GraphQL', () => {
     expect(output).toContain('0 issues')
   })
 
-  // Default (`!opts.all`) path: cwd → resolveCurrentProject (via localPath match) →
-  // single-project ISSUES_QUERY. Uses localPath matching cwd so resolution does not
-  // shell out to git remote. Response shape differs from the batched path.
-  it('default path: resolves cwd via localPath and fetches a single project', async () => {
+  // Default (!opts.all) path: cwd → resolveCurrentProject (via localPath match) →
+  // single fetchRepoIssues call. Uses localPath matching cwd so resolution does
+  // not shell out to git remote.
+  it('default path: resolves cwd via localPath and fires exactly 1 fetch', async () => {
     const issue = makeIssueNode(42, 'Single project test')
     fetchMock = mock(async () => ({
       ok: true,
-      json: async () => ({
-        data: {
-          node: {
-            items: {
-              nodes: [issue],
-              pageInfo: { hasNextPage: false, endCursor: null },
-            },
-          },
-        },
-      }),
+      json: async () => makeRepoResponse([issue]),
     }))
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
@@ -251,5 +232,187 @@ describe('issues command - batched GraphQL', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(output).toContain('## current-project')
     expect(output).toContain('#42')
+  })
+
+  it('SC7: workspace with no projectId still fetches by repo', async () => {
+    const issue = makeIssueNode(99, 'No projectId issue')
+    fetchMock = mock(async () => ({
+      ok: true,
+      json: async () => makeRepoResponse([issue]),
+    }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    // biome-ignore lint/suspicious/noExplicitAny: intentional — tests runtime resilience when projectId is absent
+    const workspace: any = {
+      projects: [{ label: 'noid-project', repo: 'Roxabi/noid-repo' }],
+    }
+
+    const { runIssuesCommand } = await import('../commands/issues')
+    const output = await runIssuesCommand({ workspace, format: 'table', all: true })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(output).toContain('#99')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Golden-parity test — label-synthesized RawItem renders identical to hand-built
+// ---------------------------------------------------------------------------
+
+describe('golden parity', () => {
+  it('formatTable output is byte-identical for label-synthesized vs hand-built RawItem', async () => {
+    const { repoIssueToRawItem } = await import('../commands/issues')
+    const { formatTable } = await import('../../skills/issues/lib/table-formatter')
+
+    // labelItem: synthesized via repoIssueToRawItem from flat repo node
+    const labelItem = repoIssueToRawItem({
+      number: 99,
+      title: 'Parity check',
+      state: 'OPEN',
+      url: 'https://github.com/Roxabi/repo/issues/99',
+      labels: { nodes: [{ name: 'status:In Progress' }, { name: 'P0-critical' }, { name: 'size:S' }] },
+      subIssues: { nodes: [] },
+      parent: null,
+    })
+
+    // fieldItem: hand-built with explicit fieldValues matching the synthesized output.
+    // labelsToFieldValues emits Status, Priority, Size in label-array order.
+    // fieldValue() looks up by field.name (order-insensitive) but we match order anyway.
+    const fieldItem = {
+      content: {
+        number: 99,
+        title: 'Parity check',
+        state: 'OPEN',
+        url: 'https://github.com/Roxabi/repo/issues/99',
+        labels: { nodes: [{ name: 'status:In Progress' }, { name: 'P0-critical' }, { name: 'size:S' }] },
+        subIssues: { nodes: [] },
+        parent: null,
+        blockedBy: { nodes: [] },
+        blocking: { nodes: [] },
+      },
+      fieldValues: {
+        nodes: [
+          { field: { name: 'Status' }, name: 'In Progress' },
+          { field: { name: 'Priority' }, name: 'P0 - Urgent' },
+          { field: { name: 'Size' }, name: 'S' },
+        ],
+      },
+    }
+
+    const opts = { sortBy: 'priority' as const, titleLength: 55 }
+    expect(formatTable([labelItem], opts)).toBe(formatTable([fieldItem], opts))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Unit tests — labelsToFieldValues / repoIssueToRawItem (repo-centric path)
+// ---------------------------------------------------------------------------
+
+describe('labelsToFieldValues / repoIssueToRawItem', () => {
+  it('maps status label to Status field with canonical key as name', async () => {
+    // Arrange
+    const { labelsToFieldValues } = await import('../commands/issues')
+    // Act
+    const result = labelsToFieldValues([{ name: 'status:In Progress' }])
+    // Assert
+    expect(result).toEqual([{ field: { name: 'Status' }, name: 'In Progress' }])
+  })
+
+  it('maps size label to Size field with canonical key as name', async () => {
+    // Arrange
+    const { labelsToFieldValues } = await import('../commands/issues')
+    // Act
+    const result = labelsToFieldValues([{ name: 'size:F-lite' }])
+    // Assert
+    expect(result).toEqual([{ field: { name: 'Size' }, name: 'F-lite' }])
+  })
+
+  it('reverse-lookup guard: maps priority label to Priority field with CANONICAL MAP KEY (not the label name)', async () => {
+    // Arrange — PRIORITY_LABEL_MAP: 'P1 - High' → 'P1-high'
+    // reverse lookup: 'P1-high' label → canonical key 'P1 - High'
+    const { labelsToFieldValues } = await import('../commands/issues')
+    // Act
+    const result = labelsToFieldValues([{ name: 'P1-high' }])
+    // Assert: name must be exactly 'P1 - High' (the map KEY), not 'P1-high' or any stripped form
+    expect(result).toEqual([{ field: { name: 'Priority' }, name: 'P1 - High' }])
+  })
+
+  it('maps lane label to Lane field with lane name stripped of prefix', async () => {
+    // Arrange — LANE_LABEL_MAP: 'a1' → 'graph:lane/a1'
+    // reverse lookup: 'graph:lane/a1' label → canonical key 'a1'
+    const { labelsToFieldValues } = await import('../commands/issues')
+    // Act
+    const result = labelsToFieldValues([{ name: 'graph:lane/a1' }])
+    // Assert
+    expect(result).toEqual([{ field: { name: 'Lane' }, name: 'a1' }])
+  })
+
+  it('drops unknown labels (e.g. "bug") — returns empty array', async () => {
+    // Arrange
+    const { labelsToFieldValues } = await import('../commands/issues')
+    // Act
+    const result = labelsToFieldValues([{ name: 'bug' }])
+    // Assert
+    expect(result).toEqual([])
+  })
+
+  it('handles mixed labels: known ones mapped, unknown ones dropped, order preserved', async () => {
+    // Arrange
+    const { labelsToFieldValues } = await import('../commands/issues')
+    // Act
+    const result = labelsToFieldValues([
+      { name: 'bug' },
+      { name: 'status:Backlog' },
+      { name: 'enhancement' },
+      { name: 'P2-medium' },
+    ])
+    // Assert: only the two known labels survive, in original order
+    expect(result).toHaveLength(2)
+    expect(result[0]).toEqual({ field: { name: 'Status' }, name: 'Backlog' })
+    expect(result[1]).toEqual({ field: { name: 'Priority' }, name: 'P2 - Medium' })
+  })
+
+  it('repoIssueToRawItem converts a flat repo issues node to RawItem', async () => {
+    // Arrange
+    const { repoIssueToRawItem } = await import('../commands/issues')
+    const node = {
+      number: 42,
+      title: 'X',
+      state: 'OPEN',
+      url: 'https://github.com/Roxabi/repo/issues/42',
+      labels: { nodes: [{ name: 'status:Backlog' }, { name: 'P1-high' }, { name: 'size:F-lite' }] },
+      subIssues: { nodes: [] },
+      parent: null,
+    }
+
+    // Act
+    const item = repoIssueToRawItem(node)
+
+    // Assert content fields
+    expect(item.content.number).toBe(42)
+    expect(item.content.title).toBe('X')
+    expect(item.content.state).toBe('OPEN')
+    // Missing dep collections must default to { nodes: [] }
+    expect(item.content.blockedBy).toEqual({ nodes: [] })
+    expect(item.content.blocking).toEqual({ nodes: [] })
+
+    // Assert fieldValues: 3 synthesized entries for the 3 known labels
+    const fv = item.fieldValues.nodes
+    expect(fv).toHaveLength(3)
+    // Status
+    expect(fv.find((v) => v.field?.name === 'Status')).toEqual({
+      field: { name: 'Status' },
+      name: 'Backlog',
+    })
+    // Priority — canonical key must be 'P1 - High' (reverse-lookup guard)
+    expect(fv.find((v) => v.field?.name === 'Priority')).toEqual({
+      field: { name: 'Priority' },
+      name: 'P1 - High',
+    })
+    // Size
+    expect(fv.find((v) => v.field?.name === 'Size')).toEqual({
+      field: { name: 'Size' },
+      name: 'F-lite',
+    })
   })
 })
