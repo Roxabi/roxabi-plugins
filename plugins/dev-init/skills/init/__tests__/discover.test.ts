@@ -6,8 +6,6 @@ vi.mock('../../shared/prereqs', () => ({
 
 vi.mock('../../shared/adapters/github-adapter', () => ({
   run: vi.fn(),
-  parseProjectFields: vi.fn(),
-  getBoardIssueNumbers: vi.fn(),
 }))
 
 describe('discover', () => {
@@ -37,11 +35,11 @@ describe('discover', () => {
 
     const { discover } = await import('../lib/discover')
     const result = await discover()
-    expect(result.projects).toEqual([])
-    expect(result.labels.existing).toEqual([])
+    expect(result.workflows.existing).toEqual([])
+    expect(result.protection).toEqual({})
   })
 
-  it('discovers projects and labels when gh is available', async () => {
+  it('discovers workflows and branch protection when gh is available', async () => {
     mockCheckPrereqs.mockReturnValue({
       bun: { ok: true, version: '1.2.0' },
       gh: { ok: true, detail: 'authenticated' },
@@ -50,18 +48,16 @@ describe('discover', () => {
 
     mockRun.mockImplementation(async (cmd: string[]) => {
       const joined = cmd.join(' ')
-      if (joined.includes('project list'))
-        return JSON.stringify({ projects: [{ id: 'PVT_1', number: 1, title: 'Board' }] })
-      if (joined.includes('label list')) return JSON.stringify([{ name: 'bug' }, { name: 'feature' }])
       if (joined.includes('branches') && joined.includes('protection')) throw new Error('404')
       return '{}'
     })
 
     const { discover } = await import('../lib/discover')
     const result = await discover()
-    expect(result.projects).toHaveLength(1)
-    expect(result.labels.existing).toEqual(['bug', 'feature'])
-    expect(result.labels.missing.length).toBeGreaterThan(0)
+    // all standard workflows are missing (fs.existsSync mocked false)
+    expect(result.workflows.missing.length).toBeGreaterThan(0)
+    // protection probe threw → both branches reported unprotected
+    expect(Object.values(result.protection).every((v) => v === false)).toBe(true)
   })
 
   it('returns null owner when git remote is missing', async () => {

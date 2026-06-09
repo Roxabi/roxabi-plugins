@@ -79,14 +79,14 @@ describe('doctor', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('GH_PROJECT_ID check present in GitHub section output', () => {
+  it('GitHub section emits GITHUB_REPO check', () => {
     // Arrange + Act
     const result = runDoctor(tmpDir)
 
-    // Assert: output contains the GH_PROJECT_ID check name
-    expect(result.stdout).toContain('GH_PROJECT_ID')
-    // Assert: old PROJECT_ID check name is not present
-    expect(result.stdout).not.toMatch(/^\s*PROJECT_ID\s/m)
+    // Assert: output contains the GITHUB_REPO check name
+    expect(result.stdout).toContain('GITHUB_REPO')
+    // Assert: ProjectV2 board checks are gone
+    expect(result.stdout).not.toContain('GH_PROJECT_ID')
     // Assert: clean exit (or exit 1 due to missing artifacts — both are fine)
     expect([0, 1]).toContain(result.exitCode)
   })
@@ -111,8 +111,8 @@ describe('doctor', () => {
     // Act
     const result = runDoctor(tmpDir)
 
-    // Assert: GH_PROJECT_ID still appears in output (as a skipped check)
-    expect(result.stdout).toContain('GH_PROJECT_ID')
+    // Assert: GITHUB_REPO still appears in output (as a skipped check)
+    expect(result.stdout).toContain('GITHUB_REPO')
     // Assert: the ⏭ skip icon appears in the GitHub section (gh not available skips all checks)
     expect(result.stdout).toContain('⏭')
   })

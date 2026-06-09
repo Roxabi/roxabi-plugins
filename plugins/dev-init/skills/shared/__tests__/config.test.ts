@@ -56,7 +56,7 @@ const {
   STATUS_OPTIONS,
 } = await import('../adapters/config-helpers')
 
-const { STANDARD_LABELS, STANDARD_WORKFLOWS, PROTECTED_BRANCHES, buildBranchProtectionPayload } = await import(
+const { STANDARD_WORKFLOWS, PROTECTED_BRANCHES, buildBranchProtectionPayload } = await import(
   '../adapters/github-infra'
 )
 
@@ -192,29 +192,6 @@ describe('shared/config', () => {
       expect(BLOCK_ORDER.blocking).toBeLessThan(BLOCK_ORDER.ready)
       expect(BLOCK_ORDER.ready).toBeLessThan(BLOCK_ORDER.blocked)
     })
-  })
-})
-
-describe('STANDARD_LABELS', () => {
-  it('has exactly 11 labels', () => {
-    expect(STANDARD_LABELS).toHaveLength(11)
-  })
-
-  it('all names are unique', () => {
-    const names = STANDARD_LABELS.map((l) => l.name)
-    expect(new Set(names).size).toBe(names.length)
-  })
-
-  it('all colors are valid 6-char hex', () => {
-    for (const label of STANDARD_LABELS) {
-      expect(label.color).toMatch(/^[0-9a-f]{6}$/)
-    }
-  })
-
-  it('has correct category counts (6 type, 5 area)', () => {
-    const counts = { type: 0, area: 0 }
-    for (const label of STANDARD_LABELS) counts[label.category]++
-    expect(counts).toEqual({ type: 6, area: 5 })
   })
 })
 

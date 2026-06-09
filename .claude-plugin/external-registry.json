@@ -157,6 +157,16 @@
       "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
       "status": "active",
       "notes": "Community. Zero-dependency HTML presentations with 12 visual themes, PPT conversion, Vercel deploy, PDF export. By zarazhangrui. Promoted from wrapped on 2026-05-05 — upstream now ships proper marketplace.json (v1.0.0)."
+    },
+    {
+      "name": "roxabi-live",
+      "source": "https://github.com/Roxabi/roxabi-live",
+      "added": "2026-06-09",
+      "last_checked_commit": "",
+      "upstream_branch": "staging",
+      "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
+      "status": "active",
+      "notes": "Roxabi-owned. Hosts the relocated issue-triage plugin (labels + native relations, no Projects V2). Extracted from dev-core."
     }
   ],
   "wrapped_plugins": [
