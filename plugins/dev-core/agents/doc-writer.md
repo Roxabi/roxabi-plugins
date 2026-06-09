@@ -9,7 +9,7 @@ description: |
   user: "Document the new auth module"
   assistant: "I'll use the doc-writer agent to create the documentation."
   </example>
-model: sonnet
+model: haiku
 color: white
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "EnterWorktree", "ExitWorktree", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "TaskOutput", "TaskStop", "SendMessage"]
 permissionMode: bypassPermissions
