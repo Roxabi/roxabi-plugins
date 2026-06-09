@@ -6,12 +6,9 @@
  * Usage:
  *   bun init.ts prereqs [--json]
  *   bun init.ts discover [--json]
- *   bun init.ts create-project --owner <owner> --repo <repo>
- *   bun init.ts labels --repo <owner/repo> [--scope all|type|area|priority]
  *   bun init.ts workflows --owner <owner> --repo <repo> --stack <bun|node|python> --test <vitest|jest|pytest|none> --deploy <vercel|none> [--branch <branch>]
  *   bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>]  # generic only (auto-merge + pr-title)
  *   bun init.ts protect-branches --repo <owner/repo>
- *   bun init.ts migrate-issues --owner <owner> --repo <repo> --project-number <N>
  *   bun init.ts scaffold-rules [--stack-path .claude/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
  *   bun init.ts scaffold --github-repo <owner/repo> --project-id <PVT_...> [--force] ...
  *   bun init.ts scaffold-fumadocs [--root <path>] [--docs-path <path>]
@@ -42,38 +39,6 @@ switch (command) {
   case 'discover': {
     const { discover } = await import('./lib/discover')
     const result = await discover()
-    console.log(JSON.stringify(result, null, 2))
-    break
-  }
-
-  case 'create-project': {
-    const { createProject } = await import('./lib/project')
-    const owner = parseFlag('--owner', '')
-    const repo = parseFlag('--repo', '')
-    const rawType = parseFlag('--type', 'technical')
-    if (rawType !== 'technical' && rawType !== 'company') {
-      console.error(`[init] Invalid --type value: '${rawType}'. Must be 'technical' or 'company'.`)
-      process.exit(1)
-    }
-    const type: import('../shared/ports/workspace').ProjectType = rawType
-    if (!owner || !repo) {
-      console.error('Usage: init.ts create-project --owner <owner> --repo <repo> [--type technical|company]')
-      process.exit(1)
-    }
-    const result = await createProject(owner, repo, type)
-    console.log(JSON.stringify(result, null, 2))
-    break
-  }
-
-  case 'labels': {
-    const { createLabels } = await import('./lib/labels')
-    const repo = parseFlag('--repo', '')
-    const scope = parseFlag('--scope', 'all') as 'all' | 'type' | 'area'
-    if (!repo) {
-      console.error('Usage: init.ts labels --repo <owner/repo> [--scope all|type|area]')
-      process.exit(1)
-    }
-    const result = await createLabels(repo, scope)
     console.log(JSON.stringify(result, null, 2))
     break
   }
@@ -119,32 +84,6 @@ switch (command) {
       process.exit(1)
     }
     const result = await protectBranches(repo)
-    console.log(JSON.stringify(result, null, 2))
-    break
-  }
-
-  case 'migrate-issues': {
-    const { migrateIssues } = await import('./lib/migrate')
-    const owner = parseFlag('--owner', '')
-    const repo = parseFlag('--repo', '')
-    const projectNumber = parseInt(parseFlag('--project-number', '0'), 10)
-    if (!owner || !repo || !projectNumber) {
-      console.error('Usage: init.ts migrate-issues --owner <owner> --repo <repo> --project-number <N>')
-      process.exit(1)
-    }
-    const result = await migrateIssues(owner, repo, projectNumber)
-    console.log(JSON.stringify(result, null, 2))
-    break
-  }
-
-  case 'list-workflows': {
-    const { listProjectWorkflows } = await import('./lib/project')
-    const projectId = parseFlag('--project-id', '')
-    if (!projectId) {
-      console.error('Usage: init.ts list-workflows --project-id <PVT_...>')
-      process.exit(1)
-    }
-    const result = await listProjectWorkflows(projectId)
     console.log(JSON.stringify(result, null, 2))
     break
   }
@@ -207,61 +146,10 @@ switch (command) {
     break
   }
 
-  case 'hub-bootstrap': {
-    const { bootstrapProject, bootstrapFields, bootstrapIssueTypes, runRenameSpike, applyRenames } = await import(
-      './lib/hub-bootstrap'
-    )
-    const { ghGraphQL } = await import('../shared/adapters/github-adapter')
-    const { mkdirSync: mkdirSyncHub, writeFileSync: writeFileSyncHub } = await import('node:fs')
-
-    const owner = parseFlag('--owner', 'Roxabi')
-    const spikeOnly = hasFlag('--spike-only')
-    const confirmRenames = hasFlag('--confirm-renames')
-    const spikeSnapshot = parseFlag('--spike-snapshot', '')
-
-    // Resolve ownerId via organization GraphQL query
-    const orgIdOut = (await ghGraphQL('query($l:String!){organization(login:$l){id}}', { l: owner })) as {
-      data: { organization: { id: string } }
-    }
-    const ownerId = orgIdOut.data.organization.id
-
-    if (spikeOnly) {
-      const defaultSnapshotPath = `artifacts/migration/119-rename-spike-${new Date().toISOString().slice(0, 10)}.json`
-      const snapshotPath = spikeSnapshot || defaultSnapshotPath
-      await runRenameSpike({ snapshotPath, ownerLogin: owner })
-      console.log(JSON.stringify({ step: 'spike-only', snapshotPath }))
-      break
-    }
-
-    // Full bootstrap flow (1.1–1.6)
-    const project = await bootstrapProject(owner, ownerId)
-    await bootstrapFields(project.id)
-    await bootstrapIssueTypes(owner, ownerId)
-
-    // Persist hub project metadata for downstream hub-enroll calls (B6)
-    const projectUrl = `https://github.com/orgs/${owner}/projects/${project.number}`
-    const hubProjectData = {
-      projectId: project.id,
-      projectUrl,
-      number: project.number,
-      createdAt: new Date().toISOString(),
-    }
-    mkdirSyncHub('artifacts/migration', { recursive: true })
-    writeFileSyncHub('artifacts/migration/hub-project.json', JSON.stringify(hubProjectData, null, 2))
-
-    console.log(JSON.stringify({ step: 'bootstrap', project: { id: project.id, number: project.number } }))
-
-    if (confirmRenames) {
-      await applyRenames({ confirmRenames: true, spikeSnapshot: spikeSnapshot || undefined })
-      console.log(JSON.stringify({ step: 'renames-applied' }))
-    }
-    break
-  }
-
   default:
     console.error(`Unknown command: ${command}`)
     console.error(
-      'Usage: init.ts [prereqs|discover|create-project|migrate-issues|labels|workflows|push-workflows|protect-branches|list-workflows|scaffold-docs|scaffold-rules|scaffold|scaffold-fumadocs|scaffold-fumadocs-vercel|hub-bootstrap]',
+      'Usage: init.ts [prereqs|discover|workflows|push-workflows|protect-branches|scaffold-docs|scaffold-rules|scaffold|scaffold-fumadocs|scaffold-fumadocs-vercel]',
     )
     process.exit(1)
 }

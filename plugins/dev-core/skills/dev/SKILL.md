@@ -22,7 +22,7 @@ Let:
   S*   := next step to execute
   φ    := frame artifact
   gate := {frame, spec, plan}
-  adv  := {triage, analyze, implement, pr, ci-watch, validate, review, fix, cleanup}
+  adv  := {analyze, implement, pr, ci-watch, validate, review, fix, cleanup}
   ψ_r(P) ⟺ P.comments ∃ body: "## Code Review"
   ψ_f(P) ⟺ P.comments ∃ body: "## Review Fixes Applied"
 
@@ -59,8 +59,8 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 
 | Step | Required artifacts |
 |------|-------------------|
-| recheck | issue (triage) — no on-disk prereq; always runs from session state |
-| frame | issue (triage) |
+| recheck | issue — no on-disk prereq; always runs from session state |
+| frame | issue |
 | analyze | `artifacts/frames/{N}-{slug}-frame.mdx` or `artifacts/frames/{slug}-frame.mdx` (approved) |
 | spec | `artifacts/frames/{slug}-frame.mdx` or `artifacts/analyses/{N}-{slug}-analysis.mdx` |
 | plan | `artifacts/specs/{N}-{slug}-spec.mdx` |
@@ -79,7 +79,6 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
 φ ∃ → read frontmatter → extract `status`, `tier`.
 
 Σ = {
-  triage:    issue ∃,
   recheck:   null,       # Σ_s only — runs every session, no on-disk state
   frame:     φ ∃ ∧ φ.status == 'approved',
   analyze:   analysis artifact ∃,
@@ -115,7 +114,7 @@ Claude Code task list drives in-session progress for the dev pipeline. Treat it 
 
 Ordered step list:
 ```
-triage → recheck → frame → analyze → spec → plan → implement → pr →
+recheck → frame → analyze → spec → plan → implement → pr →
 ci-watch → validate → review → fix → promote → cleanup
 ```
 
@@ -154,7 +153,7 @@ Wire dependencies sequentially — ∀ i > 0: `TaskUpdate(task[i].id, addBlocked
 → Next: {S*} — {one-line description}
 ```
 
-Bar: `██`=done/skipped, `░░`=pending. Phases: Frame:{triage,recheck,frame} | Shape:{analyze,spec} | Build:{plan,implement,pr} | Verify:{ci-watch,validate,review,fix} | Ship:{promote,cleanup}
+Bar: `██`=done/skipped, `░░`=pending. Phases: Frame:{recheck,frame} | Shape:{analyze,spec} | Build:{plan,implement,pr} | Verify:{ci-watch,validate,review,fix} | Ship:{promote,cleanup}
 
 Status: `✓ {name}` (done) | `skipped` | `pending` | `→ next`.
 
@@ -162,7 +161,6 @@ Status: `✓ {name}` (done) | `skipped` | `pending` | `→ next`.
 
 ```
 should_skip(step, τ, Σ):
-  triage   ∧ Σ.triage                    → skip (already done)
   recheck                                 → false (never skipped — explicit decision per frame #181)
   frame    ∧ τ == S                       → skip
   analyze  ∧ τ ∈ {S, F-lite}             → skip (frame sufficient)
@@ -181,7 +179,6 @@ should_skip(step, τ, Σ):
 
 ```
 STEPS = [
-  (Frame,  triage,    issue-triage),
   (Frame,  recheck,   recheck),
   (Frame,  frame,     frame),
   (Shape,  analyze,   analyze),
@@ -206,7 +203,7 @@ Walk: Σ[step] == true ∨ Σ_s[step] == true ∨ should_skip(step) ⇒ done/ski
 
 | Gate trigger | Behavior |
 |-------------|----------|
-| S* == frame (Σ.triage ∧ ¬Σ.frame) | Show φ if ∃ draft, ask approval |
+| S* == frame (¬Σ.frame) | Show φ if ∃ draft, ask approval |
 | S* == spec (Σ.frame ∧ ¬Σ.spec) | Gate after spec runs |
 | S* == plan (Σ.spec ∧ ¬Σ.plan) | Gate after plan runs |
 | S* == review | Post-review gate handled inside /code-review |
@@ -248,7 +245,6 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 
 | Step | Class | Skill invocation | On success → |
 |------|-------|------------------|--------------|
-| triage | adv | `skill: "issue-triage", args: "N"` | recheck |
 | recheck | adv | `skill: "recheck", args: "--from-dev #N"` | frame |
 | frame | gate | `skill: "frame", args: "{N:+--issue $N}"` | analyze (F-full) ∨ spec (F-lite) |
 | analyze | adv | `skill: "analyze", args: "{N:+--issue $N}"` | spec |
@@ -314,7 +310,7 @@ adv → re-scan → Step 7 immediately.
 
 | Phase | Steps | Gate after |
 |-------|-------|-----------|
-| Frame | triage → recheck → frame | frame approval (status: approved) |
+| Frame | recheck → frame | frame approval (status: approved) |
 | Shape | analyze → spec | spec approval |
 | Build | plan → implement → pr | plan approval → compact pause (F-lite/F-full, Step 8b) before implement → pr |
 | Verify | ci-watch → validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /code-review Phase 8). |
@@ -324,7 +320,6 @@ adv → re-scan → Step 7 immediately.
 
 | Step | S | F-lite | F-full |
 |------|---|--------|--------|
-| triage | run | run | run |
 | recheck | run | run | run |
 | frame | skip | run + gate | run + gate |
 | analyze | skip | skip | run |

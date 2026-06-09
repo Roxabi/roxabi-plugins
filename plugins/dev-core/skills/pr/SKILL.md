@@ -86,10 +86,7 @@ gh pr create --title "<title>" --body "<body>" --base ${BASE} [--draft]
 # --base <branch> if flag specified (overrides BASE)
 ```
 
-Display PR URL. ∃ N →
-```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <ISSUE_NUMBER> --status Review
-```
+Display PR URL.
 
 Updating existing PR → `gh pr edit <number> --title "<title>" --body "<body>"`.
 

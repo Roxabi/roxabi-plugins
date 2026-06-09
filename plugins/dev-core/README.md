@@ -1,6 +1,6 @@
 # dev-core
 
-Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 32 skills, 9 specialized agents, and safety hooks.
+Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 30 skills, 9 specialized agents, and safety hooks.
 
 ## Prerequisites
 
@@ -40,7 +40,7 @@ After installing, run init to configure your project:
 /init
 ```
 
-Auto-detects your GitHub repo, Project V2 board, and field IDs. Writes `.claude/dev-core.yml` (primary config) and `.env` (legacy fallback), registers the project in `~/.roxabi-vault/workspace.json`, generates a self-healing `roxabi` shim, and creates the `artifacts/` directory. Works for any project type. Re-run with `/init --force` to reconfigure.
+Auto-detects your GitHub repo. Writes `.claude/dev-core.yml` (primary config) and `.env` (legacy fallback), registers the project in `~/.roxabi-vault/workspace.json`, generates a self-healing `roxabi` shim, and creates the `artifacts/` directory. Works for any project type. Re-run with `/init --force` to reconfigure.
 
 Then configure the agent stack:
 
@@ -52,7 +52,7 @@ Auto-discovers your runtime, framework, test tooling, and linter from the codeba
 
 **Project-agnostic:** All skills and agents read commands and paths from `.claude/stack.yml` at runtime — `{commands.test}`, `{commands.lint}`, `{package_manager}`, `{backend.path}`, etc. If a required field is missing, the agent immediately tells you to run `/init` or `/stack-setup`. This means dev-core works with any stack — Bun/npm/pnpm/yarn, NestJS/Express/Django, Vitest/Jest/Pytest.
 
-**Important:** `/init` is required for project board features (issue status, size, priority fields). Without it, issue creation and dependency management still work, but field updates will show a "not configured" error pointing back to `/init`.
+**Note:** dev-core is issues-only — no GitHub Project V2 board. Issue triage (labels for size/priority/lane/type, blocked-by deps, parent/child sub-issues) lives in the separate **`roxabi-issues`** plugin (Roxabi/roxabi-live); dev-core's `/dev` lifecycle reads issues but no longer mutates them.
 
 ## Usage
 
@@ -66,20 +66,19 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 ## Skills
 
-32 skills organized by workflow phase:
+30 skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
-| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, CI/CD workflows, branch protection, env vars, workspace.json registration, VS Code MDX preview, LSP plugin install). Pushes workflow files directly via GitHub REST API — no local git required. Auto-sets PAT secret after workflow creation. Lists built-in project workflow status; GitHub has no API to enable them programmatically — provides direct settings URL. TypeScript CLI with subcommands, SKILL.md orchestrates via DP(n) decisions |
+| `init` | Setup | Configures project for dev-core (CI/CD workflows, branch protection, env vars, workspace.json registration, VS Code MDX preview, LSP plugin install). Pushes workflow files directly via GitHub REST API — no local git required. Auto-sets PAT secret after workflow creation. TypeScript CLI with subcommands, SKILL.md orchestrates via DP(n) decisions |
 | `env-setup` | Setup | Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, VS Code MDX, LSP. Triggered by `/init` or standalone |
-| `github-setup` | Setup | Connect project to GitHub Project V2 board — discover or create board, labels, branch protection, workspace registration |
 | `ci-setup` | Setup | Set up CI/CD — GitHub Actions workflows, TruffleHog, Dependabot, pre-commit hooks, marketplace plugins. Discovers Roxabi plugins live from `marketplace.json` and endorsed external marketplaces from `curated-marketplaces.json` |
 | `stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.claude/stack.yml`. Single confirmation screen — no wizard questions |
 | `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows (checks both local files and remote via REST API), required secrets (PAT for auto-merge.yml), branch protection, stack.yml, workspace.json registration, VS Code MDX preview, and LSP plugin install (typescript-lsp / pyright-lsp with auto-fix). Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
 | `seed-docs` | Setup | Populates scaffolded architecture/standards docs with real content — reads CLAUDE.md for conventions, optionally scans codebase (entry points, import graph, naming patterns), fills TODO stubs, writes AI Quick Reference sections. Idempotent: skips already-populated files |
 | `seed-community` | Setup | Bootstraps OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), `.github/PULL_REQUEST_TEMPLATE.md`, issue templates. Reads project metadata + CLAUDE.md; generates missing files idempotently |
 | `dev` | Orchestrator | Routes issues through the full workflow |
-| `recheck` | Frame | Drift-check an issue (git-drift, symbol-missing, dep-resolved) before /dev work begins. Runs between /issue-triage and /frame for every tier — no skip path. Signal-clean returns silently; signal-fire blocks with DP(A) (Proceed/Update/Close/Abort) |
+| `recheck` | Frame | Drift-check an issue (git-drift, symbol-missing, dep-resolved) before /dev work begins. Runs before /frame for every tier — no skip path. Signal-clean returns silently; signal-fire blocks with DP(A) (Proceed/Update/Close/Abort) |
 | `frame` | Frame | Creates initial feature frame from issue |
 | `analyze` | Shape | Deep analysis with expert consultation |
 | `consensus` | Shape | Multi-expert panel — spawns 3 domain agents (architect + 2 context-selected) to debate and agree on best long-term solution |
@@ -94,7 +93,6 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 | `cleanup` | Ship | Post-merge cleanup |
 | `promote` | Ship | Promotes to staging/production |
 | `test` | Supporting | Runs and manages tests |
-| `issue-triage` | Supporting | Triages GitHub issues with labels/priority |
 | `adr` | Supporting | Creates Architecture Decision Records |
 | `clarify` | Supporting | Intent-first architecture recap — 6-section view (intent → biz-arch → UX flows → data flow per layer → use cases × layers → open intent Qs). Phase-agnostic, ephemeral, no artifact. Defers technical implementation until user approves framing |
 | `doc-sync` | Supporting | Syncs CLAUDE.md, README.md, and plugin SKILL.md after a code change |

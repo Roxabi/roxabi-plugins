@@ -7,7 +7,6 @@ import {
   DEFAULT_RULESET,
   PROTECTED_BRANCHES,
   REQUIRED_SECRETS,
-  STANDARD_LABELS,
   STANDARD_WORKFLOWS,
 } from '../shared/adapters/github-infra'
 import { type Check, readConfig, readStackYml, type Section, type Status, spawnSync } from './doctor-shared'
@@ -17,9 +16,7 @@ export function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): S
   if (!ghOk)
     return {
       name: 'GitHub',
-      checks: ['GITHUB_REPO', 'GITHUB_TOKEN', 'GH_PROJECT_ID', 'Status field', 'Size field', 'Priority field'].map(
-        skip,
-      ),
+      checks: ['GITHUB_REPO', 'GITHUB_TOKEN'].map(skip),
     }
 
   const env = readConfig()
@@ -37,109 +34,7 @@ export function checkGitHubConfig(ghOk: boolean, owner: string, repo: string): S
     detail: hasToken ? 'available' : 'not set and gh auth token failed',
   })
 
-  // GH_PROJECT_ID
-  const projectId = env.GH_PROJECT_ID
-  if (projectId) {
-    const projects = spawnSync(['gh', 'project', 'list', '--owner', owner, '--format', 'json', '--limit', '20'])
-    let verified = false
-    if (projects.ok) {
-      try {
-        const data = JSON.parse(projects.stdout) as { projects: { id: string }[] }
-        verified = data.projects?.some((p) => p.id === projectId) ?? false
-      } catch {}
-    }
-    checks.push({
-      name: 'GH_PROJECT_ID',
-      status: verified ? 'pass' : 'warn',
-      detail: verified ? 'set (verified)' : 'set (not verified)',
-    })
-  } else {
-    checks.push({ name: 'GH_PROJECT_ID', status: 'fail', detail: 'not set in .claude/dev-core.yml or .env' })
-  }
-
-  // Project linked to repo
-  if (projectId && repo) {
-    const linkQuery = `query($owner: String!, $name: String!) {
-      repository(owner: $owner, name: $name) {
-        projectsV2(first: 20) { nodes { id } }
-      }
-    }`
-    const linkResult = spawnSync([
-      'gh',
-      'api',
-      'graphql',
-      '-f',
-      `query=${linkQuery}`,
-      '-f',
-      `owner=${owner}`,
-      '-f',
-      `name=${repo}`,
-    ])
-    let linked = false
-    if (linkResult.ok) {
-      try {
-        const linkData = JSON.parse(linkResult.stdout) as {
-          data: { repository: { projectsV2: { nodes: { id: string }[] } } }
-        }
-        linked = linkData.data.repository.projectsV2.nodes.some((p) => p.id === projectId)
-      } catch {}
-    }
-    checks.push({
-      name: 'Project linked to repo',
-      status: linked ? 'pass' : 'warn',
-      detail: linked
-        ? 'project is linked to repository'
-        : `project not linked — fix: gh api graphql -f query='mutation { linkProjectV2ToRepository(input: { projectId: "${projectId}", repositoryId: "REPO_NODE_ID" }) { repository { id } } }'`,
-    })
-  }
-
-  // Field IDs
-  for (const field of ['STATUS_FIELD_ID', 'SIZE_FIELD_ID', 'PRIORITY_FIELD_ID']) {
-    const label = `${field.replace('_FIELD_ID', '').replace('_', ' ')} field`
-    const val = env[field]
-    checks.push({
-      name: label,
-      status: val ? 'pass' : 'fail',
-      detail: val ? 'configured' : 'not set in .claude/dev-core.yml or .env',
-    })
-  }
-
   return { name: 'GitHub', checks }
-}
-
-export function checkLabels(ghOk: boolean, owner: string, repo: string): Section {
-  if (!ghOk) return { name: 'Labels', checks: [{ name: 'labels', status: 'skip', detail: 'gh CLI not available' }] }
-
-  const result = spawnSync(['gh', 'label', 'list', '--repo', `${owner}/${repo}`, '--json', 'name', '--limit', '100'])
-  if (!result.ok)
-    return { name: 'Labels', checks: [{ name: 'labels', status: 'fail', detail: 'could not fetch labels' }] }
-
-  let existing: string[] = []
-  try {
-    existing = (JSON.parse(result.stdout) as { name: string }[]).map((l) => l.name)
-  } catch {}
-
-  const missing = STANDARD_LABELS.filter((l) => !existing.includes(l.name)).map((l) => l.name)
-  const count = STANDARD_LABELS.length - missing.length
-
-  if (missing.length === 0) {
-    return {
-      name: 'Labels',
-      checks: [
-        { name: 'labels', status: 'pass', detail: `${STANDARD_LABELS.length}/${STANDARD_LABELS.length} present` },
-      ],
-    }
-  }
-  return {
-    name: 'Labels',
-    checks: [
-      {
-        name: 'labels',
-        status: 'warn',
-        detail: `${count}/${STANDARD_LABELS.length} present (missing: ${missing.join(', ')})`,
-      },
-    ],
-  }
 }
 
 export function checkWorkflows(ghOk: boolean, owner: string, repo: string): Section {
@@ -215,59 +110,6 @@ export function checkSecrets(ghOk: boolean, owner: string, repo: string): Sectio
     }
 
   return { name: 'Secrets', checks }
-}
-
-export function checkProjectWorkflows(ghOk: boolean, _owner: string): Section {
-  if (!ghOk)
-    return {
-      name: 'Project workflows',
-      checks: [{ name: 'workflows', status: 'skip', detail: 'gh CLI not available' }],
-    }
-
-  const config = readConfig()
-  const projectId = config.GH_PROJECT_ID
-  if (!projectId)
-    return {
-      name: 'Project workflows',
-      checks: [{ name: 'workflows', status: 'skip', detail: 'GH_PROJECT_ID not set' }],
-    }
-
-  const query =
-    'query($projectId: ID!) { node(id: $projectId) { ... on ProjectV2 { workflows(first: 20) { nodes { name enabled } } } } }'
-  const result = spawnSync(['gh', 'api', 'graphql', '-f', `query=${query}`, '-F', `projectId=${projectId}`])
-  if (!result.ok)
-    return {
-      name: 'Project workflows',
-      checks: [{ name: 'workflows', status: 'warn', detail: 'could not fetch — check gh auth' }],
-    }
-
-  let nodes: Array<{ name: string; enabled: boolean }> = []
-  try {
-    const data = JSON.parse(result.stdout) as { data: { node: { workflows: { nodes: typeof nodes } } } }
-    nodes = data.data.node.workflows.nodes
-  } catch {
-    return {
-      name: 'Project workflows',
-      checks: [{ name: 'workflows', status: 'warn', detail: 'could not parse response' }],
-    }
-  }
-
-  const enabled = nodes.filter((w) => w.enabled).length
-  const total = nodes.length
-  const disabled = nodes.filter((w) => !w.enabled).map((w) => w.name)
-
-  if (disabled.length === 0) {
-    return {
-      name: 'Project workflows',
-      checks: [{ name: 'workflows', status: 'pass', detail: `${enabled}/${total} enabled` }],
-    }
-  }
-  return {
-    name: 'Project workflows',
-    checks: [
-      { name: 'workflows', status: 'warn', detail: `${enabled}/${total} enabled — disabled: ${disabled.join(', ')}` },
-    ],
-  }
 }
 
 export function checkBranchProtection(ghOk: boolean, owner: string, repo: string): Section {

@@ -23,7 +23,6 @@
     "plugins/dev-core/cli/__tests__",
     "plugins/dev-core/cli/index.ts",
     "plugins/dev-core/skills/init/init.ts",
-    "plugins/dev-core/skills/issue-triage/triage.ts",
     "plugins/dev-init/skills/init/init.ts"
   ]
 }

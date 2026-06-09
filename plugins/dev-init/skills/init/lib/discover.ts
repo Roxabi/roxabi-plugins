@@ -3,44 +3,18 @@
  * Returns structured JSON for the init orchestrator.
  */
 
-import { getBoardIssueNumbers, parseProjectFields, run } from '../../shared/adapters/github-adapter'
-import {
-  DEFAULT_RULESET,
-  PROTECTED_BRANCHES,
-  STANDARD_LABELS,
-  STANDARD_WORKFLOWS,
-} from '../../shared/adapters/github-infra'
+import { run } from '../../shared/adapters/github-adapter'
+import { DEFAULT_RULESET, PROTECTED_BRANCHES, STANDARD_WORKFLOWS } from '../../shared/adapters/github-infra'
 import { checkPrereqs } from '../../shared/prereqs'
 
 export interface DiscoveryResult {
   repo: string | null
   owner: string | null
-  projects: Array<{ id: string; number: number; title: string }>
-  fields: {
-    status: { id: string; options: Record<string, string> } | null
-    size: { id: string; options: Record<string, string> } | null
-    priority: { id: string; options: Record<string, string> } | null
-  }
-  issues: { total: number; onBoard: number; orphaned: number }
-  labels: { existing: string[]; missing: string[] }
   workflows: { existing: string[]; missing: string[] }
   protection: Record<string, boolean>
   rulesets: { existing: string[]; missing: string[] }
   vercel: { projectId: string; orgId: string } | null
-  env: Partial<
-    Record<
-      | 'GITHUB_REPO'
-      | 'GH_PROJECT_ID'
-      | 'STATUS_FIELD_ID'
-      | 'SIZE_FIELD_ID'
-      | 'PRIORITY_FIELD_ID'
-      | 'VERCEL_PROJECT_ID'
-      | 'VERCEL_TEAM_ID'
-      | 'VERCEL_TOKEN'
-      | 'GITHUB_TOKEN',
-      string
-    >
-  >
+  env: Partial<Record<'GITHUB_REPO' | 'VERCEL_PROJECT_ID' | 'VERCEL_TEAM_ID' | 'VERCEL_TOKEN' | 'GITHUB_TOKEN', string>>
 }
 
 function readEnvFile(): Record<string, string> {
@@ -68,10 +42,6 @@ export async function discover(): Promise<DiscoveryResult> {
   const result: DiscoveryResult = {
     repo,
     owner,
-    projects: [],
-    fields: { status: null, size: null, priority: null },
-    issues: { total: 0, onBoard: 0, orphaned: 0 },
-    labels: { existing: [], missing: [] },
     workflows: { existing: [], missing: [] },
     protection: {},
     rulesets: { existing: [], missing: [] },
@@ -80,88 +50,6 @@ export async function discover(): Promise<DiscoveryResult> {
   }
 
   if (!ghOk || !owner) return result
-
-  // Projects
-  try {
-    const projectsJson = await run(['gh', 'project', 'list', '--owner', owner, '--format', 'json', '--limit', '20'])
-    const data = JSON.parse(projectsJson) as { projects: { id: string; number: number; title: string }[] }
-    result.projects = data.projects ?? []
-  } catch {}
-
-  // Fields (if we have a project)
-  const envData = result.env
-  const projectId = envData.GH_PROJECT_ID
-  if (projectId && result.projects.length > 0) {
-    const project = result.projects.find((p) => p.id === projectId) ?? result.projects[0]
-    try {
-      const fieldsJson = await run([
-        'gh',
-        'project',
-        'field-list',
-        String(project.number),
-        '--owner',
-        owner,
-        '--format',
-        'json',
-      ])
-      const parsed = parseProjectFields(fieldsJson)
-      result.fields.status = parsed.status
-      result.fields.size = parsed.size
-      result.fields.priority = parsed.priority
-    } catch {}
-  }
-
-  // Issues — count open issues and how many are on the board
-  if (repo) {
-    try {
-      const issuesJson = await run([
-        'gh',
-        'issue',
-        'list',
-        '--repo',
-        `${owner}/${repo}`,
-        '--state',
-        'open',
-        '--json',
-        'number',
-        '--limit',
-        '500',
-      ])
-      const issues = JSON.parse(issuesJson) as Array<{ number: number }>
-      result.issues.total = issues.length
-
-      // If we have a project, check which issues are already on the board
-      const selectedProject = projectId ? result.projects.find((p) => p.id === projectId) : result.projects[0]
-      if (selectedProject && issues.length > 0) {
-        try {
-          const onBoardNumbers = await getBoardIssueNumbers(owner, selectedProject.number)
-          const onBoard = issues.filter((i) => onBoardNumbers.has(i.number)).length
-          result.issues.onBoard = onBoard
-          result.issues.orphaned = result.issues.total - onBoard
-        } catch {}
-      } else {
-        result.issues.orphaned = result.issues.total
-      }
-    } catch {}
-  }
-
-  // Labels
-  try {
-    const labelsJson = await run([
-      'gh',
-      'label',
-      'list',
-      '--repo',
-      `${owner}/${repo}`,
-      '--json',
-      'name',
-      '--limit',
-      '100',
-    ])
-    const labels = (JSON.parse(labelsJson) as { name: string }[]).map((l) => l.name)
-    result.labels.existing = labels
-    result.labels.missing = STANDARD_LABELS.filter((l) => !labels.includes(l.name)).map((l) => l.name)
-  } catch {}
 
   // Workflows
   for (const wf of STANDARD_WORKFLOWS) {
