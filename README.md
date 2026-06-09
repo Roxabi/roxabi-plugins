@@ -61,7 +61,7 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 | Plugin | Description |
 |--------|-------------|
 | [dev-init](plugins/dev-init/README.md) | Project initialization harness — orchestrates env-setup, github-setup, ci-setup, release-setup in one shot. Idempotent, with axial ADR gate. |
-| [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. 33 skills, 9 agents, safety hooks. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
+| [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. 30 skills, 9 agents, safety hooks. Issues-only (no Projects V2 board); issue triage lives in the separate [roxabi-issues](https://github.com/Roxabi/roxabi-live) plugin. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
 
 ### Content & branding
 
@@ -108,6 +108,7 @@ claude plugin marketplace add <source>
 | ui-ux-pro-max-skill | UI/UX design intelligence — 67 styles, 96 palettes, 57 font pairings, 25 charts | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) |
 | roxabi-video-engine | Programmatic video generation — 55 React components, 13 kits, headless MP4 rendering | [Roxabi/roxabi-production](https://github.com/Roxabi/roxabi-production) |
 | frontend-slides | Zero-dependency HTML presentations — 12 presets, PPT conversion, Vercel deploy + PDF export | [zarazhangrui/frontend-slides](https://github.com/zarazhangrui/frontend-slides) |
+| roxabi-live | Issue management — the `roxabi-issues` plugin (labels + native relations, no Projects V2). Relocated from dev-core | [Roxabi/roxabi-live](https://github.com/Roxabi/roxabi-live) |
 
 ## Data storage
 
