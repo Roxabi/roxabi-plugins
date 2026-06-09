@@ -1,6 +1,6 @@
 ---
 name: axial-adr-review
-model: sonnet
+model: opus
 description: |
   Read-only review agent for axial-decomposition drift. Parses the project's axial ADR (`axial: true` frontmatter) and reviews a diff or spec for drift along the non-primary axis (N×M trap). Emits Conventional Comments findings tagged with the canonical `target-axis-trap` class.
 

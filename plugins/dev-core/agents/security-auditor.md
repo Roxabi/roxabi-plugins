@@ -1,6 +1,6 @@
 ---
 name: security-auditor
-model: sonnet
+model: opus
 description: |
   Audit code for security vulnerabilities, review auth flows,
   and verify compliance with OWASP top 10.

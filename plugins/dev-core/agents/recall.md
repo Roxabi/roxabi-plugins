@@ -1,6 +1,6 @@
 ---
 name: recall
-model: sonnet
+model: haiku
 description: |
   Targeted recall agent for cross-chunk class join in /code-review.
   Receives only callsites + context window, never the full diff.
