@@ -66,6 +66,11 @@
       "name": "mattpocock-skills",
       "source": "https://github.com/mattpocock/skills",
       "description": "Matt Pocock's skills — 14 skills across productivity (caveman, grill-me, handoff, write-a-skill) and engineering (diagnose, grill-with-docs, triage, tdd, to-issues, to-prd, zoom-out, prototype, improve-codebase-architecture, setup-matt-pocock-skills)."
+    },
+    {
+      "name": "roxabi-live",
+      "source": "https://github.com/Roxabi/roxabi-live",
+      "description": "Issue management — the roxabi-issues plugin (labels + native relations, no Projects V2). Relocated from dev-core."
     }
   ]
 }
