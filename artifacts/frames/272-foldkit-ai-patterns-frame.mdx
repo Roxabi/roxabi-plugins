@@ -1,0 +1,91 @@
+---
+title: Adopt foldkit AI-engineering patterns — machine gates + quality calibration
+issue: 272
+status: approved
+tier: F-lite
+date: 2026-06-10
+---
+
+## Problem
+
+The foldkit analysis (2026-06-10, `~/projects/artifacts/foldkit-analysis/claude-assets.md` §4)
+found that foldkit enforces by **machine** several rules that we hold only in **prose**. The
+gap is not stylistic — our own `roxabi-plugins/CLAUDE.md` already documents the version-bump
+requirement (line 80) and a 4-mechanism shared-source governance scheme precisely *because*
+manual discipline kept drifting. Prose-trust is exactly the failure mode foldkit's pre-push
+gates and SessionStart reconciliation close.
+
+This issue adopts 7 patterns (R1–R7) — the high-value/low-effort subset of the §4 RETAIN LIST.
+R1–R3 are new machine enforcement (close prose-only gaps). R4–R7 are quality calibration
+improvements to dev-core skills.
+
+## Who
+
+- **Primary:** Mickael (sole operator) + any contributor running the roxabi-plugins
+  pre-push/lefthook pipeline and the dev-core dev lifecycle.
+- **Secondary:** Consumers of the dev-core plugin — R4/R5/R6/R7 change how the
+  `implement`, `dev`, and `code-review` skills behave for everyone who installs dev-core.
+
+## Constraints
+
+- **R1/R2 land in `lefthook.yml` `pre-push`** (currently `parallel: true`, runs `test` +
+  `trufflehog`). Gate scripts go in `scripts/` (bash convention — `scripts/trufflehog-check.sh`
+  is the precedent). `tools/` is reserved for TS/Python tooling.
+- **R2 must respect the two-tier versioning policy** (CLAUDE.md): SHA-based by default
+  (no `version` field) → gate must NOT fire; only fire for semver-disciplined plugins that
+  carry a `version` field in `plugin.json` (today: dev-core@0.6.2). Compare base vs HEAD
+  version; block only when skills/commands changed AND version unchanged.
+- **R3 hook lives in `.claude/settings.json`** (tracked/committed) — adds a `hooks.SessionStart`
+  block running `bun run sync:shared --check` + `bun run typecheck`. Must be non-blocking on
+  missing `.venv` (mirror the lefthook `|| true` / SKIP pattern). Adds startup latency (acceptable).
+- **R4/R5/R7 are prose edits to dev-core skill sources** (`plugins/dev-core/skills/{dev,implement}/SKILL.md`).
+  Edits to versioned dev-core skills → **R2 gate now requires a dev-core `version` bump** in the
+  same change (self-referential: this PR exercises the gate it adds).
+- **R6 adds a blind-spots resource** to `plugins/dev-core/skills/code-review/` and wires it into
+  the reviewer agent prompts. Python/infra failure modes (bare `except`, `subprocess` w/o
+  `check=True`, f-string shell injection, missing transaction boundaries, …). Additive to the
+  existing `review-classes.yml` structural classes — complement, not replacement.
+- **Style:** single quotes, no semicolons (JS/TS); bash gates idiomatic with the existing
+  `scripts/trufflehog-check.sh`. Compressed notation in SKILL.md edits to match surrounding prose.
+- **Cache sync:** any dev-core skill edit requires the rsync/sync workflow noted in CLAUDE.md
+  (edit repo source → not cache).
+
+## Out of Scope
+
+- Action-space-published-as-validated-schema — already filed at Roxabi/roxabi-factory#493.
+- R8 (no-co-author commit policy), R9 (mechanical grep checklist), R10 (split SKILL.md into
+  architecture/conventions/checklist trilogy) — from the §4 list but not selected for this issue.
+- Foldkit-specific patterns inapplicable to us: `evo()` helper, `M.tagsExhaustive`, Scene tests,
+  vendored Effect-TS subtree, em-dash ban (2d, 2h, 2i, 2k, 2p).
+
+## Premise Validity
+
+**Success in 6 months:** All 7 patterns shipped and active — R1 blocks pushes carrying
+unresolved `CLAUDE:` comments; R2 blocks a versioned plugin shipping changed skills without a
+version bump; R3 surfaces shared-source/typecheck drift at session start; R4/R5/R7 shape the
+dev-core `implement`/`dev` quality bar, gate ordering, and F-full arch sketch; R6 hands reviewers
+a concrete failure-mode checklist. Rules previously trust-only are now machine-enforced.
+
+**Failure in 6 months (falsifiable):** ≥3 `--no-verify` pushes touching gated files appear in
+`git log`, OR version/shared-source drift incidents continue at the pre-#272 rate despite the R3
+SessionStart hook, OR the new gates emit enough false positives that a maintainer disables them.
+Measurable: count of bypass commits + count of post-merge "stale skill shipped / forgot version
+bump" incidents.
+
+**Simplest alternative:** Keep all 7 as prose rules in CLAUDE.md + reviewer discipline (status quo).
+**Why not simplest:** The foldkit insight *is* that prose-trust is what fails. Our CLAUDE.md
+already documents the version-bump rule and 4-mechanism shared-source governance because manual
+discipline drifted; R1–R3 close the machine-enforcement gap that prose cannot. R4–R7 calibrate
+quality against concrete anchors rather than abstract "write clean code".
+
+## Complexity
+
+**Tier: F-lite** — clear scope, single repo, mostly additive and low-risk.
+
+Signals observed:
+- `size:F-lite` label on the issue.
+- Multi-file (lefthook + 2 new scripts + settings.json + 3 SKILL.md edits + 1 new resource) but
+  each change is independently scoped and reversible.
+- No new architecture, no cross-service unknowns, no data-model changes.
+- Single domain (dev-core / repo tooling); the only coupling is the self-referential R2↔R4/R5/R7
+  (skill edits must bump dev-core version, which the R2 gate now enforces).
