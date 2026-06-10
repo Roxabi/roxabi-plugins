@@ -50,5 +50,9 @@
   {
     "canonical": "plugins/dev-core/skills/shared/ports/workspace.ts",
     "targets": ["plugins/dev-init/skills/shared/ports/workspace.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/adapters/github-adapter.ts",
+    "targets": ["plugins/dev-init/skills/shared/adapters/github-adapter.ts"]
   }
 ]

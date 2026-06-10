@@ -1,4 +1,4 @@
-import { discoverProject } from '../lib/github-discovery'
+import type { WorkspaceProject } from '../lib/workspace-store'
 import { readWorkspace, writeWorkspace } from '../lib/workspace-store'
 
 const USAGE = `
@@ -17,22 +17,22 @@ function validateLocalPath(path: string): string {
   return path
 }
 
-function printTable(projects: { repo: string; projectId: string; label: string }[]): void {
+function printTable(projects: WorkspaceProject[]): void {
   if (projects.length === 0) {
     console.log('No projects registered. Run: roxabi workspace add owner/repo')
     return
   }
 
   const repoW = Math.max('repo'.length, ...projects.map((p) => p.repo.length))
-  const idW = Math.max('projectId'.length, ...projects.map((p) => p.projectId.length))
   const labelW = Math.max('label'.length, ...projects.map((p) => p.label.length))
+  const localW = Math.max('local'.length, ...projects.map((p) => (p.localPath ?? '').length))
 
-  const row = (r: string, id: string, l: string) => `${r.padEnd(repoW)}  ${id.padEnd(idW)}  ${l.padEnd(labelW)}`
+  const row = (r: string, l: string, lp: string) => `${r.padEnd(repoW)}  ${l.padEnd(labelW)}  ${lp.padEnd(localW)}`
 
-  console.log(row('repo', 'projectId', 'label'))
-  console.log('-'.repeat(repoW + idW + labelW + 4))
+  console.log(row('repo', 'label', 'local'))
+  console.log('-'.repeat(repoW + labelW + localW + 4))
   for (const p of projects) {
-    console.log(row(p.repo, p.projectId, p.label))
+    console.log(row(p.repo, p.label, p.localPath ?? ''))
   }
 }
 
@@ -56,54 +56,19 @@ async function cmdAdd(repo: string, localPath?: string): Promise<void> {
     }
   }
 
-  let nodes: { repo: string; projectId: string; label: string; localPath?: string }[]
-  try {
-    nodes = await discoverProject(repo)
-  } catch (e) {
-    console.error(String(e))
-    process.exit(1)
-  }
-
-  if (nodes.length === 0) {
-    console.error(`No GitHub Projects found for ${repo}.`)
-    process.exit(1)
-  }
-
-  let chosen: { repo: string; projectId: string; label: string; localPath?: string }
-
-  if (nodes.length === 1) {
-    chosen = nodes[0]
-  } else {
-    process.stdout.write('Multiple projects found. Select one:\n')
-    for (const [i, p] of nodes.entries()) process.stdout.write(`  ${i + 1}. ${p.label} (${p.projectId})\n`)
-    process.stdout.write('Enter number: ')
-
-    const line = await new Promise<string>((resolve) => {
-      process.stdin.once('data', (d) => resolve(d.toString().trim()))
-    })
-
-    const idx = parseInt(line, 10) - 1
-    if (idx < 0 || idx >= nodes.length || Number.isNaN(idx)) {
-      console.error(`Invalid selection: ${line}`)
-      process.exit(1)
-    }
-    chosen = nodes[idx]
-  }
-
-  // Override localPath if explicitly provided via --local
-  if (localPath !== undefined) {
-    chosen = { ...chosen, localPath }
-  }
+  // ProjectV2 board discovery was removed in #268 — `add` now registers the repo
+  // directly. The label defaults to the repo slug; --local records the clone path.
+  const entry: WorkspaceProject = { repo, label: repo, ...(localPath !== undefined ? { localPath } : {}) }
 
   const ws = readWorkspace()
   const existing = ws.projects.findIndex((p) => p.repo === repo)
   if (existing !== -1) {
-    ws.projects[existing] = chosen
+    ws.projects[existing] = entry
   } else {
-    ws.projects.push(chosen)
+    ws.projects.push(entry)
   }
   writeWorkspace(ws)
-  console.log(`Added: ${chosen.repo} → ${chosen.label} (${chosen.projectId})`)
+  console.log(`Added: ${entry.repo} → ${entry.label}`)
 }
 
 async function cmdRemove(repo: string): Promise<void> {

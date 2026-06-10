@@ -7,13 +7,6 @@ const fs = require('node:fs')
 
 export interface ScaffoldOpts {
   githubRepo: string
-  projectId: string
-  statusFieldId: string
-  sizeFieldId: string
-  priorityFieldId: string
-  statusOptionsJson: string
-  sizeOptionsJson: string
-  priorityOptionsJson: string
   vercelToken?: string
   vercelProjectId?: string
   vercelTeamId?: string
@@ -43,13 +36,6 @@ function buildDevCoreYml(opts: ScaffoldOpts): string {
     '# dev-core plugin configuration',
     '# 3-tier fallback: this file → process.env → gh CLI (github_repo only)',
     `github_repo: ${opts.githubRepo}`,
-    `gh_project_id: ${opts.projectId}`,
-    `status_field_id: ${opts.statusFieldId}`,
-    `size_field_id: ${opts.sizeFieldId}`,
-    `priority_field_id: ${opts.priorityFieldId}`,
-    `status_options_json: '${opts.statusOptionsJson}'`,
-    `size_options_json: '${opts.sizeOptionsJson}'`,
-    `priority_options_json: '${opts.priorityOptionsJson}'`,
   ]
   return `${lines.join('\n')}\n`
 }
@@ -57,22 +43,8 @@ function buildDevCoreYml(opts: ScaffoldOpts): string {
 function buildDevCoreSections(opts: ScaffoldOpts): EnvSection[] {
   const sections: EnvSection[] = [
     {
-      header: '# --- dev-core: GitHub Project V2 ---',
-      vars: [
-        { key: 'GITHUB_REPO', value: opts.githubRepo },
-        { key: 'GH_PROJECT_ID', value: opts.projectId },
-        { key: 'STATUS_FIELD_ID', value: opts.statusFieldId },
-        { key: 'SIZE_FIELD_ID', value: opts.sizeFieldId },
-        { key: 'PRIORITY_FIELD_ID', value: opts.priorityFieldId },
-      ],
-    },
-    {
-      header: '# --- dev-core: Field option IDs (auto-detected by /init) ---',
-      vars: [
-        { key: 'STATUS_OPTIONS_JSON', value: opts.statusOptionsJson },
-        { key: 'SIZE_OPTIONS_JSON', value: opts.sizeOptionsJson },
-        { key: 'PRIORITY_OPTIONS_JSON', value: opts.priorityOptionsJson },
-      ],
+      header: '# --- dev-core: GitHub ---',
+      vars: [{ key: 'GITHUB_REPO', value: opts.githubRepo }],
     },
   ]
 
@@ -95,21 +67,7 @@ function buildDevCoreSections(opts: ScaffoldOpts): EnvSection[] {
   return sections
 }
 
-const DEV_CORE_KEYS = new Set([
-  'GITHUB_REPO',
-  'GH_PROJECT_ID',
-  'PROJECT_ID', // PROJECT_ID: tombstone — strips legacy key on next /init
-  'STATUS_FIELD_ID',
-  'SIZE_FIELD_ID',
-  'PRIORITY_FIELD_ID',
-  'STATUS_OPTIONS_JSON',
-  'SIZE_OPTIONS_JSON',
-  'PRIORITY_OPTIONS_JSON',
-  'VERCEL_TOKEN',
-  'VERCEL_PROJECT_ID',
-  'VERCEL_TEAM_ID',
-  'GITHUB_TOKEN',
-])
+const DEV_CORE_KEYS = new Set(['GITHUB_REPO', 'VERCEL_TOKEN', 'VERCEL_PROJECT_ID', 'VERCEL_TEAM_ID', 'GITHUB_TOKEN'])
 
 export function mergeEnv(existing: string, sections: EnvSection[], force: boolean): string {
   // Remove existing dev-core lines
@@ -177,18 +135,8 @@ export function mergeEnv(existing: string, sections: EnvSection[], force: boolea
 
 function generateEnvExample(_opts: ScaffoldOpts): string {
   const lines = [
-    '# --- dev-core: GitHub Project V2 ---',
-    '# Run /init to auto-detect these values',
+    '# --- dev-core: GitHub ---',
     'GITHUB_REPO=owner/repo',
-    'GH_PROJECT_ID=PVT_...',
-    'STATUS_FIELD_ID=PVTSSF_...',
-    'SIZE_FIELD_ID=PVTSSF_...',
-    'PRIORITY_FIELD_ID=PVTSSF_...',
-    '',
-    '# --- dev-core: Field option IDs (auto-detected by /init) ---',
-    'STATUS_OPTIONS_JSON={}',
-    'SIZE_OPTIONS_JSON={}',
-    'PRIORITY_OPTIONS_JSON={}',
     '',
     '# --- dev-core: Vercel (optional — for dashboard deployments panel) ---',
     'VERCEL_TOKEN=',

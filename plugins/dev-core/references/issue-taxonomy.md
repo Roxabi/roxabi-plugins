@@ -4,7 +4,7 @@ Single fact source for issue metadata across every Roxabi repo.
 
 **Model:** issues-only / labels-first. Issue metadata lives on **GitHub labels** + **native issue fields** (Issue Type, Milestone, Assignees, sub-issues, dependencies), scoped per-repo. There is **no required project board** — reads are repo-centric.
 
-> **ProjectV2 is optional legacy.** The hub Project V2 board path still exists in code (`config-helpers.ts` field IDs, `addToProject`, `migrate-*` scripts) but is **gated behind `isProjectConfigured()`** and off by default. When no board is configured, every write is a label or native field. See §6 for the legacy board path and §7 for the migration history that produced this model.
+> **ProjectV2 board path removed (#268).** The hub Project V2 board integration — `config-helpers.ts` field IDs, `addToProject`, `isProjectConfigured()`, and the `migrate-*` scripts — was deleted from the code. Every write is now a label or native field; there is no board path. See §7 for the migration history that produced this issues-only model.
 
 **Who reads this:** `dev-core:issue-triage` (writer) · `dev-core:github-setup` (label/type bootstrap) · `lyra/scripts/dep-graph` · `roxabi-live` worker (repo-centric GraphQL readers).
 
@@ -24,7 +24,7 @@ Single fact source for issue metadata across every Roxabi repo.
 
 **Canonical lanes** (`config-helpers.ts:DEFAULT_LANE_OPTIONS`): `a1 a2 a3 b c1 c2 c3 d e f g h i j k l m n o standalone`.
 
-**Status note:** in the issues-only model, status is largely the native issue **open/closed** state. `issue-triage set` deliberately does **not** write `status:*` labels (dropped in #262 — redundant/noisy). `issue-triage create` does seed a `status:*` label. The board-side status write only fires when `isProjectConfigured()` (legacy path).
+**Status note:** in the issues-only model, status is largely the native issue **open/closed** state. `issue-triage set` deliberately does **not** write `status:*` labels (dropped in #262 — redundant/noisy). `issue-triage create` does seed a `status:*` label.
 
 **Native relations (no field needed):**
 - **Sub-issues** — parent/child, cross-org · REST `…/sub_issues` · `…/parent`
@@ -64,7 +64,7 @@ Single fact source for issue metadata across every Roxabi repo.
 ### `dev-core:issue-triage`
 - **Writes:** Priority · Size · Lane · Status (create) labels · Issue Type (native) · Milestone · Assignees · sub-issue parent · blocked_by
 - **Inputs:** user triage prompt + issue context
-- **Mutates:** GitHub labels + native issue fields + native relations (and, when `isProjectConfigured()`, legacy ProjectV2 item fields)
+- **Mutates:** GitHub labels + native issue fields + native relations
 - **Stale-label hygiene:** each `sync*Label` adds the target label and removes all other labels in the same set (`*_LABELS_SET`), so a field has exactly one value.
 - **Domain tags untouched:** `deploy` · `ci` · `security` · `docs` · `performance` etc. are technical markers, not taxonomy — issue-triage never strips them.
 
@@ -90,13 +90,9 @@ Single fact source for issue metadata across every Roxabi repo.
 
 ---
 
-## 6. Legacy ProjectV2 board path (optional, gated)
+## 6. Legacy ProjectV2 board path — removed (#268)
 
-Retained for repos still enrolled on the hub Project V2 board. Activated only when `isProjectConfigured()` returns true (field IDs present in dev-core config). Off by default.
-
-- **Writes:** `issue-triage` mirrors Priority/Size/Lane/Status to `ProjectV2ItemFieldSingleSelectValue` items via the field IDs in `config-helpers.ts` (`PRIORITY_FIELD_ID`, `STATUS_FIELD_ID`, …) and adds the issue to `GH_PROJECT_ID`.
-- **Migration scripts** (`issue-triage/lib/migrate-*`): `migrate-backfill` (label → field), `migrate-revert` (field → label), `migrate-audit` (drift report). These are the label↔field bridge used during enroll/un-enroll.
-- **Reads (board era):** a single paginated GraphQL query on `organization.projectV2.items` hydrated every fact. The current readers no longer use this — they read per-repo.
+The optional, `isProjectConfigured()`-gated board path was deleted in #268. `issue-triage` no longer mirrors fields to `ProjectV2ItemFieldSingleSelectValue` items; the `config-helpers.ts` field IDs, `GH_PROJECT_ID`, and `addToProject` are gone; and the `migrate-*` bridge scripts were removed. The issues-only model (§1) is the only path. See §7 for the history.
 
 ---
 
@@ -112,4 +108,4 @@ v3  Revert to labels-first / repo-centric; drop ProjectV2   #262 #263 #264 (2026
         from the read path and from the issues-only model
 ```
 
-v3 is current. The board code (§6) survives as an opt-in legacy path, not the default. `dev-core:issues` (the board-era list/dashboard reader) was removed in #265.
+v3 is current and complete. The board code was fully removed in #268 (the §6 path no longer exists); `dev-core:issues` (the board-era list/dashboard reader) was removed in #265.

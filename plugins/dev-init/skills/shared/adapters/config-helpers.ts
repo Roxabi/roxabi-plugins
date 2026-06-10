@@ -7,14 +7,12 @@
 
 import { readFileSync } from 'node:fs'
 import { ConfigError } from '../domain/errors'
-import type { ProjectFieldIds } from '../domain/types'
-import type { WorkspaceProject } from '../ports/workspace'
 
 /**
  * Load a config value from .claude/dev-core.yml with 3-tier fallback:
  *   1st: .claude/dev-core.yml (YAML key lookup)
  *   2nd: process.env[envKey]
- *   3rd: gh CLI auto-detect (github_repo, gh_project_id)
+ *   3rd: gh CLI auto-detect (github_repo)
  */
 function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
   // 1st: Try .claude/dev-core.yml
@@ -41,51 +39,6 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
       if (proc.exitCode === 0) return new TextDecoder().decode(proc.stdout).trim()
     } catch {
       /* gh not available */
-    }
-  }
-
-  if (key === 'gh_project_id') {
-    try {
-      const repoProc = Bun.spawnSync(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], {
-        stdout: 'pipe',
-        stderr: 'pipe',
-      })
-      if (repoProc.exitCode === 0) {
-        const repo = new TextDecoder().decode(repoProc.stdout).trim()
-        if (repo) {
-          // Validate before splitting + interpolating. assertValidRepoSlug throws on a
-          // malformed slug; the surrounding catch turns that into a silent "no project
-          // detected" (undefined), matching the gh-not-available path. Belt-and-suspenders:
-          // owner/name are passed as typed GraphQL variables (-f) instead of interpolated,
-          // so the query string is constant and the gh CLI handles escaping.
-          const [owner, name] = assertValidRepoSlug(repo).split('/')
-          const query =
-            'query($owner: String!, $name: String!) ' +
-            '{ repository(owner: $owner, name: $name) { projectsV2(first: 1) { nodes { id } } } }'
-          const idProc = Bun.spawnSync(
-            [
-              'gh',
-              'api',
-              'graphql',
-              '-f',
-              `query=${query}`,
-              '-f',
-              `owner=${owner}`,
-              '-f',
-              `name=${name}`,
-              '--jq',
-              '.data.repository.projectsV2.nodes[0].id',
-            ],
-            { stdout: 'pipe', stderr: 'pipe' },
-          )
-          if (idProc.exitCode === 0) {
-            const id = new TextDecoder().decode(idProc.stdout).trim()
-            if (id && id !== 'null') return id
-          }
-        }
-      }
-    } catch {
-      /* gh not available, no project linked, or invalid slug from gh output */
     }
   }
 
@@ -135,51 +88,6 @@ export function detectGitHubRepo(): string {
   throw new ConfigError(
     'Cannot detect GitHub repo. Set GITHUB_REPO env var or ensure git remote "origin" is configured.',
   )
-}
-
-export const GH_PROJECT_ID = loadDevCoreConfig('gh_project_id', 'GH_PROJECT_ID') ?? ''
-export const STATUS_FIELD_ID = loadDevCoreConfig('status_field_id', 'STATUS_FIELD_ID') ?? ''
-export const SIZE_FIELD_ID = loadDevCoreConfig('size_field_id', 'SIZE_FIELD_ID') ?? ''
-export const PRIORITY_FIELD_ID = loadDevCoreConfig('priority_field_id', 'PRIORITY_FIELD_ID') ?? ''
-export const LANE_FIELD_ID = loadDevCoreConfig('lane_field_id', 'LANE_FIELD_ID') ?? ''
-
-/** Parse a JSON string into a Record, falling back to the provided default. */
-function parseOptionsValue(raw: string | undefined, fallback: Record<string, string>): Record<string, string> {
-  if (!raw) return fallback
-  try {
-    return JSON.parse(raw) as Record<string, string>
-  } catch {
-    return fallback
-  }
-}
-
-export const STATUS_OPTIONS: Record<string, string> = parseOptionsValue(
-  loadDevCoreConfig('status_options_json', 'STATUS_OPTIONS_JSON'),
-  {},
-)
-export const SIZE_OPTIONS: Record<string, string> = parseOptionsValue(
-  loadDevCoreConfig('size_options_json', 'SIZE_OPTIONS_JSON'),
-  {},
-)
-export const PRIORITY_OPTIONS: Record<string, string> = parseOptionsValue(
-  loadDevCoreConfig('priority_options_json', 'PRIORITY_OPTIONS_JSON'),
-  {},
-)
-export const LANE_OPTIONS: Record<string, string> = parseOptionsValue(
-  loadDevCoreConfig('lane_options_json', 'LANE_OPTIONS_JSON'),
-  {},
-)
-
-/** True when GH_PROJECT_ID and at least one option map are configured via env or YAML. */
-export function isProjectConfigured(): boolean {
-  return GH_PROJECT_ID !== '' && Object.keys(STATUS_OPTIONS).length > 0
-}
-
-export const FIELD_MAP: Record<string, { fieldId: string; options: Record<string, string> }> = {
-  status: { fieldId: STATUS_FIELD_ID, options: STATUS_OPTIONS },
-  size: { fieldId: SIZE_FIELD_ID, options: SIZE_OPTIONS },
-  priority: { fieldId: PRIORITY_FIELD_ID, options: PRIORITY_OPTIONS },
-  lane: { fieldId: LANE_FIELD_ID, options: LANE_OPTIONS },
 }
 
 // CLI aliases — map loose user input to canonical option keys
@@ -254,15 +162,10 @@ export function resolvePriority(input: string): string | undefined {
 /** Resolve loose user input to a canonical size key, or undefined. */
 export function resolveSize(input: string): string | undefined {
   const upper = input.toUpperCase().replace(/[-\s]/g, '-')
-  // Project's actual SIZE_OPTIONS take precedence — preserves XS/M/L/XL when the
-  // project board carries the legacy 5-bucket schema (e.g. Roxabi/lyra).
-  if (Object.hasOwn(SIZE_OPTIONS, input)) return input
-  if (Object.hasOwn(SIZE_OPTIONS, upper)) return upper
-  // New tier-based schema (S / F-lite / F-full).
+  // Tier-based schema (S / F-lite / F-full).
   if (CANONICAL_SIZES.has(input)) return input
   if (CANONICAL_SIZES.has(upper)) return upper
-  // Legacy → new schema aliasing — only fires when the project doesn't carry the
-  // legacy key as a real option (otherwise we'd have returned above).
+  // Legacy → new schema aliasing
   if (upper === 'XS') return 'S'
   if (upper === 'M') return 'F-lite'
   if (upper === 'L' || upper === 'XL') return 'F-full'
@@ -273,76 +176,15 @@ export function resolveSize(input: string): string | undefined {
   return
 }
 
-/** Canonical size → ordered legacy board keys to try when the canonical key
- *  is absent from the project's SIZE_OPTIONS (legacy XS/S/M/L/XL boards).
- *  F-full prefers the larger legacy bucket (XL before L).
- *  Only canonical keys (S, F-lite, F-full) need entries here — legacy keys (XS/M/L/XL)
- *  are resolved directly by resolveSize/the direct SIZE_OPTIONS lookup before this
- *  table is consulted. */
-const SIZE_REVERSE_PRECEDENCE: Record<string, string[]> = {
-  'F-full': ['XL', 'L'],
-  'F-lite': ['M'],
-  S: ['S', 'XS'],
-}
-
-/** Resolve loose size input to the project board's option id and canonical key,
- *  with reverse-alias fallback so canonical names (S/F-lite/F-full) work on legacy
- *  XS/S/M/L/XL boards. Returns both optionId (for the board field) and canonical
- *  (for log messages), so callers need not call resolveSize a second time. */
-export function getSizeOptionId(input: string): { optionId: string; canonical: string } | undefined {
-  const canonical = resolveSize(input)
-  if (!canonical) return undefined
-  if (Object.hasOwn(SIZE_OPTIONS, canonical)) return { optionId: SIZE_OPTIONS[canonical], canonical }
-  for (const key of SIZE_REVERSE_PRECEDENCE[canonical] ?? []) {
-    if (Object.hasOwn(SIZE_OPTIONS, key)) return { optionId: SIZE_OPTIONS[key], canonical }
-  }
-  return undefined
-}
-
 /** Resolve loose user input to a canonical lane key, or undefined. */
 export function resolveLane(input: string): string | undefined {
   if (CANONICAL_LANES.has(input)) return input
   return
 }
 
-/**
- * Resolve field IDs for a project.
- * Uses project.fieldIds when present (per-project); falls back to .env for legacy single-project mode.
- * Throws when fieldIds is explicitly provided but status is missing.
- */
-export function resolveFieldIds(project: WorkspaceProject): ProjectFieldIds {
-  if (project.fieldIds && Object.keys(project.fieldIds).length > 0) {
-    if (!project.fieldIds.status) {
-      throw new ConfigError(`[project ${project.label}] fieldIds.status is required`)
-    }
-    return project.fieldIds
-  }
-  // Fallback: build from .env (existing behavior)
-  // Empty fieldIds ({}) also falls through here — written by /init when field resolution fails.
-  console.warn(
-    `[dev-core] project "${project.label}" has no fieldIds — falling back to .env field IDs. Run /init to persist per-project field IDs.`,
-  )
-  return {
-    status: STATUS_FIELD_ID,
-    col2: SIZE_FIELD_ID,
-    col3: PRIORITY_FIELD_ID,
-    statusOptions: STATUS_OPTIONS,
-    col2Options: SIZE_OPTIONS,
-    col3Options: PRIORITY_OPTIONS,
-  }
-}
-
-/** Return the field ID for a given slot (col2 or col3), or undefined when absent. */
-export function fieldIdForSlot(project: WorkspaceProject, slot: 'col2' | 'col3'): string | undefined {
-  return resolveFieldIds(project)[slot]
-}
-
 // --- Exports consolidated from legacy config.ts shim ---
 
 export const GITHUB_REPO = detectGitHubRepo()
-
-export const NOT_CONFIGURED_MSG =
-  'GitHub Project V2 is not configured. Run `/init` to auto-detect project board settings.'
 
 export const PRIORITY_SHORT: Record<string, string> = {
   'P0 - Urgent': 'P0',

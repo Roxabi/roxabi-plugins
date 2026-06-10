@@ -10,7 +10,7 @@
  *   bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>]  # generic only (auto-merge + pr-title)
  *   bun init.ts protect-branches --repo <owner/repo>
  *   bun init.ts scaffold-rules [--stack-path .claude/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
- *   bun init.ts scaffold --github-repo <owner/repo> --project-id <PVT_...> [--force] ...
+ *   bun init.ts scaffold --github-repo <owner/repo> [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]
  *   bun init.ts scaffold-fumadocs [--root <path>] [--docs-path <path>]
  *   bun init.ts scaffold-fumadocs-vercel [--root <path>] [--orchestrator <turbo|none>]
  */
@@ -130,13 +130,6 @@ switch (command) {
     const { scaffold } = await import('./lib/scaffold')
     const result = await scaffold({
       githubRepo: parseFlag('--github-repo', ''),
-      projectId: parseFlag('--project-id', ''),
-      statusFieldId: parseFlag('--status-field-id', ''),
-      sizeFieldId: parseFlag('--size-field-id', ''),
-      priorityFieldId: parseFlag('--priority-field-id', ''),
-      statusOptionsJson: parseFlag('--status-options-json', '{}'),
-      sizeOptionsJson: parseFlag('--size-options-json', '{}'),
-      priorityOptionsJson: parseFlag('--priority-options-json', '{}'),
       vercelToken: parseFlag('--vercel-token', ''),
       vercelProjectId: parseFlag('--vercel-project-id', ''),
       vercelTeamId: parseFlag('--vercel-team-id', ''),

@@ -51,10 +51,7 @@ describe('branch protection trufflehog context check', () => {
     )
 
     // Write .env with required config
-    fs.writeFileSync(
-      path.join(tmpDir, '.env'),
-      'GITHUB_REPO=TestOrg/test-repo\nGH_PROJECT_ID=PVT_123\nSTATUS_FIELD_ID=F1\nSIZE_FIELD_ID=F2\nPRIORITY_FIELD_ID=F3\n',
-    )
+    fs.writeFileSync(path.join(tmpDir, '.env'), 'GITHUB_REPO=TestOrg/test-repo\n')
   })
 
   afterEach(() => {
