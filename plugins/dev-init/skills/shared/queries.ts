@@ -127,12 +127,6 @@ mutation($parentId: ID!, $childId: ID!) {
   }
 }`
 
-/** Get repository node ID. */
-export const REPO_ID_QUERY = `
-query($owner: String!, $name: String!) {
-  repository(owner: $owner, name: $name) { id }
-}`
-
 /** Fetch milestones for a repository. */
 export const MILESTONE_QUERY = `
   query($owner: String!, $repo: String!) {
