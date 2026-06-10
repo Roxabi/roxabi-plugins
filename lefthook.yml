@@ -50,3 +50,7 @@ pre-push:
       run: bun run test
     trufflehog:
       run: scripts/trufflehog-check.sh
+    check-no-claude-comments:
+      run: scripts/check-no-claude-comments.sh
+    check-skill-version:
+      run: scripts/check-skill-version.sh
