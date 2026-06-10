@@ -11,14 +11,15 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree,
 ## Success
 
 I := QG pass ∧ worktree ∃ ∧ commits > 0
-V := `cd .claude/worktrees/{N}-{slug} && {lint} && {typecheck} && {test}` → exit 0
+V := `cd .claude/worktrees/{N}-{slug} && {commands.format} && {commands.lint} && {commands.typecheck} && {commands.test}` → exit 0
 
 Let:
   π := artifacts/plans/{N}-{slug}.mdx
   τ := tier (S | F-lite | F-full)
   ω := worktree (managed via EnterWorktree/ExitWorktree)
   β := base branch (staging if ∃ origin/staging, else main)
-  QG := `{commands.lint} && {commands.typecheck} && {commands.test}`
+  QG := `{commands.format} && {commands.lint} && {commands.typecheck} && {commands.test}`
+  bar := mechanical floor (format/lint/typecheck/test pass), ¬the quality bar — output must read as hand-authored by a dev-core maintainer: match surrounding idiom, naming, and comment density; calibrate against `plugins/dev-core/`
 
 Plan → ω → agents (test-first) → passing QG.
 
@@ -197,8 +198,10 @@ Agents create files from scratch (¬stubs). Include target path, shape/skeleton,
 Run QG inside ω (session already in ω after EnterWorktree):
 
 ```bash
-{commands.lint} && {commands.typecheck} && {commands.test}
+{commands.format} && {commands.lint} && {commands.typecheck} && {commands.test}
 ```
+
+> format before lint — auto-format first so the linter never flags style the formatter would have fixed (¬format-induced lint noise).
 
 ✓ → Step 6.
 ✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → → DP(A) **Escalate to lead** | **Continue with failures** | **Abandon ω** (`ExitWorktree(action: "remove")` + delete branch).

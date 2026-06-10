@@ -25,6 +25,7 @@ Let:
   adv  := {analyze, implement, pr, ci-watch, validate, review, fix, cleanup}
   ψ_r(P) ⟺ P.comments ∃ body: "## Code Review"
   ψ_f(P) ⟺ P.comments ∃ body: "## Review Fixes Applied"
+  bar   := output must read as hand-authored by a dev-core maintainer — match surrounding idiom, naming, comment density; calibrate against `plugins/dev-core/`; QG (format/lint/typecheck/test) = mechanical floor, ¬the bar
 
 Single entry point: scan artifacts → detect state → show progress → delegate to step skill → loop.
 ¬rewrite step skill logic. ¬auto-advance phases. Present decision at each gate via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A).
@@ -205,16 +206,32 @@ Walk: Σ[step] == true ∨ Σ_s[step] == true ∨ should_skip(step) ⇒ done/ski
 |-------------|----------|
 | S* == frame (¬Σ.frame) | Show φ if ∃ draft, ask approval |
 | S* == spec (Σ.frame ∧ ¬Σ.spec) | Gate after spec runs |
-| S* == plan (Σ.spec ∧ ¬Σ.plan) | Gate after plan runs |
+| S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ == F-full | Architecture sketch (see block below) → user confirm → THEN invoke /plan. ¬fires for τ ∈ {S, F-lite}. |
+| S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ ∈ {S, F-lite} | Gate after plan runs |
 | S* == review | Post-review gate handled inside /code-review |
 
 Gate fires → Step 7 skips its own prompt (gate IS confirmation). ¬double-prompt.
+
+### Architecture Sketch Gate (F-full only, pre-plan)
+
+**Trigger:** S* == plan ∧ τ == F-full ∧ ¬Σ.plan — fires BEFORE invoking `/plan`. ¬fires for τ ∈ {S, F-lite}.
+
+Present a concise architecture sketch covering four elements:
+- **(a) Component boundaries** — enumerate modules/packages/services involved and their single responsibility
+- **(b) Data flow per layer** — how data moves from entry point through each layer to persistence/output
+- **(c) State ownership** — which component owns each piece of mutable state; ¬shared-mutable across boundaries
+- **(d) Integration points** — external systems, APIs, events, or side-effects touched by this change
+
+→ → DP(A) **Confirm sketch → proceed to /plan** | **Revise sketch** (max 2 rounds) | **Abort**
+
+User confirm received → invoke `skill: "plan"` (Step 7). This gate runs earlier than (and is distinct from) the post-plan compact pause (Step 8b).
 
 ## Step 6b — Reasoning Audit (optional)
 
 **Trigger:** `--audit` ∨ S* ∈ `workflow.reasoning_audit` (stack.yml). critical := {spec, plan, implement}.
 
 audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Gate ∃ for S* → audit **replaces** it (¬double-prompt). ¬pass `--audit` to child skills.
+**Exception — F-full architecture sketch (R7a):** `--audit` NEVER replaces the architecture-sketch gate; sketch always fires for τ == F-full ∧ S* == plan, even when reasoning audit runs (two separate prompts: sketch → confirm, then audit → proceed).
 → → DP(A) **Proceed** | **Adjust approach** (max 3 rounds) | **Abort** (→ skipped, Step 5)
 
 ¬audit ∨ S* ∉ critical → skip (Step 6 gate still applies).
