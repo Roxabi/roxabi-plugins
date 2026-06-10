@@ -1,7 +1,7 @@
 ---
 name: init
 argument-hint: '[--force] [--skip-axial]'
-description: 'Initialize project — orchestrates env-setup, github-setup, ci-setup, release-setup. Triggers: "init" | "setup project" | "initialize project".'
+description: 'Initialize project — orchestrates env-setup, ci-setup, release-setup. Triggers: "init" | "setup project" | "initialize project".'
 version: 0.9.0
 allowed-tools: Bash, Read, Skill, ToolSearch
 ---
@@ -20,7 +20,6 @@ Full project initialization harness. Orchestrates three focused sub-skills in se
 |-----------|---------|
 | `/env-setup` | stack.yml, CLAUDE.md rules, docs stubs, VS Code, LSP |
 | `axial-adr-create` (agent) | **Axis of decomposition ADR** — mandatory drift prevention (N×M trap). Skippable via `--skip-axial` for trivial single-axis projects. See `shared/references/axial-decomposition.md` |
-| `/github-setup` | GitHub Project V2 board, labels, branch protection, workspace |
 | `/ci-setup` | GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins |
 | `/release-setup` | Commit standards (Commitizen), hook additions, release automation (semantic-release / Release Please) |
 
@@ -78,7 +77,7 @@ Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
      ⛔ Axial ADR required before scaffolding can continue.
 
         State: env-setup has already completed (idempotent on re-run).
-               github-setup, ci-setup, release-setup have NOT run.
+               ci-setup, release-setup have NOT run.
 
         Options:
           • Re-run `/init` — will redo env-setup (idempotent) + re-prompt axial-adr-create.
@@ -88,10 +87,6 @@ Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
         Rationale: shared/references/axial-decomposition.md
      ```
    - `cancelled` ∧ F → ⚠️ warn "axial ADR skipped via --force — drift risk acknowledged", continue.
-
-```
-skill: "github-setup", args: "{args}"
-```
 
 ```
 skill: "ci-setup", args: "{args}"
@@ -118,14 +113,13 @@ Next steps:
   /dev #N                Start working on an issue
   /init --force          Re-configure anytime
   /env-setup             Re-run environment setup only
-  /github-setup          Re-run GitHub project setup only
   /ci-setup              Re-run CI/CD setup only
   /release-setup         Re-run release setup only
 ```
 
 ## Safety Rules
 
-1. **Never commit secrets** — `.env` must be gitignored (`.claude/dev-core.yml` contains only public GitHub Project node IDs — commit it)
+1. **Never commit secrets** — `.env` must be gitignored (`.claude/dev-core.yml` contains only public repo configuration — commit it)
 2. **Always present decisions via protocol** before destructive operations (delegated to sub-skills)
 3. **Idempotent** — safe to re-run; sub-skills merge rather than overwrite
 

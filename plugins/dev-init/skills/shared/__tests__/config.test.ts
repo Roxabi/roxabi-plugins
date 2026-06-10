@@ -31,29 +31,18 @@ vi.mock('node:child_process', async () => {
   }
 })
 
-// Clear option env vars before config module loads so defaults apply (not .env values)
-delete process.env.STATUS_OPTIONS_JSON
-delete process.env.SIZE_OPTIONS_JSON
-delete process.env.PRIORITY_OPTIONS_JSON
-delete process.env.GH_PROJECT_ID
 // Must be set before config module loads (detectGitHubRepo runs eagerly at import)
 process.env.GITHUB_REPO = 'Test/test-repo'
 
 const {
   BLOCK_ORDER,
-  NOT_CONFIGURED_MSG,
   detectGitHubRepo,
-  FIELD_MAP,
-  isProjectConfigured,
   PRIORITY_ALIASES,
-  PRIORITY_OPTIONS,
   PRIORITY_ORDER,
   resolvePriority,
   resolveSize,
   resolveStatus,
-  SIZE_OPTIONS,
   STATUS_ALIASES,
-  STATUS_OPTIONS,
 } = await import('../adapters/config-helpers')
 
 const { STANDARD_WORKFLOWS, PROTECTED_BRANCHES, buildBranchProtectionPayload } = await import(
@@ -61,49 +50,6 @@ const { STANDARD_WORKFLOWS, PROTECTED_BRANCHES, buildBranchProtectionPayload } =
 )
 
 describe('shared/config', () => {
-  describe('option maps', () => {
-    it('defaults to empty when env vars are not set', () => {
-      expect(Object.keys(STATUS_OPTIONS)).toEqual([])
-      expect(Object.keys(SIZE_OPTIONS)).toEqual([])
-      expect(Object.keys(PRIORITY_OPTIONS)).toEqual([])
-    })
-  })
-
-  describe('FIELD_MAP', () => {
-    it('contains status, size, priority, and lane', () => {
-      expect(Object.keys(FIELD_MAP)).toEqual(['status', 'size', 'priority', 'lane'])
-    })
-
-    it('each entry has a fieldId and options object', () => {
-      for (const entry of Object.values(FIELD_MAP)) {
-        expect(typeof entry.fieldId).toBe('string')
-        expect(typeof entry.options).toBe('object')
-      }
-    })
-  })
-
-  describe('isProjectConfigured', () => {
-    it('returns false when GH_PROJECT_ID is empty', () => {
-      expect(isProjectConfigured()).toBe(false)
-    })
-
-    it('returns a string for NOT_CONFIGURED_MSG', () => {
-      expect(NOT_CONFIGURED_MSG).toContain('/init')
-    })
-
-    it('returns false when only old PROJECT_ID is set (not GH_PROJECT_ID)', () => {
-      const orig = process.env.PROJECT_ID
-      process.env.PROJECT_ID = 'PVT_legacy'
-      delete process.env.GH_PROJECT_ID
-      try {
-        expect(isProjectConfigured()).toBe(false)
-      } finally {
-        if (orig !== undefined) process.env.PROJECT_ID = orig
-        else delete process.env.PROJECT_ID
-      }
-    })
-  })
-
   describe('aliases', () => {
     it('STATUS_ALIASES covers all uppercase variants', () => {
       expect(STATUS_ALIASES.BACKLOG).toBe('Backlog')
@@ -232,5 +178,4 @@ describe('buildBranchProtectionPayload', () => {
 
 registerGitHubRepoDetectionSuite({
   detectGitHubRepo,
-  loadConfigHelpers: () => import('../adapters/config-helpers'),
 })

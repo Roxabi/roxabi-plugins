@@ -13,8 +13,6 @@
 | Item | Fix |
 |------|-----|
 | `GITHUB_REPO` missing | Add `github_repo: owner/repo` to δ (or `GITHUB_REPO=owner/repo` to `.env` fallback) |
-| `GH_PROJECT_ID` missing | Run `bun $I_TS discover` then `scaffold` — writes δ |
-| `STATUS_FIELD_ID`/`SIZE_FIELD_ID`/`PRIORITY_FIELD_ID` missing | Run `bun $I_TS create-project --owner <owner> --repo <repo>` — writes field IDs to δ |
 | Labels missing | `bun $I_TS labels --repo <owner/repo> --scope all` |
 | roxabi shim missing | `bun $I_TS scaffold ...` (requires env vars) |
 | `trufflehog` binary missing | `brew install trufflehog` or https://github.com/trufflesecurity/trufflehog/releases |

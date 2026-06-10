@@ -117,15 +117,6 @@ export interface WorkflowRun {
   headCommitMessage: string
 }
 
-export interface ProjectFieldIds {
-  status?: string
-  col2?: string
-  col3?: string
-  statusOptions?: Record<string, string>
-  col2Options?: Record<string, string>
-  col3Options?: Record<string, string>
-}
-
 /** Parsed issue reference — local (#123) or cross-repo (owner/repo#123). */
 export interface ParsedIssueRef {
   number: number

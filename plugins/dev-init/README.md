@@ -20,20 +20,19 @@ Triggers: `"init"` | `"setup project"` | `"initialize project"`
 
 ## What it does
 
-Runs four sub-skills in sequence, each idempotent:
+Runs three sub-skills in sequence, each idempotent:
 
 | Step | Skill | Concern |
 |------|-------|---------|
 | 1 | `/env-setup` | stack.yml, CLAUDE.md rules, docs stubs, VS Code, LSP |
-| 2 | `/github-setup` | GitHub Project V2 board, labels, branch protection, workspace |
-| 3 | `/ci-setup` | GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins |
-| 4 | `/release-setup` | Commit standards (Commitizen), release automation |
+| 2 | `/ci-setup` | GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins |
+| 3 | `/release-setup` | Commit standards (Commitizen), release automation |
 
 Between steps 1 and 2, `/init` also spawns the `axial-adr-create` agent to capture the project's primary axis of decomposition (prevents N×M drift). Skippable with `--skip-axial` for trivial single-axis projects.
 
 ## Dependencies
 
-Requires `dev-core` plugin to be installed — `/init` calls `env-setup`, `github-setup`, `ci-setup`, and `release-setup` from dev-core.
+Requires `dev-core` plugin to be installed — `/init` calls `env-setup`, `ci-setup`, and `release-setup` from dev-core.
 
 ## License
 
