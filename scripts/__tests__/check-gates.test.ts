@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process'
+import { execSync, spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -22,7 +22,7 @@ const CLEAN_ENV: NodeJS.ProcessEnv = {
   GIT_CONFIG_SYSTEM: '/dev/null',
 }
 
-// ─── Helper ──────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function runScript(scriptPath: string, cwd: string): number {
   try {
@@ -31,6 +31,14 @@ function runScript(scriptPath: string, cwd: string): number {
   } catch (err: unknown) {
     const e = err as { status?: number }
     return e.status ?? 1
+  }
+}
+
+function runScriptCapture(scriptPath: string, cwd: string): { code: number; stderr: string } {
+  const result = spawnSync('bash', [scriptPath], { cwd, env: CLEAN_ENV })
+  return {
+    code: result.status ?? 1,
+    stderr: result.stderr ? result.stderr.toString() : '',
   }
 }
 
@@ -65,10 +73,11 @@ describe('check-no-claude-comments.sh', () => {
     expect(code).toBe(1)
   })
 
-  it('exits 0 when the AI marker is only in a .md file (not a scanned extension)', () => {
-    // Arrange
+  it('exits 0 when the AI marker is in a .md file — extension filter exempts .md even when comment syntax matches the regex', () => {
+    // Arrange — use a shell-style comment that WOULD match the gate regex if .md were scanned
+    // (proves the extension filter is load-bearing, not comment syntax differences)
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-r1-md-'))
-    const markerInMd = `<!-- ${AI_MARKER} resolve before merge -->`
+    const markerInMd = `# ${AI_MARKER} resolve before merge`
     fs.writeFileSync(path.join(tmpDir, 'README.md'), `# Title\n${markerInMd}\n`)
     git('git init -q', tmpDir)
     git('git add README.md', tmpDir)
@@ -200,5 +209,46 @@ describe('check-skill-version.sh', () => {
 
     // Assert
     expect(code).toBe(0)
+  })
+
+  it('exits 1 when a plugin has an unchanged version and commands/ changed on HEAD vs origin/staging', () => {
+    // Arrange — plugin "qux" has version "2.0.0" on origin/staging
+    const { work, bare } = setupOriginWithPlugin({ pluginName: 'qux', version: '2.0.0' })
+    workDir = work
+    bareDir = bare
+
+    // Add a file under commands/ without bumping the version
+    const commandsDir = path.join(work, 'plugins', 'qux', 'commands')
+    fs.mkdirSync(commandsDir, { recursive: true })
+    fs.writeFileSync(path.join(commandsDir, 'my-command.md'), '# command v1\n')
+    git('git add -A', work)
+    git('git -c user.email=t@t -c user.name=t commit -q -m "add command without bump"', work)
+
+    // Act
+    const code = runScript(CHECK_SKILL_VERSION, work)
+
+    // Assert — commands/ pathspec is load-bearing: missing bump is caught
+    expect(code).toBe(1)
+  })
+
+  it('exits 0 and emits an origin/staging-unreachable SKIP when origin/staging is not reachable', () => {
+    // Arrange — repo with no remote at all (no origin/staging)
+    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-r2-noremote-'))
+    git('git init -q', workDir)
+    const pluginDir = path.join(workDir, 'plugins', 'nop', '.claude-plugin')
+    fs.mkdirSync(pluginDir, { recursive: true })
+    fs.writeFileSync(path.join(pluginDir, 'plugin.json'), JSON.stringify({ version: '1.0.0' }))
+    const skillDir = path.join(workDir, 'plugins', 'nop', 'skills')
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(path.join(skillDir, 'skill.md'), '# skill\n')
+    git('git add -A', workDir)
+    git('git -c user.email=t@t -c user.name=t commit -q -m "init"', workDir)
+
+    // Act — script must skip gracefully, not error
+    const { code, stderr } = runScriptCapture(CHECK_SKILL_VERSION, workDir)
+
+    // Assert — guard skips with exit 0 and prints a visible SKIP line to stderr
+    expect(code).toBe(0)
+    expect(stderr).toMatch(/origin\/staging unreachable/)
   })
 })
