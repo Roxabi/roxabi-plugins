@@ -23,7 +23,7 @@ Let: σ := `.claude/stack.yml` | π := proposed config table
 
 ## Phase 1 — Check /init prerequisite
 
-`test -f .claude/dev-core.yml && grep -q 'gh_project_id' .claude/dev-core.yml && echo done || (test -f .env && grep -q 'GH_PROJECT_ID' .env && echo done || echo missing)`
+`test -f .claude/dev-core.yml && echo done || echo missing`
 
 `missing` → → DP(A) **Continue anyway** | **Abort (run /init first)**
 
@@ -348,7 +348,7 @@ Let:
 1. **@import:** `head -1 CLAUDE.md` ≠ `@.claude/stack.yml` → prepend; else already present.
 2. **Example:** `.claude/stack.yml.example` ∄ → copy σ → "Created as reference template."
 
-Note: `.claude/stack.yml` itself is committed (project stack conventions — no secrets). Only `.env` is gitignored by dev-core. `.claude/dev-core.yml` contains only public GitHub Project node IDs and is committed.
+Note: `.claude/stack.yml` itself is committed (project stack conventions — no secrets). Only `.env` is gitignored by dev-core. `.claude/dev-core.yml` contains only public repo configuration and is committed.
 
 ## Phase 6 — Summary
 

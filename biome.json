@@ -37,7 +37,8 @@
         "plugins/dev-init/skills/shared/types.ts",
         "plugins/dev-init/skills/shared/adapters/github-infra.ts",
         "plugins/dev-init/skills/shared/domain/parse-issue-ref.ts",
-        "plugins/dev-init/skills/shared/ports/workspace.ts"
+        "plugins/dev-init/skills/shared/ports/workspace.ts",
+        "plugins/dev-init/skills/shared/adapters/github-adapter.ts"
       ],
       "formatter": {
         "enabled": false

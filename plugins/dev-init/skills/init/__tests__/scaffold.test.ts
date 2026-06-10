@@ -5,17 +5,13 @@ describe('mergeEnv', () => {
   const baseSections = [
     {
       header: '# --- dev-core: GitHub Project V2 ---',
-      vars: [
-        { key: 'GITHUB_REPO', value: 'Org/repo' },
-        { key: 'GH_PROJECT_ID', value: 'PVT_123' },
-      ],
+      vars: [{ key: 'GITHUB_REPO', value: 'Org/repo' }],
     },
   ]
 
   it('writes dev-core section to empty .env', () => {
     const result = mergeEnv('', baseSections, false)
     expect(result).toContain('GITHUB_REPO=Org/repo')
-    expect(result).toContain('GH_PROJECT_ID=PVT_123')
     expect(result).toContain('# --- dev-core: GitHub Project V2 ---')
   })
 
@@ -28,12 +24,10 @@ describe('mergeEnv', () => {
   })
 
   it('replaces existing dev-core block', () => {
-    const existing =
-      'MY_VAR=hello\n# --- dev-core: GitHub Project V2 ---\nGITHUB_REPO=Old/repo\nGH_PROJECT_ID=PVT_old\n\nOTHER=world\n'
+    const existing = 'MY_VAR=hello\n# --- dev-core: GitHub Project V2 ---\nGITHUB_REPO=Old/repo\n\nOTHER=world\n'
     const result = mergeEnv(existing, baseSections, true)
     expect(result).toContain('GITHUB_REPO=Org/repo')
     expect(result).not.toContain('Old/repo')
-    expect(result).not.toContain('PVT_old')
     expect(result).toContain('OTHER=world')
   })
 
@@ -42,25 +36,19 @@ describe('mergeEnv', () => {
     const sections = [
       {
         header: '# --- dev-core: GitHub Project V2 ---',
-        vars: [
-          { key: 'GITHUB_REPO', value: 'New/repo' },
-          { key: 'GH_PROJECT_ID', value: 'PVT_new' },
-        ],
+        vars: [{ key: 'GITHUB_REPO', value: 'New/repo' }],
       },
     ]
     const result = mergeEnv(existing, sections, false)
     // Should keep existing value
     expect(result).toContain('GITHUB_REPO=Existing/repo')
-    expect(result).toContain('GH_PROJECT_ID=PVT_new')
   })
 
   it('overwrites existing values with force', () => {
-    const existing = '# --- dev-core: GitHub Project V2 ---\nGITHUB_REPO=Old/repo\nGH_PROJECT_ID=PVT_old\n'
+    const existing = '# --- dev-core: GitHub Project V2 ---\nGITHUB_REPO=Old/repo\n'
     const result = mergeEnv(existing, baseSections, true)
     expect(result).toContain('GITHUB_REPO=Org/repo')
     expect(result).not.toContain('Old/repo')
-    expect(result).not.toContain('PVT_old')
-    expect(result).toContain('GH_PROJECT_ID=PVT_123')
   })
 })
 
@@ -130,13 +118,6 @@ describe('scaffold', () => {
     const { scaffold } = await import('../lib/scaffold')
     const result = await scaffold({
       githubRepo: 'Org/repo',
-      projectId: 'PVT_123',
-      statusFieldId: 'F1',
-      sizeFieldId: 'F2',
-      priorityFieldId: 'F3',
-      statusOptionsJson: '{}',
-      sizeOptionsJson: '{}',
-      priorityOptionsJson: '{}',
       force: false,
     })
 
@@ -152,13 +133,6 @@ describe('scaffold', () => {
     const { scaffold } = await import('../lib/scaffold')
     await scaffold({
       githubRepo: 'Org/repo',
-      projectId: 'PVT_123',
-      statusFieldId: 'F1',
-      sizeFieldId: 'F2',
-      priorityFieldId: 'F3',
-      statusOptionsJson: '{}',
-      sizeOptionsJson: '{}',
-      priorityOptionsJson: '{}',
       force: false,
     })
 
@@ -171,13 +145,6 @@ describe('scaffold', () => {
     const { scaffold } = await import('../lib/scaffold')
     const result = await scaffold({
       githubRepo: 'Org/repo',
-      projectId: 'PVT_123',
-      statusFieldId: 'F1',
-      sizeFieldId: 'F2',
-      priorityFieldId: 'F3',
-      statusOptionsJson: '{}',
-      sizeOptionsJson: '{}',
-      priorityOptionsJson: '{}',
       force: false,
     })
 
@@ -200,13 +167,6 @@ describe('scaffold', () => {
     const { scaffold } = await import('../lib/scaffold')
     const result = await scaffold({
       githubRepo: 'Org/repo',
-      projectId: 'PVT_123',
-      statusFieldId: 'F1',
-      sizeFieldId: 'F2',
-      priorityFieldId: 'F3',
-      statusOptionsJson: '{}',
-      sizeOptionsJson: '{}',
-      priorityOptionsJson: '{}',
       force: false,
     })
 

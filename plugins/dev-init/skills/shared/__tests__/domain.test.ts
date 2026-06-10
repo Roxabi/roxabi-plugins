@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { ConfigError, DevCoreError, GitHubApiError, WorkspaceError } from '../domain/errors'
 import type { Issue, PR, SubIssue } from '../domain/types'
 import type { ConfigPort } from '../ports/config'
-import type { IssuePort } from '../ports/issue'
-import type { ProjectPort } from '../ports/project'
 import type { WorkspacePort } from '../ports/workspace'
 
 describe('domain/types', () => {
@@ -64,17 +62,6 @@ describe('domain/errors', () => {
 })
 
 describe('port interfaces are importable', () => {
-  it('IssuePort type exists', () => {
-    // Type-level check — if this compiles, the port interface exists
-    const _check: IssuePort | null = null
-    expect(_check).toBeNull()
-  })
-
-  it('ProjectPort type exists', () => {
-    const _check: ProjectPort | null = null
-    expect(_check).toBeNull()
-  })
-
   it('WorkspacePort type exists', () => {
     const _check: WorkspacePort | null = null
     expect(_check).toBeNull()

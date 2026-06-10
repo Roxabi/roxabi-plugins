@@ -3,8 +3,7 @@
  */
 
 import type { Branch, Worktree } from '../domain/types'
-import type { Workspace, WorkspacePort, WorkspaceProject } from '../ports/workspace'
-import { discoverProject as discoverProjectFn } from './github-discovery'
+import type { Workspace, WorkspacePort } from '../ports/workspace'
 import { readWorkspace as readWorkspaceFn, writeWorkspace as writeWorkspaceFn } from './workspace-store'
 
 export class GitWorkspaceAdapter implements WorkspacePort {
@@ -14,10 +13,6 @@ export class GitWorkspaceAdapter implements WorkspacePort {
 
   writeWorkspace(ws: Workspace): void {
     writeWorkspaceFn(ws)
-  }
-
-  async discoverProject(repo: string, localPath?: string): Promise<WorkspaceProject[]> {
-    return discoverProjectFn(repo, localPath)
   }
 
   async listBranches(): Promise<Branch[]> {

@@ -31,9 +31,7 @@ export function parseWorkspace(raw: unknown): Workspace {
   if (!Array.isArray(projects)) {
     throw new WorkspaceError('workspace.json: `projects` must be an array')
   }
-  const roadmapProjectId =
-    obj.roadmapProjectId !== undefined && typeof obj.roadmapProjectId === 'string' ? obj.roadmapProjectId : undefined
-  return { projects: projects.map(validateProject), roadmapProjectId }
+  return { projects: projects.map(validateProject) }
 }
 
 function validateProject(p: unknown, i: number): WorkspaceProject {
@@ -41,7 +39,7 @@ function validateProject(p: unknown, i: number): WorkspaceProject {
     throw new WorkspaceError(`workspace.json: projects[${i}] must be an object`)
   }
   const obj = p as Record<string, unknown>
-  for (const field of ['repo', 'projectId', 'label'] as const) {
+  for (const field of ['repo', 'label'] as const) {
     const v = obj[field]
     if (typeof v !== 'string' || v.length === 0) {
       throw new WorkspaceError(`workspace.json: projects[${i}].${field} must be a non-empty string`)
