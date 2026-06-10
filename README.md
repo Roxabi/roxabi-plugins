@@ -69,9 +69,9 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 |--------|-------------|
 | [linkedin-post-generator](plugins/linkedin-post-generator/README.md) | Generate LinkedIn posts with best practices and visual identity |
 | [image-prompt-generator](plugins/image-prompt-generator/README.md) | Generate AI image prompts with style consistency |
-| [idna](plugins/idna/README.md) | Evolutionary idea selector — explore variants, pick, converge (amplify/blend/refine), finalize. Self-driving: browser → Claude API → imageCLI → auto-advance. |
 
 > **Forge** has moved to its own marketplace: [Roxabi/roxabi-forge](https://github.com/Roxabi/roxabi-forge). Install: `claude plugin marketplace add Roxabi/roxabi-forge`
+> **IDNA** is now a standalone Python service at [Roxabi/roxabi-idna](https://github.com/Roxabi/roxabi-idna) — no longer shipped as a Claude Code plugin.
 
 ### Career tools
 
