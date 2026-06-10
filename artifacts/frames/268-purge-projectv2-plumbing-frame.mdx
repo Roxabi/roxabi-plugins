@@ -1,10 +1,20 @@
 ---
-title: Purge residual ProjectV2 plumbing from dev-core + dev-init (shared layer + init scaffold)
+title: Purge ProjectV2 plumbing + reconcile abandoned hexagonal ports (dev-core + dev-init)
 issue: 268
 status: approved
-tier: F-lite
+tier: F-full
 date: 2026-06-10
+adr: 015
 ---
+
+> **Scope revised 2026-06-10 (F-lite → F-full).** Deep tracing during /spec + /plan
+> revealed the board purge is entangled with an undocumented architectural reversal:
+> dev-core consolidated ADR-005's role-interface ports back to direct-call in #192, but
+> dev-init froze the Phase-1 scaffolding (`ports/issue`, `ports/project`, `services`,
+> `GitHubAdapter` class — 0 consumers) 3 days earlier. #268 now = board purge **+**
+> remove the abandoned dev-init ports + converge `github-adapter` back to copy-sync +
+> scrub stale docs + fix the `/init` `github-setup` reference. Architectural decision
+> recorded in **[ADR-015](../../docs/architecture/adr/015-direct-call-over-role-interface-ports-typescript.mdx)**.
 
 ## Problem
 
@@ -70,12 +80,16 @@ still mis-bootstraps a non-existent board; and the orphaned dev-core code is a r
 
 ## Complexity
 
-**Tier: F-lite** — clear scope, single domain (purge board plumbing), known patterns, no
-unknowns; spans ~6–10 source files across 2 plugins + tests + sync regeneration.
+**Tier: F-full** — single domain but real architectural impact: trims two hexagonal port
+contracts (`ConfigPort`, and retires `IssuePort`/`ProjectPort`), removes a DI layer, converges
+a `intentional-fork` file back to copy-sync, and reconciles ADR-005/006 via ADR-015. ~20 source
+files across 2 plugins + a sizable test surface + docs + manifest/CLAUDE.md governance update.
 
 Signals observed:
-- Single domain (issue-management plumbing removal), no new architecture.
-- 4–10 files: `config-helpers.ts`, `env-config.ts`, `queries.ts`, `github-adapter.ts`
-  (dev-core) + `init.ts`, `scaffold.ts` (dev-init) + their tests + regenerated mirror.
-- Real cascade (env-config → scaffold → tests) → warrants a short spec, not direct S impl.
-- No multi-domain / new-pattern signals → not F-full.
+- Architectural impact: port-contract changes + ADR supersession (not pure subtraction).
+- 15+ files: dev-core shared layer (config-helpers, env-config, ConfigPort, queries, types,
+  ports/workspace, workspace-store, github-adapter) + dev-init (init, scaffold, **delete**
+  ports/issue, ports/project, services, GitHubAdapter class) + ~6 test files + checkup/stack-setup
+  docs + `tools/shared-sources.json` + CLAUDE.md.
+- Cross-file coupling through mixed modules + a copy-sync convergence step.
+- Mostly **deletion** (low risk) but broad blast radius → F-full process, not F-lite.
