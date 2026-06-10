@@ -17,5 +17,13 @@
         "repo": "anthropics/claude-plugins-official"
       }
     }
+  },
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "", "hooks": [
+        { "type": "command",
+          "command": "bun run sync:shared --check && bun run typecheck || echo 'SKIP: R3 drift check (toolchain absent or drift)' >&2" }
+      ] }
+    ]
   }
 }
