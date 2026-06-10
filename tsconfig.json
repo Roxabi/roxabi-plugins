@@ -15,7 +15,8 @@
     "vitest.setup.ts",
     "plugins/dev-core/**/*.ts",
     "plugins/dev-init/**/*.ts",
-    "plugins/shared/**/*.ts"
+    "plugins/shared/**/*.ts",
+    "scripts/**/*.ts"
   ],
   "exclude": [
     "node_modules",
