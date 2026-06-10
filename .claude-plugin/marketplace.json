@@ -62,12 +62,6 @@
       "category": "productivity"
     },
     {
-      "name": "idna",
-      "description": "IDNA — Idea DNA evolutionary selector. Explore variants, pick a winner, converge through amplify/blend/refine mutations. Self-driving: browser → Claude CLI → imageCLI → auto-advance.",
-      "source": "./plugins/idna",
-      "category": "productivity"
-    },
-    {
       "name": "gitnexus",
       "description": "GitNexus CLI integration — code knowledge graph tools (impact analysis, symbol context, query). CLI-only alternative to MCP for minimal token overhead.",
       "source": "./plugins/gitnexus",
