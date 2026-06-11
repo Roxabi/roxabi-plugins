@@ -127,6 +127,32 @@ describe('detectPullRequestTargetCheckout', () => {
     expect(detectPullRequestTargetCheckout(wf, 'wf.yml')).toEqual({ file: 'wf.yml', checkout: 'pr-head' })
   })
 
+  it('does not flag pr-head for unrelated PR expressions next to a base-ref git fetch', () => {
+    const wf = [
+      'on:',
+      '  pull_request_target:',
+      'jobs:',
+      '  build:',
+      '    steps:',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions expression syntax — intentionally a plain string
+      '      - run: git fetch origin main && echo "${{ github.event.pull_request.title }}"',
+    ].join('\n')
+    expect(detectPullRequestTargetCheckout(wf, 'wf.yml')).toEqual({ file: 'wf.yml', checkout: 'none' })
+  })
+
+  it('flags pr-head when the head SHA itself is fetched in a run: step', () => {
+    const wf = [
+      'on:',
+      '  pull_request_target:',
+      'jobs:',
+      '  build:',
+      '    steps:',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions expression syntax — intentionally a plain string
+      '      - run: git fetch origin ${{ github.event.pull_request.head.sha }}',
+    ].join('\n')
+    expect(detectPullRequestTargetCheckout(wf, 'wf.yml')).toEqual({ file: 'wf.yml', checkout: 'pr-head' })
+  })
+
   it('flags pr-head when PR code is fetched via a run: step, even without actions/checkout', () => {
     const wf = [
       'on:',
