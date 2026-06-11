@@ -37,3 +37,22 @@ echo "---ci---"
 gh api repos/:owner/:repo/commits/staging/check-runs \
   --jq '[.check_runs[] | {name, conclusion}] | group_by(.conclusion) | map({conclusion: .[0].conclusion, count: length})' \
   2>/dev/null || echo "ci=unknown"
+
+echo "---hotfix_density---"
+# Advisory-only: compute hotfix density since last tag/promotion-merge/30d fallback.
+# Never exits non-zero; failures emit a structured error line.
+node --input-type=module <<'EOF' 2>/dev/null || echo "hotfix_density=error"
+import { computeHotfixDensity, formatResult } from '${CLAUDE_SKILL_DIR}/lib/hotfix-density.js'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+const execFileAsync = promisify(execFile)
+const deps = {
+  run: async (cmd, cwd) => {
+    const [bin, ...args] = cmd
+    const { stdout } = await execFileAsync(bin, args, { cwd: cwd ?? process.cwd() })
+    return stdout.trim()
+  },
+}
+const result = await computeHotfixDensity(process.cwd(), deps)
+console.log(formatResult(result))
+EOF

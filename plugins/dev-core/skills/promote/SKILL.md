@@ -56,13 +56,14 @@ Steps: pre-flight → version → changelog → commit → preview → create-pr
 bash ${CLAUDE_SKILL_DIR}/preflight.sh
 ```
 
-Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI check results.
+Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI check results, `hotfix_density`.
 
 | Check | Condition | Action |
 |-------|-----------|--------|
 | No commits | `commits_ahead=0` | **REFUSE.** Stop. |
 | Open PRs on σ | open_prs section non-empty | **WARN** + Q: **Continue** \| **Wait** |
 | CI status | ci section | **WARN** if ¬passing |
+| Hotfix density | `hotfix_density` section | **WARN** if gauge=warn (20–40%); **recommend pause** + `/checkup` if gauge=pause (>40%); advisory-only — never hard-block |
 
 ## Step 1b — Pin-swap Phase
 
