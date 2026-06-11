@@ -21,6 +21,9 @@ export function generateAutoMergeYml(): string {
 # GitHub natively waits for all required status checks before merging.
 # Uses merge commit (not squash) to preserve history — required for staging→main promotions.
 #
+# Dependabot guard: semver-major bumps are never auto-merged — they require
+# manual validation before merge.
+#
 # Also closes linked issues after merge, because GITHUB_TOKEN-initiated
 # auto-merges don't trigger GitHub's native "Closes #X" issue closure.
 name: Auto Merge
@@ -47,6 +50,20 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'reviewed')
     timeout-minutes: 5
     steps:
+      - name: Block dependabot semver-major bumps
+        if: github.event.pull_request.user.login == 'dependabot[bot]'
+        env:
+          GH_TOKEN: \${{ secrets.PAT }}
+          PR_NUMBER: \${{ github.event.pull_request.number }}
+          PR_TITLE: \${{ github.event.pull_request.title }}
+        run: |
+          if [[ "$PR_TITLE" =~ from\\ v?([0-9]+)[^\\ ]*\\ to\\ v?([0-9]+) ]] && [ "\${BASH_REMATCH[1]}" != "\${BASH_REMATCH[2]}" ]; then
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \\
+              --body "Auto-merge refused: **semver-major** bump. Manual validation required (e2e / boot the artifact), then merge by hand."
+            echo "::error::semver-major dependency bump — auto-merge refused"
+            exit 1
+          fi
+
       - name: Enable auto-merge (merge commit)
         run: gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY"
         env:

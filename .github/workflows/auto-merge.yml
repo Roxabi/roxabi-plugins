@@ -1,6 +1,13 @@
 # Auto-merge PRs that have been reviewed and passed all required checks.
-# Adds the PR to GitHub's merge queue (squash) once the "reviewed" label is present.
+# Adds the PR to GitHub's merge queue (merge commit) once the "reviewed" label is present.
 # GitHub natively waits for all required status checks before merging.
+#
+# Project convention: merge commits only (¬squash) — see ~/projects/CLAUDE.md
+# "Release Convention". Squash merges flatten the per-commit history that
+# staging→main promotions rely on.
+#
+# Dependabot guard: semver-major bumps are never auto-merged — they require
+# manual validation (the vite 8 SSR regression stayed dormant 10 weeks).
 #
 # Also closes linked issues after merge, because GITHUB_TOKEN-initiated
 # auto-merges don't trigger GitHub's native "Closes #X" issue closure.
@@ -28,8 +35,22 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'reviewed')
     timeout-minutes: 5
     steps:
-      - name: Enable auto-merge (squash)
-        run: gh pr merge "$PR_NUMBER" --auto --squash --repo "$GITHUB_REPOSITORY"
+      - name: Block dependabot semver-major bumps
+        if: github.event.pull_request.user.login == 'dependabot[bot]'
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [[ "$PR_TITLE" =~ from\ v?([0-9]+)[^\ ]*\ to\ v?([0-9]+) ]] && [ "${BASH_REMATCH[1]}" != "${BASH_REMATCH[2]}" ]; then
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --body "Auto-merge refusé : bump **semver-major**. Validation manuelle requise (e2e / boot de l'artefact), puis merge à la main."
+            echo "::error::semver-major dependency bump — auto-merge refused"
+            exit 1
+          fi
+
+      - name: Enable auto-merge (merge commit)
+        run: gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: ${{ secrets.PAT }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
