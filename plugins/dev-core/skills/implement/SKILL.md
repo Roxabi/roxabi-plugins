@@ -210,6 +210,38 @@ Run QG inside ω (session already in ω after EnterWorktree):
 
 Before printing summary → `TaskList` → assert every plan-task with `metadata.issue == N` is `completed`. ¬all completed → highlight stragglers in the summary (blockers for `/pr`).
 
+### Step 6a — SC→Test Matrix (τ ≠ S)
+
+**Tier S exemption:** τ=S (no `/plan` artifact, no SC-N labels) → skip this step entirely. ¬emit matrix.
+
+For τ=F (F-lite or F-full):
+
+1. Read spec (`artifacts/specs/{N}-*.mdx`) → extract all SC-N lines (e.g. `SC1: …`, `SC2: …`).
+2. Read tester deliverable (from task outputs or grep test files in ω): collect `{file} :: {test name}` pairs.
+3. For each SC:
+   - ≥1 named test mapped → row: `| SC-N: {text} | {file} :: {test name}[, …] | ⏳ not run |`
+   - ¬mapped → row: `| SC-N: {text} | NO TEST — {reason} | — |`
+     - `reason` MUST ∈ `{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}` (closed enum — ¬free-form). Unmapped SC with ¬reason from enum = **blocking gap**: highlight in summary, ¬proceed to `/pr`.
+4. Persist matrix as a fenced markdown block in the summary output (consumed by `/pr` Step 3d).
+
+**Status column schema** (for `/pr` and falsification gate #280):
+- `⏳ not run` — test exists, not yet executed against this change
+- `✓ proven` — test ran green + falsification check passed (set by #280 gate)
+- `✗ failed` — test ran red (set by #280 gate; note: `broke X → test failed with Y`)
+- `⚠ NO TEST — {reason}` — no test; reason ∈ enum
+
+**Matrix format (fixed columns — parseable):**
+
+````markdown
+## SC → Test Matrix
+
+| SC | Test(s) | Status |
+|----|---------|--------|
+| SC1: {text} | `{file} :: {test name}` | ⏳ not run |
+| SC2: {text} | `{file} :: {test name}`, `{file2} :: {test name2}` | ⏳ not run |
+| SC3: {text} | NO TEST — prompt-logic-only | — |
+````
+
 ```
 Implement Complete
   Issue:    #N — title
@@ -220,6 +252,7 @@ Implement Complete
   Files:    created/modified list
   Tasks:    N/total completed (stragglers: ...)
   Verify:   N/total first-try (%)
+  SC Matrix: N/total mapped (gaps: ...)
   Next:     /pr → /code-review → /1b1 → merge
 ```
 
