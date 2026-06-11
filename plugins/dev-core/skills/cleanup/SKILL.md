@@ -1,8 +1,8 @@
 ---
 name: cleanup
-argument-hint: [--branches | --worktrees | --all]
-description: Clean git branches/worktrees/remotes after merge-status verification. Triggers: "cleanup" | "clean branches" | "cleanup worktrees" | "remove stale branches".
-version: 0.3.0
+argument-hint: [--branches | --worktrees | --all | --report-only]
+description: Clean git branches/worktrees/remotes after merge-status verification; sweep stuck pipeline labels and orphan CI runs. Triggers: "cleanup" | "clean branches" | "cleanup worktrees" | "remove stale branches".
+version: 0.4.0
 allowed-tools: Bash, Read, EnterWorktree, ExitWorktree, ToolSearch
 ---
 
@@ -10,17 +10,36 @@ allowed-tools: Bash, Read, EnterWorktree, ExitWorktree, ToolSearch
 
 Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging) | safe(β) ⟺ fully_merged(β) ∧ ¬π(β) | merged(β) := regular_merge(β) ∨ squash_merge(β)
 
-Safely clean local β, ω, and remote branches with **mandatory merge-status verification** before any deletion.
+Safely clean local β, ω, and remote branches with **mandatory merge-status verification** before any deletion. End-of-session sweep also strips stuck pipeline labels from closed PRs and cancels long-queued CI runs.
+
+## Entry: parse $ARGUMENTS
+
+At skill entry, before any other action:
+
+```
+REPORT_ONLY=false
+YES=false
+for arg in $ARGUMENTS; do
+  case "$arg" in
+    --report-only) REPORT_ONLY=true ;;
+    --yes)         YES=true ;;
+  esac
+done
+```
+
+`REPORT_ONLY=true` ⇒ **zero mutations** throughout all steps (cron-safe).  
+`YES=true` ⇒ skip confirmation prompts for destructive actions (implies user already consented).  
+If both set: `REPORT_ONLY` wins — no mutations.
 
 ## Instructions
 
 ### 1. Gather State
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/gather-state.sh
+bash ${CLAUDE_PLUGIN_ROOT}/skills/cleanup/gather-state.sh
 ```
 
-Emits: `current`, branch list with tracking info, worktree list, open PRs.
+Emits: `current`, branch list with tracking info, worktree list, open PRs, closed PRs with pipeline labels, and queued/stuck CI runs.
 
 ### 2. Analyze Each Branch
 
@@ -133,7 +152,104 @@ Remote Branch Cleanup
 git push origin --delete <branch>
 ```
 
-### 7. Final Report
+### 7. Sweep: stuck pipeline labels on closed/merged PRs
+
+Pipeline labels should be removed when a PR is closed or merged. This step identifies and strips them.
+
+#### Pipeline label list
+
+<!-- sync manually when plugins/dev-core/skills/shared/adapters/config-helpers.ts changes -->
+```
+PRIORITY_LABELS : P0-critical  P1-high  P2-medium  P3-low
+SIZE_LABELS     : size:S  size:F-lite  size:F-full
+LANE_LABELS     : graph:lane/a1  graph:lane/a2  graph:lane/a3
+                  graph:lane/b
+                  graph:lane/c1  graph:lane/c2  graph:lane/c3
+                  graph:lane/d  graph:lane/e  graph:lane/f
+                  graph:lane/g  graph:lane/h  graph:lane/i
+                  graph:lane/j  graph:lane/k  graph:lane/l
+                  graph:lane/m  graph:lane/n  graph:lane/o
+                  graph:lane/standalone
+STATUS_LABELS   : status:Backlog  status:Analysis  status:Specs
+                  "status:In Progress"  status:Review  status:Done
+PIPELINE_OTHER  : reviewed
+```
+
+All of the above are "pipeline labels" — they should not remain on closed/merged PRs.
+
+#### 7a. Find candidates (from gather-state.sh `---closed-prs-with-labels---` section)
+
+The script emits at most 20 closed PRs. For each, check which labels from the pipeline label list are present.
+
+#### 7b. Present findings
+
+```
+Stuck Labels on Closed PRs
+══════════════════════════
+
+  PR    │ Title (truncated)          │ Labels to remove
+  #123  │ feat: add auth module       │ status:In Progress, P2-medium
+  #117  │ fix: broken build           │ reviewed, status:Review
+  (none found)
+```
+
+If `REPORT_ONLY=true` → print table and **stop this step** (zero mutations).
+
+#### 7c. Confirm and strip
+
+→ DP(C)
+- Default: strip all listed labels from all listed PRs
+- "Skip / Keep labels as-is" always available
+
+If `YES=true` → proceed without prompt.
+
+For each confirmed PR + label:
+
+```bash
+gh pr edit <number> --remove-label "<label>"
+```
+
+Gracefully handle `gh` permission errors — report which labels could not be removed and continue.
+
+### 8. Sweep: queued/stuck CI runs
+
+#### 8a. Find candidates (from gather-state.sh `---queued-runs---` section)
+
+The script emits at most 30 runs filtered to `queued` or `in_progress` status. Consider a run "stuck" if:
+- status = `queued` and created ≥ 30 min ago, OR
+- status = `in_progress` and created ≥ 60 min ago (use run's `createdAt` field)
+
+#### 8b. Present findings
+
+```
+Queued / Stuck CI Runs
+══════════════════════
+
+  Run ID    │ Workflow              │ Branch              │ Status      │ Age
+  12345678  │ ci.yml                │ feat/old-branch     │ queued      │ 2h 15m
+  12345679  │ release.yml           │ main                │ in_progress │ 75m
+  (none found)
+```
+
+If `REPORT_ONLY=true` → print table and **stop this step** (zero mutations).
+
+#### 8c. Confirm and cancel
+
+→ DP(C)
+- Present stuck runs as candidates; runs on protected branches (main/master/staging) shown as informational — NEVER auto-cancel
+- "Skip / Cancel none" always available
+
+If `YES=true` → proceed without prompt (still skips protected branches).
+
+For each confirmed run:
+
+```bash
+gh run cancel <run-id> 2>/dev/null || echo "⚠️  Cannot cancel run <run-id> (permission denied or already completed)"
+```
+
+Always degrade gracefully — permission errors are non-fatal; report and continue.
+
+### 9. Final Report
 
 ```
 Cleanup Complete
@@ -149,16 +265,28 @@ Cleanup Complete
     ✅ Deleted remote: origin/docs/28-coding-standards
     ⏭ Skipped remote: origin/feat/33-i18n (active PR #42)
 
+  Labels:
+    ✅ Stripped: #123 — status:In Progress, P2-medium
+    ⏭ Skipped: #117 (user chose to keep)
+
+  CI Runs:
+    ✅ Cancelled: run 12345678 (feat/old-branch, queued 2h 15m)
+    ⏭ Skipped: run 12345679 (main — protected branch)
+
   Remaining branches: main, feat/33-i18n, experiment/test
 ```
+
+If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations performed]`.
 
 ## Options
 
 | Flag | Description |
 |------|-------------|
-| (none) / `--all` | Analyze both branches and worktrees |
+| (none) / `--all` | Analyze branches, worktrees, labels, and runs |
 | `--branches` | Only analyze branches |
 | `--worktrees` | Only analyze worktrees |
+| `--report-only` | Gather and print findings; perform zero mutations (cron-safe) |
+| `--yes` | Skip confirmation prompts for all destructive actions |
 
 ## Safety Rules
 
@@ -171,6 +299,9 @@ Cleanup Complete
 7. **ALWAYS remove worktree before deleting its branch**
 8. **NEVER delete remote branches automatically** — always require explicit confirmation per branch
 9. **ALWAYS scan all remote branches** for stale merged branches, not just locally deleted ones
+10. **`--report-only` = zero mutations** — no label edits, no run cancels, no branch deletes
+11. **NEVER auto-cancel runs on protected branches** (main/master/staging) — show as info only
+12. **Degrade gracefully on `gh` permission errors** — report failure and continue; never abort entire sweep
 
 ## Edge Cases
 
@@ -196,7 +327,8 @@ Cleanup Complete
 ## Exit
 
 - **Success via `/dev`:** stale branches/worktrees removed → return control silently. ¬write summary. `/dev` re-scans, all steps done/skipped, shows completion banner.
-- **Success standalone:** print summary (branches deleted, worktrees pruned). Stop.
+- **Success standalone:** print summary (branches deleted, worktrees pruned, labels stripped, runs cancelled). Stop.
+- **`--report-only`:** print findings report, no mutations. Exit 0.
 - **Failure:** return error. `/dev` presents Retry | Skip | Abort.
 
 $ARGUMENTS
