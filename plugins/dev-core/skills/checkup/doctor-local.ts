@@ -165,7 +165,8 @@ export function checkSecurity(): Section {
 
   // trufflehog in lefthook (if lefthook.yml present)
   const lefthookPath = 'lefthook.yml'
-  if (fs.existsSync(lefthookPath)) {
+  const hasLefthook = fs.existsSync(lefthookPath)
+  if (hasLefthook) {
     const lefthookContent = fs.readFileSync(lefthookPath, 'utf8') as string
     const hasTrufflehog = lefthookContent.includes('trufflehog')
     checks.push({
@@ -178,6 +179,40 @@ export function checkSecurity(): Section {
       name: 'license check in lefthook',
       status: hasLicense ? 'pass' : 'warn',
       detail: hasLicense ? 'configured in lefthook.yml' : 'not found in lefthook.yml — run /init to add',
+    })
+  }
+
+  // trufflehog in pre-commit (if .pre-commit-config.yaml present — Python repos)
+  const preCommitPath = '.pre-commit-config.yaml'
+  if (fs.existsSync(preCommitPath)) {
+    const preCommitContent = fs.readFileSync(preCommitPath, 'utf8') as string
+    const hasTrufflehog = preCommitContent.includes('trufflehog')
+    checks.push({
+      name: 'trufflehog in pre-commit',
+      status: hasTrufflehog ? 'pass' : 'warn',
+      detail: hasTrufflehog
+        ? 'configured in .pre-commit-config.yaml'
+        : 'not found in .pre-commit-config.yaml — add the trufflehog hook',
+    })
+  } else if (!hasLefthook) {
+    checks.push({
+      name: 'pre-commit hooks',
+      status: 'warn',
+      detail: 'no lefthook.yml or .pre-commit-config.yaml — secrets can reach git without local scanning',
+    })
+  }
+
+  // trufflehog in CI — convention is pre-commit AND CI (a hook is skippable locally)
+  const wfDir = '.github/workflows'
+  if (fs.existsSync(wfDir)) {
+    const wfFiles = (fs.readdirSync(wfDir) as string[]).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
+    const inCI = wfFiles.some((f) => /trufflehog|gitleaks/i.test(fs.readFileSync(`${wfDir}/${f}`, 'utf8') as string))
+    checks.push({
+      name: 'trufflehog in CI',
+      status: inCI ? 'pass' : 'warn',
+      detail: inCI
+        ? 'secret scan present in CI workflows'
+        : 'no CI workflow runs trufflehog/gitleaks — hooks alone are skippable (--no-verify)',
     })
   }
 

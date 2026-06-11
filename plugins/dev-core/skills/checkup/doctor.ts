@@ -9,8 +9,11 @@ import { checkPrereqs } from '../shared/prereqs'
 import {
   checkBranchProtection,
   checkCIPermissions,
+  checkDefaultWorkflowPermissions,
   checkGitHubConfig,
+  checkPullRequestTarget,
   checkRulesets,
+  checkSecretScanning,
   checkSecrets,
   checkWorkflows,
 } from './doctor-github'
@@ -31,20 +34,22 @@ const prereqs = checkPrereqs()
 const ghOk = prereqs.gh.ok
 const owner = prereqs.gitRemote.owner
 const repo = prereqs.gitRemote.repo
-const fullRepo = owner && repo ? `${owner}/${repo}` : ''
 
 const sections: Section[] = [
   checkPrereqsSection(prereqs),
   checkGitHubConfig(ghOk, owner, repo),
   checkWorkflows(ghOk, owner, repo),
   checkSecrets(ghOk, owner, repo),
-  checkBranchProtection(ghOk, owner, fullRepo),
+  checkBranchProtection(ghOk, owner, repo),
   checkRulesets(ghOk, owner, repo),
+  checkSecretScanning(ghOk, owner, repo),
+  checkDefaultWorkflowPermissions(ghOk, owner, repo),
   checkProjectStructure(),
   checkStandardsPaths(),
   checkSecurity(),
   checkVercel(),
   checkCIPermissions(ghOk, owner, repo),
+  checkPullRequestTarget(),
 ]
 
 if (jsonFlag) {

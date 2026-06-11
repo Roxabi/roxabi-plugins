@@ -205,9 +205,195 @@ export function checkRulesets(ghOk: boolean, owner: string, repo: string): Secti
           : 'merge commit not in allowed_merge_methods — promotion PRs will cause history divergence',
       })
     }
+
+    // A ruleset pinned to refs/heads/main protects nothing on repos whose default
+    // branch is staging — the ruleset reports "active" while every PR merges unchecked.
+    const idResult = spawnSync([
+      'gh',
+      'api',
+      `repos/${owner}/${repo}/rulesets`,
+      '--jq',
+      `[.[] | select(.name == "${DEFAULT_RULESET.name}") | .id] | first`,
+    ])
+    const defaultBranchResult = spawnSync(['gh', 'api', `repos/${owner}/${repo}`, '--jq', '.default_branch'])
+    const rulesetId = idResult.ok ? idResult.stdout.trim() : ''
+    const defaultBranch = defaultBranchResult.ok ? defaultBranchResult.stdout.trim() : ''
+    if (rulesetId && defaultBranch) {
+      const condResult = spawnSync([
+        'gh',
+        'api',
+        `repos/${owner}/${repo}/rulesets/${rulesetId}`,
+        '--jq',
+        '.conditions.ref_name.include // [] | join(",")',
+      ])
+      if (condResult.ok) {
+        const targets = condResult.stdout
+          .trim()
+          .split(',')
+          .filter((t) => t)
+        const coversDefault =
+          targets.includes('~DEFAULT_BRANCH') ||
+          targets.includes('~ALL') ||
+          targets.includes(`refs/heads/${defaultBranch}`)
+        checks.push({
+          name: 'Default branch targeted',
+          status: coversDefault ? 'pass' : 'warn',
+          detail: coversDefault
+            ? `covers default branch (${defaultBranch})`
+            : `targets [${targets.join(', ')}] but default branch is ${defaultBranch} — default branch unprotected. Retarget to ~DEFAULT_BRANCH via gh api repos/${owner}/${repo}/rulesets/${rulesetId} --method PUT`,
+        })
+      }
+    }
   }
 
   return { name: 'Rulesets', checks }
+}
+
+export function checkSecretScanning(ghOk: boolean, owner: string, repo: string): Section {
+  if (!ghOk || !owner || !repo)
+    return {
+      name: 'Secret scanning',
+      checks: [{ name: 'secret scanning', status: 'skip', detail: 'gh CLI not available' }],
+    }
+
+  const r = spawnSync([
+    'gh',
+    'api',
+    `repos/${owner}/${repo}`,
+    '--jq',
+    '[.visibility, (.security_and_analysis.secret_scanning.status // "unavailable"), (.security_and_analysis.secret_scanning_push_protection.status // "unavailable")] | join("|")',
+  ])
+  if (!r.ok)
+    return {
+      name: 'Secret scanning',
+      checks: [{ name: 'secret scanning', status: 'warn', detail: 'could not fetch repo settings' }],
+    }
+
+  const [visibility, scanning, pushProtection] = r.stdout.trim().split('|')
+
+  // Private repos need GH Advanced Security (paid) — not actionable on free plans
+  if (visibility !== 'public' && scanning === 'unavailable')
+    return {
+      name: 'Secret scanning',
+      checks: [
+        { name: 'secret scanning', status: 'skip', detail: 'unavailable — private repo without GH Advanced Security' },
+      ],
+    }
+
+  return {
+    name: 'Secret scanning',
+    checks: [
+      {
+        name: 'secret scanning',
+        status: scanning === 'enabled' ? 'pass' : 'fail',
+        detail: scanning === 'enabled' ? 'enabled' : 'disabled — free for public repos, see Fix table to enable',
+      },
+      {
+        name: 'push protection',
+        status: pushProtection === 'enabled' ? 'pass' : 'fail',
+        detail: pushProtection === 'enabled' ? 'enabled' : 'disabled — blocks pushes containing live secrets, same fix',
+      },
+    ],
+  }
+}
+
+export function checkDefaultWorkflowPermissions(ghOk: boolean, owner: string, repo: string): Section {
+  if (!ghOk || !owner || !repo)
+    return {
+      name: 'Actions token',
+      checks: [{ name: 'default permissions', status: 'skip', detail: 'gh CLI not available' }],
+    }
+
+  const r = spawnSync([
+    'gh',
+    'api',
+    `repos/${owner}/${repo}/actions/permissions/workflow`,
+    '--jq',
+    '[.default_workflow_permissions, (.can_approve_pull_request_reviews | tostring)] | join("|")',
+  ])
+  if (!r.ok)
+    return {
+      name: 'Actions token',
+      checks: [{ name: 'default permissions', status: 'warn', detail: 'could not fetch Actions settings' }],
+    }
+
+  const [perms, canApprove] = r.stdout.trim().split('|')
+  return {
+    name: 'Actions token',
+    checks: [
+      {
+        name: 'default permissions',
+        status: perms === 'read' ? 'pass' : 'warn',
+        detail:
+          perms === 'read'
+            ? 'read-only'
+            : `${perms} — workflows without a permissions: block get a write token. Fix: gh api repos/${owner}/${repo}/actions/permissions/workflow --method PUT -f default_workflow_permissions=read`,
+      },
+      {
+        name: 'can approve PRs',
+        status: canApprove === 'false' ? 'pass' : 'warn',
+        detail:
+          canApprove === 'false'
+            ? 'disabled'
+            : 'GITHUB_TOKEN can approve PRs — a compromised workflow can self-approve. Disable unless required.',
+      },
+    ],
+  }
+}
+
+export interface PrTargetFinding {
+  file: string
+  checkout: 'none' | 'default' | 'pr-head'
+}
+
+/**
+ * Detect the pull_request_target footgun: the trigger runs with secrets and a
+ * write token on the BASE repo, so checking out (and executing) PR-head code
+ * hands both to the PR author. Checkout of the default ref is suspicious but
+ * survivable; an explicit PR-head ref is not.
+ */
+export function detectPullRequestTargetCheckout(content: string, filePath: string): PrTargetFinding | null {
+  const hasTrigger =
+    /^\s*pull_request_target\s*:/m.test(content) || /^on\s*:\s*\[[^\]]*pull_request_target[^\]]*\]/m.test(content)
+  if (!hasTrigger) return null
+  if (!content.includes('actions/checkout')) return { file: filePath, checkout: 'none' }
+  const prHeadRef = /ref:\s*\$\{\{\s*github\.(event\.pull_request\.head\.(sha|ref)|head_ref)\s*\}\}/.test(content)
+  return { file: filePath, checkout: prHeadRef ? 'pr-head' : 'default' }
+}
+
+export function checkPullRequestTarget(): Section {
+  const wfDir = '.github/workflows'
+  if (!existsSync(wfDir))
+    return {
+      name: 'pull_request_target',
+      checks: [{ name: 'pull_request_target', status: 'skip', detail: 'no local workflow files found' }],
+    }
+
+  const checks: Check[] = []
+  for (const f of readdirSync(wfDir) as string[]) {
+    if (!f.endsWith('.yml') && !f.endsWith('.yaml')) continue
+    const finding = detectPullRequestTargetCheckout(readFileSync(`${wfDir}/${f}`, 'utf8') as string, f)
+    if (!finding) continue
+    if (finding.checkout === 'pr-head') {
+      checks.push({
+        name: f,
+        status: 'fail',
+        detail:
+          'pull_request_target checks out PR-head code — untrusted code runs with secrets + write token. Switch to pull_request or drop the PR-head ref.',
+      })
+    } else if (finding.checkout === 'default') {
+      checks.push({
+        name: f,
+        status: 'warn',
+        detail: 'pull_request_target + checkout (base ref) — safe only if PR-authored code is never executed; verify.',
+      })
+    } else {
+      checks.push({ name: f, status: 'pass', detail: 'pull_request_target without checkout — API-only, safe' })
+    }
+  }
+  if (checks.length === 0)
+    checks.push({ name: 'pull_request_target', status: 'pass', detail: 'no workflow uses pull_request_target' })
+  return { name: 'pull_request_target', checks }
 }
 
 /**
