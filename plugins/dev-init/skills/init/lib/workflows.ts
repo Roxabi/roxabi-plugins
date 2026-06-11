@@ -4,6 +4,7 @@
  */
 
 import { run } from '../../shared/adapters/github-adapter'
+import { APP_MINT_STEP } from '../../shared/adapters/github-infra'
 
 export interface WorkflowOpts {
   stack: 'bun' | 'node' | 'python'
@@ -50,10 +51,12 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'reviewed')
     timeout-minutes: 5
     steps:
+${APP_MINT_STEP}
+
       - name: Block dependabot semver-major bumps
         if: github.event.pull_request.user.login == 'dependabot[bot]'
         env:
-          GH_TOKEN: \${{ secrets.PAT }}
+          GH_TOKEN: \${{ steps.app.outputs.token }}
           PR_NUMBER: \${{ github.event.pull_request.number }}
           PR_TITLE: \${{ github.event.pull_request.title }}
         run: |
@@ -64,10 +67,20 @@ jobs:
             exit 1
           fi
 
+      - name: Update branch (lazy sync for late joiners)
+        if: contains(github.event.pull_request.labels.*.name, 'reviewed')
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+          PR_NUMBER: \${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: \${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api "repos/\${{ github.repository }}/pulls/$PR_NUMBER/update-branch" \\
+            --method PUT -f expected_head_sha="$PR_HEAD_SHA" || true
+
       - name: Enable auto-merge (merge commit)
         run: gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY"
         env:
-          GH_TOKEN: \${{ secrets.PAT }}
+          GH_TOKEN: \${{ steps.app.outputs.token }}
           PR_NUMBER: \${{ github.event.pull_request.number }}
 
   update-behind-prs:
@@ -76,6 +89,8 @@ jobs:
     if: github.event_name == 'push'
     timeout-minutes: 5
     steps:
+${APP_MINT_STEP}
+
       - name: Update all reviewed PRs targeting this branch
         run: |
           BRANCH="\${GITHUB_REF_NAME}"
@@ -92,7 +107,7 @@ jobs:
               --method PUT -f expected_head_sha="$SHA" || true
           done
         env:
-          GH_TOKEN: \${{ secrets.PAT }}
+          GH_TOKEN: \${{ steps.app.outputs.token }}
 
   close-linked-issues:
     name: Close linked issues

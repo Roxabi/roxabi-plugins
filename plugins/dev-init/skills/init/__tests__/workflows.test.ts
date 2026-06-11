@@ -1,5 +1,57 @@
 import { describe, expect, it } from 'vitest'
-import { generateCiYml, generateDeployYml } from '../lib/workflows'
+import { generateAutoMergeYml, generateCiYml, generateDeployYml } from '../lib/workflows'
+
+describe('generateAutoMergeYml', () => {
+  it('emits the App token mint step (no secrets.PAT)', () => {
+    const yml = generateAutoMergeYml()
+    expect(yml).toContain('actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1')
+    expect(yml).toContain('vars.ROXABI_CI_APP_ID')
+    expect(yml).toContain('secrets.ROXABI_CI_APP_PRIVATE_KEY')
+    expect(yml).not.toContain('secrets.PAT')
+  })
+
+  it('uses steps.app.outputs.token (not PAT) for all GH_TOKEN references', () => {
+    const yml = generateAutoMergeYml()
+    // Every GH_TOKEN assignment must reference the App token
+    const ghTokenMatches = [...yml.matchAll(/GH_TOKEN:\s*\$\{\{[^}]+\}\}/g)].map((m) => m[0])
+    expect(ghTokenMatches.length).toBeGreaterThan(0)
+    for (const match of ghTokenMatches) {
+      expect(match).toContain('steps.app.outputs.token')
+    }
+  })
+
+  it('emits the lazy-sync update-branch step gated by reviewed in the auto-merge job', () => {
+    const yml = generateAutoMergeYml()
+    // The step must appear in the auto-merge job section (before update-behind-prs job)
+    const autoMergeJobSection = yml.split('update-behind-prs:')[0]
+    expect(autoMergeJobSection).toContain('Update branch (lazy sync for late joiners)')
+    expect(autoMergeJobSection).toContain("contains(github.event.pull_request.labels.*.name, 'reviewed')")
+    expect(autoMergeJobSection).toContain('update-branch')
+    expect(autoMergeJobSection).toContain('steps.app.outputs.token')
+    expect(autoMergeJobSection).toContain('|| true')
+  })
+
+  it('lazy-sync step appears BEFORE enable auto-merge step', () => {
+    const yml = generateAutoMergeYml()
+    const lazyIdx = yml.indexOf('Update branch (lazy sync for late joiners)')
+    const mergeIdx = yml.indexOf('Enable auto-merge (merge commit)')
+    expect(lazyIdx).toBeGreaterThan(-1)
+    expect(mergeIdx).toBeGreaterThan(-1)
+    expect(lazyIdx).toBeLessThan(mergeIdx)
+  })
+
+  it('update-behind-prs job still filters reviewed label (regression guard)', () => {
+    const yml = generateAutoMergeYml()
+    const updateBehindSection = yml.split('update-behind-prs:')[1]
+    expect(updateBehindSection).toContain('--label reviewed')
+  })
+
+  it('update-behind-prs job runs only on push (regression guard)', () => {
+    const yml = generateAutoMergeYml()
+    const updateBehindSection = yml.split('update-behind-prs:')[1]
+    expect(updateBehindSection).toContain("github.event_name == 'push'")
+  })
+})
 
 describe('generateCiYml', () => {
   it('generates bun + vitest CI', () => {
