@@ -139,13 +139,21 @@ Merge path = gate-driven: `reviewed` label + auto-merge (`gh pr merge --auto --m
 - [ ] {how to verify}
 - [ ] {edge case}
 
+## SC → Test Matrix
+
+(Insert the fenced SC→Test Matrix block emitted by `/implement` Step 6a — a chained run carries it in conversation context; for a standalone `/pr`, retrieve it from the implement summary or reconstruct from the spec SCs + landed tests. Tier S: omit this section entirely — see the Lifecycle note below.)
+
+| SC | Test(s) | Status |
+|----|---------|--------|
+| SC1: {text} | `{file} :: {test name}` | ⏳ not run |
+
 Fixes #{N}
 
 ---
 Generated with [Claude Code](https://claude.com/claude-code) via `/pr`
 ```
 
-Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue → omit Lifecycle + Closes.
+Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue → omit Lifecycle + Closes. S-tier → also omit SC → Test Matrix section.
 
 ## Options
 
