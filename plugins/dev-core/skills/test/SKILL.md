@@ -120,6 +120,26 @@ it('should return user by id', () => {
 ∀ approved τ: write via Write tool → `{commands.test} {test_file_path}` → report pass/fail.
 ∃ failures ⇒ → DP(A) show failing test + error → propose fix → re-run.
 
+## Step 8 — Falsification Gate (standalone `/test`)
+
+Applies to: unit + fast-integration tests only. Triggered after Step 7 green run. Owned by the calling agent (the agent that owns source drives the stash — ¬tester).
+
+**e2e exemption:** tests generated via `--e2e` → annotate each as `NO FALSIFY — e2e`. Stop. ¬run stash cycle.
+
+∀ new/modified test written in this session:
+
+1. **Stash source** (¬test files): `git stash -- $(git diff HEAD --name-only | grep -v '\.test\.' | grep -v '\.spec\.')`.
+2. **Run the test**: `{commands.test} {test_file_path}`.
+3. **Assert FAIL**: exit 0 → tautological → → DP(A) **Fix test** | **Flag and skip** (¬silently pass). Tautological = merge blocker.
+4. **Pop stash**: `git stash pop`.
+5. **Assert GREEN**: re-run → exit 0.
+6. **Record evidence** (one line per test):
+   ```
+   broke {source file} → test failed with {error/assertion message}
+   ```
+
+Evidence lines feed the #279 matrix `Status` column: `✓ proven`. Tautological test → `✗ failed` (the test itself is the failure). Append evidence block to output before reporting done.
+
 ## E2E Mode (`--e2e`)
 
 Check Playwright:
