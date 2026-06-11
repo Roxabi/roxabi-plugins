@@ -149,7 +149,8 @@ export function checkBranchProtection(ghOk: boolean, owner: string, repo: string
         checks.push({
           name: `${branch}:trufflehog-context`,
           status: 'warn',
-          detail: 'secret-scan.yml present but trufflehog missing from required checks — run /init to fix',
+          detail:
+            'secret-scan.yml present but trufflehog missing from required checks — run /init to fix (enforcement gate; workflow-content presence is the Security section check)',
         })
       }
     }
@@ -325,7 +326,14 @@ export function checkDefaultWorkflowPermissions(ghOk: boolean, owner: string, re
   if (!r.ok)
     return {
       name: 'Actions token',
-      checks: [{ name: 'default permissions', status: 'warn', detail: 'could not fetch Actions settings' }],
+      checks: [
+        {
+          name: 'default permissions',
+          status: 'warn',
+          detail:
+            'could not fetch Actions settings — network error or token scope (fine-grained PAT needs Administration:read, classic PAT needs repo)',
+        },
+      ],
     }
 
   let settings: { default_workflow_permissions?: string; can_approve_pull_request_reviews?: boolean }

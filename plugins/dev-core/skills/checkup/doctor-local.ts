@@ -217,7 +217,7 @@ export function checkSecurity(): Section {
       name: 'trufflehog in CI',
       status: inCI ? 'pass' : 'warn',
       detail: inCI
-        ? 'secret scan present in CI workflows'
+        ? 'secret scan present in CI workflows (content presence; required-check enforcement is reported under Branch protection)'
         : 'no CI workflow runs trufflehog/gitleaks — hooks alone are skippable (--no-verify)',
     })
   }
