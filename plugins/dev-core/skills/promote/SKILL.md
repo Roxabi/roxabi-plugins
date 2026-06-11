@@ -280,7 +280,7 @@ Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
 ## Safety Rules
 
 1. ¬force-push to μ ∨ σ
-2. ¬auto-merge — user merges after review
+2. Promotion PR: ¬auto-merge — user merges after review (merge commit). Changelog PR (Step 6b): `--auto --merge` via required checks
 3. Always show changelog before creating PR
 4. Always check CI before promoting
 5. Always warn about open PRs on σ
