@@ -165,7 +165,8 @@ export function checkSecurity(): Section {
 
   // trufflehog in lefthook (if lefthook.yml present)
   const lefthookPath = 'lefthook.yml'
-  if (fs.existsSync(lefthookPath)) {
+  const hasLefthook = fs.existsSync(lefthookPath)
+  if (hasLefthook) {
     const lefthookContent = fs.readFileSync(lefthookPath, 'utf8') as string
     const hasTrufflehog = lefthookContent.includes('trufflehog')
     checks.push({
@@ -181,7 +182,118 @@ export function checkSecurity(): Section {
     })
   }
 
+  // trufflehog in pre-commit (if .pre-commit-config.yaml present — Python repos)
+  const preCommitPath = '.pre-commit-config.yaml'
+  if (fs.existsSync(preCommitPath)) {
+    const preCommitContent = fs.readFileSync(preCommitPath, 'utf8') as string
+    const hasTrufflehog = preCommitContent.includes('trufflehog')
+    checks.push({
+      name: 'trufflehog in pre-commit',
+      status: hasTrufflehog ? 'pass' : 'warn',
+      detail: hasTrufflehog
+        ? 'configured in .pre-commit-config.yaml'
+        : 'not found in .pre-commit-config.yaml — add the trufflehog hook',
+    })
+  } else if (!hasLefthook) {
+    checks.push({
+      name: 'pre-commit hooks',
+      status: 'warn',
+      detail: 'no lefthook.yml or .pre-commit-config.yaml — secrets can reach git without local scanning',
+    })
+  }
+
+  // trufflehog in CI — convention is pre-commit AND CI (a hook is skippable locally)
+  const wfDir = '.github/workflows'
+  if (fs.existsSync(wfDir)) {
+    const wfFiles = (fs.readdirSync(wfDir) as string[]).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
+    const inCI = wfFiles.some((f) => {
+      try {
+        return /trufflehog|gitleaks/i.test(fs.readFileSync(`${wfDir}/${f}`, 'utf8') as string)
+      } catch {
+        return false
+      }
+    })
+    checks.push({
+      name: 'trufflehog in CI',
+      status: inCI ? 'pass' : 'warn',
+      detail: inCI
+        ? 'secret scan present in CI workflows (content presence; required-check enforcement is reported under Branch protection)'
+        : 'no CI workflow runs trufflehog/gitleaks — hooks alone are skippable (--no-verify)',
+    })
+  }
+
   return { name: 'Security', checks }
+}
+
+export interface PrTargetFinding {
+  file: string
+  checkout: 'none' | 'default' | 'pr-head'
+}
+
+/**
+ * Detect the pull_request_target footgun: the trigger runs with secrets and a
+ * write token on the BASE repo, so checking out (and executing) PR-head code
+ * hands both to the PR author. PR-head code can arrive four ways: an explicit
+ * PR-head ref on checkout, a fork checkout via repository:, the synthetic
+ * refs/pull/N/merge ref, or a raw `git fetch/checkout` in a run: step.
+ * Checkout of the default ref is suspicious but survivable; PR-head is not.
+ */
+export function detectPullRequestTargetCheckout(content: string, filePath: string): PrTargetFinding | null {
+  const hasTrigger =
+    /^\s*pull_request_target\s*:/m.test(content) ||
+    /^on\s*:\s*\[[^\]]*pull_request_target[^\]]*\]/m.test(content) ||
+    /\bon\s*:\s*\{[^}]*pull_request_target/.test(content)
+  if (!hasTrigger) return null
+  const executesPrHead =
+    /ref:\s*\$\{\{\s*github\.(event\.pull_request\.head\.(sha|ref)|head_ref)\s*\}\}/.test(content) ||
+    /repository:\s*\$\{\{\s*github\.event\.pull_request\.head\.repo\.full_name\s*\}\}/.test(content) ||
+    /ref:\s*refs\/pull\/[^\n]*\/merge/.test(content) ||
+    /git\s+(fetch|checkout)[^\n]*(pull\/\$\{\{|github\.event\.pull_request)/.test(content)
+  if (executesPrHead) return { file: filePath, checkout: 'pr-head' }
+  if (content.includes('actions/checkout')) return { file: filePath, checkout: 'default' }
+  return { file: filePath, checkout: 'none' }
+}
+
+export function checkPullRequestTarget(): Section {
+  const wfDir = '.github/workflows'
+  if (!fs.existsSync(wfDir))
+    return {
+      name: 'pull_request_target',
+      checks: [{ name: 'pull_request_target', status: 'skip', detail: 'no local workflow files found' }],
+    }
+
+  const checks: Check[] = []
+  for (const f of fs.readdirSync(wfDir) as string[]) {
+    if (!f.endsWith('.yml') && !f.endsWith('.yaml')) continue
+    let content: string
+    try {
+      content = fs.readFileSync(`${wfDir}/${f}`, 'utf8') as string
+    } catch {
+      checks.push({ name: f, status: 'warn', detail: 'could not read file — skipped' })
+      continue
+    }
+    const finding = detectPullRequestTargetCheckout(content, f)
+    if (!finding) continue
+    if (finding.checkout === 'pr-head') {
+      checks.push({
+        name: f,
+        status: 'fail',
+        detail:
+          'pull_request_target checks out or fetches PR-head code — untrusted code runs with secrets + write token. Switch to pull_request or drop the PR-head ref.',
+      })
+    } else if (finding.checkout === 'default') {
+      checks.push({
+        name: f,
+        status: 'warn',
+        detail: 'pull_request_target + checkout (base ref) — safe only if PR-authored code is never executed; verify.',
+      })
+    } else {
+      checks.push({ name: f, status: 'pass', detail: 'pull_request_target without checkout — API-only, safe' })
+    }
+  }
+  if (checks.length === 0)
+    checks.push({ name: 'pull_request_target', status: 'pass', detail: 'no workflow uses pull_request_target' })
+  return { name: 'pull_request_target', checks }
 }
 
 export function checkVercel(): Section {
