@@ -46,6 +46,8 @@ Standard set: `ci.yml`, `auto-merge.yml`, `pr-title.yml` (+ `deploy-preview.yml`
      ```
    - D: `CI/CD workflows ✅ Created` + `PAT secret ✅ Set` + `allow_auto_merge ✅ Enabled` + `Auto-merge re-triggered on N PR(s) ✅` (or ⏭ if none).
 
+   > **GitHub App alternative (org pattern: `roxabi-ci`).** Workflows can authenticate via `actions/create-github-app-token` instead of a PAT — ephemeral 1 h job-scoped installation tokens. Org variables/secrets needed: `ROXABI_CI_APP_ID` (var) + `ROXABI_CI_APP_PRIVATE_KEY` (secret). **Private repos on a free-plan org:** org-level Actions secrets/variables do NOT propagate to private repositories — set them at repo level: `gh variable set ROXABI_CI_APP_ID --repo <owner>/<repo> --body <app-id>` / `gh secret set ROXABI_CI_APP_PRIVATE_KEY --repo <owner>/<repo> < key.pem`. Dependabot-triggered events additionally need a Dependabot secret: `gh secret set ROXABI_CI_APP_PRIVATE_KEY --repo <owner>/<repo> --app dependabot < key.pem`. (Migration of this repo's workflows: #284.)
+
 6. skip → D⏭("CI/CD workflows").
 
 ### Phase 1d — Fumadocs Vercel Deployment (Optional)
