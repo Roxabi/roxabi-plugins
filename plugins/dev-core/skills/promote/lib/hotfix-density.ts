@@ -105,16 +105,7 @@ export async function resolveAnchor(
   // 2. Last promotion merge-commit
   try {
     const logOut = await deps.run(
-      [
-        'git',
-        'log',
-        'main',
-        '--merges',
-        '--oneline',
-        '--format=%H %ai',
-        '--grep=chore: promote staging to main',
-        '-1',
-      ],
+      ['git', 'log', 'main', '--merges', '--oneline', '--format=%H %ai', '--grep=chore: promote staging to main', '-1'],
       cwd,
     )
     if (logOut) {
@@ -151,10 +142,7 @@ export async function listCommitsSince(
 ): Promise<Array<{ sha: string; title: string }>> {
   let out: string
   try {
-    out = await deps.run(
-      ['git', 'log', 'main..staging', `--after=${anchorDate}`, '--format=%H\t%s'],
-      cwd,
-    )
+    out = await deps.run(['git', 'log', 'main..staging', `--after=${anchorDate}`, '--format=%H\t%s'], cwd)
   } catch {
     return []
   }
@@ -179,10 +167,7 @@ export async function listCommitsSince(
  *
  * Returns a Set of commit SHAs (merge commits on main) for matching PRs.
  */
-export async function fetchHotfixPrShas(
-  anchorDate: string,
-  deps: Pick<Deps, 'run'>,
-): Promise<Set<string>> {
+export async function fetchHotfixPrShas(anchorDate: string, deps: Pick<Deps, 'run'>): Promise<Set<string>> {
   let out: string
   try {
     out = await deps.run([
@@ -228,10 +213,7 @@ export function isHotfix(sha: string, title: string, hotfixPrShas: Set<string>):
  *
  * @param cwd  Optional working directory (defaults to process.cwd())
  */
-export async function computeHotfixDensity(
-  cwd: string | undefined,
-  deps: Deps,
-): Promise<HotfixDensityResult> {
+export async function computeHotfixDensity(cwd: string | undefined, deps: Deps): Promise<HotfixDensityResult> {
   const { anchorDate, anchorSource, anchorWarn } = await resolveAnchor(cwd, deps)
 
   const commits = await listCommitsSince(anchorDate, cwd, deps)

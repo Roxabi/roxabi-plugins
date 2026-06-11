@@ -1,17 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  THRESHOLD_GREEN,
-  THRESHOLD_PAUSE,
-  THRESHOLD_WARN,
   classifyDensity,
   computeHotfixDensity,
+  type Deps,
   fetchHotfixPrShas,
   formatResult,
+  type HotfixDensityResult,
   isHotfix,
   listCommitsSince,
   resolveAnchor,
-  type Deps,
-  type HotfixDensityResult,
+  THRESHOLD_GREEN,
+  THRESHOLD_PAUSE,
+  THRESHOLD_WARN,
 } from '../lib/hotfix-density'
 
 // ─── Threshold constants ───────────────────────────────────────────────────────
@@ -111,9 +111,7 @@ describe('isHotfix', () => {
 
 // ─── resolveAnchor ────────────────────────────────────────────────────────────
 
-function makeRunDeps(
-  responses: Record<string, string | Error>,
-): Pick<Deps, 'run'> {
+function makeRunDeps(responses: Record<string, string | Error>): Pick<Deps, 'run'> {
   return {
     run: vi.fn(async (cmd: string[]) => {
       const key = cmd.join(' ')
@@ -150,8 +148,7 @@ describe('resolveAnchor', () => {
 
   it('returns first matching tag when multiple tags present', async () => {
     const deps = makeRunDeps({
-      'git tag --list':
-        'dev-core/v2.0.0 2026-06-01T10:00:00+02:00\ndev-core/v1.9.0 2026-05-01T10:00:00+02:00\n',
+      'git tag --list': 'dev-core/v2.0.0 2026-06-01T10:00:00+02:00\ndev-core/v1.9.0 2026-05-01T10:00:00+02:00\n',
     })
     const result = await resolveAnchor(undefined, deps)
     expect(result.anchorSource).toBe('tag')
@@ -272,12 +269,7 @@ describe('fetchHotfixPrShas', () => {
 
 // ─── computeHotfixDensity — integration paths ─────────────────────────────────
 
-function makeDepsForIntegration(opts: {
-  tags?: string
-  promoLog?: string
-  commits?: string
-  prShas?: string
-}): Deps {
+function makeDepsForIntegration(opts: { tags?: string; promoLog?: string; commits?: string; prShas?: string }): Deps {
   return {
     run: vi.fn(async (cmd: string[]) => {
       const joined = cmd.join(' ')
@@ -381,10 +373,7 @@ describe('computeHotfixDensity', () => {
     const deps = makeDepsForIntegration({
       tags: 'v1.0.0 2026-05-01T10:00:00+02:00\n',
       // feat commit but PR has hotfix label
-      commits: [
-        'prsha1\tfeat: should be classified hotfix via label',
-        'sha02\tfeat: normal feature',
-      ].join('\n'),
+      commits: ['prsha1\tfeat: should be classified hotfix via label', 'sha02\tfeat: normal feature'].join('\n'),
       prShas: 'prsha1',
     })
     const result = await computeHotfixDensity(undefined, deps)
