@@ -41,18 +41,8 @@ gh api repos/:owner/:repo/commits/staging/check-runs \
 echo "---hotfix_density---"
 # Advisory-only: compute hotfix density since last tag/promotion-merge/30d fallback.
 # Never exits non-zero; failures emit a structured error line.
-node --input-type=module <<'EOF' 2>/dev/null || echo "hotfix_density=error"
-import { computeHotfixDensity, formatResult } from '${CLAUDE_SKILL_DIR}/lib/hotfix-density.js'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-const execFileAsync = promisify(execFile)
-const deps = {
-  run: async (cmd, cwd) => {
-    const [bin, ...args] = cmd
-    const { stdout } = await execFileAsync(bin, args, { cwd: cwd ?? process.cwd() })
-    return stdout.trim()
-  },
-}
-const result = await computeHotfixDensity(process.cwd(), deps)
-console.log(formatResult(result))
-EOF
+# BASH_SOURCE resolves to the real skill-dir path at runtime (cache or marketplace);
+# bun runs the .ts source directly (no build step) — its import.meta.main block wires
+# the git/gh IO deps and prints the formatted line.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bun run "${SCRIPT_DIR}/lib/hotfix-density.ts" 2>/dev/null || echo "hotfix_density=error"

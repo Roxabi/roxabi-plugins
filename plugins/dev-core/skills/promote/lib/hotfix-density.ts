@@ -105,7 +105,7 @@ export async function resolveAnchor(
   // 2. Last promotion merge-commit
   try {
     const logOut = await deps.run(
-      ['git', 'log', 'main', '--merges', '--oneline', '--format=%H %ai', '--grep=chore: promote staging to main', '-1'],
+      ['git', 'log', 'main', '--merges', '--format=%H %ai', '--grep=chore: promote staging to main', '-1'],
       cwd,
     )
     if (logOut) {
@@ -275,7 +275,7 @@ export function formatResult(result: HotfixDensityResult): string {
       signal = 'WARN: elevated hotfix rate; consider /checkup'
       break
     case 'pause':
-      signal = 'PAUSE recommended: >40% hotfix rate; run /checkup'
+      signal = `PAUSE recommended: >${(THRESHOLD_WARN * 100).toFixed(0)}% hotfix rate; run /checkup`
       break
   }
 
@@ -286,4 +286,23 @@ export function formatResult(result: HotfixDensityResult): string {
   }
 
   return line
+}
+
+// ─── Composition root ─────────────────────────────────────────────────────────
+// Invoked by promote/preflight.sh via `bun run .../lib/hotfix-density.ts`.
+// Guarded by import.meta.main so test imports (vitest) never execute the IO path.
+
+if (import.meta.main) {
+  const { execFile } = await import('node:child_process')
+  const { promisify } = await import('node:util')
+  const execFileAsync = promisify(execFile)
+  const deps: Deps = {
+    run: async (cmd, cwd) => {
+      const [bin, ...args] = cmd
+      const { stdout } = await execFileAsync(bin, args, { cwd: cwd ?? process.cwd() })
+      return stdout.trim()
+    },
+  }
+  const result = await computeHotfixDensity(process.cwd(), deps)
+  console.log(formatResult(result))
 }
