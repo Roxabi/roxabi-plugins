@@ -37,3 +37,12 @@ echo "---ci---"
 gh api repos/:owner/:repo/commits/staging/check-runs \
   --jq '[.check_runs[] | {name, conclusion}] | group_by(.conclusion) | map({conclusion: .[0].conclusion, count: length})' \
   2>/dev/null || echo "ci=unknown"
+
+echo "---hotfix_density---"
+# Advisory-only: compute hotfix density since last tag/promotion-merge/30d fallback.
+# Never exits non-zero; failures emit a structured error line.
+# BASH_SOURCE resolves to the real skill-dir path at runtime (cache or marketplace);
+# bun runs the .ts source directly (no build step) — its import.meta.main block wires
+# the git/gh IO deps and prints the formatted line.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bun run "${SCRIPT_DIR}/lib/hotfix-density.ts" 2>/dev/null || echo "hotfix_density=error"
