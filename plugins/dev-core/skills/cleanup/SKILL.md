@@ -1,6 +1,6 @@
 ---
 name: cleanup
-argument-hint: [--branches | --worktrees | --all | --report-only]
+argument-hint: [--all | --report-only | --yes]
 description: Clean git branches/worktrees/remotes after merge-status verification; sweep stuck pipeline labels and orphan CI runs. Triggers: "cleanup" | "clean branches" | "cleanup worktrees" | "remove stale branches".
 version: 0.4.0
 allowed-tools: Bash, Read, EnterWorktree, ExitWorktree, ToolSearch
@@ -36,7 +36,7 @@ If both set: `REPORT_ONLY` wins — no mutations.
 ### 1. Gather State
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/cleanup/gather-state.sh
+bash ${CLAUDE_SKILL_DIR}/gather-state.sh
 ```
 
 Emits: `current`, branch list with tracking info, worktree list, open PRs, closed PRs with pipeline labels, and queued/stuck CI runs.
@@ -75,6 +75,8 @@ Legend: 🗑 = safe to delete, ⚠️ = needs attention, 🔒 = protected
 ```
 
 ### 4. Ask for Confirmation
+
+If `REPORT_ONLY=true` → skip this confirmation **and** Step 5 (zero deletions); Step 3's table is the report. Continue to Step 6.
 
 → DP(C)
 - Present only safe(β) items as default selections
@@ -143,6 +145,8 @@ Remote Branch Cleanup
 ```
 
 #### 6d. Ask for confirmation
+
+If `REPORT_ONLY=true` → skip this confirmation **and** Step 6e (zero remote deletions); Step 6c's table is the report. Continue to Step 7.
 
 → DP(C) present merged remote β with ¬π as safe; show unmerged separately; **NEVER auto-delete remote β**; always include "Skip / Keep all remote branches".
 
@@ -283,8 +287,6 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 | Flag | Description |
 |------|-------------|
 | (none) / `--all` | Analyze branches, worktrees, labels, and runs |
-| `--branches` | Only analyze branches |
-| `--worktrees` | Only analyze worktrees |
 | `--report-only` | Gather and print findings; perform zero mutations (cron-safe) |
 | `--yes` | Skip confirmation prompts for all destructive actions |
 
