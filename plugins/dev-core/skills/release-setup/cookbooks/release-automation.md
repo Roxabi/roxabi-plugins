@@ -111,6 +111,8 @@ Configure automated versioning and changelog generation.
    ```
    `mkdir -p .github/workflows` first. Use `secrets.PAT` (set during `/init` Phase 3) so the release PR can trigger `ci.yml` — the default `GITHUB_TOKEN` can't fan out to other workflows. Existing file + ¬F → skip with D⏭. `.github/workflows/release-please.yml` already present, but no config → restore config and keep workflow.
 
+   > **GitHub App alternative (org pattern: `roxabi-ci`):** replace `secrets.PAT` with a minted `actions/create-github-app-token` step (`app-id: ${{ vars.ROXABI_CI_APP_ID }}`, `private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}`). **Private repos on a free-plan org:** org-level secrets/variables do NOT reach private repos — set `ROXABI_CI_APP_ID` (var) and `ROXABI_CI_APP_PRIVATE_KEY` (secret) at repo level. Dependabot jobs also need `gh secret set ROXABI_CI_APP_PRIVATE_KEY --repo <owner>/<repo> --app dependabot < key.pem`. Generator parity tracked in #281.
+
 7. **Idempotent repair under F** — if any of these are already present but drift from the convention, patch in place:
    - Workflow missing `target-branch: main` action input → inject it.
    - Config `.` package missing `component` / `package-name` / `tag-separator: "/"` → add them.
