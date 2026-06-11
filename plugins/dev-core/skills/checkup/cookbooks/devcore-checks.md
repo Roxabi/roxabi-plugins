@@ -27,7 +27,7 @@
 | `PR_Main` ruleset missing | `bun $I_TS protect-branches --repo <owner/repo>` |
 | `PR_Main` allowed_merge_methods ≠ `["merge"]` | Update ruleset via `gh api repos/:owner/:repo/rulesets/<id> --method PUT` with `allowed_merge_methods: ["merge"]` — merge-commit only (Release Convention); squash/rebase cause history divergence on promotion |
 | `PR_Main` ¬targets default branch | Retarget `conditions.ref_name.include` to `["~DEFAULT_BRANCH"]` via `gh api repos/:owner/:repo/rulesets/<id> --method PUT` — a ruleset pinned to `main` protects nothing when default is `staging` |
-| secret scanning / push protection disabled | `gh api repos/<owner>/<repo> --method PATCH --input - <<< '{"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"enabled"}}}'` — free on public repos |
+| secret scanning / push protection disabled | `printf '%s' '{"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"enabled"}}}' \| gh api repos/<owner>/<repo> --method PATCH --input -` — free on public repos (printf: POSIX-safe, `<<<` is bash-only) |
 | Actions default permissions ≠ read | `gh api repos/<owner>/<repo>/actions/permissions/workflow --method PUT -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false` |
 | `pull_request_target` checks out PR head | Switch trigger to `pull_request`, or drop the PR-head `ref:` from checkout — never run PR-authored code with secrets in scope |
 | `trufflehog` not in `.pre-commit-config.yaml` | Add the trufflehog repo/hook to `.pre-commit-config.yaml` (mirror an existing Roxabi Python repo) |
