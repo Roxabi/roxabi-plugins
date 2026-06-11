@@ -237,6 +237,13 @@ export function checkRulesets(ghOk: boolean, owner: string, repo: string, meta: 
       } catch {}
     }
 
+    if (!detail) {
+      checks.push({
+        name: 'ruleset detail',
+        status: 'warn',
+        detail: 'could not fetch ruleset detail — cannot verify merge methods or branch targeting',
+      })
+    }
     if (detail) {
       const prRule = detail.rules?.find((rule) => rule.type === 'pull_request')
       const methods = prRule?.parameters?.allowed_merge_methods ?? []
@@ -252,6 +259,13 @@ export function checkRulesets(ghOk: boolean, owner: string, repo: string, meta: 
       // A ruleset pinned to refs/heads/main protects nothing on repos whose default
       // branch is staging — the ruleset reports "active" while every PR merges unchecked.
       const defaultBranch = meta?.defaultBranch ?? ''
+      if (!defaultBranch) {
+        checks.push({
+          name: 'Default branch targeted',
+          status: 'skip',
+          detail: meta ? 'default branch unknown' : 'repo meta unavailable — cannot verify ruleset coverage',
+        })
+      }
       if (defaultBranch) {
         const targets = detail.conditions?.ref_name?.include ?? []
         const coversDefault =
@@ -270,6 +284,12 @@ export function checkRulesets(ghOk: boolean, owner: string, repo: string, meta: 
         checks.push({ name: 'Default branch targeted', status, detail: detailMsg })
       }
     }
+  } else if (ruleset) {
+    checks.push({
+      name: 'ruleset detail',
+      status: 'warn',
+      detail: 'ruleset id missing or not numeric — cannot verify merge methods or branch targeting',
+    })
   }
 
   return { name: 'Rulesets', checks }
@@ -470,6 +490,13 @@ export function checkCIPermissions(meta: RepoMeta | null): Section {
     }
   }
 
+  if (!meta) {
+    checks.push({
+      name: 'repo visibility',
+      status: 'warn',
+      detail: 'could not fetch repo metadata — severity may be understated on private repos',
+    })
+  }
   const isPrivate = meta?.visibility === 'private'
 
   const issues: Array<{ file: string; job: string; permissions: string[] }> = []

@@ -248,7 +248,9 @@ export function detectPullRequestTargetCheckout(content: string, filePath: strin
     /ref:\s*\$\{\{\s*github\.(event\.pull_request\.head\.(sha|ref)|head_ref)\s*\}\}/.test(content) ||
     /repository:\s*\$\{\{\s*github\.event\.pull_request\.head\.repo\.full_name\s*\}\}/.test(content) ||
     /ref:\s*refs\/pull\/[^\n]*\/merge/.test(content) ||
-    /git\s+(fetch|checkout)[^\n]*(pull\/\$\{\{|github\.event\.pull_request)/.test(content)
+    // code-fetching forms only: pull/${{N}}/head, refs/pull/*, or head.* fields —
+    // a bare github.event.pull_request.title/number next to an unrelated git fetch is not a PR-head checkout
+    /git\s+(fetch|checkout)[^\n]*(pull\/\$\{\{|refs\/pull\/|github\.event\.pull_request\.head)/.test(content)
   if (executesPrHead) return { file: filePath, checkout: 'pr-head' }
   if (content.includes('actions/checkout')) return { file: filePath, checkout: 'default' }
   return { file: filePath, checkout: 'none' }
