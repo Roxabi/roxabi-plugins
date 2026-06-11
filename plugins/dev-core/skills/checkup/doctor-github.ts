@@ -149,7 +149,8 @@ export function checkBranchProtection(ghOk: boolean, owner: string, repo: string
         checks.push({
           name: `${branch}:trufflehog-context`,
           status: 'warn',
-          detail: 'secret-scan.yml present but trufflehog missing from required checks — run /init to fix',
+          detail:
+            'secret-scan.yml present but trufflehog missing from required checks — run /init to fix (enforcement gate; workflow-content presence is the Security section check)',
         })
       }
     }
@@ -157,45 +158,88 @@ export function checkBranchProtection(ghOk: boolean, owner: string, repo: string
   return { name: 'Branch protection', checks }
 }
 
-export function checkRulesets(ghOk: boolean, owner: string, repo: string): Section {
+/**
+ * Repo metadata fetched once per doctor run and threaded into every check that
+ * needs it — checkSecretScanning, checkRulesets, checkCIPermissions previously
+ * each hit `repos/{owner}/{repo}` independently (3 calls to the same resource).
+ */
+export interface RepoMeta {
+  visibility: string
+  defaultBranch: string
+  secretScanning: string
+  pushProtection: string
+}
+
+export function fetchRepoMeta(ghOk: boolean, owner: string, repo: string): RepoMeta | null {
+  if (!ghOk || !owner || !repo) return null
+  const r = spawnSync(['gh', 'api', `repos/${owner}/${repo}`])
+  if (!r.ok) return null
+  try {
+    const j = JSON.parse(r.stdout)
+    return {
+      visibility: j.visibility ?? '',
+      defaultBranch: j.default_branch ?? '',
+      secretScanning: j.security_and_analysis?.secret_scanning?.status ?? 'unavailable',
+      pushProtection: j.security_and_analysis?.secret_scanning_push_protection?.status ?? 'unavailable',
+    }
+  } catch {
+    return null
+  }
+}
+
+export function checkRulesets(ghOk: boolean, owner: string, repo: string, meta: RepoMeta | null): Section {
   if (!ghOk || !owner || !repo)
     return {
       name: 'Rulesets',
       checks: [{ name: DEFAULT_RULESET.name, status: 'skip', detail: 'gh CLI not available' }],
     }
 
-  const result = spawnSync(['gh', 'api', `repos/${owner}/${repo}/rulesets`, '--jq', '.[].name'])
+  // Single list fetch, parsed as JSON and filtered client-side — no value
+  // interpolation into a jq program (injection-shaped even with constants).
+  const result = spawnSync(['gh', 'api', `repos/${owner}/${repo}/rulesets`])
   if (!result.ok)
     return {
       name: 'Rulesets',
       checks: [{ name: DEFAULT_RULESET.name, status: 'warn', detail: 'could not fetch rulesets' }],
     }
 
-  const existing = result.stdout
-    .split('\n')
-    .map((n) => n.trim())
-    .filter((n) => n)
-  const hasRuleset = existing.includes(DEFAULT_RULESET.name)
+  let rulesets: Array<{ id?: number; name?: string }> = []
+  try {
+    const parsed = JSON.parse(result.stdout)
+    if (Array.isArray(parsed)) rulesets = parsed
+  } catch {
+    return {
+      name: 'Rulesets',
+      checks: [{ name: DEFAULT_RULESET.name, status: 'warn', detail: 'unexpected rulesets API response' }],
+    }
+  }
+
+  const ruleset = rulesets.find((r) => r.name === DEFAULT_RULESET.name)
 
   const checks: Check[] = [
     {
       name: DEFAULT_RULESET.name,
-      status: hasRuleset ? 'pass' : 'warn',
-      detail: hasRuleset ? 'active' : 'missing — run /init to create (enforces squash/rebase/merge, thread resolution)',
+      status: ruleset ? 'pass' : 'warn',
+      detail: ruleset ? 'active' : 'missing — run /init to create (enforces squash/rebase/merge, thread resolution)',
     },
   ]
 
-  // Check that merge commit is in allowed methods (needed for promotion PRs)
-  if (hasRuleset) {
-    const detailResult = spawnSync([
-      'gh',
-      'api',
-      `repos/${owner}/${repo}/rulesets`,
-      '--jq',
-      `.[] | select(.name == "${DEFAULT_RULESET.name}") | .rules[] | select(.type == "pull_request") | .parameters.allowed_merge_methods`,
-    ])
+  // One detail fetch by id covers both merge methods and targeted refs
+  if (ruleset && typeof ruleset.id === 'number') {
+    const detailResult = spawnSync(['gh', 'api', `repos/${owner}/${repo}/rulesets/${ruleset.id}`])
+    let detail: {
+      rules?: Array<{ type?: string; parameters?: { allowed_merge_methods?: string[] } }>
+      conditions?: { ref_name?: { include?: string[] } }
+    } | null = null
     if (detailResult.ok) {
-      const methods = detailResult.stdout.trim()
+      try {
+        detail = JSON.parse(detailResult.stdout)
+      } catch {}
+    }
+
+    if (detail) {
+      const prRule = detail.rules?.find((rule) => rule.type === 'pull_request')
+      const methods = prRule?.parameters?.allowed_merge_methods ?? []
       const hasMerge = methods.includes('merge')
       checks.push({
         name: 'Merge commit allowed',
@@ -204,10 +248,125 @@ export function checkRulesets(ghOk: boolean, owner: string, repo: string): Secti
           ? 'merge commit enabled (required for promotion PRs)'
           : 'merge commit not in allowed_merge_methods — promotion PRs will cause history divergence',
       })
+
+      // A ruleset pinned to refs/heads/main protects nothing on repos whose default
+      // branch is staging — the ruleset reports "active" while every PR merges unchecked.
+      const defaultBranch = meta?.defaultBranch ?? ''
+      if (defaultBranch) {
+        const targets = detail.conditions?.ref_name?.include ?? []
+        const coversDefault =
+          targets.includes('~DEFAULT_BRANCH') ||
+          targets.includes('~ALL') ||
+          targets.includes(`refs/heads/${defaultBranch}`)
+        const hasGlob = targets.some((t) => t.includes('*'))
+        let status: Status = 'pass'
+        let detailMsg = `covers default branch (${defaultBranch})`
+        if (!coversDefault) {
+          status = 'warn'
+          detailMsg = hasGlob
+            ? `targets [${targets.join(', ')}] — glob pattern, cannot statically verify coverage of ${defaultBranch}; review manually`
+            : `targets [${targets.join(', ')}] but default branch is ${defaultBranch} — default branch unprotected. Retarget to ~DEFAULT_BRANCH (see Fix table)`
+        }
+        checks.push({ name: 'Default branch targeted', status, detail: detailMsg })
+      }
     }
   }
 
   return { name: 'Rulesets', checks }
+}
+
+export function checkSecretScanning(ghOk: boolean, meta: RepoMeta | null): Section {
+  if (!ghOk)
+    return {
+      name: 'Secret scanning',
+      checks: [{ name: 'secret scanning', status: 'skip', detail: 'gh CLI not available' }],
+    }
+  if (!meta)
+    return {
+      name: 'Secret scanning',
+      checks: [{ name: 'secret scanning', status: 'warn', detail: 'could not fetch repo settings' }],
+    }
+
+  // Private repos need GH Advanced Security (paid) — not actionable on free plans
+  if (meta.visibility !== 'public' && meta.secretScanning === 'unavailable')
+    return {
+      name: 'Secret scanning',
+      checks: [
+        { name: 'secret scanning', status: 'skip', detail: 'unavailable — private repo without GH Advanced Security' },
+      ],
+    }
+
+  return {
+    name: 'Secret scanning',
+    checks: [
+      {
+        name: 'secret scanning',
+        status: meta.secretScanning === 'enabled' ? 'pass' : 'fail',
+        detail:
+          meta.secretScanning === 'enabled' ? 'enabled' : 'disabled — free for public repos, see Fix table to enable',
+      },
+      {
+        name: 'push protection',
+        status: meta.pushProtection === 'enabled' ? 'pass' : 'fail',
+        detail:
+          meta.pushProtection === 'enabled' ? 'enabled' : 'disabled — blocks pushes containing live secrets, same fix',
+      },
+    ],
+  }
+}
+
+export function checkDefaultWorkflowPermissions(ghOk: boolean, owner: string, repo: string): Section {
+  if (!ghOk || !owner || !repo)
+    return {
+      name: 'Actions token',
+      checks: [{ name: 'default permissions', status: 'skip', detail: 'gh CLI not available' }],
+    }
+
+  const r = spawnSync(['gh', 'api', `repos/${owner}/${repo}/actions/permissions/workflow`])
+  if (!r.ok)
+    return {
+      name: 'Actions token',
+      checks: [
+        {
+          name: 'default permissions',
+          status: 'warn',
+          detail:
+            'could not fetch Actions settings — network error or token scope (fine-grained PAT needs Administration:read, classic PAT needs repo)',
+        },
+      ],
+    }
+
+  let settings: { default_workflow_permissions?: string; can_approve_pull_request_reviews?: boolean }
+  try {
+    settings = JSON.parse(r.stdout)
+  } catch {
+    return {
+      name: 'Actions token',
+      checks: [{ name: 'default permissions', status: 'warn', detail: 'unexpected Actions API response' }],
+    }
+  }
+  const perms = settings.default_workflow_permissions ?? ''
+  const canApprove = settings.can_approve_pull_request_reviews === true
+  return {
+    name: 'Actions token',
+    checks: [
+      {
+        name: 'default permissions',
+        status: perms === 'read' ? 'pass' : 'warn',
+        detail:
+          perms === 'read'
+            ? 'read-only'
+            : `${perms} — workflows without a permissions: block get a write token. Fix: gh api repos/${owner}/${repo}/actions/permissions/workflow --method PUT -f default_workflow_permissions=read`,
+      },
+      {
+        name: 'can approve PRs',
+        status: canApprove ? 'warn' : 'pass',
+        detail: canApprove
+          ? 'GITHUB_TOKEN can approve PRs — a compromised workflow can self-approve. Disable unless required.'
+          : 'disabled',
+      },
+    ],
+  }
 }
 
 /**
@@ -291,7 +450,7 @@ export function detectMissingContentsRead(
   return issues
 }
 
-export function checkCIPermissions(ghOk: boolean, owner: string, repo: string): Section {
+export function checkCIPermissions(meta: RepoMeta | null): Section {
   const checks: Check[] = []
 
   const wfDir = '.github/workflows'
@@ -311,15 +470,17 @@ export function checkCIPermissions(ghOk: boolean, owner: string, repo: string): 
     }
   }
 
-  let isPrivate = false
-  if (ghOk && owner && repo) {
-    const r = spawnSync(['gh', 'repo', 'view', `${owner}/${repo}`, '--json', 'isPrivate', '--jq', '.isPrivate'])
-    isPrivate = r.stdout === 'true'
-  }
+  const isPrivate = meta?.visibility === 'private'
 
   const issues: Array<{ file: string; job: string; permissions: string[] }> = []
   for (const filePath of files) {
-    const content = readFileSync(filePath, 'utf8') as string
+    let content: string
+    try {
+      content = readFileSync(filePath, 'utf8') as string
+    } catch {
+      checks.push({ name: filePath, status: 'warn', detail: 'could not read file — skipped' })
+      continue
+    }
     issues.push(...detectMissingContentsRead(content, filePath))
   }
 

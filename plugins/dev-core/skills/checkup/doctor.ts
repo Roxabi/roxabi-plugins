@@ -9,14 +9,18 @@ import { checkPrereqs } from '../shared/prereqs'
 import {
   checkBranchProtection,
   checkCIPermissions,
+  checkDefaultWorkflowPermissions,
   checkGitHubConfig,
   checkRulesets,
+  checkSecretScanning,
   checkSecrets,
   checkWorkflows,
+  fetchRepoMeta,
 } from './doctor-github'
 import {
   checkPrereqsSection,
   checkProjectStructure,
+  checkPullRequestTarget,
   checkSecurity,
   checkStandardsPaths,
   checkVercel,
@@ -31,20 +35,26 @@ const prereqs = checkPrereqs()
 const ghOk = prereqs.gh.ok
 const owner = prereqs.gitRemote.owner
 const repo = prereqs.gitRemote.repo
-const fullRepo = owner && repo ? `${owner}/${repo}` : ''
+
+// Fetched once, shared by every check needing repo settings (visibility,
+// default branch, secret scanning) — previously 3 separate calls.
+const meta = fetchRepoMeta(ghOk, owner, repo)
 
 const sections: Section[] = [
   checkPrereqsSection(prereqs),
   checkGitHubConfig(ghOk, owner, repo),
   checkWorkflows(ghOk, owner, repo),
   checkSecrets(ghOk, owner, repo),
-  checkBranchProtection(ghOk, owner, fullRepo),
-  checkRulesets(ghOk, owner, repo),
+  checkBranchProtection(ghOk, owner, repo),
+  checkRulesets(ghOk, owner, repo, meta),
+  checkSecretScanning(ghOk, meta),
+  checkDefaultWorkflowPermissions(ghOk, owner, repo),
   checkProjectStructure(),
   checkStandardsPaths(),
   checkSecurity(),
   checkVercel(),
-  checkCIPermissions(ghOk, owner, repo),
+  checkCIPermissions(meta),
+  checkPullRequestTarget(),
 ]
 
 if (jsonFlag) {
