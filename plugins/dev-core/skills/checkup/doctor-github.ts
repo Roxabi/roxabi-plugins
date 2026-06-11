@@ -92,15 +92,31 @@ export function checkSecrets(ghOk: boolean, owner: string, repo: string): Sectio
   // Also check local
   for (const wf of Object.keys(REQUIRED_SECRETS)) {
     if (!remoteFiles.has(wf) && !existsSync(`.github/workflows/${wf}`)) continue
-    const secretName = REQUIRED_SECRETS[wf]
-    const result = spawnSync(['gh', 'api', `/repos/${owner}/${repo}/actions/secrets/${secretName}`])
+    const entry = REQUIRED_SECRETS[wf]
+    const { mode, secret, var: varName } = entry
+    const result = spawnSync(['gh', 'api', `/repos/${owner}/${repo}/actions/secrets/${secret}`])
+    const fixCmd =
+      mode === 'github-app'
+        ? `gh secret set ${secret} --repo ${owner}/${repo} < key.pem${varName ? ` && gh variable set ${varName} --repo ${owner}/${repo} --body <app-id>` : ''}`
+        : `gh secret set ${secret} --repo ${owner}/${repo} --body "$(gh auth token)"`
     checks.push({
-      name: secretName,
+      name: secret,
       status: result.ok ? 'pass' : 'warn',
-      detail: result.ok
-        ? `set (required by ${wf})`
-        : `missing — required by ${wf}. Fix: gh secret set ${secretName} --repo ${owner}/${repo} --body "$(gh auth token)"`,
+      detail: result.ok ? `set (required by ${wf})` : `missing — required by ${wf}. Fix: ${fixCmd}`,
     })
+
+    // github-app mode also requires the companion App-ID variable; a present
+    // private-key secret with an absent variable still fails at workflow runtime.
+    if (varName) {
+      const varResult = spawnSync(['gh', 'api', `/repos/${owner}/${repo}/actions/variables/${varName}`])
+      checks.push({
+        name: varName,
+        status: varResult.ok ? 'pass' : 'warn',
+        detail: varResult.ok
+          ? `set (required by ${wf})`
+          : `missing — required by ${wf}. Fix: gh variable set ${varName} --repo ${owner}/${repo} --body <app-id>`,
+      })
+    }
   }
 
   if (checks.length === 0)

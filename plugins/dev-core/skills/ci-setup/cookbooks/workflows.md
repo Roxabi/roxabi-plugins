@@ -34,8 +34,22 @@ Standard set: `ci.yml`, `auto-merge.yml`, `pr-title.yml` (+ `deploy-preview.yml`
    - Ask stack (pre-select detected): **Bun** | **Node** | **Python (uv)**
    - Ask test (pre-select): **Vitest** | **Jest** | **Pytest** | **None**
    - Ask deploy (pre-select): **Vercel** | **None**
+   - Ask token mode (pre-select based on org detection):
+     **GitHub App (default — org repos)** | **PAT (fallback — solo/non-org)**
+     - Detect org: `gh repo view --json isInOrganization --jq '.isInOrganization'`
+     - `true` → pre-select App; `false` → pre-select PAT.
    - Run: `bun $I_TS workflows --owner <owner> --repo <repo> --stack <stack> --test <test> --deploy <deploy>`
-   - `gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"`
+     > ⚠️ **Pending dev-core #281:** the `workflows` generator currently emits a `secrets.PAT`-based `auto-merge.yml`; App-token emission (and a `--token-mode` flag) is wired by #281. Do **not** pass `--token-mode` yet — it is not parsed. The token mode selected above governs only which **credentials** to provision below (forward-prep); the generated workflow's token swaps to the roxabi-ci App when #281 lands.
+   - **If mode = github-app:**
+     - `gh variable set ROXABI_CI_APP_ID --org <org> --body <app-id>` (org-level)
+       OR (private repo / free-plan org): `gh variable set ROXABI_CI_APP_ID --repo <owner>/<repo> --body <app-id>`
+     - `gh secret set ROXABI_CI_APP_PRIVATE_KEY --org <org> < key.pem`
+       OR: `gh secret set ROXABI_CI_APP_PRIVATE_KEY --repo <owner>/<repo> < key.pem`
+     - D: `CI/CD workflows ✅ Created` + `ROXABI_CI_APP_ID var ✅ Set` + `ROXABI_CI_APP_PRIVATE_KEY secret ✅ Set` + `allow_auto_merge ✅ Enabled`
+   - **If mode = pat:**
+     - Banner: "⚠️  PAT mode: secrets.PAT is retiring org-wide. App mode is preferred for Roxabi-org repos."
+     - `gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"`
+     - D: `CI/CD workflows ✅ Created` + `PAT secret ✅ Set` + `allow_auto_merge ✅ Enabled`
    - Enable auto-merge: `gh api repos/<owner>/<repo> --method PATCH --field allow_auto_merge=true`
    - Re-trigger open PRs with `reviewed` label:
      ```bash
@@ -44,9 +58,8 @@ Standard set: `ci.yml`, `auto-merge.yml`, `pr-title.yml` (+ `deploy-preview.yml`
        gh pr edit $pr --add-label reviewed --repo <owner>/<repo>
      done
      ```
-   - D: `CI/CD workflows ✅ Created` + `PAT secret ✅ Set` + `allow_auto_merge ✅ Enabled` + `Auto-merge re-triggered on N PR(s) ✅` (or ⏭ if none).
 
-   > **GitHub App alternative (org pattern: `roxabi-ci`).** Workflows can authenticate via `actions/create-github-app-token` instead of a PAT — ephemeral 1 h job-scoped installation tokens. Org variables/secrets needed: `ROXABI_CI_APP_ID` (var) + `ROXABI_CI_APP_PRIVATE_KEY` (secret). **Private repos on a free-plan org:** org-level Actions secrets/variables do NOT propagate to private repositories — set them at repo level: `gh variable set ROXABI_CI_APP_ID --repo <owner>/<repo> --body <app-id>` / `gh secret set ROXABI_CI_APP_PRIVATE_KEY --repo <owner>/<repo> < key.pem`. Dependabot-triggered events additionally need a Dependabot secret: `gh secret set ROXABI_CI_APP_PRIVATE_KEY --repo <owner>/<repo> --app dependabot < key.pem`. (Migration of this repo's workflows: #284.)
+   > **App creation guide:** see `${CLAUDE_SKILL_DIR}/cookbooks/github-app.md` for how to create and install the `roxabi-ci` App, where `app-id` and `private-key` come from, and the org-free private-repo caveat.
 
 6. skip → D⏭("CI/CD workflows").
 

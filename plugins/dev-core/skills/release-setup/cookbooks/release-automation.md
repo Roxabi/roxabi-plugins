@@ -85,7 +85,45 @@ Configure automated versioning and changelog generation.
      ".": "<latest_tag_version>"
    }
    ```
-6. Generate `.github/workflows/release-please.yml` (the runner — config alone is a no-op). **`target-branch: main` MUST be passed as an action input** — release-please-action v4 reads it from its own `with:` block, not the config file. Without it, the action falls back to the repo's default branch (typically `staging` in the staging→main flow) and opens release PRs on the wrong branch:
+6. Generate `.github/workflows/release-please.yml` (the runner — config alone is a no-op). **`target-branch: main` MUST be passed as an action input** — release-please-action v4 reads it from its own `with:` block, not the config file. Without it, the action falls back to the repo's default branch (typically `staging` in the staging→main flow) and opens release PRs on the wrong branch.
+
+   Determine token mode (same org-detection logic as `/init` ci-setup):
+   - `gh repo view --json isInOrganization --jq '.isInOrganization'` → `true`: **github-app (default)**
+   - `false`: **pat (fallback)**
+
+   **GitHub App mode (default — org repos):**
+   ```yaml
+   name: release-please
+
+   on:
+     push:
+       branches:
+         - main
+
+   permissions:
+     contents: write
+     pull-requests: write
+
+   jobs:
+     release-please:
+       runs-on: ubuntu-latest
+       steps:
+         - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+           id: app
+           with:
+             app-id: ${{ vars.ROXABI_CI_APP_ID }}
+             private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}
+         - uses: googleapis/release-please-action@v4
+           with:
+             config-file: release-please-config.json
+             manifest-file: .release-please-manifest.json
+             target-branch: main
+             token: ${{ steps.app.outputs.token }}
+   ```
+   After emitting: ensure `ROXABI_CI_APP_ID` (var) + `ROXABI_CI_APP_PRIVATE_KEY` (secret) are set (org-level, or repo-level for private repos on free-plan org). See `cookbooks/github-app.md`.
+
+   **PAT mode (fallback — solo/non-org repos):**
+   > ⚠️  PAT mode: secrets.PAT is retiring org-wide. App mode is preferred for Roxabi-org repos.
    ```yaml
    name: release-please
 
@@ -109,9 +147,8 @@ Configure automated versioning and changelog generation.
              target-branch: main
              token: ${{ secrets.PAT }}
    ```
-   `mkdir -p .github/workflows` first. Use `secrets.PAT` (set during `/init` Phase 3) so the release PR can trigger `ci.yml` — the default `GITHUB_TOKEN` can't fan out to other workflows. Existing file + ¬F → skip with D⏭. `.github/workflows/release-please.yml` already present, but no config → restore config and keep workflow.
 
-   > **GitHub App alternative (org pattern: `roxabi-ci`):** replace `secrets.PAT` with a minted `actions/create-github-app-token` step (`app-id: ${{ vars.ROXABI_CI_APP_ID }}`, `private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}`). **Private repos on a free-plan org:** org-level secrets/variables do NOT reach private repos — set `ROXABI_CI_APP_ID` (var) and `ROXABI_CI_APP_PRIVATE_KEY` (secret) at repo level. Dependabot jobs also need `gh secret set ROXABI_CI_APP_PRIVATE_KEY --repo <owner>/<repo> --app dependabot < key.pem`. Generator parity tracked in #281.
+   `mkdir -p .github/workflows` first. The release PR must trigger `ci.yml` — the default `GITHUB_TOKEN` cannot fan out to other workflows. Existing file + ¬F → skip with D⏭. `.github/workflows/release-please.yml` already present, but no config → restore config and keep workflow.
 
 7. **Idempotent repair under F** — if any of these are already present but drift from the convention, patch in place:
    - Workflow missing `target-branch: main` action input → inject it.
