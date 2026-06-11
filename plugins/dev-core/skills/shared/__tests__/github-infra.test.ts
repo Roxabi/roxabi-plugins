@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import {
-  APP_MINT_STEP,
-  PAT_RETIREMENT_BANNER,
-  REQUIRED_SECRETS,
-  emitAppMintStep,
-} from '../adapters/github-infra'
 import type { TokenMode } from '../adapters/github-infra'
+import { APP_MINT_STEP, emitAppMintStep, PAT_RETIREMENT_BANNER, REQUIRED_SECRETS } from '../adapters/github-infra'
 
 const EXPECTED_SHA = 'bcd2ba49218906704ab6c1aa796996da409d3eb1'
 

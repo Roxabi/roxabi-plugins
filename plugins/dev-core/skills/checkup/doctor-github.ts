@@ -102,9 +102,7 @@ export function checkSecrets(ghOk: boolean, owner: string, repo: string): Sectio
     checks.push({
       name: secret,
       status: result.ok ? 'pass' : 'warn',
-      detail: result.ok
-        ? `set (required by ${wf})`
-        : `missing — required by ${wf}. Fix: ${fixCmd}`,
+      detail: result.ok ? `set (required by ${wf})` : `missing — required by ${wf}. Fix: ${fixCmd}`,
     })
   }
 
