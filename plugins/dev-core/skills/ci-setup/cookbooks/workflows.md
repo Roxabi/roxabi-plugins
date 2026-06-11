@@ -38,7 +38,8 @@ Standard set: `ci.yml`, `auto-merge.yml`, `pr-title.yml` (+ `deploy-preview.yml`
      **GitHub App (default — org repos)** | **PAT (fallback — solo/non-org)**
      - Detect org: `gh repo view --json isInOrganization --jq '.isInOrganization'`
      - `true` → pre-select App; `false` → pre-select PAT.
-   - Run: `bun $I_TS workflows --owner <owner> --repo <repo> --stack <stack> --test <test> --deploy <deploy> --token-mode <mode>`
+   - Run: `bun $I_TS workflows --owner <owner> --repo <repo> --stack <stack> --test <test> --deploy <deploy>`
+     > ⚠️ **Pending dev-core #281:** the `workflows` generator currently emits a `secrets.PAT`-based `auto-merge.yml`; App-token emission (and a `--token-mode` flag) is wired by #281. Do **not** pass `--token-mode` yet — it is not parsed. The token mode selected above governs only which **credentials** to provision below (forward-prep); the generated workflow's token swaps to the roxabi-ci App when #281 lands.
    - **If mode = github-app:**
      - `gh variable set ROXABI_CI_APP_ID --org <org> --body <app-id>` (org-level)
        OR (private repo / free-plan org): `gh variable set ROXABI_CI_APP_ID --repo <owner>/<repo> --body <app-id>`
