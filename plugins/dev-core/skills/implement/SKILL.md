@@ -220,7 +220,7 @@ For τ=F (F-lite or F-full):
 2. Read tester deliverable (from task outputs or grep test files in ω): collect `{file} :: {test name}` pairs.
 3. For each SC:
    - ≥1 named test mapped → row: `| SC-N: {text} | {file} :: {test name}[, …] | ⏳ not run |`
-   - ¬mapped → row: `| SC-N: {text} | NO TEST — {reason} | — |`
+   - ¬mapped → row: `| SC-N: {text} | — | ⚠ NO TEST — {reason} |` (NO TEST is a Status verdict, per the schema below)
      - `reason` MUST ∈ `{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}` (closed enum — ¬free-form). Unmapped SC with ¬reason from enum = **blocking gap**: highlight in summary, ¬proceed to `/pr`.
 4. Persist matrix as a fenced markdown block in the summary output (consumed by `/pr` Step 3d).
 
@@ -239,7 +239,7 @@ For τ=F (F-lite or F-full):
 |----|---------|--------|
 | SC1: {text} | `{file} :: {test name}` | ⏳ not run |
 | SC2: {text} | `{file} :: {test name}`, `{file2} :: {test name2}` | ⏳ not run |
-| SC3: {text} | NO TEST — prompt-logic-only | — |
+| SC3: {text} | — | ⚠ NO TEST — prompt-logic-only |
 ````
 
 ```

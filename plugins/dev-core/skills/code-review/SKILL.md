@@ -26,6 +26,7 @@ Let:
   F := set of all findings | f ∈ F := single finding
   C(f) ∈ [0,100] ∩ ℤ — confidence | cat(f) ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
   Δ := changed files | BASE := staging ∨ main
+  τ := tier (S | F-lite | F-full)
   Q := present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A)
 
 ## Pipeline
