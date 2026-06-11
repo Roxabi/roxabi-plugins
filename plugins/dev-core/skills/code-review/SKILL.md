@@ -2,7 +2,7 @@
 name: code-review
 argument-hint: [#PR]
 description: Multi-domain code review (agents + Conventional Comments → findings + verdict). Triggers: "code review" | "review changes" | "review PR #42" | "check my code" | "review my changes" | "review this PR" | "do a code review" | "review the diff" | "look at my code".
-version: 0.2.0
+version: 0.2.1
 allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -299,7 +299,7 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 
 Q:
 - **Fix now (`/fix`)** — invoke `/fix` (auto-apply + 1b1 + spawn fixers; `/fix` Phase 8 offers rebase + label + merge)
-- **Merge as-is** — rebase + label + squash merge (below)
+- **Merge as-is** — rebase + label + auto-merge (below)
 - **Stop** — exit
 
 **If Merge as-is:**
@@ -308,7 +308,7 @@ Q:
    - count > 0 → `git rebase origin/${BASE}` + `git push --force-with-lease`
    - conflict → halt (¬label)
 2. Q: "Add `reviewed` label?" → Yes / No
-3. Yes → `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"` → squash merge on green CI
+3. Yes → `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"` → auto-merge merges (merge commit) on green CI. ¬auto-merge workflow in repo → `gh pr merge <#> --auto --merge`. ¬plain `gh pr merge` while any check is IN_PROGRESS/QUEUED — mid-CI merge cancels in-flight runs + skips gates.
 4. No → inform manual
 
 > `/code-review` ¬fixes code. Fixing = `/fix` skill.
@@ -332,10 +332,11 @@ Q:
 ## Safety Rules
 
 1. Fresh agents only — ¬implementation context
-2. ¬auto-merge, ¬approve PRs on GitHub
-3. ¬fix code — findings only. Fixing = `/fix` skill
-4. ∃ PR → must post comment (Phase 6)
-5. Human decides at Phase 8 — ¬proceed without Q
+2. ¬approve PRs on GitHub; ¬enable auto-merge outside the Phase 8 human decision (label gate)
+3. Merge = merge commit only (¬squash — Release Convention); merge executes via the gate (label + auto-merge), never manually mid-CI
+4. ¬fix code — findings only. Fixing = `/fix` skill
+5. ∃ PR → must post comment (Phase 6)
+6. Human decides at Phase 8 — ¬proceed without Q
 
 ## Chain Position
 

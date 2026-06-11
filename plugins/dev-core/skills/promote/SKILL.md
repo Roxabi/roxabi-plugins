@@ -2,7 +2,7 @@
 name: promote
 argument-hint: [--dry-run | --skip-preview | --finalize]
 description: Promote staging→main — pre-flight, version bump, changelog, PR & tag. Triggers: "promote staging" | "release" | "deploy" | "cut a release" | "--finalize" | "merge to main" | "promote to production" | "ship a release" | "tag and release" | "publish release".
-version: 0.4.0
+version: 0.4.1
 allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch
 ---
 
@@ -179,7 +179,7 @@ Promotion Summary
 1. Branch: `git branch chore/$VERSION-changelog staging`
 2. Push: `git push origin chore/$VERSION-changelog`
 3. PR: `gh pr create --base staging --head chore/$VERSION-changelog --title "chore(release): add $VERSION changelog"`
-4. Merge: `gh pr merge <N> --squash --delete-branch`
+4. Merge: `gh pr merge <N> --auto --merge --delete-branch` (merge commit — ¬squash, Release Convention; `--auto` waits for required checks)
 5. Sync: `git fetch origin staging && git reset --hard origin/staging`
 
 ## Step 7 — Create Promotion PR
@@ -280,7 +280,7 @@ Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
 ## Safety Rules
 
 1. ¬force-push to μ ∨ σ
-2. ¬auto-merge — user merges after review
+2. Promotion PR: ¬auto-merge — user merges after review (merge commit). Changelog PR (Step 6b): `--auto --merge` via required checks
 3. Always show changelog before creating PR
 4. Always check CI before promoting
 5. Always warn about open PRs on σ

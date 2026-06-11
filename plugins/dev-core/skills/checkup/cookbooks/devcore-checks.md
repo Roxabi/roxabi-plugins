@@ -25,6 +25,6 @@
 | trufflehog not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` |
 | license check not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` |
 | `PR_Main` ruleset missing | `bun $I_TS protect-branches --repo <owner/repo>` |
-| `PR_Main` missing `merge` method | Update ruleset via `gh api repos/:owner/:repo/rulesets/<id> --method PUT` with `allowed_merge_methods: ["squash","rebase","merge"]` — merge needed for promotion PRs |
+| `PR_Main` allowed_merge_methods ≠ `["merge"]` | Update ruleset via `gh api repos/:owner/:repo/rulesets/<id> --method PUT` with `allowed_merge_methods: ["merge"]` — merge-commit only (Release Convention); squash/rebase cause history divergence on promotion |
 
 Issues requiring interactive auth / multi-step scaffolding → display exact command + explanation. Never silently redirect.

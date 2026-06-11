@@ -2,7 +2,7 @@
 name: fix
 argument-hint: '[#PR]'
 description: 'Apply review findings — auto-apply high-confidence, 1b1 for rest, then batch-apply. Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".'
-version: 0.4.0
+version: 0.4.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill, ToolSearch
 ---
 
@@ -292,7 +292,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 2. ∃ PR → must post follow-up comment (Phase 8)
 3. Fixer agents ¬have implementation context → spawn fresh
 4. Stage specific files only — ¬`git add -A` (risk of .env, secrets)
-5. ¬auto-merge — label `reviewed` only, human merges
+5. Merge via the gate: label `reviewed` → auto-merge merges (merge commit) on green. ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED
 
 ## Chain Position
 

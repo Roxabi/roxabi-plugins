@@ -2,7 +2,7 @@
 name: pr
 argument-hint: [--draft | --base <branch>]
 description: Create/update PRs with Conventional Commits title, issue linking & guard rails. Triggers: "create PR" | "open PR" | "submit PR" | "update PR" | "/pr --draft" | "open a pull request" | "make a PR" | "open pull request" | "submit a pull request" | "create a draft PR" | "raise a PR".
-version: 0.4.1
+version: 0.4.2
 allowed-tools: Bash, Read, Grep, ToolSearch
 ---
 
@@ -116,6 +116,8 @@ git push --force-with-lease origin ${BRANCH}
 
 Inform: "CI is running on the PR — use `/ci-watch` to monitor it live."
 
+Merge path = gate-driven: `reviewed` label + auto-merge (`gh pr merge --auto --merge`). ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED — the gate decides, not the operator.
+
 ## PR Body Template
 
 ```markdown
@@ -172,6 +174,7 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 4. → DP(A) for all decisions (proceed despite warnings, edit)
 5. Always display PR URL after creation
 6. Rebase conflicts → abort + defer to user — ¬auto-resolve
+7. ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED — manual merge mid-CI cancels in-flight runs (`concurrency.cancel-in-progress`) and skips gates. Nominal path: `reviewed` label → auto-merge (`--merge`) on green.
 
 ## Chain Position
 
