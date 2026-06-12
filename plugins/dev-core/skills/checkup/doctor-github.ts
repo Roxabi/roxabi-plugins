@@ -674,13 +674,33 @@ export function detectUnsafeTokenInTriggeredWorkflow(
 const PUSH_GATE_MERGE_THRESHOLD = 5
 const GRACE_DAYS = 14
 
-function repoAgeOk(owner: string, repo: string): boolean {
-  const result = spawnSync(['gh', 'repo', 'view', `${owner}/${repo}`, '--json', 'createdAt', '--jq', '.createdAt'])
-  if (!result.ok || !result.stdout.trim()) return true // assume ok if can't check
+// Returns the age in days of the ISO timestamp in `result.stdout`, or Infinity when
+// it cannot be determined (fail-open: an unknown age never triggers a false dead-gate).
+function ageInDays(result: { ok: boolean; stdout: string }): number {
+  if (!result.ok || !result.stdout.trim()) return Number.POSITIVE_INFINITY
   const created = new Date(result.stdout.trim())
-  const ageMs = Date.now() - created.getTime()
-  const ageDays = ageMs / (1000 * 60 * 60 * 24)
-  return ageDays >= GRACE_DAYS
+  if (Number.isNaN(created.getTime())) return Number.POSITIVE_INFINITY
+  return (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24)
+}
+
+export function repoAgeOk(owner: string, repo: string): boolean {
+  return (
+    ageInDays(spawnSync(['gh', 'repo', 'view', `${owner}/${repo}`, '--json', 'createdAt', '--jq', '.createdAt'])) >=
+    GRACE_DAYS
+  )
+}
+
+/**
+ * Grace window for a single workflow: a workflow file added recently to an OLD repo
+ * legitimately has 0 push runs yet — that is not a dead gate. Exported so #288
+ * (per-job dormancy) can reuse the same grace logic without duplicating it.
+ */
+export function workflowAgeOk(owner: string, repo: string, workflow: string): boolean {
+  return (
+    ageInDays(
+      spawnSync(['gh', 'api', `repos/${owner}/${repo}/actions/workflows/${workflow}`, '--jq', '.created_at']),
+    ) >= GRACE_DAYS
+  )
 }
 
 function countPushRuns(owner: string, repo: string, workflow: string, branch: string): number {
@@ -720,7 +740,9 @@ function countMergeCommits(owner: string, repo: string, branch: string, n: numbe
     '-f',
     `sha=${branch}`,
     '-f',
-    `per_page=${n * 3}`,
+    // Widen the lookback (≥100, the API page max) so sparse-merge repos — many direct
+    // commits between merges — can still reach the N-merge anchor (avoids false negatives).
+    `per_page=${Math.max(100, n * 4)}`,
   ])
   if (!result.ok) return -1
   const count = parseInt(result.stdout.trim(), 10)
@@ -818,6 +840,10 @@ export function checkDeadGates(ghOk: boolean, owner: string, repo: string): Sect
 
       const mergeCount = countMergeCommits(owner, repo, branch, PUSH_GATE_MERGE_THRESHOLD)
       if (mergeCount === -1 || mergeCount < PUSH_GATE_MERGE_THRESHOLD) continue
+
+      // Grace window on the WORKFLOW itself: a recently-added workflow (even on an old
+      // repo) has 0 push runs because it is new, not dead — don't false-flag it.
+      if (!workflowAgeOk(owner, repo, wf)) continue
 
       checks.push({
         name: `${wf}:${branch}:push-gate`,

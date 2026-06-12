@@ -425,6 +425,63 @@ describe('checkDeadGates (integration via subprocess)', () => {
     expect(pushGateFail).toBeDefined()
   })
 
+  it('SC3 grace window: a recently-added workflow is NOT flagged as a dead push-gate', () => {
+    // Override gh so the workflow's created_at is recent (< GRACE_DAYS). Even with an OLD
+    // repo + 0 push runs + ≥5 merges, a brand-new workflow has 0 runs because it is new,
+    // not dead — the per-workflow grace window must skip it.
+    makeFakeExec(
+      tmpDir,
+      'gh',
+      [
+        'case "$*" in',
+        '  "--version") echo "gh version 2.40.0"; exit 0 ;;',
+        '  "auth status") exit 0 ;;',
+        '  "auth token") echo "ghp_test"; exit 0 ;;',
+        '  "repo view"*"createdAt"*) echo "2020-01-01T00:00:00Z"; exit 0 ;;',
+        '  "api repos/TestOrg/test-repo/branches/staging") echo "{}"; exit 0 ;;',
+        '  "api repos/TestOrg/test-repo/branches/main") echo "{}"; exit 0 ;;',
+        '  "run list"*"--event"*"push"*"--json"*"databaseId"*) echo "0"; exit 0 ;;',
+        '  "api repos/TestOrg/test-repo/actions/workflows/"*) date -u -d "2 days ago" +%Y-%m-%dT%H:%M:%SZ; exit 0 ;;',
+        '  "api repos/TestOrg/test-repo/commits"*) echo "7"; exit 0 ;;',
+        '  "label list"*) echo "[]"; exit 0 ;;',
+        '  "api"*) echo "{}"; exit 0 ;;',
+        '  *) exit 0 ;;',
+        'esac',
+      ].join('\n'),
+    )
+    const wfDir = path.join(tmpDir, '.github', 'workflows')
+    fs.mkdirSync(wfDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(wfDir, 'ci.yml'),
+      [
+        'name: CI',
+        'on:',
+        '  push:',
+        '    branches: [staging]',
+        'jobs:',
+        '  build:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - name: Push',
+        '        run: git push',
+        '        env:',
+        '          GH_TOKEN: ${{ steps.app.outputs.token }}',
+      ].join('\n'),
+    )
+
+    const result = runDoctor(tmpDir, ['--json'])
+    const parsed = JSON.parse(result.stdout) as Array<{
+      name: string
+      checks: Array<{ name?: string; status: string; detail?: string }>
+    }>
+    const deadGatesSection = parsed.find((s) => s.name === 'Dead Gates')
+    expect(deadGatesSection).toBeDefined()
+    const pushGateFail = deadGatesSection?.checks.find(
+      (c) => c.status === 'fail' && c.detail?.includes('never actually runs on pushes'),
+    )
+    expect(pushGateFail).toBeUndefined()
+  })
+
   it('AC-3: does not flag App token in push-triggered workflow', () => {
     const wfDir = path.join(tmpDir, '.github', 'workflows')
     fs.mkdirSync(wfDir, { recursive: true })
