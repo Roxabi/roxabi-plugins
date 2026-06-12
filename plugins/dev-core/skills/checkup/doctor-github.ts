@@ -673,6 +673,8 @@ export function detectUnsafeTokenInTriggeredWorkflow(
  */
 const PUSH_GATE_MERGE_THRESHOLD = 5
 const GRACE_DAYS = 14
+export const DORMANCY_MIN_RUNS = 5
+export const DORMANCY_RUN_LIMIT = 10
 
 // Returns the age in days of the ISO timestamp in `result.stdout`, or Infinity when
 // it cannot be determined (fail-open: an unknown age never triggers a false dead-gate).
@@ -747,6 +749,425 @@ function countMergeCommits(owner: string, repo: string, branch: string, n: numbe
   if (!result.ok) return -1
   const count = parseInt(result.stdout.trim(), 10)
   return Number.isNaN(count) ? -1 : count
+}
+
+// ── T1: Workflow job parser ────────────────────────────────────────────────────
+
+export interface ParsedJob {
+  id: string
+  displayName: string
+  hasIf: boolean
+  matrixEmpty: boolean
+  needs: string[]
+}
+
+/**
+ * Pure parser: extract job metadata from a workflow YAML string.
+ * Uses the same 2-space header idiom as detectUnsafeTokenInTriggeredWorkflow.
+ * No I/O — safe to unit-test without a filesystem.
+ */
+export function parseWorkflowJobs(content: string): ParsedJob[] {
+  const lines = content.split('\n')
+
+  // Find `jobs:` section
+  let jobsSectionLine = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (/^jobs:\s*$/.test(lines[i])) {
+      jobsSectionLine = i
+      break
+    }
+  }
+  if (jobsSectionLine === -1) return []
+
+  // Collect 2-space-indented job headers under `jobs:`
+  const jobHeaders: Array<{ name: string; start: number }> = []
+  for (let i = jobsSectionLine + 1; i < lines.length; i++) {
+    const m = lines[i].match(/^ {2}([a-zA-Z0-9][a-zA-Z0-9_-]*):\s*$/)
+    if (m) {
+      jobHeaders.push({ name: m[1], start: i })
+    } else if (/^\S/.test(lines[i]) && lines[i].trim() && !lines[i].trimStart().startsWith('#')) {
+      break
+    }
+  }
+
+  const jobs: ParsedJob[] = []
+  for (let j = 0; j < jobHeaders.length; j++) {
+    const { name: id, start } = jobHeaders[j]
+    const end = j + 1 < jobHeaders.length ? jobHeaders[j + 1].start : lines.length
+    const jobLines = lines.slice(start + 1, end)
+
+    // Extract display name (4-space-indented `name:` field)
+    let displayName = id
+    for (const line of jobLines) {
+      const nm = line.match(/^ {4}name:\s+(.+)$/)
+      if (nm) {
+        displayName = nm[1].trim().replace(/^['"]|['"]$/g, '')
+        break
+      }
+    }
+
+    // Detect job-level `if:` (4-space-indented)
+    const hasIf = jobLines.some((l) => /^ {4}if:\s*\S/.test(l))
+
+    // Detect statically-empty matrix:
+    //   strategy.matrix: {}  or  strategy.matrix: []  or any axis: []
+    let matrixEmpty = false
+    let inMatrix = false
+    for (const line of jobLines) {
+      if (/^ {6}matrix:\s*$/.test(line) || /^ {6}matrix:\s*(\{\}|\[\])\s*$/.test(line)) {
+        inMatrix = true
+        if (/^ {6}matrix:\s*(\{\}|\[\])\s*$/.test(line)) matrixEmpty = true
+        continue
+      }
+      if (inMatrix) {
+        // An axis with an empty list: `      axis: []`
+        if (/^ {8}[a-zA-Z0-9_-]+:\s*\[\]\s*$/.test(line)) {
+          matrixEmpty = true
+        }
+        // Left the matrix block
+        if (/^ {0,5}\S/.test(line)) inMatrix = false
+      }
+    }
+
+    // Extract needs: (scalar string, inline array, or YAML list)
+    const needs: string[] = []
+    let inNeeds = false
+    for (const line of jobLines) {
+      if (/^ {4}needs:\s*\S/.test(line)) {
+        const val = line.replace(/^ {4}needs:\s*/, '').trim()
+        if (val.startsWith('[') && val.endsWith(']')) {
+          // Inline array: `    needs: [build, lint]`
+          const inner = val.slice(1, -1)
+          for (const item of inner.split(',')) {
+            const trimmed = item.trim().replace(/^['"]|['"]$/g, '')
+            if (trimmed) needs.push(trimmed)
+          }
+        } else {
+          // Scalar: `    needs: build`
+          needs.push(val.replace(/^['"]|['"]$/g, ''))
+        }
+        inNeeds = false
+        continue
+      }
+      if (/^ {4}needs:\s*$/.test(line)) {
+        inNeeds = true
+        continue
+      }
+      if (inNeeds) {
+        const item = line.match(/^ {6}-\s+(.+)$/)
+        if (item) {
+          needs.push(item[1].trim().replace(/^['"]|['"]$/g, ''))
+        } else {
+          inNeeds = false
+        }
+      }
+    }
+
+    jobs.push({ id, displayName, hasIf, matrixEmpty, needs })
+  }
+
+  return jobs
+}
+
+// ── T2: Dormancy verdict ───────────────────────────────────────────────────────
+
+export type DormancyVerdict = 'alive' | 'dormant_required' | 'dormant_wiring' | 'conditional_ok'
+
+/**
+ * Pure verdict function — no I/O.
+ * Precedence: insufficient history → alive; executed > 0 → alive;
+ * required check → fail (dormant_required); empty matrix or no if → warn (dormant_wiring);
+ * has if + not required → conditional_ok (not flagged).
+ */
+export function classifyDormancy(
+  job: ParsedJob,
+  stats: JobRunStats,
+  isRequired: boolean,
+  minRuns: number,
+): DormancyVerdict {
+  if (stats.considered < minRuns) return 'alive'
+  if (stats.executed > 0) return 'alive'
+  // executed == 0 and sufficient history
+  if (isRequired) return 'dormant_required'
+  if (job.matrixEmpty || !job.hasIf) return 'dormant_wiring'
+  return 'conditional_ok'
+}
+
+// ── T3: Run-history aggregation ────────────────────────────────────────────────
+
+export interface JobRunStats {
+  considered: number
+  executed: number
+  skipped: number
+}
+
+export interface RunRecord {
+  runConclusion: string
+  jobs: Array<{ name: string; conclusion: string }>
+}
+
+/**
+ * Pure aggregation: given a list of run records and a parsed job, return JobRunStats.
+ * Run-level eligibility: exclude runs with runConclusion ∈ {skipped, cancelled}.
+ * Absent-job exclusion: considered counts only retained runs where the job entry appears.
+ * Matrix-leg matching: anchored prefix — historyName === displayName OR startsWith(displayName + ' (').
+ * skipped conclusion never counts as executed.
+ */
+export function aggregateJobStats(job: ParsedJob, runs: RunRecord[]): JobRunStats {
+  let considered = 0
+  let executed = 0
+  let skipped = 0
+
+  for (const run of runs) {
+    const c = run.runConclusion
+    if (c === 'skipped' || c === 'cancelled') continue
+
+    // Find all job entries for this job (direct match or matrix leg)
+    const matching = run.jobs.filter((j) => j.name === job.displayName || j.name.startsWith(job.displayName + ' ('))
+    if (matching.length === 0) continue // job absent from this run — don't count
+
+    considered++
+    // At least one leg ran (not skipped) → executed
+    const anyExecuted = matching.some((j) => j.conclusion !== 'skipped')
+    if (anyExecuted) {
+      executed++
+    } else {
+      skipped++
+    }
+  }
+
+  return { considered, executed, skipped }
+}
+
+// ── T4: Required-context lookup + job history fetch ───────────────────────────
+
+/**
+ * Pure parser: extract required check contexts from a branch-protection API response.
+ * Handles both response shapes so each source can be parsed by the same function:
+ *   - classic protection (object): dual-root `contexts[]` + `checks[].context`,
+ *     and the `required_status_checks` nested form.
+ *   - ruleset rules (top-level array): each `required_status_checks` rule's
+ *     `parameters.required_status_checks[].context`.
+ * Any parse failure / empty string → ∅ (fail-open: a missing protection response never escalates).
+ */
+export function parseRequiredContexts(apiJson: string): Set<string> {
+  const out = new Set<string>()
+  try {
+    const data = JSON.parse(apiJson)
+    if (!data || typeof data !== 'object') return out
+
+    // Ruleset endpoint: a top-level array of rules — collect required_status_checks contexts.
+    if (Array.isArray(data)) {
+      for (const rule of data) {
+        if (rule?.type === 'required_status_checks' && Array.isArray(rule?.parameters?.required_status_checks)) {
+          for (const rsc of rule.parameters.required_status_checks) {
+            if (rsc && typeof rsc.context === 'string') out.add(rsc.context)
+          }
+        }
+      }
+      return out
+    }
+
+    // Classic endpoint: `required_status_checks.contexts[]` or top-level `contexts[]`
+    const rsc = data.required_status_checks ?? data
+    if (Array.isArray(rsc.contexts)) {
+      for (const ctx of rsc.contexts) {
+        if (typeof ctx === 'string') out.add(ctx)
+      }
+    }
+    // Classic endpoint (modern Checks-API): `.checks[].context` at rsc level or top-level
+    if (Array.isArray(rsc.checks)) {
+      for (const ch of rsc.checks) {
+        if (ch && typeof ch.context === 'string') out.add(ch.context)
+      }
+    }
+  } catch {
+    // parse failure → contribute nothing (fail-open)
+  }
+  return out
+}
+
+/**
+ * Fetch required status check contexts for a branch, unioning three sources:
+ * 1. Classic branch protection `contexts[]`
+ * 2. Classic branch protection `checks[].context`
+ * 3. Ruleset `required_status_checks` rule contexts
+ * Any 404 / error → contributes ∅ (fail-open: never escalates).
+ */
+export function fetchRequiredContexts(owner: string, repo: string, branch: string): Set<string> {
+  const out = new Set<string>()
+
+  // Source 1+2: classic branch protection. NOTE: `gh api` does NOT accept --repo (the owner/repo
+  // is embedded in the path); passing it errors with "unknown flag: --repo" → result.ok=false →
+  // fail-open. --repo belongs only on `gh run list`/`gh run view` (see fetchJobHistory).
+  const classicResult = spawnSync([
+    'gh',
+    'api',
+    `repos/${owner}/${repo}/branches/${branch}/protection/required_status_checks`,
+  ])
+  if (classicResult.ok) {
+    for (const ctx of parseRequiredContexts(classicResult.stdout)) out.add(ctx)
+  }
+
+  // Source 3: ruleset `required_status_checks` rule contexts (parsed by the same fn)
+  const rulesetResult = spawnSync(['gh', 'api', `repos/${owner}/${repo}/rules/branches/${branch}`])
+  if (rulesetResult.ok) {
+    for (const ctx of parseRequiredContexts(rulesetResult.stdout)) out.add(ctx)
+  }
+
+  return out
+}
+
+/**
+ * Fetch the last DORMANCY_RUN_LIMIT push runs for a workflow/branch and build a
+ * Map<jobDisplayName, JobRunStats> for each parsed job.
+ * Passes --repo owner/repo on every gh call (cron-safe from arbitrary cwd).
+ */
+export function fetchJobHistory(
+  owner: string,
+  repo: string,
+  wf: string,
+  branch: string,
+  jobs: ParsedJob[],
+  limit: number,
+): Map<string, JobRunStats> {
+  // List run IDs
+  const listResult = spawnSync([
+    'gh',
+    'run',
+    'list',
+    '--repo',
+    `${owner}/${repo}`,
+    '--workflow',
+    wf,
+    '--branch',
+    branch,
+    '--event',
+    'push',
+    '--limit',
+    String(limit),
+    '--json',
+    'databaseId,conclusion',
+  ])
+  if (!listResult.ok) return new Map()
+
+  let runList: Array<{ databaseId: number; conclusion: string }> = []
+  try {
+    runList = JSON.parse(listResult.stdout)
+  } catch {
+    return new Map()
+  }
+
+  // Fetch each run's job details
+  const runRecords: RunRecord[] = []
+  for (const run of runList) {
+    const viewResult = spawnSync([
+      'gh',
+      'run',
+      'view',
+      String(run.databaseId),
+      '--repo',
+      `${owner}/${repo}`,
+      '--json',
+      'jobs,conclusion',
+    ])
+    if (!viewResult.ok) continue
+    try {
+      const data = JSON.parse(viewResult.stdout)
+      runRecords.push({
+        runConclusion: data.conclusion ?? run.conclusion ?? '',
+        jobs: Array.isArray(data.jobs)
+          ? data.jobs.map((j: { name: string; conclusion: string }) => ({ name: j.name, conclusion: j.conclusion }))
+          : [],
+      })
+    } catch {}
+  }
+
+  // Aggregate stats per job
+  const statsMap = new Map<string, JobRunStats>()
+  for (const job of jobs) {
+    statsMap.set(job.id, aggregateJobStats(job, runRecords))
+  }
+  return statsMap
+}
+
+// ── T5: detectDormantJobs orchestrator ────────────────────────────────────────
+
+/**
+ * For each protected branch × each standard workflow that has push runs and passes
+ * workflowAgeOk, parse jobs, cross-ref history, classify dormancy, emit Check[] for
+ * dormant_required (fail) and dormant_wiring (warn) only.
+ */
+export function detectDormantJobs(ghOk: boolean, owner: string, repo: string): Check[] {
+  if (!ghOk || !repoAgeOk(owner, repo)) return []
+
+  const checks: Check[] = []
+  // Memoize required contexts per branch
+  const reqCache = new Map<string, Set<string>>()
+
+  for (const branch of PROTECTED_BRANCHES) {
+    // Check branch exists
+    const branchCheck = spawnSync(['gh', 'api', `repos/${owner}/${repo}/branches/${branch}`])
+    if (!branchCheck.ok) continue
+
+    for (const wf of STANDARD_WORKFLOWS) {
+      // Only check workflows that are alive at the workflow level (have push runs)
+      const pushCount = countPushRuns(owner, repo, wf, branch)
+      if (pushCount <= 0) continue
+
+      // Grace window on the workflow itself
+      if (!workflowAgeOk(owner, repo, wf)) continue
+
+      // Read local workflow file
+      const wfPath = `.github/workflows/${wf}`
+      if (!existsSync(wfPath)) continue
+      let content: string
+      try {
+        content = readFileSync(wfPath, 'utf8') as string
+      } catch {
+        continue
+      }
+
+      const jobs = parseWorkflowJobs(content)
+      if (jobs.length === 0) continue
+
+      // Fetch required contexts (memoized per branch)
+      if (!reqCache.has(branch)) {
+        reqCache.set(branch, fetchRequiredContexts(owner, repo, branch))
+      }
+      const requiredContexts = reqCache.get(branch)!
+
+      // Fetch job history
+      const statsMap = fetchJobHistory(owner, repo, wf, branch, jobs, DORMANCY_RUN_LIMIT)
+
+      for (const job of jobs) {
+        const stats = statsMap.get(job.id) ?? { considered: 0, executed: 0, skipped: 0 }
+        // A job is required if its display name — or any matrix-leg history name — matches
+        const isRequired = requiredContexts.has(job.displayName)
+        const verdict = classifyDormancy(job, stats, isRequired, DORMANCY_MIN_RUNS)
+
+        if (verdict === 'dormant_required') {
+          checks.push({
+            name: `${wf}:${branch}:${job.displayName} dormancy`,
+            status: 'fail',
+            detail: `required status check '${job.displayName}' never ran in last ${stats.considered} eligible runs — merge gate proves nothing (#579).`,
+          })
+        } else if (verdict === 'dormant_wiring') {
+          const reason = job.matrixEmpty
+            ? 'matrix expands to 0 legs — job can never run'
+            : `job skipped in all ${stats.considered} eligible runs — dead wiring (broken needs/empty matrix)`
+          checks.push({
+            name: `${wf}:${branch}:${job.displayName} dormancy`,
+            status: 'warn',
+            detail: reason,
+          })
+        }
+        // alive + conditional_ok → emit nothing
+      }
+    }
+  }
+
+  return checks
 }
 
 export function checkDeadGates(ghOk: boolean, owner: string, repo: string): Section {
@@ -853,11 +1274,15 @@ export function checkDeadGates(ghOk: boolean, owner: string, repo: string): Sect
     }
   }
 
+  // --- C. Per-job dormancy detector ---
+  const dormantChecks = detectDormantJobs(ghOk, owner, repo)
+  for (const c of dormantChecks) checks.push(c)
+
   if (checks.length === 0) {
     checks.push({
       name: 'push-gate history',
       status: 'pass',
-      detail: 'no dead push-gates detected',
+      detail: 'no dead push-gates or dormant jobs detected',
     })
   }
 
