@@ -58,6 +58,16 @@ jobs:
             exit 1
           fi
 
+      - name: Update branch (lazy sync for late joiners)
+        if: contains(github.event.pull_request.labels.*.name, 'reviewed')
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" \
+            --method PUT -f expected_head_sha="$PR_HEAD_SHA" || true
+
       - name: Enable auto-merge (merge commit)
         run: gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY"
         env:
