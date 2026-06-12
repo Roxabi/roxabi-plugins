@@ -7,6 +7,7 @@ import {
   classifyDormancy,
   DORMANCY_MIN_RUNS,
   detectUnsafeTokenInTriggeredWorkflow,
+  isJobRequired,
   type JobRunStats,
   type ParsedJob,
   parseRequiredContexts,
@@ -27,7 +28,7 @@ import {
  * | Push-gate history    | AC-4  | integration > AC-4                                     |
  * | Section render       | AC-5  | integration > AC-5                                     |
  * | Wiring-warn          | AC-6  | integration > dormant_wiring WARN + unit AC-7d/7e      |
- * | Required-fail        | AC-7  | integration > AC-10 (dormant_required → fail)          |
+ * | Required-fail        | AC-7  | integration > AC-10 + unit > isJobRequired (matrix leg)|
  * | Conditional-ok       | AC-8  | integration > AC-11 (conditional_ok → not flagged)     |
  * | Grace window         | AC-9  | integration > SC3 grace window                         |
  * | Render contract      | AC-10 | integration > AC-10 (named check, sub-grouped)         |
@@ -380,8 +381,13 @@ describe('checkDeadGates (integration via subprocess)', () => {
         // branches staging/main: exist
         '  "api repos/TestOrg/test-repo/branches/staging") echo "{}"; exit 0 ;;',
         '  "api repos/TestOrg/test-repo/branches/main") echo "{}"; exit 0 ;;',
-        // push run count: return 0 (no push runs landed)
-        '  "run list"*"--event"*"push"*"--json"*"databaseId"*) echo "0"; exit 0 ;;',
+        // push run count (scalar): countPushRuns uses `--json databaseId --jq length` → return 0.
+        // The `--jq` anchor keeps this from also answering fetchJobHistory's `--json databaseId,conclusion`
+        // (array) call — distinct shapes must not collide (#288 review #5).
+        '  "run list"*"--event"*"push"*"--json databaseId --jq"*) echo "0"; exit 0 ;;',
+        // job-history list (array shape): defensive — pushCount=0 short-circuits before this fires,
+        // but answer with a valid empty array so a future pushCount>0 fixture never gets "0".
+        '  "run list"*"--json databaseId,conclusion"*) echo "[]"; exit 0 ;;',
         // merge commit count: ≥5 merges
         '  "api repos/TestOrg/test-repo/commits"*) echo "7"; exit 0 ;;',
         '  "label list"*) echo "[]"; exit 0 ;;',
@@ -467,7 +473,9 @@ describe('checkDeadGates (integration via subprocess)', () => {
         '  "repo view"*"createdAt"*) echo "2020-01-01T00:00:00Z"; exit 0 ;;',
         '  "api repos/TestOrg/test-repo/branches/staging") echo "{}"; exit 0 ;;',
         '  "api repos/TestOrg/test-repo/branches/main") echo "{}"; exit 0 ;;',
-        '  "run list"*"--event"*"push"*"--json"*"databaseId"*) echo "0"; exit 0 ;;',
+        // scalar push-run count (anchored on `--jq`) vs array job-history shape — see #288 review #5.
+        '  "run list"*"--event"*"push"*"--json databaseId --jq"*) echo "0"; exit 0 ;;',
+        '  "run list"*"--json databaseId,conclusion"*) echo "[]"; exit 0 ;;',
         '  "api repos/TestOrg/test-repo/actions/workflows/"*) date -u -d "2 days ago" +%Y-%m-%dT%H:%M:%SZ; exit 0 ;;',
         '  "api repos/TestOrg/test-repo/commits"*) echo "7"; exit 0 ;;',
         '  "label list"*) echo "[]"; exit 0 ;;',
@@ -1101,6 +1109,64 @@ describe('aggregateJobStats', () => {
     expect(stats.considered).toBe(1)
     expect(stats.executed).toBe(1)
   })
+
+  it('AC-8f (#288 review #2): null/empty conclusion (in-progress) does not count as executed', () => {
+    // A run still in progress reports a null (here empty-string) conclusion. Counting it as
+    // executed would fail-open and mask a dormant required gate, so it must land in `skipped`.
+    const runs: RunRecord[] = [
+      { runConclusion: 'success', jobs: [{ name: 'Build', conclusion: '' }] },
+      { runConclusion: 'success', jobs: [{ name: 'Build', conclusion: 'skipped' }] },
+    ]
+    const stats = aggregateJobStats(job, runs)
+    expect(stats.considered).toBe(2)
+    expect(stats.executed).toBe(0)
+    expect(stats.skipped).toBe(2)
+  })
+
+  it('AC-8g (#288 review #3): a sibling job sharing the matrix prefix is not absorbed', () => {
+    // The matrix parent "Build" never runs its own leg (always skipped → dormant), while a SEPARATE
+    // static job literally named "Build (debug)" runs every time. Without sibling exclusion the
+    // sibling's success masks the parent's dormancy. With it, the parent is correctly all-skipped.
+    const runs: RunRecord[] = Array.from({ length: 6 }, () => ({
+      runConclusion: 'success',
+      jobs: [
+        { name: 'Build (linux)', conclusion: 'skipped' }, // parent's real matrix leg — dormant
+        { name: 'Build (debug)', conclusion: 'success' }, // a separate job that shares the prefix
+      ],
+    }))
+    const withExclusion = aggregateJobStats(job, runs, new Set(['Build (debug)']))
+    expect(withExclusion.considered).toBe(6)
+    expect(withExclusion.executed).toBe(0) // sibling success must NOT mask the parent's dormancy
+    expect(withExclusion.skipped).toBe(6)
+
+    // Backward-compatible default: the legacy 2-arg call keeps the greedy prefix match (documents
+    // the prior behavior the caller now guards against by passing sibling names).
+    const greedy = aggregateJobStats(job, runs)
+    expect(greedy.executed).toBe(6)
+  })
+})
+
+// ─── isJobRequired (#288 review #1): matrix-leg-aware required-context match ──
+
+describe('isJobRequired', () => {
+  it('matches a non-matrix job by exact display name', () => {
+    expect(isJobRequired('Build', new Set(['Build', 'Lint']))).toBe(true)
+  })
+
+  it('matches a matrix job via any registered leg context (the bare parent name is never required)', () => {
+    // GitHub registers one required context per matrix leg ("Build (ubuntu-latest)"), never "Build".
+    const required = new Set(['Build (ubuntu-latest)', 'Build (windows-latest)'])
+    expect(isJobRequired('Build', required)).toBe(true)
+  })
+
+  it('does not false-positive on an unrelated context that merely shares a prefix substring', () => {
+    // "Build-extras" shares the "Build" prefix but is not a matrix leg (no " (") → not required.
+    expect(isJobRequired('Build', new Set(['Build-extras', 'lint (fast)']))).toBe(false)
+  })
+
+  it('returns false when the required set is empty (fail-open: nothing escalates)', () => {
+    expect(isJobRequired('Build', new Set())).toBe(false)
+  })
 })
 
 // ─── AC-9: parseRequiredContexts ─────────────────────────────────────────────
@@ -1160,10 +1226,12 @@ describe('--repo correctness', () => {
   const source = fs.readFileSync(new URL('../doctor-github.ts', import.meta.url), 'utf8')
 
   const bodyOf = (fnName: string): string => {
-    const start = source.indexOf(`export function ${fnName}`)
+    // Match `export function` and `export async function` alike — and stop the body at the next
+    // export of either form, so an async export never gets swallowed into the prior body.
+    const start = source.search(new RegExp(`export (?:async )?function ${fnName}\\b`))
     expect(start).toBeGreaterThan(-1)
     const rest = source.slice(start + 1)
-    const next = rest.search(/\nexport (function|interface|type|const) /)
+    const next = rest.search(/\nexport (?:async )?(function|interface|type|const) /)
     return next === -1 ? rest : rest.slice(0, next)
   }
 

@@ -911,9 +911,12 @@ export interface RunRecord {
  * Run-level eligibility: exclude runs with runConclusion ∈ {skipped, cancelled}.
  * Absent-job exclusion: considered counts only retained runs where the job entry appears.
  * Matrix-leg matching: anchored prefix — historyName === displayName OR startsWith(displayName + ' (').
- * skipped conclusion never counts as executed.
+ *   `siblings` (other jobs' display names) are excluded from prefix matches so a parent job never
+ *   absorbs a separate job that literally shares its prefix ("Build" vs "Build (debug)") (#288 review #3).
+ * Only a real, non-skipped conclusion counts as executed; a null/empty (in-progress) conclusion does
+ * not, else an in-flight run would fail-open and mask a dormant required gate (#288 review #2).
  */
-export function aggregateJobStats(job: ParsedJob, runs: RunRecord[]): JobRunStats {
+export function aggregateJobStats(job: ParsedJob, runs: RunRecord[], siblings: Set<string> = new Set()): JobRunStats {
   let considered = 0
   let executed = 0
   let skipped = 0
@@ -922,13 +925,19 @@ export function aggregateJobStats(job: ParsedJob, runs: RunRecord[]): JobRunStat
     const c = run.runConclusion
     if (c === 'skipped' || c === 'cancelled') continue
 
-    // Find all job entries for this job (direct match or matrix leg)
-    const matching = run.jobs.filter((j) => j.name === job.displayName || j.name.startsWith(job.displayName + ' ('))
+    // Find all job entries for this job (direct match or matrix leg). A sibling job whose literal
+    // name shares the prefix ("Build (debug)" vs matrix parent "Build") is excluded so its runs are
+    // never absorbed into the parent's stats (#288 review #3).
+    const matching = run.jobs.filter(
+      (j) => j.name === job.displayName || (j.name.startsWith(job.displayName + ' (') && !siblings.has(j.name)),
+    )
     if (matching.length === 0) continue // job absent from this run — don't count
 
     considered++
-    // At least one leg ran (not skipped) → executed
-    const anyExecuted = matching.some((j) => j.conclusion !== 'skipped')
+    // At least one leg actually ran (a real, non-skipped conclusion) → executed. A null/empty
+    // conclusion (in-progress/queued) must NOT count as executed, else an in-flight run fails open
+    // and masks a dormant required gate (#288 review #2).
+    const anyExecuted = matching.some((j) => Boolean(j.conclusion) && j.conclusion !== 'skipped')
     if (anyExecuted) {
       executed++
     } else {
@@ -1083,12 +1092,25 @@ export function fetchJobHistory(
     } catch {}
   }
 
-  // Aggregate stats per job
+  // Aggregate stats per job. Pass each job the set of OTHER jobs' display names so a matrix parent
+  // ("Build") never absorbs a separate job that literally shares its prefix ("Build (debug)").
+  const allNames = new Set(jobs.map((j) => j.displayName))
   const statsMap = new Map<string, JobRunStats>()
   for (const job of jobs) {
-    statsMap.set(job.id, aggregateJobStats(job, runRecords))
+    const siblings = new Set([...allNames].filter((n) => n !== job.displayName))
+    statsMap.set(job.id, aggregateJobStats(job, runRecords, siblings))
   }
   return statsMap
+}
+
+/**
+ * A workflow job is a required status check if its display name matches a required context
+ * directly, OR if any matrix-leg context registered under it ("Build (ubuntu-latest)") matches.
+ * Matrix jobs register one context per leg and never the bare parent name, so the anchored-prefix
+ * check is mandatory for the AC-7 (dormant_required) escalation to fire on matrix jobs (#288 review #1).
+ */
+export function isJobRequired(displayName: string, requiredContexts: Set<string>): boolean {
+  return requiredContexts.has(displayName) || [...requiredContexts].some((c) => c.startsWith(displayName + ' ('))
 }
 
 // ── T5: detectDormantJobs orchestrator ────────────────────────────────────────
@@ -1142,8 +1164,7 @@ export function detectDormantJobs(ghOk: boolean, owner: string, repo: string): C
 
       for (const job of jobs) {
         const stats = statsMap.get(job.id) ?? { considered: 0, executed: 0, skipped: 0 }
-        // A job is required if its display name — or any matrix-leg history name — matches
-        const isRequired = requiredContexts.has(job.displayName)
+        const isRequired = isJobRequired(job.displayName, requiredContexts)
         const verdict = classifyDormancy(job, stats, isRequired, DORMANCY_MIN_RUNS)
 
         if (verdict === 'dormant_required') {
