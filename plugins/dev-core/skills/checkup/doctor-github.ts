@@ -903,7 +903,10 @@ export interface JobRunStats {
 
 export interface RunRecord {
   runConclusion: string
-  jobs: Array<{ name: string; conclusion: string }>
+  // `conclusion` is null for an in-progress/queued job leg — `gh run view --json jobs` returns
+  // null, not '' — so the type must admit null (#288 review #2). Boolean(j.conclusion) below treats
+  // both null and '' as "not executed", so widening the type changes no behavior, only honesty.
+  jobs: Array<{ name: string; conclusion: string | null }>
 }
 
 /**
@@ -915,6 +918,12 @@ export interface RunRecord {
  *   absorbs a separate job that literally shares its prefix ("Build" vs "Build (debug)") (#288 review #3).
  * Only a real, non-skipped conclusion counts as executed; a null/empty (in-progress) conclusion does
  * not, else an in-flight run would fail-open and mask a dormant required gate (#288 review #2).
+ *
+ * @param siblings other jobs' display names, excluded from prefix matches (see above). The empty
+ *   default reproduces the pre-guard (greedy) attribution and is a silent-regression hazard: a
+ *   production caller that omits it loses the "Build" vs "Build (debug)" separation with no type
+ *   error. The dormancy path (fetchJobHistory) MUST pass the real sibling set; the default exists
+ *   only for direct unit tests of the bare matrix-leg semantics.
  */
 export function aggregateJobStats(job: ParsedJob, runs: RunRecord[], siblings: Set<string> = new Set()): JobRunStats {
   let considered = 0
@@ -1086,7 +1095,10 @@ export function fetchJobHistory(
       runRecords.push({
         runConclusion: data.conclusion ?? run.conclusion ?? '',
         jobs: Array.isArray(data.jobs)
-          ? data.jobs.map((j: { name: string; conclusion: string }) => ({ name: j.name, conclusion: j.conclusion }))
+          ? data.jobs.map((j: { name: string; conclusion: string | null }) => ({
+              name: j.name,
+              conclusion: j.conclusion,
+            }))
           : [],
       })
     } catch {}
@@ -1108,9 +1120,24 @@ export function fetchJobHistory(
  * directly, OR if any matrix-leg context registered under it ("Build (ubuntu-latest)") matches.
  * Matrix jobs register one context per leg and never the bare parent name, so the anchored-prefix
  * check is mandatory for the AC-7 (dormant_required) escalation to fire on matrix jobs (#288 review #1).
+ *
+ * @param siblings other jobs' display names. A required context that exactly matches a sibling's
+ *   display name ("Build (debug)") belongs to that separate static job, NOT to a matrix leg of this
+ *   one — so it is excluded from the prefix match. This is the mirror of the aggregateJobStats
+ *   sibling guard (#288 review #1, iter-2): without it, a required static "Build (debug)" would make
+ *   a dormant matrix "Build" wrongly read as required and escalate to fail. The empty default
+ *   reproduces the pre-guard (greedy) behavior — callers in the dormancy path MUST pass the real
+ *   sibling set; the default exists only for direct unit tests of the bare-prefix semantics.
  */
-export function isJobRequired(displayName: string, requiredContexts: Set<string>): boolean {
-  return requiredContexts.has(displayName) || [...requiredContexts].some((c) => c.startsWith(displayName + ' ('))
+export function isJobRequired(
+  displayName: string,
+  requiredContexts: Set<string>,
+  siblings: Set<string> = new Set(),
+): boolean {
+  return (
+    requiredContexts.has(displayName) ||
+    [...requiredContexts].some((c) => c.startsWith(displayName + ' (') && !siblings.has(c))
+  )
 }
 
 // ── T5: detectDormantJobs orchestrator ────────────────────────────────────────
@@ -1162,9 +1189,14 @@ export function detectDormantJobs(ghOk: boolean, owner: string, repo: string): C
       // Fetch job history
       const statsMap = fetchJobHistory(owner, repo, wf, branch, jobs, DORMANCY_RUN_LIMIT)
 
+      // Other jobs' display names — passed to isJobRequired so a matrix parent ("Build") never
+      // claims a required context that belongs to a separate static sibling ("Build (debug)").
+      const allJobNames = new Set(jobs.map((j) => j.displayName))
+
       for (const job of jobs) {
         const stats = statsMap.get(job.id) ?? { considered: 0, executed: 0, skipped: 0 }
-        const isRequired = isJobRequired(job.displayName, requiredContexts)
+        const siblings = new Set([...allJobNames].filter((n) => n !== job.displayName))
+        const isRequired = isJobRequired(job.displayName, requiredContexts, siblings)
         const verdict = classifyDormancy(job, stats, isRequired, DORMANCY_MIN_RUNS)
 
         if (verdict === 'dormant_required') {

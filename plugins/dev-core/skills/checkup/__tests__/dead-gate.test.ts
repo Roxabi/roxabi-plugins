@@ -1126,16 +1126,18 @@ describe('aggregateJobStats', () => {
   })
 
   it('AC-8f (#288 review #2): null/empty conclusion (in-progress) does not count as executed', () => {
-    // A run still in progress reports a null (here empty-string) conclusion. Counting it as
-    // executed would fail-open and mask a dormant required gate, so it must land in `skipped`.
+    // A run still in progress reports a real `null` conclusion from `gh run view --json jobs` (the
+    // widened RunRecord type now admits it directly, iter-2). Counting it as executed would fail-open
+    // and mask a dormant required gate, so null — like '' and 'skipped' — must land in `skipped`.
     const runs: RunRecord[] = [
-      { runConclusion: 'success', jobs: [{ name: 'Build', conclusion: '' }] },
+      { runConclusion: 'success', jobs: [{ name: 'Build', conclusion: null }] }, // in-progress → null
+      { runConclusion: 'success', jobs: [{ name: 'Build', conclusion: '' }] }, // legacy empty-string shape
       { runConclusion: 'success', jobs: [{ name: 'Build', conclusion: 'skipped' }] },
     ]
     const stats = aggregateJobStats(job, runs)
-    expect(stats.considered).toBe(2)
+    expect(stats.considered).toBe(3)
     expect(stats.executed).toBe(0)
-    expect(stats.skipped).toBe(2)
+    expect(stats.skipped).toBe(3)
   })
 
   it('AC-8g (#288 review #3): a sibling job sharing the matrix prefix is not absorbed', () => {
@@ -1181,6 +1183,24 @@ describe('isJobRequired', () => {
 
   it('returns false when the required set is empty (fail-open: nothing escalates)', () => {
     expect(isJobRequired('Build', new Set())).toBe(false)
+  })
+
+  it('(#288 review #1 iter-2): a required context owned by a sibling job is not claimed by the parent', () => {
+    // A separate static job literally named "Build (debug)" is required; the matrix parent "Build"
+    // is NOT. Passing "Build (debug)" as a sibling excludes it from the prefix match, so the dormant
+    // parent does not wrongly read as required and escalate to fail — the mirror of the
+    // aggregateJobStats sibling guard.
+    const required = new Set(['Build (debug)', 'Lint'])
+    expect(isJobRequired('Build', required, new Set(['Build (debug)']))).toBe(false)
+
+    // Greedy default (no sibling set) reproduces the pre-guard bug: the parent claims the sibling's
+    // context. Documents the exact behavior the dormancy caller now guards against.
+    expect(isJobRequired('Build', required)).toBe(true)
+
+    // A genuine matrix leg ("Build (ubuntu-latest)") is still matched even with siblings present.
+    expect(
+      isJobRequired('Build', new Set(['Build (ubuntu-latest)', 'Build (debug)']), new Set(['Build (debug)'])),
+    ).toBe(true)
   })
 })
 
