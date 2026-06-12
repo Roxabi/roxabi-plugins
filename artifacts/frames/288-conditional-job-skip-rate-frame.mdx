@@ -1,0 +1,86 @@
+---
+title: "checkup: conditional-job skip-rate detector (dead-gate per-job dormancy, #579 class)"
+issue: 288
+status: approved
+tier: F-lite
+date: 2026-06-12
+---
+
+## Problem
+
+`dev-core:checkup` gained a dead-gate detector in #278 (`checkDeadGates()` in `doctor-github.ts`):
+it confirms a workflow file *runs on push* and its token is safe. But detection stops at the
+**workflow** level. A gate can be alive as a file yet contain a **job** that never executes — a
+`paths:` filter that never matches, an `if:` that is permanently false, an empty matrix leg, a
+silently-skipped required check. #278 sees the workflow run, reports the gate healthy, and the
+dormant job is invisible.
+
+This is the exact signature of #579: the e2e suite existed, its workflow ran, the e2e **job** was
+filtered out every time, and 4 regressions shipped under a green check. Workflow-level liveness is
+necessary but not sufficient; a required status check that never actually runs is a merge gate that
+proves nothing.
+
+This frame adds a **per-job dormancy pass** (`detectDormantJobs()`) that cross-references static job
+wiring against per-job run history to flag jobs that were eligible to run but executed 0 times across
+the observation window — escalating when the dormant job is also a required status check.
+
+## Who
+
+- **Primary:** Roxabi maintainers running `/checkup` (manual + cron) on the plugins repo — they get a
+  new finding class under the existing `Dead Gates` section, sub-grouped by job.
+- **Secondary:** any downstream consumer of `dev-core:checkup` on a repo with conditional CI jobs
+  (path filters, matrix, `if:` guards) — the most common place a real #579 hides.
+
+## Constraints
+
+- **Read-only** — static YAML parse + `gh run` history queries only; no execution, no mutation. Cron-safe.
+- **Reuse #278, do not duplicate** — `STANDARD_WORKFLOWS` iteration + the exported grace-window helpers
+  (`repoAgeOk` / `workflowAgeOk`) + the merge-relative anchoring already live in `doctor-github.ts`.
+  `detectDormantJobs()` lands *after* `checkDeadGates()` + `detectUnsafeTokenInTriggeredWorkflow()`.
+- **Eligibility-aware** — a job whose `paths:` simply weren't touched in-window is NOT dormant; only a
+  job that was eligible (its workflow ran, its filter could have matched) yet never executed counts.
+- **Grace window** — jobs younger than the window are skipped (same anchoring as #278); no flag on a
+  brand-new or genuinely-rare-path job.
+- **Surface** — renders in the same `Dead Gates` section, sub-grouped by job; no new top-level section.
+- **F-lite footprint** — single file extended (`doctor-github.ts`) + test cases in the existing
+  `__tests__/dead-gate.test.ts`. No new module, no schema change.
+
+## Out of Scope
+
+- **Workflow-level dormancy** — owned by #278 (`checkDeadGates`); this pass assumes the workflow runs.
+- **Token / push-gate sub-checks** — already shipped in #278.
+- **Executing or "fixing" jobs** — detection only; remediation is the maintainer's call.
+- **Non-standard workflows** — limited to `STANDARD_WORKFLOWS` iteration #278 already established.
+- **Deep `if:` expression evaluation** — we infer dormancy from *observed run history*, not by
+  statically proving an `if:` is always false (history is the ground truth; static parse only
+  enumerates the jobs + their eligibility inputs).
+
+## Premise Validity
+
+**Success in 6 months:** `/checkup` on a repo with a conditional CI job that never runs (path filter
+that never matches, permanently-false `if:`, empty matrix leg) flags that job as dormant under
+`Dead Gates`, sub-grouped by job — and escalates it when the job is also a required status check.
+At least one real dormant-job instance is surfaced on the plugins repo's own CI (or a deliberate
+fixture proves the path end-to-end).
+
+**Failure in 6 months:** a second #579 ships — a required-check job stays dormant and a regression
+merges under a green check while `/checkup` runs and reports nothing — OR the detector is so noisy
+(false-flagging genuinely-rare-path jobs) that maintainers mute the `Dead Gates` section, which is
+boolean-observable: section muted/ignored, or a #579-class incident recurs, within 6 months.
+
+**Simplest alternative:** ship nothing further; rely on #278's workflow-level liveness check.
+**Why not simplest:** #278 is structurally blind to job-level dormancy — it confirms the *file* ran,
+not that each *job* ran. The #579 incident occurred with a workflow that ran fine; only the job was
+dead. The simplest version cannot see the exact failure mode that motivated the parent issue.
+
+## Complexity
+
+**Tier: F-lite** — clear scope, single domain (checkup CI doctor), extends one existing function in
+one file plus its test file; no new architecture, no cross-plugin surface.
+
+Signals observed:
+- `size:F-lite` label on the issue.
+- Single file extended (`doctor-github.ts`) + existing test file (`dead-gate.test.ts`).
+- Reuses established #278 scaffolding (`STANDARD_WORKFLOWS`, grace-window helpers) — no new patterns.
+- One genuine unknown (per-job run-history shape from `gh run view --json jobs` + eligibility
+  modeling) → spec-worthy, but bounded; not multi-domain.
