@@ -296,7 +296,7 @@ describe('checkDeadGates (integration via subprocess)', () => {
         '  "api repos/TestOrg/test-repo/branches/staging") echo "{}"; exit 0 ;;',
         '  "api repos/TestOrg/test-repo/branches/main") echo "{}"; exit 0 ;;',
         // push run count: return 0 (no push runs landed)
-        '  "run list"*"--event" "push"*"--json" "databaseId"*) echo "0"; exit 0 ;;',
+        '  "run list"*"--event"*"push"*"--json"*"databaseId"*) echo "0"; exit 0 ;;',
         // merge commit count: ≥5 merges
         '  "api repos/TestOrg/test-repo/commits"*) echo "7"; exit 0 ;;',
         '  "label list"*) echo "[]"; exit 0 ;;',
@@ -322,8 +322,10 @@ describe('checkDeadGates (integration via subprocess)', () => {
     expect(result.stdout).toContain('Dead Gates')
   })
 
-  it('AC-4 + AC-5: flags push-gate dead gate in JSON output', () => {
-    // Write a push-triggered workflow with unsafe token
+  it('AC-4: flags push-gate dead gate in JSON output (push-gate history sentinel)', () => {
+    // Write a push-triggered workflow using a safe App token so that token taxonomy passes —
+    // only the push-gate history sub-check (0 push runs + ≥5 merges) can produce a fail.
+    // This isolates AC-4: a regression in push-gate logic stays visible even if token taxonomy passes.
     const wfDir = path.join(tmpDir, '.github', 'workflows')
     fs.mkdirSync(wfDir, { recursive: true })
     fs.writeFileSync(
@@ -337,21 +339,32 @@ describe('checkDeadGates (integration via subprocess)', () => {
         '  build:',
         '    runs-on: ubuntu-latest',
         '    steps:',
+        '      - name: Mint app token',
+        '        id: app',
+        '        uses: actions/create-github-app-token@v1',
+        '        with:',
+        '          app-id: ${{ vars.APP_ID }}',
+        '          private-key: ${{ secrets.APP_PRIVATE_KEY }}',
         '      - name: Push',
         '        run: git push',
         '        env:',
-        '          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}',
+        '          GH_TOKEN: ${{ steps.app.outputs.token }}',
       ].join('\n'),
     )
 
     const result = runDoctor(tmpDir, ['--json'])
-    const parsed = JSON.parse(result.stdout) as Array<{ name: string; checks: Array<{ status: string }> }>
+    const parsed = JSON.parse(result.stdout) as Array<{
+      name: string
+      checks: Array<{ name?: string; status: string; detail?: string }>
+    }>
 
     const deadGatesSection = parsed.find((s) => s.name === 'Dead Gates')
     expect(deadGatesSection).toBeDefined()
-    // Should have at least one fail (token taxonomy)
-    const hasFail = deadGatesSection?.checks.some((c) => c.status === 'fail')
-    expect(hasFail).toBe(true)
+    // Must have a push-gate history fail with the canonical sentinel phrase
+    const pushGateFail = deadGatesSection?.checks.find(
+      (c) => c.status === 'fail' && c.detail?.includes('never actually runs on pushes'),
+    )
+    expect(pushGateFail).toBeDefined()
   })
 
   it('AC-3: does not flag App token in push-triggered workflow', () => {
@@ -384,15 +397,17 @@ describe('checkDeadGates (integration via subprocess)', () => {
     const result = runDoctor(tmpDir, ['--json'])
     const parsed = JSON.parse(result.stdout) as Array<{
       name: string
-      checks: Array<{ status: string; detail?: string }>
+      checks: Array<{ name?: string; status: string; detail?: string }>
     }>
 
     const deadGatesSection = parsed.find((s) => s.name === 'Dead Gates')
     expect(deadGatesSection).toBeDefined()
 
-    // Token taxonomy check must NOT contain a 'dead' fail about this workflow
-    const tokenFails = deadGatesSection?.checks.filter((c) => c.status === 'fail' && c.detail?.includes('DEAD GATE'))
-    expect(tokenFails).toHaveLength(0)
+    // Token taxonomy check (name === 'token taxonomy') must NOT flag this workflow as a dead gate.
+    // Scope to the taxonomy check only — push-gate history checks use the same phrase but are separate.
+    const tokenTaxonomyCheck = deadGatesSection?.checks.find((c) => c.name === 'token taxonomy')
+    expect(tokenTaxonomyCheck).toBeDefined()
+    expect(tokenTaxonomyCheck?.status).not.toBe('fail')
   })
 
   it('AC-1 (read-only): doctor does not mutate repo or run state', () => {

@@ -602,7 +602,10 @@ export function detectUnsafeTokenInTriggeredWorkflow(
     for (let s = 0; s < stepHeaders.length; s++) {
       const stepStart = stepHeaders[s].start
       const stepEnd = s + 1 < stepHeaders.length ? stepHeaders[s + 1].start : jobLines.length
-      const stepBody = jobLines.slice(stepStart, stepEnd).join('\n')
+      const stepLines = jobLines.slice(stepStart, stepEnd)
+      // Strip comment lines before pattern matching to avoid false positives on commented-out tokens
+      const activeLines = stepLines.filter((l) => !l.trimStart().startsWith('#'))
+      const stepBody = activeLines.join('\n')
 
       // Skip if it uses a safe App token — this step is the mint step itself or consumes app output
       if (SAFE_PATTERN.test(stepBody)) continue
