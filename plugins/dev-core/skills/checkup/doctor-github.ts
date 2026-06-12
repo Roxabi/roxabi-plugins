@@ -486,6 +486,384 @@ export function detectMissingContentsRead(
   return issues
 }
 
+// ---------------------------------------------------------------------------
+// Dead Gate detector
+// ---------------------------------------------------------------------------
+
+/**
+ * Unsafe token patterns in CI workflows — triggers a DEAD GATE finding.
+ *
+ * Anti-recursion rule: pushes made via `github.token` / `secrets.GITHUB_TOKEN`
+ * are silently dropped by GitHub Actions; the push workflow never re-triggers.
+ * This is a dead gate — CI appears wired but never actually runs on automation
+ * pushes.
+ *
+ * Safe patterns (must NOT false-positive):
+ *   - `secrets.PAT`  — legacy PAT, causes a warn not a fail
+ *   - `steps.<id>.outputs.token`  — App token via actions/create-github-app-token
+ */
+export function detectUnsafeTokenInTriggeredWorkflow(
+  content: string,
+  filePath: string,
+): Array<{ file: string; job: string; step: string; kind: 'dead' | 'pat-warn'; token: string }> {
+  const lines = content.split('\n')
+  const issues: Array<{ file: string; job: string; step: string; kind: 'dead' | 'pat-warn'; token: string }> = []
+
+  // --- 1. Determine if this workflow is push-triggered ---
+  // We look at the `on:` section at root level.
+  let isPushTriggered = false
+  let isBotTriggered = false // workflow_run, workflow_dispatch used by bots
+  let inOnBlock = false
+  let onIndent = -1
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+
+    // Detect `on:` root key
+    if (/^on:\s*$/.test(line)) {
+      inOnBlock = true
+      onIndent = 0
+      continue
+    }
+    // Compact form: `on: [push, pull_request]` or `on: push`
+    if (/^on:\s+\S/.test(line)) {
+      const val = line.replace(/^on:\s+/, '').trim()
+      if (val.includes('push')) isPushTriggered = true
+      if (val.includes('workflow_run') || val.includes('workflow_dispatch')) isBotTriggered = true
+      break
+    }
+
+    if (inOnBlock) {
+      // End of on block when we hit another root-level key
+      if (/^\S/.test(line) && line.trim() && !line.trim().startsWith('#')) {
+        inOnBlock = false
+        break
+      }
+      const m = line.match(/^ {2}([a-zA-Z0-9_-]+):\s*/)
+      if (m) {
+        if (m[1] === 'push') isPushTriggered = true
+        if (m[1] === 'workflow_run' || m[1] === 'workflow_dispatch') isBotTriggered = true
+      }
+    }
+  }
+
+  // Only scan push-triggered workflows (or bot-triggered that use push semantics)
+  if (!isPushTriggered && !isBotTriggered) return issues
+
+  // --- 2. Detect steps using unsafe tokens ---
+  // We scan for env vars or `with:` fields containing the dangerous expressions.
+  // Safe: steps.<id>.outputs.token (App token)
+  // Dead: github.token, secrets.GITHUB_TOKEN
+  // Warn: secrets.PAT
+
+  const DEAD_PATTERNS = [/\$\{\{\s*github\.token\s*\}\}/, /\$\{\{\s*secrets\.GITHUB_TOKEN\s*\}\}/]
+  const PAT_PATTERN = /\$\{\{\s*secrets\.PAT\s*\}\}/
+
+  // Walk jobs section
+  let jobsSectionLine = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (/^jobs:\s*$/.test(lines[i])) {
+      jobsSectionLine = i
+      break
+    }
+  }
+  if (jobsSectionLine === -1) return issues
+
+  // Find job headers (2-space indent)
+  const jobHeaders: Array<{ name: string; start: number }> = []
+  for (let i = jobsSectionLine + 1; i < lines.length; i++) {
+    const m = lines[i].match(/^ {2}([a-zA-Z0-9][a-zA-Z0-9_-]*):\s*$/)
+    if (m) {
+      jobHeaders.push({ name: m[1], start: i })
+    } else if (/^\S/.test(lines[i]) && lines[i].trim() && !lines[i].trimStart().startsWith('#')) {
+      break
+    }
+  }
+
+  for (let j = 0; j < jobHeaders.length; j++) {
+    const { name: jobName, start } = jobHeaders[j]
+    const end = j + 1 < jobHeaders.length ? jobHeaders[j + 1].start : lines.length
+    const jobLines = lines.slice(start + 1, end)
+
+    // Find step names and step bodies
+    const stepHeaders: Array<{ name: string; start: number }> = []
+    for (let i = 0; i < jobLines.length; i++) {
+      const m = jobLines[i].match(/^ {6}- name:\s+(.+)$/)
+      if (m) {
+        stepHeaders.push({ name: m[1].trim(), start: i })
+      } else if (/^ {6}- uses:/.test(jobLines[i]) || /^ {6}- run:/.test(jobLines[i])) {
+        // Unnamed step
+        stepHeaders.push({ name: `(unnamed step ${stepHeaders.length + 1})`, start: i })
+      }
+    }
+
+    // Scan job-level config (the preamble before the first step) — e.g. a job-level
+    // `env:` token applies to every step, so a dead token there is a dead gate too.
+    const firstStepStart = stepHeaders.length > 0 ? stepHeaders[0].start : jobLines.length
+    const preamble = jobLines
+      .slice(0, firstStepStart)
+      .filter((l) => !l.trimStart().startsWith('#'))
+      .join('\n')
+    for (const pat of DEAD_PATTERNS) {
+      if (pat.test(preamble)) {
+        const tokenMatch = preamble.match(pat)
+        issues.push({
+          file: filePath,
+          job: jobName,
+          step: '(job-level env)',
+          kind: 'dead',
+          token: tokenMatch ? tokenMatch[0] : 'github.token/GITHUB_TOKEN',
+        })
+        break
+      }
+    }
+    if (PAT_PATTERN.test(preamble)) {
+      issues.push({ file: filePath, job: jobName, step: '(job-level env)', kind: 'pat-warn', token: 'secrets.PAT' })
+    }
+
+    // Scan each step body for token usage
+    for (let s = 0; s < stepHeaders.length; s++) {
+      const stepStart = stepHeaders[s].start
+      const stepEnd = s + 1 < stepHeaders.length ? stepHeaders[s + 1].start : jobLines.length
+      const stepLines = jobLines.slice(stepStart, stepEnd)
+      // Strip comment lines before pattern matching to avoid false positives on commented-out tokens
+      const activeLines = stepLines.filter((l) => !l.trimStart().startsWith('#'))
+      const stepBody = activeLines.join('\n')
+
+      // A step using only the safe App token (steps.<id>.outputs.token) matches none
+      // of the DEAD/PAT patterns below, so it is not flagged. We do NOT early-continue
+      // on a safe token: a step that ALSO references a dead token must still be flagged.
+      for (const pat of DEAD_PATTERNS) {
+        if (pat.test(stepBody)) {
+          const tokenMatch = stepBody.match(pat)
+          issues.push({
+            file: filePath,
+            job: jobName,
+            step: stepHeaders[s].name,
+            kind: 'dead',
+            token: tokenMatch ? tokenMatch[0] : 'github.token/GITHUB_TOKEN',
+          })
+          break // one finding per step
+        }
+      }
+
+      if (PAT_PATTERN.test(stepBody)) {
+        issues.push({
+          file: filePath,
+          job: jobName,
+          step: stepHeaders[s].name,
+          kind: 'pat-warn',
+          token: 'secrets.PAT',
+        })
+      }
+    }
+  }
+
+  return issues
+}
+
+/**
+ * Push-gate merge-relative history check.
+ *
+ * For each workflow targeting push on staging/main: fetch the last N+slack
+ * runs and compare how many were push-event vs how many merge commits landed.
+ * If 0 push runs while ≥N merges landed → DEAD GATE.
+ *
+ * Grace window: skip workflows/repos younger than GRACE_DAYS.
+ */
+const PUSH_GATE_MERGE_THRESHOLD = 5
+const GRACE_DAYS = 14
+
+// Returns the age in days of the ISO timestamp in `result.stdout`, or Infinity when
+// it cannot be determined (fail-open: an unknown age never triggers a false dead-gate).
+function ageInDays(result: { ok: boolean; stdout: string }): number {
+  if (!result.ok || !result.stdout.trim()) return Number.POSITIVE_INFINITY
+  const created = new Date(result.stdout.trim())
+  if (Number.isNaN(created.getTime())) return Number.POSITIVE_INFINITY
+  return (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24)
+}
+
+export function repoAgeOk(owner: string, repo: string): boolean {
+  return (
+    ageInDays(spawnSync(['gh', 'repo', 'view', `${owner}/${repo}`, '--json', 'createdAt', '--jq', '.createdAt'])) >=
+    GRACE_DAYS
+  )
+}
+
+/**
+ * Grace window for a single workflow: a workflow file added recently to an OLD repo
+ * legitimately has 0 push runs yet — that is not a dead gate. Exported so #288
+ * (per-job dormancy) can reuse the same grace logic without duplicating it.
+ */
+export function workflowAgeOk(owner: string, repo: string, workflow: string): boolean {
+  return (
+    ageInDays(
+      spawnSync(['gh', 'api', `repos/${owner}/${repo}/actions/workflows/${workflow}`, '--jq', '.created_at']),
+    ) >= GRACE_DAYS
+  )
+}
+
+function countPushRuns(owner: string, repo: string, workflow: string, branch: string): number {
+  const result = spawnSync([
+    'gh',
+    'run',
+    'list',
+    '--repo',
+    `${owner}/${repo}`,
+    '--workflow',
+    workflow,
+    '--branch',
+    branch,
+    '--event',
+    'push',
+    '--limit',
+    '20',
+    '--json',
+    'databaseId',
+    '--jq',
+    'length',
+  ])
+  if (!result.ok) return -1
+  const n = parseInt(result.stdout.trim(), 10)
+  return Number.isNaN(n) ? -1 : n
+}
+
+function countMergeCommits(owner: string, repo: string, branch: string, n: number): number {
+  const result = spawnSync([
+    'gh',
+    'api',
+    `repos/${owner}/${repo}/commits`,
+    '--jq',
+    `[.[] | select(.commit.message | startswith("Merge"))] | length`,
+    '-X',
+    'GET',
+    '-f',
+    `sha=${branch}`,
+    '-f',
+    // Widen the lookback (≥100, the API page max) so sparse-merge repos — many direct
+    // commits between merges — can still reach the N-merge anchor (avoids false negatives).
+    `per_page=${Math.max(100, n * 4)}`,
+  ])
+  if (!result.ok) return -1
+  const count = parseInt(result.stdout.trim(), 10)
+  return Number.isNaN(count) ? -1 : count
+}
+
+export function checkDeadGates(ghOk: boolean, owner: string, repo: string): Section {
+  const sectionName = 'Dead Gates'
+  const skip = (detail: string): Section => ({
+    name: sectionName,
+    checks: [{ name: 'token taxonomy + push-gate', status: 'skip' as Status, detail }],
+  })
+
+  if (!owner || !repo) return skip('repo not detected')
+
+  const checks: Check[] = []
+
+  // --- A. Token taxonomy (static YAML scan) ---
+  const wfDir = '.github/workflows'
+  const wfFiles: string[] = []
+  if (existsSync(wfDir)) {
+    for (const f of readdirSync(wfDir) as string[]) {
+      if (f.endsWith('.yml') || f.endsWith('.yaml')) {
+        wfFiles.push(`${wfDir}/${f}`)
+      }
+    }
+  }
+
+  if (wfFiles.length === 0) {
+    checks.push({ name: 'token taxonomy', status: 'skip', detail: 'no local workflow files found' })
+  } else {
+    const tokenIssues: Array<{ file: string; job: string; step: string; kind: 'dead' | 'pat-warn'; token: string }> = []
+    for (const filePath of wfFiles) {
+      let content: string
+      try {
+        content = readFileSync(filePath, 'utf8') as string
+      } catch {
+        checks.push({ name: filePath, status: 'warn', detail: 'could not read file — skipped' })
+        continue
+      }
+      tokenIssues.push(...detectUnsafeTokenInTriggeredWorkflow(content, filePath))
+    }
+
+    if (tokenIssues.length === 0) {
+      checks.push({
+        name: 'token taxonomy',
+        status: 'pass',
+        detail: `${wfFiles.length} workflow(s) checked — no unsafe token usage in push-triggered steps`,
+      })
+    } else {
+      for (const issue of tokenIssues) {
+        const fileName = issue.file.replace('.github/workflows/', '')
+        if (issue.kind === 'dead') {
+          checks.push({
+            name: `${fileName}:${issue.job}:${issue.step}`,
+            status: 'fail',
+            detail: `push/bot-triggered step uses ${issue.token} — DEAD GATE (GitHub drops pushes from GITHUB_TOKEN; workflow never re-triggers). Use App token or secrets.PAT.`,
+          })
+        } else {
+          checks.push({
+            name: `${fileName}:${issue.job}:${issue.step}`,
+            status: 'warn',
+            detail: `step uses secrets.PAT — legacy token (retiring org-wide). Migrate to App token (actions/create-github-app-token).`,
+          })
+        }
+      }
+    }
+  }
+
+  // --- B. Push-gate merge-relative history ---
+  if (!ghOk) {
+    checks.push({ name: 'push-gate history', status: 'skip', detail: 'gh CLI not available' })
+    return { name: sectionName, checks }
+  }
+  if (!repoAgeOk(owner, repo)) {
+    checks.push({
+      name: 'push-gate history',
+      status: 'skip',
+      detail: `repo younger than ${GRACE_DAYS} days — insufficient history`,
+    })
+    return { name: sectionName, checks }
+  }
+
+  // Only check protected branches (staging/main)
+  for (const branch of PROTECTED_BRANCHES) {
+    // Check if branch exists
+    const branchCheck = spawnSync(['gh', 'api', `repos/${owner}/${repo}/branches/${branch}`])
+    if (!branchCheck.ok) continue
+
+    // Check each standard workflow for push-gate health
+    for (const wf of STANDARD_WORKFLOWS) {
+      const pushCount = countPushRuns(owner, repo, wf, branch)
+      if (pushCount === -1) continue // workflow may not exist — skip
+      if (pushCount > 0) continue // at least some push runs landed — gate is alive
+
+      const mergeCount = countMergeCommits(owner, repo, branch, PUSH_GATE_MERGE_THRESHOLD)
+      if (mergeCount === -1 || mergeCount < PUSH_GATE_MERGE_THRESHOLD) continue
+
+      // Grace window on the WORKFLOW itself: a recently-added workflow (even on an old
+      // repo) has 0 push runs because it is new, not dead — don't false-flag it.
+      if (!workflowAgeOk(owner, repo, wf)) continue
+
+      checks.push({
+        name: `${wf}:${branch}:push-gate`,
+        status: 'fail',
+        detail: `0 push-event runs on ${branch} while ≥${PUSH_GATE_MERGE_THRESHOLD} merge commits landed — workflow is a DEAD GATE (never actually runs on pushes to ${branch}).`,
+      })
+    }
+  }
+
+  if (checks.length === 0) {
+    checks.push({
+      name: 'push-gate history',
+      status: 'pass',
+      detail: 'no dead push-gates detected',
+    })
+  }
+
+  return { name: sectionName, checks }
+}
+
 export function checkCIPermissions(meta: RepoMeta | null): Section {
   const checks: Check[] = []
 

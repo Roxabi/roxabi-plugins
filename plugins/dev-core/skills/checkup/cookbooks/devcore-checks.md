@@ -30,6 +30,7 @@
 | secret scanning / push protection disabled | `printf '%s' '{"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"enabled"}}}' \| gh api repos/<owner>/<repo> --method PATCH --input -` — free on public repos (printf: POSIX-safe, `<<<` is bash-only) |
 | Actions default permissions ≠ read | `gh api repos/<owner>/<repo>/actions/permissions/workflow --method PUT -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false` |
 | `pull_request_target` checks out PR head | Switch trigger to `pull_request`, or drop the PR-head `ref:` from checkout — never run PR-authored code with secrets in scope |
+| `github.token` / `secrets.GITHUB_TOKEN` in push-triggered step | Replace with App token via `actions/create-github-app-token` → `${{ steps.app.outputs.token }}` — `GITHUB_TOKEN` pushes are silently dropped by GitHub Actions and never re-trigger `push` workflows (dead gate) |
 | `trufflehog` not in `.pre-commit-config.yaml` | Add the trufflehog repo/hook to `.pre-commit-config.yaml` (mirror an existing Roxabi Python repo) |
 | `trufflehog` not in CI | Add `secret-scan.yml` workflow — `/ci-setup` Phase 1b |
 | no hook manager at all | Run `/init` Phase 10d (lefthook) or add `.pre-commit-config.yaml` |

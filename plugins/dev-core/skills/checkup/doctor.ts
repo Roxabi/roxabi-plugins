@@ -9,6 +9,7 @@ import { checkPrereqs } from '../shared/prereqs'
 import {
   checkBranchProtection,
   checkCIPermissions,
+  checkDeadGates,
   checkDefaultWorkflowPermissions,
   checkGitHubConfig,
   checkRulesets,
@@ -55,6 +56,7 @@ const sections: Section[] = [
   checkVercel(),
   checkCIPermissions(meta),
   checkPullRequestTarget(),
+  checkDeadGates(ghOk, owner, repo),
 ]
 
 if (jsonFlag) {
