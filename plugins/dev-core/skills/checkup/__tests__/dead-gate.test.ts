@@ -191,6 +191,64 @@ describe('detectUnsafeTokenInTriggeredWorkflow', () => {
     })
   })
 
+  describe('AC-3b (review #296): job-level env + no safe-token masking', () => {
+    it('flags github.token declared at JOB-LEVEL env (not in a step)', () => {
+      const content = [
+        'name: Release',
+        'on:',
+        '  push:',
+        '    branches: [main]',
+        'jobs:',
+        '  publish:',
+        '    runs-on: ubuntu-latest',
+        '    env:',
+        '      GH_TOKEN: ${{ github.token }}',
+        '    steps:',
+        '      - run: gh release create',
+      ].join('\n')
+      const issues = detectUnsafeTokenInTriggeredWorkflow(content, 'release.yml')
+      const dead = issues.filter((i) => i.kind === 'dead')
+      expect(dead).toHaveLength(1)
+      expect(dead[0].step).toBe('(job-level env)')
+    })
+
+    it('flags a dead token even when a safe App token is present in the same step (no masking)', () => {
+      const content = [
+        'name: Auto Merge',
+        'on:',
+        '  push:',
+        '    branches: [staging]',
+        'jobs:',
+        '  merge:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - name: Mixed',
+        '        run: gh pr merge',
+        '        env:',
+        '          APP: ${{ steps.app.outputs.token }}',
+        '          GH_TOKEN: ${{ github.token }}',
+      ].join('\n')
+      const issues = detectUnsafeTokenInTriggeredWorkflow(content, 'auto-merge.yml')
+      expect(issues.filter((i) => i.kind === 'dead')).toHaveLength(1)
+    })
+
+    it('flags secrets.PAT at job-level env as pat-warn', () => {
+      const content = [
+        'name: Sync',
+        'on: push',
+        'jobs:',
+        '  sync:',
+        '    runs-on: ubuntu-latest',
+        '    env:',
+        '      GH_TOKEN: ${{ secrets.PAT }}',
+        '    steps:',
+        '      - run: git push',
+      ].join('\n')
+      const issues = detectUnsafeTokenInTriggeredWorkflow(content, 'sync.yml')
+      expect(issues.filter((i) => i.kind === 'pat-warn')).toHaveLength(1)
+    })
+  })
+
   describe('edge cases', () => {
     it('does not flag push-triggered workflows with no token usage at all', () => {
       const content = [

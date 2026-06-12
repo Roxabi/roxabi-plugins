@@ -558,7 +558,6 @@ export function detectUnsafeTokenInTriggeredWorkflow(
 
   const DEAD_PATTERNS = [/\$\{\{\s*github\.token\s*\}\}/, /\$\{\{\s*secrets\.GITHUB_TOKEN\s*\}\}/]
   const PAT_PATTERN = /\$\{\{\s*secrets\.PAT\s*\}\}/
-  const SAFE_PATTERN = /\$\{\{\s*steps\.[a-zA-Z0-9_-]+\.outputs\.token\s*\}\}/
 
   // Walk jobs section
   let jobsSectionLine = -1
@@ -598,6 +597,30 @@ export function detectUnsafeTokenInTriggeredWorkflow(
       }
     }
 
+    // Scan job-level config (the preamble before the first step) — e.g. a job-level
+    // `env:` token applies to every step, so a dead token there is a dead gate too.
+    const firstStepStart = stepHeaders.length > 0 ? stepHeaders[0].start : jobLines.length
+    const preamble = jobLines
+      .slice(0, firstStepStart)
+      .filter((l) => !l.trimStart().startsWith('#'))
+      .join('\n')
+    for (const pat of DEAD_PATTERNS) {
+      if (pat.test(preamble)) {
+        const tokenMatch = preamble.match(pat)
+        issues.push({
+          file: filePath,
+          job: jobName,
+          step: '(job-level env)',
+          kind: 'dead',
+          token: tokenMatch ? tokenMatch[0] : 'github.token/GITHUB_TOKEN',
+        })
+        break
+      }
+    }
+    if (PAT_PATTERN.test(preamble)) {
+      issues.push({ file: filePath, job: jobName, step: '(job-level env)', kind: 'pat-warn', token: 'secrets.PAT' })
+    }
+
     // Scan each step body for token usage
     for (let s = 0; s < stepHeaders.length; s++) {
       const stepStart = stepHeaders[s].start
@@ -607,9 +630,9 @@ export function detectUnsafeTokenInTriggeredWorkflow(
       const activeLines = stepLines.filter((l) => !l.trimStart().startsWith('#'))
       const stepBody = activeLines.join('\n')
 
-      // Skip if it uses a safe App token — this step is the mint step itself or consumes app output
-      if (SAFE_PATTERN.test(stepBody)) continue
-
+      // A step using only the safe App token (steps.<id>.outputs.token) matches none
+      // of the DEAD/PAT patterns below, so it is not flagged. We do NOT early-continue
+      // on a safe token: a step that ALSO references a dead token must still be flagged.
       for (const pat of DEAD_PATTERNS) {
         if (pat.test(stepBody)) {
           const tokenMatch = stepBody.match(pat)
