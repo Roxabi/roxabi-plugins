@@ -561,16 +561,31 @@ describe('checkDeadGates (integration via subprocess)', () => {
   })
 
   it('AC-1 (read-only): doctor does not mutate repo or run state', () => {
-    // Read-only: running doctor twice produces the same output
-    const result1 = runDoctor(tmpDir, ['--json'])
-    const result2 = runDoctor(tmpDir, ['--json'])
+    // Snapshot the fixture tree (relative path → contents) so we can assert nothing changed.
+    const snapshot = (root: string): Record<string, string> => {
+      const out: Record<string, string> = {}
+      const walk = (d: string) => {
+        for (const name of fs.readdirSync(d)) {
+          const full = path.join(d, name)
+          if (fs.statSync(full).isDirectory()) walk(full)
+          else out[path.relative(root, full)] = fs.readFileSync(full, 'utf8')
+        }
+      }
+      walk(root)
+      return out
+    }
 
-    // Both runs parse successfully
-    expect(() => JSON.parse(result1.stdout)).not.toThrow()
-    expect(() => JSON.parse(result2.stdout)).not.toThrow()
+    const before = snapshot(tmpDir)
+    const result = runDoctor(tmpDir, ['--json'])
+    const after = snapshot(tmpDir)
 
-    // Outputs are identical (no state written between runs)
-    expect(result1.stdout).toBe(result2.stdout)
+    // Doctor ran successfully (valid JSON) and mutated nothing in the repo — the true read-only
+    // property. We deliberately do NOT byte-compare two stdout captures: doctor's live environment
+    // probes (e.g. `which trufflehog`, `command -v roxabi`) can flap under concurrent pre-push load
+    // without any state mutation, which made the old `result1.stdout === result2.stdout` assertion
+    // flaky under the 4-way parallel pre-push (see trufflehog-prepush-flake memory / #288).
+    expect(() => JSON.parse(result.stdout)).not.toThrow()
+    expect(after).toEqual(before)
   })
 
   // ── AC-10: dormant_required job → fail check in Doctor output ─────────────────
