@@ -22,13 +22,16 @@ describe('generateAutoMergeYml', () => {
 
   it('emits the lazy-sync update-branch step gated by reviewed in the auto-merge job', () => {
     const yml = generateAutoMergeYml()
-    // The step must appear in the auto-merge job section (before update-behind-prs job)
-    const autoMergeJobSection = yml.split('update-behind-prs:')[0]
-    expect(autoMergeJobSection).toContain('Update branch (lazy sync for late joiners)')
-    expect(autoMergeJobSection).toContain("contains(github.event.pull_request.labels.*.name, 'reviewed')")
-    expect(autoMergeJobSection).toContain('update-branch')
-    expect(autoMergeJobSection).toContain('steps.app.outputs.token')
-    expect(autoMergeJobSection).toContain('|| true')
+    // Narrow to the lazy-sync step block only (from step name to next step name)
+    const lazySyncMatch = yml.match(/- name: Update branch \(lazy sync for late joiners\)[\s\S]*?(?=\n {6}- name:)/)
+    expect(lazySyncMatch).not.toBeNull()
+    const lazySyncStep = lazySyncMatch![0]
+    // The if: guard must appear INSIDE the step block itself (not just at job level)
+    expect(lazySyncStep).toContain("if: contains(github.event.pull_request.labels.*.name, 'reviewed')")
+    expect(lazySyncStep).toContain('update-branch')
+    // The step uses the app token
+    expect(lazySyncStep).toContain('steps.app.outputs.token')
+    expect(lazySyncStep).toContain('|| true')
   })
 
   it('lazy-sync step appears BEFORE enable auto-merge step', () => {
@@ -50,6 +53,14 @@ describe('generateAutoMergeYml', () => {
     const yml = generateAutoMergeYml()
     const updateBehindSection = yml.split('update-behind-prs:')[1]
     expect(updateBehindSection).toContain("github.event_name == 'push'")
+  })
+
+  it('update-behind-prs job includes the App token mint step', () => {
+    const yml = generateAutoMergeYml()
+    const updateBehindSection = yml.split('update-behind-prs:')[1]
+    expect(updateBehindSection).toContain('actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1')
+    expect(updateBehindSection).toContain('vars.ROXABI_CI_APP_ID')
+    expect(updateBehindSection).toContain('secrets.ROXABI_CI_APP_PRIVATE_KEY')
   })
 })
 

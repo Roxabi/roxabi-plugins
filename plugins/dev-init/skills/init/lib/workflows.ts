@@ -74,7 +74,7 @@ ${APP_MINT_STEP}
           PR_NUMBER: \${{ github.event.pull_request.number }}
           PR_HEAD_SHA: \${{ github.event.pull_request.head.sha }}
         run: |
-          gh api "repos/\${{ github.repository }}/pulls/$PR_NUMBER/update-branch" \\
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" \\
             --method PUT -f expected_head_sha="$PR_HEAD_SHA" || true
 
       - name: Enable auto-merge (merge commit)
