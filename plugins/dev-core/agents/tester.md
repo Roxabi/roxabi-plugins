@@ -49,7 +49,7 @@ Generate + maintain + validate tests. Testing Trophy: integration = largest laye
 - Shim test passes even if shim re-exports stale inline copy instead of delegating
 - Protocol method removed → no conformance test catches the divergence
 
-**Correct pattern:** negative test fails when the guard is removed. Verify by mentally deleting the guard — if the test still passes, it is tautological and must be flagged.
+**Correct pattern:** negative test fails when the guard is removed. The implement orchestrator (or domain agent owning source) MUST execute the falsification gate (#280): `git stash` source → run test → assert FAIL → `git stash pop` → assert green → record evidence `broke {source} → test failed with {error}`. ¬mental-only check — executed evidence line is required. A test without a recorded evidence line is treated as unproven (Status `⏳ not run`), not `✓ proven`. Tautological result (stash → still passes) → flag as merge blocker; do NOT record as `✓ proven`.
 
 ## Coverage Rules (CRITICAL)
 
