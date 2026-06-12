@@ -25,7 +25,7 @@ describe('generateAutoMergeYml', () => {
     // Narrow to the lazy-sync step block only (from step name to next step name)
     const lazySyncMatch = yml.match(/- name: Update branch \(lazy sync for late joiners\)[\s\S]*?(?=\n {6}- name:)/)
     expect(lazySyncMatch).not.toBeNull()
-    const lazySyncStep = lazySyncMatch![0]
+    const lazySyncStep = lazySyncMatch?.[0]
     // The if: guard must appear INSIDE the step block itself (not just at job level)
     expect(lazySyncStep).toContain("if: contains(github.event.pull_request.labels.*.name, 'reviewed')")
     expect(lazySyncStep).toContain('update-branch')
