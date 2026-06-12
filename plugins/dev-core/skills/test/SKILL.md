@@ -122,23 +122,31 @@ it('should return user by id', () => {
 
 ## Step 8 — Falsification Gate (standalone `/test`)
 
-Applies to: unit + fast-integration tests only. Triggered after Step 7 green run. Owned by the calling agent (the agent that owns source drives the stash — ¬tester).
+Applies to: unit + fast-integration tests only. Triggered after Step 7 green run. **Ownership:** when invoked by `/implement`, the implement orchestrator drives the stash (¬tester). When invoked standalone (no implement orchestrator), `/test` owns the stash cycle itself — the tester agent still only writes tests; the stash is driven by the `/test` flow.
 
-**e2e exemption:** tests generated via `--e2e` → annotate each as `NO FALSIFY — e2e`. Stop. ¬run stash cycle.
+**e2e exemption:** tests generated via `--e2e` → annotate each as `⚠ NO FALSIFY — e2e`. Stop. ¬run stash cycle.
+
+**Precondition:** all newly created source files must be `git add`-ed before the gate runs — the Write tool does NOT auto-stage new files, and unstaged new files are invisible to `git diff HEAD`.
 
 ∀ new/modified test written in this session:
 
-1. **Stash source** (¬test files): `git stash -- $(git diff HEAD --name-only | grep -v '\.test\.' | grep -v '\.spec\.')`.
+1. **Stash source** (¬test files):
+   ```bash
+   SRC=$(  { git diff HEAD --name-only; git ls-files --others --exclude-standard; } \
+           | grep -v '\.test\.' | grep -v '\.spec\.' )
+   git stash -- $SRC
+   ```
+   This enumerates both tracked-dirty AND untracked source files, then excludes test/spec files.
 2. **Run the test**: `{commands.test} {test_file_path}`.
-3. **Assert FAIL**: exit 0 → tautological → → DP(A) **Fix test** | **Flag and skip** (¬silently pass). Tautological = merge blocker.
-4. **Pop stash**: `git stash pop`.
+3. **Assert FAIL**: exit 0 → tautological → tautological = merge blocker. Do NOT pop stash. Restore worktree: `git stash pop`. DP(A) **Rewrite test** | **Flag and block** (¬silently pass). ¬assign a matrix Status — no Status update until the test is rewritten and re-run.
+4. **Pop stash** (success path only): `git stash pop`.
 5. **Assert GREEN**: re-run → exit 0.
 6. **Record evidence** (one line per test):
    ```
    broke {source file} → test failed with {error/assertion message}
    ```
 
-Evidence lines feed the #279 matrix `Status` column: `✓ proven`. Tautological test → `✗ failed` (the test itself is the failure). Append evidence block to output before reporting done.
+Evidence lines feed the #279 matrix `Status` column: `✓ proven`. Append evidence block to output before reporting done.
 
 ## E2E Mode (`--e2e`)
 

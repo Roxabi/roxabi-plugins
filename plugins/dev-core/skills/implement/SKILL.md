@@ -234,12 +234,20 @@ For τ=F (F-lite or F-full):
 
 Runs immediately after SC→Test Matrix is built. Scope: unit + fast-integration tests only. e2e tests are **exempt** — annotate each e2e row `⚠ NO FALSIFY — e2e` in the evidence log and leave Status unchanged.
 
+**Precondition:** the implement agent must `git add` all newly created source files before the gate runs — the Write tool does NOT auto-stage, and unstaged new files are invisible to `git diff HEAD`.
+
 ∀ new/modified test mapped in the matrix (¬e2e):
 
-1. **Stash source** (¬test files): `git stash -- $(git diff HEAD --name-only | grep -v '\.test\.' | grep -v '\.spec\.')` — stash implementation only.
+1. **Stash source** (¬test files):
+   ```bash
+   SRC=$(  { git diff HEAD --name-only; git ls-files --others --exclude-standard; } \
+           | grep -v '\.test\.' | grep -v '\.spec\.' )
+   git stash -- $SRC
+   ```
+   This enumerates both tracked-dirty AND untracked source files, then excludes test/spec files.
 2. **Run the test**: `{commands.test} {test_file}`.
-3. **Assert FAIL**: if exit 0 → test is **tautological** (passes without the implementation) → blocking gap. Do NOT pop stash. Report: `TAUTOLOGICAL: {file} :: {test name} — passed with implementation stashed`. ¬proceed to `/pr` until test is fixed.
-4. **Pop stash**: `git stash pop`.
+3. **Assert FAIL**: if exit 0 → test is **tautological** (passes without the implementation) → blocking gap. Do NOT pop stash. Restore worktree: `git stash pop`. Report: `TAUTOLOGICAL: {file} :: {test name} — passed with implementation stashed`. ¬proceed to `/pr` until test is rewritten.
+4. **Pop stash** (success path only): `git stash pop`.
 5. **Assert GREEN**: re-run `{commands.test} {test_file}` → exit 0. If ✗ → stash pop corrupted state → escalate to lead.
 6. **Record evidence**: one line per test:
    ```
@@ -255,7 +263,7 @@ broke {source A} → test failed with {error A}
 broke {source B} → test failed with {error B}
 ```
 
-¬stash residue in working tree after gate completes — verify with `git status`.
+**Success path only:** ¬stash residue in working tree after gate completes — verify with `git status`. (On the tautological-blocking path the run halts before `/pr`; stash is popped as part of stopping, so no diff residue reaches the PR.)
 
 **Matrix format (fixed columns — parseable):**
 
