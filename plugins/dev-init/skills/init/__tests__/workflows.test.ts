@@ -1,5 +1,68 @@
 import { describe, expect, it } from 'vitest'
-import { generateCiYml, generateDeployYml } from '../lib/workflows'
+import { generateAutoMergeYml, generateCiYml, generateDeployYml } from '../lib/workflows'
+
+describe('generateAutoMergeYml', () => {
+  it('emits the App token mint step (no secrets.PAT)', () => {
+    const yml = generateAutoMergeYml()
+    expect(yml).toContain('actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1')
+    expect(yml).toContain('vars.ROXABI_CI_APP_ID')
+    expect(yml).toContain('secrets.ROXABI_CI_APP_PRIVATE_KEY')
+    expect(yml).not.toContain('secrets.PAT')
+  })
+
+  it('uses steps.app.outputs.token (not PAT) for all GH_TOKEN references', () => {
+    const yml = generateAutoMergeYml()
+    // Every GH_TOKEN assignment must reference the App token
+    const ghTokenMatches = [...yml.matchAll(/GH_TOKEN:\s*\$\{\{[^}]+\}\}/g)].map((m) => m[0])
+    expect(ghTokenMatches.length).toBeGreaterThan(0)
+    for (const match of ghTokenMatches) {
+      expect(match).toContain('steps.app.outputs.token')
+    }
+  })
+
+  it('emits the lazy-sync update-branch step gated by reviewed in the auto-merge job', () => {
+    const yml = generateAutoMergeYml()
+    // Narrow to the lazy-sync step block only (from step name to next step name)
+    const lazySyncMatch = yml.match(/- name: Update branch \(lazy sync for late joiners\)[\s\S]*?(?=\n {6}- name:)/)
+    expect(lazySyncMatch).not.toBeNull()
+    const lazySyncStep = lazySyncMatch?.[0]
+    // The if: guard must appear INSIDE the step block itself (not just at job level)
+    expect(lazySyncStep).toContain("if: contains(github.event.pull_request.labels.*.name, 'reviewed')")
+    expect(lazySyncStep).toContain('update-branch')
+    // The step uses the app token
+    expect(lazySyncStep).toContain('steps.app.outputs.token')
+    expect(lazySyncStep).toContain('|| true')
+  })
+
+  it('lazy-sync step appears BEFORE enable auto-merge step', () => {
+    const yml = generateAutoMergeYml()
+    const lazyIdx = yml.indexOf('Update branch (lazy sync for late joiners)')
+    const mergeIdx = yml.indexOf('Enable auto-merge (merge commit)')
+    expect(lazyIdx).toBeGreaterThan(-1)
+    expect(mergeIdx).toBeGreaterThan(-1)
+    expect(lazyIdx).toBeLessThan(mergeIdx)
+  })
+
+  it('update-behind-prs job still filters reviewed label (regression guard)', () => {
+    const yml = generateAutoMergeYml()
+    const updateBehindSection = yml.split('update-behind-prs:')[1]
+    expect(updateBehindSection).toContain('--label reviewed')
+  })
+
+  it('update-behind-prs job runs only on push (regression guard)', () => {
+    const yml = generateAutoMergeYml()
+    const updateBehindSection = yml.split('update-behind-prs:')[1]
+    expect(updateBehindSection).toContain("github.event_name == 'push'")
+  })
+
+  it('update-behind-prs job includes the App token mint step', () => {
+    const yml = generateAutoMergeYml()
+    const updateBehindSection = yml.split('update-behind-prs:')[1]
+    expect(updateBehindSection).toContain('actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1')
+    expect(updateBehindSection).toContain('vars.ROXABI_CI_APP_ID')
+    expect(updateBehindSection).toContain('secrets.ROXABI_CI_APP_PRIVATE_KEY')
+  })
+})
 
 describe('generateCiYml', () => {
   it('generates bun + vitest CI', () => {
