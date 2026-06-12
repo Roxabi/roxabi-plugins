@@ -67,14 +67,14 @@ d ∈ D := {tag: str, file: str, line: int, description: str, phase: str}
 
 ## Phase 0 — Load Taxonomy
 
-Read `${CLAUDE_SKILL_DIR}/review-classes.yml` → extract `classes[].class` slugs → `canonical_slugs`.
-File absent, unreadable, or parse error → HALT: `[taxonomy-error] review-classes.yml {reason} at ${CLAUDE_SKILL_DIR}/review-classes.yml — reinstall dev-core plugin.`
+Read `${CLAUDE_PLUGIN_ROOT}/skills/code-review/review-classes.yml` → extract `classes[].class` slugs → `canonical_slugs`. (Canonical YAML ships with `code-review`; `fix` reads it cross-skill — single source, ¬duplicate copy that could drift.)
+File absent, unreadable, or parse error → HALT: `[taxonomy-error] review-classes.yml {reason} at ${CLAUDE_PLUGIN_ROOT}/skills/code-review/review-classes.yml — reinstall dev-core plugin.`
 Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬LLM memory).
 
 
 ## Phase 1 — Gather Findings
 
-1. PR# → `gh pr view <#> --json comments,closingIssuesReferences`; parse Conventional Comments from `.comments[].body`; capture `SOURCE_ISSUE` = `.closingIssuesReferences[0].number` (∅ if none — used in Phase 5 Defer to wire blocked-by). When `SOURCE_ISSUE ≠ ∅`, also resolve `SOURCE_PARENT` = `gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number}}}}' --jq '.data.repository.issue.parent.number // empty'` — used in Phase 5 Defer to wire deferred issue as **sibling** under shared parent (see `issue-triage` "Deferred Follow-Ups — Sibling Rule").
+1. PR# → `gh pr view <#> --json comments,closingIssuesReferences`; parse Conventional Comments from `.comments[].body`; capture `SOURCE_ISSUE` = `.closingIssuesReferences[0].number` (∅ if none — used in Phase 5 Defer to wire blocked-by). When `SOURCE_ISSUE ≠ ∅`, also resolve `SOURCE_PARENT` = `gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number}}}}' --jq '.data.repository.issue.parent.number // empty'` — used in Phase 5 Defer to wire deferred issue as **sibling** under shared parent (see `roxabi-issues:issue-triage` "Deferred Follow-Ups — Sibling Rule").
 2. ¬PR# → scan conversation for latest `/code-review` output
 3. F = ∅ → halt
 4. ∀ f: parse → label, file:line, agent, root cause, class[], raw_callsites[], solutions, C(f)
@@ -148,15 +148,14 @@ Demoted from auto-apply → prepend: `Auto-apply failed: {reason}`
 
 → DP(A)(single per finding): **Solution 1** | **Solution 2** | **Defer** (→ create issue) | **Skip**
 
-Defer → create linked follow-up issue via `/issue-triage` (¬raw `gh issue create` — global rule: issue mutations go through the skill so blocked-by + parent are wired atomically). **Sibling rule:** the deferred issue is a sibling of `SOURCE_ISSUE` under their shared parent (¬child of `SOURCE_ISSUE`) — see `issue-triage` SKILL "Deferred Follow-Ups — Sibling Rule":
+Defer → create linked follow-up issue via `roxabi-issues:issue-triage` (¬raw `gh issue create` — global rule: issue mutations go through the skill so blocked-by + parent are wired atomically). **Sibling rule:** the deferred issue is a sibling of `SOURCE_ISSUE` under their shared parent (¬child of `SOURCE_ISSUE`) — see `roxabi-issues:issue-triage` SKILL "Deferred Follow-Ups — Sibling Rule":
 
-```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \
-  --title "{cat}: {summary}" \
-  --body "{details}" \
-  ${SOURCE_ISSUE:+--blocked-by "#${SOURCE_ISSUE}"} \
-  ${SOURCE_PARENT:+--parent "#${SOURCE_PARENT}"}
-```
+Invoke the `roxabi-issues:issue-triage` skill in **create** mode (requires the **roxabi-issues** plugin installed — issue-triage relocated dev-core → roxabi-issues, 2026-06-09). Pass:
+
+- `--title "{cat}: {summary}"`
+- `--body "{details}"`
+- `--blocked-by "#${SOURCE_ISSUE}"`  — omit when `SOURCE_ISSUE = ∅`
+- `--parent "#${SOURCE_PARENT}"`  — omit when `SOURCE_PARENT = ∅`
 
 `SOURCE_ISSUE` (captured Phase 1, step 1) → blocked-by ensures the deferred finding is traceable back to the issue whose review surfaced it. `SOURCE_PARENT` (also captured Phase 1, step 1) → parent makes the deferred issue a sibling of `SOURCE_ISSUE` under the same epic, so `gh issue view <epic>` shows the full fan-out flat. ∄ SOURCE_ISSUE → create without `--blocked-by` or `--parent`; `{details}` MUST include `**Origin:** PR #<N>` so traceability is preserved. ∄ SOURCE_PARENT (SOURCE_ISSUE is top-level) → create without `--parent` (the deferred issue is also top-level).
 
@@ -169,7 +168,7 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \
 **Action:** {chosen path or open question}
 ```
 
-Triage.ts `--blocked-by` accepts issues only (¬PRs) — when the source review is on a PR with no closing-issue reference, fall back to no `--blocked-by` and rely on the `Origin: PR #N` body line.
+`issue-triage` `--blocked-by` accepts issues only (¬PRs) — when the source review is on a PR with no closing-issue reference, fall back to no `--blocked-by` and rely on the `Origin: PR #N` body line.
 
 ```
 ── Walkthrough Complete ──

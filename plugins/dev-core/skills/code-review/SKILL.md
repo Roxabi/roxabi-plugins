@@ -139,6 +139,7 @@ Skip rules: architect → |Δ| ≤ 5 ∧ ¬arch keywords | product-lead → spec
 3. scope = Δ ∪ ⋃{resolve(imports(f)) | f ∈ Δ} ∪ `{backend.path}/src/auth/**` — deduplicate
 
 # SYNC REQUIRED: inline class list must match review-classes.yml slugs — see #149
+# CROSS-SKILL CONSUMER: fix/SKILL.md Phase 0 reads this YAML via ${CLAUDE_PLUGIN_ROOT}/skills/code-review/review-classes.yml — moving/renaming it breaks /fix (#286)
 ### Spawn template
 
 > **Note (orchestrator):** The `{format_digest_for_agent(d) for d in digests if d.chunk_index != i}` placeholder is a Python expression evaluated by the orchestrator (Claude main context) BEFORE the Task call — substitute its rendered value into the prompt string. It is NOT a runtime-resolved placeholder. All other `{...}` placeholders are simple value substitutions.
