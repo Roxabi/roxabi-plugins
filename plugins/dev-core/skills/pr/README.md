@@ -29,7 +29,7 @@ Triggers: `"create PR"` | `"open PR"` | `"submit PR"` | `"open a pull request"` 
 - Summary bullets
 - Lifecycle table (phase → artifact → status)
 - Test plan checklist
-- `Closes #N`
+- `Fixes #N`
 
 ## Safety
 

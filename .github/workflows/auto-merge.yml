@@ -1,6 +1,13 @@
 # Auto-merge PRs that have been reviewed and passed all required checks.
-# Adds the PR to GitHub's merge queue (squash) once the "reviewed" label is present.
+# Adds the PR to GitHub's merge queue (merge commit) once the "reviewed" label is present.
 # GitHub natively waits for all required status checks before merging.
+#
+# Project convention: merge commits only (¬squash) — see ~/projects/CLAUDE.md
+# "Release Convention". Squash merges flatten the per-commit history that
+# staging→main promotions rely on.
+#
+# Dependabot guard: semver-major bumps are never auto-merged — they require
+# manual validation (the vite 8 SSR regression stayed dormant 10 weeks).
 #
 # Also closes linked issues after merge, because GITHUB_TOKEN-initiated
 # auto-merges don't trigger GitHub's native "Closes #X" issue closure.
@@ -28,10 +35,43 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'reviewed')
     timeout-minutes: 5
     steps:
-      - name: Enable auto-merge (squash)
-        run: gh pr merge "$PR_NUMBER" --auto --squash --repo "$GITHUB_REPOSITORY"
+      # roxabi-ci App token (ephemeral, 1 h) — merges PRs touching workflow files and
+      # re-triggers CI on the resulting push, which GITHUB_TOKEN cannot do.
+      - name: Mint app token (roxabi-ci)
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ vars.ROXABI_CI_APP_ID }}
+          private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}
+
+      - name: Block dependabot semver-major bumps
+        if: github.event.pull_request.user.login == 'dependabot[bot]'
         env:
-          GH_TOKEN: ${{ secrets.PAT }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [[ "$PR_TITLE" =~ from\ v?([0-9]+)[^\ ]*\ to\ v?([0-9]+) ]] && [ "${BASH_REMATCH[1]}" != "${BASH_REMATCH[2]}" ]; then
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --body "Auto-merge refusé : bump **semver-major**. Validation manuelle requise (e2e / boot de l'artefact), puis merge à la main."
+            echo "::error::semver-major dependency bump — auto-merge refused"
+            exit 1
+          fi
+
+      - name: Update branch (lazy sync for late joiners)
+        if: contains(github.event.pull_request.labels.*.name, 'reviewed')
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" \
+            --method PUT -f expected_head_sha="$PR_HEAD_SHA" || true
+
+      - name: Enable auto-merge (merge commit)
+        run: gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
 
   update-behind-prs:
@@ -40,6 +80,13 @@ jobs:
     if: github.event_name == 'push'
     timeout-minutes: 5
     steps:
+      - name: Mint app token (roxabi-ci)
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ vars.ROXABI_CI_APP_ID }}
+          private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}
+
       - name: Update all reviewed PRs targeting this branch
         run: |
           BRANCH="${GITHUB_REF_NAME}"
@@ -56,7 +103,7 @@ jobs:
               --method PUT -f expected_head_sha="$SHA" || true
           done
         env:
-          GH_TOKEN: ${{ secrets.PAT }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
 
   close-linked-issues:
     name: Close linked issues

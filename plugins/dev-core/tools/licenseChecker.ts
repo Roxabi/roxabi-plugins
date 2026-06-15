@@ -28,8 +28,18 @@ import { dirname, join, resolve, sep } from 'node:path'
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface LicensePolicy {
+  /** Resolved allowed licenses — populated from allowlist (canonical) or allowedLicenses (legacy). */
   allowedLicenses: string[]
   overrides: Record<string, string>
+}
+
+/** Raw shape of .license-policy.json on disk — either key accepted. */
+interface RawLicensePolicy {
+  /** Canonical key used by Python checker and new deployments. */
+  allowlist?: string[]
+  /** Legacy key from original TS checker. */
+  allowedLicenses?: string[]
+  overrides?: Record<string, string>
 }
 
 export interface PackageEntry {
@@ -61,9 +71,9 @@ export function loadPolicy(repoRoot: string): LicensePolicy {
     throw new Error('No .license-policy.json found at repo root')
   }
   const raw = readFileSync(policyPath, 'utf-8')
-  const policy = JSON.parse(raw) as LicensePolicy
+  const policy = JSON.parse(raw) as RawLicensePolicy
   return {
-    allowedLicenses: policy.allowedLicenses ?? [],
+    allowedLicenses: policy.allowlist ?? policy.allowedLicenses ?? [],
     overrides: policy.overrides ?? {},
   }
 }
@@ -74,6 +84,10 @@ export interface RawPackageInfo {
   name: string
   version: string
   dir: string
+  /** License string extracted from package.json at scan time (string field). */
+  license?: string
+  /** Licenses array extracted from package.json at scan time (deprecated format). */
+  licenses?: Array<string | { type?: string }>
 }
 
 const IGNORED_ENTRIES = new Set(['.cache', '.bin', '.package-lock.json'])
@@ -164,7 +178,10 @@ function readPackageInfo(pkgDir: string): RawPackageInfo | null {
       JSON.parse(raw) as Record<string, unknown>,
     )
     if (!(pkg.name && pkg.version)) return null
-    return { name: String(pkg.name), version: String(pkg.version), dir: realDir }
+    const info: RawPackageInfo = { name: String(pkg.name), version: String(pkg.version), dir: realDir }
+    if (typeof pkg.license === 'string') info.license = pkg.license
+    if (Array.isArray(pkg.licenses)) info.licenses = pkg.licenses as Array<string | { type?: string }>
+    return info
   } catch {
     return null
   }
@@ -256,29 +273,47 @@ export function detectLicense(
     return { license: policy.overrides[key], source: 'override' }
   }
 
-  // 2-3. package.json license field
-  const pkgJsonPath = join(pkg.dir, 'package.json')
-  try {
-    const raw = readFileSync(pkgJsonPath, 'utf-8')
-    const pkgJson = Object.assign(
-      Object.create(null) as Record<string, unknown>,
-      JSON.parse(raw) as Record<string, unknown>,
-    )
+  // 2-3. package.json license field — use carried fields when available, re-read only as fallback
+  const carriedLicense = pkg.license
+  const carriedLicenses = pkg.licenses
 
-    // 2. license field (string)
-    if (typeof pkgJson.license === 'string' && (pkgJson.license as string).trim()) {
-      return { license: (pkgJson.license as string).trim(), source: 'package.json' }
+  if (carriedLicense !== undefined || carriedLicenses !== undefined) {
+    // 2. license field (string) — carried from readPackageInfo
+    if (typeof carriedLicense === 'string' && carriedLicense.trim()) {
+      return { license: carriedLicense.trim(), source: 'package.json' }
     }
 
-    // 3. licenses array (deprecated)
-    const licenses = pkgJson.licenses
-    if (Array.isArray(licenses) && licenses.length > 0) {
-      const first = licenses[0] as string | { type?: string } | null
+    // 3. licenses array (deprecated) — carried from readPackageInfo
+    if (Array.isArray(carriedLicenses) && carriedLicenses.length > 0) {
+      const first = carriedLicenses[0] as string | { type?: string } | null
       const licenseStr = typeof first === 'string' ? first : (first as { type?: string } | null)?.type
       if (licenseStr) return { license: licenseStr, source: 'package.json' }
     }
-  } catch {
-    // Fall through to file detection
+  } else {
+    // Fallback: re-read package.json (e.g. RawPackageInfo constructed without carried fields)
+    const pkgJsonPath = join(pkg.dir, 'package.json')
+    try {
+      const raw = readFileSync(pkgJsonPath, 'utf-8')
+      const pkgJson = Object.assign(
+        Object.create(null) as Record<string, unknown>,
+        JSON.parse(raw) as Record<string, unknown>,
+      )
+
+      // 2. license field (string)
+      if (typeof pkgJson.license === 'string' && (pkgJson.license as string).trim()) {
+        return { license: (pkgJson.license as string).trim(), source: 'package.json' }
+      }
+
+      // 3. licenses array (deprecated)
+      const licenses = pkgJson.licenses
+      if (Array.isArray(licenses) && licenses.length > 0) {
+        const first = licenses[0] as string | { type?: string } | null
+        const licenseStr = typeof first === 'string' ? first : (first as { type?: string } | null)?.type
+        if (licenseStr) return { license: licenseStr, source: 'package.json' }
+      }
+    } catch {
+      // Fall through to file detection
+    }
   }
 
   // 4. LICENSE file
@@ -291,6 +326,7 @@ export function detectLicense(
 
 // ─── SPDX Expression Handling ────────────────────────────────────────────────
 
+/** @deprecated Superseded by the evaluator in isLicenseAllowed; retained for backward compatibility. Does not strip '+' suffixes or respect grouping. */
 export function parseSpdxExpression(expression: string): string[] {
   // Strip all parens and split on OR/AND
   const cleaned = expression.replace(/[()]/g, '')
@@ -300,25 +336,106 @@ export function parseSpdxExpression(expression: string): string[] {
     .filter(Boolean)
 }
 
+// ─── SPDX Expression Evaluator ───────────────────────────────────────────────
+// Tokenizes the expression into: atoms (including "A WITH B" as one unit),
+// parentheses, and AND/OR operators. Then evaluates with correct precedence:
+// AND binds tighter than OR (SPDX spec §4.1).
+
+type SpdxToken = '(' | ')' | 'AND' | 'OR' | string
+
+function tokenizeSpdx(expr: string): SpdxToken[] {
+  // Split on whitespace first, then reassemble WITH pairs as single atoms.
+  // Note: WITH must appear between two atoms (e.g. "Apache-2.0 WITH LLVM-exception").
+  // Grouped forms like "(A) WITH B" are NOT valid SPDX — the paren/length cap in
+  // isLicenseAllowed() acts as the safety net for such malformed expressions.
+  const raw = expr.replace(/\(/g, ' ( ').replace(/\)/g, ' ) ').trim().split(/\s+/).filter(Boolean)
+
+  const tokens: SpdxToken[] = []
+  let i = 0
+  while (i < raw.length) {
+    const t = raw[i]
+    if (t === '(' || t === ')' || t === 'AND' || t === 'OR') {
+      tokens.push(t as SpdxToken)
+      i++
+    } else if (raw[i + 1] === 'WITH' && i + 2 < raw.length) {
+      // "A WITH B" → single opaque atom
+      tokens.push(`${t} WITH ${raw[i + 2]}`)
+      i += 3
+    } else {
+      tokens.push(t)
+      i++
+    }
+  }
+  return tokens
+}
+
+function isAtomAllowed(atom: string, allowedLicenses: string[]): boolean {
+  // Strip trailing '+' (e.g. GPL-2.0+ → GPL-2.0)
+  const normalized = atom.endsWith('+') ? atom.slice(0, -1) : atom
+  return allowedLicenses.includes(normalized)
+}
+
+// Recursive-descent: OR → AND → primary
+function evaluateSpdxExpression(expr: string, allowedLicenses: string[]): boolean {
+  const tokens = tokenizeSpdx(expr)
+  let pos = 0
+
+  function parseOr(): boolean {
+    let result = parseAnd()
+    while (pos < tokens.length && tokens[pos] === 'OR') {
+      pos++
+      const right = parseAnd()
+      result = result || right
+    }
+    return result
+  }
+
+  function parseAnd(): boolean {
+    let result = parsePrimary()
+    while (pos < tokens.length && tokens[pos] === 'AND') {
+      pos++
+      const right = parsePrimary()
+      result = result && right
+    }
+    return result
+  }
+
+  function parsePrimary(): boolean {
+    if (pos >= tokens.length) return false
+    const t = tokens[pos]
+    if (t === '(') {
+      pos++ // consume '('
+      const result = parseOr()
+      if (pos < tokens.length && tokens[pos] === ')') pos++ // consume ')'
+      return result
+    }
+    pos++
+    return isAtomAllowed(t, allowedLicenses)
+  }
+
+  return parseOr()
+}
+
 export function isLicenseAllowed(license: string | null, allowedLicenses: string[]): boolean {
   if (!license) return false
 
-  // Direct match
+  // Direct match (fast path — also handles simple atoms with no operators)
   if (allowedLicenses.includes(license)) return true
 
-  // SPDX AND expression — all components must be allowed (check before OR/parens)
-  if (license.includes(' AND ')) {
-    const components = parseSpdxExpression(license)
-    return components.every((c) => allowedLicenses.includes(c))
+  // Guard against pathologically large or deeply nested expressions from untrusted
+  // package.json data (e.g. 50 000 nested parens → stack overflow in the evaluator).
+  // Real SPDX expressions are short; 512 chars and 20 open-parens are well above any
+  // legitimate expression seen in the wild.
+  const openParenCount = (license.match(/\(/g) ?? []).length
+  if (license.length > 512 || openParenCount > 20) {
+    process.stderr.write(
+      `license-check: expression too complex to evaluate safely, treating as disallowed: ${license.slice(0, 60)}...\n`,
+    )
+    return false
   }
 
-  // SPDX OR expression — at least one component must be allowed
-  if (license.includes(' OR ') || license.startsWith('(')) {
-    const components = parseSpdxExpression(license)
-    return components.some((c) => allowedLicenses.includes(c))
-  }
-
-  return false
+  // Evaluate as SPDX expression with correct precedence and grouping
+  return evaluateSpdxExpression(license, allowedLicenses)
 }
 
 // ─── Compliance Check ────────────────────────────────────────────────────────

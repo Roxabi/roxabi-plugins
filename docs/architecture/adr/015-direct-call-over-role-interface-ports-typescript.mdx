@@ -1,0 +1,65 @@
+---
+title: "ADR-015: Direct-Call over Role-Interface Ports for the TypeScript Shared Layer"
+description: Records that dev-core consolidated the ADR-005 role-interface ports (IssuePort/ProjectPort/services DI) back to direct-call functions in #192, makes direct-call the official pattern for the TS dev-core/dev-init shared layer, and removes the abandoned port/DI scaffolding that survived in dev-init. ADR-005/006 Python-plugin port decisions are unaffected.
+---
+
+## Status
+
+Accepted — supersedes the TypeScript/dev-core portion of ADR-005 and ADR-006; their Python-plugin decisions remain in force.
+
+## Context
+
+ADR-005 (#20) adopted role interfaces (`IssuePort`, `ProjectPort`, `WorkspacePort`) for the TypeScript dev-core layer, with `GitHubAdapter` implementing `IssuePort + ProjectPort` and a `createServices()` DI factory as composition root. This was Phase 1 of a bottom-up Clean Architecture migration — a "zero runtime change" foundation intended to be followed by skill-by-skill adapter adoption.
+
+Three things happened after:
+
+1. **dev-core reversed the migration (#192, `dbcc555`, 2026-05-30).** `ports/issue.ts`, `ports/project.ts`, and `adapters/services.ts` were removed from dev-core; the role-interface `GitHubAdapter` class was consolidated back into standalone, directly-called functions in `github-adapter.ts`. No skill ever adopted `createServices()`. **This reversal was never recorded in an ADR** — ADR-005/006 still read "Accepted" while dev-core's code no longer matches them.
+
+2. **dev-init was extracted 3 days earlier (`f24474e`, 2026-05-27)**, copying `shared/` *before* the #192 consolidation. dev-init therefore froze the Phase-1 scaffolding: `ports/issue.ts`, `ports/project.ts`, `services.ts`, and a `GitHubAdapter` class (+272 lines over dev-core's functional version) layered on top of the same standalone functions.
+
+3. **That scaffolding is dead.** Verified: `createServices()` has zero callers; `ProjectPort`/`IssuePort` have zero runtime consumers (only the adapter self-reference + type-level test checks); the `/init` skill imports none of them. ADR-014 classified these divergent files as `intentional-fork` for *sync-governance* purposes — but that classification tracks divergence, it does not assert the code is used.
+
+Net: the ADRs describe a hexagonal architecture that dev-core abandoned undocumented, surviving only as unused scaffolding in dev-init, carved out of the copy-sync manifest as a permanent `intentional-fork`.
+
+## Options Considered
+
+### Option A: Restore the role-interface ports in dev-core (re-affirm ADR-005)
+- **Pros:** ADRs become true again without recording a reversal; hexagonal boundary restored.
+- **Cons:** re-introduces an abstraction dev-core deliberately removed — one adapter, zero polymorphic consumers, pure ceremony. Rejected: re-litigates a settled, evidence-backed simplification.
+
+### Option B: Direct-call official; remove abandoned dev-init scaffolding; converge github-adapter to copy-sync (chosen)
+- **Pros:** ADRs match code; `dev-init/shared` returns to a near-strict copy-sync mirror; the `intentional-fork` surface (github-adapter +272, domain.test) collapses; future shared-layer changes propagate by sync with no manual reconciliation.
+- **Cons:** deletes a type-level abstraction a future skill might have used; one-time convergence + test trim.
+
+### Option C: Keep both as-is (status quo)
+- **Pros:** no work.
+- **Cons:** ADRs stay false; dead DI layer persists; dev-init drift surface stays; the #268 board purge would have to be done twice across the fork. Rejected.
+
+## Decision
+
+**Option B.** For the TypeScript dev-core/dev-init shared layer:
+
+1. **Direct-call standalone functions are the official pattern** for GitHub access. Role interfaces + DI composition roots are not used. Ports that retain real consumers (`WorkspacePort`, `ConfigPort`, `ports/artifacts`, `ports/config`) stay; `IssuePort`/`ProjectPort` are retired.
+
+2. **Remove the abandoned scaffolding from dev-init** (0 consumers): delete `ports/issue.ts`, `ports/project.ts`, `adapters/services.ts`, and the `GitHubAdapter` class from `adapters/github-adapter.ts` (the standalone functions it wrapped remain).
+
+3. **Converge `dev-init/skills/shared/adapters/github-adapter.ts` back into copy-sync.** With the class wrapper gone it matches dev-core's functional version; it rejoins `tools/shared-sources.json`, and its `intentional-fork` classification is removed from ADR-014. `__tests__/domain.test.ts`'s `IssuePort`/`ProjectPort` type checks are removed.
+
+4. **Scope is TypeScript only.** ADR-005/006's Python-plugin port decisions (`EntryRepository`, `SearchPort`, `FetcherPort`, `StoragePort`, `ConfigLoader[T]`, per-plugin `PluginError`) are unaffected and remain in force. ADR-005 and ADR-006 carry a partial-supersession banner pointing here for their TS/dev-core sections only.
+
+5. **Sequencing.** This converges with the #268 ProjectV2-board purge — the board operations live in the same files — and both land together.
+
+## Consequences
+
+### Positive
+- ADRs match code again — the undocumented #192 reversal is recorded.
+- `dev-init/shared` becomes a near-strict copy-sync mirror of dev-core; `intentional-fork` surface ≈ eliminated; drift / shotgun-surgery risk collapses.
+- The #268 board purge happens once (in the canonical) and propagates by sync, instead of twice across a fork.
+
+### Negative
+- A type-level abstraction is removed; a future skill wanting injectable GitHub access would re-introduce a port (cheap, and YAGNI until then).
+- One-time convergence + test trim + ADR-014 manifest/CLAUDE.md update.
+
+### Neutral
+- The dev-core ↔ dev-init duplication itself is unchanged and remains deliberate (ADR-002). This ADR reduces *divergence within* that duplication; it does not remove the duplication.
+- `WorkspacePort` and the remaining ports are untouched.

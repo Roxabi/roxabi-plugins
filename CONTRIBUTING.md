@@ -37,7 +37,6 @@ chore: bump biome to 2.0
 docs(plugins): update compress README
 ```
 
-- Always include `Co-Authored-By` when pair-programming with Claude
 - Scope: `plugins`, or a specific plugin name (`compress`, `vault`, `voice-me`)
 
 ## PR conventions

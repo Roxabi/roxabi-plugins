@@ -10,31 +10,12 @@ Usage:
 
 Commands:
   workspace    Manage workspace configuration and projects
-  issues       List, filter, and bulk-update issues across projects
-  triage       Interactive triage workflow for incoming issues
-  dashboard    Launch the live project dashboard
-
 Version: 0.1.0
 `.trim()
 
 switch (cmd) {
   case 'workspace': {
     await import('./commands/workspace').then((m) => m.run(rest))
-    break
-  }
-
-  case 'issues': {
-    await import('./commands/issues').then((m) => m.run(rest))
-    break
-  }
-
-  case 'triage': {
-    await import('./commands/triage').then((m) => m.run(rest))
-    break
-  }
-
-  case 'dashboard': {
-    await import('./commands/dashboard').then((m) => m.run(rest))
     break
   }
 

@@ -1,0 +1,230 @@
+# T2 Canonical taxonomy — review classes
+# Version: 1.0.0
+# Path: plugins/dev-core/skills/code-review/review-classes.yml
+#
+# Rules:
+#   - canonical classes: use exactly as listed (slug only, no free text)
+#   - candidate classes: prefix "candidate/<slug>", stored in ~/.dev-core/candidate-classes.jsonl
+#   - multi-tag: a finding may carry 0–N canonical tags + 0–1 candidate tag
+#   - raw_callsites: required when class is set; format: [{file: str, line: int}]
+#
+# Graduation (weekly cron):
+#   candidate/<slug> hit ≥3× / 30d across ≥2 distinct PRs → file PR to roxabi-plugins
+#   canonical class hit ≥5× / 90d → file issue (priority/high, blocks-merges)
+
+version: "1.0.0"
+
+classes:
+
+  # ── Roxabi-origin classes (RC-*) ────────────────────────────────────────────
+
+  - class: test-tautology
+    origin: RC-1
+    description: >
+      Test passes when the guard it validates is removed (tautological assertion).
+
+  - class: generator-drift
+    origin: RC-2
+    description: >
+      Hand-edit to a file that has a generator script (e.g. acl-matrix,
+      importlinter contracts, CONFIGURATION.md). The generator will overwrite
+      the manual change on next run.
+
+  - class: parallel-path-drift
+    origin: RC-3
+    description: >
+      Safety hardening applied to one entry point but not its sibling
+      (e.g. HTTP handler secured, WebSocket handler left open).
+
+  - class: bash-arithmetic-trap
+    origin: RC-4a
+    description: >
+      Bash arithmetic that silently corrupts exit codes: `((c++))` with `set -e`
+      (zero value exits the script) · `return >255` (truncated to 8-bit,
+      return 256 = return 0).
+
+  - class: bash-error-suppression
+    origin: RC-4b
+    description: >
+      Bash patterns that silently discard errors or coerce unexpected values:
+      `2>/dev/null` swallowing stderr · `jq -r` returning literal `"null"` string ·
+      `jq //` coercing `false` to a default value.
+
+  - class: target-axis-trap
+    origin: RC-5
+    description: >
+      Duplication along the non-primary axis of decomposition (N×M drift).
+      The same architectural concern (try/except, circuit breaker, retry,
+      log, sanitize) appears in ≥3 sibling target/adapter dirs instead of
+      being composed as a primary-axis primitive.
+      Threshold: ≥3 sibling dirs is the canonical trigger (the "three-strikes"
+      rule from shared/references/axial-decomposition.md — 2 = coincidence,
+      3+ = duplication that must be promoted to a shared primitive).
+      Detected against the project's axial ADR (`axial: true` frontmatter
+      in `docs/architecture/adr/`).
+    note: >
+      Subsumption: `parallel-path-drift` (RC-3) is the security-flavoured cousin
+      — when a hardening is on one entry point but not its sibling, prefer
+      `parallel-path-drift`. `target-axis-trap` is architectural (concern
+      duplicated across axis), not security (hardening missing on a sibling).
+      The pair MUST be mentioned together in any prose subsumption note —
+      enforced by `tools/validate_plugins.py --check subsumption-pairs`.
+
+  # ── OWASP classes ───────────────────────────────────────────────────────────
+
+  - class: shell-injection
+    origin: OWASP
+    description: >
+      `subprocess.run(..., shell=True)` (or equivalent) with user-derived input
+      reaching the shell string.
+
+  - class: sql-injection
+    origin: OWASP
+    description: >
+      String-concatenated SQL query with user-derived input; parameterized
+      queries not used.
+
+  - class: missing-error-handling
+    origin: OWASP
+    description: >
+      Uncaught coroutine exception · ignored `Result` / `Option` return value.
+      See `bare-except` for swallowed-exception patterns (`except: pass`, bare `except`).
+    note: >
+      Subsumption: when `bare-except` applies to a callsite, tag it as
+      `bare-except` only — omit `missing-error-handling` to prevent
+      double-counting graduation hits.
+
+  - class: missing-input-validation
+    origin: OWASP
+    description: >
+      External input (HTTP, CLI, env, file) reaches a sensitive sink
+      (filesystem, exec, DB, network) without prior validation or sanitization.
+
+  - class: secret-leak
+    origin: OWASP
+    description: >
+      Credentials, API keys, tokens, or private keys present in code, log
+      statements, or commit history.
+
+  - class: bare-except
+    origin: OWASP
+    severity: critical  # advisory only — no consumer reads severity in Slice 1; reserved for Slice 3 dispatch routing
+    description: >
+      `except Exception: pass` (or equivalent) swallowing errors without
+      logging or re-raising.
+    note: >
+      Strict subset of `missing-error-handling`. Always tag as `bare-except`
+      alone; omit `missing-error-handling` (see subsumption rule above).
+
+  - class: path-traversal
+    origin: OWASP
+    description: >
+      User-derived path passed to filesystem operations without normalization
+      or containment check (e.g. missing `Path.resolve()` + prefix assertion).
+
+  - class: unbounded-loop
+    origin: OWASP
+    description: >
+      Loop or recursion without a bound, timeout, or circuit-breaker; can
+      exhaust CPU or memory under adversarial or unexpected input.
+
+# ── Candidate namespace (runtime, per-machine) ──────────────────────────────
+#
+# Candidates are NOT listed here. They live in:
+#   ~/.dev-core/candidate-classes.jsonl
+#
+# Slug format: ^candidate/[a-z][a-z0-9-]{1,48}$  — enforced at write AND parse time.
+#   # total max 59 chars (10-char prefix "candidate/" + 1 required-start + up to 48-char suffix)
+#   Invalid slug → entry dropped + C(f) := 0. No path components, no whitespace.
+#
+# Schema per entry:
+#   { class: "candidate/<slug>", finding_id, pr: str (required), hit_at,
+#     agent_slug, spec_version: "1" }
+#
+#   spec_version: REQUIRED — Slice 5 implementation MUST reject entries lacking
+#     this field. Current value: "1".
+#
+#   pr: PR identifier (e.g. "146") or synthetic "local:<branch-slug>:<sha8>" for non-PR runs.
+#   branch-slug component: first/last chars MUST be alphanumeric ([a-z0-9]), interior
+#     may contain hyphens; max 60 chars total; slugify branch name
+#     (lowercase, non-[a-z0-9] chars → -, strip leading/trailing -).
+#   pr is REQUIRED — never null or absent.
+#
+#   pr write-time validation (enforced — see fix/SKILL.md → "F6 — write-time validation, candidate `pr` field"):
+#     regex: ^(local:[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?:[0-9a-f]{8}|[1-9][0-9]{0,9})$
+#     Numeric branch: [1-9][0-9]{0,9} — non-zero leading digit blocks 01/001 graduation-gate bypass;
+#       max 10 digits caps at ~10^10 covering all foreseeable GitHub PRs.
+#     Branch-slug: [a-z0-9]([a-z0-9-]{0,58}[a-z0-9])? — first/last chars MUST be alphanumeric,
+#       enforces strip-hyphen rule above; matches slugs of length 1–60.
+#     Enforced as a pre-write assertion at every candidate-classes.jsonl write site.
+#     On failure: entry dropped (no coercion, no fallback identity);
+#       D.append({tag: "candidate-pr-malformed", ...}) via Diagnostics Bus.
+#     Attack vectors blocked by this regex:
+#       - JSONL injection: sha8 containing \n{...} → manufactured graduation hits
+#       - shell injection: sha8 containing $(...) → code execution if pr interpolated unquoted
+#       - path-traversal: branch-slug containing / → mktemp path escape (per tempfile-convention.md)
+#       - zero-padded numeric bypass: "01" or "001" no longer matches numeric branch
+#     Graduation cron (Slice 2): enforce at write AND parse time; reject, never coerce.
+#
+#   Graduation rule "≥2 distinct PRs" counts distinct pr values where pr does NOT start
+#   with "local:". local:* hits count toward frequency (≥3×/30d) but not toward the
+#   ≥2-distinct-PRs promotion gate (advisory only).
+#
+# Findings tagged candidate/* are advisory only — never trigger recall.
+#
+# ── agent_slug: authorization field (NOT audit-only) ────────────────────────
+#
+# agent_slug is a CLOSED ENUMERATION of trusted identities. Graduation cron MUST
+# reject (drop, not coerce) any entry where agent_slug is absent or not in this list.
+#
+# Threat: a single subagent writing the same slug across ≥2 PRs 3× trivially
+# satisfies the graduation gate (hit ≥3×/30d, ≥2 distinct PRs). Restricting
+# writes to trusted identities raises the bar without requiring human sign-off
+# on every individual JSONL entry.
+#
+# Trusted agent identities — normative derivation (SSoT):
+#   trusted_agents := { name from each plugins/dev-core/agents/*.md }
+#   derivation: `grep -h '^name:' plugins/dev-core/agents/*.md | awk '{print $2}'`
+#   SSoT: agents/*.md (no other location is authoritative)
+#
+# Authoritative listing as of 30c092b (derived from agents/; do NOT update by hand
+# — re-run the derivation above):
+#   architect | backend-dev | devops | doc-writer | fixer
+#   frontend-dev | product-lead | security-auditor | tester
+#
+# Filter implementation (Slice 5 cron): MUST scan plugins/dev-core/agents/*.md at
+# runtime and extract name: fields — the inline listing above is documentation-only.
+# When recall.md (Slice 3) ships, no spec change is needed — the filter automatically
+# picks it up.
+#
+# Enforcement point: graduation cron (Slice 5 — docs/analysis-review-fix-strategy.md §4.3).
+# Until Slice 5 is implemented, this comment IS the binding spec.
+#
+# Failure mode: entry with unknown or absent agent_slug → dropped silently. This
+# is NOT the same as invalid slug: an invalid-slug entry also gets C(f) := 0 (never
+# processed far enough to produce a confidence score); an unknown agent_slug entry
+# is skipped at parse time, no JSONL re-write, audit log entry per the WARN
+# requirement below. No coercion, no fallback identity.
+#
+# Audit channel (REQUIRED — operator visibility without weakening the security gate):
+# The graduation cron MUST, per dropped entry (unknown or absent agent_slug):
+#   1. Emit a WARN-level log line including: raw agent_slug value + source PR identifier
+#      (e.g. "WARN: dropped entry pr=146 agent_slug=<raw-value> — not in trusted list")
+#   2. At end of each cron run, print: "N entries dropped (unknown agent_slug)"
+#      (the drop-count metric). N=0 → still print.
+# The silent-drop OUTCOME is preserved — no error surfaced to the entry writer,
+# no coercion, no fallback identity. The audit is for operators, not attackers.
+#
+# Belt-and-suspenders invariant (Option 2):
+# Graduation PRs MUST be human-reviewed before merge. No automation may auto-merge
+# a graduation PR. The assignee: @human field in the cron output (§4.3) is
+# mandatory, not advisory. Auto-merge on graduation PRs is explicitly forbidden.
+# Enforcement mechanism: TBD — Slice 5 acceptance MUST include a concrete mechanism
+# (branch protection rule on the PR's target ref disabling auto-merge, OR a runtime
+# check in the cron that refuses to file the PR if auto-merge is enabled). Until
+# then, this invariant is documentation-only.
+#
+# @human placeholder: @human is a placeholder — Slice 5 implementation MUST resolve
+# it to a concrete GitHub user, team handle, or CODEOWNERS entry before this spec
+# can be considered enforceable. The branch-protection rule (per above) is the
+# structural complement to this resolution.

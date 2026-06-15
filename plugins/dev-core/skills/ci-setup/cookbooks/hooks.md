@@ -41,7 +41,7 @@ Then skip Phase 2 (don't clobber existing setup without --force).
 Cases (for the resolved tool):
 - configFile ∃ + hooksInstalled=yes + ¬F → D("Pre-commit hooks", "✅ Already configured"), skip Phase 2.
 - configFile ∃ + hooksInstalled=no + ¬F → config exists but hooks not installed → skip to **2d-install-only** (run install without regenerating config).
-- configFile ∃ + F → AskUserQuestion: **Overwrite** (regenerate from stack.yml) | **Skip** (keep existing). Skip → D⏭("Pre-commit hooks"), stop Phase 2.
+- configFile ∃ + F → → DP(A): **Overwrite** (regenerate from stack.yml) | **Skip** (keep existing). Skip → D⏭("Pre-commit hooks"), stop Phase 2.
 - configFile ∄ → proceed to 2c (full setup).
 
 ### 2c — Offer setup

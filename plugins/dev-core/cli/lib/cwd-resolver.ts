@@ -1,9 +1,9 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
+// REPO_SLUG_RE — canonical slug regex defined in config-helpers.ts (owner must start alphanumeric,
+// no dots/underscores in owner; name allows dots/underscores after leading alphanumeric).
+import { REPO_SLUG_RE } from '../../skills/shared/adapters/config-helpers'
 import type { WorkspaceProject } from './workspace-store'
 
-// GitHub repo slugs: owner/name. First character of each segment must be alphanumeric
-// (matches GitHub's own rule that usernames and repo names cannot start with . - or _).
-const REPO_SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/
 // Cap on .roxabi marker size. Defense against memory-pressure from a crafted file planted on walk-up path.
 const ROXABI_MAX_BYTES = 64 * 1024
 
@@ -96,20 +96,10 @@ export function resolveCurrentProject(projects: WorkspaceProject[], cwd: string)
 }
 
 /**
- * Try to find the local clone of a repo.
- * Prefers cwd if it is the repo itself, otherwise scans common directories.
+ * Return cwd if it matches the requested repo slug.
+ * Users must provide --local <path> when their clone is not at cwd.
  */
 export function detectLocalPath(repo: string): string | undefined {
   const cwd = process.cwd()
-  if (resolveRepoFromCwd(cwd)?.toLowerCase() === repo.toLowerCase()) return cwd
-
-  const home = process.env.HOME
-  const [, name] = repo.split('/')
-  if (!home || !name) return undefined
-  // Reject path-traversal / hidden segments — the probe must stay inside $HOME.
-  if (name.includes('/') || name.includes('..') || name.startsWith('.')) return undefined
-  for (const dir of [`${home}/projects/${name}`, `${home}/${name}`, `${home}/src/${name}`]) {
-    if (existsSync(`${dir}/.git`)) return dir
-  }
-  return undefined
+  return resolveRepoFromCwd(cwd)?.toLowerCase() === repo.toLowerCase() ? cwd : undefined
 }

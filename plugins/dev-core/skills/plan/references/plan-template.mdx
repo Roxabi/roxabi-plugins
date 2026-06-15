@@ -71,6 +71,33 @@ flowchart LR
 |-------|-----------|-------|
 | {agent} | {N} | {comma-separated file list} |
 
+## Wave Structure
+
+{N} waves, max {K} parallel agents. Elapsed ~{X} weeks vs ~{Y} sequential.
+
+| Wave | Trigger | Agents | Tasks |
+|------|---------|--------|-------|
+| 1 | start | {K} ∥ | {agent-A}: T{n} · {agent-B}: T{m} |
+| 2 | Wave 1 done | {K} ∥ | {agent}: T{n}+T{m} |
+
+### Budget — per task
+
+| Task | Items | Class | Est. ops | Split? |
+|------|-------|-------|----------|--------|
+| {task name} | {N} | {class} | {ops} | — |
+| {large task} | {N} | judgmental | {ops} | YES → {T1a}/{T1b}/{T1c}/{T1d} |
+
+**Total estimated ops: {total}**
+
+### Budget — per agent instance
+
+Caps: `Σ ops > 50` OR `|tasks| > 4` OR `distinct subjects > 2` → split into new instance.
+
+| Instance | Tasks | Σ ops | Subjects | Split? |
+|----------|-------|-------|----------|--------|
+| {agent-A} | {T1, T2, T3} | {ops} | {subj1, subj2} | — |
+| {agent-B} | {T4, T5, T6, T7, T8} | {ops} | {subj1, subj2, subj3} | YES → {agent-B} + {agent-C} |
+
 ## Consistency Report
 
 - Criteria covered: {N}/{total}
@@ -113,3 +140,26 @@ flowchart LR
 ### Slice V2: {Description}
 
 ...
+
+## Task Seeding Blueprint
+
+<!-- Used by /implement to seed TaskCreate calls on session start.
+     Format: T{n} | agent-instance | blockedBy | subject
+     blockedBy refs T-numbers within this list (not session task IDs).
+     Agent instances are named (tester-A/B, backend-dev-A/B/C, devops-A/B)
+     so parallel tasks map to distinct spawned agents.
+     Seed in wave order; within a wave all rows are parallel (∥). -->
+
+### Wave 1 — no deps, {K} agents ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T1 | tester-A | — | {subject} |
+| T2 | backend-dev-A | — | {subject} |
+
+### Wave 2 — after Wave 1, {K} agents ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T3 | devops-A | T2 | {subject} |
+| T4 | tester-A | T3 | {subject} |

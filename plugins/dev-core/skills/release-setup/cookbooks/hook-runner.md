@@ -16,7 +16,7 @@ Install or skip hook runner setup.
 - Skip install step; proceed to Phase 3.
 
 `has_hook_runner = false` ∨ F:
-AskUserQuestion: **Lefthook** | **Husky** | **Skip**
+→ DP(A): **Lefthook** | **Husky** | **Skip**
 
 **Lefthook chosen, runtime = node/bun/deno (Node/TS):**
 1. Install (branch on `{package_manager}`):
@@ -78,16 +78,21 @@ AskUserQuestion: **Lefthook** | **Husky** | **Skip**
    repos:
      - repo: local
        hooks:
-         - id: ruff
-           name: ruff
-           language: python
-           entry: ruff check
-           types: [python]
-         - id: mypy
-           name: mypy
-           language: python
-           entry: mypy
-           types: [python]
+         - id: lint
+           name: lint
+           entry: uv run ruff check .
+           language: system
+           pass_filenames: false
+         - id: format
+           name: format
+           entry: uv run ruff format --check .
+           language: system
+           pass_filenames: false
+         - id: typecheck
+           name: typecheck
+           entry: uv run pyright
+           language: system
+           pass_filenames: false
    ```
 4. Install hooks: `bunx lefthook install` (or appropriate for package_manager).
 5. Install failure → D⚠("Hook runner") + continue to Phase 3.

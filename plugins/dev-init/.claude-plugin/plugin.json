@@ -1,0 +1,8 @@
+{
+  "name": "dev-init",
+  "description": "Project initialization harness — orchestrates env-setup, github-setup, ci-setup, release-setup.",
+  "author": {
+    "name": "Roxabi"
+  },
+  "license": "MIT"
+}

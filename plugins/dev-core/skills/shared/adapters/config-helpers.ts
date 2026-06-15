@@ -3,16 +3,14 @@
  * These are used by EnvConfigAdapter and re-exported from config.ts for backward compat.
  */
 
-import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import type { ProjectFieldIds } from '../domain/types'
-import type { WorkspaceProject } from '../ports/workspace'
+import { ConfigError } from '../domain/errors'
 
 /**
  * Load a config value from .claude/dev-core.yml with 3-tier fallback:
  *   1st: .claude/dev-core.yml (YAML key lookup)
  *   2nd: process.env[envKey]
- *   3rd: gh CLI auto-detect (github_repo, gh_project_id)
+ *   3rd: gh CLI auto-detect (github_repo)
  */
 function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
   // 1st: Try .claude/dev-core.yml
@@ -32,85 +30,62 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
   // 3rd: Auto-detect via gh CLI for supported keys
   if (key === 'github_repo') {
     try {
-      return execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', { encoding: 'utf-8' }).trim()
+      const proc = Bun.spawnSync(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+      if (proc.exitCode === 0) return new TextDecoder().decode(proc.stdout).trim()
     } catch {
       /* gh not available */
-    }
-  }
-
-  if (key === 'gh_project_id') {
-    try {
-      const repo = execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim()
-      if (repo) {
-        const [owner, name] = repo.split('/')
-        const query = `{ repository(owner: \\"${owner}\\", name: \\"${name}\\") { projectsV2(first: 1) { nodes { id } } } }`
-        const id = execSync(`gh api graphql -f query="${query}" --jq '.data.repository.projectsV2.nodes[0].id'`, {
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-        }).trim()
-        if (id && id !== 'null') return id
-      }
-    } catch {
-      /* gh not available or no project linked */
     }
   }
 
   return undefined
 }
 
+/**
+ * A GitHub repo slug: exactly `owner/repo`.
+ * Owner: alphanumeric + hyphen, must start with an alphanumeric character
+ * (GitHub username rule — dots/underscores not allowed in owner segment).
+ * Name: allows dots/underscores after a leading alphanumeric character.
+ * Callers do `detectGitHubRepo().split('/')` and expect exactly two non-empty segments.
+ */
+export const REPO_SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/
+
+/**
+ * Validate a candidate GitHub repo slug and throw a clear error if it doesn't match.
+ * Used by both the yaml/env path and the git-remote fallback in detectGitHubRepo().
+ */
+function assertValidRepoSlug(value: string): string {
+  if (!REPO_SLUG_RE.test(value)) {
+    throw new ConfigError(
+      `Invalid GitHub repo "${value}". Expected "owner/repo" format ` +
+        '(set github_repo in dev-core config or the GITHUB_REPO env var).',
+    )
+  }
+  return value
+}
+
 export function detectGitHubRepo(): string {
   const fromYamlOrEnv = loadDevCoreConfig('github_repo', 'GITHUB_REPO')
-  if (fromYamlOrEnv) return fromYamlOrEnv
+  if (fromYamlOrEnv) {
+    // Guard the yaml/env path: callers do `detectGitHubRepo().split('/')` and
+    // expect `owner/repo`. A bare value (e.g. `GITHUB_REPO=myrepo`) would slip
+    // through as a silent `undefined` repo → malformed GraphQL. Fail loud here.
+    return assertValidRepoSlug(fromYamlOrEnv)
+  }
   try {
     const proc = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], { stdout: 'pipe', stderr: 'pipe' })
     const url = new TextDecoder().decode(proc.stdout).trim()
     // SSH: git@github.com:owner/repo.git  |  HTTPS: https://github.com/owner/repo.git
     const match = url.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/)
-    if (match?.[1]) return match[1]
+    // Validate the extracted candidate — a malformed remote must not silently
+    // return a bad slug that callers would split('/') into garbage GraphQL args.
+    if (match?.[1]) return assertValidRepoSlug(match[1])
   } catch {}
-  throw new Error('Cannot detect GitHub repo. Set GITHUB_REPO env var or ensure git remote "origin" is configured.')
-}
-
-export const GH_PROJECT_ID = loadDevCoreConfig('gh_project_id', 'GH_PROJECT_ID') ?? ''
-export const STATUS_FIELD_ID = loadDevCoreConfig('status_field_id', 'STATUS_FIELD_ID') ?? ''
-export const SIZE_FIELD_ID = loadDevCoreConfig('size_field_id', 'SIZE_FIELD_ID') ?? ''
-export const PRIORITY_FIELD_ID = loadDevCoreConfig('priority_field_id', 'PRIORITY_FIELD_ID') ?? ''
-
-/** Parse a JSON string into a Record, falling back to the provided default. */
-function parseOptionsValue(raw: string | undefined, fallback: Record<string, string>): Record<string, string> {
-  if (!raw) return fallback
-  try {
-    return JSON.parse(raw) as Record<string, string>
-  } catch {
-    return fallback
-  }
-}
-
-export const STATUS_OPTIONS: Record<string, string> = parseOptionsValue(
-  loadDevCoreConfig('status_options_json', 'STATUS_OPTIONS_JSON'),
-  {},
-)
-export const SIZE_OPTIONS: Record<string, string> = parseOptionsValue(
-  loadDevCoreConfig('size_options_json', 'SIZE_OPTIONS_JSON'),
-  {},
-)
-export const PRIORITY_OPTIONS: Record<string, string> = parseOptionsValue(
-  loadDevCoreConfig('priority_options_json', 'PRIORITY_OPTIONS_JSON'),
-  {},
-)
-
-/** True when GH_PROJECT_ID and at least one option map are configured via env or YAML. */
-export function isProjectConfigured(): boolean {
-  return GH_PROJECT_ID !== '' && Object.keys(STATUS_OPTIONS).length > 0
-}
-
-export const FIELD_MAP: Record<string, { fieldId: string; options: Record<string, string> }> = {
-  status: { fieldId: STATUS_FIELD_ID, options: STATUS_OPTIONS },
-  size: { fieldId: SIZE_FIELD_ID, options: SIZE_OPTIONS },
-  priority: { fieldId: PRIORITY_FIELD_ID, options: PRIORITY_OPTIONS },
+  throw new ConfigError(
+    'Cannot detect GitHub repo. Set GITHUB_REPO env var or ensure git remote "origin" is configured.',
+  )
 }
 
 // CLI aliases — map loose user input to canonical option keys
@@ -138,12 +113,37 @@ export const PRIORITY_ALIASES: Record<string, string> = {
 
 // Canonical field option arrays — single source of truth for field creation and validation
 export const DEFAULT_STATUS_OPTIONS = ['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done']
-export const DEFAULT_SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL']
-export const DEFAULT_PRIORITY_OPTIONS = ['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low']
+// Tier-based sizes: S (simple), F-lite (subagents), F-full (agent team)
+export const DEFAULT_SIZE_OPTIONS = ['S', 'F-lite', 'F-full']
+export const PRIORITY_VALUES = ['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'] as const
+export const DEFAULT_PRIORITY_OPTIONS: string[] = [...PRIORITY_VALUES]
+export const DEFAULT_LANE_OPTIONS = [
+  'a1',
+  'a2',
+  'a3',
+  'b',
+  'c1',
+  'c2',
+  'c3',
+  'd',
+  'e',
+  'f',
+  'g',
+  'h',
+  'i',
+  'j',
+  'k',
+  'l',
+  'm',
+  'n',
+  'o',
+  'standalone',
+]
 
 const CANONICAL_STATUSES = new Set(DEFAULT_STATUS_OPTIONS)
 const CANONICAL_SIZES = new Set(DEFAULT_SIZE_OPTIONS)
 const CANONICAL_PRIORITIES = new Set(DEFAULT_PRIORITY_OPTIONS)
+export const CANONICAL_LANES = new Set(DEFAULT_LANE_OPTIONS)
 
 /** Resolve loose user input to a canonical status key, or undefined. */
 export function resolveStatus(input: string): string | undefined {
@@ -159,49 +159,30 @@ export function resolvePriority(input: string): string | undefined {
 
 /** Resolve loose user input to a canonical size key, or undefined. */
 export function resolveSize(input: string): string | undefined {
-  const upper = input.toUpperCase()
+  const upper = input.toUpperCase().replace(/[-\s]/g, '-')
+  // Tier-based schema (S / F-lite / F-full).
+  if (CANONICAL_SIZES.has(input)) return input
   if (CANONICAL_SIZES.has(upper)) return upper
+  // Legacy → new schema aliasing
+  if (upper === 'XS') return 'S'
+  if (upper === 'M') return 'F-lite'
+  if (upper === 'L' || upper === 'XL') return 'F-full'
+  // F-lite variations
+  if (upper === 'FLITE' || upper === 'F_LITE' || upper === 'F-LITE') return 'F-lite'
+  // F-full variations
+  if (upper === 'FFULL' || upper === 'F_FULL' || upper === 'F-FULL') return 'F-full'
   return
 }
 
-/**
- * Resolve field IDs for a project.
- * Uses project.fieldIds when present (per-project); falls back to .env for legacy single-project mode.
- * Throws when fieldIds is explicitly provided but status is missing.
- */
-export function resolveFieldIds(project: WorkspaceProject): ProjectFieldIds {
-  if (project.fieldIds && Object.keys(project.fieldIds).length > 0) {
-    if (!project.fieldIds.status) {
-      throw new Error(`[project ${project.label}] fieldIds.status is required`)
-    }
-    return project.fieldIds
-  }
-  // Fallback: build from .env (existing behavior)
-  // Empty fieldIds ({}) also falls through here — written by /init when field resolution fails.
-  console.warn(
-    `[dev-core] project "${project.label}" has no fieldIds — falling back to .env field IDs. Run /init to persist per-project field IDs.`,
-  )
-  return {
-    status: STATUS_FIELD_ID,
-    col2: SIZE_FIELD_ID,
-    col3: PRIORITY_FIELD_ID,
-    statusOptions: STATUS_OPTIONS,
-    col2Options: SIZE_OPTIONS,
-    col3Options: PRIORITY_OPTIONS,
-  }
-}
-
-/** Return the field ID for a given slot (col2 or col3), or undefined when absent. */
-export function fieldIdForSlot(project: WorkspaceProject, slot: 'col2' | 'col3'): string | undefined {
-  return resolveFieldIds(project)[slot]
+/** Resolve loose user input to a canonical lane key, or undefined. */
+export function resolveLane(input: string): string | undefined {
+  if (CANONICAL_LANES.has(input)) return input
+  return
 }
 
 // --- Exports consolidated from legacy config.ts shim ---
 
 export const GITHUB_REPO = detectGitHubRepo()
-
-export const NOT_CONFIGURED_MSG =
-  'GitHub Project V2 is not configured. Run `/init` to auto-detect project board settings.'
 
 export const PRIORITY_SHORT: Record<string, string> = {
   'P0 - Urgent': 'P0',
@@ -221,6 +202,37 @@ export const PRIORITY_LABEL_MAP: Record<string, string> = {
 /** Set of all priority label names (for stale label removal). */
 export const PRIORITY_LABELS_SET = new Set(Object.values(PRIORITY_LABEL_MAP))
 
+/** Map canonical size → GitHub label name. */
+export const SIZE_LABEL_MAP: Record<string, string> = {
+  S: 'size:S',
+  'F-lite': 'size:F-lite',
+  'F-full': 'size:F-full',
+}
+
+/** Set of all size label names (for stale label removal). */
+export const SIZE_LABELS_SET = new Set(Object.values(SIZE_LABEL_MAP))
+
+/** Map canonical lane → GitHub label name. */
+export const LANE_LABEL_MAP: Record<string, string> = Object.fromEntries(
+  DEFAULT_LANE_OPTIONS.map((lane) => [lane, `graph:lane/${lane}`]),
+)
+
+/** Set of all lane label names (for stale label removal). */
+export const LANE_LABELS_SET = new Set(Object.values(LANE_LABEL_MAP))
+
+/** Map canonical status → GitHub label name. */
+export const STATUS_LABEL_MAP: Record<string, string> = {
+  Backlog: 'status:Backlog',
+  Analysis: 'status:Analysis',
+  Specs: 'status:Specs',
+  'In Progress': 'status:In Progress',
+  Review: 'status:Review',
+  Done: 'status:Done',
+}
+
+/** Set of all status label names (for stale label removal). */
+export const STATUS_LABELS_SET = new Set(Object.values(STATUS_LABEL_MAP))
+
 export const STATUS_SHORT: Record<string, string> = {
   'In Progress': 'In Prog',
   Backlog: 'Backlog',
@@ -239,11 +251,9 @@ export const PRIORITY_ORDER: Record<string, number> = {
 }
 
 export const SIZE_ORDER: Record<string, number> = {
-  XL: 0,
-  L: 1,
-  M: 2,
-  S: 3,
-  XS: 4,
+  'F-full': 0,
+  'F-lite': 1,
+  S: 2,
   '-': 99,
 }
 

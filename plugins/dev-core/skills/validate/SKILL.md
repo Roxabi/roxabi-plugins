@@ -8,6 +8,11 @@ allowed-tools: Bash, Read
 
 # Validate
 
+## Success
+
+I := ∀ χ ∈ scope → σ = pass
+V := Report shows "Result: All checks passed"
+
 Let:
   χ := quality check (name, command from `{commands.*}`, timeout, result)
   σ := {✅ pass (exit 0), ❌ FAIL (exit ≠0), ⚠️ warn (exit 0 + warnings), ⏭ skip (¬in scope)}
@@ -16,13 +21,20 @@ Run all χ sequentially → single structured pass/fail report. ¬stop on first 
 
 ## Pipeline
 
-| Step | ID | Required | Notes |
-|------|----|----------|-------|
-| 1 | scope | ✓ | — |
-| 2 | run-checks | ✓ | continue-on-failure |
-| 3 | report | ✓ | — |
-| 4 | failure-details | — | ∃ failures |
-| 5 | verdict | ✓ | — |
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 1 | scope | ✓ | χ set defined | — |
+| 2 | run-checks | ✓ | exit codes captured | continue-on-failure |
+| 3 | report | ✓ | report printed | — |
+| 4 | failure-details | — | error lines shown | ∃ failures |
+| 5 | verdict | ✓ | pass/fail declared | — |
+
+## Pre-flight
+
+Success: ∀ χ ∈ scope → σ = pass
+Evidence: Report shows "Result: All checks passed"
+Steps: scope → run-checks → report → verdict
+¬clear → STOP + ask: "Quick or full validation?"
 
 ## Usage
 

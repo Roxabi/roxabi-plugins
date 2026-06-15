@@ -20,7 +20,32 @@
     }
   },
   "files": {
-    "includes": ["**/*.ts", "**/*.js", "!node_modules", "!plugins/web-intel/.venv", "!.cache"]
+    "includes": ["**/*.ts", "**/*.js", "!**/node_modules", "!**/.venv", "!**/.cache", "!.claude/worktrees"]
   },
-  "overrides": []
+  "overrides": [
+    {
+      "includes": [
+        "plugins/dev-init/skills/shared/adapters/config-helpers.ts",
+        "plugins/dev-init/skills/shared/adapters/env-config.ts",
+        "plugins/dev-init/skills/shared/adapters/workspace-store.ts",
+        "plugins/dev-init/skills/shared/domain/errors.ts",
+        "plugins/dev-init/skills/shared/domain/types.ts",
+        "plugins/dev-init/skills/shared/ports/artifacts.ts",
+        "plugins/dev-init/skills/shared/ports/config.ts",
+        "plugins/dev-init/skills/shared/prereqs.ts",
+        "plugins/dev-init/skills/shared/queries.ts",
+        "plugins/dev-init/skills/shared/types.ts",
+        "plugins/dev-init/skills/shared/adapters/github-infra.ts",
+        "plugins/dev-init/skills/shared/domain/parse-issue-ref.ts",
+        "plugins/dev-init/skills/shared/ports/workspace.ts",
+        "plugins/dev-init/skills/shared/adapters/github-adapter.ts"
+      ],
+      "formatter": {
+        "enabled": false
+      },
+      "linter": {
+        "enabled": false
+      }
+    }
+  ]
 }

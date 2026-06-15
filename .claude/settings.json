@@ -1,13 +1,29 @@
 {
-  "extraKnownMarketplaces": {
-    "roxabi-marketplace": { "source": { "source": "github", "repo": "Roxabi/roxabi-plugins" } },
-    "claude-plugins-official": { "source": { "source": "github", "repo": "anthropics/claude-plugins-official" } },
-    "agent-browser": { "source": { "source": "github", "repo": "vercel-labs/agent-browser" } }
-  },
   "enabledPlugins": {
     "dev-core@roxabi-marketplace": true,
     "compress@roxabi-marketplace": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "agent-browser@agent-browser": true
+    "typescript-lsp@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "roxabi-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "Roxabi/roxabi-plugins"
+      }
+    },
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
+      }
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "", "hooks": [
+        { "type": "command",
+          "command": "command -v bun >/dev/null 2>&1 || { echo 'SKIP: R3 drift check (bun not found)' >&2; exit 0; }; bun run sync:shared --check && bun run typecheck || echo 'R3 DRIFT: shared-source or typecheck drift detected — run `bun run sync:shared` then `bun run typecheck`' >&2" }
+      ] }
+    ]
   }
 }

@@ -2,11 +2,16 @@
 name: plan
 argument-hint: '[--issue <N> | --spec <path> | --audit]'
 description: Implementation plan — tasks, agents, file groups, dependencies. Triggers: "plan" | "plan this" | "implementation plan" | "break it down" | "plan this feature" | "how should we build this" | "make a plan" | "create a plan" | "break this down into tasks" | "task breakdown".
-version: 0.2.0
+version: 0.4.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
 # Plan
+
+## Success
+
+I := π written ∧ ## Task IDs section ∃
+V := `ls artifacts/plans/{N}-*.mdx` ∧ `grep "## Task IDs" artifacts/plans/{N}-*.mdx`
 
 Let:
   σ := spec artifact
@@ -23,6 +28,24 @@ Spec → micro-tasks → agent assignments → plan artifact.
 /plan --issue 42 --audit Show reasoning checkpoint before planning
 ```
 
+## Pipeline
+
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 1 | locate-spec | ✓ | σ ∃ | — |
+| 2 | plan | ✓ | τ + agents defined | — |
+| 3 | refs | — | ref paths noted | — |
+| 4 | micro-tasks | — | tasks ∃ in π | Tier F only |
+| 5 | write | ✓ | π ∃ | — |
+| 6 | approve | ✓ | `git log` shows commit | gate |
+
+## Pre-flight
+
+Success: π written ∧ ## Task IDs section ∃
+Evidence: `grep "## Task IDs" artifacts/plans/{N}-*.mdx`
+Steps: locate-spec → plan → refs → micro-tasks → write → approve
+¬clear → STOP + ask: "Do you have a spec to plan from?"
+
 ## Step 1 — Locate Spec
 
 `--issue N` → `ls artifacts/specs/N-*.mdx` → read full → extract title, criteria, files.
@@ -36,7 +59,7 @@ count > 0 → → DP(A) **Resolve now** | **Return to spec** | **Proceed anyway*
 
 ## Step 2 — Plan
 
-Read `docs/processes/dev-process.mdx` + σ.
+Read `${CLAUDE_PLUGIN_ROOT}/references/dev-process.md` + σ.
 
 ### Step 2a-pre — Reasoning Audit (optional)
 
@@ -46,7 +69,7 @@ Read `docs/processes/dev-process.mdx` + σ.
 
 **2a. Scope:** Glob + Grep → files to create/modify + reference features for patterns.
 
-**2b. Tier:** S | F-lite | F-full per dev-process.mdx. ∃ `artifacts/frames/` ∧ `tier` field → use it. Else assess from σ complexity.
+**2b. Tier:** S | F-lite | F-full per dev-process.md. ∃ `artifacts/frames/` ∧ `tier` field → use it. Else assess from σ complexity.
 
 **2c. Agents:**
 
@@ -62,10 +85,27 @@ Paths from stack.yml. ¬set → file domain heuristics (component/hook → FE; s
 Always: **tester**. Add: architect (new modules), security-auditor (auth/validation), doc-writer (new APIs).
 τ=S → skip agent assignment (single session).
 
-Intra-domain parallel: ≥4 independent tasks in 1 domain → multiple same-type agents (F-full only). Shared barrel files → merge into single agent.
+Intra-domain parallel: ≥3 independent tasks in 1 domain → multiple same-type agents (F-lite ∧ F-full). Shared barrel files → merge into single agent.
+
+**Subject-surface cap (per instance):** ∀ agent instance, tag each task with 1 subject (e.g. auth, cache, http, migrations, parser, dispatch). Distinct subjects per instance > 2 → **force-split** into a new instance (`backend-dev-A` → `backend-dev-A` + `backend-dev-B`). Reason: instance ≈ session ≈ context window — too many surfaces dilute focus and tail-degrade output.
 
 **2d. Tasks:** ∀ task: description, files, agent, dependencies, parallel-safe (Y/N).
 Order: types → backend → frontend → tests → docs → config.
+
+**Budget heuristic (ops estimate):** After listing tasks, classify each by cost class and compute estimated tool-call ops. Record in the plan artifact's Wave Structure section as a Budget Table.
+
+Cost classes:
+
+| Class | Ops/item | Examples |
+|-------|----------|---------|
+| `trivial` | 1–2 | string replace, single grep |
+| `bounded` | 2–3 | read + edit known file |
+| `judgmental` | 4–6 | read + context + judge + edit |
+| `exploratory` | 8–15 | open-ended cross-file search |
+
+Rules:
+1. **Per-task cap:** `estimated_total_ops > 50` for a task → **force-split** the task into smaller sub-tasks, or present a DP(A) **Split now** | **Keep as-is (flag)** decision before proceeding.
+2. **Per-instance cap:** after agent_instance assignment, aggregate ops per instance. `Σ ops/instance > 50` OR `|tasks/instance| > 4` OR `distinct subjects/instance > 2` → **force-split** into a new instance (`backend-dev-A` → `backend-dev-A` + `backend-dev-B`). This catches the case where each task is small but stacking 6 tasks on one agent overflows its context.
 
 **2e. Slice Selection (multi-slice only):** ≥2 slices → → DP(C) 1 option/slice `V{N}: {desc} ({files}, {agents})`.
 Default: next unimplemented slice. Respect deps. Re-run `/plan` for remaining.
@@ -100,6 +140,8 @@ See [references/micro-task-example.mdx](${CLAUDE_SKILL_DIR}/references/micro-tas
 | Time estimate | 2–5 min (up to 8–10 for atomic ops) |
 | `[P]` marker | Parallel-safe |
 | Agent | Owner |
+| Agent instance | Named owner (backend-dev-A, tester-B, ...) |
+| Subject | 1-word surface tag (auth, cache, http, parser, …) — used for per-instance subject-diversity cap |
 | Spec trace | SC-N ∨ U1→N1→S1 |
 | Slice | V1, V2, ... |
 | Phase | RED ∨ GREEN ∨ REFACTOR ∨ RED-GATE |
@@ -127,8 +169,10 @@ Include:
 - Architecture diagrams (mermaid, see below)
 - Bootstrap Context (from analysis if ∃, omit if ¬∃)
 - Agents table (agent, task count, files)
+- Wave Structure table (see below)
 - Consistency Report (covered/total, uncovered, untraced, exemptions)
 - Micro-Tasks (grouped by slice/criteria, with RED-GATE sentinels)
+- Task Seeding Blueprint (see below)
 
 ### Mermaid Diagrams
 
@@ -137,6 +181,86 @@ Include:
 2. **File × Function map** (`flowchart LR`) — functions/classes per file, call relationships. Group by source file. Show test files as consumers.
 
 Diagrams go AFTER Summary, BEFORE Bootstrap Context.
+
+### Wave Structure
+
+After micro-tasks, derive waves from the dependency graph. Name parallel agent instances (tester-A/B, backend-dev-A/B/C, devops-A/B) so `/implement` can spawn distinct agents per wave. Include this table in π:
+
+```markdown
+## Wave Structure
+
+{N} waves, max {K} parallel agents. Elapsed ~{X} weeks vs ~{Y} sequential.
+
+| Wave | Trigger | Agents | Tasks |
+|------|---------|--------|-------|
+| 1 | start | {K} ∥ | {agent-A}: T{n} · {agent-B}: T{m} |
+| 2 | Wave 1 done | {K} ∥ | ... |
+```
+
+After the wave table, include a **Budget Table** derived from Step 2d classification — both per-task AND per-instance rollups:
+
+```markdown
+### Budget — per task
+
+| Task | Items | Class | Est. ops | Split? |
+|------|-------|-------|----------|--------|
+| {task name} | {N} | {class} | {ops} | — |
+| {large task} | {N} | exploratory | {ops} | YES — split required |
+
+**Total estimated ops: {total}**
+
+### Budget — per agent instance
+
+| Instance | Tasks | Σ ops | Subjects | Split? |
+|----------|-------|-------|----------|--------|
+| backend-dev-A | T1, T2, T3 | 18 | auth, sessions | — |
+| backend-dev-B | T4, T5, T6, T7, T8 | 36 | cache, http, rate-limit | YES — \|tasks\|=5 > 4 ∧ subjects=3 > 2 |
+| tester-A | T9, T10 | 12 | auth | — |
+```
+
+Tasks marked `YES — split required` (either table) must be resolved (split or DP-approved) before the plan is finalized. Per-instance fails dominate: a single agent loaded with too many distinct subjects must be split even if each individual task is small.
+
+Rules:
+- Wave 1 = all tasks with no deps.
+- Wave N = tasks whose deps are all in earlier waves.
+- Tasks chained within a wave (A→B) on one agent instance → note as `T{n}→T{m}` in the Tasks column.
+- Include total elapsed estimate vs sequential.
+
+### Task Seeding Blueprint
+
+After `## Wave Structure`, include a `## Task Seeding Blueprint` section in π. This is the machine-readable input for `/implement` task seeding.
+
+```markdown
+## Task Seeding Blueprint
+
+<!-- Used by /implement to seed TaskCreate calls on session start.
+     Format: T{n} | agent-instance | blockedBy | subject
+     blockedBy refs T-numbers within this list (not session task IDs).
+     Agent instances are named (tester-A/B, backend-dev-A/B/C, devops-A/B)
+     so parallel tasks map to distinct spawned agents.
+     Seed in wave order; within a wave all rows are parallel (∥). -->
+
+### Wave 1 — no deps, {K} agents ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T1 | tester-A | — | {subject} |
+| T2 | backend-dev-A | — | {subject} |
+
+### Wave 2 — after Wave 1, {K} agents ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T3 | devops-A | T2 | {subject} |
+| T4 | tester-A | T3 | {subject} |
+```
+
+Rules:
+- One row per micro-task (including RED-GATE sentinels).
+- `blockedBy` = comma-separated T-numbers (within this blueprint, ¬task IDs).
+- `agent-instance` = named instance; same instance = same agent session in `/implement`.
+- Tasks that chain sequentially on the same agent instance (T11→T12) still get separate rows.
+- Wave heading comment states the trigger condition so `/implement` knows when to start each wave.
 
 ## Step 6 — Approve + Commit
 
@@ -147,34 +271,11 @@ On Approve → **immediately** continue to 6a (seed tasks), 6b (persist IDs), 6c
 
 ### Step 6a — Seed Claude Code Tasks
 
-∀ micro-task in π:
-
-```
-TaskCreate(
-  subject: "{task description}",
-  description: "{files}\n\nVerify: {verify_command}\nExpected: {expected_output}\nRef: {pattern_file}\nSpec trace: {spec_trace}",
-  activeForm: "{present-continuous form}",
-  metadata: {
-    kind: "plan-task",
-    issue: N,
-    plan: "{path to π}",
-    slice: "V{n}",
-    phase: "RED|GREEN|REFACTOR|RED-GATE",
-    agent: "{agent name}",
-    spec_trace: "{SC-N or U1→N1→S1}",
-    difficulty: {1-5},
-    parallel_safe: {true|false},
-  },
-)
-```
+∀ micro-task in π — use the canonical schema from [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/plan-task-schema.md) (SSoT for `TaskCreate` shape + `blockedBy` wiring).
 
 Cache returned id in {task# → task.id} map.
 
-**Dependencies:** ∀ micro-task: `TaskUpdate(id, addBlockedBy: [deps...])` where deps come from:
-1. Explicit `dependencies` field in the micro-task definition → map task numbers to task ids.
-2. Phase order within a slice: GREEN tasks blocked by their slice's RED tasks; REFACTOR blocked by GREEN; RED-GATE sentinels blocked by all RED in the slice.
-
-τ=S → still seed tasks (3–6 is typical) — gives visibility even in single-session flow. Skip phase-based dependency wiring when π has no slice structure.
+τ=S → still seed tasks (3–6 is typical). Skip wave/blueprint wiring when π has no slice structure.
 
 ### Step 6b — Persist Task IDs in Artifact
 
@@ -195,6 +296,8 @@ This lets `/implement` re-attach to tasks after a session restart (TaskList woul
 
 `git add artifacts/plans/{N}-{slug}-plan.mdx` + commit per CLAUDE.md Rule 5.
 
+→ Then **Exit** — approval lands on a compact pause (recommend `/compact` before `/implement`), ¬auto-chain. See Exit.
+
 ## Edge Cases
 
 Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
@@ -210,8 +313,8 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 
 - **Phase:** Build
 - **Predecessor:** `/spec` (artifact: `artifacts/specs/{N}-{slug}-spec.mdx`)
-- **Successor:** `/implement` (auto-chain after approval)
-- **Class:** gate (user approval of plan artifact required) → adv (auto-chain to `/implement`)
+- **Successor:** `/implement` (via compact pause — `/dev` Step 8b; ¬auto-chain for F-lite/F-full)
+- **Class:** gate (user approval of plan artifact required) → **pause** (compact recommendation before `/implement`)
 
 ## Task Integration
 
@@ -221,8 +324,14 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 
 ## Exit
 
-- **Approved via `/dev`:** run Steps 6a/6b/6c (seed tasks, persist IDs, commit) → return silently. ¬ask "proceed to /implement?". `/dev` re-scans and auto-chains to `/implement` **in the same turn** (no second prompt).
-- **Approved standalone:** print one line: `Approved. Next: /implement --issue N`. Stop.
+`/plan` runs only for τ ∈ {F-lite, F-full} (τ=S skips plan) → approval always lands on a **compact pause** before `/implement`.
+
+- **Approved via `/dev`:** run Steps 6a/6b/6c (seed tasks, persist IDs, commit) → return silently. ¬ask "proceed to /implement?". `/dev` re-scans → **Step 8b compact pause** (¬auto-chain): recommends `/compact` then `/implement` (or `/dev #N`) and stops the turn.
+- **Approved standalone:** print the compact recommendation + stop:
+  ```
+  ✓ Plan approved — {n} tasks seeded + committed.
+    Recommended: /compact → then /implement --issue {N}  (/dev #{N} ≡ /implement #{N})
+  ```
 - **Modify requested:** loop in-skill, re-present.
 - **Rejected/aborted:** return → `/dev` marks task `cancelled`.
 

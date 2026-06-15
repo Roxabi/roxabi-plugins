@@ -1,0 +1,304 @@
+/**
+ * Scaffold dev-core configuration files.
+ * Handles .env merge, .env.example, artifacts dirs, .gitignore.
+ */
+
+const fs = require('node:fs')
+
+export interface ScaffoldOpts {
+  githubRepo: string
+  vercelToken?: string
+  vercelProjectId?: string
+  vercelTeamId?: string
+  force: boolean
+}
+
+export interface ScaffoldResult {
+  devCoreYmlWritten: boolean
+  envWritten: boolean
+  envExampleWritten: boolean
+  shimWritten: boolean
+  shimPath: string
+  pathUpdated: boolean
+  pathFiles: string[]
+  artifactsCreated: boolean
+  gitignoreUpdated: boolean
+  envVarCount: number
+}
+
+interface EnvSection {
+  header: string
+  vars: Array<{ key: string; value: string; comment?: string }>
+}
+
+function buildDevCoreYml(opts: ScaffoldOpts): string {
+  const lines = [
+    '# dev-core plugin configuration',
+    '# 3-tier fallback: this file → process.env → gh CLI (github_repo only)',
+    `github_repo: ${opts.githubRepo}`,
+  ]
+  return `${lines.join('\n')}\n`
+}
+
+function buildDevCoreSections(opts: ScaffoldOpts): EnvSection[] {
+  const sections: EnvSection[] = [
+    {
+      header: '# --- dev-core: GitHub ---',
+      vars: [{ key: 'GITHUB_REPO', value: opts.githubRepo }],
+    },
+  ]
+
+  // Vercel section
+  const vercelVars: EnvSection['vars'] = [
+    { key: 'VERCEL_TOKEN', value: opts.vercelToken ?? '' },
+    { key: 'VERCEL_PROJECT_ID', value: opts.vercelProjectId ?? '' },
+    { key: 'VERCEL_TEAM_ID', value: opts.vercelTeamId ?? '' },
+  ]
+
+  if (opts.vercelToken || opts.vercelProjectId) {
+    sections.push({ header: '# --- dev-core: Vercel ---', vars: vercelVars })
+  } else {
+    sections.push({
+      header: '# --- dev-core: Vercel (optional) ---',
+      vars: vercelVars.map((v) => ({ ...v, comment: '# ' })),
+    })
+  }
+
+  return sections
+}
+
+const DEV_CORE_KEYS = new Set(['GITHUB_REPO', 'VERCEL_TOKEN', 'VERCEL_PROJECT_ID', 'VERCEL_TEAM_ID', 'GITHUB_TOKEN'])
+
+export function mergeEnv(existing: string, sections: EnvSection[], force: boolean): string {
+  // Remove existing dev-core lines
+  const lines = existing.split('\n')
+  const filtered: string[] = []
+  let inDevCoreBlock = false
+
+  for (const line of lines) {
+    if (line.startsWith('# --- dev-core:')) {
+      inDevCoreBlock = true
+      continue
+    }
+    if (inDevCoreBlock) {
+      const trimmed = line.trim()
+      // Still in block if it's a var we own, a comment, or empty
+      if (trimmed === '' || trimmed.startsWith('#')) continue
+      const eq = trimmed.indexOf('=')
+      if (eq > 0 && DEV_CORE_KEYS.has(trimmed.slice(0, eq))) continue
+      // Line doesn't belong to dev-core — end of block
+      inDevCoreBlock = false
+    }
+    filtered.push(line)
+  }
+
+  // Remove trailing empty lines
+  while (filtered.length > 0 && filtered[filtered.length - 1].trim() === '') {
+    filtered.pop()
+  }
+
+  // If not force, check for existing non-block dev-core vars
+  if (!force) {
+    const existingVars = new Map<string, string>()
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) continue
+      const eq = trimmed.indexOf('=')
+      if (eq > 0) existingVars.set(trimmed.slice(0, eq), trimmed.slice(eq + 1))
+    }
+    // Don't overwrite values that already exist
+    for (const section of sections) {
+      for (const v of section.vars) {
+        const existing = existingVars.get(v.key)
+        if (existing !== undefined && existing !== '') {
+          v.value = existing
+        }
+      }
+    }
+  }
+
+  // Build dev-core block
+  const devCoreLines: string[] = []
+  for (const section of sections) {
+    devCoreLines.push('', section.header)
+    for (const v of section.vars) {
+      if (v.comment) {
+        devCoreLines.push(`${v.comment}${v.key}=${v.value}`)
+      } else {
+        devCoreLines.push(`${v.key}=${v.value}`)
+      }
+    }
+  }
+
+  return [...filtered, ...devCoreLines, ''].join('\n')
+}
+
+function generateEnvExample(_opts: ScaffoldOpts): string {
+  const lines = [
+    '# --- dev-core: GitHub ---',
+    'GITHUB_REPO=owner/repo',
+    '',
+    '# --- dev-core: Vercel (optional — for dashboard deployments panel) ---',
+    'VERCEL_TOKEN=',
+    'VERCEL_PROJECT_ID=',
+    'VERCEL_TEAM_ID=',
+    '',
+    '# --- dev-core: GitHub token (optional — falls back to `gh auth token`) ---',
+    'GITHUB_TOKEN=',
+    '',
+  ]
+  return lines.join('\n')
+}
+
+export function mergeEnvExample(existing: string, newBlock: string): string {
+  const lines = existing.split('\n')
+  const filtered: string[] = []
+  let inDevCoreBlock = false
+
+  for (const line of lines) {
+    if (line.startsWith('# --- dev-core:')) {
+      inDevCoreBlock = true
+      continue
+    }
+    if (inDevCoreBlock) {
+      const trimmed = line.trim()
+      if (trimmed === '' || trimmed.startsWith('#')) continue
+      const eq = trimmed.indexOf('=')
+      if (eq > 0 && DEV_CORE_KEYS.has(trimmed.slice(0, eq))) continue
+      inDevCoreBlock = false
+    }
+    filtered.push(line)
+  }
+
+  while (filtered.length > 0 && filtered[filtered.length - 1].trim() === '') {
+    filtered.pop()
+  }
+
+  const prefix = filtered.length > 0 ? `${filtered.join('\n')}\n\n` : ''
+  return prefix + newBlock
+}
+
+const SHIM_CONTENT = `#!/bin/sh
+# Installed by dev-core /init — do not edit.
+# Auto-resolves the latest active dev-core plugin cache.
+BASE="$HOME/.claude/plugins/cache/roxabi-marketplace/dev-core"
+LATEST=""
+for d in $(ls -t "$BASE" 2>/dev/null); do
+  case "$d" in .*) continue ;; esac
+  [ -f "$BASE/$d/.orphaned_at" ] && continue
+  LATEST="$d" && break
+done
+if [ -z "$LATEST" ]; then
+  echo "dev-core plugin not found. Run: claude plugin install dev-core" >&2
+  exit 1
+fi
+exec bun "$BASE/$LATEST/cli/index.ts" "$@"
+`
+
+function resolveShimPath(): string {
+  const home = require('node:os').homedir()
+  // Prefer ~/.local/bin if it exists (standard XDG user bin), else ~/bin
+  const localBin = `${home}/.local/bin`
+  const homeBin = `${home}/bin`
+  if (fs.existsSync(localBin)) return `${localBin}/roxabi`
+  if (fs.existsSync(homeBin)) return `${homeBin}/roxabi`
+  return `${localBin}/roxabi` // will be created
+}
+
+function writeShim(): { written: boolean; path: string } {
+  const shimPath = resolveShimPath()
+  try {
+    const dir = shimPath.substring(0, shimPath.lastIndexOf('/'))
+    fs.mkdirSync(dir, { recursive: true, mode: 0o755 })
+    fs.writeFileSync(shimPath, SHIM_CONTENT, { mode: 0o755 })
+    return { written: true, path: shimPath }
+  } catch {
+    return { written: false, path: shimPath }
+  }
+}
+
+function addShimDirToPath(shimPath: string): { updated: boolean; files: string[] } {
+  const shimDir = shimPath.substring(0, shimPath.lastIndexOf('/'))
+  const home = require('node:os').homedir()
+  const exportLine = `\nexport PATH="${shimDir.replace(home, '$HOME')}:$PATH"\n`
+  const rcFiles = ['.bashrc', '.zshrc', '.profile'].map((f) => `${home}/${f}`)
+  const updated: string[] = []
+
+  for (const rc of rcFiles) {
+    try {
+      const existing = fs.existsSync(rc) ? fs.readFileSync(rc, 'utf8') : ''
+      if (existing.includes(shimDir) || existing.includes(shimDir.replace(home, '$HOME'))) continue
+      fs.appendFileSync(rc, exportLine)
+      updated.push(rc)
+    } catch {}
+  }
+
+  return { updated: updated.length > 0, files: updated }
+}
+
+export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
+  const result: ScaffoldResult = {
+    devCoreYmlWritten: false,
+    envWritten: false,
+    envExampleWritten: false,
+    shimWritten: false,
+    shimPath: '',
+    pathUpdated: false,
+    pathFiles: [],
+    artifactsCreated: false,
+    gitignoreUpdated: false,
+    envVarCount: 0,
+  }
+
+  // .claude/dev-core.yml (primary config)
+  fs.mkdirSync('.claude', { recursive: true })
+  fs.writeFileSync('.claude/dev-core.yml', buildDevCoreYml(opts))
+  result.devCoreYmlWritten = true
+
+  const sections = buildDevCoreSections(opts)
+
+  // .env (legacy fallback)
+  const existingEnv = fs.existsSync('.env') ? fs.readFileSync('.env', 'utf8') : ''
+  const newEnv = mergeEnv(existingEnv, sections, opts.force)
+  fs.writeFileSync('.env', newEnv)
+  result.envWritten = true
+  result.envVarCount = sections.reduce((acc, s) => acc + s.vars.length, 0)
+
+  // .env.example
+  const existingEnvExample = fs.existsSync('.env.example') ? fs.readFileSync('.env.example', 'utf8') : ''
+  const envExample = mergeEnvExample(existingEnvExample, generateEnvExample(opts))
+  fs.writeFileSync('.env.example', envExample)
+  result.envExampleWritten = true
+
+  // roxabi shim + PATH
+  const shim = writeShim()
+  result.shimWritten = shim.written
+  result.shimPath = shim.path
+  if (shim.written) {
+    const pathResult = addShimDirToPath(shim.path)
+    result.pathUpdated = pathResult.updated
+    result.pathFiles = pathResult.files
+  }
+
+  // artifacts/
+  for (const dir of ['artifacts/frames', 'artifacts/analyses', 'artifacts/specs', 'artifacts/plans']) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+  result.artifactsCreated = true
+
+  // .gitignore
+  try {
+    const gitignore = fs.existsSync('.gitignore') ? fs.readFileSync('.gitignore', 'utf8') : ''
+    const lines = gitignore.split('\n')
+    const additions: string[] = []
+    if (!lines.some((l: string) => l.trim() === '.env')) {
+      additions.push('.env')
+    }
+    if (additions.length > 0) {
+      fs.appendFileSync('.gitignore', `\n${additions.join('\n')}\n`)
+      result.gitignoreUpdated = true
+    }
+  } catch {}
+
+  return result
+}

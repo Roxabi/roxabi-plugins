@@ -33,4 +33,4 @@ artifacts/plans/{N}-{slug}-plan.mdx
 
 ## Chain position
 
-**Predecessor:** `/spec` | **Successor:** `/implement` (auto-chains after approval)
+**Predecessor:** `/spec` | **Successor:** `/implement` (via a compact pause after approval — `/dev` recommends `/compact` before building, then `/dev #N` ≡ `/implement #N`)

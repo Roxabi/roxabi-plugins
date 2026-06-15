@@ -2,11 +2,16 @@
 name: pr
 argument-hint: [--draft | --base <branch>]
 description: Create/update PRs with Conventional Commits title, issue linking & guard rails. Triggers: "create PR" | "open PR" | "submit PR" | "update PR" | "/pr --draft" | "open a pull request" | "make a PR" | "open pull request" | "submit a pull request" | "create a draft PR" | "raise a PR".
-version: 0.4.0
+version: 0.4.2
 allowed-tools: Bash, Read, Grep, ToolSearch
 ---
 
 # Pull Request
+
+## Success
+
+I := PR created ∧ pushed ∧ rebased on base
+V := `gh pr view {N}` ∧ `git log origin/${BASE}..HEAD` non-empty
 
 Let:
   β := `staging` (∃ origin/staging) ∨ `main`
@@ -16,6 +21,24 @@ Let:
 Β → PR: Conventional Commits title, issue linking, guard rails.
 
 **Flow: single continuous pipeline. ¬stop between steps. Stop only on: REFUSE, explicit Cancel, or Step 6 completion.**
+
+## Pipeline
+
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 1 | gather-state | ✓ | state JSON emitted | — |
+| 2 | guard-rails | ✓ | ¬REFUSE | — |
+| 3 | generate | ✓ | title + body ready | — |
+| 4 | create | ✓ | `gh pr create` success | — |
+| 5 | rebase | ✓ | `git push` success | — |
+| 6 | watch | — | — | inform only |
+
+## Pre-flight
+
+Success: PR created ∧ pushed ∧ rebased on base
+Evidence: `gh pr view {N}` returns valid PR
+Steps: gather-state → guard-rails → generate → create → rebase
+¬clear → STOP + ask: "Which branch are you PR-ing from?"
 
 ## Step 1 — Gather State
 
@@ -63,10 +86,7 @@ gh pr create --title "<title>" --body "<body>" --base ${BASE} [--draft]
 # --base <branch> if flag specified (overrides BASE)
 ```
 
-Display PR URL. ∃ N →
-```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <ISSUE_NUMBER> --status Review
-```
+Display PR URL.
 
 Updating existing PR → `gh pr edit <number> --title "<title>" --body "<body>"`.
 
@@ -96,6 +116,8 @@ git push --force-with-lease origin ${BRANCH}
 
 Inform: "CI is running on the PR — use `/ci-watch` to monitor it live."
 
+Merge path = gate-driven: `reviewed` label + auto-merge (`gh pr merge --auto --merge`). ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED — the gate decides, not the operator.
+
 ## PR Body Template
 
 ```markdown
@@ -117,13 +139,21 @@ Inform: "CI is running on the PR — use `/ci-watch` to monitor it live."
 - [ ] {how to verify}
 - [ ] {edge case}
 
-Closes #{N}
+## SC → Test Matrix
+
+(Insert the fenced SC→Test Matrix block emitted by `/implement` Step 6a — a chained run carries it in conversation context; for a standalone `/pr`, retrieve it from the implement summary or reconstruct from the spec SCs + landed tests. Tier S: omit this section entirely — see the Lifecycle note below.)
+
+| SC | Test(s) | Status |
+|----|---------|--------|
+| SC1: {text} | `{file} :: {test name}` | ⏳ not run |
+
+Fixes #{N}
 
 ---
 Generated with [Claude Code](https://claude.com/claude-code) via `/pr`
 ```
 
-Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue → omit Lifecycle + Closes.
+Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue → omit Lifecycle + Closes. S-tier → also omit SC → Test Matrix section.
 
 ## Options
 
@@ -152,6 +182,7 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 4. → DP(A) for all decisions (proceed despite warnings, edit)
 5. Always display PR URL after creation
 6. Rebase conflicts → abort + defer to user — ¬auto-resolve
+7. ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED — manual merge mid-CI cancels in-flight runs (`concurrency.cancel-in-progress`) and skips gates. Nominal path: `reviewed` label → auto-merge (`--merge`) on green.
 
 ## Chain Position
 

@@ -1,0 +1,58 @@
+[
+  {
+    "canonical": "plugins/dev-core/skills/shared/adapters/config-helpers.ts",
+    "targets": ["plugins/dev-init/skills/shared/adapters/config-helpers.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/domain/errors.ts",
+    "targets": ["plugins/dev-init/skills/shared/domain/errors.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/domain/types.ts",
+    "targets": ["plugins/dev-init/skills/shared/domain/types.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/adapters/env-config.ts",
+    "targets": ["plugins/dev-init/skills/shared/adapters/env-config.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/adapters/workspace-store.ts",
+    "targets": ["plugins/dev-init/skills/shared/adapters/workspace-store.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/ports/artifacts.ts",
+    "targets": ["plugins/dev-init/skills/shared/ports/artifacts.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/ports/config.ts",
+    "targets": ["plugins/dev-init/skills/shared/ports/config.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/prereqs.ts",
+    "targets": ["plugins/dev-init/skills/shared/prereqs.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/queries.ts",
+    "targets": ["plugins/dev-init/skills/shared/queries.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/types.ts",
+    "targets": ["plugins/dev-init/skills/shared/types.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/adapters/github-infra.ts",
+    "targets": ["plugins/dev-init/skills/shared/adapters/github-infra.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/domain/parse-issue-ref.ts",
+    "targets": ["plugins/dev-init/skills/shared/domain/parse-issue-ref.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/ports/workspace.ts",
+    "targets": ["plugins/dev-init/skills/shared/ports/workspace.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/adapters/github-adapter.ts",
+    "targets": ["plugins/dev-init/skills/shared/adapters/github-adapter.ts"]
+  }
+]

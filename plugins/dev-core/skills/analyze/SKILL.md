@@ -2,11 +2,16 @@
 name: analyze
 argument-hint: '[--issue <N> | --frame <path>]'
 description: Deep technical analysis — explore existing code, risks, alternatives. Triggers: "analyze" | "technical analysis" | "explore the problem" | "how deep is it" | "deep dive" | "investigate this" | "analyze this feature" | "what are the risks" | "explore the codebase" | "look into this".
-version: 0.2.0
+version: 0.3.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch
 ---
 
 # Analyze
+
+## Success
+
+I := α written ∧ committed ∧ shapes ∃
+V := `git log --oneline -1 | grep analysis` ∧ `ls artifacts/analyses/{N}-*.mdx`
 
 Let:
   α := artifacts/analyses/{N}-{slug}-analysis.mdx
@@ -24,6 +29,24 @@ Frame → analysis. Codebase exploration → expert review → user approval gat
 /analyze --issue N    → read frame for #N, produce α
 /analyze --frame path → read frame at path, produce α
 ```
+
+## Pipeline
+
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 0 | resolve | ✓ | φ ∃ | — |
+| 1 | scan | — | α ∃? | — |
+| 2 | explore | ✓ | α written | Glob+Grep+interview |
+| 2.5 | investigate | — | hypothesis resolved | optional spike |
+| 3 | review | — | agents return | ∥ spawn |
+| 4 | approval | ✓ | `git log` shows commit | gate |
+
+## Pre-flight
+
+Success: α written ∧ committed ∧ shapes ∃
+Evidence: `git log --oneline -1 | grep analysis`
+Steps: resolve → scan → explore → review → approval
+¬clear → STOP + ask: "Is this technical analysis or framing?"
 
 ## Step 0 — Resolve Input
 
@@ -140,9 +163,8 @@ Skip if ¬technical uncertainty in Step 2 findings.
 ∃ signals → → DP(A) **Spike now** (throwaway worktree, test hypothesis) | **Skip** (→ expert review).
 
 **Spike flow:**
-1. `EnterWorktree(name: "spike-{N}")` — creates isolated throwaway worktree
-2. Inside worktree: `git checkout -b spike/{N} origin/${BASE}` (where BASE = staging ∨ main)
-3. Investigate: minimal code, isolated test, confirm/reject hypothesis
+1. `EnterWorktree(name: "spike-{N}")` — creates isolated throwaway worktree on branch `spike-{N}`
+2. Investigate: minimal code, isolated test, confirm/reject hypothesis
 4. Report findings → incorporate into α
 5. `ExitWorktree(action: "remove", discard_changes: true)` — clean up throwaway worktree
 

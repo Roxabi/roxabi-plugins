@@ -1,0 +1,87 @@
+---
+title: "candidate-classes.jsonl write-site architecture — Expert Consensus"
+issue: 144
+status: consensus-reached
+date: 2026-05-07
+panel: architect, security-auditor, backend-dev
+confidence: high
+---
+
+## Problem
+
+The `/fix` skill and `falsification.md` both write entries to `candidate-classes.jsonl`.
+Each write site must: validate the `pr` field (F6 regex), emit a D.append on failure,
+assemble all required schema fields (`spec_version`, `finding_id`, `agent_slug`, `pr`,
+`hit_at`), and enforce the provenance constraint. With 2 write sites now and 2+ more
+incoming (graduation cron, Slice 5), inline duplication is the root cause of all
+schema drift, validation gaps, and provenance omissions surfaced in this review.
+
+## Panel
+
+| Agent | Focus |
+|---|---|
+| architect | Arch soundness, maintainability, cross-file contract |
+| security-auditor | Attack surface, JSONL injection, graduation gate bypass |
+| backend-dev | Implementation complexity, spec readability, sync path |
+
+## Consensus ρ
+
+**Create `plugins/dev-core/skills/fix/candidate-write-helper.md`** as the single canonical
+source for all `candidate-classes.jsonl` write sites.
+
+The helper owns:
+- F6 `pr` field regex + D.append template on failure
+- `pr = null → drop silently` rule
+- Schema assembly: `spec_version: "1"`, `finding_id` (sha8 of class+file+line), `agent_slug`, `pr`, `hit_at`
+- Provenance constraint (file/line MUST be statically known, never derived from entry content)
+
+Every write site calls: `per ${CLAUDE_SKILL_DIR}/candidate-write-helper.md`. Phase 0 halts if
+the helper is absent (same pattern as review-classes.yml).
+
+### Rationale
+
+All three panelists agreed on centralization. The only disagreement was file location
+(inline vs. separate file). Security-auditor and backend-dev recommend a separate file
+to avoid overloading SKILL.md and to make the write contract findable by future write-site
+authors without reading the full Phase 6 block.
+
+### Trade-offs
+
+- One extra file on the sync path (candidate-write-helper.md must be co-located in `fix/`)
+- Cross-file indirection: one hop for readers of any write site — acceptable, single-hop, explicit
+- Schema change in review-classes.yml → update helper → all write sites consistent atomically
+
+## Alternatives
+
+| ω | Proposed by | Rejected because |
+|---|-------------|------------------|
+| Inline F6 at each write site | current patched state | Guaranteed drift as write sites multiply; already demonstrated |
+| Named procedure embedded in SKILL.md §F6 | architect | SKILL.md already large; future write-site authors may not read Phase 6 first |
+| Runtime validator binary | security-auditor (rejected) | No shared runtime; disproportionate for a JSONL append op |
+| Split falsification into its own skill | backend-dev (rejected) | Tightly coupled to Phase 6; no standalone invocation value |
+
+## Dissent
+
+Architect preferred inline in SKILL.md §F6 to avoid a new file. Acknowledged that
+"cross-file indirection: one hop, explicit, acceptable" — concedes to majority.
+
+## Implementation Notes
+
+**Immediate blockers (before Slice 2 ships):**
+
+1. Add `pr = null → drop silently` to SKILL.md §F6 (currently only in falsification.md)
+2. Fix `phase: "fix"` → `phase: "1"` in SKILL.md §F6 D.append block (fires in Phase 1)
+3. Add provenance constraint prose to falsification.md D.append site
+
+**Slice work (new issue):**
+- Create `fix/candidate-write-helper.md`
+- Update SKILL.md §F6 and falsification.md to reference it instead of inlining
+- Add Phase 0 halt for missing helper
+- Graduation cron (Slice 5) uses helper, not inline block
+
+**Lane B / pattern-class:** keep as TODO note in Phase 6; defined when Slice 3 (targeted recall) lands.
+
+## Next
+
+Open issue: `refactor(fix): extract candidate-write-helper.md — single write-site SSoT`
+Then: Slice 5 implementation references the helper from day 1.

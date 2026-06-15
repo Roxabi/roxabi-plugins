@@ -31,6 +31,10 @@ Triggers: `"stack setup"` | `"setup stack"` | `"configure stack"` | `"fill stack
 3. **Confirm** — displays detected configuration table; lets you edit any field before writing.
 4. **Write** — creates `.claude/stack.yml` (committed with project), prepends `@.claude/stack.yml` to CLAUDE.md, creates `.claude/stack.yml.example` (reference template).
 
+## Python quality gates
+
+On Python runtime, the wizard emits a full `quality_gates:` section in the generated `.claude/stack.yml` — three sub-blocks (`file_length`, `folder_size`, `import_layers`), all `enabled: true` by default, with `import_layers` running at the pre-push stage. The section is opt-in at the block level: an absent `quality_gates:` key disables all gates with no further configuration needed. To actually install the hooks and enforcement scripts, run `/release-setup --force` using the [quality-gates cookbook](../release-setup/cookbooks/quality-gates.md).
+
 ## Mixed-stack monorepos
 
 For projects with both JS/TS and Python, generates a `formatters:` array instead of a single `formatter_fix_cmd`:

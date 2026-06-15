@@ -5,7 +5,7 @@ description: Documents the port/adapter/domain boundary decisions, shim strategy
 
 ## Status
 
-Accepted
+Accepted. **Partially superseded by [ADR-015](015-direct-call-over-role-interface-ports-typescript.mdx) for the TypeScript (dev-core/dev-init) layer** — the role interfaces `IssuePort`/`ProjectPort` and the `services` DI composition root were consolidated back to direct-call standalone functions in #192. The **Python-plugin** decisions in this ADR (`EntryRepository`, `SearchPort`, `FetcherPort`, `StoragePort`, `ConfigLoader[T]`, per-plugin `PluginError`) remain in force.
 
 ## Context
 

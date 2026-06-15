@@ -263,8 +263,6 @@ Readme Upgrade Complete
 "Commit" → `git add ${EDITED}` + commit:
 ```
 docs: improve readme and contributing quality
-
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ```
 
 ## Edge Cases

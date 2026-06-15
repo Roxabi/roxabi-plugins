@@ -2,11 +2,16 @@
 name: dev
 argument-hint: '[#N | "idea" | --from <step> | --audit]'
 description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "work on #" | "develop" | "pick up issue" | "tackle issue" | "let's work on".
-version: 0.2.0
+version: 0.3.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
 # Dev
+
+## Success
+
+I := ∀ steps ∈ pipeline → done ∨ skipped (per tier) ∧ issue closed
+V := TaskList: all `status: completed` ∨ Σ.step == true ∨ should_skip(step)
 
 Let:
   N    := issue number
@@ -17,9 +22,10 @@ Let:
   S*   := next step to execute
   φ    := frame artifact
   gate := {frame, spec, plan}
-  adv  := {triage, analyze, implement, pr, ci-watch, validate, review, fix, cleanup}
+  adv  := {analyze, implement, pr, ci-watch, validate, review, fix, cleanup}
   ψ_r(P) ⟺ P.comments ∃ body: "## Code Review"
   ψ_f(P) ⟺ P.comments ∃ body: "## Review Fixes Applied"
+  bar   := output must read as hand-authored by a dev-core maintainer — match surrounding idiom, naming, comment density; calibrate against `plugins/dev-core/`; QG (format/lint/typecheck/test) = mechanical floor, ¬the bar
 
 Single entry point: scan artifacts → detect state → show progress → delegate to step skill → loop.
 ¬rewrite step skill logic. ¬auto-advance phases. Present decision at each gate via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A).
@@ -54,7 +60,8 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 
 | Step | Required artifacts |
 |------|-------------------|
-| frame | issue (triage) |
+| recheck | issue — no on-disk prereq; always runs from session state |
+| frame | issue |
 | analyze | `artifacts/frames/{N}-{slug}-frame.mdx` or `artifacts/frames/{slug}-frame.mdx` (approved) |
 | spec | `artifacts/frames/{slug}-frame.mdx` or `artifacts/analyses/{N}-{slug}-analysis.mdx` |
 | plan | `artifacts/specs/{N}-{slug}-spec.mdx` |
@@ -73,12 +80,12 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
 φ ∃ → read frontmatter → extract `status`, `tier`.
 
 Σ = {
-  triage:    issue ∃,
+  recheck:   null,       # Σ_s only — runs every session, no on-disk state
   frame:     φ ∃ ∧ φ.status == 'approved',
   analyze:   analysis artifact ∃,
   spec:      spec artifact ∃,
   plan:      plan artifact ∃,
-  implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ branch has commits beyond staging,
+  implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ git diff --name-only origin/staging..HEAD | grep -v '^artifacts/' is non-empty,
   pr:        PR ∃,
   ci-watch:  null,       # Σ_s only
   validate:  null,       # Σ_s only
@@ -108,7 +115,7 @@ Claude Code task list drives in-session progress for the dev pipeline. Treat it 
 
 Ordered step list:
 ```
-triage → frame → analyze → spec → plan → implement → pr →
+recheck → frame → analyze → spec → plan → implement → pr →
 ci-watch → validate → review → fix → promote → cleanup
 ```
 
@@ -117,7 +124,7 @@ ci-watch → validate → review → fix → promote → cleanup
 ```
 TaskCreate(
   subject: "{step} — #{N} {title}",
-  description: "{one-line step purpose from dev-process.mdx}",
+  description: "{one-line step purpose from dev-process.md}",
   activeForm: "{present-continuous of step} #{N}",
   metadata: {
     kind: "dev-pipeline",
@@ -147,7 +154,7 @@ Wire dependencies sequentially — ∀ i > 0: `TaskUpdate(task[i].id, addBlocked
 → Next: {S*} — {one-line description}
 ```
 
-Bar: `██`=done/skipped, `░░`=pending. Phases: Frame:{triage,frame} | Shape:{analyze,spec} | Build:{plan,implement,pr} | Verify:{ci-watch,validate,review,fix} | Ship:{promote,cleanup}
+Bar: `██`=done/skipped, `░░`=pending. Phases: Frame:{recheck,frame} | Shape:{analyze,spec} | Build:{plan,implement,pr} | Verify:{ci-watch,validate,review,fix} | Ship:{promote,cleanup}
 
 Status: `✓ {name}` (done) | `skipped` | `pending` | `→ next`.
 
@@ -155,7 +162,7 @@ Status: `✓ {name}` (done) | `skipped` | `pending` | `→ next`.
 
 ```
 should_skip(step, τ, Σ):
-  triage   ∧ Σ.triage                    → skip (already done)
+  recheck                                 → false (never skipped — explicit decision per frame #181)
   frame    ∧ τ == S                       → skip
   analyze  ∧ τ ∈ {S, F-lite}             → skip (frame sufficient)
   spec     ∧ τ == S                       → skip
@@ -173,7 +180,7 @@ should_skip(step, τ, Σ):
 
 ```
 STEPS = [
-  (Frame,  triage,    issue-triage),
+  (Frame,  recheck,   recheck),
   (Frame,  frame,     frame),
   (Shape,  analyze,   analyze),
   (Shape,  spec,      spec),
@@ -197,23 +204,43 @@ Walk: Σ[step] == true ∨ Σ_s[step] == true ∨ should_skip(step) ⇒ done/ski
 
 | Gate trigger | Behavior |
 |-------------|----------|
-| S* == frame (Σ.triage ∧ ¬Σ.frame) | Show φ if ∃ draft, ask approval |
+| S* == frame (¬Σ.frame) | Show φ if ∃ draft, ask approval |
 | S* == spec (Σ.frame ∧ ¬Σ.spec) | Gate after spec runs |
-| S* == plan (Σ.spec ∧ ¬Σ.plan) | Gate after plan runs |
+| S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ == F-full | Architecture sketch (see block below) → user confirm → THEN invoke /plan. ¬fires for τ ∈ {S, F-lite}. |
+| S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ ∈ {S, F-lite} | Gate after plan runs |
 | S* == review | Post-review gate handled inside /code-review |
 
 Gate fires → Step 7 skips its own prompt (gate IS confirmation). ¬double-prompt.
+
+### Architecture Sketch Gate (F-full only, pre-plan)
+
+**Trigger:** S* == plan ∧ τ == F-full ∧ ¬Σ.plan — fires BEFORE invoking `/plan`. ¬fires for τ ∈ {S, F-lite}.
+
+Present a concise architecture sketch covering four elements:
+- **(a) Component boundaries** — enumerate modules/packages/services involved and their single responsibility
+- **(b) Data flow per layer** — how data moves from entry point through each layer to persistence/output
+- **(c) State ownership** — which component owns each piece of mutable state; ¬shared-mutable across boundaries
+- **(d) Integration points** — external systems, APIs, events, or side-effects touched by this change
+
+→ → DP(A) **Confirm sketch → proceed to /plan** | **Revise sketch** (max 2 rounds) | **Abort**
+
+User confirm received → invoke `skill: "plan"` (Step 7). This gate runs earlier than (and is distinct from) the post-plan compact pause (Step 8b).
 
 ## Step 6b — Reasoning Audit (optional)
 
 **Trigger:** `--audit` ∨ S* ∈ `workflow.reasoning_audit` (stack.yml). critical := {spec, plan, implement}.
 
 audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Gate ∃ for S* → audit **replaces** it (¬double-prompt). ¬pass `--audit` to child skills.
+**Exception — F-full architecture sketch (R7a):** `--audit` NEVER replaces the architecture-sketch gate; sketch always fires for τ == F-full ∧ S* == plan, even when reasoning audit runs (two separate prompts: sketch → confirm, then audit → proceed).
 → → DP(A) **Proceed** | **Adjust approach** (max 3 rounds) | **Abort** (→ skipped, Step 5)
 
 ¬audit ∨ S* ∉ critical → skip (Step 6 gate still applies).
 
 ## Step 7 — Execute Step
+
+**Worktree bootstrap (silent pre-step):** `worktree` == false ∧ S* ∈ {frame, analyze, spec, plan, implement} → invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first. After return, re-scan `worktree`. Still false → present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Retry** | **Abort**.
+
+**Artifact sync (post-bootstrap):** If S* ∈ {frame, analyze, spec, plan} and the repo principal has artifacts that the worktree lacks (e.g. from a prior standalone run) → `rsync -a ../../../artifacts/ ./artifacts/` (idempotent, preserves future commits).
 
 **Before invocation:** `TaskUpdate(task_id_map[S*], status: "in_progress")`. ¬∃ id → `TaskCreate` on-the-fly (drift safety net: a step not seeded in 2b that became active later).
 
@@ -235,12 +262,12 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 
 | Step | Class | Skill invocation | On success → |
 |------|-------|------------------|--------------|
-| triage | adv | `skill: "issue-triage", args: "N"` | frame |
-| frame | gate | `skill: "frame", args: "--issue N"` | analyze (F-full) ∨ spec (F-lite) |
-| analyze | adv | `skill: "analyze", args: "--issue N"` | spec |
-| spec | gate | `skill: "spec", args: "--issue N"` | plan |
-| plan | gate | `skill: "plan", args: "--issue N"` | implement (auto-chain after approval) |
-| implement | adv | `skill: "implement", args: "--issue N"` | pr |
+| recheck | adv | `skill: "recheck", args: "--from-dev #N"` | frame |
+| frame | gate | `skill: "frame", args: "{N:+--issue $N}"` | analyze (F-full) ∨ spec (F-lite) |
+| analyze | adv | `skill: "analyze", args: "{N:+--issue $N}"` | spec |
+| spec | gate | `skill: "spec", args: "{N:+--issue $N}"` | plan |
+| plan | gate | `skill: "plan", args: "{N:+--issue $N}"` | implement — via Step 8b compact pause (F-lite/F-full; ¬auto-chain) |
+| implement | adv | `skill: "implement", args: "{N:+--issue $N}"` | pr |
 | pr | adv | `skill: "pr"` (auto-detects branch + issue) | ci-watch |
 | ci-watch | adv | `skill: "ci-watch", args: "--pr {PR#}"` | validate |
 | validate | adv | `skill: "validate"` | code-review |
@@ -260,7 +287,8 @@ Skill returns → **IMMEDIATELY in the same turn, silently:**
 1. `TaskUpdate(task_id_map[S*], status: "completed")`
 2. `Σ_s[step] = true`
 3. Goto Step 1 (re-scan Σ)
-4. Execute Step 7 for new S*
+4. **Compact pause** (Step 8b) — completed step == plan ∧ τ ∈ {F-lite, F-full} ∧ new S* == implement → present pause, **STOP this turn** (¬Step 7).
+5. Execute Step 7 for new S*
 
 **¬write** "Step X complete" message between skill return and re-scan.
 **¬write** "Moving to Y" message between re-scan and Step 7.
@@ -270,16 +298,38 @@ Skill returns → **IMMEDIATELY in the same turn, silently:**
 Skill fails/aborts → leave task `in_progress` → present recovery decision via protocol (Pattern A): **Retry** | **Skip** | **Abort**.
 Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix).
 Session restart → Σ_s = ∅ → artifact-less steps re-run. 2b.1 will find the existing tasks (status possibly `completed` from last run) and skip re-seeding.
-gate → re-scan detects updated artifact → Step 6 gate → Step 7 immediately (¬second prompt).
+gate → re-scan detects updated artifact → Step 6 gate → Step 7 immediately (¬second prompt). **Exception:** completed gate == plan ∧ τ ∈ {F-lite, F-full} → Step 8b compact pause (¬Step 7 this turn).
 adv → re-scan → Step 7 immediately.
+
+## Step 8b — Compact Pause (plan→implement, F-lite/F-full)
+
+**Trigger:** in Step 8, the step that just completed == `plan` ∧ τ ∈ {F-lite, F-full} ∧ new S* == `implement`.
+τ=S never reaches here — `plan` is skipped, so the pipeline goes straight to `implement` with no pause.
+
+**Why:** `/plan` consumed heavy context (spec read, scope glob/grep, micro-task generation, mermaid). `/implement` spawns fresh agents whose context is injected from the task list + plan artifact — the planning conversation is dead weight. Tasks persist (task list + plan artifact `## Task IDs`); `/implement` Step 1b re-attaches after a context reset. `/compact` = soft restart → safe.
+
+**Behavior:** do **NOT** auto-chain to `/implement`. Print the recommendation block below and **STOP this turn** (Claude cannot invoke `/compact` — it is user-typed):
+
+```
+✓ Plan approved — {n} tasks seeded + committed ({τ}).
+  Tasks persist (task list + plan artifact ## Task IDs) → safe to compact.
+
+  Recommended before building:
+    1. /compact          clear planning context
+    2. /dev #{N}         resume → re-attaches tasks → ≡ /implement #{N}
+
+  Skip compact? → /implement --issue {N} directly.
+```
+
+**Re-fire guard:** the pause is keyed to *plan having just run this turn*, not to *implement being next*. On the resume turn (`/dev #{N}` after `/compact`), `/dev` did not execute `plan` (Σ.plan already true on disk) → Step 8b does not apply → Step 7 invokes `/implement` directly, no second prompt.
 
 ## Phases + Gate Summary
 
 | Phase | Steps | Gate after |
 |-------|-------|-----------|
-| Frame | triage → frame | frame approval (status: approved) |
+| Frame | recheck → frame | frame approval (status: approved) |
 | Shape | analyze → spec | spec approval |
-| Build | plan → implement → pr | plan approval (then auto-chains implement → pr) |
+| Build | plan → implement → pr | plan approval → compact pause (F-lite/F-full, Step 8b) before implement → pr |
 | Verify | ci-watch → validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /code-review Phase 8). |
 | Ship | promote → cleanup | promote always skipped. cleanup runs if worktree/branches stale. |
 
@@ -287,7 +337,7 @@ adv → re-scan → Step 7 immediately.
 
 | Step | S | F-lite | F-full |
 |------|---|--------|--------|
-| triage | run | run | run |
+| recheck | run | run | run |
 | frame | skip | run + gate | run + gate |
 | analyze | skip | skip | run |
 | spec | skip | run + gate | run + gate |

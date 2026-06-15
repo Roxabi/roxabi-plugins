@@ -16,7 +16,7 @@ Single entry point for the full dev lifecycle — scan artifacts, detect state, 
 
 ## How it works
 
-`/dev` scans existing artifacts (frames, analyses, specs, plans, worktrees, PRs) to determine where you left off, then drives the pipeline step by step without re-running completed work.
+`/dev` scans existing artifacts (frames, analyses, specs, plans, worktrees, PRs) to determine where you left off, then drives the pipeline step by step without re-running completed work. Between issue triage and framing, /dev runs /recheck — a drift check that catches stale issues (git/symbol/dep drift) before any artifact is written.
 
 Pipeline phases:
 

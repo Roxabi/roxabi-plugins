@@ -65,8 +65,7 @@ function getWarningKey(file, ruleId) {
   return `${toRelativePath(file)}:${ruleId}`
 }
 
-function checkContent(content, filePath) {
-  const state = loadState()
+function checkContent(content, filePath, state) {
   const blocked = []
 
   for (const rule of SECURITY_PATTERNS) {
@@ -80,7 +79,6 @@ function checkContent(content, filePath) {
     rule.pattern.lastIndex = 0
   }
 
-  saveState(state)
   return blocked
 }
 
@@ -101,7 +99,14 @@ function main() {
       process.exit(0)
     }
 
-    const blocked = checkContent(content, filePath)
+    const state = loadState()
+    const warningsBefore = Object.keys(state.warnings).length
+    const blocked = checkContent(content, filePath, state)
+    const dirty = Object.keys(state.warnings).length > warningsBefore
+
+    if (dirty) {
+      saveState(state)
+    }
 
     if (blocked.length > 0) {
       console.log(
@@ -111,7 +116,8 @@ function main() {
         }),
       )
     }
-  } catch {
+  } catch (e) {
+    process.stderr.write(`security-check: ${e?.message ? e.message : String(e)}\n`)
     process.exit(0)
   }
 }

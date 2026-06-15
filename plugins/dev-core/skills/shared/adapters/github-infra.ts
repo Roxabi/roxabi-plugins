@@ -1,46 +1,85 @@
 /**
- * GitHub infrastructure constants — standard labels, workflows, secrets,
- * branch protection rules, and rulesets used by /init and /checkup.
- *
- * Dependency direction: github-infra → github-adapter (clean, no cycle).
+ * GitHub infrastructure constants — workflows, secrets, branch protection
+ * rules, and rulesets used by /init and /checkup (repo hardening).
  */
 
-import { PRIORITY_LABEL_MAP, PRIORITY_LABELS_SET } from './config-helpers'
-
-export interface LabelDef {
-  name: string
-  color: string
-  description: string
-  category: 'type' | 'area'
-}
-
-export const STANDARD_LABELS: LabelDef[] = [
-  { name: 'bug', color: 'd73a4a', description: "Something isn't working", category: 'type' },
-  { name: 'feature', color: '0075ca', description: 'New functionality', category: 'type' },
-  { name: 'enhancement', color: 'a2eeef', description: 'Improve existing functionality', category: 'type' },
-  { name: 'docs', color: '5319e7', description: 'Documentation only', category: 'type' },
-  { name: 'chore', color: 'ededed', description: 'Maintenance, deps, config', category: 'type' },
-  { name: 'research', color: 'd4c5f9', description: 'Investigation or spike', category: 'type' },
-  { name: 'frontend', color: '1d76db', description: 'Frontend', category: 'area' },
-  { name: 'backend', color: 'e99695', description: 'Backend', category: 'area' },
-  { name: 'infra', color: 'f9d0c4', description: 'Infrastructure', category: 'area' },
-  { name: 'api', color: 'bfd4f2', description: 'API', category: 'area' },
-  { name: 'design', color: 'c5def5', description: 'Design', category: 'area' },
-]
+import { ConfigError } from '../domain/errors'
 
 export const STANDARD_WORKFLOWS = ['ci.yml', 'auto-merge.yml', 'pr-title.yml', 'deploy-preview.yml'] as const
 
-/** Secrets required by standard workflows. auto-merge.yml needs PAT. */
-export const REQUIRED_SECRETS: Record<string, string> = {
-  'auto-merge.yml': 'PAT',
+/**
+ * Token mode for CI workflows.
+ *   github-app — ephemeral installation token via roxabi-ci App (default for org repos).
+ *   pat         — legacy PAT (fallback for solo/non-org repos); emits a retirement banner.
+ */
+export type TokenMode = 'github-app' | 'pat'
+
+/**
+ * SHA-pinned mint step for the roxabi-ci GitHub App.
+ * Consumers reference `${{ steps.app.outputs.token }}`.
+ * NEVER use a floating tag — pin is bcd2ba49218906704ab6c1aa796996da409d3eb1 (v3.2.0).
+ */
+export const APP_MINT_STEP = `      # roxabi-ci App token (ephemeral, 1 h) — pushes re-trigger CI,
+      # which GITHUB_TOKEN cannot do.
+      - name: Mint app token (roxabi-ci)
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: \${{ vars.ROXABI_CI_APP_ID }}
+          private-key: \${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}`
+
+/** Emit the App mint step as a YAML snippet (indented for a `steps:` block). */
+export function emitAppMintStep(): string {
+  return APP_MINT_STEP
 }
+
+/**
+ * Secrets/variables required by standard workflows.
+ *   github-app mode: ROXABI_CI_APP_ID (var) + ROXABI_CI_APP_PRIVATE_KEY (secret)
+ *   pat mode:        PAT (secret, legacy)
+ */
+export const REQUIRED_SECRETS: Record<string, { mode: TokenMode; var?: string; secret: string }> = {
+  'auto-merge.yml': { mode: 'github-app', var: 'ROXABI_CI_APP_ID', secret: 'ROXABI_CI_APP_PRIVATE_KEY' },
+  'release-please.yml': { mode: 'github-app', var: 'ROXABI_CI_APP_ID', secret: 'ROXABI_CI_APP_PRIVATE_KEY' },
+}
+
+/** PAT retirement banner — shown when mode: pat is selected. */
+export const PAT_RETIREMENT_BANNER =
+  '# ⚠️  PAT mode: secrets.PAT is retiring org-wide. App mode is preferred for Roxabi-org repos.'
 
 export const PROTECTED_BRANCHES = ['main', 'staging'] as const
 
-export const BRANCH_PROTECTION_PAYLOAD = {
-  required_status_checks: { strict: true, contexts: ['ci'] },
-  enforce_admins: false,
-  restrictions: null,
+export interface BranchProtectionOpts {
+  hasSecretScan: boolean
+}
+
+const REPO_FORMAT = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/
+
+function assertValidRepo(repo: string): void {
+  if (!REPO_FORMAT.test(repo)) throw new ConfigError(`Invalid repo format: ${repo}`)
+}
+
+export function buildBranchProtectionPayload(opts: BranchProtectionOpts) {
+  const contexts = ['ci']
+  if (opts.hasSecretScan) contexts.push('trufflehog')
+  return {
+    required_status_checks: { strict: true, contexts },
+    enforce_admins: false,
+    restrictions: null,
+  }
+}
+
+export async function detectSecretScanWorkflow(repo: string): Promise<boolean> {
+  assertValidRepo(repo)
+  try {
+    const proc = Bun.spawnSync(['gh', 'api', `repos/${repo}/contents/.github/workflows/secret-scan.yml`], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    return proc.exitCode === 0
+  } catch {
+    return false
+  }
 }
 
 export const DEFAULT_RULESET = {
@@ -65,7 +104,7 @@ export const DEFAULT_RULESET = {
         require_code_owner_review: false,
         require_last_push_approval: false,
         required_review_thread_resolution: true,
-        allowed_merge_methods: ['squash', 'rebase', 'merge'],
+        allowed_merge_methods: ['merge'], // merge-commit only — project convention (Release Convention)
       },
     },
   ],
@@ -77,21 +116,3 @@ export const DEFAULT_RULESET = {
     },
   ],
 } as const
-
-/**
- * Sync priority label on a GitHub issue. Adds the target label and removes stale ones.
- * Non-fatal: logs a warning on failure but does not throw.
- */
-export async function syncPriorityLabel(issueNumber: number, canonical: string): Promise<void> {
-  const target = PRIORITY_LABEL_MAP[canonical]
-  if (!target) return
-
-  const stale = [...PRIORITY_LABELS_SET].filter((l) => l !== target)
-
-  try {
-    const { updateLabels } = await import('./github-adapter')
-    await updateLabels(issueNumber, [target], stale)
-  } catch (err) {
-    console.error(`Warning: Failed to sync priority label for #${issueNumber}: ${err}`)
-  }
-}

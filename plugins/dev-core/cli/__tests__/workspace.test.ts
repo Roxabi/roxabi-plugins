@@ -1,20 +1,19 @@
 /**
- * RED tests for cli/lib/workspace.ts and cli/commands/workspace.ts
+ * Tests for cli/lib/workspace-store.ts and cli/commands/workspace.ts.
  *
- * These tests are expected to FAIL until the implementation exists (S2 RED phase).
- * Covers spec criteria SC-3 through SC-9.
+ * After the ProjectV2 board purge (#268), the workspace is a plain repo→local-path
+ * registry. `workspace add` registers a repo directly — no board discovery, no fetch.
  *
- * SC-3: workspace list — table with repo, projectId, label columns
- * SC-4: workspace add (single project) — writes entry, exits 0 with confirmation
- * SC-5: workspace add (multiple projects) — prompts numbered list
- * SC-6: workspace remove (registered repo) — removes entry, exits 0 with message
- * SC-7: workspace remove (unregistered repo) — exits 1 with error
- * SC-8: path resolution — uses ~/.roxabi-vault/workspace.json when vault exists
- * SC-9: path resolution (fresh install) — creates ~/.config/roxabi/workspace.json
- *        with 0700 parent dir when neither vault nor config dir exist
+ * - workspace list — table with repo + label columns
+ * - workspace add — writes {repo, label} entry, exits 0 with confirmation
+ * - workspace remove (registered repo) — removes entry, exits 0 with message
+ * - workspace remove (unregistered repo) — exits 1 with error
+ * - path resolution — ~/.roxabi-vault/workspace.json when vault exists, else
+ *     ~/.config/roxabi/workspace.json with 0700 parent dir on fresh install
+ * - parseWorkspace — fail-loud validation at the workspace.json boundary
  */
 
-import { describe, expect, it, mock } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -30,17 +29,16 @@ function makeTmpDir(): string {
 /**
  * Build a minimal workspace.json fixture with the given projects.
  */
-function makeWorkspaceJson(projects: Array<{ repo: string; projectId: string; label: string }>) {
+function makeWorkspaceJson(projects: Array<{ repo: string; label: string; localPath?: string }>) {
   return `${JSON.stringify({ projects }, null, 2)}\n`
 }
 
 // ---------------------------------------------------------------------------
-// workspace list (SC-3)
+// workspace list
 // ---------------------------------------------------------------------------
 
 describe('workspace list', () => {
-  it('prints table with repo, projectId, and label columns', async () => {
-    // Arrange: workspace.json with two projects
+  it('prints table with repo and label columns', async () => {
     const tmpDir = makeTmpDir()
     const vaultDir = join(tmpDir, '.roxabi-vault')
     mkdirSync(vaultDir, { recursive: true })
@@ -48,8 +46,8 @@ describe('workspace list', () => {
     require('node:fs').writeFileSync(
       workspacePath,
       makeWorkspaceJson([
-        { repo: 'Roxabi/roxabi-plugins', projectId: 'PVT_kwDORa9q-M4Aqkwn', label: 'Roxabi Plugins' },
-        { repo: 'mickaelV0/repo-b', projectId: 'PVT_aabbcc', label: 'Personal Repo B' },
+        { repo: 'Roxabi/roxabi-plugins', label: 'Roxabi Plugins' },
+        { repo: 'octocat/repo-b', label: 'Personal Repo B' },
       ]),
     )
     const originalHome = process.env.HOME
@@ -67,10 +65,8 @@ describe('workspace list', () => {
 
       const output = lines.join('\n')
       expect(output).toContain('repo')
-      expect(output).toContain('projectId')
       expect(output).toContain('label')
       expect(output).toContain('Roxabi/roxabi-plugins')
-      expect(output).toContain('PVT_kwDORa9q-M4Aqkwn')
       expect(output).toContain('Roxabi Plugins')
     } finally {
       process.env.HOME = originalHome
@@ -106,11 +102,11 @@ describe('workspace list', () => {
 })
 
 // ---------------------------------------------------------------------------
-// workspace add — single project found (SC-4)
+// workspace add
 // ---------------------------------------------------------------------------
 
-describe('workspace add (single project found)', () => {
-  it('writes the discovered entry to workspace.json and exits 0 with confirmation message', async () => {
+describe('workspace add', () => {
+  it('writes the repo entry to workspace.json and exits 0 with confirmation message', async () => {
     const tmpDir = makeTmpDir()
     const vaultDir = join(tmpDir, '.roxabi-vault')
     mkdirSync(vaultDir, { recursive: true })
@@ -119,24 +115,6 @@ describe('workspace add (single project found)', () => {
 
     const originalHome = process.env.HOME
     process.env.HOME = tmpDir
-
-    const mockFetch = mock(() =>
-      Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            data: {
-              repository: {
-                projectsV2: {
-                  nodes: [{ id: 'PVT_kwDORa9q-M4Aqkwn', title: 'Roxabi Plugins' }],
-                },
-              },
-            },
-          }),
-      }),
-    )
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = mockFetch as unknown as typeof fetch
 
     try {
       const lines: string[] = []
@@ -158,14 +136,43 @@ describe('workspace add (single project found)', () => {
       const written = JSON.parse(readFileSync(workspacePath, 'utf8'))
       expect(written.projects).toHaveLength(1)
       expect(written.projects[0].repo).toBe('Roxabi/roxabi-plugins')
-      expect(written.projects[0].projectId).toBe('PVT_kwDORa9q-M4Aqkwn')
-      expect(written.projects[0].label).toBe('Roxabi Plugins')
+      expect(written.projects[0].label).toBe('Roxabi/roxabi-plugins')
 
       const output = lines.join('\n')
       expect(output).toContain('Roxabi/roxabi-plugins')
       expect(exitCode).toBeUndefined()
     } finally {
-      globalThis.fetch = originalFetch
+      process.env.HOME = originalHome
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('overwrites the existing entry when the repo is already registered', async () => {
+    const tmpDir = makeTmpDir()
+    const vaultDir = join(tmpDir, '.roxabi-vault')
+    mkdirSync(vaultDir, { recursive: true })
+    const workspacePath = join(vaultDir, 'workspace.json')
+    require('node:fs').writeFileSync(
+      workspacePath,
+      makeWorkspaceJson([{ repo: 'Roxabi/roxabi-plugins', label: 'Roxabi/roxabi-plugins' }]),
+    )
+
+    const originalHome = process.env.HOME
+    process.env.HOME = tmpDir
+
+    try {
+      const originalLog = console.log
+      console.log = () => {}
+
+      const { run } = await import('../commands/workspace')
+      await run(['add', 'Roxabi/roxabi-plugins', '--local', '/home/me/plugins'])
+
+      console.log = originalLog
+
+      const written = JSON.parse(readFileSync(workspacePath, 'utf8'))
+      expect(written.projects).toHaveLength(1)
+      expect(written.projects[0].localPath).toBe('/home/me/plugins')
+    } finally {
       process.env.HOME = originalHome
       rmSync(tmpDir, { recursive: true, force: true })
     }
@@ -173,16 +180,7 @@ describe('workspace add (single project found)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// workspace add — multiple projects found (SC-5)
-// ---------------------------------------------------------------------------
-
-describe('workspace add (multiple projects found)', () => {
-  it.todo('prompts a numbered list when multiple GitHub Projects are linked to the repo')
-  it.todo('writes the user-selected entry after prompt')
-})
-
-// ---------------------------------------------------------------------------
-// workspace remove — registered repo (SC-6)
+// workspace remove — registered repo
 // ---------------------------------------------------------------------------
 
 describe('workspace remove (registered repo)', () => {
@@ -194,8 +192,8 @@ describe('workspace remove (registered repo)', () => {
     require('node:fs').writeFileSync(
       workspacePath,
       makeWorkspaceJson([
-        { repo: 'Roxabi/roxabi-plugins', projectId: 'PVT_aaa', label: 'Plugins' },
-        { repo: 'mickaelV0/repo-b', projectId: 'PVT_bbb', label: 'Repo B' },
+        { repo: 'Roxabi/roxabi-plugins', label: 'Plugins' },
+        { repo: 'octocat/repo-b', label: 'Repo B' },
       ]),
     )
     const originalHome = process.env.HOME
@@ -220,7 +218,7 @@ describe('workspace remove (registered repo)', () => {
 
       const written = JSON.parse(readFileSync(workspacePath, 'utf8'))
       expect(written.projects).toHaveLength(1)
-      expect(written.projects[0].repo).toBe('mickaelV0/repo-b')
+      expect(written.projects[0].repo).toBe('octocat/repo-b')
 
       const output = lines.join('\n')
       expect(output).toContain('Roxabi/roxabi-plugins')
@@ -233,7 +231,7 @@ describe('workspace remove (registered repo)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// workspace remove — unregistered repo (SC-7)
+// workspace remove — unregistered repo
 // ---------------------------------------------------------------------------
 
 describe('workspace remove (unregistered repo)', () => {
@@ -242,10 +240,7 @@ describe('workspace remove (unregistered repo)', () => {
     const vaultDir = join(tmpDir, '.roxabi-vault')
     mkdirSync(vaultDir, { recursive: true })
     const workspacePath = join(vaultDir, 'workspace.json')
-    require('node:fs').writeFileSync(
-      workspacePath,
-      makeWorkspaceJson([{ repo: 'mickaelV0/repo-b', projectId: 'PVT_bbb', label: 'Repo B' }]),
-    )
+    require('node:fs').writeFileSync(workspacePath, makeWorkspaceJson([{ repo: 'octocat/repo-b', label: 'Repo B' }]))
     const originalHome = process.env.HOME
     process.env.HOME = tmpDir
 
@@ -279,7 +274,7 @@ describe('workspace remove (unregistered repo)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Path resolution (SC-8, SC-9)
+// Path resolution
 // ---------------------------------------------------------------------------
 
 describe('path resolution', () => {
@@ -322,27 +317,9 @@ describe('path resolution', () => {
     const originalHome = process.env.HOME
     process.env.HOME = tmpDir
 
-    const mockFetch = mock(() =>
-      Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            data: {
-              repository: {
-                projectsV2: {
-                  nodes: [{ id: 'PVT_fresh', title: 'Fresh Project' }],
-                },
-              },
-            },
-          }),
-      }),
-    )
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = mockFetch as unknown as typeof fetch
-
     try {
       const { writeWorkspace } = await import('../lib/workspace-store')
-      writeWorkspace({ projects: [{ repo: 'test/repo', projectId: 'PVT_fresh', label: 'Fresh Project' }] })
+      writeWorkspace({ projects: [{ repo: 'test/repo', label: 'Fresh Project' }] })
 
       const configDir = join(tmpDir, '.config', 'roxabi')
       expect(existsSync(configDir)).toBe(true)
@@ -354,7 +331,6 @@ describe('path resolution', () => {
       const workspacePath = join(configDir, 'workspace.json')
       expect(existsSync(workspacePath)).toBe(true)
     } finally {
-      globalThis.fetch = originalFetch
       process.env.HOME = originalHome
       rmSync(tmpDir, { recursive: true, force: true })
     }
@@ -370,8 +346,8 @@ describe('parseWorkspace', () => {
     const { parseWorkspace } = await import('../lib/workspace-store')
     const result = parseWorkspace({
       projects: [
-        { repo: 'Roxabi/a', projectId: 'PVT_a', label: 'A' },
-        { repo: 'Roxabi/b', projectId: 'PVT_b', label: 'B', localPath: '/path/b' },
+        { repo: 'Roxabi/a', label: 'A' },
+        { repo: 'Roxabi/b', label: 'B', localPath: '/path/b' },
       ],
     })
     expect(result.projects).toHaveLength(2)
@@ -399,27 +375,27 @@ describe('parseWorkspace', () => {
     expect(() =>
       parseWorkspace({
         projects: [
-          { repo: 'Roxabi/a', projectId: 'PVT_a', label: 'A' },
-          { repo: 'Roxabi/b', label: 'B' }, // missing projectId
+          { repo: 'Roxabi/a', label: 'A' },
+          { repo: 'Roxabi/b' }, // missing label
         ],
       }),
-    ).toThrow(/projects\[1\]\.projectId/)
+    ).toThrow(/projects\[1\]\.label/)
   })
 
   it('throws when a required field is an empty string', async () => {
     const { parseWorkspace } = await import('../lib/workspace-store')
     expect(() =>
       parseWorkspace({
-        projects: [{ repo: 'Roxabi/a', projectId: '', label: 'A' }],
+        projects: [{ repo: 'Roxabi/a', label: '' }],
       }),
-    ).toThrow(/projects\[0\]\.projectId.*non-empty/)
+    ).toThrow(/projects\[0\]\.label.*non-empty/)
   })
 
   it('throws when localPath is present but not a string', async () => {
     const { parseWorkspace } = await import('../lib/workspace-store')
     expect(() =>
       parseWorkspace({
-        projects: [{ repo: 'Roxabi/a', projectId: 'PVT_a', label: 'A', localPath: 42 }],
+        projects: [{ repo: 'Roxabi/a', label: 'A', localPath: 42 }],
       }),
     ).toThrow(/localPath/)
   })
@@ -427,5 +403,103 @@ describe('parseWorkspace', () => {
   it('throws on null input', async () => {
     const { parseWorkspace } = await import('../lib/workspace-store')
     expect(() => parseWorkspace(null)).toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// workspace add --local flag
+// ---------------------------------------------------------------------------
+
+describe('workspace add --local', () => {
+  it('persists --local path to workspace.json', async () => {
+    const tmpDir = makeTmpDir()
+    const vaultDir = join(tmpDir, '.roxabi-vault')
+    mkdirSync(vaultDir, { recursive: true })
+    const workspacePath = join(vaultDir, 'workspace.json')
+    require('node:fs').writeFileSync(workspacePath, makeWorkspaceJson([]))
+
+    const originalHome = process.env.HOME
+    process.env.HOME = tmpDir
+
+    try {
+      const lines: string[] = []
+      const originalLog = console.log
+      console.log = (...args: unknown[]) => lines.push(args.join(' '))
+
+      const { run } = await import('../commands/workspace')
+      await run(['add', 'Roxabi/test-repo', '--local', '/custom/path/to/repo'])
+
+      console.log = originalLog
+
+      const written = JSON.parse(readFileSync(workspacePath, 'utf8'))
+      expect(written.projects).toHaveLength(1)
+      expect(written.projects[0].localPath).toBe('/custom/path/to/repo')
+    } finally {
+      process.env.HOME = originalHome
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects --local path with ".." traversal', async () => {
+    const tmpDir = makeTmpDir()
+    const vaultDir = join(tmpDir, '.roxabi-vault')
+    mkdirSync(vaultDir, { recursive: true })
+    const workspacePath = join(vaultDir, 'workspace.json')
+    require('node:fs').writeFileSync(workspacePath, makeWorkspaceJson([]))
+
+    const originalHome = process.env.HOME
+    process.env.HOME = tmpDir
+
+    try {
+      const errorLines: string[] = []
+      const originalError = console.error
+      console.error = (...args: unknown[]) => errorLines.push(args.join(' '))
+
+      let exitCode: number | undefined
+      const originalExit = process.exit
+      process.exit = ((code?: number) => {
+        exitCode = code
+      }) as typeof process.exit
+
+      const { run } = await import('../commands/workspace')
+      await run(['add', 'Roxabi/test-repo', '--local', '/path/../etc'])
+
+      console.error = originalError
+      process.exit = originalExit
+
+      expect(exitCode).toBe(1)
+      expect(errorLines.join('\n')).toContain('Invalid --local path')
+    } finally {
+      process.env.HOME = originalHome
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts relative path with "./"', async () => {
+    const tmpDir = makeTmpDir()
+    const vaultDir = join(tmpDir, '.roxabi-vault')
+    mkdirSync(vaultDir, { recursive: true })
+    const workspacePath = join(vaultDir, 'workspace.json')
+    require('node:fs').writeFileSync(workspacePath, makeWorkspaceJson([]))
+
+    const originalHome = process.env.HOME
+    process.env.HOME = tmpDir
+
+    try {
+      const lines: string[] = []
+      const originalLog = console.log
+      console.log = (...args: unknown[]) => lines.push(args.join(' '))
+
+      const { run } = await import('../commands/workspace')
+      await run(['add', 'Roxabi/test-repo', '--local', './local-repo'])
+
+      console.log = originalLog
+
+      const written = JSON.parse(readFileSync(workspacePath, 'utf8'))
+      expect(written.projects[0].localPath).toBe('./local-repo')
+    } finally {
+      process.env.HOME = originalHome
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
   })
 })

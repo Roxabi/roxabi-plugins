@@ -152,8 +152,6 @@ Seed Docs Complete
 "Commit" → `git add {DOCS}` + commit:
 ```
 docs: seed architecture and standards docs from CLAUDE.md
-
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ```
 
 ## Edge Cases

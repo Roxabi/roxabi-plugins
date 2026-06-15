@@ -8,6 +8,11 @@ allowed-tools: Bash, Read, Write, Glob, Grep, ToolSearch
 
 # Test
 
+## Success
+
+I := π written ∧ test passes
+V := `{commands.test} {test_file}` → exit 0
+
 Let:
   τ := target file(s) under test
   π := test file adjacent to source (`{name}.test.ts` | `{name}.spec.ts` | `__tests__/{name}.test.ts`)
@@ -26,15 +31,22 @@ Generate tests for changed/specified files. Follow existing codebase patterns.
 
 ## Pipeline
 
-| Step | ID | Required | Notes |
-|------|----|----------|-------|
-| 1 | run-shortcut | — | `--run` flag only, early exit |
-| 2 | identify-targets | ✓ | — |
-| 3 | read-standards | ✓ | — |
-| 4 | check-coverage | ✓ | — |
-| 5 | generate-tests | ✓ | — |
-| 6 | approval | ✓ | — |
-| 7 | write-and-verify | ✓ | retry 1 |
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 1 | run-shortcut | — | `{commands.test}` exit 0 | `--run` flag only |
+| 2 | identify-targets | ✓ | Δ files listed | — |
+| 3 | read-standards | ✓ | Σ read | — |
+| 4 | check-coverage | ✓ | π ∃? | — |
+| 5 | generate-tests | ✓ | tests generated | — |
+| 6 | approval | ✓ | user confirms | — |
+| 7 | write-and-verify | ✓ | test exit 0 | retry 1 |
+
+## Pre-flight
+
+Success: π written ∧ test passes
+Evidence: `{commands.test} {test_file}` exit 0
+Steps: identify-targets → read-standards → check-coverage → generate-tests → approval → write-and-verify
+¬clear → STOP + ask: "Which file(s) need tests?"
 
 ## Step 1 — `--run` Shortcut
 
@@ -107,6 +119,34 @@ it('should return user by id', () => {
 
 ∀ approved τ: write via Write tool → `{commands.test} {test_file_path}` → report pass/fail.
 ∃ failures ⇒ → DP(A) show failing test + error → propose fix → re-run.
+
+## Step 8 — Falsification Gate (standalone `/test`)
+
+Applies to: unit + fast-integration tests only. Triggered after Step 7 green run. **Ownership:** when invoked by `/implement`, the implement orchestrator drives the stash (¬tester). When invoked standalone (no implement orchestrator), `/test` owns the stash cycle itself — the tester agent still only writes tests; the stash is driven by the `/test` flow.
+
+**e2e exemption:** tests generated via `--e2e` → annotate each as `⚠ NO FALSIFY — e2e`. Stop. ¬run stash cycle.
+
+**Precondition:** all newly created source files must be `git add`-ed before the gate runs — the Write tool does NOT auto-stage new files, and unstaged new files are invisible to `git diff HEAD`.
+
+∀ new/modified test written in this session:
+
+1. **Stash source** (¬test files):
+   ```bash
+   SRC=$(  { git diff HEAD --name-only; git ls-files --others --exclude-standard; } \
+           | grep -v '\.test\.' | grep -v '\.spec\.' )
+   git stash -- $SRC
+   ```
+   This enumerates both tracked-dirty AND untracked source files, then excludes test/spec files.
+2. **Run the test**: `{commands.test} {test_file_path}`.
+3. **Assert FAIL**: exit 0 → tautological → tautological = merge blocker. Do NOT pop stash. Restore worktree: `git stash pop`. DP(A) **Rewrite test** | **Flag and block** (¬silently pass). ¬assign a matrix Status — no Status update until the test is rewritten and re-run.
+4. **Pop stash** (success path only): `git stash pop`.
+5. **Assert GREEN**: re-run → exit 0.
+6. **Record evidence** (one line per test):
+   ```
+   broke {source file} → test failed with {error/assertion message}
+   ```
+
+Evidence lines feed the #279 matrix `Status` column: `✓ proven`. Append evidence block to output before reporting done.
 
 ## E2E Mode (`--e2e`)
 

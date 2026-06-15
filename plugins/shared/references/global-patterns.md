@@ -79,14 +79,9 @@ Artifacts: `artifacts/frames/` | `artifacts/analyses/` | `artifacts/specs/` | `a
 
 ## 5. Worktree
 
-| τ | ω |
-|---|---|
-| S | Optional |
-| F-lite | Mandatory |
-| F-full | Mandatory |
+ω **mandatory** ∀ τ (XS, S, F-lite, F-full) — ¬exception.
 
-¬code on main/staging without ω (F-lite/F-full).
-XS exception: single-line fix, confirm with user first.
+¬code on main/staging without ω. ω path: `.claude/worktrees/{N}-{slug}`.
 
 ---
 
@@ -99,7 +94,20 @@ XS exception: single-line fix, confirm with user first.
 
 ## 7. Git
 
-Format: `<type>(<scope>): <desc>` + `Co-Authored-By: Claude <model> <noreply@anthropic.com>`
+Format: `<type>(<scope>): <desc>`
 Types: `feat|fix|refactor|docs|style|test|chore|ci|perf`
 
 ¬`--force` | ¬`--hard` | ¬`--amend`. Hook fail → fix + NEW commit.
+
+---
+
+## 8. Project Overrides
+
+Project CLAUDE.md may **strengthen** global rules (stricter), but ¬relax them.
+
+| Global rule | Can strengthen | Example override |
+|-------------|----------------|------------------|
+| Agent discipline | Add domain-specific α | New agent type for project |
+| Git | Add commit hooks | Extra validation |
+
+¬relax: ¬remove worktree requirement, ¬force → allow force, etc.

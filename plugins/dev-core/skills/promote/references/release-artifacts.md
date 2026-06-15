@@ -24,7 +24,7 @@ Bump rules:
 - ∃ `!:` (breaking) → **minor** while pre-1.0
 - Otherwise → **patch** (e.g., `v0.1.0` → `v0.1.1`)
 
-AskUserQuestion: **Use {computed V}** (Recommended) | **Custom version**.
+→ DP(A): **Use {computed V}** (Recommended) | **Custom version**.
 
 Validate format:
 

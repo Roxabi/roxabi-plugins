@@ -2,11 +2,16 @@
 name: fix
 argument-hint: '[#PR]'
 description: 'Apply review findings — auto-apply high-confidence, 1b1 for rest, then batch-apply. Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".'
-version: 0.4.0
+version: 0.4.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill, ToolSearch
 ---
 
 # Fix
+
+## Success
+
+I := ∀ f ∈ actionable → applied ∨ deferred (issue ∃) ∨ skipped (user) ∧ PR comment posted
+V := `gh pr view {N} --comments | grep "## Review Fixes Applied"`
 
 Two-pass pipeline: auto-apply high-C findings (C≥T, 2+ agents), then 1b1 for rest.
 
@@ -17,6 +22,26 @@ Two-pass pipeline: auto-apply high-C findings (C≥T, 2+ agents), then 1b1 for r
 /fix #42    → gather findings from PR #42 comments
 ```
 
+## Pipeline
+
+| Phase | ID | Required | Verifies via | Notes |
+|-------|----|----------|---------------|-------|
+| 1 | gather | ✓ | F parsed | — |
+| 2 | triage | ✓ | Q_auto + Q_1b1 split | — |
+| 3 | auto-apply | — | applied count | Q_auto = ∅ → skip |
+| 4 | push-auto | — | `git push` success | ¬applied → skip |
+| 5 | walkthrough | — | decisions recorded | Q_1b1 = ∅ → skip |
+| 6 | apply-1b1 | — | applied count | acc = ∅ → skip |
+| 7 | final-push | ✓ | `git push` success | — |
+| 8 | post-comment | — | comment posted | ∄ PR → skip |
+
+## Pre-flight
+
+Success: ∀ actionable → applied ∨ deferred ∧ PR comment posted
+Evidence: `gh pr view {N} --comments | grep "## Review Fixes Applied"`
+Steps: gather → triage → auto-apply → walkthrough → apply-1b1 → final-push → post-comment
+¬clear → STOP + ask: "Do you have review findings to fix?"
+
 Let:
   F := all findings | f ∈ F | C(f) ∈ [0,100] ∩ ℤ — confidence
   A(f) := {agents that flagged f} | cat(f) ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
@@ -25,14 +50,39 @@ Let:
   Q_auto := {f | cat(f) ∈ actionable ∧ C(f) ≥ T ∧ |A(f)| ≥ 2}
   Q_1b1 := {f | cat(f) ∈ actionable ∧ f ∉ Q_auto}
   O_push(N, scope, msg) { lint+test gate (max 3 retries) → stage specific files (¬`git add -A`) → commit `fix(<scope>): <msg>` → `git push` }
+  D_subsumption := {d ∈ D | d.tag = "subsumption-violation"}
+
+## Diagnostics Bus
+
+```
+D := []   — ordered list of records; insertion-ordered; duplicates permitted iff (tag, file, line) tuple differs
+d ∈ D := {tag: str, file: str, line: int, description: str, phase: str}
+```
+
+- **Initial value:** `[]` (empty)
+- **Append-only invariant:** entries are never removed or mutated after insertion
+- **Lifecycle:** written in Phase 1 (enforcement checks); rendered in Phase 8 when `|D| > 0`. D is per-invocation and ephemeral.
+
+- **Future invariant slots:** agent_src trust (append here when landed) (when promoting, set `phase` to non-empty `^[a-z0-9-]+$`; do not leave angle-bracket placeholders in shipped records)
+
+## Phase 0 — Load Taxonomy
+
+Read `${CLAUDE_PLUGIN_ROOT}/skills/code-review/review-classes.yml` → extract `classes[].class` slugs → `canonical_slugs`. (Canonical YAML ships with `code-review`; `fix` reads it cross-skill — single source, ¬duplicate copy that could drift.)
+File absent, unreadable, or parse error → HALT: `[taxonomy-error] review-classes.yml {reason} at ${CLAUDE_PLUGIN_ROOT}/skills/code-review/review-classes.yml — reinstall dev-core plugin.`
+Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬LLM memory).
+
 
 ## Phase 1 — Gather Findings
 
-1. PR# → `gh pr view <#> --json comments --jq '.comments[].body'`; parse Conventional Comments
+1. PR# → `gh pr view <#> --json comments,closingIssuesReferences`; parse Conventional Comments from `.comments[].body`; capture `SOURCE_ISSUE` = `.closingIssuesReferences[0].number` (∅ if none — used in Phase 5 Defer to wire blocked-by). When `SOURCE_ISSUE ≠ ∅`, also resolve `SOURCE_PARENT` = `gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number}}}}' --jq '.data.repository.issue.parent.number // empty'` — used in Phase 5 Defer to wire deferred issue as **sibling** under shared parent (see `roxabi-issues:issue-triage` "Deferred Follow-Ups — Sibling Rule").
 2. ¬PR# → scan conversation for latest `/code-review` output
 3. F = ∅ → halt
-4. ∀ f: parse → label, file:line, agent, root cause, solutions, C(f)
-5. Malformed (missing fields ∨ C ∉ ℤ ∩ [0,100]) → C(f) := 0
+4. ∀ f: parse → label, file:line, agent, root cause, class[], raw_callsites[], solutions, C(f)
+   - `class[]` — 0–N canonical slugs from `review-classes.yml` + 0–1 `candidate/<slug>`; absent field → class[] = []
+   - `raw_callsites[]` — [{file, line}] list; required when class[] ≠ []; absent when class[] = []
+5. Malformed (missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label not in canonical list and not `candidate/*` ∨ `candidate/<slug>` violates `^candidate/[a-z][a-z0-9-]{1,48}$` ∨ class[] ≠ [] ∧ raw_callsites[] = []) → C(f) := 0
+   Step 5 fires first; step 5b applies only to findings that passed step 5 (C(f) ≠ 0 after step 5).
+5b. [only if step 5 did not fire for f] Subsumption strip: ∃ `bare-except` ∧ `missing-error-handling` in same finding's class[] → strip `missing-error-handling`; D.append({tag: "subsumption-violation", file: f.file, line: f.line, description: "bare-except subsumes missing-error-handling, duplicate tag stripped", phase: "1"}); ¬set C(f) := 0
 
 ## Phase 2 — Triage + Verify
 
@@ -98,7 +148,27 @@ Demoted from auto-apply → prepend: `Auto-apply failed: {reason}`
 
 → DP(A)(single per finding): **Solution 1** | **Solution 2** | **Defer** (→ create issue) | **Skip**
 
-Defer → `gh issue create --title "{cat}: {summary}" --body "{details}"` immediately.
+Defer → create linked follow-up issue via `roxabi-issues:issue-triage` (¬raw `gh issue create` — global rule: issue mutations go through the skill so blocked-by + parent are wired atomically). **Sibling rule:** the deferred issue is a sibling of `SOURCE_ISSUE` under their shared parent (¬child of `SOURCE_ISSUE`) — see `roxabi-issues:issue-triage` SKILL "Deferred Follow-Ups — Sibling Rule":
+
+Invoke the `roxabi-issues:issue-triage` skill in **create** mode (requires the **roxabi-issues** plugin installed — issue-triage relocated dev-core → roxabi-issues, 2026-06-09). Pass:
+
+- `--title "{cat}: {summary}"`
+- `--body "{details}"`
+- `--blocked-by "#${SOURCE_ISSUE}"`  — omit when `SOURCE_ISSUE = ∅`
+- `--parent "#${SOURCE_PARENT}"`  — omit when `SOURCE_PARENT = ∅`
+
+`SOURCE_ISSUE` (captured Phase 1, step 1) → blocked-by ensures the deferred finding is traceable back to the issue whose review surfaced it. `SOURCE_PARENT` (also captured Phase 1, step 1) → parent makes the deferred issue a sibling of `SOURCE_ISSUE` under the same epic, so `gh issue view <epic>` shows the full fan-out flat. ∄ SOURCE_ISSUE → create without `--blocked-by` or `--parent`; `{details}` MUST include `**Origin:** PR #<N>` so traceability is preserved. ∄ SOURCE_PARENT (SOURCE_ISSUE is top-level) → create without `--parent` (the deferred issue is also top-level).
+
+`{details}` template:
+```markdown
+**Origin:** PR #<N> review <comment-id> (deferred per `/fix` walkthrough).
+
+{root-cause + agent finding text}
+
+**Action:** {chosen path or open question}
+```
+
+`issue-triage` `--blocked-by` accepts issues only (¬PRs) — when the source review is on a PR with no closing-issue reference, fall back to no `--blocked-by` and rely on the `Origin: PR #N` body line.
 
 ```
 ── Walkthrough Complete ──
@@ -111,14 +181,46 @@ acc := {f ∈ Q_1b1 | decision ∈ {solution1, solution2}}, each with chosen sol
 
 acc = ∅ → skip to Phase 7.
 
+Group acc by class, then dispatch per class:
+
 ```
-|acc| ≤ 2  → orchestrator applies directly (inline)
-|acc| ≥ 3  → spawn agent(s) per dispatch + batching rules
+classes = { c | ∃ f ∈ acc: cls(f) = c }
+
+∀ class ∈ classes:
+  files_in_class = unique({ file(f) | f ∈ acc, cls(f) = class })
+
+  |files_in_class| ≤ 3  →  single fixer agent for the class
+  |files_in_class| > 3  →  shard by file: ⌈|files_in_class| / 3⌉ fixer agents
+                            each fixer owns ≤3 files of the same class
+
+unclassified = { f ∈ acc | cls(f) = ∅ }
+¬∅ → single fixer agent for unclassified findings (same path as |files_in_class| ≤ 3)
 ```
 
-Payload = findings + chosen solution + diff context + "fix using chosen solution; re-read files before editing; lint + test after each fix."
+Fixer payload per agent:
+- findings (with class + raw_callsites) for owned files
+- chosen solution per finding
+- diff context for owned files
+- instructions: "re-read targets before editing; lint + test after each fix; sweep file for same-class anti-pattern — justify or fix any uncited hit."
 
 Fixer constraints: re-read targets before editing (Phase 3 may have changed them). CI fail → retry max 3; `[failed]` if stuck.
+
+`pattern-class` findings (Lane B tag) → same class-shard dispatch as Lane A findings.
+_(TODO: `pattern-class` tag and Lane B defined in Slice 3 — targeted recall. Until Slice 3 lands, this clause is a forward-reference only; `pattern-class` is not yet in review-classes.yml.)_
+
+## Phase 6.5 — Falsification Gate
+
+∀ class ∈ classes (from Phase 6):
+
+Run falsification gate per `${CLAUDE_SKILL_DIR}/falsification.md`. Gate emits boolean per class:
+
+```
+pass  →  fix accepted; continue
+fail  →  fix tautological (RC-1); re-open each failed finding for that class
+          (max 1 falsification-retry per finding — independent of CI retry budget in Phase 6)
+```
+
+New findings surfaced during falsification → **parking lot**: file as candidate finding for next PR cycle. ¬reopen current `/fix` loop. ¬increment 2-iter cap. Applies to same-class and cross-class anti-patterns alike.
 
 ## Phase 7 — Final Push + Approve
 
@@ -146,6 +248,7 @@ Write summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 **Deferred (issues created):** J finding(s)
 **Skipped:** K finding(s)
 **Failed:** L finding(s)
+**Enforcement diagnostics:** |D_subsumption| subsumption violation(s) (0 if none)
 
 ### Auto-Applied
 - [applied] issue(blocking): SQL injection in users.service.ts:42 (92%)
@@ -158,6 +261,14 @@ Write summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 
 ### Failed
 - [failed] nitpick: Unused import in dashboard.tsx:3 -- test failure
+
+### Parking Lot
+_(omit section when parking_lot = ∅)_
+- {class}: {file}:{line} — {description} (falsification-gate)
+
+### Enforcement diagnostics
+_(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]** (N) sub-groupings)_
+- `[subsumption-violation]` `auth.service.ts`:`42` — bare-except subsumes missing-error-handling, duplicate tag stripped
 ```
 
 ## Edge Cases
@@ -172,6 +283,7 @@ Write summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 | 1b1 fix fails | `[failed]`, continue |
 | Quality gate fails 3× | Halt, leave uncommitted |
 | ¬∃ PR | Skip Phase 8, local only, no label |
+| cls(f) = ∅ for some f ∈ acc | Route to `unclassified` fixer agent (single agent, ≤3 files path) |
 
 ## Safety Rules
 
@@ -179,7 +291,7 @@ Write summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 2. ∃ PR → must post follow-up comment (Phase 8)
 3. Fixer agents ¬have implementation context → spawn fresh
 4. Stage specific files only — ¬`git add -A` (risk of .env, secrets)
-5. ¬auto-merge — label `reviewed` only, human merges
+5. Merge via the gate: label `reviewed` → auto-merge merges (merge commit) on green. ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED
 
 ## Chain Position
 

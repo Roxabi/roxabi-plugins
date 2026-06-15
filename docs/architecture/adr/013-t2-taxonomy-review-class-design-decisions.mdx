@@ -1,0 +1,77 @@
+---
+title: "ADR-013: Shared Write-Helper Abstraction for candidate-classes.jsonl Write Sites"
+description: Single named prose procedure for all candidate-classes.jsonl writes, eliminating F6 validation duplication across write sites.
+---
+
+## Status
+
+Accepted
+
+## Context
+
+The `/fix` skill pipeline (SKILL.md) and its falsification gate (falsification.md) both write entries to `~/.dev-core/candidate-classes.jsonl`. Each write site must:
+
+1. Assert the `pr` field matches the F6 regex.
+2. Assemble the full schema entry (`class`, `finding_id`, `pr`, `hit_at`, `agent_slug`, `spec_version`, plus provenance fields).
+3. Apply drop semantics on regex-fail or null `pr` (no coercion, no fallback identity).
+4. Emit a `D.append({tag: "candidate-pr-malformed", ...})` diagnostic on failure.
+
+The initial patch that aligned falsification.md with review-classes.yml duplicated the F6 block inline into falsification.md. Upcoming write sites (graduation cron — Slice 2, targeted recall — Slice 5) would each need the same block copy-pasted, creating drift risk across a prose spec with no enforced interface.
+
+A second gap was identified: `pr = null` drop semantics existed only in falsification.md, not in SKILL.md's F6 section — any new write site would have no canonical source for this case.
+
+## Options Considered
+
+### Option A: Inline F6 at each write site (status quo post-patch)
+
+- **Pros:** Each file is self-contained; no cross-file dependency to understand a write site.
+- **Cons:** Four known write sites × ~10-line block = guaranteed drift; null-pr gap propagates; no single source of truth for schema.
+
+### Option B: Shared named prose procedure in SKILL.md, referenced by all write sites
+
+- **Pros:** F6 validation, schema assembly, and all drop semantics live in one named block. Write sites cite the block by name. Adding a write site = one line of reference, not a copy-paste. Null-pr clause added once, propagates automatically.
+- **Cons:** Cross-file indirection — readers of falsification.md must follow the reference to SKILL.md. LLM agents may diverge from the procedure despite the reference; mitigation is a named, parameterized signature.
+
+### Option C: Runtime shared validation module (TypeScript/Python library)
+
+- **Pros:** Machine-enforceable schema contract.
+- **Cons:** Requires a build step and version coupling between skills that currently share no runtime. No shared runtime exists in the stack. Over-engineered for a JSONL append operation in a prose-spec skill system.
+
+### Option D: Split falsification into its own `/falsify` skill
+
+- **Pros:** Cleaner skill boundary.
+- **Cons:** Falsification is a gate, not a standalone pipeline — it has no independent invocation value. Adds a skill boundary with no reuse gain and complicates Phase 6.5's inline invocation contract.
+
+## Decision
+
+Adopt Option B: introduce a single **`write_candidate(entry, pr, agent_slug, D, write_site)`** named procedure block in SKILL.md. All write sites (falsification.md, future graduation cron, Slice 5) delegate to it by explicit section reference.
+
+Simultaneously, consolidate null-pr drop semantics into the SKILL.md F6 section, covering all three cases in one normative location:
+
+| `pr` value | Action |
+|------------|--------|
+| Fails regex | Drop entry; `D.append({tag: "candidate-pr-malformed", ...})` |
+| `null` | Drop entry silently (no PR context = cannot count toward graduation gate); no D.append |
+| Passes regex | Proceed with schema assembly and append |
+
+falsification.md retains its gate logic (procedure, aggregation, retry) but removes its inlined F6 block, replacing it with: "assert `pr` per `write_candidate` procedure in fix/SKILL.md §F6."
+
+## Consequences
+
+### Positive
+
+- F6 validation, schema shape, and drop semantics have a single normative source.
+- Adding a write site (graduation cron, Slice 5) requires one reference line, not a copy-paste block.
+- Null-pr gap closed: single canonical treatment for all three `pr` states.
+- `pattern-class` (Lane B, Slice 3) forward-reference in Phase 6 is gated on Slice 3's own ADR — it must not be silently consumed by write_candidate until the tag is defined in review-classes.yml.
+
+### Negative
+
+- Readers of falsification.md follow a cross-file reference to understand the full write path (single-hop, explicitly cited).
+- LLM agents executing the spec may still diverge; no machine enforcement exists at write time. The named procedure with a parameterized signature is the only available mitigation in a prose-spec system.
+
+### Neutral
+
+- falsification.md remains a separate file (gate logic is orthogonal to write protocol); this decision does not change the file boundary.
+- Retry granularity (per-finding, independent of CI retry budget) is not affected by this decision — it is already aligned in the patched spec.
+- `unclassified` bucket for `cls(f) = ∅` findings is not affected — it is a Phase 6 dispatch concern, not a write-site concern.

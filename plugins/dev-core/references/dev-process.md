@@ -43,15 +43,14 @@ Artifacts = state markers for `/dev` progress detection + resumption.
 
 ### Worktree
 
-All code changes require worktree:
+`/dev` bootstraps the worktree automatically before `frame` (Step 7 silent pre-step via `/setup-worktree`). All tiers (S, F-lite, F-full) execute inside a worktree.
 
 ```bash
-git worktree add ../roxabi-XXX -b feat/XXX-slug staging
-cd ../roxabi-XXX && cp .env.example .env && bun install
-cd apps/api && bun run db:branch:create --force XXX
+git worktree add .claude/worktrees/XXX-slug -b feat/XXX-slug origin/staging
+cd .claude/worktrees/XXX-slug && cp .env.example .env && bun install
 ```
 
-**Exceptions:** XS issues (confirm via AskUserQuestion), `/dev` pre-impl artifacts (frame, analysis, spec, plan), `/promote` release artifacts.
+**Exceptions:** `/promote` release artifacts.
 
 ¬code on main/staging w/o worktree.
 
@@ -60,8 +59,6 @@ cd apps/api && bun run db:branch:create --force XXX
 ```
 <type>(<scope>): <desc>
 ```
-
-Followed by: `Co-Authored-By: Claude <model> <noreply@anthropic.com>`
 
 Types: `feat` | `fix` | `refactor` | `docs` | `style` | `test` | `chore` | `ci` | `perf`
 
@@ -79,7 +76,7 @@ Types: `feat` | `fix` | `refactor` | `docs` | `style` | `test` | `chore` | `ci` 
 
 ## Mandatory Rules
 
-1. **AskUserQuestion:** Always for decisions, choices (≥2 options), approach proposals. ¬plain-text questions.
+1. **Decision Presentation:** Use DP(n) protocol for decisions/choices — never AskUserQuestion tool. Load `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` when invoking DP(A|B|C).
 2. **¬force/amend:** ¬`--force`, ¬`--hard`, ¬`--amend`. Hook fail → fix + NEW commit.
 3. **Orchestrator delegation:** Orchestrator ¬modify code/docs directly → delegate to domain α. Exception: typo/single-line.
 5. **Skill usage:** Always use appropriate skill, even w/o slash command.

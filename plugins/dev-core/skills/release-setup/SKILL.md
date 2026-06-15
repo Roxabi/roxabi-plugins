@@ -39,6 +39,7 @@ Check prerequisites and per-component state before any installation.
    test -f release.config.cjs && echo "has_sr" || echo "no_sr"
    test -f release-please-config.json && echo "has_rp" || echo "no_rp"
    test -f .github/workflows/release-please.yml && echo "has_rp_wf" || echo "no_rp_wf"
+   test -x tools/check_file_length.sh && test -x tools/check_folder_size.sh && test -f tools/check_lib.sh && echo "has_qg_scripts" || echo "no_qg"
    ```
 
 3. Set booleans from results:
@@ -46,6 +47,7 @@ Check prerequisites and per-component state before any installation.
    - `has_commits` := `.commitlintrc.cjs` ∃
    - `has_releases` := `release.config.cjs` ∃ ∨ (`release-please-config.json` ∃ ∧ `.github/workflows/release-please.yml` ∃). Release Please config without the workflow is **not** complete — Phase 4 will add the missing workflow.
    - `has_lefthook` := `.lefthook.yml` ∃
+   - `has_qg_scripts` := `"has_qg_scripts"` ∈ output
 
 4. F overrides all guards → treat all booleans as false (re-run all components).
 
@@ -53,8 +55,9 @@ Check prerequisites and per-component state before any installation.
 
 Read configuration and detect environment.
 
-1. Read σ fields: `runtime`, `package_manager`, `hooks.tool`, `commands.lint`, `commands.typecheck`.
+1. Read σ fields: `runtime`, `package_manager`, `hooks.tool`, `commands.lint`, `commands.typecheck`, `quality_gates`.
    Defaults if σ missing: runtime=`node`, package_manager=`npm`, hooks.tool=`none`, commands.lint=`npm run lint`, commands.typecheck=`npm run typecheck`.
+   Set `has_qg_scripts_section` := `quality_gates` key ∃ ∈ σ. Default when σ absent: `has_qg_scripts_section = false`.
 
 2. Detect existing hook runner via file checks:
    ```bash
@@ -72,6 +75,7 @@ Read configuration and detect environment.
 Phase 2 — Hook Runner → Read `${CLAUDE_SKILL_DIR}/cookbooks/hook-runner.md`, execute.
 Phase 3 — Commit Standards → Read `${CLAUDE_SKILL_DIR}/cookbooks/commit-standards.md`, execute.
 Phase 4 — Release Automation → Read `${CLAUDE_SKILL_DIR}/cookbooks/release-automation.md`, execute.
+Phase 4.5 — Quality gates → Read `${CLAUDE_SKILL_DIR}/cookbooks/quality-gates.md`, execute.
 Phase 5 — Summary (below).
 
 ## Phase 5 — Summary (no auto-commit)
@@ -87,6 +91,7 @@ Display results and generated files. Do NOT run `git add` or `git commit`.
      Hook runner         ✅ Configured / ⏭ Already configured / ⏭ Skipped
      Commit standards    ✅ Configured / ⏭ Already configured / ⏭ Python not supported / ⏭ Skipped
      Release automation  ✅ Configured / ⏭ Already configured / ⏭ Skipped
+     Quality gates       ✅ Configured / ⏭ Already configured / ⏭ Not applicable / ⏭ Skipped
    ```
 
 2. List generated files (only those actually written):
@@ -102,6 +107,13 @@ Display results and generated files. Do NOT run `git add` or `git commit`.
      release-please-config.json    (Release Please chosen)
      .release-please-manifest.json (Release Please chosen)
      .github/workflows/release-please.yml  (Release Please chosen)
+     tools/check_file_length.sh          (python + quality_gates only)
+     tools/check_folder_size.sh          (python + quality_gates only)
+     tools/check_lib.sh                  (python + quality_gates only — sourced by both check scripts)
+     tools/file_exemptions.txt           (python + quality_gates only)
+     tools/folder_exemptions.txt         (python + quality_gates only)
+     tools/qg.conf                       (python + quality_gates only — regenerated from stack.yml)
+     .importlinter                       (python + import_layers only)
    ```
 
 3. Display suggested commit command:

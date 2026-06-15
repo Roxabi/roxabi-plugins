@@ -111,7 +111,7 @@ grep -i "<key phrase>" .claude/context-audit-log.md 2>/dev/null
 | 2nd | **Fix didn't stick** | Investigate: wrong target? agents ¬reading? docs unclear? |
 | 3rd+ | **Systemic gap** | Create issue to fix root cause |
 
-Recurrence ≥ 2 → AskUserQuestion with root-cause options:
+Recurrence ≥ 2 → → DP(A) with root-cause options:
 - **Wrong target** — agents ¬read location → move
 - **Unclear docs** — ambiguous/buried → rewrite at target
 - **Agent prompt gap** — agent def ¬references right docs → fix agent .md

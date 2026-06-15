@@ -13,7 +13,7 @@ After Gate 2 approval. Decomposes feature → sub-issues. Always optional — us
 gh api graphql -f query='{ repository(owner: "{owner}", name: "{repo}") { issue(number: {N}) { subIssues(first: 10) { nodes { number title state } } } } }'
 ```
 
-∃ sub-issues ⇒ AskUserQuestion: Keep existing | Replace (close old) | Add additional
+∃ sub-issues ⇒ → DP(A): Keep existing | Replace (close old) | Add additional
 
 ## Trigger Detection
 
@@ -42,7 +42,7 @@ Split heuristics (priority order):
 | Size | XS/S/M/L/XL from τ |
 | Priority | Inherit parent ∨ default Medium |
 
-Present via AskUserQuestion:
+Present via DP(A):
 
 ```
 Smart Split: {title}
@@ -55,6 +55,8 @@ Parent: #{N} | Trigger: {criteria}/{slices}/{phases}
 Options: **Approve** | **Adjust** (re-propose) | **Skip** (no split)
 
 ## Create Sub-Issues
+
+> **Decomposition pattern** (¬deferral): smart-splitting *plans* sub-deliverables, so sub-issues are `--parent <N>` of the original (N becomes the epic). This is distinct from `/fix` Phase 5 Defer, which uses the **sibling rule** (deferred issue gets the origin's parent, not the origin itself). See `issue-triage` SKILL "Deferred Follow-Ups — Sibling Rule".
 
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \

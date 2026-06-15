@@ -1,6 +1,6 @@
 ---
 name: architect
-model: sonnet
+model: opus
 description: |
   Use this agent for system design decisions, cross-cutting architecture,
   and technical planning across the monorepo.
@@ -79,6 +79,7 @@ Dependencies point inward only: **Domain ← Application ← Infrastructure**
 | Generic exception in domain | Throwing base `Error`/`Exception` | Domain-specific exception |
 | God service | Single service >300 lines, mixed concerns | Split by aggregate / use case |
 | Circular deps between modules | A imports B imports A | Shared interface ∨ event |
+| Wrong-axis duplication (N×M trap) | — | Owned end-to-end by the `axial-adr-review` agent — see `shared/references/axial-decomposition.md`. ¬flag here; dispatch the agent instead. |
 
 ### Decision Signals
 

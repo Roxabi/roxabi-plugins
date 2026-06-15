@@ -73,7 +73,6 @@ Use this list if `gh api` fails in 3a:
 | `composition-patterns` | frontend | Avoid boolean prop proliferation — compound components |
 | `web-design-guidelines` | frontend | Review UI for accessibility, UX, and Web Interface Guidelines |
 | `visual-explainer` | visual | Self-contained HTML pages with diagrams and data tables |
-| `frontend-slides` | visual | Zero-dependency HTML presentations — 12 presets, PPT conversion |
 | `image-prompt-generator` | visual | AI image prompts with visual identity and style consistency |
 | `cv` | career | Generate and adapt CVs from structured JSON |
 | `linkedin-apply` | career | Score LinkedIn jobs against your profile — APPLY / REVIEW / SKIP |

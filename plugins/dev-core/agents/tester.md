@@ -39,6 +39,18 @@ Generate + maintain + validate tests. Testing Trophy: integration = largest laye
 3. **Integration** (largest) — Real modules wired together (backend DI module ∨ frontend component + providers)
 4. **E2E** — Critical journeys only
 
+## Negative-Test Rule (MANDATORY — merge blocker)
+
+∀ `if`/guard/filter/Protocol method introduced in the PR: flag `issue:` (≥90%) if ¬∃ test that **FAILS** when the guard is deleted, the filter is bypassed, or the Protocol method is removed.
+
+**Tautological test signals** (flag every instance):
+- `warnings.simplefilter("ignore")` discards the warning being asserted → test passes regardless
+- `None`-guard deleted → happy-path test still passes
+- Shim test passes even if shim re-exports stale inline copy instead of delegating
+- Protocol method removed → no conformance test catches the divergence
+
+**Correct pattern:** negative test fails when the guard is removed. The implement orchestrator (or domain agent owning source) MUST execute the falsification gate (#280): `git stash` source → run test → assert FAIL → `git stash pop` → assert green → record evidence `broke {source} → test failed with {error}`. ¬mental-only check — executed evidence line is required. A test without a recorded evidence line is treated as unproven (Status `⏳ not run`), not `✓ proven`. Tautological result (stash → still passes) → flag as merge blocker; do NOT record as `✓ proven`.
+
 ## Coverage Rules (CRITICAL)
 
 - Import + call real source functions — ¬mock module under test
@@ -50,6 +62,8 @@ Generate + maintain + validate tests. Testing Trophy: integration = largest laye
 ## Deliverables
 
 Co-located `feature.test.ts` | Arrange-Act-Assert | Descriptive `describe`/`it` | Happy + edge + error paths
+
+**SC Trace** (spec-backed issues, τ≠S): ∀ SC in spec → ≥1 named test (`{file} :: {test name}`) OR `NO TEST — {reason}` where `reason ∈ {infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}`. Unmapped SC = blocking gap — report to lead before completing. Output as `SC Trace` block in task completion message (consumed by `/implement` Step 6a).
 
 ## Boundaries
 

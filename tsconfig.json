@@ -13,7 +13,10 @@
   "include": [
     "vitest.config.ts",
     "vitest.setup.ts",
-    "plugins/dev-core/**/*.ts"
+    "plugins/dev-core/**/*.ts",
+    "plugins/dev-init/**/*.ts",
+    "plugins/shared/**/*.ts",
+    "scripts/**/*.ts"
   ],
   "exclude": [
     "node_modules",
@@ -21,6 +24,6 @@
     "plugins/dev-core/cli/__tests__",
     "plugins/dev-core/cli/index.ts",
     "plugins/dev-core/skills/init/init.ts",
-    "plugins/dev-core/skills/issue-triage/triage.ts"
+    "plugins/dev-init/skills/init/init.ts"
   ]
 }

@@ -2,18 +2,24 @@
 name: implement
 argument-hint: '[--issue <N> | --plan <path> | --audit]'
 description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "implement" | "build this" | "execute plan" | "start coding" | "write the code" | "code this up" | "let's build it" | "build it out" | "ship it".
-version: 0.2.0
+version: 0.3.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
 # Implement
+
+## Success
+
+I := QG pass ∧ worktree ∃ ∧ commits > 0
+V := `cd .claude/worktrees/{N}-{slug} && {commands.format} && {commands.lint} && {commands.typecheck} && {commands.test}` → exit 0
 
 Let:
   π := artifacts/plans/{N}-{slug}.mdx
   τ := tier (S | F-lite | F-full)
   ω := worktree (managed via EnterWorktree/ExitWorktree)
   β := base branch (staging if ∃ origin/staging, else main)
-  QG := `{commands.lint} && {commands.typecheck} && {commands.test}`
+  QG := `{commands.format} && {commands.lint} && {commands.typecheck} && {commands.test}`
+  bar := mechanical floor (format/lint/typecheck/test pass), ¬the quality bar — output must read as hand-authored by a dev-core maintainer: match surrounding idiom, naming, and comment density; calibrate against `plugins/dev-core/`
 
 Plan → ω → agents (test-first) → passing QG.
 
@@ -48,14 +54,21 @@ Does NOT create a PR — that is `/pr` (next step).
 
 ## Pipeline
 
-| Step | ID | Required | Notes |
-|------|----|----------|-------|
-| 1 | locate-plan | ✓ | — |
-| 2 | setup | ✓ | rollback on failure |
-| 3 | context-inject | — | τ=F only |
-| 4 | implement | ✓ | parallel: conditional, retry 3 |
-| 5 | quality-gate | ✓ | retry 3, rollback on failure |
-| 6 | summary | ✓ | — |
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 1 | locate-plan | ✓ | π ∃ ∨ σ ∃ (S-tier) | — |
+| 2 | setup | ✓ | ω ∃ ∧ branch ∃ | rollback on failure |
+| 3 | context-inject | — | — | τ=F only |
+| 4 | implement | ✓ | tasks `completed` | parallel: conditional, retry 3 |
+| 5 | quality-gate | ✓ | QG exit 0 | retry 3, rollback on failure |
+| 6 | summary | ✓ | all tasks done | — |
+
+## Pre-flight
+
+Success: QG pass ∧ worktree ∃ ∧ commits > 0
+Evidence: QG exit 0 inside .claude/worktrees/{N}-{slug}
+Steps: locate-plan → setup → context-inject → implement → quality-gate → summary
+¬clear → STOP + ask: "Do you have a plan to implement?"
 
 ## Step 1 — Locate Plan
 
@@ -72,8 +85,8 @@ Extract from frontmatter: `issue`, `tier`, `spec` path. From body: agent list, t
 Parse π's `## Task IDs` section → {T1: id, T2: id, ...} map. ¬section → `/plan` pre-dates task-tool integration → fall through to 1b.3 (re-seed).
 
 **1b.1 Verify ids:** ∀ id → `TaskGet(id)`. All succeed → cache map, goto Step 2.
-**1b.2 Partial miss:** ¬some id (session restart invalidated state) → re-seed only the missing ones by running Step 6a logic from `/plan` on the corresponding micro-tasks, then rewrite `## Task IDs` section in π with refreshed ids.
-**1b.3 Total miss (legacy plan):** section absent → run Step 6a from `/plan` for every micro-task, append `## Task IDs` section to π, commit the update (`git add` π + commit `chore(plan): attach task ids`).
+**1b.2 Partial miss:** ¬some id (session restart invalidated state) → re-seed only the missing ones using the canonical schema from [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/plan-task-schema.md) on the corresponding micro-tasks, then rewrite `## Task IDs` section in π with refreshed ids.
+**1b.3 Total miss (legacy plan):** section absent → re-seed all micro-tasks using [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/plan-task-schema.md), append `## Task IDs` section to π, commit the update (`git add` π + commit `chore(plan): attach task ids`).
 
 τ=S without π → `TaskCreate` 3–6 coarse tasks directly from spec acceptance criteria: `{ kind: "plan-task", issue: N, tier: "S" }`. No artifact update.
 
@@ -91,30 +104,28 @@ Emits: `repo`, `base`, `branch_exists`, `legacy_worktree`, `worktree`, `dirty` (
 
 ω: `.claude/worktrees/{N}-{slug}` (via EnterWorktree). Branch base: `base` from output.
 
-**2c. Status:**
+**2c. Branch guard:**
 
-```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status "In Progress"
-```
-
-`branch_exists` ≠ false ⇒ → DP(A) **Reuse** | **Recreate** | **Abort**
+`branch_exists` ≠ false ∧ `worktree` = false → branch exists but no worktree → → DP(A) **Recreate worktree** (invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"`) | **Abort**
 
 `worktree` ≠ false ∧ `dirty=true` ⇒ → DP(A) **Stash changes** (`git stash`) | **Reset** (`git checkout .`) | **Continue with dirty state** | **Abort**
 
 **2e. Worktree:**
 
+Enter existing worktree (created by `/setup-worktree` or prior `/dev` run):
 ```
-EnterWorktree(name: "{N}-{slug}")
+EnterWorktree(path: ".claude/worktrees/{N}-{slug}")
 ```
+
+`worktree` = false → fallback: invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first, then enter.
 
 Inside ω:
 ```bash
-git checkout -b feat/<N>-<slug> origin/${BASE}
 cp .env.example .env 2>/dev/null; {package_manager} install
 # Optional: {commands.worktree_setup} <N>
 ```
 
-XS exception: → DP(A) **Skip worktree (XS exception)** | **Use worktree** → approved → skip ω, `git checkout -b feat/<N>-<slug> ${BASE}` in main repo.
+ω **mandatory** ∀ τ (XS, S, F-lite, F-full) — ¬exception. ¬"skip worktree" branch.
 
 ## Step 3 — Context Injection (τ=F only)
 
@@ -154,6 +165,8 @@ Read spec + ref patterns → create + implement → tests → QG → loop until 
 
 Spawn via `Task` tool (subagent/domain). Sequential ∨ parallel (2–3 max).
 
+**Worktree isolation:** Main context is already inside ω (Step 2). Subagents spawned via `Task` inherit this CWD. All file operations must stay within `.claude/worktrees/{N}-{slug}`. Do not `cd` to repo root or other paths outside ω.
+
 **Per agent spawn:**
 1. `TaskUpdate(task_id, status: "in_progress", owner: "{agent}")`.
 2. `TaskGet(task_id)` → inject `description` + `metadata` verbatim into the subagent's prompt. The agent reads its own task context from the task list.
@@ -162,7 +175,7 @@ Spawn via `Task` tool (subagent/domain). Sequential ∨ parallel (2–3 max).
    Task(
      subagent_type: "dev-core:{agent}",
      description: "{agent}: {phase} — #{N} {slug}",
-     prompt: "Issue #{N}. Task: {TaskGet.description}. Target: {file_path}. Skeleton: {code_snippet}. Verify: {verify_command}. Ref pattern: {pattern_file}. ¬TaskCreate — task lifecycle managed by lead."
+     prompt: "Issue #{N}. Task: {TaskGet.description}. Target: {file_path}. Skeleton: {code_snippet}. Verify: {verify_command}. Ref pattern: {pattern_file}. Worktree: `.claude/worktrees/{N}-{slug}` — you are already inside it; do not leave this directory. ¬TaskCreate — task lifecycle managed by lead."
    )
    ```
    Agent name map: `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `doc-writer` → `dev-core:doc-writer` | `architect` → `dev-core:architect` | `security-auditor` → `dev-core:security-auditor`
@@ -185,8 +198,10 @@ Agents create files from scratch (¬stubs). Include target path, shape/skeleton,
 Run QG inside ω (session already in ω after EnterWorktree):
 
 ```bash
-{commands.lint} && {commands.typecheck} && {commands.test}
+{commands.format} && {commands.lint} && {commands.typecheck} && {commands.test}
 ```
+
+> format before lint — auto-format first so the linter never flags style the formatter would have fixed (¬format-induced lint noise).
 
 ✓ → Step 6.
 ✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → → DP(A) **Escalate to lead** | **Continue with failures** | **Abandon ω** (`ExitWorktree(action: "remove")` + delete branch).
@@ -194,6 +209,73 @@ Run QG inside ω (session already in ω after EnterWorktree):
 ## Step 6 — Summary
 
 Before printing summary → `TaskList` → assert every plan-task with `metadata.issue == N` is `completed`. ¬all completed → highlight stragglers in the summary (blockers for `/pr`).
+
+### Step 6a — SC→Test Matrix (τ ≠ S)
+
+**Tier S exemption:** τ=S (no `/plan` artifact, no SC-N labels) → skip this step entirely. ¬emit matrix.
+
+For τ=F (F-lite or F-full):
+
+1. Read spec (`artifacts/specs/{N}-*.mdx`) → extract all SC-N lines (e.g. `SC1: …`, `SC2: …`).
+2. Read tester deliverable (from task outputs or grep test files in ω): collect `{file} :: {test name}` pairs.
+3. For each SC:
+   - ≥1 named test mapped → row: `| SC-N: {text} | {file} :: {test name}[, …] | ⏳ not run |`
+   - ¬mapped → row: `| SC-N: {text} | — | ⚠ NO TEST — {reason} |` (NO TEST is a Status verdict, per the schema below)
+     - `reason` MUST ∈ `{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}` (closed enum — ¬free-form). Unmapped SC with ¬reason from enum = **blocking gap**: highlight in summary, ¬proceed to `/pr`.
+4. Persist matrix as a fenced markdown block in the summary output (consumed by `/pr` Step 3d).
+
+**Status column schema** (for `/pr` and falsification gate #280):
+- `⏳ not run` — test exists, not yet executed against this change
+- `✓ proven` — test ran green + falsification check passed (set by #280 gate)
+- `✗ failed` — test ran red (set by #280 gate; note: `broke X → test failed with Y`)
+- `⚠ NO TEST — {reason}` — no test; reason ∈ enum
+
+### Step 6b — Falsification Gate (#280)
+
+Runs immediately after SC→Test Matrix is built. Scope: unit + fast-integration tests only. e2e tests are **exempt** — annotate each e2e row `⚠ NO FALSIFY — e2e` in the evidence log and leave Status unchanged.
+
+**Precondition:** the implement agent must `git add` all newly created source files before the gate runs — the Write tool does NOT auto-stage, and unstaged new files are invisible to `git diff HEAD`.
+
+∀ new/modified test mapped in the matrix (¬e2e):
+
+1. **Stash source** (¬test files):
+   ```bash
+   SRC=$(  { git diff HEAD --name-only; git ls-files --others --exclude-standard; } \
+           | grep -v '\.test\.' | grep -v '\.spec\.' )
+   git stash -- $SRC
+   ```
+   This enumerates both tracked-dirty AND untracked source files, then excludes test/spec files.
+2. **Run the test**: `{commands.test} {test_file}`.
+3. **Assert FAIL**: if exit 0 → test is **tautological** (passes without the implementation) → blocking gap. Do NOT pop stash. Restore worktree: `git stash pop`. Report: `TAUTOLOGICAL: {file} :: {test name} — passed with implementation stashed`. ¬proceed to `/pr` until test is rewritten.
+4. **Pop stash** (success path only): `git stash pop`.
+5. **Assert GREEN**: re-run `{commands.test} {test_file}` → exit 0. If ✗ → stash pop corrupted state → escalate to lead.
+6. **Record evidence**: one line per test:
+   ```
+   broke {source file} → test failed with {error/assertion message}
+   ```
+7. **Update Status**: set matrix row to `✓ proven` (green + falsified) or `✗ failed` (red on green run).
+
+**After all tests falsified**: append evidence block to summary output:
+
+```
+## Falsification Evidence
+broke {source A} → test failed with {error A}
+broke {source B} → test failed with {error B}
+```
+
+**Success path only:** ¬stash residue in working tree after gate completes — verify with `git status`. (On the tautological-blocking path the run halts before `/pr`; stash is popped as part of stopping, so no diff residue reaches the PR.)
+
+**Matrix format (fixed columns — parseable):**
+
+````markdown
+## SC → Test Matrix
+
+| SC | Test(s) | Status |
+|----|---------|--------|
+| SC1: {text} | `{file} :: {test name}` | ⏳ not run |
+| SC2: {text} | `{file} :: {test name}`, `{file2} :: {test name2}` | ⏳ not run |
+| SC3: {text} | — | ⚠ NO TEST — prompt-logic-only |
+````
 
 ```
 Implement Complete
@@ -205,6 +287,7 @@ Implement Complete
   Files:    created/modified list
   Tasks:    N/total completed (stragglers: ...)
   Verify:   N/total first-try (%)
+  SC Matrix: N/total mapped (gaps: ...)
   Next:     /pr → /code-review → /1b1 → merge
 ```
 
@@ -231,7 +314,7 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 1. ¬`git add -A` ∨ `git add .` — specific files only
 2. ¬push without PR via `/pr`
 3. ¬create issue without user approval
-4. Always ω (XS exception w/ explicit lead approval)
+4. Always ω ∀ τ — ¬exception (XS, S, F-lite, F-full all require ω)
 5. Always HEREDOC for commit messages
 6. Pre-commit hook failure → fix, re-stage, NEW commit (¬amend)
 

@@ -23,7 +23,7 @@ Let: σ := `.claude/stack.yml` | π := proposed config table
 
 ## Phase 1 — Check /init prerequisite
 
-`test -f .claude/dev-core.yml && grep -q 'gh_project_id' .claude/dev-core.yml && echo done || (test -f .env && grep -q 'GH_PROJECT_ID' .env && echo done || echo missing)`
+`test -f .claude/dev-core.yml && echo done || echo missing`
 
 `missing` → → DP(A) **Continue anyway** | **Abort (run /init first)**
 
@@ -154,7 +154,7 @@ Assemble σ. Omit `none`/empty keys entirely.
 
 ```yaml
 # .claude/stack.yml — dev-core stack configuration
-# Commit this file with the project. Secrets live in .env / .claude/dev-core.yml.
+# Commit this file with the project. Secrets live in .env only.
 schema_version: "1.0"
 
 runtime: {RUNTIME}
@@ -190,6 +190,24 @@ testing:
   unit: {UNIT_TEST}
   # e2e: (only if playwright/cypress detected)
 
+# quality_gates: (python/node — opt-in code-hygiene guards; omit section entirely when runtime not supported)
+#   file_length:
+#     enabled: true
+#     max_lines: 300
+#     globs: ["src/**/*.py"]
+#     exemptions_file: tools/file_exemptions.txt
+#     # metric: raw        # optional — "raw" (default, wc -l) or "sloc" (excludes blanks/comments/docstrings)
+#                          # sloc requires radon (python) or node+npx (node); see /release-setup N4b
+#   folder_size:
+#     enabled: true
+#     max_files: 12
+#     globs: ["src/**"]
+#     exemptions_file: tools/folder_exemptions.txt
+#   import_layers:
+#     enabled: true
+#     stage: pre-push
+#     config: .importlinter
+
 deploy:
   platform: none
 
@@ -221,12 +239,116 @@ artifacts:
 #   contributing: {docs}/contributing.md
 ```
 
+**Conditional rendering rules for the template above:**
+- `frontend:` — include (uncommented) only if a frontend framework was detected; otherwise omit entirely.
+- `shared:` — include only if a monorepo layout was detected; otherwise omit entirely.
+- `quality_gates:` — include (uncommented) only if `runtime ∈ {python, node}`; otherwise omit the section entirely. For `runtime: node`, include only the `file_length` sub-block (folder_size and import_layers are Python-only).
+
+## Phase 4b — Worktree-setup scaffold
+
+Compose `tools/worktree-setup.sh` + `tools/worktree-teardown.sh` from the checklist
+and register both hooks in σ. Skipped for unsupported runtimes.
+
+Let:
+  WS := tools/worktree-setup.sh
+  WT := tools/worktree-teardown.sh
+  CL := ${CLAUDE_PLUGIN_ROOT}/references/worktree-setup-checklist.md
+  TS := ${CLAUDE_PLUGIN_ROOT}/tools/worktreeScaffold.ts
+  CTX := ProjectContext built from Phase 2 detection
+
+1. **Runtime gate.** runtime ∉ {python, bun, node} → D⏭("Worktree-setup scaffold — runtime not supported"), skip phase.
+
+2. **Existence check.** `test -f tools/worktree-setup.sh` →
+   - ∃ ∧ ¬`--force` → D("Worktree-setup scaffold", "⏭ Already present"), skip.
+   - ∃ ∧ `--force` → DP(A) **Regenerate** | **Keep existing** | **Abort**. "Keep" / "Abort" → skip / abort wizard.
+
+3. **Build ProjectContext.** Phase 2 output was display-only; re-detect here to populate shell variables for jq:
+   ```bash
+   # Re-detect from filesystem (Phase 2 echo output is display-only, not shell assignments)
+   if [ -f pyproject.toml ]; then
+     grep -q '\[tool\.uv\]' pyproject.toml && RUNTIME=python && PM=uv || RUNTIME=python && PM=pip
+   elif [ -f bun.lockb ]; then RUNTIME=bun; PM=bun
+   elif [ -f pnpm-lock.yaml ]; then RUNTIME=node; PM=pnpm
+   elif [ -f yarn.lock ]; then RUNTIME=node; PM=yarn
+   elif [ -f package.json ]; then RUNTIME=node; PM=npm
+   else RUNTIME=unknown; PM=unknown
+   fi
+
+   MONOREPO_BOOL=$([ -f turbo.jsonc ] || [ -f turbo.json ] || [ -f nx.json ] && echo true || echo false)
+   HOOKS_TOOL=$([ -f lefthook.yml ] || [ -f .lefthook.yml ] && echo lefthook \
+     || ([ -f .pre-commit-config.yaml ] && echo pre-commit) || echo none)
+   DATABASE=$(grep -lE 'NEON_DATABASE_URL|@neondatabase' .env.example apps/api/package.json 2>/dev/null \
+     | head -1 > /dev/null && echo neon || echo none)
+   BE_PATH=$(grep -oP '(?<=packages = \[")[^"]+' pyproject.toml 2>/dev/null | head -1 \
+     || (test -d apps/api && echo apps/api) || echo "")
+   ENV_FILES=$(ls .env.example .env.local 2>/dev/null | head -3 | tr '\n' ' ' || echo "")
+
+   # Build CTX_JSON safely via jq (no heredoc injection risk)
+   command -v jq > /dev/null 2>&1 || { echo "jq not found — install jq to continue"; exit 1; }
+   CTX_JSON=$(jq -n \
+     --arg runtime "$RUNTIME" \
+     --arg pm "$PM" \
+     --argjson monorepo "${MONOREPO_BOOL}" \
+     --arg hooks_tool "${HOOKS_TOOL:-lefthook}" \
+     --arg database "${DATABASE:-none}" \
+     --arg be_path "${BE_PATH:-}" \
+     --arg env_files "${ENV_FILES:-}" \
+     '{
+       runtime: $runtime,
+       package_manager: $pm,
+       monorepo: $monorepo,
+       hooks_tool: $hooks_tool,
+       env_files: ($env_files | split(" ") | map(select(. != ""))),
+       database: $database,
+       backend_paths: ($be_path | if . == "" then [] else [.] end)
+     }')
+   ```
+
+4. **Preview.** Run:
+   ```bash
+   IDS=$(bun "${TS}" list-selected --checklist "${CL}" --context-json "${CTX_JSON}")
+   COUNT=$(echo "$IDS" | awk -F, '{print NF}')
+   ```
+   Echo: `Worktree-setup scaffold preview — {RUNTIME}/{PM} · ${COUNT} concerns: ${IDS}`
+   ${COUNT} == 0 → D⏭("Worktree-setup scaffold — no concerns matched"), skip.
+
+5. **Confirm.** Options depend on whether WS already exists:
+   - WS ∃ (Regenerate path) → DP(A) **Write scripts** | **Show diff** | **Abort**.
+     - **Show diff** → `diff -u <(bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode setup) tools/worktree-setup.sh | head -80` then re-present DP(A) **Write scripts** | **Abort**.
+   - WS ∄ (fresh-install path) → DP(A) **Write scripts** | **Preview composed body** | **Abort**.
+     - **Preview composed body** → `bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode setup | head -80` then re-present DP(A) **Write scripts** | **Abort**.
+   - **Abort** (either path) → D⏭("Worktree-setup scaffold"), skip.
+
+6. **Write scripts.**
+   ```bash
+   mkdir -p tools
+   bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode setup > tools/worktree-setup.sh
+   bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode teardown > tools/worktree-teardown.sh
+   chmod +x tools/worktree-setup.sh tools/worktree-teardown.sh
+   ```
+
+7. **Register keys in σ.** Append under `commands:` block of `.claude/stack.yml`:
+   ```yaml
+     worktree_setup: tools/worktree-setup.sh
+     worktree_teardown: tools/worktree-teardown.sh
+   ```
+   Idempotent: skip lines already present.
+
+8. **Report.**
+   ```
+   Worktree-setup scaffold
+     tools/worktree-setup.sh       ✅ Written (${COUNT} concerns: ${IDS})
+     tools/worktree-teardown.sh    ✅ Written
+     commands.worktree_setup       ✅ Registered in σ
+     commands.worktree_teardown    ✅ Registered in σ
+   ```
+
 ## Phase 5 — CLAUDE.md and reference template
 
 1. **@import:** `head -1 CLAUDE.md` ≠ `@.claude/stack.yml` → prepend; else already present.
 2. **Example:** `.claude/stack.yml.example` ∄ → copy σ → "Created as reference template."
 
-Note: `.claude/stack.yml` itself is committed (project stack conventions — no secrets). Only `.env` and `.claude/dev-core.yml` are gitignored by dev-core.
+Note: `.claude/stack.yml` itself is committed (project stack conventions — no secrets). Only `.env` is gitignored by dev-core. `.claude/dev-core.yml` contains only public repo configuration and is committed.
 
 ## Phase 6 — Summary
 
@@ -245,6 +367,10 @@ Stack configuration written
   CLAUDE.md @import           ✅ Added / Already present
   .gitignore                  ✅ Updated / Already set
   .claude/stack.yml.example   ✅ Created / Already exists
+  tools/worktree-setup.sh     ✅ Written / Skipped (unsupported runtime | already present)
+  tools/worktree-teardown.sh  ✅ Written / Skipped (unsupported runtime | already present)
+  commands.worktree_setup     ✅ Registered in σ / Skipped
+  commands.worktree_teardown  ✅ Registered in σ / Skipped
 
   ⚠️  Missing standards docs: (list any configured paths that don't exist on disk)
 

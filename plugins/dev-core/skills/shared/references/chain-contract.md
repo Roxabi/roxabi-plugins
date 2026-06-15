@@ -9,9 +9,11 @@ Defines how the 13 dev-core pipeline skills participate in the `/dev` orchestrat
 ## Pipeline
 
 ```
-issue-triage → frame → analyze → spec → plan → implement → pr
+issue-triage → frame → analyze → spec → plan ⏸→ implement → pr
             → ci-watch → validate → code-review → {fix ↺ review | merge → cleanup}
 ```
+
+> `plan ⏸→ implement`: for τ ∈ {F-lite, F-full}, `/dev` inserts a **compact pause** between plan and implement (Step 8b) — recommend `/compact` before building. τ=S skips plan entirely. See the gate-class Exit `/plan` exception.
 
 ## Ownership model
 
@@ -20,6 +22,7 @@ issue-triage → frame → analyze → spec → plan → implement → pr
 | dev-pipeline task lifecycle (seed, in_progress, completed, cancelled) | `/dev` |
 | Step transitions (what runs next) | `/dev` Step 5 STEPS list + Step 7 invocation map |
 | Gate approval prompts (frame, spec, plan) | `/dev` Step 6 + the skill itself |
+| Compact pause (plan→implement, F-lite/F-full) | `/dev` Step 8b |
 | Standalone invocation fallback | Each skill's Exit section |
 | Sub-task creation (with `kind` ≠ `dev-pipeline`) | Individual skills (plan, code-review) |
 | Loop handling (review ↔ fix) | Follow-up TaskCreate with `metadata.iteration` |
@@ -29,7 +32,7 @@ issue-triage → frame → analyze → spec → plan → implement → pr
 | Class | Meaning | Skills | Exit behavior |
 |---|---|---|---|
 | **adv** | Continuous flow, no user gate | issue-triage, analyze, implement, pr, ci-watch, validate, cleanup | Return silently; `/dev` auto-advances |
-| **gate** | User approval of artifact required | frame, spec, plan | Present artifact → on approve, return silently; `/dev` auto-chains to successor |
+| **gate** | User approval of artifact required | frame, spec, plan | Present artifact → on approve, return silently; `/dev` auto-chains to successor (**plan exception:** compact pause before `/implement` — see below) |
 | **verdict** | Branches based on outcome | code-review | APPROVED → merge → cleanup; CHANGES_REQUESTED → `/fix` |
 | **loop** | Cycles back to predecessor (bounded) | fix | On success → TaskCreate follow-up review; max 2 iterations |
 | **standalone** | Never auto-triggered by `/dev` | promote | Runs only on explicit user invocation |
@@ -100,6 +103,8 @@ fix-iter-2 (dev-pipeline)
 - **Rejected/aborted:** return → `/dev` marks task `cancelled`.
 ```
 
+**`/plan` exception — compact pause:** `/plan` (τ ∈ {F-lite, F-full} only; τ=S skips it) does **not** auto-chain to `/implement`. After seed+commit, `/dev` Step 8b prints a compact-pause recommendation (`/compact` → `/implement`, where `/dev #N` ≡ `/implement #N`) and stops the turn. Rationale: planning context is dead weight for the build phase; tasks persist (task list + artifact `## Task IDs`) so `/implement` Step 1b re-attaches after the compact. Re-fire guard: the pause is keyed to *plan having just run*, so the post-compact `/dev #N` resume goes straight to `/implement`.
+
 ### verdict-class Exit (code-review)
 
 ```markdown
@@ -156,14 +161,13 @@ When adding a new skill to the dev-core pipeline:
 
 ## Cache synchronization
 
-Edits to SKILL.md files must be propagated to the plugin cache:
+Edits to SKILL.md files must be propagated to the plugin cache by re-installing the plugin from the marketplace:
 
 ```bash
-cd ~/projects/roxabi-plugins
-./sync-plugins.sh --local
+claude plugin install dev-core
 ```
 
-The sync script has rollback-on-failure (as of the chain-contract refactor) to prevent partial-sync inconsistency across the 13 pipeline skills.
+This pulls the marketplace clone and repopulates the hash-keyed cache dir, ensuring all 13 pipeline skills land atomically.
 
 ## Related documents
 

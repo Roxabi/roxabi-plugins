@@ -1,0 +1,53 @@
+---
+title: residual hygiene from #214 review (symlink deref, regex drift, lefthook hook)
+issue: 229
+status: approved
+tier: F-lite
+date: 2026-05-31
+---
+
+## Problem
+
+Three low-priority parity gaps surfaced during the #214 reconcile re-review and were deferred so #214 could merge. Each is a self-contained asymmetry between two code paths that should behave identically:
+
+1. **Symlink non-resolution** — `tools/sync-shared.ts:32` `assertInRepo` uses `resolve()` (normalizes `..` only), not `realpathSync`. A symlink target outside the repo would pass the containment check. The Python validator (`validate_plugins.py`) already derefs via `.resolve()` — the TS side is asymmetric.
+2. **`REPO_SLUG_RE` drift** — `config-helpers.ts:98` owner segment `[A-Za-z0-9-]+` vs `cwd-resolver.ts:6` tightened `[A-Za-z0-9][A-Za-z0-9._-]*`. Two canonical forms for the same concept (#217 shipped a third).
+3. **No scoped lefthook hook for `shared-sources-sync`** — covered only by the bare `taxonomy-sync` hook, which `.venv`-gates locally → silently skips if `.venv` absent. CI always enforces; local does not.
+
+Observable impact: low (inputs are repo-controlled), but drift compounds and the silent local skip ships un-synced copies that only fail in CI.
+
+## Who
+
+- **Primary:** roxabi-plugins maintainers — consistency of governance gates (copy-sync, containment checks) across TS/Python.
+- **Secondary:** contributors without a local `.venv` — currently ship un-synced `config-helpers.ts` copies that fail only in CI.
+
+## Constraints
+
+- Item 2 touches the copy-synced governance file `config-helpers.ts` — dev-core canonical edited; dev-init copy re-synced via `bun run sync:shared` (byte-equality gate via `validate_plugins.py --check shared-sources-sync`).
+- Owner-segment test updates must land in `plugins/shared/__tests__/detect-github-repo.suite.ts` (shared-import test factory).
+- No `--force` / `--hard` / `--amend`. Merge-commit only.
+- `realpathSync` must catch `ENOENT` for not-yet-written targets (parity with Python's resolve-then-check).
+
+## Out of Scope
+
+- Re-litigating #217's third regex form beyond reconciling to one canonical.
+- Broader sync-shared.ts refactor — only the symlink-deref alignment.
+- Any non-deferred #214 work (already merged).
+
+## Premise Validity
+
+**Success in 6 months:** All 3 parity gaps closed — TS↔Python symlink handling symmetric (`realpathSync`), one canonical `REPO_SLUG_RE` across `config-helpers` + `cwd-resolver`, lefthook hook enforces `shared-sources-sync` locally. CI + local gates agree, no regression.
+
+**Failure in 6 months (falsifiable):** Any one observable after merge — (a) `shared-sources-sync` still silently skips locally when `.venv` absent; (b) a 4th `REPO_SLUG_RE` form appears (divergence reintroduced); (c) a symlink target outside the repo passes `assertInRepo`.
+
+**Simplest alternative:** Do nothing — inputs are repo-controlled, low risk.
+**Why not simplest:** Regex drift is already at 3 forms (#217) and compounds; silent local skip ships un-synced copies that only fail in CI → wasted contributor round-trips.
+
+## Complexity
+
+**Tier: F-lite** — clear scope, single domain (dev tooling), ~5 files, no unknowns; warrants spec/plan gates due to copy-sync governance sensitivity.
+
+Signals observed:
+- 5 files, single domain → above S threshold
+- No new architecture, no unknowns → below F-full
+- Copy-synced governance file in scope → spec/plan gates justified

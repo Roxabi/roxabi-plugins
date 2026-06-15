@@ -1,7 +1,7 @@
 ---
 name: checkup
-description: 'Health check — verify dev-core config, GitHub project, labels, workflows, branch protection. Triggers: "checkup" | "health check" | "check setup" | "verify config".'
-version: 0.7.0
+description: 'Health check — verify dev-core config, GitHub project, labels, workflows, branch protection, secret scanning, CI hardening. Triggers: "checkup" | "health check" | "check setup" | "verify config" | "security baseline".'
+version: 0.8.1
 allowed-tools: Bash, Read, ToolSearch
 ---
 

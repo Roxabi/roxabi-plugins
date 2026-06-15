@@ -1,6 +1,5 @@
 {
   "name": "linkedin-apply",
-  "version": "0.1.0",
   "description": "Scrape LinkedIn job offers and score them against your profile with Claude LLM — APPLY / REVIEW / SKIP decisions with 4-dimension scoring.",
   "author": {
     "name": "Roxabi"

@@ -1,0 +1,104 @@
+---
+title: Evaluate broader copy-sync scope for shared/ — biome glob + 14 byte-identical pairs
+issue: 232
+status: approved
+tier: F-full
+date: 2026-05-31
+---
+
+## Problem
+
+#224 added `domain/errors.ts` + `domain/types.ts` to the copy-sync manifest (the
+byte-identical dependency closure of the gated `config-helpers.ts`). Two broader
+questions were deliberately deferred rather than bundled into that PR:
+
+1. **biome.json scope.** `biome.json` `overrides.includes` is now a 3-entry
+   per-file list of generated copies (`config-helpers.ts`, `domain/errors.ts`,
+   `domain/types.ts`). A glob (`plugins/dev-init/skills/shared/**/*.ts`) would
+   auto-cover future copy-sync additions and remove per-file touchpoint drift —
+   but it would also silently suppress biome on any *hand-written* file that lands
+   under that subtree. Blast radius is zero **today** (the subtree is all
+   copy-synced files), but that must be asserted as an explicit invariant before
+   switching, or a future hand-written file there silently loses lint/format.
+
+2. **The other 14 byte-identical `shared/` pairs.** An audit during #224 found 14
+   more byte-identical `dev-core ↔ dev-init` `shared/` pairs NOT in the copy-sync
+   manifest. 7 are runtime source (copy-sync candidates), 6 are test files
+   (governance says test-only logic uses shared-import, not copy-sync), 1 is
+   `__tests__/config.test.ts` (excluded — caller-parity gate; a `@generated`
+   header would break its parity diff). The open question: are the 7 runtime pairs
+   *intentionally* shared (→ add to copy-sync, like #224 did) or coincidentally
+   identical / independently maintained (→ leave alone)? Unlike `errors.ts`/
+   `types.ts`, none are dependencies of a gated file, so there is no
+   drift-blast-radius forcing function — each needs a per-file call against the
+   governance selection rule in CLAUDE.md ("Shared-source TS files").
+
+Recheck (2026-05-31) confirmed all premises still hold: biome = 3-entry list,
+manifest = 3 entries, 7/7 runtime pairs still byte-identical.
+
+## Who
+
+- **Primary:** roxabi-plugins maintainers editing `shared/` TS files — today they
+  must know, per-file and out-of-band, which governance mechanism (copy-sync,
+  shared-import, caller-parity, leave-alone) applies. Undocumented identical pairs
+  are a silent drift trap.
+- **Secondary:** future contributors adding files under `plugins/dev-init/skills/
+  shared/` — a biome glob would change whether their file is linted, invisibly.
+
+## Constraints
+
+- Governance authority = CLAUDE.md "Shared-source TS files" selection rule
+  (copy-sync = runtime files; shared-import = test-only logic; caller-parity =
+  byte-identical test boilerplate that cannot carry a `@generated` header).
+- Cross-plugin runtime imports are forbidden (marketplace self-containment) →
+  runtime sharing must be copy-sync, not import.
+- `config.test.ts` is fenced off (#218/#225 caller-parity gate) — out of bounds.
+- Copy-sync byte-equality is CI- + lefthook-gated via
+  `tools/validate_plugins.py --check shared-sources-sync`; manifest =
+  `tools/shared-sources.json`. Any added pair inherits this gate.
+- Pure hygiene — not urgent. The high-risk dependency (`errors.ts`) is already
+  gated by #224, so nothing here is load-bearing for correctness.
+
+## Out of Scope
+
+- `__tests__/config.test.ts` — owned by #218/#225 caller-parity gate.
+- Re-litigating the test-file governance choice (shared-import vs copy-sync) — the
+  6 test pairs follow the existing rule; this issue does not change it.
+- Any change to `config-helpers.ts` / `errors.ts` / `types.ts` themselves — they
+  are already correctly copy-synced.
+- New governance *mechanisms* — decide using the 4 that already exist.
+
+## Premise Validity
+
+**Success in 6 months:** every byte-identical `shared/` pair has a documented
+governance call (copy-sync | shared-import | caller-parity | leave-alone); no
+undocumented drift-risk pairs remain; the biome "shared/ subtree = generated-only"
+decision is recorded as an explicit invariant (glob adopted) or explicitly
+rejected (list kept), with rationale.
+
+**Failure in 6 months:** the audit produced churn but did not reduce drift risk —
+either a hand-written file landed under the biome glob and silently lost
+lint/format, OR a runtime `shared/` pair silently diverged because it was
+identical-but-unmanaged and nobody had recorded whether it should be synced.
+
+**Simplest alternative:** close as wontfix — `errors.ts` (the only real
+drift-blast-radius file) is already gated by #224, so the rest is "merely"
+undocumented.
+**Why not simplest:** the cost is not today's correctness, it's the silent trap —
+7 runtime pairs that are byte-identical with no recorded reason are a latent
+divergence risk, and the biome per-file list keeps accreting touchpoints. The
+deferral was explicit in #224; closing without a decision just re-defers it.
+
+## Complexity
+
+**Tier: F-full** — the substance of the issue is per-file *analysis* (intentional
+vs coincidental sharing for 7 runtime pairs) plus an architectural decision (biome
+glob invariant + copy-sync scope) whose natural output is an ADR or a CLAUDE.md
+governance note, followed by mechanical application.
+
+Signals observed:
+- Investigative core: 7 per-file governance calls + 1 invariant assertion.
+- Architectural decision with a documented artifact (ADR / CLAUDE.md note).
+- Single domain (devops/governance tooling) but genuine unknowns per file →
+  analyze phase is the right tool.
+- complexity hint = 3 (issue body).

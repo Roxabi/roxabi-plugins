@@ -1,6 +1,6 @@
 # dev-core
 
-Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 29 skills, 9 specialized agents, and safety hooks.
+Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 30 skills, 9 specialized agents, and safety hooks.
 
 ## Prerequisites
 
@@ -22,6 +22,16 @@ Install the plugin:
 claude plugin install dev-core
 ```
 
+### Keeping your install up to date
+
+`dev-core` ships through a hash-keyed cache at `~/.claude/plugins/cache/roxabi-marketplace/dev-core/<hash>/`. When new versions land on `staging`/`main`, pull the latest by re-installing from the marketplace:
+
+```bash
+claude plugin install dev-core
+```
+
+Without this step, recently-added skills (e.g. `/recheck`) won't appear in your trigger list even though they're in the repo.
+
 ## Getting Started
 
 After installing, run init to configure your project:
@@ -30,7 +40,7 @@ After installing, run init to configure your project:
 /init
 ```
 
-Auto-detects your GitHub repo, Project V2 board, and field IDs. Writes `.claude/dev-core.yml` (primary config) and `.env` (legacy fallback), registers the project in `~/.roxabi-vault/workspace.json` for the multi-project dashboard, generates a self-healing `roxabi` shim, and creates the `artifacts/` directory. Works for any project type. Re-run with `/init --force` to reconfigure.
+Auto-detects your GitHub repo. Writes `.claude/dev-core.yml` (primary config) and `.env` (legacy fallback), registers the project in `~/.roxabi-vault/workspace.json`, generates a self-healing `roxabi` shim, and creates the `artifacts/` directory. Works for any project type. Re-run with `/init --force` to reconfigure.
 
 Then configure the agent stack:
 
@@ -42,7 +52,7 @@ Auto-discovers your runtime, framework, test tooling, and linter from the codeba
 
 **Project-agnostic:** All skills and agents read commands and paths from `.claude/stack.yml` at runtime — `{commands.test}`, `{commands.lint}`, `{package_manager}`, `{backend.path}`, etc. If a required field is missing, the agent immediately tells you to run `/init` or `/stack-setup`. This means dev-core works with any stack — Bun/npm/pnpm/yarn, NestJS/Express/Django, Vitest/Jest/Pytest.
 
-**Important:** `/init` is required for project board features (issue status, size, priority fields). Without it, issue creation and dependency management still work, but field updates will show a "not configured" error pointing back to `/init`.
+**Note:** dev-core is issues-only — no GitHub Project V2 board. Issue triage (labels for size/priority/lane/type, blocked-by deps, parent/child sub-issues) lives in the separate **`roxabi-issues`** plugin (Roxabi/roxabi-live); dev-core's `/dev` lifecycle reads issues but no longer mutates them.
 
 ## Usage
 
@@ -56,21 +66,22 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 
 ## Skills
 
-28 skills organized by workflow phase:
+30 skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
-| `init` | Setup | Configures project for dev-core (GitHub Project V2, labels, CI/CD workflows, branch protection, env vars, workspace.json registration, VS Code MDX preview, LSP plugin install). Pushes workflow files directly via GitHub REST API — no local git required. Auto-sets PAT secret after workflow creation. Lists built-in project workflow status; GitHub has no API to enable them programmatically — provides direct settings URL. TypeScript CLI with subcommands, SKILL.md orchestrates via AskUserQuestion |
+| `init` | Setup | Configures project for dev-core (CI/CD workflows, branch protection, env vars, workspace.json registration, VS Code MDX preview, LSP plugin install). Pushes workflow files directly via GitHub REST API — no local git required. Auto-sets PAT secret after workflow creation. TypeScript CLI with subcommands, SKILL.md orchestrates via DP(n) decisions |
 | `env-setup` | Setup | Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, VS Code MDX, LSP. Triggered by `/init` or standalone |
-| `github-setup` | Setup | Connect project to GitHub Project V2 board — discover or create board, labels, branch protection, workspace registration |
 | `ci-setup` | Setup | Set up CI/CD — GitHub Actions workflows, TruffleHog, Dependabot, pre-commit hooks, marketplace plugins. Discovers Roxabi plugins live from `marketplace.json` and endorsed external marketplaces from `curated-marketplaces.json` |
 | `stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.claude/stack.yml`. Single confirmation screen — no wizard questions |
 | `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows (checks both local files and remote via REST API), required secrets (PAT for auto-merge.yml), branch protection, stack.yml, workspace.json registration, VS Code MDX preview, and LSP plugin install (typescript-lsp / pyright-lsp with auto-fix). Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
 | `seed-docs` | Setup | Populates scaffolded architecture/standards docs with real content — reads CLAUDE.md for conventions, optionally scans codebase (entry points, import graph, naming patterns), fills TODO stubs, writes AI Quick Reference sections. Idempotent: skips already-populated files |
 | `seed-community` | Setup | Bootstraps OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), `.github/PULL_REQUEST_TEMPLATE.md`, issue templates. Reads project metadata + CLAUDE.md; generates missing files idempotently |
 | `dev` | Orchestrator | Routes issues through the full workflow |
+| `recheck` | Frame | Drift-check an issue (git-drift, symbol-missing, dep-resolved) before /dev work begins. Runs before /frame for every tier — no skip path. Signal-clean returns silently; signal-fire blocks with DP(A) (Proceed/Update/Close/Abort) |
 | `frame` | Frame | Creates initial feature frame from issue |
 | `analyze` | Shape | Deep analysis with expert consultation |
+| `consensus` | Shape | Multi-expert panel — spawns 3 domain agents (architect + 2 context-selected) to debate and agree on best long-term solution |
 | `spec` | Shape | Generates specifications with smart splitting |
 | `interview` | Shape | Interactive requirements gathering |
 | `plan` | Build | Creates implementation plan with micro-tasks |
@@ -82,13 +93,13 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 | `cleanup` | Ship | Post-merge cleanup |
 | `promote` | Ship | Promotes to staging/production |
 | `test` | Supporting | Runs and manages tests |
-| `issues` | Supporting | Lists/dashboards GitHub issues — status, deps, backlog; `--tree`/`-T` for compact hierarchy view |
-| `issue-triage` | Supporting | Triages GitHub issues with labels/priority |
 | `adr` | Supporting | Creates Architecture Decision Records |
+| `clarify` | Supporting | Intent-first architecture recap — 6-section view (intent → biz-arch → UX flows → data flow per layer → use cases × layers → open intent Qs). Phase-agnostic, ephemeral, no artifact. Defers technical implementation until user approves framing |
 | `doc-sync` | Supporting | Syncs CLAUDE.md, README.md, and plugin SKILL.md after a code change |
 | `readme-upgrade` | Supporting | Audits and improves root README, CONTRIBUTING.md, and plugin READMEs against the developer-tool quality pattern (Why, Quick Start, How it works, categorized tables, diagrams). Auto-detects Mermaid vs ASCII based on host |
 | `cleanup-context` | Supporting | Audits and cleans CLAUDE.md, memory, skills, and rules — resolves every finding (fix/promote/relocate/delete), tracks recurrences, targets bloat=0 |
 | `ci-watch` | Supporting | Watch a CI run with live emoji dashboard — polls every Ns, shows job/step status, dumps failed logs on error. Auto-detects `ci.yml` workflow |
+| `release-setup` | Supporting | Wires release-please for a repo — tag convention, manifest, config, workflow. Re-run with `--force` to patch. **Quality gates** (Python only) — optional `quality_gates:` section in `stack.yml` installs file-length / folder-size / import-layer pre-commit hooks. See [`skills/release-setup/cookbooks/quality-gates.md`](skills/release-setup/cookbooks/quality-gates.md) |
 
 ## Agents
 

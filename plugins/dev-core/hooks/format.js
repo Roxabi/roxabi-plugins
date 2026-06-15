@@ -3,6 +3,7 @@
 const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
+const { parseStackYml } = require('./lib/parse-stack-yml.cjs')
 
 // All extensions common formatters can handle.
 // The formatter itself decides which it actually processes — this list just
@@ -38,73 +39,6 @@ function readStackYml() {
   }
 }
 
-/**
- * Parse the new `formatters:` array from stack.yml.
- *
- * Expects this shape (no external YAML parser needed):
- *
- *   build:
- *     formatters:
- *       - cmd: "bunx biome check --write"
- *         ext: [".ts", ".tsx", ".js", ".jsx", ".json"]
- *       - cmd: "ruff format"
- *         ext: [".py"]
- *
- * Returns null if the key is absent.
- * ext is optional — if omitted, all formattable files are passed to that cmd.
- */
-function parseFormatters(text) {
-  if (!text) return null
-  const idx = text.indexOf('formatters:')
-  if (idx === -1) return null
-
-  // Slice from the formatters: key to the next top-level key or EOF
-  const block = text.slice(idx + 'formatters:'.length)
-
-  // Split on "- cmd:" to get each entry
-  const chunks = block.split(/\n[ \t]*-[ \t]+cmd:/)
-  if (chunks.length < 2) return null
-
-  const formatters = []
-  for (const chunk of chunks.slice(1)) {
-    // First line is the cmd value
-    const firstLine = chunk.split('\n')[0]
-    let cmd = firstLine.trim()
-    if ((cmd.startsWith('"') && cmd.endsWith('"')) || (cmd.startsWith("'") && cmd.endsWith("'"))) {
-      cmd = cmd.slice(1, -1)
-    }
-    if (!cmd) continue
-
-    // ext: [".ts", ".py"] — inline array on one line
-    const extMatch = chunk.match(/\bext:\s*\[([^\]]*)\]/)
-    const ext = extMatch
-      ? extMatch[1]
-          .split(',')
-          .map((e) => e.trim().replace(/['"]/g, ''))
-          .filter(Boolean)
-      : null // null = match all formattable extensions
-
-    formatters.push({ cmd, ext })
-  }
-
-  return formatters.length > 0 ? formatters : null
-}
-
-/**
- * Legacy: read single build.formatter_fix_cmd from stack.yml.
- * Kept for backward compatibility with existing stack.yml files.
- */
-function parseSingleCmd(text) {
-  if (!text) return null
-  const match = text.match(/^\s*formatter_fix_cmd:\s*(.+?)\s*$/m)
-  if (!match) return null
-  let val = match[1].trim()
-  if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-    val = val.slice(1, -1)
-  }
-  return val || null
-}
-
 function runFormatter(cmd, files) {
   if (files.length === 0) return
   const [bin, ...args] = cmd.split(/\s+/)
@@ -117,10 +51,9 @@ function runFormatter(cmd, files) {
 
 function main() {
   const yml = readStackYml()
-  const formatters = parseFormatters(yml)
-  const singleCmd = !formatters ? parseSingleCmd(yml) : null
+  const { formatters, singleFormatterCmd } = parseStackYml(yml)
 
-  if (!formatters && !singleCmd) {
+  if (!formatters && !singleFormatterCmd) {
     // No formatter configured — skip silently.
     process.exit(0)
   }
@@ -144,7 +77,7 @@ function main() {
     }
   } else {
     // Single formatter: pass all matching files.
-    runFormatter(singleCmd, allFiles)
+    runFormatter(singleFormatterCmd, allFiles)
   }
 }
 

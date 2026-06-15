@@ -8,6 +8,11 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 
 # Spec
 
+## Success
+
+I := σ written ∧ pre-check pass ∧ |χ| ≤ 5
+V := `ls artifacts/specs/{N}-*.mdx` ∧ pre-check: 0 failures
+
 Let:
   α := artifacts/analyses/{N}-{slug}-analysis.mdx
   σ := artifacts/specs/{N}-{slug}-spec.mdx
@@ -28,6 +33,25 @@ Analysis (or frame) → approved spec. Interview → pre-check → expert review
 /spec --analysis path    → use provided analysis as source
 /spec --frame path       → use provided frame (analysis was skipped)
 ```
+
+## Pipeline
+
+| Step | ID | Required | Verifies via | Notes |
+|------|----|----------|---------------|-------|
+| 0 | resolve | ✓ | SRC ∃ | — |
+| 1 | scan | — | σ ∃? | — |
+| 1b | audit | — | — | `--audit` only |
+| 2 | generate | ✓ | σ written | Ω interview |
+| 3 | pre-check | ✓ | 0 failures | — |
+| 4 | review | — | agents return | ∥ spawn |
+| 5 | approval | ✓ | `git log` shows commit | gate |
+
+## Pre-flight
+
+Success: σ written ∧ pre-check pass ∧ |χ| ≤ 5
+Evidence: `ls artifacts/specs/` ∧ pre-check output
+Steps: resolve → generate → pre-check → review → approval
+¬clear → STOP + ask: "What artifact should this spec derive from?"
 
 ## Step 0 — Resolve Input + Ensure GitHub Issue
 
@@ -134,6 +158,9 @@ Auto-select ρ (¬ask user). Architect always included:
 | doc-writer | Always | Structure, clarity, breadboard completeness |
 | product-lead | Always | Criteria quality, scope, user story validity |
 | devops | ∃ CI/CD / deploy / infra criteria | Operational feasibility |
+| axial-adr-review | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ (spec adds adapter/integration/target ∨ touches `infrastructure/`) | Drift along non-primary axis (N×M trap) — read-only review |
+
+> **Note on axial-adr-review asymmetry (intentional):** The `/spec` condition is **semantic/intent-based** — it triggers when the spec proposes adding a new adapter/integration/target or touches `infrastructure/`. The code-review phase (`/code-review`) uses a **structural** condition (diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`). The two are complementary: `/spec` catches intent-level N×M violations, `/code-review` catches implementation-level ones. A spec that adds infrastructure/ changes without proposing a new adapter is not a spec-level axial concern but may still be caught at code-review. See `plugins/shared/references/axial-decomposition.md`.
 
 ∀ r ∈ ρ → spawn ∥:
 ```
@@ -143,7 +170,7 @@ Task(
   prompt: "Review the spec at {σ_path} for <focus>. Check pre-check results: {pre_check_summary}. ¬TaskCreate. Return: good / needs improvement / concerns + specific line references."
 )
 ```
-Agent name map: `architect` → `dev-core:architect` | `doc-writer` → `dev-core:doc-writer` | `product-lead` → `dev-core:product-lead` | `devops` → `dev-core:devops`
+Agent name map: `architect` → `dev-core:architect` | `doc-writer` → `dev-core:doc-writer` | `product-lead` → `dev-core:product-lead` | `devops` → `dev-core:devops` | `axial-adr-review` → `dev-core:axial-adr-review`
 
 Incorporate feedback → revise σ → note unresolved concerns.
 

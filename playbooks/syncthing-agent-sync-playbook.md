@@ -1,3 +1,22 @@
+---
+title: Syncthing Setup for Multi-Machine Sync
+description: Bidirectional real-time sync between machines for shared data directories
+purpose: Keep shared data directories in sync between development and production machines
+scope: Multi-machine setups requiring real-time bidirectional file synchronization
+dependencies:
+  - Syncthing (apt package)
+  - SSH access between machines
+  - Linux machines (apt package manager)
+tags:
+  - sync
+  - infrastructure
+  - multi-machine
+  - syncthing
+  - devops
+version: "1.0"
+last_updated: "2026-04-28"
+---
+
 # Playbook: Syncthing Setup for Multi-Machine Sync
 
 > Keep shared data directories in bidirectional real-time sync between two machines using Syncthing.

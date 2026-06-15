@@ -48,7 +48,7 @@ Score: {healthy | needs attention | bloated}
 
 `--dry-run` → stop here.
 
-AskUserQuestion: **Execute all** | **1-by-1** (per-ε approve/change) | **Skip**
+→ DP(A): **Execute all** | **1-by-1** (per-ε approve/change) | **Skip**
 
 ## Phase 4 — Execute
 

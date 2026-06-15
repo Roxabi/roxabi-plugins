@@ -5,7 +5,7 @@
  *   - parseGitRemoteUrl (SSH / HTTPS / .git suffix / invalid)
  *   - resolveRepoFromCwd (.roxabi marker walk-up, git remote fallback)
  *   - resolveCurrentProject (localPath → git-remote fallback, case-insensitive)
- *   - detectLocalPath (cwd match, ~/projects/<name> scan)
+ *   - detectLocalPath (cwd match only — HOME scan removed)
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
@@ -218,18 +218,15 @@ describe('resolveCurrentProject', () => {
 describe('detectLocalPath', () => {
   let tmpDir: string
   let originalCwd: string
-  let originalHome: string | undefined
 
   beforeEach(() => {
     tmpDir = makeTmpDir()
     originalCwd = process.cwd()
-    originalHome = process.env.HOME
   })
 
   afterEach(() => {
     try {
       process.chdir(originalCwd)
-      process.env.HOME = originalHome
     } finally {
       rmSync(tmpDir, { recursive: true, force: true })
     }
@@ -241,46 +238,15 @@ describe('detectLocalPath', () => {
     expect(detectLocalPath('Roxabi/roxabi-forge')).toBe(tmpDir)
   })
 
-  it('falls back to ~/projects/<name> when cwd does not match', () => {
-    const projectsDir = join(tmpDir, 'projects', 'some-repo')
-    mkdirSync(join(projectsDir, '.git'), { recursive: true })
-    process.env.HOME = tmpDir
-    process.chdir(tmpDir)
-    expect(detectLocalPath('Roxabi/some-repo')).toBe(projectsDir)
-  })
-
-  it('returns undefined when no candidate directory exists', () => {
-    process.env.HOME = tmpDir
+  it('returns undefined when cwd does not match the repo', () => {
+    initGitRepo(tmpDir, 'git@github.com:Roxabi/other-repo.git')
     process.chdir(tmpDir)
     expect(detectLocalPath('Roxabi/does-not-exist')).toBeUndefined()
   })
 
-  it('rejects ".." as the name segment — guard provably fires', () => {
-    // Without the guard, existsSync('$HOME/projects/../.git') would match $HOME/.git
-    // and detectLocalPath would return '$HOME/projects/..'. Planting both parents
-    // makes the test discriminate "guard rejected" from "path didn't exist".
-    mkdirSync(join(tmpDir, 'projects'))
-    mkdirSync(join(tmpDir, '.git'))
-    process.env.HOME = tmpDir
+  it('matches repo slug case-insensitively', () => {
+    initGitRepo(tmpDir, 'git@github.com:ROXABI/Roxabi-Forge.git')
     process.chdir(tmpDir)
-    expect(detectLocalPath('Roxabi/..')).toBeUndefined()
-  })
-
-  it('rejects multi-segment traversal like "../etc"', () => {
-    // Plant $HOME/etc/.git so the normalized path $HOME/projects/../etc/.git
-    // would resolve to an existing dir without the `/` / `..` guards.
-    mkdirSync(join(tmpDir, 'projects'))
-    mkdirSync(join(tmpDir, 'etc', '.git'), { recursive: true })
-    process.env.HOME = tmpDir
-    process.chdir(tmpDir)
-    expect(detectLocalPath('Roxabi/../etc')).toBeUndefined()
-  })
-
-  it('rejects dot-prefixed name like ".hidden"', () => {
-    // Plant $HOME/projects/.hidden/.git so the lookup would succeed without the guard.
-    mkdirSync(join(tmpDir, 'projects', '.hidden', '.git'), { recursive: true })
-    process.env.HOME = tmpDir
-    process.chdir(tmpDir)
-    expect(detectLocalPath('Roxabi/.hidden')).toBeUndefined()
+    expect(detectLocalPath('roxabi/roxabi-forge')).toBe(tmpDir)
   })
 })

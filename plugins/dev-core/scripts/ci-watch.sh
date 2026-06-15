@@ -128,12 +128,16 @@ status_emoji() {
 }
 
 # ── Auto-merge watch ─────────────────────────────────────────────────────────
+# Maximum time (seconds) to wait for auto-merge after CI passes.
+# 30 minutes: avoids infinite polling when the PR cannot self-merge (e.g. BEHIND).
+MERGE_WAIT_TIMEOUT=1800
+
 watch_automerge() {
   local pr="$1"
 
   # Require: auto-merge enabled AND "reviewed" label present
   local pr_data
-  pr_data=$(gh pr view "$pr" --repo "$REPO" --json autoMergeRequest,labels,state 2>/dev/null) || return 0
+  pr_data=$(gh pr view "$pr" --repo "$REPO" --json autoMergeRequest,labels,state,mergeStateStatus 2>/dev/null) || return 0
 
   local has_automerge
   has_automerge=$(echo "$pr_data" | jq -r 'if .autoMergeRequest != null then "true" else "false" end')
@@ -148,9 +152,25 @@ watch_automerge() {
   echo "🔀 Auto-merge enabled + 'reviewed' label — watching for merge..."
 
   local merge_start=$SECONDS
+  local unstable_noted=false
 
   while true; do
-    pr_data=$(gh pr view "$pr" --repo "$REPO" --json state 2>/dev/null) || break
+    # Hard timeout — stop polling after MERGE_WAIT_TIMEOUT seconds
+    local elapsed=$(( SECONDS - merge_start ))
+    if (( elapsed >= MERGE_WAIT_TIMEOUT )); then
+      echo "⏱  Auto-merge watch timed out after $(format_elapsed "$elapsed") — CI passed but PR did not merge. Check PR status manually."
+      return 0
+    fi
+
+    pr_data=$(gh pr view "$pr" --repo "$REPO" --json autoMergeRequest,state,mergeStateStatus 2>/dev/null) || break
+
+    # Detect auto-merge being disabled mid-watch
+    local automerge_now
+    automerge_now=$(echo "$pr_data" | jq -r 'if .autoMergeRequest != null then "true" else "false" end')
+    if [[ "$automerge_now" != "true" ]]; then
+      echo "🔀 Auto-merge disabled — stopping watch."
+      return 0
+    fi
 
     local state
     state=$(echo "$pr_data" | jq -r '.state')
@@ -163,6 +183,32 @@ watch_automerge() {
       echo "🚫 PR #${pr} closed without merging."
       return 0
     fi
+
+    # Detect non-mergeable states
+    local merge_state_status
+    merge_state_status=$(echo "$pr_data" | jq -r '.mergeStateStatus // "UNKNOWN"')
+
+    case "$merge_state_status" in
+      BEHIND)
+        echo "⚠️  PR #${pr} behind base — rebase required for auto-merge. Stopping watch."
+        return 0
+        ;;
+      BLOCKED)
+        echo "⚠️  PR #${pr} blocked (required reviews/checks missing). Stopping watch."
+        return 0
+        ;;
+      DIRTY)
+        echo "⚠️  PR #${pr} has conflicts. Stopping watch."
+        return 0
+        ;;
+      UNSTABLE)
+        # Non-required checks failing — auto-merge can still proceed; note once
+        if [[ "$unstable_noted" != "true" ]]; then
+          echo "⚠️  PR #${pr} is UNSTABLE (non-required checks failing) — continuing to watch."
+          unstable_noted=true
+        fi
+        ;;
+    esac
 
     sleep "$INTERVAL"
   done

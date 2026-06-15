@@ -1,0 +1,111 @@
+---
+title: Fix latent correctness bugs in dev-core scripts
+issue: 191
+status: approved
+tier: F-lite
+date: 2026-05-30
+promoted_from: artifacts/frames/191-fix-latent-correctness-bugs-in-dev-core-scripts-frame.mdx
+---
+
+## Context
+
+Source: [frame](../frames/191-fix-latent-correctness-bugs-in-dev-core-scripts-frame.mdx).
+A 2026-05-30 audit surfaced 5 latent correctness defects in `plugins/dev-core/`. Each
+was verified against the current code on branch `feat/191-…` before this spec was written
+(file:line evidence inline below). Two findings were re-characterised after verification:
+
+- **Bug 1 is dead code, not a live divergence.** The data normalization
+  (`fetch-github.ts:208-209`, `:264-265`) guarantees StatusContext rows always carry
+  `conclusion = ''` and a CheckRun `status` is never `'SUCCESS'`. So `ciIcon`/`ciClass`
+  produce identical output today whether the StatusContext branch is reachable or not. The
+  fix removes the misleading conflation and pins the intended routing with tests; it does
+  **not** change current output.
+- **Bug 5's fix belongs in `isLicenseAllowed`, not `parseSpdxExpression`.** Existing tests
+  (`licenseChecker.test.ts:93-105`) lock `parseSpdxExpression` to flatten-and-list
+  semantics. The precedence/grouping bug lives in how `isLicenseAllowed` evaluates that
+  flat list. `parseSpdxExpression` is left as-is.
+
+## Goal
+
+All 5 cited locations are corrected and each is pinned by a regression test that fails on
+the pre-fix code (or, for behavior-preserving Bug 1, a characterization test that locks the
+intended routing), with the `dev-core` suite green.
+
+> Note (Bug 1 follow-up, out of scope): `ciSummary` (components.ts:189) carries the same
+> `c.status === 'SUCCESS'` StatusContext pattern. It is correct today and untouched here;
+> flag in the PR description as a candidate follow-up.
+
+## Users
+
+- **Primary:** Roxabi maintainers running `/issues`, `/issue-triage`, and the license check.
+- **Secondary:** downstream consumers of the `dev-core` marketplace plugin.
+
+## Expected Behavior
+
+| # | Site | Symptom today | Behavior after fix |
+|---|------|---------------|--------------------|
+| 1 | `skills/issues/lib/components.ts:154,171` | `\|\| status === 'SUCCESS'` in the COMPLETED guard makes the StatusContext branch (L164/L178) unreachable; harmless now but masks intent and is a regression trap | StatusContext `SUCCESS` routes through the dedicated StatusContext block; CheckRun `COMPLETED`+`SUCCESS` still ✅. Output unchanged; dead branch gone |
+| 2 | `skills/issues/dashboard.ts:296-303` | Single-project `wsProjects` map omits `localPath` (cast `as WorkspaceProject[]` hides it) → branches/worktrees not resolved in that path | Both paths build the project shape via one shared mapper → `localPath` always present |
+| 3 | `skills/issue-triage/lib/list.ts:93` | `renderTree` recurses with no cycle guard → stack overflow on a cyclic sub-issue graph | `visited: Set<number>` short-circuits already-rendered nodes; cycle renders finitely |
+| 4 | `skills/issue-triage/lib/migrate.ts:733` | `updateIssueIssueType(node, null)` (unverified per FIXME #121) runs with no warning/confirmation | A prominent warning + confirmation gate runs before any `issueType` null-revert; safe-by-default when non-interactive |
+| 5 | `tools/licenseChecker.ts:309-319` | `isLicenseAllowed` flattens nested SPDX and `.every()`-checks all atoms → false "violation" for compliant pkgs like `(MIT OR Apache-2.0) AND BSD-2-Clause` | `isLicenseAllowed` evaluates SPDX with correct AND/OR precedence + parentheses |
+
+## Data Model & Consumers
+
+```mermaid
+flowchart TD
+  subgraph issues["skills/issues"]
+    FG[fetch-github.ts<br/>status = c.status \|\| c.state<br/>conclusion = c.conclusion \|\| ''] --> CMP[components.ts<br/>ciIcon / ciClass]
+    DASH[dashboard.ts<br/>wsProjects map x2] -->|localPath| BH[buildHtml → branch/worktree fetch]
+  end
+  subgraph triage["skills/issue-triage"]
+    LIST[list.ts renderTree<br/>recursion] --> TREE[tree output]
+    MIG[migrate.ts revert<br/>issueType=null] --> API[updateIssueIssueType]
+  end
+  subgraph tools["tools"]
+    LIC[licenseChecker.ts<br/>isLicenseAllowed → parseSpdxExpression] --> VERD[allowed / violation verdict]
+  end
+```
+
+Each bug is independent — no shared state, no ordering between fixes.
+
+| Consumer | Reads | When | Status |
+|----------|-------|------|--------|
+| `ciIcon`/`ciClass` | `check.status`, `check.conclusion` | rendering PR CI rows | this issue (Bug 1) |
+| `buildHtml` branch/worktree resolution | `wsProjects[].localPath` | single-project dashboard render | this issue (Bug 2) |
+| `renderTree` | `IssueRow.subIssueNumbers` | `/issue-triage list` tree | this issue (Bug 3) |
+| `revert` CLI | snapshot `issueType` rows | `triage.ts migrate revert` | this issue (Bug 4) |
+| `checkCompliance` | SPDX license expression | license gate | this issue (Bug 5) |
+
+## Breadboard
+
+Affordances are the corrected functions and their call sites; wiring is the test that pins each.
+
+| ID | Affordance | Handler / change | Pinned by |
+|----|-----------|------------------|-----------|
+| S1 | `ciIcon`, `ciClass` | drop `\|\| status === 'SUCCESS'` from the COMPLETED guards (L154, L171) | new `components.test.ts` |
+| S2 | `toWorkspaceProject(p)` (new helper) | single mapper used by both `wsProjects` maps (dashboard.ts:243, :296) — includes `localPath` | new test on the helper |
+| S3 | `renderTree(..., visited)` | add `visited: Set<number>`; skip + mark; export for test | extend `list.test.ts` |
+| S4 | `revert(opts)` + `parseMigrateRevertArgs` (CLI wiring for `--yes`) | add `yes?: boolean` / `--yes`; warn + gate `issueType` null-reverts; non-interactive (`!process.stdin.isTTY`) without `--yes` → skip with warning + non-zero exit | update + extend `migrate.test.ts` |
+| S5 | `isLicenseAllowed` | SPDX eval respecting parens + AND-binds-tighter-than-OR; `A WITH B` treated as one opaque atom; trailing `+` stripped before atom match | extend `licenseChecker.test.ts` |
+
+## Slices
+
+Each slice = one bug, independently demo-able and shippable. No inter-slice dependency.
+
+| Slice | Scope | Demo |
+|-------|-------|------|
+| 1 | Bug 1 — components.ts guard + characterization tests | tests assert StatusContext + CheckRun routing; output identical pre/post |
+| 2 | Bug 2 — extract `toWorkspaceProject`, use in both paths | test: single-project mapping includes `localPath` |
+| 3 | Bug 3 — `visited` cycle guard in `renderTree` | test: cyclic sub-issue graph renders without overflow |
+| 4 | Bug 4 — warning + confirmation gate on `issueType` revert | tests: `yes:true` → reverts; non-interactive no-yes → skipped + warned |
+| 5 | Bug 5 — correct SPDX evaluation in `isLicenseAllowed` | test: `(MIT OR Apache-2.0) AND BSD-2-Clause` allowed when MIT+BSD allowed |
+
+## Success Criteria
+
+- [ ] Bug 1: `\|\| status === 'SUCCESS'` removed from both guards (components.ts L154, L171); `ciIcon`/`ciClass` output is unchanged for StatusContext (`status='SUCCESS'`/`'FAILURE'`/`'PENDING'`, `conclusion=''`) and CheckRun (`status='COMPLETED'`, `conclusion ∈ {SUCCESS,FAILURE,…}`) inputs, asserted by tests.
+- [ ] Bug 2: a single `toWorkspaceProject` mapper is used by both `wsProjects` constructions; the single-project path output includes a non-undefined `localPath`, asserted by a test.
+- [ ] Bug 3: `renderTree` carries a `visited: Set<number>`; a constructed cyclic sub-issue graph (e.g. #1→#2→#1) returns without throwing (no `RangeError`/overflow), emits finite output, and expands each node at most once, asserted by a test.
+- [ ] Bug 4: running `revert` over a snapshot containing an `issueType` row prints a warning naming the unverified operation; with `--yes`/`yes:true` it proceeds (calls `updateIssueIssueType(node, null)`); when `yes` is false/absent and the session is non-interactive (`!process.stdin.isTTY`) it skips the issueType revert, logs the skip, and the command exits non-zero so automated callers can detect the partial revert — all asserted by tests; non-`issueType` reverts are unaffected.
+- [ ] Bug 5: `isLicenseAllowed('(MIT OR Apache-2.0) AND BSD-2-Clause', ['MIT','BSD-2-Clause'])` returns `true`; a nested expression whose required group is unsatisfiable returns `false`; `A WITH B` is matched as a single opaque atom and a trailing `+` is stripped before matching; existing `parseSpdxExpression` tests still pass — asserted by tests.
+- [ ] `bun run test`, `bun run typecheck`, `bun run lint` all green.

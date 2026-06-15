@@ -63,6 +63,8 @@ Partial (one of Breadboard/Slices ¬both): fallback if ∃ Success Criteria, els
 | Time estimate | 2–5 min (up to 8–10 for atomic ops) |
 | `[P]` marker | Parallel-safe |
 | Agent | Owner α |
+| Agent instance | Named owner (backend-dev-A, tester-B, ...) |
+| Subject | 1-word surface tag (auth, cache, http, parser, …) — drives per-instance subject-diversity cap |
 | Spec trace | SC-N ∨ U1→N1→S1 |
 | Slice | V1, V2, ... |
 | Phase | RED ∨ GREEN ∨ REFACTOR ∨ RED-GATE |
@@ -84,7 +86,7 @@ Partial (one of Breadboard/Slices ¬both): fallback if ∃ Success Criteria, els
 | F-lite | 5–15 | 2 |
 | F-full | 15–30 | 2 |
 
-\> 30 ⇒ AskUserQuestion: warn, suggest splitting. Show full list (¬truncate).
+\> 30 ⇒ → DP(A): warn, suggest splitting. Show full list (¬truncate).
 < 2 ⇒ warn, suggest text tasks from Step 2d.
 
 ## 4f.5 Consistency Check
@@ -145,7 +147,7 @@ generated: {ISO}
 
 ## 4f.7 Present for Approval
 
-AskUserQuestion: complexity, τ, μ count, α, consistency, slices.
+→ DP(A): complexity, τ, μ count, α, consistency, slices.
 Options: **Approve** | **Modify** | **Return to spec**
 
 ## 4f.8 Commit Plan

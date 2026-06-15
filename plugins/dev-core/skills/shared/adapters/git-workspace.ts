@@ -1,13 +1,10 @@
 /**
  * GitWorkspaceAdapter — concrete WorkspacePort backed by git + filesystem.
  */
+
 import type { Branch, Worktree } from '../domain/types'
-import type { Workspace, WorkspacePort, WorkspaceProject } from '../ports/workspace'
-import {
-  discoverProject as discoverProjectFn,
-  readWorkspace as readWorkspaceFn,
-  writeWorkspace as writeWorkspaceFn,
-} from './workspace-helpers'
+import type { Workspace, WorkspacePort } from '../ports/workspace'
+import { readWorkspace as readWorkspaceFn, writeWorkspace as writeWorkspaceFn } from './workspace-store'
 
 export class GitWorkspaceAdapter implements WorkspacePort {
   readWorkspace(): Workspace {
@@ -16,10 +13,6 @@ export class GitWorkspaceAdapter implements WorkspacePort {
 
   writeWorkspace(ws: Workspace): void {
     writeWorkspaceFn(ws)
-  }
-
-  async discoverProject(repo: string): Promise<WorkspaceProject[]> {
-    return discoverProjectFn(repo)
   }
 
   async listBranches(): Promise<Branch[]> {

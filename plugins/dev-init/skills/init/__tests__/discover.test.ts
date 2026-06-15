@@ -1,0 +1,75 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../../shared/prereqs', () => ({
+  checkPrereqs: vi.fn(),
+}))
+
+vi.mock('../../shared/adapters/github-adapter', () => ({
+  run: vi.fn(),
+}))
+
+describe('discover', () => {
+  let mockCheckPrereqs: ReturnType<typeof vi.fn>
+  let mockRun: ReturnType<typeof vi.fn>
+
+  beforeEach(async () => {
+    vi.restoreAllMocks()
+    const prereqs = await import('../../shared/prereqs')
+    const github = await import('../../shared/adapters/github-adapter')
+    mockCheckPrereqs = prereqs.checkPrereqs as ReturnType<typeof vi.fn>
+    mockRun = github.run as ReturnType<typeof vi.fn>
+
+    const fs = require('node:fs')
+    vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
+      throw new Error('ENOENT')
+    })
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false)
+  })
+
+  it('returns empty result when gh is not available', async () => {
+    mockCheckPrereqs.mockReturnValue({
+      bun: { ok: true, version: '1.2.0' },
+      gh: { ok: false, detail: 'not installed' },
+      gitRemote: { ok: true, url: 'git@github.com:Org/repo.git', owner: 'Org', repo: 'repo' },
+    })
+
+    const { discover } = await import('../lib/discover')
+    const result = await discover()
+    expect(result.workflows.existing).toEqual([])
+    expect(result.protection).toEqual({})
+  })
+
+  it('discovers workflows and branch protection when gh is available', async () => {
+    mockCheckPrereqs.mockReturnValue({
+      bun: { ok: true, version: '1.2.0' },
+      gh: { ok: true, detail: 'authenticated' },
+      gitRemote: { ok: true, url: 'git@github.com:Org/repo.git', owner: 'Org', repo: 'repo' },
+    })
+
+    mockRun.mockImplementation(async (cmd: string[]) => {
+      const joined = cmd.join(' ')
+      if (joined.includes('branches') && joined.includes('protection')) throw new Error('404')
+      return '{}'
+    })
+
+    const { discover } = await import('../lib/discover')
+    const result = await discover()
+    // all standard workflows are missing (fs.existsSync mocked false)
+    expect(result.workflows.missing.length).toBeGreaterThan(0)
+    // protection probe threw → both branches reported unprotected
+    expect(Object.values(result.protection).every((v) => v === false)).toBe(true)
+  })
+
+  it('returns null owner when git remote is missing', async () => {
+    mockCheckPrereqs.mockReturnValue({
+      bun: { ok: true, version: '1.2.0' },
+      gh: { ok: true, detail: 'authenticated' },
+      gitRemote: { ok: false, url: '', owner: '', repo: '' },
+    })
+
+    const { discover } = await import('../lib/discover')
+    const result = await discover()
+    expect(result.owner).toBeNull()
+    expect(result.repo).toBeNull()
+  })
+})

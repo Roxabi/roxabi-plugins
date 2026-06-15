@@ -18,7 +18,7 @@ Triggers: `"checkup"` | `"health check"` | `"check setup"` | `"verify config"`
 
 Runs three phases of checks, each loaded from a cookbook file:
 
-**Phase 1 — dev-core checks** — verifies `.claude/dev-core.yml` exists and has required fields (`github_repo`, `gh_project_id`, field IDs), confirms the GitHub project board is accessible, and checks that env vars are set correctly.
+**Phase 1 — dev-core checks** — verifies `.claude/dev-core.yml` exists and has required fields (`github_repo`, `gh_project_id`, field IDs), confirms the GitHub project board is accessible, and checks that env vars are set correctly. Also runs the security baseline: GitHub secret scanning + push protection enabled, Actions default token read-only, `PR_Main` ruleset targets the default branch, `pull_request_target` workflows never check out PR-head code, trufflehog wired in both pre-commit hooks (lefthook or pre-commit) and CI.
 
 **Phase 2 — Stack configuration** — verifies `.claude/stack.yml` is present, imported in CLAUDE.md (`@.claude/stack.yml`), and that required fields (`runtime`, `commands.*`) are set.
 
