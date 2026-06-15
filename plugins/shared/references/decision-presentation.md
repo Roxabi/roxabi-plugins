@@ -19,12 +19,18 @@ Target:      {what we're trying to achieve}
 Path:        {how we get there once a choice is made}
 
 Options:
-  1. {option} — {one-line description}
-  2. {option} — {one-line description}
-  3. {option} — {one-line description}
+  1. {option} — {what it improves} / {what it costs}
+  2. {option} — {what it improves} / {what it costs}
+  3. {option} — {what it improves} / {what it costs}
 
 Recommended: Option N — {1-line rationale}
 ```
+
+**Frame functionally, not technically** — the user is deciding intent and consequences, not reviewing syntax:
+- Context / Target / Options in business/user terms: the intention, what each option **improves or fixes**, and the upstream→downstream history (where it comes from → what it unblocks).
+- Avoid file paths, symbol/class names, and infra jargon (Quadlet, nkey, ACL, JetStream, KV-store) **unless the user already used the term**. Gloss the unavoidable in plain language ("internal bus" ¬ "NATS KV", "vault" ¬ "Fernet keyring").
+- OK to use: epic/issue numbers, and business concepts (bot, channel, alert, identity, isolation, credentials).
+- Implementation detail belongs in the issue-body update **after** the decision — not in the prompt.
 
 Wait for user reply. Execute immediately on receipt — no confirmation loop.
 
