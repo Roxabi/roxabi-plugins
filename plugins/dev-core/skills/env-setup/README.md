@@ -19,8 +19,6 @@ Triggers: `"env setup"` | `"setup environment"` | `"configure stack"` | `"scaffo
 
 **Phase 1 — Stack configuration** — copies `stack.yml.example` to `.claude/stack.yml`, asks for critical fields (runtime, backend/frontend paths, test command), prepends `@.claude/stack.yml` import to CLAUDE.md. `stack.yml` is committed (project conventions, no secrets); only `.env` is gitignored.
 
-**Phase 1b — Global patterns** — copies `global-patterns.md` (decision protocol, agent discipline, git conventions) to `~/.claude/shared/` and references it from CLAUDE.md.
-
 **Phase 2 — CLAUDE.md Critical Rules** — scaffolds governance rules (dev process, decision protocol, git conventions, Conventional Commits) from stack.yml values. Supports append-only (add missing sections), replace (rewrite all), or skip.
 
 **Phase 3 — Docs scaffolding** (optional) — creates `docs/architecture/`, `docs/standards/`, `docs/guides/` with template stubs. Optionally scaffolds a full Fumadocs Next.js app.

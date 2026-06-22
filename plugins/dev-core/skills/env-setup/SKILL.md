@@ -37,20 +37,7 @@ Set up σ early — later phases read runtime, package manager, commands, deploy
 
 Note: `.claude/stack.yml` is **committed** (project stack conventions — no secrets). Only `.env` is gitignored by dev-core. `.claude/dev-core.yml` contains only public GitHub Project node IDs and is committed.
 
-### Phase 1b — Global Patterns Injection
-
-Inject plugin-managed always-on behavioral patterns (decision protocol, agent discipline, context discipline, dev process, worktree, parallel execution, git) into `~/.claude/shared/global-patterns.md` (one shared copy) and reference it directly from CLAUDE.md.
-
-1. `mkdir -p ~/.claude/shared/`
-2. [F ∨ `¬test -f ~/.claude/shared/global-patterns.md`] → `cp "${Φ}/../shared/references/global-patterns.md" ~/.claude/shared/global-patterns.md`. D✅("~/.claude/shared/global-patterns.md").
-   ∃ ∧ ¬F → D("~/.claude/shared/global-patterns.md", "✅ Already present"), skip copy.
-3. `grep -q '@~/.claude/shared/global-patterns.md' CLAUDE.md 2>/dev/null` → ∃ → D("@global-patterns", "✅ Already present"), skip.
-   ¬∃ → remove `@.claude/dev-core.md` line from CLAUDE.md if present. Prepend `@~/.claude/shared/global-patterns.md\n` (after `@.claude/stack.yml` line if present, otherwise at top). D✅("@~/.claude/shared/global-patterns.md").
-4. `test -f .claude/dev-core.md` → `rm .claude/dev-core.md`. Remove `.claude/dev-core.md` from .gitignore if present. D✅("removed .claude/dev-core.md").
-
-Re-run (`--force`): overwrite `~/.claude/shared/global-patterns.md` with latest plugin version.
-
-### Phase 1c — Worktree-setup retrofit
+### Phase 1b — Worktree-setup retrofit
 
 For projects that already have σ but pre-date the worktree-setup hook. Detect the
 gap and offer to scaffold `tools/worktree-setup.sh` + teardown. All steps are

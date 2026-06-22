@@ -1,5 +1,4 @@
 @.claude/stack.yml
-@~/.claude/shared/global-patterns.md
 
 # Roxabi Plugins
 
