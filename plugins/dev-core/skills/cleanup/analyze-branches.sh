@@ -49,9 +49,14 @@ fi
 
 PROTECTED_JSON='["main","master","staging"]'
 
+PR_LIMIT=1000
 PR_JSON='[]'
+PR_LIST_TRUNCATED=false
 if [ "$GH_AVAILABLE" = true ]; then
-  PR_JSON="$(gh pr list --state all --limit 500 --json headRefName,number,state,title 2>/dev/null || echo '[]')"
+  PR_JSON="$(gh pr list --state all --limit "$PR_LIMIT" --json headRefName,number,state,title 2>/dev/null || echo '[]')"
+  if [ "$(echo "$PR_JSON" | jq 'length')" -eq "$PR_LIMIT" ]; then
+    PR_LIST_TRUNCATED=true
+  fi
 fi
 
 worktree_json() {
@@ -266,6 +271,7 @@ result_json="$(jq -n \
   --arg current "$CURRENT_BRANCH" \
   --arg base "$BASE_BRANCH" \
   --argjson gh_available "$GH_AVAILABLE" \
+  --argjson pr_list_truncated "$PR_LIST_TRUNCATED" \
   --argjson local "$local_branches_json" \
   --argjson remote "$remote_branches_json" \
   --argjson worktrees "$WORKTREE_JSON" \
@@ -275,6 +281,7 @@ result_json="$(jq -n \
     current: $current,
     base_branch: $base,
     gh_available: $gh_available,
+    pr_list_truncated: $pr_list_truncated,
     local_branches: $local,
     remote_branches: $remote,
     worktrees: $worktrees,
@@ -295,6 +302,9 @@ echo "$BASE_BRANCH"
 
 echo "---gh-available---"
 echo "$GH_AVAILABLE"
+
+echo "---pr-list-truncated---"
+echo "$PR_LIST_TRUNCATED"
 
 echo "---local-branches---"
 echo "$local_branches_json" | jq -r '.[] | [
@@ -366,6 +376,10 @@ if [ "$(echo "$WORKTREE_JSON" | jq 'length')" -gt 0 ]; then
   echo "$WORKTREE_JSON" | jq -r '.[] | [.path, .branch] | @tsv' | while IFS=$'\t' read -r path branch; do
     printf '  %-40s │ %-24s\n' "$path" "$branch"
   done
+fi
+
+if [ "$PR_LIST_TRUNCATED" = true ]; then
+  printf '\n⚠️  PR list truncated at %s — squash-merge detection may be incomplete.\n' "$PR_LIMIT"
 fi
 
 printf '\nSafe to delete (local): %s\n' "$(echo "$safe_local_json" | jq -r 'join(", ")' )"
