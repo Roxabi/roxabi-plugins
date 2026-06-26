@@ -2,7 +2,7 @@
 name: cleanup
 argument-hint: [--all | --report-only | --yes]
 description: Clean git branches/worktrees/remotes after merge-status verification; sweep stuck pipeline labels and orphan CI runs. Triggers: "cleanup" | "clean branches" | "cleanup worktrees" | "remove stale branches".
-version: 0.4.0
+version: 0.5.0
 allowed-tools: Bash, Read, EnterWorktree, ExitWorktree, ToolSearch
 ---
 
@@ -41,17 +41,25 @@ bash ${CLAUDE_SKILL_DIR}/gather-state.sh
 
 Emits: `current`, branch list with tracking info, worktree list, open PRs, closed PRs with pipeline labels, and queued/stuck CI runs.
 
-### 2. Analyze Each Branch
+### 2. Analyze Branches
 
-∀ β ∉ {Π, current branch}:
+```bash
+bash ${CLAUDE_SKILL_DIR}/analyze-branches.sh
+```
 
-| Check | Command | Safe to delete? |
-|-------|---------|-----------------|
-| Merged into main? | `git log --oneline main..<branch> \| head -5` | Yes if empty |
-| Squash-merged? | `git log --oneline --grep="<branch-or-issue>" main \| head -5` | Yes if found |
-| Has open PR? | Check `gh pr list` output | **No** — active work |
-| Has worktree? | Check `git worktree list` output | Remove worktree first |
-| Last commit age | `git log -1 --format="%cr" <branch>` | Info only |
+Use `--json` when you need structured output for scripting. Use `--no-fetch` only in tests or when origin was fetched immediately before.
+
+The script analyzes ∀ β ∉ {Π, current branch} with these checks (base branch = `staging` if `origin/staging` exists, else `main`):
+
+| Check | Implementation | Safe to delete? |
+|-------|----------------|-----------------|
+| Merged into base? | `git log --oneline <base>..<branch>` empty | Yes |
+| Squash-merged? | `gh pr list --state all` → `MERGED` on head, or `git log --grep` on issue#/branch name | Yes if found |
+| Has open PR? | Batched `gh pr list` indexed by `headRefName` | **No** — active work |
+| Has worktree? | `git worktree list --porcelain` | Remove worktree first |
+| Last commit age | `git log -1 --format="%cr"` | Info only |
+
+Emits section markers: `---local-branches---`, `---remote-branches---`, `---worktrees---`, `---safe-local---`, `---safe-remote---`, plus a human `---summary-table---`. **Analyze-only** — never deletes.
 
 ### 3. Present Summary Table
 
@@ -105,31 +113,9 @@ git worktree prune
 
 ### 6. Clean Remote Branches
 
-Scan **all** remote branches for stale ones.
+Use `---remote-branches---` and `---safe-remote---` from Step 2 (`analyze-branches.sh`). Do **not** re-analyze manually.
 
-#### 6a. Gather remote branches
-
-```bash
-git fetch --prune origin
-git branch -r | grep -v 'origin/main' | grep -v 'origin/master' | grep -v 'origin/staging' | grep -v 'origin/HEAD'
-gh pr list --state open --json headRefName --jq '.[].headRefName' 2>/dev/null
-```
-
-#### 6b. Analyze each remote branch
-
-∀ remote β ∉ π-set:
-
-| Check | Command | Safe to delete? |
-|-------|---------|-----------------|
-| Regular merge? | `git log --oneline main..origin/<branch> \| head -1` — empty = merged | Yes |
-| Squash-merged? | Extract issue# from β name → `git log --oneline --grep="#<issue>" main \| head -1`; also `gh pr list --state all --head <branch> --json state --jq '.[0].state'` for `MERGED` | Yes if found |
-| Has open PR? | Check against open PR list from 6a | **No** — active work |
-
-**CRITICAL for squash merges**: `git branch -r --merged` will NOT detect squash-merged branches. Always check both:
-1. Issue number in main's commit history (`git log --grep="#<issue>"`)
-2. PR state via `gh pr list --state all --head <branch>` — look for `MERGED`
-
-Post-merge commits on a `MERGED` PR β → still safe to delete.
+**CRITICAL for squash merges**: `git branch -r --merged` will NOT detect squash-merged branches. `analyze-branches.sh` already checks PR `MERGED` state and issue# grep. Post-merge commits on a `MERGED` PR β → still safe to delete.
 
 #### 6c. Present remote summary table
 
