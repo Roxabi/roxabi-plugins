@@ -2,6 +2,14 @@
 # Integration test for analyze-branches.sh using a temporary git fixture.
 set -euo pipefail
 
+# Isolate from any inherited git context. This fixture builds a throwaway repo
+# via mktemp + cd + git init and relies on cwd-based repo discovery — but a git
+# hook (e.g. pre-push, which runs this suite) exports GIT_DIR/GIT_WORK_TREE into
+# the environment, and those override cwd discovery. Without clearing them the
+# fixture's `git branch -M main`, `git worktree add`, etc. would target the
+# caller's REAL repository instead of the temp one below.
+unset $(git rev-parse --local-env-vars)
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ANALYZE="${SCRIPT_DIR}/../analyze-branches.sh"
 
