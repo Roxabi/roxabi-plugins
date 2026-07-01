@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: analyze-branches.sh [--json] [--no-fetch]
+# Usage: analyze-branches.sh [--json] [--no-fetch] [--scope <#N>]
 # Analyzes local and remote branches for /cleanup merge-status verification.
 # Analyze-only — never deletes branches, worktrees, or remotes.
 set -euo pipefail
@@ -10,17 +10,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 OUTPUT_JSON=false
 NO_FETCH=false
+SCOPE=""
 
-for arg in "$@"; do
-  case "$arg" in
-    --json) OUTPUT_JSON=true ;;
-    --no-fetch) NO_FETCH=true ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --json) OUTPUT_JSON=true; shift ;;
+    --no-fetch) NO_FETCH=true; shift ;;
+    --scope)
+      SCOPE="${2#\#}"
+      shift 2
+      ;;
+    --scope=*)
+      SCOPE="${1#--scope=}"
+      SCOPE="${SCOPE#\#}"
+      shift
+      ;;
     -h | --help)
-      echo "Usage: analyze-branches.sh [--json] [--no-fetch]"
+      echo "Usage: analyze-branches.sh [--json] [--no-fetch] [--scope <#N>]"
       exit 0
       ;;
     *)
-      echo "Unknown argument: $arg" >&2
+      echo "Unknown argument: $1" >&2
       exit 1
       ;;
   esac
@@ -95,6 +105,24 @@ extract_issue_number() {
   local branch="$1"
   echo "$branch" | grep -oE '(^|/|-)([0-9]+)(/|-|_|$)' | grep -oE '[0-9]+' | head -1 || true
 }
+
+in_scope() {
+  local branch="$1"
+  [ -z "$SCOPE" ] && return 0
+  [ "$(extract_issue_number "$branch")" = "$SCOPE" ]
+}
+
+# --scope <#N> restricts worktree reporting to the given issue — reuses the
+# same anchored extract_issue_number() boundary as the branch filters below,
+# so #1 can't pick up #14's worktree (see dev/scan-state.sh N_ANCHOR fix).
+if [ -n "$SCOPE" ]; then
+  WORKTREE_JSON="$(echo "$WORKTREE_JSON" | jq -c '.[]' | while IFS= read -r wt_entry; do
+    wt_branch="$(echo "$wt_entry" | jq -r '.branch')"
+    if [ "$(extract_issue_number "$wt_branch")" = "$SCOPE" ]; then
+      echo "$wt_entry"
+    fi
+  done | jq -s '.')"
+fi
 
 pr_for_branch() {
   local branch="$1"
@@ -249,6 +277,9 @@ while IFS= read -r branch_name; do
   if is_protected "$branch_name"; then
     continue
   fi
+  if ! in_scope "$branch_name"; then
+    continue
+  fi
   entry="$(classify_branch "local" "$branch_name" "$branch_name")"
   local_branches_json="$(echo "$local_branches_json" | jq --argjson entry "$entry" '. + [$entry]')"
 done < <(git branch --format='%(refname:short)' 2>/dev/null || true)
@@ -258,6 +289,9 @@ while IFS= read -r remote_ref; do
   [ -z "$remote_ref" ] && continue
   branch_name="${remote_ref#origin/}"
   if is_protected "$branch_name"; then
+    continue
+  fi
+  if ! in_scope "$branch_name"; then
     continue
   fi
   entry="$(classify_branch "remote" "$branch_name" "$remote_ref")"
@@ -270,6 +304,7 @@ safe_remote_json="$(echo "$remote_branches_json" | jq '[.[] | select(.action == 
 result_json="$(jq -n \
   --arg current "$CURRENT_BRANCH" \
   --arg base "$BASE_BRANCH" \
+  --arg scope "$SCOPE" \
   --argjson gh_available "$GH_AVAILABLE" \
   --argjson pr_list_truncated "$PR_LIST_TRUNCATED" \
   --argjson local "$local_branches_json" \
@@ -280,6 +315,7 @@ result_json="$(jq -n \
   '{
     current: $current,
     base_branch: $base,
+    scope: (if $scope == "" then null else $scope end),
     gh_available: $gh_available,
     pr_list_truncated: $pr_list_truncated,
     local_branches: $local,
@@ -299,6 +335,9 @@ echo "$CURRENT_BRANCH"
 
 echo "---base-branch---"
 echo "$BASE_BRANCH"
+
+echo "---scope---"
+echo "${SCOPE:-none}"
 
 echo "---gh-available---"
 echo "$GH_AVAILABLE"
@@ -339,7 +378,9 @@ echo "---safe-remote---"
 echo "$safe_remote_json" | jq -r '.[]'
 
 echo "---summary-table---"
-printf '\nGit Cleanup Summary\n'
+printf '\nGit Cleanup Summary'
+[ -n "$SCOPE" ] && printf ' (scoped to #%s)' "$SCOPE"
+printf '\n'
 printf '═══════════════════\n\n'
 printf 'Local branches:\n'
 printf '  %-36s │ %-6s │ %-12s │ %-24s │ %-12s │ %s\n' \

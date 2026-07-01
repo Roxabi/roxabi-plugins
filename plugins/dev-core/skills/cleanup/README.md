@@ -12,6 +12,7 @@ After merging several PRs, local and remote branches accumulate. `/cleanup` audi
 /cleanup             Analyze and clean both branches and worktrees
 /cleanup --branches  Only analyze branches
 /cleanup --worktrees Only analyze worktrees
+/cleanup --scope #42 Restrict branch/worktree cleanup to issue #42 (anchored match, not substring)
 ```
 
 Triggers: `"cleanup"` | `"clean branches"` | `"cleanup worktrees"` | `"remove stale branches"`
