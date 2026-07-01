@@ -25,6 +25,7 @@ Let:
   adv  := {analyze, implement, pr, ci-watch, validate, review, fix, cleanup}
   ψ_r(P) ⟺ P.comments ∃ body: "## Code Review"
   ψ_f(P) ⟺ P.comments ∃ body: "## Review Fixes Applied"
+  stale  := scan-state.sh `stale=true|false` — worktree ∃ ∨ local/remote branch matching N ∃ (anchored on N, see scan-state.sh)
   bar   := output must read as hand-authored by a dev-core maintainer — match surrounding idiom, naming, comment density; calibrate against `plugins/dev-core/`; QG (format/lint/typecheck/test) = mechanical floor, ¬the bar
 
 Single entry point: scan artifacts → detect state → show progress → delegate to step skill → loop.
@@ -92,7 +93,7 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
   review:    PR ∃ ∧ (PR.reviewDecision ∈ ('APPROVED','CHANGES_REQUESTED') ∨ ψ_r(PR)),
   fix:       PR ∃ ∧ ψ_f(PR),
   promote:   skipped,  # standalone staging→main, ¬feature cycle
-  cleanup:   ¬worktree ∃ ∧ ¬stale_branch ∃,
+  cleanup:   ¬stale,
 }
 
 Σ_s = {} initially. Populated in Step 8 after each skill completes. Lost on restart.
@@ -170,7 +171,7 @@ should_skip(step, τ, Σ):
   ci-watch ∧ ¬PR ∃                         → skip
   fix      ∧ (Σ.fix ∨ Σ_s.fix)            → skip (fixes already applied)
   promote                                  → skip (/promote is standalone staging→main; ¬auto-triggered by /dev)
-  cleanup  ∧ ¬has_stale(N)               → skip
+  cleanup  ∧ ¬stale                       → skip
   default                                 → false
 ```
 
