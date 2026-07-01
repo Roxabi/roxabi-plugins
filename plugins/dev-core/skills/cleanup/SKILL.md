@@ -1,14 +1,14 @@
 ---
 name: cleanup
-argument-hint: [--all | --report-only | --yes]
+argument-hint: [--all | --report-only | --yes | --scope <#N>]
 description: Clean git branches/worktrees/remotes after merge-status verification; sweep stuck pipeline labels and orphan CI runs. Triggers: "cleanup" | "clean branches" | "cleanup worktrees" | "remove stale branches".
-version: 0.5.0
+version: 0.6.0
 allowed-tools: Bash, Read, EnterWorktree, ExitWorktree, ToolSearch
 ---
 
 # Git Cleanup
 
-Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging) | safe(β) ⟺ fully_merged(β) ∧ ¬π(β) | merged(β) := regular_merge(β) ∨ squash_merge(β)
+Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging) | safe(β) ⟺ fully_merged(β) ∧ ¬π(β) | merged(β) := regular_merge(β) ∨ squash_merge(β) | N := scope issue number (∅ if unscoped)
 
 Safely clean local β, ω, and remote branches with **mandatory merge-status verification** before any deletion. End-of-session sweep also strips stuck pipeline labels from closed PRs and cancels long-queued CI runs.
 
@@ -19,10 +19,19 @@ At skill entry, before any other action:
 ```
 REPORT_ONLY=false
 YES=false
+SCOPE=""
+_next_is_scope=false
 for arg in $ARGUMENTS; do
+  if [ "$_next_is_scope" = true ]; then
+    SCOPE="${arg#\#}"
+    _next_is_scope=false
+    continue
+  fi
   case "$arg" in
     --report-only) REPORT_ONLY=true ;;
     --yes)         YES=true ;;
+    --scope)       _next_is_scope=true ;;
+    --scope=*)     SCOPE="${arg#--scope=}"; SCOPE="${SCOPE#\#}" ;;
   esac
 done
 ```
@@ -30,6 +39,7 @@ done
 `REPORT_ONLY=true` ⇒ **zero mutations** throughout all steps (cron-safe).  
 `YES=true` ⇒ skip confirmation prompts for destructive actions (implies user already consented).  
 If both set: `REPORT_ONLY` wins — no mutations.
+`SCOPE=<N>` ⇒ restrict branch/worktree analysis (Steps 2–6) to issue N only — see below. `SCOPE=""` (default) ⇒ repo-wide, unchanged behavior.
 
 ## Instructions
 
@@ -39,17 +49,23 @@ If both set: `REPORT_ONLY` wins — no mutations.
 bash ${CLAUDE_SKILL_DIR}/gather-state.sh
 ```
 
-Emits: `current`, branch list with tracking info, worktree list, open PRs, closed PRs with pipeline labels, and queued/stuck CI runs.
+Emits: `current`, branch list with tracking info, worktree list, open PRs, closed PRs with pipeline labels, and queued/stuck CI runs. Unscoped — always full-repo; Steps 7–8 (label/CI sweeps) consume it as-is regardless of `--scope` (see Options).
 
 ### 2. Analyze Branches
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/analyze-branches.sh
+if [ -n "$SCOPE" ]; then
+  bash ${CLAUDE_SKILL_DIR}/analyze-branches.sh --scope "$SCOPE"
+else
+  bash ${CLAUDE_SKILL_DIR}/analyze-branches.sh
+fi
 ```
 
 Use `--json` when you need structured output for scripting. Use `--no-fetch` only in tests or when origin was fetched immediately before.
 
-The script analyzes ∀ β ∉ {Π, current branch} with these checks (base branch = `staging` if `origin/staging` exists, else `main`):
+**Scoping (`--scope <#N>`):** restricts local/remote branches and worktrees to the ones belonging to issue N, using the same anchored issue-number extraction as `dev/scan-state.sh`'s `N_ANCHOR` (char before the number is start/non-digit, char after is `/`, `-`, `_`, or end) — so `--scope 1` cannot pick up issue #14's branch (`extract_issue_number()` in `analyze-branches.sh`). Without `--scope`, behavior is unchanged (repo-wide). This is what `/dev`'s Ship phase relies on: `cleanup --scope #N` after an issue's PR merges must only touch that issue's branch/worktree, not every stale branch in the repo.
+
+The script analyzes ∀ β ∉ {Π, current branch} (∧ β ∈ scope N, if set) with these checks (base branch = `staging` if `origin/staging` exists, else `main`):
 
 | Check | Implementation | Safe to delete? |
 |-------|----------------|-----------------|
@@ -275,6 +291,7 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 | (none) / `--all` | Analyze branches, worktrees, labels, and runs |
 | `--report-only` | Gather and print findings; perform zero mutations (cron-safe) |
 | `--yes` | Skip confirmation prompts for all destructive actions |
+| `--scope <#N>` | Restrict branch/worktree analysis + cleanup (Steps 2–6) to issue N — anchored match, not a substring search (see Step 2). Steps 7–8 (label/CI sweeps) stay repo-wide — they are end-of-session hygiene, not per-issue. |
 
 ## Safety Rules
 

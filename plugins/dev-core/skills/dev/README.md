@@ -16,13 +16,13 @@ Single entry point for the full dev lifecycle — scan artifacts, detect state, 
 
 ## How it works
 
-`/dev` scans existing artifacts (frames, analyses, specs, plans, worktrees, PRs) to determine where you left off, then drives the pipeline step by step without re-running completed work. Between issue triage and framing, /dev runs /recheck — a drift check that catches stale issues (git/symbol/dep drift) before any artifact is written.
+`/dev` scans existing artifacts (frames, analyses, specs, plans, worktrees, PRs) to determine where you left off, then drives the pipeline step by step without re-running completed work. Issue triage (`roxabi-issues:issue-triage`) is an **external** step that runs before `/dev` — it lives in the `roxabi-issues` plugin, not dev-core. `/dev`'s own pipeline starts with `/recheck` — a drift check that catches stale issues (git/symbol/dep drift) before any artifact is written.
 
 Pipeline phases:
 
 | Phase | Steps |
 |-------|-------|
-| Frame | triage → frame |
+| Frame | recheck → frame |
 | Shape | analyze → spec |
 | Build | plan → implement → pr |
 | Verify | ci-watch → validate → review → fix |
@@ -50,4 +50,4 @@ Tier affects which steps run:
 
 ## Chain position
 
-Entry point of the full dev pipeline. Delegates to: `/issue-triage` → `/frame` → `/analyze` → `/spec` → `/plan` → `/implement` → `/pr` → `/ci-watch` → `/validate` → `/code-review` → `/fix` → `/cleanup`.
+Entry point of the full dev pipeline. Preceded by the external `roxabi-issues:issue-triage` step (not dev-core). Delegates to: `/recheck` → `/frame` → `/analyze` → `/spec` → `/plan` → `/implement` → `/pr` → `/ci-watch` → `/validate` → `/code-review` → `/fix` → `/cleanup`.

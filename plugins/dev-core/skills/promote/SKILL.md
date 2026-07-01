@@ -210,12 +210,12 @@ Display PR URL.
 
 ## Step 8 — Post-merge Reminder
 
-**CRITICAL: Use merge commit (not squash) for promotion PR.** Squash causes history divergence → conflicts + resurrected files on next promotion.
+**CRITICAL: Merge commit only, never squash** — see [`release-convention.md`](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/release-convention.md).
 
 ```
 Promotion PR created: {URL}
 
-⚠️  MERGE WITH MERGE COMMIT (not squash) to keep histories reconciled.
+⚠️  MERGE WITH MERGE COMMIT (not squash) — see release-convention.md.
 
 After merge:
   1. Vercel auto-deploys to production

@@ -147,16 +147,10 @@ function tldr(_stack: StackConfig, projectName: string, projectType: ProjectType
   const parts: string[] = []
 
   parts.push(`- **Project:** ${projectName}`)
-  parts.push(
-    '- **Before work:** Use `/dev #N` as the single entry point — it determines tier (S / F-lite / F-full) and drives the full lifecycle',
-  )
 
   if (projectType !== 'docs-content' && projectType !== 'stub') {
     parts.push(`- **All code changes** → worktree: \`git worktree add ../${projectName}-XXX -b feat/XXX-slug staging\``)
   }
-
-  parts.push('- **Never** use `--force`/`--hard`/`--amend`')
-  parts.push('- **Always** use appropriate skill even without slash command')
 
   if (projectType === 'full-app' || projectType === 'backend-only' || projectType === 'frontend-only') {
     parts.push('- **Before code:** Read relevant standards doc (see Coding Standards section below)')
