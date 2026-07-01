@@ -26,7 +26,7 @@ Triggers: `"promote staging"` | `"release"` | `"deploy"` | `"cut a release"` | `
 4. **Summary** — shows version, commit count, file count, CI status, preview result.
 5. **Changelog commit** — creates a temp branch (if staging is protected), commits changelog, merges via PR.
 6. **Promotion PR** — `gh pr create --base main --head staging`.
-7. **Post-merge reminder** — warns to use a **merge commit** (not squash) to avoid history divergence.
+7. **Post-merge reminder** — merge commit only, never squash (see `../shared/references/release-convention.md`).
 
 ## Finalize (`--finalize`)
 

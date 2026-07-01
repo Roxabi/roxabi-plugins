@@ -336,7 +336,7 @@ Q:
 
 1. Fresh agents only — ¬implementation context
 2. ¬approve PRs on GitHub; ¬enable auto-merge outside the Phase 8 human decision (label gate)
-3. Merge = merge commit only (¬squash — Release Convention); merge executes via the gate (label + auto-merge), never manually mid-CI
+3. Merge = merge commit only, ¬squash (see [`release-convention.md`](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/release-convention.md)); merge executes via the gate (label + auto-merge), never manually mid-CI
 4. ¬fix code — findings only. Fixing = `/fix` skill
 5. ∃ PR → must post comment (Phase 6)
 6. Human decides at Phase 8 — ¬proceed without Q
