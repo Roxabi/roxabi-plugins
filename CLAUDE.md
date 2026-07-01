@@ -11,9 +11,6 @@ Repo = **marketplace** — collection of independent plugins, each self-containe
 ## TL;DR
 
 - **Project:** roxabi-plugins
-- **Before work:** `/dev #N` = single entry — picks tier + drives lifecycle
-- **Never:** `--force` / `--hard` / `--amend`
-- **Always:** use matching skill even w/o slash cmd
 
 ## Structure
 
