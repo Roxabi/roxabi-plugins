@@ -1,6 +1,6 @@
 # Analyse — compress v2 : de la compression 1:1 à l'écriture symbolique (PoC roxabi-cortex)
 
-**Date** : 2026-07-01 · **Branche** : `worktree-compress-skill-analysis` (depuis `origin/staging`)
+**Date** : 2026-07-01 · **Branche** : `worktree-compress-skill-analysis` (depuis `origin/staging`) · **Épic** : #308 (train #309→#313)
 **Méthode** : workflow 15 agents — 5 lecteurs corpus (skill+usage, roxabi-cortex, vault, grammaire SSOT, recherche externe) → 3 designers (lentilles : fidélité sémantique / intégration cortex / DX produit) → synthèse → 6 vérifications adversariales. Toutes les affirmations chiffrées ci-dessous ont survécu à la vérification ou ont été corrigées par elle.
 
 **Objectif** : faire du skill `compress` le proof-of-concept de la couche « écriture symbolique » de roxabi-cortex — y compris le **réflexe de dérivation** (monter d'un niveau d'abstraction : instances → patterns → principes) — avant que l'implémentation cortex ne démarre.
