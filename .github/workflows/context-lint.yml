@@ -1,0 +1,52 @@
+name: Context Lint
+
+on:
+  pull_request:
+    paths:
+      - '**/CLAUDE.md'
+      - '**/AGENTS.md'
+      - '.claude/**'
+  push:
+    branches: [main, staging]
+    paths:
+      - '**/CLAUDE.md'
+      - '**/AGENTS.md'
+      - '.claude/**'
+
+permissions:
+  contents: read
+
+jobs:
+  context-lint:
+    name: Context lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Lint agent-context files (@imports + placeholders)
+        run: |
+          set -u
+          V=0
+          # dead repo-relative @imports (home-dir @~/... imports are machine-local — skipped on CI)
+          while IFS= read -r file; do
+            dir=$(dirname "$file")
+            while IFS= read -r imp; do
+              target=${imp#@}
+              case "$target" in "~/"*|/*) continue ;; esac
+              if [ ! -e "$dir/$target" ]; then
+                echo "::error file=$file::dead @import: $imp"
+                V=$((V + 1))
+              fi
+            done < <(grep -o '^@[^ ]*' "$file" || true)
+          done < <(find . \( -name node_modules -o -name .worktrees -o -name worktrees -o -name .git \) -prune -o \( -name 'CLAUDE.md' -o -name 'AGENTS.md' \) -print)
+          # unfilled scaffold placeholders
+          while IFS= read -r f; do
+            echo "::error file=$f::unfilled scaffold placeholder (gotchas)"
+            V=$((V + 1))
+          done < <(grep -rl 'Add project-specific gotchas here' --include=CLAUDE.md . 2>/dev/null || true)
+          if [ "$V" -eq 0 ]; then
+            echo "context-lint: clean"
+          else
+            echo "context-lint: $V violation(s)"
+            exit 1
+          fi
