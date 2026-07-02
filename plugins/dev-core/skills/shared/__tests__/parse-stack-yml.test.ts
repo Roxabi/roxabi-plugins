@@ -12,6 +12,10 @@ const { parseStackYml } = require('../../../hooks/lib/parse-stack-yml.cjs') as {
     frontend: string | null
     packageManager: string | null
     standards: Record<string, string> | null
+    runtime: string | null
+    commands: { lint: string | null; typecheck: string | null; test: string | null }
+    testingE2e: string | null
+    ciMerge: string | null
   }
 }
 
@@ -69,6 +73,31 @@ describe('parseStackYml — edge cases', () => {
     expect(result.frontend).toBeNull()
     expect(result.packageManager).toBeNull()
     expect(result.standards).toBeNull()
+    expect(result.runtime).toBeNull()
+    expect(result.commands).toEqual({ lint: null, typecheck: null, test: null })
+    expect(result.testingE2e).toBeNull()
+    expect(result.ciMerge).toBeNull()
+  })
+
+  it('parses runtime, commands, testing.e2e, and ci.merge', () => {
+    const text = `runtime: bun
+testing:
+  e2e: playwright
+ci:
+  merge: merge-on-green
+commands:
+  lint: bun lint
+  test: bun run test
+deploy:
+  platform: cloudflare-pages
+`
+    const result = parseStackYml(text)
+    expect(result.runtime).toBe('bun')
+    expect(result.commands.lint).toBe('bun lint')
+    expect(result.commands.test).toBe('bun run test')
+    expect(result.testingE2e).toBe('playwright')
+    expect(result.ciMerge).toBe('merge-on-green')
+    expect(result.platform).toBe('cloudflare-pages')
   })
 
   it('platform=none returns null', () => {

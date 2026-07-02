@@ -139,6 +139,77 @@ function parsePackageManager(text) {
 }
 
 /**
+ * Parse top-level `runtime` from stack.yml text.
+ *
+ * @param {string} text
+ * @returns {string|null}
+ */
+function parseRuntime(text) {
+  if (!text) return null
+  const match = text.match(/^\s*runtime:\s*(\S+)/m)
+  return match ? match[1] : null
+}
+
+/**
+ * Parse a single `commands.<key>` value from stack.yml text.
+ *
+ * @param {string} text
+ * @param {string} key
+ * @returns {string|null}
+ */
+function parseCommand(text, key) {
+  if (!text) return null
+  const section = text.match(/^commands:\s*$/m)
+  if (!section) return null
+  const after = text.slice(section.index + 'commands:'.length)
+  const nextTop = after.match(/\n\S/)
+  const block = nextTop ? after.slice(0, nextTop.index) : after
+  const match = block.match(new RegExp(`^\\s+${key}:\\s*(.+?)\\s*(#.*)?$`, 'm'))
+  if (!match) return null
+  let val = match[1].trim()
+  if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+    val = val.slice(1, -1)
+  }
+  return val || null
+}
+
+/**
+ * Parse `testing.e2e` from stack.yml text.
+ *
+ * @param {string} text
+ * @returns {string|null}
+ */
+function parseTestingE2e(text) {
+  if (!text) return null
+  const section = text.match(/^testing:\s*$/m)
+  if (!section) return null
+  const after = text.slice(section.index + 'testing:'.length)
+  const nextTop = after.match(/\n\S/)
+  const block = nextTop ? after.slice(0, nextTop.index) : after
+  const match = block.match(/^\s+e2e:\s*(\S+)/m)
+  if (!match) return null
+  const val = match[1]
+  return val === 'none' ? null : val
+}
+
+/**
+ * Parse `ci.merge` strategy from stack.yml text.
+ *
+ * @param {string} text
+ * @returns {string|null}
+ */
+function parseCiMerge(text) {
+  if (!text) return null
+  const section = text.match(/^ci:\s*$/m)
+  if (!section) return null
+  const after = text.slice(section.index + 'ci:'.length)
+  const nextTop = after.match(/\n\S/)
+  const block = nextTop ? after.slice(0, nextTop.index) : after
+  const match = block.match(/^\s+merge:\s*(\S+)/m)
+  return match ? match[1] : null
+}
+
+/**
  * Parse the `standards:` section from stack.yml text.
  * Returns a Record<string, string> mapping standard key → path,
  * or null when the section is absent or empty.
@@ -185,7 +256,11 @@ function parseStandards(text) {
  *   platform: string|null,
  *   frontend: string|null,
  *   packageManager: string|null,
- *   standards: Record<string, string>|null
+ *   standards: Record<string, string>|null,
+ *   runtime: string|null,
+ *   commands: {lint: string|null, typecheck: string|null, test: string|null},
+ *   testingE2e: string|null,
+ *   ciMerge: string|null
  * }}
  */
 function parseStackYml(text) {
@@ -196,6 +271,14 @@ function parseStackYml(text) {
     frontend: parseFrontendFramework(text),
     packageManager: parsePackageManager(text),
     standards: parseStandards(text),
+    runtime: parseRuntime(text),
+    commands: {
+      lint: parseCommand(text, 'lint'),
+      typecheck: parseCommand(text, 'typecheck'),
+      test: parseCommand(text, 'test'),
+    },
+    testingE2e: parseTestingE2e(text),
+    ciMerge: parseCiMerge(text),
   }
 }
 
@@ -207,4 +290,8 @@ module.exports = {
   parseFrontendFramework,
   parsePackageManager,
   parseStandards,
+  parseRuntime,
+  parseCommand,
+  parseTestingE2e,
+  parseCiMerge,
 }

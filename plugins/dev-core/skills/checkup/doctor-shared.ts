@@ -77,16 +77,46 @@ export function readConfig(): Record<string, string> {
   return { ...env, ...yml }
 }
 
-export function readStackYml(): { hasDeployPlatform: boolean; hasFrontend: boolean } {
+export interface StackInfo {
+  hasDeployPlatform: boolean
+  hasFrontend: boolean
+  deployPlatform: string | null
+  runtime: string | null
+  hasLint: boolean
+  hasTypecheck: boolean
+  e2e: string | null
+  mergeStrategy: 'auto-merge' | 'merge-on-green' | null
+  test: string | null
+}
+
+export function readStackYml(): StackInfo {
   try {
     const text = readFileSync('.claude/stack.yml', 'utf8') as string
     const stack = parseStackYml(text)
+    const merge = stack.ciMerge === 'merge-on-green' || stack.ciMerge === 'auto-merge' ? stack.ciMerge : null
     return {
       hasDeployPlatform: stack.platform !== null,
       hasFrontend: stack.frontend !== null,
+      deployPlatform: stack.platform,
+      runtime: stack.runtime,
+      hasLint: Boolean(stack.commands.lint),
+      hasTypecheck: Boolean(stack.commands.typecheck),
+      e2e: stack.testingE2e,
+      mergeStrategy: merge,
+      test: stack.commands.test,
     }
   } catch {
-    return { hasDeployPlatform: true, hasFrontend: true } // unknown — keep checks strict
+    return {
+      hasDeployPlatform: true,
+      hasFrontend: true,
+      deployPlatform: null,
+      runtime: null,
+      hasLint: true,
+      hasTypecheck: true,
+      e2e: null,
+      mergeStrategy: null,
+      test: null,
+    }
   }
 }
 

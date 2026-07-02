@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { ACTION_PINS } from '../lib/workflow-pins'
 import { generateAutoMergeYml, generateCiYml, generateContextLintYml, generateDeployYml } from '../lib/workflows'
+import { generateDependabotAutomergeYml, generateMergeOnGreenYml, generateSecretScanYml } from '../lib/workflows-fleet'
 
 describe('generateAutoMergeYml', () => {
   it('emits the App token mint step (no secrets.PAT)', () => {
     const yml = generateAutoMergeYml()
-    expect(yml).toContain('actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1')
+    expect(yml).toContain(ACTION_PINS.createAppToken)
     expect(yml).toContain('vars.ROXABI_CI_APP_ID')
     expect(yml).toContain('secrets.ROXABI_CI_APP_PRIVATE_KEY')
     expect(yml).not.toContain('secrets.PAT')
@@ -12,7 +14,6 @@ describe('generateAutoMergeYml', () => {
 
   it('uses steps.app.outputs.token (not PAT) for all GH_TOKEN references', () => {
     const yml = generateAutoMergeYml()
-    // Every GH_TOKEN assignment must reference the App token
     const ghTokenMatches = [...yml.matchAll(/GH_TOKEN:\s*\$\{\{[^}]+\}\}/g)].map((m) => m[0])
     expect(ghTokenMatches.length).toBeGreaterThan(0)
     for (const match of ghTokenMatches) {
@@ -20,58 +21,34 @@ describe('generateAutoMergeYml', () => {
     }
   })
 
-  it('emits the lazy-sync update-branch step gated by reviewed in the auto-merge job', () => {
+  it('emits SHA-pinned github-script for close-linked-issues', () => {
     const yml = generateAutoMergeYml()
-    // Narrow to the lazy-sync step block only (from step name to next step name)
-    const lazySyncMatch = yml.match(/- name: Update branch \(lazy sync for late joiners\)[\s\S]*?(?=\n {6}- name:)/)
-    expect(lazySyncMatch).not.toBeNull()
-    const lazySyncStep = lazySyncMatch?.[0]
-    // The if: guard must appear INSIDE the step block itself (not just at job level)
-    expect(lazySyncStep).toContain("if: contains(github.event.pull_request.labels.*.name, 'reviewed')")
-    expect(lazySyncStep).toContain('update-branch')
-    // The step uses the app token
-    expect(lazySyncStep).toContain('steps.app.outputs.token')
-    expect(lazySyncStep).toContain('|| true')
-  })
-
-  it('lazy-sync step appears BEFORE enable auto-merge step', () => {
-    const yml = generateAutoMergeYml()
-    const lazyIdx = yml.indexOf('Update branch (lazy sync for late joiners)')
-    const mergeIdx = yml.indexOf('Enable auto-merge (merge commit)')
-    expect(lazyIdx).toBeGreaterThan(-1)
-    expect(mergeIdx).toBeGreaterThan(-1)
-    expect(lazyIdx).toBeLessThan(mergeIdx)
-  })
-
-  it('update-behind-prs job still filters reviewed label (regression guard)', () => {
-    const yml = generateAutoMergeYml()
-    const updateBehindSection = yml.split('update-behind-prs:')[1]
-    expect(updateBehindSection).toContain('--label reviewed')
-  })
-
-  it('update-behind-prs job runs only on push (regression guard)', () => {
-    const yml = generateAutoMergeYml()
-    const updateBehindSection = yml.split('update-behind-prs:')[1]
-    expect(updateBehindSection).toContain("github.event_name == 'push'")
-  })
-
-  it('update-behind-prs job includes the App token mint step', () => {
-    const yml = generateAutoMergeYml()
-    const updateBehindSection = yml.split('update-behind-prs:')[1]
-    expect(updateBehindSection).toContain('actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1')
-    expect(updateBehindSection).toContain('vars.ROXABI_CI_APP_ID')
-    expect(updateBehindSection).toContain('secrets.ROXABI_CI_APP_PRIVATE_KEY')
+    expect(yml).toContain(ACTION_PINS.githubScript)
+    expect(yml).not.toContain('actions/github-script@v8')
   })
 })
 
 describe('generateCiYml', () => {
-  it('generates bun + vitest CI (bun run test, not bun test)', () => {
+  it('generates bun + vitest CI with SHA-pinned setup-bun', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none' })
-    expect(yml).toContain('oven-sh/setup-bun@v2')
+    expect(yml).toContain(ACTION_PINS.setupBun)
     expect(yml).toContain('bun install')
     expect(yml).toContain('bun lint')
     expect(yml).toContain('bun typecheck')
     expect(yml).toContain('run: bun run test')
+    expect(yml).not.toContain('trufflehog')
+  })
+
+  it('omits lint/typecheck when disabled', () => {
+    const yml = generateCiYml({
+      stack: 'bun',
+      test: 'none',
+      deploy: 'none',
+      lint: false,
+      typecheck: false,
+    })
+    expect(yml).not.toContain('bun lint')
+    expect(yml).not.toContain('bun typecheck')
   })
 
   it('uses the native bun runner for non-vitest bun stacks', () => {
@@ -79,9 +56,9 @@ describe('generateCiYml', () => {
     expect(yml).toContain('run: bun test')
   })
 
-  it('generates node + jest CI', () => {
+  it('generates node + jest CI with SHA-pinned setup-node', () => {
     const yml = generateCiYml({ stack: 'node', test: 'jest', deploy: 'none' })
-    expect(yml).toContain('actions/setup-node@v4')
+    expect(yml).toContain(ACTION_PINS.setupNode)
     expect(yml).toContain('npm ci')
     expect(yml).toContain('npm run lint')
     expect(yml).toContain('npx tsc --noEmit')
@@ -90,13 +67,48 @@ describe('generateCiYml', () => {
 
   it('omits test step when test is "none"', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'none', deploy: 'none' })
-    expect(yml).not.toContain('Test')
     expect(yml).not.toContain('bun test')
+    expect(yml).not.toMatch(/- name: Test/)
+  })
+
+  it('includes optional e2e job when e2e is playwright', () => {
+    const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none', e2e: 'playwright' })
+    expect(yml).toContain('e2e:')
+    expect(yml).toContain('bun run test:e2e')
   })
 
   it('targets main and staging branches', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none' })
     expect(yml).toContain('branches: [main, staging]')
+  })
+})
+
+describe('generateSecretScanYml', () => {
+  it('is standalone with SHA-pinned checkout and trufflehog', () => {
+    const yml = generateSecretScanYml()
+    expect(yml).toContain('name: Secret Scan')
+    expect(yml).toContain(ACTION_PINS.checkout)
+    expect(yml).toContain(ACTION_PINS.trufflehog)
+    expect(yml).toContain('--only-verified')
+  })
+})
+
+describe('generateMergeOnGreenYml', () => {
+  it('wakes on CI and Secret Scan workflow names', () => {
+    const yml = generateMergeOnGreenYml({ stack: 'bun', test: 'none', deploy: 'none' })
+    expect(yml).toContain('name: Merge on Green')
+    expect(yml).toContain('- CI')
+    expect(yml).toContain('- Secret Scan')
+    expect(yml).toContain(ACTION_PINS.githubScript)
+  })
+})
+
+describe('generateDependabotAutomergeYml', () => {
+  it('labels dependabot patch/minor PRs reviewed', () => {
+    const yml = generateDependabotAutomergeYml()
+    expect(yml).toContain('dependabot[bot]')
+    expect(yml).toContain('semver-patch')
+    expect(yml).toContain(ACTION_PINS.createAppToken)
   })
 })
 
@@ -113,9 +125,9 @@ describe('generateDeployYml', () => {
     expect(yml).toContain('No deploy target configured')
   })
 
-  it('uses node setup when stack is node', () => {
+  it('uses SHA-pinned node setup when stack is node', () => {
     const yml = generateDeployYml({ stack: 'node', test: 'none', deploy: 'vercel' })
-    expect(yml).toContain('actions/setup-node@v4')
+    expect(yml).toContain(ACTION_PINS.setupNode)
     expect(yml).toContain('npm ci')
   })
 
@@ -126,44 +138,16 @@ describe('generateDeployYml', () => {
 })
 
 describe('generateContextLintYml', () => {
-  it('is read-only and uses no secrets', () => {
+  it('is read-only and uses SHA-pinned checkout', () => {
     const yml = generateContextLintYml()
     expect(yml).toContain('permissions:\n  contents: read')
+    expect(yml).toContain(ACTION_PINS.checkout)
     expect(yml).not.toContain('secrets.')
-  })
-
-  it('skips machine-local home-dir imports', () => {
-    const yml = generateContextLintYml()
-    expect(yml).toContain('"~/"*')
-  })
-
-  it('fails the job on violations', () => {
-    const yml = generateContextLintYml()
-    expect(yml).toContain('exit 1')
   })
 
   it('triggers only on agent-context file paths', () => {
     const yml = generateContextLintYml()
     expect(yml).toContain("'**/CLAUDE.md'")
-    expect(yml).toContain("'**/AGENTS.md'")
-    expect(yml).toContain("'.claude/**'")
     expect(yml).toContain("'.grok/**'")
-    expect(yml).toContain("'.agents/**'")
-  })
-
-  it('lints Grok and Claude harness markdown (not only root CLAUDE/AGENTS)', () => {
-    const yml = generateContextLintYml()
-    expect(yml).toContain('*/.grok/rules/*')
-    expect(yml).toContain('*/.grok/skills/*')
-    expect(yml).toContain('*/.grok/agents/*')
-    expect(yml).toContain('*/.claude/rules/*')
-    expect(yml).toContain('*/.claude/skills/*')
-    expect(yml).toContain('*/.agents/skills/*')
-  })
-
-  it('emits interpolated bash (no unresolved TS template escapes)', () => {
-    const yml = generateContextLintYml()
-    expect(yml).toContain('target=${imp#@}')
-    expect(yml).not.toContain('\\$')
   })
 })

@@ -5,6 +5,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import {
   DEFAULT_RULESET,
+  MERGE_WORKFLOWS,
   PROTECTED_BRANCHES,
   REQUIRED_SECRETS,
   STANDARD_WORKFLOWS,
@@ -53,6 +54,8 @@ export function checkWorkflows(ghOk: boolean, owner: string, repo: string): Sect
     }
   }
 
+  const hasMergeWorkflow = MERGE_WORKFLOWS.some((m) => existsSync(`.github/workflows/${m}`) || remoteFiles.has(m))
+
   for (const wf of STANDARD_WORKFLOWS) {
     const localExists = existsSync(`.github/workflows/${wf}`)
     const remoteExists = remoteFiles.has(wf)
@@ -62,13 +65,21 @@ export function checkWorkflows(ghOk: boolean, owner: string, repo: string): Sect
       checks.push({ name: wf, status: 'pass', detail: localExists ? 'found locally' : 'found on remote' })
       continue
     }
-    // deploy-preview.yml only matters when a deploy platform is configured
-    if (wf === 'deploy-preview.yml' && !stack.hasDeployPlatform) {
-      checks.push({ name: wf, status: 'skip', detail: 'skipped — no deploy platform in stack.yml' })
+    if ((MERGE_WORKFLOWS as readonly string[]).includes(wf)) {
+      if (hasMergeWorkflow) {
+        checks.push({ name: wf, status: 'skip', detail: 'skipped — alternate merge workflow present' })
+        continue
+      }
+    }
+    if (wf === 'deploy-preview.yml' && stack.deployPlatform !== 'vercel') {
+      checks.push({ name: wf, status: 'skip', detail: 'skipped — deploy.platform is not vercel' })
       continue
     }
-    // CI/CD workflows are optional — always warn, never fail
-    checks.push({ name: wf, status: 'warn', detail: 'missing — run /init to create' })
+    if (wf === 'deploy-cloudflare.yml' && !stack.deployPlatform?.startsWith('cloudflare')) {
+      checks.push({ name: wf, status: 'skip', detail: 'skipped — deploy.platform is not cloudflare' })
+      continue
+    }
+    checks.push({ name: wf, status: 'warn', detail: 'missing — run /ci-setup to create' })
   }
   return { name: 'Workflows', checks }
 }

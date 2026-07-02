@@ -6,7 +6,7 @@
  * Usage:
  *   bun init.ts prereqs [--json]
  *   bun init.ts discover [--json]
- *   bun init.ts workflows --owner <owner> --repo <repo> --stack <bun|node|python> --test <vitest|jest|pytest|none> --deploy <vercel|none> [--branch <branch>] [--force]
+ *   bun init.ts workflows --owner <owner> --repo <repo> --stack <bun|node|python> --test <vitest|jest|pytest|none> --deploy <vercel|cloudflare|none> [--merge auto-merge|merge-on-green] [--e2e playwright|none] [--lint true|false] [--typecheck true|false] [--branch <branch>] [--force]
  *   bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>] [--force]  # generic only (auto-merge + pr-title + context-lint)
  *   bun init.ts push-context-lint --owner <owner> --repo <repo> [--branch <branch>]  # context-lint.yml only (always updates)
  *   (both default to TOP-UP: existing workflow files are skipped; --force overwrites)
@@ -52,14 +52,19 @@ switch (command) {
     const branch = parseFlag('--branch', 'main')
     const stack = parseFlag('--stack', 'bun') as 'bun' | 'node' | 'python'
     const test = parseFlag('--test', 'vitest') as 'vitest' | 'jest' | 'pytest' | 'none'
-    const deploy = parseFlag('--deploy', 'none') as 'vercel' | 'none'
+    const deploy = parseFlag('--deploy', 'none') as 'vercel' | 'cloudflare' | 'none'
+    const merge = parseFlag('--merge', 'auto-merge') as 'auto-merge' | 'merge-on-green'
+    const e2e = parseFlag('--e2e', 'none') as 'playwright' | 'none'
+    const lint = parseFlag('--lint', 'true') === 'true'
+    const typecheck = parseFlag('--typecheck', 'true') === 'true'
     const force = process.argv.includes('--force')
+    const opts = { stack, test, deploy, merge, e2e, lint, typecheck }
     if (owner && repo) {
-      const result = await pushWorkflows(owner, repo, { stack, test, deploy }, branch, force)
+      const result = await pushWorkflows(owner, repo, opts, branch, force)
       console.log(JSON.stringify({ pushed: result }, null, 2))
     } else {
       // fallback: local write (no owner/repo provided)
-      const result = await writeWorkflows({ stack, test, deploy })
+      const result = await writeWorkflows(opts)
       console.log(JSON.stringify({ written: result }, null, 2))
     }
     break

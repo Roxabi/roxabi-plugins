@@ -5,12 +5,19 @@
 
 import { run } from '../../shared/adapters/github-adapter'
 import { APP_MINT_STEP } from '../../shared/adapters/github-infra'
+import { ACTION_PINS } from './workflow-pins'
+import { normalizeWorkflowOpts, type WorkflowOpts } from './workflow-types'
+import {
+  generateCloudflareDeployYml,
+  generateDependabotAutomergeYml,
+  generateDependabotYml,
+  generateE2eJob,
+  generateMergeOnGreenYml,
+  generateSecretScanYml,
+} from './workflows-fleet'
 
-export interface WorkflowOpts {
-  stack: 'bun' | 'node' | 'python'
-  test: 'vitest' | 'jest' | 'pytest' | 'none'
-  deploy: 'vercel' | 'none'
-}
+export type { WorkflowOpts } from './workflow-types'
+export { normalizeWorkflowOpts }
 
 // --- Content generators ---
 
@@ -116,7 +123,7 @@ ${APP_MINT_STEP}
     timeout-minutes: 5
     steps:
       - name: Close issues referenced with closing keywords
-        uses: actions/github-script@v8
+        uses: ${ACTION_PINS.githubScript}
         with:
           script: |
             const body = context.payload.pull_request.body || '';
@@ -166,7 +173,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check PR title follows Conventional Commits
-        uses: amannn/action-semantic-pull-request@v6
+        uses: ${ACTION_PINS.semanticPr}
         with:
           types: |
             feat
@@ -229,7 +236,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: ${ACTION_PINS.checkout}
       - name: Lint agent-context files (@imports + placeholders)
         run: |
           set -u
@@ -281,37 +288,36 @@ export async function pushContextLintYml(
 }
 
 export function generateCiYml(opts: WorkflowOpts): string {
+  const o = normalizeWorkflowOpts(opts)
   let setupStep: string
-  let lintCmd: string
-  let typecheckCmd: string
-
+  let lintStep = ''
+  let typecheckStep = ''
   let testStep = ''
 
-  if (opts.stack === 'python') {
-    setupStep =
-      '      - name: Install uv\n        uses: astral-sh/setup-uv@v5\n      - name: Install dependencies\n        run: uv sync --frozen --all-extras'
-    lintCmd = 'uv run ruff check .'
-    typecheckCmd = 'uv run pyright'
-    if (opts.test === 'pytest') {
-      testStep = '\n      - name: Test\n        run: uv run pytest'
-    }
-  } else if (opts.stack === 'bun') {
-    setupStep = '      - uses: oven-sh/setup-bun@v2\n      - run: bun install'
-    lintCmd = 'bun lint'
-    typecheckCmd = 'bun typecheck'
-    if (opts.test !== 'none') {
-      // `bun test` runs Bun's own runner and silently ignores vitest — vitest repos
-      // need `bun run test` to hit the package.json script (enishu 312781c).
-      const bunTestCmd = opts.test === 'vitest' ? 'bun run test' : 'bun test'
+  if (o.stack === 'python') {
+    setupStep = `      - uses: ${ACTION_PINS.setupUv}
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras`
+    if (o.lint) lintStep = '\n      - name: Lint\n        run: uv run ruff check .'
+    if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: uv run pyright'
+    if (o.test === 'pytest') testStep = '\n      - name: Test\n        run: uv run pytest'
+  } else if (o.stack === 'bun') {
+    setupStep = `      - uses: ${ACTION_PINS.setupBun}
+      - run: bun install`
+    if (o.lint) lintStep = '\n      - name: Lint\n        run: bun lint'
+    if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: bun typecheck'
+    if (o.test !== 'none') {
+      const bunTestCmd = o.test === 'vitest' ? 'bun run test' : 'bun test'
       testStep = `\n      - name: Test\n        run: ${bunTestCmd}`
     }
   } else {
-    setupStep = '      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - run: npm ci'
-    lintCmd = 'npm run lint'
-    typecheckCmd = 'npx tsc --noEmit'
-    if (opts.test !== 'none') {
-      testStep = '\n      - name: Test\n        run: npm test'
-    }
+    setupStep = `      - uses: ${ACTION_PINS.setupNode}
+        with:
+          node-version: 20
+      - run: npm ci`
+    if (o.lint) lintStep = '\n      - name: Lint\n        run: npm run lint'
+    if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: npx tsc --noEmit'
+    if (o.test !== 'none') testStep = '\n      - name: Test\n        run: npm test'
   }
 
   return `name: CI
@@ -323,37 +329,25 @@ on:
 
 jobs:
   ci:
+    name: CI
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-${setupStep}
-      - name: Lint
-        run: ${lintCmd}
-      - name: Typecheck
-        run: ${typecheckCmd}${testStep}
-
-  secrets:
-    name: Secret scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - name: TruffleHog secret scan
-        uses: trufflesecurity/trufflehog@main
-        with:
-          extra_args: --only-verified
-`
+      - uses: ${ACTION_PINS.checkout}
+${setupStep}${lintStep}${typecheckStep}${testStep}
+${generateE2eJob(o)}`
 }
 
 export function generateDeployYml(opts: WorkflowOpts): string {
   const setupStep =
     opts.stack === 'bun'
-      ? '      - uses: oven-sh/setup-bun@v2\n      - run: bun install'
-      : '      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - run: npm ci'
+      ? `      - uses: ${ACTION_PINS.setupBun}\n      - run: bun install`
+      : `      - uses: ${ACTION_PINS.setupNode}\n        with:\n          node-version: 20\n      - run: npm ci`
 
   let deployStep: string
-  if (opts.deploy === 'vercel') {
+  if (opts.deploy === 'cloudflare') {
+    deployStep = `      - name: Deploy (Cloudflare git integration)
+        run: echo "Use Cloudflare Pages/Workers Builds git integration — see stack.yml deploy.platform"`
+  } else if (opts.deploy === 'vercel') {
     deployStep = `      - name: Deploy to Vercel
         run: npx vercel deploy --token \${{ secrets.VERCEL_TOKEN }} --\${{ inputs.target == 'production' && '' || 'no-' }}prod
         env:
@@ -381,7 +375,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: ${ACTION_PINS.checkout}
 ${setupStep}
 ${deployStep}
 `
@@ -454,14 +448,24 @@ export async function pushWorkflows(
   branch: string,
   force = false,
 ): Promise<PushResult[]> {
+  const o = normalizeWorkflowOpts(opts)
+  const mergeFile =
+    o.merge === 'merge-on-green'
+      ? { name: 'merge-on-green.yml', content: generateMergeOnGreenYml(o) }
+      : { name: 'auto-merge.yml', content: generateAutoMergeYml() }
   const files: Array<{ name: string; content: string }> = [
-    { name: 'auto-merge.yml', content: generateAutoMergeYml() },
+    mergeFile,
     { name: 'pr-title.yml', content: generatePrTitleYml() },
     { name: 'context-lint.yml', content: generateContextLintYml() },
-    { name: 'ci.yml', content: generateCiYml(opts) },
+    { name: 'secret-scan.yml', content: generateSecretScanYml() },
+    { name: 'ci.yml', content: generateCiYml(o) },
+    { name: 'dependabot-automerge.yml', content: generateDependabotAutomergeYml() },
   ]
-  if (opts.deploy === 'vercel') {
-    files.push({ name: 'deploy-preview.yml', content: generateDeployYml(opts) })
+  if (o.deploy === 'vercel') {
+    files.push({ name: 'deploy-preview.yml', content: generateDeployYml(o) })
+  }
+  if (o.deploy === 'cloudflare') {
+    files.push({ name: 'deploy-cloudflare.yml', content: generateCloudflareDeployYml() })
   }
 
   const results: PushResult[] = []
@@ -504,14 +508,22 @@ export async function writeWorkflows(opts: WorkflowOpts): Promise<string[]> {
   const fs = require('node:fs')
   const dir = '.github/workflows'
   fs.mkdirSync(dir, { recursive: true })
-
+  const o = normalizeWorkflowOpts(opts)
   const written: string[] = []
 
-  fs.writeFileSync(`${dir}/ci.yml`, generateCiYml(opts))
+  fs.writeFileSync(`${dir}/ci.yml`, generateCiYml(o))
   written.push('ci.yml')
 
-  fs.writeFileSync(`${dir}/auto-merge.yml`, generateAutoMergeYml())
-  written.push('auto-merge.yml')
+  if (o.merge === 'merge-on-green') {
+    fs.writeFileSync(`${dir}/merge-on-green.yml`, generateMergeOnGreenYml(o))
+    written.push('merge-on-green.yml')
+  } else {
+    fs.writeFileSync(`${dir}/auto-merge.yml`, generateAutoMergeYml())
+    written.push('auto-merge.yml')
+  }
+
+  fs.writeFileSync(`${dir}/secret-scan.yml`, generateSecretScanYml())
+  written.push('secret-scan.yml')
 
   fs.writeFileSync(`${dir}/pr-title.yml`, generatePrTitleYml())
   written.push('pr-title.yml')
@@ -519,10 +531,50 @@ export async function writeWorkflows(opts: WorkflowOpts): Promise<string[]> {
   fs.writeFileSync(`${dir}/context-lint.yml`, generateContextLintYml())
   written.push('context-lint.yml')
 
-  if (opts.deploy === 'vercel') {
-    fs.writeFileSync(`${dir}/deploy-preview.yml`, generateDeployYml(opts))
+  fs.writeFileSync(`${dir}/dependabot-automerge.yml`, generateDependabotAutomergeYml())
+  written.push('dependabot-automerge.yml')
+
+  fs.mkdirSync('.github', { recursive: true })
+  fs.writeFileSync('.github/dependabot.yml', generateDependabotYml())
+
+  if (o.deploy === 'vercel') {
+    fs.writeFileSync(`${dir}/deploy-preview.yml`, generateDeployYml(o))
     written.push('deploy-preview.yml')
+  }
+  if (o.deploy === 'cloudflare') {
+    fs.writeFileSync(`${dir}/deploy-cloudflare.yml`, generateCloudflareDeployYml())
+    written.push('deploy-cloudflare.yml')
   }
 
   return written
+}
+
+/** Build WorkflowOpts from stack.yml-shaped fields (ci-setup / checkup drift). */
+export function workflowOptsFromStack(stack: {
+  runtime?: string
+  test?: string
+  deployPlatform?: string
+  e2e?: string
+  commands?: { lint?: string; typecheck?: string; test?: string }
+  merge?: 'auto-merge' | 'merge-on-green'
+}): WorkflowOpts {
+  const runtime = (stack.runtime ?? 'bun') as WorkflowOpts['stack']
+  const testRaw = stack.test ?? stack.commands?.test ?? 'none'
+  let test: WorkflowOpts['test'] = 'none'
+  if (/vitest/i.test(testRaw)) test = 'vitest'
+  else if (/jest/i.test(testRaw)) test = 'jest'
+  else if (/pytest/i.test(testRaw)) test = 'pytest'
+  let deploy: WorkflowOpts['deploy'] = 'none'
+  const platform = stack.deployPlatform ?? ''
+  if (platform === 'vercel') deploy = 'vercel'
+  else if (platform.startsWith('cloudflare')) deploy = 'cloudflare'
+  return normalizeWorkflowOpts({
+    stack: runtime === 'python' || runtime === 'node' ? runtime : 'bun',
+    test,
+    deploy,
+    merge: stack.merge,
+    e2e: stack.e2e === 'playwright' ? 'playwright' : 'none',
+    lint: Boolean(stack.commands?.lint),
+    typecheck: Boolean(stack.commands?.typecheck),
+  })
 }

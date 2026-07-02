@@ -13,7 +13,7 @@ Let:
 
 Set up GitHub Actions via REST API (no local git). Runs from σ values.
 
-Standard set: `ci.yml`, `auto-merge.yml`, `pr-title.yml`, `context-lint.yml` (+ `deploy-preview.yml` if Vercel).
+Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title.yml`, `context-lint.yml`, merge workflow (`auto-merge.yml` **or** `merge-on-green.yml`), (+ `deploy-preview.yml` if Vercel, + `deploy-cloudflare.yml` if Cloudflare).
 
 1. Discover owner/repo:
    ```bash
@@ -26,39 +26,54 @@ Standard set: `ci.yml`, `auto-merge.yml`, `pr-title.yml`, `context-lint.yml` (+ 
    ```
    All present → D("CI/CD workflows", "✅ Already configured"), skip.
 
-3. Auto-detect from σ: `stack` ← `runtime`, `test` ← `commands.test` (vitest→Vitest, jest→Jest, pytest→Pytest, else→None), `deploy` ← `deploy.platform`.
+3. Auto-detect from σ:
+   - `stack` ← `runtime`
+   - `test` ← `commands.test` (vitest→vitest, jest→jest, pytest→pytest, else→none)
+   - `deploy` ← `deploy.platform` (`vercel` | `cloudflare` for `cloudflare*` | `none`)
+   - `lint` ← `commands.lint` present → `true`, else `false`
+   - `typecheck` ← `commands.typecheck` present → `true`, else `false`
+   - `e2e` ← `testing.e2e: playwright` → `playwright`, else `none`
 
 4. ∃ missing → Ask: **Set up CI/CD** | **Skip**.
 
 5. yes:
    - Ask stack (pre-select detected): **Bun** | **Node** | **Python (uv)**
    - Ask test (pre-select): **Vitest** | **Jest** | **Pytest** | **None**
-   - Ask deploy (pre-select): **Vercel** | **None**
-   - Ask token mode (pre-select based on org detection):
-     **GitHub App (default — org repos)** | **PAT (fallback — solo/non-org)**
-     - Detect org: `gh repo view --json isInOrganization --jq '.isInOrganization'`
-     - `true` → pre-select App; `false` → pre-select PAT.
-   - Run: `bun $I_TS workflows --owner <owner> --repo <repo> --stack <stack> --test <test> --deploy <deploy>`
-     (the generator emits an App-token `auto-merge.yml` — #281 landed; the token mode selected above governs which credentials to provision below)
+   - Ask deploy (pre-select): **Vercel** | **Cloudflare** | **None**
+   - **Merge strategy** — detect native auto-merge availability:
+     ```bash
+     gh api repos/<owner>/<repo> --jq '{private: .private, allow_auto_merge: .allow_auto_merge}'
+     ```
+     - `allow_auto_merge=true` → pre-select **auto-merge** (native merge queue)
+     - `allow_auto_merge=false` on private repo → pre-select **merge-on-green** (free-plan pattern — bouly-site)
+     - Ask: **auto-merge** | **merge-on-green**
+   - Run:
+     ```bash
+     bun $I_TS workflows --owner <owner> --repo <repo> \
+       --stack <stack> --test <test> --deploy <deploy> \
+       --merge <auto-merge|merge-on-green> \
+       --e2e <playwright|none> \
+       --lint <true|false> --typecheck <true|false>
+     ```
      > **Top-up par défaut** : les fichiers déjà présents sur le repo sont **skippés** — les repos font évoluer leur `ci.yml` bien au-delà du template (factory: 190 lignes/3 jobs; enishu: e2e Playwright). Ajouter `--force` UNIQUEMENT pour régénérer volontairement, après diff explicite des fichiers qui seraient écrasés.
-   - **If mode = github-app:**
+   - **App token provisioning** (always — PAT mode retired):
      - `gh variable set ROXABI_CI_APP_ID --org <org> --body <app-id>` (org-level)
        OR (private repo / free-plan org): `gh variable set ROXABI_CI_APP_ID --repo <owner>/<repo> --body <app-id>`
      - `gh secret set ROXABI_CI_APP_PRIVATE_KEY --org <org> < key.pem`
        OR: `gh secret set ROXABI_CI_APP_PRIVATE_KEY --repo <owner>/<repo> < key.pem`
-     - D: `CI/CD workflows ✅ Created` + `ROXABI_CI_APP_ID var ✅ Set` + `ROXABI_CI_APP_PRIVATE_KEY secret ✅ Set` + `allow_auto_merge ✅ Enabled`
-   - **If mode = pat:**
-     - Banner: "⚠️  PAT mode: secrets.PAT is retiring org-wide. App mode is preferred for Roxabi-org repos."
-     - `gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"`
-     - D: `CI/CD workflows ✅ Created` + `PAT secret ✅ Set` + `allow_auto_merge ✅ Enabled`
-   - Enable auto-merge: `gh api repos/<owner>/<repo> --method PATCH --field allow_auto_merge=true`
-   - Re-trigger open PRs with `reviewed` label:
+     - D: `CI/CD workflows ✅ Created` + `ROXABI_CI_APP_ID var ✅ Set` + `ROXABI_CI_APP_PRIVATE_KEY secret ✅ Set`
+   - **If merge = auto-merge:** enable native auto-merge:
+     ```bash
+     gh api repos/<owner>/<repo> --method PATCH --field allow_auto_merge=true
+     ```
+     Re-trigger open PRs with `reviewed` label:
      ```bash
      for pr in $(gh pr list --repo <owner>/<repo> --label reviewed --state open --json number --jq '.[].number'); do
        gh pr edit $pr --remove-label reviewed --repo <owner>/<repo>
        gh pr edit $pr --add-label reviewed --repo <owner>/<repo>
      done
      ```
+   - **If merge = merge-on-green:** skip `allow_auto_merge` — workflow polls check suites instead.
 
    > **App creation guide:** see `${CLAUDE_SKILL_DIR}/cookbooks/github-app.md` for how to create and install the `roxabi-ci` App, where `app-id` and `private-key` come from, and the org-free private-repo caveat.
 
@@ -72,7 +87,7 @@ Run only if `deploy.platform: vercel` ∧ `docs.framework: fumadocs` in σ.
 2. Ask: **Add Vercel deployment config** (`apps/docs/vercel.json`) | **Skip**
 3. yes:
    ```bash
-   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-fumadocs-vercel --root <cwd> --orchestrator <build.orchestrator>
+   bun $I_TS scaffold-fumadocs-vercel --root <cwd> --orchestrator <build.orchestrator>
    ```
    `build.orchestrator: turbo` → config with `turbo-ignore @repo/docs`. Other → simple `cd apps/docs && bun run build`.
    D✅("Fumadocs Vercel config — apps/docs/vercel.json").
