@@ -147,6 +147,18 @@ describe('generateContextLintYml', () => {
     expect(yml).toContain("'**/CLAUDE.md'")
     expect(yml).toContain("'**/AGENTS.md'")
     expect(yml).toContain("'.claude/**'")
+    expect(yml).toContain("'.grok/**'")
+    expect(yml).toContain("'.agents/**'")
+  })
+
+  it('lints Grok and Claude harness markdown (not only root CLAUDE/AGENTS)', () => {
+    const yml = generateContextLintYml()
+    expect(yml).toContain('*/.grok/rules/*')
+    expect(yml).toContain('*/.grok/skills/*')
+    expect(yml).toContain('*/.grok/agents/*')
+    expect(yml).toContain('*/.claude/rules/*')
+    expect(yml).toContain('*/.claude/skills/*')
+    expect(yml).toContain('*/.agents/skills/*')
   })
 
   it('emits interpolated bash (no unresolved TS template escapes)', () => {

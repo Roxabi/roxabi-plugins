@@ -194,10 +194,11 @@ jobs:
 }
 
 /** Generic context lint — keeps agent-context files honest:
- *  repo-relative `@imports` in CLAUDE.md/AGENTS.md must resolve, and scaffold
- *  placeholders must be filled. Home-dir imports (`@~/...`) are machine-local
- *  and skipped on CI. Stack-agnostic (pure bash, no deps). Ecosystem-level
- *  checks (project index, factory registry) live in the central
+ *  repo-relative `@imports` in harness context files must resolve, and scaffold
+ *  placeholders must be filled. Covers Claude (.claude/rules, CLAUDE.md) and Grok
+ *  (.grok/rules, .grok/skills/SKILL.md, .grok/agents). Home-dir imports (`@~/...`)
+ *  are machine-local and skipped on CI. Stack-agnostic (pure bash, no deps).
+ *  Ecosystem-level checks (project index, factory registry) live in the central
  *  ~/projects/scripts/context-lint.sh, deliberately not here. */
 export function generateContextLintYml(): string {
   return `name: Context Lint
@@ -208,12 +209,16 @@ on:
       - '**/CLAUDE.md'
       - '**/AGENTS.md'
       - '.claude/**'
+      - '.grok/**'
+      - '.agents/**'
   push:
     branches: [main, staging]
     paths:
       - '**/CLAUDE.md'
       - '**/AGENTS.md'
       - '.claude/**'
+      - '.grok/**'
+      - '.agents/**'
 
 permissions:
   contents: read
@@ -229,6 +234,13 @@ jobs:
         run: |
           set -u
           V=0
+          find_context_files() {
+            find . \\( -name node_modules -o -name .worktrees -o -name worktrees -o -name .git \\) -prune -o -type f \\( \\
+              -name 'CLAUDE.md' -o -name 'AGENTS.md' -o \\
+              \\( -name 'SKILL.md' \\( -path '*/.grok/skills/*' -o -path '*/.claude/skills/*' -o -path '*/.agents/skills/*' \\) \\) -o \\
+              \\( -name '*.md' \\( -path '*/.grok/rules/*' -o -path '*/.claude/rules/*' -o -path '*/.grok/agents/*' \\) \\) \\
+            \\) -print
+          }
           # dead repo-relative @imports (home-dir @~/... imports are machine-local — skipped on CI)
           while IFS= read -r file; do
             dir=$(dirname "$file")
@@ -240,7 +252,7 @@ jobs:
                 V=$((V + 1))
               fi
             done < <(grep -o '^@[^ ]*' "$file" || true)
-          done < <(find . \\( -name node_modules -o -name .worktrees -o -name worktrees -o -name .git \\) -prune -o \\( -name 'CLAUDE.md' -o -name 'AGENTS.md' \\) -print)
+          done < <(find_context_files)
           # unfilled scaffold placeholders
           while IFS= read -r f; do
             echo "::error file=$f::unfilled scaffold placeholder (gotchas)"
@@ -253,6 +265,19 @@ jobs:
             exit 1
           fi
 `
+}
+
+/** Push only context-lint.yml (always updates — safe to re-run after generator changes). */
+export async function pushContextLintYml(
+  owner: string,
+  repo: string,
+  branch: string,
+): Promise<'created' | 'updated' | 'skipped'> {
+  return pushWorkflowFile(owner, repo, '.github/workflows/context-lint.yml', generateContextLintYml(), {
+    branch,
+    message: 'chore: update context-lint.yml (Grok + Claude harness paths)',
+    skipExisting: false,
+  })
 }
 
 export function generateCiYml(opts: WorkflowOpts): string {
