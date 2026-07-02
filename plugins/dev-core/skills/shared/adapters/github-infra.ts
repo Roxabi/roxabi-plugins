@@ -8,10 +8,17 @@ import { ConfigError } from '../domain/errors'
 export const STANDARD_WORKFLOWS = [
   'ci.yml',
   'auto-merge.yml',
+  'merge-on-green.yml',
   'pr-title.yml',
   'context-lint.yml',
+  'secret-scan.yml',
+  'dependabot-automerge.yml',
   'deploy-preview.yml',
+  'deploy-cloudflare.yml',
 ] as const
+
+/** Merge workflows — exactly one expected per repo. */
+export const MERGE_WORKFLOWS = ['auto-merge.yml', 'merge-on-green.yml'] as const
 
 /**
  * Token mode for CI workflows.
@@ -46,6 +53,7 @@ export function emitAppMintStep(): string {
  */
 export const REQUIRED_SECRETS: Record<string, { mode: TokenMode; var?: string; secret: string }> = {
   'auto-merge.yml': { mode: 'github-app', var: 'ROXABI_CI_APP_ID', secret: 'ROXABI_CI_APP_PRIVATE_KEY' },
+  'merge-on-green.yml': { mode: 'github-app', var: 'ROXABI_CI_APP_ID', secret: 'ROXABI_CI_APP_PRIVATE_KEY' },
   'release-please.yml': { mode: 'github-app', var: 'ROXABI_CI_APP_ID', secret: 'ROXABI_CI_APP_PRIVATE_KEY' },
 }
 

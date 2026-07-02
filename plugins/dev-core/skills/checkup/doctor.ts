@@ -27,6 +27,7 @@ import {
   checkVercel,
 } from './doctor-local'
 import { formatText, type Section } from './doctor-shared'
+import { checkWorkflowDrift } from './workflow-drift'
 
 // --- Main ---
 
@@ -45,6 +46,7 @@ const sections: Section[] = [
   checkPrereqsSection(prereqs),
   checkGitHubConfig(ghOk, owner, repo),
   checkWorkflows(ghOk, owner, repo),
+  { name: 'Workflow drift', checks: checkWorkflowDrift() },
   checkSecrets(ghOk, owner, repo),
   checkBranchProtection(ghOk, owner, repo),
   checkRulesets(ghOk, owner, repo, meta),
