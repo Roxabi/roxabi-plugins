@@ -7,7 +7,13 @@
 
 import { ConfigError } from '../domain/errors'
 
-export const STANDARD_WORKFLOWS = ['ci.yml', 'auto-merge.yml', 'pr-title.yml', 'deploy-preview.yml'] as const
+export const STANDARD_WORKFLOWS = [
+  'ci.yml',
+  'auto-merge.yml',
+  'pr-title.yml',
+  'context-lint.yml',
+  'deploy-preview.yml',
+] as const
 
 /**
  * Token mode for CI workflows.

@@ -51,7 +51,7 @@ After fixes, re-run + display updated result.
 
 Only run if Phase 1 doctor shows ⚠️/❌ for Workflows or Secrets.
 
-1. **Workflows** — doctor checks local `.github/workflows/` + remote REST. Standard: `ci.yml`, `auto-merge.yml`, `pr-title.yml` (+ `deploy-preview.yml` if Vercel).
+1. **Workflows** — doctor checks local `.github/workflows/` + remote REST. Standard: `ci.yml`, `auto-merge.yml`, `pr-title.yml`, `context-lint.yml` (+ `deploy-preview.yml` if Vercel).
 
 2. **PAT secret** — missing → `gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"`. D✅("PAT secret").
 

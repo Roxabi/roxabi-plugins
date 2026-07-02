@@ -6,8 +6,9 @@
  * Usage:
  *   bun init.ts prereqs [--json]
  *   bun init.ts discover [--json]
- *   bun init.ts workflows --owner <owner> --repo <repo> --stack <bun|node|python> --test <vitest|jest|pytest|none> --deploy <vercel|none> [--branch <branch>]
- *   bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>]  # generic only (auto-merge + pr-title + context-lint)
+ *   bun init.ts workflows --owner <owner> --repo <repo> --stack <bun|node|python> --test <vitest|jest|pytest|none> --deploy <vercel|none> [--branch <branch>] [--force]
+ *   bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>] [--force]  # generic only (auto-merge + pr-title + context-lint)
+ *   (both default to TOP-UP: existing workflow files are skipped; --force overwrites)
  *   bun init.ts protect-branches --repo <owner/repo>
  *   bun init.ts scaffold-rules [--stack-path .claude/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
  *   bun init.ts scaffold --github-repo <owner/repo> [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]
@@ -51,8 +52,9 @@ switch (command) {
     const stack = parseFlag('--stack', 'bun') as 'bun' | 'node' | 'python'
     const test = parseFlag('--test', 'vitest') as 'vitest' | 'jest' | 'pytest' | 'none'
     const deploy = parseFlag('--deploy', 'none') as 'vercel' | 'none'
+    const force = process.argv.includes('--force')
     if (owner && repo) {
-      const result = await pushWorkflows(owner, repo, { stack, test, deploy }, branch)
+      const result = await pushWorkflows(owner, repo, { stack, test, deploy }, branch, force)
       console.log(JSON.stringify({ pushed: result }, null, 2))
     } else {
       // fallback: local write (no owner/repo provided)
@@ -71,7 +73,7 @@ switch (command) {
       console.error('Usage: init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>]')
       process.exit(1)
     }
-    const result = await pushGenericWorkflows(owner, repo, branch)
+    const result = await pushGenericWorkflows(owner, repo, branch, process.argv.includes('--force'))
     console.log(JSON.stringify({ pushed: result }, null, 2))
     break
   }
