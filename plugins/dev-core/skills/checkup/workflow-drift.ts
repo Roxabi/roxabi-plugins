@@ -5,10 +5,12 @@ import {
   generateAutoMergeYml,
   generateCiYml,
   generateContextLintYml,
+  generateDeployYml,
   generatePrTitleYml,
   workflowOptsFromStack,
 } from '../../../dev-init/skills/init/lib/workflows'
 import {
+  generateCloudflareDeployYml,
   generateDependabotAutomergeYml,
   generateMergeOnGreenYml,
   generateSecretScanYml,
@@ -50,6 +52,8 @@ export function checkWorkflowDrift(): Check[] {
     ...(opts.merge === 'merge-on-green'
       ? { 'merge-on-green.yml': generateMergeOnGreenYml(opts) }
       : { 'auto-merge.yml': generateAutoMergeYml() }),
+    ...(opts.deploy === 'vercel' ? { 'deploy-preview.yml': generateDeployYml(opts) } : {}),
+    ...(opts.deploy === 'cloudflare' ? { 'deploy-cloudflare.yml': generateCloudflareDeployYml() } : {}),
   }
   const checks: Check[] = []
   for (const [file, gen] of Object.entries(expected)) {

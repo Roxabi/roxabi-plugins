@@ -476,6 +476,12 @@ export async function pushWorkflows(
     })
     results.push({ file: name, status })
   }
+  const dependabotStatus = await pushWorkflowFile(owner, repo, '.github/dependabot.yml', generateDependabotYml(), {
+    branch,
+    message: 'chore: add dependabot.yml (github-actions + ecosystem)',
+    skipExisting: !force,
+  })
+  results.push({ file: 'dependabot.yml', status: dependabotStatus })
   return results
 }
 
