@@ -440,7 +440,7 @@ export interface PushResult {
 
 /** Push all workflow files to a remote repo via GitHub REST API. No local git required.
  *  Default is TOP-UP: files already present on the repo are skipped (repos evolve
- *  their ci.yml far past the template — see roxabi-factory/enishu). `force` overwrites. */
+ *  their ci.yml far past the template). `force` overwrites. */
 export async function pushWorkflows(
   owner: string,
   repo: string,

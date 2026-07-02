@@ -45,7 +45,7 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
      gh api repos/<owner>/<repo> --jq '{private: .private, allow_auto_merge: .allow_auto_merge}'
      ```
      - `allow_auto_merge=true` → pre-select **auto-merge** (native merge queue)
-     - `allow_auto_merge=false` on private repo → pre-select **merge-on-green** (free-plan pattern — bouly-site)
+     - `allow_auto_merge=false` on private repo → pre-select **merge-on-green** (free-plan pattern)
      - Ask: **auto-merge** | **merge-on-green**
    - Run:
      ```bash
@@ -55,7 +55,7 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
        --e2e <playwright|none> \
        --lint <true|false> --typecheck <true|false>
      ```
-     > **Top-up par défaut** : les fichiers déjà présents sur le repo sont **skippés** — les repos font évoluer leur `ci.yml` bien au-delà du template (factory: 190 lignes/3 jobs; enishu: e2e Playwright). Ajouter `--force` UNIQUEMENT pour régénérer volontairement, après diff explicite des fichiers qui seraient écrasés.
+     > **Top-up par défaut** : les fichiers déjà présents sur le repo sont **skippés** — les repos font évoluer leur `ci.yml` bien au-delà du template (multi-job, e2e, etc.). Ajouter `--force` UNIQUEMENT pour régénérer volontairement, après diff explicite des fichiers qui seraient écrasés.
    - **App token provisioning** (always — PAT mode retired):
      - `gh variable set ROXABI_CI_APP_ID --org <org> --body <app-id>` (org-level)
        OR (private repo / free-plan org): `gh variable set ROXABI_CI_APP_ID --repo <owner>/<repo> --body <app-id>`

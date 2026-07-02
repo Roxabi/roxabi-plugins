@@ -1,4 +1,4 @@
-/** SHA-pinned GitHub Actions — fleet consensus (enishu, factory, bouly-site). */
+/** SHA-pinned GitHub Actions — fleet consensus (audit 2026-07-02). */
 export const ACTION_PINS = {
   checkout: 'actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10', // v6
   setupBun: 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6', // v2
