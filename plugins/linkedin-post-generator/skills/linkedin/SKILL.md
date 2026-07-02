@@ -20,7 +20,7 @@ Load LC if ∃: author name, default language, tone, hashtag sets, post signatur
 
 ## Phase 2 — Topic Input
 
-∃ topic in $ARGUMENTS → use it. Otherwise → DP(B): topic/idea. → DP(C) for preferences: tone override, target audience, content type (story/insight/question/how-to), hashtag set.
+∃ topic in $ARGUMENTS → use it. Otherwise → ask user: topic/idea. → present multi-select for preferences: tone override, target audience, content type (story/insight/question/how-to), hashtag set.
 
 ## Phase 3 — Research (Optional)
 
@@ -60,7 +60,7 @@ Apply rules: 1300-2000 chars; strong hook (pattern interrupt/bold claim/question
 
 ## Phase 5 — Review
 
-Present post in code block. Show stats: character count, word count, estimated read time, hashtag count. → DP(A)
+Present post in code block. Show stats: character count, word count, estimated read time, hashtag count. → present choice
 - **Publish as-is** → Phase 6
 - **Edit** → describe changes → regenerate
 - **Regenerate** → different angle → Phase 4

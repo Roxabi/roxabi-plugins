@@ -112,13 +112,13 @@ it('should return user by id', () => {
 
 ## Step 6 — Approval
 
-→ DP(A) **Approve and write all** | **Approve with modifications** | **Skip specific files**
+→ present choice **Approve and write all** | **Approve with modifications** | **Skip specific files**
 ¬write without approval.
 
 ## Step 7 — Write + Verify
 
 ∀ approved τ: write via Write tool → `{commands.test} {test_file_path}` → report pass/fail.
-∃ failures ⇒ → DP(A) show failing test + error → propose fix → re-run.
+∃ failures ⇒ → present choice show failing test + error → propose fix → re-run.
 
 ## Step 8 — Falsification Gate (standalone `/test`)
 
@@ -138,7 +138,7 @@ Applies to: unit + fast-integration tests only. Triggered after Step 7 green run
    ```
    This enumerates both tracked-dirty AND untracked source files, then excludes test/spec files.
 2. **Run the test**: `{commands.test} {test_file_path}`.
-3. **Assert FAIL**: exit 0 → tautological → tautological = merge blocker. Do NOT pop stash. Restore worktree: `git stash pop`. DP(A) **Rewrite test** | **Flag and block** (¬silently pass). ¬assign a matrix Status — no Status update until the test is rewritten and re-run.
+3. **Assert FAIL**: exit 0 → tautological → tautological = merge blocker. Do NOT pop stash. Restore worktree: `git stash pop`. user choice **Rewrite test** | **Flag and block** (¬silently pass). ¬assign a matrix Status — no Status update until the test is rewritten and re-run.
 4. **Pop stash** (success path only): `git stash pop`.
 5. **Assert GREEN**: re-run → exit 0.
 6. **Record evidence** (one line per test):
@@ -216,7 +216,7 @@ Selectors: `page.getByRole()`, `page.getByLabel()`, `page.getByText()` (¬`page.
 |----------|----------|
 | File has no exports | Skip, inform user |
 | Tests already exist | Offer to add missing coverage, ¬overwrite |
-| Test framework not detected | → DP(B) which framework to use |
+| Test framework not detected | → ask user which framework to use |
 | `--run` flag | Run `{commands.test}` and report only |
 | React component | Generate component tests with appropriate render approach |
 | File in monorepo package | Place tests relative to package, ¬root |

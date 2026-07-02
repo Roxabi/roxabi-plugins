@@ -12,21 +12,20 @@ After merging several PRs, local and remote branches accumulate. `/cleanup` audi
 /cleanup             Analyze and clean both branches and worktrees
 /cleanup --branches  Only analyze branches
 /cleanup --worktrees Only analyze worktrees
+/cleanup --scope #42 Restrict branch/worktree cleanup to issue #42 (anchored match, not substring)
 ```
 
 Triggers: `"cleanup"` | `"clean branches"` | `"cleanup worktrees"` | `"remove stale branches"`
 
 ## How it works
 
-1. **Gather state** — lists local branches (tracking info), worktrees, and open PRs.
-2. **Analyze each branch** — for every branch not in `{main, master, staging, current}`:
-   - Regular merge check: `git log --oneline main..<branch>`
-   - Squash-merge check: `git log --grep` on branch name or issue#
-   - Open PR check: skips branches with active PRs
+1. **Gather state** — `gather-state.sh` lists local branches (tracking info), worktrees, open PRs, closed PR labels, and queued CI runs.
+2. **Analyze branches** — `analyze-branches.sh` batch-audits local + remote branches (regular merge, squash PR state, issue# grep, open PRs, worktrees). Outputs `---safe-local---` / `---safe-remote---` plus a summary table. Use `--json` for machine-readable output.
 3. **Present summary table** — 🗑 Safe to delete | ⚠️ Active work | 🔒 Protected
 4. **Confirm** — presents safe branches as default selections; unmerged branches listed separately with explicit warning; never auto-selects unmerged.
 5. **Execute** — removes worktrees first (before deleting their branch), uses `git branch -d` for merged, `git branch -D` only on explicit confirmation.
-6. **Remote cleanup** — scans all remote branches, checks both regular and squash merges, asks for explicit confirmation per branch.
+6. **Remote cleanup** — uses `---safe-remote---` from step 2; asks for explicit confirmation per branch.
+7. **Sweep** — strips stuck pipeline labels from closed PRs; cancels long-queued CI runs.
 
 ## Safety rules
 

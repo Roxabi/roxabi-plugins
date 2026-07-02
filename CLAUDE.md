@@ -1,5 +1,4 @@
 @.claude/stack.yml
-@~/.claude/shared/global-patterns.md
 
 # Roxabi Plugins
 
@@ -12,9 +11,6 @@ Repo = **marketplace** — collection of independent plugins, each self-containe
 ## TL;DR
 
 - **Project:** roxabi-plugins
-- **Before work:** `/dev #N` = single entry — picks tier + drives lifecycle
-- **Never:** `--force` / `--hard` / `--amend`
-- **Always:** use matching skill even w/o slash cmd
 
 ## Structure
 
@@ -26,7 +22,6 @@ roxabi-plugins/
 ├── plugins/
 │   ├── shared/
 │   │   └── references/          # cross-plugin refs (${CLAUDE_PLUGIN_ROOT}/../shared/)
-│   │       └── decision-presentation.md  # Pattern A/B/C protocol
 │   └── <plugin-name>/
 │       ├── README.md            # human docs
 │       ├── skills/
@@ -57,7 +52,7 @@ Keep all READMEs current. Adding/modifying/removing a plugin → update:
 ## Design Principles
 
 1. **Project-agnostic** — auto-discover (CLAUDE.md, agents, docs dirs), ¬assume layout
-2. **User is the gate** — always present DP/A before destructive actions
+2. **User is the gate** — present choices before destructive actions and wait for user reply
 3. **Compressed notation** — use formal symbols where they cut tokens w/o losing semantics
 4. **Append-only logs** — state-tracking plugins use append-only for auditability
 5. **Recurrence detection** — if plugin solves recurring problems, track occurrences → root causes

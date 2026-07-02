@@ -12,7 +12,7 @@ Let:
   β := Brainstorm | α := Analysis | σ := Spec
   τ := document type ∈ {β, α, σ}
   A := `artifacts/analyses/` | S := `artifacts/specs/`
-  AQ := Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md`
+  AQ := present choice, wait for user reply
 
 Conduct structured interview → produce one of {β, α, σ}. Supports promoting existing doc to next level.
 

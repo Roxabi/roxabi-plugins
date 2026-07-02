@@ -18,7 +18,7 @@ Get a 360° view of a single symbol: categorized incoming/outgoing references, p
 /gitnexus-context getUser --uid "Function:src/db.ts:getUser#0"
 ```
 
-¬symbol → → DP(B) provide a symbol name.
+¬symbol → ask user provide a symbol name.
 
 ## Step 0 — Pre-flight
 
@@ -26,7 +26,7 @@ Get a 360° view of a single symbol: categorized incoming/outgoing references, p
 gitnexus status
 ```
 
-¬indexed → → DP(B) run `/gitnexus-analyze` first.
+¬indexed → ask user run `/gitnexus-analyze` first.
 
 ## Step 1 — Run Context
 

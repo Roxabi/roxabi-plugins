@@ -385,11 +385,7 @@ standards:
 
 Some content
 
-### 2. Decision Presentation
-
-Use DP(n) protocol
-
-### 5. Git
+### 2. Git
 
 Commit rules
 `)
@@ -404,7 +400,6 @@ Commit rules
       // Assert
       expect(result.existing.hasImport).toBe(true)
       expect(result.existing.sectionIds).toContain('tldr')
-      expect(result.existing.sectionIds).toContain('decision-presentation')
       expect(result.existing.sectionIds).toContain('git')
     })
 

@@ -14,7 +14,7 @@ Let:
   δ := `.claude/dev-core.yml`
   I_TS := `${Φ}/skills/init/init.ts`
   D(label, result) := Display: `{label} {result}`
-  Ask(opts) := → DP(A)with given options
+  Ask(opts) := present opts, wait for user reply
   chk(cond, pass, fail) := cond → ✅ pass | fail
   stackVal(key) := value read from σ
   ensureGitignore(entry) := append entry to .gitignore if missing

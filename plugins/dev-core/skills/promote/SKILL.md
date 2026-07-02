@@ -13,7 +13,7 @@ allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch
 I₀ := PR created (staging→main) | I₁ := tag pushed + release created (--finalize)
 V₀ := `gh pr list --base main --head staging --state open` | V₁ := `git tag -l $VERSION` ∧ `gh release view $VERSION`
 
-Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := DP(A)
+Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := user choice
 
 σ → μ for production. Pre-flight → version → changelog → commit → preview → PR.
 `--finalize`: post-merge tag + GitHub Release.
@@ -93,7 +93,7 @@ For each detected dep:
 3. Match SHA → release tag at that exact commit
 4. Tag matching: prefer `<pkg>/vX.Y.Z` (monorepo subdirectory style), fall back to bare `vX.Y.Z`
 
-### DP(A) gate
+### user choice gate
 
 ```
 ── Decision: Pin uv git deps ──
@@ -210,12 +210,12 @@ Display PR URL.
 
 ## Step 8 — Post-merge Reminder
 
-**CRITICAL: Use merge commit (not squash) for promotion PR.** Squash causes history divergence → conflicts + resurrected files on next promotion.
+**CRITICAL: Merge commit only, never squash** — see [`release-convention.md`](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/release-convention.md).
 
 ```
 Promotion PR created: {URL}
 
-⚠️  MERGE WITH MERGE COMMIT (not squash) to keep histories reconciled.
+⚠️  MERGE WITH MERGE COMMIT (not squash) — see release-convention.md.
 
 After merge:
   1. Vercel auto-deploys to production

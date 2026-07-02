@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateAutoMergeYml, generateCiYml, generateDeployYml } from '../lib/workflows'
+import { generateAutoMergeYml, generateCiYml, generateContextLintYml, generateDeployYml } from '../lib/workflows'
 
 describe('generateAutoMergeYml', () => {
   it('emits the App token mint step (no secrets.PAT)', () => {
@@ -65,13 +65,18 @@ describe('generateAutoMergeYml', () => {
 })
 
 describe('generateCiYml', () => {
-  it('generates bun + vitest CI', () => {
+  it('generates bun + vitest CI (bun run test, not bun test)', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none' })
     expect(yml).toContain('oven-sh/setup-bun@v2')
     expect(yml).toContain('bun install')
     expect(yml).toContain('bun lint')
     expect(yml).toContain('bun typecheck')
-    expect(yml).toContain('bun test')
+    expect(yml).toContain('run: bun run test')
+  })
+
+  it('uses the native bun runner for non-vitest bun stacks', () => {
+    const yml = generateCiYml({ stack: 'bun', test: 'jest', deploy: 'none' })
+    expect(yml).toContain('run: bun test')
   })
 
   it('generates node + jest CI', () => {
@@ -117,5 +122,48 @@ describe('generateDeployYml', () => {
   it('has workflow_dispatch trigger', () => {
     const yml = generateDeployYml({ stack: 'bun', test: 'none', deploy: 'none' })
     expect(yml).toContain('workflow_dispatch')
+  })
+})
+
+describe('generateContextLintYml', () => {
+  it('is read-only and uses no secrets', () => {
+    const yml = generateContextLintYml()
+    expect(yml).toContain('permissions:\n  contents: read')
+    expect(yml).not.toContain('secrets.')
+  })
+
+  it('skips machine-local home-dir imports', () => {
+    const yml = generateContextLintYml()
+    expect(yml).toContain('"~/"*')
+  })
+
+  it('fails the job on violations', () => {
+    const yml = generateContextLintYml()
+    expect(yml).toContain('exit 1')
+  })
+
+  it('triggers only on agent-context file paths', () => {
+    const yml = generateContextLintYml()
+    expect(yml).toContain("'**/CLAUDE.md'")
+    expect(yml).toContain("'**/AGENTS.md'")
+    expect(yml).toContain("'.claude/**'")
+    expect(yml).toContain("'.grok/**'")
+    expect(yml).toContain("'.agents/**'")
+  })
+
+  it('lints Grok and Claude harness markdown (not only root CLAUDE/AGENTS)', () => {
+    const yml = generateContextLintYml()
+    expect(yml).toContain('*/.grok/rules/*')
+    expect(yml).toContain('*/.grok/skills/*')
+    expect(yml).toContain('*/.grok/agents/*')
+    expect(yml).toContain('*/.claude/rules/*')
+    expect(yml).toContain('*/.claude/skills/*')
+    expect(yml).toContain('*/.agents/skills/*')
+  })
+
+  it('emits interpolated bash (no unresolved TS template escapes)', () => {
+    const yml = generateContextLintYml()
+    expect(yml).toContain('target=${imp#@}')
+    expect(yml).not.toContain('\\$')
   })
 })

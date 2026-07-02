@@ -18,7 +18,7 @@ Blast radius analysis: find what breaks if you change a symbol. Essential before
 /gitnexus-impact processOrder --depth 2
 ```
 
-¬symbol → → DP(B) provide a symbol name.
+¬symbol → ask user provide a symbol name.
 
 ## Step 0 — Pre-flight
 
@@ -26,7 +26,7 @@ Blast radius analysis: find what breaks if you change a symbol. Essential before
 gitnexus status
 ```
 
-¬indexed → → DP(B) run `/gitnexus-analyze` first.
+¬indexed → ask user run `/gitnexus-analyze` first.
 
 ## Step 1 — Run Impact Analysis
 

@@ -1,14 +1,14 @@
 ---
 name: cleanup
-argument-hint: [--all | --report-only | --yes]
+argument-hint: [--all | --report-only | --yes | --scope <#N>]
 description: Clean git branches/worktrees/remotes after merge-status verification; sweep stuck pipeline labels and orphan CI runs. Triggers: "cleanup" | "clean branches" | "cleanup worktrees" | "remove stale branches".
-version: 0.4.0
+version: 0.6.0
 allowed-tools: Bash, Read, EnterWorktree, ExitWorktree, ToolSearch
 ---
 
 # Git Cleanup
 
-Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging) | safe(β) ⟺ fully_merged(β) ∧ ¬π(β) | merged(β) := regular_merge(β) ∨ squash_merge(β)
+Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging) | safe(β) ⟺ fully_merged(β) ∧ ¬π(β) | merged(β) := regular_merge(β) ∨ squash_merge(β) | N := scope issue number (∅ if unscoped)
 
 Safely clean local β, ω, and remote branches with **mandatory merge-status verification** before any deletion. End-of-session sweep also strips stuck pipeline labels from closed PRs and cancels long-queued CI runs.
 
@@ -19,10 +19,19 @@ At skill entry, before any other action:
 ```
 REPORT_ONLY=false
 YES=false
+SCOPE=""
+_next_is_scope=false
 for arg in $ARGUMENTS; do
+  if [ "$_next_is_scope" = true ]; then
+    SCOPE="${arg#\#}"
+    _next_is_scope=false
+    continue
+  fi
   case "$arg" in
     --report-only) REPORT_ONLY=true ;;
     --yes)         YES=true ;;
+    --scope)       _next_is_scope=true ;;
+    --scope=*)     SCOPE="${arg#--scope=}"; SCOPE="${SCOPE#\#}" ;;
   esac
 done
 ```
@@ -30,6 +39,7 @@ done
 `REPORT_ONLY=true` ⇒ **zero mutations** throughout all steps (cron-safe).  
 `YES=true` ⇒ skip confirmation prompts for destructive actions (implies user already consented).  
 If both set: `REPORT_ONLY` wins — no mutations.
+`SCOPE=<N>` ⇒ restrict branch/worktree analysis (Steps 2–6) to issue N only — see below. `SCOPE=""` (default) ⇒ repo-wide, unchanged behavior.
 
 ## Instructions
 
@@ -39,19 +49,33 @@ If both set: `REPORT_ONLY` wins — no mutations.
 bash ${CLAUDE_SKILL_DIR}/gather-state.sh
 ```
 
-Emits: `current`, branch list with tracking info, worktree list, open PRs, closed PRs with pipeline labels, and queued/stuck CI runs.
+Emits: `current`, branch list with tracking info, worktree list, open PRs, closed PRs with pipeline labels, and queued/stuck CI runs. Unscoped — always full-repo; Steps 7–8 (label/CI sweeps) consume it as-is regardless of `--scope` (see Options).
 
-### 2. Analyze Each Branch
+### 2. Analyze Branches
 
-∀ β ∉ {Π, current branch}:
+```bash
+if [ -n "$SCOPE" ]; then
+  bash ${CLAUDE_SKILL_DIR}/analyze-branches.sh --scope "$SCOPE"
+else
+  bash ${CLAUDE_SKILL_DIR}/analyze-branches.sh
+fi
+```
 
-| Check | Command | Safe to delete? |
-|-------|---------|-----------------|
-| Merged into main? | `git log --oneline main..<branch> \| head -5` | Yes if empty |
-| Squash-merged? | `git log --oneline --grep="<branch-or-issue>" main \| head -5` | Yes if found |
-| Has open PR? | Check `gh pr list` output | **No** — active work |
-| Has worktree? | Check `git worktree list` output | Remove worktree first |
-| Last commit age | `git log -1 --format="%cr" <branch>` | Info only |
+Use `--json` when you need structured output for scripting. Use `--no-fetch` only in tests or when origin was fetched immediately before.
+
+**Scoping (`--scope <#N>`):** restricts local/remote branches and worktrees to the ones belonging to issue N, using the same anchored issue-number extraction as `dev/scan-state.sh`'s `N_ANCHOR` (char before the number is start/non-digit, char after is `/`, `-`, `_`, or end) — so `--scope 1` cannot pick up issue #14's branch (`extract_issue_number()` in `analyze-branches.sh`). Without `--scope`, behavior is unchanged (repo-wide). This is what `/dev`'s Ship phase relies on: `cleanup --scope #N` after an issue's PR merges must only touch that issue's branch/worktree, not every stale branch in the repo.
+
+The script analyzes ∀ β ∉ {Π, current branch} (∧ β ∈ scope N, if set) with these checks (base branch = `staging` if `origin/staging` exists, else `main`):
+
+| Check | Implementation | Safe to delete? |
+|-------|----------------|-----------------|
+| Merged into base? | `git log --oneline <base>..<branch>` empty | Yes |
+| Squash-merged? | `gh pr list --state all` → `MERGED` on head, or `git log --grep` on issue#/branch name | Yes if found |
+| Has open PR? | Batched `gh pr list` indexed by `headRefName` | **No** — active work |
+| Has worktree? | `git worktree list --porcelain` | Remove worktree first |
+| Last commit age | `git log -1 --format="%cr"` | Info only |
+
+Emits section markers: `---local-branches---`, `---remote-branches---`, `---worktrees---`, `---safe-local---`, `---safe-remote---`, plus a human `---summary-table---`. **Analyze-only** — never deletes.
 
 ### 3. Present Summary Table
 
@@ -78,7 +102,7 @@ Legend: 🗑 = safe to delete, ⚠️ = needs attention, 🔒 = protected
 
 If `REPORT_ONLY=true` → skip this confirmation **and** Step 5 (zero deletions); Step 3's table is the report. Continue to Step 6.
 
-→ DP(C)
+→ present multi-select
 - Present only safe(β) items as default selections
 - Show unmerged β separately with warning; **NEVER auto-select unmerged β**
 - ∃ unmerged β → separate question with explicit warning
@@ -105,31 +129,9 @@ git worktree prune
 
 ### 6. Clean Remote Branches
 
-Scan **all** remote branches for stale ones.
+Use `---remote-branches---` and `---safe-remote---` from Step 2 (`analyze-branches.sh`). Do **not** re-analyze manually.
 
-#### 6a. Gather remote branches
-
-```bash
-git fetch --prune origin
-git branch -r | grep -v 'origin/main' | grep -v 'origin/master' | grep -v 'origin/staging' | grep -v 'origin/HEAD'
-gh pr list --state open --json headRefName --jq '.[].headRefName' 2>/dev/null
-```
-
-#### 6b. Analyze each remote branch
-
-∀ remote β ∉ π-set:
-
-| Check | Command | Safe to delete? |
-|-------|---------|-----------------|
-| Regular merge? | `git log --oneline main..origin/<branch> \| head -1` — empty = merged | Yes |
-| Squash-merged? | Extract issue# from β name → `git log --oneline --grep="#<issue>" main \| head -1`; also `gh pr list --state all --head <branch> --json state --jq '.[0].state'` for `MERGED` | Yes if found |
-| Has open PR? | Check against open PR list from 6a | **No** — active work |
-
-**CRITICAL for squash merges**: `git branch -r --merged` will NOT detect squash-merged branches. Always check both:
-1. Issue number in main's commit history (`git log --grep="#<issue>"`)
-2. PR state via `gh pr list --state all --head <branch>` — look for `MERGED`
-
-Post-merge commits on a `MERGED` PR β → still safe to delete.
+**CRITICAL for squash merges**: `git branch -r --merged` will NOT detect squash-merged branches. `analyze-branches.sh` already checks PR `MERGED` state and issue# grep. Post-merge commits on a `MERGED` PR β → still safe to delete.
 
 #### 6c. Present remote summary table
 
@@ -148,7 +150,7 @@ Remote Branch Cleanup
 
 If `REPORT_ONLY=true` → skip this confirmation **and** Step 6e (zero remote deletions); Step 6c's table is the report. Continue to Step 7.
 
-→ DP(C) present merged remote β with ¬π as safe; show unmerged separately; **NEVER auto-delete remote β**; always include "Skip / Keep all remote branches".
+→ present multi-select present merged remote β with ¬π as safe; show unmerged separately; **NEVER auto-delete remote β**; always include "Skip / Keep all remote branches".
 
 #### 6e. Execute remote cleanup
 
@@ -201,7 +203,7 @@ If `REPORT_ONLY=true` → print table and **stop this step** (zero mutations).
 
 #### 7c. Confirm and strip
 
-→ DP(C)
+→ present multi-select
 - Default: strip all listed labels from all listed PRs
 - "Skip / Keep labels as-is" always available
 
@@ -239,7 +241,7 @@ If `REPORT_ONLY=true` → print table and **stop this step** (zero mutations).
 
 #### 8c. Confirm and cancel
 
-→ DP(C)
+→ present multi-select
 - Present stuck runs as candidates; runs on protected branches (main/master/staging) shown as informational — NEVER auto-cancel
 - "Skip / Cancel none" always available
 
@@ -289,6 +291,7 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 | (none) / `--all` | Analyze branches, worktrees, labels, and runs |
 | `--report-only` | Gather and print findings; perform zero mutations (cron-safe) |
 | `--yes` | Skip confirmation prompts for all destructive actions |
+| `--scope <#N>` | Restrict branch/worktree analysis + cleanup (Steps 2–6) to issue N — anchored match, not a substring search (see Step 2). Steps 7–8 (label/CI sweeps) stay repo-wide — they are end-of-session hygiene, not per-issue. |
 
 ## Safety Rules
 

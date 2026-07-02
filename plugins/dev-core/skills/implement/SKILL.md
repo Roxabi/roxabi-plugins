@@ -92,7 +92,7 @@ Parse π's `## Task IDs` section → {T1: id, T2: id, ...} map. ¬section → `/
 
 ## Step 2 — Setup
 
-**2a. Issue check:** `gh issue view <N>` — ∄ ⇒ draft + present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Create** | **Edit** | **Skip** + `gh issue create`.
+**2a. Issue check:** `gh issue view <N>` — ∄ ⇒ draft + present choice: **Create** | **Edit** | **Skip** + `gh issue create`.
 
 **2b+2d. Repo, base + pre-flight:**
 
@@ -106,9 +106,9 @@ Emits: `repo`, `base`, `branch_exists`, `legacy_worktree`, `worktree`, `dirty` (
 
 **2c. Branch guard:**
 
-`branch_exists` ≠ false ∧ `worktree` = false → branch exists but no worktree → → DP(A) **Recreate worktree** (invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"`) | **Abort**
+`branch_exists` ≠ false ∧ `worktree` = false → branch exists but no worktree → present choice **Recreate worktree** (invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"`) | **Abort**
 
-`worktree` ≠ false ∧ `dirty=true` ⇒ → DP(A) **Stash changes** (`git stash`) | **Reset** (`git checkout .`) | **Continue with dirty state** | **Abort**
+`worktree` ≠ false ∧ `dirty=true` ⇒ → present choice **Stash changes** (`git stash`) | **Reset** (`git checkout .`) | **Continue with dirty state** | **Abort**
 
 **2e. Worktree:**
 
@@ -146,7 +146,7 @@ Ref file paths from `/plan` Step 3.
 ## Step 3b — Reasoning Audit (optional)
 
 `--audit` → present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Read π/spec in full first.
-→ → DP(A) **Proceed** | **Adjust approach** | **Abort**
+→ present choice **Proceed** | **Adjust approach** | **Abort**
 ¬`--audit` → skip to Step 4.
 
 ## Step 4 — Implement
@@ -204,7 +204,7 @@ Run QG inside ω (session already in ω after EnterWorktree):
 > format before lint — auto-format first so the linter never flags style the formatter would have fixed (¬format-induced lint noise).
 
 ✓ → Step 6.
-✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → → DP(A) **Escalate to lead** | **Continue with failures** | **Abandon ω** (`ExitWorktree(action: "remove")` + delete branch).
+✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → present choice **Escalate to lead** | **Continue with failures** | **Abandon ω** (`ExitWorktree(action: "remove")` + delete branch).
 
 ## Step 6 — Summary
 
@@ -306,7 +306,7 @@ git branch -D feat/<N>-<slug>
 
 Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 
-| Merge conflict (ω setup) | `git rebase --abort` → present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Resolve manually** (fix conflicts → `git rebase --continue`) \| **Abort** |
+| Merge conflict (ω setup) | `git rebase --abort` → present choice: **Resolve manually** (fix conflicts → `git rebase --continue`) \| **Abort** |
 | Abandon after 3✗ gate failures | `ExitWorktree(action: "remove", discard_changes: true)` then `git branch -D feat/<N>-<slug>` |
 
 ## Safety

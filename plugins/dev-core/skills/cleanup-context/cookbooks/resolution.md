@@ -48,7 +48,7 @@ Score: {healthy | needs attention | bloated}
 
 `--dry-run` → stop here.
 
-→ DP(A): **Execute all** | **1-by-1** (per-ε approve/change) | **Skip**
+→ present choice: **Execute all** | **1-by-1** (per-ε approve/change) | **Skip**
 
 ## Phase 4 — Execute
 

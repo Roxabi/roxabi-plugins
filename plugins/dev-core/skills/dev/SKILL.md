@@ -25,10 +25,11 @@ Let:
   adv  := {analyze, implement, pr, ci-watch, validate, review, fix, cleanup}
   ψ_r(P) ⟺ P.comments ∃ body: "## Code Review"
   ψ_f(P) ⟺ P.comments ∃ body: "## Review Fixes Applied"
+  stale  := scan-state.sh `stale=true|false` — worktree ∃ ∨ local/remote branch matching N ∃ (anchored on N, see scan-state.sh)
   bar   := output must read as hand-authored by a dev-core maintainer — match surrounding idiom, naming, comment density; calibrate against `plugins/dev-core/`; QG (format/lint/typecheck/test) = mechanical floor, ¬the bar
 
 Single entry point: scan artifacts → detect state → show progress → delegate to step skill → loop.
-¬rewrite step skill logic. ¬auto-advance phases. Present decision at each gate via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A).
+¬rewrite step skill logic. ¬auto-advance phases. Present choice at each gate and wait for user reply.
 
 ## Entry
 
@@ -48,13 +49,13 @@ Single entry point: scan artifacts → detect state → show progress → delega
 ```bash
 gh issue view N --json number,title,labels,state
 ```
-¬∃ → → DP(A) **Create issue** | **Proceed without issue** (frame-only).
+¬∃ → present choice **Create issue** | **Proceed without issue** (frame-only).
 
 Free text ⇒ slug from text:
 ```bash
 gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 ```
-∃ match → → DP(A) **Use #{N}: {title}** | **Create new** | **Proceed without issue**.
+∃ match → present choice **Use #{N}: {title}** | **Create new** | **Proceed without issue**.
 
 `--from <step>` ⇒ record override. Warn if prerequisite artifacts ¬∃:
 
@@ -92,7 +93,7 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
   review:    PR ∃ ∧ (PR.reviewDecision ∈ ('APPROVED','CHANGES_REQUESTED') ∨ ψ_r(PR)),
   fix:       PR ∃ ∧ ψ_f(PR),
   promote:   skipped,  # standalone staging→main, ¬feature cycle
-  cleanup:   ¬worktree ∃ ∧ ¬stale_branch ∃,
+  cleanup:   ¬stale,
 }
 
 Σ_s = {} initially. Populated in Step 8 after each skill completes. Lost on restart.
@@ -103,7 +104,7 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
 ## Step 2 — Determine Tier
 
 τ ∃ → skip.
-¬τ → → DP(A) **S** (≤3 files, no arch) | **F-lite** (clear scope, 1 domain) | **F-full** (complex, multi-domain).
+¬τ → present choice **S** (≤3 files, no arch) | **F-lite** (clear scope, 1 domain) | **F-full** (complex, multi-domain).
 
 ## Step 2b — Seed Pipeline Tasks
 
@@ -170,7 +171,7 @@ should_skip(step, τ, Σ):
   ci-watch ∧ ¬PR ∃                         → skip
   fix      ∧ (Σ.fix ∨ Σ_s.fix)            → skip (fixes already applied)
   promote                                  → skip (/promote is standalone staging→main; ¬auto-triggered by /dev)
-  cleanup  ∧ ¬has_stale(N)               → skip
+  cleanup  ∧ ¬stale                       → skip
   default                                 → false
 ```
 
@@ -222,7 +223,7 @@ Present a concise architecture sketch covering four elements:
 - **(c) State ownership** — which component owns each piece of mutable state; ¬shared-mutable across boundaries
 - **(d) Integration points** — external systems, APIs, events, or side-effects touched by this change
 
-→ → DP(A) **Confirm sketch → proceed to /plan** | **Revise sketch** (max 2 rounds) | **Abort**
+→ present choice **Confirm sketch → proceed to /plan** | **Revise sketch** (max 2 rounds) | **Abort**
 
 User confirm received → invoke `skill: "plan"` (Step 7). This gate runs earlier than (and is distinct from) the post-plan compact pause (Step 8b).
 
@@ -232,13 +233,13 @@ User confirm received → invoke `skill: "plan"` (Step 7). This gate runs earlie
 
 audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Gate ∃ for S* → audit **replaces** it (¬double-prompt). ¬pass `--audit` to child skills.
 **Exception — F-full architecture sketch (R7a):** `--audit` NEVER replaces the architecture-sketch gate; sketch always fires for τ == F-full ∧ S* == plan, even when reasoning audit runs (two separate prompts: sketch → confirm, then audit → proceed).
-→ → DP(A) **Proceed** | **Adjust approach** (max 3 rounds) | **Abort** (→ skipped, Step 5)
+→ present choice **Proceed** | **Adjust approach** (max 3 rounds) | **Abort** (→ skipped, Step 5)
 
 ¬audit ∨ S* ∉ critical → skip (Step 6 gate still applies).
 
 ## Step 7 — Execute Step
 
-**Worktree bootstrap (silent pre-step):** `worktree` == false ∧ S* ∈ {frame, analyze, spec, plan, implement} → invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first. After return, re-scan `worktree`. Still false → present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Retry** | **Abort**.
+**Worktree bootstrap (silent pre-step):** `worktree` == false ∧ S* ∈ {frame, analyze, spec, plan, implement} → invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first. After return, re-scan `worktree`. Still false → present choice: **Retry** | **Abort**.
 
 **Artifact sync (post-bootstrap):** If S* ∈ {frame, analyze, spec, plan} and the repo principal has artifacts that the worktree lacks (e.g. from a prior standalone run) → `rsync -a ../../../artifacts/ ./artifacts/` (idempotent, preserves future commits).
 
@@ -276,7 +277,7 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 | promote | — | `skill: "promote"` (standalone — never auto-triggered) | — |
 | cleanup | adv | `skill: "cleanup", args: "--scope #N"` | pipeline complete |
 
-**Skip to X** ⇒ → DP(A) **Proceed anyway** | **Cancel**. Missing artifacts → warn first. Proceed ⇒ mark prior steps skipped, S* = X.
+**Skip to X** ⇒ → present choice **Proceed anyway** | **Cancel**. Missing artifacts → warn first. Proceed ⇒ mark prior steps skipped, S* = X.
 
 **Stop** ⇒ "Stopped at {S*}. Run `/dev #N` to resume."
 
@@ -295,7 +296,7 @@ Skill returns → **IMMEDIATELY in the same turn, silently:**
 **¬ask** anything. The next skill's first output IS your next message.
 **¬summarize** what just happened. The task list reflects state.
 
-Skill fails/aborts → leave task `in_progress` → present recovery decision via protocol (Pattern A): **Retry** | **Skip** | **Abort**.
+Skill fails/aborts → leave task `in_progress` → present choice: **Retry** | **Skip** | **Abort**.
 Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix).
 Session restart → Σ_s = ∅ → artifact-less steps re-run. 2b.1 will find the existing tasks (status possibly `completed` from last run) and skip re-seeding.
 gate → re-scan detects updated artifact → Step 6 gate → Step 7 immediately (¬second prompt). **Exception:** completed gate == plan ∧ τ ∈ {F-lite, F-full} → Step 8b compact pause (¬Step 7 this turn).
@@ -375,9 +376,9 @@ To promote to production → run `/promote`
 ## Edge Cases
 
 - Session dies mid-step → `/dev #N` resumes. Re-scan detects partial state. Half-written artifact → step skill handles.
-- `--from <step>` ∧ missing deps → warn + → DP(A) **Proceed** | **Cancel**.
-- Issue ¬∃ ∧ free text → frame-only mode. φ approved → → DP(A) **Create GitHub issue** | **Continue without**.
+- `--from <step>` ∧ missing deps → warn + → present choice **Proceed** | **Cancel**.
+- Issue ¬∃ ∧ free text → frame-only mode. φ approved → present choice **Create GitHub issue** | **Continue without**.
 - S* == validate → Σ.validate always null. Σ_s advances within session. New session → re-runs.
-- Multiple PRs for same issue → list, → DP(A) select which.
+- Multiple PRs for same issue → list, → present choice select which.
 
 $ARGUMENTS

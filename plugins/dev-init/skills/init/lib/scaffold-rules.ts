@@ -147,16 +147,10 @@ function tldr(_stack: StackConfig, projectName: string, projectType: ProjectType
   const parts: string[] = []
 
   parts.push(`- **Project:** ${projectName}`)
-  parts.push(
-    '- **Before work:** Use `/dev #N` as the single entry point — it determines tier (S / F-lite / F-full) and drives the full lifecycle',
-  )
 
   if (projectType !== 'docs-content' && projectType !== 'stub') {
     parts.push(`- **All code changes** → worktree: \`git worktree add ../${projectName}-XXX -b feat/XXX-slug staging\``)
   }
-
-  parts.push('- **Never** use `--force`/`--hard`/`--amend`')
-  parts.push('- **Always** use appropriate skill even without slash command')
 
   if (projectType === 'full-app' || projectType === 'backend-only' || projectType === 'frontend-only') {
     parts.push('- **Before code:** Read relevant standards doc (see Coding Standards section below)')
@@ -379,7 +373,6 @@ function analyzeExistingClaudeMd(claudeMdPath: string): ExistingSections {
   const sectionPatterns: Record<string, RegExp> = {
     tldr: /^## TL;DR/i,
     'dev-process': /^###?\s*(?:\d+[.\s]*)?Dev Process/i,
-    'decision-presentation': /^###?\s*(?:\d+[.\s]*)?Decision Presentation/i,
     'orchestrator-delegation': /^###?\s*(?:\d+[.\s]*)?Orchestrator/i,
     'parallel-execution': /^###?\s*(?:\d+[.\s]*)?Parallel/i,
     git: /^###?\s*(?:\d+[.\s]*)?Git/i,

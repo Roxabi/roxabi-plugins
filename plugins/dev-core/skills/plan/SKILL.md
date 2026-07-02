@@ -55,7 +55,7 @@ Steps: locate-spec → plan → refs → micro-tasks → write → approve
 ### Pre-flight: Ambiguity Check
 
 Grep `\[NEEDS CLARIFICATION` in σ (count).
-count > 0 → → DP(A) **Resolve now** | **Return to spec** | **Proceed anyway**
+count > 0 → present choice **Resolve now** | **Return to spec** | **Proceed anyway**
 
 ## Step 2 — Plan
 
@@ -64,7 +64,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/dev-process.md` + σ.
 ### Step 2a-pre — Reasoning Audit (optional)
 
 `--audit` → after reading σ, present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) (plan guidance).
-→ → DP(A) **Proceed** | **Adjust approach** | **Abort**
+→ present choice **Proceed** | **Adjust approach** | **Abort**
 ¬`--audit` → continue to Step 2a.
 
 **2a. Scope:** Glob + Grep → files to create/modify + reference features for patterns.
@@ -104,13 +104,13 @@ Cost classes:
 | `exploratory` | 8–15 | open-ended cross-file search |
 
 Rules:
-1. **Per-task cap:** `estimated_total_ops > 50` for a task → **force-split** the task into smaller sub-tasks, or present a DP(A) **Split now** | **Keep as-is (flag)** decision before proceeding.
+1. **Per-task cap:** `estimated_total_ops > 50` for a task → **force-split** the task into smaller sub-tasks, or present a user choice **Split now** | **Keep as-is (flag)** decision before proceeding.
 2. **Per-instance cap:** after agent_instance assignment, aggregate ops per instance. `Σ ops/instance > 50` OR `|tasks/instance| > 4` OR `distinct subjects/instance > 2` → **force-split** into a new instance (`backend-dev-A` → `backend-dev-A` + `backend-dev-B`). This catches the case where each task is small but stacking 6 tasks on one agent overflows its context.
 
-**2e. Slice Selection (multi-slice only):** ≥2 slices → → DP(C) 1 option/slice `V{N}: {desc} ({files}, {agents})`.
+**2e. Slice Selection (multi-slice only):** ≥2 slices → present multi-select 1 option/slice `V{N}: {desc} ({files}, {agents})`.
 Default: next unimplemented slice. Respect deps. Re-run `/plan` for remaining.
 
-**2f. Present Plan:** → DP(A) τ, slices, files, agents, tasks with `[parallel-safe: Y/N]`.
+**2f. Present Plan:** → present choice τ, slices, files, agents, tasks with `[parallel-safe: Y/N]`.
 Options: **Approve** | **Modify** | **Cancel**
 **Approve → immediately continue to Step 3 (¬stop).**
 
@@ -264,7 +264,7 @@ Rules:
 
 ## Step 6 — Approve + Commit
 
-→ DP(A) complexity, τ, task count, agents, consistency, slices.
+→ present choice complexity, τ, task count, agents, consistency, slices.
 Options: **Approve** | **Modify** | **Return to spec**
 
 On Approve → **immediately** continue to 6a (seed tasks), 6b (persist IDs), 6c (commit). ¬stop between substeps.

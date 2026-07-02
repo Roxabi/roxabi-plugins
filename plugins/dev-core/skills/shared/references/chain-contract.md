@@ -6,10 +6,12 @@
 
 Defines how the 13 dev-core pipeline skills participate in the `/dev` orchestration and how chaining, task lifecycle, and exit behavior work across them.
 
+> **Issue triage is not a dev-core step.** `roxabi-issues:issue-triage` runs *before* `/dev`, in a separate plugin (relocated dev-core → roxabi-issues, 2026-06-09). The dev-core pipeline itself starts at `recheck`.
+
 ## Pipeline
 
 ```
-issue-triage → frame → analyze → spec → plan ⏸→ implement → pr
+issue-triage (external, roxabi-issues) → recheck → frame → analyze → spec → plan ⏸→ implement → pr
             → ci-watch → validate → code-review → {fix ↺ review | merge → cleanup}
 ```
 
@@ -31,7 +33,7 @@ issue-triage → frame → analyze → spec → plan ⏸→ implement → pr
 
 | Class | Meaning | Skills | Exit behavior |
 |---|---|---|---|
-| **adv** | Continuous flow, no user gate | issue-triage, analyze, implement, pr, ci-watch, validate, cleanup | Return silently; `/dev` auto-advances |
+| **adv** | Continuous flow, no user gate | recheck, analyze, implement, pr, ci-watch, validate, cleanup | Return silently; `/dev` auto-advances |
 | **gate** | User approval of artifact required | frame, spec, plan | Present artifact → on approve, return silently; `/dev` auto-chains to successor (**plan exception:** compact pause before `/implement` — see below) |
 | **verdict** | Branches based on outcome | code-review | APPROVED → merge → cleanup; CHANGES_REQUESTED → `/fix` |
 | **loop** | Cycles back to predecessor (bounded) | fix | On success → TaskCreate follow-up review; max 2 iterations |

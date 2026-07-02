@@ -23,7 +23,7 @@ The file has two parts: a YAML frontmatter header and a markdown body with instr
 - `name` — the skill identifier, in kebab-case (e.g. `compress`)
 - `description` — one-line purpose followed by `Triggers: "phrase1" | "phrase2"`. This is how Claude decides when to activate the skill, so be specific
 - `version` — semantic version starting at `0.1.0`
-- `allowed-tools` — comma-separated list of tools the skill can use (e.g. `Read, Edit, Write, Bash, Glob`). Always include `ToolSearch` — required to load deferred tools (`EnterWorktree`, `Task*`, `WebFetch`, etc.). Always include `Read` if the skill presents decisions (needed to load the decision protocol from `plugins/shared/references/`).
+- `allowed-tools` — comma-separated list of tools the skill can use (e.g. `Read, Edit, Write, Bash, Glob`). Always include `ToolSearch` — required to load deferred tools (`EnterWorktree`, `Task*`, `WebFetch`, etc.). 
 
 **Example frontmatter:**
 
@@ -43,7 +43,7 @@ allowed-tools: Read, Edit, Write, Bash, Glob
 - Structure the workflow in numbered phases so Claude follows a clear sequence
 - End with `$ARGUMENTS` so the skill can accept user-provided arguments
 - The skill must be project-agnostic — auto-discover project structure instead of hardcoding paths
-- Present a decision before any destructive action (Pattern A — see `plugins/shared/references/decision-presentation.md`)
+- Present a decision before any destructive action
 
 ### Step 3 — Write a README for the plugin
 

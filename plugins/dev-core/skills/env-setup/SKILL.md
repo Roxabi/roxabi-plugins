@@ -37,20 +37,7 @@ Set up σ early — later phases read runtime, package manager, commands, deploy
 
 Note: `.claude/stack.yml` is **committed** (project stack conventions — no secrets). Only `.env` is gitignored by dev-core. `.claude/dev-core.yml` contains only public GitHub Project node IDs and is committed.
 
-### Phase 1b — Global Patterns Injection
-
-Inject plugin-managed always-on behavioral patterns (decision protocol, agent discipline, context discipline, dev process, worktree, parallel execution, git) into `~/.claude/shared/global-patterns.md` (one shared copy) and reference it directly from CLAUDE.md.
-
-1. `mkdir -p ~/.claude/shared/`
-2. [F ∨ `¬test -f ~/.claude/shared/global-patterns.md`] → `cp "${Φ}/../shared/references/global-patterns.md" ~/.claude/shared/global-patterns.md`. D✅("~/.claude/shared/global-patterns.md").
-   ∃ ∧ ¬F → D("~/.claude/shared/global-patterns.md", "✅ Already present"), skip copy.
-3. `grep -q '@~/.claude/shared/global-patterns.md' CLAUDE.md 2>/dev/null` → ∃ → D("@global-patterns", "✅ Already present"), skip.
-   ¬∃ → remove `@.claude/dev-core.md` line from CLAUDE.md if present. Prepend `@~/.claude/shared/global-patterns.md\n` (after `@.claude/stack.yml` line if present, otherwise at top). D✅("@~/.claude/shared/global-patterns.md").
-4. `test -f .claude/dev-core.md` → `rm .claude/dev-core.md`. Remove `.claude/dev-core.md` from .gitignore if present. D✅("removed .claude/dev-core.md").
-
-Re-run (`--force`): overwrite `~/.claude/shared/global-patterns.md` with latest plugin version.
-
-### Phase 1c — Worktree-setup retrofit
+### Phase 1b — Worktree-setup retrofit
 
 For projects that already have σ but pre-date the worktree-setup hook. Detect the
 gap and offer to scaffold `tools/worktree-setup.sh` + teardown. All steps are
@@ -76,7 +63,7 @@ Let:
 5. **test -f tools/worktree-setup.sh** ∧ ¬F → D("Worktree-setup retrofit", "⏭ Script present, σ key missing — fix σ only").
    - Append `commands.worktree_setup: tools/worktree-setup.sh` + `commands.worktree_teardown: tools/worktree-teardown.sh` under `commands:` in σ.
    - D✅("Worktree-setup retrofit — σ keys added"), skip remainder.
-6. **Both absent** → DP(A) **Scaffold worktree-setup hook now** | **Skip**.
+6. **Both absent** → present choice **Scaffold worktree-setup hook now** | **Skip**.
    - **Skip** → D⏭("Worktree-setup retrofit"), continue.
    - **Scaffold** → execute the following inline (verbatim duplication of stack-setup Phase 4b — required because cross-skill references do not bind at runtime):
      a. Re-detect variables from σ and filesystem:
@@ -120,8 +107,8 @@ Let:
         ```
         Echo: `Worktree-setup retrofit preview — ${RUNTIME}/${PM} · ${COUNT} concerns: ${IDS}`
         COUNT == 0 → D⏭("Worktree-setup retrofit — no concerns matched"), skip.
-     d. DP(A) **Write scripts** | **Preview composed body** | **Abort**.
-        - **Preview composed body** → `bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode setup | head -80`, then re-present DP(A) **Write scripts** | **Abort**.
+     d. user choice **Write scripts** | **Preview composed body** | **Abort**.
+        - **Preview composed body** → `bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode setup | head -80`, then re-present user choice **Write scripts** | **Abort**.
         - **Abort** → D⏭("Worktree-setup retrofit"), skip.
      e. Write:
         ```bash
@@ -252,7 +239,7 @@ Next: run /seed-docs to populate docs stubs, or /github-setup to connect GitHub 
 ## Safety Rules
 
 1. **Never overwrite existing `.claude/stack.yml` values** without F or explicit confirmation
-2. **Always present decisions via protocol** before any write operation
+2. **Always present choices and wait for user reply** before any write operation
 3. **Commit `.claude/stack.yml`** — it holds project stack conventions, not secrets. Gitignore `.env` only.
 4. **Idempotent** — skip already-configured items unless F
 

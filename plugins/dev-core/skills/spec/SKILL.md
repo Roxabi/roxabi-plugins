@@ -20,7 +20,7 @@ Let:
   ρ := reviewer set
   χ := `[NEEDS CLARIFICATION]`
   Ω := `skill: "interview"`
-  Q := Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md`
+  Q := present choice, wait for user reply
   SRC := source doc (α ∨ φ)
 
 Analysis (or frame) → approved spec. Interview → pre-check → expert review → user approval.

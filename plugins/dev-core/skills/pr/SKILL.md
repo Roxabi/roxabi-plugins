@@ -54,7 +54,7 @@ Emits: `branch`, `base`, commit log, diff stat, existing PR, issue number, lifec
 |-------|-----------|--------|
 | Protected branch | Β ∈ {staging, main, master} | **REFUSE.** Create feature branch first. Stop. |
 | No commits | `git log ${β}..HEAD` empty | **REFUSE.** Nothing to PR. Stop. |
-| PR exists | gh pr list → result | → DP(A) **Update** (`gh pr edit`) \| **Cancel** |
+| PR exists | gh pr list → result | → present choice **Update** (`gh pr edit`) \| **Cancel** |
 | Branch not pushed | `git ls-remote --heads origin $BRANCH` empty | `git push -u origin $BRANCH` |
 | Quality gates | `{commands.lint} && {commands.typecheck}` | Warn on failure, ¬block. Note in PR body if proceeding. |
 
@@ -70,7 +70,7 @@ git diff ${BASE}...HEAD --stat
 
 **3b. Lifecycle artifacts:** already emitted by Step 1 (`issue`, `analysis`, `spec`, `issue_data`, `test_files`).
 
-N detection: first number after `/` in Β (e.g. `feat/42-slug` → `#42`). ¬found → → DP(B) "Which issue number does this PR close, if any?"
+N detection: first number after `/` in Β (e.g. `feat/42-slug` → `#42`). ¬found → ask user "Which issue number does this PR close, if any?"
 
 **3c. Title:** `<type>(<scope>): <desc>` (≤70 chars). Type from primary commit purpose. Scope from files: `web | api | ui | config` ∨ omit if cross-cutting.
 
@@ -79,7 +79,7 @@ N detection: first number after `/` in Β (e.g. `feat/42-slug` → `#42`). ¬fou
 ## Step 4 — Create + Update Issue
 
 Show generated title + body → create immediately (¬ask how). `--draft` → draft.
-Failure ∨ explicit edit request → → DP(A) **Edit title/body** | **Cancel**
+Failure ∨ explicit edit request → present choice **Edit title/body** | **Cancel**
 
 ```bash
 gh pr create --title "<title>" --body "<body>" --base ${BASE} [--draft]
@@ -104,7 +104,7 @@ BEHIND=$(git rev-list HEAD..origin/${BASE} --count)
 `BEHIND > 0`:
 ```bash
 git rebase origin/${BASE}
-# On conflict: → DP(A) **Resolve manually then re-run /pr** | **Abort rebase** (`git rebase --abort`)
+# On conflict: → present choice **Resolve manually then re-run /pr** | **Abort rebase** (`git rebase --abort`)
 git push --force-with-lease origin ${BRANCH}
 ```
 
@@ -170,16 +170,16 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 | Β ∈ {staging, main, master} | REFUSE: "Create a feature branch first" |
 | ¬commits ahead | REFUSE: "Nothing to create a PR for" |
 | PR already exists | Offer `gh pr edit` to update |
-| ¬N in branch | → DP(B) link issue or skip |
+| ¬N in branch | → ask user link issue or skip |
 | Multiple commit types | Use primary type only |
-| Lint/typecheck fail | Warn + present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A): **Proceed anyway** \| **Fix first** |
+| Lint/typecheck fail | Warn + present choice: **Proceed anyway** \| **Fix first** |
 
 ## Safety Rules
 
 1. ¬PR from `staging`, `main`, `master`
 2. ¬`git push --force` — only `--force-with-lease`, and only during Step 5 rebase on feature branches
 3. Always show PR content before creation
-4. → DP(A) for all decisions (proceed despite warnings, edit)
+4. → present choice for all decisions (proceed despite warnings, edit)
 5. Always display PR URL after creation
 6. Rebase conflicts → abort + defer to user — ¬auto-resolve
 7. ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED — manual merge mid-CI cancels in-flight runs (`concurrency.cancel-in-progress`) and skips gates. Nominal path: `reviewed` label → auto-merge (`--merge`) on green.

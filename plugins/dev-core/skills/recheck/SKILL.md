@@ -16,9 +16,9 @@ Let:
   N  := issue number
   S  := signal set { git-drift, symbol-missing, dep-resolved }
   M  := mode ∈ { pipeline, standalone }
-  DP := decision protocol (see `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md`)
+  
 
-Drift-check N against 3 deterministic signals (no LLM); block pipeline via DP(A) when S ≠ ∅.
+Drift-check N against 3 deterministic signals (no LLM); block pipeline via user choice when S ≠ ∅.
 Standalone-safe: callable without `/dev`. Invoked by `/dev` between `triage` and `frame`.
 
 ## Entry
@@ -36,7 +36,7 @@ Standalone-safe: callable without `/dev`. Invoked by `/dev` between `triage` and
 | 1    | fetch   | ✓        | `gh issue view N --json number,title,body,labels,createdAt` |
 | 2    | extract | ✓        | cited paths, symbols, blocked-by numbers from body |
 | 3    | check   | ✓        | run 3 drift checks (parallel, deterministic)   |
-| 4    | decide  | ✓        | S == ∅ → silent return ; S ≠ ∅ → DP(A)        |
+| 4    | decide  | ✓        | S == ∅ → silent return ; S ≠ ∅ → present choice        |
 
 ## Step 0 — Parse + Detect Mode
 
@@ -130,7 +130,7 @@ for blocker in <validated_blockers>; do
 done
 ```
 
-Signal fires per closed blocker. Semantics: closed blocker = signal regardless of meaning (could be "ready to proceed, re-verify scope" OR "this issue is now moot") — DP(A) surfaces the ambiguity; user decides.
+Signal fires per closed blocker. Semantics: closed blocker = signal regardless of meaning (could be "ready to proceed, re-verify scope" OR "this issue is now moot") — user choice surfaces the ambiguity; user decides.
 API failures (auth, network, rate-limit, repo-not-found) are surfaced as warnings on stderr rather than silently swallowed — operators see "skipped" entries and can re-run if needed.
 `kind: "dep-resolved"` | `description: "blocker #$blocker is now closed"` | `evidence: ["#$blocker"]`
 
@@ -164,7 +164,7 @@ Render `## Drift Signals` block:
 | dep-resolved   | blocker #179 is now closed           | #179                 |
 ```
 
-Then present DP(A):
+Then present user choice:
 
 **Pipeline DP (4 options — M == pipeline ∧ ¬--update-iter=2):**
 
@@ -213,7 +213,7 @@ Recommended: Option 1 or 3 — depends on signal severity
 
 No on-disk artifact. `/dev` tracks recheck as Σ_s (session-only) like `validate`, `ci-watch`. Re-running `/dev #N` in a new session re-runs `/recheck` — acceptable: deterministic checks are cheap and fresh state is more valuable than skip-on-resume.
 
-`RecheckResult` is ephemeral — built during execution, consumed by DP(A) prompt, then discarded:
+`RecheckResult` is ephemeral — built during execution, consumed by user choice prompt, then discarded:
 - `issue_number: int`
 - `signals: Signal[]` — empty on clean path; `Signal` = { `kind`, `description`, `evidence[]` }
 - `blocking: bool` — `true` iff `signals` non-empty

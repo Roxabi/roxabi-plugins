@@ -18,7 +18,7 @@ Let:
   S    := seed (issue body ∨ free text ∨ recent conversation)
   A    := existing artifacts (frame, analysis, spec, plan) read-only
   ⌘    := the 6-section recap response
-  AQ   := Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md`
+  AQ := present choice, wait for user reply
 
 phase-agnostic re-alignment surface | ephemeral output | ¬artifact | ¬lifecycle advance
 Triggered when user steps back asking for intent/architecture explanation. Produces a structured *view*, not a phase artifact.

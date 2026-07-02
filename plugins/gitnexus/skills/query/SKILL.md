@@ -18,7 +18,7 @@ Search the knowledge graph for execution flows and symbols related to a concept.
 /gitnexus-query "database connection" --content  # include source code
 ```
 
-¬query → → DP(B) provide a search term.
+¬query → ask user provide a search term.
 
 ## Step 0 — Pre-flight
 
@@ -26,7 +26,7 @@ Search the knowledge graph for execution flows and symbols related to a concept.
 gitnexus status
 ```
 
-¬indexed → → DP(B) run `/gitnexus-analyze` first.
+¬indexed → ask user run `/gitnexus-analyze` first.
 
 Index stale → warn user, suggest re-indexing.
 

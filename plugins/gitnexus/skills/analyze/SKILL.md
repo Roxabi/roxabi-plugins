@@ -24,7 +24,7 @@ Index a repository into a knowledge graph — parses source files, builds call/d
 which gitnexus || npm list -g gitnexus
 ```
 
-¬found → → DP(B) install first: `npm install -g gitnexus`.
+¬found → ask user install first: `npm install -g gitnexus`.
 
 ## Step 1 — Resolve Path
 
@@ -32,7 +32,7 @@ No path arg → use current working directory.
 
 Path arg → resolve to absolute path.
 
-¬git repo at path → → DP(B) path must be inside a git repository, or use `--skip-git` flag.
+¬git repo at path → ask user path must be inside a git repository, or use `--skip-git` flag.
 
 ## Step 2 — Run Analysis
 

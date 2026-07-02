@@ -565,7 +565,6 @@ At each phase end, present operator with functional decisions:
 
 **Functional framing rule:** use intention/effect terms ("widen panel", "fix tab visibility", "stop showing diagram"), NOT file paths or CSS symbol names. The operator is in decider mode, not implementer mode.
 
-→ See `plugins/shared/references/decision-presentation.md` for the full DP protocol.
 
 ---
 
@@ -668,6 +667,5 @@ The pipeline is theme-agnostic. To adapt:
 ## 11. References
 
 - Source post-mortem: `~/.roxabi/forge/guide-idea-to-prod/POST-MORTEM.md`
-- Decision protocol: `plugins/shared/references/decision-presentation.md`
 - Related playbook: `multi-agent-audit-playbook.md` (similar parallel pattern, different goal)
 - Forge skills: `plugins/forge/skills/forge-guide`, `plugins/forge/skills/forge-chart`

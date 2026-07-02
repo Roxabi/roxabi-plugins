@@ -17,7 +17,7 @@ Let:
   φ := artifacts/frames/{N}-{slug}-frame.mdx (∃N) ∨ artifacts/frames/{slug}-frame.mdx (frame-only)
   N := issue number (∅ if free text)
   τ := tier ∈ {S, F-lite, F-full}
-  AQ := Present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md`
+  AQ := present choice, wait for user reply
 
 idea | issue → approved frame doc. Interview → detect τ → write φ → user approves.
 Standalone-safe: callable without `/dev`. Output consumed by `/analyze`, `/spec`, `/dev`.

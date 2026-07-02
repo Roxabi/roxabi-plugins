@@ -42,7 +42,7 @@ Parse $ARGUMENTS:
 | **Adapt** | "adapt", "tailor", "for [job]", URL or job description | Adapt CV for role |
 | **Update** | "update", "add", "change", "edit" | Modify D |
 
-Ambiguous → → DP(A) **Generate** | **Adapt** | **Update**
+Ambiguous → present choice **Generate** | **Adapt** | **Update**
 
 ## Phase 2 — Generate
 
@@ -56,7 +56,7 @@ python3 <plugin>/scripts/generate_cv.py --data ~/.roxabi-vault/cv/cv_data.json -
 
 ## Phase 3 — Adapt
 
-1. Read D. Gather job posting from $ARGUMENTS (URL or text); → DP(B)if missing: "Provide the job posting URL or paste the job description."
+1. Read D. Gather job posting from $ARGUMENTS (URL or text); → ask userif missing: "Provide the job posting URL or paste the job description."
 2. Analyze posting: extract requirements, skills, keywords.
 3. Adapt CV: reorder experience → relevant roles; emphasize matching skills; adjust summary → target role. ¬fabricate experience.
 4. Write adapted data + generate (tempfile per `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md`):
@@ -72,7 +72,7 @@ python3 <plugin>/scripts/generate_cv.py --data "$ADAPTED" --output ~/.roxabi-vau
 
 ## Phase 4 — Update
 
-Read D → present structure → → DP(A) **Experience** | **Skills** | **Education** | **Personal info** → apply changes → validate JSON.
+Read D → present structure → present choice **Experience** | **Skills** | **Education** | **Personal info** → apply changes → validate JSON.
 
 ## Vault Integration (Optional)
 

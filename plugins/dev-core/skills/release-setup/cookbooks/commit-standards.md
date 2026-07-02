@@ -17,7 +17,7 @@ Configure Commitizen + commitlint for enforced conventional commits.
 `has_commits = true` ∧ ¬F:
 - D⏭("Commit standards"), skip to Phase 4.
 
-→ DP(A): **Commitizen + commitlint** | **Skip**
+→ present choice: **Commitizen + commitlint** | **Skip**
 
 **Commitizen + commitlint chosen:**
 1. Install packages (branch on `{package_manager}`):
