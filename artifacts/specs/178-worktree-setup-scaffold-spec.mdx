@@ -35,7 +35,7 @@ Reference implementations:
 2. `stack-setup` Phase 2 detects `runtime=python pm=uv`. Already does this today — unchanged.
 3. **NEW in Phase 4:** before writing `stack.yml`, scaffolder reads `references/worktree-setup-checklist.md` → for each concern, evaluates `applies_when` against ProjectContext (runtime=python, pm=uv, monorepo=false, hooks_tool=lefthook, env_files=[.env], database=false) → collects matching concern snippets in declared order.
 4. Scaffolder assembles the script body from `setup_snippet` blocks of selected concerns. LLM may only: (a) re-order independent concerns, (b) generate inline glue comments. It **may not** rewrite a concern's `setup_snippet`.
-5. **Preview gate:** scaffolder echoes a summary: `Worktree-setup scaffold preview — Python/uv project · 4 concerns: env-files, uv-venv-symlink, lefthook-hookspath-fix, install-warmup`. Then DP(A) **Write scripts** | **Show diff** | **Abort**.
+5. **Preview gate:** scaffolder echoes a summary: `Worktree-setup scaffold preview — Python/uv project · 4 concerns: env-files, uv-venv-symlink, lefthook-hookspath-fix, install-warmup`. Then user choice **Write scripts** | **Show diff** | **Abort**.
 6. Write: `tools/worktree-setup.sh` + `tools/worktree-teardown.sh` (executable: `chmod +x`).
 7. Generated `.claude/stack.yml` includes:
    ```yaml
@@ -49,7 +49,7 @@ Reference implementations:
 ### Walkthrough B — retrofit existing project (secondary)
 
 1. User on a project that already has `.claude/stack.yml` runs `/env-setup`.
-2. **NEW in Phase 1:** after the existing stack.yml check, env-setup detects `commands.worktree_setup` is absent AND `runtime ∈ {python, bun, node}` AND `tools/worktree-setup.sh` does not exist. Surfaces DP(A) **Scaffold worktree-setup hook now** | **Skip**.
+2. **NEW in Phase 1:** after the existing stack.yml check, env-setup detects `commands.worktree_setup` is absent AND `runtime ∈ {python, bun, node}` AND `tools/worktree-setup.sh` does not exist. Surfaces user choice **Scaffold worktree-setup hook now** | **Skip**.
 3. Scaffold → delegates to the same scaffolder used by `/stack-setup` Phase 4 (preview gate included). Writes the two scripts, edits `commands:` in `.claude/stack.yml` to add both keys.
 4. Skip → no-op, continues with remaining Phase 1 steps. No re-prompt on subsequent runs (state inferred from σ + filesystem).
 
@@ -57,7 +57,7 @@ Reference implementations:
 
 1. User re-runs `/stack-setup` (without `--force`). `tools/worktree-setup.sh` already exists.
 2. Scaffolder skips silently. Reports `worktree-setup.sh   ⏭ Already present`.
-3. With `--force`: DP(A) **Regenerate** (overwrite both scripts + re-write stack.yml keys) | **Keep existing** | **Abort**.
+3. With `--force`: user choice **Regenerate** (overwrite both scripts + re-write stack.yml keys) | **Keep existing** | **Abort**.
 
 ### Walkthrough D — adding a checklist concern (future contributor)
 
@@ -150,9 +150,9 @@ Dashed = future/documentation-only.
 
 | ID | Element | Type | Handler |
 |---|---|---|---|
-| U1 | Scaffold-on-init preview + DP(A) (write/diff/abort) | DP(A) in `/stack-setup` Phase 4 | scaffolder |
-| U2 | Retrofit-existing DP(A) (scaffold/skip) | DP(A) in `/env-setup` Phase 1 | env-setup → scaffolder |
-| U3 | Regenerate-on-force DP(A) | DP(A) when `--force` ∧ file exists | scaffolder idempotency branch |
+| U1 | Scaffold-on-init preview + user choice (write/diff/abort) | user choice in `/stack-setup` Phase 4 | scaffolder |
+| U2 | Retrofit-existing user choice (scaffold/skip) | user choice in `/env-setup` Phase 1 | env-setup → scaffolder |
+| U3 | Regenerate-on-force user choice | user choice when `--force` ∧ file exists | scaffolder idempotency branch |
 | U4 | Scaffold summary echo (concern IDs, runtime, file paths) | terminal output | scaffolder before & after write |
 | U5 | Retrofit-skip no-op (no state stored, re-prompts on next run only if condition re-evaluates true) | silent | env-setup |
 | N1 | `references/worktree-setup-checklist.md` | reference doc with static snippets | read by N2 |
@@ -177,7 +177,7 @@ Dashed = future/documentation-only.
 |---|---|---|---|
 | 1 | **Checklist + template** — write `references/worktree-setup-checklist.md` with seed concerns (env-files, uv-venv-symlink, bun-install-warmup, npm-install-warmup, lefthook-hookspath-fix, neon-db-branch placeholder) + an "extending the checklist" section with a worked Concern entry. Update `stack.yml.example` to expose `commands.worktree_setup` + `commands.worktree_teardown` keys with explanatory comments. | `cat references/worktree-setup-checklist.md` ∧ `grep worktree_ stack.yml.example` | Review milestone, not a standalone product demo — runtime consumers ship in Slice 2 |
 | 2 | **stack-setup scaffolder (Phase 4)** — when `runtime ∈ {python, bun, node}` AND scripts absent (or `--force`), evaluate ProjectContext against checklist, compose tailored `tools/worktree-setup.sh` + `tools/worktree-teardown.sh` from selected concern snippets, register both `commands.worktree_*` keys in generated σ. Preview gate (U1+U4) before write. Idempotency branch (U3) on `--force`. | `/stack-setup` on a test fixture (`/tmp/test-py-uv-repo/`) → preview shown, scripts written, σ has keys, generated `worktree-setup.sh` is shellcheck-clean and symlinks `.venv` correctly when worktree spawned |
-| 3 | **env-setup retrofit (Phase 1)** — detect σ ∃ ∧ runtime ∈ scope ∧ `commands.worktree_setup` ∄ ∧ `tools/worktree-setup.sh` ∄ → surface DP(A) **Scaffold now** \| **Skip** → on Scaffold, call same scaffolder + edit σ to add the two keys. | `/env-setup` on a test fixture (`/tmp/test-bun-repo-no-hook/`) → prompt fires → on accept, σ updated + scripts written, shellcheck-clean |
+| 3 | **env-setup retrofit (Phase 1)** — detect σ ∃ ∧ runtime ∈ scope ∧ `commands.worktree_setup` ∄ ∧ `tools/worktree-setup.sh` ∄ → surface user choice **Scaffold now** \| **Skip** → on Scaffold, call same scaffolder + edit σ to add the two keys. | `/env-setup` on a test fixture (`/tmp/test-bun-repo-no-hook/`) → prompt fires → on accept, σ updated + scripts written, shellcheck-clean |
 
 ## Success Criteria
 
@@ -187,9 +187,9 @@ Dashed = future/documentation-only.
 - [ ] **SC4 (script safety contract — setup)** — scaffolded `worktree-setup.sh` satisfies: (a) skip when target dir (`.venv`/`node_modules`) is a real directory, (b) replace stale symlinks, (c) `exit 0` when invoked inside the main checkout (detect via `git rev-parse --git-dir` ≠ `git rev-parse --git-common-dir`)
 - [ ] **SC5 (script safety contract — teardown)** — scaffolded `worktree-teardown.sh` satisfies: (a) only removes artifacts the matching setup created (symlinks, scratch dirs), (b) never touches files outside the invoked worktree, (c) `exit 0` when invoked inside the main checkout
 - [ ] **SC6** — scaffolded scripts pass `shellcheck -S warning` with zero errors (validates the static-snippet composition produced syntactically valid bash)
-- [ ] **SC7** — scaffolder echoes a preview before writing: lists detected runtime + selected concern IDs + target file paths; user must choose **Write** / **Show diff** / **Abort** via DP(A)
-- [ ] **SC8** — re-running `/stack-setup` without `--force` and scripts present → silent skip; with `--force` → DP(A) prompt before overwriting
-- [ ] **SC9** — `plugins/dev-core/skills/env-setup/SKILL.md` Phase 1 detects the retrofit condition and surfaces DP(A) **Scaffold now** | **Skip**; on Scaffold, calls the shared scaffolder and edits σ in place to add both keys
+- [ ] **SC7** — scaffolder echoes a preview before writing: lists detected runtime + selected concern IDs + target file paths; user must choose **Write** / **Show diff** / **Abort** via user choice
+- [ ] **SC8** — re-running `/stack-setup` without `--force` and scripts present → silent skip; with `--force` → present choice prompt before overwriting
+- [ ] **SC9** — `plugins/dev-core/skills/env-setup/SKILL.md` Phase 1 detects the retrofit condition and surfaces user choice **Scaffold now** | **Skip**; on Scaffold, calls the shared scaffolder and edits σ in place to add both keys
 - [ ] **SC10** — running the scaffolder against `runtime=python pm=uv hooks=lefthook database=none` produces a script whose **selected concern IDs** include `env-files`, `uv-venv-symlink`, `lefthook-hookspath-fix`; running against `runtime=bun pm=bun hooks=lefthook monorepo=true database=neon` produces selected IDs including `env-files`, `bun-install-warmup`, `lefthook-hookspath-fix`, `neon-db-branch`. (Concrete reproducibility check — replaces the previous `~lyra/~boilerplate` approximation.)
 
 ## Design Constraints (¬falsifiable, but load-bearing)

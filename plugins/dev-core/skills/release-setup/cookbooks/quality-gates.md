@@ -444,7 +444,7 @@ for hook_id, hook_def in NEW_HOOKS.items():
         typecheck_idx += 1
         hooks.insert(typecheck_idx, hook_def)
     else:
-        # No id: typecheck found — DP(A) fallback (handled outside this script)
+        # No id: typecheck found — user choice fallback (handled outside this script)
         print(f'NO_TYPECHECK_ANCHOR:{hook_id}', flush=True)
         continue
 
@@ -460,7 +460,7 @@ PY
 
 **Comment preservation note:** PyYAML does not preserve YAML comments. A `ruamel.yaml` fallback was considered and rejected: two diverging code paths are hard to test and forcing ruamel as a dev dep on every Python project is disproportionate. The heredoc emits an explicit `WARN: PyYAML will strip comments from .pre-commit-config.yaml on write.` on every run so projects with annotated hook files know the comments are being dropped and can re-add them afterward.
 
-**DP(A) fallback — no `id: typecheck` anchor:**
+**user choice fallback — no `id: typecheck` anchor:**
 
 If the script prints `NO_TYPECHECK_ANCHOR:<hook_id>`, present:
 
@@ -555,7 +555,7 @@ With `[importlinter]` header + `root_packages` present and zero active contracts
 | `.importlinter` already exists with active contracts (lyra pattern) | Cookbook never rewrites `.importlinter` — D1 applies regardless of contract state or `--force` |
 | `pyproject.toml` has `import-linter` pinned at a specific version | `uv add --group dev import-linter` is a no-op when the dep is already declared (any version); version is not changed |
 | `pyproject.toml` has no `[dependency-groups]` section | `uv add --group dev import-linter` creates it automatically (verified uv behavior) |
-| No `id: typecheck` hook in `.pre-commit-config.yaml` | DP(A): **Insert at end of `repo: local` block** (default) or **Abort**. Spec Case e |
+| No `id: typecheck` hook in `.pre-commit-config.yaml` | user choice: **Insert at end of `repo: local` block** (default) or **Abort**. Spec Case e |
 | Multiple `repo:` blocks in `.pre-commit-config.yaml` | Cookbook targets the first `repo: local` block; if none exists, creates one at the top of `repos:` |
 | Python repo without `uv` (plain pip) | `uv add` fails; cookbook emits D⚠ and instructs user to install `import-linter` manually. Hook wiring still proceeds; hooks fail at pre-commit time until dep is installed |
 | Target repo pins `pre-commit` older than 2.4.0 (no `stages: [pre-push]` support) | Cookbook does not probe pre-commit version. Hook errors at pre-push time if triggered; documented here as a known edge case |

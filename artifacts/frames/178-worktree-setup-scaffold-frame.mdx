@@ -38,7 +38,7 @@ The symptom varies by stack but the failure mode is the same: the worktree boots
 - **Hook contract lives in `stack.yml`** under `commands.worktree_setup` — already consumed by `/implement` Step 2e, no new harness wiring needed.
 - **Checklist is the source of truth.** A growing list of "things a worktree might need" lives in dev-core (e.g. `references/worktree-setup-checklist.md`). The LLM walks the checklist with the project context (runtime, monorepo layout, hooks tool, env files) and produces the tailored script. New patterns get added to the checklist as they surface in real projects.
 - **Symmetry:** scaffold both `worktree_setup` AND `worktree_teardown` (cleanup of symlinks, dropped DB branches, etc.).
-- **No backwards-compat shim.** Projects already on dev-core re-run `/init` (or just `/stack-setup`) to opt in. The scaffolder must be idempotent — skip if the script already exists, offer DP(A) to regenerate if stale.
+- **No backwards-compat shim.** Projects already on dev-core re-run `/init` (or just `/stack-setup`) to opt in. The scaffolder must be idempotent — skip if the script already exists, offer user choice to regenerate if stale.
 
 ## Out of Scope
 

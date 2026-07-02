@@ -23,7 +23,7 @@ Let:
   ω := option/choice
   ξ := concern(s)
   δ := recorded dissent
-  DP := read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md`
+  DP := present choice, wait for user reply
 
 Spawn P → ∥ analysis → debate → consensus → κ.
 

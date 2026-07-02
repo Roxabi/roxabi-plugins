@@ -13,7 +13,7 @@ allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch
 I₀ := PR created (staging→main) | I₁ := tag pushed + release created (--finalize)
 V₀ := `gh pr list --base main --head staging --state open` | V₁ := `git tag -l $VERSION` ∧ `gh release view $VERSION`
 
-Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := DP(A)
+Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := user choice
 
 σ → μ for production. Pre-flight → version → changelog → commit → preview → PR.
 `--finalize`: post-merge tag + GitHub Release.
@@ -93,7 +93,7 @@ For each detected dep:
 3. Match SHA → release tag at that exact commit
 4. Tag matching: prefer `<pkg>/vX.Y.Z` (monorepo subdirectory style), fall back to bare `vX.Y.Z`
 
-### DP(A) gate
+### user choice gate
 
 ```
 ── Decision: Pin uv git deps ──

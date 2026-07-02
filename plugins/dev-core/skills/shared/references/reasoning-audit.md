@@ -23,7 +23,7 @@ Before critical steps, α must present structured reasoning checkpoint → user 
 
 ## Gate Options
 
-→ DP(A):
+→ present choice:
 - **Proceed** — continue to execution
 - **Adjust approach** — incorporate feedback, re-present (max 3 rounds)
 - **Abort step** — mark skipped for this run

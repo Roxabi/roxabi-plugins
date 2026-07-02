@@ -146,7 +146,7 @@ Alternative: Solution 2 — {rationale}
 
 Demoted from auto-apply → prepend: `Auto-apply failed: {reason}`
 
-→ DP(A)(single per finding): **Solution 1** | **Solution 2** | **Defer** (→ create issue) | **Skip**
+→ present choice(single per finding): **Solution 1** | **Solution 2** | **Defer** (→ create issue) | **Skip**
 
 Defer → create linked follow-up issue via `roxabi-issues:issue-triage` (¬raw `gh issue create` — global rule: issue mutations go through the skill so blocked-by + parent are wired atomically). **Sibling rule:** the deferred issue is a sibling of `SOURCE_ISSUE` under their shared parent (¬child of `SOURCE_ISSUE`) — see `roxabi-issues:issue-triage` SKILL "Deferred Follow-Ups — Sibling Rule":
 

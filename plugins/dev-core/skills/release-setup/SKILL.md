@@ -28,7 +28,7 @@ Check prerequisites and per-component state before any installation.
    test -f .claude/stack.yml && echo "found" || echo "missing"
    ```
    missing → warn: "stack.yml not found — release-setup reads runtime and hook runner from it."
-   → DP(A) **Run `/env-setup` first** | **Proceed manually**
+   → present choice **Run `/env-setup` first** | **Proceed manually**
    Proceed manually → continue with defaults (runtime: node, package_manager: npm, hooks.tool: none).
 
 2. Check per-component config file existence in parallel:
@@ -126,7 +126,7 @@ Display results and generated files. Do NOT run `git add` or `git commit`.
 ## Safety Rules
 
 1. **Never push to remote** without user confirmation
-2. **Always present decisions via protocol** before installing packages or writing config files
+2. **Always present choices and wait for user reply** before installing packages or writing config files
 3. **Idempotent** — skip already-configured components unless F
 4. **No auto-commit** — sub-skill pattern: display files, let user review and commit
 

@@ -63,7 +63,7 @@ Let:
 5. **test -f tools/worktree-setup.sh** ∧ ¬F → D("Worktree-setup retrofit", "⏭ Script present, σ key missing — fix σ only").
    - Append `commands.worktree_setup: tools/worktree-setup.sh` + `commands.worktree_teardown: tools/worktree-teardown.sh` under `commands:` in σ.
    - D✅("Worktree-setup retrofit — σ keys added"), skip remainder.
-6. **Both absent** → DP(A) **Scaffold worktree-setup hook now** | **Skip**.
+6. **Both absent** → present choice **Scaffold worktree-setup hook now** | **Skip**.
    - **Skip** → D⏭("Worktree-setup retrofit"), continue.
    - **Scaffold** → execute the following inline (verbatim duplication of stack-setup Phase 4b — required because cross-skill references do not bind at runtime):
      a. Re-detect variables from σ and filesystem:
@@ -107,8 +107,8 @@ Let:
         ```
         Echo: `Worktree-setup retrofit preview — ${RUNTIME}/${PM} · ${COUNT} concerns: ${IDS}`
         COUNT == 0 → D⏭("Worktree-setup retrofit — no concerns matched"), skip.
-     d. DP(A) **Write scripts** | **Preview composed body** | **Abort**.
-        - **Preview composed body** → `bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode setup | head -80`, then re-present DP(A) **Write scripts** | **Abort**.
+     d. user choice **Write scripts** | **Preview composed body** | **Abort**.
+        - **Preview composed body** → `bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode setup | head -80`, then re-present user choice **Write scripts** | **Abort**.
         - **Abort** → D⏭("Worktree-setup retrofit"), skip.
      e. Write:
         ```bash
@@ -239,7 +239,7 @@ Next: run /seed-docs to populate docs stubs, or /github-setup to connect GitHub 
 ## Safety Rules
 
 1. **Never overwrite existing `.claude/stack.yml` values** without F or explicit confirmation
-2. **Always present decisions via protocol** before any write operation
+2. **Always present choices and wait for user reply** before any write operation
 3. **Commit `.claude/stack.yml`** — it holds project stack conventions, not secrets. Gitignore `.env` only.
 4. **Idempotent** — skip already-configured items unless F
 

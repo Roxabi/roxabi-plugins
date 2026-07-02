@@ -27,7 +27,7 @@ Let:
   C(f) ∈ [0,100] ∩ ℤ — confidence | cat(f) ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
   Δ := changed files | BASE := staging ∨ main
   τ := tier (S | F-lite | F-full)
-  Q := present decision via protocol: read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md` (Pattern A)
+  Q := present choice, wait for user reply
 
 ## Pipeline
 
@@ -68,7 +68,7 @@ git diff ${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]
 ⚠️  Potential secrets found in diff — review before proceeding:
   <file>: <matched line with secret value redacted to first 2 + last 2 chars>
 ```
-→ DP(A) **Review and proceed** | **Abort**
+→ present choice **Review and proceed** | **Abort**
 ∅ → continue silently.
 
 ## Phase 2 — Spec Compliance

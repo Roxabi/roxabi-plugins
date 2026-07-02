@@ -16,7 +16,7 @@ Let: σ := `.claude/stack.yml` | π := proposed config table
 
 `test -f .claude/stack.yml && echo exists || echo missing`
 
-σ ∃ ∧ `--force` ∉ `$ARGUMENTS` → → DP(A) **Re-configure** | **Skip**
+σ ∃ ∧ `--force` ∉ `$ARGUMENTS` → present choice **Re-configure** | **Skip**
 → Skip: "Keeping existing σ. Run with `--force` to reconfigure."
 
 σ ∄ → `mkdir -p .claude`
@@ -25,7 +25,7 @@ Let: σ := `.claude/stack.yml` | π := proposed config table
 
 `test -f .claude/dev-core.yml && echo done || echo missing`
 
-`missing` → → DP(A) **Continue anyway** | **Abort (run /init first)**
+`missing` → present choice **Continue anyway** | **Abort (run /init first)**
 
 ## Phase 2 — Auto-discover
 
@@ -144,7 +144,7 @@ Detected configuration
     install:    {install_cmd}
 ```
 
-→ DP(A) **Looks good — write it** | **Edit a field** | **Abort**
+→ present choice **Looks good — write it** | **Edit a field** | **Abort**
 
 "Edit a field" → ask which + new value; apply; re-display π. Repeat until confirmed.
 
@@ -260,7 +260,7 @@ Let:
 
 2. **Existence check.** `test -f tools/worktree-setup.sh` →
    - ∃ ∧ ¬`--force` → D("Worktree-setup scaffold", "⏭ Already present"), skip.
-   - ∃ ∧ `--force` → DP(A) **Regenerate** | **Keep existing** | **Abort**. "Keep" / "Abort" → skip / abort wizard.
+   - ∃ ∧ `--force` → present choice **Regenerate** | **Keep existing** | **Abort**. "Keep" / "Abort" → skip / abort wizard.
 
 3. **Build ProjectContext.** Phase 2 output was display-only; re-detect here to populate shell variables for jq:
    ```bash
@@ -313,10 +313,10 @@ Let:
    ${COUNT} == 0 → D⏭("Worktree-setup scaffold — no concerns matched"), skip.
 
 5. **Confirm.** Options depend on whether WS already exists:
-   - WS ∃ (Regenerate path) → DP(A) **Write scripts** | **Show diff** | **Abort**.
-     - **Show diff** → `diff -u <(bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode setup) tools/worktree-setup.sh | head -80` then re-present DP(A) **Write scripts** | **Abort**.
-   - WS ∄ (fresh-install path) → DP(A) **Write scripts** | **Preview composed body** | **Abort**.
-     - **Preview composed body** → `bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode setup | head -80` then re-present DP(A) **Write scripts** | **Abort**.
+   - WS ∃ (Regenerate path) → present choice **Write scripts** | **Show diff** | **Abort**.
+     - **Show diff** → `diff -u <(bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode setup) tools/worktree-setup.sh | head -80` then re-present user choice **Write scripts** | **Abort**.
+   - WS ∄ (fresh-install path) → present choice **Write scripts** | **Preview composed body** | **Abort**.
+     - **Preview composed body** → `bun "${TS}" compose --checklist "${CL}" --context-json "${CTX_JSON}" --mode setup | head -80` then re-present user choice **Write scripts** | **Abort**.
    - **Abort** (either path) → D⏭("Worktree-setup scaffold"), skip.
 
 6. **Write scripts.**

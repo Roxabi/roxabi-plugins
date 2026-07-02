@@ -225,9 +225,9 @@ Covered: 10/10. Untraced tasks: 0. Exemptions: 0.
 - Edit Phase 4: after the `commands:` block emission, insert a new sub-phase "Phase 4b — Worktree-setup scaffold" that:
   1. Checks `runtime ∈ {python, bun, node}` from detected π; ¬→ skip with note
   2. Checks `tools/worktree-setup.sh` exists in user repo; ∃ ∧ ¬`--force` → silent skip
-  3. ∃ ∧ `--force` → DP(A) **Regenerate** | **Keep existing** | **Abort**
+  3. ∃ ∧ `--force` → present choice **Regenerate** | **Keep existing** | **Abort**
   4. ¬∃ ∨ regenerate → builds `context-json` from detected π values; runs `bun "${CLAUDE_PLUGIN_ROOT}/tools/worktreeScaffold.ts" compose --list-selected` → echo preview `"Worktree-setup scaffold preview — {runtime}/{pm} · N concerns: {ids}"`
-  5. DP(A) **Write scripts** | **Show diff** | **Abort**
+  5. user choice **Write scripts** | **Show diff** | **Abort**
   6. Write → run scaffolder twice (setup + teardown), `chmod +x`, append `worktree_setup:` + `worktree_teardown:` keys under `commands:` in the σ being written. Echo summary.
 - Verify: `grep -A2 'Phase 4b' plugins/dev-core/skills/stack-setup/SKILL.md | head -5`
 - Expected: section heading + leading lines visible
@@ -240,7 +240,7 @@ Covered: 10/10. Untraced tasks: 0. Exemptions: 0.
   2. Read σ → if `commands.worktree_setup` ∃ → D⏭("worktree-setup retrofit — already configured"), skip
   3. If `runtime ∉ {python, bun, node}` → D⏭("worktree-setup retrofit — runtime not in scope"), skip
   4. If `tools/worktree-setup.sh` ∃ → D⏭("worktree-setup retrofit — script already present"), skip
-  5. → DP(A) **Scaffold worktree-setup hook now** | **Skip**
+  5. → present choice **Scaffold worktree-setup hook now** | **Skip**
   6. Scaffold → delegate to the same scaffolder workflow used by `/stack-setup` Phase 4b (link inline or extract to shared cookbook reference). Edit σ in place to add both `commands.worktree_*` keys.
 - Verify: `grep -n 'Worktree-setup retrofit\|worktree-setup retrofit' plugins/dev-core/skills/env-setup/SKILL.md | wc -l`
 - Expected: ≥2

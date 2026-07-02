@@ -33,7 +33,7 @@ skills: adr
 Let:
   D := `docs/architecture/adr/`
   R := `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
-  AQ := DP(B) ≡ ask via decision-presentation pattern
+  AQ := ask user directly
   AXES, PRIMARY, ANTI_PATTERN, EXPECTED_DEBT, REVISIT := capture vars
 
 Write-only mode. Conducts the axial-decomposition interview, then writes the ADR with `axial: true` frontmatter. Drift checking against the ADR is owned by the sibling agent `axial-adr-review`.

@@ -102,7 +102,7 @@ Legend: 🗑 = safe to delete, ⚠️ = needs attention, 🔒 = protected
 
 If `REPORT_ONLY=true` → skip this confirmation **and** Step 5 (zero deletions); Step 3's table is the report. Continue to Step 6.
 
-→ DP(C)
+→ present multi-select
 - Present only safe(β) items as default selections
 - Show unmerged β separately with warning; **NEVER auto-select unmerged β**
 - ∃ unmerged β → separate question with explicit warning
@@ -150,7 +150,7 @@ Remote Branch Cleanup
 
 If `REPORT_ONLY=true` → skip this confirmation **and** Step 6e (zero remote deletions); Step 6c's table is the report. Continue to Step 7.
 
-→ DP(C) present merged remote β with ¬π as safe; show unmerged separately; **NEVER auto-delete remote β**; always include "Skip / Keep all remote branches".
+→ present multi-select present merged remote β with ¬π as safe; show unmerged separately; **NEVER auto-delete remote β**; always include "Skip / Keep all remote branches".
 
 #### 6e. Execute remote cleanup
 
@@ -203,7 +203,7 @@ If `REPORT_ONLY=true` → print table and **stop this step** (zero mutations).
 
 #### 7c. Confirm and strip
 
-→ DP(C)
+→ present multi-select
 - Default: strip all listed labels from all listed PRs
 - "Skip / Keep labels as-is" always available
 
@@ -241,7 +241,7 @@ If `REPORT_ONLY=true` → print table and **stop this step** (zero mutations).
 
 #### 8c. Confirm and cancel
 
-→ DP(C)
+→ present multi-select
 - Present stuck runs as candidates; runs on protected branches (main/master/staging) shown as informational — NEVER auto-cancel
 - "Skip / Cancel none" always available
 

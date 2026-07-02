@@ -83,9 +83,9 @@ MISSING = ∅ → "All community files are present. Use --force to regenerate." 
 
 ## Phase 3 — Confirm + Gather Options
 
-→ DP(C)
+→ present multi-select
 1. **License type** (LICENSE ∈ MISSING) → MIT | Apache-2.0 | GPL-3.0 | Skip
-2. **Author / org name** (∄ in M) → → DP(B)
+2. **Author / org name** (∄ in M) → ask user
 3. **Optional extras** (multiSelect) → FUNDING.yml | CODEOWNERS | Contributor Covenant v2.1 wording (for CoC)
 
 ## Phase 4 — Generate Files
@@ -193,7 +193,7 @@ Seed Community Complete
     LICENSE                                  ⏭ exists
 ```
 
-→ DP(A) **Commit generated files** | **Review first, commit manually** | **Skip**
+→ present choice **Commit generated files** | **Review first, commit manually** | **Skip**
 
 "Commit" → `git add {GENERATED}` + commit:
 ```

@@ -48,7 +48,7 @@ CI Setup Complete
 ## Safety Rules
 
 1. **Never push to remote** without user confirmation
-2. **Always present decisions via protocol** before installing hooks or plugins
+2. **Always present choices and wait for user reply** before installing hooks or plugins
 3. **Idempotent** — skip already-configured items unless F
 
 $ARGUMENTS

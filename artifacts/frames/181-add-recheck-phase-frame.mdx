@@ -23,7 +23,7 @@ Observable impact today: no telemetry distinguishes "issue still relevant" from 
 
 - **Position fixed:** between `triage` and `frame` in the `Frame` phase — issue already labelled, no artifact yet written.
 - **No skip-logic:** runs for every issue, every tier, every invocation of `/dev`. Decision made explicitly to avoid silent bypass on the riskiest path (S-tier).
-- **Behavior split:** informative when no drift signal fires (one-line "Issue still relevant" → silent continue); blocking via DP(A) when any signal fires.
+- **Behavior split:** informative when no drift signal fires (one-line "Issue still relevant" → silent continue); blocking via user choice when any signal fires.
 - **Skill must be standalone-callable** (`/recheck #N`) outside `/dev` — reusable in ad-hoc workflows.
 - **Determinism:** drift checks are deterministic (git log, grep, gh dependency state) — no ML scoring, no LLM judgement of "feels stale."
 - **Speed:** drift checks parallel, target <5s end-to-end (else `/dev` UX degrades).

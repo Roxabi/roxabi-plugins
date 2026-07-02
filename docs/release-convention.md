@@ -26,7 +26,7 @@ At promotion time (staging→main), `/promote` automatically:
 
 1. Detects `[tool.uv.sources]` entries with `branch=`
 2. Resolves the SHA pinned in `uv.lock` to a release tag on the remote (`git ls-remote --tags`)
-3. Shows a DP(A) diff: `branch=staging → tag=vX.Y.Z`
+3. Shows a user choice diff: `branch=staging → tag=vX.Y.Z`
 4. On Apply: rewrites `pyproject.toml`, regenerates `uv.lock`, stages both
 
 If no release tag exists at the locked SHA, promotion FAILS with:

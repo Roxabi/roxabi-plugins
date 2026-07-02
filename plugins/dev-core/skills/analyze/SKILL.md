@@ -18,7 +18,7 @@ Let:
   φ := artifacts/frames/{slug}-frame.mdx
   ρ := expert reviewer set
   Ω := `skill: "interview"`
-  Q := decision presentation (Pattern A — read `${CLAUDE_PLUGIN_ROOT}/../shared/references/decision-presentation.md`)
+  Q := present choice, wait for user reply
 
 Frame → analysis. Codebase exploration → expert review → user approval gate.
 ¬spec, ¬worktree. Shape phase only. Spec → `/spec`.
@@ -61,7 +61,7 @@ ls artifacts/frames/*.mdx 2>/dev/null
 ```
 
 `--frame path` → read directly.
-¬φ found → → DP(B) "No frame doc found. Run `/frame --issue N` first, or provide path directly?"
+¬φ found → ask user "No frame doc found. Run `/frame --issue N` first, or provide path directly?"
 
 Read φ → extract: `title`, `issue`, `tier`, problem statement, constraints.
 
@@ -71,7 +71,7 @@ Glob `artifacts/analyses/*` — match issue# or slug from φ.
 
 ∃ α:
 - `type: brainstorm` ∈ frontmatter → treat as brainstorm (¬analysis), offer to promote.
-- → DP(A) **Reuse existing** (→ Step 3) | **Start fresh**
+- → present choice **Reuse existing** (→ Step 3) | **Start fresh**
 
 ## Step 2 — Codebase Exploration + Interview
 
@@ -160,7 +160,7 @@ Skip if ¬technical uncertainty in Step 2 findings.
 
 **Signals:** unfamiliar 3rd-party behavior | undocumented internal APIs | performance unknowns | conflicting docs.
 
-∃ signals → → DP(A) **Spike now** (throwaway worktree, test hypothesis) | **Skip** (→ expert review).
+∃ signals → present choice **Spike now** (throwaway worktree, test hypothesis) | **Skip** (→ expert review).
 
 **Spike flow:**
 1. `EnterWorktree(name: "spike-{N}")` — creates isolated throwaway worktree on branch `spike-{N}`
@@ -191,7 +191,7 @@ Open α: `code artifacts/analyses/{N}-{slug}-analysis.mdx`.
 
 Present summary: shapes found, trade-offs, recommended shape, unresolved concerns.
 
-→ DP(A) **Approve** → update issue status → done | **Revise** → collect feedback → revise α → loop from Step 3.
+→ present choice **Approve** → update issue status → done | **Revise** → collect feedback → revise α → loop from Step 3.
 
 On approval → commit: `git add artifacts/analyses/{N}-{slug}-analysis.mdx` + commit per CLAUDE.md Rule 5.
 
@@ -205,7 +205,7 @@ Inform: "Analysis complete. Run `/spec --issue <N>` to generate the solution spe
 
 | Scenario | Behavior |
 |----------|----------|
-| No frame found | → DP(B) run `/frame` first or provide path |
+| No frame found | → ask user run `/frame` first or provide path |
 | ∃ brainstorm (¬analysis) | Treat as no analysis — offer to promote via interview |
 | ∃ analysis, user picks reuse | Present existing → jump to Step 3 |
 | Expert subagent fails | Report error, continue without that reviewer |

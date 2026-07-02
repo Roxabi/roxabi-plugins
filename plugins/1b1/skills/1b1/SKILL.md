@@ -25,8 +25,8 @@ Argument ∃ (e.g. `/1b1 review findings`) → narrow to matching list.
 
 | Condition | Action |
 |-----------|--------|
-| Ι ∄ | → DP(B) |
-| Multiple lists ∃ | → DP(A) |
+| Ι ∄ | → ask user |
+| Multiple lists ∃ | → present choice |
 
 ### 2. ∀ ι ∈ Ι (sequential)
 
@@ -49,7 +49,7 @@ Recommendation: {Fix now | Defer | Skip | Reject} — {1-line rationale}
 
 #### 2c. Ask Decision
 
-→ DP(A) Options adapted to ι type. Always include **Skip**.
+→ present choice Options adapted to ι type. Always include **Skip**.
 
 | Item type | Options |
 |-----------|---------|
@@ -66,7 +66,7 @@ Recommendation: {Fix now | Defer | Skip | Reject} — {1-line rationale}
 | Reject | Acknowledge invalid, discard, continue |
 | Skip | Next ι silently |
 | Defer | Append to D, continue |
-| Modify | → DP(B)for changes → execute modified |
+| Modify | → ask userfor changes → execute modified |
 | Remove | Acknowledge, continue |
 
 ### 3. Summary
@@ -86,14 +86,14 @@ Deferred items:
   2. {title}
 ```
 
-D ≠ ∅ → → DP(A) **Process deferred now** | **Done**.
+D ≠ ∅ → present choice **Process deferred now** | **Done**.
 
 ## Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| Ι ∄ | → DP(B)what to walk through |
-| Multiple lists ∃ | → DP(A)|
+| Ι ∄ | → ask userwhat to walk through |
+| Multiple lists ∃ | → present choice|
 | User stops mid-way | End early, show summary of processed |
 | ι references files | Read relevant sections before brief |
 | ι already resolved | Note in brief, ask user to confirm skip |
