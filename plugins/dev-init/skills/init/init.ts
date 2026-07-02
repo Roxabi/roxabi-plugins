@@ -8,6 +8,7 @@
  *   bun init.ts discover [--json]
  *   bun init.ts workflows --owner <owner> --repo <repo> --stack <bun|node|python> --test <vitest|jest|pytest|none> --deploy <vercel|none> [--branch <branch>] [--force]
  *   bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>] [--force]  # generic only (auto-merge + pr-title + context-lint)
+ *   bun init.ts push-context-lint --owner <owner> --repo <repo> [--branch <branch>]  # context-lint.yml only (always updates)
  *   (both default to TOP-UP: existing workflow files are skipped; --force overwrites)
  *   bun init.ts protect-branches --repo <owner/repo>
  *   bun init.ts scaffold-rules [--stack-path .claude/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
@@ -75,6 +76,20 @@ switch (command) {
     }
     const result = await pushGenericWorkflows(owner, repo, branch, process.argv.includes('--force'))
     console.log(JSON.stringify({ pushed: result }, null, 2))
+    break
+  }
+
+  case 'push-context-lint': {
+    const { pushContextLintYml } = await import('./lib/workflows')
+    const owner = parseFlag('--owner', '')
+    const repo = parseFlag('--repo', '')
+    const branch = parseFlag('--branch', 'main')
+    if (!owner || !repo) {
+      console.error('Usage: init.ts push-context-lint --owner <owner> --repo <repo> [--branch <branch>]')
+      process.exit(1)
+    }
+    const status = await pushContextLintYml(owner, repo, branch)
+    console.log(JSON.stringify({ file: 'context-lint.yml', status }, null, 2))
     break
   }
 
