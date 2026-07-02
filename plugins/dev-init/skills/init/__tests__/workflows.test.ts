@@ -65,13 +65,18 @@ describe('generateAutoMergeYml', () => {
 })
 
 describe('generateCiYml', () => {
-  it('generates bun + vitest CI', () => {
+  it('generates bun + vitest CI (bun run test, not bun test)', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none' })
     expect(yml).toContain('oven-sh/setup-bun@v2')
     expect(yml).toContain('bun install')
     expect(yml).toContain('bun lint')
     expect(yml).toContain('bun typecheck')
-    expect(yml).toContain('bun test')
+    expect(yml).toContain('run: bun run test')
+  })
+
+  it('uses the native bun runner for non-vitest bun stacks', () => {
+    const yml = generateCiYml({ stack: 'bun', test: 'jest', deploy: 'none' })
+    expect(yml).toContain('run: bun test')
   })
 
   it('generates node + jest CI', () => {

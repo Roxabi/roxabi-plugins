@@ -40,6 +40,7 @@ Standard set: `ci.yml`, `auto-merge.yml`, `pr-title.yml`, `context-lint.yml` (+ 
      - `true` → pre-select App; `false` → pre-select PAT.
    - Run: `bun $I_TS workflows --owner <owner> --repo <repo> --stack <stack> --test <test> --deploy <deploy>`
      (the generator emits an App-token `auto-merge.yml` — #281 landed; the token mode selected above governs which credentials to provision below)
+     > **Top-up par défaut** : les fichiers déjà présents sur le repo sont **skippés** — les repos font évoluer leur `ci.yml` bien au-delà du template (factory: 190 lignes/3 jobs; enishu: e2e Playwright). Ajouter `--force` UNIQUEMENT pour régénérer volontairement, après diff explicite des fichiers qui seraient écrasés.
    - **If mode = github-app:**
      - `gh variable set ROXABI_CI_APP_ID --org <org> --body <app-id>` (org-level)
        OR (private repo / free-plan org): `gh variable set ROXABI_CI_APP_ID --repo <owner>/<repo> --body <app-id>`

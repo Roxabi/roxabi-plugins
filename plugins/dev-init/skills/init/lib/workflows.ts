@@ -231,25 +231,25 @@ jobs:
           V=0
           # dead repo-relative @imports (home-dir @~/... imports are machine-local — skipped on CI)
           while IFS= read -r file; do
-            dir=\$(dirname "\$file")
+            dir=$(dirname "$file")
             while IFS= read -r imp; do
               target=\${imp#@}
-              case "\$target" in "~/"*|/*) continue ;; esac
-              if [ ! -e "\$dir/\$target" ]; then
-                echo "::error file=\$file::dead @import: \$imp"
-                V=\$((V + 1))
+              case "$target" in "~/"*|/*) continue ;; esac
+              if [ ! -e "$dir/$target" ]; then
+                echo "::error file=$file::dead @import: $imp"
+                V=$((V + 1))
               fi
-            done < <(grep -o '^@[^ ]*' "\$file" || true)
+            done < <(grep -o '^@[^ ]*' "$file" || true)
           done < <(find . \\( -name node_modules -o -name .worktrees -o -name worktrees -o -name .git \\) -prune -o \\( -name 'CLAUDE.md' -o -name 'AGENTS.md' \\) -print)
           # unfilled scaffold placeholders
           while IFS= read -r f; do
-            echo "::error file=\$f::unfilled scaffold placeholder (gotchas)"
-            V=\$((V + 1))
+            echo "::error file=$f::unfilled scaffold placeholder (gotchas)"
+            V=$((V + 1))
           done < <(grep -rl 'Add project-specific gotchas here' --include=CLAUDE.md . 2>/dev/null || true)
-          if [ "\$V" -eq 0 ]; then
+          if [ "$V" -eq 0 ]; then
             echo "context-lint: clean"
           else
-            echo "context-lint: \$V violation(s)"
+            echo "context-lint: $V violation(s)"
             exit 1
           fi
 `
@@ -275,7 +275,10 @@ export function generateCiYml(opts: WorkflowOpts): string {
     lintCmd = 'bun lint'
     typecheckCmd = 'bun typecheck'
     if (opts.test !== 'none') {
-      testStep = '\n      - name: Test\n        run: bun test'
+      // `bun test` runs Bun's own runner and silently ignores vitest — vitest repos
+      // need `bun run test` to hit the package.json script (enishu 312781c).
+      const bunTestCmd = opts.test === 'vitest' ? 'bun run test' : 'bun test'
+      testStep = `\n      - name: Test\n        run: ${bunTestCmd}`
     }
   } else {
     setupStep = '      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - run: npm ci'
@@ -366,14 +369,16 @@ async function getToken(): Promise<string> {
 }
 
 /** Push a single file to a repo via the GH contents API (create-or-update).
- *  `path` is the full repo-relative path (e.g. `.github/workflows/ci.yml`). */
+ *  `path` is the full repo-relative path (e.g. `.github/workflows/ci.yml`).
+ *  With `skipExisting`, a file already present is left untouched ('skipped') —
+ *  repos evolve their workflows past the templates, so overwrite must be opt-in. */
 export async function pushWorkflowFile(
   owner: string,
   repo: string,
   path: string,
   content: string,
-  opts: { branch: string; message?: string },
-): Promise<'created' | 'updated'> {
+  opts: { branch: string; message?: string; skipExisting?: boolean },
+): Promise<'created' | 'updated' | 'skipped'> {
   const token = await getToken()
   const { branch } = opts
   const b64 = Buffer.from(content).toString('base64')
@@ -386,6 +391,7 @@ export async function pushWorkflowFile(
 
   const checkRes = await fetch(url, { headers })
   const existing = checkRes.ok ? ((await checkRes.json()) as { sha: string }) : null
+  if (existing && opts.skipExisting) return 'skipped'
 
   const body: Record<string, string> = {
     message: opts?.message ?? `chore: ${existing ? 'update' : 'add'} ${path}`,
@@ -410,15 +416,18 @@ export async function pushWorkflowFile(
 
 export interface PushResult {
   file: string
-  status: 'created' | 'updated'
+  status: 'created' | 'updated' | 'skipped'
 }
 
-/** Push all workflow files to a remote repo via GitHub REST API. No local git required. */
+/** Push all workflow files to a remote repo via GitHub REST API. No local git required.
+ *  Default is TOP-UP: files already present on the repo are skipped (repos evolve
+ *  their ci.yml far past the template — see roxabi-factory/enishu). `force` overwrites. */
 export async function pushWorkflows(
   owner: string,
   repo: string,
   opts: WorkflowOpts,
   branch: string,
+  force = false,
 ): Promise<PushResult[]> {
   const files: Array<{ name: string; content: string }> = [
     { name: 'auto-merge.yml', content: generateAutoMergeYml() },
@@ -432,14 +441,23 @@ export async function pushWorkflows(
 
   const results: PushResult[] = []
   for (const { name, content } of files) {
-    const status = await pushWorkflowFile(owner, repo, `.github/workflows/${name}`, content, { branch })
+    const status = await pushWorkflowFile(owner, repo, `.github/workflows/${name}`, content, {
+      branch,
+      skipExisting: !force,
+    })
     results.push({ file: name, status })
   }
   return results
 }
 
-/** Push a specific subset of workflow files (e.g. only the generic ones). */
-export async function pushGenericWorkflows(owner: string, repo: string, branch: string): Promise<PushResult[]> {
+/** Push a specific subset of workflow files (e.g. only the generic ones).
+ *  Same top-up default as pushWorkflows: existing files are skipped unless `force`. */
+export async function pushGenericWorkflows(
+  owner: string,
+  repo: string,
+  branch: string,
+  force = false,
+): Promise<PushResult[]> {
   const files = [
     { name: 'auto-merge.yml', content: generateAutoMergeYml() },
     { name: 'pr-title.yml', content: generatePrTitleYml() },
@@ -447,7 +465,10 @@ export async function pushGenericWorkflows(owner: string, repo: string, branch: 
   ]
   const results: PushResult[] = []
   for (const { name, content } of files) {
-    const status = await pushWorkflowFile(owner, repo, `.github/workflows/${name}`, content, { branch })
+    const status = await pushWorkflowFile(owner, repo, `.github/workflows/${name}`, content, {
+      branch,
+      skipExisting: !force,
+    })
     results.push({ file: name, status })
   }
   return results
