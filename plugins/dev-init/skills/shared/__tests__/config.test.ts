@@ -146,6 +146,7 @@ describe('STANDARD_WORKFLOWS', () => {
     expect(STANDARD_WORKFLOWS).toContain('ci.yml')
     expect(STANDARD_WORKFLOWS).toContain('auto-merge.yml')
     expect(STANDARD_WORKFLOWS).toContain('merge-on-green.yml')
+    expect(STANDARD_WORKFLOWS).toContain('pr-title.yml')
     expect(STANDARD_WORKFLOWS).toContain('secret-scan.yml')
     expect(STANDARD_WORKFLOWS).toContain('dependabot-automerge.yml')
     expect(STANDARD_WORKFLOWS).toContain('context-lint.yml')
