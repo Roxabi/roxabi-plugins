@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateAutoMergeYml, generateCiYml, generateDeployYml } from '../lib/workflows'
+import { generateAutoMergeYml, generateCiYml, generateContextLintYml, generateDeployYml } from '../lib/workflows'
 
 describe('generateAutoMergeYml', () => {
   it('emits the App token mint step (no secrets.PAT)', () => {
@@ -117,5 +117,36 @@ describe('generateDeployYml', () => {
   it('has workflow_dispatch trigger', () => {
     const yml = generateDeployYml({ stack: 'bun', test: 'none', deploy: 'none' })
     expect(yml).toContain('workflow_dispatch')
+  })
+})
+
+describe('generateContextLintYml', () => {
+  it('is read-only and uses no secrets', () => {
+    const yml = generateContextLintYml()
+    expect(yml).toContain('permissions:\n  contents: read')
+    expect(yml).not.toContain('secrets.')
+  })
+
+  it('skips machine-local home-dir imports', () => {
+    const yml = generateContextLintYml()
+    expect(yml).toContain('"~/"*')
+  })
+
+  it('fails the job on violations', () => {
+    const yml = generateContextLintYml()
+    expect(yml).toContain('exit 1')
+  })
+
+  it('triggers only on agent-context file paths', () => {
+    const yml = generateContextLintYml()
+    expect(yml).toContain("'**/CLAUDE.md'")
+    expect(yml).toContain("'**/AGENTS.md'")
+    expect(yml).toContain("'.claude/**'")
+  })
+
+  it('emits interpolated bash (no unresolved TS template escapes)', () => {
+    const yml = generateContextLintYml()
+    expect(yml).toContain('target=${imp#@}')
+    expect(yml).not.toContain('\\$')
   })
 })
