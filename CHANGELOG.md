@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 Entries are generated automatically by `/promote` and committed to staging before the promotion PR.
 
+## [0.5.0](https://github.com/Roxabi/roxabi-plugins/compare/roxabi-plugins/v0.4.0...roxabi-plugins/v0.5.0) (2026-07-02)
+
+
+### Features
+
+* **dev-core:** add analyze-branches script for cleanup skill ([aeb3396](https://github.com/Roxabi/roxabi-plugins/commit/aeb3396c4dc335b9b1df55d9968c1a4184e54a5b))
+* **dev-core:** add analyze-branches script for cleanup skill ([1c23eb3](https://github.com/Roxabi/roxabi-plugins/commit/1c23eb3194058d97ca7b5e55efea5d67cbf31d16))
+* **dev-init:** extend context-lint to Grok harness paths ([8b58ae0](https://github.com/Roxabi/roxabi-plugins/commit/8b58ae05d380b7bf1cdc3e5322dbb4e674c02398))
+* **dev-init:** extend context-lint to Grok harness paths ([075e5e2](https://github.com/Roxabi/roxabi-plugins/commit/075e5e283cd7c9e4392a0d95ce3145de2a983cd8))
+* **dev-init:** generate context-lint.yml — per-repo CI gate for agent-context files ([b443a26](https://github.com/Roxabi/roxabi-plugins/commit/b443a26c2ed9ae55be34421683d92ea59f872dbc))
+* **dev-init:** generate context-lint.yml workflow (per-repo CI gate for agent-context files) ([6e4dc49](https://github.com/Roxabi/roxabi-plugins/commit/6e4dc4949903f9516b3f8645c6a5a8805220f8ff))
+
+
+### Bug Fixes
+
+* **dev-core:** add trailing newline to analyze-branches vitest file ([cfb5c53](https://github.com/Roxabi/roxabi-plugins/commit/cfb5c5395b9ed15c73981fa898683243b2ed67b2))
+* **dev-core:** anchor issue-number matching in scan-state.sh ([ee1eb73](https://github.com/Roxabi/roxabi-plugins/commit/ee1eb73ba0a1e886512d90c55cc4c5ab3b518bf8))
+* **dev-core:** anchor issue-number matching, scoped cleanup, define stale predicate ([e5a5371](https://github.com/Roxabi/roxabi-plugins/commit/e5a5371a56f6ecd65c56c76c73bfacb5f5ab1896))
+* **dev-core:** drop unused TeamCreate/TeamDelete tools from agents ([ef52cdc](https://github.com/Roxabi/roxabi-plugins/commit/ef52cdcad6d3aae52c5960135421ac2d334bcc75))
+* **dev-core:** drop unused TeamCreate/TeamDelete tools from agents ([1738f23](https://github.com/Roxabi/roxabi-plugins/commit/1738f23e6b5d793e790bb87b4e36c213c18394df))
+* **dev-core:** implement cleanup --scope for per-issue dev pipeline cleanup ([3991609](https://github.com/Roxabi/roxabi-plugins/commit/3991609c00251fd6d7d0c27ed7e2d8faf6dc2dc1))
+* **dev-core:** isolate analyze-branches fixture from inherited git env ([fce204b](https://github.com/Roxabi/roxabi-plugins/commit/fce204b514669bae7ec647c122f1a7d17d1dbff2))
+* **dev-core:** isolate analyze-branches fixture from inherited git env ([fe05a56](https://github.com/Roxabi/roxabi-plugins/commit/fe05a56fe46b97b32f926bc622b758c3228ff5b1))
+* **dev-core:** wire cleanup analyze-branches test into vitest CI ([60e7693](https://github.com/Roxabi/roxabi-plugins/commit/60e7693112744e1966a925e4d92954e9e13a09f7))
+* **dev-init:** drop redundant critical-rules bullets from CLAUDE.md scaffold ([416ef72](https://github.com/Roxabi/roxabi-plugins/commit/416ef72957a42bfb62a40a3d6ac522173f47611e))
+* **dev-init:** top-up push semantics + standard-set parity for context-lint.yml ([bffa615](https://github.com/Roxabi/roxabi-plugins/commit/bffa61577ea47d551fb200a7c79fb52300c99dc6))
+* **dev-init:** top-up push semantics + standard-set parity for context-lint.yml ([ec612ca](https://github.com/Roxabi/roxabi-plugins/commit/ec612ca890b843f9ac7c0f5b1df313b0d0a3a653))
+
 ## [0.4.0](https://github.com/Roxabi/roxabi-plugins/compare/roxabi-plugins/v0.3.0...roxabi-plugins/v0.4.0) (2026-06-15)
 
 
