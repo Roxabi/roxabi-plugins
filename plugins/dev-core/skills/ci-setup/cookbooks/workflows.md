@@ -13,7 +13,7 @@ Let:
 
 Set up GitHub Actions via REST API (no local git). Runs from σ values.
 
-Standard set: `ci.yml`, `auto-merge.yml`, `pr-title.yml` (+ `deploy-preview.yml` if Vercel).
+Standard set: `ci.yml`, `auto-merge.yml`, `pr-title.yml`, `context-lint.yml` (+ `deploy-preview.yml` if Vercel).
 
 1. Discover owner/repo:
    ```bash
@@ -39,7 +39,7 @@ Standard set: `ci.yml`, `auto-merge.yml`, `pr-title.yml` (+ `deploy-preview.yml`
      - Detect org: `gh repo view --json isInOrganization --jq '.isInOrganization'`
      - `true` → pre-select App; `false` → pre-select PAT.
    - Run: `bun $I_TS workflows --owner <owner> --repo <repo> --stack <stack> --test <test> --deploy <deploy>`
-     > ⚠️ **Pending dev-core #281:** the `workflows` generator currently emits a `secrets.PAT`-based `auto-merge.yml`; App-token emission (and a `--token-mode` flag) is wired by #281. Do **not** pass `--token-mode` yet — it is not parsed. The token mode selected above governs only which **credentials** to provision below (forward-prep); the generated workflow's token swaps to the roxabi-ci App when #281 lands.
+     (the generator emits an App-token `auto-merge.yml` — #281 landed; the token mode selected above governs which credentials to provision below)
    - **If mode = github-app:**
      - `gh variable set ROXABI_CI_APP_ID --org <org> --body <app-id>` (org-level)
        OR (private repo / free-plan org): `gh variable set ROXABI_CI_APP_ID --repo <owner>/<repo> --body <app-id>`

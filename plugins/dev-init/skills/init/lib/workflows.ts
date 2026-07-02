@@ -193,6 +193,68 @@ jobs:
 `
 }
 
+/** Generic context lint — keeps agent-context files honest:
+ *  repo-relative `@imports` in CLAUDE.md/AGENTS.md must resolve, and scaffold
+ *  placeholders must be filled. Home-dir imports (`@~/...`) are machine-local
+ *  and skipped on CI. Stack-agnostic (pure bash, no deps). Ecosystem-level
+ *  checks (project index, factory registry) live in the central
+ *  ~/projects/scripts/context-lint.sh, deliberately not here. */
+export function generateContextLintYml(): string {
+  return `name: Context Lint
+
+on:
+  pull_request:
+    paths:
+      - '**/CLAUDE.md'
+      - '**/AGENTS.md'
+      - '.claude/**'
+  push:
+    branches: [main, staging]
+    paths:
+      - '**/CLAUDE.md'
+      - '**/AGENTS.md'
+      - '.claude/**'
+
+permissions:
+  contents: read
+
+jobs:
+  context-lint:
+    name: Context lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Lint agent-context files (@imports + placeholders)
+        run: |
+          set -u
+          V=0
+          # dead repo-relative @imports (home-dir @~/... imports are machine-local — skipped on CI)
+          while IFS= read -r file; do
+            dir=\$(dirname "\$file")
+            while IFS= read -r imp; do
+              target=\${imp#@}
+              case "\$target" in "~/"*|/*) continue ;; esac
+              if [ ! -e "\$dir/\$target" ]; then
+                echo "::error file=\$file::dead @import: \$imp"
+                V=\$((V + 1))
+              fi
+            done < <(grep -o '^@[^ ]*' "\$file" || true)
+          done < <(find . \\( -name node_modules -o -name .worktrees -o -name worktrees -o -name .git \\) -prune -o \\( -name 'CLAUDE.md' -o -name 'AGENTS.md' \\) -print)
+          # unfilled scaffold placeholders
+          while IFS= read -r f; do
+            echo "::error file=\$f::unfilled scaffold placeholder (gotchas)"
+            V=\$((V + 1))
+          done < <(grep -rl 'Add project-specific gotchas here' --include=CLAUDE.md . 2>/dev/null || true)
+          if [ "\$V" -eq 0 ]; then
+            echo "context-lint: clean"
+          else
+            echo "context-lint: \$V violation(s)"
+            exit 1
+          fi
+`
+}
+
 export function generateCiYml(opts: WorkflowOpts): string {
   let setupStep: string
   let lintCmd: string
@@ -361,6 +423,7 @@ export async function pushWorkflows(
   const files: Array<{ name: string; content: string }> = [
     { name: 'auto-merge.yml', content: generateAutoMergeYml() },
     { name: 'pr-title.yml', content: generatePrTitleYml() },
+    { name: 'context-lint.yml', content: generateContextLintYml() },
     { name: 'ci.yml', content: generateCiYml(opts) },
   ]
   if (opts.deploy === 'vercel') {
@@ -380,6 +443,7 @@ export async function pushGenericWorkflows(owner: string, repo: string, branch: 
   const files = [
     { name: 'auto-merge.yml', content: generateAutoMergeYml() },
     { name: 'pr-title.yml', content: generatePrTitleYml() },
+    { name: 'context-lint.yml', content: generateContextLintYml() },
   ]
   const results: PushResult[] = []
   for (const { name, content } of files) {
@@ -405,6 +469,9 @@ export async function writeWorkflows(opts: WorkflowOpts): Promise<string[]> {
 
   fs.writeFileSync(`${dir}/pr-title.yml`, generatePrTitleYml())
   written.push('pr-title.yml')
+
+  fs.writeFileSync(`${dir}/context-lint.yml`, generateContextLintYml())
+  written.push('context-lint.yml')
 
   if (opts.deploy === 'vercel') {
     fs.writeFileSync(`${dir}/deploy-preview.yml`, generateDeployYml(opts))

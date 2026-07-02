@@ -7,7 +7,7 @@
  *   bun init.ts prereqs [--json]
  *   bun init.ts discover [--json]
  *   bun init.ts workflows --owner <owner> --repo <repo> --stack <bun|node|python> --test <vitest|jest|pytest|none> --deploy <vercel|none> [--branch <branch>]
- *   bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>]  # generic only (auto-merge + pr-title)
+ *   bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>]  # generic only (auto-merge + pr-title + context-lint)
  *   bun init.ts protect-branches --repo <owner/repo>
  *   bun init.ts scaffold-rules [--stack-path .claude/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
  *   bun init.ts scaffold --github-repo <owner/repo> [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]
