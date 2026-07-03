@@ -155,7 +155,6 @@ Three Claude Code hooks for safety and consistency:
 Agent definitions no longer preload external skills in frontmatter. Invoke companion capabilities on demand via slash commands or the `Skill` tool when installed:
 
 - `ui-ux-pro-max` (from `ui-ux-pro-max` plugin) — frontend polish
-- `context7-plugin:docs` (from `context7-plugin`) — upstream library docs lookup
 
 The core workflow functions without them.
 

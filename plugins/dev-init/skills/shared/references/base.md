@@ -9,7 +9,7 @@ Always use SendMessage to reach teammates. ¬plain text — teammates cannot see
 
 ## Research Order
 
-codebase (Glob/Grep/Read) → context7 docs (`context7-plugin:docs`) → WebSearch (last resort, ¬for internal project questions)
+codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions)
 
 ## Notation
 
