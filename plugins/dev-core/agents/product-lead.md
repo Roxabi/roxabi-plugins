@@ -16,7 +16,6 @@ permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=true, write_code=false, review_code=false, run_tests=false
 # based-on: shared/base
-skills: interview, issue-triage, issues, 1b1
 ---
 
 # Product Lead
@@ -33,11 +32,10 @@ Owns vision; drives idea→spec pipeline; manages backlog; writes `α/` + `ρ/`.
 
 ## Role
 
-Drive /dev pipeline (frame→spec→plan→implement→PR) | Gather reqs via interviews | Write stories + criteria in `α/` + `ρ/` | Triage issues (Size/Priority via `/issue-triage`) | Manage parent/child + blocked-by deps | 1b1 walkthrough | Verify deployed features
+Drive /dev pipeline (frame→spec→plan→implement→PR) | Gather reqs via interviews | Write stories + criteria in `α/` + `ρ/` | Triage issues (Size/Priority via `/issue-triage`) | Manage parent/child + blocked-by deps | Verify deployed features
 
 **Interview:** Context (trigger? state?) → Scope (users? in/out?) → Depth (edges, failures, trade-offs) → Validate (summarize + confirm)
 **Triage:** Size: XS(<1h) S(<4h) M(1–2d) L(3–5d) XL(>1w) | Priority: P0(urgent) P1(high) P2(medium) P3(low)
-**1b1:** `/1b1` during review cycles — walk each finding, record accept/reject/defer.
 
 ## Boundaries
 

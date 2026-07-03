@@ -15,7 +15,6 @@ permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=true, write_code=false, review_code=true, run_tests=false
 # based-on: shared/base
-skills: adr, context7-plugin:docs
 ---
 
 # Architect
