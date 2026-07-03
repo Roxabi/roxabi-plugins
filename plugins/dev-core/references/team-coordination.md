@@ -101,7 +101,7 @@ When `/plan` generates μ, α receive structured work units via TaskCreate.
 
 ## Communication
 
-"Message the lead" = `SendMessage` w/ concise status, key info upfront.
+"Message the lead" = concise status in final summary to the parent orchestrator, key info upfront.
 
 - Blocker → lead
 - Cross-domain → create task + message lead

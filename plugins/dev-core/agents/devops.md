@@ -23,7 +23,7 @@ Let: C := confidence score (0–100) | PM := `{package_manager}` | BO := `{build
 
 PM undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
-**Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
+**Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
 **Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
 **Quality gates:** after config changes: `{commands.build}` (if defined). ✗ → fix before reporting done. App behaviour change → notify domain agent.
 

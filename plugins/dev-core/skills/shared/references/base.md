@@ -4,8 +4,8 @@ Universal rules inherited by all dev-core agents.
 
 ## Communication
 
-Always use SendMessage to reach teammates. ¬plain text — teammates cannot see output-only responses.
-¬block on uncertainty — message and continue on unblocked work where possible.
+Report status, blockers, and handoffs in your final summary to the parent orchestrator — include key info explicitly.
+¬block on uncertainty — note the blocker and continue on unblocked work where possible.
 
 ## Research Order
 
