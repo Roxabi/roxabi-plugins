@@ -150,15 +150,14 @@ Three Claude Code hooks for safety and consistency:
 | Bun test blocker | PreToolUse on Bash | Enforces `bun run test` over `bun test` (the latter uses the Bun test runner instead of Vitest and causes CPU spin) |
 | Auto-format | PostToolUse on Edit/Write | Reads `build.formatter_fix_cmd` (single) or `build.formatters[]` (multi, for mixed JS+Python monorepos) from `stack.yml` and runs the right formatter per file extension. Silent no-op when unconfigured. |
 
-## External Dependencies
+## Optional companion plugins
 
-Some agents reference skills from other plugins:
+Agent definitions no longer preload external skills in frontmatter. Invoke companion capabilities on demand via slash commands or the `Skill` tool when installed:
 
-- `frontend-design` (from `frontend-design` plugin)
-- `ui-ux-pro-max` (from `ui-ux-pro-max` plugin)
-- `context7-plugin:docs` (from `context7-plugin`)
+- `ui-ux-pro-max` (from `ui-ux-pro-max` plugin) — frontend polish
+- `context7-plugin:docs` (from `context7-plugin`) — upstream library docs lookup
 
-Install those separately if needed. The core workflow functions without them.
+The core workflow functions without them.
 
 ## License
 
