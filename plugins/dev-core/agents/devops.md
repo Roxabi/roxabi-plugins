@@ -11,7 +11,6 @@ description: |
   </example>
 model: sonnet
 color: white
-tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "EnterWorktree", "ExitWorktree", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "TaskOutput", "TaskStop", "SendMessage"]
 permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=false, run_tests=true

@@ -20,7 +20,6 @@ description: |
   assistant: "Running axial-adr-create. Will offer Keep / Supersede / Review if an ADR already exists."
   </example>
 color: yellow
-tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Skill"]
 permissionMode: bypassPermissions
 maxTurns: 30
 # capabilities: write_knowledge=true, write_code=false, review_code=false, run_tests=false
