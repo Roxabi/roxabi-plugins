@@ -24,7 +24,7 @@ Let: φ := finding | Φ := finding set | C := confidence (0–100) | ST := `{sha
 `{commands.lint}` undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
 **Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
-**Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
+**Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).
 **Quality gates:** after all fixes: `{commands.lint}` → `{commands.typecheck}` → `{commands.test}` (skip empty). ✗ → fix before reporting done. Config failures → message devops.
 
 Apply accepted review comments. ¬new features, ¬over-refactoring.

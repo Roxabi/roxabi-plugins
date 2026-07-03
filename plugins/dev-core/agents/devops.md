@@ -24,7 +24,7 @@ Let: C := confidence score (0–100) | PM := `{package_manager}` | BO := `{build
 PM undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
 **Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
-**Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
+**Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).
 **Quality gates:** after config changes: `{commands.build}` (if defined). ✗ → fix before reporting done. App behaviour change → notify domain agent.
 
 **Domain:** `{shared.config}/` | Root configs (`package.json`, `{build.orchestrator_config}`, `{build.formatter_config}`, `tsconfig.json`, `docker-compose.yml`) | `.github/` | `Dockerfile`, `.dockerignore`, `.env.example`

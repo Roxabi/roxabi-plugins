@@ -9,7 +9,7 @@ Report status, blockers, and handoffs in your final summary to the parent orches
 
 ## Research Order
 
-codebase (Glob/Grep/Read) → context7 docs (`context7-plugin:docs`) → WebSearch (last resort, ¬for internal project questions)
+codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions)
 
 ## Notation
 

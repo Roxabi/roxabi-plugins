@@ -44,7 +44,7 @@ maxTurns: 50
 # Backend Dev (project override)
 
 **Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
-**Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
+**Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).
 **Quality gates:** after implementation run `{commands.lint} && {commands.typecheck} && {commands.test}`. ✗ → fix before reporting done. Config failures → message devops.
 
 If `{backend.path}` is undefined → output: "`.claude/stack.yml` not found."
