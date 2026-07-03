@@ -33,45 +33,15 @@ description: "{one-line description}"
 
 ### Data Structure
 
-```mermaid
-classDiagram
-    class {MainConfig} {
-        <<frozen>>
-        +field_a: type
-        +sub: SubConfig
-    }
+**Diagram:** [{data model title}](../visuals/{N}-{slug}-data-model.html)
 
-    class SubConfig {
-        <<frozen>>
-        +field_b: type
-    }
-
-    {MainConfig} *-- SubConfig
-```
+{One-line summary of core types and frozen/mutable annotations.}
 
 ### Consumer Map
 
-```mermaid
-flowchart LR
-    DATA["{MainConfig}"]
+**Diagram:** [{consumer map title}](../visuals/{N}-{slug}-consumers.html)
 
-    subgraph "Current Consumers (this issue)"
-        C1["Consumer 1\nreads field_a"]
-    end
-
-    subgraph "Future Consumers (separate issues)"
-        C2["Consumer 2\nreads sub.field_b"]
-    end
-
-    DATA -->|"field_a"| C1
-    DATA -.->|"sub.field_b"| C2
-
-    style DATA fill:#f9f,stroke:#333
-    style C1 fill:#bbf,stroke:#333
-    style C2 fill:#ffe,stroke:#999,stroke-dasharray: 5 5
-```
-
-**Legend:** Solid = this issue. Dashed = future consumers.
+**Legend:** Solid edges = this issue. Dashed edges = future consumers.
 
 | Consumer | Fields consumed | When | Status |
 |----------|----------------|------|--------|

@@ -30,7 +30,7 @@ Triggers: `"analyze"` | `"technical analysis"` | `"deep dive"` | `"explore the p
 artifacts/analyses/{N}-{slug}-analysis.mdx
 ```
 
-Sections: Source, Problem, Outcome, Appetite, Shapes (2–3), Fit Check.
+Sections: Source, Problem, Outcome, Appetite, Shapes (2–3), Fit Check. Architecture visuals are forge-chart sidecars in `artifacts/visuals/` (linked from Shapes / Fit Check — not inline mermaid).
 
 ## Chain position
 

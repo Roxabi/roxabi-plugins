@@ -6,6 +6,7 @@ Full development lifecycle orchestrator for Roxabi projects. Covers framing, ana
 
 - **Package manager** — Bun, npm, pnpm, or yarn (configured via `stack.yml`)
 - [GitHub CLI](https://cli.github.com/) (`gh`) — issue fetching, PR creation, label management
+- **[forge](https://github.com/Roxabi/roxabi-forge)** plugin — architecture diagrams in shape artifacts (`clarify`, `analyze`, `spec`, `plan`) are forge-chart sidecars in `artifacts/visuals/`, not inline mermaid/ASCII. Install: `claude plugin install forge`
 - **Formatter** — optional; configure any formatter in `stack.yml` (`build.formatter_fix_cmd` or `build.formatters[]`). Biome, Prettier, Ruff, Black — all work. Leave empty to disable auto-formatting.
 
 ## Install

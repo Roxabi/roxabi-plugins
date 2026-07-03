@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 Entries are generated automatically by `/promote` and committed to staging before the promotion PR.
 
+## Unreleased
+
+### Changed
+
+* **dev-core:** replace inline mermaid/ASCII shape diagrams with forge-chart sidecars in `clarify`, `analyze`, `spec`, and `plan` — HTML in `artifacts/visuals/`, SSoT at `references/forge-chart-sidecar.md`; supersedes mermaid diagram requirements added in `e455a5b`
+
 ## [0.3.0](https://github.com/Roxabi/roxabi-plugins/compare/roxabi-plugins/v0.2.0...roxabi-plugins/v0.3.0) (2026-04-17)
 
 

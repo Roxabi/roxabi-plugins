@@ -307,7 +307,7 @@ adv → re-scan → Step 7 immediately.
 **Trigger:** in Step 8, the step that just completed == `plan` ∧ τ ∈ {F-lite, F-full} ∧ new S* == `implement`.
 τ=S never reaches here — `plan` is skipped, so the pipeline goes straight to `implement` with no pause.
 
-**Why:** `/plan` consumed heavy context (spec read, scope glob/grep, micro-task generation, mermaid). `/implement` spawns fresh agents whose context is injected from the task list + plan artifact — the planning conversation is dead weight. Tasks persist (task list + plan artifact `## Task IDs`); `/implement` Step 1b re-attaches after a context reset. `/compact` = soft restart → safe.
+**Why:** `/plan` consumed heavy context (spec read, scope glob/grep, micro-task generation, forge-chart sidecars). `/implement` spawns fresh agents whose context is injected from the task list + plan artifact — the planning conversation is dead weight. Tasks persist (task list + plan artifact `## Task IDs`); `/implement` Step 1b re-attaches after a context reset. `/compact` = soft restart → safe.
 
 **Behavior:** do **NOT** auto-chain to `/implement`. Print the recommendation block below and **STOP this turn** (Claude cannot invoke `/compact` — it is user-typed):
 

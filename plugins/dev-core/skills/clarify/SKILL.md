@@ -3,7 +3,7 @@ name: clarify
 argument-hint: '["topic" | --issue <N> | --resume]'
 description: Intent-first architecture recap — explain what we are really solving (intent → biz-arch → UX flows → data flow per layer → use cases × layers → open intent Qs); defer technical implementation until approved. Phase-agnostic, ephemeral, no artifact. Triggers "clarify intent" | "explain the architecture" | "restate what we are solving" | "recap the issue" | "restructure the answer" | "intent first" | "explain it properly" | "what is the architecture" | "explain from intent down" | "step back and explain".
 version: 0.1.0
-allowed-tools: Bash, Read, Glob, Grep, ToolSearch
+allowed-tools: Bash, Read, Write, Glob, Grep, Skill, ToolSearch
 ---
 
 # Clarify
@@ -93,6 +93,8 @@ Build context map without mutating anything:
 
 ## Step 2 — Render 6 Sections
 
+Generate §2 boundary sidecar first — `Skill(skill: "forge-chart", …)` per [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md); copy to `artifacts/visuals/`.
+
 Apply template strictly. ∀ section MUST appear, even if brief. Order is load-bearing.
 
 ### Section template
@@ -112,9 +114,7 @@ Apply template strictly. ∀ section MUST appear, even if brief. Order is load-b
 
 ## 2. Business Architecture (where the boundary sits)
 
-\`\`\`
-{ASCII box diagram — actors, layers, the boundary being changed}
-\`\`\`
+**Diagram:** [{title}](../visuals/{N}-{slug}-boundary.html) <!-- ¬issue: ../visuals/{slug}-boundary.html -->
 
 The boundary being changed: **{name it explicitly}** — {one-line description}.
 
@@ -170,7 +170,7 @@ The use case with friction: **{name}** — that is where design decisions live.
 ### Rules per section
 
 - **Section 1 (Intent):** MUST contrast today vs target as a 2-column table. MUST include "Why this matters beyond {local scope}" — connect to ecosystem.
-- **Section 2 (Architecture):** MUST include an ASCII diagram naming the actors and boundary. MUST name the boundary explicitly.
+- **Section 2 (Architecture):** MUST include a forge-chart sidecar (`{N}-{slug}-boundary.html` or `{slug}-boundary.html`) naming actors and boundary — see [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md). Link only (¬inline mermaid, ¬ASCII). MUST name the boundary explicitly.
 - **Section 3 (Flows):** MUST include ≥1 happy path AND ≥1 adversarial/failure flow. MUST surface a nuance the obvious framing gets wrong.
 - **Section 4 (Data flow):** MUST be a table with TODAY and TARGET columns. MUST highlight which layers actually change.
 - **Section 5 (Use cases × layers):** MUST surface the use case with friction (where design decisions live).
