@@ -149,6 +149,8 @@ See [references/micro-task-example.mdx](${CLAUDE_SKILL_DIR}/references/micro-tas
 
 ## Step 5 — Write Plan Artifact
 
+Generate architecture sidecars per [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) **before** writing π.
+
 Write to `artifacts/plans/{N}-{slug}-plan.mdx`. Create `artifacts/plans/` dir if needed.
 
 Use [references/plan-template.mdx](${CLAUDE_SKILL_DIR}/references/plan-template.mdx). See [references/micro-task-example.mdx](${CLAUDE_SKILL_DIR}/references/micro-task-example.mdx) for task formatting.

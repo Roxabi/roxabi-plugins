@@ -281,7 +281,7 @@ export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
   }
 
   // artifacts/
-  for (const dir of ['artifacts/frames', 'artifacts/analyses', 'artifacts/specs', 'artifacts/plans']) {
+  for (const dir of ['artifacts/frames', 'artifacts/analyses', 'artifacts/specs', 'artifacts/plans', 'artifacts/visuals']) {
     fs.mkdirSync(dir, { recursive: true })
   }
   result.artifactsCreated = true

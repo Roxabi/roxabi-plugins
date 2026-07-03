@@ -98,6 +98,8 @@ Pre-fill context from φ — skip answered questions.
 
 ## Step 2c — Generate Analysis
 
+F-lite/F-full: generate forge-chart sidecars per [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) **before** writing α.
+
 Write α:
 
 ```mdx

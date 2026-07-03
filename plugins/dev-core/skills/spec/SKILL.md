@@ -103,6 +103,8 @@ Interview pre-fills from SRC. Focus on gaps to spec level:
 - Slices: vertical increments, independently demo-able
 - Ambiguity detection via 9-category taxonomy (see interview SKILL.md)
 
+F-lite/F-full: generate forge-chart sidecars per [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) **before** writing σ.
+
 Write σ. Must include:
 
 | Section | Skip if |

@@ -114,7 +114,7 @@ Apply template strictly. ∀ section MUST appear, even if brief. Order is load-b
 
 ## 2. Business Architecture (where the boundary sits)
 
-**Diagram:** [{title}]({relative-path-to-sidecar.html})
+**Diagram:** [{title}](../visuals/{N}-{slug}-boundary.html) <!-- ¬issue: ../visuals/{slug}-boundary.html -->
 
 The boundary being changed: **{name it explicitly}** — {one-line description}.
 
