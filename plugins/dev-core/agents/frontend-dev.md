@@ -15,7 +15,6 @@ permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=true, run_tests=true
 # based-on: shared/engineer
-skills: frontend-design, ui-ux-pro-max, context7-plugin:docs
 ---
 
 # Frontend Dev

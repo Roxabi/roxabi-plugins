@@ -15,7 +15,6 @@ permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=false, run_tests=true
 # based-on: shared/base
-skills: context7-plugin:docs
 ---
 
 # DevOps

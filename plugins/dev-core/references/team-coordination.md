@@ -114,5 +114,5 @@ When `/plan` generates μ, α receive structured work units via TaskCreate.
 - `permissionMode` (bypassPermissions | plan)
 - `maxTurns` (30–50)
 - `memory: project` (.claude/agent-memory/)
-- `skills` (preloaded)
-- `disallowedTools` (deny list)
+
+Tool access uses harness defaults unless a project override sets `tools` or `disallowedTools` explicitly.
