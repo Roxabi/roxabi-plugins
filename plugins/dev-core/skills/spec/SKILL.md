@@ -111,19 +111,28 @@ Write σ. Must include:
 | `## Goal` — one-sentence outcome | — |
 | `## Users` — who is affected | — |
 | `## Expected Behavior` — narrative walkthrough | — |
-| `## Data Model & Consumers` — mermaid diagrams (see below) | Tier S |
+| `## Data Model & Consumers` — forge-chart sidecars (see below) | Tier S |
 | `## Breadboard` — affordance tables + wiring | Tier S |
 | `## Slices` — vertical increments table | Tier S |
 | `## Success Criteria` — `- [ ]` checkboxes, each binary | — |
 
-### Mermaid Diagrams (Tier F-lite, F-full)
+### Forge-Chart Sidecars (Tier F-lite, F-full)
+
+Read [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) before generating visuals.
 
 `## Data Model & Consumers` must include:
-1. **Data structure diagram** (`classDiagram`) — core types/models, fields, relationships. Frozen/mutable annotations where relevant.
-2. **Consumer map** (`flowchart`) — who consumes data, which fields, when. Solid = this issue, dashed = future (out of scope but fields must be accessible).
+1. **Data structure sidecar** — `{N}-{slug}-data-model.html` (fgraph layered or fd-engine): core types/models, fields, relationships. Frozen/mutable in node labels.
+2. **Consumer map sidecar** — `{N}-{slug}-consumers.html` (hub-spoke or architecture): who consumes data, which fields, when. Solid edges = this issue; dashed = future.
 3. **Consumer summary table** — consumer → fields consumed, when, status (this issue / future).
 
-Diagrams go BEFORE Breadboard. They answer "what is the data shape and who uses it" while Breadboard answers "how do pieces wire together."
+Link each sidecar (¬inline mermaid, ¬ASCII):
+
+```markdown
+**Data structure:** [{title}](../visuals/{N}-{slug}-data-model.html)
+**Consumer map:** [{title}](../visuals/{N}-{slug}-consumers.html)
+```
+
+Sidecars go BEFORE Breadboard. They answer "what is the data shape and who uses it" while Breadboard answers "how do pieces wire together."
 
 May contain χ (max 3–5). χ items block `/plan` — must be resolved first.
 
@@ -182,7 +191,7 @@ Present summary: scope, |slices|, |acceptance criteria|, |χ|, pre-check results
 
 Q: **Approve** → continue pipeline | **Revise** → collect feedback → revise σ → loop from Step 3.
 
-On approval → commit: `git add artifacts/specs/{N}-{slug}-spec.mdx` + commit per CLAUDE.md Rule 5.
+On approval → commit: `git add artifacts/specs/{N}-{slug}-spec.mdx artifacts/visuals/` + commit per CLAUDE.md Rule 5.
 
 Run Gate 2.5 → update issue status:
 ```bash
