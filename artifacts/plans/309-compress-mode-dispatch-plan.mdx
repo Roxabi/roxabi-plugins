@@ -1,0 +1,180 @@
+---
+title: 'Plan: compress v2 train A — slice V1 (measurement foundation)'
+issue: 309
+spec: artifacts/specs/309-compress-mode-dispatch-spec.mdx
+complexity: 5/10
+tier: F-lite
+slice: V1 of 2
+generated: 2026-07-04
+---
+
+## Summary
+
+Slice V1 of the approved spec: ship the measurement foundation — `count_tokens.py` (3-tier counter + O_APPEND Observation ledger), the `plugin.json` data block, the `validate_plugins.py` line-budget check, and the README metrics-claim fix — test-first, without touching SKILL.md (slice V2).
+
+## Architecture
+
+**Data flow:** [compress v2 pipeline](../visuals/309-compress-mode-dispatch-data-flow.html)
+**File map:** [files × functions](../visuals/309-compress-mode-dispatch-file-map.html)
+
+## Bootstrap Context
+
+- Measured truth this slice encodes (analysis §2.1): glyph substitution is token-neutral-at-best; savings come from prose pruning; binary thresholds bind only under `method=anthropic-api`.
+- Ref patterns (inject into agent context):
+  - `plugins/get-invoice-details/scripts/extract.py:1-11` — canonical script header: `sys.path.insert(0, str(Path(__file__).resolve().parents[3]))` + `from roxabi_sdk.paths import get_plugin_data, ensure_dir`.
+  - `tests/test_check_taxonomy_sync.py` — validate_plugins check test pattern: `run_tool()` subprocess helper + `tmp_path` synthetic fixtures + injectable check params.
+  - `tools/validate_plugins.py:98-115` (`check_data_root_uniqueness`) — check function style to match.
+  - `roxabi_sdk/browser.py:59-74` — optional-dep typed-sentinel pattern (T4 itself uses broad `except Exception` around `tiktoken.get_encoding` per spec edge case — first-use network fetch).
+- Spec Decisions binding this slice: D2 (direct `roxabi_sdk.paths` import — NO vendored `_lib/`), D5 (injectable `(budgets, plugins_dir)` params), D6 (`source_ref` = pre-image hash, passed in by caller), D7 (no tiktoken/anthropic in CI; injectable encoders + `importorskip`).
+
+## Agents
+
+| Agent instance | Tasks | Files |
+|----------------|-------|-------|
+| tester-A | T1, T7 | tests/test_check_skill_line_budget.py |
+| tester-B | T2 | tests/test_count_tokens.py |
+| devops-A | T3, T5 | tools/validate_plugins.py, plugins/compress/.claude-plugin/plugin.json |
+| backend-dev-A | T4, T6 | plugins/compress/scripts/count_tokens.py, plugins/compress/README.md |
+
+## Wave Structure
+
+3 waves, max 2 parallel agents. Elapsed ~1 session.
+
+| Wave | Trigger | Agents | Tasks |
+|------|---------|--------|-------|
+| 1 | start | 2 ∥ | tester-A: T1 · tester-B: T2 |
+| 2 | Wave 1 done | 2 ∥ | devops-A: T3→T5 · backend-dev-A: T4→T6 |
+| 3 | Wave 2 done | 1 | tester-A: T7 (RED-GATE) |
+
+### Budget — per task
+
+| Task | Items | Class | Est. ops | Split? |
+|------|-------|-------|----------|--------|
+| T1 line-budget tests | 1 file | judgmental | 10 | — |
+| T2 count_tokens tests | 1 file | judgmental | 14 | — |
+| T3 line-budget check | 1 file | bounded | 8 | — |
+| T4 count_tokens.py | 1 file | judgmental | 20 | — |
+| T5 plugin.json data block | 1 file | trivial | 4 | — |
+| T6 README claim | 1 file | trivial | 3 | — |
+| T7 RED-GATE falsification | 2 test files | bounded | 8 | — |
+
+**Total estimated ops: 67**
+
+### Budget — per agent instance
+
+| Instance | Tasks | Σ ops | Subjects | Split? |
+|----------|-------|-------|----------|--------|
+| tester-A | T1, T7 | 18 | budget-check, falsification | — |
+| tester-B | T2 | 14 | token-script | — |
+| devops-A | T3, T5 | 12 | validator, manifest | — |
+| backend-dev-A | T4, T6 | 23 | token-script, docs-metrics | — |
+
+## Consistency Report
+
+- V1-scoped success criteria covered: SC5 (T1, T3), SC7 (T5), SC8 (T2, T4), SC9 script-side (T2, T4), SC10 (T2, T4), SC13 (T6). 6/6 V1 criteria → ≥1 task each.
+- SC15 (self-containment) — cross-cutting; enforced by T4 authorship rule (no machine-local paths) + PR-time grep guard.
+- Uncovered by V1, **exempt (slice V2)**: SC1–SC4, SC6, SC11, SC12, SC14, SC9 SKILL.md-side (no Write/Edit ledger path).
+- Untraced tasks: none — every task carries a spec trace.
+
+## Micro-Tasks
+
+### Slice V1 — Wave 1 (RED)
+
+**T1 — Write failing tests for the SKILL.md line-budget check** `[P]`
+- File: `tests/test_check_skill_line_budget.py`
+- Agent: tester-A · Subject: budget-check · Phase: RED · Difficulty: 2 · Est: 10 ops
+- Shape: `run_tool()` subprocess helper (copy pattern from `tests/test_check_taxonomy_sync.py`); direct-import tests of `check_skill_line_budget(budgets=..., plugins_dir=tmp_path)`: (a) synthetic plugin with 120-line SKILL.md + budget 110 → 1 error naming plugin, actual, budget; (b) same tree at 110 lines → `[]`; (c) budget for a plugin with no SKILL.md → no crash, no error; (d) default call against the real repo tree → `[]` (shipped file within budget); (e) subprocess smoke: `run_tool()` exit 0 while shipped tree is compliant.
+- Verify: `python3 -m pytest tests/test_check_skill_line_budget.py -x -q`
+- Expected: FAILS with ImportError/AttributeError (`check_skill_line_budget` not yet defined) — RED evidence recorded.
+- Spec trace: SC5
+
+**T2 — Write failing tests for count_tokens.py** `[P]`
+- File: `tests/test_count_tokens.py`
+- Agent: tester-B · Subject: token-script · Phase: RED · Difficulty: 3 · Est: 14 ops
+- Shape: import module via path (`importlib.util.spec_from_file_location` on `plugins/compress/scripts/count_tokens.py`). Tests: (a) `resolve_method()` → `estimate` when no API key and tiktoken unavailable (monkeypatch); (b) proxy tier via injected fake encoder callables — agreement flag true/false when encoders agree/disagree; (c) `count` on a sample md (tmp file, 2 sections) → per-section entries + mandatory `method` field; (d) `append_row()` into `ROXABI_VAULT_HOME=tmp_path` → 1 JSONL line; required Observation fields: `id` 26-char Crockford ULID, `source == 'compress-skill'`, `source_ref` passed through, `ts` ISO-8601 UTC, `category`, `payload_typed.schema_version == 1`, reserved `glossary_version`/`level` present and null, `correlation`; (e) two appends → 2 lines (O_APPEND, no clobber); (f) `importorskip('tiktoken')` real-encoding count sanity.
+- Verify: `python3 -m pytest tests/test_count_tokens.py -x -q`
+- Expected: FAILS (module file absent) — RED evidence recorded.
+- Spec trace: SC8, SC9, SC10
+
+### Slice V1 — Wave 2 (GREEN)
+
+**T3 — Implement check_skill_line_budget in validate_plugins.py**
+- File: `tools/validate_plugins.py`
+- Agent: devops-A · Subject: validator · Phase: GREEN · Difficulty: 2 · Est: 8 ops · blockedBy: T1
+- Shape: `SKILL_LINE_BUDGETS = {'compress': 110}` module constant; `def check_skill_line_budget(budgets=None, plugins_dir=None) -> list[str]` (defaults to constant + PLUGINS_DIR; glob `skills/*/SKILL.md` under the budgeted plugin; error format matches sibling checks; docstring notes plugin-name keying assumes one budgeted SKILL.md per plugin). Register `('SKILL.md line budget', check_skill_line_budget)` in `main()` checks list.
+- Verify: `python3 -m pytest tests/test_check_skill_line_budget.py -q && python3 tools/validate_plugins.py`
+- Expected: pytest green; tool exits 0 with `PASS: SKILL.md line budget` in output.
+- Spec trace: SC5
+
+**T4 — Implement count_tokens.py**
+- File: `plugins/compress/scripts/count_tokens.py`
+- Agent: backend-dev-A · Subject: token-script · Phase: GREEN · Difficulty: 4 · Est: 20 ops · blockedBy: T2
+- Shape: header per extract.py ref (parents[3] sys.path + roxabi_sdk.paths import). Vendored ~10-line ULID (Crockford base32, 48-bit ms timestamp + 80-bit randomness). `resolve_method()` → anthropic-api (ANTHROPIC_API_KEY + anthropic importable) | tiktoken-proxy (broad `except Exception` around `get_encoding` — network-fetch failure ⇒ estimate) | estimate (~chars/4, warning label). `count` subcommand: split target on `^#{1,6} ` headings → per-section counts (proxy: o200k AND cl100k + `agreement` bool; api: count_tokens endpoint; estimate: heuristic) → JSON to stdout with mandatory `method`; one-shot `calibration:` line when API+tiktoken both available. `append` subcommand: args `--target --mode --source-ref --tokens-before --tokens-after --sections-json --correlation [--method …]`; row = Observation shape (spec § Ledger; schema_version 1; reserved glossary_version/level null); `os.open(path, O_APPEND|O_CREAT|O_WRONLY, 0o600)` single `os.write`; dir via `ensure_dir(get_plugin_data('compress'))`. Docstring: binary thresholds (<5% skip, Δ≈0) bind only under `method=anthropic-api`; degradation contract (no Bash → estimate/skip/no row).
+- Verify: `python3 -m pytest tests/test_count_tokens.py -q && python3 plugins/compress/scripts/count_tokens.py count plugins/compress/README.md`
+- Expected: pytest green; demo prints per-section counts with `method:` label.
+- Spec trace: SC8, SC9, SC10
+
+**T5 — Add data block to plugin.json** `[P]`
+- File: `plugins/compress/.claude-plugin/plugin.json`
+- Agent: devops-A · Subject: manifest · Phase: GREEN · Difficulty: 1 · Est: 4 ops · blockedBy: T3
+- Shape: add `"data": {"root": "compress"}`; no `data.files`, no `version` key (spec D3/D7).
+- Verify: `python3 tools/validate_plugins.py && python3 -c "import json; d=json.load(open('plugins/compress/.claude-plugin/plugin.json')); assert d['data']['root']=='compress' and 'version' not in d; print('ok')"`
+- Expected: tool exit 0; `ok`.
+- Spec trace: SC7
+
+**T6 — Replace README savings claim** `[P]`
+- File: `plugins/compress/README.md`
+- Agent: backend-dev-A · Subject: docs-metrics · Phase: GREEN · Difficulty: 1 · Est: 3 ops · blockedBy: T4
+- Shape: line 7 — replace "cutting line count by 30-60% without losing any meaning" with token-honest wording ("savings measured per run — token counts, not line counts"); keep tone.
+- Verify: `grep -c "30-60" plugins/compress/README.md; grep -q "measured per run" plugins/compress/README.md && echo ok`
+- Expected: `0` then `ok`.
+- Spec trace: SC13
+
+### Slice V1 — Wave 3 (RED-GATE)
+
+**T7 — RED-GATE falsification sentinel for V1**
+- Files: `tests/test_check_skill_line_budget.py`, `tests/test_count_tokens.py` (read-only), stash of impl files
+- Agent: tester-A · Subject: falsification · Phase: RED-GATE · Difficulty: 2 · Est: 8 ops · blockedBy: T3, T4, T5, T6
+- Shape: state-agnostic mv-based falsification (works tracked/untracked/committed): `mv tools/validate_plugins.py $SCRATCH/vp.bak && mv plugins/compress/scripts/count_tokens.py $SCRATCH/ct.bak` → both pytest files must FAIL (tests are non-tautological) → `mv` both back → both PASS → `git status --porcelain` shows no unexpected residue. Record before/after outputs as falsification evidence.
+- Verify: scripted mv/test/restore sequence above
+- Expected: FAIL-with-source-removed, PASS-after-restore, zero residue.
+- Spec trace: SC5, SC8, SC9, SC10
+
+## Task Seeding Blueprint
+
+<!-- Used by /implement to seed TaskCreate calls on session start.
+     Format: T{n} | agent-instance | blockedBy | subject
+     Seed in wave order; within a wave all rows are parallel (∥). -->
+
+### Wave 1 — no deps, 2 agents ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T1 | tester-A | — | budget-check |
+| T2 | tester-B | — | token-script |
+
+### Wave 2 — after Wave 1, 2 agents ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T3 | devops-A | T1 | validator |
+| T4 | backend-dev-A | T2 | token-script |
+| T5 | devops-A | T3 | manifest |
+| T6 | backend-dev-A | T4 | docs-metrics |
+
+### Wave 3 — after Wave 2, 1 agent
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T7 | tester-A | T3, T4, T5, T6 | falsification |
+
+## Task IDs
+
+<!-- Generated by /plan. Used by /implement to resume tasks on session restart. -->
+- T1: 16 — budget-check
+- T2: 17 — token-script
+- T3: 18 — validator
+- T4: 19 — token-script
+- T5: 20 — manifest
+- T6: 21 — docs-metrics
+- T7: 22 — falsification
