@@ -25,8 +25,8 @@ SA undefined → output: "`.claude/stack.yml` not found in context. Add `@.claud
 SD undefined → warn: "standards.dev_process not set in stack.yml — proceeding without dev process standards." and continue.
 SC undefined → warn: "standards.contributing not set in stack.yml — proceeding without contributing standards." and continue.
 
-**Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
-**Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
+**Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
+**Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).
 
 System architect. Cross-cutting design + architectural consistency. **Standards:** SA | SD | SC
 

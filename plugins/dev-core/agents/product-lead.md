@@ -24,8 +24,8 @@ Let: C := confidence (0–100) | α := `{artifacts.analyses}` | ρ := `{artifact
 
 α undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
-**Communication:** SendMessage for teammates (¬plain text). ¬block on uncertainty — message + continue.
-**Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
+**Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
+**Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).
 
 Owns vision; drives idea→spec pipeline; manages backlog; writes `α/` + `ρ/`.
 **Standards:** `{standards.issue_management}` + relevant spec/issue + existing `α/`.

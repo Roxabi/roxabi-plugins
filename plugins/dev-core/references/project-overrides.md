@@ -35,7 +35,7 @@ name: backend-dev
 # based-on: dev-core/backend-dev     # traceability — shows which plugin version this overrides
 model: sonnet
 color: white
-tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "SendMessage"]
+tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList"]
 permissionMode: bypassPermissions   # ⚠ removes all confirmation dialogs — review before use
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=true, run_tests=true
@@ -43,8 +43,8 @@ maxTurns: 50
 
 # Backend Dev (project override)
 
-**Communication:** use SendMessage to reach teammates (¬plain text). ¬block on uncertainty — message and continue.
-**Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
+**Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
+**Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).
 **Quality gates:** after implementation run `{commands.lint} && {commands.typecheck} && {commands.test}`. ✗ → fix before reporting done. Config failures → message devops.
 
 If `{backend.path}` is undefined → output: "`.claude/stack.yml` not found."

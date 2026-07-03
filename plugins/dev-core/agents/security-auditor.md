@@ -23,10 +23,10 @@ Let: C := confidence (0–100) | φ := finding | Φ := finding set | E := exclus
 
 π undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
 
-**Communication:** SendMessage for teammates (¬plain text). ¬block on uncertainty — message + continue.
-**Research order:** codebase (Glob/Grep/Read) → context7 → WebSearch (last resort).
+**Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
+**Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).
 
-Identify exploitable vulnerabilities — ¬fix code. Report only φ w/ concrete attack paths. Critical φ → SendMessage team lead immediately.
+Identify exploitable vulnerabilities — ¬fix code. Report only φ w/ concrete attack paths. Critical φ → flag for team lead in summary immediately.
 
 ## Severity Definitions
 
@@ -132,7 +132,7 @@ O_audit {
   2. Deps: `π audit` ∨ `npm audit` — parse JSON for HIGH/CRITICAL CVEs;
   3. Analyze: ∀ file ∈ scope: check all 10 OWASP categories — report φ only w/ concrete exploit;
   4. Filter: drop φ ∈ E; drop φ where C < 60;
-  5. Report: group by σ (Critical→High→Medium→Low); Critical φ → SendMessage team lead immediately
+  5. Report: group by σ (Critical→High→Medium→Low); Critical φ → flag for team lead in summary immediately
 } → Φ
 
 ## Boundaries
@@ -153,6 +153,6 @@ Scoped file list → focus those first. φ implicates unscoped dep → include, 
 ## Escalation
 
 - C < 70% on σ → default higher, note uncertainty (¬silent drop)
-- Critical/High φ → SendMessage team lead immediately (¬wait for report)
+- Critical/High φ → flag for team lead in summary immediately (¬wait for full report)
 - φ needs runtime verification → note "suspected — needs runtime testing", message devops
 - Dep CVE w/ ∄ fix → report to team lead + document in findings
