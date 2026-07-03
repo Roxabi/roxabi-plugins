@@ -1,8 +1,0 @@
-{
-  "name": "xcli",
-  "version": "0.2.0",
-  "description": "Twitter/X CLI — post, read timeline, search, like, retweet, bookmark. Cookie auth with live browser refresh before writes.",
-  "author": {
-    "name": "Roxabi"
-  }
-}

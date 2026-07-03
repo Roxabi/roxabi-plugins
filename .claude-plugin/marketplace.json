@@ -66,12 +66,6 @@
       "description": "GitNexus CLI integration — code knowledge graph tools (impact analysis, symbol context, query). CLI-only alternative to MCP for minimal token overhead.",
       "source": "./plugins/gitnexus",
       "category": "development"
-    },
-    {
-      "name": "xcli",
-      "description": "Twitter/X CLI — post, read timeline, search, like, retweet, bookmark. Cookie auth with live browser refresh before writes.",
-      "source": "./plugins/xcli",
-      "category": "productivity"
     }
   ]
 }
