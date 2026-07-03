@@ -20,7 +20,6 @@ description: |
   assistant: "Including axial-adr-review among spec reviewers to flag drift along non-primary axis."
   </example>
 color: yellow
-tools: ["Read", "Glob", "Grep"]
 permissionMode: bypassPermissions
 maxTurns: 20
 # capabilities: write_knowledge=false, write_code=false, review_code=true, run_tests=false
