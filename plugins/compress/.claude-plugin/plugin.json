@@ -3,5 +3,8 @@
   "description": "Rewrite agent and skill definitions using compact notation to reduce token usage while preserving semantics.",
   "author": {
     "name": "Roxabi"
+  },
+  "data": {
+    "root": "compress"
   }
 }
