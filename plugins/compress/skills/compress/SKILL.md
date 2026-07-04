@@ -87,7 +87,7 @@ One ledger row per completed target, appended ONLY via S — append command temp
 ## Guardrails
 
 ∀ mode, ∀ output — the fidelity floor; evidence pinned in `references/evidence.md`.
-Whitelist: `∀` `∃` `∄` `∈` `∉` `∧` `∨` `¬` `→` `⟺` `∅` `∩` `∪` `⊂` `∥` `|X|` `:=` `←` `{ }` `;` `()` `↦`
+Whitelist: `∀` `∃` `∄` `∈` `∉` `∧` `∨` `¬` `→` `⇒` `⟺` `∅` `∩` `∪` `⊂` `∥` `|X|` `:=` `←` `{ }` `;` `()` `↦` `≥` `≤` `✓` `✗`
 - **G1** polarity: `¬use Y` → `use Z (¬Y)` iff a concrete Z ∃ — never invent Z. No alternative → keep the constraint + flag `needs external verification` (block format: Phase 4).
 - **G2** no free coinage: emitted symbols ∈ whitelist (∪ core table when loaded) ∨ Let-defined; ¬coin indexed vars. Glyph substitution is token-neutral at best; choose glyphs for register/precision, never for economy; measured savings come from prose pruning. ¬hardcode token tiers ∨ tokenizer-relative glyph rules — cost claims require measurement via S (API count; record tokenizer + date).
 - **G3** gloss trigger: `(predicate ∨ O-block ∨ Let-bind) ∨ (symbol ∉ whitelist) ∨ (chain > 3 operators)` → mandatory `— …` gloss ≤1 line. Bare non-whitelist symbols forbidden in output.
