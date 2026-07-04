@@ -21,6 +21,7 @@ Usage:
       --tokens-after N --sections-json J --correlation C [--method ...]
 """
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -43,6 +44,7 @@ ESTIMATE_WARNING = 'estimate tier — chars/4 heuristic, not a real token count'
 
 _CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 _HEADING_RE = re.compile(r'^(#{1,6}) (.+)$')
+_FENCE_RE = re.compile(r'^```')
 
 
 def new_ulid() -> str:
@@ -51,14 +53,24 @@ def new_ulid() -> str:
     return ''.join(_CROCKFORD[(value >> shift) & 0x1F] for shift in range(125, -1, -5))
 
 
-def resolve_method() -> str:
-    """Pick the best available tier: anthropic-api > tiktoken-proxy > estimate."""
-    if os.environ.get('ANTHROPIC_API_KEY'):
-        try:
-            import anthropic  # noqa: F401
-            return 'anthropic-api'
-        except ImportError:
-            pass
+def _anthropic_importable() -> bool:
+    """True when the anthropic package can be imported."""
+    return importlib.util.find_spec('anthropic') is not None
+
+
+def resolve_method(env=None, probe=None) -> str:
+    """Pick the best available tier: anthropic-api > tiktoken-proxy > estimate.
+
+    env/probe are injectable seams for tests, mirroring the encoders= seam on
+    the tiktoken-proxy branch: env defaults to os.environ, probe defaults to
+    an importlib-based availability check for the anthropic package.
+    """
+    if env is None:
+        env = os.environ
+    if probe is None:
+        probe = _anthropic_importable
+    if env.get('ANTHROPIC_API_KEY') and probe():
+        return 'anthropic-api'
     if _load_proxy_encoders() is not None:
         return 'tiktoken-proxy'
     return 'estimate'
@@ -86,11 +98,18 @@ def estimate_tokens(text: str) -> int:
 
 
 def split_sections(text: str) -> list[dict]:
-    """Split markdown on ATX headings; each section includes its heading line."""
+    """Split markdown on ATX headings; each section includes its heading line.
+
+    Heading detection is suspended inside fenced code blocks (``` ... ```) so
+    a `# comment` inside a bash block does not split a section.
+    """
     sections = []
     name, buf = '(preamble)', []
+    in_fence = False
     for line in text.splitlines(keepends=True):
-        m = _HEADING_RE.match(line)
+        if _FENCE_RE.match(line):
+            in_fence = not in_fence
+        m = None if in_fence else _HEADING_RE.match(line)
         if m:
             if ''.join(buf).strip():
                 sections.append({'name': name, 'text': ''.join(buf)})
@@ -113,7 +132,7 @@ def _api_count(text: str) -> int:
     """Count tokens via the Anthropic count_tokens endpoint."""
     import anthropic
 
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(timeout=30)
     model = os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-4-5')
     response = client.messages.count_tokens(
         model=model, messages=[{'role': 'user', 'content': text}]
@@ -129,6 +148,9 @@ def count_target(path, method=None, encoders=None) -> dict:
     warning. Binary thresholds bind only under method=anthropic-api.
     """
     path = Path(path)
+    if not path.exists():
+        print(f'Error: file not found: {path}', file=sys.stderr)
+        sys.exit(1)
     text = path.read_text(encoding='utf-8')
     if method is None:
         method = resolve_method()
@@ -158,20 +180,34 @@ def count_target(path, method=None, encoders=None) -> dict:
         return report
 
     if method == 'anthropic-api':
-        total = 0
-        for section in sections:
-            tokens = _api_count(section['text'])
-            total += tokens
-            report['sections'].append({'name': section['name'], 'tokens': tokens})
-        report['tokens'] = total
-        proxy = _load_proxy_encoders()
-        if proxy is not None and total:
-            proxy_total = sum(len(proxy[0](s['text'])) for s in sections)
-            delta = (proxy_total - total) / total * 100
-            report['calibration'] = (
-                f'calibration: o200k={proxy_total} api={total} delta={delta:+.1f}%'
+        try:
+            total = 0
+            for section in sections:
+                tokens = _api_count(section['text'])
+                total += tokens
+                report['sections'].append({'name': section['name'], 'tokens': tokens})
+            report['tokens'] = total
+            proxy = _load_proxy_encoders()
+            if proxy is not None and total:
+                proxy_total = sum(len(proxy[0](s['text'])) for s in sections)
+                delta = (proxy_total - total) / total * 100
+                report['calibration'] = (
+                    f'calibration: o200k={proxy_total} api={total} delta={delta:+.1f}%'
+                )
+            return report
+        except Exception as exc:
+            # Mirrors _load_proxy_encoders' degradation idiom: any anthropic-api
+            # failure (network, auth, timeout) falls back in-run rather than
+            # raising — to tiktoken-proxy when available, else estimate.
+            fallback_method = (
+                'tiktoken-proxy' if _load_proxy_encoders() is not None else 'estimate'
             )
-        return report
+            fallback = count_target(path, method=fallback_method)
+            fallback['degraded_from'] = 'anthropic-api'
+            fallback['warning'] = (
+                f'anthropic-api failed ({exc}) — degraded to {fallback_method}'
+            )
+            return fallback
 
     total = 0
     for section in sections:
@@ -190,9 +226,11 @@ def append_row(mode, target, source_ref, tokens_before, tokens_after, sections,
     """Append one Observation-shaped row (ADR-005) to the compress ledger.
 
     source_ref is the pre-image hash of the target, captured by the caller
-    BEFORE any write. O_APPEND with a single write keeps concurrent appends
-    line-atomic; the ledger has no other write path. glossary_version and
-    level stay null until #310 / #311 land. Returns the written row.
+    BEFORE any write. O_APPEND keeps concurrent appends line-atomic on POSIX
+    as long as each row is written within one open() lifetime; os.write()
+    can still return short on a single call, so the write loops until the
+    full encoded line (trailing newline included) is flushed. glossary_version
+    and level stay null until #310 / #311 land. Returns the written row.
     """
     row = {
         'id': new_ulid(),
@@ -216,9 +254,12 @@ def append_row(mode, target, source_ref, tokens_before, tokens_after, sections,
     }
     ledger = ensure_dir(get_plugin_data(PLUGIN_NAME)) / 'ledger.jsonl'
     line = json.dumps(row, ensure_ascii=False) + '\n'
+    data = memoryview(line.encode('utf-8'))
     fd = os.open(ledger, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
     try:
-        os.write(fd, line.encode('utf-8'))
+        while data:
+            written = os.write(fd, data)
+            data = data[written:]
     finally:
         os.close(fd)
     return row
@@ -233,6 +274,8 @@ def main(argv=None) -> int:
     count_p = sub.add_parser('count', help='Per-section token counts for a markdown file.')
     count_p.add_argument('target')
     count_p.add_argument('--method', choices=METHODS)
+
+    sub.add_parser('new-ulid', help='Print a new run ULID (for --correlation).')
 
     append_p = sub.add_parser('append', help='Append one Observation row to the ledger.')
     append_p.add_argument('--target', required=True)
@@ -254,13 +297,23 @@ def main(argv=None) -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0
 
+    if args.command == 'new-ulid':
+        print(new_ulid())
+        return 0
+
+    try:
+        sections = json.loads(args.sections_json)
+    except json.JSONDecodeError as exc:
+        print(f'Error: invalid --sections-json: {exc}', file=sys.stderr)
+        sys.exit(1)
+
     row = append_row(
         mode=args.mode,
         target=args.target,
         source_ref=args.source_ref,
         tokens_before=args.tokens_before,
         tokens_after=args.tokens_after,
-        sections=json.loads(args.sections_json),
+        sections=sections,
         correlation=args.correlation,
         method=args.method,
         proxy_agreement=(

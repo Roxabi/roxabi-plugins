@@ -54,6 +54,27 @@ def test_resolve_method_estimate_when_nothing_available(ct, monkeypatch):
     assert ct.resolve_method() == 'estimate'
 
 
+def test_resolve_method_anthropic_api_when_key_and_probe_true(ct):
+    """Key set + anthropic probe true → anthropic-api tier (injected seams)."""
+    method = ct.resolve_method(env={'ANTHROPIC_API_KEY': 'sk-test'}, probe=lambda: True)
+    assert method == 'anthropic-api'
+
+
+def test_resolve_method_tiktoken_proxy_when_no_key(ct, monkeypatch):
+    """No key (probe irrelevant) + tiktoken available → tiktoken-proxy tier."""
+    fake = lambda text: text.split()  # noqa: E731
+    monkeypatch.setattr(ct, '_load_proxy_encoders', lambda: (fake, fake))
+    method = ct.resolve_method(env={}, probe=lambda: True)
+    assert method == 'tiktoken-proxy'
+
+
+def test_resolve_method_estimate_when_key_but_probe_false(ct, monkeypatch):
+    """Key set but anthropic not importable (probe False) + no tiktoken → estimate."""
+    monkeypatch.setattr(ct, '_load_proxy_encoders', lambda: None)
+    method = ct.resolve_method(env={'ANTHROPIC_API_KEY': 'sk-test'}, probe=lambda: False)
+    assert method == 'estimate'
+
+
 # ---------------------------------------------------------------------------
 # Proxy tier — injected fake encoders drive the agreement flag
 # ---------------------------------------------------------------------------
@@ -82,6 +103,36 @@ def test_proxy_agreement_false_when_encoders_disagree(ct, sample_md):
 
 
 # ---------------------------------------------------------------------------
+# split_sections — fence-aware heading detection
+# ---------------------------------------------------------------------------
+
+def test_fenced_hash_does_not_split_section(ct):
+    """A `# comment` inside a fenced code block does not start a new section."""
+    text = (
+        '# Alpha\n\nSome text.\n\n```bash\n# a comment\necho hi\n```\n\nMore text.\n'
+    )
+    sections = ct.split_sections(text)
+    assert [s['name'] for s in sections] == ['Alpha']
+
+
+def test_preamble_before_first_heading(ct):
+    """Text before the first heading lands in a '(preamble)' section."""
+    text = 'Some intro text.\n\n# Alpha\n\nBody.\n'
+    sections = ct.split_sections(text)
+    assert sections[0]['name'] == '(preamble)'
+    assert 'Some intro text.' in sections[0]['text']
+    assert sections[1]['name'] == 'Alpha'
+
+
+def test_zero_headings_yields_one_section(ct):
+    """No ATX headings at all → the whole text is one section."""
+    text = 'Just plain text.\nNo headings here.\n'
+    sections = ct.split_sections(text)
+    assert len(sections) == 1
+    assert sections[0]['name'] == '(preamble)'
+
+
+# ---------------------------------------------------------------------------
 # count — per-section entries + mandatory method field
 # ---------------------------------------------------------------------------
 
@@ -106,6 +157,56 @@ def test_count_cli_emits_json_with_method(ct, sample_md, capsys, monkeypatch):
     report = json.loads(capsys.readouterr().out)
     assert report['method'] == 'estimate'
     assert len(report['sections']) == 2
+
+
+def test_count_cli_missing_file_exits_nonzero(ct, capsys, tmp_path):
+    """count on a nonexistent path exits 1 with a clean stderr message, no traceback."""
+    missing = tmp_path / 'nope.md'
+    with pytest.raises(SystemExit) as exc_info:
+        ct.main(['count', str(missing)])
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert 'not found' in err
+    assert 'Traceback' not in err
+
+
+def test_new_ulid_cli_prints_valid_ulid(ct, capsys):
+    """The new-ulid subcommand prints a bare 26-char Crockford ULID."""
+    rc = ct.main(['new-ulid'])
+    assert rc == 0
+    out = capsys.readouterr().out.strip()
+    assert ULID_RE.match(out)
+
+
+# ---------------------------------------------------------------------------
+# anthropic-api tier — in-run degradation on failure
+# ---------------------------------------------------------------------------
+
+def test_anthropic_api_failure_degrades_to_tiktoken_proxy(ct, sample_md, monkeypatch):
+    """An anthropic-api failure degrades in-run to tiktoken-proxy when available."""
+    def boom(text):
+        raise RuntimeError('network down')
+
+    fake = lambda text: text.split()  # noqa: E731
+    monkeypatch.setattr(ct, '_api_count', boom)
+    monkeypatch.setattr(ct, '_load_proxy_encoders', lambda: (fake, fake))
+    report = ct.count_target(sample_md, method='anthropic-api')
+    assert report['method'] == 'tiktoken-proxy'
+    assert report['degraded_from'] == 'anthropic-api'
+    assert 'warning' in report
+
+
+def test_anthropic_api_failure_degrades_to_estimate_when_no_proxy(ct, sample_md, monkeypatch):
+    """An anthropic-api failure degrades to estimate when tiktoken is also unavailable."""
+    def boom(text):
+        raise RuntimeError('network down')
+
+    monkeypatch.setattr(ct, '_api_count', boom)
+    monkeypatch.setattr(ct, '_load_proxy_encoders', lambda: None)
+    report = ct.count_target(sample_md, method='anthropic-api')
+    assert report['method'] == 'estimate'
+    assert report['degraded_from'] == 'anthropic-api'
+    assert 'warning' in report
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +269,55 @@ def test_append_row_is_append_only(ct, isolated_vault):
     assert len(lines) == 2
     assert json.loads(lines[0])['id'] == first['id']
     assert json.loads(lines[0])['id'] != json.loads(lines[1])['id']
+
+
+def test_append_cli_writes_row(ct, isolated_vault):
+    """The append subcommand writes a ledger row with proxy_agreement as a real bool."""
+    correlation = ct.new_ulid()
+    rc = ct.main([
+        'append',
+        '--target', 'plugins/compress/skills/compress/SKILL.md',
+        '--mode', 'compress',
+        '--source-ref', 'abc',
+        '--tokens-before', '10',
+        '--tokens-after', '5',
+        '--sections-json', '[]',
+        '--correlation', correlation,
+        '--proxy-agreement', 'true',
+    ])
+    assert rc == 0
+
+    ledger = isolated_vault / 'compress' / 'ledger.jsonl'
+    lines = ledger.read_text(encoding='utf-8').splitlines()
+    row = json.loads(lines[-1])
+    assert row['correlation'] == correlation
+    assert row['payload_typed']['proxy_agreement'] is True
+
+
+def test_append_cli_missing_required_arg_exits_nonzero(ct):
+    """A missing required CLI argument exits nonzero via argparse (SystemExit)."""
+    with pytest.raises(SystemExit) as exc_info:
+        ct.main(['append', '--mode', 'compress'])
+    assert exc_info.value.code != 0
+
+
+def test_append_cli_invalid_sections_json_exits_nonzero(ct, capsys):
+    """append with malformed --sections-json exits 1 with a clean stderr message."""
+    with pytest.raises(SystemExit) as exc_info:
+        ct.main([
+            'append',
+            '--target', 't.md',
+            '--mode', 'compress',
+            '--source-ref', 'abc',
+            '--tokens-before', '10',
+            '--tokens-after', '5',
+            '--sections-json', 'not-json',
+            '--correlation', 'C',
+        ])
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert 'sections-json' in err
+    assert 'Traceback' not in err
 
 
 def test_new_ulid_shape(ct):
