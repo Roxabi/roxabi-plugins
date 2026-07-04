@@ -1,6 +1,6 @@
 # Fixture — Memory Genre
 
-Memory-shaped proof corpus for `references/lint.md` Genre Profiles: ISO-dated entries, `[[wiki-links]]`, a provenance line — with one planted drift sitting NEXT to the dates and links, so any over-broad proposal would visibly touch them. Fictional.
+Memory-shaped proof corpus for `references/lint.md` Genre Profiles: ISO-dated entries, `[[wiki-links]]`, a provenance line — with one planted drift sitting NEXT to the dates and links, so any over-broad proposal would visibly touch them. Genre is assigned at the report step via the override present-choice — never name a fixture `MEMORY.md` or place it under a real `memory/` directory, since Claude Code's memory system would auto-load it and inject the planted content into agent context. Fictional.
 
 ## Entries
 

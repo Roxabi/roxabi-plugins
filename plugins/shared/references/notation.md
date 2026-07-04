@@ -51,7 +51,7 @@ Every entry of the three source legends, with its disposition. Nothing was dropp
 
 ## Disambiguation Grammar
 
-Loaded by glossary (and future lint) modes — not by compress runs.
+Loaded by glossary (and lint) modes — not by compress runs.
 
 ### `→` — four positional senses
 
