@@ -1,0 +1,150 @@
+---
+title: 'compress v2 train D — corpus lint mode with genre profiles + approval-queue repair'
+issue: 312
+status: approved
+tier: F-lite
+date: 2026-07-04
+---
+
+## Context
+
+Promoted from `artifacts/frames/312-lint-mode-frame.mdx` (approved, zero validator findings). Analysis §3-P8 (P1/P2/P5/P6 corrections by symmetry). Train D of #308; builds on A (`3b8d5cf` dispatch/ledger), B (`1dc4cf3` glossary/G-rules), C (`b51913d` markers/verify).
+
+## Goal
+
+Give the glossary its enforcement loop: `/compress lint <scope>` reports 8 drift classes deterministically against any scope (read-only by default), routes repairs through a DP-gated approval queue in cortex's `diff_types` schema, with genre-aware profiles, hard content exclusions, an in-flight guard, and a lint ledger row per run.
+
+## Users
+
+- **Primary:** maintainers linting notation drift on demand; the deferred corpus migration finally has its churn-safe vehicle.
+- **Secondary:** #313 derive (emits into a lintable corpus); roxabi-cortex Layer-4 actuation (the queue rows exercise its exact `diff_types` contract).
+
+## Decisions
+
+1. **Path normalization (recorded)**: mode body at `plugins/compress/skills/compress/references/lint.md`; fixtures at `references/lint-fixtures/` (sibling dir, shipped, fictional).
+2. **Version-bump AC reinterpreted (recorded, §8.D)**: plugin.json stays version-less; `check-skill-version.sh:21` self-skips (`[ -n "$cur" ] || continue`); evidence = green pre-push. NO version field added.
+3. **Trigger/description Δ=0 (recorded)**: "lint notation" pre-installed by train A; description byte-unchanged; SKILL.md gets exactly TWO in-line 0-delta edits (train-C precedent): line 46 whole-sentence update ("…+ `references/lint.md` ship → `derive` halts.") AND line 29's Entry example ("mode lint — halts until references/lint.md ships" → "mode lint — dispatches references/lint.md") — leaving either stale ships a self-contradiction.
+4. **DP drift (standing)**: Step-2 class selection = ONE batched present-choice multi-select; semantic repairs = per-file present-choice; mechanical repairs = one batch present-choice then per-file diff previews; never AskUserQuestion.
+5. **`⇒` exclusion cites the adjudication**: lint.md's class list explicitly notes `⇒` is NOT drift (notation.md core-active since train B, ×40/8 files measured) and enters only if a future glossary decision retires it.
+6. **Drift-class proof strategy**: each Grep pattern is fixture-proven (`lint-fixtures/drift-classes.md` contains ≥1 planted instance per mechanical class + crafted cases per semantic class); live-corpus counts are reported when the mode runs but never asserted as ACs (counts rot — recorded adaptation).
+7. **In-flight guard mechanics**: invocation per Decision 13 (N+1 form) → union of head-diff paths; any lint target ∈ that set → skip + report row "skipped — owned by in-flight PR #N". gh unavailable → guard degrades to WARN ("in-flight check unavailable — fix at your own risk") and `--fix` requires explicit re-confirmation.
+8. **Ledger row**: `count_tokens.py append --mode lint` path (row lands with category=lint — framing corrected in Decision 12: nothing was literally reserved); payload sections carry per-class finding counts; Bash absent → skip cleanly, stated in report.
+9. **Stale-marker class reuses train-C semantics, hash domain pinned**: the marker's `src-sha` is the pre-image hash of the SOURCE file at compression time (train-C contract); lint compares `git hash-object <file>` of the CURRENT file body against it — mismatch means the file changed since compression → finding + link to the forced-re-verify rule. Lint never re-verifies or edits markers.
+10. **Pattern contracts (the 8 classes, panel-mandated — lint.md embeds these verbatim-equivalent)**:
+    - `arrow-doubling` (mech): literal string `→ → ` outside excluded regions.
+    - `or-drift` (mech): `||` on lines that carry notation glyphs (any whitelist symbol on the same line — bounds it to notation prose, not shell/TS code which the region filter already drops).
+    - `assign-drift` (mech): inside a Let block — delimited from a line matching `^\s*Let:` to the first subsequent non-indented line — lines using `←` or bare ` = ` where `:=` is the canon.
+    - `reserved-collision` (sem): a Let-binding re-binds a **registry variable** (the FULL notation.md Reserved-Variable Registry set, referenced not hardcoded) to a **non-dominant sense** without the `(local)` marker. Dominant-sense uses are never findings.
+    - `unknown-symbol` (sem): non-ASCII notation symbol ∉ (glossary core table ∪ file-local Let-defined) — the same domain as compress Phase 5's assert.
+    - `missing-gloss` (sem): lines matching the G3 trigger shapes (`⟺`-predicates, `O_<name>{`/`O_<name>(`, `X := …` bindings, >3-operator chains) lacking a ` — ` NL gloss on the same line.
+    - `stale-marker` (sem): `<!-- compress: .* src-sha=<hex> -->` where `<hex>` ≠ `git hash-object` of the current file.
+    - `negative-polarity` (sem, ADVISORY): `¬<imperative>` / "never X"-form constraint lines with no adjacent positive alternative; proposal `use Z (¬X)` ONLY when Z is present in the surrounding text, else flag `needs external verification`.
+11. **Genre detection table (paths, first match wins)**: `CLAUDE.md` (any directory) → always-on; `memory/**` or `MEMORY.md` → memory; paths containing `/skills/`, `/agents/`, `/commands/` → skills; ssot-style is NEVER auto-assigned — it is reachable only by explicit human override at the report step ("user-designated always-on manifests", generic); everything else → skills profile. SC10's "total mapping" is total over genres; ssot assignment is override-only (stated in lint.md).
+12. **Ledger filler mapping (append's required args on a read-only multi-file run)**: `--target <scope-string> --source-ref $(git rev-parse HEAD) --tokens-before 0 --tokens-after 0 --sections-json <per-class finding counts as sections> --mode lint --correlation <run ULID>`. (Correction: `category` is free-form mode — nothing is literally "reserved" for lint in train A; the row simply lands with category=lint.)
+13. **In-flight guard invocation (field-validity-safe)**: `gh pr list --state open --json number --jq '.[].number'` then per-PR `gh pr view <N> --json files --jq '.files[].path'` (the `files` field is a pr-view field — N+1 is the reliable form); union → skip set.
+14. **Fixture content contracts** (`references/lint-fixtures/`, all fictional):
+    - `drift-classes.md`: one `##` section per class; each holds ≥1 planted positive instance + one adjacent negative (non-firing) case; the negative-polarity section includes both a Z-exists case and a no-Z case.
+    - `memory-genre.md`: memory-file shape — ISO-dated entries, `[[wiki-links]]`, a provenance line; the planted drift sits NEXT to dates/links so any over-broad proposal would visibly touch them.
+    - `always-on-genre.md`: mini always-on-manifest-shaped file with one verbose always-paid rule → expected output = invariant+pointer advisory (not an edit). NEVER name a fixture `CLAUDE.md` — Claude Code auto-loads such files, injecting planted drift into agent context.
+    - **Fixture genre assignment**: under Decision 11's path table both genre fixtures fall to the skills profile (they live under /skills/); the SC7 proof assigns their intended genres via the report-step present-choice override (Decision 11's existing mechanism) — stated in the demo walkthrough.
+    - `exclusions.md`: a fenced code block containing `→ → `, frontmatter containing `||`, a `## Spawn template` section with a fenced `Task(` block containing planted drift, and inline code spans carrying `` `⇔` `` and `→ → ` — ALL must yield zero findings.
+
+## Expected Behavior
+
+**Dispatch & preload.** `/compress lint <scope>`: mode-exists gate resolves `references/lint.md` (this PR ships it; only `derive` halts after). Phase 0 loads notation.md's `## Core Table` + Grammar + Maintenance (the lazy halves load in lint mode — train-B budget rule); glossary absent → halt: "lint requires the notation glossary (train B) — plugins/shared/references/notation.md not found". Never improvise a drift list.
+
+**Scope.** Train-A resolution (file|glob|dir|plugin). Vault paths (anything under `get_plugin_data`/`~/.roxabi-vault`) hard-excluded at resolution; excluded paths never appear in the report except one summary line "vault paths excluded: N".
+
+**Step 1 — deterministic lint.** The 8 classes per Decision 10's pattern contracts, embedded in lint.md. Hard exclusions applied BEFORE matching: fenced code blocks, **inline code spans** (`` `…` `` — the corpus cites glyphs in inline code everywhere; without this the mode lints the glossary's own deprecation records), frontmatter blocks, spawn-template sections (a heading matching /spawn/i up to the next same-or-higher-level heading, plus any fenced `Task(` block).
+
+**Step 2 — report.** `file:line | class | current | proposed` grouped by class with counts; genre profile per file shown (always-on → aggressive invariant+pointer advisory; memory/** + MEMORY.md → provenance-preserving, never propose removing dates/links; skills/agents/commands → full rule set; default → skills profile; override via present-choice). Dry-run (default) STOPS here after the class multi-select records intent.
+
+**Step 3 — repair (`--fix`).** Mechanical classes: one batch approval → Edit with per-file diff preview; semantic: per-file present-choice; `negative-polarity` NEVER auto-applied under any path (queue-only, G1 proposal only when Z exists in source, else `needs external verification`). Batch cap ≤10 files; larger scopes chunk. In-flight guard before every write (Decision 7). Every queued repair serializes `{diff_type ∈ {claude_md, skill, memory_entry, ssot}, target_path, diff_body}` — mapping total: always-on→claude_md, ssot-style ("user-designated always-on manifests", generic)→ssot, memory→memory_entry, else→skill.
+
+**Ledger + rules.** One Observation row per run (Decision 8). Operational rules in lint.md: dry-run default, one PR per plugin scope, small batches, cache never edited, no `--force`/`--hard`/`--amend`.
+
+## Data Model & Consumers
+
+**Data structure:** [lint data model](../visuals/312-lint-mode-data-model.html)
+**Consumer map:** [lint consumers](../visuals/312-lint-mode-consumers.html)
+
+| Consumer | Fields | When | Status |
+|----------|--------|------|--------|
+| maintainers | report rows + genre labels | every run | this issue |
+| repair path (Edit) | queue rows, previews | --fix runs | this issue |
+| ledger | category=lint row, per-class counts | every run (Bash) | this issue |
+| #313 derive | linted corpus | train E | future |
+| cortex Layer-4 | diff_types schema | PoC | future |
+
+## Breadboard
+
+| ID | Affordance | Handler | Data |
+|----|-----------|---------|------|
+| S1 | lint.md mode body (classes, profiles, queue, rules) | lazy-loaded reference | patterns + tables |
+| S2 | Glossary preload gate + halt text | lint.md Phase 0 | notation.md sections |
+| S3 | 8 drift-class patterns (+ ⇒ exclusion note) | lint.md Step 1 | Grep patterns |
+| S4 | Hard exclusions (code/frontmatter/spawn) + vault scope exclusion | lint.md | region rules |
+| S5 | Genre profiles + total diff_type mapping | lint.md | table |
+| S6 | Report format + class multi-select | lint.md Step 2 | rows |
+| S7 | Repair flow (--fix, caps, previews, polarity queue-only) | lint.md Step 3 | queue rows |
+| S8 | In-flight guard | lint.md | gh pr list |
+| S9 | Ledger row category=lint | count_tokens.py append | Observation |
+| S10 | Fixtures (drift-classes, memory-genre, always-on-genre, exclusions) | references/lint-fixtures/ | 4 files |
+| S11 | SKILL.md lines 29 + 46 in-line edits (0-delta, Decision 3) | SKILL.md | Entry example + ship list |
+| S12 | README lint docs | docs | — |
+
+## Slices
+
+| # | Slice | Contains | Demo |
+|---|-------|----------|------|
+| 1 | Lint mode complete | S1–S12 | `/compress lint plugins/compress` dry-run walkthrough evidence: report with planted-fixture findings per class, ⇒ zero findings, exclusion regions silent, memory fixture provenance-safe, vault excluded; halt-text proof (glossary temporarily renamed in scratch); lines 29 + 46 updated; validator + QG green |
+
+(Single slice — complexity 4; all heavy machinery pre-exists from trains A–C.)
+
+## Constraints
+
+- SKILL.md frozen at 110 except the TWO 0-delta in-line edits (lines 29 + 46, Decision 3); description byte-unchanged.
+- No dev-core files; no tools/validate_plugins.py changes; no new scripts; no new CI deps.
+- Fixtures fictional/generic; no `~/projects/ssot/*` or machine paths anywhere (ssot-style = "user-designated always-on manifests").
+- negative-polarity advisory under EVERY path; vault exclusion absolute; in-flight guard before every write.
+- Repo hygiene: specific-file staging; no `--force`/`--hard`/`--amend`; never stage 308-*.
+
+## Non-goals
+
+- Derive (#313); live corpus migration (post-train ops); retiring `⇒`; validator/CI changes; new ledger scripts (train-A append reused).
+
+## Edge Cases
+
+| Scenario | Handling |
+|----------|----------|
+| Glossary missing | Halt with train-B pointer (gate text proven via scratch rename) |
+| gh CLI unavailable at --fix | Guard degrades to WARN + explicit re-confirmation required |
+| Bash unavailable | No ledger row; run proceeds; stated in report |
+| Scope resolves into vault | Excluded at resolution; summary count only |
+| Finding inside code block/frontmatter/spawn template | Never reported (region pre-filter) |
+| >10 files with findings in --fix | Chunked batches, cap stated |
+| File in open PR diff | Skipped + reported "owned by in-flight PR #N" |
+| ⇒ occurrences | Zero findings; exclusion note cites the train-B adjudication |
+| Memory-genre file | Proposals never remove dates/links/provenance |
+| stale-marker hit | Finding links to forced-re-verify rule; lint never edits markers |
+| Same file hit by mechanical + semantic classes | Mechanical batch first, semantic per-file after; single diff preview per file per batch |
+| Zero findings | Clean report + ledger row with zero counts |
+
+## Success Criteria
+
+- [ ] SC1 Dry-run default: report only, zero writes without BOTH `--fix` and approval; dispatch resolves lint only via `references/lint.md` existence (line 46 updated: lint ships, only derive halts)
+- [ ] SC2 Glossary absent → documented halt text with train-B pointer (scratch-rename proof); no memory-improvised drift list
+- [ ] SC3 All 8 classes in lint.md as fixed executable patterns; each fires on the planted fixture (fixture-proven per Decision 6)
+- [ ] SC4 `⇒` yields zero findings; exclusion note cites the train-B adjudication
+- [ ] SC5 negative-polarity report/queue-only under every path incl. batch --fix; Z-exists rule + `needs external verification` fallback stated
+- [ ] SC6 Exclusion fixture (code block + frontmatter + spawn template + inline code spans) yields zero findings in those regions
+- [ ] SC7 Memory-genre fixture: no proposal removes dates/links; always-on fixture: invariant+pointer advisory emitted; vault paths never in scope (resolution-level exclusion stated + summary line)
+- [ ] SC8 Report format `file:line | class | current | proposed` grouped by class; class selection = one present-choice multi-select; no AskUserQuestion
+- [ ] SC9 Mechanical: one batch approval + per-file diff previews; semantic: per-file; cap ≤10 files/batch stated
+- [ ] SC10 Queue rows `{diff_type, target_path, diff_body}` with total genre→diff_type mapping
+- [ ] SC11 In-flight guard: open-PR files skipped + reported; gh-absent degradation stated
+- [ ] SC12 lint.md fully generic (no ssot paths, no machine paths); self-containment grep clean
+- [ ] SC13 Ledger row category=lint per run (train-A append path); Bash-absent skip stated
+- [ ] SC14 Operational rules block present (dry-run default, one PR per plugin scope, small batches, cache-never, no force/hard/amend)
+- [ ] SC15 plugin.json version-less + `bash scripts/check-skill-version.sh` green (reinterpreted AC, Decision 2)
+- [ ] SC16 SKILL.md exactly 110 with BOTH 0-delta in-line edits (lines 29 + 46, Decision 3); description byte-identical to staging; README documents lint; validator ALL PASS
