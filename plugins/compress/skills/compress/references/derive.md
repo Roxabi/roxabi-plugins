@@ -15,7 +15,7 @@ MAX_FILES = 40
 MAX_BYTES = 400_000
 ```
 
-Scope resolution (SKILL.md Phase 1): file path | glob | directory | plugin name — same discovery, same read budget.
+Scope resolution (SKILL.md Phase 1): file path | glob | directory | plugin name — same discovery mechanism; this mode's read-budget cap is set independently (§ Scope & Caps below), not inherited from Phase 1's N ≤ 10.
 
 Over-cap scope → halt with chunking advice: "Scope exceeds MAX_FILES or MAX_BYTES; chunk into ≤40 files or ≤400k bytes per run." Per-file Task fan-out: each subagent reads EXACTLY its one file and returns signatures only (never the whole corpus in one context window) — this is the train-C single-file cap pattern. No merged read of the entire scope.
 
@@ -62,7 +62,7 @@ FRESHNESS_DAYS = 7
 
 Explicitly state: these are labeled placeholders, not calibrated thresholds. Every real measurement is produced by a tool command, never hand-waved.
 
-Stability predicate: `git log -1 --format=%ct -- <file>` outputs the UNIX timestamp of the file's most recent commit; iff `(now - timestamp) > FRESHNESS_DAYS * 86400` seconds, the file is marked stable.
+Stability predicate: `git log -1 --format=%ct -- "<file>"` outputs the UNIX timestamp of the file's most recent commit; iff `(now - timestamp) > FRESHNESS_DAYS * 86400` seconds, the file is marked stable. Command failure or empty output (untracked file, git unavailable) → treat as ¬stable (fail-closed) — never assume freshness absent a timestamp.
 
 Amortization rule: extraction is allowed iff co-occurrence-in-one-context-window (the file chain passed to a single Task agent) OR declared as a SSoT objective (explicitly stated in the scope request).
 
@@ -159,7 +159,7 @@ Cluster-level report trailer contains:
 - **Dark-matter list** — all clusters routed to dark matter (listed verbatim, never forced into abstraction)
 - **Gate-failed list** — all clusters that failed a predicate (its OWN disposition, NOT lumped into dark-matter)
 - **Deliberate-loss list** — clusters that passed GATE and ROUTE but the user accepted a present-choice to skip (recorded with acceptance identity)
-- **coverage map** — every mined instance_id keyed as `(file, line, signature-key)`; disposition per instance ∈ {pattern, principle, dark-matter, gate-failed, deliberate-loss}; coverage identity: `|mapped| + |deliberate-loss| + |gate-failed| = |all_mined_instances|`, zero unmapped
+- **coverage map** — every mined instance_id keyed as `(file, line, signature-key)`; disposition per instance ∈ {pattern, principle, dark-matter, gate-failed, deliberate-loss}; coverage identity: `|pattern| + |principle| + |dark-matter| + |gate-failed| + |deliberate-loss| = |all_mined_instances|`, zero uncounted
 
 Ledger row: one Observation appended ONLY via S (SKILL.md's sole ledger writer) — compose the append line with the scope string as a single argv token, never re-parsed by shell:
 
@@ -178,7 +178,7 @@ Derive.md's OWN verifier spawn prompt (explicitly NOT verify.md's compress ancho
 
 Materialize the complete report to ONE scratch file (single-file cap pattern — the sole persistent write remains the ledger row; the scratch file is transient). Spawn ONE fresh Task reader that reads exactly that scratch file and checks:
 
-1. **Coverage identity** — every mined instance_id has a disposition; arithmetic: `|mapped| + |deliberate-loss| + |gate-failed| = |all_mined_instances|` (zero unmapped).
+1. **Coverage identity** — every mined instance_id has a disposition; arithmetic: `|pattern| + |principle| + |dark-matter| + |gate-failed| + |deliberate-loss| = |all_mined_instances|` (zero uncounted).
 2. **Deliberate-loss attestation** — every entry in the deliberate-loss list carries its present-choice acceptance (the choice made, the user's intent).
 3. **Spot-reproduction** — pick one emitted R12 principle and one `ref:` instance from its source; judge whether following that principle reproduces the instance in the source file. Record this as an LLM judgment call. Explicitly disclose: "spot-reproduction is not mechanized in this train — judgment-only verification."
 
@@ -271,16 +271,18 @@ confidence: 85 · ambiguity_flags: [subjective, schema-fit-boundary]
 
 ⑤ **Poor-Fit Cluster — Dark Matter Verbatim (never forced into abstraction)**
 
-Source: Two files contain superficially similar setup instructions:
+Source: Three files contain superficially similar setup instructions:
 
 File A: `Init phase: connect to database, load config, spawn workers.`
 File B: `Startup sequence: open DB connection, read configuration, launch daemon tasks.`
+File C: `Boot routine: establish DB link, pull settings, fork worker processes.`
 
 Normalized signatures:
 - A: `<VAR> phase: <VAR> to <VAR>, <VAR> config, <VAR> workers.`
 - B: `<VAR> sequence: <VAR> DB connection, read configuration, launch daemon tasks.`
+- C: `<VAR> routine: <VAR> DB link, <VAR> settings, <VAR> worker processes.`
 
-LLM judgment: semantically equivalent (both describe system startup). Merge: `Startup procedure: connect to database, load config, start workers.` Occurrence: 2 files, 2 instances. Gate: all PASS. Route: **poor** schema-fit — these are domain-specific vernacular (A and B use different terminology for the same concept, but abstracting further would lose the domain context). Action: **dark matter verbatim** — listed in the report, never forced into a principle:
+LLM judgment: semantically equivalent (all three describe system startup). Merge: `Startup procedure: connect to database, load config, start workers.` Occurrence: 3 files, 3 instances. Gate: all PASS. Route: **poor** schema-fit — these are domain-specific vernacular (A, B, and C use different terminology for the same concept, but abstracting further would lose the domain context). Action: **dark matter verbatim** — listed in the report, never forced into a principle:
 
 ```
 ## Cluster: startup vocabulary
@@ -288,6 +290,7 @@ LLM judgment: semantically equivalent (both describe system startup). Merge: `St
 Instances (verbatim):
   file-A.md:12: Init phase: connect to database, load config, spawn workers.
   file-B.md:8: Startup sequence: open DB connection, read configuration, launch daemon tasks.
+  file-C.md:5: Boot routine: establish DB link, pull settings, fork worker processes.
 
 Route: dark-matter (poor schema-fit — domain-specific vernacular, no cross-domain principle)
 ```
@@ -300,28 +303,36 @@ Signature: `function(<VAR>: <VAR>, <VAR>: <VAR>) → <VAR>`
 
 Gate: all PASS. Route: **ambiguous** schema-fit. Present-choice offered.
 
-Break-even arithmetic (all tool outputs):
+Break-even arithmetic (all tool outputs — every instance measured individually, no hand-estimates):
 
 ```
-Fragment 1 (single occurrence instance):
+Fragment 1 (occurrence instance 1):
   $ python3 count_tokens.py count /tmp/instance1.txt
   { "tokens_o200k": 8, "method": "tiktoken-proxy", "agreement": true }
 
-Fragment 2 (principle draft):
+Fragment 2 (occurrence instance 2):
+  $ python3 count_tokens.py count /tmp/instance2.txt
+  { "tokens_o200k": 9, "method": "tiktoken-proxy", "agreement": true }
+
+Fragment 3 (occurrence instance 3):
+  $ python3 count_tokens.py count /tmp/instance3.txt
+  { "tokens_o200k": 8, "method": "tiktoken-proxy", "agreement": true }
+
+Fragment 4 (principle draft):
   $ python3 count_tokens.py count /tmp/principle_draft.txt
   { "tokens_o200k": 45, "method": "tiktoken-proxy", "agreement": true }
 
 Repo-static calculation (if principle adopted):
-  3 instances × 8 tokens/instance = 24 tokens (current)
+  instance 1 + instance 2 + instance 3 = 8 + 9 + 8 = 25 tokens (current)
   1 principle + 3 pointers = 45 + (3 × 2) = 51 tokens (proposed)
-  Δ = 51 − 24 = +27 tokens (net loss)
+  Δ = 51 − 25 = +26 tokens (net loss)
 
 Runtime per-invocation cost:
   Draft + describe + present cost = 45 tokens
   Savings if user accepts: 0 tokens (because repo-static is net loss)
-  Break-even threshold: 45 ≤ 24? NO.
+  Break-even threshold: 45 ≤ 25? NO.
 
-Disposition: **Skipped — break-even arithmetic shows net token loss (+27 repo-static); runtime cost (45 tokens) exceeds savings; user choice: **Skip**.
+Disposition: **Skipped — break-even arithmetic shows net token loss (+26 repo-static); runtime cost (45 tokens) exceeds savings; user choice: **Skip**.
 ```
 
 ---
