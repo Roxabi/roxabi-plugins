@@ -1,155 +1,200 @@
 ---
-title: 'Plan: compress v2 train B — slice V1 (P6 guardrails standalone)'
+title: 'Plan: compress v2 train B — slice V2 (P1 glossary SSoT + gates)'
 issue: 310
 spec: artifacts/specs/310-notation-glossary-guardrails-spec.mdx
-complexity: 5/10
+complexity: 6/10
 tier: F-lite
-slice: V1 of 2
+slice: V2 of 2 (V1 implemented: commit 834ad1b)
 generated: 2026-07-04
 ---
 
 ## Summary
 
-Slice V1 (P6): replace compress's flat `¬compress` list with guardrails G1–G4 + canonical inline whitelist + R1 demotion and break-even inequality, wire the existence-gated glossary paths (glossary absent in V1 — the standalone proof), pin the evidence in `references/evidence.md`, all within the ≤110-line budget via the Decision-10 displacement plan.
+Slice V2 (P1): author `plugins/shared/references/notation.md` (core table + grammar + maintenance + grep-seeded registry + adjudications), ship the `glossary` mode body, repoint the two dev-core legends (one-line pointers) with the dev-core semver bump, and land `--check notation-legends` (pointer gate + whitelist↔core-table set-equality) with pytest coverage — closing the loop V1's existence-gated wiring left open.
 
 ## Architecture
 
 **Data flow:** [notation pipeline](../visuals/310-notation-glossary-guardrails-data-flow.html)
 **File map:** [files × sections](../visuals/310-notation-glossary-guardrails-file-map.html)
 
-(Sidecars cover both slices; generated during this V1 plan run.)
+(Sidecars from the V1 plan run cover both slices — unchanged.)
 
 ## Bootstrap Context
 
-- Binding spec decisions: D9 format contracts (Whitelist anchor line, glyph domain excl. reserved vars), D10 displacement (append template + mode-specific edge rows → `references/compress.md`; G1–G4 stay in SKILL.md — cross-mode), D11 standalone Phase-3 degradation (whitelist glyph domain only, documented).
-- Current SKILL.md = 106 lines (train A v2 + fix); budget 110; est. +14–16 added by G-rules/whitelist/inequality/wiring ⇒ displace ~10–12 (D10 targets: the Phase 5 append command block SKILL.md:78-85, and ONLY the mode-specific Edge Cases row :93 "Mode-specific (…) | Per ref(μ)" — rows :91-92 "Agent (¬skill)" and "User rejects at Phase 4" are cross-mode and STAY).
-- `references/compress.md` currently holds the Symbols legend (:5-7) + R1–R10 (:13-30) + `¬compress` line (:32) + mode edge cases (:34-40) + measured rationale (:42-51). The `¬compress` line is superseded by G1–G4 → replace with a one-line pointer to SKILL.md's G-rules; keep mode-specific behaviors.
-- Whitelist seed = union of glyphs in `references/compress.md:7` legend (fresh grep at implement; expected ~20 tokens incl. `:=`, `|X|`, `↦`, `⟺`).
-- G4 citation form: `(evidence: references/evidence.md — Tencent 2604.07192)` inline.
-- Quality bar: dev-core maintainer idiom; G-rules compact (≤2 lines each + shared intro).
+- V1 delivered (834ad1b): SKILL.md 109/110 w/ `Whitelist:` anchor (22 backtick spans), G1–G4, existence-gated Phase 0/3/5 wiring; evidence.md; compress.md updates.
+- Binding spec Decisions: **D9** (core-table `## Core Table` anchor → next `##`; 5-col schema `| glyph | senses | gloss? | fidelity ⚠ | notes/adjudication |`; column-1 backtick extraction; separator-row skip; whitelist anchor; equality domain = operator glyphs only, active rows only; exit tiers: missing file → message contains `not found at` (exit 2), drift → exit 1; non-empty guard; pointer example line; registry schema `| var | binding(s) | grep counts | status |`; → senses from classified fresh grep samples; adjudication record format; writer-side disclaimer verbatim), **D4** (⟺/⇒ expected retained — fresh counts decide), **D6** (dev-core 0.8.13→0.8.14).
+- **Set-equality invariant**: notation.md core table active rows must contain exactly the 22 whitelist glyphs of SKILL.md's `Whitelist:` line (`∀ ∃ ∄ ∈ ∉ ∧ ∨ ¬ → ⟺ ∅ ∩ ∪ ⊂ ∥ |X| := ← { } ; () ↦` — read the real line first). Glyphs beyond the whitelist (e.g. `⇒` retained by adjudication) must ALSO enter the whitelist in the same slice or live outside the core table's active rows — resolve by: add `⇒` (and any other adjudicated-active glyph) to BOTH sides, keeping equality. SKILL.md edit for this is in-scope for T9b (1-line change, budget 109→109).
+- Fresh greps to run and record (T7): `⟺` and `⇔` file counts in plugins/; `⇒` count + file spread; `→` sense sampling (~20 samples classified); σ/Ω/α/β/ω/μ/τ/φ/Δ/Σ/π binding counts. Tools: `git grep -c` / `git grep -l` over `plugins/`.
+- Ref patterns: `tools/validate_plugins.py::check_class_list_sync` (anchored-line set parse) + `check_skill_line_budget` (injectable params, registry const); `tests/test_check_skill_line_budget.py` (fixture + subprocess patterns); `tests/test_check_taxonomy_sync.py` (`run_tool('--check', …)`).
+- Pointer target wording (D9): `` Notation legend → canonical glossary: `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` (repo: `plugins/shared/references/notation.md`) `` — adapted to each file's voice; the check greps for a single legend line containing `notation.md`.
+- check-skill-version: bump satisfies the pre-push gate (base.md ∈ plugins/dev-core/skills/**).
 
 ## Agents
 
 | Agent instance | Tasks | Files |
 |----------------|-------|-------|
-| doc-writer-A | T1, T2 | references/evidence.md; SKILL.md + references/compress.md |
-| doc-writer-B | T3 | plugins/compress/README.md |
-| tester-A | T4, T5 | (grep battery + budget sentinel — no new files) |
+| tester-A | T6 | tests/test_check_notation_legends.py |
+| doc-writer-A | T7, T8 | plugins/shared/references/notation.md; plugins/compress/skills/compress/references/glossary.md |
+| doc-writer-B | T9, T9b | plugins/dev-core/skills/shared/references/base.md, plugins/dev-core/agents/doc-writer.md, plugins/dev-core/.claude-plugin/plugin.json; SKILL.md whitelist alignment |
+| devops-A | T10 | tools/validate_plugins.py |
+| tester-B | T11, T12 | (battery + live falsification) |
 
 ## Wave Structure
 
-3 waves, max 2 ∥.
+4 waves, max 2 ∥.
 
 | Wave | Trigger | Agents | Tasks |
 |------|---------|--------|-------|
-| 1 | start | 1 | doc-writer-A: T1 |
-| 2 | T1 done | 2 ∥ | doc-writer-A: T2 · doc-writer-B: T3 |
-| 3 | Wave 2 done | 1 | tester-A: T4→T5 |
+| 1 | start | 2 ∥ | tester-A: T6 · doc-writer-A: T7 |
+| 2 | T7 done | 2 ∥ | doc-writer-A: T8 · doc-writer-B: T9→T9b |
+| 3 | T6+T7+T9b done | 1 | devops-A: T10 |
+| 4 | T10 done | 1 | tester-B: T11→T12 |
 
 ### Budget — per task
 
 | Task | Class | Est. ops | Split? |
 |------|-------|----------|--------|
-| T1 evidence.md | judgmental | 8 | — |
-| T2 SKILL.md G-rules + displacement | judgmental | 18 | — |
-| T3 README sync | trivial | 3 | — |
-| T4 grep battery + standalone demo | bounded | 8 | — |
-| T5 RED-GATE budget sentinel | bounded | 6 | — |
+| T6 RED tests | judgmental | 12 | — |
+| T7 notation.md (greps + authoring) | judgmental | 22 | — |
+| T8 glossary.md | bounded | 8 | — |
+| T9 repointing + bump | bounded | 6 | — |
+| T9b whitelist alignment | trivial | 3 | — |
+| T10 check implementation | judgmental | 14 | — |
+| T11 battery | bounded | 8 | — |
+| T12 RED-GATE live falsification | bounded | 7 | — |
 
-**Total estimated ops: 43**
+**Total estimated ops: 80**
 
 ### Budget — per agent instance
 
 | Instance | Tasks | Σ ops | Subjects | Split? |
 |----------|-------|-------|----------|--------|
-| doc-writer-A | T1, T2 | 26 | evidence, guardrails | — |
-| doc-writer-B | T3 | 3 | docs | — |
-| tester-A | T4, T5 | 14 | sweep, budget-gate | — |
+| tester-A | T6 | 12 | legends-tests | — |
+| doc-writer-A | T7, T8 | 30 | glossary-core, glossary-mode | — |
+| doc-writer-B | T9, T9b | 9 | repointing, whitelist | — |
+| devops-A | T10 | 14 | validator | — |
+| tester-B | T11, T12 | 15 | battery, falsification | — |
 
 ## Consistency Report
 
-- V1-scoped SCs covered: SC10 (T2), SC11 (T2, T4), SC12 (T2, T4), SC13 (T2, T4), SC14 (T1, T2), SC15 (T2, T4), SC16 (T1), SC17 (T2, T4 — standalone demo), SC18 (T4), SC19 (T2), SC21 (T2, T5), SC22 (process, T4 grep). 12/12 V1 criteria → ≥1 task.
-- Exempt (slice V2): SC1–SC9, SC20 (cortex_link lands with glossary.md in V2).
-- Untraced tasks: none.
+- V2-scoped SCs covered: SC1 (T7), SC2 (T7), SC3 (T7), SC4 (T7), SC5 (T7, T11), SC6 (T6, T10, T12), SC7 (T7, T11), SC8 (T7, T11), SC9 (T9, T11), SC20 (T8). 10/10 → ≥1 task.
+- Done in V1 (834ad1b): SC10–SC19, SC21, SC22 (T11 re-verifies SC21's budget + train-A checks stay green post-V2).
+- Untraced tasks: T9b (supports SC6's equality — traced to SC6).
 
 ## Micro-Tasks
 
-### Slice V1 — Wave 1
+### Slice V2 — Wave 1
 
-**T1 — Create references/evidence.md**
-- File: `plugins/compress/skills/compress/references/evidence.md`
-- Agent: doc-writer-A · Subject: evidence · Phase: GREEN · Difficulty: 2 · Est: 8 ops
-- Shape: pinned load-bearing excerpts with IDs, one section per source: Tencent arXiv 2604.07192 (controlled null result, Cliff's δ<0.01; polarity failure taxonomy 36/47 = default bias), MetaGlyph arXiv 2601.07354 (`→` 0% as transformation operator, `∈` 26%, U-curve), LILO ICLR 2024 (NL gloss/AutoDoc load-bearing), GEPA ICLR 2026 (rule derivation by reflection; non-load-bearing credit), pseudo-code ablation note. ≤60 lines; each excerpt ≤3 lines + 1-line "what it licenses" (e.g. G1 ← Tencent; G3 ← MetaGlyph+LILO). No machine-local paths.
-- Verify: `test -f plugins/compress/skills/compress/references/evidence.md && grep -c 'arXiv' plugins/compress/skills/compress/references/evidence.md && grep -q '2604.07192' plugins/compress/skills/compress/references/evidence.md && grep -q '2601.07354' plugins/compress/skills/compress/references/evidence.md && echo ok`
-- Expected: ≥4 arXiv/venue pins; `ok`
-- Spec trace: SC16, SC14
+**T6 — RED tests for check_notation_legends** `[P]`
+- File: `tests/test_check_notation_legends.py`
+- Agent: tester-A · Subject: legends-tests · Phase: RED · Difficulty: 3 · Est: 12 ops
+- Shape: pattern from `tests/test_check_skill_line_budget.py` (`_load_tool()` direct import + `run_tool()` subprocess). Fixtures in tmp_path: (a) gated file with a proper one-line pointer (contains `notation.md`) → no error; (b) gated file with a full legend line (no `notation.md`) → pointer error; (c) gated file missing → error message contains `not found at`; (d) whitelist ≡ core table → no error; (e) whitelist ⊃ core table (extra glyph) → equality error naming the diff both directions; (f) core table ⊃ whitelist → equality error; (g) empty parsed set (whitelist line absent / core table empty) → loud failure; (h) separator row skipped (fixture table with `|---|` row parses clean); (i) subprocess: `run_tool('--check', 'notation-legends')` on shipped tree → exit 0 (will pass only post-T10+T7+T9 — mark order-dependent, run in T11); injectable params `(legend_files=None, skill_path=None, glossary_path=None)`.
+- Verify: `python3 -m pytest tests/test_check_notation_legends.py -x -q`
+- Expected: FAILS (check_notation_legends undefined) — RED evidence recorded.
+- Spec trace: SC6
 
-### Slice V1 — Wave 2
+**T7 — Author notation.md (fresh greps + core + grammar + maintenance + registry)** `[P]`
+- File: `plugins/shared/references/notation.md`
+- Agent: doc-writer-A · Subject: glossary-core · Phase: GREEN · Difficulty: 5 · Est: 22 ops
+- Shape: run the fresh greps (Bootstrap Context list), record counts. **Merge contract (SC1)**: enumerate the 3 source legends by path — `plugins/compress/skills/compress/references/compress.md` `## Symbols` line, `plugins/dev-core/skills/shared/references/base.md:16`, `plugins/dev-core/agents/doc-writer.md:51` — and give EVERY entry of each a recorded disposition ∈ {core-active row, registry entry, adjudicated (cell), deprecated → maintenance section}. Non-whitelist legend entries that must survive the repointing: `≥/≤` threshold, `✓/✗` pass/fail, `S*` next-step variable, `¬do-x` compound-negation idiom, `∅` null, `Σ` state dict, `⇒` implies — none may silently vanish (T9 deletes both source lines). Structure: intro (writer-side disclaimer VERBATIM per D9) → `## Core Table` (5-col schema; active rows = SKILL.md whitelist ∪ adjudicated-active glyphs ∪ surviving legend entries; fidelity-warned glyphs (`→`, `∈`, `∩` per MetaGlyph) flagged mandatory-gloss in `gloss?`; adjudication cells for `⟺` and `⇒` w/ counts+outcome+rationale+date) → `## Disambiguation Grammar` (4 → senses from classified samples w/ counts; ¬ modal registers; separator hierarchy `/`,`,` < `·` < `|` < `;` < newline < heading) → `## Maintenance Policy` (add/deprecate/version; extension human-gated via present-choice; deprecated glyphs listed HERE not in core) → `## Reserved-Variable Registry` (`| var | binding(s) | grep counts | status |`; σ 4-way, Ω dominant/minority, α/β/ω/μ, τ/φ/Δ/Σ/π w/ π+Σ collisions; `(local)` re-binding rule) → aspirational note (Latin/Greek register rule, corpus-scoped, ssot out-of-corpus). NO per-glyph token-cost column (D8). Core table section ≤ ~150 lines. No machine-local paths.
+- Verify: `test -f plugins/shared/references/notation.md && grep -q '^## Core Table' plugins/shared/references/notation.md && grep -q 'writer-side tooling' plugins/shared/references/notation.md && grep -q 'Reserved-Variable Registry' plugins/shared/references/notation.md && grep -qi 'aspirational' plugins/shared/references/notation.md && ! grep -qi 'token cost' plugins/shared/references/notation.md && grep -qF 'S*' plugins/shared/references/notation.md && grep -qF '✓' plugins/shared/references/notation.md && grep -qF '≥' plugins/shared/references/notation.md && grep -qF '¬do-x' plugins/shared/references/notation.md && echo ok`
+- Expected: `ok`; counts recorded in the file
+- Spec trace: SC1, SC2, SC3, SC4, SC5, SC7, SC8
 
-**T2 — SKILL.md guardrails + whitelist + wiring + displacement**
-- Files: `plugins/compress/skills/compress/SKILL.md`, `plugins/compress/skills/compress/references/compress.md`
-- Agent: doc-writer-A · Subject: guardrails · Phase: GREEN · Difficulty: 4 · Est: 18 ops · blockedBy: T1
-- Shape (SKILL.md): replace the Safety-section adjacency with a `## Guardrails` block: G1 polarity (`¬use Y` → `use Z (¬Y)` iff concrete Z; never invent Z; else flag literal **`needs external verification`** + Phase 4 flag block `{constraint | polarity | alternative-exists | verification-method}`, fixed format, vault optional); G2 no-free-coinage (symbols ∈ whitelist; NO hardcoded token tiers anywhere; NO tokenizer-relative glyph rule; token-neutrality principle verbatim: *glyph substitution is token-neutral at best; choose glyphs for register/precision, never for economy; measured savings come from prose pruning*; optional measurement procedure: API count, tokenizer + date); G3 gloss trigger verbatim `(predicate ∨ O-block ∨ Let-bind) ∨ (symbol ∉ whitelist) ∨ (chain > 3 operators)` → `— …` gloss ≤1 line; bare non-whitelist symbols forbidden; G4 verbatim floor (commands, tool names, spawn templates, safety rules) citing evidence.md inline. Add `Whitelist:` anchor line (D9 format; seed from compress.md:7 legend union). Add R1 break-even inequality `(T_phrase − T_var) × occ > T_letline (≈8–10)` + R5/R6/R7 = primary economic transform + "G1/G3 spend tokens to buy compliance". Phase 0 + existence-gated glossary load line (`plugins/shared/references/notation.md` ∃ → load `## Core Table`; ∄ → whitelist only); Phase 3 collision-check line (registry if glossary ∃, else whitelist domain — D11 wording); Phase 5 assert emitted symbols ∈ whitelist/core-table ∨ Let-defined. Displace (D10): Phase 5 append command block → compress.md (Phase 5 keeps a 1-line pointer); mode-specific Edge Cases rows → compress.md. ≤110 lines HARD.
-  (compress.md): receive displaced blocks; replace `¬compress` line :32 with pointer "superseded by SKILL.md G1–G4"; fix the R1 example (registry-clean vars — e.g. `κ(f)` conf, `θ` threshold; NOT φ/τ/γ); keep Symbols legend + measured rationale.
-- Verify: `wc -l < plugins/compress/skills/compress/SKILL.md` ≤110 ∧ `python3 tools/validate_plugins.py | grep 'line budget'` PASS ∧ `grep -q '^Whitelist:' plugins/compress/skills/compress/SKILL.md` ∧ `grep -q 'never for economy' plugins/compress/skills/compress/SKILL.md` ∧ `grep -qF '(predicate ∨ O-block ∨ Let-bind) ∨ (symbol ∉ whitelist) ∨ (chain > 3 operators)' plugins/compress/skills/compress/SKILL.md` ∧ `grep -q 'T_letline' plugins/compress/skills/compress/SKILL.md` ∧ `grep -q 'evidence.md' plugins/compress/skills/compress/SKILL.md` ∧ `! grep -q 'φ.*findings' plugins/compress/skills/compress/references/compress.md` ∧ echo ok
-- Expected: all green; `ok`
-- Spec trace: SC10, SC11, SC12, SC13, SC14, SC15, SC17, SC19, SC21
+### Slice V2 — Wave 2
 
-**T3 — README doc sync** `[P]`
-- File: `plugins/compress/README.md`
-- Agent: doc-writer-B · Subject: docs · Phase: GREEN · Difficulty: 1 · Est: 3 ops · blockedBy: T1
-- Shape: add a short "Fidelity guardrails" paragraph (G1–G4 one-liners) + note the canonical whitelist / optional shared glossary.
-- Verify: `grep -q 'G1' plugins/compress/README.md && grep -qi 'guardrail' plugins/compress/README.md && echo ok`
+**T8 — Glossary mode body**
+- File: `plugins/compress/skills/compress/references/glossary.md`
+- Agent: doc-writer-A · Subject: glossary-mode · Phase: GREEN · Difficulty: 2 · Est: 8 ops · blockedBy: T7
+- Shape: mode body per house reference style (compress.md as template): pipeline for add/deprecate/version glossary entries; loads notation.md grammar + maintenance sections (the lazy halves); extension human-gated (`→ present choice`); collision protocol vs registry; cortex_link one-liner: closed-vocabulary governance mechanics only, no ADR-009 claim, no derivation. Train-A's mode-exists gate now dispatches `/compress glossary` to this body.
+- Verify: `test -f plugins/compress/skills/compress/references/glossary.md && grep -q 'present choice' plugins/compress/skills/compress/references/glossary.md && grep -qi 'mechanics only\|governance mechanics' plugins/compress/skills/compress/references/glossary.md && ! grep -q 'ADR-009' plugins/compress/skills/compress/references/glossary.md && echo ok`
 - Expected: `ok`
-- Spec trace: SC11 (docs), SC17
+- Spec trace: SC20 (+SC1 glossary-mode load path)
 
-### Slice V1 — Wave 3
+**T9 — Legend repointing + dev-core bump** `[P]`
+- Files: `plugins/dev-core/skills/shared/references/base.md`, `plugins/dev-core/agents/doc-writer.md`, `plugins/dev-core/.claude-plugin/plugin.json`
+- Agent: doc-writer-B · Subject: repointing · Phase: GREEN · Difficulty: 2 · Est: 6 ops · blockedBy: T7
+- Shape: base.md:16 legend line → one-line pointer (D9 wording, keep the line's `## Notation`-context voice); doc-writer.md:51 `**Compressed notation:**` line → one-line pointer (keep the **bold-label** voice; line :53's `∃ X ⇒ do Y` usage examples stay — they are usage, not a legend). plugin.json `"version": "0.8.13"` → `"0.8.14"`.
+- Verify: `grep -c 'notation.md' plugins/dev-core/skills/shared/references/base.md plugins/dev-core/agents/doc-writer.md` (≥1 each) ∧ `python3 -c "import json; assert json.load(open('plugins/dev-core/.claude-plugin/plugin.json'))['version']=='0.8.14'; print('ok')"` ∧ `bash scripts/check-skill-version.sh && echo gate-ok`
+- Expected: pointers present; `ok`; `gate-ok`
+- Spec trace: SC9
 
-**T4 — Grep battery + standalone demo**
-- Files: none (read-only sweep + demo evidence)
-- Agent: tester-A · Subject: sweep · Phase: GREEN · Difficulty: 2 · Est: 8 ops · blockedBy: T2, T3
-- Shape: battery — lint mentions all gated (`grep -in 'lint' plugins/compress/skills/compress/SKILL.md plugins/compress/skills/compress/references/compress.md` → every hit ∈ {description trigger :3, μ set :18, Entry example :29, Phase-0 halt list :45-46} or equivalent post-edit lines; zero references to an unshipped lint body/behavior); negative grep: no hardcoded token-tier rule (no "= 1 token"/"= 2 tokens" tier claims; the only sanctioned numeric forms are the break-even inequality and its practical thresholds) and no tokenizer-relative glyph rule; `needs external verification` literal present; no `decision-presentation`/`AskUserQuestion`; `--level|--verify` still absent; standalone demo: assert `plugins/shared/references/notation.md` does NOT exist yet (V1 tree) → the Phase 0 existence-gate text covers it and no SKILL.md path hard-requires the file; sample-output check: compose a 5-line sample compression per the G-rules and verify no bare non-whitelist symbol (each symbol ∈ Whitelist line ∨ Let-defined w/ gloss); self-containment grep on shipped surface.
-- Verify: scripted battery above
-- Expected: all clean; demo evidence recorded
-- Spec trace: SC11, SC12, SC13, SC15, SC17, SC18, SC22
+**T9b — Whitelist alignment for adjudicated glyphs**
+- File: `plugins/compress/skills/compress/SKILL.md`
+- Agent: doc-writer-B · Subject: whitelist · Phase: GREEN · Difficulty: 1 · Est: 3 ops · blockedBy: T7, T9
+- Shape: if T7's adjudications activate glyphs beyond the current 22 (expected: `⇒`), append them to the `Whitelist:` line so whitelist ≡ core-table active rows. Line count must stay ≤110 (in-line append, no new line).
+- Verify: `wc -l < plugins/compress/skills/compress/SKILL.md` ≤110 ∧ whitelist spans == core-table active glyph set (manual diff of the two parsed sets)
+- Expected: equality holds; 109 lines
+- Spec trace: SC6
 
-**T5 — RED-GATE: budget sentinel on the grown SKILL.md**
-- Files: temp copy of SKILL.md (restored)
-- Agent: tester-A · Subject: budget-gate · Phase: RED-GATE · Difficulty: 2 · Est: 6 ops · blockedBy: T4
-- Shape: cp SKILL.md to scratch → append filler >110 → `python3 tools/validate_plugins.py` FAILS naming compress → mv back → PASSES → `git status` unchanged. Record outputs.
+### Slice V2 — Wave 3
+
+**T10 — Implement check_notation_legends**
+- File: `tools/validate_plugins.py`
+- Agent: devops-A · Subject: validator · Phase: GREEN · Difficulty: 3 · Est: 14 ops · blockedBy: T6, T7, T9b
+- Shape: module consts `NOTATION_LEGEND_FILES = [the two gated dev-core files]`, `NOTATION_GLOSSARY = 'plugins/shared/references/notation.md'`, `COMPRESS_SKILL = 'plugins/compress/skills/compress/SKILL.md'`; `def check_notation_legends(legend_files=None, skill_path=None, glossary_path=None) -> list[str]` — D9 contract: gate (a) each legend file has exactly one legend line and it contains `notation.md` (missing file → `... not found at ...`); gate (b) parse whitelist spans (line starting `Whitelist:`) + core-table column-1 backtick spans (rows between `## Core Table` and next `##`, skipping separator rows) → assert non-empty both, set-equality with both-direction diffs in the error. Register `('Notation legends', check_notation_legends)` in main() checks + add `'notation-legends'` to `--check` choices with the standard dispatch block (exit 2 on `_is_io_error`, else 1). Docstring per house style.
+- Verify: `python3 -m pytest tests/test_check_notation_legends.py -q && python3 tools/validate_plugins.py && python3 tools/validate_plugins.py --check notation-legends && echo all-ok`
+- Expected: pytest green; both invocations exit 0; `all-ok`
+- Spec trace: SC6
+
+### Slice V2 — Wave 4
+
+**T11 — Post-integration battery**
+- Files: none (read-only)
+- Agent: tester-B · Subject: battery · Phase: GREEN · Difficulty: 2 · Est: 8 ops · blockedBy: T10
+- Shape: `python3 tools/validate_plugins.py` all PASS (incl. line budget + notation-legends); `python3 -m pytest tests/ -q` (only pre-existing test_browser failures); shipped-tree `run_tool('--check','notation-legends')` exit 0; **SC1 merge spot-check**: `S*`, `✓/✗`, `≥/≤`, `¬do-x`, `∅`, `⇒` all accounted for in notation.md (core/registry/maintenance); SC5 grep (fidelity-warned glyphs carry gloss flags; disclaimer verbatim); SC7 (no token-cost column); SC8 (SKILL.md Phase 0 references `## Core Table` only; grammar/maintenance referenced only from glossary.md); SC3 (aspirational note); SC20 (`! grep -q 'ADR-009' glossary.md`); self-containment grep shipped surface (now includes plugins/shared/ + dev-core files).
+- Verify: scripted battery
+- Expected: all green
+- Spec trace: SC5, SC7, SC8, SC9, SC21
+
+**T12 — RED-GATE: live seeded violations**
+- Files: temp edits (restored)
+- Agent: tester-B · Subject: falsification · Phase: RED-GATE · Difficulty: 2 · Est: 7 ops · blockedBy: T11
+- Shape: (1) cp base.md to scratch → replace its pointer line with a fake full legend → `--check notation-legends` FAILS (pointer gate) → restore → PASSES. (2) cp SKILL.md → drop one whitelist glyph → check FAILS (set-equality, both-direction diff named) → restore → PASSES. `git status` unchanged after. Record all outputs.
 - Verify: scripted sequence
-- Expected: FAIL over budget → PASS restored
-- Spec trace: SC21
+- Expected: FAIL/FAIL on seeds, PASS restored, zero residue
+- Spec trace: SC6
 
 ## Task Seeding Blueprint
 
 <!-- Format: T{n} | agent-instance | blockedBy | subject -->
 
-### Wave 1 — no deps, 1 agent
+### Wave 1 — no deps, 2 agents ∥
 
 | Task | Agent instance | blockedBy | Subject |
 |------|---------------|-----------|---------|
-| T1 | doc-writer-A | — | evidence |
+| T6 | tester-A | — | legends-tests |
+| T7 | doc-writer-A | — | glossary-core |
 
-### Wave 2 — after T1, 2 agents ∥
-
-| Task | Agent instance | blockedBy | Subject |
-|------|---------------|-----------|---------|
-| T2 | doc-writer-A | T1 | guardrails |
-| T3 | doc-writer-B | T1 | docs |
-
-### Wave 3 — after Wave 2, 1 agent
+### Wave 2 — after T7, 2 agents ∥
 
 | Task | Agent instance | blockedBy | Subject |
 |------|---------------|-----------|---------|
-| T4 | tester-A | T2, T3 | sweep |
-| T5 | tester-A | T4 | budget-gate |
+| T8 | doc-writer-A | T7 | glossary-mode |
+| T9 | doc-writer-B | T7 | repointing |
+| T9b | doc-writer-B | T7, T9 | whitelist |
+
+### Wave 3 — after T6, T7, T9b
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T10 | devops-A | T6, T7, T9b | validator |
+
+### Wave 4 — after T10
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T11 | tester-B | T10 | battery |
+| T12 | tester-B | T11 | falsification |
 
 ## Task IDs
 
-<!-- Generated by /plan (slice V1). -->
-- T1: 29 — evidence
-- T2: 30 — guardrails
-- T3: 31 — docs
-- T4: 32 — sweep
-- T5: 33 — budget-gate
+<!-- Generated by /plan (slice V2). V1 IDs 29-33 completed. -->
+- T6: 34 — legends-tests
+- T7: 35 — glossary-core
+- T8: 36 — glossary-mode
+- T9: 37 — repointing
+- T9b: 38 — whitelist
+- T10: 39 — validator
+- T11: 40 — battery
+- T12: 41 — falsification
