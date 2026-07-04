@@ -1,0 +1,156 @@
+---
+title: 'compress v2 train B — canonical notation glossary + reserved-var registry + fidelity guardrails'
+issue: 310
+status: approved
+tier: F-lite
+date: 2026-07-04
+---
+
+## Context
+
+Promoted from `artifacts/frames/310-notation-glossary-guardrails-frame.mdx` (approved). Source analysis §3-P1 + §3-P6 (adversarially verified; corrections baked into issue #310). Train B of #308; builds on train A's merged dispatch architecture (`3b8d5cf`).
+
+## Goal
+
+Give the repo one canonical notation SSoT (`plugins/shared/references/notation.md`) with a grep-seeded reserved-variable registry, repoint the two dev-core legends onto it (gated by a new validator check), and replace compress's flat `¬compress` list with evidence-based fidelity guardrails G1–G4 — while compress stays fully functional standalone.
+
+## Users
+
+- **Primary:** compress users (G1–G4 govern every output); dev-core skill authors (one legend SSoT).
+- **Secondary:** #311 read-back (G3 gloss compliance is what it tests), #312 lint (glossary = its reference), #313 derive (R12 emits glossary-compliant abstractions); cortex closed-vocabulary governance mechanics.
+
+## Decisions
+
+1. **DP drift (standing)**: glyph adjudications = measured-count decisions taken in-run; counts + outcome + rationale recorded in notation.md. Other decision points: inline present-choice idiom. Never AskUserQuestion; no decision-presentation.md references.
+2. **Slice order P6 → P1** (sanctioned by the issue's own §19: inline whitelist is canonical and autonomous): V1 ships the compress-side guardrails + whitelist + evidence.md with the glossary pointer existence-gated (pointer target absent → graceful degradation, which also proves the standalone-install path); V2 ships notation.md + glossary.md + repointing + bump + the `notation-legends` check (its set-equality gate compares against the V1 whitelist).
+3. **dev-init base.md fork**: out of scope (frame Decision 1); follow-up issue filed at PR time; the notation-legends check gates exactly `plugins/dev-core/skills/shared/references/base.md` and `plugins/dev-core/agents/doc-writer.md`.
+4. **Glyph adjudications (expected from analysis-time evidence, re-measured fresh at implement)**: retain `⟺` (analysis-time ×7 plugin files vs `⇔` ×0 in plugins/; count has already drifted to 8 — fresh grep is the source of truth); retain `⇒` as sanctioned implies/contrastive register (×33 across 8 files; live legend doc-writer.md:51; contrastive register dev:45). `⇒` is never classified as drift.
+5. **notation-legends check shape**: same injectable-params + registry-constant style as `check_skill_line_budget` (train A). Pointer gate = the legend line in each gated file must be a single line containing `notation.md`; set-equality gate = glyph set parsed from SKILL.md's inline whitelist ≡ glyph set parsed from notation.md's core table (precedent: shared-sources-sync). Registered in main() checks + `--check notation-legends` CLI choice (it needs standalone invocation for the AC's seeded-violation demonstration).
+6. **dev-core semver bump**: 0.8.13 → 0.8.14 in `plugins/dev-core/.claude-plugin/plugin.json`, same PR as the repointing (check-skill-version gate: base.md sits under `plugins/dev-core/skills/**`; doc-writer.md under `agents/` doesn't trip the gate but rides the same bump).
+7. **SKILL.md budget**: stays ≤110 (train A's gate); G1–G4 + whitelist + inequality land compact; displaced detail goes to `references/compress.md` (mode body) or notation.md — never dropped.
+8. **No token-cost appendix** in v1 of notation.md (issue offers "measured appendix or nothing" — choose nothing; the ledger (train A) is the living measurement instrument; avoids a rot surface).
+9. **Format contracts** (panel-mandated — pin before implement; the set-parse has no repo precedent, `check_class_list_sync`'s anchored-line pattern is the model):
+   - **Core-table anchor**: notation.md's core table is bounded by the exact heading `## Core Table` up to the next `##` heading. Both consumers — compress Phase 0's budgeted load and the validator's set parse — use this same anchor.
+   - **Core-table schema**: markdown table `| glyph | senses | gloss? | fidelity ⚠ | notes/adjudication |`. Glyph extraction for set-equality = backtick spans in **column 1 only** (split rows on unescaped `|`, take cell 1, findall `` `…` ``); skip the separator row (`^\s*\|[\s:-]+\|`). Multi-glyph cells (`` `∃`/`∄` ``) contribute each span to the set.
+   - **Whitelist anchor**: SKILL.md carries one line starting `Whitelist:` whose backtick spans are the whitelist set (same findall; delimiter-safe for `|X|`, `:=`, `↦`).
+   - **Equality domain**: operator/symbol glyphs only (incl. multi-char). Reserved-var Greek letters live in the registry section and are NOT part of the equality domain. Deprecated glyphs move to the maintenance section — the core table holds **active rows only**, keeping the equality well-defined.
+   - **Exit codes** (match `_is_io_error` tiers): gated file or notation.md missing → error message contains `not found at` (exit 2 via the existing sort); pointer/set drift → exit 1. Both parsed sets must be non-empty (empty ≡ empty fails loudly).
+   - **Pointer example** (one line, must contain `notation.md`): `` Notation legend → canonical glossary: `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` (repo: `plugins/shared/references/notation.md`) `` — adapted to each file's surrounding voice.
+   - **Registry schema**: `| var | binding(s) | grep counts | status |` (status ∈ canonical/collision/aspirational); σ row shows the 4-way collision, Ω row the dominant/minority split.
+   - **→ senses**: enumerate 4 positional senses by classifying fresh grep samples (expected classes from the analysis: then/sequence · maps-to · conditional-implication · produces/returns; final naming from corpus evidence, recorded with sample counts).
+   - **Adjudication record format**: a `notes/adjudication` cell or dedicated subsection per contested glyph: counts, outcome, rationale, date (e.g. `⇒`: retained — sanctioned implies/contrastive; ×N across M files, doc-writer legend; never drift).
+   - **Writer-side disclaimer** (verbatim sentence in notation.md): "This glossary is writer-side tooling: consumers of compressed files never need it — every emitted symbol must be self-sufficient via the whitelist or a local Let-binding with gloss."
+10. **SKILL.md ≤110 displacement plan**: G1–G4 + whitelist + inequality live in SKILL.md (cross-mode — every mode's outputs are governed); displaced to `references/compress.md` (compress-mode-only content): the ledger `append` command template block and the mode-specific Edge Cases rows (~10–12 lines). Phase 0 dispatch, Phase 1 scope, Phase 5 write mechanics stay (cross-mode).
+11. **Phase 3 standalone fallback semantics** (stated plainly): with notation.md absent, the collision-check degrades to the whitelist glyph domain only — reserved-var *binding* collisions are not checked in standalone installs; that is accepted graceful degradation, documented in SKILL.md.
+
+## Expected Behavior
+
+**notation.md (V2).** Core table (~150 lines, the only part compress loads): every glyph from the 3 source legends merged or adjudicated (adjudication = counts + outcome + rationale inline); fidelity-warned glyphs (MetaGlyph data: `→`, `∈`, `∩`…) flagged **mandatory-gloss**; declares itself writer-side tooling (consumers of compressed files never need it). Grammar section (lazy): 4 positional senses of `→`; `¬` modal registers; separator hierarchy `/`,`,` < `·` < `|` < `;` < newline < heading. Maintenance policy section (lazy): add/deprecate/version rules, extension human-gated (present-choice). Reserved-variable registry: grep-seeded counts for σ (4-way), Ω (override-file dominant), α/β/ω/μ, τ/φ/Δ/Σ/π with the π and Σ collisions recorded; `(local)` re-binding rule. The uppercase-Latin/Greek register rule appears only as an explicitly aspirational note scoped to this corpus (ssot = out-of-corpus evidence).
+
+**Legend repointing (V2).** `base.md:16` and `doc-writer.md:51` legend lines each become one line pointing at `plugins/shared/references/notation.md` (installed-context wording; keep surrounding text intact). dev-core plugin.json bumps to 0.8.14.
+
+**notation-legends check (V2).** `python3 tools/validate_plugins.py --check notation-legends` passes on the shipped tree; fails when (a) a gated legend line is not a one-line pointer, or (b) whitelist ≢ core table — both demonstrated against seeded violations in tests (tmp-dir fixtures, injectable params).
+
+**Guardrails in SKILL.md (V1).** The `¬compress` flat list is replaced by: **G1** polarity transform — `¬use Y` → `use Z (¬Y)` iff concrete Z exists; never invent Z; no alternative → flag `needs external verification`, emitting `{constraint | polarity | alternative-exists | verification-method}` as a fixed-format block in Phase 4 (vault persistence optional — completes with no vault). **G2** familiarity/no-free-coinage — new symbols ∈ inline whitelist; no free coinage of indexed vars; stated principle: *glyph substitution is token-neutral at best; choose glyphs for register/precision, never for economy; measured savings come from prose pruning*; no hardcoded token tiers; no tokenizer-relative rule; optional measurement procedure (API count, tokenizer + date recorded). **G3** decidable gloss trigger — `(predicate ∨ O-block ∨ Let-bind) ∨ (symbol ∉ whitelist) ∨ (chain > 3 operators)` → mandatory `— …` gloss ≤1 line; bare non-whitelist symbols forbidden in output. **G4** verbatim floor — commands, tool names, spawn templates, safety rules stay in words; cites `references/evidence.md` inline.
+
+**Realignment (V1).** R1 demoted to a disambiguation rule; break-even inequality `(T_phrase − T_var) × occ > T_letline (≈8–10)` stated in SKILL.md (practical forms: phrase ≥3 tokens ∧ occ ≥4, or ≥4 ∧ ≥3); R5/R6/R7 labeled the primary economic transform; R1 example rewritten with zero house-binding collisions (no φ/τ/γ misuse — pick unbound vars per the registry); skill text states G1/G3 spend tokens to buy compliance.
+
+**Wiring (V1 + V2).** Phase 0: existence-gated glossary load — `notation.md` present → load core table; absent → inline whitelist only (standalone path). Phase 3: every new `Let:` var collision-checked against the registry (glossary present) or whitelist (absent). Phase 5: assert every emitted symbol ∈ core table ∨ locally Let-defined. `glossary` mode body ships in `references/glossary.md` (mode-exists gate from train A now dispatches it): add/deprecate/version entries, human-gated extension, loads grammar + maintenance sections. cortex_link wording: vocabulary-governance mechanics only. Every lint-mode mention fully specified or absent. README doc sync.
+
+## Data Model & Consumers
+
+**Data structure:** [notation SSoT data model](../visuals/310-notation-glossary-guardrails-data-model.html)
+**Consumer map:** [notation.md consumers](../visuals/310-notation-glossary-guardrails-consumers.html)
+
+| Consumer | Fields consumed | When | Status |
+|----------|-----------------|------|--------|
+| compress Phase 0 | core table (existence-gated) | every run | this issue |
+| compress Phase 3 | reserved-var registry | every Let-bind | this issue |
+| compress Phase 5 | core table ∪ local Let set | every write | this issue |
+| base.md / doc-writer.md | pointer only | always-on surfaces | this issue |
+| `validate_plugins.py --check notation-legends` | pointer lines + whitelist/core-table sets | CI + lefthook | this issue |
+| #311 read-back | G3 gloss mandate | train C | future |
+| #312 lint | glossary + grammar sections | train D | future |
+| #313 derive R12 | whitelist + registry | train E | future |
+| dev-init base.md | pointer (follow-up issue) | post-train | future |
+
+## Breadboard
+
+| ID | Affordance | Handler | Data |
+|----|-----------|---------|------|
+| S1 | `notation.md` core table (+ adjudications w/ counts) | shared reference | glyph rows: symbol, senses, gloss-flag, fidelity-warning |
+| S2 | Disambiguation grammar + maintenance policy (lazy sections) | shared reference | → senses, ¬ registers, separators; add/deprecate/version |
+| S3 | Reserved-var registry (grep-seeded counts, `(local)` rule) | shared reference | var → binding(s) + counts |
+| S4 | `references/glossary.md` (glossary-mode body) | lazy-loaded mode | mode pipeline |
+| S5 | `references/evidence.md` (pinned excerpts + arXiv IDs) | reference | Tencent, MetaGlyph, LILO, GEPA |
+| S6 | G1–G4 + inline whitelist + break-even inequality + honest rationale | SKILL.md | guardrail text |
+| S7 | Phase 0 existence-gated load; Phase 3 collision-check; Phase 5 symbol assert | SKILL.md wiring | registry + whitelist |
+| S8 | Legend pointers (base.md:16, doc-writer.md:51) | dev-core files | one-line pointer |
+| S9 | dev-core plugin.json 0.8.14 | manifest | semver |
+| S10 | `--check notation-legends` (pointer + set-equality, injectable, CLI choice) | validate_plugins.py | gated files + parsed sets |
+| S11 | README doc sync | docs | glossary/guardrail mention |
+| S12 | Fixed R1 example (no house-binding collisions) | SKILL.md/references | example text |
+
+Wiring: S6/S7 (V1) stand alone via whitelist; S1–S5, S8–S10 (V2) close the loop; S10 reads S8 + (S6 ↔ S1) equality.
+
+## Slices
+
+| # | Slice | Contains | Demo |
+|---|-------|----------|------|
+| 1 | P6 — guardrails standalone | S5, S6, S7 (whitelist-only paths), S12, S11 | With `plugins/shared/references/notation.md` ABSENT: compress loads, G1–G4 active, whitelist canonical, no bare non-whitelist symbol in a sample output, R1 example clean, evidence.md cited; SKILL.md ≤110; validate_plugins (train-A checks) green |
+| 2 | P1 — glossary SSoT + gates | S1, S2, S3, S4, S7 (glossary-present paths), S8, S9, S10 | notation.md present → Phase 0 loads core; `--check notation-legends` passes shipped / fails seeded violations; base.md + doc-writer.md are pointers; dev-core 0.8.14; check-skill-version green |
+
+## Constraints
+
+- Marketplace self-containment (whitelist canonical; existence-gated pointer; no ssot paths).
+- Same-PR dev-core bump; base.md churn → rebase early/often.
+- SKILL.md ≤110 lines (train-A gate).
+- No hardcoded token tiers; no tokenizer-relative rules; never invent Z; registry counts from fresh grep.
+- Edit repo source only; no `--force`/`--hard`/`--amend`; specific-file staging.
+- No new CI workflow/deps — the check rides validate_plugins.py.
+
+## Non-goals
+
+- dev-init base.md repointing (follow-up issue at PR time).
+- Lint mode (#312), read-back/levels (#311), derive (#313).
+- Corpus migration; per-glyph token-cost data; ADR-009 claims.
+
+## Edge Cases
+
+| Scenario | Handling |
+|----------|----------|
+| `plugins/shared/references/notation.md` absent (standalone install) | Phase 0 existence test fails → inline whitelist only; all G-rules still bind |
+| Glossary present but core table unparseable | Treat as absent + warn (degrade, never crash the skill flow) |
+| New Let var collides with registry entry | Phase 3 flags; `(local)` re-binding allowed with explicit `(local)` marker |
+| Symbol not in whitelist and not Let-defined | Phase 5 blocks emission (G3); gloss or rewrite |
+| `¬` constraint with no concrete alternative Z | G1 flag block in Phase 4 (4-field schema); never invent Z |
+| Chain > 3 operators | G3 mandatory gloss |
+| Gated legend file missing at check time | notation-legends check reports error naming the file (fail, not crash) |
+| Whitelist/core-table parse yields empty set | Check fails loudly (empty ≡ empty must not vacuously pass — assert non-empty) |
+| doc-writer.md line drifts again | Pointer gate greps for the pointer pattern, not a line number |
+| glossary mode invoked (train-A dispatch) | `references/glossary.md` now exists → mode runs; grammar+maintenance sections load |
+
+## Success Criteria
+
+- [ ] SC1 `notation.md` exists; every entry of the 3 source legends present/merged/adjudicated (recorded); grammar covers `→`×4 senses, `¬` registers, separator hierarchy
+- [ ] SC2 Registry entries carry grep-measured counts (σ 4-way, Ω dominant, α/β/ω/μ, τ/φ/Δ/Σ/π with π+Σ collisions); `(local)` rule stated
+- [ ] SC3 Latin/Greek register rule = explicitly aspirational note, corpus-scoped, ssot out-of-corpus
+- [ ] SC4 `⇒`/`→` and `⟺`/`⇔` each resolved via measured counts; outcomes + counts in notation.md; `⇒` nowhere classified as drift
+- [ ] SC5 Every fidelity-warned glyph flagged mandatory-gloss; Phase 5 asserts emitted symbols ∈ core table ∨ Let-defined; notation.md declares itself writer-side
+- [ ] SC6 `--check notation-legends` passes shipped tree AND fails on seeded violations of both gates (pointer, set-equality) — demonstrated in tests
+- [ ] SC7 No per-glyph token-cost column anywhere in notation.md
+- [ ] SC8 Phase 0 loads only the core in compress mode; grammar/maintenance load only in glossary (and future lint) modes
+- [ ] SC9 dev-core plugin.json = 0.8.14; `bash scripts/check-skill-version.sh` passes on the branch
+- [ ] SC10 R1 example rewritten, zero collisions vs house bindings
+- [ ] SC11 G1 complete: concrete-Z-only rewrite, never-invent-Z stated, 4-field flag schema in Phase 4, fixed-format flag block, completes with no vault
+- [ ] SC12 G2: no hardcoded token tiers, no tokenizer-relative rule; token-neutrality principle stated verbatim-checkable (the italicized sentence of Expected Behavior appears as written) + optional measurement procedure
+- [ ] SC13 G3 trigger predicate verbatim `(predicate ∨ O-block ∨ Let-bind) ∨ (symbol ∉ whitelist) ∨ (chain > 3 operators)`; sample output contains no bare non-whitelist symbol
+- [ ] SC14 G4 enumerates commands, tool names, spawn templates, safety rules; cites evidence.md inline
+- [ ] SC15 Break-even inequality in SKILL.md; R5/R6/R7 labeled primary economic transform
+- [ ] SC16 `references/evidence.md` exists w/ Tencent 2604.07192, MetaGlyph 2601.07354, LILO, GEPA excerpts + IDs
+- [ ] SC17 Whitelist canonical; glossary pointer existence-gated; skill functions with notation.md absent (standalone path demonstrated in slice-1 demo)
+- [ ] SC18 No dangling lint references in compress text
+- [ ] SC19 Skill text states G1/G3 spend tokens to buy compliance
+- [ ] SC20 cortex_link = governance mechanics only; no ADR-009 claim; no derivation
+- [ ] SC21 SKILL.md ≤110 lines; all train-A checks still green; self-containment grep (shipped surface) empty
+- [ ] SC22 Process hygiene: zero plugin-cache edits; no `--force`/`--hard`/`--amend` in the branch history; in-flow decisions use the inline present-choice idiom (grep: no `AskUserQuestion`, no `decision-presentation` in shipped files)
