@@ -48,7 +48,7 @@ DP undefined → output: "`.claude/stack.yml` not found in context. Add `@.claud
 8. `## Edge Cases`
 9. `$ARGUMENTS` (last line, always)
 
-**Compressed notation:** `∃` exists | `¬` not | `⇒` implies | `∀` for all | `∧` and | `∨` or | `∅` null | `→` maps to | `S*` next-step variable | `¬do-x` = do NOT do x | Σ = state dict
+**Compressed notation:** legend → canonical glossary: `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` (repo: `plugins/shared/references/notation.md`)
 
 **Decision options** in **bold**. Conditions: `∃ X ⇒ do Y` / `¬∃ X ⇒ do Z`.
 
