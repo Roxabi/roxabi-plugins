@@ -67,9 +67,9 @@ Every non-L0 rule, condition, prohibition, threshold, edge case carries one `<!-
 1. safety-rule / command / spawn-template content class → L0, always
 2. human-facing doc genre → L1
 3. skill/agent body → L2 (the default)
-4. always-on file over budget → L3 split
+4. always-on file over budget → flagged for L3 split, subject to the present-choice gate below — never auto-applied
 
-Escalation to L3 only by explicit present-choice — never automatic. `--level <L>` (per file or per section) overrides the heuristic; the override is itself confirmed at Phase 4.
+Escalation to L3 executes only after that present-choice confirmation. `--level <L>` (per file or per section) overrides the heuristic; the override is itself confirmed at Phase 4.
 
 **R13 — single-level rule**: every section lands entirely at ONE level. Mixed-register request → refuse + present choice: **split the section** (each part at its own level) | **pick one level** for the whole section.
 
