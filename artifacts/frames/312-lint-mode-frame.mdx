@@ -1,0 +1,60 @@
+---
+title: 'compress v2 train D — corpus lint mode with genre profiles + approval-queue repair'
+issue: 312
+status: approved
+tier: F-lite
+date: 2026-07-04
+---
+
+## Problem
+
+The notation corpus drifts and nothing enforces the glossary (issue #312; analysis §2.3, §3-P8):
+
+- Quantified drift at analysis time: `→ → ` artifact ×44 repo-wide, `||`-for-`∨`, `←`/bare-`=`-for-`:=`, reserved-var collisions (σ 4-way, τ/π/Σ/Ω).
+- Train B's `notation.md` is the SSoT — but **lint is its enforcement loop; without it, notation.md decays into a fourth legend**.
+- The v1 mono-file skill structurally cannot see corpus-level problems; immediate corpus migration was deliberately deferred TO this mode (descope-under-churn), so the repair path must exist and be churn-safe.
+
+This issue = P8 (unverified by the analysis gate; P1/P2/P5/P6 verifier corrections applied by symmetry). Train D, unblocks E.
+
+## Who
+
+- **Primary:** repo maintainers running `/compress lint <scope>` — read-only drift reports by default, DP-gated repair.
+- **Secondary:** train E (derive emits into a linted corpus), roxabi-cortex (queue format = the exact Layer-4 actuation `diff_types` schema — the PoC payload).
+
+## Constraints
+
+- **Path normalization (recorded)**: `references/lint.md` lands at `plugins/compress/skills/compress/references/lint.md` (train-A convention; §8.C/§8.D precedent).
+- **Version-bump AC reinterpreted (recorded, §8.D)**: compress `plugin.json` has NO `version` field (kept deliberately since train A); `check-skill-version.sh` self-skips version-less plugins (`[ -n "$cur" ] || continue`). Do NOT add a version field. Evidence: script line + green pre-push.
+- **Trigger/description Δ=0 (recorded)**: train A pre-installed "lint notation"; the issue's "frontmatter trigger lands in this PR" is satisfied by the pre-installed trigger + Δ≈0 evidence (trigger-timing adaptation, train A). SKILL.md is at 110/110 → the ONLY SKILL.md edit is the in-line 0-delta line-46 halt-list update (`derive|lint` halt → `derive` halt; ship list += lint.md) — train-C V2 precedent.
+- **Glossary preload**: existence-gated runtime path; absent → halt with pointer (can't happen in-train — notation.md shipped in B — but the gate must exist).
+- **`⇒`-for-then = ZERO findings**: `⇒` was retained core-active by train B's measured adjudication — it is not drift, excluded from the class list with the adjudication cited.
+- **`negative-polarity` = report/queue-only under EVERY path** including batch `--fix`; G1 proposals only where Z exists in source; else `needs external verification`.
+- **Hard exclusions**: code blocks, frontmatter, spawn templates — never linted, never edited. Vault paths (`roxabi_sdk.paths` resolutions, `~/.roxabi-vault/**`) never in scope.
+- **In-flight guard**: before any `--fix` write, cross-check targets vs open PR head diffs (`gh pr list --json number,files`); overlap → skip + report. Never lint-fix in-flight files.
+- **Fixtures are deliverables**: memory-genre, always-on-genre, code-block/frontmatter/spawn-template regions, plus a drift-class fixture proving each Grep pattern fires — the ACs are fixture-proven (live corpus counts rot: `→ → ` = 0 hits in plugins/ today vs ×44 at analysis time; recorded adaptation).
+- **Ledger**: one Observation row `category=lint` per run via the train-A append path (un-reserves the category); Bash absent → skip cleanly.
+- **Queue format**: `{diff_type ∈ {claude_md, skill, memory_entry, ssot}, target_path, diff_body}`; genre→diff_type mapping total.
+- DP drift (standing): report class-selection = one batched present-choice multi-select; semantic repairs = per-file present-choice; never AskUserQuestion.
+- Batch cap ≤10 files; dry-run default; one PR per plugin scope; marketplace self-containment (ssot-style described generically as "user-designated always-on manifests").
+- No dev-core files, no validate_plugins.py changes.
+
+## Out of Scope
+
+- Derive mode (#313). Actual corpus migration (the mode ENABLES it; running it repo-wide is post-train operational work).
+- Retiring `⇒` (only if a future glossary decision does).
+- New CI checks or workflows.
+
+## Premise Validity
+
+**Success in 6 months:** Drift is measurable and repairable on demand: `/compress lint` reports the 8 classes against any scope with genre-aware proposals; repairs flow through the DP-gated queue in cortex's diff_types shape; lint ledger rows accumulate per run; notation.md stays the single enforced legend.
+
+**Failure in 6 months:** By 2027-01: zero lint ledger rows on real scopes (mode never used), or a corpus scan shows the mechanical classes (arrow-doubling, or-drift, assign-drift) present in plugins/ with no lint run having reported them, or a lint `--fix` edited an in-flight file or a vault path (guard breach) — the enforcement loop was theater or unsafe, premise indicted.
+
+**Simplest alternative:** A standalone grep script in tools/ reporting the mechanical classes only.
+**Why not simplest:** The semantic classes (reserved-collision, unknown-symbol, missing-gloss, stale-marker, negative-polarity) need the glossary + registry + G-rules context only the skill carries; repair needs the DP queue and genre profiles (a script can't gate or genre-classify); and the queue format IS the cortex actuation PoC — a grep script produces no schema evidence.
+
+## Complexity
+
+**Tier: F-lite** — label `size:F-lite`, complexity 4 (lowest of the train): one new reference file + fixtures + one in-line SKILL.md edit + README; all machinery (dispatch, scope, glossary, ledger, markers) already shipped by A–C.
+
+Signals: single reference-file surface; zero new scripts; zero validator changes; χ=0.
