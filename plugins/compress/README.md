@@ -40,7 +40,20 @@ A golden set of source/compressed/inventory triples under `skills/compress/refer
 
 ## Compression levels
 
-Slice V1 ships the minimal level model: **L0** content (safety rules, commands, tool names, spawn templates) is copied verbatim and never anchored; everything else is anchored and read-back-verifiable. Every compressed output carries a provenance marker after its frontmatter — `<!-- compress: level=<L> src-sha=<sha> glossary=<v> -->` — so a stale source hash forces re-verification before re-compression. Per the First Golden Run consequence, every L2 output also carries a minimal per-file legend of the symbols it uses. The full L0–L3 catalog, auto-classification, and `expand` mode land with slice 2.
+Four levels, a closed enum ("derived" is a mode, not a level):
+
+- **L0 — verbatim**: safety rules, commands, tool names, spawn templates — copied word-for-word, never anchored.
+- **L1 — terse prose**: pruned prose with ASCII digraphs instead of glyphs, for human-facing docs — the home of the measured ~40% savings.
+- **L2 — house symbolic (default)**: the full notation catalog — contracts, verify-tables, state maps, subscripted predicates, parameterized ops, status glyphs. Per the First Golden Run consequence, every L2 output also carries a minimal per-file legend of the symbols it uses.
+- **L3 — externalize split**: a ~500-token compressed core plus a linked residue doc, both carrying the provenance marker.
+
+Files are auto-classified (safety content → L0, human-facing docs → L1, skill/agent bodies → L2, oversized always-on files → L3), with a `--level` override per file or per section. One rule holds throughout — R13: every section lands entirely at one level; a mixed-register request is refused with a choice to split the section or pick one level.
+
+Every compressed output carries a provenance marker after its frontmatter — `<!-- compress: level=<L> src-sha=<sha> glossary=<v> -->` — so a stale source hash forces re-verification before re-compression.
+
+## Expand mode
+
+`compress expand <target>` reverses a compression: it parses the provenance marker, extracts the anchor inventory, and regenerates structured prose section-by-section — L0 sections pass through verbatim, anchors are stripped from the output, and nothing is written before an explicit approval. On a file without marker or anchors the reconstruction still runs, declared "best-effort, unverified".
 
 ## Install
 
