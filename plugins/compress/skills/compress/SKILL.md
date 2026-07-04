@@ -26,7 +26,7 @@ Let:
 ```
 /compress file.md                  default mode, direct path
 /compress compress                 plugin name — discovered across both layouts
-/compress lint <target>            mode lint — halts until references/lint.md ships
+/compress lint <target>            mode lint — dispatches references/lint.md
 ```
 
 ## Pipeline
@@ -43,7 +43,7 @@ Let:
 ## Phase 0 — Dispatch
 
 Parse the first token of `$ARGUMENTS`: ∈ μ set → mode; omitted → `compress`. Ambiguous (neither a mode nor a resolvable path/name) → ask "Mode or target?" (1–2 sentences), then dispatch. First token matching a mode always dispatches as mode — force scope interpretation with a path (e.g. `./lint`).
-Mode valid ⟺ ref(μ) ∃. ∄ → halt: `mode "<μ>" not yet implemented` — ¬improvise a mode body. Today `references/compress.md` + `references/glossary.md` + `references/expand.md` ship → `derive|lint` halt.
+Mode valid ⟺ ref(μ) ∃. ∄ → halt: `mode "<μ>" not yet implemented` — ¬improvise a mode body. Today `references/compress.md` + `references/glossary.md` + `references/expand.md` + `references/lint.md` ship → `derive` halts.
 Glossary gate: `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` ∃ → load its `## Core Table` section only; ∄ → the `Whitelist:` line (Guardrails) is the sole symbol domain — standalone install, G1–G4 still bind.
 
 ## Phase 1 — Scope
