@@ -1,0 +1,155 @@
+---
+title: 'Plan: compress v2 train B — slice V1 (P6 guardrails standalone)'
+issue: 310
+spec: artifacts/specs/310-notation-glossary-guardrails-spec.mdx
+complexity: 5/10
+tier: F-lite
+slice: V1 of 2
+generated: 2026-07-04
+---
+
+## Summary
+
+Slice V1 (P6): replace compress's flat `¬compress` list with guardrails G1–G4 + canonical inline whitelist + R1 demotion and break-even inequality, wire the existence-gated glossary paths (glossary absent in V1 — the standalone proof), pin the evidence in `references/evidence.md`, all within the ≤110-line budget via the Decision-10 displacement plan.
+
+## Architecture
+
+**Data flow:** [notation pipeline](../visuals/310-notation-glossary-guardrails-data-flow.html)
+**File map:** [files × sections](../visuals/310-notation-glossary-guardrails-file-map.html)
+
+(Sidecars cover both slices; generated during this V1 plan run.)
+
+## Bootstrap Context
+
+- Binding spec decisions: D9 format contracts (Whitelist anchor line, glyph domain excl. reserved vars), D10 displacement (append template + mode-specific edge rows → `references/compress.md`; G1–G4 stay in SKILL.md — cross-mode), D11 standalone Phase-3 degradation (whitelist glyph domain only, documented).
+- Current SKILL.md = 106 lines (train A v2 + fix); budget 110; est. +14–16 added by G-rules/whitelist/inequality/wiring ⇒ displace ~10–12 (D10 targets: the Phase 5 append command block SKILL.md:78-85, and ONLY the mode-specific Edge Cases row :93 "Mode-specific (…) | Per ref(μ)" — rows :91-92 "Agent (¬skill)" and "User rejects at Phase 4" are cross-mode and STAY).
+- `references/compress.md` currently holds the Symbols legend (:5-7) + R1–R10 (:13-30) + `¬compress` line (:32) + mode edge cases (:34-40) + measured rationale (:42-51). The `¬compress` line is superseded by G1–G4 → replace with a one-line pointer to SKILL.md's G-rules; keep mode-specific behaviors.
+- Whitelist seed = union of glyphs in `references/compress.md:7` legend (fresh grep at implement; expected ~20 tokens incl. `:=`, `|X|`, `↦`, `⟺`).
+- G4 citation form: `(evidence: references/evidence.md — Tencent 2604.07192)` inline.
+- Quality bar: dev-core maintainer idiom; G-rules compact (≤2 lines each + shared intro).
+
+## Agents
+
+| Agent instance | Tasks | Files |
+|----------------|-------|-------|
+| doc-writer-A | T1, T2 | references/evidence.md; SKILL.md + references/compress.md |
+| doc-writer-B | T3 | plugins/compress/README.md |
+| tester-A | T4, T5 | (grep battery + budget sentinel — no new files) |
+
+## Wave Structure
+
+3 waves, max 2 ∥.
+
+| Wave | Trigger | Agents | Tasks |
+|------|---------|--------|-------|
+| 1 | start | 1 | doc-writer-A: T1 |
+| 2 | T1 done | 2 ∥ | doc-writer-A: T2 · doc-writer-B: T3 |
+| 3 | Wave 2 done | 1 | tester-A: T4→T5 |
+
+### Budget — per task
+
+| Task | Class | Est. ops | Split? |
+|------|-------|----------|--------|
+| T1 evidence.md | judgmental | 8 | — |
+| T2 SKILL.md G-rules + displacement | judgmental | 18 | — |
+| T3 README sync | trivial | 3 | — |
+| T4 grep battery + standalone demo | bounded | 8 | — |
+| T5 RED-GATE budget sentinel | bounded | 6 | — |
+
+**Total estimated ops: 43**
+
+### Budget — per agent instance
+
+| Instance | Tasks | Σ ops | Subjects | Split? |
+|----------|-------|-------|----------|--------|
+| doc-writer-A | T1, T2 | 26 | evidence, guardrails | — |
+| doc-writer-B | T3 | 3 | docs | — |
+| tester-A | T4, T5 | 14 | sweep, budget-gate | — |
+
+## Consistency Report
+
+- V1-scoped SCs covered: SC10 (T2), SC11 (T2, T4), SC12 (T2, T4), SC13 (T2, T4), SC14 (T1, T2), SC15 (T2, T4), SC16 (T1), SC17 (T2, T4 — standalone demo), SC18 (T4), SC19 (T2), SC21 (T2, T5), SC22 (process, T4 grep). 12/12 V1 criteria → ≥1 task.
+- Exempt (slice V2): SC1–SC9, SC20 (cortex_link lands with glossary.md in V2).
+- Untraced tasks: none.
+
+## Micro-Tasks
+
+### Slice V1 — Wave 1
+
+**T1 — Create references/evidence.md**
+- File: `plugins/compress/skills/compress/references/evidence.md`
+- Agent: doc-writer-A · Subject: evidence · Phase: GREEN · Difficulty: 2 · Est: 8 ops
+- Shape: pinned load-bearing excerpts with IDs, one section per source: Tencent arXiv 2604.07192 (controlled null result, Cliff's δ<0.01; polarity failure taxonomy 36/47 = default bias), MetaGlyph arXiv 2601.07354 (`→` 0% as transformation operator, `∈` 26%, U-curve), LILO ICLR 2024 (NL gloss/AutoDoc load-bearing), GEPA ICLR 2026 (rule derivation by reflection; non-load-bearing credit), pseudo-code ablation note. ≤60 lines; each excerpt ≤3 lines + 1-line "what it licenses" (e.g. G1 ← Tencent; G3 ← MetaGlyph+LILO). No machine-local paths.
+- Verify: `test -f plugins/compress/skills/compress/references/evidence.md && grep -c 'arXiv' plugins/compress/skills/compress/references/evidence.md && grep -q '2604.07192' plugins/compress/skills/compress/references/evidence.md && grep -q '2601.07354' plugins/compress/skills/compress/references/evidence.md && echo ok`
+- Expected: ≥4 arXiv/venue pins; `ok`
+- Spec trace: SC16, SC14
+
+### Slice V1 — Wave 2
+
+**T2 — SKILL.md guardrails + whitelist + wiring + displacement**
+- Files: `plugins/compress/skills/compress/SKILL.md`, `plugins/compress/skills/compress/references/compress.md`
+- Agent: doc-writer-A · Subject: guardrails · Phase: GREEN · Difficulty: 4 · Est: 18 ops · blockedBy: T1
+- Shape (SKILL.md): replace the Safety-section adjacency with a `## Guardrails` block: G1 polarity (`¬use Y` → `use Z (¬Y)` iff concrete Z; never invent Z; else flag literal **`needs external verification`** + Phase 4 flag block `{constraint | polarity | alternative-exists | verification-method}`, fixed format, vault optional); G2 no-free-coinage (symbols ∈ whitelist; NO hardcoded token tiers anywhere; NO tokenizer-relative glyph rule; token-neutrality principle verbatim: *glyph substitution is token-neutral at best; choose glyphs for register/precision, never for economy; measured savings come from prose pruning*; optional measurement procedure: API count, tokenizer + date); G3 gloss trigger verbatim `(predicate ∨ O-block ∨ Let-bind) ∨ (symbol ∉ whitelist) ∨ (chain > 3 operators)` → `— …` gloss ≤1 line; bare non-whitelist symbols forbidden; G4 verbatim floor (commands, tool names, spawn templates, safety rules) citing evidence.md inline. Add `Whitelist:` anchor line (D9 format; seed from compress.md:7 legend union). Add R1 break-even inequality `(T_phrase − T_var) × occ > T_letline (≈8–10)` + R5/R6/R7 = primary economic transform + "G1/G3 spend tokens to buy compliance". Phase 0 + existence-gated glossary load line (`plugins/shared/references/notation.md` ∃ → load `## Core Table`; ∄ → whitelist only); Phase 3 collision-check line (registry if glossary ∃, else whitelist domain — D11 wording); Phase 5 assert emitted symbols ∈ whitelist/core-table ∨ Let-defined. Displace (D10): Phase 5 append command block → compress.md (Phase 5 keeps a 1-line pointer); mode-specific Edge Cases rows → compress.md. ≤110 lines HARD.
+  (compress.md): receive displaced blocks; replace `¬compress` line :32 with pointer "superseded by SKILL.md G1–G4"; fix the R1 example (registry-clean vars — e.g. `κ(f)` conf, `θ` threshold; NOT φ/τ/γ); keep Symbols legend + measured rationale.
+- Verify: `wc -l < plugins/compress/skills/compress/SKILL.md` ≤110 ∧ `python3 tools/validate_plugins.py | grep 'line budget'` PASS ∧ `grep -q '^Whitelist:' plugins/compress/skills/compress/SKILL.md` ∧ `grep -q 'never for economy' plugins/compress/skills/compress/SKILL.md` ∧ `grep -qF '(predicate ∨ O-block ∨ Let-bind) ∨ (symbol ∉ whitelist) ∨ (chain > 3 operators)' plugins/compress/skills/compress/SKILL.md` ∧ `grep -q 'T_letline' plugins/compress/skills/compress/SKILL.md` ∧ `grep -q 'evidence.md' plugins/compress/skills/compress/SKILL.md` ∧ `! grep -q 'φ.*findings' plugins/compress/skills/compress/references/compress.md` ∧ echo ok
+- Expected: all green; `ok`
+- Spec trace: SC10, SC11, SC12, SC13, SC14, SC15, SC17, SC19, SC21
+
+**T3 — README doc sync** `[P]`
+- File: `plugins/compress/README.md`
+- Agent: doc-writer-B · Subject: docs · Phase: GREEN · Difficulty: 1 · Est: 3 ops · blockedBy: T1
+- Shape: add a short "Fidelity guardrails" paragraph (G1–G4 one-liners) + note the canonical whitelist / optional shared glossary.
+- Verify: `grep -q 'G1' plugins/compress/README.md && grep -qi 'guardrail' plugins/compress/README.md && echo ok`
+- Expected: `ok`
+- Spec trace: SC11 (docs), SC17
+
+### Slice V1 — Wave 3
+
+**T4 — Grep battery + standalone demo**
+- Files: none (read-only sweep + demo evidence)
+- Agent: tester-A · Subject: sweep · Phase: GREEN · Difficulty: 2 · Est: 8 ops · blockedBy: T2, T3
+- Shape: battery — lint mentions all gated (`grep -in 'lint' plugins/compress/skills/compress/SKILL.md plugins/compress/skills/compress/references/compress.md` → every hit ∈ {description trigger :3, μ set :18, Entry example :29, Phase-0 halt list :45-46} or equivalent post-edit lines; zero references to an unshipped lint body/behavior); negative grep: no hardcoded token-tier rule (no "= 1 token"/"= 2 tokens" tier claims; the only sanctioned numeric forms are the break-even inequality and its practical thresholds) and no tokenizer-relative glyph rule; `needs external verification` literal present; no `decision-presentation`/`AskUserQuestion`; `--level|--verify` still absent; standalone demo: assert `plugins/shared/references/notation.md` does NOT exist yet (V1 tree) → the Phase 0 existence-gate text covers it and no SKILL.md path hard-requires the file; sample-output check: compose a 5-line sample compression per the G-rules and verify no bare non-whitelist symbol (each symbol ∈ Whitelist line ∨ Let-defined w/ gloss); self-containment grep on shipped surface.
+- Verify: scripted battery above
+- Expected: all clean; demo evidence recorded
+- Spec trace: SC11, SC12, SC13, SC15, SC17, SC18, SC22
+
+**T5 — RED-GATE: budget sentinel on the grown SKILL.md**
+- Files: temp copy of SKILL.md (restored)
+- Agent: tester-A · Subject: budget-gate · Phase: RED-GATE · Difficulty: 2 · Est: 6 ops · blockedBy: T4
+- Shape: cp SKILL.md to scratch → append filler >110 → `python3 tools/validate_plugins.py` FAILS naming compress → mv back → PASSES → `git status` unchanged. Record outputs.
+- Verify: scripted sequence
+- Expected: FAIL over budget → PASS restored
+- Spec trace: SC21
+
+## Task Seeding Blueprint
+
+<!-- Format: T{n} | agent-instance | blockedBy | subject -->
+
+### Wave 1 — no deps, 1 agent
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T1 | doc-writer-A | — | evidence |
+
+### Wave 2 — after T1, 2 agents ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T2 | doc-writer-A | T1 | guardrails |
+| T3 | doc-writer-B | T1 | docs |
+
+### Wave 3 — after Wave 2, 1 agent
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T4 | tester-A | T2, T3 | sweep |
+| T5 | tester-A | T4 | budget-gate |
+
+## Task IDs
+
+<!-- Generated by /plan (slice V1). -->
+- T1: 29 — evidence
+- T2: 30 — guardrails
+- T3: 31 — docs
+- T4: 32 — sweep
+- T5: 33 — budget-gate
