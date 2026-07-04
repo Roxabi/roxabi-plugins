@@ -49,8 +49,6 @@ NOTATION_GLOSSARY = PLUGINS_DIR / 'shared' / 'references' / 'notation.md'
 COMPRESS_SKILL = PLUGINS_DIR / 'compress' / 'skills' / 'compress' / 'SKILL.md'
 
 _BACKTICK_SPAN_RE = re.compile(r'`([^`]+)`')
-# Markdown table separator row, e.g. |---|:---:|
-_TABLE_SEPARATOR_RE = re.compile(r'^\s*\|[\s:-]+\|')
 
 _DEFAULT_YAML_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'review-classes.yml'
 _DEFAULT_SKILL_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'SKILL.md'
@@ -507,12 +505,16 @@ def check_notation_legends(legend_files=None, skill_path=None, glossary_path=Non
       'notation.md' — the one-line pointer replacing its former inline legend.
     - Set-equality gate: backtick spans of compress SKILL.md's 'Whitelist:' line
       must be set-equal to the column-1 backtick spans of notation.md's active
-      core-table rows ('## Core Table' up to the next '##' heading, separator
-      rows skipped, cell-1 '\\|' escapes unescaped). Both sets must be non-empty
-      so an empty ≡ empty comparison never vacuously passes.
+      core-table rows ('## Core Table' up to the next '##' heading, cell-1
+      '\\|' escapes unescaped). Separator rows (e.g. '|---|:---:|') are inert
+      by construction — column 1 of a separator row carries no backtick spans,
+      so the column-1 extraction naturally contributes nothing; no explicit
+      skip is needed. Both sets must be non-empty so an empty ≡ empty
+      comparison never vacuously passes.
 
     Exit semantics when called from main():
       - errors containing 'not found at' (missing file) → caller returns 2
+      - errors containing 'not valid utf-8' (decode failure) → caller returns 2
       - pointer/set drift (incl. missing anchors) → caller returns 1
     """
     errors = []
@@ -531,8 +533,13 @@ def check_notation_legends(legend_files=None, skill_path=None, glossary_path=Non
         if not legend.exists():
             errors.append(f'gated legend file not found at {legend}')
             continue
+        try:
+            legend_text = legend.read_text(encoding='utf-8')
+        except UnicodeDecodeError as e:
+            errors.append(f'{legend} is not valid UTF-8: {e}')
+            continue
         pointer_lines = [
-            line for line in legend.read_text(encoding='utf-8').splitlines()
+            line for line in legend_text.splitlines()
             if 'notation.md' in line
         ]
         if not pointer_lines:
@@ -551,49 +558,57 @@ def check_notation_legends(legend_files=None, skill_path=None, glossary_path=Non
     if not skill_path.exists():
         errors.append(f'compress SKILL.md not found at {skill_path}')
     else:
-        wl_lines = [
-            line for line in skill_path.read_text(encoding='utf-8').splitlines()
-            if line.startswith('Whitelist:')
-        ]
-        if not wl_lines:
-            errors.append(f'{skill_path}: no line starting "Whitelist:" found')
+        try:
+            skill_text = skill_path.read_text(encoding='utf-8')
+        except UnicodeDecodeError as e:
+            errors.append(f'{skill_path} is not valid UTF-8: {e}')
         else:
-            whitelist = set(_BACKTICK_SPAN_RE.findall(wl_lines[0]))
-            if not whitelist:
-                errors.append(
-                    f'{skill_path}: Whitelist: line carries no backtick spans'
-                )
+            wl_lines = [
+                line for line in skill_text.splitlines()
+                if line.startswith('Whitelist:')
+            ]
+            if not wl_lines:
+                errors.append(f'{skill_path}: no line starting "Whitelist:" found')
+            else:
+                whitelist = set(_BACKTICK_SPAN_RE.findall(wl_lines[0]))
+                if not whitelist:
+                    errors.append(
+                        f'{skill_path}: Whitelist: line carries no backtick spans'
+                    )
 
     core: set[str] = set()
     if not glossary_path.exists():
         errors.append(f'notation glossary not found at {glossary_path}')
     else:
-        lines = glossary_path.read_text(encoding='utf-8').splitlines()
-        in_section = False
-        anchor_seen = False
-        for line in lines:
-            if line.startswith('## '):
-                in_section = line.strip() == '## Core Table'
-                anchor_seen = anchor_seen or in_section
-                continue
-            if not in_section or not line.lstrip().startswith('|'):
-                continue
-            if _TABLE_SEPARATOR_RE.match(line):
-                continue
-            cells = re.split(r'(?<!\\)\|', line)
-            if len(cells) < 2:
-                continue
-            for span in _BACKTICK_SPAN_RE.findall(cells[1]):
-                core.add(span.replace('\\|', '|'))
-        if not anchor_seen:
-            errors.append(
-                f'{glossary_path}: core table anchor "## Core Table" not found in file'
-            )
-        elif not core:
-            errors.append(
-                f'{glossary_path}: core table has no active glyph rows — '
-                f'empty set would vacuously pass'
-            )
+        try:
+            glossary_text = glossary_path.read_text(encoding='utf-8')
+        except UnicodeDecodeError as e:
+            errors.append(f'{glossary_path} is not valid UTF-8: {e}')
+        else:
+            lines = glossary_text.splitlines()
+            in_section = False
+            anchor_seen = False
+            for line in lines:
+                if line.startswith('## '):
+                    in_section = line.strip() == '## Core Table'
+                    anchor_seen = anchor_seen or in_section
+                    continue
+                if not in_section or not line.lstrip().startswith('|'):
+                    continue
+                cells = re.split(r'(?<!\\)\|', line)
+                if len(cells) < 2:
+                    continue
+                for span in _BACKTICK_SPAN_RE.findall(cells[1]):
+                    core.add(span.replace('\\|', '|'))
+            if not anchor_seen:
+                errors.append(
+                    f'{glossary_path}: core table anchor "## Core Table" not found in file'
+                )
+            elif not core:
+                errors.append(
+                    f'{glossary_path}: core table has no active glyph rows — '
+                    f'empty set would vacuously pass'
+                )
     # Header row ('| glyph | ...') carries no backtick spans, so it never
     # contributes; only glyph rows populate the set.
 

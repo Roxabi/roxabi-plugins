@@ -43,7 +43,7 @@ Let:
 ## Phase 0 — Dispatch
 
 Parse the first token of `$ARGUMENTS`: ∈ μ set → mode; omitted → `compress`. Ambiguous (neither a mode nor a resolvable path/name) → ask "Mode or target?" (1–2 sentences), then dispatch. First token matching a mode always dispatches as mode — force scope interpretation with a path (e.g. `./lint`).
-Mode valid ⟺ ref(μ) ∃. ∄ → halt: `mode "<μ>" not yet implemented` — ¬improvise a mode body. Today only `references/compress.md` ships → `derive|expand|lint|glossary` all halt.
+Mode valid ⟺ ref(μ) ∃. ∄ → halt: `mode "<μ>" not yet implemented` — ¬improvise a mode body. Today `references/compress.md` + `references/glossary.md` ship → `derive|expand|lint` halt.
 Glossary gate: `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` ∃ → load its `## Core Table` section only; ∄ → the `Whitelist:` line (Guardrails) is the sole symbol domain — standalone install, G1–G4 still bind.
 
 ## Phase 1 — Scope

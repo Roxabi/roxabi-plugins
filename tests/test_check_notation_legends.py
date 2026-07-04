@@ -5,7 +5,8 @@ Two gates (issue #310, spec Decision 9):
   containing `notation.md` (the one-line pointer to the canonical glossary).
 - Set-equality gate: backtick spans of SKILL.md's `Whitelist:` line must be
   set-equal to the column-1 backtick spans of notation.md's `## Core Table`
-  active rows (separator rows skipped, `\\|` unescaped, both sets non-empty).
+  active rows (separator rows are inert by construction, `\\|` unescaped,
+  both sets non-empty).
 """
 
 import importlib.util
@@ -120,6 +121,25 @@ def test_full_legend_fails_pointer_gate(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Pointer gate — two pointer lines trip the multi-pointer gate
+# ---------------------------------------------------------------------------
+
+def test_multiple_pointer_lines_fails(tmp_path):
+    """Two lines that each reference notation.md trip the multi-pointer gate."""
+    mod = _load_tool()
+    legend = _write_legend(
+        tmp_path,
+        line=(
+            'Notation legend → canonical glossary: `notation.md`\n'
+            'See also `plugins/shared/references/notation.md` for details.'
+        ),
+    )
+    errors = _run_check(mod, tmp_path, legend=legend)
+    assert errors
+    assert any('found 2' in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
 # Pointer gate — missing gated file → IO error tier ('not found at')
 # ---------------------------------------------------------------------------
 
@@ -201,12 +221,13 @@ def test_two_way_drift_names_both_directions(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_missing_whitelist_line_fails_loud(tmp_path):
-    """A SKILL.md without a Whitelist: line fails — even against an empty table."""
+    """A SKILL.md without a Whitelist: line fails against a non-empty valid table."""
     mod = _load_tool()
     skill = _write_skill(tmp_path, None)
-    glossary = _write_glossary(tmp_path, [])
+    glossary = _write_glossary(tmp_path, ['`∀`', '`¬`'])
     errors = _run_check(mod, tmp_path, skill=skill, glossary=glossary)
     assert errors
+    assert any('no line starting "Whitelist:" found' in e for e in errors)
 
 
 def test_empty_core_table_fails_loud(tmp_path):
@@ -228,14 +249,23 @@ def test_missing_core_table_anchor_is_drift(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Separator rows — never contribute to the parsed set
+# Separator rows — inert by construction, never contribute to the parsed set
 # ---------------------------------------------------------------------------
 
-def test_separator_row_skipped(tmp_path):
-    """Separator rows (---, :--- variants) parse clean and add nothing to the set."""
+def test_separator_row_immaterial_to_glyph_set(tmp_path):
+    """A core table with a separator row parses to the same outcome as one without.
+
+    Separator cells (e.g. '---', ':---:') carry no backtick spans, so column-1
+    extraction naturally contributes nothing — no explicit skip is needed. Both
+    fixtures share the same glyph rows and the same whitelist; if the separator
+    row mattered, one of the two checks would report drift while the other did
+    not. Both must report zero errors.
+    """
     mod = _load_tool()
-    glossary = tmp_path / 'notation.md'
-    glossary.write_text(
+    skill = _write_skill(tmp_path, ['∀', '¬'])
+
+    with_sep = tmp_path / 'with_sep.md'
+    with_sep.write_text(
         '# Notation\n\n## Core Table\n\n'
         '| glyph | senses |\n'
         '|:------|:------:|\n'
@@ -244,7 +274,59 @@ def test_separator_row_skipped(tmp_path):
         '## Next\n',
         encoding='utf-8',
     )
-    assert _run_check(mod, tmp_path, glossary=glossary) == []
+    without_sep = tmp_path / 'without_sep.md'
+    without_sep.write_text(
+        '# Notation\n\n## Core Table\n\n'
+        '| glyph | senses |\n'
+        '| `∀` | sense |\n'
+        '| `¬` | sense |\n\n'
+        '## Next\n',
+        encoding='utf-8',
+    )
+
+    errors_with = _run_check(mod, tmp_path, skill=skill, glossary=with_sep)
+    errors_without = _run_check(mod, tmp_path, skill=skill, glossary=without_sep)
+    assert errors_with == [] == errors_without
+
+
+# ---------------------------------------------------------------------------
+# UnicodeDecodeError parity — invalid UTF-8 reports a clean error, no traceback
+# ---------------------------------------------------------------------------
+
+def test_invalid_utf8_legend_reports_clean_error(tmp_path):
+    """A legend file with invalid UTF-8 bytes reports a clean decode error."""
+    mod = _load_tool()
+    legend = tmp_path / 'base.md'
+    legend.write_bytes(b'\xff\xfe not utf-8 at all')
+    errors = _run_check(mod, tmp_path, legend=legend)
+    assert errors
+    assert any('not valid utf-8' in e.lower() for e in errors)
+    assert any(mod._is_io_error(e) for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# Exit tiers — in-process main() with monkeypatched module constants
+# ---------------------------------------------------------------------------
+
+def test_exit_tier_missing_legend_file_is_2(tmp_path, monkeypatch):
+    """A missing gated legend file ('not found at') exits 2 via main()."""
+    mod = _load_tool()
+    monkeypatch.setattr(mod, 'NOTATION_LEGEND_FILES', [tmp_path / 'absent.md'])
+    rc = mod.main(['--check', 'notation-legends'])
+    assert rc == 2
+
+
+def test_exit_tier_drift_is_1(tmp_path, monkeypatch):
+    """Whitelist/core-table set drift (no IO error) exits 1 via main()."""
+    mod = _load_tool()
+    legend = _write_legend(tmp_path)
+    skill = _write_skill(tmp_path, ['∀', '⇒'])
+    glossary = _write_glossary(tmp_path, ['`∀`', '`¬`'])
+    monkeypatch.setattr(mod, 'NOTATION_LEGEND_FILES', [legend])
+    monkeypatch.setattr(mod, 'COMPRESS_SKILL', skill)
+    monkeypatch.setattr(mod, 'NOTATION_GLOSSARY', glossary)
+    rc = mod.main(['--check', 'notation-legends'])
+    assert rc == 1
 
 
 # ---------------------------------------------------------------------------

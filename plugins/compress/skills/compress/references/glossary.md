@@ -32,7 +32,7 @@ New or re-bound variable proposed → look it up in `## Reserved-Variable Regist
 - var ∃ with the same sense → reuse the canonical binding, no new entry.
 - var ∃ with a different sense → either pick an unbound var, or mark the binding `(local)` in the target file's `Let:` block. An un-marked collision is exactly what compress Phase 3 flags — don't ship one from the mode that owns the registry.
 
-## Edge cases
+## Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
