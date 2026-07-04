@@ -15,6 +15,8 @@ Checks:
 - Budgeted SKILL.md files stay within their physical line budgets
 - Gated dev-core legend lines are one-line pointers to the canonical notation
   glossary, and compress's inline whitelist stays set-equal to its core table
+- Golden compressed artifacts stay inventory-equivalent to their expected
+  inventories (compress read-back goldens, issue #311)
 
 Usage:
   python3 tools/validate_plugins.py                     # run all checks
@@ -47,6 +49,15 @@ NOTATION_LEGEND_FILES = [
 ]
 NOTATION_GLOSSARY = PLUGINS_DIR / 'shared' / 'references' / 'notation.md'
 COMPRESS_SKILL = PLUGINS_DIR / 'compress' / 'skills' / 'compress' / 'SKILL.md'
+
+# Golden read-back triples (issue #311 Decision 6)
+GOLDEN_DIR = PLUGINS_DIR / 'compress' / 'skills' / 'compress' / 'references' / 'golden'
+
+# Inventory anchor on its own line: <!-- INV-<category>-<n> -->
+_INV_ANCHOR_RE = re.compile(r'^\s*<!--\s*(INV-[a-z]+-\d+)\s*-->\s*$')
+
+# Decision-6 charset: normalized keys keep only [a-z0-9 ∀∃∄∈∉∧∨¬→⟺∅≥≤]
+_INV_NORM_DROP_RE = re.compile(r'[^a-z0-9∀∃∄∈∉∧∨¬→⟺∅≥≤]')
 
 _BACKTICK_SPAN_RE = re.compile(r'`([^`]+)`')
 
@@ -626,6 +637,95 @@ def check_notation_legends(legend_files=None, skill_path=None, glossary_path=Non
     return errors
 
 
+def _normalize_inventory_text(text: str) -> str:
+    """Decision-6 text-key normalization (issue #311).
+
+    lowercase → strip leading/trailing whitespace → collapse internal
+    whitespace runs to one space → drop characters outside the
+    `[a-z0-9 ∀∃∄∈∉∧∨¬→⟺∅≥≤]` class (punctuation-only tokens vanish).
+    """
+    # lockstep: keep identical to plugins/compress/scripts/inventory_diff.py::normalize
+    # (Decision-6 charset parity) — see #311
+    tokens = []
+    for token in text.lower().split():
+        token = _INV_NORM_DROP_RE.sub('', token)
+        if token:
+            tokens.append(token)
+    return ' '.join(tokens)
+
+
+def _parse_compressed_anchors(text: str) -> set[tuple[str, str]]:
+    """Extract (anchor, normalized text key) pairs from a compressed artifact.
+
+    Each anchor sits on its own line; its item is the next non-empty line
+    (grammar: compress skill references/verify.md).
+    """
+    pairs = set()
+    lines = text.splitlines()
+    for lineno, line in enumerate(lines):
+        m = _INV_ANCHOR_RE.match(line)
+        if not m:
+            continue
+        item_text = ''
+        for follower in lines[lineno + 1:]:
+            if follower.strip():
+                item_text = follower.strip()
+                break
+        pairs.add((m.group(1), _normalize_inventory_text(item_text)))
+    return pairs
+
+
+def check_golden_inventories(golden_dir=None) -> list[str]:
+    """Golden compressed artifacts must be inventory-equivalent to their JSONs.
+
+    For each `NN-name.compressed.md` in the golden dir, set-compare its
+    (anchor, normalized text key) pairs against the sibling
+    `NN-name.inventory.json` — both directions, never bytes, no LLM.
+
+    Activation semantic: a MISSING golden dir returns [] (the check is inert
+    until the goldens land — their commit activates the gate); an EXISTING
+    dir with zero triples is a loud error, never a silent pass.
+    """
+    errors = []
+    golden_dir = Path(golden_dir) if golden_dir is not None else GOLDEN_DIR
+    if not golden_dir.exists():
+        return errors
+    compressed_files = sorted(golden_dir.glob('*.compressed.md'))
+    if not compressed_files:
+        errors.append(f'no golden triples found in {golden_dir} — empty golden dir')
+        return errors
+
+    for compressed in compressed_files:
+        triple = compressed.name.removesuffix('.compressed.md')
+        inventory_path = golden_dir / f'{triple}.inventory.json'
+        if not inventory_path.exists():
+            errors.append(f'{triple}: expected inventory not found at {inventory_path}')
+            continue
+        try:
+            with open(inventory_path, encoding='utf-8') as f:
+                expected_items = json.load(f)
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            errors.append(f'{triple}: failed to parse {inventory_path.name}: {e}')
+            continue
+
+        actual = _parse_compressed_anchors(compressed.read_text(encoding='utf-8'))
+        expected = {
+            (item['anchor'], _normalize_inventory_text(item['text']))
+            for item in expected_items
+        }
+        for anchor, key in sorted(expected - actual):
+            errors.append(
+                f'{triple}: inventory item missing from compressed artifact: '
+                f'{anchor} ("{key}")'
+            )
+        for anchor, key in sorted(actual - expected):
+            errors.append(
+                f'{triple}: compressed anchor not matching expected inventory: '
+                f'{anchor} ("{key}")'
+            )
+    return errors
+
+
 def _is_io_error(msg: str) -> bool:
     """Return True when the error message signals an IO/parse failure (exit 2).
 
@@ -699,6 +799,7 @@ def main(argv: list[str] | None = None) -> int:
         ('Shared sources sync', check_shared_sources_sync),
         ('SKILL.md line budget', check_skill_line_budget),
         ('Notation legends', check_notation_legends),
+        ('Golden inventories', check_golden_inventories),
     ]
 
     for name, check_fn in checks:
