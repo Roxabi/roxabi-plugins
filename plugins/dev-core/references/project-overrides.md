@@ -34,7 +34,6 @@ Start from plugin α as base. Keep what works, add project-specific:
 name: backend-dev
 # based-on: dev-core/backend-dev     # traceability — shows which plugin version this overrides
 model: sonnet
-color: white
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList"]
 permissionMode: bypassPermissions   # ⚠ removes all confirmation dialogs — review before use
 maxTurns: 50

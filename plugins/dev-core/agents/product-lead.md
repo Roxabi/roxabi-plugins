@@ -11,7 +11,6 @@ description: |
   user: "Gather requirements for the notification system"
   assistant: "I'll use the product-lead agent to define requirements."
   </example>
-color: white
 permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=true, write_code=false, review_code=false, run_tests=false

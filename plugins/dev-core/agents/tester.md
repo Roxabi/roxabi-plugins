@@ -10,7 +10,6 @@ description: |
   assistant: "I'll use the tester agent to generate test coverage."
   </example>
 model: sonnet
-color: white
 permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=false, run_tests=true

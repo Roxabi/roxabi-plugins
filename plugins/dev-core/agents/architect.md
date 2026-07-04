@@ -10,7 +10,6 @@ description: |
   user: "Design the caching strategy for the API"
   assistant: "I'll use the architect agent to design the architecture."
   </example>
-color: white
 permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=true, write_code=false, review_code=true, run_tests=false
