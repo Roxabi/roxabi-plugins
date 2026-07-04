@@ -1,0 +1,151 @@
+---
+title: 'compress v2 train C — fresh-agent read-back + expand mode + L0-L3 levels + provenance markers'
+issue: 311
+status: approved
+tier: F-lite
+date: 2026-07-04
+---
+
+## Context
+
+Promoted from `artifacts/frames/311-readback-expand-levels-frame.mdx` (approved). Analysis §3-P3 (NEEDS_REVISION corrections baked in) + §3-P7 (corrections applied by symmetry). Train C of #308; builds on trains A (`3b8d5cf`: dispatch, count_tokens, ledger) + B (`1dc4cf3`: notation.md, G1–G4, whitelist).
+
+## Goal
+
+Replace self-affirmed fidelity with an independent fresh-reader instrument (inventory extraction → gated read-back → anchor diff → pre-registered RECALL_FLOOR go/no-go), give consumers a decompression path (`expand`), and make compression levels explicit (L0–L3, R13, provenance markers) — so the notation premise is measured before cortex depends on it.
+
+## Users
+
+- **Primary:** compress users — sizable compressions gain an independent verdict; `expand` reconstructs prose.
+- **Secondary:** #312 lint (markers/levels are its detection substrate), #313 derive (this verifier + the pre-documented derive acceptance split validates it), cortex regenerate-from-raw analogy.
+
+## Decisions
+
+1. **Path normalization (recorded §8.C adaptation)**: all issue `plugins/compress/references/*` paths land under `plugins/compress/skills/compress/references/` (dispatch resolves `ref(μ)` against the skill dir); `inventory_diff.py` joins `count_tokens.py` under `plugins/compress/scripts/`. Golden set: `plugins/compress/skills/compress/references/golden/`.
+2. **DP drift (standing)**: post-re-verify residue → one batched present-choice block; level override → present-choice; never AskUserQuestion.
+3. **Anchor format (single form, all non-L0 levels)**: `<!-- INV-<category>-<n> -->` HTML comments, category ∈ {rule, cond, prohib, thresh, edge} — minted by the writer at Phase 2, shipped inline in the compressed artifact immediately before the item they tag. L0 sections exempt (verbatim class — loss caught by the Safety "safety rules intact" assertion instead). Content-carried (both sides see them); never source-line-derived. **Anchor cost honesty**: anchor tokens are verification scaffolding, same class as legends — counted and SUBTRACTED from reported savings (report field `anchor_tokens`). `expand` STRIPS anchors from its prose output (no round-trip double-tagging).
+4. **`VERIFY_THRESHOLD` = 1500 tokens** (method-labeled count from `count_tokens.py`; ≈ a mid-size SKILL.md). Named constant defined exactly once in SKILL.md's Let block.
+5. **`RECALL_FLOOR` = 0.85** (fresh-reader inventory recall without glossary), pre-registered in `references/verify.md` with its consequence BEFORE the first golden run — commit order enforced by the plan (verify.md lands in an earlier task than any read-back execution). Below floor ⇒ per-file legend becomes mandatory for L2 outputs (the cheaper consequence; notation revision escalates to the epic if legends still fail) — recorded verbatim in verify.md. **Min-N guard**: recall over < 8 non-L0 items ⇒ verdict "insufficient sample — human-gated" (0.85 on a tiny denominator is noise). **Compress-mode acceptance operationalized**: pass ⟺ recall ≥ RECALL_FLOOR ∧ zero {missing, changed-weakened, changed-inverted, invented}. **`CONTAMINATION_CAVEAT` (verbatim constant in verify.md, emitted with every verdict)**: "Caveat: the verifier inherits this host's CLAUDE.md (symbol-saturated) and reads anchor scaffolding in the artifact — this verdict measures paraphrase fidelity given segmentation scaffolding, an upper bound on unaided recovery by external consumers. Reader isolation is prompt-instructed, not sandbox-enforced."
+6. **Golden CI check is deterministic**: `check_golden_inventories(golden_dir=None)` (injectable param, house pattern) parses anchors + their tagged item text from each golden compressed file and set-compares against the expected inventory JSON on **(anchor ID, normalized text key)** pairs. **Text-key normalization (exactly this)**: lowercase → strip leading/trailing whitespace → collapse internal whitespace runs to one space → drop characters outside `[a-z0-9 ∀∃∄∈∉∧∨¬→⟺∅≥≤]`-class (punctuation-only tokens vanish). No LLM in CI. The LLM read-back go/no-go is a runtime exercise: executed once during this train's implementation (after Decision-5 registration), verdict recorded in verify.md's `## First Golden Run` section and in the run log. Golden fixture content: fictional/generic only (`check_personal_data` scans them).
+7. **Ledger decoupling + verify-row schema**: verify writes `verify-log.jsonl` under `get_plugin_data('compress')` via `inventory_diff.py --log` — O_APPEND write-loop DUPLICATED from `count_tokens.py::append_row` (~10 lines) with a lockstep comment on both sides (house precedent: shared-sources header contract). Row = train-A Observation ENVELOPE (id ULID, source 'compress-skill', source_ref, ts, category: **verify**, correlation) with a verify-specific payload: `payload_typed: {schema_version: 2, recall, missing[], invented[], changed[] (each with writer_classification ∈ faithful|weakened|inverted — faithful paraphrases do not block), diff_mode, floor, verdict, anchor_tokens, legend_tokens}`. **inventory_diff.py contract**: inputs = two JSON inventories `[{anchor, text}]`; deterministic output = {missing (anchor ∉ reader), invented (anchor/item ∉ writer), changed (anchor shared, normalized text keys differ — Decision-6 normalization)}; the weakened-vs-inverted sub-classification of `changed` is semantic → done by the writer at runtime and recorded as `writer_classification` (the script never guesses it). Recall = |reader ∩ writer| / |writer non-L0|. When the train-A ledger append also runs, the verify verdict rides its payload; compress-mode ledger rows NOW populate the train-A reserved `level` field (closing that reservation).
+8. **Description budget**: description Δ = 0 — no new frontmatter triggers ("expand notation" was pre-installed by train A). argument-hint gains `[--verify | --level <L>]` THIS train: train A forbade those flags only "before P3/P7 exist", and P3/P7 ship here — this is the sanctioned moment.
+9. **SKILL.md budget arithmetic (corrected)**: current 109/110 → headroom is **net ≤ +1 line**. Expected gross additions ≈ 6–9 lines (VERIFY_THRESHOLD Let-line, Phase 2 inventory clause, Phase 5a gate lines, level dispatch, marker mention, edge rows) — therefore ≥5–8 existing lines must be tightened/merged/removed; the plan enumerates exactly which. Raising `SKILL_LINE_BUDGETS` is FORBIDDEN (the budget is the contract). ALL verify/level mechanics live in `references/{verify,expand,compress}.md`.
+10. **R13 + levels live in `references/compress.md`** (compress-mode body): L0–L3 definitions, auto-classification heuristics, R13 rule, marker emission template. SKILL.md carries only the dispatch line (`--level` accepted, default L2 auto) + marker mention.
+
+## Expected Behavior
+
+**Phase 2 inventory.** After analysis, the writer emits an itemized inventory: every rule, condition, prohibition, threshold, edge case → one item with anchor `[INV-…]` (Decision 3). The inventory is the fidelity contract for Phases 4/5/5a.
+
+**Phase 5a read-back (gated).** Trigger: `--verify` flag OR tokens_before ≥ `VERIFY_THRESHOLD` (gate approximate near the boundary — counter tiers differ ~10-20%; acceptable for a heuristic gate). Spawn a fresh Task subagent whose prompt: (a) grants read access to ONLY the compressed artifact path — verify.md pins the exact cap wording ("You may Read exactly one file: <path>. Reading any other file invalidates the verification."), (b) forbids other reads (honor-system, disclosed in the caveat), (c) instructs re-expansion into an inventory using the same anchor grammar, (d) does NOT mention the glossary (default run). Reader returns no parseable inventory → one re-spawn; still none → "verify inconclusive — human-gated" (distinct from a failing verdict). Diff via `python3 scripts/inventory_diff.py writer.json reader.json` → report {missing, weakened, inverted, invented} + recall. Bash unavailable → report declares "LLM-matched, human-gated" instead. Blockers → auto-fix → exactly ONE re-verify (second fresh spawn; report declares doubled cost) → residue → batched present-choice. Every verdict prints the contamination caveat (host CLAUDE.md inherited ⇒ optimistic bias; upper bound for external consumers). Pass-only-with-glossary (i.e., a targeted glossary-granted second opinion passes where the default failed) ⇒ emit a minimal per-file legend of used symbols; legend tokens are SUBTRACTED from reported savings.
+
+**Go/no-go.** `references/verify.md` pre-registers `RECALL_FLOOR = 0.85` + consequence (Decision 5) and the per-mode acceptance split: compress = lossless inventory preservation; derive (train E) = coverage map (each source instance ↦ pattern/principle) + present-choice-accepted deliberate-loss list. The First Golden Run section records the actual verdict once run.
+
+**expand mode.** `/compress expand <target>`: dispatch resolves `references/expand.md` (train-A gate); pipeline: read compressed artifact → parse marker + extract inventory (same anchor grammar; no anchors → "best-effort, unverified reconstruction" declared) → LLM prose regeneration section-by-section guided by inventory + level markers (L0 passthrough verbatim; anchors STRIPPED from output) → present-choice before write. No new description triggers.
+
+**Marker on L3 splits**: both emitted files carry the marker with the same `src-sha`; the residue doc's marker appends `part=residue`.
+
+**Re-baselining workflow (re-baselining.md)**: trigger = model change OR intentional notation/glossary change; procedure = regenerate expected inventories from the golden sources with the current model, record `model, date, reason` in the doc's log table, land as ONE dedicated commit touching only `references/golden/`.
+
+**Levels + R13 + marker (compress mode).** `--level <L>` per file or per section; default L2 auto-classified (heuristics in compress.md: safety/commands → L0; human-facing docs → L1; skill/agent bodies → L2; oversized always-on → L3 split) with present-choice override. L2 construct catalog extended: I/V contracts, pipeline verify-tables, `Σ/Σ_s` state maps, subscripted predicates `ψ_r/ψ_f`, parameterized ops `O_name(args)`, guard-functions, status glyphs `✓✗⏳⚠`. L3 emits a budgeted core (~500 tokens, measured via count_tokens.py) + residue doc linked `→ path — gloss`. "derived" is NOT in the enum. R13: every section lands entirely at ONE level; the writer refuses mixed-register output. Marker `<!-- compress: level=<L> src-sha=<sha> glossary=<v> -->` emitted after frontmatter (src-sha = pre-image hash, train-A Decision 6; glossary=v from notation.md version marker or `none`). Stale src-sha (file edited since compression) → Phase 5a forced before re-compression. The v1 "already formal" edge case is replaced by marker detection.
+
+**Golden set.** 3–5 triples under `references/golden/`: `NN-name.source.md`, `NN-name.compressed.md` (with markers + anchors), `NN-name.inventory.json` (expected). ≥1 triple exercises the §2.3 production constructs. `re-baselining.md` documents the model-change procedure. `tools/validate_plugins.py::check_golden_inventories` enforces anchor-set equivalence (Decision 6), registered in main() (default run only — no CLI choice needed; no dedicated hook).
+
+## Data Model & Consumers
+
+**Data structure:** [read-back data model](../visuals/311-readback-expand-levels-data-model.html)
+**Consumer map:** [verdict consumers](../visuals/311-readback-expand-levels-consumers.html)
+
+| Consumer | Fields consumed | When | Status |
+|----------|-----------------|------|--------|
+| Phase 5a report | inventory anchors, diff sets, recall, diff-mode label | gated runs | this issue |
+| expand mode | anchors + level markers | expand runs | this issue |
+| `check_golden_inventories` | golden triples | CI + lefthook default run | this issue |
+| verify-log / ledger | verdict rows (category: verify) | each verify | this issue |
+| #312 lint | markers, levels, R13 violations | train D | future |
+| #313 derive | verifier + derive acceptance split | train E | future |
+
+## Breadboard
+
+| ID | Affordance | Handler | Data |
+|----|-----------|---------|------|
+| S1 | Phase 2 inventory emission (anchors, Decision 3) | SKILL.md Phase 2 + compress.md | writer inventory |
+| S2 | Phase 5a gate (`--verify` ∨ ≥ VERIFY_THRESHOLD, defined once) | SKILL.md | trigger |
+| S3 | Fresh-reader spawn contract (single-file cap, no glossary, anchor grammar) | verify.md spawn template | reader inventory |
+| S4 | `scripts/inventory_diff.py` (+ `--log` verify-log O_APPEND) | script | diff report + recall |
+| S5 | Verdict semantics (blockers, one re-verify, residue present-choice, contamination caveat, legend rule) | verify.md | report format |
+| S6 | RECALL_FLOOR pre-registration + consequence + mode-split acceptance + First Golden Run section | verify.md | go/no-go contract |
+| S7 | `references/expand.md` (mode body) | lazy-loaded mode | expand pipeline |
+| S8 | L0–L3 + auto-classification + R13 + marker template | references/compress.md | level rules |
+| S9 | SKILL.md wiring (`+Task` allowed-tools; `--level`/`--verify` argument-hint; marker mention; ≤110) | SKILL.md | dispatch |
+| S10 | Golden triples + re-baselining doc | references/golden/ | fixtures |
+| S11 | `check_golden_inventories` in validate_plugins + tests | repo tool | CI gate |
+| S12 | README verify/expand/levels docs | docs | — |
+| S13 | First Golden Run execution (post-S6) + recorded verdict | runtime exercise | PoC evidence |
+
+Wiring: S1→S2→S3→S4→S5 (⊃S6); S7 reuses S1 grammar; S8→S1 (levels shape anchors) + S9; S10→S11; S13 after S6+S10.
+
+## Slices
+
+| # | Slice | Contains | Demo |
+|---|-------|----------|------|
+| 1 | P3 verify instrument + minimal level substrate | S1–S6, S8a (**minimal level model**: L0-verbatim vs non-L0 distinction + marker emission template — pulled forward so anchors' L0 exemption and golden markers are coherent), S9 (Task+threshold+marker part), S10, S11, S13, S12 (verify part) | RED-first: inventory_diff tests fail → script lands; golden check fails on a seeded broken triple → passes shipped; verify.md registers floor BEFORE S13; S13 executes one real read-back on a golden pair → verdict recorded |
+| 2 | P7 expand + full levels | S7, S8b (**full catalog**: L1/L2/L3 definitions, auto-classification heuristics, R13), S9 (level-dispatch part), S12 (expand/levels part) | `/compress expand <golden.compressed>` reconstructs the inventory (anchors stripped from prose); R13 + full level enum in compress.md; stale-sha rule wired; argument-hint updated; description Δ=0 measured |
+
+Slice-1 goldens carry markers + the L0/non-L0 split from S8a — no slice-2 re-baselining needed (the S8→S1 dependency is satisfied within slice 1).
+
+## Constraints
+
+- RECALL_FLOOR registration precedes any read-back execution (plan-enforced ordering).
+- Reader isolation: single-file cap wording in the spawn template; no glossary by default.
+- No source-line keying anywhere (skill, references, script).
+- SKILL.md ≤110; no `SKILL_LINE_BUDGETS` raise; description Δ=0; argument-hint gains `--verify|--level` (sanctioned now).
+- Golden equivalence = anchor sets + normalized text keys, never bytes; no LLM in CI.
+- Self-containment; repo source only; no `--force`/`--hard`/`--amend`; specific-file staging; never stage 308-* artifacts.
+
+## Non-goals
+
+- Lint mode (#312); derive mode (#313) beyond the documented acceptance split.
+- Notation changes (only #310's shipped glossary is referenced).
+- New CI workflows or deps (runner rides validate_plugins.py; diff script is stdlib).
+
+## Edge Cases
+
+| Scenario | Handling |
+|----------|----------|
+| Bash unavailable at Phase 5a | Diff mode → "LLM-matched, human-gated", declared in the report |
+| No vault present | verify-log fallback still under `get_plugin_data` (env-resolvable); if the dir is uncreatable → report-only, no log row, stated |
+| Re-verify still has blockers | Residue → one batched present-choice (fix now / accept with recorded loss / abort write) |
+| Reader passes only with glossary | Per-file legend emitted; legend tokens subtracted from savings |
+| Target below VERIFY_THRESHOLD and no --verify | Phase 5a skipped silently (report notes "verify: skipped (below threshold)") |
+| Marker present + src-sha fresh | "already compressed at L<x>" fast path (replaces v1 "already formal") |
+| Marker present + src-sha stale | Forced Phase 5a before re-compression |
+| Marker absent on previously-compressed-looking file | Treat as uncompressed source (compress normally) |
+| Mixed-level section requested | R13 refuses; present-choice: split the section or pick one level |
+| Golden expected-inventory drifts from a model change | re-baselining.md procedure: regenerate expected inventories, record model+date, one commit |
+| L0 section in read-back | Exempt from anchor grammar (verbatim class); recall computed over non-L0 items |
+| expand on a file without marker/anchors | Best-effort prose expansion, report declares "no anchors — unverified reconstruction" |
+
+## Success Criteria
+
+- [ ] SC1 `Task` ∈ allowed-tools; `tools/validate_plugins.py` all PASS
+- [ ] SC2 Phase 2 emits itemized inventory with stable `INV-<cat>-<n>` anchor IDs (carrier form = HTML comment per Decision 3; grammar in verify.md; anchors content-carried)
+- [ ] SC3 Phase 5a triggers on `--verify` ∨ size ≥ `VERIFY_THRESHOLD`; the constant appears exactly once (SKILL.md Let block)
+- [ ] SC4 Spawn template caps the reader to ONLY the compressed artifact; default run has NO glossary (verify.md template text)
+- [ ] SC5 Pass-only-with-glossary ⇒ minimal per-file legend; legend tokens subtracted from reported savings (rule text + report field)
+- [ ] SC6 Report declares diff mode (anchor-based via `scripts/inventory_diff.py` | "LLM-matched, human-gated"); zero source-line keying (grep)
+- [ ] SC7 missing/weakened/inverted/invented block the write; auto-fix + exactly ONE re-verify (doubled cost declared); residue → batched present-choice; no AskUserQuestion
+- [ ] SC8 Contamination caveat text in every verdict template
+- [ ] SC9 `RECALL_FLOOR` + consequence pre-registered in verify.md, committed BEFORE the First Golden Run section is filled (git history shows the order)
+- [ ] SC10 Per-mode acceptance split documented (compress lossless; derive coverage+loss-list)
+- [ ] SC11 `references/expand.md` exists; dispatch resolves it; no new bare triggers; description Δ=0 (measured); argument-hint now carries `--verify|--level`
+- [ ] SC12 Golden set 3–5 triples under `references/golden/`; `check_golden_inventories` enforces inventory equivalence (not bytes), passes shipped, fails a seeded broken triple (tests); re-baselining.md present
+- [ ] SC13 Verification succeeds with no ledger (verify-log fallback exercised in a test or demo)
+- [ ] SC14 `--level` per file and per section; default L2 auto-classification + present-choice override
+- [ ] SC15 L0–L3 defined; L0 = safety/tools/commands/spawn templates verbatim; L3 = ~500-token budgeted core + `→ path — gloss` residue; "derived" absent from the enum
+- [ ] SC16 L2 catalog covers I/V, verify-tables, Σ/Σ_s, subscripted predicates, O_name(args), guard-functions, status glyphs; ≥1 golden triple exercises them
+- [ ] SC17 R13 stated + enforced in the writer flow (refusal path); no mixed-level golden output
+- [ ] SC18 Marker emitted after frontmatter; stale sha → forced re-verify; "already formal" replaced by marker detection
+- [ ] SC19 First Golden Run executed AFTER SC9 registration; verdict + recall (with min-N guard honored) recorded in verify.md + run log (pass OR fail both acceptable — consequence applied if fail)
+- [ ] SC22 Anchor + legend tokens counted against reported savings (report fields `anchor_tokens`, `legend_tokens`); expand strips anchors from prose output
+- [ ] SC20 SKILL.md ≤110; self-containment grep (shipped surface) empty; README updated
+- [ ] SC21 Process hygiene: no cache edits; no `--force`/`--hard`/`--amend`; no `decision-presentation`/`AskUserQuestion` in shipped files

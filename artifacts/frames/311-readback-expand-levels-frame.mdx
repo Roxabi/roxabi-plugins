@@ -1,0 +1,64 @@
+---
+title: 'compress v2 train C — fresh-agent read-back + expand mode + L0-L3 levels + provenance markers'
+issue: 311
+status: approved
+tier: F-lite
+date: 2026-07-04
+---
+
+## Problem
+
+Compression fidelity is self-affirmed and untested exactly where the evidence predicts failure (issue #311 "Problem"; analysis §2.2, §2.3):
+
+- Phase 5 asserts `¬semantic loss` with no round-trip and no independent reader; `Task` ∉ allowed-tools.
+- MetaGlyph: `→` read at 0% as transformation operator, `∈` at 26% — the skill emits exactly this notation with zero proof a fresh reader recovers the semantics. **Frequent read-back failure is the predicted outcome; measuring it is the PoC's point, before cortex builds on the notation.**
+- No decompression path — the cortex analogy "raw immutable = SSoT, everything else reconstructible" is untested.
+- Levels are binary and R1–R10 miss ≥10 production constructs in daily use (I/V contracts, verify-tables, Σ/Σ_s, subscripted predicates, O_name(args), guard-functions, status glyphs).
+- CDCT: compliance failures peak at MEDIUM compression — mixed-register sections are the danger zone.
+- Manual edits after compression are undetectable (no provenance marker, no src-sha).
+
+This issue = P3 + P7; train C of epic #308, unblocks D.
+
+## Who
+
+- **Primary:** compress users — every sizable compression gains an independent fidelity verdict; `expand` gives consumers a decompression path.
+- **Secondary:** train D (#312 lint checks markers + levels), train E (#313 derive is validated by this verifier with derive-specific acceptance), roxabi-cortex ("regenerate from raw" analogy exercised in LLM form — disciplined analogy, not identity).
+
+## Constraints
+
+- **Path normalization (§8.C adaptation, recorded)**: the issue's Where paths (`plugins/compress/references/{verify,expand}.md`, `golden/`, `scripts/inventory_diff.py`) are un-normalized authoring artifacts. Everything lands per the train-A convention: mode/reference bodies under `plugins/compress/skills/compress/references/` (the dispatch gate resolves `ref(μ)` against the skill dir); scripts under `plugins/compress/scripts/`. Precedent: #310's own evidence.md normalization.
+- **RECALL_FLOOR pre-registration ORDER**: the floor + its consequence must be committed in `references/verify.md` BEFORE the first golden run executes — it is the PoC instrument; registering it after seeing results would invalidate the go/no-go.
+- **Fresh reader isolation**: the Task subagent receives ONLY the compressed artifact (single-file read cap in the spawn prompt); default WITHOUT glossary; pass-only-with-glossary ⇒ per-file legend whose tokens count against savings.
+- **Diff honesty**: anchors emitted on both sides, diffed by `scripts/inventory_diff.py`; source-line keying FORBIDDEN (reader never sees the source); Bash unavailable → declared "LLM-matched, human-gated".
+- **Golden set = inventory equivalence**, never byte determinism; re-baselining procedure documented; runner in `tools/validate_plugins.py` (existing gate).
+- **Read-back systematically below floor = valid PoC result**: ship the mechanism, record the verdict, apply the pre-registered consequence (notation revision or mandatory legend). Never massage the result.
+- **DP drift adaptation (standing)**: residue after the one re-verify → single batched present-choice block; never AskUserQuestion.
+- **Budgets**: SKILL.md ≤110 (bodies go to references/); description Δ ≈ 0 (train-A installed "expand notation" already — only verify no bare "expand"/"decompress" sneaks in).
+- **One re-verify only** (second fresh spawn, doubled cost declared); blockers = missing/weakened/inverted/invented.
+- Contamination caveat on every verdict (inherited CLAUDE.md ⇒ optimistic bias; verdicts = upper bounds).
+- **P7 invariants**: R13 whole-section single level (no mixed registers); provenance marker `<!-- compress: level=<L> src-sha=<sha> glossary=<v> -->` after frontmatter, stale src-sha forces re-verify before re-compression (replaces the "already formal" edge case); default L2 auto-classified with present-choice override; "derived" ∉ level enum.
+- Ledger-decoupled: works with no vault ledger; local verify-log fallback; train-A ledger consumes results when present.
+- Marketplace self-containment; repo source only; no `--force`/`--hard`/`--amend`; specific-file staging.
+
+## Out of Scope
+
+- Lint mode (#312); derive mode (#313) — but the per-mode acceptance split (compress = lossless inventory; derive = coverage map + accepted-loss list) is documented NOW in verify.md so train E's verifier isn't structurally blocked.
+- Corpus migration; glossary content changes (#310 shipped it).
+- New CI workflows (golden runner rides validate_plugins.py).
+
+## Premise Validity
+
+**Success in 6 months:** Every sizable compression carries an independent read-back verdict with declared diff mode and contamination caveat; the golden set gates regressions in CI; `expand` reconstructs inventories from compressed artifacts; provenance markers make stale artifacts detectable; the RECALL_FLOOR verdict (pass or fail) exists as recorded evidence and its consequence was applied.
+
+**Failure in 6 months:** By 2027-01: Phase 5a is systematically skipped (no verify verdicts in any ledger/verify-log rows), or the golden-set check was disabled/reverted in CI, or a recorded below-floor verdict was left without its pre-registered consequence (neither notation revision nor mandatory legend shipped) — the verifier became theater and the fidelity premise is indicted. (Measured from verify-log/ledger rows + git history of the gate.)
+
+**Simplest alternative:** Keep self-affirmed verification and add only the provenance marker (cheap staleness detection, no subagent cost).
+**Why not simplest:** Self-affirmation is the exact failure MetaGlyph documents (the writer's context can read its own notation; a fresh reader provably cannot at 0-26% for key operators); without the read-back instrument there is no go/no-go evidence for the notation premise before cortex depends on it, and train E's derive (necessarily lossy) has no verifier with mode-split acceptance to validate against.
+
+## Complexity
+
+**Tier: F-lite** — label `size:F-lite`; single plugin + one repo-tool check; all design decisions pre-baked (adversarially verified); the only genuinely new machinery (anchor diff script + golden fixtures) is small and testable.
+
+Signals observed:
+- Label mapping direct; no new architecture beyond the issue's prescription; χ target = 0.
+- Coordination: none outside `plugins/compress/` + `tools/validate_plugins.py` (same-file pattern as trains A/B, no dev-core surface).

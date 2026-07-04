@@ -49,6 +49,7 @@ _FENCE_RE = re.compile(r'^```')
 
 def new_ulid() -> str:
     """Vendored minimal ULID: 48-bit ms timestamp + 80-bit randomness, Crockford base32."""
+    # lockstep: keep identical to scripts/inventory_diff.py::new_ulid — see #311
     value = ((int(time.time() * 1000) & ((1 << 48) - 1)) << 80) | secrets.randbits(80)
     return ''.join(_CROCKFORD[(value >> shift) & 0x1F] for shift in range(125, -1, -5))
 
@@ -253,6 +254,7 @@ def append_row(mode, target, source_ref, tokens_before, tokens_after, sections,
         'correlation': correlation,
     }
     ledger = ensure_dir(get_plugin_data(PLUGIN_NAME)) / 'ledger.jsonl'
+    # lockstep: keep identical to scripts/inventory_diff.py::append_log — see #311
     line = json.dumps(row, ensure_ascii=False) + '\n'
     data = memoryview(line.encode('utf-8'))
     fd = os.open(ledger, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)

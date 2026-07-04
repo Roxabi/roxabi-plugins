@@ -1,0 +1,138 @@
+---
+title: 'Plan: compress v2 train C — slice V2 (P7 expand + full levels)'
+issue: 311
+spec: artifacts/specs/311-readback-expand-levels-spec.mdx
+complexity: 4/10
+tier: F-lite
+slice: V2 of 2 (V1 implemented: 29cba7c → 23b696b → 586181b; First Golden Run recorded, verdict fail → L2-legend consequence applied)
+generated: 2026-07-04
+---
+
+## Summary
+
+Slice V2: ship `references/expand.md` (decompression mode), complete the level catalog in `references/compress.md` (L1/L2/L3 definitions, auto-classification with tie-breaking, R13 refusal path, L3 split mechanics), and close the remaining SCs — with **zero net-line delta on SKILL.md** (110/110): exactly ONE sanctioned in-line edit (the halt-list sentence, owned by T11, same commit that creates expand.md).
+
+## Architecture
+
+**Data flow:** [read-back pipeline](../visuals/311-readback-expand-levels-data-flow.html)
+**File map:** [files × functions](../visuals/311-readback-expand-levels-file-map.html)
+
+(Sidecars from the V1 run cover both slices.)
+
+## Bootstrap Context
+
+- **SKILL.md is FULL (110/110) — zero net-line delta.** ONE sanctioned in-line edit (T11, 0-delta): line 46's whole sentence becomes "Today `references/compress.md` + `references/glossary.md` + `references/expand.md` ship → `derive|lint` halt." (updating BOTH the ship-enumeration and the halt list — leaving either half stale makes the sentence self-contradictory; house precedent 4ced684 F1). Everything else lands in references/. `--level` already in argument-hint; marker fresh/stale edge row already present.
+- V1 landed: anchor grammar + minimal levels (L0 vs non-L0 + marker template) in compress.md § Levels; the L2-legend consequence rule (First Golden Run fail) is already recorded there — do not disturb it.
+- Spec bindings: EB expand pipeline (marker parse → inventory extract → LLM prose regen per section → anchors STRIPPED → L0 passthrough → present-choice before write; no anchors → "best-effort, unverified reconstruction" declared); L3 split (core ~500 tokens measured via count_tokens.py + residue `→ path — gloss`; both files carry the marker, residue appends `part=residue`); auto-classification heuristics + REQUIRED tie-breaking order (spec panel): safety/commands class wins over doc-genre wins over size (L0 > L1 > L2 > L3 escalation only by explicit choice); "derived" ∉ enum; R13 refusal path (present-choice: split section or pick one level).
+- Description Δ=0 (no trigger changes — "expand notation" pre-installed).
+- Ref idiom: references/compress.md + glossary.md structure (V1/B house style).
+
+## Agents
+
+| Agent instance | Tasks | Files |
+|----------------|-------|-------|
+| doc-writer-A | T11, T12 | references/expand.md; references/compress.md; SKILL.md (one in-line 0-delta edit) |
+| tester-A | T13 | (expand demo + grep battery) |
+| tester-B | T14 | (RED-GATE seeds) |
+| doc-writer-B | T15 | plugins/compress/README.md |
+
+## Wave Structure
+
+| Wave | Trigger | Tasks |
+|------|---------|-------|
+| 1 | start | T11 · T12 (∥ same instance → sequential T11→T12) |
+| 2 | T11+T12 done | T13 · T15 ∥ |
+| 3 | T13 done | T14 |
+
+### Budget — per task
+
+| Task | Class | Est. ops | Split? |
+|------|-------|----------|--------|
+| T11 expand.md | judgmental | 10 | — |
+| T12 compress.md full levels | judgmental | 12 | — |
+| T13 expand demo + battery | bounded | 10 | — |
+| T14 RED-GATE | bounded | 6 | — |
+| T15 README completion | trivial | 3 | — |
+
+**Total: 41 ops**
+
+### Budget — per instance
+
+| Instance | Tasks | Σ ops | Subjects | Split? |
+|----------|-------|-------|----------|--------|
+| doc-writer-A | T11, T12 | 22 | expand-mode, levels | — |
+| tester-A | T13 | 10 | demo-battery | — |
+| tester-B | T14 | 6 | falsification | — |
+| doc-writer-B | T15 | 3 | docs | — |
+
+## Consistency Report
+
+- V2-scoped SCs: SC11 (T11, T13), SC14 (T12, T13), SC15 (T12, T13), SC16 completion (T12 — catalog text; the construct golden landed in V1), SC17 (T12, T14), SC18 completion (T12 stale-sha rule text in compress.md § Levels — SKILL.md row already present), SC20 completion (T15), SC22 expand-strips part (T11, T13).
+- Done in V1: SC1–SC10, SC12, SC13, SC19, SC21 + partials.
+- Untraced: none.
+
+## Micro-Tasks
+
+### Wave 1
+
+**T11 — Author references/expand.md**
+- doc-writer-A · expand-mode · GREEN · Diff 3 · 10 ops
+- Shape: mode body per house style (compress.md/glossary.md structure): Preconditions (marker parse; anchors expected; no anchors → declare "best-effort, unverified reconstruction"); Pipeline (1 read compressed artifact → 2 extract inventory per verify.md grammar → 3 regenerate structured prose section-by-section, LLM-guided by inventory + level markers, L0 sections passthrough VERBATIM, anchors STRIPPED from output → 4 present per-section token counts (count_tokens) → 5 present-choice **Write** | **Preview** | **Adjust** before any write); Edge Cases (no marker, no anchors, L3 core+residue → expand core then follow residue pointer with declaration); relation to verify (same inventory machinery, inverse direction). No new triggers; cite verify.md, never duplicate its grammar. **Plus the sanctioned SKILL.md in-line edit (0-delta, same commit)**: line 46 whole-sentence update per Bootstrap ("…+ `references/expand.md` ship → `derive|lint` halt.").
+- Verify: `test -f plugins/compress/skills/compress/references/expand.md && grep -q 'best-effort' … && grep -q 'STRIPPED\|stripped' … && grep -qi 'verbatim' … && ! grep -q 'AskUserQuestion' … && wc -l < plugins/compress/skills/compress/SKILL.md` = 110 ∧ `grep -q 'derive|lint.* halt\|`derive|lint`' plugins/compress/skills/compress/SKILL.md && echo ok`
+- Spec trace: SC11, SC22
+
+**T12 — Complete compress.md levels (S8b)**
+- doc-writer-A · levels · GREEN · Diff 3 · 12 ops · blockedBy: T11
+- Shape: extend `§ Levels` (V1 minimal → full): L1 terse prose (R5–R7 + ASCII digraphs; measured ~40% savings home; human-facing docs); L2 house symbolic default — construct catalog: I/V contracts, pipeline verify-tables, `Σ/Σ_s` state maps, subscripted predicates `ψ_r/ψ_f`, parameterized ops `O_name(args)`, guard-functions, status glyphs `✓✗⏳⚠`; L3 externalize split: core compressed under ~500-token budget (measured via `count_tokens.py`) + residue doc linked `→ path — gloss`, both files marked, residue marker appends `part=residue`; **auto-classification decision order (tie-breaking)**: (1) safety-rule/command/spawn-template content class → L0 always; (2) human-facing doc genre → L1; (3) skill/agent body → L2 (default); (4) always-on file over budget → L3 split — first match wins, escalation to L3 only by explicit present-choice; **"derived" is NOT a level** (mode, train E); **R13**: every section lands entirely at ONE level — mixed-register request → refusal + present-choice (split the section | pick one level); stale-sha rule text: marker src-sha ≠ current hash → Phase 5a forced before re-compression. Do NOT disturb the V1 L2-legend consequence line.
+- Verify: greps — `R13`, `part=residue`, `500`, tie-breaking order line, `"derived" is NOT`, `ψ_r`, `O_name`, stale-sha rule; `! grep -qi 'derived.*level.*L4\|L4'`; wc -l SKILL.md still 110; validate_plugins PASS.
+- Spec trace: SC14, SC15, SC16, SC17, SC18
+
+### Wave 2
+
+**T13 — Expand demo + grep battery** `[P]`
+- tester-A · demo-battery · GREEN · Diff 3 · 10 ops · blockedBy: T11, T12
+- Shape: demo — simulate the expand pipeline steps on `references/golden/01-deploy-bot.compressed.md`: extract its inventory (reuse the golden expected JSON as ground truth), draft a 3-section prose expansion per expand.md's pipeline (as evidence, not shipped), verify: anchors absent from the prose (`grep -c 'INV-'` on the draft = 0), L0 section (if any) reproduced verbatim, inventory items all represented. Battery: description line Δ=0; no bare "expand"/"decompress" trigger; `--level`/`--verify` in argument-hint (V1); "derived" absent from level enum; dispatch: `references/expand.md` now ∃ ∧ SKILL.md line 46 already updated by T11 — the battery independently VERIFIES the full corrected sentence (ship-enumeration includes expand.md AND halt list = `derive|lint` only; neither half stale). Description Δ=0 measured **vs `586181b` (V1 tip)** — pinned baseline, not HEAD~.
+- Verify: scripted battery; SKILL.md wc -l still 110.
+- Spec trace: SC11, SC14, SC15, SC22
+
+**T15 — README expand/levels completion** `[P]`
+- doc-writer-B · docs · GREEN · Diff 1 · 3 ops · blockedBy: T11, T12
+- Shape: plugins/compress/README.md — expand mode section + levels L0–L3 summary + R13 one-liner; REWRITE the stale forward-pointer sentence (README.md:43 "…land with slice 2") — V2 has landed, the sentence must go.
+- Verify: grep README `expand`/`L0`/`R13`.
+- Spec trace: SC20
+
+### Wave 3
+
+**T14 — RED-GATE: R13 + halt-list falsification**
+- tester-B · falsification · RED-GATE · Diff 2 · 6 ops · blockedBy: T13
+- Shape: (1) inspect the 3 golden compressed files: each section single-level per its marker (R13-clean) — record; (2) live falsification of the golden gate STILL armed post-V2: remove an anchor from a scratch-copied real inventory → validate FAIL → restore → PASS (re-run of V1's T9 seed on the final tree); (3) grep falsification: seed `expand` back into SKILL.md's halt list in a scratch copy → T13's battery grep would fail (demonstrate the check catches it) → no repo mutation.
+- Verify: scripted; zero residue.
+- Spec trace: SC17, SC12(regression)
+
+## Task Seeding Blueprint
+
+### Wave 1
+| Task | Instance | blockedBy | Subject |
+|------|----------|-----------|---------|
+| T11 | doc-writer-A | — | expand-mode |
+| T12 | doc-writer-A | T11 | levels |
+
+### Wave 2
+| Task | Instance | blockedBy | Subject |
+|------|----------|-----------|---------|
+| T13 | tester-A | T11, T12 | demo-battery |
+| T15 | doc-writer-B | T11, T12 | docs |
+
+### Wave 3
+| Task | Instance | blockedBy | Subject |
+|------|----------|-----------|---------|
+| T14 | tester-B | T13 | falsification |
+
+## Task IDs
+
+<!-- Generated by /plan (slice V2). V1 IDs 42-51 completed. -->
+- T11: 52 — expand-mode
+- T12: 53 — levels
+- T13: 54 — demo-battery
+- T14: 55 — falsification
+- T15: 56 — docs

@@ -32,6 +32,29 @@ Every output is governed by four guardrails (G1–G4 in `skills/compress/SKILL.m
 
 The whitelist in SKILL.md is canonical. When the optional shared glossary (`plugins/shared/references/notation.md`) is installed it extends the symbol domain; without it the skill runs fully standalone.
 
+## Read-back verification
+
+Fidelity is measured, not self-affirmed. During analysis the writer emits an itemized inventory — every rule, condition, prohibition, threshold, and edge case gets an inline `<!-- INV-<cat>-<n> -->` anchor. Sizable compressions (≥ `VERIFY_THRESHOLD` tokens, or any run with `--verify`) then spawn a fresh reader capped to the compressed artifact alone, and `scripts/inventory_diff.py` diffs the reader's re-expansion against the writer inventory: recall is judged against the pre-registered `RECALL_FLOOR` in `skills/compress/references/verify.md`, with missing/weakened/inverted/invented items blocking the write. Every verdict carries a contamination caveat (the reader shares the host's context, so the result is an upper bound for external consumers), and anchor/legend token costs are subtracted from reported savings.
+
+A golden set of source/compressed/inventory triples under `skills/compress/references/golden/` keeps the anchor grammar honest — `tools/validate_plugins.py` enforces inventory equivalence deterministically in CI, and `re-baselining.md` documents how the expected inventories are regenerated on a model change.
+
+## Compression levels
+
+Four levels, a closed enum ("derived" is a mode, not a level):
+
+- **L0 — verbatim**: safety rules, commands, tool names, spawn templates — copied word-for-word, never anchored.
+- **L1 — terse prose**: pruned prose with ASCII digraphs instead of glyphs, for human-facing docs — the home of the measured ~40% savings.
+- **L2 — house symbolic (default)**: the full notation catalog — contracts, verify-tables, state maps, subscripted predicates, parameterized ops, status glyphs. Per the First Golden Run consequence, every L2 output also carries a minimal per-file legend of the symbols it uses.
+- **L3 — externalize split**: a ~500-token compressed core plus a linked residue doc, both carrying the provenance marker.
+
+Files are auto-classified (safety content → L0, human-facing docs → L1, skill/agent bodies → L2, oversized always-on files → L3), with a `--level` override per file or per section. One rule holds throughout — R13: every section lands entirely at one level; a mixed-register request is refused with a choice to split the section or pick one level.
+
+Every compressed output carries a provenance marker after its frontmatter — `<!-- compress: level=<L> src-sha=<sha> glossary=<v> -->` — so a stale source hash forces re-verification before re-compression.
+
+## Expand mode
+
+`compress expand <target>` reverses a compression: it parses the provenance marker, extracts the anchor inventory, and regenerates structured prose section-by-section — L0 sections pass through verbatim, anchors are stripped from the output, and nothing is written before an explicit approval. On a file without marker or anchors the reconstruction still runs, declared "best-effort, unverified".
+
 ## Install
 
 ```bash

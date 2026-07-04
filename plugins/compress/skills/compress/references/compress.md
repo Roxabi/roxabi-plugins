@@ -35,7 +35,8 @@ Identify: repeated nouns (≥3×) | verbose conditionals | iteration prose | mag
 
 | Scenario | Behavior |
 |----------|----------|
-| Already formal | "already compressed", tweaks only |
+| Marker present + src-sha fresh | "already compressed at L<x>", tweaks only (replaces the v1 "already formal" heuristic) |
+| Marker absent on a formal-looking file | Treat as uncompressed source — compress normally |
 | No repeated concepts | Skip R1, apply R2–R10 |
 | Mixed prose + code | Prose only |
 
@@ -49,6 +50,38 @@ Per-glyph cost is tokenizer-dependent — glyph substitution alone is not compre
 - The bulk of real token gains comes from R5/R6/R7 — prose pruning — not from glyphs. Some substitutions are net-negative.
 
 Consequences: judge every candidate substitution by `Δtokens`, never by character or line counts (both can shrink while tokens increase). R1–R4/R8–R10 buy consistency and unambiguous structure; R5/R6/R7 buy tokens. When Phase 4 flags `Δtokens ≈ 0` for a section, prefer the more readable form.
+
+## Levels
+
+The level enum is closed — L0–L3, one level per section (R13 below). **"derived" is NOT a level** — it is a mode (train E, #313).
+
+- **L0 — verbatim class**: safety rules, commands, tool names, spawn templates (the G4 floor). Copied verbatim, never anchored — L0 loss is caught by the Phase 5 "safety rules intact" assertion, not by read-back. Recall is computed over non-L0 items only.
+- **L1 — terse prose**: R5–R7 pruning + ASCII digraphs (`->`, `<=`) in place of glyphs — the home of the measured ~40% savings (§ What Actually Saves Tokens). Genre: human-facing docs — READMEs, guides, onboarding.
+- **L2 — house symbolic (default)**: whitelist glyphs + the construct catalog — `I`/`V` contracts, pipeline verify-tables, `Σ`/`Σ_s` state maps, subscripted predicates `ψ_r`/`ψ_f`, parameterized ops `O_name(args)`, guard-functions, status glyphs `✓✗⏳⚠`.
+- **L3 — externalize split**: core compressed under a ~500-token budget (measured via `python3 S count`, never estimated) + a residue doc linked `→ path — gloss`. Both files carry the marker (below).
+
+Every non-L0 rule, condition, prohibition, threshold, edge case carries one `<!-- INV-<cat>-<n> -->` anchor (grammar: `references/verify.md`); L0 sections carry none.
+
+**Auto-classification** — decision order, first match wins (content class beats doc genre beats size):
+
+1. safety-rule / command / spawn-template content class → L0, always
+2. human-facing doc genre → L1
+3. skill/agent body → L2 (the default)
+4. always-on file over budget → L3 split
+
+Escalation to L3 only by explicit present-choice — never automatic. `--level <L>` (per file or per section) overrides the heuristic; the override is itself confirmed at Phase 4.
+
+**R13 — single-level rule**: every section lands entirely at ONE level. Mixed-register request → refuse + present choice: **split the section** (each part at its own level) | **pick one level** for the whole section.
+
+**Marker** — emitted immediately after frontmatter on every compressed output:
+
+```
+<!-- compress: level=<L> src-sha=<sha> glossary=<v> -->
+```
+
+`src-sha` = the Phase 2 pre-image hash of the source; `glossary` = the notation.md version marker, or `none` on a standalone install. L3 splits emit the marker on BOTH files with the same `src-sha`; the residue doc's marker appends `part=residue`. Marker `src-sha` ≠ the file's current hash → the source changed since compression → Phase 5a is forced before any re-compression.
+
+**Per-file legend — mandatory for L2 outputs** (First Golden Run consequence, applied 2026-07-04 per `references/verify.md` § Go/No-Go): every L2 output carries a minimal per-file legend of the symbols it uses; legend tokens are subtracted from reported savings.
 
 ## Ledger Append (Phase 5)
 

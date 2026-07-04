@@ -2,8 +2,8 @@
 name: compress
 description: 'Compress agent/skill definitions using math/logic notation. Triggers: "compress" | "compress skill" | "compress agent" | "compress context" | "shorten this" | "make it formal" | "use formal notation" | "expand notation" | "lint notation" | "derive pattern from skills".'
 version: 0.1.0
-argument-hint: '[mode] [file path | glob | directory | plugin name]'
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash
+argument-hint: '[mode] [--verify | --level <L>] [file path | glob | directory | plugin name]'
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task
 ---
 
 # Compress
@@ -19,12 +19,12 @@ Let:
   T      := resolved target files · N := |T|
   S      := `${CLAUDE_PLUGIN_ROOT}/scripts/count_tokens.py` — sole token counter ∧ sole ledger writer
   ref(μ) := `references/<μ>.md` next to this SKILL.md
+  V      := VERIFY_THRESHOLD = 1500 tokens — Phase 5a gate · S_d := `${CLAUDE_PLUGIN_ROOT}/scripts/inventory_diff.py`
 
 ## Entry
 
 ```
 /compress file.md                  default mode, direct path
-/compress plugins/*/agents/*.md    glob scope
 /compress compress                 plugin name — discovered across both layouts
 /compress lint <target>            mode lint — halts until references/lint.md ships
 ```
@@ -43,14 +43,13 @@ Let:
 ## Phase 0 — Dispatch
 
 Parse the first token of `$ARGUMENTS`: ∈ μ set → mode; omitted → `compress`. Ambiguous (neither a mode nor a resolvable path/name) → ask "Mode or target?" (1–2 sentences), then dispatch. First token matching a mode always dispatches as mode — force scope interpretation with a path (e.g. `./lint`).
-Mode valid ⟺ ref(μ) ∃. ∄ → halt: `mode "<μ>" not yet implemented` — ¬improvise a mode body. Today `references/compress.md` + `references/glossary.md` ship → `derive|expand|lint` halt.
+Mode valid ⟺ ref(μ) ∃. ∄ → halt: `mode "<μ>" not yet implemented` — ¬improvise a mode body. Today `references/compress.md` + `references/glossary.md` + `references/expand.md` ship → `derive|lint` halt.
 Glossary gate: `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` ∃ → load its `## Core Table` section only; ∄ → the `Whitelist:` line (Guardrails) is the sole symbol domain — standalone install, G1–G4 still bind.
 
 ## Phase 1 — Scope
 
 Remaining args = scope: file path | glob | directory | plugin name. Paths and globs resolve as-is; a bare name is discovered across both layouts:
-- marketplace: `plugins/<name>/skills/*/SKILL.md` ∧ `plugins/<name>/agents/*.md`
-- legacy fallback: `.claude/skills/<name>/SKILL.md` ∨ `.claude/agents/<name>.md`
+- marketplace: `plugins/<name>/skills/*/SKILL.md` ∧ `plugins/<name>/agents/*.md` · legacy fallback: `.claude/skills/<name>/SKILL.md` ∨ `.claude/agents/<name>.md`
 
 N = 0 → halt, list every attempted resolution. Name matches in both layouts → present choice between the candidates.
 
@@ -61,7 +60,7 @@ N = 0 → halt, list every attempted resolution. Name matches in both layouts �
 ∀ f ∈ T, before any write:
 - `source_ref(f)` := `git hash-object "<f>"` (fallback: `sha256sum`) — pre-image hash, captured now, carried to Phase 5
 - tokens_before per section: `python3 S count "<f>"` — note the report's `method:` ∈ {anthropic-api, tiktoken-proxy, estimate}; also capture `agreement`/`calibration` when present
-- total < ~200 tokens → warn (cheap pre-check heuristic), proceed only if confirmed; mark compression candidates per ref(μ)
+- total < ~200 tokens → warn (cheap pre-check heuristic), proceed only if confirmed; mark compression candidates per ref(μ); emit inventory: ∀ non-L0 rule/cond/prohib/thresh/edge → one `<!-- INV-<cat>-<n> -->` anchor (grammar: references/verify.md; anchor tokens subtracted from savings)
 
 ## Phase 3 — Transform
 
@@ -74,15 +73,17 @@ Per-section table: `section | tokens_before | tokens_after | Δtokens` (candidat
 
 ## Phase 5 — Write
 
-Write file. Verify: frontmatter intact ∧ `$ARGUMENTS` intact ∧ safety rules intact ∧ ¬semantic loss ∧ every emitted symbol ∈ whitelist ∪ core table ∨ locally Let-defined. Re-count via `python3 S count "<f>"` → tokens_after.
+Write file + marker after frontmatter (template: `references/compress.md` § Levels). Verify: frontmatter intact ∧ `$ARGUMENTS` intact ∧ safety rules intact ∧ ¬semantic loss ∧ every emitted symbol ∈ whitelist ∪ core table ∨ locally Let-defined. Re-count via `python3 S count "<f>"` → tokens_after.
+5a read-back: `--verify` ∨ tokens_before ≥ V → spawn ONE fresh Task reader per `references/verify.md` § Spawn Template → diff via `python3 S_d writer.json reader.json --log …` (recall vs RECALL_FLOOR, verify.md); else note `verify: skipped (below threshold)`.
+Blockers {missing, weakened, inverted, invented} → auto-fix → exactly ONE re-verify (doubled cost declared) → residue → batched present-choice; every verdict emits the CONTAMINATION_CAVEAT (verify.md).
 One ledger row per completed target, appended ONLY via S — append command template + shared run-ULID `--correlation`: `references/compress.md` § Ledger Append.
 
 ## Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| Agent (¬skill) | Preserve agent frontmatter |
-| User rejects at Phase 4 | Halt |
+| Agent (¬skill) · user rejects at Phase 4 | Preserve agent frontmatter · halt |
+| Marker ∃ + src-sha fresh / stale | fresh → "already compressed at L<x>" fast path · stale → forced 5a before re-compress |
 
 ## Guardrails
 
