@@ -5,6 +5,8 @@
 
 Wraps every release of the fictional Beacon service. The safety rules and commands below are L0 (verbatim class — no anchors); only the operating notes are non-L0.
 
+Legend: `¬` := not.
+
 ## Safety rules
 
 1. Never release while an incident is open.

@@ -32,6 +32,18 @@
     "text": "Σ (state map): idle → staging → live; rollback → previous live snapshot only, never an arbitrary older one"
   },
   {
+    "anchor": "INV-cond-14",
+    "text": "ψ_r(host) ⟺ ping ok ∧ disk headroom ≥ 10 percent ∧ agent version current; ψ_f(host) ⟺ ¬ψ_r(host) — a ψ_f host is excluded from the rollout host set"
+  },
+  {
+    "anchor": "INV-cond-15",
+    "text": "Σ_s (readiness session, per host): unknown → probing → ready | unready; any config change on that host resets it to probing"
+  },
+  {
+    "anchor": "INV-edge-16",
+    "text": "ψ_r(host) unresolved after 3 probes → mark host ⚠ degraded, exclude until a fresh probe confirms ready"
+  },
+  {
     "anchor": "INV-prohib-9",
     "text": "¬start a deployment after 16:00 UTC on a Friday"
   },

@@ -25,6 +25,14 @@ Canary traffic starts at five percent of requests. The rollout is aborted whenev
 
 A run moves through three states: it starts idle, moves to staging, and finally goes live. A rollback returns the environment to the previous live snapshot, never to an arbitrary older one.
 
+## Host readiness
+
+Before a host receives traffic, it must pass a readiness predicate: the host responds to ping, has at least ten percent disk headroom free, and runs a current agent version. A host failing any of these conditions is excluded from the rollout host set entirely.
+
+Each host also tracks its own readiness session, separate from the overall deploy state above: it begins unknown, moves to probing, and lands on either ready or unready; any configuration change on that host resets its session back to probing.
+
+If a host's readiness stays unresolved after three probes, it is marked degraded with a warning and excluded from the rollout until a fresh probe confirms it is ready.
+
 ## Prohibitions
 
 Never start a deployment after 16:00 UTC on a Friday. Never bypass the health probe, not even for a one-line change.

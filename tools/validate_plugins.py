@@ -29,6 +29,7 @@ import json
 import re
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 
 import yaml
@@ -640,12 +641,15 @@ def check_notation_legends(legend_files=None, skill_path=None, glossary_path=Non
 def _normalize_inventory_text(text: str) -> str:
     """Decision-6 text-key normalization (issue #311).
 
-    lowercase → strip leading/trailing whitespace → collapse internal
-    whitespace runs to one space → drop characters outside the
-    `[a-z0-9 ∀∃∄∈∉∧∨¬→⟺∅≥≤]` class (punctuation-only tokens vanish).
+    NFC-normalize (composed vs. decomposed Unicode forms of logically
+    identical text must key identically) → lowercase → strip leading/
+    trailing whitespace → collapse internal whitespace runs to one space →
+    drop characters outside the `[a-z0-9 ∀∃∄∈∉∧∨¬→⟺∅≥≤]` class
+    (punctuation-only tokens vanish).
     """
     # lockstep: keep identical to plugins/compress/scripts/inventory_diff.py::normalize
-    # (Decision-6 charset parity) — see #311
+    # (Decision-6 charset parity, NFC-first step) — see #311
+    text = unicodedata.normalize('NFC', text)
     tokens = []
     for token in text.lower().split():
         token = _INV_NORM_DROP_RE.sub('', token)
@@ -658,7 +662,10 @@ def _parse_compressed_anchors(text: str) -> set[tuple[str, str]]:
     """Extract (anchor, normalized text key) pairs from a compressed artifact.
 
     Each anchor sits on its own line; its item is the next non-empty line
-    (grammar: compress skill references/verify.md).
+    (grammar: compress skill references/verify.md). The lookahead stops at
+    (and never consumes) another anchor-comment line — adjacent anchors each
+    get their own following text — and raises if an anchor is left with no
+    item text at all.
     """
     pairs = set()
     lines = text.splitlines()
@@ -668,11 +675,31 @@ def _parse_compressed_anchors(text: str) -> set[tuple[str, str]]:
             continue
         item_text = ''
         for follower in lines[lineno + 1:]:
-            if follower.strip():
-                item_text = follower.strip()
+            if not follower.strip():
+                continue
+            if _INV_ANCHOR_RE.match(follower):
                 break
+            item_text = follower.strip()
+            break
+        if not item_text:
+            raise ValueError(
+                f'anchor {m.group(1)} has no following item text '
+                f'(line {lineno + 1})'
+            )
         pairs.add((m.group(1), _normalize_inventory_text(item_text)))
     return pairs
+
+
+def _validate_inventory_shape(data) -> str | None:
+    """Return an error string if `data` is not list-of-{anchor: str, text: str}, else None."""
+    if not isinstance(data, list):
+        return 'not valid inventory shape — expected a JSON array'
+    for i, item in enumerate(data):
+        if not isinstance(item, dict):
+            return f'not valid inventory shape — item {i} is not an object'
+        if not isinstance(item.get('anchor'), str) or not isinstance(item.get('text'), str):
+            return f'not valid inventory shape — item {i} must have string "anchor" and "text"'
+    return None
 
 
 def check_golden_inventories(golden_dir=None) -> list[str]:
@@ -685,6 +712,11 @@ def check_golden_inventories(golden_dir=None) -> list[str]:
     Activation semantic: a MISSING golden dir returns [] (the check is inert
     until the goldens land — their commit activates the gate); an EXISTING
     dir with zero triples is a loud error, never a silent pass.
+
+    Each triple's shape/anchor validation is wrapped so one malformed triple
+    (bad inventory shape, or a compressed file that violates the anchor
+    grammar) FAILs only that triple with a clean message — never a traceback,
+    and never an abort of the rest of the validator run.
     """
     errors = []
     golden_dir = Path(golden_dir) if golden_dir is not None else GOLDEN_DIR
@@ -708,21 +740,30 @@ def check_golden_inventories(golden_dir=None) -> list[str]:
             errors.append(f'{triple}: failed to parse {inventory_path.name}: {e}')
             continue
 
-        actual = _parse_compressed_anchors(compressed.read_text(encoding='utf-8'))
-        expected = {
-            (item['anchor'], _normalize_inventory_text(item['text']))
-            for item in expected_items
-        }
-        for anchor, key in sorted(expected - actual):
-            errors.append(
-                f'{triple}: inventory item missing from compressed artifact: '
-                f'{anchor} ("{key}")'
-            )
-        for anchor, key in sorted(actual - expected):
-            errors.append(
-                f'{triple}: compressed anchor not matching expected inventory: '
-                f'{anchor} ("{key}")'
-            )
+        try:
+            shape_error = _validate_inventory_shape(expected_items)
+            if shape_error:
+                errors.append(f'{triple}: {inventory_path.name} {shape_error}')
+                continue
+
+            actual = _parse_compressed_anchors(compressed.read_text(encoding='utf-8'))
+            expected = {
+                (item['anchor'], _normalize_inventory_text(item['text']))
+                for item in expected_items
+            }
+            for anchor, key in sorted(expected - actual):
+                errors.append(
+                    f'{triple}: inventory item missing from compressed artifact: '
+                    f'{anchor} ("{key}")'
+                )
+            for anchor, key in sorted(actual - expected):
+                errors.append(
+                    f'{triple}: compressed anchor not matching expected inventory: '
+                    f'{anchor} ("{key}")'
+                )
+        except Exception as e:
+            errors.append(f'{triple}: {e}')
+            continue
     return errors
 
 

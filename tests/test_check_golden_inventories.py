@@ -12,6 +12,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOL = REPO_ROOT / 'tools' / 'validate_plugins.py'
 
@@ -148,6 +150,114 @@ def test_malformed_inventory_json_parse_tier(tmp_path):
     errors = mod.check_golden_inventories(golden_dir=golden_dir)
     assert len(errors) == 1
     assert 'failed to parse' in errors[0]
+
+
+# ---------------------------------------------------------------------------
+# Shape guard — valid JSON but not list-of-{anchor, text} (F5); one malformed
+# triple must FAIL only itself, never abort the rest of the run
+# ---------------------------------------------------------------------------
+
+def test_wrong_shape_inventory_fails_cleanly_not_traceback(tmp_path):
+    """A valid-JSON but wrong-shape inventory FAILs cleanly, never raises."""
+    golden_dir = _write_triple(tmp_path / 'golden', inventory=None)
+    (golden_dir / '01-sample.inventory.json').write_text(
+        json.dumps({'not': 'a list'}), encoding='utf-8'
+    )
+    mod = _load_tool()
+    errors = mod.check_golden_inventories(golden_dir=golden_dir)
+    assert len(errors) == 1
+    assert 'not valid inventory shape' in errors[0]
+
+
+def test_one_malformed_triple_does_not_abort_the_rest(tmp_path):
+    """One triple with malformed inventory shape must not crash/skip sibling triples."""
+    golden_dir = tmp_path / 'golden'
+    _write_triple(golden_dir, name='01-bad', inventory=[{'anchor': 'INV-rule-1'}])  # no text
+    _write_triple(golden_dir, name='02-good')
+    mod = _load_tool()
+    errors = mod.check_golden_inventories(golden_dir=golden_dir)
+    assert any('01-bad' in e and 'not valid inventory shape' in e for e in errors)
+    assert not any('02-good' in e for e in errors)
+
+
+def test_compressed_anchor_grammar_violation_fails_only_that_triple(tmp_path):
+    """A compressed file violating the anchor grammar (F6) FAILs only that triple —
+    the wrapped per-triple body must not let the raised ValueError abort the run."""
+    golden_dir = tmp_path / 'golden'
+    broken_compressed = """\
+---
+name: broken
+---
+<!-- compress: level=L2 src-sha=deadbeef glossary=none -->
+
+# Broken
+
+<!-- INV-rule-1 -->
+<!-- INV-rule-2 -->
+- only text after the second anchor
+"""
+    _write_triple(
+        golden_dir, name='01-broken', compressed=broken_compressed,
+        inventory=[
+            {'anchor': 'INV-rule-1', 'text': 'x'},
+            {'anchor': 'INV-rule-2', 'text': 'only text after the second anchor'},
+        ],
+    )
+    _write_triple(golden_dir, name='02-good')
+    mod = _load_tool()
+    errors = mod.check_golden_inventories(golden_dir=golden_dir)
+    assert any('01-broken' in e for e in errors)
+    assert not any('02-good' in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# Anchor lookahead — adjacent anchors each get their own item text (F6)
+# ---------------------------------------------------------------------------
+
+def test_parse_compressed_anchors_raises_on_anchor_with_no_item_text():
+    """An anchor immediately followed by another anchor line (no item text) raises,
+    rather than silently stealing the next anchor's raw comment as its own text."""
+    mod = _load_tool()
+    text = '<!-- INV-rule-1 -->\n<!-- INV-rule-2 -->\n- text for rule 2\n'
+    with pytest.raises(ValueError):
+        mod._parse_compressed_anchors(text)
+
+
+def test_parse_compressed_anchors_lookahead_skips_anchor_lines():
+    """Two anchors each immediately followed by their own item text both parse
+    independently — the lookahead must not consume an adjacent anchor's comment."""
+    mod = _load_tool()
+    text = '<!-- INV-rule-1 -->\n- rule one text\n<!-- INV-rule-2 -->\n- rule two text\n'
+    pairs = mod._parse_compressed_anchors(text)
+    assert ('INV-rule-1', mod._normalize_inventory_text('rule one text')) in pairs
+    assert ('INV-rule-2', mod._normalize_inventory_text('rule two text')) in pairs
+
+
+def test_adjacent_anchors_each_get_their_own_text_via_golden_check(tmp_path):
+    """End-to-end: two anchors each with their own following text pass the check
+    cleanly — the adjacency fix does not disturb the well-formed case."""
+    compressed = """\
+---
+name: adjacent-ok
+---
+<!-- compress: level=L2 src-sha=deadbeef glossary=none -->
+
+# Adjacent OK
+
+<!-- INV-rule-1 -->
+- first anchor's item text
+<!-- INV-rule-2 -->
+- second anchor's item text
+"""
+    inventory = [
+        {'anchor': 'INV-rule-1', 'text': "first anchor's item text"},
+        {'anchor': 'INV-rule-2', 'text': "second anchor's item text"},
+    ]
+    golden_dir = _write_triple(
+        tmp_path / 'golden', name='01-adjacent-ok', compressed=compressed, inventory=inventory
+    )
+    mod = _load_tool()
+    assert mod.check_golden_inventories(golden_dir=golden_dir) == []
 
 
 # ---------------------------------------------------------------------------

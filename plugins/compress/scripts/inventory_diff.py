@@ -12,6 +12,9 @@ inventory and a fresh reader's re-expansion. Output is a JSON report:
                this script never guesses it (unclassified blocks the verdict
                conservatively)
   recall     — |reader ∩ writer| / |writer non-L0| on (anchor, normalized key)
+  duplicates_dropped — count of duplicate-anchor items dropped (first
+               occurrence wins) before any counting, so a padded inventory
+               can never inflate recall
   verdict    — pass | fail | insufficient sample — human-gated
 
 Normalization and the go/no-go contract live in
@@ -19,8 +22,13 @@ skills/compress/references/verify.md (RECALL_FLOOR pre-registered there).
 
 Usage:
   inventory_diff.py writer.json reader.json [--floor F] [--diff-mode M]
-      [--anchor-tokens N] [--legend-tokens N]
+      [--anchor-tokens N] [--legend-tokens N] [--classified CLASSIFIED_JSON]
       [--log --target F --source-ref H --correlation C]
+
+`--classified` points at a JSON object `{"<anchor>": "faithful"|"weakened"|"inverted"}`
+supplied by the writer — its own runtime semantic call on each changed item.
+Anchors absent from the file (or the file itself absent) stay unclassified
+(None) and block the verdict conservatively; this script never guesses.
 
 Exit codes: 0 report produced (verdict inside the JSON), 2 on IO/usage errors.
 """
@@ -31,6 +39,7 @@ import re
 import secrets
 import sys
 import time
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -50,6 +59,10 @@ _CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 # Decision-6 charset: normalized keys keep only [a-z0-9 ∀∃∄∈∉∧∨¬→⟺∅≥≤]
 _NORM_DROP_RE = re.compile(r'[^a-z0-9∀∃∄∈∉∧∨¬→⟺∅≥≤]')
 
+# --classified values — the writer's own runtime semantic call; anything else
+# is a usage error, never silently coerced.
+_VALID_CLASSIFICATIONS = {'faithful', 'weakened', 'inverted'}
+
 
 def new_ulid() -> str:
     """Vendored minimal ULID: 48-bit ms timestamp + 80-bit randomness, Crockford base32."""
@@ -61,12 +74,15 @@ def new_ulid() -> str:
 def normalize(text: str) -> str:
     """Decision-6 text-key normalization.
 
-    lowercase → strip leading/trailing whitespace → collapse internal
-    whitespace runs to one space → drop characters outside the
-    `[a-z0-9 ∀∃∄∈∉∧∨¬→⟺∅≥≤]` class (punctuation-only tokens vanish).
+    NFC-normalize (composed vs. decomposed Unicode forms of logically
+    identical text must key identically) → lowercase → strip leading/
+    trailing whitespace → collapse internal whitespace runs to one space →
+    drop characters outside the `[a-z0-9 ∀∃∄∈∉∧∨¬→⟺∅≥≤]` class
+    (punctuation-only tokens vanish).
     """
     # lockstep: keep identical to tools/validate_plugins.py::_normalize_inventory_text
-    # (Decision-6 charset parity) — see #311
+    # (Decision-6 charset parity, NFC-first step) — see #311
+    text = unicodedata.normalize('NFC', text)
     tokens = []
     for token in text.lower().split():
         token = _NORM_DROP_RE.sub('', token)
@@ -75,12 +91,44 @@ def normalize(text: str) -> str:
     return ' '.join(tokens)
 
 
-def diff(writer: list[dict], reader: list[dict]) -> dict:
+def _dedupe_by_anchor(items: list[dict]) -> tuple[list[dict], int]:
+    """Drop duplicate anchors (first occurrence wins); return (deduped, dropped_count).
+
+    Duplicate anchors must never inflate recall by padding the denominator
+    with "free" matched repeats — dedupe happens before any counting.
+    """
+    seen = set()
+    deduped = []
+    dropped = 0
+    for item in items:
+        anchor = item['anchor']
+        if anchor in seen:
+            dropped += 1
+            continue
+        seen.add(anchor)
+        deduped.append(item)
+    return deduped, dropped
+
+
+def diff(writer: list[dict], reader: list[dict], classifications: dict | None = None) -> dict:
     """Set-compare two inventories on (anchor, normalized text key) pairs.
 
     Deterministic only — no semantics. Recall counts exact normalized matches;
     changed items lower it until the writer reclassifies them at runtime.
+    Duplicate anchors within either inventory are deduped first (see
+    `_dedupe_by_anchor`) — the dropped count is surfaced as
+    `duplicates_dropped` so a padded inventory can never inflate recall.
+
+    `classifications` maps anchor → 'faithful'|'weakened'|'inverted', as
+    supplied by the writer (e.g. via --classified). Anchors absent from the
+    map stay unclassified (None) and block the verdict conservatively — this
+    function never guesses.
     """
+    if classifications is None:
+        classifications = {}
+    writer, writer_dupes = _dedupe_by_anchor(writer)
+    reader, reader_dupes = _dedupe_by_anchor(reader)
+
     writer_texts = {item['anchor']: item['text'] for item in writer}
     reader_texts = {item['anchor']: item['text'] for item in reader}
 
@@ -99,7 +147,7 @@ def diff(writer: list[dict], reader: list[dict]) -> dict:
                 'anchor': anchor,
                 'writer_text': item['text'],
                 'reader_text': reader_texts[anchor],
-                'writer_classification': None,  # writer's call — never guessed here
+                'writer_classification': classifications.get(anchor),
             })
     return {
         'missing': missing,
@@ -107,6 +155,7 @@ def diff(writer: list[dict], reader: list[dict]) -> dict:
         'changed': changed,
         'recall': matched / len(writer) if writer else 0.0,
         'insufficient_sample': len(writer) < MIN_N,
+        'duplicates_dropped': writer_dupes + reader_dupes,
     }
 
 
@@ -157,15 +206,65 @@ def append_log(payload: dict, target: str, source_ref: str, correlation: str) ->
     return row
 
 
+def _validate_inventory_shape(data) -> str | None:
+    """Return an error string if `data` is not list-of-{anchor: str, text: str}, else None."""
+    if not isinstance(data, list):
+        return 'not valid inventory shape — expected a JSON array'
+    for i, item in enumerate(data):
+        if not isinstance(item, dict):
+            return f'not valid inventory shape — item {i} is not an object'
+        if not isinstance(item.get('anchor'), str) or not isinstance(item.get('text'), str):
+            return f'not valid inventory shape — item {i} must have string "anchor" and "text"'
+    return None
+
+
 def _load_inventory(path_str: str):
-    """Load one inventory JSON; returns (data, error) — error is exit-2 text."""
+    """Load one inventory JSON; returns (data, error) — error is exit-2 text.
+
+    Validates list-of-{anchor: str, text: str} shape — a malformed file is a
+    clean exit-2 error, never an uncaught traceback further down the pipeline.
+    Non-UTF-8 input is likewise a clean exit-2 error (lockstep with
+    check_golden_inventories in tools/validate_plugins.py, which already
+    catches both JSONDecodeError and UnicodeDecodeError).
+    """
     path = Path(path_str)
     if not path.exists():
         return None, f'Error: inventory not found: {path}'
     try:
-        return json.loads(path.read_text(encoding='utf-8')), None
+        data = json.loads(path.read_text(encoding='utf-8'))
     except json.JSONDecodeError as exc:
         return None, f'Error: failed to parse {path}: {exc}'
+    except UnicodeDecodeError as exc:
+        return None, f'Error: {path} is not valid UTF-8: {exc}'
+    shape_error = _validate_inventory_shape(data)
+    if shape_error:
+        return None, f'Error: {path}: {shape_error}'
+    return data, None
+
+
+def _load_classifications(path_str: str):
+    """Load the writer's --classified JSON; returns (dict, error) — error is exit-2 text.
+
+    Shape: `{"<anchor>": "faithful"|"weakened"|"inverted"}` — the writer's own
+    runtime semantic call. Any value outside the three-way classification is
+    a usage error, never silently coerced or dropped.
+    """
+    path = Path(path_str)
+    if not path.exists():
+        return None, f'Error: classifications file not found: {path}'
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except json.JSONDecodeError as exc:
+        return None, f'Error: failed to parse {path}: {exc}'
+    if not isinstance(data, dict):
+        return None, f'Error: {path} is not a valid classifications shape (expected a JSON object)'
+    for anchor, classification in data.items():
+        if not isinstance(anchor, str) or classification not in _VALID_CLASSIFICATIONS:
+            return None, (
+                f'Error: {path} has an invalid classification for {anchor!r}: '
+                f'{classification!r} (expected one of {sorted(_VALID_CLASSIFICATIONS)})'
+            )
+    return data, None
 
 
 def main(argv=None) -> int:
@@ -179,6 +278,9 @@ def main(argv=None) -> int:
     parser.add_argument('--diff-mode', default='anchor-based')
     parser.add_argument('--anchor-tokens', type=int)
     parser.add_argument('--legend-tokens', type=int)
+    parser.add_argument('--classified',
+                        help='writer-supplied classifications JSON '
+                             '{anchor: faithful|weakened|inverted}')
     parser.add_argument('--log', action='store_true',
                         help='append a verify row to verify-log.jsonl')
     parser.add_argument('--target', help='verified artifact path (envelope)')
@@ -200,7 +302,14 @@ def main(argv=None) -> int:
         print(error, file=sys.stderr)
         return 2
 
-    result = diff(writer, reader)
+    classifications = {}
+    if args.classified:
+        classifications, error = _load_classifications(args.classified)
+        if error:
+            print(error, file=sys.stderr)
+            return 2
+
+    result = diff(writer, reader, classifications)
     payload = {
         'schema_version': SCHEMA_VERSION,
         'recall': result['recall'],
@@ -208,6 +317,7 @@ def main(argv=None) -> int:
         'invented': result['invented'],
         'changed': result['changed'],
         'insufficient_sample': result['insufficient_sample'],
+        'duplicates_dropped': result['duplicates_dropped'],
         'diff_mode': args.diff_mode,
         'floor': args.floor,
         'verdict': compute_verdict(result, args.floor),
