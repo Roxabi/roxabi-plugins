@@ -150,6 +150,7 @@ emission: <R11 draft + pointers> | <R12 principle block> | skipped: <break-even 
 
 double-entry deltas:
   repo-static: ±N tokens · runtime/invocation: ±M tokens
+  N/A for gate-failed or dark-matter dispositions — no principle draft exists to measure
 
 unified diff (if emitting)
 ```
@@ -217,6 +218,13 @@ Signature: | <VAR> | <VAR> |
 
 Occurrence: 12 instances across 3 files. Gate: MIN_OCCURRENCES PASS, MIN_FILES PASS, FRESHNESS_DAYS PASS (all stable). Route: **strong schema-fit** — this is the standard `| Phase | Notes |` pattern already documented in `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md`. Action: **Fold-in** to existing shared reference, diff against `## Core Table`.
 
+```
+$ python3 count_tokens.py count /tmp/instance_row.txt
+{ "tokens_o200k": 6, "method": "tiktoken-proxy", "agreement": true }
+```
+
+double-entry deltas: repo-static: −48 tokens (12 instances × 6 tokens = 72 today; fold-in reuses the existing canonical row (0 new tokens) + 12 × 2-token pointers = 24 → Δ = 24 − 72) · runtime/invocation: +12 tokens (diff-against-existing cost; no new principle drafted)
+
 ③ **Status-Glyph Vocabulary (dogfood, example-only)**
 
 Source: `plugins/compress/skills/compress/references/lint.md` contains:
@@ -235,6 +243,13 @@ Signature: <VAR> = <VAR>
 ```
 
 Occurrence: 8 instances across 4 files. Gate: all PASS. Route: **strong** — this is the glyph registry. Action: **Fold-in** to `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` § Reserved-Variable Registry, update counts.
+
+```
+$ python3 count_tokens.py count /tmp/glyph_instance.txt
+{ "tokens_o200k": 4, "method": "tiktoken-proxy", "agreement": true }
+```
+
+double-entry deltas: repo-static: −24 tokens (8 instances × 4 tokens = 32 today; registry update reuses the existing entry (0 new tokens) + 8 × 1-token pointers = 8 → Δ = 8 − 32) · runtime/invocation: +10 tokens (registry-diff cost; no new principle drafted)
 
 ④ **Generic non-Roxabi Example — Shared Retry-Policy Paragraph**
 
@@ -265,6 +280,18 @@ trigger: error handling path encounters transient failure
 ref: project-A/skills/X/README.md line 42 · project-B/skills/Y/README.md line 18 · …
 
 gloss: standard retry pattern — 3 attempts with exponential backoff, escalate on final failure
+
+confidence: 85 · ambiguity_flags: [subjective, schema-fit-boundary]
+```
+
+```
+$ python3 count_tokens.py count /tmp/retry_instance.txt
+{ "tokens_o200k": 28, "method": "tiktoken-proxy", "agreement": true }
+$ python3 count_tokens.py count /tmp/retry_principle_draft.txt
+{ "tokens_o200k": 60, "method": "tiktoken-proxy", "agreement": true }
+```
+
+double-entry deltas: repo-static: −96 tokens (6 instances × 28 tokens = 168 today; 1 principle (60) + 6 × 2-token pointers = 72 → Δ = 72 − 168) · runtime/invocation: +60 tokens (draft + describe + present cost)
 
 confidence: 85 · ambiguity_flags: [subjective, schema-fit-boundary]
 ```
