@@ -1,0 +1,69 @@
+---
+title: 'compress v2 train B — canonical notation glossary + reserved-var registry + fidelity guardrails'
+issue: 310
+status: approved
+tier: F-lite
+date: 2026-07-04
+---
+
+## Problem
+
+The repo's symbolic notation has no canon, and the compress skill's fidelity model contradicts the measured evidence (issue #310 "Problem"; analysis §2.1–2.3):
+
+- **Three conflicting legends** (four, counting the discovered dev-init fork — see Decisions): compress `references/compress.md` Symbols line (`→` then, `↦` maps-to — moved from SKILL.md:21 by train A), dev-core `base.md:16` (`→` then/maps-to), `doc-writer.md:51` (`⇒` implies, `→` maps to). A compressor cannot collision-check against a canon that does not exist.
+- **Measured Greek collisions**: σ ∈ {spec, stack.yml, Spec doc-type, staging} (4-way); τ = tier/target-file/doc-type; π = plan/test-file; Σ = state-map/standards-test; Ω = override-file (dominant) vs skill-invocation (1).
+- **R1's own example violates house bindings**: `φ:=findings` vs φ=frame, `τ:=80` vs τ=tier, `γ(f)` vs `C(f)`.
+- **The flat `¬compress` list is the wrong fidelity model**: Tencent (arXiv 2604.07192, Cliff's δ<0.01) — encoding form has no detectable compliance effect; **polarity** governs (36/47 failures = default bias); the house style is `¬`-saturated.
+- **The economic premise is false**: most glyphs cost 2–3 BPE tokens; `∀ x ∈ Y:` = `for each x in Y:` = 6 tokens; ⟺/⇔ flips between tokenizers; real savings = prose pruning (R5/R6/R7).
+- **Notation without gloss is reader-hostile**: MetaGlyph — `→` read 0% as transformation, `∈` 26%; LILO — NL gloss is load-bearing.
+
+This issue = P1 + P6 of the adversarially-verified analysis; train B of epic #308, unblocks C.
+
+## Who
+
+- **Primary:** compress users (fidelity guardrails G1–G4 shape every output) and dev-core/skill authors (notation.md becomes the vocabulary SSoT their legends point to).
+- **Secondary:** trains C–E — #311's read-back verifies gloss compliance, #312 lints against the glossary, #313's R12 emits glossary-compliant abstractions; roxabi-cortex vocabulary-governance mechanics (closed enum, human-gated extension — no ADR-009 fulfillment claim).
+
+## Constraints
+
+- **Same-PR coordination**: repointing `base.md` + `doc-writer.md` legends = dev-core `skills/`-adjacent change → `plugins/dev-core/.claude-plugin/plugin.json` semver bump in the same PR (pre-push `check-skill-version` gates it; verified: dev-core is versioned, currently 0.8.13 in-repo). base.md is churning on staging → rebase early and often (descope-under-churn memory).
+- **Marketplace self-containment**: SKILL.md inline whitelist is canonical; the notation.md pointer is an optional enrichment behind an existence test — compress must work with `plugins/shared/` absent; no `~/projects/ssot/*` paths; ssot corpus = out-of-corpus evidence only.
+- **DP drift adaptation (standing, epic #308)**: glyph-conflict adjudications are measured-count decisions made autonomously with the counts + outcome + rationale recorded in notation.md; other decision points use the inline present-choice idiom.
+- **Evidence discipline**: registry seeded from grep with recorded counts (never memory); no hardcoded token tiers; no tokenizer-relative winner encoded as a timeless rule; no per-glyph token-cost column (one-shot measured appendix with method+model+date, or nothing).
+- **G1**: rewrite `¬use Y` → `use Z (¬Y)` only when concrete Z exists; never invent Z; no-alternative → 4-field flag schema `{constraint | polarity | alternative-exists | verification-method}` in Phase 4; vault persistence optional (no P2 ledger dependency).
+- **Phase 0 load budget**: only the ~150-line core loads in compress mode; grammar + maintenance sections load only in glossary (and future lint) modes.
+- **Validator self-protection in the same PR**: `--check notation-legends` — (a) base.md + doc-writer.md legends are one-line pointers, (b) SKILL.md inline whitelist ≡ glossary core table (set-equality; precedent: shared-sources-sync).
+- **SKILL.md stays ≤110 lines** (train A's gate now enforces it — G1–G4 + whitelist + break-even inequality must fit or push detail to references/).
+- Edit repo source only; no `--force`/`--hard`/`--amend`; stage specific files only.
+
+## Out of Scope
+
+- **dev-init's `base.md:16` legend** (discovered fork, identical line, not named by the issue) — repointing it would touch a second versioned plugin and widen the churn surface; recorded as a follow-up (see Decisions). The notation-legends check gates exactly the two files the issue names.
+- Lint mode body (#312) — every lint mention in compress text must be fully specified or absent.
+- Read-back verification, levels, provenance markers (#311); derive (#313).
+- Corpus-wide notation migration (deferred to #312 lint mode).
+- ADR-009 fulfillment claims (mechanics only).
+
+## Decisions
+
+1. **dev-init base.md** stays untouched this PR (descope-under-churn: separate versioned plugin, issue enumerates its targets exhaustively); a follow-up issue will be filed at PR time to repoint it and extend the notation-legends whitelist gate to it.
+2. **Glyph adjudications** (⇒/→, ⟺/⇔) resolved from fresh grep counts at implement time; expected from analysis-time evidence: retain `⟺` (×7 plugin files vs ⇔ ×0 in plugins/), retain `⇒` as sanctioned implies/contrastive register (×33 across 8 files; live legend doc-writer.md:51; dev:45 contrastive use) — `⇒` is NOT drift. Counts + outcome + rationale land in notation.md.
+3. **doc-writer legend line number drift** (:54 → :51 after agent-frontmatter commits) — content intact; cite current lines.
+
+## Premise Validity
+
+**Success in 6 months:** One canonical `notation.md` exists; both named legend surfaces are one-line pointers gated by `--check notation-legends`; compress Phase 3 collision-checks every new Let var against a grep-seeded registry; G1–G4 govern outputs (no bare non-whitelist symbols; polarity flags emitted with the 4-field schema); trains C and D consume the glossary and evidence.md as inputs.
+
+**Failure in 6 months:** By 2027-01: the notation-legends check has been reverted/disabled, or a corpus scan (via #312's lint or plain grep) finds new non-pointer legend lines in the gated files, or compress outputs post-merge still emit bare non-whitelist symbols (G3 violations > 0 in sampled outputs), or the registry is never consulted (zero collision-check evidence in any later train's runs) — the glossary was shelf-ware and the SSoT premise is indicted.
+
+**Simplest alternative:** Fix only compress's own legend and R1 example in place; leave base.md/doc-writer.md alone; skip the registry and G-rules.
+**Why not simplest:** The three conflicting legends remain (the core problem is cross-file, not intra-file); collision-checking is impossible without a canon + registry; train C's read-back needs G3's gloss mandate to test, and train D's lint needs the glossary as its reference — both would be blocked or built on sand; the polarity evidence (Tencent) would remain unencoded exactly where compliance failures originate.
+
+## Complexity
+
+**Tier: F-lite** — label `size:F-lite`; clear scope, two coordinated surfaces (compress + dev-core legend pointers), no unknowns (all design decisions pre-baked by the adversarially-verified analysis).
+
+Signals observed:
+- Issue label `size:F-lite` → F-lite (direct mapping).
+- Coordination cost named and bounded (dev-core bump; churn memory applies).
+- χ target = 0 — every open question is answered in the issue body.
