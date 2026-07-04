@@ -21,6 +21,17 @@ It applies 10 transformation rules:
 
 Things it never touches: frontmatter, code blocks, file paths, tool names, safety rules, `$ARGUMENTS`.
 
+## Fidelity guardrails
+
+Every output is governed by four guardrails (G1–G4 in `skills/compress/SKILL.md`, evidence pinned in `skills/compress/references/evidence.md`):
+
+- **G1 Polarity** — a negative constraint (`do not use Y`) is rewritten to a concrete alternative (`use Z`) only when Z actually exists; the skill never invents one. No alternative → the constraint is kept and flagged `needs external verification`.
+- **G2 No free coinage** — emitted symbols come from the canonical inline whitelist (or a local `Let:` binding). Glyphs are chosen for register and precision, never for token economy — measured savings come from prose pruning.
+- **G3 Gloss trigger** — predicates, process blocks, `Let:` bindings, non-whitelist symbols, and chains of more than 3 operators all get a mandatory one-line gloss.
+- **G4 Verbatim floor** — commands, tool names, spawn templates, and safety rules stay in words.
+
+The whitelist in SKILL.md is canonical. When the optional shared glossary (`plugins/shared/references/notation.md`) is installed it extends the symbol domain; without it the skill runs fully standalone.
+
 ## Install
 
 ```bash
@@ -34,7 +45,7 @@ claude plugin install compress
 - `compress fixer` — compresses the agent at `.claude/agents/fixer.md`
 - `compress path/to/file.md` — compresses a file directly
 
-The plugin shows a before/after line count and asks for approval before writing any changes.
+The plugin shows per-section before/after token counts and asks for approval before writing any changes.
 
 ## License
 

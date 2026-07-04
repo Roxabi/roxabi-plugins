@@ -33,17 +33,18 @@ Let:
 
 | Phase | ID | Notes |
 |-------|----|-------|
-| 0 | dispatch | mode parse + mode-exists gate |
+| 0 | dispatch | mode parse + mode-exists gate + glossary gate |
 | 1 | scope | resolve T + read budget |
 | 2 | analyze | pre-image `source_ref` + tokens_before via S |
-| 3 | transform | apply ref(μ) rules |
+| 3 | transform | apply ref(μ) rules under G1–G4 |
 | 4 | present | per-section Δtokens + user choice |
-| 5 | write | verify + ledger append via S |
+| 5 | write | verify + symbol assert + ledger append via S |
 
 ## Phase 0 — Dispatch
 
 Parse the first token of `$ARGUMENTS`: ∈ μ set → mode; omitted → `compress`. Ambiguous (neither a mode nor a resolvable path/name) → ask "Mode or target?" (1–2 sentences), then dispatch. First token matching a mode always dispatches as mode — force scope interpretation with a path (e.g. `./lint`).
 Mode valid ⟺ ref(μ) ∃. ∄ → halt: `mode "<μ>" not yet implemented` — ¬improvise a mode body. Today only `references/compress.md` ships → `derive|expand|lint|glossary` all halt.
+Glossary gate: `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` ∃ → load its `## Core Table` section only; ∄ → the `Whitelist:` line (Guardrails) is the sole symbol domain — standalone install, G1–G4 still bind.
 
 ## Phase 1 — Scope
 
@@ -60,29 +61,21 @@ N = 0 → halt, list every attempted resolution. Name matches in both layouts �
 ∀ f ∈ T, before any write:
 - `source_ref(f)` := `git hash-object "<f>"` (fallback: `sha256sum`) — pre-image hash, captured now, carried to Phase 5
 - tokens_before per section: `python3 S count "<f>"` — note the report's `method:` ∈ {anthropic-api, tiktoken-proxy, estimate}; also capture `agreement`/`calibration` when present
-- total < ~200 tokens → warn (cheap pre-check heuristic), proceed only if confirmed
-- mark compression candidates per ref(μ)
+- total < ~200 tokens → warn (cheap pre-check heuristic), proceed only if confirmed; mark compression candidates per ref(μ)
 
 ## Phase 3 — Transform
 
-Read ref(μ), apply its rules. Compress mode body: symbols legend, transform rules R1–R10, ¬compress list, measured rationale — all in `references/compress.md`.
+Read ref(μ), apply its rules under the Guardrails. Compress mode body — symbols legend, transform rules R1–R10, mode edge cases, measured rationale — all in `references/compress.md`. Collision-check every new `Let:` var: glossary ∃ → its reserved-var registry; ∄ → the whitelist glyph domain only (reserved-var binding collisions ¬checked standalone — accepted degradation).
 
 ## Phase 4 — Present
 
-Per-section table: `section | tokens_before | tokens_after | Δtokens` (candidate text re-counted via S). Flag every `Δtokens ≈ 0` section — prefer the readable form there. Never present char% or line% as savings — tokens are the only metric.
+Per-section table: `section | tokens_before | tokens_after | Δtokens` (candidate text re-counted via S). Flag every `Δtokens ≈ 0` section — prefer the readable form there. Never present char% or line% as savings — tokens are the only metric. Every G1 flag → one fixed-format block `{constraint | polarity | alternative-exists | verification-method}` (vault persistence optional — completes with no vault).
 → present choice **Yes** | **Preview** | **Adjust**. Preview → show full text, re-ask. Adjust → apply feedback, re-present.
 
 ## Phase 5 — Write
 
-Write file. Verify: frontmatter intact ∧ `$ARGUMENTS` intact ∧ safety rules intact ∧ ¬semantic loss. Re-count via `python3 S count "<f>"` → tokens_after.
-One ledger row per completed target, appended ONLY via S — generate one run ULID (`python3 S new-ulid`) and share it as `--correlation` across every row of a multi-file run:
-
-```
-python3 S append --target "<f>" --mode <μ> --source-ref <hash> \
-  --tokens-before <n> --tokens-after <n> --correlation <run-ulid> \
-  --sections-json '[{"name": "…", "tokens_before": …, "tokens_after": …}]' --method <m> \
-  --proxy-agreement <bool> --calibration "<line>"  # when captured in Phase 2
-```
+Write file. Verify: frontmatter intact ∧ `$ARGUMENTS` intact ∧ safety rules intact ∧ ¬semantic loss ∧ every emitted symbol ∈ whitelist ∪ core table ∨ locally Let-defined. Re-count via `python3 S count "<f>"` → tokens_after.
+One ledger row per completed target, appended ONLY via S — append command template + shared run-ULID `--correlation`: `references/compress.md` § Ledger Append.
 
 ## Edge Cases
 
@@ -90,7 +83,17 @@ python3 S append --target "<f>" --mode <μ> --source-ref <hash> \
 |----------|----------|
 | Agent (¬skill) | Preserve agent frontmatter |
 | User rejects at Phase 4 | Halt |
-| Mode-specific (already formal, no repeated concepts, mixed prose + code) | Per ref(μ) |
+
+## Guardrails
+
+∀ mode, ∀ output — the fidelity floor; evidence pinned in `references/evidence.md`.
+Whitelist: `∀` `∃` `∄` `∈` `∉` `∧` `∨` `¬` `→` `⟺` `∅` `∩` `∪` `⊂` `∥` `|X|` `:=` `←` `{ }` `;` `()` `↦`
+- **G1** polarity: `¬use Y` → `use Z (¬Y)` iff a concrete Z ∃ — never invent Z. No alternative → keep the constraint + flag `needs external verification` (block format: Phase 4).
+- **G2** no free coinage: emitted symbols ∈ whitelist (∪ core table when loaded) ∨ Let-defined; ¬coin indexed vars. Glyph substitution is token-neutral at best; choose glyphs for register/precision, never for economy; measured savings come from prose pruning. ¬hardcode token tiers ∨ tokenizer-relative glyph rules — cost claims require measurement via S (API count; record tokenizer + date).
+- **G3** gloss trigger: `(predicate ∨ O-block ∨ Let-bind) ∨ (symbol ∉ whitelist) ∨ (chain > 3 operators)` → mandatory `— …` gloss ≤1 line. Bare non-whitelist symbols forbidden in output.
+- **G4** verbatim floor: commands, tool names, spawn templates, safety rules stay in words (evidence: references/evidence.md — Tencent 2604.07192).
+
+Economics: R5/R6/R7 = the primary economic transform; R1 = disambiguation, ¬economy — a rename pays iff `(T_phrase − T_var) × occ > T_letline (≈8–10)` (practical: phrase ≥3 tokens ∧ occ ≥4, ∨ phrase ≥4 ∧ occ ≥3); G1/G3 spend tokens to buy compliance.
 
 ## Safety
 
