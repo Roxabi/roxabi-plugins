@@ -70,7 +70,7 @@ Amortization rule: extraction is allowed iff co-occurrence-in-one-context-window
 
 ∀ potential principle candidate (a cluster of repeated signatures):
 1. Write each fragment (the pointer line, one inline instance, the emitted principle draft) to a scratch temp file — each as a separate file.
-2. Run `python3 count_tokens.py count <tmp>` on each scratch file → read the JSON report field: under `method: tiktoken-proxy` read `report['tokens_o200k']` (or under `method: estimate` / `method: anthropic-api` read `report['tokens']`); record `agreement` if present.
+2. Run `python3 S count <tmp>` on each scratch file → read the JSON report field: under `method: tiktoken-proxy` read `report['tokens_o200k']` (or under `method: estimate` / `method: anthropic-api` read `report['tokens']`); record `agreement` if present.
 3. Record BOTH: repo-static Δ (savings if the principle were adopted in the actual source) AND runtime per-invocation Δ (tokens spent in this run to emit the principle draft). Hand-estimates are forbidden — every number in the double-entry must be tool-produced.
 
 Gate application:
@@ -200,13 +200,13 @@ Derive.md produces zero writes to any scoped or repo file (no edits to notation.
 Source: `plugins/compress/skills/compress/SKILL.md` lines 15–22 contain multiple `I :=` and `V :=` binding lines. Extraction:
 
 ```
-Signatures extracted:
-  I := <VAR> ∧ <VAR> ∧ <VAR>
-  V := <VAR> = <NUM>
-  ref(<VAR>) := `<PATH>` — <VAR> ∧ <VAR>
+Signatures extracted (3 distinct keys — per §Normalization, identical signatures cluster, distinct ones don't):
+  I := <VAR> ∧ <VAR> ∧ <VAR>              — 1 occurrence
+  V := <VAR> = <NUM>                       — 1 occurrence
+  ref(<VAR>) := `<PATH>` — <VAR> ∧ <VAR>   — 1 occurrence
 ```
 
-Occurrence count: 3 across the same file. Gate: MIN_OCCURRENCES PASS, MIN_FILES FAIL (single file). Action: **Skip — gate-failed**.
+Gate (per signature, never summed across distinct keys): each of the 3 distinct signatures clusters alone at 1 occurrence — MIN_OCCURRENCES FAIL for all three individually (the single-file range would also fail MIN_FILES, but MIN_OCCURRENCES already fails first). Action: **Skip — gate-failed** (three undersized single-occurrence clusters, not one merged 3-occurrence cluster).
 
 ② **Pipeline Verify-Tables (dogfood, example-only)**
 
@@ -219,11 +219,11 @@ Signature: | <VAR> | <VAR> |
 Occurrence: 12 instances across 3 files. Gate: MIN_OCCURRENCES PASS, MIN_FILES PASS, FRESHNESS_DAYS PASS (all stable). Route: **strong schema-fit** — this is the standard `| Phase | Notes |` pattern already documented in `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md`. Action: **Fold-in** to existing shared reference, diff against `## Core Table`.
 
 ```
-$ python3 count_tokens.py count /tmp/instance_row.txt
+$ python3 S count /tmp/instance_row.txt
 { "tokens_o200k": 6, "method": "tiktoken-proxy", "agreement": true }
 ```
 
-double-entry deltas: repo-static: −48 tokens (12 instances × 6 tokens = 72 today; fold-in reuses the existing canonical row (0 new tokens) + 12 × 2-token pointers = 24 → Δ = 24 − 72) · runtime/invocation: +12 tokens (diff-against-existing cost; no new principle drafted)
+double-entry deltas: repo-static: −48 tokens (12 instances × 6 tokens = 72 today; fold-in reuses the existing canonical row (0 new tokens) + 12 × ~2-token pointers (illustrative estimate, not independently measured) = 24 → Δ = 24 − 72) · runtime/invocation: +12 tokens (diff-against-existing cost; no new principle drafted)
 
 ③ **Status-Glyph Vocabulary (dogfood, example-only)**
 
@@ -245,11 +245,11 @@ Signature: <VAR> = <VAR>
 Occurrence: 8 instances across 4 files. Gate: all PASS. Route: **strong** — this is the glyph registry. Action: **Fold-in** to `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` § Reserved-Variable Registry, update counts.
 
 ```
-$ python3 count_tokens.py count /tmp/glyph_instance.txt
+$ python3 S count /tmp/glyph_instance.txt
 { "tokens_o200k": 4, "method": "tiktoken-proxy", "agreement": true }
 ```
 
-double-entry deltas: repo-static: −24 tokens (8 instances × 4 tokens = 32 today; registry update reuses the existing entry (0 new tokens) + 8 × 1-token pointers = 8 → Δ = 8 − 32) · runtime/invocation: +10 tokens (registry-diff cost; no new principle drafted)
+double-entry deltas: repo-static: −24 tokens (8 instances × 4 tokens = 32 today; registry update reuses the existing entry (0 new tokens) + 8 × ~1-token pointers (illustrative estimate, not independently measured) = 8 → Δ = 8 − 32) · runtime/invocation: +10 tokens (registry-diff cost; no new principle drafted)
 
 ④ **Generic non-Roxabi Example — Shared Retry-Policy Paragraph**
 
@@ -285,16 +285,13 @@ confidence: 85 · ambiguity_flags: [subjective, schema-fit-boundary]
 ```
 
 ```
-$ python3 count_tokens.py count /tmp/retry_instance.txt
+$ python3 S count /tmp/retry_instance.txt
 { "tokens_o200k": 28, "method": "tiktoken-proxy", "agreement": true }
-$ python3 count_tokens.py count /tmp/retry_principle_draft.txt
+$ python3 S count /tmp/retry_principle_draft.txt
 { "tokens_o200k": 60, "method": "tiktoken-proxy", "agreement": true }
 ```
 
-double-entry deltas: repo-static: −96 tokens (6 instances × 28 tokens = 168 today; 1 principle (60) + 6 × 2-token pointers = 72 → Δ = 72 − 168) · runtime/invocation: +60 tokens (draft + describe + present cost)
-
-confidence: 85 · ambiguity_flags: [subjective, schema-fit-boundary]
-```
+double-entry deltas: repo-static: −96 tokens (6 instances × 28 tokens = 168 today; 1 principle (60) + 6 × ~2-token pointers (illustrative estimate, not independently measured) = 72 → Δ = 72 − 168) · runtime/invocation: +60 tokens (draft + describe + present cost)
 
 ⑤ **Poor-Fit Cluster — Dark Matter Verbatim (never forced into abstraction)**
 
@@ -330,34 +327,33 @@ Signature: `function(<VAR>: <VAR>, <VAR>: <VAR>) → <VAR>`
 
 Gate: all PASS. Route: **ambiguous** schema-fit. Present-choice offered.
 
-Break-even arithmetic (all tool outputs — every instance measured individually, no hand-estimates):
+Break-even arithmetic (fragment/instance/principle counts are tool outputs from `count_tokens.py`; any pointer-token figure elsewhere in this file is a documented illustrative estimate, not independently measured):
 
 ```
 Fragment 1 (occurrence instance 1):
-  $ python3 count_tokens.py count /tmp/instance1.txt
+  $ python3 S count /tmp/instance1.txt
   { "tokens_o200k": 8, "method": "tiktoken-proxy", "agreement": true }
 
 Fragment 2 (occurrence instance 2):
-  $ python3 count_tokens.py count /tmp/instance2.txt
+  $ python3 S count /tmp/instance2.txt
   { "tokens_o200k": 9, "method": "tiktoken-proxy", "agreement": true }
 
 Fragment 3 (occurrence instance 3):
-  $ python3 count_tokens.py count /tmp/instance3.txt
+  $ python3 S count /tmp/instance3.txt
   { "tokens_o200k": 8, "method": "tiktoken-proxy", "agreement": true }
 
 Fragment 4 (principle draft):
-  $ python3 count_tokens.py count /tmp/principle_draft.txt
+  $ python3 S count /tmp/principle_draft.txt
   { "tokens_o200k": 45, "method": "tiktoken-proxy", "agreement": true }
 
 Repo-static calculation (if principle adopted):
   instance 1 + instance 2 + instance 3 = 8 + 9 + 8 = 25 tokens (current)
-  1 principle + 3 pointers = 45 + (3 × 2) = 51 tokens (proposed)
+  1 principle + 3 pointers = 45 + (3 × ~2, illustrative estimate) = 51 tokens (proposed)
   Δ = 51 − 25 = +26 tokens (net loss)
 
 Runtime per-invocation cost:
   Draft + describe + present cost = 45 tokens
   Savings if user accepts: 0 tokens (because repo-static is net loss)
-  Break-even threshold: 45 ≤ 25? NO.
 
 Disposition: **Skipped — break-even arithmetic shows net token loss (+26 repo-static); runtime cost (45 tokens) exceeds savings; user choice: **Skip**.
 ```
