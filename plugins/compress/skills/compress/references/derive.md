@@ -64,14 +64,14 @@ Explicitly state: these are labeled placeholders, not calibrated thresholds. Eve
 
 Stability predicate: `git log -1 --format=%ct -- "<file>"` outputs the UNIX timestamp of the file's most recent commit; iff `(now - timestamp) > FRESHNESS_DAYS * 86400` seconds, the file is marked stable. Command failure or empty output (untracked file, git unavailable) → treat as ¬stable (fail-closed) — never assume freshness absent a timestamp.
 
-Amortization rule: extraction is allowed iff co-occurrence-in-one-context-window (the file chain passed to a single Task agent) OR declared as a SSoT objective (explicitly stated in the scope request).
+Amortization rule: extraction is allowed iff co-occurrence-in-one-context-window (the file chain the orchestrator groups together after per-file Task fan-out returns — per § Scope & Caps, no single Task agent ever holds more than its own one file) OR declared as a SSoT objective (explicitly stated in the scope request).
 
 **Measurement procedure (verbatim, executable):**
 
 ∀ potential principle candidate (a cluster of repeated signatures):
 1. Write each fragment (the pointer line, one inline instance, the emitted principle draft) to a scratch temp file — each as a separate file.
 2. Run `python3 S count <tmp>` on each scratch file → read the JSON report field: under `method: tiktoken-proxy` read `report['tokens_o200k']` (or under `method: estimate` / `method: anthropic-api` read `report['tokens']`); record `agreement` if present.
-3. Record BOTH: repo-static Δ (savings if the principle were adopted in the actual source) AND runtime per-invocation Δ (tokens spent in this run to emit the principle draft). Hand-estimates are forbidden — every number in the double-entry must be tool-produced.
+3. Record BOTH: repo-static Δ (savings if the principle were adopted in the actual source) AND runtime per-invocation Δ (tokens spent in this run to emit the principle draft). Hand-estimates are forbidden in an actual derive run — every number in the double-entry must be tool-produced. (The Worked Examples below are illustrative documentation, not live runs — see the notice under § Worked Examples.)
 
 Gate application:
 
@@ -191,9 +191,11 @@ This section is a schema de-risking statement only (feeds roxabi-cortex Retain w
 
 ## Report-only statement
 
-Derive.md produces zero writes to any scoped or repo file (no edits to notation.md, no changes to target files, no new files created in the source tree). The SOLE write is the ledger row appended via `S append` — this row is IDEMPOTENT and read-only to the reporter (the mode never deletes or edits it). The supersede-not-destroy principle applies: this mode never destroys existing patterns; future v2+ apply paths (should they exist) will handle overwrite semantics, not this train.
+Derive.md produces zero **persistent** writes to any scoped or repo file (no edits to notation.md, no changes to target files, no new files created in the source tree). Ephemeral scratch files created per GATE's Measurement procedure (step 1) and Validate's report materialization are transient, live outside the source tree, and are not counted here. The SOLE persistent write is the ledger row appended via `S append` — this row is IDEMPOTENT and read-only to the reporter (the mode never deletes or edits it). The supersede-not-destroy principle applies: this mode never destroys existing patterns; future v2+ apply paths (should they exist) will handle overwrite semantics, not this train.
 
 ## Worked Examples
+
+**Illustrative-data notice:** every number in this section — occurrence counts, file counts, token figures, pointer-token estimates, and simulated `$ python3 S count …` / JSON transcript output alike — is documentation illustrating the expected shape of a derive run, not mined from a real corpus or measured by a live tool run. GATE's tool-produced and mined-not-hand-waved requirements (§ GATE, including line 63 and the Measurement procedure) govern actual derive runs against real scope; they do not require these teaching examples to be independently re-mined or re-measured.
 
 ① **I/V Boilerplate (dogfood — example-only, this plugin's own convention)**
 
@@ -223,7 +225,7 @@ $ python3 S count /tmp/instance_row.txt
 { "tokens_o200k": 6, "method": "tiktoken-proxy", "agreement": true }
 ```
 
-double-entry deltas: repo-static: −48 tokens (12 instances × 6 tokens = 72 today; fold-in reuses the existing canonical row (0 new tokens) + 12 × ~2-token pointers (illustrative estimate, not independently measured) = 24 → Δ = 24 − 72) · runtime/invocation: +12 tokens (diff-against-existing cost; no new principle drafted)
+double-entry deltas: repo-static: −48 tokens (12 instances × 6 tokens = 72 today; fold-in reuses the existing canonical row (0 new tokens) + 12 × ~2-token pointers = 24 → Δ = 24 − 72) · runtime/invocation: +12 tokens (diff-against-existing cost; no new principle drafted)
 
 ③ **Status-Glyph Vocabulary (dogfood, example-only)**
 
@@ -249,7 +251,7 @@ $ python3 S count /tmp/glyph_instance.txt
 { "tokens_o200k": 4, "method": "tiktoken-proxy", "agreement": true }
 ```
 
-double-entry deltas: repo-static: −24 tokens (8 instances × 4 tokens = 32 today; registry update reuses the existing entry (0 new tokens) + 8 × ~1-token pointers (illustrative estimate, not independently measured) = 8 → Δ = 8 − 32) · runtime/invocation: +10 tokens (registry-diff cost; no new principle drafted)
+double-entry deltas: repo-static: −24 tokens (8 instances × 4 tokens = 32 today; registry update reuses the existing entry (0 new tokens) + 8 × ~1-token pointers = 8 → Δ = 8 − 32) · runtime/invocation: +10 tokens (registry-diff cost; no new principle drafted)
 
 ④ **Generic non-Roxabi Example — Shared Retry-Policy Paragraph**
 
@@ -291,7 +293,7 @@ $ python3 S count /tmp/retry_principle_draft.txt
 { "tokens_o200k": 60, "method": "tiktoken-proxy", "agreement": true }
 ```
 
-double-entry deltas: repo-static: −96 tokens (6 instances × 28 tokens = 168 today; 1 principle (60) + 6 × ~2-token pointers (illustrative estimate, not independently measured) = 72 → Δ = 72 − 168) · runtime/invocation: +60 tokens (draft + describe + present cost)
+double-entry deltas: repo-static: −96 tokens (6 instances × 28 tokens = 168 today; 1 principle (60) + 6 × ~2-token pointers = 72 → Δ = 72 − 168) · runtime/invocation: +60 tokens (draft + describe + present cost)
 
 ⑤ **Poor-Fit Cluster — Dark Matter Verbatim (never forced into abstraction)**
 
@@ -327,7 +329,7 @@ Signature: `function(<VAR>: <VAR>, <VAR>: <VAR>) → <VAR>`
 
 Gate: all PASS. Route: **ambiguous** schema-fit. Present-choice offered.
 
-Break-even arithmetic (fragment/instance/principle counts are tool outputs from `count_tokens.py`; any pointer-token figure elsewhere in this file is a documented illustrative estimate, not independently measured):
+Break-even arithmetic (per the illustrative-data notice above, this example's fragment/instance/principle figures are documentation, not live tool output):
 
 ```
 Fragment 1 (occurrence instance 1):
@@ -348,7 +350,7 @@ Fragment 4 (principle draft):
 
 Repo-static calculation (if principle adopted):
   instance 1 + instance 2 + instance 3 = 8 + 9 + 8 = 25 tokens (current)
-  1 principle + 3 pointers = 45 + (3 × ~2, illustrative estimate) = 51 tokens (proposed)
+  1 principle + 3 pointers = 45 + (3 × ~2) = 51 tokens (proposed)
   Δ = 51 − 25 = +26 tokens (net loss)
 
 Runtime per-invocation cost:
