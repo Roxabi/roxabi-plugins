@@ -11,7 +11,6 @@ description: |
   orchestrator: "Spawn recall agent for parallel-path-drift"
   assistant: "I'll use the recall agent to confirm scope and find un-cited callsites."
   </example>
-color: purple
 permissionMode: bypassPermissions
 maxTurns: 20
 # capabilities: write_knowledge=false, write_code=false, review_code=true, run_tests=false

@@ -10,7 +10,6 @@ description: |
   assistant: "I'll use the frontend-dev agent to implement the UI."
   </example>
 model: sonnet
-color: white
 permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=true, run_tests=true

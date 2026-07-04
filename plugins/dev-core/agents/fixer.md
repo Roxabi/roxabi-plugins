@@ -10,7 +10,6 @@ description: |
   assistant: "I'll use the fixer agent to apply the fixes across the stack."
   </example>
 model: sonnet
-color: white
 permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=true, run_tests=true
