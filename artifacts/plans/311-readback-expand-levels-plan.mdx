@@ -1,206 +1,138 @@
 ---
-title: 'Plan: compress v2 train C — slice V1 (P3 verify instrument + minimal level substrate)'
+title: 'Plan: compress v2 train C — slice V2 (P7 expand + full levels)'
 issue: 311
 spec: artifacts/specs/311-readback-expand-levels-spec.mdx
-complexity: 6/10
+complexity: 4/10
 tier: F-lite
-slice: V1 of 2
+slice: V2 of 2 (V1 implemented: 29cba7c → 23b696b → 586181b; First Golden Run recorded, verdict fail → L2-legend consequence applied)
 generated: 2026-07-04
 ---
 
 ## Summary
 
-Slice V1: the read-back instrument end-to-end — writer inventory + anchors, verify.md contract (RECALL_FLOOR pre-registered FIRST), `inventory_diff.py`, Phase 5a wiring, golden triples + deterministic CI check, and the First Golden Run (the PoC go/no-go) — plus the S8a minimal level substrate (L0/non-L0 + marker) the anchors and goldens depend on.
+Slice V2: ship `references/expand.md` (decompression mode), complete the level catalog in `references/compress.md` (L1/L2/L3 definitions, auto-classification with tie-breaking, R13 refusal path, L3 split mechanics), and close the remaining SCs — with **zero net-line delta on SKILL.md** (110/110): exactly ONE sanctioned in-line edit (the halt-list sentence, owned by T11, same commit that creates expand.md).
 
 ## Architecture
 
 **Data flow:** [read-back pipeline](../visuals/311-readback-expand-levels-data-flow.html)
 **File map:** [files × functions](../visuals/311-readback-expand-levels-file-map.html)
 
+(Sidecars from the V1 run cover both slices.)
+
 ## Bootstrap Context
 
-- Binding spec Decisions: D3 (anchor = `<!-- INV-<cat>-<n> -->` HTML comments, single form, L0 exempt, tokens subtracted), D4 (VERIFY_THRESHOLD=1500, Let-defined once), D5 (RECALL_FLOOR=0.85 + consequence + min-N<8 guard + CONTAMINATION_CAVEAT verbatim + operationalized acceptance), D6 (normalization charset + injectable golden_dir + fictional fixtures), D7 (inventory_diff contract: missing/invented/changed + writer_classification ∈ faithful|weakened|inverted; verify-row schema_version 2; write-loop lockstep-duplicated from `count_tokens.py::append_row` ~10 lines), D9 (SKILL.md 109/110 → net ≤+1: gross +6..9 offset by tightening — enumerated targets below).
-- **SKILL.md budget arithmetic (D9, closes exactly)**: gross additions = +4 lines ONLY — Let `V := VERIFY_THRESHOLD…` (+1); Phase 5a folded INTO the existing Phase 5 section as two lines (gate+spawn/diff line, blockers/re-verify/caveat line — NO new heading) (+2); one new Edge Cases row for marker fresh/stale two-outcome (+1). Everything else is in-line edits costing 0 lines: `, Task` appended to allowed-tools; inventory clause appended to an existing Phase 2 bullet; argument-hint replaced in place; marker mention appended to the existing Phase 5 write line. Freed = −3: drop the Entry `glob scope` example line (−1); merge Phase 1's two layout bullets into one (−1); merge the two existing Edge Cases rows ("Agent (¬skill)" + "User rejects") into one combined row (−1). **109 + 4 − 3 = 110 ≤ 110.** Verify wc -l after EACH edit; any overshoot → tighten further in-line, never add lines.
-- **SC9 ordering (hard)**: T3 (verify.md with floor+consequence) is committed in its OWN commit BEFORE T8 (First Golden Run) executes — git history proves pre-registration.
-- Ref patterns: `scripts/count_tokens.py` (module layout, append_row write loop, ULID), `tests/test_count_tokens.py` (importlib load, isolated_vault fixture), `tests/test_check_skill_line_budget.py` + `test_check_notation_legends.py` (check test patterns), `tests/conftest.py::isolated_vault`.
-- Golden content: fictional/generic only (personal-data scan covers fixtures); ≥1 triple exercises §2.3 constructs (I/V, verify-table, Σ/Σ_s, O_name(args), guard-fn, status glyphs) — that triple compresses a synthetic "deploy-bot" skill.
+- **SKILL.md is FULL (110/110) — zero net-line delta.** ONE sanctioned in-line edit (T11, 0-delta): line 46's whole sentence becomes "Today `references/compress.md` + `references/glossary.md` + `references/expand.md` ship → `derive|lint` halt." (updating BOTH the ship-enumeration and the halt list — leaving either half stale makes the sentence self-contradictory; house precedent 4ced684 F1). Everything else lands in references/. `--level` already in argument-hint; marker fresh/stale edge row already present.
+- V1 landed: anchor grammar + minimal levels (L0 vs non-L0 + marker template) in compress.md § Levels; the L2-legend consequence rule (First Golden Run fail) is already recorded there — do not disturb it.
+- Spec bindings: EB expand pipeline (marker parse → inventory extract → LLM prose regen per section → anchors STRIPPED → L0 passthrough → present-choice before write; no anchors → "best-effort, unverified reconstruction" declared); L3 split (core ~500 tokens measured via count_tokens.py + residue `→ path — gloss`; both files carry the marker, residue appends `part=residue`); auto-classification heuristics + REQUIRED tie-breaking order (spec panel): safety/commands class wins over doc-genre wins over size (L0 > L1 > L2 > L3 escalation only by explicit choice); "derived" ∉ enum; R13 refusal path (present-choice: split section or pick one level).
+- Description Δ=0 (no trigger changes — "expand notation" pre-installed).
+- Ref idiom: references/compress.md + glossary.md structure (V1/B house style).
 
 ## Agents
 
 | Agent instance | Tasks | Files |
 |----------------|-------|-------|
-| tester-A | T1, T8 | tests/test_inventory_diff.py; (golden run evidence) |
-| tester-B | T2, T9 | tests/test_check_golden_inventories.py; (falsification) |
-| doc-writer-A | T3, T5 | references/verify.md; SKILL.md + references/compress.md (S8a) |
-| doc-writer-B | T6, T10 | references/golden/* + re-baselining.md; README |
-| backend-dev-A | T4 | scripts/inventory_diff.py (+ scripts/count_tokens.py lockstep comment only) |
-| devops-A | T7 | tools/validate_plugins.py |
+| doc-writer-A | T11, T12 | references/expand.md; references/compress.md; SKILL.md (one in-line 0-delta edit) |
+| tester-A | T13 | (expand demo + grep battery) |
+| tester-B | T14 | (RED-GATE seeds) |
+| doc-writer-B | T15 | plugins/compress/README.md |
 
 ## Wave Structure
 
-5 waves.
-
 | Wave | Trigger | Tasks |
 |------|---------|-------|
-| 1 | start | T1 · T2 · T3 (∥, 3 instances) |
-| 2 | T1/T2/T3 done | T4 (←T1) · T7 (←T2) · T5 (←T3) |
-| 3 | T5, T7 done | T6 |
-| 4 | T3(committed) + T4 + T6 → T8 · T6 + T7 → T9 | T8 · T9 |
-| 5 | T8, T9 done | T10 |
+| 1 | start | T11 · T12 (∥ same instance → sequential T11→T12) |
+| 2 | T11+T12 done | T13 · T15 ∥ |
+| 3 | T13 done | T14 |
 
 ### Budget — per task
 
 | Task | Class | Est. ops | Split? |
 |------|-------|----------|--------|
-| T1 diff RED tests | judgmental | 14 | — |
-| T2 golden-check RED tests | judgmental | 10 | — |
-| T3 verify.md | judgmental | 12 | — |
-| T4 inventory_diff.py | judgmental | 18 | — |
-| T5 SKILL.md wiring + S8a | judgmental | 16 | — |
-| T6 golden triples + re-baselining | judgmental | 16 | — |
-| T7 check_golden_inventories | bounded | 10 | — |
-| T8 First Golden Run | bounded | 10 | — |
-| T9 RED-GATE falsification | bounded | 8 | — |
-| T10 README (verify part) | trivial | 3 | — |
+| T11 expand.md | judgmental | 10 | — |
+| T12 compress.md full levels | judgmental | 12 | — |
+| T13 expand demo + battery | bounded | 10 | — |
+| T14 RED-GATE | bounded | 6 | — |
+| T15 README completion | trivial | 3 | — |
 
-**Total estimated ops: 117**
+**Total: 41 ops**
 
-### Budget — per agent instance
+### Budget — per instance
 
 | Instance | Tasks | Σ ops | Subjects | Split? |
 |----------|-------|-------|----------|--------|
-| tester-A | T1, T8 | 24 | diff-tests, golden-run | — |
-| tester-B | T2, T9 | 18 | check-tests, falsification | — |
-| doc-writer-A | T3, T5 | 28 | verify-doc, skill-wiring | — |
-| doc-writer-B | T6, T10 | 19 | goldens, docs | — |
-| backend-dev-A | T4 | 18 | diff-script | — |
-| devops-A | T7 | 10 | validator | — |
+| doc-writer-A | T11, T12 | 22 | expand-mode, levels | — |
+| tester-A | T13 | 10 | demo-battery | — |
+| tester-B | T14 | 6 | falsification | — |
+| doc-writer-B | T15 | 3 | docs | — |
 
 ## Consistency Report
 
-- V1-scoped SCs covered: SC1 (T5), SC2 (T3, T5), SC3 (T5), SC4 (T3), SC5 (T3), SC6 (T3, T4), SC7 (T3), SC8 (T3), SC9 (T3 commit order + T8), SC10 (T3), SC12 (T2, T6, T7, T9), SC13 (T1, T4 — verify-log fallback test), SC19 (T8), SC22 (T3, T4 — anchor/legend token fields), SC20 partial (T5 budget + T10 README), SC21 (process).
-- Exempt (slice V2): SC11 (expand), SC14–SC18 full-catalog parts (S8a subset lands here: marker + L0 split — SC18's marker emission partially satisfied in V1, stale-sha rule completed in V2 wiring).
-- Untraced tasks: none.
+- V2-scoped SCs: SC11 (T11, T13), SC14 (T12, T13), SC15 (T12, T13), SC16 completion (T12 — catalog text; the construct golden landed in V1), SC17 (T12, T14), SC18 completion (T12 stale-sha rule text in compress.md § Levels — SKILL.md row already present), SC20 completion (T15), SC22 expand-strips part (T11, T13).
+- Done in V1: SC1–SC10, SC12, SC13, SC19, SC21 + partials.
+- Untraced: none.
 
 ## Micro-Tasks
 
 ### Wave 1
 
-**T1 — RED tests for inventory_diff.py** `[P]`
-- File: `tests/test_inventory_diff.py`
-- tester-A · diff-tests · RED · Diff 3 · 14 ops
-- Shape: importlib-load `plugins/compress/scripts/inventory_diff.py` (pattern: test_count_tokens.py:29-33). Tests: normalize() per D6 charset (case, whitespace collapse, punctuation-only drop, glyph preservation ⟺≥≤); diff(): missing (writer-only anchor), invented (reader-only), changed (shared anchor, normalized keys differ), equal inventories → all empty + recall 1.0; recall = |∩|/|writer|; min-N: <8 writer items → result flag `insufficient_sample: true`; --log: isolated_vault fixture → verify-log.jsonl row (envelope: ULID id 26-char, source 'compress-skill', category 'verify', correlation; payload_typed.schema_version == 2, fields recall/missing/invented/changed/diff_mode/floor/verdict/anchor_tokens/legend_tokens); two appends → 2 lines (O_APPEND).
-- Verify: `python3 -m pytest tests/test_inventory_diff.py -x -q` → FAILS (module absent) — RED recorded.
-- Spec trace: SC6, SC13, SC22
+**T11 — Author references/expand.md**
+- doc-writer-A · expand-mode · GREEN · Diff 3 · 10 ops
+- Shape: mode body per house style (compress.md/glossary.md structure): Preconditions (marker parse; anchors expected; no anchors → declare "best-effort, unverified reconstruction"); Pipeline (1 read compressed artifact → 2 extract inventory per verify.md grammar → 3 regenerate structured prose section-by-section, LLM-guided by inventory + level markers, L0 sections passthrough VERBATIM, anchors STRIPPED from output → 4 present per-section token counts (count_tokens) → 5 present-choice **Write** | **Preview** | **Adjust** before any write); Edge Cases (no marker, no anchors, L3 core+residue → expand core then follow residue pointer with declaration); relation to verify (same inventory machinery, inverse direction). No new triggers; cite verify.md, never duplicate its grammar. **Plus the sanctioned SKILL.md in-line edit (0-delta, same commit)**: line 46 whole-sentence update per Bootstrap ("…+ `references/expand.md` ship → `derive|lint` halt.").
+- Verify: `test -f plugins/compress/skills/compress/references/expand.md && grep -q 'best-effort' … && grep -q 'STRIPPED\|stripped' … && grep -qi 'verbatim' … && ! grep -q 'AskUserQuestion' … && wc -l < plugins/compress/skills/compress/SKILL.md` = 110 ∧ `grep -q 'derive|lint.* halt\|`derive|lint`' plugins/compress/skills/compress/SKILL.md && echo ok`
+- Spec trace: SC11, SC22
 
-**T2 — RED tests for check_golden_inventories** `[P]`
-- File: `tests/test_check_golden_inventories.py`
-- tester-B · check-tests · RED · Diff 2 · 10 ops
-- Shape: patterns from test_check_skill_line_budget.py. Fixtures in tmp_path golden_dir: valid triple (compressed w/ anchors matches inventory.json) → []; broken triple (missing anchor) → error naming triple + anchor; empty golden dir → loud error (non-empty guard); malformed inventory JSON → clean error (`not valid` / `failed to parse` tier). Injectable `golden_dir=`. Shipped-tree test written NOW and NON-VACUOUS: it asserts (a) the real golden dir EXISTS, (b) ≥1 triple parsed, (c) zero errors — so T7's dir-absent → [] activation semantic cannot make it pass vacuously (it stays RED until T6 lands the dir). Plus an explicit tmp_path dir-absent → [] case pinning the activation semantic.
-- Verify: `python3 -m pytest tests/test_check_golden_inventories.py -x -q` → FAILS (check absent) — RED recorded.
-- Spec trace: SC12
-
-**T3 — Author references/verify.md (pre-registration doc)** `[P]`
-- File: `plugins/compress/skills/compress/references/verify.md`
-- doc-writer-A · verify-doc · GREEN · Diff 3 · 12 ops
-- Shape: sections — Anchor grammar (D3 verbatim form + minting rules + L0 exemption + token accounting); Spawn template (exact single-file-cap wording from spec EB; no-glossary default; anchor-grammar instruction; reader-failure → one re-spawn → inconclusive); Report format (recall, missing/invented/changed w/ writer_classification faithful|weakened|inverted, diff_mode ∈ anchor-based|LLM-matched-human-gated, anchor_tokens, legend_tokens, verdict); `CONTAMINATION_CAVEAT` verbatim (spec D5 text); **Go/No-Go**: `RECALL_FLOOR = 0.85`, min-N guard (<8 → insufficient-sample human-gated), consequence verbatim ("below floor ⇒ per-file legend mandatory for L2 outputs; notation revision escalates to the epic if legends still fail"); acceptance split (compress: pass ⟺ recall ≥ floor ∧ zero blockers; derive (train E): coverage map + present-choice-accepted loss list); legend rule (pass-only-with-glossary ⇒ minimal per-file legend, tokens subtracted); one re-verify rule (doubled cost declared); `## First Golden Run` — placeholder "pending (registered <date>, before any run)".
-- Verify: file exists; greps: `RECALL_FLOOR = 0.85`, `insufficient sample`, caveat first sentence, `First Golden Run`, `LLM-matched, human-gated`; no source-line keying mention except its prohibition.
-- **Commit IMMEDIATELY after T3 verify passes, alone**: `docs(compress): pre-register RECALL_FLOOR go/no-go (verify.md) — before any golden run`.
-- Spec trace: SC2, SC4, SC5, SC6, SC7, SC8, SC9, SC10, SC22
+**T12 — Complete compress.md levels (S8b)**
+- doc-writer-A · levels · GREEN · Diff 3 · 12 ops · blockedBy: T11
+- Shape: extend `§ Levels` (V1 minimal → full): L1 terse prose (R5–R7 + ASCII digraphs; measured ~40% savings home; human-facing docs); L2 house symbolic default — construct catalog: I/V contracts, pipeline verify-tables, `Σ/Σ_s` state maps, subscripted predicates `ψ_r/ψ_f`, parameterized ops `O_name(args)`, guard-functions, status glyphs `✓✗⏳⚠`; L3 externalize split: core compressed under ~500-token budget (measured via `count_tokens.py`) + residue doc linked `→ path — gloss`, both files marked, residue marker appends `part=residue`; **auto-classification decision order (tie-breaking)**: (1) safety-rule/command/spawn-template content class → L0 always; (2) human-facing doc genre → L1; (3) skill/agent body → L2 (default); (4) always-on file over budget → L3 split — first match wins, escalation to L3 only by explicit present-choice; **"derived" is NOT a level** (mode, train E); **R13**: every section lands entirely at ONE level — mixed-register request → refusal + present-choice (split the section | pick one level); stale-sha rule text: marker src-sha ≠ current hash → Phase 5a forced before re-compression. Do NOT disturb the V1 L2-legend consequence line.
+- Verify: greps — `R13`, `part=residue`, `500`, tie-breaking order line, `"derived" is NOT`, `ψ_r`, `O_name`, stale-sha rule; `! grep -qi 'derived.*level.*L4\|L4'`; wc -l SKILL.md still 110; validate_plugins PASS.
+- Spec trace: SC14, SC15, SC16, SC17, SC18
 
 ### Wave 2
 
-**T4 — Implement scripts/inventory_diff.py**
-- backend-dev-A · diff-script · GREEN · Diff 4 · 18 ops · blockedBy: T1
-- Shape: stdlib only (json, os, re, argparse, pathlib, sys) + sys.path parents[3] + roxabi_sdk.paths. Functions: `normalize(text)` (D6 charset), `diff(writer, reader)` → {missing, invented, changed, recall, insufficient_sample}; `append_log(row)` — O_APPEND loop DUPLICATED from count_tokens.py:258-264 with lockstep comments on BOTH files ("# lockstep: keep identical to scripts/{other}.py::<fn> — see #311"; T4 adds the reciprocal comment INTO count_tokens.py — comment-only touch, sole owner); vendored new_ulid duplicated likewise; `normalize()` carries a lockstep comment referencing `tools/validate_plugins.py::check_golden_inventories` (charset parity); CLI: `inventory_diff.py writer.json reader.json [--log --target … --source-ref … --correlation … --diff-mode … --floor … --anchor-tokens N --legend-tokens N]` → JSON report to stdout; exit 0 report-produced (verdict in JSON), exit 2 on IO errors.
-- Verify: `python3 -m pytest tests/test_inventory_diff.py -q` green; demo on two tiny JSON files.
-- Spec trace: SC6, SC13, SC22
+**T13 — Expand demo + grep battery** `[P]`
+- tester-A · demo-battery · GREEN · Diff 3 · 10 ops · blockedBy: T11, T12
+- Shape: demo — simulate the expand pipeline steps on `references/golden/01-deploy-bot.compressed.md`: extract its inventory (reuse the golden expected JSON as ground truth), draft a 3-section prose expansion per expand.md's pipeline (as evidence, not shipped), verify: anchors absent from the prose (`grep -c 'INV-'` on the draft = 0), L0 section (if any) reproduced verbatim, inventory items all represented. Battery: description line Δ=0; no bare "expand"/"decompress" trigger; `--level`/`--verify` in argument-hint (V1); "derived" absent from level enum; dispatch: `references/expand.md` now ∃ ∧ SKILL.md line 46 already updated by T11 — the battery independently VERIFIES the full corrected sentence (ship-enumeration includes expand.md AND halt list = `derive|lint` only; neither half stale). Description Δ=0 measured **vs `586181b` (V1 tip)** — pinned baseline, not HEAD~.
+- Verify: scripted battery; SKILL.md wc -l still 110.
+- Spec trace: SC11, SC14, SC15, SC22
 
-**T5 — SKILL.md wiring + S8a in compress.md**
-- doc-writer-A · skill-wiring · GREEN · Diff 4 · 16 ops · blockedBy: T3
-- Shape (SKILL.md, net ≤+1 per D9 tighten targets in Bootstrap): allowed-tools += `, Task`; Let += `V := VERIFY_THRESHOLD = 1500 tokens — Phase 5a gate`; Phase 2 += inventory clause (emit `<!-- INV-cat-n -->` per verify.md grammar; anchor tokens counted vs savings); Phase 5a folded into the existing Phase 5 section as TWO lines, no heading (per Bootstrap arithmetic): line 1 = gate `--verify ∨ tokens_before ≥ V` + spawn per verify.md template + diff via `python3 S_d …` (S_d := scripts/inventory_diff.py); line 2 = blockers → auto-fix → ONE re-verify → residue present-choice; caveat always; argument-hint → `'[mode] [--verify | --level <L>] [file path | glob | directory | plugin name]'`; marker mention in Phase 5 (emit marker per compress.md template); Edge rows: marker fresh/stale merged row.
-  (compress.md S8a): `## Levels (minimal — full catalog train C slice 2)` — L0 verbatim class (safety rules, tool names, commands, spawn templates; no anchors) vs non-L0 (anchored); marker template `<!-- compress: level=<L> src-sha=<sha> glossary=<v> -->` after frontmatter; L3-residue note (`part=residue`).
-- Verify: `wc -l SKILL.md` ≤110; validate_plugins PASS; greps: `Task` in allowed-tools, `VERIFY_THRESHOLD` exactly once in Let, `--verify | --level` in argument-hint, `INV-` in Phase 2, marker template in compress.md; description line 3 UNCHANGED vs HEAD~ (Δ=0).
-- Spec trace: SC1, SC2, SC3, SC18(partial), SC20
-
-**T7 — Implement check_golden_inventories**
-- devops-A · validator · GREEN · Diff 3 · 10 ops · blockedBy: T2
-- Shape: `GOLDEN_DIR = 'plugins/compress/skills/compress/references/golden'` const; `check_golden_inventories(golden_dir=None)`: glob `*.compressed.md`; for each, parse `<!-- INV-… -->` anchors + tagged item text (line following the anchor comment), normalize per D6 (share the charset by copy + lockstep comment w/ inventory_diff.py), load sibling `.inventory.json`, set-compare (anchor, key) pairs both directions; empty golden dir OR zero triples → loud error; missing sibling → `not found at` tier; malformed JSON → parse-error tier. Register `('Golden inventories', check_golden_inventories)` in main() default checks (no CLI choice).
-- Verify: `python3 -m pytest tests/test_check_golden_inventories.py -q` green (except shipped-tree test until T6); `python3 tools/validate_plugins.py` — NOTE: fails until T6 lands goldens (empty-dir loud error) → acceptable intra-slice red between T7 and T6? NO — order matters: T7's main() registration makes the default run fail while golden/ is absent. FIX: `check_golden_inventories` returns [] when the golden dir does not exist yet BUT errors when it exists and is empty/invalid — the dir's creation (T6) activates the gate. Document this activation semantic in the docstring.
-- Spec trace: SC12
+**T15 — README expand/levels completion** `[P]`
+- doc-writer-B · docs · GREEN · Diff 1 · 3 ops · blockedBy: T11, T12
+- Shape: plugins/compress/README.md — expand mode section + levels L0–L3 summary + R13 one-liner; REWRITE the stale forward-pointer sentence (README.md:43 "…land with slice 2") — V2 has landed, the sentence must go.
+- Verify: grep README `expand`/`L0`/`R13`.
+- Spec trace: SC20
 
 ### Wave 3
 
-**T6 — Golden triples + re-baselining.md**
-- doc-writer-B · goldens · GREEN · Diff 4 · 16 ops · blockedBy: T5, T7
-- Shape: 3 triples under `references/golden/`: `01-deploy-bot` (synthetic agent skill EXERCISING §2.3 constructs: I/V contract, pipeline verify-table, Σ state map, O_deploy(env) op, should_skip guard, ✓✗⏳ glyphs), `02-code-style` (prose-heavy doc → L1-flavored compression), `03-safety-gate` (L0-heavy: safety rules + commands verbatim, few non-L0 items — but ≥8 non-L0 items to clear min-N; else document as the min-N demo). Each: `.source.md` (fictional, generic English), `.compressed.md` (markers + anchors per grammar; R13-clean single level per section), `.inventory.json` (`[{anchor, text}]`). `re-baselining.md`: trigger/procedure/log-table per spec EB.
-- Verify: `python3 tools/validate_plugins.py` → `PASS: Golden inventories` (gate now ACTIVE); personal-data scan clean; `python3 -m pytest tests/test_check_golden_inventories.py -q` fully green (shipped-tree test included).
-- Spec trace: SC12, SC16(partial — construct triple)
-
-### Wave 4
-
-**T8 — First Golden Run (the PoC go/no-go)**
-- tester-A · golden-run · GREEN · Diff 3 · 10 ops · blockedBy: T3(committed), T4, T6
-- Shape: verify git history shows T3's commit precedes this task's evidence. Spawn ONE fresh Task subagent per verify.md spawn template on `01-deploy-bot.compressed.md` (single-file cap; no glossary; anchor grammar instructions). Collect reader inventory JSON → `python3 scripts/inventory_diff.py writer.json reader.json` (writer = the golden expected inventory) → recall + sets → writer_classification pass on changed items → verdict vs RECALL_FLOOR (min-N honored). Record verbatim in verify.md `## First Golden Run` (date, model, recall, verdict, consequence-if-fail) + run-log note. BELOW-FLOOR IS A VALID RESULT: if fail → apply the consequence (per-file legend rule becomes mandatory for L2 — add the rule line to compress.md S8a section + note in verify.md) — do NOT massage.
-- Verify: verify.md First Golden Run section filled; verify-log row appended (isolated real vault OK — use the real vault, category verify).
-- Spec trace: SC9, SC19, SC13
-
-**T9 — RED-GATE falsification**
-- tester-B · falsification · RED-GATE · Diff 2 · 8 ops · blockedBy: T6, T7
-- Shape: (1) seed a broken triple in a scratch copy? NO — live: cp `01-…inventory.json` to scratch → remove one item from the real file → `python3 tools/validate_plugins.py` FAILS naming the triple → restore → PASSES. (2) mutation: neutralize `normalize()`'s whitespace collapse → at least one inventory_diff test FAILS → revert (git diff clean). Record outputs.
-- Verify: scripted sequence; zero residue.
-- Spec trace: SC12, SC6
-
-### Wave 5
-
-**T10 — README (verify/levels part)**
-- doc-writer-B · docs · GREEN · Diff 1 · 3 ops · blockedBy: T8
-- Shape: `plugins/compress/README.md` (root README index row unchanged — plugin not new): read-back verification section (gate, floor, caveat one-liner), golden set, marker; expand documented in slice 2.
-- Verify: grep plugins/compress/README.md for `read-back`/`RECALL_FLOOR`/`marker`.
-- Spec trace: SC20(partial)
+**T14 — RED-GATE: R13 + halt-list falsification**
+- tester-B · falsification · RED-GATE · Diff 2 · 6 ops · blockedBy: T13
+- Shape: (1) inspect the 3 golden compressed files: each section single-level per its marker (R13-clean) — record; (2) live falsification of the golden gate STILL armed post-V2: remove an anchor from a scratch-copied real inventory → validate FAIL → restore → PASS (re-run of V1's T9 seed on the final tree); (3) grep falsification: seed `expand` back into SKILL.md's halt list in a scratch copy → T13's battery grep would fail (demonstrate the check catches it) → no repo mutation.
+- Verify: scripted; zero residue.
+- Spec trace: SC17, SC12(regression)
 
 ## Task Seeding Blueprint
 
-### Wave 1 — 3 ∥
+### Wave 1
 | Task | Instance | blockedBy | Subject |
 |------|----------|-----------|---------|
-| T1 | tester-A | — | diff-tests |
-| T2 | tester-B | — | check-tests |
-| T3 | doc-writer-A | — | verify-doc |
+| T11 | doc-writer-A | — | expand-mode |
+| T12 | doc-writer-A | T11 | levels |
 
 ### Wave 2
 | Task | Instance | blockedBy | Subject |
 |------|----------|-----------|---------|
-| T4 | backend-dev-A | T1 | diff-script |
-| T7 | devops-A | T2 | validator |
-| T5 | doc-writer-A | T3 | skill-wiring |
+| T13 | tester-A | T11, T12 | demo-battery |
+| T15 | doc-writer-B | T11, T12 | docs |
 
 ### Wave 3
 | Task | Instance | blockedBy | Subject |
 |------|----------|-----------|---------|
-| T6 | doc-writer-B | T5, T7 | goldens |
-
-### Wave 4
-| Task | Instance | blockedBy | Subject |
-|------|----------|-----------|---------|
-| T8 | tester-A | T3(committed), T4, T6 | golden-run |
-| T9 | tester-B | T6, T7 | falsification |
-
-### Wave 5
-| Task | Instance | blockedBy | Subject |
-|------|----------|-----------|---------|
-| T10 | doc-writer-B | T8 | docs |
+| T14 | tester-B | T13 | falsification |
 
 ## Task IDs
 
-<!-- Generated by /plan (slice V1). -->
-- T1: 42 — diff-tests
-- T2: 43 — check-tests
-- T3: 44 — verify-doc
-- T4: 45 — diff-script
-- T5: 46 — skill-wiring
-- T6: 47 — goldens
-- T7: 48 — validator
-- T8: 49 — golden-run
-- T9: 50 — falsification
-- T10: 51 — docs
+<!-- Generated by /plan (slice V2). V1 IDs 42-51 completed. -->
+- T11: 52 — expand-mode
+- T12: 53 — levels
+- T13: 54 — demo-battery
+- T14: 55 — falsification
+- T15: 56 — docs
