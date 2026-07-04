@@ -55,6 +55,10 @@ Every compressed output carries a provenance marker after its frontmatter — `<
 
 `compress expand <target>` reverses a compression: it parses the provenance marker, extracts the anchor inventory, and regenerates structured prose section-by-section — L0 sections pass through verbatim, anchors are stripped from the output, and nothing is written before an explicit approval. On a file without marker or anchors the reconstruction still runs, declared "best-effort, unverified".
 
+## Lint mode
+
+`compress lint <scope>` reports notation drift against any file, glob, directory, or plugin — read-only by default (dry-run): findings land as `file:line | class | current | proposed` rows grouped by class, and nothing is written without both `--fix` and explicit approval. Eight drift classes are checked deterministically: doubled arrows, `||` where `∨` is the canon, assignment drift inside `Let:` blocks, reserved-variable collisions, unknown symbols, missing glosses, stale provenance markers, and unpaired negative constraints (the last is advisory-only — queued, never auto-applied). Fenced code, inline code spans, frontmatter, and spawn templates are never linted, and vault paths are excluded at scope resolution. Genre profiles adapt the proposals per file: always-loaded manifests get an invariant+pointer advisory instead of a rewrite, and memory files never lose dates, links, or provenance lines. With `--fix`, mechanical classes batch under one approval with per-file diff previews (≤10 files per batch), semantic classes confirm per file, and an in-flight guard skips any file owned by an open PR before every write.
+
 ## Install
 
 ```bash
