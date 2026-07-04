@@ -1,0 +1,154 @@
+---
+title: 'Plan: compress v2 train A — slice V2 (skill v2 rewrite)'
+issue: 309
+spec: artifacts/specs/309-compress-mode-dispatch-spec.mdx
+complexity: 5/10
+tier: F-lite
+slice: V2 of 2 (V1 implemented: commits a3c04c2, acea511)
+generated: 2026-07-04
+---
+
+## Summary
+
+Slice V2: rewrite `plugins/compress/skills/compress/SKILL.md` (≤110 lines) with Phase 0 dispatch + mode-exists gate, multi-target scope resolution, read budget, token-true phases wired to `count_tokens.py` (shipped in V1), and extract the compress-mode body to `references/compress.md` with the rationale rewritten to the measured truth.
+
+## Architecture
+
+**Data flow:** [compress v2 pipeline](../visuals/309-compress-mode-dispatch-data-flow.html)
+**File map:** [files × functions](../visuals/309-compress-mode-dispatch-file-map.html)
+
+(Sidecars generated for the full #309 architecture during the V1 plan run; still authoritative — no structural change since.)
+
+## Bootstrap Context
+
+- V1 delivered: `count_tokens.py` (count/append, 3-tier), plugin.json `data.root`, `SKILL_LINE_BUDGETS = {'compress': 110}` gate (test: `test_shipped_tree_within_budget` — it now gates this rewrite), README fix.
+- Baseline for the description budget: SKILL.md frontmatter at `a793b37` (identical to current HEAD frontmatter — V1 didn't touch SKILL.md).
+- Binding spec decisions: D1 (no undefined shorthand; inline present-choice idiom), D4 (ALL composite triggers installed now: "expand notation" | "lint notation" | "derive pattern from skills"; no bare "glossary"/"decompress"), D6 (`source_ref` captured at Phase 2, passed to Phase 5 append).
+- v1 SKILL.md content to extract: Symbols legend (SKILL.md:21) + transform rules R1–R10 and ¬compress list (SKILL.md:29-47) — NOT v1 Phase 1 Resolve (superseded by new Phase 0/1) → `references/compress.md`, rationale rewritten per issue Mechanism 11 (per-glyph cost tokenizer-dependent; Greek renames ≈1 token/occurrence; bulk of gains = R5/R6/R7 prose pruning; some substitutions net-negative).
+- Measurement method for SC6: prefer `ANTHROPIC_API_KEY` (method=anthropic-api); else `python3 -m pip install --user tiktoken` locally (dev machine only — NOT ci.yml) and use dual-proxy, act on agreement, record both encodings; else labeled estimate with caveat. Record method + numbers in run log for the PR body.
+
+## Agents
+
+| Agent instance | Tasks | Files |
+|----------------|-------|-------|
+| doc-writer-A | T8, T9 | plugins/compress/skills/compress/references/compress.md, plugins/compress/skills/compress/SKILL.md |
+| backend-dev-A | T10 | (measurement only — run log note) |
+| tester-A | T11, T12 | (gate exercise + grep sweep — no new files) |
+
+## Wave Structure
+
+3 waves, max 1–2 parallel agents. Elapsed ~1 session.
+
+| Wave | Trigger | Agents | Tasks |
+|------|---------|--------|-------|
+| 1 | start | 1 | doc-writer-A: T8→T9 |
+| 2 | Wave 1 done | 2 ∥ | backend-dev-A: T10 · tester-A: T12 |
+| 3 | Wave 2 done | 1 | tester-A: T11 (RED-GATE) |
+
+### Budget — per task
+
+| Task | Items | Class | Est. ops | Split? |
+|------|-------|-------|----------|--------|
+| T8 references/compress.md | 1 file | judgmental | 10 | — |
+| T9 SKILL.md rewrite | 1 file | judgmental | 18 | — |
+| T10 description Δ measurement | 1 measurement | bounded | 8 | — |
+| T11 RED-GATE budget-gate exercise | 1 sequence | bounded | 6 | — |
+| T12 shorthand/claims grep sweep | 1 sweep | bounded | 6 | — |
+
+**Total estimated ops: 48**
+
+### Budget — per agent instance
+
+| Instance | Tasks | Σ ops | Subjects | Split? |
+|----------|-------|-------|----------|--------|
+| doc-writer-A | T8, T9 | 28 | mode-body, skill-core | — |
+| backend-dev-A | T10 | 8 | description-budget | — |
+| tester-A | T11, T12 | 12 | budget-gate, shorthand-sweep | — |
+
+## Consistency Report
+
+- V2-scoped success criteria covered: SC1 (T8, T9), SC2 (T9), SC3 (T9), SC4 (T9, T12), SC5 shipped-file side (T9, T11), SC6 (T9, T10), SC9 SKILL.md-side (T9, T12), SC11 (T9, T12), SC12 (T9), SC14 (T9). 10/10 → ≥1 task each.
+- SC15 cross-cutting — T8/T9 authorship rule + PR-time grep guard.
+- Covered by V1 (done): SC5 gate-side, SC7, SC8, SC9 script-side, SC10, SC13.
+- Untraced tasks: none.
+
+## Micro-Tasks
+
+### Slice V2 — Wave 1
+
+**T8 — Extract compress-mode body to references/compress.md**
+- File: `plugins/compress/skills/compress/references/compress.md`
+- Agent: doc-writer-A · Subject: mode-body · Phase: GREEN · Difficulty: 3 · Est: 10 ops
+- Shape: new file, compress-mode body: Symbols legend (from SKILL.md:21), Phase 2 analyze targets, transform rules R1–R10 verbatim-faithful (compress wording only), ¬compress list, edge-case behaviors that are mode-specific (already-formal, no-repeated-concepts, mixed prose+code), **rationale rewritten to measured truth** (issue Mechanism 11; cite `Δtokens` framing — never char%/line%). No machine-local paths. Reference from SKILL.md via relative `references/compress.md` (runtime: skill dir).
+- Verify: `test -f plugins/compress/skills/compress/references/compress.md && grep -q 'R1' plugins/compress/skills/compress/references/compress.md && grep -q '¬compress' plugins/compress/skills/compress/references/compress.md && ! grep -q '30-60' plugins/compress/skills/compress/references/compress.md && ! grep -Eq '/home/|projects/ssot' plugins/compress/skills/compress/references/compress.md && echo ok`
+- Expected: `ok`
+- Spec trace: SC1
+
+**T9 — Rewrite SKILL.md (≤110 lines, dispatch + scope + token phases)**
+- File: `plugins/compress/skills/compress/SKILL.md`
+- Agent: doc-writer-A · Subject: skill-core · Phase: GREEN · Difficulty: 4 · Est: 18 ops · blockedBy: T8
+- Shape: full rewrite per spec Expected Behavior: frontmatter (description per D4 + budget; `argument-hint: '[mode] [file path | glob | directory | plugin name]'`; `allowed-tools: Read, Write, Edit, Glob, Grep, Bash`; keep `name`; SKILL.md-frontmatter `version` untouched policy: keep `0.1.0` as-is); Phase 0 dispatch (5 modes, default compress, ambiguous → direct ask, mode-exists gate halt text); Phase 1 scope (file|glob|dir|plugin; both layouts; 0-match halt; both-layout collision → present choice); read budget (N>1 → ONE batched present-choice w/ list+estimates; N≤10; >10 chunked; consolidated diff + per-file opt-out); Phase 2 analyze (capture `source_ref` via `git hash-object` pre-image, per D6) + tokens_before via script; Phase 3 transform (load `references/compress.md`); Phase 4 present (per-section token table, `Δtokens ≈ 0` flag, present-choice Yes|Preview|Adjust); Phase 5 write + verify + `count_tokens.py append` row (correlation run-ULID) — ledger ONLY via script; token-based small-target pre-check (<~200 tokens → warn, cheap heuristic); Safety section: v1 rules 1–6 preserved + Bash declared + degradation contract (¬Bash → method estimate, verify skipped, no ledger row); `$ARGUMENTS` last line. NO undefined shorthand (D1); no `decision-presentation` reference; no `--level`/`--verify` anywhere.
+- Verify: `wc -l < plugins/compress/skills/compress/SKILL.md && python3 tools/validate_plugins.py | grep 'SKILL.md line budget' && ! grep -q 'decision-presentation' plugins/compress/skills/compress/SKILL.md && ! grep -Eq -- '--level|--verify' plugins/compress/skills/compress/SKILL.md && grep -q 'Bash' plugins/compress/skills/compress/SKILL.md && grep -qi 'not yet implemented' plugins/compress/skills/compress/SKILL.md && echo ok`
+- Expected: ≤110; `PASS: SKILL.md line budget`; `ok`
+- Spec trace: SC1, SC2, SC3, SC4, SC5, SC6, SC9, SC11, SC12, SC14
+
+### Slice V2 — Wave 2
+
+**T10 — Measure frontmatter description Δ** `[P]`
+- Files: none shipped (evidence → run log + PR body)
+- Agent: backend-dev-A · Subject: description-budget · Phase: GREEN · Difficulty: 2 · Est: 8 ops · blockedBy: T9
+- Shape: extract baseline description (`git show a793b37:plugins/compress/skills/compress/SKILL.md | sed -n '3p'`) and new description; count both via `count_tokens.py` (method per Bootstrap Context: API > local tiktoken install > estimate); Δ = new − old must be ≤ +15 under the strictest available method (dual-proxy: use max of both encodings); record method + both counts + Δ.
+- Verify: measurement script sequence; assert Δ ≤ 15
+- Expected: recorded numbers, Δ ≤ +15
+- Spec trace: SC6
+
+**T12 — Shorthand + claims grep sweep** `[P]`
+- Files: none (read-only sweep)
+- Agent: tester-A · Subject: shorthand-sweep · Phase: GREEN · Difficulty: 1 · Est: 6 ops · blockedBy: T9
+- Shape: sweep shipped files for: `DP(` → 0 in plugins/compress/**; `decision-presentation` → 0; char%/line%-as-savings phrasing in SKILL.md + references/compress.md → 0 (line-count mentions allowed only as explicit cheap-heuristic annotation); bare-trigger check on description (no standalone "glossary"/"decompress"); Write/Edit-to-ledger phrasing → 0 (ledger only via script).
+- Verify: the grep battery above
+- Expected: all clean
+- Spec trace: SC4, SC9, SC11
+
+### Slice V2 — Wave 3
+
+**T11 — RED-GATE: exercise the line-budget gate on the real file**
+- Files: temp modification of SKILL.md (restored)
+- Agent: tester-A · Subject: budget-gate · Phase: RED-GATE · Difficulty: 2 · Est: 6 ops · blockedBy: T10, T12
+- Shape: `cp` SKILL.md to a scratch dir → append filler lines pushing it >110 → `python3 tools/validate_plugins.py` must FAIL naming compress + actual vs budget → `mv` the scratch copy back (exact restore) → tool PASSES. Record both outputs.
+- Verify: scripted cp/append/run/restore/run sequence
+- Expected: FAIL over budget → PASS restored; `git status` unchanged vs pre-sequence
+- Spec trace: SC5
+
+## Task Seeding Blueprint
+
+<!-- Format: T{n} | agent-instance | blockedBy | subject -->
+
+### Wave 1 — no deps, 1 agent
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T8 | doc-writer-A | — | mode-body |
+| T9 | doc-writer-A | T8 | skill-core |
+
+### Wave 2 — after Wave 1, 2 agents ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T10 | backend-dev-A | T9 | description-budget |
+| T12 | tester-A | T9 | shorthand-sweep |
+
+### Wave 3 — after Wave 2, 1 agent
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T11 | tester-A | T10, T12 | budget-gate |
+
+## Task IDs
+
+<!-- Generated by /plan (slice V2). V1 task IDs 16-22 completed. -->
+- T8: 23 — mode-body
+- T9: 24 — skill-core
+- T10: 25 — description-budget
+- T12: 26 — shorthand-sweep
+- T11: 27 — budget-gate

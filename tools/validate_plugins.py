@@ -12,6 +12,7 @@ Checks:
 - Inline class list in code-review/SKILL.md spawn template matches review-classes.yml
 - Subsumption pairs declared in review-classes.yml notes are mentioned together in
   code-review/SKILL.md (prevents drift in pair definitions across files)
+- Budgeted SKILL.md files stay within their physical line budgets
 
 Usage:
   python3 tools/validate_plugins.py                     # run all checks
@@ -31,6 +32,9 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGINS_DIR = REPO_ROOT / 'plugins'
 CANONICAL_PATHS = REPO_ROOT / 'roxabi_sdk' / 'paths.py'
+
+# Plugin name → max physical lines of its skills/*/SKILL.md (issue #309 Decision 5)
+SKILL_LINE_BUDGETS = {'compress': 110}
 
 _DEFAULT_YAML_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'review-classes.yml'
 _DEFAULT_SKILL_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'SKILL.md'
@@ -455,6 +459,30 @@ def check_shared_sources_sync(manifest_path=None, biome_path=None, _copy_sync_pr
     return errors
 
 
+def check_skill_line_budget(budgets=None, plugins_dir=None) -> list[str]:
+    """Budgeted plugins' SKILL.md files must not exceed their line budgets.
+
+    Budgets are keyed by plugin name — this assumes one budgeted SKILL.md per
+    plugin; every skills/*/SKILL.md under a budgeted plugin is held to the
+    same cap. A budgeted plugin with no SKILL.md is skipped (not an error).
+    """
+    errors = []
+    if budgets is None:
+        budgets = SKILL_LINE_BUDGETS
+    if plugins_dir is None:
+        plugins_dir = PLUGINS_DIR
+    plugins_dir = Path(plugins_dir)
+    for plugin_name, budget in sorted(budgets.items()):
+        for skill_md in sorted(plugins_dir.glob(f'{plugin_name}/skills/*/SKILL.md')):
+            actual = len(skill_md.read_text(encoding='utf-8').splitlines())
+            if actual > budget:
+                rel = skill_md.relative_to(plugins_dir)
+                errors.append(
+                    f'{plugin_name}: {rel} is {actual} lines (budget {budget})'
+                )
+    return errors
+
+
 def _is_io_error(msg: str) -> bool:
     """Return True when the error message signals an IO/parse failure (exit 2).
 
@@ -517,6 +545,7 @@ def main(argv: list[str] | None = None) -> int:
         ('Class list sync', check_class_list_sync),
         ('Subsumption pairs', check_subsumption_pairs),
         ('Shared sources sync', check_shared_sources_sync),
+        ('SKILL.md line budget', check_skill_line_budget),
     ]
 
     for name, check_fn in checks:

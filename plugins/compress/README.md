@@ -4,7 +4,7 @@ A Claude Code plugin that rewrites agent and skill definitions using compact mat
 
 ## What it does
 
-Claude Code skills and agent definitions can get verbose. Compress takes any `.md` definition file and rewrites it using formal symbols and concise patterns — cutting line count by 30-60% without losing any meaning.
+Claude Code skills and agent definitions can get verbose. Compress takes any `.md` definition file and rewrites it using formal symbols and concise patterns — savings are measured per run as token counts, not line counts.
 
 It applies 10 transformation rules:
 
