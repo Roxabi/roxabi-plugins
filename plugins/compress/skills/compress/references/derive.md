@@ -165,12 +165,12 @@ Ledger row: one Observation appended ONLY via S (SKILL.md's sole ledger writer) 
 
 ```
 SOURCE_REF=$(git rev-parse HEAD)
-python3 S append --target "<scope-string>" --mode derive \
+python3 S append --target "<scope-string>" --mode derivation \
   --source-ref "$SOURCE_REF" --tokens-before 0 --tokens-after 0 \
   --sections-json '<per-cluster disposition counts as sections>' --correlation <run-ulid>
 ```
 
-The row lands with `category=derive` (free-form mode field).
+The row lands with `category=derivation` (free-form mode field — deliberately distinct from the `derive` dispatch keyword; ledger rows read as nouns).
 
 ## Validate
 
