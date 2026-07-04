@@ -73,4 +73,17 @@ This section was registered and committed BEFORE any read-back execution; git hi
 
 ## First Golden Run
 
-pending (registered 2026-07-04, before any run)
+Registered 2026-07-04 (the Go/No-Go section above was committed before any run — git history is the proof); executed 2026-07-04.
+
+- Target: `references/golden/01-deploy-bot.compressed.md` (13 non-L0 items — min-N cleared)
+- Model (reader): claude-fable-5 — ONE fresh Task subagent, single-file cap honored (exactly 1 Read)
+- diff_mode: anchor-based (`scripts/inventory_diff.py`); anchor_tokens 68 (estimate tier); legend_tokens 0
+- Result: recall = 0.0 · missing 0 · invented 0 · changed 13 · insufficient_sample false
+- writer_classification on the 13 changed items: 13 faithful, 0 weakened, 0 inverted — the reader recovered every anchor and every meaning in prose paraphrase; zero exact normalized-key matches, as the plain-prose re-expansion instruction predicts
+- **Verdict: fail** (recall 0.0 < RECALL_FLOOR 0.85; zero blockers)
+- **Consequence applied, as pre-registered**: below floor ⇒ per-file legend mandatory for L2 outputs; notation revision escalates to the epic if legends still fail. Rule line added to `references/compress.md` § Levels.
+- Verify-log row: category `verify`, schema_version 2, correlation `01KWPBB4KCWQ23PBWMQJC0TVJC` (real vault).
+
+> Caveat: the verifier inherits this host's CLAUDE.md (symbol-saturated) and reads anchor scaffolding in the artifact — this verdict measures paraphrase fidelity given segmentation scaffolding, an upper bound on unaided recovery by external consumers. Reader isolation is prompt-instructed, not sandbox-enforced.
+
+Reading of the result: the floor binds on exact normalized recall while the spawn template requests plain-prose re-expansion — semantic recovery was complete (13/13 faithful), literal recall was 0. The consequence applies as written; whether recall should also count classified-faithful items is a question for the epic, not for this run.

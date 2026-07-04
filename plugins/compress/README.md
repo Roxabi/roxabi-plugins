@@ -32,6 +32,16 @@ Every output is governed by four guardrails (G1–G4 in `skills/compress/SKILL.m
 
 The whitelist in SKILL.md is canonical. When the optional shared glossary (`plugins/shared/references/notation.md`) is installed it extends the symbol domain; without it the skill runs fully standalone.
 
+## Read-back verification
+
+Fidelity is measured, not self-affirmed. During analysis the writer emits an itemized inventory — every rule, condition, prohibition, threshold, and edge case gets an inline `<!-- INV-<cat>-<n> -->` anchor. Sizable compressions (≥ `VERIFY_THRESHOLD` tokens, or any run with `--verify`) then spawn a fresh reader capped to the compressed artifact alone, and `scripts/inventory_diff.py` diffs the reader's re-expansion against the writer inventory: recall is judged against the pre-registered `RECALL_FLOOR` in `skills/compress/references/verify.md`, with missing/weakened/inverted/invented items blocking the write. Every verdict carries a contamination caveat (the reader shares the host's context, so the result is an upper bound for external consumers), and anchor/legend token costs are subtracted from reported savings.
+
+A golden set of source/compressed/inventory triples under `skills/compress/references/golden/` keeps the anchor grammar honest — `tools/validate_plugins.py` enforces inventory equivalence deterministically in CI, and `re-baselining.md` documents how the expected inventories are regenerated on a model change.
+
+## Compression levels
+
+Slice V1 ships the minimal level model: **L0** content (safety rules, commands, tool names, spawn templates) is copied verbatim and never anchored; everything else is anchored and read-back-verifiable. Every compressed output carries a provenance marker after its frontmatter — `<!-- compress: level=<L> src-sha=<sha> glossary=<v> -->` — so a stale source hash forces re-verification before re-compression. Per the First Golden Run consequence, every L2 output also carries a minimal per-file legend of the symbols it uses. The full L0–L3 catalog, auto-classification, and `expand` mode land with slice 2.
+
 ## Install
 
 ```bash

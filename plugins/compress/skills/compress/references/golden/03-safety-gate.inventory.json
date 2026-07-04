@@ -1,0 +1,18 @@
+[
+  {
+    "anchor": "INV-thresh-1",
+    "text": "¬promote when the smoke suite has not run within the last 6 hours"
+  },
+  {
+    "anchor": "INV-cond-2",
+    "text": "promotion fails halfway → release enters quarantine; a quarantined release retries only after the check step passes again"
+  },
+  {
+    "anchor": "INV-edge-3",
+    "text": "timeouts on the smoke step count as failures, not as skips"
+  },
+  {
+    "anchor": "INV-rule-4",
+    "text": "one audit line per attempt is written to the release journal"
+  }
+]

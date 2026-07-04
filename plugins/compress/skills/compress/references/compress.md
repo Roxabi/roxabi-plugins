@@ -35,7 +35,8 @@ Identify: repeated nouns (≥3×) | verbose conditionals | iteration prose | mag
 
 | Scenario | Behavior |
 |----------|----------|
-| Already formal | "already compressed", tweaks only |
+| Marker present + src-sha fresh | "already compressed at L<x>", tweaks only (replaces the v1 "already formal" heuristic) |
+| Marker absent on a formal-looking file | Treat as uncompressed source — compress normally |
 | No repeated concepts | Skip R1, apply R2–R10 |
 | Mixed prose + code | Prose only |
 
@@ -49,6 +50,23 @@ Per-glyph cost is tokenizer-dependent — glyph substitution alone is not compre
 - The bulk of real token gains comes from R5/R6/R7 — prose pruning — not from glyphs. Some substitutions are net-negative.
 
 Consequences: judge every candidate substitution by `Δtokens`, never by character or line counts (both can shrink while tokens increase). R1–R4/R8–R10 buy consistency and unambiguous structure; R5/R6/R7 buy tokens. When Phase 4 flags `Δtokens ≈ 0` for a section, prefer the more readable form.
+
+## Levels (minimal — full catalog lands with train C slice 2)
+
+Two classes ship in slice V1; L1/L2/L3 definitions, auto-classification heuristics, and the R13 single-level rule land with slice 2:
+
+- **L0 — verbatim class**: safety rules, commands, tool names, spawn templates (the G4 floor). Copied verbatim, never anchored — L0 loss is caught by the Phase 5 "safety rules intact" assertion, not by read-back. Recall is computed over non-L0 items only.
+- **non-L0 — anchored class**: everything else. Every rule, condition, prohibition, threshold, edge case carries one `<!-- INV-<cat>-<n> -->` anchor (grammar: `references/verify.md`).
+
+**Marker** — emitted immediately after frontmatter on every compressed output:
+
+```
+<!-- compress: level=<L> src-sha=<sha> glossary=<v> -->
+```
+
+`src-sha` = the Phase 2 pre-image hash of the source; `glossary` = the notation.md version marker, or `none` on a standalone install. L3 splits emit the marker on BOTH files with the same `src-sha`; the residue doc's marker appends `part=residue`.
+
+**Per-file legend — mandatory for L2 outputs** (First Golden Run consequence, applied 2026-07-04 per `references/verify.md` § Go/No-Go): every L2 output carries a minimal per-file legend of the symbols it uses; legend tokens are subtracted from reported savings.
 
 ## Ledger Append (Phase 5)
 
