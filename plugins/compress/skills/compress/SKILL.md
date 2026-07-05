@@ -104,7 +104,7 @@ Economics: R5/R6/R7 = the primary economic transform; R1 = disambiguation, ¬eco
 4. ¬auto-write — preview first
 5. Preserve `$ARGUMENTS` for skills
 6. ¬drop items from enumerations — compress wording only
-7. Bash runs ONLY S (count/append/new-ulid) + the pre-image hash; the ledger has no Write/Edit path — S is its sole writer
+7. Bash runs ONLY S (count/append/new-ulid/freshness/repo-head + payload files); the ledger has no Write/Edit path — S is its sole writer. Pre-image hashes use `git hash-object` (or fallback) only via the documented paths; derive uses `S repo-head` for corpus snapshot.
 8. Bash unavailable → `method: estimate` (labeled), `verify: skipped`, NO ledger row
 
 $ARGUMENTS

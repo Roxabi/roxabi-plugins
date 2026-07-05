@@ -62,7 +62,7 @@ FRESHNESS_DAYS = 7
 
 Explicitly state: these are labeled placeholders, not calibrated thresholds. Every real measurement is produced by a tool command, never hand-waved.
 
-Stability predicate: `git log -1 --format=%ct -- "<file>"` outputs the UNIX timestamp of the file's most recent commit; iff `(now - timestamp) > FRESHNESS_DAYS * 86400` seconds, the file is marked stable. Command failure or empty output (untracked file, git unavailable) → treat as ¬stable (fail-closed) — never assume freshness absent a timestamp.
+Stability predicate: run `python3 S freshness "<file>"` (returns raw UNIX timestamp or empty). Compare `(now - ts) > FRESHNESS_DAYS * 86400`. Failure/empty → treat as ¬stable (fail-closed). All git access goes through S; this keeps Bash usage inside SKILL.md §7.
 
 Amortization rule: extraction is allowed iff co-occurrence-in-one-context-window (the file chain the orchestrator groups together after per-file Task fan-out returns — per § Scope & Caps, no single Task agent ever holds more than its own one file) OR declared as a SSoT objective (explicitly stated in the scope request).
 
@@ -165,10 +165,11 @@ Cluster-level report trailer contains:
 Ledger row: one Observation appended ONLY via S (SKILL.md's sole ledger writer) — compose the append line with the scope string as a single argv token, never re-parsed by shell:
 
 ```
-SOURCE_REF=$(git rev-parse HEAD)
+SOURCE_REF=$(python3 S repo-head)
+# Write complex sections payload safely via Write tool to a scratch file (avoids shell interpolation)
 python3 S append --target "<scope-string>" --mode derivation \
   --source-ref "$SOURCE_REF" --tokens-before 0 --tokens-after 0 \
-  --sections-json '<per-cluster disposition counts as sections>' --correlation <run-ulid>
+  --payload-file /tmp/derive-payload.json --correlation <run-ulid>
 ```
 
 The row lands with `category=derivation` (free-form mode field — deliberately distinct from the `derive` dispatch keyword; ledger rows read as nouns).

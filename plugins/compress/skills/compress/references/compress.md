@@ -88,8 +88,12 @@ Escalation to L3 executes only after that present-choice confirmation. `--level 
 One ledger row per completed target, appended ONLY via S (SKILL.md's sole ledger writer) — generate one run ULID (`python3 S new-ulid`) and share it as `--correlation` across every row of a multi-file run:
 
 ```
+# Preferred (safe): write sections JSON via Write tool to scratch file first
 python3 S append --target "<f>" --mode <μ> --source-ref <hash> \
   --tokens-before <n> --tokens-after <n> --correlation <run-ulid> \
-  --sections-json '[{"name": "…", "tokens_before": …, "tokens_after": …}]' --method <m> \
+  --payload-file /tmp/sections.json --method <m> \
   --proxy-agreement <bool> --calibration "<line>"  # when captured in Phase 2
+
+# Legacy (still supported but avoid for untrusted data):
+# --sections-json '[{"name": "…", ...}]'
 ```
