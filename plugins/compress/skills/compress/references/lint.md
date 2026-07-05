@@ -93,10 +93,11 @@ Genre → diff_type is total: always-on → `claude_md` · ssot-style → `ssot`
 One Observation row per run, appended ONLY via S (SKILL.md's sole ledger writer) — a read-only lint run carries filler token counts. Resolve the commit ref in its own prior step; the append line then composes with the scope string passed as a single argv token and is never re-parsed by a shell (no command substitution on the composed line):
 
 ```
-SOURCE_REF=$(git rev-parse HEAD)
+SOURCE_REF=$(python3 S repo-head)
+# Write sections payload safely to scratch file first (recommended)
 python3 S append --target "<scope-string>" --mode lint \
   --source-ref "$SOURCE_REF" --tokens-before 0 --tokens-after 0 \
-  --sections-json '<per-class finding counts as sections>' --correlation <run-ulid>
+  --payload-file /tmp/lint-payload.json --correlation <run-ulid>
 ```
 
 The row lands with `category=lint` (free-form mode field — nothing is reserved). Bash unavailable → skip the row cleanly, run proceeds, skip stated in the report.
