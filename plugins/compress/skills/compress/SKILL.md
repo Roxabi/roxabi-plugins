@@ -1,7 +1,7 @@
 ---
 name: compress
 description: 'Compress agent/skill definitions using math/logic notation. Triggers: "compress" | "compress skill" | "compress agent" | "compress context" | "shorten this" | "make it formal" | "use formal notation" | "expand notation" | "lint notation" | "derive pattern from skills".'
-version: 0.1.0
+version: 0.1.1
 argument-hint: '[mode] [--verify | --level <L>] [file path | glob | directory | plugin name]'
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task
 ---

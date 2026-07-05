@@ -68,11 +68,45 @@ claude plugin install compress
 
 ## Usage
 
-- `compress code-review` — compresses the skill at `.claude/skills/code-review/SKILL.md`
-- `compress fixer` — compresses the agent at `.claude/agents/fixer.md`
-- `compress path/to/file.md` — compresses a file directly
+Invoke with natural language or slash commands. The first token can be a mode; everything after is the target scope.
 
-The plugin shows per-section before/after token counts and asks for approval before writing any changes.
+### Common invocations
+
+**Default compression** (most common):
+- `compress code-review`
+- `compress fixer`
+- `compress plugins/dev-core/skills/plan/SKILL.md`
+- `make it formal` / `use formal notation on this skill`
+
+**Lint mode** (check notation health):
+- `compress lint dev-core`
+- `compress lint .claude/skills/code-review/SKILL.md`
+- `compress lint <glob or directory> --fix` (after review)
+
+**Expand mode** (reverse a compression):
+- `compress expand path/to/compressed-file.md`
+
+**Derive mode** (extract shared patterns):
+- `compress derive plugins/dev-core/skills`
+- `compress derive <plugin-name>`
+
+**With options**:
+- `compress --verify my-skill/SKILL.md` — force read-back verification
+- `compress --level L1 path/to/README.md` — force terse-prose level
+
+### What happens
+
+The plugin:
+- Resolves the target (file, name, glob, directory or plugin)
+- Shows a per-section table with `tokens_before | tokens_after | Δtokens`
+- Flags sections where `Δtokens ≈ 0`
+- Presents **Yes | Preview | Adjust** before any write
+- For sizable runs or `--verify`, runs fresh-reader verification against the golden inventory rules
+- Writes only after explicit approval and appends a ledger row
+
+For best results with `lint` and `derive`, install the shared notation glossary (comes with the marketplace).
+
+The plugin never touches frontmatter, code blocks, tool names, paths, or safety rules.
 
 ## License
 

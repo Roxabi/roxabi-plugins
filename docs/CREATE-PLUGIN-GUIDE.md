@@ -30,7 +30,7 @@ The file has two parts: a YAML frontmatter header and a markdown body with instr
 ```yaml
 ---
 name: compress
-description: 'Rewrite agent/skill definitions using compact math/logic notation. Triggers: "compress" | "compress skill" | "shorten this" | "make it formal".'
+description: 'Compress agent/skill definitions using math/logic notation. Triggers: "compress" | "compress skill" | "compress agent" | "compress context" | "shorten this" | "make it formal" | "use formal notation" | "expand notation" | "lint notation" | "derive pattern from skills".'
 version: 0.1.0
 allowed-tools: Read, Edit, Write, Bash, Glob
 ---
