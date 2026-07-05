@@ -18,10 +18,11 @@ appends go through `count_tokens.py append` (O_APPEND, one row per run).
 Usage:
   count_tokens.py count <file.md> [--method ...]
   count_tokens.py append --target F --mode M --source-ref H --tokens-before N
-      --tokens-after N --sections-json J --correlation C [--method ...]
-      (or use --payload-file for complex data to avoid shell interpolation)
+      --tokens-after N --correlation C [--method ...]
+      (provide either --sections-json or --payload-file)
   count_tokens.py freshness <file>   # for derive freshness gate (returns unix ts)
   count_tokens.py repo-head          # for derive ledger source-ref (repo snapshot)
+  count_tokens.py new-ulid
 """
 import argparse
 import importlib.util
@@ -29,6 +30,7 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -315,23 +317,21 @@ def main(argv=None) -> int:
 
     if args.command == 'freshness':
         # Return raw unix timestamp (or empty on failure). Caller does the FRESHNESS_DAYS math + fail-closed.
-        import subprocess
         try:
             out = subprocess.check_output(
                 ['git', 'log', '-1', '--format=%ct', '--', args.file],
                 stderr=subprocess.DEVNULL
             ).decode().strip()
             print(out)
-        except Exception:
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError):
             print('')
         return 0
 
     if args.command == 'repo-head':
-        import subprocess
         try:
             out = subprocess.check_output(['git', 'rev-parse', 'HEAD'], stderr=subprocess.DEVNULL).decode().strip()
             print(out)
-        except Exception:
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError):
             print('')
         return 0
 
@@ -341,8 +341,13 @@ def main(argv=None) -> int:
         try:
             with open(args.payload_file) as f:
                 payload = json.load(f)
-            sections = payload.get('sections') or payload  # support {sections: [...] } or direct array
-        except Exception as exc:
+            if isinstance(payload, dict):
+                sections = payload.get('sections') or payload
+            else:
+                sections = payload
+            if not isinstance(sections, list):
+                raise ValueError("payload must contain a list for 'sections'")
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
             print(f'Error: invalid --payload-file: {exc}', file=sys.stderr)
             sys.exit(1)
     elif args.sections_json:
