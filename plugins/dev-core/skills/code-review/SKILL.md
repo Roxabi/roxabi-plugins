@@ -2,7 +2,7 @@
 name: code-review
 argument-hint: [#PR]
 description: Multi-domain code review (agents + Conventional Comments → findings + verdict). Triggers: "code review" | "review changes" | "review PR #42" | "check my code" | "review my changes" | "review this PR" | "do a code review" | "review the diff" | "look at my code".
-version: 0.2.1
+version: 0.2.2
 allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -50,7 +50,7 @@ Steps: gather-changes → secret-scan → multi-domain-review → merge-and-pres
 
 ## Phase 1 — Gather Changes
 
-0. `BASE=$(git branch -r | grep -q 'origin/staging' && echo staging || echo main)`
+0. `BASE=$(. "${CLAUDE_SKILL_DIR}/../shared/lib.sh" && detect_base_branch)`
 1. PR# → `gh pr diff <#>` | else → `git diff ${BASE}...HEAD`
 2. Δ = `git diff --name-only ${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
 3. ∀ f ∈ Δ: read full (skip binaries, note)

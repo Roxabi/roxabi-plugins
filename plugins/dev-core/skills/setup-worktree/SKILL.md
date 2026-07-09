@@ -2,7 +2,7 @@
 name: setup-worktree
 argument-hint: '[--issue <N> --slug <slug>]'
 description: Create + link feature branch to issue, then check out worktree. Triggers: "setup worktree" | "create worktree" | "prepare workspace" | "bootstrap branch".
-version: 0.3.0
+version: 0.3.1
 allowed-tools: Bash, Read, EnterWorktree, ExitWorktree, ToolSearch
 ---
 
@@ -40,7 +40,7 @@ One-time setup per issue. Idempotent — safe to re-run if branch/link/ω alread
 ## Step 1 — Detect
 
 ```bash
-BASE=$(git branch -r 2>/dev/null | grep -q 'origin/staging' && echo staging || echo main)
+BASE=$(. "${CLAUDE_SKILL_DIR}/../shared/lib.sh" && detect_base_branch)
 git fetch origin "$BASE" 2>&1
 
 # Paths depend on mode (issue vs frame-only)

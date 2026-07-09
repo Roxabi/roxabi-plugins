@@ -46,7 +46,6 @@ require_cmd() {
 require_cmd git
 require_cmd jq
 
-BASE_BRANCH="$(detect_base_branch)"
 CURRENT_BRANCH="$(git branch --show-current 2>/dev/null || echo "")"
 GH_AVAILABLE=true
 if ! command -v gh >/dev/null 2>&1; then
@@ -56,6 +55,10 @@ fi
 if [ "$NO_FETCH" = false ]; then
   git fetch --prune origin 2>/dev/null || true
 fi
+
+# Detect base AFTER fetch --prune so a freshly-created (or remotely-deleted)
+# origin/staging is reflected in the local remote-tracking refs before detection.
+BASE_BRANCH="$(detect_base_branch)"
 
 PROTECTED_JSON='["main","master","staging"]'
 
