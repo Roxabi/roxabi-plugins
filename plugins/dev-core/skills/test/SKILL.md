@@ -56,7 +56,7 @@ Steps: identify-targets → read-standards → check-coverage → generate-tests
 
 ```bash
 BASE=$(. "${CLAUDE_SKILL_DIR}/../shared/lib.sh" && detect_base_branch)
-git diff ${BASE}...HEAD --name-only
+git diff origin/${BASE}...HEAD --name-only
 ```
 
 Include: `.ts`, `.tsx`. Exclude: `*.config.ts`, `*.d.ts`, `*.test.*`, `*.spec.*`, files with no exports.

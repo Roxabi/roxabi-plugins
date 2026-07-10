@@ -53,7 +53,7 @@ Emits: `branch`, `base`, commit log, diff stat, existing PR, issue number, lifec
 | Check | Condition | Action |
 |-------|-----------|--------|
 | Protected branch | Β ∈ {staging, main, master} | **REFUSE.** Create feature branch first. Stop. |
-| No commits | `git log ${β}..HEAD` empty | **REFUSE.** Nothing to PR. Stop. |
+| No commits | `git log origin/${β}..HEAD` empty | **REFUSE.** Nothing to PR. Stop. |
 | PR exists | gh pr list → result | → present choice **Update** (`gh pr edit`) \| **Cancel** |
 | Branch not pushed | `git ls-remote --heads origin $BRANCH` empty | `git push -u origin $BRANCH` |
 | Quality gates | `{commands.lint} && {commands.typecheck}` | Warn on failure, ¬block. Note in PR body if proceeding. |

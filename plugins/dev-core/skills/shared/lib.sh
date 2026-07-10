@@ -16,8 +16,16 @@ detect_base_branch() {
         return
     fi
     # No staging → the remote's default branch (main/master/…), else main.
+    # `git fetch` does NOT refresh refs/remotes/origin/HEAD (a symbolic ref set at
+    # clone / by `git remote set-head`), so after a remote default-branch rename it
+    # can dangle. Validate the resolved ref exists before trusting it — otherwise a
+    # stale name would misdirect `gh pr create --base` / mask diffs — else `main`.
     local default
     default=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || true
     default=${default#origin/}
-    echo "${default:-main}"
+    if [ -n "$default" ] && git show-ref --verify --quiet "refs/remotes/origin/${default}" 2>/dev/null; then
+        echo "$default"
+    else
+        echo main
+    fi
 }

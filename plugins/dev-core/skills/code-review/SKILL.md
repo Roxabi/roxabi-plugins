@@ -51,8 +51,8 @@ Steps: gather-changes → secret-scan → multi-domain-review → merge-and-pres
 ## Phase 1 — Gather Changes
 
 0. `BASE=$(. "${CLAUDE_SKILL_DIR}/../shared/lib.sh" && detect_base_branch)`
-1. PR# → `gh pr diff <#>` | else → `git diff ${BASE}...HEAD`
-2. Δ = `git diff --name-only ${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
+1. PR# → `gh pr diff <#>` | else → `git diff origin/${BASE}...HEAD`
+2. Δ = `git diff --name-only origin/${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
 3. ∀ f ∈ Δ: read full (skip binaries, note)
 4. |Δ| = 0 → halt
 5. |Δ| > 50 → warn, suggest split
@@ -60,7 +60,7 @@ Steps: gather-changes → secret-scan → multi-domain-review → merge-and-pres
 ## Phase 1.5 — Secret Scan
 
 ```bash
-git diff ${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27`][^"\x27`]{8,}' | head -20
+git diff origin/${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27`][^"\x27`]{8,}' | head -20
 ```
 
 ∃ matches → WARN (redact to first 2 + last 2 chars):
