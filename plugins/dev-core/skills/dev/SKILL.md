@@ -2,7 +2,7 @@
 name: dev
 argument-hint: '[#N | "idea" | --from <step> | --audit]'
 description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "work on #" | "develop" | "pick up issue" | "tackle issue" | "let's work on".
-version: 0.3.0
+version: 0.3.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
@@ -86,7 +86,7 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
   analyze:   analysis artifact ∃,
   spec:      spec artifact ∃,
   plan:      plan artifact ∃,
-  implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ git diff --name-only origin/staging..HEAD | grep -v '^artifacts/' is non-empty,
+  implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ git diff --name-only origin/${BASE}..HEAD | grep -v '^artifacts/' is non-empty,
   pr:        PR ∃,
   ci-watch:  null,       # Σ_s only
   validate:  null,       # Σ_s only

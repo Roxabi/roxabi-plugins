@@ -2,7 +2,7 @@
 name: pr
 argument-hint: [--draft | --base <branch>]
 description: Create/update PRs with Conventional Commits title, issue linking & guard rails. Triggers: "create PR" | "open PR" | "submit PR" | "update PR" | "/pr --draft" | "open a pull request" | "make a PR" | "open pull request" | "submit a pull request" | "create a draft PR" | "raise a PR".
-version: 0.4.2
+version: 0.4.3
 allowed-tools: Bash, Read, Grep, ToolSearch
 ---
 
@@ -53,7 +53,7 @@ Emits: `branch`, `base`, commit log, diff stat, existing PR, issue number, lifec
 | Check | Condition | Action |
 |-------|-----------|--------|
 | Protected branch | Β ∈ {staging, main, master} | **REFUSE.** Create feature branch first. Stop. |
-| No commits | `git log ${β}..HEAD` empty | **REFUSE.** Nothing to PR. Stop. |
+| No commits | `git log origin/${β}..HEAD` empty | **REFUSE.** Nothing to PR. Stop. |
 | PR exists | gh pr list → result | → present choice **Update** (`gh pr edit`) \| **Cancel** |
 | Branch not pushed | `git ls-remote --heads origin $BRANCH` empty | `git push -u origin $BRANCH` |
 | Quality gates | `{commands.lint} && {commands.typecheck}` | Warn on failure, ¬block. Note in PR body if proceeding. |
@@ -64,8 +64,8 @@ Emits: `branch`, `base`, commit log, diff stat, existing PR, issue number, lifec
 
 **3a. Commits + diff:**
 ```bash
-git log ${BASE}..HEAD --format="%h %s%n%b"
-git diff ${BASE}...HEAD --stat
+git log origin/${BASE}..HEAD --format="%h %s%n%b"
+git diff origin/${BASE}...HEAD --stat
 ```
 
 **3b. Lifecycle artifacts:** already emitted by Step 1 (`issue`, `analysis`, `spec`, `issue_data`, `test_files`).
