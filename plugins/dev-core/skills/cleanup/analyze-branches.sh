@@ -59,6 +59,18 @@ fi
 # Detect base AFTER fetch --prune so a freshly-created (or remotely-deleted)
 # origin/staging is reflected in the local remote-tracking refs before detection.
 BASE_BRANCH="$(detect_base_branch)"
+# Ref to compare branches against for merge detection: prefer the remote-tracking
+# base (fresh after fetch --prune, and present even when the base branch is not
+# checked out locally — the norm in the worktree-per-issue flow), else a local
+# branch of that name. Empty when neither resolves, so the merge checks below skip
+# rather than treat an unresolvable base as "0 commits ahead" (= false "merged").
+if git rev-parse --verify --quiet "refs/remotes/origin/${BASE_BRANCH}" >/dev/null 2>&1; then
+  BASE_REF="origin/${BASE_BRANCH}"
+elif git rev-parse --verify --quiet "refs/heads/${BASE_BRANCH}" >/dev/null 2>&1; then
+  BASE_REF="${BASE_BRANCH}"
+else
+  BASE_REF=""
+fi
 
 PROTECTED_JSON='["main","master","staging"]'
 
@@ -146,8 +158,8 @@ branch_merged() {
   local merge_reason="none"
   local merged=false
 
-  if git rev-parse --verify "$ref" >/dev/null 2>&1; then
-    if [ -z "$(git log --oneline "${BASE_BRANCH}..${ref}" 2>/dev/null | head -1)" ]; then
+  if [ -n "$BASE_REF" ] && git rev-parse --verify "$ref" >/dev/null 2>&1; then
+    if [ -z "$(git log --oneline "${BASE_REF}..${ref}" 2>/dev/null | head -1)" ]; then
       merged=true
       merge_reason="regular"
     fi
@@ -166,7 +178,7 @@ branch_merged() {
     local issue
     issue="$(extract_issue_number "$branch_name")"
     if [ -n "$issue" ]; then
-      if [ -n "$(git log --oneline --grep="#${issue}" "$BASE_BRANCH" 2>/dev/null | head -1)" ]; then
+      if [ -n "$BASE_REF" ] && [ -n "$(git log --oneline --grep="#${issue}" "$BASE_REF" 2>/dev/null | head -1)" ]; then
         merged=true
         merge_reason="squash_grep"
       fi
@@ -174,7 +186,7 @@ branch_merged() {
   fi
 
   if [ "$merged" = false ]; then
-    if [ -n "$(git log --oneline --grep="${branch_name}" "$BASE_BRANCH" 2>/dev/null | head -1)" ]; then
+    if [ -n "$BASE_REF" ] && [ -n "$(git log --oneline --grep="${branch_name}" "$BASE_REF" 2>/dev/null | head -1)" ]; then
       merged=true
       merge_reason="squash_grep"
     fi
