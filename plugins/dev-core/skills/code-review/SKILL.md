@@ -18,7 +18,7 @@ Review branch/PR via fresh domain-specific agents → Conventional Comments → 
 **⚠ Flow: single continuous pipeline (Phases 1→4 + 6 + 8). ¬stop between phases. Decision response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, or Phase 8 completion.**
 
 ```
-/code-review          → diff ${BASE}...HEAD  (BASE = staging if exists, else main)
+/code-review          → diff origin/${BASE}...HEAD  (BASE = staging|main|master, first that exists)
 /code-review #42      → gh pr diff 42
 ```
 

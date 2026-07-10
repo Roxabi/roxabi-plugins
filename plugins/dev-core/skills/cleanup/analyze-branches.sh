@@ -60,9 +60,7 @@ fi
 # origin/staging is reflected in the local remote-tracking refs before detection.
 BASE_BRANCH="$(detect_base_branch)"
 
-# Always protect the triad + whatever detect_base_branch resolved (may be a repo's
-# own default, e.g. `develop`), so a generalized base is never offered for deletion.
-PROTECTED_JSON="$(jq -cn --arg b "$BASE_BRANCH" '["main","master","staging",$b]|unique')"
+PROTECTED_JSON='["main","master","staging"]'
 
 PR_LIMIT=1000
 PR_JSON='[]'
@@ -301,7 +299,7 @@ while IFS= read -r remote_ref; do
   fi
   entry="$(classify_branch "remote" "$branch_name" "$remote_ref")"
   remote_branches_json="$(echo "$remote_branches_json" | jq --argjson entry "$entry" '. + [$entry]')"
-done < <(git branch -r 2>/dev/null | sed 's/^[[:space:]]*//' | grep -vE "origin/HEAD|origin/main\$|origin/master\$|origin/staging\$|origin/${BASE_BRANCH}\$" || true)
+done < <(git branch -r 2>/dev/null | sed 's/^[[:space:]]*//' | grep -vE 'origin/HEAD|origin/main$|origin/master$|origin/staging$' || true)
 
 safe_local_json="$(echo "$local_branches_json" | jq '[.[] | select(.action == "safe_delete") | .name]')"
 safe_remote_json="$(echo "$remote_branches_json" | jq '[.[] | select(.action == "safe_delete") | .name]')"
