@@ -2,7 +2,7 @@
 name: pr
 argument-hint: [--draft | --base <branch>]
 description: Create/update PRs with Conventional Commits title, issue linking & guard rails. Triggers: "create PR" | "open PR" | "submit PR" | "update PR" | "/pr --draft" | "open a pull request" | "make a PR" | "open pull request" | "submit a pull request" | "create a draft PR" | "raise a PR".
-version: 0.4.2
+version: 0.4.3
 allowed-tools: Bash, Read, Grep, ToolSearch
 ---
 
@@ -64,8 +64,8 @@ Emits: `branch`, `base`, commit log, diff stat, existing PR, issue number, lifec
 
 **3a. Commits + diff:**
 ```bash
-git log ${BASE}..HEAD --format="%h %s%n%b"
-git diff ${BASE}...HEAD --stat
+git log origin/${BASE}..HEAD --format="%h %s%n%b"
+git diff origin/${BASE}...HEAD --stat
 ```
 
 **3b. Lifecycle artifacts:** already emitted by Step 1 (`issue`, `analysis`, `spec`, `issue_data`, `test_files`).
