@@ -11,10 +11,10 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, ToolSearch
 ## Success
 
 I := κ written ∧ committed ∧ `status: consensus-reached`
-V := `git log --oneline -1 | grep consensus` ∧ `ls artifacts/analyses/*consensus*.mdx`
+V := `git log --oneline -1 | grep consensus` ∧ `ls artifacts/analyses/*consensus*.md*`
 
 Let:
-  κ := artifacts/analyses/{N}-{slug}-consensus.mdx
+  κ := artifacts/analyses/{N}-{slug}-consensus.md
   φ := frame doc (optional input)
   α := analysis doc (optional input)
   P := panel (|P| = 3)
@@ -151,7 +151,7 @@ Record: ρ, confidence (high/med/low), trade-offs, δ, alternatives.
 
 ## Step 5 — Write κ
 
-```mdx
+```md
 ---
 title: "{title} — Expert Consensus"
 issue: {N | null}

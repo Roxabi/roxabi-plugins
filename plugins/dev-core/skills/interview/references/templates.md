@@ -4,9 +4,9 @@ Let: N := issue number | τ := tier
 
 ## Brainstorm
 
-Output path: `artifacts/analyses/{slug}-analysis.mdx`
+Output path: `artifacts/analyses/{slug}-analysis.md`
 
-```mdx
+```md
 ---
 title: "Brainstorm: {Title}"
 description: {One-line description of what is being explored}
@@ -38,9 +38,9 @@ type: brainstorm
 
 ## Analysis
 
-Output path: `artifacts/analyses/{slug}-analysis.mdx`
+Output path: `artifacts/analyses/{slug}-analysis.md`
 
-```mdx
+```md
 ---
 title: "{Title}"
 description: {One-line description of the analysis}
@@ -116,9 +116,9 @@ description: {One-line description of the analysis}
 
 > **Inline ambiguity markers:** `[NEEDS CLARIFICATION: description]` — unresolved ambiguity (max 3–5/spec). Must resolve before `/plan`.
 
-Output path: `artifacts/specs/{issue}-{slug}-spec.mdx`
+Output path: `artifacts/specs/{issue}-{slug}-spec.md`
 
-```mdx
+```md
 ---
 title: "{Title}"
 description: {One-line description of the feature or project}

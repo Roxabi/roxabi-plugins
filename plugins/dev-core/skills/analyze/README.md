@@ -27,7 +27,7 @@ Triggers: `"analyze"` | `"technical analysis"` | `"deep dive"` | `"explore the p
 ## Output artifact
 
 ```
-artifacts/analyses/{N}-{slug}-analysis.mdx
+artifacts/analyses/{N}-{slug}-analysis.md
 ```
 
 Sections: Source, Problem, Outcome, Appetite, Shapes (2–3), Fit Check. Architecture visuals are forge-chart sidecars in `artifacts/visuals/` (linked from Shapes / Fit Check — not inline mermaid).

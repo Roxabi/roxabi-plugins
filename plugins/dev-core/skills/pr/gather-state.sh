@@ -28,9 +28,9 @@ gh pr list --head "$BRANCH" --json number,title,url,state 2>/dev/null || echo "n
 ISSUE_NUM=$(echo "$BRANCH" | sed -n 's/^feat\/\([0-9]*\)-.*/\1/p')
 if [ -n "$ISSUE_NUM" ]; then
   echo "issue=$ISSUE_NUM"
-  ANALYSIS=$(ls "artifacts/analyses/${ISSUE_NUM}-"*.mdx 2>/dev/null | head -1 || true)
+  ANALYSIS=$(ls "artifacts/analyses/${ISSUE_NUM}-"*.md "artifacts/analyses/${ISSUE_NUM}-"*.mdx 2>/dev/null | head -1 || true)
   [ -n "$ANALYSIS" ] && echo "analysis=$ANALYSIS" || echo "analysis=false"
-  SPEC=$(ls "artifacts/specs/${ISSUE_NUM}-"*.mdx 2>/dev/null | head -1 || true)
+  SPEC=$(ls "artifacts/specs/${ISSUE_NUM}-"*.md "artifacts/specs/${ISSUE_NUM}-"*.mdx 2>/dev/null | head -1 || true)
   [ -n "$SPEC" ] && echo "spec=$SPEC" || echo "spec=false"
   gh issue view "$ISSUE_NUM" --json title,state,labels 2>/dev/null || echo "issue_data=false"
   # grep -c exits 1 on zero matches; under pipefail that fails the assignment, so

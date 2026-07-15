@@ -41,7 +41,7 @@ Partial (one of Breadboard/Slices ¬both): fallback if ∃ Success Criteria, els
 | Type defs | `bun run typecheck --filter=@repo/types` |
 | Config (json/yaml) | `bun run lint && grep -q 'key' path` |
 | Skill/agent (.md) | `grep -q 'expected' path` |
-| Docs (.mdx) | `test -f path && grep -q '## Section' path` |
+| Docs (.md) | `test -f path && grep -q '## Section' path` |
 | Migrations | `bun run db:migrate && bun run db:generate --check` |
 | Other | `[manual]` |
 
@@ -101,13 +101,13 @@ Bidirectional spec↔task:
 
 ## 4f.6 Write Plan Artifact
 
-Write to `artifacts/plans/{N}-{slug}-plan.mdx`. Create dir if needed.
+Write to `artifacts/plans/{N}-{slug}-plan.md`. Create dir if needed.
 
 ```markdown
 ---
 title: "Plan: {title}"
 issue: {N}
-spec: artifacts/specs/{N}-{slug}-spec.mdx
+spec: artifacts/specs/{N}-{slug}-spec.md
 complexity: {score}/10
 tier: {tier}
 generated: {ISO}
@@ -117,7 +117,7 @@ generated: {ISO}
 {1-2 sentences}
 
 ## Bootstrap Context
-{From artifacts/analyses/{issue}-*-analysis.mdx: conclusions + selected shape}
+{From artifacts/analyses/{issue}-*-analysis.md: conclusions + selected shape}
 
 ## Agents
 | Agent | Tasks | Files |
@@ -152,7 +152,7 @@ Options: **Approve** | **Modify** | **Return to spec**
 
 ## 4f.8 Commit Plan
 
-Standalone commit (¬amend): `git add artifacts/plans/{N}-{slug}-plan.mdx` + commit per CLAUDE.md Rule 5.
+Standalone commit (¬amend): `git add artifacts/plans/{N}-{slug}-plan.md` + commit per CLAUDE.md Rule 5.
 
 ## 4f.9 Dispatch TaskCreate
 
