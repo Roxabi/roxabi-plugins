@@ -3,6 +3,7 @@ name: init
 argument-hint: '[--force] [--skip-axial]'
 description: 'Initialize project — orchestrates env-setup, ci-setup, release-setup + axial ADR. Invoke as /dev-init:init (¬ native /init). Triggers: "dev-init" | "setup project" | "initialize project" | "/dev-init:init".'
 version: 0.9.1
+allowed-tools: Bash, Read, Grep, Skill, Agent, ToolSearch
 ---
 
 # Init
@@ -105,14 +106,13 @@ skill: "dev-core:release-setup", args: "{args}"
 dev-init complete
 =================
 
-  Run /checkup   to verify full configuration health
-  Run /seed-docs to populate docs stubs from CLAUDE.md + codebase
+  Run /dev-core:checkup   to verify full configuration health
+  Run /dev-core:seed-docs to populate docs stubs from CLAUDE.md + codebase
 
 Next steps:
-  /checkup                    Verify full configuration health
-  /seed-docs                  Populate scaffolded docs with content from CLAUDE.md + codebase
-  roxabi dashboard            Launch the issues dashboard  (restart shell or: source ~/.bashrc)
-  /dev #N                     Start working on an issue
+  /dev-core:checkup           Verify full configuration health
+  /dev-core:seed-docs         Populate scaffolded docs with content from CLAUDE.md + codebase
+  /dev-core:dev #N            Start working on an issue
   /dev-init:init --force      Re-configure anytime
   /dev-core:env-setup         Re-run environment setup only
   /dev-core:ci-setup          Re-run CI/CD setup only
