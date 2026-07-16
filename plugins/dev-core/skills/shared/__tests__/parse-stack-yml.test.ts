@@ -14,6 +14,7 @@ const { parseStackYml } = require('../../../hooks/lib/parse-stack-yml.cjs') as {
     standards: Record<string, string> | null
     runtime: string | null
     commands: { lint: string | null; typecheck: string | null; test: string | null }
+    testingUnit: string | null
     testingE2e: string | null
     ciMerge: string | null
   }
@@ -75,8 +76,20 @@ describe('parseStackYml — edge cases', () => {
     expect(result.standards).toBeNull()
     expect(result.runtime).toBeNull()
     expect(result.commands).toEqual({ lint: null, typecheck: null, test: null })
+    expect(result.testingUnit).toBeNull()
     expect(result.testingE2e).toBeNull()
     expect(result.ciMerge).toBeNull()
+  })
+
+  it('parses testing.unit', () => {
+    const result = parseStackYml(`
+runtime: bun
+testing:
+  unit: bun
+  e2e: none
+`)
+    expect(result.testingUnit).toBe('bun')
+    expect(result.testingE2e).toBeNull()
   })
 
   it('parses runtime, commands, testing.e2e, and ci.merge', () => {

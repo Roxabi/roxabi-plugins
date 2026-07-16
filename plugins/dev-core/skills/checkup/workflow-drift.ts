@@ -40,8 +40,13 @@ export function checkWorkflowDrift(): Check[] {
     deployPlatform: stack.deployPlatform ?? undefined,
     merge: detectMergeStrategy(stack.mergeStrategy),
     e2e: stack.e2e ?? undefined,
-    test: stack.test ?? undefined,
-    commands: { lint: stack.hasLint ? 'lint' : '', typecheck: stack.hasTypecheck ? 'tc' : '' },
+    unit: stack.unit ?? undefined,
+    test: stack.unit ?? stack.test ?? undefined,
+    commands: {
+      lint: stack.hasLint ? 'lint' : '',
+      typecheck: stack.hasTypecheck ? 'tc' : '',
+      test: stack.test ?? '',
+    },
   })
   const expected: Record<string, string> = {
     'ci.yml': generateCiYml(opts),

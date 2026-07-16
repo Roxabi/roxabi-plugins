@@ -100,13 +100,33 @@ export function checkSecurity(): Section {
       : 'not installed — pre-commit hook will fail. Install: brew install trufflehog or https://github.com/trufflesecurity/trufflehog/releases',
   })
 
-  // .github/dependabot.yml
-  const dependabotExists = fs.existsSync('.github/dependabot.yml')
-  checks.push({
-    name: 'dependabot.yml',
-    status: dependabotExists ? 'pass' : 'warn',
-    detail: dependabotExists ? 'found' : 'missing — run /init to create (automated dependency updates)',
-  })
+  // .github/dependabot.yml — require ecosystem + github-actions (partial = fail)
+  const dependabotPath = '.github/dependabot.yml'
+  const dependabotExists = fs.existsSync(dependabotPath)
+  if (!dependabotExists) {
+    checks.push({
+      name: 'dependabot.yml',
+      status: 'warn',
+      detail: 'missing — run /init or /ci-setup to create (automated dependency updates)',
+    })
+  } else {
+    const depYml = fs.readFileSync(dependabotPath, 'utf8') as string
+    const hasGha = /package-ecosystem:\s*github-actions/.test(depYml)
+    const hasApp = /package-ecosystem:\s*(npm|pip)/.test(depYml)
+    if (hasGha && hasApp) {
+      checks.push({
+        name: 'dependabot.yml',
+        status: 'pass',
+        detail: 'found (ecosystem + github-actions)',
+      })
+    } else {
+      checks.push({
+        name: 'dependabot.yml',
+        status: 'warn',
+        detail: `partial — missing ${!hasApp ? 'npm|pip ecosystem' : ''}${!hasApp && !hasGha ? ' and ' : ''}${!hasGha ? 'github-actions' : ''} block — re-run /ci-setup (generator owns full file)`,
+      })
+    }
+  }
 
   // lock file + license checker — inferred from stack.yml package_manager
   let lockFile: string | null = null

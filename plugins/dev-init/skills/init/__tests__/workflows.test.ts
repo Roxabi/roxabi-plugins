@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { ACTION_PINS } from '../lib/workflow-pins'
-import { generateAutoMergeYml, generateCiYml, generateContextLintYml, generateDeployYml } from '../lib/workflows'
-import { generateDependabotAutomergeYml, generateMergeOnGreenYml, generateSecretScanYml } from '../lib/workflows-fleet'
+import {
+  classifyTestRunner,
+  generateAutoMergeYml,
+  generateCiYml,
+  generateContextLintYml,
+  generateDeployYml,
+  workflowOptsFromStack,
+} from '../lib/workflows'
+import {
+  generateDependabotAutomergeYml,
+  generateDependabotYml,
+  generateMergeOnGreenYml,
+  generateSecretScanYml,
+} from '../lib/workflows-fleet'
 
 describe('generateAutoMergeYml', () => {
   it('emits the App token mint step (no secrets.PAT)', () => {
@@ -51,9 +63,24 @@ describe('generateCiYml', () => {
     expect(yml).not.toContain('bun typecheck')
   })
 
-  it('uses the native bun runner for non-vitest bun stacks', () => {
+  it('uses bun run test for bun/jest stacks (package-script convention)', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'jest', deploy: 'none' })
-    expect(yml).toContain('run: bun test')
+    expect(yml).toContain('run: bun run test')
+  })
+
+  it('emits bun runner via --test bun as bun run test by default', () => {
+    const yml = generateCiYml({ stack: 'bun', test: 'bun', deploy: 'none' })
+    expect(yml).toContain('run: bun run test')
+  })
+
+  it('emits verbatim testCommand when set', () => {
+    const yml = generateCiYml({
+      stack: 'bun',
+      test: 'bun',
+      testCommand: 'bun test packages/shared',
+      deploy: 'none',
+    })
+    expect(yml).toContain('run: bun test packages/shared')
   })
 
   it('generates node + jest CI with SHA-pinned setup-node', () => {
@@ -65,10 +92,10 @@ describe('generateCiYml', () => {
     expect(yml).toContain('npm test')
   })
 
-  it('omits test step when test is "none"', () => {
+  it('omits test step and comments when test is "none"', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'none', deploy: 'none' })
-    expect(yml).not.toContain('bun test')
     expect(yml).not.toMatch(/- name: Test/)
+    expect(yml).toContain('test: none — no unit test step')
   })
 
   it('includes optional e2e job when e2e is playwright', () => {
@@ -109,6 +136,52 @@ describe('generateDependabotAutomergeYml', () => {
     expect(yml).toContain('dependabot[bot]')
     expect(yml).toContain('semver-patch')
     expect(yml).toContain(ACTION_PINS.createAppToken)
+  })
+})
+
+describe('generateDependabotYml', () => {
+  it('emits npm + github-actions for bun stack', () => {
+    const yml = generateDependabotYml({ stack: 'bun' })
+    expect(yml).toContain('package-ecosystem: npm')
+    expect(yml).toContain('package-ecosystem: github-actions')
+    expect(yml).toContain('default-days: 3')
+    expect(yml).not.toContain('semver-major-days')
+  })
+
+  it('emits pip ecosystem for python stack', () => {
+    const yml = generateDependabotYml({ stack: 'python' })
+    expect(yml).toContain('package-ecosystem: pip')
+    expect(yml).toContain('package-ecosystem: github-actions')
+  })
+})
+
+describe('classifyTestRunner / workflowOptsFromStack', () => {
+  it('maps bun run test (canonical vitest-on-bun) to vitest, not none', () => {
+    expect(classifyTestRunner(undefined, 'bun run test')).toBe('vitest')
+    const opts = workflowOptsFromStack({
+      runtime: 'bun',
+      commands: { test: 'bun run test' },
+    })
+    expect(opts.test).toBe('vitest')
+    expect(opts.testCommand).toBe('bun run test')
+  })
+
+  it('maps testing.unit bun + bare bun test to bun', () => {
+    expect(classifyTestRunner('bun', 'bun test')).toBe('bun')
+  })
+
+  it('prefers testing.unit vitest over command text', () => {
+    expect(classifyTestRunner('vitest', 'bun run test')).toBe('vitest')
+  })
+
+  it('emits CI test step from stack with only commands.test', () => {
+    const opts = workflowOptsFromStack({
+      runtime: 'bun',
+      commands: { test: 'bun run test', lint: 'bun lint' },
+    })
+    const yml = generateCiYml(opts)
+    expect(yml).toContain('run: bun run test')
+    expect(yml).toMatch(/- name: Test/)
   })
 })
 

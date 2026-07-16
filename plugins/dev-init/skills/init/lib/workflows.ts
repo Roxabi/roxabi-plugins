@@ -287,6 +287,21 @@ export async function pushContextLintYml(
   })
 }
 
+/** Resolve the CI test `run:` command — prefer verbatim commands.test when set. */
+export function resolveTestRunCommand(opts: Required<WorkflowOpts>): string | null {
+  if (opts.test === 'none') return null
+  if (opts.testCommand) return opts.testCommand
+  if (opts.stack === 'python') return opts.test === 'pytest' ? 'uv run pytest' : 'uv run pytest'
+  if (opts.stack === 'bun') {
+    // Prefer bun run test (package script) over bare bun test — aligns with agent hook + monorepos
+    if (opts.test === 'vitest' || opts.test === 'bun' || opts.test === 'jest') return 'bun run test'
+    return 'bun run test'
+  }
+  // node
+  if (opts.test === 'jest' || opts.test === 'vitest') return 'npm test'
+  return 'npm test'
+}
+
 export function generateCiYml(opts: WorkflowOpts): string {
   const o = normalizeWorkflowOpts(opts)
   let setupStep: string
@@ -300,16 +315,11 @@ export function generateCiYml(opts: WorkflowOpts): string {
         run: uv sync --frozen --all-extras`
     if (o.lint) lintStep = '\n      - name: Lint\n        run: uv run ruff check .'
     if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: uv run pyright'
-    if (o.test === 'pytest') testStep = '\n      - name: Test\n        run: uv run pytest'
   } else if (o.stack === 'bun') {
     setupStep = `      - uses: ${ACTION_PINS.setupBun}
       - run: bun install`
     if (o.lint) lintStep = '\n      - name: Lint\n        run: bun lint'
     if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: bun typecheck'
-    if (o.test !== 'none') {
-      const bunTestCmd = o.test === 'vitest' ? 'bun run test' : 'bun test'
-      testStep = `\n      - name: Test\n        run: ${bunTestCmd}`
-    }
   } else {
     setupStep = `      - uses: ${ACTION_PINS.setupNode}
         with:
@@ -317,7 +327,16 @@ export function generateCiYml(opts: WorkflowOpts): string {
       - run: npm ci`
     if (o.lint) lintStep = '\n      - name: Lint\n        run: npm run lint'
     if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: npx tsc --noEmit'
-    if (o.test !== 'none') testStep = '\n      - name: Test\n        run: npm test'
+  }
+
+  const testCmd = resolveTestRunCommand(o)
+  if (testCmd) {
+    testStep = `\n      - name: Test\n        run: ${testCmd}`
+  } else {
+    // Explicit comment — silent-green CI without tests is worse than a red one
+    testStep =
+      '\n      # test: none — no unit test step (commands.test unset / --test none).\n' +
+      '      # If this is wrong, set commands.test + testing.unit and re-run /ci-setup.'
   }
 
   return `name: CI
@@ -476,11 +495,17 @@ export async function pushWorkflows(
     })
     results.push({ file: name, status })
   }
-  const dependabotStatus = await pushWorkflowFile(owner, repo, '.github/dependabot.yml', generateDependabotYml(), {
-    branch,
-    message: 'chore: add dependabot.yml (github-actions + ecosystem)',
-    skipExisting: !force,
-  })
+  const dependabotStatus = await pushWorkflowFile(
+    owner,
+    repo,
+    '.github/dependabot.yml',
+    generateDependabotYml({ stack: o.stack }),
+    {
+      branch,
+      message: 'chore: add dependabot.yml (ecosystem + github-actions)',
+      skipExisting: !force,
+    },
+  )
   results.push({ file: 'dependabot.yml', status: dependabotStatus })
   return results
 }
@@ -541,7 +566,7 @@ export async function writeWorkflows(opts: WorkflowOpts): Promise<string[]> {
   written.push('dependabot-automerge.yml')
 
   fs.mkdirSync('.github', { recursive: true })
-  fs.writeFileSync('.github/dependabot.yml', generateDependabotYml())
+  fs.writeFileSync('.github/dependabot.yml', generateDependabotYml({ stack: o.stack }))
 
   if (o.deploy === 'vercel') {
     fs.writeFileSync(`${dir}/deploy-preview.yml`, generateDeployYml(o))
@@ -555,9 +580,36 @@ export async function writeWorkflows(opts: WorkflowOpts): Promise<string[]> {
   return written
 }
 
+/** Classify unit test runner from testing.unit and/or commands.test. */
+export function classifyTestRunner(unit: string | undefined, command: string | undefined): WorkflowOpts['test'] {
+  const u = (unit ?? '').trim()
+  const c = (command ?? '').trim()
+  if (!u && !c) return 'none'
+  if (/^none$/i.test(u) || (/^none$/i.test(c) && !u)) return 'none'
+
+  // testing.unit is authoritative when set to a known runner
+  if (/^vitest$/i.test(u) || /vitest/i.test(u)) return 'vitest'
+  if (/^jest$/i.test(u) || /jest/i.test(u)) return 'jest'
+  if (/^pytest$/i.test(u) || /pytest/i.test(u)) return 'pytest'
+  if (/^bun$/i.test(u) || /bun:test/i.test(u)) return 'bun'
+
+  // Fall back to commands.test heuristics
+  if (/vitest/i.test(c)) return 'vitest'
+  if (/jest/i.test(c)) return 'jest'
+  if (/pytest/i.test(c)) return 'pytest'
+  // bare `bun test` → native bun runner; `bun run test` → package script (vitest-or-bun script)
+  if (/\bbun\s+test\b/.test(c) && !/\bbun\s+run\s+test\b/.test(c)) return 'bun'
+  if (/\bbun\s+run\s+test\b/.test(c)) return 'vitest' // stack.yml.example convention + hook policy
+  if (c) return 'vitest' // unknown non-empty command still runs — classify generically
+  return 'none'
+}
+
 /** Build WorkflowOpts from stack.yml-shaped fields (ci-setup / checkup drift). */
 export function workflowOptsFromStack(stack: {
   runtime?: string
+  /** testing.unit when available */
+  unit?: string
+  /** legacy alias — testing.unit or commands.test */
   test?: string
   deployPlatform?: string
   e2e?: string
@@ -565,11 +617,10 @@ export function workflowOptsFromStack(stack: {
   merge?: 'auto-merge' | 'merge-on-green'
 }): WorkflowOpts {
   const runtime = (stack.runtime ?? 'bun') as WorkflowOpts['stack']
-  const testRaw = stack.test ?? stack.commands?.test ?? 'none'
-  let test: WorkflowOpts['test'] = 'none'
-  if (/vitest/i.test(testRaw)) test = 'vitest'
-  else if (/jest/i.test(testRaw)) test = 'jest'
-  else if (/pytest/i.test(testRaw)) test = 'pytest'
+  const unit = stack.unit ?? (stack.test && !stack.commands?.test ? stack.test : undefined)
+  const testCommand = stack.commands?.test ?? ''
+  // Prefer unit field; stack.test may be either unit or command depending on caller
+  const test = classifyTestRunner(unit ?? stack.test, testCommand || stack.test)
   let deploy: WorkflowOpts['deploy'] = 'none'
   const platform = stack.deployPlatform ?? ''
   if (platform === 'vercel') deploy = 'vercel'
@@ -577,6 +628,7 @@ export function workflowOptsFromStack(stack: {
   return normalizeWorkflowOpts({
     stack: runtime === 'python' || runtime === 'node' ? runtime : 'bun',
     test,
+    testCommand: testCommand || undefined,
     deploy,
     merge: stack.merge,
     e2e: stack.e2e === 'playwright' ? 'playwright' : 'none',

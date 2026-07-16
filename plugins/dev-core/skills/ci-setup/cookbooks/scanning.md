@@ -59,14 +59,32 @@ skip → D⏭("TruffleHog").
 
 ## Phase 1c — Dependabot
 
+**Owner:** the workflows generator (`bun $I_TS workflows`) writes the full file (ecosystem + github-actions). This phase **verifies / tops up** — never treat path existence alone as complete.
+
 Ask: **Set up Dependabot** | **Skip**.
 yes:
-1. Auto-detect ecosystem from σ `package_manager`: `uv`/`pip` → `pip` | `bun`/`npm`/`pnpm`/`yarn` → `npm`. Unknown → Ask: **pip**|**npm**|**Skip**.
-2. Generate `.github/dependabot.yml` (github-actions block always included; 72h cooldown on fleet):
+1. Auto-detect ecosystem from σ `package_manager` / `runtime`: `uv`/`pip`/`python` → `pip` | `bun`/`npm`/`pnpm`/`yarn`/`node` → `npm`. Unknown → Ask: **pip**|**npm**|**Skip**.
+2. Check content (not just path):
+   ```bash
+   test -f .github/dependabot.yml && \
+     grep -q 'package-ecosystem: github-actions' .github/dependabot.yml && \
+     grep -qE 'package-ecosystem: (npm|pip)' .github/dependabot.yml \
+     && echo complete || echo incomplete
+   ```
+   - **complete** → D("Dependabot", "✅ Already complete (ecosystem + github-actions)"), skip write.
+   - **incomplete / missing** → re-run generator (preferred) so SSOT stays single:
+     ```bash
+     # Prefer generator (same stack as Phase 1). --force only if intentional overwrite.
+     bun $I_TS workflows --owner <owner> --repo <repo> \
+       --stack <stack> --test <test> --deploy <deploy> \
+       --merge <merge> --e2e <e2e> --lint <lint> --typecheck <typecheck> \
+       --force   # only when topping up a partial dependabot.yml; review other workflow diffs first
+     ```
+     Or write the fleet shape locally when offline (must match `generateDependabotYml`):
    ```yaml
    version: 2
    updates:
-     - package-ecosystem: <ecosystem>
+     - package-ecosystem: <ecosystem>   # npm | pip
        directory: /
        schedule:
          interval: weekly
@@ -74,7 +92,9 @@ yes:
        open-pull-requests-limit: 10
        groups:
          minor-and-patch:
-           update-types: [minor, patch]
+           update-types:
+             - minor
+             - patch
        labels:
          - dependencies
 
@@ -85,15 +105,14 @@ yes:
          day: monday
        open-pull-requests-limit: 5
        cooldown:
-         default-days: 3
-         semver-major-days: 3
-         semver-minor-days: 3
-         semver-patch-days: 3
+         default-days: 3   # semver-*-days rejected by GitHub for github-actions
        labels:
          - dependencies
          - ci
    ```
 3. `dependabot-automerge.yml` is pushed by `bun $I_TS workflows` (labels patch/minor dependabot PRs `reviewed`; semver-major excluded).
-4. D("Dependabot", "✅ .github/dependabot.yml created (<ecosystem> + github-actions)").
+4. D("Dependabot", "✅ .github/dependabot.yml created/topped-up (<ecosystem> + github-actions)").
 
 skip → D⏭("Dependabot").
+
+Note: bun → Dependabot `npm` ecosystem (fleet convention). Lockfile support for `bun.lock` is GitHub-side — not re-verified here.

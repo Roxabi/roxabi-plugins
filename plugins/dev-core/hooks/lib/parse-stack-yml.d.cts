@@ -18,6 +18,7 @@ export interface StackYml {
   standards: Record<string, string> | null
   runtime: string | null
   commands: StackCommands
+  testingUnit: string | null
   testingE2e: string | null
   ciMerge: string | null
 }
@@ -31,5 +32,6 @@ export declare function parsePackageManager(text: string | null): string | null
 export declare function parseStandards(text: string | null): Record<string, string> | null
 export declare function parseRuntime(text: string | null): string | null
 export declare function parseCommand(text: string | null, key: string): string | null
+export declare function parseTestingUnit(text: string | null): string | null
 export declare function parseTestingE2e(text: string | null): string | null
 export declare function parseCiMerge(text: string | null): string | null

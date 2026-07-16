@@ -40,9 +40,36 @@ jobs:
 `
 }
 
-export function generateDependabotYml(): string {
+/** Map stack → Dependabot package-ecosystem (bun/node → npm; python → pip). */
+export function dependabotEcosystemFromStack(stack: WorkflowOpts['stack'] | string): 'npm' | 'pip' {
+  return stack === 'python' ? 'pip' : 'npm'
+}
+
+/**
+ * Full dependabot.yml — application ecosystem + github-actions.
+ * Generator owns this file (Phase 1); Phase 1c verifies content completeness.
+ * github-actions cooldown: default-days only (semver-*-days rejected by GitHub for gha).
+ */
+export function generateDependabotYml(
+  opts: { stack: WorkflowOpts['stack'] } | { ecosystem: 'npm' | 'pip' } = { stack: 'bun' },
+): string {
+  const ecosystem = 'ecosystem' in opts ? opts.ecosystem : dependabotEcosystemFromStack(opts.stack)
   return `version: 2
 updates:
+  - package-ecosystem: ${ecosystem}
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -51,9 +78,9 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 3
-      semver-major-days: 3
-      semver-minor-days: 3
-      semver-patch-days: 3
+    labels:
+      - dependencies
+      - ci
 `
 }
 
