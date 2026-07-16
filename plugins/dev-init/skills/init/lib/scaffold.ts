@@ -179,7 +179,7 @@ export function mergeEnvExample(existing: string, newBlock: string): string {
 }
 
 const SHIM_CONTENT = `#!/bin/sh
-# Installed by dev-core /init — do not edit.
+# Installed by dev-init — do not edit.
 # Auto-resolves the latest active dev-core plugin cache.
 BASE="$HOME/.claude/plugins/cache/roxabi-marketplace/dev-core"
 LATEST=""
