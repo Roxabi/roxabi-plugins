@@ -23,7 +23,7 @@ The file has two parts: a YAML frontmatter header and a markdown body with instr
 - `name` — the skill identifier, in kebab-case (e.g. `compress`)
 - `description` — one-line purpose followed by `Triggers: "phrase1" | "phrase2"`. This is how Claude decides when to activate the skill, so be specific
 - `version` — semantic version starting at `0.1.0`
-- `allowed-tools` — comma-separated list of tools the skill can use (e.g. `Read, Edit, Write, Bash, Glob`). Always include `ToolSearch` — required to load deferred tools (`EnterWorktree`, `Task*`, `WebFetch`, etc.). 
+- `allowed-tools` — comma-separated list of tools **pre-approved** to run without a permission prompt while the skill is active (e.g. `Read, Edit, Write, Bash, Glob`). It does **not** restrict availability — every tool stays callable regardless; use `disallowed-tools` to actually remove tools from the pool. List every tool the skill drives so it runs prompt-free, including `Agent` if it spawns sub-agents. Always include `ToolSearch` — required to load deferred tools (`EnterWorktree`, `Agent`, `WebFetch`, etc.). 
 
 **Example frontmatter:**
 
