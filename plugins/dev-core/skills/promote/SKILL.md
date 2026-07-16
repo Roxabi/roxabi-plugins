@@ -256,7 +256,10 @@ git push origin "$VERSION"
 
 **9d.** Release:
 ```bash
-gh release create "$VERSION" --title "$VERSION" --notes "$CHANGELOG_CONTENT"
+# Title drops the tag separator: `<component>/vX.Y.Z` → `<component> vX.Y.Z` (bare `vX.Y.Z` unchanged),
+# matching existing GitHub Release names (e.g. `roxabi-live v0.24.0`).
+TITLE="${VERSION/\/v/ v}"
+gh release create "$VERSION" --title "$TITLE" --notes "$CHANGELOG_CONTENT"
 ```
 
 Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
