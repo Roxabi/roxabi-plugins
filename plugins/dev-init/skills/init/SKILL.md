@@ -49,7 +49,7 @@ Run: `bun $I_TS prereqs`. Parse JSON → display ✅/❌ table for bun, gh, git 
 Call sub-skills in order. Each runs its own phases, asks its own questions, displays its own progress.
 
 ```
-skill: "env-setup", args: "{args}"
+skill: "dev-core:env-setup", args: "{args}"
 ```
 
 ### Phase 3a — Axial ADR (mandatory drift prevention)
@@ -92,18 +92,18 @@ Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
    - `cancelled` ∧ F → ⚠️ warn "axial ADR skipped via --force — drift risk acknowledged", continue.
 
 ```
-skill: "ci-setup", args: "{args}"
+skill: "dev-core:ci-setup", args: "{args}"
 ```
 
 ```
-skill: "release-setup", args: "{args}"
+skill: "dev-core:release-setup", args: "{args}"
 ```
 
 ## Phase 4 — Report
 
 ```
-dev-core initialized
-====================
+dev-init complete
+=================
 
   Run /checkup   to verify full configuration health
   Run /seed-docs to populate docs stubs from CLAUDE.md + codebase
