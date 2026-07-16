@@ -63,10 +63,10 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 |------|-------------------|
 | recheck | issue — no on-disk prereq; always runs from session state |
 | frame | issue |
-| analyze | `artifacts/frames/{N}-{slug}-frame.mdx` or `artifacts/frames/{slug}-frame.mdx` (approved) |
-| spec | `artifacts/frames/{slug}-frame.mdx` or `artifacts/analyses/{N}-{slug}-analysis.mdx` |
-| plan | `artifacts/specs/{N}-{slug}-spec.mdx` |
-| implement | `artifacts/plans/{N}-{slug}-plan.mdx` (or spec for S-tier) |
+| analyze | `artifacts/frames/{N}-{slug}-frame.md` or `artifacts/frames/{slug}-frame.md` (approved) |
+| spec | `artifacts/frames/{slug}-frame.md` or `artifacts/analyses/{N}-{slug}-analysis.md` |
+| plan | `artifacts/specs/{N}-{slug}-spec.md` |
+| implement | `artifacts/plans/{N}-{slug}-plan.md` (or spec for S-tier) |
 | pr | worktree with code changes |
 | validate | PR ∃ |
 | review | PR ∃ |

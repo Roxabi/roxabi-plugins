@@ -6,7 +6,7 @@ Templates used by the spec skill for document generation.
 
 ## Spec Document Template
 
-```mdx
+```md
 ---
 title: "{title}"
 description: "{one-line description}"

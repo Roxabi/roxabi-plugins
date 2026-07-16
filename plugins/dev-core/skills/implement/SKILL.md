@@ -14,7 +14,7 @@ I := QG pass ∧ worktree ∃ ∧ commits > 0
 V := `cd .claude/worktrees/{N}-{slug} && {commands.format} && {commands.lint} && {commands.typecheck} && {commands.test}` → exit 0
 
 Let:
-  π := artifacts/plans/{N}-{slug}.mdx
+  π := artifacts/plans/{N}-{slug}.md
   τ := tier (S | F-lite | F-full)
   ω := worktree (managed via EnterWorktree/ExitWorktree)
   β := base branch (staging if ∃ origin/staging, else main)
@@ -27,7 +27,7 @@ Plan → ω → agents (test-first) → passing QG.
 
 ```
 /implement --issue 42        Execute plan for issue #42
-/implement --plan artifacts/plans/42-dark-mode-plan.mdx   Execute from explicit plan path
+/implement --plan artifacts/plans/42-dark-mode-plan.md   Execute from explicit plan path
 /implement --issue 42 --audit   Show reasoning checkpoint before coding
 ```
 
@@ -36,7 +36,7 @@ Does NOT create a PR — that is `/pr` (next step).
 ## Chain Position
 
 - **Phase:** Build
-- **Predecessor:** `/plan` (artifact: `artifacts/plans/{N}-{slug}-plan.mdx`)
+- **Predecessor:** `/plan` (artifact: `artifacts/plans/{N}-{slug}-plan.md`)
 - **Successor:** `/pr`
 - **Class:** adv (continuous flow, no gate)
 
@@ -72,11 +72,11 @@ Steps: locate-plan → setup → context-inject → implement → quality-gate �
 
 ## Step 1 — Locate Plan
 
-`--issue N` → `ls artifacts/plans/N-*.mdx` → read full → extract tasks, agents, τ, slug.
+`--issue N` → `ls artifacts/plans/N-*.md*` → read full → extract tasks, agents, τ, slug.
 `--plan <path>` → read directly.
 ¬found ⇒ suggest `/plan`. **Stop.**
 
-**S-tier exception:** τ=S ∧ ¬π → locate spec (`ls artifacts/specs/N-*.mdx`) or issue body (`gh issue view N --json body`). Skip to Step 4 (Tier S). ¬require π for τ=S.
+**S-tier exception:** τ=S ∧ ¬π → locate spec (`ls artifacts/specs/N-*.md*`) or issue body (`gh issue view N --json body`). Skip to Step 4 (Tier S). ¬require π for τ=S.
 
 Extract from frontmatter: `issue`, `tier`, `spec` path. From body: agent list, task list, slice structure.
 
@@ -216,7 +216,7 @@ Before printing summary → `TaskList` → assert every plan-task with `metadata
 
 For τ=F (F-lite or F-full):
 
-1. Read spec (`artifacts/specs/{N}-*.mdx`) → extract all SC-N lines (e.g. `SC1: …`, `SC2: …`).
+1. Read spec (`artifacts/specs/{N}-*.md*`) → extract all SC-N lines (e.g. `SC1: …`, `SC2: …`).
 2. Read tester deliverable (from task outputs or grep test files in ω): collect `{file} :: {test name}` pairs.
 3. For each SC:
    - ≥1 named test mapped → row: `| SC-N: {text} | {file} :: {test name}[, …] | ⏳ not run |`

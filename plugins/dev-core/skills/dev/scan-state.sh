@@ -43,7 +43,7 @@ wt_list() {
   fi
 }
 
-# frame (handles both {N}-{slug}.mdx and {slug}.mdx patterns)
+# frame (handles both {N}-{slug}.md and {slug}.md patterns; legacy .mdx ok)
 FRAME=$(ls artifacts/frames/ 2>/dev/null | grep -iE "$N_ANCHOR" | grep -iF -- "${SLUG}" | head -1 || true)
 [ -z "$FRAME" ] && FRAME=$(ls artifacts/frames/ 2>/dev/null | grep -iF -- "${SLUG}" | head -1 || true)
 [ -z "$FRAME" ] && FRAME=$(wt_list "artifacts/frames" | grep -iE "$N_ANCHOR" | grep -iF -- "${SLUG}" | head -1 || true)

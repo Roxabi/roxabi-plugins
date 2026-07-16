@@ -25,14 +25,14 @@ Triggers: `"frame"` | `"frame this"` | `"what's the problem"` | `"define the pro
    - `simplest_alternative` + why it's insufficient — forces explicit comparison against the minimal solution
    Cannot proceed without all three. Non-falsifiable failure modes trigger an abort prompt.
 4. **Tier detection** — infers S / F-lite / F-full from complexity signals (file count, domain breadth, unknowns); lets you override.
-5. **Write frame doc** — creates `artifacts/frames/{N}-{slug}-frame.mdx` with status: `draft`.
+5. **Write frame doc** — creates `artifacts/frames/{N}-{slug}-frame.md` with status: `draft`.
 6. **User approval** — presents the frame for confirmation; loops on revisions until approved.
 7. **Commit + status update** — sets issue status to `Analysis` and commits the artifact.
 
 ## Output artifact
 
 ```
-artifacts/frames/{N}-{slug}-frame.mdx
+artifacts/frames/{N}-{slug}-frame.md
 ```
 
 Fields: `title`, `issue`, `status: approved`, `tier`, `date`, Problem, Who, Constraints, Out of Scope, Premise Validity (required: `success_in_6mo`, `failure_in_6mo`, `simplest_alternative` + why-not), Complexity.

@@ -74,7 +74,7 @@ git diff origin/${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|a
 ## Phase 2 — Spec Compliance
 
 1. issue_num ← `git branch --show-current | grep -oP '\d+' | head -1`
-2. spec ← `ls artifacts/specs/<issue_num>-*.mdx 2>/dev/null`
+2. spec ← `ls artifacts/specs/<issue_num>-*.md artifacts/specs/<issue_num>-*.mdx 2>/dev/null | head -1`
 3. spec ∃ → ∀ criterion: met → ∅ | ¬met → `issue(blocking):` | ∀ met → `praise:`
 4. spec ∄ → skip
 5. SC→Test matrix (τ≠S): matrix ∃ in PR body → verify no silent gaps (every SC has a row), NO TEST reasons ∈ `{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}` enum. ¬matrix ∧ τ≠S → `issue(blocking):` missing SC→Test matrix.
