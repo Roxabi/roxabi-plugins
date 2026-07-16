@@ -237,9 +237,15 @@ gh pr list --base main --head staging --state merged --limit 1 --json number,tit
 
 **9b.** Detect V:
 ```bash
-grep -oP '## \[\Kv[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1
+# Newest CHANGELOG heading — tolerate `## [0.24.1]` and `## [v0.24.1]`, bare or with a
+# trailing `(compare-url)` (release-please writes the former, `release-artifacts.md` the latter).
+V_RAW=$(grep -oP '^##\s*\[\Kv?[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1)
+# Apply the repo's tag convention: `<component>/vX.Y.Z` if it already uses one, else bare `vX.Y.Z`.
+TAG_PREFIX=$(git tag -l '*/v*' --sort=-v:refname | head -1 | sed -E 's|/v[0-9]+\.[0-9]+\.[0-9]+$|/v|')
+VERSION="${TAG_PREFIX:-v}${V_RAW#v}"
+echo "$VERSION"
 ```
-Q: **Use {detected}** | **Custom version**
+Q: **Use {VERSION}** | **Custom version** (override when a multi-package repo's newest tag is the wrong component)
 
 **9c.** Tag:
 ```bash
@@ -250,7 +256,10 @@ git push origin "$VERSION"
 
 **9d.** Release:
 ```bash
-gh release create "$VERSION" --title "$VERSION" --notes "$CHANGELOG_CONTENT"
+# Title drops the tag separator: `<component>/vX.Y.Z` → `<component> vX.Y.Z` (bare `vX.Y.Z` unchanged),
+# matching existing GitHub Release names (e.g. `roxabi-live v0.24.0`).
+TITLE="${VERSION/\/v/ v}"
+gh release create "$VERSION" --title "$TITLE" --notes "$CHANGELOG_CONTENT"
 ```
 
 Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."

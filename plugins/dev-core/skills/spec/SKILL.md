@@ -11,12 +11,12 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ## Success
 
 I := σ written ∧ pre-check pass ∧ |χ| ≤ 5
-V := `ls artifacts/specs/{N}-*.mdx` ∧ pre-check: 0 failures
+V := `ls artifacts/specs/{N}-*.md*` ∧ pre-check: 0 failures
 
 Let:
-  α := artifacts/analyses/{N}-{slug}-analysis.mdx
-  σ := artifacts/specs/{N}-{slug}-spec.mdx
-  φ := artifacts/frames/{slug}-frame.mdx
+  α := artifacts/analyses/{N}-{slug}-analysis.md
+  σ := artifacts/specs/{N}-{slug}-spec.md
+  φ := artifacts/frames/{slug}-frame.md
   ρ := reviewer set
   χ := `[NEEDS CLARIFICATION]`
   Ω := `skill: "interview"`
@@ -60,7 +60,7 @@ Steps: resolve → generate → pre-check → review → approval
 `--issue N` → scan priority order:
 ```bash
 # 1. Find analysis with matching issue number
-ls artifacts/analyses/{N}-*.mdx 2>/dev/null | head -1
+ls artifacts/analyses/{N}-*.md* 2>/dev/null | head -1
 # 2. Find frame with matching issue in frontmatter
 grep -rl "issue: N" artifacts/frames/ 2>/dev/null | head -1
 ```
@@ -95,7 +95,7 @@ Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*`.
 
 ## Step 2 — Generate Spec
 
-`Ω, args: "--promote artifacts/analyses/{N}-{slug}-analysis.mdx"` (or frame path if no α).
+`Ω, args: "--promote artifacts/analyses/{N}-{slug}-analysis.md"` (or frame path if no α).
 
 Interview pre-fills from SRC. Focus on gaps to spec level:
 - Acceptance criteria (binary pass/fail)
@@ -187,13 +187,13 @@ Incorporate feedback → revise σ → note unresolved concerns.
 
 ## Step 5 — User Approval
 
-Open σ: `code artifacts/specs/{N}-{slug}-spec.mdx`.
+Open σ: `code artifacts/specs/{N}-{slug}-spec.md`.
 
 Present summary: scope, |slices|, |acceptance criteria|, |χ|, pre-check results, unresolved expert concerns.
 
 Q: **Approve** → continue pipeline | **Revise** → collect feedback → revise σ → loop from Step 3.
 
-On approval → commit: `git add artifacts/specs/{N}-{slug}-spec.mdx artifacts/visuals/` + commit per CLAUDE.md Rule 5.
+On approval → commit: `git add artifacts/specs/{N}-{slug}-spec.md artifacts/visuals/` + commit per CLAUDE.md Rule 5.
 
 Run Gate 2.5 → update issue status:
 ```bash

@@ -104,7 +104,7 @@ Read-only mode. Parses an existing axial ADR, then audits a diff (from `/code-re
 
 Dispatch context provides one of:
 - **Code diff** (from `/code-review`): chunk text or full diff in the dispatch prompt
-- **Spec mdx** (from `/spec`): path to spec.mdx in the dispatch prompt
+- **Spec** (from `/spec`): path to spec.md in the dispatch prompt
 
 Determine artifact type from prompt context. ¬artifact context → emit `issue:` request missing context; exit.
 

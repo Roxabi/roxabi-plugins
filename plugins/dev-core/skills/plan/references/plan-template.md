@@ -1,7 +1,7 @@
 ---
 title: "Plan: {Feature Title}"
 issue: 0
-spec: artifacts/specs/0-example.mdx
+spec: artifacts/specs/0-example.md
 complexity: 0
 tier: F-lite
 generated: "2026-01-01T00:00:00Z"
@@ -27,7 +27,7 @@ generated: "2026-01-01T00:00:00Z"
 
 ## Bootstrap Context
 
-{Conclusions and selected shape from artifacts/analyses/{issue}-*.mdx, if exists. Omit section if no analysis.}
+{Conclusions and selected shape from artifacts/analyses/{issue}-*.md, if exists. Omit section if no analysis.}
 
 ## Agents
 

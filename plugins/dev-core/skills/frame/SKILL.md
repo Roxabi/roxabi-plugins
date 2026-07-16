@@ -11,10 +11,10 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ## Success
 
 I := φ written ∧ status: approved
-V := `cat artifacts/frames/{N}-{slug}-frame.mdx | head -10 | grep "status: approved"`
+V := `cat artifacts/frames/{N}-{slug}-frame.md | head -10 | grep "status: approved"`
 
 Let:
-  φ := artifacts/frames/{N}-{slug}-frame.mdx (∃N) ∨ artifacts/frames/{slug}-frame.mdx (frame-only)
+  φ := artifacts/frames/{N}-{slug}-frame.md (∃N) ∨ artifacts/frames/{slug}-frame.md (frame-only)
   N := issue number (∅ if free text)
   τ := tier ∈ {S, F-lite, F-full}
   AQ := present choice, wait for user reply
@@ -131,7 +131,7 @@ AQ: **Confirm {τ}** | **Override → S** | **Override → F-lite** | **Override
 
 Write φ with `status: draft`:
 
-```mdx
+```md
 ---
 title: {title}
 issue: {N | null}
@@ -187,7 +187,7 @@ AQ: **Approve** | **Revise** (specify what to change).
 
 φ written with `status: approved`.
 
-Commit: `git add artifacts/frames/{N}-{slug}-frame.mdx` + commit per CLAUDE.md Rule 5.
+Commit: `git add artifacts/frames/{N}-{slug}-frame.md` + commit per CLAUDE.md Rule 5.
 
 ∃ N →
 ```bash
