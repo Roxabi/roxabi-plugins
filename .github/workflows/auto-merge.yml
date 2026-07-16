@@ -44,19 +44,31 @@ jobs:
           app-id: ${{ vars.ROXABI_CI_APP_ID }}
           private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}
 
-      - name: Block dependabot semver-major bumps
+      # Read the real update-type from Dependabot's metadata instead of parsing
+      # the PR title. The old title-regex only matched single-dependency titles
+      # ("bump X from A to B"); grouped PRs are titled "bump the <group> group…"
+      # with no versions, so the guard never fired for a grouped major. For a
+      # grouped PR, fetch-metadata reports the HIGHEST update-type across the
+      # group — so a major hidden inside a group is caught.
+      - name: Fetch dependabot metadata
+        id: dependabot-meta
         if: github.event.pull_request.user.login == 'dependabot[bot]'
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98  # v3.1.0
+        with:
+          github-token: ${{ steps.app.outputs.token }}
+
+      - name: Block dependabot semver-major bumps
+        if: >-
+          github.event.pull_request.user.login == 'dependabot[bot]' &&
+          steps.dependabot-meta.outputs.update-type == 'version-update:semver-major'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          if [[ "$PR_TITLE" =~ from\ v?([0-9]+)[^\ ]*\ to\ v?([0-9]+) ]] && [ "${BASH_REMATCH[1]}" != "${BASH_REMATCH[2]}" ]; then
-            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
-              --body "Auto-merge refusé : bump **semver-major**. Validation manuelle requise (e2e / boot de l'artefact), puis merge à la main."
-            echo "::error::semver-major dependency bump — auto-merge refused"
-            exit 1
-          fi
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --body "Auto-merge refusé : bump **semver-major**. Validation manuelle requise (e2e / boot de l'artefact), puis merge à la main."
+          echo "::error::semver-major dependency bump — auto-merge refused"
+          exit 1
 
       - name: Update branch (lazy sync for late joiners)
         if: contains(github.event.pull_request.labels.*.name, 'reviewed')
