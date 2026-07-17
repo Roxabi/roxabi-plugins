@@ -1,0 +1,280 @@
+---
+title: "Plan: Rebuild /promote version detection on reachability + stamp version files"
+issue: 353
+spec: artifacts/specs/353-rebuild-version-detection-spec.mdx
+complexity: 6/10
+tier: F-lite
+generated: 2026-07-17
+---
+
+## Summary
+
+Build `price.sh` — the single reachability-based version deriver — and rewire `/promote` so every pre-merge artifact (PR title, CHANGELOG heading, version file) becomes a **witness** of `price(BASE_SHA..M)`, never a source of it. Add the pre-merge CI guard (`release-consistency.yml`, reusable), its provisioner, and the version-file stamp step. All artifacts land in `roxabi-plugins`; the roxabi-live dogfood (run the provisioner there) is a follow-up.
+
+## Architecture
+
+**Data flow:** [How /promote derives a version — one deriver, many consumers](../visuals/353-rebuild-version-detection-data-flow.html)
+**File map:** [File × responsibility map — #353](../visuals/353-rebuild-version-detection-file-map.html)
+
+Companion (from spec): [$VERSION — derived once, witnessed three ways](../visuals/353-rebuild-version-detection-data-model.html) · [Who reads a release tag](../visuals/353-rebuild-version-detection-consumers.html)
+
+## Agents
+
+| Instance | Tasks | Files | Subject |
+|---|---|---|---|
+| backend-dev-A | T2 | `skills/promote/price.sh` | derivation |
+| backend-dev-B | T6 | `skills/promote/lib/finalize.ts` | finalize |
+| devops-A | T11 | `.github/workflows/release-consistency.yml` | ci-gate |
+| devops-B | T12 | `scripts/provision-release-gate.sh` | provisioner |
+| tester-A | T1, T14 | `__tests__/price.test.ts`, gate/provisioner tests | derivation, ci-gate |
+| tester-B | T5 | `__tests__/finalize.test.ts` | finalize |
+| main-loop (doc-writer-A) | T3, T4, T7, T8, T9, T10, T13, T16 | `SKILL.md`, `release-artifacts.md`, `stack.yml.example`, versions | promote-proc, config |
+
+**Main-loop rationale (documented waiver):** SKILL.md (318 L) + release-artifacts.md (140 L) are edited across ≥5 sections. Per the agent-thrash-on-big-files and fixer-co-mangle constraints, these surgical anchored edits are driven in the main loop, not a spawned agent. A main-loop "instance" is not a single bounded context window, so the per-instance `|tasks|>4` cap does not apply — each edit is independent and offset/limit-scoped. Approved at the plan-approach gate.
+
+## Wave Structure
+
+5 waves, max 4 parallel spawned agents (+ main-loop). Elapsed ~2 days ∥ vs ~4 days sequential.
+
+| Wave | Trigger | Agents | Tasks |
+|------|---------|--------|-------|
+| 1 | start | 2 ∥ + main + bg | tester-A: T1 · tester-B: T5 · main-loop: T3 · me: T15 (sidecars, bg) |
+| 2 | Wave 1 RED green-fails | 2 ∥ | backend-dev-A: T2 · backend-dev-B: T6 |
+| 3 | T2, T6 done | 1 ∥ + main | devops-A: T11 · main-loop: T4→T7→T8, T9, T10 |
+| 4 | T11 done | 2 ∥ + main | devops-B: T12 · tester-A: T14 · main-loop: T13 |
+| 5 | all done | main | main-loop: T16 (version bumps + full gate) |
+
+RED-GATE sentinels: **V1** after T2/T4 (slice 1) · **V2** after T6–T10 (slice 2) · **V3** after T11–T14 (slice 3).
+
+### Budget — per task
+
+| Task | Items | Class | Est. ops | Split? |
+|------|-------|-------|----------|--------|
+| T1 price.test.ts | 6 | judgmental | 14 | — |
+| T2 price.sh | 1 | judgmental | 12 | — |
+| T3 stack.yml.example | 1 | bounded | 3 | — |
+| T4 release-artifacts step 2 | 1 | judgmental | 6 | — |
+| T5 finalize.test.ts | 5 | judgmental | 12 | — |
+| T6 finalize.ts | 1 | judgmental | 8 | — |
+| T7 release-artifacts step 2b | 1 | bounded | 4 | — |
+| T8 SKILL.md step 1 guards | 3 | judgmental | 10 | — |
+| T9 SKILL.md step 6b | 1 | bounded | 4 | — |
+| T10 SKILL.md step 9 finalize | 1 | judgmental | 8 | — |
+| T11 release-consistency.yml | 2 | judgmental | 10 | — |
+| T12 provision-release-gate.sh | 1 | judgmental | 12 | — |
+| T13 SKILL.md step 1 gate probe | 1 | judgmental | 8 | — |
+| T14 gate/provisioner tests | 3 | judgmental | 12 | — |
+| T15 forge sidecars | 2 | exploratory | 16 | — (delegated bg) |
+| T16 version bump + full gate | 2 | bounded | 6 | — |
+
+**Total estimated ops: ~145.**
+
+### Budget — per agent instance
+
+| Instance | Tasks | Σ ops | Subjects | Split? |
+|----------|-------|-------|----------|--------|
+| backend-dev-A | T2 | 12 | derivation | — |
+| backend-dev-B | T6 | 8 | finalize | — |
+| devops-A | T11 | 10 | ci-gate | — |
+| devops-B | T12 | 12 | provisioner | — |
+| tester-A | T1, T14 | 26 | derivation, ci-gate | — (2 subjects, at cap) |
+| tester-B | T5 | 12 | finalize | — |
+| main-loop | T3,T4,T7,T8,T9,T10,T13,T16 | 49 | promote-proc, config | waived (not a bounded context — see rationale) |
+
+## Consistency Report
+
+27 spec success criteria → task coverage: **27/27 covered, 0 untraced.**
+
+| Criteria cluster | Tasks |
+|---|---|
+| price.sh golden BASE (7 repos), #140, #267→#270, bump map, exit codes | T1, T2 |
+| no-`release:` REFUSE + paste block; zero-tags vs unreachable | T2, T4, T8 |
+| step 2b stamp (+ `[]` no-op) | T7 |
+| step 1 hand-drift REFUSE (+ abandoned-after-6b distinction) | T8 |
+| gate probe: required/bypass/un-protectable WARN | T13 |
+| unfinalized-promote via PR metadata (rejects #267/#257) | T8 |
+| 6b poll-until-MERGED + delete false `--auto` claim | T9 |
+| S11 derive-from-merge-alone; WARN-not-REFUSE; structural REFUSE; per-artifact idempotence; replay a66eb452→0.24.1 | T5, T6, T10 |
+| S9 green-on-non-promote; red-on-mid-review-feat/edited-title/heading-drift; head-SHA + check-name byte-identity | T11, T14 |
+| two-artifact gate (reusable + stub owns triggers); fetch-depth:0 shallow fixture | T11, T14 |
+| S12 provision idempotent + `--remove` | T12, T14 |
+| price.sh pin-skew fails red | T11, T14 |
+| push-path behind/ahead via workflow_dispatch override | T11, T14 |
+| `validate_plugins.py` + `bun run test` green | T16 |
+
+**Exemptions:** the "7 measured repos golden BASE" criterion is cross-repo — verified by a `verify-golden.sh` script run against clones (slice-1 demo), plus 2 hermetic git fixtures (#140, #267→#270) in T1. The slice-3 **live** throwaway-PR probe and the roxabi-live dogfood are event-dependent → tracked as the dogfood follow-up (spec constraint: "#353 may close on slices 1–3 merging").
+
+## Micro-Tasks
+
+Fields: file · verify · spec-trace · phase · [P] · agent · difficulty.
+
+### Slice 1 — Detection (S1, S2, S3, S6)
+
+**T1 [RED] `price.test.ts` — deriver test harness + failing cases** `[P]`
+- File: `plugins/dev-core/skills/promote/__tests__/price.test.ts`
+- Shape: vitest suite that builds **throwaway git fixture repos** in a temp dir (`execSync` git init/commit/tag), runs `bash price.sh …`, asserts stdout + exit code. Cases: (a) #140 replay — DAG with `e73f96b` release-merge and `dca88f1` staging tip, `rev-list --no-merges e73f96b..dca88f1` == `{c013d30}`, derived `0.8.0`; (b) #267→#270 — hotfix commit merged direct-to-main sits in `M^1` but is priced from the `BASE_SHA` floor **exactly once**; (c) bump map total (feat→minor, fix/chore/other→patch, `feat!`/`BREAKING CHANGE`→major, empty→derived==BASE); (d) exit codes 0 / 10 / ≥1.
+- Verify: `cd <worktree> && bun run test price.test 2>&1 | grep -E 'fail|price'` → RED (price.sh absent).
+- Trace: SC price-golden, SC-#140, SC-#267, SC-bump, SC-exit. Phase: RED. Agent: tester-A. Diff: 4.
+
+**T2 [GREEN] `price.sh` — the sole deriver** 
+- File: `plugins/dev-core/skills/promote/price.sh` (new, `#!/usr/bin/env bash`, `set -euo pipefail`)
+- Signature: `price.sh COMPONENT ANCHOR HEAD...` → `X.Y.Z` on stdout.
+- Logic: `git tag -l "${COMPONENT}/v*"` → filter `^${COMPONENT}/v[0-9]+\.[0-9]+\.[0-9]+$` (drop pre-release) → keep only tags **reachable from ANCHOR** (`if git merge-base --is-ancestor "$sha" "$ANCHOR"; then` — guarded, never bare under `set -e`) → `sort -V` → max = `BASE` / `BASE_SHA`. Payload = `git rev-list --no-merges ^"$BASE_SHA" "$@HEADs"` classified per **D18**. No reachable tag → `exit 10`. Bump BASE per payload; empty payload → echo BASE (derived==BASE). Bad args / git failure → `exit ≥1`.
+- Verify: `cd <worktree> && bun run test price.test` → GREEN; `bash plugins/dev-core/skills/promote/price.sh roxabi-plugins origin/main origin/main origin/staging` returns a bare `X.Y.Z`.
+- Trace: S2, D10, D18. Phase: GREEN. Agent: backend-dev-A. Diff: 4. blockedBy: T1.
+
+**T3 [GREEN] `stack.yml.example` — `release:` block** `[P]`
+- File: `plugins/dev-core/stack.yml.example`
+- Add:
+  ```yaml
+  release:
+    class: NONE           # PRODUCER | TRIGGER | NONE — grep-derived, not judged
+    component: null        # tag prefix; scopes BASE. REQUIRED — null ⇒ /promote REFUSE
+    version_files: []      # stamped by step 2b; [] ⇒ no-op. Keep [] until the file is reconciled
+  ```
+- Verify: `python3 -c "import yaml,sys; d=yaml.safe_load(open('plugins/dev-core/stack.yml.example')); assert 'release' in d and set(d['release'])=={'class','component','version_files'}"`
+- Trace: S1, D11. Phase: GREEN. Agent: main-loop. Diff: 1.
+
+**T4 [GREEN] `release-artifacts.md` step 2 — `git describe` → `price.sh`** 
+- File: `plugins/dev-core/skills/promote/references/release-artifacts.md` (§Compute Version, lines ~5–38)
+- Replace the `git describe`/`git log`/manual-bump block with: read `release.component` from `.claude/stack.yml` (null/absent → **REFUSE** + paste-ready block, S6); `price.sh <component> origin/main origin/main origin/staging` → preview; exit `10` → first release `<component>/v0.1.0` (+ warn if unreachable-tags case). Preview is a **proposal**; `Custom version` retained.
+- Verify: `grep -q 'price.sh' release-artifacts.md && ! grep -q 'git describe --tags --abbrev=0' release-artifacts.md`
+- Trace: S3, S6, D13. Phase: GREEN. Agent: main-loop. Diff: 3. blockedBy: T2.
+
+**RED-GATE V1:** `bun run test` price suite green ∧ `price.sh` returns bare `X.Y.Z` on this repo ∧ `verify-golden.sh` matches 7 goldens. Do not start Slice 2 impl until green.
+
+### Slice 2 — Derive + write (S4, S5, S8, S11)
+
+**T5 [RED] `finalize.test.ts` — verdict-logic failing cases** `[P]`
+- File: `plugins/dev-core/skills/promote/__tests__/finalize.test.ts`
+- Cases (pure, IO-injected — mirror pin-swap.test.ts style): derive from `{merge, M^1, tag}` alone; witness mismatch → `{action:'tag', warnings:[…]}` (WARN, **not** refuse); structural REFUSE on ≠2 parents / not-a-promote / empty payload (derived==BASE); per-artifact idempotence — tag+release both point at M → `noop`; only tag → `create-release`; either points elsewhere → `refuse`.
+- Verify: `bun run test finalize.test` → RED. Trace: S11, D4/D7/D16. Phase: RED. Agent: tester-B. Diff: 3.
+
+**T6 [GREEN] `lib/finalize.ts` — pure verdict logic** 
+- File: `plugins/dev-core/skills/promote/lib/finalize.ts`
+- Export `classifyFinalize({parentCount, derived, base, witnesses:{title,heading,versionFile}, tagState, releaseState}) → {action:'tag'|'create-release'|'noop'|'refuse', warnings:string[], reason?}`. Structural REFUSE precedence; witness disagreement → WARN not refuse; idempotence per artifact (D16). Bump/derivation itself stays in `price.sh` — this lib only judges the finalize verdict around price.sh's output.
+- Verify: `bun run test finalize.test` → GREEN. Trace: S11, D4/D7/D16. Phase: GREEN. Agent: backend-dev-B. Diff: 3. blockedBy: T5.
+
+**T7 [GREEN] `release-artifacts.md` step 2b (new) — version-file stamp** 
+- File: `plugins/dev-core/skills/promote/references/release-artifacts.md` (insert after §Compute Version)
+- New "§Stamp Version Files (Step 2b)": for each path in `release.version_files`, write the preview version; `[]` → no-op green. Verify path exists (missing → REFUSE, config lies).
+- Verify: `grep -q 'Step 2b' release-artifacts.md`. Trace: S4, D12. Phase: GREEN. Agent: main-loop. Diff: 2. blockedBy: T4.
+
+**T8 [GREEN] `SKILL.md` step 1 — entry guard + component guard + unfinalized detect** 
+- File: `plugins/dev-core/skills/promote/SKILL.md` (Step 1 table §53–66)
+- Add rows: S5 `version_file != BASE` → REFUSE (message distinguishes hand-drift from a promote abandoned after 6b, reconcile cmd for each); S6 `component` null/absent → REFUSE + paste-ready block; unfinalized-promote via **PR metadata** (`gh pr list --base main --head staging --state merged` whose derived version has no tag → offer resume). Never lineage (D8 — rejects #267/#257).
+- Verify: `grep -qE 'pr list --base main --head staging.*merged' SKILL.md && ! grep -q 'is-ancestor.*origin/staging' SKILL.md`
+- Trace: S5, S6, D8, D13. Phase: GREEN. Agent: main-loop. Diff: 3. blockedBy: T2, T7.
+
+**T9 [GREEN] `SKILL.md` step 6b — poll-until-MERGED, delete false `--auto` claim** `[P]`
+- File: `plugins/dev-core/skills/promote/SKILL.md` (Step 6b line ~183, Safety Rule 2 line ~293)
+- Delete "`--auto` waits for required checks" (both sites); after `gh pr merge --auto`, add poll loop: `until [ "$(gh pr view <N> --json state -q .state)" = MERGED ]; do sleep …; done` before the reset/continue.
+- Verify: `! grep -q 'auto.*waits for required checks' SKILL.md && grep -q 'gh pr view.*state' SKILL.md`
+- Trace: S8. Phase: GREEN. Agent: main-loop. Diff: 2.
+
+**T10 [GREEN] `SKILL.md` step 9 — S11 finalize rewrite** 
+- File: `plugins/dev-core/skills/promote/SKILL.md` (Step 9 §227–265)
+- Rewrite 9b: `M=<merge sha>`; structural checks (2 parents, promote-by-metadata, non-empty payload) → else REFUSE; `price.sh <component> M^1 M` → derived; witness compare → **WARN + tag derived + repair actions** (call `finalize.ts` verdict). 9c/9d: per-artifact idempotence (tag AND release checked independently — absent→create, present∧==M→skip green, present∧≠M→REFUSE). Drop the `Custom version`-by-CHANGELOG-heading path as the primary; keep `Custom version` only as the multi-component escape hatch.
+- Verify: `grep -q 'price.sh' SKILL.md && grep -qi 'per-artifact\|independently' SKILL.md`
+- Trace: S11, D4/D7/D16. Phase: GREEN. Agent: main-loop. Diff: 4. blockedBy: T6, T8.
+
+**RED-GATE V2:** finalize suite green ∧ replay `a66eb452` through the step-9b path yields `0.24.1` and tags it (D4 regression) ∧ a hand-drifted version file REFUSEs at step 1.
+
+### Slice 3 — Gate (S7, S9, S9b, S10, S12)
+
+**T11 [GREEN] `release-consistency.yml` — reusable gate (PR + push paths)** 
+- File: `.github/workflows/release-consistency.yml` (new)
+- `on: {workflow_call: {inputs: {version_files_override: {type: string, required: false}}}}` **only** (no pull_request/push here — those live in the stub, D15). One job (name = the required-check context, e.g. `release-consistency`). Steps: `actions/checkout` **`fetch-depth: 0`** (D15); `git fetch --tags`; **PR path** (`github.event_name == pull_request`): `head != staging` → `echo not-a-promote; exit 0` (early, in-job, real green — never job-level `if:`, D9/D15c); else three-way `price.sh <component> origin/main origin/main <pr.head.sha>` == PR title core == CHANGELOG heading → red on mismatch; **push/dispatch path**: `version_files` (or `version_files_override`) `>= max reachable tag` — fail on `<` only; `[]` → early green.
+- Verify: `python3 -c "import yaml;w=yaml.safe_load(open('.github/workflows/release-consistency.yml'));assert list(w['on'])==['workflow_call']"` ∧ `grep -q 'fetch-depth: 0' .github/workflows/release-consistency.yml`
+- Trace: S9, S10, D9/D14/D15. Phase: GREEN. Agent: devops-A. Diff: 4. blockedBy: T2.
+
+**T12 [GREEN] `provision-release-gate.sh` — commit stub + create ruleset** 
+- File: `scripts/provision-release-gate.sh` (new)
+- Writes the per-repo caller stub `release-consistency.yml` (heredoc, S9b): `on:{pull_request:{branches:[main],types:[opened,edited,synchronize,reopened]}, push:{branches:[main]}, workflow_dispatch:{inputs:{version_files_override:…}}}` + one unconditional job `release-consistency:` with `uses: Roxabi/roxabi-plugins/.github/workflows/release-consistency.yml@<ref>` (dev ref `@staging`, pinned to a tag at dogfood). Commits it; creates a main-targeting ruleset requiring the `release-consistency` **check-run context (= the stub's job name)** with **zero bypass actors**. Idempotent (re-run = no change); `--remove` reverses both.
+- Verify: `bash -n scripts/provision-release-gate.sh && grep -q 'workflow_dispatch' scripts/provision-release-gate.sh && grep -q -- '--remove' scripts/provision-release-gate.sh`
+- Trace: S12, S9b, D15. Phase: GREEN. Agent: devops-B. Diff: 4. blockedBy: T11.
+
+**T13 [GREEN] `SKILL.md` step 1 — S7 gate probe** 
+- File: `plugins/dev-core/skills/promote/SKILL.md` (Step 1)
+- Add: `gh api` probe that `release-consistency` is a **required** check on `main` with **zero bypass actors** → else REFUSE (naming `provision-release-gate.sh`); repo un-protectable (`403`) → **WARN** (D17); `Branch not protected` → REFUSE-with-onboarding.
+- Verify: `grep -qi 'release-consistency' SKILL.md && grep -qi '403\|un-protectable\|WARN' SKILL.md`
+- Trace: S7, D6/D17. Phase: GREEN. Agent: main-loop. Diff: 3. blockedBy: T8, T12.
+
+**T14 [RED→GREEN] gate + provisioner tests** `[P]`
+- File: `plugins/dev-core/skills/promote/__tests__/release-gate.test.ts` (new)
+- Assert: the **stub** (not the reusable file) owns `pull_request`/`push` triggers (parse both YAMLs, D15); reusable file's `on` == `[workflow_call]`; provisioner idempotence (dry-parse the two writes are stable) + `--remove` symmetry; check-name byte-identity between stub job name and the context the provisioner requires; a shallow-clone (`fetch-depth: 1`) fixture would report green where `fetch-depth: 0` reports the drift.
+- Verify: `bun run test release-gate.test` → GREEN. Trace: S9/S12/D15. Phase: RED→GREEN. Agent: tester-A. Diff: 3. blockedBy: T11, T12.
+
+**RED-GATE V3:** release-gate suite green ∧ stub-owns-triggers asserted ∧ provisioner idempotent + `--remove`. (Live throwaway-PR probe + roxabi-live dogfood = follow-up, event-dependent.)
+
+### Integration
+
+**T16 [GREEN] version bumps + full gate** 
+- Files: `skills/promote/SKILL.md` frontmatter `version:` (0.4.1 → 0.5.0, minor — new steps), `plugins/dev-core/.claude-plugin/plugin.json` version, `scripts/check-skill-version.sh` if it gates.
+- Verify: `python3 tools/validate_plugins.py` (green) ∧ `bun run test` (green) ∧ `bunx biome check plugins/dev-core/skills/promote` (clean).
+- Trace: SC-validate, SC-test. Phase: GREEN. Agent: main-loop. Diff: 2. blockedBy: all.
+
+## Task Seeding Blueprint
+
+<!-- Used by /implement to seed TaskCreate calls. T{n} | agent-instance | blockedBy (T-numbers) | subject. Seed in wave order; within a wave all rows are parallel. -->
+
+### Wave 1 — no deps, 2 spawned ∥ + main + bg
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T1 | tester-A | — | derivation |
+| T5 | tester-B | — | finalize |
+| T3 | main-loop | — | config |
+| T15 | me (bg agent) | — | visuals |
+
+### Wave 2 — after Wave 1 RED, 2 spawned ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T2 | backend-dev-A | T1 | derivation |
+| T6 | backend-dev-B | T5 | finalize |
+
+### Wave 3 — after T2/T6, 1 spawned ∥ + main
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T11 | devops-A | T2 | ci-gate |
+| T4 | main-loop | T2 | promote-proc |
+| T7 | main-loop | T4 | promote-proc |
+| T8 | main-loop | T2, T7 | promote-proc |
+| T9 | main-loop | — | promote-proc |
+| T10 | main-loop | T6, T8 | promote-proc |
+
+### Wave 4 — after T11, 2 spawned ∥ + main
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T12 | devops-B | T11 | provisioner |
+| T14 | tester-A | T11, T12 | ci-gate |
+| T13 | main-loop | T8, T12 | promote-proc |
+
+### Wave 5 — after all, main
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T16 | main-loop | T1–T14 | config |
+
+## Task IDs
+
+<!-- Generated by /plan. Used by /implement to resume tasks on session restart. -->
+- T1: #14 — derivation (price.test.ts, RED)
+- T2: #15 — derivation (price.sh, GREEN)
+- T3: #16 — config (stack.yml.example)
+- T4: #17 — promote-proc (release-artifacts step 2)
+- T5: #18 — finalize (finalize.test.ts, RED)
+- T6: #19 — finalize (finalize.ts, GREEN)
+- T7: #20 — promote-proc (release-artifacts step 2b)
+- T8: #21 — promote-proc (SKILL.md step 1 guards)
+- T9: #22 — promote-proc (SKILL.md step 6b)
+- T10: #23 — promote-proc (SKILL.md step 9 finalize)
+- T11: #24 — ci-gate (release-consistency.yml)
+- T12: #25 — provisioner (provision-release-gate.sh)
+- T13: #26 — promote-proc (SKILL.md step 1 gate probe)
+- T14: #27 — ci-gate (release-gate.test.ts)
+- T15: #28 — visuals (forge sidecars — DONE)
+- T16: #29 — config (version bumps + full gate)
