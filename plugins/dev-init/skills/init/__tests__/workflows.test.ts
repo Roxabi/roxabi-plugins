@@ -1,7 +1,23 @@
-import { describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ACTION_PINS } from '../lib/workflow-pins'
-import { generateAutoMergeYml, generateCiYml, generateContextLintYml, generateDeployYml } from '../lib/workflows'
-import { generateDependabotAutomergeYml, generateMergeOnGreenYml, generateSecretScanYml } from '../lib/workflows-fleet'
+import {
+  classifyTestRunner,
+  generateAutoMergeYml,
+  generateCiYml,
+  generateContextLintYml,
+  generateDeployYml,
+  workflowOptsFromStack,
+  writeWorkflows,
+} from '../lib/workflows'
+import {
+  generateDependabotAutomergeYml,
+  generateDependabotYml,
+  generateMergeOnGreenYml,
+  generateSecretScanYml,
+} from '../lib/workflows-fleet'
 
 describe('generateAutoMergeYml', () => {
   it('emits the App token mint step (no secrets.PAT)', () => {
@@ -51,9 +67,24 @@ describe('generateCiYml', () => {
     expect(yml).not.toContain('bun typecheck')
   })
 
-  it('uses the native bun runner for non-vitest bun stacks', () => {
+  it('uses bun run test for bun/jest stacks (package-script convention)', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'jest', deploy: 'none' })
-    expect(yml).toContain('run: bun test')
+    expect(yml).toContain('run: bun run test')
+  })
+
+  it('emits bun runner via --test bun as bun run test by default', () => {
+    const yml = generateCiYml({ stack: 'bun', test: 'bun', deploy: 'none' })
+    expect(yml).toContain('run: bun run test')
+  })
+
+  it('emits verbatim testCommand when set', () => {
+    const yml = generateCiYml({
+      stack: 'bun',
+      test: 'bun',
+      testCommand: 'bun test packages/shared',
+      deploy: 'none',
+    })
+    expect(yml).toContain('run: bun test packages/shared')
   })
 
   it('generates node + jest CI with SHA-pinned setup-node', () => {
@@ -65,10 +96,10 @@ describe('generateCiYml', () => {
     expect(yml).toContain('npm test')
   })
 
-  it('omits test step when test is "none"', () => {
+  it('omits test step and comments when test is "none"', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'none', deploy: 'none' })
-    expect(yml).not.toContain('bun test')
     expect(yml).not.toMatch(/- name: Test/)
+    expect(yml).toContain('test: none — no unit test step')
   })
 
   it('includes optional e2e job when e2e is playwright', () => {
@@ -112,6 +143,52 @@ describe('generateDependabotAutomergeYml', () => {
   })
 })
 
+describe('generateDependabotYml', () => {
+  it('emits npm + github-actions for bun stack', () => {
+    const yml = generateDependabotYml({ stack: 'bun' })
+    expect(yml).toContain('package-ecosystem: npm')
+    expect(yml).toContain('package-ecosystem: github-actions')
+    expect(yml).toContain('default-days: 3')
+    expect(yml).not.toContain('semver-major-days')
+  })
+
+  it('emits pip ecosystem for python stack', () => {
+    const yml = generateDependabotYml({ stack: 'python' })
+    expect(yml).toContain('package-ecosystem: pip')
+    expect(yml).toContain('package-ecosystem: github-actions')
+  })
+})
+
+describe('classifyTestRunner / workflowOptsFromStack', () => {
+  it('maps bun run test (canonical vitest-on-bun) to vitest, not none', () => {
+    expect(classifyTestRunner(undefined, 'bun run test')).toBe('vitest')
+    const opts = workflowOptsFromStack({
+      runtime: 'bun',
+      commands: { test: 'bun run test' },
+    })
+    expect(opts.test).toBe('vitest')
+    expect(opts.testCommand).toBe('bun run test')
+  })
+
+  it('maps testing.unit bun + bare bun test to bun', () => {
+    expect(classifyTestRunner('bun', 'bun test')).toBe('bun')
+  })
+
+  it('prefers testing.unit vitest over command text', () => {
+    expect(classifyTestRunner('vitest', 'bun run test')).toBe('vitest')
+  })
+
+  it('emits CI test step from stack with only commands.test', () => {
+    const opts = workflowOptsFromStack({
+      runtime: 'bun',
+      commands: { test: 'bun run test', lint: 'bun lint' },
+    })
+    const yml = generateCiYml(opts)
+    expect(yml).toContain('run: bun run test')
+    expect(yml).toMatch(/- name: Test/)
+  })
+})
+
 describe('generateDeployYml', () => {
   it('generates Vercel deploy workflow', () => {
     const yml = generateDeployYml({ stack: 'bun', test: 'none', deploy: 'vercel' })
@@ -134,6 +211,71 @@ describe('generateDeployYml', () => {
   it('has workflow_dispatch trigger', () => {
     const yml = generateDeployYml({ stack: 'bun', test: 'none', deploy: 'none' })
     expect(yml).toContain('workflow_dispatch')
+  })
+})
+
+describe('writeWorkflows', () => {
+  // writeWorkflows writes under the cwd — every case runs in a throwaway dir so the
+  // repo's own .github/ can never be touched.
+  const opts = { stack: 'bun', test: 'vitest', deploy: 'none' } as const
+  let tmp: string
+  let origCwd: string
+
+  beforeEach(() => {
+    origCwd = process.cwd()
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'write-workflows-'))
+    process.chdir(tmp)
+  })
+
+  afterEach(() => {
+    process.chdir(origCwd)
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('does not clobber existing files by default (top-up)', async () => {
+    fs.mkdirSync('.github/workflows', { recursive: true })
+    fs.writeFileSync('.github/workflows/ci.yml', 'sentinel-ci')
+    fs.writeFileSync('.github/dependabot.yml', 'sentinel-dependabot')
+
+    const results = await writeWorkflows(opts)
+
+    expect(fs.readFileSync('.github/workflows/ci.yml', 'utf8')).toBe('sentinel-ci')
+    expect(fs.readFileSync('.github/dependabot.yml', 'utf8')).toBe('sentinel-dependabot')
+    expect(results).toContainEqual({ file: 'ci.yml', status: 'skipped' })
+    expect(results).toContainEqual({ file: 'dependabot.yml', status: 'skipped' })
+    // absent files are still topped up
+    expect(results).toContainEqual({ file: 'auto-merge.yml', status: 'created' })
+    expect(fs.readFileSync('.github/workflows/auto-merge.yml', 'utf8')).toContain('name: Auto Merge')
+  })
+
+  it('overwrites existing files with force', async () => {
+    fs.mkdirSync('.github/workflows', { recursive: true })
+    fs.writeFileSync('.github/workflows/ci.yml', 'sentinel-ci')
+    fs.writeFileSync('.github/dependabot.yml', 'sentinel-dependabot')
+
+    const results = await writeWorkflows(opts, true)
+
+    expect(fs.readFileSync('.github/workflows/ci.yml', 'utf8')).toContain('name: CI')
+    expect(fs.readFileSync('.github/dependabot.yml', 'utf8')).toContain('package-ecosystem: npm')
+    expect(results).toContainEqual({ file: 'ci.yml', status: 'updated' })
+    expect(results).toContainEqual({ file: 'dependabot.yml', status: 'updated' })
+  })
+
+  it('reports dependabot.yml alongside the workflows it writes', async () => {
+    const results = await writeWorkflows(opts)
+
+    expect(results).toContainEqual({ file: 'dependabot.yml', status: 'created' })
+    expect(fs.existsSync('.github/dependabot.yml')).toBe(true)
+    // every file touched on disk appears in the report — no silent writes
+    const reported = results.map((r) => r.file).sort()
+    const onDisk = [...fs.readdirSync('.github/workflows'), 'dependabot.yml'].sort()
+    expect(reported).toEqual(onDisk)
+  })
+
+  it('reports the deploy workflow for a cloudflare stack', async () => {
+    const results = await writeWorkflows({ stack: 'bun', test: 'vitest', deploy: 'cloudflare' })
+
+    expect(results).toContainEqual({ file: 'deploy-cloudflare.yml', status: 'created' })
   })
 })
 

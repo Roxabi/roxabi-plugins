@@ -134,19 +134,26 @@ Generate governance rules (dev process, decision protocol, git conventions, etc.
 σ ∄ → D("Critical Rules", "⏭ Skipped — requires stack.yml"), skip to Phase 3.
 
 1. Run: `bun $I_TS scaffold-rules --stack-path .claude/stack.yml --claude-md CLAUDE.md`
-2. Parse JSON → extract `projectType`, `sections`, `markdown`, `existing`.
+2. Parse JSON → extract `projectType`, `sections`, `markdown`, `existing`, `facts`.
 3. Display:
    ```
    Project type: {projectType}
-   Sections to scaffold: {sections.length} ({section ids joined by ", "})
+   Repo facts:   baseBranch={facts.baseBranch}  pm={facts.packageManager}  .env.example={facts.hasEnvExample}
+   Parent CLAUDE.md: {existing.parentPaths joined | "none"}
+   Parent @imports:  {existing.parentImports joined | "none"}  ← machine-local; not auto-skip authority
+   Local sections:   {existing.sectionIds or "none"}
+   Sections to scaffold: {sections.length} ({section ids})
    ```
-4. Check `existing.sectionIds`:
-   - ∅ existing → Ask: **Scaffold Critical Rules** (append to CLAUDE.md) | **Skip**
-   - partial (some present, some missing) → list missing; Ask: **Merge** (append missing only) | **Replace** (rewrite all) | **Skip**
-   - all present → D("Critical Rules", "✅ Already complete"), skip.
-5. Scaffold/Replace → append or replace `## Critical Rules` block with `markdown`. Preserve content before and after.
-6. Merge → ∀ section ∈ generated ∧ section.id ∉ existing.sectionIds → append after last existing Critical Rules heading.
-7. D("Critical Rules", "✅ Scaffolded ({sections.length} sections for {projectType})")
+   > Parent context is **reporting only**. Silent auto-skip is forbidden — parent/ssot paths are often machine-local; committed CLAUDE.md must stay portable for clones without that parent.
+4. Present choice (always a gate — user is the gate):
+   - **Scaffold full** — all generated sections (portable governance for any clone)
+   - **Scaffold project-local only** — tldr + artifact-model + coding-standards + gotchas (when parent already loads fleet rules)
+   - **Merge** — append only section ids missing from `existing.sectionIds` (local titles only)
+   - **Skip**
+   When `existing.sectionIds` already covers all expected → still show table; default bias **Skip** / already complete.
+5. Scaffold full / project-local / Replace → write `markdown` (for project-local: filter sections to ids ∈ {tldr, artifact-model, coding-standards, gotchas}, renumber). Preserve content before/after `## Critical Rules` if present.
+6. Merge → ∀ section ∈ chosen set ∧ section.id ∉ existing.sectionIds → append after last existing Critical Rules heading.
+7. D("Critical Rules", "✅ Scaffolded ({N} sections for {projectType}, base={facts.baseBranch})")
 
 ## Phase 3 — Documentation Scaffolding (Optional)
 

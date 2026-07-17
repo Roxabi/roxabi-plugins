@@ -174,22 +174,43 @@ function parseCommand(text, key) {
 }
 
 /**
- * Parse `testing.e2e` from stack.yml text.
+ * Parse a key under the `testing:` section from stack.yml text.
  *
  * @param {string} text
+ * @param {string} key
  * @returns {string|null}
  */
-function parseTestingE2e(text) {
+function parseTestingKey(text, key) {
   if (!text) return null
   const section = text.match(/^testing:\s*$/m)
   if (!section) return null
   const after = text.slice(section.index + 'testing:'.length)
   const nextTop = after.match(/\n\S/)
   const block = nextTop ? after.slice(0, nextTop.index) : after
-  const match = block.match(/^\s+e2e:\s*(\S+)/m)
+  const match = block.match(new RegExp(`^\\s+${key}:\\s*(\\S+)`, 'm'))
   if (!match) return null
   const val = match[1]
   return val === 'none' ? null : val
+}
+
+/**
+ * Parse `testing.e2e` from stack.yml text.
+ *
+ * @param {string} text
+ * @returns {string|null}
+ */
+function parseTestingE2e(text) {
+  return parseTestingKey(text, 'e2e')
+}
+
+/**
+ * Parse `testing.unit` from stack.yml text (vitest | jest | pytest | bun).
+ *
+ * @param {string} text
+ * @returns {string|null}
+ */
+function parseTestingUnit(text) {
+  return parseTestingKey(text, 'unit')
 }
 
 /**
@@ -259,6 +280,7 @@ function parseStandards(text) {
  *   standards: Record<string, string>|null,
  *   runtime: string|null,
  *   commands: {lint: string|null, typecheck: string|null, test: string|null},
+ *   testingUnit: string|null,
  *   testingE2e: string|null,
  *   ciMerge: string|null
  * }}
@@ -277,6 +299,7 @@ function parseStackYml(text) {
       typecheck: parseCommand(text, 'typecheck'),
       test: parseCommand(text, 'test'),
     },
+    testingUnit: parseTestingUnit(text),
     testingE2e: parseTestingE2e(text),
     ciMerge: parseCiMerge(text),
   }
@@ -292,6 +315,7 @@ module.exports = {
   parseStandards,
   parseRuntime,
   parseCommand,
+  parseTestingUnit,
   parseTestingE2e,
   parseCiMerge,
 }

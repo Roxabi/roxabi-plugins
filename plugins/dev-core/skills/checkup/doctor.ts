@@ -46,7 +46,7 @@ const sections: Section[] = [
   checkPrereqsSection(prereqs),
   checkGitHubConfig(ghOk, owner, repo),
   checkWorkflows(ghOk, owner, repo),
-  { name: 'Workflow drift', checks: checkWorkflowDrift() },
+  { name: 'Workflow drift', checks: await checkWorkflowDrift() },
   checkSecrets(ghOk, owner, repo),
   checkBranchProtection(ghOk, owner, repo),
   checkRulesets(ghOk, owner, repo, meta),

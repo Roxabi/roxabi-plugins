@@ -47,7 +47,7 @@ build:
   #     ext: [".py"]
 
 testing:
-  unit: vitest                    # vitest | jest | pytest | none
+  unit: vitest                    # vitest | jest | pytest | bun | none  (bun = native bun:test runner)
   e2e: playwright                 # playwright | cypress | none
 
 hooks:

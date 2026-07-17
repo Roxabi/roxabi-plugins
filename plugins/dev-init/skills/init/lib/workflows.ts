@@ -287,6 +287,21 @@ export async function pushContextLintYml(
   })
 }
 
+/** Resolve the CI test `run:` command — prefer verbatim commands.test when set. */
+export function resolveTestRunCommand(opts: Required<WorkflowOpts>): string | null {
+  if (opts.test === 'none') return null
+  if (opts.testCommand) return opts.testCommand
+  if (opts.stack === 'python') return opts.test === 'pytest' ? 'uv run pytest' : 'uv run pytest'
+  if (opts.stack === 'bun') {
+    // Prefer bun run test (package script) over bare bun test — aligns with agent hook + monorepos
+    if (opts.test === 'vitest' || opts.test === 'bun' || opts.test === 'jest') return 'bun run test'
+    return 'bun run test'
+  }
+  // node
+  if (opts.test === 'jest' || opts.test === 'vitest') return 'npm test'
+  return 'npm test'
+}
+
 export function generateCiYml(opts: WorkflowOpts): string {
   const o = normalizeWorkflowOpts(opts)
   let setupStep: string
@@ -300,16 +315,11 @@ export function generateCiYml(opts: WorkflowOpts): string {
         run: uv sync --frozen --all-extras`
     if (o.lint) lintStep = '\n      - name: Lint\n        run: uv run ruff check .'
     if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: uv run pyright'
-    if (o.test === 'pytest') testStep = '\n      - name: Test\n        run: uv run pytest'
   } else if (o.stack === 'bun') {
     setupStep = `      - uses: ${ACTION_PINS.setupBun}
       - run: bun install`
     if (o.lint) lintStep = '\n      - name: Lint\n        run: bun lint'
     if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: bun typecheck'
-    if (o.test !== 'none') {
-      const bunTestCmd = o.test === 'vitest' ? 'bun run test' : 'bun test'
-      testStep = `\n      - name: Test\n        run: ${bunTestCmd}`
-    }
   } else {
     setupStep = `      - uses: ${ACTION_PINS.setupNode}
         with:
@@ -317,7 +327,16 @@ export function generateCiYml(opts: WorkflowOpts): string {
       - run: npm ci`
     if (o.lint) lintStep = '\n      - name: Lint\n        run: npm run lint'
     if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: npx tsc --noEmit'
-    if (o.test !== 'none') testStep = '\n      - name: Test\n        run: npm test'
+  }
+
+  const testCmd = resolveTestRunCommand(o)
+  if (testCmd) {
+    testStep = `\n      - name: Test\n        run: ${testCmd}`
+  } else {
+    // Explicit comment — silent-green CI without tests is worse than a red one
+    testStep =
+      '\n      # test: none — no unit test step (commands.test unset / --test none).\n' +
+      '      # If this is wrong, set commands.test + testing.unit and re-run /ci-setup.'
   }
 
   return `name: CI
@@ -438,6 +457,51 @@ export interface PushResult {
   status: 'created' | 'updated' | 'skipped'
 }
 
+interface WorkflowFile {
+  /** Report name — the basename, as callers and the SKILL.md orchestrator refer to it. */
+  name: string
+  /** Repo-relative path — `.github/dependabot.yml` does not live under `workflows/`. */
+  path: string
+  content: string
+  message?: string
+}
+
+/** The full file set for a stack. Single source for both the REST pusher and the local
+ *  writer — the two paths must emit the same files, or one silently ships a subset. */
+function workflowFileSet(o: Required<WorkflowOpts>): WorkflowFile[] {
+  const mergeFile =
+    o.merge === 'merge-on-green'
+      ? { name: 'merge-on-green.yml', content: generateMergeOnGreenYml(o) }
+      : { name: 'auto-merge.yml', content: generateAutoMergeYml() }
+  const workflows: Array<{ name: string; content: string }> = [
+    mergeFile,
+    { name: 'pr-title.yml', content: generatePrTitleYml() },
+    { name: 'context-lint.yml', content: generateContextLintYml() },
+    { name: 'secret-scan.yml', content: generateSecretScanYml() },
+    { name: 'ci.yml', content: generateCiYml(o) },
+    { name: 'dependabot-automerge.yml', content: generateDependabotAutomergeYml() },
+  ]
+  if (o.deploy === 'vercel') {
+    workflows.push({ name: 'deploy-preview.yml', content: generateDeployYml(o) })
+  }
+  if (o.deploy === 'cloudflare') {
+    workflows.push({ name: 'deploy-cloudflare.yml', content: generateCloudflareDeployYml() })
+  }
+
+  const files: WorkflowFile[] = workflows.map(({ name, content }) => ({
+    name,
+    path: `.github/workflows/${name}`,
+    content,
+  }))
+  files.push({
+    name: 'dependabot.yml',
+    path: '.github/dependabot.yml',
+    content: generateDependabotYml({ stack: o.stack }),
+    message: 'chore: add dependabot.yml (ecosystem + github-actions)',
+  })
+  return files
+}
+
 /** Push all workflow files to a remote repo via GitHub REST API. No local git required.
  *  Default is TOP-UP: files already present on the repo are skipped (repos evolve
  *  their ci.yml far past the template). `force` overwrites. */
@@ -449,39 +513,15 @@ export async function pushWorkflows(
   force = false,
 ): Promise<PushResult[]> {
   const o = normalizeWorkflowOpts(opts)
-  const mergeFile =
-    o.merge === 'merge-on-green'
-      ? { name: 'merge-on-green.yml', content: generateMergeOnGreenYml(o) }
-      : { name: 'auto-merge.yml', content: generateAutoMergeYml() }
-  const files: Array<{ name: string; content: string }> = [
-    mergeFile,
-    { name: 'pr-title.yml', content: generatePrTitleYml() },
-    { name: 'context-lint.yml', content: generateContextLintYml() },
-    { name: 'secret-scan.yml', content: generateSecretScanYml() },
-    { name: 'ci.yml', content: generateCiYml(o) },
-    { name: 'dependabot-automerge.yml', content: generateDependabotAutomergeYml() },
-  ]
-  if (o.deploy === 'vercel') {
-    files.push({ name: 'deploy-preview.yml', content: generateDeployYml(o) })
-  }
-  if (o.deploy === 'cloudflare') {
-    files.push({ name: 'deploy-cloudflare.yml', content: generateCloudflareDeployYml() })
-  }
-
   const results: PushResult[] = []
-  for (const { name, content } of files) {
-    const status = await pushWorkflowFile(owner, repo, `.github/workflows/${name}`, content, {
+  for (const { name, path, content, message } of workflowFileSet(o)) {
+    const status = await pushWorkflowFile(owner, repo, path, content, {
       branch,
+      message,
       skipExisting: !force,
     })
     results.push({ file: name, status })
   }
-  const dependabotStatus = await pushWorkflowFile(owner, repo, '.github/dependabot.yml', generateDependabotYml(), {
-    branch,
-    message: 'chore: add dependabot.yml (github-actions + ecosystem)',
-    skipExisting: !force,
-  })
-  results.push({ file: 'dependabot.yml', status: dependabotStatus })
   return results
 }
 
@@ -509,55 +549,57 @@ export async function pushGenericWorkflows(
   return results
 }
 
-/** Write workflow files to the local filesystem (legacy / offline use). */
-export async function writeWorkflows(opts: WorkflowOpts): Promise<string[]> {
+/** Write workflow files under the cwd's `.github/` (offline use — no gh auth, no remote).
+ *  Same top-up default as pushWorkflows: existing files are skipped unless `force`.
+ *  Every file in the set is reported, including `.github/dependabot.yml`. */
+export async function writeWorkflows(opts: WorkflowOpts, force = false): Promise<PushResult[]> {
   const fs = require('node:fs')
-  const dir = '.github/workflows'
-  fs.mkdirSync(dir, { recursive: true })
+  fs.mkdirSync('.github/workflows', { recursive: true })
   const o = normalizeWorkflowOpts(opts)
-  const written: string[] = []
 
-  fs.writeFileSync(`${dir}/ci.yml`, generateCiYml(o))
-  written.push('ci.yml')
-
-  if (o.merge === 'merge-on-green') {
-    fs.writeFileSync(`${dir}/merge-on-green.yml`, generateMergeOnGreenYml(o))
-    written.push('merge-on-green.yml')
-  } else {
-    fs.writeFileSync(`${dir}/auto-merge.yml`, generateAutoMergeYml())
-    written.push('auto-merge.yml')
+  const results: PushResult[] = []
+  for (const { name, path, content } of workflowFileSet(o)) {
+    const existing = fs.existsSync(path)
+    if (existing && !force) {
+      results.push({ file: name, status: 'skipped' })
+      continue
+    }
+    fs.writeFileSync(path, content)
+    results.push({ file: name, status: existing ? 'updated' : 'created' })
   }
+  return results
+}
 
-  fs.writeFileSync(`${dir}/secret-scan.yml`, generateSecretScanYml())
-  written.push('secret-scan.yml')
+/** Classify unit test runner from testing.unit and/or commands.test. */
+export function classifyTestRunner(unit: string | undefined, command: string | undefined): WorkflowOpts['test'] {
+  const u = (unit ?? '').trim()
+  const c = (command ?? '').trim()
+  if (!u && !c) return 'none'
+  if (/^none$/i.test(u) || (/^none$/i.test(c) && !u)) return 'none'
 
-  fs.writeFileSync(`${dir}/pr-title.yml`, generatePrTitleYml())
-  written.push('pr-title.yml')
+  // testing.unit is authoritative when set to a known runner
+  if (/^vitest$/i.test(u) || /vitest/i.test(u)) return 'vitest'
+  if (/^jest$/i.test(u) || /jest/i.test(u)) return 'jest'
+  if (/^pytest$/i.test(u) || /pytest/i.test(u)) return 'pytest'
+  if (/^bun$/i.test(u) || /bun:test/i.test(u)) return 'bun'
 
-  fs.writeFileSync(`${dir}/context-lint.yml`, generateContextLintYml())
-  written.push('context-lint.yml')
-
-  fs.writeFileSync(`${dir}/dependabot-automerge.yml`, generateDependabotAutomergeYml())
-  written.push('dependabot-automerge.yml')
-
-  fs.mkdirSync('.github', { recursive: true })
-  fs.writeFileSync('.github/dependabot.yml', generateDependabotYml())
-
-  if (o.deploy === 'vercel') {
-    fs.writeFileSync(`${dir}/deploy-preview.yml`, generateDeployYml(o))
-    written.push('deploy-preview.yml')
-  }
-  if (o.deploy === 'cloudflare') {
-    fs.writeFileSync(`${dir}/deploy-cloudflare.yml`, generateCloudflareDeployYml())
-    written.push('deploy-cloudflare.yml')
-  }
-
-  return written
+  // Fall back to commands.test heuristics
+  if (/vitest/i.test(c)) return 'vitest'
+  if (/jest/i.test(c)) return 'jest'
+  if (/pytest/i.test(c)) return 'pytest'
+  // bare `bun test` → native bun runner; `bun run test` → package script (vitest-or-bun script)
+  if (/\bbun\s+test\b/.test(c) && !/\bbun\s+run\s+test\b/.test(c)) return 'bun'
+  if (/\bbun\s+run\s+test\b/.test(c)) return 'vitest' // stack.yml.example convention + hook policy
+  if (c) return 'vitest' // unknown non-empty command still runs — classify generically
+  return 'none'
 }
 
 /** Build WorkflowOpts from stack.yml-shaped fields (ci-setup / checkup drift). */
 export function workflowOptsFromStack(stack: {
   runtime?: string
+  /** testing.unit when available */
+  unit?: string
+  /** legacy alias — testing.unit or commands.test */
   test?: string
   deployPlatform?: string
   e2e?: string
@@ -565,11 +607,10 @@ export function workflowOptsFromStack(stack: {
   merge?: 'auto-merge' | 'merge-on-green'
 }): WorkflowOpts {
   const runtime = (stack.runtime ?? 'bun') as WorkflowOpts['stack']
-  const testRaw = stack.test ?? stack.commands?.test ?? 'none'
-  let test: WorkflowOpts['test'] = 'none'
-  if (/vitest/i.test(testRaw)) test = 'vitest'
-  else if (/jest/i.test(testRaw)) test = 'jest'
-  else if (/pytest/i.test(testRaw)) test = 'pytest'
+  const unit = stack.unit ?? (stack.test && !stack.commands?.test ? stack.test : undefined)
+  const testCommand = stack.commands?.test ?? ''
+  // Prefer unit field; stack.test may be either unit or command depending on caller
+  const test = classifyTestRunner(unit ?? stack.test, testCommand || stack.test)
   let deploy: WorkflowOpts['deploy'] = 'none'
   const platform = stack.deployPlatform ?? ''
   if (platform === 'vercel') deploy = 'vercel'
@@ -577,6 +618,7 @@ export function workflowOptsFromStack(stack: {
   return normalizeWorkflowOpts({
     stack: runtime === 'python' || runtime === 'node' ? runtime : 'bun',
     test,
+    testCommand: testCommand || undefined,
     deploy,
     merge: stack.merge,
     e2e: stack.e2e === 'playwright' ? 'playwright' : 'none',

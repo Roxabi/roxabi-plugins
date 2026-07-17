@@ -433,6 +433,86 @@ Commit rules
       expect(result.existing.hasImport).toBe(false)
       expect(result.existing.sectionIds).toEqual([])
     })
+
+    it('reports parent CLAUDE.md and @imports without using them as skip authority', () => {
+      const parentDir = join(tmp, 'parent')
+      const childDir = join(parentDir, 'child')
+      mkdirSync(join(childDir, '.claude'), { recursive: true })
+      writeFileSync(join(parentDir, 'CLAUDE.md'), '@ssot/operator.ssot.md\n@ssot/conventions.ssot.md\n')
+      writeFileSync(join(childDir, '.claude', 'stack.yml'), 'runtime: bun\npackage_manager: bun\n')
+      writeFileSync(join(childDir, 'CLAUDE.md'), '@.claude/stack.yml\n')
+
+      const result = scaffoldRules({
+        stackPath: join(childDir, '.claude', 'stack.yml'),
+        claudeMdPath: join(childDir, 'CLAUDE.md'),
+        projectName: 'child',
+      })
+
+      expect(
+        result.existing.parentPaths.some((p) => p.endsWith('parent/CLAUDE.md') || p.endsWith('parent\\CLAUDE.md')),
+      ).toBe(true)
+      expect(result.existing.parentImports).toEqual(
+        expect.arrayContaining(['ssot/operator.ssot.md', 'ssot/conventions.ssot.md']),
+      )
+      // parent has no Critical Rules headings → local sectionIds still empty of parent noise
+      expect(result.existing.sectionIds).toEqual([])
+    })
+  })
+
+  describe('repo facts', () => {
+    it('uses package_manager from stack for install command', () => {
+      writeStack(`
+runtime: bun
+package_manager: pnpm
+backend:
+  framework: nestjs
+frontend:
+  framework: nextjs
+`)
+      const result = scaffoldRules({
+        stackPath: join(tmp, '.claude', 'stack.yml'),
+        claudeMdPath: join(tmp, 'CLAUDE.md'),
+        projectName: 'app',
+      })
+      expect(result.facts.packageManager).toBe('pnpm')
+      expect(result.markdown).toContain('pnpm install')
+      expect(result.markdown).not.toContain('bun install')
+    })
+
+    it('omits cp .env.example when file is absent', () => {
+      writeStack(`
+runtime: bun
+backend:
+  framework: nestjs
+frontend:
+  framework: nextjs
+`)
+      const result = scaffoldRules({
+        stackPath: join(tmp, '.claude', 'stack.yml'),
+        claudeMdPath: join(tmp, 'CLAUDE.md'),
+        projectName: 'app',
+      })
+      expect(result.facts.hasEnvExample).toBe(false)
+      expect(result.markdown).not.toContain('cp .env.example')
+    })
+
+    it('includes cp .env.example when present', () => {
+      writeStack(`
+runtime: bun
+backend:
+  framework: nestjs
+frontend:
+  framework: nextjs
+`)
+      writeFileSync(join(tmp, '.env.example'), 'FOO=1\n')
+      const result = scaffoldRules({
+        stackPath: join(tmp, '.claude', 'stack.yml'),
+        claudeMdPath: join(tmp, 'CLAUDE.md'),
+        projectName: 'app',
+      })
+      expect(result.facts.hasEnvExample).toBe(true)
+      expect(result.markdown).toContain('cp .env.example .env')
+    })
   })
 
   describe('expectedSections', () => {
