@@ -29,13 +29,14 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const REPO_ROOT = resolve(import.meta.dirname ?? '.', '..')
-const PINS_PATH = resolve(REPO_ROOT, 'plugins/dev-init/skills/init/lib/workflow-pins.ts')
+const PINS_PATH = resolve(REPO_ROOT, 'plugins/dev-core/skills/shared/workflows/workflow-pins.ts')
 
-/** Sources that emit workflow YAML. github-infra.ts is copy-synced from dev-core and
- *  cannot import dev-init's ACTION_PINS, so its inline pin is checked, not rewritten. */
+/** Sources that emit workflow YAML, all canonical in dev-core's copy-synced skills/shared.
+ *  github-infra.ts cannot import ACTION_PINS, so its inline pin is checked, not rewritten;
+ *  it is scanned in both plugin copies since each carries the literal pin independently. */
 const EMITTER_PATHS = [
-  'plugins/dev-init/skills/init/lib/workflows.ts',
-  'plugins/dev-init/skills/init/lib/workflows-fleet.ts',
+  'plugins/dev-core/skills/shared/workflows/workflows.ts',
+  'plugins/dev-core/skills/shared/workflows/workflows-fleet.ts',
   'plugins/dev-init/skills/shared/adapters/github-infra.ts',
   'plugins/dev-core/skills/shared/adapters/github-infra.ts',
 ]
