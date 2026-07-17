@@ -25,6 +25,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cd plugins/dev-core/cli && bun test
+      - name: Verify action pins resolve
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun run tools/verify-action-pins.ts
       - name: Shared detectGitHubRepo suite — caller parity (#218 SC3)
         run: |
           set -euo pipefail
@@ -37,7 +41,7 @@ jobs:
             exit 1
           fi
           echo "Caller parity OK — both config.test.ts are byte-identical"
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
       - run: pip install pytest==8.3.5 pyyaml git+https://github.com/Roxabi/roxabi-vault.git@df12ba1c447ca6f01434db017c57f7645662813c  # main
