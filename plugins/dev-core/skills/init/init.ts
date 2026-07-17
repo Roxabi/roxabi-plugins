@@ -7,10 +7,13 @@
  *   1. Flat siblings — marketplace clone, repo plugins/, --plugin-dir
  *   2. Versioned cache — ~/.claude/plugins/cache/<mp>/dev-init/<ver>/…
  *      skips dirs with .orphaned_at; picks newest mtime (mirrors scaffold SHIM_CONTENT)
+ *
+ * tryResolveDevInitEntry() is the reusable core; resolveDevInitEntry() is the CLI wrapper that exits.
  */
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const ENTRY = join('skills', 'init', 'init.ts')
 
@@ -52,7 +55,13 @@ function cacheBaseFromDevCoreRoot(root: string): string | null {
   return join(match[1], 'cache', match[2], 'dev-init')
 }
 
-export function resolveDevInitEntry(root = process.env.CLAUDE_PLUGIN_ROOT ?? join(import.meta.dir, '../..')): string {
+/** Default dev-core plugin root: import.meta.url so the resolver also works off the Bun runtime. */
+function defaultRoot(): string {
+  return process.env.CLAUDE_PLUGIN_ROOT ?? join(dirname(fileURLToPath(import.meta.url)), '../..')
+}
+
+/** Non-exiting resolver — importable by non-CLI callers (e.g. /checkup) that must degrade, not die. */
+export function tryResolveDevInitEntry(root: string = defaultRoot()): string | null {
   // 1. Flat siblings first — --plugin-dir / marketplace / monorepo source
   const flat = [join(dirname(root), 'dev-init', ENTRY), join(root, '..', 'dev-init', ENTRY)]
   for (const candidate of flat) {
@@ -72,6 +81,13 @@ export function resolveDevInitEntry(root = process.env.CLAUDE_PLUGIN_ROOT ?? joi
     const hit = resolveVersionedCache(base)
     if (hit) return hit
   }
+
+  return null
+}
+
+export function resolveDevInitEntry(root?: string): string {
+  const entry = tryResolveDevInitEntry(root ?? defaultRoot())
+  if (entry) return entry
 
   console.error(
     'dev-init plugin not found — install dev-init from roxabi-marketplace (sibling of dev-core). Cache layout is version-scoped: …/dev-init/<version>/skills/init/init.ts',

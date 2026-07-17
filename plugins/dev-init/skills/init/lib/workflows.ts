@@ -457,6 +457,51 @@ export interface PushResult {
   status: 'created' | 'updated' | 'skipped'
 }
 
+interface WorkflowFile {
+  /** Report name — the basename, as callers and the SKILL.md orchestrator refer to it. */
+  name: string
+  /** Repo-relative path — `.github/dependabot.yml` does not live under `workflows/`. */
+  path: string
+  content: string
+  message?: string
+}
+
+/** The full file set for a stack. Single source for both the REST pusher and the local
+ *  writer — the two paths must emit the same files, or one silently ships a subset. */
+function workflowFileSet(o: Required<WorkflowOpts>): WorkflowFile[] {
+  const mergeFile =
+    o.merge === 'merge-on-green'
+      ? { name: 'merge-on-green.yml', content: generateMergeOnGreenYml(o) }
+      : { name: 'auto-merge.yml', content: generateAutoMergeYml() }
+  const workflows: Array<{ name: string; content: string }> = [
+    mergeFile,
+    { name: 'pr-title.yml', content: generatePrTitleYml() },
+    { name: 'context-lint.yml', content: generateContextLintYml() },
+    { name: 'secret-scan.yml', content: generateSecretScanYml() },
+    { name: 'ci.yml', content: generateCiYml(o) },
+    { name: 'dependabot-automerge.yml', content: generateDependabotAutomergeYml() },
+  ]
+  if (o.deploy === 'vercel') {
+    workflows.push({ name: 'deploy-preview.yml', content: generateDeployYml(o) })
+  }
+  if (o.deploy === 'cloudflare') {
+    workflows.push({ name: 'deploy-cloudflare.yml', content: generateCloudflareDeployYml() })
+  }
+
+  const files: WorkflowFile[] = workflows.map(({ name, content }) => ({
+    name,
+    path: `.github/workflows/${name}`,
+    content,
+  }))
+  files.push({
+    name: 'dependabot.yml',
+    path: '.github/dependabot.yml',
+    content: generateDependabotYml({ stack: o.stack }),
+    message: 'chore: add dependabot.yml (ecosystem + github-actions)',
+  })
+  return files
+}
+
 /** Push all workflow files to a remote repo via GitHub REST API. No local git required.
  *  Default is TOP-UP: files already present on the repo are skipped (repos evolve
  *  their ci.yml far past the template). `force` overwrites. */
@@ -468,45 +513,15 @@ export async function pushWorkflows(
   force = false,
 ): Promise<PushResult[]> {
   const o = normalizeWorkflowOpts(opts)
-  const mergeFile =
-    o.merge === 'merge-on-green'
-      ? { name: 'merge-on-green.yml', content: generateMergeOnGreenYml(o) }
-      : { name: 'auto-merge.yml', content: generateAutoMergeYml() }
-  const files: Array<{ name: string; content: string }> = [
-    mergeFile,
-    { name: 'pr-title.yml', content: generatePrTitleYml() },
-    { name: 'context-lint.yml', content: generateContextLintYml() },
-    { name: 'secret-scan.yml', content: generateSecretScanYml() },
-    { name: 'ci.yml', content: generateCiYml(o) },
-    { name: 'dependabot-automerge.yml', content: generateDependabotAutomergeYml() },
-  ]
-  if (o.deploy === 'vercel') {
-    files.push({ name: 'deploy-preview.yml', content: generateDeployYml(o) })
-  }
-  if (o.deploy === 'cloudflare') {
-    files.push({ name: 'deploy-cloudflare.yml', content: generateCloudflareDeployYml() })
-  }
-
   const results: PushResult[] = []
-  for (const { name, content } of files) {
-    const status = await pushWorkflowFile(owner, repo, `.github/workflows/${name}`, content, {
+  for (const { name, path, content, message } of workflowFileSet(o)) {
+    const status = await pushWorkflowFile(owner, repo, path, content, {
       branch,
+      message,
       skipExisting: !force,
     })
     results.push({ file: name, status })
   }
-  const dependabotStatus = await pushWorkflowFile(
-    owner,
-    repo,
-    '.github/dependabot.yml',
-    generateDependabotYml({ stack: o.stack }),
-    {
-      branch,
-      message: 'chore: add dependabot.yml (ecosystem + github-actions)',
-      skipExisting: !force,
-    },
-  )
-  results.push({ file: 'dependabot.yml', status: dependabotStatus })
   return results
 }
 
@@ -534,50 +549,25 @@ export async function pushGenericWorkflows(
   return results
 }
 
-/** Write workflow files to the local filesystem (legacy / offline use). */
-export async function writeWorkflows(opts: WorkflowOpts): Promise<string[]> {
+/** Write workflow files under the cwd's `.github/` (offline use — no gh auth, no remote).
+ *  Same top-up default as pushWorkflows: existing files are skipped unless `force`.
+ *  Every file in the set is reported, including `.github/dependabot.yml`. */
+export async function writeWorkflows(opts: WorkflowOpts, force = false): Promise<PushResult[]> {
   const fs = require('node:fs')
-  const dir = '.github/workflows'
-  fs.mkdirSync(dir, { recursive: true })
+  fs.mkdirSync('.github/workflows', { recursive: true })
   const o = normalizeWorkflowOpts(opts)
-  const written: string[] = []
 
-  fs.writeFileSync(`${dir}/ci.yml`, generateCiYml(o))
-  written.push('ci.yml')
-
-  if (o.merge === 'merge-on-green') {
-    fs.writeFileSync(`${dir}/merge-on-green.yml`, generateMergeOnGreenYml(o))
-    written.push('merge-on-green.yml')
-  } else {
-    fs.writeFileSync(`${dir}/auto-merge.yml`, generateAutoMergeYml())
-    written.push('auto-merge.yml')
+  const results: PushResult[] = []
+  for (const { name, path, content } of workflowFileSet(o)) {
+    const existing = fs.existsSync(path)
+    if (existing && !force) {
+      results.push({ file: name, status: 'skipped' })
+      continue
+    }
+    fs.writeFileSync(path, content)
+    results.push({ file: name, status: existing ? 'updated' : 'created' })
   }
-
-  fs.writeFileSync(`${dir}/secret-scan.yml`, generateSecretScanYml())
-  written.push('secret-scan.yml')
-
-  fs.writeFileSync(`${dir}/pr-title.yml`, generatePrTitleYml())
-  written.push('pr-title.yml')
-
-  fs.writeFileSync(`${dir}/context-lint.yml`, generateContextLintYml())
-  written.push('context-lint.yml')
-
-  fs.writeFileSync(`${dir}/dependabot-automerge.yml`, generateDependabotAutomergeYml())
-  written.push('dependabot-automerge.yml')
-
-  fs.mkdirSync('.github', { recursive: true })
-  fs.writeFileSync('.github/dependabot.yml', generateDependabotYml({ stack: o.stack }))
-
-  if (o.deploy === 'vercel') {
-    fs.writeFileSync(`${dir}/deploy-preview.yml`, generateDeployYml(o))
-    written.push('deploy-preview.yml')
-  }
-  if (o.deploy === 'cloudflare') {
-    fs.writeFileSync(`${dir}/deploy-cloudflare.yml`, generateCloudflareDeployYml())
-    written.push('deploy-cloudflare.yml')
-  }
-
-  return written
+  return results
 }
 
 /** Classify unit test runner from testing.unit and/or commands.test. */

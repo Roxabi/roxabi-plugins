@@ -1,17 +1,23 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { resolveDevInitEntry } from '../init'
+import { resolveDevInitEntry, tryResolveDevInitEntry } from '../init'
 
 describe('resolveDevInitEntry', () => {
   let tmp: string
+  let prevHome: string | undefined
 
   beforeEach(() => {
     tmp = mkdtempSync(join(tmpdir(), 'init-shim-'))
+    // Keep the ~/.claude cache fallback out of resolution — the real one exists on dev machines.
+    prevHome = process.env.HOME
+    process.env.HOME = tmp
   })
 
   afterEach(() => {
+    if (prevHome === undefined) delete process.env.HOME
+    else process.env.HOME = prevHome
     rmSync(tmp, { recursive: true, force: true })
   })
 
@@ -20,6 +26,10 @@ describe('resolveDevInitEntry', () => {
     mkdirSync(join(dir, 'skills', 'init'), { recursive: true })
     writeFileSync(entry, '// stub\n')
     return entry
+  }
+
+  function setMtime(dir: string, epochSeconds: number) {
+    utimesSync(dir, epochSeconds, epochSeconds)
   }
 
   it('prefers flat sibling over versioned cache', () => {
@@ -43,16 +53,30 @@ describe('resolveDevInitEntry', () => {
     expect(resolveDevInitEntry(root)).toBe(entry)
   })
 
-  it('skips orphaned version dirs', () => {
+  it('skips orphaned version dirs even when they are the newest', () => {
     const cacheRoot = join(tmp, 'cache', 'roxabi-marketplace')
-    const orphaned = join(cacheRoot, 'dev-init', 'old')
+    const good = join(cacheRoot, 'dev-init', 'good')
+    const entry = writeEntry(good)
+    const orphaned = join(cacheRoot, 'dev-init', 'orphaned')
     writeEntry(orphaned)
     writeFileSync(join(orphaned, '.orphaned_at'), '1')
-    const good = join(cacheRoot, 'dev-init', 'new')
-    const entry = writeEntry(good)
+    // Orphaned wins on newest-mtime, so only the .orphaned_at guard can exclude it.
+    setMtime(good, 1_000)
+    setMtime(orphaned, 2_000)
     const root = join(cacheRoot, 'dev-core', '0.8.16')
     mkdirSync(root, { recursive: true })
 
     expect(resolveDevInitEntry(root)).toBe(entry)
+  })
+
+  it('returns null when the only version dir is orphaned', () => {
+    const cacheRoot = join(tmp, 'cache', 'roxabi-marketplace')
+    const orphaned = join(cacheRoot, 'dev-init', 'orphaned')
+    writeEntry(orphaned)
+    writeFileSync(join(orphaned, '.orphaned_at'), '1')
+    const root = join(cacheRoot, 'dev-core', '0.8.16')
+    mkdirSync(root, { recursive: true })
+
+    expect(tryResolveDevInitEntry(root)).toBeNull()
   })
 })

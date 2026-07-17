@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ACTION_PINS } from '../lib/workflow-pins'
 import {
   classifyTestRunner,
@@ -7,6 +10,7 @@ import {
   generateContextLintYml,
   generateDeployYml,
   workflowOptsFromStack,
+  writeWorkflows,
 } from '../lib/workflows'
 import {
   generateDependabotAutomergeYml,
@@ -207,6 +211,71 @@ describe('generateDeployYml', () => {
   it('has workflow_dispatch trigger', () => {
     const yml = generateDeployYml({ stack: 'bun', test: 'none', deploy: 'none' })
     expect(yml).toContain('workflow_dispatch')
+  })
+})
+
+describe('writeWorkflows', () => {
+  // writeWorkflows writes under the cwd — every case runs in a throwaway dir so the
+  // repo's own .github/ can never be touched.
+  const opts = { stack: 'bun', test: 'vitest', deploy: 'none' } as const
+  let tmp: string
+  let origCwd: string
+
+  beforeEach(() => {
+    origCwd = process.cwd()
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'write-workflows-'))
+    process.chdir(tmp)
+  })
+
+  afterEach(() => {
+    process.chdir(origCwd)
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('does not clobber existing files by default (top-up)', async () => {
+    fs.mkdirSync('.github/workflows', { recursive: true })
+    fs.writeFileSync('.github/workflows/ci.yml', 'sentinel-ci')
+    fs.writeFileSync('.github/dependabot.yml', 'sentinel-dependabot')
+
+    const results = await writeWorkflows(opts)
+
+    expect(fs.readFileSync('.github/workflows/ci.yml', 'utf8')).toBe('sentinel-ci')
+    expect(fs.readFileSync('.github/dependabot.yml', 'utf8')).toBe('sentinel-dependabot')
+    expect(results).toContainEqual({ file: 'ci.yml', status: 'skipped' })
+    expect(results).toContainEqual({ file: 'dependabot.yml', status: 'skipped' })
+    // absent files are still topped up
+    expect(results).toContainEqual({ file: 'auto-merge.yml', status: 'created' })
+    expect(fs.readFileSync('.github/workflows/auto-merge.yml', 'utf8')).toContain('name: Auto Merge')
+  })
+
+  it('overwrites existing files with force', async () => {
+    fs.mkdirSync('.github/workflows', { recursive: true })
+    fs.writeFileSync('.github/workflows/ci.yml', 'sentinel-ci')
+    fs.writeFileSync('.github/dependabot.yml', 'sentinel-dependabot')
+
+    const results = await writeWorkflows(opts, true)
+
+    expect(fs.readFileSync('.github/workflows/ci.yml', 'utf8')).toContain('name: CI')
+    expect(fs.readFileSync('.github/dependabot.yml', 'utf8')).toContain('package-ecosystem: npm')
+    expect(results).toContainEqual({ file: 'ci.yml', status: 'updated' })
+    expect(results).toContainEqual({ file: 'dependabot.yml', status: 'updated' })
+  })
+
+  it('reports dependabot.yml alongside the workflows it writes', async () => {
+    const results = await writeWorkflows(opts)
+
+    expect(results).toContainEqual({ file: 'dependabot.yml', status: 'created' })
+    expect(fs.existsSync('.github/dependabot.yml')).toBe(true)
+    // every file touched on disk appears in the report — no silent writes
+    const reported = results.map((r) => r.file).sort()
+    const onDisk = [...fs.readdirSync('.github/workflows'), 'dependabot.yml'].sort()
+    expect(reported).toEqual(onDisk)
+  })
+
+  it('reports the deploy workflow for a cloudflare stack', async () => {
+    const results = await writeWorkflows({ stack: 'bun', test: 'vitest', deploy: 'cloudflare' })
+
+    expect(results).toContainEqual({ file: 'deploy-cloudflare.yml', status: 'created' })
   })
 })
 

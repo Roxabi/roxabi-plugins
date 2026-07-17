@@ -2,20 +2,26 @@
 /**
  * Init CLI — router that delegates to subcommand modules.
  * All subcommands output JSON for the SKILL.md orchestrator to parse.
- *
- * Usage:
- *   bun init.ts prereqs [--json]
- *   bun init.ts discover [--json]
- *   bun init.ts workflows --owner <owner> --repo <repo> --stack <bun|node|python> --test <vitest|jest|pytest|bun|none> --deploy <vercel|cloudflare|none> [--merge auto-merge|merge-on-green] [--e2e playwright|none] [--lint true|false] [--typecheck true|false] [--test-command <cmd>] [--branch <branch>] [--force]
- *   bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>] [--force]  # generic only (auto-merge + pr-title + context-lint)
- *   bun init.ts push-context-lint --owner <owner> --repo <repo> [--branch <branch>]  # context-lint.yml only (always updates)
- *   (both default to TOP-UP: existing workflow files are skipped; --force overwrites)
- *   bun init.ts protect-branches --repo <owner/repo>
- *   bun init.ts scaffold-rules [--stack-path .claude/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
- *   bun init.ts scaffold --github-repo <owner/repo> [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]
- *   bun init.ts scaffold-fumadocs [--root <path>] [--docs-path <path>]
- *   bun init.ts scaffold-fumadocs-vercel [--root <path>] [--orchestrator <turbo|none>]
+ * `bun init.ts --help` prints USAGE.
  */
+
+const USAGE = `Init CLI — router that delegates to subcommand modules.
+
+Usage:
+  bun init.ts prereqs [--json]
+  bun init.ts discover [--json]
+  bun init.ts workflows (--owner <owner> --repo <repo> | --local) --stack <bun|node|python> --test <vitest|jest|pytest|bun|none> --deploy <vercel|cloudflare|none> [--merge auto-merge|merge-on-green] [--e2e playwright|none] [--lint true|false] [--typecheck true|false] [--test-command <cmd>] [--branch <branch>] [--force]
+      --owner + --repo push via the GitHub REST API; --local writes into ./.github instead
+      (offline use — no gh auth, no remote). The two are mutually exclusive.
+  bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>] [--force]  # generic only (auto-merge + pr-title + context-lint)
+  bun init.ts push-context-lint --owner <owner> --repo <repo> [--branch <branch>]  # context-lint.yml only (always updates)
+  (workflows/push-workflows default to TOP-UP: existing files are skipped; --force overwrites)
+  bun init.ts protect-branches --repo <owner/repo>
+  bun init.ts scaffold-docs [--format md|mdx] [--path docs]
+  bun init.ts scaffold-rules [--stack-path .claude/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
+  bun init.ts scaffold --github-repo <owner/repo> [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]
+  bun init.ts scaffold-fumadocs [--root <path>] [--docs-path <path>]
+  bun init.ts scaffold-fumadocs-vercel [--root <path>] [--orchestrator <turbo|none>]`
 
 const args = process.argv.slice(2)
 const command = args[0] ?? 'prereqs'
@@ -29,6 +35,11 @@ function parseFlag(flag: string, fallback: string): string {
 
 function hasFlag(flag: string): boolean {
   return rest.includes(flag)
+}
+
+if (command === '--help' || command === '-h' || hasFlag('--help') || hasFlag('-h')) {
+  console.log(USAGE)
+  process.exit(0)
 }
 
 switch (command) {
@@ -58,7 +69,8 @@ switch (command) {
     const e2e = parseFlag('--e2e', 'none') as 'playwright' | 'none'
     const lint = parseFlag('--lint', 'true') === 'true'
     const typecheck = parseFlag('--typecheck', 'true') === 'true'
-    const force = process.argv.includes('--force')
+    const force = hasFlag('--force')
+    const local = hasFlag('--local')
     const opts = {
       stack,
       test,
@@ -69,13 +81,24 @@ switch (command) {
       lint,
       typecheck,
     }
-    if (owner && repo) {
+    // Local write is opt-in, never the fallback for missing flags — a typo'd --owner
+    // must not silently rewrite the current repo's .github/.
+    if (local && (owner || repo)) {
+      console.error('Error: --local writes to ./.github and is mutually exclusive with --owner/--repo.')
+      process.exit(1)
+    }
+    if (!local && !(owner && repo)) {
+      console.error(
+        'Usage: init.ts workflows --owner <owner> --repo <repo> [...]  (or --local to write into ./.github)',
+      )
+      process.exit(1)
+    }
+    if (local) {
+      const result = await writeWorkflows(opts, force)
+      console.log(JSON.stringify({ written: result }, null, 2))
+    } else {
       const result = await pushWorkflows(owner, repo, opts, branch, force)
       console.log(JSON.stringify({ pushed: result }, null, 2))
-    } else {
-      // fallback: local write (no owner/repo provided)
-      const result = await writeWorkflows(opts)
-      console.log(JSON.stringify({ written: result }, null, 2))
     }
     break
   }
@@ -173,8 +196,6 @@ switch (command) {
 
   default:
     console.error(`Unknown command: ${command}`)
-    console.error(
-      'Usage: init.ts [prereqs|discover|workflows|push-workflows|protect-branches|scaffold-docs|scaffold-rules|scaffold|scaffold-fumadocs|scaffold-fumadocs-vercel]',
-    )
+    console.error(USAGE)
     process.exit(1)
 }

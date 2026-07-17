@@ -87,6 +87,61 @@ export function checkProjectStructure(): Section {
   return { name: 'Project', checks }
 }
 
+export interface DependabotCooldownFinding {
+  ecosystem: string
+  property: string
+}
+
+/** Ecosystems whose cooldown accepts `default-days` only — per the Dependabot options reference. */
+const SEMVER_COOLDOWN_UNSUPPORTED = new Set(['github-actions'])
+
+const SEMVER_COOLDOWN_KEY = /^(semver-(?:major|minor|patch)-days)\s*:/
+
+function indentOf(line: string): number {
+  return line.length - line.trimStart().length
+}
+
+function stripComment(line: string): string {
+  const hash = line.indexOf('#')
+  return hash === -1 ? line : line.slice(0, hash)
+}
+
+/**
+ * Detect `semver-*-days` cooldown keys under ecosystems that do not support them.
+ * Scoping matters in both directions: npm legitimately carries `semver-major-days`,
+ * so a whole-file match would flag a valid config; each key must be attributed to
+ * the `- package-ecosystem:` list item that contains it.
+ * Hand-parsed — no YAML parser is available to this plugin.
+ */
+export function detectDependabotCooldownViolations(content: string): DependabotCooldownFinding[] {
+  const lines = content.split('\n').map(stripComment)
+  const starts: number[] = []
+  lines.forEach((line, i) => {
+    if (/^\s*-\s*package-ecosystem\s*:/.test(line)) starts.push(i)
+  })
+
+  const findings: DependabotCooldownFinding[] = []
+  for (let b = 0; b < starts.length; b++) {
+    const block = lines.slice(starts[b], starts[b + 1] ?? lines.length)
+    const ecosystem = block[0].match(/package-ecosystem\s*:\s*['"]?([\w-]+)/)?.[1]
+    if (!ecosystem || !SEMVER_COOLDOWN_UNSUPPORTED.has(ecosystem)) continue
+
+    let cooldownIndent: number | null = null
+    for (const line of block) {
+      if (!line.trim()) continue
+      if (cooldownIndent !== null && indentOf(line) <= cooldownIndent) cooldownIndent = null
+      if (/^\s*cooldown\s*:/.test(line)) {
+        cooldownIndent = indentOf(line)
+        continue
+      }
+      if (cooldownIndent === null) continue
+      const key = line.trim().match(SEMVER_COOLDOWN_KEY)?.[1]
+      if (key) findings.push({ ecosystem, property: key })
+    }
+  }
+  return findings
+}
+
 export function checkSecurity(): Section {
   const checks: Check[] = []
 
@@ -113,7 +168,15 @@ export function checkSecurity(): Section {
     const depYml = fs.readFileSync(dependabotPath, 'utf8') as string
     const hasGha = /package-ecosystem:\s*github-actions/.test(depYml)
     const hasApp = /package-ecosystem:\s*(npm|pip)/.test(depYml)
-    if (hasGha && hasApp) {
+    const cooldownViolations = detectDependabotCooldownViolations(depYml)
+    if (cooldownViolations.length > 0) {
+      const offenders = [...new Set(cooldownViolations.map((v) => `${v.property} under '${v.ecosystem}'`))].join(', ')
+      checks.push({
+        name: 'dependabot.yml',
+        status: 'fail',
+        detail: `invalid cooldown property: ${offenders} — GitHub rejects the entire dependabot.yml at parse time, so every ecosystem's update-types split silently stops applying. Keep only default-days there.`,
+      })
+    } else if (hasGha && hasApp) {
       checks.push({
         name: 'dependabot.yml',
         status: 'pass',
