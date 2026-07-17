@@ -92,10 +92,37 @@ export interface DependabotCooldownFinding {
   property: string
 }
 
-/** Ecosystems whose cooldown accepts `default-days` only — per the Dependabot options reference. */
-const SEMVER_COOLDOWN_UNSUPPORTED = new Set(['github-actions'])
+/**
+ * Ecosystems whose cooldown accepts `default-days` only — `semver-*-days` there is
+ * rejected by GitHub at parse time. The complement (npm, cargo, gomod, pip, …) and the
+ * other language ecosystems support semver — flagging any of those would be a false
+ * positive.
+ *
+ * Source (verified against the live table, fetched 2026-07-17):
+ * https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
+ * Re-verify here if GitHub adds semver support to an ecosystem below.
+ *
+ * A misspelled entry degrades to a miss (never matches a real block). Correctness still
+ * depends on every entry being an ecosystem GitHub actually rejects semver-*-days for; a
+ * wrong (not misspelled) entry — a semver-supporting ecosystem added here — would be a
+ * false positive.
+ */
+export const SEMVER_COOLDOWN_UNSUPPORTED = new Set([
+  'bazel',
+  'devcontainers',
+  'docker',
+  'docker-compose',
+  'github-actions',
+  'gitsubmodule',
+  'helm',
+  'nix',
+  'opentofu',
+  'pre-commit',
+  'terraform',
+  'vcpkg',
+])
 
-const SEMVER_COOLDOWN_KEY = /^(semver-(?:major|minor|patch)-days)\s*:/
+const SEMVER_COOLDOWN_KEY = /^["']?(semver-(?:major|minor|patch)-days)["']?\s*:/
 
 function indentOf(line: string): number {
   return line.length - line.trimStart().length

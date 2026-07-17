@@ -2,7 +2,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { checkSecurity, detectDependabotCooldownViolations } from '../doctor-local'
+import { checkSecurity, detectDependabotCooldownViolations, SEMVER_COOLDOWN_UNSUPPORTED } from '../doctor-local'
 
 /**
  * Dependabot cooldown validity.
@@ -108,6 +108,87 @@ describe('detectDependabotCooldownViolations', () => {
     const yml = ['updates:', '  - package-ecosystem: github-actions', '    groups:', '      semver-major-days: 7'].join(
       '\n',
     )
+    expect(detectDependabotCooldownViolations(yml)).toEqual([])
+  })
+
+  it('flags a quoted semver key (`"semver-major-days":`)', () => {
+    const yml = [
+      'updates:',
+      '  - package-ecosystem: bazel',
+      '    cooldown:',
+      '      default-days: 3',
+      '      "semver-major-days": 7',
+    ].join('\n')
+    expect(detectDependabotCooldownViolations(yml)).toEqual([{ ecosystem: 'bazel', property: 'semver-major-days' }])
+  })
+
+  it('flags a quoted package-ecosystem value', () => {
+    const yml = [
+      'updates:',
+      '  - package-ecosystem: "docker"',
+      '    cooldown:',
+      '      default-days: 3',
+      '      semver-major-days: 7',
+    ].join('\n')
+    expect(detectDependabotCooldownViolations(yml)).toEqual([{ ecosystem: 'docker', property: 'semver-major-days' }])
+  })
+
+  // The default-days-only ecosystems, per the Dependabot options reference (2026-07-17).
+  // Widening SEMVER_COOLDOWN_UNSUPPORTED beyond github-actions must actually fire for each —
+  // this table is the anchor: reverting the Set to just github-actions fails every row but one.
+  // Independent literal, NOT derived from the production Set — otherwise shrinking the Set
+  // would just drop rows instead of failing them. Drift is instead caught by the equality
+  // assertion below.
+  const DEFAULT_DAYS_ONLY = [
+    'bazel',
+    'devcontainers',
+    'docker',
+    'docker-compose',
+    'github-actions',
+    'gitsubmodule',
+    'helm',
+    'nix',
+    'opentofu',
+    'pre-commit',
+    'terraform',
+    'vcpkg',
+  ]
+
+  it('matches the production SEMVER_COOLDOWN_UNSUPPORTED set exactly', () => {
+    expect(new Set(DEFAULT_DAYS_ONLY)).toEqual(SEMVER_COOLDOWN_UNSUPPORTED)
+  })
+
+  // Cross-product over every semver-*-days key, not just semver-major-days — otherwise
+  // dropping minor|patch from SEMVER_COOLDOWN_KEY would leave these rows green.
+  const SEMVER_COOLDOWN_KEYS = ['semver-major-days', 'semver-minor-days', 'semver-patch-days']
+
+  const DEFAULT_DAYS_ONLY_X_KEYS = DEFAULT_DAYS_ONLY.flatMap((ecosystem) =>
+    SEMVER_COOLDOWN_KEYS.map((property) => ({ ecosystem, property })),
+  )
+
+  it.each(DEFAULT_DAYS_ONLY_X_KEYS)('flags $property under $ecosystem', ({ ecosystem, property }) => {
+    const yml = [
+      'updates:',
+      `  - package-ecosystem: ${ecosystem}`,
+      '    cooldown:',
+      '      default-days: 3',
+      `      ${property}: 7`,
+    ].join('\n')
+    expect(detectDependabotCooldownViolations(yml)).toEqual([{ ecosystem, property }])
+  })
+
+  // The false-positive boundary: these DO support semver-*-days, so flagging them is the
+  // exact failure this check must never produce. If GitHub's table changes, this fails loudly.
+  const SEMVER_SUPPORTED = ['npm', 'gomod', 'cargo', 'pip', 'uv', 'bun', 'maven', 'gradle', 'nuget', 'bundler']
+
+  it.each(SEMVER_SUPPORTED)('does not flag semver-major-days under %s (semver is valid there)', (ecosystem) => {
+    const yml = [
+      'updates:',
+      `  - package-ecosystem: ${ecosystem}`,
+      '    cooldown:',
+      '      default-days: 3',
+      '      semver-major-days: 7',
+    ].join('\n')
     expect(detectDependabotCooldownViolations(yml)).toEqual([])
   })
 })
