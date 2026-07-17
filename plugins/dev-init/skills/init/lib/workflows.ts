@@ -60,19 +60,30 @@ jobs:
     steps:
 ${APP_MINT_STEP}
 
-      - name: Block dependabot semver-major bumps
+      # Read the real update-type from Dependabot's metadata rather than parsing the
+      # PR title: grouped PRs are titled "bump the <group> group…" with no versions,
+      # so a title regex never fires for a major hidden in a group, and it can also
+      # misread a SHA-pinned action bump ("from 08eba0b to 8f4b7f8") as a major.
+      # For a grouped PR, fetch-metadata reports the HIGHEST update-type in the group.
+      - name: Fetch dependabot metadata
+        id: dependabot-meta
         if: github.event.pull_request.user.login == 'dependabot[bot]'
+        uses: ${ACTION_PINS.dependabotFetchMetadata}
+        with:
+          github-token: \${{ steps.app.outputs.token }}
+
+      - name: Block dependabot semver-major bumps
+        if: >-
+          github.event.pull_request.user.login == 'dependabot[bot]' &&
+          steps.dependabot-meta.outputs.update-type == 'version-update:semver-major'
         env:
           GH_TOKEN: \${{ steps.app.outputs.token }}
           PR_NUMBER: \${{ github.event.pull_request.number }}
-          PR_TITLE: \${{ github.event.pull_request.title }}
         run: |
-          if [[ "$PR_TITLE" =~ from\\ v?([0-9]+)[^\\ ]*\\ to\\ v?([0-9]+) ]] && [ "\${BASH_REMATCH[1]}" != "\${BASH_REMATCH[2]}" ]; then
-            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \\
-              --body "Auto-merge refused: **semver-major** bump. Manual validation required (e2e / boot the artifact), then merge by hand."
-            echo "::error::semver-major dependency bump — auto-merge refused"
-            exit 1
-          fi
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \\
+            --body "Auto-merge refused: **semver-major** bump. Manual validation required (e2e / boot the artifact), then merge by hand."
+          echo "::error::semver-major dependency bump — auto-merge refused"
+          exit 1
 
       - name: Update branch (lazy sync for late joiners)
         if: contains(github.event.pull_request.labels.*.name, 'reviewed')

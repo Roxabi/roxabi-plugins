@@ -42,6 +42,32 @@ describe('generateAutoMergeYml', () => {
     expect(yml).toContain(ACTION_PINS.githubScript)
     expect(yml).not.toContain('actions/github-script@v8')
   })
+
+  it('blocks semver-major via fetch-metadata, not the dead title regex', () => {
+    const yml = generateAutoMergeYml()
+    // The title regex never fired on grouped PRs (no versions in the title) and
+    // could misread SHA-pinned action bumps — #342 replaced it with metadata.
+    expect(yml).not.toContain('BASH_REMATCH')
+    expect(yml).not.toContain('PR_TITLE')
+    expect(yml).toContain(ACTION_PINS.dependabotFetchMetadata)
+
+    // Derive the reference from the declared id — a rename of `id:` that forgets
+    // to update the block's `if:` must fail this, not just an equality check.
+    const fetchIdMatch = yml.match(/- name: Fetch dependabot metadata\s*\n\s*id: (\S+)/)
+    if (!fetchIdMatch) throw new Error('Fetch dependabot metadata step id not found')
+    const fetchId = fetchIdMatch[1]
+
+    const blockStart = yml.indexOf('- name: Block dependabot semver-major')
+    expect(blockStart).toBeGreaterThan(-1)
+    const nextStepOffset = yml.slice(blockStart + 1).search(/\n\s*- name: /)
+    const blockRegion =
+      nextStepOffset === -1 ? yml.slice(blockStart) : yml.slice(blockStart, blockStart + 1 + nextStepOffset)
+
+    expect(blockRegion).toContain(`steps.${fetchId}.outputs.update-type == 'version-update:semver-major'`)
+    // Scoped to the Block step only — the whole YAML also has a legitimate
+    // `exit 0` elsewhere (update-behind-prs' empty-PR-list check).
+    expect(blockRegion).toContain('exit 1')
+  })
 })
 
 describe('generateCiYml', () => {
@@ -140,6 +166,8 @@ describe('generateDependabotAutomergeYml', () => {
     expect(yml).toContain('dependabot[bot]')
     expect(yml).toContain('semver-patch')
     expect(yml).toContain(ACTION_PINS.createAppToken)
+    expect(yml).toContain(ACTION_PINS.dependabotFetchMetadata)
+    expect(yml).not.toContain('21025c705c08')
   })
 })
 
