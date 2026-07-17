@@ -3909,7 +3909,7 @@ html[data-theme="light"] .fgraph-node.fg-glow.cyan { --accent-glow: rgba(14,116,
 
 <header>
   <div class="header-eyebrow">roxabi-plugins &middot; issue 353 &middot; architecture</div>
-  <h1>$VERSION data model &mdash; <span class="accent">derived once, witnessed three ways</span></h1>
+  <h1>$VERSION &mdash; <span class="accent">derived once, witnessed three ways</span></h1>
   <p class="header-subtitle">Rebuild version detection &middot; promote <em>derives</em> $VERSION from the merge commit M; the PR title, CHANGELOG heading and version file are witnesses cross-checked pre-merge, advisory post-merge</p>
 </header>
 
@@ -3921,158 +3921,173 @@ html[data-theme="light"] .fgraph-node.fg-glow.cyan { --accent-glow: rgba(14,116,
     <span class="stat__label">deriver &middot; price.sh</span>
   </div>
   <div class="stat">
+    <span class="stat__value">2</span>
+    <span class="stat__label">call sites &middot; preview + finalize</span>
+  </div>
+  <div class="stat">
     <span class="stat__value">3</span>
-    <span class="stat__label">witnesses</span>
+    <span class="stat__label">witnesses &middot; zero authority</span>
   </div>
   <div class="stat">
     <span class="stat__value">2</span>
-    <span class="stat__label">call sites</span>
-  </div>
-  <div class="stat">
-    <span class="stat__value">0</span>
-    <span class="stat__label">second sources of truth</span>
+    <span class="stat__label">outputs &middot; tag + release</span>
   </div>
 </div>
 
-<div class="section-label square">Data model</div>
+<div class="section-label square">Derived once &middot; witnessed three ways</div>
 
 <!-- ══════════════════════════════════════════════════════════════════
-     Layered — 4 tiers, top to bottom.
+     Derivation model — top to bottom, two group zones carry the message.
 
-       Layer 1 (inputs)      y = 13   N=2  -> R1 centers 25, 75
-       Layer 2 (compute)     y = 35   N=1  -> center 50
-       Layer 3 (the value)   y = 56   N=1  -> center 50
-       Layer 4 (projections) y = 82   N=4  -> R1 centers 12.5, 37.5, 62.5, 87.5
+       Inputs        y = 11   N=2  -> centers 29, 71
+       Derivation    cluster zone y 20..57 : hero y=30 + two call sites y=47
+       Witnesses     region  zone y 64..94 : N=3 narrow, centers 16, 39, 62
+       Outputs       right column x=84 : git tag y=72, Release y=86
 
-     R1  (100/2N)(2i+1): N=2 -> 25/75 (stride 50) · N=4 -> 12.5/37.5/62.5/87.5 (stride 25)
-     R2  layer 1: stride 50 - width 30 = 20% gap · layer 4: stride 25 - width 18 = 7% gap
-     R4  every path is axis-aligned. The 1->4 fan-out is a corridor route
-         (M x,y L x,Y L x2,Y L x2,y2 — fgraph-base § Routing patterns), not a
-         diagonal: trunk down, one shared lane at y=68, four vertical drops.
-         The shared lane IS the takeaway — four renderings off one wire.
-     R5  purple = config/store read · accent thick = control (critical path)
-         · green dashed = write. No red/rose: no security content here.
-     R6  no path routes behind a node (every edge terminates >=0.5 above the
-         target's top edge); .solid on the amber compute card regardless.
+     R1  the derivation is ONE dominant, glowing node (cyan cluster zone);
+         the three witnesses are a MUTED region, drawn as subordinates and
+         never peers — the whole point of "witnessed three ways".
+     R2  the deriver has two call sites and that distinction is the point:
+         preview (pre-merge, a PROPOSAL, amber) feeds the witnesses; the
+         authoritative call at finalize (cyan, the one .thick edge) feeds
+         the real release artifacts.
+     R4  purple = read (config + tag store) · accent = the derivation ·
+         green dashed = write (real artifact) · dim dashed = witness (a
+         copy with zero authority). No red/rose: no security content.
+     R5  outputs sit OUTSIDE the witness region (x>=75): they are the real
+         artifacts, not peers of the witnesses — 9c tags, 9d releases.
+     R6  no path routes behind a node — witness/output edges terminate
+         >=0.3 above each target's top edge; nodes (z2) mask edges (z1).
      ══════════════════════════════════════════════════════════════════ -->
 
 <div class="fgraph-wrap cyan tall"
      role="img"
-     aria-label="Layered data model. Two inputs, the stack.yml release block and the git tag store, are read by price.sh, the single deriver, which derives $VERSION from the merge commit M — floored at the newest tag, not the last merge. That one value is emitted as three witnesses cross-checked pre-merge — the promotion PR title, the CHANGELOG heading, and the version file — and as the authoritative release artifacts, the git tag and GitHub Release. The witnesses have no authority independent of the derivation.">
+     aria-label="Derivation model, top to bottom. Two inputs are read: the stack.yml release block (class, component, version_files) and the component-scoped git tags. They feed one deriver, price.sh, the sole authority: BASE is the newest semver tag reachable from main, component-scoped, and the payload is the non-merge commits the merge commit M adds over that tag's commit BASE_SHA — not the last merge — classified feat to minor, fix chore and other to patch, breaking to major, empty to no bump. The deriver has two call sites, and this distinction is the point: a preview before the merge, which is a proposal only; and the authoritative call at finalize, derived from the merge commit by construction. The preview is copied into three witnesses with zero authority — the promotion PR title, the CHANGELOG heading which is the preview's durable carrier, and the version file which is a no-op when empty. Pre-merge a CI gate asserts three-way agreement and goes red on mismatch; post-merge a disagreeing witness is only a warning and the derived value is tagged anyway. The authoritative derivation writes the real release artifacts, the git tag at step 9c and the GitHub Release at step 9d, each reconciled idempotently per artifact.">
 
-  <!-- Layer frames -->
-  <div class="layer-frame" style="top: 6%; height: 16%;"></div>
-  <div class="layer-lbl" style="top: 8%;">Inputs</div>
+  <!-- ── GROUP ZONES — emphasis IS the message ─────────────────────
+       The derivation is one dominant, glowing cluster (cyan); the three
+       witnesses are a muted region, drawn as subordinates, never peers. -->
+  <div class="fgraph-group cluster" style="--x:8;--y:20;--w:84;--h:37;">
+    <span class="fgraph-group__label">THE DERIVATION &middot; SOLE AUTHORITY</span>
+  </div>
+  <div class="fgraph-group region" style="--x:6;--y:64;--w:66;--h:24;">
+    <span class="fgraph-group__label">WITNESSES &middot; ZERO AUTHORITY</span>
+  </div>
 
-  <div class="layer-frame" style="top: 26%; height: 18%;"></div>
-  <div class="layer-lbl" style="top: 28%;">Derive</div>
-
-  <div class="layer-frame" style="top: 48%; height: 16%;"></div>
-  <div class="layer-lbl" style="top: 50%;">The version</div>
-
-  <div class="layer-frame" style="top: 70%; height: 22%;"></div>
-  <div class="layer-lbl" style="top: 72%;">Witnesses + release</div>
-
+  <!-- ── EDGE LAYER ──────────────────────────────────────────────── -->
   <svg class="fgraph-edges" viewBox="0 0 100 100" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
     <defs>
-      <marker id="fg-arr-amber-ly"   viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-amber"/></marker>
-      <marker id="fg-arr-cyan-ly"    viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-cyan"/></marker>
       <marker id="fg-arr-purple-ly"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-purple"/></marker>
-      <marker id="fg-arr-green-ly"   viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-green"/></marker>
-      <marker id="fg-arr-red-ly"     viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-red"/></marker>
       <marker id="fg-arr-control-ly" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-control"/></marker>
+      <marker id="fg-arr-green-ly"   viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-green"/></marker>
+      <marker id="fg-arr-dim-ly"     viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-dim"/></marker>
     </defs>
 
-    <!-- Layer 1 -> Layer 2 — two reads (purple). Vertical: start.x == end.x -->
-    <path class="fg-edge read" d="M 25,17.5 L 25,29.5"
-          marker-end="url(#fg-arr-purple-ly)"/>
-    <path class="fg-edge read" d="M 75,17.5 L 75,29.5"
-          marker-end="url(#fg-arr-purple-ly)"/>
+    <!-- inputs -> deriver (read) -->
+    <path class="fg-edge read" d="M 33,14.6 C 36,19 41,22 45,24.4" marker-end="url(#fg-arr-purple-ly)"/>
+    <path class="fg-edge read" d="M 67,16.2 C 63,20 58,22 55,24.4" marker-end="url(#fg-arr-purple-ly)"/>
 
-    <!-- Layer 2 -> Layer 3 — the critical path. Exactly one .thick edge. -->
-    <path class="fg-edge control thick" d="M 50,40.5 L 50,52.5"
-          marker-end="url(#fg-arr-control-ly)"/>
+    <!-- deriver -> preview call site (control, thin) -->
+    <path class="fg-edge control" d="M 43,35.6 C 39,39 31,41 27,43.4" marker-end="url(#fg-arr-control-ly)"/>
+    <!-- deriver -> authoritative call site (control, THE one thick edge) -->
+    <path class="fg-edge control thick" d="M 57,35.6 C 61,39 69,41 73,43.4" marker-end="url(#fg-arr-control-ly)"/>
 
-    <!-- Layer 3 -> Layer 4 — corridor fan-out (write). One trunk, one shared
-         lane at y=68, four drops. Every segment axis-aligned. -->
-    <path class="fg-edge write" d="M 50,59.5 L 50,68"/>
-    <path class="fg-edge write" d="M 12.5,68 L 87.5,68"/>
-    <path class="fg-edge write" d="M 12.5,68 L 12.5,77.5"
-          marker-end="url(#fg-arr-green-ly)"/>
-    <path class="fg-edge write" d="M 37.5,68 L 37.5,77.5"
-          marker-end="url(#fg-arr-green-ly)"/>
-    <path class="fg-edge write" d="M 62.5,68 L 62.5,77.5"
-          marker-end="url(#fg-arr-green-ly)"/>
-    <path class="fg-edge write" d="M 87.5,68 L 87.5,77.5"
-          marker-end="url(#fg-arr-green-ly)"/>
+    <!-- preview -> three witnesses (dim dashed — advisory copies, zero authority) -->
+    <path class="fg-edge dim dashed" d="M 23,50.4 C 20,58 17,66 16,74.2" marker-end="url(#fg-arr-dim-ly)"/>
+    <path class="fg-edge dim dashed" d="M 30,50.4 C 33,58 37,66 39,74.2" marker-end="url(#fg-arr-dim-ly)"/>
+    <path class="fg-edge dim dashed" d="M 34,50.4 C 45,57 55,64 61,74.2" marker-end="url(#fg-arr-dim-ly)"/>
+
+    <!-- authoritative -> outputs (write green) — the real release artifacts, 9c then 9d -->
+    <path class="fg-edge write" d="M 73,50.4 C 78,56 84,61 84,68.2" marker-end="url(#fg-arr-green-ly)"/>
+    <path class="fg-edge write" d="M 84,75.6 L 84,82.2" marker-end="url(#fg-arr-green-ly)"/>
   </svg>
 
-  <!-- Edge labels -->
-  <div class="fgraph-lbl purple" style="--x:31;--y:23.5;">read</div>
-  <div class="fgraph-lbl purple" style="--x:81;--y:23.5;">read</div>
-  <div class="fgraph-lbl control" style="--x:58;--y:46.5;">derive</div>
-  <div class="fgraph-lbl green" style="--x:59;--y:65.5;">emit + cross-check</div>
+  <!-- ── EDGE + BAND LABELS ──────────────────────────────────────── -->
+  <div class="fgraph-lbl purple"  style="--x:36;--y:19;">read</div>
+  <div class="fgraph-lbl purple"  style="--x:64;--y:19;">read</div>
+  <div class="fgraph-lbl control" style="--x:31;--y:39.5;">called pre-merge</div>
+  <div class="fgraph-lbl control" style="--x:70;--y:39.5;">called at finalize</div>
+  <div class="fgraph-lbl green"   style="--x:85;--y:64;">idempotent per-artifact</div>
 
-  <!-- Layer 1: Inputs -->
-  <div class="fgraph-node purple folded wide" style="--x:25;--y:13;">
+  <!-- the witness rule, annotated on the band above the witnesses -->
+  <div class="fgraph-lbl amber" style="--x:38;--y:60.5;">witnesses cross-checked, never trusted
+    <span class="dim">pre-merge &rarr; CI gate: 3-way agreement, RED on mismatch &middot; post-merge &rarr; WARN, tag the derived value anyway</span>
+  </div>
+
+  <!-- ── INPUTS (read) ───────────────────────────────────────────── -->
+  <div class="fgraph-node purple folded wide" style="--x:29;--y:11;">
     <div class="fgraph-title purple">stack.yml</div>
     <div class="fgraph-sub">.claude/stack.yml</div>
     <div class="fgraph-sub muted">release: { class, component, version_files }</div>
   </div>
 
-  <div class="fgraph-node purple cylinder wide" style="--x:75;--y:13;">
+  <div class="fgraph-node purple cylinder wide" style="--x:71;--y:11;">
     <div class="fgraph-title purple">git tags</div>
     <div class="fgraph-sub">&lt;component&gt;/v*</div>
     <div class="fgraph-sub muted">Convention A</div>
   </div>
 
-  <!-- Layer 2: Derive — price.sh, the sole deriver -->
-  <div class="fgraph-node amber solid xwide" style="--x:50;--y:35;">
-    <div class="fgraph-title amber">derive &mdash; price.sh</div>
-    <div class="fgraph-sub">BASE = max_semver{ t : is_ancestor(t, main) }</div>
+  <!-- ── THE DERIVATION — the sole authority, sole focal glow ─────── -->
+  <div class="fgraph-node cyan solid xwide hero-node fg-glow" style="--x:50;--y:30;">
+    <div class="fgraph-title cyan">price( BASE_SHA .. M ) &mdash; the sole deriver</div>
+    <div class="fgraph-sub">BASE = max_semver{ t : is_ancestor(t, main) } &middot; component-scoped</div>
     <div class="fgraph-sub">payload = rev-list --no-merges ^BASE_SHA &lt;heads&gt;</div>
-    <div class="fgraph-sub muted">floored at newest tag &middot; feat&rarr;minor / fix,other&rarr;patch / !&rarr;major</div>
+    <div class="fgraph-sub muted">floor = newest tag's commit (BASE_SHA), not the last merge</div>
+    <div class="fgraph-sub muted">feat&rarr;minor &middot; fix/chore/other&rarr;patch &middot; feat!/BREAKING&rarr;major &middot; empty&rarr;no bump</div>
   </div>
 
-  <!-- Layer 3: the derived value — authoritative, sole focal glow -->
-  <div class="fgraph-node cyan pill wide hero-node fg-glow" style="--x:50;--y:56;">
-    <div class="fgraph-title cyan">$VERSION</div>
-    <div class="fgraph-sub">derived from merge M</div>
+  <!-- two call sites — this distinction is the whole point -->
+  <div class="fgraph-node amber solid wide" style="--x:27;--y:47;">
+    <div class="fgraph-title amber">preview &mdash; a PROPOSAL</div>
+    <div class="fgraph-sub">price.sh &lt;c&gt; origin/main origin/main origin/staging</div>
+    <div class="fgraph-sub muted">pre-merge &middot; not a decision</div>
   </div>
 
-  <!-- Layer 4: three witnesses (checked) + the authoritative release artifacts -->
-  <div class="fgraph-node green narrow" style="--x:12.5;--y:82;">
-    <div class="fgraph-title green">PR title</div>
-    <div class="fgraph-sub">promotion PR</div>
+  <div class="fgraph-node cyan solid wide" style="--x:73;--y:47;">
+    <div class="fgraph-title cyan">authoritative &mdash; at finalize</div>
+    <div class="fgraph-sub">price.sh &lt;c&gt; M^1 M</div>
+    <div class="fgraph-sub muted">derived from the merge M by construction</div>
+  </div>
+
+  <!-- ── WITNESSES — three, zero authority (subordinate, muted) ───── -->
+  <div class="fgraph-node dim narrow" style="--x:16;--y:78;">
+    <div class="fgraph-title dim">promotion PR title</div>
     <div class="fgraph-sub muted">witness &middot; no authority</div>
   </div>
 
-  <div class="fgraph-node green narrow" style="--x:37.5;--y:82;">
-    <div class="fgraph-title green">CHANGELOG</div>
-    <div class="fgraph-sub">## X.Y.Z heading</div>
-    <div class="fgraph-sub muted">witness &middot; preview carrier</div>
+  <div class="fgraph-node dim narrow" style="--x:39;--y:78;">
+    <div class="fgraph-title dim">CHANGELOG heading</div>
+    <div class="fgraph-sub">preview's durable carrier</div>
+    <div class="fgraph-sub muted">witness &middot; no authority</div>
   </div>
 
-  <div class="fgraph-node green narrow" style="--x:62.5;--y:82;">
-    <div class="fgraph-title green">step 2b <span class="fgraph-pill green">NEW</span></div>
+  <div class="fgraph-node dim narrow" style="--x:62;--y:78;">
+    <div class="fgraph-title dim">version file</div>
     <div class="fgraph-sub">version_files</div>
-    <div class="fgraph-sub muted">witness &middot; [] = no-op</div>
+    <div class="fgraph-sub muted">no-op when []</div>
   </div>
 
-  <div class="fgraph-node cyan narrow" style="--x:87.5;--y:82;">
-    <div class="fgraph-title cyan">steps 9c/9d</div>
-    <div class="fgraph-sub">tag + Release</div>
-    <div class="fgraph-sub muted">authoritative output</div>
+  <!-- ── OUTPUTS — the real release artifacts (write) ─────────────── -->
+  <div class="fgraph-node green solid narrow" style="--x:84;--y:72;">
+    <div class="fgraph-title green">git tag</div>
+    <div class="fgraph-sub">&lt;component&gt;/vX.Y.Z</div>
+    <div class="fgraph-sub muted">step 9c</div>
+  </div>
+
+  <div class="fgraph-node green solid narrow" style="--x:84;--y:86;">
+    <div class="fgraph-title green">GitHub Release</div>
+    <div class="fgraph-sub muted">step 9d</div>
   </div>
 
   <div class="fgraph-legend">
     <div class="fg-legend-row">
       <span class="fg-legend-key read"><span class="sw"></span>read &mdash; config / tag store</span>
       <span class="fg-legend-key control"><span class="sw"></span>control &mdash; the derivation</span>
-      <span class="fg-legend-key write"><span class="sw"></span>emit &mdash; witness + release</span>
+      <span class="fg-legend-key write"><span class="sw"></span>write &mdash; real artifact</span>
+      <span class="fg-legend-key"><span class="sw" style="border-top-style:dashed;opacity:0.55"></span>witness &mdash; zero authority</span>
     </div>
     <div class="fg-legend-row">
-      <span class="fg-legend-key">folded = config &middot; cylinder = store &middot; pill = the derived value &middot; rect = artifact</span>
+      <span class="fg-legend-key">glow = the sole authority &middot; amber = a proposal &middot; muted = witness &middot; green = real release artifact</span>
     </div>
   </div>
 </div>
