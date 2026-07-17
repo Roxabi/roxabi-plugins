@@ -92,8 +92,33 @@ export interface DependabotCooldownFinding {
   property: string
 }
 
-/** Ecosystems whose cooldown accepts `default-days` only — per the Dependabot options reference. */
-const SEMVER_COOLDOWN_UNSUPPORTED = new Set(['github-actions'])
+/**
+ * Ecosystems whose cooldown accepts `default-days` only — `semver-*-days` there is
+ * rejected by GitHub at parse time. The complement (npm, gomod, cargo, pip, uv, bun,
+ * bundler, composer, maven, gradle, nuget, hex, pub, swift, deno, dotnet, elm, conda,
+ * julia, sbt, rust) DOES support semver — flagging any of those would be a false positive.
+ *
+ * Source (verified against the live table, fetched 2026-07-17):
+ * https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
+ * Re-verify here if GitHub adds semver support to an ecosystem below.
+ *
+ * Safe-by-construction: a wrong/misspelled value degrades to a miss (never matches an
+ * actual block), so it can only under-report — never a false positive.
+ */
+const SEMVER_COOLDOWN_UNSUPPORTED = new Set([
+  'bazel',
+  'devcontainers',
+  'docker',
+  'docker-compose',
+  'github-actions',
+  'gitsubmodule',
+  'helm',
+  'nix',
+  'opentofu',
+  'pre-commit',
+  'terraform',
+  'vcpkg',
+])
 
 const SEMVER_COOLDOWN_KEY = /^(semver-(?:major|minor|patch)-days)\s*:/
 

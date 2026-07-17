@@ -110,6 +110,50 @@ describe('detectDependabotCooldownViolations', () => {
     )
     expect(detectDependabotCooldownViolations(yml)).toEqual([])
   })
+
+  // The default-days-only ecosystems, per the Dependabot options reference (2026-07-17).
+  // Widening SEMVER_COOLDOWN_UNSUPPORTED beyond github-actions must actually fire for each —
+  // this table is the anchor: reverting the Set to just github-actions fails every row but one.
+  const DEFAULT_DAYS_ONLY = [
+    'bazel',
+    'devcontainers',
+    'docker',
+    'docker-compose',
+    'github-actions',
+    'gitsubmodule',
+    'helm',
+    'nix',
+    'opentofu',
+    'pre-commit',
+    'terraform',
+    'vcpkg',
+  ]
+
+  it.each(DEFAULT_DAYS_ONLY)('flags semver-major-days under %s', (ecosystem) => {
+    const yml = [
+      'updates:',
+      `  - package-ecosystem: ${ecosystem}`,
+      '    cooldown:',
+      '      default-days: 3',
+      '      semver-major-days: 7',
+    ].join('\n')
+    expect(detectDependabotCooldownViolations(yml)).toEqual([{ ecosystem, property: 'semver-major-days' }])
+  })
+
+  // The false-positive boundary: these DO support semver-*-days, so flagging them is the
+  // exact failure this check must never produce. If GitHub's table changes, this fails loudly.
+  const SEMVER_SUPPORTED = ['npm', 'gomod', 'cargo', 'pip', 'uv', 'bun', 'maven', 'gradle', 'nuget', 'bundler']
+
+  it.each(SEMVER_SUPPORTED)('does not flag semver-major-days under %s (semver is valid there)', (ecosystem) => {
+    const yml = [
+      'updates:',
+      `  - package-ecosystem: ${ecosystem}`,
+      '    cooldown:',
+      '      default-days: 3',
+      '      semver-major-days: 7',
+    ].join('\n')
+    expect(detectDependabotCooldownViolations(yml)).toEqual([])
+  })
 })
 
 describe('checkSecurity dependabot.yml status', () => {
