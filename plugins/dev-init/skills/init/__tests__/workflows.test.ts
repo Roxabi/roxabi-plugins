@@ -42,6 +42,16 @@ describe('generateAutoMergeYml', () => {
     expect(yml).toContain(ACTION_PINS.githubScript)
     expect(yml).not.toContain('actions/github-script@v8')
   })
+
+  it('blocks semver-major via fetch-metadata, not the dead title regex', () => {
+    const yml = generateAutoMergeYml()
+    // The title regex never fired on grouped PRs (no versions in the title) and
+    // could misread SHA-pinned action bumps — #342 replaced it with metadata.
+    expect(yml).not.toContain('BASH_REMATCH')
+    expect(yml).not.toContain('PR_TITLE')
+    expect(yml).toContain(ACTION_PINS.dependabotFetchMetadata)
+    expect(yml).toContain("steps.dependabot-meta.outputs.update-type == 'version-update:semver-major'")
+  })
 })
 
 describe('generateCiYml', () => {

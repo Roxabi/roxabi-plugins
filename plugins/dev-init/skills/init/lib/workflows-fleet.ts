@@ -106,7 +106,7 @@ ${APP_MINT_STEP}
 
       - name: Fetch dependabot metadata
         id: meta
-        uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a  # v2.5.0
+        uses: ${ACTION_PINS.dependabotFetchMetadata}
         with:
           github-token: \${{ secrets.GITHUB_TOKEN }}
 

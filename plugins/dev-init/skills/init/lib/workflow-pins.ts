@@ -11,4 +11,5 @@ export const ACTION_PINS = {
   githubScript: 'actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3', // v9
   semanticPr: 'amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50', // v6
   createAppToken: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1', // v3.2.0
+  dependabotFetchMetadata: 'dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98', // v3.1.0
 } as const
