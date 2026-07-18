@@ -1,16 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { TokenMode } from '../adapters/github-infra'
 import { APP_MINT_STEP, emitAppMintStep, PAT_RETIREMENT_BANNER, REQUIRED_SECRETS } from '../adapters/github-infra'
-
-const EXPECTED_SHA = 'bcd2ba49218906704ab6c1aa796996da409d3eb1'
+import { ACTION_PINS } from '../workflows/workflow-pins'
 
 describe('APP_MINT_STEP', () => {
-  it('contains the locked SHA pin', () => {
-    expect(APP_MINT_STEP).toContain(`actions/create-github-app-token@${EXPECTED_SHA}`)
-  })
-
-  it('references the version comment', () => {
-    expect(APP_MINT_STEP).toContain('# v3.2.0')
+  it('uses ACTION_PINS.createAppToken (single pin SSoT)', () => {
+    expect(APP_MINT_STEP).toContain(ACTION_PINS.createAppToken)
   })
 
   it('uses ROXABI_CI_APP_ID var', () => {
