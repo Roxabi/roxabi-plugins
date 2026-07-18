@@ -3,8 +3,8 @@
  * Supports both local write (writeWorkflows) and REST API push (pushWorkflows).
  */
 
-import { run } from '../../shared/adapters/github-adapter'
-import { APP_MINT_STEP } from '../../shared/adapters/github-infra'
+import { run } from '../adapters/github-adapter'
+import { APP_MINT_STEP } from '../adapters/github-infra'
 import { ACTION_PINS } from './workflow-pins'
 import { normalizeWorkflowOpts, type WorkflowOpts } from './workflow-types'
 import {

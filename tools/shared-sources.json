@@ -54,5 +54,21 @@
   {
     "canonical": "plugins/dev-core/skills/shared/adapters/github-adapter.ts",
     "targets": ["plugins/dev-init/skills/shared/adapters/github-adapter.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/workflows/workflow-pins.ts",
+    "targets": ["plugins/dev-init/skills/shared/workflows/workflow-pins.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/workflows/workflow-types.ts",
+    "targets": ["plugins/dev-init/skills/shared/workflows/workflow-types.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/workflows/workflows-fleet.ts",
+    "targets": ["plugins/dev-init/skills/shared/workflows/workflows-fleet.ts"]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/workflows/workflows.ts",
+    "targets": ["plugins/dev-init/skills/shared/workflows/workflows.ts"]
   }
 ]

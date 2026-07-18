@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ACTION_PINS } from '../lib/workflow-pins'
+import { ACTION_PINS } from '../../shared/workflows/workflow-pins'
 import {
   classifyTestRunner,
   generateAutoMergeYml,
@@ -11,13 +11,13 @@ import {
   generateDeployYml,
   workflowOptsFromStack,
   writeWorkflows,
-} from '../lib/workflows'
+} from '../../shared/workflows/workflows'
 import {
   generateDependabotAutomergeYml,
   generateDependabotYml,
   generateMergeOnGreenYml,
   generateSecretScanYml,
-} from '../lib/workflows-fleet'
+} from '../../shared/workflows/workflows-fleet'
 
 describe('generateAutoMergeYml', () => {
   it('emits the App token mint step (no secrets.PAT)', () => {
