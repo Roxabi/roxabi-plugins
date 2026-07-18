@@ -1,11 +1,24 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { TokenMode } from '../adapters/github-infra'
 import { APP_MINT_STEP, emitAppMintStep, PAT_RETIREMENT_BANNER, REQUIRED_SECRETS } from '../adapters/github-infra'
 import { ACTION_PINS } from '../workflows/workflow-pins'
 
+const GITHUB_INFRA_SRC = join(dirname(fileURLToPath(import.meta.url)), '../adapters/github-infra.ts')
+
 describe('APP_MINT_STEP', () => {
   it('uses ACTION_PINS.createAppToken (single pin SSoT)', () => {
     expect(APP_MINT_STEP).toContain(ACTION_PINS.createAppToken)
+  })
+
+  it('source interpolates ACTION_PINS.createAppToken (not a same-SHA hardcode)', () => {
+    // Runtime toContain alone still passes if APP_MINT_STEP hardcodes the expanded
+    // pin string. Source-level lock closes that bypass after github-infra left EMITTER_PATHS (#361 review).
+    const source = readFileSync(GITHUB_INFRA_SRC, 'utf-8')
+    expect(source).toContain('${ACTION_PINS.createAppToken}')
+    expect(source).not.toMatch(/uses:\s*[\w.-]+\/[\w.-]+@[0-9a-fA-F]{7,}/)
   })
 
   it('uses ROXABI_CI_APP_ID var', () => {
