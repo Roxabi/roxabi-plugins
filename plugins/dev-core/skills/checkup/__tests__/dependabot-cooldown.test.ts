@@ -133,6 +133,44 @@ describe('detectDependabotCooldownViolations', () => {
     expect(detectDependabotCooldownViolations(yml)).toEqual([{ ecosystem: 'docker', property: 'semver-major-days' }])
   })
 
+  it('flags an item where package-ecosystem is NOT the first key (F5 — key order is free)', () => {
+    const yml = [
+      'updates:',
+      '  - directory: /',
+      '    package-ecosystem: docker',
+      '    cooldown:',
+      '      default-days: 3',
+      '      semver-major-days: 7',
+    ].join('\n')
+    expect(detectDependabotCooldownViolations(yml)).toEqual([{ ecosystem: 'docker', property: 'semver-major-days' }])
+  })
+
+  it('flags a quoted package-ecosystem KEY (`- "package-ecosystem": docker`) (F11)', () => {
+    const yml = [
+      'updates:',
+      '  - "package-ecosystem": docker',
+      '    cooldown:',
+      '      default-days: 3',
+      '      semver-major-days: 7',
+    ].join('\n')
+    expect(detectDependabotCooldownViolations(yml)).toEqual([{ ecosystem: 'docker', property: 'semver-major-days' }])
+  })
+
+  it('does not fold a later item’s cooldown into an earlier item when the first key is not package-ecosystem', () => {
+    const yml = [
+      'updates:',
+      '  - package-ecosystem: github-actions',
+      '    cooldown:',
+      '      default-days: 3',
+      '  - directory: /',
+      '    package-ecosystem: npm',
+      '    cooldown:',
+      '      semver-major-days: 7',
+    ].join('\n')
+    // npm supports semver-*-days → the github-actions block must not absorb the npm key.
+    expect(detectDependabotCooldownViolations(yml)).toEqual([])
+  })
+
   // The default-days-only ecosystems, per the Dependabot options reference (2026-07-17).
   // Widening SEMVER_COOLDOWN_UNSUPPORTED beyond github-actions must actually fire for each —
   // this table is the anchor: reverting the Set to just github-actions fails every row but one.

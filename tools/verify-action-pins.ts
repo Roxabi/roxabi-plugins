@@ -21,6 +21,14 @@
  * ACTION_PINS declares — matching the SHA alone would let a floating tag
  * (unpinned) or a wrong action reusing a governed SHA slip through unflagged.
  *
+ * The source scan reads text, so a pin built by string concat (not a literal
+ * `uses: owner/repo@ref`) escapes it — the exact blind spot this tool exists to
+ * close, one indirection deeper. To catch that, every zero-arity generator is
+ * also RENDERED and its output `uses:` lines checked against the same governed
+ * pairs (F12). Generators taking WorkflowOpts stay source-scanned (their `uses:`
+ * are `${ACTION_PINS.*}` templates); a concat pin hidden inside one is the sole
+ * residual, and is noted rather than silently dropped.
+ *
  * Requires network + gh auth (GITHUB_TOKEN in CI). Exits 1 on any unresolvable
  * or ungoverned pin.
  */
@@ -32,9 +40,24 @@ const REPO_ROOT = resolve(import.meta.dirname ?? '.', '..')
 const PINS_PATH = resolve(REPO_ROOT, 'plugins/dev-core/skills/shared/workflows/workflow-pins.ts')
 
 /** Sources that emit workflow YAML, all canonical in dev-core's copy-synced skills/shared.
- *  github-infra.ts references ACTION_PINS.createAppToken (template interpolation) so it is
- *  not an inline pin and does not need scanning here — see #361. */
-const EMITTER_PATHS = [
+ *  Every file that could carry an inline `uses:` literal is listed — an excluded emitter is
+ *  an invisible bypass (a future `uses: actions/cache@v4` there would be caught by nothing).
+ *  workflow-pins.ts holds APP_MINT_STEP's `uses:` (#369); github-infra.ts is defensive — both
+ *  currently emit only `${ACTION_PINS.*}` template refs, which parseInlinePins skips, so they
+ *  cost nothing today while restoring the tripwire. */
+export const EMITTER_PATHS = [
+  'plugins/dev-core/skills/shared/workflows/workflow-generators.ts',
+  'plugins/dev-core/skills/shared/workflows/workflows-fleet.ts',
+  'plugins/dev-core/skills/shared/workflows/workflow-pins.ts',
+  'plugins/dev-core/skills/shared/adapters/github-infra.ts',
+]
+
+/** Emitter modules whose zero-arity generators are rendered and scanned (F12 — a pin built by
+ *  string concat is not a literal `uses: owner/repo@ref` and bypasses the source scan; it only
+ *  materialises in the rendered YAML). Arity-0 enumeration auto-covers future generators.
+ *  Generators taking WorkflowOpts remain source-scanned (their `uses:` are `${ACTION_PINS.*}`
+ *  templates, unrenderable without a synthetic opts — the residual concat risk there is noted). */
+export const RENDER_MODULES = [
   'plugins/dev-core/skills/shared/workflows/workflow-generators.ts',
   'plugins/dev-core/skills/shared/workflows/workflows-fleet.ts',
 ]
@@ -78,6 +101,35 @@ export function findInlinePins(files: string[]): InlinePin[] {
     const source = readFileSync(resolve(REPO_ROOT, file), 'utf-8')
     return parseInlinePins(source).map((pin) => ({ file, ...pin }))
   })
+}
+
+/** Render every zero-arity generator in the emitter modules and collect the `uses:` pins in
+ *  their OUTPUT — the form a concat-built pin only reveals at runtime. Arity-0 enumeration
+ *  auto-covers future zero-arg generators; a generator that throws is reported, never dropped
+ *  silently. Returns [] plus a warning list rather than importing at load time. */
+export async function renderInlinePins(
+  modulePaths: string[],
+): Promise<{ pins: InlinePin[]; rendered: string[]; warnings: string[] }> {
+  const pins: InlinePin[] = []
+  const rendered: string[] = []
+  const warnings: string[] = []
+  for (const modulePath of modulePaths) {
+    const mod = (await import(resolve(REPO_ROOT, modulePath))) as Record<string, unknown>
+    for (const [name, value] of Object.entries(mod)) {
+      if (typeof value !== 'function' || value.length !== 0) continue
+      let out: unknown
+      try {
+        out = (value as () => unknown)()
+      } catch (err) {
+        warnings.push(`${modulePath}: rendering ${name}() threw (${err}) — not output-scanned`)
+        continue
+      }
+      if (typeof out !== 'string') continue
+      rendered.push(`${name}()`)
+      for (const pin of parseInlinePins(out)) pins.push({ file: `${modulePath}::${name}()`, ...pin })
+    }
+  }
+  return { pins, rendered, warnings }
 }
 
 function governedKey(action: string, ref: string): string {
@@ -146,7 +198,11 @@ async function main() {
   }
 
   const governedPairs = buildGovernedPairs(pins)
-  const ungovernedPins = findUngovernedPins(findInlinePins(EMITTER_PATHS), governedPairs)
+  const { pins: renderedPins, rendered, warnings } = await renderInlinePins(RENDER_MODULES)
+  for (const w of warnings) console.error(`WARN ${w}`)
+  if (rendered.length > 0)
+    console.log(`rendered+scanned ${rendered.length} zero-arity generator(s): ${rendered.join(', ')}`)
+  const ungovernedPins = findUngovernedPins([...findInlinePins(EMITTER_PATHS), ...renderedPins], governedPairs)
   for (const inline of ungovernedPins) {
     const reason = HEX_SHA_RE.test(inline.ref) ? 'not declared in ACTION_PINS' : 'floating ref, not pinned to a SHA'
     console.error(`FAIL ${inline.file}: uses ${inline.action}@${inline.ref} — ${reason}`)
@@ -159,7 +215,7 @@ async function main() {
     if (ungovernedPins.length > 0) console.error(`${ungovernedPins.length} inline pin(s) bypass ACTION_PINS.`)
     process.exit(1)
   }
-  console.log(`\nAll ${pins.length} pins resolve; no inline pin bypasses ACTION_PINS.`)
+  console.log(`\nAll ${pins.length} pins resolve; no inline or rendered pin bypasses ACTION_PINS.`)
 }
 
 if (import.meta.main) {

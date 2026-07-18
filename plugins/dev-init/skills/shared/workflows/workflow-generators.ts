@@ -6,8 +6,7 @@
  * Push/write lives in workflow-push.ts (dev-init owned; copy-synced for tests).
  */
 
-import { APP_MINT_STEP } from '../adapters/github-infra'
-import { ACTION_PINS } from './workflow-pins'
+import { ACTION_PINS, APP_MINT_STEP } from './workflow-pins'
 import { normalizeWorkflowOpts, type WorkflowOpts } from './workflow-types'
 import { generateE2eJob } from './workflows-fleet'
 

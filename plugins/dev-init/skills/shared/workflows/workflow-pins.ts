@@ -15,3 +15,26 @@ export const ACTION_PINS = {
   createAppToken: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1', // v3.2.0
   dependabotFetchMetadata: 'dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98', // v3.1.0
 } as const
+
+/**
+ * SHA-pinned mint step for the roxabi-ci GitHub App.
+ * Consumers reference `${{ steps.app.outputs.token }}`.
+ *
+ * Lives in this pure, I/O-free module (not adapters/github-infra.ts, which houses
+ * `Bun.spawnSync`) so the pure workflow generators can import it without pulling an
+ * I/O adapter into /checkup's import graph (#369). Pin source of truth:
+ * ACTION_PINS.createAppToken — never float a tag.
+ */
+export const APP_MINT_STEP = `      # roxabi-ci App token (ephemeral, 1 h) — pushes re-trigger CI,
+      # which GITHUB_TOKEN cannot do.
+      - name: Mint app token (roxabi-ci)
+        id: app
+        uses: ${ACTION_PINS.createAppToken}
+        with:
+          app-id: \${{ vars.ROXABI_CI_APP_ID }}
+          private-key: \${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}`
+
+/** Emit the App mint step as a YAML snippet (indented for a `steps:` block). */
+export function emitAppMintStep(): string {
+  return APP_MINT_STEP
+}

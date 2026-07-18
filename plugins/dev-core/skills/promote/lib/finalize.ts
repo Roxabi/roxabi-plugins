@@ -157,3 +157,59 @@ export function classifyFinalize(input: FinalizeInput): FinalizeVerdict {
   // Both tag and release exist and point at M → green no-op (D16).
   return { action: 'noop', warnings, reason: '' }
 }
+
+// ─── CLI (S11 step 9b — make the tested verdict the EXECUTED verdict, #369) ────────
+//
+// /promote --finalize runs this so the classifier above IS the decision, not a bash
+// re-implementation of part of it. Flags in, three stdout lines out:
+//   action=<tag|create-release|noop|refuse>
+//   reason=<text>            (empty unless refuse)
+//   warning=<text>           (zero or more; witness disagreements — D7)
+// Exit 1 on `refuse` so `bun run lib/finalize.ts … || …` short-circuits; 0 otherwise.
+
+function parseFinalizeArgv(argv: string[]): FinalizeInput {
+  const get = (flag: string): string | undefined => {
+    const i = argv.indexOf(flag)
+    return i >= 0 ? argv[i + 1] : undefined
+  }
+  const req = (flag: string): string => {
+    const v = get(flag)
+    if (v === undefined) throw new Error(`finalize: missing required ${flag}`)
+    return v
+  }
+  // A witness flag absent OR passed empty ('') means "artifact does not exist" → null (D12).
+  const witness = (flag: string): string | null => {
+    const v = get(flag)
+    return v === undefined || v === '' ? null : v
+  }
+  const artifact = (flag: string): ArtifactState => {
+    const v = req(flag)
+    if (v !== 'absent' && v !== 'points-at-M' && v !== 'points-elsewhere') {
+      throw new Error(`finalize: ${flag} must be absent|points-at-M|points-elsewhere, got '${v}'`)
+    }
+    return v
+  }
+  const parentCount = Number(req('--parent-count'))
+  if (!Number.isInteger(parentCount)) throw new Error(`finalize: --parent-count must be an integer`)
+  return {
+    parentCount,
+    isPromote: req('--is-promote') === 'true',
+    derived: req('--derived'),
+    base: req('--base'),
+    witnesses: {
+      title: witness('--witness-title'),
+      heading: witness('--witness-heading'),
+      versionFile: witness('--witness-file'),
+    },
+    tagState: artifact('--tag-state'),
+    releaseState: artifact('--release-state'),
+  }
+}
+
+if (import.meta.main) {
+  const verdict = classifyFinalize(parseFinalizeArgv(process.argv.slice(2)))
+  console.log(`action=${verdict.action}`)
+  console.log(`reason=${verdict.reason}`)
+  for (const w of verdict.warnings) console.log(`warning=${w}`)
+  process.exit(verdict.action === 'refuse' ? 1 : 0)
+}

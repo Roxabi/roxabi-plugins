@@ -275,34 +275,63 @@ gh pr list --base main --head staging --state merged --limit 1 --json number,tit
 ```
 ¬merged → REFUSE: "Merge the promotion PR first."
 
-**9b.** Derive V from the **merge object alone** (S11/D4) — never from a witness. The PR title, CHANGELOG heading and version file are compared only to **WARN** (D7); a disagreement prints repair actions and finalize **tags the derived version anyway**. A witness cannot veto the authority: the merge already happened and prod is deployed, so a post-merge REFUSE would re-manufacture the shipped-no-release defect this rebuild exists to prevent.
+**9b.** Derive V from the **merge object alone** (S11/D4) — never from a witness. The finalize verdict (structural REFUSE, drift REFUSE, witness WARN, per-artifact act) is computed by `lib/finalize.ts` — the **tested classifier IS the executed decision** (#369), not a bash re-implementation of part of it. The PR title, CHANGELOG heading and version file are compared only to **WARN** (D7); a disagreement prints repair actions and finalize **tags the derived version anyway**, because the merge already shipped and a post-merge REFUSE would re-manufacture the shipped-no-release defect. Gather the inputs:
 
 ```bash
 M=$(gh pr list --base main --head staging --state merged --limit 1 --json mergeCommit --jq '.[0].mergeCommit.oid')
-# Structural REFUSE (the ONLY hard refusals at finalize):
-#  · ≠2 parents (squash / fast-forward) — M^2 undefined
-#  · newest merged base=main∧head=staging PR is not this M — not a promote by metadata (D8)
-#  · empty payload — price.sh returns BASE unchanged (nothing to release, D16/D18)
-[ "$(git rev-list --parents -n1 "$M" | wc -w)" -eq 3 ] || { echo "REFUSE: $M is not a 2-parent merge (squash/ff?)"; exit 1; }
-PREVIEW=$(bash "${CLAUDE_SKILL_DIR}/price.sh" "$COMPONENT" "${M}^1" "$M"); RC=$?
+PARENT_COUNT=$(( $(git rev-list --parents -n1 "$M" | wc -w) - 1 ))   # 3 words = 2 parents
+
+# is-promote by PR metadata (D8), never by commit lineage: is M the newest merged staging→main PR?
+NEWEST=$(gh pr list --base main --head staging --state merged --limit 1 --json mergeCommit --jq '.[0].mergeCommit.oid')
+[ "$M" = "$NEWEST" ] && IS_PROMOTE=true || IS_PROMOTE=false
+
+# Derived version + BASE floor — BOTH from price.sh, the sole deriver (D10). --base-only reuses
+# the deriver's own floor predicate, so the gate and finalize never diverge from a second copy.
+DERIVED=$(bash "${CLAUDE_SKILL_DIR}/price.sh" "$COMPONENT" "${M}^1" "$M"); RC=$?
 { [ "$RC" -ge 1 ] && [ "$RC" -ne 10 ]; } && { echo "REFUSE: price.sh error ($RC)"; exit 1; }
-[ "$RC" -eq 10 ] && PREVIEW=0.1.0     # first release
-VERSION="${COMPONENT}/v${PREVIEW}"
-# Witness compare (WARN-only): if PR title core / newest CHANGELOG heading / version_file ≠ $PREVIEW,
-# print "WARN: witness <x> says <v>, derivation says $PREVIEW — tagging $PREVIEW; reconcile <x>."
+if [ "$RC" -eq 10 ]; then DERIVED=0.1.0; BASE=""; else       # first release — no floor
+  set +e; BASE=$(bash "${CLAUDE_SKILL_DIR}/price.sh" --base-only "$COMPONENT" "${M}^1"); BRC=$?; set -e
+  { [ "$BRC" -ge 1 ] && [ "$BRC" -ne 10 ]; } && { echo "REFUSE: price.sh --base-only error ($BRC)"; exit 1; }
+  [ "$BRC" -eq 10 ] && BASE=""
+fi
+VERSION="${COMPONENT}/v${DERIVED}"
+
+# Witnesses (WARN-only, D7) — empty string ⇒ artifact absent (a null witness, D12).
+TITLE_V=$(gh pr view "$M" --json title --jq '.title' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+HEADING_V=$(grep -oE '^##[[:space:]]+\[?v?[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+VFILE=$(yq -r '.release.version_files[0] // ""' .claude/stack.yml 2>/dev/null || true)
+FILE_V=$([ -n "$VFILE" ] && [ -f "$VFILE" ] && grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$VFILE" | head -n1 || true)
 ```
 `Custom version` is retained only as the multi-component escape hatch (factory/cortex), never required here.
 
-**9c/9d.** Tag and release, **reconciled per artifact** (D16) — each checked independently, so a finalize that died between them recovers on re-run:
+**9c/9d.** Let `finalize.ts` rule, then reconcile tag + release **per artifact** (D16). Re-evaluate after each act, so a finalize that died mid-way recovers and the loop converges (tag → create-release → noop). `finalize.ts` owns every hard REFUSE (≠2 parents, not-a-promote, empty payload, tag/release drift) and emits the witness WARNs:
 
 ```bash
-# TAG — absent → create; present∧==M → skip; present∧≠M → REFUSE (drift, not idempotence)
-TAG_AT=$(git rev-list -n1 "$VERSION" 2>/dev/null || true)
-if [ -z "$TAG_AT" ]; then git tag -a "$VERSION" -m "Release $VERSION" && git push origin "$VERSION"
-elif [ "$TAG_AT" != "$M" ]; then echo "REFUSE: tag $VERSION at $TAG_AT ≠ promote merge $M (drift)"; exit 1; fi
-# RELEASE — independent of the tag branch above (recovers a 9c-succeeded / 9d-died run)
-TITLE="${VERSION/\/v/ v}"     # <component>/vX.Y.Z → <component> vX.Y.Z; bare vX.Y.Z unchanged
-gh release view "$VERSION" >/dev/null 2>&1 || gh release create "$VERSION" --title "$TITLE" --notes "$CHANGELOG_CONTENT"
+for _ in 1 2 3; do
+  # Per-artifact state (D16): where do the tag and release for $DERIVED point?
+  TAG_AT=$(git rev-list -n1 "$VERSION" 2>/dev/null || true)
+  if   [ -z "$TAG_AT" ];     then TAG_STATE=absent
+  elif [ "$TAG_AT" = "$M" ]; then TAG_STATE=points-at-M
+  else                            TAG_STATE=points-elsewhere; fi
+  if gh release view "$VERSION" >/dev/null 2>&1; then
+    { [ "$TAG_AT" = "$M" ] && RELEASE_STATE=points-at-M; } || RELEASE_STATE=points-elsewhere
+  else RELEASE_STATE=absent; fi
+
+  VERDICT=$(bun run "${CLAUDE_SKILL_DIR}/lib/finalize.ts" \
+    --parent-count "$PARENT_COUNT" --is-promote "$IS_PROMOTE" \
+    --derived "$DERIVED" --base "$BASE" \
+    --witness-title "$TITLE_V" --witness-heading "$HEADING_V" --witness-file "$FILE_V" \
+    --tag-state "$TAG_STATE" --release-state "$RELEASE_STATE") || true
+  ACTION=$(printf '%s\n' "$VERDICT" | sed -n 's/^action=//p')
+  printf '%s\n' "$VERDICT" | sed -n 's/^warning=/WARN: /p'   # witness disagreements (D7) — reconcile, do not block
+
+  case "$ACTION" in
+    refuse)         printf '%s\n' "$VERDICT" | sed -n 's/^reason=/REFUSE: /p'; exit 1 ;;
+    tag)            git tag -a "$VERSION" -m "Release $VERSION" && git push origin "$VERSION" ;;
+    create-release) TITLE="${VERSION/\/v/ v}"; gh release create "$VERSION" --title "$TITLE" --notes "$CHANGELOG_CONTENT" ;;
+    noop|*)         break ;;
+  esac
+done
 ```
 Re-running once **both** exist and point at `M` is a green no-op.
 

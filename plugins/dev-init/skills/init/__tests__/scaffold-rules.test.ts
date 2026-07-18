@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { expectedSections, scaffoldRules } from '../lib/scaffold-rules'
+import { detectPackageInstall, expectedSections, scaffoldRules } from '../lib/scaffold-rules'
 
 describe('scaffold-rules', () => {
   let tmp: string
@@ -542,6 +542,36 @@ frontend:
 
       // Assert
       expect(ids).toHaveLength(2)
+    })
+  })
+
+  describe('detectPackageInstall', () => {
+    it('maps uv and python to `uv sync`', () => {
+      expect(detectPackageInstall({ package_manager: 'uv' })).toEqual({
+        packageManager: 'uv',
+        packageInstall: 'uv sync',
+      })
+      expect(detectPackageInstall({ package_manager: 'python' })).toEqual({
+        packageManager: 'uv',
+        packageInstall: 'uv sync',
+      })
+    })
+
+    it('does NOT emit `uv sync` for a plain pip project — it cannot run it (regression)', () => {
+      const { packageManager, packageInstall } = detectPackageInstall({ package_manager: 'pip' })
+      expect(packageManager).toBe('pip')
+      expect(packageInstall).not.toBe('uv sync')
+      expect(packageInstall).toBe('pip install -r requirements.txt')
+    })
+
+    it('maps npm/pnpm/yarn to their own install commands', () => {
+      expect(detectPackageInstall({ package_manager: 'npm' }).packageInstall).toBe('npm install')
+      expect(detectPackageInstall({ package_manager: 'pnpm' }).packageInstall).toBe('pnpm install')
+      expect(detectPackageInstall({ package_manager: 'yarn' }).packageInstall).toBe('yarn')
+    })
+
+    it('defaults to bun', () => {
+      expect(detectPackageInstall({}).packageInstall).toBe('bun install')
     })
   })
 })

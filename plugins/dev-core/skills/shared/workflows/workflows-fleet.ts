@@ -1,5 +1,4 @@
-import { APP_MINT_STEP } from '../adapters/github-infra'
-import { ACTION_PINS } from './workflow-pins'
+import { ACTION_PINS, APP_MINT_STEP } from './workflow-pins'
 import type { WorkflowOpts } from './workflow-types'
 
 function gatingWorkflowNames(opts: WorkflowOpts): string[] {
