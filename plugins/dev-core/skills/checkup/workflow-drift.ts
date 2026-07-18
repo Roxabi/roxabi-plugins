@@ -8,7 +8,7 @@ import {
   generateDeployYml,
   generatePrTitleYml,
   workflowOptsFromStack,
-} from '../shared/workflows/workflows'
+} from '../shared/workflows/workflow-generators'
 import {
   generateCloudflareDeployYml,
   generateDependabotAutomergeYml,
