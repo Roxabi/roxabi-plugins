@@ -169,8 +169,10 @@ export function detectPackageInstall(stack: StackConfig): { packageManager: stri
   if (pm === 'npm') return { packageManager: 'npm', packageInstall: 'npm install' }
   if (pm === 'pnpm') return { packageManager: 'pnpm', packageInstall: 'pnpm install' }
   if (pm === 'yarn') return { packageManager: 'yarn', packageInstall: 'yarn' }
-  if (pm === 'uv' || pm === 'pip' || pm === 'python')
-    return { packageManager: pm === 'python' ? 'uv' : pm, packageInstall: 'uv sync' }
+  // `uv sync` needs a uv-managed project (pyproject + uv.lock); a plain pip project cannot run
+  // it. Only uv/python map to uv sync — pip gets a requirements-based bootstrap of its own.
+  if (pm === 'uv' || pm === 'python') return { packageManager: 'uv', packageInstall: 'uv sync' }
+  if (pm === 'pip') return { packageManager: 'pip', packageInstall: 'pip install -r requirements.txt' }
   return { packageManager: 'bun', packageInstall: 'bun install' }
 }
 
