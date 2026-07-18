@@ -6,7 +6,9 @@ import type { TokenMode } from '../adapters/github-infra'
 import { APP_MINT_STEP, emitAppMintStep, PAT_RETIREMENT_BANNER, REQUIRED_SECRETS } from '../adapters/github-infra'
 import { ACTION_PINS } from '../workflows/workflow-pins'
 
-const GITHUB_INFRA_SRC = join(dirname(fileURLToPath(import.meta.url)), '../adapters/github-infra.ts')
+// APP_MINT_STEP now lives in the pure workflow-pins.ts (#369) so the generators do not import
+// this adapter; the source-level lock follows it there.
+const WORKFLOW_PINS_SRC = join(dirname(fileURLToPath(import.meta.url)), '../workflows/workflow-pins.ts')
 
 describe('APP_MINT_STEP', () => {
   it('uses ACTION_PINS.createAppToken (single pin SSoT)', () => {
@@ -14,11 +16,12 @@ describe('APP_MINT_STEP', () => {
   })
 
   it('source interpolates ACTION_PINS.createAppToken (not a same-SHA hardcode)', () => {
-    // Runtime toContain alone still passes if APP_MINT_STEP hardcodes the expanded
-    // pin string. Source-level lock closes that bypass after github-infra left EMITTER_PATHS (#361 review).
-    const source = readFileSync(GITHUB_INFRA_SRC, 'utf-8')
+    // Runtime toContain alone still passes if APP_MINT_STEP hardcodes the expanded pin string.
+    // A source-level lock (on workflow-pins.ts, APP_MINT_STEP's home since #369) closes that bypass.
+    const source = readFileSync(WORKFLOW_PINS_SRC, 'utf-8')
     // biome-ignore lint/suspicious/noTemplateCurlyInString: assert source template form — intentional plain string
     expect(source).toContain('${ACTION_PINS.createAppToken}')
+    // The App mint step must interpolate the pin, never hardcode a `uses: owner/repo@<sha>` literal.
     expect(source).not.toMatch(/uses:\s*[\w.-]+\/[\w.-]+@[0-9a-fA-F]{7,}/)
   })
 
