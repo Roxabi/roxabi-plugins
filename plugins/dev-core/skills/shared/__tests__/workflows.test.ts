@@ -2,7 +2,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ACTION_PINS } from '../workflows/workflow-pins'
 import {
   classifyTestRunner,
   generateAutoMergeYml,
@@ -11,6 +10,7 @@ import {
   generateDeployYml,
   workflowOptsFromStack,
 } from '../workflows/workflow-generators'
+import { ACTION_PINS } from '../workflows/workflow-pins'
 import { writeWorkflows } from '../workflows/workflow-push'
 import {
   generateDependabotAutomergeYml,
