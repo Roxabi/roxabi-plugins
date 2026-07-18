@@ -6,7 +6,7 @@ Single fact source for issue metadata across every Roxabi repo.
 
 > **ProjectV2 board path removed (#268).** The hub Project V2 board integration — `config-helpers.ts` field IDs, `addToProject`, `isProjectConfigured()`, and the `migrate-*` scripts — was deleted from the code. Every write is now a label or native field; there is no board path. See §7 for the migration history that produced this issues-only model.
 
-**Who reads this:** `dev-core:issue-triage` (writer) · `dev-core:github-setup` (label/type bootstrap) · `lyra/scripts/dep-graph` · `roxabi-live` worker (repo-centric GraphQL readers).
+**Who reads this:** `roxabi-issues:issue-triage` (writer) · label/type bootstrap via `/dev-init:init` / org tooling · `lyra/scripts/dep-graph` · `roxabi-live` worker (repo-centric GraphQL readers).
 
 ---
 
