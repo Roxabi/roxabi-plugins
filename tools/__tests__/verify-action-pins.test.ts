@@ -3,11 +3,14 @@ import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildGovernedPairs,
+  EMITTER_PATHS,
   findInlinePins,
   findUngovernedPins,
   type InlinePin,
   parseInlinePins,
   parsePins,
+  RENDER_MODULES,
+  renderInlinePins,
 } from '../verify-action-pins'
 
 // ─── parsePins ───────────────────────────────────────────────────────────────
@@ -139,5 +142,44 @@ describe('regression — F2: right SHA, wrong action must be flagged', () => {
 describe('regression — F3: floating tag must not be invisible to the parser', () => {
   it('parseInlinePins captures a bare tag ref that the old hex-only regex matched nothing on', () => {
     expect(parseInlinePins('      - uses: owner/repo@v3\n')).toEqual([{ action: 'owner/repo', ref: 'v3' }])
+  })
+})
+
+// ─── F4: every uses:-emitting file is scanned, no invisible bypass ──────────
+
+describe('regression — F4: emitter list scans every uses:-emitting file', () => {
+  it('includes github-infra.ts and workflow-pins.ts (APP_MINT_STEP moved here, #369)', () => {
+    expect(EMITTER_PATHS).toContain('plugins/dev-core/skills/shared/adapters/github-infra.ts')
+    expect(EMITTER_PATHS).toContain('plugins/dev-core/skills/shared/workflows/workflow-pins.ts')
+  })
+})
+
+// ─── F12: rendered-output scan catches a concat pin the source scan misses ──
+
+describe('regression — F12: rendered generators expose pins the source scan cannot', () => {
+  const repoRoot = path.resolve(__dirname, '..', '..')
+
+  it('renders every zero-arity generator and every rendered pin is governed', async () => {
+    const pins = parsePins(
+      fs.readFileSync(path.join(repoRoot, 'plugins/dev-core/skills/shared/workflows/workflow-pins.ts'), 'utf-8'),
+    )
+    const governed = buildGovernedPairs(pins)
+    const { pins: rendered, rendered: names, warnings } = await renderInlinePins(RENDER_MODULES)
+    expect(warnings).toEqual([]) // a zero-arity generator that throws is a real regression
+    expect(names.length).toBeGreaterThan(0)
+    expect(findUngovernedPins(rendered, governed)).toEqual([])
+  })
+
+  it('a concat pin, invisible to the source scan, is flagged once rendered', () => {
+    // Concat builds a pin at runtime, so no `uses: owner/repo@ref` literal exists in source —
+    // findInlinePins sees nothing. The pin only appears in the rendered YAML, where it is caught.
+    const renderedConcat = '      - uses: actions/cache@v4\n'
+    const pins = parseInlinePins(renderedConcat).map((p) => ({ file: 'gen()', ...p }))
+    const governed = buildGovernedPairs(
+      parsePins(
+        "export const ACTION_PINS = {\n  checkout: 'actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10', // v6\n} as const",
+      ),
+    )
+    expect(findUngovernedPins(pins, governed)).toEqual(pins)
   })
 })
