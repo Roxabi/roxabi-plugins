@@ -3,6 +3,44 @@ set -euo pipefail
 
 # ci-watch.sh — Watch a GitHub Actions CI run with incremental status updates.
 # Polls every N seconds, outputs state changes as single lines, dumps failed logs on failure.
+#
+# Exit codes (consumed by /ci-watch SKILL.md §4 and /dev):
+#   0  CI passed — and, if auto-merge was watched, the PR merged. Or nothing to watch.
+#   1  CI failed (failed logs dumped above), or a hard usage/tooling error.
+#   2  CI cancelled.
+#   3  CI completed with another conclusion.
+#   4  CI passed but the PR did NOT merge (closed / conflicts / auto-merge disabled / watch
+#      timed out). This needs a human — rebase, resolve conflicts, re-enable auto-merge —
+#      NOT a CI re-run. Distinct from 1 so /dev routes it to a merge follow-up, not Retry-CI.
+EXIT_UNMERGED=4
+
+# ── Pure merge-state classifier (F8) ──────────────────────────────────────────
+# (state, mergeStateStatus, automerge_enabled, elapsed, timeout) → one verdict token.
+# No gh / jq / network — the SAME function the watch loop runs is invocable for tests via
+#   ci-watch.sh --classify-merge-state STATE MSS AUTOMERGE ELAPSED TIMEOUT
+# so the executed decision is exactly the tested one (mirrors price.sh's testability).
+# Tokens: MERGED · UNMERGED_CLOSED · UNMERGED_DISABLED · UNMERGED_TIMEOUT · UNMERGED_DIRTY · WATCH
+classify_merge_state() {
+  local state="$1" mss="$2" automerge="$3" elapsed="$4" timeout="$5"
+  if [[ "$state" == "MERGED" ]]; then echo "MERGED"; return 0; fi
+  if [[ "$state" == "CLOSED" ]]; then echo "UNMERGED_CLOSED"; return 0; fi
+  if [[ "$automerge" != "true" ]]; then echo "UNMERGED_DISABLED"; return 0; fi
+  if (( elapsed >= timeout )); then echo "UNMERGED_TIMEOUT"; return 0; fi
+  # Still open, auto-merge on, within budget: DIRTY needs a human; BEHIND/BLOCKED/UNSTABLE are
+  # transient (strict checks + update-branch re-sync / non-required checks) — keep watching.
+  case "$mss" in
+    DIRTY) echo "UNMERGED_DIRTY" ;;
+    *)     echo "WATCH" ;;
+  esac
+  return 0
+}
+
+# Test hook — pure classifier, needs no gh/jq, so dispatch before the dependency check.
+if [[ "${1:-}" == "--classify-merge-state" ]]; then
+  shift
+  classify_merge_state "$@"
+  exit 0
+fi
 
 # ── Dependency check ──────────────────────────────────────────────────────────
 for cmd in gh jq; do
@@ -128,9 +166,11 @@ status_emoji() {
 }
 
 # ── Auto-merge watch ─────────────────────────────────────────────────────────
-# Maximum time (seconds) to wait for auto-merge after CI passes.
-# 30 minutes: bounds polling when the PR truly cannot self-merge (DIRTY, stalled gates).
-MERGE_WAIT_TIMEOUT=1800
+# Script-side upper bound on polling for auto-merge after CI passes; on hit → exit 4.
+# EFFECTIVE bound = min(this, the caller's Bash timeout − time already spent watching CI).
+# For the graceful exit-4 path to fire (rather than a hard SIGKILL), a caller expecting
+# auto-merge must allow a Bash timeout comfortably above this (see /ci-watch SKILL.md §5).
+MERGE_WAIT_TIMEOUT=900
 
 watch_automerge() {
   local pr="$1"
@@ -156,63 +196,56 @@ watch_automerge() {
   local unstable_noted=false
 
   while true; do
-    # Hard timeout — stop polling after MERGE_WAIT_TIMEOUT seconds
     local elapsed=$(( SECONDS - merge_start ))
-    if (( elapsed >= MERGE_WAIT_TIMEOUT )); then
-      echo "⏱  Auto-merge watch timed out after $(format_elapsed "$elapsed") — CI passed but PR did not merge. Check PR status manually."
-      return 1
-    fi
 
     pr_data=$(gh pr view "$pr" --repo "$REPO" --json autoMergeRequest,state,mergeStateStatus 2>/dev/null) || break
 
-    # Detect auto-merge being disabled mid-watch
-    local automerge_now
+    local automerge_now state merge_state_status
     automerge_now=$(echo "$pr_data" | jq -r 'if .autoMergeRequest != null then "true" else "false" end')
-    if [[ "$automerge_now" != "true" ]]; then
-      echo "🔀 Auto-merge disabled — stopping watch."
-      return 1
-    fi
-
-    local state
     state=$(echo "$pr_data" | jq -r '.state')
-
-    if [[ "$state" == "MERGED" ]]; then
-      local merge_elapsed=$(( SECONDS - merge_start ))
-      echo "✅ PR #${pr} merged! ($(format_elapsed "$merge_elapsed"))"
-      return 0
-    elif [[ "$state" == "CLOSED" ]]; then
-      echo "🚫 PR #${pr} closed without merging."
-      return 1
-    fi
-
-    # mergeStateStatus while auto-merge is enabled:
-    #   BEHIND / BLOCKED — transient on this repo (strict required checks + update-branch
-    #     re-sync). Keep polling; do not claim "reviews/checks missing" without inspecting gates.
-    #   UNSTABLE — non-required checks failing; auto-merge can still proceed.
-    #   DIRTY — conflicts need a human; terminal.
-    local merge_state_status
     merge_state_status=$(echo "$pr_data" | jq -r '.mergeStateStatus // "UNKNOWN"')
 
-    case "$merge_state_status" in
-      BEHIND|BLOCKED)
-        if [[ "$transient_noted" != "true" ]]; then
-          echo "⏳ PR #${pr} is ${merge_state_status} (often transient with auto-merge + update-branch) — continuing to watch."
-          transient_noted=true
-        fi
+    case "$(classify_merge_state "$state" "$merge_state_status" "$automerge_now" "$elapsed" "$MERGE_WAIT_TIMEOUT")" in
+      MERGED)
+        echo "✅ PR #${pr} merged! ($(format_elapsed "$elapsed"))"
+        return 0
         ;;
-      DIRTY)
+      UNMERGED_CLOSED)
+        echo "🚫 PR #${pr} closed without merging."
+        return "$EXIT_UNMERGED"
+        ;;
+      UNMERGED_DISABLED)
+        echo "🔀 Auto-merge disabled — stopping watch."
+        return "$EXIT_UNMERGED"
+        ;;
+      UNMERGED_TIMEOUT)
+        echo "⏱  Auto-merge watch timed out after $(format_elapsed "$elapsed") — CI passed but PR did not merge. Check PR status manually."
+        return "$EXIT_UNMERGED"
+        ;;
+      UNMERGED_DIRTY)
         echo "⚠️  PR #${pr} has conflicts (DIRTY). Stopping watch."
-        return 1
+        return "$EXIT_UNMERGED"
         ;;
-      UNSTABLE)
-        if [[ "$unstable_noted" != "true" ]]; then
-          echo "⚠️  PR #${pr} is UNSTABLE (non-required checks failing) — continuing to watch."
-          unstable_noted=true
-        fi
+      WATCH)
+        # BEHIND/BLOCKED transient (strict checks + update-branch re-sync); UNSTABLE =
+        # non-required checks failing. Note each once, keep polling.
+        case "$merge_state_status" in
+          BEHIND|BLOCKED)
+            if [[ "$transient_noted" != "true" ]]; then
+              echo "⏳ PR #${pr} is ${merge_state_status} (often transient with auto-merge + update-branch) — continuing to watch."
+              transient_noted=true
+            fi
+            ;;
+          UNSTABLE)
+            if [[ "$unstable_noted" != "true" ]]; then
+              echo "⚠️  PR #${pr} is UNSTABLE (non-required checks failing) — continuing to watch."
+              unstable_noted=true
+            fi
+            ;;
+        esac
+        sleep "$INTERVAL"
         ;;
     esac
-
-    sleep "$INTERVAL"
   done
 }
 
@@ -274,7 +307,11 @@ while true; do
       success)
         echo "✅ PASSED (${ELAPSED_FMT})"
         if [[ -n "$PR_NUMBER" ]]; then
-          watch_automerge "$PR_NUMBER"
+          # Propagate the watch verdict explicitly: 0 = merged / nothing to watch,
+          # 4 = green CI but PR did not merge (needs a human, not a CI re-run).
+          AM_RC=0
+          watch_automerge "$PR_NUMBER" || AM_RC=$?
+          exit "$AM_RC"
         fi
         exit 0
         ;;
