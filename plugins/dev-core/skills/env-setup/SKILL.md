@@ -1,7 +1,7 @@
 ---
 name: env-setup
 argument-hint: '[--force]'
-description: 'Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, VS Code MDX, LSP. Triggered by /init or standalone. Triggers: "env setup" | "setup environment" | "configure stack" | "scaffold rules".'
+description: 'Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, VS Code MDX, LSP. Triggered by /dev-init:init or standalone /env-setup. Triggers: "env setup" | "setup environment" | "configure stack" | "scaffold rules".'
 version: 0.1.0
 allowed-tools: Bash, Read, Write, Edit, ToolSearch
 ---
@@ -240,7 +240,7 @@ Env Setup Complete
   LSP               ✅ Configured / ✅ Already set / ⏭ Disabled / ⏭ Skipped
   Worktree-setup    ✅ Scaffolded / ✅ Already configured / ⏭ Skipped
 
-Next: run /seed-docs to populate docs stubs, or /github-setup to connect GitHub Project.
+Next: run /seed-docs to populate docs stubs. Issue triage (labels, blocked-by, parent/child) lives in the separate **roxabi-issues** plugin.
 ```
 
 ## Safety Rules

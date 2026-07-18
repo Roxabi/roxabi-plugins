@@ -20,7 +20,7 @@ maxTurns: 50
 
 Let: C := confidence score (0–100) | SA := `{standards.architecture}` | SD := `{standards.dev_process}` | SC := `{standards.contributing}`
 
-SA undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init`."
+SA undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/env-setup`."
 SD undefined → warn: "standards.dev_process not set in stack.yml — proceeding without dev process standards." and continue.
 SC undefined → warn: "standards.contributing not set in stack.yml — proceeding without contributing standards." and continue.
 
