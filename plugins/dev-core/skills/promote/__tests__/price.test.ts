@@ -23,11 +23,25 @@ afterAll(() => {
 })
 
 let clock = 0
+/**
+ * Env for fixture `git` invocations.
+ *
+ * Must NOT inherit ambient `GIT_*` location vars (`GIT_DIR`, `GIT_WORK_TREE`,
+ * `GIT_INDEX_FILE`, …). Lefthook/pre-push (and any hook) exports those; if we
+ * spread `process.env` as-is, `cwd: <tmpdir>` is ignored and every fixture
+ * commit lands in the real worktree. Strip all inherited `GIT_*`, then set
+ * only the fixture author/committer/config vars we need.
+ */
 function gitEnv(): NodeJS.ProcessEnv {
   clock += 1
   const stamp = `@${1735689600 + clock} +0000` // 2025-01-01T00:00:00Z + clock seconds
+  const env: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith('GIT_')) continue
+    env[key] = value
+  }
   return {
-    ...process.env,
+    ...env,
     // Isolate from the operator's global/system git config (signing, hooks, aliases).
     GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_CONFIG_SYSTEM: '/dev/null',
@@ -80,6 +94,37 @@ function price(repo: string, args: string[]): PriceResult {
   const r = spawnSync('bash', [PRICE_SH, ...args], { cwd: repo, encoding: 'utf8' })
   return { stdout: (r.stdout ?? '').trim(), stderr: r.stderr ?? '', code: r.status ?? -1 }
 }
+
+// ─── Harness isolation — ambient GIT_DIR must never hijack fixtures ───────────
+
+describe('gitEnv isolation (hook-safe fixtures)', () => {
+  it('fixture commits stay in tmpdir even when process.env has GIT_DIR/GIT_WORK_TREE', () => {
+    // Victim = stand-in for the real worktree that a lefthook pre-push would
+    // point GIT_DIR / GIT_WORK_TREE at.
+    const victim = initRepo()
+    const victimHead = commit(victim, 'chore: victim-base')
+
+    const fixture = initRepo()
+
+    const prevDir = process.env.GIT_DIR
+    const prevWorkTree = process.env.GIT_WORK_TREE
+    process.env.GIT_DIR = join(victim, '.git')
+    process.env.GIT_WORK_TREE = victim
+    try {
+      const made = commit(fixture, 'chore: must-not-touch-victim')
+      // Victim HEAD must be untouched — this is the corruption we hit in #353.
+      expect(git(victim, ['rev-parse', 'HEAD'])).toBe(victimHead)
+      // Commit landed in the throwaway fixture repo, not the victim.
+      expect(git(fixture, ['rev-parse', 'HEAD'])).toBe(made)
+      expect(made).not.toBe(victimHead)
+    } finally {
+      if (prevDir === undefined) delete process.env.GIT_DIR
+      else process.env.GIT_DIR = prevDir
+      if (prevWorkTree === undefined) delete process.env.GIT_WORK_TREE
+      else process.env.GIT_WORK_TREE = prevWorkTree
+    }
+  })
+})
 
 // ─── Case 1 — #140 topology (D3): one feat after a tag → minor ─────────────────
 
