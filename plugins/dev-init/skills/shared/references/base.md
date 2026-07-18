@@ -13,4 +13,4 @@ codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project que
 
 ## Notation
 
-`¬` not | `→` then/maps-to | `∨` or | `∧` and | `∃` exists | `∀` for all | `≥/≤` threshold | `✓/✗` pass/fail | `S*` next-step variable | `Σ` state dict
+Legend → canonical glossary: `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` (repo: `plugins/shared/references/notation.md`)
