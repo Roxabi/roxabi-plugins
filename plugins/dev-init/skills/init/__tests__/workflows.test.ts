@@ -10,8 +10,8 @@ import {
   generateContextLintYml,
   generateDeployYml,
   workflowOptsFromStack,
-  writeWorkflows,
-} from '../../shared/workflows/workflows'
+} from '../../shared/workflows/workflow-generators'
+import { writeWorkflows } from '../../shared/workflows/workflow-push'
 import {
   generateDependabotAutomergeYml,
   generateDependabotYml,

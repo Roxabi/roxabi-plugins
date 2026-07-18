@@ -35,7 +35,7 @@ const PINS_PATH = resolve(REPO_ROOT, 'plugins/dev-core/skills/shared/workflows/w
  *  github-infra.ts references ACTION_PINS.createAppToken (template interpolation) so it is
  *  not an inline pin and does not need scanning here — see #361. */
 const EMITTER_PATHS = [
-  'plugins/dev-core/skills/shared/workflows/workflows.ts',
+  'plugins/dev-core/skills/shared/workflows/workflow-generators.ts',
   'plugins/dev-core/skills/shared/workflows/workflows-fleet.ts',
 ]
 

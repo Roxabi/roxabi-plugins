@@ -57,7 +57,7 @@ switch (command) {
   }
 
   case 'workflows': {
-    const { pushWorkflows, writeWorkflows } = await import('../shared/workflows/workflows')
+    const { pushWorkflows, writeWorkflows } = await import('../shared/workflows/workflow-push')
     const owner = parseFlag('--owner', '')
     const repo = parseFlag('--repo', '')
     const branch = parseFlag('--branch', 'main')
@@ -104,7 +104,7 @@ switch (command) {
   }
 
   case 'push-workflows': {
-    const { pushGenericWorkflows } = await import('../shared/workflows/workflows')
+    const { pushGenericWorkflows } = await import('../shared/workflows/workflow-push')
     const owner = parseFlag('--owner', '')
     const repo = parseFlag('--repo', '')
     const branch = parseFlag('--branch', 'main')
@@ -118,7 +118,7 @@ switch (command) {
   }
 
   case 'push-context-lint': {
-    const { pushContextLintYml } = await import('../shared/workflows/workflows')
+    const { pushContextLintYml } = await import('../shared/workflows/workflow-push')
     const owner = parseFlag('--owner', '')
     const repo = parseFlag('--repo', '')
     const branch = parseFlag('--branch', 'main')
