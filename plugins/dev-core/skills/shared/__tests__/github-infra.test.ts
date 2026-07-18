@@ -17,6 +17,7 @@ describe('APP_MINT_STEP', () => {
     // Runtime toContain alone still passes if APP_MINT_STEP hardcodes the expanded
     // pin string. Source-level lock closes that bypass after github-infra left EMITTER_PATHS (#361 review).
     const source = readFileSync(GITHUB_INFRA_SRC, 'utf-8')
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: assert source template form — intentional plain string
     expect(source).toContain('${ACTION_PINS.createAppToken}')
     expect(source).not.toMatch(/uses:\s*[\w.-]+\/[\w.-]+@[0-9a-fA-F]{7,}/)
   })
