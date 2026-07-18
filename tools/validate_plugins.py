@@ -47,6 +47,7 @@ SKILL_LINE_BUDGETS = {'compress': 110}
 NOTATION_LEGEND_FILES = [
     PLUGINS_DIR / 'dev-core' / 'skills' / 'shared' / 'references' / 'base.md',
     PLUGINS_DIR / 'dev-core' / 'agents' / 'doc-writer.md',
+    PLUGINS_DIR / 'dev-init' / 'skills' / 'shared' / 'references' / 'base.md',
 ]
 NOTATION_GLOSSARY = PLUGINS_DIR / 'shared' / 'references' / 'notation.md'
 COMPRESS_SKILL = PLUGINS_DIR / 'compress' / 'skills' / 'compress' / 'SKILL.md'
