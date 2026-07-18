@@ -117,3 +117,23 @@ describe('provisioner — provision-release-gate.sh', () => {
     expect(provisionerSrc).toMatch(/already present/)
   })
 })
+
+// ─── F3/F7: the gate delegates derivation to the sole deriver, no duplicate ─────
+
+describe('release gate delegates to price.sh — no duplicated deriver', () => {
+  it('the push-path floor comes from `price.sh --base-only`, not a hand-copied loop', () => {
+    expect(reusableSrc).toMatch(/--base-only/)
+  })
+
+  it('does NOT re-implement the reachability predicate (it lives only in price.sh)', () => {
+    // The push path used to hand-copy price.sh's `git merge-base --is-ancestor "$sha"` BASE
+    // selection — a second implementation of the sole-deriver predicate (D10). Re-introducing it
+    // is the exact N×M drift #369 removed. Match the executable probe (`git ` prefix), not the
+    // fetch-depth:0 doc comment that legitimately names the command.
+    expect(reusableSrc).not.toMatch(/git merge-base --is-ancestor/)
+  })
+
+  it('the PR path also derives through price.sh (single deriver, D10)', () => {
+    expect(reusableSrc).toMatch(/bash "\$PRICE"/)
+  })
+})

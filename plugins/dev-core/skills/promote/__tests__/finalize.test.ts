@@ -1,5 +1,9 @@
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { type ArtifactState, classifyFinalize, type FinalizeInput, type FinalizeVerdict } from '../lib/finalize'
+
+const FINALIZE_TS = fileURLToPath(new URL('../lib/finalize.ts', import.meta.url))
 
 // classifyFinalize is a PURE function judging the finalize action AROUND price.sh
 // output (it does NOT compute versions). It takes the derived version, the tag
@@ -195,5 +199,64 @@ describe('classifyFinalize — verdict shape', () => {
         expect(() => classifyFinalize(makeInput({ tagState, releaseState }))).not.toThrow()
       }
     }
+  })
+})
+
+// ─── CLI wiring — the EXECUTED verdict IS the tested classifier (F2/#369) ────────
+// /promote --finalize runs `bun run lib/finalize.ts`; this proves that path returns exactly
+// what classifyFinalize returns, so the tested code and the executed code cannot diverge.
+
+function toArgv(input: FinalizeInput): string[] {
+  return [
+    '--parent-count',
+    String(input.parentCount),
+    '--is-promote',
+    String(input.isPromote),
+    '--derived',
+    input.derived,
+    '--base',
+    input.base,
+    '--witness-title',
+    input.witnesses.title ?? '',
+    '--witness-heading',
+    input.witnesses.heading ?? '',
+    '--witness-file',
+    input.witnesses.versionFile ?? '',
+    '--tag-state',
+    input.tagState,
+    '--release-state',
+    input.releaseState,
+  ]
+}
+
+function runFinalizeCli(input: FinalizeInput): { action: string; reason: string; warnings: string[]; code: number } {
+  const r = spawnSync('bun', ['run', FINALIZE_TS, ...toArgv(input)], { encoding: 'utf8' })
+  const lines = (r.stdout ?? '').split('\n')
+  const field = (k: string): string => lines.find((l) => l.startsWith(`${k}=`))?.slice(k.length + 1) ?? ''
+  return {
+    action: field('action'),
+    reason: field('reason'),
+    warnings: lines.filter((l) => l.startsWith('warning=')).map((l) => l.slice('warning='.length)),
+    code: r.status ?? -1,
+  }
+}
+
+describe('finalize.ts CLI matches classifyFinalize', () => {
+  const cases: Array<[string, FinalizeInput]> = [
+    ['clean tag', makeInput()],
+    ['structural refuse (1 parent)', makeInput({ parentCount: 1 })],
+    ['structural refuse (empty payload)', makeInput({ derived: '0.24.1', base: '0.24.1' })],
+    ['drift refuse (tag elsewhere)', makeInput({ tagState: 'points-elsewhere' })],
+    ['witness WARN, still acts', makeInput({ witnesses: { title: '9.9.9', heading: DERIVED, versionFile: null } })],
+    ['green no-op', makeInput({ tagState: 'points-at-M', releaseState: 'points-at-M' })],
+  ]
+
+  it.each(cases)('%s → CLI verdict == pure verdict', (_label, input) => {
+    const expected = classifyFinalize(input)
+    const got = runFinalizeCli(input)
+    expect(got.action).toBe(expected.action)
+    expect(got.reason).toBe(expected.reason)
+    expect(got.warnings).toEqual(expected.warnings)
+    expect(got.code).toBe(expected.action === 'refuse' ? 1 : 0)
   })
 })

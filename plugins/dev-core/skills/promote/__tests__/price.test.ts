@@ -261,6 +261,24 @@ describe('price.sh — bump map totality (D18)', () => {
     expect(stdout).toBe('2.0.0')
   })
 
+  it('a PROSE mention of BREAKING CHANGE (not a footer) → NOT major (F1 — grep is line-anchored)', () => {
+    // The phrase appears mid-line and without a colon-footer, so it must not trip the major bump.
+    // Before #369 the grep was unanchored: this fixture wrongly derived 2.0.0.
+    const repo = bumpFixture([
+      { subject: 'fix: correct thing', body: 'Reverts the earlier work. This is NOT a BREAKING CHANGE for callers.' },
+    ])
+    const { code, stdout } = price(repo, ['comp', 'main', 'main'])
+    expect(code).toBe(0)
+    expect(stdout).toBe('1.0.1') // patch, not 2.0.0
+  })
+
+  it('a colon-footer that is NOT at line start → NOT major (F1)', () => {
+    const repo = bumpFixture([{ subject: 'docs: note', body: 'inline ref BREAKING CHANGE: nope — still just docs' }])
+    const { code, stdout } = price(repo, ['comp', 'main', 'main'])
+    expect(code).toBe(0)
+    expect(stdout).toBe('1.0.1')
+  })
+
   it('mixed payload → highest bump wins (feat + fix + chore → minor)', () => {
     const repo = bumpFixture([
       { subject: 'chore: housekeeping' },
@@ -286,6 +304,62 @@ describe('price.sh — bump map totality (D18)', () => {
     const { code, stdout } = price(repo, ['comp', 'main', 'main'])
     expect(code).toBe(0)
     expect(stdout).toBe('1.0.0')
+  })
+})
+
+// ─── Case 3b — --base-only floor (D1/D2), reused by the release gate (F3) ───────
+
+describe('price.sh — --base-only', () => {
+  it('prints the max reachable BASE, ignoring commits after the newest tag', () => {
+    const repo = initRepo()
+    commit(repo, 'chore: base')
+    tag(repo, 'comp/v0.7.0')
+    commit(repo, 'feat: x')
+    tag(repo, 'comp/v0.8.0')
+    commit(repo, 'feat: y') // after the newest tag — irrelevant to the floor
+    const { code, stdout } = price(repo, ['--base-only', 'comp', 'main'])
+    expect(code).toBe(0)
+    expect(stdout).toBe('0.8.0')
+  })
+
+  it('picks the numeric max via sort -V (0.10.0 > 0.9.0)', () => {
+    const repo = initRepo()
+    commit(repo, 'chore: base')
+    tag(repo, 'comp/v0.9.0')
+    commit(repo, 'feat: x')
+    tag(repo, 'comp/v0.10.0')
+    const { code, stdout } = price(repo, ['--base-only', 'comp', 'main'])
+    expect(code).toBe(0)
+    expect(stdout).toBe('0.10.0')
+  })
+
+  it('is the SAME floor the deriver uses — --base-only == price on an empty payload', () => {
+    // Tag AT head → the deriver returns BASE unchanged; --base-only must agree byte-for-byte,
+    // proving the gate reuses the deriver's predicate rather than a divergent copy.
+    const repo = initRepo()
+    commit(repo, 'chore: base')
+    tag(repo, 'comp/v0.7.0')
+    commit(repo, 'feat: x')
+    tag(repo, 'comp/v1.3.0')
+    const base = price(repo, ['--base-only', 'comp', 'main'])
+    const derivedEmpty = price(repo, ['comp', 'main', 'main'])
+    expect(base.code).toBe(0)
+    expect(base.stdout).toBe('1.3.0')
+    expect(derivedEmpty.stdout).toBe(base.stdout)
+  })
+
+  it('exit 10 when no tag is reachable (first-release verdict, not an error)', () => {
+    const repo = initRepo()
+    commit(repo, 'chore: base')
+    expect(price(repo, ['--base-only', 'comp', 'main']).code).toBe(10)
+  })
+
+  it('missing ANCHOR arg → exit ≥1 (usage error, not first-release 10)', () => {
+    const repo = initRepo()
+    commit(repo, 'chore: base')
+    const { code } = price(repo, ['--base-only', 'comp'])
+    expect(code).toBeGreaterThanOrEqual(1)
+    expect(code).not.toBe(10)
   })
 })
 

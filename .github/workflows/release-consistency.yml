@@ -102,25 +102,10 @@ jobs:
               | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1
           }
 
-          # Max reachable <component>/v* tag core (the BASE floor D1/D2). Mirrors
-          # price.sh's selection: filter-semver → filter-reachable → sort -V → max.
-          # rc 10 = no reachable tag (nothing to be behind of). Reachability is
-          # filtered BEFORE sort; the is-ancestor probe is `if`-guarded so a
-          # legitimate negative does not abort under set -e.
-          max_reachable_tag() {
-            local component=$1 anchor=$2 reachable="" tag ver sha
-            while IFS= read -r tag; do
-              [ -n "$tag" ] || continue
-              ver=${tag#"${component}/v"}
-              [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
-              sha=$(git rev-parse --verify --quiet "${tag}^{commit}") || continue
-              if git merge-base --is-ancestor "$sha" "$anchor"; then
-                reachable+="${ver}"$'\n'
-              fi
-            done <<< "$(git tag -l "${component}/v*")"
-            [ -n "$reachable" ] || return 10
-            printf '%s' "$reachable" | grep -v '^$' | sort -V | tail -n1
-          }
+          # The BASE floor (max reachable <component>/v* tag, D1/D2) comes from the deriver
+          # itself: `price.sh --base-only`. The push path used to hand-copy that selection loop
+          # here — a second implementation of the "sole deriver" predicate (D10) that could drift
+          # from price.sh silently. It is now a single source (#369). rc 10 = no reachable tag.
 
           # ══════════════════════════════════════════════════════════════════
           # PR path (D9) — promote PRs only
@@ -204,12 +189,15 @@ jobs:
 
           ANCHOR="${PUSH_SHA:-HEAD}"
           set +e
-          TAG=$(max_reachable_tag "$COMPONENT" "$ANCHOR")
+          TAG=$(bash "$PRICE" --base-only "$COMPONENT" "$ANCHOR")
           trc=$?
           set -e
           if [ "$trc" -eq 10 ]; then
             echo "no reachable ${COMPONENT}/v* tag — nothing to be behind of (early green)"
             exit 0
+          elif [ "$trc" -ne 0 ]; then
+            echo "release-consistency: price.sh --base-only failed (exit ${trc})" >&2
+            exit "$trc"
           fi
 
           status=0
