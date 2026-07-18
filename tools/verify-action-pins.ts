@@ -32,8 +32,10 @@ const REPO_ROOT = resolve(import.meta.dirname ?? '.', '..')
 const PINS_PATH = resolve(REPO_ROOT, 'plugins/dev-core/skills/shared/workflows/workflow-pins.ts')
 
 /** Sources that emit workflow YAML, all canonical in dev-core's copy-synced skills/shared.
- *  github-infra.ts cannot import ACTION_PINS, so its inline pin is checked, not rewritten;
- *  it is scanned in both plugin copies since each carries the literal pin independently. */
+ *  github-infra.ts keeps its create-app-token pin inline rather than importing ACTION_PINS
+ *  (it now could — same skills/shared tree post-#359 — but that would couple adapters/ to
+ *  workflows/); as an inline literal it is scanned here so it stays governed, and both plugin
+ *  copies are listed since each carries the literal independently. */
 const EMITTER_PATHS = [
   'plugins/dev-core/skills/shared/workflows/workflows.ts',
   'plugins/dev-core/skills/shared/workflows/workflows-fleet.ts',
