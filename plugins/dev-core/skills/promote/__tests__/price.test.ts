@@ -91,7 +91,13 @@ interface PriceResult {
   code: number
 }
 function price(repo: string, args: string[]): PriceResult {
-  const r = spawnSync('bash', [PRICE_SH, ...args], { cwd: repo, encoding: 'utf8' })
+  // Same isolation as `git()`: price.sh shells out to git; ambient GIT_DIR from
+  // a pre-push hook would resolve refs against the real worktree, not `repo`.
+  const r = spawnSync('bash', [PRICE_SH, ...args], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: gitEnv(),
+  })
   return { stdout: (r.stdout ?? '').trim(), stderr: r.stderr ?? '', code: r.status ?? -1 }
 }
 
