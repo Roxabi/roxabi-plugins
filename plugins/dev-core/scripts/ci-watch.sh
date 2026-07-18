@@ -129,7 +129,7 @@ status_emoji() {
 
 # ── Auto-merge watch ─────────────────────────────────────────────────────────
 # Maximum time (seconds) to wait for auto-merge after CI passes.
-# 30 minutes: avoids infinite polling when the PR cannot self-merge (e.g. BEHIND).
+# 30 minutes: bounds polling when the PR truly cannot self-merge (DIRTY, stalled gates).
 MERGE_WAIT_TIMEOUT=1800
 
 watch_automerge() {
@@ -152,6 +152,7 @@ watch_automerge() {
   echo "🔀 Auto-merge enabled + 'reviewed' label — watching for merge..."
 
   local merge_start=$SECONDS
+  local transient_noted=false
   local unstable_noted=false
 
   while true; do
@@ -159,7 +160,7 @@ watch_automerge() {
     local elapsed=$(( SECONDS - merge_start ))
     if (( elapsed >= MERGE_WAIT_TIMEOUT )); then
       echo "⏱  Auto-merge watch timed out after $(format_elapsed "$elapsed") — CI passed but PR did not merge. Check PR status manually."
-      return 0
+      return 1
     fi
 
     pr_data=$(gh pr view "$pr" --repo "$REPO" --json autoMergeRequest,state,mergeStateStatus 2>/dev/null) || break
@@ -169,7 +170,7 @@ watch_automerge() {
     automerge_now=$(echo "$pr_data" | jq -r 'if .autoMergeRequest != null then "true" else "false" end')
     if [[ "$automerge_now" != "true" ]]; then
       echo "🔀 Auto-merge disabled — stopping watch."
-      return 0
+      return 1
     fi
 
     local state
@@ -181,28 +182,29 @@ watch_automerge() {
       return 0
     elif [[ "$state" == "CLOSED" ]]; then
       echo "🚫 PR #${pr} closed without merging."
-      return 0
+      return 1
     fi
 
-    # Detect non-mergeable states
+    # mergeStateStatus while auto-merge is enabled:
+    #   BEHIND / BLOCKED — transient on this repo (strict required checks + update-branch
+    #     re-sync). Keep polling; do not claim "reviews/checks missing" without inspecting gates.
+    #   UNSTABLE — non-required checks failing; auto-merge can still proceed.
+    #   DIRTY — conflicts need a human; terminal.
     local merge_state_status
     merge_state_status=$(echo "$pr_data" | jq -r '.mergeStateStatus // "UNKNOWN"')
 
     case "$merge_state_status" in
-      BEHIND)
-        echo "⚠️  PR #${pr} behind base — rebase required for auto-merge. Stopping watch."
-        return 0
-        ;;
-      BLOCKED)
-        echo "⚠️  PR #${pr} blocked (required reviews/checks missing). Stopping watch."
-        return 0
+      BEHIND|BLOCKED)
+        if [[ "$transient_noted" != "true" ]]; then
+          echo "⏳ PR #${pr} is ${merge_state_status} (often transient with auto-merge + update-branch) — continuing to watch."
+          transient_noted=true
+        fi
         ;;
       DIRTY)
-        echo "⚠️  PR #${pr} has conflicts. Stopping watch."
-        return 0
+        echo "⚠️  PR #${pr} has conflicts (DIRTY). Stopping watch."
+        return 1
         ;;
       UNSTABLE)
-        # Non-required checks failing — auto-merge can still proceed; note once
         if [[ "$unstable_noted" != "true" ]]; then
           echo "⚠️  PR #${pr} is UNSTABLE (non-required checks failing) — continuing to watch."
           unstable_noted=true
