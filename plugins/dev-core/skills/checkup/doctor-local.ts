@@ -137,20 +137,45 @@ function stripComment(line: string): string {
  * Detect `semver-*-days` cooldown keys under ecosystems that do not support them.
  * Scoping matters in both directions: npm legitimately carries `semver-major-days`,
  * so a whole-file match would flag a valid config; each key must be attributed to
- * the `- package-ecosystem:` list item that contains it.
+ * the update item that contains it.
+ *
+ * Item boundaries are the `-` sequence entries under `updates:`, NOT the
+ * `package-ecosystem` line — so an item whose first key is `directory:` (key order
+ * is free in YAML) and a quoted key (`- "package-ecosystem": docker`) are both
+ * bounded and read correctly. Nested sequences (patterns, update-types) sit at a
+ * deeper dash indent and are not mistaken for item boundaries.
  * Hand-parsed — no YAML parser is available to this plugin.
  */
 export function detectDependabotCooldownViolations(content: string): DependabotCooldownFinding[] {
   const lines = content.split('\n').map(stripComment)
+
+  const updatesIdx = lines.findIndex((l) => /^\s*updates\s*:/.test(l))
+  if (updatesIdx === -1) return []
+
+  // Split on the item dash at the shallowest dash indent following `updates:`.
+  let itemDashCol: number | null = null
   const starts: number[] = []
-  lines.forEach((line, i) => {
-    if (/^\s*-\s*package-ecosystem\s*:/.test(line)) starts.push(i)
-  })
+  for (let i = updatesIdx + 1; i < lines.length; i++) {
+    const m = lines[i].match(/^(\s*)-\s/)
+    if (!m) continue
+    if (itemDashCol === null) itemDashCol = m[1].length
+    if (m[1].length === itemDashCol) starts.push(i)
+  }
+
+  // package-ecosystem on ANY line of the item; key and/or value optionally quoted.
+  const ECOSYSTEM = /["']?package-ecosystem["']?\s*:\s*['"]?([\w-]+)/
 
   const findings: DependabotCooldownFinding[] = []
   for (let b = 0; b < starts.length; b++) {
     const block = lines.slice(starts[b], starts[b + 1] ?? lines.length)
-    const ecosystem = block[0].match(/package-ecosystem\s*:\s*['"]?([\w-]+)/)?.[1]
+    let ecosystem: string | undefined
+    for (const line of block) {
+      const m = line.match(ECOSYSTEM)
+      if (m) {
+        ecosystem = m[1]
+        break
+      }
+    }
     if (!ecosystem || !SEMVER_COOLDOWN_UNSUPPORTED.has(ecosystem)) continue
 
     let cooldownIndent: number | null = null
