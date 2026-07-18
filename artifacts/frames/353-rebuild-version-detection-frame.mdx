@@ -1,0 +1,55 @@
+---
+title: Rebuild /promote version detection on reachability + stamp version files
+issue: 353
+status: approved
+tier: F-lite
+date: 2026-07-16
+---
+
+## Problem
+
+`/promote` step 2 derives the base version with `git describe --tags --abbrev=0`. That command is **prefix-blind** (it ranks every tag in the repo, whatever its component) and **staging-anchored** (it describes the current checkout, not the released lineage on `main`). Measured across the fleet, it is **wrong in 7 of 11 repos**: it returns another component's tag on `roxabi-plugins` (`dev-core/v0.4.4`), an archive tag on `roxabi-factory` (`artifacts-archive/2026-06`), **fatal** on `roxabi-talks` and `roxabi-forge`, and a stale version on `roxabi-live` (0.24.0 vs 0.24.1) and `voiceCLI` (0.2.1 vs 0.3.0).
+
+Worse, `/promote` has **no version-file write step at all** — SKILL.md step 2 reads `version | V detected`: *detected*, never written. Nothing in the skill stamps `pyproject.toml` / `package.json`. That gap is why `roxabi-live/pyproject.toml` still claims 0.22.3, and it is the reason deleting release-please is currently unsafe: in `roxabi-intel` (`c67362e`, `a067e73`) and `roxabi-1page` (`17c9394`) the bot is the **sole writer** of the version file. Removing it before this step exists freezes those files permanently.
+
+This is the blocking prerequisite of the release-model unification (see `artifacts/analyses/release-model-unification-analysis.md`, PR #349). The fleet-wide decision is to delete release-please and make `/promote --finalize` the sole release path — but **the value is in this fix, not in the deletion**. Shipping the deletion first delivers a regression to 7 repos.
+
+## Who
+
+- **Primary:** the operator running `/promote --finalize` on any Roxabi repo — today they must override with `Custom version` because detection returns empty or wrong.
+- **Secondary:** every downstream consumer pinning a `<component>/vX.Y.Z` tag through `[tool.uv.sources]` (pin-swap resolves SHA→tag), and the `on: push: tags` build triggers in `voiceCLI` / `llmCLI` / `imageCLI`.
+
+## Constraints
+
+- Tag convention A is fixed: `<component>/vX.Y.Z`. Detection must be component-scoped.
+- Branch topology is fixed: `staging` default, `main` promote-only, merged with a **merge commit** (never squash — squash phantom-conflicts every file on the next promote).
+- Supersedes the step 9b fix shipped in #341: that made the CHANGELOG re-parse *correct*; this removes the need for it by reading `$VERSION` from the promotion PR title step 9a already fetches.
+- `release:` config must live in the **existing** `.claude/stack.yml`, not a new file.
+- Must be dogfooded on roxabi-live's next real promote before any repo migrates.
+
+## Out of Scope
+
+- `roxabi-factory` — 3 components (`lyra`, `roxabi-nats`, `roxabi-contracts`); `/promote` is single-component by construction. Also independently blocked: it pins the archived, tagless `roxabi-vault`, so pin-swap throws today.
+- `roxabi-cortex` — 2 independently versioned packages, default branch `main` (inverted topology), and release-please **works** there.
+- Deleting release-please from any repo. That is Phase 1–3, gated on this shipping first.
+
+## Premise Validity
+
+**Success in 6 months:** the 11 single-component repos all release through `/promote --finalize` with zero `Custom version` input. Version-file↔tag drift is structurally impossible — one writer, one value computed once and projected. The `release-consistency` check is green fleet-wide, and no version file misstates its released version.
+
+**Failure in 6 months:** any one of these is observable — (a) ≥1 repo again shows a version-file↔tag mismatch; (b) `/promote --finalize` still required a `Custom version` override on ≥1 promote; (c) a #140-class silent skip recurred, i.e. a `feat` reached `main` with no corresponding release.
+
+**Simplest alternative:** fix only step 2's prefix-blindness — the same shape as the #341 fix for 9b — and change nothing else: release-please stays, `/promote` keeps re-parsing the CHANGELOG.
+
+**Why not simplest:** it leaves both structural holes open. (a) `/promote` still has no version-file write step, so the repos where the bot is the sole writer freeze the moment it is deleted — the roxabi-live `pyproject` bug reproduced exactly. (b) Two mechanisms means two SSoTs with no reconciler, which is the drift generator itself. #341 is the proof: fixing the symptom in 9b left `/promote`'s second internal SSoT (the CHANGELOG re-parse) intact.
+
+## Complexity
+
+**Tier: F-lite** — clear scope, one dominant domain (the promote skill), no new architecture, but enough surface (CI workflow + config schema + regression fixtures) that it is not S.
+
+Signals observed:
+- ~5 files touched: `promote/SKILL.md`, `references/release-artifacts.md`, `.claude/stack.yml` schema, a reusable CI workflow, tests.
+- Technical risk moderate: git plumbing (`merge-base --is-ancestor`, `rev-list`), semver sort, the #140 DAG fixture.
+- Architectural impact high but contained: it is the release path for 11 repos and introduces a `release:` contract read by both the skill and CI.
+- 2 open questions (stack.yml schema shape, `yq` availability), none blocking.
+- 3 domains: skill (bash/markdown), CI (yml), tests (vitest).

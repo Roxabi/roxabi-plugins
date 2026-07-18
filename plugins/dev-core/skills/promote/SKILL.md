@@ -2,7 +2,7 @@
 name: promote
 argument-hint: [--dry-run | --skip-preview | --finalize]
 description: Promote staging→main — pre-flight, version bump, changelog, PR & tag. Triggers: "promote staging" | "release" | "deploy" | "cut a release" | "--finalize" | "merge to main" | "promote to production" | "ship a release" | "tag and release" | "publish release".
-version: 0.4.1
+version: 0.5.0
 allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch
 ---
 
@@ -64,6 +64,43 @@ Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI
 | Open PRs on σ | open_prs section non-empty | **WARN** + Q: **Continue** \| **Wait** |
 | CI status | ci section | **WARN** if ¬passing |
 | Hotfix density | `hotfix_density` section | **WARN** if gauge=warn (20–40%); **recommend pause** + `/checkup` if gauge=pause (>40%); advisory-only — never hard-block |
+| Component set | `release.component` null/absent | **REFUSE** (S6/D13) + paste-ready `release:` block. On day 1 every repo takes this — it is the onboarding step, not a dead end. |
+| Version-file drift | any `release.version_files` path ≠ `BASE` | **REFUSE** (S5). Message distinguishes *hand-drift* (`file < BASE`) from *a promote abandoned after step 2b* (`file > BASE`) — a reconcile command for each. |
+| Gate provisioned | `release-consistency` **required** on `main` ∧ zero bypass actors | **REFUSE** on a **protectable** repo where it is missing/bypassable (name `scripts/provision-release-gate.sh`); **WARN** if the repo is un-protectable (`403` — private, free plan, D17); `Branch not protected` → REFUSE-with-onboarding. |
+
+### Step 1a — Release guards (S5/S6/S7/D8)
+
+**Component (S6/D13):**
+
+```bash
+COMPONENT=$(yq -r '.release.component // "null"' .claude/stack.yml 2>/dev/null \
+  || python3 -c 'import yaml;print((yaml.safe_load(open(".claude/stack.yml")).get("release") or {}).get("component") or "null")')
+{ [ "$COMPONENT" = null ] || [ -z "$COMPONENT" ]; } && { echo "REFUSE: release.component unset — paste a release: block (see stack.yml.example)"; exit 1; }
+```
+
+**Gate probe (S7/D6/D17)** — the check must be *required*, not merely present; a bypassable required check is advisory with better marketing, so the probe reads the actor list too:
+
+```bash
+RS=$(gh api "repos/:owner/:repo/rulesets?includes_parents=true" 2>&1) || true
+case "$RS" in
+  *"Upgrade to GitHub Pro"*|*"Not Found"*403*)
+    echo "WARN: repo un-protectable (private, free plan) — release-consistency cannot be required here (D17). D4's derivation still yields the correct version.";;
+  *)
+    # Assert a main-targeting ruleset REQUIRES the `release-consistency` context with an empty bypass_actors list.
+    # Absent/bypassable on a protectable repo → REFUSE; `Branch not protected` → REFUSE-with-onboarding.
+    echo "REFUSE: release-consistency is not an enforced required check on main. Run: bash scripts/provision-release-gate.sh <owner/repo>"; exit 1;;
+esac
+```
+
+**Unfinalized promote (S5/D8)** — the newest merged promote **by PR metadata**, never by commit lineage (a `<merge>^2`-vs-staging ancestry test false-positives after any backmerge — it flags real hotfixes #267/#257 as promotes):
+
+```bash
+LAST=$(gh pr list --base main --head staging --state merged --limit 1 --json number,mergeCommit --jq '.[0].mergeCommit.oid')
+# Derive its version: price.sh "$COMPONENT" "${LAST}^1" "$LAST". No matching tag on that version → offer to resume:
+#   "Unfinalized promote detected (PR merged, no tag). Run /promote --finalize?"
+```
+
+**Version-file drift (S5)** — each `release.version_files` path is compared to `BASE`; `file < BASE` = hand-drift (reconcile: re-stamp from BASE), `file > BASE` = a promote stopped after step 2b (resume: re-open the promotion PR). `[]` → skip.
 
 ## Step 1b — Pin-swap Phase
 
@@ -180,7 +217,10 @@ Promotion Summary
 1. Branch: `git branch chore/$VERSION-changelog staging`
 2. Push: `git push origin chore/$VERSION-changelog`
 3. PR: `gh pr create --base staging --head chore/$VERSION-changelog --title "chore(release): add $VERSION changelog"`
-4. Merge: `gh pr merge <N> --auto --merge --delete-branch` (merge commit — ¬squash, Release Convention; `--auto` waits for required checks)
+4. Merge: `gh pr merge <N> --auto --merge --delete-branch` (merge commit — ¬squash, Release Convention). **`--auto` only *arms* auto-merge and returns immediately — it does not block.** Then poll until it lands, or step 7 reads a stale `origin/staging`:
+   ```bash
+   until [ "$(gh pr view <N> --json state --jq .state)" = MERGED ]; do sleep 10; done
+   ```
 5. Sync: `git fetch origin staging && git reset --hard origin/staging`
 
 ## Step 7 — Create Promotion PR
@@ -235,32 +275,36 @@ gh pr list --base main --head staging --state merged --limit 1 --json number,tit
 ```
 ¬merged → REFUSE: "Merge the promotion PR first."
 
-**9b.** Detect V:
-```bash
-# Newest CHANGELOG heading — tolerate `## [0.24.1]` and `## [v0.24.1]`, bare or with a
-# trailing `(compare-url)` (release-please writes the former, `release-artifacts.md` the latter).
-V_RAW=$(grep -oP '^##\s*\[\Kv?[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1)
-# Apply the repo's tag convention: `<component>/vX.Y.Z` if it already uses one, else bare `vX.Y.Z`.
-TAG_PREFIX=$(git tag -l '*/v*' --sort=-v:refname | head -1 | sed -E 's|/v[0-9]+\.[0-9]+\.[0-9]+$|/v|')
-VERSION="${TAG_PREFIX:-v}${V_RAW#v}"
-echo "$VERSION"
-```
-Q: **Use {VERSION}** | **Custom version** (override when a multi-package repo's newest tag is the wrong component)
+**9b.** Derive V from the **merge object alone** (S11/D4) — never from a witness. The PR title, CHANGELOG heading and version file are compared only to **WARN** (D7); a disagreement prints repair actions and finalize **tags the derived version anyway**. A witness cannot veto the authority: the merge already happened and prod is deployed, so a post-merge REFUSE would re-manufacture the shipped-no-release defect this rebuild exists to prevent.
 
-**9c.** Tag:
 ```bash
-git tag -l "$VERSION" | grep -q "$VERSION" && echo "Tag exists — abort" && exit 1
-git tag -a "$VERSION" -m "Release $VERSION"
-git push origin "$VERSION"
+M=$(gh pr list --base main --head staging --state merged --limit 1 --json mergeCommit --jq '.[0].mergeCommit.oid')
+# Structural REFUSE (the ONLY hard refusals at finalize):
+#  · ≠2 parents (squash / fast-forward) — M^2 undefined
+#  · newest merged base=main∧head=staging PR is not this M — not a promote by metadata (D8)
+#  · empty payload — price.sh returns BASE unchanged (nothing to release, D16/D18)
+[ "$(git rev-list --parents -n1 "$M" | wc -w)" -eq 3 ] || { echo "REFUSE: $M is not a 2-parent merge (squash/ff?)"; exit 1; }
+PREVIEW=$(bash "${CLAUDE_SKILL_DIR}/price.sh" "$COMPONENT" "${M}^1" "$M"); RC=$?
+{ [ "$RC" -ge 1 ] && [ "$RC" -ne 10 ]; } && { echo "REFUSE: price.sh error ($RC)"; exit 1; }
+[ "$RC" -eq 10 ] && PREVIEW=0.1.0     # first release
+VERSION="${COMPONENT}/v${PREVIEW}"
+# Witness compare (WARN-only): if PR title core / newest CHANGELOG heading / version_file ≠ $PREVIEW,
+# print "WARN: witness <x> says <v>, derivation says $PREVIEW — tagging $PREVIEW; reconcile <x>."
 ```
+`Custom version` is retained only as the multi-component escape hatch (factory/cortex), never required here.
 
-**9d.** Release:
+**9c/9d.** Tag and release, **reconciled per artifact** (D16) — each checked independently, so a finalize that died between them recovers on re-run:
+
 ```bash
-# Title drops the tag separator: `<component>/vX.Y.Z` → `<component> vX.Y.Z` (bare `vX.Y.Z` unchanged),
-# matching existing GitHub Release names (e.g. `roxabi-live v0.24.0`).
-TITLE="${VERSION/\/v/ v}"
-gh release create "$VERSION" --title "$TITLE" --notes "$CHANGELOG_CONTENT"
+# TAG — absent → create; present∧==M → skip; present∧≠M → REFUSE (drift, not idempotence)
+TAG_AT=$(git rev-list -n1 "$VERSION" 2>/dev/null || true)
+if [ -z "$TAG_AT" ]; then git tag -a "$VERSION" -m "Release $VERSION" && git push origin "$VERSION"
+elif [ "$TAG_AT" != "$M" ]; then echo "REFUSE: tag $VERSION at $TAG_AT ≠ promote merge $M (drift)"; exit 1; fi
+# RELEASE — independent of the tag branch above (recovers a 9c-succeeded / 9d-died run)
+TITLE="${VERSION/\/v/ v}"     # <component>/vX.Y.Z → <component> vX.Y.Z; bare vX.Y.Z unchanged
+gh release view "$VERSION" >/dev/null 2>&1 || gh release create "$VERSION" --title "$TITLE" --notes "$CHANGELOG_CONTENT"
 ```
+Re-running once **both** exist and point at `M` is a green no-op.
 
 Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
 

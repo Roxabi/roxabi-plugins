@@ -63,6 +63,16 @@ deploy:
   platform: vercel                # vercel | railway | fly | aws | none
   secrets_cmd: "vercel env add"   # command to add a secret to the deployment platform
 
+# Release model — /promote reads this block (single-component repos).
+# `class` is grep-derived (by who consumes the tag), never judged:
+#   PRODUCER = another repo pins this one via [tool.uv.sources] → pin-swap resolves SHA→tag
+#   TRIGGER  = this repo has a workflow on.push.tags: ['<component>/v*']
+#   NONE     = neither (9 of 14 repos)
+release:
+  class: NONE                     # PRODUCER | TRIGGER | NONE
+  component: null                 # tag prefix, e.g. roxabi-live; scopes BASE. REQUIRED — null ⇒ /promote REFUSE
+  version_files: []               # files step 2b stamps, e.g. ["pyproject.toml"]; [] ⇒ no-op. Keep [] until the file is reconciled to the newest tag
+
 docs:
   framework: fumadocs             # fumadocs | docusaurus | nextra | none
   path: docs                      # path to documentation directory
