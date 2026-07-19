@@ -94,11 +94,28 @@ for _ in 1 2 3; do
     RELEASE_STATE=absent   # dry-run (or no release): nothing to reconcile against
   fi
 
+  set +e
   VERDICT=$(bun run "${HERE}/lib/finalize.ts" \
     --parent-count "$PARENT_COUNT" --is-promote true \
     --derived "$DERIVED" --base "$BASE" \
-    --tag-state "$TAG_STATE" --release-state "$RELEASE_STATE") || true
+    --tag-state "$TAG_STATE" --release-state "$RELEASE_STATE")
+  FRC=$?
+  set -e
   ACTION=$(printf '%s\n' "$VERDICT" | sed -n 's/^action=//p')
+
+  # finalize.ts exits 1 ONLY for a structured refuse (it still prints
+  # action=refuse; every other action exits 0). The old `|| true` forgave that
+  # non-zero exit but ALSO swallowed a genuine crash (bun failure, TS throw,
+  # arg-parse error) into an empty ACTION → the `*) break` wildcard → a false
+  # exit 0. On the write-authoritative path that is a silent non-release, the
+  # exact D3 "loud-red, never a silent release" violation. Forgive a non-zero
+  # exit only when it carries a parseable `action=refuse`; treat every other
+  # non-zero exit — and any empty action on a clean exit — as loud-red.
+  if { [ "$FRC" -ne 0 ] && [ "$ACTION" != refuse ]; } || [ -z "$ACTION" ]; then
+    echo "REFUSE: finalize.ts gave no actionable verdict (exit $FRC, action='${ACTION}') — refusing to guess (D3)." >&2
+    printf '%s\n' "$VERDICT" >&2
+    exit 1
+  fi
 
   case "$ACTION" in
     refuse)

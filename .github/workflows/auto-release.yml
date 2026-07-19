@@ -54,4 +54,5 @@ jobs:
       - name: Derive + tag + release (merge to main)
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: bash plugins/dev-core/skills/promote/auto-release.sh roxabi-plugins "${{ github.sha }}"
+          COMPONENT: roxabi-plugins
+        run: bash plugins/dev-core/skills/promote/auto-release.sh "$COMPONENT" "${{ github.sha }}"

@@ -151,11 +151,23 @@ describe('release-consistency — trunk mode early-green (#371 N7/N8)', () => {
   it('early-greens EVERY PR under trunk mode — releases fire at merge-to-main, not on PRs', () => {
     // The trunk branch must sit in the PR path, BEFORE the head!=staging scope
     // gate, so a trunk repo never runs the promote three-way check.
+    //
+    // Falsifiable (#280): the `[^!]` anchor rejects the inverted `!= "trunk"`
+    // guard — flipping `=`→`!=` (gating trunk PRs instead of early-greening them)
+    // makes `trunkIdx` = -1 so the ordering assertion fails. The exit-0 probe
+    // proves the matched branch actually short-circuits GREEN rather than falling
+    // through to the three-way check. (The prior `/= "trunk" \]/` matched the tail
+    // of `!= "trunk" ]` too, so an inverted guard shipped green — the B4 defect.)
     const prPathIdx = reusableSrc.indexOf('EVENT_NAME" = "pull_request"')
-    const trunkIdx = reusableSrc.search(/= "trunk" \]/)
+    const trunkIdx = reusableSrc.search(/[^!]= "trunk" \]/)
     const headStagingIdx = reusableSrc.indexOf('PR_HEAD_REF" != "staging"')
     expect(prPathIdx).toBeGreaterThan(-1)
     expect(trunkIdx).toBeGreaterThan(prPathIdx)
     expect(trunkIdx).toBeLessThan(headStagingIdx)
+    // the guarded branch short-circuits GREEN (exit 0) between the guard and the
+    // head!=staging gate — not a fall-through, not an exit 1.
+    const trunkExitIdx = reusableSrc.indexOf('exit 0', trunkIdx)
+    expect(trunkExitIdx).toBeGreaterThan(trunkIdx)
+    expect(trunkExitIdx).toBeLessThan(headStagingIdx)
   })
 })

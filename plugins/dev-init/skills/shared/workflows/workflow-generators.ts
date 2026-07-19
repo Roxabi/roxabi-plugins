@@ -174,6 +174,18 @@ ${APP_MINT_STEP}
  */
 export function generateAutoReleaseYml(opts: WorkflowOpts): string {
   const component = normalizeWorkflowOpts(opts).release.component
+  // Trunk mode bakes COMPONENT into a `contents: write` workflow. An empty
+  // component would arg-shift the SHA into $1 (auto-release.sh would derive
+  // <sha>/v0.1.0 and push it — no upstream check catches it, B3); a component
+  // carrying shell metacharacters would inject into the `run:` step across the
+  // fleet. Fail loud at generate-time — never emit a broken/unsafe workflow.
+  if (!/^[A-Za-z0-9._-]+$/.test(component)) {
+    throw new Error(
+      `generateAutoReleaseYml: release.component must match /^[A-Za-z0-9._-]+$/ (got ${JSON.stringify(
+        component,
+      )}). Set release.component in .claude/stack.yml before enabling trunk mode.`,
+    )
+  }
   return `# Auto-release on merge to main (trunk mode, Model B — dev-core #371).
 # Derives <component>/vX.Y.Z from the conventional commits since the last
 # reachable tag, then tags + creates a GitHub Release. Fires on EVERY merge;
@@ -223,7 +235,8 @@ ${APP_MINT_STEP}
       - name: Derive + tag + release (merge to main)
         env:
           GH_TOKEN: \${{ steps.app.outputs.token }}
-        run: bash plugins/dev-core/skills/promote/auto-release.sh ${component} "\${{ github.sha }}"
+          COMPONENT: ${component}
+        run: bash plugins/dev-core/skills/promote/auto-release.sh "$COMPONENT" "\${{ github.sha }}"
 `
 }
 
