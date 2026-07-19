@@ -23,8 +23,6 @@ Triggers: `"ci setup"` | `"setup ci"` | `"configure ci"` | `"setup hooks"` | `"s
 
 **Phase 1c — Dependabot** — creates `.github/dependabot.yml` for automated dependency update PRs (npm/pip/github-actions depending on stack).
 
-**Phase 1d — Fumadocs Vercel** — if `docs.framework: fumadocs` in stack.yml, adds a Vercel deploy preview workflow for the docs site.
-
 **Phase 2 — Pre-commit hooks** — installs and configures Lefthook or Husky with hooks for lint, typecheck, and commit message validation. Adds a Python license checker for Python projects.
 
 **Phase 3 — Marketplace plugins** — offers to install curated marketplace plugins (e.g., dev-core, roxabi-vault) into the project.

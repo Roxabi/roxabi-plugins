@@ -58,9 +58,9 @@ describe('parseStackYml — sample-stack.yml fixture', () => {
     expect(result.standards).not.toBeNull()
     expect(result.standards).toEqual({
       architecture: 'docs/architecture',
-      deployment: 'docs/guides/deployment.mdx',
-      configuration: 'docs/configuration.mdx',
-      troubleshooting: 'docs/guides/troubleshooting.mdx',
+      deployment: 'docs/guides/deployment.md',
+      configuration: 'docs/standards/configuration.md',
+      troubleshooting: 'docs/guides/troubleshooting.md',
     })
   })
 })

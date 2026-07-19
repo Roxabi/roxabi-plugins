@@ -116,14 +116,14 @@ frontend:
     })
 
     it('detects docs-content when only docs framework exists', () => {
-      // Arrange
+      // Arrange — any non-none docs.framework (Fumadocs removed; docusaurus/nextra still count)
       writeStack(`
 backend:
   framework: none
 frontend:
   framework: none
 docs:
-  framework: fumadocs
+  framework: docusaurus
   path: docs
 `)
 
@@ -227,7 +227,7 @@ backend:
 frontend:
   framework: none
 docs:
-  framework: fumadocs
+  framework: docusaurus
 `)
 
       // Act
@@ -355,10 +355,10 @@ backend:
 frontend:
   framework: nextjs
 standards:
-  frontend: docs/fe-patterns.mdx
-  backend: docs/be-patterns.mdx
-  testing: docs/tests.mdx
-  code_review: docs/review.mdx
+  frontend: docs/fe-patterns.md
+  backend: docs/be-patterns.md
+  testing: docs/tests.md
+  code_review: docs/review.md
 `)
 
       // Act
@@ -369,9 +369,34 @@ standards:
       })
 
       // Assert
-      expect(result.markdown).toContain('docs/fe-patterns.mdx')
-      expect(result.markdown).toContain('docs/be-patterns.mdx')
-      expect(result.markdown).toContain('docs/review.mdx')
+      expect(result.markdown).toContain('docs/fe-patterns.md')
+      expect(result.markdown).toContain('docs/be-patterns.md')
+      expect(result.markdown).toContain('docs/review.md')
+    })
+
+    it('defaults coding-standards and code-review links to .md when standards.* omitted', () => {
+      // Arrange — full-app, no standards: block → scaffold-rules fallbacks
+      writeStack(`
+runtime: bun
+backend:
+  framework: nestjs
+frontend:
+  framework: nextjs
+`)
+
+      // Act
+      const result = scaffoldRules({
+        stackPath: join(tmp, '.claude', 'stack.yml'),
+        claudeMdPath: join(tmp, 'CLAUDE.md'),
+        projectName: 'defaults',
+      })
+
+      // Assert — ADR-016 / plain-MD defaults (reverting to .mdx must fail)
+      expect(result.markdown).toContain('docs/standards/code-review.md')
+      expect(result.markdown).toContain('docs/standards/frontend-patterns.md')
+      expect(result.markdown).toContain('docs/standards/backend-patterns.md')
+      expect(result.markdown).toContain('docs/standards/testing.md')
+      expect(result.markdown).not.toContain('.mdx')
     })
   })
 

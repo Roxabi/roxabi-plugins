@@ -33,41 +33,39 @@ describe('scaffoldDocs', () => {
     'standards/testing.md',
   ]
 
-  it('creates standard directories and copies all template files', () => {
+  it('creates standard directories and copies all template files as .md', () => {
     // Arrange
     const docsPath = join(tmpDir, 'docs')
 
     // Act
-    const result = scaffoldDocs({ format: 'md', path: docsPath })
+    const result = scaffoldDocs({ path: docsPath })
 
     // Assert
     expect(result.docsPath).toBe(docsPath)
     expect(result.dirsCreated).toEqual(expect.arrayContaining(EXPECTED_DIRS))
     expect(result.filesCreated.length).toBe(EXPECTED_TEMPLATE_FILES.length)
     expect(result.filesSkipped).toEqual([])
+    expect(result.filesCreated.every((f) => f.endsWith('.md'))).toBe(true)
+    expect(result.filesCreated.some((f) => f.endsWith('.mdx'))).toBe(false)
 
     for (const file of EXPECTED_TEMPLATE_FILES) {
       expect(existsSync(join(docsPath, file))).toBe(true)
     }
   })
 
-  it('renames .md to .mdx when format is mdx', () => {
+  it('ignores deprecated format option and still writes .md', () => {
     // Arrange
     const docsPath = join(tmpDir, 'docs')
 
     // Act
     const result = scaffoldDocs({ format: 'mdx', path: docsPath })
 
-    // Assert
-    const mdxFiles = result.filesCreated.filter((f) => f.endsWith('.mdx'))
-    const mdFiles = result.filesCreated.filter((f) => f.endsWith('.md'))
-    expect(mdxFiles.length).toBe(EXPECTED_TEMPLATE_FILES.length)
-    expect(mdFiles.length).toBe(0)
-
-    // Verify specific files have .mdx extension
-    expect(result.filesCreated).toContain('contributing.mdx')
-    expect(result.filesCreated).toContain('guides/deployment.mdx')
-    expect(result.filesCreated).toContain('processes/dev-process.mdx')
+    // Assert — non-empty + concrete paths (vacuous every/some on [] would pass)
+    expect(result.filesCreated.length).toBeGreaterThan(0)
+    expect(result.filesCreated).toContain('contributing.md')
+    expect(result.filesCreated).not.toContain('contributing.mdx')
+    expect(result.filesCreated.every((f) => f.endsWith('.md'))).toBe(true)
+    expect(result.filesCreated.some((f) => f.endsWith('.mdx'))).toBe(false)
   })
 
   it('skips existing files without overwriting', () => {
@@ -78,7 +76,7 @@ describe('scaffoldDocs', () => {
     writeFileSync(existingFile, 'custom content')
 
     // Act
-    const result = scaffoldDocs({ format: 'md', path: docsPath })
+    const result = scaffoldDocs({ path: docsPath })
 
     // Assert
     expect(result.filesSkipped).toContain('contributing.md')
@@ -86,18 +84,18 @@ describe('scaffoldDocs', () => {
     expect(readFileSync(existingFile, 'utf-8')).toBe('custom content')
   })
 
-  it('skips existing .mdx files when format is mdx', () => {
+  it('does not touch legacy .mdx files when scaffolding .md', () => {
     // Arrange
     const docsPath = join(tmpDir, 'docs')
     mkdirSync(docsPath, { recursive: true })
-    writeFileSync(join(docsPath, 'contributing.mdx'), 'custom mdx')
+    writeFileSync(join(docsPath, 'contributing.mdx'), 'legacy mdx')
 
     // Act
-    const result = scaffoldDocs({ format: 'mdx', path: docsPath })
+    const result = scaffoldDocs({ path: docsPath })
 
-    // Assert
-    expect(result.filesSkipped).toContain('contributing.mdx')
-    expect(readFileSync(join(docsPath, 'contributing.mdx'), 'utf-8')).toBe('custom mdx')
+    // Assert — new .md is created alongside legacy .mdx
+    expect(result.filesCreated).toContain('contributing.md')
+    expect(readFileSync(join(docsPath, 'contributing.mdx'), 'utf-8')).toBe('legacy mdx')
   })
 
   it('creates adr/ directory even though no template maps to it', () => {
@@ -105,7 +103,7 @@ describe('scaffoldDocs', () => {
     const docsPath = join(tmpDir, 'docs')
 
     // Act
-    const result = scaffoldDocs({ format: 'md', path: docsPath })
+    const result = scaffoldDocs({ path: docsPath })
 
     // Assert
     expect(result.dirsCreated).toContain('architecture/adr')
@@ -118,7 +116,7 @@ describe('scaffoldDocs', () => {
     mkdirSync(join(docsPath, 'standards'), { recursive: true })
 
     // Act
-    const result = scaffoldDocs({ format: 'md', path: docsPath })
+    const result = scaffoldDocs({ path: docsPath })
 
     // Assert
     expect(result.dirsCreated).not.toContain('standards')
@@ -129,7 +127,7 @@ describe('scaffoldDocs', () => {
     const docsPath = join(tmpDir, 'docs')
 
     // Act
-    scaffoldDocs({ format: 'md', path: docsPath })
+    scaffoldDocs({ path: docsPath })
 
     // Assert
     const content = readFileSync(join(docsPath, 'contributing.md'), 'utf-8')
@@ -142,7 +140,7 @@ describe('scaffoldDocs', () => {
     const docsPath = join(tmpDir, 'docs')
 
     // Act
-    const result = scaffoldDocs({ format: 'md', path: docsPath })
+    const result = scaffoldDocs({ path: docsPath })
 
     // Assert — files two levels deep are created with correct relative paths
     expect(result.filesCreated).toContain('standards/backend-patterns.md')
@@ -153,10 +151,10 @@ describe('scaffoldDocs', () => {
   it('is idempotent — second run skips all files', () => {
     // Arrange
     const docsPath = join(tmpDir, 'docs')
-    scaffoldDocs({ format: 'md', path: docsPath })
+    scaffoldDocs({ path: docsPath })
 
     // Act
-    const result = scaffoldDocs({ format: 'md', path: docsPath })
+    const result = scaffoldDocs({ path: docsPath })
 
     // Assert
     expect(result.filesCreated).toEqual([])

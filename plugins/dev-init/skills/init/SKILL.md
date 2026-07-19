@@ -22,7 +22,7 @@ Full project initialization harness. Orchestrates three focused sub-skills in se
 
 | Sub-skill | Concern |
 |-----------|---------|
-| `/dev-core:env-setup` | stack.yml, CLAUDE.md rules, docs stubs, VS Code, LSP |
+| `/dev-core:env-setup` | stack.yml, CLAUDE.md rules, docs stubs, LSP |
 | `axial-adr-create` (agent) | **Axis of decomposition ADR** — mandatory drift prevention (N×M trap). Skippable via `--skip-axial` for trivial single-axis projects. See `shared/references/axial-decomposition.md` |
 | `/dev-core:ci-setup` | GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins |
 | `/dev-core:release-setup` | Commit standards (Commitizen), hook additions, release automation (semantic-release / Release Please) |
