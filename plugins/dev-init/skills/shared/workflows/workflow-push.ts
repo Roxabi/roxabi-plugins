@@ -9,6 +9,7 @@
 import { run } from '../adapters/github-adapter'
 import {
   generateAutoMergeYml,
+  generateAutoReleaseYml,
   generateCiYml,
   generateContextLintYml,
   generateDeployYml,
@@ -107,6 +108,10 @@ function workflowFileSet(o: Required<WorkflowOpts>): WorkflowFile[] {
   }
   if (o.deploy === 'cloudflare') {
     workflows.push({ name: 'deploy-cloudflare.yml', content: generateCloudflareDeployYml() })
+  }
+  // N18 (#371) — trunk repos get the merge-to-main auto-release workflow; staging-train repos never do.
+  if (o.release.model === 'trunk') {
+    workflows.push({ name: 'auto-release.yml', content: generateAutoReleaseYml(o) })
   }
 
   const files: WorkflowFile[] = workflows.map(({ name, content }) => ({

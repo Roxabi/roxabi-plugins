@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   classifyTestRunner,
   generateAutoMergeYml,
+  generateAutoReleaseYml,
   generateCiYml,
   generateContextLintYml,
   generateDeployYml,
@@ -258,6 +259,58 @@ describe('normalizeWorkflowOpts — release (Model B / #371)', () => {
   })
 })
 
+describe('generateAutoReleaseYml (Model B / #371)', () => {
+  const trunkOpts = {
+    stack: 'bun',
+    test: 'vitest',
+    deploy: 'none',
+    release: { model: 'trunk', component: 'roxabi-plugins' },
+  } as const
+
+  it('triggers on push:[main] + workflow_dispatch (W1)', () => {
+    const yml = generateAutoReleaseYml(trunkOpts)
+    expect(yml).toContain('push:')
+    expect(yml).toMatch(/branches:\s*\[main\]/)
+    expect(yml).toContain('workflow_dispatch')
+  })
+
+  it('has contents: write + a FIFO queue (cancel-in-progress: false + queue: max) (W2)', () => {
+    const yml = generateAutoReleaseYml(trunkOpts)
+    expect(yml).toContain('permissions:\n  contents: write')
+    expect(yml).toContain('group: auto-release-')
+    expect(yml).toContain('cancel-in-progress: false')
+    expect(yml).toContain('queue: max')
+  })
+
+  it('mints the roxabi-ci app token BEFORE checkout (pushed tag re-triggers builds) (W3/N6)', () => {
+    const yml = generateAutoReleaseYml(trunkOpts)
+    const mintIdx = yml.indexOf('Mint app token')
+    const checkoutIdx = yml.indexOf(ACTION_PINS.checkout)
+    expect(mintIdx).toBeGreaterThan(-1)
+    expect(checkoutIdx).toBeGreaterThan(mintIdx)
+    expect(yml).toContain(ACTION_PINS.createAppToken)
+  })
+
+  it('checks out full history + tags so select_base never starves → regressive v0.1.0 (W4)', () => {
+    const yml = generateAutoReleaseYml(trunkOpts)
+    expect(yml).toContain('fetch-depth: 0')
+    expect(yml).toContain('token: ${{ steps.app.outputs.token }}')
+    expect(yml).toContain('git fetch --tags')
+  })
+
+  it('bakes COMPONENT into a THIN invocation of auto-release.sh — no inline orchestration (N4)', () => {
+    const yml = generateAutoReleaseYml(trunkOpts)
+    expect(yml).toContain('auto-release.sh')
+    expect(yml).toContain('roxabi-plugins') // COMPONENT baked at generate-time
+    expect(yml).toContain('${{ github.sha }}') // M = the pushed merge
+    // Thin: the derive/classify/reconcile core lives in auto-release.sh, never
+    // a second copy in YAML (design constraint, #353 invariant).
+    expect(yml).not.toContain('rev-list --parents')
+    expect(yml).not.toContain('--base-only')
+    expect(yml).not.toContain('finalize.ts')
+  })
+})
+
 describe('generateDeployYml', () => {
   it('generates Vercel deploy workflow', () => {
     const yml = generateDeployYml({ stack: 'bun', test: 'none', deploy: 'vercel' })
@@ -345,6 +398,21 @@ describe('writeWorkflows', () => {
     const results = await writeWorkflows({ stack: 'bun', test: 'vitest', deploy: 'cloudflare' })
 
     expect(results).toContainEqual({ file: 'deploy-cloudflare.yml', status: 'created' })
+  })
+
+  it('emits auto-release.yml when release.model is trunk (N18)', async () => {
+    const results = await writeWorkflows({ ...opts, release: { model: 'trunk', component: 'roxabi-plugins' } })
+
+    expect(results).toContainEqual({ file: 'auto-release.yml', status: 'created' })
+    expect(fs.existsSync('.github/workflows/auto-release.yml')).toBe(true)
+    expect(fs.readFileSync('.github/workflows/auto-release.yml', 'utf8')).toContain('name: Auto Release')
+  })
+
+  it('does NOT emit auto-release.yml under staging-train (default)', async () => {
+    const results = await writeWorkflows(opts)
+
+    expect(results.map((r) => r.file)).not.toContain('auto-release.yml')
+    expect(fs.existsSync('.github/workflows/auto-release.yml')).toBe(false)
   })
 })
 

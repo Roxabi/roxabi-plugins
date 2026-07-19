@@ -157,6 +157,74 @@ ${APP_MINT_STEP}
 `
 }
 
+/**
+ * Trunk-mode release workflow (Model B — #371). Fires on every merge to `main`,
+ * derives the next `<component>/vX.Y.Z` from the conventional commits since the
+ * last reachable tag, and creates the tag + GitHub Release. An empty payload (no
+ * version-bumping commit) is a green no-op; a stray 1-parent push is loud-red.
+ *
+ * THIN by design: the whole derive → classify → reconcile core lives in
+ * `plugins/dev-core/skills/promote/auto-release.sh`, which this workflow only
+ * sets up an environment for and invokes. There is deliberately no second copy
+ * of that logic here — /checkup diffs the committed workflow against this
+ * generator (N11), so the file stays stable. COMPONENT is baked at generate-time
+ * from `release.component`. Sibling of generateAutoMergeYml (shared mint step).
+ */
+export function generateAutoReleaseYml(opts: WorkflowOpts): string {
+  const component = normalizeWorkflowOpts(opts).release.component
+  return `# Auto-release on merge to main (trunk mode, Model B — dev-core #371).
+# Derives <component>/vX.Y.Z from the conventional commits since the last
+# reachable tag, then tags + creates a GitHub Release. Fires on EVERY merge;
+# a merge with no version-bumping commit is a green no-op.
+#
+# THIN wrapper — every derivation/classification/reconcile step lives in
+# plugins/dev-core/skills/promote/auto-release.sh. Never inline that logic here:
+# /checkup diffs this file against the generator output (N11), so it must stay
+# byte-stable. Regenerate with /ci-setup after a dev-core bump, never hand-edit.
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# FIFO queue: never interrupt a release in progress, never drop a pending one.
+# cancel-in-progress:false + queue:max queues bursts of merges (up to 100).
+concurrency:
+  group: auto-release-\${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  auto-release:
+    name: Tag + release on merge to main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+${APP_MINT_STEP}
+
+      # Full history + tags with the App token, so the tag-reachability floor is
+      # never starved into a regressive v0.1.0 (release-consistency.yml scar).
+      - uses: ${ACTION_PINS.checkout}
+        with:
+          fetch-depth: 0
+          token: \${{ steps.app.outputs.token }}
+
+      - name: Fetch all tags
+        run: git fetch --tags --force
+
+      - uses: ${ACTION_PINS.setupBun}
+
+      - name: Derive + tag + release (merge to main)
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+        run: bash plugins/dev-core/skills/promote/auto-release.sh ${component} "\${{ github.sha }}"
+`
+}
+
 /** Generic PR title validator — enforces Conventional Commits format. */
 export function generatePrTitleYml(): string {
   return `name: PR Title
