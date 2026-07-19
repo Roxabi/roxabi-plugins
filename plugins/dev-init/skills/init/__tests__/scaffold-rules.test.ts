@@ -116,14 +116,14 @@ frontend:
     })
 
     it('detects docs-content when only docs framework exists', () => {
-      // Arrange
+      // Arrange — any non-none docs.framework (Fumadocs removed; docusaurus/nextra still count)
       writeStack(`
 backend:
   framework: none
 frontend:
   framework: none
 docs:
-  framework: fumadocs
+  framework: docusaurus
   path: docs
 `)
 
@@ -227,7 +227,7 @@ backend:
 frontend:
   framework: none
 docs:
-  framework: fumadocs
+  framework: docusaurus
 `)
 
       // Act
@@ -355,10 +355,10 @@ backend:
 frontend:
   framework: nextjs
 standards:
-  frontend: docs/fe-patterns.mdx
-  backend: docs/be-patterns.mdx
-  testing: docs/tests.mdx
-  code_review: docs/review.mdx
+  frontend: docs/fe-patterns.md
+  backend: docs/be-patterns.md
+  testing: docs/tests.md
+  code_review: docs/review.md
 `)
 
       // Act
@@ -369,9 +369,9 @@ standards:
       })
 
       // Assert
-      expect(result.markdown).toContain('docs/fe-patterns.mdx')
-      expect(result.markdown).toContain('docs/be-patterns.mdx')
-      expect(result.markdown).toContain('docs/review.mdx')
+      expect(result.markdown).toContain('docs/fe-patterns.md')
+      expect(result.markdown).toContain('docs/be-patterns.md')
+      expect(result.markdown).toContain('docs/review.md')
     })
   })
 

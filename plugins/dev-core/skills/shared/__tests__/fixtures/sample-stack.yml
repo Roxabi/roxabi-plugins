@@ -37,9 +37,9 @@ deploy:
   secrets_cmd: "vercel env add"
 
 docs:
-  framework: fumadocs
+  framework: none
   path: docs
-  format: mdx
+  format: md
 
 commands:
   dev: bun run dev
@@ -58,6 +58,6 @@ artifacts:
 
 standards:
   architecture: docs/architecture
-  deployment: docs/guides/deployment.mdx
-  configuration: docs/configuration.mdx
-  troubleshooting: docs/guides/troubleshooting.mdx
+  deployment: docs/guides/deployment.md
+  configuration: docs/configuration.md
+  troubleshooting: docs/guides/troubleshooting.md

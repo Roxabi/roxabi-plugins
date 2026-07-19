@@ -7,14 +7,18 @@
  *
  * Agent embedded knowledge = universal (Clean Architecture, REST, WCAG — never changes)
  * docs/standards/ templates = project-specific (YOUR ORM, YOUR component library, YOUR CI)
+ *
+ * Write format is always Markdown (.md). Legacy .mdx files may exist in older repos
+ * and are left alone (read-only compatibility); scaffold never writes .mdx.
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 
 export interface DocsScaffoldOpts {
-  format: 'md' | 'mdx'
   path: string
+  /** @deprecated Ignored — always writes .md. Kept for CLI compat. */
+  format?: 'md' | 'mdx'
 }
 
 export interface DocsScaffoldResult {
@@ -47,19 +51,8 @@ function walkDir(dir: string, root?: string): string[] {
   return entries
 }
 
-/**
- * Rename template extension if the target format differs.
- * Templates are stored as .md; if format is .mdx, rename the extension.
- */
-function renameExt(relPath: string, format: 'md' | 'mdx'): string {
-  if (format === 'mdx' && relPath.endsWith('.md')) {
-    return relPath.replace(/\.md$/, '.mdx')
-  }
-  return relPath
-}
-
 export function scaffoldDocs(opts: DocsScaffoldOpts): DocsScaffoldResult {
-  const { format, path: docsPath } = opts
+  const { path: docsPath } = opts
   const templatesDir = getTemplatesDir()
 
   const result: DocsScaffoldResult = {
@@ -83,14 +76,14 @@ export function scaffoldDocs(opts: DocsScaffoldOpts): DocsScaffoldResult {
     }
   }
 
-  // Walk templates and copy each file
+  // Walk templates and copy each file (always .md)
   const templateFiles = walkDir(templatesDir)
 
   for (const relPath of templateFiles) {
     // Guard against path traversal (e.g. symlinks producing "../" relative paths)
     if (relPath.includes('..')) continue
 
-    const targetRelPath = renameExt(relPath, format)
+    const targetRelPath = relPath
     const sourcePath = join(templatesDir, relPath)
     const targetPath = join(docsPath, targetRelPath)
 

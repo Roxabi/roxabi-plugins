@@ -288,7 +288,7 @@ Worktree **mandatory** for all tiers (XS, S, F-lite, F-full) — no exceptions. 
 }
 
 function codeReview(stack: StackConfig): Section {
-  const reviewPath = stack.standards?.code_review ?? 'docs/standards/code-review.mdx'
+  const reviewPath = stack.standards?.code_review ?? 'docs/standards/code-review.md'
   return {
     id: 'code-review',
     title: 'Code Review',
@@ -300,15 +300,15 @@ function codingStandards(stack: StackConfig, projectType: ProjectType): Section 
   const rows: string[] = []
 
   if (projectType === 'full-app' || projectType === 'frontend-only') {
-    const fePath = stack.standards?.frontend ?? 'docs/standards/frontend-patterns.mdx'
+    const fePath = stack.standards?.frontend ?? 'docs/standards/frontend-patterns.md'
     rows.push(`| React / Frontend | [frontend-patterns](${fePath}) |`)
   }
   if (projectType === 'full-app' || projectType === 'backend-only') {
-    const bePath = stack.standards?.backend ?? 'docs/standards/backend-patterns.mdx'
+    const bePath = stack.standards?.backend ?? 'docs/standards/backend-patterns.md'
     rows.push(`| API / Backend | [backend-patterns](${bePath}) |`)
   }
 
-  const testPath = stack.standards?.testing ?? 'docs/standards/testing.mdx'
+  const testPath = stack.standards?.testing ?? 'docs/standards/testing.md'
   rows.push(`| Tests | [testing](${testPath}) |`)
 
   const content = `| Context | Read |

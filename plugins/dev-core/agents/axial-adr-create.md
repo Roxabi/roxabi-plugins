@@ -154,10 +154,10 @@ Draft — Axial ADR
 ## Phase 4 — Write ADR
 
 1. Invoke `/adr` skill with args: `"Axis of Decomposition"`.
-2. After file is written, locate it (scan D for newest `*-axis-of-decomposition.mdx`).
-3. **Overwrite** body with axial template (preserve NNN from `/adr`):
+2. After file is written, locate it (scan D for newest `*-axis-of-decomposition.md`, fallback legacy `.mdx`).
+3. **Overwrite** body with axial template (preserve NNN from `/adr`). Write path is always `.md`.
 
-```mdx
+```md
 ---
 title: "ADR-{NNN}: Axis of Decomposition"
 description: Primary axis chosen for system variation — prevents N×M drift
@@ -215,8 +215,6 @@ If this pattern appears, drift along the wrong axis is starting.
 {∀ r ∈ REVISIT: - {r}}
 ```
 
-4. Update Fumadocs `meta.json` (handled by `/adr`).
-
 ## Phase 5 — Supersede (if applicable)
 
 From Phase 1 supersede flow: mutate the previous axial ADR:
@@ -253,7 +251,7 @@ Exit status: `created` | `kept` | `superseded` | `cancelled`.
 | Scenario | Behavior |
 |----------|----------|
 | `$D` missing | mkdir, proceed |
-| `/adr` skill unavailable | Write ADR directly to `$D/{NNN}-axis-of-decomposition.mdx` (scan NNN = max + 1) |
+| `/adr` skill unavailable | Write ADR directly to `$D/{NNN}-axis-of-decomposition.md` (scan NNN = max + 1 over `.md` + legacy `.mdx`) |
 | User cannot articulate axes | Offer 3 templates (target×concern, domain×layer, stage×pipeline) |
 | Tied primary candidates | Tiebreaker: 6-month horizon |
 | Existing axial ADR + supersede | Old → `Superseded by ADR-{NNN}` + strip `axial: true`; new ADR Context references old |
