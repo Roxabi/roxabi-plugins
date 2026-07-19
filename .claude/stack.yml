@@ -32,6 +32,11 @@ hooks:
 deploy:
   platform: none
 
+release:
+  model: trunk                    # trunk → auto-release.yml cuts a release on every merge to main (#371 Model B); staging-train = the old promote flow
+  component: roxabi-plugins       # tag prefix → roxabi-plugins/vX.Y.Z (continues the existing release-please tag sequence)
+  version_files: []               # auto-stamp deferred (D4) — the git tag is the sole version surface
+
 docs:
   framework: none
   path: docs
