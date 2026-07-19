@@ -137,7 +137,7 @@ standards:
   testing: docs/standards/testing.md              # used by: tester, fixer, backend-dev, frontend-dev
   code_review: docs/standards/code-review.md      # used by: fixer
   architecture: docs/architecture/                  # used by: architect
-  configuration: docs/configuration.md            # used by: devops
+  configuration: docs/standards/configuration.md  # used by: devops
   deployment: docs/guides/deployment.md           # used by: devops
   troubleshooting: docs/guides/troubleshooting.md  # used by: devops
   issue_management: docs/processes/issue-management.md  # used by: product-lead

@@ -60,7 +60,10 @@ describe('scaffoldDocs', () => {
     // Act
     const result = scaffoldDocs({ format: 'mdx', path: docsPath })
 
-    // Assert
+    // Assert — non-empty + concrete paths (vacuous every/some on [] would pass)
+    expect(result.filesCreated.length).toBeGreaterThan(0)
+    expect(result.filesCreated).toContain('contributing.md')
+    expect(result.filesCreated).not.toContain('contributing.mdx')
     expect(result.filesCreated.every((f) => f.endsWith('.md'))).toBe(true)
     expect(result.filesCreated.some((f) => f.endsWith('.mdx'))).toBe(false)
   })

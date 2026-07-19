@@ -32,7 +32,7 @@ Read σ (`cat .claude/stack.yml 2>/dev/null`). Record DOCS, `runtime`, `backend.
 ¬σ → DOCS=`docs`. `--docs-path <p>` ∈ $ARGUMENTS → DOCS=p. `--no-scan` ∈ $ARGUMENTS → skip Phase 3.
 
 DOCS dir ∄ → present choice **Run /init first** | **Create docs dir and seed** | **Cancel**
-- "Run /init" → explain Phase 7a creates stubs, exit.
+- "Run /init" → explain `/env-setup` Phase 3 (`scaffold-docs`) or `/dev-init:init` creates stubs, exit.
 - "Create" → `mkdir -p {DOCS}/{architecture,standards,guides,processes}`, continue.
 
 ## Phase 2 — Read CLAUDE.md

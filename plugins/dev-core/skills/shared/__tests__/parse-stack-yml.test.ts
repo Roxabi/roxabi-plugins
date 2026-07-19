@@ -59,7 +59,7 @@ describe('parseStackYml — sample-stack.yml fixture', () => {
     expect(result.standards).toEqual({
       architecture: 'docs/architecture',
       deployment: 'docs/guides/deployment.md',
-      configuration: 'docs/configuration.md',
+      configuration: 'docs/standards/configuration.md',
       troubleshooting: 'docs/guides/troubleshooting.md',
     })
   })

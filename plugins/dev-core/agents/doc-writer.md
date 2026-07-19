@@ -98,3 +98,8 @@ Legacy: if an existing doc is `.mdx`, you may **edit** it in place; do **not** c
 - Conflicting docs → source of truth = code ∨ latest spec → update stale doc
 
 ## Escalation
+
+- C < 70% on code intent/behavior → read more context ∨ message domain agent (¬document incorrectly)
+- Implementation unclear ∨ not yet built → placeholder + "TODO: update after implementation", message domain agent
+- CLAUDE.md changes → message lead before editing (impacts all agents)
+- Conflicting sources → message domain agent, update stale doc after confirmation

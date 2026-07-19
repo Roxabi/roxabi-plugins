@@ -373,6 +373,31 @@ standards:
       expect(result.markdown).toContain('docs/be-patterns.md')
       expect(result.markdown).toContain('docs/review.md')
     })
+
+    it('defaults coding-standards and code-review links to .md when standards.* omitted', () => {
+      // Arrange — full-app, no standards: block → scaffold-rules fallbacks
+      writeStack(`
+runtime: bun
+backend:
+  framework: nestjs
+frontend:
+  framework: nextjs
+`)
+
+      // Act
+      const result = scaffoldRules({
+        stackPath: join(tmp, '.claude', 'stack.yml'),
+        claudeMdPath: join(tmp, 'CLAUDE.md'),
+        projectName: 'defaults',
+      })
+
+      // Assert — ADR-016 / plain-MD defaults (reverting to .mdx must fail)
+      expect(result.markdown).toContain('docs/standards/code-review.md')
+      expect(result.markdown).toContain('docs/standards/frontend-patterns.md')
+      expect(result.markdown).toContain('docs/standards/backend-patterns.md')
+      expect(result.markdown).toContain('docs/standards/testing.md')
+      expect(result.markdown).not.toContain('.mdx')
+    })
   })
 
   describe('existing CLAUDE.md analysis', () => {
