@@ -105,12 +105,12 @@ The decision's "drop the D7 witness machinery" is realized precisely: **bypass t
 | roxabi-plugins `.claude/stack.yml` + workflows | dogfood: `release.component`+`release.model: trunk`, remove release-please, add auto-release, provision gate ruleset | med — first real cutover |
 | tests (vitest + shell fixtures) | trunk-path early-green; `generateAutoReleaseYml` snapshot; auto-release derivation fixtures incl. 1-parent + empty-payload | med |
 
-## Decisions needed (→ user, gate the spec)
+## Decisions resolved (Mickael, 2026-07-19 — spec inputs, locked)
 
-1. **Retire release-please in roxabi-plugins?** Recommended **yes** — it already drifts (manifest 0.3.0 vs tag 0.4.0) and #353's fleet decision already targets its removal. Trunk mode requires it.
-2. **Release granularity.** D18 → a tag+GitHub-release on **every non-empty merge** (docs/chore included). Accept the noise (simple, every merge is a version), or restrict releases to `feat`/`fix` merges (extra rule, closer to semantic-release)? Recommended: **accept** for v1 (simplest; matches "version = f(commits)"), revisit if noisy.
-3. **Squash-merge handling.** Enforce **merge-commit** as a trunk prerequisite (roxabi-plugins already does via auto-merge) — and make a stray 1-parent merge a **loud red**, not a silent skip. Recommended: **both** (document prerequisite + loud red).
-4. **Version files.** First cut: hand-stamp (roxabi-plugins `plugin.json` via `check-skill-version` hook) satisfies the post-merge floor; **auto-stamp (bot-commit-back) deferred**. Confirm.
+1. **D1 — Retire release-please in roxabi-plugins: YES.** It already drifts (manifest 0.3.0 vs tag 0.4.0) and #353's fleet decision already targets its removal. Trunk mode requires it (two writers on the `<component>/v*` namespace otherwise). → spec must include release-please retirement in the roxabi-plugins dogfood cutover.
+2. **D2 — Release granularity: ACCEPT every non-empty merge (v1).** D18 → a tag+GitHub-release on every non-empty merge, docs/chore included. Matches "version = f(commits)"; simplest. Revisit (restrict to `feat`/`fix`) only if noise proves a problem. Empty-payload merges (derived == base) still no-op via `classifyFinalize` D16/D18.
+3. **D3 — Squash-merge handling: BOTH.** Merge-commit is a documented trunk prerequisite (roxabi-plugins already enforces it via auto-merge ruleset). A stray 1-parent merge on `main` → auto-release surfaces it as a **loud red** (non-zero exit, visible failed check), never a silent skip. `classifyFinalize` already REFUSEs parentCount≠2 → wire that REFUSE to a red job.
+4. **D4 — Version files: hand-stamp first cut, auto-stamp DEFERRED.** roxabi-plugins `plugin.json` bumped by the `check-skill-version` pre-push hook satisfies the post-merge floor check; bot-commit-back auto-stamp is out of scope for #371 (separate follow-up if wanted).
 
 ## Resolved by review (no longer open)
 
