@@ -425,6 +425,8 @@ export function workflowOptsFromStack(stack: {
   e2e?: string
   commands?: { lint?: string; typecheck?: string; test?: string }
   merge?: 'auto-merge' | 'merge-on-green'
+  /** release.model + release.component (#371). Only `trunk` activates trunk mode. */
+  release?: { model?: string; component?: string }
 }): WorkflowOpts {
   const runtime = (stack.runtime ?? 'bun') as WorkflowOpts['stack']
   const unit = stack.unit ?? (stack.test && !stack.commands?.test ? stack.test : undefined)
@@ -435,6 +437,12 @@ export function workflowOptsFromStack(stack: {
   const platform = stack.deployPlatform ?? ''
   if (platform === 'vercel') deploy = 'vercel'
   else if (platform.startsWith('cloudflare')) deploy = 'cloudflare'
+  const release = stack.release
+    ? {
+        model: (stack.release.model === 'trunk' ? 'trunk' : 'staging-train') as 'trunk' | 'staging-train',
+        component: stack.release.component ?? '',
+      }
+    : undefined
   return normalizeWorkflowOpts({
     stack: runtime === 'python' || runtime === 'node' ? runtime : 'bun',
     test,
@@ -444,5 +452,6 @@ export function workflowOptsFromStack(stack: {
     e2e: stack.e2e === 'playwright' ? 'playwright' : 'none',
     lint: Boolean(stack.commands?.lint),
     typecheck: Boolean(stack.commands?.typecheck),
+    release,
   })
 }

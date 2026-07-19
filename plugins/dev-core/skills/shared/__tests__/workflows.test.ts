@@ -12,6 +12,7 @@ import {
 } from '../workflows/workflow-generators'
 import { ACTION_PINS } from '../workflows/workflow-pins'
 import { writeWorkflows } from '../workflows/workflow-push'
+import { normalizeWorkflowOpts } from '../workflows/workflow-types'
 import {
   generateDependabotAutomergeYml,
   generateDependabotYml,
@@ -214,6 +215,46 @@ describe('classifyTestRunner / workflowOptsFromStack', () => {
     const yml = generateCiYml(opts)
     expect(yml).toContain('run: bun run test')
     expect(yml).toMatch(/- name: Test/)
+  })
+})
+
+describe('normalizeWorkflowOpts — release (Model B / #371)', () => {
+  it('defaults release to staging-train with empty component when absent', () => {
+    const norm = normalizeWorkflowOpts({ stack: 'bun', test: 'vitest', deploy: 'none' })
+    expect(norm.release).toEqual({ model: 'staging-train', component: '' })
+  })
+
+  it('passes an explicit trunk release through unchanged', () => {
+    const norm = normalizeWorkflowOpts({
+      stack: 'bun',
+      test: 'vitest',
+      deploy: 'none',
+      release: { model: 'trunk', component: 'roxabi-plugins' },
+    })
+    expect(norm.release).toEqual({ model: 'trunk', component: 'roxabi-plugins' })
+  })
+
+  it('workflowOptsFromStack threads a trunk release through to WorkflowOpts.release', () => {
+    const opts = workflowOptsFromStack({
+      runtime: 'bun',
+      commands: { test: 'bun run test' },
+      release: { model: 'trunk', component: 'roxabi-plugins' },
+    })
+    expect(opts.release).toEqual({ model: 'trunk', component: 'roxabi-plugins' })
+  })
+
+  it('workflowOptsFromStack defaults to staging-train when no release is given', () => {
+    const opts = workflowOptsFromStack({ runtime: 'bun', commands: { test: 'bun run test' } })
+    expect(opts.release).toEqual({ model: 'staging-train', component: '' })
+  })
+
+  it('workflowOptsFromStack coerces an unknown model to staging-train', () => {
+    const opts = workflowOptsFromStack({
+      runtime: 'bun',
+      commands: { test: 'bun run test' },
+      release: { model: 'weird', component: 'x' },
+    })
+    expect(opts.release).toEqual({ model: 'staging-train', component: 'x' })
   })
 })
 

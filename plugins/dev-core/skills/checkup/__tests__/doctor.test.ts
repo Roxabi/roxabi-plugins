@@ -2,6 +2,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { readStackYml } from '../doctor-shared'
 
 /**
  * Doctor tests run the script as a subprocess in a controlled tmp directory.
@@ -235,5 +236,37 @@ describe('doctor', () => {
       expect(result.stdout).toContain('CI permissions')
       expect(result.stdout).toContain('no local workflow files found')
     })
+  })
+})
+
+describe('readStackYml — release passthrough (Model B / #371)', () => {
+  let origCwd: string
+  let tmp: string
+
+  beforeEach(() => {
+    origCwd = process.cwd()
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stackinfo-release-'))
+    fs.mkdirSync(path.join(tmp, '.claude'), { recursive: true })
+    process.chdir(tmp)
+  })
+
+  afterEach(() => {
+    process.chdir(origCwd)
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('surfaces release {model, component} from .claude/stack.yml', () => {
+    fs.writeFileSync('.claude/stack.yml', 'release:\n  model: trunk\n  component: roxabi-plugins\n')
+    expect(readStackYml().release).toEqual({ model: 'trunk', component: 'roxabi-plugins' })
+  })
+
+  it('release is null when the stack has no release: block', () => {
+    fs.writeFileSync('.claude/stack.yml', 'runtime: bun\n')
+    expect(readStackYml().release).toBeNull()
+  })
+
+  it('defaults an absent model to staging-train when a release: block exists', () => {
+    fs.writeFileSync('.claude/stack.yml', 'release:\n  component: foo\n')
+    expect(readStackYml().release).toEqual({ model: 'staging-train', component: 'foo' })
   })
 })

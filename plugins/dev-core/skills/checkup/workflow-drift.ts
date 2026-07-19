@@ -51,6 +51,10 @@ export function checkWorkflowDrift(): Check[] {
       typecheck: stack.hasTypecheck ? 'tc' : '',
       test: stack.test ?? '',
     },
+    // #371 — thread release so trunk mode + baked component reach the generator (N11).
+    release: stack.release
+      ? { model: stack.release.model, component: stack.release.component ?? undefined }
+      : undefined,
   })
   const expected: Record<string, string> = {
     'ci.yml': generateCiYml(opts),
