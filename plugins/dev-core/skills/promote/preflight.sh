@@ -3,6 +3,30 @@
 # Fetches latest, reports commits ahead, open PRs on staging, and CI status.
 set -euo pipefail
 
+# ── Trunk-mode guard (#371 N17) — MUST be first ──
+# A repo on release.model: trunk releases at merge-to-main (auto-release.yml),
+# never via a staging→main promote. /promote does not apply, and a trunk repo may
+# have no `staging` branch — so this precedes the staging fetch below. Read the
+# model with a yq → python3 → default chain so the guard never goes inert when
+# yq is absent on CI; default staging-train keeps existing repos unaffected (N9).
+read_release_model() {
+  local stack=".claude/stack.yml"
+  [ -f "$stack" ] || { echo staging-train; return; }
+  if command -v yq >/dev/null 2>&1; then
+    yq -r '.release.model // "staging-train"' "$stack"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import sys,yaml; d=yaml.safe_load(open(sys.argv[1])) or {}; print(((d.get("release") or {}).get("model")) or "staging-train")' "$stack"
+  else
+    echo staging-train
+  fi
+}
+RELEASE_MODEL=$(read_release_model)
+if [ "${RELEASE_MODEL:-staging-train}" = "trunk" ]; then
+  echo "status=trunk_mode"
+  echo "release.model==trunk — /promote does not apply; releases fire at merge-to-main (auto-release.yml)."
+  exit 0
+fi
+
 # Branch names are intentionally hardcoded: promote always operates on the fixed
 # staging→main pair, so detect_base_branch (single-base detection) does not apply here.
 # Each git op emits a machine-readable status= key before exiting non-zero so the

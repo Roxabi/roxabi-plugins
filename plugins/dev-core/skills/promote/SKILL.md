@@ -60,6 +60,7 @@ Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI
 
 | Check | Condition | Action |
 |-------|-----------|--------|
+| Release mode | `status=trunk_mode` (`release.model==trunk`) | **REFUSE / no-op.** `/promote` does not apply — a trunk repo releases at merge-to-main via `auto-release.yml`, not a staging→main promote. Stop (see `## Trunk mode`). |
 | No commits | `commits_ahead=0` | **REFUSE.** Stop. |
 | Open PRs on σ | open_prs section non-empty | **WARN** + Q: **Continue** \| **Wait** |
 | CI status | ci section | **WARN** if ¬passing |
