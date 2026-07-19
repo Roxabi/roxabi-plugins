@@ -338,6 +338,22 @@ Re-running once **both** exist and point at `M` is a green no-op.
 
 Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
 
+## Trunk mode — `release.model`
+
+`release.model` in `.claude/stack.yml` selects the release train (#371, Model B):
+
+- `staging-train` (**default** — absent ⇒ this) — the staging→main promote flow documented above. The whole fleet stays here until it opts in.
+- `trunk` — versions are derived and releases cut **on every merge to `main`** by the generated `auto-release.yml`. No staging branch, no promotion PR, no pre-declared version.
+
+Under `release.model: trunk` the contract changes on four points:
+
+- **Merge-commits required.** `auto-release.sh` derives from `M^1..M`, so a release needs a 2-parent merge. A stray 1-parent push to `main` (direct commit, squash, fast-forward) is **loud-red**, never a silent release (D3). Keep the merge queue on merge-commits (never squash).
+- **No `/promote`.** `/promote` and `preflight.sh` no-op with `status=trunk_mode` — releasing is `auto-release.yml`'s job, not a staging→main promotion. Running `/promote` on a trunk repo is a mistake, not a step.
+- **Fires on every merge; empty is a green no-op.** The workflow runs on each `push: main`. A merge that adds no version-bumping conventional commit derives `== BASE` and exits green **without tagging** (D18). Only a bumping payload cuts a release, so most merges are no-ops.
+- **Recovery via `workflow_dispatch`.** If a run dies mid-finalize (tag pushed, release not created), re-run the workflow from the Actions tab — the reconcile loop is per-artifact idempotent (D16): it creates only the missing artifact and no-ops once both the tag and release point at `M`.
+
+`/checkup` enforces the trunk contract: it **fails** when `auto-release.yml` is absent or drifts from the generator (N11), or when a stray `release-please.yml` writer lingers (N10). Switch modes by flipping this one `release.model` value and regenerating workflows with `/ci-setup`.
+
 ## Options
 
 | Flag | Description |
