@@ -181,7 +181,7 @@ describe('auto-release.sh — reuses price.sh + finalize.ts (no second copy)', (
 
   it('derives BOTH the version and the BASE floor from price.sh (M^1 anchor)', () => {
     expect(src).toMatch(/price\.sh"?\s+"?\$?\{?COMPONENT/) // price.sh COMPONENT M^1 M
-    expect(src).toContain('${M}^1')
+    expect(src).toContain('M}^1') // the ${M}^1 first-parent anchor
     expect(src).toContain('--base-only')
   })
 

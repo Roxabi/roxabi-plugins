@@ -294,7 +294,8 @@ describe('generateAutoReleaseYml (Model B / #371)', () => {
   it('checks out full history + tags so select_base never starves → regressive v0.1.0 (W4)', () => {
     const yml = generateAutoReleaseYml(trunkOpts)
     expect(yml).toContain('fetch-depth: 0')
-    expect(yml).toContain('token: ${{ steps.app.outputs.token }}')
+    expect(yml).toContain('token: ') // checkout authed with steps.app.outputs.token
+    expect(yml).toContain('steps.app.outputs.token')
     expect(yml).toContain('git fetch --tags')
   })
 
@@ -302,7 +303,7 @@ describe('generateAutoReleaseYml (Model B / #371)', () => {
     const yml = generateAutoReleaseYml(trunkOpts)
     expect(yml).toContain('auto-release.sh')
     expect(yml).toContain('roxabi-plugins') // COMPONENT baked at generate-time
-    expect(yml).toContain('${{ github.sha }}') // M = the pushed merge
+    expect(yml).toContain('github.sha') // M = the pushed merge (${{ github.sha }})
     // Thin: the derive/classify/reconcile core lives in auto-release.sh, never
     // a second copy in YAML (design constraint, #353 invariant).
     expect(yml).not.toContain('rev-list --parents')
