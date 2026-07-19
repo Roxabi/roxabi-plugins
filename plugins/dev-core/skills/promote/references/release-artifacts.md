@@ -108,22 +108,24 @@ Prepend new release entry in [Keep a Changelog](https://keepachangelog.com/) for
 
 Use Edit to prepend after header (after "Entries are generated automatically by `/promote` and committed to staging before the promotion PR.").
 
-### 4b. Update Fumadocs changelog page (grouped by minor V)
+### 4b. Update changelog page (grouped by minor V)
 
-Pages grouped by **minor version**: one page per `vX.Y` (e.g., `docs/changelog/v0-2.mdx`). Patch releases appended to existing minor page, newest first.
+Pages grouped by **minor version**: one page per `vX.Y` (e.g., `docs/changelog/v0-2.md`). Patch releases appended to existing minor page, newest first.
 
-**∃ minor page** (e.g., releasing v0.2.2 ∧ `docs/changelog/v0-2.mdx` ∃):
+Prefer `.md`. If only a legacy `.mdx` page exists for that minor, read it and write updates there (do not rename; do not create new `.mdx`).
+
+**∃ minor page** (e.g., releasing v0.2.2 ∧ `docs/changelog/v0-2.md` ∃, or legacy `.mdx`):
 1. Read existing page
 2. Prepend new patch entry **after frontmatter**, before previous entries
 3. Separate entries w/ `---`
 
 **¬∃ minor page** (e.g., releasing v0.3.0):
-1. Create `docs/changelog/vX-Y.mdx`
+1. Create `docs/changelog/vX-Y.md`
 2. Add frontmatter + first entry
 
 Page format:
 
-```mdx
+```md
 ---
 title: vX.Y.x
 description: All vX.Y releases
@@ -145,18 +147,6 @@ description: All vX.Y releases
 - feat(api): initial release (#1)
 ```
 
-### 4c. Update docs/changelog/meta.json
-
-Only if **new minor page** created. Insert minor slug (e.g., `v0-3`) at **beginning** of `pages` array:
-
-```json
-{
-  "title": "Changelog",
-  "pages": ["v0-3", "v0-2", "v0-1-0", "index"]
-}
-```
-
-Patch release → no meta.json change.
 
 ### 4d. Commit to staging
 

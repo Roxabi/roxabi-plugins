@@ -17,11 +17,9 @@ Usage:
   bun init.ts push-context-lint --owner <owner> --repo <repo> [--branch <branch>]  # context-lint.yml only (always updates)
   (workflows/push-workflows default to TOP-UP: existing files are skipped; --force overwrites)
   bun init.ts protect-branches --repo <owner/repo>
-  bun init.ts scaffold-docs [--format md|mdx] [--path docs]
+  bun init.ts scaffold-docs [--path docs]
   bun init.ts scaffold-rules [--stack-path .claude/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
-  bun init.ts scaffold --github-repo <owner/repo> [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]
-  bun init.ts scaffold-fumadocs [--root <path>] [--docs-path <path>]
-  bun init.ts scaffold-fumadocs-vercel [--root <path>] [--orchestrator <turbo|none>]`
+  bun init.ts scaffold --github-repo <owner/repo> [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
 
 const args = process.argv.slice(2)
 const command = args[0] ?? 'prereqs'
@@ -145,27 +143,8 @@ switch (command) {
 
   case 'scaffold-docs': {
     const { scaffoldDocs } = await import('./lib/docs')
-    const format = parseFlag('--format', 'md') as 'md' | 'mdx'
     const docsPath = parseFlag('--path', 'docs')
-    const result = scaffoldDocs({ format, path: docsPath })
-    console.log(JSON.stringify(result, null, 2))
-    break
-  }
-
-  case 'scaffold-fumadocs': {
-    const { scaffoldFumadocs } = await import('./lib/fumadocs')
-    const root = parseFlag('--root', process.cwd())
-    const docsPath = parseFlag('--docs-path', 'docs')
-    const result = await scaffoldFumadocs(root, docsPath)
-    console.log(JSON.stringify(result, null, 2))
-    break
-  }
-
-  case 'scaffold-fumadocs-vercel': {
-    const { scaffoldFumadocsVercel } = await import('./lib/fumadocs')
-    const root = parseFlag('--root', process.cwd())
-    const orchestrator = parseFlag('--orchestrator', 'none')
-    const result = scaffoldFumadocsVercel(root, orchestrator)
+    const result = scaffoldDocs({ path: docsPath })
     console.log(JSON.stringify(result, null, 2))
     break
   }

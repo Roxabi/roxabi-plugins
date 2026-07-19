@@ -2,7 +2,7 @@
 name: adr
 argument-hint: ["Title of decision" | --list]
 description: Create/list Architecture Decision Records. Triggers: "create an ADR" | "architecture decision" | "document why we chose" | "list ADRs".
-version: 0.3.0
+version: 0.4.0
 allowed-tools: Write, Read, Glob, ToolSearch
 ---
 
@@ -11,10 +11,12 @@ allowed-tools: Write, Read, Glob, ToolSearch
 Let:
   D := `docs/architecture/adr/`
   NNN := zero-padded 3-digit sequence number
-  M := `D/meta.json`
   AQ := ask user
+  ADR_GLOB := `{NNN}-*.md` + legacy `{NNN}-*.mdx` (read only)
 
 Create and manage ADRs — document **why** technical choices were made.
+
+**Write format:** always Markdown (`.md`). Legacy `.mdx` ADRs are still readable for list/scan; never write new `.mdx`.
 
 ```
 /adr "Title"   → Create mode
@@ -23,7 +25,7 @@ Create and manage ADRs — document **why** technical choices were made.
 
 ## Create Mode
 
-**1. Next NNN:** Scan D for `{NNN}-*.mdx` → highest + 1. ¬D ∨ ¬files → create D, start at `001`.
+**1. Next NNN:** Scan D for `{NNN}-*.md` and legacy `{NNN}-*.mdx` → highest + 1. ¬D ∨ ¬files → create D, start at `001`.
 
 **2. Resolve title:** ∃ title in `$ARGUMENTS` → use. ¬title → AQ.
 
@@ -36,9 +38,9 @@ Create and manage ADRs — document **why** technical choices were made.
 | Decision | Which was chosen and why? |
 | Consequences | Positive, negative, neutral trade-offs? |
 
-**4. Write ADR:** `D/{NNN}-{slug}.mdx` (slug = kebab-case title).
+**4. Write ADR:** `D/{NNN}-{slug}.md` (slug = kebab-case title).
 
-```mdx
+```md
 ---
 title: "ADR-{NNN}: {Title}"
 description: {one-line summary}
@@ -80,18 +82,13 @@ description: {one-line summary}
 
 Default status: **Accepted** unless stated otherwise. Min 2 options.
 
-**5. Update M:** Read M. ¬∃ → create: `{ "title": "ADRs", "pages": [] }`.
-∃ `pages` array (Fumadocs) → append new slug.
-∃ array-of-objects (legacy) → migrate: extract `file` values, strip `.mdx`, rebuild as `{ "title": "ADRs", "pages": [...] }`, append slug. ¬write legacy format.
-
-**6. Confirm:** Inform: file path, NNN + title, status.
+**5. Confirm:** Inform: file path, NNN + title, status.
 
 ## List Mode
 
-Scan D for `.mdx` files. ¬∃ → inform + suggest `/adr "Title"`.
+Scan D for `.md` and legacy `.mdx` files. ¬∃ → inform + suggest `/adr "Title"`.
 
-∃ → read M. ∃ `pages` → iterate in order; ∀ slug: read frontmatter for title, status, date.
-¬M ∨ ¬recognised format → scan `.mdx` directly.
+∃ → ∀ file: read frontmatter for title, status, date. Sort by NNN ascending.
 
 ```
 Architecture Decision Records
@@ -107,10 +104,10 @@ Architecture Decision Records
 
 | Scenario | Behavior |
 |----------|----------|
-| First ADR ever | Create D + M from scratch |
+| First ADR ever | Create D from scratch |
 | ¬title provided | AQ before proceeding |
 | Superseding an ADR | Update old status to `Superseded by ADR-{NNN}`; reference old in new context |
-| M out of sync | Rebuild from file frontmatter |
-| M in legacy format | Migrate transparently; user sees only new ADR confirmed |
+| Legacy `.mdx` present | Include in NNN scan + list; new ADRs still write `.md` |
+| Same NNN as both `.md` and `.mdx` | Prefer `.md` for display; do not write over either |
 
 $ARGUMENTS

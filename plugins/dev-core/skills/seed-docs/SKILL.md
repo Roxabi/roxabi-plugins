@@ -11,7 +11,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 Let:
   σ := `.claude/stack.yml` config
   DOCS := `docs.path` from σ (default: `docs`)
-  FMT := `docs.format` from σ (default: `md`)
+  FMT := `md` (write always Markdown; legacy `.mdx` stubs still eligible for fill)
   θ := stub threshold (< 30 non-blank, non-frontmatter lines OR ∃ `TODO:` markers)
   K := knowledge extracted from CLAUDE.md + codebase scan
 
@@ -27,12 +27,12 @@ Let:
 
 ## Phase 1 — Load Config
 
-Read σ (`cat .claude/stack.yml 2>/dev/null`). Record DOCS, FMT, `runtime`, `backend.framework`, `frontend.framework`, `backend.orm`.
+Read σ (`cat .claude/stack.yml 2>/dev/null`). Record DOCS, `runtime`, `backend.framework`, `frontend.framework`, `backend.orm`.
 
-¬σ → DOCS=`docs`, FMT=`md`. `--docs-path <p>` ∈ $ARGUMENTS → DOCS=p. `--no-scan` ∈ $ARGUMENTS → skip Phase 3.
+¬σ → DOCS=`docs`. `--docs-path <p>` ∈ $ARGUMENTS → DOCS=p. `--no-scan` ∈ $ARGUMENTS → skip Phase 3.
 
 DOCS dir ∄ → present choice **Run /init first** | **Create docs dir and seed** | **Cancel**
-- "Run /init" → explain Phase 7a creates stubs, exit.
+- "Run /init" → explain `/env-setup` Phase 3 (`scaffold-docs`) or `/dev-init:init` creates stubs, exit.
 - "Create" → `mkdir -p {DOCS}/{architecture,standards,guides,processes}`, continue.
 
 ## Phase 2 — Read CLAUDE.md
@@ -120,7 +120,7 @@ Read file → identify TODO sections → fill each using K.
 - Standards docs → write for developers; AI Quick Reference → write for agents.
 - K has no data for section → keep TODO + add hint: `TODO: (seed-docs found no data — check CLAUDE.md or run /seed-docs after adding more project context)`.
 - ¬fabricate — if genuinely unknown, say so with a note.
-- Match existing FMT. If mdx + Fumadocs configured → wrap Mermaid in `<Mermaid>` component.
+- Write/fill as plain Markdown. Prefer fenced Mermaid code blocks. If filling a legacy `.mdx` file, keep its existing component conventions; never convert `.md` → `.mdx`.
 
 After each file: display `✅ {relative path} — {N} TODOs filled, {M} sections updated`.
 

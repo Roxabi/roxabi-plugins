@@ -23,7 +23,7 @@ Triggers: `"dev-init"` | `"setup project"` | `"initialize project"`
 1. **Idempotency check** — detects existing `.claude/dev-core.yml` or `.env` config; asks to re-configure or skip.
 2. **Prerequisites** — verifies `bun`, `gh`, and `git remote` are available; shows install links for missing tools.
 3. **Sub-skills** (from **dev-core**) — calls in order:
-   - `/dev-core:env-setup` — stack.yml, CLAUDE.md rules, docs stubs, VS Code, LSP
+   - `/dev-core:env-setup` — stack.yml, CLAUDE.md rules, docs stubs, LSP
    - `axial-adr-create` — axis of decomposition ADR (unless `--skip-axial`)
    - `/dev-core:ci-setup` — GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins
    - `/dev-core:release-setup` — Commitizen, commitlint, semantic-release / Release Please

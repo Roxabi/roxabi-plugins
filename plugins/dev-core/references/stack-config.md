@@ -76,9 +76,9 @@ Add `@.claude/stack.yml` as **first line** of CLAUDE.md. ¬∃ `.claude/stack.ym
 
 | σ | α | Purpose |
 |---|---|---------|
-| `docs.framework` | doc-writer | Doc framework (nav rules) |
+| `docs.framework` | doc-writer | Optional site framework (`none` default; Fumadocs removed) |
 | `docs.path` | doc-writer | Root doc dir |
-| `docs.format` | doc-writer, product-lead | Doc file extension |
+| `docs.format` | doc-writer (informational) | Fixed `md` write path; field optional/compat only. Legacy `.mdx` read-only |
 
 ### `commands.*`
 

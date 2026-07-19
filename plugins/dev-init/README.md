@@ -37,7 +37,7 @@ Runs three sub-skills in sequence (from **dev-core**), each idempotent:
 
 | Step | Skill | Concern |
 |------|-------|---------|
-| 1 | `/dev-core:env-setup` | stack.yml, CLAUDE.md rules, docs stubs, VS Code, LSP |
+| 1 | `/dev-core:env-setup` | stack.yml, CLAUDE.md rules, docs stubs, LSP |
 | 2 | `/dev-core:ci-setup` | GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins |
 | 3 | `/dev-core:release-setup` | Commit standards (Commitizen), release automation |
 

@@ -83,17 +83,3 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
    > **App creation guide:** see `${CLAUDE_SKILL_DIR}/cookbooks/github-app.md` for how to create and install the `roxabi-ci` App, where `app-id` and `private-key` come from, and the org-free private-repo caveat.
 
 6. skip → D⏭("CI/CD workflows").
-
-### Phase 1d — Fumadocs Vercel Deployment (Optional)
-
-Run only if `deploy.platform: vercel` ∧ `docs.framework: fumadocs` in σ.
-
-1. `apps/docs/vercel.json` ∃ → D("Fumadocs Vercel config", "✅ Already present"), skip.
-2. Ask: **Add Vercel deployment config** (`apps/docs/vercel.json`) | **Skip**
-3. yes:
-   ```bash
-   bun $I_TS scaffold-fumadocs-vercel --root <cwd> --orchestrator <build.orchestrator>
-   ```
-   `build.orchestrator: turbo` → config with `turbo-ignore @repo/docs`. Other → simple `cd apps/docs && bun run build`.
-   D✅("Fumadocs Vercel config — apps/docs/vercel.json").
-4. Remind: connect `apps/docs/` as Vercel project (root dir = `apps/docs`), set `NEXT_PUBLIC_APP_URL`.

@@ -15,7 +15,7 @@ Task(
 | Expert | Use for |
 |--------|---------|
 | **architect** | Trade-off analysis, feasibility checks, architecture decisions, integration concerns |
-| **doc-writer** | Document structure advice, MDX conventions, clarity feedback |
+| **doc-writer** | Document structure advice, Markdown conventions (legacy `.mdx` edit-in-place only), clarity feedback |
 | **devops** | CI/CD feasibility, deployment strategy, infrastructure requirements |
 | **product-lead** | Product fit, acceptance criteria, user story validation |
 
