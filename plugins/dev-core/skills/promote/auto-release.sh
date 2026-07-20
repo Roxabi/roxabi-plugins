@@ -125,6 +125,18 @@ for _ in 1 2 3; do
     tag)
       echo "tag: $VERSION -> $M"
       [ "$DRY_RUN" = true ] && break
+      # `git tag -a` writes a tagger ident, and a bare CI runner has none —
+      # `fatal: empty ident name`, exit 128, no tag, no release. The workflow
+      # cannot supply it: auto-release.yml is byte-gated against the generator
+      # output (N11), so it is fixed here, where the annotated tag is created,
+      # which also covers every other caller. Gap-fill only: a developer running
+      # this locally, and any env already exporting GIT_COMMITTER_*, keep theirs.
+      if [ -z "$(git config --get user.email 2>/dev/null || true)" ] && [ -z "${GIT_COMMITTER_EMAIL:-}" ]; then
+        git config user.email 'github-actions[bot]@users.noreply.github.com'
+      fi
+      if [ -z "$(git config --get user.name 2>/dev/null || true)" ] && [ -z "${GIT_COMMITTER_NAME:-}" ]; then
+        git config user.name 'github-actions[bot]'
+      fi
       git tag -a "$VERSION" -m "Release $VERSION" "$M"
       git push origin "$VERSION"
       ;;
