@@ -128,7 +128,7 @@ describe('check-skill-version.sh', () => {
     const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-r2-bare-'))
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-r2-work-'))
 
-    // Build initial commit in work dir, then push to bare as origin/staging
+    // Build initial commit in work dir, then push to bare as origin/main
     git('git init -q', work)
 
     const pluginDir = path.join(work, 'plugins', opts.pluginName, '.claude-plugin')
@@ -144,16 +144,16 @@ describe('check-skill-version.sh', () => {
     git('git add -A', work)
     git('git -c user.email=t@t -c user.name=t commit -q -m "init"', work)
 
-    // Create bare repo and push the base commit as staging
+    // Create bare repo and push the base commit as main
     git('git init -q --bare', bare)
     git(`git remote add origin ${bare}`, work)
-    git('git push -q origin HEAD:staging', work)
+    git('git push -q origin HEAD:main', work)
 
     return { work, bare }
   }
 
-  it('exits 1 when a plugin has an unchanged version and skills/ changed on HEAD vs origin/staging', () => {
-    // Arrange — plugin "foo" has version "1.0.0" on origin/staging, unchanged on HEAD
+  it('exits 1 when a plugin has an unchanged version and skills/ changed on HEAD vs origin/main', () => {
+    // Arrange — plugin "foo" has version "1.0.0" on origin/main, unchanged on HEAD
     const { work, bare } = setupOriginWithPlugin({ pluginName: 'foo', version: '1.0.0' })
     workDir = work
     bareDir = bare
@@ -211,8 +211,8 @@ describe('check-skill-version.sh', () => {
     expect(code).toBe(0)
   })
 
-  it('exits 1 when a plugin has an unchanged version and commands/ changed on HEAD vs origin/staging', () => {
-    // Arrange — plugin "qux" has version "2.0.0" on origin/staging
+  it('exits 1 when a plugin has an unchanged version and commands/ changed on HEAD vs origin/main', () => {
+    // Arrange — plugin "qux" has version "2.0.0" on origin/main
     const { work, bare } = setupOriginWithPlugin({ pluginName: 'qux', version: '2.0.0' })
     workDir = work
     bareDir = bare
@@ -231,8 +231,8 @@ describe('check-skill-version.sh', () => {
     expect(code).toBe(1)
   })
 
-  it('exits 0 and emits an origin/staging-unreachable SKIP when origin/staging is not reachable', () => {
-    // Arrange — repo with no remote at all (no origin/staging)
+  it('exits 0 and emits an origin/main-unreachable SKIP when origin/main is not reachable', () => {
+    // Arrange — repo with no remote at all (no origin/main)
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-r2-noremote-'))
     git('git init -q', workDir)
     const pluginDir = path.join(workDir, 'plugins', 'nop', '.claude-plugin')
@@ -249,6 +249,6 @@ describe('check-skill-version.sh', () => {
 
     // Assert — guard skips with exit 0 and prints a visible SKIP line to stderr
     expect(code).toBe(0)
-    expect(stderr).toMatch(/origin\/staging unreachable/)
+    expect(stderr).toMatch(/origin\/main unreachable/)
   })
 })

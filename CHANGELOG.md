@@ -2,7 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
-Entries are generated automatically by `/promote` and committed to staging before the promotion PR.
+Historical. Releases are now cut by `.github/workflows/auto-release.yml` on every merge to
+`main`, and the generated GitHub Release notes are the source of truth. Entries below `[0.4.0]`
+predate that and were produced by release-please or `/promote`.
 
 ## Unreleased
 

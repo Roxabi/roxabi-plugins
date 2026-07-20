@@ -3,11 +3,11 @@
 ## Workflow
 
 ```
-feature/fix branch → PR → staging → (promote) → main
+feature/fix branch → PR → main → auto-release cuts roxabi-plugins/vX.Y.Z
 ```
 
-1. Create a branch from `staging`: `feat/plugins/new-skill`, `fix/plugins/compress-edge-case`
-2. Open a PR targeting `staging`
+1. Create a branch from `main`: `feat/plugins/new-skill`, `fix/plugins/compress-edge-case`
+2. Open a PR targeting `main`
 3. Pass CI (`bun lint`, `bun typecheck`, `bun test`)
 4. Merge
 

@@ -25,7 +25,7 @@ claude plugin install dev-core
 
 ### Keeping your install up to date
 
-`dev-core` ships through a hash-keyed cache at `~/.claude/plugins/cache/roxabi-marketplace/dev-core/<hash>/`. When new versions land on `staging`/`main`, pull the latest by re-installing from the marketplace:
+`dev-core` ships through a hash-keyed cache at `~/.claude/plugins/cache/roxabi-marketplace/dev-core/<hash>/`. When new versions land on `main`, pull the latest by re-installing from the marketplace:
 
 ```bash
 claude plugin install dev-core
@@ -94,7 +94,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 | `fix` | Verify | Applies fixes from review feedback |
 | `validate` | Verify | Validates implementation against spec |
 | `cleanup` | Ship | Post-merge cleanup |
-| `promote` | Ship | Promotes to staging/production |
+| `promote` | Ship | Staging-train repos: promotes staging→main. Trunk repos: pre-flight only — auto-release owns the cut |
 | `test` | Supporting | Runs and manages tests |
 | `adr` | Supporting | Creates Architecture Decision Records |
 | `clarify` | Supporting | Intent-first architecture recap — 6-section view (intent → biz-arch → UX flows → data flow per layer → use cases × layers → open intent Qs). Phase-agnostic, ephemeral, no artifact. Defers technical implementation until user approves framing |
