@@ -16,6 +16,28 @@
 #   push path (D14) — version file must be `>=` the max reachable <component>/v*
 #                     tag; fail ONLY when the file is strictly BEHIND (`<`).
 #                     `version_files: []` → early green.
+#
+# TRUST MODEL (#374). On the pull_request path the checkout is the PR MERGE ref
+# (base + head), so anything read from it can be dictated by the PR author. Split
+# accordingly:
+#   AUTHORITY (decides whether/how the gate runs) — release.model, release.component
+#     → read from the BASE ref (refs/remotes/origin/<base>:.claude/stack.yml). A PR
+#       that added `release.model: trunk` (or rewrote release.component) to its own
+#       stack.yml would otherwise flip its OWN gate to unconditional early-green.
+#   WITNESSES (the claim under check) — PR title core, newest CHANGELOG heading.
+#     These ARE the PR's assertion, so they legitimately come from the head.
+#   push path — the checkout IS the protected-branch tip, so reading stack.yml
+#     directly is already reading the base; no head exists.
+#
+# KNOWN-OPEN (do NOT read this gate as fully hardened — tracked as FU-2):
+#   (a) $PRICE is still executed FROM THE CHECKOUT, so a PR that rewrites price.sh
+#       dictates its own verdict. Closing it needs a pinned checkout of this
+#       workflow's own repo, as a CONDITIONAL step (a failed cross-repo clone must
+#       not fail the JOB in front of the in-job early greens — D15c at job level).
+#   (b) The per-repo caller stub is committed into the target repo, so a PR can
+#       replace this `uses:` job with `run: exit 0`. Not fixable here — needs a
+#       ruleset file_path_restriction on .github/workflows/**, CODEOWNERS, or an
+#       org required-workflow.
 name: release-consistency
 
 # Quoted so YAML 1.1 does not coerce the `on` key to boolean true.
@@ -51,15 +73,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Full-history checkout still lacks remote-tracking refs for other
-      # branches; price.sh is called with `origin/main` / `origin/staging`
-      # anchors, so materialise them (plus tag objects) explicitly.
+      # Full-history checkout still lacks remote-tracking refs for other branches;
+      # the gate anchors price.sh (and reads the base stack.yml, #374) at
+      # `refs/remotes/origin/<base>`, so materialise every branch (plus tag
+      # objects) explicitly. The `refs/remotes/origin/*` refspec is what makes the
+      # fully-qualified ref resolvable and unambiguous.
       - name: Fetch branches and tags
         run: git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
 
       - name: Gate
         env:
           EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -75,20 +100,32 @@ jobs:
           # No heredocs: their column-0 terminators would break the YAML block
           # scalar. python3 -c one-liners; YAML is a JSON superset so safe_load
           # parses both list shapes for the override.
+          #
+          # $1 = the stack file to read; defaults to the checked-out $STACK (correct
+          # on the push path — the checkout IS the base). The PR path passes the
+          # BASE stack instead (the trust-model split above, #374).
+          #
+          # Both AUTHORITY readers COERCE on any error (missing file, malformed
+          # YAML) rather than aborting under `set -euo pipefail`: a broken base
+          # stack.yml must never red every PR (zero bypass actors → unmergeable).
+          # An absent/unknown model coerces to staging-train, so the trunk
+          # early-green cannot fire on a repo that did not opt in (#371 N9, #374 O1).
           read_component() {
+            local f="${1:-$STACK}"
+            [ -f "$f" ] || { echo ""; return 0; }
             if command -v yq >/dev/null 2>&1; then
-              yq -r '.release.component // ""' "$STACK"
+              yq -r '.release.component // ""' "$f" 2>/dev/null || echo ""
             else
-              python3 -c 'import sys,yaml; d=yaml.safe_load(open(sys.argv[1])) or {}; print(((d.get("release") or {}).get("component")) or "")' "$STACK"
+              python3 -c 'import sys,yaml; d=yaml.safe_load(open(sys.argv[1])) or {}; print(((d.get("release") or {}).get("component")) or "")' "$f" 2>/dev/null || echo ""
             fi
           }
-          # release.model, defaulted to staging-train so an absent/unknown value
-          # leaves the existing behaviour untouched (#371 N9). Only "trunk" opts in.
           read_model() {
+            local f="${1:-$STACK}"
+            [ -f "$f" ] || { echo "staging-train"; return 0; }
             if command -v yq >/dev/null 2>&1; then
-              yq -r '.release.model // "staging-train"' "$STACK"
+              yq -r '.release.model // "staging-train"' "$f" 2>/dev/null || echo "staging-train"
             else
-              python3 -c 'import sys,yaml; d=yaml.safe_load(open(sys.argv[1])) or {}; print(((d.get("release") or {}).get("model")) or "staging-train")' "$STACK"
+              python3 -c 'import sys,yaml; d=yaml.safe_load(open(sys.argv[1])) or {}; print(((d.get("release") or {}).get("model")) or "staging-train")' "$f" 2>/dev/null || echo "staging-train"
             fi
           }
           read_version_files() {   # one path per line
@@ -120,13 +157,24 @@ jobs:
           # PR path (D9) — promote PRs only
           # ══════════════════════════════════════════════════════════════════
           if [ "$EVENT_NAME" = "pull_request" ]; then
+            # AUTHORITY from the BASE ref, never the PR head (#374 trust model). A
+            # PR that added `release.model: trunk` (or rewrote release.component) to
+            # its own stack.yml must not decide whether this gate runs. Materialise
+            # the base stack.yml; if the base has none (fresh repo / first provision)
+            # the readers coerce (staging-train / empty component) — fail-safe.
+            # Fully-qualified refs/remotes/… so a tag named `origin/<base>` cannot
+            # shadow the remote-tracking ref (an ambiguous `origin/<base>` would let
+            # the head re-supply authority under a decoy tag).
+            BASE_STACK="$(mktemp)"
+            git show "refs/remotes/origin/${PR_BASE_REF}:${STACK}" > "$BASE_STACK" 2>/dev/null || : > "$BASE_STACK"
+
             # Trunk mode (#371 N7/N8): a trunk repo has no staging→main promotion
             # PR — the release fires at merge-to-main via auto-release.yml, and the
             # push-path floor below still guards at-rest drift. The three-way
             # promote-PR check does not apply, so every PR is an early GREEN (a
             # real check-run, never a skip — D9/D15c). Must precede the head gate.
-            if [ "$(read_model)" = "trunk" ]; then
-              echo "trunk mode — release consistency enforced at merge-to-main, not on PRs — early green"
+            if [ "$(read_model "$BASE_STACK")" = "trunk" ]; then
+              echo "trunk mode (base ${PR_BASE_REF}) — release consistency enforced at merge-to-main, not on PRs — early green"
               exit 0
             fi
             # Scope gate FIRST, inside the job: a non-promote (head != staging)
@@ -138,15 +186,16 @@ jobs:
               exit 0
             fi
 
-            COMPONENT=$(read_component)
+            COMPONENT=$(read_component "$BASE_STACK")
             if [ -z "$COMPONENT" ]; then
-              echo "release-consistency: release.component missing/null in ${STACK} (D13)" >&2
+              echo "release-consistency: release.component missing/null in base ${PR_BASE_REF}:${STACK} (D13)" >&2
               exit 1
             fi
 
-            # Derive from the PR's own head (re-price per head SHA).
+            # Derive from the PR's own head (re-price per head SHA), anchored at the
+            # fully-qualified base ref (never a bare `origin/<base>` — B1 ambiguity).
             set +e
-            DERIVED=$(bash "$PRICE" "$COMPONENT" origin/main origin/main "$PR_HEAD_SHA")
+            DERIVED=$(bash "$PRICE" "$COMPONENT" "refs/remotes/origin/${PR_BASE_REF}" "refs/remotes/origin/${PR_BASE_REF}" "$PR_HEAD_SHA")
             rc=$?
             set -e
 

@@ -171,3 +171,58 @@ describe('release-consistency — trunk mode early-green (#371 N7/N8)', () => {
     expect(trunkExitIdx).toBeLessThan(headStagingIdx)
   })
 })
+
+// ─── #374: AUTHORITY read from the BASE ref, never the PR head ─────────────────
+//
+// On the pull_request path the checkout is the PR MERGE ref, so anything read
+// from it is attacker-influenced. release.model + release.component are AUTHORITY
+// (they decide whether/how the gate runs) and must come from the base; PR title +
+// CHANGELOG are WITNESSES (the claim) and legitimately come from the head.
+//
+// These are source assertions, not a behavioural run: the gate is a workflow_call
+// reusable with no caller stub here (inert), and executing its readers needs a yq
+// or python3+pyyaml the vitest CI job does not carry — so the fix's observable is
+// the workflow source. Each assertion checks a post-fix string absent from the
+// pre-#374 file (which read $STACK with no arg and anchored a bare origin/main),
+// so a revert fails here.
+describe('release-consistency — authority from BASE ref, not PR head (#374)', () => {
+  it('wires the PR base ref into the gate env', () => {
+    expect(reusableSrc).toMatch(/PR_BASE_REF:\s*\$\{\{\s*github\.event\.pull_request\.base\.ref\s*\}\}/)
+  })
+
+  it('materialises the base stack.yml from a fully-qualified remote ref (not the checkout)', () => {
+    expect(reusableSrc).toContain('git show "refs/remotes/origin/${PR_BASE_REF}:${STACK}"')
+  })
+
+  it('reads BOTH release.model and release.component from the base stack, not $STACK', () => {
+    expect(reusableSrc).toContain('read_model "$BASE_STACK"')
+    expect(reusableSrc).toContain('read_component "$BASE_STACK"')
+  })
+
+  it('the trunk early-green is decided by the base model — a head adding release.model:trunk cannot self-green', () => {
+    // The trunk guard specifically must read $BASE_STACK. If it read the checkout,
+    // a PR that added `release.model: trunk` to its own stack.yml would flip its
+    // own gate to unconditional green — the exact #374 defect.
+    const trunkGuard = reusableSrc.match(/if \[ "\$\(read_model[^)]*\)" = "trunk" \]/)
+    expect(trunkGuard).not.toBeNull()
+    expect((trunkGuard as RegExpMatchArray)[0]).toContain('$BASE_STACK')
+  })
+
+  it('anchors the PR-path re-price at the fully-qualified base ref — no bare origin/main (B1)', () => {
+    // A bare `origin/<ref>` is ambiguous with a same-named tag; on the PR path the
+    // whole re-price must use refs/remotes/origin/… .
+    expect(reusableSrc).not.toContain('"$COMPONENT" origin/main')
+    expect(reusableSrc).toContain(
+      'bash "$PRICE" "$COMPONENT" "refs/remotes/origin/${PR_BASE_REF}" "refs/remotes/origin/${PR_BASE_REF}" "$PR_HEAD_SHA"',
+    )
+  })
+
+  it('AUTHORITY readers coerce on error instead of aborting under set -e (O1)', () => {
+    // A malformed base stack.yml must not red every PR (zero bypass actors →
+    // unmergeable): the readers swallow yq/python failures and coerce.
+    expect(reusableSrc).toContain(`yq -r '.release.model // "staging-train"' "$f" 2>/dev/null || echo "staging-train"`)
+    expect(reusableSrc).toContain(`yq -r '.release.component // ""' "$f" 2>/dev/null || echo ""`)
+    // The readers take a file arg so the PR path can pass the base stack.
+    expect(reusableSrc).toContain('local f="${1:-$STACK}"')
+  })
+})

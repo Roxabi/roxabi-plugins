@@ -1,6 +1,6 @@
 {
   "name": "dev-core",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "Full development workflow — frame, shape, plan, implement, review, ship. 30 skills, 9 agents, safety hooks.",
   "author": {
     "name": "Roxabi"
