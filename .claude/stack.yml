@@ -1,6 +1,9 @@
 # .claude/stack.yml — dev-core stack configuration
-# DO NOT commit this file. Add `.claude/stack.yml` to .gitignore.
-# Commit stack.yml.example instead (no sensitive values).
+# COMMIT this file — it declares project stack conventions (paths, commands,
+# formatter, test runner), and dev-core/CI read release.model + release.component
+# from it. No secrets go here; only `.env` stays gitignored.
+# `.claude/dev-core.yml` holds GitHub Project node IDs (public, not secrets) — commit it too.
+# stack.yml.example remains as a reference template for fresh clones.
 schema_version: "1.0"
 
 runtime: bun
