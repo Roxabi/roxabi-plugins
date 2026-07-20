@@ -3,8 +3,9 @@
 # GitHub natively waits for all required status checks before merging.
 #
 # Project convention: merge commits only (¬squash) — see ~/projects/CLAUDE.md
-# "Release Convention". Squash merges flatten the per-commit history that
-# staging→main promotions rely on.
+# "Release Convention". auto-release.sh REFUSEs any merge to main that is not
+# a 2-parent merge (D3), and price.sh walks per-commit history to derive the
+# bump — a squash breaks both.
 #
 # Dependabot guard: semver-major bumps are never auto-merged — they require
 # manual validation (the vite 8 SSR regression stayed dormant 10 weeks).
@@ -19,7 +20,7 @@ on:
   check_suite:
     types: [completed]
   push:
-    branches: [staging, main]
+    branches: [main]
 
 permissions:
   contents: write

@@ -9,7 +9,7 @@ on:
       - '.grok/**'
       - '.agents/**'
   push:
-    branches: [main, staging]
+    branches: [main]
     paths:
       - '**/CLAUDE.md'
       - '**/AGENTS.md'

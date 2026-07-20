@@ -89,7 +89,7 @@ claude plugin validate .
 bun lint && bun typecheck && bun test
 ```
 
-CI (`bun lint`, `bun typecheck`, `bun test`) runs automatically on push to `main`/`staging` via `.github/workflows/ci.yml`. PRs must be green before merging.
+CI (`bun lint`, `bun typecheck`, `bun test`) runs automatically on push to `main` via `.github/workflows/ci.yml`. PRs must be green before merging.
 
 Then commit with the standard format:
 
