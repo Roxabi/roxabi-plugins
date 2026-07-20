@@ -10,12 +10,25 @@ import {
   PROTECTED_BRANCHES,
 } from '../../shared/adapters/github-infra'
 
+/** Per-branch outcome. `'skipped'` = the branch does not exist and was left alone. */
+export type BranchOutcome = boolean | 'skipped'
+
 export interface ProtectionResult {
-  branches: Record<string, boolean>
+  branches: Record<string, BranchOutcome>
   ruleset: boolean
 }
 
-export async function protectBranches(repo: string): Promise<ProtectionResult> {
+export interface ProtectOptions {
+  /**
+   * Create and push a protected branch that does not exist yet. Off by default:
+   * a missing branch is a deliberate repo state far more often than an oversight
+   * (a trunk-mode repo has retired `staging` on purpose), and inventing it here
+   * silently undoes that decision. Opt in when bootstrapping a fresh repo.
+   */
+  createMissing?: boolean
+}
+
+export async function protectBranches(repo: string, opts: ProtectOptions = {}): Promise<ProtectionResult> {
   const result: ProtectionResult = { branches: {}, ruleset: false }
   let hasSecretScan = false
   try {
@@ -26,9 +39,15 @@ export async function protectBranches(repo: string): Promise<ProtectionResult> {
 
   for (const branch of PROTECTED_BRANCHES) {
     try {
-      // Ensure branch exists
+      // Ensure branch exists — but never invent one unless explicitly asked.
+      // Mirrors the read side, which reports an absent branch as a skip rather
+      // than a failure (checkup's doctor-github.ts).
       const branchExists = Bun.spawnSync(['git', 'rev-parse', '--verify', branch], { stdout: 'pipe', stderr: 'pipe' })
       if (branchExists.exitCode !== 0) {
+        if (!opts.createMissing) {
+          result.branches[branch] = 'skipped'
+          continue
+        }
         await run(['git', 'branch', branch])
         await run(['git', 'push', '-u', 'origin', branch])
       }
