@@ -133,10 +133,10 @@ switch (command) {
     const { protectBranches } = await import('./lib/protection')
     const repo = parseFlag('--repo', '')
     if (!repo) {
-      console.error('Usage: init.ts protect-branches --repo <owner/repo>')
+      console.error('Usage: init.ts protect-branches --repo <owner/repo> [--create-missing]')
       process.exit(1)
     }
-    const result = await protectBranches(repo)
+    const result = await protectBranches(repo, { createMissing: hasFlag('--create-missing') })
     console.log(JSON.stringify(result, null, 2))
     break
   }
