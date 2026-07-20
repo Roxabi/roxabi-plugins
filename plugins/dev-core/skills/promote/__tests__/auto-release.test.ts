@@ -97,6 +97,72 @@ function autoRelease(repo: string, args: string[]): RunResult {
   return { stdout: (r.stdout ?? '').trim(), stderr: r.stderr ?? '', code: r.status ?? -1 }
 }
 
+/**
+ * Bare `origin` + a `gh` shim, i.e. everything the non-dry-run path needs to run
+ * for real without a network. Returns the env to invoke the orchestrator with.
+ */
+function enactmentFixture(repo: string): { runEnv: NodeJS.ProcessEnv; ghLog: string } {
+  const origin = mkdtempSync(join(tmpdir(), 'auto-release-origin-'))
+  createdRepos.push(origin)
+  git(origin, ['init', '-q', '--bare', '-b', 'main'])
+  git(repo, ['remote', 'add', 'origin', origin])
+  git(repo, ['push', '-q', 'origin', 'main'])
+
+  const bin = mkdtempSync(join(tmpdir(), 'auto-release-bin-'))
+  createdRepos.push(bin)
+  const ghLog = join(bin, 'gh.log')
+  const marker = join(bin, 'release.created')
+  const ghShim = join(bin, 'gh')
+  writeFileSync(
+    ghShim,
+    [
+      '#!/usr/bin/env bash',
+      'echo "gh $*" >> "$GH_SHIM_LOG"',
+      'case "$1 $2" in',
+      '  "release view")   [ -f "$GH_SHIM_MARKER" ] && exit 0 || exit 1 ;;',
+      '  "release create") : > "$GH_SHIM_MARKER"; exit 0 ;;',
+      '  *) exit 0 ;;',
+      'esac',
+    ].join('\n'),
+  )
+  chmodSync(ghShim, 0o755)
+
+  return {
+    ghLog,
+    runEnv: {
+      ...gitEnv(),
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      GH_SHIM_LOG: ghLog,
+      GH_SHIM_MARKER: marker,
+      GH_TOKEN: 'shim',
+    },
+  }
+}
+
+/** Strip every committer/author identity var — the state a bare CI runner is in. */
+function withoutIdentity(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(env)) {
+    if (key.startsWith('GIT_AUTHOR_') || key.startsWith('GIT_COMMITTER_')) continue
+    out[key] = value
+  }
+  return out
+}
+
+/**
+ * Force the runner's exact failure mode, deterministically.
+ *
+ * Stripping GIT_COMMITTER_* is NOT enough: git still auto-derives an identity
+ * from the passwd entry, so on a dev box with a populated gecos field the tag
+ * succeeds and the regression hides. The runner failed precisely because its
+ * gecos is empty — it derived an email (`runner@runnervm...`) but no NAME, hence
+ * `fatal: empty ident name`. useConfigOnly makes git refuse to derive either,
+ * reproducing that on any host instead of only on gecos-less ones.
+ */
+function forbidDerivedIdentity(repo: string): void {
+  git(repo, ['config', 'user.useConfigOnly', 'true'])
+}
+
 // ─── S2-T4 — derivation topologies (dry-run: decide, do not push) ───────────────
 
 describe('auto-release.sh — derivation topologies (#371 S2)', () => {
@@ -298,5 +364,69 @@ describe('auto-release.sh — real enactment path (W3)', () => {
     const ghCalls = readFileSync(ghLog, 'utf8')
     expect(ghCalls).toMatch(/gh release create comp\/v0\.8\.0/)
     expect((ghCalls.match(/release create /g) ?? []).length).toBe(1)
+  })
+})
+
+// ─── W4 — annotated-tag identity on a bare runner (#376 dogfood regression) ────
+//
+// The W3 case above runs the enactment path for real, but through gitEnv(), which
+// exports GIT_COMMITTER_NAME/EMAIL. A GitHub runner exports neither and has no
+// git config, so `git tag -a` died `fatal: empty ident name` (exit 128) on the
+// very first Model-B release — after price.sh had correctly derived v0.5.0. The
+// harness supplied the one thing production lacked, so 823 green tests said
+// nothing. These cases remove it.
+
+describe('auto-release.sh — annotated tag with no committer identity (#376)', () => {
+  it('bare runner (no git config, no GIT_COMMITTER_*) → still tags, pushes, releases', () => {
+    const repo = initRepo()
+    commit(repo, 'chore: init')
+    tag(repo, 'comp/v0.7.0')
+    git(repo, ['checkout', '-q', '-b', 'feature'])
+    commit(repo, 'feat: x')
+    git(repo, ['checkout', '-q', 'main'])
+    const m = mergeNoFf(repo, 'feature', 'Merge feature') // derived → 0.8.0
+
+    const { runEnv, ghLog } = enactmentFixture(repo)
+    forbidDerivedIdentity(repo)
+    const r = spawnSync('bash', [AUTO_RELEASE_SH, 'comp', m], {
+      cwd: repo,
+      encoding: 'utf8',
+      env: withoutIdentity(runEnv),
+    })
+
+    expect(r.status, `stderr:\n${r.stderr}`).toBe(0)
+    expect(r.stderr).not.toMatch(/empty ident name/)
+    // The annotated tag really exists at M and reached origin.
+    expect(git(repo, ['cat-file', '-t', 'comp/v0.8.0'])).toBe('tag')
+    expect(git(repo, ['rev-list', '-n1', 'comp/v0.8.0'])).toBe(m)
+    expect(git(repo, ['ls-remote', '--tags', 'origin'])).toContain('comp/v0.8.0')
+    expect(readFileSync(ghLog, 'utf8')).toMatch(/gh release create comp\/v0\.8\.0/)
+  })
+
+  it('a configured identity is left alone (gap-fill, not override)', () => {
+    const repo = initRepo()
+    commit(repo, 'chore: init')
+    tag(repo, 'comp/v0.7.0')
+    git(repo, ['checkout', '-q', '-b', 'feature'])
+    commit(repo, 'feat: x')
+    git(repo, ['checkout', '-q', 'main'])
+    const m = mergeNoFf(repo, 'feature', 'Merge feature')
+
+    const { runEnv } = enactmentFixture(repo)
+    forbidDerivedIdentity(repo)
+    git(repo, ['config', 'user.name', 'Repo Owner'])
+    git(repo, ['config', 'user.email', 'owner@example.com'])
+
+    const r = spawnSync('bash', [AUTO_RELEASE_SH, 'comp', m], {
+      cwd: repo,
+      encoding: 'utf8',
+      env: withoutIdentity(runEnv),
+    })
+
+    expect(r.status, `stderr:\n${r.stderr}`).toBe(0)
+    expect(git(repo, ['config', '--get', 'user.email'])).toBe('owner@example.com')
+    expect(git(repo, ['for-each-ref', '--format=%(taggeremail)', 'refs/tags/comp/v0.8.0'])).toContain(
+      'owner@example.com',
+    )
   })
 })
