@@ -61,6 +61,7 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
        --test-command "<commands.test from σ, if set>"
      ```
      > **Top-up par défaut** : les fichiers déjà présents sur le repo sont **skippés** — les repos font évoluer leur `ci.yml` bien au-delà du template (multi-job, e2e, etc.). Ajouter `--force` UNIQUEMENT pour régénérer volontairement, après diff explicite des fichiers qui seraient écrasés.
+     > **Trunk mode (`release.model: trunk`, #375)** : le `auto-release.yml` généré invoque `plugins/dev-core/skills/promote/auto-release.sh` (+ sa closure `price.sh`/`lib/finalize.ts`) depuis la racine du repo. Ce chemin ne résout que si dev-core est **vendored sous `plugins/`** (comme dans roxabi-plugins) ; un repo qui consomme dev-core depuis `~/.claude/plugins/cache/…` ne l'a pas → le workflow mourrait `exit 127` à sa première release. Le writer (`writeWorkflows`/`pushWorkflows`) **REFUSE loud à la provision** si le script n'est pas résolvable (localement via `fs.existsSync`, à distance via l'API contents) plutôt que d'expédier un workflow cassé. Vendorer le script, ou ne pas activer trunk. Aujourd'hui seul roxabi-plugins est trunk et `init.ts workflows` n'expose pas encore de flag `--release-model` (productisation consommateur différée → #375 FU-5).
    - **App token provisioning** (always — PAT mode retired):
      - `gh variable set ROXABI_CI_APP_ID --org <org> --body <app-id>` (org-level)
        OR (private repo / free-plan org): `gh variable set ROXABI_CI_APP_ID --repo <owner>/<repo> --body <app-id>`

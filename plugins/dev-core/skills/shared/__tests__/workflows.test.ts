@@ -401,12 +401,31 @@ describe('writeWorkflows', () => {
     expect(results).toContainEqual({ file: 'deploy-cloudflare.yml', status: 'created' })
   })
 
+  // A trunk auto-release.yml `run:`s plugins/dev-core/skills/promote/auto-release.sh
+  // from the repo root; the resolvability guard (#375) requires that path to exist
+  // before it will write the workflow, so seed the closure in the throwaway repo.
+  function seedTrunkReleaseScript(): void {
+    fs.mkdirSync('plugins/dev-core/skills/promote', { recursive: true })
+    fs.writeFileSync('plugins/dev-core/skills/promote/auto-release.sh', '#!/usr/bin/env bash\n')
+  }
+
   it('emits auto-release.yml when release.model is trunk (N18)', async () => {
+    seedTrunkReleaseScript()
     const results = await writeWorkflows({ ...opts, release: { model: 'trunk', component: 'roxabi-plugins' } })
 
     expect(results).toContainEqual({ file: 'auto-release.yml', status: 'created' })
     expect(fs.existsSync('.github/workflows/auto-release.yml')).toBe(true)
     expect(fs.readFileSync('.github/workflows/auto-release.yml', 'utf8')).toContain('name: Auto Release')
+  })
+
+  it('REFUSES to write a trunk auto-release.yml when auto-release.sh is not vendored (#375)', async () => {
+    // Empty repo — the baked `run:` path does not resolve here, so the workflow
+    // would die exit 127 at its first release. Fail loud at provision time.
+    await expect(writeWorkflows({ ...opts, release: { model: 'trunk', component: 'roxabi-plugins' } })).rejects.toThrow(
+      /auto-release\.sh.*not resolvable|not resolvable.*auto-release\.sh/s,
+    )
+    // Nothing was written — the refusal precedes mkdir/write, so no partial .github/.
+    expect(fs.existsSync('.github/workflows/auto-release.yml')).toBe(false)
   })
 
   it('does NOT emit auto-release.yml under staging-train (default)', async () => {
