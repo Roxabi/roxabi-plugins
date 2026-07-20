@@ -1,20 +1,12 @@
 /**
- * Generate and push GitHub Actions workflow files.
- * Supports both local write (writeWorkflows) and REST API push (pushWorkflows).
+ * Pure GitHub Actions workflow YAML generators + stack → opts helpers.
+ * No network / no filesystem I/O — safe for /checkup workflow-drift.
+ * Push/write lives in workflow-push.ts (dev-init owned; copy-synced for tests).
  */
 
-import { run } from '../../shared/adapters/github-adapter'
-import { APP_MINT_STEP } from '../../shared/adapters/github-infra'
-import { ACTION_PINS } from './workflow-pins'
+import { ACTION_PINS, APP_MINT_STEP } from './workflow-pins'
 import { normalizeWorkflowOpts, type WorkflowOpts } from './workflow-types'
-import {
-  generateCloudflareDeployYml,
-  generateDependabotAutomergeYml,
-  generateDependabotYml,
-  generateE2eJob,
-  generateMergeOnGreenYml,
-  generateSecretScanYml,
-} from './workflows-fleet'
+import { generateE2eJob } from './workflows-fleet'
 
 export type { WorkflowOpts } from './workflow-types'
 export { normalizeWorkflowOpts }
@@ -60,19 +52,30 @@ jobs:
     steps:
 ${APP_MINT_STEP}
 
-      - name: Block dependabot semver-major bumps
+      # Read the real update-type from Dependabot's metadata rather than parsing the
+      # PR title: grouped PRs are titled "bump the <group> group…" with no versions,
+      # so a title regex never fires for a major hidden in a group, and it can also
+      # misread a SHA-pinned action bump ("from 08eba0b to 8f4b7f8") as a major.
+      # For a grouped PR, fetch-metadata reports the HIGHEST update-type in the group.
+      - name: Fetch dependabot metadata
+        id: dependabot-meta
         if: github.event.pull_request.user.login == 'dependabot[bot]'
+        uses: ${ACTION_PINS.dependabotFetchMetadata}
+        with:
+          github-token: \${{ steps.app.outputs.token }}
+
+      - name: Block dependabot semver-major bumps
+        if: >-
+          github.event.pull_request.user.login == 'dependabot[bot]' &&
+          steps.dependabot-meta.outputs.update-type == 'version-update:semver-major'
         env:
           GH_TOKEN: \${{ steps.app.outputs.token }}
           PR_NUMBER: \${{ github.event.pull_request.number }}
-          PR_TITLE: \${{ github.event.pull_request.title }}
         run: |
-          if [[ "$PR_TITLE" =~ from\\ v?([0-9]+)[^\\ ]*\\ to\\ v?([0-9]+) ]] && [ "\${BASH_REMATCH[1]}" != "\${BASH_REMATCH[2]}" ]; then
-            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \\
-              --body "Auto-merge refused: **semver-major** bump. Manual validation required (e2e / boot the artifact), then merge by hand."
-            echo "::error::semver-major dependency bump — auto-merge refused"
-            exit 1
-          fi
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \\
+            --body "Auto-merge refused: **semver-major** bump. Manual validation required (e2e / boot the artifact), then merge by hand."
+          echo "::error::semver-major dependency bump — auto-merge refused"
+          exit 1
 
       - name: Update branch (lazy sync for late joiners)
         if: contains(github.event.pull_request.labels.*.name, 'reviewed')
@@ -151,6 +154,87 @@ ${APP_MINT_STEP}
                 core.warning(\`Failed to close issue #\${number}: \${error.message}\`);
               }
             }
+`
+}
+
+/**
+ * Trunk-mode release workflow (Model B — #371). Fires on every merge to `main`,
+ * derives the next `<component>/vX.Y.Z` from the conventional commits since the
+ * last reachable tag, and creates the tag + GitHub Release. An empty payload (no
+ * version-bumping commit) is a green no-op; a stray 1-parent push is loud-red.
+ *
+ * THIN by design: the whole derive → classify → reconcile core lives in
+ * `plugins/dev-core/skills/promote/auto-release.sh`, which this workflow only
+ * sets up an environment for and invokes. There is deliberately no second copy
+ * of that logic here — /checkup diffs the committed workflow against this
+ * generator (N11), so the file stays stable. COMPONENT is baked at generate-time
+ * from `release.component`. Sibling of generateAutoMergeYml (shared mint step).
+ */
+export function generateAutoReleaseYml(opts: WorkflowOpts): string {
+  const component = normalizeWorkflowOpts(opts).release.component
+  // Trunk mode bakes COMPONENT into a `contents: write` workflow. An empty
+  // component would arg-shift the SHA into $1 (auto-release.sh would derive
+  // <sha>/v0.1.0 and push it — no upstream check catches it, B3); a component
+  // carrying shell metacharacters would inject into the `run:` step across the
+  // fleet. Fail loud at generate-time — never emit a broken/unsafe workflow.
+  if (!/^[A-Za-z0-9._-]+$/.test(component)) {
+    throw new Error(
+      `generateAutoReleaseYml: release.component must match /^[A-Za-z0-9._-]+$/ (got ${JSON.stringify(
+        component,
+      )}). Set release.component in .claude/stack.yml before enabling trunk mode.`,
+    )
+  }
+  return `# Auto-release on merge to main (trunk mode, Model B — dev-core #371).
+# Derives <component>/vX.Y.Z from the conventional commits since the last
+# reachable tag, then tags + creates a GitHub Release. Fires on EVERY merge;
+# a merge with no version-bumping commit is a green no-op.
+#
+# THIN wrapper — every derivation/classification/reconcile step lives in
+# plugins/dev-core/skills/promote/auto-release.sh. Never inline that logic here:
+# /checkup diffs this file against the generator output (N11), so it must stay
+# byte-stable. Regenerate with /ci-setup after a dev-core bump, never hand-edit.
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# FIFO queue: never interrupt a release in progress, never drop a pending one.
+# cancel-in-progress:false + queue:max queues bursts of merges (up to 100).
+concurrency:
+  group: auto-release-\${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  auto-release:
+    name: Tag + release on merge to main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+${APP_MINT_STEP}
+
+      # Full history + tags with the App token, so the tag-reachability floor is
+      # never starved into a regressive v0.1.0 (release-consistency.yml scar).
+      - uses: ${ACTION_PINS.checkout}
+        with:
+          fetch-depth: 0
+          token: \${{ steps.app.outputs.token }}
+
+      - name: Fetch all tags
+        run: git fetch --tags --force
+
+      - uses: ${ACTION_PINS.setupBun}
+
+      - name: Derive + tag + release (merge to main)
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+          COMPONENT: ${component}
+        run: bash plugins/dev-core/skills/promote/auto-release.sh "$COMPONENT" "\${{ github.sha }}"
 `
 }
 
@@ -274,17 +358,19 @@ jobs:
 `
 }
 
-/** Push only context-lint.yml (always updates — safe to re-run after generator changes). */
-export async function pushContextLintYml(
-  owner: string,
-  repo: string,
-  branch: string,
-): Promise<'created' | 'updated' | 'skipped'> {
-  return pushWorkflowFile(owner, repo, '.github/workflows/context-lint.yml', generateContextLintYml(), {
-    branch,
-    message: 'chore: update context-lint.yml (Grok + Claude harness paths)',
-    skipExisting: false,
-  })
+/** Resolve the CI test `run:` command — prefer verbatim commands.test when set. */
+export function resolveTestRunCommand(opts: Required<WorkflowOpts>): string | null {
+  if (opts.test === 'none') return null
+  if (opts.testCommand) return opts.testCommand
+  if (opts.stack === 'python') return opts.test === 'pytest' ? 'uv run pytest' : 'uv run pytest'
+  if (opts.stack === 'bun') {
+    // Prefer bun run test (package script) over bare bun test — aligns with agent hook + monorepos
+    if (opts.test === 'vitest' || opts.test === 'bun' || opts.test === 'jest') return 'bun run test'
+    return 'bun run test'
+  }
+  // node
+  if (opts.test === 'jest' || opts.test === 'vitest') return 'npm test'
+  return 'npm test'
 }
 
 export function generateCiYml(opts: WorkflowOpts): string {
@@ -300,16 +386,11 @@ export function generateCiYml(opts: WorkflowOpts): string {
         run: uv sync --frozen --all-extras`
     if (o.lint) lintStep = '\n      - name: Lint\n        run: uv run ruff check .'
     if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: uv run pyright'
-    if (o.test === 'pytest') testStep = '\n      - name: Test\n        run: uv run pytest'
   } else if (o.stack === 'bun') {
     setupStep = `      - uses: ${ACTION_PINS.setupBun}
       - run: bun install`
     if (o.lint) lintStep = '\n      - name: Lint\n        run: bun lint'
     if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: bun typecheck'
-    if (o.test !== 'none') {
-      const bunTestCmd = o.test === 'vitest' ? 'bun run test' : 'bun test'
-      testStep = `\n      - name: Test\n        run: ${bunTestCmd}`
-    }
   } else {
     setupStep = `      - uses: ${ACTION_PINS.setupNode}
         with:
@@ -317,7 +398,16 @@ export function generateCiYml(opts: WorkflowOpts): string {
       - run: npm ci`
     if (o.lint) lintStep = '\n      - name: Lint\n        run: npm run lint'
     if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: npx tsc --noEmit'
-    if (o.test !== 'none') testStep = '\n      - name: Test\n        run: npm test'
+  }
+
+  const testCmd = resolveTestRunCommand(o)
+  if (testCmd) {
+    testStep = `\n      - name: Test\n        run: ${testCmd}`
+  } else {
+    // Explicit comment — silent-green CI without tests is worse than a red one
+    testStep =
+      '\n      # test: none — no unit test step (commands.test unset / --test none).\n' +
+      '      # If this is wrong, set commands.test + testing.unit and re-run /ci-setup.'
   }
 
   return `name: CI
@@ -381,206 +471,68 @@ ${deployStep}
 `
 }
 
-// --- REST API push ---
+/** Classify unit test runner from testing.unit and/or commands.test. */
+export function classifyTestRunner(unit: string | undefined, command: string | undefined): WorkflowOpts['test'] {
+  const u = (unit ?? '').trim()
+  const c = (command ?? '').trim()
+  if (!u && !c) return 'none'
+  if (/^none$/i.test(u) || (/^none$/i.test(c) && !u)) return 'none'
 
-async function getToken(): Promise<string> {
-  return (await run(['gh', 'auth', 'token'])).trim()
-}
+  // testing.unit is authoritative when set to a known runner
+  if (/^vitest$/i.test(u) || /vitest/i.test(u)) return 'vitest'
+  if (/^jest$/i.test(u) || /jest/i.test(u)) return 'jest'
+  if (/^pytest$/i.test(u) || /pytest/i.test(u)) return 'pytest'
+  if (/^bun$/i.test(u) || /bun:test/i.test(u)) return 'bun'
 
-/** Push a single file to a repo via the GH contents API (create-or-update).
- *  `path` is the full repo-relative path (e.g. `.github/workflows/ci.yml`).
- *  With `skipExisting`, a file already present is left untouched ('skipped') —
- *  repos evolve their workflows past the templates, so overwrite must be opt-in. */
-export async function pushWorkflowFile(
-  owner: string,
-  repo: string,
-  path: string,
-  content: string,
-  opts: { branch: string; message?: string; skipExisting?: boolean },
-): Promise<'created' | 'updated' | 'skipped'> {
-  const token = await getToken()
-  const { branch } = opts
-  const b64 = Buffer.from(content).toString('base64')
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
-    Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-  }
-
-  const checkRes = await fetch(url, { headers })
-  const existing = checkRes.ok ? ((await checkRes.json()) as { sha: string }) : null
-  if (existing && opts.skipExisting) return 'skipped'
-
-  const body: Record<string, string> = {
-    message: opts?.message ?? `chore: ${existing ? 'update' : 'add'} ${path}`,
-    content: b64,
-    branch,
-  }
-  if (existing?.sha) body.sha = existing.sha
-
-  const res = await fetch(url, {
-    method: 'PUT',
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-
-  if (!res.ok) {
-    const err = (await res.json()) as { message?: string }
-    throw new Error(`Failed to push ${path}: ${err.message ?? JSON.stringify(err)}`)
-  }
-
-  return existing ? 'updated' : 'created'
-}
-
-export interface PushResult {
-  file: string
-  status: 'created' | 'updated' | 'skipped'
-}
-
-/** Push all workflow files to a remote repo via GitHub REST API. No local git required.
- *  Default is TOP-UP: files already present on the repo are skipped (repos evolve
- *  their ci.yml far past the template). `force` overwrites. */
-export async function pushWorkflows(
-  owner: string,
-  repo: string,
-  opts: WorkflowOpts,
-  branch: string,
-  force = false,
-): Promise<PushResult[]> {
-  const o = normalizeWorkflowOpts(opts)
-  const mergeFile =
-    o.merge === 'merge-on-green'
-      ? { name: 'merge-on-green.yml', content: generateMergeOnGreenYml(o) }
-      : { name: 'auto-merge.yml', content: generateAutoMergeYml() }
-  const files: Array<{ name: string; content: string }> = [
-    mergeFile,
-    { name: 'pr-title.yml', content: generatePrTitleYml() },
-    { name: 'context-lint.yml', content: generateContextLintYml() },
-    { name: 'secret-scan.yml', content: generateSecretScanYml() },
-    { name: 'ci.yml', content: generateCiYml(o) },
-    { name: 'dependabot-automerge.yml', content: generateDependabotAutomergeYml() },
-  ]
-  if (o.deploy === 'vercel') {
-    files.push({ name: 'deploy-preview.yml', content: generateDeployYml(o) })
-  }
-  if (o.deploy === 'cloudflare') {
-    files.push({ name: 'deploy-cloudflare.yml', content: generateCloudflareDeployYml() })
-  }
-
-  const results: PushResult[] = []
-  for (const { name, content } of files) {
-    const status = await pushWorkflowFile(owner, repo, `.github/workflows/${name}`, content, {
-      branch,
-      skipExisting: !force,
-    })
-    results.push({ file: name, status })
-  }
-  const dependabotStatus = await pushWorkflowFile(owner, repo, '.github/dependabot.yml', generateDependabotYml(), {
-    branch,
-    message: 'chore: add dependabot.yml (github-actions + ecosystem)',
-    skipExisting: !force,
-  })
-  results.push({ file: 'dependabot.yml', status: dependabotStatus })
-  return results
-}
-
-/** Push a specific subset of workflow files (e.g. only the generic ones).
- *  Same top-up default as pushWorkflows: existing files are skipped unless `force`. */
-export async function pushGenericWorkflows(
-  owner: string,
-  repo: string,
-  branch: string,
-  force = false,
-): Promise<PushResult[]> {
-  const files = [
-    { name: 'auto-merge.yml', content: generateAutoMergeYml() },
-    { name: 'pr-title.yml', content: generatePrTitleYml() },
-    { name: 'context-lint.yml', content: generateContextLintYml() },
-  ]
-  const results: PushResult[] = []
-  for (const { name, content } of files) {
-    const status = await pushWorkflowFile(owner, repo, `.github/workflows/${name}`, content, {
-      branch,
-      skipExisting: !force,
-    })
-    results.push({ file: name, status })
-  }
-  return results
-}
-
-/** Write workflow files to the local filesystem (legacy / offline use). */
-export async function writeWorkflows(opts: WorkflowOpts): Promise<string[]> {
-  const fs = require('node:fs')
-  const dir = '.github/workflows'
-  fs.mkdirSync(dir, { recursive: true })
-  const o = normalizeWorkflowOpts(opts)
-  const written: string[] = []
-
-  fs.writeFileSync(`${dir}/ci.yml`, generateCiYml(o))
-  written.push('ci.yml')
-
-  if (o.merge === 'merge-on-green') {
-    fs.writeFileSync(`${dir}/merge-on-green.yml`, generateMergeOnGreenYml(o))
-    written.push('merge-on-green.yml')
-  } else {
-    fs.writeFileSync(`${dir}/auto-merge.yml`, generateAutoMergeYml())
-    written.push('auto-merge.yml')
-  }
-
-  fs.writeFileSync(`${dir}/secret-scan.yml`, generateSecretScanYml())
-  written.push('secret-scan.yml')
-
-  fs.writeFileSync(`${dir}/pr-title.yml`, generatePrTitleYml())
-  written.push('pr-title.yml')
-
-  fs.writeFileSync(`${dir}/context-lint.yml`, generateContextLintYml())
-  written.push('context-lint.yml')
-
-  fs.writeFileSync(`${dir}/dependabot-automerge.yml`, generateDependabotAutomergeYml())
-  written.push('dependabot-automerge.yml')
-
-  fs.mkdirSync('.github', { recursive: true })
-  fs.writeFileSync('.github/dependabot.yml', generateDependabotYml())
-
-  if (o.deploy === 'vercel') {
-    fs.writeFileSync(`${dir}/deploy-preview.yml`, generateDeployYml(o))
-    written.push('deploy-preview.yml')
-  }
-  if (o.deploy === 'cloudflare') {
-    fs.writeFileSync(`${dir}/deploy-cloudflare.yml`, generateCloudflareDeployYml())
-    written.push('deploy-cloudflare.yml')
-  }
-
-  return written
+  // Fall back to commands.test heuristics
+  if (/vitest/i.test(c)) return 'vitest'
+  if (/jest/i.test(c)) return 'jest'
+  if (/pytest/i.test(c)) return 'pytest'
+  // bare `bun test` → native bun runner; `bun run test` → package script (vitest-or-bun script)
+  if (/\bbun\s+test\b/.test(c) && !/\bbun\s+run\s+test\b/.test(c)) return 'bun'
+  if (/\bbun\s+run\s+test\b/.test(c)) return 'vitest' // stack.yml.example convention + hook policy
+  if (c) return 'vitest' // unknown non-empty command still runs — classify generically
+  return 'none'
 }
 
 /** Build WorkflowOpts from stack.yml-shaped fields (ci-setup / checkup drift). */
 export function workflowOptsFromStack(stack: {
   runtime?: string
+  /** testing.unit when available */
+  unit?: string
+  /** legacy alias — testing.unit or commands.test */
   test?: string
   deployPlatform?: string
   e2e?: string
   commands?: { lint?: string; typecheck?: string; test?: string }
   merge?: 'auto-merge' | 'merge-on-green'
+  /** release.model + release.component (#371). Only `trunk` activates trunk mode. */
+  release?: { model?: string; component?: string }
 }): WorkflowOpts {
   const runtime = (stack.runtime ?? 'bun') as WorkflowOpts['stack']
-  const testRaw = stack.test ?? stack.commands?.test ?? 'none'
-  let test: WorkflowOpts['test'] = 'none'
-  if (/vitest/i.test(testRaw)) test = 'vitest'
-  else if (/jest/i.test(testRaw)) test = 'jest'
-  else if (/pytest/i.test(testRaw)) test = 'pytest'
+  const unit = stack.unit ?? (stack.test && !stack.commands?.test ? stack.test : undefined)
+  const testCommand = stack.commands?.test ?? ''
+  // Prefer unit field; stack.test may be either unit or command depending on caller
+  const test = classifyTestRunner(unit ?? stack.test, testCommand || stack.test)
   let deploy: WorkflowOpts['deploy'] = 'none'
   const platform = stack.deployPlatform ?? ''
   if (platform === 'vercel') deploy = 'vercel'
   else if (platform.startsWith('cloudflare')) deploy = 'cloudflare'
+  const release = stack.release
+    ? {
+        model: (stack.release.model === 'trunk' ? 'trunk' : 'staging-train') as 'trunk' | 'staging-train',
+        component: stack.release.component ?? '',
+      }
+    : undefined
   return normalizeWorkflowOpts({
     stack: runtime === 'python' || runtime === 'node' ? runtime : 'bun',
     test,
+    testCommand: testCommand || undefined,
     deploy,
     merge: stack.merge,
     e2e: stack.e2e === 'playwright' ? 'playwright' : 'none',
     lint: Boolean(stack.commands?.lint),
     typecheck: Boolean(stack.commands?.typecheck),
+    release,
   })
 }

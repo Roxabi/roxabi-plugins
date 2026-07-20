@@ -1,7 +1,7 @@
 ---
 name: env-setup
 argument-hint: '[--force]'
-description: 'Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, VS Code MDX, LSP. Triggered by /init or standalone. Triggers: "env setup" | "setup environment" | "configure stack" | "scaffold rules".'
+description: 'Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, LSP. Triggered by /dev-init:init or standalone /env-setup. Triggers: "env setup" | "setup environment" | "configure stack" | "scaffold rules".'
 version: 0.1.0
 allowed-tools: Bash, Read, Write, Edit, ToolSearch
 ---
@@ -23,7 +23,7 @@ Runs standalone (`/env-setup`) or called by `/init` as part of full project init
 
 ## Phase 1 — Stack Configuration
 
-Set up σ early — later phases read runtime, package manager, commands, deploy platform, hooks tool, docs format.
+Set up σ early — later phases read runtime, package manager, commands, deploy platform, hooks tool, docs path.
 
 1. `test -f .claude/stack.yml && echo exists || echo missing`
 2. missing → Ask: **Set up stack.yml now** (recommended) | **Skip** (fallback defaults).
@@ -134,53 +134,39 @@ Generate governance rules (dev process, decision protocol, git conventions, etc.
 σ ∄ → D("Critical Rules", "⏭ Skipped — requires stack.yml"), skip to Phase 3.
 
 1. Run: `bun $I_TS scaffold-rules --stack-path .claude/stack.yml --claude-md CLAUDE.md`
-2. Parse JSON → extract `projectType`, `sections`, `markdown`, `existing`.
+2. Parse JSON → extract `projectType`, `sections`, `markdown`, `existing`, `facts`.
 3. Display:
    ```
    Project type: {projectType}
-   Sections to scaffold: {sections.length} ({section ids joined by ", "})
+   Repo facts:   baseBranch={facts.baseBranch}  pm={facts.packageManager}  .env.example={facts.hasEnvExample}
+   Parent CLAUDE.md: {existing.parentPaths joined | "none"}
+   Parent @imports:  {existing.parentImports joined | "none"}  ← machine-local; not auto-skip authority
+   Local sections:   {existing.sectionIds or "none"}
+   Sections to scaffold: {sections.length} ({section ids})
    ```
-4. Check `existing.sectionIds`:
-   - ∅ existing → Ask: **Scaffold Critical Rules** (append to CLAUDE.md) | **Skip**
-   - partial (some present, some missing) → list missing; Ask: **Merge** (append missing only) | **Replace** (rewrite all) | **Skip**
-   - all present → D("Critical Rules", "✅ Already complete"), skip.
-5. Scaffold/Replace → append or replace `## Critical Rules` block with `markdown`. Preserve content before and after.
-6. Merge → ∀ section ∈ generated ∧ section.id ∉ existing.sectionIds → append after last existing Critical Rules heading.
-7. D("Critical Rules", "✅ Scaffolded ({sections.length} sections for {projectType})")
+   > Parent context is **reporting only**. Silent auto-skip is forbidden — parent/ssot paths are often machine-local; committed CLAUDE.md must stay portable for clones without that parent.
+4. Present choice (always a gate — user is the gate):
+   - **Scaffold full** — all generated sections (portable governance for any clone)
+   - **Scaffold project-local only** — tldr + artifact-model + coding-standards + gotchas (when parent already loads fleet rules)
+   - **Merge** — append only section ids missing from `existing.sectionIds` (local titles only)
+   - **Skip**
+   When `existing.sectionIds` already covers all expected → still show table; default bias **Skip** / already complete.
+5. Scaffold full / project-local / Replace → write `markdown` (for project-local: filter sections to ids ∈ {tldr, artifact-model, coding-standards, gotchas}, renumber). Preserve content before/after `## Critical Rules` if present.
+6. Merge → ∀ section ∈ chosen set ∧ section.id ∉ existing.sectionIds → append after last existing Critical Rules heading.
+7. D("Critical Rules", "✅ Scaffolded ({N} sections for {projectType}, base={facts.baseBranch})")
 
 ## Phase 3 — Documentation Scaffolding (Optional)
 
-1. Read `docs.path` + `docs.format` from σ (defaults: `docs`, `md`).
+1. Read `docs.path` from σ (default: `docs`). Write format is always Markdown (`.md`).
 2. `{docs.path}/standards/` ∃ → D("Docs scaffolding", "✅ Already present"), skip.
 3. Ask: **Scaffold standard docs** (architecture/, standards/, guides/ with templates) | **Skip**.
 4. yes:
    ```bash
-   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-docs --format <docs.format> --path <docs.path>
+   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-docs --path <docs.path>
    ```
 5. D("Docs scaffolding", "✅ Created {filesCreated.length} files in {docsPath}/").
 
-### Phase 3b — Fumadocs App Scaffold (Optional)
-
-Run only if `docs.framework: fumadocs` in σ.
-
-1. Ask: **Scaffold Fumadocs app** (`apps/docs/` Next.js + `docs/` content — Mermaid, Shiki, Tailwind v4) | **Skip**
-2. yes:
-   ```bash
-   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-fumadocs --root <cwd> --docs-path <docs.path>
-   ```
-   D("Fumadocs scaffold", "✅ Created {filesCreated.length} files in apps/docs/ and {docs.path}/"). List files grouped by dir. ∃ warnings → display each with ⚠️.
-3. Remind: `bun install` in `apps/docs/`, then `bun dev` for docs server on port 3002.
-
-## Phase 4 — VS Code MDX Preview (Optional)
-
-Run only if `find . -name "*.mdx" -not -path "*/node_modules/*" | head -1` returns result ∨ `docs.format: mdx` in σ.
-
-1. Check `.vscode/settings.json` for `"*.mdx": "markdown"` in `files.associations`.
-2. ∃ → D("VS Code MDX preview", "✅ Already configured"), skip.
-3. ∄ → Ask: **Add VS Code MDX preview** | **Skip**.
-4. yes → ¬file → create `{"files.associations": {"*.mdx": "markdown"}}` | ∃ file → merge key. D✅("VS Code MDX preview").
-
-## Phase 5 — LSP Support (Optional)
+## Phase 4 — LSP Support (Optional)
 
 Enable `ENABLE_LSP_TOOL` for richer code intelligence in Claude Code sessions.
 
@@ -219,7 +205,7 @@ Enable `ENABLE_LSP_TOOL` for richer code intelligence in Claude Code sessions.
 5. Skip → D⏭("LSP").
 6. Already set ∧ binary ∃ → check Claude Code plugin (step 4d). D("LSP", "✅ Already configured (<binary>[, plugin missing → run fix])").
 
-## Phase 6 — Report
+## Phase 5 — Report
 
 ```
 Env Setup Complete
@@ -228,12 +214,10 @@ Env Setup Complete
   stack.yml         ✅ Configured / ✅ Already exists / ⏭ Skipped
   Critical Rules    ✅ Scaffolded (N sections) / ✅ Already complete / ⏭ Skipped
   Docs scaffolding  ✅ Created N files / ✅ Already present / ⏭ Skipped
-  Fumadocs app      ✅ Created / ⏭ Skipped / ⏭ Not configured
-  VS Code MDX       ✅ Added / ✅ Already configured / ⏭ Skipped
   LSP               ✅ Configured / ✅ Already set / ⏭ Disabled / ⏭ Skipped
   Worktree-setup    ✅ Scaffolded / ✅ Already configured / ⏭ Skipped
 
-Next: run /seed-docs to populate docs stubs, or /github-setup to connect GitHub Project.
+Next: run /seed-docs to populate docs stubs. Issue triage (labels, blocked-by, parent/child) lives in the separate **roxabi-issues** plugin.
 ```
 
 ## Safety Rules

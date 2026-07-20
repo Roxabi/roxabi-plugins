@@ -1,3 +1,1 @@
-// This file is intentionally empty — TemplateFile was removed after docs.ts refactor.
-// fumadocs.ts defines its own local TemplateFile interface.
-// Keep file for future shared types if needed, or delete entirely.
+// Shared types for init CLI modules. Keep empty until a type is shared by ≥2 modules.

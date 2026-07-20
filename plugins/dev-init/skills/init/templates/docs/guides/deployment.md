@@ -29,7 +29,7 @@ TODO: Document your deploy process.
 
 ## Environment Variables
 
-See [Configuration](../configuration.md) for the full env var table. Document only **per-environment overrides** here (e.g., staging vs production values, secrets rotation).
+See [Configuration](../standards/configuration.md) for the full env var table. Document only **per-environment overrides** here (e.g., staging vs production values, secrets rotation).
 
 ## Monitoring & Health Checks
 

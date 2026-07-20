@@ -47,7 +47,7 @@ build:
   #     ext: [".py"]
 
 testing:
-  unit: vitest                    # vitest | jest | pytest | none
+  unit: vitest                    # vitest | jest | pytest | bun | none  (bun = native bun:test runner)
   e2e: playwright                 # playwright | cypress | none
 
 hooks:
@@ -63,10 +63,21 @@ deploy:
   platform: vercel                # vercel | railway | fly | aws | none
   secrets_cmd: "vercel env add"   # command to add a secret to the deployment platform
 
+# Release model — /promote reads this block (single-component repos).
+# `class` is grep-derived (by who consumes the tag), never judged:
+#   PRODUCER = another repo pins this one via [tool.uv.sources] → pin-swap resolves SHA→tag
+#   TRIGGER  = this repo has a workflow on.push.tags: ['<component>/v*']
+#   NONE     = neither (9 of 14 repos)
+release:
+  model: staging-train            # staging-train (default) | trunk — trunk releases at merge-to-main via auto-release.yml (#371); absent ⇒ staging-train
+  class: NONE                     # PRODUCER | TRIGGER | NONE
+  component: null                 # tag prefix, e.g. roxabi-live; scopes BASE. REQUIRED — null ⇒ /promote REFUSE
+  version_files: []               # files step 2b stamps, e.g. ["pyproject.toml"]; [] ⇒ no-op. Keep [] until the file is reconciled to the newest tag
+
 docs:
-  framework: fumadocs             # fumadocs | docusaurus | nextra | none
+  framework: none                 # none | docusaurus | nextra (write path is always .md)
   path: docs                      # path to documentation directory
-  format: mdx                     # mdx | md
+  format: md                      # md (write). Legacy .mdx may exist — read only, never verify
 
 # Quality gates — Python code-hygiene contracts (opt-in).
 # When section is absent: all gates OFF (backwards-compatible).
@@ -122,14 +133,14 @@ artifacts:
 # Each agent reads the relevant doc before implementing to follow project conventions.
 # All paths are relative to the project root.
 standards:
-  backend: docs/standards/backend-patterns.mdx      # used by: backend-dev, fixer, tester
-  frontend: docs/standards/frontend-patterns.mdx    # used by: frontend-dev, fixer, tester
-  testing: docs/standards/testing.mdx              # used by: tester, fixer, backend-dev, frontend-dev
-  code_review: docs/standards/code-review.mdx      # used by: fixer
+  backend: docs/standards/backend-patterns.md      # used by: backend-dev, fixer, tester
+  frontend: docs/standards/frontend-patterns.md    # used by: frontend-dev, fixer, tester
+  testing: docs/standards/testing.md              # used by: tester, fixer, backend-dev, frontend-dev
+  code_review: docs/standards/code-review.md      # used by: fixer
   architecture: docs/architecture/                  # used by: architect
-  configuration: docs/configuration.mdx            # used by: devops
-  deployment: docs/guides/deployment.mdx           # used by: devops
-  troubleshooting: docs/guides/troubleshooting.mdx  # used by: devops
-  issue_management: docs/processes/issue-management.mdx  # used by: product-lead
-  dev_process: docs/processes/dev-process.mdx      # used by: architect
-  contributing: docs/contributing.mdx              # used by: doc-writer, architect
+  configuration: docs/standards/configuration.md  # used by: devops
+  deployment: docs/guides/deployment.md           # used by: devops
+  troubleshooting: docs/guides/troubleshooting.md  # used by: devops
+  issue_management: docs/processes/issue-management.md  # used by: product-lead
+  dev_process: docs/processes/dev-process.md      # used by: architect
+  contributing: docs/contributing.md              # used by: doc-writer, architect

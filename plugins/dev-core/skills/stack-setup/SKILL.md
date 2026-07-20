@@ -238,7 +238,7 @@ artifacts:
 #   testing: {docs}/standards/testing.md
 #   code_review: {docs}/standards/code-review.md
 #   architecture: {docs}/architecture/
-#   configuration: {docs}/configuration.md
+#   configuration: {docs}/standards/configuration.md
 #   contributing: {docs}/contributing.md
 ```
 

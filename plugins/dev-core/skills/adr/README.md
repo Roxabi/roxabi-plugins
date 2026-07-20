@@ -19,14 +19,13 @@ Triggers: `"create an ADR"` | `"architecture decision"` | `"document why we chos
 
 ### Create mode
 
-1. **Next number** — scans `docs/architecture/adr/` for existing `{NNN}-*.mdx` files; assigns next sequential number.
+1. **Next number** — scans `docs/architecture/adr/` for existing `{NNN}-*.md` (and legacy `{NNN}-*.mdx`); assigns next sequential number.
 2. **Interview** — asks about: context (what triggered the decision), options considered (≥2, with pros/cons), decision and rationale, consequences (positive, negative, neutral). Skips questions clear from the title.
-3. **Write ADR** — creates `docs/architecture/adr/{NNN}-{slug}.mdx` with standard MDX structure.
-4. **Update meta** — appends the new slug to `docs/architecture/adr/meta.json` (Fumadocs-compatible format).
+3. **Write ADR** — creates `docs/architecture/adr/{NNN}-{slug}.md` with standard Markdown structure.
 
 ### List mode
 
-Reads `meta.json` and each ADR's frontmatter to display:
+Scans ADR files (`.md` + legacy `.mdx`) and each file's frontmatter to display:
 
 ```
 Architecture Decision Records
@@ -38,7 +37,7 @@ Architecture Decision Records
 
 ## ADR structure
 
-```mdx
+```md
 ---
 title: "ADR-001: Fastify over Express"
 description: one-line summary
@@ -59,4 +58,4 @@ Accepted
 
 ## Storage
 
-ADRs are stored in `docs/architecture/adr/` and are **immutable** — `/doc-sync` warns about stale ADR references but never edits them.
+ADRs are stored in `docs/architecture/adr/` as Markdown and are **immutable** — `/doc-sync` warns about stale ADR references but never edits them. Legacy `.mdx` ADRs are read-only.

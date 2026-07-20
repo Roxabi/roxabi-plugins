@@ -28,7 +28,11 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
 
 3. Auto-detect from σ:
    - `stack` ← `runtime`
-   - `test` ← `commands.test` (vitest→vitest, jest→jest, pytest→pytest, else→none)
+   - `test` ← `testing.unit` first (vitest|jest|pytest|bun|none); if unset, classify `commands.test`:
+     - contains `vitest` → vitest | `jest` → jest | `pytest` → pytest
+     - `bun test` (not `bun run test`) → bun | `bun run test` → vitest (package script convention)
+     - else non-empty command → vitest | empty → none
+   - `test-command` ← `commands.test` verbatim (emitted as CI `run:` when set — do not re-derive)
    - `deploy` ← `deploy.platform` (`vercel` | `cloudflare` for `cloudflare*` | `none`)
    - `lint` ← `commands.lint` present → `true`, else `false`
    - `typecheck` ← `commands.typecheck` present → `true`, else `false`
@@ -38,7 +42,7 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
 
 5. yes:
    - Ask stack (pre-select detected): **Bun** | **Node** | **Python (uv)**
-   - Ask test (pre-select): **Vitest** | **Jest** | **Pytest** | **None**
+   - Ask test (pre-select): **Vitest** | **Jest** | **Pytest** | **Bun** (native bun:test) | **None**
    - Ask deploy (pre-select): **Vercel** | **Cloudflare** | **None**
    - **Merge strategy** — detect native auto-merge availability:
      ```bash
@@ -53,7 +57,8 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
        --stack <stack> --test <test> --deploy <deploy> \
        --merge <auto-merge|merge-on-green> \
        --e2e <playwright|none> \
-       --lint <true|false> --typecheck <true|false>
+       --lint <true|false> --typecheck <true|false> \
+       --test-command "<commands.test from σ, if set>"
      ```
      > **Top-up par défaut** : les fichiers déjà présents sur le repo sont **skippés** — les repos font évoluer leur `ci.yml` bien au-delà du template (multi-job, e2e, etc.). Ajouter `--force` UNIQUEMENT pour régénérer volontairement, après diff explicite des fichiers qui seraient écrasés.
    - **App token provisioning** (always — PAT mode retired):
@@ -78,17 +83,3 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
    > **App creation guide:** see `${CLAUDE_SKILL_DIR}/cookbooks/github-app.md` for how to create and install the `roxabi-ci` App, where `app-id` and `private-key` come from, and the org-free private-repo caveat.
 
 6. skip → D⏭("CI/CD workflows").
-
-### Phase 1d — Fumadocs Vercel Deployment (Optional)
-
-Run only if `deploy.platform: vercel` ∧ `docs.framework: fumadocs` in σ.
-
-1. `apps/docs/vercel.json` ∃ → D("Fumadocs Vercel config", "✅ Already present"), skip.
-2. Ask: **Add Vercel deployment config** (`apps/docs/vercel.json`) | **Skip**
-3. yes:
-   ```bash
-   bun $I_TS scaffold-fumadocs-vercel --root <cwd> --orchestrator <build.orchestrator>
-   ```
-   `build.orchestrator: turbo` → config with `turbo-ignore @repo/docs`. Other → simple `cd apps/docs && bun run build`.
-   D✅("Fumadocs Vercel config — apps/docs/vercel.json").
-4. Remind: connect `apps/docs/` as Vercel project (root dir = `apps/docs`), set `NEXT_PUBLIC_APP_URL`.

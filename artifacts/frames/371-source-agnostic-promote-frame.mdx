@@ -1,0 +1,63 @@
+---
+title: Source-agnostic /promote — version from commits, tag+release on merge-to-main (Model B)
+issue: 371
+status: approved
+tier: F-full
+date: 2026-07-18
+---
+
+## Problem
+
+`/promote`'s version **derivation** is already source-agnostic. #353 rebuilt it on tag reachability: `price.sh` takes `COMPONENT ANCHOR HEAD` and computes the next `<component>/vX.Y.Z` from what is reachable on `main` + the conventional-commit deltas; `finalize.ts` is a pure classifier taking `isPromote` as a plain bool. Neither reads the string `staging`.
+
+The `staging → main` release-train lives entirely in the **policy** layer wrapped around that derivation, and it is thin — three sites:
+
+- `release-consistency.yml` PR path: early-greens unless `PR_HEAD_REF == staging` (~1-line branch gate).
+- `preflight.sh`: hardcodes `git checkout staging` + `git log main..staging`.
+- promote `SKILL.md` step 9b: derives `isPromote` from "newest merged base=main **head=staging** PR", plus the three-way **witness** check (the D7 witness machinery introduced by #353).
+
+This coupling contradicts dev-core's own Design Principle #1 (project-agnostic) and blocks any consuming repo from going trunk-based (`main`-only) without forking the promote path — which would mean roxabi-plugins ships dev-core tooling it no longer dogfoods.
+
+**Why now:** roxabi-plugins wants to make `main` the default and delete `staging` — that plan is blocked on this. The operator has already gone version-less on his other plugins and it works fine; Model B gives that same zero-per-PR-discipline ergonomics but with **real semver `<component>/v*` tags** instead of SHA-only versions.
+
+## Who
+
+- **Primary:** the operator/maintainer of any repo that wants trunk-based flow. Today `/promote` assumes a staging→main train and the `release-consistency` gate never fires on a `main`-only repo, so there is no supported path.
+- **Secondary:** the whole dev-core fleet currently on the staging train (`roxabi-factory`, `roxabi-live`, `roxabi-boilerplate`) — they must keep releasing unchanged until they opt in. Plus every downstream tag consumer resolving `<component>/vX.Y.Z` (`[tool.uv.sources]` pin-swap, `on: push: tags` build triggers in `voiceCLI`/`llmCLI`/`imageCLI`).
+
+## Constraints
+
+- Tag convention A is fixed: `<component>/vX.Y.Z`. The derivation (`price.sh`) is correct and stays — reuse as-is, do not rebuild.
+- **Backward-compatible via a transition flag.** Existing staging-train repos keep current behavior by default; `main`-only is opt-in. No flag-day fleet migration.
+- `release:` config lives in the **existing** `.claude/stack.yml` (per #353's constraint), not a new file.
+- Amends #353 decisions **D8 / D9 / D14** (witness three-way + `head=staging` policy) — must **not** regress #353's structural win: one writer, one value computed once and projected, version-file↔tag drift structurally impossible.
+- Dogfood on roxabi-plugins' own migration before recommending fleet adoption.
+- Reconcile the two divergent version surfaces: `plugins/dev-core/.claude-plugin/plugin.json` `version` (marketplace install, bumped by the `check-skill-version` pre-push hook — now `0.8.24`) vs `dev-core/v*` git tags (promote).
+
+## Out of Scope
+
+- Actually executing roxabi-plugins' `main`-default + delete-`staging` migration — that is the **unblocked follow-up**, a separate issue, not this one.
+- Migrating `roxabi-factory` / `roxabi-live` / `roxabi-boilerplate` off the staging train — opt-in, per-repo, later.
+- **Model A** (parameterised `release.source_branch` that keeps the witness machinery) — evaluated and rejected in the decision; not re-litigated here.
+- Multi-component repos (`roxabi-factory`) — `/promote` is single-component by construction (same boundary #353 drew).
+
+## Premise Validity
+
+**Success in 6 months:** roxabi-plugins runs `main`-only and gets correct `<component>/vX.Y.Z` tags + GitHub releases created **automatically on merge-to-main**, using unchanged fleet tooling. Staging-train repos (`factory`, `live`, `boilerplate`) still release green with **zero** changes, via the transition-flag default. A repo switches modes by flipping one `release.model` value, nothing else.
+
+**Failure in 6 months (falsifiable):** either (a) `adopted_repos(main-only) == 0` six months after ship — the flag exists but nobody migrated, so the staging coupling was **not** actually the blocker (premise invalid); OR (b) `≥1` staging-train repo had a broken or missed release attributable to this change and had to pin an older dev-core version. Both are observable counts/booleans against a fixed horizon.
+
+**Simplest alternative:** patch only roxabi-plugins — locally override `release-consistency`'s branch gate + `preflight.sh` so this one repo goes `main`-only, and leave dev-core's staging coupling intact.
+
+**Why not simplest:** that *is* the divergence this work exists to remove. roxabi-plugins would ship a promote path it forks locally; every other repo that later wants `main`-only re-solves it from scratch; the shared tool stays project-coupled — the exact opposite of "source-agnostic in the shared tool." #353's own lesson applies: two mechanisms with no reconciler is the drift generator itself.
+
+## Complexity
+
+**Tier: F-full** — release semantics for the whole fleet, a transition flag running two live code paths, and cross-cutting reach across skill + CI + config + tests. Multi-domain with real unknowns → above F-lite.
+
+Signals observed:
+- Files across 3+ domains: promote skill (`price.sh`, `finalize.ts`, `preflight.sh` bash + `SKILL.md` markdown), CI (`release-consistency.yml` + a new merge-to-main auto-tag/release workflow), config schema (`.claude/stack.yml` `release:` block), tests (vitest + shell fixtures).
+- Technical risk high: changes release **semantics** fleet-wide; a transition flag means two supported code paths coexisting; the D7 witness machinery must be dropped **safely** for trunk mode without weakening staging mode.
+- Architectural impact high + cross-cutting: the release path for 11 repos; introduces a `release.model` contract read by both the skill and CI; touches the axial release-policy concern.
+- Unknowns (3+): flag shape (`release.model: staging-train | trunk` vs `release.source_branch`); how auto-tag-on-merge-to-main coexists with the promote-PR flow during transition; version-surface reconciliation (`plugin.json` vs `dev-core/v*` tags).
+- 3 domains: skill (bash/markdown), CI (yml), tests (vitest/shell).

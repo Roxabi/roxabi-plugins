@@ -87,6 +87,113 @@ export function checkProjectStructure(): Section {
   return { name: 'Project', checks }
 }
 
+export interface DependabotCooldownFinding {
+  ecosystem: string
+  property: string
+}
+
+/**
+ * Ecosystems whose cooldown accepts `default-days` only — `semver-*-days` there is
+ * rejected by GitHub at parse time. The complement (npm, cargo, gomod, pip, …) and the
+ * other language ecosystems support semver — flagging any of those would be a false
+ * positive.
+ *
+ * Source (verified against the live table, fetched 2026-07-17):
+ * https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
+ * Re-verify here if GitHub adds semver support to an ecosystem below.
+ *
+ * A misspelled entry degrades to a miss (never matches a real block). Correctness still
+ * depends on every entry being an ecosystem GitHub actually rejects semver-*-days for; a
+ * wrong (not misspelled) entry — a semver-supporting ecosystem added here — would be a
+ * false positive.
+ */
+export const SEMVER_COOLDOWN_UNSUPPORTED = new Set([
+  'bazel',
+  'devcontainers',
+  'docker',
+  'docker-compose',
+  'github-actions',
+  'gitsubmodule',
+  'helm',
+  'nix',
+  'opentofu',
+  'pre-commit',
+  'terraform',
+  'vcpkg',
+])
+
+const SEMVER_COOLDOWN_KEY = /^["']?(semver-(?:major|minor|patch)-days)["']?\s*:/
+
+function indentOf(line: string): number {
+  return line.length - line.trimStart().length
+}
+
+function stripComment(line: string): string {
+  const hash = line.indexOf('#')
+  return hash === -1 ? line : line.slice(0, hash)
+}
+
+/**
+ * Detect `semver-*-days` cooldown keys under ecosystems that do not support them.
+ * Scoping matters in both directions: npm legitimately carries `semver-major-days`,
+ * so a whole-file match would flag a valid config; each key must be attributed to
+ * the update item that contains it.
+ *
+ * Item boundaries are the `-` sequence entries under `updates:`, NOT the
+ * `package-ecosystem` line — so an item whose first key is `directory:` (key order
+ * is free in YAML) and a quoted key (`- "package-ecosystem": docker`) are both
+ * bounded and read correctly. Nested sequences (patterns, update-types) sit at a
+ * deeper dash indent and are not mistaken for item boundaries.
+ * Hand-parsed — no YAML parser is available to this plugin.
+ */
+export function detectDependabotCooldownViolations(content: string): DependabotCooldownFinding[] {
+  const lines = content.split('\n').map(stripComment)
+
+  const updatesIdx = lines.findIndex((l) => /^\s*updates\s*:/.test(l))
+  if (updatesIdx === -1) return []
+
+  // Split on the item dash at the shallowest dash indent following `updates:`.
+  let itemDashCol: number | null = null
+  const starts: number[] = []
+  for (let i = updatesIdx + 1; i < lines.length; i++) {
+    const m = lines[i].match(/^(\s*)-\s/)
+    if (!m) continue
+    if (itemDashCol === null) itemDashCol = m[1].length
+    if (m[1].length === itemDashCol) starts.push(i)
+  }
+
+  // package-ecosystem on ANY line of the item; key and/or value optionally quoted.
+  const ECOSYSTEM = /["']?package-ecosystem["']?\s*:\s*['"]?([\w-]+)/
+
+  const findings: DependabotCooldownFinding[] = []
+  for (let b = 0; b < starts.length; b++) {
+    const block = lines.slice(starts[b], starts[b + 1] ?? lines.length)
+    let ecosystem: string | undefined
+    for (const line of block) {
+      const m = line.match(ECOSYSTEM)
+      if (m) {
+        ecosystem = m[1]
+        break
+      }
+    }
+    if (!ecosystem || !SEMVER_COOLDOWN_UNSUPPORTED.has(ecosystem)) continue
+
+    let cooldownIndent: number | null = null
+    for (const line of block) {
+      if (!line.trim()) continue
+      if (cooldownIndent !== null && indentOf(line) <= cooldownIndent) cooldownIndent = null
+      if (/^\s*cooldown\s*:/.test(line)) {
+        cooldownIndent = indentOf(line)
+        continue
+      }
+      if (cooldownIndent === null) continue
+      const key = line.trim().match(SEMVER_COOLDOWN_KEY)?.[1]
+      if (key) findings.push({ ecosystem, property: key })
+    }
+  }
+  return findings
+}
+
 export function checkSecurity(): Section {
   const checks: Check[] = []
 
@@ -100,13 +207,41 @@ export function checkSecurity(): Section {
       : 'not installed — pre-commit hook will fail. Install: brew install trufflehog or https://github.com/trufflesecurity/trufflehog/releases',
   })
 
-  // .github/dependabot.yml
-  const dependabotExists = fs.existsSync('.github/dependabot.yml')
-  checks.push({
-    name: 'dependabot.yml',
-    status: dependabotExists ? 'pass' : 'warn',
-    detail: dependabotExists ? 'found' : 'missing — run /init to create (automated dependency updates)',
-  })
+  // .github/dependabot.yml — require ecosystem + github-actions (partial = fail)
+  const dependabotPath = '.github/dependabot.yml'
+  const dependabotExists = fs.existsSync(dependabotPath)
+  if (!dependabotExists) {
+    checks.push({
+      name: 'dependabot.yml',
+      status: 'warn',
+      detail: 'missing — run /init or /ci-setup to create (automated dependency updates)',
+    })
+  } else {
+    const depYml = fs.readFileSync(dependabotPath, 'utf8') as string
+    const hasGha = /package-ecosystem:\s*github-actions/.test(depYml)
+    const hasApp = /package-ecosystem:\s*(npm|pip)/.test(depYml)
+    const cooldownViolations = detectDependabotCooldownViolations(depYml)
+    if (cooldownViolations.length > 0) {
+      const offenders = [...new Set(cooldownViolations.map((v) => `${v.property} under '${v.ecosystem}'`))].join(', ')
+      checks.push({
+        name: 'dependabot.yml',
+        status: 'fail',
+        detail: `invalid cooldown property: ${offenders} — GitHub rejects the entire dependabot.yml at parse time, so every ecosystem's update-types split silently stops applying. Keep only default-days there.`,
+      })
+    } else if (hasGha && hasApp) {
+      checks.push({
+        name: 'dependabot.yml',
+        status: 'pass',
+        detail: 'found (ecosystem + github-actions)',
+      })
+    } else {
+      checks.push({
+        name: 'dependabot.yml',
+        status: 'warn',
+        detail: `partial — missing ${!hasApp ? 'npm|pip ecosystem' : ''}${!hasApp && !hasGha ? ' and ' : ''}${!hasGha ? 'github-actions' : ''} block — re-run /ci-setup (generator owns full file)`,
+      })
+    }
+  }
 
   // lock file + license checker — inferred from stack.yml package_manager
   let lockFile: string | null = null

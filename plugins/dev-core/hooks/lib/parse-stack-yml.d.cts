@@ -9,6 +9,11 @@ export interface StackCommands {
   test: string | null
 }
 
+export interface StackRelease {
+  model: string | null
+  component: string | null
+}
+
 export interface StackYml {
   formatters: Formatter[] | null
   singleFormatterCmd: string | null
@@ -18,8 +23,10 @@ export interface StackYml {
   standards: Record<string, string> | null
   runtime: string | null
   commands: StackCommands
+  testingUnit: string | null
   testingE2e: string | null
   ciMerge: string | null
+  release: StackRelease | null
 }
 
 export declare function parseStackYml(text: string | null): StackYml
@@ -31,5 +38,7 @@ export declare function parsePackageManager(text: string | null): string | null
 export declare function parseStandards(text: string | null): Record<string, string> | null
 export declare function parseRuntime(text: string | null): string | null
 export declare function parseCommand(text: string | null, key: string): string | null
+export declare function parseTestingUnit(text: string | null): string | null
 export declare function parseTestingE2e(text: string | null): string | null
 export declare function parseCiMerge(text: string | null): string | null
+export declare function parseRelease(text: string | null): StackRelease | null

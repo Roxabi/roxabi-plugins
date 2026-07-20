@@ -86,7 +86,13 @@ export interface StackInfo {
   hasTypecheck: boolean
   e2e: string | null
   mergeStrategy: 'auto-merge' | 'merge-on-green' | null
+  /** σ.commands.test */
   test: string | null
+  /** σ.testing.unit */
+  unit: string | null
+  /** σ.release — Model B (#371). null when no `release:` block. `model` is
+   * defaulted to 'staging-train' here, so an absent key never reads as trunk. */
+  release: { model: string; component: string | null } | null
 }
 
 export function readStackYml(): StackInfo {
@@ -104,6 +110,10 @@ export function readStackYml(): StackInfo {
       e2e: stack.testingE2e,
       mergeStrategy: merge,
       test: stack.commands.test,
+      unit: stack.testingUnit ?? null,
+      release: stack.release
+        ? { model: stack.release.model ?? 'staging-train', component: stack.release.component }
+        : null,
     }
   } catch {
     return {
@@ -116,6 +126,8 @@ export function readStackYml(): StackInfo {
       e2e: null,
       mergeStrategy: null,
       test: null,
+      unit: null,
+      release: null,
     }
   }
 }

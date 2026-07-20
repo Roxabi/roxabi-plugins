@@ -1,0 +1,246 @@
+# Reusable release-consistency gate (spec #353 — S9/S10, D9/D14/D15).
+#
+# This is artifact (i) of the two-part gate: a `workflow_call`-only reusable
+# workflow that holds the *logic*. The triggers (pull_request/push/dispatch)
+# live in a per-repo committed caller stub — a reusable workflow's own
+# non-workflow_call triggers fire in the HOST repo, never in the caller
+# (D15). The caller stub's `uses:` job NAME becomes the required-check context,
+# so the single job below is named `release-consistency` byte-for-byte to match
+# what `provision-release-gate.sh` sets and step 1's probe reads (D15, S7/S12).
+#
+# Two paths, one job, branched INSIDE the running job (never a job-level `if:`,
+# which reports *skipped* and reads as never-reported — D15c):
+#   PR path   (D9)  — promote PRs only (head == staging); everything else is an
+#                     early green `exit 0`. Three-way: re-price == PR title core
+#                     == newest CHANGELOG heading. Mismatch → red (D5).
+#   push path (D14) — version file must be `>=` the max reachable <component>/v*
+#                     tag; fail ONLY when the file is strictly BEHIND (`<`).
+#                     `version_files: []` → early green.
+name: release-consistency
+
+# Quoted so YAML 1.1 does not coerce the `on` key to boolean true.
+"on":
+  workflow_call:
+    inputs:
+      version_files_override:
+        description: >-
+          JSON/YAML list of version-file paths to check on the push/dispatch
+          path, overriding release.version_files from .claude/stack.yml. Used to
+          exercise the otherwise-universal-no-op push path (S10 verification).
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Job name == required-check context. Do NOT rename without updating
+  # provision-release-gate.sh and the step-1 gate probe in lockstep (D15).
+  release-consistency:
+    name: release-consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # fetch-depth: 0 is MANDATORY (D15e). A shallow clone sees ~zero tags and
+      # severs tag ancestry at the shallow boundary, so `merge-base --is-ancestor`
+      # returns a clean exit 1 that is indistinguishable from "not reachable" —
+      # the gate starves its own candidate set and reports GREEN on a drifted
+      # repo. The shallow-clone failure is green, not loud.
+      - name: Checkout (full history + tags)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      # Full-history checkout still lacks remote-tracking refs for other
+      # branches; price.sh is called with `origin/main` / `origin/staging`
+      # anchors, so materialise them (plus tag objects) explicitly.
+      - name: Fetch branches and tags
+        run: git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PUSH_SHA: ${{ github.sha }}
+          VERSION_FILES_OVERRIDE: ${{ inputs.version_files_override }}
+        run: |
+          set -euo pipefail
+
+          PRICE="plugins/dev-core/skills/promote/price.sh"
+          STACK=".claude/stack.yml"
+
+          # ── config readers (yq preferred, python3 YAML fallback — S2/D15) ──
+          # No heredocs: their column-0 terminators would break the YAML block
+          # scalar. python3 -c one-liners; YAML is a JSON superset so safe_load
+          # parses both list shapes for the override.
+          read_component() {
+            if command -v yq >/dev/null 2>&1; then
+              yq -r '.release.component // ""' "$STACK"
+            else
+              python3 -c 'import sys,yaml; d=yaml.safe_load(open(sys.argv[1])) or {}; print(((d.get("release") or {}).get("component")) or "")' "$STACK"
+            fi
+          }
+          # release.model, defaulted to staging-train so an absent/unknown value
+          # leaves the existing behaviour untouched (#371 N9). Only "trunk" opts in.
+          read_model() {
+            if command -v yq >/dev/null 2>&1; then
+              yq -r '.release.model // "staging-train"' "$STACK"
+            else
+              python3 -c 'import sys,yaml; d=yaml.safe_load(open(sys.argv[1])) or {}; print(((d.get("release") or {}).get("model")) or "staging-train")' "$STACK"
+            fi
+          }
+          read_version_files() {   # one path per line
+            if command -v yq >/dev/null 2>&1; then
+              yq -r '.release.version_files[]? // ""' "$STACK"
+            else
+              python3 -c 'import sys,yaml; d=yaml.safe_load(open(sys.argv[1])) or {}; [print(p) for p in ((d.get("release") or {}).get("version_files") or []) if p]' "$STACK"
+            fi
+          }
+          parse_override() {       # override string (JSON/YAML list) → one path per line
+            python3 -c 'import sys,yaml; v=yaml.safe_load(sys.argv[1]) if sys.argv[1].strip() else []; v=[v] if isinstance(v,str) else (v or []); [print(p) for p in v if p]' "$VERSION_FILES_OVERRIDE"
+          }
+
+          # X.Y.Z core of a version file (first strict triple, e.g. version = "0.24.1").
+          file_version() { grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$1" | head -n1; }
+
+          # Newest real CHANGELOG heading (skips "## Unreleased").
+          changelog_version() {
+            grep -oE '^##[[:space:]]+\[?v?[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md 2>/dev/null \
+              | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1
+          }
+
+          # The BASE floor (max reachable <component>/v* tag, D1/D2) comes from the deriver
+          # itself: `price.sh --base-only`. The push path used to hand-copy that selection loop
+          # here — a second implementation of the "sole deriver" predicate (D10) that could drift
+          # from price.sh silently. It is now a single source (#369). rc 10 = no reachable tag.
+
+          # ══════════════════════════════════════════════════════════════════
+          # PR path (D9) — promote PRs only
+          # ══════════════════════════════════════════════════════════════════
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # Trunk mode (#371 N7/N8): a trunk repo has no staging→main promotion
+            # PR — the release fires at merge-to-main via auto-release.yml, and the
+            # push-path floor below still guards at-rest drift. The three-way
+            # promote-PR check does not apply, so every PR is an early GREEN (a
+            # real check-run, never a skip — D9/D15c). Must precede the head gate.
+            if [ "$(read_model)" = "trunk" ]; then
+              echo "trunk mode — release consistency enforced at merge-to-main, not on PRs — early green"
+              exit 0
+            fi
+            # Scope gate FIRST, inside the job: a non-promote (head != staging)
+            # carries no version → a three-way parse would fail red → with zero
+            # bypass actors the PR would be unmergeable forever. Early GREEN
+            # (a real check-run, never a skip — D9/D15c).
+            if [ "$PR_HEAD_REF" != "staging" ]; then
+              echo "not-a-promote (head=${PR_HEAD_REF:-?} != staging) — early green"
+              exit 0
+            fi
+
+            COMPONENT=$(read_component)
+            if [ -z "$COMPONENT" ]; then
+              echo "release-consistency: release.component missing/null in ${STACK} (D13)" >&2
+              exit 1
+            fi
+
+            # Derive from the PR's own head (re-price per head SHA).
+            set +e
+            DERIVED=$(bash "$PRICE" "$COMPONENT" origin/main origin/main "$PR_HEAD_SHA")
+            rc=$?
+            set -e
+
+            TITLE_VER=$(printf '%s' "$PR_TITLE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+            CL_VER=$(changelog_version || true)
+
+            if [ "$rc" -eq 10 ]; then
+              # First release — no tag floor, so price.sh emits no version. The
+              # gate degrades to witness agreement (title == CHANGELOG heading).
+              echo "release-consistency: no reachable ${COMPONENT}/v* tag — first release (price.sh exit 10)"
+              if [ -n "$TITLE_VER" ] && [ "$TITLE_VER" = "$CL_VER" ]; then
+                echo "first release ${TITLE_VER}: title == CHANGELOG heading — green"
+                exit 0
+              fi
+              echo "release-consistency: first-release witnesses disagree — title='${TITLE_VER}' changelog='${CL_VER}'" >&2
+              exit 1
+            elif [ "$rc" -ne 0 ]; then
+              echo "release-consistency: price.sh hard error (exit ${rc})" >&2
+              exit "$rc"
+            fi
+
+            echo "re-price=${DERIVED}  title=${TITLE_VER}  changelog=${CL_VER}"
+            if [ "$DERIVED" = "$TITLE_VER" ] && [ "$DERIVED" = "$CL_VER" ]; then
+              echo "three-way agreement on ${DERIVED} — green"
+              exit 0
+            fi
+            {
+              echo "release-consistency: three-way DISAGREEMENT (D5) — the promotion PR is stale."
+              echo "  derived (authoritative) : ${DERIVED}"
+              echo "  PR title core           : ${TITLE_VER:-<none>}"
+              echo "  newest CHANGELOG heading: ${CL_VER:-<none>}"
+              echo "  Re-run /promote to re-price. Nothing shipped, nothing released."
+            } >&2
+            exit 1
+          fi
+
+          # ══════════════════════════════════════════════════════════════════
+          # push / workflow_dispatch path (D14) — at-rest floor check on main
+          # ══════════════════════════════════════════════════════════════════
+          # version_files: override input wins, else release.version_files.
+          if [ -n "${VERSION_FILES_OVERRIDE:-}" ]; then
+            mapfile -t VFILES < <(parse_override)
+            echo "using version_files_override: ${VFILES[*]:-<empty>}"
+          else
+            mapfile -t VFILES < <(read_version_files)
+          fi
+
+          if [ "${#VFILES[@]}" -eq 0 ]; then
+            echo "version_files empty — nothing to check (early green, D12/D14)"
+            exit 0
+          fi
+
+          COMPONENT=$(read_component)
+          if [ -z "$COMPONENT" ]; then
+            echo "release-consistency: release.component missing/null in ${STACK} (D13)" >&2
+            exit 1
+          fi
+
+          ANCHOR="${PUSH_SHA:-HEAD}"
+          set +e
+          TAG=$(bash "$PRICE" --base-only "$COMPONENT" "$ANCHOR")
+          trc=$?
+          set -e
+          if [ "$trc" -eq 10 ]; then
+            echo "no reachable ${COMPONENT}/v* tag — nothing to be behind of (early green)"
+            exit 0
+          elif [ "$trc" -ne 0 ]; then
+            echo "release-consistency: price.sh --base-only failed (exit ${trc})" >&2
+            exit "$trc"
+          fi
+
+          status=0
+          for f in "${VFILES[@]}"; do
+            [ -n "$f" ] || continue
+            if [ ! -f "$f" ]; then
+              echo "release-consistency: version file '${f}' does not exist" >&2
+              status=1
+              continue
+            fi
+            FVER=$(file_version "$f" || true)
+            if [ -z "$FVER" ]; then
+              echo "release-consistency: no X.Y.Z version found in '${f}'" >&2
+              status=1
+              continue
+            fi
+            # BEHIND ⇔ file != tag AND file sorts strictly lowest (sort -V, never
+            # [[ < ]] which reads 0.10.0 < 0.9.0). Ahead is legitimate between a
+            # pre-merge stamp and the post-merge tag cut (D14) → never fail.
+            lowest=$(printf '%s\n%s\n' "$FVER" "$TAG" | sort -V | head -n1)
+            if [ "$FVER" != "$TAG" ] && [ "$lowest" = "$FVER" ]; then
+              echo "release-consistency: '${f}' is BEHIND — file=${FVER} < newest reachable tag=${TAG} (D14)" >&2
+              status=1
+            else
+              echo "ok: ${f} = ${FVER} >= tag ${TAG}"
+            fi
+          done
+          exit "$status"

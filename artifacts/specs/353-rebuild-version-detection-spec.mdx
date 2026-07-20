@@ -1,0 +1,231 @@
+---
+title: 'Rebuild /promote version detection on reachability + stamp version files'
+issue: 353
+status: approved
+tier: F-lite
+date: 2026-07-17
+---
+
+## Context
+
+Promoted from [frame](../frames/353-rebuild-version-detection-frame.mdx). Evidence: [release-model unification analysis](../analyses/release-model-unification-analysis.md) — a 13-repo read-only survey. **That file lands with PR #349 (open at time of writing);** until it merges, read it via `git show origin/docs/release-model-unification:artifacts/analyses/release-model-unification-analysis.md`.
+
+This is **Phase 0b** of the unification: the blocking prerequisite. The fleet decision is to delete release-please and make `/promote --finalize` the sole release path, but **deleting first delivers a regression**. In `roxabi-intel` (`c67362e`, `a067e73`) and `roxabi-1page` (`17c9394`) the release-please bot is the **sole writer** of the version file; removing it before `/promote` can write one freezes those files permanently — the `roxabi-live/pyproject.toml` bug (still claiming 0.22.3) reproduced by hand.
+
+**This spec is a rewrite.** An earlier draft (D7/S7/S10) guarded the payload by pinning `STAGING_SHA` pre-merge and asserting `<merge>^2 == STAGING_SHA` post-merge. Three adversarial rounds killed it: the asserts test **SHA identity** while the priced quantity is a **commit set**, so the guard refused releases that were correct. Replayed against the real DAG, it **refuses roxabi-live v0.24.1** (`a66eb452^2 = 110e336b`, a version-neutral `chore` that lands *after* the pin; the priced set is unchanged and the verdict is identical). Refusing *after* the merge, when the code is already on `main` and prod is already deployed, **manufactures** the shipped-no-release state the guard exists to prevent. The replacement is below.
+
+## Goal
+
+`/promote` computes `$VERSION` by **pure derivation from the promotion merge commit** — `price(<tag floor> .. M)`, over commits the merge makes reachable that the newest component tag does not, scoped to this repo's component. Every pre-merge artifact (PR title, CHANGELOG heading, version file) becomes a **witness** of that derivation, never a source of it.
+
+This exists to unblock Phase 1–3's deletion of release-please. Today `git describe --tags --abbrev=0` is wrong in **7 of 11 repos** (returns another component's tag, an archive tag, or `fatal`), and `/promote` has **no version-file write step at all** — so the repos where the bot is the sole writer cannot be migrated without freezing their version files.
+
+## Users
+
+- **Primary:** the operator running `/promote --finalize`. Today detection returns empty or wrong and they must type `Custom version` (hit live on `roxabi-live/v0.24.1`).
+- **Secondary:** downstream repos pinning `<component>/vX.Y.Z` via `[tool.uv.sources]` (pin-swap resolves SHA→tag), and the `on: push: tags` build triggers in `voiceCLI` / `llmCLI` / `imageCLI`.
+
+## Decisions
+
+| # | Decision | Rationale |
+|---|---|---|
+| D1 | `BASE` is chosen by **reachability**, not by `git describe` | `git describe --tags --abbrev=0` is prefix-blind and staging-anchored → wrong in 7 of 11 repos. Reachability *is* the definition of "already released". Verified 7/7 against the real repos. |
+| D2 | `BASE` is **component-scoped** (`git tag -l "${COMPONENT}/v*"`) | Convention A puts several components' tags in one repo. Unscoped ranking returns `dev-core/v0.4.4` on `roxabi-plugins`, `artifacts-archive/2026-06` on `roxabi-factory`. |
+| D3 | The priced quantity is a **commit set floored at the newest reachable tag, not at the last promote merge**: `rev-list --no-merges <BASE_SHA>..<heads>`, classified by conventional-commit subject | Set difference — no date, no order (what release-please's date-ordered walk got wrong, #140). **The floor is `BASE_SHA` (the commit the newest `<component>/v*` tag points at), not `M^1`.** `M^1` is what `main` *was*, but `main` carries **unreleased direct commits** — a hotfix merged straight to `main` sits inside the next promote's `M^1` and, floored at `M^1`, is **never priced**. Executed: hotfix `20a29f69` (PR #267, `fix/zk-idle-timer-overflow`) is `M^1` of promote #270 → `rev-list M^1..M^2` = 3 commits, **excludes it**; `rev-list BASE_SHA(v0.21.2)..M` = 5 commits, **includes it**. Flooring at the tag makes `M` self-describing *relative to what was last released*. |
+| **D4** | **The authoritative `$VERSION` is derived at finalize from the merge object and the tag floor alone: `price(BASE_SHA..M)`. The PR title, the CHANGELOG heading and the version file are demoted to witnesses.** | A merge commit `M` is a **closed, immutable record** of exactly what its two parents contained; the newest reachable tag is an **immutable record** of what was last released. The set of non-merge commits `M` adds over that tag *is* the payload — by construction, not by assertion. Nothing can drift between the derivation and the things derived-from, because they are the same three git objects (`M`, `M`'s parents, the tag). This removes the pin, both asserts, and the whole TOCTOU window they were built to police. |
+| **D5** | **The guard moves pre-merge: a required `release-consistency` check on the promotion PR re-prices from the PR's own head and fails red on disagreement.** | Refusing is free before the merge and destructive after it. Pre-merge, a red check means *nothing shipped and nothing released* — a consistent state, recoverable by pushing a fix. Post-merge, the code is on `main` and prod is deployed, so refusing to tag creates the exact defect being guarded. Same predicate, moved to where its failure is cheap. |
+| **D6** | **The gate must be provisioned and probed, not assumed. Step 1 asserts via `gh api` that the `release-consistency` context is a required check on `main` with no bypass actors, and REFUSEs if it is not (WARN, not REFUSE, when the repo is un-protectable — D17).** | The mechanism is real (a staging push *does* fire `synchronize`; GitHub evaluates required checks **per head SHA**, so a mid-review push blocks the merge until the new head reports). But enforcement is **theater today**: measured 2026-07-17, `required_status_checks` is `NONE` on `main` for roxabi-{live,plugins,intel,site} — **4/4 identical** — and the ruleset named `PR_Main` targets `~DEFAULT_BRANCH` = **staging**, carrying no status-check rule and a `RepositoryRole` bypass. Measured on the real v0.24.1: the mid-review push (`110e336b`, 08:12:50) and the merge (`a66eb452`, 08:13:11) are **21 seconds** apart — less than a CI cold start. Speed cannot save an advisory check; only *required* can, because GitHub then blocks on `Expected — waiting for status` regardless of duration. Provisioning is part of shipping. |
+| **D7** | **A witness disagreeing with the derivation at finalize is a WARN: `/promote` tags the DERIVED version and prints repair actions. Hard REFUSE is reserved for structural failures only.** | The witnesses are three **correlated copies of one step-2 preview** — they agree with each other by construction and have **zero authority independent of the derivation**. A mismatch means the verdict drifted through a missing or bypassed gate: the merge already happened, prod is already deployed. Refusing to tag there is the dead design wearing a new costume. A witness without authority cannot veto the authority. Structural REFUSE = the merge has ≠2 parents ∨ it is not a promote (D8) ∨ the payload is **empty** (derived == `BASE`, i.e. nothing to release — D16). |
+| **D8** | **A promote is identified by PR metadata (`gh pr list --base main --head staging --state merged`), never by lineage (`is-ancestor <merge>^2 origin/staging`)** | The lineage test is **vacuous after any backmerge**: it makes `^2` of *every* merge on `main` a staging ancestor. Executed against real roxabi-live — PR #267 (`head=fix/zk-idle-timer-overflow`) and PR #257 (`head=fix/dashboard-redirect-loop`) are genuine direct-to-`main` hotfixes, and **both test positive as promotes**. The PR-metadata query returns exactly the 10 real promotes (#315, #310, #299, #294, #292, #287, #286, #270, #265, #264) and correctly excludes both. **This same predicate scopes the CI gate (D9): a PR is a promote iff `base=main ∧ head=staging`.** |
+| **D9** | **The re-price gate (`release-consistency`) prices only promote PRs; every other PR to `main` is an early green `exit 0` inside the running job. The preview's durable carrier is the CHANGELOG heading; the PR title is a second witness parsed with a legacy-tolerant grammar** | (a) **Scope.** Direct-to-`main` PRs are real and load-bearing — #267/#257 (hotfixes), #220 (`feat/zk-lost-passphrase-reset`), the dependabot PRs (#4/#3/#2), and non-promote `staging→main` PRs (#256 `chore(release): remove release-please`). None carries a version → a three-way parse fails → **red** → with zero bypass actors (D6) the PR is **unmergeable forever**. So the gate's first action, *inside* the always-running job, is: `head != staging` → `echo not-a-promote; exit 0` (green, never a job-level `if:` which reports *skipped* — D15c). A non-promote `staging→main` PR opened by hand is priced (it is a promote by base/head) and red is correct there — but it is a **named** row (operator action: run `/promote`), not an unremarked deadlock. (b) **Carrier.** The preview lives only in the promoting session's shell — and `/promote` is a markdown procedure executed by an LLM across many tool calls, possibly spanning a compaction. Step 4 writes the heading; step 7 reads it back from `origin/staging`. Grammar, measured: **no historical promote title carries a component prefix** — `(0.24.1)`, `(v0.22.3)`, `(0.22.2)`. New titles standardize on `<component>/vX.Y.Z`; the parser accepts all three shapes and compares on the `X.Y.Z` core. |
+| **D10** | **One deriver, two runtimes: `price.sh` is the single implementation, called by both the skill and the CI gate; CI checks it out from a pinned tag of the public `Roxabi/roxabi-plugins`. It has a strict exit-code contract.** | Two implementations of one predicate is the drift generator itself — the whole reason this issue exists. Executed: checkout-at-pinned-tag + `price.sh` yields identical verdicts (0.24.1) across all 4 call shapes; a pin skew fails **red**. **Exit contract (D18):** `0` = a version on stdout (a bare `X.Y.Z`); `10` = no reachable tag → first release (a legitimate verdict, *not* an error — two edge cases depend on distinguishing it); `≥1` other = hard error (git failure, bad args). CI and the skill branch on the code, never on parsing stderr. |
+| **D11** | `release:` lives in the **existing** `.claude/stack.yml` | It is stack config. A new file is a new thing to forget. |
+| **D12** | Class `NONE` ⇒ `version_files: []` ⇒ **delete the version file**, don't stamp it | 9 of 14 repos have no machine reading their tags. A file that doesn't exist can't drift, needs no gate, and no gate can be disabled. |
+| **D13** | A missing or null `release.component` is a **REFUSE**, never a fallback | `yq '.release.component'` prints the literal `null` on every repo today → `git tag -l "null/v*"` → empty → "first release" → `/promote` would cut **`null/v0.1.0`** on a repo at 0.24.1, and the tag-exists guard would pass. Silent and wrong. Executed against real roxabi-live. |
+| **D14** | `release-consistency` (push path) fails only when the version file is **behind** the newest reachable tag — never when ahead | Equality holds only **at rest**. Step 2b stamps pre-merge; 9c cuts the tag post-merge and only on `--finalize` — so between them the file is *legitimately* ahead. An equality gate is red on every promote of a stamped repo, and a red-by-construction check on `main` deadlocks the promote it guards: the day-1 deadlock that sank Design 1. `file < tag` is the actual bug class — roxabi-live's `pyproject.toml` frozen at 0.22.3 while tags reached 0.24.1. |
+| **D15** | **The gate is TWO artifacts: (i) a reusable workflow `Roxabi/roxabi-plugins/.github/workflows/release-consistency.yml` with `on: {workflow_call:{}}` **only**; (ii) a per-repo committed caller stub `release-consistency.yml` carrying the triggers and one unconditional `uses:` job. Triggers: `pull_request:[main] types:[opened, edited, synchronize, reopened]` + `push:[main]` + `workflow_dispatch:`. Skip paths are early `exit 0` **inside** the job, never a job-level `if:`. Checkout is `fetch-depth: 0`.** | A reusable workflow's non-`workflow_call` triggers fire **in the repo that hosts it**, never in the caller — verified against GH docs and the fleet: the only cross-repo pattern that works is `uses: Roxabi/.github/.github/workflows/publish-container.yml@staging` (imageCLI/llmCLI/voiceCLI), a caller stub calling a `workflow_call` workflow. So the triggers **must** live in a committed per-repo stub (an S12 deliverable, not API-provisioned). Five traps, each verified: (a) `merge-on-green.yml` gates on `checks.listForRef(sha=pr.head.sha)` → a push-only gate can never satisfy a required check → the promotion PR pends forever; (b) `edited` is required because the **title is a witness** (D9) and editing a title fires no other event; (c) a job skipped by `if:` reports *skipped* → read as never-reported → same pend; (d) per-repo copies of the *logic* drift, which is why the logic is central and only the thin stub is per-repo; (e) `fetch-depth: 0` is mandatory — the shallow-clone failure is green, not loud. |
+| **D16** | Finalize is **idempotent per artifact**: tag *and* release are checked independently — absent → create; present ∧ points at `M` → skip green; present ∧ points elsewhere → REFUSE. Finalize is green only when **both** exist and point at `M` | The merge→finalize gap is open-ended, the operator demonstrably forgets (v0.24.1 shipped to prod untagged for hours), and `/promote` is a markdown procedure that can die between *any* two tool calls — including between 9c (tag) and 9d (release). A per-*phase* no-op keyed only on the tag would report green while the release stays unpublished forever. The recovery re-run must reconcile each artifact on its own. |
+| **D17** | A repo that **cannot** carry a required check (private on the free plan) makes the D6 gate probe a **WARN, not a REFUSE** | Measured: `roxabi-1page` is private → `/rulesets` and `/branches/main/protection` both return `403 Upgrade to GitHub Pro`. **#140 — the silent skip this whole issue exists to prevent — happened on roxabi-1page.** A REFUSE there bricks `/promote` on the one repo where the defect actually occurred. The gate is un-provisionable, not un-provisioned: same anti-pattern as the dead designs (a guard whose failure is worse than what it guards). WARN + name the limit; D4's derivation still yields the correct version, and D14's at-rest gate is the only casualty. Distinct from `roxabi-production` (`Branch not protected` = a creatable state, → REFUSE-with-onboarding like S6). |
+| **D18** | `price.sh` **bump mapping** is total: `feat` → minor · `fix` / all other conventional types (`chore`,`docs`,`refactor`,`test`,`ci`,`perf`,`build`,`style`) → **patch** · `!` suffix or `BREAKING CHANGE:` in body → **major** · **empty payload (0 non-merge commits) → no bump, derived == `BASE`** | The mapping was undefined and it is the definition of the thing being specified. **Every real promote carries non-`feat`/non-`fix` commits** (a66eb452: 0 feat / 4 fix / 2 other; d193d19d: 1 / 10 / 5) — so `other` must map to *something*. It maps to **patch, not none**: a non-empty promote ships code to `main` and prod, and a bump-less promote leaves it untagged = the shipped-no-release state. Only a **genuinely empty** payload derives `== BASE` → D16's structural REFUSE, and that is a no-op promote with nothing to release (also caught pre-merge by S9). Major has no repo at 1.0.0 yet, which is exactly why an undefined mapping ships unnoticed and detonates later. |
+
+## Expected Behavior
+
+Operator runs `/promote` on `roxabi-live` (staging 12 commits ahead, 3 `feat`).
+
+1. **Step 1 pre-flight** fetches tags; reads `release.component: roxabi-live` (absent/null → **REFUSE**, D13); **probes** that the `release-consistency` context is a required check on `main` with no bypass actors (not required → **REFUSE**, unless the repo is un-protectable → **WARN**, D6/D17); asserts every `version_files` path matches `BASE`; and checks for an **unfinalized promote** — the newest merged `staging→main` PR *by metadata* (D8) whose derived version has no tag → offer to resume finalize on it.
+2. **Step 2** previews: `price.sh roxabi-live origin/main origin/main origin/staging` → `BASE = 0.24.1` (max `roxabi-live/v*` reachable from `origin/main`); payload = commits reachable from `{origin/main, origin/staging}` but not from `BASE_SHA` → 3 `feat` → minor → **preview `0.25.0`**. A **proposal**, not a decision.
+3. **Step 2b** writes the preview into `release.version_files`. Empty list → no-op, green.
+4. **Step 3/4** write the CHANGELOG entry headed `## 0.25.0` — this heading is the preview's durable carrier (D9).
+5. **Step 6b** lands the changelog commit on staging via a PR when staging is protected, then **waits**: `gh pr merge --auto` arms and returns immediately, so the flow polls `gh pr view <N> --json state` until `MERGED` before continuing. Staging legitimately moves here — under A-prime that is simply **not an event**, because nothing was pinned.
+6. **Step 7** re-reads the heading from `origin/staging` and opens the promotion PR titled `chore: promote staging to main (roxabi-live/v0.25.0)`.
+7. **The required `release-consistency` check runs on the PR head.** `head == staging`, so it prices: `price.sh roxabi-live origin/main origin/main <pr.head.sha>` and asserts a **three-way** agreement — re-price == title == CHANGELOG heading. A `feat` landing on staging mid-review fires `synchronize`, the check re-runs against the new head, computes `0.26.0`, disagrees with the title, and goes **red — before the merge**. The operator re-runs `/promote` to re-price. Nothing shipped, nothing released, no defect. (A hotfix PR `fix/*→main` hits the same workflow, sees `head != staging`, and greens immediately — D9.)
+8. **Step 9b** (post-merge, `--finalize`) ignores every witness and derives: `M = <merge sha>`, `price.sh roxabi-live M^1 M` → `0.25.0`. It REFUSEs only on **structural** failure — ≠2 parents, not a promote by metadata, or empty payload. A witness disagreeing is a **WARN**: it tags the derived version anyway and prints the repair actions (D7).
+9. **Steps 9c/9d** tag `roxabi-live/v0.25.0` and publish the release titled `roxabi-live v0.25.0`, each reconciled independently (D16). Re-running is a green no-op once both exist.
+
+No `Custom version` prompt at any point.
+
+## Data Model & Consumers
+
+**Data structure:** [$VERSION — derived once, witnessed three ways](../visuals/353-rebuild-version-detection-data-model.html)
+**Consumer map:** [Who reads a release tag](../visuals/353-rebuild-version-detection-consumers.html)
+
+`release:` block in `.claude/stack.yml`:
+
+| Field | Type | Domain | Meaning |
+|---|---|---|---|
+| `class` | enum | `PRODUCER` \| `TRIGGER` \| `NONE` | derived **mechanically** (grep), not by judgement |
+| `component` | string | e.g. `roxabi-live` | the tag prefix; scopes `BASE`. **Required — null/absent ⇒ REFUSE (D13)** |
+| `version_files` | string[] | e.g. `["pyproject.toml"]`, or `[]` | what step 2b stamps; `[]` ⇒ no-op |
+
+Class is defined by *who consumes the tag*:
+
+```
+PRODUCER ⇔ ∃ repo R : R has [tool.uv.sources] with git=<this repo>   → pin-swap resolves SHA→tag
+TRIGGER  ⇔ this repo has a workflow on.push.tags: ['<component>/v*']
+NONE     ⇔ neither
+```
+
+**Authority model — the single most important table in this spec:**
+
+| Artifact | Role | Authority | On disagreement |
+|---|---|---|---|
+| `price(BASE_SHA..M)` | **the version** | authoritative, by construction | — |
+| promotion PR title | witness | none | pre-merge: red (D5) · post-merge: WARN (D7) |
+| CHANGELOG heading | witness + preview carrier (D9) | none | pre-merge: red (D5) · post-merge: WARN (D7) |
+| version file | witness | none | pre-merge: red (D5) · post-merge: WARN (D7) |
+
+| Consumer | Reads | When | Status |
+|---|---|---|---|
+| pin-swap (step 1b) | the tag, cross-repo | at promote, PRODUCER only | unchanged |
+| `on: push: tags` builds | the tag | on tag push, TRIGGER only | unchanged |
+| `release-consistency` (PR) | `price.sh` + title + heading | **promote PRs only** — non-promotes early-green (D9) | **this issue** |
+| `release-consistency` (push) | `version_files` + reachable tags | push to `main` (D14) | **this issue** |
+| step 1 pre-flight | `version_files` + `BASE` + gate state | at promote | **this issue** |
+| step 9b finalize | the merge object + tag floor alone (D4) | at finalize | **this issue** |
+| *(nothing)* | — | — | **9 of 14 repos** → `version_files: []` |
+
+## Breadboard
+
+| ID | Affordance | Handler | Data |
+|---|---|---|---|
+| S1 | `release:` block | `.claude/stack.yml` | `{class, component, version_files}` |
+| S2 | **`price.sh` — the sole deriver** | `plugins/dev-core/skills/promote/price.sh` (D10) | `(COMPONENT, ANCHOR, HEAD...) → X.Y.Z`; `git tag -l "${COMPONENT}/v*"` reachable-from-`ANCHOR` + strict `X.Y.Z` + `sort -V` max = `BASE`/`BASE_SHA`; payload = `rev-list --no-merges ^BASE_SHA HEAD...` classified per **D18**; exit contract per **D10** (`0`/`10`/`≥1`) |
+| S3 | version preview | promote step 2 | `price.sh <component> origin/main origin/main origin/staging` → a **proposal** |
+| S4 | version-file stamper | promote step 2b **(new)** | preview → `release.version_files` |
+| S5 | entry guard | promote step 1 | `version_file != BASE` → **REFUSE** (message distinguishes hand-drift from a promote abandoned after 6b); unfinalized promote (via **PR metadata**, D8) → offer resume |
+| S6 | component guard | promote step 1 | `component` null/absent → REFUSE + paste-ready `release:` block |
+| S7 | **gate probe** | promote step 1 **(new, D6/D17)** | `gh api` — `release-consistency` context required on `main` ∧ zero bypass actors → else REFUSE; repo un-protectable (403) → **WARN** |
+| S8 | **6b wait loop** | promote step 6b **(new)** | poll `gh pr view <N> --json state` until `MERGED`; SKILL.md:183's "`--auto` waits for required checks" is **factually wrong** and is deleted |
+| S9 | **re-price gate (logic)** | reusable `release-consistency.yml`, `workflow_call:` only (D15) | first step: `head != staging` → `exit 0` green (D9); else `checkout fetch-depth:0` → three-way `price.sh <component> origin/main origin/main <pr.head.sha>` == title == CHANGELOG heading → red on mismatch |
+| S9b | **caller stub** | per-repo `release-consistency.yml` **(new, D15)** | `on:{pull_request:[main] types:[opened,edited,synchronize,reopened], push:[main], workflow_dispatch:{version_files_override?}}`; one unconditional `jobs.<name>.uses: Roxabi/roxabi-plugins/.github/workflows/release-consistency.yml@<tag>`; job name = the required-check context (S7/S12 agree byte-for-byte) |
+| S10 | consistency gate (push) | reusable workflow, `push`/`dispatch` path (D14) | `version_file >= max reachable tag` — fail on `<` only; `version_files: []` → early green; `workflow_dispatch` honours `version_files_override` for verification |
+| S11 | **finalize** | promote step 9b **(rewritten, D4/D7/D16)** | `price.sh <component> M^1 M`; structural REFUSE only; witness mismatch → WARN + tag derived + repair actions; per-artifact idempotent |
+| S12 | **gate provisioning** | `scripts/provision-release-gate.sh` **(new, D6)** | commit the caller stub (S9b) + create the main-targeting ruleset requiring the stub's job-name context, **no bypass actors**; idempotent; `--remove` reverses both; the thing S7 probes for |
+
+Wiring: `S1 → S6 → S7 → S2 → S3 → {S4, step 4 heading}`. `S5`+`S6`+`S7` guard the entrance. **`S9`+`S9b` are the guard** — pre-merge, required, refusing is free, and scoped to promotes only. `S11` derives and cannot be vetoed by a witness. `S10` guards `main` at rest. `S12` is what makes the gate real rather than advisory, and `--remove` is the escape hatch for the day it misfires.
+
+## Slices
+
+| # | Slice | Contains | Demo |
+|---|---|---|---|
+| 1 | **Detection** | S1, S2, S3, S6 | `price.sh` matches the golden `BASE` on all 7 measured repos; the #140 DAG yields 0.8.0; **the #267→#270 replay prices the hotfix exactly once** (BASE_SHA floor, D3); REFUSE on a repo with no `release:` block |
+| 2 | **Derive + write** | S4, S5, S8, S11 | `/promote --finalize` on roxabi-live needs no `Custom version`; **replaying the real `a66eb452` yields 0.24.1** (the case the dead design refused); a hand-drifted file REFUSEs at step 1; re-run of finalize reconciles tag-then-release and is a green no-op once both exist |
+| 3 | **Gate** | S7, S9, S9b, S10, S12 | `S12` provisions stub + ruleset on roxabi-live; `S7` REFUSEs on a repo where it is missing and **WARNs on private-plan 1page**; a throwaway promote PR with a `feat` pushed mid-review goes **red before merge**; a `fix/*→main` PR **greens** on the same workflow |
+
+**Slice 1 is not read-only** — step 2's preview already feeds step 4 and the PR title, both existing writers. It ships a changed release version to real repos. It is nonetheless a strict improvement in isolation (fatal→works on talks/forge; wrong→right on plugins/live/voiceCLI) **provided S6 ships with it** — without S6, slice 1 cuts `null/v0.1.0` on every repo lacking a `release:` block, which on day 1 is all of them.
+
+**Slice 3 is the slice that matters, and fixes #1/#2 interact inside it.** Slices 1–2 make the version *correct*; slice 3 makes it *enforced*. Once S9 greens every non-promote PR **and** the payload floors at `BASE_SHA`, a direct-to-`main` hotfix is *unpriced pre-merge by design* and *priced at the next promote by the tag floor* — coherent, but a claim that needs its own criterion (replay #267→#270, assert the hotfix is priced **exactly once**). Ship them together or trade a deadlock for a silent skip.
+
+## Constraints
+
+- Convention A (`<component>/vX.Y.Z`) and the merge-commit topology are both fixed and non-negotiable.
+- **`version_files` MUST stay `[]` on a repo until its version file is reconciled** (analysis Phase 2). S5 REFUSEs on `version_file != BASE`, and every repo with a version file is drifted *today* (roxabi-live 0.22.3 vs 0.24.1, voiceCLI 0.2.2 vs 0.3.0, llmCLI 0.1.1 vs 0.1.0, plugins 0.3.0 vs 0.4.0). Arming S5 before reconciling deadlocks the fleet on day 1 — the exact failure that sank Design 1.
+- **S10 (push path) ships as a universal no-op**, and that is a verification problem, not a scope note. Since every repo stays `version_files: []` until Phase 2, no real push run exercises it — so its verification is a `workflow_dispatch` carrying `version_files_override: ["pyproject.toml"]`, fired against roxabi-live's already-drifted `pyproject.toml` (0.22.3 vs 0.24.1), which goes **red**; the same dispatch with the shipped `version_files: []` reports **green, not skipped**. (Without the override the dispatch is green by construction, because the deployed config is empty — the input is what makes the probe real.)
+- **S9 (PR path), by contrast, is live from day 1** — it does not read `version_files`, so it is exercised by the very first promotion PR. Its verification is the slice-3 probe, not a fixture.
+- `yq` availability for reading `.claude/stack.yml` is unverified — fall back to `python3 -c` YAML read if absent.
+- Must be dogfooded on roxabi-live's next real promote before any repo migrates. **#353 may close on slices 1–3 merging; the dogfood is tracked as its own follow-up** — it depends on an event outside this PR's control.
+- `Custom version` is **retained** — it is the only path for the still-excluded multi-component repos (factory, cortex) until `/promote` learns multi-component. It stops being *required* on the 11, which is the actual goal.
+
+## Non-goals
+
+- Deleting release-please anywhere. Phase 1–3, gated on this.
+- `roxabi-factory` (3 components; `/promote` is single-component by construction; also blocked independently — it pins the archived, tagless `roxabi-vault`, so pin-swap throws today).
+- `roxabi-cortex` (2 independently versioned packages, default branch `main`, and release-please works there).
+- Teaching `/promote` multi-component. That is what factory/cortex need; separate decision.
+- Provisioning the gate on all 11 repos. Slice 3 provisions **roxabi-live** (the dogfood target) and ships the idempotent `provision-release-gate.sh` (with `--remove`); the rest is Phase 1–3's rollout, one repo at a time, each gated by S7.
+- Fleet-wide success. These criteria verify the **mechanism** on 7 measured repos + 2 fixtures + 1 live probe. The frame's 6-month bar is fleet-wide and cannot be settled by this issue alone.
+
+## Edge Cases
+
+| Case | Handling |
+|---|---|
+| `release:` block or `component` absent/null | **REFUSE** (D13, S6). Never fall back — `null/v0.1.0` is silent and wrong. The message prints a paste-ready `release:` block (component from the newest `*/v*` tag prefix, `version_files: []`, class as grepped) — on day 1 **every** repo takes this path, so the REFUSE is the onboarding step, not a dead end. |
+| `release-consistency` not required on `main`, repo **is** protectable | **REFUSE** at step 1 (S7), naming `provision-release-gate.sh`. On day 1 this is every public repo — `required_status_checks: NONE`, measured 4/4. Same shape as S6: the REFUSE is the onboarding step. |
+| Repo **cannot** be protected (private, free plan) | **WARN, not REFUSE** (D17). Measured: `roxabi-1page` → `403 Upgrade to GitHub Pro`. It is the repo where #140 actually happened; a REFUSE would brick `/promote` there. Name the limit; D4 still derives the right version. |
+| `Branch not protected` (no protection object yet, but creatable) | **REFUSE-with-onboarding**, like S6 — distinct from the un-protectable case. `roxabi-production` is here. |
+| The gate is required but has **bypass actors** | **REFUSE**. A bypassable required check is advisory with better marketing. The probe reads the actor list, not just the requirement. |
+| A `feat` lands on staging mid-review (promote PR) | **S9 goes red on the new head, before the merge** — `synchronize` fires (verified: `110e336b` fired one at 06:13:04Z), evaluated per head SHA, blocks on `Expected` until the new head reports. Re-run `/promote`. **Nothing shipped, nothing released.** Under the dead design this was a post-merge REFUSE — same detection, catastrophic timing. |
+| A PR targets `main` with `head != staging` (hotfix `fix/*`, `feat/*`, dependabot) | **S9 early-greens** (`exit 0` inside the job, a real check run reporting green, never *skipped* — D9/D15c). Correct because such a merge is priced by S11 at the **next** promote from the `BASE_SHA` floor (D3), so it is released exactly once, not zero times. Executed: 11 such merged PRs on roxabi-live (#267, #257, #221, #220, #219, dependabot #4/#3/#2). |
+| A non-promote `staging→main` PR opened by hand (#256 `chore(release): remove release-please`, #254) | **Priced** (it is a promote by base/head) → title carries no version → **red**. Correct but must be **named**: the message says "run `/promote` instead of opening a staging→main PR by hand." Not an unremarked deadlock. |
+| A direct-to-`main` commit is never priced | **Cannot happen under D3.** The floor is the newest **tag**, not `M^1`, so any unreleased direct commit on `main` enters the next promote's payload. Regression test: #267→#270 must price `20a29f69` exactly once (it was priced **zero** times under the `M^1` floor). |
+| Promotion PR title hand-edited after step 7 | **S9 red** — `edited` is in the trigger types (D15b). Post-merge, S11 WARNs and tags the derived version (D7). |
+| Step 6b's own changelog commit lands on staging | **Not an event.** Nothing is pinned; the set is re-priced from the PR head. The dead design's step-2 pin failed *every* promote here — regression test that A-prime does not. |
+| A witness disagrees at finalize | **WARN + tag derived + print repair actions** (D7). Never REFUSE: the merge happened, prod is deployed; the witnesses are correlated copies of one preview with no independent authority. |
+| Merge has ≠2 parents (squashed, or a fast-forward) | **Structural REFUSE** — `M^2` is undefined. Squash is forbidden fleet-wide (`allow_squash_merge:false`, ruleset `allowed_merge_methods:["merge"]` — verified), so this is a tripwire for a topology regression, not an expected path. |
+| Empty payload (0 non-merge commits between `BASE_SHA` and `M`) | **Structural REFUSE** — derived == `BASE`, nothing to release (D18/D16). Also visible pre-merge: S9 computes derived == `BASE`. Not the D7 defect — there is genuinely nothing shipped that is not already released. |
+| All-`chore` / all-`other` payload (non-empty) | **Patch bump** (D18), *not* no-bump. #256/#254 are real all-`chore` `staging→main` merges; a bump-less promote would leave shipped code untagged. Only a truly empty payload derives `== BASE`. |
+| `feat!:` or `BREAKING CHANGE:` in payload | **Major bump** (D18). No repo at 1.0.0 yet — latent, but the grammar exists so it does not detonate silently on the first 1.x. |
+| Operator forgets to finalize | Step 1 detects the unfinalized promote **by PR metadata** (D8) and offers to resume. Zero-argument recovery. The failure mode that decided A-prime over the alternative — it happened on v0.24.1, in-session. |
+| Unfinalized-promote detection via lineage | **Would false-positive on real hotfixes.** Executed: #267 and #257 both test as staging ancestors after a backmerge. Hence D8's PR-metadata query. |
+| Finalize dies between 9c (tag) and 9d (release) | **Per-artifact recovery** (D16): re-run tags-skipped-green, creates the missing release, reports green. A per-phase no-op keyed on the tag alone would leave the release unpublished forever — the *normal* failure mode for a markdown procedure spanning tool calls. |
+| Finalize re-run, tag/release point elsewhere | **REFUSE** (D16) — a tag or release pointing at a different `M` is drift, not idempotence. |
+| No tag matches `<component>/v*` **and** repo has zero tags | `price.sh` exit `10` → first release → `<component>/v0.1.0` (roxabi-idna, roxabi-production). The `10` code is what distinguishes this legitimate verdict from a git error (D10). |
+| Tags exist but **none reachable** | exit `10` + **warn**, distinctly from the case above — tags live on a staging lineage (roxabi-factory's real state). Count `git tag -l` separately from the reachable subset. Tri-state, not boolean. |
+| A **higher** tag exists but is unreachable (hand-cut on staging) | Warn. The derivation yields a colliding version → D16's tag-exists guard REFUSEs (points elsewhere). Loud and recoverable; `roxabi-live/v0.22.2` and the #141 hand-cut are real precedents. |
+| `version_files` names a missing file | REFUSE at step 1 — config lies |
+| `version_files: []` | S4/S5 no-op, S10 early-green. **S9 unaffected** — it reads title + heading, not the file. roxabi-live's dogfood config, so the path that ships first. |
+| Promote abandoned after 6b (changelog + stamp landed, PR never merged) | Next run: `version_file > BASE` → **S5 REFUSEs**, message distinguishing *hand-drift* from *a promote stopped after 6b* with a reconcile command for each. The price of stamping pre-merge; S10 deliberately does not cover it (D14). |
+| Bare legacy `vX.Y.Z` tags coexist | Invisible: the `<component>/v*` glob excludes them (roxabi-live carries 14 such tags; roxabi-talks' `v1.0.1`) |
+| Legacy promote-PR title grammar | **Measured: no historical title carries a component prefix** — `(0.24.1)`, `(v0.22.3)`, `(0.22.2)`. Parser accepts `(X.Y.Z)`, `(vX.Y.Z)`, `(<component>/vX.Y.Z)`, comparing on the `X.Y.Z` core. New titles write the last form. |
+| Required-check **name** mismatch | The context GitHub reports is the **caller stub's job name** (D15), not the reusable file name. S12 sets the ruleset context to that job name and S7 probes for the same string; a criterion asserts byte-identity against `gh api …/commits/<head>/check-runs`. A mismatch pends the PR forever — the failure D15 exists to prevent, closed. |
+| Pre-release tag (`0.9.0-rc.1`) | Filter to `^[0-9]+\.[0-9]+\.[0-9]+$` before sorting. `sort -t. -k3,3n` parses `0-rc` as `0` → ties → byte-compare → the release *loses* to its own rc. Latent (0 fleet-wide) but the filter is free and makes the sort total. |
+| CI checkout is shallow (`fetch-depth: 1` — the `actions/checkout` default, and **no repo in the fleet overrides it today**) | **Fails green, not loud.** A depth-1 clone sees ~zero tags; `git fetch --tags` on top pulls tag objects whose ancestry is severed at the shallow boundary → `merge-base --is-ancestor` returns a clean **exit 1**, indistinguishable from a genuine "not reachable". The gate starves its own candidate set and reports green on a drifted repo. `fetch-depth: 0` is mandatory (D15). The asymmetry is the trap: a *missing* SHA errors loud (exit 128), a *severed* one does not. |
+| `merge-base --is-ancestor` under `set -euo pipefail` | Exits 1 on a legitimate negative → a bare call **aborts the whole gate** instead of trying the next candidate. Guard it (`if git merge-base … ; then`). Order matters: filter-to-reachable **first**, then `sort -V`, then max. `sort -V`, never `[[ < ]]` — that reads `0.10.0` as older than `0.9.0`. |
+| `price.sh` pin skew between skill and CI | **Fails red** — the two verdicts disagree and S9 reports the mismatch. Verified across 4 call shapes. Self-announcing, the point of D10. |
+| Class goes stale (a NONE repo gains a `[tool.uv.sources]` consumer) | **Not guarded.** S10 early-greens when `version_files: []`, so drift silently re-opens. Accepted residual risk — the class grep is re-run per repo at Phase 1–3, not continuously. |
+
+## Success Criteria
+
+- [ ] `price.sh` returns the golden `BASE` on all 7 measured repos: `roxabi-plugins` 0.4.0, `roxabi-talks` 0.2.0, `roxabi-forge` 0.4.0, `roxabi-live` 0.24.1, `voiceCLI` 0.3.0, `roxabi-1page` 0.10.0, `roxabi-intel` 0.2.0
+- [ ] The #140 fixture (`git rev-list --no-merges e73f96b..dca88f1`) collects exactly `{c013d30}` and yields `0.8.0`
+- [ ] **The #267→#270 replay prices the hotfix `20a29f69` exactly once** — absent under an `M^1` floor, present under the `BASE_SHA` floor (D3)
+- [ ] **Replaying the real `a66eb452` through S11 yields `0.24.1` and tags it** — the release the dead design refused (regression test for D4)
+- [ ] `price.sh` bump mapping is total and asserted: a `feat`-bearing payload → minor; a `fix`/`chore`/`other`-only non-empty payload → **patch**; a `feat!`/`BREAKING CHANGE` payload → **major**; an **empty** payload → derived == `BASE` (D18)
+- [ ] `price.sh` exit codes are asserted: `0`+`X.Y.Z` on success, `10` on no-reachable-tag (first release), `≥1` on git/arg error — and the skill + CI branch on the code, not on stderr (D10)
+- [ ] A repo with no `release:` block REFUSEs at step 1, cuts no tag, and prints a paste-ready `release:` block (S6)
+- [ ] Zero tags ⇒ first release; tags-but-none-reachable ⇒ exit `10` **plus a distinct warning** (the two are not conflated)
+- [ ] Step 2b writes the preview to every path in `version_files`, and is a green no-op when `version_files: []`
+- [ ] Step 1 REFUSEs when a version file is hand-drifted from `BASE`, printing both values, and distinguishes hand-drift from a promote abandoned after 6b with a reconcile command for each
+- [ ] Step 1 REFUSEs when `release-consistency` is not required on a **protectable** `main` (naming the provisioning script), REFUSEs when it has ≥1 bypass actor, and **WARNs** (not REFUSE) when the repo is un-protectable — asserted against private-plan `roxabi-1page`'s real `403` (S7/D17)
+- [ ] Step 1 detects an unfinalized promote via **PR metadata** and offers to resume — asserted against roxabi-live's real history: selects the 10 real promotes, **rejects #267 and #257** (S5/D8)
+- [ ] Step 6b polls until the changelog PR reports `MERGED` before continuing, and SKILL.md's "`--auto` waits for required checks" claim is deleted (S8)
+- [ ] **S11 derives `$VERSION` from the merge object + tag floor alone** — asserted by feeding it a merge whose title, heading and version file all disagree, checking it still tags the derived version (D4/D7)
+- [ ] **S11 WARNs, does not REFUSE, on witness mismatch** — and prints repair actions for each disagreeing witness
+- [ ] S11 REFUSEs on each structural failure: ≠2 parents · not a promote by metadata · empty payload (derived == `BASE`)
+- [ ] S11 idempotence is **per artifact**: re-run when tag+release both exist and point at `M` → green no-op; re-run when only the tag exists → creates the release, green; re-run when either points elsewhere → REFUSE (D16)
+- [ ] **S9 reports green (a real check run, not *skipped*, not red) on a PR into `main` whose head is not `staging`** — asserted by replaying #267 and #257 as real PRs (D9)
+- [ ] S9 goes red on a promote PR whose head gained a `feat` after the title was written — replayed on a fixture and probed live on a throwaway promote PR; red also on a hand-edited title (`edited` fires) and on a CHANGELOG heading disagreeing with the re-price
+- [ ] S9 posts its check against the promotion PR's **head SHA**, and its reported check-run **name is byte-identical** to the ruleset context S12 sets and S7 probes for (D15)
+- [ ] The gate is **two artifacts**: a `workflow_call`-only reusable workflow + a committed per-repo caller stub carrying the triggers; the reusable workflow's own triggers do **not** fire in the caller — asserted by confirming the stub, not the reusable file, owns `pull_request`/`push` (D15)
+- [ ] `S12` provisions stub + ruleset idempotently on roxabi-live (context required on `main`, **zero bypass actors**; re-run changes nothing), and `--remove` reverses both
+- [ ] `price.sh` yields identical verdicts called by the skill and by CI-at-pinned-tag; a deliberate pin skew fails **red** (D10)
+- [ ] `release-consistency` (push) fails a repo whose version file is **behind** its newest reachable tag and is **green** when ahead — asserted via `workflow_dispatch` with `version_files_override: ["pyproject.toml"]` against roxabi-live's 0.22.3-vs-0.24.1 drift (red), and green (not *skipped*) with the shipped `version_files: []` (D14)
+- [ ] Reachability is computed on a `fetch-depth: 0` checkout — verified against a shallow-clone fixture that would otherwise have reported green (D15)
+- [ ] `python3 tools/validate_plugins.py` is green
+- [ ] `bun run test` is green
+
+*(27 atomic criteria. Rewrite from the 5-lens/3-vote review: floored the payload at the tag not the last merge (D3), scoped the gate to promotes (D9), split the gate into reusable+stub (D15), pinned the check-name contract, added the total bump mapping (D18) and the private-repo WARN (D17). Deliberately un-bundled: an earlier draft phrased these as compound bullets, which slipped under the smart-splitting trigger by conjunction rather than by scope. See the Gate 2.5 note below.)*
+
+## Gate 2.5 — Split declined
+
+Triggers fire (28 criteria > 8; 3 slices = 3). **Declined:** the three slices share one deriver (`price.sh`) and one config block, and slices 1–2 without slice 3 ship an honest-but-unguarded derivation. Splitting would hand the gate to a separate issue and let the fleet run on an unenforced version for the length of that gap — precisely today's state. The slices are sequencing, not scope.

@@ -14,8 +14,10 @@ const { parseStackYml } = require('../../../hooks/lib/parse-stack-yml.cjs') as {
     standards: Record<string, string> | null
     runtime: string | null
     commands: { lint: string | null; typecheck: string | null; test: string | null }
+    testingUnit: string | null
     testingE2e: string | null
     ciMerge: string | null
+    release: { model: string | null; component: string | null } | null
   }
 }
 
@@ -57,9 +59,9 @@ describe('parseStackYml — sample-stack.yml fixture', () => {
     expect(result.standards).not.toBeNull()
     expect(result.standards).toEqual({
       architecture: 'docs/architecture',
-      deployment: 'docs/guides/deployment.mdx',
-      configuration: 'docs/configuration.mdx',
-      troubleshooting: 'docs/guides/troubleshooting.mdx',
+      deployment: 'docs/guides/deployment.md',
+      configuration: 'docs/standards/configuration.md',
+      troubleshooting: 'docs/guides/troubleshooting.md',
     })
   })
 })
@@ -75,8 +77,20 @@ describe('parseStackYml — edge cases', () => {
     expect(result.standards).toBeNull()
     expect(result.runtime).toBeNull()
     expect(result.commands).toEqual({ lint: null, typecheck: null, test: null })
+    expect(result.testingUnit).toBeNull()
     expect(result.testingE2e).toBeNull()
     expect(result.ciMerge).toBeNull()
+  })
+
+  it('parses testing.unit', () => {
+    const result = parseStackYml(`
+runtime: bun
+testing:
+  unit: bun
+  e2e: none
+`)
+    expect(result.testingUnit).toBe('bun')
+    expect(result.testingE2e).toBeNull()
   })
 
   it('parses runtime, commands, testing.e2e, and ci.merge', () => {
@@ -127,5 +141,40 @@ deploy:
     const result = parseStackYml(text)
     expect(result.formatters).not.toBeNull()
     expect(result.formatters?.[0].ext).toBeNull()
+  })
+})
+
+describe('parseStackYml — release block (Model B / #371)', () => {
+  it('parses release.model and release.component from a top-level release: block', () => {
+    const text = `runtime: bun
+release:
+  model: trunk
+  component: roxabi-plugins
+`
+    expect(parseStackYml(text).release).toEqual({ model: 'trunk', component: 'roxabi-plugins' })
+  })
+
+  it('parses model: staging-train', () => {
+    const text = 'release:\n  model: staging-train\n  component: roxabi-factory\n'
+    expect(parseStackYml(text).release).toEqual({ model: 'staging-train', component: 'roxabi-factory' })
+  })
+
+  it('release is null when no release: block is present', () => {
+    expect(parseStackYml('runtime: bun\n').release).toBeNull()
+  })
+
+  it('model is null when the key is absent inside a release: block (consumer defaults to staging-train)', () => {
+    const result = parseStackYml('release:\n  component: foo\n')
+    expect(result.release?.model).toBeNull()
+    expect(result.release?.component).toBe('foo')
+  })
+
+  it('does not confuse a nested key named component elsewhere for release.component', () => {
+    const text = 'release:\n  model: trunk\n  component: roxabi-plugins\ndeploy:\n  platform: none\n'
+    expect(parseStackYml(text).release).toEqual({ model: 'trunk', component: 'roxabi-plugins' })
+  })
+
+  it('release is null for null input', () => {
+    expect(parseStackYml(null).release).toBeNull()
   })
 })
