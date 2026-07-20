@@ -14,6 +14,7 @@ import {
   generateContextLintYml,
   generateDeployYml,
   generatePrTitleYml,
+  TRUNK_AUTO_RELEASE_SCRIPT,
 } from './workflow-generators'
 import { normalizeWorkflowOpts, type WorkflowOpts } from './workflow-types'
 import {
@@ -26,6 +27,54 @@ import {
 
 async function getToken(): Promise<string> {
   return (await run(['gh', 'auth', 'token'])).trim()
+}
+
+// ── Trunk resolvability guard (#375) ────────────────────────────────────────
+// A trunk `auto-release.yml`'s `run:` step invokes TRUNK_AUTO_RELEASE_SCRIPT
+// from the repo root. That path resolves ONLY where dev-core is vendored under
+// `plugins/` (roxabi-plugins itself); a consumer that enables trunk mode while
+// consuming dev-core from `~/.claude/plugins/cache/…` does not have it in the
+// checkout, so the workflow would die `exit 127` at its first release. Both
+// writers below fail LOUD here — at provision time, where the operator can
+// vendor the script or drop trunk — instead of silently shipping a workflow
+// that only breaks on the first real release. Staging-train never invokes the
+// script, so the guard is a no-op unless model === 'trunk'.
+const trunkScriptRefusal = (where: string): string =>
+  `Refusing to write a trunk auto-release.yml (${where}): it invokes \`${TRUNK_AUTO_RELEASE_SCRIPT}\`, ` +
+  `which is not resolvable there. A trunk release requires dev-core vendored under plugins/ (as in ` +
+  `roxabi-plugins) so the script — and its price.sh + lib/finalize.ts closure — ships with the repo. ` +
+  `Vendor it, or do not set release.model: trunk. (#375)`
+
+/** Local (`writeWorkflows`) guard: the script must exist under the cwd. */
+function assertTrunkScriptLocal(o: Required<WorkflowOpts>): void {
+  if (o.release.model !== 'trunk') return
+  const fs = require('node:fs')
+  if (!fs.existsSync(TRUNK_AUTO_RELEASE_SCRIPT)) {
+    throw new Error(trunkScriptRefusal('local write'))
+  }
+}
+
+/** Remote (`pushWorkflows`) guard: the script must exist on the target ref.
+ *  Reuses the contents API the pusher already speaks — no local checkout needed. */
+async function assertTrunkScriptRemote(
+  owner: string,
+  repo: string,
+  branch: string,
+  o: Required<WorkflowOpts>,
+): Promise<void> {
+  if (o.release.model !== 'trunk') return
+  const token = await getToken()
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${TRUNK_AUTO_RELEASE_SCRIPT}?ref=${encodeURIComponent(branch)}`
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  })
+  if (!res.ok) {
+    throw new Error(`${trunkScriptRefusal(`${owner}/${repo}@${branch}`)} (contents API: HTTP ${res.status})`)
+  }
 }
 
 /** Push a single file to a repo via the GH contents API (create-or-update).
@@ -152,6 +201,7 @@ export async function pushWorkflows(
   force = false,
 ): Promise<PushResult[]> {
   const o = normalizeWorkflowOpts(opts)
+  await assertTrunkScriptRemote(owner, repo, branch, o)
   const results: PushResult[] = []
   for (const { name, path, content, message } of workflowFileSet(o)) {
     const status = await pushWorkflowFile(owner, repo, path, content, {
@@ -193,8 +243,9 @@ export async function pushGenericWorkflows(
  *  Every file in the set is reported, including `.github/dependabot.yml`. */
 export async function writeWorkflows(opts: WorkflowOpts, force = false): Promise<PushResult[]> {
   const fs = require('node:fs')
-  fs.mkdirSync('.github/workflows', { recursive: true })
   const o = normalizeWorkflowOpts(opts)
+  assertTrunkScriptLocal(o)
+  fs.mkdirSync('.github/workflows', { recursive: true })
 
   const results: PushResult[] = []
   for (const { name, path, content } of workflowFileSet(o)) {

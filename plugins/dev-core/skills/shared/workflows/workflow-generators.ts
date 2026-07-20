@@ -11,6 +11,15 @@ import { generateE2eJob } from './workflows-fleet'
 export type { WorkflowOpts } from './workflow-types'
 export { normalizeWorkflowOpts }
 
+// The repo-relative path the trunk auto-release workflow's `run:` step invokes.
+// It resolves ONLY where dev-core is vendored under `plugins/` (roxabi-plugins
+// itself). A consumer repo that enables trunk mode but consumes dev-core from
+// `~/.claude/plugins/cache/…` does not have this path in its checkout, so the
+// step would die `exit 127` at its first release (#375). The generator bakes it
+// and the write-boundary resolvability guard (workflow-push.ts) checks for it —
+// both reference THIS const so the emitted path and the checked path never drift.
+export const TRUNK_AUTO_RELEASE_SCRIPT = 'plugins/dev-core/skills/promote/auto-release.sh'
+
 // --- Content generators ---
 
 /** Generic auto-merge workflow: enables merge queue on 'reviewed' label,
@@ -242,7 +251,7 @@ ${APP_MINT_STEP}
         env:
           GH_TOKEN: \${{ steps.app.outputs.token }}
           COMPONENT: ${component}
-        run: bash plugins/dev-core/skills/promote/auto-release.sh "$COMPONENT" "\${{ github.sha }}"
+        run: bash ${TRUNK_AUTO_RELEASE_SCRIPT} "$COMPONENT" "\${{ github.sha }}"
 `
 }
 
