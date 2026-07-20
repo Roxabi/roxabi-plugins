@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -228,5 +228,75 @@ describe('auto-release.sh — partial-failure recovery (D16)', () => {
     expect(stdout).toContain('create-release: comp/v0.8.0')
     // Idempotence: the tag already points at M, so we must NOT tag again.
     expect(stdout).not.toMatch(/^tag: comp\/v0\.8\.0/m)
+  })
+})
+
+// ─── W3 — real enactment (NOT --dry-run): git tag + git push + gh release create ─
+//
+// Every case above runs --dry-run, so `git tag/push` + `gh release create`
+// (auto-release.sh:111,112,118) never execute — a bug there would surface only on
+// the first real release (the dogfood). This case runs the orchestrator for real
+// against a bare `origin` and a `gh` shim that records argv, asserting the tag is
+// created, pushed, and the release is requested exactly once (idempotent D16).
+
+describe('auto-release.sh — real enactment path (W3)', () => {
+  it('2-parent feat merge (no --dry-run) → tags at M, pushes to origin, creates the release once', () => {
+    const repo = initRepo()
+    commit(repo, 'chore: init')
+    tag(repo, 'comp/v0.7.0')
+    git(repo, ['checkout', '-q', '-b', 'feature'])
+    commit(repo, 'feat: x')
+    git(repo, ['checkout', '-q', 'main'])
+    const m = mergeNoFf(repo, 'feature', 'Merge feature') // derived → 0.8.0
+
+    // Bare origin so `git push origin <tag>` has a writable remote (no network).
+    const origin = mkdtempSync(join(tmpdir(), 'auto-release-origin-'))
+    createdRepos.push(origin)
+    git(origin, ['init', '-q', '--bare', '-b', 'main'])
+    git(repo, ['remote', 'add', 'origin', origin])
+    git(repo, ['push', '-q', 'origin', 'main'])
+
+    // `gh` shim: `release view` fails until `release create` runs (writes a marker),
+    // so the reconcile loop converges tag → create-release → noop (D16). All argv
+    // is appended to a log we assert on.
+    const bin = mkdtempSync(join(tmpdir(), 'auto-release-bin-'))
+    createdRepos.push(bin)
+    const ghLog = join(bin, 'gh.log')
+    const marker = join(bin, 'release.created')
+    const ghShim = join(bin, 'gh')
+    writeFileSync(
+      ghShim,
+      [
+        '#!/usr/bin/env bash',
+        'echo "gh $*" >> "$GH_SHIM_LOG"',
+        'case "$1 $2" in',
+        '  "release view")   [ -f "$GH_SHIM_MARKER" ] && exit 0 || exit 1 ;;',
+        '  "release create") : > "$GH_SHIM_MARKER"; exit 0 ;;',
+        '  *) exit 0 ;;',
+        'esac',
+      ].join('\n'),
+    )
+    chmodSync(ghShim, 0o755)
+
+    const runEnv = {
+      ...gitEnv(),
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      GH_SHIM_LOG: ghLog,
+      GH_SHIM_MARKER: marker,
+      GH_TOKEN: 'shim',
+    }
+    const r = spawnSync('bash', [AUTO_RELEASE_SH, 'comp', m], { cwd: repo, encoding: 'utf8', env: runEnv })
+    const stdout = (r.stdout ?? '').trim()
+
+    expect(r.status, `stderr:\n${r.stderr}`).toBe(0)
+    expect(stdout).toMatch(/tag: comp\/v0\.8\.0/)
+    expect(stdout).toContain('create-release: comp/v0.8.0')
+    // Tag was really created at M and pushed to origin.
+    expect(git(repo, ['rev-list', '-n1', 'comp/v0.8.0'])).toBe(m)
+    expect(git(repo, ['ls-remote', '--tags', 'origin'])).toContain('comp/v0.8.0')
+    // Release was requested exactly once (idempotent — the loop stops once it exists).
+    const ghCalls = readFileSync(ghLog, 'utf8')
+    expect(ghCalls).toMatch(/gh release create comp\/v0\.8\.0/)
+    expect((ghCalls.match(/release create /g) ?? []).length).toBe(1)
   })
 })

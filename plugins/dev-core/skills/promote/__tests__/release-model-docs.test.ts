@@ -34,6 +34,14 @@ describe('promote docs — release.model contract (#371 S5 / N12,N13)', () => {
     expect(skill).toContain('workflow_dispatch')
   })
 
+  it('(e) narrows the trunk guard (B1) — create-PR path stays open, --finalize is refused', () => {
+    // The blanket "no /promote" no-op stranded a staging-keeping repo with no path
+    // to main (#371 B1). The create-PR path must be documented AND --finalize must
+    // be refused (single writer) — both grep-checkable so the narrowing cannot rot.
+    expect(skill).toContain('status=trunk_promote_pr')
+    expect(skill).toMatch(/--finalize[^\n]*(refus|does not apply)/i)
+  })
+
   it('stack.yml.example ships release.model defaulting to staging-train', () => {
     expect(example).toMatch(/^\s+model:\s+staging-train/m)
   })

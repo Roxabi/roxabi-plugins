@@ -151,7 +151,7 @@ release:
 
 | ID | Affordance | Content |
 |----|-----------|---------|
-| N12 | `SKILL.md` (promote) `release.model` section | (a) trunk requires merge-commits; (b) no `/promote` under trunk; (c) fires on every non-empty merge (D18); (d) `workflow_dispatch` recovery runbook |
+| N12 | `SKILL.md` (promote) `release.model` section | (a) trunk requires merge-commits; (b) no `/promote --finalize` under trunk — the create-PR path stays open while `staging` exists (`trunk_promote_pr`), pure-trunk no-ops (`trunk_mode`) [#371 B1]; (c) fires on every non-empty merge (D18); (d) `workflow_dispatch` recovery runbook |
 | N13 | `stack.yml.example` | `release.model` key + comment |
 
 **Dogfood affordances (roxabi-plugins) — must land in a SINGLE merge-to-main (atomicity)**
@@ -164,7 +164,7 @@ release:
 
 ## Out of Scope
 
-- **Executing roxabi-plugins' `main`-default + `staging` deletion** — separate follow-up, unblocked by this (frame Out-of-Scope). This spec swaps roxabi-plugins' *release automation* (release-please → auto-release) but does NOT flip the default branch. Safe because `/promote` merges to `main` already produce 2-parent merge-commits (auto-release cuts tags on them), and roxabi-plugins has no `release-consistency` ruleset yet (PR-path early-green is inert until one is provisioned).
+- **Executing roxabi-plugins' `main`-default + `staging` deletion** — separate follow-up, unblocked by this (frame Out-of-Scope). This spec swaps roxabi-plugins' *release automation* (release-please → auto-release) but does NOT flip the default branch. Safe because the trunk guard is **narrowed** (#371 B1): `/promote`'s create-PR path stays open while a `staging` branch exists (`status=trunk_promote_pr`), so a staging→main promotion still produces the 2-parent merge-commit that `auto-release.yml` tags on `push:main`; only `/promote --finalize` is refused under trunk (single writer). roxabi-plugins also has no `release-consistency` ruleset yet (PR-path early-green is inert until one is provisioned).
 - **Fleet distribution of `price.sh`/`finalize.ts` to non-plugins consumer repos** — the dogfood runs in roxabi-plugins where those scripts are in-repo; how factory/live/boilerplate obtain the deriver in trunk mode is a rollout concern for their opt-in, not #371.
 - **Auto-stamping version files** (bot-commit-back) — D4: deferred; hand-stamp via `check-skill-version` hook.
 - **Migrating any staging-train repo to trunk** — opt-in, per-repo, later.
@@ -212,7 +212,7 @@ Delivery is **sequential** (S6 depends on S1–S5); slices share one config cont
 - [ ] `/promote` (and `preflight.sh`) refuses/no-ops when `release.model==trunk`.
 
 **Docs**
-- [ ] `SKILL.md` `release.model` section is grep-checkable for all four concepts: merge-commit prerequisite, no-`/promote`-under-trunk, every-non-empty-merge (D18) granularity, `workflow_dispatch` recovery.
+- [ ] `SKILL.md` `release.model` section is grep-checkable for all four concepts: merge-commit prerequisite, no-`/promote --finalize`-under-trunk (create-PR path open via `trunk_promote_pr`, #371 B1), every-non-empty-merge (D18) granularity, `workflow_dispatch` recovery.
 
 **Dogfood + regression**
 - [ ] roxabi-plugins `.claude/stack.yml` sets `release.model: trunk` + `release.component: roxabi-plugins` + `version_files`; `auto-release.yml` committed; release-please trio deleted **in one merge**; `/checkup` green.

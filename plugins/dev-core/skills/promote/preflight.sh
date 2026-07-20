@@ -22,9 +22,24 @@ read_release_model() {
 }
 RELEASE_MODEL=$(read_release_model)
 if [ "${RELEASE_MODEL:-staging-train}" = "trunk" ]; then
-  echo "status=trunk_mode"
-  echo "release.model==trunk — /promote does not apply; releases fire at merge-to-main (auto-release.yml)."
-  exit 0
+  # Narrowed guard (#371 B1). Under trunk, auto-release.yml is the SOLE tagger at
+  # merge-to-main, so /promote must never tag — its --finalize step is refused
+  # (SKILL.md Step 9). But the staging→main *merge PR* never tags, and it is still
+  # how a repo that keeps a `staging` branch through the trunk transition gets
+  # commits onto main (where auto-release.yml then fires). So allow the create-PR
+  # flow when a staging branch exists; a pure trunk repo (no staging) has nothing
+  # to promote → clean no-op. Local ref check (no network) so it runs before the
+  # staging fetch below and stays deterministic under test.
+  if git rev-parse --verify --quiet refs/heads/staging >/dev/null 2>&1 \
+     || git rev-parse --verify --quiet refs/remotes/origin/staging >/dev/null 2>&1; then
+    echo "status=trunk_promote_pr"
+    echo "release.model==trunk — /promote opens the staging→main merge PR only; auto-release.yml tags on merge, and --finalize is refused (single writer)."
+    # fall through to the normal pre-flight below (fetch, commits-ahead, CI).
+  else
+    echo "status=trunk_mode"
+    echo "release.model==trunk with no staging branch — /promote does not apply; releases fire at merge-to-main (auto-release.yml)."
+    exit 0
+  fi
 fi
 
 # Branch names are intentionally hardcoded: promote always operates on the fixed

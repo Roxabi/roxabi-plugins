@@ -26,7 +26,9 @@ jobs:
       - name: Install actionlint (workflow schema gate)
         run: |
           set -euo pipefail
-          bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12 "${RUNNER_TEMP}/actionlint"
+          mkdir -p "${RUNNER_TEMP}/actionlint"
+          curl -sSfL https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            | tar xz -C "${RUNNER_TEMP}/actionlint" actionlint
           echo "${RUNNER_TEMP}/actionlint" >> "$GITHUB_PATH"
       - name: Test (vitest)
         run: bun run test
