@@ -60,7 +60,7 @@ Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI
 
 | Check | Condition | Action |
 |-------|-----------|--------|
-| Release mode (trunk + staging) | `status=trunk_promote_pr` | **Proceed.** Open the staging→main merge PR (Steps 2–8); `auto-release.yml` tags on merge. Do **not** run `--finalize` — Step 9 refuses it under trunk (single writer). See `## Trunk mode`. |
+| Release mode (trunk + staging) | `status=trunk_promote_pr` | **Proceed.** Open the staging→main merge PR — Step 1a runs the **Component check only** (the Gate-probe / Unfinalized-promote / Version-file guards are staging-train finalize invariants, skipped under trunk), then Steps 1b–8; `auto-release.yml` tags on merge. Do **not** run `--finalize` — Step 9 refuses it under trunk (single writer). See `## Trunk mode`. |
 | Release mode (trunk, no staging) | `status=trunk_mode` (`release.model==trunk`) | **REFUSE / no-op.** `/promote` does not apply — a pure trunk repo (no `staging` branch) releases at merge-to-main via `auto-release.yml`. Stop (see `## Trunk mode`). |
 | No commits | `commits_ahead=0` | **REFUSE.** Stop. |
 | Open PRs on σ | open_prs section non-empty | **WARN** + Q: **Continue** \| **Wait** |
@@ -71,6 +71,16 @@ Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI
 | Gate provisioned | `release-consistency` **required** on `main` ∧ zero bypass actors | **REFUSE** on a **protectable** repo where it is missing/bypassable (name `scripts/provision-release-gate.sh`); **WARN** if the repo is un-protectable (`403` — private, free plan, D17); `Branch not protected` → REFUSE-with-onboarding. |
 
 ### Step 1a — Release guards (S5/S6/S7/D8)
+
+**Trunk skip (`release.model: trunk`, #371 B1).** Under trunk the create-PR path opens a *plain* staging→main merge PR: there is **no pre-declared version** to validate, and `auto-release.yml` — with its own D3 loud-red guards — is the sole tagger on `push:main`. So the **Gate probe, Unfinalized-promote, and Version-file** checks below (all staging-train *finalize* invariants) are **SKIPPED**; only the **Component** check runs (`auto-release.sh` needs `release.component`). Detect and short-circuit before the staging-train guards:
+
+```bash
+MODEL=$(yq -r '.release.model // "staging-train"' .claude/stack.yml 2>/dev/null \
+  || { [ -f .claude/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".claude/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
+# → if MODEL=trunk: run ONLY the Component check below, then jump to Step 1b.
+#   (The promote-PR's version heading/title, computed in Steps 2–4, is COSMETIC under
+#    trunk — auto-release.sh re-derives the authoritative version from M^1..M at merge.)
+```
 
 **Component (S6/D13):**
 
@@ -274,7 +284,7 @@ Skip Steps 1-8. Post-merge only.
 
 ```bash
 MODEL=$(yq -r '.release.model // "staging-train"' .claude/stack.yml 2>/dev/null \
-  || python3 -c 'import sys,yaml;d=yaml.safe_load(open(".claude/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")')
+  || { [ -f .claude/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".claude/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
 [ "$MODEL" = trunk ] && { echo "REFUSE: release.model==trunk — auto-release.yml owns tag/release at merge-to-main; /promote --finalize does not apply."; exit 1; }
 ```
 

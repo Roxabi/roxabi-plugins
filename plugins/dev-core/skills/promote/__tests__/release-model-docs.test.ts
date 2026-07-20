@@ -42,6 +42,15 @@ describe('promote docs — release.model contract (#371 S5 / N12,N13)', () => {
     expect(skill).toMatch(/--finalize[^\n]*(refus|does not apply)/i)
   })
 
+  it('(f) Step 1a skips the staging-train finalize guards under trunk — Component only (B1 Risk 2)', () => {
+    // Without this, preflight opens the create-PR path but the Step 1a gate-probe
+    // hard-REFUSEs a protectable repo with no required release-consistency check —
+    // re-stranding the exact repo B1 unblocks. Grep-check the explicit skip.
+    expect(skill).toMatch(/Trunk skip/i)
+    expect(skill).toMatch(/Gate probe[\s\S]{0,140}SKIPPED/i)
+    expect(skill).toMatch(/Component[^\n]*check runs/i)
+  })
+
   it('stack.yml.example ships release.model defaulting to staging-train', () => {
     expect(example).toMatch(/^\s+model:\s+staging-train/m)
   })
