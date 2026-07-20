@@ -430,3 +430,53 @@ describe('auto-release.sh — annotated tag with no committer identity (#376)', 
     )
   })
 })
+
+// ─── W5 — cut-from-main invariant (FU-1) ───────────────────────────────────────
+//
+// auto-release.yml's `workflow_dispatch` carries no ref constraint, so before the
+// job-level `if: github.ref == refs/heads/main` guard a dispatch on any branch ran
+// this contents:write job with the App token against that branch's tip and could
+// publish a real tag + GitHub Release from unreviewed commits. The `if:` is the CI
+// control; auto-release.sh's ancestry check is the script-level echo for every
+// other caller. It REFUSEs only on a POSITIVE "not reachable from origin/main",
+// and is a deliberate no-op when origin/main is unresolvable (a full-history
+// checkout does not reliably populate remote-tracking refs) so it can never red a
+// legitimate release.
+
+describe('auto-release.sh — cut-from-main invariant (FU-1)', () => {
+  it('a 2-parent merge NOT reachable from origin/main → REFUSE (exit 1, nothing released)', () => {
+    const repo = initRepo()
+    const c0 = commit(repo, 'chore: init')
+    tag(repo, 'comp/v0.7.0')
+    // origin/main is pinned to the tagged init commit — it does NOT contain the
+    // rogue merge built below. update-ref (not push) so the exclusion is exact
+    // regardless of how a given git version mirrors push into remote-tracking refs.
+    git(repo, ['update-ref', 'refs/remotes/origin/main', c0])
+
+    git(repo, ['checkout', '-q', '-b', 'feature'])
+    commit(repo, 'feat: x')
+    git(repo, ['checkout', '-q', '-b', 'rogue', 'main']) // off main, at the init commit
+    const m = mergeNoFf(repo, 'feature', 'Merge feature') // 2-parent merge, lives only on rogue
+
+    // NOT --dry-run: the REFUSE must fire before any tag/push/gh. A regression that
+    // dropped the ancestry check would proceed to derive 0.8.0 and tag it here.
+    const { code, stderr } = autoRelease(repo, ['comp', m])
+    expect(code).toBe(1)
+    expect(stderr).toMatch(/not reachable from origin\/main/)
+    // Proof nothing was cut: the derived tag was never created.
+    expect(git(repo, ['tag', '-l', 'comp/v0.8.0'])).toBe('')
+  })
+
+  it('origin/main unresolvable → ancestry guard is a no-op, never reds a release (dry-run)', () => {
+    const repo = initRepo()
+    commit(repo, 'chore: init') // no tag → first-release path; no origin/main ref set
+    git(repo, ['checkout', '-q', '-b', 'feature'])
+    commit(repo, 'feat: x')
+    git(repo, ['checkout', '-q', 'main'])
+    const m = mergeNoFf(repo, 'feature', 'Merge feature')
+
+    const { code, stderr } = autoRelease(repo, ['--dry-run', 'comp', m])
+    expect(code).toBe(0)
+    expect(stderr).not.toMatch(/not reachable from origin\/main/)
+  })
+})
