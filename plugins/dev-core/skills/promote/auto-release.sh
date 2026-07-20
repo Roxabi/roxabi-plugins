@@ -50,6 +50,21 @@ if [ "$PARENT_COUNT" -ne 2 ]; then
   exit 1
 fi
 
+# ── Cut-from-main invariant (FU-1): a release must be reachable from main. ──
+# The generated workflow's job-level `if: github.ref == refs/heads/main` already
+# blocks a dispatch on any other ref in CI; this is the script-level echo of the
+# same invariant for every other caller (a local run, a future workflow that
+# forgets the guard). Only REFUSE on a POSITIVE "not an ancestor": a full-history
+# checkout does not reliably populate refs/remotes/origin/*, so when origin/main
+# is unresolvable we SKIP rather than red a legitimate release — the workflow
+# fetches it (and the `if:` gate stands regardless).
+if git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+  if ! git merge-base --is-ancestor "$M" origin/main; then
+    echo "REFUSE: $M is not reachable from origin/main — releases are cut from main only (FU-1)." >&2
+    exit 1
+  fi
+fi
+
 # ── Derive DERIVED + BASE — BOTH from price.sh, the sole deriver (D10). ──
 # --base-only reuses the deriver's own floor predicate so the gate and this
 # orchestrator never diverge from a second copy.

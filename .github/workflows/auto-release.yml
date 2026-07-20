@@ -27,6 +27,14 @@ concurrency:
 jobs:
   auto-release:
     name: Tag + release on merge to main
+    # Releases are cut from main ONLY. `workflow_dispatch` above carries no ref
+    # constraint, so a dispatch on any other ref (`gh workflow run … --ref X`, or
+    # the Actions-tab branch picker) would otherwise run this contents:write job
+    # with the App token against X's tip and publish a real tag + GitHub Release
+    # from unreviewed commits. `github.ref` is the dispatched ref, so this skips
+    # every non-main dispatch while still firing on the push-to-main trigger and
+    # on a deliberate manual re-run against main (FU-1).
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
