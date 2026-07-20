@@ -17,6 +17,7 @@ const { parseStackYml } = require('../../../hooks/lib/parse-stack-yml.cjs') as {
     testingUnit: string | null
     testingE2e: string | null
     ciMerge: string | null
+    release: { model: string | null; component: string | null } | null
   }
 }
 
@@ -140,5 +141,40 @@ deploy:
     const result = parseStackYml(text)
     expect(result.formatters).not.toBeNull()
     expect(result.formatters?.[0].ext).toBeNull()
+  })
+})
+
+describe('parseStackYml — release block (Model B / #371)', () => {
+  it('parses release.model and release.component from a top-level release: block', () => {
+    const text = `runtime: bun
+release:
+  model: trunk
+  component: roxabi-plugins
+`
+    expect(parseStackYml(text).release).toEqual({ model: 'trunk', component: 'roxabi-plugins' })
+  })
+
+  it('parses model: staging-train', () => {
+    const text = 'release:\n  model: staging-train\n  component: roxabi-factory\n'
+    expect(parseStackYml(text).release).toEqual({ model: 'staging-train', component: 'roxabi-factory' })
+  })
+
+  it('release is null when no release: block is present', () => {
+    expect(parseStackYml('runtime: bun\n').release).toBeNull()
+  })
+
+  it('model is null when the key is absent inside a release: block (consumer defaults to staging-train)', () => {
+    const result = parseStackYml('release:\n  component: foo\n')
+    expect(result.release?.model).toBeNull()
+    expect(result.release?.component).toBe('foo')
+  })
+
+  it('does not confuse a nested key named component elsewhere for release.component', () => {
+    const text = 'release:\n  model: trunk\n  component: roxabi-plugins\ndeploy:\n  platform: none\n'
+    expect(parseStackYml(text).release).toEqual({ model: 'trunk', component: 'roxabi-plugins' })
+  })
+
+  it('release is null for null input', () => {
+    expect(parseStackYml(null).release).toBeNull()
   })
 })

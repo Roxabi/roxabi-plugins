@@ -1,0 +1,219 @@
+---
+title: "Source-agnostic /promote (Model B) — trunk release.model + generated auto-release workflow"
+issue: 371
+status: approved
+tier: F-full
+date: 2026-07-19
+promoted_from: artifacts/analyses/371-source-agnostic-promote-analysis.mdx
+---
+
+## Context
+
+**Source:** `[[dev-core-promote-source-agnostic-model-b]]` (decided 2026-07-18, Mickael) → frame `artifacts/frames/371-source-agnostic-promote-frame.mdx` → analysis `artifacts/analyses/371-source-agnostic-promote-analysis.mdx` (RECOMMENDED Shape 3, revised). Decisions **D1–D4 locked** (analysis §"Decisions resolved", 2026-07-19). Expert-reviewed by dev-core architect + devops + product-lead + doc-writer (2026-07-19); their source-proven findings are folded into the W-steps, criteria, and the new §"Out of Scope" and guard affordance below.
+
+The version **derivation is already source-agnostic** post-#353/#370: `price.sh COMPONENT ANCHOR HEAD…` (sole deriver, reads no branch name), `finalize.ts::classifyFinalize` (pure classifier, `isPromote` is a bool, witnesses WARN-only), and `release-consistency.yml`'s push path (floor check). The `staging→main` train lives in three thin **policy** sites: `preflight.sh` (hardcoded `staging`), `release-consistency.yml` **PR path** (`head==staging` early-green gate), `SKILL.md` step 9b (`isPromote` from `head=staging` PR). This spec adds a **trunk** mode alongside staging-train without altering the shared deriver/classifier — a per-repo generated workflow re-runs the *same* derive→classify→act core on `push:main`.
+
+**Notation** (used throughout):
+- `M` — the merge commit pushed to `main` (`${{ github.sha }}` on `push:main`).
+- `M^1` — first parent of `M` (the `main` tip before the merge).
+- `COMPONENT` — `release.component` from stack.yml (tag namespace `<COMPONENT>/v*`).
+- `DERIVED` — `price.sh COMPONENT M^1 M` (next version); on `price.sh` exit 10 (first release) → `0.1.0`.
+- `BASE` — `price.sh --base-only COMPONENT M^1` (tag floor); `""` on first release.
+- `parentCount` — `$(( $(git rev-list --parents -n1 M | wc -w) - 1 ))` (2 for a merge commit).
+
+**Decision references** (from #353 / analysis; inlined so this spec reads standalone):
+| Ref | Meaning |
+|---|---|
+| D7 | witnesses (PR title / CHANGELOG / version-file) are WARN-only, never a REFUSE cause in `finalize`. |
+| D9 | release-consistency **PR path** gates promote PRs (`head==staging` three-way witness check). |
+| D13 | `release.component` is required config; the gate REFUSEs if missing. |
+| D14 | release-consistency **push path** floor: `version_files ≥ max reachable <component>/v*` tag. |
+| D16 | idempotence is per-artifact: tag & release reconciled independently; points-elsewhere = drift REFUSE. |
+| D18 | every non-`feat` conventional type → patch bump ⇒ a release fires on **every non-empty** merge. |
+
+## Goal
+
+A repo sets `release.model: trunk` and gets correct `<component>/vX.Y.Z` tags + GitHub releases automatically on merge-to-main, while every staging-train repo releases with **zero** behavioral change and exactly one automation writes each repo's tags.
+
+## Users
+
+- **Primary:** maintainer of any repo wanting trunk-based flow (roxabi-plugins first — the dogfood).
+- **Secondary:** the 10-repo staging-train fleet (`roxabi-factory`, `roxabi-live`, `roxabi-boilerplate`, …) — must keep releasing unchanged via the `staging-train` default; downstream `<component>/vX.Y.Z` tag consumers (`[tool.uv.sources]` pins, `on: push: tags` builds in voiceCLI/llmCLI/imageCLI).
+
+## Expected Behavior
+
+**staging-train (default, unchanged):**
+```
+feature PR → staging → /promote → PR(head=staging→main) → [PR-path 3-way gate] → merge
+   → /promote --finalize → tag <comp>/vX.Y.Z + gh release
+```
+`/promote`, `preflight.sh`, the PR-path three-way witness gate, and `finalize.ts` stay behaviorally unchanged; existing gate-test fixtures produce identical pass/fail outcomes.
+
+**trunk (`release.model: trunk`, release-please retired, `/promote` guarded off):**
+```
+feature PR → [PR-path: model==trunk → early-green ALL PRs] → MERGE-COMMIT to main
+   ── push:main ──▶ auto-release.yml  (concurrency: group per-ref, queue:max)
+        checkout(fetch-depth:0, App token) → fetch --tags → run the SHARED 9b core with M=github.sha, isPromote=true:
+          parentCount(M)=2 ∧ DERIVED ≠ BASE → finalize.ts(--is-promote true, witnesses empty)
+            → reconcile loop: git push tag <comp>/vX.Y.Z + gh release create (idempotent, per-artifact, D16)
+        (push-path D14 floor still guards version_files ≥ tag, post-merge)
+```
+
+Edge behaviors (all fixture-verified):
+- **1-parent merge** (squash / fast-forward): `finalize` REFUSEs (`parentCount≠2`, distinguished from other refuses by reason) → job **exits non-zero (loud red)**, no tag. Merge-commit is a documented+checked trunk prerequisite.
+- **Empty payload** (`DERIVED == BASE`, no conventional-commit delta): short-circuit **before** `finalize` → **green no-op**, no tag.
+- **Drift** (`finalize` REFUSEs because an existing tag/release points at ≠ M, D16): **loud red** (NOT greened — distinct from empty).
+- **First release** (`price.sh` exit 10): `DERIVED = 0.1.0`, `BASE = ""`, `finalize` called with `|| true` guard.
+- **Concurrent merges:** `concurrency: { group: auto-release-${{ github.ref }}, cancel-in-progress: false, queue: max }` — pending runs queue FIFO (do **not** collapse to one); each non-empty merge gets its own release.
+- **Partial failure** (tag pushed, `gh release create` fails): the per-artifact reconcile loop retries within the run; if the run still dies, `workflow_dispatch` re-runs it (idempotent — `finalize` sees `tagState=points-at-M, releaseState=absent` → `create-release`).
+
+## Data Model & Consumers
+
+*(Forge-chart sidecars deferred — forge generator not wired this session; data model + consumer table in text.)*
+
+**New config surface** (`.claude/stack.yml`):
+```yaml
+release:
+  component: <name>            # existing runtime key (read_component in release-consistency.yml, D13)
+  model: staging-train | trunk # NEW. default: staging-train. trunk ⇒ auto-release on merge-to-main
+  version_files: [ ... ]       # existing — floor check unchanged
+```
+
+**New in-code plumbing** (net-new on the TypeScript side — no `release` field exists today in `parse-stack-yml.cjs`, `StackInfo`, or `WorkflowOpts`):
+- `WorkflowOpts.release?: { model: 'staging-train' | 'trunk'; component: string }` (workflow-types.ts); `normalizeWorkflowOpts` must default it to `{ model: 'staging-train', component: '' }` so `Required<WorkflowOpts>` holds.
+- `workflowOptsFromStack` reads `stack.release` → passes through.
+- `StackInfo` (checkup `doctor-shared.ts`) + `parse-stack-yml.cjs` gain a `release` passthrough for the `/checkup` drift checks.
+- Name must not collide with the existing unused `release.class` (stack.yml.example:72).
+
+**Consumer summary:**
+
+| Consumer | Reads | When | Effect | Status |
+|---|---|---|---|---|
+| `workflowOptsFromStack` | `release.model`, `release.component` | generator time (`/init`, `/ci-setup`, `/checkup`) | selects whether `auto-release.yml` is provisioned | this issue |
+| `generateAutoReleaseYml(opts)` | `release.component` | generator time | **bakes** COMPONENT into the workflow (hermetic; no runtime config reader) | this issue |
+| `workflow-push.ts` writer array | `release.model==trunk` | `/init` write | emits `auto-release.yml` for trunk repos | this issue |
+| generated `auto-release.yml` | git objects (M, M^1), tags, existing tag/release state | `push:main` / `workflow_dispatch` runtime | derive → classify → reconcile tag+release | this issue |
+| `release-consistency.yml` PR-path | `release.model` (new `read_model()`) | PR runtime | `trunk` → early-green all PRs | this issue |
+| `release-consistency.yml` push-path | `release.component`, `version_files` | `push:main` runtime | floor check `version_files ≥ tag` (unchanged) | existing |
+| `/checkup` `workflow-drift.ts` | `release.model`, presence of release-please + auto-release | checkup runtime | bespoke `fail` on collision / missing-or-drifted workflow | this issue |
+| `/promote` skill + `preflight.sh` | `release.model` (new guard) | promote runtime | `trunk` → refuse/no-op (prevents double-writer) | this issue |
+
+## Breadboard
+
+**Config affordances**
+
+| ID | Affordance | Reader → handler | Data/effect |
+|----|-----------|------------------|-------------|
+| N1 | `release.model` key | `workflowOptsFromStack` → `WorkflowOpts.release.model` | mode selector; default `staging-train` |
+| N2 | `release.component` key | `read_component()` (existing, release-consistency bash) + generator (baked) | tag namespace `<component>/v*` |
+| N3 | `WorkflowOpts.release` field (+ `normalizeWorkflowOpts` default, `StackInfo`/parser passthrough) | workflow-types.ts + doctor-shared.ts + parse-stack-yml.cjs | net-new TS plumbing threading config → generators + checkup |
+
+**Generator affordances**
+
+| ID | Affordance | Input → output | Notes |
+|----|-----------|----------------|-------|
+| N4 | `generateAutoReleaseYml(opts)` | `WorkflowOpts` → YAML string | per-repo committed workflow (sibling to `generateAutoMergeYml`); NOT `workflow_call` reusable; COMPONENT baked at generate-time |
+| N5 | dev-init copy-sync of N4 | dev-core canonical → dev-init `@generated` copy | byte-equal, gated by `validate_plugins.py --check shared-sources-sync`; entry in `tools/shared-sources.json` + biome overrides set-equality |
+| N6 | `emitAppMintStep()` reuse | `APP_MINT_STEP` → mint step YAML | SHA-pinned roxabi-ci App; token so pushed tag re-triggers downstream `on: push: tags` builds |
+| N18 | wire N4 into `workflow-push.ts` writer array | `release.model==trunk` → write `auto-release.yml` | so `/init`/`/ci-setup` provision it (2nd copy-synced file); makes N11 self-healable |
+
+**Design constraint (from architect + #353 invariant):** the generated workflow must **reuse the SKILL.md 9b derive→classify→act core** (parentCount, `price.sh` calls, `finalize.ts`, per-artifact reconcile loop) — NOT re-implement it inline. Extraction mechanism (shared script the workflow invokes vs. thin generated wrapper) is a `/plan` decision, but there must be **no second copy** of the derive/classify/reconcile logic. Only the *entry* differs from 9b: `M = github.sha` (not `gh pr list --head staging`) and `isPromote = true` unconditionally.
+
+**Generated-workflow steps (inside N4 output)**
+
+| ID | Step | Behavior (corrected against SKILL.md 9b + release-consistency.yml scar comments) |
+|----|------|------|
+| W1 | `on: { push: { branches: [main] }, workflow_dispatch: {} }` | trigger + manual re-run for partial-failure recovery |
+| W2 | `permissions: contents: write` + `concurrency: { group: auto-release-${{ github.ref }}, cancel-in-progress: false, queue: max }` | write authority; FIFO queue so bursts never drop a pending release |
+| W3 | mint app token (N6) — **before checkout** | `${{ steps.app.outputs.token }}` |
+| W4 | `actions/checkout@<pin>` with `fetch-depth: 0` + `token: ${{ steps.app.outputs.token }}`, then `git fetch --tags` | full history + tags so `price.sh select_base` doesn't starve → regressive `v0.1.0` (release-consistency.yml:44-59 scar) |
+| W5 | derive | `M=${{ github.sha }}`; `PC=$(( $(git rev-list --parents -n1 "$M" | wc -w) - 1 ))`; `DERIVED=price.sh COMPONENT M^1 M` (RC 10 → `DERIVED=0.1.0; BASE=""`), else `BASE=price.sh --base-only COMPONENT M^1`; hard price.sh error (RC≥1 ∧ ≠10) → exit 1 |
+| W6 | classify + act (reuses 9b core) | short-circuit **empty** first: `[ "$DERIVED" = "$BASE" ] → green exit 0, no tag`. Else `finalize.ts --parent-count $PC --is-promote true --derived $DERIVED --base $BASE --witness-title '' --witness-heading '' --witness-file '' --tag-state <derived-state> --release-state <derived-state>` (`\|\| true` to read verdict on refuse) → `action=tag/create-release/noop` acts; `action=refuse` (parentCount≠2 OR drift) → **exit 1 (loud red)** |
+| W7 | per-artifact reconcile loop (`for _ in 1 2 3`) | re-invoke finalize after each act (D16 idempotence) so a mid-run failure converges; tagState/releaseState derived via `git rev-list -n1 <tag>` + `gh release view` |
+
+**Gate affordances (`release-consistency.yml`)**
+
+| ID | Affordance | Change |
+|----|-----------|--------|
+| N7 | `read_model()` helper (mirrors `read_component`) | new; reads `.release.model` (default `staging-train`) |
+| N8 | PR-path trunk early-green | above the `head==staging` check (line ~118): `if model==trunk → early green ALL PRs` |
+| N9 | push-path floor check | **unchanged** — still guards `version_files ≥ tag` in trunk |
+
+**Guard affordances (prevent double-writer under trunk)**
+
+| ID | Affordance | Rule |
+|----|-----------|------|
+| N10 | `/checkup` release-please collision check (`workflow-drift.ts`, bespoke `fail`) | `model==trunk ∧ release-please.yml present → FAIL` |
+| N11 | `/checkup` missing/drifted auto-release check (bespoke `fail`, outside warn-only digest loop) | `model==trunk ∧ (auto-release.yml absent ∨ ≠ generateAutoReleaseYml output) → FAIL` |
+| N17 | `/promote` + `preflight.sh` refuse under trunk | `release.model==trunk` → `/promote` refuses/no-ops (auto-release owns releases; symmetric to release-please retirement) |
+
+**Docs affordances**
+
+| ID | Affordance | Content |
+|----|-----------|---------|
+| N12 | `SKILL.md` (promote) `release.model` section | (a) trunk requires merge-commits; (b) no `/promote --finalize` under trunk — the create-PR path stays open while `staging` exists (`trunk_promote_pr`), pure-trunk no-ops (`trunk_mode`) [#371 B1]; (c) fires on every non-empty merge (D18); (d) `workflow_dispatch` recovery runbook |
+| N13 | `stack.yml.example` | `release.model` key + comment |
+
+**Dogfood affordances (roxabi-plugins) — must land in a SINGLE merge-to-main (atomicity)**
+
+| ID | Affordance | Action |
+|----|-----------|--------|
+| N14 | `.claude/stack.yml` | add `release.model: trunk` + `release.component: roxabi-plugins` + `version_files: [plugins/dev-core/.claude-plugin/plugin.json]` (D4 hand-stamp floor) |
+| N15 | `auto-release.yml` | generate + commit |
+| N16 | release-please trio | delete `release-please.yml` + `release-please-config.json` + `.release-please-manifest.json` |
+
+## Out of Scope
+
+- **Executing roxabi-plugins' `main`-default + `staging` deletion** — separate follow-up, unblocked by this (frame Out-of-Scope). This spec swaps roxabi-plugins' *release automation* (release-please → auto-release) but does NOT flip the default branch. Safe because the trunk guard is **narrowed** (#371 B1): `/promote`'s create-PR path stays open while a `staging` branch exists (`status=trunk_promote_pr`), so a staging→main promotion still produces the 2-parent merge-commit that `auto-release.yml` tags on `push:main`; only `/promote --finalize` is refused under trunk (single writer). roxabi-plugins also has no `release-consistency` ruleset yet (PR-path early-green is inert until one is provisioned).
+- **Fleet distribution of `price.sh`/`finalize.ts` to non-plugins consumer repos** — the dogfood runs in roxabi-plugins where those scripts are in-repo; how factory/live/boilerplate obtain the deriver in trunk mode is a rollout concern for their opt-in, not #371.
+- **Auto-stamping version files** (bot-commit-back) — D4: deferred; hand-stamp via `check-skill-version` hook.
+- **Migrating any staging-train repo to trunk** — opt-in, per-repo, later.
+
+## Slices
+
+| # | Slice | Affordances | Demo-able increment |
+|---|-------|-------------|---------------------|
+| S1 | Config schema + TS plumbing | N1, N2, N3 | stack with `release.model: trunk` parses through parser→`StackInfo`→`WorkflowOpts.release` (default `staging-train`); unit test |
+| S2 | Auto-release generator | N4, N5, N6, N18, W1–W7 | `generateAutoReleaseYml(trunk)` snapshot; derivation fixtures: 2-parent→tag, 1-parent→exit1, empty→green-noop, drift→exit1, first→0.1.0; copy-sync byte-equal; wired into workflow-push writer |
+| S3 | PR-path trunk guard | N7, N8, N9 | gate test: `model==trunk` PR → early green; `staging-train` fixtures unchanged |
+| S4 | Double-writer guards | N10, N11, N17 | `/checkup` fails on release-please-present + auto-release-absent/drifted; `/promote` refuses when `model==trunk` |
+| S5 | Docs | N12, N13 | SKILL.md `release.model` section (grep-checkable: merge-commit / no-promote / every-non-empty-merge / recovery); example has key |
+| S6 | Dogfood swap (single atomic merge) | N14, N15, N16 | roxabi-plugins on `trunk` with `auto-release.yml`, release-please trio gone, `/checkup` green |
+
+Delivery is **sequential** (S6 depends on S1–S5); slices share one config contract + test harness. Smart-split (criteria>8 ∨ slices>3 fires) → **recommend Skip** (tightly coupled; S6 is the dogfood falsification of the tooling). S6-as-child-issue is an option to raise at the gate (product-lead flagged the 6-domain spread).
+
+## Success Criteria
+
+**Config + plumbing**
+- [ ] `release.model` added to stack.yml schema + `.example`; default `staging-train`; threads parser → `StackInfo` → `workflowOptsFromStack` → `WorkflowOpts.release`; `normalizeWorkflowOpts` supplies a default so `Required<WorkflowOpts>` holds.
+
+**Generator**
+- [ ] `generateAutoReleaseYml(opts)` exists in dev-core generators, copy-synced **byte-equal** to dev-init (`validate_plugins.py --check shared-sources-sync` green; `tools/shared-sources.json` + biome overrides set-equality holds).
+- [ ] Generated workflow contains: `on: push:[main]` **and** `workflow_dispatch`; `permissions: contents: write`; `concurrency` with `cancel-in-progress: false` **and** `queue: max`; mint-App-token step **before** `actions/checkout` with `fetch-depth: 0` + `token: ${{ steps.app.outputs.token }}` + `git fetch --tags`.
+- [ ] Generated workflow computes `parentCount` via `$(( $(git rev-list --parents -n1 M | wc -w) - 1 ))` (NOT `--count --parents`), `DERIVED=price.sh COMPONENT M^1 M`, `BASE=price.sh --base-only COMPONENT M^1`, and reuses `finalize.ts` (no second copy of the derive/classify/reconcile logic).
+- [ ] COMPONENT is **baked** at generate-time (no runtime `yq`/`python3` config read inside the YAML).
+- [ ] N4 is wired into the `workflow-push.ts` writer array so `/init`/`/ci-setup` emit `auto-release.yml` when `release.model==trunk`.
+
+**Runtime fixtures**
+- [ ] 2-parent merge, `DERIVED≠BASE` → tag `<component>/vX.Y.Z` pushed + `gh release create` invoked.
+- [ ] 1-parent (squash/FF) merge → job exits non-zero (loud red), no tag pushed.
+- [ ] Empty payload (`DERIVED==BASE`) → green exit 0, no tag pushed (short-circuited before finalize).
+- [ ] Drift (existing tag/release points ≠ M) → `finalize` refuse → job exits non-zero (NOT greened).
+- [ ] First release (`price.sh` exit 10) → `DERIVED==0.1.0`, `BASE==""`, finalize called with `|| true`.
+- [ ] Partial-failure: run with tag present + release absent → reconcile loop / `workflow_dispatch` re-run creates the release (idempotent, no duplicate tag).
+
+**Gate**
+- [ ] `release-consistency.yml` PR path: `model==trunk` → early-green all PRs; `staging-train` path behaviorally unchanged (existing gate fixtures produce identical outcomes).
+- [ ] `release-consistency.yml` push-path floor check unchanged and still passes in trunk mode.
+
+**Guards**
+- [ ] `/checkup` fails when `release.model==trunk ∧ release-please.yml present`.
+- [ ] `/checkup` fails when `release.model==trunk ∧ auto-release.yml absent or drifted` (bespoke `fail`, not warn).
+- [ ] `/promote` (and `preflight.sh`) refuses/no-ops when `release.model==trunk`.
+
+**Docs**
+- [ ] `SKILL.md` `release.model` section is grep-checkable for all four concepts: merge-commit prerequisite, no-`/promote --finalize`-under-trunk (create-PR path open via `trunk_promote_pr`, #371 B1), every-non-empty-merge (D18) granularity, `workflow_dispatch` recovery.
+
+**Dogfood + regression**
+- [ ] roxabi-plugins `.claude/stack.yml` sets `release.model: trunk` + `release.component: roxabi-plugins` + `version_files`; `auto-release.yml` committed; release-please trio deleted **in one merge**; `/checkup` green.
+- [ ] Full existing test suite (vitest + shell fixtures) passes unchanged — no regression to the staging-train path.

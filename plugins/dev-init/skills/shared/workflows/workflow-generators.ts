@@ -159,6 +159,87 @@ ${APP_MINT_STEP}
 `
 }
 
+/**
+ * Trunk-mode release workflow (Model B — #371). Fires on every merge to `main`,
+ * derives the next `<component>/vX.Y.Z` from the conventional commits since the
+ * last reachable tag, and creates the tag + GitHub Release. An empty payload (no
+ * version-bumping commit) is a green no-op; a stray 1-parent push is loud-red.
+ *
+ * THIN by design: the whole derive → classify → reconcile core lives in
+ * `plugins/dev-core/skills/promote/auto-release.sh`, which this workflow only
+ * sets up an environment for and invokes. There is deliberately no second copy
+ * of that logic here — /checkup diffs the committed workflow against this
+ * generator (N11), so the file stays stable. COMPONENT is baked at generate-time
+ * from `release.component`. Sibling of generateAutoMergeYml (shared mint step).
+ */
+export function generateAutoReleaseYml(opts: WorkflowOpts): string {
+  const component = normalizeWorkflowOpts(opts).release.component
+  // Trunk mode bakes COMPONENT into a `contents: write` workflow. An empty
+  // component would arg-shift the SHA into $1 (auto-release.sh would derive
+  // <sha>/v0.1.0 and push it — no upstream check catches it, B3); a component
+  // carrying shell metacharacters would inject into the `run:` step across the
+  // fleet. Fail loud at generate-time — never emit a broken/unsafe workflow.
+  if (!/^[A-Za-z0-9._-]+$/.test(component)) {
+    throw new Error(
+      `generateAutoReleaseYml: release.component must match /^[A-Za-z0-9._-]+$/ (got ${JSON.stringify(
+        component,
+      )}). Set release.component in .claude/stack.yml before enabling trunk mode.`,
+    )
+  }
+  return `# Auto-release on merge to main (trunk mode, Model B — dev-core #371).
+# Derives <component>/vX.Y.Z from the conventional commits since the last
+# reachable tag, then tags + creates a GitHub Release. Fires on EVERY merge;
+# a merge with no version-bumping commit is a green no-op.
+#
+# THIN wrapper — every derivation/classification/reconcile step lives in
+# plugins/dev-core/skills/promote/auto-release.sh. Never inline that logic here:
+# /checkup diffs this file against the generator output (N11), so it must stay
+# byte-stable. Regenerate with /ci-setup after a dev-core bump, never hand-edit.
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# FIFO queue: never interrupt a release in progress, never drop a pending one.
+# cancel-in-progress:false + queue:max queues bursts of merges (up to 100).
+concurrency:
+  group: auto-release-\${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  auto-release:
+    name: Tag + release on merge to main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+${APP_MINT_STEP}
+
+      # Full history + tags with the App token, so the tag-reachability floor is
+      # never starved into a regressive v0.1.0 (release-consistency.yml scar).
+      - uses: ${ACTION_PINS.checkout}
+        with:
+          fetch-depth: 0
+          token: \${{ steps.app.outputs.token }}
+
+      - name: Fetch all tags
+        run: git fetch --tags --force
+
+      - uses: ${ACTION_PINS.setupBun}
+
+      - name: Derive + tag + release (merge to main)
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+          COMPONENT: ${component}
+        run: bash plugins/dev-core/skills/promote/auto-release.sh "$COMPONENT" "\${{ github.sha }}"
+`
+}
+
 /** Generic PR title validator — enforces Conventional Commits format. */
 export function generatePrTitleYml(): string {
   return `name: PR Title
@@ -427,6 +508,8 @@ export function workflowOptsFromStack(stack: {
   e2e?: string
   commands?: { lint?: string; typecheck?: string; test?: string }
   merge?: 'auto-merge' | 'merge-on-green'
+  /** release.model + release.component (#371). Only `trunk` activates trunk mode. */
+  release?: { model?: string; component?: string }
 }): WorkflowOpts {
   const runtime = (stack.runtime ?? 'bun') as WorkflowOpts['stack']
   const unit = stack.unit ?? (stack.test && !stack.commands?.test ? stack.test : undefined)
@@ -437,6 +520,12 @@ export function workflowOptsFromStack(stack: {
   const platform = stack.deployPlatform ?? ''
   if (platform === 'vercel') deploy = 'vercel'
   else if (platform.startsWith('cloudflare')) deploy = 'cloudflare'
+  const release = stack.release
+    ? {
+        model: (stack.release.model === 'trunk' ? 'trunk' : 'staging-train') as 'trunk' | 'staging-train',
+        component: stack.release.component ?? '',
+      }
+    : undefined
   return normalizeWorkflowOpts({
     stack: runtime === 'python' || runtime === 'node' ? runtime : 'bun',
     test,
@@ -446,5 +535,6 @@ export function workflowOptsFromStack(stack: {
     e2e: stack.e2e === 'playwright' ? 'playwright' : 'none',
     lint: Boolean(stack.commands?.lint),
     typecheck: Boolean(stack.commands?.typecheck),
+    release,
   })
 }

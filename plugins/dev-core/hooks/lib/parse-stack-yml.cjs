@@ -231,6 +231,39 @@ function parseCiMerge(text) {
 }
 
 /**
+ * Parse the top-level `release:` block from stack.yml text (Model B / #371).
+ *
+ * Expected shape:
+ *
+ *   release:
+ *     model: trunk            # 'staging-train' (default) | 'trunk'
+ *     component: roxabi-plugins
+ *
+ * Block-scoped to the top-level `release:` key (same slice-to-next-top-level
+ * strategy as parseCiMerge / parseTestingKey). Returns null when the block is
+ * absent. `model` / `component` are null when their key is absent inside the
+ * block — the release-mode default (staging-train) is applied by consumers, so
+ * that `trunk` must be set explicitly to activate the new behavior.
+ *
+ * @param {string} text
+ * @returns {{model: string|null, component: string|null}|null}
+ */
+function parseRelease(text) {
+  if (!text) return null
+  const section = text.match(/^release:\s*$/m)
+  if (!section) return null
+  const after = text.slice(section.index + 'release:'.length)
+  const nextTop = after.match(/\n\S/)
+  const block = nextTop ? after.slice(0, nextTop.index) : after
+  const modelMatch = block.match(/^\s+model:\s*(\S+)/m)
+  const componentMatch = block.match(/^\s+component:\s*(\S+)/m)
+  return {
+    model: modelMatch ? modelMatch[1] : null,
+    component: componentMatch ? componentMatch[1] : null,
+  }
+}
+
+/**
  * Parse the `standards:` section from stack.yml text.
  * Returns a Record<string, string> mapping standard key → path,
  * or null when the section is absent or empty.
@@ -282,7 +315,8 @@ function parseStandards(text) {
  *   commands: {lint: string|null, typecheck: string|null, test: string|null},
  *   testingUnit: string|null,
  *   testingE2e: string|null,
- *   ciMerge: string|null
+ *   ciMerge: string|null,
+ *   release: {model: string|null, component: string|null}|null
  * }}
  */
 function parseStackYml(text) {
@@ -302,6 +336,7 @@ function parseStackYml(text) {
     testingUnit: parseTestingUnit(text),
     testingE2e: parseTestingE2e(text),
     ciMerge: parseCiMerge(text),
+    release: parseRelease(text),
   }
 }
 
@@ -318,4 +353,5 @@ module.exports = {
   parseTestingUnit,
   parseTestingE2e,
   parseCiMerge,
+  parseRelease,
 }

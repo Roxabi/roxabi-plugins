@@ -60,6 +60,8 @@ Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI
 
 | Check | Condition | Action |
 |-------|-----------|--------|
+| Release mode (trunk + staging) | `status=trunk_promote_pr` | **Proceed.** Open the staging→main merge PR — Step 1a runs the **Component check only** (the Gate-probe / Unfinalized-promote / Version-file guards are staging-train finalize invariants, skipped under trunk), then Steps 1b–8; `auto-release.yml` tags on merge. Do **not** run `--finalize` — Step 9 refuses it under trunk (single writer). See `## Trunk mode`. |
+| Release mode (trunk, no staging) | `status=trunk_mode` (`release.model==trunk`) | **REFUSE / no-op.** `/promote` does not apply — a pure trunk repo (no `staging` branch) releases at merge-to-main via `auto-release.yml`. Stop (see `## Trunk mode`). |
 | No commits | `commits_ahead=0` | **REFUSE.** Stop. |
 | Open PRs on σ | open_prs section non-empty | **WARN** + Q: **Continue** \| **Wait** |
 | CI status | ci section | **WARN** if ¬passing |
@@ -69,6 +71,16 @@ Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI
 | Gate provisioned | `release-consistency` **required** on `main` ∧ zero bypass actors | **REFUSE** on a **protectable** repo where it is missing/bypassable (name `scripts/provision-release-gate.sh`); **WARN** if the repo is un-protectable (`403` — private, free plan, D17); `Branch not protected` → REFUSE-with-onboarding. |
 
 ### Step 1a — Release guards (S5/S6/S7/D8)
+
+**Trunk skip (`release.model: trunk`, #371 B1).** Under trunk the create-PR path opens a *plain* staging→main merge PR: there is **no pre-declared version** to validate, and `auto-release.yml` — with its own D3 loud-red guards — is the sole tagger on `push:main`. So the **Gate probe, Unfinalized-promote, and Version-file** checks below (all staging-train *finalize* invariants) are **SKIPPED**; only the **Component** check runs (`auto-release.sh` needs `release.component`). Detect and short-circuit before the staging-train guards:
+
+```bash
+MODEL=$(yq -r '.release.model // "staging-train"' .claude/stack.yml 2>/dev/null \
+  || { [ -f .claude/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".claude/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
+# → if MODEL=trunk: run ONLY the Component check below, then jump to Step 1b.
+#   (The promote-PR's version heading/title, computed in Steps 2–4, is COSMETIC under
+#    trunk — auto-release.sh re-derives the authoritative version from M^1..M at merge.)
+```
 
 **Component (S6/D13):**
 
@@ -268,6 +280,14 @@ After merge:
 
 Skip Steps 1-8. Post-merge only.
 
+**9.0 Trunk guard (#371 B1).** `/promote --finalize` is the *staging-train* tagger. Under `release.model: trunk`, `auto-release.yml` already tags at merge-to-main, so a second tagger here breaks the single-writer property — refuse before touching anything (a failed trunk run recovers via the workflow's **Re-run failed jobs**, see `## Trunk mode`, not via `--finalize`):
+
+```bash
+MODEL=$(yq -r '.release.model // "staging-train"' .claude/stack.yml 2>/dev/null \
+  || { [ -f .claude/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".claude/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
+[ "$MODEL" = trunk ] && { echo "REFUSE: release.model==trunk — auto-release.yml owns tag/release at merge-to-main; /promote --finalize does not apply."; exit 1; }
+```
+
 **9a.** Verify merge:
 ```bash
 git fetch origin main && git checkout main && git pull origin main
@@ -336,6 +356,22 @@ done
 Re-running once **both** exist and point at `M` is a green no-op.
 
 Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
+
+## Trunk mode — `release.model`
+
+`release.model` in `.claude/stack.yml` selects the release train (#371, Model B):
+
+- `staging-train` (**default** — absent ⇒ this) — the staging→main promote flow documented above. The whole fleet stays here until it opts in.
+- `trunk` — versions are derived and releases cut **on every merge to `main`** by the generated `auto-release.yml`. No staging branch, no promotion PR, no pre-declared version.
+
+Under `release.model: trunk` the contract changes on four points:
+
+- **Merge-commits required.** `auto-release.sh` derives from `M^1..M`, so a release needs a 2-parent merge. A stray 1-parent push to `main` (direct commit, squash, fast-forward) is **loud-red**, never a silent release (D3). Keep the merge queue on merge-commits (never squash).
+- **No `/promote --finalize`; the create-PR path stays open while `staging` exists (#371 B1).** `auto-release.yml` is the sole tagger at merge-to-main, so `/promote --finalize` is **refused** under trunk (Step 9) — a second tagger would break the single-writer property. But a repo mid-transition that still keeps a `staging` branch uses `/promote`'s **create-PR** path (`status=trunk_promote_pr`) to open the staging→main merge PR; merging it lands on `main` and `auto-release.yml` cuts the release. A pure trunk repo with **no** `staging` branch no-ops entirely (`status=trunk_mode`) — `/promote` does not apply.
+- **Fires on every merge; empty is a green no-op.** The workflow runs on each `push: main`. A merge that adds no version-bumping conventional commit derives `== BASE` and exits green **without tagging** (D18). Only a bumping payload cuts a release, so most merges are no-ops.
+- **Recovery via `workflow_dispatch`.** If a run dies mid-finalize (tag pushed, release not created), re-run the workflow from the Actions tab — the reconcile loop is per-artifact idempotent (D16): it creates only the missing artifact and no-ops once both the tag and release point at `M`.
+
+`/checkup` enforces the trunk contract: it **fails** when `auto-release.yml` is absent or drifts from the generator (N11), or when a stray `release-please.yml` writer lingers (N10). Switch modes by flipping this one `release.model` value and regenerating workflows with `/ci-setup`.
 
 ## Options
 
