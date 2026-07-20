@@ -22,13 +22,13 @@ Triggers: `"plan"` | `"plan this"` | `"implementation plan"` | `"break it down"`
 2. **Scope** — Globs + Greps the codebase to identify files to create/modify; finds reference patterns.
 3. **Agents** — assigns tasks to: `frontend-dev`, `backend-dev`, `tester`, `devops`, `doc-writer`, `architect`, `security-auditor` based on file paths from `stack.yml`.
 4. **Micro-tasks** — generates tasks with: description, file path, code skeleton, verify command, expected output, time estimate, parallel-safe flag, phase (RED/GREEN/REFACTOR/RED-GATE).
-5. **Write artifact** — creates `artifacts/plans/{N}-{slug}-plan.mdx` with mermaid data-flow and file×function diagrams.
+5. **Write artifact** — creates `artifacts/plans/{N}-{slug}-plan.md` with forge-chart sidecars (`data-flow`, `file-map`) linked from `artifacts/visuals/`.
 6. **Seed tasks** — creates Claude Code tasks for every micro-task; wires `blockedBy` dependencies; persists task IDs in the artifact.
 
 ## Output artifact
 
 ```
-artifacts/plans/{N}-{slug}-plan.mdx
+artifacts/plans/{N}-{slug}-plan.md
 ```
 
 ## Chain position

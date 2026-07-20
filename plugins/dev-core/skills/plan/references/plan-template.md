@@ -1,7 +1,7 @@
 ---
 title: "Plan: {Feature Title}"
 issue: 0
-spec: artifacts/specs/0-example.mdx
+spec: artifacts/specs/0-example.md
 complexity: 0
 tier: F-lite
 generated: "2026-01-01T00:00:00Z"
@@ -15,55 +15,19 @@ generated: "2026-01-01T00:00:00Z"
 
 ### Data Flow
 
-```mermaid
-flowchart TD
-    subgraph "Config Files"
-        CF1["{config file 1}"]
-        CF2["{config file 2}"]
-    end
+**Diagram:** [{data flow title}](../visuals/{N}-{slug}-data-flow.html)
 
-    subgraph "{source_file}.py — Loading"
-        FN1["load_function()"]
-        DC1["DataClass"]
-    end
-
-    subgraph "{source_file}.py — Runtime"
-        FN2["process_function()"]
-        OUT["Output / Side effect"]
-    end
-
-    CF1 --> FN1
-    CF2 --> FN1
-    FN1 --> DC1
-    DC1 --> FN2
-    FN2 --> OUT
-```
+{One-line summary of config → loader → runtime pipeline.}
 
 ### File x Function Map
 
-```mermaid
-flowchart LR
-    subgraph "{path/to/source_a}"
-        FA1["{Function/Class 1}"]
-        FA2["{Function/Class 2}"]
-    end
+**Diagram:** [{file map title}](../visuals/{N}-{slug}-file-map.html)
 
-    subgraph "{path/to/source_b}"
-        FB1["{Function/Class 3}"]
-    end
-
-    subgraph "tests/"
-        T1["test_{module}.py"]
-    end
-
-    FA1 -->|"returns"| FA2
-    FA2 -->|"calls"| FB1
-    FA1 -.->|"tested by"| T1
-```
+{One-line summary of file groupings and critical call paths.}
 
 ## Bootstrap Context
 
-{Conclusions and selected shape from artifacts/analyses/{issue}-*.mdx, if exists. Omit section if no analysis.}
+{Conclusions and selected shape from artifacts/analyses/{issue}-*.md, if exists. Omit section if no analysis.}
 
 ## Agents
 

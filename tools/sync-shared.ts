@@ -8,8 +8,8 @@
  *   bun run tools/sync-shared.ts --check   — verify targets match; exit 1 if drifted
  */
 
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { resolve, sep } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { dirname, resolve, sep } from 'node:path'
 
 interface SharedEntry {
   canonical: string
@@ -74,6 +74,9 @@ for (const entry of manifest) {
         drifted = true
       }
     } else {
+      // writeFileSync does not create parent dirs — a target in a brand-new shared
+      // subdir would otherwise crash ENOENT on its first sync.
+      mkdirSync(dirname(targetAbs), { recursive: true })
       writeFileSync(targetAbs, normalized, { encoding: 'utf-8' })
       console.log(`synced: ${target}`)
     }

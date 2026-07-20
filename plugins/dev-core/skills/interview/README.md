@@ -20,9 +20,9 @@ Triggers: `"create a spec"` | `"interview"` | `"brainstorm"` | `"write analysis"
 
 | Type | Purpose | Output path |
 |------|---------|-------------|
-| Brainstorm (β) | Divergent exploration, early ideas | `artifacts/analyses/{slug}.mdx` |
-| Analysis (α) | Structured investigation of a problem | `artifacts/analyses/{slug}.mdx` |
-| Spec (σ) | Technical specification for implementation | `artifacts/specs/{issue}-{slug}.mdx` |
+| Brainstorm (β) | Divergent exploration, early ideas | `artifacts/analyses/{slug}.md` |
+| Analysis (α) | Structured investigation of a problem | `artifacts/analyses/{slug}.md` |
+| Spec (σ) | Technical specification for implementation | `artifacts/specs/{issue}-{slug}.md` |
 
 ## Interview phases
 
@@ -36,11 +36,11 @@ Triggers: `"create a spec"` | `"interview"` | `"brainstorm"` | `"write analysis"
 ## Promotion
 
 ```
-/interview --promote artifacts/analyses/my-analysis.mdx
+/interview --promote artifacts/analyses/my-analysis.md
 ```
 
 Detects the current document type from frontmatter/structure and promotes it to the next level (β → α → σ). Fills only the gaps between levels — preserves existing content.
 
 ## Output format
 
-`.mdx` with YAML frontmatter (`title`, `description`, and `type: brainstorm` for brainstorms). Kebab-case slugs. Escapes `<` as `&lt;` in MDX content.
+`.md` with YAML frontmatter (`title`, `description`, and `type: brainstorm` for brainstorms). Kebab-case slugs.

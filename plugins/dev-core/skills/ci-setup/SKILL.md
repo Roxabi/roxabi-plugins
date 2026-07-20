@@ -24,7 +24,7 @@ Can run standalone (`/ci-setup`) or be called by `/init`.
 ## Dispatch
 
 Phase 1 — GitHub Actions Workflows → Read `${CLAUDE_SKILL_DIR}/cookbooks/workflows.md`, execute.
-Phase 1b–1d — Secret Scanning + Dependabot → Read `${CLAUDE_SKILL_DIR}/cookbooks/scanning.md`, execute.
+Phase 1b–1c — Secret Scanning + Dependabot → Read `${CLAUDE_SKILL_DIR}/cookbooks/scanning.md`, execute.
 Phase 2 — Pre-commit Hooks → Read `${CLAUDE_SKILL_DIR}/cookbooks/hooks.md`, execute.
 Phase 3 — Marketplace Plugins → Read `${CLAUDE_SKILL_DIR}/cookbooks/marketplace.md`, execute.
 Phase 4 — Report (below).
@@ -38,7 +38,6 @@ CI Setup Complete
   CI/CD workflows   ✅ Created / ✅ Already configured / ⏭ Skipped
   TruffleHog        ✅ Secret scanning configured / ⏭ Skipped
   Dependabot        ✅ .github/dependabot.yml created / ⏭ Skipped
-  Fumadocs Vercel   ✅ Created / ⏭ Skipped / ⏭ Not configured
   Pre-commit hooks  ✅ lefthook installed / ✅ pre-commit installed / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
   License checker   ✅ tools/licenseChecker.ts copied (JS) / ✅ tools/license_check.py copied (Python) / ⏭ Skipped
   License policy    ✅ .license-policy.json created (N packages) / ✅ All compliant / ⏭ Skipped / ⏭ pip-licenses missing

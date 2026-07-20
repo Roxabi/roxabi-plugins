@@ -1,0 +1,58 @@
+# Auto-release on merge to main (trunk mode, Model B — dev-core #371).
+# Derives <component>/vX.Y.Z from the conventional commits since the last
+# reachable tag, then tags + creates a GitHub Release. Fires on EVERY merge;
+# a merge with no version-bumping commit is a green no-op.
+#
+# THIN wrapper — every derivation/classification/reconcile step lives in
+# plugins/dev-core/skills/promote/auto-release.sh. Never inline that logic here:
+# /checkup diffs this file against the generator output (N11), so it must stay
+# byte-stable. Regenerate with /ci-setup after a dev-core bump, never hand-edit.
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# FIFO queue: never interrupt a release in progress, never drop a pending one.
+# cancel-in-progress:false + queue:max queues bursts of merges (up to 100).
+concurrency:
+  group: auto-release-${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  auto-release:
+    name: Tag + release on merge to main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # roxabi-ci App token (ephemeral, 1 h) — pushes re-trigger CI,
+      # which GITHUB_TOKEN cannot do.
+      - name: Mint app token (roxabi-ci)
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          app-id: ${{ vars.ROXABI_CI_APP_ID }}
+          private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}
+
+      # Full history + tags with the App token, so the tag-reachability floor is
+      # never starved into a regressive v0.1.0 (release-consistency.yml scar).
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token }}
+
+      - name: Fetch all tags
+        run: git fetch --tags --force
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+
+      - name: Derive + tag + release (merge to main)
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          COMPONENT: roxabi-plugins
+        run: bash plugins/dev-core/skills/promote/auto-release.sh "$COMPONENT" "${{ github.sha }}"

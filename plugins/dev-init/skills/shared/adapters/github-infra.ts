@@ -7,13 +7,25 @@
 
 import { ConfigError } from '../domain/errors'
 
+// APP_MINT_STEP / emitAppMintStep moved to the pure workflow-pins.ts (#369) so the pure
+// workflow generators no longer transitively import this adapter (Bun.spawnSync below).
+// Re-exported here for callers that historically imported them from github-infra.
+export { APP_MINT_STEP, emitAppMintStep } from '../workflows/workflow-pins'
+
 export const STANDARD_WORKFLOWS = [
   'ci.yml',
   'auto-merge.yml',
+  'merge-on-green.yml',
   'pr-title.yml',
   'context-lint.yml',
+  'secret-scan.yml',
+  'dependabot-automerge.yml',
   'deploy-preview.yml',
+  'deploy-cloudflare.yml',
 ] as const
+
+/** Merge workflows — exactly one expected per repo. */
+export const MERGE_WORKFLOWS = ['auto-merge.yml', 'merge-on-green.yml'] as const
 
 /**
  * Token mode for CI workflows.
@@ -23,31 +35,13 @@ export const STANDARD_WORKFLOWS = [
 export type TokenMode = 'github-app' | 'pat'
 
 /**
- * SHA-pinned mint step for the roxabi-ci GitHub App.
- * Consumers reference `${{ steps.app.outputs.token }}`.
- * NEVER use a floating tag — pin is bcd2ba49218906704ab6c1aa796996da409d3eb1 (v3.2.0).
- */
-export const APP_MINT_STEP = `      # roxabi-ci App token (ephemeral, 1 h) — pushes re-trigger CI,
-      # which GITHUB_TOKEN cannot do.
-      - name: Mint app token (roxabi-ci)
-        id: app
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
-        with:
-          app-id: \${{ vars.ROXABI_CI_APP_ID }}
-          private-key: \${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}`
-
-/** Emit the App mint step as a YAML snippet (indented for a `steps:` block). */
-export function emitAppMintStep(): string {
-  return APP_MINT_STEP
-}
-
-/**
  * Secrets/variables required by standard workflows.
  *   github-app mode: ROXABI_CI_APP_ID (var) + ROXABI_CI_APP_PRIVATE_KEY (secret)
  *   pat mode:        PAT (secret, legacy)
  */
 export const REQUIRED_SECRETS: Record<string, { mode: TokenMode; var?: string; secret: string }> = {
   'auto-merge.yml': { mode: 'github-app', var: 'ROXABI_CI_APP_ID', secret: 'ROXABI_CI_APP_PRIVATE_KEY' },
+  'merge-on-green.yml': { mode: 'github-app', var: 'ROXABI_CI_APP_ID', secret: 'ROXABI_CI_APP_PRIVATE_KEY' },
   'release-please.yml': { mode: 'github-app', var: 'ROXABI_CI_APP_ID', secret: 'ROXABI_CI_APP_PRIVATE_KEY' },
 }
 

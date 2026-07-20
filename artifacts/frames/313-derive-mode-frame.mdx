@@ -1,0 +1,60 @@
+---
+title: 'compress v2 train E — derive mode: R11 cross-file extraction + R12 abstraction lift, report-only v1'
+issue: 313
+status: approved
+tier: F-full
+date: 2026-07-04
+---
+
+## Problem
+
+The derivation reflex (instances → patterns → principles) has succeeded ≥3 times in this corpus — DP(n)/decision-presentation extraction (~132 call sites), plan-task-schema.md SSoT, the ADR-consolidation principle with its `trigger:`/`ref:` canonical form — **100% manually**. Nothing mechanizes it (issue #313; analysis §2.4):
+
+- compress is structurally blind to cross-file repetition (R1–R10 all intra-file): I/V boilerplate in 15+ dev-core skills, pipeline verify-tables, status-glyph vocabulary go unseen.
+- This is the roxabi-cortex PoC headline: derive rehearses the consolidate/Retain **schema** — schema_fit routing, dark matter, conflict handling, provenance, approval queue — on real documents at $0.
+- **Verified hazard**: naive R11 extraction is token-NEGATIVE at runtime for cross-skill call sites (pointer forces a ~550-token reference Read where inline cost ~100) — an explicit amortization gate is mandatory; "extraction saves tokens" cannot be assumed.
+
+## Who
+
+- **Primary:** maintainers running `/compress derive <scope>` for a report of extraction/abstraction proposals with honest double-entry token arithmetic.
+- **Secondary:** roxabi-cortex (consolidation-schema PoC — routing taxonomy, conflict UX, provenance shape, approval queue); future apply-path work (v2+ — v1 is report-only).
+
+## Constraints
+
+- **V1 report-only (hard)**: a full derive run writes NOTHING except one Observation-shaped ledger append (`mode: derivation` — filling the field train A shipped); proposals are unified diffs; call-site rewrites per-file behind present-choice; supersede-not-destroy stated for the future apply path.
+- **Trigger-timing adaptation (standing, recorded at train A)**: the composed trigger "derive pattern from skills" was pre-installed by train A inside the ≤+15-token train-total budget (measured Δ=+5, both encodings). The AC "trigger appears only in this PR" is satisfied by the pre-installed trigger + description Δ=0 byte-proof — logged for this train's validators since train A. The argument-hint half is satisfied by the generic `[mode]` slot (already present) — no per-mode entry needed.
+- **Version mechanics (as the issue itself states)**: compress plugin.json is version-less (no earlier train introduced one) → check-skill-version self-skips; no bump.
+- **MINE bounded**: named hard caps (files, bytes); per-file Task fan-out (each subagent capped to its single file); deterministic signature-normalization spec in derive.md (same status as gate predicates); the whole corpus never in one context.
+- **GATE**: ≥3 occurrences × ≥3 files (labeled placeholders) ∧ freshness `git log -1 --format=%ct -- <file>` older than N=7d named constant; NO "current release" criterion; runtime-amortization criterion (co-occurrence in one context window OR declared SSoT objective) with BOTH deltas in every report (repo-static AND runtime per-invocation ~550-vs-~100).
+- **ROUTE**: strong fit → fold-in (never duplicate siblings); ambiguous → new pattern via present-choice; poor fit → dark matter verbatim (never force abstraction).
+- **CONFLICT**: overlap + opposed polarity → present-choice with both texts; silent merge forbidden.
+- **EMIT R11**: every pointer Let-bound to a full runtime-resolvable path + gloss (`Q := read ${CLAUDE_PLUGIN_ROOT}/../shared/references/<f>.md — <gloss>`); bare `→ NAME(n)` rejected by the mode's own output check.
+- **EMIT R12**: genericized principle template EMBEDDED VERBATIM in derive.md (validated-on header w/ before→after metric, `∀ <scope>:`, `trigger:` predicate, `ref:` per instance, ≤1-line load-bearing NL gloss, confidence, ambiguity_flags); ssot origin cited as analysis evidence only — NO `~/projects/ssot/*` path anywhere in the plugin.
+- **Break-even per cluster**: skip if template+provenance+pointers ≥ verbatim instances; arithmetic in the report; the skip path exercised in a worked example.
+- **Validation**: train-C verifier with derive-specific acceptance (coverage map: every source instance ↦ pattern/principle/dark-matter; present-choice-accepted deliberate-loss list) — the lossless-inventory criterion NEVER applied to derive output (pre-documented in verify.md since train C).
+- **Worked examples**: 3 dogfood targets marked example-only (I/V boilerplate, verify-tables, status glyphs) + ≥1 generic non-Roxabi description.
+- **cortex_link honest**: schema de-risking only; ≥3/≥3 labeled placeholders; D15/GEPA/LILO/RC-x non-load-bearing credits.
+- **SKILL.md 110/110 frozen**: in-line 0-delta edits only (line 46 ship/halt sentence — with derive.md shipping, ALL five modes ship; Entry line for derive if one exists); description byte-frozen.
+- Root README index row updated (the only train touching root README); plugin README derive section.
+- DP drift (standing): present-choice idiom; never AskUserQuestion. Repo hygiene: specific-file staging, no force/hard/amend, never stage 308-*.
+
+## Out of Scope
+
+- The apply path (v2+): actual call-site rewrites, fold-ins, or repo writes of any kind.
+- Cortex calibration claims; corpus-wide derive runs as deliverables (one bounded dogfood report as evidence is in scope).
+- New scripts (ledger reuses train-A append; verifier reuses train-C machinery).
+
+## Premise Validity
+
+**Success in 6 months:** `/compress derive` produces bounded, honest reports: clusters gated by executable predicates, routed by schema_fit with dark matter respected, every proposal carrying double-entry token arithmetic and full provenance; the report format has been exercised on the dogfood targets; cortex's consolidation-schema decisions reference this PoC's recorded outcomes.
+
+**Failure in 6 months:** By 2027-01: zero derivation ledger rows on real scopes (mode unused), or an emitted proposal shows single-entry token accounting (amortization gate bypassed), or a poor-fit cluster was force-abstracted (dark-matter breach), or any v1 run wrote to a scoped file (report-only breach) — the mechanization was unsound or theater; premise indicted.
+
+**Simplest alternative:** Keep deriving manually (it worked 3 times) and document a checklist for humans.
+**Why not simplest:** The manual reflex doesn't scale past what one person notices (15+ I/V instances went unextracted for months); a checklist produces no schema evidence for cortex (routing/conflict/provenance/queue must be exercised, not described); and the amortization hazard is exactly what humans skip — the 3 manual successes never computed the runtime delta that makes half of naive extractions net-negative.
+
+## Complexity
+
+**Tier: F-full** — label `size:F-full`, complexity 7: multi-stage pipeline with novel machinery (bounded mining, deterministic normalization, routing taxonomy), cross-cutting consumers (A's ledger, B's glossary, C's verifier), and architecture worth sketching before planning.
+
+Signals: F-full label; new pipeline architecture (MINE→GATE→ROUTE→CONFLICT→EMIT); multiple integration points; the analyze step is warranted (shapes: how much machinery lives in derive.md prose vs delegated to existing tools).

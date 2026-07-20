@@ -1,0 +1,149 @@
+---
+title: 'Plan: compress v2 train E — derive mode (slice 1 of 2)'
+issue: 313
+spec: artifacts/specs/313-derive-mode-spec.mdx
+complexity: 7/10
+tier: F-full
+slice: 1 of 2
+generated: 2026-07-04
+---
+
+## Summary
+
+Author `references/derive.md` — the full Shape-C pipeline (MINE/GATE/ROUTE/CONFLICT/EMIT) as executable prose contracts per spec D4-D13, including all six worked examples (D10) — and apply the single in-line SKILL.md edit (D3, line 46 S2-only). Pure prompt-logic authoring; zero new scripts; `count_tokens.py` and `verify.md` are reused, not modified, this slice (verify.md's one-line amendment lands in slice 2 alongside the dogfood run that exercises it).
+
+## Architecture
+
+**Data flow:** [Shape-C pipeline](../visuals/313-derive-mode-data-flow.html) — reused from the approved analysis; slicing does not change the pipeline topology, so no new data-flow diagram is generated (avoids silently overwriting the already-approved analysis sidecar, which shares the `{N}-{slug}-data-flow.html` filename convention).
+**File map:** [derive.md × SKILL.md — slice 1](../visuals/313-derive-mode-plan-file-map.html)
+
+## Bootstrap Context
+
+- Spec Decisions D1-D13 are the binding contract for this slice: **D1** Shape C binding (every numeric claim tool-produced; judgment steps explicitly labeled). **D3** SKILL.md line 46 has TWO sentences — S1 (anti-phantom gate, byte-verbatim, untouched) and S2 (ship enumeration, replaced with the all-five-modes-ship sentence); confirmed live against SKILL.md by the Gate-2 validator before this plan was written. **D4** normalization spec (extraction units, rule order NFC→KEEP-precedence→placeholder-intra-order CODE>STR>PATH>NUM>VAR→whitespace-collapse, compound identifiers as one `<VAR>`). **D5** MAX_FILES=40/MAX_BYTES=400_000 named caps + per-file Task fan-out (train-C single-file cap wording). **D6** GATE constants (MIN_OCCURRENCES=3, MIN_FILES=3, FRESHNESS_DAYS=7) + amortization double-entry via scratch-file + `python3 S count` (field selection: `tokens_o200k` under tiktoken-proxy, `tokens` under estimate/anthropic-api — per Gate-2 fix). **D7** report format (pinned fields, coverage-map keying `(file, line, signature-key)`, `gate-failed` as its own disposition, acceptance identity). **D8** verifier invocation — derive.md AUTHORS its own spawn prompt text (this slice); the actual one-line `verify.md` amendment is S9's file edit, deferred to slice 2. **D10** six worked examples, ALL authored this slice (Gate-2 fix wired S10 into slice 1's Contains). **D12** R12 template (7 fields, `confidence ∈[0,100]∩ℤ`, controlled `ambiguity_flags` vocabulary). **D13** R11 output check (bare-pointer rejection pattern).
+- House reference-doc style: `references/{compress,glossary,expand,lint}.md` — dispatch-first, deterministic constants named, judgment steps explicitly labeled, halt/report text quoted verbatim where the spec pins it.
+- SKILL.md currently 110/110 lines; line 46 verified live (Gate-2 pass) to read exactly: `Mode valid ⟺ ref(μ) ∃. ∄ → halt: `mode "<μ>" not yet implemented` — ¬improvise a mode body. Today `references/compress.md` + `references/glossary.md` + `references/expand.md` + `references/lint.md` ship → `derive` halts.` — S1 ends at "mode body.", S2 begins at "Today".
+- `plugins/compress/.claude-plugin/plugin.json` is version-less (re-verified at Gate-2) — no bump this slice; re-checked again before merge per spec Edge Case row / SC16.
+- Description byte-frozen — no frontmatter edit this slice.
+
+## Agents
+
+| Agent instance | Tasks | Files |
+|----------------|-------|-------|
+| doc-writer-A | T1 | `plugins/compress/skills/compress/references/derive.md` (NEW) |
+| doc-writer-B | T2 | `plugins/compress/skills/compress/SKILL.md` (1 in-line edit) |
+| tester-A | T3 | grep battery + validator (read-only) |
+| tester-B | T4 | RED-GATE budget sentinel (scratch copy + restore) |
+
+## Wave Structure
+
+3 waves, max 2 parallel agents. Elapsed ~1 session vs ~1.5 sessions sequential.
+
+| Wave | Trigger | Agents | Tasks |
+|------|---------|--------|-------|
+| 1 | start | 2 ∥ | doc-writer-A: T1 · doc-writer-B: T2 |
+| 2 | T1, T2 done | 1 | tester-A: T3 |
+| 3 | T3 done | 1 | tester-B: T4 |
+
+### Budget — per task
+
+| Task | Items | Class | Est. ops | Split? |
+|------|-------|-------|----------|--------|
+| T1 derive.md | 1 file, 11 sections incl. 6 worked examples | exploratory | 26 | — |
+| T2 SKILL.md line 46 | 1 line, 2-sentence split | bounded | 4 | — |
+| T3 grep battery + validator | ~20 greps + 2 scripts | bounded | 10 | — |
+| T4 RED-GATE sentinel | 1 scratch cycle | bounded | 6 | — |
+
+**Total estimated ops: 46**
+
+### Budget — per agent instance
+
+| Instance | Tasks | Σ ops | Subjects | Split? |
+|----------|-------|-------|----------|--------|
+| doc-writer-A | T1 | 26 | derive-mode | — |
+| doc-writer-B | T2 | 4 | wiring | — |
+| tester-A | T3 | 10 | battery | — |
+| tester-B | T4 | 6 | falsification | — |
+
+## Consistency Report
+
+- Breadboard covered this slice: S1 (T1), S2 (T1), S3 (T1), S4 (T1), S5 (T1), S6 (T1), S7 (T1), S10 (T1), S11 (T2). 9/9 slice-1 breadboard rows covered.
+- SCs covered this slice (full closure deferred to slice 2 where noted): SC1 (T1 dispatch text + T3 grep — negative-demo *narrative* is slice 2's job per spec, but the dispatch text itself ships here), SC2 (T2, T3), SC3 (T1, T3), SC4 (T1, T3), SC5 (T1, T3), SC6 (T1, T3), SC7 (T1, T3 — grep for absence of silent-merge path), SC8 (T1, T3), SC9 (T1, T3 — self-containment grep), SC10 (T1, T3), SC13 (T1, T3 — 3 dogfood + generic authored; live exercise is slice 2), SC14 (T1, T3), SC15 (T3 — process-hygiene grep; T4 is the line-budget RED-GATE, not force/hard/amend hygiene). SC11, SC12 are slice-2-only (report-only proof requires a real run; verifier invocation requires the S9 wiring) — tracked, not claimed here. SC16 is partial this slice: the gate mechanism (SKILL.md 110 lines + description byte-identical + validator ALL PASS) ships now (T2, T3, T4); the README + plugin.json version-recheck clause is a slice-2 Breadboard row.
+- Untraced: none. Exemptions: SC11/SC12 deferred to slice 2 by spec design (Slices table), not a gap in this slice's coverage; SC16 is partial this slice (gate mechanism only — T2/T4), full closure (README + version-recheck) tracked for slice 2.
+
+## Micro-Tasks
+
+### Wave 1
+
+**T1 — Author `references/derive.md`** `[P]`
+- doc-writer-A · derive-mode · GREEN · Diff 1 (new file) · 26 ops
+- Shape: house reference-doc style (dispatch-first, like `expand.md`/`lint.md`). Sections, in order:
+  1. **Dispatch** — `/compress derive <glob|dir|plugin>` explicit-mode only; plain `/compress <file>` never enters derive; anti-phantom gate note.
+  2. **Scope & Caps (D5)** — `MAX_FILES = 40`, `MAX_BYTES = 400_000` named constants; over-cap → halt with chunking advice; per-file Task fan-out, each subagent reads exactly its one file (train-C single-file cap wording), returns signatures only — whole corpus never in one context.
+  3. **Normalization (D4)** — extraction-unit list verbatim (Let-block binding line / `I :=`/`V :=` contract line / table row / `O_<name>` op line / guard-fn line / status-glyph vocab line / heading+first-paragraph); rule order verbatim: (1) NFC-normalize (2) KEEP structural tokens with precedence (glyphs/sequences, `Let:`, `I :=`/`V :=` markers, `O_` prefix, table pipes, heading markup) (3) placeholder substitution intra-order `<CODE>`>`<STR>`>`<PATH>`>`<NUM>`>`<VAR>` (compound identifiers = ONE `<VAR>`) (4) whitespace collapse; signature key = normalized string; clustering rule (identical keys OR LLM-judged semantic equivalence, `judged-equivalent` audit entries with both keys).
+  4. **GATE (D6)** — `MIN_OCCURRENCES = 3`, `MIN_FILES = 3` (labeled placeholders), `FRESHNESS_DAYS = 7` (named placeholder) + exact predicate `git log -1 --format=%ct -- <file>` older than now−N days; amortization rule (co-occurrence-in-one-context-window OR declared-SSoT-objective); double-entry measurement procedure verbatim (fragment → scratch temp file → `python3 S count <tmp>` → read `tokens_o200k` under tiktoken-proxy or `tokens` under estimate/anthropic-api; hand-estimates forbidden).
+  5. **ROUTE** — schema_fit as an LLM judgment over `{strong, ambiguous, poor}` with one-line justification (no fake numeric thresholds); strong→fold-in into the EXISTING shared target (diff against it, never a duplicate sibling); ambiguous→new-pattern via present-choice; poor→dark matter verbatim, never forced.
+  6. **CONFLICT** — overlap + opposed polarity → present-choice showing BOTH texts; state explicitly that no silent-merge path exists.
+  7. **EMIT** — R11 pointer contract (`Q := read ${CLAUDE_PLUGIN_ROOT}/../shared/references/<f>.md — <gloss>`) + output check (mode greps its own draft for `→ *[A-Z]+\([0-9n]+\)`-style bare pointers; any hit rejects the draft for rewrite); R12 template embedded verbatim (7 fields: name+validated-on header, `∀ <scope>:` rule body, `trigger:`, `ref:` per instance, `gloss:`, `confidence: <0-100>` with `∈[0,100]∩ℤ` semantics, `ambiguity_flags: [<flags>]` with controlled vocabulary `{conflict, subjective, incomplete, semantic-judgment, schema-fit-boundary}`, `[]` allowed); Report format (D7 pinned per-cluster fields + trailer: dark-matter list, gate-failed list as its OWN disposition, deliberate-loss list, coverage map keyed `(file, line, signature-key)`, acceptance identity `|mapped|+|deliberate-loss|=|all mined instances|`); break-even arithmetic shown inline per emission decision, skip path when template+provenance+pointers ≥ verbatim instances.
+  8. **Validate** — derive.md's OWN verifier spawn prompt text (not verify.md's): materialize the report to ONE scratch file (single-file cap wording; sole persistent write remains the ledger row), checks: coverage identity, deliberate-loss present-choice acceptance, spot-reproduction judgment disclosed as "not mechanized in this train."
+  9. **cortex_link** — schema de-risking only statement; ≥3/≥3 thresholds labeled placeholders; D15/GEPA/LILO/RC-x credited non-load-bearing.
+  10. **Report-only statement** — zero writes to any scoped/repo file; ledger append (`mode: derivation`) is the sole write; supersede-not-destroy stated for the v2+ apply path.
+  11. **Worked examples ×6 (D10)** — ① I/V boilerplate (dogfood, example-only marked) ② pipeline verify-tables (dogfood) ③ status-glyph vocabulary (dogfood) ④ generic non-Roxabi ("N skills sharing an identical retry-policy paragraph") ⑤ poor-fit cluster landing in dark matter verbatim ⑥ break-even-skip with full arithmetic shown. Each block: sample signatures, gate outcome, route, emission-or-skip.
+  - Self-containment: no `projects/ssot` path anywhere; generic example present (④); templates embedded (not pointed-to).
+- Verify: `test -f plugins/compress/skills/compress/references/derive.md` ∧ greps: `MAX_FILES`, `MAX_BYTES`, `MIN_OCCURRENCES`, `MIN_FILES`, `FRESHNESS_DAYS`, `git log -1 --format=%ct`, `tokens_o200k`, `python3 S count`, all 7 R12 field labels (`trigger:`, `ref:`, `gloss:`, `confidence:`, `ambiguity_flags:`), the 5 ambiguity-flag vocabulary terms, R11 pointer form `${CLAUDE_PLUGIN_ROOT}/../shared/references/`, `dark matter` + `never forced`, `gate-failed`, `coverage map`, `deliberate-loss`, six worked-example markers (①②③④⑤⑥ or equivalent numbered headers); `! grep -Eq 'projects/ssot|/home/' <file>`; `! grep -q 'AskUserQuestion' <file>`; `! grep -iq 'current release' <file>` (SC4 — zero "current release" text).
+- Spec trace: SC1 (dispatch text), SC3-SC10, SC13, SC14
+
+**T2 — SKILL.md line 46: replace S2 only** `[P]`
+- doc-writer-B · wiring · GREEN · Diff 1 · 4 ops
+- Shape: per D3, edit line 46 in place. Locate the two sentences (S1 ends `"…¬improvise a mode body."`; S2 begins `"Today …"`). Replace S2 verbatim with: `Today all five mode bodies ship — references/{compress,glossary,expand,lint,derive}.md.` S1 stays byte-identical. No other line may claim derive halts (verify no stale halt-list references derive elsewhere, e.g. an Entry-line example).
+- Verify: `wc -l < SKILL.md` = 110; `sed -n '46p' SKILL.md` contains both the untouched S1 substring AND the new S2 sentence; `sed -n '1,45p;47,110p' SKILL.md | diff - <(git show origin/staging:plugins/compress/skills/compress/SKILL.md | sed -n '1,45p;47,110p')` empty (byte-identical elsewhere).
+- Spec trace: SC2, SC16 (partial — full SC16 closes in slice 2 with README+version-recheck)
+
+### Wave 2
+
+**T3 — Grep battery + validator**
+- tester-A · battery · GREEN · Diff 0 (read-only) · 10 ops · blockedBy: T1, T2
+- Shape: re-run every grep from T1/T2's Verify lines against the landed files (independent re-confirmation, not a re-trust of the authoring agent); additionally run `bash scripts/check-skill-version.sh` (expect self-skip — version-less `plugin.json`) and `python3 tools/validate_plugins.py` (expect ALL PASS, including `check_skill_line_budget`); confirm frontmatter `description` line is byte-identical vs `origin/staging` (no Δ this train, per the standing trigger-timing adaptation).
+- Verify: scripted battery, all greps non-empty/empty as specified; `check-skill-version.sh` exit 0 (self-skip message); `validate_plugins.py` exit 0.
+- Spec trace: SC1-SC10, SC13-SC15 (verification half)
+
+### Wave 3
+
+**T4 — RED-GATE: SKILL.md budget sentinel**
+- tester-B · falsification · RED-GATE · Diff 0 (scratch cycle, restored) · 6 ops · blockedBy: T3
+- Shape: `cp SKILL.md SKILL.md.sentinel-backup` → append filler lines until `wc -l` > 110 → run `check_skill_line_budget` (or `validate_plugins.py`'s relevant check) → confirm FAIL → `mv SKILL.md.sentinel-backup SKILL.md` → re-run → confirm PASS. Falsifies that the line-budget gate actually distinguishes 110 from 111+, rather than trivially passing.
+- Verify: scripted FAIL→restore→PASS sequence; `git status --porcelain plugins/compress/skills/compress/SKILL.md` empty after restore (zero residue).
+- Spec trace: SC16 (gate mechanism, not the version-recheck clause)
+
+## Task Seeding Blueprint
+
+<!-- Used by /implement to seed TaskCreate calls on session start.
+     Format: T{n} | agent-instance | blockedBy | subject
+     blockedBy refs T-numbers within this list (not session task IDs).
+     Seed in wave order; within a wave all rows are parallel (∥). -->
+
+### Wave 1 — no deps, 2 agents ∥
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T1 | doc-writer-A | — | derive-mode |
+| T2 | doc-writer-B | — | wiring |
+
+### Wave 2 — after Wave 1, 1 agent
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T3 | tester-A | T1, T2 | battery |
+
+### Wave 3 — after Wave 2, 1 agent
+
+| Task | Agent instance | blockedBy | Subject |
+|------|---------------|-----------|---------|
+| T4 | tester-B | T3 | falsification |
+
+## Task IDs
+
+<!-- Generated by /plan. Used by /implement to resume tasks on session restart. -->
+- T1: 74 — derive-mode
+- T2: 75 — wiring
+- T3: 76 — battery
+- T4: 77 — falsification

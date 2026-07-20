@@ -1,0 +1,148 @@
+---
+title: 'compress v2 train A — mode dispatch + multi-target scope + token-true metrics'
+issue: 309
+status: approved
+tier: F-lite
+date: 2026-07-04
+---
+
+## Context
+
+Promoted from `artifacts/frames/309-compress-mode-dispatch-frame.mdx` (approved). Source analysis: `artifacts/analyses/compress-skill-v2-ecriture-symbolique-analysis.md` §3-P5 + §3-P2 (adversarially verified; corrections baked into issue #309 as design decisions). PR-A of the serial train #309→#313 (epic #308).
+
+## Goal
+
+Turn the compress skill into the v2 enabling architecture: mode dispatch with an anti-phantom gate, multi-target scope resolution across both repo layouts, and token-true metrics backed by an append-only Observation-shaped ledger — so trains B–E land as `references/<mode>.md` files and train C's go/no-go has a measured evidence base.
+
+## Users
+
+- **Primary:** Claude Code operators invoking `/compress` on skill/agent files in marketplace-layout repos (name resolution currently broken there) and legacy `.claude/` repos.
+- **Secondary:** trains B–E (#310–#313) landing mode bodies into the dispatch slots; the roxabi-cortex PoC consuming the Observation provenance contract exercised by the ledger.
+
+## Decisions
+
+Recorded adaptations and design resolutions (epic #308 adaptation log):
+
+1. **DP drift (standing, commit `1dd4ae8`)**: decision-presentation protocol removed from staging. All decision points use inline `→ present choice **A** | **B**` blocks; plain input requests are direct 1–2-sentence asks; never AskUserQuestion; no reference to `decision-presentation.md`. Issue Mechanism 6 (explicit Read line for the DP reference) is moot; surviving intent: **no undefined shorthand token in the shipped SKILL.md** — every decision-block idiom used is locally self-evident.
+2. **`roxabi_sdk.paths` via direct import** (corrected by devops review): `count_tokens.py` inserts the repo/plugin root into `sys.path` (`Path(__file__).resolve().parents[N]`) and does `from roxabi_sdk.paths import get_plugin_data, ensure_dir` — the exact pattern of all five existing SDK-consuming plugins (cv, get-invoice-details, linkedin-apply, image-prompt-generator); the roxabi_sdk cache sync ships the SDK into installed plugin caches (`docs/plugin-cache.md`). Vendored `_lib/paths.py` copies are the retired pre-#25 pattern and must NOT be reintroduced.
+3. **No `version` field in plugin.json** (deliberate, epic-wide): CLAUDE.md default policy is SHA-based versioning; adding one would make `check-skill-version.sh` gate every later train (B–E all rewrite compress SKILL.md) and falsify the epic's "#310 only" bump claim.
+4. **Trigger timing**: #309 installs ALL composite mode triggers up front ("expand notation" | "lint notation" | "derive pattern from skills"); the anti-phantom gate halts cleanly on not-yet-implemented modes; trains C/D/E description Δ must be ≈0. (#313's "added only in this PR" wording resolved in favor of #309 by the epic run plan; logged for train E's validator.)
+5. **Line-budget check shape**: explicit registry constant `SKILL_LINE_BUDGETS = {'compress': 110}` in `tools/validate_plugins.py` (plugin name → max physical lines of its `skills/*/SKILL.md`), not a new plugin.json field — matches the repo's explicit-constant style; no new CI workflow (the script already runs in CI and lefthook). The check function takes injectable `(budgets, root)` params (pattern: `check_class_list_sync`) so the over-budget fixture lives in a pytest temp dir, never committed under `plugins/`; docstring notes the plugin-name keying assumes one budgeted SKILL.md per plugin.
+6. **`source_ref` definition**: pre-image content hash of the compressed target — `git hash-object <file>` when available, else SHA-256 hex; **captured at Phase 2 (before any write) and carried into the Phase 5 `append` call** — a post-write hash would be wrong.
+7. **Test strategy for `count_tokens.py`**: CI installs neither `tiktoken` nor `anthropic` (ci.yml pip line) — keep it that way. Tier-selection and agreement logic unit-tested via injectable encoder callables; tests needing real tiktoken use `pytest.importorskip('tiktoken')`. `data` block ships as `{"root": "compress"}` only — no `data.files` (nothing to exemplify; avoids `check_examples_exist` tripping on an uncommitted example).
+
+## Expected Behavior
+
+**Dispatch (Phase 0).** `/compress [mode] <scope>` parses the leading token: `compress` (default when omitted) | `derive` | `expand` | `lint` | `glossary`. Ambiguous first token (matches neither a mode nor an existing path/name) → direct ask ("Mode or target? …"). Mode valid ⟺ `references/<mode>.md` exists next to SKILL.md; missing → halt `mode "<m>" not yet implemented` — no improvisation. This PR ships only `references/compress.md` (the compress-mode body extracted from today's SKILL.md), so `derive|expand|lint|glossary` all halt. `argument-hint` mentions neither `--level` nor `--verify`.
+
+**Scope (Phase 1).** Accepts file path | glob | directory | plugin name. Name resolution discovers both layouts: marketplace (`plugins/<p>/skills/*/SKILL.md`, `plugins/<p>/agents/*.md`) and legacy (`.claude/{agents,skills}/`); direct paths keep working as today. In this repo, name `compress` resolves to `plugins/compress/skills/compress/SKILL.md`. Zero matches → halt with the resolution attempts listed. A name matching in both layouts → present choice.
+
+**Read budget.** Scope resolves to N files: N=1 → proceed; N>1 → exactly one batched present-choice (file list + size estimates) before any read beyond discovery; hard cap N≤10 per run, larger scopes chunked into sequential runs; results presented as one consolidated diff with per-file opt-out.
+
+**Token metrics (Phases 2/4/5).** All measurement through `plugins/compress/scripts/count_tokens.py`: per-section token counts before/after, `Δtokens ≈ 0` flagged, char%/line% never presented as savings. Mandatory `method:` ∈ {`anthropic-api`, `tiktoken-proxy`, `estimate`}: API tier when `ANTHROPIC_API_KEY` present; proxy tier computes **both** o200k and cl100k and marks agreement — binary rules (<5% skip, Δ≈0) documented as binding only under `method=anthropic-api`, proxy acts only when both encodings agree; estimate tier labels output with a warning. When API + tiktoken are both available the run emits a one-shot proxy-vs-API calibration line. The L<30 pre-check is re-based on tokens (< ~200 tokens → warn, annotated as a cheap heuristic).
+
+**Ledger.** One row per completed compress run, appended by `count_tokens.py append` with `O_APPEND` to `<vault>/compress/ledger.jsonl` (`get_plugin_data('compress')`, dir `ensure_dir` 0700). SKILL.md contains no Write/Edit path to the ledger. Row shape is literally Observation (ADR-005): `{id: ULID (vendored ~10-line impl), source: 'compress-skill', source_ref: <pre-image hash, Decision 6>, ts: ISO-8601 UTC, category: <mode>, payload_typed: {schema_version: 1, method, target, sections: [{name, tokens_before, tokens_after}], tokens_before, tokens_after, proxy_agreement: bool|null, calibration: str|null, glossary_version: null (reserved — dep #310), level: null (reserved — dep #311)}, correlation: <run-scoped ULID, shared by every row of one multi-file run>}`. Open enum on `category`. Framed in docs as a "κ-shaped calibration ledger exercising the Observation provenance contract" — never claimed to be cortex's κ table.
+
+**Degradation contract.** `Bash` joins `allowed-tools` and is declared in Safety. Bash unavailable → `method: estimate`, `verify: skipped`, **no ledger row**.
+
+**Docs & guards.** README drops "30-60%" for "measured per run". `tools/validate_plugins.py` gains the line-budget check (Decision 5): fails when a budgeted SKILL.md exceeds its cap, passes on the shipped file. Frontmatter `description` net Δ ≤ +15 tokens vs current (measured with `count_tokens.py`, method recorded in the PR); composite triggers carry "notation" lexically; no bare "glossary"/"decompress"; redundant v1 triggers may be pruned to hold the net budget.
+
+## Data Model & Consumers
+
+**Data structure:** [compress v2 data model](../visuals/309-compress-mode-dispatch-data-model.html)
+**Consumer map:** [compress data-plane consumers](../visuals/309-compress-mode-dispatch-consumers.html)
+
+| Consumer | Fields consumed | When | Status |
+|----------|-----------------|------|--------|
+| SKILL.md Phases 2/4/5 | `method`, per-section counts, Δ flags | every run | this issue |
+| `tools/validate_plugins.py` | SKILL.md line count; `plugin.json` `data.root` | CI + lefthook | this issue |
+| `README.md` | metrics framing ("measured per run") | docs | this issue |
+| #311 read-back go/no-go | ledger rows as verify evidence | train C | future |
+| #312 lint mode | ledger provenance, markers | train D | future |
+| #313 derive mode | Observation append + amortization metrics | train E | future |
+| roxabi-cortex PoC | Observation contract shape (`id`,`source_ref`,`payload_typed`,`correlation`) | post-train | future |
+
+## Breadboard
+
+| ID | Affordance | Handler | Data |
+|----|-----------|---------|------|
+| U1 | `/compress [mode] <scope>` invocation | Phase 0 dispatch | mode token, scope args |
+| N1 | Mode parse (default `compress`; ambiguous → direct ask) | SKILL.md Phase 0 | mode ∈ open set |
+| N2 | Mode-exists gate | `references/<mode>.md` existence test | halt text "mode not yet implemented" |
+| N3 | Scope resolver (file\|glob\|dir\|plugin; both layouts) | SKILL.md Phase 1 | resolved file list |
+| N4 | Read-budget gate (N>1 → one batched present-choice; N≤10; >10 chunked; consolidated diff + per-file opt-out) | SKILL.md Phase 1b | file list + size estimates |
+| N5 | Token reporting (per-section, Δ≈0 flag, ¬char%/line%) | SKILL.md Phases 2/4/5 → S1 | counts, method |
+| N6 | Degradation path (¬Bash → estimate/skip/no row) | SKILL.md Safety | method=estimate |
+| S1 | `count_tokens.py count` (3-tier, `method:`, dual-proxy agreement, calibration line) | script | per-section counts JSON |
+| S2 | `count_tokens.py append` (O_APPEND Observation row; vendored ULID; `roxabi_sdk.paths` direct import) | script | ledger.jsonl row |
+| S3 | `plugin.json` `data` block (`root: "compress"`) | manifest | vault root |
+| S4 | `validate_plugins.py` line-budget check (`SKILL_LINE_BUDGETS`) | repo tool | budget map |
+| S5 | `references/compress.md` (compress-mode body) | lazy-loaded reference | v1 transform rules R1–R10 + ¬compress list (SKILL.md:29-47 @ `a793b37`), rationale rewritten to measured truth |
+| S6 | README metrics claim fix | docs | "measured per run" |
+| S7 | Frontmatter surface (composite triggers; Δ ≤ +15 tokens; argument-hint sans `--level`/`--verify`) | SKILL.md frontmatter | description string |
+
+Wiring: U1→N1→N2→(S5 load)→N3→N4→[read targets]→N5→S1; write path → S2; S4 reads SKILL.md + S3; N6 guards S1/S2.
+
+## Slices
+
+| # | Slice | Contains | Demo |
+|---|-------|----------|------|
+| 1 | Measurement foundation | S1, S2, S3, S4, S6, vendored ULID, `sys.path` + `roxabi_sdk.paths` import | Run `count_tokens.py count` on any .md → method-labeled per-section counts; `append` writes one Observation row (O_APPEND); `validate_plugins.py` fails on an over-budget fixture, passes on shipped tree; README claim gone |
+| 2 | Skill v2 rewrite | U1, N1–N6, S5, S7 | `/compress lint x` halts "mode not yet implemented"; name `compress` resolves in marketplace layout; N>1 scope → one batched present-choice; SKILL.md ≤110 lines; description Δ measured ≤ +15 tokens |
+
+Slice 1 has no dependency; slice 2 consumes S1/S2 from slice 1.
+
+## Constraints
+
+- **Marketplace self-containment** — no `~/projects/ssot/*` or machine-local paths in any shipped file; shared refs only via `${CLAUDE_PLUGIN_ROOT}/../shared/`; the plugin must degrade gracefully standalone.
+- **Edit repo source only** — never the plugin cache (`~/.claude/plugins/cache/**`).
+- **Frontmatter description budget is train-total** — #309 spends it for all of #309–#313 (Decision 4).
+- **Ledger is script-only** (O_APPEND) — no Write/Edit path anywhere in SKILL.md; degradation contract when Bash is unavailable.
+- **Git hygiene** — no `--force`/`--hard`/`--amend`; stage specific files only.
+- **No new CI workflow, no new CI deps** — the line-budget check rides `validate_plugins.py`; tiktoken/anthropic stay out of ci.yml (Decision 7).
+
+## Non-goals
+
+- Mode bodies for `derive`/`expand`/`lint`/`glossary` — trains B–E; here they halt "mode not yet implemented".
+- `notation.md` glossary + G1–G4 fidelity guardrails (#310).
+- Fresh-agent read-back verification, golden set, `inventory_diff.py` (#311); L0–L3 levels, R13, provenance markers (#311/#312).
+- `--level`/`--verify` flags — absent from argument-hint by design.
+- Corpus migration / linting of existing files (#312; descope-under-churn memory).
+- Aggregate savings claims in README — the ledger will earn those later.
+
+## Edge Cases
+
+| Scenario | Handling |
+|----------|----------|
+| Ambiguous first token (neither mode nor resolvable target) | Direct ask (1–2 sentences), then dispatch |
+| Mode without `references/<mode>.md` | Halt "mode not yet implemented" — never improvise |
+| Scope resolves to 0 files | Halt, list attempted resolutions (both layouts) |
+| Name matches in both layouts | Present choice between candidates |
+| Scope > 10 files | Chunk into sequential ≤10 runs, state chunk plan up front |
+| `ANTHROPIC_API_KEY` absent | Proxy tier (o200k + cl100k, agreement flag) |
+| `tiktoken` unimportable | `method: estimate` + warning label |
+| `tiktoken` imports but `get_encoding()` fails (first-use network fetch, sandboxed env) | broad catch around encoding load → `method: estimate` + warning (pattern: `roxabi_sdk/browser.py` optional-dep sentinel) |
+| Proxy encodings disagree | Display both, take no threshold-gated action |
+| Bash tool unavailable | `method: estimate`, `verify: skipped`, no ledger row |
+| Ledger dir missing | `ensure_dir` (0700) then O_APPEND |
+| Target < ~200 tokens | Warn (cheap pre-check heuristic, token-based re-base of v1's L<30) |
+| Already-formal target | v1 behavior retained ("tweaks only") until #311 provenance markers land |
+| Legacy `.claude/` repo | Name resolution falls back to legacy layout |
+
+## Success Criteria
+
+- [ ] SC1 Phase 0: `/compress lint x` (any mode whose `references/<mode>.md` ∄) halts with "mode not yet implemented"; `references/compress.md` exists and is loaded for the default mode
+- [ ] SC2 Scope resolution accepts file | glob | dir | plugin name and discovers both layouts; name `compress` resolves to `plugins/compress/skills/compress/SKILL.md` in this repo
+- [ ] SC3 N>1 targets → exactly one batched present-choice (file list + estimates) before reads beyond discovery; N≤10 enforced, >10 chunked; consolidated diff with per-file opt-out
+- [ ] SC4 No undefined shorthand token in the shipped SKILL.md (reinterpreted DP-load AC per Decision 1); decision blocks use the inline present-choice idiom
+- [ ] SC5 SKILL.md ≤110 physical lines; `validate_plugins.py` fails when the budget is exceeded (demonstrated against an over-budget fixture) and passes on the shipped file
+- [ ] SC6 Frontmatter description net Δ ≤ +15 tokens vs `a793b37` baseline (measured, method recorded in PR); composite triggers carry "notation"; no bare "glossary"/"decompress"; argument-hint mentions neither `--level` nor `--verify`
+- [ ] SC7 `plugin.json` has `data.root: "compress"`, no `version` field; `validate_plugins.py` data.root uniqueness passes
+- [ ] SC8 `count_tokens.py` emits mandatory `method:` ∈ {anthropic-api, tiktoken-proxy, estimate}; proxy tier computes o200k AND cl100k with agreement mark; binary thresholds documented as binding only under `method=anthropic-api`
+- [ ] SC9 All ledger appends go through `count_tokens.py append` with O_APPEND via `roxabi_sdk.paths` (direct import, sys.path pattern per Decision 2); SKILL.md contains no Write/Edit path to the ledger
+- [ ] SC10 Ledger rows validate against the Observation shape (id ULID, source, source_ref pre-image hash, ts, category, `payload_typed.schema_version`, correlation); `glossary_version`/`level` nullable + marked reserved with declared dependency
+- [ ] SC11 Phases 2/4/5 report per-section token counts; `Δtokens≈0` flagged; no char%/line% presented as savings in any output template
+- [ ] SC12 `Bash` in allowed-tools, declared in Safety; degradation contract present (¬Bash → `method: estimate`, `verify: skipped`, no ledger row)
+- [ ] SC13 README no longer claims "30-60%"; replaced by "measured per run"
+- [ ] SC14 L<30 edge case re-based on tokens (annotated as cheap pre-check heuristic)
+- [ ] SC15 Self-containment: `git diff --name-only origin/staging...HEAD | xargs -r grep -ln 'projects/ssot\|/home/mickael'` empty; no machine-local path in any shipped file

@@ -66,7 +66,7 @@ describe('protectBranches', () => {
     expect(result.ruleset).toBe(true)
   })
 
-  it('creates branch if it does not exist', async () => {
+  it('creates branch if it does not exist, when createMissing is opted into', async () => {
     // Branch does not exist
     spawnSyncSpy.mockReturnValue({
       stdout: new Uint8Array(),
@@ -82,12 +82,40 @@ describe('protectBranches', () => {
     } as unknown as ReturnType<typeof Bun.spawn>)
 
     const { protectBranches } = await import('../lib/protection')
-    const _result = await protectBranches('Org/repo')
+    const _result = await protectBranches('Org/repo', { createMissing: true })
 
     // run() should have been called for git branch + git push for each branch
     expect(mockRun).toHaveBeenCalled()
     const branchCalls = mockRun.mock.calls.filter((c: string[][]) => c[0].includes('git'))
     expect(branchCalls.length).toBeGreaterThan(0)
+  })
+
+  it('skips a missing branch by default instead of resurrecting it', async () => {
+    // Branch does not exist locally — the state a trunk repo is left in after
+    // `staging` is retired (#376). Recreating it here would undo the migration.
+    spawnSyncSpy.mockReturnValue({
+      stdout: new Uint8Array(),
+      stderr: new Uint8Array(),
+      exitCode: 1,
+      success: false,
+    } as unknown as ReturnType<typeof Bun.spawnSync>)
+
+    spawnSpy.mockReturnValue({
+      exited: Promise.resolve(0),
+      stdout: new ReadableStream(),
+      stderr: new ReadableStream(),
+    } as unknown as ReturnType<typeof Bun.spawn>)
+
+    const { protectBranches } = await import('../lib/protection')
+    const result = await protectBranches('Org/repo')
+
+    expect(result.branches.main).toBe('skipped')
+    expect(result.branches.staging).toBe('skipped')
+
+    // No branch was created and nothing was pushed to the remote.
+    const pushCalls = mockRun.mock.calls.filter((c: string[][]) => c[0].includes('push'))
+    expect(pushCalls).toHaveLength(0)
+    expect(mockRun).not.toHaveBeenCalled()
   })
 
   it('deletes PR review requirement after applying protection', async () => {

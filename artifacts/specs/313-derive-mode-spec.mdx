@@ -1,0 +1,150 @@
+---
+title: 'compress v2 train E — derive mode: R11 + R12, report-only v1'
+issue: 313
+status: approved
+tier: F-full
+date: 2026-07-04
+---
+
+## Context
+
+Promoted from `artifacts/frames/313-derive-mode-frame.mdx` (approved) through `artifacts/analyses/313-derive-mode-analysis.mdx` (approved — **Shape C, hybrid reuse**: deterministic specs in derive.md, every number tool-backed). Epic source §3-P4. Train E (tail); consumes A (dispatch/ledger/Bash), B (glossary/G-rules), C (verifier/Task/levels), D (lint corpus).
+
+## Goal
+
+Mechanize the derivation reflex as `/compress derive <scope>`: bounded mining of normalized structural signatures, executable gates (≥3×≥3, freshness, runtime-amortization double-entry), schema_fit routing with dark matter respected, conflict adjudication without silent merges, and R11/R12 emissions with per-cluster break-even — **report-only v1** whose sole write is one derivation ledger row.
+
+## Users
+
+- **Primary:** maintainers deriving patterns/principles from real corpora with honest, reproducible arithmetic.
+- **Secondary:** roxabi-cortex (consolidate/Retain SCHEMA evidence: routing taxonomy, conflict UX, provenance shape, approval queue — thresholds labeled placeholders, never calibration); v2+ apply path.
+
+## Decisions
+
+1. **Shape C binding (analysis)**: all pipeline mechanics as executable prose contracts IN derive.md; every numeric claim produced by a shipped tool (`count_tokens.py count` for token deltas; `git log -1 --format=%ct` for freshness; ledger via `count_tokens.py append --mode derivation`); LLM-owned steps (clustering equivalence, schema_fit, conflict, template authoring) explicitly labeled judgment with present-choice gates.
+2. **Trigger-timing (standing, recorded at train A)**: "derive pattern from skills" pre-installed (Δ=+5 of +15 measured); description byte-frozen this train; argument-hint satisfied by the generic `[mode]` slot. The AC's "appear only in this PR" passes on the recorded reinterpretation.
+3. **SKILL.md 0-delta edit (ONE, precisely scoped)**: line 46 contains TWO sentences — S1 (the live gate rule `Mode valid ⟺ ref(μ) ∃. ∄ → halt: … — ¬improvise a mode body.`) and S2 (the ship/halt enumeration). Replace ONLY S2 with "Today all five mode bodies ship — `references/{compress,glossary,expand,lint,derive}.md`."; **S1 stays byte-verbatim** (it is the anti-phantom guard for unknown modes — `/compress frobnicate` still halts). Verify no other line claims derive halts; wc -l stays 110.
+4. **Signature-normalization spec (deterministic, in derive.md verbatim)**:
+   - **Extraction unit (the "construct")**: one of — a `Let:`-block binding line; an `I :=`/`V :=` contract line; one table row; one `O_<name>` operation line; a guard-function line; a status-glyph vocabulary line; or a heading plus its first paragraph when the repetition spans whole sections. Segmentation happens BEFORE normalization; each unit yields one signature.
+   - **Rules, applied in this order**: (1) NFC-normalize; (2) KEEP structural tokens verbatim — glyphs and glyph SEQUENCES (∀∃∧∨¬→⟺:= etc., kept as-is, never placeheld), structural keywords (`Let:`, the `I :=`/`V :=` binding markers themselves, `O_` prefix, table pipes, heading markup) — the KEEP rule has PRECEDENCE over placeholder rules; (3) placeholder substitution in this intra-order: backtick code spans → `<CODE>` > quoted strings → `<STR>` > paths → `<PATH>` > numbers → `<NUM>` > identifiers → `<VAR>` (an identifier = a contiguous run of word chars incl. underscores/hyphens — compound identifiers like `MAX_FILES` are ONE `<VAR>`; the bound identifier after a kept `I :=` marker is normalized: `I := pipeline_done` → `I := <VAR>`); heading TEXT tokens follow these rules, heading markup is kept; (4) collapse whitespace runs.
+   - The normalized string IS the signature key. Two occurrences cluster iff keys are identical OR the LLM judges them semantically equivalent — every semantic-equivalence merge is listed in the report as `judged-equivalent` with both keys shown. (The audit surfaces merges that happened; spuriously-split clusters are the residual risk — contained by report-only + the verifier coverage map.)
+5. **MINE caps (named constants in derive.md)**: `MAX_FILES = 40`, `MAX_BYTES = 400_000` — over-cap scope → halt with chunking advice. Per-file Task fan-out: each subagent reads exactly its one file (train-C single-file cap wording) and returns signatures only.
+6. **GATE constants**: `MIN_OCCURRENCES = 3`, `MIN_FILES = 3` (labeled placeholders), `FRESHNESS_DAYS = 7` (named placeholder; predicate: `git log -1 --format=%ct -- <file>` older than now − N days ⇒ stable). Amortization: extraction allowed iff co-occurrence-in-one-context-window (stated file chains) OR declared SSoT objective; report shows BOTH repo-static Δ and runtime per-invocation Δ. **Measurement procedure (count_tokens takes file paths only)**: write each fragment (a pointer line, one inline instance, the emitted ref draft) to a scratch temp file → `count_tokens.py count <tmp>` → read `report['tokens_o200k']` under the default `tiktoken-proxy` method (report both encodings if `agreement` is false), or `report['tokens']` under `estimate`/`anthropic-api`; hand-estimates forbidden — every figure in the double-entry is tool-produced.
+7. **Report format (pinned, field → source)**: per cluster — `## Cluster <n>: <name>` (name = first ≤5 meaningful tokens of the signature key) · signature key + occurrence table (file:line ×N, from the MINE fan-out results, sorted by (file, line)) · gate results (one line per predicate: `<predicate>: PASS|FAIL — <tool output>`) · route (fold-in <existing target> | new-pattern | dark-matter — schema_fit is an LLM JUDGMENT over the enum {strong, ambiguous, poor} with a one-line justification; no fake numeric thresholds) · emission (R11 draft + Let-bound pointers | R12 principle per D12 | `skipped:` + break-even arithmetic) · double-entry deltas (`repo-static: ±N tokens · runtime/invocation: ±M tokens`, both per D6's procedure) · unified diff (fold-in: diff against the existing target file; new-pattern: the new file as an add-diff). Trailer: dark-matter list, **gate-failed list (its own disposition — instances of clusters that failed a predicate; NOT dumped into dark matter)**, deliberate-loss list (present-choice-accepted), coverage map, ledger row echo. **Coverage map keying**: `instance_id = (file, line, signature-key)`; disposition ∈ {pattern, principle, dark-matter, gate-failed, deliberate-loss}; acceptance identity: |mapped| + |deliberate-loss| = |all mined instances|, zero unmapped.
+8. **Verifier invocation (acceptance-split reuse, NOT spawn-template reuse)**: verify.md's compress spawn template is anchor-specific and cannot drive derive verification — derive.md AUTHORS ITS OWN verifier spawn prompt: the report is materialized to ONE scratch file (outside repo/scope — not a report-only violation; the sole persistent write remains the ledger row), the fresh Task reader reads exactly that file (single-file cap wording) and checks: (a) coverage identity per D7 (every instance_id has a disposition; |mapped|+|loss| = |mined|); (b) the deliberate-loss list carries its present-choice acceptance; (c) spot-reproduction: pick one emitted R12 rule + one `ref:` instance, judge whether following the rule reproduces that instance (recorded as a judgment, "not mechanized in this train" disclosed). **verify.md amendment (one line)**: its derive-acceptance line is extended to name the full disposition set (…↦ pattern/principle/dark-matter/gate-failed) — S9 is acceptance-split reuse plus this one-line amendment, stated honestly.
+9. **Dogfood run as evidence (slice 2)**: one bounded derive run over `plugins/dev-core/skills/` (≤ MAX_FILES) targeting the three worked examples; the report + verifier output + ledger row are the PoC evidence, recorded in the PR body/run log — the report itself is NOT committed (a live corpus scan rots immediately; house precedent lint.md's counts-rot rule). **Accepted durability trade-off (deliberate-loss idiom)**: PR bodies are editable and CI logs expire — the durable evidence is the vault ledger row, whose `target` field carries `PR #<n>: <scope>` so the chain stays traceable both ways.
+10. **Worked examples in derive.md — SIX distinct blocks, ALL AUTHORED IN SLICE 1** (slice 2 validates the three dogfood ones against live reality): ① I/V boilerplate (dogfood, example-only marked); ② pipeline verify-tables (dogfood); ③ status-glyph vocabulary (dogfood); ④ generic non-Roxabi ("N skills sharing an identical retry-policy paragraph"); ⑤ a poor-fit cluster landing in dark matter verbatim; ⑥ a break-even-skip with the full arithmetic shown. Each block: sample signatures, gate outcome, route, emission-or-skip.
+11. **cortex_link section**: schema de-risking only; thresholds = placeholders; D15/GEPA/LILO/RC-x credited non-load-bearing.
+12. **R12 template embedded verbatim** (genericized; ssot origin cited as analysis evidence only, no path):
+    ```
+    ## <Principle name> (validated on <instance>: <before → after metric>)
+    ∀ <scope>: <rule body>
+    trigger: <machine-checkable predicate>
+    ref: <source instance 1> · <source instance 2> · …
+    gloss: <≤1-line NL name + docstring>
+    confidence: <0-100> · ambiguity_flags: [<flags>]
+    ```
+    Field semantics: `confidence` ∈ [0,100] ∩ ℤ (0 = none, 100 = certain); `ambiguity_flags` controlled vocabulary {conflict, subjective, incomplete, semantic-judgment, schema-fit-boundary}, `[]` allowed.
+13. **R11 output check**: before presenting, the mode greps its own draft for `→ *[A-Z]+\([0-9n]+\)`-style bare pointers → any hit = rejected draft, rewrite with the Let-bound form `Q := read ${CLAUDE_PLUGIN_ROOT}/../shared/references/<f>.md — <gloss>`.
+
+## Expected Behavior
+
+**Dispatch.** `/compress derive <glob|dir|plugin>`: explicit mode only (plain `/compress <file>` routes to compress). Anti-phantom gate flips on when derive.md lands.
+
+**MINE.** Scope → caps check (D5) → per-file Task fan-out (signatures only, single-file cap) → normalization per D4 → cluster by identical keys + audited semantic merges.
+
+**GATE.** D6 predicates, all executable; failing clusters listed with which predicate failed (transparency); amortization basis stated per cluster.
+
+**ROUTE.** strong fit → fold-in proposal into the EXISTING shared reference (diff against it; never a duplicate sibling); ambiguous → new-pattern proposal via present-choice; poor → dark matter verbatim (listed, never abstracted).
+
+**CONFLICT.** Candidate vs existing pattern with high overlap + opposed polarity → present-choice showing BOTH texts; no silent-merge path exists in the mode text.
+
+**EMIT.** R11 per D13's pointer contract; R12 per D12's template; break-even per cluster (skip path with arithmetic); report per D7. **Zero writes** to any scoped/repo file; ledger append is the sole write; supersede-not-destroy stated for the v2 apply path.
+
+**Validate.** Train-C verifier with derive acceptance (D8).
+
+## Data Model & Consumers
+
+**Data structure:** [derive data model](../visuals/313-derive-mode-data-model.html)
+**Consumer map:** [derive consumers](../visuals/313-derive-mode-consumers.html)
+
+| Consumer | Fields | When | Status |
+|----------|--------|------|--------|
+| maintainers | report clusters + choices | every run | this issue |
+| ledger | derivation row | every run | this issue |
+| train-C verifier | coverage map + loss list | every run | this issue |
+| count_tokens | double-entry deltas | GATE/EMIT | this issue |
+| v2+ apply path | proposals + supersede rule | future | future |
+| cortex Retain | schema evidence | PoC | future |
+
+## Breadboard
+
+| ID | Affordance | Handler | Data |
+|----|-----------|---------|------|
+| S1 | derive.md pipeline contracts (MINE/GATE/ROUTE/CONFLICT/EMIT) | mode body | D4-D7, D12-D13 |
+| S2 | Normalization spec (D4) + worked signature examples | derive.md | placeholder grammar |
+| S3 | Caps + fan-out contract (D5) | derive.md | constants |
+| S4 | Gate predicates + amortization double-entry (D6) | derive.md + count_tokens | constants + deltas |
+| S5 | Route/conflict/dark-matter rules | derive.md | taxonomy |
+| S6 | R12 template (D12) + R11 pointer contract + output check (D13) | derive.md | template |
+| S7 | Report format (D7) + coverage map + loss list | derive.md | report |
+| S8 | Ledger row `mode: derivation` | count_tokens append | Observation |
+| S9 | Verifier invocation w/ derive acceptance (D8) | verify.md reuse | verdict |
+| S10 | Worked examples 3+1 + dark-matter + break-even-skip (D10) | derive.md | examples |
+| S11 | SKILL.md line-46 edit (D3) | SKILL.md | ship sentence |
+| S12 | Dogfood run evidence (D9) | runtime exercise | report + ledger + verifier output |
+| S13 | READMEs (plugin derive section + ROOT index row) | docs | — |
+
+## Slices
+
+| # | Slice | Contains | Demo |
+|---|-------|----------|------|
+| 1 | Mode body + wiring | S1–S7 (derive.md complete), S10 (all six worked examples authored), S11 | derive.md passes greps (constants, template fields, pointer check, report format, cortex honesty, six worked-example blocks present); line 46 lists all five modes; SKILL.md 110; validator PASS |
+| 2 | Dogfood evidence + docs | S8, S9, S12, S13 (+ live validation of S10's three dogfood examples) | bounded run over dev-core skills → report with ≥1 gated cluster + ≥1 dark-matter + ≥1 break-even-skip; **SC1 negative demo: `/compress file.md` dispatch walkthrough routes to compress, never derive**; verifier coverage identity; ONE ledger row (real vault, target carries the PR ref); READMEs updated |
+
+## Constraints
+
+- Report-only v1 (sole write = ledger row); supersede-not-destroy stated; no new scripts; no CI changes; SKILL.md 110/110 (one in-line edit); description byte-frozen.
+- Self-containment: no ssot paths; generic example present; templates embedded.
+- Whole corpus never in one context; every numeric claim tool-produced.
+- DP standing: present-choice everywhere; no AskUserQuestion. Repo hygiene standard; never stage 308-*.
+
+## Non-goals
+
+- Apply path (v2+); cortex calibration; corpus-wide runs beyond the bounded dogfood; new scripts/tests (prompt-logic + evidence).
+
+## Edge Cases
+
+| Scenario | Handling |
+|----------|----------|
+| Scope over caps | Halt with chunking advice (named constants cited) |
+| Plain `/compress <file>` | Routes to compress mode — never derive |
+| Cluster fails one gate predicate | Listed with the failing predicate; not emitted |
+| Amortization basis absent (no co-occurrence, no SSoT declaration) | R11 extraction blocked; cluster may still yield R12 or dark matter |
+| Poor schema_fit | Dark matter verbatim; report lists it; never forced |
+| Conflict detected | Present-choice with both texts; no merge without it |
+| Draft contains a bare pointer | Output check rejects; rewrite Let-bound |
+| Break-even negative | Skip emission; arithmetic shown |
+| Bash unavailable | No ledger row (stated); freshness/counts degrade to "LLM-estimated, human-gated" labels |
+| Verifier inconclusive | Report marked "verification inconclusive — human-gated" (train-C rule) |
+| gh/git absent for freshness | Freshness marked unverifiable → cluster held (not passed) |
+| An earlier train introduced plugin.json.version by merge time | Re-checked immediately before merge (SC16): version field present ⇒ bump it (the gate reads plugin.json); today it is version-less — verified again before label |
+
+## Success Criteria
+
+- [ ] SC1 `/compress derive <scope>` resolves and runs; plain `/compress <file>` never enters derive (dispatch text proof)
+- [ ] SC2 derive.md exists; anti-phantom gate flips; trigger/argument-hint per recorded adaptation (pre-installed; Δ=0 byte-proof); line 46 lists all five modes shipping
+- [ ] SC3 MINE bounded: MAX_FILES/MAX_BYTES named; per-file Task fan-out with single-file cap wording; normalization spec deterministic per D4 (placeholder grammar verbatim); judged-equivalent merges audited in report
+- [ ] SC4 GATE predicates executable: ≥3×≥3 + FRESHNESS_DAYS=7 named placeholder w/ the exact git command; zero "current release" text
+- [ ] SC5 Amortization gate: co-occurrence OR declared-SSoT; BOTH deltas in every report (repo-static + runtime per-invocation)
+- [ ] SC6 ROUTE 3 branches; worked poor-fit example lands dark-matter verbatim
+- [ ] SC7 CONFLICT present-choice w/ both texts; no silent-merge path (grep)
+- [ ] SC8 R11 pointers Let-bound (`:= read ${CLAUDE_PLUGIN_ROOT}/…` + gloss); bare-pointer output check present; the check's rejection pattern stated
+- [ ] SC9 R12 template embedded w/ all 7 fields; self-containment grep zero `projects/ssot`/machine paths in plugins/compress/
+- [ ] SC10 Break-even arithmetic in every EMIT decision; skip path exercised in a worked example
+- [ ] SC11 Report-only proven in the dogfood run: zero scoped-file writes; exactly ONE ledger row (`mode: derivation`, real vault); proposals as diffs; supersede-not-destroy stated
+- [ ] SC12 Train-C verifier invoked with derive acceptance on the dogfood report (coverage map total + loss list); lossless-inventory NOT applied
+- [ ] SC13 Worked examples: 3 dogfood (example-only marked) + ≥1 generic non-Roxabi
+- [ ] SC14 cortex_link schema-only; ≥3/≥3 placeholders labeled
+- [ ] SC15 Process hygiene: no cache edits; no force/hard/amend; present-choice only (greps)
+- [ ] SC16 Plugin README derive section + ROOT README index row updated; SKILL.md 110; description byte-identical; validator ALL PASS; plugin.json version state re-checked at merge time (version-less ⇒ no bump; field present ⇒ bump — the gate reads plugin.json)

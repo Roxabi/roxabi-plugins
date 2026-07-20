@@ -190,7 +190,7 @@ testing:
   unit: {UNIT_TEST}
   # e2e: (only if playwright/cypress detected)
 
-# quality_gates: (python/node — opt-in code-hygiene guards; omit section entirely when runtime not supported)
+# quality_gates: (python/node/bun — opt-in code-hygiene guards; omit section entirely when runtime not supported)
 #   file_length:
 #     enabled: true
 #     max_lines: 300
@@ -209,7 +209,10 @@ testing:
 #     config: .importlinter
 
 deploy:
-  platform: none
+  platform: {DEPLOY_PLATFORM}  # none | vercel | cloudflare | cloudflare-pages
+
+# ci: (optional — merge strategy for private free-plan repos)
+#   merge: merge-on-green
 
 docs:
   framework: none
@@ -235,14 +238,16 @@ artifacts:
 #   testing: {docs}/standards/testing.md
 #   code_review: {docs}/standards/code-review.md
 #   architecture: {docs}/architecture/
-#   configuration: {docs}/configuration.md
+#   configuration: {docs}/standards/configuration.md
 #   contributing: {docs}/contributing.md
 ```
 
 **Conditional rendering rules for the template above:**
 - `frontend:` — include (uncommented) only if a frontend framework was detected; otherwise omit entirely.
 - `shared:` — include only if a monorepo layout was detected; otherwise omit entirely.
-- `quality_gates:` — include (uncommented) only if `runtime ∈ {python, node}`; otherwise omit the section entirely. For `runtime: node`, include only the `file_length` sub-block (folder_size and import_layers are Python-only).
+- `quality_gates:` — include (uncommented) only if `runtime ∈ {python, node, bun}`; otherwise omit the section entirely. For `runtime: node` or `runtime: bun`, include only the `file_length` sub-block (folder_size and import_layers are Python-only). For bun, set `globs: ["src/**/*.{ts,tsx,js,jsx}"]`.
+- `deploy.platform` — Ask in Phase 3 if not auto-detected: **none** | **vercel** | **cloudflare** | **cloudflare-pages** (maps to Cloudflare deploy workflow).
+- `ci.merge` — optional; set `merge-on-green` for private free-plan repos where native auto-merge is unavailable (default: omit → auto-merge).
 
 ## Phase 4b — Worktree-setup scaffold
 

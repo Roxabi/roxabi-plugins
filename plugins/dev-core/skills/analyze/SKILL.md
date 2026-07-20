@@ -11,11 +11,11 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree,
 ## Success
 
 I := α written ∧ committed ∧ shapes ∃
-V := `git log --oneline -1 | grep analysis` ∧ `ls artifacts/analyses/{N}-*.mdx`
+V := `git log --oneline -1 | grep analysis` ∧ `ls artifacts/analyses/{N}-*.md*`
 
 Let:
-  α := artifacts/analyses/{N}-{slug}-analysis.mdx
-  φ := artifacts/frames/{slug}-frame.mdx
+  α := artifacts/analyses/{N}-{slug}-analysis.md
+  φ := artifacts/frames/{slug}-frame.md
   ρ := expert reviewer set
   Ω := `skill: "interview"`
   Q := present choice, wait for user reply
@@ -57,7 +57,7 @@ Parse args → locate φ.
 # Find frame by issue number in frontmatter or filename
 grep -rl "issue: N" artifacts/frames/ 2>/dev/null | head -1
 # Fallback: glob by any slug
-ls artifacts/frames/*.mdx 2>/dev/null
+ls artifacts/frames/*.md* 2>/dev/null
 ```
 
 `--frame path` → read directly.
@@ -98,9 +98,11 @@ Pre-fill context from φ — skip answered questions.
 
 ## Step 2c — Generate Analysis
 
+F-lite/F-full: generate forge-chart sidecars per [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) **before** writing α.
+
 Write α:
 
-```mdx
+```md
 ---
 title: "{title}"
 description: "{one-line description}"
@@ -124,6 +126,8 @@ description: "{one-line description}"
 
 ## Shapes
 
+**Diagram:** [{shapes title}](../visuals/{N}-{slug}-shapes.html)
+
 ### Shape 1: {name}
 
 {description}
@@ -140,17 +144,28 @@ description: "{one-line description}"
 
 ## Fit Check
 
+**Diagram:** [{data flow title}](../visuals/{N}-{slug}-data-flow.html)
+
 {Which shape best fits constraints + appetite, and why. Which shapes are eliminated.}
 ```
 
-### Mermaid Diagrams (optional, recommended for F-lite/F-full)
+### Forge-Chart Sidecars (F-lite/F-full)
 
-When analysis involves data flow or architectural choices, include mermaid in `## Fit Check` or `## Shapes`:
-- **Shape comparison** (`flowchart`): show key structural differences visually
-- **Data flow discovery** (`flowchart`): diagram current state for concrete findings
-- **Files impacted** table: always include when ≥3 files touched
+Read [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) before generating visuals.
 
-Tier S may omit Shapes + Fit Check.
+When analysis involves data flow or architectural choices, generate forge-chart sidecars (¬inline mermaid, ¬ASCII):
+- **`## Shapes`** (≥2 shapes) → `{N}-{slug}-shapes.html` — architecture diagram with zones per shape
+- **`## Fit Check`** (data flow or arch choice) → `{N}-{slug}-data-flow.html` — recommended shape topology
+
+Link in α:
+
+```markdown
+**Diagram:** [{title}](../visuals/{N}-{slug}-{kind}.html)
+```
+
+**Files impacted** table: always include when ≥3 files touched.
+
+Tier S may omit Shapes + Fit Check sidecars.
 
 ∃ specific technical question → spawn domain expert via Task. See [references/expert-consultation.md](${CLAUDE_SKILL_DIR}/references/expert-consultation.md).
 
@@ -187,13 +202,13 @@ Incorporate feedback → revise α → note unresolved concerns.
 
 ## Step 4 — User Approval
 
-Open α: `code artifacts/analyses/{N}-{slug}-analysis.mdx`.
+Open α: `code artifacts/analyses/{N}-{slug}-analysis.md`.
 
 Present summary: shapes found, trade-offs, recommended shape, unresolved concerns.
 
 → present choice **Approve** → update issue status → done | **Revise** → collect feedback → revise α → loop from Step 3.
 
-On approval → commit: `git add artifacts/analyses/{N}-{slug}-analysis.mdx` + commit per CLAUDE.md Rule 5.
+On approval → commit: `git add artifacts/analyses/{N}-{slug}-analysis.md artifacts/visuals/` + commit per CLAUDE.md Rule 5.
 
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Analysis
@@ -215,7 +230,7 @@ Inform: "Analysis complete. Run `/spec --issue <N>` to generate the solution spe
 ## Chain Position
 
 - **Phase:** Shape
-- **Predecessor:** `/frame` (artifact: `artifacts/frames/{N}-{slug}-frame.mdx`)
+- **Predecessor:** `/frame` (artifact: `artifacts/frames/{N}-{slug}-frame.md`)
 - **Successor:** `/spec`
 - **Class:** adv (continuous flow, no gate — user approves α inline in Step 4, not a pipeline gate)
 

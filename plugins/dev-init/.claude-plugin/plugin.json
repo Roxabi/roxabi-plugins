@@ -1,6 +1,6 @@
 {
   "name": "dev-init",
-  "description": "Project initialization harness — orchestrates env-setup, github-setup, ci-setup, release-setup.",
+  "description": "Project initialization harness — orchestrates env-setup, ci-setup, release-setup + axial ADR gate. Invoke as /dev-init:init.",
   "author": {
     "name": "Roxabi"
   },

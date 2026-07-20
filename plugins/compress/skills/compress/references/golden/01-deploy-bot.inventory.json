@@ -1,0 +1,66 @@
+[
+  {
+    "anchor": "INV-rule-1",
+    "text": "I := build green ∧ changelog entry ∃ ∧ target env healthy — else halt before any host is touched"
+  },
+  {
+    "anchor": "INV-cond-2",
+    "text": "should_skip(build, env) ⟺ build id already live in env → whole run is a no-op (redeploy wastes rollout budget, churns caches)"
+  },
+  {
+    "anchor": "INV-rule-3",
+    "text": "plan → dry-run diff of every host change — review the diff"
+  },
+  {
+    "anchor": "INV-rule-4",
+    "text": "apply → push build to hosts — health probe returns ok on every host"
+  },
+  {
+    "anchor": "INV-rule-5",
+    "text": "announce → release note to ops channel — posted note present"
+  },
+  {
+    "anchor": "INV-thresh-6",
+    "text": "canary traffic starts at 5 percent of requests"
+  },
+  {
+    "anchor": "INV-thresh-7",
+    "text": "abort when error rate exceeds 2 percent over any 10 minute window"
+  },
+  {
+    "anchor": "INV-cond-8",
+    "text": "Σ (state map): idle → staging → live; rollback → previous live snapshot only, never an arbitrary older one"
+  },
+  {
+    "anchor": "INV-cond-14",
+    "text": "ψ_r(host) ⟺ ping ok ∧ disk headroom ≥ 10 percent ∧ agent version current; ψ_f(host) ⟺ ¬ψ_r(host) — a ψ_f host is excluded from the rollout host set"
+  },
+  {
+    "anchor": "INV-cond-15",
+    "text": "Σ_s (readiness session, per host): unknown → probing → ready | unready; any config change on that host resets it to probing"
+  },
+  {
+    "anchor": "INV-edge-16",
+    "text": "ψ_r(host) unresolved after 3 probes → mark host ⚠ degraded, exclude until a fresh probe confirms ready"
+  },
+  {
+    "anchor": "INV-prohib-9",
+    "text": "¬start a deployment after 16:00 UTC on a Friday"
+  },
+  {
+    "anchor": "INV-prohib-10",
+    "text": "¬bypass the health probe, even for a one-line change"
+  },
+  {
+    "anchor": "INV-edge-11",
+    "text": "env unreachable → retry twice → still failing → mark run ⏳ pending, stop"
+  },
+  {
+    "anchor": "INV-edge-12",
+    "text": "partial apply (some hosts only) → roll back every host to previous snapshot, mark ✗ failed"
+  },
+  {
+    "anchor": "INV-rule-13",
+    "text": "fully green run → mark ✓ done, append to deploy log"
+  }
+]

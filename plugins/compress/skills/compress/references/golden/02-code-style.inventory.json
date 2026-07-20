@@ -1,0 +1,34 @@
+[
+  {
+    "anchor": "INV-rule-1",
+    "text": "Functions are named with verbs, modules with nouns — a function parser or a module validate fails review."
+  },
+  {
+    "anchor": "INV-cond-2",
+    "text": "Abbreviations are allowed only when they appear in the domain glossary; anything else is written out in full."
+  },
+  {
+    "anchor": "INV-thresh-3",
+    "text": "A function fits on one screen: at most forty lines — past the limit, extract branches into helpers before adding new ones."
+  },
+  {
+    "anchor": "INV-rule-4",
+    "text": "Every public function carries a docstring stating what it returns and which errors it raises."
+  },
+  {
+    "anchor": "INV-rule-5",
+    "text": "Errors are never swallowed: a caught exception is handled meaningfully, re-raised with added context, or logged at warning or higher."
+  },
+  {
+    "anchor": "INV-prohib-6",
+    "text": "Bare except clauses fail review, with no exceptions to the rule."
+  },
+  {
+    "anchor": "INV-rule-7",
+    "text": "Comments explain why, not what — a comment paraphrasing the line below it is deleted during review; commented-out code is never merged."
+  },
+  {
+    "anchor": "INV-rule-8",
+    "text": "Every change needs one approving review from outside the author's immediate team, within one working day — a \"looks good\" without evidence of reading the diff does not count."
+  }
+]

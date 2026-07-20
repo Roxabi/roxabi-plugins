@@ -1,0 +1,81 @@
+---
+title: 'Analysis: derive mode architecture — where the pipeline machinery lives'
+issue: 313
+status: approved
+tier: F-full
+date: 2026-07-04
+---
+
+## Source
+
+Primary source — the epic-level adversarially-verified analysis, cited verbatim (`artifacts/analyses/compress-skill-v2-ecriture-symbolique-analysis.md` §3-P4):
+
+> `/compress derive <glob|dir|plugin>` (jamais depuis un /compress nu) ; corps du mode dans `references/derive.md`. Pipeline : MINE (signatures structurelles normalisées) → GATE (≥3 occurrences × ≥3 fichiers ∧ stabilité fresh-tail) → ROUTE par schema_fit (fold-in / nouveau pattern via DP / **dark matter = garder verbatim, ne jamais forcer l'abstraction**) → CONFLICT (overlap + polarité opposée → DP(A), jamais de merge silencieux) → EMIT […] **v1 = report-only**.
+
+Two separate verifier-corrective bullets (source order: Borner MINE precedes Opérationnaliser):
+
+> Borner MINE : cap dur fichiers/octets, fan-out sous-agents par fichier (signatures seulement, jamais le corpus entier dans un contexte) […]
+
+> Opérationnaliser chaque prédicat de gate dans derive.md avec commandes exécutables […]
+
+Secondary sources read in-tree: the four shipped mode bodies (`references/{compress,glossary,expand,lint}.md` — the house prose-contract idiom), `scripts/count_tokens.py` (3-tier counter + append), `scripts/inventory_diff.py` (normalize/diff/log), `references/verify.md` (derive-specific acceptance pre-documented since train C).
+
+## Problem
+
+The derive pipeline mixes two computation classes: **LLM-native judgment** (semantic clustering, schema_fit routing, conflict adjudication, template authoring) and **deterministic bookkeeping** (signature normalization, occurrence/file counting, freshness timestamps, break-even and amortization token arithmetic). Where each class LIVES decides whether the mode is falsifiable, whether it stays marketplace-self-contained, and whether it contradicts the four shipped modes' architecture. The issue mandates: gate predicates + normalization procedure "written in derive.md as an executable/deterministic spec, not prose"; report-only v1; no whole-corpus context.
+
+## Outcome (non-prescriptive)
+
+A derive mode whose numeric claims are tool-honest and whose judgment steps are explicitly LLM-owned — such that a reviewer can falsify the gates and arithmetic without trusting the narrative, and cortex gets clean schema evidence (routing/conflict/provenance/queue).
+
+## Appetite (fixed)
+
+One PR, ≤2 implementation slices, no new CI surface, SKILL.md stays 110/110. If the winning shape can't fit that, cut worked-example count before cutting gate honesty.
+
+## Shapes (mutually exclusive)
+
+### Shape A — prose-only mode body (lint-style maximalism)
+
+Everything — MINE fan-out, normalization, gates, arithmetic — as LLM instructions in derive.md.
+
+- **Pro:** perfectly consistent with the four shipped mode bodies; zero new code/tests; fastest to land.
+- **Con:** under A, tool use is DISCRETIONARY — the mode contract permits by-hand numbers, the exact class of unverifiable numeric claim this train's review culture repeatedly rejected (count-timing, recall keying, fixture counts); it would also strain SKILL.md's own "S = sole token counter" invariant. C's distinction: every number's producing command is part of the derive.md CONTRACT.
+
+### Shape B — script-backed mining
+
+New `scripts/derive_mine.py`: normalization, clustering, ≥3×≥3 + freshness gates as tested Python; derive.md only for ROUTE/CONFLICT/EMIT.
+
+- **Pro:** the deterministic half becomes pytest-falsifiable (house pattern from trains A/C).
+- **Con:** contradicts the issue's own mandate (the normalization procedure and gate predicates live IN derive.md) and the approved frame's out-of-scope line (no new scripts); real clustering of *structural* signatures is substantially semantic — a Python clusterer would either be trivial (exact-match) or overreach (NLP dependency), both wrong; heavier appetite.
+
+### Shape C — hybrid reuse (deterministic spec in-doc, numbers tool-backed)
+
+derive.md carries the full pipeline as executable prose contracts (normalization spec, gate predicates with their exact commands, output checks) — same precision register as lint.md's pattern contracts. Every NUMBER delegates to shipped tools: `count_tokens.py count` for break-even + double-entry amortization deltas, `count_tokens.py append --mode derivation` for the ledger row, `git log -1 --format=%ct` for freshness, train-C Task-spawn discipline for the per-file MINE fan-out, train-C verifier (derive acceptance, pre-documented) for validation.
+
+- **Pro:** issue-conformant to the letter; determinism where it counts (all numeric claims tool-produced, reviewer-reproducible); zero new code; reuses four trains of shipped machinery; the LLM-owned steps are explicitly labeled as judgment (schema_fit, conflict) with present-choice gates — honest by construction.
+- **Con:** normalization *execution* is still LLM-run against a deterministic spec (a careless run could deviate) — mitigated by the spec's precision (worked examples pin expected signatures) and the verifier's coverage map catching dropped instances.
+
+## Fit Check
+
+| Constraint | A | B | C |
+|-----------|---|---|---|
+| Issue mandate: normalization + predicates IN derive.md | ✓ | ✗ (in script) | ✓ |
+| Numeric claims tool-honest (train A–D review bar) | ✗ | ✓ | ✓ |
+| Frame scope: no new scripts | ✓ | ✗ | ✓ |
+| Clustering is semantic → LLM-owned | ✓ | ✗ (trivial or overreach) | ✓ |
+| Appetite (≤2 slices, no CI surface) | ✓ | ✗ | ✓ |
+
+**Shape B eliminated** (mandate + scope + clustering mismatch). **Shape A eliminated** (unverifiable arithmetic — fails the epic's own honesty bar, which killed exactly this pattern in every prior review). **Winner: Shape C.**
+
+## Spike decision
+
+No spike. The only genuinely open question ("can clustering be deterministic?") is answered by inspection: structural-signature clustering requires semantic equivalence judgment (e.g. `I := ∀ steps done` vs `I := pipeline complete` are one cluster), which no bounded script settles — the materiality test fails (a spike would not change which shape wins, only how a Shape-B script would look, and B is eliminated on mandate grounds).
+
+## Sidecars
+
+**Shapes:** [three shapes compared](../visuals/313-derive-mode-shapes.html)
+**Data flow:** [Shape-C pipeline](../visuals/313-derive-mode-data-flow.html)
+
+## Expert-review notes
+
+Incorporated inline: the trains A–D review precedents (tool-honest numbers, falsifiable contracts, no silent merges) are treated as binding constraints, not preferences. Unresolved concerns: none — Shape C's residual risk (LLM-run normalization) is explicitly mitigated and disclosed above.

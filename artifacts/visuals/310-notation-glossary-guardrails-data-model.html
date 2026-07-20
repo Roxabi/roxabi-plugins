@@ -1,0 +1,2627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="diagram:title" content="Notation glossary data model — notation.md · SKILL.md whitelist · G1-G4 · legends gate (#310)">
+<meta name="diagram:category" content="architecture">
+<meta name="diagram:color" content="#22d3ee">
+<meta name="diagram:engine" content="fd-engine">
+<meta name="diagram:type" content="architecture">
+<title>Notation glossary data model — notation.md · SKILL.md whitelist · G1-G4 · legends gate (#310)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* reset */
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+ul,ol{list-style:none;margin:0;padding:0}
+button{cursor:pointer;font-family:inherit}
+
+/* ══════════════════════════════════════════════════════════════════
+   lyra-v2.css — Lyra brand aesthetic · v2 (GitHub-dark variant)
+   Used by: lyra, voicecli (v2-styled artifacts only)
+
+   Difference vs lyra.css (v1 "Forge Floor"):
+   - Surfaces rebased on GitHub-dark (#0d1117 family) with an explicit
+     elevation ladder: bg < bg-cell < bg-panel < bg-card
+   - Adds --border-hi for stronger dividers in dense data grids
+   - Accent alphas pushed (dim 0.08→0.12, glow 0.22→0.40) for more
+     "live ember" feel on cards and nodes
+   - Drops the forge-floor body chrome (spark particles + 42px grid)
+     — v2 docs are flat, data-dense, GitHub-network-graph style
+   - Adds lane palette (lane-a1..i, status-ready/blocked/done) so
+     dep-graph / kernel-arch / swimlane docs share one token set
+
+   Reference implementations:
+   - lyra-v2-dependency-graph-v5.1.html
+   - lyra-kernel-architecture-v5.html
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Brand Tokens — Dark (default, v2 only exists in dark) ── */
+:root, [data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Surface elevation ladder (darkest → lightest) */
+  --bg:           #0d1117;  /* page */
+  --bg-cell:      #0f141a;  /* grid cell / recessed surface inside panel */
+  --bg-panel:     #13191f;  /* section / wrapper */
+  --bg-card:      #161b22;  /* card / raised surface inside panel */
+
+  /* Legacy aliases — keep v1 variable names working in v2 docs */
+  --surface:      #13191f;  /* alias → bg-panel */
+  --surface2:     #161b22;  /* alias → bg-card */
+
+  /* Dividers */
+  --border:       #21262d;
+  --border-hi:    #30363d;
+  --border-bright:#30363d;  /* alias → border-hi */
+
+  /* Text ramp */
+  --text:         #fafafa;
+  --text-muted:   #8b93a1;
+  --text-dim:     #6b7280;
+
+  /* Forge orange — same hue as v1, stronger alphas */
+  --accent:       #e85d04;
+  --accent-2:     #f97316;
+  --accent-dim:   rgba(232,93,4,0.12);
+  --accent-glow:  rgba(232,93,4,0.40);
+  --error:        #ef4444;
+
+  /* Extended lane palette — shared by dep-graph, kernel-arch, swimlanes */
+  --teal:    #06b6d4;  --teal-dim:   rgba(6,182,212,0.10);
+  --amber:   #f59e0b;  --amber-dim:  rgba(245,158,11,0.10);
+  --green:   #10b981;  --green-dim:  rgba(16,185,129,0.10);
+  --cyan:    #22d3ee;
+  --purple:  #c084fc;
+  --pink:    #ec4899;  --pink-dim:   rgba(236,72,153,0.10);
+  --plum:    #a855f7;  --plum-dim:   rgba(168,85,247,0.10);
+  --red:     #ef4444;  --red-dim:    rgba(239,68,68,0.10);
+
+  /* Issue / task status — for plan artifacts */
+  --status-ready:   #22c55e;
+  --status-blocked: #f97316;
+  --status-done:    #475569;
+
+  /* Lane tones — for multi-lane swim/DAG views */
+  --lane-a1: #22c55e;
+  --lane-a2: #6366f1;
+  --lane-a3: #8b5cf6;
+  --lane-b:  #3b82f6;
+  --lane-c1: #a855f7;
+  --lane-c2: #d946ef;
+  --lane-c3: #ec4899;
+  --lane-d:  #06b6d4;
+  --lane-e:  #eab308;
+  --lane-f:  #10b981;
+  --lane-g:  #f97316;
+  --lane-h:  #f59e0b;
+  --lane-i:  #14b8a6;
+}
+
+/* v2 is dark-only by design. If a doc needs a light mode, use lyra.css v1. */
+
+/* ══════════════════════════════════════════════════════════════════
+   Base page chrome — flat body, 24px gutter, 12px base type
+   ══════════════════════════════════════════════════════════════════ */
+.lyra-v2 body,
+body.lyra-v2 {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, sans-serif;
+  padding: 24px;
+  min-height: 100vh;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Page header primitive
+   ══════════════════════════════════════════════════════════════════ */
+.lyra-v2 header.page-header,
+body.lyra-v2 header.page-header {
+  max-width: 100%;
+  margin: 0 auto 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.lyra-v2 header.page-header h1,
+body.lyra-v2 header.page-header h1 {
+  font-family: 'Outfit', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.lyra-v2 header.page-header h1 .accent,
+body.lyra-v2 header.page-header h1 .accent { color: var(--accent); }
+.lyra-v2 .subtitle,
+body.lyra-v2 .subtitle {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 6px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Section / panel primitive
+   ══════════════════════════════════════════════════════════════════ */
+.lyra-v2 .section,
+body.lyra-v2 .section {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px 20px;
+  position: relative;
+  overflow: hidden;
+}
+.lyra-v2 .section-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.lyra-v2 .section-title {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--text);
+  margin-bottom: 4px;
+  letter-spacing: -0.02em;
+}
+.lyra-v2 .section-title .accent { color: var(--accent); }
+.lyra-v2 .section-subtitle {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  line-height: 1.45;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Card primitive — raised surface with border-left tone stripe
+   ══════════════════════════════════════════════════════════════════ */
+.lyra-v2 .card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 11px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-hi);
+  border-left: 3px solid currentColor;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text);
+  transition: background 0.15s, border-color 0.15s, transform 0.12s;
+}
+.lyra-v2 .card:hover {
+  background: var(--bg-panel);
+  border-color: currentColor;
+  transform: translateX(1px);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Footer primitive
+   ══════════════════════════════════════════════════════════════════ */
+.lyra-v2 footer.page-footer {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.lyra-v2 footer.page-footer a { color: var(--accent); text-decoration: none; }
+.lyra-v2 footer.page-footer a:hover { text-decoration: underline; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Slide mode — lyra-v2 aesthetic (forge-slides)
+   Same flame-gradient as v1, but on the GitHub-dark ladder.
+   ══════════════════════════════════════════════════════════════════ */
+.deck.lyra-v2 .slide--title,
+.lyra-v2 .deck .slide--title {
+  background-image:
+    radial-gradient(ellipse at 50% 30%, var(--accent-glow) 0%, transparent 55%),
+    linear-gradient(135deg, var(--bg) 0%, var(--bg-panel) 100%);
+}
+.lyra-v2 .deck .slide--title .slide__display {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 700;
+}
+.lyra-v2 .deck .slide--title .slide__subtitle { color: var(--text-muted); }
+.lyra-v2 .deck .slide--content .slide__label { color: var(--accent); }
+.lyra-v2 .deck .slide--content .slide__heading {
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+.lyra-v2 .deck .slide--content li::before { color: var(--accent); }
+.lyra-v2 .deck .slide--section .slide__number {
+  color: var(--accent);
+  opacity: 0.1;
+}
+.lyra-v2 .deck .slide--closing {
+  background-image:
+    radial-gradient(ellipse at 50% 70%, var(--accent-glow) 0%, transparent 60%),
+    linear-gradient(to top, var(--bg), var(--bg-panel));
+}
+.lyra-v2 .deck .slide--closing .slide__heading {
+  color: var(--accent);
+  font-weight: 700;
+}
+.lyra-v2 .deck .slide--closing .cta {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  color: #fff;
+  border: none;
+  font-weight: 700;
+}
+.lyra-v2 .deck .slide--quote .slide__quote-mark { color: var(--accent); }
+.lyra-v2 .deck .slide--comparison .slide__col.accent {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+
+
+/* fd-engine.css — static rules for the fd-engine canvas, nodes, edges, card variants
+ * Inlined into generated HTML output at generation time (not linked at runtime).
+ * No viewBox / no preserveAspectRatio on the SVG overlay (AC-10).
+ * Self-bootstrapping: the :root block below maps each internal short-name token to a
+ *   universal forge aesthetic token with a hard fallback. Works on lyra-v2, cool-dark,
+ *   editorial, and all other aesthetics — no per-aesthetic shim needed.
+ * Plane CSS vars (--fd-plane-{name}) default below; aesthetic layer may override.
+ */
+
+/* ---- Token contract: self-bootstrapping short-name aliases ---- */
+/* fd-engine.css is inlined AFTER the aesthetic, so these :root declarations run last.
+ *
+ * Two mapping strategies:
+ *   A) fd short-name ≠ aesthetic token name → var(--universal-name, #hex)
+ *      The aesthetic's universal token wins; hard hex = lyra-v2 dark fallback.
+ *   B) fd short-name = aesthetic token name (--cyan, --amber, --slate, …) →
+ *      hard hex fallback only (no self-referential var()); aesthetics that already
+ *      declare the token will have their value replaced by the same hex here — safe
+ *      because we target the same colour. Aesthetics that omit the token get the
+ *      fallback, which is what we want.
+ *
+ * Regression note for roxabi.css (defines --panel:#13191f, no --bg-panel):
+ *   --panel → var(--bg-panel, #13191f) → bg-panel absent → #13191f = unchanged. ✓ */
+:root {
+  /* Strategy A: fd name ≠ aesthetic universal name */
+  --panel:  var(--bg-panel,   #13191f);
+  --panel2: var(--bg-card,    #161b22);
+  --bd2:    var(--border-hi,  #30363d);
+  --mut:    var(--text-muted, #8b93a1);
+  --mut2:   var(--text-dim,   #6b7280);
+  --mono:   var(--font-mono,  "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+  --sans:   var(--font-sans,  "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif);
+  --vio:    var(--plum,       #a855f7);
+  --emer:   var(--green,      #10b981);
+  /* Strategy B: fd name = aesthetic token name — hard fallback, no self-ref var() */
+  --slate:  #64748b;
+  --amber:  #f59e0b;
+  --cyan:   #22d3ee;
+  --sky:    #58a6ff;
+  --orng:   #fb923c;
+  --rose:   #fb7185;
+}
+
+/* ---- Plane color defaults (overridden by aesthetic inlines) ---- */
+:root {
+  --fd-plane-control:  #38bdf8;
+  --fd-plane-write:    #34d399;
+  --fd-plane-read:     #64748b;
+  --fd-plane-data:     #a78bfa;
+  --fd-plane-async:    #fb923c;
+  --fd-plane-feedback: #fb7185;
+  --fd-plane-message:  #38bdf8;
+  --fd-plane-media:    #fbbf24;
+  --fd-plane-llm:      #a78bfa;
+  --fd-canvas-h:       720px;
+}
+
+/* ---- Canvas container ---- */
+.fd-canvas {
+  position: relative;
+  width: 100%;
+  height: var(--fd-canvas-h, 720px);
+}
+
+/* ---- SVG overlay (AC-10: no viewBox, no preserveAspectRatio) ---- */
+.fd-edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 1;
+}
+
+/* ---- Edge path base rules ---- */
+.fd-edges path {
+  fill: none;
+  stroke-width: 1.8;
+  opacity: .62;
+  transition: opacity .15s, stroke-width .15s;
+}
+
+/* ---- Per-plane stroke colors ---- */
+.fd-edges path.control  { stroke: var(--fd-plane-control);  }
+.fd-edges path.write    { stroke: var(--fd-plane-write);    }
+.fd-edges path.read     { stroke: var(--fd-plane-read);     }
+.fd-edges path.data     { stroke: var(--fd-plane-data);     }
+.fd-edges path.async    { stroke: var(--fd-plane-async);    }
+.fd-edges path.feedback { stroke: var(--fd-plane-feedback); }
+.fd-edges path.message  { stroke: var(--fd-plane-message);  }
+.fd-edges path.media    { stroke: var(--fd-plane-media);    }
+.fd-edges path.llm      { stroke: var(--fd-plane-llm);      }
+
+/* ---- Edge state classes (dimmed / hot) ---- */
+.fd-edges path.hot {
+  opacity: 1;
+  stroke-width: 3;
+}
+.fd-canvas.dimmed .fd-edges path:not(.hot) {
+  opacity: .06;
+}
+
+/* ---- Use-case edge states ---- */
+.fd-edges path.uc-active {
+  opacity: 1 !important;
+  stroke-width: 2.8 !important;
+}
+.fd-edges path.uc-done {
+  opacity: .48 !important;
+  stroke-width: 2 !important;
+}
+
+/* ---- Edge label ---- */
+.fd-elabel {
+  font-family: var(--mono);
+  font-size: 9px;
+  fill: var(--mut);
+  opacity: 0;
+}
+.fd-elabel.hot {
+  opacity: 1;
+}
+
+/* ---- Particle dot wrapper ---- */
+.fd-edges g.fd-particle-wrap {
+  filter: drop-shadow(0 0 6px var(--pcol, #38bdf8));
+}
+
+/* ---- Node base (.fd-node extends fgraph-base .fgraph-node conventions) ---- */
+/* % coordinate system: --x and --y in 0..100 range, matching fgraph-base.css */
+.fd-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  left: calc(var(--x) * 1%);
+  top: calc(var(--y) * 1%);
+  z-index: 2;
+}
+
+/* ---- Premium card (.fd-card-premium) ---- */
+/* Extracted and generalized from lyra-stack-v2.html lines 135-195.
+ * Applied to nodes with cardStyle:"premium" (architecture / hub-spoke types by default). */
+.fd-card-premium {
+  width: 154px;
+  background: linear-gradient(180deg, var(--panel), var(--panel2));
+  border: 1px solid var(--bd2);
+  border-radius: 11px;
+  padding: 9px 11px 9px 13px;
+  cursor: default;
+  transition: transform .12s, box-shadow .15s, border-color .15s;
+  box-shadow: 0 3px 14px #00000055;
+}
+
+/* Keep canvas placement — .fd-card-premium must not override .fd-node absolute coords */
+.fd-node.fd-card-premium {
+  position: absolute;
+}
+
+.fd-card-premium:hover {
+  transform: translate(-50%, -50%) translateY(-2px);
+  border-color: #3d567a;
+  box-shadow: 0 8px 26px #000a;
+}
+
+/* Accent bar (.fd-accent) — left side color stripe */
+.fd-card-premium .fd-accent {
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--slate);
+}
+
+/* Node header row */
+.fd-card-premium .fd-nh {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+/* Node name — cards.js emits .fd-title; .fd-nn kept for legacy reference output.
+   Sans title + Mono subtitle = the dual-font craft primitive (matches the
+   lyra-diagram gold standard: IBM Plex Sans title / Mono descriptor). */
+.fd-card-premium .fd-title,
+.fd-card-premium .fd-nn {
+  font-weight: 700;
+  font-size: 12px;
+  font-family: var(--sans);
+  letter-spacing: -.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Subtitle / image line (.fd-sub) */
+.fd-card-premium .fd-sub {
+  color: var(--mut);
+  font-size: 10px;
+  font-family: var(--mono);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Description line */
+.fd-card-premium .fd-desc {
+  color: var(--mut2);
+  font-size: 10px;
+  margin-top: 3px;
+  line-height: 1.3;
+}
+
+/* Tag badge (.fd-tag) */
+.fd-tag {
+  font-size: 8.5px;
+  font-family: var(--mono);
+  font-weight: 700;
+  padding: 1.5px 5px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
+/* Tag color variants (plane-aware) */
+.fd-tag-control  { background: #38bdf822; color: var(--fd-plane-control,  #38bdf8); }
+.fd-tag-write    { background: #34d39922; color: var(--fd-plane-write,    #34d399); }
+.fd-tag-read     { background: #64748b22; color: #9fb3cc; }
+.fd-tag-data     { background: #a78bfa22; color: var(--fd-plane-data,     #a78bfa); }
+.fd-tag-async    { background: #fb923c22; color: var(--fd-plane-async,    #fb923c); }
+.fd-tag-feedback { background: #fb718522; color: var(--fd-plane-feedback, #fb7185); }
+.fd-tag-message  { background: #38bdf822; color: var(--fd-plane-message,  #38bdf8); }
+.fd-tag-media    { background: #fbbf2422; color: var(--fd-plane-media,    #fbbf24); }
+.fd-tag-llm      { background: #a78bfa22; color: var(--fd-plane-llm,      #a78bfa); }
+.fd-tag-base     { background: #34d39922; color: var(--emer); }
+.fd-tag-base-svc { background: #38bdf822; color: var(--sky);  }
+.fd-tag-ml-base  { background: #a78bfa22; color: var(--vio);  }
+.fd-tag-cuda     { background: #fb923c22; color: var(--orng); }
+.fd-tag-upstream { background: #64748b22; color: #9fb3cc;     }
+.fd-tag-internal { background: #38bdf814; color: #7dd3fc; border: 1px solid #38bdf822; }
+
+/* Host badge (.fd-host) — bottom-right corner */
+.fd-host {
+  position: absolute;
+  right: 7px;
+  bottom: 6px;
+  font-size: 8px;
+  font-family: var(--mono);
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 20px;
+}
+.fd-host.M1 { background: #34d39915; color: var(--emer); }
+.fd-host.M2 { background: #fbbf2415; color: var(--amber); border: 1px dashed #fbbf2255; }
+
+/* ---- Node state classes ---- */
+.fd-card-premium.hot {
+  border-color: #fff3;
+  box-shadow: 0 0 0 1px #ffffff22, 0 10px 30px #000c;
+}
+
+.fd-canvas.dimmed .fd-card-premium:not(.hot) {
+  opacity: .28;
+}
+
+/* Use-case node states */
+.fd-card-premium.uc-active {
+  border-color: var(--amber) !important;
+  box-shadow: 0 0 0 2px #fbbf2444, 0 0 22px #fbbf2433, 0 6px 24px #000c !important;
+  z-index: 5;
+}
+.fd-card-premium.uc-done {
+  border-color: #fbbf2466 !important;
+  opacity: 1 !important;
+}
+
+/* Dormant node */
+.fd-card-premium.dormant {
+  opacity: .62;
+}
+.fd-card-premium.dormant .fd-title::after,
+.fd-card-premium.dormant .fd-nn::after {
+  content: " ⊘";
+  color: var(--rose);
+}
+
+/* ---- Node kind variants ---- */
+
+/* Bus node (wide horizontal bar) */
+.fd-card-premium.fd-kind-bus {
+  width: 62%;
+  max-width: 820px;
+  background: linear-gradient(90deg, #0e2233, #10283c, #0e2233);
+  border: 1.5px solid #2a6b8f;
+  box-shadow: 0 0 26px #38bdf820, inset 0 0 30px #38bdf80f;
+  padding: 11px 18px;
+}
+.fd-card-premium.fd-kind-bus .fd-accent { display: none; }
+.fd-card-premium.fd-kind-bus .fd-title,
+.fd-card-premium.fd-kind-bus .fd-nn { font-size: 13px; color: var(--cyan); }
+.fd-card-premium.fd-kind-bus .fd-nh { justify-content: flex-start; gap: 9px; }
+.fd-card-premium.fd-kind-bus .fd-subj {
+  color: var(--mut);
+  font-size: 9.5px;
+  font-family: var(--mono);
+  margin-top: 5px;
+  letter-spacing: .2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fd-card-premium.fd-kind-bus .fd-subj b { color: #bfe6ff; font-weight: 600; }
+
+/* Store node */
+.fd-card-premium.fd-kind-store {
+  width: 142px;
+  background: linear-gradient(180deg, #140e24, #110c20);
+  border-color: #2d1e4a;
+}
+.fd-card-premium.fd-kind-store .fd-accent { background: var(--vio); }
+
+/* Hub-interior sub-node */
+.fd-card-premium.fd-kind-hub-int {
+  width: 136px;
+  padding: 7px 9px 7px 11px;
+  background: linear-gradient(180deg, #0d1a2e, #0b1526);
+  border-color: #1e3555;
+}
+.fd-card-premium.fd-kind-hub-int .fd-accent { background: var(--hub-c, var(--cyan)); }
+.fd-card-premium.fd-kind-hub-int .fd-title,
+.fd-card-premium.fd-kind-hub-int .fd-nn { font-size: 11px; }
+.fd-card-premium.fd-kind-hub-int .fd-desc { font-size: 9.5px; }
+
+/* External / cloud node */
+.fd-card-premium.fd-kind-ext {
+  width: 154px;
+  background: repeating-linear-gradient(
+    135deg,
+    #0e1420, #0e1420 7px,
+    #101826 7px, #101826 14px
+  );
+  border: 1.5px dashed var(--bd2);
+}
+.fd-card-premium.fd-kind-ext .fd-accent { display: none; }
+.fd-card-premium.fd-kind-ext .fd-title,
+.fd-card-premium.fd-kind-ext .fd-nn { color: #cbd6e6; }
+
+/* ---- Zone regions ---- */
+.fd-zone {
+  position: absolute;
+  z-index: 0;
+  border-radius: 14px;
+  border: 1px dashed;
+  pointer-events: none;
+}
+.fd-zone .fd-zone-label {
+  position: absolute;
+  top: 7px;
+  left: 11px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   CRAFT QUALITY BAR — additive primitives (Phase 1)
+   Mirror of fgraph-base craft block, scoped to the fd-engine card grammar.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Ambient edge-flow — slow marching dashes (passive data/async). Self-contained
+   keyframe so fd-engine.css stays bootstrappable on its own. */
+@keyframes fg-flow { to { stroke-dashoffset: -200px; } }
+.fd-edges path.flow { stroke-dasharray: 6 4; animation: fg-flow 20s linear infinite; }
+
+/* Accent glow — add the .fd-glow modifier to a hub / hero node.
+   --glow-radius declared here too (mirror of fgraph-base) so fd-engine.css
+   bootstraps standalone; harmless duplicate when both are inlined together. */
+:root { --glow-radius: 40px; }
+.fd-card-premium.fd-glow {
+  box-shadow: 0 0 var(--glow-radius, 40px) var(--accent-glow, #38bdf833), 0 3px 14px #00000055;
+}
+
+/* Node icon slot — inline SVG glyph in the premium card header (.fd-nh). */
+.fd-card-premium .fd-ico { width: 18px; height: 18px; flex: none; color: currentColor; }
+.fd-card-premium .fd-ico svg { width: 100%; height: 100%; display: block; }
+
+
+/* fd-page-shell.css — layout chrome for gen-fd.py output (header, bar, diagram-row, sidebar) */
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans, "Inter", ui-sans-serif, system-ui, sans-serif);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.4;
+}
+
+.page {
+  padding: 22px 22px 60px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 18px;
+  justify-content: space-between;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 18px;
+}
+
+.htitle h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+.htitle h1 b {
+  color: var(--cyan);
+}
+
+.htitle p {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
+.badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  border: 1px solid var(--border-hi);
+  color: var(--text-muted);
+}
+
+.badge.cyan {
+  border-color: rgba(34, 211, 238, 0.3);
+  background: rgba(34, 211, 238, 0.06);
+  color: var(--cyan);
+}
+
+.badge.amber {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.06);
+  color: var(--amber);
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3px 9px;
+  font-family: var(--mono);
+}
+
+.lln {
+  width: 16px;
+  height: 0;
+  border-top: 2.5px solid;
+  border-radius: 2px;
+}
+
+.ctl-group {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.ctl {
+  cursor: pointer;
+  user-select: none;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hi);
+  border-radius: 7px;
+  padding: 5px 10px;
+  transition: 0.15s;
+}
+
+.ctl:hover {
+  border-color: var(--cyan);
+}
+
+.ctl.off {
+  opacity: 0.35;
+  text-decoration: line-through;
+}
+
+.uc-bar {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.uc-label {
+  font-size: 10.5px;
+  font-family: var(--mono);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.uc-btn {
+  cursor: pointer;
+  user-select: none;
+  font-size: 10.5px;
+  font-family: var(--mono);
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hi);
+  border-radius: 7px;
+  padding: 4px 9px;
+  transition: 0.15s;
+}
+
+.uc-btn:hover {
+  border-color: var(--amber);
+  color: var(--text);
+}
+
+.uc-btn.active {
+  background: rgba(245, 158, 11, 0.06);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: var(--amber);
+}
+
+.uc-play {
+  font-size: 10.5px;
+  font-family: var(--mono);
+  color: var(--green);
+  background: rgba(16, 185, 129, 0.06);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 7px;
+  padding: 4px 9px;
+  transition: 0.15s;
+}
+
+.uc-play:hover {
+  border-color: var(--green);
+}
+
+.uc-play:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.uc-reset {
+  font-size: 10.5px;
+  font-family: var(--mono);
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hi);
+  border-radius: 7px;
+  padding: 4px 9px;
+  transition: 0.15s;
+  display: none;
+}
+
+.uc-reset.visible {
+  display: inline-block;
+}
+
+.uc-reset:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.diagram-row {
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+  margin-bottom: 22px;
+}
+
+.stage-wrap {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 12px 0 0 12px;
+  background: linear-gradient(180deg, var(--bg-panel), var(--bg-cell));
+  overflow: auto;
+}
+
+.sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-hi);
+  border-left: none;
+  border-radius: 0 12px 12px 0;
+  background: var(--bg-cell);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar.hidden {
+  display: none;
+}
+
+.stage-wrap.full-width {
+  border-radius: 12px;
+}
+
+.sb-header {
+  padding: 12px 13px 9px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sb-header h4 {
+  margin: 0 0 2px;
+  font-size: 12.5px;
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.sb-header .fd-img {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+
+.sb-header dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+}
+
+.sb-header dt {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 9.5px;
+}
+
+.sb-header dd {
+  margin: 0;
+  font-size: 10.5px;
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.sb-header .hint {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.sb-uc {
+  padding: 11px 13px;
+  border-top: 1px solid var(--border);
+  flex: 1;
+  overflow: auto;
+  display: none;
+}
+
+.sb-uc.visible {
+  display: block;
+}
+
+.sb-uc .uc-title {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--amber);
+  margin-bottom: 7px;
+}
+
+.uc-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.uc-steps-list li {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  transition: 0.15s;
+  line-height: 1.4;
+}
+
+.uc-steps-list li.step-done {
+  color: var(--green);
+  border-color: rgba(16, 185, 129, 0.15);
+  background: rgba(16, 185, 129, 0.05);
+}
+
+.uc-steps-list li.step-active {
+  color: var(--amber);
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.06);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.12);
+}
+
+.uc-steps-list li .sn {
+  font-size: 8.5px;
+  opacity: 0.5;
+  margin-right: 4px;
+}
+
+.sb-uc .uc-desc {
+  margin-top: 9px;
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  padding-top: 9px;
+  border-top: 1px dashed var(--border);
+}
+
+.sb-uc .uc-desc b {
+  color: var(--text);
+}
+
+.fd-net-label {
+  position: absolute;
+  left: 14px;
+  top: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.zone-m1 {
+  border-color: rgba(16, 185, 129, 0.25);
+  background: rgba(16, 185, 129, 0.03);
+}
+
+.zone-m1 .fd-zone-label {
+  color: rgba(16, 185, 129, 0.6);
+}
+
+.zone-m2 {
+  border-color: rgba(245, 158, 11, 0.25);
+  background: rgba(245, 158, 11, 0.04);
+}
+
+.zone-m2 .fd-zone-label {
+  color: rgba(245, 158, 11, 0.6);
+}
+
+.zone-hub {
+  border-color: rgba(56, 189, 248, 0.2);
+  background: rgba(56, 189, 248, 0.04);
+  border-style: solid;
+  border-radius: 16px;
+}
+
+.zone-hub .fd-zone-label {
+  color: rgba(56, 189, 248, 0.55);
+}
+
+.zone-stores {
+  border-color: rgba(167, 139, 250, 0.2);
+  background: rgba(167, 139, 250, 0.04);
+}
+
+.zone-stores .fd-zone-label {
+  color: rgba(167, 139, 250, 0.55);
+}
+
+.fd-canvas.hide-control .fd-edges path.control,
+.fd-canvas.hide-write .fd-edges path.write,
+.fd-canvas.hide-read .fd-edges path.read,
+.fd-canvas.hide-data .fd-edges path.data,
+.fd-canvas.hide-async .fd-edges path.async,
+.fd-canvas.hide-feedback .fd-edges path.feedback,
+.fd-canvas.hide-message .fd-edges path.message,
+.fd-canvas.hide-media .fd-edges path.media,
+.fd-canvas.hide-llm .fd-edges path.llm {
+  opacity: 0.06;
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="htitle">
+      <h1><b>Notation glossary data model</b> — notation.md · SKILL.md whitelist · G1-G4 · legends gate (#310)</h1>
+      <p>fd-engine · architecture · lyra-v2 · declarative · 11 nodes · 10 edges · DOM-measured bezier edges</p>
+    </div>
+    <div class="badges">
+      <span class="badge cyan">fd-engine</span>
+      <span class="badge amber">architecture</span>
+      <span class="badge">lyra-v2</span>
+      <span class="badge">file:// safe</span>
+    </div>
+  </header>
+
+  <div class="bar">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <div class="legend"><span class="lg"><span class="lln" style="border-color:var(--plum)"></span>data</span><span class="lg"><span class="lln" style="border-color:var(--cyan)"></span>control</span><span class="lg"><span class="lln" style="border-color:var(--accent)"></span>feedback</span><span class="lg"><span class="lln" style="border-color:var(--purple)"></span>read</span><span class="lg"><span class="lln" style="border-color:var(--amber)"></span>async</span></div>
+      <div class="ctl-group"><span class="ctl" id="ctl-data" data-plane="data">data</span><span class="ctl" id="ctl-control" data-plane="control">control</span><span class="ctl" id="ctl-feedback" data-plane="feedback">feedback</span><span class="ctl" id="ctl-read" data-plane="read">read</span><span class="ctl" id="ctl-async" data-plane="async">async</span></div>
+    </div>
+    
+  </div>
+
+  <div class="diagram-row">
+    <div class="stage-wrap">
+      <div class="fd-canvas" id="fd-canvas">
+        
+        <div class="fd-zone zone-notation" id="zoneNotation"><span class="fd-zone-label">notation.md · canonical glossary</span></div>
+        <div class="fd-zone zone-skill" id="zoneSkill"><span class="fd-zone-label">compress SKILL.md</span></div>
+        <div class="fd-zone zone-refs" id="zoneRefs"><span class="fd-zone-label">references/</span></div>
+        <div class="fd-zone zone-guards" id="zoneGuards"><span class="fd-zone-label">guards · dev-core release</span></div>
+        <svg class="fd-edges" id="fd-edges" aria-hidden="true"><defs></defs></svg>
+      </div>
+    </div>
+
+    <div class="sidebar" id="fd-sidebar">
+      <div class="sb-header" id="sbHeader">
+        <h4>Hover = detail</h4>
+        <div class="hint">Hover a node to isolate its edges and see image / host / role.<br>Select a use case to animate the flow.</div>
+      </div>
+      <div class="sb-uc" id="sbUc">
+        <div class="uc-title" id="ucTitle"></div>
+        <ul class="uc-steps-list" id="ucStepsList"></ul>
+        <div class="uc-desc" id="ucDesc"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script type="application/json" id="fd-data">
+{
+  "type": "architecture",
+  "title": "Notation glossary data model — notation.md · SKILL.md whitelist · G1-G4 · legends gate (#310)",
+  "theme": "lyra-v2",
+  "layout": "declarative",
+  "canvas": {
+    "height": 1040
+  },
+  "options": {
+    "particles": false,
+    "spotlight": true,
+    "sidebar": true
+  },
+  "nodes": [
+    {
+      "id": "core",
+      "x": 12.5,
+      "y": 12,
+      "kind": "default",
+      "n": "core table",
+      "img": "always-load",
+      "d": "~150-line CORE TABLE — glyph + mandatory-gloss marker + fidelity-warning flag; the always-loaded surface",
+      "plane": "control",
+      "h": "EX",
+      "cardStyle": "premium",
+      "glow": true,
+      "icon": "\u003csvg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'>\u003crect x='3' y='3' width='18' height='18' rx='2'/>\u003cpath d='M3 9h18M3 15h18M9 3v18'/>\u003c/svg>"
+    },
+    {
+      "id": "grammar",
+      "x": 37.5,
+      "y": 12,
+      "kind": "default",
+      "n": "grammar",
+      "img": "lazy",
+      "d": "DISAMBIGUATION GRAMMAR — 4 positional senses of →, ¬ modal registers, separator hierarchy; loaded only in glossary/lint modes",
+      "plane": "read",
+      "h": "EX",
+      "cardStyle": "premium",
+      "icon": "\u003csvg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'>\u003cpath d='M5 12h14M13 6l6 6-6 6'/>\u003c/svg>"
+    },
+    {
+      "id": "maint",
+      "x": 62.5,
+      "y": 12,
+      "kind": "default",
+      "n": "maintenance",
+      "img": "lazy",
+      "d": "MAINTENANCE POLICY — add/retire rules for glyphs and reserved vars; loaded only in glossary/lint modes",
+      "plane": "control",
+      "h": "EX",
+      "cardStyle": "premium",
+      "icon": "\u003csvg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'>\u003cpath d='M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z'/>\u003c/svg>"
+    },
+    {
+      "id": "registry",
+      "x": 87.5,
+      "y": 12,
+      "kind": "default",
+      "n": "registry",
+      "img": "grep counts",
+      "d": "RESERVED-VARIABLE REGISTRY — σ 4-way collision {spec, stack.yml, Spec doc-type, staging} · Ω override-file dominant · α agent · β branch · ω worktree · μ main · τ tier · φ frame · Δ diff · Σ state-map (collision w/ standards-test) · π plan (collision w/ test-file); ⟺ retained vs ⇔, ⇒ sanctioned implies/contrastive",
+      "plane": "data",
+      "h": "EX",
+      "cardStyle": "premium",
+      "icon": "\u003csvg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'>\u003cpath d='M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01'/>\u003c/svg>"
+    },
+    {
+      "id": "wl",
+      "x": 13,
+      "y": 46,
+      "kind": "default",
+      "n": "whitelist",
+      "img": "canonical",
+      "d": "INLINE WHITELIST — canonical inline set in SKILL.md; must stay set-equal to the notation.md core table",
+      "plane": "control",
+      "h": "EX",
+      "cardStyle": "premium",
+      "icon": "\u003csvg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'>\u003cpath d='M9 11l3 3L22 4'/>\u003cpath d='M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11'/>\u003c/svg>"
+    },
+    {
+      "id": "g14",
+      "x": 37,
+      "y": 46,
+      "kind": "default",
+      "n": "G1-G4",
+      "img": "guardrails",
+      "d": "G1 polarity transform w/ 4-field flag schema · G2 no-free-coinage + token-neutrality principle · G3 decidable gloss trigger · G4 verbatim floor",
+      "plane": "feedback",
+      "h": "EX",
+      "cardStyle": "premium",
+      "icon": "\u003csvg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'>\u003cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/>\u003c/svg>"
+    },
+    {
+      "id": "r1",
+      "x": 61,
+      "y": 46,
+      "kind": "default",
+      "n": "R1 gate",
+      "img": "break-even",
+      "d": "R1 break-even inequality — a compression is admitted only when token savings exceed gloss + flag overhead",
+      "plane": "control",
+      "h": "EX",
+      "cardStyle": "premium",
+      "icon": "\u003csvg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'>\u003cpath d='M16 8l-8 8M8.5 8H16v7.5'/>\u003ccircle cx='12' cy='12' r='10'/>\u003c/svg>"
+    },
+    {
+      "id": "gloss",
+      "x": 87,
+      "y": 42,
+      "kind": "default",
+      "n": "glossary.md",
+      "img": "mode body",
+      "d": "references/glossary.md — glossary-mode body; pulls the lazy grammar + maintenance sections on demand",
+      "plane": "read",
+      "h": "EX",
+      "cardStyle": "premium",
+      "icon": "\u003csvg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'>\u003cpath d='M4 19.5A2.5 2.5 0 0 1 6.5 17H20'/>\u003cpath d='M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z'/>\u003c/svg>"
+    },
+    {
+      "id": "evid",
+      "x": 87,
+      "y": 64,
+      "kind": "default",
+      "n": "evidence.md",
+      "img": "arXiv pins",
+      "d": "references/evidence.md — pinned excerpts: Tencent 2604.07192 polarity · MetaGlyph 2601.07354 · LILO · GEPA",
+      "plane": "read",
+      "h": "EX",
+      "cardStyle": "premium",
+      "icon": "\u003csvg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'>\u003cpath d='M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48'/>\u003c/svg>"
+    },
+    {
+      "id": "nlcheck",
+      "x": 30,
+      "y": 86,
+      "kind": "default",
+      "n": "legends gate",
+      "img": "validate_plugins",
+      "d": "--check notation-legends — gate a: dev-core base.md:16 + doc-writer.md:51 are one-line pointers; gate b: SKILL.md whitelist ≡ core table (set-equality)",
+      "plane": "control",
+      "h": "EX",
+      "cardStyle": "premium",
+      "icon": "\u003csvg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'>\u003cpath d='M22 11.08V12a10 10 0 1 1-5.93-9.14'/>\u003cpath d='M22 4L12 14.01l-3-3'/>\u003c/svg>"
+    },
+    {
+      "id": "bump",
+      "x": 58,
+      "y": 86,
+      "kind": "default",
+      "n": "semver bump",
+      "img": "plugin.json",
+      "d": "dev-core plugin.json version bump — legend repointing ships as a semver-disciplined release",
+      "plane": "control",
+      "h": "EX",
+      "cardStyle": "premium",
+      "icon": "\u003csvg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'>\u003cpath d='M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z'/>\u003cpath d='M7 7h.01'/>\u003c/svg>"
+    }
+  ],
+  "edges": [
+    {
+      "f": "grammar",
+      "t": "core",
+      "plane": "data",
+      "label": "disambiguates → · ¬ · separators"
+    },
+    {
+      "f": "maint",
+      "t": "registry",
+      "plane": "control",
+      "label": "governs additions"
+    },
+    {
+      "f": "core",
+      "t": "wl",
+      "plane": "data",
+      "label": "≡ set-equal"
+    },
+    {
+      "f": "g14",
+      "t": "wl",
+      "plane": "control",
+      "label": "G2 no-free-coinage"
+    },
+    {
+      "f": "r1",
+      "t": "g14",
+      "plane": "feedback",
+      "label": "break-even admits G1"
+    },
+    {
+      "f": "evid",
+      "t": "g14",
+      "plane": "read",
+      "label": "pins G1 polarity evidence",
+      "srcFace": "left",
+      "dstFace": "bottom"
+    },
+    {
+      "f": "gloss",
+      "t": "grammar",
+      "plane": "read",
+      "label": "lazy · glossary/lint",
+      "flow": true
+    },
+    {
+      "f": "gloss",
+      "t": "maint",
+      "plane": "read",
+      "label": "lazy",
+      "flow": true
+    },
+    {
+      "f": "wl",
+      "t": "nlcheck",
+      "plane": "control",
+      "label": "gate b: set-equality"
+    },
+    {
+      "f": "nlcheck",
+      "t": "bump",
+      "plane": "async",
+      "label": "ships w/ release"
+    }
+  ],
+  "zones": [
+    {
+      "id": "zoneNotation",
+      "nodes": [
+        "core",
+        "grammar",
+        "maint",
+        "registry"
+      ],
+      "class": "zone-notation",
+      "label": "notation.md · canonical glossary",
+      "padding": {
+        "top": 48
+      }
+    },
+    {
+      "id": "zoneSkill",
+      "nodes": [
+        "wl",
+        "g14",
+        "r1"
+      ],
+      "class": "zone-skill",
+      "label": "compress SKILL.md",
+      "padding": {
+        "top": 48
+      }
+    },
+    {
+      "id": "zoneRefs",
+      "nodes": [
+        "gloss",
+        "evid"
+      ],
+      "class": "zone-refs",
+      "label": "references/",
+      "padding": {
+        "top": 48
+      }
+    },
+    {
+      "id": "zoneGuards",
+      "nodes": [
+        "nlcheck",
+        "bump"
+      ],
+      "class": "zone-guards",
+      "label": "guards · dev-core release",
+      "padding": {
+        "top": 48
+      }
+    }
+  ]
+}
+</script>
+
+<script>
+(function(){
+'use strict'
+
+/* ── fd/core.js ── */
+// fd/core.js — geometry core: rect, pairKey, faceFor, portAnchor, stubLen
+// Lifted verbatim from lyra-stack-v2.html lines 492-534 and generalized for
+// descriptor-driven fd-engine contract.
+// Concat order: core.js FIRST (edges.js depends on names defined here).
+// NOTE: all vars/functions here are intentionally "unused" in isolation —
+// they are consumed by edges.js and other fd/ modules via bundler concat.
+
+var nodeEl = {} // id → DOM element map, populated by initEngine
+var canvas = null // .fd-canvas element ref
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — consumed by edges.js */
+var svg = null // .fd-edges SVG overlay element ref
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — consumed by edges.js */
+var paths = [] // one SVG <path> per deduped pair
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — consumed by edges.js */
+var pathByPair = new Map() // pairKey → SVG <path>
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — consumed by edges.js */
+var DESCRIPTOR = null // full descriptor object set by initEngine
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — consumed by edges.js */
+var NS = 'http://www.w3.org/2000/svg'
+
+// ---- Geometry helpers (verbatim lift from lyra-stack-v2.html l.492-534) ----
+
+// l.492-495: canvas-relative rect for a node by id
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — consumed by edges.js */
+function rect(id) {
+  var el = nodeEl[id]
+  var cr = canvas.getBoundingClientRect()
+  var b = el.getBoundingClientRect()
+  return { cx: b.left - cr.left + b.width / 2, cy: b.top - cr.top + b.height / 2, w: b.width, h: b.height }
+}
+
+// l.498: canonical (unordered) key for a node pair
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — consumed by edges.js */
+function pairKey(a, b) {
+  return [a, b].sort().join('|')
+}
+
+// l.501-514: face selection — source exits toward target, target enters from opposite
+// Keeps srcFace / dstFace per-edge overrides from descriptor
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — consumed by edges.js */
+function faceFor(dx, dy, isSource, edge) {
+  if (edge) {
+    if (isSource && edge.srcFace) return edge.srcFace
+    if (!isSource && edge.dstFace) return edge.dstFace
+  }
+  if (Math.abs(dy) >= Math.abs(dx)) {
+    if (isSource) return dy > 0 ? 'bottom' : 'top'
+    else return dy > 0 ? 'top' : 'bottom'
+  } else {
+    if (isSource) return dx > 0 ? 'right' : 'left'
+    else return dx > 0 ? 'left' : 'right'
+  }
+}
+
+// l.516-528: port anchor — spreads slots evenly across the chosen face
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — consumed by edges.js */
+function portAnchor(r, face, slotIdx, slotCount) {
+  var cx = r.cx,
+    cy = r.cy,
+    w = r.w,
+    h = r.h
+  var hw = w / 2,
+    hh = h / 2
+  var faceLen = face === 'top' || face === 'bottom' ? w : h
+  var spread = Math.min(faceLen * 0.55, slotCount * 16)
+  var step = slotCount > 1 ? spread / (slotCount - 1) : 0
+  var offset = slotCount > 1 ? -spread / 2 + slotIdx * step : 0
+  switch (face) {
+    case 'top':
+      return { x: cx + offset, y: cy - hh, nx: 0, ny: -1 }
+    case 'bottom':
+      return { x: cx + offset, y: cy + hh, nx: 0, ny: 1 }
+    case 'left':
+      return { x: cx - hw, y: cy + offset, nx: -1, ny: 0 }
+    case 'right':
+      return { x: cx + hw, y: cy + offset, nx: 1, ny: 0 }
+  }
+}
+
+// l.531-534: proportional bezier offset — clamp(dist * 0.35, 30, 220)
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — consumed by edges.js */
+function stubLen(dx, dy) {
+  var dist = Math.sqrt(dx * dx + dy * dy)
+  return Math.max(30, Math.min(220, dist * 0.35))
+}
+
+// ---- Engine initializer ----
+// Called once at DOMContentLoaded by the generated output script.
+// descriptor: parsed fd-data JSON
+// canvasEl:   .fd-canvas DOM element
+// svgEl:      .fd-edges SVG overlay element
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — entry point called by generated HTML */
+function initEngine(descriptor, canvasEl, svgEl) {
+  DESCRIPTOR = descriptor
+  canvas = canvasEl
+  svg = svgEl
+  nodeEl = {}
+  paths = []
+  pathByPair = new Map()
+
+  // Apply canvas height from descriptor (default 720px via CSS --fd-canvas-h)
+  if (descriptor.canvas?.height) {
+    canvasEl.style.setProperty('--fd-canvas-h', `${descriptor.canvas.height}px`)
+  }
+}
+
+
+/* ── fd/edges.js ── */
+// fd/edges.js — edge drawing layer: draw(), redraw(), initMarkers(), ResizeObserver
+// Lifted verbatim and generalized from lyra-stack-v2.html lines 537-626 + l.960.
+// Depends on names from core.js (concat order: core.js MUST precede this file).
+// Plane colors: derived from descriptor.edges[i].plane via CSS vars --fd-plane-{name},
+// never hardcoded hex.
+
+// ---- Marker injection ----
+// Creates one <marker id="fd-arr-{plane}"> per unique semantic plane.
+// fill uses an injected SVG <style> rule binding CSS var per plane.
+// planes: array of unique plane name strings (e.g. ['message','llm','media'])
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — called by generated HTML */
+function initMarkers(planes) {
+  var defs = svg.querySelector('defs')
+  if (!defs) {
+    defs = document.createElementNS(NS, 'defs')
+    svg.insertBefore(defs, svg.firstChild)
+  }
+  // Inject a <style> block into the SVG for plane fill vars (one per plane)
+  var styleEl = document.createElementNS(NS, 'style')
+  var cssRules = planes.map((pl) => `#fd-arr-${pl} path { fill: var(--fd-plane-${pl}, #8aa0bd); }`).join('\n')
+  styleEl.textContent = cssRules
+  defs.appendChild(styleEl)
+
+  planes.forEach((pl) => {
+    // Skip if marker already exists (idempotent re-init guard)
+    if (svg.querySelector(`#fd-arr-${pl}`)) return
+    var marker = document.createElementNS(NS, 'marker')
+    marker.setAttribute('id', `fd-arr-${pl}`)
+    marker.setAttribute('markerWidth', '9')
+    marker.setAttribute('markerHeight', '9')
+    marker.setAttribute('refX', '7')
+    marker.setAttribute('refY', '3')
+    marker.setAttribute('orient', 'auto')
+    // NO preserveAspectRatio — AC-10 compliance (no viewBox either)
+    var arrow = document.createElementNS(NS, 'path')
+    arrow.setAttribute('d', 'M0,0 L7,3 L0,6 Z')
+    // fill resolved via the injected CSS var rule above
+    marker.appendChild(arrow)
+    defs.appendChild(marker)
+  })
+}
+
+// ---- Full edge pass ----
+// Verbatim-adapted from lyra-stack-v2.html l.537-626.
+// Reads DESCRIPTOR.edges (set by initEngine). Uses nodeEl, canvas, svg, paths,
+// pathByPair from core.js module scope.
+function draw() {
+  // Clear all existing paths, labels, circles from the SVG overlay
+  svg.querySelectorAll(':scope > path, :scope > text, :scope > circle, :scope > g').forEach((n) => {
+    n.remove()
+  })
+  paths = []
+  pathByPair.clear()
+
+  var EDGES = DESCRIPTOR.edges || []
+
+  // --- Step 1: deduplicate EDGES into unique pairs -------------------------
+  // For each unordered pair keep: plane of first occurrence, label if any,
+  // canonical source (f), for slot allocation.
+  var seenPairs = new Map() // pairKey → {f, t, plane, lab, edge, edgeIndices:[]}
+  var i, e, k
+  for (i = 0; i < EDGES.length; i++) {
+    e = EDGES[i]
+    k = pairKey(e.f, e.t)
+    if (!seenPairs.has(k)) {
+      seenPairs.set(k, {
+        f: e.f,
+        t: e.t,
+        plane: e.plane,
+        lab: e.label || null,
+        edge: e,
+        flow: !!e.flow,
+        edgeIndices: [i],
+      })
+    } else {
+      seenPairs.get(k).edgeIndices.push(i)
+      // upgrade label if this occurrence has one and first didn't
+      if (e.label && !seenPairs.get(k).lab) seenPairs.get(k).lab = e.label
+      // upgrade flow if ANY occurrence of the pair requests it (dedup keeps the first edge only)
+      if (e.flow) seenPairs.get(k).flow = true
+    }
+  }
+  var dedupedEdges = Array.from(seenPairs.values()) // array of unique pairs
+
+  // --- Step 2: build port maps over deduped edges -------------------------
+  // Key: "nodeId:face" → [pairIdx in dedupedEdges]
+  var portMap = new Map()
+  var ref, f, t, edge, rf, rt, dx, dy, fFace, tFace, fk, tk
+  for (i = 0; i < dedupedEdges.length; i++) {
+    ref = dedupedEdges[i]
+    f = ref.f
+    t = ref.t
+    edge = ref.edge
+    rf = rect(f)
+    rt = rect(t)
+    dx = rt.cx - rf.cx
+    dy = rt.cy - rf.cy
+    fFace = faceFor(dx, dy, true, edge)
+    tFace = faceFor(dx, dy, false, edge)
+    fk = `${f}:${fFace}`
+    tk = `${t}:${tFace}`
+    if (!portMap.has(fk)) portMap.set(fk, [])
+    if (!portMap.has(tk)) portMap.set(tk, [])
+    portMap.get(fk).push(i)
+    portMap.get(tk).push(i)
+  }
+
+  // --- Step 3: draw one path per deduplicated pair ------------------------
+  var plane, lab, fSlots, tSlots, fi, ti, pu1, pu2, stb, c1x, c1y, c2x, c2y, dStr, p, tx2, mx, my
+  for (i = 0; i < dedupedEdges.length; i++) {
+    ref = dedupedEdges[i]
+    f = ref.f
+    t = ref.t
+    plane = ref.plane
+    lab = ref.lab
+    edge = ref.edge
+    rf = rect(f)
+    rt = rect(t)
+    dx = rt.cx - rf.cx
+    dy = rt.cy - rf.cy
+
+    fFace = faceFor(dx, dy, true, edge)
+    tFace = faceFor(dx, dy, false, edge)
+    fk = `${f}:${fFace}`
+    tk = `${t}:${tFace}`
+
+    fSlots = portMap.get(fk)
+    tSlots = portMap.get(tk)
+    fi = fSlots.indexOf(i)
+    ti = tSlots.indexOf(i)
+
+    pu1 = portAnchor(rf, fFace, fi, fSlots.length)
+    pu2 = portAnchor(rt, tFace, ti, tSlots.length)
+
+    // Proportional stub: longer links curve more (verbatim l.592-598)
+    stb = stubLen(dx, dy)
+    c1x = pu1.x + pu1.nx * stb
+    c1y = pu1.y + pu1.ny * stb
+    c2x = pu2.x + pu2.nx * stb
+    c2y = pu2.y + pu2.ny * stb
+
+    dStr =
+      `M${pu1.x.toFixed(1)},${pu1.y.toFixed(1)}` +
+      ` C${c1x.toFixed(1)},${c1y.toFixed(1)}` +
+      ` ${c2x.toFixed(1)},${c2y.toFixed(1)}` +
+      ` ${pu2.x.toFixed(1)},${pu2.y.toFixed(1)}`
+
+    p = document.createElementNS(NS, 'path')
+    p.setAttribute('d', dStr)
+    // CSS class = plane name → stroke resolved via .fd-edges path.{plane} in fd-engine.css
+    // edge.flow → append .flow for the ambient marching-dash animation (craft bar).
+    // ref.flow is set if ANY occurrence of the deduped pair requested flow.
+    p.setAttribute('class', ref.flow ? `${plane} flow` : plane)
+    // Arrowhead marker per plane — no hardcoded hex, color via CSS var in marker's injected style
+    p.setAttribute('marker-end', `url(#fd-arr-${plane})`)
+    // Data attributes for spotlight + particle matching
+    p.dataset.f = f
+    p.dataset.t = t
+    p.dataset.pk = pairKey(f, t)
+    svg.appendChild(p)
+    paths.push(p)
+    pathByPair.set(pairKey(f, t), p)
+
+    // Edge label (de Casteljau midpoint — verbatim l.613-624)
+    if (lab) {
+      tx2 = document.createElementNS(NS, 'text')
+      mx = 0.125 * pu1.x + 0.375 * c1x + 0.375 * c2x + 0.125 * pu2.x
+      my = 0.125 * pu1.y + 0.375 * c1y + 0.375 * c2y + 0.125 * pu2.y
+      tx2.setAttribute('x', mx.toFixed(1))
+      tx2.setAttribute('y', (my - 4).toFixed(1))
+      tx2.setAttribute('text-anchor', 'middle')
+      tx2.setAttribute('class', 'fd-elabel')
+      tx2.dataset.pk = pairKey(f, t)
+      tx2.textContent = lab
+      svg.appendChild(tx2)
+    }
+  }
+}
+
+// ---- Redraw: re-runs full edge pass + optional zone placement ----
+// Called by ResizeObserver and any layout-changing event.
+function redraw() {
+  draw()
+  // If a placeZones function is defined (by architecture.js type module), call it
+  if (typeof placeZones === 'function') placeZones(DESCRIPTOR)
+}
+
+// ---- ResizeObserver wiring ----
+// Called from initEngine after DOM is ready.
+// Verbatim from lyra-stack-v2.html l.960 — adapted to fd-engine naming.
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — called by generated HTML */
+function wireResize() {
+  new ResizeObserver(redraw).observe(canvas)
+}
+
+// ---- Unique plane list helper ----
+// Derives the set of plane names from descriptor.edges for initMarkers call.
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — called by generated HTML */
+function uniquePlanes() {
+  var planes = []
+  var seen = {}
+  var EDGES = DESCRIPTOR?.edges || []
+  var i, pl
+  for (i = 0; i < EDGES.length; i++) {
+    pl = EDGES[i].plane
+    if (pl && !seen[pl]) {
+      seen[pl] = true
+      planes.push(pl)
+    }
+  }
+  return planes
+}
+
+
+/* ── fd/cards.js ── */
+// fd/cards.js — Layer 1: node renderer
+// Concat order: core.js → cards.js → architecture.js
+// Depends on: nodeEl (map), canvas (element) — declared in core.js scope
+
+// ── kind → fgraph-base.css shape class mapping ────────────────────────
+const KIND_SHAPE = {
+  bus: 'pill',
+  broker: 'pill',
+  router: 'pill',
+  agent: 'hexagon',
+  worker: 'hexagon',
+  trigger: 'circle',
+  event: 'circle',
+  database: 'cylinder',
+  storage: 'cylinder',
+  store: 'cylinder',
+  queue: 'cylinder',
+  decision: 'diamond',
+  gate: 'diamond',
+  file: 'folded',
+  config: 'folded',
+  document: 'folded',
+}
+
+// ── kind → tone class mapping (fgraph-base.css tone modifiers) ────────
+const KIND_TONE = {
+  bus: 'cyan',
+  broker: 'cyan',
+  router: 'cyan',
+  agent: 'amber',
+  worker: 'amber',
+  trigger: 'green',
+  event: 'green',
+  database: 'purple',
+  storage: 'purple',
+  store: 'purple',
+  queue: 'purple',
+  decision: 'red',
+  gate: 'red',
+  // hub-int accent defaults to --hub-c (cyan fallback) per fd-engine.css line 290
+  'hub-int': 'cyan',
+}
+
+// ── host badge label normalisation ────────────────────────────────────
+function hostLabel(raw) {
+  if (!raw) return null
+  if (raw === 'M1') return 'M₁'
+  if (raw === 'M2') return 'M₂'
+  if (raw === 'EX') return 'External'
+  return raw
+}
+
+// ── premium card HTML ──────────────────────────────────────────────────
+// .fd-card-premium structure:
+//   .fd-accent  — left accent bar (color via --fd-plane-{plane} or --fd-tone-{kind})
+//   .fd-nh      — flex header row: .fd-title + .fd-tag (plane-coloured badge)
+//   .fd-sub     — node.d  (subtitle / description, optional)
+//   .fd-host    — node.h  (host badge, optional; 'EX' = external, no badge per SKILL.md)
+function buildPremiumCard(node) {
+  const accentVar = node.plane
+    ? `var(--fd-plane-${node.plane}, var(--fd-tone-${node.kind || 'default'}, var(--text-dim)))`
+    : `var(--fd-tone-${node.kind || 'default'}, var(--text-dim))`
+
+  const tagPlane = node.plane || 'control'
+  // node.img holds the tag badge text; emits fd-tag-{plane} for colour variant
+  const tag = node.img ? `<div class="fd-tag fd-tag-${tagPlane}">${node.img}</div>` : ''
+  const sub = node.d ? `<div class="fd-sub">${node.d}</div>` : ''
+  // node.icon holds an inline <svg> string — rendered in the header icon slot (craft bar)
+  const ico = node.icon ? `<span class="fd-ico">${node.icon}</span>` : ''
+  // h='EX' = external, no badge (SKILL.md spec)
+  const hb = node.h && node.h !== 'EX' ? `<div class="fd-host ${node.h}">${hostLabel(node.h)}</div>` : ''
+
+  return (
+    `<span class="fd-accent" style="background:${accentVar}"></span>` +
+    `<div class="fd-nh">${ico}<div class="fd-title">${node.n}</div>${tag}</div>` +
+    sub +
+    hb
+  )
+}
+
+// ── simple card HTML ───────────────────────────────────────────────────
+function buildSimpleCard(node) {
+  const sub = node.d ? `<div class="fd-sub">${node.d}</div>` : ''
+  return `<div class="fd-title">${node.n}</div>${sub}`
+}
+
+// ── renderNode ────────────────────────────────────────────────────────
+// node        — descriptor node object
+// typeDefault — 'premium' | 'simple' | undefined (from types/{type}.js CARD_DEFAULT)
+// Returns the created element (also populates nodeEl[node.id]).
+function renderNode(node, typeDefault) {
+  const el = document.createElement('div')
+
+  // base classes
+  let cls = 'fgraph-node fd-node'
+
+  // fd-kind-{kind} class — used by fd-engine.css kind-variant rules
+  if (node.kind) cls += ` fd-kind-${node.kind}`
+
+  // shape class from kind
+  const shape = KIND_SHAPE[node.kind]
+  if (shape) cls += ` ${shape}`
+
+  // tone class from kind
+  const tone = KIND_TONE[node.kind]
+  if (tone) cls += ` ${tone}`
+
+  el.className = cls
+  el.dataset.id = node.id
+
+  // position: CSS var convention matching fgraph-base.css (--x, --y in 0..100 % space)
+  el.style.setProperty('--x', node.x)
+  el.style.setProperty('--y', node.y)
+
+  // card style resolution: per-node override (highest) → typeDefault → 'simple' fallback (RD-3)
+  const style = node.cardStyle || typeDefault || 'simple'
+
+  if (style === 'premium') {
+    el.classList.add('fd-card-premium')
+    // node.glow → accent halo on hub / hero cards (craft bar)
+    if (node.glow) el.classList.add('fd-glow')
+    el.innerHTML = buildPremiumCard(node)
+  } else {
+    el.innerHTML = buildSimpleCard(node)
+  }
+
+  // register in shared nodeEl map (declared in core.js scope)
+  nodeEl[node.id] = el
+
+  return el
+}
+
+// ── renderNodes ───────────────────────────────────────────────────────
+// descriptor — full fd-data descriptor object
+// typeDefault comes from types/{type}.js via the init() call
+// biome-ignore lint/correctness/noUnusedVariables: called by core.js in concat bundle
+function renderNodes(descriptor, typeDefault) {
+  const nodes = descriptor.nodes || []
+  for (const node of nodes) {
+    const el = renderNode(node, typeDefault)
+    canvas.appendChild(el)
+  }
+}
+
+
+/* ── fd/particles.js ── */
+// fd/particles.js — Layer 4: rAF particle engine
+// Lifted verbatim from lyra-stack-v2.html lines 628-691 and adapted for
+// the fd-engine descriptor-driven contract (RD-2).
+//
+// Opt-in contract (RD-2):
+//   descriptor.options.particles === false (default) → particles OFF (AC-9)
+//   descriptor.options.particles === true  → one-shot per edge on hover/UC trigger
+//   descriptor.options.particles === "loop" → continuous: spawnParticle() loops on active edges
+//
+// Concat order: core.js → edges.js → cards.js → particles.js → [interactions.js] → types/{type}.js
+// Depends on: NS, svg, pathByPair, pairKey — declared in core.js / edges.js scope.
+//
+// Guard: zero occurrences of the banned lowercase token in this file.
+// Self-check: grep -rn '\bmermaid\b' plugins/forge/ must be empty.
+
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2
+}
+
+// Active particle state — one particle at a time (one-shot mode)
+// Loop mode tracks multiple particles via loopParticles[]
+let _particleEl = null
+let _particleRAF = null
+let _loopParticles = [] // [{wrapper, rafId}] — loop mode only
+
+function clearParticle() {
+  if (_particleRAF) {
+    cancelAnimationFrame(_particleRAF)
+    _particleRAF = null
+  }
+  if (_particleEl) {
+    _particleEl.remove()
+    _particleEl = null
+  }
+}
+
+// clearLoopParticles: stop all loop-mode particles
+function clearLoopParticles() {
+  for (let i = 0; i < _loopParticles.length; i++) {
+    const lp = _loopParticles[i]
+    if (lp.rafId) cancelAnimationFrame(lp.rafId)
+    if (lp.wrapper) lp.wrapper.remove()
+  }
+  _loopParticles = []
+}
+
+// ── spawnParticle ─────────────────────────────────────────────────────────
+// Lifted verbatim from lyra-stack-v2.html l.640-691, adapted for fd-engine:
+//   - plane color resolved via CSS var --fd-plane-{plane} (AC-6, never hardcoded hex)
+//   - particle wrapper class: fd-particle-wrap (matches fd-architecture.html CSS)
+//   - forward direction: pathEl.dataset.f === edgeF (verbatim from source)
+//
+// edgeF, edgeT: node ids of the edge endpoints (directional for forward/reverse)
+// plane:        semantic plane string ('control', 'write', etc.)
+// duration:     animation duration in ms (default 750, per spec)
+// onDone:       optional callback invoked when animation completes (for loop scheduling)
+//
+function spawnParticle(edgeF, edgeT, plane, duration, onDone) {
+  const dur = duration || 750
+  const pk = pairKey(edgeF, edgeT)
+  const pathEl = pathByPair.get(pk)
+  if (!pathEl) return null
+
+  // Resolve color from CSS var (theme-aware, AC-6)
+  // Fallback chain: --fd-plane-{plane} → #8aa0bd (muted default)
+  let col = '#8aa0bd'
+  const tmp = document.documentElement
+  const resolved = getComputedStyle(tmp).getPropertyValue(`--fd-plane-${plane}`).trim()
+  if (resolved) col = resolved
+
+  const forward = pathEl.dataset.f === edgeF
+  const len = pathEl.getTotalLength()
+
+  // Build halo + core inside a <g class="fd-particle-wrap"> (verbatim structure l.664-673)
+  const wrapper = document.createElementNS(NS, 'g')
+  wrapper.setAttribute('class', 'fd-particle-wrap')
+  wrapper.style.setProperty('--pcol', col)
+
+  const halo = document.createElementNS(NS, 'circle')
+  halo.setAttribute('r', '9')
+  halo.setAttribute('fill', col)
+  halo.setAttribute('opacity', '0.22')
+
+  const core = document.createElementNS(NS, 'circle')
+  core.setAttribute('r', '5')
+  core.setAttribute('fill', col)
+
+  wrapper.appendChild(halo)
+  wrapper.appendChild(core)
+  svg.appendChild(wrapper)
+
+  const start = performance.now()
+
+  function frame(now) {
+    const u = Math.min((now - start) / dur, 1)
+    const e = easeInOutCubic(u)
+    const d = forward ? e * len : (1 - e) * len
+    const pt = pathEl.getPointAtLength(d)
+    halo.setAttribute('cx', pt.x)
+    halo.setAttribute('cy', pt.y)
+    core.setAttribute('cx', pt.x)
+    core.setAttribute('cy', pt.y)
+    if (u < 1) {
+      return requestAnimationFrame(frame)
+    }
+    if (typeof onDone === 'function') onDone()
+    return null
+  }
+
+  const rafId = requestAnimationFrame(frame)
+  return { wrapper, rafId }
+}
+
+// ── startParticles / stopParticles (loop mode) ────────────────────────────
+// Called by the engine bootstrap when descriptor.options.particles === "loop".
+// Runs spawnParticle() continuously on all active edges, recycling on completion.
+
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — called by generated HTML bootstrap */
+function startParticles(descriptor) {
+  clearLoopParticles()
+  const edges = descriptor?.edges || []
+  if (!edges.length) return
+
+  // Loop: spawn one particle per edge in sequence, recycling each on completion
+  function spawnLoop(edgeIdx) {
+    const e = edges[edgeIdx % edges.length]
+    const plane = e.plane || 'control'
+    const lp = { wrapper: null, rafId: null }
+    _loopParticles.push(lp)
+
+    function onDone() {
+      if (lp.wrapper) lp.wrapper.remove()
+      // Re-spawn after a brief gap (50ms), cycling through edges
+      setTimeout(() => {
+        const nextIdx = (edgeIdx + 1) % edges.length
+        spawnLoop(nextIdx)
+      }, 50)
+    }
+
+    const result = spawnParticle(e.f, e.t, plane, 750, onDone)
+    if (result) {
+      lp.wrapper = result.wrapper
+      lp.rafId = result.rafId
+    }
+  }
+
+  // Stagger initial spawns across edges
+  edges.forEach((_e, i) => {
+    setTimeout(() => {
+      spawnLoop(i)
+    }, i * 180)
+  })
+}
+
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — called by generated HTML bootstrap */
+function stopParticles() {
+  clearParticle()
+  clearLoopParticles()
+}
+
+
+/* ── fd/interactions.js ── */
+// fd/interactions.js — Layer 5: spotlight, use-case step sequencer, sidebar
+// Lifted from lyra-stack-v2.html lines 720-974 and adapted for the
+// fd-engine descriptor-driven contract.
+//
+// Spotlight (hover): dimmed class on canvas, hot class on touched edges + neighbor nodes.
+// Use-case animation: descriptor.useCases[] → step sequencer (play/pause/reset/replay).
+// Sidebar: optional (descriptor.options.sidebar); falls back gracefully when absent.
+//
+// Concat order: core.js → edges.js → cards.js → particles.js → interactions.js → types/{type}.js
+// Depends on: canvas, nodeEl, paths, pathByPair, pairKey, svg — core.js/edges.js scope.
+//             spawnParticle, clearParticle — particles.js scope.
+//             DESCRIPTOR — core.js scope.
+//
+// Guard: zero occurrences of the banned lowercase token in this file.
+
+// ── spotlight (hover) ─────────────────────────────────────────────────────
+// Adapted from lyra-stack-v2.html l.720-751.
+// sidebar: optional; nodeData: the node descriptor object for the hovered node.
+
+function spotlight(nodeData) {
+  canvas.classList.add('dimmed')
+  const id = nodeData.id
+  const neigh = {}
+  neigh[id] = true
+
+  paths.forEach((p) => {
+    const on = p.dataset.f === id || p.dataset.t === id
+    p.classList.toggle('hot', on)
+    if (on) {
+      neigh[p.dataset.f] = true
+      neigh[p.dataset.t] = true
+    }
+  })
+
+  // edge labels follow their path
+  svg.querySelectorAll('text[data-pk]').forEach((t) => {
+    const pk = t.dataset.pk
+    const p = pathByPair.get(pk)
+    t.classList.toggle('hot', p?.classList.contains('hot') ?? false)
+  })
+
+  Object.keys(nodeEl).forEach((k) => {
+    nodeEl[k].classList.toggle('hot', !!neigh[k])
+  })
+
+  // sidebar header: update if sidebar exists
+  const sbHeader = document.getElementById('sbHeader')
+  if (sbHeader) {
+    const hostStr = !nodeData.h || nodeData.h === 'EX' ? 'external' : nodeData.h === 'M1' ? 'M&#x2081;' : 'M&#x2082;'
+    sbHeader.innerHTML =
+      `<h4>${nodeData.n}</h4>` +
+      (nodeData.img ? `<div class="fd-img">${nodeData.img}</div>` : '') +
+      `<dl><dt>plane</dt><dd>${nodeData.plane || '&#x2014;'}</dd>` +
+      `<dt>host</dt><dd>${hostStr}</dd>` +
+      `<dt>role</dt><dd>${nodeData.d || '&#x2014;'}</dd></dl>`
+  }
+}
+
+function clearSpot() {
+  canvas.classList.remove('dimmed')
+  paths.forEach((p) => {
+    p.classList.remove('hot')
+  })
+  svg.querySelectorAll('text').forEach((t) => {
+    t.classList.remove('hot')
+  })
+  Object.values(nodeEl).forEach((el) => {
+    el.classList.remove('hot')
+  })
+
+  // reset sidebar header to default hint
+  const sbHeader = document.getElementById('sbHeader')
+  if (sbHeader) {
+    sbHeader.innerHTML =
+      '<h4>Hover = detail</h4>' +
+      '<div class="hint">Hover a node to isolate its edges and see image / host / role.<br>Select a use case to animate the flow.</div>'
+  }
+}
+
+// ── use-case step sequencer ───────────────────────────────────────────────
+// Adapted from lyra-stack-v2.html l.770-974.
+// State machine: 'none' | 'ready' | 'playing' | 'paused' | 'done'
+// Only wired when descriptor.useCases is present.
+
+let _ucActiveIdx = null
+let _ucState = 'none'
+let _ucTimer = null
+let _ucStepIdx = 0
+
+function _syncUcButtons() {
+  const ucPlay = document.getElementById('ucPlay')
+  const ucReset = document.getElementById('ucReset')
+  if (!ucPlay) return
+  switch (_ucState) {
+    case 'none':
+      ucPlay.textContent = '▶ play'
+      ucPlay.disabled = true
+      if (ucReset) ucReset.classList.remove('visible')
+      break
+    case 'ready':
+      ucPlay.textContent = '▶ play'
+      ucPlay.disabled = false
+      if (ucReset) ucReset.classList.remove('visible')
+      break
+    case 'playing':
+      ucPlay.textContent = '⏸ pause'
+      ucPlay.disabled = false
+      if (ucReset) ucReset.classList.remove('visible')
+      break
+    case 'paused':
+      ucPlay.textContent = '▶ resume'
+      ucPlay.disabled = false
+      if (ucReset) ucReset.classList.add('visible')
+      break
+    case 'done':
+      ucPlay.textContent = '↺ replay'
+      ucPlay.disabled = false
+      if (ucReset) ucReset.classList.remove('visible')
+      break
+  }
+}
+
+function _resetUcVisuals() {
+  Object.values(nodeEl).forEach((el) => {
+    el.classList.remove('uc-active', 'uc-done')
+  })
+  paths.forEach((p) => {
+    p.classList.remove('uc-active', 'uc-done')
+  })
+  canvas.classList.remove('dimmed')
+  // clear particle (particles.js)
+  if (typeof clearParticle === 'function') clearParticle()
+
+  const ucStepsList = document.getElementById('ucStepsList')
+  if (ucStepsList) {
+    ucStepsList.querySelectorAll('li').forEach((li) => {
+      li.classList.remove('step-active', 'step-done')
+    })
+  }
+}
+
+function _stopUcTimer() {
+  if (_ucTimer) {
+    clearTimeout(_ucTimer)
+    _ucTimer = null
+  }
+}
+
+function _selectUc(idx) {
+  _stopUcTimer()
+  _resetUcVisuals()
+  _ucActiveIdx = idx
+  _ucStepIdx = 0
+  _ucState = 'ready'
+
+  const uc = DESCRIPTOR.useCases[idx]
+  const ucTitle = document.getElementById('ucTitle')
+  const ucDesc = document.getElementById('ucDesc')
+  const ucStepsList = document.getElementById('ucStepsList')
+  const sbUc = document.getElementById('sbUc')
+
+  if (ucTitle) ucTitle.textContent = uc.title
+  if (ucDesc) ucDesc.innerHTML = uc.desc
+  if (ucStepsList) {
+    ucStepsList.innerHTML = ''
+    uc.steps.forEach((s, i) => {
+      const li = document.createElement('li')
+      li.innerHTML = `<span class="sn">${String(i + 1).padStart(2, '0')}</span>${s.label}`
+      ucStepsList.appendChild(li)
+    })
+  }
+  if (sbUc) sbUc.classList.add('visible')
+
+  document.querySelectorAll('.uc-btn').forEach((b) => {
+    b.classList.toggle('active', Number(b.dataset.uc) === idx)
+  })
+  _syncUcButtons()
+}
+
+function _applyUcStep(stepIdx) {
+  const uc = DESCRIPTOR.useCases[_ucActiveIdx]
+  if (stepIdx >= uc.steps.length) {
+    _ucState = 'done'
+    _syncUcButtons()
+    return
+  }
+  _ucStepIdx = stepIdx
+  const step = uc.steps[stepIdx]
+  canvas.classList.add('dimmed')
+
+  // mark previous steps done (verbatim from lyra-stack-v2)
+  for (let i = 0; i < stepIdx; i++) {
+    uc.steps[i].nodes.forEach((id) => {
+      if (nodeEl[id]) {
+        nodeEl[id].classList.remove('uc-active')
+        nodeEl[id].classList.add('uc-done')
+      }
+    })
+    if (uc.steps[i].edge) {
+      const prevEf = uc.steps[i].edge[0]
+      const prevEt = uc.steps[i].edge[1]
+      const prevPp = pathByPair.get(pairKey(prevEf, prevEt))
+      if (prevPp) {
+        prevPp.classList.remove('uc-active')
+        prevPp.classList.add('uc-done')
+      }
+    }
+  }
+
+  // activate current step nodes
+  step.nodes.forEach((id) => {
+    if (nodeEl[id]) nodeEl[id].classList.add('uc-active', 'hot')
+  })
+
+  // activate edge + spawn particle if particles opt-in
+  if (typeof clearParticle === 'function') clearParticle()
+  if (step.edge) {
+    const ef = step.edge[0]
+    const et = step.edge[1]
+    const pp = pathByPair.get(pairKey(ef, et))
+    if (pp) {
+      pp.classList.add('uc-active', 'hot')
+      // spawn particle if particles enabled and spawnParticle available
+      if (typeof spawnParticle === 'function' && DESCRIPTOR.options && DESCRIPTOR.options.particles !== false) {
+        // Find plane from edges
+        const edges = DESCRIPTOR.edges || []
+        let edgeDef = null
+        for (let j = 0; j < edges.length; j++) {
+          const ed = edges[j]
+          if ((ed.f === ef && ed.t === et) || (ed.f === et && ed.t === ef)) {
+            edgeDef = ed
+            break
+          }
+        }
+        const plane = edgeDef ? edgeDef.plane : 'control'
+        spawnParticle(ef, et, plane, 750, null)
+      }
+    }
+  }
+
+  // update step list
+  const ucStepsList = document.getElementById('ucStepsList')
+  if (ucStepsList) {
+    const items = ucStepsList.querySelectorAll('li')
+    items.forEach((li, i) => {
+      li.classList.remove('step-active', 'step-done')
+      if (i < stepIdx) li.classList.add('step-done')
+      if (i === stepIdx) li.classList.add('step-active')
+    })
+  }
+
+  // sidebar header: show step label
+  const sbHeader = document.getElementById('sbHeader')
+  const firstId = step.nodes[0]
+  if (firstId && nodeEl[firstId] && sbHeader) {
+    const nodes = DESCRIPTOR.nodes || []
+    let nd = null
+    for (let k = 0; k < nodes.length; k++) {
+      if (nodes[k].id === firstId) {
+        nd = nodes[k]
+        break
+      }
+    }
+    if (nd && _ucState !== 'playing') {
+      spotlight(nd)
+    } else {
+      sbHeader.innerHTML = `<h4>${step.label}</h4>`
+    }
+  } else if (sbHeader) {
+    sbHeader.innerHTML = `<h4>${step.label}</h4>`
+  }
+
+  _ucTimer = setTimeout(() => {
+    _applyUcStep(stepIdx + 1)
+  }, 900)
+}
+
+// ── wireUseCaseUI ─────────────────────────────────────────────────────────
+// Called from the engine bootstrap when descriptor.useCases is present.
+// Wires up .uc-btn, #ucPlay, #ucReset DOM controls.
+// Safe to call even when some controls are absent (sidebar-less mode).
+
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — called by generated HTML bootstrap */
+function wireUseCaseUI() {
+  document.querySelectorAll('.uc-btn').forEach((b) => {
+    b.addEventListener('click', () => {
+      _selectUc(Number(b.dataset.uc))
+    })
+  })
+
+  const ucPlay = document.getElementById('ucPlay')
+  const ucReset = document.getElementById('ucReset')
+
+  if (ucPlay) {
+    ucPlay.addEventListener('click', () => {
+      if (_ucActiveIdx === null) return
+      if (_ucState === 'playing') {
+        _stopUcTimer()
+        _ucState = 'paused'
+        _syncUcButtons()
+      } else if (_ucState === 'done' || _ucState === 'ready') {
+        _resetUcVisuals()
+        _ucStepIdx = 0
+        _ucState = 'playing'
+        _syncUcButtons()
+        _applyUcStep(0)
+      } else if (_ucState === 'paused') {
+        _ucState = 'playing'
+        _syncUcButtons()
+        _applyUcStep(_ucStepIdx)
+      }
+    })
+  }
+
+  if (ucReset) {
+    ucReset.addEventListener('click', () => {
+      _stopUcTimer()
+      _resetUcVisuals()
+      _ucStepIdx = 0
+      _ucState = 'ready'
+      _syncUcButtons()
+    })
+  }
+}
+
+// ── wireHoverSpotlight ────────────────────────────────────────────────────
+// Adds mouseenter/mouseleave listeners to all rendered .fd-node elements.
+// Called once after renderNodes(), before draw().
+// Skips spotlight during playing state (verbatim from lyra-stack-v2 l.480-482).
+
+/* biome-ignore lint/correctness/noUnusedVariables: cross-file concat — called by generated HTML bootstrap */
+function wireHoverSpotlight() {
+  const nodes = DESCRIPTOR.nodes || []
+  nodes.forEach((nd) => {
+    const el = nodeEl[nd.id]
+    if (!el) return
+    el.addEventListener('mouseenter', () => {
+      if (_ucState !== 'playing') spotlight(nd)
+    })
+    el.addEventListener('mouseleave', () => {
+      if (_ucState !== 'playing') clearSpot()
+    })
+  })
+}
+
+
+/* ── fd/architecture.js ── */
+// fd/types/architecture.js — declarative layout handler + zone placement
+// Glob-discovery: bundler.js discovers this file via glob('fd/types/*.js').
+// Exports TYPE so bundler can key it: window.__fdTypes[TYPE] = { CARD_DEFAULT, placeZones, init }
+
+const TYPE = 'architecture'
+const CARD_DEFAULT = 'premium' // RD-3: architecture/hub-spoke default is premium
+
+// ── placeZones ────────────────────────────────────────────────────────
+// Generalised from lyra-stack-v2.html placeZone() lines 693–718.
+// Parametric over descriptor.zones[] instead of hardcoded ids.
+//
+// For each zone:
+//   1. Collect rect() measurements for all member nodes.
+//   2. Compute union bounding box (min/max of cx±w/2, cy±h/2) + padding.
+//   3. Apply left/top/width/height to zone div#{zone.id} (bare id — no prefix added).
+//   4. Create the zone div if absent (class: fd-zone + zone.class).
+//
+// Zone descriptor id == HTML element id: zone.id = "zone-forge" → getElementById("zone-forge").
+// rect() is declared in core.js scope (concat order: core.js, cards.js, architecture.js).
+function zonePadding(zone) {
+  const p = zone.padding || {}
+  if (zone.class === 'zone-hub') {
+    return { x: p.x ?? 14, yt: p.top ?? 36, yb: p.bottom ?? 12 }
+  }
+  if (zone.class === 'zone-stores') {
+    return { x: p.x ?? 14, yt: p.top ?? 20, yb: p.bottom ?? 10 }
+  }
+  if (zone.class === 'zone-m2') {
+    return { x: p.x ?? 16, yt: p.top ?? 20, yb: p.bottom ?? 12 }
+  }
+  return { x: p.x ?? 16, yt: p.top ?? 20, yb: p.bottom ?? 12 }
+}
+
+function placeZones(descriptor) {
+  const zones = descriptor.zones
+  if (!zones || zones.length === 0) return
+
+  for (const zone of zones) {
+    // resolve or create zone div — bare zone.id, no prefix added
+    let zEl = document.getElementById(zone.id)
+    if (!zEl) {
+      zEl = document.createElement('div')
+      zEl.id = zone.id
+      let cls = 'fd-zone'
+      if (zone.class) cls += ` ${zone.class}`
+      zEl.className = cls
+
+      // inject zone label if provided
+      if (zone.label) {
+        const lbl = document.createElement('span')
+        lbl.className = 'fd-zone-label'
+        lbl.textContent = zone.label
+        zEl.appendChild(lbl)
+      }
+
+      canvas.insertBefore(zEl, canvas.firstChild)
+    }
+
+    // measure member nodes — guard against unknown ids (node not yet rendered or missing)
+    const memberIds = zone.nodes || []
+    if (memberIds.length === 0) continue
+
+    const rects = memberIds.map((id) => (nodeEl[id] ? rect(id) : null)).filter(Boolean)
+    if (rects.length === 0) continue
+
+    // union bounding box
+    const xMin = Math.min(...rects.map((r) => r.cx - r.w / 2))
+    const xMax = Math.max(...rects.map((r) => r.cx + r.w / 2))
+    const yMin = Math.min(...rects.map((r) => r.cy - r.h / 2))
+    const yMax = Math.max(...rects.map((r) => r.cy + r.h / 2))
+
+    // Per-zone padding — mirrors lyra-stack-v2.html placeZone() (hub 26/18/14, stores 18/14/10)
+    const pad = zonePadding(zone)
+    const padX = pad.x
+    const padYT = pad.yt
+    const padYB = pad.yb
+
+    const left = xMin - padX
+    const top = yMin - padYT
+    const width = xMax + padX - left
+    const height = yMax + padYB - top
+
+    zEl.style.left = `${left}px`
+    zEl.style.top = `${top}px`
+    zEl.style.width = `${width}px`
+    zEl.style.height = `${height}px`
+  }
+}
+
+// ── init ──────────────────────────────────────────────────────────────
+// Called by the fd-engine bootstrap after parsing fd-data.
+// Returns { typeDefault, placeZones } consumed by the engine orchestrator.
+function init(descriptor) {
+  const t = descriptor.type
+  if (t !== 'architecture' && t !== 'hub-spoke') {
+    console.warn('[fd] architecture.js init() called with unexpected type:', t)
+  }
+  // layout is declarative — no elk step; x/y already in descriptor
+  return {
+    typeDefault: CARD_DEFAULT,
+    placeZones,
+  }
+}
+
+// ── glob-discovery registration ───────────────────────────────────────
+// bundler.js discovers fd/types/*.js and concatenates them into the
+// inline <script>. At runtime each type module self-registers here.
+window.__fdTypes = window.__fdTypes || {}
+window.__fdTypes[TYPE] = { CARD_DEFAULT, placeZones, init }
+// 'hub-spoke' is an alias for 'architecture'
+window.__fdTypes['hub-spoke'] = window.__fdTypes[TYPE]
+
+
+/* ── __fd window entry (generated by bundler.js) ── */
+window.__fd = {
+  initEngine: initEngine,
+  renderNodes: renderNodes,
+  draw: draw,
+  wireResize: wireResize,
+  uniquePlanes: typeof uniquePlanes !== 'undefined' ? uniquePlanes : null,
+  initMarkers: typeof initMarkers !== 'undefined' ? initMarkers : null,
+}
+})()
+
+</script>
+
+<script>
+// fd-bootstrap.js — universal runtime bootstrap for gen-fd.py output
+// Inlined after the fd-engine IIFE bundle. Expects window.__fd + window.__fdTypes.
+
+;(() => {
+  function run() {
+    var dataEl = document.getElementById('fd-data')
+    if (!dataEl || !window.__fd) return
+
+    var descriptor = JSON.parse(dataEl.textContent)
+    var canvasEl = document.getElementById('fd-canvas')
+    var svgEl = document.getElementById('fd-edges')
+    if (!canvasEl || !svgEl) return
+
+    var type = descriptor.type || 'architecture'
+    var typeReg = window.__fdTypes && window.__fdTypes[type]
+    var typeInit = typeReg && typeof typeReg.init === 'function' ? typeReg.init(descriptor) : null
+    var typeDefault = (typeInit && typeInit.typeDefault) || (typeReg && typeReg.CARD_DEFAULT) || 'premium'
+
+    if (descriptor.canvas && descriptor.canvas.height) {
+      canvasEl.style.setProperty('--fd-canvas-h', descriptor.canvas.height + 'px')
+      canvasEl.style.height = descriptor.canvas.height + 'px'
+    }
+
+    window.__fd.initEngine(descriptor, canvasEl, svgEl)
+
+    // Chart-only types (gantt, pie, xychart) bypass node/edge engine
+    if (typeReg && typeof typeReg.renderChart === 'function') {
+      typeReg.renderChart(descriptor)
+      return
+    }
+
+    window.__fd.renderNodes(descriptor, typeDefault)
+
+    if (typeInit && typeof typeInit.positionNodes === 'function') {
+      typeInit.positionNodes(descriptor)
+    } else if (typeReg && typeof typeReg.positionNodes === 'function') {
+      typeReg.positionNodes(descriptor)
+    }
+
+    if (typeInit && typeof typeInit.applyShapes === 'function') {
+      typeInit.applyShapes(descriptor)
+    } else if (typeReg && typeof typeReg.applyShapes === 'function') {
+      typeReg.applyShapes(descriptor)
+    }
+
+    if (window.__fd.initMarkers && window.__fd.uniquePlanes) {
+      window.__fd.initMarkers(window.__fd.uniquePlanes())
+    }
+
+    window.__fd.draw()
+
+    var placeZonesFn = (typeInit && typeInit.placeZones) || (typeReg && typeReg.placeZones) || null
+    if (typeof placeZonesFn === 'function') {
+      placeZonesFn(descriptor)
+    }
+
+    window.__fd.wireResize()
+
+    if (typeof wireHoverSpotlight === 'function' && descriptor.options && descriptor.options.spotlight !== false) {
+      wireHoverSpotlight()
+    }
+
+    if (typeof wireUseCaseUI === 'function' && descriptor.useCases && descriptor.useCases.length) {
+      wireUseCaseUI()
+    }
+
+    document.querySelectorAll('.ctl[data-plane]').forEach((ctl) => {
+      ctl.addEventListener('click', () => {
+        ctl.classList.toggle('off')
+        canvasEl.classList.toggle('hide-' + ctl.dataset.plane, ctl.classList.contains('off'))
+      })
+    })
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(run, 80)
+    })
+  } else {
+    setTimeout(run, 80)
+  }
+})()
+
+</script>
+</body>
+</html>

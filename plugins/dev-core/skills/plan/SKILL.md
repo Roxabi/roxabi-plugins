@@ -11,11 +11,11 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree,
 ## Success
 
 I := π written ∧ ## Task IDs section ∃
-V := `ls artifacts/plans/{N}-*.mdx` ∧ `grep "## Task IDs" artifacts/plans/{N}-*.mdx`
+V := `ls artifacts/plans/{N}-*.md*` ∧ `grep "## Task IDs" artifacts/plans/{N}-*.md*`
 
 Let:
   σ := spec artifact
-  π := plan artifact at `artifacts/plans/{issue}-{slug}.mdx`
+  π := plan artifact at `artifacts/plans/{issue}-{slug}.md`
   τ := tier ∈ {S, F-lite, F-full}
 
 Spec → micro-tasks → agent assignments → plan artifact.
@@ -42,13 +42,13 @@ Spec → micro-tasks → agent assignments → plan artifact.
 ## Pre-flight
 
 Success: π written ∧ ## Task IDs section ∃
-Evidence: `grep "## Task IDs" artifacts/plans/{N}-*.mdx`
+Evidence: `grep "## Task IDs" artifacts/plans/{N}-*.md*`
 Steps: locate-spec → plan → refs → micro-tasks → write → approve
 ¬clear → STOP + ask: "Do you have a spec to plan from?"
 
 ## Step 1 — Locate Spec
 
-`--issue N` → `ls artifacts/specs/N-*.mdx` → read full → extract title, criteria, files.
+`--issue N` → `ls artifacts/specs/N-*.md*` → read full → extract title, criteria, files.
 `--spec <path>` → read directly.
 ¬found → suggest `/spec` or `/dev`. **Stop.**
 
@@ -126,7 +126,7 @@ Find similar existing feature → read 1–2 files for conventions. Store paths 
 
 Key outputs: micro-tasks with fields below, `[P]` parallel markers, RED-GATE sentinels per slice.
 
-See [references/micro-task-example.mdx](${CLAUDE_SKILL_DIR}/references/micro-task-example.mdx) for a worked example.
+See [references/micro-task-example.md](${CLAUDE_SKILL_DIR}/references/micro-task-example.md) for a worked example.
 
 ### Micro-Task Fields
 
@@ -149,15 +149,17 @@ See [references/micro-task-example.mdx](${CLAUDE_SKILL_DIR}/references/micro-tas
 
 ## Step 5 — Write Plan Artifact
 
-Write to `artifacts/plans/{N}-{slug}-plan.mdx`. Create `artifacts/plans/` dir if needed.
+Generate architecture sidecars per [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) **before** writing π.
 
-Use [references/plan-template.mdx](${CLAUDE_SKILL_DIR}/references/plan-template.mdx). See [references/micro-task-example.mdx](${CLAUDE_SKILL_DIR}/references/micro-task-example.mdx) for task formatting.
+Write to `artifacts/plans/{N}-{slug}-plan.md`. Create `artifacts/plans/` dir if needed.
+
+Use [references/plan-template.md](${CLAUDE_SKILL_DIR}/references/plan-template.md). See [references/micro-task-example.md](${CLAUDE_SKILL_DIR}/references/micro-task-example.md) for task formatting.
 
 ```markdown
 ---
 title: "Plan: {title}"
 issue: {N}
-spec: artifacts/specs/{N}-{slug}-spec.mdx
+spec: artifacts/specs/{N}-{slug}-spec.md
 complexity: {score}/10
 tier: {τ}
 generated: {ISO}
@@ -166,7 +168,7 @@ generated: {ISO}
 
 Include:
 - Summary (1–2 sentences)
-- Architecture diagrams (mermaid, see below)
+- Architecture sidecars (forge-chart, see below)
 - Bootstrap Context (from analysis if ∃, omit if ¬∃)
 - Agents table (agent, task count, files)
 - Wave Structure table (see below)
@@ -174,13 +176,22 @@ Include:
 - Micro-Tasks (grouped by slice/criteria, with RED-GATE sentinels)
 - Task Seeding Blueprint (see below)
 
-### Mermaid Diagrams
+### Forge-Chart Sidecars
+
+Read [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) before generating visuals.
 
 `## Architecture` must include:
-1. **Data flow** (`flowchart TD`) — full pipeline: config files → loader functions → data structures → composition → runtime injection. Group nodes into subgraphs by file. Highlight key paths with distinct styles.
-2. **File × Function map** (`flowchart LR`) — functions/classes per file, call relationships. Group by source file. Show test files as consumers.
+1. **Data flow sidecar** — `{N}-{slug}-data-flow.html` (fd-engine `architecture`): full pipeline — config → loaders → data structures → composition → runtime. Group by file via zones.
+2. **File × Function map sidecar** — `{N}-{slug}-file-map.html` (fd-engine `architecture`): functions/classes per file, call edges; test files as consumers.
 
-Diagrams go AFTER Summary, BEFORE Bootstrap Context.
+Link in π (¬inline mermaid, ¬ASCII):
+
+```markdown
+**Data flow:** [{title}](../visuals/{N}-{slug}-data-flow.html)
+**File map:** [{title}](../visuals/{N}-{slug}-file-map.html)
+```
+
+Sidecars go AFTER Summary, BEFORE Bootstrap Context.
 
 ### Wave Structure
 
@@ -294,7 +305,7 @@ This lets `/implement` re-attach to tasks after a session restart (TaskList woul
 
 ### Step 6c — Commit
 
-`git add artifacts/plans/{N}-{slug}-plan.mdx` + commit per CLAUDE.md Rule 5.
+`git add artifacts/plans/{N}-{slug}-plan.md artifacts/visuals/` + commit per CLAUDE.md Rule 5.
 
 → Then **Exit** — approval lands on a compact pause (recommend `/compact` before `/implement`), ¬auto-chain. See Exit.
 
@@ -312,7 +323,7 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 ## Chain Position
 
 - **Phase:** Build
-- **Predecessor:** `/spec` (artifact: `artifacts/specs/{N}-{slug}-spec.mdx`)
+- **Predecessor:** `/spec` (artifact: `artifacts/specs/{N}-{slug}-spec.md`)
 - **Successor:** `/implement` (via compact pause — `/dev` Step 8b; ¬auto-chain for F-lite/F-full)
 - **Class:** gate (user approval of plan artifact required) → **pause** (compact recommendation before `/implement`)
 

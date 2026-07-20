@@ -1,9 +1,9 @@
 ---
 name: init
 argument-hint: '[--force] [--skip-axial]'
-description: 'Initialize project — orchestrates env-setup, ci-setup, release-setup. Triggers: "init" | "setup project" | "initialize project".'
-version: 0.9.0
-allowed-tools: Bash, Read, Skill, ToolSearch
+description: 'Initialize project — orchestrates env-setup, ci-setup, release-setup + axial ADR. Invoke as /dev-init:init (¬ native /init). Triggers: "dev-init" | "setup project" | "initialize project" | "/dev-init:init".'
+version: 0.9.1
+allowed-tools: Bash, Read, Grep, Skill, Agent, ToolSearch
 ---
 
 # Init
@@ -14,14 +14,18 @@ Let:
   SKIP_AXIAL := `--skip-axial` flag present in `$ARGUMENTS`
   args       := join(F ? "--force" : "", SKIP_AXIAL ? "--skip-axial" : "")
 
-Full project initialization harness. Orchestrates three focused sub-skills in sequence, each independently re-runnable:
+Full project initialization harness. Orchestrates three focused sub-skills in sequence, each independently re-runnable.
+
+**Invoke:** `/dev-init:init` (plugin-namespaced). Claude Code's built-in `/init` (scaffold CLAUDE.md) is a **different** command — do not confuse them.
+
+**Requires:** `dev-core` installed + enabled (sub-skills + `axial-adr-create` live there).
 
 | Sub-skill | Concern |
 |-----------|---------|
-| `/env-setup` | stack.yml, CLAUDE.md rules, docs stubs, VS Code, LSP |
+| `/dev-core:env-setup` | stack.yml, CLAUDE.md rules, docs stubs, LSP |
 | `axial-adr-create` (agent) | **Axis of decomposition ADR** — mandatory drift prevention (N×M trap). Skippable via `--skip-axial` for trivial single-axis projects. See `shared/references/axial-decomposition.md` |
-| `/ci-setup` | GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins |
-| `/release-setup` | Commit standards (Commitizen), hook additions, release automation (semantic-release / Release Please) |
+| `/dev-core:ci-setup` | GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins |
+| `/dev-core:release-setup` | Commit standards (Commitizen), hook additions, release automation (semantic-release / Release Please) |
 
 Run sub-skills directly to reconfigure a single concern without re-running the full init.
 
@@ -46,12 +50,12 @@ Run: `bun $I_TS prereqs`. Parse JSON → display ✅/❌ table for bun, gh, git 
 Call sub-skills in order. Each runs its own phases, asks its own questions, displays its own progress.
 
 ```
-skill: "env-setup", args: "{args}"
+skill: "dev-core:env-setup", args: "{args}"
 ```
 
 ### Phase 3a — Axial ADR (mandatory drift prevention)
 
-Foundational decision: which axis of variation is **primary** in this system. `/init` is the only moment where the cost of asking is zero — post-scaffold, the axis is implicit in code structure and changing it costs a refactor. Without this ADR, projects drift N×M (target × concern duplication).
+Foundational decision: which axis of variation is **primary** in this system. Project init is the only moment where the cost of asking is zero — post-scaffold, the axis is implicit in code structure and changing it costs a refactor. Without this ADR, projects drift N×M (target × concern duplication).
 
 Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
 
@@ -72,7 +76,7 @@ Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
    ```
 4. Agent exit status:
    - `created` ∨ `superseded` ∨ `kept` → D("Axial ADR", "✅ {status}"), continue.
-   - `cancelled` ∧ ¬F → halt `/init`:
+   - `cancelled` ∧ ¬F → halt `/dev-init:init`:
      ```
      ⛔ Axial ADR required before scaffolding can continue.
 
@@ -80,41 +84,39 @@ Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
                ci-setup, release-setup have NOT run.
 
         Options:
-          • Re-run `/init` — will redo env-setup (idempotent) + re-prompt axial-adr-create.
-          • Invoke the agent standalone: spawn `axial-adr-create` directly, then re-run `/init`.
-          • Skip if this is a trivial single-axis project: `/init --skip-axial` (re-runs env-setup; documents the skip in dev-core.yml).
+          • Re-run `/dev-init:init` — will redo env-setup (idempotent) + re-prompt axial-adr-create.
+          • Invoke the agent standalone: spawn `axial-adr-create` directly, then re-run `/dev-init:init`.
+          • Skip if this is a trivial single-axis project: `/dev-init:init --skip-axial` (re-runs env-setup; documents the skip in dev-core.yml).
 
         Rationale: shared/references/axial-decomposition.md
      ```
    - `cancelled` ∧ F → ⚠️ warn "axial ADR skipped via --force — drift risk acknowledged", continue.
 
 ```
-skill: "ci-setup", args: "{args}"
+skill: "dev-core:ci-setup", args: "{args}"
 ```
 
 ```
-skill: "release-setup", args: "{args}"
+skill: "dev-core:release-setup", args: "{args}"
 ```
 
 ## Phase 4 — Report
 
 ```
-dev-core initialized
-====================
+dev-init complete
+=================
 
-  Run /checkup   to verify full configuration health
-  Run /seed-docs to populate docs stubs from CLAUDE.md + codebase
+  Run /dev-core:checkup   to verify full configuration health
+  Run /dev-core:seed-docs to populate docs stubs from CLAUDE.md + codebase
 
 Next steps:
-  /checkup               Verify full configuration health
-  /seed-docs             Populate scaffolded docs with content from CLAUDE.md + codebase
-  roxabi dashboard       Launch the issues dashboard  (restart shell or: source ~/.bashrc)
-  /issues                View issues in CLI
-  /dev #N                Start working on an issue
-  /init --force          Re-configure anytime
-  /env-setup             Re-run environment setup only
-  /ci-setup              Re-run CI/CD setup only
-  /release-setup         Re-run release setup only
+  /dev-core:checkup           Verify full configuration health
+  /dev-core:seed-docs         Populate scaffolded docs with content from CLAUDE.md + codebase
+  /dev-core:dev #N            Start working on an issue
+  /dev-init:init --force      Re-configure anytime
+  /dev-core:env-setup         Re-run environment setup only
+  /dev-core:ci-setup          Re-run CI/CD setup only
+  /dev-core:release-setup     Re-run release setup only
 ```
 
 ## Safety Rules

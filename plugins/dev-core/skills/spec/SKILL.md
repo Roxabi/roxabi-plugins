@@ -11,12 +11,12 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ## Success
 
 I := σ written ∧ pre-check pass ∧ |χ| ≤ 5
-V := `ls artifacts/specs/{N}-*.mdx` ∧ pre-check: 0 failures
+V := `ls artifacts/specs/{N}-*.md*` ∧ pre-check: 0 failures
 
 Let:
-  α := artifacts/analyses/{N}-{slug}-analysis.mdx
-  σ := artifacts/specs/{N}-{slug}-spec.mdx
-  φ := artifacts/frames/{slug}-frame.mdx
+  α := artifacts/analyses/{N}-{slug}-analysis.md
+  σ := artifacts/specs/{N}-{slug}-spec.md
+  φ := artifacts/frames/{slug}-frame.md
   ρ := reviewer set
   χ := `[NEEDS CLARIFICATION]`
   Ω := `skill: "interview"`
@@ -60,7 +60,7 @@ Steps: resolve → generate → pre-check → review → approval
 `--issue N` → scan priority order:
 ```bash
 # 1. Find analysis with matching issue number
-ls artifacts/analyses/{N}-*.mdx 2>/dev/null | head -1
+ls artifacts/analyses/{N}-*.md* 2>/dev/null | head -1
 # 2. Find frame with matching issue in frontmatter
 grep -rl "issue: N" artifacts/frames/ 2>/dev/null | head -1
 ```
@@ -95,13 +95,15 @@ Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*`.
 
 ## Step 2 — Generate Spec
 
-`Ω, args: "--promote artifacts/analyses/{N}-{slug}-analysis.mdx"` (or frame path if no α).
+`Ω, args: "--promote artifacts/analyses/{N}-{slug}-analysis.md"` (or frame path if no α).
 
 Interview pre-fills from SRC. Focus on gaps to spec level:
 - Acceptance criteria (binary pass/fail)
 - Breadboard: affordance tables (UI/API elements → handlers → data)
 - Slices: vertical increments, independently demo-able
 - Ambiguity detection via 9-category taxonomy (see interview SKILL.md)
+
+F-lite/F-full: generate forge-chart sidecars per [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) **before** writing σ.
 
 Write σ. Must include:
 
@@ -111,19 +113,28 @@ Write σ. Must include:
 | `## Goal` — one-sentence outcome | — |
 | `## Users` — who is affected | — |
 | `## Expected Behavior` — narrative walkthrough | — |
-| `## Data Model & Consumers` — mermaid diagrams (see below) | Tier S |
+| `## Data Model & Consumers` — forge-chart sidecars (see below) | Tier S |
 | `## Breadboard` — affordance tables + wiring | Tier S |
 | `## Slices` — vertical increments table | Tier S |
 | `## Success Criteria` — `- [ ]` checkboxes, each binary | — |
 
-### Mermaid Diagrams (Tier F-lite, F-full)
+### Forge-Chart Sidecars (Tier F-lite, F-full)
+
+Read [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) before generating visuals.
 
 `## Data Model & Consumers` must include:
-1. **Data structure diagram** (`classDiagram`) — core types/models, fields, relationships. Frozen/mutable annotations where relevant.
-2. **Consumer map** (`flowchart`) — who consumes data, which fields, when. Solid = this issue, dashed = future (out of scope but fields must be accessible).
+1. **Data structure sidecar** — `{N}-{slug}-data-model.html` (fgraph layered or fd-engine): core types/models, fields, relationships. Frozen/mutable in node labels.
+2. **Consumer map sidecar** — `{N}-{slug}-consumers.html` (hub-spoke or architecture): who consumes data, which fields, when. Solid edges = this issue; dashed = future.
 3. **Consumer summary table** — consumer → fields consumed, when, status (this issue / future).
 
-Diagrams go BEFORE Breadboard. They answer "what is the data shape and who uses it" while Breadboard answers "how do pieces wire together."
+Link each sidecar (¬inline mermaid, ¬ASCII):
+
+```markdown
+**Data structure:** [{title}](../visuals/{N}-{slug}-data-model.html)
+**Consumer map:** [{title}](../visuals/{N}-{slug}-consumers.html)
+```
+
+Sidecars go BEFORE Breadboard. They answer "what is the data shape and who uses it" while Breadboard answers "how do pieces wire together."
 
 May contain χ (max 3–5). χ items block `/plan` — must be resolved first.
 
@@ -176,13 +187,13 @@ Incorporate feedback → revise σ → note unresolved concerns.
 
 ## Step 5 — User Approval
 
-Open σ: `code artifacts/specs/{N}-{slug}-spec.mdx`.
+Open σ: `code artifacts/specs/{N}-{slug}-spec.md`.
 
 Present summary: scope, |slices|, |acceptance criteria|, |χ|, pre-check results, unresolved expert concerns.
 
 Q: **Approve** → continue pipeline | **Revise** → collect feedback → revise σ → loop from Step 3.
 
-On approval → commit: `git add artifacts/specs/{N}-{slug}-spec.mdx` + commit per CLAUDE.md Rule 5.
+On approval → commit: `git add artifacts/specs/{N}-{slug}-spec.md artifacts/visuals/` + commit per CLAUDE.md Rule 5.
 
 Run Gate 2.5 → update issue status:
 ```bash

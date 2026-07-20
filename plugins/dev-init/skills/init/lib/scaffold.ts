@@ -179,7 +179,7 @@ export function mergeEnvExample(existing: string, newBlock: string): string {
 }
 
 const SHIM_CONTENT = `#!/bin/sh
-# Installed by dev-core /init — do not edit.
+# Installed by dev-init — do not edit.
 # Auto-resolves the latest active dev-core plugin cache.
 BASE="$HOME/.claude/plugins/cache/roxabi-marketplace/dev-core"
 LATEST=""
@@ -281,7 +281,13 @@ export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
   }
 
   // artifacts/
-  for (const dir of ['artifacts/frames', 'artifacts/analyses', 'artifacts/specs', 'artifacts/plans']) {
+  for (const dir of [
+    'artifacts/frames',
+    'artifacts/analyses',
+    'artifacts/specs',
+    'artifacts/plans',
+    'artifacts/visuals',
+  ]) {
     fs.mkdirSync(dir, { recursive: true })
   }
   result.artifactsCreated = true

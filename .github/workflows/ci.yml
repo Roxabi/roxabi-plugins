@@ -19,12 +19,27 @@ jobs:
         run: bun lint
       - name: Typecheck
         run: bun typecheck
+      # actionlint is the schema-validity gate for the generated auto-release.yml
+      # (auto-release-actionlint.test.ts). Without it installed the test skipped
+      # in CI and the gate was illusory (#371 B5) — the vitest step now fails loud
+      # if actionlint is absent under CI, so this install must precede it.
+      - name: Install actionlint (workflow schema gate)
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/actionlint"
+          curl -sSfL https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            | tar xz -C "${RUNNER_TEMP}/actionlint" actionlint
+          echo "${RUNNER_TEMP}/actionlint" >> "$GITHUB_PATH"
       - name: Test (vitest)
         run: bun run test
       - name: Test (cli — bun:test)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cd plugins/dev-core/cli && bun test
+      - name: Verify action pins resolve
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun run tools/verify-action-pins.ts
       - name: Shared detectGitHubRepo suite — caller parity (#218 SC3)
         run: |
           set -euo pipefail
@@ -37,7 +52,7 @@ jobs:
             exit 1
           fi
           echo "Caller parity OK — both config.test.ts are byte-identical"
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
       - run: pip install pytest==8.3.5 pyyaml git+https://github.com/Roxabi/roxabi-vault.git@df12ba1c447ca6f01434db017c57f7645662813c  # main

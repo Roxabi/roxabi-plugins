@@ -139,6 +139,131 @@ function parsePackageManager(text) {
 }
 
 /**
+ * Parse top-level `runtime` from stack.yml text.
+ *
+ * @param {string} text
+ * @returns {string|null}
+ */
+function parseRuntime(text) {
+  if (!text) return null
+  const match = text.match(/^\s*runtime:\s*(\S+)/m)
+  return match ? match[1] : null
+}
+
+/**
+ * Parse a single `commands.<key>` value from stack.yml text.
+ *
+ * @param {string} text
+ * @param {string} key
+ * @returns {string|null}
+ */
+function parseCommand(text, key) {
+  if (!text) return null
+  const section = text.match(/^commands:\s*$/m)
+  if (!section) return null
+  const after = text.slice(section.index + 'commands:'.length)
+  const nextTop = after.match(/\n\S/)
+  const block = nextTop ? after.slice(0, nextTop.index) : after
+  const match = block.match(new RegExp(`^\\s+${key}:\\s*(.+?)\\s*(#.*)?$`, 'm'))
+  if (!match) return null
+  let val = match[1].trim()
+  if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+    val = val.slice(1, -1)
+  }
+  return val || null
+}
+
+/**
+ * Parse a key under the `testing:` section from stack.yml text.
+ *
+ * @param {string} text
+ * @param {string} key
+ * @returns {string|null}
+ */
+function parseTestingKey(text, key) {
+  if (!text) return null
+  const section = text.match(/^testing:\s*$/m)
+  if (!section) return null
+  const after = text.slice(section.index + 'testing:'.length)
+  const nextTop = after.match(/\n\S/)
+  const block = nextTop ? after.slice(0, nextTop.index) : after
+  const match = block.match(new RegExp(`^\\s+${key}:\\s*(\\S+)`, 'm'))
+  if (!match) return null
+  const val = match[1]
+  return val === 'none' ? null : val
+}
+
+/**
+ * Parse `testing.e2e` from stack.yml text.
+ *
+ * @param {string} text
+ * @returns {string|null}
+ */
+function parseTestingE2e(text) {
+  return parseTestingKey(text, 'e2e')
+}
+
+/**
+ * Parse `testing.unit` from stack.yml text (vitest | jest | pytest | bun).
+ *
+ * @param {string} text
+ * @returns {string|null}
+ */
+function parseTestingUnit(text) {
+  return parseTestingKey(text, 'unit')
+}
+
+/**
+ * Parse `ci.merge` strategy from stack.yml text.
+ *
+ * @param {string} text
+ * @returns {string|null}
+ */
+function parseCiMerge(text) {
+  if (!text) return null
+  const section = text.match(/^ci:\s*$/m)
+  if (!section) return null
+  const after = text.slice(section.index + 'ci:'.length)
+  const nextTop = after.match(/\n\S/)
+  const block = nextTop ? after.slice(0, nextTop.index) : after
+  const match = block.match(/^\s+merge:\s*(\S+)/m)
+  return match ? match[1] : null
+}
+
+/**
+ * Parse the top-level `release:` block from stack.yml text (Model B / #371).
+ *
+ * Expected shape:
+ *
+ *   release:
+ *     model: trunk            # 'staging-train' (default) | 'trunk'
+ *     component: roxabi-plugins
+ *
+ * Block-scoped to the top-level `release:` key (same slice-to-next-top-level
+ * strategy as parseCiMerge / parseTestingKey). Returns null when the block is
+ * absent. `model` / `component` are null when their key is absent inside the
+ * block — the release-mode default (staging-train) is applied by consumers, so
+ * that `trunk` must be set explicitly to activate the new behavior.
+ *
+ * @param {string} text
+ * @returns {{model: string|null, component: string|null}|null}
+ */
+function parseRelease(text) {
+  if (!text) return null
+  const section = text.match(/^release:\s*$/m)
+  if (!section) return null
+  const after = text.slice(section.index + 'release:'.length)
+  const nextTop = after.match(/\n\S/)
+  const block = nextTop ? after.slice(0, nextTop.index) : after
+  const modelMatch = block.match(/^\s+model:\s*(\S+)/m)
+  const componentMatch = block.match(/^\s+component:\s*(\S+)/m)
+  return {
+    model: modelMatch ? modelMatch[1] : null,
+    component: componentMatch ? componentMatch[1] : null,
+  }
+}
+
+/**
  * Parse the `standards:` section from stack.yml text.
  * Returns a Record<string, string> mapping standard key → path,
  * or null when the section is absent or empty.
@@ -185,7 +310,13 @@ function parseStandards(text) {
  *   platform: string|null,
  *   frontend: string|null,
  *   packageManager: string|null,
- *   standards: Record<string, string>|null
+ *   standards: Record<string, string>|null,
+ *   runtime: string|null,
+ *   commands: {lint: string|null, typecheck: string|null, test: string|null},
+ *   testingUnit: string|null,
+ *   testingE2e: string|null,
+ *   ciMerge: string|null,
+ *   release: {model: string|null, component: string|null}|null
  * }}
  */
 function parseStackYml(text) {
@@ -196,6 +327,16 @@ function parseStackYml(text) {
     frontend: parseFrontendFramework(text),
     packageManager: parsePackageManager(text),
     standards: parseStandards(text),
+    runtime: parseRuntime(text),
+    commands: {
+      lint: parseCommand(text, 'lint'),
+      typecheck: parseCommand(text, 'typecheck'),
+      test: parseCommand(text, 'test'),
+    },
+    testingUnit: parseTestingUnit(text),
+    testingE2e: parseTestingE2e(text),
+    ciMerge: parseCiMerge(text),
+    release: parseRelease(text),
   }
 }
 
@@ -207,4 +348,10 @@ module.exports = {
   parseFrontendFramework,
   parsePackageManager,
   parseStandards,
+  parseRuntime,
+  parseCommand,
+  parseTestingUnit,
+  parseTestingE2e,
+  parseCiMerge,
+  parseRelease,
 }

@@ -19,8 +19,6 @@ description: |
   user: "/spec --issue 88"
   assistant: "Including axial-adr-review among spec reviewers to flag drift along non-primary axis."
   </example>
-color: yellow
-tools: ["Read", "Glob", "Grep"]
 permissionMode: bypassPermissions
 maxTurns: 20
 # capabilities: write_knowledge=false, write_code=false, review_code=true, run_tests=false
@@ -106,7 +104,7 @@ Read-only mode. Parses an existing axial ADR, then audits a diff (from `/code-re
 
 Dispatch context provides one of:
 - **Code diff** (from `/code-review`): chunk text or full diff in the dispatch prompt
-- **Spec mdx** (from `/spec`): path to spec.mdx in the dispatch prompt
+- **Spec** (from `/spec`): path to spec.md in the dispatch prompt
 
 Determine artifact type from prompt context. ¬artifact context → emit `issue:` request missing context; exit.
 

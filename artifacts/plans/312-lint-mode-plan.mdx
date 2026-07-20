@@ -1,0 +1,141 @@
+---
+title: 'Plan: compress v2 train D — lint mode (single slice)'
+issue: 312
+spec: artifacts/specs/312-lint-mode-spec.mdx
+complexity: 4/10
+tier: F-lite
+slice: 1 of 1
+generated: 2026-07-04
+---
+
+## Summary
+
+Single slice: author `references/lint.md` (pattern contracts D10, genre table D11, queue schema, operational rules), ship the 4 fixtures (D14), apply the two 0-delta SKILL.md edits (D3), document in README, and prove the mode with a dry-run walkthrough + RED-GATE falsifications. Pure prompt-logic + fixtures — zero scripts, zero validator changes.
+
+## Architecture
+
+**Data flow:** [lint pipeline](../visuals/312-lint-mode-data-flow.html)
+**File map:** [files × sections](../visuals/312-lint-mode-file-map.html)
+
+## Bootstrap Context
+
+- Spec Decisions 1–14 are the binding contract — D10 (8 pattern contracts, verbatim-equivalent in lint.md), D11 (genre table, ssot override-only), D12 (ledger filler args — validated against count_tokens.py argparse), D13 (N+1 gh guard), D14 (fixture contracts + never-CLAUDE.md rule + override-based genre proof).
+- SKILL.md currently 110/110; line 29 = Entry lint example ("halts until references/lint.md ships"), line 46 = ship/halt sentence ("…+ `references/expand.md` ship → `derive|lint` halt."). Both edits in-line 0-delta (D3): line 29 → "mode lint — dispatches references/lint.md"; line 46 → "Today `references/compress.md` + `references/glossary.md` + `references/expand.md` + `references/lint.md` ship → `derive` halts."
+- House idiom: reference-doc style per references/{verify,expand,compress}.md; halt text verbatim from spec EB.
+- Description byte-frozen (grep vs origin/staging at battery time).
+
+## Agents
+
+| Agent instance | Tasks | Files |
+|----------------|-------|-------|
+| doc-writer-A | T1, T3 | references/lint.md; SKILL.md (2 in-line edits) + plugins/compress/README.md |
+| doc-writer-B | T2 | references/lint-fixtures/*.md (4 files) |
+| tester-A | T4 | (dry-run walkthrough + battery) |
+| tester-B | T5 | (RED-GATE falsifications) |
+
+## Wave Structure
+
+| Wave | Trigger | Tasks |
+|------|---------|-------|
+| 1 | start | T1 · T2 ∥ |
+| 2 | T1, T2 done | T3 |
+| 3 | T3 done | T4 |
+| 4 | T4 done | T5 |
+
+### Budget — per task
+
+| Task | Class | Est. ops | Split? |
+|------|-------|----------|--------|
+| T1 lint.md | judgmental | 16 | — |
+| T2 fixtures ×4 | judgmental | 12 | — |
+| T3 SKILL.md edits + README | bounded | 6 | — |
+| T4 walkthrough + battery | bounded | 12 | — |
+| T5 RED-GATE | bounded | 6 | — |
+
+**Total: 52 ops**
+
+### Budget — per instance
+
+| Instance | Tasks | Σ ops | Subjects | Split? |
+|----------|-------|-------|----------|--------|
+| doc-writer-A | T1, T3 | 22 | lint-mode, wiring | — |
+| doc-writer-B | T2 | 12 | fixtures | — |
+| tester-A | T4 | 12 | walkthrough | — |
+| tester-B | T5 | 6 | falsification | — |
+
+## Consistency Report
+
+- SCs covered: SC1 (T3, T4), SC2 (T1, T4 scratch-proof), SC3 (T1, T2, T4), SC4 (T1, T4), SC5 (T1, T4), SC6 (T2, T4), SC7 (T1 vault-exclusion statement, T2, T4 — override-based per D14), SC8 (T1, T4), SC9 (T1), SC10 (T1), SC11 (T1), SC12 (T1, T4 self-containment grep), SC13 (T1 filler doc; execution evidenced in T4's walkthrough note), SC14 (T1), SC15 (T4 — check-skill-version green), SC16 (T3, T4). 16/16.
+- Untraced: none.
+
+## Micro-Tasks
+
+### Wave 1
+
+**T1 — Author references/lint.md** `[P]`
+- doc-writer-A · lint-mode · GREEN · Diff 4 · 16 ops
+- Shape: house reference style. Sections: Preconditions (glossary preload — existence-gated; halt text VERBATIM per spec EB; loads Core Table + Grammar + Maintenance); Scope (train-A resolution; vault hard-exclusion + summary line); Drift Classes (the 8 contracts VERBATIM-equivalent from spec D10, one row each: name, kind, pattern, repair policy; `⇒` exclusion note citing the train-B adjudication ×40/8); Hard Exclusions (fenced code, inline code spans, frontmatter, spawn sections — extent: /spawn/i heading to next same-or-higher heading, plus fenced `Task(` blocks); Genre Profiles (D11 table verbatim; ssot override-only note; SC10 totality note); Report (format row, per-class counts, genre column, present-choice multi-select; dry-run stops); Repair (--fix flow: mechanical batch + per-file previews; semantic per-file; polarity queue-only ALWAYS; cap ≤10, chunking; in-flight guard per D13 with WARN degradation + re-confirmation); Queue (schema + total mapping); Ledger (D12 filler mapping; Bash-absent skip); Operational Rules (dry-run default, one PR per plugin scope, small batches, cache-never, no force/hard/amend).
+- Verify: `test -f plugins/compress/skills/compress/references/lint.md` ∧ greps: halt text substring, all 8 class names, `⇒` + "not drift", "inline code spans", "override", "diff_type", "dry-run", "≤10", "needs external verification"; `! grep -Eq 'projects/ssot|/home/' <file>`; `! grep -q 'AskUserQuestion' <file>`.
+- Spec trace: SC2-SC5, SC8-SC14
+
+**T2 — Author the 4 fixtures** `[P]`
+- doc-writer-B · fixtures · GREEN · Diff 3 · 12 ops
+- Shape: per spec D14, fictional English. drift-classes.md (8 `##` sections, positive+negative each; polarity has Z-exists + no-Z); memory-genre.md (ISO dates, [[links]], provenance line, planted drift adjacent); always-on-genre.md (manifest-shaped, one verbose rule; NOT named CLAUDE.md); exclusions.md (fenced block w/ `→ → `, frontmatter w/ `||`, `## Spawn template` w/ fenced Task( + drift, inline spans `` `⇔` `` and `→ → `).
+- Verify: 4 files exist; `grep -c '^## ' drift-classes.md` ≥ 8; exclusions.md contains all four region types; no file named CLAUDE.md; personal-data-clean (validator run).
+- Spec trace: SC3, SC6, SC7
+
+### Wave 2
+
+**T3 — SKILL.md two edits + README**
+- doc-writer-A · wiring · GREEN · Diff 2 · 6 ops · blockedBy: T1, T2
+- Shape: D3's two in-line 0-delta edits exactly; README lint section (mode, dry-run default, classes summary, --fix gating, in-flight guard one-liner).
+- Verify: `wc -l < SKILL.md` = 110; line 29 contains "dispatches references/lint.md"; line 46 lists lint.md shipping ∧ halt list = `derive` only; `sed -n '3p'` byte-identical vs `git show origin/staging:...SKILL.md | sed -n '3p'`; README grep lint.
+- Spec trace: SC1, SC16
+
+### Wave 3
+
+**T4 — Dry-run walkthrough + battery**
+- tester-A · walkthrough · GREEN · Diff 3 · 12 ops · blockedBy: T3
+- Shape: EVIDENCE walkthrough (narration, nothing shipped): simulate `/compress lint references/lint-fixtures/` per lint.md — apply exclusion filter to exclusions.md (expected zero findings, show why per region), run the 8 patterns over drift-classes.md (each positive fires, each negative silent — record per class), memory/always-on fixtures via the override mechanism (memory proposals preserve dates/links; always-on → invariant+pointer advisory), report table rendered in the walkthrough, class multi-select simulated, dry-run stop honored, scratch-vault ledger append (ROXABI_VAULT_HOME scratch; ONE row proving D12's filler args parse). **Scratch-rename halt-proof (SC2 as spec'd)**: `mv plugins/shared/references/notation.md plugins/shared/references/notation.md.bak` → run the preload step → observe the verbatim halt text → `mv` back → residue checked by git status (same cp/restore pattern as T5). Battery: ⇒ zero findings over the fixtures+references; self-containment grep; `bash scripts/check-skill-version.sh` green; validator ALL PASS; description byte-check.
+- Verify: scripted battery + the scratch-vault append (row exists w/ category=lint, correlation set).
+- Spec trace: SC1-SC16 (walkthrough half)
+
+### Wave 4
+
+**T5 — RED-GATE falsifications**
+- tester-B · falsification · RED-GATE · Diff 2 · 6 ops · blockedBy: T4
+- Shape: (1) plant `→ → ` in a SCRATCH copy of a clean file → pattern fires (walkthrough re-run on scratch shows the finding); (2) plant the same inside a fenced block in scratch → silent (exclusion proven both directions); (3) SKILL.md budget sentinel: cp → append filler >110 → validator FAILS → restore → PASSES; (4) `git status` clean.
+- Verify: scripted; zero residue.
+- Spec trace: SC3, SC6, SC16
+
+## Task Seeding Blueprint
+
+### Wave 1
+| Task | Instance | blockedBy | Subject |
+|------|----------|-----------|---------|
+| T1 | doc-writer-A | — | lint-mode |
+| T2 | doc-writer-B | — | fixtures |
+
+### Wave 2
+| Task | Instance | blockedBy | Subject |
+|------|----------|-----------|---------|
+| T3 | doc-writer-A | T1, T2 | wiring |
+
+### Wave 3
+| Task | Instance | blockedBy | Subject |
+|------|----------|-----------|---------|
+| T4 | tester-A | T3 | walkthrough |
+
+### Wave 4
+| Task | Instance | blockedBy | Subject |
+|------|----------|-----------|---------|
+| T5 | tester-B | T4 | falsification |
+
+## Task IDs
+
+<!-- Generated by /plan. -->
+- T1: 57 — lint-mode
+- T2: 58 — fixtures
+- T3: 59 — wiring
+- T4: 60 — walkthrough
+- T5: 61 — falsification

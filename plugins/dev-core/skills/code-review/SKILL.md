@@ -2,7 +2,7 @@
 name: code-review
 argument-hint: [#PR]
 description: Multi-domain code review (agents + Conventional Comments → findings + verdict). Triggers: "code review" | "review changes" | "review PR #42" | "check my code" | "review my changes" | "review this PR" | "do a code review" | "review the diff" | "look at my code".
-version: 0.2.1
+version: 0.2.2
 allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -18,7 +18,7 @@ Review branch/PR via fresh domain-specific agents → Conventional Comments → 
 **⚠ Flow: single continuous pipeline (Phases 1→4 + 6 + 8). ¬stop between phases. Decision response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, or Phase 8 completion.**
 
 ```
-/code-review          → diff ${BASE}...HEAD  (BASE = staging if exists, else main)
+/code-review          → diff origin/${BASE}...HEAD  (BASE = staging|main|master, first that exists)
 /code-review #42      → gh pr diff 42
 ```
 
@@ -50,9 +50,9 @@ Steps: gather-changes → secret-scan → multi-domain-review → merge-and-pres
 
 ## Phase 1 — Gather Changes
 
-0. `BASE=$(git branch -r | grep -q 'origin/staging' && echo staging || echo main)`
-1. PR# → `gh pr diff <#>` | else → `git diff ${BASE}...HEAD`
-2. Δ = `git diff --name-only ${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
+0. `BASE=$(. "${CLAUDE_SKILL_DIR}/../shared/lib.sh" && detect_base_branch)`
+1. PR# → `gh pr diff <#>` | else → `git diff origin/${BASE}...HEAD`
+2. Δ = `git diff --name-only origin/${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
 3. ∀ f ∈ Δ: read full (skip binaries, note)
 4. |Δ| = 0 → halt
 5. |Δ| > 50 → warn, suggest split
@@ -60,7 +60,7 @@ Steps: gather-changes → secret-scan → multi-domain-review → merge-and-pres
 ## Phase 1.5 — Secret Scan
 
 ```bash
-git diff ${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27`][^"\x27`]{8,}' | head -20
+git diff origin/${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27`][^"\x27`]{8,}' | head -20
 ```
 
 ∃ matches → WARN (redact to first 2 + last 2 chars):
@@ -74,7 +74,7 @@ git diff ${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]
 ## Phase 2 — Spec Compliance
 
 1. issue_num ← `git branch --show-current | grep -oP '\d+' | head -1`
-2. spec ← `ls artifacts/specs/<issue_num>-*.mdx 2>/dev/null`
+2. spec ← `ls artifacts/specs/<issue_num>-*.md artifacts/specs/<issue_num>-*.mdx 2>/dev/null | head -1`
 3. spec ∃ → ∀ criterion: met → ∅ | ¬met → `issue(blocking):` | ∀ met → `praise:`
 4. spec ∄ → skip
 5. SC→Test matrix (τ≠S): matrix ∃ in PR body → verify no silent gaps (every SC has a row), NO TEST reasons ∈ `{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}` enum. ¬matrix ∧ τ≠S → `issue(blocking):` missing SC→Test matrix.

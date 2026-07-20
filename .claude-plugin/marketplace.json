@@ -21,7 +21,7 @@
     },
     {
       "name": "dev-init",
-      "description": "Project initialization harness — orchestrates env-setup, github-setup, ci-setup, release-setup in one shot. Idempotent, with axial ADR gate.",
+      "description": "Project initialization harness — orchestrates env-setup, ci-setup, release-setup + axial ADR gate in one shot. Invoke as /dev-init:init. Requires dev-core.",
       "source": "./plugins/dev-init",
       "category": "development"
     },

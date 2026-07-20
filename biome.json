@@ -38,7 +38,13 @@
         "plugins/dev-init/skills/shared/adapters/github-infra.ts",
         "plugins/dev-init/skills/shared/domain/parse-issue-ref.ts",
         "plugins/dev-init/skills/shared/ports/workspace.ts",
-        "plugins/dev-init/skills/shared/adapters/github-adapter.ts"
+        "plugins/dev-init/skills/shared/adapters/github-adapter.ts",
+        "plugins/dev-init/skills/shared/workflows/workflow-pins.ts",
+        "plugins/dev-init/skills/shared/workflows/workflow-types.ts",
+        "plugins/dev-init/skills/shared/workflows/workflows-fleet.ts",
+        "plugins/dev-init/skills/shared/workflows/workflow-generators.ts",
+        "plugins/dev-init/skills/shared/workflows/workflow-push.ts",
+        "plugins/dev-init/skills/shared/workflows/workflows.ts"
       ],
       "formatter": {
         "enabled": false

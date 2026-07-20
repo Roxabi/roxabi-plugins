@@ -15,7 +15,7 @@ ANALYZE="${SCRIPT_DIR}/../analyze-branches.sh"
 
 TMPDIR_FIXTURE="$(mktemp -d)"
 WT_DIR="${TMPDIR_FIXTURE}/wt-i18n"
-trap 'rm -rf "$TMPDIR_FIXTURE"' EXIT
+trap 'rm -rf "$TMPDIR_FIXTURE" "${ORIGIN_ROOT:-}"' EXIT
 
 cd "$TMPDIR_FIXTURE"
 git init -q
@@ -96,5 +96,40 @@ assert_eq "--scope 19 includes only feat/19-auth (excludes #33, #319)" "feat/19-
 result_hash_scoped="$("$ANALYZE" --json --no-fetch --scope "#19")"
 DEBUG_JSON="$result_hash_scoped"
 assert_eq "--scope #19 strips the leading #" "19" "$(echo "$result_hash_scoped" | jq -r '.scope')"
+
+# Regression: base present only as origin/<base>, not checked out locally (the
+# worktree-per-issue norm). branch_merged must resolve origin/<base> and must NOT
+# mis-classify an unmerged branch as safe_delete just because no LOCAL base branch
+# exists. Before the BASE_REF fix, `git log staging..feat/50-thing` errored (no
+# local staging) -> empty stdout -> merged=true -> safe_delete.
+ORIGIN_ROOT="$(mktemp -d)"
+git init -q --bare "${ORIGIN_ROOT}/origin.git"
+git init -q "${ORIGIN_ROOT}/work"
+cd "${ORIGIN_ROOT}/work"
+git config user.email "test@example.com"
+git config user.name "Test User"
+git remote add origin "${ORIGIN_ROOT}/origin.git"
+echo base > f.txt
+git add f.txt
+git commit -q -m "chore: base"
+git branch -M staging
+git push -q -u origin staging
+echo wip > wip.txt
+git checkout -q -b feat/50-thing
+git add wip.txt
+git commit -q -m "feat: wip (#50)"
+git checkout -q -b scratch        # sit off the feature so it is not the current branch
+git branch -q -D staging          # only origin/staging remains as the base ref
+git fetch -q origin               # ensure the origin/staging tracking ref exists
+
+result_origin="$("$ANALYZE" --json --no-fetch)"
+DEBUG_JSON="$result_origin"
+origin_base="$(echo "$result_origin" | jq -r '.base_branch')"
+feat50_action="$(echo "$result_origin" | jq -r '.local_branches[] | select(.name == "feat/50-thing") | .action')"
+feat50_merged="$(echo "$result_origin" | jq -r '.local_branches[] | select(.name == "feat/50-thing") | .merged')"
+
+assert_eq "origin-only base resolves to staging" "staging" "$origin_base"
+assert_eq "unmerged branch NOT safe_delete when base only on origin/*" "unmerged" "$feat50_action"
+assert_eq "unmerged branch merged=false when base only on origin/*" "false" "$feat50_merged"
 
 echo "PASS: analyze-branches.test.sh"

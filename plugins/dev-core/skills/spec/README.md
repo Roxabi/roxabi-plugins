@@ -29,10 +29,10 @@ Triggers: `"write spec"` | `"spec this"` | `"solution design"` | `"acceptance cr
 ## Output artifact
 
 ```
-artifacts/specs/{N}-{slug}-spec.mdx
+artifacts/specs/{N}-{slug}-spec.md
 ```
 
-Sections: Context, Goal, Users, Expected Behavior, Data Model & Consumers (mermaid), Breadboard, Slices, Success Criteria.
+Sections: Context, Goal, Users, Expected Behavior, Data Model & Consumers (forge-chart sidecars in `artifacts/visuals/`), Breadboard, Slices, Success Criteria.
 
 ## Chain position
 

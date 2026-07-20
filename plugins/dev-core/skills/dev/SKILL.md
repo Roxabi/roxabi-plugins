@@ -2,7 +2,7 @@
 name: dev
 argument-hint: '[#N | "idea" | --from <step> | --audit]'
 description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "work on #" | "develop" | "pick up issue" | "tackle issue" | "let's work on".
-version: 0.3.0
+version: 0.3.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
@@ -63,10 +63,10 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 |------|-------------------|
 | recheck | issue — no on-disk prereq; always runs from session state |
 | frame | issue |
-| analyze | `artifacts/frames/{N}-{slug}-frame.mdx` or `artifacts/frames/{slug}-frame.mdx` (approved) |
-| spec | `artifacts/frames/{slug}-frame.mdx` or `artifacts/analyses/{N}-{slug}-analysis.mdx` |
-| plan | `artifacts/specs/{N}-{slug}-spec.mdx` |
-| implement | `artifacts/plans/{N}-{slug}-plan.mdx` (or spec for S-tier) |
+| analyze | `artifacts/frames/{N}-{slug}-frame.md` or `artifacts/frames/{slug}-frame.md` (approved) |
+| spec | `artifacts/frames/{slug}-frame.md` or `artifacts/analyses/{N}-{slug}-analysis.md` |
+| plan | `artifacts/specs/{N}-{slug}-spec.md` |
+| implement | `artifacts/plans/{N}-{slug}-plan.md` (or spec for S-tier) |
 | pr | worktree with code changes |
 | validate | PR ∃ |
 | review | PR ∃ |
@@ -86,7 +86,7 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
   analyze:   analysis artifact ∃,
   spec:      spec artifact ∃,
   plan:      plan artifact ∃,
-  implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ git diff --name-only origin/staging..HEAD | grep -v '^artifacts/' is non-empty,
+  implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ git diff --name-only origin/${BASE}..HEAD | grep -v '^artifacts/' is non-empty,
   pr:        PR ∃,
   ci-watch:  null,       # Σ_s only
   validate:  null,       # Σ_s only
@@ -307,7 +307,7 @@ adv → re-scan → Step 7 immediately.
 **Trigger:** in Step 8, the step that just completed == `plan` ∧ τ ∈ {F-lite, F-full} ∧ new S* == `implement`.
 τ=S never reaches here — `plan` is skipped, so the pipeline goes straight to `implement` with no pause.
 
-**Why:** `/plan` consumed heavy context (spec read, scope glob/grep, micro-task generation, mermaid). `/implement` spawns fresh agents whose context is injected from the task list + plan artifact — the planning conversation is dead weight. Tasks persist (task list + plan artifact `## Task IDs`); `/implement` Step 1b re-attaches after a context reset. `/compact` = soft restart → safe.
+**Why:** `/plan` consumed heavy context (spec read, scope glob/grep, micro-task generation, forge-chart sidecars). `/implement` spawns fresh agents whose context is injected from the task list + plan artifact — the planning conversation is dead weight. Tasks persist (task list + plan artifact `## Task IDs`); `/implement` Step 1b re-attaches after a context reset. `/compact` = soft restart → safe.
 
 **Behavior:** do **NOT** auto-chain to `/implement`. Print the recommendation block below and **STOP this turn** (Claude cannot invoke `/compact` — it is user-typed):
 

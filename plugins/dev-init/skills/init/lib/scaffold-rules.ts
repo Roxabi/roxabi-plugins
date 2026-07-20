@@ -11,7 +11,8 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
-import { basename, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, dirname, join, resolve } from 'node:path'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,6 +43,14 @@ interface ScaffoldRulesResult {
   projectType: ProjectType
   sections: Section[]
   markdown: string
+}
+
+/** Repo facts used in generated snippets — never hardcode fleet defaults. */
+export interface ScaffoldFacts {
+  baseBranch: string
+  packageInstall: string
+  hasEnvExample: boolean
+  packageManager: string
 }
 
 // ---------------------------------------------------------------------------
@@ -139,17 +148,57 @@ function detectProjectName(explicit?: string): string {
   return sanitizeName(basename(process.cwd()))
 }
 
+/** Mirror of lib.sh detect_base_branch: origin/staging → main → master, else main. */
+export function detectBaseBranch(cwd = process.cwd()): string {
+  const candidates = ['staging', 'main', 'master']
+  for (const ref of candidates) {
+    for (const prefix of ['origin/', '']) {
+      const r = Bun.spawnSync(['git', 'rev-parse', '--verify', `${prefix}${ref}`], {
+        cwd,
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+      if (r.exitCode === 0) return ref
+    }
+  }
+  return 'main'
+}
+
+export function detectPackageInstall(stack: StackConfig): { packageManager: string; packageInstall: string } {
+  const pm = (stack.package_manager ?? stack.runtime ?? 'bun').toLowerCase()
+  if (pm === 'npm') return { packageManager: 'npm', packageInstall: 'npm install' }
+  if (pm === 'pnpm') return { packageManager: 'pnpm', packageInstall: 'pnpm install' }
+  if (pm === 'yarn') return { packageManager: 'yarn', packageInstall: 'yarn' }
+  // `uv sync` needs a uv-managed project (pyproject + uv.lock); a plain pip project cannot run
+  // it. Only uv/python map to uv sync — pip gets a requirements-based bootstrap of its own.
+  if (pm === 'uv' || pm === 'python') return { packageManager: 'uv', packageInstall: 'uv sync' }
+  if (pm === 'pip') return { packageManager: 'pip', packageInstall: 'pip install -r requirements.txt' }
+  return { packageManager: 'bun', packageInstall: 'bun install' }
+}
+
+export function detectScaffoldFacts(stack: StackConfig, cwd = process.cwd()): ScaffoldFacts {
+  const { packageManager, packageInstall } = detectPackageInstall(stack)
+  return {
+    baseBranch: detectBaseBranch(cwd),
+    packageInstall,
+    hasEnvExample: existsSync(join(cwd, '.env.example')),
+    packageManager,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Section generators
 // ---------------------------------------------------------------------------
 
-function tldr(_stack: StackConfig, projectName: string, projectType: ProjectType): Section {
+function tldr(_stack: StackConfig, projectName: string, projectType: ProjectType, facts: ScaffoldFacts): Section {
   const parts: string[] = []
 
   parts.push(`- **Project:** ${projectName}`)
 
   if (projectType !== 'docs-content' && projectType !== 'stub') {
-    parts.push(`- **All code changes** → worktree: \`git worktree add ../${projectName}-XXX -b feat/XXX-slug staging\``)
+    parts.push(
+      `- **All code changes** → worktree: \`git worktree add ../${projectName}-XXX -b feat/XXX-slug ${facts.baseBranch}\``,
+    )
   }
 
   if (projectType === 'full-app' || projectType === 'backend-only' || projectType === 'frontend-only') {
@@ -209,6 +258,7 @@ function artifactModel(stack: StackConfig): Section {
     analyses: 'artifacts/analyses',
     specs: 'artifacts/specs',
     plans: 'artifacts/plans',
+    visuals: 'artifacts/visuals',
   }
 
   const content = `Artifacts are the state markers \`/dev\` uses for progress detection and resumption.
@@ -218,25 +268,27 @@ function artifactModel(stack: StackConfig): Section {
 | **Frame** | \`${artifacts.frames ?? 'artifacts/frames'}/\` | What's the problem? |
 | **Analysis** | \`${artifacts.analyses ?? 'artifacts/analyses'}/\` | How deep is it? |
 | **Spec** | \`${artifacts.specs ?? 'artifacts/specs'}/\` | What will we build? |
-| **Plan** | \`${artifacts.plans ?? 'artifacts/plans'}/\` | How do we build it? |`
+| **Plan** | \`${artifacts.plans ?? 'artifacts/plans'}/\` | How do we build it? |
+| **Visuals** | \`${artifacts.visuals ?? 'artifacts/visuals'}/\` | Architecture diagrams (forge-chart sidecars) |`
 
   return { id: 'artifact-model', title: 'Artifact Model', content }
 }
 
-function mandatoryWorktree(projectName: string): Section {
+function mandatoryWorktree(projectName: string, facts: ScaffoldFacts): Section {
+  const envPart = facts.hasEnvExample ? 'cp .env.example .env && ' : ''
   const content = `\`\`\`bash
-git worktree add ../${projectName}-XXX -b feat/XXX-slug staging
-cd ../${projectName}-XXX && cp .env.example .env && bun install
+git worktree add ../${projectName}-XXX -b feat/XXX-slug ${facts.baseBranch}
+cd ../${projectName}-XXX && ${envPart}${facts.packageInstall}
 \`\`\`
 
 Worktree **mandatory** for all tiers (XS, S, F-lite, F-full) — no exceptions. Only skipped for \`/dev\` pre-implementation artifacts (frame, analysis, spec, plan) and \`/promote\` release artifacts.
-**Never code on main/staging without worktree.**`
+**Never code on main/${facts.baseBranch} without worktree.**`
 
   return { id: 'mandatory-worktree', title: 'Mandatory Worktree', content }
 }
 
 function codeReview(stack: StackConfig): Section {
-  const reviewPath = stack.standards?.code_review ?? 'docs/standards/code-review.mdx'
+  const reviewPath = stack.standards?.code_review ?? 'docs/standards/code-review.md'
   return {
     id: 'code-review',
     title: 'Code Review',
@@ -248,15 +300,15 @@ function codingStandards(stack: StackConfig, projectType: ProjectType): Section 
   const rows: string[] = []
 
   if (projectType === 'full-app' || projectType === 'frontend-only') {
-    const fePath = stack.standards?.frontend ?? 'docs/standards/frontend-patterns.mdx'
+    const fePath = stack.standards?.frontend ?? 'docs/standards/frontend-patterns.md'
     rows.push(`| React / Frontend | [frontend-patterns](${fePath}) |`)
   }
   if (projectType === 'full-app' || projectType === 'backend-only') {
-    const bePath = stack.standards?.backend ?? 'docs/standards/backend-patterns.mdx'
+    const bePath = stack.standards?.backend ?? 'docs/standards/backend-patterns.md'
     rows.push(`| API / Backend | [backend-patterns](${bePath}) |`)
   }
 
-  const testPath = stack.standards?.testing ?? 'docs/standards/testing.mdx'
+  const testPath = stack.standards?.testing ?? 'docs/standards/testing.md'
   rows.push(`| Tests | [testing](${testPath}) |`)
 
   const content = `| Context | Read |
@@ -312,17 +364,22 @@ const SECTION_MAP: Record<ProjectType, string[]> = {
 // Main generator
 // ---------------------------------------------------------------------------
 
-function generateSections(stack: StackConfig, projectType: ProjectType, projectName: string): Section[] {
+function generateSections(
+  stack: StackConfig,
+  projectType: ProjectType,
+  projectName: string,
+  facts: ScaffoldFacts,
+): Section[] {
   const sectionIds = SECTION_MAP[projectType]
 
   const generators: Record<string, () => Section> = {
-    tldr: () => tldr(stack, projectName, projectType),
+    tldr: () => tldr(stack, projectName, projectType, facts),
     'dev-process': () => devProcess(stack, projectType),
     'orchestrator-delegation': () => orchestratorDelegation(),
     'parallel-execution': () => parallelExecution(),
     git: () => gitRules(),
     'artifact-model': () => artifactModel(stack),
-    'mandatory-worktree': () => mandatoryWorktree(projectName),
+    'mandatory-worktree': () => mandatoryWorktree(projectName, facts),
     'code-review': () => codeReview(stack),
     'coding-standards': () => codingStandards(stack, projectType),
     'skills-agents': () => skillsAndAgents(),
@@ -330,6 +387,13 @@ function generateSections(stack: StackConfig, projectType: ProjectType, projectN
   }
 
   return sectionIds.map((id) => generators[id]?.()).filter((s): s is Section => s !== undefined)
+}
+
+/** Project-local subset — for users who inherit fleet governance from a parent CLAUDE.md. */
+const PROJECT_LOCAL_IDS = new Set(['tldr', 'coding-standards', 'gotchas', 'artifact-model'])
+
+export function filterProjectLocalSections(sections: Section[]): Section[] {
+  return sections.filter((s) => PROJECT_LOCAL_IDS.has(s.id))
 }
 
 function sectionsToMarkdown(sections: Section[]): string {
@@ -357,11 +421,63 @@ function sectionsToMarkdown(sections: Section[]): string {
 interface ExistingSections {
   hasImport: boolean
   sectionIds: string[]
+  /** Parent CLAUDE.md paths found walking up from the repo (until $HOME). */
+  parentPaths: string[]
+  /** First-hop @imports collected from parent CLAUDE.md files (reporting only). */
+  parentImports: string[]
+}
+
+function collectAtImports(content: string): string[] {
+  const imports: string[] = []
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const m = trimmed.match(/^@(\S+)/)
+    if (m) {
+      imports.push(m[1])
+      continue
+    }
+    // stop after leading import/comment block
+    if (!trimmed.startsWith('#')) break
+  }
+  return imports
+}
+
+/** Walk parent dirs for CLAUDE.md — signal only, never auto-skip authority. */
+export function discoverParentClaudeMd(claudeMdPath: string): {
+  parentPaths: string[]
+  parentImports: string[]
+} {
+  const parentPaths: string[] = []
+  const parentImports: string[] = []
+  const home = resolve(homedir())
+  let current = dirname(resolve(claudeMdPath))
+
+  // Start from parent of the target file's directory
+  current = dirname(current)
+  while (current && current !== '/' && current !== home) {
+    const candidate = join(current, 'CLAUDE.md')
+    if (existsSync(candidate)) {
+      parentPaths.push(candidate)
+      try {
+        parentImports.push(...collectAtImports(readFileSync(candidate, 'utf-8')))
+      } catch {
+        /* ignore */
+      }
+    }
+    const next = dirname(current)
+    if (next === current) break
+    current = next
+  }
+
+  return { parentPaths, parentImports: [...new Set(parentImports)] }
 }
 
 function analyzeExistingClaudeMd(claudeMdPath: string): ExistingSections {
+  const parents = discoverParentClaudeMd(claudeMdPath)
+
   if (!existsSync(claudeMdPath)) {
-    return { hasImport: false, sectionIds: [] }
+    return { hasImport: false, sectionIds: [], ...parents }
   }
 
   const content = readFileSync(claudeMdPath, 'utf-8')
@@ -369,7 +485,7 @@ function analyzeExistingClaudeMd(claudeMdPath: string): ExistingSections {
 
   const hasImport = lines[0]?.trim() === '@.claude/stack.yml'
 
-  // Detect which Critical Rules sections already exist
+  // Detect which Critical Rules sections already exist (local only — title match)
   const sectionPatterns: Record<string, RegExp> = {
     tldr: /^## TL;DR/i,
     'dev-process': /^###?\s*(?:\d+[.\s]*)?Dev Process/i,
@@ -393,7 +509,7 @@ function analyzeExistingClaudeMd(claudeMdPath: string): ExistingSections {
     }
   }
 
-  return { hasImport, sectionIds: found }
+  return { hasImport, sectionIds: found, ...parents }
 }
 
 // ---------------------------------------------------------------------------
@@ -408,18 +524,21 @@ export interface ScaffoldRulesOptions {
 
 export function scaffoldRules(
   options: ScaffoldRulesOptions = {},
-): ScaffoldRulesResult & { existing: ExistingSections } {
+): ScaffoldRulesResult & { existing: ExistingSections; facts: ScaffoldFacts } {
   const stackPath = resolve(options.stackPath ?? '.claude/stack.yml')
   const claudeMdPath = resolve(options.claudeMdPath ?? 'CLAUDE.md')
+  // Prefer repo root from stack.yml path: <repo>/.claude/stack.yml
+  const repoRoot = basename(dirname(stackPath)) === '.claude' ? dirname(dirname(stackPath)) : process.cwd()
 
   const stack = loadStack(stackPath)
   const projectType = detectProjectType(stack)
   const projectName = detectProjectName(options.projectName)
-  const sections = generateSections(stack, projectType, projectName)
+  const facts = detectScaffoldFacts(stack, repoRoot)
+  const sections = generateSections(stack, projectType, projectName, facts)
   const markdown = sectionsToMarkdown(sections)
   const existing = analyzeExistingClaudeMd(claudeMdPath)
 
-  return { projectType, sections, markdown, existing }
+  return { projectType, sections, markdown, existing, facts }
 }
 
 /**

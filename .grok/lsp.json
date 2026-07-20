@@ -1,0 +1,43 @@
+{
+  "typescript": {
+    "command": "typescript-language-server",
+    "args": ["--stdio"],
+    "extensionToLanguage": {
+      ".ts": "typescript",
+      ".tsx": "typescriptreact",
+      ".mts": "typescript",
+      ".cts": "typescript",
+      ".js": "javascript",
+      ".jsx": "javascriptreact",
+      ".mjs": "javascript",
+      ".cjs": "javascript",
+      ".json": "json",
+      ".jsonc": "jsonc"
+    },
+    "startupTimeout": 30000
+  },
+  "yaml": {
+    "command": "yaml-language-server",
+    "args": ["--stdio"],
+    "extensionToLanguage": { ".yaml": "yaml", ".yml": "yaml" },
+    "startupTimeout": 20000
+  },
+  "toml": {
+    "command": "taplo",
+    "args": ["lsp", "stdio"],
+    "extensionToLanguage": { ".toml": "toml" },
+    "startupTimeout": 15000
+  },
+  "bash": {
+    "command": "bash-language-server",
+    "args": ["start"],
+    "extensionToLanguage": { ".sh": "shellscript", ".bash": "shellscript" },
+    "startupTimeout": 15000
+  },
+  "markdown": {
+    "command": "marksman",
+    "args": ["server"],
+    "extensionToLanguage": { ".md": "markdown", ".mdx": "markdown" },
+    "startupTimeout": 15000
+  }
+}

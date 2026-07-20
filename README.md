@@ -60,7 +60,7 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 
 | Plugin | Description |
 |--------|-------------|
-| [dev-init](plugins/dev-init/README.md) | Project initialization harness — orchestrates env-setup, github-setup, ci-setup, release-setup in one shot. Idempotent, with axial ADR gate. |
+| [dev-init](plugins/dev-init/README.md) | Project initialization harness — `/dev-init:init` orchestrates env-setup, ci-setup, release-setup + axial ADR. Requires dev-core. |
 | [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. 30 skills, 9 agents, safety hooks. Issues-only (no Projects V2 board); issue triage lives in the separate [roxabi-issues](https://github.com/Roxabi/roxabi-live) plugin. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
 
 ### Content & branding

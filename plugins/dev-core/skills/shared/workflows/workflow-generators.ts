@@ -1,0 +1,538 @@
+/**
+ * Pure GitHub Actions workflow YAML generators + stack → opts helpers.
+ * No network / no filesystem I/O — safe for /checkup workflow-drift.
+ * Push/write lives in workflow-push.ts (dev-init owned; copy-synced for tests).
+ */
+
+import { ACTION_PINS, APP_MINT_STEP } from './workflow-pins'
+import { normalizeWorkflowOpts, type WorkflowOpts } from './workflow-types'
+import { generateE2eJob } from './workflows-fleet'
+
+export type { WorkflowOpts } from './workflow-types'
+export { normalizeWorkflowOpts }
+
+// --- Content generators ---
+
+/** Generic auto-merge workflow: enables merge queue on 'reviewed' label,
+ *  updates behind PRs on push, closes linked issues on merge. */
+export function generateAutoMergeYml(): string {
+  return `# Auto-merge PRs that have been reviewed and passed all required checks.
+# Adds the PR to GitHub's merge queue (merge commit) once the "reviewed" label is present.
+# GitHub natively waits for all required status checks before merging.
+# Uses merge commit (not squash) to preserve history — required for staging→main promotions.
+#
+# Dependabot guard: semver-major bumps are never auto-merged — they require
+# manual validation before merge.
+#
+# Also closes linked issues after merge, because GITHUB_TOKEN-initiated
+# auto-merges don't trigger GitHub's native "Closes #X" issue closure.
+name: Auto Merge
+
+on:
+  pull_request:
+    types: [labeled, synchronize, closed]
+  check_suite:
+    types: [completed]
+  push:
+    branches: [staging, main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  auto-merge:
+    name: Enable auto-merge
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.action != 'closed' &&
+      contains(github.event.pull_request.labels.*.name, 'reviewed')
+    timeout-minutes: 5
+    steps:
+${APP_MINT_STEP}
+
+      # Read the real update-type from Dependabot's metadata rather than parsing the
+      # PR title: grouped PRs are titled "bump the <group> group…" with no versions,
+      # so a title regex never fires for a major hidden in a group, and it can also
+      # misread a SHA-pinned action bump ("from 08eba0b to 8f4b7f8") as a major.
+      # For a grouped PR, fetch-metadata reports the HIGHEST update-type in the group.
+      - name: Fetch dependabot metadata
+        id: dependabot-meta
+        if: github.event.pull_request.user.login == 'dependabot[bot]'
+        uses: ${ACTION_PINS.dependabotFetchMetadata}
+        with:
+          github-token: \${{ steps.app.outputs.token }}
+
+      - name: Block dependabot semver-major bumps
+        if: >-
+          github.event.pull_request.user.login == 'dependabot[bot]' &&
+          steps.dependabot-meta.outputs.update-type == 'version-update:semver-major'
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+          PR_NUMBER: \${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \\
+            --body "Auto-merge refused: **semver-major** bump. Manual validation required (e2e / boot the artifact), then merge by hand."
+          echo "::error::semver-major dependency bump — auto-merge refused"
+          exit 1
+
+      - name: Update branch (lazy sync for late joiners)
+        if: contains(github.event.pull_request.labels.*.name, 'reviewed')
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+          PR_NUMBER: \${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: \${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" \\
+            --method PUT -f expected_head_sha="$PR_HEAD_SHA" || true
+
+      - name: Enable auto-merge (merge commit)
+        run: gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+          PR_NUMBER: \${{ github.event.pull_request.number }}
+
+  update-behind-prs:
+    name: Update behind PRs
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    timeout-minutes: 5
+    steps:
+${APP_MINT_STEP}
+
+      - name: Update all reviewed PRs targeting this branch
+        run: |
+          BRANCH="\${GITHUB_REF_NAME}"
+          PRS=$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$BRANCH" --label reviewed --state open --json number,headRefOid --jq '.[]')
+          if [ -z "$PRS" ]; then
+            echo "No reviewed PRs targeting $BRANCH"
+            exit 0
+          fi
+          echo "$PRS" | while IFS= read -r pr; do
+            NUM=$(echo "$pr" | jq -r .number)
+            SHA=$(echo "$pr" | jq -r .headRefOid)
+            echo "Updating PR #$NUM..."
+            gh api "repos/\${{ github.repository }}/pulls/$NUM/update-branch" \\
+              --method PUT -f expected_head_sha="$SHA" || true
+          done
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+
+  close-linked-issues:
+    name: Close linked issues
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true
+    timeout-minutes: 5
+    steps:
+      - name: Close issues referenced with closing keywords
+        uses: ${ACTION_PINS.githubScript}
+        with:
+          script: |
+            const body = context.payload.pull_request.body || '';
+            const pattern = /(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s+#(\\d+)/gi;
+            const issues = new Set();
+            let match;
+            while ((match = pattern.exec(body)) !== null) {
+              issues.add(parseInt(match[1]));
+            }
+            if (issues.size === 0) {
+              core.info('No closing keywords found in PR body');
+              return;
+            }
+            for (const number of issues) {
+              try {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: number,
+                  state: 'closed',
+                  state_reason: 'completed',
+                });
+                core.info(\`Closed issue #\${number}\`);
+              } catch (error) {
+                core.warning(\`Failed to close issue #\${number}: \${error.message}\`);
+              }
+            }
+`
+}
+
+/**
+ * Trunk-mode release workflow (Model B — #371). Fires on every merge to `main`,
+ * derives the next `<component>/vX.Y.Z` from the conventional commits since the
+ * last reachable tag, and creates the tag + GitHub Release. An empty payload (no
+ * version-bumping commit) is a green no-op; a stray 1-parent push is loud-red.
+ *
+ * THIN by design: the whole derive → classify → reconcile core lives in
+ * `plugins/dev-core/skills/promote/auto-release.sh`, which this workflow only
+ * sets up an environment for and invokes. There is deliberately no second copy
+ * of that logic here — /checkup diffs the committed workflow against this
+ * generator (N11), so the file stays stable. COMPONENT is baked at generate-time
+ * from `release.component`. Sibling of generateAutoMergeYml (shared mint step).
+ */
+export function generateAutoReleaseYml(opts: WorkflowOpts): string {
+  const component = normalizeWorkflowOpts(opts).release.component
+  // Trunk mode bakes COMPONENT into a `contents: write` workflow. An empty
+  // component would arg-shift the SHA into $1 (auto-release.sh would derive
+  // <sha>/v0.1.0 and push it — no upstream check catches it, B3); a component
+  // carrying shell metacharacters would inject into the `run:` step across the
+  // fleet. Fail loud at generate-time — never emit a broken/unsafe workflow.
+  if (!/^[A-Za-z0-9._-]+$/.test(component)) {
+    throw new Error(
+      `generateAutoReleaseYml: release.component must match /^[A-Za-z0-9._-]+$/ (got ${JSON.stringify(
+        component,
+      )}). Set release.component in .claude/stack.yml before enabling trunk mode.`,
+    )
+  }
+  return `# Auto-release on merge to main (trunk mode, Model B — dev-core #371).
+# Derives <component>/vX.Y.Z from the conventional commits since the last
+# reachable tag, then tags + creates a GitHub Release. Fires on EVERY merge;
+# a merge with no version-bumping commit is a green no-op.
+#
+# THIN wrapper — every derivation/classification/reconcile step lives in
+# plugins/dev-core/skills/promote/auto-release.sh. Never inline that logic here:
+# /checkup diffs this file against the generator output (N11), so it must stay
+# byte-stable. Regenerate with /ci-setup after a dev-core bump, never hand-edit.
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# FIFO queue: never interrupt a release in progress, never drop a pending one.
+# cancel-in-progress:false + queue:max queues bursts of merges (up to 100).
+concurrency:
+  group: auto-release-\${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  auto-release:
+    name: Tag + release on merge to main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+${APP_MINT_STEP}
+
+      # Full history + tags with the App token, so the tag-reachability floor is
+      # never starved into a regressive v0.1.0 (release-consistency.yml scar).
+      - uses: ${ACTION_PINS.checkout}
+        with:
+          fetch-depth: 0
+          token: \${{ steps.app.outputs.token }}
+
+      - name: Fetch all tags
+        run: git fetch --tags --force
+
+      - uses: ${ACTION_PINS.setupBun}
+
+      - name: Derive + tag + release (merge to main)
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+          COMPONENT: ${component}
+        run: bash plugins/dev-core/skills/promote/auto-release.sh "$COMPONENT" "\${{ github.sha }}"
+`
+}
+
+/** Generic PR title validator — enforces Conventional Commits format. */
+export function generatePrTitleYml(): string {
+  return `name: PR Title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main, staging]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  pr-title:
+    name: Validate PR Title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check PR title follows Conventional Commits
+        uses: ${ACTION_PINS.semanticPr}
+        with:
+          types: |
+            feat
+            fix
+            refactor
+            docs
+            style
+            test
+            chore
+            ci
+            perf
+            build
+            revert
+          requireScope: false
+          allowMergeCommits: true
+          allowRevertCommits: true
+          ignoredAuthors: |
+            dependabot[bot]
+            renovate[bot]
+          subjectPattern: ^.+$
+          subjectPatternError: "PR title must have a non-empty description after the type/scope prefix."
+        env:
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+`
+}
+
+/** Generic context lint — keeps agent-context files honest:
+ *  repo-relative `@imports` in harness context files must resolve, and scaffold
+ *  placeholders must be filled. Covers Claude (.claude/rules, CLAUDE.md) and Grok
+ *  (.grok/rules, .grok/skills/SKILL.md, .grok/agents). Home-dir imports (`@~/...`)
+ *  are machine-local and skipped on CI. Stack-agnostic (pure bash, no deps).
+ *  Ecosystem-level checks (project index, factory registry) live in the central
+ *  ~/projects/scripts/context-lint.sh, deliberately not here. */
+export function generateContextLintYml(): string {
+  return `name: Context Lint
+
+on:
+  pull_request:
+    paths:
+      - '**/CLAUDE.md'
+      - '**/AGENTS.md'
+      - '.claude/**'
+      - '.grok/**'
+      - '.agents/**'
+  push:
+    branches: [main, staging]
+    paths:
+      - '**/CLAUDE.md'
+      - '**/AGENTS.md'
+      - '.claude/**'
+      - '.grok/**'
+      - '.agents/**'
+
+permissions:
+  contents: read
+
+jobs:
+  context-lint:
+    name: Context lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: ${ACTION_PINS.checkout}
+      - name: Lint agent-context files (@imports + placeholders)
+        run: |
+          set -u
+          V=0
+          find_context_files() {
+            find . \\( -name node_modules -o -name .worktrees -o -name worktrees -o -name .git \\) -prune -o -type f \\( \\
+              -name 'CLAUDE.md' -o -name 'AGENTS.md' -o \\
+              \\( -name 'SKILL.md' \\( -path '*/.grok/skills/*' -o -path '*/.claude/skills/*' -o -path '*/.agents/skills/*' \\) \\) -o \\
+              \\( -name '*.md' \\( -path '*/.grok/rules/*' -o -path '*/.claude/rules/*' -o -path '*/.grok/agents/*' \\) \\) \\
+            \\) -print
+          }
+          # dead repo-relative @imports (home-dir @~/... imports are machine-local — skipped on CI)
+          while IFS= read -r file; do
+            dir=$(dirname "$file")
+            while IFS= read -r imp; do
+              target=\${imp#@}
+              case "$target" in "~/"*|/*) continue ;; esac
+              if [ ! -e "$dir/$target" ]; then
+                echo "::error file=$file::dead @import: $imp"
+                V=$((V + 1))
+              fi
+            done < <(grep -o '^@[^ ]*' "$file" || true)
+          done < <(find_context_files)
+          # unfilled scaffold placeholders
+          while IFS= read -r f; do
+            echo "::error file=$f::unfilled scaffold placeholder (gotchas)"
+            V=$((V + 1))
+          done < <(grep -rl 'Add project-specific gotchas here' --include=CLAUDE.md . 2>/dev/null || true)
+          if [ "$V" -eq 0 ]; then
+            echo "context-lint: clean"
+          else
+            echo "context-lint: $V violation(s)"
+            exit 1
+          fi
+`
+}
+
+/** Resolve the CI test `run:` command — prefer verbatim commands.test when set. */
+export function resolveTestRunCommand(opts: Required<WorkflowOpts>): string | null {
+  if (opts.test === 'none') return null
+  if (opts.testCommand) return opts.testCommand
+  if (opts.stack === 'python') return opts.test === 'pytest' ? 'uv run pytest' : 'uv run pytest'
+  if (opts.stack === 'bun') {
+    // Prefer bun run test (package script) over bare bun test — aligns with agent hook + monorepos
+    if (opts.test === 'vitest' || opts.test === 'bun' || opts.test === 'jest') return 'bun run test'
+    return 'bun run test'
+  }
+  // node
+  if (opts.test === 'jest' || opts.test === 'vitest') return 'npm test'
+  return 'npm test'
+}
+
+export function generateCiYml(opts: WorkflowOpts): string {
+  const o = normalizeWorkflowOpts(opts)
+  let setupStep: string
+  let lintStep = ''
+  let typecheckStep = ''
+  let testStep = ''
+
+  if (o.stack === 'python') {
+    setupStep = `      - uses: ${ACTION_PINS.setupUv}
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras`
+    if (o.lint) lintStep = '\n      - name: Lint\n        run: uv run ruff check .'
+    if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: uv run pyright'
+  } else if (o.stack === 'bun') {
+    setupStep = `      - uses: ${ACTION_PINS.setupBun}
+      - run: bun install`
+    if (o.lint) lintStep = '\n      - name: Lint\n        run: bun lint'
+    if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: bun typecheck'
+  } else {
+    setupStep = `      - uses: ${ACTION_PINS.setupNode}
+        with:
+          node-version: 20
+      - run: npm ci`
+    if (o.lint) lintStep = '\n      - name: Lint\n        run: npm run lint'
+    if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: npx tsc --noEmit'
+  }
+
+  const testCmd = resolveTestRunCommand(o)
+  if (testCmd) {
+    testStep = `\n      - name: Test\n        run: ${testCmd}`
+  } else {
+    // Explicit comment — silent-green CI without tests is worse than a red one
+    testStep =
+      '\n      # test: none — no unit test step (commands.test unset / --test none).\n' +
+      '      # If this is wrong, set commands.test + testing.unit and re-run /ci-setup.'
+  }
+
+  return `name: CI
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ${ACTION_PINS.checkout}
+${setupStep}${lintStep}${typecheckStep}${testStep}
+${generateE2eJob(o)}`
+}
+
+export function generateDeployYml(opts: WorkflowOpts): string {
+  const setupStep =
+    opts.stack === 'bun'
+      ? `      - uses: ${ACTION_PINS.setupBun}\n      - run: bun install`
+      : `      - uses: ${ACTION_PINS.setupNode}\n        with:\n          node-version: 20\n      - run: npm ci`
+
+  let deployStep: string
+  if (opts.deploy === 'cloudflare') {
+    deployStep = `      - name: Deploy (Cloudflare git integration)
+        run: echo "Use Cloudflare Pages/Workers Builds git integration — see stack.yml deploy.platform"`
+  } else if (opts.deploy === 'vercel') {
+    deployStep = `      - name: Deploy to Vercel
+        run: npx vercel deploy --token \${{ secrets.VERCEL_TOKEN }} --\${{ inputs.target == 'production' && '' || 'no-' }}prod
+        env:
+          VERCEL_ORG_ID: \${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: \${{ secrets.VERCEL_PROJECT_ID }}`
+  } else {
+    deployStep = `      - name: Deploy
+        run: echo "No deploy target configured — update this workflow"`
+  }
+
+  return `name: Deploy Preview
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Deploy target'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+          - preview
+          - production
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ${ACTION_PINS.checkout}
+${setupStep}
+${deployStep}
+`
+}
+
+/** Classify unit test runner from testing.unit and/or commands.test. */
+export function classifyTestRunner(unit: string | undefined, command: string | undefined): WorkflowOpts['test'] {
+  const u = (unit ?? '').trim()
+  const c = (command ?? '').trim()
+  if (!u && !c) return 'none'
+  if (/^none$/i.test(u) || (/^none$/i.test(c) && !u)) return 'none'
+
+  // testing.unit is authoritative when set to a known runner
+  if (/^vitest$/i.test(u) || /vitest/i.test(u)) return 'vitest'
+  if (/^jest$/i.test(u) || /jest/i.test(u)) return 'jest'
+  if (/^pytest$/i.test(u) || /pytest/i.test(u)) return 'pytest'
+  if (/^bun$/i.test(u) || /bun:test/i.test(u)) return 'bun'
+
+  // Fall back to commands.test heuristics
+  if (/vitest/i.test(c)) return 'vitest'
+  if (/jest/i.test(c)) return 'jest'
+  if (/pytest/i.test(c)) return 'pytest'
+  // bare `bun test` → native bun runner; `bun run test` → package script (vitest-or-bun script)
+  if (/\bbun\s+test\b/.test(c) && !/\bbun\s+run\s+test\b/.test(c)) return 'bun'
+  if (/\bbun\s+run\s+test\b/.test(c)) return 'vitest' // stack.yml.example convention + hook policy
+  if (c) return 'vitest' // unknown non-empty command still runs — classify generically
+  return 'none'
+}
+
+/** Build WorkflowOpts from stack.yml-shaped fields (ci-setup / checkup drift). */
+export function workflowOptsFromStack(stack: {
+  runtime?: string
+  /** testing.unit when available */
+  unit?: string
+  /** legacy alias — testing.unit or commands.test */
+  test?: string
+  deployPlatform?: string
+  e2e?: string
+  commands?: { lint?: string; typecheck?: string; test?: string }
+  merge?: 'auto-merge' | 'merge-on-green'
+  /** release.model + release.component (#371). Only `trunk` activates trunk mode. */
+  release?: { model?: string; component?: string }
+}): WorkflowOpts {
+  const runtime = (stack.runtime ?? 'bun') as WorkflowOpts['stack']
+  const unit = stack.unit ?? (stack.test && !stack.commands?.test ? stack.test : undefined)
+  const testCommand = stack.commands?.test ?? ''
+  // Prefer unit field; stack.test may be either unit or command depending on caller
+  const test = classifyTestRunner(unit ?? stack.test, testCommand || stack.test)
+  let deploy: WorkflowOpts['deploy'] = 'none'
+  const platform = stack.deployPlatform ?? ''
+  if (platform === 'vercel') deploy = 'vercel'
+  else if (platform.startsWith('cloudflare')) deploy = 'cloudflare'
+  const release = stack.release
+    ? {
+        model: (stack.release.model === 'trunk' ? 'trunk' : 'staging-train') as 'trunk' | 'staging-train',
+        component: stack.release.component ?? '',
+      }
+    : undefined
+  return normalizeWorkflowOpts({
+    stack: runtime === 'python' || runtime === 'node' ? runtime : 'bun',
+    test,
+    testCommand: testCommand || undefined,
+    deploy,
+    merge: stack.merge,
+    e2e: stack.e2e === 'playwright' ? 'playwright' : 'none',
+    lint: Boolean(stack.commands?.lint),
+    typecheck: Boolean(stack.commands?.typecheck),
+    release,
+  })
+}

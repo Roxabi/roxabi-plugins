@@ -1,0 +1,58 @@
+# .claude/stack.yml — dev-core stack configuration
+# DO NOT commit this file. Add `.claude/stack.yml` to .gitignore.
+# Commit stack.yml.example instead (no sensitive values).
+schema_version: "1.0"
+
+runtime: bun
+package_manager: bun
+
+backend:
+  framework: none
+  path: ""
+
+frontend:
+  framework: none
+  path: ""
+
+shared: {}
+
+build:
+  orchestrator: none
+  formatter: biome
+  formatter_config: biome.json
+  formatter_fix_cmd: "bunx biome check --write"
+
+testing:
+  unit: vitest
+  e2e: none
+
+hooks:
+  tool: lefthook
+
+deploy:
+  platform: none
+
+release:
+  model: trunk                    # trunk → auto-release.yml cuts a release on every merge to main (#371 Model B); staging-train = the old promote flow
+  component: roxabi-plugins       # tag prefix → roxabi-plugins/vX.Y.Z (continues the existing release-please tag sequence)
+  version_files: []               # auto-stamp deferred (D4) — the git tag is the sole version surface
+
+docs:
+  framework: none
+  path: docs
+  format: md
+
+commands:
+  dev: ""
+  build: ""
+  test: bun run test
+  lint: bun run lint
+  typecheck: bun run typecheck
+  format: "bunx biome check --write"
+  install: bun install
+
+artifacts:
+  analyses: artifacts/analyses
+  specs: artifacts/specs
+  frames: artifacts/frames
+  plans: artifacts/plans

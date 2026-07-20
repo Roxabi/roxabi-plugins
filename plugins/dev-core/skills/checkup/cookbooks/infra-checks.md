@@ -51,11 +51,11 @@ After fixes, re-run + display updated result.
 
 Only run if Phase 1 doctor shows ⚠️/❌ for Workflows or Secrets.
 
-1. **Workflows** — doctor checks local `.github/workflows/` + remote REST. Standard: `ci.yml`, `auto-merge.yml`, `pr-title.yml`, `context-lint.yml` (+ `deploy-preview.yml` if Vercel).
+1. **Workflows** — doctor checks local `.github/workflows/` + remote REST. Standard: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title.yml`, `context-lint.yml`, merge workflow (`auto-merge.yml` or `merge-on-green.yml`), (+ deploy workflow if configured).
 
-2. **PAT secret** — missing → `gh secret set PAT --repo <owner>/<repo> --body "$(gh auth token)"`. D✅("PAT secret").
+2. **App token** — missing `ROXABI_CI_APP_PRIVATE_KEY` / `ROXABI_CI_APP_ID` → provision per `${CLAUDE_PLUGIN_ROOT}/skills/ci-setup/cookbooks/github-app.md`. D✅("roxabi-ci App credentials").
 
-3. **`allow_auto_merge`:**
+3. **`allow_auto_merge`** (auto-merge repos only — skip for merge-on-green):
    ```bash
    gh api repos/<owner>/<repo> --jq '.allow_auto_merge'
    ```
@@ -71,13 +71,11 @@ Only run if Phase 1 doctor shows ⚠️/❌ for Workflows or Secrets.
 4. ∃ missing workflows → Ask: **Set up CI/CD** | **Skip**.
 
 5. yes:
-   - Auto-detect from σ: `stack` ← `runtime`, `test` ← `commands.test`, `deploy` ← `deploy.platform`.
-   - Ask stack (pre-select): **Bun** | **Node** | **Python (uv)**
-   - Ask test (pre-select): **Vitest** | **Jest** | **Pytest** | **None**
-   - Ask deploy (pre-select): **Vercel** | **None**
-   - `bun $I_TS workflows --owner <owner> --repo <repo> --stack <stack> --test <test> --deploy <deploy>`
-   - Set PAT + enable auto_merge + re-trigger PRs.
-   - D: `CI/CD ✅ Created` + `PAT ✅` + `allow_auto_merge ✅`.
+   - Auto-detect from σ (see workflows.md Phase 1 step 3).
+   - Ask stack / test / deploy / merge strategy (see workflows.md).
+   - `bun $I_TS workflows --owner <owner> --repo <repo> --stack <stack> --test <test> --deploy <deploy> --merge <strategy> --lint <bool> --typecheck <bool> --e2e <playwright|none>`
+   - Provision App token + enable auto_merge when using auto-merge.
+   - D: `CI/CD ✅ Created` + `roxabi-ci App ✅` + `allow_auto_merge ✅` (if applicable).
 
 6. skip → D⏭("CI/CD workflows").
 

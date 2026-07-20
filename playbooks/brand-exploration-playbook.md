@@ -4,11 +4,11 @@ description: From rough identity to locked brand book in one session using paral
 purpose: Orchestrate brand exploration with AI agents — positioning, personas, voice, visual identity, messaging
 scope: Products with existing codebase and at least a rough vision statement
 dependencies:
-  - dev-core agent types (product-lead, frontend-dev, doc-writer, architect)
-  - marketing skills (brand-review, campaign-plan, content-creation)
-  - design skills (design-handoff, ux-copy, design-critique)
-  - logo-generator skills
-  - visual-explainer skills
+  - roxabi-marketplace — dev-core (agents product-lead, frontend-dev, doc-writer, architect), 1b1
+  - knowledge-work-plugins — product-management, marketing, design
+  - imagecli-marketplace — logo-generator (repo imageCLI)
+  - roxabi-production — content-lab (Phase 8 only)
+  - visual-explainer-marketplace — visual-explainer (commands, not skills) — or forge as substitute
 tags:
   - brand
   - positioning
@@ -17,13 +17,14 @@ tags:
   - personas
   - logo
   - parallel-agents
-version: "2.2"
-last_updated: "2026-03-18"
+version: "2.3"
+last_updated: "2026-07-17"
 ---
 
 # Brand Exploration Playbook
 
 **Source:** Lyra brand exploration session — reconstructed as a reusable process.
+**Changelog:** v2.3 — Corrected the plugin inventory: only 2 of the 8 required plugins live in roxabi-plugins. `logo-generator` and `content-lab` moved to tool repos (commit `84d7d75`, 2026-05-27); `product-management`/`marketing`/`design` are Anthropic's `knowledge-work-plugins`; `visual-explainer` exposes commands, not skills. Added per-plugin marketplace column, install-scope trap, and forge substitutes.
 **Changelog:** v2.2 — Phase 8 Video Production section; font-drift, logo fidelity, palette contamination, and gui.new font-exploration learnings from Lyra launch trailer session.
 
 ---
@@ -70,7 +71,24 @@ Gather these before starting. The more context agents have, the less they halluc
 
 ### Required plugins & skills
 
-These roxabi-plugins skills are used across phases. Install at project scope before starting.
+**Only `dev-core` and `1b1` live in roxabi-plugins.** The other six plugins live in other marketplaces or tool repos. Install them at project scope before starting.
+
+#### Where each plugin actually lives
+
+| Plugin | Marketplace | Registered? | Notes |
+|--------|-------------|-------------|-------|
+| `dev-core` | `roxabi-marketplace` | yes | Usually already active at user scope |
+| `1b1` | `roxabi-marketplace` | yes | Often installed for one project only — check yours |
+| `product-management` | `knowledge-work-plugins` | yes | Anthropic's marketplace |
+| `marketing` | `knowledge-work-plugins` | yes | Anthropic's marketplace |
+| `design` | `knowledge-work-plugins` | yes | Anthropic's marketplace |
+| `logo-generator` | `imagecli-marketplace` (`~/projects/imageCLI`) | **no — add it first** | Moved out of roxabi-plugins in commit `84d7d75` (2026-05-27) |
+| `content-lab` | `roxabi-production` (`~/projects/roxabi-production`) | **no — add it first** | Same move. Phase 8 only |
+| `visual-explainer` | `visual-explainer-marketplace` | yes | **Exposes commands, not skills** — see below |
+
+**The install-scope trap.** These plugins are installed per `projectPath`, and a plugin enabled for `~/projects` does **not** cover `~/projects/<subrepo>` — each git repo is its own project. Before Phase 1, confirm the plugins resolve from *your* working directory, not from a sibling project. Symptom: the skill simply doesn't appear in the session's skill list.
+
+**`visual-explainer` is commands, not skills.** The plugin ships one root `SKILL.md` plus seven `commands/*.md` (`generate-web-diagram`, `generate-slides`, `fact-check`, `diff-review`, `generate-visual-plan`, `plan-review`, `project-recap`). Invoke them as `/visual-explainer:generate-web-diagram`, not through the Skill tool. If it isn't installed, `forge` covers the same ground and is a drop-in substitute — see the substitutes table below.
 
 #### Agent types (dev-core)
 
@@ -100,7 +118,7 @@ These roxabi-plugins skills are used across phases. Install at project scope bef
 | `logo-generator:logo-design` | logo-generator | Phase 6 | Animated SVG logo creation with live preview |
 | `logo-generator:logo-explore-svg` | logo-generator | Phase 7 | SVG logo variation gallery (shapes, palettes) |
 | `logo-generator:logo-explore-ai` | logo-generator | Phase 7 | AI-generated logo concepts via Flux |
-| `visual-explainer:generate-web-diagram` | visual-explainer | All phases | Interactive HTML artifact generation |
+| `/visual-explainer:generate-web-diagram` | visual-explainer | All phases | Interactive HTML artifact generation — **command** |
 | `content-lab:video-recipe` | content-lab | Phase 6 | Video reference analysis (structure, VAKOG) |
 
 #### Skills — supporting (high-value in specific situations)
@@ -110,13 +128,26 @@ These roxabi-plugins skills are used across phases. Install at project scope bef
 | `design:design-system` | design | Phase 6+ | Extract a design system from locked brand decisions |
 | `design:research-synthesis` | design | Phase 2 | Synthesize user research into persona themes |
 | `design:accessibility-review` | design | Phase 7 | WCAG audit on logo contrast, touch targets |
-| `visual-explainer:generate-slides` | visual-explainer | Phase 6+ | Brand presentation deck from locked assets |
-| `visual-explainer:fact-check` | visual-explainer | Phase 6 | Verify brand book accuracy against codebase |
-| `visual-explainer:diff-review` | visual-explainer | Phase 7 | Before/after comparison of logo iterations |
+| `/visual-explainer:generate-slides` | visual-explainer | Phase 6+ | Brand presentation deck from locked assets — **command** |
+| `/visual-explainer:fact-check` | visual-explainer | Phase 6 | Verify brand book accuracy against codebase — **command** |
+| `/visual-explainer:diff-review` | visual-explainer | Phase 7 | Before/after comparison of logo iterations — **command** |
 | `marketing:seo-audit` | marketing | Phase 8+ | SEO strategy for brand launch |
 | `1b1:1b1` | 1b1 | Phases 3, 5 | Walk through decisions one-by-one at convergence gates |
 | `dev-core:frame` | dev-core | Phase 1 | Problem framing before exploration |
 | `dev-core:interview` | dev-core | Phase 2 | Structured brainstorming → spec promotion |
+
+#### Substitutes when a plugin is unavailable
+
+The process does not hard-depend on most of this inventory. The Silex session (2026-07-17) shipped all four Phase 2 artifacts hand-authored, with none of these plugins installed. Use this table to decide what is worth installing versus working around.
+
+| Need | Playbook's tool | Substitute | Verdict |
+|------|-----------------|------------|---------|
+| Interactive HTML artifact (Phases 2, 4) | `/visual-explainer:generate-web-diagram` | `forge:forge-guide` (multi-tab doc), `forge:forge-chart` (single-file diagram) | Drop-in. Same format constraints as §5 — self-contained, `file://`, no deps |
+| Presentation deck (Phase 6+) | `/visual-explainer:generate-slides` | `forge:forge-slides` or `forge:forge-presentation` | Drop-in |
+| Strategy artifacts (Phase 2) | `product-management:*`, `marketing:*` | `dev-core:product-lead` briefed from the gap analysis | Works, but you lose the structure. Install if available |
+| **Animated SVG logo (Phases 6, 7)** | `logo-generator:logo-design` | `dev-core:frontend-dev`, hand-authored | **The only real capability gap.** `design`'s logo script emits PNG only. Nothing else produces animated SVG. The Lyra session hand-authored it |
+
+Beware of "close enough" substitutes that are not: a skill that *generates brand imagery* is not a substitute for one that *decides brand strategy*, and a skill locked to an already-fixed art direction (a house slide skill, a mascot generator) actively fights Phase 2 divergence — see the pitfall below.
 
 #### Skills — production (Phase 8+, not covered in this playbook)
 
@@ -699,6 +730,8 @@ Keep exploration artifacts in the brand directory for reference and historical r
 
 **Name the core metaphor early.** In the Lyra session, the Forge metaphor emerged in Phase 4 (visual v2) and then needed to be backfilled into positioning and messaging. If a strong metaphor emerges at any point, immediately check whether it restructures prior work. A named metaphor is the most powerful alignment tool in the brand — it makes every subsequent decision faster.
 
+**Audit your own tooling for a pre-locked art direction.** Before Phase 2, grep your installed skills for hardcoded brand tokens. In the Silex session, two active skills (a house slide generator and a mascot image generator) each embedded a complete, *different* art direction — specific hexes, fonts, and grain treatment — and one stated outright "No style-discovery phase — the brand is fixed." Meanwhile the gap analysis documented a third palette and Phase 2 was exploring five more. A brand locked inside a skill is still a locked brand: it will quietly contradict Phase 5, and every artifact those skills produce afterwards is wrong until they are reskinned. Inventory them in Phase 1, list them as an explicit rebrand cost, and treat their AD as one candidate direction — not as ground truth.
+
 **Resolve the intelligence-vs-relationship tension explicitly.** Most products with an AI agent component face a version of this tension: warm/relational language attracts some users and repels others. Don't leave it implicit. Force the brand book to include a section that defines where each register is appropriate and provides specific before/after examples. See Section 5 of the Lyra brand book for a worked example.
 
 ### Logo forge iteration learnings (v2.0)
@@ -732,6 +765,8 @@ A quick reference for running this process on a new product.
 - [ ] Existing brand docs (if any) are located and listed
 - [ ] Vault/notes directory is accessible (if one exists)
 - [ ] Competitor list (mental or written) is ready to share with agents
+- [ ] Plugins resolve **from this project's directory** — not just from a sibling project (see the install-scope trap in §2)
+- [ ] Installed skills grepped for hardcoded brand tokens — any pre-locked art direction is listed as a rebrand cost, not treated as ground truth
 
 ### Phase 1
 
@@ -814,6 +849,7 @@ A quick reference for running this process on a new product.
 ---
 
 *Derived from the Lyra brand exploration session — 2026-03-18*
+*v2.3 corrected the plugin inventory against disk (6 of 8 plugins live outside roxabi-plugins), documented the install-scope trap, forge substitutes, and the pre-locked-art-direction pitfall — from the Silex brand session, 2026-07-17.*
 *v2.2 updated with Phase 8 Video Production (roxabi-production pipeline, font-drift rules, logo fidelity, palette contamination learnings from Lyra launch trailer session).*
 *v2.1 updated with sub-variant funnel, kill list pattern, animation-as-narrative learnings from v0.2.2 forge session.*
 *v2.0 updated with logo forge iteration learnings and comprehensive skills inventory.*

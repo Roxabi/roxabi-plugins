@@ -1,0 +1,120 @@
+---
+title: "Source-agnostic /promote (Model B) — implementation shapes"
+description: "How to deliver trunk-based releases without regressing the 10 staging-train repos: a per-repo generated auto-release workflow that retires release-please, reusing the already-agnostic price.sh + finalize.ts."
+---
+
+## Source
+
+> "ah, mais pourquoi dev-core n'a pas un systeme qui est source agnostique et le promote se fait des qu'il y a une PR contre main ?" — then: **"rebase et on fait B"** (2026-07-18).
+
+Decision recorded: `[[dev-core-promote-source-agnostic-model-b]]`. Frame: `artifacts/frames/371-source-agnostic-promote-frame.mdx`.
+Adversarially reviewed by dev-core `architect` + `devops` (2026-07-18) — findings folded in below.
+
+## Problem
+
+The version **derivation** is already source-agnostic and correct (verified in source, post-#353/#370):
+
+- `price.sh COMPONENT ANCHOR HEAD…` — sole deriver (D10). BASE by reachability+component scope; exit 10 = first release; `--base-only` exposes the floor. Reads no branch name. **Normal mode needs ≥3 positional args** (`COMPONENT ANCHOR HEAD…`, guarded price.sh:91) — the promote caller uses `price.sh COMPONENT M^1 M` (SKILL.md:290).
+- `finalize.ts::classifyFinalize` — pure classifier. Structural REFUSE only on `parentCount≠2 ∨ ¬isPromote ∨ derived==base` (finalize.ts:105-125). **Witnesses are WARN-only** — they appear in `witnessWarnings` (finalize.ts:72-88) and in **none** of the REFUSE blocks (105-142). Takes `isPromote` as a bool.
+- `release-consistency.yml` **push path (D14)** — already agnostic: floor-check `version_files >= max reachable tag`, anchored on `PUSH_SHA`, reuses `price.sh --base-only`. No `staging` anywhere in it.
+
+The `staging→main` train lives in exactly three **policy** sites, all thin:
+
+1. `preflight.sh` — hardcoded `git checkout staging` / `git log main..staging` / `gh pr list --base staging`.
+2. `release-consistency.yml` **PR path (D9)** — `if PR_HEAD_REF != staging → early green` (line 118). Above it: the three-way witness **gate** (re-price == title == CHANGELOG, lines 154-165). *(This PR-path three-way is the only real witness gate; finalize's witnesses are WARN-only.)*
+3. `SKILL.md` step 9b — `isPromote` from "newest merged base=main **head=staging** PR" (`gh pr list --base main --head staging`).
+
+Plus advisory `hotfix-density.ts` (`main..staging`) and `release-artifacts.md` (changelog from `main..staging`).
+
+**Two facts that reshape the design (missed in the first draft, caught in review):**
+
+- **roxabi-plugins — the dogfood repo — already runs `release-please.yml` `on: push:[main]`.** `release-please-config.json` sets `component: roxabi-plugins`, `tag-separator: /` → it cuts **`roxabi-plugins/vX.Y.Z`** tags (v0.3.0, v0.4.0 exist; a `0.5.0` release commit exists; `.release-please-manifest.json` reads a *stale* 0.3.0). `price.sh select_base` globs the **identical** `${component}/v*`. So trunk-mode auto-release would be a **second uncoordinated writer** of the same tag namespace on the same `push:main` event — the exact "two mechanisms, no reconciler" drift #353 set out to kill. **Retiring release-please is therefore a hard prerequisite of trunk mode**, not a side note (and it matches #353's own fleet decision to make `/promote --finalize` the sole release path).
+- **roxabi-plugins has no `release-consistency` ruleset yet** (`gh api …/rulesets` → only `PR_Main`). The required-check interaction is unexercised on the actual target.
+
+## Outcome
+
+A repo flips one config value and gets trunk-based releases — correct `<component>/vX.Y.Z` tag + GitHub release created automatically on merge-to-main — while every staging-train repo keeps releasing with **zero** behavioral change. The shared deriver + classifier are reused unchanged; **release-please is retired in the same move** so exactly one automation writes each repo's tags (the #353 anti-drift invariant holds).
+
+## Appetite
+
+One F-full cycle. Recommended shape keeps **new code to ~M**: reuse `price.sh`/`finalize.ts` verbatim; the new surface is one per-repo generated workflow + one config key + a PR-path guard + release-please removal. Bounded by "dogfood on roxabi-plugins first, no fleet flag-day."
+
+## Shapes
+
+*(Forge-chart sidecars deferred — forge generator not wired in this session; shapes as text + ASCII.)*
+
+### Shape 1 — `release.model` enum, trunk folded into the shared skill + gate
+
+`release.model: staging-train (default) | trunk`. `/promote` skill and the PR-path gate each grow a `trunk` branch. **Con:** two live code paths inside the shared skill + shared gate → regression surface for all staging-train repos; `finalize`'s `parentCount`/`isPromote` acquire mode-dependent meaning. **Scope:** L.
+
+### Shape 2 — `release.source_branch` parameter (≡ rejected Model A)
+
+Trunk sets `source_branch=main` → `git log main..main` empty; the "diff source..target, promote via PR" shape collapses. Keeps the *train*. This is the Model A already rejected. **Eliminated.**
+
+### Shape 3 — Per-repo generated `auto-release` workflow; release-please retired; `/promote` untouched (RECOMMENDED, revised)
+
+`/promote` + `preflight.sh` + PR-path three-way stay **byte-identical** → staging-train repos have zero behavioral change. Add `release.model: staging-train (default) | trunk`. Four moving parts:
+
+1. **New `generateAutoReleaseYml()`** in `workflows/workflow-generators.ts`, a **per-repo committed** workflow (sibling to `generateAutoMergeYml`/`generateCiYml` — *not* a `workflow_call` reusable; it backs no required check, so the D15 reusable+stub machinery buys nothing and would import secrets-inherit/permissions/`on:`-footgun). Written by `/ci-setup` / `/init` when `release.model==trunk`. Shape:
+   - `on: push: branches: [main]`
+   - `permissions: contents: write`
+   - `concurrency: { group: auto-release-${{ github.ref }}, cancel-in-progress: false }` (queue, never cancel — cancelling drops a release)
+   - App-token mint via `emitAppMintStep()` (needed so the pushed tag triggers downstream `on: push: tags` builds; default `GITHUB_TOKEN` does not)
+   - run: derive `DERIVED = price.sh COMPONENT <M>^1 <M>` (first-release exit 10 → `0.1.0`); if the head merge has 2 parents and `DERIVED != BASE`, call `finalize.ts --is-promote true …` → `git push` tag + `gh release create`.
+2. **`release-consistency.yml` PR path:** read `release.model`; `if model==trunk → early-green ALL PRs` (feature PRs carry no version), inserted above the `head==staging` check.
+3. **Retire `release-please.yml`** (+ `release-please-config.json` + `.release-please-manifest.json`) in any repo set to `trunk`. Hard prerequisite — enforced/checked, not documented-and-forgotten.
+4. **Config + docs:** `release.model` in stack.yml schema; SKILL.md documents "trunk = no /promote, auto-release on merge"; `/checkup` gains a drift check (model==trunk ∧ release-please present → fail).
+
+```
+staging-train (unchanged):
+  feature PR → staging → /promote → PR(head=staging→main) → [PR 3-way gate] → merge → /promote --finalize → tag+release
+
+trunk (model: trunk, release-please removed):
+  feature PR → [PR-path: model==trunk → early-green] → MERGE-COMMIT to main  ── push:main ──▶ auto-release.yml
+        (concurrency-queued)  price.sh(M^1,M) → DERIVED≠BASE? ∧ 2 parents? → finalize.ts(isPromote=true) → tag <comp>/vX.Y.Z + gh release
+        (push-path D14 floor still guards version_files >= tag, post-merge)
+```
+
+**Trade-offs:**
+- Pro: staging-train risk = **zero**; matches the repo's actual per-repo-generated-workflow pattern (no reusable/secrets-inherit/perms footguns); reuses the agnostic deriver+classifier verbatim; one automation per repo writes tags (release-please gone) → no second SSoT; concurrency-safe.
+- Con: **merge-strategy constraint** — `finalize` REFUSEs on `parentCount≠2`, so trunk requires **merge commits** (squash/FF → 1 parent → today a *silent* no-release). Must be a documented+enforced trunk prerequisite (roxabi-plugins already enforces it via `auto-merge.yml`), and/or the 1-parent case made a **loud red**. **Release granularity:** D18 maps *every* non-feat type to a patch bump → a tag+release fires on **every non-empty merge** (docs/chore included). This is *not* semantic-release (which skips docs/chore) — a deliberate decision to confirm, not an equivalence.
+- **Scope:** M (code) within an F-full effort (fleet reach + transition).
+
+### Shape 4 — Fold tag+release into `release-consistency.yml`'s push path (from architect review)
+
+The push path already runs `on: push`, resolves COMPONENT, calls `price.sh --base-only`. Add a `model==trunk` tag+release step there. **Rejected:** `release-consistency.yml` is the **reusable, org-enforced required check** with `permissions: contents: read` (line 33-34); grafting a `contents: write` + App-token release-writer into the required-gate workflow contaminates a read-only gate with write authority and secret handling. Keep the gate a gate. **Eliminated** in favor of Shape 3's separate generated workflow.
+
+## Fit Check
+
+**Recommended: Shape 3 (revised).**
+
+Elimination: Shape 2 = rejected Model A (`main..main` degeneracy). Shape 4 = pollutes the read-only required gate with release-write authority. Shape 1 threads a second live mode through the shared skill+gate (regression surface on 10 live repos) — the transition-flag constraint ("zero flag-day") is better served by Shape 3's untouched shared path. Shape 3 also matches the codebase's real convention: releasing workflows are **per-repo generated** (`workflow-generators.ts`), and only the required-check gate is reusable.
+
+The decision's "drop the D7 witness machinery" is realized precisely: **bypass the witness gate in trunk (PR-path early-green), keep the WARN-only witness code** (no deletion; staging-train unaffected). Witnesses passed to trunk finalize are near-dead (feature PR titles carry no version) → pass them all-null.
+
+### Files impacted (Shape 3)
+
+| File | Change | Risk |
+|---|---|---|
+| `workflows/workflow-generators.ts` (+ dev-init copy-sync) | **new** `generateAutoReleaseYml()` (per-repo, push:main, concurrency, App-token, price→finalize→tag+release) | med — new release writer |
+| `.claude/stack.yml` schema (+ `.example`) | add `release.model` (default `staging-train`); resolve vs unused `release.class` | low — additive |
+| `.github/workflows/release-consistency.yml` | PR-path `model==trunk → early-green all` above `head==staging` | med — shared gate; guard behind model read |
+| `release-please.yml` + `release-please-config.json` + `.release-please-manifest.json` | **delete** in trunk repos (hard prerequisite) | med — removes current release path; sequence carefully |
+| `plugins/dev-core/skills/checkup/*` | drift check: `model==trunk ∧ release-please present → fail` | low |
+| `plugins/dev-core/skills/promote/SKILL.md` + references | document `release.model`, trunk merge-commit prerequisite, release granularity | low — docs |
+| roxabi-plugins `.claude/stack.yml` + workflows | dogfood: `release.component`+`release.model: trunk`, remove release-please, add auto-release, provision gate ruleset | med — first real cutover |
+| tests (vitest + shell fixtures) | trunk-path early-green; `generateAutoReleaseYml` snapshot; auto-release derivation fixtures incl. 1-parent + empty-payload | med |
+
+## Decisions resolved (Mickael, 2026-07-19 — spec inputs, locked)
+
+1. **D1 — Retire release-please in roxabi-plugins: YES.** It already drifts (manifest 0.3.0 vs tag 0.4.0) and #353's fleet decision already targets its removal. Trunk mode requires it (two writers on the `<component>/v*` namespace otherwise). → spec must include release-please retirement in the roxabi-plugins dogfood cutover.
+2. **D2 — Release granularity: ACCEPT every non-empty merge (v1).** D18 → a tag+GitHub-release on every non-empty merge, docs/chore included. Matches "version = f(commits)"; simplest. Revisit (restrict to `feat`/`fix`) only if noise proves a problem. Empty-payload merges (derived == base) still no-op via `classifyFinalize` D16/D18.
+3. **D3 — Squash-merge handling: BOTH.** Merge-commit is a documented trunk prerequisite (roxabi-plugins already enforces it via auto-merge ruleset). A stray 1-parent merge on `main` → auto-release surfaces it as a **loud red** (non-zero exit, visible failed check), never a silent skip. `classifyFinalize` already REFUSEs parentCount≠2 → wire that REFUSE to a red job.
+4. **D4 — Version files: hand-stamp first cut, auto-stamp DEFERRED.** roxabi-plugins `plugin.json` bumped by the `check-skill-version` pre-push hook satisfies the post-merge floor check; bot-commit-back auto-stamp is out of scope for #371 (separate follow-up if wanted).
+
+## Resolved by review (no longer open)
+
+- `price.sh` call = `COMPONENT M^1 M` (≥3 args), first-release exit 10 → 0.1.0.
+- auto-release is **per-repo generated**, not reusable → no `secrets: inherit`/permissions/`on:`-in-reusable footguns.
+- `concurrency:` queue (never cancel) is mandatory.
+- `release.model` naming must not collide with the existing unused `release.class`.

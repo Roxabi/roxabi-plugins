@@ -101,7 +101,7 @@ When `/plan` generates μ, α receive structured work units via TaskCreate.
 
 ## Communication
 
-"Message the lead" = `SendMessage` w/ concise status, key info upfront.
+"Message the lead" = concise status in final summary to the parent orchestrator, key info upfront.
 
 - Blocker → lead
 - Cross-domain → create task + message lead
@@ -114,5 +114,5 @@ When `/plan` generates μ, α receive structured work units via TaskCreate.
 - `permissionMode` (bypassPermissions | plan)
 - `maxTurns` (30–50)
 - `memory: project` (.claude/agent-memory/)
-- `skills` (preloaded)
-- `disallowedTools` (deny list)
+
+Tool access uses harness defaults unless a project override sets `tools` or `disallowedTools` explicitly.

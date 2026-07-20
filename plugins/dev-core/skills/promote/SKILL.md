@@ -2,7 +2,7 @@
 name: promote
 argument-hint: [--dry-run | --skip-preview | --finalize]
 description: Promote staging→main — pre-flight, version bump, changelog, PR & tag. Triggers: "promote staging" | "release" | "deploy" | "cut a release" | "--finalize" | "merge to main" | "promote to production" | "ship a release" | "tag and release" | "publish release".
-version: 0.4.1
+version: 0.5.0
 allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch
 ---
 
@@ -60,10 +60,59 @@ Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI
 
 | Check | Condition | Action |
 |-------|-----------|--------|
+| Release mode (trunk + staging) | `status=trunk_promote_pr` | **Proceed.** Open the staging→main merge PR — Step 1a runs the **Component check only** (the Gate-probe / Unfinalized-promote / Version-file guards are staging-train finalize invariants, skipped under trunk), then Steps 1b–8; `auto-release.yml` tags on merge. Do **not** run `--finalize` — Step 9 refuses it under trunk (single writer). See `## Trunk mode`. |
+| Release mode (trunk, no staging) | `status=trunk_mode` (`release.model==trunk`) | **REFUSE / no-op.** `/promote` does not apply — a pure trunk repo (no `staging` branch) releases at merge-to-main via `auto-release.yml`. Stop (see `## Trunk mode`). |
 | No commits | `commits_ahead=0` | **REFUSE.** Stop. |
 | Open PRs on σ | open_prs section non-empty | **WARN** + Q: **Continue** \| **Wait** |
 | CI status | ci section | **WARN** if ¬passing |
 | Hotfix density | `hotfix_density` section | **WARN** if gauge=warn (20–40%); **recommend pause** + `/checkup` if gauge=pause (>40%); advisory-only — never hard-block |
+| Component set | `release.component` null/absent | **REFUSE** (S6/D13) + paste-ready `release:` block. On day 1 every repo takes this — it is the onboarding step, not a dead end. |
+| Version-file drift | any `release.version_files` path ≠ `BASE` | **REFUSE** (S5). Message distinguishes *hand-drift* (`file < BASE`) from *a promote abandoned after step 2b* (`file > BASE`) — a reconcile command for each. |
+| Gate provisioned | `release-consistency` **required** on `main` ∧ zero bypass actors | **REFUSE** on a **protectable** repo where it is missing/bypassable (name `scripts/provision-release-gate.sh`); **WARN** if the repo is un-protectable (`403` — private, free plan, D17); `Branch not protected` → REFUSE-with-onboarding. |
+
+### Step 1a — Release guards (S5/S6/S7/D8)
+
+**Trunk skip (`release.model: trunk`, #371 B1).** Under trunk the create-PR path opens a *plain* staging→main merge PR: there is **no pre-declared version** to validate, and `auto-release.yml` — with its own D3 loud-red guards — is the sole tagger on `push:main`. So the **Gate probe, Unfinalized-promote, and Version-file** checks below (all staging-train *finalize* invariants) are **SKIPPED**; only the **Component** check runs (`auto-release.sh` needs `release.component`). Detect and short-circuit before the staging-train guards:
+
+```bash
+MODEL=$(yq -r '.release.model // "staging-train"' .claude/stack.yml 2>/dev/null \
+  || { [ -f .claude/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".claude/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
+# → if MODEL=trunk: run ONLY the Component check below, then jump to Step 1b.
+#   (The promote-PR's version heading/title, computed in Steps 2–4, is COSMETIC under
+#    trunk — auto-release.sh re-derives the authoritative version from M^1..M at merge.)
+```
+
+**Component (S6/D13):**
+
+```bash
+COMPONENT=$(yq -r '.release.component // "null"' .claude/stack.yml 2>/dev/null \
+  || python3 -c 'import yaml;print((yaml.safe_load(open(".claude/stack.yml")).get("release") or {}).get("component") or "null")')
+{ [ "$COMPONENT" = null ] || [ -z "$COMPONENT" ]; } && { echo "REFUSE: release.component unset — paste a release: block (see stack.yml.example)"; exit 1; }
+```
+
+**Gate probe (S7/D6/D17)** — the check must be *required*, not merely present; a bypassable required check is advisory with better marketing, so the probe reads the actor list too:
+
+```bash
+RS=$(gh api "repos/:owner/:repo/rulesets?includes_parents=true" 2>&1) || true
+case "$RS" in
+  *"Upgrade to GitHub Pro"*|*"Not Found"*403*)
+    echo "WARN: repo un-protectable (private, free plan) — release-consistency cannot be required here (D17). D4's derivation still yields the correct version.";;
+  *)
+    # Assert a main-targeting ruleset REQUIRES the `release-consistency` context with an empty bypass_actors list.
+    # Absent/bypassable on a protectable repo → REFUSE; `Branch not protected` → REFUSE-with-onboarding.
+    echo "REFUSE: release-consistency is not an enforced required check on main. Run: bash scripts/provision-release-gate.sh <owner/repo>"; exit 1;;
+esac
+```
+
+**Unfinalized promote (S5/D8)** — the newest merged promote **by PR metadata**, never by commit lineage (a `<merge>^2`-vs-staging ancestry test false-positives after any backmerge — it flags real hotfixes #267/#257 as promotes):
+
+```bash
+LAST=$(gh pr list --base main --head staging --state merged --limit 1 --json number,mergeCommit --jq '.[0].mergeCommit.oid')
+# Derive its version: price.sh "$COMPONENT" "${LAST}^1" "$LAST". No matching tag on that version → offer to resume:
+#   "Unfinalized promote detected (PR merged, no tag). Run /promote --finalize?"
+```
+
+**Version-file drift (S5)** — each `release.version_files` path is compared to `BASE`; `file < BASE` = hand-drift (reconcile: re-stamp from BASE), `file > BASE` = a promote stopped after step 2b (resume: re-open the promotion PR). `[]` → skip.
 
 ## Step 1b — Pin-swap Phase
 
@@ -180,7 +229,10 @@ Promotion Summary
 1. Branch: `git branch chore/$VERSION-changelog staging`
 2. Push: `git push origin chore/$VERSION-changelog`
 3. PR: `gh pr create --base staging --head chore/$VERSION-changelog --title "chore(release): add $VERSION changelog"`
-4. Merge: `gh pr merge <N> --auto --merge --delete-branch` (merge commit — ¬squash, Release Convention; `--auto` waits for required checks)
+4. Merge: `gh pr merge <N> --auto --merge --delete-branch` (merge commit — ¬squash, Release Convention). **`--auto` only *arms* auto-merge and returns immediately — it does not block.** Then poll until it lands, or step 7 reads a stale `origin/staging`:
+   ```bash
+   until [ "$(gh pr view <N> --json state --jq .state)" = MERGED ]; do sleep 10; done
+   ```
 5. Sync: `git fetch origin staging && git reset --hard origin/staging`
 
 ## Step 7 — Create Promotion PR
@@ -228,6 +280,14 @@ After merge:
 
 Skip Steps 1-8. Post-merge only.
 
+**9.0 Trunk guard (#371 B1).** `/promote --finalize` is the *staging-train* tagger. Under `release.model: trunk`, `auto-release.yml` already tags at merge-to-main, so a second tagger here breaks the single-writer property — refuse before touching anything (a failed trunk run recovers via the workflow's **Re-run failed jobs**, see `## Trunk mode`, not via `--finalize`):
+
+```bash
+MODEL=$(yq -r '.release.model // "staging-train"' .claude/stack.yml 2>/dev/null \
+  || { [ -f .claude/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".claude/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
+[ "$MODEL" = trunk ] && { echo "REFUSE: release.model==trunk — auto-release.yml owns tag/release at merge-to-main; /promote --finalize does not apply."; exit 1; }
+```
+
 **9a.** Verify merge:
 ```bash
 git fetch origin main && git checkout main && git pull origin main
@@ -235,25 +295,83 @@ gh pr list --base main --head staging --state merged --limit 1 --json number,tit
 ```
 ¬merged → REFUSE: "Merge the promotion PR first."
 
-**9b.** Detect V:
-```bash
-grep -oP '## \[\Kv[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1
-```
-Q: **Use {detected}** | **Custom version**
+**9b.** Derive V from the **merge object alone** (S11/D4) — never from a witness. The finalize verdict (structural REFUSE, drift REFUSE, witness WARN, per-artifact act) is computed by `lib/finalize.ts` — the **tested classifier IS the executed decision** (#369), not a bash re-implementation of part of it. The PR title, CHANGELOG heading and version file are compared only to **WARN** (D7); a disagreement prints repair actions and finalize **tags the derived version anyway**, because the merge already shipped and a post-merge REFUSE would re-manufacture the shipped-no-release defect. Gather the inputs:
 
-**9c.** Tag:
 ```bash
-git tag -l "$VERSION" | grep -q "$VERSION" && echo "Tag exists — abort" && exit 1
-git tag -a "$VERSION" -m "Release $VERSION"
-git push origin "$VERSION"
-```
+M=$(gh pr list --base main --head staging --state merged --limit 1 --json mergeCommit --jq '.[0].mergeCommit.oid')
+PARENT_COUNT=$(( $(git rev-list --parents -n1 "$M" | wc -w) - 1 ))   # 3 words = 2 parents
 
-**9d.** Release:
-```bash
-gh release create "$VERSION" --title "$VERSION" --notes "$CHANGELOG_CONTENT"
+# is-promote by PR metadata (D8), never by commit lineage: is M the newest merged staging→main PR?
+NEWEST=$(gh pr list --base main --head staging --state merged --limit 1 --json mergeCommit --jq '.[0].mergeCommit.oid')
+[ "$M" = "$NEWEST" ] && IS_PROMOTE=true || IS_PROMOTE=false
+
+# Derived version + BASE floor — BOTH from price.sh, the sole deriver (D10). --base-only reuses
+# the deriver's own floor predicate, so the gate and finalize never diverge from a second copy.
+DERIVED=$(bash "${CLAUDE_SKILL_DIR}/price.sh" "$COMPONENT" "${M}^1" "$M"); RC=$?
+{ [ "$RC" -ge 1 ] && [ "$RC" -ne 10 ]; } && { echo "REFUSE: price.sh error ($RC)"; exit 1; }
+if [ "$RC" -eq 10 ]; then DERIVED=0.1.0; BASE=""; else       # first release — no floor
+  set +e; BASE=$(bash "${CLAUDE_SKILL_DIR}/price.sh" --base-only "$COMPONENT" "${M}^1"); BRC=$?; set -e
+  { [ "$BRC" -ge 1 ] && [ "$BRC" -ne 10 ]; } && { echo "REFUSE: price.sh --base-only error ($BRC)"; exit 1; }
+  [ "$BRC" -eq 10 ] && BASE=""
+fi
+VERSION="${COMPONENT}/v${DERIVED}"
+
+# Witnesses (WARN-only, D7) — empty string ⇒ artifact absent (a null witness, D12).
+TITLE_V=$(gh pr view "$M" --json title --jq '.title' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+HEADING_V=$(grep -oE '^##[[:space:]]+\[?v?[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+VFILE=$(yq -r '.release.version_files[0] // ""' .claude/stack.yml 2>/dev/null || true)
+FILE_V=$([ -n "$VFILE" ] && [ -f "$VFILE" ] && grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$VFILE" | head -n1 || true)
 ```
+`Custom version` is retained only as the multi-component escape hatch (factory/cortex), never required here.
+
+**9c/9d.** Let `finalize.ts` rule, then reconcile tag + release **per artifact** (D16). Re-evaluate after each act, so a finalize that died mid-way recovers and the loop converges (tag → create-release → noop). `finalize.ts` owns every hard REFUSE (≠2 parents, not-a-promote, empty payload, tag/release drift) and emits the witness WARNs:
+
+```bash
+for _ in 1 2 3; do
+  # Per-artifact state (D16): where do the tag and release for $DERIVED point?
+  TAG_AT=$(git rev-list -n1 "$VERSION" 2>/dev/null || true)
+  if   [ -z "$TAG_AT" ];     then TAG_STATE=absent
+  elif [ "$TAG_AT" = "$M" ]; then TAG_STATE=points-at-M
+  else                            TAG_STATE=points-elsewhere; fi
+  if gh release view "$VERSION" >/dev/null 2>&1; then
+    { [ "$TAG_AT" = "$M" ] && RELEASE_STATE=points-at-M; } || RELEASE_STATE=points-elsewhere
+  else RELEASE_STATE=absent; fi
+
+  VERDICT=$(bun run "${CLAUDE_SKILL_DIR}/lib/finalize.ts" \
+    --parent-count "$PARENT_COUNT" --is-promote "$IS_PROMOTE" \
+    --derived "$DERIVED" --base "$BASE" \
+    --witness-title "$TITLE_V" --witness-heading "$HEADING_V" --witness-file "$FILE_V" \
+    --tag-state "$TAG_STATE" --release-state "$RELEASE_STATE") || true
+  ACTION=$(printf '%s\n' "$VERDICT" | sed -n 's/^action=//p')
+  printf '%s\n' "$VERDICT" | sed -n 's/^warning=/WARN: /p'   # witness disagreements (D7) — reconcile, do not block
+
+  case "$ACTION" in
+    refuse)         printf '%s\n' "$VERDICT" | sed -n 's/^reason=/REFUSE: /p'; exit 1 ;;
+    tag)            git tag -a "$VERSION" -m "Release $VERSION" && git push origin "$VERSION" ;;
+    create-release) TITLE="${VERSION/\/v/ v}"; gh release create "$VERSION" --title "$TITLE" --notes "$CHANGELOG_CONTENT" ;;
+    noop|*)         break ;;
+  esac
+done
+```
+Re-running once **both** exist and point at `M` is a green no-op.
 
 Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
+
+## Trunk mode — `release.model`
+
+`release.model` in `.claude/stack.yml` selects the release train (#371, Model B):
+
+- `staging-train` (**default** — absent ⇒ this) — the staging→main promote flow documented above. The whole fleet stays here until it opts in.
+- `trunk` — versions are derived and releases cut **on every merge to `main`** by the generated `auto-release.yml`. No staging branch, no promotion PR, no pre-declared version.
+
+Under `release.model: trunk` the contract changes on four points:
+
+- **Merge-commits required.** `auto-release.sh` derives from `M^1..M`, so a release needs a 2-parent merge. A stray 1-parent push to `main` (direct commit, squash, fast-forward) is **loud-red**, never a silent release (D3). Keep the merge queue on merge-commits (never squash).
+- **No `/promote --finalize`; the create-PR path stays open while `staging` exists (#371 B1).** `auto-release.yml` is the sole tagger at merge-to-main, so `/promote --finalize` is **refused** under trunk (Step 9) — a second tagger would break the single-writer property. But a repo mid-transition that still keeps a `staging` branch uses `/promote`'s **create-PR** path (`status=trunk_promote_pr`) to open the staging→main merge PR; merging it lands on `main` and `auto-release.yml` cuts the release. A pure trunk repo with **no** `staging` branch no-ops entirely (`status=trunk_mode`) — `/promote` does not apply.
+- **Fires on every merge; empty is a green no-op.** The workflow runs on each `push: main`. A merge that adds no version-bumping conventional commit derives `== BASE` and exits green **without tagging** (D18). Only a bumping payload cuts a release, so most merges are no-ops.
+- **Recovery via `workflow_dispatch`.** If a run dies mid-finalize (tag pushed, release not created), re-run the workflow from the Actions tab — the reconcile loop is per-artifact idempotent (D16): it creates only the missing artifact and no-ops once both the tag and release point at `M`.
+
+`/checkup` enforces the trunk contract: it **fails** when `auto-release.yml` is absent or drifts from the generator (N11), or when a stray `release-please.yml` writer lingers (N10). Switch modes by flipping this one `release.model` value and regenerating workflows with `/ci-setup`.
 
 ## Options
 

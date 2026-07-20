@@ -1,0 +1,63 @@
+---
+title: 'compress v2 train A — mode dispatch + multi-target scope + token-true metrics'
+issue: 309
+status: approved
+tier: F-lite
+date: 2026-07-04
+---
+
+## Problem
+
+The compress skill is a 73-line single-file 1:1 rewriter whose two core claims are measurably false and whose structure cannot host the v2 train (issue body "Problem"; analysis §1, §2.1):
+
+- **Line metric lies.** SKILL.md:27,49,51 measure `L_before → L_after` only. Measured: `∀ x ∈ Y:` = `for each x in Y:` = 6 tokens exactly; a full symbolic Let-block is token-equal-or-worse than structured English (52–53 vs 49–51) despite −28% chars. Line% can show compression while **tokens increase**. README.md:7 claims "30-60%" — measured nowhere.
+- **Legacy layout hardcoded.** SKILL.md:14-16,25 resolve names to `.claude/{agents,skills}/` only — the skill cannot find skills in the marketplace layout of its own repo (Design Principle 1 violation). No glob/dir/plugin scope.
+- **No mode structure.** v2 modes (expand/lint/glossary/derive, trains B–E) have nowhere to dispatch; no ledger/provenance exists, so trains C's go/no-go would have no evidence base.
+- **plugin.json has no `data` block** — the ledger needs a declared vault root; compress becomes the first data-owning plugin in the marketplace.
+- **DP-load bug is moot but its intent survives** (drift adaptation, commit `1dd4ae8`): the decision-presentation protocol was removed from staging; the reinterpreted requirement is that no undefined shorthand token appears in the shipped SKILL.md.
+
+This issue is P5 + P2 of the adversarially-verified analysis (`artifacts/analyses/compress-skill-v2-ecriture-symbolique-analysis.md` §3), PR-A of the recommended split (§4) — the enabling architecture, ordered first.
+
+## Who
+
+- **Primary:** Claude Code operators invoking `/compress` on skill/agent files — in marketplace-layout repos (currently broken for name resolution) and legacy `.claude/` repos.
+- **Secondary:** trains B–E (#310–#313), which land their mode bodies in `references/<mode>.md` slots this issue creates; the roxabi-cortex PoC, which consumes the Observation-shaped ledger contract exercised here (analysis §2.5 — "κ-shaped calibration ledger exercising the Observation provenance contract", never claimed to be cortex's κ table).
+
+## Constraints
+
+- **Marketplace self-containment** — no `~/projects/ssot/*` or machine-local paths in any shipped file; shared refs only via `${CLAUDE_PLUGIN_ROOT}/../shared/`.
+- **DP drift adaptation** (standing, epic #308): decision points use the current house idiom — inline `→ present choice **A** | **B**` blocks; DP(B) → direct ask; never AskUserQuestion; no reference to the removed `decision-presentation.md`; no undefined shorthand in the shipped file.
+- **SKILL.md ≤110 lines**, mode bodies lazy-loaded from `references/<mode>.md`; budget enforced in `tools/validate_plugins.py` (existing gate — no new CI workflow).
+- **Frontmatter `description` Δ ≤ +15 tokens vs current** — and this is the **train-total** budget (#313 restates it), so #309 installs ALL composite mode triggers up front; C/D/E deltas must be ≈0. Measured with `count_tokens.py`, method recorded in the PR. Known inter-issue tension: #313 says the derive trigger is "added only in this PR"; the epic run plan resolves it in favor of #309-installs-all (the anti-phantom gate halts cleanly on not-yet-implemented modes), so train E expects Δ≈0 — recorded in the adaptation log for train E's validator.
+- **plugin.json must NOT gain a `version` field** (CLAUDE.md default policy: SHA-based versioning; adding one would make `check-skill-version.sh` gate every later train and falsify the epic's "#310 only" bump claim).
+- **Ledger writes only via the script (O_APPEND)** through `roxabi_sdk.paths` / `get_plugin_data('compress')` — no Write/Edit path to the ledger anywhere in SKILL.md.
+- Ledger rows literally Observation-shaped (ADR-005 contract): `{id: ULID (vendored ~10-line impl), source: 'compress-skill', source_ref: <pre-image SHA>, ts, category: <mode>, payload_typed: {schema_version, …}, correlation}`; undefined referents nullable + marked `reserved` with declared dependency; open enum.
+- `Bash` added to allowed-tools, declared in Safety, with degradation contract: Bash unavailable → `method: estimate`, `verify: skipped`, no ledger row.
+- Edit repo source only — never the plugin cache (`~/.claude/plugins/cache/**`); sync/reinstall after merge.
+- Git hygiene: no `--force`/`--hard`/`--amend`; stage specific files only.
+
+## Out of Scope
+
+- Mode bodies for `derive`/`expand`/`lint`/`glossary` — trains B–E; this PR ships only `references/compress.md`, other modes halt "mode not yet implemented".
+- `notation.md` glossary + fidelity guardrails G1–G4 (#310).
+- Fresh-agent read-back verification, golden set, L0–L3 levels, provenance markers (#311, #312).
+- `--level`/`--verify` flags — must NOT appear in argument-hint (P3/P7 don't exist yet).
+- Corpus migration / linting of existing files (#312, and deliberately deferred per descope-under-churn memory).
+
+## Premise Validity
+
+**Success in 6 months:** Trains B–E each landed their mode as a `references/<mode>.md` file without rewriting the dispatch core; every compress run reports per-section token deltas with a mandatory `method:` label and appends exactly one Observation-shaped ledger row; the "30-60%" claim is gone from the README; train C's go/no-go verdict (#311) was decided from evidence this architecture produced.
+
+**Failure in 6 months:** By 2027-01, the ledger under the vault holds <5 non-test rows, or >50% of rows carry `Δtokens ≈ 0` on real runs (compression not paying for itself), or any later train had to rewrite the Phase 0/1 dispatch core to land its mode — the dispatch architecture was bookkeeping overhead and the v2 premise is indicted. (Measured from the ledger itself + git history of `plugins/compress/`.)
+
+**Simplest alternative:** Patch the metric lies in place — swap line counts for token counts inside the existing 73-line monolith and drop the README claim; no dispatch, no scope resolution, no ledger.
+**Why not simplest:** Trains B–E would each rewrite the monolith (4 more full rewrites of the same file, guaranteed conflicts and no lazy-load budget), the marketplace-layout bug would keep name resolution broken in the skill's own repo, and train C's pre-registered go/no-go would have no measured evidence base to decide against. The analysis (§3-P5, §4) orders dispatch first for exactly this reason: it is the enabling architecture for every later PR.
+
+## Complexity
+
+**Tier: F-lite** — clear scope, single domain (one plugin + one repo tool), no unknowns; every design decision is pre-baked in the issue body after adversarial verification.
+
+Signals observed:
+- Issue label `size:F-lite` → F-lite (direct mapping).
+- Single domain: `plugins/compress/` + one check in `tools/validate_plugins.py`.
+- No new architecture beyond the issue's own prescription; no unknowns left open (χ target = 0).

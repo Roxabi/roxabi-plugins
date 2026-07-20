@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { expectedSections, scaffoldRules } from '../lib/scaffold-rules'
+import { detectPackageInstall, expectedSections, scaffoldRules } from '../lib/scaffold-rules'
 
 describe('scaffold-rules', () => {
   let tmp: string
@@ -116,14 +116,14 @@ frontend:
     })
 
     it('detects docs-content when only docs framework exists', () => {
-      // Arrange
+      // Arrange — any non-none docs.framework (Fumadocs removed; docusaurus/nextra still count)
       writeStack(`
 backend:
   framework: none
 frontend:
   framework: none
 docs:
-  framework: fumadocs
+  framework: docusaurus
   path: docs
 `)
 
@@ -227,7 +227,7 @@ backend:
 frontend:
   framework: none
 docs:
-  framework: fumadocs
+  framework: docusaurus
 `)
 
       // Act
@@ -355,10 +355,10 @@ backend:
 frontend:
   framework: nextjs
 standards:
-  frontend: docs/fe-patterns.mdx
-  backend: docs/be-patterns.mdx
-  testing: docs/tests.mdx
-  code_review: docs/review.mdx
+  frontend: docs/fe-patterns.md
+  backend: docs/be-patterns.md
+  testing: docs/tests.md
+  code_review: docs/review.md
 `)
 
       // Act
@@ -369,9 +369,34 @@ standards:
       })
 
       // Assert
-      expect(result.markdown).toContain('docs/fe-patterns.mdx')
-      expect(result.markdown).toContain('docs/be-patterns.mdx')
-      expect(result.markdown).toContain('docs/review.mdx')
+      expect(result.markdown).toContain('docs/fe-patterns.md')
+      expect(result.markdown).toContain('docs/be-patterns.md')
+      expect(result.markdown).toContain('docs/review.md')
+    })
+
+    it('defaults coding-standards and code-review links to .md when standards.* omitted', () => {
+      // Arrange — full-app, no standards: block → scaffold-rules fallbacks
+      writeStack(`
+runtime: bun
+backend:
+  framework: nestjs
+frontend:
+  framework: nextjs
+`)
+
+      // Act
+      const result = scaffoldRules({
+        stackPath: join(tmp, '.claude', 'stack.yml'),
+        claudeMdPath: join(tmp, 'CLAUDE.md'),
+        projectName: 'defaults',
+      })
+
+      // Assert — ADR-016 / plain-MD defaults (reverting to .mdx must fail)
+      expect(result.markdown).toContain('docs/standards/code-review.md')
+      expect(result.markdown).toContain('docs/standards/frontend-patterns.md')
+      expect(result.markdown).toContain('docs/standards/backend-patterns.md')
+      expect(result.markdown).toContain('docs/standards/testing.md')
+      expect(result.markdown).not.toContain('.mdx')
     })
   })
 
@@ -433,6 +458,86 @@ Commit rules
       expect(result.existing.hasImport).toBe(false)
       expect(result.existing.sectionIds).toEqual([])
     })
+
+    it('reports parent CLAUDE.md and @imports without using them as skip authority', () => {
+      const parentDir = join(tmp, 'parent')
+      const childDir = join(parentDir, 'child')
+      mkdirSync(join(childDir, '.claude'), { recursive: true })
+      writeFileSync(join(parentDir, 'CLAUDE.md'), '@ssot/operator.ssot.md\n@ssot/conventions.ssot.md\n')
+      writeFileSync(join(childDir, '.claude', 'stack.yml'), 'runtime: bun\npackage_manager: bun\n')
+      writeFileSync(join(childDir, 'CLAUDE.md'), '@.claude/stack.yml\n')
+
+      const result = scaffoldRules({
+        stackPath: join(childDir, '.claude', 'stack.yml'),
+        claudeMdPath: join(childDir, 'CLAUDE.md'),
+        projectName: 'child',
+      })
+
+      expect(
+        result.existing.parentPaths.some((p) => p.endsWith('parent/CLAUDE.md') || p.endsWith('parent\\CLAUDE.md')),
+      ).toBe(true)
+      expect(result.existing.parentImports).toEqual(
+        expect.arrayContaining(['ssot/operator.ssot.md', 'ssot/conventions.ssot.md']),
+      )
+      // parent has no Critical Rules headings → local sectionIds still empty of parent noise
+      expect(result.existing.sectionIds).toEqual([])
+    })
+  })
+
+  describe('repo facts', () => {
+    it('uses package_manager from stack for install command', () => {
+      writeStack(`
+runtime: bun
+package_manager: pnpm
+backend:
+  framework: nestjs
+frontend:
+  framework: nextjs
+`)
+      const result = scaffoldRules({
+        stackPath: join(tmp, '.claude', 'stack.yml'),
+        claudeMdPath: join(tmp, 'CLAUDE.md'),
+        projectName: 'app',
+      })
+      expect(result.facts.packageManager).toBe('pnpm')
+      expect(result.markdown).toContain('pnpm install')
+      expect(result.markdown).not.toContain('bun install')
+    })
+
+    it('omits cp .env.example when file is absent', () => {
+      writeStack(`
+runtime: bun
+backend:
+  framework: nestjs
+frontend:
+  framework: nextjs
+`)
+      const result = scaffoldRules({
+        stackPath: join(tmp, '.claude', 'stack.yml'),
+        claudeMdPath: join(tmp, 'CLAUDE.md'),
+        projectName: 'app',
+      })
+      expect(result.facts.hasEnvExample).toBe(false)
+      expect(result.markdown).not.toContain('cp .env.example')
+    })
+
+    it('includes cp .env.example when present', () => {
+      writeStack(`
+runtime: bun
+backend:
+  framework: nestjs
+frontend:
+  framework: nextjs
+`)
+      writeFileSync(join(tmp, '.env.example'), 'FOO=1\n')
+      const result = scaffoldRules({
+        stackPath: join(tmp, '.claude', 'stack.yml'),
+        claudeMdPath: join(tmp, 'CLAUDE.md'),
+        projectName: 'app',
+      })
+      expect(result.facts.hasEnvExample).toBe(true)
+      expect(result.markdown).toContain('cp .env.example .env')
+    })
   })
 
   describe('expectedSections', () => {
@@ -462,6 +567,36 @@ Commit rules
 
       // Assert
       expect(ids).toHaveLength(2)
+    })
+  })
+
+  describe('detectPackageInstall', () => {
+    it('maps uv and python to `uv sync`', () => {
+      expect(detectPackageInstall({ package_manager: 'uv' })).toEqual({
+        packageManager: 'uv',
+        packageInstall: 'uv sync',
+      })
+      expect(detectPackageInstall({ package_manager: 'python' })).toEqual({
+        packageManager: 'uv',
+        packageInstall: 'uv sync',
+      })
+    })
+
+    it('does NOT emit `uv sync` for a plain pip project — it cannot run it (regression)', () => {
+      const { packageManager, packageInstall } = detectPackageInstall({ package_manager: 'pip' })
+      expect(packageManager).toBe('pip')
+      expect(packageInstall).not.toBe('uv sync')
+      expect(packageInstall).toBe('pip install -r requirements.txt')
+    })
+
+    it('maps npm/pnpm/yarn to their own install commands', () => {
+      expect(detectPackageInstall({ package_manager: 'npm' }).packageInstall).toBe('npm install')
+      expect(detectPackageInstall({ package_manager: 'pnpm' }).packageInstall).toBe('pnpm install')
+      expect(detectPackageInstall({ package_manager: 'yarn' }).packageInstall).toBe('yarn')
+    })
+
+    it('defaults to bun', () => {
+      expect(detectPackageInstall({}).packageInstall).toBe('bun install')
     })
   })
 })

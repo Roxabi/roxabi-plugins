@@ -36,8 +36,7 @@ Auto-fix for partial/missing: run `/init` Phase 2c (scaffold-rules).
 Read `docs.path` from σ. ¬set → D⏭("docs.path not set"), skip doc checks.
 - `docs.path` dir ∃ → ✅ | ⚠️ "not found on disk" (auto-fixable).
 - ∃ dir → check `architecture/` ∧ `standards/`: both → ✅ | ⚠️ "incomplete — missing: {dirs}" (auto-fixable).
-- `docs.framework: fumadocs` → `apps/docs/source.config.ts` ∃ → ✅ | ⚠️ "Fumadocs app missing" (auto-fixable).
-- **Stub detection:** ∀ file in `docs.path` (*.md, *.mdx): count files with `TODO:` markers or < 30 lines of real content. N > 0 → ⚠️ "{N} stub docs detected — run `/seed-docs` to populate from CLAUDE.md + codebase". N = 0 → ✅ "Docs populated".
+- **Stub detection:** ∀ file in `docs.path` (*.md + legacy *.mdx for read): count files with `TODO:` markers or < 30 lines of real content. N > 0 → ⚠️ "{N} stub docs detected — run `/seed-docs` to populate from CLAUDE.md + codebase". N = 0 → ✅ "Docs populated".
 
 **Artifacts:** ∀ path ∈ `artifacts.*` → chk(∃, ✅, ⚠️ "dir not found: {path}").
 
@@ -75,8 +74,6 @@ Config ∄ → ⚠️. Config ∃ ∧ hook ∄ → ⚠️ "needs `{install-cmd}`
 - `release.config.cjs` ∃ → semantic-release; `package.json` `scripts.release = "semantic-release"` → ✅ | ⚠️.
 - Neither → ⏭ (release automation not configured).
 
-**VS Code MDX preview:** Only if `.mdx` files ∃ ∨ `docs.format: mdx`. `.vscode/settings.json` has `"*.mdx": "markdown"` → ✅ | ⚠️. ∄ .mdx → ⏭.
-
 **LSP support:** `lsp.enabled: false` → ⏭. Else:
 - `ENABLE_LSP_TOOL` in .env → ✅ | ⚠️ (auto-fixable).
 - Detect binary from `lsp.server`/`runtime` (bun/node/deno→`typescript-language-server`, python→`pyright`, rust→`rust-analyzer`, go→`gopls`). `which <binary>` → ✅ | ⚠️ + install hint (auto-fixable).
@@ -85,13 +82,12 @@ Config ∄ → ⚠️. Config ∃ ∧ hook ∄ → ⚠️ "needs `{install-cmd}`
 Print summary:
 ```
 Stack config: N checks passed, M warnings, K errors
-Docs          ✅ docs/ present, structure complete, docs populated[, Fumadocs ✅]
+Docs          ✅ docs/ present, structure complete, docs populated
               ⚠️ docs/ not found on disk — run scaffold-docs to fix
               ⚠️ docs structure incomplete (missing: {dirs}) — run scaffold-docs
               ⚠️ {N} stub docs detected — run /seed-docs to populate
               ⏭ docs.path not set in stack.yml
 ```
-Note: Fumadocs segment appended only when `docs.framework: fumadocs`.
 
 #### Phase 2 Fix
 
@@ -105,7 +101,6 @@ Auto-fixable issues:
   [ ] artifacts/analyses dir missing
   [ ] hooks.tool not set
   [ ] lefthook not installed
-  [ ] VS Code MDX preview missing
   [ ] ENABLE_LSP_TOOL not set
   [ ] LSP server not installed
   [ ] LSP plugin not installed
@@ -129,15 +124,13 @@ Ask: **Fix all** | **Select** | **Skip**
 | `lefthook not activated` | `bunx lefthook install` |
 | `pre-commit config missing` | Write `.pre-commit-config.yaml`; install hooks |
 | `pre-commit not activated` | `uv run pre-commit install` |
-| `VS Code MDX preview missing` | Merge `"*.mdx": "markdown"` into `.vscode/settings.json` |
 | `release-please workflow missing` | `mkdir -p .github/workflows`; write the workflow template from the release-setup cookbook (Release Please block, step 4) |
 | `ENABLE_LSP_TOOL not set` | `echo 'ENABLE_LSP_TOOL=1' >> .env && grep -q '^ENABLE_LSP_TOOL=' .env.example 2>/dev/null \|\| echo 'ENABLE_LSP_TOOL=1' >> .env.example` |
 | `LSP server not installed` | TS→ bun: `bun add -d typescript-language-server typescript` / pnpm: `pnpm add -D typescript-language-server typescript` / npm: `npm install --save-dev typescript-language-server typescript` / yarn: `yarn add --dev typescript-language-server typescript`. Python→`uv tool install pyright`. Rust→`rustup component add rust-analyzer`. Go→`go install golang.org/x/tools/gopls@latest` |
 | `LSP plugin not installed` | Ask: **Global** | **Project** | **Skip**. Global→`claude plugin install <plugin-name>`. Project→`claude plugin install <plugin-name> --scope project` |
 | `tools/licenseChecker.ts missing` | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && mkdir -p tools && cp "${Φ}/tools/licenseChecker.ts" tools/licenseChecker.ts` |
 | `.license-policy.json missing` (JS) | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && cp "${Φ}/tools/license-policy.json.example" .license-policy.json` |
-| `docs.path missing` / `docs incomplete` | `bun "${Φ}/skills/init/init.ts" scaffold-docs --format {docs.format} --path {docs.path}` — re-check + display |
-| `Fumadocs app missing` | `bun "${Φ}/skills/init/init.ts" scaffold-fumadocs --root {cwd} --docs-path {docs.path}` — re-check + display |
+| `docs.path missing` / `docs incomplete` | `bun "${Φ}/skills/init/init.ts" scaffold-docs --path {docs.path}` — re-check + display |
 | `Stub docs detected` | Run `/seed-docs` — populates TODOs from CLAUDE.md + codebase analysis |
 
 When `standards.*` paths match scaffold-docs output patterns → offer scaffold-docs instead of manual edit.

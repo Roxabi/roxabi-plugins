@@ -12,6 +12,11 @@ Checks:
 - Inline class list in code-review/SKILL.md spawn template matches review-classes.yml
 - Subsumption pairs declared in review-classes.yml notes are mentioned together in
   code-review/SKILL.md (prevents drift in pair definitions across files)
+- Budgeted SKILL.md files stay within their physical line budgets
+- Gated dev-core legend lines are one-line pointers to the canonical notation
+  glossary, and compress's inline whitelist stays set-equal to its core table
+- Golden compressed artifacts stay inventory-equivalent to their expected
+  inventories (compress read-back goldens, issue #311)
 
 Usage:
   python3 tools/validate_plugins.py                     # run all checks
@@ -24,6 +29,7 @@ import json
 import re
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 
 import yaml
@@ -31,6 +37,31 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGINS_DIR = REPO_ROOT / 'plugins'
 CANONICAL_PATHS = REPO_ROOT / 'roxabi_sdk' / 'paths.py'
+
+# Plugin name → max physical lines of its skills/*/SKILL.md (issue #309 Decision 5)
+SKILL_LINE_BUDGETS = {'compress': 110}
+
+# Notation-legends check (issue #310 Decision 9): gated legend files must carry a
+# one-line pointer to the canonical glossary, whose core table must stay set-equal
+# to the compress whitelist.
+NOTATION_LEGEND_FILES = [
+    PLUGINS_DIR / 'dev-core' / 'skills' / 'shared' / 'references' / 'base.md',
+    PLUGINS_DIR / 'dev-core' / 'agents' / 'doc-writer.md',
+    PLUGINS_DIR / 'dev-init' / 'skills' / 'shared' / 'references' / 'base.md',
+]
+NOTATION_GLOSSARY = PLUGINS_DIR / 'shared' / 'references' / 'notation.md'
+COMPRESS_SKILL = PLUGINS_DIR / 'compress' / 'skills' / 'compress' / 'SKILL.md'
+
+# Golden read-back triples (issue #311 Decision 6)
+GOLDEN_DIR = PLUGINS_DIR / 'compress' / 'skills' / 'compress' / 'references' / 'golden'
+
+# Inventory anchor on its own line: <!-- INV-<category>-<n> -->
+_INV_ANCHOR_RE = re.compile(r'^\s*<!--\s*(INV-[a-z]+-\d+)\s*-->\s*$')
+
+# Decision-6 charset: normalized keys keep only [a-z0-9 ∀∃∄∈∉∧∨¬→⟺∅≥≤]
+_INV_NORM_DROP_RE = re.compile(r'[^a-z0-9∀∃∄∈∉∧∨¬→⟺∅≥≤]')
+
+_BACKTICK_SPAN_RE = re.compile(r'`([^`]+)`')
 
 _DEFAULT_YAML_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'review-classes.yml'
 _DEFAULT_SKILL_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'SKILL.md'
@@ -455,6 +486,288 @@ def check_shared_sources_sync(manifest_path=None, biome_path=None, _copy_sync_pr
     return errors
 
 
+def check_skill_line_budget(budgets=None, plugins_dir=None) -> list[str]:
+    """Budgeted plugins' SKILL.md files must not exceed their line budgets.
+
+    Budgets are keyed by plugin name — this assumes one budgeted SKILL.md per
+    plugin; every skills/*/SKILL.md under a budgeted plugin is held to the
+    same cap. A budgeted plugin with no SKILL.md is skipped (not an error).
+    """
+    errors = []
+    if budgets is None:
+        budgets = SKILL_LINE_BUDGETS
+    if plugins_dir is None:
+        plugins_dir = PLUGINS_DIR
+    plugins_dir = Path(plugins_dir)
+    for plugin_name, budget in sorted(budgets.items()):
+        for skill_md in sorted(plugins_dir.glob(f'{plugin_name}/skills/*/SKILL.md')):
+            actual = len(skill_md.read_text(encoding='utf-8').splitlines())
+            if actual > budget:
+                rel = skill_md.relative_to(plugins_dir)
+                errors.append(
+                    f'{plugin_name}: {rel} is {actual} lines (budget {budget})'
+                )
+    return errors
+
+
+def check_notation_legends(legend_files=None, skill_path=None, glossary_path=None) -> list[str]:
+    """Gated legend lines must point at notation.md; whitelist ≡ core table.
+
+    Two gates (issue #310 Decision 9):
+    - Pointer gate: each gated dev-core file carries exactly one line containing
+      'notation.md' — the one-line pointer replacing its former inline legend.
+    - Set-equality gate: backtick spans of compress SKILL.md's 'Whitelist:' line
+      must be set-equal to the column-1 backtick spans of notation.md's active
+      core-table rows ('## Core Table' up to the next '##' heading, cell-1
+      '\\|' escapes unescaped). Separator rows (e.g. '|---|:---:|') are inert
+      by construction — column 1 of a separator row carries no backtick spans,
+      so the column-1 extraction naturally contributes nothing; no explicit
+      skip is needed. Both sets must be non-empty so an empty ≡ empty
+      comparison never vacuously passes.
+
+    Exit semantics when called from main():
+      - errors containing 'not found at' (missing file) → caller returns 2
+      - errors containing 'not valid utf-8' (decode failure) → caller returns 2
+      - pointer/set drift (incl. missing anchors) → caller returns 1
+    """
+    errors = []
+    if legend_files is None:
+        legend_files = NOTATION_LEGEND_FILES
+    if skill_path is None:
+        skill_path = COMPRESS_SKILL
+    if glossary_path is None:
+        glossary_path = NOTATION_GLOSSARY
+    skill_path = Path(skill_path)
+    glossary_path = Path(glossary_path)
+
+    # Gate (a): one-line pointers in the gated legend files
+    for legend in legend_files:
+        legend = Path(legend)
+        if not legend.exists():
+            errors.append(f'gated legend file not found at {legend}')
+            continue
+        try:
+            legend_text = legend.read_text(encoding='utf-8')
+        except UnicodeDecodeError as e:
+            errors.append(f'{legend} is not valid UTF-8: {e}')
+            continue
+        pointer_lines = [
+            line for line in legend_text.splitlines()
+            if 'notation.md' in line
+        ]
+        if not pointer_lines:
+            errors.append(
+                f'{legend}: legend is not a one-line pointer — '
+                f'no line references notation.md'
+            )
+        elif len(pointer_lines) > 1:
+            errors.append(
+                f'{legend}: expected exactly one pointer line referencing '
+                f'notation.md, found {len(pointer_lines)}'
+            )
+
+    # Gate (b): whitelist ≡ core-table active rows
+    whitelist: set[str] = set()
+    if not skill_path.exists():
+        errors.append(f'compress SKILL.md not found at {skill_path}')
+    else:
+        try:
+            skill_text = skill_path.read_text(encoding='utf-8')
+        except UnicodeDecodeError as e:
+            errors.append(f'{skill_path} is not valid UTF-8: {e}')
+        else:
+            wl_lines = [
+                line for line in skill_text.splitlines()
+                if line.startswith('Whitelist:')
+            ]
+            if not wl_lines:
+                errors.append(f'{skill_path}: no line starting "Whitelist:" found')
+            else:
+                whitelist = set(_BACKTICK_SPAN_RE.findall(wl_lines[0]))
+                if not whitelist:
+                    errors.append(
+                        f'{skill_path}: Whitelist: line carries no backtick spans'
+                    )
+
+    core: set[str] = set()
+    if not glossary_path.exists():
+        errors.append(f'notation glossary not found at {glossary_path}')
+    else:
+        try:
+            glossary_text = glossary_path.read_text(encoding='utf-8')
+        except UnicodeDecodeError as e:
+            errors.append(f'{glossary_path} is not valid UTF-8: {e}')
+        else:
+            lines = glossary_text.splitlines()
+            in_section = False
+            anchor_seen = False
+            for line in lines:
+                if line.startswith('## '):
+                    in_section = line.strip() == '## Core Table'
+                    anchor_seen = anchor_seen or in_section
+                    continue
+                if not in_section or not line.lstrip().startswith('|'):
+                    continue
+                cells = re.split(r'(?<!\\)\|', line)
+                if len(cells) < 2:
+                    continue
+                for span in _BACKTICK_SPAN_RE.findall(cells[1]):
+                    core.add(span.replace('\\|', '|'))
+            if not anchor_seen:
+                errors.append(
+                    f'{glossary_path}: core table anchor "## Core Table" not found in file'
+                )
+            elif not core:
+                errors.append(
+                    f'{glossary_path}: core table has no active glyph rows — '
+                    f'empty set would vacuously pass'
+                )
+    # Header row ('| glyph | ...') carries no backtick spans, so it never
+    # contributes; only glyph rows populate the set.
+
+    if whitelist and core:
+        missing = whitelist - core
+        extra = core - whitelist
+        if missing:
+            errors.append(
+                f'whitelist glyphs missing from the notation.md core table: {sorted(missing)}'
+            )
+        if extra:
+            errors.append(
+                f'core-table glyphs missing from the SKILL.md whitelist: {sorted(extra)}'
+            )
+    return errors
+
+
+def _normalize_inventory_text(text: str) -> str:
+    """Decision-6 text-key normalization (issue #311).
+
+    NFC-normalize (composed vs. decomposed Unicode forms of logically
+    identical text must key identically) → lowercase → strip leading/
+    trailing whitespace → collapse internal whitespace runs to one space →
+    drop characters outside the `[a-z0-9 ∀∃∄∈∉∧∨¬→⟺∅≥≤]` class
+    (punctuation-only tokens vanish).
+    """
+    # lockstep: keep identical to plugins/compress/scripts/inventory_diff.py::normalize
+    # (Decision-6 charset parity, NFC-first step) — see #311
+    text = unicodedata.normalize('NFC', text)
+    tokens = []
+    for token in text.lower().split():
+        token = _INV_NORM_DROP_RE.sub('', token)
+        if token:
+            tokens.append(token)
+    return ' '.join(tokens)
+
+
+def _parse_compressed_anchors(text: str) -> set[tuple[str, str]]:
+    """Extract (anchor, normalized text key) pairs from a compressed artifact.
+
+    Each anchor sits on its own line; its item is the next non-empty line
+    (grammar: compress skill references/verify.md). The lookahead stops at
+    (and never consumes) another anchor-comment line — adjacent anchors each
+    get their own following text — and raises if an anchor is left with no
+    item text at all.
+    """
+    pairs = set()
+    lines = text.splitlines()
+    for lineno, line in enumerate(lines):
+        m = _INV_ANCHOR_RE.match(line)
+        if not m:
+            continue
+        item_text = ''
+        for follower in lines[lineno + 1:]:
+            if not follower.strip():
+                continue
+            if _INV_ANCHOR_RE.match(follower):
+                break
+            item_text = follower.strip()
+            break
+        if not item_text:
+            raise ValueError(
+                f'anchor {m.group(1)} has no following item text '
+                f'(line {lineno + 1})'
+            )
+        pairs.add((m.group(1), _normalize_inventory_text(item_text)))
+    return pairs
+
+
+def _validate_inventory_shape(data) -> str | None:
+    """Return an error string if `data` is not list-of-{anchor: str, text: str}, else None."""
+    if not isinstance(data, list):
+        return 'not valid inventory shape — expected a JSON array'
+    for i, item in enumerate(data):
+        if not isinstance(item, dict):
+            return f'not valid inventory shape — item {i} is not an object'
+        if not isinstance(item.get('anchor'), str) or not isinstance(item.get('text'), str):
+            return f'not valid inventory shape — item {i} must have string "anchor" and "text"'
+    return None
+
+
+def check_golden_inventories(golden_dir=None) -> list[str]:
+    """Golden compressed artifacts must be inventory-equivalent to their JSONs.
+
+    For each `NN-name.compressed.md` in the golden dir, set-compare its
+    (anchor, normalized text key) pairs against the sibling
+    `NN-name.inventory.json` — both directions, never bytes, no LLM.
+
+    Activation semantic: a MISSING golden dir returns [] (the check is inert
+    until the goldens land — their commit activates the gate); an EXISTING
+    dir with zero triples is a loud error, never a silent pass.
+
+    Each triple's shape/anchor validation is wrapped so one malformed triple
+    (bad inventory shape, or a compressed file that violates the anchor
+    grammar) FAILs only that triple with a clean message — never a traceback,
+    and never an abort of the rest of the validator run.
+    """
+    errors = []
+    golden_dir = Path(golden_dir) if golden_dir is not None else GOLDEN_DIR
+    if not golden_dir.exists():
+        return errors
+    compressed_files = sorted(golden_dir.glob('*.compressed.md'))
+    if not compressed_files:
+        errors.append(f'no golden triples found in {golden_dir} — empty golden dir')
+        return errors
+
+    for compressed in compressed_files:
+        triple = compressed.name.removesuffix('.compressed.md')
+        inventory_path = golden_dir / f'{triple}.inventory.json'
+        if not inventory_path.exists():
+            errors.append(f'{triple}: expected inventory not found at {inventory_path}')
+            continue
+        try:
+            with open(inventory_path, encoding='utf-8') as f:
+                expected_items = json.load(f)
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            errors.append(f'{triple}: failed to parse {inventory_path.name}: {e}')
+            continue
+
+        try:
+            shape_error = _validate_inventory_shape(expected_items)
+            if shape_error:
+                errors.append(f'{triple}: {inventory_path.name} {shape_error}')
+                continue
+
+            actual = _parse_compressed_anchors(compressed.read_text(encoding='utf-8'))
+            expected = {
+                (item['anchor'], _normalize_inventory_text(item['text']))
+                for item in expected_items
+            }
+            for anchor, key in sorted(expected - actual):
+                errors.append(
+                    f'{triple}: inventory item missing from compressed artifact: '
+                    f'{anchor} ("{key}")'
+                )
+            for anchor, key in sorted(actual - expected):
+                errors.append(
+                    f'{triple}: compressed anchor not matching expected inventory: '
+                    f'{anchor} ("{key}")'
+                )
+        except Exception as e:
+            errors.append(f'{triple}: {e}')
+            continue
+    return errors
+
+
 def _is_io_error(msg: str) -> bool:
     """Return True when the error message signals an IO/parse failure (exit 2).
 
@@ -472,7 +785,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Validate plugin structure and data conventions.')
     parser.add_argument(
         '--check',
-        choices=['class-list-sync', 'subsumption-pairs', 'shared-sources-sync'],
+        choices=['class-list-sync', 'subsumption-pairs', 'shared-sources-sync', 'notation-legends'],
         help='Run only the named check (default: run all checks)',
     )
     args = parser.parse_args(argv)
@@ -505,6 +818,15 @@ def main(argv: list[str] | None = None) -> int:
             return 2 if any(_is_io_error(e) for e in errors) else 1
         return 0
 
+    if args.check == 'notation-legends':
+        errors = check_notation_legends()
+        if errors:
+            print('FAIL: Notation legends', file=sys.stderr)
+            for e in errors:
+                print(f'  {e}', file=sys.stderr)
+            return 2 if any(_is_io_error(e) for e in errors) else 1
+        return 0
+
     # Default: run all checks
     all_errors = []
     checks = [
@@ -517,6 +839,9 @@ def main(argv: list[str] | None = None) -> int:
         ('Class list sync', check_class_list_sync),
         ('Subsumption pairs', check_subsumption_pairs),
         ('Shared sources sync', check_shared_sources_sync),
+        ('SKILL.md line budget', check_skill_line_budget),
+        ('Notation legends', check_notation_legends),
+        ('Golden inventories', check_golden_inventories),
     ]
 
     for name, check_fn in checks:
