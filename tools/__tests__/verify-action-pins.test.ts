@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildGovernedPairs,
   EMITTER_PATHS,
+  findFloatingWorkflowPins,
   findInlinePins,
   findUngovernedPins,
   type InlinePin,
@@ -83,6 +84,42 @@ describe('findInlinePins', () => {
     expect(findInlinePins([fixtureRelPath])).toEqual([
       { file: fixtureRelPath, action: 'actions/checkout', ref: 'df4cb1c069e1874edd31b4311f1884172cec0e10' },
     ])
+  })
+})
+
+// ─── findFloatingWorkflowPins (committed workflows: SHA-or-fail) ──────────────
+
+describe('findFloatingWorkflowPins', () => {
+  const repoRoot = path.resolve(__dirname, '..', '..')
+  const dirRel = 'tools/__tests__/.tmp-floating-fixture'
+  const dirAbs = path.join(repoRoot, dirRel)
+
+  afterEach(() => {
+    if (fs.existsSync(dirAbs)) fs.rmSync(dirAbs, { recursive: true, force: true })
+  })
+
+  it('flags a committed workflow pinned to a floating tag, ignores SHA-pinned ones', () => {
+    fs.mkdirSync(dirAbs, { recursive: true })
+    fs.writeFileSync(
+      path.join(dirAbs, 'pinned.yml'),
+      '      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6\n',
+    )
+    fs.writeFileSync(path.join(dirAbs, 'floating.yml'), '      - uses: actions/checkout@v6\n')
+    // context-lint.yml shipped exactly this floating ref unnoticed (#375 FU-3).
+    expect(findFloatingWorkflowPins(dirRel)).toEqual([
+      { file: `${dirRel}/floating.yml`, action: 'actions/checkout', ref: 'v6' },
+    ])
+  })
+
+  it('accepts a SHA-pinned action that is NOT in ACTION_PINS — governance is not this check', () => {
+    fs.mkdirSync(dirAbs, { recursive: true })
+    // setup-python is never emitted by a generator (ungoverned) but IS SHA-pinned: legitimate
+    // in a committed workflow. This is the exact case findUngovernedPins would wrongly flag.
+    fs.writeFileSync(
+      path.join(dirAbs, 'ok.yml'),
+      '      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1\n',
+    )
+    expect(findFloatingWorkflowPins(dirRel)).toEqual([])
   })
 })
 

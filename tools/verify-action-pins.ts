@@ -33,7 +33,7 @@
  * or ungoverned pin.
  */
 
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const REPO_ROOT = resolve(import.meta.dirname ?? '.', '..')
@@ -147,6 +147,22 @@ export function findUngovernedPins(inlinePins: InlinePin[], governedPairs: Set<s
   return inlinePins.filter((pin) => !governedPairs.has(governedKey(pin.action, pin.ref)))
 }
 
+/** Committed workflow files under `.github/workflows/`. Their invariant is WEAKER than the
+ *  emitter sources' (ACTION_PINS governance): a hand-written workflow, or one using an action
+ *  no generator emits (setup-python, a different checkout minor), legitimately pins a SHA that
+ *  is not in ACTION_PINS — so `findUngovernedPins` is the WRONG check here (it would flag valid
+ *  SHA pins). The invariant that DOES hold: every `uses: owner/repo@<ref>` must be a SHA, never
+ *  a mutable tag/branch. This is the layer the governance scan never covered — `context-lint.yml`
+ *  shipped `actions/checkout@v6` unnoticed because nothing scanned committed YAML (#375 FU-3).
+ *  `parseInlinePins`'s `owner/repo@` shape already skips local (`./…`) and reusable-workflow refs. */
+export function findFloatingWorkflowPins(dir = '.github/workflows'): InlinePin[] {
+  const absDir = resolve(REPO_ROOT, dir)
+  const files = readdirSync(absDir)
+    .filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
+    .map((f) => `${dir}/${f}`)
+  return findInlinePins(files).filter((pin) => !HEX_SHA_RE.test(pin.ref))
+}
+
 async function gh(path: string): Promise<unknown | null> {
   const proc = Bun.spawnSync(['gh', 'api', path], { stdout: 'pipe', stderr: 'pipe' })
   if (proc.exitCode !== 0) return null
@@ -209,13 +225,26 @@ async function main() {
     console.error('     Add it to workflow-pins.ts and reference it, or this pin is never verified.')
   }
 
-  if (failed > 0 || ungovernedPins.length > 0) {
+  // Committed workflows (hand-written + generator-drifted): SHA-pinned, but NOT
+  // required to be governed by ACTION_PINS. Only floating (non-SHA) refs fail.
+  const floatingWorkflowPins = findFloatingWorkflowPins()
+  for (const pin of floatingWorkflowPins) {
+    console.error(
+      `FAIL ${pin.file}: uses ${pin.action}@${pin.ref} — floating ref in a committed workflow; pin to a SHA.`,
+    )
+  }
+
+  if (failed > 0 || ungovernedPins.length > 0 || floatingWorkflowPins.length > 0) {
     if (failed > 0)
       console.error(`\n${failed}/${pins.length} pins do not resolve — generated CI would fail at "Set up job".`)
     if (ungovernedPins.length > 0) console.error(`${ungovernedPins.length} inline pin(s) bypass ACTION_PINS.`)
+    if (floatingWorkflowPins.length > 0)
+      console.error(`${floatingWorkflowPins.length} committed-workflow pin(s) are floating tags, not SHAs.`)
     process.exit(1)
   }
-  console.log(`\nAll ${pins.length} pins resolve; no inline or rendered pin bypasses ACTION_PINS.`)
+  console.log(
+    `\nAll ${pins.length} pins resolve; no inline or rendered pin bypasses ACTION_PINS; committed workflows are SHA-pinned.`,
+  )
 }
 
 if (import.meta.main) {

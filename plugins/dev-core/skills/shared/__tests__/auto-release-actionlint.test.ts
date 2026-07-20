@@ -73,14 +73,39 @@ describe('generateAutoReleaseYml — actionlint schema validity (#371 S2-T11)', 
   })
 })
 
+/**
+ * release.model + release.component as declared in the repo's own .claude/stack.yml.
+ * The byte gate below derives the expected COMPONENT from HERE — the same source
+ * /checkup N11 (workflow-drift.ts) reads — rather than a hardcoded literal, so a
+ * rename of release.component that is NOT propagated into the committed
+ * auto-release.yml (or a workflow whose baked COMPONENT drifts from stack.yml)
+ * fails in CI, not only at /checkup runtime (#374 FU-4). Minimal regex, no YAML
+ * dep: the release block is 2-space-indented children, one `component:` repo-wide.
+ */
+function stackRelease(): { model: string; component: string } {
+  const src = readFileSync('.claude/stack.yml', 'utf8')
+  const block = src.match(/^release:[^\n]*\n((?:[ \t]+.*\n?)*)/m)?.[1] ?? ''
+  return {
+    model: block.match(/^\s+model:\s*([^\s#]+)/m)?.[1] ?? 'staging-train',
+    component: block.match(/^\s+component:\s*([^\s#]+)/m)?.[1] ?? '',
+  }
+}
+
 describe('committed auto-release.yml is byte-equal to the generator (dogfood fidelity, #371 B5)', () => {
-  it('the checked-in workflow matches generateAutoReleaseYml(roxabi-plugins trunk opts)', () => {
+  it('the checked-in workflow matches the generator for .claude/stack.yml release.component (#374 FU-4)', () => {
     // The CI analogue of /checkup N11 (which only runs at human runtime): a
     // generator edit not mirrored into the committed workflow — or a hand-edit
-    // of the committed workflow — fails HERE, in CI, instead of drifting silently
-    // until the first real release. roxabi-plugins is the trunk dogfood, so its
-    // committed file must equal the generator output for `component: roxabi-plugins`.
+    // of the committed workflow, or a stack.yml component rename that skipped
+    // regeneration — fails HERE, in CI, instead of drifting silently until the
+    // first real release. Expected opts are derived from stack.yml, not hardcoded,
+    // so the baked COMPONENT and the declared release.component can never diverge.
+    const { model, component } = stackRelease()
+    // This repo is the trunk dogfood; if model ever flips, auto-release.yml should
+    // be REMOVED, not left stale — so assert the precondition rather than skip.
+    expect(model).toBe('trunk')
+    expect(component).not.toBe('')
+
     const committed = readFileSync('.github/workflows/auto-release.yml', 'utf8')
-    expect(committed).toBe(generateAutoReleaseYml(trunkOpts))
+    expect(committed).toBe(generateAutoReleaseYml({ ...trunkOpts, release: { model: 'trunk', component } }))
   })
 })
