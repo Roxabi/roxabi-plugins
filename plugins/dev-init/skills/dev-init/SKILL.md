@@ -1,22 +1,25 @@
 ---
-name: init
+name: dev-init
 argument-hint: '[--force] [--skip-axial]'
-description: 'Initialize project — orchestrates env-setup, ci-setup, release-setup + axial ADR. Invoke as /dev-init:init (¬ native /init). Triggers: "dev-init" | "setup project" | "initialize project" | "/dev-init:init".'
-version: 0.9.1
-allowed-tools: Bash, Read, Grep, Skill, Agent, ToolSearch
+description: >-
+  Initialize project — orchestrates env-setup, ci-setup, release-setup + axial ADR.
+  Use when setting up a new repo or re-running Roxabi project init.
+  Triggers: "dev-init" | "setup project" | "initialize project" | "/dev-init".
+  Not the harness built-in /init (CLAUDE.md scaffold only).
+version: 0.9.2
 ---
 
-# Init
+# Dev-init
 
 Let:
-  I_TS       := `${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts`
+  I_TS       := `${CLAUDE_PLUGIN_ROOT}/skills/dev-init/init.ts`
   F          := `--force` flag present in `$ARGUMENTS`
   SKIP_AXIAL := `--skip-axial` flag present in `$ARGUMENTS`
   args       := join(F ? "--force" : "", SKIP_AXIAL ? "--skip-axial" : "")
 
 Full project initialization harness. Orchestrates three focused sub-skills in sequence, each independently re-runnable.
 
-**Invoke:** `/dev-init:init` (plugin-namespaced). Claude Code's built-in `/init` (scaffold CLAUDE.md) is a **different** command — do not confuse them.
+**Invoke:** `/dev-init` (skill name = plugin name). Claude Code / Grok built-in `/init` (scaffold CLAUDE.md only) is a **different** command.
 
 **Requires:** `dev-core` installed + enabled (sub-skills + `axial-adr-create` live there).
 
@@ -28,6 +31,20 @@ Full project initialization harness. Orchestrates three focused sub-skills in se
 | `/dev-core:release-setup` | Commit standards (Commitizen), hook additions, release automation (semantic-release / Release Please) |
 
 Run sub-skills directly to reconfigure a single concern without re-running the full init.
+
+## Dual harness (Claude Code + Grok)
+
+Keep this skill **portable** across hosts:
+
+| Do | Don't |
+|----|--------|
+| Prefer **semantic steps** (what to run, what to check, what to write) | Hardcode host-only tool names in frontmatter (`allowed-tools: Bash, Agent, …`) |
+| Use portable env: `CLAUDE_PLUGIN_ROOT` **or** `GROK_PLUGIN_ROOT` (Grok sets both) | Require one host's tool whitelist to load the skill |
+| Invoke sub-skills by **stable slash id** (`/dev-core:env-setup`) | Assume Claude `Skill` / `Agent` tool shape is available |
+| Spawn agents by **role name** (`axial-adr-create` / `dev-core:axial-adr-create`) | Embed Claude-only or Grok-only APIs as the only path |
+| Shell via the host's bash tool (Claude `Bash` / Grok `run_terminal_command`) | Rely on `allowed-tools` for discovery |
+
+When a step needs a subagent, instruct: *“spawn the project agent for role X with prompt …”* — each host maps that to its Task / spawn_subagent / Agent tool.
 
 ## Phase 1 — Parse Input + Idempotency
 
@@ -68,15 +85,15 @@ Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
    Grep tool: pattern="^axial: true|axis of decomposition", path="docs/architecture/adr/", -l, -i
    ```
 2. ≥1 match → D("Axial ADR", "✅ Already present"), continue. (Singleton invariant — if >1 match, dispatch `axial-adr-review` later to surface the violation.)
-3. ∅ → spawn the `axial-adr-create` sub-agent via Agent tool:
+3. ∅ → spawn the `axial-adr-create` sub-agent (host: Agent / Task / spawn_subagent):
    ```
-   subagent_type: "axial-adr-create"
+   subagent_type: "axial-adr-create"   # or "dev-core:axial-adr-create" on Grok
    description:   "Elicit axial decomposition decision"
    prompt:        "Conduct the axial-decomposition interview for this project. Read ${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md first. Output: ADR file in docs/architecture/adr/ with `axial: true` frontmatter (grep-discoverable canonical marker — singleton invariant)."
    ```
 4. Agent exit status:
    - `created` ∨ `superseded` ∨ `kept` → D("Axial ADR", "✅ {status}"), continue.
-   - `cancelled` ∧ ¬F → halt `/dev-init:init`:
+   - `cancelled` ∧ ¬F → halt `/dev-init`:
      ```
      ⛔ Axial ADR required before scaffolding can continue.
 
@@ -84,9 +101,9 @@ Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
                ci-setup, release-setup have NOT run.
 
         Options:
-          • Re-run `/dev-init:init` — will redo env-setup (idempotent) + re-prompt axial-adr-create.
-          • Invoke the agent standalone: spawn `axial-adr-create` directly, then re-run `/dev-init:init`.
-          • Skip if this is a trivial single-axis project: `/dev-init:init --skip-axial` (re-runs env-setup; documents the skip in dev-core.yml).
+          • Re-run `/dev-init` — will redo env-setup (idempotent) + re-prompt axial-adr-create.
+          • Invoke the agent standalone: spawn `axial-adr-create` directly, then re-run `/dev-init`.
+          • Skip if this is a trivial single-axis project: `/dev-init --skip-axial` (re-runs env-setup; documents the skip in dev-core.yml).
 
         Rationale: shared/references/axial-decomposition.md
      ```
@@ -113,7 +130,7 @@ Next steps:
   /dev-core:checkup           Verify full configuration health
   /dev-core:seed-docs         Populate scaffolded docs with content from CLAUDE.md + codebase
   /dev-core:dev #N            Start working on an issue
-  /dev-init:init --force      Re-configure anytime
+  /dev-init --force           Re-configure anytime
   /dev-core:env-setup         Re-run environment setup only
   /dev-core:ci-setup          Re-run CI/CD setup only
   /dev-core:release-setup     Re-run release setup only

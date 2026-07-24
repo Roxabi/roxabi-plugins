@@ -38,12 +38,12 @@ Without this step, recently-added skills (e.g. `/recheck`) won't appear in your 
 After installing **dev-core** and **dev-init**, run the full project harness:
 
 ```
-/dev-init:init
+/dev-init
 ```
 
-> **Not** bare `/init` — that is Claude Code's built-in (scaffolds a `CLAUDE.md` only). The Roxabi harness is namespaced: `/dev-init:init`.
+> **Not** bare `/init` — that is Claude Code's built-in (scaffolds a `CLAUDE.md` only). The Roxabi harness is namespaced: `/dev-init`.
 
-Auto-detects your GitHub repo. Writes `.claude/dev-core.yml` (primary config) and `.env` (legacy fallback), registers the project in `~/.roxabi-vault/workspace.json`, generates a self-healing `roxabi` shim, and creates the `artifacts/` directory. Works for any project type. Re-run with `/dev-init:init --force` to reconfigure.
+Auto-detects your GitHub repo. Writes `.claude/dev-core.yml` (primary config) and `.env` (legacy fallback), registers the project in `~/.roxabi-vault/workspace.json`, generates a self-healing `roxabi` shim, and creates the `artifacts/` directory. Works for any project type. Re-run with `/dev-init --force` to reconfigure.
 
 Then configure the agent stack (also available standalone as `/env-setup` / `/stack-setup` without the full harness):
 
@@ -74,7 +74,7 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 | Skill | Phase | Description |
 |-------|-------|-------------|
 | `init` | Setup | Configures project for dev-core (CI/CD workflows, branch protection, env vars, workspace.json registration, LSP plugin install). Pushes workflow files directly via GitHub REST API — no local git required. Auto-sets PAT secret after workflow creation. TypeScript CLI with subcommands, SKILL.md orchestrates via user decision decisions |
-| `env-setup` | Setup | Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding (Markdown), LSP. Triggered by `/dev-init:init` or standalone `/env-setup` |
+| `env-setup` | Setup | Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding (Markdown), LSP. Triggered by `/dev-init` or standalone `/env-setup` |
 | `ci-setup` | Setup | Set up CI/CD — GitHub Actions workflows, TruffleHog, Dependabot, pre-commit hooks, marketplace plugins. Discovers Roxabi plugins live from `marketplace.json` and endorsed external marketplaces from `curated-marketplaces.json` |
 | `stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.claude/stack.yml`. Single confirmation screen — no wizard questions |
 | `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows (checks both local files and remote via REST API), required secrets (PAT for auto-merge.yml), branch protection, stack.yml, workspace.json registration, and LSP plugin install (typescript-lsp / pyright-lsp with auto-fix). Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |

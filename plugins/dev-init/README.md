@@ -10,24 +10,22 @@ claude plugin install dev-init
 claude plugin install dev-core   # required dependency
 ```
 
-Enable both plugins for the project (`.claude/settings.json` or via `/plugin`).
+Enable both plugins for the project (`.claude/settings.json` or via `/plugin`). On Grok: marketplace install + `[plugins].enabled` includes `dev-init` and `dev-core`.
 
 ## Usage
 
 ```
-/dev-init:init                Initialize project (skips already-configured components)
-/dev-init:init --force        Re-run all components, overwriting existing config
-/dev-init:init --skip-axial   Skip axial ADR interview (trivial single-axis projects)
+/dev-init                Initialize project (skips already-configured components)
+/dev-init --force        Re-run all components, overwriting existing config
+/dev-init --skip-axial   Skip axial ADR interview (trivial single-axis projects)
 ```
-
-**Slash form is namespaced.** Plugin skills always invoke as `/<plugin>:<skill>`:
 
 | Command | What it is |
 |---------|------------|
-| `/dev-init:init` | This harness (Roxabi) |
-| `/init` | Claude Code **built-in** (scaffold CLAUDE.md) — **not** this plugin |
+| `/dev-init` | This harness (Roxabi) — skill name matches plugin name |
+| `/init` | Host **built-in** (scaffold CLAUDE.md only) — **not** this plugin |
 
-If autocomplete only shows `/init`, type `/dev-init` to filter the plugin skill. After install/enable mid-session, run `/reload-plugins` or restart Claude Code.
+After install/enable mid-session, reload plugins or restart the host (Claude `/reload-plugins`, Grok Plugins `r`).
 
 Triggers (model auto-invoke): `"dev-init"` | `"setup project"` | `"initialize project"`
 
@@ -41,14 +39,20 @@ Runs three sub-skills in sequence (from **dev-core**), each idempotent:
 | 2 | `/dev-core:ci-setup` | GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins |
 | 3 | `/dev-core:release-setup` | Commit standards (Commitizen), release automation |
 
-Between steps 1 and 2, `/dev-init:init` also spawns the `axial-adr-create` agent (dev-core) to capture the project's primary axis of decomposition (prevents N×M drift). Skippable with `--skip-axial` for trivial single-axis projects.
+Between steps 1 and 2, `/dev-init` also spawns the `axial-adr-create` agent (dev-core) to capture the project's primary axis of decomposition (prevents N×M drift). Skippable with `--skip-axial` for trivial single-axis projects.
+
+## Dual harness (Claude + Grok)
+
+- No host-specific `allowed-tools` frontmatter (avoids load filters).
+- Skill id = `dev-init` → slash `/dev-init` on both hosts.
+- Body is **semantic**: shell helpers via `bun`, sub-skills by slash id, agents by role name — each host maps tools itself.
 
 ## Dependencies
 
 | Dep | Role |
 |-----|------|
 | **dev-core** | `env-setup`, `ci-setup`, `release-setup`, agent `axial-adr-create` |
-| **bun** | runs `skills/init/init.ts` (prereqs + scaffold helpers) |
+| **bun** | runs `skills/dev-init/init.ts` (prereqs + scaffold helpers) |
 | **gh** | GitHub API (workflows, protection) when CI setup runs |
 | **git remote** | origin must exist for full setup |
 

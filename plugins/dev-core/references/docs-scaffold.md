@@ -37,7 +37,7 @@ bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-docs --path docs
     └── contributing.md
 ```
 
-Templates live in `plugins/dev-init/skills/init/templates/docs/` (source of truth).
+Templates live in `plugins/dev-init/skills/dev-init/templates/docs/` (source of truth).
 
 ## stack.yml
 
