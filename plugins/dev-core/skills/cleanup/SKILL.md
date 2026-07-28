@@ -2,15 +2,15 @@
 name: cleanup
 argument-hint: [--all | --report-only | --yes | --scope <#N>]
 description: Clean git branches/worktrees/remotes after merge-status verification; sweep stuck pipeline labels and orphan CI runs. Triggers: "cleanup" | "clean branches" | "cleanup worktrees" | "remove stale branches".
-version: 0.6.1
+version: 0.6.2
 allowed-tools: Bash, Read, EnterWorktree, ExitWorktree, ToolSearch
 ---
 
 # Git Cleanup
 
-Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging) | safe(β) ⟺ fully_merged(β) ∧ ¬π(β) | merged(β) := regular_merge(β) ∨ squash_merge(β) | N := scope issue number (∅ if unscoped)
+Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging) | safe(β) ⟺ fully_merged(β) ∧ ¬π(β) | merged(β) := regular_merge(β) ∨ squash_merge(β) | N := scope issue number (∅ if unscoped) | orphan_shell := leftover path under `~/.grok/worktrees/<slug>/` or `.claude/worktrees/` that is **not** in `git worktree list` (empty parent, unregistered content, or `worktrees.db` row with missing path)
 
-Safely clean local β, ω, and remote branches with **mandatory merge-status verification** before any deletion. End-of-session sweep also strips stuck pipeline labels from closed PRs and cancels long-queued CI runs.
+Safely clean local β, ω, and remote branches with **mandatory merge-status verification** before any deletion. End-of-session sweep also strips stuck pipeline labels from closed PRs, cancels long-queued CI runs, and surfaces **orphan worktree shells** that git no longer tracks.
 
 ## Entry: parse $ARGUMENTS
 
@@ -49,7 +49,7 @@ If both set: `REPORT_ONLY` wins — no mutations.
 bash ${CLAUDE_SKILL_DIR}/gather-state.sh
 ```
 
-Emits: `current`, branch list with tracking info, worktree list, open PRs, closed PRs with pipeline labels, and queued/stuck CI runs. Unscoped — always full-repo; Steps 7–8 (label/CI sweeps) consume it as-is regardless of `--scope` (see Options).
+Emits: `current`, branch list with tracking info, worktree list, **orphan worktree shells** (`---orphan-worktree-shells---` via `scan-orphan-worktree-shells.sh`), open PRs, closed PRs with pipeline labels, and queued/stuck CI runs. Unscoped — always full-repo; Steps 7–8 (label/CI sweeps) and the orphan-shell scan consume gather-state as-is regardless of `--scope` (see Options).
 
 ### 2. Analyze Branches
 
@@ -126,6 +126,44 @@ git branch -D <branch>        # unmerged — only if explicitly confirmed
 
 git worktree prune
 ```
+
+### 5b. Orphan worktree shells (Grok / Claude leftovers)
+
+`git worktree list` only knows registered worktrees. After `git worktree remove`, agents often leave:
+
+| kind | Example | Safe cleanup |
+|------|---------|--------------|
+| `empty_parent` | `~/.grok/worktrees/gosilex-spark/` empty | `rmdir` (or `rm -rf` if confirmed empty) |
+| `unregistered` | partial dir (e.g. only `node_modules`) under Grok slug or `.claude/worktrees/` **not** in `git worktree list` | `rm -rf <path>` after confirm — **never** if path is still a live registered ω |
+| `db_stale` | row in `~/.grok/worktrees.db` with `status=alive` but path missing | delete the DB row (path already gone) |
+
+Source: `gather-state.sh` → `---orphan-worktree-shells---` (`path|kind|detail`). Scope is **this repo only** (Grok slug = owner alnum-stripped + `-` + repo name, e.g. `go-silex/spark` → `gosilex-spark`). Do **not** touch other repos' Grok worktree trees (e.g. metalyde while cleaning spark).
+
+#### 5b-present
+
+```
+Orphan worktree shells
+══════════════════════
+
+  Path                                              │ Kind          │ Detail
+  ~/.grok/worktrees/gosilex-spark                   │ empty_parent  │ empty Grok parent
+  ~/.grok/worktrees/gosilex-spark/2026-…-c4624b74   │ db_stale      │ worktrees.db alive, path missing
+  (none found)
+```
+
+If `REPORT_ONLY=true` → print table and skip deletion. Else → multi-select (default: all listed); always offer "Skip".
+
+#### 5b-execute (confirmed only)
+
+```bash
+# empty_parent / unregistered on disk:
+rmdir <path> 2>/dev/null || rm -rf <path>   # rmdir first; rm -rf only if user confirmed content orphans
+
+# db_stale (path already missing — metadata only):
+sqlite3 ~/.grok/worktrees.db "DELETE FROM worktrees WHERE path = '<path>';"
+```
+
+**Safety:** never `rm -rf` a path that still appears in `git worktree list`. Never wipe `~/.grok/worktrees/` wholesale — only this repo's slug children / matching `source_repo` DB rows.
 
 ### 6. Clean Remote Branches
 
@@ -266,6 +304,11 @@ Cleanup Complete
     ⏭ Skipped: feat/33-i18n (active PR)
     ⏭ Skipped: experiment/test (unmerged, user chose to keep)
 
+  Orphan shells:
+    ✅ Removed empty parent: ~/.grok/worktrees/gosilex-spark
+    ✅ Deleted worktrees.db row: …/2026-07-28-c4624b74
+    ⏭ Skipped: (none)
+
   Remote:
     ✅ Deleted remote: origin/feat/19-auth
     ✅ Deleted remote: origin/docs/28-coding-standards
@@ -315,6 +358,7 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 - **Remote tracking branches**: Step 6 scans **all** remote β independently — always require explicit confirmation.
 - **Stale worktrees**: ω path ∉ disk → `git worktree prune`.
 - **EnterWorktree worktrees**: worktrees in `.claude/worktrees/` are session-managed — `git worktree list` shows them alongside legacy worktrees; clean with `git worktree remove` or `ExitWorktree` if in active session.
+- **Orphan shells after remove**: `git worktree remove` does not delete empty parent dirs under `~/.grok/worktrees/<slug>/`, nor Grok `worktrees.db` rows. Step 5b + `scan-orphan-worktree-shells.sh` cover these.
 
 ## Chain Position
 
