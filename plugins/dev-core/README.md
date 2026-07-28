@@ -1,6 +1,6 @@
 # dev-core
 
-Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 30 skills, 9 specialized agents, and safety hooks.
+Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 31 skills, 9 specialized agents, and safety hooks.
 
 ## Prerequisites
 
@@ -59,17 +59,20 @@ Auto-discovers your runtime, framework, test tooling, and linter from the codeba
 
 ## Usage
 
-The main entry point is:
+Main entry points:
 
 ```
-/dev #N
+/dev #N     Full lifecycle from issue (frame → … → merge)
+/ship       Land ready code on the current feature branch (commit → PR → review → merge gate)
 ```
 
-Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, determines the issue tier (S / F-lite / F-full), shows current progress, and delegates to the right phase skill. It drives the full lifecycle from issue to merged PR.
+`/dev #N` — `#N` is a GitHub issue number. Scans artifacts, determines tier (S / F-lite / F-full), shows progress, drives Frame→Ship.
+
+`/ship` — use when the code is already on a feature branch and you only want commit → PR → agent review → fix loop → `reviewed` label + CI/auto-merge watch.
 
 ## Skills
 
-30 skills organized by workflow phase:
+31 skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
@@ -80,7 +83,8 @@ Where `#N` is a GitHub issue number. The orchestrator scans existing artifacts, 
 | `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows (checks both local files and remote via REST API), required secrets (PAT for auto-merge.yml), branch protection, stack.yml, workspace.json registration, and LSP plugin install (typescript-lsp / pyright-lsp with auto-fix). Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
 | `seed-docs` | Setup | Populates scaffolded architecture/standards docs with real content — reads CLAUDE.md for conventions, optionally scans codebase (entry points, import graph, naming patterns), fills TODO stubs, writes AI Quick Reference sections. Idempotent: skips already-populated files |
 | `seed-community` | Setup | Bootstraps OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), `.github/PULL_REQUEST_TEMPLATE.md`, issue templates. Reads project metadata + CLAUDE.md; generates missing files idempotently |
-| `dev` | Orchestrator | Routes issues through the full workflow |
+| `dev` | Orchestrator | Routes issues through the full workflow (Frame→Ship) |
+| `ship` | Orchestrator | Lands ready code: commit → PR → code-review → fix loop → `reviewed` + ci-watch → cleanup |
 | `recheck` | Frame | Drift-check an issue (git-drift, symbol-missing, dep-resolved) before /dev work begins. Runs before /frame for every tier — no skip path. Signal-clean returns silently; signal-fire blocks with user choice (Proceed/Update/Close/Abort) |
 | `frame` | Frame | Creates initial feature frame from issue |
 | `analyze` | Shape | Deep analysis with expert consultation |

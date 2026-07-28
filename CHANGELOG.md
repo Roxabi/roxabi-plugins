@@ -8,6 +8,11 @@ predate that and were produced by release-please or `/promote`.
 
 ## Unreleased
 
+### Added
+
+* **dev-core/ship:** meta-orchestrator `/ship` — commit → `/pr` → `/code-review` → `/fix` loop → `reviewed` label + `/ci-watch` → optional `/cleanup` (code-already-ready path; review-before-CI order differs from `/dev` Verify)
+* **dev-core/cleanup:** detect orphan Grok/Claude worktree shells (`scan-orphan-worktree-shells.sh` + Step 5b) after `git worktree remove`
+
 ### Changed
 
 * **dev-core:** replace inline mermaid/ASCII shape diagrams with forge-chart sidecars in `clarify`, `analyze`, `spec`, and `plan` — HTML in `artifacts/visuals/`, SSoT at `references/forge-chart-sidecar.md`; supersedes mermaid diagram requirements added in `e455a5b`

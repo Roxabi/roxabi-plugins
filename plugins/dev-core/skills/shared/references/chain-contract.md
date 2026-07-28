@@ -17,6 +17,23 @@ issue-triage (external, roxabi-issues) → recheck → frame → analyze → spe
 
 > `plan ⏸→ implement`: for τ ∈ {F-lite, F-full}, `/dev` inserts a **compact pause** between plan and implement (Step 8b) — recommend `/compact` before building. τ=S skips plan entirely. See the gate-class Exit `/plan` exception.
 
+### Parallel meta: `/ship` (code already ready)
+
+```
+commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → ci-watch → cleanup?
+```
+
+`/ship` is a **second orchestrator** (not a step inside `/dev`). Use when the feature branch already has the work and you only want the gate path. Differences vs `/dev` Verify:
+
+| | `/dev` Verify | `/ship` |
+|---|---|---|
+| Order | pr → **ci-watch** → validate → **review** → fix | commit → pr → **review** → fix → **reviewed + ci-watch** |
+| validate | yes | no |
+| commit | via implement | first-class step |
+| `reviewed` label | via code-review Phase 8 / fix Phase 7 | owned by ship after final APPROVED (strips premature label after `/fix` before re-review) |
+
+¬add `/ship` steps to `/dev` STEPS list — they remain separate entry points.
+
 ## Ownership model
 
 | Concern | Owner |
@@ -160,6 +177,13 @@ When adding a new skill to the dev-core pipeline:
 4. Add it to `/dev` Tier Skip Matrix (S|F-lite|F-full columns)
 5. Add the three canonical body sections to the skill's own SKILL.md: **Chain Position**, **Task Integration**, **Exit** (using the class-appropriate Exit pattern)
 6. Update this reference file if the new skill introduces a new class
+
+When adding a **meta-orchestrator** (like `/ship`):
+
+1. New skill directory under `skills/<name>/` with SKILL.md + README.md
+2. Document relation to `/dev` (when to use which) — do **not** force-insert into `/dev` STEPS unless the full lifecycle should change
+3. Update this contract + plugin README skills table
+4. Child skills keep their Exit “via `/dev`” paths; add “via `/ship`” only if behavior must differ (e.g. strip `reviewed` after fix)
 
 ## Cache synchronization
 
