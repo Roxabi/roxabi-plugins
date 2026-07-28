@@ -9,7 +9,7 @@
 #   - Grok worktrees.db rows for this source_repo whose path no longer exists
 #
 # Emits lines: path|kind|detail
-# kind ∈ empty_parent | unregistered | missing_path | db_stale
+# kind ∈ empty_parent | unregistered | db_stale
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -57,6 +57,16 @@ is_registered() {
   [ -n "${REGISTERED[$p]+x}" ]
 }
 
+# True if directory has at least one entry (incl. hidden). Avoids
+# `find | head` under `set -o pipefail` (SIGPIPE → exit 141).
+dir_has_entries() {
+  local d="$1" e
+  shopt -s nullglob dotglob
+  e=("$d"/*)
+  shopt -u nullglob dotglob
+  [ "${#e[@]}" -gt 0 ]
+}
+
 # --- 1) ~/.grok/worktrees/<slug>/ ---
 slug="$(grok_repo_slug || true)"
 GROK_WT_ROOT="${GROK_WORKTREES_ROOT:-$HOME/.grok/worktrees}"
@@ -78,7 +88,7 @@ if [ -n "$slug" ]; then
         if [ -e "$child/.git" ]; then
           # Has a gitdir but not registered → stale / half-removed worktree
           emit "$child" "unregistered" "has .git but not in git worktree list"
-        elif [ -z "$(find "$child" -mindepth 1 -maxdepth 1 2>/dev/null | head -1)" ]; then
+        elif ! dir_has_entries "$child"; then
           emit "$child" "empty_parent" "empty leftover after worktree remove"
         else
           emit "$child" "unregistered" "content without git registration (orphan shell)"
@@ -95,7 +105,7 @@ if [ -n "$slug" ]; then
       is_registered "$candidate" && continue
       if [ -e "$candidate/.git" ]; then
         emit "$candidate" "unregistered" "under ~/.grok/worktrees/projects, not registered"
-      elif [ -z "$(find "$candidate" -mindepth 1 -maxdepth 1 2>/dev/null | head -1)" ]; then
+      elif ! dir_has_entries "$candidate"; then
         emit "$candidate" "empty_parent" "empty under ~/.grok/worktrees/projects"
       else
         # partial leftover (e.g. only node_modules)
@@ -114,7 +124,7 @@ if [ -d "$claude_wt" ]; then
     is_registered "$child" && continue
     if [ -e "$child/.git" ]; then
       emit "$child" "unregistered" ".claude/worktrees entry not in git worktree list"
-    elif [ -z "$(find "$child" -mindepth 1 -maxdepth 1 2>/dev/null | head -1)" ]; then
+    elif ! dir_has_entries "$child"; then
       emit "$child" "empty_parent" "empty .claude/worktrees shell"
     else
       emit "$child" "unregistered" "orphan .claude/worktrees content"
@@ -122,10 +132,7 @@ if [ -d "$claude_wt" ]; then
   done
   shopt -u nullglob
   # empty parent .claude/worktrees with no children
-  shopt -s nullglob
-  claude_children=("$claude_wt"/*)
-  shopt -u nullglob
-  if [ "${#claude_children[@]}" -eq 0 ]; then
+  if ! dir_has_entries "$claude_wt"; then
     emit "$claude_wt" "empty_parent" "empty .claude/worktrees directory"
   fi
 fi
