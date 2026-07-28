@@ -51,3 +51,5 @@ Tier affects which steps run:
 ## Chain position
 
 Entry point of the full dev pipeline. Preceded by the external `roxabi-issues:issue-triage` step (not dev-core). Delegates to: `/recheck` → `/frame` → `/analyze` → `/spec` → `/plan` → `/implement` → `/pr` → `/ci-watch` → `/validate` → `/code-review` → `/fix` → `/cleanup`.
+
+**Code already ready?** Use `/ship` instead — commit → PR → review → fix loop → `reviewed` + ci-watch (review-before-CI order).

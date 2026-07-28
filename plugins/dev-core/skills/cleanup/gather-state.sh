@@ -13,6 +13,17 @@ git branch -vv 2>/dev/null || echo "branches=none"
 echo "---worktrees---"
 git worktree list 2>/dev/null || echo "worktrees=none"
 
+echo "---orphan-worktree-shells---"
+# Leftovers that `git worktree list` misses (empty Grok parents, unregistered
+# dirs under ~/.grok/worktrees/<slug>/ or .claude/worktrees/, stale worktrees.db).
+# Analyze-only — lines: path|kind|detail. See scan-orphan-worktree-shells.sh.
+_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -x "$_script_dir/scan-orphan-worktree-shells.sh" ]; then
+  bash "$_script_dir/scan-orphan-worktree-shells.sh" || echo "orphan_shells=error"
+else
+  echo "orphan_shells=none"
+fi
+
 echo "---open-prs---"
 gh pr list --state open 2>/dev/null || echo "open_prs=none"
 

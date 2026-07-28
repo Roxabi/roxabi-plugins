@@ -72,8 +72,8 @@ Timeout: the loop self-bounds at `MERGE_WAIT_TIMEOUT` (script, 15 min) → grace
 ## Chain Position
 
 - **Phase:** Verify
-- **Predecessor:** `/pr` (PR exists)
-- **Successor:** `/validate`
+- **Predecessor:** `/pr` (via `/dev`) · or `reviewed` label step (via `/ship`)
+- **Successor:** `/validate` (via `/dev`) · or `/cleanup` (via `/ship` after merge)
 - **Class:** adv (continuous flow, no gate)
 
 ## Task Integration
