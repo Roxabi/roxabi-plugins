@@ -1,6 +1,5 @@
 ---
 name: axial-adr-create
-model: sonnet
 description: |
   Interview agent for the foundational "Axis of Decomposition" ADR — captures the primary axis of system variation to prevent N×M drift (cross-cutting concerns duplicated across non-primary axis siblings).
 
@@ -19,7 +18,6 @@ description: |
   user: "Re-elicit the axial decomposition"
   assistant: "Running axial-adr-create. Will offer Keep / Supersede / Review if an ADR already exists."
   </example>
-permissionMode: bypassPermissions
 maxTurns: 30
 # capabilities: write_knowledge=true, write_code=false, review_code=false, run_tests=false
 # based-on: shared/base

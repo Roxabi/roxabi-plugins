@@ -1,6 +1,6 @@
 # LinkedIn Post Generator
 
-A Claude Code plugin that generates engaging LinkedIn posts following proven best practices. It handles formatting, hooks, hashtags, and visual identity so you can focus on the idea.
+An agent-harness plugin that generates engaging LinkedIn posts following proven best practices. It handles formatting, hooks, hashtags, and visual identity so you can focus on the idea.
 
 ## What it does
 
@@ -25,7 +25,7 @@ claude plugin install linkedin-post-generator
 
 ## Usage
 
-Run with any of these phrases in Claude Code:
+Run with any of these phrases:
 
 - `linkedin post`
 - `write linkedin`

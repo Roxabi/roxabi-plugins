@@ -4,7 +4,7 @@ Multi-domain code review via fresh domain agents → Conventional Comments findi
 
 ## Why
 
-A single reviewer (even a good one) misses domain-specific issues. `/code-review` spawns fresh, unbiased agents per domain (security, architecture, tests, frontend, backend, devops, product) simultaneously, merges their findings using Conventional Comments labels, deduplicates overlaps, and produces a structured verdict: Approve, Approve with comments, or Request changes.
+A single reviewer (even a good one) misses domain-specific issues. `/code-review` spawns fresh, unbiased agents per domain (security, adversarial red-team, architecture, tests, frontend, backend, devops, product) simultaneously, merges their findings using Conventional Comments labels, deduplicates overlaps, and produces a structured verdict: Approve, Approve with comments, or Request changes.
 
 ## Usage
 
@@ -25,6 +25,7 @@ Triggers: `"code review"` | `"review changes"` | `"review PR #42"` | `"check my 
    | Agent | Condition | Focus |
    |-------|-----------|-------|
    | security-auditor | always | OWASP, injection, secrets, auth |
+   | adversarial | always | red-team: bypass, fleet-regression, vacuous guards |
    | architect | |Δ| > 5 or arch changes | patterns, circular deps |
    | product-lead | spec exists | spec compliance, product fit |
    | tester | test files changed | coverage, AAA, edge cases |

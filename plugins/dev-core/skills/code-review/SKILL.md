@@ -110,6 +110,7 @@ digests = emit_all_digests(chunks)            # list[BoundaryDigest]
 | Agent | Condition | Focus |
 |-------|-----------|-------|
 | **security-auditor** | always | OWASP, secrets, injection, auth |
+| **adversarial** | always | red-team: bypass, fleet-regression, vacuous guards, assumption-kill (¬OWASP — security-auditor owns that) |
 | **architect** | \|Δ\| > 5 ∨ src ⊇ {arch, pattern, structure, service, module} | patterns, structure, circular deps |
 | **product-lead** | spec ∃ | spec compliance, product fit |
 | **tester** | Δ ∩ {`src/`, `test/`, `*.test.*`, `*.spec.*`} ≠ ∅ | coverage, AAA, edge cases |
@@ -158,7 +159,7 @@ Task(
 )
 ```
 
-Agent name map: `security-auditor` → `dev-core:security-auditor` | `architect` → `dev-core:architect` | `product-lead` → `dev-core:product-lead` | `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `recall` → `dev-core:recall` | `axial-adr-review` → `dev-core:axial-adr-review`
+Agent name map: `security-auditor` → `dev-core:security-auditor` | `adversarial` → `dev-core:adversarial` | `architect` → `dev-core:architect` | `product-lead` → `dev-core:product-lead` | `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `recall` → `dev-core:recall` | `axial-adr-review` → `dev-core:axial-adr-review`
 
 ### Agent payload
 

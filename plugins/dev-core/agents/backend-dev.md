@@ -9,8 +9,6 @@ description: |
   user: "Create an endpoint to fetch user preferences"
   assistant: "I'll use the backend-dev agent to implement the API."
   </example>
-model: sonnet
-permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=true, run_tests=true
 # based-on: shared/engineer

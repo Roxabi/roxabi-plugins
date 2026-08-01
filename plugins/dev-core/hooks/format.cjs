@@ -4,6 +4,7 @@ const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
 const { parseStackYml } = require('./lib/parse-stack-yml.cjs')
+const { loadHookInput } = require('./lib/hook-input.cjs')
 
 // All extensions common formatters can handle.
 // The formatter itself decides which it actually processes — this list just
@@ -58,11 +59,11 @@ function main() {
     process.exit(0)
   }
 
-  const rawPaths = process.env.CLAUDE_FILE_PATHS
-  if (!rawPaths) process.exit(0)
+  // Dual harness: CLAUDE_FILE_PATHS (Claude) ∪ stdin toolInput.file_path (Grok)
+  const { filePaths } = loadHookInput()
+  if (filePaths.length === 0) process.exit(0)
 
-  const allFiles = rawPaths
-    .split('\n')
+  const allFiles = filePaths
     .map((p) => p.trim())
     .filter((p) => p.length > 0)
     .filter((p) => FORMATTABLE_EXTENSIONS.has(path.extname(p)))

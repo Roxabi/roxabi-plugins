@@ -41,7 +41,7 @@ After installing **dev-core** and **dev-init**, run the full project harness:
 /dev-init
 ```
 
-> **Not** bare `/init` — that is Claude Code's built-in (scaffolds a `CLAUDE.md` only). The Roxabi harness is namespaced: `/dev-init`.
+> **Not** bare `/init` — that is the host built-in (scaffolds a `CLAUDE.md` only). The Roxabi harness is namespaced: `/dev-init`.
 
 Auto-detects your GitHub repo. Writes `.claude/dev-core.yml` (primary config) and `.env` (legacy fallback), registers the project in `~/.roxabi-vault/workspace.json`, generates a self-healing `roxabi` shim, and creates the `artifacts/` directory. Works for any project type. Re-run with `/dev-init --force` to reconfigure.
 
@@ -110,7 +110,7 @@ Main entry points:
 
 ## Agents
 
-9 specialized agents organized in three tiers. Each agent has a built-in **config guard** (fails fast if `stack.yml` is missing), a domain-specific **escalation path** (knows who to message for out-of-scope issues), and a **confidence threshold** (stops and escalates instead of guessing when certainty is below 70–80%).
+Specialized agents organized in three tiers (plus review specialists: `adversarial`, `axial-adr-review`, `recall`). Each agent has a built-in **config guard** (fails fast if `stack.yml` is missing), a domain-specific **escalation path** (knows who to message for out-of-scope issues), and a **confidence threshold** (stops and escalates instead of guessing when certainty is below 70–80%).
 
 Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, `write_code`, `review_code`, `run_tests`) for human-readable permission reference, and a `# based-on:` traceability comment. All agents inline a base communication + research-order protocol in their body. `backend-dev`, `frontend-dev`, `fixer`, and `tester` additionally inline quality-gate rules. The shared reference files live in `skills/shared/references/` (`base.md`, `engineer.md`).
 
@@ -129,6 +129,7 @@ Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, 
 | `tester` | Writes and runs tests, manages RED-GATE |
 | `fixer` | Applies accepted review findings |
 | `security-auditor` | OWASP Top 10 audit with exploit scenarios, confidence scoring (C ≥ 60), and false-positive filtering |
+| `adversarial` | Red-team for `/spec` + `/code-review`: bypass, fleet-regression, vacuous guards, assumption-kill (read-only) |
 
 ### Strategy
 
@@ -142,13 +143,13 @@ Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, 
 
 `stack.yml` handles most project adaptation (paths, commands, standards docs). For behavioral changes — project-specific constraints, tighter escalation rules, extra checklist phases — override any agent or skill at the project level.
 
-Claude Code resolves `.claude/agents/<name>.md` over the plugin cache automatically. Drop a file there and it replaces the plugin agent for that project only. Skills work the same way via `.claude/skills/<name>/SKILL.md`.
+The host resolves project agents (`.claude/agents/<name>.md` or `.grok/agents/`) over the plugin cache automatically. Drop a file there and it replaces the plugin agent for that project only. Skills work the same way under the host skills path.
 
 See [`references/project-overrides.md`](references/project-overrides.md) for full anatomy, examples, and what to keep vs change.
 
 ## Hooks
 
-Three Claude Code hooks for safety and consistency:
+Three plugin hooks for safety and consistency (Claude + Grok compatible):
 
 | Hook | Trigger | What it does |
 |------|---------|--------------|

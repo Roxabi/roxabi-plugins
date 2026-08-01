@@ -15,7 +15,7 @@ Use Ω when changing **α behavior itself**, ¬config values:
 
 ## How it works
 
-Claude Code resolves α definitions:
+Host resolves α definitions (Claude / Grok paths):
 
 ```
 .claude/agents/<name>.md          ← project-level (highest priority)
@@ -33,9 +33,9 @@ Start from plugin α as base. Keep what works, add project-specific:
 ---
 name: backend-dev
 # based-on: dev-core/backend-dev     # traceability — shows which plugin version this overrides
-model: sonnet
-tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList"]
-permissionMode: bypassPermissions   # ⚠ removes all confirmation dialogs — review before use
+# model: omitted — harness inherits parent / host default (¬name provider-specific models)
+# permissionMode: omitted — host-controlled; plugin agents cannot force bypass on Grok
+tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task"]
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=true, run_tests=true
 ---

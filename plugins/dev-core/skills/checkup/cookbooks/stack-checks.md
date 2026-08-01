@@ -40,7 +40,7 @@ Read `docs.path` from σ. ¬set → D⏭("docs.path not set"), skip doc checks.
 
 **Artifacts:** ∀ path ∈ `artifacts.*` → chk(∃, ✅, ⚠️ "dir not found: {path}").
 
-**Hooks formatter:** `build.formatter_fix_cmd` contains `biome` → confirm `hooks.json` PostToolUse runs `format.js` → ✅ | ⚠️ "formatter mismatch".
+**Hooks formatter:** `build.formatter_fix_cmd` contains `biome` → confirm `hooks.json` PostToolUse runs `format.cjs` → ✅ | ⚠️ "formatter mismatch".
 
 **Pre-commit hooks:**
 Read `hooks.tool` from σ. Resolve: `none` → ⏭ | `auto`/absent → python→`pre-commit`, else→`lefthook` | explicit → use.

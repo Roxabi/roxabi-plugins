@@ -22,7 +22,7 @@ Triggers: `"write spec"` | `"spec this"` | `"solution design"` | `"acceptance cr
 1. **Resolve source** — finds the analysis (or frame if F-lite) for the issue.
 2. **Generate** — runs a structured interview (via `/interview`) to fill gaps between analysis and spec level: acceptance criteria, breadboard, slices, ambiguity detection.
 3. **Pre-check** — validates the spec before expert review: testable criteria (binary pass/fail), no dangling breadboard refs, ≤5 `[NEEDS CLARIFICATION]` items, slice coverage of all affordances.
-4. **Expert review** — spawns architect, doc-writer, product-lead (and devops if infra criteria) in parallel.
+4. **Expert review** — spawns architect, doc-writer, product-lead, adversarial (and devops if infra criteria) in parallel.
 5. **Smart splitting** (optional) — if > 8 acceptance criteria or > 3 slices, offers to split into sub-issues.
 6. **User approval** — presents scope, criteria count, unresolved concerns; loops on revisions.
 

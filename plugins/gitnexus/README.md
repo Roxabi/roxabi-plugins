@@ -73,7 +73,7 @@ gitnexus context AuthService
 
 ## Output Format
 
-All commands output JSON (default), which Claude Code can parse directly:
+All commands output JSON (default), which the agent harness can parse directly:
 
 ```bash
 gitnexus impact validateUser

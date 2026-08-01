@@ -1,8 +1,21 @@
 # Plan-Task Schema
 
-> **SSoT for `/plan` Step 6a and `/implement` Step 1b.** Both skills must use this exact shape when calling `TaskCreate` for micro-tasks. Edit here only — never inline in either SKILL.md.
+> **SSoT for `/plan` Step 6a and `/implement` Step 1b.** Host-neutral fields + rich-path shape.  
+> **How to call the host:** see [`harness-task-list.md`](harness-task-list.md) (Claude `Task*` vs Grok `todo_write`).  
+> Edit field definitions here only — never inline in either SKILL.md.
 
-## TaskCreate call shape
+## Canonical fields (every host)
+
+| Field | Source |
+|-------|--------|
+| `kind: "plan-task"` | Fixed — distinguishes from `dev-pipeline` tasks owned by `/dev` |
+| `agent_instance` | From the Task Seeding Blueprint row in π — named instance (e.g. `tester-A`) so `/implement` groups tasks per agent session |
+| `wave` | Integer derived from the Wave Structure table in π |
+| `phase` | RED \| GREEN \| REFACTOR \| RED-GATE — drives test-first ordering in `/implement` Step 4 |
+| `spec_trace` | SC-N (Success Criteria) or U→N→S (user/need/solution) reference from the spec artifact |
+| `subject` / `verify` / `files` | Blueprint + micro-task row |
+
+## Rich path — TaskCreate call shape (H = claude-tasks)
 
 ```
 TaskCreate(
@@ -26,17 +39,7 @@ TaskCreate(
 )
 ```
 
-## Field notes
-
-| Field | Source |
-|-------|--------|
-| `kind: "plan-task"` | Fixed — distinguishes from `dev-pipeline` tasks owned by `/dev` |
-| `agent_instance` | From the Task Seeding Blueprint row in π — named instance (e.g. `tester-A`) so `/implement` groups tasks per agent session |
-| `wave` | Integer derived from the Wave Structure table in π |
-| `phase` | RED \| GREEN \| REFACTOR \| RED-GATE — drives test-first ordering in `/implement` Step 4 |
-| `spec_trace` | SC-N (Success Criteria) or U→N→S (user/need/solution) reference from the spec artifact |
-
-## Dependencies (TaskUpdate after seeding)
+### Dependencies (rich path only)
 
 After all `TaskCreate` calls succeed, wire `blockedBy`:
 
@@ -47,3 +50,7 @@ After all `TaskCreate` calls succeed, wire `blockedBy`:
 `deps` = T-numbers from the blueprint's `blockedBy` column, mapped to real task IDs via the `{T# → task.id}` cache built during seeding.
 
 Fallback (no blueprint): derive from phase order within a slice — GREEN blocked by RED, RED-GATE blocked by all RED in slice.
+
+## Portable path — todo_write (H = grok-todos)
+
+See `harness-task-list.md`. Encode the same fields in `content`; use stable `id: T{n}`; enforce `blockedBy` in the orchestrator (host has no dep graph).

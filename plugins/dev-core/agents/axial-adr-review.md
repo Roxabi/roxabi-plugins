@@ -1,6 +1,5 @@
 ---
 name: axial-adr-review
-model: opus
 description: |
   Read-only review agent for axial-decomposition drift. Parses the project's axial ADR (`axial: true` frontmatter) and reviews a diff or spec for drift along the non-primary axis (N×M trap). Emits Conventional Comments findings tagged with the canonical `target-axis-trap` class.
 
@@ -19,7 +18,6 @@ description: |
   user: "/spec --issue 88"
   assistant: "Including axial-adr-review among spec reviewers to flag drift along non-primary axis."
   </example>
-permissionMode: bypassPermissions
 maxTurns: 20
 # capabilities: write_knowledge=false, write_code=false, review_code=true, run_tests=false
 # based-on: shared/base

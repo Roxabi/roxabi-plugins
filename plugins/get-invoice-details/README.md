@@ -1,6 +1,6 @@
 # Get Invoice Details
 
-A Claude Code plugin that extracts structured data from invoice documents. It reads invoices (text or PDF), pulls out key fields, and saves the result as JSON in your Roxabi vault.
+An agent-harness plugin that extracts structured data from invoice documents. It reads invoices (text or PDF), pulls out key fields, and saves the result as JSON in your Roxabi vault.
 
 ## What it does
 
@@ -23,7 +23,7 @@ claude plugin install get-invoice-details
 
 ## Usage
 
-Run with any of these phrases in Claude Code:
+Run with any of these phrases:
 
 - `get-invoice-details`
 - `extract invoice`
