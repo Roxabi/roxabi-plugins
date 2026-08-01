@@ -2,6 +2,7 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
+const { loadHookInput, extractWriteContent } = require('./lib/hook-input.cjs')
 
 const SECURITY_PATTERNS = [
   {
@@ -82,23 +83,36 @@ function checkContent(content, filePath, state) {
   return blocked
 }
 
+/**
+ * Dual deny payload:
+ * - Grok PreToolUse: decision "deny" + reason
+ * - Claude Code: decision "block" + message (legacy) + exit 2
+ */
+function emitDeny(reason) {
+  const payload = {
+    decision: 'deny',
+    reason,
+    // Claude-compatible aliases
+    message: reason,
+  }
+  // Some Claude builds still key off decision:block
+  process.stdout.write(JSON.stringify({ ...payload, decision: 'deny' }) + '\n')
+  process.stderr.write(reason + '\n')
+  process.exit(2)
+}
+
 function main() {
   pruneOldStateFiles()
 
-  const input = process.env.CLAUDE_TOOL_INPUT
-  if (!input) {
+  const { toolInput, filePaths } = loadHookInput()
+  const content = extractWriteContent(toolInput)
+  if (!content) {
     process.exit(0)
   }
 
+  const filePath = filePaths[0] || toolInput.file_path || toolInput.filePath || 'unknown'
+
   try {
-    const toolInput = JSON.parse(input)
-    const content = toolInput.content || toolInput.new_string || ''
-    const filePath = toolInput.file_path || 'unknown'
-
-    if (!content) {
-      process.exit(0)
-    }
-
     const state = loadState()
     const warningsBefore = Object.keys(state.warnings).length
     const blocked = checkContent(content, filePath, state)
@@ -109,12 +123,7 @@ function main() {
     }
 
     if (blocked.length > 0) {
-      console.log(
-        JSON.stringify({
-          decision: 'block',
-          message: `Security check:\n${blocked.map((w) => `- ${w}`).join('\n')}`,
-        }),
-      )
+      emitDeny(`Security check:\n${blocked.map((w) => `- ${w}`).join('\n')}`)
     }
   } catch (e) {
     process.stderr.write(`security-check: ${e?.message ? e.message : String(e)}\n`)

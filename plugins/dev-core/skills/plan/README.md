@@ -4,7 +4,7 @@ Implementation plan — micro-tasks, agent assignments, file groups, and depende
 
 ## Why
 
-A spec says *what* to build. A plan says *who builds what, in what order, in parallel where safe*. `/plan` decomposes the spec into micro-tasks with verify commands, assigns them to domain agents, wires RED→GREEN→REFACTOR phase dependencies, and seeds the Claude Code task list — giving `/implement` a ready-to-execute work queue.
+A spec says *what* to build. A plan says *who builds what, in what order, in parallel where safe*. `/plan` decomposes the spec into micro-tasks with verify commands, assigns them to domain agents, wires RED→GREEN→REFACTOR phase dependencies, and seeds the **host task list** (Claude `Task*` or Grok `todo_write`) — giving `/implement` a ready-to-execute work queue.
 
 ## Usage
 
@@ -23,7 +23,7 @@ Triggers: `"plan"` | `"plan this"` | `"implementation plan"` | `"break it down"`
 3. **Agents** — assigns tasks to: `frontend-dev`, `backend-dev`, `tester`, `devops`, `doc-writer`, `architect`, `security-auditor` based on file paths from `stack.yml`.
 4. **Micro-tasks** — generates tasks with: description, file path, code skeleton, verify command, expected output, time estimate, parallel-safe flag, phase (RED/GREEN/REFACTOR/RED-GATE).
 5. **Write artifact** — creates `artifacts/plans/{N}-{slug}-plan.md` with forge-chart sidecars (`data-flow`, `file-map`) linked from `artifacts/visuals/`.
-6. **Seed tasks** — creates Claude Code tasks for every micro-task; wires `blockedBy` dependencies; persists task IDs in the artifact.
+6. **Seed tasks** — seeds the host task list for every micro-task (rich deps when available; portable checklist otherwise); persists blueprint / IDs in the artifact.
 
 ## Output artifact
 

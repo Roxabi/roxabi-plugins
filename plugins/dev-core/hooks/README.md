@@ -1,18 +1,20 @@
 # dev-core Hooks
 
-Claude Code hooks that run automatically on file writes and shell commands.
+Plugin hooks that run automatically on file writes and shell commands (Claude Code + Grok; dual-read stdin/env).
 
 ## What These Hooks Do
 
 | Hook | Trigger | Action |
 |------|---------|--------|
-| `format.js` (PostToolUse) | After Edit or Write | Auto-formats files using `build.formatter_fix_cmd` from `stack.yml` |
-| `security-check.js` (PreToolUse) | Before Edit or Write | Blocks hardcoded secrets, SQL/command injection patterns |
-| `bun test` blocker (PreToolUse) | Before Bash | Blocks `bun test` (wrong runner), enforces `bun run test` |
+| `format.cjs` (PostToolUse) | After Edit / Write / `search_replace` / `write` | Auto-formats files using `build.formatter_fix_cmd` from `stack.yml` |
+| `security-check.cjs` (PreToolUse) | Before Edit / Write / `search_replace` / `write` | Blocks hardcoded secrets, SQL/command injection patterns |
+| `bun-test-guard.cjs` (PreToolUse) | Before Bash / `run_terminal_command` | Blocks `bun test` (wrong runner), enforces `bun run test` |
 
-## How `format.js` Works
+**Dual harness input** (`lib/hook-input.cjs`): Claude env (`CLAUDE_TOOL_INPUT`, `CLAUDE_FILE_PATHS`) **or** Grok stdin JSON envelope (`toolInput`). Plugin root: `${CLAUDE_PLUGIN_ROOT:-$GROK_PLUGIN_ROOT}`.
 
-`format.js` reads `build.formatter_fix_cmd` from `.claude/stack.yml` at runtime:
+## How `format.cjs` Works
+
+`format.cjs` reads `build.formatter_fix_cmd` from `.claude/stack.yml` at runtime:
 
 - **Empty / key absent** → exits silently, no formatting applied
 - **Set** → runs the command with the modified file paths appended as arguments
@@ -21,7 +23,7 @@ Claude Code hooks that run automatically on file writes and shell commands.
 stack.yml: formatter_fix_cmd: "bunx biome check --write"
 
 Edit foo.ts, bar.ts
-  → format.js
+  → format.cjs
   → execFileSync('bunx', ['biome', 'check', '--write', 'foo.ts', 'bar.ts'])
 ```
 
@@ -94,4 +96,4 @@ Run `/checkup` to verify that your active hooks match your `stack.yml` formatter
 
 ## Security Note
 
-`format.js` reads `CLAUDE_FILE_PATHS`, splits it safely, and passes paths as discrete `execFileSync` arguments. The formatter command from `stack.yml` is split on whitespace into argv — no shell expansion, no injection surface.
+`format.cjs` resolves paths via dual-read (`CLAUDE_FILE_PATHS` or stdin `toolInput.file_path`), splits safely, and passes them as discrete `execFileSync` arguments. The formatter command from `stack.yml` is split on whitespace into argv — no shell expansion, no injection surface.

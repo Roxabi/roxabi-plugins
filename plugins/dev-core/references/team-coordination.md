@@ -13,14 +13,14 @@ Main Claude = orchestrator. Assesses issues, spawns α, runs skills, coordinates
 | Tier | α | Role |
 |------|---|------|
 | **Domain** | frontend-dev, backend-dev, devops | Write code in their packages |
-| **Quality** | fixer, tester, security-auditor | Fix findings, write tests, audit |
+| **Quality** | fixer, tester, security-auditor, adversarial | Fix findings, write tests, OWASP audit, red-team review |
 | **Strategy** | architect, product-lead, doc-writer | Plan, analyze, document |
 
 ## 4-Phase Workflow
 
 1. **Assessment:** Fetch issue → check analysis/spec → spawn product-lead (+architect) → human approves
 2. **Implementation:** Domain α + tester. RED → GREEN → REFACTOR → tests pass → PR
-3. **Review:** Fresh α (security, architect, product, tester + domain). Conventional Comments → `/1b1`
+3. **Review:** Fresh α (security, adversarial, architect, product, tester + domain). Conventional Comments → `/1b1`
 4. **Fix & Merge:** Fixer(s) apply accepted comments → CI → human merges. ≥6 findings spanning distinct modules → multiple fixers.
 
 ## Task Lifecycle
@@ -63,6 +63,7 @@ Omit empty fields. Lead forwards relevant sections to next α spawn prompt.
 | fixer | All packages (accepted findings only) | New features |
 | tester | Test files in all packages | Source files |
 | security-auditor | Read-only + Bash | Source files |
+| adversarial | Read-only + Bash (git read-only) | Source files |
 | architect | `docs/architecture/`, ADRs | App code |
 | product-lead | `artifacts/analyses/`, `artifacts/specs/`, `gh` CLI | App code |
 | doc-writer | `docs/`, `CLAUDE.md` | App code |
@@ -110,9 +111,9 @@ When `/plan` generates μ, α receive structured work units via TaskCreate.
 
 ## Agent Configuration
 
-α behavior via YAML frontmatter in `.claude/agents/*.md`:
-- `permissionMode` (bypassPermissions | plan)
+α behavior via YAML frontmatter in host agent paths (`.claude/agents/*.md` / `.grok/agents/`):
 - `maxTurns` (30–50)
-- `memory: project` (.claude/agent-memory/)
+- `memory: project` (host agent-memory dir)
+- ¬`permissionMode` in plugin agents (Grok ignores bypass; host session controls permissions)
 
 Tool access uses harness defaults unless a project override sets `tools` or `disallowedTools` explicitly.

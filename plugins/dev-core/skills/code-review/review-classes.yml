@@ -187,10 +187,11 @@ classes:
 #   derivation: `grep -h '^name:' plugins/dev-core/agents/*.md | awk '{print $2}'`
 #   SSoT: agents/*.md (no other location is authoritative)
 #
-# Authoritative listing as of 30c092b (derived from agents/; do NOT update by hand
+# Authoritative listing (derived from agents/; do NOT update by hand
 # — re-run the derivation above):
-#   architect | backend-dev | devops | doc-writer | fixer
-#   frontend-dev | product-lead | security-auditor | tester
+#   adversarial | architect | axial-adr-create | axial-adr-review | backend-dev
+#   devops | doc-writer | fixer | frontend-dev | product-lead | recall
+#   security-auditor | tester
 #
 # Filter implementation (Slice 5 cron): MUST scan plugins/dev-core/agents/*.md at
 # runtime and extract name: fields — the inline listing above is documentation-only.

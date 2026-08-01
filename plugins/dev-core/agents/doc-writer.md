@@ -9,8 +9,6 @@ description: |
   user: "Document the new auth module"
   assistant: "I'll use the doc-writer agent to create the documentation."
   </example>
-model: haiku
-permissionMode: bypassPermissions
 maxTurns: 30
 # capabilities: write_knowledge=true, write_code=false, review_code=false, run_tests=false
 # based-on: shared/base

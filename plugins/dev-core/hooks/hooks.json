@@ -2,31 +2,31 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "Edit|Write|write|MultiEdit|search_replace",
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/security-check.js"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT:-$GROK_PLUGIN_ROOT}/hooks/security-check.cjs\""
           }
         ]
       },
       {
-        "matcher": "Bash",
+        "matcher": "Bash|run_terminal_command",
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE '(^|\\s|&&|;|\\|)bun test(\\s|$)' && ! echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'bun run test'; then echo 'Use bun run test (Vitest), not bun test (Bun runner)' >&2; exit 2; fi"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT:-$GROK_PLUGIN_ROOT}/hooks/bun-test-guard.cjs\""
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "Edit|Write|write|MultiEdit|search_replace",
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/format.js"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT:-$GROK_PLUGIN_ROOT}/hooks/format.cjs\""
           }
         ]
       }

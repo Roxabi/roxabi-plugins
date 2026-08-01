@@ -1,6 +1,6 @@
 # 1b1 — One by One
 
-A Claude Code plugin that walks through a list of items one at a time, briefing you on each one and asking what to do before moving to the next.
+An agent-harness plugin that walks through a list of items one at a time, briefing you on each one and asking what to do before moving to the next.
 
 ## What it does
 

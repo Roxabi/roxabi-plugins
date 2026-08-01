@@ -9,8 +9,6 @@ description: |
   user: "Write tests for the auth service"
   assistant: "I'll use the tester agent to generate test coverage."
   </example>
-model: sonnet
-permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=false, run_tests=true
 # based-on: shared/base

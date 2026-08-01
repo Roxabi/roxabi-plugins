@@ -150,7 +150,7 @@ Merge path = gate-driven: `reviewed` label + auto-merge (`gh pr merge --auto --m
 Fixes #{N}
 
 ---
-Generated with [Claude Code](https://claude.com/claude-code) via `/pr`
+Generated with [Roxabi dev-core](https://github.com/Roxabi/roxabi-plugins) via `/pr`
 ```
 
 Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue → omit Lifecycle + Closes. S-tier → also omit SC → Test Matrix section.

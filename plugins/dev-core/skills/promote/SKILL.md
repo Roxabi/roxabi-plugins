@@ -253,7 +253,7 @@ gh pr create \
 - [x] Release notes committed to staging
 
 ---
-Generated with [Claude Code](https://claude.com/claude-code) via \`/promote\`
+Generated with [Roxabi dev-core](https://github.com/Roxabi/roxabi-plugins) via \`/promote\`
 EOF
 )"
 ```

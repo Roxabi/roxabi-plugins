@@ -1,6 +1,5 @@
 ---
 name: product-lead
-model: sonnet
 description: |
   Use this agent for product leadership: requirements gathering, issue triage,
   prioritization, writing analyses and specs, driving the dev pipeline,
@@ -11,7 +10,6 @@ description: |
   user: "Gather requirements for the notification system"
   assistant: "I'll use the product-lead agent to define requirements."
   </example>
-permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=true, write_code=false, review_code=false, run_tests=false
 # based-on: shared/base

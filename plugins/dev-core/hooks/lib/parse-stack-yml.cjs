@@ -4,7 +4,7 @@
  * Shared CommonJS parser for .claude/stack.yml.
  *
  * Consumed by:
- *   - plugins/dev-core/hooks/format.js  (CJS require)
+ *   - plugins/dev-core/hooks/format.cjs  (CJS require)
  *   - plugins/dev-core/skills/checkup/doctor.ts  (Bun TS import)
  *
  * Dependency-free: pure regex/string ops — no external YAML library.

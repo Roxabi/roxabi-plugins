@@ -280,11 +280,13 @@ Options: **Approve** | **Modify** | **Return to spec**
 
 On Approve → **immediately** continue to 6a (seed tasks), 6b (persist IDs), 6c (commit). ¬stop between substeps.
 
-### Step 6a — Seed Claude Code Tasks
+### Step 6a — Seed host task list
 
-∀ micro-task in π — use the canonical schema from [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/plan-task-schema.md) (SSoT for `TaskCreate` shape + `blockedBy` wiring).
+∀ micro-task in π — fields from [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/plan-task-schema.md); **host mapping** from [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-task-list.md).
 
-Cache returned id in {task# → task.id} map.
+Probe tools → H ∈ {claude-tasks, grok-todos, artifact-only}. Seed via that path (rich `TaskCreate` **or** portable `todo_write` **or** plan-only).
+
+Cache returned id in {task# → task.id} map when host returns ids (claude-tasks).
 
 τ=S → still seed tasks (3–6 is typical). Skip wave/blueprint wiring when π has no slice structure.
 

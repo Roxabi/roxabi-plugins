@@ -1,6 +1,6 @@
 # CV
 
-A Claude Code plugin that generates, adapts, and updates professional CVs from structured data. Your CV content lives in a single JSON file, and the plugin handles formatting, tailoring for job postings, and output in Markdown or HTML.
+An agent-harness plugin that generates, adapts, and updates professional CVs from structured data. Your CV content lives in a single JSON file, and the plugin handles formatting, tailoring for job postings, and output in Markdown or HTML.
 
 ## What it does
 

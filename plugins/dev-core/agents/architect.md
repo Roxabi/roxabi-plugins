@@ -1,6 +1,5 @@
 ---
 name: architect
-model: opus
 description: |
   Use this agent for system design decisions, cross-cutting architecture,
   and technical planning across the monorepo.
@@ -10,7 +9,6 @@ description: |
   user: "Design the caching strategy for the API"
   assistant: "I'll use the architect agent to design the architecture."
   </example>
-permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=true, write_code=false, review_code=true, run_tests=false
 # based-on: shared/base

@@ -1,6 +1,6 @@
 # Image Prompt Generator
 
-A Claude Code plugin that generates AI image prompts with visual identity and style consistency. It turns a simple concept into multiple prompt variants across different artistic styles, optionally aligned to your brand.
+An agent-harness plugin that generates AI image prompts with visual identity and style consistency. It turns a simple concept into multiple prompt variants across different artistic styles, optionally aligned to your brand.
 
 ## What it does
 
@@ -29,7 +29,7 @@ claude plugin install image-prompt-generator
 
 ## Usage
 
-Run the generator with any of these phrases in Claude Code:
+Run the generator with any of these phrases:
 
 - `image-prompt`
 - `generate image prompt`

@@ -7,7 +7,7 @@ When domain expertise is needed while writing the analysis or spec, spawn the re
 ```
 Task(
   description: "Expert consultation - <topic>",
-  subagent_type: "architect" | "doc-writer" | "devops" | "product-lead",
+  subagent_type: "architect" | "doc-writer" | "devops" | "product-lead" | "adversarial",
   prompt: "Research and answer: <specific question>. Return findings as bullet points."
 )
 ```
@@ -18,6 +18,7 @@ Task(
 | **doc-writer** | Document structure advice, Markdown conventions (legacy `.mdx` edit-in-place only), clarity feedback |
 | **devops** | CI/CD feasibility, deployment strategy, infrastructure requirements |
 | **product-lead** | Product fit, acceptance criteria, user story validation |
+| **adversarial** | Kill the design: bypass paths, vacuous AC, unstated assumptions, missing failure flows |
 
 Do NOT spawn experts upfront — only when a specific question arises during writing.
 

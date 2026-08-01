@@ -2,7 +2,7 @@
 name: implement
 argument-hint: '[--issue <N> | --plan <path> | --audit]'
 description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "implement" | "build this" | "execute plan" | "start coding" | "write the code" | "code this up" | "let's build it" | "build it out" | "ship it".
-version: 0.3.0
+version: 0.3.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
@@ -42,9 +42,10 @@ Does NOT create a PR — that is `/pr` (next step).
 
 ## Task Integration
 
-- `/dev` owns the dev-pipeline task lifecycle externally (TaskUpdate in_progress before invoke, completed after return)
+- `/dev` owns the dev-pipeline task lifecycle externally (mark in_progress before invoke, completed after return — host-mapped)
 - This skill does NOT update its own dev-pipeline task
-- Sub-tasks managed: reads plan-tasks created by `/plan` (Step 6a), flips their lifecycle as agents execute them (Step 1b + Step 4)
+- Sub-tasks: attach/re-seed plan-tasks from `/plan` (Step 6a), flip lifecycle as agents execute (Step 1b + Step 4)
+- **Host mapping SSoT:** [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-task-list.md) — probe once, use H for all task ops
 
 ## Exit
 
@@ -80,15 +81,48 @@ Steps: locate-plan → setup → context-inject → implement → quality-gate �
 
 Extract from frontmatter: `issue`, `tier`, `spec` path. From body: agent list, task list, slice structure.
 
-### Step 1b — Attach to Plan Tasks
+### Step 1b — Attach to Plan Tasks (dual harness)
 
-Parse π's `## Task IDs` section → {T1: id, T2: id, ...} map. ¬section → `/plan` pre-dates task-tool integration → fall through to 1b.3 (re-seed).
+**Probe H** (once per `/implement` run) per [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-task-list.md):
 
-**1b.1 Verify ids:** ∀ id → `TaskGet(id)`. All succeed → cache map, goto Step 2.
-**1b.2 Partial miss:** ¬some id (session restart invalidated state) → re-seed only the missing ones using the canonical schema from [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/plan-task-schema.md) on the corresponding micro-tasks, then rewrite `## Task IDs` section in π with refreshed ids.
-**1b.3 Total miss (legacy plan):** section absent → re-seed all micro-tasks using [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/plan-task-schema.md), append `## Task IDs` section to π, commit the update (`git add` π + commit `chore(plan): attach task ids`).
+```
+tools ∋ TaskCreate ∧ TaskUpdate ∧ TaskList  → H := claude-tasks
+else tools ∋ todo_write                     → H := grok-todos
+else                                        → H := artifact-only
+```
 
-τ=S without π → `TaskCreate` 3–6 coarse tasks directly from spec acceptance criteria: `{ kind: "plan-task", issue: N, tier: "S" }`. No artifact update.
+Fields / seed shape: [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/plan-task-schema.md).  
+Blueprint source: π `## Task Seeding Blueprint` (or micro-task table). Cache map M := `{T# → host_id}` (claude) or `{T# → T#}` (grok stable ids).
+
+#### H = claude-tasks
+
+Parse π's `## Task IDs` section → M. ¬section → fall through to 1b.3.
+
+| Step | Action |
+|------|--------|
+| **1b.1 Verify** | ∀ id ∈ M → `TaskGet(id)`. All succeed → cache M, goto Step 2 |
+| **1b.2 Partial miss** | Session restart wiped some ids → re-seed **missing** rows only via `TaskCreate` (schema), rewrite `## Task IDs` in π |
+| **1b.3 Total miss** | Section absent / all dead → re-seed **all** micro-tasks via `TaskCreate` + `blockedBy` wiring, append `## Task IDs`, commit `chore(plan): attach task ids` |
+
+τ=S without π → `TaskCreate` 3–6 coarse tasks from spec AC: `{ kind: "plan-task", issue: N, tier: "S" }`. No artifact update.
+
+#### H = grok-todos
+
+Host has no durable id graph and no `TaskGet`. Stable ids = blueprint `T{n}`.
+
+| Step | Action |
+|------|--------|
+| **1b.1 Verify** | If session already has todos with ids `T1…Tn` matching blueprint → reuse (merge=true only for status updates). Goto Step 2 |
+| **1b.2 Partial miss** | Some `T#` missing from current todos → `todo_write` merge=true with those ids only (`status: pending`, content from schema portable encoding) |
+| **1b.3 Total miss** | No matching todos → seed **all** from blueprint: `todo_write` merge=false, id=`T{n}`, content=`[{phase}] {agent_instance} — {subject} \| Verify: {cmd} \| {spec_trace}`. **¬** write `## Task IDs` host-sha section (nothing durable). Optional: note `host: grok-todos` in π frontmatter if useful |
+
+Deps: **¬** invent `blockedBy` on host. Ready-set = rows whose blueprint `blockedBy` are all `completed` (track status in todo list).
+
+τ=S without π → `todo_write` 3–6 coarse todos from AC (`id: S1…`, content = criterion text).
+
+#### H = artifact-only
+
+No host task list. Skip attach/re-seed. Work from π micro-task table only; progress in the reply / Step 6 summary.
 
 ## Step 2 — Setup
 
@@ -151,47 +185,55 @@ Ref file paths from `/plan` Step 3.
 
 ## Step 4 — Implement
 
-**Task lifecycle (all tiers):**
-- Before starting a micro-task → `TaskUpdate(id, status: "in_progress", owner: "{agent-name or 'lead'}")`.
-- Success (verify ✓) → `TaskUpdate(id, status: "completed")`.
-- Retry (≤3) → leave `in_progress`, add comment via `TaskUpdate(id, metadata: { last_error: "..." })`.
-- 3× fail → leave `in_progress`, escalation decision (see Step 5).
+Use **H from Step 1b** for every lifecycle op (mapping below). Generic ops: claim → inject context → spawn → mark done.
+
+### Task lifecycle (all tiers) — by H
+
+| Generic | H = claude-tasks | H = grok-todos | H = artifact-only |
+|---------|------------------|----------------|-------------------|
+| Claim / start | `TaskUpdate(id, status: in_progress, owner: …)` | `todo_write` merge=true, id=`T#`, status=`in_progress` | Note start in reply |
+| Load context | `TaskGet(id)` → description + metadata | Blueprint row + todo `content` for `T#` | π micro-task row only |
+| Mark done | `TaskUpdate(id, status: completed)` | `todo_write` merge=true, id=`T#`, status=`completed` | Check off in summary |
+| Retry note | `TaskUpdate` metadata `last_error` | Append error to todo `content` or leave `in_progress` | Note in reply |
+| 3× fail | leave in_progress → escalate (Step 5) | same | same |
+| List ready | `TaskList` → empty `blockedBy` + phase | Blueprint: deps all `completed` + matching phase | Same from π table |
+| List all done? | `TaskList` + metadata.issue == N | All seeded `T#` status=`completed` | All π rows done |
 
 ### Tier S — Direct
 
-Read spec + ref patterns → create + implement → tests → QG → loop until ✓. Single session, ¬agent spawning. Flip each task `in_progress` → `completed` as you progress through the list.
+Read spec + ref patterns → create + implement → tests → QG → loop until ✓. Single session, ¬agent spawning. Flip each task start → completed via H mapping as you progress.
 
 ### Tier F — Agent-Driven (test-first)
 
-Spawn via `Task` tool (subagent/domain). Sequential ∨ parallel (2–3 max).
+Spawn via host subagent tool (`Task` / `spawn_subagent`). Sequential ∨ parallel (2–3 max).
 
-**Worktree isolation:** Main context is already inside ω (Step 2). Subagents spawned via `Task` inherit this CWD. All file operations must stay within `.claude/worktrees/{N}-{slug}`. Do not `cd` to repo root or other paths outside ω.
+**Worktree isolation:** Main context is already inside ω (Step 2). Subagents inherit this CWD. All file ops stay within `.claude/worktrees/{N}-{slug}`. Do not `cd` to repo root or other paths outside ω.
 
 **Per agent spawn:**
-1. `TaskUpdate(task_id, status: "in_progress", owner: "{agent}")`.
-2. `TaskGet(task_id)` → inject `description` + `metadata` verbatim into the subagent's prompt. The agent reads its own task context from the task list.
+1. Claim task (H table).
+2. Load context (H table) → inject into subagent prompt.
 3. Spawn:
    ```
-   Task(
+   Task(   # or spawn_subagent on Grok
      subagent_type: "dev-core:{agent}",
      description: "{agent}: {phase} — #{N} {slug}",
-     prompt: "Issue #{N}. Task: {TaskGet.description}. Target: {file_path}. Skeleton: {code_snippet}. Verify: {verify_command}. Ref pattern: {pattern_file}. Worktree: `.claude/worktrees/{N}-{slug}` — you are already inside it; do not leave this directory. ¬TaskCreate — task lifecycle managed by lead."
+     prompt: "Issue #{N}. Task: {task_description}. Target: {file_path}. Skeleton: {code_snippet}. Verify: {verify_command}. Ref pattern: {pattern_file}. Worktree: `.claude/worktrees/{N}-{slug}` — you are already inside it; do not leave this directory. ¬seed host tasks — task lifecycle managed by lead."
    )
    ```
    Agent name map: `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `doc-writer` → `dev-core:doc-writer` | `architect` → `dev-core:architect` | `security-auditor` → `dev-core:security-auditor`
-4. Subagent returns → verify → ✓ → `TaskUpdate(task_id, status: "completed")`. ✗ → retry (≤3).
+4. Subagent returns → verify → ✓ → mark done (H). ✗ → retry (≤3).
 
 **RED → GREEN → REFACTOR:**
-1. **RED** — tester: write failing tests from spec. Structural verify only (grep test structure). Tests expected to fail pre-impl. Create RED-GATE sentinel per slice. RED tasks flip `completed` as each test file lands.
-2. **GREEN** — domain agents ∥: implement to pass. `ready` verify → run now; `deferred` → wait RED-GATE. Blocked-by wiring from Step 6a/6b of `/plan` means task list already reflects these dependencies — advance in `blockedBy`-clear order.
+1. **RED** — tester: write failing tests from spec. Structural verify only (grep test structure). Tests expected to fail pre-impl. Create RED-GATE sentinel per slice. RED tasks flip completed as each test file lands.
+2. **GREEN** — domain agents ∥: implement to pass. `ready` verify → run now; `deferred` → wait RED-GATE. Advance only when blueprint deps are satisfied (claude: `blockedBy` clear; grok/artifact: deps completed in checklist).
 3. **REFACTOR** — domain agents: refactor, keep tests ✓.
 4. **Verify** — tester: coverage + edge cases.
 
-**Parallel spawn:** `TaskList` → pick N tasks with empty `blockedBy` and matching phase → spawn N agents simultaneously, each with its own `TaskGet`-injected prompt.
+**Parallel spawn:** list ready tasks (H table) for current phase → spawn ≤N agents, each with its own context-injected prompt.
 
 **Per-task:** verify → ✓ | ✗ fix (max 3) | 3✗ → escalate to lead. Track first-try pass rate.
 
-Agents create files from scratch (¬stubs). Include target path, shape/skeleton, ref pattern file in each Task prompt (in addition to `TaskGet` content).
+Agents create files from scratch (¬stubs). Include target path, shape/skeleton, ref pattern file in each spawn prompt (in addition to loaded task context).
 
 ## Step 5 — Quality Gate
 
@@ -208,7 +250,7 @@ Run QG inside ω (session already in ω after EnterWorktree):
 
 ## Step 6 — Summary
 
-Before printing summary → `TaskList` → assert every plan-task with `metadata.issue == N` is `completed`. ¬all completed → highlight stragglers in the summary (blockers for `/pr`).
+Before printing summary → assert all plan-tasks for issue N are completed (**H table**: claude `TaskList` + metadata.issue; grok all `T#` completed; artifact-only π rows). ¬all completed → highlight stragglers (blockers for `/pr`).
 
 ### Step 6a — SC→Test Matrix (τ ≠ S)
 

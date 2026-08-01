@@ -9,8 +9,6 @@ description: |
   user: "GitHub Actions is failing on the typecheck step"
   assistant: "I'll use the devops agent to debug the CI pipeline."
   </example>
-model: sonnet
-permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=false, run_tests=true
 # based-on: shared/base

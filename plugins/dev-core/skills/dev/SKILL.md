@@ -108,7 +108,7 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
 
 ## Step 2b — Seed Pipeline Tasks
 
-Claude Code task list drives in-session progress for the dev pipeline. Treat it as authoritative for within-session state — artifacts remain authoritative across sessions.
+Host task list (Claude `Task*` or Grok `todo_write` — see `skills/shared/references/harness-task-list.md`) drives in-session progress for the dev pipeline. Treat it as authoritative for within-session state — artifacts remain authoritative across sessions.
 
 **2b.1 Check existing:** `TaskList` → filter where `metadata.issue == N` ∧ `metadata.kind == 'dev-pipeline'`. ∃ matches → skip seeding (tasks already exist from a prior `/dev` invocation in this session). Cache {step → task.id} map from the matches. Goto 2b.4.
 

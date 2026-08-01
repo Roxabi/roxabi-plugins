@@ -9,8 +9,6 @@ description: |
   user: "Fix these accepted review comments: [list of findings]"
   assistant: "I'll use the fixer agent to apply the fixes across the stack."
   </example>
-model: sonnet
-permissionMode: bypassPermissions
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=true, run_tests=true
 # based-on: shared/base
