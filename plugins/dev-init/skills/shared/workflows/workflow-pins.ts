@@ -5,7 +5,7 @@
  *  silently until a generated CI run dies at "Set up job".
  *  Verify before committing a change here: `bun run verify:pins`. */
 export const ACTION_PINS = {
-  checkout: 'actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10', // v6
+  checkout: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1', // v7.0.1
   setupBun: 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6', // v2
   setupNode: 'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020', // v4
   setupUv: 'astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86', // v5
