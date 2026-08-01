@@ -427,16 +427,20 @@ export function generateCiYml(opts: WorkflowOpts): string {
       '      # If this is wrong, set commands.test + testing.unit and re-run /ci-setup.'
   }
 
+  // Draft PRs skip full CI (WIP). ready_for_review re-triggers when undrafted.
+  // `reviewed` remains the merge gate only (auto-merge / merge-on-green) — not a CI gate.
   return `name: CI
 on:
   push:
     branches: [main, staging]
   pull_request:
     branches: [main, staging]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
   ci:
     name: CI
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: ${ACTION_PINS.checkout}
