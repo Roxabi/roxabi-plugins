@@ -1,8 +1,8 @@
 ---
 name: spec
-argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit]'
+argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit] [--force]'
 description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build" | "design the solution" | "acceptance criteria" | "define acceptance criteria" | "spec it out" | "write the spec".
-version: 0.3.1
+version: 0.3.2
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -69,12 +69,12 @@ Steps: resolve → generate → pre-check → review → executive summary → c
 
 ### 0a. Resolve SRC
 
-`--issue N` → scan priority order:
+`--issue N` → validate `N` matches `^[0-9]+$` first; else STOP. Then scan priority order:
 ```bash
-# 1. Find analysis with matching issue number
-ls artifacts/analyses/{N}-*.md* 2>/dev/null | head -1
+# 1. Find analysis with matching issue number (N digit-validated)
+ls artifacts/analyses/"$N"-*.md* 2>/dev/null | head -1
 # 2. Find frame with matching issue in frontmatter
-grep -rl "issue: N" artifacts/frames/ 2>/dev/null | head -1
+grep -rl "issue: $N" artifacts/frames/ 2>/dev/null | head -1
 ```
 
 `--analysis path` / `--frame path` → read directly.
@@ -83,6 +83,14 @@ grep -rl "issue: N" artifacts/frames/ 2>/dev/null | head -1
 No analysis/frame found for #{N}.
 Run /analyze --issue N (or /frame), or re-run with --analysis <path> / --frame <path>.
 ```
+
+**When SRC is α (analysis):** read frontmatter `status`.
+- `status: draft` → **STOP** (default): "Analysis is still draft. Approve via `/analyze` first, or pass `--force` to build on draft."
+- `status: approved` ∨ status key absent (legacy) → proceed.
+- Other tokens → STOP + ask to approve or re-run analyze.
+- `--force` (explicit) → allow draft α with one-line warn in Context.
+
+When SRC is φ only (F-lite / analyze skipped) → no α status check.
 
 Read SRC → extract: title, issue#, tier, **problem/intent**, outcome, appetite, recommended shape (if α).
 - Intent (SRC Problem) → σ `## Intent` + exec summary **Solve**

@@ -2,7 +2,7 @@
 name: dev
 argument-hint: '[#N | "idea" | --from <step> | --audit]'
 description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "work on #" | "develop" | "pick up issue" | "tackle issue" | "let's work on".
-version: 0.3.2
+version: 0.3.3
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
@@ -22,7 +22,8 @@ Let:
   S*   := next step to execute
   φ    := frame artifact
   gate := {frame, spec, plan}
-  adv  := {analyze, implement, pr, ci-watch, validate, review, fix, cleanup}
+  adv  := {implement, pr, ci-watch, validate, review, fix, cleanup}
+  # analyze is adv + approval stop — dispatched like adv but never completed via Σ_s alone
   ψ_r(P) ⟺ P.comments ∃ body: "## Code Review"
   ψ_f(P) ⟺ P.comments ∃ body: "## Review Fixes Applied"
   stale  := scan-state.sh `stale=true|false` — worktree ∃ ∨ local/remote branch matching N ∃ (anchored on N, see scan-state.sh)
@@ -80,14 +81,18 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
 ```
 
-φ / α / σ ∃ → read frontmatter → extract `status` (+ `tier` from φ). `scan-state.sh` emits filenames only; the `status ≠ 'draft'` predicates below are satisfied by reading the artifact, ¬by the helper's truthy line.
+φ / α / σ ∃ → read frontmatter → extract `status` (+ `tier` from φ). `scan-state.sh` emits filenames only; the status predicates below are satisfied by reading the artifact, ¬by the helper's truthy line.
+
+Let α_approved := α ∃ ∧ (α.status == 'approved' ∨ status key absent).  
+# missing status ≡ approved (legacy pre-HITL files). Explicit `draft` or any other token (e.g. consensus-reached) → ¬approved.
 
 Σ = {
   recheck:   null,       # Σ_s only — runs every session, no on-disk state
   frame:     φ ∃ ∧ φ.status == 'approved',
-  analyze:   α ∃ ∧ α.status ≠ 'draft',
+  analyze:   α_approved,
   # Gates must not flip true on draft-only artifacts (chat HITL writes draft before approve).
-  # frame: status: approved. spec + analyze: status: approved (legacy: missing status ≡ approved; only status: draft blocks).
+  # frame + analyze: priced quantity is status == approved (analyze also accepts missing key legacy).
+  # spec: status ≠ draft (legacy missing ≡ approved). plan: ## Task IDs after Step 6 approve.
   # plan: ## Task IDs written only after Step 6 approve (+ seed).
   spec:      σ ∃ ∧ σ.status ≠ 'draft',
   plan:      π ∃ ∧ (## Task IDs section ∃ in π),
@@ -205,9 +210,11 @@ STEPS = [
 ]
 ```
 
-Walk: Σ[step] == true ∨ Σ_s[step] == true ∨ should_skip(step) ⇒ done/skipped, continue. First non-done non-skipped ⇒ S*.
+Walk done/skipped predicate:
+- **status-gated** (analyze): done iff `Σ[step] == true` ∨ should_skip — **ignore `Σ_s` alone**. Session flag cannot complete Shape without durable α_approved.
+- **all other steps:** `Σ[step] == true` ∨ `Σ_s[step] == true` ∨ should_skip.
 
-∀ steps done ⇒ completion banner, exit.
+First non-done non-skipped ⇒ S*. ∀ steps done ⇒ completion banner, exit.
 
 ## Step 6 — Gate Check
 
@@ -279,7 +286,7 @@ Idempotent. **¬** relative `../../../artifacts/` (wrong under `~/.grok/worktree
 |------|-------|------------------|--------------|
 | recheck | adv | `skill: "recheck", args: "--from-dev #N"` | frame |
 | frame | gate | `skill: "frame", args: "{N:+--issue $N}"` | analyze (F-full) ∨ spec (F-lite) |
-| analyze | adv | `skill: "analyze", args: "{N:+--issue $N}"` | spec |
+| analyze | adv + approval stop | `skill: "analyze", args: "{N:+--issue $N}"` | spec **only after** α_approved on disk |
 | spec | gate | `skill: "spec", args: "{N:+--issue $N}"` | plan |
 | plan | gate | `skill: "plan", args: "{N:+--issue $N}"` | implement — via Step 8b compact pause (F-lite/F-full; ¬auto-chain) |
 | implement | adv | `skill: "implement", args: "{N:+--issue $N}"` | pr |
@@ -299,9 +306,13 @@ Idempotent. **¬** relative `../../../artifacts/` (wrong under `~/.grok/worktree
 
 Skill returns → **IMMEDIATELY in the same turn, silently:**
 
-0. **Approval-stop guard** — completed step == `analyze` ∧ the skill ended its turn on its Executive Summary (¬approve reaction yet) → **it has not returned**: skip items 1–2, ¬Step 7, stop this turn. Resume on the user's next message.
+0. **Durable complete gate (analyze)** — if completed step == `analyze`:
+   - Re-read α frontmatter from disk (**not** chat memory).
+   - If ¬α_approved (`status: draft` ∨ any non-approved token) → **has not returned**: skip items 1–2, ¬`Σ_s[analyze]`, ¬Step 7, **stop this turn**.
+   - **Resume contract:** the next user message is `/analyze` **Step 5 React** input (approve / revise / spike / adversarial / advisory) — ¬re-invoke analyze from Step 0, ¬advance to `/spec`. Only after Approve path sets `status: approved` + commit may items 1–2 run (on that later return).
+   - If α_approved → continue to items 1–2.
 1. `TaskUpdate(task_id_map[S*], status: "completed")`
-2. `Σ_s[step] = true`
+2. `Σ_s[step] = true` — for analyze: **only** after item 0 disk assert passed
 3. Goto Step 1 (re-scan Σ)
 4. **Compact pause** (Step 8b) — completed step == plan ∧ τ ∈ {F-lite, F-full} ∧ new S* == implement → present pause, **STOP this turn** (¬Step 7).
 5. Execute Step 7 for new S*
@@ -312,10 +323,11 @@ Skill returns → **IMMEDIATELY in the same turn, silently:**
 **¬summarize** what just happened. The task list reflects state.
 
 Skill fails/aborts → leave task `in_progress` → present choice: **Retry** | **Skip** | **Abort**.
-Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix).
+Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix). **Σ_s never completes analyze** — Walk ignores `Σ_s[analyze]` (status-gated).
 Session restart → Σ_s = ∅ → artifact-less steps re-run. 2b.1 will find the existing tasks (status possibly `completed` from last run) and skip re-seeding.
 gate → re-scan detects updated artifact → Step 6 gate → Step 7 immediately (¬second prompt). **Exception:** completed gate == plan ∧ τ ∈ {F-lite, F-full} → Step 8b compact pause (¬Step 7 this turn).
-adv → re-scan → Step 7 immediately. **Exception:** `analyze` — the skill ends its turn after its Executive Summary awaiting free-form approval. Emitting that summary is **not** a return: ¬`TaskUpdate completed`, ¬`Σ_s[analyze] = true`, ¬Step 7. Resume on the user's next message (α stays `status: draft` until approved, so the Step 1 re-scan agrees).
+adv → re-scan → Step 7 immediately.
+**analyze (adv + approval stop):** Executive Summary without α_approved is **not** a return (item 0). After user Approve path commits `status: approved`, re-scan finds Σ.analyze true → Step 7 → `/spec`.
 
 ## Step 8b — Compact Pause (plan→implement, F-lite/F-full)
 

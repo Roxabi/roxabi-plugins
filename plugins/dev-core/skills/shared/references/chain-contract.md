@@ -43,7 +43,7 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 | dev-pipeline task lifecycle (seed, in_progress, completed, cancelled) | `/dev` |
 | Step transitions (what runs next) | `/dev` Step 5 STEPS list + Step 7 invocation map |
 | Gate approval prompts (frame, spec, plan) | `/dev` Step 6 + the skill itself |
-| Approval-stop prompt (analyze) | the skill itself — chat Executive Summary, no `/dev` pre-gate |
+| Approval-stop prompt (analyze) | the skill itself — chat Executive Summary; `/dev` Step 8.0 re-reads α frontmatter (disk) before complete |
 | Compact pause (plan→implement, F-lite/F-full) | `/dev` Step 8b |
 | Standalone invocation fallback | Each skill's Exit section |
 | Sub-task creation (with `kind` ≠ `dev-pipeline`) | Individual skills (plan, code-review) |
@@ -54,7 +54,7 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 | Class | Meaning | Skills | Exit behavior |
 |---|---|---|---|
 | **adv** | Continuous flow, no user gate | recheck, implement, pr, ci-watch, validate, cleanup | Return silently; `/dev` auto-advances |
-| **adv + approval stop** | Dispatched as `adv` (`/dev`'s step type is single-valued), but ends its turn on a chat Executive Summary awaiting free-form approval | analyze | Print summary → **stop the turn** (¬return). Emitting the summary is not a return: `/dev` must not mark the step completed or set `Σ_s`. On approve → set `status: approved`, commit, return silently. Protection is the artifact's `status:` marker, not the class. |
+| **adv + approval stop** | Dispatched like `adv`, but ends its turn on a chat Executive Summary awaiting free-form approval | analyze | Print summary → **stop**. `/dev` Step 8.0: re-read α; complete only if α_approved (`status == 'approved'` ∨ status key absent). Walk **ignores `Σ_s[analyze]` alone**. Resume = Step 5 React (¬fresh Step 0). |
 | **gate** | User approval of artifact required | frame, spec, plan | Present artifact → on approve, return silently; `/dev` auto-chains to successor (**plan exception:** compact pause before `/implement` — see below) |
 | **verdict** | Branches based on outcome | code-review | APPROVED → merge → cleanup; CHANGES_REQUESTED → `/fix` |
 | **loop** | Cycles back to predecessor (bounded) | fix | On success → TaskCreate follow-up review; max 2 iterations |
@@ -66,7 +66,7 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 
 - **Created by:** `/dev` Step 2b at the start of a pipeline run
 - **Updated by:** `/dev` only — Step 7 sets `in_progress` before invocation, Step 8 sets `completed` on success
-  - **Exception (`adv + approval stop`):** a skill that ends its turn awaiting approval has not succeeded yet. `/dev` leaves the task `in_progress` and sets `completed` only after the approve reaction. Currently: `analyze`.
+  - **Exception (`adv + approval stop`):** a skill that ends its turn awaiting approval has not succeeded yet. `/dev` leaves the task `in_progress` and sets `completed` only after α_approved on disk (approve reaction). Currently: `analyze`.
 - **NOT updated by:** individual pipeline skills (they are passive participants)
 - **Metadata:** `{ kind: "dev-pipeline", issue: N, step: "...", phase: "Frame|Shape|Build|Verify|Ship", tier: τ }`
 - **Dependencies:** wired sequentially via `blockedBy` during seeding (graph is a DAG, no cycles)
@@ -123,10 +123,11 @@ fix-iter-2 (dev-pipeline)
 
 The Executive Summary is always printed (incl. under `/dev`) — it is the gate output, not a closing recap.
 
-- **While waiting for reaction:** turn ends after the summary. Task stays `in_progress`; `/dev` must not advance.
-- **Approved via `/dev`:** set `status: approved`, commit, return silently. ¬second summary. `/dev` re-scans and advances.
+- **While waiting for reaction:** turn ends after the summary. Task stays `in_progress`; `/dev` Step 8.0 disk-asserts ¬α_approved → ¬Σ_s, ¬completed.
+- **Resume:** next user message → analyze Step 5 React only (¬fresh Step 0) unless re-analyze.
+- **Approved via `/dev`:** set `status: approved`, commit, return silently. `/dev` re-reads α_approved → completes step → `/spec`.
 - **Approved standalone:** print one line with next-skill hint. Stop.
-- **Revise loop:** re-print the summary after each edit; stop again.
+- **Revise / side-path loop:** re-print the summary after each edit; stop again.
 - **Abort:** return → `/dev` marks task `cancelled` (artifact stays `status: draft` on disk).
 ```
 
