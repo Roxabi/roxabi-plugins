@@ -86,8 +86,11 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
   recheck:   null,       # Σ_s only — runs every session, no on-disk state
   frame:     φ ∃ ∧ φ.status == 'approved',
   analyze:   analysis artifact ∃,
-  spec:      spec artifact ∃,
-  plan:      plan artifact ∃,
+  # Gates must not flip true on draft-only artifacts (chat HITL writes draft before approve).
+  # frame: status: approved. spec: status: approved (legacy: missing status ≡ approved; only status: draft blocks).
+  # plan: ## Task IDs written only after Step 6 approve (+ seed).
+  spec:      σ ∃ ∧ σ.status ≠ 'draft',
+  plan:      π ∃ ∧ (## Task IDs section ∃ in π),
   implement: worktree ∃ (branch-first: non-principal ω on feat/{N}-* — Claude path, Grok ~/.grok/worktrees, or legacy) ∧ git -C ω diff --name-only origin/${BASE}..HEAD | grep -v '^artifacts/' is non-empty,
   pr:        PR ∃,
   ci-watch:  null,       # Σ_s only
