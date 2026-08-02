@@ -2,7 +2,7 @@
 name: spec
 argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit]'
 description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build" | "design the solution" | "acceptance criteria" | "define acceptance criteria" | "spec it out" | "write the spec".
-version: 0.3.0
+version: 0.3.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -84,7 +84,10 @@ No analysis/frame found for #{N}.
 Run /analyze --issue N (or /frame), or re-run with --analysis <path> / --frame <path>.
 ```
 
-Read SRC → extract: title, issue#, tier, problem, outcome, appetite, recommended shape (if α).
+Read SRC → extract: title, issue#, tier, **problem/intent**, outcome, appetite, recommended shape (if α).
+- Intent (SRC Problem) → σ `## Intent` + exec summary **Solve**
+- Outcome → σ `## Goal` + exec summary **Done when**
+- Problem empty/sparse → Intent from title + outcome (1–2 lines), or χ if still unclear — ¬invent a problem SRC never stated
 
 ### 0b. Ensure GitHub Issue
 
@@ -104,7 +107,7 @@ Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*`.
 
 | State | Action |
 |-------|--------|
-| ∃ σ ∧ `status: approved` | **Reuse.** Print short note + full **Executive Summary** of existing σ → Step 5/6 (chat: approve to keep & continue pipeline, or "re-spec" / changes). ¬regenerate unless user asks. |
+| ∃ σ ∧ `status: approved` | **Reuse.** Print short note + **lean Executive Summary** (Step 5 structure + hard caps) of existing σ → Step 5/6 (chat: approve to keep & continue pipeline, or "re-spec" / changes). ¬regenerate unless user asks. |
 | ∃ σ ∧ draft / no status | Load as base → Step 2 refine (fill gaps, re-check) |
 | ¬∃ σ | Step 2 generate fresh |
 
@@ -129,13 +132,16 @@ Write σ with `status: draft`. Must include:
 | Section | Skip if |
 |---------|---------|
 | `## Context` — source + promoted-from link | — |
-| `## Goal` — one-sentence outcome | — |
+| `## Intent` — what we seek to solve (pain / gap / broken invariant) + why now | — |
+| `## Goal` — one-sentence observable outcome | — |
 | `## Users` — who is affected | — |
 | `## Expected Behavior` — narrative walkthrough | — |
 | `## Data Model & Consumers` — prose types + optional consumer table (markdown only) | Tier S |
 | `## Breadboard` — affordance tables + wiring | Tier S |
 | `## Slices` — vertical increments table | Tier S |
 | `## Success Criteria` — `- [ ]` checkboxes, each binary | — |
+
+**Intent ≠ Goal.** Intent = *why / what problem*. Goal = *done-when*. Never collapse into one sentence.
 
 ### Data Model & Consumers (Tier F-lite, F-full)
 
@@ -196,58 +202,49 @@ Incorporate high-confidence feedback into σ. Unresolved expert concerns → lis
 
 Open σ for the user: `code artifacts/specs/{N}-{slug}-spec.md` (or print path if `code` unavailable).
 
-Print **exactly this structure** (fill from σ + Steps 3–4). This is the HITL surface — keep it scannable, not a paste of the whole file:
+Print **exactly this structure** (fill from σ + Steps 3–4). HITL surface — **scannable in ≤30s**, not a paste of σ.
+
+**Hard size caps (enforce):**
+- Intent block: ≤4 short lines total
+- Scope In / Out: ≤4 / ≤3 one-line bullets
+- Criteria: first **5** only; if more → `+{n} in file`
+- Experts: ≤3 bullets or `clean`
+- Forbidden in summary: Expected Behavior narrative, breadboard tables, full criteria dump
 
 ```markdown
 ## Spec — Executive Summary
 
-**Issue:** #{N} — {title}
-**Path:** `artifacts/specs/{N}-{slug}-spec.md`
-**Tier:** {τ} · **Status:** draft
-**Source:** {α|φ path}
+**#{N}** — {title}
+`artifacts/specs/{N}-{slug}-spec.md` · **{τ}** · draft · src `{α|φ short path}`
 
-### One-liner
-{Goal — one sentence}
+### Intent
+**Solve:** {1–2 sentences — pain / gap / broken invariant we fix; why now}
+**Done when:** {Goal — one observable outcome sentence}
+**Today → Target:** {optional one-liner each; omit if obvious}
 
 ### Scope
-- **In:** {3–6 bullets from Goal / Expected Behavior / Slices}
-- **Out:** {from Context / explicit non-goals, or "—"}
+- **In:** {≤4 one-line bullets}
+- **Out:** {≤3 one-line bullets, or "—"}
+- **Who:** {primary (+ secondary) — one line}
 
-### Users
-{Primary (+ secondary if any) — one line each}
-
-### Slices
-| # | Slice | Demo value |
-|---|-------|------------|
+### Delivery
+| # | Slice | Demo |
+|---|-------|------|
 | V1 | … | … |
-| V2 | … | … |
 
-(or "— (Tier S / no slices)" )
+(or "— (Tier S)" )
 
-### Success criteria ({count})
-1. …
-2. …
-(list all binary criteria; if >12, list first 10 + "… +{n} more in file")
+**Criteria ({n}):** 1) … 2) … 3) … 4) … 5) … {if n>5: `+{n-5} in file`}
+**χ ({n}):** {each short, or "none"}
 
-### Open / χ ({count})
-- {each NEEDS CLARIFICATION, or "none"}
-
-### Pre-check
-{pass | N failed — bullets}
-
-### Expert notes
-{0–5 bullets of unresolved concerns, or "clean"}
-
-### Data model
-{1–3 lines from §Data Model & Consumers, or "—"}
+### Gates
+**Pre-check:** {pass | fail — ≤3 bullets}
+**Experts:** {clean | ≤3 unresolved}
+**Data model:** {1–2 lines from §Data Model & Consumers, or "—"}
 
 ---
 **Your move (free text — no menu):**
-- approve / ok / ship → commit & mark approved
-- change … / drop slice V2 / tighten criterion 3 → I revise σ and re-print this summary
-- question … → I answer; revise only if you ask
-- re-spec → regenerate from SRC
-- split → propose smart-split (if criteria/slices large)
+approve / ok → commit + mark approved · change … → revise + re-print · question … → answer · re-spec · split
 ```
 
 **STOP this turn** after printing the summary. Do not commit. Do not invoke `/plan`. Do not AskUserQuestion.

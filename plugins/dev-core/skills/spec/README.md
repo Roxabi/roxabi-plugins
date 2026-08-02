@@ -25,7 +25,7 @@ Triggers: `"write spec"` | `"spec this"` | `"solution design"` | `"acceptance cr
 2. **Generate** — promote SRC → σ without interactive `/interview` AQs; unknowns become `[NEEDS CLARIFICATION]`.
 3. **Pre-check** — binary criteria, breadboard refs, χ budget, slice coverage; auto-fix cheap issues.
 4. **Expert review** — architect, doc-writer, product-lead, adversarial (devops/axial when relevant) in parallel.
-5. **Executive Summary** — one-liner, scope, users, slices, criteria, χ, pre-check, expert notes — then **stop**.
+5. **Executive Summary (lean)** — Intent (Solve + Done when) → Scope → Delivery → Gates; ≤30s scan; hard caps (≤5 criteria, ≤4 In bullets) — then **stop**.
 6. **React** — natural language: approve · change X · questions · re-spec · split. Revise loops re-print the summary.
 
 ## Output artifact
@@ -34,7 +34,7 @@ Triggers: `"write spec"` | `"spec this"` | `"solution design"` | `"acceptance cr
 artifacts/specs/{N}-{slug}-spec.md
 ```
 
-Sections: Context, Goal, Users, Expected Behavior, Data Model & Consumers (markdown prose + optional consumer table — no HTML sidecars), Breadboard, Slices, Success Criteria.
+Sections: Context, **Intent** (what we solve), Goal (done-when), Users, Expected Behavior, Data Model & Consumers (markdown prose + optional consumer table — no HTML sidecars), Breadboard, Slices, Success Criteria.
 
 ## Chain position
 
