@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, EnterWorktree, ExitWorktree, ToolSearch
 
 # Git Cleanup
 
-Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging) | safe(β) ⟺ fully_merged(β) ∧ ¬π(β) | merged(β) := regular_merge(β) ∨ squash_merge(β) | N := scope issue number (∅ if unscoped) | orphan_shell := leftover path under `~/.grok/worktrees/<slug>/` or `.claude/worktrees/` that is **not** in `git worktree list` (empty parent, unregistered content, or `worktrees.db` row with missing path)
+Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging) | safe(β) ⟺ fully_merged(β) ∧ ¬π(β) | merged(β) := regular_merge(β) ∨ squash_merge(β) | N := scope issue number (∅ if unscoped) | orphan_shell := leftover path under `~/.grok/worktrees/<slug>/` or `.claude/worktrees/` that is **not** in `git worktree list` (empty parent, unregistered content, or `worktrees.db` row with missing path) | principal := main checkout (must remain on Π — feature work lives only in ω; see harness-worktree.md)
 
 Safely clean local β, ω, and remote branches with **mandatory merge-status verification** before any deletion. End-of-session sweep also strips stuck pipeline labels from closed PRs, cancels long-queued CI runs, and surfaces **orphan worktree shells** that git no longer tracks.
 

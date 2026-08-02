@@ -2,7 +2,7 @@
 name: dev
 argument-hint: '[#N | "idea" | --from <step> | --audit]'
 description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "work on #" | "develop" | "pick up issue" | "tackle issue" | "let's work on".
-version: 0.3.1
+version: 0.3.2
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
@@ -26,6 +26,8 @@ Let:
   ψ_r(P) ⟺ P.comments ∃ body: "## Code Review"
   ψ_f(P) ⟺ P.comments ∃ body: "## Review Fixes Applied"
   stale  := scan-state.sh `stale=true|false` — worktree ∃ ∨ local/remote branch matching N ∃ (anchored on N, see scan-state.sh)
+  ω    := non-principal worktree on `feat/{N}-*` (branch-first detect — [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md))
+  β    := base branch; **principal always stays on β** (¬checkout feat in default folder)
   bar   := output must read as hand-authored by a dev-core maintainer — match surrounding idiom, naming, comment density; calibrate against `plugins/dev-core/`; QG (format/lint/typecheck/test) = mechanical floor, ¬the bar
 
 Single entry point: scan artifacts → detect state → show progress → delegate to step skill → loop.
@@ -86,7 +88,7 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
   analyze:   analysis artifact ∃,
   spec:      spec artifact ∃,
   plan:      plan artifact ∃,
-  implement: worktree ∃ (path: `.claude/worktrees/{N}-*` ∨ legacy `../${REPO}-{N}`) ∧ git diff --name-only origin/${BASE}..HEAD | grep -v '^artifacts/' is non-empty,
+  implement: worktree ∃ (branch-first: non-principal ω on feat/{N}-* — Claude path, Grok ~/.grok/worktrees, or legacy) ∧ git -C ω diff --name-only origin/${BASE}..HEAD | grep -v '^artifacts/' is non-empty,
   pr:        PR ∃,
   ci-watch:  null,       # Σ_s only
   validate:  null,       # Σ_s only
@@ -239,9 +241,14 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 
 ## Step 7 — Execute Step
 
-**Worktree bootstrap (silent pre-step):** `worktree` == false ∧ S* ∈ {frame, analyze, spec, plan, implement} → invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first. After return, re-scan `worktree`. Still false → present choice: **Retry** | **Abort**.
+**Worktree bootstrap (silent pre-step):** `worktree` == false ∧ S* ∈ {frame, analyze, spec, plan, implement} → invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first (ensures BRANCH linked + ω; **principal stays on β**). After return, re-scan `worktree` + `principal_ok`. Still false or `principal_ok=false` → present choice: **Retry** | **Abort**. SSoT: [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md).
 
-**Artifact sync (post-bootstrap):** If S* ∈ {frame, analyze, spec, plan} and the repo principal has artifacts that the worktree lacks (e.g. from a prior standalone run) → `rsync -a ../../../artifacts/ ./artifacts/` (idempotent, preserves future commits).
+**Artifact sync (post-bootstrap):** If S* ∈ {frame, analyze, spec, plan} and principal has artifacts that ω lacks → absolute rsync (path-agnostic — works for Claude *and* Grok layouts):
+```bash
+# PRINCIPAL + WT_PATH from scan-state.sh
+rsync -a "${PRINCIPAL}/artifacts/" "${WT_PATH}/artifacts/"
+```
+Idempotent. **¬** relative `../../../artifacts/` (wrong under `~/.grok/worktrees/…`).
 
 **Before invocation:** `TaskUpdate(task_id_map[S*], status: "in_progress")`. ¬∃ id → `TaskCreate` on-the-fly (drift safety net: a step not seeded in 2b that became active later).
 

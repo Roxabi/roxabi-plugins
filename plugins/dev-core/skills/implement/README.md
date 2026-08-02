@@ -19,7 +19,7 @@ Triggers: `"implement"` | `"build this"` | `"execute plan"` | `"start coding"` |
 ## How it works
 
 1. **Locate plan** — reads the plan artifact; probes host task tools (Claude `Task*` / Grok `todo_write` / artifact-only) and attaches or re-seeds accordingly.
-2. **Setup** — creates a worktree at `.claude/worktrees/{N}-{slug}`, checks out a feature branch from base (staging or main), runs `install`.
+2. **Setup** — ensures `feat/{N}-{slug}` linked to the issue; creates a **non-principal** worktree on that branch (Claude: `.claude/worktrees/…`; Grok: harness path under `~/.grok/worktrees/…`). Principal checkout stays on staging/main. Runs `install` inside the worktree.
 3. **Context injection** (F-tier) — injects relevant standards docs into each agent's prompt.
 4. **Implement**:
    - **Tier S** — lead implements directly, single session, no agent spawning.

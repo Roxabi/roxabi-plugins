@@ -177,11 +177,15 @@ Skip if ¬technical uncertainty in Step 2 findings.
 
 ∃ signals → present choice **Spike now** (throwaway worktree, test hypothesis) | **Skip** (→ expert review).
 
-**Spike flow:**
-1. `EnterWorktree(name: "spike-{N}")` — creates isolated throwaway worktree on branch `spike-{N}`
-2. Investigate: minimal code, isolated test, confirm/reject hypothesis
-4. Report findings → incorporate into α
-5. `ExitWorktree(action: "remove", discard_changes: true)` — clean up throwaway worktree
+**Spike flow** (principal stays on β — [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md)):
+
+1. Create throwaway ω on branch `spike-{N}` **without** switching principal:
+   - H_wt claude-enter: `EnterWorktree(name: "spike-{N}")` if supported, else `git worktree add` under `.claude/worktrees/spike-{N}`
+   - H_wt harness-default: `git worktree add "$(suggested_grok_worktree_path "" "spike-${N}")" -b "spike-${N}"` (or from β)
+2. Investigate **inside ω only**: minimal code, isolated test, confirm/reject hypothesis
+3. Report findings → incorporate into α
+4. Teardown: `ExitWorktree(action: "remove", discard_changes: true)` **or** `git worktree remove --force "$SPIKE_PATH"` + `git branch -D spike-{N}`
+5. Assert principal still on β
 
 See [references/investigation.md](${CLAUDE_SKILL_DIR}/references/investigation.md) if ∃, else use inline flow above.
 

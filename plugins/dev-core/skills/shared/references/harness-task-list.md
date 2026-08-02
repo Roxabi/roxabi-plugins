@@ -87,4 +87,5 @@ Work only from π micro-tasks table. Present progress in the reply. No host list
 ## Related
 
 - Call shape (rich path): [`plan-task-schema.md`](plan-task-schema.md)
+- Worktree dual-harness (principal freeze + H_wt): [`harness-worktree.md`](harness-worktree.md)
 - Dual harness install notes: `dev-init` skill « Dual harness »
