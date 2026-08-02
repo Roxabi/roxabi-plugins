@@ -1,7 +1,7 @@
 {
   "name": "dev-core",
-  "version": "0.10.5",
-  "description": "Full development workflow — frame, shape, plan, implement, review, ship. Skills + agents (incl. adversarial), dual-harness task list + worktrees, safety hooks (Claude + Grok).",
+  "version": "0.10.7",
+  "description": "Full development workflow — frame, shape, plan, implement, review, ship. Skills + agents (incl. /adversarial, /advisory), dual-harness task list + worktrees, safety hooks (Claude + Grok).",
   "author": {
     "name": "Roxabi"
   }

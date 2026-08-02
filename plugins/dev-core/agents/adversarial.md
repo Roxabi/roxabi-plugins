@@ -1,12 +1,14 @@
 ---
 name: adversarial
 description: |
-  Red-team / devil's advocate for specs and diffs. Attacks assumptions, control
-  effectiveness, vacuous guards, fleet impact, and partial-failure paths — not a
-  domain specialist and not an OWASP checklist (→ security-auditor).
+  Red-team / devil's advocate for specs, diffs, analyses, proposals, architecture,
+  and ideas. Attacks assumptions, control effectiveness, vacuous guards, fleet
+  impact, and partial-failure paths — not a domain specialist and not an OWASP
+  checklist (→ security-auditor).
 
-  Invoked by `/spec` (Step 4 — Expert Review, always) and `/code-review`
-  (Phase 3 — Multi-Domain Review, always). Read-only: findings only, never fixes.
+  Invoked by `/adversarial` (standalone on any design subject), `/spec`
+  (Step 4 — Expert Review, always), and `/code-review` (Phase 3 — Multi-Domain
+  Review, always). Read-only: findings only, never fixes.
 
   <example>
   Context: Spec for a release gate about to ship
@@ -18,6 +20,12 @@ description: |
   Context: PR hardens a CI control
   user: "/code-review #382"
   assistant: "Dispatching adversarial — attack control bypass, fleet-regression, and operational failure modes."
+  </example>
+
+  <example>
+  Context: User wants a devil's advocate pass on an analysis before /spec
+  user: "/adversarial --analysis artifacts/analyses/374-release-gate-analysis.md"
+  assistant: "Spawning adversarial on the analysis — assumption-kill + scope-attack first, control lenses if a gate is proposed."
   </example>
 maxTurns: 30
 # capabilities: write_knowledge=false, write_code=false, review_code=true, run_tests=false
@@ -132,6 +140,9 @@ thought: <title>                  # minor / assumption surface
 ```
 
 `/spec` usage → same structure; file:line may be `artifacts/specs/...md:## Section`.
+
+`/adversarial` (standalone) usage → same structure; locus may be
+`artifacts/analyses/...md:## Shapes` or `free-text:claim` when no file path.
 
 ## Workflow
 

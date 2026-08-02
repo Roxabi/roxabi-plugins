@@ -1,6 +1,6 @@
 # dev-core
 
-Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 31 skills, 9 specialized agents, and safety hooks.
+Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 33 skills, 9 specialized agents, and safety hooks.
 
 ## Prerequisites
 
@@ -72,7 +72,7 @@ Main entry points:
 
 ## Skills
 
-31 skills organized by workflow phase:
+33 skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
@@ -89,6 +89,8 @@ Main entry points:
 | `frame` | Frame | Creates initial feature frame from issue |
 | `analyze` | Shape | Deep analysis with expert consultation |
 | `consensus` | Shape | Multi-expert panel — spawns 3 domain agents (architect + 2 context-selected) to debate and agree on best long-term solution |
+| `adversarial` | Shape | Standalone red-team on analyses, proposals, architecture, ideas, specs, plans — kill claims via bypass / assumption / scope lenses |
+| `advisory` | Shape | Constructive expert second opinion (architect + product-lead [+ optional domain]) — keep / strengthen / prioritize next moves |
 | `spec` | Shape | Generates specifications with smart splitting |
 | `interview` | Shape | Interactive requirements gathering |
 | `plan` | Build | Creates implementation plan with micro-tasks |
@@ -129,7 +131,7 @@ Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, 
 | `tester` | Writes and runs tests, manages RED-GATE |
 | `fixer` | Applies accepted review findings |
 | `security-auditor` | OWASP Top 10 audit with exploit scenarios, confidence scoring (C ≥ 60), and false-positive filtering |
-| `adversarial` | Red-team for `/spec` + `/code-review`: bypass, fleet-regression, vacuous guards, assumption-kill (read-only) |
+| `adversarial` | Red-team for `/adversarial` + `/spec` + `/code-review`: bypass, fleet-regression, vacuous guards, assumption-kill (read-only) |
 
 ### Strategy
 
