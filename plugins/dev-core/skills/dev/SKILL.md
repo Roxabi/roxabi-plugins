@@ -214,6 +214,7 @@ Walk: Σ[step] == true ∨ Σ_s[step] == true ∨ should_skip(step) ⇒ done/ski
 | Gate trigger | Behavior |
 |-------------|----------|
 | S* == frame (¬Σ.frame) | **no pre-gate AQ** — invoke `/frame` immediately. Skill auto-reuses approved, auto-continues draft, auto-approves when seed has no gaps; AQ only on real gaps. |
+| S* == analyze (Σ.frame ∧ ¬Σ.analyze ∧ τ == F-full) | No pre-gate. `/analyze` self-manages a **chat Executive Summary** stop (¬AskUserQuestion); free-form approve/revise in next turn, then re-scan → `/spec`. |
 | S* == spec (Σ.frame ∧ ¬Σ.spec) | Gate after `/spec`: **chat Executive Summary** (¬AskUserQuestion). Free-form approve/revise in next turn, then re-scan → `/plan`. |
 | S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ == F-full | Architecture sketch (see block below) → user confirm → THEN invoke /plan. ¬fires for τ ∈ {S, F-lite}. |
 | S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ ∈ {S, F-lite} | Gate after plan runs (inside `/plan`) |

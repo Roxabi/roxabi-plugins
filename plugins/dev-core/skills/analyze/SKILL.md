@@ -2,7 +2,7 @@
 name: analyze
 argument-hint: '[--issue <N> | --frame <path>]'
 description: Deep technical analysis — explore existing code, risks, alternatives. Triggers: "analyze" | "technical analysis" | "explore the problem" | "how deep is it" | "deep dive" | "investigate this" | "analyze this feature" | "what are the risks" | "explore the codebase" | "look into this".
-version: 0.3.0
+version: 0.4.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch
 ---
 
@@ -10,18 +10,32 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree,
 
 ## Success
 
-I := α written ∧ committed ∧ shapes ∃
-V := `git log --oneline -1 | grep analysis` ∧ `ls artifacts/analyses/{N}-*.md*`
+I := α written ∧ executive summary shown ∧ shapes ∃ ∧ (approved → committed)
+V := `ls artifacts/analyses/{N}-*.md*` ∧ (on approve) `git log --oneline -1 | grep analysis`
 
 Let:
   α := artifacts/analyses/{N}-{slug}-analysis.md
   φ := artifacts/frames/{slug}-frame.md
   ρ := expert reviewer set
   Ω := `skill: "interview"`
-  Q := present choice, wait for user reply
+  χ := open unknown (unresolved question blocking shape choice)
 
-Frame → analysis. Codebase exploration → expert review → user approval gate.
+Frame → codebase exploration → expert review → **executive summary in chat** → free-form human reaction.
 ¬spec, ¬worktree. Shape phase only. Spec → `/spec`.
+
+## Hard ban — AskUserQuestion
+
+**Never call AskUserQuestion / `present choice` / multi-select tool prompts in this skill.**
+
+Human-in-the-loop is **chat-native** (same doctrine as `/spec`):
+1. Do the exploration.
+2. Print a clear **Executive Summary**.
+3. **Stop this turn** and wait for the user's free-form reply.
+4. Interpret natural language (approve / prefer shape 2 / question / spike X / re-analyze) and act.
+
+No button menus. No forced option lists. Missing information → write it into the summary as χ — do not quiz via AQ.
+
+Exception: the structured `/interview` in Step 2b keeps its own question flow (it is the elicitation engine, not a gate).
 
 ## Entry
 
@@ -37,15 +51,16 @@ Frame → analysis. Codebase exploration → expert review → user approval gat
 | 0 | resolve | ✓ | φ ∃ | — |
 | 1 | scan | — | α ∃? | — |
 | 2 | explore | ✓ | α written | Glob+Grep+interview |
-| 2.5 | investigate | — | hypothesis resolved | optional spike |
-| 3 | review | — | agents return | ∥ spawn |
-| 4 | approval | ✓ | `git log` shows commit | gate |
+| 2.5 | investigate | — | hypothesis resolved | optional spike; ¬AQ |
+| 3 | review | — | agents return | ∥ spawn; auto-select ρ |
+| 4 | summary | ✓ | exec summary shown | **stop turn** — wait for chat |
+| 5 | react | ✓ | free-form | approve → commit; else revise loop |
 
 ## Pre-flight
 
-Success: α written ∧ committed ∧ shapes ∃
+Success: α written ∧ exec summary shown ∧ (approved → committed)
 Evidence: `git log --oneline -1 | grep analysis`
-Steps: resolve → scan → explore → review → approval
+Steps: resolve → scan → explore → review → summary → react
 ¬clear → STOP + ask: "Is this technical analysis or framing?"
 
 ## Step 0 — Resolve Input
@@ -63,15 +78,20 @@ ls artifacts/frames/*.md* 2>/dev/null
 `--frame path` → read directly.
 ¬φ found → ask user "No frame doc found. Run `/frame --issue N` first, or provide path directly?"
 
-Read φ → extract: `title`, `issue`, `tier`, problem statement, constraints.
+Read φ → extract: `title`, `issue`, `tier`, **problem statement**, outcome, constraints.
+- Problem (φ) → α `## Problem` + exec summary **Solve**
+- Outcome (φ) → α `## Outcome` + exec summary **Done when**
+- Problem empty/sparse → derive from title + constraints (1–2 lines), or list as χ — ¬invent a problem φ never stated
 
 ## Step 1 — Scan Existing Analysis
 
 Glob `artifacts/analyses/*` — match issue# or slug from φ.
 
-∃ α:
-- `type: brainstorm` ∈ frontmatter → treat as brainstorm (¬analysis), offer to promote.
-- → present choice **Reuse existing** (→ Step 3) | **Start fresh**
+| State | Action |
+|-------|--------|
+| ∃ α ∧ `type: brainstorm` ∈ frontmatter | ¬analysis — say so in one line, use as seed → Step 2 (promote via interview) |
+| ∃ α (analysis) | **Reuse.** Print short note + **lean Executive Summary** (Step 4 structure + hard caps) of existing α → Step 4/5 (chat: approve to keep & continue pipeline, or "re-analyze" / changes). ¬regenerate unless user asks. |
+| ¬∃ α | Step 2 explore fresh |
 
 ## Step 2 — Codebase Exploration + Interview
 
@@ -175,7 +195,9 @@ Skip if ¬technical uncertainty in Step 2 findings.
 
 **Signals:** unfamiliar 3rd-party behavior | undocumented internal APIs | performance unknowns | conflicting docs.
 
-∃ signals → present choice **Spike now** (throwaway worktree, test hypothesis) | **Skip** (→ expert review).
+∃ signals → **¬AQ**. Decide:
+- unknown blocks shape selection (cannot rank shapes without it) → run the spike now, one prose line saying why
+- else → continue to Step 3; carry the unknown as χ into the Executive Summary. User can request it later with `spike …` (Step 5).
 
 **Spike flow** (principal stays on β — [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md)):
 
@@ -200,43 +222,99 @@ Auto-select ρ (¬ask user):
 | architect | ∃ arch / trade-offs / multi-domain | Technical soundness, shape feasibility |
 | devops | ∃ CI/CD / deploy / infra | Operational impact |
 
-∀ r ∈ ρ → spawn ∥ `Task(subagent_type: "<r>", prompt: "Review α for <focus>. Return: good / needs improvement / concerns.")`.
+∀ r ∈ ρ → spawn ∥ `Task(subagent_type: "dev-core:<r>", prompt: "Review α for <focus>. ¬TaskCreate. Return: good / needs improvement / concerns + specific line references.")`.
 
-Incorporate feedback → revise α → note unresolved concerns.
+Incorporate high-confidence feedback into α. Unresolved expert concerns → list in Executive Summary (not AQ).
 
-## Step 4 — User Approval
+## Step 4 — Executive Summary (always)
 
-Open α: `code artifacts/analyses/{N}-{slug}-analysis.md`.
+Open α for the user: `code artifacts/analyses/{N}-{slug}-analysis.md` (or print path if `code` unavailable).
 
-Present summary: shapes found, trade-offs, recommended shape, unresolved concerns.
+Print **exactly this structure** (fill from α + Steps 2–3). HITL surface — **scannable in ≤30s**, not a paste of α.
 
-→ present choice **Approve** → update issue status → done | **Revise** → collect feedback → revise α → loop from Step 3.
+**Hard size caps (enforce):**
+- Intent block: ≤4 short lines total
+- Options: one row per shape (2–3 max), every cell ≤1 line
+- Recommendation: ≤3 lines
+- Evidence / χ / Experts: ≤3 bullets each (or `none` / `clean`)
+- Forbidden in summary: verbatim Source quote, full Pro/Con lists, file dumps, diagram markup
 
-On approval → commit: `git add artifacts/analyses/{N}-{slug}-analysis.md artifacts/visuals/` + commit per CLAUDE.md Rule 5.
+```markdown
+## Analysis — Executive Summary
 
+**#{N}** — {title}
+`artifacts/analyses/{N}-{slug}-analysis.md` · **{τ}** · src `{φ short path}`{ · visuals: `shapes.html` `data-flow.html` if ∃}
+
+### Intent
+**Solve:** {1–2 sentences — what is broken / missing today; why now}
+**Done when:** {Outcome — one observable sentence, ¬solution}
+**Appetite:** {time budget}
+
+### Options
+| # | Shape | Bet | Scope | Verdict |
+|---|-------|-----|-------|---------|
+| 1 | {name} | {what it buys — one line} | {XS…XL} | ✓ recommended |
+| 2 | {name} | … | … | ✗ {killed by: constraint} |
+
+### Recommendation
+**{shape name}** — {1–2 sentences: why it fits appetite + constraints}
+**Trade-off accepted:** {the main con we take on}
+
+### Gates
+**Evidence:** {≤3 bullets — files/patterns found, spike result, files-impacted count}
+**χ ({n}):** {each short, or "none"}
+**Experts:** {clean | ≤3 unresolved}
+
+---
+**Your move (free text — no menu):**
+approve / ok → commit + advance · shape 2 / change … → revise + re-print · question … → answer · spike {unknown} · re-analyze
+```
+
+**STOP this turn** after printing the summary. Do not commit. Do not invoke `/spec`. Do not AskUserQuestion.
+
+## Step 5 — React (free-form chat)
+
+On the user's next message, interpret intent (no AQ):
+
+| Intent signals (examples) | Action |
+|---------------------------|--------|
+| approve, ok, LGTM, go, good, looks good | → **Approve path** |
+| shape 2 / prefer … / change / drop / add / reframe the trade-off | Edit α (incl. Fit Check + sidecars) → re-print Executive Summary → **stop again** |
+| question / why / what about / clarify … | Answer in chat; revise α only if they also request a change |
+| spike … / test that / prove it | Run Step 2.5 spike → fold findings into α → re-print summary → **stop again** |
+| re-analyze / start over / regenerate | Re-run from Step 2 (fresh exploration + interview) |
+| abort / stop / cancel | Stop; leave α on disk; return cancel to `/dev` if applicable |
+
+Ambiguous free text → ask **one short prose clarifying question** in the message (plain text). Still ¬AskUserQuestion.
+
+### Approve path
+
+1. Commit: `git add artifacts/analyses/{N}-{slug}-analysis.md artifacts/visuals/` + commit per CLAUDE.md Rule 5.
+2. Update issue status:
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Analysis
 ```
-
-Inform: "Analysis complete. Run `/spec --issue <N>` to generate the solution spec."
+3. Exit per Exit section.
 
 ## Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| No frame found | → ask user run `/frame` first or provide path |
-| ∃ brainstorm (¬analysis) | Treat as no analysis — offer to promote via interview |
-| ∃ analysis, user picks reuse | Present existing → jump to Step 3 |
-| Expert subagent fails | Report error, continue without that reviewer |
-| Tier S | Skip Shapes + Fit Check |
-| Frame lacks appetite | Ask user during interview Phase 1 |
+| No frame found | Prose stop + how to provide φ (`/frame --issue N` or `--frame path`) |
+| ∃ brainstorm (¬analysis) | Treat as seed, promote via interview (¬AQ) |
+| ∃ analysis | Reuse + exec summary; re-analyze on request |
+| Expert subagent fails | Report under **Experts**; continue without that reviewer |
+| Tier S | Skip Shapes + Fit Check → Options table = `— (Tier S)` |
+| Frame lacks appetite | Ask during interview Phase 1; still unknown → **Appetite:** `unset` + χ |
+| Only 1 viable shape | Options table with 1 row + one line saying why alternatives died |
+| \|χ\| > 3 | List top 3 in summary + `+{n-3} in file` |
 
 ## Chain Position
 
 - **Phase:** Shape
 - **Predecessor:** `/frame` (artifact: `artifacts/frames/{N}-{slug}-frame.md`)
 - **Successor:** `/spec`
-- **Class:** adv (continuous flow, no gate — user approves α inline in Step 4, not a pipeline gate)
+- **Class:** `adv` — `/dev`'s type system is single-valued per step (`gate ∈ {frame, spec, plan}`, all others `adv`). The **chat Executive Summary** stop is *skill-internal* (same shape as `/spec`'s gate, same shape as `/recheck`'s self-managed block). From `/dev`'s perspective, `/analyze` stays `adv`.
 
 ## Task Integration
 
@@ -246,8 +324,13 @@ Inform: "Analysis complete. Run `/spec --issue <N>` to generate the solution spe
 
 ## Exit
 
-- **Success via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/spec`. `/dev` re-scans and advances.
-- **Success standalone:** print one line: `Done. Next: /spec --issue N`. Stop.
+The Step 4 Executive Summary is **always** printed (incl. under `/dev`) — it is the gate output, not a closing recap.
+
+- **While waiting for reaction:** turn ends after the Executive Summary. Task stays in progress from `/dev`'s POV until approve/abort.
+- **Approved via `/dev`:** commit, return control silently. ¬second summary. ¬ask "proceed to /spec?". `/dev` re-scans and advances.
+- **Approved standalone:** print one line: `Approved. Next: /spec --issue N`. Stop.
+- **Revise loop:** re-print Executive Summary after each edit; stop again.
+- **Abort:** return → `/dev` marks task `cancelled`.
 - **Failure:** return error. `/dev` presents Retry | Skip | Abort.
 
 $ARGUMENTS
