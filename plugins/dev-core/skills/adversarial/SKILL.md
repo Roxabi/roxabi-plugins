@@ -2,7 +2,7 @@
 name: adversarial
 argument-hint: '["subject" | --issue <N> | --analysis <path> | --spec <path> | --frame <path> | --path <path>] [--write]'
 description: Red-team / devil's advocate on analyses, proposals, architecture, ideas, specs, or plans — attack assumptions, kill vacuous claims, surface bypass and failure modes. Triggers: "adversarial" | "red team" | "devil's advocate" | "attack this design" | "kill this idea" | "stress test this" | "what breaks this" | "adversarial review".
-version: 0.1.0
+version: 0.1.1
 allowed-tools: Bash, Read, Glob, Grep, Agent, ToolSearch, Write
 ---
 

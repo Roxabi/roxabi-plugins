@@ -2,7 +2,7 @@
 name: advisory
 argument-hint: '["subject" | --issue <N> | --analysis <path> | --spec <path> | --frame <path> | --path <path>] [--write]'
 description: Constructive expert advisory on analyses, proposals, architecture, ideas, specs, or plans — strengthen, prioritize, surface blind spots as recommendations (not red-team). Triggers: "advisory" | "second opinion" | "advise on this" | "strengthen this" | "expert advice" | "advisory review" | "what would you improve".
-version: 0.1.0
+version: 0.1.1
 allowed-tools: Bash, Read, Glob, Grep, Agent, ToolSearch, Write
 ---
 
