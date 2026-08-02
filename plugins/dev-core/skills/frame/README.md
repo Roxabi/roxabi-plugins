@@ -4,7 +4,7 @@ Problem framing — capture the problem, constraints, scope, and tier before wri
 
 ## Why
 
-Jumping straight to implementation without a clear problem statement leads to scope creep and rework. `/frame` forces a structured interview, produces an approved frame artifact, and auto-detects the implementation tier (S / F-lite / F-full) so the rest of the pipeline is correctly scoped.
+Jumping straight to implementation without a clear problem statement leads to scope creep and rework. `/frame` produces an approved frame artifact and auto-detects the implementation tier (S / F-lite / F-full) so the rest of the pipeline is correctly scoped.
 
 ## Usage
 
@@ -17,16 +17,16 @@ Triggers: `"frame"` | `"frame this"` | `"what's the problem"` | `"define the pro
 
 ## How it works
 
-1. **Parse + Seed** — reads the GitHub issue (title, body, labels) or free text as context.
-2. **Interview** — asks 3–5 focused questions (skips what's already clear from the issue body): problem/pain, affected users, constraints, out-of-scope, related work.
-3. **Premise-validity gate** — required before tier classification. Captures three fields:
-   - `success_in_6mo` — what does success look like? (concrete, observable)
-   - `failure_in_6mo` — what does failure look like? (must be falsifiable)
-   - `simplest_alternative` + why it's insufficient — forces explicit comparison against the minimal solution
-   Cannot proceed without all three. Non-falsifiable failure modes trigger an abort prompt.
-4. **Tier detection** — infers S / F-lite / F-full from complexity signals (file count, domain breadth, unknowns); lets you override.
-5. **Write frame doc** — creates `artifacts/frames/{N}-{slug}-frame.md` with status: `draft`.
-6. **User approval** — presents the frame for confirmation; loops on revisions until approved.
+**Policy: auto when unambiguous; AQ only for real gaps.**
+
+1. **Parse + Seed** — reads the GitHub issue (title, body, labels) or free text.
+   - Approved frame already on disk → **reuse**, exit (no re-approve).
+   - Draft exists → **continue** (no "Start fresh?" prompt).
+2. **Interview** — asks only fields missing from the seed (0 questions when the issue body is rich).
+3. **Premise-validity gate** — three fields (`success_in_6mo`, `failure_in_6mo`, `simplest_alternative` + why-not). Extract from seed/draft when present; AQ only for missing fields. Non-falsifiable failure modes still trigger an abort prompt.
+4. **Tier detection** — from size label or unanimous signals → auto. Contested signals only → Confirm AQ.
+5. **Write frame doc** — `artifacts/frames/{N}-{slug}-frame.md` with status: `draft`.
+6. **Approval** — **auto-approve** when interview/premise/tier had zero AQs this run; otherwise Approve | Revise.
 7. **Commit + status update** — sets issue status to `Analysis` and commits the artifact.
 
 ## Output artifact

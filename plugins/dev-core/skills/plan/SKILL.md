@@ -2,7 +2,7 @@
 name: plan
 argument-hint: '[--issue <N> | --spec <path> | --audit]'
 description: Implementation plan — tasks, agents, file groups, dependencies. Triggers: "plan" | "plan this" | "implementation plan" | "break it down" | "plan this feature" | "how should we build this" | "make a plan" | "create a plan" | "break this down into tasks" | "task breakdown".
-version: 0.4.0
+version: 0.5.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
@@ -20,7 +20,8 @@ Let:
 
 Spec → micro-tasks → agent assignments → plan artifact.
 
-**Flow: single continuous pipeline. ¬stop between steps. Decision response → immediately execute next step. Stop only on: Cancel/Abort or Step 6 completion.**
+**Flow: single continuous pipeline. ¬stop between steps except (a) χ ambiguity pre-flight, (b) optional `--audit`, (c) Step 6 single approval gate.**  
+**AQ policy:** auto when the path is unique; one human gate at Step 6. ¬double-approve (no mid-plan 2f + final 6).
 
 ```
 /plan --issue 42         Generate plan from spec for issue #42
@@ -32,12 +33,12 @@ Spec → micro-tasks → agent assignments → plan artifact.
 
 | Step | ID | Required | Verifies via | Notes |
 |------|----|----------|---------------|-------|
-| 1 | locate-spec | ✓ | σ ∃ | — |
-| 2 | plan | ✓ | τ + agents defined | — |
+| 1 | locate-spec | ✓ | σ ∃ | χ>0 → AQ; χ=0 silent |
+| 2 | plan | ✓ | τ + agents defined | continuous — ¬mid-plan approve |
 | 3 | refs | — | ref paths noted | — |
 | 4 | micro-tasks | — | tasks ∃ in π | Tier F only |
 | 5 | write | ✓ | π ∃ | — |
-| 6 | approve | ✓ | `git log` shows commit | gate |
+| 6 | approve | ✓ | `git log` shows commit | **sole plan gate** |
 
 ## Pre-flight
 
@@ -55,7 +56,11 @@ Steps: locate-spec → plan → refs → micro-tasks → write → approve
 ### Pre-flight: Ambiguity Check
 
 Grep `\[NEEDS CLARIFICATION` in σ (count).
-count > 0 → present choice **Resolve now** | **Return to spec** | **Proceed anyway**
+
+| count | Action |
+|------:|--------|
+| 0 | continue silently |
+| > 0 | present choice **Resolve now** \| **Return to spec** \| **Proceed anyway** — real ambiguity (spec HITL already ran; leftover χ is a plan blocker decision) |
 
 ## Step 2 — Plan
 
@@ -65,11 +70,11 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/dev-process.md` + σ.
 
 `--audit` → after reading σ, present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) (plan guidance).
 → present choice **Proceed** | **Adjust approach** | **Abort**
-¬`--audit` → continue to Step 2a.
+¬`--audit` → continue to Step 2a. (Explicit flag = intentional AQ.)
 
 **2a. Scope:** Glob + Grep → files to create/modify + reference features for patterns.
 
-**2b. Tier:** S | F-lite | F-full per dev-process.md. ∃ `artifacts/frames/` ∧ `tier` field → use it. Else assess from σ complexity.
+**2b. Tier:** S | F-lite | F-full per dev-process.md. ∃ `artifacts/frames/` ∧ `tier` field → use it (silent). Else assess from σ complexity (silent). ¬AQ for tier at plan time — frame/dev already resolved it.
 
 **2c. Agents:**
 
@@ -103,16 +108,19 @@ Cost classes:
 | `judgmental` | 4–6 | read + context + judge + edit |
 | `exploratory` | 8–15 | open-ended cross-file search |
 
-Rules:
-1. **Per-task cap:** `estimated_total_ops > 50` for a task → **force-split** the task into smaller sub-tasks, or present a user choice **Split now** | **Keep as-is (flag)** decision before proceeding.
-2. **Per-instance cap:** after agent_instance assignment, aggregate ops per instance. `Σ ops/instance > 50` OR `|tasks/instance| > 4` OR `distinct subjects/instance > 2` → **force-split** into a new instance (`backend-dev-A` → `backend-dev-A` + `backend-dev-B`). This catches the case where each task is small but stacking 6 tasks on one agent overflows its context.
+Rules (auto — ¬AQ):
+1. **Per-task cap:** `estimated_total_ops > 50` → **force-split** into smaller sub-tasks. Note split in budget table. ¬ask Keep as-is.
+2. **Per-instance cap:** `Σ ops/instance > 50` OR `|tasks/instance| > 4` OR `distinct subjects/instance > 2` → **force-split** into a new instance. Note in budget table.
 
-**2e. Slice Selection (multi-slice only):** ≥2 slices → present multi-select 1 option/slice `V{N}: {desc} ({files}, {agents})`.
-Default: next unimplemented slice. Respect deps. Re-run `/plan` for remaining.
+**2e. Slice Selection (multi-slice only):**
 
-**2f. Present Plan:** → present choice τ, slices, files, agents, tasks with `[parallel-safe: Y/N]`.
-Options: **Approve** | **Modify** | **Cancel**
-**Approve → immediately continue to Step 3 (¬stop).**
+| Situation | Action |
+|-----------|--------|
+| 0–1 slice | use it. ¬AQ |
+| ≥2 slices ∧ clear next (deps order / first unimplemented) | auto-select that slice. Print `Planning slice V{N} (next unimplemented).` ¬AQ. Re-run `/plan` later for remaining. |
+| ≥2 slices ∧ no unique next (parallel roots, user previously mixed) | multi-select AQ: 1 option/slice `V{N}: {desc} ({files}, {agents})` |
+
+**2f. removed.** Mid-plan Approve/Modify/Cancel was a double-gate with Step 6. Pipeline continues to Step 3 without stopping. Summary for the user is deferred to Step 6 (sole approval).
 
 ## Step 3 — Ref Patterns
 
@@ -229,7 +237,7 @@ After the wave table, include a **Budget Table** derived from Step 2d classifica
 | tester-A | T9, T10 | 12 | auth | — |
 ```
 
-Tasks marked `YES — split required` (either table) must be resolved (split or DP-approved) before the plan is finalized. Per-instance fails dominate: a single agent loaded with too many distinct subjects must be split even if each individual task is small.
+Tasks marked `YES — split required` (either table) **must already be force-split** before write (Step 2d auto). Per-instance fails dominate: a single agent loaded with too many distinct subjects is split even if each individual task is small. ¬surface Keep-as-is AQ.
 
 Rules:
 - Wave 1 = all tasks with no deps.
@@ -273,9 +281,11 @@ Rules:
 - Tasks that chain sequentially on the same agent instance (T11→T12) still get separate rows.
 - Wave heading comment states the trigger condition so `/implement` knows when to start each wave.
 
-## Step 6 — Approve + Commit
+## Step 6 — Approve + Commit (sole plan gate)
 
-→ present choice complexity, τ, task count, agents, consistency, slices.
+**Single human gate for `/plan`.** Present once after π is written — not mid-pipeline.
+
+Present summary: complexity, τ, slices planned, task count, agents, consistency (covered/total), budget total ops, link to π path.
 Options: **Approve** | **Modify** | **Return to spec**
 
 On Approve → **immediately** continue to 6a (seed tasks), 6b (persist IDs), 6c (commit). ¬stop between substeps.
@@ -319,8 +329,8 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 
 1. ¬`git add -A` ∨ `git add .` — specific files only
 2. ¬create issue without user approval
-3. Always present plan (2f) before writing artifact
-4. Show full task list (¬truncate) when |tasks| > 30
+3. Always present plan **once at Step 6** before seed/commit (sole approval gate — ¬mid-plan 2f)
+4. Show full task list (¬truncate) when |tasks| > 30 — warn if > 30, continue (¬AQ; user can Modify at Step 6)
 
 ## Chain Position
 

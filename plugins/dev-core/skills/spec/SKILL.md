@@ -2,7 +2,7 @@
 name: spec
 argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit]'
 description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build" | "design the solution" | "acceptance criteria" | "define acceptance criteria" | "spec it out" | "write the spec".
-version: 0.2.1
+version: 0.3.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -10,8 +10,8 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 
 ## Success
 
-I := σ written ∧ pre-check pass ∧ |χ| ≤ 5
-V := `ls artifacts/specs/{N}-*.md*` ∧ pre-check: 0 failures
+I := σ written ∧ pre-check reported ∧ executive summary shown ∧ (approved → committed)
+V := `ls artifacts/specs/{N}-*.md*` ∧ (on approve) `status: approved` ∧ commit ∃
 
 Let:
   α := artifacts/analyses/{N}-{slug}-analysis.md
@@ -19,12 +19,22 @@ Let:
   φ := artifacts/frames/{slug}-frame.md
   ρ := reviewer set
   χ := `[NEEDS CLARIFICATION]`
-  Ω := `skill: "interview"`
-  Q := present choice, wait for user reply
   SRC := source doc (α ∨ φ)
 
-Analysis (or frame) → approved spec. Interview → pre-check → expert review → user approval.
+Analysis (or frame) → draft σ → **executive summary in chat** → free-form human reaction → approve/revise.
 ¬worktree, ¬PR. Shape phase only. Implementation → `/plan`.
+
+## Hard ban — AskUserQuestion
+
+**Never call AskUserQuestion / `present choice` / multi-select tool prompts in this skill.**
+
+Human-in-the-loop is **chat-native**:
+1. Produce the work.
+2. Print a clear **Executive Summary**.
+3. **Stop this turn** and wait for the user's free-form reply.
+4. Interpret natural language (approve / change X / question / re-spec) and act.
+
+No button menus. No forced option lists. If something is missing, write it into the summary or as χ — do not quiz via AQ.
 
 ## Entry
 
@@ -32,26 +42,28 @@ Analysis (or frame) → approved spec. Interview → pre-check → expert review
 /spec --issue N          → find analysis for #N (or frame if analysis skipped)
 /spec --analysis path    → use provided analysis as source
 /spec --frame path       → use provided frame (analysis was skipped)
+/spec --issue N --audit  → print reasoning audit as prose, then continue (¬AQ)
 ```
 
 ## Pipeline
 
 | Step | ID | Required | Verifies via | Notes |
 |------|----|----------|---------------|-------|
-| 0 | resolve | ✓ | SRC ∃ | — |
-| 1 | scan | — | σ ∃? | — |
-| 1b | audit | — | — | `--audit` only |
-| 2 | generate | ✓ | σ written | Ω interview |
-| 3 | pre-check | ✓ | 0 failures | — |
-| 4 | review | — | agents return | ∥ spawn |
-| 5 | approval | ✓ | `git log` shows commit | gate |
+| 0 | resolve | ✓ | SRC ∃ | prose stop if missing |
+| 1 | scan | — | σ ∃? | auto path — ¬AQ |
+| 1b | audit | — | — | `--audit` only; prose, ¬AQ |
+| 2 | generate | ✓ | σ written | from SRC; ¬interactive interview |
+| 3 | pre-check | ✓ | report printed | auto-fix when cheap; else note in summary |
+| 4 | review | — | agents return | ∥ spawn; auto-select ρ |
+| 5 | summary | ✓ | exec summary shown | **stop turn** — wait for chat |
+| 6 | react | ✓ | free-form | approve → commit; else revise loop |
 
 ## Pre-flight
 
-Success: σ written ∧ pre-check pass ∧ |χ| ≤ 5
-Evidence: `ls artifacts/specs/` ∧ pre-check output
-Steps: resolve → generate → pre-check → review → approval
-¬clear → STOP + ask: "What artifact should this spec derive from?"
+Success: σ written ∧ executive summary shown ∧ (on approve) committed
+Evidence: `ls artifacts/specs/` + chat summary + optional commit
+Steps: resolve → generate → pre-check → review → executive summary → chat react
+¬clear → STOP with prose: "What artifact should this spec derive from? Pass `--analysis` / `--frame` / `--issue`."
 
 ## Step 0 — Resolve Input + Ensure GitHub Issue
 
@@ -66,44 +78,53 @@ grep -rl "issue: N" artifacts/frames/ 2>/dev/null | head -1
 ```
 
 `--analysis path` / `--frame path` → read directly.
-¬SRC found → Q: "Run `/analyze --issue N` first, or provide path directly?"
+¬SRC found → **stop** with prose (not AQ):
+```
+No analysis/frame found for #{N}.
+Run /analyze --issue N (or /frame), or re-run with --analysis <path> / --frame <path>.
+```
 
 Read SRC → extract: title, issue#, tier, problem, outcome, appetite, recommended shape (if α).
 
 ### 0b. Ensure GitHub Issue
 
 ∃ issue (`--issue N` ∨ found in SRC frontmatter) → use it.
-¬∃ issue → draft from SRC:
+¬∃ issue → create from SRC (auto — no ask):
 
 ```bash
 gh issue create --title "<title>" --body "<body>"
 # body: ## Problem\n{problem}\n\n## Outcome\n{outcome}
 ```
 
-Capture returned issue #N.
+Capture returned issue #N. Print one line: `Created issue #N.`
 
 ## Step 1 — Scan Existing Spec
 
 Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*`.
-∃ σ → Q: **Reuse existing** (→ Step 3) | **Start fresh**
+
+| State | Action |
+|-------|--------|
+| ∃ σ ∧ `status: approved` | **Reuse.** Print short note + full **Executive Summary** of existing σ → Step 5/6 (chat: approve to keep & continue pipeline, or "re-spec" / changes). ¬regenerate unless user asks. |
+| ∃ σ ∧ draft / no status | Load as base → Step 2 refine (fill gaps, re-check) |
+| ¬∃ σ | Step 2 generate fresh |
 
 ## Step 1b — Reasoning Audit (optional)
 
-`--audit` → after reading SRC, present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) (spec guidance).
-→ Q: **Proceed** | **Adjust approach** | **Abort**
+`--audit` → print reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) as **prose in chat**. Continue to Step 2. ¬AQ Proceed/Adjust/Abort — user can interrupt in the next turn if they disagree.
+
 ¬`--audit` → skip to Step 2.
 
 ## Step 2 — Generate Spec
 
-`Ω, args: "--promote artifacts/analyses/{N}-{slug}-analysis.md"` (or frame path if no α).
+**¬invoke interactive `/interview`.** Promote SRC → σ in this skill: pre-fill everything clear from SRC; mark unknowns as χ (max 3–5). Use the 9-category ambiguity taxonomy from interview as a silent checklist (Functional Scope, Domain & Data, UX, NFR, Integrations, Edge Cases, Constraints, Terminology, Completion Signals) — do not fire interview AQs.
 
-Interview pre-fills from SRC. Focus on gaps to spec level:
+Focus content:
 - Acceptance criteria (binary pass/fail)
 - Breadboard: affordance tables (UI/API elements → handlers → data)
 - Slices: vertical increments, independently demo-able
-- Ambiguity detection via 9-category taxonomy (see interview SKILL.md)
+- χ only where SRC is truly silent
 
-Write σ. Must include:
+Write σ with `status: draft`. Must include:
 
 | Section | Skip if |
 |---------|---------|
@@ -126,7 +147,7 @@ Include when data shape matters:
 
 Section sits before Breadboard: shape of data vs how pieces wire together.
 
-May contain χ (max 3–5). χ items block `/plan` — must be resolved first.
+May contain χ (max 3–5). χ items block `/plan` — must be resolved before plan (via chat revise, not AQ).
 
 ## Step 3 — Pre-check
 
@@ -140,14 +161,9 @@ May contain χ (max 3–5). χ items block `/plan` — must be resolved first.
 | Slice coverage | Every affordance appears in ≥1 slice | ¬Breadboard ∨ ¬Slices |
 | Edge completeness | Each edge case has handling strategy | — |
 
-≥2 failures → inform user:
-```
-Pre-check: 2 of 5 checks failed
-  ✗ Testable criteria: "The UI should feel fast" is not binary
-  ✗ Ambiguity budget: 7 [NEEDS CLARIFICATION] items found (max 5)
-```
+**Auto-fix** cheap failures when obvious (rephrase non-binary criteria into binary, add missing slice rows for orphan IDs). Re-run checks once after auto-fix.
 
-Q: **Fix spec first** (open σ, collect corrections, revise, re-check) | **Continue to review anyway**
+Remaining failures → list in Executive Summary under **Pre-check** (do not AQ Fix/Continue). Prefer fixing over shipping a broken draft when the fix is unambiguous.
 
 ## Step 4 — Expert Review
 
@@ -162,7 +178,7 @@ Auto-select ρ (¬ask user). Architect always included:
 | devops | ∃ CI/CD / deploy / infra criteria | Operational feasibility |
 | axial-adr-review | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ (spec adds adapter/integration/target ∨ touches `infrastructure/`) | Drift along non-primary axis (N×M trap) — read-only review |
 
-> **Note on axial-adr-review asymmetry (intentional):** The `/spec` condition is **semantic/intent-based** — it triggers when the spec proposes adding a new adapter/integration/target or touches `infrastructure/`. The code-review phase (`/code-review`) uses a **structural** condition (diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`). The two are complementary: `/spec` catches intent-level N×M violations, `/code-review` catches implementation-level ones. A spec that adds infrastructure/ changes without proposing a new adapter is not a spec-level axial concern but may still be caught at code-review. See `plugins/shared/references/axial-decomposition.md`.
+> **Note on axial-adr-review asymmetry (intentional):** The `/spec` condition is **semantic/intent-based** — it triggers when the spec proposes adding a new adapter/integration/target or touches `infrastructure/`. The code-review phase (`/code-review`) uses a **structural** condition (diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`). The two are complementary: `/spec` catches intent-level N×M violations, `/code-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
 
 ∀ r ∈ ρ → spawn ∥:
 ```
@@ -174,57 +190,124 @@ Task(
 ```
 Agent name map: `architect` → `dev-core:architect` | `doc-writer` → `dev-core:doc-writer` | `product-lead` → `dev-core:product-lead` | `adversarial` → `dev-core:adversarial` | `devops` → `dev-core:devops` | `axial-adr-review` → `dev-core:axial-adr-review`
 
-Incorporate feedback → revise σ → note unresolved concerns.
+Incorporate high-confidence feedback into σ. Unresolved expert concerns → list in Executive Summary (not AQ).
 
-## Step 5 — User Approval
+## Step 5 — Executive Summary (always)
 
-Open σ: `code artifacts/specs/{N}-{slug}-spec.md`.
+Open σ for the user: `code artifacts/specs/{N}-{slug}-spec.md` (or print path if `code` unavailable).
 
-Present summary: scope, |slices|, |acceptance criteria|, |χ|, pre-check results, unresolved expert concerns.
+Print **exactly this structure** (fill from σ + Steps 3–4). This is the HITL surface — keep it scannable, not a paste of the whole file:
 
-Q: **Approve** → continue pipeline | **Revise** → collect feedback → revise σ → loop from Step 3.
+```markdown
+## Spec — Executive Summary
 
-On approval → commit: `git add artifacts/specs/{N}-{slug}-spec.md` + commit per CLAUDE.md Rule 5.
+**Issue:** #{N} — {title}
+**Path:** `artifacts/specs/{N}-{slug}-spec.md`
+**Tier:** {τ} · **Status:** draft
+**Source:** {α|φ path}
 
-Run Gate 2.5 → update issue status:
+### One-liner
+{Goal — one sentence}
+
+### Scope
+- **In:** {3–6 bullets from Goal / Expected Behavior / Slices}
+- **Out:** {from Context / explicit non-goals, or "—"}
+
+### Users
+{Primary (+ secondary if any) — one line each}
+
+### Slices
+| # | Slice | Demo value |
+|---|-------|------------|
+| V1 | … | … |
+| V2 | … | … |
+
+(or "— (Tier S / no slices)" )
+
+### Success criteria ({count})
+1. …
+2. …
+(list all binary criteria; if >12, list first 10 + "… +{n} more in file")
+
+### Open / χ ({count})
+- {each NEEDS CLARIFICATION, or "none"}
+
+### Pre-check
+{pass | N failed — bullets}
+
+### Expert notes
+{0–5 bullets of unresolved concerns, or "clean"}
+
+### Data model
+{1–3 lines from §Data Model & Consumers, or "—"}
+
+---
+**Your move (free text — no menu):**
+- approve / ok / ship → commit & mark approved
+- change … / drop slice V2 / tighten criterion 3 → I revise σ and re-print this summary
+- question … → I answer; revise only if you ask
+- re-spec → regenerate from SRC
+- split → propose smart-split (if criteria/slices large)
+```
+
+**STOP this turn** after printing the summary. Do not commit. Do not invoke `/plan`. Do not AskUserQuestion.
+
+## Step 6 — React (free-form chat)
+
+On the user's next message, interpret intent (no AQ):
+
+| Intent signals (examples) | Action |
+|---------------------------|--------|
+| approve, ok, LGTM, ship, good, go, looks good, approved | → **Approve path** |
+| change / revise / drop / add / tighten / rewrite … | Edit σ → re-run cheap pre-check → re-print Executive Summary → **stop again** |
+| question / why / what about / clarify … | Answer in chat; revise σ only if they also request a change |
+| re-spec / start over / regenerate | Wipe draft content, re-run from Step 2 |
+| split / sub-issues | Run Gate 2.5 proposal **as prose** in chat; create only if they confirm in free text |
+| abort / stop / cancel | Stop; leave draft on disk; return cancel to `/dev` if applicable |
+
+Ambiguous free text → ask **one short prose clarifying question** in the message (plain text). Still ¬AskUserQuestion.
+
+### Approve path
+
+1. Set frontmatter `status: approved` via Edit.
+2. Commit: `git add artifacts/specs/{N}-{slug}-spec.md` + commit per CLAUDE.md Rule 5.
+3. Run Gate 2.5 only if triggers fire **and** user already said "split" — otherwise skip (do not force-split).
+4. Update issue status:
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Specs
 ```
+5. Exit per Exit section.
 
-∄ sub-issues → "Spec complete. Run `/plan --issue <N>` to generate the implementation plan."
-∃ sub-issues → "Run `/plan --issue <sub_N>` for each sub-issue in dependency order."
-
-## Gate 2.5: Smart Splitting (Optional)
+## Gate 2.5: Smart Splitting (optional, chat-only)
 
 Tier S → skip. Read [references/smart-splitting.md](${CLAUDE_SKILL_DIR}/references/smart-splitting.md).
 
 **Triggers:** |acceptance criteria| > 8 ∨ |slices| > 3.
-- Acceptance criteria := `- [ ]` checkboxes in `## Success Criteria`
-- Slices := rows in `## Slices` table
 
-¬triggers ∧ ¬both sections present → skip.
-∃ triggers → run smart splitting per reference doc.
+On trigger at approve time: **mention once** in the post-approve message as optional next step ("Say 'split' if you want sub-issues"). ¬auto-create. ¬AQ menu.
+
+When user says split: present proposal as prose table → wait free-form confirm → then create. See smart-splitting.md (chat mode).
 
 ## Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| ¬α ∧ ¬φ found | Q: run `/analyze` first or provide path |
-| ∃ σ, user picks reuse | Present existing → jump to Step 3 |
-| Analysis skipped (F-lite) | Use frame as SRC for interview promotion |
-| `--issue N` ∧ ¬GitHub issue | Create issue from SRC content |
-| Expert subagent fails | Report error, continue without that reviewer |
-| All pre-checks fail | Strongly recommend fix before review (¬block, user decides) |
-| |χ| > 5 | Pre-check failure — inform, request reduction |
+| ¬α ∧ ¬φ found | Prose stop + how to provide SRC |
+| ∃ approved σ | Reuse + exec summary; re-spec on request |
+| Analysis skipped (F-lite) | Use frame as SRC |
+| `--issue N` ∧ ¬GitHub issue | Create issue from SRC (auto) |
+| Expert subagent fails | Report in Expert notes; continue |
+| Pre-check still failing | List in summary; user can still approve (warn) or request fixes |
+| \|χ\| > 5 | Reduce during generate; leftover listed in summary |
 | Tier S | Skip Breadboard + Slices |
-| Circular deps in split | Reject split proposal, inform user |
+| Circular deps in split | Reject split proposal in prose |
 
 ## Chain Position
 
 - **Phase:** Shape
 - **Predecessor:** `/analyze` (F-full) ∨ `/frame` (F-lite, analyze skipped)
 - **Successor:** `/plan`
-- **Class:** gate (user approval of spec artifact required)
+- **Class:** gate — **chat executive summary**, not AskUserQuestion
 
 ## Task Integration
 
@@ -234,9 +317,10 @@ Tier S → skip. Read [references/smart-splitting.md](${CLAUDE_SKILL_DIR}/refere
 
 ## Exit
 
-- **Approved via `/dev`:** write artifact with `status: approved`, commit, return silently. ¬ask "proceed to /plan?". `/dev` re-scans and auto-chains to `/plan` in the same turn.
+- **While waiting for reaction:** turn ends after Executive Summary. Task stays in progress from `/dev`'s POV until approve/abort.
+- **Approved via `/dev`:** commit, return silently. ¬ask "proceed to /plan?" via AQ. `/dev` re-scans and auto-chains to `/plan` in the same turn **after** the approve message is processed.
 - **Approved standalone:** print one line: `Approved. Next: /plan --issue N`. Stop.
-- **Modify requested:** loop in-skill, re-present.
-- **Rejected/aborted:** return → `/dev` marks task `cancelled`.
+- **Revise loop:** re-print Executive Summary after each edit; stop again.
+- **Abort:** return → `/dev` marks task `cancelled`.
 
 $ARGUMENTS

@@ -2,7 +2,7 @@
 
 Let: N := parent issue number | τ := tier
 
-After Gate 2 approval. Decomposes feature → sub-issues. Always optional — user can skip.
+After spec approve (optional). Decomposes feature → sub-issues. Always optional — user opts in via free-form chat ("split"). **¬AskUserQuestion.**
 
 ## Pre-checks
 
@@ -13,7 +13,7 @@ After Gate 2 approval. Decomposes feature → sub-issues. Always optional — us
 gh api graphql -f query='{ repository(owner: "{owner}", name: "{repo}") { issue(number: {N}) { subIssues(first: 10) { nodes { number title state } } } } }'
 ```
 
-∃ sub-issues ⇒ → present choice: Keep existing | Replace (close old) | Add additional
+∃ sub-issues ⇒ print them as prose. Ask in free text whether to keep / replace / add — interpret next message (no tool menu).
 
 ## Trigger Detection
 
@@ -22,7 +22,7 @@ Read spec, count:
 - Slices: rows in `## Slices` table
 
 **Trigger:** criteria > 8 ∨ slices > 3.
-¬trigger ∨ ¬(criteria ∧ slices sections) ⇒ skip.
+¬trigger ∨ ¬(criteria ∧ slices sections) ⇒ skip (unless user explicitly said "split").
 
 ## Propose Sub-Issues
 
@@ -42,17 +42,21 @@ Split heuristics (priority order):
 | Size | XS/S/M/L/XL from τ |
 | Priority | Inherit parent ∨ default Medium |
 
-Present via user choice:
+Present as **prose table** (chat), then stop:
 
 ```
-Smart Split: {title}
-Parent: #{N} | Trigger: {criteria}/{slices}/{phases}
+## Smart Split proposal — #{N} {title}
+Trigger: {criteria} criteria / {slices} slices
 
-  1. {title} — {scope} [Size: {S/M/L}] Deps: none
-  2. {title} — {scope} [Size: {S/M/L}] Deps: #1
+| # | Title | Scope | Size | Deps |
+|---|-------|-------|------|------|
+| 1 | … | … | S/M/L | none |
+| 2 | … | … | S/M/L | #1 |
+
+Reply free text: create / adjust … / skip
 ```
 
-Options: **Approve** | **Adjust** (re-propose) | **Skip** (no split)
+¬tool menus. Create only after free-form confirm.
 
 ## Create Sub-Issues
 
@@ -112,6 +116,6 @@ Inform: "Created {N} sub-issues under #{parent}. Run `/dev #N` for each sub-issu
 |----------|----------|
 | Only 1 sub-issue | Skip — no value |
 | Circular deps | Reject split, inform user |
-| Partial creation failure | Report success/fail, ask: Retry ∨ Continue partial |
-| Spec revised after split | Warn stale, offer re-run Gate 2.5 |
-| All criteria tightly coupled | Recommend "Skip" |
+| Partial creation failure | Report success/fail in prose; wait free-form retry/continue |
+| Spec revised after split | Warn stale in prose; re-run Gate 2.5 on request |
+| All criteria tightly coupled | Recommend skip in prose |

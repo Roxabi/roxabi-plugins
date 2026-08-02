@@ -16,9 +16,9 @@ The riskiest path is S-tier: `/dev` jumps straight from triage to implementation
 /recheck #N
 ```
 
-Called standalone, `/recheck` runs all three drift checks, then presents a 3-option decision prompt (Proceed | Close | Abort) if any signal fires.
+Called standalone, `/recheck` runs all three drift checks. **AQ only when signals are ambiguous** (`symbol-missing` and/or `dep-resolved`) — Proceed | Close | Abort. Pure `git-drift` is printed and auto-proceeds (no prompt).
 
-When invoked by `/dev` as part of the pipeline, the same checks run but the decision prompt includes a fourth option — **Update issue first** — which re-runs `/issue-triage` and then re-runs `/recheck` exactly once. If signals still fire on the second run, the Update option is removed and the user must choose a terminal outcome.
+When invoked by `/dev`, the same rules apply; the ambiguous DP adds **Update issue first** (re-runs `/issue-triage` then `/recheck` once). On the second run, Update is omitted.
 
 Triggers: `"recheck"` | `"is this issue still valid"` | `"check drift"` | `"check issue staleness"`
 
@@ -34,7 +34,9 @@ Three deterministic checks run in parallel (no LLM calls):
 
 When **all checks are clean**: prints `Issue still relevant.` (one line in pipeline mode; a richer summary with signal counts in standalone mode) and returns silently with no artifact written.
 
-When **any signal fires**: prints a `## Drift Signals` summary listing each signal kind and its evidence (commit SHAs, missing symbol names, closed blocker numbers), then presents a decision prompt:
+When **only git-drift fires** (informative): prints `## Drift Signals` + one proceed line — **no decision prompt**. Code moved nearby is expected; symbols still found and blockers still open (or none).
+
+When **ambiguous signals fire** (`symbol-missing` and/or `dep-resolved`): prints `## Drift Signals`, then presents a decision prompt:
 
 | Option | Pipeline | Standalone | Effect |
 |---|---|---|---|
@@ -54,6 +56,6 @@ No on-disk artifact (per frame Out-of-Scope). Session-only tracking inside `/dev
 `/recheck` only earns its place in the pipeline if it actually catches stale issues. The original frame defines two checkpoints:
 
 - **Success in 6 months:** at least one stale issue caught per month before `/implement` runs; zero S-tier issues silently re-implementing already-fixed bugs.
-- **Revisit trigger (3-month window):** if `/recheck` fires zero signals across three months of usage, **or** users skip past the prompt more than 80% of the time when signals fire, the cost-benefit no longer holds — re-open the design.
+- **Revisit trigger (3-month window):** if `/recheck` fires zero *ambiguous* signals across three months of usage, **or** users still override/close more often than they Proceed when the DP fires, re-open the design (git-drift-only auto-proceed is expected and not counted as skip friction).
 
 Tracking is **manual**: no metric is written to disk by design (no recheck-log artifact). Operators should periodically grep recent `/dev` runs for "Drift Signals" appearances and note skip-rate informally. If the revisit trigger fires, open an issue to re-evaluate.

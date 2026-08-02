@@ -2,7 +2,7 @@
 name: recheck
 argument-hint: '[#N | --issue N]'
 description: Drift-check an issue before work begins — fails fast when code has evolved (git-drift, symbol-missing, dep-resolved). Triggers: "recheck" | "is this issue still valid" | "check drift" | "check issue staleness".
-version: 0.1.0
+version: 0.2.0
 allowed-tools: Bash, Read, Grep, Glob, Skill, ToolSearch
 ---
 
@@ -10,22 +10,23 @@ allowed-tools: Bash, Read, Grep, Glob, Skill, ToolSearch
 
 ## Success
 
-I := signals computed ∧ (¬signals → silent return) ∨ (signals → DP A presented)
+I := signals computed ∧ (S == ∅ ∨ informative → auto-proceed) ∨ (S ambiguous → DP presented)
 
 Let:
   N  := issue number
   S  := signal set { git-drift, symbol-missing, dep-resolved }
   M  := mode ∈ { pipeline, standalone }
-  
+  ambiguous(S) ≔ S contains `symbol-missing` ∨ `dep-resolved`
+  informative(S) ≔ S ≠ ∅ ∧ ¬ambiguous(S)   # git-drift only
 
-Drift-check N against 3 deterministic signals (no LLM); block pipeline via user choice when S ≠ ∅.
+Drift-check N against 3 deterministic signals (no LLM). **AQ only when signals are ambiguous** (missing symbols / closed blockers). Pure git-drift is informational — print and auto-proceed.
 Standalone-safe: callable without `/dev`. Invoked by `/dev` between `triage` and `frame`.
 
 ## Entry
 
 ```
-/recheck #N            standalone — signal-fire DP has 3 options (Proceed | Close | Abort)
-(invoked by /dev)      pipeline  — signal-fire DP has 4 options (adds Update issue first)
+/recheck #N            standalone — DP only if ambiguous signals (Proceed | Close | Abort)
+(invoked by /dev)      pipeline  — same; DP adds Update issue first when ambiguous
 ```
 
 ## Pipeline
@@ -36,7 +37,7 @@ Standalone-safe: callable without `/dev`. Invoked by `/dev` between `triage` and
 | 1    | fetch   | ✓        | `gh issue view N --json number,title,body,labels,createdAt` |
 | 2    | extract | ✓        | cited paths, symbols, blocked-by numbers from body |
 | 3    | check   | ✓        | run 3 drift checks (parallel, deterministic)   |
-| 4    | decide  | ✓        | S == ∅ → silent return ; S ≠ ∅ → present choice        |
+| 4    | decide  | ✓        | S==∅ silent; informative auto-proceed; ambiguous → AQ |
 
 ## Step 0 — Parse + Detect Mode
 
@@ -136,6 +137,16 @@ API failures (auth, network, rate-limit, repo-not-found) are surfaced as warning
 
 ## Step 4 — Decide
 
+### Severity split (before any AQ)
+
+| Class | Condition | Action |
+|-------|-----------|--------|
+| clean | S == ∅ | silent return (below) |
+| informative | S ≠ ∅ ∧ kinds ⊆ {git-drift} | print signals + **auto-proceed** — ¬AQ |
+| ambiguous | ∃ kind ∈ {symbol-missing, dep-resolved} | print signals + **present choice** |
+
+Rationale: git-drift alone means “code moved nearby” — issue still open, symbols found, blockers still open (or none). Default path is always Proceed; asking is pure friction. symbol-missing / dep-resolved can mean the issue is moot or needs rewrite → real decision.
+
 ### S == ∅ (no signals)
 
 - **Pipeline mode (M == pipeline):**
@@ -150,7 +161,17 @@ API failures (auth, network, rate-limit, repo-not-found) are surfaced as warning
   ```
   Exit 0.
 
-### S ≠ ∅ (signals fired)
+### informative (git-drift only — auto-proceed)
+
+Render `## Drift Signals` block (same table as below), then print exactly one line and return exit 0:
+
+```
+Drift noted (git-drift only) — proceeding. Re-run /recheck or update the issue if scope looks stale.
+```
+
+¬AQ. Pipeline and standalone share this path. `/dev` continues to next step.
+
+### ambiguous (symbol-missing and/or dep-resolved — AQ)
 
 Render `## Drift Signals` block:
 
@@ -164,13 +185,15 @@ Render `## Drift Signals` block:
 | dep-resolved   | blocker #179 is now closed           | #179                 |
 ```
 
+(Include any co-occurring git-drift rows for context.)
+
 Then present user choice:
 
 **Pipeline DP (4 options — M == pipeline ∧ ¬--update-iter=2):**
 
 ```
-── Decision: Issue #N drift detected ──
-Context:     <signal count> signal(s) fired (see ## Drift Signals above)
+── Decision: Issue #N ambiguous drift ──
+Context:     symbol-missing and/or dep-resolved (see ## Drift Signals above)
 Target:      decide whether to continue, update, close, or abort
 Path:        executed immediately after choice
 
@@ -179,7 +202,7 @@ Options:
   2. Update issue first    — re-invoke /issue-triage, then re-run /recheck once
   3. Close as resolved/obsolete — gh issue close N --reason completed ; abort /dev
   4. Abort                 — exit /dev cleanly, no mutation
-Recommended: Option 1 or 2 — depends on signal severity
+Recommended: Option 2 if symbols/blockers suggest rewrite; Option 3 if issue is moot
 ```
 
 **Pipeline DP on 2nd run (M == pipeline ∧ --update-iter=2):**
@@ -188,8 +211,8 @@ Same block, but Option 2 (Update issue first) is OMITTED. Forces terminal decisi
 **Standalone DP (3 options — M == standalone):**
 
 ```
-── Decision: Issue #N drift detected ──
-Context:     <signal count> signal(s) fired (see ## Drift Signals above)
+── Decision: Issue #N ambiguous drift ──
+Context:     symbol-missing and/or dep-resolved (see ## Drift Signals above)
 Target:      decide whether to continue, close, or abort
 Path:        executed immediately after choice
 
@@ -197,7 +220,7 @@ Options:
   1. Proceed    — continue with current premise
   2. Close as resolved/obsolete — gh issue close N --reason completed
   3. Abort      — exit cleanly, no mutation
-Recommended: Option 1 or 3 — depends on signal severity
+Recommended: Option 2 if issue is moot; Option 1 if premise still holds
 ```
 
 ## DP Outcomes — Implementation
@@ -213,10 +236,10 @@ Recommended: Option 1 or 3 — depends on signal severity
 
 No on-disk artifact. `/dev` tracks recheck as Σ_s (session-only) like `validate`, `ci-watch`. Re-running `/dev #N` in a new session re-runs `/recheck` — acceptable: deterministic checks are cheap and fresh state is more valuable than skip-on-resume.
 
-`RecheckResult` is ephemeral — built during execution, consumed by user choice prompt, then discarded:
+`RecheckResult` is ephemeral — built during execution, consumed by decide step, then discarded:
 - `issue_number: int`
 - `signals: Signal[]` — empty on clean path; `Signal` = { `kind`, `description`, `evidence[]` }
-- `blocking: bool` — `true` iff `signals` non-empty
+- `blocking: bool` — `true` iff `ambiguous(signals)` (symbol-missing ∨ dep-resolved). git-drift-only → `blocking: false`
 
 ## Task Integration
 
@@ -236,12 +259,14 @@ No on-disk artifact. `/dev` tracks recheck as Σ_s (session-only) like `validate
 | Path                              | Effect                                                                 |
 |-----------------------------------|------------------------------------------------------------------------|
 | Via `/dev` — clean                | Print `Issue still relevant.` → return silently → `/dev` continues     |
-| Via `/dev` — Proceed on signals   | Return exit 0 → `/dev` re-scans → next step                           |
+| Via `/dev` — informative          | Print drift table + proceed line → exit 0 → `/dev` continues           |
+| Via `/dev` — Proceed on ambiguous | Return exit 0 → `/dev` re-scans → next step                           |
 | Via `/dev` — Update issue first   | Invoke `issue-triage` → re-run self once (`--update-iter=2`)          |
 | Via `/dev` — Close                | `gh issue close N` → exit with abort signal → `/dev` marks cancelled  |
 | Via `/dev` — Abort                | Exit cleanly, no mutation → `/dev` halts                              |
 | Standalone — clean                | Print richer summary (counts per check) → exit 0                      |
-| Standalone — signal               | Render `## Drift Signals` + 3-option DP → apply outcome               |
+| Standalone — informative          | Print drift table + proceed line → exit 0                              |
+| Standalone — ambiguous            | Render `## Drift Signals` + 3-option DP → apply outcome               |
 
 ## Edge Cases
 
