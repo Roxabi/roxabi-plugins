@@ -2,7 +2,7 @@
 name: spec
 argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit] [--force]'
 description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build" | "design the solution" | "acceptance criteria" | "define acceptance criteria" | "spec it out" | "write the spec".
-version: 0.3.5
+version: 0.3.6
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -85,7 +85,7 @@ No analysis/frame found for #{N}.
 Run /analyze --issue N (or /frame), or re-run with --analysis <path> / --frame <path>.
 ```
 
-`artifacts/analyses/` is **not** exclusively analyses — `/interview` writes brainstorms there (`type: brainstorm`), and legacy repos hold `/consensus` artifacts (`status: consensus-reached`; skill removed 2026-08-03). **Classify on frontmatter, ¬filename** — a name match only narrows candidates, `type:`/`status:` decides.
+`artifacts/analyses/` should hold only analyses, but legacy files break that: `/interview` wrote brainstorms there before 2026-08-03 (now `artifacts/brainstorms/`), and repos that ran `/consensus` hold its output (`status: consensus-reached`; skill removed same date). **Classify on frontmatter, ¬filename** — a name match only narrows candidates, `type:`/`status:` decides.
 
 **When SRC is α (analysis):** read frontmatter `status`.
 - `status: draft` → **STOP** (default): "Analysis is still draft. Approve via `/analyze` first, or pass `--force` to build on draft."
@@ -95,7 +95,7 @@ Run /analyze --issue N (or /frame), or re-run with --analysis <path> / --frame <
 
 **When SRC is a legacy consensus artifact** (`status: consensus-reached`) → ¬a valid SRC (the skill that wrote it is gone). STOP: "Run `/analyze --issue N` to produce an analysis."
 
-**When SRC is a brainstorm** (`type: brainstorm`) → ¬a valid SRC. STOP: "Run `/analyze --issue N` to promote it."
+**When SRC is a brainstorm** (`type: brainstorm`, or anything under `artifacts/brainstorms/`) → ¬a valid SRC. STOP: "Run `/analyze --issue N` to promote it."
 
 When SRC is φ only (F-lite / analyze skipped) → no α status check.
 

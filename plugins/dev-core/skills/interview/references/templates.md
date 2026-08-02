@@ -4,7 +4,7 @@ Let: N := issue number | τ := tier
 
 ## Brainstorm
 
-Output path: `artifacts/analyses/{slug}-analysis.md`
+Output path: `artifacts/brainstorms/{slug}-brainstorm.md`
 
 ```md
 ---

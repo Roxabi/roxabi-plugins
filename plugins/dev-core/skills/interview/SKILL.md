@@ -2,7 +2,7 @@
 name: interview
 argument-hint: [topic | --promote <path>]
 description: Structured interview → brainstorm | analysis | spec (with promotion). Triggers: "create a spec" | "interview" | "brainstorm" | "write analysis" | "promote to spec" | "let's brainstorm" | "think through this" | "help me brainstorm" | "let's think this through" | "explore ideas".
-version: 0.2.0
+version: 0.2.1
 allowed-tools: Write, Read, Edit, Glob, ToolSearch
 ---
 
@@ -11,7 +11,7 @@ allowed-tools: Write, Read, Edit, Glob, ToolSearch
 Let:
   β := Brainstorm | α := Analysis | σ := Spec
   τ := document type ∈ {β, α, σ}
-  A := `artifacts/analyses/` | S := `artifacts/specs/`
+  B := `artifacts/brainstorms/` | A := `artifacts/analyses/` | S := `artifacts/specs/`
   AQ := present choice, wait for user reply
 
 Conduct structured interview → produce one of {β, α, σ}. Supports promoting existing doc to next level.
@@ -21,8 +21,8 @@ Conduct structured interview → produce one of {β, α, σ}. Supports promoting
 ∃ `--promote <path>`:
 1. Read doc at path.
 2. Determine current τ (frontmatter first, content structure fallback):
-   - `type: brainstorm` ∈ frontmatter → β → promote to α.
-   - ¬type ∧ lives in A ∧ "Trigger"/"Ideas" structure → treat as β.
+   - `type: brainstorm` ∈ frontmatter ∨ lives in B → β → promote to α.
+   - ¬type ∧ lives in A ∧ "Trigger"/"Ideas" structure → treat as β (legacy: β lived in A before 2026-08-03).
    - A path ∧ "Questions Explored"/"Analysis"/"Conclusions" structure → α → promote to σ.
    - Already σ → inform: "Already a spec. Nothing to promote." Stop.
 3. Skip to Step 2; limit questions to gaps between current doc and next level. Pre-fill known from source.
@@ -48,9 +48,11 @@ Glob A, S — match topic by issue#, keywords, or slug.
 
 | τ | Purpose | Output Path |
 |---|---------|-------------|
-| β | Divergent exploration, early-stage ideas | `artifacts/analyses/{slug}.md` |
-| α | Structured investigation of topic/problem | `artifacts/analyses/{slug}.md` |
-| σ | Technical specification for implementation | `artifacts/specs/{issue}-{slug}.md` |
+| β | Divergent exploration, early-stage ideas | `artifacts/brainstorms/{slug}-brainstorm.md` |
+| α | Structured investigation of topic/problem | `artifacts/analyses/{slug}-analysis.md` |
+| σ | Technical specification for implementation | `artifacts/specs/{issue}-{slug}-spec.md` |
+
+**One kind per directory.** β never lands in A: `/dev`, `/spec` and `/analyze` resolve α by scanning A, and a brainstorm sitting there is indistinguishable by filename — it has to be excluded by reading frontmatter at every consumer. Writing it elsewhere removes the need to classify at all.
 
 ## Step 3 — Structured Interview
 
@@ -117,9 +119,10 @@ Depth by τ: β = Phase 1 + divergent (lighter) | α = Phases 1–3 thorough | �
 Write using appropriate template. Rules:
 - `.md` extension with YAML frontmatter (`title`, `description`).
 - Kebab-case slugs.
-- σ prefix: `artifacts/specs/{issue}-{slug}-spec.md`
-- α/β: `artifacts/analyses/{slug}-analysis.md` (prefix with issue# if ∃).
-- β adds `type: brainstorm` to frontmatter.
+- σ: `artifacts/specs/{issue}-{slug}-spec.md`
+- α: `artifacts/analyses/{slug}-analysis.md` (prefix with issue# if ∃).
+- β: `artifacts/brainstorms/{slug}-brainstorm.md` (prefix with issue# if ∃) — **¬in `artifacts/analyses/`**.
+- β keeps `type: brainstorm` in frontmatter — belt and braces for the legacy files already in A.
 
 ---
 
