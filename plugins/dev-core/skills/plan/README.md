@@ -18,12 +18,14 @@ Triggers: `"plan"` | `"plan this"` | `"implementation plan"` | `"break it down"`
 
 ## How it works
 
-1. **Locate spec** — reads the spec artifact; checks for unresolved `[NEEDS CLARIFICATION]` items.
-2. **Scope** — Globs + Greps the codebase to identify files to create/modify; finds reference patterns.
-3. **Agents** — assigns tasks to: `frontend-dev`, `backend-dev`, `tester`, `devops`, `doc-writer`, `architect`, `security-auditor` based on file paths from `stack.yml`.
-4. **Micro-tasks** — generates tasks with: description, file path, code skeleton, verify command, expected output, time estimate, parallel-safe flag, phase (RED/GREEN/REFACTOR/RED-GATE).
-5. **Write artifact** — creates `artifacts/plans/{N}-{slug}-plan.md` with forge-chart sidecars (`data-flow`, `file-map`) linked from `artifacts/visuals/`.
-6. **Seed tasks** — seeds the host task list for every micro-task (rich deps when available; portable checklist otherwise); persists blueprint / IDs in the artifact.
+**AQ policy:** continuous pipeline + **one** approval gate (Step 6). Auto when path is unique (slice, budget splits). `/spec` remains chat-native HITL (exec summary) — this skill does not weaken that.
+
+1. **Locate spec** — reads the spec; if leftover `[NEEDS CLARIFICATION]` → AQ; else silent.
+2. **Scope + agents + tasks** — continuous (no mid-plan Approve). Budget overruns force-split automatically. Multi-slice: auto next unimplemented when clear.
+3. **Micro-tasks** — description, file, skeleton, verify, phase (RED/GREEN/REFACTOR/RED-GATE), agent instances.
+4. **Write artifact** — `artifacts/plans/{N}-{slug}-plan.md` + forge-chart sidecars (`data-flow`, `file-map`).
+5. **Approve (sole gate)** — Approve | Modify | Return to spec.
+6. **Seed tasks** — host task list (Claude `Task*` / Grok `todo_write`) + persist blueprint / `## Task IDs`, then commit.
 
 ## Output artifact
 

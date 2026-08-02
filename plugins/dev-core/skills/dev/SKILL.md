@@ -31,7 +31,7 @@ Let:
   bar   := output must read as hand-authored by a dev-core maintainer — match surrounding idiom, naming, comment density; calibrate against `plugins/dev-core/`; QG (format/lint/typecheck/test) = mechanical floor, ¬the bar
 
 Single entry point: scan artifacts → detect state → show progress → delegate to step skill → loop.
-¬rewrite step skill logic. ¬auto-advance phases. Present choice at each gate and wait for user reply.
+¬rewrite step skill logic. Gate skills own their AQs; **auto-advance when unambiguous** (labels, approved artifacts, informative-only recheck). Present choice only when ≥2 plausible outcomes.
 
 ## Entry
 
@@ -86,8 +86,11 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
   recheck:   null,       # Σ_s only — runs every session, no on-disk state
   frame:     φ ∃ ∧ φ.status == 'approved',
   analyze:   analysis artifact ∃,
-  spec:      spec artifact ∃,
-  plan:      plan artifact ∃,
+  # Gates must not flip true on draft-only artifacts (chat HITL writes draft before approve).
+  # frame: status: approved. spec: status: approved (legacy: missing status ≡ approved; only status: draft blocks).
+  # plan: ## Task IDs written only after Step 6 approve (+ seed).
+  spec:      σ ∃ ∧ σ.status ≠ 'draft',
+  plan:      π ∃ ∧ (## Task IDs section ∃ in π),
   implement: worktree ∃ (branch-first: non-principal ω on feat/{N}-* — Claude path, Grok ~/.grok/worktrees, or legacy) ∧ git -C ω diff --name-only origin/${BASE}..HEAD | grep -v '^artifacts/' is non-empty,
   pr:        PR ∃,
   ci-watch:  null,       # Σ_s only
@@ -105,8 +108,11 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
 
 ## Step 2 — Determine Tier
 
-τ ∃ → skip.
-¬τ → present choice **S** (≤3 files, no arch) | **F-lite** (clear scope, 1 domain) | **F-full** (complex, multi-domain).
+τ ∃ (from φ.tier or size label mapping in Step 1) → skip. Print nothing.
+
+¬τ → try size labels again (XS/S→S, M→F-lite, L/XL→F-full). ∃ mapping → set τ silently.
+
+¬τ still (no frame, no size label) → present choice **S** (≤3 files, no arch) | **F-lite** (clear scope, 1 domain) | **F-full** (complex, multi-domain).
 
 ## Step 2b — Seed Pipeline Tasks
 
@@ -207,13 +213,13 @@ Walk: Σ[step] == true ∨ Σ_s[step] == true ∨ should_skip(step) ⇒ done/ski
 
 | Gate trigger | Behavior |
 |-------------|----------|
-| S* == frame (¬Σ.frame) | Show φ if ∃ draft, ask approval |
-| S* == spec (Σ.frame ∧ ¬Σ.spec) | Gate after spec runs |
+| S* == frame (¬Σ.frame) | **no pre-gate AQ** — invoke `/frame` immediately. Skill auto-reuses approved, auto-continues draft, auto-approves when seed has no gaps; AQ only on real gaps. |
+| S* == spec (Σ.frame ∧ ¬Σ.spec) | Gate after `/spec`: **chat Executive Summary** (¬AskUserQuestion). Free-form approve/revise in next turn, then re-scan → `/plan`. |
 | S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ == F-full | Architecture sketch (see block below) → user confirm → THEN invoke /plan. ¬fires for τ ∈ {S, F-lite}. |
-| S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ ∈ {S, F-lite} | Gate after plan runs |
+| S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ ∈ {S, F-lite} | Gate after plan runs (inside `/plan`) |
 | S* == review | Post-review gate handled inside /code-review |
 
-Gate fires → Step 7 skips its own prompt (gate IS confirmation). ¬double-prompt.
+Gate fires → Step 7 skips its own prompt (gate IS confirmation). ¬double-prompt. **¬pre-ask** what the child skill will decide or auto-resolve.
 
 ### Architecture Sketch Gate (F-full only, pre-plan)
 
