@@ -87,6 +87,7 @@ Run /analyze --issue N (or /frame), or re-run with --analysis <path> / --frame <
 Read SRC → extract: title, issue#, tier, **problem/intent**, outcome, appetite, recommended shape (if α).
 - Intent (SRC Problem) → σ `## Intent` + exec summary **Solve**
 - Outcome → σ `## Goal` + exec summary **Done when**
+- Problem empty/sparse → Intent from title + outcome (1–2 lines), or χ if still unclear — ¬invent a problem SRC never stated
 
 ### 0b. Ensure GitHub Issue
 
@@ -106,7 +107,7 @@ Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*`.
 
 | State | Action |
 |-------|--------|
-| ∃ σ ∧ `status: approved` | **Reuse.** Print short note + full **Executive Summary** of existing σ → Step 5/6 (chat: approve to keep & continue pipeline, or "re-spec" / changes). ¬regenerate unless user asks. |
+| ∃ σ ∧ `status: approved` | **Reuse.** Print short note + **lean Executive Summary** (Step 5 structure + hard caps) of existing σ → Step 5/6 (chat: approve to keep & continue pipeline, or "re-spec" / changes). ¬regenerate unless user asks. |
 | ∃ σ ∧ draft / no status | Load as base → Step 2 refine (fill gaps, re-check) |
 | ¬∃ σ | Step 2 generate fresh |
 
@@ -207,7 +208,7 @@ Print **exactly this structure** (fill from σ + Steps 3–4). HITL surface — 
 - Intent block: ≤4 short lines total
 - Scope In / Out: ≤4 / ≤3 one-line bullets
 - Criteria: first **5** only; if more → `+{n} in file`
-- Expert notes: ≤3 bullets or `clean`
+- Experts: ≤3 bullets or `clean`
 - Forbidden in summary: Expected Behavior narrative, breadboard tables, full criteria dump
 
 ```markdown
