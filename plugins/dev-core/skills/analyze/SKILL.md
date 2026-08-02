@@ -21,7 +21,7 @@ Let:
   χ := open unknown (unresolved question blocking shape choice)
 
 Frame → codebase exploration → expert review → **executive summary in chat** → free-form human reaction.
-¬spec, ¬worktree. Shape phase only. Spec → `/spec`.
+¬spec, ¬worktree (except the consent-gated Step 2.5 spike). Shape phase only. Spec → `/spec`.
 
 ## Hard ban — AskUserQuestion
 
@@ -58,7 +58,7 @@ Exception: the structured `/interview` in Step 2b keeps its own question flow (i
 
 ## Pre-flight
 
-Success: α written ∧ exec summary shown ∧ (approved → committed)
+Success: α written ∧ exec summary shown ∧ (approved → `status: approved` ∧ committed)
 Evidence: `ls artifacts/analyses/{N}-*.md*` + chat summary + (on approve) `status: approved` ∧ commit
 Steps: resolve → scan → explore → review → summary → react
 ¬clear → STOP + ask: "Is this technical analysis or framing?"
@@ -203,13 +203,13 @@ Skip if ¬technical uncertainty in Step 2 findings.
 - unknown blocks shape selection → name it in one prose line + say `spike` to run it in a throwaway worktree, `continue` to rank shapes without it → **stop the turn** (Step 5 already routes `spike …`)
 - else → continue to Step 3; χ surfaces in the Executive Summary, user can ask later
 
-**¬AQ bans menus, ¬consent.** A spike creates a branch + worktree and runs code — a repo mutation in a skill whose scope line says `¬worktree`. Prose-ask + stop satisfies both the ban and CLAUDE.md Design Principle 2.
+**¬AQ bans menus, ¬consent.** A spike creates a branch + worktree and runs code — a repo mutation, carved out of the `¬worktree` scope line. Prose-ask + stop satisfies both the ban and CLAUDE.md Design Principle 2.
 
 **Spike flow** — runs **only** after the user says `spike` (principal stays on β — [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md)):
 
 1. Bind names first — collision-proof, and captured so teardown can use them:
    ```bash
-   SPIKE_BRANCH="spike/${N}-$(date +%s)"
+   SPIKE_BRANCH="spike/$(date +%s)-${N}"   # N last: "{N}-" would match scan-state.sh N_ANCHOR → phantom stale=true
    SPIKE_PATH=".claude/worktrees/${SPIKE_BRANCH//\//-}"   # or $(suggested_grok_worktree_path "" "$SPIKE_BRANCH")
    ```
    Re-derive both at teardown (`git worktree list --porcelain`) — Bash calls do **not** share shell state across invocations.
@@ -261,13 +261,15 @@ Print **exactly this structure** (fill from α + Steps 2–3). HITL surface — 
 - Evidence / χ / Experts: ≤3 bullets each (or `none` / `clean`); χ > 3 → top 3 + `+{n-3} in file`
 - Forbidden in summary: verbatim Source quote, full Pro/Con lists, file dumps, diagram markup
 
+`{status}` = α's frontmatter value — `approved` on the Step 1 reuse path, `draft` everywhere else. ¬hardcode.
+
 Header line: append ` · visuals: \`shapes.html\` \`data-flow.html\`` **only if** those sidecars exist — omit the whole segment otherwise. ¬print the condition.
 
 ```markdown
 ## Analysis — Executive Summary
 
 **#{N}** — {title}
-`artifacts/analyses/{N}-{slug}-analysis.md` · **{τ}** · draft · src `{φ short path}`
+`artifacts/analyses/{N}-{slug}-analysis.md` · **{τ}** · {status} · src `{φ short path}`
 
 ### Intent
 **Solve:** {1–2 sentences — what is broken / missing today; why now}
@@ -319,11 +321,11 @@ Ambiguous free text → ask **one short prose clarifying question** in the messa
 
 1. Set frontmatter `status: approved` via Edit.
 2. Commit: `git add artifacts/analyses/{N}-{slug}-analysis.md artifacts/visuals/{N}-{slug}-*.html` (issue-scoped — `artifacts/visuals/` is shared, a bare dir add sweeps other issues' sidecars) + commit per CLAUDE.md Rule 5.
-2. Update issue status:
+3. Update issue status:
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Analysis
 ```
-3. Exit per Exit section.
+4. Exit per Exit section.
 
 ## Edge Cases
 

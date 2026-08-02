@@ -80,7 +80,7 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
 ```
 
-φ ∃ → read frontmatter → extract `status`, `tier`.
+φ / α / σ ∃ → read frontmatter → extract `status` (+ `tier` from φ). `scan-state.sh` emits filenames only; the `status ≠ 'draft'` predicates below are satisfied by reading the artifact, ¬by the helper's truthy line.
 
 Σ = {
   recheck:   null,       # Σ_s only — runs every session, no on-disk state
@@ -299,6 +299,7 @@ Idempotent. **¬** relative `../../../artifacts/` (wrong under `~/.grok/worktree
 
 Skill returns → **IMMEDIATELY in the same turn, silently:**
 
+0. **Approval-stop guard** — completed step == `analyze` ∧ the skill ended its turn on its Executive Summary (¬approve reaction yet) → **it has not returned**: skip items 1–2, ¬Step 7, stop this turn. Resume on the user's next message.
 1. `TaskUpdate(task_id_map[S*], status: "completed")`
 2. `Σ_s[step] = true`
 3. Goto Step 1 (re-scan Σ)

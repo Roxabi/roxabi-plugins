@@ -11,11 +11,13 @@ Defines how the 13 dev-core pipeline skills participate in the `/dev` orchestrat
 ## Pipeline
 
 ```
-issue-triage (external, roxabi-issues) → recheck → frame → analyze → spec → plan ⏸→ implement → pr
+issue-triage (external, roxabi-issues) → recheck → frame → analyze ⏸→ spec → plan ⏸→ implement → pr
             → ci-watch → validate → code-review → {fix ↺ review | merge → cleanup}
 ```
 
-> `plan ⏸→ implement`: for τ ∈ {F-lite, F-full}, `/dev` inserts a **compact pause** between plan and implement (Step 8b) — recommend `/compact` before building. τ=S skips plan entirely. See the gate-class Exit `/plan` exception.
+> `⏸` = the pipeline stops the turn here.
+> - `analyze ⏸→ spec`: `/analyze` prints its chat Executive Summary and waits for a free-form approval (`adv + approval stop`). τ ∈ {S, F-lite} skip analyze entirely.
+> - `plan ⏸→ implement`: for τ ∈ {F-lite, F-full}, `/dev` inserts a **compact pause** between plan and implement (Step 8b) — recommend `/compact` before building. τ=S skips plan entirely. See the gate-class Exit `/plan` exception.
 
 ### Parallel meta: `/ship` (code already ready)
 
@@ -41,6 +43,7 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 | dev-pipeline task lifecycle (seed, in_progress, completed, cancelled) | `/dev` |
 | Step transitions (what runs next) | `/dev` Step 5 STEPS list + Step 7 invocation map |
 | Gate approval prompts (frame, spec, plan) | `/dev` Step 6 + the skill itself |
+| Approval-stop prompt (analyze) | the skill itself — chat Executive Summary, no `/dev` pre-gate |
 | Compact pause (plan→implement, F-lite/F-full) | `/dev` Step 8b |
 | Standalone invocation fallback | Each skill's Exit section |
 | Sub-task creation (with `kind` ≠ `dev-pipeline`) | Individual skills (plan, code-review) |
@@ -63,6 +66,7 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 
 - **Created by:** `/dev` Step 2b at the start of a pipeline run
 - **Updated by:** `/dev` only — Step 7 sets `in_progress` before invocation, Step 8 sets `completed` on success
+  - **Exception (`adv + approval stop`):** a skill that ends its turn awaiting approval has not succeeded yet. `/dev` leaves the task `in_progress` and sets `completed` only after the approve reaction. Currently: `analyze`.
 - **NOT updated by:** individual pipeline skills (they are passive participants)
 - **Metadata:** `{ kind: "dev-pipeline", issue: N, step: "...", phase: "Frame|Shape|Build|Verify|Ship", tier: τ }`
 - **Dependencies:** wired sequentially via `blockedBy` during seeding (graph is a DAG, no cycles)
@@ -187,7 +191,7 @@ These imperatives exist in `/dev` Step 7/8 **and** in each skill's Exit section.
 When adding a new skill to the dev-core pipeline:
 
 1. Add it to `/dev` Step 5 STEPS list at the appropriate position
-2. Add it to `/dev` Step 7 invocation map with its class (adv|gate|verdict|loop|standalone)
+2. Add it to `/dev` Step 7 invocation map with its class (adv|adv + approval stop|gate|verdict|loop|standalone)
 3. Add it to `/dev` Step 4 skip logic if conditionally skipped
 4. Add it to `/dev` Tier Skip Matrix (S|F-lite|F-full columns)
 5. Add the three canonical body sections to the skill's own SKILL.md: **Chain Position**, **Task Integration**, **Exit** (using the class-appropriate Exit pattern)
