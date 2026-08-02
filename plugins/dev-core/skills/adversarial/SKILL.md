@@ -2,7 +2,7 @@
 name: adversarial
 argument-hint: '["subject" | --issue <N> | --analysis <path> | --spec <path> | --frame <path> | --path <path>] [--write]'
 description: Red-team / devil's advocate on analyses, proposals, architecture, ideas, specs, or plans — attack assumptions, kill vacuous claims, surface bypass and failure modes. Triggers: "adversarial" | "red team" | "devil's advocate" | "attack this design" | "kill this idea" | "stress test this" | "what breaks this" | "adversarial review".
-version: 0.1.1
+version: 0.1.2
 allowed-tools: Bash, Read, Glob, Grep, Agent, ToolSearch, Write
 ---
 
@@ -63,7 +63,7 @@ Steps: resolve → scope → attack → present → write?
 | Input | Action |
 |-------|--------|
 | `"text"` | S := verbatim free text |
-| `--issue N` | Validate `N` ∈ `^[0-9]+$` else STOP. Then `gh issue view "$N" --json title,body,labels` + glob `artifacts/{frames,analyses,specs,plans}/"$N"-*.md*` (prefer newest analysis → spec → frame) |
+| `--issue N` | Validate `N` ∈ `^[0-9]+$` else STOP. Then `gh issue view "$N" --json title,body,labels` + glob `artifacts/{frames,analyses,specs,plans}/"$N"-*.md*` (prefer newest analysis → spec → frame) — **kind by frontmatter, ¬filename** (`type: brainstorm` / `status: consensus-reached` ≠ α) |
 | `--analysis` / `--spec` / `--frame` / `--path` | Read file → S |
 | ∅ | Infer from recent conversation (last analysis / proposal). Cannot → STOP + ask |
 
@@ -196,7 +196,7 @@ verdict_lean: {survives|survives-with-major|killed}
 
 Path: `artifacts/reviews/{N}-{slug}-adversarial.md` (create dir if needed). N missing → `{slug}-adversarial.md`.
 
-Commit only if repo already tracks `artifacts/` and user confirms: `git add artifacts/reviews/{file} && git commit -m "docs(adversarial): {slug}"` — subject uses `{slug}` (sanitized), ¬`{title}`, ¬`-a`, ¬`.`. Default: write file, ¬force commit.
+Commit only if repo already tracks `artifacts/` and user confirms: `git add "{written_path}" && git commit -m "docs(adversarial): {subject}"` where `{written_path}` is the exact path Write used (¬a re-derived one) and `{subject}` := `{slug}` if non-empty, else `#{N}`, else `review {date}` — a slug can derive empty (no ASCII alnum in the title) and commitlint rejects an empty subject. ¬`{title}` in any command, ¬`-a`, ¬`.`. Default: write file, ¬force commit.
 
 ## Edge Cases
 

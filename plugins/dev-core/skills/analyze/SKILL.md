@@ -2,7 +2,7 @@
 name: analyze
 argument-hint: '[--issue <N> | --frame <path>]'
 description: Deep technical analysis — explore existing code, risks, alternatives. Triggers: "analyze" | "technical analysis" | "explore the problem" | "how deep is it" | "deep dive" | "investigate this" | "analyze this feature" | "what are the risks" | "explore the codebase" | "look into this".
-version: 0.4.1
+version: 0.4.2
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch
 ---
 
@@ -98,11 +98,14 @@ Read φ → extract: `title`, `issue`, `tier`, **problem statement**, outcome, c
 
 ## Step 1 — Scan Existing Analysis
 
-Glob `artifacts/analyses/*` — match issue# or slug from φ.
+Glob `artifacts/analyses/*` — match issue# or slug from φ, then **read each candidate's frontmatter and keep the first whose kind is `analysis`**. `artifacts/analyses/` is shared — `/analyze` writes α, `/interview` writes brainstorms (`type: brainstorm`), `/consensus` writes κ (`status: consensus-reached`). **Classify on frontmatter, ¬filename** (naming has ≥4 live forms). Name-match only narrows candidates; `type:`/`status:` decides.
+
+A name match alone is an alphabetical pick: `42-auth-consensus.md` sorts before `42-dark-mode-analysis.md`. `/dev` resolves α the same way (`scan-state.sh --resolve-analysis`) — the two must agree or a step reported done here is unfindable there.
 
 | State | Action |
 |-------|--------|
 | ∃ α ∧ `type: brainstorm` ∈ frontmatter | ¬analysis — say so in one line, use as seed → Step 2 (promote via interview) |
+| ∃ κ ∧ `status: consensus-reached` (¬α) | ¬analysis — `/consensus` output. Say so, use as seed → Step 2. **¬write `status: approved` into it**: κ is not α, and the Shape gate reads α. |
 | ∃ α ∧ `status: approved` (legacy: missing `status` ≡ approved) | **Reuse.** Print short note + **lean Executive Summary** (Step 4 structure + hard caps) → Step 4/5 (chat: approve to keep & continue pipeline, or "re-analyze" / changes). ¬regenerate unless user asks. |
 | ∃ α ∧ `status: draft` ∧ prior turn was Executive Summary ∧ user message is a reaction | **Resume React only** → goto **Step 5** (¬re-explore, ¬re-review). Cold/aborted drafts without an open summary use the next row. |
 | ∃ α ∧ `status: draft` (cold re-entry / abort / session restart) | Un-approved leftover — load as base → Step 2 refine → **Step 3 review** → Step 4. ¬summarize it as reviewed. |

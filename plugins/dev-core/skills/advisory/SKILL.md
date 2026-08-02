@@ -2,7 +2,7 @@
 name: advisory
 argument-hint: '["subject" | --issue <N> | --analysis <path> | --spec <path> | --frame <path> | --path <path>] [--write]'
 description: Constructive expert advisory on analyses, proposals, architecture, ideas, specs, or plans — strengthen, prioritize, surface blind spots as recommendations (not red-team). Triggers: "advisory" | "second opinion" | "advise on this" | "strengthen this" | "expert advice" | "advisory review" | "what would you improve".
-version: 0.1.1
+version: 0.1.2
 allowed-tools: Bash, Read, Glob, Grep, Agent, ToolSearch, Write
 ---
 
@@ -66,7 +66,7 @@ Same resolution rules as `/adversarial`:
 | Input | Action |
 |-------|--------|
 | `"text"` | S := verbatim |
-| `--issue N` | Validate `N` ∈ `^[0-9]+$` else STOP. Then `gh issue view "$N" --json …` + glob `artifacts/**/"$N"-*.md*` (prefer analysis → spec → frame → plan) |
+| `--issue N` | Validate `N` ∈ `^[0-9]+$` else STOP. Then `gh issue view "$N" --json …` + glob `artifacts/**/"$N"-*.md*` (prefer analysis → spec → frame → plan) — **kind by frontmatter, ¬filename** (`type: brainstorm` / `status: consensus-reached` ≠ α) |
 | `--analysis` / `--spec` / `--frame` / `--path` | Read → S |
 | ∅ | Infer from recent convo; else STOP + ask |
 
@@ -212,7 +212,7 @@ lean: {ready-to-advance|strengthen-then-advance|reframe-first}
 
 Path: `artifacts/reviews/{N}-{slug}-advisory.md` (create dir if needed).
 
-Commit only if `artifacts/` tracked ∧ user confirms: `git add artifacts/reviews/{file} && git commit -m "docs(advisory): {slug}"` — subject uses `{slug}` (sanitized), ¬`{title}`, ¬`-a`, ¬`.`. Default: write, ¬force commit.
+Commit only if `artifacts/` tracked ∧ user confirms: `git add "{written_path}" && git commit -m "docs(advisory): {subject}"` where `{written_path}` is the exact path Write used (¬a re-derived one) and `{subject}` := `{slug}` if non-empty, else `#{N}`, else `advisory {date}` — a slug can derive empty and commitlint rejects an empty subject. ¬`{title}` in any command, ¬`-a`, ¬`.`. Default: write, ¬force commit.
 
 ## Edge Cases
 

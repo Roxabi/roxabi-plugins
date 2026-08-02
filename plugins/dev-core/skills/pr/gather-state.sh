@@ -28,7 +28,16 @@ gh pr list --head "$BRANCH" --json number,title,url,state 2>/dev/null || echo "n
 ISSUE_NUM=$(echo "$BRANCH" | sed -n 's/^feat\/\([0-9]*\)-.*/\1/p')
 if [ -n "$ISSUE_NUM" ]; then
   echo "issue=$ISSUE_NUM"
-  ANALYSIS=$(ls "artifacts/analyses/${ISSUE_NUM}-"*.md "artifacts/analyses/${ISSUE_NUM}-"*.mdx 2>/dev/null | head -1 || true)
+  # artifacts/analyses/ is shared (α, /interview brainstorms, /consensus κ). Kind lives in
+  # the frontmatter, not the filename — a bare `head -1` reports a consensus doc as the
+  # PR's "Analysis". Same rule as dev/scan-state.sh::resolve_analysis.
+  ANALYSIS=""
+  for f in "artifacts/analyses/${ISSUE_NUM}-"*.md "artifacts/analyses/${ISSUE_NUM}-"*.mdx; do
+    [ -f "$f" ] || continue
+    head -30 "$f" | grep -qiE '^type:[[:space:]]*brainstorm[[:space:]]*$' && continue
+    head -30 "$f" | grep -qiE '^status:[[:space:]]*consensus-reached[[:space:]]*$' && continue
+    ANALYSIS="$f"; break
+  done
   [ -n "$ANALYSIS" ] && echo "analysis=$ANALYSIS" || echo "analysis=false"
   SPEC=$(ls "artifacts/specs/${ISSUE_NUM}-"*.md "artifacts/specs/${ISSUE_NUM}-"*.mdx 2>/dev/null | head -1 || true)
   [ -n "$SPEC" ] && echo "spec=$SPEC" || echo "spec=false"

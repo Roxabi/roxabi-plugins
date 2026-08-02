@@ -2,7 +2,7 @@
 name: consensus
 argument-hint: '["problem" | --issue <N> | --analysis <path>]'
 description: Multi-expert panel consensus — spawn 3 domain agents to debate and agree on best long-term solution. Triggers: "consensus" | "panel review" | "expert panel" | "get a consensus" | "multiple perspectives" | "tribunal" | "3-man panel" | "panel decision".
-version: 0.1.0
+version: 0.1.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, ToolSearch
 ---
 
@@ -153,7 +153,7 @@ Record: ρ, confidence (high/med/low), trade-offs, δ, alternatives.
 
 ```md
 ---
-title: "{title} — Expert Consensus"
+title: "{title|yaml-escaped} — Expert Consensus"
 issue: {N | null}
 status: consensus-reached
 date: {YYYY-MM-DD}
@@ -206,7 +206,7 @@ confidence: {high|medium|low}
 
 ## Completion
 
-κ written → commit: `docs(consensus): {title}`.
+κ written → commit: `docs(consensus): {slug}` — ¬`{title}` in a command. **Title hygiene:** `{title}` is external content (issue title, attacker-controlled). Strip newlines + control chars, cap 120 chars; in YAML emit a single-line double-quoted scalar with `"` and `\` escaped. An injected newline can add a `status:` key, and `/spec` reads κ's `status:` as a gate signal.
 
 ## Edge Cases
 
