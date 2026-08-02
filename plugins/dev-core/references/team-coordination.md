@@ -13,7 +13,7 @@ Main Claude = orchestrator. Assesses issues, spawns α, runs skills, coordinates
 | Tier | α | Role |
 |------|---|------|
 | **Domain** | frontend-dev, backend-dev, devops | Write code in their packages |
-| **Quality** | fixer, tester, security-auditor, adversarial | Fix findings, write tests, OWASP audit, red-team review |
+| **Quality** | fixer, tester, security-auditor, adversarial | Fix findings, write tests, OWASP audit, red-team (`/adversarial` skill or review agent) |
 | **Strategy** | architect, product-lead, doc-writer | Plan, analyze, document |
 
 ## 4-Phase Workflow

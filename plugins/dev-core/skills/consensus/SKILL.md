@@ -220,8 +220,8 @@ confidence: {high|medium|low}
 ## Chain Position
 
 - **Phase:** Shape (pre-spec)
-- **Predecessor:** `/frame` ∨ `/analyze` ∨ raw issue
-- **Successor:** `/spec`
+- **Predecessor:** `/frame` ∨ `/analyze` ∨ `/advisory` ∨ raw issue
+- **Successor:** `/spec` (or `/adversarial` if claim still untested)
 - **Class:** gate
 
 ## Task Integration

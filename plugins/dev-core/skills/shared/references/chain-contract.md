@@ -58,7 +58,7 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 | **gate** | User approval of artifact required | frame, spec, plan | Present artifact → on approve, return silently; `/dev` auto-chains to successor (**plan exception:** compact pause before `/implement` — see below) |
 | **verdict** | Branches based on outcome | code-review | APPROVED → merge → cleanup; CHANGES_REQUESTED → `/fix` |
 | **loop** | Cycles back to predecessor (bounded) | fix | On success → TaskCreate follow-up review; max 2 iterations |
-| **standalone** | Never auto-triggered by `/dev` | promote | Runs only on explicit user invocation |
+| **standalone** | Never auto-triggered by `/dev` | promote, adversarial, advisory | Runs only on explicit user invocation |
 
 ## Task lifecycle contract
 

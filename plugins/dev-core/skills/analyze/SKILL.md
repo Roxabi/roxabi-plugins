@@ -295,7 +295,7 @@ Header line: append ` · visuals: \`shapes.html\` \`data-flow.html\`` **only if*
 
 ---
 **Your move (free text — no menu):**
-approve / ok → commit + advance · shape 2 / change … → revise + re-print · question … → answer · spike {unknown} · re-analyze
+approve / ok → commit + advance · shape 2 / change … → revise + re-print · question … → answer · spike {unknown} · re-analyze · adversarial / advisory (side-path on α)
 ```
 
 **STOP this turn** after printing the summary. Do not commit. Do not invoke `/spec`. Do not AskUserQuestion.
@@ -311,6 +311,8 @@ On the user's next message, interpret intent (no AQ):
 | question / why / what about / clarify … | Answer in chat; revise α only if they also request a change |
 | spike … / test that / prove it | Run Step 2.5 spike → fold findings into α → re-print summary → **stop again** |
 | re-analyze / start over / regenerate | Re-run from Step 2 (fresh exploration + interview) |
+| adversarial / red team / kill this | `Skill(skill: "adversarial", args: "--analysis <α path>")` → fold useful φ into α if user asks → re-print summary or hand back |
+| advisory / second opinion / strengthen | `Skill(skill: "advisory", args: "--analysis <α path>")` → fold Strengthen P0s if user asks → re-print or hand back |
 | abort / stop / cancel | Stop; leave α on disk **as `status: draft`** (so `/dev` ¬counts it done); return cancel to `/dev` if applicable |
 
 Ambiguous free text → ask **one short prose clarifying question** in the message (plain text). Still ¬AskUserQuestion.
@@ -345,7 +347,7 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Analysi
 
 - **Phase:** Shape
 - **Predecessor:** `/frame` (artifact: `artifacts/frames/{N}-{slug}-frame.md`)
-- **Successor:** `/spec`
+- **Successor:** `/spec` (optional side-paths before advance: `/adversarial` kill-pass, `/advisory` strengthen, `/consensus` panel)
 - **Class:** `adv` **+ approval stop** — `/dev`'s type system is single-valued per step (`gate ∈ {frame, spec, plan}`, all others `adv`), so `/analyze` stays `adv` for dispatch. It is **not** a plain `adv`: it ends its turn awaiting a free-form approval, exactly like `/spec`'s `gate`. What protects the pipeline is the `status:` marker (`Σ.analyze = α ∃ ∧ α.status ≠ 'draft'`), not the class — same mechanism as `/spec`. ¬analogous to `/recheck`, whose block is *in-turn* (harness blocks, user answers, skill continues in the same turn). See [chain-contract.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/chain-contract.md).
 
 ## Task Integration
