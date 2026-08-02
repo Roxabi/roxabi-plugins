@@ -172,7 +172,7 @@ Revise S | `/advisory` for constructive strengthen | `/spec` / `/plan` if still 
 
 ```md
 ---
-title: "{title} — Adversarial review"
+title: "{title|yaml-escaped} — Adversarial review"
 issue: {N | null}
 status: review-complete
 date: {YYYY-MM-DD}
@@ -188,11 +188,15 @@ verdict_lean: {survives|survives-with-major|killed}
 …
 ```
 
+**Title hygiene ({title} is external content).** A GitHub issue title is controlled by anyone who can open an issue. Before any use: strip newlines + control chars, cap 120 chars.
+- **¬ shell.** Never interpolate `{title}` into a command — `$(…)`, backticks and `;` execute. The commit subject uses the sanitized `{slug}`.
+- **YAML.** Emit as a single-line double-quoted scalar with `"` and `\` escaped. An unescaped newline lets a title inject frontmatter keys — `status:` is a pipeline gate signal read by `/dev` and `/spec`.
+
 **Slug:** derive `[a-z0-9]+(?:-[a-z0-9]+)*` only (strip path separators / `..`; max 48 chars). Resolve path and require prefix `artifacts/reviews/` before Write. N set → prefer `artifacts/reviews/{N}-adversarial.md` (no title slug) when slug unsafe.
 
 Path: `artifacts/reviews/{N}-{slug}-adversarial.md` (create dir if needed). N missing → `{slug}-adversarial.md`.
 
-Commit only if repo already tracks `artifacts/` and user confirms: `docs(adversarial): {title}`. Default: write file, ¬force commit.
+Commit only if repo already tracks `artifacts/` and user confirms: `git add artifacts/reviews/{file} && git commit -m "docs(adversarial): {slug}"` — subject uses `{slug}` (sanitized), ¬`{title}`, ¬`-a`, ¬`.`. Default: write file, ¬force commit.
 
 ## Edge Cases
 

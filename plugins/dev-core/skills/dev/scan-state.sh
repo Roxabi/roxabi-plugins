@@ -67,10 +67,16 @@ FRAME=$(ls artifacts/frames/ 2>/dev/null | grep -iE "$N_ANCHOR" | grep -iF -- "$
 echo "recheck=null"
 
 # analyze
-ANALYZE=$(ls artifacts/analyses/ 2>/dev/null | grep -E "$N_ANCHOR" | head -1 || true)
-[ -z "$ANALYZE" ] && ANALYZE=$(ls artifacts/analyses/ 2>/dev/null | grep -iF -- "${SLUG}" | head -1 || true)
-[ -z "$ANALYZE" ] && ANALYZE=$(wt_list "artifacts/analyses" | grep -E "$N_ANCHOR" | head -1 || true)
-[ -z "$ANALYZE" ] && ANALYZE=$(wt_list "artifacts/analyses" | grep -iF -- "${SLUG}" | head -1 || true)
+# α is *-analysis.md ONLY. artifacts/analyses/ is a shared directory: /consensus
+# writes {N}-{slug}-consensus.md there with status: consensus-reached. Without this
+# filter, `head -1` picks alphabetically, so a consensus artifact resolves as α and
+# Σ.analyze (status == approved) is false forever → /dev loops on analyze with no
+# recovery path. Keep in lockstep with /spec Step 0a SRC resolution.
+ANALYSIS_KIND='\-analysis\.md'
+ANALYZE=$(ls artifacts/analyses/ 2>/dev/null | grep -E "$ANALYSIS_KIND" | grep -E "$N_ANCHOR" | head -1 || true)
+[ -z "$ANALYZE" ] && ANALYZE=$(ls artifacts/analyses/ 2>/dev/null | grep -E "$ANALYSIS_KIND" | grep -iF -- "${SLUG}" | head -1 || true)
+[ -z "$ANALYZE" ] && ANALYZE=$(wt_list "artifacts/analyses" | grep -E "$ANALYSIS_KIND" | grep -E "$N_ANCHOR" | head -1 || true)
+[ -z "$ANALYZE" ] && ANALYZE=$(wt_list "artifacts/analyses" | grep -E "$ANALYSIS_KIND" | grep -iF -- "${SLUG}" | head -1 || true)
 [ -n "$ANALYZE" ] && echo "analyze=$ANALYZE" || echo "analyze=false"
 
 # spec

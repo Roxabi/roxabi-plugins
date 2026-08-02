@@ -188,7 +188,7 @@ Merge without debate theater:
 
 ```md
 ---
-title: "{title} — Advisory"
+title: "{title|yaml-escaped} — Advisory"
 issue: {N | null}
 status: review-complete
 date: {YYYY-MM-DD}
@@ -204,11 +204,15 @@ lean: {ready-to-advance|strengthen-then-advance|reframe-first}
 ## Next
 ```
 
+**Title hygiene ({title} is external content).** A GitHub issue title is controlled by anyone who can open an issue. Before any use: strip newlines + control chars, cap 120 chars.
+- **¬ shell.** Never interpolate `{title}` into a command — `$(…)`, backticks and `;` execute. The commit subject uses the sanitized `{slug}`.
+- **YAML.** Emit as a single-line double-quoted scalar with `"` and `\` escaped. An unescaped newline lets a title inject frontmatter keys — `status:` is a pipeline gate signal read by `/dev` and `/spec`.
+
 **Slug:** `[a-z0-9]+(?:-[a-z0-9]+)*` only (strip `..` / separators; max 48). Resolve path → require prefix `artifacts/reviews/`. N set → prefer `artifacts/reviews/{N}-advisory.md` when slug unsafe.
 
 Path: `artifacts/reviews/{N}-{slug}-advisory.md` (create dir if needed).
 
-Commit only if `artifacts/` tracked ∧ user confirms: `docs(advisory): {title}`. Default: write, ¬force commit.
+Commit only if `artifacts/` tracked ∧ user confirms: `git add artifacts/reviews/{file} && git commit -m "docs(advisory): {slug}"` — subject uses `{slug}` (sanitized), ¬`{title}`, ¬`-a`, ¬`.`. Default: write, ¬force commit.
 
 ## Edge Cases
 

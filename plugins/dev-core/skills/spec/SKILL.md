@@ -71,9 +71,11 @@ Steps: resolve → generate → pre-check → review → executive summary → c
 
 `--issue N` → validate `N` matches `^[0-9]+$` first; else STOP. Then scan priority order:
 ```bash
-# 1. Find analysis with matching issue number (N digit-validated)
-ls artifacts/analyses/"$N"-*.md* 2>/dev/null | head -1
-# 2. Find frame with matching issue in frontmatter
+# 1. Analysis (α) — *-analysis.md only; artifacts/analyses/ is shared (N digit-validated)
+ls artifacts/analyses/"$N"-*-analysis.md* 2>/dev/null | head -1
+# 2. Consensus (κ) — documented /consensus → /spec chain
+ls artifacts/analyses/"$N"-*-consensus.md* 2>/dev/null | head -1
+# 3. Find frame with matching issue in frontmatter
 grep -rl "issue: $N" artifacts/frames/ 2>/dev/null | head -1
 ```
 
@@ -89,6 +91,8 @@ Run /analyze --issue N (or /frame), or re-run with --analysis <path> / --frame <
 - `status: approved` ∨ status key absent (legacy) → proceed.
 - Other tokens → STOP + ask to approve or re-run analyze.
 - `--force` (explicit) → allow draft α with one-line warn in Context.
+
+**When SRC is κ (consensus):** `status: consensus-reached` → proceed (this is `/consensus`'s documented successor path). Any other token → treat as α above.
 
 When SRC is φ only (F-lite / analyze skipped) → no α status check.
 
