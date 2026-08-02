@@ -1,6 +1,6 @@
 # dev-core
 
-Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with 33 skills, 9 specialized agents, and safety hooks.
+Full development lifecycle orchestrator for Roxabi projects. Covers framing, analysis, specification, planning, implementation, review, and shipping. Opinionated workflow with lifecycle skills, specialized agents, and safety hooks.
 
 ## Prerequisites
 
@@ -72,7 +72,7 @@ Main entry points:
 
 ## Skills
 
-33 skills organized by workflow phase:
+Skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
