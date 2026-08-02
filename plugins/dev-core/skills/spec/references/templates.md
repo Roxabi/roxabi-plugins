@@ -17,9 +17,13 @@ description: "{one-line description}"
 **Promoted from:** [{analysis title}]({relative path to analysis})
 **GitHub issue:** #{N}
 
+## Intent
+
+{1–3 short paragraphs or bullets: what we seek to solve — pain / gap / broken invariant, why now, observable impact. From SRC Problem. Not the solution shape.}
+
 ## Goal
 
-{one sentence — what this builds and why}
+{one sentence — observable done-when outcome}
 
 ## Users
 
