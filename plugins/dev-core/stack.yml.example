@@ -124,6 +124,7 @@ commands:
 # Directories where dev-core agents write structured artifacts.
 # All paths are relative to the project root.
 artifacts:
+  brainstorms: artifacts/brainstorms  # divergent exploration from /interview — kept out of analyses/ so α resolution needs no filtering
   analyses: artifacts/analyses    # technical analyses produced by product-lead / architect
   specs: artifacts/specs          # solution specs
   frames: artifacts/frames        # problem frames

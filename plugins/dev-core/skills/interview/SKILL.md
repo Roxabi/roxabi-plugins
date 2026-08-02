@@ -2,7 +2,7 @@
 name: interview
 argument-hint: [topic | --promote <path>]
 description: Structured interview → brainstorm | analysis | spec (with promotion). Triggers: "create a spec" | "interview" | "brainstorm" | "write analysis" | "promote to spec" | "let's brainstorm" | "think through this" | "help me brainstorm" | "let's think this through" | "explore ideas".
-version: 0.2.1
+version: 0.2.2
 allowed-tools: Write, Read, Edit, Glob, ToolSearch
 ---
 
@@ -32,7 +32,7 @@ Conduct structured interview → produce one of {β, α, σ}. Supports promoting
 
 ## Step 1 — Existing Document Awareness
 
-Glob A, S — match topic by issue#, keywords, or slug.
+Glob B, A, S — match topic by issue#, keywords, or slug. **B included**: β moved out of A on 2026-08-03, and without it a second `/interview` on the same topic cannot see the brainstorm it wrote itself → duplicate β instead of the promote gate below.
 
 ∃ related docs → AQ:
 > "Found existing documents: {list with paths}. How to proceed?"

@@ -2,7 +2,7 @@
 name: frame
 argument-hint: '["idea" | --issue <N>]'
 description: Problem framing — capture problem, constraints, scope, tier. Triggers: "frame" | "frame this" | "what's the problem" | "define the problem" | "scope this out" | "define the scope" | "what are we solving" | "help me think through this problem" | "problem statement".
-version: 0.5.0
+version: 0.5.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---
 
@@ -173,9 +173,11 @@ Track `tier_aq = true` only if Confirm AQ fired.
 
 Write φ with `status: draft`:
 
+**Title hygiene.** `{title}` is external content (a GitHub issue title). Strip newlines + control chars, cap 120 chars, emit as a single-line double-quoted YAML scalar with `"` and `\` escaped — the `status:` key below is the pipeline gate signal, and an injected newline can add one that outranks it.
+
 ```md
 ---
-title: {title}
+title: "{title|yaml-escaped}"
 issue: {N | null}
 status: draft
 tier: {τ}

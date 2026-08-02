@@ -50,6 +50,7 @@ commands:
   install: bun install
 
 artifacts:
+  brainstorms: artifacts/brainstorms
   analyses: artifacts/analyses
   specs: artifacts/specs
   frames: artifacts/frames

@@ -2,7 +2,7 @@
 name: spec
 argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit] [--force]'
 description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build" | "design the solution" | "acceptance criteria" | "define acceptance criteria" | "spec it out" | "write the spec".
-version: 0.3.6
+version: 0.3.7
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -72,7 +72,8 @@ Steps: resolve → generate → pre-check → review → executive summary → c
 `--issue N` → validate `N` matches `^[0-9]+$` first; else STOP. Then scan priority order:
 ```bash
 # 1+2. Candidates in the shared analyses dir (N digit-validated), classified by
-#      FRONTMATTER — ¬filename. Prefer an approved α; else κ; else a draft α.
+#      FRONTMATTER — ¬filename. Prefer an approved α; else a draft α (STOP unless
+#      --force). Brainstorms and legacy consensus artifacts are ¬candidates — see below.
 ls artifacts/analyses/"$N"-*.md* 2>/dev/null
 # 3. Find frame with matching issue in frontmatter
 grep -rl "issue: $N" artifacts/frames/ 2>/dev/null | head -1

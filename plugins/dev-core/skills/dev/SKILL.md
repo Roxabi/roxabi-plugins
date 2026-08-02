@@ -2,7 +2,7 @@
 name: dev
 argument-hint: '[#N | "idea" | --from <step> | --audit]'
 description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "work on #" | "develop" | "pick up issue" | "tackle issue" | "let's work on".
-version: 0.3.5
+version: 0.3.6
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
@@ -81,7 +81,7 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
 ```
 
-φ / α / σ ∃ → read frontmatter → extract `status` (+ `tier` from φ). `scan-state.sh` emits filenames only; the status predicates below are satisfied by reading the artifact, ¬by the helper's truthy line.
+φ / σ ∃ → read frontmatter → extract `status` (+ `tier` from φ). For **α, use `analyze_status=` from `scan-state.sh`** — the helper parses the frontmatter fence and normalizes the value (quotes, trailing comment, case), so re-reading the file yields a *less* correct answer. `analyze=<file>` alone is never a status signal.
 
 Let α_approved := α ∃ ∧ (α.status == 'approved' ∨ status key absent).  
 # missing status ≡ approved (legacy pre-HITL files). Explicit `draft` or any other token (e.g. consensus-reached) → ¬approved.

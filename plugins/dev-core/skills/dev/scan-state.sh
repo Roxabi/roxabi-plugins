@@ -7,62 +7,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../shared/lib.sh
 . "$SCRIPT_DIR/../shared/lib.sh"
 
-# ── Artifact kind classifier ──────────────────────────────────────────────────
-# artifacts/analyses/ is a SHARED directory. Three writers put different kinds of
-# document in it, and the filename does not reliably say which:
-#   /analyze    → α analysis          (status: draft|approved)
-#   /interview  → brainstorm          (type: brainstorm, no status key)
-#   legacy      → consensus artifact  (status: consensus-reached) — /consensus was
-#                 removed 2026-08-03, but its output is still on disk in repos that
-#                 ran it, and it MUST NOT resolve as α (that was the original wedge).
-# Naming is not a usable discriminator — live forms include {N}-{slug}-analysis.md,
-# {slug}.md, -analysis-iterN.mdx, -analysis.claude.md, plus .orig/.rej leftovers.
-# So classify on FRONTMATTER, which every writer emits. /analyze's own Step 1 table
-# already keys on `type: brainstorm`, making frontmatter the authoritative marker.
+# Artifact classification lives in ../shared/lib.sh (artifact_kind / artifact_status /
+# resolve_analysis) — pr/gather-state.sh sources the same helpers, so both resolvers
+# agree by construction rather than by two copies happening to match.
 #
-# Test hook (pure, no gh/network — dispatched before any dependency use):
-#   scan-state.sh --classify-artifact <path>   → "<kind>|<status>"
-artifact_kind() {
-  local f="$1" head
-  [ -f "$f" ] || { printf 'missing\n'; return 0; }
-  head=$(head -30 "$f" 2>/dev/null || true)
-  if printf '%s\n' "$head" | grep -qiE '^type:[[:space:]]*brainstorm[[:space:]]*$'; then
-    printf 'brainstorm\n'
-  elif printf '%s\n' "$head" | grep -qiE '^status:[[:space:]]*consensus-reached[[:space:]]*$'; then
-    printf 'consensus\n'
-  else
-    printf 'analysis\n'
-  fi
-}
-
-# `status:` value from frontmatter, or empty when the key is absent (legacy ≡ approved).
-artifact_status() {
-  local f="$1"
-  [ -f "$f" ] || return 0
-  head -30 "$f" 2>/dev/null | grep -iE '^status:[[:space:]]*' | head -1 |
-    sed -E 's/^[Ss][Tt][Aa][Tt][Uu][Ss]:[[:space:]]*//; s/[[:space:]]*$//' || true
-}
-
-# First file in <dir> that is BOTH name-matched (anchored N, else slug) AND kind=analysis.
-# The name match only narrows candidates; the kind check decides. Prints "" when none.
-#   scan-state.sh --resolve-analysis <dir> <N> <slug>
-resolve_analysis() {
-  local dir="$1" n="$2" slug="$3" anchor cand
-  [ -d "$dir" ] || return 0
-  anchor="(^|[^0-9])${n}-"
-  while IFS= read -r cand; do
-    [ -n "$cand" ] || continue
-    if [ "$(artifact_kind "${dir}/${cand}")" = "analysis" ]; then
-      printf '%s\n' "$cand"
-      return 0
-    fi
-  done <<EOF
-$( [ -n "$n" ] && ls "$dir" 2>/dev/null | grep -E "$anchor" || true)
-$( [ -n "$slug" ] && ls "$dir" 2>/dev/null | grep -iF -- "$slug" || true)
-EOF
-  return 0
-}
-
+# Test hooks (pure, no gh/network — dispatched before any dependency use):
+#   scan-state.sh --classify-artifact <path>            → "<kind>|<status>"
+#   scan-state.sh --resolve-analysis  <dir> <N> <slug>  → chosen filename, or ""
 if [ "${1:-}" = "--classify-artifact" ]; then
   printf '%s|%s\n' "$(artifact_kind "${2:-}")" "$(artifact_status "${2:-}")"
   exit 0

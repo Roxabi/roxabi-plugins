@@ -255,6 +255,7 @@ Never push without request. Never force/hard/amend. Hook fail → fix + NEW comm
 function artifactModel(stack: StackConfig): Section {
   const artifacts = stack.artifacts ?? {
     frames: 'artifacts/frames',
+    brainstorms: 'artifacts/brainstorms',
     analyses: 'artifacts/analyses',
     specs: 'artifacts/specs',
     plans: 'artifacts/plans',
@@ -266,6 +267,7 @@ function artifactModel(stack: StackConfig): Section {
 | Type | Directory | Question answered |
 |------|-----------|-------------------|
 | **Frame** | \`${artifacts.frames ?? 'artifacts/frames'}/\` | What's the problem? |
+| **Brainstorm** | \`${artifacts.brainstorms ?? 'artifacts/brainstorms'}/\` | What could we do? |
 | **Analysis** | \`${artifacts.analyses ?? 'artifacts/analyses'}/\` | How deep is it? |
 | **Spec** | \`${artifacts.specs ?? 'artifacts/specs'}/\` | What will we build? |
 | **Plan** | \`${artifacts.plans ?? 'artifacts/plans'}/\` | How do we build it? |

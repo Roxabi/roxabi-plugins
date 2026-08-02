@@ -28,16 +28,13 @@ gh pr list --head "$BRANCH" --json number,title,url,state 2>/dev/null || echo "n
 ISSUE_NUM=$(echo "$BRANCH" | sed -n 's/^feat\/\([0-9]*\)-.*/\1/p')
 if [ -n "$ISSUE_NUM" ]; then
   echo "issue=$ISSUE_NUM"
-  # artifacts/analyses/ is shared (α, /interview brainstorms, legacy consensus artifacts).
-  # Kind lives in the frontmatter, not the filename — a bare `head -1` reports the wrong
-  # doc as the PR's "Analysis". Same rule as dev/scan-state.sh::resolve_analysis.
-  ANALYSIS=""
-  for f in "artifacts/analyses/${ISSUE_NUM}-"*.md "artifacts/analyses/${ISSUE_NUM}-"*.mdx; do
-    [ -f "$f" ] || continue
-    head -30 "$f" | grep -qiE '^type:[[:space:]]*brainstorm[[:space:]]*$' && continue
-    head -30 "$f" | grep -qiE '^status:[[:space:]]*consensus-reached[[:space:]]*$' && continue
-    ANALYSIS="$f"; break
-  done
+  # Same resolver as /dev, via the shared helper — ¬a second implementation. The
+  # candidate set must match too: the previous inline glob `{N}-*` anchored at the
+  # filename start with no slug fallback, so /dev could report an analysis that /pr
+  # reported as absent (e.g. `epic-42-drift-analysis.md`, or a slug-only name).
+  SLUG=$(echo "$BRANCH" | sed -n 's/^[a-z]*\/[0-9]*-\(.*\)$/\1/p')
+  ANALYSIS=$(resolve_analysis "artifacts/analyses" "$ISSUE_NUM" "$SLUG")
+  [ -n "$ANALYSIS" ] && ANALYSIS="artifacts/analyses/$ANALYSIS"
   [ -n "$ANALYSIS" ] && echo "analysis=$ANALYSIS" || echo "analysis=false"
   SPEC=$(ls "artifacts/specs/${ISSUE_NUM}-"*.md "artifacts/specs/${ISSUE_NUM}-"*.mdx 2>/dev/null | head -1 || true)
   [ -n "$SPEC" ] && echo "spec=$SPEC" || echo "spec=false"

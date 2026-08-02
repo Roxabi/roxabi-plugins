@@ -16,7 +16,9 @@ let dir: string
 
 function run(...args: string[]): string {
   const r = spawnSync('bash', [SCAN_STATE, ...args], { encoding: 'utf-8' })
-  expect(r.status).toBe(0)
+  // Surface stderr in the assertion: a shell portability break (macOS sed/awk flags)
+  // otherwise fails all 11 with a bare "expected 2 to be +0" and no cause.
+  expect(r.status, r.stderr).toBe(0)
   return r.stdout.trim()
 }
 
@@ -31,6 +33,11 @@ function write(name: string, frontmatter: Record<string, string>): void {
     .map(([k, v]) => `${k}: ${v}`)
     .join('\n')
   writeFileSync(join(dir, name), `---\ntitle: "x"\n${body}\n---\n\n## Problem\n`)
+}
+
+/** Writes a file verbatim — for shapes `write()` cannot express. */
+function writeRaw(name: string, content: string): void {
+  writeFileSync(join(dir, name), content)
 }
 
 beforeEach(() => {
@@ -93,12 +100,25 @@ describe('resolve_analysis — the alphabetical-pick regression', () => {
     expect(resolve('42', 'auth')).toBe('')
   })
 
+  it('returns a draft analysis — status gating is the caller, not the resolver', () => {
+    write('42-auth-analysis.md', { status: 'draft' })
+    expect(resolve('42', 'auth')).toBe('42-auth-analysis.md')
+    expect(classify('42-auth-analysis.md')).toBe('analysis|draft')
+  })
+})
+
+// These pin name/slug matching, which predates the kind-classification fix and is
+// unchanged by it — they stay green if the kind check is removed. Kept deliberately,
+// but out of the regression block so its label stays honest.
+describe('resolve_analysis — name and slug matching (pre-existing behaviour)', () => {
   it('finds an analysis whose name carries no -analysis suffix', () => {
     write('42-auth.md', { status: 'approved' })
     expect(resolve('42', 'auth')).toBe('42-auth.md')
   })
 
-  it('does not let issue #4 match issue #42 (anchored N)', () => {
+  it('does not fall through to an empty-slug match when N does not match', () => {
+    // `grep -F -- ""` matches every line, so an unguarded slug fallback returned
+    // #42's analysis for N=4. The guard is the `[ -n "$slug" ]` in resolve_analysis.
     write('42-auth-analysis.md', { status: 'approved' })
     expect(resolve('4', '')).toBe('')
   })
@@ -107,10 +127,42 @@ describe('resolve_analysis — the alphabetical-pick regression', () => {
     write('auth-analysis.md', { status: 'approved' })
     expect(resolve('42', 'auth')).toBe('auth-analysis.md')
   })
+})
 
-  it('returns a draft analysis — status gating is the caller, not the resolver', () => {
-    write('42-auth-analysis.md', { status: 'draft' })
-    expect(resolve('42', 'auth')).toBe('42-auth-analysis.md')
-    expect(classify('42-auth-analysis.md')).toBe('analysis|draft')
+describe('artifact_kind — real-world shapes from this repo', () => {
+  it('treats a file with no frontmatter at all as a legacy analysis', () => {
+    // release-model-unification-analysis.md and two siblings look like this today.
+    // The `analysis` default is what keeps them resolvable — pin it explicitly so a
+    // future "unclassified → not an analysis" change has to break a named test.
+    writeRaw('legacy.md', '# Analyse\n\nprose, no frontmatter\n')
+    expect(classify('legacy.md')).toBe('analysis|')
+  })
+
+  it('is not fooled by an HTML comment before the content', () => {
+    writeRaw('commented.md', '<!--\nPROVENANCE note\n-->\n\n# Décision\n')
+    expect(classify('commented.md')).toBe('analysis|')
+  })
+
+  it('reads the fence, not the body — a quoted marker does not decide the kind', () => {
+    // The regression this replaced: `head -30` scanned the body, so an analysis
+    // documenting the consensus collision classified itself as consensus and became
+    // permanently unresolvable.
+    writeRaw(
+      'quoting.md',
+      '---\ntitle: "x"\nstatus: approved\n---\n\n## Problem\n\n```\nstatus: consensus-reached\n```\n',
+    )
+    expect(classify('quoting.md')).toBe('analysis|approved')
+    expect(resolve('', 'quoting')).toBe('quoting.md')
+  })
+
+  it('normalizes the YAML spellings that all mean approved', () => {
+    writeRaw('quoted.md', '---\nstatus: "Approved"  # was draft\n---\n')
+    expect(classify('quoted.md')).toBe('analysis|approved')
+  })
+
+  it('ignores merge and backup leftovers', () => {
+    write('42-auth-analysis.md.orig', { status: 'approved' })
+    expect(classify('42-auth-analysis.md.orig')).toBe('missing|')
+    expect(resolve('42', 'auth')).toBe('')
   })
 })
