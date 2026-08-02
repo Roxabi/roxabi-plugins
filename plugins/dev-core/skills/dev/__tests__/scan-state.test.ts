@@ -1,12 +1,13 @@
+import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 // scan-state.sh feeds Σ for every gate decision in /dev, and had no test until a
-// consensus artifact silently resolved as an analysis and wedged the pipeline.
+// consensus artifact silently resolved as an analysis and wedged the pipeline. /consensus
+// itself was removed 2026-08-03; its artifacts remain on disk, so the guard still matters.
 // Both hooks below run the SAME functions the live scan runs, dispatched before any
 // gh/git use (mirrors ci-watch.sh --classify-merge-state).
 const SCAN_STATE = fileURLToPath(new URL('../scan-state.sh', import.meta.url))

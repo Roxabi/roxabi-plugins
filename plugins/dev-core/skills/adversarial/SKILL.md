@@ -2,7 +2,7 @@
 name: adversarial
 argument-hint: '["subject" | --issue <N> | --analysis <path> | --spec <path> | --frame <path> | --path <path>] [--write]'
 description: Red-team / devil's advocate on analyses, proposals, architecture, ideas, specs, or plans — attack assumptions, kill vacuous claims, surface bypass and failure modes. Triggers: "adversarial" | "red team" | "devil's advocate" | "attack this design" | "kill this idea" | "stress test this" | "what breaks this" | "adversarial review".
-version: 0.1.2
+version: 0.1.3
 allowed-tools: Bash, Read, Glob, Grep, Agent, ToolSearch, Write
 ---
 
@@ -31,7 +31,6 @@ Standalone red-team. Goal: **kill S** with concrete attack paths or disproofs �
 | "What could go wrong?" on a design claim | ✓ primary |
 | PR / diff review | ✗ → `/code-review` (already spawns adversarial) |
 | Constructive strengthen-and-advise | ✗ → `/advisory` |
-| Multi-expert agree on one option | ✗ → `/consensus` |
 | Intent recap only | ✗ → `/clarify` |
 
 ## Entry
@@ -212,7 +211,7 @@ Commit only if repo already tracks `artifacts/` and user confirms: `git add "{wr
 
 - **Phase:** Shape (also usable pre-spec / pre-plan / on free idea)
 - **Predecessor:** `/frame` ∨ `/analyze` ∨ `/spec` ∨ free text
-- **Successor:** revise S | `/advisory` | `/consensus` | `/spec` | `/plan`
+- **Successor:** revise S | `/advisory` | `/spec` | `/plan`
 - **Class:** standalone (never auto-triggered by `/dev`; `/spec` and `/code-review` still spawn the *agent* inline)
 
 ## Task Integration

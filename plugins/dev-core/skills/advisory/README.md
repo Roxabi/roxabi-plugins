@@ -4,7 +4,7 @@ Constructive expert second opinion on design-phase work — analyses, proposals,
 
 ## Why
 
-Sometimes you do not need a red-team kill shot or a three-way consensus debate. You need advisors who say: what to keep, what to strengthen first, how to reduce risk without throwing the design away, and what to do next. `/advisory` is that posture.
+Sometimes you do not need a red-team kill shot. You need advisors who say: what to keep, what to strengthen first, how to reduce risk without throwing the design away, and what to do next. `/advisory` is that posture.
 
 ## Usage
 
@@ -31,6 +31,5 @@ Triggers: `"advisory"` | `"second opinion"` | `"advise on this"` | `"strengthen 
 |-------|---------|
 | `/advisory` | Strengthen and prioritize |
 | `/adversarial` | Kill the design (red-team) |
-| `/consensus` | Multi-expert debate → one recommendation |
 | `/clarify` | Intent-first recap across layers |
 | `/analyze` | Full shape exploration + expert review gate |

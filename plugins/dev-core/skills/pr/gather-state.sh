@@ -28,9 +28,9 @@ gh pr list --head "$BRANCH" --json number,title,url,state 2>/dev/null || echo "n
 ISSUE_NUM=$(echo "$BRANCH" | sed -n 's/^feat\/\([0-9]*\)-.*/\1/p')
 if [ -n "$ISSUE_NUM" ]; then
   echo "issue=$ISSUE_NUM"
-  # artifacts/analyses/ is shared (α, /interview brainstorms, /consensus κ). Kind lives in
-  # the frontmatter, not the filename — a bare `head -1` reports a consensus doc as the
-  # PR's "Analysis". Same rule as dev/scan-state.sh::resolve_analysis.
+  # artifacts/analyses/ is shared (α, /interview brainstorms, legacy consensus artifacts).
+  # Kind lives in the frontmatter, not the filename — a bare `head -1` reports the wrong
+  # doc as the PR's "Analysis". Same rule as dev/scan-state.sh::resolve_analysis.
   ANALYSIS=""
   for f in "artifacts/analyses/${ISSUE_NUM}-"*.md "artifacts/analyses/${ISSUE_NUM}-"*.mdx; do
     [ -f "$f" ] || continue

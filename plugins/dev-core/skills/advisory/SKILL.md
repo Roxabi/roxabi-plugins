@@ -2,7 +2,7 @@
 name: advisory
 argument-hint: '["subject" | --issue <N> | --analysis <path> | --spec <path> | --frame <path> | --path <path>] [--write]'
 description: Constructive expert advisory on analyses, proposals, architecture, ideas, specs, or plans — strengthen, prioritize, surface blind spots as recommendations (not red-team). Triggers: "advisory" | "second opinion" | "advise on this" | "strengthen this" | "expert advice" | "advisory review" | "what would you improve".
-version: 0.1.2
+version: 0.1.3
 allowed-tools: Bash, Read, Glob, Grep, Agent, ToolSearch, Write
 ---
 
@@ -20,7 +20,7 @@ Let:
   ρ  := optional artifact `artifacts/reviews/{N}-{slug}-advisory.md`
   AQ := present choice, wait for user reply
 
-Standalone constructive counsel. Goal: **strengthen S** — better framing, clearer trade-offs, prioritized next moves — not kill it (→ `/adversarial`), not force panel consensus (→ `/consensus`).
+Standalone constructive counsel. Goal: **strengthen S** — better framing, clearer trade-offs, prioritized next moves — not kill it (→ `/adversarial`).
 
 ## When to use
 
@@ -30,7 +30,6 @@ Standalone constructive counsel. Goal: **strengthen S** — better framing, clea
 | Want prioritization + "what I'd change first" | ✓ primary |
 | Second opinion without attack posture | ✓ primary |
 | Want to break / disprove the claim | ✗ → `/adversarial` |
-| Need 3 experts to agree on one option | ✗ → `/consensus` |
 | PR / diff quality gate | ✗ → `/code-review` |
 | Intent re-render only | ✗ → `/clarify` |
 
@@ -221,14 +220,13 @@ Commit only if `artifacts/` tracked ∧ user confirms: `git add "{written_path}"
 | S is already excellent | Short Keep + "ready-to-advance" + light P2 polish only |
 | Advisors contradict on P0 | Present both; recommend one; ¬fake agreement |
 | User wants attack posture | Redirect: run `/adversarial` (can chain after) |
-| User wants panel decision | Redirect: `/consensus` |
 | Prior ρ exists | **Reuse** | **Re-run** |
 
 ## Chain Position
 
 - **Phase:** Shape (also free idea / pre-spec)
 - **Predecessor:** `/frame` ∨ `/analyze` ∨ free text ∨ mid-spec
-- **Successor:** revise S | `/adversarial` | `/consensus` | `/spec` | `/plan` | `/adr`
+- **Successor:** revise S | `/adversarial` | `/spec` | `/plan` | `/adr`
 - **Class:** standalone (¬auto by `/dev`)
 
 ## Task Integration

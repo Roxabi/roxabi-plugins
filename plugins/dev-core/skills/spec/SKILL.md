@@ -2,7 +2,7 @@
 name: spec
 argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit] [--force]'
 description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build" | "design the solution" | "acceptance criteria" | "define acceptance criteria" | "spec it out" | "write the spec".
-version: 0.3.4
+version: 0.3.5
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -19,8 +19,7 @@ Let:
   φ := artifacts/frames/{slug}-frame.md
   ρ := reviewer set
   χ := `[NEEDS CLARIFICATION]`
-  κ := artifacts/analyses/{N}-{slug}-consensus.md (`/consensus` output)
-  SRC := source doc (α ∨ κ ∨ φ)
+  SRC := source doc (α ∨ φ)
 
 Analysis (or frame) → draft σ → **executive summary in chat** → free-form human reaction → approve/revise.
 ¬worktree, ¬PR. Shape phase only. Implementation → `/plan`.
@@ -82,13 +81,11 @@ grep -rl "issue: $N" artifacts/frames/ 2>/dev/null | head -1
 `--analysis path` / `--frame path` → read directly.
 ¬SRC found → **stop** with prose (not AQ):
 ```
-No analysis/consensus/frame found for #{N}.
-Run /analyze --issue N (or /frame, or /consensus), or re-run with --analysis <path> / --frame <path>.
+No analysis/frame found for #{N}.
+Run /analyze --issue N (or /frame), or re-run with --analysis <path> / --frame <path>.
 ```
 
-`artifacts/analyses/` is shared — `/analyze` writes α, `/interview` writes brainstorms (`type: brainstorm`), `/consensus` writes κ (`status: consensus-reached`). **Classify on frontmatter, ¬filename** (naming has ≥4 live forms). Name-match only narrows candidates; `type:`/`status:` decides.
-
-**Preference order** (a draft α must **not** pre-empt κ — `/consensus` is often run precisely to settle a stalled analysis): approved α → κ → draft α → φ.
+`artifacts/analyses/` is **not** exclusively analyses — `/interview` writes brainstorms there (`type: brainstorm`), and legacy repos hold `/consensus` artifacts (`status: consensus-reached`; skill removed 2026-08-03). **Classify on frontmatter, ¬filename** — a name match only narrows candidates, `type:`/`status:` decides.
 
 **When SRC is α (analysis):** read frontmatter `status`.
 - `status: draft` → **STOP** (default): "Analysis is still draft. Approve via `/analyze` first, or pass `--force` to build on draft."
@@ -96,7 +93,7 @@ Run /analyze --issue N (or /frame, or /consensus), or re-run with --analysis <pa
 - Other tokens → STOP + ask to approve or re-run analyze.
 - `--force` (explicit) → allow draft α with one-line warn in Context.
 
-**When SRC is κ (consensus):** `status: consensus-reached` → proceed (`/consensus`'s documented successor path). κ with any other token → STOP pointing at **`/consensus`**, ¬`/analyze` (`/analyze` cannot approve a κ).
+**When SRC is a legacy consensus artifact** (`status: consensus-reached`) → ¬a valid SRC (the skill that wrote it is gone). STOP: "Run `/analyze --issue N` to produce an analysis."
 
 **When SRC is a brainstorm** (`type: brainstorm`) → ¬a valid SRC. STOP: "Run `/analyze --issue N` to promote it."
 

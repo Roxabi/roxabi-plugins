@@ -12,7 +12,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # document in it, and the filename does not reliably say which:
 #   /analyze    → α analysis          (status: draft|approved)
 #   /interview  → brainstorm          (type: brainstorm, no status key)
-#   /consensus  → κ consensus         (status: consensus-reached)
+#   legacy      → consensus artifact  (status: consensus-reached) — /consensus was
+#                 removed 2026-08-03, but its output is still on disk in repos that
+#                 ran it, and it MUST NOT resolve as α (that was the original wedge).
 # Naming is not a usable discriminator — live forms include {N}-{slug}-analysis.md,
 # {slug}.md, -analysis-iterN.mdx, -analysis.claude.md, plus .orig/.rej leftovers.
 # So classify on FRONTMATTER, which every writer emits. /analyze's own Step 1 table
@@ -132,8 +134,8 @@ echo "recheck=null"
 
 # analyze
 # Resolve by KIND (frontmatter), never by filename — see artifact_kind() above.
-# `head -1` over a name match is an alphabetical pick: a consensus artifact or an
-# /interview brainstorm sorting ahead of the real analysis would otherwise become
+# `head -1` over a name match is an alphabetical pick: an /interview brainstorm or a
+# legacy consensus artifact sorting ahead of the real analysis would otherwise become
 # the gate signal. Emits the resolved kind + status so /dev's
 # Σ.analyze = α ∃ ∧ (status == approved ∨ key absent) is mechanical, not a re-read.
 ANALYZE=""
