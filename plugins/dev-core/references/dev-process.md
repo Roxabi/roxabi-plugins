@@ -43,11 +43,20 @@ Artifacts = state markers for `/dev` progress detection + resumption.
 
 ### Worktree
 
-`/dev` bootstraps the worktree automatically before `frame` (Step 7 silent pre-step via `/setup-worktree`). All tiers (S, F-lite, F-full) execute inside a worktree.
+`/dev` bootstraps the worktree automatically before `frame` (Step 7 silent pre-step via `/setup-worktree`). All tiers (S, F-lite, F-full) execute **code** inside a non-principal worktree on `feat/{N}-{slug}`.
+
+**Invariants** (SSoT: `skills/shared/references/harness-worktree.md`):
+
+- **Principal** (default folder) stays on β (`staging` \| `main`) — never `git switch feat/…` there
+- **Branch + issue link** = dev-core (`gh issue develop` → `feat/{N}-{slug}`)
+- **Path layout** = harness (Claude: `.claude/worktrees/…` + EnterWorktree; Grok: `~/.grok/worktrees/…` or existing session ω)
 
 ```bash
-git worktree add .claude/worktrees/XXX-slug -b feat/XXX-slug origin/staging
-cd .claude/worktrees/XXX-slug && cp .env.example .env && bun install
+# Identity (always)
+gh issue develop N --base "$BASE" --name "feat/N-slug"
+# Placement (H_wt-specific — do not hardcode only Claude path)
+git worktree add <ω-path> "feat/N-slug"   # principal unchanged
+cd <ω-path> && cp .env.example .env && bun install
 ```
 
 **Exceptions:** `/promote` release artifacts.

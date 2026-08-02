@@ -140,6 +140,12 @@ describe('generateCiYml', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none' })
     expect(yml).toContain('branches: [main, staging]')
   })
+
+  it('skips full CI on draft PRs and re-triggers on ready_for_review', () => {
+    const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none' })
+    expect(yml).toContain('types: [opened, synchronize, reopened, ready_for_review]')
+    expect(yml).toContain("if: github.event_name != 'pull_request' || !github.event.pull_request.draft")
+  })
 })
 
 describe('generateSecretScanYml', () => {

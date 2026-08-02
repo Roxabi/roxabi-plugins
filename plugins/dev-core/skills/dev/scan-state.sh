@@ -20,18 +20,29 @@ BASE=$(detect_base_branch)
 # "14-foo" contains "4-foo", so N=4 wrongly matched N=14's artifacts).
 N_ANCHOR="(^|[^0-9])${N}-"
 
-# worktree path (.claude/worktrees/ and legacy parent-dir).
-# Porcelain `worktree <path>` lines are space-safe — no column splitting on the
-# path, unlike `git worktree list | awk '{print $1}'` which breaks on spaces.
-# Legacy `../${REPO}-{N}` has no trailing slug (N can be the last path token),
-# so its right boundary is "non-digit or end" rather than a literal '-'; the
-# left boundary is already safe (always preceded by the literal "${REPO}-").
-[ -n "$REPO" ] && WT_PATTERN="${REPO}-${N}([^0-9]|\$)|worktrees/${N}-" || WT_PATTERN="worktrees/${N}-"
-WT_PATH=$(git worktree list --porcelain 2>/dev/null \
-  | sed -n 's/^worktree //p' \
-  | grep -E "$WT_PATTERN" \
-  | head -1 || true)
+# Principal freeze (must stay on β — staging|main|master)
+PRINCIPAL=$(principal_worktree_path)
+PRINCIPAL_BRANCH=$(principal_branch)
+if is_base_branch "$PRINCIPAL_BRANCH"; then
+  PRINCIPAL_OK=true
+else
+  PRINCIPAL_OK=false
+fi
+[ -n "$PRINCIPAL" ] && echo "principal=$PRINCIPAL" || echo "principal=false"
+echo "principal_branch=${PRINCIPAL_BRANCH:-false}"
+echo "principal_ok=$PRINCIPAL_OK"
+echo "base=$BASE"
+
+# Feature worktree: branch-first (feat/{N}-*), excludes principal.
+# See harness-worktree.md + find_feature_worktree in lib.sh.
+WT_PATH=$(find_feature_worktree "$N" "$SLUG")
 [ -n "$WT_PATH" ] && echo "worktree=$WT_PATH" || echo "worktree=false"
+if [ -n "$WT_PATH" ]; then
+  WT_BRANCH=$(git -C "$WT_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+  echo "worktree_branch=${WT_BRANCH:-false}"
+else
+  echo "worktree_branch=false"
+fi
 
 # Helper: list artifacts in worktree if not found in current directory
 # (filtering is the caller's job — keeps the anchor consistent across

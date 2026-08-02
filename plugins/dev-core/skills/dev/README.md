@@ -18,6 +18,8 @@ Single entry point for the full dev lifecycle — scan artifacts, detect state, 
 
 `/dev` scans existing artifacts (frames, analyses, specs, plans, worktrees, PRs) to determine where you left off, then drives the pipeline step by step without re-running completed work. Issue triage (`roxabi-issues:issue-triage`) is an **external** step that runs before `/dev` — it lives in the `roxabi-issues` plugin, not dev-core. `/dev`'s own pipeline starts with `/recheck` — a drift check that catches stale issues (git/symbol/dep drift) before any artifact is written.
 
+Worktrees: principal checkout stays on staging/main; feature work runs in a non-principal worktree on `feat/{N}-{slug}` (Claude or Grok layout). See `skills/shared/references/harness-worktree.md`.
+
 Pipeline phases:
 
 | Phase | Steps |

@@ -2,7 +2,7 @@
 name: implement
 argument-hint: '[--issue <N> | --plan <path> | --audit]'
 description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "implement" | "build this" | "execute plan" | "start coding" | "write the code" | "code this up" | "let's build it" | "build it out" | "ship it".
-version: 0.3.1
+version: 0.3.2
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
@@ -10,14 +10,16 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree,
 
 ## Success
 
-I := QG pass ∧ worktree ∃ ∧ commits > 0
-V := `cd .claude/worktrees/{N}-{slug} && {commands.format} && {commands.lint} && {commands.typecheck} && {commands.test}` → exit 0
+I := QG pass ∧ worktree ∃ ∧ commits > 0 ∧ principal on β
+V := `cd "$WT_PATH" && {commands.format} && {commands.lint} && {commands.typecheck} && {commands.test}` → exit 0
 
 Let:
   π := artifacts/plans/{N}-{slug}.md
   τ := tier (S | F-lite | F-full)
-  ω := worktree (managed via EnterWorktree/ExitWorktree)
+  ω := non-principal worktree on `feat/{N}-{slug}` (path = harness layout — see harness-worktree.md)
   β := base branch (staging if ∃ origin/staging, else main)
+  principal := main checkout — **always stays on β** (¬switch to feat)
+  H_wt := claude-enter | harness-default
   QG := `{commands.format} && {commands.lint} && {commands.typecheck} && {commands.test}`
   bar := mechanical floor (format/lint/typecheck/test pass), ¬the quality bar — output must read as hand-authored by a dev-core maintainer: match surrounding idiom, naming, and comment density; calibrate against `plugins/dev-core/`
 
@@ -46,6 +48,7 @@ Does NOT create a PR — that is `/pr` (next step).
 - This skill does NOT update its own dev-pipeline task
 - Sub-tasks: attach/re-seed plan-tasks from `/plan` (Step 6a), flip lifecycle as agents execute (Step 1b + Step 4)
 - **Host mapping SSoT:** [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-task-list.md) — probe once, use H for all task ops
+- **Worktree SSoT:** [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md) — principal freezes on β; code only in ω
 
 ## Exit
 
@@ -66,8 +69,8 @@ Does NOT create a PR — that is `/pr` (next step).
 
 ## Pre-flight
 
-Success: QG pass ∧ worktree ∃ ∧ commits > 0
-Evidence: QG exit 0 inside .claude/worktrees/{N}-{slug}
+Success: QG pass ∧ worktree ∃ ∧ commits > 0 ∧ principal on β
+Evidence: QG exit 0 inside ω (`worktree=` from setup-preflight)
 Steps: locate-plan → setup → context-inject → implement → quality-gate → summary
 ¬clear → STOP + ask: "Do you have a plan to implement?"
 
@@ -134,32 +137,38 @@ No host task list. Skip attach/re-seed. Work from π micro-task table only; prog
 bash ${CLAUDE_SKILL_DIR}/setup-preflight.sh {N} {slug}
 ```
 
-Emits: `repo`, `base`, `branch_exists`, `legacy_worktree`, `worktree`, `dirty` (if worktree found), `fetch`.
+Emits: `repo`, `base`, `principal`, `principal_branch`, `principal_ok`, `branch_exists`, `legacy_worktree`, `worktree`, `worktree_branch`, `dirty` (if worktree found), `fetch`.
 
-ω: `.claude/worktrees/{N}-{slug}` (via EnterWorktree). Branch base: `base` from output.
+**Probe H_wt** (once): `EnterWorktree` ∃ → `claude-enter`; else `harness-default`.  
+SSoT: [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md).
 
-**2c. Branch guard:**
+ω path = `worktree=` from preflight (branch-first detect). Branch base: `base` from output.
 
-`branch_exists` ≠ false ∧ `worktree` = false → branch exists but no worktree → present choice **Recreate worktree** (invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"`) | **Abort**
+**2c. Guards:**
 
-`worktree` ≠ false ∧ `dirty=true` ⇒ → present choice **Stash changes** (`git stash`) | **Reset** (`git checkout .`) | **Continue with dirty state** | **Abort**
+`principal_ok` = false → **STOP**. Principal must be on β. Present choice **Switch principal to base** | **Abort**. **¬** `git switch feat/…` on principal to “fix” this.
+
+`branch_exists` ≠ false ∧ `worktree` = false → branch exists but no ω → present choice **Recreate worktree** (invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"`) | **Abort**
+
+`worktree` ≠ false ∧ `dirty=true` ⇒ → present choice **Stash changes** (`git -C "$WT_PATH" stash`) | **Reset** (`git -C "$WT_PATH" checkout .`) | **Continue with dirty state** | **Abort**
 
 **2e. Worktree:**
 
-Enter existing worktree (created by `/setup-worktree` or prior `/dev` run):
-```
-EnterWorktree(path: ".claude/worktrees/{N}-{slug}")
-```
+`worktree` = false → invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"`, re-run preflight.
 
-`worktree` = false → fallback: invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first, then enter.
+Enter existing ω (`WT_PATH` from preflight):
+
+- **H_wt = claude-enter:** `EnterWorktree(path: "$WT_PATH")`
+- **H_wt = harness-default:** all code ops use `cwd` / absolute paths under `$WT_PATH` — **¬** switch principal to BRANCH
 
 Inside ω:
 ```bash
+cd "$WT_PATH"   # or git -C / Write under WT_PATH
 cp .env.example .env 2>/dev/null; {package_manager} install
 # Optional: {commands.worktree_setup} <N>
 ```
 
-ω **mandatory** ∀ τ (XS, S, F-lite, F-full) — ¬exception. ¬"skip worktree" branch.
+ω **mandatory** ∀ τ (XS, S, F-lite, F-full) — ¬exception. ¬"skip worktree" branch. ¬feature commits on principal.
 
 ## Step 3 — Context Injection (τ=F only)
 
@@ -207,17 +216,22 @@ Read spec + ref patterns → create + implement → tests → QG → loop until 
 
 Spawn via host subagent tool (`Task` / `spawn_subagent`). Sequential ∨ parallel (2–3 max).
 
-**Worktree isolation:** Main context is already inside ω (Step 2). Subagents inherit this CWD. All file ops stay within `.claude/worktrees/{N}-{slug}`. Do not `cd` to repo root or other paths outside ω.
+**Worktree isolation:** Code only in ω (`$WT_PATH`). Principal stays on β.
+
+| H_wt | Lead | Subagents |
+|------|------|-----------|
+| claude-enter | session CWD = ω after EnterWorktree | inherit CWD |
+| harness-default | ops under `$WT_PATH` | `spawn_subagent(..., cwd: WT_PATH)` — **¬** `isolation: worktree` (anonymous trees break BRANCH link) |
 
 **Per agent spawn:**
 1. Claim task (H table).
 2. Load context (H table) → inject into subagent prompt.
 3. Spawn:
    ```
-   Task(   # or spawn_subagent on Grok
+   Task(   # or spawn_subagent on Grok with cwd: WT_PATH
      subagent_type: "dev-core:{agent}",
      description: "{agent}: {phase} — #{N} {slug}",
-     prompt: "Issue #{N}. Task: {task_description}. Target: {file_path}. Skeleton: {code_snippet}. Verify: {verify_command}. Ref pattern: {pattern_file}. Worktree: `.claude/worktrees/{N}-{slug}` — you are already inside it; do not leave this directory. ¬seed host tasks — task lifecycle managed by lead."
+     prompt: "Issue #{N}. Task: {task_description}. Target: {file_path}. Skeleton: {code_snippet}. Verify: {verify_command}. Ref pattern: {pattern_file}. Worktree: {WT_PATH} — stay inside this directory only; ¬checkout feat on principal. ¬seed host tasks — task lifecycle managed by lead."
    )
    ```
    Agent name map: `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `doc-writer` → `dev-core:doc-writer` | `architect` → `dev-core:architect` | `security-auditor` → `dev-core:security-auditor`
@@ -237,16 +251,17 @@ Agents create files from scratch (¬stubs). Include target path, shape/skeleton,
 
 ## Step 5 — Quality Gate
 
-Run QG inside ω (session already in ω after EnterWorktree):
+Run QG inside ω (`cd "$WT_PATH"` or `git -C` / shell with cwd=ω):
 
 ```bash
+cd "$WT_PATH"
 {commands.format} && {commands.lint} && {commands.typecheck} && {commands.test}
 ```
 
 > format before lint — auto-format first so the linter never flags style the formatter would have fixed (¬format-induced lint noise).
 
 ✓ → Step 6.
-✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → present choice **Escalate to lead** | **Continue with failures** | **Abandon ω** (`ExitWorktree(action: "remove")` + delete branch).
+✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → present choice **Escalate to lead** | **Continue with failures** | **Abandon ω** (H_wt claude: `ExitWorktree(action: "remove")`; harness-default: `git worktree remove "$WT_PATH"`) + delete branch.
 
 ## Step 6 — Summary
 
@@ -323,7 +338,8 @@ broke {source B} → test failed with {error B}
 Implement Complete
   Issue:    #N — title
   Branch:   feat/N-slug
-  Worktree: .claude/worktrees/{N}-{slug}
+  Worktree: {WT_PATH}
+  Principal: {principal} @ {β}
   Tier:     S|F-lite|F-full
   Agents:   list
   Files:    created/modified list
@@ -335,13 +351,20 @@ Implement Complete
 
 ## Rollback
 
+H_wt = claude-enter:
 ```
 ExitWorktree(action: "remove", discard_changes: true)
+```
+
+H_wt = harness-default:
+```bash
+git worktree remove --force "$WT_PATH"
 ```
 
 ```bash
 git branch -D feat/<N>-<slug>
 # Optional: {commands.worktree_teardown} <N>
+# Principal must still be on β after teardown
 ```
 
 ## Edge Cases
@@ -349,7 +372,8 @@ git branch -D feat/<N>-<slug>
 Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 
 | Merge conflict (ω setup) | `git rebase --abort` → present choice: **Resolve manually** (fix conflicts → `git rebase --continue`) \| **Abort** |
-| Abandon after 3✗ gate failures | `ExitWorktree(action: "remove", discard_changes: true)` then `git branch -D feat/<N>-<slug>` |
+| Abandon after 3✗ gate failures | remove ω (H_wt) then `git branch -D feat/<N>-<slug>`; principal stays on β |
+| Principal not on β | STOP — restore β before any feature work |
 
 ## Safety
 
@@ -359,5 +383,7 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 4. Always ω ∀ τ — ¬exception (XS, S, F-lite, F-full all require ω)
 5. Always HEREDOC for commit messages
 6. Pre-commit hook failure → fix, re-stage, NEW commit (¬amend)
+7. **¬** `git switch` / `checkout` feat on principal — principal freezes on β
+8. Grok: **¬** `isolation: worktree` for implement workers — use `cwd: WT_PATH`
 
 $ARGUMENTS
