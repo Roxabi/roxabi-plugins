@@ -223,6 +223,7 @@ export function generateE2eJob(opts: WorkflowOpts): string {
   return `
   e2e:
     name: E2E
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
