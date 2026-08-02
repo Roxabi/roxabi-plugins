@@ -32,7 +32,7 @@ Triggers: `"write spec"` | `"spec this"` | `"solution design"` | `"acceptance cr
 artifacts/specs/{N}-{slug}-spec.md
 ```
 
-Sections: Context, Goal, Users, Expected Behavior, Data Model & Consumers (forge-chart sidecars in `artifacts/visuals/`), Breadboard, Slices, Success Criteria.
+Sections: Context, Goal, Users, Expected Behavior, Data Model & Consumers (markdown prose + optional consumer table — no HTML sidecars), Breadboard, Slices, Success Criteria.
 
 ## Chain position
 

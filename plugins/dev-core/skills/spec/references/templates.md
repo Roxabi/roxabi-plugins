@@ -33,15 +33,9 @@ description: "{one-line description}"
 
 ### Data Structure
 
-**Diagram:** [{data model title}](../visuals/{N}-{slug}-data-model.html)
+{Core types/models, fields, relationships. Note frozen vs mutable where useful. Markdown only — no HTML sidecars.}
 
-{One-line summary of core types and frozen/mutable annotations.}
-
-### Consumer Map
-
-**Diagram:** [{consumer map title}](../visuals/{N}-{slug}-consumers.html)
-
-**Legend:** Solid edges = this issue. Dashed edges = future consumers.
+### Consumers
 
 | Consumer | Fields consumed | When | Status |
 |----------|----------------|------|--------|

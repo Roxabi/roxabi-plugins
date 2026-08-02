@@ -2,7 +2,7 @@
 name: spec
 argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit]'
 description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build" | "design the solution" | "acceptance criteria" | "define acceptance criteria" | "spec it out" | "write the spec".
-version: 0.2.0
+version: 0.2.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -103,8 +103,6 @@ Interview pre-fills from SRC. Focus on gaps to spec level:
 - Slices: vertical increments, independently demo-able
 - Ambiguity detection via 9-category taxonomy (see interview SKILL.md)
 
-F-lite/F-full: generate forge-chart sidecars per [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) **before** writing σ.
-
 Write σ. Must include:
 
 | Section | Skip if |
@@ -113,28 +111,20 @@ Write σ. Must include:
 | `## Goal` — one-sentence outcome | — |
 | `## Users` — who is affected | — |
 | `## Expected Behavior` — narrative walkthrough | — |
-| `## Data Model & Consumers` — forge-chart sidecars (see below) | Tier S |
+| `## Data Model & Consumers` — prose types + optional consumer table (markdown only) | Tier S |
 | `## Breadboard` — affordance tables + wiring | Tier S |
 | `## Slices` — vertical increments table | Tier S |
 | `## Success Criteria` — `- [ ]` checkboxes, each binary | — |
 
-### Forge-Chart Sidecars (Tier F-lite, F-full)
+### Data Model & Consumers (Tier F-lite, F-full)
 
-Read [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) before generating visuals.
+Markdown only — **¬** forge-chart HTML sidecars, **¬** required `artifacts/visuals/*-data-model.html` / `*-consumers.html`.
 
-`## Data Model & Consumers` must include:
-1. **Data structure sidecar** — `{N}-{slug}-data-model.html` (fgraph layered or fd-engine): core types/models, fields, relationships. Frozen/mutable in node labels.
-2. **Consumer map sidecar** — `{N}-{slug}-consumers.html` (hub-spoke or architecture): who consumes data, which fields, when. Solid edges = this issue; dashed = future.
-3. **Consumer summary table** — consumer → fields consumed, when, status (this issue / future).
+Include when data shape matters:
+1. **Data structure** — core types/models, fields, relationships; note frozen vs mutable where useful
+2. **Consumers** (optional table) — who consumes which fields, when, status (this issue / future)
 
-Link each sidecar (¬inline mermaid, ¬ASCII):
-
-```markdown
-**Data structure:** [{title}](../visuals/{N}-{slug}-data-model.html)
-**Consumer map:** [{title}](../visuals/{N}-{slug}-consumers.html)
-```
-
-Sidecars go BEFORE Breadboard. They answer "what is the data shape and who uses it" while Breadboard answers "how do pieces wire together."
+Section sits before Breadboard: shape of data vs how pieces wire together.
 
 May contain χ (max 3–5). χ items block `/plan` — must be resolved first.
 
@@ -194,7 +184,7 @@ Present summary: scope, |slices|, |acceptance criteria|, |χ|, pre-check results
 
 Q: **Approve** → continue pipeline | **Revise** → collect feedback → revise σ → loop from Step 3.
 
-On approval → commit: `git add artifacts/specs/{N}-{slug}-spec.md artifacts/visuals/` + commit per CLAUDE.md Rule 5.
+On approval → commit: `git add artifacts/specs/{N}-{slug}-spec.md` + commit per CLAUDE.md Rule 5.
 
 Run Gate 2.5 → update issue status:
 ```bash

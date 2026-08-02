@@ -1,6 +1,6 @@
 # Forge-Chart Sidecar — dev-core visual standard
 
-SSoT for architecture and data-flow visuals in dev-core shape artifacts. Read before generating any diagram in `clarify`, `analyze`, `spec`, or `plan`.
+SSoT for architecture and data-flow visuals in dev-core shape artifacts. Read before generating any diagram in `clarify`, `analyze`, or `plan`. (`/spec` Data Model is markdown-only — no forge-chart sidecars.)
 
 ## Rule
 
@@ -47,8 +47,6 @@ Open locally: `file://{absolute-path}/artifacts/visuals/{filename}.html`
 | `boundary` | `clarify` §2 | `architecture` — actors + boundary |
 | `shapes` | `analyze` §Shapes | `architecture` — shape comparison (zones per shape) |
 | `data-flow` | `analyze` §Fit Check, `plan` §Architecture | `architecture` + optional `useCases[]` |
-| `data-model` | `spec` §Data Model | fgraph `layered` — entities/fields/relations |
-| `consumers` | `spec` §Data Model | `hub-spoke` or `architecture` — data center + consumers |
 | `file-map` | `plan` §Architecture | `architecture` — files as nodes, call edges |
 
 `N` optional when no issue (free-text clarify) → `{slug}-{kind}.html`.
@@ -60,18 +58,14 @@ Open locally: `file://{absolute-path}/artifacts/visuals/{filename}.html`
 | `clarify` | §2 Business Architecture | always (≥2 actors or layers) |
 | `analyze` | §Shapes | F-lite/F-full, ≥2 shapes |
 | `analyze` | §Fit Check | F-lite/F-full, data flow or arch choice |
-| `spec` | §Data Model & Consumers | F-lite/F-full |
 | `plan` | §Architecture | always (τ ∈ {F-lite, F-full}) |
 
-Tier S may omit shape/fit sidecars in `analyze`; may omit Data Model sidecars in `spec`.
+Tier S may omit shape/fit sidecars in `analyze`.  
+`/spec` §Data Model & Consumers is **markdown only** (prose + optional table) — no HTML sidecars.
 
 ## Text flows in clarify §3
 
 Actor chains (`Actor → action → layer → outcome`) stay as one-line text — they are UX flows, not topology diagrams. ¬convert to mermaid/ASCII boxes.
-
-## Consumer summary table
-
-Keep the markdown table in `spec` §Data Model (consumer → fields → when → status). The sidecar is the visual; the table is the machine-readable index.
 
 ## Quality bar
 
