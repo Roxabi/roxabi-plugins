@@ -85,9 +85,9 @@ bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
 Σ = {
   recheck:   null,       # Σ_s only — runs every session, no on-disk state
   frame:     φ ∃ ∧ φ.status == 'approved',
-  analyze:   analysis artifact ∃,
+  analyze:   α ∃ ∧ α.status ≠ 'draft',
   # Gates must not flip true on draft-only artifacts (chat HITL writes draft before approve).
-  # frame: status: approved. spec: status: approved (legacy: missing status ≡ approved; only status: draft blocks).
+  # frame: status: approved. spec + analyze: status: approved (legacy: missing status ≡ approved; only status: draft blocks).
   # plan: ## Task IDs written only after Step 6 approve (+ seed).
   spec:      σ ∃ ∧ σ.status ≠ 'draft',
   plan:      π ∃ ∧ (## Task IDs section ∃ in π),
@@ -314,7 +314,7 @@ Skill fails/aborts → leave task `in_progress` → present choice: **Retry** | 
 Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix).
 Session restart → Σ_s = ∅ → artifact-less steps re-run. 2b.1 will find the existing tasks (status possibly `completed` from last run) and skip re-seeding.
 gate → re-scan detects updated artifact → Step 6 gate → Step 7 immediately (¬second prompt). **Exception:** completed gate == plan ∧ τ ∈ {F-lite, F-full} → Step 8b compact pause (¬Step 7 this turn).
-adv → re-scan → Step 7 immediately.
+adv → re-scan → Step 7 immediately. **Exception:** `analyze` — the skill ends its turn after its Executive Summary awaiting free-form approval. Emitting that summary is **not** a return: ¬`TaskUpdate completed`, ¬`Σ_s[analyze] = true`, ¬Step 7. Resume on the user's next message (α stays `status: draft` until approved, so the Step 1 re-scan agrees).
 
 ## Step 8b — Compact Pause (plan→implement, F-lite/F-full)
 
@@ -343,7 +343,7 @@ adv → re-scan → Step 7 immediately.
 | Phase | Steps | Gate after |
 |-------|-------|-----------|
 | Frame | recheck → frame | frame approval (status: approved) |
-| Shape | analyze → spec | spec approval |
+| Shape | analyze → spec | analysis approval (chat summary, F-full only) → spec approval |
 | Build | plan → implement → pr | plan approval → compact pause (F-lite/F-full, Step 8b) before implement → pr |
 | Verify | ci-watch → validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /code-review Phase 8). |
 | Ship | promote → cleanup | promote always skipped. cleanup runs if worktree/branches stale. |

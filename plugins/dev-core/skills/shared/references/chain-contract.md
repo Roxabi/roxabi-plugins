@@ -50,7 +50,8 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 
 | Class | Meaning | Skills | Exit behavior |
 |---|---|---|---|
-| **adv** | Continuous flow, no user gate | recheck, analyze, implement, pr, ci-watch, validate, cleanup | Return silently; `/dev` auto-advances |
+| **adv** | Continuous flow, no user gate | recheck, implement, pr, ci-watch, validate, cleanup | Return silently; `/dev` auto-advances |
+| **adv + approval stop** | Dispatched as `adv` (`/dev`'s step type is single-valued), but ends its turn on a chat Executive Summary awaiting free-form approval | analyze | Print summary → **stop the turn** (¬return). Emitting the summary is not a return: `/dev` must not mark the step completed or set `Σ_s`. On approve → set `status: approved`, commit, return silently. Protection is the artifact's `status:` marker, not the class. |
 | **gate** | User approval of artifact required | frame, spec, plan | Present artifact → on approve, return silently; `/dev` auto-chains to successor (**plan exception:** compact pause before `/implement` — see below) |
 | **verdict** | Branches based on outcome | code-review | APPROVED → merge → cleanup; CHANGES_REQUESTED → `/fix` |
 | **loop** | Cycles back to predecessor (bounded) | fix | On success → TaskCreate follow-up review; max 2 iterations |
@@ -109,6 +110,20 @@ fix-iter-2 (dev-pipeline)
 - **Success via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce successor. `/dev` re-scans and advances.
 - **Success standalone:** print one line with next-skill hint. Stop.
 - **Failure:** return error. `/dev` presents Retry | Skip | Abort.
+```
+
+### adv + approval-stop Exit (analyze)
+
+```markdown
+## Exit
+
+The Executive Summary is always printed (incl. under `/dev`) — it is the gate output, not a closing recap.
+
+- **While waiting for reaction:** turn ends after the summary. Task stays `in_progress`; `/dev` must not advance.
+- **Approved via `/dev`:** set `status: approved`, commit, return silently. ¬second summary. `/dev` re-scans and advances.
+- **Approved standalone:** print one line with next-skill hint. Stop.
+- **Revise loop:** re-print the summary after each edit; stop again.
+- **Abort:** return → `/dev` marks task `cancelled` (artifact stays `status: draft` on disk).
 ```
 
 ### gate-class Exit
