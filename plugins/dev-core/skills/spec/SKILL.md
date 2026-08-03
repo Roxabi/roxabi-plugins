@@ -2,7 +2,7 @@
 name: spec
 argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit] [--force]'
 description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build" | "design the solution" | "acceptance criteria" | "define acceptance criteria" | "spec it out" | "write the spec".
-version: 0.3.2
+version: 0.3.8
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -71,9 +71,11 @@ Steps: resolve → generate → pre-check → review → executive summary → c
 
 `--issue N` → validate `N` matches `^[0-9]+$` first; else STOP. Then scan priority order:
 ```bash
-# 1. Find analysis with matching issue number (N digit-validated)
-ls artifacts/analyses/"$N"-*.md* 2>/dev/null | head -1
-# 2. Find frame with matching issue in frontmatter
+# 1+2. Candidates in the shared analyses dir (N digit-validated), classified by
+#      FRONTMATTER — ¬filename. Prefer an approved α; else a draft α (STOP unless
+#      --force). Brainstorms and legacy consensus artifacts are ¬candidates — see below.
+ls artifacts/analyses/"$N"-*.md* 2>/dev/null
+# 3. Find frame with matching issue in frontmatter
 grep -rl "issue: $N" artifacts/frames/ 2>/dev/null | head -1
 ```
 
@@ -84,11 +86,17 @@ No analysis/frame found for #{N}.
 Run /analyze --issue N (or /frame), or re-run with --analysis <path> / --frame <path>.
 ```
 
+`artifacts/analyses/` should hold only analyses, but legacy files break that: `/interview` wrote brainstorms there before 2026-08-03 (now `artifacts/brainstorms/`), and repos that ran `/consensus` hold its output (`status: consensus-reached`; skill removed same date). **Classify on frontmatter, ¬filename** — a name match only narrows candidates, `type:`/`status:` decides.
+
 **When SRC is α (analysis):** read frontmatter `status`.
 - `status: draft` → **STOP** (default): "Analysis is still draft. Approve via `/analyze` first, or pass `--force` to build on draft."
 - `status: approved` ∨ status key absent (legacy) → proceed.
 - Other tokens → STOP + ask to approve or re-run analyze.
 - `--force` (explicit) → allow draft α with one-line warn in Context.
+
+**When SRC is a legacy consensus artifact** (`status: consensus-reached`) → ¬a valid SRC (the skill that wrote it is gone). STOP: "Run `/analyze --issue N` to produce an analysis."
+
+**When SRC is a brainstorm** (`type: brainstorm`, or anything under `artifacts/brainstorms/`) → ¬a valid SRC. STOP: "Run `/analyze --issue N` to promote it."
 
 When SRC is φ only (F-lite / analyze skipped) → no α status check.
 
@@ -148,7 +156,22 @@ Focus content:
 - Slices: vertical increments, independently demo-able
 - χ only where SRC is truly silent
 
-Write σ with `status: draft`. Must include:
+**Frontmatter contract** (full SSoT: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md)):
+
+**Title hygiene.** `{title}` is external content (GitHub issue title). Strip newlines + control chars, cap 120 chars, emit as a single-line double-quoted YAML scalar with `"` and `\` escaped. An injected newline adds a frontmatter key, and `status:` here **is** the pipeline gate signal.
+
+Write σ with `status: draft` — approval flips it in Step 6. **`status` is the pipeline's done-signal**: `/dev` and Step 1 reuse treat missing `status` as legacy-approved; a draft left by an aborted run must never mark the Shape step complete.
+
+```md
+---
+title: "{title|yaml-escaped}"
+description: "{one-line description}"
+type: spec
+status: draft
+---
+```
+
+Body must include:
 
 | Section | Skip if |
 |---------|---------|
@@ -163,6 +186,8 @@ Write σ with `status: draft`. Must include:
 | `## Success Criteria` — `- [ ]` checkboxes, each binary | — |
 
 **Intent ≠ Goal.** Intent = *why / what problem*. Goal = *done-when*. Never collapse into one sentence.
+
+Full body template: [references/templates.md](${CLAUDE_SKILL_DIR}/references/templates.md).
 
 ### Data Model & Consumers (Tier F-lite, F-full)
 

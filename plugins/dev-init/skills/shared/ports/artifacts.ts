@@ -13,7 +13,7 @@ export interface ArtifactMeta {
 }
 
 export interface ArtifactRepository {
-  list(dir: 'frames' | 'analyses' | 'specs' | 'plans'): Promise<string[]>
+  list(dir: 'frames' | 'brainstorms' | 'analyses' | 'specs' | 'plans'): Promise<string[]>
   read(path: string): Promise<string>
   readMeta(path: string): Promise<ArtifactMeta>
   write(path: string, content: string): Promise<void>

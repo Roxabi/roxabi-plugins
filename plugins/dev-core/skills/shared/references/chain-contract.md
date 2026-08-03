@@ -221,3 +221,4 @@ This pulls the marketplace clone and repopulates the hash-keyed cache dir, ensur
 - `/dev` SKILL.md — orchestration state machine
 - `/plan` SKILL.md — reference implementation of sub-task creation
 - `/implement` SKILL.md — reference implementation of sub-task consumption
+- [artifact-frontmatter.md](./artifact-frontmatter.md) — title hygiene + `type:`/`status:` required keys for every writer

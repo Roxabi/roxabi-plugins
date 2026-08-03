@@ -18,11 +18,13 @@ Triggers: `"create a spec"` | `"interview"` | `"brainstorm"` | `"write analysis"
 
 ## Document types
 
-| Type | Purpose | Output path |
-|------|---------|-------------|
-| Brainstorm (β) | Divergent exploration, early ideas | `artifacts/analyses/{slug}.md` |
-| Analysis (α) | Structured investigation of a problem | `artifacts/analyses/{slug}.md` |
-| Spec (σ) | Technical specification for implementation | `artifacts/specs/{issue}-{slug}.md` |
+| Type | Purpose | Output path | Frontmatter |
+|------|---------|-------------|-------------|
+| Brainstorm (β) | Divergent exploration, early ideas | `artifacts/brainstorms/{slug}-brainstorm.md` | `type: brainstorm`, `status: draft` |
+| Analysis (α) | Structured investigation of a problem | `artifacts/analyses/{slug}-analysis.md` | `type: analysis`, `status: draft` |
+| Spec (σ) | Technical specification for implementation | `artifacts/specs/{issue}-{slug}-spec.md` | `type: spec`, `status: draft` |
+
+One kind per directory — β never lands in `analyses/`. Title hygiene + full key contract: shared [artifact-frontmatter.md](../shared/references/artifact-frontmatter.md).
 
 ## Interview phases
 
@@ -43,4 +45,4 @@ Detects the current document type from frontmatter/structure and promotes it to 
 
 ## Output format
 
-`.md` with YAML frontmatter (`title`, `description`, and `type: brainstorm` for brainstorms). Kebab-case slugs.
+`.md` with YAML frontmatter: always `title` (yaml-escaped), `description`, `type:`, `status: draft`. Kebab-case slugs. Approval for α/σ (when used as pipeline gates) flips `status` to `approved` via the owning skill (`/analyze`, `/spec`) — interview writes drafts only.

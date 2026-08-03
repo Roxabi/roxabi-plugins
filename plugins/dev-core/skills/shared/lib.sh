@@ -147,3 +147,49 @@ find_feature_worktree() {
         printf '%s\n' "$found"
     fi
 }
+
+# ── Artifact classification (shared: dev/scan-state.sh, pr/gather-state.sh) ────
+# artifacts/analyses/ is not exclusively analyses. Historically three writers used
+# it, and legacy files stay where they were written:
+#   /analyze    → α analysis          (type: analysis, or status: draft|approved)
+#   /interview  → brainstorm          (type: brainstorm)   — now artifacts/brainstorms/
+#   legacy      → consensus artifact  (status: consensus-reached) — /consensus removed 2026-08-03
+# Filename is not a discriminator (≥4 live naming forms + .orig/.rej leftovers), so
+# classify on FRONTMATTER.
+#
+# Implementation is TypeScript (artifact-classify.ts), not bash/awk. Hand-rolled
+# YAML fence parsers failed three review rounds (CRLF/BOM/trailing-space on ---,
+# unterminated fence treating body as header, first-wins vs YAML last-wins). The
+# TS module is unit-tested; these wrappers only dispatch. Do not re-implement
+# classification in bash — extend artifact-classify.ts and its tests.
+
+_ARTIFACT_CLASSIFY_TS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/artifact-classify.ts"
+
+_artifact_classify() {
+    if ! command -v bun >/dev/null 2>&1; then
+        printf 'artifact-classify: bun not found on PATH\n' >&2
+        return 127
+    fi
+    bun "$_ARTIFACT_CLASSIFY_TS" "$@"
+}
+
+# analysis | brainstorm | consensus | missing | malformed
+artifact_kind() {
+    _artifact_classify kind "${1:-}"
+}
+
+# Normalized status (lowercased), or empty when absent / unreadable.
+artifact_status() {
+    _artifact_classify status "${1:-}"
+}
+
+# kind|status — same contract as scan-state.sh --classify-artifact.
+artifact_classify() {
+    _artifact_classify classify "${1:-}"
+}
+
+# First file in <dir> that is BOTH name-matched (anchored N, else slug) AND kind=analysis.
+# The name match only narrows candidates; the kind check decides. Prints "" when none.
+resolve_analysis() {
+    _artifact_classify resolve "${1:-}" "${2:-}" "${3:-}"
+}

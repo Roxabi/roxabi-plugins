@@ -21,7 +21,7 @@ Triggers: `"write spec"` | `"spec this"` | `"solution design"` | `"acceptance cr
 
 **No AskUserQuestion.** Human-in-the-loop is chat-native: full draft → **Executive Summary** → free-form reply.
 
-1. **Resolve source** — analysis (or frame if F-lite); stop with prose if missing.
+1. **Resolve source** — analysis or frame (if F-lite); kind read from frontmatter, not the filename. Stop with prose if missing.
 2. **Generate** — promote SRC → σ without interactive `/interview` AQs; unknowns become `[NEEDS CLARIFICATION]`.
 3. **Pre-check** — binary criteria, breadboard refs, χ budget, slice coverage; auto-fix cheap issues.
 4. **Expert review** — architect, doc-writer, product-lead, adversarial (devops/axial when relevant) in parallel.
@@ -33,6 +33,8 @@ Triggers: `"write spec"` | `"spec this"` | `"solution design"` | `"acceptance cr
 ```
 artifacts/specs/{N}-{slug}-spec.md
 ```
+
+Frontmatter on write: `title` (yaml-escaped), `description`, `type: spec`, `status: draft`. Approval flips `status` to `approved`. Contract: [artifact-frontmatter.md](../shared/references/artifact-frontmatter.md).
 
 Sections: Context, **Intent** (what we solve), Goal (done-when), Users, Expected Behavior, Data Model & Consumers (markdown prose + optional consumer table — no HTML sidecars), Breadboard, Slices, Success Criteria.
 

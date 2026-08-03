@@ -33,11 +33,13 @@ Artifacts = state markers for `/dev` progress detection + resumption.
 | Type | Directory | Question |
 |------|-----------|----------|
 | **Frame** | `artifacts/frames/` | What's the problem? |
+| **Brainstorm** | `artifacts/brainstorms/` | What could we do? |
 | **Analysis** | `artifacts/analyses/` | How deep? |
 | **Spec** | `artifacts/specs/` | What to build? |
 | **Plan** | `artifacts/plans/` | How to build? |
+| **Visuals** | `artifacts/visuals/` | Architecture diagrams (forge-chart sidecars) |
 
-`/dev` scans these dirs → determine progress → resume from correct phase.
+One kind per directory for **new** writes (β never lands in `analyses/`). `/dev` scans frame/analysis/spec/plan for pipeline progress; brainstorms are exploration seeds (seen by `/interview`, `/analyze`, `/clarify`), not Shape-phase gates. Frontmatter contract: [artifact-frontmatter.md](../skills/shared/references/artifact-frontmatter.md).
 
 ## Git Workflow Rules
 

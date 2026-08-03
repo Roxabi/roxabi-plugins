@@ -7,6 +7,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../shared/lib.sh
 . "$SCRIPT_DIR/../shared/lib.sh"
 
+# Artifact classification lives in ../shared/artifact-classify.ts (bun), wrapped by
+# lib.sh. pr/gather-state.sh sources the same helpers — one implementation.
+# kind ∈ analysis|brainstorm|consensus|missing|malformed
+#
+# Test hooks (pure, no gh/network — dispatched before any dependency use):
+#   scan-state.sh --classify-artifact <path>            → "<kind>|<status>"
+#   scan-state.sh --resolve-analysis  <dir> <N> <slug>  → chosen filename, or ""
+if [ "${1:-}" = "--classify-artifact" ]; then
+  artifact_classify "${2:-}"
+  exit 0
+fi
+
+if [ "${1:-}" = "--resolve-analysis" ]; then
+  resolve_analysis "${2:-}" "${3:-}" "${4:-}"
+  exit 0
+fi
+
 N="${1:-}"
 SLUG="${2:-}"
 
@@ -67,11 +84,25 @@ FRAME=$(ls artifacts/frames/ 2>/dev/null | grep -iE "$N_ANCHOR" | grep -iF -- "$
 echo "recheck=null"
 
 # analyze
-ANALYZE=$(ls artifacts/analyses/ 2>/dev/null | grep -E "$N_ANCHOR" | head -1 || true)
-[ -z "$ANALYZE" ] && ANALYZE=$(ls artifacts/analyses/ 2>/dev/null | grep -iF -- "${SLUG}" | head -1 || true)
-[ -z "$ANALYZE" ] && ANALYZE=$(wt_list "artifacts/analyses" | grep -E "$N_ANCHOR" | head -1 || true)
-[ -z "$ANALYZE" ] && ANALYZE=$(wt_list "artifacts/analyses" | grep -iF -- "${SLUG}" | head -1 || true)
-[ -n "$ANALYZE" ] && echo "analyze=$ANALYZE" || echo "analyze=false"
+# Resolve by KIND (frontmatter), never by filename — see artifact_kind() above.
+# `head -1` over a name match is an alphabetical pick: an /interview brainstorm or a
+# legacy consensus artifact sorting ahead of the real analysis would otherwise become
+# the gate signal. Emits the resolved kind + status so /dev's
+# Σ.analyze = α ∃ ∧ (status == approved ∨ key absent) is mechanical, not a re-read.
+ANALYZE=""
+ANALYZE_DIR=""
+for dir in "artifacts/analyses" "${WT_PATH:+${WT_PATH}/artifacts/analyses}"; do
+  [ -n "$dir" ] || continue
+  ANALYZE=$(resolve_analysis "$dir" "$N" "$SLUG")
+  if [ -n "$ANALYZE" ]; then ANALYZE_DIR="$dir"; break; fi
+done
+if [ -n "$ANALYZE" ]; then
+  echo "analyze=$ANALYZE"
+  echo "analyze_status=$(artifact_status "${ANALYZE_DIR}/${ANALYZE}")"
+else
+  echo "analyze=false"
+  echo "analyze_status="
+fi
 
 # spec
 SPEC=$(ls artifacts/specs/ 2>/dev/null | grep -E "$N_ANCHOR" | head -1 || true)

@@ -6,10 +6,14 @@ Templates used by the spec skill for document generation.
 
 ## Spec Document Template
 
+Frontmatter contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md).
+
 ```md
 ---
-title: "{title}"
+title: "{title|yaml-escaped}"
 description: "{one-line description}"
+type: spec
+status: draft
 ---
 
 ## Context

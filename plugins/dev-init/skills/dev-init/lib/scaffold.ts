@@ -283,6 +283,7 @@ export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
   // artifacts/
   for (const dir of [
     'artifacts/frames',
+    'artifacts/brainstorms',
     'artifacts/analyses',
     'artifacts/specs',
     'artifacts/plans',

@@ -4,13 +4,16 @@ Let: N := issue number | τ := tier
 
 ## Brainstorm
 
-Output path: `artifacts/analyses/{slug}-analysis.md`
+Output path: `artifacts/brainstorms/{slug}-brainstorm.md`
+
+Frontmatter contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md).
 
 ```md
 ---
-title: "Brainstorm: {Title}"
-description: {One-line description of what is being explored}
+title: "Brainstorm: {title|yaml-escaped}"
+description: "{one-line description}"
 type: brainstorm
+status: draft
 ---
 
 ## Trigger
@@ -40,10 +43,14 @@ type: brainstorm
 
 Output path: `artifacts/analyses/{slug}-analysis.md`
 
+Frontmatter contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md). Same keys as `/analyze` so `/dev` and `artifact-classify` treat interview-written α identically.
+
 ```md
 ---
-title: "{Title}"
-description: {One-line description of the analysis}
+title: "{title|yaml-escaped}"
+description: "{one-line description}"
+type: analysis
+status: draft
 ---
 
 ## Source
@@ -118,10 +125,14 @@ description: {One-line description of the analysis}
 
 Output path: `artifacts/specs/{issue}-{slug}-spec.md`
 
+Frontmatter contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md). Same keys as `/spec`.
+
 ```md
 ---
-title: "{Title}"
-description: {One-line description of the feature or project}
+title: "{title|yaml-escaped}"
+description: "{one-line description}"
+type: spec
+status: draft
 ---
 
 ## Context

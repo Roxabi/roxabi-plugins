@@ -2,7 +2,7 @@
 name: clarify
 argument-hint: '["topic" | --issue <N> | --resume]'
 description: Intent-first architecture recap — explain what we are really solving (intent → biz-arch → UX flows → data flow per layer → use cases × layers → open intent Qs); defer technical implementation until approved. Phase-agnostic, ephemeral, no artifact. Triggers "clarify intent" | "explain the architecture" | "restate what we are solving" | "recap the issue" | "restructure the answer" | "intent first" | "explain it properly" | "what is the architecture" | "explain from intent down" | "step back and explain".
-version: 0.1.0
+version: 0.1.2
 allowed-tools: Bash, Read, Write, Glob, Grep, Skill, ToolSearch
 ---
 
@@ -74,7 +74,8 @@ Build context map without mutating anything:
 |---|---|---|
 | Issue body (gh) | `gh issue view "$N" --json title,body,labels` | intent + scope signals |
 | `artifacts/frames/{N}-*.md*` ∃ | Read | already-captured scope |
-| `artifacts/analyses/{N}-*.md*` ∃ | Read | technical risks already surfaced |
+| `artifacts/analyses/{N}-*.md*` ∃ | Read (**kind by frontmatter, ¬filename** (`type: brainstorm` / `status: consensus-reached` ≠ α)) | technical risks already surfaced |
+| `artifacts/brainstorms/{N}-*.md*` ∃ | Read | early options already explored |
 | `artifacts/specs/{N}-*.md*` ∃ | Read | acceptance criteria, breadboard |
 | `artifacts/plans/{N}-*.md*` ∃ | Read | implementation slices |
 | Recent conversation | implicit | user intent, prior pushback |

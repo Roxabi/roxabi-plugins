@@ -89,11 +89,14 @@ Parse output `Created #N: <title>` → store mapping. Wire deps:
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <B> --blocked-by <A>
 ```
 
-**Generate sub-specs** ∀ sub-issue at `artifacts/specs/{sub_N}-{sub_slug}-spec.md`:
+**Generate sub-specs** ∀ sub-issue at `artifacts/specs/{sub_N}-{sub_slug}-spec.md` (same frontmatter contract as parent — [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md); title hygiene on the sub-issue title):
 
 ```markdown
 ---
-title: "{sub-issue title}"
+title: "{sub-issue title|yaml-escaped}"
+description: "{one-line scope from parent}"
+type: spec
+status: draft
 parent_spec: "artifacts/specs/{parent_issue}-{parent_slug}-spec.md"
 parent_issue: {parent_N}
 ---

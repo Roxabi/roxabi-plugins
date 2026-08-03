@@ -2,7 +2,7 @@
 name: advisory
 argument-hint: '["subject" | --issue <N> | --analysis <path> | --spec <path> | --frame <path> | --path <path>] [--write]'
 description: Constructive expert advisory on analyses, proposals, architecture, ideas, specs, or plans — strengthen, prioritize, surface blind spots as recommendations (not red-team). Triggers: "advisory" | "second opinion" | "advise on this" | "strengthen this" | "expert advice" | "advisory review" | "what would you improve".
-version: 0.1.0
+version: 0.1.3
 allowed-tools: Bash, Read, Glob, Grep, Agent, ToolSearch, Write
 ---
 
@@ -20,7 +20,7 @@ Let:
   ρ  := optional artifact `artifacts/reviews/{N}-{slug}-advisory.md`
   AQ := present choice, wait for user reply
 
-Standalone constructive counsel. Goal: **strengthen S** — better framing, clearer trade-offs, prioritized next moves — not kill it (→ `/adversarial`), not force panel consensus (→ `/consensus`).
+Standalone constructive counsel. Goal: **strengthen S** — better framing, clearer trade-offs, prioritized next moves — not kill it (→ `/adversarial`).
 
 ## When to use
 
@@ -30,7 +30,6 @@ Standalone constructive counsel. Goal: **strengthen S** — better framing, clea
 | Want prioritization + "what I'd change first" | ✓ primary |
 | Second opinion without attack posture | ✓ primary |
 | Want to break / disprove the claim | ✗ → `/adversarial` |
-| Need 3 experts to agree on one option | ✗ → `/consensus` |
 | PR / diff quality gate | ✗ → `/code-review` |
 | Intent re-render only | ✗ → `/clarify` |
 
@@ -66,7 +65,7 @@ Same resolution rules as `/adversarial`:
 | Input | Action |
 |-------|--------|
 | `"text"` | S := verbatim |
-| `--issue N` | Validate `N` ∈ `^[0-9]+$` else STOP. Then `gh issue view "$N" --json …` + glob `artifacts/**/"$N"-*.md*` (prefer analysis → spec → frame → plan) |
+| `--issue N` | Validate `N` ∈ `^[0-9]+$` else STOP. Then `gh issue view "$N" --json …` + glob `artifacts/**/"$N"-*.md*` (prefer analysis → spec → frame → plan) — **kind by frontmatter, ¬filename** (`type: brainstorm` / `status: consensus-reached` ≠ α) |
 | `--analysis` / `--spec` / `--frame` / `--path` | Read → S |
 | ∅ | Infer from recent convo; else STOP + ask |
 
@@ -188,7 +187,7 @@ Merge without debate theater:
 
 ```md
 ---
-title: "{title} — Advisory"
+title: "{title|yaml-escaped} — Advisory"
 issue: {N | null}
 status: review-complete
 date: {YYYY-MM-DD}
@@ -204,11 +203,15 @@ lean: {ready-to-advance|strengthen-then-advance|reframe-first}
 ## Next
 ```
 
+**Title hygiene ({title} is external content).** Full contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md). Before any use: strip newlines + control chars, cap 120 chars.
+- **¬ shell.** Never interpolate `{title}` into a command — `$(…)`, backticks and `;` execute. The commit subject uses the sanitized `{slug}`.
+- **YAML.** Emit as a single-line double-quoted scalar with `"` and `\` escaped. An unescaped newline lets a title inject frontmatter keys — `status:` is a pipeline gate signal read by `/dev` and `/spec`.
+
 **Slug:** `[a-z0-9]+(?:-[a-z0-9]+)*` only (strip `..` / separators; max 48). Resolve path → require prefix `artifacts/reviews/`. N set → prefer `artifacts/reviews/{N}-advisory.md` when slug unsafe.
 
 Path: `artifacts/reviews/{N}-{slug}-advisory.md` (create dir if needed).
 
-Commit only if `artifacts/` tracked ∧ user confirms: `docs(advisory): {title}`. Default: write, ¬force commit.
+Commit only if `artifacts/` tracked ∧ user confirms: `git add "{written_path}" && git commit -m "docs(advisory): {subject}"` where `{written_path}` is the exact path Write used (¬a re-derived one) and `{subject}` := `{slug}` if non-empty, else `#{N}`, else `advisory {date}` — a slug can derive empty and commitlint rejects an empty subject. ¬`{title}` in any command, ¬`-a`, ¬`.`. Default: write, ¬force commit.
 
 ## Edge Cases
 
@@ -217,14 +220,13 @@ Commit only if `artifacts/` tracked ∧ user confirms: `docs(advisory): {title}`
 | S is already excellent | Short Keep + "ready-to-advance" + light P2 polish only |
 | Advisors contradict on P0 | Present both; recommend one; ¬fake agreement |
 | User wants attack posture | Redirect: run `/adversarial` (can chain after) |
-| User wants panel decision | Redirect: `/consensus` |
 | Prior ρ exists | **Reuse** | **Re-run** |
 
 ## Chain Position
 
 - **Phase:** Shape (also free idea / pre-spec)
 - **Predecessor:** `/frame` ∨ `/analyze` ∨ free text ∨ mid-spec
-- **Successor:** revise S | `/adversarial` | `/consensus` | `/spec` | `/plan` | `/adr`
+- **Successor:** revise S | `/adversarial` | `/spec` | `/plan` | `/adr`
 - **Class:** standalone (¬auto by `/dev`)
 
 ## Task Integration

@@ -2,7 +2,7 @@
 name: frame
 argument-hint: '["idea" | --issue <N>]'
 description: Problem framing — capture problem, constraints, scope, tier. Triggers: "frame" | "frame this" | "what's the problem" | "define the problem" | "scope this out" | "define the scope" | "what are we solving" | "help me think through this problem" | "problem statement".
-version: 0.5.0
+version: 0.5.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---
 
@@ -171,11 +171,11 @@ Track `tier_aq = true` only if Confirm AQ fired.
 
 ## Step 3 — Write Frame Doc
 
-Write φ with `status: draft`:
+Write φ with `status: draft`. **Frontmatter contract** (SSoT: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md)): title hygiene on `{title}` (external → yaml-escaped); `status: draft` until Step 4 approve.
 
 ```md
 ---
-title: {title}
+title: "{title|yaml-escaped}"
 issue: {N | null}
 status: draft
 tier: {τ}

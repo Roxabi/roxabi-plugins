@@ -27,7 +27,7 @@ generated: "2026-01-01T00:00:00Z"
 
 ## Bootstrap Context
 
-{Conclusions and selected shape from artifacts/analyses/{issue}-*.md, if exists. Omit section if no analysis.}
+{Conclusions and selected shape from artifacts/analyses/{issue}-*.md, if exists — kind by frontmatter, ¬filename: skip `type: brainstorm` and `status: consensus-reached` unless the consensus IS the source. Omit section if no analysis.}
 
 ## Agents
 

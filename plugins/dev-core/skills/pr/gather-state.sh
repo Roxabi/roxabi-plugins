@@ -25,10 +25,18 @@ echo "---pr---"
 gh pr list --head "$BRANCH" --json number,title,url,state 2>/dev/null || echo "none"
 
 # lifecycle artifacts
-ISSUE_NUM=$(echo "$BRANCH" | sed -n 's/^feat\/\([0-9]*\)-.*/\1/p')
+# Any conventional prefix (feat|fix|chore|docs|refactor|…), not feat-only —
+# otherwise fix/# and chore/# branches report issue=none while /dev still finds α.
+ISSUE_NUM=$(echo "$BRANCH" | sed -n 's/^[a-z][a-z0-9]*\/\([0-9][0-9]*\)-.*/\1/p')
 if [ -n "$ISSUE_NUM" ]; then
   echo "issue=$ISSUE_NUM"
-  ANALYSIS=$(ls "artifacts/analyses/${ISSUE_NUM}-"*.md "artifacts/analyses/${ISSUE_NUM}-"*.mdx 2>/dev/null | head -1 || true)
+  # Same resolver as /dev, via the shared helper — ¬a second implementation. The
+  # candidate set must match too: the previous inline glob `{N}-*` anchored at the
+  # filename start with no slug fallback, so /dev could report an analysis that /pr
+  # reported as absent (e.g. `epic-42-drift-analysis.md`, or a slug-only name).
+  SLUG=$(echo "$BRANCH" | sed -n 's/^[a-z][a-z0-9]*\/[0-9][0-9]*-\(.*\)$/\1/p')
+  ANALYSIS=$(resolve_analysis "artifacts/analyses" "$ISSUE_NUM" "$SLUG")
+  [ -n "$ANALYSIS" ] && ANALYSIS="artifacts/analyses/$ANALYSIS"
   [ -n "$ANALYSIS" ] && echo "analysis=$ANALYSIS" || echo "analysis=false"
   SPEC=$(ls "artifacts/specs/${ISSUE_NUM}-"*.md "artifacts/specs/${ISSUE_NUM}-"*.mdx 2>/dev/null | head -1 || true)
   [ -n "$SPEC" ] && echo "spec=$SPEC" || echo "spec=false"

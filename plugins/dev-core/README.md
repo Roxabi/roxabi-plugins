@@ -88,7 +88,6 @@ Skills organized by workflow phase:
 | `recheck` | Frame | Drift-check an issue (git-drift, symbol-missing, dep-resolved) before /dev work begins. Runs before /frame for every tier — no skip path. Signal-clean returns silently; signal-fire blocks with user choice (Proceed/Update/Close/Abort) |
 | `frame` | Frame | Creates initial feature frame from issue |
 | `analyze` | Shape | Deep analysis with expert consultation |
-| `consensus` | Shape | Multi-expert panel — spawns 3 domain agents (architect + 2 context-selected) to debate and agree on best long-term solution |
 | `adversarial` | Shape | Standalone red-team on analyses, proposals, architecture, ideas, specs, plans — kill claims via bypass / assumption / scope lenses |
 | `advisory` | Shape | Constructive expert second opinion (architect + product-lead [+ optional domain]) — keep / strengthen / prioritize next moves |
 | `spec` | Shape | Generates specifications with smart splitting |

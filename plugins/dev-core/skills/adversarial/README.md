@@ -44,6 +44,5 @@ Triggers: `"adversarial"` | `"red team"` | `"devil's advocate"` | `"attack this 
 |-------|---------|
 | `/adversarial` | Kill the design |
 | `/advisory` | Strengthen and advise (constructive) |
-| `/consensus` | Multi-expert debate → one recommendation |
 | `/code-review` | Diff/PR multi-domain review (includes adversarial agent) |
 | `/clarify` | Intent-first recap, no attack |
