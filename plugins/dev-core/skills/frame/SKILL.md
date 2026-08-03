@@ -171,9 +171,7 @@ Track `tier_aq = true` only if Confirm AQ fired.
 
 ## Step 3 — Write Frame Doc
 
-Write φ with `status: draft`:
-
-**Title hygiene.** `{title}` is external content (a GitHub issue title). Strip newlines + control chars, cap 120 chars, emit as a single-line double-quoted YAML scalar with `"` and `\` escaped — the `status:` key below is the pipeline gate signal, and an injected newline can add one that outranks it.
+Write φ with `status: draft`. **Frontmatter contract** (SSoT: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md)): title hygiene on `{title}` (external → yaml-escaped); `status: draft` until Step 4 approve.
 
 ```md
 ---

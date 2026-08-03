@@ -2,7 +2,7 @@
 name: interview
 argument-hint: [topic | --promote <path>]
 description: Structured interview → brainstorm | analysis | spec (with promotion). Triggers: "create a spec" | "interview" | "brainstorm" | "write analysis" | "promote to spec" | "let's brainstorm" | "think through this" | "help me brainstorm" | "let's think this through" | "explore ideas".
-version: 0.2.2
+version: 0.2.3
 allowed-tools: Write, Read, Edit, Glob, ToolSearch
 ---
 
@@ -22,9 +22,11 @@ Conduct structured interview → produce one of {β, α, σ}. Supports promoting
 1. Read doc at path.
 2. Determine current τ (frontmatter first, content structure fallback):
    - `type: brainstorm` ∈ frontmatter ∨ lives in B → β → promote to α.
+   - `type: analysis` ∈ frontmatter → α → promote to σ.
+   - `type: spec` ∈ frontmatter ∨ lives in S → already σ → inform: "Already a spec. Nothing to promote." Stop.
    - ¬type ∧ lives in A ∧ "Trigger"/"Ideas" structure → treat as β (legacy: β lived in A before 2026-08-03).
    - A path ∧ "Questions Explored"/"Analysis"/"Conclusions" structure → α → promote to σ.
-   - Already σ → inform: "Already a spec. Nothing to promote." Stop.
+   - Already σ (structure) → inform: "Already a spec. Nothing to promote." Stop.
 3. Skip to Step 2; limit questions to gaps between current doc and next level. Pre-fill known from source.
 4. In promoted doc's Context: `**Promoted from:** [source title](relative-path-to-source)`
 
@@ -116,18 +118,25 @@ Depth by τ: β = Phase 1 + divergent (lighter) | α = Phases 1–3 thorough | �
 
 ## Step 4 — Generate Document
 
-Write using appropriate template. Rules:
-- `.md` extension with YAML frontmatter (`title`, `description`).
-- Kebab-case slugs.
-- σ: `artifacts/specs/{issue}-{slug}-spec.md`
-- α: `artifacts/analyses/{slug}-analysis.md` (prefix with issue# if ∃).
-- β: `artifacts/brainstorms/{slug}-brainstorm.md` (prefix with issue# if ∃) — **¬in `artifacts/analyses/`**.
-- β keeps `type: brainstorm` in frontmatter — belt and braces for the legacy files already in A.
+Write using the matching template. **Frontmatter is not optional** — full contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md).
+
+Rules:
+- `.md` extension; kebab-case slugs.
+- **Title hygiene** on every `title:` / free-form `description:` (external content — strip control chars, cap 120, double-quoted YAML with `"`/`\` escaped). Form: `"{title|yaml-escaped}"`.
+- Required keys on write (always `status: draft` for new docs):
+
+| τ | Path | Frontmatter must include |
+|---|------|--------------------------|
+| β | `artifacts/brainstorms/{slug}-brainstorm.md` (prefix issue# if ∃) — **¬in A** | `type: brainstorm`, `status: draft` |
+| α | `artifacts/analyses/{slug}-analysis.md` (prefix issue# if ∃) | `type: analysis`, `status: draft` |
+| σ | `artifacts/specs/{issue}-{slug}-spec.md` | `type: spec`, `status: draft` |
+
+`type:` is how classifiers distinguish kinds when legacy files still share a directory; `status: draft` prevents `/dev` from treating an unfinished α/σ as approved (missing `status` ≡ legacy-approved).
 
 ---
 
 ## Document Templates
 
-Use templates from [references/templates.md](${CLAUDE_SKILL_DIR}/references/templates.md) — Brainstorm, Analysis, Spec.
+Use templates from [references/templates.md](${CLAUDE_SKILL_DIR}/references/templates.md) — Brainstorm, Analysis, Spec. Each template's frontmatter already carries `type:` + `status:` — do not strip them.
 
 $ARGUMENTS

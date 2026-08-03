@@ -165,4 +165,21 @@ describe('artifact_kind — real-world shapes from this repo', () => {
     expect(classify('42-auth-analysis.md.orig')).toBe('missing|')
     expect(resolve('42', 'auth')).toBe('')
   })
+
+  // Shell integration of the TS classifier (bun dispatch via lib.sh). Detailed
+  // fence edge cases live in shared/__tests__/artifact-classify.test.ts — these
+  // only prove the scan-state CLI surface still reaches that implementation.
+  it('dispatches CRLF and unterminated through the shell hook', () => {
+    writeRaw('crlf.md', '---\r\nstatus: draft\r\n---\r\n\nbody\n')
+    expect(classify('crlf.md')).toBe('analysis|draft')
+
+    writeRaw('unterminated.md', '---\nstatus: draft\n\n## Body\nstatus: consensus-reached\nstatus: approved\n')
+    expect(classify('unterminated.md')).toBe('malformed|')
+    expect(resolve('', 'unterminated')).toBe('')
+  })
+
+  it('type: analysis beats status: consensus-reached via the shell hook', () => {
+    write('typed.md', { type: 'analysis', status: 'consensus-reached' })
+    expect(classify('typed.md')).toBe('analysis|consensus-reached')
+  })
 })

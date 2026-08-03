@@ -34,6 +34,8 @@ Triggers: `"write spec"` | `"spec this"` | `"solution design"` | `"acceptance cr
 artifacts/specs/{N}-{slug}-spec.md
 ```
 
+Frontmatter on write: `title` (yaml-escaped), `description`, `type: spec`, `status: draft`. Approval flips `status` to `approved`. Contract: [artifact-frontmatter.md](../shared/references/artifact-frontmatter.md).
+
 Sections: Context, **Intent** (what we solve), Goal (done-when), Users, Expected Behavior, Data Model & Consumers (markdown prose + optional consumer table — no HTML sidecars), Breadboard, Slices, Success Criteria.
 
 ## Chain position

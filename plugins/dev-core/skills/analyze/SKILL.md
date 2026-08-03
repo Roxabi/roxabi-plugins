@@ -142,9 +142,7 @@ Pre-fill context from φ — skip answered questions.
 
 F-lite/F-full: generate forge-chart sidecars per [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) **before** writing α.
 
-**Title hygiene.** `{title}` is external content (a GitHub issue title — anyone who can open an issue controls it). Before rendering: strip newlines + control chars, cap 120 chars, emit as a single-line double-quoted YAML scalar with `"` and `\` escaped. An injected newline adds a frontmatter key, and `status:` here **is** the pipeline gate signal (`/dev` reads it via `scan-state.sh --classify-artifact`); a first-match parser takes the injected key over the real one.
-
-Write α with `status: draft` — approval flips it in Step 5. **`status` is the pipeline's done-signal**: `/dev` reads α_approved (`status == 'approved'` ∨ status key absent; explicit `draft` or other tokens fail), so a draft left by an aborted run must never mark the Shape step complete.
+**Frontmatter contract** (SSoT: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md)): title hygiene on `{title}` (external content → yaml-escaped scalar); write α with `type: analysis` + `status: draft`. Approval flips `status` in Step 5. **`status` is the pipeline's done-signal**: `/dev` reads α_approved (`status == 'approved'` ∨ status key absent; explicit `draft` or other tokens fail), so a draft left by an aborted run must never mark the Shape step complete.
 
 ```md
 ---

@@ -2,7 +2,7 @@
 name: spec
 argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit] [--force]'
 description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build" | "design the solution" | "acceptance criteria" | "define acceptance criteria" | "spec it out" | "write the spec".
-version: 0.3.7
+version: 0.3.8
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -156,7 +156,22 @@ Focus content:
 - Slices: vertical increments, independently demo-able
 - χ only where SRC is truly silent
 
-Write σ with `status: draft`. Must include:
+**Frontmatter contract** (full SSoT: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md)):
+
+**Title hygiene.** `{title}` is external content (GitHub issue title). Strip newlines + control chars, cap 120 chars, emit as a single-line double-quoted YAML scalar with `"` and `\` escaped. An injected newline adds a frontmatter key, and `status:` here **is** the pipeline gate signal.
+
+Write σ with `status: draft` — approval flips it in Step 6. **`status` is the pipeline's done-signal**: `/dev` and Step 1 reuse treat missing `status` as legacy-approved; a draft left by an aborted run must never mark the Shape step complete.
+
+```md
+---
+title: "{title|yaml-escaped}"
+description: "{one-line description}"
+type: spec
+status: draft
+---
+```
+
+Body must include:
 
 | Section | Skip if |
 |---------|---------|
@@ -171,6 +186,8 @@ Write σ with `status: draft`. Must include:
 | `## Success Criteria` — `- [ ]` checkboxes, each binary | — |
 
 **Intent ≠ Goal.** Intent = *why / what problem*. Goal = *done-when*. Never collapse into one sentence.
+
+Full body template: [references/templates.md](${CLAUDE_SKILL_DIR}/references/templates.md).
 
 ### Data Model & Consumers (Tier F-lite, F-full)
 

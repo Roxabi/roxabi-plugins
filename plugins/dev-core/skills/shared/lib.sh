@@ -155,69 +155,41 @@ find_feature_worktree() {
 #   /interview  → brainstorm          (type: brainstorm)   — now artifacts/brainstorms/
 #   legacy      → consensus artifact  (status: consensus-reached) — /consensus removed 2026-08-03
 # Filename is not a discriminator (≥4 live naming forms + .orig/.rej leftovers), so
-# classify on FRONTMATTER. Both consumers call these — ¬re-implement per callsite.
+# classify on FRONTMATTER.
+#
+# Implementation is TypeScript (artifact-classify.ts), not bash/awk. Hand-rolled
+# YAML fence parsers failed three review rounds (CRLF/BOM/trailing-space on ---,
+# unterminated fence treating body as header, first-wins vs YAML last-wins). The
+# TS module is unit-tested; these wrappers only dispatch. Do not re-implement
+# classification in bash — extend artifact-classify.ts and its tests.
 
-# Emit ONLY the YAML frontmatter block: from the opening `---` to the next `---`.
-# Scanning the file body instead (e.g. `head -30`) cannot tell a document's
-# declaration from its content: an analysis that merely quotes `status:
-# consensus-reached` in a fenced example would classify as consensus and become
-# permanently unresolvable. No line cap — the fence is the boundary.
-artifact_frontmatter() {
-    local f="$1"
-    [ -f "$f" ] || return 0
-    awk 'NR==1 && $0!="---" {exit} NR==1 {next} /^---[[:space:]]*$/ {exit} {print}' "$f"
-}
+_ARTIFACT_CLASSIFY_TS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/artifact-classify.ts"
 
-# analysis | brainstorm | consensus | missing
-# A file with no frontmatter defaults to `analysis`: legacy artifacts predate the
-# `type:` key and are genuine analyses (3 such files exist in this repo). Positive
-# `type:` is checked first so new files are identified rather than defaulted.
-artifact_kind() {
-    local f="$1" fm
-    [ -f "$f" ] || { printf 'missing\n'; return 0; }
-    case "$f" in *.orig|*.rej|*.bak|*~) printf 'missing\n'; return 0 ;; esac
-    fm=$(artifact_frontmatter "$f")
-    if printf '%s\n' "$fm" | grep -qiE '^type:[[:space:]]*["'\'']?brainstorm'; then
-        printf 'brainstorm\n'
-    elif printf '%s\n' "$fm" | grep -qiE '^type:[[:space:]]*["'\'']?analysis'; then
-        printf 'analysis\n'
-    elif printf '%s\n' "$fm" | grep -qiE '^status:[[:space:]]*["'\'']?consensus-reached'; then
-        printf 'consensus\n'
-    else
-        printf 'analysis\n'
+_artifact_classify() {
+    if ! command -v bun >/dev/null 2>&1; then
+        printf 'artifact-classify: bun not found on PATH\n' >&2
+        return 127
     fi
+    bun "$_ARTIFACT_CLASSIFY_TS" "$@"
 }
 
-# Normalized `status:` value from the frontmatter, or empty when absent.
-# Normalizes the spellings YAML treats as equivalent but a string compare does not:
-# surrounding quotes, a trailing ` # comment`, and case. Without this,
-# `status: "Approved"` reads as not-approved and stalls the pipeline.
+# analysis | brainstorm | consensus | missing | malformed
+artifact_kind() {
+    _artifact_classify kind "${1:-}"
+}
+
+# Normalized status (lowercased), or empty when absent / unreadable.
 artifact_status() {
-    local f="$1"
-    [ -f "$f" ] || return 0
-    case "$f" in *.orig|*.rej|*.bak|*~) return 0 ;; esac
-    artifact_frontmatter "$f" \
-        | grep -iE '^status:[[:space:]]*' \
-        | head -1 \
-        | sed -E 's/^[Ss][Tt][Aa][Tt][Uu][Ss]:[[:space:]]*//; s/[[:space:]]+#.*$//; s/^["'\'']//; s/["'\''][[:space:]]*$//; s/[[:space:]]*$//' \
-        | tr '[:upper:]' '[:lower:]'
+    _artifact_classify status "${1:-}"
+}
+
+# kind|status — same contract as scan-state.sh --classify-artifact.
+artifact_classify() {
+    _artifact_classify classify "${1:-}"
 }
 
 # First file in <dir> that is BOTH name-matched (anchored N, else slug) AND kind=analysis.
 # The name match only narrows candidates; the kind check decides. Prints "" when none.
 resolve_analysis() {
-    local dir="$1" n="$2" slug="$3" anchor cand
-    [ -d "$dir" ] || return 0
-    anchor="(^|[^0-9])${n}-"
-    while IFS= read -r cand; do
-        [ -n "$cand" ] || continue
-        if [ "$(artifact_kind "${dir}/${cand}")" = "analysis" ]; then
-            printf '%s\n' "$cand"
-            return 0
-        fi
-    done <<EOF
-$( [ -n "$n" ] && ls "$dir" 2>/dev/null | grep -E "$anchor" || true)
-$( [ -n "$slug" ] && ls "$dir" 2>/dev/null | grep -iF -- "$slug" || true)
-EOF
-    return 0
+    _artifact_classify resolve "${1:-}" "${2:-}" "${3:-}"
 }
