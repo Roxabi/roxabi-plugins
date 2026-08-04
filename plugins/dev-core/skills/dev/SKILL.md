@@ -94,7 +94,7 @@ Let α_approved := α ∃ ∧ (α.status == 'approved' ∨ status key absent).
   # frame + analyze: status == approved (analyze also accepts missing key legacy).
   # spec: status ≠ draft (legacy missing ≡ approved). plan: ## Task IDs after free-form approve + seed.
   spec:      σ ∃ ∧ σ.status ≠ 'draft',
-  plan:      π ∃ ∧ (## Task IDs section ∃ in π),
+  plan:      π ∃ ∧ (## Task IDs section ∃ in π with ≥1 `T\\d+:` line),
   implement: worktree ∃ (branch-first: non-principal ω on feat/{N}-* — Claude path, Grok ~/.grok/worktrees, or legacy) ∧ git -C ω diff --name-only origin/${BASE}..HEAD | grep -v '^artifacts/' is non-empty,
   pr:        PR ∃,
   ci-watch:  null,       # Σ_s only
@@ -312,7 +312,7 @@ Skill returns → **IMMEDIATELY in the same turn, silently:**
      | frame | φ `status: approved` |
      | analyze | α `status: approved` ∨ status key absent (legacy) |
      | spec | σ ∃ ∧ `status ≠ draft` (missing ≡ approved legacy) |
-     | plan | π ∃ ∧ `## Task IDs` section |
+     | plan | π ∃ ∧ `## Task IDs` with ≥1 `T\\d+:` line |
    - If ¬done → **has not returned**: skip items 1–2, ¬`Σ_s[step]`, ¬Step 7, **stop this turn**.
    - **Resume contract:** next user message is that skill's **React** step (approve / change … / adversarial / advisory / …) — ¬re-invoke from Step 0, ¬advance successor. Only after Approve path writes the done-signal may items 1–2 run.
    - If done → continue to items 1–2.

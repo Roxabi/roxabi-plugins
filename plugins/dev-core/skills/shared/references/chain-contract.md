@@ -69,7 +69,7 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 | frame | φ `status: approved` |
 | analyze | α `status: approved` ∨ status key absent (legacy) |
 | spec | σ ∃ ∧ `status ≠ draft` (missing status ≡ approved legacy) |
-| plan | π ∃ ∧ `## Task IDs` section (written only after free-form approve + seed) |
+| plan | π ∃ ∧ `## Task IDs` with ≥1 `T\d+:` line (written only after free-form approve + seed) |
 
 ## Task lifecycle contract
 

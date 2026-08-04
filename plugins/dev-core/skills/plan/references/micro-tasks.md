@@ -151,13 +151,19 @@ Owned by **SKILL.md Step 6–7** (sole plan gate) — not a second mid-pipeline 
 → print **Executive Summary** (chat-native, ¬AskUserQuestion): complexity, τ, μ count, α, consistency, slices, Gates.
 Free-form: `approve` | `modify …` | `return to spec` | `adversarial` / `advisory`.
 
-## 4f.8 Commit Plan
+## 4f.8 Seed + Task IDs + Commit
 
-After free-form Approve only (Step 7 Approve path). Standalone commit (¬amend): `git add artifacts/plans/{N}-{slug}-plan.md` + commit per CLAUDE.md Rule 5.
+Owned by **SKILL.md Step 7 Approve path** only (order fixed):
+
+1. Seed host task list (TaskCreate / todo_write / artifact-only)
+2. Append `## Task IDs` with ≥1 `- T\d+:` line
+3. Commit: `git add artifacts/plans/{N}-{slug}-plan.md artifacts/visuals/{N}-{slug}-*.html` + commit per CLAUDE.md Rule 5
+
+¬commit before Task IDs. ¬empty `## Task IDs` heading alone.
 
 ## 4f.9 Dispatch TaskCreate
 
-∀ μ → TaskCreate w/ metadata:
+∀ μ → TaskCreate w/ metadata (runs in 4f.8 step 1):
 
 ```json
 {

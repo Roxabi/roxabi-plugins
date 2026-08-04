@@ -34,10 +34,10 @@ Tier affects which steps run:
 
 | Step | S | F-lite | F-full |
 |------|---|--------|--------|
-| frame | skip | gate | gate |
-| analyze | skip | skip | run |
-| spec | skip | gate | gate |
-| plan | skip | gate | gate |
+| frame | skip | run + approval stop | run + approval stop |
+| analyze | skip | skip | run + approval stop |
+| spec | skip | run + approval stop | run + approval stop |
+| plan | skip | run + approval stop | run + approval stop |
 | implement | run | run | run |
 
 ## Options
