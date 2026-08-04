@@ -2,7 +2,7 @@
 name: dev
 argument-hint: '[#N | "idea" | --from <step> | --audit]'
 description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "work on #" | "develop" | "pick up issue" | "tackle issue" | "let's work on".
-version: 0.3.6
+version: 0.3.7
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
@@ -21,9 +21,9 @@ Let:
   Σ_s  := session state map (step → bool), in-memory only, lost on restart
   S*   := next step to execute
   φ    := frame artifact
-  gate := {frame, spec, plan}
+  # approval-stop skills: chat Executive Summary (¬AQ); done only via disk signal (never Σ_s alone)
+  approval_stop := {frame, analyze, spec, plan}
   adv  := {implement, pr, ci-watch, validate, review, fix, cleanup}
-  # analyze is adv + approval stop — dispatched like adv but never completed via Σ_s alone
   ψ_r(P) ⟺ P.comments ∃ body: "## Code Review"
   ψ_f(P) ⟺ P.comments ∃ body: "## Review Fixes Applied"
   stale  := scan-state.sh `stale=true|false` — worktree ∃ ∨ local/remote branch matching N ∃ (anchored on N, see scan-state.sh)
@@ -32,7 +32,7 @@ Let:
   bar   := output must read as hand-authored by a dev-core maintainer — match surrounding idiom, naming, comment density; calibrate against `plugins/dev-core/`; QG (format/lint/typecheck/test) = mechanical floor, ¬the bar
 
 Single entry point: scan artifacts → detect state → show progress → delegate to step skill → loop.
-¬rewrite step skill logic. Gate skills own their AQs; **auto-advance when unambiguous** (labels, approved artifacts, informative-only recheck). Present choice only when ≥2 plausible outcomes.
+¬rewrite step skill logic. Approval-stop skills own chat-native HITL (¬AskUserQuestion); **auto-advance when unambiguous** (labels, approved artifacts, frame high_conf, informative-only recheck). Present choice only when ≥2 plausible outcomes at the orchestrator layer (issue create, F-full sketch).
 
 ## Entry
 
@@ -90,10 +90,9 @@ Let α_approved := α ∃ ∧ (α.status == 'approved' ∨ status key absent).
   recheck:   null,       # Σ_s only — runs every session, no on-disk state
   frame:     φ ∃ ∧ φ.status == 'approved',
   analyze:   α_approved,
-  # Gates must not flip true on draft-only artifacts (chat HITL writes draft before approve).
-  # frame + analyze: priced quantity is status == approved (analyze also accepts missing key legacy).
-  # spec: status ≠ draft (legacy missing ≡ approved). plan: ## Task IDs after Step 6 approve.
-  # plan: ## Task IDs written only after Step 6 approve (+ seed).
+  # Approval-stop done-signals (disk only — chat draft must never complete the step):
+  # frame + analyze: status == approved (analyze also accepts missing key legacy).
+  # spec: status ≠ draft (legacy missing ≡ approved). plan: ## Task IDs after free-form approve + seed.
   spec:      σ ∃ ∧ σ.status ≠ 'draft',
   plan:      π ∃ ∧ (## Task IDs section ∃ in π),
   implement: worktree ∃ (branch-first: non-principal ω on feat/{N}-* — Claude path, Grok ~/.grok/worktrees, or legacy) ∧ git -C ω diff --name-only origin/${BASE}..HEAD | grep -v '^artifacts/' is non-empty,
@@ -211,7 +210,7 @@ STEPS = [
 ```
 
 Walk done/skipped predicate:
-- **status-gated** (analyze): done iff `Σ[step] == true` ∨ should_skip — **ignore `Σ_s` alone**. Session flag cannot complete Shape without durable α_approved.
+- **status-gated** (frame, analyze, spec, plan): done iff `Σ[step] == true` ∨ should_skip — **ignore `Σ_s` alone**. Session flag cannot complete without durable disk done-signal.
 - **all other steps:** `Σ[step] == true` ∨ `Σ_s[step] == true` ∨ should_skip.
 
 First non-done non-skipped ⇒ S*. ∀ steps done ⇒ completion banner, exit.
@@ -220,14 +219,14 @@ First non-done non-skipped ⇒ S*. ∀ steps done ⇒ completion banner, exit.
 
 | Gate trigger | Behavior |
 |-------------|----------|
-| S* == frame (¬Σ.frame) | **no pre-gate AQ** — invoke `/frame` immediately. Skill auto-reuses approved, auto-continues draft, auto-approves when seed has no gaps; AQ only on real gaps. |
-| S* == analyze (Σ.frame ∧ ¬Σ.analyze ∧ τ == F-full) | No pre-gate. `/analyze` self-manages a **chat Executive Summary** stop (¬AskUserQuestion); free-form approve/revise in next turn, then re-scan → `/spec`. |
-| S* == spec (Σ.frame ∧ ¬Σ.spec) | Gate after `/spec`: **chat Executive Summary** (¬AskUserQuestion). Free-form approve/revise in next turn, then re-scan → `/plan`. |
-| S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ == F-full | Architecture sketch (see block below) → user confirm → THEN invoke /plan. ¬fires for τ ∈ {S, F-lite}. |
-| S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ ∈ {S, F-lite} | Gate after plan runs (inside `/plan`) |
+| S* == frame (¬Σ.frame) | **no pre-gate** — invoke `/frame` immediately. Skill: high_conf → auto-approve; else chat Executive Summary (¬AQ) + free-form react. |
+| S* == analyze (Σ.frame ∧ ¬Σ.analyze ∧ τ == F-full) | No pre-gate. `/analyze` chat Executive Summary stop (¬AQ); free-form react → re-scan → `/spec`. |
+| S* == spec (Σ.frame ∧ ¬Σ.spec) | No pre-gate. `/spec` chat Executive Summary (¬AQ); free-form react → re-scan → `/plan`. |
+| S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ == F-full | Architecture sketch (see block below) → user confirm → THEN invoke /plan. ¬fires for τ ∈ {S, F-lite}. Plan itself: Executive Summary + free-form approve inside skill. |
+| S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ ∈ {S, F-lite} | No pre-gate (τ=S skips plan). Invoke `/plan` for F-lite; skill owns Executive Summary stop. |
 | S* == review | Post-review gate handled inside /code-review |
 
-Gate fires → Step 7 skips its own prompt (gate IS confirmation). ¬double-prompt. **¬pre-ask** what the child skill will decide or auto-resolve.
+**¬pre-ask** what the child skill will decide or auto-resolve. Approval-stop skills own their summary/react.
 
 ### Architecture Sketch Gate (F-full only, pre-plan)
 
@@ -268,7 +267,7 @@ Idempotent. **¬** relative `../../../artifacts/` (wrong under `~/.grok/worktree
 
 **Invocation rules — CRITICAL for continuous flow:**
 
-- **gate skills** (frame, spec, plan): Step 6 already presented decision → invoke skill immediately. ¬double-prompt. ¬write transition message.
+- **approval-stop skills** (frame, analyze, spec, plan): invoke immediately. Skill prints Executive Summary and may STOP the turn. ¬double-prompt. ¬write transition message.
 - **adv skills** (all others): invoke skill immediately. ¬write "Running /X…" preamble. ¬ask permission. ¬summarize prior step.
 
 **¬ask** "Ready to proceed to /X?" — the task list IS the commitment.
@@ -285,10 +284,10 @@ Idempotent. **¬** relative `../../../artifacts/` (wrong under `~/.grok/worktree
 | Step | Class | Skill invocation | On success → |
 |------|-------|------------------|--------------|
 | recheck | adv | `skill: "recheck", args: "--from-dev #N"` | frame |
-| frame | gate | `skill: "frame", args: "{N:+--issue $N}"` | analyze (F-full) ∨ spec (F-lite) |
+| frame | adv + approval stop | `skill: "frame", args: "{N:+--issue $N}"` | analyze (F-full) ∨ spec (F-lite) **only after** φ approved (high_conf same turn or free-form) |
 | analyze | adv + approval stop | `skill: "analyze", args: "{N:+--issue $N}"` | spec **only after** α_approved on disk |
-| spec | gate | `skill: "spec", args: "{N:+--issue $N}"` | plan |
-| plan | gate | `skill: "plan", args: "{N:+--issue $N}"` | implement — via Step 8b compact pause (F-lite/F-full; ¬auto-chain) |
+| spec | adv + approval stop | `skill: "spec", args: "{N:+--issue $N}"` | plan **only after** σ approved (status ≠ draft) |
+| plan | adv + approval stop | `skill: "plan", args: "{N:+--issue $N}"` | implement **only after** ## Task IDs — via Step 8b compact pause (F-lite/F-full; ¬auto-chain) |
 | implement | adv | `skill: "implement", args: "{N:+--issue $N}"` | pr |
 | pr | adv | `skill: "pr"` (auto-detects branch + issue) | ci-watch |
 | ci-watch | adv | `skill: "ci-watch", args: "--pr {PR#}"` | validate |
@@ -306,13 +305,19 @@ Idempotent. **¬** relative `../../../artifacts/` (wrong under `~/.grok/worktree
 
 Skill returns → **IMMEDIATELY in the same turn, silently:**
 
-0. **Durable complete gate (analyze)** — if completed step == `analyze`:
-   - Re-read α frontmatter from disk (**not** chat memory).
-   - If ¬α_approved (`status: draft` ∨ any non-approved token) → **has not returned**: skip items 1–2, ¬`Σ_s[analyze]`, ¬Step 7, **stop this turn**.
-   - **Resume contract:** the next user message is `/analyze` **Step 5 React** input (approve / revise / spike / adversarial / advisory) — ¬re-invoke analyze from Step 0, ¬advance to `/spec`. Only after Approve path sets `status: approved` + commit may items 1–2 run (on that later return).
-   - If α_approved → continue to items 1–2.
+0. **Durable complete gate (approval_stop)** — if completed step ∈ {frame, analyze, spec, plan}:
+   - Re-read done-signal from disk (**not** chat memory):
+     | Step | Done-signal |
+     |------|-------------|
+     | frame | φ `status: approved` |
+     | analyze | α `status: approved` ∨ status key absent (legacy) |
+     | spec | σ ∃ ∧ `status ≠ draft` (missing ≡ approved legacy) |
+     | plan | π ∃ ∧ `## Task IDs` section |
+   - If ¬done → **has not returned**: skip items 1–2, ¬`Σ_s[step]`, ¬Step 7, **stop this turn**.
+   - **Resume contract:** next user message is that skill's **React** step (approve / change … / adversarial / advisory / …) — ¬re-invoke from Step 0, ¬advance successor. Only after Approve path writes the done-signal may items 1–2 run.
+   - If done → continue to items 1–2.
 1. `TaskUpdate(task_id_map[S*], status: "completed")`
-2. `Σ_s[step] = true` — for analyze: **only** after item 0 disk assert passed
+2. `Σ_s[step] = true` — for approval_stop: **only** after item 0 disk assert passed
 3. Goto Step 1 (re-scan Σ)
 4. **Compact pause** (Step 8b) — completed step == plan ∧ τ ∈ {F-lite, F-full} ∧ new S* == implement → present pause, **STOP this turn** (¬Step 7).
 5. Execute Step 7 for new S*
@@ -323,11 +328,10 @@ Skill returns → **IMMEDIATELY in the same turn, silently:**
 **¬summarize** what just happened. The task list reflects state.
 
 Skill fails/aborts → leave task `in_progress` → present choice: **Retry** | **Skip** | **Abort**.
-Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix). **Σ_s never completes analyze** — Walk ignores `Σ_s[analyze]` (status-gated).
+Σ_s ensures within-session advancement for artifact-less steps (validate, review, fix). **Σ_s never completes approval_stop steps** — Walk ignores `Σ_s` alone for frame/analyze/spec/plan.
 Session restart → Σ_s = ∅ → artifact-less steps re-run. 2b.1 will find the existing tasks (status possibly `completed` from last run) and skip re-seeding.
-gate → re-scan detects updated artifact → Step 6 gate → Step 7 immediately (¬second prompt). **Exception:** completed gate == plan ∧ τ ∈ {F-lite, F-full} → Step 8b compact pause (¬Step 7 this turn).
 adv → re-scan → Step 7 immediately.
-**analyze (adv + approval stop):** Executive Summary without α_approved is **not** a return (item 0). After user Approve path commits `status: approved`, re-scan finds Σ.analyze true → Step 7 → `/spec`.
+**approval_stop:** Executive Summary without disk done-signal is **not** a return (item 0). After free-form Approve (or frame high_conf auto-approve) writes the signal, re-scan finds Σ[step] true → Step 7 → successor (**plan** → Step 8b compact pause when τ ∈ {F-lite, F-full}).
 
 ## Step 8b — Compact Pause (plan→implement, F-lite/F-full)
 
@@ -355,9 +359,9 @@ adv → re-scan → Step 7 immediately.
 
 | Phase | Steps | Gate after |
 |-------|-------|-----------|
-| Frame | recheck → frame | frame approval (status: approved) |
-| Shape | analyze → spec | analysis approval (chat summary, F-full only) → spec approval |
-| Build | plan → implement → pr | plan approval → compact pause (F-lite/F-full, Step 8b) before implement → pr |
+| Frame | recheck → frame | frame: high_conf auto-approve **or** chat summary free-form (status: approved) |
+| Shape | analyze → spec | chat Executive Summary free-form each (analyze F-full only) |
+| Build | plan → implement → pr | plan chat summary free-form → compact pause (F-lite/F-full, Step 8b) before implement → pr |
 | Verify | ci-watch → validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /code-review Phase 8). |
 | Ship | promote → cleanup | promote always skipped. cleanup runs if worktree/branches stale. |
 
@@ -366,10 +370,10 @@ adv → re-scan → Step 7 immediately.
 | Step | S | F-lite | F-full |
 |------|---|--------|--------|
 | recheck | run | run | run |
-| frame | skip | run + gate | run + gate |
-| analyze | skip | skip | run |
-| spec | skip | run + gate | run + gate |
-| plan | skip | run + gate | run + gate |
+| frame | skip | run + approval stop | run + approval stop |
+| analyze | skip | skip | run + approval stop |
+| spec | skip | run + approval stop | run + approval stop |
+| plan | skip | run + approval stop | run + approval stop |
 | implement | run | run | run |
 | pr | run | run | run |
 | ci-watch | cond | cond | cond |

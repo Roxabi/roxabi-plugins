@@ -86,7 +86,7 @@ Partial (one of Breadboard/Slices ¬both): fallback if ∃ Success Criteria, els
 | F-lite | 5–15 | 2 |
 | F-full | 15–30 | 2 |
 
-\> 30 ⇒ warn + suggest splitting (print only). Show full list (¬truncate). ¬AQ — user can Modify at Step 6 sole gate.
+\> 30 ⇒ warn + suggest splitting (print only). Show full list (¬truncate). ¬AQ — user can modify via free text at Step 6/7 sole gate.
 < 2 ⇒ warn, suggest text tasks from Step 2d.
 
 ## 4f.5 Consistency Check
@@ -147,13 +147,13 @@ generated: {ISO}
 
 ## 4f.7 Present for Approval
 
-Owned by **SKILL.md Step 6** (sole plan gate) — not a second mid-pipeline prompt.
-→ present choice once: complexity, τ, μ count, α, consistency, slices.
-Options: **Approve** | **Modify** | **Return to spec**
+Owned by **SKILL.md Step 6–7** (sole plan gate) — not a second mid-pipeline prompt.
+→ print **Executive Summary** (chat-native, ¬AskUserQuestion): complexity, τ, μ count, α, consistency, slices, Gates.
+Free-form: `approve` | `modify …` | `return to spec` | `adversarial` / `advisory`.
 
 ## 4f.8 Commit Plan
 
-After Step 6 Approve only. Standalone commit (¬amend): `git add artifacts/plans/{N}-{slug}-plan.md` + commit per CLAUDE.md Rule 5.
+After free-form Approve only (Step 7 Approve path). Standalone commit (¬amend): `git add artifacts/plans/{N}-{slug}-plan.md` + commit per CLAUDE.md Rule 5.
 
 ## 4f.9 Dispatch TaskCreate
 
