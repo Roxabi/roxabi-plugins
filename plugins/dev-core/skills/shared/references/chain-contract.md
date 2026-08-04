@@ -11,13 +11,15 @@ Defines how the 13 dev-core pipeline skills participate in the `/dev` orchestrat
 ## Pipeline
 
 ```
-issue-triage (external, roxabi-issues) → recheck → frame → analyze ⏸→ spec → plan ⏸→ implement → pr
+issue-triage (external, roxabi-issues) → recheck → frame ⏸?→ analyze ⏸→ spec ⏸→ plan ⏸→ implement → pr
             → ci-watch → validate → code-review → {fix ↺ review | merge → cleanup}
 ```
 
-> `⏸` = the pipeline stops the turn here.
-> - `analyze ⏸→ spec`: `/analyze` prints its chat Executive Summary and waits for a free-form approval (`adv + approval stop`). τ ∈ {S, F-lite} skip analyze entirely.
-> - `plan ⏸→ implement`: for τ ∈ {F-lite, F-full}, `/dev` inserts a **compact pause** between plan and implement (Step 8b) — recommend `/compact` before building. τ=S skips plan entirely. See the gate-class Exit `/plan` exception.
+> `⏸` = the pipeline stops the turn awaiting free-form approval (chat Executive Summary; ¬AskUserQuestion).
+> - `frame ⏸?`: stop only when ¬high_conf; **high_conf auto-approves** same turn (seed complete, premise ok, tier not contested).
+> - `analyze ⏸→ spec`: always prints Executive Summary and waits. τ ∈ {S, F-lite} skip analyze entirely.
+> - `spec ⏸→ plan`: chat Executive Summary (same doctrine; disk `status ≠ draft`).
+> - `plan ⏸→ implement`: plan Executive Summary → free-form approve → seed+commit; then `/dev` Step 8b **compact pause** before `/implement`. τ=S skips plan entirely.
 
 ### Parallel meta: `/ship` (code already ready)
 
@@ -42,8 +44,8 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 |---|---|
 | dev-pipeline task lifecycle (seed, in_progress, completed, cancelled) | `/dev` |
 | Step transitions (what runs next) | `/dev` Step 5 STEPS list + Step 7 invocation map |
-| Gate approval prompts (frame, spec, plan) | `/dev` Step 6 + the skill itself |
-| Approval-stop prompt (analyze) | the skill itself — chat Executive Summary; `/dev` Step 8.0 re-reads α frontmatter (disk) before complete |
+| Gate approval prompts (legacy / rare) | `/dev` Step 6 only where still needed (e.g. F-full architecture sketch pre-plan) |
+| Approval-stop (frame, analyze, spec, plan) | the skill itself — chat Executive Summary (¬AQ); `/dev` Step 8.0 disk-asserts done-signal before complete |
 | Compact pause (plan→implement, F-lite/F-full) | `/dev` Step 8b |
 | Standalone invocation fallback | Each skill's Exit section |
 | Sub-task creation (with `kind` ≠ `dev-pipeline`) | Individual skills (plan, code-review) |
@@ -54,11 +56,20 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 | Class | Meaning | Skills | Exit behavior |
 |---|---|---|---|
 | **adv** | Continuous flow, no user gate | recheck, implement, pr, ci-watch, validate, cleanup | Return silently; `/dev` auto-advances |
-| **adv + approval stop** | Dispatched like `adv`, but ends its turn on a chat Executive Summary awaiting free-form approval | analyze | Print summary → **stop**. `/dev` Step 8.0: re-read α; complete only if α_approved (`status == 'approved'` ∨ status key absent). Walk **ignores `Σ_s[analyze]` alone**. Resume = Step 5 React (¬fresh Step 0). |
-| **gate** | User approval of artifact required | frame, spec, plan | Present artifact → on approve, return silently; `/dev` auto-chains to successor (**plan exception:** compact pause before `/implement` — see below) |
+| **adv + approval stop** | Dispatched like `adv`; chat Executive Summary + free-form approve (¬AskUserQuestion). Optional high-conf auto-approve (frame only). | frame, analyze, spec, plan | Print summary → **stop** unless high_conf auto-approve (frame). `/dev` Step 8.0: disk done-signal before complete. Walk **ignores `Σ_s` alone** for these steps. Resume = skill React (¬fresh Step 0). **plan:** after approve+seed, compact pause before `/implement`. |
+| **gate** | (legacy / rare pre-gates only) | — | Prefer `adv + approval stop` for pipeline artifacts. `/dev` may still use structured prompts for F-full architecture sketch / issue create. |
 | **verdict** | Branches based on outcome | code-review | APPROVED → merge → cleanup; CHANGES_REQUESTED → `/fix` |
 | **loop** | Cycles back to predecessor (bounded) | fix | On success → TaskCreate follow-up review; max 2 iterations |
 | **standalone** | Never auto-triggered by `/dev` | promote, adversarial, advisory | Runs only on explicit user invocation |
+
+### Done-signals (disk) for approval-stop skills
+
+| Step | Done-signal |
+|------|-------------|
+| frame | φ `status: approved` |
+| analyze | α `status: approved` ∨ status key absent (legacy) |
+| spec | σ ∃ ∧ `status ≠ draft` (missing status ≡ approved legacy) |
+| plan | π ∃ ∧ `## Task IDs` with ≥1 `T\d+:` line (written only after free-form approve + seed) |
 
 ## Task lifecycle contract
 
@@ -66,7 +77,7 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 
 - **Created by:** `/dev` Step 2b at the start of a pipeline run
 - **Updated by:** `/dev` only — Step 7 sets `in_progress` before invocation, Step 8 sets `completed` on success
-  - **Exception (`adv + approval stop`):** a skill that ends its turn awaiting approval has not succeeded yet. `/dev` leaves the task `in_progress` and sets `completed` only after α_approved on disk (approve reaction). Currently: `analyze`.
+  - **Exception (`adv + approval stop`):** a skill that ends its turn awaiting approval has not succeeded yet. `/dev` leaves the task `in_progress` and sets `completed` only after the disk done-signal (approve reaction or frame high_conf auto-approve). Applies to: `frame`, `analyze`, `spec`, `plan`.
 - **NOT updated by:** individual pipeline skills (they are passive participants)
 - **Metadata:** `{ kind: "dev-pipeline", issue: N, step: "...", phase: "Frame|Shape|Build|Verify|Ship", tier: τ }`
 - **Dependencies:** wired sequentially via `blockedBy` during seeding (graph is a DAG, no cycles)
@@ -116,33 +127,24 @@ fix-iter-2 (dev-pipeline)
 - **Failure:** return error. `/dev` presents Retry | Skip | Abort.
 ```
 
-### adv + approval-stop Exit (analyze)
+### adv + approval-stop Exit (frame, analyze, spec, plan)
 
 ```markdown
 ## Exit
 
-The Executive Summary is always printed (incl. under `/dev`) — it is the gate output, not a closing recap.
+The Executive Summary is the gate output (not a closing recap). Frame may skip the stop when high_conf auto-approves.
 
-- **While waiting for reaction:** turn ends after the summary. Task stays `in_progress`; `/dev` Step 8.0 disk-asserts ¬α_approved → ¬Σ_s, ¬completed.
-- **Resume:** next user message → analyze Step 5 React only (¬fresh Step 0) unless re-analyze.
-- **Approved via `/dev`:** set `status: approved`, commit, return silently. `/dev` re-reads α_approved → completes step → `/spec`.
+- **While waiting for reaction:** turn ends after the summary. Task stays `in_progress`; `/dev` Step 8.0 disk-asserts done-signal → else ¬Σ_s, ¬completed.
+- **Resume:** next user message → skill React only (¬fresh Step 0) unless re-* / regenerate.
+- **Approved via `/dev`:** set done-signal on disk, commit (plan: seed + ## Task IDs), return silently. `/dev` re-reads disk → completes step → successor.
 - **Approved standalone:** print one line with next-skill hint. Stop.
-- **Revise / side-path loop:** re-print the summary after each edit; stop again.
-- **Abort:** return → `/dev` marks task `cancelled` (artifact stays `status: draft` on disk).
+- **Revise / side-path (adversarial|advisory) loop:** re-print the summary after each edit; stop again. Fix/fold only if user asks.
+- **Abort:** return → `/dev` marks task `cancelled` (draft / no Task IDs left on disk as appropriate).
 ```
 
-### gate-class Exit
+**Frame high_conf exception:** when interview/premise gaps are zero, tier not contested, and no premise abort signal → auto-approve + commit same turn (short summary printed; no approval STOP).
 
-```markdown
-## Exit
-
-- **Approved via `/dev`:** write artifact with `status: approved`, commit, return silently. ¬ask "proceed to /X?". `/dev` re-scans and auto-chains to successor in the same turn.
-- **Approved standalone:** print one line with next-skill hint. Stop.
-- **Modify requested:** loop in-skill, re-present.
-- **Rejected/aborted:** return → `/dev` marks task `cancelled`.
-```
-
-**`/plan` exception — compact pause:** `/plan` (τ ∈ {F-lite, F-full} only; τ=S skips it) does **not** auto-chain to `/implement`. After seed+commit, `/dev` Step 8b prints a compact-pause recommendation (`/compact` → `/implement`, where `/dev #N` ≡ `/implement #N`) and stops the turn. Rationale: planning context is dead weight for the build phase; tasks persist (task list + artifact `## Task IDs`) so `/implement` Step 1b re-attaches after the compact. Re-fire guard: the pause is keyed to *plan having just run*, so the post-compact `/dev #N` resume goes straight to `/implement`.
+**`/plan` exception — compact pause:** after approve+seed+commit, `/dev` Step 8b prints a compact-pause recommendation (`/compact` → `/implement`, where `/dev #N` ≡ `/implement #N`) and stops the turn. Rationale: planning context is dead weight for the build phase; tasks persist (task list + artifact `## Task IDs`) so `/implement` Step 1b re-attaches after the compact. Re-fire guard: the pause is keyed to *plan having just run*, so the post-compact `/dev #N` resume goes straight to `/implement`.
 
 ### verdict-class Exit (code-review)
 

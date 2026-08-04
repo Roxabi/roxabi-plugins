@@ -86,7 +86,7 @@ Partial (one of Breadboard/Slices ¬both): fallback if ∃ Success Criteria, els
 | F-lite | 5–15 | 2 |
 | F-full | 15–30 | 2 |
 
-\> 30 ⇒ warn + suggest splitting (print only). Show full list (¬truncate). ¬AQ — user can Modify at Step 6 sole gate.
+\> 30 ⇒ warn + suggest splitting (print only). Show full list (¬truncate). ¬AQ — user can modify via free text at Step 6/7 sole gate.
 < 2 ⇒ warn, suggest text tasks from Step 2d.
 
 ## 4f.5 Consistency Check
@@ -147,17 +147,23 @@ generated: {ISO}
 
 ## 4f.7 Present for Approval
 
-Owned by **SKILL.md Step 6** (sole plan gate) — not a second mid-pipeline prompt.
-→ present choice once: complexity, τ, μ count, α, consistency, slices.
-Options: **Approve** | **Modify** | **Return to spec**
+Owned by **SKILL.md Step 6–7** (sole plan gate) — not a second mid-pipeline prompt.
+→ print **Executive Summary** (chat-native, ¬AskUserQuestion): complexity, τ, μ count, α, consistency, slices, Gates.
+Free-form: `approve` | `modify …` | `return to spec` | `adversarial` / `advisory`.
 
-## 4f.8 Commit Plan
+## 4f.8 Seed + Task IDs + Commit
 
-After Step 6 Approve only. Standalone commit (¬amend): `git add artifacts/plans/{N}-{slug}-plan.md` + commit per CLAUDE.md Rule 5.
+Owned by **SKILL.md Step 7 Approve path** only (order fixed):
+
+1. Seed host task list (TaskCreate / todo_write / artifact-only)
+2. Append `## Task IDs` with ≥1 `- T\d+:` line
+3. Commit: `git add artifacts/plans/{N}-{slug}-plan.md artifacts/visuals/{N}-{slug}-*.html` + commit per CLAUDE.md Rule 5
+
+¬commit before Task IDs. ¬empty `## Task IDs` heading alone.
 
 ## 4f.9 Dispatch TaskCreate
 
-∀ μ → TaskCreate w/ metadata:
+∀ μ → TaskCreate w/ metadata (runs in 4f.8 step 1):
 
 ```json
 {

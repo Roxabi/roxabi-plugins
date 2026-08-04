@@ -350,7 +350,7 @@ When user says split: present proposal as prose table → wait free-form confirm
 - **Phase:** Shape
 - **Predecessor:** `/analyze` (F-full) ∨ `/frame` (F-lite, analyze skipped)
 - **Successor:** `/plan`
-- **Class:** gate — **chat executive summary**, not AskUserQuestion
+- **Class:** `adv + approval stop` — **chat executive summary**, not AskUserQuestion; disk done-signal = `status: approved`
 
 ## Task Integration
 
