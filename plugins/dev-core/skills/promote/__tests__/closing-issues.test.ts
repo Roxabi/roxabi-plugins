@@ -4,6 +4,7 @@ import {
   extractClosingIssueNumbers,
   extractMergedPrNumbersFromSubjects,
   formatClosesSection,
+  formatIssuesJson,
 } from '../lib/closing-issues'
 
 describe('extractClosingIssueNumbers', () => {
@@ -32,6 +33,19 @@ describe('extractClosingIssueNumbers', () => {
     expect(extractClosingIssueNumbers('')).toEqual([])
     expect(extractClosingIssueNumbers('no keywords')).toEqual([])
   })
+
+  it('extracts multi-ref on one keyword line', () => {
+    expect(extractClosingIssueNumbers('Closes #10, #11, #12')).toEqual([10, 11, 12])
+    expect(extractClosingIssueNumbers('Fixes #1 and #2')).toEqual([1, 2])
+  })
+
+  it('accepts optional colon after keyword', () => {
+    expect(extractClosingIssueNumbers('Closes: #42')).toEqual([42])
+  })
+
+  it('is case-insensitive for keyword', () => {
+    expect(extractClosingIssueNumbers('CLOSES #7\nFIXES #8')).toEqual([7, 8])
+  })
 })
 
 describe('collectClosingIssueNumbers', () => {
@@ -50,8 +64,14 @@ describe('formatClosesSection', () => {
     expect(md).toContain('## Issues closed by this promote')
     expect(md).toContain('Closes #135')
     expect(md).toContain('Closes #140')
-    // GitHub needs the keyword on its own line or with the number
     expect(md.match(/^Closes #\d+$/gm)).toEqual(['Closes #135', 'Closes #140'])
+  })
+})
+
+describe('formatIssuesJson', () => {
+  it('wraps array', () => {
+    expect(formatIssuesJson([1, 2])).toBe('{"issues":[1,2]}')
+    expect(formatIssuesJson([])).toBe('{"issues":[]}')
   })
 })
 

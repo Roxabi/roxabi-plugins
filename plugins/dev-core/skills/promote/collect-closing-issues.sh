@@ -3,28 +3,42 @@
 #
 # Sources (union):
 #   1. Closing keywords in commit messages origin/BASE..origin/HEAD
-#   2. Closing keywords in bodies of PRs whose merge commits appear in that range
+#   2. Bodies of PRs merged into HEAD whose merge commit is in that range
+#      (via `gh pr list` — works for squash/rebase, not only "Merge pull request #N")
+#
+# Extract/format SSOT: lib/closing-issues.ts via closing-issues-cli.ts (bun).
+# Open-issue filter: when `gh` works, drop numbers that are already closed.
 #
 # Usage:
 #   bash collect-closing-issues.sh [BASE] [HEAD]
-#   bash collect-closing-issues.sh main staging --section   # markdown section
-#   bash collect-closing-issues.sh main staging --json      # {"issues":[...]}
+#   bash collect-closing-issues.sh --section
+#   bash collect-closing-issues.sh main staging --section
+#   bash collect-closing-issues.sh main staging --json
 #
-# Exit 0 always when git works (empty list is success). Exit 1 on git failure.
+# Exit 0 when git works (empty list is success). Exit 1 on git ref failure.
+# Exit 2 on unknown flags. WARN on stderr when gh degrades (partial harvest).
 set -euo pipefail
 
-BASE="${1:-main}"
-HEAD="${2:-staging}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE="main"
+HEAD="staging"
 MODE="list" # list | section | json
-for a in "${@:3}"; do
+ARGS=()
+for a in "$@"; do
   case "$a" in
     --section) MODE=section ;;
     --json) MODE=json ;;
     --list) MODE=list ;;
+    -*)
+      echo "error: unknown flag: $a" >&2
+      exit 2
+      ;;
+    *) ARGS+=("$a") ;;
   esac
 done
+BASE="${ARGS[0]:-$BASE}"
+HEAD="${ARGS[1]:-$HEAD}"
 
-# Prefer origin/ when present (promote runs after fetch).
 ref() {
   local b="$1"
   if git rev-parse --verify "origin/$b" >/dev/null 2>&1; then
@@ -47,72 +61,126 @@ if ! git rev-parse --verify "$HEAD_REF" >/dev/null 2>&1; then
 fi
 
 RANGE="${BASE_REF}..${HEAD_REF}"
-
-# Pure keyword extract (mirrors lib/closing-issues.ts)
-extract_kw() {
-  # shellcheck disable=SC2001
-  grep -oE '\b([Cc]lose[sd]?|[Ff]ix(e[sd])?|[Rr]esolve[sd]?)\s+#[0-9]+' \
-    | grep -oE '#[0-9]+' \
-    | tr -d '#' \
-    || true
-}
-
 TEXTS_FILE="$(mktemp)"
-trap 'rm -f "$TEXTS_FILE"' EXIT
+RANGE_SHAS="$(mktemp)"
+trap 'rm -f "$TEXTS_FILE" "$RANGE_SHAS"' EXIT
+
+git rev-list "$RANGE" 2>/dev/null >"$RANGE_SHAS" || true
 
 # 1) Commit messages in range
-git log "$RANGE" --format='%B%n---' 2>/dev/null >>"$TEXTS_FILE" || true
-
-# 2) Bodies of merge PRs in range
-PR_NUMS=$(
-  git log "$RANGE" --merges --pretty=format:'%s' 2>/dev/null \
-    | sed -n 's/^Merge pull request #\([0-9][0-9]*\).*/\1/p' \
-    | sort -n -u \
-    || true
-)
-
-if [ -n "$PR_NUMS" ] && command -v gh >/dev/null 2>&1; then
-  while IFS= read -r pr; do
-    [ -z "$pr" ] && continue
-    body="$(gh pr view "$pr" --json body --jq '.body // empty' 2>/dev/null || true)"
-    if [ -n "$body" ]; then
-      printf '%s\n---\n' "$body" >>"$TEXTS_FILE"
-    fi
-  done <<<"$PR_NUMS"
+if ! git log "$RANGE" --format='%B%n---' >>"$TEXTS_FILE" 2>/dev/null; then
+  echo "warn: git log $RANGE failed — commit texts skipped" >&2
 fi
 
-ISSUES=$(
-  extract_kw <"$TEXTS_FILE" \
-    | sort -n -u \
-    | grep -E '^[1-9][0-9]*$' \
-    || true
-)
+GH_DEGRADED=0
+PR_BODY_HITS=0
+
+in_range() {
+  local oid="$1"
+  [ -n "$oid" ] && grep -qxF "$oid" "$RANGE_SHAS" 2>/dev/null
+}
+
+append_pr_body() {
+  local pr="$1"
+  local body
+  body="$(gh pr view "$pr" --json body --jq '.body // empty' 2>/dev/null)" || {
+    GH_DEGRADED=1
+    echo "warn: gh pr view #$pr failed" >&2
+    return 0
+  }
+  if [ -n "$body" ]; then
+    printf '%s\n---\n' "$body" >>"$TEXTS_FILE"
+    PR_BODY_HITS=$((PR_BODY_HITS + 1))
+  fi
+}
+
+# 2) PR bodies via API (squash-safe)
+if command -v gh >/dev/null 2>&1; then
+  PR_META="$(gh pr list --base "$HEAD" --state merged --limit 200 \
+    --json number,mergeCommit 2>/dev/null)" || PR_META=""
+  if [ -z "$PR_META" ]; then
+    GH_DEGRADED=1
+    echo "warn: gh pr list failed — trying merge-commit subject fallback" >&2
+  else
+    while IFS=$'\t' read -r pr oid; do
+      [ -z "$pr" ] && continue
+      in_range "$oid" || continue
+      append_pr_body "$pr"
+    done < <(printf '%s' "$PR_META" | jq -r '
+      .[]
+      | select(.mergeCommit != null and .mergeCommit.oid != null)
+      | "\(.number)\t\(.mergeCommit.oid)"
+      ' 2>/dev/null || true)
+  fi
+
+  # Fallback: classic merge subjects
+  if [ "$PR_BODY_HITS" -eq 0 ]; then
+    PR_NUMS=$(
+      git log "$RANGE" --merges --pretty=format:'%s' 2>/dev/null \
+        | sed -n 's/^Merge pull request #\([0-9][0-9]*\).*/\1/p' \
+        | sort -n -u \
+        || true
+    )
+    if [ -n "$PR_NUMS" ]; then
+      while IFS= read -r pr; do
+        [ -z "$pr" ] && continue
+        append_pr_body "$pr"
+      done <<<"$PR_NUMS"
+    fi
+  fi
+else
+  GH_DEGRADED=1
+  echo "warn: gh not installed — PR bodies not harvested (commit messages only)" >&2
+fi
+
+CLI="$SCRIPT_DIR/lib/closing-issues-cli.ts"
+if ! command -v bun >/dev/null 2>&1; then
+  echo "error: bun required to run closing-issues-cli.ts (SSOT extract)" >&2
+  exit 1
+fi
+
+RAW_ISSUES="$(bun run "$CLI" --list <"$TEXTS_FILE")"
+
+# Keep only OPEN issues when gh can resolve state (skip already closed)
+ISSUES=""
+if [ -n "$RAW_ISSUES" ] && command -v gh >/dev/null 2>&1; then
+  while IFS= read -r n; do
+    [ -z "$n" ] && continue
+    st="$(gh issue view "$n" --json state --jq '.state' 2>/dev/null || echo "")"
+    if [ -z "$st" ]; then
+      echo "warn: could not resolve issue #$n state — keeping for re-emit" >&2
+      ISSUES="${ISSUES}${n}"$'\n'
+      GH_DEGRADED=1
+    elif [ "$st" = "OPEN" ]; then
+      ISSUES="${ISSUES}${n}"$'\n'
+    fi
+  done <<<"$RAW_ISSUES"
+  ISSUES="$(printf '%s' "$ISSUES" | sed '/^$/d')"
+else
+  ISSUES="$RAW_ISSUES"
+fi
+
+if [ "$GH_DEGRADED" -eq 1 ]; then
+  echo "warn: partial harvest (gh degraded) — review Closes list before merge" >&2
+fi
 
 case "$MODE" in
   json)
-    # Build JSON array without jq dependency for empty case
     if [ -z "$ISSUES" ]; then
       echo '{"issues":[]}'
     else
-      arr=$(echo "$ISSUES" | paste -sd, -)
-      echo "{\"issues\":[$arr]}"
+      printf '%s\n' "$ISSUES" | awk '{print "Closes #" $1}' | bun run "$CLI" --json
     fi
     ;;
   section)
     if [ -z "$ISSUES" ]; then
       exit 0
     fi
-    echo "## Issues closed by this promote"
-    echo ""
-    echo "Re-emitted from feature PR / commit closing keywords. GitHub auto-closes"
-    echo "these when this PR merges into the default branch (\`main\`):"
-    echo ""
-    while IFS= read -r n; do
-      [ -n "$n" ] && echo "Closes #$n"
-    done <<<"$ISSUES"
-    echo ""
+    printf '%s\n' "$ISSUES" | awk '{print "Closes #" $1}' | bun run "$CLI" --section
     ;;
   list|*)
-    echo "$ISSUES"
+    if [ -n "$ISSUES" ]; then
+      printf '%s\n' "$ISSUES"
+    fi
     ;;
 esac

@@ -241,8 +241,10 @@ Promotion Summary
 
 ```bash
 CLOSES_SECTION=$(bash "${CLAUDE_SKILL_DIR}/collect-closing-issues.sh" main staging --section)
-# Pure extract helpers (tests): lib/closing-issues.ts
-# Empty section when no keywords in origin/main..origin/staging — omit is fine.
+# Harvest: commit messages + PR bodies (gh pr list — squash-safe).
+# Extract/format SSOT: lib/closing-issues.ts via closing-issues-cli.ts (bun).
+# Open issues only when gh can resolve state. Empty section when none — omit is fine.
+# Review stderr WARNs (partial harvest) before merge.
 ```
 
 ```bash
