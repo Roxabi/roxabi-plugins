@@ -237,11 +237,12 @@ Promotion Summary
 
 ## Step 7 — Create Promotion PR
 
+**Forced path (no free-form `gh pr create`).** Use `create-promote-pr.sh` — it always runs `collect-closing-issues.sh` and injects the Closes section. Skipping harvest is impossible without editing the wrapper.
+
 ```bash
-gh pr create \
-  --base main --head staging \
-  --title "chore: promote staging to main ($VERSION)" \
-  --body "$(cat <<EOF
+# 1) Write body WITHOUT Closes (wrapper appends harvest)
+BODY_FILE="$(mktemp)"
+cat >"$BODY_FILE" <<EOF
 ## Promotion: staging → main ($VERSION)
 
 {changelog}
@@ -255,10 +256,20 @@ gh pr create \
 ---
 Generated with [Roxabi dev-core](https://github.com/Roxabi/roxabi-plugins) via \`/promote\`
 EOF
-)"
+
+# 2) Create or update staging→main PR (harvest + inject mandatory)
+# Exit 1 if harvest degraded (exit 3 from collect) unless --allow-degraded after human review.
+PR_URL=$(bash "${CLAUDE_SKILL_DIR}/create-promote-pr.sh" \
+  --base main --head staging \
+  --title "chore: promote staging to main ($VERSION)" \
+  --body-file "$BODY_FILE")
+# Optional after reviewing WARNs: add --allow-degraded
+rm -f "$BODY_FILE"
 ```
 
-Display PR URL.
+**Does this auto-close?** For every `Closes #N` **listed in the promote body** after harvest: yes, when the promote PR **merges into `main`**. Harvest is **best-effort** (same-repo keyword adjacency only; open issues at harvest). Degraded harvest **REFUSE**s the PR create unless `--allow-degraded`. Cross-repo `owner/repo#N` is not re-emitted. Eyeball the Closes section before merge.
+
+Display PR URL (`$PR_URL`).
 
 ## Step 8 — Post-merge Reminder
 
@@ -390,7 +401,11 @@ Under `release.model: trunk` the contract changes on four points:
 | Open PRs on σ | Warn, list, Q |
 | CI failing | Warn, show failures, Q |
 | Preview fails | Show error, Q |
-| PR already exists | Detect via `gh pr list`, offer update |
+| PR already exists | `create-promote-pr.sh` updates open staging→main PR (title + body + Closes) |
+| No closing keywords in range | Omit Closes section (ok) |
+| Closing keywords only on feature→staging PRs | Re-emitted via forced collect in `create-promote-pr.sh` |
+| Harvest degraded (collect exit 3) | REFUSE create-pr unless `--allow-degraded` after human review |
+| Free-form `gh pr create` for promote | **Forbidden** — use `create-promote-pr.sh` only |
 | `--dry-run` | Summary only, ¬create PR/commit |
 | ¬merged (`--finalize`) | REFUSE: merge first |
 | Tag exists (`--finalize`) | REFUSE |
