@@ -102,6 +102,11 @@ if command -v gh >/dev/null 2>&1; then
     GH_DEGRADED=1
     echo "warn: gh pr list failed — trying merge-commit subject fallback" >&2
   else
+    PR_COUNT=$(printf '%s' "$PR_META" | jq 'length' 2>/dev/null || echo 0)
+    if [ "$PR_COUNT" = "200" ]; then
+      echo "warn: gh pr list hit --limit 200 — may under-harvest; paginate if needed" >&2
+      GH_DEGRADED=1
+    fi
     while IFS=$'\t' read -r pr oid; do
       [ -z "$pr" ] && continue
       in_range "$oid" || continue
@@ -162,6 +167,7 @@ fi
 
 if [ "$GH_DEGRADED" -eq 1 ]; then
   echo "warn: partial harvest (gh degraded) — review Closes list before merge" >&2
+  echo "warn: exit 3 (degraded) — agents must not ignore stderr" >&2
 fi
 
 case "$MODE" in
@@ -174,7 +180,11 @@ case "$MODE" in
     ;;
   section)
     if [ -z "$ISSUES" ]; then
+      [ "$GH_DEGRADED" -eq 1 ] && exit 3
       exit 0
+    fi
+    if [ "$GH_DEGRADED" -eq 1 ]; then
+      echo "<!-- promote-closes:degraded -->"
     fi
     printf '%s\n' "$ISSUES" | awk '{print "Closes #" $1}' | bun run "$CLI" --section
     ;;
@@ -184,3 +194,7 @@ case "$MODE" in
     fi
     ;;
 esac
+
+# Non-zero when harvest integrity is partial so $(...) callers can detect degrade.
+[ "$GH_DEGRADED" -eq 1 ] && exit 3
+exit 0

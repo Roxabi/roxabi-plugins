@@ -5,7 +5,25 @@ import {
   extractMergedPrNumbersFromSubjects,
   formatClosesSection,
   formatIssuesJson,
+  parseClosingRefList,
 } from '../lib/closing-issues'
+
+describe('parseClosingRefList', () => {
+  it('parses local multi-ref lists', () => {
+    expect(parseClosingRefList('#10, #11, #12')).toEqual([10, 11, 12])
+    expect(parseClosingRefList('#1 and #2')).toEqual([1, 2])
+  })
+
+  it('stops at non-ref prose', () => {
+    expect(parseClosingRefList('this after #99 lands')).toEqual([])
+    expect(parseClosingRefList('auth. See #88')).toEqual([])
+  })
+
+  it('skips cross-repo refs without harvesting the number', () => {
+    expect(parseClosingRefList('Roxabi/other#42')).toEqual([])
+    expect(parseClosingRefList('#10, go-silex/other#11')).toEqual([10])
+  })
+})
 
 describe('extractClosingIssueNumbers', () => {
   it('extracts Closes / Fixes / Resolves variants', () => {
@@ -46,6 +64,17 @@ describe('extractClosingIssueNumbers', () => {
   it('is case-insensitive for keyword', () => {
     expect(extractClosingIssueNumbers('CLOSES #7\nFIXES #8')).toEqual([7, 8])
   })
+
+  it('does not harvest distant #N after prose (false-positive guard)', () => {
+    expect(extractClosingIssueNumbers('we will fix this after #99 lands')).toEqual([])
+    expect(extractClosingIssueNumbers('Fixed auth. See #88 for follow-up')).toEqual([])
+    expect(extractClosingIssueNumbers('docs: mention fix for #12')).toEqual([])
+  })
+
+  it('does not re-emit cross-repo owner/repo#N as same-repo #N', () => {
+    expect(extractClosingIssueNumbers('Fixes Roxabi/other#42')).toEqual([])
+    expect(extractClosingIssueNumbers('Closes #10, go-silex/other#11')).toEqual([10])
+  })
 })
 
 describe('collectClosingIssueNumbers', () => {
@@ -64,6 +93,7 @@ describe('formatClosesSection', () => {
     expect(md).toContain('## Issues closed by this promote')
     expect(md).toContain('Closes #135')
     expect(md).toContain('Closes #140')
+    expect(md).toContain('best-effort')
     expect(md.match(/^Closes #\d+$/gm)).toEqual(['Closes #135', 'Closes #140'])
   })
 })

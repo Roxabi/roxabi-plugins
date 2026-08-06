@@ -269,7 +269,7 @@ EOF
 )"
 ```
 
-**Does this auto-close?** Yes — when the promote PR **merges into `main`** (default branch), GitHub closes every `Closes #N` / `Fixes #N` / `Resolves #N` listed in the body (same-repo issues). Same-repo only; cross-repo needs `owner/repo#N` form and still only links, not always auto-close.
+**Does this auto-close?** For every `Closes #N` **listed in the promote body** after harvest: yes, when the promote PR **merges into `main`**. Harvest is **best-effort** (same-repo keyword adjacency only; open issues at harvest; review stderr WARNs / exit 3 = degraded). Cross-repo `owner/repo#N` is **not** re-emitted. Always eyeball the Closes section before merge.
 
 Display PR URL.
 
