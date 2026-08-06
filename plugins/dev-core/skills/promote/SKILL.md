@@ -237,6 +237,14 @@ Promotion Summary
 
 ## Step 7 — Create Promotion PR
 
+**Closing issues (auto-close on merge to `main`).** Feature PRs often carry `Closes #N` but merge into **`staging`**, so GitHub never closes those issues (keywords only fire on the **default branch**). Re-emit them on the promote PR:
+
+```bash
+CLOSES_SECTION=$(bash "${CLAUDE_SKILL_DIR}/collect-closing-issues.sh" main staging --section)
+# Pure extract helpers (tests): lib/closing-issues.ts
+# Empty section when no keywords in origin/main..origin/staging — omit is fine.
+```
+
 ```bash
 gh pr create \
   --base main --head staging \
@@ -252,11 +260,14 @@ gh pr create \
 - [{preview_check}] Deploy preview verified
 - [x] Release notes committed to staging
 
+${CLOSES_SECTION}
 ---
 Generated with [Roxabi dev-core](https://github.com/Roxabi/roxabi-plugins) via \`/promote\`
 EOF
 )"
 ```
+
+**Does this auto-close?** Yes — when the promote PR **merges into `main`** (default branch), GitHub closes every `Closes #N` / `Fixes #N` / `Resolves #N` listed in the body (same-repo issues). Same-repo only; cross-repo needs `owner/repo#N` form and still only links, not always auto-close.
 
 Display PR URL.
 
@@ -390,7 +401,9 @@ Under `release.model: trunk` the contract changes on four points:
 | Open PRs on σ | Warn, list, Q |
 | CI failing | Warn, show failures, Q |
 | Preview fails | Show error, Q |
-| PR already exists | Detect via `gh pr list`, offer update |
+| PR already exists | Detect via `gh pr list`, offer update (refresh body + Closes section) |
+| No closing keywords in range | Omit `## Issues closed by this promote` (ok) |
+| Closing keywords only on feature→staging PRs | Re-emitted on promote via `collect-closing-issues.sh` |
 | `--dry-run` | Summary only, ¬create PR/commit |
 | ¬merged (`--finalize`) | REFUSE: merge first |
 | Tag exists (`--finalize`) | REFUSE |

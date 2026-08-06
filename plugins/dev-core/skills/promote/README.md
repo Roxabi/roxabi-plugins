@@ -25,7 +25,7 @@ Triggers: `"promote staging"` | `"release"` | `"deploy"` | `"cut a release"` | `
 3. **Deploy preview** (optional) — triggers `deploy-preview.yml` workflow and waits for it.
 4. **Summary** — shows version, commit count, file count, CI status, preview result.
 5. **Changelog commit** — creates a temp branch (if staging is protected), commits changelog, merges via PR.
-6. **Promotion PR** — `gh pr create --base main --head staging`.
+6. **Promotion PR** — `gh pr create --base main --head staging`, body includes a **Closes** section re-emitted from feature PR/commit keywords (`collect-closing-issues.sh`). GitHub auto-closes those issues when the promote merges into `main` (default branch only — feature→staging merges do not close).
 7. **Post-merge reminder** — merge commit only, never squash (see `../shared/references/release-convention.md`).
 
 ## Finalize (`--finalize`)
