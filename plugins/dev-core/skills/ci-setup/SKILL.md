@@ -36,9 +36,9 @@ CI Setup Complete
 =================
 
   CI/CD workflows   ✅ Created / ✅ Already configured / ⏭ Skipped
-  TruffleHog        ✅ Secret scanning configured / ⏭ Skipped
+  TruffleHog        ✅ scripts seeded + secret-scan.yml / ⏭ Skipped
   Dependabot        ✅ .github/dependabot.yml created / ⏭ Skipped
-  Pre-commit hooks  ✅ lefthook installed / ✅ pre-commit installed / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
+  Pre-commit hooks  ✅ lefthook installed (trufflehog on commit/push) / ✅ pre-commit / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
   License checker   ✅ tools/licenseChecker.ts copied (JS) / ✅ tools/license_check.py copied (Python) / ⏭ Skipped
   License policy    ✅ .license-policy.json created (N packages) / ✅ All compliant / ⏭ Skipped / ⏭ pip-licenses missing
   Marketplace       ✅ N plugins installed (name, name, ...) / ⏭ Skipped

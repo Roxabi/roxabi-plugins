@@ -20,21 +20,29 @@ Prefer the generator (`secret-scan.yml` in `bun $I_TS workflows`). Use this phas
 
 Ask: **Set up TruffleHog** | **Skip**.
 yes:
-1. Generate via init (recommended):
+1. **Seed local primary scripts** (idempotent — skip existing unless F):
+   ```bash
+   # I_TS = dev-core skills/init/init.ts shim → dev-init CLI
+   bun $I_TS seed-trufflehog ${F:+--force}
+   ```
+   Seeds `scripts/trufflehog-check.sh` + `scripts/trufflehog-exclude-paths.txt` from
+   `plugins/dev-core/scripts/` (plugin package). Idempotent: existing files kept unless F.
+   D("TruffleHog scripts", "✅ seeded / already present").
+
+2. Generate CI workflow via init (recommended):
    ```bash
    bun $I_TS workflows --owner <owner> --repo <repo> --stack <stack> --test none --deploy none
    ```
-   Ensure kit/repo has:
-   - `scripts/trufflehog-check.sh` (lefthook pre-commit + pre-push)
-   - `scripts/trufflehog-exclude-paths.txt` (path regex suppressions)
-   - `.github/workflows/secret-scan.yml` (diff-scoped + exclude)
-2. Check local binary:
+   (pushes `secret-scan.yml` — diff-scoped base/head + exclude SSoT)
+
+3. Check local binary + smoke:
    ```bash
    which trufflehog 2>/dev/null && echo "installed" || echo "missing"
    bash scripts/trufflehog-check.sh
    ```
    missing → display install options (Homebrew, GitHub release, Docker).
-3. D✅("TruffleHog").
+
+4. D✅("TruffleHog") — local primary + CI secondary.
 
 skip → D⏭("TruffleHog").
 
