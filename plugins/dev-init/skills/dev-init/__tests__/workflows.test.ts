@@ -147,6 +147,11 @@ describe('generateSecretScanYml', () => {
     expect(yml).toContain(ACTION_PINS.checkout)
     expect(yml).toContain(ACTION_PINS.trufflehog)
     expect(yml).toContain('--only-verified')
+    expect(yml).toContain('trufflehog-exclude-paths.txt')
+    expect(yml).toContain('extra_args: --only-verified --exclude-paths=trufflehog-exclude.txt')
+    expect(yml).not.toMatch(/trufflehog:\n\s+name:\s+TruffleHog/)
+    expect(yml).toContain('base:')
+    expect(yml).toContain('head:')
   })
 })
 

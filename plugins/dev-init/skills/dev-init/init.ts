@@ -19,6 +19,7 @@ Usage:
   bun init.ts protect-branches --repo <owner/repo>
   bun init.ts scaffold-docs [--path docs]
   bun init.ts scaffold-rules [--stack-path .claude/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
+  bun init.ts seed-trufflehog [--force] [--cwd <dir>] [--source-dir <dir>]
   bun init.ts scaffold --github-repo <owner/repo> [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
 
 const args = process.argv.slice(2)
@@ -170,6 +171,18 @@ switch (command) {
       force: hasFlag('--force'),
     })
     console.log(JSON.stringify(result, null, 2))
+    break
+  }
+
+  case 'seed-trufflehog': {
+    const { seedTrufflehogScripts } = await import('./lib/seed-trufflehog')
+    const result = seedTrufflehogScripts({
+      force: hasFlag('--force'),
+      cwd: parseFlag('--cwd', process.cwd()),
+      sourceDir: parseFlag('--source-dir', '') || undefined,
+    })
+    console.log(JSON.stringify(result, null, 2))
+    if (result.error) process.exit(1)
     break
   }
 

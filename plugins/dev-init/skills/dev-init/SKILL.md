@@ -27,7 +27,7 @@ Full project initialization harness. Orchestrates three focused sub-skills in se
 |-----------|---------|
 | `/dev-core:env-setup` | stack.yml, CLAUDE.md rules, docs stubs, LSP |
 | `axial-adr-create` (agent) | **Axis of decomposition ADR** — mandatory drift prevention (N×M trap). Skippable via `--skip-axial` for trivial single-axis projects. See `shared/references/axial-decomposition.md` |
-| `/dev-core:ci-setup` | GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins |
+| `/dev-core:ci-setup` | GitHub Actions, TruffleHog (**seed** `scripts/trufflehog-check.sh` + exclude + lefthook + CI `secret-scan.yml`), Dependabot, marketplace plugins |
 | `/dev-core:release-setup` | Commit standards (Commitizen), hook additions, release automation (semantic-release / Release Please) |
 
 Run sub-skills directly to reconfigure a single concern without re-running the full init.

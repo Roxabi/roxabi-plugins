@@ -54,13 +54,18 @@ Let: lintCmd := stackVal(`commands.lint`) (default `bun run lint`), tchkCmd := s
 
 **lefthook:**
 a. Detect license cmd: Python → `uv run tools/license_check.py` | JS → `bun tools/licenseChecker.ts`.
-b. Install lefthook (branch on `{package_manager}`):
+b. **Seed TruffleHog scripts** (if missing — same as scanning Phase 1b):
+   ```bash
+   test -f scripts/trufflehog-check.sh || bun $I_TS seed-trufflehog
+   test -f scripts/trufflehog-check.sh || echo "WARN: seed trufflehog failed — install dev-core + re-run"
+   ```
+c. Install lefthook (branch on `{package_manager}`):
    - `bun`: `bun add -d lefthook`
    - `pnpm`: `pnpm add -D lefthook`
    - `npm`: `npm install --save-dev lefthook`
    - `yarn`: `yarn add --dev lefthook`
    - `python` runtime: Lefthook is a Go binary — check `which lefthook`; missing → display `brew install lefthook` / `go install github.com/evilmartians/lefthook@latest` and continue without installing
-c. Write `lefthook.yml`:
+d. Write `lefthook.yml` (trufflehog **inside** `commands:`):
    ```yaml
    pre-commit:
      commands:
@@ -68,17 +73,18 @@ c. Write `lefthook.yml`:
          run: <commands.lint>
        typecheck:
          run: <commands.typecheck>
-
-     trufflehog:
-       run: trufflehog git file://. --only-verified --fail
+       trufflehog:
+         run: bash scripts/trufflehog-check.sh
 
    pre-push:
      commands:
+       trufflehog:
+         run: bash scripts/trufflehog-check.sh
        license:
          run: <license-cmd>
    ```
-d. `bunx lefthook install`
-e. Copy license tools (JS/bun only — after lefthook install):
+e. `bunx lefthook install`
+f. Copy license tools (JS/bun only — after lefthook install):
    ```bash
    [[ "${CLAUDE_PLUGIN_ROOT}" =~ ^/[a-zA-Z0-9/_.-]+$ ]] || { echo "ERROR: invalid CLAUDE_PLUGIN_ROOT"; exit 1; }
    Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")")
@@ -113,7 +119,7 @@ c. Write `.pre-commit-config.yaml`:
            pass_filenames: false
          - id: trufflehog
            name: trufflehog secret scan
-           entry: trufflehog git file://. --only-verified --fail
+           entry: bash scripts/trufflehog-check.sh
            language: system
            pass_filenames: false
          - id: license
@@ -147,7 +153,13 @@ Then jump to **Common post-install** below.
 
 **Common post-install ∀ tool:**
 
-f. Check trufflehog binary:
+g. Ensure TruffleHog scripts exist (idempotent seed if Phase 1b skipped):
+   ```bash
+   test -f scripts/trufflehog-check.sh && test -f scripts/trufflehog-exclude-paths.txt \
+     || bun $I_TS seed-trufflehog
+   ```
+
+h. Check trufflehog binary:
    ```bash
    which trufflehog 2>/dev/null && echo "installed" || echo "missing"
    ```
@@ -159,7 +171,7 @@ f. Check trufflehog binary:
          • GitHub release: https://github.com/trufflesecurity/trufflehog/releases
    ```
 
-g. Run license check + offer policy generation:
+i. Run license check + offer policy generation:
    - JS: `bun tools/licenseChecker.ts --json 2>/dev/null`
    - Python: `uv run tools/license_check.py --json 2>/dev/null`
    - exit 0 → D("License check", "✅ All packages compliant").
@@ -168,4 +180,4 @@ g. Run license check + offer policy generation:
      - skip → D("License policy", "⏭ Skipped — first push will fail").
    - exit 2 (Python, pip-licenses missing) → D("License check", "⏭ pip-licenses not installed — run `uv add --dev pip-licenses`").
 
-h. D("Pre-commit hooks", "✅ {tool} installed (lint + typecheck + trufflehog on commit, license on push)").
+j. D("Pre-commit hooks", "✅ {tool} installed (lint + typecheck + trufflehog on commit/push, license on push)").

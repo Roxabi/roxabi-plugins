@@ -1,0 +1,13 @@
+# TruffleHog --exclude-paths (newline-separated regexes).
+# Seeded into projects by /dev-init → /ci-setup (and seed-trufflehog).
+# # comments stripped by scripts/trufflehog-check.sh.
+# Prefer fixing sources over growing this list.
+
+# Build / deps / envs / local indexes
+(^|/)node_modules/
+(^|/)\.venv/
+(^|/)dist/
+(^|/)\.turbo/
+(^|/)\.git/
+(^|/)\.cocoindex_code/
+(^|/)coverage/

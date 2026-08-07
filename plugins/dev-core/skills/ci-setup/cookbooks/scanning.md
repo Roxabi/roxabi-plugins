@@ -9,51 +9,40 @@ Let:
 
 ## Phase 1b — TruffleHog
 
-Prefer the generator (`secret-scan.yml` is included in `bun $I_TS workflows`). Use this phase only when workflows were set up manually and secret-scan is still missing.
+**Policy:** local is **primary** (before GitHub); CI is **secondary** (filet if hooks bypassed).
+
+| Layer | Scope | SSoT |
+|-------|--------|------|
+| Local lefthook | unpushed commits vs `origin/main\|staging` + staged files | `scripts/trufflehog-check.sh` + `scripts/trufflehog-exclude-paths.txt` |
+| CI | PR/push **diff** only (`base`/`head`) | same exclude file |
+
+Prefer the generator (`secret-scan.yml` in `bun $I_TS workflows`). Use this phase only when workflows were set up manually and secret-scan is still missing.
 
 Ask: **Set up TruffleHog** | **Skip**.
 yes:
-1. Generate via init (recommended):
+1. **Seed local primary scripts** (idempotent — skip existing unless F):
+   ```bash
+   # I_TS = dev-core skills/init/init.ts shim → dev-init CLI
+   bun $I_TS seed-trufflehog ${F:+--force}
+   ```
+   Seeds `scripts/trufflehog-check.sh` + `scripts/trufflehog-exclude-paths.txt` from
+   `plugins/dev-core/scripts/` (plugin package). Idempotent: existing files kept unless F.
+   D("TruffleHog scripts", "✅ seeded / already present").
+
+2. Generate CI workflow via init (recommended):
    ```bash
    bun $I_TS workflows --owner <owner> --repo <repo> --stack <stack> --test none --deploy none
    ```
-   Or push standalone `secret-scan.yml` (SHA-pinned — fleet consensus):
-   ```yaml
-   name: Secret Scan
+   (pushes `secret-scan.yml` — diff-scoped base/head + exclude SSoT)
 
-   permissions:
-     contents: read
-
-   on:
-     push:
-       branches: [main, staging]
-     pull_request:
-       branches: [main, staging]
-     workflow_dispatch: {}
-
-   concurrency:
-     group: secret-scan-${{ github.ref }}
-     cancel-in-progress: false
-
-   jobs:
-     trufflehog:
-       runs-on: ubuntu-latest
-       timeout-minutes: 5
-       steps:
-         - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-           with:
-             fetch-depth: 0
-         - name: TruffleHog secret scan
-           uses: trufflesecurity/trufflehog@47e7b7cd74f578e1e3145d48f669f22fd1330ca6  # v3.94.3
-           with:
-             extra_args: --only-verified
-   ```
-2. Check local binary:
+3. Check local binary + smoke:
    ```bash
    which trufflehog 2>/dev/null && echo "installed" || echo "missing"
+   bash scripts/trufflehog-check.sh
    ```
    missing → display install options (Homebrew, GitHub release, Docker).
-3. D✅("TruffleHog").
+
+4. D✅("TruffleHog") — local primary + CI secondary.
 
 skip → D⏭("TruffleHog").
 

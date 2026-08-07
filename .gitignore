@@ -16,3 +16,6 @@ node_modules/
 .claire/
 # CocoIndex Code (ccc)
 /.cocoindex_code/
+
+# CI-generated (stripped) TruffleHog exclude — never commit
+trufflehog-exclude.txt

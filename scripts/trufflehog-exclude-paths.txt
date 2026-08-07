@@ -1,0 +1,19 @@
+# TruffleHog --exclude-paths (newline-separated regexes).
+# SSoT for local (scripts/trufflehog-check.sh) and CI (.github/workflows/secret-scan.yml).
+# Lines starting with # and blank lines are stripped by the local wrapper.
+# Prefer fixing sources over growing this list.
+
+# Build / deps / envs / local indexes
+(^|/)node_modules/
+(^|/)\.venv/
+(^|/)dist/
+(^|/)\.git/
+(^|/)\.cocoindex_code/
+
+# Known Lob detector false positives: pytest function names that look like
+# Lob "test_*" API keys and verify against Lob's test environment.
+# Last reviewed: 2026-08-07 (trufflehog git --only-verified).
+^tests/test_check_notation_legends\.py$
+^tests/test_count_tokens\.py$
+^tests/test_check_golden_inventories\.py$
+^tests/test_inventory_diff\.py$

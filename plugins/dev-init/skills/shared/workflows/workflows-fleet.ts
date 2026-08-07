@@ -9,6 +9,10 @@ function gatingWorkflowNames(opts: WorkflowOpts): string[] {
   return names
 }
 
+/**
+ * Secret scan CI — secondary filet (local scripts/trufflehog-check.sh is primary).
+ * Diff-scoped (base/head, like roxabi-boilerplate-cf) + shared exclude SSoT.
+ */
 export function generateSecretScanYml(): string {
   return `name: Secret Scan
 
@@ -27,17 +31,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Job id is the GitHub check name (branch protection contexts use 'trufflehog').
+  # Do not set job.name to a different casing — contexts are case-sensitive.
   trufflehog:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: ${ACTION_PINS.checkout}
         with:
           fetch-depth: 0
+      # Exclude file must live under the workspace: TruffleHog action runs in Docker
+      # with only the repo mounted (RUNNER_TEMP is not visible → exit 1).
+      - name: Build exclude list (strip # comments)
+        run: |
+          set -euo pipefail
+          if [ -f scripts/trufflehog-exclude-paths.txt ]; then
+            # || true: comment-only file → empty exclude is fine under set -e
+            grep -vE '^\\s*(#|$)' scripts/trufflehog-exclude-paths.txt \\
+              > trufflehog-exclude.txt || true
+          else
+            echo 'node_modules' > trufflehog-exclude.txt
+            echo '::warning::scripts/trufflehog-exclude-paths.txt missing — node_modules only'
+          fi
       - name: TruffleHog secret scan
         uses: ${ACTION_PINS.trufflehog}
         with:
-          extra_args: --only-verified
+          path: ./
+          # Diff only — not full history (local pre-push is primary before GitHub)
+          base: \${{ github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || '' }}
+          head: \${{ github.event.pull_request.head.sha || github.sha }}
+          # Relative path = inside Docker workdir (/tmp = checkout)
+          extra_args: --only-verified --exclude-paths=trufflehog-exclude.txt
 `
 }
 

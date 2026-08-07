@@ -36,7 +36,7 @@ Each sub-skill is independently re-runnable to reconfigure a single concern:
 | Sub-skill | Concern |
 |-----------|---------|
 | `/dev-core:env-setup` | Stack config, governance rules, docs stubs |
-| `/dev-core:ci-setup` | GitHub Actions workflows, secret scanning, hooks |
+| `/dev-core:ci-setup` | GitHub Actions workflows, secret scanning (seeds `scripts/trufflehog-*` + lefthook + CI), hooks |
 | `/dev-core:release-setup` | Commit standards, hook runner, release automation |
 
 ## Safety

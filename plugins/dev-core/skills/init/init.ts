@@ -15,13 +15,25 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const ENTRY = join('skills', 'init', 'init.ts')
+/** Possible entry paths under a dev-init plugin root (marketplace vs monorepo). */
+const ENTRY_CANDIDATES = [
+  join('skills', 'dev-init', 'init.ts'), // monorepo / current package layout
+  join('skills', 'init', 'init.ts'), // legacy / shim-compat layout
+] as const
 
 function isEntry(path: string): boolean {
   return existsSync(path)
 }
 
-/** Newest non-orphaned version dir under cacheBase that contains ENTRY. */
+function entryUnder(pluginRoot: string): string | null {
+  for (const rel of ENTRY_CANDIDATES) {
+    const p = join(pluginRoot, rel)
+    if (isEntry(p)) return p
+  }
+  return null
+}
+
+/** Newest non-orphaned version dir under cacheBase that contains an init entry. */
 function resolveVersionedCache(cacheBase: string): string | null {
   if (!existsSync(cacheBase)) return null
   let best: { path: string; mtime: number } | null = null
@@ -34,8 +46,8 @@ function resolveVersionedCache(cacheBase: string): string | null {
       continue
     }
     if (existsSync(join(versionDir, '.orphaned_at'))) continue
-    const entry = join(versionDir, ENTRY)
-    if (!isEntry(entry)) continue
+    const entry = entryUnder(versionDir)
+    if (!entry) continue
     let mtime = 0
     try {
       mtime = statSync(versionDir).mtimeMs
@@ -63,9 +75,10 @@ function defaultRoot(): string {
 /** Non-exiting resolver — importable by non-CLI callers (e.g. /checkup) that must degrade, not die. */
 export function tryResolveDevInitEntry(root: string = defaultRoot()): string | null {
   // 1. Flat siblings first — --plugin-dir / marketplace / monorepo source
-  const flat = [join(dirname(root), 'dev-init', ENTRY), join(root, '..', 'dev-init', ENTRY)]
-  for (const candidate of flat) {
-    if (isEntry(candidate)) return candidate
+  const flatRoots = [join(dirname(root), 'dev-init'), join(root, '..', 'dev-init')]
+  for (const pluginRoot of flatRoots) {
+    const candidate = entryUnder(pluginRoot)
+    if (candidate) return candidate
   }
 
   // 2. Versioned plugin cache

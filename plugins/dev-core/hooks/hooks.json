@@ -16,6 +16,10 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT:-$GROK_PLUGIN_ROOT}/hooks/bun-test-guard.cjs\""
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT:-$GROK_PLUGIN_ROOT}/hooks/principal-branch-pre.cjs\""
           }
         ]
       }
@@ -27,6 +31,15 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT:-$GROK_PLUGIN_ROOT}/hooks/format.cjs\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|run_terminal_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT:-$GROK_PLUGIN_ROOT}/hooks/principal-branch-post.cjs\""
           }
         ]
       }
