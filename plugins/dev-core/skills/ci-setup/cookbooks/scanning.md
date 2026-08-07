@@ -9,7 +9,14 @@ Let:
 
 ## Phase 1b — TruffleHog
 
-Prefer the generator (`secret-scan.yml` is included in `bun $I_TS workflows`). Use this phase only when workflows were set up manually and secret-scan is still missing.
+**Policy:** local is **primary** (before GitHub); CI is **secondary** (filet if hooks bypassed).
+
+| Layer | Scope | SSoT |
+|-------|--------|------|
+| Local lefthook | unpushed commits vs `origin/main\|staging` + staged files | `scripts/trufflehog-check.sh` + `scripts/trufflehog-exclude-paths.txt` |
+| CI | PR/push **diff** only (`base`/`head`) | same exclude file |
+
+Prefer the generator (`secret-scan.yml` in `bun $I_TS workflows`). Use this phase only when workflows were set up manually and secret-scan is still missing.
 
 Ask: **Set up TruffleHog** | **Skip**.
 yes:
@@ -17,52 +24,14 @@ yes:
    ```bash
    bun $I_TS workflows --owner <owner> --repo <repo> --stack <stack> --test none --deploy none
    ```
-   Or push standalone `secret-scan.yml` (SHA-pinned — fleet consensus):
-   ```yaml
-   name: Secret Scan
-
-   permissions:
-     contents: read
-
-   on:
-     push:
-       branches: [main, staging]
-     pull_request:
-       branches: [main, staging]
-     workflow_dispatch: {}
-
-   concurrency:
-     group: secret-scan-${{ github.ref }}
-     cancel-in-progress: false
-
-   jobs:
-     trufflehog:
-       runs-on: ubuntu-latest
-       timeout-minutes: 5
-       steps:
-         - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-           with:
-             fetch-depth: 0
-         - name: Build exclude list (strip # comments)
-           run: |
-             set -euo pipefail
-             if [ -f scripts/trufflehog-exclude-paths.txt ]; then
-               grep -vE '^\s*(#|$)' scripts/trufflehog-exclude-paths.txt \
-                 > "${RUNNER_TEMP}/trufflehog-exclude.txt"
-             else
-               echo 'node_modules' > "${RUNNER_TEMP}/trufflehog-exclude.txt"
-             fi
-         - name: TruffleHog secret scan
-           uses: trufflesecurity/trufflehog@47e7b7cd74f578e1e3145d48f669f22fd1330ca6  # v3.94.3
-           with:
-             # Same SSoT as local scripts/trufflehog-check.sh
-             extra_args: --only-verified --exclude-paths=${{ runner.temp }}/trufflehog-exclude.txt
-   ```
-   Ensure `scripts/trufflehog-exclude-paths.txt` exists (path regex suppressions for known FPs + deps).
-   Local lefthook: `scripts/trufflehog-check.sh` (same exclude file; strips `#` comments).
+   Ensure kit/repo has:
+   - `scripts/trufflehog-check.sh` (lefthook pre-commit + pre-push)
+   - `scripts/trufflehog-exclude-paths.txt` (path regex suppressions)
+   - `.github/workflows/secret-scan.yml` (diff-scoped + exclude)
 2. Check local binary:
    ```bash
    which trufflehog 2>/dev/null && echo "installed" || echo "missing"
+   bash scripts/trufflehog-check.sh
    ```
    missing → display install options (Homebrew, GitHub release, Docker).
 3. D✅("TruffleHog").

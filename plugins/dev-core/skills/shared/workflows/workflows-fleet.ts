@@ -7,6 +7,10 @@ function gatingWorkflowNames(opts: WorkflowOpts): string[] {
   return names
 }
 
+/**
+ * Secret scan CI — secondary filet (local scripts/trufflehog-check.sh is primary).
+ * Diff-scoped (base/head, like roxabi-boilerplate-cf) + shared exclude SSoT.
+ */
 export function generateSecretScanYml(): string {
   return `name: Secret Scan
 
@@ -26,8 +30,9 @@ concurrency:
 
 jobs:
   trufflehog:
+    name: TruffleHog
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: ${ACTION_PINS.checkout}
         with:
@@ -45,7 +50,10 @@ jobs:
       - name: TruffleHog secret scan
         uses: ${ACTION_PINS.trufflehog}
         with:
-          # Same SSoT as local scripts/trufflehog-check.sh
+          path: ./
+          # Diff only — not full history (local pre-push is primary before GitHub)
+          base: \${{ github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || '' }}
+          head: \${{ github.event.pull_request.head.sha || github.sha }}
           extra_args: --only-verified --exclude-paths=\${{ runner.temp }}/trufflehog-exclude.txt
 `
 }

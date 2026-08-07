@@ -149,6 +149,8 @@ describe('generateSecretScanYml', () => {
     expect(yml).toContain('--only-verified')
     expect(yml).toContain('trufflehog-exclude-paths.txt')
     expect(yml).toContain('trufflehog-exclude.txt')
+    expect(yml).toContain('base:')
+    expect(yml).toContain('head:')
   })
 })
 
