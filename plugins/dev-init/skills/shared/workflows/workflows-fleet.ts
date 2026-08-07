@@ -34,10 +34,21 @@ jobs:
       - uses: ${ACTION_PINS.checkout}
         with:
           fetch-depth: 0
+      - name: Build exclude list (strip # comments)
+        run: |
+          set -euo pipefail
+          if [ -f scripts/trufflehog-exclude-paths.txt ]; then
+            grep -vE '^\\s*(#|$)' scripts/trufflehog-exclude-paths.txt \\
+              > "\${RUNNER_TEMP}/trufflehog-exclude.txt"
+          else
+            echo 'node_modules' > "\${RUNNER_TEMP}/trufflehog-exclude.txt"
+            echo '::warning::scripts/trufflehog-exclude-paths.txt missing — node_modules only'
+          fi
       - name: TruffleHog secret scan
         uses: ${ACTION_PINS.trufflehog}
         with:
-          extra_args: --only-verified
+          # Same SSoT as local scripts/trufflehog-check.sh
+          extra_args: --only-verified --exclude-paths=\${{ runner.temp }}/trufflehog-exclude.txt
 `
 }
 

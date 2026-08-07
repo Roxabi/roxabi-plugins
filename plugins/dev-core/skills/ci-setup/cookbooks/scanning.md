@@ -43,11 +43,23 @@ yes:
          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
            with:
              fetch-depth: 0
+         - name: Build exclude list (strip # comments)
+           run: |
+             set -euo pipefail
+             if [ -f scripts/trufflehog-exclude-paths.txt ]; then
+               grep -vE '^\s*(#|$)' scripts/trufflehog-exclude-paths.txt \
+                 > "${RUNNER_TEMP}/trufflehog-exclude.txt"
+             else
+               echo 'node_modules' > "${RUNNER_TEMP}/trufflehog-exclude.txt"
+             fi
          - name: TruffleHog secret scan
            uses: trufflesecurity/trufflehog@47e7b7cd74f578e1e3145d48f669f22fd1330ca6  # v3.94.3
            with:
-             extra_args: --only-verified
+             # Same SSoT as local scripts/trufflehog-check.sh
+             extra_args: --only-verified --exclude-paths=${{ runner.temp }}/trufflehog-exclude.txt
    ```
+   Ensure `scripts/trufflehog-exclude-paths.txt` exists (path regex suppressions for known FPs + deps).
+   Local lefthook: `scripts/trufflehog-check.sh` (same exclude file; strips `#` comments).
 2. Check local binary:
    ```bash
    which trufflehog 2>/dev/null && echo "installed" || echo "missing"

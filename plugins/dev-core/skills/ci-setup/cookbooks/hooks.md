@@ -70,7 +70,7 @@ c. Write `lefthook.yml`:
          run: <commands.typecheck>
 
      trufflehog:
-       run: trufflehog git file://. --only-verified --fail
+       run: scripts/trufflehog-check.sh   # SSoT exclude: scripts/trufflehog-exclude-paths.txt
 
    pre-push:
      commands:
@@ -113,7 +113,7 @@ c. Write `.pre-commit-config.yaml`:
            pass_filenames: false
          - id: trufflehog
            name: trufflehog secret scan
-           entry: trufflehog git file://. --only-verified --fail
+           entry: bash scripts/trufflehog-check.sh
            language: system
            pass_filenames: false
          - id: license
