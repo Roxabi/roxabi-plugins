@@ -39,14 +39,16 @@ jobs:
       - uses: ${ACTION_PINS.checkout}
         with:
           fetch-depth: 0
+      # Exclude file must live under the workspace: TruffleHog action runs in Docker
+      # with only the repo mounted (RUNNER_TEMP is not visible → exit 1).
       - name: Build exclude list (strip # comments)
         run: |
           set -euo pipefail
           if [ -f scripts/trufflehog-exclude-paths.txt ]; then
             grep -vE '^\\s*(#|$)' scripts/trufflehog-exclude-paths.txt \\
-              > "\${RUNNER_TEMP}/trufflehog-exclude.txt"
+              > trufflehog-exclude.txt
           else
-            echo 'node_modules' > "\${RUNNER_TEMP}/trufflehog-exclude.txt"
+            echo 'node_modules' > trufflehog-exclude.txt
             echo '::warning::scripts/trufflehog-exclude-paths.txt missing — node_modules only'
           fi
       - name: TruffleHog secret scan
@@ -56,7 +58,8 @@ jobs:
           # Diff only — not full history (local pre-push is primary before GitHub)
           base: \${{ github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || '' }}
           head: \${{ github.event.pull_request.head.sha || github.sha }}
-          extra_args: --only-verified --exclude-paths=\${{ runner.temp }}/trufflehog-exclude.txt
+          # Relative path = inside Docker workdir (/tmp = checkout)
+          extra_args: --only-verified --exclude-paths=trufflehog-exclude.txt
 `
 }
 

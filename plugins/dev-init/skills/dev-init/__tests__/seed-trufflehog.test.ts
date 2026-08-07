@@ -2,26 +2,15 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  resolveTrufflehogSourceDir,
-  seedTrufflehogScripts,
-} from '../lib/seed-trufflehog'
+import { resolveTrufflehogSourceDir, seedTrufflehogScripts } from '../lib/seed-trufflehog'
 
-const monorepoScripts = join(
-  import.meta.dirname,
-  '..',
-  '..',
-  '..',
-  '..',
-  'dev-core',
-  'scripts',
-)
+const monorepoScripts = join(import.meta.dirname, '..', '..', '..', '..', 'dev-core', 'scripts')
 
 describe('resolveTrufflehogSourceDir', () => {
   it('finds monorepo plugins/dev-core/scripts', () => {
     const dir = resolveTrufflehogSourceDir(monorepoScripts)
     expect(dir).toBe(monorepoScripts)
-    expect(existsSync(join(dir!, 'trufflehog-check.sh'))).toBe(true)
+    expect(existsSync(join(monorepoScripts, 'trufflehog-check.sh'))).toBe(true)
   })
 })
 
@@ -41,9 +30,7 @@ describe('seedTrufflehogScripts', () => {
     expect(r.error).toBeUndefined()
     expect(r.written.length).toBe(2)
     expect(existsSync(join(tmp, 'scripts/trufflehog-check.sh'))).toBe(true)
-    expect(existsSync(join(tmp, 'scripts/trufflehog-exclude-paths.txt'))).toBe(
-      true,
-    )
+    expect(existsSync(join(tmp, 'scripts/trufflehog-exclude-paths.txt'))).toBe(true)
     const sh = readFileSync(join(tmp, 'scripts/trufflehog-check.sh'), 'utf8')
     expect(sh).toContain('--since-commit')
     expect(sh).toContain('staged')

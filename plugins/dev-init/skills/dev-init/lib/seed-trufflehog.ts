@@ -3,14 +3,7 @@
  * Source of truth shipped with dev-core: ${CLAUDE_PLUGIN_ROOT}/scripts/trufflehog-*
  * (also available under monorepo plugins/dev-core/scripts/).
  */
-import {
-  chmodSync,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-} from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -39,9 +32,7 @@ export type SeedTrufflehogResult = {
  * Resolve the directory that ships the trufflehog seed files.
  * Order: explicit → CLAUDE/GROK plugin root → monorepo sibling of this file.
  */
-export function resolveTrufflehogSourceDir(
-  explicit?: string,
-): string | null {
+export function resolveTrufflehogSourceDir(explicit?: string): string | null {
   if (explicit) {
     // Explicit path is authoritative — do not fall through on miss
     return existsSync(join(explicit, 'trufflehog-check.sh')) ? explicit : null
@@ -83,9 +74,7 @@ export function resolveTrufflehogSourceDir(
 /**
  * Idempotent seed of scripts/trufflehog-check.sh + trufflehog-exclude-paths.txt.
  */
-export function seedTrufflehogScripts(
-  opts: SeedTrufflehogOpts = {},
-): SeedTrufflehogResult {
+export function seedTrufflehogScripts(opts: SeedTrufflehogOpts = {}): SeedTrufflehogResult {
   const cwd = opts.cwd ?? process.cwd()
   const force = opts.force === true
   const sourceDir = resolveTrufflehogSourceDir(opts.sourceDir)
@@ -95,8 +84,7 @@ export function seedTrufflehogScripts(
       written: [],
       skipped: [],
       sourceDir: '',
-      error:
-        'trufflehog seed source not found — install/enable dev-core plugin or pass sourceDir',
+      error: 'trufflehog seed source not found — install/enable dev-core plugin or pass sourceDir',
     }
   }
 
