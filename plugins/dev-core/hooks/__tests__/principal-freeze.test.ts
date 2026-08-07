@@ -114,20 +114,21 @@ describe('hasEscapeHatch', () => {
 })
 
 describe('gitProbeEnv', () => {
-  it('strips GIT_DIR and GIT_WORK_TREE', () => {
-    const prevDir = process.env.GIT_DIR
-    const prevWt = process.env.GIT_WORK_TREE
-    process.env.GIT_DIR = '/decoy/.git'
-    process.env.GIT_WORK_TREE = '/decoy'
+  it('strips decoy GIT_* including GIT_CEILING_DIRECTORIES', () => {
+    const keys = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_CEILING_DIRECTORIES'] as const
+    const prev: Record<string, string | undefined> = {}
+    for (const k of keys) {
+      prev[k] = process.env[k]
+      process.env[k] = k === 'GIT_DIR' ? '/decoy/.git' : '/decoy'
+    }
     try {
       const env = freeze.gitProbeEnv()
-      expect(env.GIT_DIR).toBeUndefined()
-      expect(env.GIT_WORK_TREE).toBeUndefined()
+      for (const k of keys) expect(env[k]).toBeUndefined()
     } finally {
-      if (prevDir === undefined) delete process.env.GIT_DIR
-      else process.env.GIT_DIR = prevDir
-      if (prevWt === undefined) delete process.env.GIT_WORK_TREE
-      else process.env.GIT_WORK_TREE = prevWt
+      for (const k of keys) {
+        if (prev[k] === undefined) delete process.env[k]
+        else process.env[k] = prev[k]
+      }
     }
   })
 })

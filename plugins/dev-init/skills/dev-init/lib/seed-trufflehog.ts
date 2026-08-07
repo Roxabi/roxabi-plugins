@@ -3,7 +3,7 @@
  * Source of truth shipped with dev-core: ${CLAUDE_PLUGIN_ROOT}/scripts/trufflehog-*
  * (also available under monorepo plugins/dev-core/scripts/).
  */
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -29,6 +29,35 @@ export type SeedTrufflehogResult = {
 }
 
 /**
+ * Pick …/<pluginRoot>/<ver>/scripts that contains trufflehog-check.sh,
+ * preferring the newest check.sh mtime (skip .orphaned_* noise).
+ */
+function newestTrufflehogScriptsDir(pluginRoot: string): string | null {
+  if (!existsSync(pluginRoot)) return null
+  let best: { path: string; mtime: number } | null = null
+  let entries: string[]
+  try {
+    entries = readdirSync(pluginRoot)
+  } catch {
+    return null
+  }
+  for (const name of entries) {
+    if (name.startsWith('.')) continue
+    const scripts = join(pluginRoot, name, 'scripts')
+    const check = join(scripts, 'trufflehog-check.sh')
+    if (!existsSync(check)) continue
+    let mtime = 0
+    try {
+      mtime = statSync(check).mtimeMs
+    } catch {
+      continue
+    }
+    if (!best || mtime > best.mtime) best = { path: scripts, mtime }
+  }
+  return best?.path ?? null
+}
+
+/**
  * Resolve the directory that ships the trufflehog seed files.
  * Order: explicit → CLAUDE/GROK plugin root → monorepo sibling of this file.
  */
@@ -47,13 +76,15 @@ export function resolveTrufflehogSourceDir(explicit?: string): string | null {
     // When skill is dev-init, peer plugin path under marketplaces/cache
     const peer = join(dirname(root), 'dev-core', 'scripts')
     if (existsSync(join(peer, 'trufflehog-check.sh'))) return peer
-    // hash-keyed cache: .../cache/roxabi-marketplace/dev-core/<ver>/scripts
+    // hash-keyed cache: .../cache/<mkt>/dev-init/<hash>/ vs dev-core/<semver>/
+    // — version strings rarely match; scan all sibling versions (newest mtime wins)
     const parent = dirname(root)
     const grand = dirname(parent)
-    // .../dev-init/<ver> → try .../dev-core/<same-ver>/scripts or latest
     const ver = root.split('/').pop() || ''
     const siblingVer = join(grand, 'dev-core', ver, 'scripts')
     if (existsSync(join(siblingVer, 'trufflehog-check.sh'))) return siblingVer
+    const scanned = newestTrufflehogScriptsDir(join(grand, 'dev-core'))
+    if (scanned) return scanned
     // marketplace source tree: .../marketplaces/roxabi-marketplace/plugins/dev-core/scripts
     const mkt = join(grand, 'plugins', 'dev-core', 'scripts')
     if (existsSync(join(mkt, 'trufflehog-check.sh'))) return mkt
@@ -112,7 +143,7 @@ export function seedTrufflehogScripts(opts: SeedTrufflehogOpts = {}): SeedTruffl
       continue
     }
 
-    // force: only overwrite if source is newer or content differs (avoid noise)
+    // force: only overwrite if content differs (avoid noise)
     if (existsSync(dest) && force) {
       const a = readFileSync(src)
       const b = readFileSync(dest)

@@ -76,7 +76,11 @@ git diff --cached --name-only --diff-filter=ACMR -z 2>/dev/null \
     done > "$staged_list" || true
 
 if [ -s "$staged_list" ]; then
-  mapfile -t staged_files < "$staged_list"
+  # bash 3.2-compatible (macOS /bin/bash) — avoid mapfile
+  staged_files=()
+  while IFS= read -r f; do
+    [ -n "$f" ] && staged_files+=("$f")
+  done < "$staged_list"
   echo "trufflehog: scanning ${#staged_files[@]} staged file(s)"
   scanned=1
   if ! trufflehog filesystem \

@@ -4,7 +4,8 @@
  * Principal freeze — PreToolUse (soft UX nudge).
  *
  * High-traffic argv patterns only. Not a shell interpreter.
- * Hard invariant lives in principal-branch-post.cjs (state check).
+ * PostToolUse (principal-branch-post) re-checks principal HEAD after shell tools
+ * and nudges restore — agent discipline, not an OS hard stop (see ADR-017).
  *
  * Escape: DEV_CORE_ALLOW_PRINCIPAL_SWITCH=1 (session env).
  */

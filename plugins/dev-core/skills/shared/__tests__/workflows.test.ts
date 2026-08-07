@@ -156,7 +156,11 @@ describe('generateSecretScanYml', () => {
     expect(yml).toContain(ACTION_PINS.trufflehog)
     expect(yml).toContain('--only-verified')
     expect(yml).toContain('trufflehog-exclude-paths.txt')
-    expect(yml).toContain('trufflehog-exclude.txt')
+    // Must pin exclude on the action extra_args line (not only the build step)
+    expect(yml).toContain('extra_args: --only-verified --exclude-paths=trufflehog-exclude.txt')
+    // Job id = protection context; no job.name override with different casing
+    expect(yml).toMatch(/jobs:\n\s+# Job id is the GitHub check name/)
+    expect(yml).not.toMatch(/trufflehog:\n\s+name:\s+TruffleHog/)
     // Diff-scoped CI (secondary); local trufflehog-check.sh is primary
     expect(yml).toContain('base:')
     expect(yml).toContain('head:')

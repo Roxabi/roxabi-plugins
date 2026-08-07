@@ -31,8 +31,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Job id is the GitHub check name (branch protection contexts use 'trufflehog').
+  # Do not set job.name to a different casing — contexts are case-sensitive.
   trufflehog:
-    name: TruffleHog
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -45,8 +46,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ -f scripts/trufflehog-exclude-paths.txt ]; then
+            # || true: comment-only file → empty exclude is fine under set -e
             grep -vE '^\\s*(#|$)' scripts/trufflehog-exclude-paths.txt \\
-              > trufflehog-exclude.txt
+              > trufflehog-exclude.txt || true
           else
             echo 'node_modules' > trufflehog-exclude.txt
             echo '::warning::scripts/trufflehog-exclude-paths.txt missing — node_modules only'
