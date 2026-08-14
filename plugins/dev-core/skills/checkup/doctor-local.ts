@@ -315,6 +315,14 @@ export function checkSecurity(): Section {
       status: hasLicense ? 'pass' : 'warn',
       detail: hasLicense ? 'configured in lefthook.yml' : 'not found in lefthook.yml — run /init to add',
     })
+    const hasFreeze = lefthookContent.includes('check-principal-branch') || lefthookContent.includes('principal-freeze')
+    checks.push({
+      name: 'principal freeze in lefthook',
+      status: hasFreeze ? 'pass' : 'warn',
+      detail: hasFreeze
+        ? 'configured in lefthook.yml'
+        : 'not found in lefthook.yml — run /ci-setup (2e) or bun init.ts seed-principal-freeze',
+    })
   }
 
   // trufflehog in pre-commit (if .pre-commit-config.yaml present — Python repos)

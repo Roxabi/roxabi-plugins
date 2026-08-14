@@ -12,7 +12,7 @@
 | Capability probe | Detect which tools exist **in this session** (schema / known names) |
 | **Branch + issue link** | **dev-core invariant** — harness-agnostic |
 | **Path / enter / exit** | **Harness owns layout** — do not dual-hardcode opaque Grok hash paths in skills |
-| **Principal freeze** | Principal checkout **always** stays on β (`staging` \| `main` \| `master`) — **never** `git switch` / `checkout` of `feat/…` there |
+| **Principal freeze** | Principal checkout **always** stays on β (`staging` \| `main` \| `master`) — **never** `git switch` / `checkout` of `feat/…` there. Agent: plugin Pre **deny**. Persist: lefthook (`check-principal-branch.sh`, `/ci-setup` 2e). |
 
 ## Invariants (all harnesses)
 

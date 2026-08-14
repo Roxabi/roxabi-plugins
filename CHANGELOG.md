@@ -8,6 +8,10 @@ predate that and were produced by release-please or `/promote`.
 
 ## Unreleased
 
+### Changed
+
+* **dev-core / dev-init:** principal freeze = lefthook persist gate (`/ci-setup` 2e + `seed-principal-freeze`) **and** plugin Pre/Post **deny** (agent). ADR-017 amended.
+
 ### Added
 
 * **dev-core/ship:** meta-orchestrator `/ship` — commit → `/pr` → `/code-review` → `/fix` loop → `reviewed` label + `/ci-watch` → optional `/cleanup` (code-already-ready path; review-before-CI order differs from `/dev` Verify)

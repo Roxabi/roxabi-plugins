@@ -39,9 +39,9 @@ Detect mismatch: if a config file for a *different* tool exists (not configFile 
 Then skip Phase 2 (don't clobber existing setup without --force).
 
 Cases (for the resolved tool):
-- configFile ∃ + hooksInstalled=yes + ¬F → D("Pre-commit hooks", "✅ Already configured"), skip Phase 2.
+- configFile ∃ + hooksInstalled=yes + ¬F → D("Pre-commit hooks", "✅ Already configured"), jump to **2e** (principal freeze offer).
 - configFile ∃ + hooksInstalled=no + ¬F → config exists but hooks not installed → skip to **2d-install-only** (run install without regenerating config).
-- configFile ∃ + F → present choice: **Overwrite** (regenerate from stack.yml) | **Skip** (keep existing). Skip → D⏭("Pre-commit hooks"), stop Phase 2.
+- configFile ∃ + F → present choice: **Overwrite** (regenerate from stack.yml) | **Skip** (keep existing). Skip → D⏭("Pre-commit hooks"), jump to **2e**.
 - configFile ∄ → proceed to 2c (full setup).
 
 ### 2c — Offer setup
@@ -69,6 +69,8 @@ d. Write `lefthook.yml` (trufflehog **inside** `commands:`):
    ```yaml
    pre-commit:
      commands:
+       principal-freeze:
+         run: bash scripts/check-principal-branch.sh
        lint:
          run: <commands.lint>
        typecheck:
@@ -78,13 +80,20 @@ d. Write `lefthook.yml` (trufflehog **inside** `commands:`):
 
    pre-push:
      commands:
+       principal-freeze:
+         run: bash scripts/check-principal-branch.sh
        trufflehog:
          run: bash scripts/trufflehog-check.sh
        license:
          run: <license-cmd>
    ```
-e. `bunx lefthook install`
-f. Copy license tools (JS/bun only — after lefthook install):
+e. Seed principal freeze script (`scripts/check-principal-branch.sh`):
+   ```bash
+   bun $I_TS seed-principal-freeze
+   test -f scripts/check-principal-branch.sh || echo "WARN: seed principal-freeze failed — install dev-init + re-run"
+   ```
+f. `bunx lefthook install`
+g. Copy license tools (JS/bun only — after lefthook install):
    ```bash
    [[ "${CLAUDE_PLUGIN_ROOT}" =~ ^/[a-zA-Z0-9/_.-]+$ ]] || { echo "ERROR: invalid CLAUDE_PLUGIN_ROOT"; exit 1; }
    Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")")
@@ -107,6 +116,11 @@ c. Write `.pre-commit-config.yaml`:
    repos:
      - repo: local
        hooks:
+         - id: principal-freeze
+           name: principal freeze
+           entry: bash scripts/check-principal-branch.sh
+           language: system
+           pass_filenames: false
          - id: lint
            name: lint
            entry: <commands.lint>
@@ -159,7 +173,12 @@ g. Ensure TruffleHog scripts exist (idempotent seed if Phase 1b skipped):
      || bun $I_TS seed-trufflehog
    ```
 
-h. Check trufflehog binary:
+h. Ensure principal freeze script exists (idempotent):
+   ```bash
+   test -f scripts/check-principal-branch.sh || bun $I_TS seed-principal-freeze
+   ```
+
+i. Check trufflehog binary:
    ```bash
    which trufflehog 2>/dev/null && echo "installed" || echo "missing"
    ```
@@ -171,7 +190,7 @@ h. Check trufflehog binary:
          • GitHub release: https://github.com/trufflesecurity/trufflehog/releases
    ```
 
-i. Run license check + offer policy generation:
+j. Run license check + offer policy generation:
    - JS: `bun tools/licenseChecker.ts --json 2>/dev/null`
    - Python: `uv run tools/license_check.py --json 2>/dev/null`
    - exit 0 → D("License check", "✅ All packages compliant").
@@ -180,4 +199,23 @@ i. Run license check + offer policy generation:
      - skip → D("License policy", "⏭ Skipped — first push will fail").
    - exit 2 (Python, pip-licenses missing) → D("License check", "⏭ pip-licenses not installed — run `uv add --dev pip-licenses`").
 
-j. D("Pre-commit hooks", "✅ {tool} installed (lint + typecheck + trufflehog on commit/push, license on push)").
+k. D("Pre-commit hooks", "✅ {tool} installed (principal-freeze + lint + typecheck + trufflehog on commit/push, license on push)").
+
+Then run **2e**.
+
+### 2e — Principal freeze (offer, lefthook or pre-commit)
+
+Gate: refuse `git commit` / `git push` when **this** worktree is the principal checkout and HEAD ∉ `{staging, main, master}`. Feature worktrees are a no-op. Hatch (not printed in deny text): `DEV_CORE_ALLOW_PRINCIPAL_SWITCH=1`.
+
+Does **not** block `git switch` (Git has no pre-checkout). Law = lefthook, not a plugin PreToolUse hook.
+
+1. Detect:
+   ```bash
+   test -f scripts/check-principal-branch.sh && echo script_ok || echo script_missing
+   grep -E 'check-principal-branch|principal-freeze' lefthook.yml .lefthook.yml .pre-commit-config.yaml 2>/dev/null || true
+   ```
+2. script_ok ∧ lefthook/pre-commit already lists the check → D("Principal freeze", "✅ Already configured").
+3. No lefthook.yml / `.lefthook.yml` / `.pre-commit-config.yaml` → D⏭("Principal freeze — no hook runner").
+4. Else Ask: **Add principal freeze** (Recommended) — lefthook refuse commit/push off β | **Skip**.
+   - Add → `bun $I_TS seed-principal-freeze` (copies script + patches lefthook / `.pre-commit-config.yaml`). D✅("Principal freeze").
+   - Skip → D⏭("Principal freeze").

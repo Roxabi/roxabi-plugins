@@ -1,14 +1,16 @@
 ---
-title: "ADR-017: Principal freeze via state assert (not shell argv denylist)"
+title: "ADR-017: Principal freeze — lefthook persist + plugin agent deny"
 description: >
-  Principal HEAD pin for agent shells uses PostToolUse state measurement
-  (principal branch ∈ {staging,main,master}) plus a thin PreToolUse UX nudge.
-  Rejects expanding a full shell/git parser as the primary control.
+  Principal HEAD pin (HEAD ∈ {staging,main,master} on the principal worktree).
+  Persist law = lefthook / pre-commit seeded by /dev-init → /ci-setup.
+  Agent layer = plugin PreToolUse deny + PostToolUse deny-after-exec.
+  Still rejects a full shell/git argv parser.
 ---
 
 ## Status
 
-Accepted — 2026-08-07.
+Accepted — 2026-08-07. **Amended 2026-08-14** — lefthook persist gate offered by
+`/dev-init`; plugin Pre/Post kept as **agent deny** (not the persist law).
 
 ## Context
 
@@ -16,74 +18,47 @@ dev-core skills (`harness-worktree.md`) require **principal freeze**: the princi
 worktree stays on β (`staging` \| `main` \| `master`); feature work runs in a
 dedicated worktree ω.
 
-A PreToolUse hook attempted to enforce this by **parsing the agent command string**
-(shell segments, nested `bash -c`, `env`, `GIT_DIR`, `cd` tracking, git globals,
-ref-moves, …). That design grew to ~1.2k LOC + ~800 LOC tests across multiple
-adversarial fix loops. Each closed hole predicted a new encoding (scripts,
-`node -e`, aliases, heredocs, `git -c alias…`).
+A PreToolUse hook that **parsed the agent command string** grew to ~1.2k LOC.
+The priced invariant is **git state**, not argv shape.
 
-**Root mismatch:** the priced invariant is **git state** (closed, one `rev-parse`);
-the control measured **argv shape** (open language).
-
-## Options considered
-
-### A — Keep expanding the argv denylist
-- Pros: blocks some common forms before execution.
-- Cons: unbounded maintenance; residual set infinite; tests prove the parser, not I.
-- **Rejected** as primary strategy.
-
-### B — PostToolUse state assert only
-- Pros: measures I directly; closes script/node/alias holes.
-- Cons: damage already done when the hook fires (agent must restore).
-
-### C — Coarse allowlist of all `git` on principal
-- Pros: smaller Pre surface.
-- Cons: still bypassed by non-inline git; blocks legitimate ops unless carefully listed.
-
-### D — Hybrid: state primary + thin Pre UX (chosen)
-- Pros: state **detect** of I after shell tools; soft pre for high-traffic `git switch feat`; hatch unchanged.
-- Cons: two hooks; Pre never claimed complete; post is not an OS-level session halt.
+2026-08-14: Grok listed plugin hooks but did not execute them (plugin trust;
+fail-open). `git checkout -b feat/…` on the principal succeeded. Lefthook cannot
+block checkout (no Git `pre-checkout`); it can refuse commit/push. Two agents
+on the same principal can still flip HEAD — isolation is ω, not lefthook.
 
 ## Decision
 
-**Option D.**
+**Lefthook = persist law. Plugin = agent deny. ω = isolation.**
 
-1. **Primary control — `principal-branch-post.cjs` (PostToolUse Bash / `run_terminal_command`)**  
-   After the tool runs, resolve principal worktree path and  
-   `git -C <principal> rev-parse --abbrev-ref HEAD` (probes use stripped `GIT_DIR`/`GIT_WORK_TREE` env).  
-   Outcomes:
-   - branch ∈ β → allow  
-   - branch ∉ β (or detached `HEAD`) → deny payload + restore guidance (exit 2) — **detect + nudge**, not a guaranteed agent-loop halt  
-   - not a git repo → allow  
-   - git probe error while in a repo context → fail-closed deny (cannot verify I)  
-   Escape: `DEV_CORE_ALLOW_PRINCIPAL_SWITCH=1` (process env only; not in deny text).
+1. **Persist — `scripts/check-principal-branch.sh`** (lefthook `pre-commit` +
+   `pre-push`, or pre-commit framework). If CWD is not principal → allow. If
+   principal HEAD ∈ β → allow. Else deny. Probe errors fail-closed.
+   Offered by `/dev-init` → `/ci-setup` 2e (`bun init.ts seed-principal-freeze`).
 
-2. **Soft control — `principal-branch-pre.cjs` (PreToolUse)**  
-   High-traffic patterns only (`git switch|checkout -b|branch -m|-M|stash branch|…`)  
-   when CWD is principal. No nested-shell completeness, no full `env` matrix, no script body open.  
-   Does **not** price `git reset --hard` (branch name may stay β). Residual encodings → post.
+2. **Agent Pre — `principal-branch-pre.cjs`**  
+   **Deny** (`{"decision":"deny"}`, exit 2) on high-traffic
+   `git switch` / `checkout -b` / `branch -M` / `stash branch` off β when CWD
+   is principal. Not a complete shell parser. Blocks the tool **before** exec
+   if the hook actually runs (plugin trusted).
 
-3. **Shared helpers — `hooks/lib/principal-freeze.cjs`**  
-   `isBaseBranch`, principal path, principal HEAD, hatch, emit helpers.  
-   Align with `skills/shared/lib.sh` principal-first porcelain entry.
+3. **Agent Post — `principal-branch-post.cjs`**  
+   After any shell tool: measure principal HEAD. Off β → **deny payload**
+   (same JSON). Does **not** undo the checkout; nudges restore. Not an OS halt.
 
-4. **Explicit non-goals of PreToolUse**  
-   Script bodies, `source`, aliases, `xargs git`, `node -e` / `python -c` — documented residual;  
-   closed by post state detect, not more parser features.
-
-5. **Stop rule**  
-   Further work on principal freeze must **not** grow Pre into a shell interpreter.  
-   Prefer post assert, restore UX, or skill discipline (`principal_branch` checks).
+4. **Stop rule** — do not grow a git-argv interpreter. Measure state. Hatch:
+   `DEV_CORE_ALLOW_PRINCIPAL_SWITCH=1` (not printed).
 
 ## Consequences
 
-- Delete / replace the large argv-parser guard; ~400 LOC hybrid instead of ~2k LOC parser+tests arms race.
-- Post detect can fire **after** a bad switch (agent must `git switch` back to β) — acceptable for agent loops; hatch for humans. Edit/Write are not re-asserted until the next shell tool.
-- Pre red ≠ “I violated”; post is SSoT for I. Pre false positives kept low (no bare path checkout / no reset --hard).
-- Skills that run `bash preflight.sh` with inner `git checkout staging` remain OK (post sees β).
+- Trusted plugin: agent `git checkout -b feat` on principal is **denied**.
+- Untrusted plugin / human terminal / other harness: lefthook still refuses
+  commit/push on principal off β.
+- Two agents on the **same** worktree still conflict; give each ω.
 
 ## Related
 
-- `plugins/dev-core/skills/shared/references/harness-worktree.md` — principal freeze invariant
-- `plugins/dev-core/hooks/README.md` — operator docs
-- ADR-010 — pipeline chain contract (skills already re-assert principal after setup)
+- `plugins/dev-core/scripts/check-principal-branch.sh`
+- `plugins/dev-core/hooks/principal-branch-pre.cjs`
+- `plugins/dev-init/skills/dev-init/lib/seed-principal-freeze.ts`
+- `plugins/dev-core/skills/ci-setup/cookbooks/hooks.md`
+- `plugins/dev-core/skills/shared/references/harness-worktree.md`

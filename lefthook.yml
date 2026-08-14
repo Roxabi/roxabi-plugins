@@ -20,6 +20,8 @@ pre-commit:
       skip:
         - merge
         - rebase
+    principal-freeze:
+      run: bash plugins/dev-core/scripts/check-principal-branch.sh
     license-check:
       run: "[ -f .venv/bin/python ] && .venv/bin/python tools/license_check.py || true"
     taxonomy-sync:
@@ -50,6 +52,8 @@ pre-push:
       run: bun run test
     trufflehog:
       run: scripts/trufflehog-check.sh
+    principal-freeze:
+      run: bash plugins/dev-core/scripts/check-principal-branch.sh
     check-no-claude-comments:
       run: scripts/check-no-claude-comments.sh
     check-skill-version:

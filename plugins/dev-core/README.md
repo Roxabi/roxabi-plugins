@@ -156,9 +156,11 @@ Plugin hooks for safety and consistency (Claude + Grok compatible):
 |------|---------|--------------|
 | Security check | PreToolUse on Edit/Write | Blocks hardcoded secrets, SQL injection patterns, command injection |
 | Bun test blocker | PreToolUse on Bash | Enforces `bun run test` over `bun test` (the latter uses the Bun test runner instead of Vitest and causes CPU spin) |
-| Principal freeze (pre) | PreToolUse on Bash | Soft UX nudge — high-traffic git branch moves on principal CWD (ADR-017) |
-| Principal freeze (post) | PostToolUse on Bash | State detect + restore nudge — principal HEAD on staging\|main\|master after shell tools (ADR-017) |
+| Principal freeze (pre) | PreToolUse on Bash | **Deny** — blocks `git switch` / `checkout -b` off β on the principal CWD |
+| Principal freeze (post) | PostToolUse on Bash | **Deny after exec** — if principal HEAD left β, tell the agent to restore (checkout already happened) |
 | Auto-format | PostToolUse on Edit/Write | Reads `build.formatter_fix_cmd` (single) or `build.formatters[]` (multi, for mixed JS+Python monorepos) from `stack.yml` and runs the right formatter per file extension. Silent no-op when unconfigured. |
+
+Lefthook (`/dev-init` → `/ci-setup`, `scripts/check-principal-branch.sh`) is the persist gate (commit/push). Plugin hooks are the agent deny. Both needed. ADR-017.
 
 ## Optional companion plugins
 

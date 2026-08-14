@@ -9,16 +9,12 @@ Plugin hooks that run automatically on file writes and shell commands (Claude Co
 | `format.cjs` (PostToolUse) | After Edit / Write / `search_replace` / `write` | Auto-formats files using `build.formatter_fix_cmd` from `stack.yml` |
 | `security-check.cjs` (PreToolUse) | Before Edit / Write / `search_replace` / `write` | Blocks hardcoded secrets, SQL/command injection patterns |
 | `bun-test-guard.cjs` (PreToolUse) | Before Bash / `run_terminal_command` | Blocks `bun test` (wrong runner), enforces `bun run test` |
-| `principal-branch-pre.cjs` (PreToolUse) | Before Bash / `run_terminal_command` | **Soft UX** — high-traffic `git switch\|checkout -b\|branch -M\|stash branch` on principal CWD only (not a complete parser) |
-| `principal-branch-post.cjs` (PostToolUse) | After Bash / `run_terminal_command` | **State detect + restore nudge** — principal HEAD must be staging\|main\|master after shell tools (`rev-parse`; closes scripts / `node -e` / aliases). Exit 2 informs the agent; not an OS session kill. Probe errors fail-closed; non-git workspaces allow. |
+| `principal-branch-pre.cjs` (PreToolUse) | Before Bash / `run_terminal_command` | **Deny** — blocks high-traffic `git switch` / `checkout -b` off β on the principal CWD (not a full shell parser) |
+| `principal-branch-post.cjs` (PostToolUse) | After Bash / `run_terminal_command` | **Deny after exec** — principal HEAD must be staging\|main\|master. Cannot undo the checkout; nudges restore. |
 
-**Architecture (ADR-017):** primary control is **git state**, not a shell argv denylist. Pre = UX nudge (pre red ≠ I violated). Post = SSoT for I. Do not re-expand Pre into a full shell parser.
-
-**Escape hatch (human/session env only, not printed in deny text):** `DEV_CORE_ALLOW_PRINCIPAL_SWITCH=1`
+**Persist law** = lefthook (`scripts/check-principal-branch.sh`, `/ci-setup` 2e). Plugin hooks = **agent deny** (need plugin trust). Hatch: `DEV_CORE_ALLOW_PRINCIPAL_SWITCH=1`. ADR-017.
 
 **Dual harness input** (`lib/hook-input.cjs`): Claude env (`CLAUDE_TOOL_INPUT`, `CLAUDE_FILE_PATHS`) **or** Grok stdin JSON envelope (`toolInput`). Plugin root: `${CLAUDE_PLUGIN_ROOT:-$GROK_PLUGIN_ROOT}`.
-
-Shared freeze helpers: `lib/principal-freeze.cjs`.
 
 ## How `format.cjs` Works
 
