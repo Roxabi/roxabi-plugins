@@ -2,7 +2,7 @@
 name: ci-setup
 argument-hint: '[--force]'
 description: 'Set up CI/CD — GitHub Actions workflows, TruffleHog, Dependabot, pre-commit hooks, marketplace plugins. Triggers: "ci setup" | "setup ci" | "configure ci" | "setup hooks" | "setup github actions".'
-version: 0.1.0
+version: 0.2.0
 allowed-tools: Bash, Read, ToolSearch
 ---
 
@@ -38,7 +38,8 @@ CI Setup Complete
   CI/CD workflows   ✅ Created / ✅ Already configured / ⏭ Skipped
   TruffleHog        ✅ scripts seeded + secret-scan.yml / ⏭ Skipped
   Dependabot        ✅ .github/dependabot.yml created / ⏭ Skipped
-  Pre-commit hooks  ✅ lefthook installed (trufflehog on commit/push) / ✅ pre-commit / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
+  Pre-commit hooks  ✅ lefthook installed (principal-freeze + trufflehog on commit/push) / ✅ pre-commit / ✅ Already configured / ⏭ Disabled / ⏭ Skipped
+  Principal freeze  ✅ lefthook/pre-commit seeded / ⏭ Skipped
   License checker   ✅ tools/licenseChecker.ts copied (JS) / ✅ tools/license_check.py copied (Python) / ⏭ Skipped
   License policy    ✅ .license-policy.json created (N packages) / ✅ All compliant / ⏭ Skipped / ⏭ pip-licenses missing
   Marketplace       ✅ N plugins installed (name, name, ...) / ⏭ Skipped

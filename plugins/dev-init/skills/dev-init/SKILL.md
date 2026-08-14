@@ -6,7 +6,7 @@ description: >-
   Use when setting up a new repo or re-running Roxabi project init.
   Triggers: "dev-init" | "setup project" | "initialize project" | "/dev-init".
   Not the harness built-in /init (CLAUDE.md scaffold only).
-version: 0.9.2
+version: 0.9.3
 ---
 
 # Dev-init
@@ -27,7 +27,7 @@ Full project initialization harness. Orchestrates three focused sub-skills in se
 |-----------|---------|
 | `/dev-core:env-setup` | stack.yml, CLAUDE.md rules, docs stubs, LSP |
 | `axial-adr-create` (agent) | **Axis of decomposition ADR** — mandatory drift prevention (N×M trap). Skippable via `--skip-axial` for trivial single-axis projects. See `shared/references/axial-decomposition.md` |
-| `/dev-core:ci-setup` | GitHub Actions, TruffleHog (**seed** `scripts/trufflehog-check.sh` + exclude + lefthook + CI `secret-scan.yml`), Dependabot, marketplace plugins |
+| `/dev-core:ci-setup` | GitHub Actions, TruffleHog (**seed** `scripts/trufflehog-check.sh` + exclude + lefthook + CI `secret-scan.yml`), principal freeze lefthook gate (offer), Dependabot, marketplace plugins |
 | `/dev-core:release-setup` | Commit standards (Commitizen), hook additions, release automation (semantic-release / Release Please) |
 
 Run sub-skills directly to reconfigure a single concern without re-running the full init.
