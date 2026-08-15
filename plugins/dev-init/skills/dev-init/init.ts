@@ -20,7 +20,7 @@ Usage:
   bun init.ts scaffold-docs [--path docs]
   bun init.ts scaffold-rules [--stack-path .claude/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
   bun init.ts seed-trufflehog [--force] [--cwd <dir>] [--source-dir <dir>]
-  bun init.ts seed-principal-freeze [--force] [--cwd <dir>] [--source-dir <dir>] [--no-patch-hooks]
+  bun init.ts seed-principal-freeze [--force] [--cwd <dir>] [--source-dir <dir>] [--no-patch-hooks] [--check]
   bun init.ts scaffold --github-repo <owner/repo> [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
 
 const args = process.argv.slice(2)
@@ -188,11 +188,19 @@ switch (command) {
   }
 
   case 'seed-principal-freeze': {
+    const cwd = parseFlag('--cwd', process.cwd())
+    const sourceDir = parseFlag('--source-dir', '') || undefined
+    if (hasFlag('--check')) {
+      const { inspectPrincipalFreeze } = await import('./lib/seed-principal-freeze')
+      const result = inspectPrincipalFreeze({ cwd, sourceDir })
+      console.log(JSON.stringify(result, null, 2))
+      break
+    }
     const { seedPrincipalFreeze } = await import('./lib/seed-principal-freeze')
     const result = seedPrincipalFreeze({
       force: hasFlag('--force'),
-      cwd: parseFlag('--cwd', process.cwd()),
-      sourceDir: parseFlag('--source-dir', '') || undefined,
+      cwd,
+      sourceDir,
       patchHooks: !hasFlag('--no-patch-hooks'),
     })
     console.log(JSON.stringify(result, null, 2))

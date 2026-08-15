@@ -205,17 +205,17 @@ Then run **2e**.
 
 ### 2e — Principal freeze (offer, lefthook or pre-commit)
 
-Gate: refuse `git commit` / `git push` when **this** worktree is the principal checkout and HEAD ∉ `{staging, main, master}`. Feature worktrees are a no-op. Hatch (not printed in deny text): `DEV_CORE_ALLOW_PRINCIPAL_SWITCH=1`.
+Gate: lefthook refuses `git commit` / `git push` **with matching staged files** when **this** worktree is the principal checkout and HEAD ∉ `{staging, main, master}`. Feature worktrees are a no-op. Hatch (not printed in deny text): `DEV_CORE_ALLOW_PRINCIPAL_SWITCH=1`.
 
-Does **not** block `git switch` (Git has no pre-checkout). Law = lefthook, not a plugin PreToolUse hook.
+lefthook 2.1.10 skips `git commit --allow-empty` ("no matching staged files") — **named residual**, not a miss. Does **not** block `git switch` (Git has no pre-checkout). Law = lefthook bind+run, not a plugin PreToolUse hook.
 
-1. Detect:
+1. Detect (not grep/includes of `check-principal-branch.sh`):
    ```bash
-   test -f scripts/check-principal-branch.sh && echo script_ok || echo script_missing
-   grep -E 'check-principal-branch|principal-freeze' lefthook.yml .lefthook.yml .pre-commit-config.yaml 2>/dev/null || true
+   bun $I_TS seed-principal-freeze --check
    ```
-2. script_ok ∧ lefthook/pre-commit already lists the check → D("Principal freeze", "✅ Already configured").
-3. No lefthook.yml / `.lefthook.yml` / `.pre-commit-config.yaml` → D⏭("Principal freeze — no hook runner").
-4. Else Ask: **Add principal freeze** (Recommended) — lefthook refuse commit/push off β | **Skip**.
-   - Add → `bun $I_TS seed-principal-freeze` (copies script + patches lefthook / `.pre-commit-config.yaml`). D✅("Principal freeze").
+   Persist iff JSON `persist: true` (script canonical bytes **and** lefthook binds the script on **pre-commit** and **pre-push**, or pre-commit framework equivalent). Comment / stub / one hook only = not persist.
+2. `persist: true` → D("Principal freeze", "✅ Already configured").
+3. No `lefthook.yml` / `.lefthook.yml` / `.pre-commit-config.yaml` → D⏭("Principal freeze — no hook runner").
+4. Else Ask: **Add principal freeze** (Recommended) — lefthook refuse commit/push **with files** off β | **Skip**.
+   - Add → `bun $I_TS seed-principal-freeze` (copies script + patches lefthook / `.pre-commit-config.yaml`). Then re-run `bun $I_TS seed-principal-freeze --check`. `patched: []` is **not** success. Success = `--check` `persist: true` (or `lefthook.yml` actually binds both hooks). Then D✅("Principal freeze").
    - Skip → D⏭("Principal freeze").

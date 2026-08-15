@@ -5,6 +5,7 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import { parseStackYml } from '../../hooks/lib/parse-stack-yml.cjs'
+import { lefthookHasPrincipalFreeze } from '../shared/lefthook-persist'
 import type { PrereqResult } from '../shared/prereqs'
 import { type Check, readConfig, type Section, spawnSync } from './doctor-shared'
 
@@ -315,13 +316,13 @@ export function checkSecurity(): Section {
       status: hasLicense ? 'pass' : 'warn',
       detail: hasLicense ? 'configured in lefthook.yml' : 'not found in lefthook.yml — run /init to add',
     })
-    const hasFreeze = lefthookContent.includes('check-principal-branch') || lefthookContent.includes('principal-freeze')
+    const hasFreeze = lefthookHasPrincipalFreeze(lefthookContent)
     checks.push({
       name: 'principal freeze in lefthook',
       status: hasFreeze ? 'pass' : 'warn',
       detail: hasFreeze
-        ? 'configured in lefthook.yml'
-        : 'not found in lefthook.yml — run /ci-setup (2e) or bun init.ts seed-principal-freeze',
+        ? 'bound on lefthook.yml pre-commit and pre-push'
+        : 'lefthook.yml does not bind check-principal-branch.sh on both pre-commit and pre-push — run /ci-setup (2e) or bun init.ts seed-principal-freeze',
     })
   }
 
