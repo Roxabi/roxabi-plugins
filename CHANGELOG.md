@@ -11,6 +11,7 @@ predate that and were produced by release-please or `/promote`.
 ### Changed
 
 * **dev-core / dev-init:** principal freeze = lefthook persist gate (`/ci-setup` 2e + `seed-principal-freeze`) **and** plugin Pre/Post **deny** (agent). ADR-017 amended.
+* **dev-core / dev-init:** persist detect = lefthook bind on both hooks (not substring); persist law repriced to lefthook 2.1.10 staged-file gate; `--allow-empty` skip named residual. ADR-017 amended 2026-08-15.
 
 ### Added
 

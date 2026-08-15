@@ -118,5 +118,11 @@
     "targets": [
       "plugins/dev-init/skills/shared/workflows/workflows.ts"
     ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared/lefthook-persist.ts",
+    "targets": [
+      "plugins/dev-init/skills/shared/lefthook-persist.ts"
+    ]
   }
 ]

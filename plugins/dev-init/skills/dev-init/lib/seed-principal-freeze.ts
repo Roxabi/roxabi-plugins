@@ -15,9 +15,23 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  lefthookSectionBindsPrincipalFreeze,
+  lefthookTopLevelSectionBody,
+  PRINCIPAL_FREEZE_RUN,
+  PRINCIPAL_FREEZE_SCRIPT,
+  preCommitHasPrincipalFreeze,
+} from '../../shared/lefthook-persist'
 
-const SCRIPT = 'check-principal-branch.sh'
-const RUN = 'bash scripts/check-principal-branch.sh'
+export {
+  lefthookHasPrincipalFreeze,
+  lefthookSectionBindsPrincipalFreeze,
+  lefthookTopLevelSectionBody,
+  preCommitHasPrincipalFreeze,
+} from '../../shared/lefthook-persist'
+
+const SCRIPT = PRINCIPAL_FREEZE_SCRIPT
+const RUN = PRINCIPAL_FREEZE_RUN
 
 export type SeedPrincipalFreezeOpts = {
   cwd?: string
@@ -32,6 +46,10 @@ export type SeedPrincipalFreezeResult = {
   skipped: string[]
   patched: string[]
   sourceDir: string
+  persist?: boolean
+  lefthookPreCommit?: boolean
+  lefthookPrePush?: boolean
+  scriptCanonical?: boolean
   error?: string
 }
 
@@ -83,15 +101,18 @@ export function resolvePrincipalFreezeSourceDir(explicit?: string): string | nul
   return null
 }
 
-export function lefthookHasPrincipalFreeze(yaml: string): boolean {
-  return yaml.includes('check-principal-branch.sh') || /^\s*principal-freeze\s*:/m.test(yaml)
-}
+const MISSING_SECTION = (section: string) => `\n${section}:\n  commands:\n    principal-freeze:\n      run: ${RUN}\n`
 
 export function insertLefthookPrincipalFreeze(yaml: string): { yaml: string; changed: boolean } {
-  if (lefthookHasPrincipalFreeze(yaml)) return { yaml, changed: false }
   let out = yaml
   let changed = false
   for (const section of ['pre-commit', 'pre-push'] as const) {
+    if (lefthookSectionBindsPrincipalFreeze(out, section)) continue
+    if (lefthookTopLevelSectionBody(out, section) === null) {
+      out = `${out.replace(/\s*$/, '')}${MISSING_SECTION(section)}`
+      changed = true
+      continue
+    }
     const next = insertIntoLefthookSection(out, section)
     if (next !== out) {
       out = next
@@ -128,7 +149,7 @@ const PRE_COMMIT_BLOCK = `  - repo: local
 `
 
 export function insertPreCommitPrincipalFreeze(yaml: string): { yaml: string; changed: boolean } {
-  if (yaml.includes('check-principal-branch.sh') || yaml.includes('id: principal-freeze')) {
+  if (preCommitHasPrincipalFreeze(yaml)) {
     return { yaml, changed: false }
   }
   const trimmed = yaml.endsWith('\n') ? yaml : `${yaml}\n`
@@ -137,7 +158,6 @@ export function insertPreCommitPrincipalFreeze(yaml: string): { yaml: string; ch
 
 export function seedPrincipalFreeze(opts: SeedPrincipalFreezeOpts = {}): SeedPrincipalFreezeResult {
   const cwd = opts.cwd ?? process.cwd()
-  const force = opts.force === true
   const patchHooks = opts.patchHooks !== false
   const sourceDir = resolvePrincipalFreezeSourceDir(opts.sourceDir)
 
@@ -170,9 +190,9 @@ export function seedPrincipalFreeze(opts: SeedPrincipalFreezeOpts = {}): SeedPri
     }
   }
 
-  if (existsSync(dest) && !force) {
-    skipped.push(dest)
-  } else if (existsSync(dest) && force && readFileSync(src).equals(readFileSync(dest))) {
+  const srcBytes = readFileSync(src)
+  const destCanonical = existsSync(dest) && srcBytes.equals(readFileSync(dest))
+  if (destCanonical) {
     skipped.push(dest)
   } else {
     copyFileSync(src, dest)
@@ -211,5 +231,65 @@ export function seedPrincipalFreeze(opts: SeedPrincipalFreezeOpts = {}): SeedPri
     }
   }
 
-  return { written, skipped, patched, sourceDir }
+  return attachPersist({ written, skipped, patched, sourceDir }, cwd, sourceDir)
+}
+
+export type InspectPrincipalFreezeResult = {
+  persist: boolean
+  scriptExists: boolean
+  scriptCanonical: boolean
+  lefthookPath: string | null
+  lefthookPreCommit: boolean
+  lefthookPrePush: boolean
+  preCommitConfig: boolean
+}
+
+export function inspectPrincipalFreeze(opts: { cwd?: string; sourceDir?: string } = {}): InspectPrincipalFreezeResult {
+  const cwd = opts.cwd ?? process.cwd()
+  const sourceDir = resolvePrincipalFreezeSourceDir(opts.sourceDir)
+  const dest = join(cwd, 'scripts', SCRIPT)
+  const scriptExists = existsSync(dest)
+  const src = sourceDir ? join(sourceDir, SCRIPT) : ''
+  const scriptCanonical =
+    scriptExists && Boolean(sourceDir) && existsSync(src) && readFileSync(src).equals(readFileSync(dest))
+
+  const lefthookPath = existsSync(join(cwd, 'lefthook.yml'))
+    ? join(cwd, 'lefthook.yml')
+    : existsSync(join(cwd, '.lefthook.yml'))
+      ? join(cwd, '.lefthook.yml')
+      : null
+  let lefthookPreCommit = false
+  let lefthookPrePush = false
+  if (lefthookPath) {
+    const yaml = readFileSync(lefthookPath, 'utf8')
+    lefthookPreCommit = lefthookSectionBindsPrincipalFreeze(yaml, 'pre-commit')
+    lefthookPrePush = lefthookSectionBindsPrincipalFreeze(yaml, 'pre-push')
+  }
+
+  const preCommitPath = join(cwd, '.pre-commit-config.yaml')
+  const preCommitConfig = existsSync(preCommitPath) && preCommitHasPrincipalFreeze(readFileSync(preCommitPath, 'utf8'))
+
+  const lefthookOk = lefthookPath ? lefthookPreCommit && lefthookPrePush : null
+  const persist = scriptCanonical && (lefthookOk === true || (lefthookOk === null && preCommitConfig))
+
+  return {
+    persist,
+    scriptExists,
+    scriptCanonical,
+    lefthookPath,
+    lefthookPreCommit,
+    lefthookPrePush,
+    preCommitConfig,
+  }
+}
+
+function attachPersist(base: SeedPrincipalFreezeResult, cwd: string, sourceDir: string): SeedPrincipalFreezeResult {
+  const inspect = inspectPrincipalFreeze({ cwd, sourceDir })
+  return {
+    ...base,
+    persist: inspect.persist,
+    lefthookPreCommit: inspect.lefthookPreCommit,
+    lefthookPrePush: inspect.lefthookPrePush,
+    scriptCanonical: inspect.scriptCanonical,
+  }
 }
