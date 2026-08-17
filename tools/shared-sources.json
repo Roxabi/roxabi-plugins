@@ -102,6 +102,12 @@
     ]
   },
   {
+    "canonical": "plugins/dev-core/skills/shared/workflows/workflow-landing.ts",
+    "targets": [
+      "plugins/dev-init/skills/shared/workflows/workflow-landing.ts"
+    ]
+  },
+  {
     "canonical": "plugins/dev-core/skills/shared/workflows/workflow-generators.ts",
     "targets": [
       "plugins/dev-init/skills/shared/workflows/workflow-generators.ts"

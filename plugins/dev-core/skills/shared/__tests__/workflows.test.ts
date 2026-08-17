@@ -144,7 +144,16 @@ describe('generateCiYml', () => {
   it('skips full CI on draft PRs and re-triggers on ready_for_review', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none' })
     expect(yml).toContain('types: [opened, synchronize, reopened, ready_for_review]')
-    expect(yml).toContain("if: github.event_name != 'pull_request' || !github.event.pull_request.draft")
+    expect(yml).toContain("github.event_name != 'pull_request' || !github.event.pull_request.draft")
+  })
+
+  it('classifies push: skip suite on processed PR merge, run on naked commit', () => {
+    const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none' })
+    expect(yml).toContain('  classify:')
+    expect(yml).toContain('needs: [classify]')
+    expect(yml).toContain("needs.classify.outputs.path == 'naked'")
+    expect(yml).toContain('merge_group: {}')
+    expect(yml).toContain('checks: read')
   })
 })
 
@@ -156,10 +165,12 @@ describe('generateSecretScanYml', () => {
     expect(yml).toContain(ACTION_PINS.trufflehog)
     expect(yml).toContain('--only-verified')
     expect(yml).toContain('trufflehog-exclude-paths.txt')
+    expect(yml).toContain('  classify:')
+    expect(yml).toContain("needs.classify.outputs.path == 'naked'")
     // Must pin exclude on the action extra_args line (not only the build step)
     expect(yml).toContain('extra_args: --only-verified --exclude-paths=trufflehog-exclude.txt')
     // Job id = protection context; no job.name override with different casing
-    expect(yml).toMatch(/jobs:\n\s+# Job id is the GitHub check name/)
+    expect(yml).toMatch(/# Job id is the GitHub check name/)
     expect(yml).not.toMatch(/trufflehog:\n\s+name:\s+TruffleHog/)
     // Diff-scoped CI (secondary); local trufflehog-check.sh is primary
     expect(yml).toContain('base:')

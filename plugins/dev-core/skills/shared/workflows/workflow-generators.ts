@@ -4,6 +4,7 @@
  * Push/write lives in workflow-push.ts (dev-init owned; copy-synced for tests).
  */
 
+import { generateClassifyPushJob, LANDING_PERMISSIONS, landingSuiteIf } from './workflow-landing'
 import { ACTION_PINS, APP_MINT_STEP } from './workflow-pins'
 import { normalizeWorkflowOpts, type WorkflowOpts } from './workflow-types'
 import { generateE2eJob } from './workflows-fleet'
@@ -328,12 +329,13 @@ on:
       - '.grok/**'
       - '.agents/**'
 
-permissions:
-  contents: read
-
+${LANDING_PERMISSIONS}
 jobs:
+${generateClassifyPushJob()}
   context-lint:
     name: Context lint
+    needs: [classify]
+    if: ${landingSuiteIf()}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -429,6 +431,8 @@ export function generateCiYml(opts: WorkflowOpts): string {
 
   // Draft PRs skip full CI (WIP). ready_for_review re-triggers when undrafted.
   // `reviewed` remains the merge gate only (auto-merge / merge-on-green) — not a CI gate.
+  // Push: classify processed-PR merge vs naked commit — skip suite on pr-merge
+  // (conventions.ssot § CI landing). merge_group is a no-op unless a queue exists.
   return `name: CI
 on:
   push:
@@ -436,11 +440,15 @@ on:
   pull_request:
     branches: [main, staging]
     types: [opened, synchronize, reopened, ready_for_review]
+  merge_group: {}
 
+${LANDING_PERMISSIONS}
 jobs:
+${generateClassifyPushJob()}
   ci:
     name: CI
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    needs: [classify]
+    if: ${landingSuiteIf()}
     runs-on: ubuntu-latest
     steps:
       - uses: ${ACTION_PINS.checkout}

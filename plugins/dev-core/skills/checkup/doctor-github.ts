@@ -255,8 +255,16 @@ export function checkRulesets(ghOk: boolean, owner: string, repo: string, meta: 
   if (ruleset && typeof ruleset.id === 'number') {
     const detailResult = spawnSync(['gh', 'api', `repos/${owner}/${repo}/rulesets/${ruleset.id}`])
     let detail: {
-      rules?: Array<{ type?: string; parameters?: { allowed_merge_methods?: string[] } }>
+      rules?: Array<{
+        type?: string
+        parameters?: {
+          allowed_merge_methods?: string[]
+          required_status_checks?: Array<{ context?: string }>
+          strict_required_status_checks_policy?: boolean
+        }
+      }>
       conditions?: { ref_name?: { include?: string[] } }
+      bypass_actors?: Array<{ actor_type?: string; bypass_mode?: string }>
     } | null = null
     if (detailResult.ok) {
       try {
@@ -310,6 +318,42 @@ export function checkRulesets(ghOk: boolean, owner: string, repo: string, meta: 
         }
         checks.push({ name: 'Default branch targeted', status, detail: detailMsg })
       }
+
+      const rscRule = detail.rules?.find((rule) => rule.type === 'required_status_checks')
+      const contexts = (rscRule?.parameters?.required_status_checks ?? [])
+        .map((c) => (c.context ?? '').toLowerCase())
+        .filter(Boolean)
+      const hasCi = contexts.includes('ci')
+      checks.push({
+        name: 'Required check ci',
+        status: hasCi ? 'pass' : 'warn',
+        detail: hasCi
+          ? 'required_status_checks includes ci'
+          : 'no required check named ci — a red PR can merge. See conventions.ssot § CI landing',
+      })
+
+      const hasMq = detail.rules?.some((rule) => rule.type === 'merge_queue') === true
+      const strict = rscRule?.parameters?.strict_required_status_checks_policy === true
+      checks.push({
+        name: 'Up-to-date or merge queue',
+        status: strict || hasMq ? 'pass' : 'warn',
+        detail: hasMq
+          ? 'merge_queue rule present'
+          : strict
+            ? 'strict_required_status_checks_policy (PR must be up to date)'
+            : 'neither strict up-to-date nor merge queue — stale green PRs can land',
+      })
+
+      const bypass = detail.bypass_actors ?? []
+      const alwaysBypass = bypass.filter((a) => a.bypass_mode === 'always')
+      checks.push({
+        name: 'No always-bypass',
+        status: alwaysBypass.length === 0 ? 'pass' : 'warn',
+        detail:
+          alwaysBypass.length === 0
+            ? 'no always-mode bypass actors'
+            : `always bypass: ${alwaysBypass.map((a) => a.actor_type ?? '?').join(', ')} — naked commits can skip the PR gate`,
+      })
     }
   } else if (ruleset) {
     checks.push({

@@ -15,6 +15,8 @@ Set up GitHub Actions via REST API (no local git). Runs from σ values.
 
 Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title.yml`, `context-lint.yml`, merge workflow (`auto-merge.yml` **or** `merge-on-green.yml`), (+ `deploy-preview.yml` if Vercel, + `deploy-cloudflare.yml` if Cloudflare).
 
+**CI landing** (`conventions.ssot` § CI landing): `ci.yml` / `secret-scan.yml` / `context-lint.yml` keep a `push` trigger but the suite job `needs: classify` and runs only when `path=naked`. A processed PR merge does not retest. Do not strip `push:` — that would skip the suite on a direct push.
+
 1. Discover owner/repo:
    ```bash
    gh repo view --json owner,name --jq '"\(.owner.login)/\(.name)"'

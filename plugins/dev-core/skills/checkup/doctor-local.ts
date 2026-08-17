@@ -37,6 +37,35 @@ export function checkPrereqsSection(prereqs: PrereqResult): Section {
   }
 }
 
+const LANDING_SUITE_FILES = ['ci.yml', 'secret-scan.yml', 'context-lint.yml'] as const
+
+/** Processed-PR vs naked-commit classify job on push-triggered validation workflows. */
+export function checkLandingPath(): Section {
+  const checks: Check[] = []
+  for (const file of LANDING_SUITE_FILES) {
+    const p = `.github/workflows/${file}`
+    if (!fs.existsSync(p)) {
+      checks.push({ name: `landing:${file}`, status: 'skip', detail: 'absent' })
+      continue
+    }
+    const yml = fs.readFileSync(p, 'utf8')
+    const hasPush = /^\s+push:/m.test(yml) || /^on:\s*\[[^\]]*push/m.test(yml) || /^on:\s*push\b/m.test(yml)
+    if (!hasPush) {
+      checks.push({ name: `landing:${file}`, status: 'skip', detail: 'no push trigger' })
+      continue
+    }
+    const hasClassify = /^ {2}classify:/m.test(yml)
+    checks.push({
+      name: `landing:${file}`,
+      status: hasClassify ? 'pass' : 'warn',
+      detail: hasClassify
+        ? 'classify job present — processed PR vs naked commit'
+        : 'push trigger without classify — processed PR merges retest the suite. See conventions.ssot § CI landing',
+    })
+  }
+  return { name: 'CI landing', checks }
+}
+
 export function checkProjectStructure(): Section {
   const checks: Check[] = []
 
