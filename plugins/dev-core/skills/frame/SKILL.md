@@ -1,7 +1,7 @@
 ---
 name: frame
 argument-hint: '["idea" | --issue <N>]'
-description: Problem framing — capture problem, constraints, scope, tier. Triggers: "frame" | "frame this" | "what's the problem" | "define the problem" | "scope this out" | "define the scope" | "what are we solving" | "help me think through this problem" | "problem statement".
+description: Problem framing — capture problem, constraints, scope, tier. Triggers: "frame" | "frame this" | "what's the problem" | "define the problem" | "scope this out" | "define the scope" | "what are we solving" | "problem statement".
 version: 0.6.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill, ToolSearch
 ---

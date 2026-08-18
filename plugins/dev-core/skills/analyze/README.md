@@ -13,7 +13,7 @@ For complex issues (F-full tier), jumping from frame to spec skips the most impo
 /analyze --frame path     Analyze from an explicit frame file
 ```
 
-Triggers: `"analyze"` | `"technical analysis"` | `"deep dive"` | `"explore the problem"` | `"investigate this"` | `"what are the risks"`
+Triggers: `"analyze"` | `"technical analysis"` | `"deep dive"` | `"investigate this"` | `"what are the risks"`
 
 ## How it works
 

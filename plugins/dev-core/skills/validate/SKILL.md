@@ -1,7 +1,7 @@
 ---
 name: validate
 argument-hint: [--quick | --full | --affected]
-description: Run all quality gates (lint, typecheck, test, env, i18n, license) and produce a structured pass/fail report. Triggers: "validate" | "check everything" | "quality check" | "pre-push check" | "are we green".
+description: Run all quality gates (lint, typecheck, test, env, i18n, license) and produce a structured pass/fail report. Triggers: "validate" | "quality check" | "pre-push check" | "are we green".
 version: 0.2.0
 allowed-tools: Bash, Read
 ---

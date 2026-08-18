@@ -14,7 +14,7 @@ Execute the plan — set up a worktree, spawn agents, write code + tests, run th
 /implement --issue 42 --audit     Show reasoning checkpoint before coding
 ```
 
-Triggers: `"implement"` | `"build this"` | `"execute plan"` | `"start coding"` | `"write the code"` | `"ship it"`
+Triggers: `"implement"` | `"build this"` | `"execute plan"` | `"start coding"` | `"write the code"` | `"code this up"` | `"let's build it"` | `"build it out"`
 
 ## How it works
 

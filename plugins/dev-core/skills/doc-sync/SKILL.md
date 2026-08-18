@@ -1,7 +1,7 @@
 ---
 name: doc-sync
 argument-hint: '[description of change]'
-description: 'Sync all project docs after a code change — scans every doc for stale references, updates affected sections. Triggers: "sync docs" | "update docs" | "doc sync" | "sync plugin docs" | "update skill docs" | "update the docs".'
+description: 'Sync all project docs after a code change — scans every doc for stale references, updates affected sections. Triggers: "sync docs" | "doc sync" | "sync plugin docs" | "update skill docs".'
 version: 0.4.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---

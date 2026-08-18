@@ -1,7 +1,7 @@
 ---
 name: env-setup
 argument-hint: '[--force]'
-description: 'Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, LSP. Triggered by /dev-init or standalone /env-setup. Triggers: "env setup" | "setup environment" | "configure stack" | "scaffold rules".'
+description: 'Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, LSP. Triggered by /dev-init or standalone /env-setup. Triggers: "env setup" | "setup environment" | "scaffold rules".'
 version: 0.1.0
 allowed-tools: Bash, Read, Write, Edit, ToolSearch
 ---

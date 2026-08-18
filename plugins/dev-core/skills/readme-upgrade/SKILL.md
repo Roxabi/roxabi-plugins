@@ -1,7 +1,7 @@
 ---
 name: readme-upgrade
 argument-hint: '[--target root|plugins|contributing|all] [--plugin <name>] [--force]'
-description: 'Audit and upgrade project documentation quality — README.md, CONTRIBUTING.md, plugin READMEs — against the developer-tool pattern (Why, Quick Start, How it works, command tables with categories, diagram). Triggers: "improve readme" | "upgrade docs" | "readme quality" | "improve docs" | "doc audit" | "readme upgrade" | "improve contributing" | "docs health".'
+description: 'Audit and upgrade project documentation quality — README.md, CONTRIBUTING.md, plugin READMEs — against the developer-tool pattern (Why, Quick Start, How it works, command tables with categories, diagram). Triggers: "improve readme" | "readme quality" | "doc audit" | "readme upgrade" | "improve contributing" | "docs health".'
 version: 0.1.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---

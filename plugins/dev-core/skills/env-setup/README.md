@@ -13,7 +13,7 @@ Before using dev-core skills, a project needs a `stack.yml` describing its runti
 /env-setup --force   Re-run all phases, overwriting existing config
 ```
 
-Triggers: `"env setup"` | `"setup environment"` | `"configure stack"` | `"scaffold rules"`
+Triggers: `"env setup"` | `"setup environment"` | `"scaffold rules"`
 
 ## Phases
 
