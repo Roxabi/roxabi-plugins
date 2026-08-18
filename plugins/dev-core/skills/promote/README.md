@@ -15,7 +15,7 @@ Releasing to production involves a checklist: verify CI, bump the version, write
 /promote --finalize       Post-merge: tag + GitHub Release (run after merging the promotion PR)
 ```
 
-Triggers: `"promote staging"` | `"release"` | `"deploy"` | `"cut a release"` | `"merge to main"` | `"ship a release"` | `"tag and release"`
+Triggers: `"promote staging"` | `"cut a release"` | `"--finalize"` | `"promote to production"` | `"tag and release"` | `"publish release"`
 
 ## How it works
 

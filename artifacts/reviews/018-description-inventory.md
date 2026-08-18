@@ -162,3 +162,23 @@ Parent cannot `Skill()` a `disable-model-invocation` child. This set must stay `
 - Do not set `disable-model-invocation` on `/dev` or `/ship`.
 - Do not use the flag to shrink the 8377-char description tax on factory-reachable skills.
 - Axis 1 `standalone` ≠ humans-only (adversarial / advisory stay Skill()-reachable).
+
+## Trigger hygiene (2026-08-18)
+
+Axis 2 collision cleanup — thief drops the phrase; winner keeps it. Descriptions only (`disable-model-invocation` not set; `/dev`/`/ship` untouched).
+
+| phrase dropped | from (thief) | winner |
+|---|---|---|
+| `"configure stack"` | env-setup | stack-setup |
+| `"ship it"` | implement | ship |
+| `"create a spec"` | interview | spec |
+| `"write analysis"` | interview | analyze |
+| `"promote to spec"` | interview | promote |
+| `"release"` (bare) | promote | ship / release-setup |
+| `"deploy"` | promote | ship |
+| `"merge to main"` | promote | ship |
+| `"ship a release"` | promote | ship |
+| `"update docs"` | doc-sync | (docs family — kept on neither; readme-upgrade keeps readme-specific) |
+| `"update the docs"` | doc-sync | (same) |
+| `"upgrade docs"` | readme-upgrade | (docs family — doc-sync keeps sync-family) |
+| `"improve docs"` | readme-upgrade | (same) |

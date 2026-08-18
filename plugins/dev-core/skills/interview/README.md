@@ -14,7 +14,7 @@ Unstructured conversations produce vague documents. `/interview` conducts a phas
 /interview --promote path          Promote an existing doc to the next level
 ```
 
-Triggers: `"create a spec"` | `"interview"` | `"brainstorm"` | `"write analysis"` | `"promote to spec"` | `"let's brainstorm"` | `"think through this"`
+Triggers: `"interview"` | `"brainstorm"` | `"let's brainstorm"` | `"think through this"` | `"help me brainstorm"` | `"let's think this through"` | `"explore ideas"`
 
 ## Document types
 

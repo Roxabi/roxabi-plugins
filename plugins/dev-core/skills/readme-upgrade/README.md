@@ -33,4 +33,4 @@ Direct and imperative. No filler. Each new section ≤150 words. Mermaid diagram
 
 ## Triggers
 
-`"improve readme"` | `"upgrade docs"` | `"readme quality"` | `"readme upgrade"` | `"docs health"`
+`"improve readme"` | `"readme quality"` | `"doc audit"` | `"readme upgrade"` | `"improve contributing"` | `"docs health"`

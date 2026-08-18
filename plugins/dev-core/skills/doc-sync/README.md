@@ -13,7 +13,7 @@ After renaming a tool, moving a file, or changing a config field, docs silently 
 /doc-sync "gitleaks → trufflehog"  Supply a description directly
 ```
 
-Triggers: `"sync docs"` | `"update docs"` | `"doc sync"` | `"sync plugin docs"` | `"update the docs"`
+Triggers: `"sync docs"` | `"doc sync"` | `"sync plugin docs"` | `"update skill docs"`
 
 ## How it works
 
