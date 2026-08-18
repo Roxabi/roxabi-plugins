@@ -1,5 +1,7 @@
 # Tier Classification
 
+ADR-018 Word/Format home for τ (S / F-lite / F-full).
+
 Let: τ := tier | C := complexity score (1–10) | α := agent
 
 Canonical rules for classifying work into S / F-lite / F-full. Referenced by `/frame`, `/dev`, `/issue-triage`.

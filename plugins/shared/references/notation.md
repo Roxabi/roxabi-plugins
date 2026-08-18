@@ -1,6 +1,8 @@
 # Notation — Canonical Glossary
 
-Single source of truth for the formal notation used across this marketplace's skills and agents. It merges the three prior legends (compress `## Symbols`, dev-core `base.md` Notation, dev-core `doc-writer.md` compressed-notation line) — dispositions recorded in the merge audit below. This glossary is writer-side tooling: consumers of compressed files never need it — every emitted symbol must be self-sufficient via the whitelist or a local Let-binding with gloss.
+Single source of truth for the formal notation used across this marketplace's skills and agents. It merges the three prior legends (compress `## Symbols`, dev-core `base.md` Notation, dev-core `doc-writer.md` compressed-notation line) — dispositions recorded in the merge audit below. This glossary is writer-side tooling: consumers of compressed files never need it — every emitted symbol must be self-sufficient via the whitelist or a Let-binding with gloss.
+
+Word home (ADR-018): glyphs and English process words live here. A reserved variable has one **target** sense. File-local re-bind of a target binding is not the desired model; `(local)` is a legacy lint escape only.
 
 Consumers: compress Phase 0 loads `## Core Table` only; compress Phase 3 checks Let-bindings against the Reserved-Variable Registry; the glossary mode loads Grammar + Maintenance; `tools/validate_plugins.py --check notation-legends` holds the core table set-equal to compress's `Whitelist:` line and gates the dev-core pointer lines.
 
@@ -83,6 +85,7 @@ Loaded by glossary mode. The glossary is closed-vocabulary: extension is human-g
 - **Add** — measure first (`git grep` counts + file spread over `plugins/`), record an adjudication (counts, outcome, rationale, date) in the glyph's notes cell, then → present choice before the row lands. Adding a core-active operator glyph requires the same change to compress SKILL.md's `Whitelist:` line — `--check notation-legends` fails the commit otherwise.
 - **Deprecate** — move the row out of `## Core Table` into the table below and drop the glyph from the whitelist in the same change; the equality gate keeps the two in lockstep. Never delete the record.
 - **Version** — this file rides normal PRs; the validator (CI + lefthook) is the drift gate. Counts in adjudications are point-in-time and dated, never silently edited.
+- **Word-home lock (2026-08-18)** — ADR-018 cadastre. Bindings locked (`target` column); thin `## English process words` added. Core Table unchanged.
 
 | Deprecated / rejected glyph | Record |
 |-----------------------------|--------|
@@ -90,24 +93,61 @@ Loaded by glossary mode. The glossary is closed-vocabulary: extension is human-g
 
 ## Reserved-Variable Registry
 
-Variables carry file-local bindings — they are NOT operators and sit outside the whitelist equality domain. Counts: `git grep` over `plugins/`, 2026-07-04. Status ∈ canonical / collision / aspirational.
+Variables are NOT operators and sit outside the whitelist equality domain. Counts: `git grep` over `plugins/`, 2026-07-04. **target** = intended canonical sense. A **dominant** mark is the corpus / compress-Phase-3 lint heuristic — it is the target when one exists, except the unresolved rows below. Other listed senses are **residuals** (still in the corpus; not equal alternatives). Status ∈ canonical / target-locked / collision (unresolved).
 
-| var | binding(s) | grep counts | status |
-|-----|-----------|-------------|--------|
-| `σ` | `.claude/stack.yml` (dominant) · spec artifact · status-icon map · staging branch | ×162 · 27 files | collision (4-way) |
-| `Ω` | override file (dominant) · `/interview` skill handle | ×14 · 3 files | collision |
-| `α` | agent (dominant) · analysis artifact · agent-memory file | ×153 · 20 files | collision |
-| `β` | base branch (dominant) · brainstorm artifact · frontend path | ×42 · 7 files | collision |
-| `ω` | worktree (dominant) · option/choice | ×36 · 4 files | collision |
-| `μ` | mode (compress) · memory file · micro-task · main branch | ×46 · 10 files | collision |
-| `τ` | tier (dominant) · memory topic files | ×121 · 26 files | collision |
-| `φ` | frame artifact (dominant) · finding · face-reference config | ×79 · 9 files | collision |
-| `Δ` | delta — changed files / Δtokens · changelog entry | ×36 · 7 files | canonical (one concept: difference) |
-| `Σ` | state map/dict (dominant — the base.md + doc-writer legend sense) · severity icon · testing-standards path | ×52 · 12 files | collision |
-| `π` | plan artifact · open PR · test file · proposed config table | ×46 · 7 files | collision (no dominant sense) |
-| `S*` | next-step variable (dev-core base legend) | ×42 · 14 files | canonical |
+| var | binding(s) | target | grep counts | status |
+|-----|-----------|--------|-------------|--------|
+| `σ` | `.claude/stack.yml` (dominant) · spec artifact · status-icon map · staging branch | — (unresolved) | ×162 · 27 files | collision (4-way) |
+| `Ω` | override file (dominant) · `/interview` skill handle (residual) | override file | ×14 · 3 files | target-locked |
+| `α` | agent (dominant) · analysis artifact (residual) · agent-memory file (residual) | agent | ×153 · 20 files | target-locked |
+| `β` | base branch (dominant) · brainstorm artifact (residual) · frontend path (residual) | base branch | ×42 · 7 files | target-locked |
+| `ω` | worktree (dominant) · option/choice (residual) | worktree | ×36 · 4 files | target-locked |
+| `μ` | mode (compress) · memory file · micro-task · main branch | — (unresolved) | ×46 · 10 files | collision (no dominant sense) |
+| `τ` | tier (dominant) · memory topic files (residual) | tier | ×121 · 26 files | target-locked |
+| `φ` | frame artifact (dominant) · finding (residual) · face-reference config (residual) | frame artifact | ×79 · 9 files | target-locked |
+| `Δ` | delta — changed files / Δtokens · changelog entry | delta (difference) | ×36 · 7 files | canonical (one concept: difference) |
+| `Σ` | state map/dict (dominant — the base.md + doc-writer legend sense) · severity icon (residual) · testing-standards path (residual) | state map/dict | ×52 · 12 files | target-locked |
+| `π` | plan artifact · open PR · test file · proposed config table | — (unresolved) | ×46 · 7 files | collision (no dominant sense) |
+| `S*` | next-step variable (dev-core base legend) | next-step variable | ×42 · 14 files | canonical |
 
-**`(local)` re-binding rule:** a file may re-bind a registry variable by marking it `(local)` in its `Let:` block — e.g. `π := pattern list (local)`. compress Phase 3 flags any un-marked collision against this table; with the glossary absent (standalone install) only whitelist-glyph collisions are checkable — accepted degradation.
+**Unresolved (follow-up, not this lock):**
+- `σ` — factory English word is Spec (`## English process words`). Glyph target is unresolved because `.claude/stack.yml` (registry-dominant / lint heuristic) and spec-artifact both live. Do not treat the dominant mark as the winner.
+- `π` — no dominant; stay collision.
+- `μ` — no dominant; stay collision.
+
+**`(local)` rule:** desired steady state is no re-bind of a **target** binding. `(local)` remains a **legacy escape** so compress Phase 3 does not explode — it still flags any un-marked non-dominant Let-binding as `reserved-collision` (dominant-sense uses are never findings). New skills must not introduce `(local)` for a target binding. With the glossary absent (standalone install) only whitelist-glyph collisions are checkable — accepted degradation. Legacy form: `π := pattern list (local)`.
+
+## English process words
+
+Word home for factory English that glyphs cannot hold ([ADR-018](../../../docs/architecture/adr/018-skill-system-homes-and-composition.md)). This section owns the English words only — it does not own `τ` / `σ` / `φ`. Authors write with these words; `/dev` may Read this file once. Skills must not recopy this section.
+
+**Issue** — GitHub issue the factory works; identified by N.
+Avoid: ticket (except quoting an external tracker).
+
+**Factory** — `/dev` (feature path) and `/ship` (land path). Owns pipeline task lifecycle.
+Avoid: "the orchestrator" as a third thing.
+
+**Approval-stop** — skill prints an Executive Summary and stops the turn; human replies in free text.
+Avoid: `/dev` treating "summary printed" as done.
+
+**Done-signal** — on-disk fact that completes an approval-stop step (see `artifact-frontmatter.md` / chain-contract table).
+Avoid: completing these steps from chat memory (`Σ_s`) alone.
+
+**Principal** — main checkout; always stays on the base branch.
+Avoid: "the repo", "cwd".
+
+**Worktree** — isolated checkout on `feat/{N}-*` where code is written.
+Avoid: calling the branch itself the worktree (the branch can exist without `ω`).
+
+**Spec** — solution artifact for an Issue.
+Avoid: treating the English word as settling the glyph `σ` (named residual collision — registry).
+
+### Relationships
+
+- An Issue has one Tier (glyph `τ` — target binding in the registry).
+- Frame / Analysis / Spec / Plan are artifacts of one Issue.
+- Approval-stop writes a Done-signal; `/dev` reads it.
+- Code is written in a Worktree; Principal never switches to `feat/*`.
 
 ## Register Conventions (aspirational)
 

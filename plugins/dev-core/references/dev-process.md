@@ -1,18 +1,18 @@
 # Dev Process Reference
 
-> Extracted from Roxabi boilerplate `CLAUDE.md`. Reference copy for dev-core. Canonical source in boilerplate repo.
+> Contributor view of the `/dev` pipeline (phases, artifacts, git). Not a SSoT for τ.
 
 Let: τ := tier | α := agent
 
 ## Tier System
 
-`/dev #N` determines τ based on complexity:
+`/dev` chooses τ. Criteria, signals, scoring, label mapping: [tier-classification.md](../skills/shared/references/tier-classification.md).
 
-| τ | Criteria | Phases |
-|---|----------|--------|
-| **S** | ≤3 files, no arch, no risk | triage → implement → pr → validate → review → fix* → promote* → cleanup* |
-| **F-lite** | Clear scope, single domain | Frame → spec → plan → implement → verify → ship |
-| **F-full** | New arch, unclear reqs, >2 domains | Frame → analyze → spec → plan → implement → verify → ship |
+| τ (from tier-classification.md) | Steps `/dev` runs |
+|---|---|
+| **S** | triage → implement → pr → validate → review → fix* → promote* → cleanup* |
+| **F-lite** | Frame → spec → plan → implement → verify → ship |
+| **F-full** | Frame → analyze → spec → plan → implement → verify → ship |
 
 `*` = conditional (runs only if applicable)
 
