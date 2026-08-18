@@ -182,3 +182,13 @@ Axis 2 collision cleanup — thief drops the phrase; winner keeps it. Descriptio
 | `"update the docs"` | doc-sync | (same) |
 | `"upgrade docs"` | readme-upgrade | (docs family — doc-sync keeps sync-family) |
 | `"improve docs"` | readme-upgrade | (same) |
+
+## Trigger hygiene pass 2 (2026-08-18)
+
+Residual collisions after 18ab44e. Same rule: thief drops the phrase; winner keeps it. Descriptions + README Triggers only (`disable-model-invocation` not set; `/dev`/`/ship` untouched).
+
+| phrase dropped | from (thief) | winner |
+|---|---|---|
+| `"help me think through this problem"` | frame | interview (`"think through this"` / `"explore ideas"`) |
+| `"explore the problem"` | analyze | interview (`"explore ideas"`); frame keeps problem/scope language |
+| `"check everything"` | validate | checkup (`"check setup"`) |

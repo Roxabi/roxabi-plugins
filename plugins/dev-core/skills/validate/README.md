@@ -15,7 +15,7 @@ Before a code review, you want a single command that runs every quality check an
 /validate --affected   Only check files changed vs main
 ```
 
-Triggers: `"validate"` | `"check everything"` | `"quality check"` | `"pre-push check"` | `"are we green"`
+Triggers: `"validate"` | `"quality check"` | `"pre-push check"` | `"are we green"`
 
 ## How it works
 
