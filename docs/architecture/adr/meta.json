@@ -18,6 +18,7 @@
     "015-direct-call-over-role-interface-ports-typescript",
     "016-plain-markdown-docs-no-fumadocs",
     "017-principal-freeze-state-assert",
-    "018-skill-system-homes-and-composition"
+    "018-skill-system-homes-and-composition",
+    "019-plugin-owned-falsify-oracle"
   ]
 }

@@ -62,7 +62,7 @@ Steps: scope → run-checks → report → verdict
 
 **¬raw runner** — always use `{commands.*}` from stack.yml. Command ¬defined → σ := ⏭ skip.
 
-**falsify** (optional, `--full` only): run if `{commands.test:falsify}` is defined **or** `package.json` has script `test:falsify`. Else σ := ⏭ skip. ¬fail the suite because the consumer repo has no falsify script. **Stub-refuse:** if the script/command does not invoke a test runner (`bun run test` / `vitest` / `pytest` / `uv run pytest` / `{commands.test}`), or exit 0 with no valid `broke <file> → <error>` lines (placeholder or missing `AssertionError|FAIL |toThrow|Error:`) → σ := ⏭ skip. ¬treat stub `echo broke …` as a pass.
+**falsify** (optional, `--full` only): prefer `bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` when JSON exists → require `oracle_ok=true`. Else if `{commands.test:falsify}` / `package.json` `test:falsify` **execs the plugin helper** → run it. Else σ := ⏭ skip. ¬fail the suite solely because a consumer repo has no map yet. Stub consumer scripts that do not invoke the helper → ⏭ skip (¬pass).
 
 | χ | Command | Timeout |
 |---|---------|---------|

@@ -114,7 +114,7 @@ digests = emit_all_digests(chunks)            # list[BoundaryDigest]
 | **adversarial** | **always** | red-team: bypass, fleet-regression, vacuous guards, assumption-kill + **OWASP lens** (secrets, injection, auth). security-auditor is independent when Δ ∩ auth/secrets/crypto (both may run) |
 | **frontend-dev** | Δ ∩ {FE, `{frontend.path}`, `{shared.ui}`} ≠ ∅ | FE patterns, components, hooks |
 | **product-lead** | spec ∃ | spec compliance, product fit |
-| **tester** | mechanical parse of PR body ∨ `artifacts/reviews/{N}-falsify.md` **fails** (heading `## Falsification Evidence` alone is ¬sufficient) | coverage, AAA, edge cases, tautology |
+| **tester** | `bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` yields `oracle_ok=false` (or JSON missing) | coverage, AAA, edge cases, tautology |
 | **architect** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy} ≠ ∅ | patterns, structure, circular deps |
 | **backend-dev** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy, `{backend.path}`} ≠ ∅ | BE patterns, API, errors |
 | **devops** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy} ≠ ∅ | config, deploy, infra |
@@ -124,7 +124,7 @@ digests = emit_all_digests(chunks)            # list[BoundaryDigest]
 
 > **Note on axial-adr-review asymmetry (intentional):** The `/code-review` condition is **structural** — it triggers when the diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`. The spec phase (`/spec`) uses a **semantic/intent-based** condition (spec adds adapter/integration/target ∨ touches `infrastructure/`). The two are complementary: `/spec` catches intent-level N×M violations, `/code-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
 
-Skip: product-lead → spec ∄ | tester → `bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/parse-falsify.sh` on PR body (tempfile) ∨ `artifacts/reviews/{N}-falsify.md` emits `falsify_ok=true` (heading alone is ¬sufficient; parse fail → spawn tester) | frontend-dev → ¬FE Δ | architect/devops → τ≠F-full ∧ Δ misses `scripts/`/CI/`lefthook.yml`/wrangler/deploy | backend-dev → τ≠F-full ∧ Δ misses those ∧ `{backend.path}` | security-auditor → Δ misses auth/secrets/crypto | recall → single-chunk ∨ ¬canonical class ∨ \|callsites\|<3
+Skip: product-lead → spec ∄ | tester → `bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` emits `oracle_ok=true` (markdown / `parse-falsify` alone is ¬sufficient; verify fail → spawn tester) | frontend-dev → ¬FE Δ | architect/devops → τ≠F-full ∧ Δ misses `scripts/`/CI/`lefthook.yml`/wrangler/deploy | backend-dev → τ≠F-full ∧ Δ misses those ∧ `{backend.path}` | security-auditor → Δ misses auth/secrets/crypto | recall → single-chunk ∨ ¬canonical class ∨ \|callsites\|<3
 
 **Subdomain split (multi-chunk):** For each chunk `c_i`, apply the dispatch table against `c_i.files` only (not full Δ). Default: 1 agent per domain per chunk. recall is Phase 3b (not per-chunk Lane A).
 
@@ -342,7 +342,7 @@ Q:
 | Missing root cause/solutions | C(f) := 0 |
 | architect skipped | ¬arch review → faster |
 | product-lead skipped | Phase 2 skipped |
-| tester skipped | mechanical falsify parse ok → ¬coverage review |
+| tester skipped | `run-falsify --verify` → `oracle_ok=true` → ¬coverage review |
 | security-auditor skipped | Δ misses auth/secrets/crypto — adversarial still owns OWASP on every review; security-auditor is additive when Δ intersects |
 
 ## Safety Rules

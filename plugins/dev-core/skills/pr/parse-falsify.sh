@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Mechanical oracle for /pr falsify + priced rails, and /code-review tester skip.
+# Markdown hygiene + priced SC scan + gather-state gate emitter (#417 / ADR-019).
 # Sourced by gather-state.sh (no `set` — do not mutate the caller).
-# CLI: parse-falsify.sh <evidence-file> [base-branch]
-#   emits falsify_ok=true|false and falsify_reason=<token>
-#   missing file / parse fail → falsify_ok=false (fail-closed). Always exit 0.
+#
+# CLI: parse-falsify.sh <evidence.md> [base-branch]
+#   emits falsify_ok=… for **ungated md lint only** — ¬a gate input.
+# Gate boolean is **oracle_ok** from run-falsify.sh --verify (see pf_emit_gates).
 #
 # Conversation-only summaries are invisible here — that is the intended fail-closed.
 
@@ -339,9 +340,10 @@ pf_parse_priced() {
 }
 
 # Emit gather-state keys. Always returns 0.
+# Gate key = oracle_ok (run-falsify --verify). falsify_ok is ¬emitted for gates.
 pf_emit_gates() {
     local issue="${1:-}" base="${2:-}" spec="${3:-}" branch="${4:-}"
-    local ev
+    local json _pf_dir rf_out ok reason
 
     pf_parse_priced "$spec"
     if ! pf_is_tier_s "$spec" "$branch"; then
@@ -354,34 +356,36 @@ pf_emit_gates() {
     if [ -z "$issue" ] || [ "$issue" = "none" ]; then
         if pf_is_tier_s "$spec" "$branch"; then
             echo "falsify_required=false"
-            echo "falsify_ok=true"
-            echo "falsify_reason=no-issue"
+            echo "oracle_ok=true"
+            echo "oracle_reason=no-issue"
             return 0
         fi
-        # τ≠S ∧ no issue: fail-closed (skipping falsify here was a thought, not a gate).
         echo "falsify_required=true"
-        echo "falsify_ok=false"
-        echo "falsify_reason=no-issue"
+        echo "oracle_ok=false"
+        echo "oracle_reason=no-issue"
         return 0
     fi
 
     if pf_is_tier_s "$spec" "$branch"; then
         echo "falsify_required=false"
-        echo "falsify_ok=true"
-        echo "falsify_reason=tier-s"
+        echo "oracle_ok=true"
+        echo "oracle_reason=tier-s"
         return 0
     fi
 
     echo "falsify_required=true"
-    ev="artifacts/reviews/${issue}-falsify.md"
-    if [ ! -f "$ev" ]; then
-        echo "falsify_ok=false"
-        echo "falsify_reason=missing-artifact"
+    json="artifacts/reviews/${issue}-falsify.json"
+    if [ ! -f "$json" ]; then
+        echo "oracle_ok=false"
+        echo "oracle_reason=missing-artifact"
         return 0
     fi
-    pf_parse_file "$ev" "$base"
-    echo "falsify_ok=${FALSIFY_OK:-false}"
-    echo "falsify_reason=${FALSIFY_REASON:-missing-artifact}"
+    _pf_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    rf_out="$(bash "$_pf_dir/run-falsify.sh" --verify "$json" 2>/dev/null || true)"
+    ok="$(printf '%s\n' "$rf_out" | sed -n 's/^oracle_ok=//p' | tail -1)"
+    reason="$(printf '%s\n' "$rf_out" | sed -n 's/^oracle_reason=//p' | tail -1)"
+    echo "oracle_ok=${ok:-false}"
+    echo "oracle_reason=${reason:-verify-failed}"
     return 0
 }
 
