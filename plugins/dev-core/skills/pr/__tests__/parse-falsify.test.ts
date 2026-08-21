@@ -131,14 +131,14 @@ function emitGates(issue: string, spec: string, branch: string): string {
 function gateKeys(stdout: string): {
   priced_ok: string
   falsify_required: string
-  falsify_ok: string
-  falsify_reason: string
+  oracle_ok: string
+  oracle_reason: string
 } {
   return {
     priced_ok: stdout.match(/^priced_ok=(.*)$/m)?.[1] ?? '',
     falsify_required: stdout.match(/^falsify_required=(.*)$/m)?.[1] ?? '',
-    falsify_ok: stdout.match(/^falsify_ok=(.*)$/m)?.[1] ?? '',
-    falsify_reason: stdout.match(/^falsify_reason=(.*)$/m)?.[1] ?? '',
+    oracle_ok: stdout.match(/^oracle_ok=(.*)$/m)?.[1] ?? '',
+    oracle_reason: stdout.match(/^oracle_reason=(.*)$/m)?.[1] ?? '',
   }
 }
 
@@ -148,19 +148,19 @@ describe('pf_emit_gates — missing spec / no-issue fail-closed', () => {
     expect(out.priced_ok).toBe('false')
   })
 
-  it('τ≠S and no issue → falsify_required=true, falsify_ok=false, no-issue', () => {
+  it('τ≠S and no issue → falsify_required=true, oracle_ok=false, no-issue', () => {
     const out = gateKeys(emitGates('', '', 'feat/no-issue'))
     expect(out.priced_ok).toBe('false')
     expect(out.falsify_required).toBe('true')
-    expect(out.falsify_ok).toBe('false')
-    expect(out.falsify_reason).toBe('no-issue')
+    expect(out.oracle_ok).toBe('false')
+    expect(out.oracle_reason).toBe('no-issue')
   })
 
   it('τ=S (chore prefix) without spec still skip-opens', () => {
     const out = gateKeys(emitGates('', '', 'chore/docs-only'))
     expect(out.priced_ok).toBe('true')
     expect(out.falsify_required).toBe('false')
-    expect(out.falsify_ok).toBe('true')
-    expect(out.falsify_reason).toBe('no-issue')
+    expect(out.oracle_ok).toBe('true')
+    expect(out.oracle_reason).toBe('no-issue')
   })
 })

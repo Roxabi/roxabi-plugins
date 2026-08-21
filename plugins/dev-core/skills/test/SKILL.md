@@ -133,31 +133,15 @@ Applies to: unit + fast-integration tests only. Triggered after Step 7 green run
 
 Spec SCs with a priced-quantity block: test `priced` + `oracles`, never `not`.
 
-**Runner — prefer mechanical** (consumer repo):
+**Runner — plugin-owned (default, ADR-019):**
 
 ```
-1. `{commands.test:falsify}` defined in stack.yml     → candidate
-2. else package.json has script `test:falsify`        → candidate (`{package_manager} run test:falsify`)
-3. else `scripts/test-falsify.sh` exists              → candidate (`bash scripts/test-falsify.sh`)
-4. else **fallback** — LLM-operated git stash (below)
+bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --map <map.json> --out artifacts/reviews/{N}-falsify.json --issue {N}
 ```
 
-**Accept a candidate only if both:** the script/command invokes a test runner (`bun run test` / `vitest` / `pytest` / `uv run pytest` / `{commands.test}`), AND output `broke <file> → <error>` lines have a non-placeholder `<error>` matching `AssertionError|FAIL |toThrow|Error:`. **Stub-refuse:** tautological (exit 0, no valid broke lines, or no test-runner invocation) → ignore the script and fall through to git-stash. ¬treat stub `echo broke …` as evidence.
+Consumer `{commands.test:falsify}` / `package.json` `test:falsify` / `scripts/test-falsify.sh` allowed **only if** they exec the plugin helper without swallowing non-zero — else stub-refuse. LLM `git stash` is ¬an alternate oracle.
 
-Mechanical runner (accepted): collect valid `broke <file> → <error>` lines. Missing line → that test stays unproven.
-
-**Fallback — stash source (¬test files).** ∀ new/modified test written in this session:
-
-1. **Stash source** (¬test files):
-   ```bash
-   SRC=$(  { git diff HEAD --name-only; git ls-files --others --exclude-standard; } \
-           | grep -v '\.test\.' | grep -v '\.spec\.' )
-   git stash -- $SRC
-   ```
-   This enumerates both tracked-dirty AND untracked source files, then excludes test/spec files.
-2. **Run the test**: `{commands.test} {test_file_path}`.
-3. **Assert FAIL**: exit 0 → tautological → tautological = merge blocker. Do NOT pop stash. Restore worktree: `git stash pop`. user choice **Rewrite test** | **Flag and block** (¬silently pass). ¬assign a matrix Status — no Status update until the test is rewritten and re-run.
-4. **Pop stash** (success path only): `git stash pop`.
+On `oracle_ok=true`, set `✓ proven` from JSON rows. Persist JSON (+ optional md render). Evidence lines come from the helper output.
 5. **Assert GREEN**: re-run → exit 0.
 6. **Record evidence** (one line per test):
    ```
