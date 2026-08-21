@@ -149,7 +149,7 @@ Insert persisted `artifacts/reviews/{N}-falsify.md` (optional render of JSON) �
 
 ## Falsification Evidence
 
-Insert persisted `artifacts/reviews/{N}-falsify.md` — do not invent rows.
+Insert persisted `artifacts/reviews/{N}-falsify.md` (optional JSON render) — do not invent rows.
 
 Fixes #{N}
 

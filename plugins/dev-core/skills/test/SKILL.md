@@ -141,14 +141,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --map <map.json> --out artif
 
 Consumer `{commands.test:falsify}` / `package.json` `test:falsify` / `scripts/test-falsify.sh` allowed **only if** they exec the plugin helper without swallowing non-zero — else stub-refuse. LLM `git stash` is ¬an alternate oracle.
 
-On `oracle_ok=true`, set `✓ proven` from JSON rows. Persist JSON (+ optional md render). Evidence lines come from the helper output.
-5. **Assert GREEN**: re-run → exit 0.
-6. **Record evidence** (one line per test):
-   ```
-   broke {source file} → test failed with {error/assertion message}
-   ```
-
-Evidence lines feed the #279 matrix `Status` column: `✓ proven` only when a broke-line exists. Append evidence block to output before reporting done.
+On `oracle_ok=true`, set `✓ proven` from JSON rows. Persist JSON (+ optional md render). Evidence lines come from the helper output. Matrix `Status` = `✓ proven` only from runner rows — append evidence block to output before reporting done.
 
 ## E2E Mode (`--e2e`)
 
