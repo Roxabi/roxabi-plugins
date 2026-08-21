@@ -34,10 +34,19 @@ pf_is_tier_s() {
     esac
 }
 
+# Oracle: repo-relative regular file that is tracked or in the base…HEAD diff.
+# Existence alone is not enough: '.' exists as a directory and must fail.
 pf_file_is_real() {
     local f="${1:-}" base="${2:-}"
-    [ -n "$f" ] || return 1
-    [ -e "$f" ] && return 0
+    f="${f#./}"
+    case "$f" in
+        ''|.|..|/) return 1 ;;
+        /*) return 1 ;;
+    esac
+    case "/${f}/" in
+        */../*) return 1 ;;
+    esac
+    [ -f "$f" ] || return 1
     git ls-files --error-unmatch -- "$f" >/dev/null 2>&1 && return 0
     if [ -n "$base" ]; then
         git diff "origin/${base}...HEAD" --name-only 2>/dev/null \
@@ -57,12 +66,11 @@ pf_stem() {
     printf '%s' "$p"
 }
 
+# Match only extracted path tokens (exact or stem). Do not glob the tests cell
+# against the broke path — '.' would match every cell.
 pf_row_matches_broke() {
     local tests="${1:-}" broke="${2:-}" path stem_b stem_p
     [ -n "$broke" ] || return 1
-    case "$tests" in
-        *"$broke"*) return 0 ;;
-    esac
     stem_b="$(pf_stem "$broke")"
     while IFS= read -r path; do
         [ -n "$path" ] || continue
@@ -130,6 +138,9 @@ pf_parse_file() {
                         ;;
                 esac
                 ;;
+            '⚠ NO FALSIFY — e2e'|'⚠ NO FALSIFY - e2e'|'⚠ NO FALSIFY -- e2e')
+                no_test_count=$((no_test_count + 1))
+                ;;
             '⚠ NO TEST — '*|'⚠ NO TEST - '*|'⚠ NO TEST -- '*)
                 reason="$status"
                 reason="${reason#⚠ NO TEST — }"
@@ -184,6 +195,13 @@ pf_parse_file() {
         FALSIFY_REASON=missing-matrix-rows
         return 0
     fi
+    # All NO TEST / NO FALSIFY and no proven row: fail-closed. An all-exempt
+    # matrix must not skip the runner.
+    if [ "$proven_count" -eq 0 ]; then
+        FALSIFY_OK=false
+        FALSIFY_REASON=no-proven-row
+        return 0
+    fi
 
     while IFS= read -r line; do
         [ -n "$line" ] || continue
@@ -207,6 +225,11 @@ pf_parse_file() {
         if [ -z "$broke_err" ]; then
             FALSIFY_OK=false
             FALSIFY_REASON=empty-error
+            return 0
+        fi
+        if ! printf '%s\n' "$broke_err" | grep -qE 'AssertionError|FAIL |toThrow|Error:'; then
+            FALSIFY_OK=false
+            FALSIFY_REASON=no-error-token
             return 0
         fi
         if ! pf_file_is_real "$broke_file" "$base"; then
@@ -321,11 +344,23 @@ pf_emit_gates() {
     local ev
 
     pf_parse_priced "$spec"
+    if ! pf_is_tier_s "$spec" "$branch"; then
+        if [ -z "$spec" ] || [ ! -f "$spec" ]; then
+            PRICED_OK=false
+        fi
+    fi
     echo "priced_ok=${PRICED_OK:-true}"
 
     if [ -z "$issue" ] || [ "$issue" = "none" ]; then
-        echo "falsify_required=false"
-        echo "falsify_ok=true"
+        if pf_is_tier_s "$spec" "$branch"; then
+            echo "falsify_required=false"
+            echo "falsify_ok=true"
+            echo "falsify_reason=no-issue"
+            return 0
+        fi
+        # τ≠S ∧ no issue: fail-closed (skipping falsify here was a thought, not a gate).
+        echo "falsify_required=true"
+        echo "falsify_ok=false"
         echo "falsify_reason=no-issue"
         return 0
     fi

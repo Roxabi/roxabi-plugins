@@ -125,7 +125,7 @@ it('should return user by id', () => {
 
 Applies to: unit + fast-integration tests only. Triggered after Step 7 green run. **Ownership:** when invoked by `/implement`, the implement orchestrator drives the gate (¬tester). When invoked standalone (no implement orchestrator), `/test` owns the cycle itself — the tester agent still only writes tests; the runner is driven by the `/test` flow.
 
-**e2e exemption:** tests generated via `--e2e` → annotate each as `⚠ NO FALSIFY — e2e`. Stop. ¬run stash cycle.
+**e2e exemption:** tests generated via `--e2e` → set Status to `⚠ NO FALSIFY — e2e` (do not leave `⏳ not run`). Stop. ¬run stash cycle.
 
 **Precondition:** all newly created source files must be `git add`-ed before the gate runs — the Write tool does NOT auto-stage new files, and unstaged new files are invisible to `git diff HEAD`.
 

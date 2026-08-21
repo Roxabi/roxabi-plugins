@@ -286,12 +286,13 @@ For τ=F (F-lite or F-full):
 - `✓ proven` — test ran green + falsification check passed **and** evidence line recorded (set by #280 gate)
 - `✗ failed` — test ran red (set by #280 gate; note: `broke X → test failed with Y`)
 - `⚠ NO TEST — {reason}` — no test; reason ∈ enum
+- `⚠ NO FALSIFY — e2e` — e2e row; counts like NO TEST, ¬proven
 
 **Priced quantity (mechanical, not optional):** scan each SC checkbox. Signals: fail-closed / fail closed / deny / refuse / reject / guard / gate / auth / authz / secret / inject / security. Matching SC whose following fenced yaml does not contain `priced:` + `not:` + `oracles:` → **blocking gap**, ¬proceed to `/pr` (re-run `/spec`). Map tests to `priced` + `oracles`, never to `not`.
 
 ### Step 6b — Falsification Gate (#280)
 
-Runs immediately after SC→Test Matrix is built. Scope: unit + fast-integration tests only. e2e tests are **exempt** — annotate each e2e row `⚠ NO FALSIFY — e2e` in the evidence log and leave Status unchanged.
+Runs immediately after SC→Test Matrix is built. Scope: unit + fast-integration tests only. e2e tests are **exempt** — set Status to `⚠ NO FALSIFY — e2e` (do not leave `⏳ not run`).
 
 **Precondition:** the implement agent must `git add` all newly created source files before the gate runs — the Write tool does NOT auto-stage, and unstaged new files are invisible to `git diff HEAD`.
 
