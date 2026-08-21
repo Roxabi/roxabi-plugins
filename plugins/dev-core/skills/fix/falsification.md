@@ -8,6 +8,10 @@ Detect tautological fixes (RC-1): a fix that makes a test pass without actually 
 invariant. Method: delete the guard or test setup introduced by the fix, then re-run the test.
 If the test still passes → tautological.
 
+For class ∈ {test-tautology, vacuous-guard, parallel-path-drift}: a "fix" that only widens a
+denylist, adds a grep, or copies an inventory list is itself tautological — `fail`. The oracle
+or single SSoT (matcher, parser, one `package.json` script) must change.
+
 ## Input
 
 ```

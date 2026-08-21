@@ -8,7 +8,7 @@ Templates used by the spec skill for document generation.
 
 Frontmatter contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md).
 
-```md
+````md
 ---
 title: "{title|yaml-escaped}"
 description: "{one-line description}"
@@ -75,9 +75,17 @@ status: draft
 
 - [ ] {binary criterion — passes or fails, no ambiguity}
 - [ ] {binary criterion}
-- [ ] {binary criterion}
+- [ ] {fail-closed / security / guard criterion — MUST include the priced block below}
+
+```yaml
+priced:  "<property the control must enforce>"
+not:     "<implementation proxy that is NOT the property>"
+oracles: ["concrete input that must fail closed"]
+```
+
+Implementer + tester test `priced` + `oracles`, never `not`.
 
 ## Open Questions
 
 {Any [NEEDS CLARIFICATION: description] items unresolved. Max 5. Must resolve before /plan.}
-```
+````

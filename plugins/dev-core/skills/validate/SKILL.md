@@ -1,8 +1,8 @@
 ---
 name: validate
 argument-hint: [--quick | --full | --affected]
-description: Run all quality gates (lint, typecheck, test, env, i18n, license) and produce a structured pass/fail report. Triggers: "validate" | "quality check" | "pre-push check" | "are we green".
-version: 0.2.0
+description: Run all quality gates (lint, typecheck, test, env, i18n, license; optional falsify on --full) and produce a structured pass/fail report. Triggers: "validate" | "quality check" | "pre-push check" | "are we green".
+version: 0.2.1
 allowed-tools: Bash, Read
 ---
 
@@ -41,7 +41,7 @@ Steps: scope → run-checks → report → verdict
 ```
 /validate              → Run all checks
 /validate --quick      → Lint + typecheck only (fastest)
-/validate --full       → All checks including license and coverage
+/validate --full       → All checks including license, coverage, optional falsify
 /validate --affected   → Only check files changed vs main
 ```
 
@@ -53,7 +53,7 @@ Steps: scope → run-checks → report → verdict
 |------|-------|
 | (none) | lint, typecheck, test, env, i18n |
 | `--quick` | lint, typecheck |
-| `--full` | lint, typecheck, test, test:coverage, env, i18n, license |
+| `--full` | lint, typecheck, test, test:coverage, env, i18n, license, falsify |
 | `--affected` | lint (affected), typecheck:affected, test:affected |
 
 ### 2. Run χ Sequentially
@@ -61,6 +61,8 @@ Steps: scope → run-checks → report → verdict
 ∀ χ ∈ scope: run command, capture stdout+stderr + exit code. Record: name, σ, duration, error summary (first 5 lines if failed).
 
 **¬raw runner** — always use `{commands.*}` from stack.yml. Command ¬defined → σ := ⏭ skip.
+
+**falsify** (optional, `--full` only): run if `{commands.test:falsify}` is defined **or** `package.json` has script `test:falsify`. Else σ := ⏭ skip. ¬fail the suite because the consumer repo has no falsify script. **Stub-refuse:** if the script/command does not invoke a test runner (`bun run test` / `vitest` / `pytest` / `uv run pytest` / `{commands.test}`), or exit 0 with no valid `broke <file> → <error>` lines (placeholder or missing `AssertionError|FAIL |toThrow|Error:`) → σ := ⏭ skip. ¬treat stub `echo broke …` as a pass.
 
 | χ | Command | Timeout |
 |---|---------|---------|
@@ -73,6 +75,7 @@ Steps: scope → run-checks → report → verdict
 | Env check | `{package_manager} run env:check` | 10s |
 | i18n | `{package_manager} run i18n:check` | 30s |
 | License | `{package_manager} run license:check` | 30s |
+| Falsify | `{commands.test:falsify}` ∨ `{package_manager} run test:falsify` | 180s |
 
 ### 3. Report
 
@@ -118,6 +121,7 @@ Test:
 | Command not found | σ := ⚠️ warn, "command not available" |
 | Command times out | σ := ❌ FAIL, "timed out after Xs" |
 | ¬test files found | σ := ⏭ skip |
+| ¬`test:falsify` script ∧ ¬`{commands.test:falsify}` | σ := ⏭ skip (optional χ) |
 | Docker ¬running (env/db) | σ := ⚠️ warn, ¬fail |
 | Running in worktree | No special handling needed |
 

@@ -2,7 +2,7 @@
 name: fix
 argument-hint: '[#PR]'
 description: 'Apply review findings — auto-apply high-confidence, 1b1 for rest, then batch-apply. Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".'
-version: 0.4.1
+version: 0.4.2
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill, ToolSearch
 ---
 
@@ -95,6 +95,8 @@ Split into Q_auto, Q_1b1, skipped (praise).
 - Batch ∥ (group by domain, 1 verifier/domain)
 
 ∀ f ∈ Q_auto: solution(f) := Solution 1 (recommended).
+
+**Proxy-fix ban** (cls(f) ∈ {test-tautology, vacuous-guard, parallel-path-drift}): Solution 1 that widens a denylist, adds a grep, or copies an inventory/`validate:full` list is **invalid** — demote to Q_1b1 with note "oracle/SSoT required". Required fix: change the oracle / single SSoT (matcher, parser, one `package.json` script).
 
 Display:
 ```
@@ -205,6 +207,11 @@ Fixer payload per agent:
 
 Fixer constraints: re-read targets before editing (Phase 3 may have changed them). CI fail → retry max 3; `[failed]` if stuck.
 
+**Proxy-fix ban** (class ∈ {test-tautology, vacuous-guard, parallel-path-drift}):
+**Forbidden:** widen a denylist, add another grep, copy another inventory/`validate:full` list.
+**Required:** change the oracle / single SSoT (matcher, parser, one `package.json` script).
+A proxy "fix" → `[failed]`, do not apply.
+
 `pattern-class` findings (Lane B tag) → same class-shard dispatch as Lane A findings.
 _(TODO: `pattern-class` tag and Lane B defined in Slice 3 — targeted recall. Until Slice 3 lands, this clause is a forward-reference only; `pattern-class` is not yet in review-classes.yml.)_
 
@@ -284,6 +291,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | Quality gate fails 3× | Halt, leave uncommitted |
 | ¬∃ PR | Skip Phase 8, local only, no label |
 | cls(f) = ∅ for some f ∈ acc | Route to `unclassified` fixer agent (single agent, ≤3 files path) |
+| class ∈ {test-tautology, vacuous-guard, parallel-path-drift} ∧ solution is denylist/grep/inventory | `[failed]` — change the oracle / SSoT instead |
 
 ## Safety Rules
 

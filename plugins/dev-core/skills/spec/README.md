@@ -38,6 +38,8 @@ Frontmatter on write: `title` (yaml-escaped), `description`, `type: spec`, `stat
 
 Sections: Context, **Intent** (what we solve), Goal (done-when), Users, Expected Behavior, Data Model & Consumers (markdown prose + optional consumer table — no HTML sidecars), Breadboard, Slices, Success Criteria.
 
+Fail-closed / security / guard SCs must declare a **priced quantity** block (`priced` / `not` / `oracles`). Implementer and tester test `priced` + `oracles`, never the `not` proxy.
+
 ## Chain position
 
 **Predecessor:** `/analyze` (F-full) or `/frame` (F-lite) | **Successor:** `/plan` (after free-form approve)

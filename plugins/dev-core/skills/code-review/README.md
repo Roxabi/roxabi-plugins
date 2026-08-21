@@ -4,7 +4,7 @@ Multi-domain code review via fresh domain agents → Conventional Comments findi
 
 ## Why
 
-A single reviewer (even a good one) misses domain-specific issues. `/code-review` spawns fresh, unbiased agents per domain (security, adversarial red-team, architecture, tests, frontend, backend, devops, product) simultaneously, merges their findings using Conventional Comments labels, deduplicates overlaps, and produces a structured verdict: Approve, Approve with comments, or Request changes.
+A single reviewer (even a good one) misses domain-specific issues. `/code-review` spawns a **conditional** roster (adversarial always, with an OWASP lens — not a default 8-agent swarm), merges findings using Conventional Comments labels, deduplicates by `(file, class)` keep-max-C, and produces a structured verdict: Approve, Approve with comments, or Request changes.
 
 ## Usage
 
@@ -20,20 +20,21 @@ Triggers: `"code review"` | `"review changes"` | `"review PR #42"` | `"check my 
 1. **Gather changes** — reads full diff and all changed files; warns if > 50 files.
 2. **Secret scan** — grep for hardcoded passwords, API keys, tokens; warns and asks before proceeding.
 3. **Spec compliance** (if spec exists) — checks each acceptance criterion against the diff.
-4. **Multi-domain review** — spawns agents in parallel:
+4. **Multi-domain review** — conditional spawn (not an 8-agent always-table):
 
-   | Agent | Condition | Focus |
-   |-------|-----------|-------|
-   | security-auditor | always | OWASP, injection, secrets, auth |
-   | adversarial | always | red-team: bypass, fleet-regression, vacuous guards |
-   | architect | |Δ| > 5 or arch changes | patterns, circular deps |
+   | Agent | When | Focus |
+   |-------|------|-------|
+   | adversarial | always | red-team + OWASP lens (secrets, injection, auth) |
+   | frontend-dev | Δ intersects FE / `{frontend.path}` / `{shared.ui}` | components, hooks |
    | product-lead | spec exists | spec compliance, product fit |
-   | tester | test files changed | coverage, AAA, edge cases |
-   | frontend-dev | frontend files changed | components, hooks |
-   | backend-dev | backend files changed | API, errors |
-   | devops | config/CI files changed | infra, deploy |
+   | tester | mechanical parse of PR body or `artifacts/reviews/{N}-falsify.md` **fails** (heading alone is ¬sufficient) | coverage, AAA, tautology |
+   | architect / devops | τ=F-full or Δ intersects `scripts/`, CI, `lefthook.yml`, wrangler, deploy | patterns / infra |
+   | backend-dev | τ=F-full or Δ intersects those **or** `{backend.path}` | API, errors |
+   | recall | multi-chunk **and** canonical class tagged **and** ≥3 raw_callsites | class-join (skip single-chunk) |
+   | security-auditor | Δ intersects auth/secrets/crypto — independent of adversarial; ¬default | OWASP |
+   | axial-adr-review | existing structural condition | N×M drift |
 
-5. **Merge & present** — deduplicates by file:line, sorts by confidence, groups Blockers → Warnings → Suggestions → Praise.
+5. **Merge & present** — one finding per `(file, class)` keep max C; also dedup file:line; sorts by confidence; groups Blockers → Warnings → Suggestions → Praise.
 6. **Post to PR** — posts formatted comment with `## Code Review` header.
 7. **Next step** — asks: Fix now (`/fix`) | Merge as-is | Stop.
 

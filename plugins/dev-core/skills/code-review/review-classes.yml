@@ -70,6 +70,13 @@ classes:
       The pair MUST be mentioned together in any prose subsumption note —
       enforced by `tools/validate_plugins.py --check subsumption-pairs`.
 
+  - class: vacuous-guard
+    origin: RC-6
+    description: >
+      A test, assert, or check measures a cheap proxy instead of the priced
+      quantity (heading presence, denylist of path strings, copied inventory
+      list). The control stays green when the invariant is broken.
+
   # ── OWASP classes ───────────────────────────────────────────────────────────
 
   - class: shell-injection

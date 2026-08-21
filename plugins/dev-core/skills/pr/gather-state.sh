@@ -6,6 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../shared/lib.sh
 . "$SCRIPT_DIR/../shared/lib.sh"
+# shellcheck source=parse-falsify.sh
+. "$SCRIPT_DIR/parse-falsify.sh"
 
 BRANCH=$(git branch --show-current 2>/dev/null || true)
 # Refresh remote-tracking refs so base detection + the diffs below reflect the
@@ -46,6 +48,8 @@ if [ -n "$ISSUE_NUM" ]; then
   # `grep -c … || echo 0` — grep already prints "0", so that doubles the output.)
   TEST_FILES=$(git diff "origin/${BASE}...HEAD" --name-only 2>/dev/null | grep -c '\.test\.\|\.spec\.' || true)
   echo "test_files=${TEST_FILES:-0}"
+  pf_emit_gates "$ISSUE_NUM" "$BASE" "${SPEC:-}" "$BRANCH"
 else
   echo "issue=none"
+  pf_emit_gates "" "$BASE" "" "$BRANCH"
 fi

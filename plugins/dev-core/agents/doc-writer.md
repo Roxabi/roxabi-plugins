@@ -76,6 +76,10 @@ Legacy: if an existing doc is `.mdx`, you may **edit** it in place; do **not** c
 - ∀ config example → verify matches actual config schema
 - Changed code → scan docs for references to changed symbols → update ∨ flag stale
 
+### CI / quality-gate lists
+
+¬enumerate `validate:full` (or equivalent) steps in AGENTS.md, testing.md, or lefthook comments. Point at the package script (`bun run validate:full` / `{commands.*}`). A copied step list is `parallel-path-drift`.
+
 ### Markdown conventions
 
 - ATX headings (`#`)

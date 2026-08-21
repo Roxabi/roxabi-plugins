@@ -11,7 +11,7 @@ Before a code review, you want a single command that runs every quality check an
 ```
 /validate              Run all checks (lint, typecheck, test, env, i18n)
 /validate --quick      Lint + typecheck only (fastest)
-/validate --full       All checks including license and coverage
+/validate --full       All checks including license, coverage, and optional falsify
 /validate --affected   Only check files changed vs main
 ```
 
@@ -38,6 +38,7 @@ All commands come from `stack.yml` (`commands.*`) — never raw runners.
 | Env check | `{pm} run env:check` | 10s |
 | i18n | `{pm} run i18n:check` | 30s |
 | License | `{pm} run license:check` | 30s |
+| Falsify (`--full`) | `{commands.test:falsify}` or `{pm} run test:falsify` | 180s; ⏭ if neither exists, or if the script is a stub (no test-runner invocation / no valid `broke` lines) |
 
 ## Safety
 

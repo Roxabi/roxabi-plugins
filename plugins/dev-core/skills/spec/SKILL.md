@@ -2,7 +2,7 @@
 name: spec
 argument-hint: '[--issue <N> | --analysis <path> | --frame <path> | --audit] [--force]'
 description: Solution spec — acceptance criteria, breadboard, slices. Triggers: "write spec" | "spec this" | "solution design" | "what will we build" | "design the solution" | "acceptance criteria" | "define acceptance criteria" | "spec it out" | "write the spec".
-version: 0.3.8
+version: 0.3.9
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -187,6 +187,24 @@ Body must include:
 
 **Intent ≠ Goal.** Intent = *why / what problem*. Goal = *done-when*. Never collapse into one sentence.
 
+### Fail-closed / security / guard SCs — priced quantity (mandatory)
+
+Any SC that is fail-closed, security, authz, deny/refuse, or a guard **must** declare a priced-quantity block (YAML fence, immediately under the checkbox):
+
+```yaml
+priced:  "<property the control must enforce>"
+not:     "<implementation proxy that is NOT the property>"
+oracles: ["concrete input that must fail closed", ...]
+```
+
+- `priced` — the invariant (e.g. "unsigned tokens are rejected")
+- `not` — a cheap proxy that must **not** be the test target (e.g. "denylist of path strings", "grep for `fail-closed` in the skill", "copied `validate:full` step list")
+- `oracles` — concrete inputs that **must** fail closed
+
+**Implementer + tester test `priced` + `oracles`, never `not`.** A test of the proxy (widening a denylist, adding a grep, copying an inventory list) is a `test-tautology` / `parallel-path-drift` precursor — forbidden. Fail-closed SC without this block → pre-check fail.
+
+Signals an SC needs the block: fail-closed / fail closed / deny / refuse / reject / guard / gate / auth / authz / secret / inject / security.
+
 Full body template: [references/templates.md](${CLAUDE_SKILL_DIR}/references/templates.md).
 
 ### Data Model & Consumers (Tier F-lite, F-full)
@@ -208,12 +226,13 @@ May contain χ (max 3–5). χ items block `/plan` — must be resolved before p
 | Check | Rule | Skip condition |
 |-------|------|----------------|
 | Testable criteria | Each `- [ ]` item is binary (pass/fail) | — |
+| Priced quantity | Fail-closed / security / guard SC has `priced` + `not` + `oracles` | ¬fail-closed SC |
 | No dangling refs | All breadboard IDs (U*/N*/S*) appear in ≥1 slice | ¬Breadboard ∨ ¬Slices |
 | Ambiguity budget | ≤5 χ items | — |
 | Slice coverage | Every affordance appears in ≥1 slice | ¬Breadboard ∨ ¬Slices |
 | Edge completeness | Each edge case has handling strategy | — |
 
-**Auto-fix** cheap failures when obvious (rephrase non-binary criteria into binary, add missing slice rows for orphan IDs). Re-run checks once after auto-fix.
+**Auto-fix** cheap failures when obvious (rephrase non-binary criteria into binary, add missing slice rows for orphan IDs, draft a priced block from SC text — χ if oracles unknown). Re-run checks once after auto-fix.
 
 Remaining failures → list in Executive Summary under **Pre-check** (do not AQ Fix/Continue). Prefer fixing over shipping a broken draft when the fix is unambiguous.
 
@@ -344,6 +363,7 @@ When user says split: present proposal as prose table → wait free-form confirm
 | \|χ\| > 5 | Reduce during generate; leftover listed in summary |
 | Tier S | Skip Breadboard + Slices |
 | Circular deps in split | Reject split proposal in prose |
+| Fail-closed SC missing priced block | Pre-check fail; auto-draft block + χ if oracles unknown |
 
 ## Chain Position
 
