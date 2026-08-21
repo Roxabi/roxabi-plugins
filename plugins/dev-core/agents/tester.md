@@ -44,7 +44,9 @@ Generate + maintain + validate tests. Testing Trophy: integration = largest laye
 - Shim test passes even if shim re-exports stale inline copy instead of delegating
 - Protocol method removed → no conformance test catches the divergence
 
-**Correct pattern:** negative test fails when the guard is removed. The implement orchestrator (or domain agent owning source) MUST execute the falsification gate (#280): `git stash` source → run test → assert FAIL → `git stash pop` → assert green → record evidence `broke {source} → test failed with {error}`. ¬mental-only check — executed evidence line is required. A test without a recorded evidence line is treated as unproven (Status `⏳ not run`), not `✓ proven`. Tautological result (stash → still passes) → flag as merge blocker; do NOT record as `✓ proven`.
+**Correct pattern:** negative test fails when the guard is removed. The implement orchestrator (or domain agent owning source) MUST execute the falsification gate (#280). Prefer mechanical `{package_manager} run test:falsify` (or `bash scripts/test-falsify.sh`) when the consumer repo has it; fallback: `git stash` source → run test → assert FAIL → `git stash pop` → assert green. Record evidence `broke {source} → test failed with {error}`. ¬mental-only check — executed evidence line is required. A test without a recorded evidence line is treated as unproven (Status `⏳ not run`), not `✓ proven`. Tautological result (stash/script → still passes) → flag as merge blocker; do NOT record as `✓ proven`.
+
+**Priced SCs:** if the spec SC has a `priced` / `not` / `oracles` block, write tests against `priced` + `oracles`. Never test the `not` proxy (denylist, extra grep, copied inventory list).
 
 ## Coverage Rules (CRITICAL)
 

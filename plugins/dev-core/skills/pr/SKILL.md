@@ -2,7 +2,7 @@
 name: pr
 argument-hint: [--draft | --base <branch>]
 description: Create/update PRs with Conventional Commits title, issue linking & guard rails. Triggers: "create PR" | "open PR" | "submit PR" | "update PR" | "/pr --draft" | "open a pull request" | "make a PR" | "open pull request" | "submit a pull request" | "create a draft PR" | "raise a PR".
-version: 0.4.6
+version: 0.4.7
 allowed-tools: Bash, Read, Grep, ToolSearch
 ---
 
@@ -57,8 +57,10 @@ Emits: `branch`, `base`, commit log, diff stat, existing PR, issue number, lifec
 | PR exists | gh pr list → result | → present choice **Update** (`gh pr edit`) \| **Cancel** |
 | Branch not pushed | `git ls-remote --heads origin $BRANCH` empty | `git push -u origin $BRANCH` |
 | Quality gates | `{commands.lint} && {commands.typecheck}` | Warn on failure, ¬block. Note in PR body if proceeding. |
+| Falsify incomplete (τ≠S) | SC→Test matrix present ∧ ∃ mapped row Status = `⏳ not run` | **REFUSE.** Re-run `/implement` Step 6b. Stop. |
+| No falsify evidence (τ≠S) | ¬∃ `## Falsification Evidence` block (implement summary ∨ body draft) | **REFUSE.** Re-run `/implement` Step 6b. Stop. |
 
-(Note: "behind base" is no longer a guard rail — Step 5 rebases post-create automatically.)
+(Note: "behind base" is no longer a guard rail — Step 5 rebases post-create automatically. τ=S: skip both falsify rails.)
 
 ## Step 3 — Generate Content
 
@@ -141,11 +143,17 @@ Merge path = gate-driven: `reviewed` label + auto-merge (`gh pr merge --auto --m
 
 ## SC → Test Matrix
 
-(Insert the fenced SC→Test Matrix block emitted by `/implement` Step 6a — a chained run carries it in conversation context; for a standalone `/pr`, retrieve it from the implement summary or reconstruct from the spec SCs + landed tests. Tier S: omit this section entirely — see the Lifecycle note below.)
+(Insert the fenced SC→Test Matrix block emitted by `/implement` Step 6a — a chained run carries it in conversation context; for a standalone `/pr`, retrieve it from the implement summary. Status must be `✓ proven` or `⚠ NO TEST — {enum}` for every mapped row. `⏳ not run` on a mapped row → Step 2 REFUSE. Tier S: omit this section entirely — see the Lifecycle note below.)
 
 | SC | Test(s) | Status |
 |----|---------|--------|
-| SC1: {text} | `{file} :: {test name}` | ⏳ not run |
+| SC1: {text} | `{file} :: {test name}` | ✓ proven |
+
+## Falsification Evidence
+
+(Insert the block emitted by `/implement` Step 6b. Missing this heading → Step 2 REFUSE when τ≠S.)
+
+broke {source A} → test failed with {error A}
 
 Fixes #{N}
 
@@ -153,7 +161,7 @@ Fixes #{N}
 Generated with [Roxabi dev-core](https://github.com/Roxabi/roxabi-plugins) via `/pr`
 ```
 
-Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue → omit Lifecycle + Closes. S-tier → also omit SC → Test Matrix section.
+Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue → omit Lifecycle + Closes. S-tier → also omit SC → Test Matrix and Falsification Evidence sections.
 
 ## Options
 
@@ -173,6 +181,7 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 | ¬N in branch | → ask user link issue or skip |
 | Multiple commit types | Use primary type only |
 | Lint/typecheck fail | Warn + present choice: **Proceed anyway** \| **Fix first** |
+| τ≠S ∧ (mapped row `⏳ not run` ∨ ¬Falsification Evidence) | REFUSE — point back to `/implement` Step 6b |
 
 ## Safety Rules
 
@@ -183,6 +192,7 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 5. Always display PR URL after creation
 6. Rebase conflicts → abort + defer to user — ¬auto-resolve
 7. ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED — manual merge mid-CI cancels in-flight runs (`concurrency.cancel-in-progress`) and skips gates. Nominal path: `reviewed` label → auto-merge (`--merge`) on green.
+8. τ≠S: ¬create PR while a mapped SC→Test row is `⏳ not run` or `## Falsification Evidence` is missing — re-run `/implement` Step 6b.
 
 ## Chain Position
 

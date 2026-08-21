@@ -130,7 +130,7 @@ Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, 
 | `tester` | Writes and runs tests, manages RED-GATE |
 | `fixer` | Applies accepted review findings |
 | `security-auditor` | OWASP Top 10 audit with exploit scenarios, confidence scoring (C ≥ 60), and false-positive filtering |
-| `adversarial` | Red-team for `/adversarial` + `/spec` + `/code-review`: bypass, fleet-regression, vacuous guards, assumption-kill (read-only) |
+| `adversarial` | Red-team for `/adversarial` + `/spec` + `/code-review`: bypass, fleet-regression, vacuous guards, assumption-kill; OWASP lens on `/code-review` (read-only) |
 
 ### Strategy
 

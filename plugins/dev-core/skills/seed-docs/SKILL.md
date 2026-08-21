@@ -2,7 +2,7 @@
 name: seed-docs
 argument-hint: '[--docs-path <path>] [--no-scan]'
 description: 'Populate scaffolded architecture/standards docs with real content extracted from CLAUDE.md and codebase analysis — fills TODO stubs, writes AI Quick Reference sections. Triggers: "seed docs" | "bootstrap docs" | "populate docs" | "fill architecture docs" | "seed architecture".'
-version: 0.1.0
+version: 0.1.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---
 
@@ -120,6 +120,7 @@ Read file → identify TODO sections → fill each using K.
 - Standards docs → write for developers; AI Quick Reference → write for agents.
 - K has no data for section → keep TODO + add hint: `TODO: (seed-docs found no data — check CLAUDE.md or run /seed-docs after adding more project context)`.
 - ¬fabricate — if genuinely unknown, say so with a note.
+- CI / quality-gate docs (AGENTS.md, `standards.testing`, lefthook comments): **point at** the package script (`{package_manager} run validate:full` or `{commands.*}`). **Ban enumerating** `validate:full` steps — the script is the SSoT; a copied list drifts (`parallel-path-drift`).
 - Write/fill as plain Markdown. Prefer fenced Mermaid code blocks. If filling a legacy `.mdx` file, keep its existing component conventions; never convert `.md` → `.mdx`.
 
 After each file: display `✅ {relative path} — {N} TODOs filled, {M} sections updated`.

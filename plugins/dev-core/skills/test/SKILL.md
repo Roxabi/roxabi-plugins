@@ -2,7 +2,7 @@
 name: test
 argument-hint: [file | --e2e | --run]
 description: Generate/run unit, integration & Playwright e2e tests. Triggers: "test this file" | "write tests" | "add coverage" | "run tests" | "e2e tests" | "add tests" | "test coverage" | "generate tests" | "test this" | "write unit tests" | "add integration tests".
-version: 0.4.1
+version: 0.4.2
 allowed-tools: Bash, Read, Write, Glob, Grep, ToolSearch
 ---
 
@@ -40,6 +40,7 @@ Generate tests for changed/specified files. Follow existing codebase patterns.
 | 5 | generate-tests | ✓ | tests generated | — |
 | 6 | approval | ✓ | user confirms | — |
 | 7 | write-and-verify | ✓ | test exit 0 | retry 1 |
+| 8 | falsify | ✓ | `broke {file} → {error}` | mechanical preferred; e2e skip |
 
 ## Pre-flight
 
@@ -122,13 +123,28 @@ it('should return user by id', () => {
 
 ## Step 8 — Falsification Gate (standalone `/test`)
 
-Applies to: unit + fast-integration tests only. Triggered after Step 7 green run. **Ownership:** when invoked by `/implement`, the implement orchestrator drives the stash (¬tester). When invoked standalone (no implement orchestrator), `/test` owns the stash cycle itself — the tester agent still only writes tests; the stash is driven by the `/test` flow.
+Applies to: unit + fast-integration tests only. Triggered after Step 7 green run. **Ownership:** when invoked by `/implement`, the implement orchestrator drives the gate (¬tester). When invoked standalone (no implement orchestrator), `/test` owns the cycle itself — the tester agent still only writes tests; the runner is driven by the `/test` flow.
 
 **e2e exemption:** tests generated via `--e2e` → annotate each as `⚠ NO FALSIFY — e2e`. Stop. ¬run stash cycle.
 
 **Precondition:** all newly created source files must be `git add`-ed before the gate runs — the Write tool does NOT auto-stage new files, and unstaged new files are invisible to `git diff HEAD`.
 
-∀ new/modified test written in this session:
+**Evidence is mandatory.** A test without a `broke {file} → {error}` line stays `⏳ not run`, never `✓ proven`.
+
+Spec SCs with a priced-quantity block: test `priced` + `oracles`, never `not`.
+
+**Runner — prefer mechanical** (consumer repo):
+
+```
+1. `{commands.test:falsify}` defined in stack.yml     → run it
+2. else package.json has script `test:falsify`        → `{package_manager} run test:falsify`
+3. else `scripts/test-falsify.sh` exists              → `bash scripts/test-falsify.sh`
+4. else **fallback** — LLM-operated git stash (below)
+```
+
+Mechanical runner: collect `broke {file} → {error}` lines from its output. Missing line → that test stays unproven.
+
+**Fallback — stash source (¬test files).** ∀ new/modified test written in this session:
 
 1. **Stash source** (¬test files):
    ```bash
@@ -146,7 +162,7 @@ Applies to: unit + fast-integration tests only. Triggered after Step 7 green run
    broke {source file} → test failed with {error/assertion message}
    ```
 
-Evidence lines feed the #279 matrix `Status` column: `✓ proven`. Append evidence block to output before reporting done.
+Evidence lines feed the #279 matrix `Status` column: `✓ proven` only when a broke-line exists. Append evidence block to output before reporting done.
 
 ## E2E Mode (`--e2e`)
 

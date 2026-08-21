@@ -25,7 +25,7 @@ Triggers: `"implement"` | `"build this"` | `"execute plan"` | `"start coding"` |
    - **Tier S** — lead implements directly, single session, no agent spawning.
    - **Tier F** — spawns agents per plan (test-first): `tester` writes failing tests (RED), domain agents implement to pass (GREEN), agents refactor (REFACTOR), tester verifies coverage.
 5. **Quality gate** — runs `lint && typecheck && test`; retries up to 3× with fixer agents; offers abandon on repeated failure.
-6. **Summary** — lists created/modified files, agent list, task completion rate, first-try verify pass rate.
+6. **Summary** — lists created/modified files, agent list, task completion rate, first-try verify pass rate. τ≠S: emit SC→Test matrix, then **falsification gate** (prefer `{pm} run test:falsify` / `scripts/test-falsify.sh`; git-stash fallback). Evidence `broke {file} → {error}` required; without it the row stays `⏳ not run`.
 
 ## Tier behavior
 

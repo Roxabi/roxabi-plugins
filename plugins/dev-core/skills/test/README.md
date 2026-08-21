@@ -25,6 +25,7 @@ Triggers: `"test this file"` | `"write tests"` | `"add coverage"` | `"run tests"
 4. **Generate** — happy path, edge cases (empty/null/boundary), error cases; AAA with explicit comments; 90% coverage target for business logic.
 5. **Approval** — shows generated tests before writing; never writes without approval.
 6. **Write + verify** — writes the file, runs the tests, reports pass/fail; offers to fix on failure.
+7. **Falsify** — prefer `{pm} run test:falsify` / `scripts/test-falsify.sh`; git-stash of source is fallback. Evidence `broke {file} → {error}` required; without it the test stays `⏳ not run`.
 
 ## Framework
 

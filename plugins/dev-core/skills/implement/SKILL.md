@@ -2,7 +2,7 @@
 name: implement
 argument-hint: '[--issue <N> | --plan <path> | --audit]'
 description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "implement" | "build this" | "execute plan" | "start coding" | "write the code" | "code this up" | "let's build it" | "build it out".
-version: 0.3.2
+version: 0.3.3
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
 
@@ -282,10 +282,12 @@ For τ=F (F-lite or F-full):
 4. Persist matrix as a fenced markdown block in the summary output (consumed by `/pr` Step 3d).
 
 **Status column schema** (for `/pr` and falsification gate #280):
-- `⏳ not run` — test exists, not yet executed against this change
-- `✓ proven` — test ran green + falsification check passed (set by #280 gate)
+- `⏳ not run` — test exists, not yet executed against this change **or** ran without a recorded evidence line
+- `✓ proven` — test ran green + falsification check passed **and** evidence line recorded (set by #280 gate)
 - `✗ failed` — test ran red (set by #280 gate; note: `broke X → test failed with Y`)
 - `⚠ NO TEST — {reason}` — no test; reason ∈ enum
+
+Spec SCs with a priced-quantity block: map tests to `priced` + `oracles`, never to `not`.
 
 ### Step 6b — Falsification Gate (#280)
 
@@ -293,7 +295,20 @@ Runs immediately after SC→Test Matrix is built. Scope: unit + fast-integration
 
 **Precondition:** the implement agent must `git add` all newly created source files before the gate runs — the Write tool does NOT auto-stage, and unstaged new files are invisible to `git diff HEAD`.
 
-∀ new/modified test mapped in the matrix (¬e2e):
+**Evidence is mandatory.** A mapped test without a `broke {file} → {error}` line stays `⏳ not run`, never `✓ proven`. ¬mental-only check.
+
+**Runner — prefer mechanical** (consumer repo):
+
+```
+1. `{commands.test:falsify}` defined in stack.yml     → run it
+2. else package.json has script `test:falsify`        → `{package_manager} run test:falsify`
+3. else `scripts/test-falsify.sh` exists              → `bash scripts/test-falsify.sh`
+4. else **fallback** — LLM-operated git stash (below)
+```
+
+Mechanical runner: collect `broke {file} → {error}` lines from its output. Missing line for a mapped test → leave that row `⏳ not run`. Tautological (pass-without-impl / exit 0 with no broke lines) → blocking gap; ¬proceed to `/pr`.
+
+**Fallback — stash source (¬test files).** ∀ new/modified test mapped in the matrix (¬e2e):
 
 1. **Stash source** (¬test files):
    ```bash
@@ -310,7 +325,7 @@ Runs immediately after SC→Test Matrix is built. Scope: unit + fast-integration
    ```
    broke {source file} → test failed with {error/assertion message}
    ```
-7. **Update Status**: set matrix row to `✓ proven` (green + falsified) or `✗ failed` (red on green run).
+7. **Update Status**: set matrix row to `✓ proven` (green + falsified + evidence) or `✗ failed` (red on green run). ¬evidence → stay `⏳ not run`.
 
 **After all tests falsified**: append evidence block to summary output:
 
@@ -385,5 +400,6 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 6. Pre-commit hook failure → fix, re-stage, NEW commit (¬amend)
 7. **¬** `git switch` / `checkout` feat on principal — principal freezes on β
 8. Grok: **¬** `isolation: worktree` for implement workers — use `cwd: WT_PATH`
+9. AGENTS.md / `standards.testing` / lefthook comments: **ban enumerating** `validate:full` steps — point at the package script (`{package_manager} run validate:full` / `{commands.*}`). A copied step list is `parallel-path-drift`.
 
 $ARGUMENTS

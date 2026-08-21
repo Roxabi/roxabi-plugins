@@ -26,6 +26,8 @@ Let: φ := finding | Φ := finding set | C := confidence (0–100) | ST := `{sha
 
 Apply accepted review comments. ¬new features, ¬over-refactoring.
 
+**Proxy-fix ban** (class ∈ {test-tautology, vacuous-guard, parallel-path-drift}): **forbidden** to widen a denylist, add a grep, or copy an inventory/`validate:full` list. Required: change the oracle / single SSoT (matcher, parser, one `package.json` script). A proxy "fix" → report `[failed]` to lead, do not apply.
+
 **Standards:** Read before fixing: FE→`{standards.frontend}` | BE→`{standards.backend}` | Tests→`{standards.testing}` | Review→`{standards.code_review}`
 
 ## Workflow
