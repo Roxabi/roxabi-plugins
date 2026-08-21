@@ -46,7 +46,9 @@ Steps: gather-state → guard-rails → generate → create → rebase
 bash ${CLAUDE_SKILL_DIR}/gather-state.sh
 ```
 
-Emits: `branch`, `base`, commit log, diff stat, existing PR, issue number, lifecycle artifacts (analysis, spec), test file count.
+Emits: `branch`, `base`, commit log, diff stat, existing PR, issue number, lifecycle artifacts (analysis, spec), test file count, `falsify_required`, `falsify_ok`, `falsify_reason`, `priced_ok`.
+
+`falsify_*` / `priced_ok` come from a mechanical parse of `artifacts/reviews/{N}-falsify.md` + spec SCs (`parse-falsify.sh`) — not from heading presence in the conversation. Missing persist when τ≠S → `falsify_ok=false` (fail-closed). Conversation-only summaries are invisible to the parser.
 
 ## Step 2 — Guard Rails
 
@@ -57,10 +59,10 @@ Emits: `branch`, `base`, commit log, diff stat, existing PR, issue number, lifec
 | PR exists | gh pr list → result | → present choice **Update** (`gh pr edit`) \| **Cancel** |
 | Branch not pushed | `git ls-remote --heads origin $BRANCH` empty | `git push -u origin $BRANCH` |
 | Quality gates | `{commands.lint} && {commands.typecheck}` | Warn on failure, ¬block. Note in PR body if proceeding. |
-| Falsify incomplete (τ≠S) | SC→Test matrix present ∧ ∃ mapped row Status = `⏳ not run` | **REFUSE.** Re-run `/implement` Step 6b. Stop. |
-| No falsify evidence (τ≠S) | ¬∃ `## Falsification Evidence` block (implement summary ∨ body draft) | **REFUSE.** Re-run `/implement` Step 6b. Stop. |
+| Falsify incomplete (τ≠S) | `falsify_required=true` ∧ `falsify_ok=false` | **REFUSE.** Re-run `/implement` Step 6b (persist `artifacts/reviews/{N}-falsify.md`). Stop. |
+| Priced quantity missing (τ≠S) | `priced_ok=false` | **REFUSE.** Re-run `/spec` to add `priced`/`not`/`oracles` blocks on fail-closed SCs. Stop. |
 
-(Note: "behind base" is no longer a guard rail — Step 5 rebases post-create automatically. τ=S: skip both falsify rails.)
+(Note: "behind base" is no longer a guard rail — Step 5 rebases post-create automatically. τ=S: skip both rails — `falsify_required=false`.)
 
 ## Step 3 — Generate Content
 
@@ -70,7 +72,7 @@ git log origin/${BASE}..HEAD --format="%h %s%n%b"
 git diff origin/${BASE}...HEAD --stat
 ```
 
-**3b. Lifecycle artifacts:** already emitted by Step 1 (`issue`, `analysis`, `spec`, `issue_data`, `test_files`).
+**3b. Lifecycle artifacts:** already emitted by Step 1 (`issue`, `analysis`, `spec`, `issue_data`, `test_files`, `falsify_*`, `priced_ok`).
 
 N detection: first number after `/` in Β (e.g. `feat/42-slug` → `#42`). ¬found → ask user "Which issue number does this PR close, if any?"
 
@@ -143,17 +145,11 @@ Merge path = gate-driven: `reviewed` label + auto-merge (`gh pr merge --auto --m
 
 ## SC → Test Matrix
 
-(Insert the fenced SC→Test Matrix block emitted by `/implement` Step 6a — a chained run carries it in conversation context; for a standalone `/pr`, retrieve it from the implement summary. Status must be `✓ proven` or `⚠ NO TEST — {enum}` for every mapped row. `⏳ not run` on a mapped row → Step 2 REFUSE. Tier S: omit this section entirely — see the Lifecycle note below.)
-
-| SC | Test(s) | Status |
-|----|---------|--------|
-| SC1: {text} | `{file} :: {test name}` | ✓ proven |
+Insert persisted `artifacts/reviews/{N}-falsify.md` — do not invent rows. (Step 2 already refused unless `falsify_ok=true`.) Tier S: omit this section entirely — see the Lifecycle note below.
 
 ## Falsification Evidence
 
-(Insert the block emitted by `/implement` Step 6b. Missing this heading → Step 2 REFUSE when τ≠S.)
-
-broke {source A} → test failed with {error A}
+Insert persisted `artifacts/reviews/{N}-falsify.md` — do not invent rows.
 
 Fixes #{N}
 
@@ -181,7 +177,7 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 | ¬N in branch | → ask user link issue or skip |
 | Multiple commit types | Use primary type only |
 | Lint/typecheck fail | Warn + present choice: **Proceed anyway** \| **Fix first** |
-| τ≠S ∧ (mapped row `⏳ not run` ∨ ¬Falsification Evidence) | REFUSE — point back to `/implement` Step 6b |
+| τ≠S ∧ (`falsify_ok=false` ∨ `priced_ok=false`) | REFUSE — falsify → `/implement` Step 6b persist; priced → `/spec` |
 
 ## Safety Rules
 
@@ -192,7 +188,7 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 5. Always display PR URL after creation
 6. Rebase conflicts → abort + defer to user — ¬auto-resolve
 7. ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED — manual merge mid-CI cancels in-flight runs (`concurrency.cancel-in-progress`) and skips gates. Nominal path: `reviewed` label → auto-merge (`--merge`) on green.
-8. τ≠S: ¬create PR while a mapped SC→Test row is `⏳ not run` or `## Falsification Evidence` is missing — re-run `/implement` Step 6b.
+8. τ≠S: ¬create PR while `falsify_ok=false` or `priced_ok=false` — heading presence is ¬the oracle. Re-run `/implement` Step 6b (persist) or `/spec` (priced blocks).
 
 ## Chain Position
 

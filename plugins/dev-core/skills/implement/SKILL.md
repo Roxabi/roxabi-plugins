@@ -279,7 +279,7 @@ For τ=F (F-lite or F-full):
    - ≥1 named test mapped → row: `| SC-N: {text} | {file} :: {test name}[, …] | ⏳ not run |`
    - ¬mapped → row: `| SC-N: {text} | — | ⚠ NO TEST — {reason} |` (NO TEST is a Status verdict, per the schema below)
      - `reason` MUST ∈ `{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}` (closed enum — ¬free-form). Unmapped SC with ¬reason from enum = **blocking gap**: highlight in summary, ¬proceed to `/pr`.
-4. Persist matrix as a fenced markdown block in the summary output (consumed by `/pr` Step 3d).
+4. Persist matrix as a fenced markdown block in the summary output (consumed by `/pr` Step 3d). Disk persist of the final matrix+evidence is Step 6b.
 
 **Status column schema** (for `/pr` and falsification gate #280):
 - `⏳ not run` — test exists, not yet executed against this change **or** ran without a recorded evidence line
@@ -287,7 +287,7 @@ For τ=F (F-lite or F-full):
 - `✗ failed` — test ran red (set by #280 gate; note: `broke X → test failed with Y`)
 - `⚠ NO TEST — {reason}` — no test; reason ∈ enum
 
-Spec SCs with a priced-quantity block: map tests to `priced` + `oracles`, never to `not`.
+**Priced quantity (mechanical, not optional):** scan each SC checkbox. Signals: fail-closed / fail closed / deny / refuse / reject / guard / gate / auth / authz / secret / inject / security. Matching SC whose following fenced yaml does not contain `priced:` + `not:` + `oracles:` → **blocking gap**, ¬proceed to `/pr` (re-run `/spec`). Map tests to `priced` + `oracles`, never to `not`.
 
 ### Step 6b — Falsification Gate (#280)
 
@@ -300,13 +300,19 @@ Runs immediately after SC→Test Matrix is built. Scope: unit + fast-integration
 **Runner — prefer mechanical** (consumer repo):
 
 ```
-1. `{commands.test:falsify}` defined in stack.yml     → run it
-2. else package.json has script `test:falsify`        → `{package_manager} run test:falsify`
-3. else `scripts/test-falsify.sh` exists              → `bash scripts/test-falsify.sh`
+1. `{commands.test:falsify}` defined in stack.yml     → candidate
+2. else package.json has script `test:falsify`        → candidate (`{package_manager} run test:falsify`)
+3. else `scripts/test-falsify.sh` exists              → candidate (`bash scripts/test-falsify.sh`)
 4. else **fallback** — LLM-operated git stash (below)
 ```
 
-Mechanical runner: collect `broke {file} → {error}` lines from its output. Missing line for a mapped test → leave that row `⏳ not run`. Tautological (pass-without-impl / exit 0 with no broke lines) → blocking gap; ¬proceed to `/pr`.
+**Accept a candidate only if both:**
+1. The script (or stack.yml command) actually invokes a test runner (`bun run test` / `vitest` / `pytest` / `uv run pytest` / `{commands.test}`).
+2. Output lines match `broke <file> → <error>` where `<error>` is non-placeholder (¬`{error`, ¬`source A`) AND matches a real failure token (`AssertionError|FAIL |toThrow|Error:`).
+
+**Stub-refuse:** tautological (exit 0 with no valid broke lines, OR exit 0 without a test-runner invocation in the script) → **ignore the script** and fall through to git-stash fallback. ¬treat stub `echo broke …` as evidence.
+
+Mechanical runner (accepted): collect valid `broke <file> → <error>` lines. Missing line for a mapped test → leave that row `⏳ not run`.
 
 **Fallback — stash source (¬test files).** ∀ new/modified test mapped in the matrix (¬e2e):
 
@@ -321,19 +327,15 @@ Mechanical runner: collect `broke {file} → {error}` lines from its output. Mis
 3. **Assert FAIL**: if exit 0 → test is **tautological** (passes without the implementation) → blocking gap. Do NOT pop stash. Restore worktree: `git stash pop`. Report: `TAUTOLOGICAL: {file} :: {test name} — passed with implementation stashed`. ¬proceed to `/pr` until test is rewritten.
 4. **Pop stash** (success path only): `git stash pop`.
 5. **Assert GREEN**: re-run `{commands.test} {test_file}` → exit 0. If ✗ → stash pop corrupted state → escalate to lead.
-6. **Record evidence**: one line per test:
+6. **Record evidence**: one line per test (`<error>` from the runner — ¬`{error` / `{source` / `source A`):
    ```
-   broke {source file} → test failed with {error/assertion message}
+   broke <path> → test failed with <error/assertion message>
    ```
 7. **Update Status**: set matrix row to `✓ proven` (green + falsified + evidence) or `✗ failed` (red on green run). ¬evidence → stay `⏳ not run`.
 
-**After all tests falsified**: append evidence block to summary output:
+**After all tests falsified**: append evidence block to summary output, then **persist** (mandatory, τ≠S):
 
-```
-## Falsification Evidence
-broke {source A} → test failed with {error A}
-broke {source B} → test failed with {error B}
-```
+Write the exact matrix + evidence markdown to `artifacts/reviews/{N}-falsify.md` (`mkdir -p artifacts/reviews`). Conversation-only summary is ¬the oracle — `/pr` fail-closes on a missing file. ¬invent rows. Evidence lines: one `broke <file> → <error>` per mapped `✓ proven` row; `<error>` from the runner (must contain `AssertionError|FAIL |toThrow|Error:`); ¬template placeholders (`{error`, `{source`, `source A`).
 
 **Success path only:** ¬stash residue in working tree after gate completes — verify with `git status`. (On the tautological-blocking path the run halts before `/pr`; stash is popped as part of stopping, so no diff residue reaches the PR.)
 

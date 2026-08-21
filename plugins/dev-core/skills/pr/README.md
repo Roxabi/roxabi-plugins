@@ -18,7 +18,7 @@ Triggers: `"create PR"` | `"open PR"` | `"submit PR"` | `"open a pull request"` 
 
 ## How it works
 
-1. **Guard rails** — refuses to PR from `staging`/`main`/`master`; refuses if no commits ahead; offers to update if PR already exists; pushes branch if not yet pushed; warns on lint/typecheck failures. τ≠S: **REFUSE** if the SC→Test matrix has a mapped `⏳ not run` row or there is no `## Falsification Evidence` block — re-run `/implement` Step 6b.
+1. **Guard rails** — refuses to PR from `staging`/`main`/`master`; refuses if no commits ahead; offers to update if PR already exists; pushes branch if not yet pushed; warns on lint/typecheck failures. τ≠S: **REFUSE** if `falsify_ok=false` (mechanical parse of `artifacts/reviews/{N}-falsify.md` failed — heading presence is ¬the oracle) or `priced_ok=false` (fail-closed SC missing `priced`/`not`/`oracles`) — re-run `/implement` Step 6b or `/spec`.
 2. **Content generation** — reads commits + diff + lifecycle artifacts (analysis, spec) to generate title (`<type>(<scope>): <desc>`, ≤70 chars) and body.
 3. **Create** — runs `gh pr create`; updates issue status to `Review`.
 4. **Rebase** — fetches latest base, rebases if behind, force-pushes with lease (no `--force`).
@@ -29,7 +29,7 @@ Triggers: `"create PR"` | `"open PR"` | `"submit PR"` | `"open a pull request"` 
 - Summary bullets
 - Lifecycle table (phase → artifact → status)
 - Test plan checklist
-- SC→Test matrix (τ≠S) + Falsification Evidence
+- SC→Test matrix (τ≠S) + Falsification Evidence (insert persisted `artifacts/reviews/{N}-falsify.md` — do not invent rows)
 - `Fixes #N`
 
 ## Safety

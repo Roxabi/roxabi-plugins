@@ -38,7 +38,7 @@ All commands come from `stack.yml` (`commands.*`) — never raw runners.
 | Env check | `{pm} run env:check` | 10s |
 | i18n | `{pm} run i18n:check` | 30s |
 | License | `{pm} run license:check` | 30s |
-| Falsify (`--full`) | `{commands.test:falsify}` or `{pm} run test:falsify` | 180s; ⏭ if neither exists |
+| Falsify (`--full`) | `{commands.test:falsify}` or `{pm} run test:falsify` | 180s; ⏭ if neither exists, or if the script is a stub (no test-runner invocation / no valid `broke` lines) |
 
 ## Safety
 

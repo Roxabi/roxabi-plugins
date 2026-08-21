@@ -111,26 +111,26 @@ digests = emit_all_digests(chunks)            # list[BoundaryDigest]
 
 | Agent | When | Focus |
 |-------|------|-------|
-| **adversarial** | **always** | red-team: bypass, fleet-regression, vacuous guards, assumption-kill + **OWASP lens** (secrets, injection, auth). ¬also spawn security-auditor by default |
+| **adversarial** | **always** | red-team: bypass, fleet-regression, vacuous guards, assumption-kill + **OWASP lens** (secrets, injection, auth). security-auditor is independent when Δ ∩ auth/secrets/crypto (both may run) |
 | **frontend-dev** | Δ ∩ {FE, `{frontend.path}`, `{shared.ui}`} ≠ ∅ | FE patterns, components, hooks |
 | **product-lead** | spec ∃ | spec compliance, product fit |
-| **tester** | PR body (∨ implement summary if ¬PR) has **no** `## Falsification Evidence` block | coverage, AAA, edge cases, tautology |
+| **tester** | mechanical parse of PR body ∨ `artifacts/reviews/{N}-falsify.md` **fails** (heading `## Falsification Evidence` alone is ¬sufficient) | coverage, AAA, edge cases, tautology |
 | **architect** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy} ≠ ∅ | patterns, structure, circular deps |
-| **backend-dev** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy} ≠ ∅ | BE patterns, API, errors |
+| **backend-dev** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy, `{backend.path}`} ≠ ∅ | BE patterns, API, errors |
 | **devops** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy} ≠ ∅ | config, deploy, infra |
 | **recall** | **only** multi-chunk ∧ canonical class already tagged ∧ ≥3 raw_callsites. Skip on single-chunk | class-join, uncited callsites — Phase 3b, ¬Lane A |
-| **security-auditor** | **not default.** Optional only if Δ is auth/secrets **and** adversarial was skipped (should not happen) | OWASP, secrets, injection, auth |
+| **security-auditor** | Δ ∩ {auth, secrets, crypto, `**/auth/**`, `**/*secret*`, `**/*crypto*`} ≠ ∅ — independent of adversarial. ¬default (off unless that Δ) | OWASP, secrets, injection, auth |
 | **axial-adr-review** | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ Δ ∩ {`infrastructure/`, `adapters/`, `domains/`, `stages/`} ≠ ∅ | Drift along non-primary axis (target × concern duplication) — read-only review agent (no Write/Edit/Bash tools) |
 
 > **Note on axial-adr-review asymmetry (intentional):** The `/code-review` condition is **structural** — it triggers when the diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`. The spec phase (`/spec`) uses a **semantic/intent-based** condition (spec adds adapter/integration/target ∨ touches `infrastructure/`). The two are complementary: `/spec` catches intent-level N×M violations, `/code-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
 
-Skip: product-lead → spec ∄ | tester → Falsification Evidence block ∃ | frontend-dev → ¬FE Δ | architect/backend-dev/devops → τ≠F-full ∧ Δ misses `scripts/`/CI/`lefthook.yml`/wrangler/deploy | security-auditor → default skip | recall → single-chunk ∨ ¬canonical class ∨ \|callsites\|<3
+Skip: product-lead → spec ∄ | tester → `bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/parse-falsify.sh` on PR body (tempfile) ∨ `artifacts/reviews/{N}-falsify.md` emits `falsify_ok=true` (heading alone is ¬sufficient; parse fail → spawn tester) | frontend-dev → ¬FE Δ | architect/devops → τ≠F-full ∧ Δ misses `scripts/`/CI/`lefthook.yml`/wrangler/deploy | backend-dev → τ≠F-full ∧ Δ misses those ∧ `{backend.path}` | security-auditor → Δ misses auth/secrets/crypto | recall → single-chunk ∨ ¬canonical class ∨ \|callsites\|<3
 
 **Subdomain split (multi-chunk):** For each chunk `c_i`, apply the dispatch table against `c_i.files` only (not full Δ). Default: 1 agent per domain per chunk. recall is Phase 3b (not per-chunk Lane A).
 
 ### Security-auditor scoping
 
-Only when security-auditor is actually spawned (optional, not default):
+Only when security-auditor is actually spawned (Δ ∩ auth/secrets/crypto, ¬default):
 
 1. ∀ f ∈ Δ: imports(f) = static `from '...'` ∪ dynamic `import('...')`
 2. Resolve aliases:
@@ -160,11 +160,11 @@ For each chunk `c_i`, spawn the applicable domain agents in parallel:
 Task(
   subagent_type: "dev-core:{agent}",
   description: "{agent} review — chunk {i}/{N} — {PR#|branch}",
-  prompt: "Code review task. Focus: {focus}. If you are adversarial: also apply an OWASP lens (secrets, injection, auth) — ¬expect a sibling security-auditor unless the orchestrator spawned one. Output Conventional Comments findings only. ¬TaskCreate.\n\nYou are reviewing chunk {i} of {N}. Review ONLY the files in this chunk.\n\nAdditionally audit each chunk against the systematic blind spots in `${CLAUDE_PLUGIN_ROOT}/skills/code-review/review-blind-spots.md` — call out each applicable one explicitly (or note none apply).\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all locations of this anti-pattern; required when Class is set; never empty\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, target-axis-trap, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$. Subsumption: bare-except subsumes missing-error-handling — when both apply, tag bare-except only. parallel-path-drift and target-axis-trap are siblings (¬overlap) — parallel-path-drift for security hardening missing on a sibling entry point, target-axis-trap for architectural concern duplication across the non-primary axis (concern copy-pasted in ≥3 sibling dirs); prefer the matching one, do not double-tag.\n\n---CHUNK DIFF (chunk {i})---\n{c_i.hunk_text for all files in chunk}\n\n---CHUNK FILES---\n{contents of files in c_i}\n\n---BOUNDARY DIGESTS (other chunks)---\n{format_digest_for_agent(d) for d in digests if d.chunk_index != i}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
+  prompt: "Code review task. Focus: {focus}. If you are adversarial: also apply an OWASP lens (secrets, injection, auth) — ¬expect a sibling security-auditor unless the orchestrator spawned one (orchestrator MAY spawn one when Δ ∩ auth/secrets/crypto, independent of adversarial). Output Conventional Comments findings only. ¬TaskCreate.\n\nYou are reviewing chunk {i} of {N}. Review ONLY the files in this chunk.\n\nAdditionally audit each chunk against the systematic blind spots in `${CLAUDE_PLUGIN_ROOT}/skills/code-review/review-blind-spots.md` — call out each applicable one explicitly (or note none apply).\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all locations of this anti-pattern; required when Class is set; never empty\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, target-axis-trap, vacuous-guard, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$. Subsumption: bare-except subsumes missing-error-handling — when both apply, tag bare-except only. parallel-path-drift and target-axis-trap are siblings (¬overlap) — parallel-path-drift for security hardening missing on a sibling entry point, target-axis-trap for architectural concern duplication across the non-primary axis (concern copy-pasted in ≥3 sibling dirs); prefer the matching one, do not double-tag.\n\n---CHUNK DIFF (chunk {i})---\n{c_i.hunk_text for all files in chunk}\n\n---CHUNK FILES---\n{contents of files in c_i}\n\n---BOUNDARY DIGESTS (other chunks)---\n{format_digest_for_agent(d) for d in digests if d.chunk_index != i}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
 )
 ```
 
-Agent name map: `adversarial` → `dev-core:adversarial` | `frontend-dev` → `dev-core:frontend-dev` | `product-lead` → `dev-core:product-lead` | `tester` → `dev-core:tester` | `architect` → `dev-core:architect` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `recall` → `dev-core:recall` | `security-auditor` → `dev-core:security-auditor` (optional, ¬default) | `axial-adr-review` → `dev-core:axial-adr-review`
+Agent name map: `adversarial` → `dev-core:adversarial` | `frontend-dev` → `dev-core:frontend-dev` | `product-lead` → `dev-core:product-lead` | `tester` → `dev-core:tester` | `architect` → `dev-core:architect` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `recall` → `dev-core:recall` | `security-auditor` → `dev-core:security-auditor` (when Δ ∩ auth/secrets/crypto, ¬default) | `axial-adr-review` → `dev-core:axial-adr-review`
 
 ### Agent payload
 
@@ -342,8 +342,8 @@ Q:
 | Missing root cause/solutions | C(f) := 0 |
 | architect skipped | ¬arch review → faster |
 | product-lead skipped | Phase 2 skipped |
-| tester skipped | Falsification Evidence ∃ → ¬coverage review |
-| security-auditor skipped | default — adversarial owns OWASP |
+| tester skipped | mechanical falsify parse ok → ¬coverage review |
+| security-auditor skipped | Δ misses auth/secrets/crypto — adversarial still owns OWASP on every review; security-auditor is additive when Δ intersects |
 
 ## Safety Rules
 

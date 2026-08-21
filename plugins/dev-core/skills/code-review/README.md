@@ -27,10 +27,11 @@ Triggers: `"code review"` | `"review changes"` | `"review PR #42"` | `"check my 
    | adversarial | always | red-team + OWASP lens (secrets, injection, auth) |
    | frontend-dev | Δ intersects FE / `{frontend.path}` / `{shared.ui}` | components, hooks |
    | product-lead | spec exists | spec compliance, product fit |
-   | tester | PR body has **no** Falsification Evidence | coverage, AAA, tautology |
-   | architect / backend-dev / devops | τ=F-full or Δ intersects `scripts/`, CI, `lefthook.yml`, wrangler, deploy | patterns / API / infra |
+   | tester | mechanical parse of PR body or `artifacts/reviews/{N}-falsify.md` **fails** (heading alone is ¬sufficient) | coverage, AAA, tautology |
+   | architect / devops | τ=F-full or Δ intersects `scripts/`, CI, `lefthook.yml`, wrangler, deploy | patterns / infra |
+   | backend-dev | τ=F-full or Δ intersects those **or** `{backend.path}` | API, errors |
    | recall | multi-chunk **and** canonical class tagged **and** ≥3 raw_callsites | class-join (skip single-chunk) |
-   | security-auditor | not default; only if Δ is auth/secrets and adversarial skipped | OWASP fallback |
+   | security-auditor | Δ intersects auth/secrets/crypto — independent of adversarial; ¬default | OWASP |
    | axial-adr-review | existing structural condition | N×M drift |
 
 5. **Merge & present** — one finding per `(file, class)` keep max C; also dedup file:line; sorts by confidence; groups Blockers → Warnings → Suggestions → Praise.

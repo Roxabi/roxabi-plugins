@@ -136,13 +136,15 @@ Spec SCs with a priced-quantity block: test `priced` + `oracles`, never `not`.
 **Runner — prefer mechanical** (consumer repo):
 
 ```
-1. `{commands.test:falsify}` defined in stack.yml     → run it
-2. else package.json has script `test:falsify`        → `{package_manager} run test:falsify`
-3. else `scripts/test-falsify.sh` exists              → `bash scripts/test-falsify.sh`
+1. `{commands.test:falsify}` defined in stack.yml     → candidate
+2. else package.json has script `test:falsify`        → candidate (`{package_manager} run test:falsify`)
+3. else `scripts/test-falsify.sh` exists              → candidate (`bash scripts/test-falsify.sh`)
 4. else **fallback** — LLM-operated git stash (below)
 ```
 
-Mechanical runner: collect `broke {file} → {error}` lines from its output. Missing line → that test stays unproven.
+**Accept a candidate only if both:** the script/command invokes a test runner (`bun run test` / `vitest` / `pytest` / `uv run pytest` / `{commands.test}`), AND output `broke <file> → <error>` lines have a non-placeholder `<error>` matching `AssertionError|FAIL |toThrow|Error:`. **Stub-refuse:** tautological (exit 0, no valid broke lines, or no test-runner invocation) → ignore the script and fall through to git-stash. ¬treat stub `echo broke …` as evidence.
+
+Mechanical runner (accepted): collect valid `broke <file> → <error>` lines. Missing line → that test stays unproven.
 
 **Fallback — stash source (¬test files).** ∀ new/modified test written in this session:
 
