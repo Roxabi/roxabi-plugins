@@ -115,10 +115,13 @@ digests = emit_all_digests(chunks)            # list[BoundaryDigest]
 Before Lane A dispatch, compute **once per review** (global, not per-chunk):
 
 ```bash
-# spec_path from Phase 2; Δ file list one path per line
+# spec_path from Phase 2; write Δ paths to a mktemp file (see tempfile-convention.md)
+REVIEW_TMP=$(mktemp -d -t "dev-core-review-delta-419-XXXXXX")
+trap 'rm -rf "$REVIEW_TMP"' EXIT
+printf '%s\n' "${DELTA_FILES[@]}" > "$REVIEW_TMP/delta.txt"
 bash ${CLAUDE_PLUGIN_ROOT}/skills/code-review/claim-roster.sh \
   --spec "$spec_path" \
-  --diff-list /tmp/review-delta-$$.txt \
+  --diff-list "$REVIEW_TMP/delta.txt" \
   --json
 # spawn_security_auditor := JSON field; exit 2 when priced fences lack valid claim (still spawn)
 ```

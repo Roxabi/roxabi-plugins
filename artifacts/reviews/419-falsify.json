@@ -1,0 +1,66 @@
+{
+  "schema_version": "1",
+  "issue": 419,
+  "head": "89b0864ed41c311213345cd16ee9baaa4427616d",
+  "runner_id": "run-falsify/1",
+  "oracle_ok": true,
+  "oracle_reason": "ok",
+  "rows": [
+    {
+      "sc_id": "SC-claim-parse",
+      "sources": [
+        "plugins/dev-core/skills/pr/parse-falsify.sh"
+      ],
+      "source_hashes": {
+        "plugins/dev-core/skills/pr/parse-falsify.sh": "c419319799fd70de6881c5f08cb30c2dd6459cd6d9649d37f1295b25d29e4c53"
+      },
+      "test_cmd": "grep -q 'pf_claim_yaml_ok' plugins/dev-core/skills/pr/parse-falsify.sh",
+      "fail_exit": 2,
+      "pass_exit": 0,
+      "error": "FAIL exit=2: grep: plugins/dev-core/skills/pr/parse-falsify.sh: No such file or directory ",
+      "status": "proven"
+    },
+    {
+      "sc_id": "SC-claim-roster",
+      "sources": [
+        "plugins/dev-core/skills/code-review/claim-roster.ts"
+      ],
+      "source_hashes": {
+        "plugins/dev-core/skills/code-review/claim-roster.ts": "a35cab89107b534373dbf3cb9e5973354524ca0746a5428b5a3abd489ecd1ee2"
+      },
+      "test_cmd": "grep -q 'spawn_security_auditor' plugins/dev-core/skills/code-review/claim-roster.ts",
+      "fail_exit": 2,
+      "pass_exit": 0,
+      "error": "FAIL exit=2: grep: plugins/dev-core/skills/code-review/claim-roster.ts: No such file or directory ",
+      "status": "proven"
+    },
+    {
+      "sc_id": "SC-skip-parity",
+      "sources": [
+        "plugins/dev-core/skills/code-review/SKILL.md"
+      ],
+      "source_hashes": {
+        "plugins/dev-core/skills/code-review/SKILL.md": "afb824c6eea9729a028b85736628df25f4d2568fb0e96c6549d7a8c726b046dc"
+      },
+      "test_cmd": "grep -q 'spawn_security_auditor' plugins/dev-core/skills/code-review/SKILL.md",
+      "fail_exit": 2,
+      "pass_exit": 0,
+      "error": "FAIL exit=2: grep: plugins/dev-core/skills/code-review/SKILL.md: No such file or directory ",
+      "status": "proven"
+    },
+    {
+      "sc_id": "SC-glob-retention",
+      "sources": [
+        "plugins/dev-core/skills/code-review/SKILL.md"
+      ],
+      "source_hashes": {
+        "plugins/dev-core/skills/code-review/SKILL.md": "afb824c6eea9729a028b85736628df25f4d2568fb0e96c6549d7a8c726b046dc"
+      },
+      "test_cmd": "grep -q '\\*\\*/auth/\\*\\*' plugins/dev-core/skills/code-review/SKILL.md",
+      "fail_exit": 2,
+      "pass_exit": 0,
+      "error": "FAIL exit=2: grep: plugins/dev-core/skills/code-review/SKILL.md: No such file or directory ",
+      "status": "proven"
+    }
+  ]
+}
