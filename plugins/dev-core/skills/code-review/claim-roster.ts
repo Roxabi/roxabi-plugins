@@ -30,7 +30,12 @@ export function parseClaimTags(yaml: string): string[] | null {
       const inner = raw.slice(1, raw.endsWith(']') ? -1 : undefined)
       const tags = inner
         .split(',')
-        .map((t) => t.trim().replace(/^['"]|['"]$/g, '').toLowerCase())
+        .map((t) =>
+          t
+            .trim()
+            .replace(/^['"]|['"]$/g, '')
+            .toLowerCase(),
+        )
         .filter(Boolean)
       return tags.length ? tags : null
     }
@@ -74,7 +79,10 @@ export function parsePricedFences(specContent: string): {
 export function specIsDraft(specContent: string): boolean {
   const fm = specContent.match(/^---\n([\s\S]*?)\n---/)
   if (!fm) return false
-  const status = fm[1].match(/^status:\s*(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, '')
+  const status = fm[1]
+    .match(/^status:\s*(.+)$/m)?.[1]
+    ?.trim()
+    .replace(/^['"]|['"]$/g, '')
   return status === 'draft'
 }
 
