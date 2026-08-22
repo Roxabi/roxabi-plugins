@@ -81,9 +81,10 @@ status: draft
 priced:  "<property the control must enforce>"
 not:     "<implementation proxy that is NOT the property>"
 oracles: ["concrete input that must fail closed"]
+claim:   [fail-closed]   # required whenever this fence exists — closed set: fail-closed | authz | ssot
 ```
 
-Implementer + tester test `priced` + `oracles`, never `not`.
+Implementer + tester test `priced` + `oracles`, never `not`. **`claim`** drives `/code-review` security-class spawn (see #419).
 
 ## Open Questions
 

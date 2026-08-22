@@ -31,7 +31,7 @@ Triggers: `"code review"` | `"review changes"` | `"review PR #42"` | `"check my 
    | architect / devops | τ=F-full or Δ intersects `scripts/`, CI, `lefthook.yml`, wrangler, deploy | patterns / infra |
    | backend-dev | τ=F-full or Δ intersects those **or** `{backend.path}` | API, errors |
    | recall | multi-chunk **and** canonical class tagged **and** ≥3 raw_callsites | class-join (skip single-chunk) |
-   | security-auditor | Δ intersects auth/secrets/crypto — independent of adversarial; ¬default | OWASP |
+   | security-auditor | **`spawn_security_auditor`** from `claim-roster.sh` (path ∨ claim tags on approved σ when Δ≠∅ ∨ invalid claim — #419); path globs retained in `path_hit` | OWASP |
    | axial-adr-review | existing structural condition | N×M drift |
 
 5. **Merge & present** — one finding per `(file, class)` keep max C; also dedup file:line; sorts by confidence; groups Blockers → Warnings → Suggestions → Praise.

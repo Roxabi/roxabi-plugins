@@ -1,0 +1,25 @@
+{
+  "issue": 419,
+  "rows": [
+    {
+      "sc_id": "SC-claim-parse",
+      "sources": ["plugins/dev-core/skills/pr/parse-falsify.sh"],
+      "test_cmd": "grep -q 'pf_claim_yaml_ok' plugins/dev-core/skills/pr/parse-falsify.sh"
+    },
+    {
+      "sc_id": "SC-claim-roster",
+      "sources": ["plugins/dev-core/skills/code-review/claim-roster.ts"],
+      "test_cmd": "grep -q 'spawn_security_auditor' plugins/dev-core/skills/code-review/claim-roster.ts"
+    },
+    {
+      "sc_id": "SC-skip-parity",
+      "sources": ["plugins/dev-core/skills/code-review/SKILL.md"],
+      "test_cmd": "grep -q 'spawn_security_auditor' plugins/dev-core/skills/code-review/SKILL.md"
+    },
+    {
+      "sc_id": "SC-glob-retention",
+      "sources": ["plugins/dev-core/skills/code-review/SKILL.md"],
+      "test_cmd": "grep -q '\\*\\*/auth/\\*\\*' plugins/dev-core/skills/code-review/SKILL.md"
+    }
+  ]
+}

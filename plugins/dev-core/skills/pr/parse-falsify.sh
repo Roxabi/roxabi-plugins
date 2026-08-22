@@ -12,6 +12,47 @@
 
 # Word-bounded signals from spec SKILL (fail-closed / security / guard SCs).
 PF_PRICED_SIG='fail-closed|fail[[:space:]]+closed|\bdeny\b|\brefuse\b|\breject\b|\bguard\b|\bgate\b|\bauth\b|\bauthz\b|\bsecret\b|\binject\b|\bsecurity\b'
+PF_CLAIM_TAG_RE='^(fail-closed|authz|ssot)$'
+
+# Validate claim: line in a priced YAML block (#419). Returns 0 when valid.
+pf_claim_yaml_ok() {
+    local yaml="${1:-}" tags tag rest
+    if ! printf '%s\n' "$yaml" | grep -qE '^[[:space:]]*claim:'; then
+        return 1
+    fi
+    rest="$(printf '%s\n' "$yaml" | sed -n 's/^[[:space:]]*claim:[[:space:]]*//p' | head -1 | tr -d '\r')"
+    [ -n "$rest" ] || return 1
+    # Flow list claim: [a, b]
+    if [[ "$rest" == \[* ]]; then
+        rest="${rest#\[}"
+        rest="${rest%\]}"
+        [ -n "$rest" ] || return 1
+        tags=0
+        IFS=',' read -ra parts <<< "$rest"
+        for tag in "${parts[@]}"; do
+            tag="$(printf '%s' "$tag" | tr '[:upper:]' '[:lower:]' | sed "s/^[[:space:]]*//;s/[[:space:]]*$//;s/^['\"]//;s/['\"]$//")"
+            [ -n "$tag" ] || continue
+            if ! printf '%s\n' "$tag" | grep -qE "$PF_CLAIM_TAG_RE"; then
+                return 1
+            fi
+            tags=$((tags + 1))
+        done
+        [ "$tags" -gt 0 ] || return 1
+        return 0
+    fi
+    # Scalar claim: tag
+    tag="$(printf '%s' "$rest" | tr '[:upper:]' '[:lower:]' | sed "s/^['\"]//;s/['\"]$//")"
+    printf '%s\n' "$tag" | grep -qE "$PF_CLAIM_TAG_RE"
+}
+
+# Validate one priced YAML fence (priced/not/oracles + claim). Returns 0 when ok.
+pf_priced_yaml_block_ok() {
+    local yaml="${1:-}"
+    printf '%s\n' "$yaml" | grep -qE '^[[:space:]]*priced:' || return 1
+    printf '%s\n' "$yaml" | grep -qE '^[[:space:]]*not:' || return 1
+    printf '%s\n' "$yaml" | grep -qE '^[[:space:]]*oracles:' || return 1
+    pf_claim_yaml_ok "$yaml"
+}
 
 pf_is_tier_s() {
     local spec="${1:-}" branch="${2:-}"
@@ -280,61 +321,44 @@ pf_parse_file() {
     return 0
 }
 
-# Scan spec Success Criteria checkboxes. Sets PRICED_OK. Always returns 0.
+# Scan spec for all ```yaml fences containing priced:. Sets PRICED_OK. Always returns 0.
 pf_parse_priced() {
-    local spec="${1:-}" section items item first yaml
+    local spec="${1:-}" in_yaml=0 buf=""
     PRICED_OK=true
     [ -n "$spec" ] && [ -f "$spec" ] || return 0
 
-    section="$(awk '
-        /^##[[:space:]]+Success Criteria/ { p = 1; next }
-        p && /^##[[:space:]]/ { exit }
-        p { print }
-    ' "$spec" | tr -d '\r')"
-    [ -n "$section" ] || return 0
-
-    items="$(printf '%s\n' "$section" | awk '
-        /^[[:space:]]*-[[:space:]]*\[[ xX]\]/ {
-            if (buf != "") printf "%s\036", buf
-            buf = $0
-            next
-        }
-        { if (buf != "") buf = buf "\n" $0 }
-        END { if (buf != "") printf "%s", buf }
-    ')"
-    [ -n "$items" ] || return 0
-
-    while IFS= read -r -d $'\036' item || [ -n "${item:-}" ]; do
-        [ -n "$item" ] || continue
-        first="$(printf '%s\n' "$item" | head -1)"
-        if ! printf '%s\n' "$first" | grep -qiE "$PF_PRICED_SIG"; then
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        if [[ "$line" =~ ^\`\`\`ya?ml[[:space:]]*$ ]]; then
+            in_yaml=1
+            buf=""
             continue
         fi
-        yaml="$(printf '%s\n' "$item" | awk '
-            /^```ya?ml/ { p = 1; next }
-            /^```[[:space:]]*$/ { if (p) { p = 0; next } }
-            p { print }
-        ')"
-        if [ -z "$yaml" ]; then
-            yaml="$(printf '%s\n' "$item" | awk '
-                /^```/ { if (!p) { p = 1; next } else { p = 0; next } }
-                p { print }
-            ')"
+        if [[ $in_yaml -eq 1 && "$line" =~ ^\`\`\`[[:space:]]*$ ]]; then
+            in_yaml=0
+            if printf '%s\n' "$buf" | grep -qE '^[[:space:]]*priced:'; then
+                if ! pf_priced_yaml_block_ok "$buf"; then
+                    PRICED_OK=false
+                    return 0
+                fi
+            fi
+            buf=""
+            continue
         fi
-        if ! printf '%s\n' "$yaml" | grep -qE '^[[:space:]]*priced:'; then
+        if [[ $in_yaml -eq 1 ]]; then
+            if [ -z "$buf" ]; then
+                buf="$line"
+            else
+                buf="${buf}"$'\n'"${line}"
+            fi
+        fi
+    done < "$spec"
+
+    if [[ $in_yaml -eq 1 ]] && printf '%s\n' "$buf" | grep -qE '^[[:space:]]*priced:'; then
+        if ! pf_priced_yaml_block_ok "$buf"; then
             PRICED_OK=false
-            return 0
         fi
-        if ! printf '%s\n' "$yaml" | grep -qE '^[[:space:]]*not:'; then
-            PRICED_OK=false
-            return 0
-        fi
-        if ! printf '%s\n' "$yaml" | grep -qE '^[[:space:]]*oracles:'; then
-            PRICED_OK=false
-            return 0
-        fi
-        item=""
-    done < <(printf '%s' "$items")
+    fi
 
     return 0
 }
