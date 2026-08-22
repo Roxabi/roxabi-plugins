@@ -3,11 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  computeSpawn,
-  parsePricedFences,
-  pathHit,
-} from '../claim-roster.ts'
+import { computeSpawn, parsePricedFences, pathHit } from '../claim-roster.ts'
 
 const SKILL = fileURLToPath(new URL('../SKILL.md', import.meta.url))
 

@@ -39,7 +39,7 @@ export function parseClaimTags(yaml: string): string[] | null {
   return null
 }
 
-export function validateClaimTags(tags: string[] | null): boolean {
+export function validateClaimTags(tags: string[] | null): tags is string[] {
   if (!tags?.length) return false
   return tags.every((t) => VALID_CLAIMS.has(t))
 }
@@ -65,7 +65,7 @@ export function parsePricedFences(specContent: string): {
       pricedClaimOk = false
       continue
     }
-    for (const t of tags!) allClaims.add(t)
+    for (const t of tags) allClaims.add(t)
   }
 
   return { claims: [...allClaims], pricedClaimOk, hasPricedFence }
