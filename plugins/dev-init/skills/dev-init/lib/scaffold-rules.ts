@@ -259,7 +259,6 @@ function artifactModel(stack: StackConfig): Section {
     analyses: 'artifacts/analyses',
     specs: 'artifacts/specs',
     plans: 'artifacts/plans',
-    visuals: 'artifacts/visuals',
   }
 
   const content = `Artifacts are the state markers \`/dev\` uses for progress detection and resumption.
@@ -270,8 +269,7 @@ function artifactModel(stack: StackConfig): Section {
 | **Brainstorm** | \`${artifacts.brainstorms ?? 'artifacts/brainstorms'}/\` | What could we do? |
 | **Analysis** | \`${artifacts.analyses ?? 'artifacts/analyses'}/\` | How deep is it? |
 | **Spec** | \`${artifacts.specs ?? 'artifacts/specs'}/\` | What will we build? |
-| **Plan** | \`${artifacts.plans ?? 'artifacts/plans'}/\` | How do we build it? |
-| **Visuals** | \`${artifacts.visuals ?? 'artifacts/visuals'}/\` | Architecture diagrams (forge-chart sidecars) |`
+| **Plan** | \`${artifacts.plans ?? 'artifacts/plans'}/\` | How do we build it? |`
 
   return { id: 'artifact-model', title: 'Artifact Model', content }
 }

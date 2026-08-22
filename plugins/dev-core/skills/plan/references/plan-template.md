@@ -15,15 +15,11 @@ generated: "2026-01-01T00:00:00Z"
 
 ### Data Flow
 
-**Diagram:** [{data flow title}](../visuals/{N}-{slug}-data-flow.html)
-
-{One-line summary of config → loader → runtime pipeline.}
+{Config → loader → runtime pipeline. Group by file/module.}
 
 ### File x Function Map
 
-**Diagram:** [{file map title}](../visuals/{N}-{slug}-file-map.html)
-
-{One-line summary of file groupings and critical call paths.}
+{Functions/classes per file, call edges; test files as consumers.}
 
 ## Bootstrap Context
 

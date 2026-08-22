@@ -287,7 +287,6 @@ export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
     'artifacts/analyses',
     'artifacts/specs',
     'artifacts/plans',
-    'artifacts/visuals',
   ]) {
     fs.mkdirSync(dir, { recursive: true })
   }

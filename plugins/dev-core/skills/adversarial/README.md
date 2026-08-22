@@ -45,4 +45,4 @@ Triggers: `"adversarial"` | `"red team"` | `"devil's advocate"` | `"attack this 
 | `/adversarial` | Kill the design |
 | `/advisory` | Strengthen and advise (constructive) |
 | `/code-review` | Diff/PR multi-domain review (includes adversarial agent) |
-| `/clarify` | Intent-first recap, no attack |
+| `/analyze` | Structured shape exploration (no attack) |

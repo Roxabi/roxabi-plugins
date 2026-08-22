@@ -31,7 +31,7 @@ Standalone red-team. Goal: **kill S** with concrete attack paths or disproofs �
 | "What could go wrong?" on a design claim | ✓ primary |
 | PR / diff review | ✗ → `/code-review` (already spawns adversarial) |
 | Constructive strengthen-and-advise | ✗ → `/advisory` |
-| Intent recap only | ✗ → `/clarify` |
+| Intent recap only (no attack) | ✗ → chat; `/analyze` for structured shape exploration |
 
 ## Entry
 

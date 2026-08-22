@@ -157,7 +157,7 @@ Owned by **SKILL.md Step 7 Approve path** only (order fixed):
 
 1. Seed host task list (TaskCreate / todo_write / artifact-only)
 2. Append `## Task IDs` with ≥1 `- T\d+:` line
-3. Commit: `git add artifacts/plans/{N}-{slug}-plan.md artifacts/visuals/{N}-{slug}-*.html` + commit per CLAUDE.md Rule 5
+3. Commit: `git add artifacts/plans/{N}-{slug}-plan.md` + commit per CLAUDE.md Rule 5
 
 ¬commit before Task IDs. ¬empty `## Task IDs` heading alone.
 
