@@ -190,8 +190,6 @@ See [references/micro-task-example.md](${CLAUDE_SKILL_DIR}/references/micro-task
 
 ## Step 5 — Write Plan Artifact
 
-Generate architecture sidecars per [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) **before** writing π.
-
 Write to `artifacts/plans/{N}-{slug}-plan.md`. Create `artifacts/plans/` dir if needed.
 
 Use [references/plan-template.md](${CLAUDE_SKILL_DIR}/references/plan-template.md). See [references/micro-task-example.md](${CLAUDE_SKILL_DIR}/references/micro-task-example.md) for task formatting.
@@ -211,7 +209,7 @@ Title hygiene: external `{title}` → yaml-escaped scalar (same contract as fram
 
 Include:
 - Summary (1–2 sentences)
-- Architecture sidecars (forge-chart, see below)
+- Architecture (data flow + file map in markdown prose)
 - Bootstrap Context (from analysis if ∃, omit if ¬∃)
 - Agents table (agent, task count, files)
 - Wave Structure table (see below)
@@ -219,22 +217,13 @@ Include:
 - Micro-Tasks (grouped by slice/criteria, with RED-GATE sentinels)
 - Task Seeding Blueprint (see below)
 
-### Forge-Chart Sidecars
-
-Read [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md) before generating visuals.
+### Architecture (markdown)
 
 `## Architecture` must include:
-1. **Data flow sidecar** — `{N}-{slug}-data-flow.html` (fd-engine `architecture`): full pipeline — config → loaders → data structures → composition → runtime. Group by file via zones.
-2. **File × Function map sidecar** — `{N}-{slug}-file-map.html` (fd-engine `architecture`): functions/classes per file, call edges; test files as consumers.
+1. **Data flow** — config → loaders → data structures → composition → runtime (group by file/module)
+2. **File × Function map** — functions/classes per file, call edges; test files as consumers
 
-Link in π (¬inline mermaid, ¬ASCII):
-
-```markdown
-**Data flow:** [{title}](../visuals/{N}-{slug}-data-flow.html)
-**File map:** [{title}](../visuals/{N}-{slug}-file-map.html)
-```
-
-Sidecars go AFTER Summary, BEFORE Bootstrap Context.
+Place after Summary, before Bootstrap Context.
 
 ### Wave Structure
 
@@ -348,7 +337,6 @@ Print **exactly this structure**. HITL surface — scannable in ≤30s.
 **χ in spec ({n}):** {each short, or "none"}
 **Slice pick:** {auto next | defaulted V{n} — override with "plan slice V…"}
 **Budget splits:** {auto applied | none}
-**Visuals:** `data-flow.html` `file-map.html` (omit segment if missing)
 
 ---
 **Your move (free text — no menu):**
@@ -408,7 +396,7 @@ This lets `/implement` re-attach to tasks after a session restart (TaskList woul
 
 #### Commit
 
-`git add artifacts/plans/{N}-{slug}-plan.md artifacts/visuals/{N}-{slug}-*.html` (issue-scoped — bare `artifacts/visuals/` sweeps other issues) + commit per CLAUDE.md Rule 5.
+`git add artifacts/plans/{N}-{slug}-plan.md` + commit per CLAUDE.md Rule 5.
 
 `## Task IDs` must contain ≥1 `- T\d+:` line before counting as done (empty heading alone is ¬done).
 

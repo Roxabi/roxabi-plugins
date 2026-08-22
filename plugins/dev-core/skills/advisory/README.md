@@ -31,5 +31,5 @@ Triggers: `"advisory"` | `"second opinion"` | `"advise on this"` | `"strengthen 
 |-------|---------|
 | `/advisory` | Strengthen and prioritize |
 | `/adversarial` | Kill the design (red-team) |
-| `/clarify` | Intent-first recap across layers |
-| `/analyze` | Full shape exploration + expert review gate |
+| `/analyze` | Structured shape exploration + expert review gate |
+| `/frame` | Problem framing artifact (writes `artifacts/frames/`) |

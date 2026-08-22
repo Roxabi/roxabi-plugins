@@ -33,7 +33,7 @@ artifacts/analyses/{N}-{slug}-analysis.md
 
 Frontmatter carries `status: draft` until you approve, then `status: approved`. That marker is the pipeline's done-signal — `/dev` will not advance the Shape phase on a draft an aborted run left behind.
 
-Sections: Source, **Problem** (what we solve), **Outcome** (done-when), Appetite, Shapes (2–3), Fit Check. Architecture visuals are forge-chart sidecars in `artifacts/visuals/` (linked from Shapes / Fit Check — not inline mermaid).
+Sections: Source, **Problem** (what we solve), **Outcome** (done-when), Appetite, Shapes (2–3), Fit Check. Markdown only.
 
 Human-in-the-loop is **chat-native** — no AskUserQuestion menus. The summary is the gate; you reply in free text. No menus does not mean no consent: anything that mutates the repo (spike worktree, commit) still waits for your word.
 

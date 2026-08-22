@@ -21,7 +21,7 @@ predate that and were produced by release-please or `/promote`.
 
 ### Changed
 
-* **dev-core:** replace inline mermaid/ASCII shape diagrams with forge-chart sidecars in `clarify`, `analyze`, `spec`, and `plan` — HTML in `artifacts/visuals/`, SSoT at `references/forge-chart-sidecar.md`; supersedes mermaid diagram requirements added in `e455a5b`
+* **dev-core:** archive `/clarify`; drop forge-chart HTML sidecars — `analyze`, `plan`, and `spec` shape artifacts are markdown-only (no `artifacts/visuals/`); removes `references/forge-chart-sidecar.md` and forge plugin prerequisite
 
 ## [0.4.0](https://github.com/Roxabi/roxabi-plugins/compare/roxabi-plugins/v0.3.0...roxabi-plugins/v0.4.0) (2026-06-15)
 

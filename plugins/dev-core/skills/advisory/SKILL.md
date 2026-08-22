@@ -31,7 +31,7 @@ Standalone constructive counsel. Goal: **strengthen S** — better framing, clea
 | Second opinion without attack posture | ✓ primary |
 | Want to break / disprove the claim | ✗ → `/adversarial` |
 | PR / diff quality gate | ✗ → `/code-review` |
-| Intent re-render only | ✗ → `/clarify` |
+| Intent re-render only (no advise) | ✗ → chat; `/analyze` for structured shape exploration |
 
 ## Entry
 

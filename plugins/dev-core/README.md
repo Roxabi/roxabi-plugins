@@ -6,7 +6,6 @@ Full development lifecycle orchestrator for Roxabi projects. Covers framing, ana
 
 - **Package manager** — Bun, npm, pnpm, or yarn (configured via `stack.yml`)
 - [GitHub CLI](https://cli.github.com/) (`gh`) — issue fetching, PR creation, label management
-- **[forge](https://github.com/Roxabi/roxabi-forge)** plugin — architecture diagrams in shape artifacts (`clarify`, `analyze`, `plan`) are forge-chart sidecars in `artifacts/visuals/`, not inline mermaid/ASCII. (`/spec` data model is markdown only.) Install: `claude plugin install forge`
 - **Formatter** — optional; configure any formatter in `stack.yml` (`build.formatter_fix_cmd` or `build.formatters[]`). Biome, Prettier, Ruff, Black — all work. Leave empty to disable auto-formatting.
 
 ## Install
@@ -102,7 +101,6 @@ Skills organized by workflow phase:
 | `promote` | Ship | Staging-train repos: promotes staging→main. Trunk repos: pre-flight only — auto-release owns the cut |
 | `test` | Supporting | Runs and manages tests |
 | `adr` | Supporting | Creates Architecture Decision Records |
-| `clarify` | Supporting | Intent-first architecture recap — 6-section view (intent → biz-arch → UX flows → data flow per layer → use cases × layers → open intent Qs). Phase-agnostic, ephemeral, no artifact. Defers technical implementation until user approves framing |
 | `doc-sync` | Supporting | Syncs CLAUDE.md, README.md, and plugin SKILL.md after a code change |
 | `readme-upgrade` | Supporting | Audits and improves root README, CONTRIBUTING.md, and plugin READMEs against the developer-tool quality pattern (Why, Quick Start, How it works, categorized tables, diagrams). Auto-detects Mermaid vs ASCII based on host |
 | `cleanup-context` | Supporting | Audits and cleans CLAUDE.md, memory, skills, and rules — resolves every finding (fix/promote/relocate/delete), tracks recurrences, targets bloat=0 |

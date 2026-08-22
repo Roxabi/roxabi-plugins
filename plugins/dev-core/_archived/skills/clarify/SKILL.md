@@ -1,3 +1,9 @@
+# Archived — removed from dev-core
+
+**Archived:** 2026-08-22. Skill removed from the active plugin; use `/frame` for problem framing or `/analyze` for architecture exploration instead.
+
+---
+
 ---
 name: clarify
 argument-hint: '["topic" | --issue <N> | --resume]'
@@ -94,8 +100,6 @@ Build context map without mutating anything:
 
 ## Step 2 — Render 6 Sections
 
-Generate §2 boundary sidecar first — `Skill(skill: "forge-chart", …)` per [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md); copy to `artifacts/visuals/`.
-
 Apply template strictly. ∀ section MUST appear, even if brief. Order is load-bearing.
 
 ### Section template
@@ -114,8 +118,6 @@ Apply template strictly. ∀ section MUST appear, even if brief. Order is load-b
 **Why this matters beyond {local scope}:** {ecosystem implications, reference patterns, precedent for future work}
 
 ## 2. Business Architecture (where the boundary sits)
-
-**Diagram:** [{title}](../visuals/{N}-{slug}-boundary.html) <!-- ¬issue: ../visuals/{slug}-boundary.html -->
 
 The boundary being changed: **{name it explicitly}** — {one-line description}.
 
@@ -171,14 +173,14 @@ The use case with friction: **{name}** — that is where design decisions live.
 ### Rules per section
 
 - **Section 1 (Intent):** MUST contrast today vs target as a 2-column table. MUST include "Why this matters beyond {local scope}" — connect to ecosystem.
-- **Section 2 (Architecture):** MUST include a forge-chart sidecar (`{N}-{slug}-boundary.html` or `{slug}-boundary.html`) naming actors and boundary — see [forge-chart-sidecar.md](${CLAUDE_PLUGIN_ROOT}/references/forge-chart-sidecar.md). Link only (¬inline mermaid, ¬ASCII). MUST name the boundary explicitly.
+- **Section 2 (Architecture):** MUST name the boundary explicitly.
 - **Section 3 (Flows):** MUST include ≥1 happy path AND ≥1 adversarial/failure flow. MUST surface a nuance the obvious framing gets wrong.
 - **Section 4 (Data flow):** MUST be a table with TODAY and TARGET columns. MUST highlight which layers actually change.
 - **Section 5 (Use cases × layers):** MUST surface the use case with friction (where design decisions live).
 - **Section 6 (Open Qs):** 2–3 questions. MUST be about intent/scope, ¬implementation. Each Q must reframe an assumption that, if wrong, would invalidate the technical design.
 - **Closing:** MUST end with `**Next:**` line offering to proceed to technical impl OR receive pushback.
 
-¬prose. ¬narration. Tables and diagrams over paragraphs. Terse.
+¬prose. ¬narration. Tables over paragraphs. Terse.
 
 ## Step 3 — Present
 
