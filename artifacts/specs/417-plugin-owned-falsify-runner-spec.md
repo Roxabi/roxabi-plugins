@@ -136,6 +136,7 @@ U6 before U1 merge. U1 → S1 → N1 (N2 optional). U2/U3 → S2(N1) → sole `o
 - [ ] `/pr` REFUSEs when `oracle_ok` is false after `--verify` (τ≠S).
 
 ```yaml
+claim: [fail-closed]
 priced:  "τ≠S PR create requires executable falsify verify success (oracle_ok)"
 not:     "parse-falsify.sh returns falsify_ok=true on markdown tokens / forged JSON schema-only"
 oracles:
@@ -150,6 +151,7 @@ oracles:
 - [ ] `/code-review` skips tester **only** when `--verify` yields `oracle_ok=true`; otherwise tester is spawned.
 
 ```yaml
+claim: [fail-closed]
 priced:  "tester skip iff executable verify says oracle_ok"
 not:     "tester skip iff parse-falsify.md hygiene passes"
 oracles:
@@ -160,6 +162,7 @@ oracles:
 - [ ] No skill refuse/skip path keys solely on `falsify_ok` / md parse after V1 (gather-state emits `oracle_ok` only for that concern).
 
 ```yaml
+claim: [fail-closed]
 priced:  "sole gate boolean for falsify refuse/skip is oracle_ok"
 not:     "OR-fallback oracle_ok ∨ falsify_ok"
 oracles:

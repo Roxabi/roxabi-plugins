@@ -164,3 +164,61 @@ describe('pf_emit_gates — missing spec / no-issue fail-closed', () => {
     expect(out.oracle_reason).toBe('no-issue')
   })
 })
+
+function emitParsePriced(specPath: string): string {
+  const r = spawnSync(
+    'bash',
+    ['-c', 'source "$1"; pf_parse_priced "$2"; echo "priced_ok=${PRICED_OK}"', '_', PARSE, specPath],
+    { encoding: 'utf-8', cwd: ROOT },
+  )
+  return r.stdout.trim()
+}
+
+describe('pf_parse_priced — claim on all priced fences (#419)', () => {
+  it('priced fence without claim → priced_ok=false', () => {
+    const spec = join(dir, 'spec.md')
+    writeFileSync(
+      spec,
+      `---
+tier: F-lite
+---
+\`\`\`yaml
+priced: "x"
+not: "y"
+oracles: ["z"]
+\`\`\`
+`,
+    )
+    expect(emitParsePriced(spec)).toBe('priced_ok=false')
+  })
+
+  it('claim: [ssot] only → priced_ok=true', () => {
+    const spec = join(dir, 'spec.md')
+    writeFileSync(
+      spec,
+      `\`\`\`yaml
+claim: [ssot]
+priced: "x"
+not: "y"
+oracles: ["z"]
+\`\`\`
+`,
+    )
+    expect(emitParsePriced(spec)).toBe('priced_ok=true')
+  })
+
+  it('claim: [unknown] → priced_ok=false', () => {
+    const spec = join(dir, 'spec.md')
+    writeFileSync(
+      spec,
+      `\`\`\`yaml
+claim: [bogus]
+priced: "x"
+not: "y"
+oracles: ["z"]
+\`\`\`
+`,
+    )
+    expect(emitParsePriced(spec)).toBe('priced_ok=false')
+  })
+})

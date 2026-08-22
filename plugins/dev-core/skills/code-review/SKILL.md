@@ -73,11 +73,16 @@ git diff origin/${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|a
 
 ## Phase 2 — Spec Compliance
 
-1. issue_num ← `git branch --show-current | grep -oP '\d+' | head -1`
-2. spec ← `ls artifacts/specs/<issue_num>-*.md artifacts/specs/<issue_num>-*.mdx 2>/dev/null | head -1`
-3. spec ∃ → ∀ criterion: met → ∅ | ¬met → `issue(blocking):` | ∀ met → `praise:`
-4. spec ∄ → skip
-5. SC→Test matrix (τ≠S): matrix ∃ in PR body → verify no silent gaps (every SC has a row), NO TEST reasons ∈ `{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}` enum. ¬matrix ∧ τ≠S → `issue(blocking):` missing SC→Test matrix.
+**Resolve issue + spec (deterministic — #419):**
+
+1. **issue_num** — priority:
+   - `/code-review #PR` → `gh pr view PR --json body,headRefName` → `(Fixes|Closes|Resolves) #(\d+)` in body; else first `N` from `feat/{N}-*` in `headRefName`
+   - else current branch → `feat/{N}-*` match; else first `\d+` run (warn: legacy branch fallback)
+2. **spec** ← lexicographically first `artifacts/specs/{issue_num}-*.md(x)` when issue_num set
+3. **Approved σ only** — read frontmatter; `status: draft` → treat as spec ∄ for claim spawn (warn once); path-only roster
+4. spec ∃ ∧ approved → ∀ criterion: met → ∅ | ¬met → `issue(blocking):` | ∀ met → `praise:`
+5. spec ∄ → skip (steps 4–5 unchanged when no spec)
+6. SC→Test matrix (τ≠S): matrix ∃ in PR body → verify no silent gaps (every SC has a row), NO TEST reasons ∈ `{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}` enum. ¬matrix ∧ τ≠S → `issue(blocking):` missing SC→Test matrix.
 
 ## Phase 3 — Multi-Domain Review (Fresh Agents)
 
@@ -105,6 +110,21 @@ digests = emit_all_digests(chunks)            # list[BoundaryDigest]
 - If `len(chunks) == 1` → single-chunk path (identical to pre-Slice-2 behaviour; all agents receive the full diff as before).
 - If `len(chunks) > 1` → per-chunk Lane A dispatch (see below).
 
+### Claim-axis spawn oracle (#419)
+
+Before Lane A dispatch, compute **once per review** (global, not per-chunk):
+
+```bash
+# spec_path from Phase 2; Δ file list one path per line
+bash ${CLAUDE_PLUGIN_ROOT}/skills/code-review/claim-roster.sh \
+  --spec "$spec_path" \
+  --diff-list /tmp/review-delta-$$.txt \
+  --json
+# spawn_security_auditor := JSON field; exit 2 when priced fences lack valid claim (still spawn)
+```
+
+Interim: `Claims` = all valid tags on approved σ when Δ ≠ ∅ (true source∩Δ deferred). No approved σ → path-only.
+
 ### Agent dispatch
 
 τ ← spec/plan frontmatter ∨ issue labels (default F-lite if unknown).
@@ -119,18 +139,18 @@ digests = emit_all_digests(chunks)            # list[BoundaryDigest]
 | **backend-dev** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy, `{backend.path}`} ≠ ∅ | BE patterns, API, errors |
 | **devops** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy} ≠ ∅ | config, deploy, infra |
 | **recall** | **only** multi-chunk ∧ canonical class already tagged ∧ ≥3 raw_callsites. Skip on single-chunk | class-join, uncited callsites — Phase 3b, ¬Lane A |
-| **security-auditor** | Δ ∩ {auth, secrets, crypto, `**/auth/**`, `**/*secret*`, `**/*crypto*`} ≠ ∅ — independent of adversarial. ¬default (off unless that Δ) | OWASP, secrets, injection, auth |
+| **security-auditor** | **`spawn_security_auditor`** from S1 `claim-roster.sh` — `path_hit` (Δ ∩ {auth, secrets, crypto, `**/auth/**`, `**/*secret*`, `**/*crypto*`}) ∨ claim tags on approved σ when Δ≠∅ ∨ invalid `claim` on priced fence (#419) | OWASP, secrets, injection, auth |
 | **axial-adr-review** | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ Δ ∩ {`infrastructure/`, `adapters/`, `domains/`, `stages/`} ≠ ∅ | Drift along non-primary axis (target × concern duplication) — read-only review agent (no Write/Edit/Bash tools) |
 
 > **Note on axial-adr-review asymmetry (intentional):** The `/code-review` condition is **structural** — it triggers when the diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`. The spec phase (`/spec`) uses a **semantic/intent-based** condition (spec adds adapter/integration/target ∨ touches `infrastructure/`). The two are complementary: `/spec` catches intent-level N×M violations, `/code-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
 
-Skip: product-lead → spec ∄ | tester → `bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` emits `oracle_ok=true` (markdown / `parse-falsify` alone is ¬sufficient; verify fail → spawn tester) | frontend-dev → ¬FE Δ | architect/devops → τ≠F-full ∧ Δ misses `scripts/`/CI/`lefthook.yml`/wrangler/deploy | backend-dev → τ≠F-full ∧ Δ misses those ∧ `{backend.path}` | security-auditor → Δ misses auth/secrets/crypto | recall → single-chunk ∨ ¬canonical class ∨ \|callsites\|<3
+Skip: product-lead → spec ∄ | tester → `bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` emits `oracle_ok=true` (markdown / `parse-falsify` alone is ¬sufficient; verify fail → spawn tester) | frontend-dev → ¬FE Δ | architect/devops → τ≠F-full ∧ Δ misses `scripts/`/CI/`lefthook.yml`/wrangler/deploy | backend-dev → τ≠F-full ∧ Δ misses those ∧ `{backend.path}` | security-auditor → **`¬spawn_security_auditor`** (S1 `claim-roster` — **not** path-only “Δ misses auth/secrets/crypto”) | recall → single-chunk ∨ ¬canonical class ∨ \|callsites\|<3
 
 **Subdomain split (multi-chunk):** For each chunk `c_i`, apply the dispatch table against `c_i.files` only (not full Δ). Default: 1 agent per domain per chunk. recall is Phase 3b (not per-chunk Lane A).
 
 ### Security-auditor scoping
 
-Only when security-auditor is actually spawned (Δ ∩ auth/secrets/crypto, ¬default):
+Only when security-auditor is actually spawned (`spawn_security_auditor` from S1, ¬default):
 
 1. ∀ f ∈ Δ: imports(f) = static `from '...'` ∪ dynamic `import('...')`
 2. Resolve aliases:
@@ -164,7 +184,7 @@ Task(
 )
 ```
 
-Agent name map: `adversarial` → `dev-core:adversarial` | `frontend-dev` → `dev-core:frontend-dev` | `product-lead` → `dev-core:product-lead` | `tester` → `dev-core:tester` | `architect` → `dev-core:architect` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `recall` → `dev-core:recall` | `security-auditor` → `dev-core:security-auditor` (when Δ ∩ auth/secrets/crypto, ¬default) | `axial-adr-review` → `dev-core:axial-adr-review`
+Agent name map: `adversarial` → `dev-core:adversarial` | `frontend-dev` → `dev-core:frontend-dev` | `product-lead` → `dev-core:product-lead` | `tester` → `dev-core:tester` | `architect` → `dev-core:architect` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `recall` → `dev-core:recall` | `security-auditor` → `dev-core:security-auditor` (when **`spawn_security_auditor`** from `claim-roster.sh`, ¬default) | `axial-adr-review` → `dev-core:axial-adr-review`
 
 ### Agent payload
 
@@ -343,7 +363,7 @@ Q:
 | architect skipped | ¬arch review → faster |
 | product-lead skipped | Phase 2 skipped |
 | tester skipped | `run-falsify --verify` → `oracle_ok=true` → ¬coverage review |
-| security-auditor skipped | Δ misses auth/secrets/crypto — adversarial still owns OWASP on every review; security-auditor is additive when Δ intersects |
+| security-auditor skipped | `¬spawn_security_auditor` (S1 claim-roster) — adversarial still owns OWASP on every review |
 
 ## Safety Rules
 
