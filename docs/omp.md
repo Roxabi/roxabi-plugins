@@ -50,7 +50,7 @@ No post-bash nudge and no format hook (v1). Escape hatch: `DEV_CORE_ALLOW_PRINCI
 
 ## Paths
 
-Bundled files: `skill://<skill>/<file>` (see `skill://shared-refs/harness-paths.md`).
+Bundled files: `skill://<skill>/<file>` · Claude/Grok `$CLAUDE_PLUGIN_ROOT/skills/<skill>/<file>` (see `skill://shared-refs/harness-paths.md` · `$CLAUDE_PLUGIN_ROOT/skills/shared-refs/harness-paths.md`).
 `registerCommand` remains a fallback dump until marketplace install exposes `/skill:<name>`.
 While that dump exists, the host expands leftover `$CLAUDE_*` at inject time.
 

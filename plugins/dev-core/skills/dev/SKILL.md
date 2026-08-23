@@ -29,7 +29,7 @@ Let:
   ψ_r(P) ⟺ P.comments ∃ body: "## Code Review"
   ψ_f(P) ⟺ P.comments ∃ body: "## Review Fixes Applied"
   stale  := scan-state.sh `stale=true|false` — worktree ∃ ∨ local/remote branch matching N ∃ (anchored on N, see scan-state.sh)
-  ω    := non-principal worktree on `feat/{N}-*` (branch-first detect — harness-worktree.md; paths: `skill://shared-refs/harness-paths.md`)
+  ω    := non-principal worktree on `feat/{N}-*` (branch-first detect — harness-worktree.md; paths: `skill://shared-refs/harness-paths.md` · `$CLAUDE_PLUGIN_ROOT/skills/shared-refs/harness-paths.md`)
   β    := base branch; **principal always stays on β** (¬checkout feat in default folder)
   bar   := output must read as hand-authored by a dev-core maintainer — match surrounding idiom, naming, comment density; calibrate against `plugins/dev-core/`; QG (format/lint/typecheck/test) = mechanical floor, ¬the bar
 

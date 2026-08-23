@@ -67,7 +67,7 @@ function registerSkillCommand(pi: ExtensionAPI, skillName: string): void {
         body,
         '',
         `[Skill directory: ${skillDir}]`,
-        `Paths: skill://shared-refs/harness-paths.md`,
+        'Paths: skill://shared-refs/harness-paths.md · $CLAUDE_PLUGIN_ROOT/skills/shared-refs/harness-paths.md',
         trimmedArgs ? `\n${trimmedArgs}` : '',
       ]
         .join('\n')
