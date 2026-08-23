@@ -79,8 +79,9 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 
 ## Step 1 — Scan State (parallel, <3s)
 
-```bash
-bash skill://dev/scan-state.sh {N} {slug}
+```
+OMP: `bash skill://dev/scan-state.sh {N} {slug}`
+Claude/Grok: `bash "$CLAUDE_SKILL_DIR/scan-state.sh" {N} {slug}`
 ```
 
 φ / σ ∃ → read frontmatter → extract `status` (+ `tier` from φ). For **α, use `analyze_status=` from `scan-state.sh`** — the helper parses the frontmatter fence and normalizes the value (quotes, trailing comment, case), so re-reading the file yields a *less* correct answer. `analyze=<file>` alone is never a status signal.

@@ -123,6 +123,7 @@ bash skill://dev-review/claim-roster.sh \
   --spec "$spec_path" \
   --diff-list "$REVIEW_TMP/delta.txt" \
   --json
+# Claude/Grok: bash "$CLAUDE_SKILL_DIR/claim-roster.sh" … (same flags)
 # spawn_security_auditor := JSON field; exit 2 when priced fences lack valid claim (still spawn)
 ```
 
@@ -147,7 +148,7 @@ Interim: `Claims` = all valid tags on approved σ when Δ ≠ ∅ (true source�
 
 > **Note on axial-adr-review asymmetry (intentional):** The `/dev-review` condition is **structural** — it triggers when the diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`. The spec phase (`/spec`) uses a **semantic/intent-based** condition (spec adds adapter/integration/target ∨ touches `infrastructure/`). The two are complementary: `/spec` catches intent-level N×M violations, `/dev-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
 
-Skip: product-lead → spec ∄ | tester → `bash skill://pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` emits `oracle_ok=true` (markdown / `parse-falsify` alone is ¬sufficient; verify fail → spawn tester) | frontend-dev → ¬FE Δ | architect/devops → τ≠F-full ∧ Δ misses `scripts/`/CI/`lefthook.yml`/wrangler/deploy | backend-dev → τ≠F-full ∧ Δ misses those ∧ `{backend.path}` | security-auditor → **`¬spawn_security_auditor`** (S1 `claim-roster` — **not** path-only “Δ misses auth/secrets/crypto”) | recall → single-chunk ∨ ¬canonical class ∨ \|callsites\|<3
+Skip: product-lead → spec ∄ | tester → `bash skill://pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` (Claude/Grok: `$CLAUDE_PLUGIN_ROOT/skills/pr/run-falsify.sh`) emits `oracle_ok=true` (markdown / `parse-falsify` alone is ¬sufficient; verify fail → spawn tester) | frontend-dev → ¬FE Δ | architect/devops → τ≠F-full ∧ Δ misses `scripts/`/CI/`lefthook.yml`/wrangler/deploy | backend-dev → τ≠F-full ∧ Δ misses those ∧ `{backend.path}` | security-auditor → **`¬spawn_security_auditor`** (S1 `claim-roster` — **not** path-only “Δ misses auth/secrets/crypto”) | recall → single-chunk ∨ ¬canonical class ∨ \|callsites\|<3
 
 **Subdomain split (multi-chunk):** For each chunk `c_i`, apply the dispatch table against `c_i.files` only (not full Δ). Default: 1 agent per domain per chunk. recall is Phase 3b (not per-chunk Lane A).
 
@@ -168,7 +169,7 @@ Only when security-auditor is actually spawned (`spawn_security_auditor` from S1
 3. scope = Δ ∪ ⋃{resolve(imports(f)) | f ∈ Δ} ∪ `{backend.path}/src/auth/**` — deduplicate
 
 # SYNC REQUIRED: inline class list must match review-classes.yml slugs — see #149
-# CROSS-SKILL CONSUMER: fix/SKILL.md Phase 0 reads `skill://dev-review/review-classes.yml` — moving/renaming it breaks /fix (#286)
+# CROSS-SKILL CONSUMER: fix/SKILL.md Phase 0 reads `skill://dev-review/review-classes.yml` (Claude/Grok: `$CLAUDE_PLUGIN_ROOT/skills/dev-review/review-classes.yml`) — moving/renaming it breaks /fix (#286)
 ### Spawn template
 
 > **Note (orchestrator):** The `{format_digest_for_agent(d) for d in digests if d.chunk_index != i}` placeholder is a Python expression evaluated by the orchestrator (Claude main context) BEFORE the Task call — substitute its rendered value into the prompt string. It is NOT a runtime-resolved placeholder. All other `{...}` placeholders are simple value substitutions.
@@ -321,7 +322,7 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 ## Phase 6 — Post to PR
 
 1. PR# = provided ∨ `gh pr list --head "$(git branch --show-current)" --json number --jq '.[0].number'`; ¬∃ → skip
-2. Tempfile per `skill://shared-refs/tempfile-convention.md`:
+2. Tempfile per `skill://shared-refs/tempfile-convention.md` (Claude/Grok: `$CLAUDE_PLUGIN_ROOT/skills/shared-refs/tempfile-convention.md`):
    ```bash
    [[ "$PR" =~ ^[0-9]+$ ]] || { echo "Invalid PR number: $PR" >&2; exit 1; }
    TMPDIR=$(mktemp -d -t "dev-core-review-comment-PR${PR}-XXXXXX")

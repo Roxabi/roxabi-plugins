@@ -68,7 +68,7 @@ d ∈ D := {tag: str, file: str, line: int, description: str, phase: str}
 ## Phase 0 — Load Taxonomy
 
 Read `skill://dev-review/review-classes.yml` (Claude/Grok: `$CLAUDE_PLUGIN_ROOT/skills/dev-review/review-classes.yml`) → extract `classes[].class` slugs → `canonical_slugs`. (Canonical YAML ships with `dev-review`; `fix` reads it cross-skill — single source, ¬duplicate copy that could drift.)
-File absent, unreadable, or parse error → HALT: `[taxonomy-error] review-classes.yml {reason} at skill://dev-review/review-classes.yml — reinstall dev-core plugin.`
+File absent, unreadable, or parse error → HALT: `[taxonomy-error] review-classes.yml {reason} at skill://dev-review/review-classes.yml (Claude/Grok: $CLAUDE_PLUGIN_ROOT/skills/dev-review/review-classes.yml) — reinstall dev-core plugin.`
 Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬LLM memory).
 
 
