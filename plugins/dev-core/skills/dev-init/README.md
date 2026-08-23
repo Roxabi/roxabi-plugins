@@ -22,11 +22,11 @@ Triggers: `"dev-init"` | `"setup project"` | `"initialize project"`
 
 1. **Idempotency check** — detects existing `.claude/dev-core.yml` or `.env` config; asks to re-configure or skip.
 2. **Prerequisites** — verifies `bun`, `gh`, and `git remote` are available; shows install links for missing tools.
-3. **Sub-skills** (from **dev-core**) — calls in order:
-   - `/dev-core:env-setup` — stack.yml, CLAUDE.md rules, docs stubs, LSP
+3. **Sub-skills** — calls in order:
+   - `/env-setup` — stack.yml, CLAUDE.md rules, docs stubs, LSP
    - `axial-adr-create` — axis of decomposition ADR (unless `--skip-axial`)
-   - `/dev-core:ci-setup` — GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins
-   - `/dev-core:release-setup` — Commitizen, commitlint, semantic-release / Release Please
+   - `/ci-setup` — GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins
+   - `/release-setup` — Commitizen, commitlint, semantic-release / Release Please
 4. **Report** — shows next steps: `/checkup`, `/seed-docs`, `/dev #N`.
 
 ## Sub-skills
@@ -35,12 +35,12 @@ Each sub-skill is independently re-runnable to reconfigure a single concern:
 
 | Sub-skill | Concern |
 |-----------|---------|
-| `/dev-core:env-setup` | Stack config, governance rules, docs stubs |
-| `/dev-core:ci-setup` | GitHub Actions workflows, secret scanning (seeds `scripts/trufflehog-*` + lefthook + CI), hooks |
-| `/dev-core:release-setup` | Commit standards, hook runner, release automation |
+| `/env-setup` | Stack config, governance rules, docs stubs |
+| `/ci-setup` | GitHub Actions workflows, secret scanning (seeds `scripts/trufflehog-*` + lefthook + CI), hooks |
+| `/release-setup` | Commit standards, hook runner, release automation |
 
 ## Safety
 
 - Never commits secrets — `.env` is gitignored. `.claude/dev-core.yml` contains only the public `github_repo` slug and is committed.
 - Idempotent — sub-skills skip already-configured items unless `--force`.
-- On a repo that already has CI/hooks: prefer `/dev-core:env-setup` alone, or `/dev-init --force` only with intent.
+- On a repo that already has CI/hooks: prefer `/env-setup` alone, or `/dev-init --force` only with intent.

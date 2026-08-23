@@ -1,18 +1,9 @@
 /**
  * Seed principal-freeze lefthook/pre-commit gate into a consumer project.
- * Canonical script: plugins/dev-core/scripts/check-principal-branch.sh
+ * Canonical script: ${CLAUDE_PLUGIN_ROOT}/scripts/check-principal-branch.sh or monorepo dev-core/scripts/.
  */
 
-import {
-  chmodSync,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -52,32 +43,6 @@ export type SeedPrincipalFreezeResult = {
   scriptCanonical?: boolean
   error?: string
 }
-
-function newestScriptsDir(pluginRoot: string): string | null {
-  if (!existsSync(pluginRoot)) return null
-  let best: { path: string; mtime: number } | null = null
-  let entries: string[]
-  try {
-    entries = readdirSync(pluginRoot)
-  } catch {
-    return null
-  }
-  for (const name of entries) {
-    if (name.startsWith('.')) continue
-    const scripts = join(pluginRoot, name, 'scripts')
-    const check = join(scripts, SCRIPT)
-    if (!existsSync(check)) continue
-    let mtime = 0
-    try {
-      mtime = statSync(check).mtimeMs
-    } catch {
-      continue
-    }
-    if (!best || mtime > best.mtime) best = { path: scripts, mtime }
-  }
-  return best?.path ?? null
-}
-
 export function resolvePrincipalFreezeSourceDir(explicit?: string): string | null {
   if (explicit) {
     return existsSync(join(explicit, SCRIPT)) ? explicit : null
@@ -88,14 +53,11 @@ export function resolvePrincipalFreezeSourceDir(explicit?: string): string | nul
     if (!root) continue
     const candidate = join(root, 'scripts')
     if (existsSync(join(candidate, SCRIPT))) return candidate
-    const peer = join(dirname(root), 'dev-core', 'scripts')
-    if (existsSync(join(peer, SCRIPT))) return peer
-    const scanned = newestScriptsDir(join(dirname(root), 'dev-core'))
-    if (scanned) return scanned
   }
 
+  // Monorepo: from skills/dev-init/lib/ → dev-core/scripts (no sibling dev-init scan post-merge)
   const here = dirname(fileURLToPath(import.meta.url))
-  const monorepo = join(here, '..', '..', '..', '..', 'dev-core', 'scripts')
+  const monorepo = join(here, '..', '..', '..', 'scripts')
   if (existsSync(join(monorepo, SCRIPT))) return monorepo
 
   return null

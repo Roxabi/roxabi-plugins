@@ -12,7 +12,7 @@ Let:
   Φ := CLAUDE_PLUGIN_ROOT
   σ := `.claude/stack.yml`
   δ := `.claude/dev-core.yml`
-  I_TS := `${Φ}/skills/init/init.ts`
+  I_TS := `${Φ}/skills/dev-init/init.ts`
   D(label, result) := Display: `{label} {result}`
   Ask(opts) := present opts, wait for user reply
   chk(cond, pass, fail) := cond → ✅ pass | fail

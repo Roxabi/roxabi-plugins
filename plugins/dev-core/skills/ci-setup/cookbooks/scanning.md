@@ -2,7 +2,7 @@
 
 Let:
   σ    := `.claude/stack.yml`
-  I_TS := `${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts`
+  I_TS := `${CLAUDE_PLUGIN_ROOT}/skills/dev-init/init.ts`
   D(label, result) := Display: `{label} {result}`
   D✅(label)       := D(label, "✅ Created")
   D⏭(label)       := D(label, "⏭ Skipped")
@@ -22,7 +22,7 @@ Ask: **Set up TruffleHog** | **Skip**.
 yes:
 1. **Seed local primary scripts** (idempotent — skip existing unless F):
    ```bash
-   # I_TS = dev-core skills/init/init.ts shim → dev-init CLI
+   # I_TS = dev-core/skills/dev-init/init.ts (merged CLI)
    bun $I_TS seed-trufflehog ${F:+--force}
    ```
    Seeds `scripts/trufflehog-check.sh` + `scripts/trufflehog-exclude-paths.txt` from

@@ -17,18 +17,16 @@ Let:
   SKIP_AXIAL := `--skip-axial` flag present in `$ARGUMENTS`
   args       := join(F ? "--force" : "", SKIP_AXIAL ? "--skip-axial" : "")
 
-Full project initialization harness. Orchestrates three focused sub-skills in sequence, each independently re-runnable.
+Full project initialization harness. Orchestrates focused sub-skills in sequence (env-setup, axial-adr-create, ci-setup, release-setup), each independently re-runnable.
 
 **Invoke:** `/dev-init` (skill name = plugin name). Claude Code / Grok built-in `/init` (scaffold CLAUDE.md only) is a **different** command.
 
-**Requires:** `dev-core` installed + enabled (sub-skills + `axial-adr-create` live there).
-
 | Sub-skill | Concern |
 |-----------|---------|
-| `/dev-core:env-setup` | stack.yml, CLAUDE.md rules, docs stubs, LSP |
+| `/env-setup` | stack.yml, CLAUDE.md rules, docs stubs, LSP |
 | `axial-adr-create` (agent) | **Axis of decomposition ADR** — mandatory drift prevention (N×M trap). Skippable via `--skip-axial` for trivial single-axis projects. See `shared/references/axial-decomposition.md` |
-| `/dev-core:ci-setup` | GitHub Actions, TruffleHog (**seed** `scripts/trufflehog-check.sh` + exclude + lefthook + CI `secret-scan.yml`), principal freeze lefthook gate (offer), Dependabot, marketplace plugins |
-| `/dev-core:release-setup` | Commit standards (Commitizen), hook additions, release automation (semantic-release / Release Please) |
+| `/ci-setup` | GitHub Actions, TruffleHog (**seed** `scripts/trufflehog-check.sh` + exclude + lefthook + CI `secret-scan.yml`), principal freeze lefthook gate (offer), Dependabot, marketplace plugins |
+| `/release-setup` | Commit standards (Commitizen), hook additions, release automation (semantic-release / Release Please) |
 
 Run sub-skills directly to reconfigure a single concern without re-running the full init.
 
@@ -40,8 +38,8 @@ Keep this skill **portable** across hosts:
 |----|--------|
 | Prefer **semantic steps** (what to run, what to check, what to write) | Hardcode host-only tool names in frontmatter (`allowed-tools: Bash, Agent, …`) |
 | Use portable env: `CLAUDE_PLUGIN_ROOT` **or** `GROK_PLUGIN_ROOT` (Grok sets both) | Require one host's tool whitelist to load the skill |
-| Invoke sub-skills by **stable slash id** (`/dev-core:env-setup`) | Assume Claude `Skill` / `Agent` tool shape is available |
-| Spawn agents by **role name** (`axial-adr-create` / `dev-core:axial-adr-create`) | Embed Claude-only or Grok-only APIs as the only path |
+| Invoke sub-skills by **stable slash id** (`/env-setup`) | Assume Claude `Skill` / `Agent` tool shape is available |
+| Spawn agents by **role name** (`axial-adr-create`) | Embed Claude-only or Grok-only APIs as the only path |
 | Shell via the host's bash tool (Claude `Bash` / Grok `run_terminal_command`) | Rely on `allowed-tools` for discovery |
 
 When a step needs a subagent, instruct: *“spawn the project agent for role X with prompt …”* — each host maps that to its Task / spawn_subagent / Agent tool.
@@ -67,7 +65,7 @@ Run: `bun $I_TS prereqs`. Parse JSON → display ✅/❌ table for bun, gh, git 
 Call sub-skills in order. Each runs its own phases, asks its own questions, displays its own progress.
 
 ```
-skill: "dev-core:env-setup", args: "{args}"
+skill: "env-setup", args: "{args}"
 ```
 
 ### Phase 3a — Axial ADR (mandatory drift prevention)
@@ -87,7 +85,7 @@ Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
 2. ≥1 match → D("Axial ADR", "✅ Already present"), continue. (Singleton invariant — if >1 match, dispatch `axial-adr-review` later to surface the violation.)
 3. ∅ → spawn the `axial-adr-create` sub-agent (host: Agent / Task / spawn_subagent):
    ```
-   subagent_type: "axial-adr-create"   # or "dev-core:axial-adr-create" on Grok
+   subagent_type: "axial-adr-create"
    description:   "Elicit axial decomposition decision"
    prompt:        "Conduct the axial-decomposition interview for this project. Read ${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md first. Output: ADR file in docs/architecture/adr/ with `axial: true` frontmatter (grep-discoverable canonical marker — singleton invariant)."
    ```
@@ -110,11 +108,10 @@ Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
    - `cancelled` ∧ F → ⚠️ warn "axial ADR skipped via --force — drift risk acknowledged", continue.
 
 ```
-skill: "dev-core:ci-setup", args: "{args}"
+skill: "ci-setup", args: "{args}"
 ```
-
 ```
-skill: "dev-core:release-setup", args: "{args}"
+skill: "release-setup", args: "{args}"
 ```
 
 ## Phase 4 — Report
@@ -123,17 +120,17 @@ skill: "dev-core:release-setup", args: "{args}"
 dev-init complete
 =================
 
-  Run /dev-core:checkup   to verify full configuration health
-  Run /dev-core:seed-docs to populate docs stubs from CLAUDE.md + codebase
+  Run /checkup   to verify full configuration health
+  Run /seed-docs to populate docs stubs from CLAUDE.md + codebase
 
 Next steps:
-  /dev-core:checkup           Verify full configuration health
-  /dev-core:seed-docs         Populate scaffolded docs with content from CLAUDE.md + codebase
-  /dev-core:dev #N            Start working on an issue
+  /checkup           Verify full configuration health
+  /seed-docs         Populate scaffolded docs with content from CLAUDE.md + codebase
+  /dev #N            Start working on an issue
   /dev-init --force           Re-configure anytime
-  /dev-core:env-setup         Re-run environment setup only
-  /dev-core:ci-setup          Re-run CI/CD setup only
-  /dev-core:release-setup     Re-run release setup only
+  /env-setup         Re-run environment setup only
+  /ci-setup          Re-run CI/CD setup only
+  /release-setup     Re-run release setup only
 ```
 
 ## Safety Rules

@@ -34,7 +34,7 @@ Without this step, recently-added skills (e.g. `/recheck`) won't appear in your 
 
 ## Getting Started
 
-After installing **dev-core** and **dev-init**, run the full project harness:
+After installing **dev-core**, run the full project harness:
 
 ```
 /dev-init
@@ -75,7 +75,7 @@ Skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
-| `init` | Setup | Configures project for dev-core (CI/CD workflows, branch protection, env vars, workspace.json registration, LSP plugin install). Pushes workflow files directly via GitHub REST API — no local git required. Auto-sets PAT secret after workflow creation. TypeScript CLI with subcommands, SKILL.md orchestrates via user decision decisions |
+| `dev-init` | Setup | Project setup orchestrator — env-setup → axial ADR gate → ci-setup → release-setup in one harness. Invoke as `/dev-init` (not the host built-in `/init`, which only scaffolds `CLAUDE.md`) |
 | `env-setup` | Setup | Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding (Markdown), LSP. Triggered by `/dev-init` or standalone `/env-setup` |
 | `ci-setup` | Setup | Set up CI/CD — GitHub Actions workflows, TruffleHog, Dependabot, pre-commit hooks, marketplace plugins. Discovers Roxabi plugins live from `marketplace.json` and endorsed external marketplaces from `curated-marketplaces.json` |
 | `stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.claude/stack.yml`. Single confirmation screen — no wizard questions |

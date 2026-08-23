@@ -1,13 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveTrufflehogSourceDir, seedTrufflehogScripts } from '../lib/seed-trufflehog'
 
-const monorepoScripts = join(import.meta.dirname, '..', '..', '..', '..', 'dev-core', 'scripts')
+const monorepoScripts = join(import.meta.dirname, '..', '..', '..', 'scripts')
 
 describe('resolveTrufflehogSourceDir', () => {
-  it('finds monorepo plugins/dev-core/scripts via explicit path', () => {
+  it('finds monorepo dev-core/scripts via explicit path', () => {
     const dir = resolveTrufflehogSourceDir(monorepoScripts)
     expect(dir).toBe(monorepoScripts)
     expect(existsSync(join(monorepoScripts, 'trufflehog-check.sh'))).toBe(true)
@@ -21,29 +21,6 @@ describe('resolveTrufflehogSourceDir', () => {
     const dir = resolveTrufflehogSourceDir()
     expect(dir).toBeTruthy()
     expect(existsSync(join(dir as string, 'trufflehog-check.sh'))).toBe(true)
-  })
-
-  it('scans cache-style dev-core/* when same-hash peer misses', () => {
-    const root = mkdtempSync(join(tmpdir(), 'seed-th-cache-'))
-    try {
-      // .../cache/mkt/dev-init/<hash>/  vs  .../cache/mkt/dev-core/<semver>/scripts
-      const initRoot = join(root, 'dev-init', 'abc123hash')
-      const coreScripts = join(root, 'dev-core', '0.11.5', 'scripts')
-      mkdirSync(initRoot, { recursive: true })
-      mkdirSync(coreScripts, { recursive: true })
-      writeFileSync(join(coreScripts, 'trufflehog-check.sh'), '#!/bin/sh\n')
-      writeFileSync(join(coreScripts, 'trufflehog-exclude-paths.txt'), 'node_modules\n')
-      const prev = process.env.CLAUDE_PLUGIN_ROOT
-      process.env.CLAUDE_PLUGIN_ROOT = initRoot
-      try {
-        expect(resolveTrufflehogSourceDir()).toBe(coreScripts)
-      } finally {
-        if (prev === undefined) delete process.env.CLAUDE_PLUGIN_ROOT
-        else process.env.CLAUDE_PLUGIN_ROOT = prev
-      }
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
   })
 })
 

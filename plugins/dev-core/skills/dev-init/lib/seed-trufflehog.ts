@@ -1,9 +1,8 @@
 /**
  * Seed local primary secret-scan scripts into a consumer project.
- * Source of truth shipped with dev-core: ${CLAUDE_PLUGIN_ROOT}/scripts/trufflehog-*
- * (also available under monorepo plugins/dev-core/scripts/).
+ * Source of truth: ${CLAUDE_PLUGIN_ROOT}/scripts/trufflehog-* or monorepo plugins/dev-core/scripts/.
  */
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -27,39 +26,10 @@ export type SeedTrufflehogResult = {
   sourceDir: string
   error?: string
 }
-
-/**
- * Pick …/<pluginRoot>/<ver>/scripts that contains trufflehog-check.sh,
- * preferring the newest check.sh mtime (skip .orphaned_* noise).
- */
-function newestTrufflehogScriptsDir(pluginRoot: string): string | null {
-  if (!existsSync(pluginRoot)) return null
-  let best: { path: string; mtime: number } | null = null
-  let entries: string[]
-  try {
-    entries = readdirSync(pluginRoot)
-  } catch {
-    return null
-  }
-  for (const name of entries) {
-    if (name.startsWith('.')) continue
-    const scripts = join(pluginRoot, name, 'scripts')
-    const check = join(scripts, 'trufflehog-check.sh')
-    if (!existsSync(check)) continue
-    let mtime = 0
-    try {
-      mtime = statSync(check).mtimeMs
-    } catch {
-      continue
-    }
-    if (!best || mtime > best.mtime) best = { path: scripts, mtime }
-  }
-  return best?.path ?? null
-}
-
 /**
  * Resolve the directory that ships the trufflehog seed files.
- * Order: explicit → CLAUDE/GROK plugin root → monorepo sibling of this file.
+ * Order: explicit sourceDir → CLAUDE/GROK_PLUGIN_ROOT/scripts → monorepo layout from this lib/.
+ * No peer-cache, versioned-sibling, or marketplace grandparent scans (dead post-merge).
  */
 export function resolveTrufflehogSourceDir(explicit?: string): string | null {
   if (explicit) {
@@ -70,30 +40,14 @@ export function resolveTrufflehogSourceDir(explicit?: string): string | null {
   for (const envKey of ['CLAUDE_PLUGIN_ROOT', 'GROK_PLUGIN_ROOT'] as const) {
     const root = process.env[envKey]
     if (!root) continue
-    // When skill is dev-core, ROOT/scripts is the ship path
     const candidate = join(root, 'scripts')
     if (existsSync(join(candidate, 'trufflehog-check.sh'))) return candidate
-    // When skill is dev-init, peer plugin path under marketplaces/cache
-    const peer = join(dirname(root), 'dev-core', 'scripts')
-    if (existsSync(join(peer, 'trufflehog-check.sh'))) return peer
-    // hash-keyed cache: .../cache/<mkt>/dev-init/<hash>/ vs dev-core/<semver>/
-    // — version strings rarely match; scan all sibling versions (newest mtime wins)
-    const parent = dirname(root)
-    const grand = dirname(parent)
-    const ver = root.split('/').pop() || ''
-    const siblingVer = join(grand, 'dev-core', ver, 'scripts')
-    if (existsSync(join(siblingVer, 'trufflehog-check.sh'))) return siblingVer
-    const scanned = newestTrufflehogScriptsDir(join(grand, 'dev-core'))
-    if (scanned) return scanned
-    // marketplace source tree: .../marketplaces/roxabi-marketplace/plugins/dev-core/scripts
-    const mkt = join(grand, 'plugins', 'dev-core', 'scripts')
-    if (existsSync(join(mkt, 'trufflehog-check.sh'))) return mkt
   }
 
-  // Monorepo: this file → plugins/dev-init/skills/dev-init/lib → plugins/dev-core/scripts
+  // Monorepo: skills/dev-init/lib/ → dev-core/scripts (adjusted for merged location)
   try {
     const here = dirname(fileURLToPath(import.meta.url))
-    const monorepo = join(here, '..', '..', '..', '..', 'dev-core', 'scripts')
+    const monorepo = join(here, '..', '..', '..', 'scripts')
     if (existsSync(join(monorepo, 'trufflehog-check.sh'))) return monorepo
   } catch {
     // ignore

@@ -1,7 +1,7 @@
 # Cookbook: GitHub Actions Workflows
 
 Let:
-  I_TS := `${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts`
+  I_TS := `${CLAUDE_PLUGIN_ROOT}/skills/dev-init/init.ts`
   Φ    := CLAUDE_PLUGIN_ROOT
   F    := `--force` flag present in `$ARGUMENTS`
   σ    := `.claude/stack.yml`

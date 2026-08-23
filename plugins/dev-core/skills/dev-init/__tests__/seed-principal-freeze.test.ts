@@ -11,7 +11,7 @@ import {
   seedPrincipalFreeze,
 } from '../lib/seed-principal-freeze'
 
-const monorepoScripts = join(import.meta.dirname, '..', '..', '..', '..', 'dev-core', 'scripts')
+const monorepoScripts = join(import.meta.dirname, '..', '..', '..', 'scripts')
 
 const bothHooks = `pre-commit:
   commands:

@@ -130,7 +130,7 @@ Ask: **Fix all** | **Select** | **Skip**
 | `LSP plugin not installed` | Ask: **Global** | **Project** | **Skip**. Global→`claude plugin install <plugin-name>`. Project→`claude plugin install <plugin-name> --scope project` |
 | `tools/licenseChecker.ts missing` | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && mkdir -p tools && cp "${Φ}/tools/licenseChecker.ts" tools/licenseChecker.ts` |
 | `.license-policy.json missing` (JS) | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && cp "${Φ}/tools/license-policy.json.example" .license-policy.json` |
-| `docs.path missing` / `docs incomplete` | `bun "${Φ}/skills/init/init.ts" scaffold-docs --path {docs.path}` — re-check + display |
+| `docs.path missing` / `docs incomplete` | `bun "${Φ}/skills/dev-init/init.ts" scaffold-docs --path {docs.path}` — re-check + display |
 | `Stub docs detected` | Run `/seed-docs` — populates TODOs from CLAUDE.md + codebase analysis |
 
 When `standards.*` paths match scaffold-docs output patterns → offer scaffold-docs instead of manual edit.
