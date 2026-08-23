@@ -5,7 +5,7 @@ description: Records that dev-core consolidated the ADR-005 role-interface ports
 
 ## Status
 
-Accepted — supersedes the TypeScript/dev-core portion of ADR-005 and ADR-006; their Python-plugin decisions remain in force.
+Accepted — supersedes the TypeScript/dev-core portion of ADR-005 and ADR-006; their Python-plugin decisions remain in force. **Partially superseded (2026-08-23)** for the dev-core ↔ dev-init copy-sync mirror scope — `dev-init` merged into `dev-core` as skill `/dev-init`; the duplication this ADR governed no longer exists. Direct-call pattern and remaining `WorkspacePort` / `ConfigPort` decisions stay in force.
 
 ## Context
 
@@ -61,5 +61,5 @@ Net: the ADRs describe a hexagonal architecture that dev-core abandoned undocume
 - One-time convergence + test trim + ADR-014 manifest/CLAUDE.md update.
 
 ### Neutral
-- The dev-core ↔ dev-init duplication itself is unchanged and remains deliberate (ADR-002). This ADR reduces *divergence within* that duplication; it does not remove the duplication.
+- The dev-core ↔ dev-init duplication itself was unchanged and deliberate (ADR-002) until the 2026-08-23 merge retired the separate `dev-init` plugin.
 - `WorkspacePort` and the remaining ports are untouched.

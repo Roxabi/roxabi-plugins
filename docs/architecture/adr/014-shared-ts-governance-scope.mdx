@@ -2,13 +2,13 @@
 title: "ADR-014: Shared TypeScript File Governance — Full Scope Assignment"
 description: Assigns a governance mechanism (copy-sync, shared-import, caller-parity, intentional-fork, leave-alone) to every byte-identical or divergent TypeScript file shared between dev-core and dev-init, expanding copy-sync from 3 to 10 runtime files and deferring test shared-import conversion to #239.
 status: superseded
-superseded_by: dev-init merged into dev-core as skill /dev-init (this PR); copy-sync no longer exists
 ---
+
+> **Superseded (2026-08-23)** — `dev-init` merged into `dev-core` as skill `/dev-init`. Copy-sync (`tools/shared-sources.json`, `bun run sync:shared`), biome generated-copy overrides, and caller-parity between the two plugins are retired. **Shared-import** for test-only files under `plugins/shared/__tests__/` remains in force. Body below is historical traceability.
 
 ## Status
 
-**Superseded** (dev-init merged into dev-core; copy-sync retired). 
-Accepted. **Amended by #268** (per [ADR-015](015-direct-call-over-role-interface-ports-typescript.mdx)): `adapters/github-adapter.ts` moved from `intentional-fork` to `copy-sync` (the `GitHubAdapter` class was deleted, so it became byte-equal to dev-core), and `__tests__/domain.test.ts`'s `IssuePort`/`ProjectPort` fork was removed. With those two changes, **no files remain `intentional-fork` or `leave-alone`.** See the updated governance-table rows.
+Superseded — 2026-08-23 (dev-init plugin retired; copy-sync and caller-parity gates removed)
 
 ## Context
 
