@@ -130,5 +130,89 @@
     "targets": [
       "plugins/dev-init/skills/shared/lefthook-persist.ts"
     ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared-refs/axial-decomposition.md",
+    "targets": [
+      "plugins/dev-init/skills/shared-refs/axial-decomposition.md"
+    ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared-refs/base.md",
+    "targets": [
+      "plugins/dev-init/skills/shared-refs/base.md"
+    ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared-refs/chain-contract.md",
+    "targets": [
+      "plugins/dev-init/skills/shared-refs/chain-contract.md"
+    ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared-refs/harness-task-list.md",
+    "targets": [
+      "plugins/dev-init/skills/shared-refs/harness-task-list.md"
+    ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared-refs/harness-worktree.md",
+    "targets": [
+      "plugins/dev-init/skills/shared-refs/harness-worktree.md"
+    ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared-refs/notation.md",
+    "targets": [
+      "plugins/dev-init/skills/shared-refs/notation.md"
+    ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared-refs/plan-task-schema.md",
+    "targets": [
+      "plugins/dev-init/skills/shared-refs/plan-task-schema.md"
+    ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared-refs/release-convention.md",
+    "targets": [
+      "plugins/dev-init/skills/shared-refs/release-convention.md"
+    ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared-refs/tempfile-convention.md",
+    "targets": [
+      "plugins/dev-init/skills/shared-refs/tempfile-convention.md"
+    ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared-refs/tier-classification.md",
+    "targets": [
+      "plugins/dev-init/skills/shared-refs/tier-classification.md"
+    ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared-refs/engineer.md",
+    "targets": [
+      "plugins/dev-init/skills/shared-refs/engineer.md"
+    ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared-refs/reasoning-audit.md",
+    "targets": [
+      "plugins/dev-init/skills/shared-refs/reasoning-audit.md"
+    ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared-refs/artifact-frontmatter.md",
+    "targets": [
+      "plugins/dev-init/skills/shared-refs/artifact-frontmatter.md"
+    ]
+  },
+  {
+    "canonical": "plugins/dev-core/skills/shared-refs/harness-paths.md",
+    "targets": [
+      "plugins/dev-init/skills/shared-refs/harness-paths.md"
+    ]
   }
 ]

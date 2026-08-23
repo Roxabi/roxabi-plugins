@@ -273,7 +273,7 @@ Display PR URL (`$PR_URL`).
 
 ## Step 8 — Post-merge Reminder
 
-**CRITICAL: Merge commit only, never squash** — see [`release-convention.md`](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/release-convention.md).
+**CRITICAL: Merge commit only, never squash** — see [`release-convention.md`](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/release-convention.md).
 
 ```
 Promotion PR created: {URL}

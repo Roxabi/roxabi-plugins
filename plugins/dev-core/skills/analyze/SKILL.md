@@ -140,7 +140,7 @@ Pre-fill context from φ — skip answered questions.
 
 ## Step 2c — Generate Analysis
 
-**Frontmatter contract** (SSoT: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md)): title hygiene on `{title}` (external content → yaml-escaped scalar); write α with `type: analysis` + `status: draft`. Approval flips `status` in Step 5. **`status` is the pipeline's done-signal**: `/dev` reads α_approved (`status == 'approved'` ∨ status key absent; explicit `draft` or other tokens fail), so a draft left by an aborted run must never mark the Shape step complete.
+**Frontmatter contract** (SSoT: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/artifact-frontmatter.md)): title hygiene on `{title}` (external content → yaml-escaped scalar); write α with `type: analysis` + `status: draft`. Approval flips `status` in Step 5. **`status` is the pipeline's done-signal**: `/dev` reads α_approved (`status == 'approved'` ∨ status key absent; explicit `draft` or other tokens fail), so a draft left by an aborted run must never mark the Shape step complete.
 
 ```md
 ---
@@ -205,7 +205,7 @@ Skip if ¬technical uncertainty in Step 2 findings.
 
 **¬AQ bans menus, ¬consent.** A spike creates a branch + worktree and runs code — a repo mutation, carved out of the `¬worktree` scope line. Prose-ask + stop satisfies both the ban and CLAUDE.md Design Principle 2.
 
-**Spike flow** — runs **only** after the user says `spike` (principal stays on β — [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md)):
+**Spike flow** — runs **only** after the user says `spike` (principal stays on β — [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/harness-worktree.md)):
 
 1. Bind names first — collision-proof, and captured so teardown can use them:
    ```bash
@@ -348,7 +348,7 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Analysi
 - **Phase:** Shape
 - **Predecessor:** `/frame` (artifact: `artifacts/frames/{N}-{slug}-frame.md`)
 - **Successor:** `/spec` (optional side-paths before advance: `/adversarial` kill-pass, `/advisory` strengthen)
-- **Class:** `adv` **+ approval stop** — map class in `/dev` is `adv + approval stop`. Protection is **disk** α_approved (`status == 'approved'` ∨ missing key legacy); `/dev` Walk ignores `Σ_s[analyze]` alone and Step 8 item 0 re-reads frontmatter before any complete. Resume after stop = Step 5 React, not fresh Step 0. See [chain-contract.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/chain-contract.md).
+- **Class:** `adv` **+ approval stop** — map class in `/dev` is `adv + approval stop`. Protection is **disk** α_approved (`status == 'approved'` ∨ missing key legacy); `/dev` Walk ignores `Σ_s[analyze]` alone and Step 8 item 0 re-reads frontmatter before any complete. Resume after stop = Step 5 React, not fresh Step 0. See [chain-contract.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/chain-contract.md).
 
 ## Task Integration
 

@@ -123,7 +123,7 @@ Let α_approved := α ∃ ∧ (α.status == 'approved' ∨ status key absent).
 
 ## Step 2b — Seed Pipeline Tasks
 
-Host task list (Claude `Task*` or Grok `todo_write` — see `skills/shared/references/harness-task-list.md`) drives in-session progress for the dev pipeline. Treat it as authoritative for within-session state — artifacts remain authoritative across sessions.
+Host task list (Claude `Task*` or Grok `todo_write` — see `skills/shared-refs/harness-task-list.md`) drives in-session progress for the dev pipeline. Treat it as authoritative for within-session state — artifacts remain authoritative across sessions.
 
 **2b.1 Check existing:** `TaskList` → filter where `metadata.issue == N` ∧ `metadata.kind == 'dev-pipeline'`. ∃ matches → skip seeding (tasks already exist from a prior `/dev` invocation in this session). Cache {step → task.id} map from the matches. Goto 2b.4.
 
@@ -249,7 +249,7 @@ User confirm received → invoke `skill: "dev-plan"` (Step 7). This gate runs ea
 
 **Trigger:** `--audit` ∨ S* ∈ `workflow.reasoning_audit` (stack.yml). critical := {spec, plan, implement}.
 
-audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Gate ∃ for S* → audit **replaces** it (¬double-prompt). ¬pass `--audit` to child skills.
+audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/reasoning-audit.md). Gate ∃ for S* → audit **replaces** it (¬double-prompt). ¬pass `--audit` to child skills.
 **Exception — F-full architecture sketch (R7a):** `--audit` NEVER replaces the architecture-sketch gate; sketch always fires for τ == F-full ∧ S* == plan, even when reasoning audit runs (two separate prompts: sketch → confirm, then audit → proceed).
 → present choice **Proceed** | **Adjust approach** (max 3 rounds) | **Abort** (→ skipped, Step 5)
 
@@ -257,7 +257,7 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 
 ## Step 7 — Execute Step
 
-**Worktree bootstrap (silent pre-step):** `worktree` == false ∧ S* ∈ {frame, analyze, spec, plan, implement} → invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first (ensures BRANCH linked + ω; **principal stays on β**). After return, re-scan `worktree` + `principal_ok`. Still false or `principal_ok=false` → present choice: **Retry** | **Abort**. SSoT: [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md).
+**Worktree bootstrap (silent pre-step):** `worktree` == false ∧ S* ∈ {frame, analyze, spec, plan, implement} → invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first (ensures BRANCH linked + ω; **principal stays on β**). After return, re-scan `worktree` + `principal_ok`. Still false or `principal_ok=false` → present choice: **Retry** | **Abort**. SSoT: [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/harness-worktree.md).
 
 **Artifact sync (post-bootstrap):** If S* ∈ {frame, analyze, spec, plan} and principal has artifacts that ω lacks → absolute rsync (path-agnostic — works for Claude *and* Grok layouts):
 ```bash

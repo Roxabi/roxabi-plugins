@@ -13,8 +13,8 @@ dev-core is a **factory**: TypeScript, hooks, CLI, doctor, and worktrees under `
 
 The skill system already has three libraries of fact:
 
-1. `plugins/shared/references/notation.md` — marketplace glyphs + Reserved-Variable Registry.
-2. `plugins/dev-core/skills/shared/references/chain-contract.md` — author-facing pipeline contract. Header: **not loaded at runtime**.
+1. `plugins/dev-core/skills/shared-refs/notation.md` — marketplace glyphs + Reserved-Variable Registry.
+2. `plugins/dev-core/skills/shared-refs/chain-contract.md` — author-facing pipeline contract. Header: **not loaded at runtime**.
 3. A `Let:` block in every skill (32 `SKILL.md` files; 34 `Let:` lines because `stack-setup` and `env-setup` each have a second block) that re-binds words the registry already names.
 
 The failure mode is **N homes for one fact**, not a missing fourth library. `τ` is defined in `notation.md`, `tier-classification.md`, `dev-process.md`, and dozens of `Let:` lines. `σ` is a four-way collision in the registry (`.claude/stack.yml` · spec artifact · status-icon map · staging branch). Approval-stop, done-signal, principal, factory, and Issue are English process words that glyphs cannot hold, so they get copied into skill bodies.
@@ -86,8 +86,8 @@ One home per fact. If the fact already has a home, point or invoke — never rec
 
 | Kind of fact | Examples | One home | Others reach by | Forbidden |
 |---|---|---|---|---|
-| Word | Issue, approval-stop, principal, `τ` = tier only | Glyphs: `plugins/shared/references/notation.md` (bindings **locked** — one sense; `(local)` is no longer the desired steady state). English process words glyphs cannot hold: one thin section in that same file (`## English process words`) — not a sibling glossary, not `CONTEXT.md`. | Authors write with it; `/dev` may `Read` once. | 30+ `Let:` redefinitions of canonical words; a fourth glossary that restates `τ` / `σ` / `φ`. |
-| Format | frontmatter `status:`, done-signal keys, plan-task schema | One format doc under `plugins/dev-core/skills/shared/references/` (`artifact-frontmatter.md`, `plan-task-schema.md`). `tier-classification.md` is the S / F-lite / F-full SSoT (criteria, signals, scoring). | `Read` when writing that artifact. | Recopying keys into every `SKILL.md`. |
+| Word | Issue, approval-stop, principal, `τ` = tier only | Glyphs: `plugins/dev-core/skills/shared-refs/notation.md` (bindings **locked** — one sense; `(local)` is no longer the desired steady state). English process words glyphs cannot hold: one thin section in that same file (`## English process words`) — not a sibling glossary, not `CONTEXT.md`. | Authors write with it; `/dev` may `Read` once. | 30+ `Let:` redefinitions of canonical words; a fourth glossary that restates `τ` / `σ` / `φ`. |
+| Format | frontmatter `status:`, done-signal keys, plan-task schema | One format doc under `plugins/dev-core/skills/shared-refs/` (`artifact-frontmatter.md`, `plan-task-schema.md`). `tier-classification.md` is the S / F-lite / F-full SSoT (criteria, signals, scoring). | `Read` when writing that artifact. | Recopying keys into every `SKILL.md`. |
 | Procedure | approval-stop, falsification, interview, TDD | Prefer one model-invoked skill **only if** the extraction gate passes; else named prose in one file (ADR-013 `write_candidate` style). | `Skill("X")` or named-prose pointer. | Inline the same algorithm in 2+ `SKILL.md`. |
 | Orchestration | who runs next, task lifecycle | `/dev` (feature path) and `/ship` (land path) only. | Human NL or slash; factory `Skill()`s children. | Child Chain Position / Exit as the long-term SSoT; `chain-contract.md` as a second *runtime* source. |
 | Mechanism | worktree, scan-state, doctor, hooks | Code (TS / sh / hook) under `skills/shared/`, `hooks/`, `cli/`, `tools/`, or the owning skill's scripts. Copy-sync unchanged (ADR-014). | `bash` / `bun` / `Skill("setup-worktree")`. | Narrating the algorithm in `SKILL.md`. |
@@ -104,8 +104,8 @@ ADR-013 named prose and ADR-004's rejection of `/audit` remain the default when 
 
 | Path | Role |
 |---|---|
-| `plugins/shared/references/` | Marketplace language. `notation.md` is locked (glyphs + thin English process words). |
-| `plugins/dev-core/skills/shared/references/` | **Formats only** (target). Today this directory also holds author-facing and protocol files; those are cadastre follow-up, not this landing. Keep `artifact-frontmatter.md`, `plan-task-schema.md`, `tier-classification.md`, host contracts (`harness-*.md`), and format templates (`reasoning-audit.md`, `release-convention.md`). |
+| `plugins/dev-core/skills/shared-refs/` | Marketplace language. `notation.md` is locked (glyphs + thin English process words). |
+| `plugins/dev-core/skills/shared-refs/` | **Formats only** (target). Today this directory also holds author-facing and protocol files; those are cadastre follow-up, not this landing. Keep `artifact-frontmatter.md`, `plan-task-schema.md`, `tier-classification.md`, host contracts (`harness-*.md`), and format templates (`reasoning-audit.md`, `release-convention.md`). |
 | `plugins/dev-core/skills/shared/` TS | Mechanisms + copy-sync (ADR-014). Unchanged. |
 | `plugins/dev-core/references/` | Human contributor docs. Must stop being a second SSoT. Today `dev-process.md` **and** `tier-classification.md` both define S / F-lite / F-full — `tier-classification.md` wins. `dev-process.md` keeps phases / artifacts / git overview and points at the tier file. |
 | `skills/<name>/SKILL.md` | Either a factory (`/dev`, `/ship`) or a procedure. No canonical `Let:` of shared words. No long-term Chain Position copy. |

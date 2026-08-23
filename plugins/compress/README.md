@@ -30,7 +30,7 @@ Every output is governed by four guardrails (G1–G4 in `skills/compress/SKILL.m
 - **G3 Gloss trigger** — predicates, process blocks, `Let:` bindings, non-whitelist symbols, and chains of more than 3 operators all get a mandatory one-line gloss.
 - **G4 Verbatim floor** — commands, tool names, spawn templates, and safety rules stay in words.
 
-The whitelist in SKILL.md is canonical. When the optional shared glossary (`plugins/shared/references/notation.md`) is installed it extends the symbol domain; without it the skill runs fully standalone.
+The whitelist in SKILL.md is canonical. When the optional shared glossary (`plugins/dev-core/skills/shared-refs/notation.md`) is installed it extends the symbol domain; without it the skill runs fully standalone.
 
 ## Read-back verification
 

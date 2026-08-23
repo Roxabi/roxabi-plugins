@@ -181,7 +181,7 @@ Auto-detect τ from complexity signals:
 | Issue label M | F-lite |
 | Issue label L ∨ XL | F-full |
 
-See [tier-classification.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/tier-classification.md) for canonical rules.
+See [tier-classification.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/tier-classification.md) for canonical rules.
 
 ### Auto (no menus)
 
@@ -194,7 +194,7 @@ See [tier-classification.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/tier
 
 ## Step 3 — Write Frame Doc
 
-Write φ with `status: draft`. **Frontmatter contract** (SSoT: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md)): title hygiene on `{title}` (external → yaml-escaped); `status: draft` until Step 4 approve.
+Write φ with `status: draft`. **Frontmatter contract** (SSoT: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/artifact-frontmatter.md)): title hygiene on `{title}` (external → yaml-escaped); `status: draft` until Step 4 approve.
 
 ```md
 ---
@@ -339,7 +339,7 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set N --status Analysis
 - **Phase:** Frame
 - **Predecessor:** `/issue-triage` (or free-text entry)
 - **Successor:** `/analyze` (F-full) ∨ `/spec` (F-lite)
-- **Class:** `adv + approval stop` with **high_conf auto-approve** — disk `status: approved` is the done-signal. When ¬high_conf, print Executive Summary and stop; resume = Step 5 React. When high_conf, approve+commit same turn and return. See [chain-contract.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/chain-contract.md).
+- **Class:** `adv + approval stop` with **high_conf auto-approve** — disk `status: approved` is the done-signal. When ¬high_conf, print Executive Summary and stop; resume = Step 5 React. When high_conf, approve+commit same turn and return. See [chain-contract.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/chain-contract.md).
 
 ## Task Integration
 

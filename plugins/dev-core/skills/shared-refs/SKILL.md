@@ -7,4 +7,5 @@ version: 0.1.0
 
 # Shared References
 
-Reference pack. Read files via `skill://shared-refs/<file>.md` (`harness-paths`, `notation`, `tempfile-convention`, `axial-decomposition`).
+Reference pack. Read via `skill://shared-refs/<file>.md` · Claude/Grok `$CLAUDE_PLUGIN_ROOT/skills/shared-refs/<file>.md`.
+Files: harness-paths, notation, tempfile-convention, axial-decomposition, chain-contract, harness-worktree, harness-task-list, plan-task-schema, artifact-frontmatter, tier-classification, reasoning-audit, release-convention, base, engineer.

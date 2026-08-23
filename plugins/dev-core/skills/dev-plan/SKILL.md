@@ -101,7 +101,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/dev-process.md` + σ.
 
 ### Step 2a-pre — Reasoning Audit (optional)
 
-`--audit` → after reading σ, print reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) as **prose in chat**. Continue to Step 2a. ¬AQ Proceed/Adjust/Abort — user can interrupt next turn if they disagree.
+`--audit` → after reading σ, print reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/reasoning-audit.md) as **prose in chat**. Continue to Step 2a. ¬AQ Proceed/Adjust/Abort — user can interrupt next turn if they disagree.
 
 ¬`--audit` → continue to Step 2a.
 
@@ -371,7 +371,7 @@ On approve → **immediately** continue seed → persist IDs → commit. ¬stop 
 
 #### Seed host task list
 
-∀ micro-task in π — fields from [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/plan-task-schema.md); **host mapping** from [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-task-list.md).
+∀ micro-task in π — fields from [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/plan-task-schema.md); **host mapping** from [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/harness-task-list.md).
 
 Probe tools → H ∈ {claude-tasks, grok-todos, artifact-only}. Seed via that path (rich `TaskCreate` **or** portable `todo_write` **or** plan-only).
 
@@ -419,7 +419,7 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 - **Phase:** Build
 - **Predecessor:** `/spec` (artifact: `artifacts/specs/{N}-{slug}-spec.md`)
 - **Successor:** `/implement` (via compact pause — `/dev` Step 8b; ¬auto-chain for F-lite/F-full)
-- **Class:** `adv + approval stop` — disk done-signal = `## Task IDs` in π (written only on Approve path). Summary without seed is **not** complete. Resume = Step 7 React. See [chain-contract.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/chain-contract.md).
+- **Class:** `adv + approval stop` — disk done-signal = `## Task IDs` in π (written only on Approve path). Summary without seed is **not** complete. Resume = Step 7 React. See [chain-contract.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/chain-contract.md).
 
 ## Task Integration
 

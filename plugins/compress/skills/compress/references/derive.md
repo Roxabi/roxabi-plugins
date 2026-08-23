@@ -92,7 +92,7 @@ For every cluster that passes the GATE, determine **schema_fit** via LLM judgmen
 
 ## CONFLICT
 
-Overlap detection: iff a candidate signature or principle overlaps with an existing pattern in the shared reference target (e.g., `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` or `references/compress.md`), and the two carry opposed polarity or contradictory rules, a conflict exists.
+Overlap detection: iff a candidate signature or principle overlaps with an existing pattern in the shared reference target (e.g., `${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/notation.md` or `references/compress.md`), and the two carry opposed polarity or contradictory rules, a conflict exists.
 
 Conflict handling: present-choice showing BOTH texts (the candidate and the existing pattern). State explicitly: no silent-merge path exists in this mode's text. The user's choice is recorded and carries through to the EMIT step.
 
@@ -101,7 +101,7 @@ Conflict handling: present-choice showing BOTH texts (the candidate and the exis
 R11 pointer contract: every external reference follows this form exactly:
 
 ```
-Q := read ${CLAUDE_PLUGIN_ROOT}/../shared/references/<f>.md — <gloss>
+Q := read ${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/<f>.md — <gloss>
 ```
 
 Never use bare `→ REF(n)` style pointers. The Let-bound form `Q := read …` is the house idiom.
@@ -219,7 +219,7 @@ Source: Multiple compress reference files (`compress.md`, `expand.md`, `lint.md`
 Signature: | <VAR> | <VAR> |
 ```
 
-Occurrence: 12 instances across 3 files. Gate: MIN_OCCURRENCES PASS, MIN_FILES PASS, FRESHNESS_DAYS PASS (all stable). Route: **strong schema-fit** — this is the standard `| Phase | Notes |` pattern already documented in `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md`. Action: **Fold-in** to existing shared reference, diff against `## Core Table`.
+Occurrence: 12 instances across 3 files. Gate: MIN_OCCURRENCES PASS, MIN_FILES PASS, FRESHNESS_DAYS PASS (all stable). Route: **strong schema-fit** — this is the standard `| Phase | Notes |` pattern already documented in `${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/notation.md`. Action: **Fold-in** to existing shared reference, diff against `## Core Table`.
 
 ```
 $ python3 S count /tmp/instance_row.txt
@@ -245,7 +245,7 @@ Each glyph appears individually in multiple skill files. Extraction:
 Signature: <VAR> = <VAR>
 ```
 
-Occurrence: 8 instances across 4 files. Gate: all PASS. Route: **strong** — this is the glyph registry. Action: **Fold-in** to `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` § Reserved-Variable Registry, update counts.
+Occurrence: 8 instances across 4 files. Gate: all PASS. Route: **strong** — this is the glyph registry. Action: **Fold-in** to `${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/notation.md` § Reserved-Variable Registry, update counts.
 
 ```
 $ python3 S count /tmp/glyph_instance.txt

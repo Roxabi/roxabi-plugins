@@ -20,7 +20,14 @@
     }
   },
   "files": {
-    "includes": ["**/*.ts", "**/*.js", "!**/node_modules", "!**/.venv", "!**/.cache", "!.claude/worktrees"]
+    "includes": [
+      "**/*.ts",
+      "**/*.js",
+      "!**/node_modules",
+      "!**/.venv",
+      "!**/.cache",
+      "!.claude/worktrees"
+    ]
   },
   "overrides": [
     {
@@ -46,7 +53,21 @@
         "plugins/dev-init/skills/shared/workflows/workflow-generators.ts",
         "plugins/dev-init/skills/shared/workflows/workflow-push.ts",
         "plugins/dev-init/skills/shared/workflows/workflows.ts",
-        "plugins/dev-init/skills/shared/lefthook-persist.ts"
+        "plugins/dev-init/skills/shared/lefthook-persist.ts",
+        "plugins/dev-init/skills/shared-refs/axial-decomposition.md",
+        "plugins/dev-init/skills/shared-refs/base.md",
+        "plugins/dev-init/skills/shared-refs/chain-contract.md",
+        "plugins/dev-init/skills/shared-refs/harness-task-list.md",
+        "plugins/dev-init/skills/shared-refs/harness-worktree.md",
+        "plugins/dev-init/skills/shared-refs/notation.md",
+        "plugins/dev-init/skills/shared-refs/plan-task-schema.md",
+        "plugins/dev-init/skills/shared-refs/release-convention.md",
+        "plugins/dev-init/skills/shared-refs/tempfile-convention.md",
+        "plugins/dev-init/skills/shared-refs/tier-classification.md",
+        "plugins/dev-init/skills/shared-refs/engineer.md",
+        "plugins/dev-init/skills/shared-refs/reasoning-audit.md",
+        "plugins/dev-init/skills/shared-refs/artifact-frontmatter.md",
+        "plugins/dev-init/skills/shared-refs/harness-paths.md"
       ],
       "formatter": {
         "enabled": false

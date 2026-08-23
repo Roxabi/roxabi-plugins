@@ -118,7 +118,7 @@ Depth by τ: β = Phase 1 + divergent (lighter) | α = Phases 1–3 thorough | �
 
 ## Step 4 — Generate Document
 
-Write using the matching template. **Frontmatter is not optional** — full contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md).
+Write using the matching template. **Frontmatter is not optional** — full contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/artifact-frontmatter.md).
 
 Rules:
 - `.md` extension; kebab-case slugs.

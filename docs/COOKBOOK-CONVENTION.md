@@ -139,5 +139,5 @@ When adding a new cookbook/playbook:
 
 ## See Also
 
-- `roxabi-plugins/plugins/shared/references/` — shared reference files
+- `roxabi-plugins/plugins/dev-core/skills/shared-refs/` — shared reference files
 - `~/.roxabi/forge/` — forge diagrams (visual artifacts, not cookbooks)

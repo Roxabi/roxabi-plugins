@@ -238,7 +238,7 @@ New findings surfaced during falsification → **parking lot**: file as candidat
 
 ∄ PR → skip.
 
-Tempfile per `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md`:
+Tempfile per `${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/tempfile-convention.md`:
 ```bash
 [[ "$PR" =~ ^[0-9]+$ ]] || { echo "Invalid PR number: $PR" >&2; exit 1; }
 TMPDIR=$(mktemp -d -t "dev-core-review-fixes-PR${PR}-XXXXXX")

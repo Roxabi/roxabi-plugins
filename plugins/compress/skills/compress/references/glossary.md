@@ -1,10 +1,10 @@
 # Glossary Mode
 
-Mode body for `/compress glossary` — loaded by SKILL.md Phase 3 when μ = glossary. Maintains the canonical glossary (`${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md`): add, deprecate, or version notation entries under closed-vocabulary rules. Cortex link: this mode is closed-vocabulary governance mechanics only — a human-gated add/deprecate/version loop over a fixed symbol set, nothing more.
+Mode body for `/compress glossary` — loaded by SKILL.md Phase 3 when μ = glossary. Maintains the canonical glossary (`${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/notation.md`): add, deprecate, or version notation entries under closed-vocabulary rules. Cortex link: this mode is closed-vocabulary governance mechanics only — a human-gated add/deprecate/version loop over a fixed symbol set, nothing more.
 
 ## Preconditions
 
-- Glossary gate: `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` ∄ → halt: `glossary mode requires the shared glossary — standalone installs carry only the inline whitelist, which this mode does not edit`.
+- Glossary gate: `${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/notation.md` ∄ → halt: `glossary mode requires the shared glossary — standalone installs carry only the inline whitelist, which this mode does not edit`.
 - Load the lazy halves of notation.md: `## Disambiguation Grammar` + `## Maintenance Policy` + `## Reserved-Variable Registry`. (Compress mode loads `## Core Table` only — this mode is the reason the other sections exist.)
 
 ## Pipeline

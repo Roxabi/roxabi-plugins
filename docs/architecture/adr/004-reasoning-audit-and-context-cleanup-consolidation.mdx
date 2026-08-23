@@ -34,7 +34,7 @@ The audit fires after the gate check and before the AskUserQuestion loop. The fo
 
 ### Option B: Audit merged into Gate Check, shared reference template, workflow-namespaced config key
 
-Collapse Step 6b into Step 6: each gate row gains an optional reasoning audit block when `audit_enabled`. Extract the template to `skills/shared/references/reasoning-audit.md`. Nest the config under `workflow.reasoning_audit`.
+Collapse Step 6b into Step 6: each gate row gains an optional reasoning audit block when `audit_enabled`. Extract the template to `skills/shared-refs/reasoning-audit.md`. Nest the config under `workflow.reasoning_audit`.
 
 - **Pros:** Eliminates the double-interrupt. Single source of truth for the template. Config placement is consistent with other structured sections.
 - **Cons:** Gate table becomes more complex. Merging the gate and audit makes it harder to disable one without the other. More refactoring effort.
@@ -64,7 +64,7 @@ Publish cleanup-context as a dev-core skill for the `/dev --cleanup-context` sho
 
 **Reasoning audit placement:** Accept the current Step 6b placement (after Gate Check, before AskUserQuestion Loop) as structurally correct. Add a double-interrupt guard: when `audit_enabled` and S* already triggers a Step 6 gate, the reasoning audit display replaces the gate confirmation — do not present both.
 
-**Template ownership:** Extract the reasoning audit template to `plugins/dev-core/skills/shared/references/reasoning-audit.md`. Each skill references it by name and keeps only its skill-specific header label inline. This is the standard pattern used by other shared references in dev-core.
+**Template ownership:** Extract the reasoning audit template to `plugins/dev-core/skills/shared-refs/reasoning-audit.md`. Each skill references it by name and keeps only its skill-specific header label inline. This is the standard pattern used by other shared references in dev-core.
 
 **stack.yml config placement:** Move `reasoning_audit` from a top-level orphan key into a new `workflow:` section. This section is the canonical home for behavioural flags that control orchestrator behaviour (e.g. future `workflow.auto_cleanup`, `workflow.require_frame`). The key becomes `workflow.reasoning_audit`.
 

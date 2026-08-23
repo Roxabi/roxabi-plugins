@@ -146,7 +146,7 @@ Interim: `Claims` = all valid tags on approved σ when Δ ≠ ∅ (true source�
 | **security-auditor** | **`spawn_security_auditor`** from S1 `claim-roster.sh` — `path_hit` (Δ ∩ {auth, secrets, crypto, `**/auth/**`, `**/*secret*`, `**/*crypto*`}) ∨ claim tags on approved σ when Δ≠∅ ∨ invalid `claim` on priced fence (#419) | OWASP, secrets, injection, auth |
 | **axial-adr-review** | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ Δ ∩ {`infrastructure/`, `adapters/`, `domains/`, `stages/`} ≠ ∅ | Drift along non-primary axis (target × concern duplication) — read-only review agent (no Write/Edit/Bash tools) |
 
-> **Note on axial-adr-review asymmetry (intentional):** The `/dev-review` condition is **structural** — it triggers when the diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`. The spec phase (`/spec`) uses a **semantic/intent-based** condition (spec adds adapter/integration/target ∨ touches `infrastructure/`). The two are complementary: `/spec` catches intent-level N×M violations, `/dev-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
+> **Note on axial-adr-review asymmetry (intentional):** The `/dev-review` condition is **structural** — it triggers when the diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`. The spec phase (`/spec`) uses a **semantic/intent-based** condition (spec adds adapter/integration/target ∨ touches `infrastructure/`). The two are complementary: `/spec` catches intent-level N×M violations, `/dev-review` catches implementation-level ones. See `plugins/dev-core/skills/shared-refs/axial-decomposition.md`.
 
 Skip: product-lead → spec ∄ | tester → `bash skill://pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` (Claude/Grok: `$CLAUDE_PLUGIN_ROOT/skills/pr/run-falsify.sh`) emits `oracle_ok=true` (markdown / `parse-falsify` alone is ¬sufficient; verify fail → spawn tester) | frontend-dev → ¬FE Δ | architect/devops → τ≠F-full ∧ Δ misses `scripts/`/CI/`lefthook.yml`/wrangler/deploy | backend-dev → τ≠F-full ∧ Δ misses those ∧ `{backend.path}` | security-auditor → **`¬spawn_security_auditor`** (S1 `claim-roster` — **not** path-only “Δ misses auth/secrets/crypto”) | recall → single-chunk ∨ ¬canonical class ∨ \|callsites\|<3
 
@@ -373,7 +373,7 @@ Q:
 
 1. Fresh agents only — ¬implementation context
 2. ¬approve PRs on GitHub; ¬enable auto-merge outside the Phase 8 human decision (label gate)
-3. Merge = merge commit only, ¬squash (see [`release-convention.md`](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/release-convention.md)); merge executes via the gate (label + auto-merge), never manually mid-CI
+3. Merge = merge commit only, ¬squash (see [`release-convention.md`](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/release-convention.md)); merge executes via the gate (label + auto-merge), never manually mid-CI
 4. ¬fix code — findings only. Fixing = `/fix` skill
 5. ∃ PR → must post comment (Phase 6)
 6. Human decides at Phase 8 — ¬proceed without Q

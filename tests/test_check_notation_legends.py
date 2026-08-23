@@ -41,8 +41,8 @@ def _write_legend(tmp_path: Path, name: str = 'base.md', line: str | None = None
     if line is None:
         line = (
             'Notation legend → canonical glossary: '
-            '`${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` '
-            '(repo: `plugins/shared/references/notation.md`)'
+            '`${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/notation.md` '
+            '(repo: `plugins/dev-core/skills/shared-refs/notation.md`)'
         )
     path = tmp_path / name
     path.write_text(f'# Stub agent\n\n## Notation\n\n{line}\n', encoding='utf-8')
@@ -131,7 +131,7 @@ def test_multiple_pointer_lines_fails(tmp_path):
         tmp_path,
         line=(
             'Notation legend → canonical glossary: `notation.md`\n'
-            'See also `plugins/shared/references/notation.md` for details.'
+            'See also `plugins/dev-core/skills/shared-refs/notation.md` for details.'
         ),
     )
     errors = _run_check(mod, tmp_path, legend=legend)

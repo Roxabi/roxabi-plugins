@@ -35,7 +35,7 @@ These are substituted at skill load time by Claude Code (not shell env vars):
 - `${CLAUDE_SKILL_DIR}` — resolves to the skill's own directory (e.g. `…/plugins/dev-core/skills/implement`)
 - `${CLAUDE_PLUGIN_ROOT}` — resolves to the plugin root in the **marketplace clone** (e.g. `~/.claude/plugins/marketplaces/roxabi-marketplace/plugins/dev-core`)
 
-- Use `${CLAUDE_PLUGIN_ROOT}` for cross-skill references within the same plugin (e.g. `${CLAUDE_PLUGIN_ROOT}/skills/shared/references/`).
+- Use `${CLAUDE_PLUGIN_ROOT}` for cross-skill references within the same plugin (e.g. `${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/`).
 - Use `${CLAUDE_PLUGIN_ROOT}/../shared/` to reference cross-plugin shared files in `plugins/shared/` (e.g. the decision protocol).
 
 ## Three distinct sync mechanisms

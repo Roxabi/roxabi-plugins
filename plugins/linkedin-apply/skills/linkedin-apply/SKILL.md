@@ -45,7 +45,7 @@ Criteria (user override ≻ plugin default): `VL/criteria.yaml` if ∃, else `<p
 CV path: `~/.roxabi-vault/cv/cv_data.json` if ∃, else construct minimal JSON from `candidate.yaml`.
 
 ```bash
-# Tempfile per ${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md
+# Tempfile per ${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/tempfile-convention.md
 [[ "$JOB_ID" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "Invalid job id: $JOB_ID" >&2; exit 1; }
 TMPDIR=$(mktemp -d -t "linkedin-apply-job-${JOB_ID}-XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT

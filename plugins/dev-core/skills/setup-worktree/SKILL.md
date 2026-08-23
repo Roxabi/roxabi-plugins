@@ -20,11 +20,11 @@ Let:
   β    := base branch (staging if ∃ origin/staging, else main) — `detect_base_branch`
   principal := main checkout (must stay on β — **never** switch to BRANCH)
   ω    := non-principal worktree checked out on BRANCH (path = harness layout)
-  H_wt := claude-enter | harness-default — see [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md)
+  H_wt := claude-enter | harness-default — see [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/harness-worktree.md)
 
 One-time setup per issue. Idempotent — safe to re-run if branch/link/ω already exist.
 
-**SSoT dual-harness:** [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md)
+**SSoT dual-harness:** [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/harness-worktree.md)
 
 ## Entry
 

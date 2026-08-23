@@ -45,11 +45,11 @@ SKILL_LINE_BUDGETS = {'compress': 110}
 # one-line pointer to the canonical glossary, whose core table must stay set-equal
 # to the compress whitelist.
 NOTATION_LEGEND_FILES = [
-    PLUGINS_DIR / 'dev-core' / 'skills' / 'shared' / 'references' / 'base.md',
+    PLUGINS_DIR / 'dev-core' / 'skills' / 'shared-refs' / 'base.md',
     PLUGINS_DIR / 'dev-core' / 'agents' / 'doc-writer.md',
-    PLUGINS_DIR / 'dev-init' / 'skills' / 'shared' / 'references' / 'base.md',
+    PLUGINS_DIR / 'dev-init' / 'skills' / 'shared-refs' / 'base.md',
 ]
-NOTATION_GLOSSARY = PLUGINS_DIR / 'shared' / 'references' / 'notation.md'
+NOTATION_GLOSSARY = PLUGINS_DIR / 'dev-core' / 'skills' / 'shared-refs' / 'notation.md'
 COMPRESS_SKILL = PLUGINS_DIR / 'compress' / 'skills' / 'compress' / 'SKILL.md'
 
 # Golden read-back triples (issue #311 Decision 6)
@@ -184,7 +184,7 @@ def check_vendored_paths() -> list[str]:
 def check_tempfile_convention() -> list[str]:
     """SKILL.md files must not hardcode /tmp/<name> literals.
 
-    Enforces plugins/shared/references/tempfile-convention.md.
+    Enforces plugins/dev-core/skills/shared-refs/tempfile-convention.md.
     Any fixed path must be replaced by `mktemp -d -t <plugin>-<purpose>-<scope>-XXXXXX`
     with a `trap 'rm -rf "$TMPDIR"' EXIT` cleanup.
     """
@@ -434,13 +434,13 @@ def check_shared_sources_sync(manifest_path=None, biome_path=None, _copy_sync_pr
         biome_data = json.load(f)
 
     # Locate the unique copy-sync suppression override: the entry in biome['overrides']
-    # whose includes are all under plugins/dev-init/skills/shared/ (the generated-copy
-    # override). Blindly indexing overrides[0] would silently pick the wrong override if the
-    # array is reordered or a new override is inserted before it.
+    # whose includes are all under plugins/dev-init/skills/shared (covers shared/ TS
+    # copies and shared-refs/ markdown copies). Blindly indexing overrides[0] would
+    # silently pick the wrong override if the array is reordered.
     # _copy_sync_prefix is injectable for tests (unit tests use scratch paths outside the
     # canonical plugins/dev-init/ directory).
     overrides = biome_data.get('overrides', [])
-    _dev_init_shared_prefix = _copy_sync_prefix if _copy_sync_prefix is not None else 'plugins/dev-init/skills/shared/'
+    _dev_init_shared_prefix = _copy_sync_prefix if _copy_sync_prefix is not None else 'plugins/dev-init/skills/shared'
 
     def _is_copy_sync_override(entry: dict) -> bool:
         includes = entry.get('includes', [])

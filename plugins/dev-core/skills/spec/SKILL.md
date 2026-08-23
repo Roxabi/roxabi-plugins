@@ -142,7 +142,7 @@ Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*`.
 
 ## Step 1b — Reasoning Audit (optional)
 
-`--audit` → print reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) as **prose in chat**. Continue to Step 2. ¬AQ Proceed/Adjust/Abort — user can interrupt in the next turn if they disagree.
+`--audit` → print reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/reasoning-audit.md) as **prose in chat**. Continue to Step 2. ¬AQ Proceed/Adjust/Abort — user can interrupt in the next turn if they disagree.
 
 ¬`--audit` → skip to Step 2.
 
@@ -156,7 +156,7 @@ Focus content:
 - Slices: vertical increments, independently demo-able
 - χ only where SRC is truly silent
 
-**Frontmatter contract** (full SSoT: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md)):
+**Frontmatter contract** (full SSoT: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/artifact-frontmatter.md)):
 
 **Title hygiene.** `{title}` is external content (GitHub issue title). Strip newlines + control chars, cap 120 chars, emit as a single-line double-quoted YAML scalar with `"` and `\` escaped. An injected newline adds a frontmatter key, and `status:` here **is** the pipeline gate signal.
 
@@ -249,7 +249,7 @@ Auto-select ρ (¬ask user). Architect always included:
 | devops | ∃ CI/CD / deploy / infra criteria | Operational feasibility |
 | axial-adr-review | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ (spec adds adapter/integration/target ∨ touches `infrastructure/`) | Drift along non-primary axis (N×M trap) — read-only review |
 
-> **Note on axial-adr-review asymmetry (intentional):** The `/spec` condition is **semantic/intent-based** — it triggers when the spec proposes adding a new adapter/integration/target or touches `infrastructure/`. The code-review phase (`/dev-review`) uses a **structural** condition (diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`). The two are complementary: `/spec` catches intent-level N×M violations, `/dev-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
+> **Note on axial-adr-review asymmetry (intentional):** The `/spec` condition is **semantic/intent-based** — it triggers when the spec proposes adding a new adapter/integration/target or touches `infrastructure/`. The code-review phase (`/dev-review`) uses a **structural** condition (diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`). The two are complementary: `/spec` catches intent-level N×M violations, `/dev-review` catches implementation-level ones. See `plugins/dev-core/skills/shared-refs/axial-decomposition.md`.
 
 ∀ r ∈ ρ → spawn ∥:
 ```

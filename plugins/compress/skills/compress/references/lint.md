@@ -4,7 +4,7 @@ Mode body for `/compress lint <scope>` — loaded by SKILL.md Phase 3 when μ = 
 
 ## Preconditions
 
-- Glossary gate: `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` ∄ → halt: `lint requires the notation glossary (train B) — plugins/shared/references/notation.md not found`. Never improvise a drift list — the classes below are the closed set, and they lean on the glossary's tables.
+- Glossary gate: `${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/notation.md` ∄ → halt: `lint requires the notation glossary (train B) — plugins/dev-core/skills/shared-refs/notation.md not found`. Never improvise a drift list — the classes below are the closed set, and they lean on the glossary's tables.
 - Glossary ∃ → load `## Core Table` + the lazy halves: `## Disambiguation Grammar` + `## Maintenance Policy` + `## Reserved-Variable Registry` (the halves compress runs skip load in lint mode — train-B budget rule).
 
 ## Inert Data

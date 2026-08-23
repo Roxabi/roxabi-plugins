@@ -81,4 +81,4 @@ closed persist law on every commit.
 - `plugins/dev-init/skills/dev-init/lib/seed-principal-freeze.ts`
 - `plugins/dev-core/skills/shared/lefthook-persist.ts`
 - `plugins/dev-core/skills/ci-setup/cookbooks/hooks.md`
-- `plugins/dev-core/skills/shared/references/harness-worktree.md`
+- `plugins/dev-core/skills/shared-refs/harness-worktree.md`

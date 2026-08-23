@@ -6,7 +6,7 @@ Let: τ := tier | α := agent
 
 ## Tier System
 
-`/dev` chooses τ. Criteria, signals, scoring, label mapping: [tier-classification.md](../skills/shared/references/tier-classification.md).
+`/dev` chooses τ. Criteria, signals, scoring, label mapping: [tier-classification.md](../skills/shared-refs/tier-classification.md).
 
 | τ (from tier-classification.md) | Steps `/dev` runs |
 |---|---|
@@ -38,7 +38,7 @@ Artifacts = state markers for `/dev` progress detection + resumption.
 | **Spec** | `artifacts/specs/` | What to build? |
 | **Plan** | `artifacts/plans/` | How to build? |
 
-One kind per directory for **new** writes (β never lands in `analyses/`). `/dev` scans frame/analysis/spec/plan for pipeline progress; brainstorms are exploration seeds (seen by `/interview`, `/analyze`), not Shape-phase gates. Frontmatter contract: [artifact-frontmatter.md](../skills/shared/references/artifact-frontmatter.md).
+One kind per directory for **new** writes (β never lands in `analyses/`). `/dev` scans frame/analysis/spec/plan for pipeline progress; brainstorms are exploration seeds (seen by `/interview`, `/analyze`), not Shape-phase gates. Frontmatter contract: [artifact-frontmatter.md](../skills/shared-refs/artifact-frontmatter.md).
 
 ## Git Workflow Rules
 
@@ -46,7 +46,7 @@ One kind per directory for **new** writes (β never lands in `analyses/`). `/dev
 
 `/dev` bootstraps the worktree automatically before `frame` (Step 7 silent pre-step via `/setup-worktree`). All tiers (S, F-lite, F-full) execute **code** inside a non-principal worktree on `feat/{N}-{slug}`.
 
-**Invariants** (SSoT: `skills/shared/references/harness-worktree.md`):
+**Invariants** (SSoT: `skills/shared-refs/harness-worktree.md`):
 
 - **Principal** (default folder) stays on β (`staging` \| `main`) — never `git switch feat/…` there
 - **Branch + issue link** = dev-core (`gh issue develop` → `feat/{N}-{slug}`)
