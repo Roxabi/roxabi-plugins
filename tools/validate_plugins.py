@@ -768,6 +768,38 @@ def check_golden_inventories(golden_dir=None) -> list[str]:
     return errors
 
 
+_MD_LINK_RE = re.compile(r'\]\(([^)]+)\)')
+
+
+def check_markdown_relative_links(root=None) -> list[str]:
+    """Relative markdown links under plugins/ must resolve to an existing file."""
+    errors = []
+    root = Path(root) if root is not None else PLUGINS_DIR
+    skip_parts = {'.venv', 'node_modules', '_archived'}
+    for path in sorted(root.rglob('*.md')):
+        if skip_parts.intersection(path.parts):
+            continue
+        try:
+            if path.relative_to(PLUGINS_DIR).parts[:1] == ('shared',):
+                continue
+        except ValueError:
+            pass
+        text = path.read_text(encoding='utf-8')
+        for match in _MD_LINK_RE.finditer(text):
+            href = match.group(1).strip()
+            if not href or href.startswith(('http://', 'https://', 'skill://', '#', 'mailto:')):
+                continue
+            if '{' in href:
+                continue
+            target = href.split('#', 1)[0]
+            if not target.endswith('.md'):
+                continue
+            dest = (path.parent / target).resolve()
+            if not dest.exists():
+                errors.append(f'{path.relative_to(REPO_ROOT)}: dead link {href}')
+    return errors
+
+
 def _is_io_error(msg: str) -> bool:
     """Return True when the error message signals an IO/parse failure (exit 2).
 
@@ -841,6 +873,7 @@ def main(argv: list[str] | None = None) -> int:
         ('Shared sources sync', check_shared_sources_sync),
         ('SKILL.md line budget', check_skill_line_budget),
         ('Notation legends', check_notation_legends),
+        ('Markdown relative links', check_markdown_relative_links),
         ('Golden inventories', check_golden_inventories),
     ]
 

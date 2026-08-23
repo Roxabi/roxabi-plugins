@@ -26,7 +26,7 @@ Full project initialization harness. Orchestrates three focused sub-skills in se
 | Sub-skill | Concern |
 |-----------|---------|
 | `/dev-core:env-setup` | stack.yml, CLAUDE.md rules, docs stubs, LSP |
-| `axial-adr-create` (agent) | **Axis of decomposition ADR** — mandatory drift prevention (N×M trap). Skippable via `--skip-axial` for trivial single-axis projects. See `shared/references/axial-decomposition.md` |
+| `axial-adr-create` (agent) | **Axis of decomposition ADR** — mandatory drift prevention (N×M trap). Skippable via `--skip-axial` for trivial single-axis projects. See `shared-refs/axial-decomposition.md` |
 | `/dev-core:ci-setup` | GitHub Actions, TruffleHog (**seed** `scripts/trufflehog-check.sh` + exclude + lefthook + CI `secret-scan.yml`), principal freeze lefthook gate (offer), Dependabot, marketplace plugins |
 | `/dev-core:release-setup` | Commit standards (Commitizen), hook additions, release automation (semantic-release / Release Please) |
 
@@ -105,7 +105,7 @@ Reference: `${CLAUDE_PLUGIN_ROOT}/skills/shared-refs/axial-decomposition.md`
           • Invoke the agent standalone: spawn `axial-adr-create` directly, then re-run `/dev-init`.
           • Skip if this is a trivial single-axis project: `/dev-init --skip-axial` (re-runs env-setup; documents the skip in dev-core.yml).
 
-        Rationale: shared/references/axial-decomposition.md
+        Rationale: shared-refs/axial-decomposition.md
      ```
    - `cancelled` ∧ F → ⚠️ warn "axial ADR skipped via --force — drift risk acknowledged", continue.
 

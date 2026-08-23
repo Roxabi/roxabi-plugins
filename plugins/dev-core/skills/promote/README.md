@@ -26,7 +26,7 @@ Triggers: `"promote staging"` | `"cut a release"` | `"--finalize"` | `"promote t
 4. **Summary** — shows version, commit count, file count, CI status, preview result.
 5. **Changelog commit** — creates a temp branch (if staging is protected), commits changelog, merges via PR.
 6. **Promotion PR** — **forced** via `create-promote-pr.sh` (always harvests + injects Closes; refuses on degraded harvest unless `--allow-degraded`). No free-form `gh pr create` for promote. GitHub auto-closes listed issues when the promote merges into `main`.
-7. **Post-merge reminder** — merge commit only, never squash (see `../shared/references/release-convention.md`).
+7. **Post-merge reminder** — merge commit only, never squash (see `../shared-refs/release-convention.md`).
 
 ## Finalize (`--finalize`)
 

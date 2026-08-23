@@ -176,7 +176,7 @@ This system varies along {len(AXES)} axes:
 
 Without an explicit primary axis, code drifts along the wrong dimension. This ADR makes the choice explicit and revisitable.
 
-Reference: `shared/references/axial-decomposition.md`.
+Reference: `shared-refs/axial-decomposition.md`.
 
 ## Options Considered
 

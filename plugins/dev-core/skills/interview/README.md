@@ -24,7 +24,7 @@ Triggers: `"interview"` | `"brainstorm"` | `"let's brainstorm"` | `"think throug
 | Analysis (α) | Structured investigation of a problem | `artifacts/analyses/{slug}-analysis.md` | `type: analysis`, `status: draft` |
 | Spec (σ) | Technical specification for implementation | `artifacts/specs/{issue}-{slug}-spec.md` | `type: spec`, `status: draft` |
 
-One kind per directory — β never lands in `analyses/`. Title hygiene + full key contract: shared [artifact-frontmatter.md](../shared/references/artifact-frontmatter.md).
+One kind per directory — β never lands in `analyses/`. Title hygiene + full key contract: shared [artifact-frontmatter.md](../shared-refs/artifact-frontmatter.md).
 
 ## Interview phases
 

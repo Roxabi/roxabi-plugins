@@ -123,7 +123,7 @@ Variables are NOT operators and sit outside the whitelist equality domain. Count
 
 ## English process words
 
-Word home for factory English that glyphs cannot hold ([ADR-018](../../../docs/architecture/adr/018-skill-system-homes-and-composition.md)). This section owns the English words only — it does not own `τ` / `σ` / `φ`. Authors write with these words; `/dev` may Read this file once. Skills must not recopy this section.
+Word home for factory English that glyphs cannot hold ([ADR-018](../../../../docs/architecture/adr/018-skill-system-homes-and-composition.md)). This section owns the English words only — it does not own `τ` / `σ` / `φ`. Authors write with these words; `/dev` may Read this file once. Skills must not recopy this section.
 
 **Issue** — GitHub issue the factory works; identified by N.
 Avoid: ticket (except quoting an external tracker).

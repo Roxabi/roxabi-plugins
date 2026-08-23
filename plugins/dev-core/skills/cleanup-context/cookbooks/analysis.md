@@ -32,7 +32,7 @@ CLAUDE.md > 500 lines | memory > κ lines | > 10 skills | overly specific rules.
 
 ### 2e. Tempfile Hygiene
 
-SKILL.md files writing fixed `/tmp/<name>` paths → collision risk across parallel runs / branches. Enforces `../../shared/references/tempfile-convention.md` (bidirectional: if you rename the convention doc, update this reference and the pointer inside the doc's **Enforced by** section).
+SKILL.md files writing fixed `/tmp/<name>` paths → collision risk across parallel runs / branches. Enforces `../../shared-refs/tempfile-convention.md` (bidirectional: if you rename the convention doc, update this reference and the pointer inside the doc's **Enforced by** section).
 
 **Broad pattern (catches any `/tmp/<name>` regardless of extension or lack thereof):**
 

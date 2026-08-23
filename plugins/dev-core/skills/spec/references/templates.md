@@ -6,7 +6,7 @@ Templates used by the spec skill for document generation.
 
 ## Spec Document Template
 
-Frontmatter contract: [artifact-frontmatter.md](../../shared/references/artifact-frontmatter.md).
+Frontmatter contract: [artifact-frontmatter.md](../../shared-refs/artifact-frontmatter.md).
 
 ````md
 ---
