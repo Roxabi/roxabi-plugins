@@ -8,7 +8,7 @@ SSoT for resolving bundled skill files. One skill body — never fork per host.
 |---|---|---|
 | Claude / Grok | `$CLAUDE_SKILL_DIR/<file>` (Grok aliases this) | `skill://<other>/<file>` if the host resolves it; else `$CLAUDE_PLUGIN_ROOT/skills/<other>/<file>` |
 | OMP | `skill://<this>/<file>` (`..` rejected; `/skill:` also injects baseDir) | `skill://<other>/<file>` |
-| Cursor | relative path from the skill root ([docs](https://cursor.com/docs/skills)) | relative only if the file lives in **this** skill; otherwise `skill://<other>/<file>` |
+| Cursor | relative path from the skill root ([docs](https://cursor.com/docs/skills)) | not supported — vendor the asset into this skill, or call a self-locating script |
 
 Rules:
 
