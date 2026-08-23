@@ -5,6 +5,7 @@ import {
   extractShellCommand,
   extractWriteContent,
   isBunTestBlocked,
+  rewriteHarnessPaths,
   scanSecurityContent,
   shouldBlockPrincipalSwitch,
 } from './guards'
@@ -53,7 +54,7 @@ function readSkillBody(skillName: string): { body: string; skillDir: string } {
   const skillDir = join(PLUGIN_ROOT, 'skills', skillName)
   const skillPath = join(skillDir, 'SKILL.md')
   const raw = readFileSync(skillPath, 'utf8')
-  return { body: stripFrontmatter(raw).trim(), skillDir }
+  return { body: rewriteHarnessPaths(stripFrontmatter(raw).trim(), skillDir, PLUGIN_ROOT), skillDir }
 }
 
 function registerSkillCommand(pi: ExtensionAPI, skillName: string): void {

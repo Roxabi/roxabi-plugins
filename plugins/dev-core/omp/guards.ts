@@ -77,6 +77,15 @@ export function scanSecurityContent(content: string): string | null {
   return null
 }
 
+/** Dump-time only: expand Claude/Grok vars while registerCommand still injects SKILL.md. */
+export function rewriteHarnessPaths(body: string, skillDir: string, pluginRoot: string): string {
+  return body
+    .replaceAll('${CLAUDE_SKILL_DIR}', skillDir)
+    .replaceAll('${CLAUDE_PLUGIN_ROOT}', pluginRoot)
+    .replaceAll('$CLAUDE_SKILL_DIR', skillDir)
+    .replaceAll('$CLAUDE_PLUGIN_ROOT', pluginRoot)
+}
+
 export function principalPostNudge(cwd: string = process.cwd()): string | null {
   if (principalFreeze.hasEscapeHatch()) return null
 

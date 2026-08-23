@@ -27,13 +27,21 @@ function stripFrontmatter(markdown: string): string {
   return markdown.slice(end + 5)
 }
 
+function rewriteHarnessPaths(body: string, skillDir: string, pluginRoot: string): string {
+  return body
+    .replaceAll('${CLAUDE_SKILL_DIR}', skillDir)
+    .replaceAll('${CLAUDE_PLUGIN_ROOT}', pluginRoot)
+    .replaceAll('$CLAUDE_SKILL_DIR', skillDir)
+    .replaceAll('$CLAUDE_PLUGIN_ROOT', pluginRoot)
+}
+
 export default function devInitExtension(pi: ExtensionAPI): void {
   pi.registerCommand('dev-init', {
     description: 'Run the /dev-init Roxabi skill',
     handler: async (args) => {
       const skillDir = join(PLUGIN_ROOT, 'skills', 'dev-init')
       const skillPath = join(skillDir, 'SKILL.md')
-      const body = stripFrontmatter(readFileSync(skillPath, 'utf8')).trim()
+      const body = rewriteHarnessPaths(stripFrontmatter(readFileSync(skillPath, 'utf8')).trim(), skillDir, PLUGIN_ROOT)
       const trimmedArgs = args.trim()
       const message = [
         body,

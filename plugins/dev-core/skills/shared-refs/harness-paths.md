@@ -16,5 +16,6 @@ Rules:
 2. Never `../` in a skill body (OMP rejects it; it is also the product-repo cwd trap).
 3. Never invent a host env var. Cursor has no `CURSOR_SKILL_DIR`. Cursor plugin `variables` are user-declared `${VAR}` in `mcp.json`, not a skill-dir inject.
 4. Product-repo cwd is never `SKILL_DIR`.
+5. While OMP `registerCommand` still dumps SKILL.md, the host expands `$CLAUDE_*` at inject time. That is a fallback, not the contract. Drop it with the dump.
 
 Read this file: `skill://shared-refs/harness-paths.md`.
