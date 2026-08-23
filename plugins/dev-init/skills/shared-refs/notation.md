@@ -4,6 +4,8 @@
 
 Single source of truth for the formal notation used across this marketplace's skills and agents. It merges the three prior legends (compress `## Symbols`, dev-core `base.md` Notation, dev-core `doc-writer.md` compressed-notation line) — dispositions recorded in the merge audit below. This glossary is writer-side tooling: consumers of compressed files never need it — every emitted symbol must be self-sufficient via the whitelist or a Let-binding with gloss.
 
+Load via: `skill://shared-refs/notation.md` · `$CLAUDE_PLUGIN_ROOT/skills/shared-refs/notation.md`
+
 Word home (ADR-018): glyphs and English process words live here. A reserved variable has one **target** sense. File-local re-bind of a target binding is not the desired model; `(local)` is a legacy lint escape only.
 
 Consumers: compress Phase 0 loads `## Core Table` only; compress Phase 3 checks Let-bindings against the Reserved-Variable Registry; the glossary mode loads Grammar + Maintenance; `tools/validate_plugins.py --check notation-legends` holds the core table set-equal to compress's `Whitelist:` line and gates the dev-core pointer lines.

@@ -13,4 +13,4 @@ codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project que
 
 ## Notation
 
-Legend → canonical glossary: `notation.md` (repo: `plugins/dev-core/skills/shared-refs/notation.md`)
+Legend → canonical glossary: `skill://shared-refs/notation.md` · `$CLAUDE_PLUGIN_ROOT/skills/shared-refs/notation.md`

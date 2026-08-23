@@ -2,7 +2,7 @@
 
 Shared rule for skills that write a transient body/payload to disk before handing it to another tool (e.g. `gh pr comment --body-file`, `curl --data-binary @file`, agent payload drops).
 
-Load via: `Read tempfile-convention.md`
+Load via: `skill://shared-refs/tempfile-convention.md` · `$CLAUDE_PLUGIN_ROOT/skills/shared-refs/tempfile-convention.md`
 
 ## Why
 
@@ -109,4 +109,4 @@ The consumer tool (`gh`, `curl`, `python`) must run on the **same host** as the 
 
 `tools/validate_plugins.py` → `check_tempfile_convention()` — CI gate, fails the build on any unguarded `/tmp/` literal in a `plugins/*/skills/**/SKILL.md`.
 
-Both locations reference this doc. If you rename this file, update both sides.
+Canonical: `plugins/dev-core/skills/shared-refs/tempfile-convention.md`. Gated copy: `dev-init/skills/shared-refs/`.

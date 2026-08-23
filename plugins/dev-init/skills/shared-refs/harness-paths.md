@@ -20,4 +20,4 @@ Rules:
 4. Product-repo cwd is never `SKILL_DIR`.
 5. While OMP `registerCommand` still dumps SKILL.md, the host expands `$CLAUDE_*` at inject time. That is a fallback, not the contract. Drop it with the dump.
 
-Read this file: `skill://shared-refs/harness-paths.md`.
+Read this file: `skill://shared-refs/harness-paths.md` · `$CLAUDE_PLUGIN_ROOT/skills/shared-refs/harness-paths.md`.

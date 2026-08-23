@@ -4,6 +4,8 @@
 
 > Foundational decision: which axis of variation is **primary** in your system. Without it, projects drift N×M (target × concern duplication).
 
+Load via: `skill://shared-refs/axial-decomposition.md` · `$CLAUDE_PLUGIN_ROOT/skills/shared-refs/axial-decomposition.md`
+
 ## The trap
 
 When a system varies along multiple axes (e.g., transport targets × cross-cutting concerns), code naturally duplicates along the **wrong** axis. Symptom: adding the 4th target requires copy-pasting the same 5 concerns again. Each cell of the N×M matrix gets its own (drifted) copy.
