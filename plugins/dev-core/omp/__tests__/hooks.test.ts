@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isBunTestBlocked, shouldBlockPrincipalSwitch } from '../guards'
+import { extractWriteContent, isBunTestBlocked, rewriteHarnessPaths, shouldBlockPrincipalSwitch } from '../guards'
 
 describe('OMP dev-core hooks', () => {
   describe('bun-test guard', () => {
@@ -39,6 +39,23 @@ describe('OMP dev-core hooks', () => {
         { isPrincipalCwd: (cwd) => cwd === principalCwd },
       )
       expect(denied).toBe(false)
+    })
+  })
+
+  describe('rewriteHarnessPaths', () => {
+    it('expands CLAUDE_SKILL_DIR and CLAUDE_PLUGIN_ROOT', () => {
+      const out = rewriteHarnessPaths(
+        'bash "${CLAUDE_SKILL_DIR}/ci-watch.sh" && cat ${CLAUDE_PLUGIN_ROOT}/skills/dev/SKILL.md',
+        '/plug/skills/ci-watch',
+        '/plug',
+      )
+      expect(out).toBe('bash "/plug/skills/ci-watch/ci-watch.sh" && cat /plug/skills/dev/SKILL.md')
+    })
+  })
+
+  describe('extractWriteContent', () => {
+    it('reads OMP edit hashline from input', () => {
+      expect(extractWriteContent({ input: '+const api_key = "abcdefgh12345"' })).toContain('api_key')
     })
   })
 })

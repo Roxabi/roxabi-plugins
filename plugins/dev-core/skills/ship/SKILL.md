@@ -1,7 +1,7 @@
 ---
 name: ship
 argument-hint: '[#PR | --draft | --base <branch> | --from <step> | --max-fix-iters N | --no-commit | --skip-cleanup]'
-description: Meta-orchestrator to land ready code — commit → PR → review → fix loop → reviewed label + ci-watch. Triggers: "ship" | "ship this" | "land this" | "land the PR" | "ship PR" | "submit for merge" | "get this merged" | "ship my branch".
+description: Meta-orchestrator to land ready code — commit → PR → code-review → fix loop → reviewed label + ci-watch. Triggers: "ship" | "ship this" | "land this" | "land the PR" | "ship PR" | "submit for merge" | "get this merged" | "ship my branch".
 version: 0.1.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
@@ -19,8 +19,6 @@ Let:
   P    := open PR for Β (number)
   K    := max fix↔review iterations (default **2**, override `--max-fix-iters N`)
   Σ_s  := session step map (in-memory only)
-  # step ids := STEPS / `--from` / dashboard (`review`, `pr`, …) — never a `dev-` prefix
-  # slash/skill ids := `dev-review`, `pr`, … — never interchangeable with a step
   ψ_r  := PR comments ∃ body starting with `## Code Review`
   ψ_f  := PR comments ∃ body starting with `## Review Fixes Applied`
   dirty := `git status --porcelain` non-empty
@@ -117,7 +115,7 @@ Present short banner (no full /dev phase bars):
 
   commit          {✓|→|skip}
   pr              {✓|→|pending}
-  review          {✓|→|pending}  (iter {iter}/{K})
+  code-review     {✓|→|pending}  (iter {iter}/{K})
   fix             {cond}
   reviewed+CI     {✓|→|pending}
   cleanup         {✓|skip|pending}
@@ -154,20 +152,20 @@ On success: re-resolve P from `gh pr list --head "$Β"`. ¬P → halt.
 
 **Silent via /ship:** no "Next: /ci-watch" from child — ship owns chaining.
 
-## Step 4 — review
+## Step 4 — code-review
 
 **Invoke:** `skill: "dev-review"` (PR auto-detected from branch).
 
-Interpret Phase 8 outcome (user decision inside dev-review when standalone; when driven by ship, prefer):
+Interpret Phase 8 outcome (user decision inside code-review when standalone; when driven by ship, prefer):
 
 | Outcome | Ship action |
 |---------|-------------|
-| Clean / APPROVED / user picks **Merge as-is** | → **do not** let dev-review label+merge alone if ship will own gate — if dev-review already labeled, continue to ci-watch; else → label-reviewed |
+| Clean / APPROVED / user picks **Merge as-is** | → **do not** let code-review label+merge alone if ship will own gate — if code-review already labeled, continue to ci-watch; else → label-reviewed |
 | User picks **Fix now** / CHANGES_REQUESTED | → fix (if iter < K) |
 | Stop / Abort | halt ship |
 | F = ∅ clean approve | → label-reviewed |
 
-**Important:** `/dev-review` Phase 8 may offer Merge as-is (label + auto-merge). Under `/ship`, that path is **allowed** and equivalent to label-reviewed + handoff; then ship still runs **ci-watch** to observe green + merge. If user already labeled inside dev-review, skip duplicate label step.
+**Important:** `/dev-review` Phase 8 may offer Merge as-is (label + auto-merge). Under `/ship`, that path is **allowed** and equivalent to label-reviewed + handoff; then ship still runs **ci-watch** to observe green + merge. If user already labeled inside code-review, skip duplicate label step.
 
 ## Step 5 — fix (loop)
 
@@ -181,7 +179,7 @@ On success:
    ```bash
    gh pr edit "$P" --remove-label reviewed 2>/dev/null || true
    ```
-3. Goto Step 4 (review) for re-verify.
+3. Goto Step 4 (code-review) for re-verify.
 
 **iter ≥ K on entry to fix:** refuse another fix cycle — present **Merge as-is** (→ label-reviewed) | **Stop**.
 
@@ -189,7 +187,7 @@ On success:
 
 **Skip if:** `reviewed` already on PR.
 
-1. Rebase check (best-effort, same spirit as dev-review Phase 8):
+1. Rebase check (best-effort, same spirit as code-review Phase 8):
    ```bash
    git fetch origin ${β}
    # if behind: rebase + force-with-lease on feature branch only; conflict → halt
@@ -232,7 +230,7 @@ If issue number known from branch (`feat/42-…` → 42) or PR closing issues: p
 - **¬ask** "Ready to proceed to /X?"
 - **¬summarize** "Just finished X, moving to Y"
 - Child skills return → re-scan Σ_s → invoke next step same turn
-- Exception: verdict/loop gates inside dev-review and fix (human decisions stay)
+- Exception: verdict/loop gates inside code-review and fix (human decisions stay)
 - Exception: CI failure / merge blocker → present choice
 
 ## Task list (optional)

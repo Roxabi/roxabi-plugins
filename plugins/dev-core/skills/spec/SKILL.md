@@ -142,7 +142,7 @@ Glob `artifacts/specs/{N}-*`, `artifacts/specs/*{slug}*`.
 
 ## Step 1b — Reasoning Audit (optional)
 
-`--audit` → print reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) as **prose in chat**. Continue to Step 2. ¬AQ Proceed/Adjust/Abort — user can interrupt in the next turn if they disagree.
+`--audit` → print reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) as **prose in chat**. Continue to Step 2. ¬AQ Proceed/Adjust/Abort — user can interrupt in the next turn if they disagree.
 
 ¬`--audit` → skip to Step 2.
 
@@ -156,7 +156,7 @@ Focus content:
 - Slices: vertical increments, independently demo-able
 - χ only where SRC is truly silent
 
-**Frontmatter contract** (full SSoT: [artifact-frontmatter.md](../shared/references/artifact-frontmatter.md)):
+**Frontmatter contract** (full SSoT: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md)):
 
 **Title hygiene.** `{title}` is external content (GitHub issue title). Strip newlines + control chars, cap 120 chars, emit as a single-line double-quoted YAML scalar with `"` and `\` escaped. An injected newline adds a frontmatter key, and `status:` here **is** the pipeline gate signal.
 
@@ -205,7 +205,7 @@ oracles: ["concrete input that must fail closed", ...]
 
 Signals an SC needs the block: fail-closed / fail closed / deny / refuse / reject / guard / gate / auth / authz / secret / inject / security.
 
-Full body template: [references/templates.md](references/templates.md).
+Full body template: [references/templates.md](${CLAUDE_SKILL_DIR}/references/templates.md).
 
 ### Data Model & Consumers (Tier F-lite, F-full)
 
@@ -249,7 +249,7 @@ Auto-select ρ (¬ask user). Architect always included:
 | devops | ∃ CI/CD / deploy / infra criteria | Operational feasibility |
 | axial-adr-review | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ (spec adds adapter/integration/target ∨ touches `infrastructure/`) | Drift along non-primary axis (N×M trap) — read-only review |
 
-> **Note on axial-adr-review asymmetry (intentional):** The `/spec` condition is **semantic/intent-based** — it triggers when the spec proposes adding a new adapter/integration/target or touches `infrastructure/`. The dev-review phase (`/dev-review`) uses a **structural** condition (diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`). The two are complementary: `/spec` catches intent-level N×M violations, `/dev-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
+> **Note on axial-adr-review asymmetry (intentional):** The `/spec` condition is **semantic/intent-based** — it triggers when the spec proposes adding a new adapter/integration/target or touches `infrastructure/`. The code-review phase (`/dev-review`) uses a **structural** condition (diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`). The two are complementary: `/spec` catches intent-level N×M violations, `/dev-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
 
 ∀ r ∈ ρ → spawn ∥:
 ```
@@ -336,13 +336,13 @@ Ambiguous free text → ask **one short prose clarifying question** in the messa
 3. Run Gate 2.5 only if triggers fire **and** user already said "split" — otherwise skip (do not force-split).
 4. Update issue status:
 ```bash
-bun ../issue-triage/triage.ts set <N> --status Specs
+bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Specs
 ```
 5. Exit per Exit section.
 
 ## Gate 2.5: Smart Splitting (optional, chat-only)
 
-Tier S → skip. Read [references/smart-splitting.md](references/smart-splitting.md).
+Tier S → skip. Read [references/smart-splitting.md](${CLAUDE_SKILL_DIR}/references/smart-splitting.md).
 
 **Triggers:** |acceptance criteria| > 8 ∨ |slices| > 3.
 

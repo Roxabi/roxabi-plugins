@@ -53,7 +53,7 @@ export function shouldBlockPrincipalSwitch(
 }
 
 export function extractWriteContent(input: Record<string, unknown>): string {
-  const content = input.content ?? input.new_string ?? input.newString ?? input.new_str ?? ''
+  const content = input.content ?? input.new_string ?? input.newString ?? input.new_str ?? input.input ?? ''
   return typeof content === 'string' ? content : ''
 }
 
@@ -75,6 +75,14 @@ export function scanSecurityContent(content: string): string | null {
   }
 
   return null
+}
+
+export function rewriteHarnessPaths(body: string, skillDir: string, pluginRoot: string): string {
+  return body
+    .replaceAll('${CLAUDE_SKILL_DIR}', skillDir)
+    .replaceAll('${CLAUDE_PLUGIN_ROOT}', pluginRoot)
+    .replaceAll('$CLAUDE_SKILL_DIR', skillDir)
+    .replaceAll('$CLAUDE_PLUGIN_ROOT', pluginRoot)
 }
 
 export function principalPostNudge(cwd: string = process.cwd()): string | null {

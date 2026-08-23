@@ -72,10 +72,10 @@ Read configuration and detect environment.
 
 ## Dispatch
 
-Phase 2 — Hook Runner → Read `cookbooks/hook-runner.md`, execute.
-Phase 3 — Commit Standards → Read `cookbooks/commit-standards.md`, execute.
-Phase 4 — Release Automation → Read `cookbooks/release-automation.md`, execute.
-Phase 4.5 — Quality gates → Read `cookbooks/quality-gates.md`, execute.
+Phase 2 — Hook Runner → Read `${CLAUDE_SKILL_DIR}/cookbooks/hook-runner.md`, execute.
+Phase 3 — Commit Standards → Read `${CLAUDE_SKILL_DIR}/cookbooks/commit-standards.md`, execute.
+Phase 4 — Release Automation → Read `${CLAUDE_SKILL_DIR}/cookbooks/release-automation.md`, execute.
+Phase 4.5 — Quality gates → Read `${CLAUDE_SKILL_DIR}/cookbooks/quality-gates.md`, execute.
 Phase 5 — Summary (below).
 
 ## Phase 5 — Summary (no auto-commit)

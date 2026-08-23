@@ -97,11 +97,11 @@ Grep `\[NEEDS CLARIFICATION` in σ (count).
 
 ## Step 2 — Plan
 
-Read `../../references/dev-process.md` + σ.
+Read `${CLAUDE_PLUGIN_ROOT}/references/dev-process.md` + σ.
 
 ### Step 2a-pre — Reasoning Audit (optional)
 
-`--audit` → after reading σ, print reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md) as **prose in chat**. Continue to Step 2a. ¬AQ Proceed/Adjust/Abort — user can interrupt next turn if they disagree.
+`--audit` → after reading σ, print reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md) as **prose in chat**. Continue to Step 2a. ¬AQ Proceed/Adjust/Abort — user can interrupt next turn if they disagree.
 
 ¬`--audit` → continue to Step 2a.
 
@@ -161,13 +161,13 @@ Find similar existing feature → read 1–2 files for conventions. Store paths 
 
 ## Step 4 — Micro-Tasks (Tier F only)
 
-τ=S → skip → Step 5. Read [references/micro-tasks.md](references/micro-tasks.md) for complete process.
+τ=S → skip → Step 5. Read [references/micro-tasks.md](${CLAUDE_SKILL_DIR}/references/micro-tasks.md) for complete process.
 
 **Summary:** Detect σ format (Breadboard+Slices ∨ Success Criteria) → generate micro-tasks with verify commands → detect parallelization → scale task count → consistency check (σ↔tasks bidirectional) → write to π.
 
 Key outputs: micro-tasks with fields below, `[P]` parallel markers, RED-GATE sentinels per slice.
 
-See [references/micro-task-example.md](references/micro-task-example.md) for a worked example.
+See [references/micro-task-example.md](${CLAUDE_SKILL_DIR}/references/micro-task-example.md) for a worked example.
 
 ### Micro-Task Fields
 
@@ -192,7 +192,7 @@ See [references/micro-task-example.md](references/micro-task-example.md) for a w
 
 Write to `artifacts/plans/{N}-{slug}-plan.md`. Create `artifacts/plans/` dir if needed.
 
-Use [references/plan-template.md](references/plan-template.md). See [references/micro-task-example.md](references/micro-task-example.md) for task formatting.
+Use [references/plan-template.md](${CLAUDE_SKILL_DIR}/references/plan-template.md). See [references/micro-task-example.md](${CLAUDE_SKILL_DIR}/references/micro-task-example.md) for task formatting.
 
 ```markdown
 ---
@@ -371,7 +371,7 @@ On approve → **immediately** continue seed → persist IDs → commit. ¬stop 
 
 #### Seed host task list
 
-∀ micro-task in π — fields from [plan-task-schema.md](../shared/references/plan-task-schema.md); **host mapping** from [harness-task-list.md](../shared/references/harness-task-list.md).
+∀ micro-task in π — fields from [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/plan-task-schema.md); **host mapping** from [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-task-list.md).
 
 Probe tools → H ∈ {claude-tasks, grok-todos, artifact-only}. Seed via that path (rich `TaskCreate` **or** portable `todo_write` **or** plan-only).
 
@@ -404,7 +404,7 @@ This lets `/implement` re-attach to tasks after a session restart (TaskList woul
 
 ## Edge Cases
 
-Read [references/edge-cases.md](references/edge-cases.md).
+Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 
 ## Safety
 
@@ -419,7 +419,7 @@ Read [references/edge-cases.md](references/edge-cases.md).
 - **Phase:** Build
 - **Predecessor:** `/spec` (artifact: `artifacts/specs/{N}-{slug}-spec.md`)
 - **Successor:** `/implement` (via compact pause — `/dev` Step 8b; ¬auto-chain for F-lite/F-full)
-- **Class:** `adv + approval stop` — disk done-signal = `## Task IDs` in π (written only on Approve path). Summary without seed is **not** complete. Resume = Step 7 React. See [chain-contract.md](../shared/references/chain-contract.md).
+- **Class:** `adv + approval stop` — disk done-signal = `## Task IDs` in π (written only on Approve path). Summary without seed is **not** complete. Resume = Step 7 React. See [chain-contract.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/chain-contract.md).
 
 ## Task Integration
 

@@ -258,8 +258,8 @@ and register both hooks in σ. Skipped for unsupported runtimes.
 Let:
   WS := tools/worktree-setup.sh
   WT := tools/worktree-teardown.sh
-  CL := ../../references/worktree-setup-checklist.md
-  TS := ../../tools/worktreeScaffold.ts
+  CL := ${CLAUDE_PLUGIN_ROOT}/references/worktree-setup-checklist.md
+  TS := ${CLAUDE_PLUGIN_ROOT}/tools/worktreeScaffold.ts
   CTX := ProjectContext built from Phase 2 detection
 
 1. **Runtime gate.** runtime ∉ {python, bun, node} → D⏭("Worktree-setup scaffold — runtime not supported"), skip phase.

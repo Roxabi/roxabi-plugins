@@ -29,7 +29,7 @@ Let:
   ψ_r(P) ⟺ P.comments ∃ body: "## Code Review"
   ψ_f(P) ⟺ P.comments ∃ body: "## Review Fixes Applied"
   stale  := scan-state.sh `stale=true|false` — worktree ∃ ∨ local/remote branch matching N ∃ (anchored on N, see scan-state.sh)
-  ω    := non-principal worktree on `feat/{N}-*` (branch-first detect — [harness-worktree.md](../shared/references/harness-worktree.md))
+  ω    := non-principal worktree on `feat/{N}-*` (branch-first detect — [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md))
   β    := base branch; **principal always stays on β** (¬checkout feat in default folder)
   bar   := output must read as hand-authored by a dev-core maintainer — match surrounding idiom, naming, comment density; calibrate against `plugins/dev-core/`; QG (format/lint/typecheck/test) = mechanical floor, ¬the bar
 
@@ -80,7 +80,7 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 ## Step 1 — Scan State (parallel, <3s)
 
 ```bash
-bash scan-state.sh {N} {slug}
+bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
 ```
 
 φ / σ ∃ → read frontmatter → extract `status` (+ `tier` from φ). For **α, use `analyze_status=` from `scan-state.sh`** — the helper parses the frontmatter fence and normalizes the value (quotes, trailing comment, case), so re-reading the file yields a *less* correct answer. `analyze=<file>` alone is never a status signal.
@@ -248,7 +248,7 @@ User confirm received → invoke `skill: "dev-plan"` (Step 7). This gate runs ea
 
 **Trigger:** `--audit` ∨ S* ∈ `workflow.reasoning_audit` (stack.yml). critical := {spec, plan, implement}.
 
-audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md). Gate ∃ for S* → audit **replaces** it (¬double-prompt). ¬pass `--audit` to child skills.
+audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Gate ∃ for S* → audit **replaces** it (¬double-prompt). ¬pass `--audit` to child skills.
 **Exception — F-full architecture sketch (R7a):** `--audit` NEVER replaces the architecture-sketch gate; sketch always fires for τ == F-full ∧ S* == plan, even when reasoning audit runs (two separate prompts: sketch → confirm, then audit → proceed).
 → present choice **Proceed** | **Adjust approach** (max 3 rounds) | **Abort** (→ skipped, Step 5)
 
@@ -256,7 +256,7 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](../shared
 
 ## Step 7 — Execute Step
 
-**Worktree bootstrap (silent pre-step):** `worktree` == false ∧ S* ∈ {frame, analyze, spec, plan, implement} → invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first (ensures BRANCH linked + ω; **principal stays on β**). After return, re-scan `worktree` + `principal_ok`. Still false or `principal_ok=false` → present choice: **Retry** | **Abort**. SSoT: [harness-worktree.md](../shared/references/harness-worktree.md).
+**Worktree bootstrap (silent pre-step):** `worktree` == false ∧ S* ∈ {frame, analyze, spec, plan, implement} → invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first (ensures BRANCH linked + ω; **principal stays on β**). After return, re-scan `worktree` + `principal_ok`. Still false or `principal_ok=false` → present choice: **Retry** | **Abort**. SSoT: [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md).
 
 **Artifact sync (post-bootstrap):** If S* ∈ {frame, analyze, spec, plan} and principal has artifacts that ω lacks → absolute rsync (path-agnostic — works for Claude *and* Grok layouts):
 ```bash
@@ -293,9 +293,9 @@ Idempotent. **¬** relative `../../../artifacts/` (wrong under `~/.grok/worktree
 | implement | adv | `skill: "implement", args: "{N:+--issue $N}"` | pr |
 | pr | adv | `skill: "pr"` (auto-detects branch + issue) | ci-watch |
 | ci-watch | adv | `skill: "ci-watch", args: "--pr {PR#}"` | validate |
-| validate | adv | `skill: "validate"` | review |
+| validate | adv | `skill: "validate"` | code-review |
 | review | verdict | `skill: "dev-review"` | APPROVED → merge → cleanup \| CHANGES_REQUESTED → fix |
-| fix | loop | `skill: "fix", args: "#{PR_NUMBER}"` | review (max 2 iters, then Abort) |
+| fix | loop | `skill: "fix", args: "#{PR_NUMBER}"` | code-review (max 2 iters, then Abort) |
 | promote | — | `skill: "promote"` (standalone — never auto-triggered) | — |
 | cleanup | adv | `skill: "cleanup", args: "--scope #N"` | pipeline complete |
 

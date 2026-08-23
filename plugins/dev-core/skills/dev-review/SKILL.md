@@ -50,7 +50,7 @@ Steps: gather-changes → secret-scan → multi-domain-review → merge-and-pres
 
 ## Phase 1 — Gather Changes
 
-0. `BASE=$(. "../shared/lib.sh" && detect_base_branch)`
+0. `BASE=$(. "${CLAUDE_SKILL_DIR}/../shared/lib.sh" && detect_base_branch)`
 1. PR# → `gh pr diff <#>` | else → `git diff origin/${BASE}...HEAD`
 2. Δ = `git diff --name-only origin/${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
 3. ∀ f ∈ Δ: read full (skip binaries, note)
@@ -91,7 +91,7 @@ Spawn fresh agents via Task (¬implementation context → ¬bias).
 ### Chunking (Slice 2 — O2)
 
 Before dispatching agents, partition Δ into chunks using the Python chunker
-(`chunker.py`).
+(`${CLAUDE_SKILL_DIR}/chunker.py`).
 
 ```python
 # Pseudo-code — orchestrator executes this logic inline
@@ -119,7 +119,7 @@ Before Lane A dispatch, compute **once per review** (global, not per-chunk):
 REVIEW_TMP=$(mktemp -d -t "dev-core-review-delta-419-XXXXXX")
 trap 'rm -rf "$REVIEW_TMP"' EXIT
 printf '%s\n' "${DELTA_FILES[@]}" > "$REVIEW_TMP/delta.txt"
-bash claim-roster.sh \
+bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review/claim-roster.sh \
   --spec "$spec_path" \
   --diff-list "$REVIEW_TMP/delta.txt" \
   --json
@@ -137,7 +137,7 @@ Interim: `Claims` = all valid tags on approved σ when Δ ≠ ∅ (true source�
 | **adversarial** | **always** | red-team: bypass, fleet-regression, vacuous guards, assumption-kill + **OWASP lens** (secrets, injection, auth). security-auditor is independent when Δ ∩ auth/secrets/crypto (both may run) |
 | **frontend-dev** | Δ ∩ {FE, `{frontend.path}`, `{shared.ui}`} ≠ ∅ | FE patterns, components, hooks |
 | **product-lead** | spec ∃ | spec compliance, product fit |
-| **tester** | `bash ../pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` yields `oracle_ok=false` (or JSON missing) | coverage, AAA, edge cases, tautology |
+| **tester** | `bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` yields `oracle_ok=false` (or JSON missing) | coverage, AAA, edge cases, tautology |
 | **architect** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy} ≠ ∅ | patterns, structure, circular deps |
 | **backend-dev** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy, `{backend.path}`} ≠ ∅ | BE patterns, API, errors |
 | **devops** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy} ≠ ∅ | config, deploy, infra |
@@ -147,7 +147,7 @@ Interim: `Claims` = all valid tags on approved σ when Δ ≠ ∅ (true source�
 
 > **Note on axial-adr-review asymmetry (intentional):** The `/dev-review` condition is **structural** — it triggers when the diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`. The spec phase (`/spec`) uses a **semantic/intent-based** condition (spec adds adapter/integration/target ∨ touches `infrastructure/`). The two are complementary: `/spec` catches intent-level N×M violations, `/dev-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
 
-Skip: product-lead → spec ∄ | tester → `bash ../pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` emits `oracle_ok=true` (markdown / `parse-falsify` alone is ¬sufficient; verify fail → spawn tester) | frontend-dev → ¬FE Δ | architect/devops → τ≠F-full ∧ Δ misses `scripts/`/CI/`lefthook.yml`/wrangler/deploy | backend-dev → τ≠F-full ∧ Δ misses those ∧ `{backend.path}` | security-auditor → **`¬spawn_security_auditor`** (S1 `claim-roster` — **not** path-only “Δ misses auth/secrets/crypto”) | recall → single-chunk ∨ ¬canonical class ∨ \|callsites\|<3
+Skip: product-lead → spec ∄ | tester → `bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` emits `oracle_ok=true` (markdown / `parse-falsify` alone is ¬sufficient; verify fail → spawn tester) | frontend-dev → ¬FE Δ | architect/devops → τ≠F-full ∧ Δ misses `scripts/`/CI/`lefthook.yml`/wrangler/deploy | backend-dev → τ≠F-full ∧ Δ misses those ∧ `{backend.path}` | security-auditor → **`¬spawn_security_auditor`** (S1 `claim-roster` — **not** path-only “Δ misses auth/secrets/crypto”) | recall → single-chunk ∨ ¬canonical class ∨ \|callsites\|<3
 
 **Subdomain split (multi-chunk):** For each chunk `c_i`, apply the dispatch table against `c_i.files` only (not full Δ). Default: 1 agent per domain per chunk. recall is Phase 3b (not per-chunk Lane A).
 
@@ -168,7 +168,7 @@ Only when security-auditor is actually spawned (`spawn_security_auditor` from S1
 3. scope = Δ ∪ ⋃{resolve(imports(f)) | f ∈ Δ} ∪ `{backend.path}/src/auth/**` — deduplicate
 
 # SYNC REQUIRED: inline class list must match review-classes.yml slugs — see #149
-# CROSS-SKILL CONSUMER: fix/SKILL.md Phase 0 reads this YAML via review-classes.yml — moving/renaming it breaks /fix (#286)
+# CROSS-SKILL CONSUMER: fix/SKILL.md Phase 0 reads this YAML via ${CLAUDE_PLUGIN_ROOT}/skills/dev-review/review-classes.yml — moving/renaming it breaks /fix (#286)
 ### Spawn template
 
 > **Note (orchestrator):** The `{format_digest_for_agent(d) for d in digests if d.chunk_index != i}` placeholder is a Python expression evaluated by the orchestrator (Claude main context) BEFORE the Task call — substitute its rendered value into the prompt string. It is NOT a runtime-resolved placeholder. All other `{...}` placeholders are simple value substitutions.
@@ -183,7 +183,7 @@ For each chunk `c_i`, spawn the applicable domain agents in parallel:
 Task(
   subagent_type: "dev-core:{agent}",
   description: "{agent} review — chunk {i}/{N} — {PR#|branch}",
-  prompt: "Code review task. Focus: {focus}. If you are adversarial: also apply an OWASP lens (secrets, injection, auth) — ¬expect a sibling security-auditor unless the orchestrator spawned one (orchestrator MAY spawn one when Δ ∩ auth/secrets/crypto, independent of adversarial). Output Conventional Comments findings only. ¬TaskCreate.\n\nYou are reviewing chunk {i} of {N}. Review ONLY the files in this chunk.\n\nAdditionally audit each chunk against the systematic blind spots in `review-blind-spots.md` — call out each applicable one explicitly (or note none apply).\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all locations of this anti-pattern; required when Class is set; never empty\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, target-axis-trap, vacuous-guard, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$. Subsumption: bare-except subsumes missing-error-handling — when both apply, tag bare-except only. parallel-path-drift and target-axis-trap are siblings (¬overlap) — parallel-path-drift for security hardening missing on a sibling entry point, target-axis-trap for architectural concern duplication across the non-primary axis (concern copy-pasted in ≥3 sibling dirs); prefer the matching one, do not double-tag.\n\n---CHUNK DIFF (chunk {i})---\n{c_i.hunk_text for all files in chunk}\n\n---CHUNK FILES---\n{contents of files in c_i}\n\n---BOUNDARY DIGESTS (other chunks)---\n{format_digest_for_agent(d) for d in digests if d.chunk_index != i}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
+  prompt: "Code review task. Focus: {focus}. If you are adversarial: also apply an OWASP lens (secrets, injection, auth) — ¬expect a sibling security-auditor unless the orchestrator spawned one (orchestrator MAY spawn one when Δ ∩ auth/secrets/crypto, independent of adversarial). Output Conventional Comments findings only. ¬TaskCreate.\n\nYou are reviewing chunk {i} of {N}. Review ONLY the files in this chunk.\n\nAdditionally audit each chunk against the systematic blind spots in `${CLAUDE_PLUGIN_ROOT}/skills/dev-review/review-blind-spots.md` — call out each applicable one explicitly (or note none apply).\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all locations of this anti-pattern; required when Class is set; never empty\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, target-axis-trap, vacuous-guard, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$. Subsumption: bare-except subsumes missing-error-handling — when both apply, tag bare-except only. parallel-path-drift and target-axis-trap are siblings (¬overlap) — parallel-path-drift for security hardening missing on a sibling entry point, target-axis-trap for architectural concern duplication across the non-primary axis (concern copy-pasted in ≥3 sibling dirs); prefer the matching one, do not double-tag.\n\n---CHUNK DIFF (chunk {i})---\n{c_i.hunk_text for all files in chunk}\n\n---CHUNK FILES---\n{contents of files in c_i}\n\n---BOUNDARY DIGESTS (other chunks)---\n{format_digest_for_agent(d) for d in digests if d.chunk_index != i}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
 )
 ```
 
@@ -264,7 +264,7 @@ correctness | security | performance | architecture | tests | readability | obse
 ```
 
 **Class field rules:**
-- 0–N canonical tags from `review-classes.yml` + 0–1 `candidate/<slug>` tag
+- 0–N canonical tags from `${CLAUDE_SKILL_DIR}/review-classes.yml` + 0–1 `candidate/<slug>` tag
 - Omit the `Class:` field entirely when no class applies (¬write `Class: []`)
 - Free-text labels not in the canonical list and not prefixed `candidate/` → invalid; treat as C(f) := 0
 - `candidate/<slug>` must match `^candidate/[a-z][a-z0-9-]{1,48}$`; slug violating format → invalid, C(f) := 0
@@ -298,5 +298,103 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 1. Collect F from all agents (Lane A + recall agents + Lane B)
 2. Dedup — **mandatory, two keys, both always applied** (unavoidable; never present two copies):
    - same file:line + issue → keep max C
+   - **one finding per `(file, class)` → keep max C** — never two agents' copies of the same class on the same file
+   - ∀ pair sharing file:line with class[] sets that intersect after subsumption → merge: max C, union class[] (apply subsumption strip), union raw_callsites[]
+3. Sort: C desc within category
+4. Group: Blockers → Warnings → Suggestions → Praise
 
-[Showing lines 1-300 of 401. Use :301 to continue]
+**Source classification before verdict:**
+- Lane A findings: standard blocking/advisory per category label
+- Recall findings (`source: recall`): always **blocking** regardless of label — override to `issue(blocking):` if not already
+- Lane B findings (`pattern-class` tag): **advisory only** — cap at `Approve with comments`; ¬Request changes from Lane B alone
+
+**Verdict:**
+
+| Condition | Verdict |
+|-----------|---------|
+| ∃f: recall finding (source: recall) | Request changes |
+| ∃f: blocks(f) ∧ ¬recall | Request changes |
+| Lane B advisory ∨ warns(f) only ∧ ¬blocks | Approve with comments |
+| suggestions/praise only | Approve |
+| F = ∅ | Approve (clean) |
+
+## Phase 6 — Post to PR
+
+1. PR# = provided ∨ `gh pr list --head "$(git branch --show-current)" --json number --jq '.[0].number'`; ¬∃ → skip
+2. Tempfile per `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md`:
+   ```bash
+   [[ "$PR" =~ ^[0-9]+$ ]] || { echo "Invalid PR number: $PR" >&2; exit 1; }
+   TMPDIR=$(mktemp -d -t "dev-core-review-comment-PR${PR}-XXXXXX")
+   trap 'rm -rf "$TMPDIR"' EXIT
+   BODY="$TMPDIR/body.md"
+   ```
+   Write grouped findings to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
+3. `## Code Review` header; grouped findings + summary + verdict; ∀C included
+
+**→ immediately continue to Phase 8.**
+
+## Phase 8 — Next Step
+
+Q:
+- **Fix now (`/fix`)** — invoke `/fix` (auto-apply + 1b1 + spawn fixers; `/fix` Phase 8 offers rebase + label + merge)
+- **Merge as-is** — rebase + label + auto-merge (below)
+- **Stop** — exit
+
+**If Merge as-is:**
+
+1. `git fetch origin ${BASE} && git rev-list HEAD..origin/${BASE} --count`
+   - count > 0 → `git rebase origin/${BASE}` + `git push --force-with-lease`
+   - conflict → halt (¬label)
+2. Q: "Add `reviewed` label?" → Yes / No
+3. Yes → `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"` → auto-merge merges (merge commit) on green CI. ¬auto-merge workflow in repo → `gh pr merge <#> --auto --merge`. ¬plain `gh pr merge` while any check is IN_PROGRESS/QUEUED — mid-CI merge cancels in-flight runs + skips gates.
+4. No → inform manual
+
+> `/dev-review` ¬fixes code. Fixing = `/fix` skill.
+
+## Edge Cases
+
+| Scenario | Behavior |
+|----------|----------|
+| |Δ| = 0 | Halt |
+| Binary ∈ Δ | Skip, note |
+| |Δ| > 50 | Warn, suggest split |
+| F = ∅ | Clean approve, post, Phase 8 |
+| Critical security | Escalate in findings, flag in verdict |
+| Agents disagree | Present both with respective C |
+| ¬∃ PR | Skip Phase 6, Phase 8 local only |
+| Missing root cause/solutions | C(f) := 0 |
+| architect skipped | ¬arch review → faster |
+| product-lead skipped | Phase 2 skipped |
+| tester skipped | `run-falsify --verify` → `oracle_ok=true` → ¬coverage review |
+| security-auditor skipped | `¬spawn_security_auditor` (S1 claim-roster) — adversarial still owns OWASP on every review |
+
+## Safety Rules
+
+1. Fresh agents only — ¬implementation context
+2. ¬approve PRs on GitHub; ¬enable auto-merge outside the Phase 8 human decision (label gate)
+3. Merge = merge commit only, ¬squash (see [`release-convention.md`](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/release-convention.md)); merge executes via the gate (label + auto-merge), never manually mid-CI
+4. ¬fix code — findings only. Fixing = `/fix` skill
+5. ∃ PR → must post comment (Phase 6)
+6. Human decides at Phase 8 — ¬proceed without Q
+
+## Chain Position
+
+- **Phase:** Verify
+- **Predecessor:** `/validate`
+- **Successor:** conditional — APPROVED → merge → `/cleanup` | CHANGES_REQUESTED → `/fix`
+- **Class:** verdict (branching based on findings)
+
+## Task Integration
+
+- `/dev` owns the dev-pipeline task lifecycle externally
+- Sub-tasks created: review findings (`kind: "review-finding"`) if applicable
+- Follow-up tasks: on CHANGES_REQUESTED (user picks `/fix` at Phase 8) → `TaskCreate` fix task with `metadata: { kind: "dev-pipeline", follow_up: true, iteration: N, blockedBy: [this.id] }`
+
+## Exit
+
+- **APPROVED via `/dev`** (user picks Merge as-is at Phase 8): rebase + label + merge → return. `/dev` advances to `/cleanup`.
+- **CHANGES_REQUESTED via `/dev`** (user picks `/fix` at Phase 8): `TaskCreate` follow-up fix task → return silently. `/dev` picks up the new task and invokes `/fix`.
+- **Stop (user)**: return → `/dev` presents Abort | Resume.
+- **Loop cap:** max 2 fix→review iterations (tracked via `metadata.iteration`). 3rd review iteration → Phase 8 must recommend Merge as-is or Stop, not Fix. `/dev` presents Abort if 3rd fix attempted.
+
+$ARGUMENTS

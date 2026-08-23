@@ -43,7 +43,7 @@ Steps: gather-state → guard-rails → generate → create → rebase
 ## Step 1 — Gather State
 
 ```bash
-bash gather-state.sh
+bash ${CLAUDE_SKILL_DIR}/gather-state.sh
 ```
 
 Emits: `branch`, `base`, commit log, diff stat, existing PR, issue number, lifecycle artifacts (analysis, spec), test file count, `falsify_required`, `oracle_ok`, `oracle_reason`, `priced_ok`.

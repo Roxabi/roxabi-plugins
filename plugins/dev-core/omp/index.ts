@@ -5,7 +5,7 @@ import {
   extractShellCommand,
   extractWriteContent,
   isBunTestBlocked,
-  principalPostNudge,
+  rewriteHarnessPaths,
   scanSecurityContent,
   shouldBlockPrincipalSwitch,
 } from './guards'
@@ -37,7 +37,7 @@ type ExtensionAPI = {
       handler: (args: string, ctx: ExtensionContext) => Promise<void>
     },
   ): void
-  sendUserMessage: (content: string, options?: { deliverAs?: 'steer' | 'followUp'; triggerTurn?: boolean }) => void
+  sendUserMessage: (content: string, options?: { deliverAs?: 'steer' | 'followUp' }) => void
 }
 
 const __filename = fileURLToPath(import.meta.url)
@@ -54,7 +54,7 @@ function readSkillBody(skillName: string): { body: string; skillDir: string } {
   const skillDir = join(PLUGIN_ROOT, 'skills', skillName)
   const skillPath = join(skillDir, 'SKILL.md')
   const raw = readFileSync(skillPath, 'utf8')
-  return { body: stripFrontmatter(raw).trim(), skillDir }
+  return { body: rewriteHarnessPaths(stripFrontmatter(raw).trim(), skillDir, PLUGIN_ROOT), skillDir }
 }
 
 function registerSkillCommand(pi: ExtensionAPI, skillName: string): void {
@@ -67,7 +67,7 @@ function registerSkillCommand(pi: ExtensionAPI, skillName: string): void {
         .join('\n')
         .trim()
 
-      pi.sendUserMessage(message, { triggerTurn: true })
+      pi.sendUserMessage(message)
     },
   })
 }
@@ -109,14 +109,6 @@ export default function devCoreExtension(pi: ExtensionAPI): void {
     }
   })
 
-  // format hook: v1 no-op (stack.yml formatter wiring deferred)
-  pi.on('tool_result', async (event, ctx) => {
-    if (event.toolName !== 'bash') return
-
-    const nudge = principalPostNudge(ctx.cwd)
-    if (!nudge) return
-
-    // Post-hook nudge only — never blocks execution.
-    pi.sendUserMessage(nudge, { deliverAs: 'followUp' })
-  })
+  // format hook + principal post-nudge: deferred. Never sendUserMessage on tool_result
+  // (OMP treats that as a user turn and the agent may git-switch off the feature branch).
 }

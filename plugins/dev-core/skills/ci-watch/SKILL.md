@@ -9,7 +9,7 @@ allowed-tools: Bash, Glob, Grep, Read
 # CI Watch
 
 Let:
-  SCR := `ci-watch.sh` in **this skill directory** (same folder as this SKILL.md)
+  SCR := `${CLAUDE_SKILL_DIR}/ci-watch.sh`
   R  := OWNER/REPO (auto-detected from git remote)
   AM := auto-merge
 

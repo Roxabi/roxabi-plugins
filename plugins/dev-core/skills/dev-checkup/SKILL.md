@@ -9,9 +9,10 @@ allowed-tools: Bash, Read, ToolSearch
 
 Let:
   Σ := severity icon (❌ blocking | ⚠️ warning | ✅ pass | ⏭ skipped)
-  I_TS := `../init/init.ts`
+  Φ := CLAUDE_PLUGIN_ROOT
   σ := `.claude/stack.yml`
   δ := `.claude/dev-core.yml`
+  I_TS := `${Φ}/skills/init/init.ts`
   D(label, result) := Display: `{label} {result}`
   Ask(opts) := present opts, wait for user reply
   chk(cond, pass, fail) := cond → ✅ pass | fail
@@ -24,8 +25,8 @@ Severity guide: ❌ = blocking error, ⚠️ = warning, ✅ = pass, ⏭ = skippe
 
 ## Dispatch
 
-Phase 1 — dev-core checks → Read `cookbooks/devcore-checks.md`, execute.
-Phase 2 — Stack configuration → Read `cookbooks/stack-checks.md`, execute.
-Phase 3 — Workspace health → Read `cookbooks/infra-checks.md`, execute (includes Phases 3-5).
+Phase 1 — dev-core checks → Read `${CLAUDE_SKILL_DIR}/cookbooks/devcore-checks.md`, execute.
+Phase 2 — Stack configuration → Read `${CLAUDE_SKILL_DIR}/cookbooks/stack-checks.md`, execute.
+Phase 3 — Workspace health → Read `${CLAUDE_SKILL_DIR}/cookbooks/infra-checks.md`, execute (includes Phases 3-5).
 
 $ARGUMENTS

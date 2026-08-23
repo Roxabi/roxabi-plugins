@@ -12,7 +12,7 @@ version: 0.9.3
 # Dev-init
 
 Let:
-  I_TS := `./init.ts`
+  I_TS       := `${CLAUDE_PLUGIN_ROOT}/skills/dev-init/init.ts`
   F          := `--force` flag present in `$ARGUMENTS`
   SKIP_AXIAL := `--skip-axial` flag present in `$ARGUMENTS`
   args       := join(F ? "--force" : "", SKIP_AXIAL ? "--skip-axial" : "")
@@ -74,7 +74,7 @@ skill: "dev-core:env-setup", args: "{args}"
 
 Foundational decision: which axis of variation is **primary** in this system. Project init is the only moment where the cost of asking is zero — post-scaffold, the axis is implicit in code structure and changing it costs a refactor. Without this ADR, projects drift N×M (target × concern duplication).
 
-Reference: `../shared/references/axial-decomposition.md`
+Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
 
 **Skip path:** `SKIP_AXIAL ∨ F` → emit `D("Axial ADR", "⏭️  skipped via --skip-axial")` (or `--force` for blanket override), continue. Trivial single-axis projects (single-purpose CLI utilities, libraries with no transport/adapter axis) legitimately exit here.
 
@@ -89,7 +89,7 @@ Reference: `../shared/references/axial-decomposition.md`
    ```
    subagent_type: "axial-adr-create"   # or "dev-core:axial-adr-create" on Grok
    description:   "Elicit axial decomposition decision"
-   prompt:        "Conduct the axial-decomposition interview for this project. Read ../shared/references/axial-decomposition.md first. Output: ADR file in docs/architecture/adr/ with `axial: true` frontmatter (grep-discoverable canonical marker — singleton invariant)."
+   prompt:        "Conduct the axial-decomposition interview for this project. Read ${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md first. Output: ADR file in docs/architecture/adr/ with `axial: true` frontmatter (grep-discoverable canonical marker — singleton invariant)."
    ```
 4. Agent exit status:
    - `created` ∨ `superseded` ∨ `kept` → D("Axial ADR", "✅ {status}"), continue.
@@ -123,11 +123,11 @@ skill: "dev-core:release-setup", args: "{args}"
 dev-init complete
 =================
 
-  Run /dev-core:dev-checkup   to verify full configuration health
+  Run /dev-core:checkup   to verify full configuration health
   Run /dev-core:seed-docs to populate docs stubs from CLAUDE.md + codebase
 
 Next steps:
-  /dev-core:dev-checkup           Verify full configuration health
+  /dev-core:checkup           Verify full configuration health
   /dev-core:seed-docs         Populate scaffolded docs with content from CLAUDE.md + codebase
   /dev-core:dev #N            Start working on an issue
   /dev-init --force           Re-configure anytime

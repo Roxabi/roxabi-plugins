@@ -53,7 +53,7 @@ Steps: pre-flight → version → changelog → commit → preview → create-pr
 ## Step 1 — Pre-flight
 
 ```bash
-bash preflight.sh
+bash ${CLAUDE_SKILL_DIR}/preflight.sh
 ```
 
 Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI check results, `hotfix_density`.
@@ -191,7 +191,7 @@ Logic lives in `lib/pin-swap.ts` (pure functions, I/O-injected). Tests in `__tes
 
 ## Steps 2-4 — Version, Changelog, Commit
 
-Read [references/release-artifacts.md](references/release-artifacts.md) for full procedure.
+Read [references/release-artifacts.md](${CLAUDE_SKILL_DIR}/references/release-artifacts.md) for full procedure.
 
 ## Step 5 — Deploy Preview
 
@@ -259,7 +259,7 @@ EOF
 
 # 2) Create or update staging→main PR (harvest + inject mandatory)
 # Exit 1 if harvest degraded (exit 3 from collect) unless --allow-degraded after human review.
-PR_URL=$(bash "create-promote-pr.sh" \
+PR_URL=$(bash "${CLAUDE_SKILL_DIR}/create-promote-pr.sh" \
   --base main --head staging \
   --title "chore: promote staging to main ($VERSION)" \
   --body-file "$BODY_FILE")
@@ -273,7 +273,7 @@ Display PR URL (`$PR_URL`).
 
 ## Step 8 — Post-merge Reminder
 
-**CRITICAL: Merge commit only, never squash** — see [`release-convention.md`](../shared/references/release-convention.md).
+**CRITICAL: Merge commit only, never squash** — see [`release-convention.md`](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/release-convention.md).
 
 ```
 Promotion PR created: {URL}
@@ -318,10 +318,10 @@ NEWEST=$(gh pr list --base main --head staging --state merged --limit 1 --json m
 
 # Derived version + BASE floor — BOTH from price.sh, the sole deriver (D10). --base-only reuses
 # the deriver's own floor predicate, so the gate and finalize never diverge from a second copy.
-DERIVED=$(bash "price.sh" "$COMPONENT" "${M}^1" "$M"); RC=$?
+DERIVED=$(bash "${CLAUDE_SKILL_DIR}/price.sh" "$COMPONENT" "${M}^1" "$M"); RC=$?
 { [ "$RC" -ge 1 ] && [ "$RC" -ne 10 ]; } && { echo "REFUSE: price.sh error ($RC)"; exit 1; }
 if [ "$RC" -eq 10 ]; then DERIVED=0.1.0; BASE=""; else       # first release — no floor
-  set +e; BASE=$(bash "price.sh" --base-only "$COMPONENT" "${M}^1"); BRC=$?; set -e
+  set +e; BASE=$(bash "${CLAUDE_SKILL_DIR}/price.sh" --base-only "$COMPONENT" "${M}^1"); BRC=$?; set -e
   { [ "$BRC" -ge 1 ] && [ "$BRC" -ne 10 ]; } && { echo "REFUSE: price.sh --base-only error ($BRC)"; exit 1; }
   [ "$BRC" -eq 10 ] && BASE=""
 fi
@@ -348,7 +348,7 @@ for _ in 1 2 3; do
     { [ "$TAG_AT" = "$M" ] && RELEASE_STATE=points-at-M; } || RELEASE_STATE=points-elsewhere
   else RELEASE_STATE=absent; fi
 
-  VERDICT=$(bun run "lib/finalize.ts" \
+  VERDICT=$(bun run "${CLAUDE_SKILL_DIR}/lib/finalize.ts" \
     --parent-count "$PARENT_COUNT" --is-promote "$IS_PROMOTE" \
     --derived "$DERIVED" --base "$BASE" \
     --witness-title "$TITLE_V" --witness-heading "$HEADING_V" --witness-file "$FILE_V" \

@@ -67,8 +67,8 @@ d ∈ D := {tag: str, file: str, line: int, description: str, phase: str}
 
 ## Phase 0 — Load Taxonomy
 
-Read `../dev-review/review-classes.yml` → extract `classes[].class` slugs → `canonical_slugs`. (Canonical YAML ships with `dev-review`; `fix` reads it cross-skill — single source, ¬duplicate copy that could drift.)
-File absent, unreadable, or parse error → HALT: `[taxonomy-error] review-classes.yml {reason} at ../dev-review/review-classes.yml — reinstall dev-core plugin.`
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev-review/review-classes.yml` → extract `classes[].class` slugs → `canonical_slugs`. (Canonical YAML ships with `dev-review`; `fix` reads it cross-skill — single source, ¬duplicate copy that could drift.)
+File absent, unreadable, or parse error → HALT: `[taxonomy-error] review-classes.yml {reason} at ${CLAUDE_PLUGIN_ROOT}/skills/dev-review/review-classes.yml — reinstall dev-core plugin.`
 Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬LLM memory).
 
 
@@ -219,7 +219,7 @@ _(TODO: `pattern-class` tag and Lane B defined in Slice 3 — targeted recall. U
 
 ∀ class ∈ classes (from Phase 6):
 
-Run falsification gate per `falsification.md`. Gate emits boolean per class:
+Run falsification gate per `${CLAUDE_SKILL_DIR}/falsification.md`. Gate emits boolean per class:
 
 ```
 pass  →  fix accepted; continue
@@ -238,7 +238,7 @@ New findings surfaced during falsification → **parking lot**: file as candidat
 
 ∄ PR → skip.
 
-Tempfile per `../shared/references/tempfile-convention.md`:
+Tempfile per `${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.md`:
 ```bash
 [[ "$PR" =~ ^[0-9]+$ ]] || { echo "Invalid PR number: $PR" >&2; exit 1; }
 TMPDIR=$(mktemp -d -t "dev-core-review-fixes-PR${PR}-XXXXXX")

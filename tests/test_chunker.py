@@ -1,4 +1,4 @@
-"""Tests for plugins/dev-core/skills/code-review/chunker.py.
+"""Tests for plugins/dev-core/skills/dev-review/chunker.py.
 
 Acceptance criteria (§ Slice 2):
   1. Empty diff → empty chunk list
@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-# Make the code-review skill directory importable without installing a package
-_SKILL_DIR = Path(__file__).resolve().parents[1] / 'plugins' / 'dev-core' / 'skills' / 'code-review'
+# Make the dev-review skill directory importable without installing a package
+_SKILL_DIR = Path(__file__).resolve().parents[1] / 'plugins' / 'dev-core' / 'skills' / 'dev-review'
 sys.path.insert(0, str(_SKILL_DIR))
 
 from chunker import (  # noqa: E402

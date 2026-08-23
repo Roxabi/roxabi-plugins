@@ -140,7 +140,7 @@ Pre-fill context from φ — skip answered questions.
 
 ## Step 2c — Generate Analysis
 
-**Frontmatter contract** (SSoT: [artifact-frontmatter.md](../shared/references/artifact-frontmatter.md)): title hygiene on `{title}` (external content → yaml-escaped scalar); write α with `type: analysis` + `status: draft`. Approval flips `status` in Step 5. **`status` is the pipeline's done-signal**: `/dev` reads α_approved (`status == 'approved'` ∨ status key absent; explicit `draft` or other tokens fail), so a draft left by an aborted run must never mark the Shape step complete.
+**Frontmatter contract** (SSoT: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md)): title hygiene on `{title}` (external content → yaml-escaped scalar); write α with `type: analysis` + `status: draft`. Approval flips `status` in Step 5. **`status` is the pipeline's done-signal**: `/dev` reads α_approved (`status == 'approved'` ∨ status key absent; explicit `draft` or other tokens fail), so a draft left by an aborted run must never mark the Shape step complete.
 
 ```md
 ---
@@ -191,7 +191,7 @@ status: draft
 
 Tier S may omit Shapes + Fit Check sections.
 
-∃ specific technical question → spawn domain expert via Task. See [references/expert-consultation.md](references/expert-consultation.md).
+∃ specific technical question → spawn domain expert via Task. See [references/expert-consultation.md](${CLAUDE_SKILL_DIR}/references/expert-consultation.md).
 
 ## Step 2.5 — Investigation (Optional)
 
@@ -205,7 +205,7 @@ Skip if ¬technical uncertainty in Step 2 findings.
 
 **¬AQ bans menus, ¬consent.** A spike creates a branch + worktree and runs code — a repo mutation, carved out of the `¬worktree` scope line. Prose-ask + stop satisfies both the ban and CLAUDE.md Design Principle 2.
 
-**Spike flow** — runs **only** after the user says `spike` (principal stays on β — [harness-worktree.md](../shared/references/harness-worktree.md)):
+**Spike flow** — runs **only** after the user says `spike` (principal stays on β — [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md)):
 
 1. Bind names first — collision-proof, and captured so teardown can use them:
    ```bash
@@ -231,7 +231,7 @@ Skip if ¬technical uncertainty in Step 2 findings.
    ∃ leak → print the residue + the exact cleanup command for the user. ¬silent continue (`/cleanup` sweeps `feat/*` only — it will not collect a `spike/*`).
 6. Assert principal still on β
 
-See [references/investigation.md](references/investigation.md) if ∃, else use inline flow above.
+See [references/investigation.md](${CLAUDE_SKILL_DIR}/references/investigation.md) if ∃, else use inline flow above.
 
 ## Step 3 — Expert Review
 
@@ -323,7 +323,7 @@ Ambiguous free text → ask **one short prose clarifying question** in the messa
 2. Commit: `git add artifacts/analyses/{N}-{slug}-analysis.md` + commit per CLAUDE.md Rule 5.
 3. Update issue status:
 ```bash
-bun ../issue-triage/triage.ts set <N> --status Analysis
+bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Analysis
 ```
 4. Exit per Exit section.
 
@@ -348,7 +348,7 @@ bun ../issue-triage/triage.ts set <N> --status Analysis
 - **Phase:** Shape
 - **Predecessor:** `/frame` (artifact: `artifacts/frames/{N}-{slug}-frame.md`)
 - **Successor:** `/spec` (optional side-paths before advance: `/adversarial` kill-pass, `/advisory` strengthen)
-- **Class:** `adv` **+ approval stop** — map class in `/dev` is `adv + approval stop`. Protection is **disk** α_approved (`status == 'approved'` ∨ missing key legacy); `/dev` Walk ignores `Σ_s[analyze]` alone and Step 8 item 0 re-reads frontmatter before any complete. Resume after stop = Step 5 React, not fresh Step 0. See [chain-contract.md](../shared/references/chain-contract.md).
+- **Class:** `adv` **+ approval stop** — map class in `/dev` is `adv + approval stop`. Protection is **disk** α_approved (`status == 'approved'` ∨ missing key legacy); `/dev` Walk ignores `Σ_s[analyze]` alone and Step 8 item 0 re-reads frontmatter before any complete. Resume after stop = Step 5 React, not fresh Step 0. See [chain-contract.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/chain-contract.md).
 
 ## Task Integration
 
