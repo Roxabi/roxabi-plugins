@@ -15,21 +15,22 @@
 
 ## Capability matrix
 
-| Operation (generic) | Claude Code | Grok | Notes |
-|---------------------|-------------|------|-------|
-| Seed N tasks | `TaskCreate` × N | `todo_write` (batch merge) | Grok: no per-task return ID graph |
-| Attach metadata | `TaskCreate.metadata` | encode in `content` line | Keep blueprint fields in text |
-| Wire dependencies | `TaskUpdate` + `blockedBy` | **not supported** | Enforce order in skill prose + blueprint only |
-| List open tasks | `TaskList` | read current todos (tool state) | Grok: model already sees todo list |
-| Get one task | `TaskGet` | N/A — use list | — |
-| Mark done | `TaskUpdate` status | `todo_write` status=`completed` | — |
-| Re-attach after restart | blueprint in π + `TaskCreate` | re-seed from blueprint → `todo_write` | Both: artifact wins across sessions |
+| Operation (generic) | Claude Code | Grok (`grok-todos`) | OMP (`omp-todo`) | Notes |
+|---------------------|-------------|---------------------|------------------|-------|
+| Seed N tasks | `TaskCreate` × N | `todo_write` (batch merge) | `todo` (batch merge) | OMP/Grok: no per-task return ID graph |
+| Attach metadata | `TaskCreate.metadata` | encode in `content` line | encode in `content` line | Keep blueprint fields in text |
+| Wire dependencies | `TaskUpdate` + `blockedBy` | **not supported** | **not supported** | Enforce order in skill prose + blueprint only |
+| List open tasks | `TaskList` | read current todos (tool state) | read current todos (tool state) | Grok/OMP: model already sees todo list |
+| Get one task | `TaskGet` | N/A — use list | N/A — use list | — |
+| Mark done | `TaskUpdate` status | `todo_write` status=`completed` | `todo` status=`completed` | — |
+| Re-attach after restart | blueprint in π + `TaskCreate` | re-seed from blueprint → `todo_write` | re-seed from blueprint → `todo` | Both: artifact wins across sessions |
 
 ## Detection (orchestrator)
 
 ```
 if tools ∋ TaskCreate ∧ TaskUpdate ∧ TaskList → H := claude-tasks
 else if tools ∋ todo_write → H := grok-todos
+else if tools ∋ todo → H := omp-todo
 else → H := artifact-only   # plan file only; no in-session list
 ```
 
@@ -55,6 +56,10 @@ Input: Task Seeding Blueprint from π (see `plan-task-schema.md`).
 2. **Deps:** do not invent blockedBy. Orchestrator only spawns/claims a task when all blueprint deps are `completed` (or no deps).
 3. Persist nothing host-side across sessions — re-read blueprint from π.
 
+### H = omp-todo (portable)
+
+Same procedure as **H = grok-todos** — use the host `todo` tool instead of `todo_write`. Stable `id: T{n}`; deps enforced in orchestrator prose only.
+
 ### H = artifact-only
 
 Work only from π micro-tasks table. Present progress in the reply. No host list.
@@ -79,7 +84,7 @@ Work only from π micro-tasks table. Present progress in the reply. No host list
 
 | Skill | Uses H for |
 |-------|------------|
-| `/plan` Step 6a | Initial seed |
+| `/dev-plan` Step 6a | Initial seed |
 | `/implement` Step 1b | Attach / re-seed / probe once |
 | `/implement` Step 4 | Claim, load context, mark done, ready-set |
 | `/implement` Step 6 | All-completed assert |

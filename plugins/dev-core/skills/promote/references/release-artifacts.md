@@ -29,7 +29,7 @@ release:
 ### 2b. Preview via price.sh
 
 ```bash
-PREVIEW=$(bash "${CLAUDE_SKILL_DIR}/price.sh" "$COMPONENT" origin/main origin/main origin/staging); RC=$?
+PREVIEW=$(bash "../price.sh" "$COMPONENT" origin/main origin/main origin/staging); RC=$?
 ```
 
 | `price.sh` exit | Meaning | Action |

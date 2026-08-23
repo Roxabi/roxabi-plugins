@@ -3,13 +3,13 @@ name: axial-adr-review
 description: |
   Read-only review agent for axial-decomposition drift. Parses the project's axial ADR (`axial: true` frontmatter) and reviews a diff or spec for drift along the non-primary axis (N×M trap). Emits Conventional Comments findings tagged with the canonical `target-axis-trap` class.
 
-  Invoked by `/spec` (Step 4 — Expert Review) or `/code-review` (Phase 3 — Multi-Domain Review) when scope touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`.
+  Invoked by `/spec` (Step 4 — Expert Review) or `/dev-review` (Phase 3 — Multi-Domain Review) when scope touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`.
 
   Write companion: `axial-adr-create` for ADR creation/supersede. This agent has NO Write/Edit/Bash/Skill tools — read-only by capability, not by prose.
 
   <example>
-  Context: PR adds a new transport adapter, /code-review dispatches axial-adr-review
-  user: "/code-review #42"
+  Context: PR adds a new transport adapter, /dev-review dispatches axial-adr-review
+  user: "/dev-review #42"
   assistant: "Dispatching axial-adr-review — diff touches infrastructure/, axial ADR present, checking for wrong-axis duplication."
   </example>
 
@@ -27,9 +27,9 @@ maxTurns: 20
 
 Let:
   D := `docs/architecture/adr/`
-  R := `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
+  R := `skill://shared-refs/axial-decomposition.md`
 
-Read-only mode. Parses an existing axial ADR, then audits a diff (from `/code-review`) or a spec (from `/spec`) for drift along the non-primary axis. Emits findings; never writes files.
+Read-only mode. Parses an existing axial ADR, then audits a diff (from `/dev-review`) or a spec (from `/spec`) for drift along the non-primary axis. Emits findings; never writes files.
 
 **Rationale:** Read R before starting — framework, primary-axis reasoning categories, three-strikes rule.
 
@@ -91,7 +91,7 @@ Read-only mode. Parses an existing axial ADR, then audits a diff (from `/code-re
        Raw callsites: [{file: <path>, line: <n>}]
        Solutions:
          1. Re-run axial-adr-create (supersede) and provide a single-token grep pattern in Q3
-         2. Edit the ADR manually to a valid pattern, then re-run /spec or /code-review
+         2. Edit the ADR manually to a valid pattern, then re-run /spec or /dev-review
        Confidence: 95%
      ```
      → exit review.
@@ -101,7 +101,7 @@ Read-only mode. Parses an existing axial ADR, then audits a diff (from `/code-re
 ## Phase R2 — Parse artifact under review
 
 Dispatch context provides one of:
-- **Code diff** (from `/code-review`): chunk text or full diff in the dispatch prompt
+- **Code diff** (from `/dev-review`): chunk text or full diff in the dispatch prompt
 - **Spec** (from `/spec`): path to spec.md in the dispatch prompt
 
 Determine artifact type from prompt context. ¬artifact context → emit `issue:` request missing context; exit.
@@ -145,7 +145,7 @@ Required:
 
 ## Phase R5 — Exit silently
 
-Review mode does NOT modify any file. The tool set (`Read`, `Glob`, `Grep`) makes file mutation structurally impossible — this is a capability boundary, not a prose contract. Return findings to caller (Phase 4 merge in `/code-review`, or Step 4 incorporate-feedback in `/spec`).
+Review mode does NOT modify any file. The tool set (`Read`, `Glob`, `Grep`) makes file mutation structurally impossible — this is a capability boundary, not a prose contract. Return findings to caller (Phase 4 merge in `/dev-review`, or Step 4 incorporate-feedback in `/spec`).
 
 ## Edge Cases
 

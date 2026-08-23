@@ -3,7 +3,7 @@
 Meta-orchestrator to land **ready** code on a feature branch:
 
 ```
-commit → /pr → /code-review → [/fix ↺ /code-review] → reviewed label → /ci-watch → [/cleanup]
+commit → /pr → /dev-review → [/fix ↺ /dev-review] → reviewed label → /ci-watch → [/cleanup]
 ```
 
 ## When to use
@@ -33,7 +33,7 @@ Use when implementation is already done (or mostly done) and you want review + m
 
 1. **commit** — if the tree is dirty, conventional-commit + push (skipped when clean).
 2. **pr** — delegates to `/pr` (create or update).
-3. **code-review** — delegates to `/code-review`.
+3. **review** — delegates to `/dev-review`.
 4. **fix loop** — on CHANGES_REQUESTED, `/fix` then re-review (max 2). Strips a premature `reviewed` label after fix so merge-on-green cannot fire mid-loop.
 5. **reviewed + ci-watch** — adds `reviewed`, enables auto-merge when possible, watches CI/merge via `/ci-watch`.
 6. **cleanup** — optional post-merge `/cleanup`.

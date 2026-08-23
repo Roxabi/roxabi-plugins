@@ -103,7 +103,7 @@ AQ per phase. Group 2–4 questions/call. Skip questions obvious from context, a
 | Terminology | "Terms that could mean different things?" |
 | Completion Signals | "How do we know this is done?" |
 
-∀ ambiguity: rank by **Impact × Uncertainty** (H/M/L). H×H → follow-up question. Unresolved → `[NEEDS CLARIFICATION: description]` (max 3–5/spec). Must resolve before `/plan`.
+∀ ambiguity: rank by **Impact × Uncertainty** (H/M/L). H×H → follow-up question. Unresolved → `[NEEDS CLARIFICATION: description]` (max 3–5/spec). Must resolve before `/dev-plan`.
 
 Depth by τ: β = Phase 1 + divergent (lighter) | α = Phases 1–3 thorough | σ = all phases, rigorous on edge cases + criteria.
 
@@ -118,7 +118,7 @@ Depth by τ: β = Phase 1 + divergent (lighter) | α = Phases 1–3 thorough | �
 
 ## Step 4 — Generate Document
 
-Write using the matching template. **Frontmatter is not optional** — full contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md).
+Write using the matching template. **Frontmatter is not optional** — full contract: [artifact-frontmatter.md](../shared/references/artifact-frontmatter.md).
 
 Rules:
 - `.md` extension; kebab-case slugs.
@@ -137,6 +137,6 @@ Rules:
 
 ## Document Templates
 
-Use templates from [references/templates.md](${CLAUDE_SKILL_DIR}/references/templates.md) — Brainstorm, Analysis, Spec. Each template's frontmatter already carries `type:` + `status:` — do not strip them.
+Use templates from [references/templates.md](references/templates.md) — Brainstorm, Analysis, Spec. Each template's frontmatter already carries `type:` + `status:` — do not strip them.
 
 $ARGUMENTS

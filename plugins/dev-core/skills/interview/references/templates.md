@@ -6,7 +6,7 @@ Let: N := issue number | τ := tier
 
 Output path: `artifacts/brainstorms/{slug}-brainstorm.md`
 
-Frontmatter contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md).
+Frontmatter contract: [artifact-frontmatter.md](../../shared/references/artifact-frontmatter.md).
 
 ```md
 ---
@@ -43,7 +43,7 @@ status: draft
 
 Output path: `artifacts/analyses/{slug}-analysis.md`
 
-Frontmatter contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md). Same keys as `/analyze` so `/dev` and `artifact-classify` treat interview-written α identically.
+Frontmatter contract: [artifact-frontmatter.md](../../shared/references/artifact-frontmatter.md). Same keys as `/analyze` so `/dev` and `artifact-classify` treat interview-written α identically.
 
 ```md
 ---
@@ -121,11 +121,11 @@ status: draft
 
 ## Spec
 
-> **Inline ambiguity markers:** `[NEEDS CLARIFICATION: description]` — unresolved ambiguity (max 3–5/spec). Must resolve before `/plan`.
+> **Inline ambiguity markers:** `[NEEDS CLARIFICATION: description]` — unresolved ambiguity (max 3–5/spec). Must resolve before `/dev-plan`.
 
 Output path: `artifacts/specs/{issue}-{slug}-spec.md`
 
-Frontmatter contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md). Same keys as `/spec`.
+Frontmatter contract: [artifact-frontmatter.md](../../shared/references/artifact-frontmatter.md). Same keys as `/spec`.
 
 ```md
 ---

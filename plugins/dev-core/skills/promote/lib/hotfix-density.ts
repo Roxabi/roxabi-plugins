@@ -258,9 +258,9 @@ export async function computeHotfixDensity(cwd: string | undefined, deps: Deps):
  * Format a HotfixDensityResult as a human-readable pre-flight report line.
  *
  * Example outputs:
- *   hotfix-density: 2/10 (20%) — WARN: elevated hotfix rate; consider /checkup
+ *   hotfix-density: 2/10 (20%) — WARN: elevated hotfix rate; consider /dev-checkup
  *   hotfix-density: 1/10 (10%) — OK
- *   hotfix-density: 5/10 (50%) — PAUSE recommended: >40% hotfix rate; run /checkup
+ *   hotfix-density: 5/10 (50%) — PAUSE recommended: >40% hotfix rate; run /dev-checkup
  */
 export function formatResult(result: HotfixDensityResult): string {
   const pct = (result.density * 100).toFixed(0)
@@ -272,10 +272,10 @@ export function formatResult(result: HotfixDensityResult): string {
       signal = 'OK'
       break
     case 'warn':
-      signal = 'WARN: elevated hotfix rate; consider /checkup'
+      signal = 'WARN: elevated hotfix rate; consider /dev-checkup'
       break
     case 'pause':
-      signal = `PAUSE recommended: >${(THRESHOLD_WARN * 100).toFixed(0)}% hotfix rate; run /checkup`
+      signal = `PAUSE recommended: >${(THRESHOLD_WARN * 100).toFixed(0)}% hotfix rate; run /dev-checkup`
       break
   }
 

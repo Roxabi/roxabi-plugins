@@ -46,7 +46,7 @@ Legacy: if an existing doc is `.mdx`, you may **edit** it in place; do **not** c
 8. `## Edge Cases`
 9. `$ARGUMENTS` (last line, always)
 
-**Compressed notation:** legend → canonical glossary: `${CLAUDE_PLUGIN_ROOT}/../shared/references/notation.md` (repo: `plugins/shared/references/notation.md`)
+**Compressed notation:** legend → canonical glossary: `skill://shared-refs/notation.md` (repo: `plugins/shared/references/notation.md`)
 
 **Decision options** in **bold**. Conditions: `∃ X ⇒ do Y` / `¬∃ X ⇒ do Z`.
 

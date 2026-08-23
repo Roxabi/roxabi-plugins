@@ -46,7 +46,7 @@ If both set: `REPORT_ONLY` wins — no mutations.
 ### 1. Gather State
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/gather-state.sh
+bash gather-state.sh
 ```
 
 Emits: `current`, branch list with tracking info, worktree list, **orphan worktree shells** (`---orphan-worktree-shells---` via `scan-orphan-worktree-shells.sh`), open PRs, closed PRs with pipeline labels, and queued/stuck CI runs. Unscoped — always full-repo; Steps 7–8 (label/CI sweeps) and the orphan-shell scan consume gather-state as-is regardless of `--scope` (see Options).
@@ -55,9 +55,9 @@ Emits: `current`, branch list with tracking info, worktree list, **orphan worktr
 
 ```bash
 if [ -n "$SCOPE" ]; then
-  bash ${CLAUDE_SKILL_DIR}/analyze-branches.sh --scope "$SCOPE"
+  bash analyze-branches.sh --scope "$SCOPE"
 else
-  bash ${CLAUDE_SKILL_DIR}/analyze-branches.sh
+  bash analyze-branches.sh
 fi
 ```
 
@@ -363,7 +363,7 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 ## Chain Position
 
 - **Phase:** Ship
-- **Predecessor:** merge (after `/code-review` APPROVED → merge)
+- **Predecessor:** merge (after `/dev-review` APPROVED → merge)
 - **Successor:** — (pipeline complete)
 - **Class:** adv (tail — last step in `/dev` pipeline)
 

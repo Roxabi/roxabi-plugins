@@ -110,7 +110,7 @@ g. Copy license tools (JS/bun only — after lefthook install):
 
 **pre-commit (Python):**
 a. Install: `uv add --dev pre-commit pip-licenses`
-b. Copy: `mkdir -p tools && cp "${CLAUDE_PLUGIN_ROOT}/tools/license_check.py" tools/license_check.py`
+b. Copy: `mkdir -p tools && cp "../../../tools/license_check.py" tools/license_check.py`
 c. Write `.pre-commit-config.yaml`:
    ```yaml
    repos:

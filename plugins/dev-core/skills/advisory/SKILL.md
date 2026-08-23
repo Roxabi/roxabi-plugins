@@ -30,7 +30,7 @@ Standalone constructive counsel. Goal: **strengthen S** — better framing, clea
 | Want prioritization + "what I'd change first" | ✓ primary |
 | Second opinion without attack posture | ✓ primary |
 | Want to break / disprove the claim | ✗ → `/adversarial` |
-| PR / diff quality gate | ✗ → `/code-review` |
+| PR / diff quality gate | ✗ → `/dev-review` |
 | Intent re-render only (no advise) | ✗ → chat; `/analyze` for structured shape exploration |
 
 ## Entry
@@ -203,7 +203,7 @@ lean: {ready-to-advance|strengthen-then-advance|reframe-first}
 ## Next
 ```
 
-**Title hygiene ({title} is external content).** Full contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md). Before any use: strip newlines + control chars, cap 120 chars.
+**Title hygiene ({title} is external content).** Full contract: [artifact-frontmatter.md](../shared/references/artifact-frontmatter.md). Before any use: strip newlines + control chars, cap 120 chars.
 - **¬ shell.** Never interpolate `{title}` into a command — `$(…)`, backticks and `;` execute. The commit subject uses the sanitized `{slug}`.
 - **YAML.** Emit as a single-line double-quoted scalar with `"` and `\` escaped. An unescaped newline lets a title inject frontmatter keys — `status:` is a pipeline gate signal read by `/dev` and `/spec`.
 
@@ -226,7 +226,7 @@ Commit only if `artifacts/` tracked ∧ user confirms: `git add "{written_path}"
 
 - **Phase:** Shape (also free idea / pre-spec)
 - **Predecessor:** `/frame` ∨ `/analyze` ∨ free text ∨ mid-spec
-- **Successor:** revise S | `/adversarial` | `/spec` | `/plan` | `/adr`
+- **Successor:** revise S | `/adversarial` | `/spec` | `/dev-plan` | `/adr`
 - **Class:** standalone (¬auto by `/dev`)
 
 ## Task Integration

@@ -184,7 +184,7 @@ frontend:
         'git',
         'artifact-model',
         'mandatory-worktree',
-        'code-review',
+        'dev-review',
         'coding-standards',
         'skills-agents',
         'gotchas',
@@ -374,7 +374,7 @@ standards:
       expect(result.markdown).toContain('docs/review.md')
     })
 
-    it('defaults coding-standards and code-review links to .md when standards.* omitted', () => {
+    it('defaults coding-standards and dev-review links to .md when standards.* omitted', () => {
       // Arrange — full-app, no standards: block → scaffold-rules fallbacks
       writeStack(`
 runtime: bun

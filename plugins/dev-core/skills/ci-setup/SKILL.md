@@ -9,7 +9,7 @@ allowed-tools: Bash, Read, ToolSearch
 # CI Setup
 
 Let:
-  I_TS := `${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts`
+  I_TS := `../init/init.ts`
   Φ    := CLAUDE_PLUGIN_ROOT
   F    := `--force` flag present in `$ARGUMENTS`
   σ    := `.claude/stack.yml`
@@ -23,10 +23,10 @@ Can run standalone (`/ci-setup`) or be called by `/init`.
 
 ## Dispatch
 
-Phase 1 — GitHub Actions Workflows → Read `${CLAUDE_SKILL_DIR}/cookbooks/workflows.md`, execute.
-Phase 1b–1c — Secret Scanning + Dependabot → Read `${CLAUDE_SKILL_DIR}/cookbooks/scanning.md`, execute.
-Phase 2 — Pre-commit Hooks → Read `${CLAUDE_SKILL_DIR}/cookbooks/hooks.md`, execute.
-Phase 3 — Marketplace Plugins → Read `${CLAUDE_SKILL_DIR}/cookbooks/marketplace.md`, execute.
+Phase 1 — GitHub Actions Workflows → Read `cookbooks/workflows.md`, execute.
+Phase 1b–1c — Secret Scanning + Dependabot → Read `cookbooks/scanning.md`, execute.
+Phase 2 — Pre-commit Hooks → Read `cookbooks/hooks.md`, execute.
+Phase 3 — Marketplace Plugins → Read `cookbooks/marketplace.md`, execute.
 Phase 4 — Report (below).
 
 ## Phase 4 — Report

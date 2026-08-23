@@ -53,7 +53,7 @@ Steps: pre-flight → version → changelog → commit → preview → create-pr
 ## Step 1 — Pre-flight
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/preflight.sh
+bash preflight.sh
 ```
 
 Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI check results, `hotfix_density`.
@@ -65,7 +65,7 @@ Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI
 | No commits | `commits_ahead=0` | **REFUSE.** Stop. |
 | Open PRs on σ | open_prs section non-empty | **WARN** + Q: **Continue** \| **Wait** |
 | CI status | ci section | **WARN** if ¬passing |
-| Hotfix density | `hotfix_density` section | **WARN** if gauge=warn (20–40%); **recommend pause** + `/checkup` if gauge=pause (>40%); advisory-only — never hard-block |
+| Hotfix density | `hotfix_density` section | **WARN** if gauge=warn (20–40%); **recommend pause** + `/dev-checkup` if gauge=pause (>40%); advisory-only — never hard-block |
 | Component set | `release.component` null/absent | **REFUSE** (S6/D13) + paste-ready `release:` block. On day 1 every repo takes this — it is the onboarding step, not a dead end. |
 | Version-file drift | any `release.version_files` path ≠ `BASE` | **REFUSE** (S5). Message distinguishes *hand-drift* (`file < BASE`) from *a promote abandoned after step 2b* (`file > BASE`) — a reconcile command for each. |
 | Gate provisioned | `release-consistency` **required** on `main` ∧ zero bypass actors | **REFUSE** on a **protectable** repo where it is missing/bypassable (name `scripts/provision-release-gate.sh`); **WARN** if the repo is un-protectable (`403` — private, free plan, D17); `Branch not protected` → REFUSE-with-onboarding. |
@@ -191,7 +191,7 @@ Logic lives in `lib/pin-swap.ts` (pure functions, I/O-injected). Tests in `__tes
 
 ## Steps 2-4 — Version, Changelog, Commit
 
-Read [references/release-artifacts.md](${CLAUDE_SKILL_DIR}/references/release-artifacts.md) for full procedure.
+Read [references/release-artifacts.md](references/release-artifacts.md) for full procedure.
 
 ## Step 5 — Deploy Preview
 
@@ -259,7 +259,7 @@ EOF
 
 # 2) Create or update staging→main PR (harvest + inject mandatory)
 # Exit 1 if harvest degraded (exit 3 from collect) unless --allow-degraded after human review.
-PR_URL=$(bash "${CLAUDE_SKILL_DIR}/create-promote-pr.sh" \
+PR_URL=$(bash "create-promote-pr.sh" \
   --base main --head staging \
   --title "chore: promote staging to main ($VERSION)" \
   --body-file "$BODY_FILE")
@@ -273,7 +273,7 @@ Display PR URL (`$PR_URL`).
 
 ## Step 8 — Post-merge Reminder
 
-**CRITICAL: Merge commit only, never squash** — see [`release-convention.md`](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/release-convention.md).
+**CRITICAL: Merge commit only, never squash** — see [`release-convention.md`](../shared/references/release-convention.md).
 
 ```
 Promotion PR created: {URL}
@@ -318,10 +318,10 @@ NEWEST=$(gh pr list --base main --head staging --state merged --limit 1 --json m
 
 # Derived version + BASE floor — BOTH from price.sh, the sole deriver (D10). --base-only reuses
 # the deriver's own floor predicate, so the gate and finalize never diverge from a second copy.
-DERIVED=$(bash "${CLAUDE_SKILL_DIR}/price.sh" "$COMPONENT" "${M}^1" "$M"); RC=$?
+DERIVED=$(bash "price.sh" "$COMPONENT" "${M}^1" "$M"); RC=$?
 { [ "$RC" -ge 1 ] && [ "$RC" -ne 10 ]; } && { echo "REFUSE: price.sh error ($RC)"; exit 1; }
 if [ "$RC" -eq 10 ]; then DERIVED=0.1.0; BASE=""; else       # first release — no floor
-  set +e; BASE=$(bash "${CLAUDE_SKILL_DIR}/price.sh" --base-only "$COMPONENT" "${M}^1"); BRC=$?; set -e
+  set +e; BASE=$(bash "price.sh" --base-only "$COMPONENT" "${M}^1"); BRC=$?; set -e
   { [ "$BRC" -ge 1 ] && [ "$BRC" -ne 10 ]; } && { echo "REFUSE: price.sh --base-only error ($BRC)"; exit 1; }
   [ "$BRC" -eq 10 ] && BASE=""
 fi
@@ -348,7 +348,7 @@ for _ in 1 2 3; do
     { [ "$TAG_AT" = "$M" ] && RELEASE_STATE=points-at-M; } || RELEASE_STATE=points-elsewhere
   else RELEASE_STATE=absent; fi
 
-  VERDICT=$(bun run "${CLAUDE_SKILL_DIR}/lib/finalize.ts" \
+  VERDICT=$(bun run "lib/finalize.ts" \
     --parent-count "$PARENT_COUNT" --is-promote "$IS_PROMOTE" \
     --derived "$DERIVED" --base "$BASE" \
     --witness-title "$TITLE_V" --witness-heading "$HEADING_V" --witness-file "$FILE_V" \
@@ -382,7 +382,7 @@ Under `release.model: trunk` the contract changes on four points:
 - **Fires on every merge; empty is a green no-op.** The workflow runs on each `push: main`. A merge that adds no version-bumping conventional commit derives `== BASE` and exits green **without tagging** (D18). Only a bumping payload cuts a release, so most merges are no-ops.
 - **Recovery via `workflow_dispatch`.** If a run dies mid-finalize (tag pushed, release not created), re-run the workflow from the Actions tab — the reconcile loop is per-artifact idempotent (D16): it creates only the missing artifact and no-ops once both the tag and release point at `M`.
 
-`/checkup` enforces the trunk contract: it **fails** when `auto-release.yml` is absent or drifts from the generator (N11), or when a stray `release-please.yml` writer lingers (N10). Switch modes by flipping this one `release.model` value and regenerating workflows with `/ci-setup`.
+`/dev-checkup` enforces the trunk contract: it **fails** when `auto-release.yml` is absent or drifts from the generator (N11), or when a stray `release-please.yml` writer lingers (N10). Switch modes by flipping this one `release.model` value and regenerating workflows with `/ci-setup`.
 
 ## Options
 

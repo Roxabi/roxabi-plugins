@@ -12,7 +12,7 @@ Defines how the 13 dev-core pipeline skills participate in the `/dev` orchestrat
 
 ```
 issue-triage (external, roxabi-issues) → recheck → frame ⏸?→ analyze ⏸→ spec ⏸→ plan ⏸→ implement → pr
-            → ci-watch → validate → code-review → {fix ↺ review | merge → cleanup}
+            → ci-watch → validate → review → {fix ↺ review | merge → cleanup}
 ```
 
 > `⏸` = the pipeline stops the turn awaiting free-form approval (chat Executive Summary; ¬AskUserQuestion).
@@ -24,7 +24,7 @@ issue-triage (external, roxabi-issues) → recheck → frame ⏸?→ analyze ⏸
 ### Parallel meta: `/ship` (code already ready)
 
 ```
-commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → ci-watch → cleanup?
+commit → pr → review → {fix ↺ review}×≤2 → label reviewed → ci-watch → cleanup?
 ```
 
 `/ship` is a **second orchestrator** (not a step inside `/dev`). Use when the feature branch already has the work and you only want the gate path. Differences vs `/dev` Verify:
@@ -34,7 +34,7 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 | Order | pr → **ci-watch** → validate → **review** → fix | commit → pr → **review** → fix → **reviewed + ci-watch** |
 | validate | yes | no |
 | commit | via implement | first-class step |
-| `reviewed` label | via code-review Phase 8 / fix Phase 7 | owned by ship after final APPROVED (strips premature label after `/fix` before re-review) |
+| `reviewed` label | via dev-review Phase 8 / fix Phase 7 | owned by ship after final APPROVED (strips premature label after `/fix` before re-review) |
 
 ¬add `/ship` steps to `/dev` STEPS list — they remain separate entry points.
 
@@ -48,7 +48,7 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 | Approval-stop (frame, analyze, spec, plan) | the skill itself — chat Executive Summary (¬AQ); `/dev` Step 8.0 disk-asserts done-signal before complete |
 | Compact pause (plan→implement, F-lite/F-full) | `/dev` Step 8b |
 | Standalone invocation fallback | Each skill's Exit section |
-| Sub-task creation (with `kind` ≠ `dev-pipeline`) | Individual skills (plan, code-review) |
+| Sub-task creation (with `kind` ≠ `dev-pipeline`) | Individual skills (dev-plan, dev-review) |
 | Loop handling (review ↔ fix) | Follow-up TaskCreate with `metadata.iteration` |
 
 ## Skill classes
@@ -56,9 +56,9 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 | Class | Meaning | Skills | Exit behavior |
 |---|---|---|---|
 | **adv** | Continuous flow, no user gate | recheck, implement, pr, ci-watch, validate, cleanup | Return silently; `/dev` auto-advances |
-| **adv + approval stop** | Dispatched like `adv`; chat Executive Summary + free-form approve (¬AskUserQuestion). Optional high-conf auto-approve (frame only). | frame, analyze, spec, plan | Print summary → **stop** unless high_conf auto-approve (frame). `/dev` Step 8.0: disk done-signal before complete. Walk **ignores `Σ_s` alone** for these steps. Resume = skill React (¬fresh Step 0). **plan:** after approve+seed, compact pause before `/implement`. |
+| **adv + approval stop** | Dispatched like `adv`; chat Executive Summary + free-form approve (¬AskUserQuestion). Optional high-conf auto-approve (frame only). | frame, analyze, spec, dev-plan | Print summary → **stop** unless high_conf auto-approve (frame). `/dev` Step 8.0: disk done-signal before complete. Walk **ignores `Σ_s` alone** for these steps. Resume = skill React (¬fresh Step 0). **plan:** after approve+seed, compact pause before `/implement`. |
 | **gate** | (legacy / rare pre-gates only) | — | Prefer `adv + approval stop` for pipeline artifacts. `/dev` may still use structured prompts for F-full architecture sketch / issue create. |
-| **verdict** | Branches based on outcome | code-review | APPROVED → merge → cleanup; CHANGES_REQUESTED → `/fix` |
+| **verdict** | Branches based on outcome | dev-review | APPROVED → merge → cleanup; CHANGES_REQUESTED → `/fix` |
 | **loop** | Cycles back to predecessor (bounded) | fix | On success → TaskCreate follow-up review; max 2 iterations |
 | **standalone** | Never auto-triggered by `/dev` | promote, adversarial, advisory | Runs only on explicit user invocation |
 
@@ -88,8 +88,8 @@ Skills that break their work into trackable sub-units create their own tasks wit
 
 | Skill | Sub-task kind | Purpose |
 |---|---|---|
-| `/plan` | `plan-task` | One per micro-task in the plan; IDs persisted in artifact `## Task IDs` section |
-| `/code-review` | `review-finding` (if used) | One per finding, ephemeral |
+| `/dev-plan` | `plan-task` | One per micro-task in the plan; IDs persisted in artifact `## Task IDs` section |
+| `/dev-review` | `review-finding` (if used) | One per finding, ephemeral |
 
 Sub-tasks are independent of dev-pipeline lifecycle but may `blockedBy` their parent dev-pipeline task for observability.
 
@@ -144,9 +144,9 @@ The Executive Summary is the gate output (not a closing recap). Frame may skip t
 
 **Frame high_conf exception:** when interview/premise gaps are zero, tier not contested, and no premise abort signal → auto-approve + commit same turn (short summary printed; no approval STOP).
 
-**`/plan` exception — compact pause:** after approve+seed+commit, `/dev` Step 8b prints a compact-pause recommendation (`/compact` → `/implement`, where `/dev #N` ≡ `/implement #N`) and stops the turn. Rationale: planning context is dead weight for the build phase; tasks persist (task list + artifact `## Task IDs`) so `/implement` Step 1b re-attaches after the compact. Re-fire guard: the pause is keyed to *plan having just run*, so the post-compact `/dev #N` resume goes straight to `/implement`.
+**`/dev-plan` exception — compact pause:** after approve+seed+commit, `/dev` Step 8b prints a compact-pause recommendation (`/new` or `/compact` → `/dev #N` ≡ `/implement #N`) and stops the turn. Rationale: planning context is dead weight for the build phase; tasks persist (task list + artifact `## Task IDs`) so `/implement` Step 1b re-attaches after the reset. Re-fire guard: the pause is keyed to *plan having just run*, so the post-reset `/dev #N` resume goes straight to `/implement`.
 
-### verdict-class Exit (code-review)
+### verdict-class Exit (dev-review)
 
 ```markdown
 ## Exit
@@ -163,7 +163,7 @@ The Executive Summary is the gate output (not a closing recap). Frame may skip t
 ## Exit
 
 - **Success via `/dev`:** fixes applied → TaskCreate follow-up review task → return silently.
-- **Success standalone:** print summary + `Next: /code-review`. Stop.
+- **Success standalone:** print summary + `Next: /dev-review`. Stop.
 - **Failure:** return error. `/dev` presents Retry | Skip | Abort.
 - **Loop cap:** iteration ≥ 2 on entry → refuse, return message, `/dev` presents Abort.
 ```
@@ -221,6 +221,6 @@ This pulls the marketplace clone and repopulates the hash-keyed cache dir, ensur
 
 - ADR: `docs/adr/00X-dev-core-chain-contract.md` — rationale for distributed declaration + /dev-owns-lifecycle
 - `/dev` SKILL.md — orchestration state machine
-- `/plan` SKILL.md — reference implementation of sub-task creation
+- `/dev-plan` SKILL.md — reference implementation of sub-task creation
 - `/implement` SKILL.md — reference implementation of sub-task consumption
 - [artifact-frontmatter.md](./artifact-frontmatter.md) — title hygiene + `type:`/`status:` required keys for every writer

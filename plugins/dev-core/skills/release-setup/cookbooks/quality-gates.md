@@ -3,7 +3,7 @@
 Let:
   F    := `--force` flag present in `$ARGUMENTS`
   σ    := `.claude/stack.yml`
-  PRJ  := `${CLAUDE_PLUGIN_ROOT}/tools/`   # canonical source of truth for shell scripts
+  PRJ  := `../../../tools/`   # canonical source of truth for shell scripts
   D✅(label) := Display: `{label} ✅ Configured`
   D⏭(label)  := Display: `{label} ⏭ Already configured`
   D⚠(label)  := Display: `{label} ⚠️ {detail}`

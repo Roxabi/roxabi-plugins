@@ -290,9 +290,9 @@ Worktree **mandatory** for all tiers (XS, S, F-lite, F-full) — no exceptions. 
 function codeReview(stack: StackConfig): Section {
   const reviewPath = stack.standards?.code_review ?? 'docs/standards/code-review.md'
   return {
-    id: 'code-review',
+    id: 'dev-review',
     title: 'Code Review',
-    content: `MUST read [code-review](${reviewPath}). Conventional Comments. Block only: security, correctness, standard violations.`,
+    content: `MUST read [dev-review](${reviewPath}). Conventional Comments. Block only: security, correctness, standard violations.`,
   }
 }
 
@@ -345,7 +345,7 @@ const APP_SECTIONS = [
   'git',
   'artifact-model',
   'mandatory-worktree',
-  'code-review',
+  'dev-review',
   'coding-standards',
   'skills-agents',
   'gotchas',
@@ -380,7 +380,7 @@ function generateSections(
     git: () => gitRules(),
     'artifact-model': () => artifactModel(stack),
     'mandatory-worktree': () => mandatoryWorktree(projectName, facts),
-    'code-review': () => codeReview(stack),
+    'dev-review': () => codeReview(stack),
     'coding-standards': () => codingStandards(stack, projectType),
     'skills-agents': () => skillsAndAgents(),
     gotchas: () => gotchas(),
@@ -494,7 +494,7 @@ function analyzeExistingClaudeMd(claudeMdPath: string): ExistingSections {
     git: /^###?\s*(?:\d+[.\s]*)?Git/i,
     'artifact-model': /^###?\s*(?:\d+[.\s]*)?Artifact/i,
     'mandatory-worktree': /^###?\s*(?:\d+[.\s]*)?Mandatory Worktree/i,
-    'code-review': /^###?\s*(?:\d+[.\s]*)?Code Review/i,
+    'dev-review': /^###?\s*(?:\d+[.\s]*)?Code Review/i,
     'coding-standards': /^###?\s*(?:\d+[.\s]*)?Coding Standards/i,
     'skills-agents': /^## Skills/i,
     gotchas: /^## Gotchas/i,

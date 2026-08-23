@@ -20,11 +20,11 @@ Let:
   β    := base branch (staging if ∃ origin/staging, else main) — `detect_base_branch`
   principal := main checkout (must stay on β — **never** switch to BRANCH)
   ω    := non-principal worktree checked out on BRANCH (path = harness layout)
-  H_wt := claude-enter | harness-default — see [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md)
+  H_wt := claude-enter | harness-default — see [harness-worktree.md](../shared/references/harness-worktree.md)
 
 One-time setup per issue. Idempotent — safe to re-run if branch/link/ω already exist.
 
-**SSoT dual-harness:** [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md)
+**SSoT dual-harness:** [harness-worktree.md](../shared/references/harness-worktree.md)
 
 ## Entry
 
@@ -53,9 +53,9 @@ else                                    → H_wt := harness-default
 ## Step 1 — Detect
 
 ```bash
-BASE=$(. "${CLAUDE_SKILL_DIR}/../shared/lib.sh" && detect_base_branch)
+BASE=$(. "../shared/lib.sh" && detect_base_branch)
 # shellcheck source=../shared/lib.sh
-. "${CLAUDE_SKILL_DIR}/../shared/lib.sh"
+. "../shared/lib.sh"
 git fetch origin "$BASE" 2>&1
 
 if [ -n "$N" ]; then
@@ -161,7 +161,7 @@ git -C "$WT_PATH" rev-parse --abbrev-ref HEAD | grep -qx "$BRANCH"
 
 ∃ N →
 ```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set "$N" --status "In Progress"
+bun ../issue-triage/triage.ts set "$N" --status "In Progress"
 ```
 
 ## Exit

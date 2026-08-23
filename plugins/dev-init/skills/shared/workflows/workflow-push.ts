@@ -3,7 +3,7 @@
 /**
  * Workflow file push / local write I/O.
  * Imports pure generators from workflow-generators.ts.
- * Used by dev-init /init; not consumed by /checkup drift.
+ * Used by dev-init /init; not consumed by /dev-checkup drift.
  */
 
 import { run } from '../adapters/github-adapter'

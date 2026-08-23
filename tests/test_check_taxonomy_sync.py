@@ -8,8 +8,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOL = REPO_ROOT / 'tools' / 'validate_plugins.py'
-YAML_PATH = REPO_ROOT / 'plugins' / 'dev-core' / 'skills' / 'code-review' / 'review-classes.yml'
-SKILL_PATH = REPO_ROOT / 'plugins' / 'dev-core' / 'skills' / 'code-review' / 'SKILL.md'
+YAML_PATH = REPO_ROOT / 'plugins' / 'dev-core' / 'skills' / 'dev-review' / 'review-classes.yml'
+SKILL_PATH = REPO_ROOT / 'plugins' / 'dev-core' / 'skills' / 'dev-review' / 'SKILL.md'
 
 
 def run_tool(*extra_args):

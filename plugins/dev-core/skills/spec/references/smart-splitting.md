@@ -63,7 +63,7 @@ Reply free text: create / adjust … / skip
 > **Decomposition pattern** (¬deferral): smart-splitting *plans* sub-deliverables, so sub-issues are `--parent <N>` of the original (N becomes the epic). This is distinct from `/fix` Phase 5 Defer, which uses the **sibling rule** (deferred issue gets the origin's parent, not the origin itself). See `issue-triage` SKILL "Deferred Follow-Ups — Sibling Rule".
 
 ```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \
+bun ../../issue-triage/triage.ts create \
   --title "<title>" --body "<body>" \
   --parent <parent_N> --size <XS|S|M|L|XL> --priority <priority>
 ```
@@ -86,10 +86,10 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \
 Parse output `Created #N: <title>` → store mapping. Wire deps:
 
 ```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <B> --blocked-by <A>
+bun ../../issue-triage/triage.ts set <B> --blocked-by <A>
 ```
 
-**Generate sub-specs** ∀ sub-issue at `artifacts/specs/{sub_N}-{sub_slug}-spec.md` (same frontmatter contract as parent — [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md); title hygiene on the sub-issue title):
+**Generate sub-specs** ∀ sub-issue at `artifacts/specs/{sub_N}-{sub_slug}-spec.md` (same frontmatter contract as parent — [artifact-frontmatter.md](../../shared/references/artifact-frontmatter.md); title hygiene on the sub-issue title):
 
 ```markdown
 ---

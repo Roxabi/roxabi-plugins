@@ -38,7 +38,7 @@ Does NOT create a PR — that is `/pr` (next step).
 ## Chain Position
 
 - **Phase:** Build
-- **Predecessor:** `/plan` (artifact: `artifacts/plans/{N}-{slug}-plan.md`)
+- **Predecessor:** `/dev-plan` (artifact: `artifacts/plans/{N}-{slug}-plan.md`)
 - **Successor:** `/pr`
 - **Class:** adv (continuous flow, no gate)
 
@@ -46,9 +46,9 @@ Does NOT create a PR — that is `/pr` (next step).
 
 - `/dev` owns the dev-pipeline task lifecycle externally (mark in_progress before invoke, completed after return — host-mapped)
 - This skill does NOT update its own dev-pipeline task
-- Sub-tasks: attach/re-seed plan-tasks from `/plan` (Step 6a), flip lifecycle as agents execute (Step 1b + Step 4)
-- **Host mapping SSoT:** [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-task-list.md) — probe once, use H for all task ops
-- **Worktree SSoT:** [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md) — principal freezes on β; code only in ω
+- Sub-tasks: attach/re-seed plan-tasks from `/dev-plan` (Step 6a), flip lifecycle as agents execute (Step 1b + Step 4)
+- **Host mapping SSoT:** [harness-task-list.md](../shared/references/harness-task-list.md) — probe once, use H for all task ops
+- **Worktree SSoT:** [harness-worktree.md](../shared/references/harness-worktree.md) — principal freezes on β; code only in ω
 
 ## Exit
 
@@ -78,7 +78,7 @@ Steps: locate-plan → setup → context-inject → implement → quality-gate �
 
 `--issue N` → `ls artifacts/plans/N-*.md*` → read full → extract tasks, agents, τ, slug.
 `--plan <path>` → read directly.
-¬found ⇒ suggest `/plan`. **Stop.**
+¬found ⇒ suggest `/dev-plan`. **Stop.**
 
 **S-tier exception:** τ=S ∧ ¬π → locate spec (`ls artifacts/specs/N-*.md*`) or issue body (`gh issue view N --json body`). Skip to Step 4 (Tier S). ¬require π for τ=S.
 
@@ -86,7 +86,7 @@ Extract from frontmatter: `issue`, `tier`, `spec` path. From body: agent list, t
 
 ### Step 1b — Attach to Plan Tasks (dual harness)
 
-**Probe H** (once per `/implement` run) per [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-task-list.md):
+**Probe H** (once per `/implement` run) per [harness-task-list.md](../shared/references/harness-task-list.md):
 
 ```
 tools ∋ TaskCreate ∧ TaskUpdate ∧ TaskList  → H := claude-tasks
@@ -94,7 +94,7 @@ else tools ∋ todo_write                     → H := grok-todos
 else                                        → H := artifact-only
 ```
 
-Fields / seed shape: [plan-task-schema.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/plan-task-schema.md).  
+Fields / seed shape: [plan-task-schema.md](../shared/references/plan-task-schema.md).  
 Blueprint source: π `## Task Seeding Blueprint` (or micro-task table). Cache map M := `{T# → host_id}` (claude) or `{T# → T#}` (grok stable ids).
 
 #### H = claude-tasks
@@ -134,13 +134,13 @@ No host task list. Skip attach/re-seed. Work from π micro-task table only; prog
 **2b+2d. Repo, base + pre-flight:**
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/setup-preflight.sh {N} {slug}
+bash setup-preflight.sh {N} {slug}
 ```
 
 Emits: `repo`, `base`, `principal`, `principal_branch`, `principal_ok`, `branch_exists`, `legacy_worktree`, `worktree`, `worktree_branch`, `dirty` (if worktree found), `fetch`.
 
 **Probe H_wt** (once): `EnterWorktree` ∃ → `claude-enter`; else `harness-default`.  
-SSoT: [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md).
+SSoT: [harness-worktree.md](../shared/references/harness-worktree.md).
 
 ω path = `worktree=` from preflight (branch-first detect). Branch base: `base` from output.
 
@@ -184,11 +184,11 @@ Template: "Read `{doc}` sections: {sections}. Read `{ref_file}` for conventions.
 | architect | frontend-patterns + backend-patterns: AI Quick Ref | ✗ |
 | devops, security-auditor, doc-writer | ∅ | ✗ |
 
-Ref file paths from `/plan` Step 3.
+Ref file paths from `/dev-plan` Step 3.
 
 ## Step 3b — Reasoning Audit (optional)
 
-`--audit` → present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Read π/spec in full first.
+`--audit` → present reasoning audit per [reasoning-audit.md](../shared/references/reasoning-audit.md). Read π/spec in full first.
 → present choice **Proceed** | **Adjust approach** | **Abort**
 ¬`--audit` → skip to Step 4.
 
@@ -269,7 +269,7 @@ Before printing summary → assert all plan-tasks for issue N are completed (**H
 
 ### Step 6a — SC→Test Matrix (τ ≠ S)
 
-**Tier S exemption:** τ=S (no `/plan` artifact, no SC-N labels) → skip this step entirely. ¬emit matrix.
+**Tier S exemption:** τ=S (no `/dev-plan` artifact, no SC-N labels) → skip this step entirely. ¬emit matrix.
 
 For τ=F (F-lite or F-full):
 
@@ -301,7 +301,7 @@ Runs immediately after SC→Test Matrix is built. Scope: unit + fast-integration
 **Runner — plugin-owned (default):**
 
 ```
-bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh \
+bash ../pr/run-falsify.sh \
   --map artifacts/reviews/{N}-falsify-map.json \
   --out artifacts/reviews/{N}-falsify.json \
   --issue {N}
@@ -339,7 +339,7 @@ Implement Complete
   Tasks:    N/total completed (stragglers: ...)
   Verify:   N/total first-try (%)
   SC Matrix: N/total mapped (gaps: ...)
-  Next:     /pr → /code-review → /1b1 → merge
+  Next:     /pr → /dev-review → /1b1 → merge
 ```
 
 ## Rollback
@@ -362,7 +362,7 @@ git branch -D feat/<N>-<slug>
 
 ## Edge Cases
 
-Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
+Read [references/edge-cases.md](references/edge-cases.md).
 
 | Merge conflict (ω setup) | `git rebase --abort` → present choice: **Resolve manually** (fix conflicts → `git rebase --continue`) \| **Abort** |
 | Abandon after 3✗ gate failures | remove ω (H_wt) then `git branch -D feat/<N>-<slug>`; principal stays on β |

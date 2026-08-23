@@ -9,8 +9,7 @@ allowed-tools: Bash, Glob, Grep, Read
 # CI Watch
 
 Let:
-  Φ  := `${CLAUDE_PLUGIN_ROOT}`
-  SCR := `${Φ}/scripts/ci-watch.sh`
+  SCR := `ci-watch.sh` in **this skill directory** (same folder as this SKILL.md)
   R  := OWNER/REPO (auto-detected from git remote)
   AM := auto-merge
 
@@ -41,6 +40,11 @@ Map `$ARGUMENTS` to script flags:
 | (none) | (omit — script auto-detects branch + `ci.yml` workflow) |
 
 ### 3. Run the script
+
+Resolve SCR then run it. cwd is the **product repo**, not the plugin:
+
+- OMP: `bash skill://ci-watch/ci-watch.sh --repo R [flags]` (`skill://` expands to an absolute path; `..` is rejected)
+- Claude / Grok: `bash "$CLAUDE_SKILL_DIR/ci-watch.sh" --repo R [flags]` — `CLAUDE_SKILL_DIR` = directory of this SKILL.md (Grok aliases it). ¬fallback `.` (that is the product repo).
 
 ```bash
 bash SCR --repo R [flags]

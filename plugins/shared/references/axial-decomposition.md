@@ -30,7 +30,7 @@ Optional Q5: **Revisit trigger** (default: sibling-fix rate > 3/week ∨ 6-month
 
 - ADR with `axial: true` in frontmatter → **canonical marker** (grep-discoverable)
 - No YAML pointer needed — `grep -rli "^axial: true" docs/architecture/adr/` finds it in O(N) ADR files (<50 in practice)
-- Downstream consumers: `/init`, `/spec`, `/code-review`, `/checkup`, `/axis-check`, lint rules, sibling-rate detection all read this ADR directly
+- Downstream consumers: `/init`, `/spec`, `/dev-review`, `/dev-checkup`, `/axis-check`, lint rules, sibling-rate detection all read this ADR directly
 
 ## Why mandatory at `/init`
 
@@ -64,14 +64,14 @@ If a concern X appears in 3+ sibling dirs, it's no longer a coincidence — it's
 
 ## Dispatch asymmetry (intentional)
 
-`/spec` and `/code-review` both dispatch `axial-adr-review`, but with different conditions:
+`/spec` and `/dev-review` both dispatch `axial-adr-review`, but with different conditions:
 
 | Skill | Trigger | Nature |
 |-------|---------|--------|
 | `/spec` | spec adds adapter/integration/target ∨ touches `infrastructure/` | **Semantic/intent** — reviews design proposals |
-| `/code-review` | Δ ∩ {`infrastructure/`, `adapters/`, `domains/`, `stages/`} ≠ ∅ | **Structural** — reviews actual file changes |
+| `/dev-review` | Δ ∩ {`infrastructure/`, `adapters/`, `domains/`, `stages/`} ≠ ∅ | **Structural** — reviews actual file changes |
 
-This asymmetry is intentional. A spec may add `infrastructure/` changes without proposing a new adapter (e.g., refactoring existing stage wiring). In that case, the axial-adr concern is not relevant at the spec level because no new axis-crossing is being proposed — but it becomes relevant at code-review if the diff shows structural drift. The two gates are complementary: `/spec` catches intent-level N×M violations, `/code-review` catches implementation-level ones.
+This asymmetry is intentional. A spec may add `infrastructure/` changes without proposing a new adapter (e.g., refactoring existing stage wiring). In that case, the axial-adr concern is not relevant at the spec level because no new axis-crossing is being proposed — but it becomes relevant at code-review if the diff shows structural drift. The two gates are complementary: `/spec` catches intent-level N×M violations, `/dev-review` catches implementation-level ones.
 
 ## Boundaries
 

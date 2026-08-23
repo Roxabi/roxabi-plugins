@@ -10,7 +10,7 @@
 #   2. Add as first line of CLAUDE.md: @.claude/stack.yml
 #   3. Fill in the values below for your project's stack.
 #   4. Commit .claude/stack.yml alongside code.
-#   5. Run /init to verify setup, /checkup to health-check.
+#   5. Run /init to verify setup, /dev-checkup to health-check.
 
 schema_version: "1.0"
 

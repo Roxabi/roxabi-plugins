@@ -62,7 +62,7 @@ Steps: scope → run-checks → report → verdict
 
 **¬raw runner** — always use `{commands.*}` from stack.yml. Command ¬defined → σ := ⏭ skip.
 
-**falsify** (optional, `--full` only): prefer `bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` when JSON exists → require `oracle_ok=true`. Else if `{commands.test:falsify}` / `package.json` `test:falsify` **execs the plugin helper** → run it. Else σ := ⏭ skip. ¬fail the suite solely because a consumer repo has no map yet. Stub consumer scripts that do not invoke the helper → ⏭ skip (¬pass).
+**falsify** (optional, `--full` only): prefer `bash ../pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` when JSON exists → require `oracle_ok=true`. Else if `{commands.test:falsify}` / `package.json` `test:falsify` **execs the plugin helper** → run it. Else σ := ⏭ skip. ¬fail the suite solely because a consumer repo has no map yet. Stub consumer scripts that do not invoke the helper → ⏭ skip (¬pass).
 
 | χ | Command | Timeout |
 |---|---------|---------|
@@ -136,7 +136,7 @@ Test:
 
 - **Phase:** Verify
 - **Predecessor:** `/ci-watch`
-- **Successor:** `/code-review`
+- **Successor:** `/dev-review`
 - **Class:** adv (continuous flow, no gate)
 
 ## Task Integration
@@ -147,8 +147,8 @@ Test:
 
 ## Exit
 
-- **All pass via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/code-review`. `/dev` re-scans and advances.
-- **All pass standalone:** print verdict block + `Next: /code-review`. Stop.
+- **All pass via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/dev-review`. `/dev` re-scans and advances.
+- **All pass standalone:** print verdict block + `Next: /dev-review`. Stop.
 - **Failure:** return error. `/dev` presents Retry | Skip | Abort.
 
 $ARGUMENTS

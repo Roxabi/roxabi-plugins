@@ -72,7 +72,7 @@ function defaultRoot(): string {
   return process.env.CLAUDE_PLUGIN_ROOT ?? join(dirname(fileURLToPath(import.meta.url)), '../..')
 }
 
-/** Non-exiting resolver — importable by non-CLI callers (e.g. /checkup) that must degrade, not die. */
+/** Non-exiting resolver — importable by non-CLI callers (e.g. /dev-checkup) that must degrade, not die. */
 export function tryResolveDevInitEntry(root: string = defaultRoot()): string | null {
   // 1. Flat siblings first — --plugin-dir / marketplace / monorepo source
   const flatRoots = [join(dirname(root), 'dev-init'), join(root, '..', 'dev-init')]

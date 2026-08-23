@@ -1,0 +1,10 @@
+{
+  "name": "dev-init",
+  "version": "0.9.3",
+  "description": "Project initialization harness — env-setup, ci-setup, release-setup + axial ADR.",
+  "private": true,
+  "type": "module",
+  "omp": {
+    "extensions": ["./omp/index.ts"]
+  }
+}

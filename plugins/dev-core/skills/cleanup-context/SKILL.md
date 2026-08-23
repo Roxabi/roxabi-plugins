@@ -42,9 +42,9 @@ Let:
 
 ## Dispatch
 
-Phase 1 — Discovery → Read `${CLAUDE_SKILL_DIR}/cookbooks/discovery.md`, execute.
-Phase 2 — Analysis → Read `${CLAUDE_SKILL_DIR}/cookbooks/analysis.md`, execute.
-Phase 3–5 — Resolution → Read `${CLAUDE_SKILL_DIR}/cookbooks/resolution.md`, execute.
+Phase 1 — Discovery → Read `cookbooks/discovery.md`, execute.
+Phase 2 — Analysis → Read `cookbooks/analysis.md`, execute.
+Phase 3–5 — Resolution → Read `cookbooks/resolution.md`, execute.
 
 ## Safety
 

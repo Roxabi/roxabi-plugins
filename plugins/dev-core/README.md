@@ -83,7 +83,7 @@ Skills organized by workflow phase:
 | `seed-docs` | Setup | Populates scaffolded architecture/standards docs with real content — reads CLAUDE.md for conventions, optionally scans codebase (entry points, import graph, naming patterns), fills TODO stubs, writes AI Quick Reference sections. Idempotent: skips already-populated files |
 | `seed-community` | Setup | Bootstraps OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), `.github/PULL_REQUEST_TEMPLATE.md`, issue templates. Reads project metadata + CLAUDE.md; generates missing files idempotently |
 | `dev` | Orchestrator | Routes issues through the full workflow (Frame→Ship) |
-| `ship` | Orchestrator | Lands ready code: commit → PR → code-review → fix loop → `reviewed` + ci-watch → cleanup |
+| `ship` | Orchestrator | Lands ready code: commit → PR → review → fix loop → `reviewed` + ci-watch → cleanup |
 | `recheck` | Frame | Drift-check an issue (git-drift, symbol-missing, dep-resolved) before /dev work begins. Runs before /frame for every tier — no skip path. Signal-clean returns silently; signal-fire blocks with user choice (Proceed/Update/Close/Abort) |
 | `frame` | Frame | Creates initial feature frame from issue |
 | `analyze` | Shape | Deep analysis with expert consultation |
@@ -128,7 +128,7 @@ Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, 
 | `tester` | Writes and runs tests, manages RED-GATE |
 | `fixer` | Applies accepted review findings |
 | `security-auditor` | OWASP Top 10 audit with exploit scenarios, confidence scoring (C ≥ 60), and false-positive filtering |
-| `adversarial` | Red-team for `/adversarial` + `/spec` + `/code-review`: bypass, fleet-regression, vacuous guards, assumption-kill; OWASP lens on `/code-review` (read-only) |
+| `adversarial` | Red-team for `/adversarial` + `/spec` + `/dev-review`: bypass, fleet-regression, vacuous guards, assumption-kill; OWASP lens on `/dev-review` (read-only) |
 
 ### Strategy
 

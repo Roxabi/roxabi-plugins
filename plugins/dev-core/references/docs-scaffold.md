@@ -1,13 +1,13 @@
 # Docs Scaffold Reference
 
-`scaffoldDocs()` in `dev-init` `lib/docs.ts` — called by `/env-setup` Phase 3 and `/checkup` auto-fix. Additive-only (¬overwrite existing files).
+`scaffoldDocs()` in `dev-init` `lib/docs.ts` — called by `/env-setup` Phase 3 and `/dev-checkup` auto-fix. Additive-only (¬overwrite existing files).
 
 **Write format:** always Markdown (`.md`). Legacy `.mdx` files in older repos are left alone (read-only compatibility). Fumadocs scaffolding was removed.
 
 ## CLI
 
 ```bash
-bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-docs --path docs
+bun "../skills/init/init.ts" scaffold-docs --path docs
 ```
 
 `--format` is deprecated and ignored if present.

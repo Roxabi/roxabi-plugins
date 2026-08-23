@@ -56,7 +56,7 @@ Steps: identify-targets → read-standards → check-coverage → generate-tests
 ## Step 2 — Identify Target Files
 
 ```bash
-BASE=$(. "${CLAUDE_SKILL_DIR}/../shared/lib.sh" && detect_base_branch)
+BASE=$(. "../shared/lib.sh" && detect_base_branch)
 git diff origin/${BASE}...HEAD --name-only
 ```
 
@@ -136,7 +136,7 @@ Spec SCs with a priced-quantity block: test `priced` + `oracles`, never `not`.
 **Runner — plugin-owned (default, ADR-019):**
 
 ```
-bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --map <map.json> --out artifacts/reviews/{N}-falsify.json --issue {N}
+bash ../pr/run-falsify.sh --map <map.json> --out artifacts/reviews/{N}-falsify.json --issue {N}
 ```
 
 Consumer `{commands.test:falsify}` / `package.json` `test:falsify` / `scripts/test-falsify.sh` allowed **only if** they exec the plugin helper without swallowing non-zero — else stub-refuse. LLM `git stash` is ¬an alternate oracle.

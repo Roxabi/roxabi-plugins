@@ -1,0 +1,8 @@
+{
+  "name": "dev-core",
+  "description": "Full development workflow \u2014 frame, shape, plan, implement, review, ship. Skills + agents, dual-harness task list + worktrees, safety hooks (Claude + Grok + OMP).",
+  "version": "0.5.0",
+  "author": {
+    "name": "Roxabi"
+  }
+}

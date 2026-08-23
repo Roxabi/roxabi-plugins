@@ -42,4 +42,4 @@ Fail-closed / security / guard SCs must declare a **priced quantity** block (`pr
 
 ## Chain position
 
-**Predecessor:** `/analyze` (F-full) or `/frame` (F-lite) | **Successor:** `/plan` (after free-form approve)
+**Predecessor:** `/analyze` (F-full) or `/frame` (F-lite) | **Successor:** `/dev-plan` (after free-form approve)

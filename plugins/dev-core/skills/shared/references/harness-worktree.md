@@ -34,7 +34,8 @@ Let:
 
 ```
 if tools ∋ EnterWorktree ∧ ExitWorktree → H_wt := claude-enter
-else                                    → H_wt := harness-default   # Grok (and future hosts)
+else if tools ∋ todo → H_wt := omp-default      # OMP (no EnterWorktree)
+else                                    → H_wt := harness-default   # Grok (and other hosts without EnterWorktree)
 ```
 
 ¬probe by OS name. Probe **tools available in the current harness**.
@@ -49,24 +50,23 @@ Principal on β + ω on feat elsewhere = **healthy** (not “missing worktree”
 
 ## Capability matrix
 
-| Operation (generic) | Claude (`claude-enter`) | Grok (`harness-default`) | Notes |
-|---------------------|-------------------------|--------------------------|-------|
-| Ensure BRANCH + link | bash `gh issue develop` | idem | From **principal** CWD; ¬switch principal |
-| Create ω if missing | `git worktree add .claude/worktrees/{N}-{slug} BRANCH` | `git worktree add "$(suggested_grok_worktree_path N slug)" BRANCH` | Path is layout only; detection stays branch-first |
-| Enter ω (lead) | `EnterWorktree(path)` | CWD = ω path for all code ops; session may already be in ω | **¬** `git checkout BRANCH` on principal |
-| Spawn workers | inherit CWD after Enter | `spawn_subagent(..., cwd: ω)` — **¬** `isolation: worktree` for `/dev` implement | Isolation:worktree creates anonymous trees + apply; breaks issue-linked BRANCH |
-| Install / hooks | run inside ω | same | `worktree_setup` if project has it |
-| Teardown | `ExitWorktree` / `git worktree remove` | `git worktree remove` + orphan-shell scan (`/cleanup`) | |
-| Detect resume | `find_feature_worktree` | same | |
+| Operation (generic) | Claude (`claude-enter`) | OMP (`omp-default`) | Grok (`harness-default`) | Notes |
+|---------------------|-------------------------|---------------------|--------------------------|-------|
+| Ensure BRANCH + link | bash `gh issue develop` | idem | idem | From **principal** CWD; ¬switch principal |
+| Create ω if missing | `git worktree add .claude/worktrees/{N}-{slug} BRANCH` | `git worktree add "${OMP_WORKTREE_DIR:-~/.omp/wt}/{N}-{slug}" BRANCH` | `git worktree add "$(suggested_grok_worktree_path N slug)" BRANCH` | Path is layout only; detection stays branch-first |
+| Enter ω (lead) | `EnterWorktree(path)` | CWD = ω path for all code ops; session may already be in ω | CWD = ω path for all code ops; session may already be in ω | **¬** `git checkout BRANCH` on principal |
+| Spawn workers | inherit CWD after Enter | `spawn_subagent(..., cwd: ω)` — **¬** `isolation: worktree` | `spawn_subagent(..., cwd: ω)` — **¬** `isolation: worktree` for `/dev` implement | Isolation:worktree creates anonymous trees + apply; breaks issue-linked BRANCH |
+| Install / hooks | run inside ω | same | same | `worktree_setup` if project has it |
+| Teardown | `ExitWorktree` / `git worktree remove` | `git worktree remove` + orphan-shell scan (`/cleanup`) | `git worktree remove` + orphan-shell scan (`/cleanup`) | |
+| Detect resume | `find_feature_worktree` | same | same | |
 
 ### Create path conventions (only when creating)
 
 | H_wt | Path when creating |
 |------|--------------------|
 | claude-enter | `{principal}/.claude/worktrees/{N}-{slug}` |
+| omp-default | `${OMP_WORKTREE_DIR:-~/.omp/wt}/{N}-{slug}` (absolute or `~/` only) |
 | harness-default | `~/.grok/worktrees/{grok_repo_slug}/{N}-{slug}` via `suggested_grok_worktree_path` |
-
-Do **not** encode Grok’s opaque session hash dirs in skills. If a session was started with `grok -w` on BRANCH, `find_feature_worktree` already sees it — skip create.
 
 ## Setup procedure (generic)
 

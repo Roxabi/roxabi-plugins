@@ -38,4 +38,4 @@ Triggers: `"cleanup"` | `"clean branches"` | `"cleanup worktrees"` | `"remove st
 
 ## Chain position
 
-**Predecessor:** merge (after `/code-review` APPROVED) | **Last step in `/dev` pipeline**
+**Predecessor:** merge (after `/dev-review` APPROVED) | **Last step in `/dev` pipeline**

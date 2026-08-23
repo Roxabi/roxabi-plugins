@@ -63,8 +63,8 @@ _INV_NORM_DROP_RE = re.compile(r'[^a-z0-9∀∃∄∈∉∧∨¬→⟺∅≥≤]
 
 _BACKTICK_SPAN_RE = re.compile(r'`([^`]+)`')
 
-_DEFAULT_YAML_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'review-classes.yml'
-_DEFAULT_SKILL_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'SKILL.md'
+_DEFAULT_YAML_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'dev-review' / 'review-classes.yml'
+_DEFAULT_SKILL_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'dev-review' / 'SKILL.md'
 
 # Anchor in SKILL.md: "Canonical classes (use slug only): <slug1>, ...<slugN>."
 _SPAWN_LIST_RE = re.compile(

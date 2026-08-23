@@ -43,7 +43,7 @@ Steps: gather-state → guard-rails → generate → create → rebase
 ## Step 1 — Gather State
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/gather-state.sh
+bash gather-state.sh
 ```
 
 Emits: `branch`, `base`, commit log, diff stat, existing PR, issue number, lifecycle artifacts (analysis, spec), test file count, `falsify_required`, `oracle_ok`, `oracle_reason`, `priced_ok`.
@@ -194,7 +194,7 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 
 - **Phase:** Build
 - **Predecessor:** `/implement` (worktree with commits) · or `/ship` commit step
-- **Successor:** `/ci-watch` (via `/dev`) · or `/code-review` (via `/ship`)
+- **Successor:** `/ci-watch` (via `/dev`) · or `/dev-review` (via `/ship`)
 - **Class:** adv (continuous flow, no gate)
 
 ## Task Integration

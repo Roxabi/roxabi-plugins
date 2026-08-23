@@ -2,7 +2,7 @@
 
 /**
  * Pure GitHub Actions workflow YAML generators + stack → opts helpers.
- * No network / no filesystem I/O — safe for /checkup workflow-drift.
+ * No network / no filesystem I/O — safe for /dev-checkup workflow-drift.
  * Push/write lives in workflow-push.ts (dev-init owned; copy-synced for tests).
  */
 
@@ -178,7 +178,7 @@ ${APP_MINT_STEP}
  * THIN by design: the whole derive → classify → reconcile core lives in
  * `plugins/dev-core/skills/promote/auto-release.sh`, which this workflow only
  * sets up an environment for and invokes. There is deliberately no second copy
- * of that logic here — /checkup diffs the committed workflow against this
+ * of that logic here — /dev-checkup diffs the committed workflow against this
  * generator (N11), so the file stays stable. COMPONENT is baked at generate-time
  * from `release.component`. Sibling of generateAutoMergeYml (shared mint step).
  */
@@ -203,7 +203,7 @@ export function generateAutoReleaseYml(opts: WorkflowOpts): string {
 #
 # THIN wrapper — every derivation/classification/reconcile step lives in
 # plugins/dev-core/skills/promote/auto-release.sh. Never inline that logic here:
-# /checkup diffs this file against the generator output (N11), so it must stay
+# /dev-checkup diffs this file against the generator output (N11), so it must stay
 # byte-stable. Regenerate with /ci-setup after a dev-core bump, never hand-edit.
 name: Auto Release
 

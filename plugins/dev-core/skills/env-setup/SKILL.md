@@ -9,7 +9,7 @@ allowed-tools: Bash, Read, Write, Edit, ToolSearch
 # Env Setup
 
 Let:
-  I_TS := `${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts`
+  I_TS := `../init/init.ts`
   Φ    := CLAUDE_PLUGIN_ROOT
   F    := `--force` flag present in `$ARGUMENTS`
   σ    := `.claude/stack.yml`
@@ -46,8 +46,8 @@ inlined here — cross-skill prose references do not bind at runtime.
 Let:
   WS  := tools/worktree-setup.sh
   WT  := tools/worktree-teardown.sh
-  CL  := ${CLAUDE_PLUGIN_ROOT}/references/worktree-setup-checklist.md
-  TS  := ${CLAUDE_PLUGIN_ROOT}/tools/worktreeScaffold.ts
+  CL  := ../../references/worktree-setup-checklist.md
+  TS  := ../../tools/worktreeScaffold.ts
   σ_has_hook       := `grep -q 'worktree_setup:' .claude/stack.yml`
   runtime_supported := σ.runtime ∈ {python, bun, node}
 
@@ -162,7 +162,7 @@ Generate governance rules (dev process, decision protocol, git conventions, etc.
 3. Ask: **Scaffold standard docs** (architecture/, standards/, guides/ with templates) | **Skip**.
 4. yes:
    ```bash
-   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-docs --path <docs.path>
+   bun "../init/init.ts" scaffold-docs --path <docs.path>
    ```
 5. D("Docs scaffolding", "✅ Created {filesCreated.length} files in {docsPath}/").
 

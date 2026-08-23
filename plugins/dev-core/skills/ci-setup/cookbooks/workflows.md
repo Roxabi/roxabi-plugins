@@ -1,7 +1,7 @@
 # Cookbook: GitHub Actions Workflows
 
 Let:
-  I_TS := `${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts`
+  I_TS := `../../init/init.ts`
   Φ    := CLAUDE_PLUGIN_ROOT
   F    := `--force` flag present in `$ARGUMENTS`
   σ    := `.claude/stack.yml`
@@ -83,6 +83,6 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
      ```
    - **If merge = merge-on-green:** skip `allow_auto_merge` — workflow polls check suites instead.
 
-   > **App creation guide:** see `${CLAUDE_SKILL_DIR}/cookbooks/github-app.md` for how to create and install the `roxabi-ci` App, where `app-id` and `private-key` come from, and the org-free private-repo caveat.
+   > **App creation guide:** see `github-app.md` for how to create and install the `roxabi-ci` App, where `app-id` and `private-key` come from, and the org-free private-repo caveat.
 
 6. skip → D⏭("CI/CD workflows").
