@@ -48,3 +48,9 @@ The other skills resolve via `skill://` only when the plugin is linked
 
 No post-bash nudge and no format hook (v1). Escape hatch: `DEV_CORE_ALLOW_PRINCIPAL_SWITCH=1`.
 
+## Paths
+
+Bundled files: `skill://<skill>/<file>` (see `skill://shared-refs/harness-paths.md`).
+`registerCommand` remains a fallback dump until marketplace install exposes `/skill:<name>`.
+The extension does **not** rewrite `$CLAUDE_*`.
+

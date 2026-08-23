@@ -9,7 +9,7 @@ allowed-tools: Bash, Glob, Grep, Read
 # CI Watch
 
 Let:
-  SCR := `${CLAUDE_SKILL_DIR}/ci-watch.sh`
+  SCR := `ci-watch.sh` in this skill directory — resolve per `skill://shared-refs/harness-paths.md`
   R  := OWNER/REPO (auto-detected from git remote)
   AM := auto-merge
 

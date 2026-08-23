@@ -29,7 +29,7 @@ Let:
   ψ_r(P) ⟺ P.comments ∃ body: "## Code Review"
   ψ_f(P) ⟺ P.comments ∃ body: "## Review Fixes Applied"
   stale  := scan-state.sh `stale=true|false` — worktree ∃ ∨ local/remote branch matching N ∃ (anchored on N, see scan-state.sh)
-  ω    := non-principal worktree on `feat/{N}-*` (branch-first detect — [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md))
+  ω    := non-principal worktree on `feat/{N}-*` (branch-first detect — harness-worktree.md; paths: `skill://shared-refs/harness-paths.md`)
   β    := base branch; **principal always stays on β** (¬checkout feat in default folder)
   bar   := output must read as hand-authored by a dev-core maintainer — match surrounding idiom, naming, comment density; calibrate against `plugins/dev-core/`; QG (format/lint/typecheck/test) = mechanical floor, ¬the bar
 
@@ -80,7 +80,7 @@ gh issue list --search "{text}" --json number,title,state --jq '.[:3]'
 ## Step 1 — Scan State (parallel, <3s)
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/scan-state.sh {N} {slug}
+bash skill://dev/scan-state.sh {N} {slug}
 ```
 
 φ / σ ∃ → read frontmatter → extract `status` (+ `tier` from φ). For **α, use `analyze_status=` from `scan-state.sh`** — the helper parses the frontmatter fence and normalizes the value (quotes, trailing comment, case), so re-reading the file yields a *less* correct answer. `analyze=<file>` alone is never a status signal.

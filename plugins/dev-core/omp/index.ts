@@ -5,7 +5,6 @@ import {
   extractShellCommand,
   extractWriteContent,
   isBunTestBlocked,
-  rewriteHarnessPaths,
   scanSecurityContent,
   shouldBlockPrincipalSwitch,
 } from './guards'
@@ -54,7 +53,7 @@ function readSkillBody(skillName: string): { body: string; skillDir: string } {
   const skillDir = join(PLUGIN_ROOT, 'skills', skillName)
   const skillPath = join(skillDir, 'SKILL.md')
   const raw = readFileSync(skillPath, 'utf8')
-  return { body: rewriteHarnessPaths(stripFrontmatter(raw).trim(), skillDir, PLUGIN_ROOT), skillDir }
+  return { body: stripFrontmatter(raw).trim(), skillDir }
 }
 
 function registerSkillCommand(pi: ExtensionAPI, skillName: string): void {
@@ -63,7 +62,13 @@ function registerSkillCommand(pi: ExtensionAPI, skillName: string): void {
     handler: async (args) => {
       const { body, skillDir } = readSkillBody(skillName)
       const trimmedArgs = args.trim()
-      const message = [body, '', `[Skill directory: ${skillDir}]`, trimmedArgs ? `\n${trimmedArgs}` : '']
+      const message = [
+        body,
+        '',
+        `[Skill directory: ${skillDir}]`,
+        `Paths: skill://shared-refs/harness-paths.md`,
+        trimmedArgs ? `\n${trimmedArgs}` : '',
+      ]
         .join('\n')
         .trim()
 
