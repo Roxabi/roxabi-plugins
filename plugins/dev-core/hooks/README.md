@@ -96,7 +96,7 @@ Use this to customise the `bun test` blocker or add project-specific hooks.
 
 ## Validation
 
-Run `/checkup` to verify that your active hooks match your `stack.yml` formatter configuration.
+Run `/dev-checkup` to verify that your active hooks match your `stack.yml` formatter configuration.
 
 ## Security Note
 

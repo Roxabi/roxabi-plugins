@@ -34,7 +34,7 @@ Without this step, recently-added skills (e.g. `/recheck`) won't appear in your 
 
 ## Getting Started
 
-After installing **dev-core** and **dev-init**, run the full project harness:
+After installing **dev-core**, run the full project harness:
 
 ```
 /dev-init
@@ -75,11 +75,11 @@ Skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
-| `init` | Setup | Configures project for dev-core (CI/CD workflows, branch protection, env vars, workspace.json registration, LSP plugin install). Pushes workflow files directly via GitHub REST API — no local git required. Auto-sets PAT secret after workflow creation. TypeScript CLI with subcommands, SKILL.md orchestrates via user decision decisions |
+| `dev-init` | Setup | Project setup orchestrator — env-setup → axial ADR gate → ci-setup → release-setup in one harness. Invoke as `/dev-init` (not the host built-in `/init`, which only scaffolds `CLAUDE.md`) |
 | `env-setup` | Setup | Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding (Markdown), LSP. Triggered by `/dev-init` or standalone `/env-setup` |
 | `ci-setup` | Setup | Set up CI/CD — GitHub Actions workflows, TruffleHog, Dependabot, pre-commit hooks, marketplace plugins. Discovers Roxabi plugins live from `marketplace.json` and endorsed external marketplaces from `curated-marketplaces.json` |
 | `stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.claude/stack.yml`. Single confirmation screen — no wizard questions |
-| `doctor` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows (checks both local files and remote via REST API), required secrets (PAT for auto-merge.yml), branch protection, stack.yml, workspace.json registration, and LSP plugin install (typescript-lsp / pyright-lsp with auto-fix). Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
+| `dev-checkup` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows (checks both local files and remote via REST API), required secrets (PAT for auto-merge.yml), branch protection, stack.yml, workspace.json registration, and LSP plugin install (typescript-lsp / pyright-lsp with auto-fix). Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
 | `seed-docs` | Setup | Populates scaffolded architecture/standards docs with real content — reads CLAUDE.md for conventions, optionally scans codebase (entry points, import graph, naming patterns), fills TODO stubs, writes AI Quick Reference sections. Idempotent: skips already-populated files |
 | `seed-community` | Setup | Bootstraps OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), `.github/PULL_REQUEST_TEMPLATE.md`, issue templates. Reads project metadata + CLAUDE.md; generates missing files idempotently |
 | `dev` | Orchestrator | Routes issues through the full workflow (Frame→Ship) |
@@ -91,10 +91,10 @@ Skills organized by workflow phase:
 | `advisory` | Shape | Constructive expert second opinion (architect + product-lead [+ optional domain]) — keep / strengthen / prioritize next moves |
 | `spec` | Shape | Generates specifications with smart splitting |
 | `interview` | Shape | Interactive requirements gathering |
-| `plan` | Build | Creates implementation plan with micro-tasks |
+| `dev-plan` | Build | Creates implementation plan with micro-tasks |
 | `implement` | Build | Executes implementation from plan — merge conflict recovery, abandon-on-3-failures option |
 | `pr` | Build | Creates pull request with proper format |
-| `review` | Verify | Code review against quality gates — secret scan before spawning agents |
+| `dev-review` | Verify | Code review against quality gates — secret scan before spawning agents |
 | `fix` | Verify | Applies fixes from review feedback |
 | `validate` | Verify | Validates implementation against spec |
 | `cleanup` | Ship | Post-merge cleanup |
@@ -128,7 +128,7 @@ Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, 
 | `tester` | Writes and runs tests, manages RED-GATE |
 | `fixer` | Applies accepted review findings |
 | `security-auditor` | OWASP Top 10 audit with exploit scenarios, confidence scoring (C ≥ 60), and false-positive filtering |
-| `adversarial` | Red-team for `/adversarial` + `/spec` + `/code-review`: bypass, fleet-regression, vacuous guards, assumption-kill; OWASP lens on `/code-review` (read-only) |
+| `adversarial` | Red-team for `/adversarial` + `/spec` + `/dev-review`: bypass, fleet-regression, vacuous guards, assumption-kill; OWASP lens on `/dev-review` (read-only) |
 
 ### Strategy
 

@@ -9,7 +9,7 @@ allowed-tools: Bash, Read, Write, Edit, ToolSearch
 # Env Setup
 
 Let:
-  I_TS := `${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts`
+  I_TS := `${CLAUDE_PLUGIN_ROOT}/skills/dev-init/init.ts`
   Φ    := CLAUDE_PLUGIN_ROOT
   F    := `--force` flag present in `$ARGUMENTS`
   σ    := `.claude/stack.yml`
@@ -162,7 +162,7 @@ Generate governance rules (dev process, decision protocol, git conventions, etc.
 3. Ask: **Scaffold standard docs** (architecture/, standards/, guides/ with templates) | **Skip**.
 4. yes:
    ```bash
-   bun "${CLAUDE_PLUGIN_ROOT}/skills/init/init.ts" scaffold-docs --path <docs.path>
+   bun "${CLAUDE_PLUGIN_ROOT}/skills/dev-init/init.ts" scaffold-docs --path <docs.path>
    ```
 5. D("Docs scaffolding", "✅ Created {filesCreated.length} files in {docsPath}/").
 

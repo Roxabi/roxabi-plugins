@@ -88,8 +88,8 @@ Skills that break their work into trackable sub-units create their own tasks wit
 
 | Skill | Sub-task kind | Purpose |
 |---|---|---|
-| `/plan` | `plan-task` | One per micro-task in the plan; IDs persisted in artifact `## Task IDs` section |
-| `/code-review` | `review-finding` (if used) | One per finding, ephemeral |
+| `/dev-plan` | `plan-task` | One per micro-task in the plan; IDs persisted in artifact `## Task IDs` section |
+| `/dev-review` | `review-finding` (if used) | One per finding, ephemeral |
 
 Sub-tasks are independent of dev-pipeline lifecycle but may `blockedBy` their parent dev-pipeline task for observability.
 
@@ -144,7 +144,7 @@ The Executive Summary is the gate output (not a closing recap). Frame may skip t
 
 **Frame high_conf exception:** when interview/premise gaps are zero, tier not contested, and no premise abort signal → auto-approve + commit same turn (short summary printed; no approval STOP).
 
-**`/plan` exception — compact pause:** after approve+seed+commit, `/dev` Step 8b prints a compact-pause recommendation (`/compact` → `/implement`, where `/dev #N` ≡ `/implement #N`) and stops the turn. Rationale: planning context is dead weight for the build phase; tasks persist (task list + artifact `## Task IDs`) so `/implement` Step 1b re-attaches after the compact. Re-fire guard: the pause is keyed to *plan having just run*, so the post-compact `/dev #N` resume goes straight to `/implement`.
+**`/dev-plan` exception — compact pause:** after approve+seed+commit, `/dev` Step 8b prints a compact-pause recommendation (`/compact` → `/implement`, where `/dev #N` ≡ `/implement #N`) and stops the turn. Rationale: planning context is dead weight for the build phase; tasks persist (task list + artifact `## Task IDs`) so `/implement` Step 1b re-attaches after the compact. Re-fire guard: the pause is keyed to *plan having just run*, so the post-compact `/dev #N` resume goes straight to `/implement`.
 
 ### verdict-class Exit (code-review)
 
@@ -163,7 +163,7 @@ The Executive Summary is the gate output (not a closing recap). Frame may skip t
 ## Exit
 
 - **Success via `/dev`:** fixes applied → TaskCreate follow-up review task → return silently.
-- **Success standalone:** print summary + `Next: /code-review`. Stop.
+- **Success standalone:** print summary + `Next: /dev-review`. Stop.
 - **Failure:** return error. `/dev` presents Retry | Skip | Abort.
 - **Loop cap:** iteration ≥ 2 on entry → refuse, return message, `/dev` presents Abort.
 ```
@@ -221,6 +221,6 @@ This pulls the marketplace clone and repopulates the hash-keyed cache dir, ensur
 
 - ADR: `docs/adr/00X-dev-core-chain-contract.md` — rationale for distributed declaration + /dev-owns-lifecycle
 - `/dev` SKILL.md — orchestration state machine
-- `/plan` SKILL.md — reference implementation of sub-task creation
+- `/dev-plan` SKILL.md — reference implementation of sub-task creation
 - `/implement` SKILL.md — reference implementation of sub-task consumption
 - [artifact-frontmatter.md](./artifact-frontmatter.md) — title hygiene + `type:`/`status:` required keys for every writer

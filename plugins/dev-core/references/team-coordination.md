@@ -72,7 +72,7 @@ Intra-domain parallel: multiple same-type α on non-overlapping files OK. Shared
 
 ## Micro-Task Protocol
 
-When `/plan` generates μ, α receive structured work units via TaskCreate.
+When `/dev-plan` generates μ, α receive structured work units via TaskCreate.
 
 **Claim:** Spawn-prompt assignment = authoritative. Also check TaskList for unassigned (lowest ID first).
 

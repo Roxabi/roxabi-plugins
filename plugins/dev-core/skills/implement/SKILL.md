@@ -38,7 +38,7 @@ Does NOT create a PR — that is `/pr` (next step).
 ## Chain Position
 
 - **Phase:** Build
-- **Predecessor:** `/plan` (artifact: `artifacts/plans/{N}-{slug}-plan.md`)
+- **Predecessor:** `/dev-plan` (artifact: `artifacts/plans/{N}-{slug}-plan.md`)
 - **Successor:** `/pr`
 - **Class:** adv (continuous flow, no gate)
 
@@ -46,7 +46,7 @@ Does NOT create a PR — that is `/pr` (next step).
 
 - `/dev` owns the dev-pipeline task lifecycle externally (mark in_progress before invoke, completed after return — host-mapped)
 - This skill does NOT update its own dev-pipeline task
-- Sub-tasks: attach/re-seed plan-tasks from `/plan` (Step 6a), flip lifecycle as agents execute (Step 1b + Step 4)
+- Sub-tasks: attach/re-seed plan-tasks from `/dev-plan` (Step 6a), flip lifecycle as agents execute (Step 1b + Step 4)
 - **Host mapping SSoT:** [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-task-list.md) — probe once, use H for all task ops
 - **Worktree SSoT:** [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md) — principal freezes on β; code only in ω
 
@@ -78,7 +78,7 @@ Steps: locate-plan → setup → context-inject → implement → quality-gate �
 
 `--issue N` → `ls artifacts/plans/N-*.md*` → read full → extract tasks, agents, τ, slug.
 `--plan <path>` → read directly.
-¬found ⇒ suggest `/plan`. **Stop.**
+¬found ⇒ suggest `/dev-plan`. **Stop.**
 
 **S-tier exception:** τ=S ∧ ¬π → locate spec (`ls artifacts/specs/N-*.md*`) or issue body (`gh issue view N --json body`). Skip to Step 4 (Tier S). ¬require π for τ=S.
 
@@ -184,7 +184,7 @@ Template: "Read `{doc}` sections: {sections}. Read `{ref_file}` for conventions.
 | architect | frontend-patterns + backend-patterns: AI Quick Ref | ✗ |
 | devops, security-auditor, doc-writer | ∅ | ✗ |
 
-Ref file paths from `/plan` Step 3.
+Ref file paths from `/dev-plan` Step 3.
 
 ## Step 3b — Reasoning Audit (optional)
 
@@ -269,7 +269,7 @@ Before printing summary → assert all plan-tasks for issue N are completed (**H
 
 ### Step 6a — SC→Test Matrix (τ ≠ S)
 
-**Tier S exemption:** τ=S (no `/plan` artifact, no SC-N labels) → skip this step entirely. ¬emit matrix.
+**Tier S exemption:** τ=S (no `/dev-plan` artifact, no SC-N labels) → skip this step entirely. ¬emit matrix.
 
 For τ=F (F-lite or F-full):
 
@@ -339,7 +339,7 @@ Implement Complete
   Tasks:    N/total completed (stragglers: ...)
   Verify:   N/total first-try (%)
   SC Matrix: N/total mapped (gaps: ...)
-  Next:     /pr → /code-review → /1b1 → merge
+  Next:     /pr → /dev-review → /1b1 → merge
 ```
 
 ## Rollback

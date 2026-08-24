@@ -19,4 +19,4 @@ Why: squash rewrites file hashes on every merged commit, which phantom-conflicts
 
 ## Consumers
 
-Referenced by `/promote`, `/code-review` (merge gate), `/checkup` (`PR_Main` ruleset check). Enforce via the repo's branch-protection `allowed_merge_methods = ["merge"]` (see `checkup/cookbooks/devcore-checks.md`).
+Referenced by `/promote`, `/dev-review` (merge gate), `/dev-checkup` (`PR_Main` ruleset check). Enforce via the repo's branch-protection `allowed_merge_methods = ["merge"]` (see `dev-checkup/cookbooks/devcore-checks.md`).

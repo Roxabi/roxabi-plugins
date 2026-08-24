@@ -1,7 +1,7 @@
 # Analysis: `/code-review` + `/fix` strategy redesign
 
 > Strategic locked decision after grilling session 2026-05-05. Replaces the
-> implicit lens-only model in `plugins/dev-core/skills/code-review/` and the
+> implicit lens-only model in `plugins/dev-core/skills/dev-review/` and the
 > TODO dispatch rules in `plugins/dev-core/skills/fix/SKILL.md:140-142`.
 
 **Date:** 2026-05-05
@@ -13,7 +13,7 @@
 
 ## 1. Problem
 
-Today's `/code-review` (cf. `plugins/dev-core/skills/code-review/SKILL.md:80-124`):
+Today's `/code-review` (cf. `plugins/dev-core/skills/dev-review/SKILL.md:80-124`):
 
 | Behavior | Consequence |
 |---|---|
@@ -200,7 +200,7 @@ Phase 6 — Apply 1b1 Decisions  (replaces fix/SKILL.md:140-142)
 
 ### 4.1 Canonical core (versioned, in plugin)
 
-Path: `plugins/dev-core/skills/code-review/review-classes.yml` (new)
+Path: `plugins/dev-core/skills/dev-review/review-classes.yml` (new)
 
 | Class | Origin | Description |
 |---|---|---|
@@ -346,8 +346,8 @@ Each slice is independently shippable and delivers user-visible value alone.
 **Scope:** T2 canonical YAML + extend `/code-review` Phase 3 spawn template to require `class` tag + `raw_callsites` field on every finding. Multi-tag allowed.
 
 **Files:**
-- new `plugins/dev-core/skills/code-review/review-classes.yml`
-- edit `plugins/dev-core/skills/code-review/SKILL.md` Phase 3, finding format
+- new `plugins/dev-core/skills/dev-review/review-classes.yml`
+- edit `plugins/dev-core/skills/dev-review/SKILL.md` Phase 3, finding format
 - edit `plugins/dev-core/skills/fix/SKILL.md` Phase 1 parser to read `class` + `raw_callsites`
 
 **Standalone value:** Every finding gets classified, even before sharding. Today's pipeline benefits immediately. Telemetry-grade data for tuning future slices.
@@ -362,8 +362,8 @@ Each slice is independently shippable and delivers user-visible value alone.
 **Scope:** Implement chunker (directory-cohesion + LOC-bounded fallback) + boundary digest emission. Recall not yet wired.
 
 **Files:**
-- new `plugins/dev-core/skills/code-review/chunker.py` + tests
-- new `plugins/dev-core/skills/code-review/digest.py` + tests
+- new `plugins/dev-core/skills/dev-review/chunker.py` + tests
+- new `plugins/dev-core/skills/dev-review/digest.py` + tests
 - edit Phase 3 to dispatch per-chunk Lane A agents
 
 **Standalone value:** PRs `|Δ| > 50` become reviewable without context overflow; sharding is now load-balanced by file/LOC, not lens-multiplied.
@@ -378,7 +378,7 @@ Each slice is independently shippable and delivers user-visible value alone.
 **Scope:** Cross-chunk class join + recall trigger + recall agent definition + verdict gate.
 
 **Files:**
-- edit `plugins/dev-core/skills/code-review/SKILL.md` post-Lane-A merge logic
+- edit `plugins/dev-core/skills/dev-review/SKILL.md` post-Lane-A merge logic
 - new `plugins/dev-core/agents/recall.md` (focused agent definition)
 - update verdict rule: recall findings = blocking; Lane B summaries = advisory
 
@@ -442,7 +442,7 @@ Each slice is independently shippable and delivers user-visible value alone.
 
 ## References
 
-- `plugins/dev-core/skills/code-review/SKILL.md` — current spec (will edit)
+- `plugins/dev-core/skills/dev-review/SKILL.md` — current spec (will edit)
 - `plugins/dev-core/skills/fix/SKILL.md` — current spec (will edit)
 - lyra recurring-bug audit (memory: `project_recurring_bug_classes.md`) — RC-1 through RC-7
 - lyra orchestration memory (`project_orchestration_layer.md`) — "task-level tooling is the wrong abstraction"

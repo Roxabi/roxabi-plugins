@@ -28,20 +28,10 @@ pre-commit:
       run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py; else echo 'SKIP: taxonomy-sync (no .venv)' >&2; fi"
     taxonomy-class-list-sync:
       run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py --check class-list-sync; else echo 'SKIP: taxonomy-class-list-sync (no .venv)' >&2; fi"
-      glob: "plugins/dev-core/skills/code-review/{review-classes.yml,SKILL.md}"
-    shared-sources-sync:
-      run: bun run sync:shared --check
-      # Manifest files live at skills/shared/*.ts and skills/shared/<dir>/*.ts.
-      # `**/*.ts` alone misses the shared/ root (lefthook-persist.ts).
-      glob:
-        - "**/skills/shared/*.ts"
-        - "**/skills/shared/**/*.ts"
-    biome-manifest-sync:
-      run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py --check shared-sources-sync; else echo 'SKIP: biome-manifest-sync (no .venv)' >&2; fi"
-      glob: "{biome.json,tools/shared-sources.json,lefthook.yml}"
+      glob: "plugins/dev-core/skills/dev-review/{review-classes.yml,SKILL.md}"
     taxonomy-subsumption-pairs:
       run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py --check subsumption-pairs; else echo 'SKIP: taxonomy-subsumption-pairs (no .venv)' >&2; fi"
-      glob: "plugins/dev-core/skills/code-review/{review-classes.yml,SKILL.md}"
+      glob: "plugins/dev-core/skills/dev-review/{review-classes.yml,SKILL.md}"
 
 commit-msg:
   commands:

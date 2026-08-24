@@ -90,7 +90,7 @@ d. Write `lefthook.yml` (trufflehog **inside** `commands:`):
 e. Seed principal freeze script (`scripts/check-principal-branch.sh`):
    ```bash
    bun $I_TS seed-principal-freeze
-   test -f scripts/check-principal-branch.sh || echo "WARN: seed principal-freeze failed — install dev-init + re-run"
+   test -f scripts/check-principal-branch.sh || echo "WARN: seed principal-freeze failed — install dev-core + re-run /ci-setup"
    ```
 f. `bunx lefthook install`
 g. Copy license tools (JS/bun only — after lefthook install):

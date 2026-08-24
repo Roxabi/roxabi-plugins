@@ -363,7 +363,7 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 ## Chain Position
 
 - **Phase:** Ship
-- **Predecessor:** merge (after `/code-review` APPROVED → merge)
+- **Predecessor:** merge (after `/dev-review` APPROVED → merge)
 - **Successor:** — (pipeline complete)
 - **Class:** adv (tail — last step in `/dev` pipeline)
 

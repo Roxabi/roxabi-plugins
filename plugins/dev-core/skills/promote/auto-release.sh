@@ -4,7 +4,7 @@
 # The SOLE owner of the merge-to-main derive → classify → reconcile flow. It is
 # the trunk analogue of promote SKILL.md step 9b, extracted so the generated
 # auto-release.yml stays a THIN invoker (no orchestration logic baked into YAML)
-# and so /checkup can diff a stable expected workflow (N11).
+# and so /dev-checkup can diff a stable expected workflow (N11).
 #
 # It reuses the existing engine — NO second copy of the logic:
 #   price.sh     → the version deriver (D10): reachability floor + conventional-

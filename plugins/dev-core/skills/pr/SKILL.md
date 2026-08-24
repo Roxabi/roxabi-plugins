@@ -194,7 +194,7 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 
 - **Phase:** Build
 - **Predecessor:** `/implement` (worktree with commits) · or `/ship` commit step
-- **Successor:** `/ci-watch` (via `/dev`) · or `/code-review` (via `/ship`)
+- **Successor:** `/ci-watch` (via `/dev`) · or `/dev-review` (via `/ship`)
 - **Class:** adv (continuous flow, no gate)
 
 ## Task Integration

@@ -47,4 +47,4 @@ All commands come from `stack.yml` (`commands.*`) — never raw runners.
 
 ## Chain position
 
-**Predecessor:** `/ci-watch` | **Successor:** `/code-review`
+**Predecessor:** `/ci-watch` | **Successor:** `/dev-review`

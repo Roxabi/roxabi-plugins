@@ -78,7 +78,7 @@ closed persist law on every commit.
 
 - `plugins/dev-core/scripts/check-principal-branch.sh`
 - `plugins/dev-core/hooks/principal-branch-pre.cjs`
-- `plugins/dev-init/skills/dev-init/lib/seed-principal-freeze.ts`
+- `plugins/dev-core/skills/dev-init/lib/seed-principal-freeze.ts`
 - `plugins/dev-core/skills/shared/lefthook-persist.ts`
 - `plugins/dev-core/skills/ci-setup/cookbooks/hooks.md`
 - `plugins/dev-core/skills/shared/references/harness-worktree.md`

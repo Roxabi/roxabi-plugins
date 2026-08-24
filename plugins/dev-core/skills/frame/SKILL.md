@@ -27,7 +27,7 @@ Standalone-safe: callable without `/dev`. Output consumed by `/analyze`, `/spec`
 
 **Never call AskUserQuestion / `present choice` / multi-select tool prompts in this skill.**
 
-Human-in-the-loop is **chat-native** (same doctrine as `/analyze` / `/spec` / `/plan`):
+Human-in-the-loop is **chat-native** (same doctrine as `/analyze` / `/spec` / `/dev-plan`):
 1. Extract and act when confidence is high.
 2. Write φ (`status: draft` until approved).
 3. **High confidence** → auto-approve (no STOP for approval).

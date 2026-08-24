@@ -9,9 +9,9 @@ Checks:
 - Example files referenced in plugin.json exist
 - Vendored paths.py copies match the canonical version
 - Fixed /tmp/ literals in SKILL.md files (tempfile-convention.md)
-- Inline class list in code-review/SKILL.md spawn template matches review-classes.yml
+- Inline class list in dev-review/SKILL.md spawn template matches review-classes.yml
 - Subsumption pairs declared in review-classes.yml notes are mentioned together in
-  code-review/SKILL.md (prevents drift in pair definitions across files)
+  dev-review/SKILL.md (prevents drift in pair definitions across files)
 - Budgeted SKILL.md files stay within their physical line budgets
 - Gated dev-core legend lines are one-line pointers to the canonical notation
   glossary, and compress's inline whitelist stays set-equal to its core table
@@ -47,7 +47,6 @@ SKILL_LINE_BUDGETS = {'compress': 110}
 NOTATION_LEGEND_FILES = [
     PLUGINS_DIR / 'dev-core' / 'skills' / 'shared' / 'references' / 'base.md',
     PLUGINS_DIR / 'dev-core' / 'agents' / 'doc-writer.md',
-    PLUGINS_DIR / 'dev-init' / 'skills' / 'shared' / 'references' / 'base.md',
 ]
 NOTATION_GLOSSARY = PLUGINS_DIR / 'shared' / 'references' / 'notation.md'
 COMPRESS_SKILL = PLUGINS_DIR / 'compress' / 'skills' / 'compress' / 'SKILL.md'
@@ -63,8 +62,8 @@ _INV_NORM_DROP_RE = re.compile(r'[^a-z0-9∀∃∄∈∉∧∨¬→⟺∅≥≤]
 
 _BACKTICK_SPAN_RE = re.compile(r'`([^`]+)`')
 
-_DEFAULT_YAML_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'review-classes.yml'
-_DEFAULT_SKILL_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'SKILL.md'
+_DEFAULT_YAML_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'dev-review' / 'review-classes.yml'
+_DEFAULT_SKILL_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'dev-review' / 'SKILL.md'
 
 # Anchor in SKILL.md: "Canonical classes (use slug only): <slug1>, ...<slugN>."
 _SPAWN_LIST_RE = re.compile(
@@ -211,7 +210,7 @@ def check_class_list_sync(
     yaml_path: Path = _DEFAULT_YAML_PATH,
     skill_path: Path = _DEFAULT_SKILL_PATH,
 ) -> list[str]:
-    """Inline class list in code-review/SKILL.md spawn template must match review-classes.yml.
+    """Inline class list in dev-review/SKILL.md spawn template must match review-classes.yml.
 
     Exit semantics when called from main():
       - errors containing 'not found' or 'parse' → caller returns 2 (IO/parse failure)
@@ -223,7 +222,7 @@ def check_class_list_sync(
         errors.append(f'review-classes.yml not found at {yaml_path}')
         return errors
     if not skill_path.exists():
-        errors.append(f'code-review/SKILL.md not found at {skill_path}')
+        errors.append(f'dev-review/SKILL.md not found at {skill_path}')
         return errors
 
     try:
@@ -252,12 +251,12 @@ def check_class_list_sync(
         with open(skill_path) as f:
             content = f.read()
     except UnicodeDecodeError as e:
-        errors.append(f'code-review/SKILL.md is not valid UTF-8: {e}')
+        errors.append(f'dev-review/SKILL.md is not valid UTF-8: {e}')
         return errors
 
     m = _SPAWN_LIST_RE.search(content)
     if not m:
-        errors.append('code-review/SKILL.md: canonical class list not found in spawn template')
+        errors.append('dev-review/SKILL.md: canonical class list not found in spawn template')
         return errors
 
     inline_slugs: set[str] = set()
@@ -270,11 +269,11 @@ def check_class_list_sync(
     extra = inline_slugs - yaml_slugs
     if missing:
         errors.append(
-            f'code-review/SKILL.md spawn template missing slugs from review-classes.yml: {sorted(missing)}'
+            f'dev-review/SKILL.md spawn template missing slugs from review-classes.yml: {sorted(missing)}'
         )
     if extra:
         errors.append(
-            f'code-review/SKILL.md spawn template has extra slugs not in review-classes.yml: {sorted(extra)}'
+            f'dev-review/SKILL.md spawn template has extra slugs not in review-classes.yml: {sorted(extra)}'
         )
     return errors
 
@@ -303,7 +302,7 @@ def check_subsumption_pairs(
         errors.append(f'review-classes.yml not found at {yaml_path}')
         return errors
     if not skill_path.exists():
-        errors.append(f'code-review/SKILL.md not found at {skill_path}')
+        errors.append(f'dev-review/SKILL.md not found at {skill_path}')
         return errors
 
     try:
@@ -347,7 +346,7 @@ def check_subsumption_pairs(
         with open(skill_path) as f:
             content = f.read()
     except UnicodeDecodeError as e:
-        errors.append(f'code-review/SKILL.md is not valid UTF-8: {e}')
+        errors.append(f'dev-review/SKILL.md is not valid UTF-8: {e}')
         return errors
 
     paragraphs = re.split(r'\n\s*\n', content)
@@ -362,128 +361,12 @@ def check_subsumption_pairs(
         if not together:
             errors.append(
                 f'subsumption pair ({a}, {b}) declared in review-classes.yml note '
-                f'but not mentioned together in any paragraph of code-review/SKILL.md'
+                f'but not mentioned together in any paragraph of dev-review/SKILL.md'
             )
 
     return errors
 
 
-def check_shared_sources_sync(manifest_path=None, biome_path=None, _copy_sync_prefix=None) -> list[str]:
-    """Generated copies in shared-sources.json must match their canonical sources.
-
-    Mirrors tools/sync-shared.ts --check semantics:
-    - Strip the 2-line generated header (line 1 = @generated comment, line 2 = blank line)
-      from each target and compare the remainder against the canonical file byte-for-byte.
-    - Missing target files are also flagged as drift.
-    - Asserts that biome.json's copy-sync suppression override includes is set-equal to manifest targets.
-    """
-    errors = []
-    manifest_path = Path(manifest_path) if manifest_path is not None else (REPO_ROOT / 'tools' / 'shared-sources.json')
-    biome_path = Path(biome_path) if biome_path is not None else (REPO_ROOT / 'biome.json')
-
-    if not manifest_path.exists():
-        errors.append(f'shared-sources.json not found at {manifest_path}')
-        return errors
-
-    with open(manifest_path) as f:
-        manifest = json.load(f)
-
-    for entry in manifest:
-        canonical_rel = entry.get('canonical', '')
-        targets = entry.get('targets', [])
-        canonical_path = REPO_ROOT / canonical_rel
-        if not canonical_path.resolve().is_relative_to(REPO_ROOT.resolve()):
-            errors.append(f'Refusing path outside repo: {canonical_rel}')
-            continue
-        if not canonical_path.exists():
-            errors.append(
-                f'Canonical source not found: {canonical_rel}'
-            )
-            continue
-        canonical_content = canonical_path.read_text(encoding='utf-8')
-
-        for target_rel in targets:
-            target_path = REPO_ROOT / target_rel
-            if not target_path.resolve().is_relative_to(REPO_ROOT.resolve()):
-                errors.append(f'Refusing path outside repo: {target_rel}')
-                continue
-            if not target_path.exists():
-                errors.append(
-                    f'{target_rel} is missing. Run: bun run sync:shared'
-                )
-                continue
-            target_content = target_path.read_text(encoding='utf-8')
-            # HEADER CONTRACT: the 2-line @generated header stripped here MUST stay
-            # byte-identical to tools/sync-shared.ts::makeHeader() (line 1 = @generated
-            # comment, line 2 = blank). If makeHeader changes the header shape/length,
-            # update this strip (lines[2:]) in lockstep, or byte-equality will false-fail.
-            lines = target_content.split('\n')
-            # Header is 2 lines: index 0 = @generated, index 1 = blank; body starts at index 2
-            body = '\n'.join(lines[2:]) if len(lines) > 2 else ''
-            if body != canonical_content:
-                errors.append(
-                    f'{target_rel} is out of sync with {canonical_rel}. Run: bun run sync:shared'
-                )
-
-    # Biome-vs-manifest set-equality assertion
-    if not biome_path.exists():
-        errors.append(f'biome.json not found at {biome_path}')
-        return errors
-
-    with open(biome_path) as f:
-        biome_data = json.load(f)
-
-    # Locate the unique copy-sync suppression override: the entry in biome['overrides']
-    # whose includes are all under plugins/dev-init/skills/shared/ (the generated-copy
-    # override). Blindly indexing overrides[0] would silently pick the wrong override if the
-    # array is reordered or a new override is inserted before it.
-    # _copy_sync_prefix is injectable for tests (unit tests use scratch paths outside the
-    # canonical plugins/dev-init/ directory).
-    overrides = biome_data.get('overrides', [])
-    _dev_init_shared_prefix = _copy_sync_prefix if _copy_sync_prefix is not None else 'plugins/dev-init/skills/shared/'
-
-    def _is_copy_sync_override(entry: dict) -> bool:
-        includes = entry.get('includes', [])
-        return bool(includes) and all(
-            str(inc).startswith(_dev_init_shared_prefix) for inc in includes
-        )
-
-    manifest_targets = [t for entry in manifest for t in entry.get('targets', [])]
-
-    if manifest_targets:
-        # Only assert when the manifest is non-empty (no manifest targets → nothing to check)
-        matching = [o for o in overrides if _is_copy_sync_override(o)]
-        if len(matching) == 0:
-            errors.append(
-                'biome.json: could not locate the unique copy-sync suppression override '
-                f'(entry whose includes are all under {_dev_init_shared_prefix})'
-            )
-            return errors
-        if len(matching) > 1:
-            errors.append(
-                'biome.json: could not locate the unique copy-sync suppression override '
-                f'(entry whose includes are all under {_dev_init_shared_prefix}) — '
-                f'found {len(matching)} matching overrides, expected exactly 1'
-            )
-            return errors
-        biome_includes = matching[0].get('includes', [])
-    else:
-        # Empty manifest — fall back to overrides[0] for the biome check (nothing to compare)
-        biome_includes = overrides[0].get('includes', []) if overrides else []
-
-    biome_set = set(biome_includes)
-    manifest_set = set(manifest_targets)
-
-    for path in sorted(manifest_set - biome_set):
-        errors.append(
-            f'biome.json overrides[0].includes is missing copy-sync target: {path}. Run: derive biome includes from tools/shared-sources.json'
-        )
-    for path in sorted(biome_set - manifest_set):
-        errors.append(
-            f'biome.json overrides[0].includes has non-manifest entry: {path}. Either add it to tools/shared-sources.json or remove it from biome.json'
-        )
-
-    return errors
 
 
 def check_skill_line_budget(budgets=None, plugins_dir=None) -> list[str]:
@@ -785,7 +668,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Validate plugin structure and data conventions.')
     parser.add_argument(
         '--check',
-        choices=['class-list-sync', 'subsumption-pairs', 'shared-sources-sync', 'notation-legends'],
+        choices=['class-list-sync', 'subsumption-pairs', 'notation-legends'],
         help='Run only the named check (default: run all checks)',
     )
     args = parser.parse_args(argv)
@@ -804,15 +687,6 @@ def main(argv: list[str] | None = None) -> int:
         errors = check_subsumption_pairs()
         if errors:
             print('FAIL: Subsumption pairs', file=sys.stderr)
-            for e in errors:
-                print(f'  {e}', file=sys.stderr)
-            return 2 if any(_is_io_error(e) for e in errors) else 1
-        return 0
-
-    if args.check == 'shared-sources-sync':
-        errors = check_shared_sources_sync()
-        if errors:
-            print('FAIL: Shared sources sync', file=sys.stderr)
             for e in errors:
                 print(f'  {e}', file=sys.stderr)
             return 2 if any(_is_io_error(e) for e in errors) else 1
@@ -838,7 +712,6 @@ def main(argv: list[str] | None = None) -> int:
         ('Tempfile convention', check_tempfile_convention),
         ('Class list sync', check_class_list_sync),
         ('Subsumption pairs', check_subsumption_pairs),
-        ('Shared sources sync', check_shared_sources_sync),
         ('SKILL.md line budget', check_skill_line_budget),
         ('Notation legends', check_notation_legends),
         ('Golden inventories', check_golden_inventories),

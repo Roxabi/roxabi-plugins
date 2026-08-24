@@ -5,7 +5,7 @@
  *
  * Consumed by:
  *   - plugins/dev-core/hooks/format.cjs  (CJS require)
- *   - plugins/dev-core/skills/checkup/doctor.ts  (Bun TS import)
+ *   - plugins/dev-core/skills/dev-checkup/doctor.ts  (Bun TS import)
  *
  * Dependency-free: pure regex/string ops — no external YAML library.
  * Behavior-preserving: exact semantics from the three inline parsers it replaces.

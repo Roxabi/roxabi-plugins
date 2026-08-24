@@ -25,8 +25,7 @@ Roxabi plugins are the reusable layer on top of Claude Code. Each plugin ships o
 claude plugin marketplace add Roxabi/roxabi-plugins
 
 # 2. Install the plugin you need
-claude plugin install dev-core        # full dev lifecycle
-claude plugin install dev-init        # project initialization
+claude plugin install dev-core        # full dev lifecycle + /dev-init setup
 claude plugin install compress        # token-efficient skill notation
 ```
 
@@ -60,8 +59,7 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 
 | Plugin | Description |
 |--------|-------------|
-| [dev-init](plugins/dev-init/README.md) | Project initialization harness — `/dev-init` orchestrates env-setup, ci-setup, release-setup + axial ADR. Requires dev-core. |
-| [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. Lifecycle skills, agents, safety hooks. Issues-only (no Projects V2 board); issue triage lives in the separate [roxabi-issues](https://github.com/Roxabi/roxabi-live) plugin. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
+| [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. Includes `/dev-init` project setup (env-setup → axial → ci-setup → release-setup). Lifecycle skills, agents, safety hooks. Issues-only (no Projects V2 board); issue triage lives in the separate [roxabi-issues](https://github.com/Roxabi/roxabi-live) plugin. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
 
 ### Content & branding
 
@@ -126,7 +124,7 @@ Data-producing plugins store user data in `~/.roxabi-vault/` — never in the re
 
 Two kinds of plugins live in this repo:
 
-**Native plugins** — built and maintained by Roxabi. We own the full lifecycle: `dev-core`, `dev-init`, `compress`, `1b1`, `cv`, `linkedin-post-generator`, `image-prompt-generator`, `get-invoice-details`, `linkedin-apply`.
+**Native plugins** — built and maintained by Roxabi. We own the full lifecycle: `dev-core`, `compress`, `1b1`, `cv`, `linkedin-post-generator`, `image-prompt-generator`, `get-invoice-details`, `linkedin-apply`.
 
 **Wrapped plugins** — high-quality external skills with no versioning or install mechanism in their source repo. Roxabi adds plugin structure and vendors the source (via `git subtree` or file copy) so they become installable. New wrapped plugins go into `external/`.
 

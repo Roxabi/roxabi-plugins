@@ -1,4 +1,4 @@
-"""Tests for plugins/dev-core/skills/code-review/digest.py."""
+"""Tests for plugins/dev-core/skills/dev-review/digest.py."""
 from __future__ import annotations
 
 import sys
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-_SKILL_DIR = Path(__file__).resolve().parents[1] / 'plugins' / 'dev-core' / 'skills' / 'code-review'
+_SKILL_DIR = Path(__file__).resolve().parents[1] / 'plugins' / 'dev-core' / 'skills' / 'dev-review'
 sys.path.insert(0, str(_SKILL_DIR))
 
 from chunker import Chunk, DiffFile  # noqa: E402

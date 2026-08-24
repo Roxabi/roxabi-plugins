@@ -121,7 +121,7 @@ status: draft
 
 ## Spec
 
-> **Inline ambiguity markers:** `[NEEDS CLARIFICATION: description]` — unresolved ambiguity (max 3–5/spec). Must resolve before `/plan`.
+> **Inline ambiguity markers:** `[NEEDS CLARIFICATION: description]` — unresolved ambiguity (max 3–5/spec). Must resolve before `/dev-plan`.
 
 Output path: `artifacts/specs/{issue}-{slug}-spec.md`
 

@@ -37,4 +37,4 @@ Triggers: `"implement"` | `"build this"` | `"execute plan"` | `"start coding"` |
 
 ## Chain position
 
-**Predecessor:** `/plan` | **Successor:** `/pr`
+**Predecessor:** `/dev-plan` | **Successor:** `/pr`

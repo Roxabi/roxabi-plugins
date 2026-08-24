@@ -1,8 +1,0 @@
-{
-  "name": "dev-init",
-  "description": "Project initialization harness — orchestrates env-setup, ci-setup, release-setup + axial ADR gate. Invoke as /dev-init.",
-  "author": {
-    "name": "Roxabi"
-  },
-  "license": "MIT"
-}

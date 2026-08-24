@@ -67,15 +67,15 @@ d ∈ D := {tag: str, file: str, line: int, description: str, phase: str}
 
 ## Phase 0 — Load Taxonomy
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/code-review/review-classes.yml` → extract `classes[].class` slugs → `canonical_slugs`. (Canonical YAML ships with `code-review`; `fix` reads it cross-skill — single source, ¬duplicate copy that could drift.)
-File absent, unreadable, or parse error → HALT: `[taxonomy-error] review-classes.yml {reason} at ${CLAUDE_PLUGIN_ROOT}/skills/code-review/review-classes.yml — reinstall dev-core plugin.`
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev-review/review-classes.yml` → extract `classes[].class` slugs → `canonical_slugs`. (Canonical YAML ships with `dev-review`; `fix` reads it cross-skill — single source, ¬duplicate copy that could drift.)
+File absent, unreadable, or parse error → HALT: `[taxonomy-error] review-classes.yml {reason} at ${CLAUDE_PLUGIN_ROOT}/skills/dev-review/review-classes.yml — reinstall dev-core plugin.`
 Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬LLM memory).
 
 
 ## Phase 1 — Gather Findings
 
 1. PR# → `gh pr view <#> --json comments,closingIssuesReferences`; parse Conventional Comments from `.comments[].body`; capture `SOURCE_ISSUE` = `.closingIssuesReferences[0].number` (∅ if none — used in Phase 5 Defer to wire blocked-by). When `SOURCE_ISSUE ≠ ∅`, also resolve `SOURCE_PARENT` = `gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number}}}}' --jq '.data.repository.issue.parent.number // empty'` — used in Phase 5 Defer to wire deferred issue as **sibling** under shared parent (see `roxabi-issues:issue-triage` "Deferred Follow-Ups — Sibling Rule").
-2. ¬PR# → scan conversation for latest `/code-review` output
+2. ¬PR# → scan conversation for latest `/dev-review` output
 3. F = ∅ → halt
 4. ∀ f: parse → label, file:line, agent, root cause, class[], raw_callsites[], solutions, C(f)
    - `class[]` — 0–N canonical slugs from `review-classes.yml` + 0–1 `candidate/<slug>`; absent field → class[] = []
@@ -304,8 +304,8 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 ## Chain Position
 
 - **Phase:** Verify
-- **Predecessor:** `/code-review` (findings)
-- **Successor:** `/code-review` (re-review after fix) — LOOP
+- **Predecessor:** `/dev-review` (findings)
+- **Successor:** `/dev-review` (re-review after fix) — LOOP
 - **Class:** loop (bounded, max 2 iterations)
 
 ## Task Integration
@@ -317,7 +317,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 ## Exit
 
 - **Success via `/dev`:** fixes applied + committed + pushed + PR comment posted → `TaskCreate` follow-up review task → return silently. `/dev` picks up the new review task.
-- **Success standalone:** print summary (Applied/Skipped/Deferred/Failed) + `Next: /code-review` (re-verify). Stop.
+- **Success standalone:** print summary (Applied/Skipped/Deferred/Failed) + `Next: /dev-review` (re-verify). Stop.
 - **Failure (quality gate, ¬findings, unrecoverable):** return error. `/dev` presents Retry | Skip | Abort.
 - **Loop cap:** `metadata.iteration ≥ 2` on entry → refuse another iteration; return with message "Max fix iterations reached — resolve remaining manually". `/dev` presents Abort.
 
