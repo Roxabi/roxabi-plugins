@@ -136,7 +136,7 @@ Test:
 
 - **Phase:** Verify
 - **Predecessor:** `/ci-watch`
-- **Successor:** `/code-review`
+- **Successor:** `/dev-review`
 - **Class:** adv (continuous flow, no gate)
 
 ## Task Integration
@@ -147,8 +147,8 @@ Test:
 
 ## Exit
 
-- **All pass via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/code-review`. `/dev` re-scans and advances.
-- **All pass standalone:** print verdict block + `Next: /code-review`. Stop.
+- **All pass via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/dev-review`. `/dev` re-scans and advances.
+- **All pass standalone:** print verdict block + `Next: /dev-review`. Stop.
 - **Failure:** return error. `/dev` presents Retry | Skip | Abort.
 
 $ARGUMENTS

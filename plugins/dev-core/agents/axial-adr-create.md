@@ -239,7 +239,7 @@ Singleton invariant: exactly one ADR per project carries `axial: true`.
 
 Next:
   /init can continue scaffolding (if called from /init)
-  /spec, /code-review will detect this ADR and dispatch axial-adr-review when scope touches infrastructure/
+  /spec, /dev-review will detect this ADR and dispatch axial-adr-review when scope touches infrastructure/
 ```
 
 Exit status: `created` | `kept` | `superseded` | `cancelled`.

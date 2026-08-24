@@ -2,7 +2,7 @@
 
 ### Phase 1 — dev-core health check
 
-1. Run: `bun ${CLAUDE_PLUGIN_ROOT}/skills/checkup/doctor.ts`
+1. Run: `bun ${CLAUDE_PLUGIN_ROOT}/skills/dev-checkup/doctor.ts`
 2. Display output directly — pre-formatted.
 3. exit ≠ 0 → collect ❌ items; offer Phase 1 Fix per item.
 

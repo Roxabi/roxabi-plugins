@@ -12,7 +12,7 @@ Accepted — 2026-08-21. Implements Roxabi/roxabi-plugins#417 Shape 1 (V1).
 
 ## Context
 
-#416 shipped `parse-falsify.sh` and a thinner `/code-review` roster. Gates still
+#416 shipped `parse-falsify.sh` and a thinner `/dev-review` roster. Gates still
 measured **document shape** (`falsify_ok` from markdown tokens). Forged or
 LLM-authored evidence could clear `/pr` and skip the tester without an executable
 fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
@@ -31,7 +31,7 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    holds `head`, `runner_id`, `rows[]`, `oracle_ok`. Markdown `*-falsify.md` is an
    optional render, never a gate input.
 
-4. **Gate boolean graph** — `/pr` refuse and `/code-review` tester-skip read only
+4. **Gate boolean graph** — `/pr` refuse and `/dev-review` tester-skip read only
    **`oracle_ok`** from `run-falsify --verify` (full re-exec of mapped rows).
    Schema-parse of a pre-written green JSON alone → ¬`oracle_ok`.
    `falsify_ok` from `parse-falsify.sh` is removed from refuse/skip paths.
@@ -45,7 +45,7 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
 
 ## Consequences
 
-- `/implement` Step 6b, `/pr` gather-state, and `/code-review` must call the helper.
+- `/implement` Step 6b, `/pr` gather-state, and `/dev-review` must call the helper.
 - Kit/boilerplate can later invoke the same script; not an AC of #417 V1.
 - Verify cost may run 2–3× (implement + pr + review); same-`head` session cache is
   optional later — never a receipt-only bypass.

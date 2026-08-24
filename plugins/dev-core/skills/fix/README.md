@@ -9,7 +9,7 @@ After a code review, manually triaging and applying dozens of findings is tediou
 ## Usage
 
 ```
-/fix           Apply findings from the current conversation (latest /code-review output)
+/fix           Apply findings from the current conversation (latest /dev-review output)
 /fix #42       Gather findings from PR #42 comments
 ```
 
@@ -17,7 +17,7 @@ Triggers: `"fix findings"` | `"fix review"` | `"apply fixes"` | `"apply review c
 
 ## How it works
 
-**Phase 1 — Gather** — parses PR comments (Conventional Comments format) or scans the conversation for `/code-review` output. Parses label, file:line, agent, root cause, solutions, confidence.
+**Phase 1 — Gather** — parses PR comments (Conventional Comments format) or scans the conversation for `/dev-review` output. Parses label, file:line, agent, root cause, solutions, confidence.
 
 **Phase 2 — Triage** — splits findings into:
 - `Q_auto`: actionable, C≥80, verified by 2+ agents → auto-apply
@@ -44,4 +44,4 @@ Single-agent high-C findings get a fresh verifier agent before being promoted to
 
 ## Chain position
 
-**Predecessor:** `/code-review` | **Successor:** `/code-review` (re-review, max 2 iterations)
+**Predecessor:** `/dev-review` | **Successor:** `/dev-review` (re-review, max 2 iterations)

@@ -1,7 +1,7 @@
 ---
 name: recall
 description: |
-  Targeted recall agent for cross-chunk class join in /code-review.
+  Targeted recall agent for cross-chunk class join in /dev-review.
   Receives only callsites + context window, never the full diff.
   Confirms scope (RC-3) and finds un-cited instances (RC-6) for a single class.
 

@@ -27,7 +27,7 @@ Triggers: `"dev-init"` | `"setup project"` | `"initialize project"`
    - `axial-adr-create` — axis of decomposition ADR (unless `--skip-axial`)
    - `/ci-setup` — GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins
    - `/release-setup` — Commitizen, commitlint, semantic-release / Release Please
-4. **Report** — shows next steps: `/checkup`, `/seed-docs`, `/dev #N`.
+4. **Report** — shows next steps: `/dev-checkup`, `/seed-docs`, `/dev #N`.
 
 ## Sub-skills
 

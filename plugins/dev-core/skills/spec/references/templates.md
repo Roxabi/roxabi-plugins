@@ -84,9 +84,9 @@ oracles: ["concrete input that must fail closed"]
 claim:   [fail-closed]   # required whenever this fence exists — closed set: fail-closed | authz | ssot
 ```
 
-Implementer + tester test `priced` + `oracles`, never `not`. **`claim`** drives `/code-review` security-class spawn (see #419).
+Implementer + tester test `priced` + `oracles`, never `not`. **`claim`** drives `/dev-review` security-class spawn (see #419).
 
 ## Open Questions
 
-{Any [NEEDS CLARIFICATION: description] items unresolved. Max 5. Must resolve before /plan.}
+{Any [NEEDS CLARIFICATION: description] items unresolved. Max 5. Must resolve before /dev-plan.}
 ````

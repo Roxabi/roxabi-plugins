@@ -1,17 +1,17 @@
-# plan
+# dev-plan
 
 Implementation plan — micro-tasks, agent assignments, file groups, and dependency graph.
 
 ## Why
 
-A spec says *what* to build. A plan says *who builds what, in what order, in parallel where safe*. `/plan` decomposes the spec into micro-tasks with verify commands, assigns them to domain agents, wires RED→GREEN→REFACTOR phase dependencies, and seeds the **host task list** (Claude `Task*` or Grok `todo_write`) — giving `/implement` a ready-to-execute work queue.
+A spec says *what* to build. A plan says *who builds what, in what order, in parallel where safe*. `/dev-plan` decomposes the spec into micro-tasks with verify commands, assigns them to domain agents, wires RED→GREEN→REFACTOR phase dependencies, and seeds the **host task list** (Claude `Task*` or Grok `todo_write`) — giving `/implement` a ready-to-execute work queue.
 
 ## Usage
 
 ```
-/plan --issue 42             Generate plan for issue #42
-/plan --spec path            Generate plan from an explicit spec file
-/plan --issue 42 --audit     Show reasoning checkpoint as prose, then continue
+/dev-plan --issue 42             Generate plan for issue #42
+/dev-plan --spec path            Generate plan from an explicit spec file
+/dev-plan --issue 42 --audit     Show reasoning checkpoint as prose, then continue
 ```
 
 Triggers: `"plan"` | `"plan this"` | `"implementation plan"` | `"break it down"` | `"make a plan"` | `"task breakdown"`

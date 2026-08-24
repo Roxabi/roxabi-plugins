@@ -6,7 +6,7 @@ Standalone red-team / devil's advocate for design-phase work — analyses, propo
 
 Friendly review optimizes for shipping. Adversarial review tries to **kill the claim**: unstated assumptions, vacuous success criteria, bypass paths, partial-failure ordering, and scope that passes while the real problem remains. Better to break the idea on paper than after implement.
 
-Distinct from `/code-review`, which already embeds the adversarial *agent* on PR diffs. This skill is the entry point when there is no PR yet — only a shape, proposal, or argument.
+Distinct from `/dev-review`, which already embeds the adversarial *agent* on PR diffs. This skill is the entry point when there is no PR yet — only a shape, proposal, or argument.
 
 ## Usage
 
@@ -44,5 +44,5 @@ Triggers: `"adversarial"` | `"red team"` | `"devil's advocate"` | `"attack this 
 |-------|---------|
 | `/adversarial` | Kill the design |
 | `/advisory` | Strengthen and advise (constructive) |
-| `/code-review` | Diff/PR multi-domain review (includes adversarial agent) |
+| `/dev-review` | Diff/PR multi-domain review (includes adversarial agent) |
 | `/analyze` | Structured shape exploration (no attack) |

@@ -9,9 +9,9 @@ Checks:
 - Example files referenced in plugin.json exist
 - Vendored paths.py copies match the canonical version
 - Fixed /tmp/ literals in SKILL.md files (tempfile-convention.md)
-- Inline class list in code-review/SKILL.md spawn template matches review-classes.yml
+- Inline class list in dev-review/SKILL.md spawn template matches review-classes.yml
 - Subsumption pairs declared in review-classes.yml notes are mentioned together in
-  code-review/SKILL.md (prevents drift in pair definitions across files)
+  dev-review/SKILL.md (prevents drift in pair definitions across files)
 - Budgeted SKILL.md files stay within their physical line budgets
 - Gated dev-core legend lines are one-line pointers to the canonical notation
   glossary, and compress's inline whitelist stays set-equal to its core table
@@ -62,8 +62,8 @@ _INV_NORM_DROP_RE = re.compile(r'[^a-z0-9∀∃∄∈∉∧∨¬→⟺∅≥≤]
 
 _BACKTICK_SPAN_RE = re.compile(r'`([^`]+)`')
 
-_DEFAULT_YAML_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'review-classes.yml'
-_DEFAULT_SKILL_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'code-review' / 'SKILL.md'
+_DEFAULT_YAML_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'dev-review' / 'review-classes.yml'
+_DEFAULT_SKILL_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'dev-review' / 'SKILL.md'
 
 # Anchor in SKILL.md: "Canonical classes (use slug only): <slug1>, ...<slugN>."
 _SPAWN_LIST_RE = re.compile(
@@ -210,7 +210,7 @@ def check_class_list_sync(
     yaml_path: Path = _DEFAULT_YAML_PATH,
     skill_path: Path = _DEFAULT_SKILL_PATH,
 ) -> list[str]:
-    """Inline class list in code-review/SKILL.md spawn template must match review-classes.yml.
+    """Inline class list in dev-review/SKILL.md spawn template must match review-classes.yml.
 
     Exit semantics when called from main():
       - errors containing 'not found' or 'parse' → caller returns 2 (IO/parse failure)
@@ -222,7 +222,7 @@ def check_class_list_sync(
         errors.append(f'review-classes.yml not found at {yaml_path}')
         return errors
     if not skill_path.exists():
-        errors.append(f'code-review/SKILL.md not found at {skill_path}')
+        errors.append(f'dev-review/SKILL.md not found at {skill_path}')
         return errors
 
     try:
@@ -251,12 +251,12 @@ def check_class_list_sync(
         with open(skill_path) as f:
             content = f.read()
     except UnicodeDecodeError as e:
-        errors.append(f'code-review/SKILL.md is not valid UTF-8: {e}')
+        errors.append(f'dev-review/SKILL.md is not valid UTF-8: {e}')
         return errors
 
     m = _SPAWN_LIST_RE.search(content)
     if not m:
-        errors.append('code-review/SKILL.md: canonical class list not found in spawn template')
+        errors.append('dev-review/SKILL.md: canonical class list not found in spawn template')
         return errors
 
     inline_slugs: set[str] = set()
@@ -269,11 +269,11 @@ def check_class_list_sync(
     extra = inline_slugs - yaml_slugs
     if missing:
         errors.append(
-            f'code-review/SKILL.md spawn template missing slugs from review-classes.yml: {sorted(missing)}'
+            f'dev-review/SKILL.md spawn template missing slugs from review-classes.yml: {sorted(missing)}'
         )
     if extra:
         errors.append(
-            f'code-review/SKILL.md spawn template has extra slugs not in review-classes.yml: {sorted(extra)}'
+            f'dev-review/SKILL.md spawn template has extra slugs not in review-classes.yml: {sorted(extra)}'
         )
     return errors
 
@@ -302,7 +302,7 @@ def check_subsumption_pairs(
         errors.append(f'review-classes.yml not found at {yaml_path}')
         return errors
     if not skill_path.exists():
-        errors.append(f'code-review/SKILL.md not found at {skill_path}')
+        errors.append(f'dev-review/SKILL.md not found at {skill_path}')
         return errors
 
     try:
@@ -346,7 +346,7 @@ def check_subsumption_pairs(
         with open(skill_path) as f:
             content = f.read()
     except UnicodeDecodeError as e:
-        errors.append(f'code-review/SKILL.md is not valid UTF-8: {e}')
+        errors.append(f'dev-review/SKILL.md is not valid UTF-8: {e}')
         return errors
 
     paragraphs = re.split(r'\n\s*\n', content)
@@ -361,7 +361,7 @@ def check_subsumption_pairs(
         if not together:
             errors.append(
                 f'subsumption pair ({a}, {b}) declared in review-classes.yml note '
-                f'but not mentioned together in any paragraph of code-review/SKILL.md'
+                f'but not mentioned together in any paragraph of dev-review/SKILL.md'
             )
 
     return errors

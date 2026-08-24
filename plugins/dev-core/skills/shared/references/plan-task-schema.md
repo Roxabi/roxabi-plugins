@@ -1,6 +1,6 @@
 # Plan-Task Schema
 
-> **SSoT for `/plan` Step 6a and `/implement` Step 1b.** Host-neutral fields + rich-path shape.  
+> **SSoT for `/dev-plan` Step 6a and `/implement` Step 1b.** Host-neutral fields + rich-path shape.  
 > **How to call the host:** see [`harness-task-list.md`](harness-task-list.md) (Claude `Task*` vs Grok `todo_write`).  
 > Edit field definitions here only — never inline in either SKILL.md.
 

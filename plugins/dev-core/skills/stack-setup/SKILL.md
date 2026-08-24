@@ -381,7 +381,7 @@ Stack configuration written
   ⚠️  Missing standards docs: (list any configured paths that don't exist on disk)
 
 Next:
-  /checkup    Verify all checks pass
+  /dev-checkup    Verify all checks pass
   /dev #N     Start working on an issue
 ```
 

@@ -1,6 +1,6 @@
 /**
  * GitHub infrastructure constants — workflows, secrets, branch protection
- * rules, and rulesets used by /init and /checkup (repo hardening).
+ * rules, and rulesets used by /init and /dev-checkup (repo hardening).
  */
 
 import { ConfigError } from '../domain/errors'

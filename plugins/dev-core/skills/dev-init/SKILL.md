@@ -120,11 +120,11 @@ skill: "release-setup", args: "{args}"
 dev-init complete
 =================
 
-  Run /checkup   to verify full configuration health
+  Run /dev-checkup   to verify full configuration health
   Run /seed-docs to populate docs stubs from CLAUDE.md + codebase
 
 Next steps:
-  /checkup           Verify full configuration health
+  /dev-checkup           Verify full configuration health
   /seed-docs         Populate scaffolded docs with content from CLAUDE.md + codebase
   /dev #N            Start working on an issue
   /dev-init --force           Re-configure anytime

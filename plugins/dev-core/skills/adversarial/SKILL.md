@@ -20,7 +20,7 @@ Let:
   ρ  := optional artifact `artifacts/reviews/{N}-{slug}-adversarial.md`
   AQ := present choice, wait for user reply
 
-Standalone red-team. Goal: **kill S** with concrete attack paths or disproofs — not polish, not consensus, not OWASP checklist (→ security-auditor / `/code-review`).
+Standalone red-team. Goal: **kill S** with concrete attack paths or disproofs — not polish, not consensus, not OWASP checklist (→ security-auditor / `/dev-review`).
 
 ## When to use
 
@@ -29,7 +29,7 @@ Standalone red-team. Goal: **kill S** with concrete attack paths or disproofs �
 | Shape doc (analysis, shapes, arch proposal, free idea) | ✓ primary |
 | Spec / plan before approval | ✓ primary |
 | "What could go wrong?" on a design claim | ✓ primary |
-| PR / diff review | ✗ → `/code-review` (already spawns adversarial) |
+| PR / diff review | ✗ → `/dev-review` (already spawns adversarial) |
 | Constructive strengthen-and-advise | ✗ → `/advisory` |
 | Intent recap only (no attack) | ✗ → chat; `/analyze` for structured shape exploration |
 
@@ -116,7 +116,7 @@ Instructions:
 - Shape subjects (analysis/idea/arch): prefer assumption-kill, scope-attack, operational (design-level partial failure). Apply bypass / fleet-regression / vacuous-guard only when S proposes a control, gate, check, or "we'll know it works because…".
 - Spec subjects: all lenses; emphasize scope-attack + vacuous AC.
 - Plan subjects: assumption-kill, operational ordering, fleet-regression if multi-repo/multi-path.
-- Control subjects: full lens suite (same as /code-review posture).
+- Control subjects: full lens suite (same as /dev-review posture).
 - ¬OWASP / injection / secrets (security-auditor owns).
 - ¬style, ¬pure missing tests without vacuous-guard angle.
 - C < 65 → ¬report. Prefer findings that a friendly review would miss.
@@ -158,7 +158,7 @@ Claims / shapes that held under attack (if any) — one line each.
 
 ### Next
 
-Revise S | `/advisory` for constructive strengthen | `/spec` / `/plan` if still standing | Stop
+Revise S | `/advisory` for constructive strengthen | `/spec` / `/dev-plan` if still standing | Stop
 ```
 
 ∅ Φ → "No finding above confidence floor. Subject holds under red-team lenses applied. Residual risk: {1 line or none}."
@@ -203,7 +203,7 @@ Commit only if repo already tracks `artifacts/` and user confirms: `git add "{wr
 |----------|----------|
 | Pure docs rename / no claim | Light pass; only assumption-kill / scope-attack if claims change |
 | S already has prior adversarial ρ | Present choice **Reuse** | **Re-run** |
-| Concurrent `/code-review` | Fine — different subject (diff vs design) |
+| Concurrent `/dev-review` | Fine — different subject (diff vs design) |
 | User wants fixes applied | Point to revise artifact / `/fix` only for code; design stays human-owned |
 | Issue has no artifacts | Red-team issue body + free claim only |
 
@@ -211,8 +211,8 @@ Commit only if repo already tracks `artifacts/` and user confirms: `git add "{wr
 
 - **Phase:** Shape (also usable pre-spec / pre-plan / on free idea)
 - **Predecessor:** `/frame` ∨ `/analyze` ∨ `/spec` ∨ free text
-- **Successor:** revise S | `/advisory` | `/spec` | `/plan`
-- **Class:** standalone (never auto-triggered by `/dev`; `/spec` and `/code-review` still spawn the *agent* inline)
+- **Successor:** revise S | `/advisory` | `/spec` | `/dev-plan`
+- **Class:** standalone (never auto-triggered by `/dev`; `/spec` and `/dev-review` still spawn the *agent* inline)
 
 ## Task Integration
 

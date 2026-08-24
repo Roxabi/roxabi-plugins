@@ -28,7 +28,7 @@ Let:
 **Not** a substitute for `/dev`. Use when **implementation is already done** (or nearly) and you want the gate path only:
 
 ```
-commit → /pr → /code-review → [/fix ↺ /code-review]×≤K → label reviewed → /ci-watch → [/cleanup]
+commit → /pr → /dev-review → [/fix ↺ /dev-review]×≤K → label reviewed → /ci-watch → [/cleanup]
 ```
 
 Compared to `/dev` Verify (`pr → ci-watch → validate → review → fix`):
@@ -61,7 +61,7 @@ commit → pr → review → fix ↺ review → label-reviewed → ci-watch → 
 |------|-------|----------------|--------------|
 | commit | adv (inline) | conventional commit + push if dirty | pr |
 | pr | adv | `skill: "pr"` (+ `--draft` / `--base` if set) | review |
-| review | verdict | `skill: "code-review"` | APPROVED → label-reviewed · CHANGES_REQUESTED → fix · Stop → halt |
+| review | verdict | `skill: "dev-review"` | APPROVED → label-reviewed · CHANGES_REQUESTED → fix · Stop → halt |
 | fix | loop | `skill: "fix", args: "#{P}"` | strip premature `reviewed` if present → review (iter++) |
 | label-reviewed | adv (inline) | ensure auto-merge + `reviewed` label | ci-watch |
 | ci-watch | adv | `skill: "ci-watch", args: "--pr {P}"` | cleanup (if merged ∨ green path) |
@@ -154,7 +154,7 @@ On success: re-resolve P from `gh pr list --head "$Β"`. ¬P → halt.
 
 ## Step 4 — code-review
 
-**Invoke:** `skill: "code-review"` (PR auto-detected from branch).
+**Invoke:** `skill: "dev-review"` (PR auto-detected from branch).
 
 Interpret Phase 8 outcome (user decision inside code-review when standalone; when driven by ship, prefer):
 
@@ -165,7 +165,7 @@ Interpret Phase 8 outcome (user decision inside code-review when standalone; whe
 | Stop / Abort | halt ship |
 | F = ∅ clean approve | → label-reviewed |
 
-**Important:** `/code-review` Phase 8 may offer Merge as-is (label + auto-merge). Under `/ship`, that path is **allowed** and equivalent to label-reviewed + handoff; then ship still runs **ci-watch** to observe green + merge. If user already labeled inside code-review, skip duplicate label step.
+**Important:** `/dev-review` Phase 8 may offer Merge as-is (label + auto-merge). Under `/ship`, that path is **allowed** and equivalent to label-reviewed + handoff; then ship still runs **ci-watch** to observe green + merge. If user already labeled inside code-review, skip duplicate label step.
 
 ## Step 5 — fix (loop)
 
@@ -258,7 +258,7 @@ If TaskCreate available, seed `kind: "ship-pipeline"` tasks for active steps onl
 4. **NEVER** leave `reviewed` on a PR that still needs re-review after `/fix` (strip before re-review)
 5. **ALWAYS** cap fix↔review at K (default 2)
 6. **ALWAYS** stage intentional files only on commit step
-7. **NEVER** rewrite `/pr`, `/code-review`, `/fix`, `/ci-watch`, `/cleanup` logic — delegate
+7. **NEVER** rewrite `/pr`, `/dev-review`, `/fix`, `/ci-watch`, `/cleanup` logic — delegate
 
 ## Edge Cases
 

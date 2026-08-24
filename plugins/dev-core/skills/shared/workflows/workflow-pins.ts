@@ -20,7 +20,7 @@ export const ACTION_PINS = {
  *
  * Lives in this pure, I/O-free module (not adapters/github-infra.ts, which houses
  * `Bun.spawnSync`) so the pure workflow generators can import it without pulling an
- * I/O adapter into /checkup's import graph (#369). Pin source of truth:
+ * I/O adapter into /dev-checkup's import graph (#369). Pin source of truth:
  * ACTION_PINS.createAppToken — never float a tag.
  */
 export const APP_MINT_STEP = `      # roxabi-ci App token (ephemeral, 1 h) — pushes re-trigger CI,

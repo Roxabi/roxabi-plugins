@@ -1,16 +1,16 @@
-# code-review
+# dev-review
 
 Multi-domain code review via fresh domain agents → Conventional Comments findings + verdict.
 
 ## Why
 
-A single reviewer (even a good one) misses domain-specific issues. `/code-review` spawns a **conditional** roster (adversarial always, with an OWASP lens — not a default 8-agent swarm), merges findings using Conventional Comments labels, deduplicates by `(file, class)` keep-max-C, and produces a structured verdict: Approve, Approve with comments, or Request changes.
+A single reviewer (even a good one) misses domain-specific issues. `/dev-review` spawns a **conditional** roster (adversarial always, with an OWASP lens — not a default 8-agent swarm), merges findings using Conventional Comments labels, deduplicates by `(file, class)` keep-max-C, and produces a structured verdict: Approve, Approve with comments, or Request changes.
 
 ## Usage
 
 ```
-/code-review         Review current branch vs staging/main
-/code-review #42     Review PR #42
+/dev-review         Review current branch vs staging/main
+/dev-review #42     Review PR #42
 ```
 
 Triggers: `"code review"` | `"review changes"` | `"review PR #42"` | `"check my code"` | `"do a code review"`

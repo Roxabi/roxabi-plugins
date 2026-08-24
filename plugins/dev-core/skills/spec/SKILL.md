@@ -22,7 +22,7 @@ Let:
   SRC := source doc (α ∨ φ)
 
 Analysis (or frame) → draft σ → **executive summary in chat** → free-form human reaction → approve/revise.
-¬worktree, ¬PR. Shape phase only. Implementation → `/plan`.
+¬worktree, ¬PR. Shape phase only. Implementation → `/dev-plan`.
 
 ## Hard ban — AskUserQuestion
 
@@ -217,7 +217,7 @@ Include when data shape matters:
 
 Section sits before Breadboard: shape of data vs how pieces wire together.
 
-May contain χ (max 3–5). χ items block `/plan` — must be resolved before plan (via chat revise, not AQ).
+May contain χ (max 3–5). χ items block `/dev-plan` — must be resolved before plan (via chat revise, not AQ).
 
 ## Step 3 — Pre-check
 
@@ -249,7 +249,7 @@ Auto-select ρ (¬ask user). Architect always included:
 | devops | ∃ CI/CD / deploy / infra criteria | Operational feasibility |
 | axial-adr-review | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ (spec adds adapter/integration/target ∨ touches `infrastructure/`) | Drift along non-primary axis (N×M trap) — read-only review |
 
-> **Note on axial-adr-review asymmetry (intentional):** The `/spec` condition is **semantic/intent-based** — it triggers when the spec proposes adding a new adapter/integration/target or touches `infrastructure/`. The code-review phase (`/code-review`) uses a **structural** condition (diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`). The two are complementary: `/spec` catches intent-level N×M violations, `/code-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
+> **Note on axial-adr-review asymmetry (intentional):** The `/spec` condition is **semantic/intent-based** — it triggers when the spec proposes adding a new adapter/integration/target or touches `infrastructure/`. The code-review phase (`/dev-review`) uses a **structural** condition (diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`). The two are complementary: `/spec` catches intent-level N×M violations, `/dev-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
 
 ∀ r ∈ ρ → spawn ∥:
 ```
@@ -312,7 +312,7 @@ Print **exactly this structure** (fill from σ + Steps 3–4). HITL surface — 
 approve / ok → commit + mark approved · change … → revise + re-print · question … → answer · re-spec · split
 ```
 
-**STOP this turn** after printing the summary. Do not commit. Do not invoke `/plan`. Do not AskUserQuestion.
+**STOP this turn** after printing the summary. Do not commit. Do not invoke `/dev-plan`. Do not AskUserQuestion.
 
 ## Step 6 — React (free-form chat)
 
@@ -369,7 +369,7 @@ When user says split: present proposal as prose table → wait free-form confirm
 
 - **Phase:** Shape
 - **Predecessor:** `/analyze` (F-full) ∨ `/frame` (F-lite, analyze skipped)
-- **Successor:** `/plan`
+- **Successor:** `/dev-plan`
 - **Class:** `adv + approval stop` — **chat executive summary**, not AskUserQuestion; disk done-signal = `status: approved`
 
 ## Task Integration
@@ -381,8 +381,8 @@ When user says split: present proposal as prose table → wait free-form confirm
 ## Exit
 
 - **While waiting for reaction:** turn ends after Executive Summary. Task stays in progress from `/dev`'s POV until approve/abort.
-- **Approved via `/dev`:** commit, return silently. ¬ask "proceed to /plan?" via AQ. `/dev` re-scans and auto-chains to `/plan` in the same turn **after** the approve message is processed.
-- **Approved standalone:** print one line: `Approved. Next: /plan --issue N`. Stop.
+- **Approved via `/dev`:** commit, return silently. ¬ask "proceed to /dev-plan?" via AQ. `/dev` re-scans and auto-chains to `/dev-plan` in the same turn **after** the approve message is processed.
+- **Approved standalone:** print one line: `Approved. Next: /dev-plan --issue N`. Stop.
 - **Revise loop:** re-print Executive Summary after each edit; stop again.
 - **Abort:** return → `/dev` marks task `cancelled`.
 

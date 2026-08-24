@@ -25,7 +25,7 @@ roxabi-plugins/plugins/shared/cookbooks/    # Cross-project, reusable
   ...
 
 roxabi-plugins/plugins/<plugin>/cookbooks/   # Plugin-specific
-  dev-core/skills/checkup/cookbooks/
+  dev-core/skills/dev-checkup/cookbooks/
     devcore-checks.md
     infra-checks.md
   ci-setup/cookbooks/
@@ -116,7 +116,7 @@ When adding a new cookbook/playbook:
 
 | Plugin | Cookbooks |
 |--------|-----------|
-| `dev-core/checkup` | `devcore-checks.md`, `infra-checks.md`, `stack-checks.md` |
+| `dev-core/dev-checkup` | `devcore-checks.md`, `infra-checks.md`, `stack-checks.md` |
 | `dev-core/ci-setup` | `marketplace.md`, `scanning.md`, `workflows.md`, `hooks.md` |
 | `dev-core/cleanup-context` | `analysis.md`, `discovery.md`, `resolution.md` |
 | `dev-core/release-setup` | `quality-gates.md`, `release-automation.md`, `commit-standards.md`, `hook-runner.md` |

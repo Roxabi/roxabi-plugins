@@ -1,6 +1,6 @@
 # T2 Canonical taxonomy — review classes
 # Version: 1.0.0
-# Path: plugins/dev-core/skills/code-review/review-classes.yml
+# Path: plugins/dev-core/skills/dev-review/review-classes.yml
 #
 # Rules:
 #   - canonical classes: use exactly as listed (slug only, no free text)

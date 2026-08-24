@@ -1,6 +1,6 @@
 # Docs Scaffold Reference
 
-`scaffoldDocs()` in `skills/dev-init/lib/docs.ts` — called by `/env-setup` Phase 3 and `/checkup` auto-fix. Additive-only (¬overwrite existing files).
+`scaffoldDocs()` in `skills/dev-init/lib/docs.ts` — called by `/env-setup` Phase 3 and `/dev-checkup` auto-fix. Additive-only (¬overwrite existing files).
 
 **Write format:** always Markdown (`.md`). Legacy `.mdx` files in older repos are left alone (read-only compatibility). Fumadocs scaffolding was removed.
 

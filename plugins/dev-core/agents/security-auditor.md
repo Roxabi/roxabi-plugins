@@ -114,7 +114,7 @@ DoS/resource exhaustion | Rate limiting standalone | Secrets in `.env`/gitignore
     2. <alternative>
 ```
 
-`/code-review` usage → wrap φ in Conventional Comments:
+`/dev-review` usage → wrap φ in Conventional Comments:
 ```
 issue(blocking): <title>
   <file>:<line>
