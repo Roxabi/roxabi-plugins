@@ -1,7 +1,7 @@
 /**
  * Pure GitHub Actions workflow YAML generators + stack → opts helpers.
  * No network / no filesystem I/O — safe for /dev-checkup workflow-drift.
- * Push/write lives in workflow-push.ts (dev-init owned; copy-synced for tests).
+ * Push/write lives in workflow-push.ts.
  */
 
 import { generateClassifyPushJob, LANDING_PERMISSIONS, landingSuiteIf } from './workflow-landing'
