@@ -116,7 +116,11 @@ export async function resolveNamesFromSpec({ cwd, issue, specPath }) {
   if (!spec) throw new Error('resolveNamesFromSpec: spec required')
   const meta = await readSpecMeta(spec, issue)
   if (!meta.issue) throw new Error('resolveNamesFromSpec: spec has no issue: — mint first')
-  return { ...await resolveNames({ cwd: root, type: meta.type, slug: meta.slug, issue: meta.issue }), ...meta, specPath: spec }
+  return {
+    ...(await resolveNames({ cwd: root, type: meta.type, slug: meta.slug, issue: meta.issue })),
+    ...meta,
+    specPath: spec,
+  }
 }
 
 /** Create ω from principal. Never switch principal HEAD. `names` from resolveNames. */
@@ -125,9 +129,7 @@ export async function ensureWorktree(principalPath, names) {
   if (!PRINCIPALS.includes(head)) {
     throw new Error(`principal HEAD is ${head}, not staging|main|master — refuse`)
   }
-  const resolved = names.branch
-    ? names
-    : await resolveNames({ cwd: principalPath, ...names })
+  const resolved = names.branch ? names : await resolveNames({ cwd: principalPath, ...names })
   const listed = await git(principalPath, ['worktree', 'list', '--porcelain'])
   if (listed.includes(resolved.worktree)) return resolved
   await Bun.$`mkdir -p ${resolved.worktree.split('/').slice(0, -1).join('/')}`.quiet()
@@ -142,7 +144,6 @@ export async function ensureWorktree(principalPath, names) {
   return resolved
 }
 
-
 /** Commit dirty tree if any, then push the feature branch. */
 async function commitPush(cwd, branch, message) {
   const status = await git(cwd, ['status', '--porcelain'])
@@ -152,7 +153,6 @@ async function commitPush(cwd, branch, message) {
   }
   await git(cwd, ['push', '-u', 'origin', branch])
 }
-
 
 /**
  * @param {BuildContext} ctx
@@ -223,8 +223,6 @@ Fix root causes (R₁) on this worktree. Do not switch branch. Do not git commit
 # Acceptance
 Reply one line: \`fix: ok\``,
 
-
-
     merge: `# Target
 Issue #${issue}, PR ${extra.pr ?? ''}, cwd: ${cwd}
 
@@ -262,8 +260,7 @@ function parseVerdict(text) {
 async function reviewPair(ctx) {
   const a = await runStage(ctx, 'review', { agent: 'reviewer' })
   const b = await runStage(ctx, 'review-sec', { agent: 'security-reviewer' })
-  const verdict =
-    parseVerdict(a.text) === 'red' || parseVerdict(b.text) === 'red' ? 'red' : 'green'
+  const verdict = parseVerdict(a.text) === 'red' || parseVerdict(b.text) === 'red' ? 'red' : 'green'
   return { verdict }
 }
 
@@ -290,13 +287,12 @@ export async function run({ issue, specPath, cwd }) {
 
   const principal = await detectPrincipal(cwd)
   const common = await git(cwd, ['rev-parse', '--git-common-dir'])
-  const principalPath = await git(common.replace(/\/\.git$/, '') || common, [
-    'rev-parse',
-    '--show-toplevel',
-  ]).catch(async () => {
-    const root = common.replace(/\/\.git$/, '')
-    return root || top
-  })
+  const principalPath = await git(common.replace(/\/\.git$/, '') || common, ['rev-parse', '--show-toplevel']).catch(
+    async () => {
+      const root = common.replace(/\/\.git$/, '')
+      return root || top
+    },
+  )
 
   const ctx = {
     issue,
