@@ -1,0 +1,8 @@
+{
+  "name": "dev-core",
+  "private": true,
+  "type": "module",
+  "omp": {
+    "extensions": ["./omp/index.ts"]
+  }
+}
