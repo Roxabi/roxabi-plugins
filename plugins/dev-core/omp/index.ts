@@ -86,7 +86,9 @@ export default function devCoreExtension(pi: ExtensionAPI): void {
     if (!hasProjectContract(ctx.cwd)) {
       if (!warnedMissingContract.has(ctx.cwd)) {
         warnedMissingContract.add(ctx.cwd)
-        console.warn(`dev-core: no project contract found (looked for: ${PROJECT_CONTRACT_FILES.join(', ')}) — guards disabled`)
+        console.warn(
+          `dev-core: no project contract found (looked for: ${PROJECT_CONTRACT_FILES.join(', ')}) — guards disabled`,
+        )
       }
       return
     }
