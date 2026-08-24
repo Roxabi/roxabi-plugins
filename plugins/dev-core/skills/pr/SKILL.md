@@ -59,7 +59,7 @@ Emits: `branch`, `base`, commit log, diff stat, existing PR, issue number, lifec
 | PR exists | gh pr list → result | → present choice **Update** (`gh pr edit`) \| **Cancel** |
 | Branch not pushed | `git ls-remote --heads origin $BRANCH` empty | `git push -u origin $BRANCH` |
 | Quality gates | `{commands.lint} && {commands.typecheck}` | Warn on failure, ¬block. Note in PR body if proceeding. |
-| Falsify incomplete (τ≠S) | `falsify_required=true` ∧ `oracle_ok=false` | **REFUSE.** Re-run `/implement` Step 6b (`run-falsify` → persist `artifacts/reviews/{N}-falsify.json`). Stop. |
+| Falsify incomplete (τ≠S) | `falsify_required=true` ∧ `oracle_ok=false` | **REFUSE.** Re-run `/dev-implement` Step 6b (`run-falsify` → persist `artifacts/reviews/{N}-falsify.json`). Stop. |
 | Priced quantity missing (τ≠S) | `priced_ok=false` | **REFUSE.** Re-run `/spec` to add `priced`/`not`/`oracles` blocks on fail-closed SCs. Stop. |
 
 (Note: "behind base" is no longer a guard rail — Step 5 rebases post-create automatically. τ=S: skip both rails — `falsify_required=false`.)
@@ -177,7 +177,7 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 | ¬N in branch | → ask user link issue or skip |
 | Multiple commit types | Use primary type only |
 | Lint/typecheck fail | Warn + present choice: **Proceed anyway** \| **Fix first** |
-| τ≠S ∧ (`oracle_ok=false` ∨ `priced_ok=false`) | REFUSE — falsify → `/implement` Step 6b (`run-falsify`); priced → `/spec` |
+| τ≠S ∧ (`oracle_ok=false` ∨ `priced_ok=false`) | REFUSE — falsify → `/dev-implement` Step 6b (`run-falsify`); priced → `/spec` |
 
 ## Safety Rules
 
@@ -188,12 +188,12 @@ Lifecycle notes: S-tier → Intent + Implementation + Verification only. ¬issue
 5. Always display PR URL after creation
 6. Rebase conflicts → abort + defer to user — ¬auto-resolve
 7. ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED — manual merge mid-CI cancels in-flight runs (`concurrency.cancel-in-progress`) and skips gates. Nominal path: `reviewed` label → auto-merge (`--merge`) on green.
-8. τ≠S: ¬create PR while `oracle_ok=false` or `priced_ok=false` — markdown / `falsify_ok` is ¬the oracle. Re-run `/implement` Step 6b (`run-falsify`) or `/spec` (priced blocks).
+8. τ≠S: ¬create PR while `oracle_ok=false` or `priced_ok=false` — markdown / `falsify_ok` is ¬the oracle. Re-run `/dev-implement` Step 6b (`run-falsify`) or `/spec` (priced blocks).
 
 ## Chain Position
 
 - **Phase:** Build
-- **Predecessor:** `/implement` (worktree with commits) · or `/ship` commit step
+- **Predecessor:** `/dev-implement` (worktree with commits) · or `/ship` commit step
 - **Successor:** `/ci-watch` (via `/dev`) · or `/dev-review` (via `/ship`)
 - **Class:** adv (continuous flow, no gate)
 

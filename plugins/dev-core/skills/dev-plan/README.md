@@ -4,7 +4,7 @@ Implementation plan — micro-tasks, agent assignments, file groups, and depende
 
 ## Why
 
-A spec says *what* to build. A plan says *who builds what, in what order, in parallel where safe*. `/dev-plan` decomposes the spec into micro-tasks with verify commands, assigns them to domain agents, wires RED→GREEN→REFACTOR phase dependencies, and seeds the **host task list** (Claude `Task*` or Grok `todo_write`) — giving `/implement` a ready-to-execute work queue.
+A spec says *what* to build. A plan says *who builds what, in what order, in parallel where safe*. `/dev-plan` decomposes the spec into micro-tasks with verify commands, assigns them to domain agents, wires RED→GREEN→REFACTOR phase dependencies, and seeds the **host task list** (Claude `Task*` or Grok `todo_write`) — giving `/dev-implement` a ready-to-execute work queue.
 
 ## Usage
 
@@ -35,6 +35,6 @@ artifacts/plans/{N}-{slug}-plan.md
 
 ## Chain position
 
-**Predecessor:** `/spec` | **Successor:** `/implement` (via a compact pause after approval — `/dev` recommends `/compact` before building, then `/dev #N` ≡ `/implement #N`)
+**Predecessor:** `/spec` | **Successor:** `/dev-implement` (via a compact pause after approval — `/dev` recommends `/compact` before building, then `/dev #N` ≡ `/dev-implement #N`)
 
 Class: `adv + approval stop`. Disk done-signal = `## Task IDs` (written only after free-form approve).

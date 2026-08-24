@@ -1,20 +1,20 @@
-# implement
+# dev-implement
 
 Execute the plan — set up a worktree, spawn agents, write code + tests, run the quality gate.
 
 ## Why
 
-`/implement` is the execution engine. It reads the plan artifact, creates an isolated git worktree, spawns domain-specific agents (test-first: RED → GREEN → REFACTOR), and gates progress on lint + typecheck + test passing. It does NOT create a PR — that is `/pr`.
+`/dev-implement` is the execution engine. It reads the plan artifact, creates an isolated git worktree, spawns domain-specific agents (test-first: RED → GREEN → REFACTOR), and gates progress on lint + typecheck + test passing. It does NOT create a PR — that is `/pr`.
 
 ## Usage
 
 ```
-/implement --issue 42             Execute plan for issue #42
-/implement --plan path            Execute from an explicit plan file
-/implement --issue 42 --audit     Show reasoning checkpoint before coding
+/dev-implement --issue 42             Execute plan for issue #42
+/dev-implement --plan path            Execute from an explicit plan file
+/dev-implement --issue 42 --audit     Show reasoning checkpoint before coding
 ```
 
-Triggers: `"implement"` | `"build this"` | `"execute plan"` | `"start coding"` | `"write the code"` | `"code this up"` | `"let's build it"` | `"build it out"`
+Triggers: `"dev-implement"` | `"implement"` | `"build this"` | `"execute plan"` | `"start coding"` | `"write the code"` | `"code this up"` | `"let's build it"` | `"build it out"` | `"/dev-implement"`
 
 ## How it works
 

@@ -103,7 +103,7 @@ Caps: `Σ ops > 50` OR `|tasks| > 4` OR `distinct subjects > 2` → split into n
 
 ## Task Seeding Blueprint
 
-<!-- Used by /implement to seed TaskCreate calls on session start.
+<!-- Used by /dev-implement to seed TaskCreate calls on session start.
      Format: T{n} | agent-instance | blockedBy | subject
      blockedBy refs T-numbers within this list (not session task IDs).
      Agent instances are named (tester-A/B, backend-dev-A/B/C, devops-A/B)

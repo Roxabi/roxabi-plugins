@@ -276,7 +276,7 @@ If TaskCreate available, seed `kind: "ship-pipeline"` tasks for active steps onl
 ## Chain Position
 
 - **Phase:** Ship (feature → base)
-- **Predecessor:** ad-hoc implementation, or `/implement`, or end of `/dev` Build without Verify
+- **Predecessor:** ad-hoc implementation, or `/dev-implement`, or end of `/dev` Build without Verify
 - **Successor:** `/promote` (staging→main) when base was staging
 - **Class:** meta-orchestrator (like `/dev`, narrower)
 

@@ -104,7 +104,7 @@ Run from principal (or any CWD; all git ops that touch principal use `-C` when n
 |----------------|------|
 | `/setup-worktree` | Full setup procedure + H_wt |
 | `/dev` Step 7 bootstrap | invoke setup-worktree; artifact sync absolute |
-| `/implement` Step 2 | locate ω, enter per H_wt, work only in ω |
+| `/dev-implement` Step 2 | locate ω, enter per H_wt, work only in ω |
 | `/analyze` spike | throwaway ω; principal stays on β |
 | `scan-state.sh` / `setup-preflight.sh` | `find_feature_worktree`, principal ok flags |
 | `/cleanup` | remove ω by path; orphan Grok shells |

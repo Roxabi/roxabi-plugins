@@ -64,7 +64,7 @@ If `{backend.path}` is undefined → output: "`.claude/stack.yml` not found."
 Skills at `.claude/skills/<skill-name>/SKILL.md`. Drop file → replaces plugin version:
 
 ```
-.claude/skills/implement/SKILL.md     ← overrides dev-core's /implement skill
+.claude/skills/dev-implement/SKILL.md     ← overrides dev-core's /dev-implement skill
 ```
 
 Same SKILL.md format. Copy plugin version as base, add project phases ∨ modify existing.

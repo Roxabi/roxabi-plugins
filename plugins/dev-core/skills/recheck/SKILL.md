@@ -251,7 +251,7 @@ No on-disk artifact. `/dev` tracks recheck as Σ_s (session-only) like `validate
 
 - **Phase:** Frame
 - **Predecessor:** `/issue-triage`
-- **Successor:** `/frame` (F-lite, F-full) ∨ `/implement` (S, frame skipped)
+- **Successor:** `/frame` (F-lite, F-full) ∨ `/dev-implement` (S, frame skipped)
 - **Class:** `adv` — `/dev` treats approval-stop separately (`frame|analyze|spec|plan`); all others are `adv` (or verdict/loop). The DP rendered on signal-fire is **skill-internal**: `/recheck` self-manages the blocking decision the same way `/validate` and `/ci-watch` do when they surface failures. From `/dev`'s perspective, `/recheck` is always `adv`.
 
 ## Exit
