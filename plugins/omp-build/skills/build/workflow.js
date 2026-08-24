@@ -258,7 +258,6 @@ Fix root causes (R₁) on this worktree. Do not switch branch. Do not git commit
 
 # Acceptance
 Reply one line: \`fix: ok\``,
-
   }
 
   const prompt = prompts[stage]
