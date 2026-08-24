@@ -1,6 +1,6 @@
 # omp-build
 
-OMP-only cycle: grill → validate spec → plan → impl → PR → review → merge.
+OMP-only cycle: grill → validate spec → plan → impl → PR → review (≤2) → `reviewed` → watch merge.
 
 Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children.
 
@@ -15,7 +15,7 @@ One copy of `workflow.js` (the repo). `/build` and `omp-wt` both use it.
 
 ## Launch
 
-From the **principal** (`staging|main|master`):
+From a **clean** principal, fetched: **staging** if it exists, else `main`/`master`.
 
 ```bash
 omp-wt 42                         # GitHub issue
@@ -28,6 +28,6 @@ omp-wt                            # prompt: GH # | spark URL | spark:<client>#N 
 Creates ω (`<type>/<N>-<slug>` via `resolveNames`) and `omp --cwd` there. Then `/build`:
 
 1. Grill + you type `validated` (parent turn — not `run()`)
-2. `run()` = plan → impl → PR → review → merge
+2. `run()` = plan → impl → PR → review (≤2) → label `reviewed` → watch until merge
 
 Skip grill when the spec is already `status: validated`.

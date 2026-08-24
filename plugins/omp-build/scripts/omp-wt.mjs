@@ -276,7 +276,6 @@ let content = null
 
 if (sparkId) {
   const sparkClient = await resolveSparkClient(sparkClientFlag || sparkClientToken)
-  console.error(`omp-wt: spark ${sparkClient || '-'} ${sparkId}`)
   const ticket = await fetchSpark(sparkId, sparkClient)
   subject = ticket.title
   spark = ticket.spark

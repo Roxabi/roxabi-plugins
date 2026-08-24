@@ -2,8 +2,8 @@
 name: build
 disable-model-invocation: true
 argument-hint: '[#N | --spec <path>]'
-description: OMP-only — grill then validate spec, then plan→impl→PR→review→merge. Not host /dev.
-version: 0.2.0
+description: OMP-only — grill then validate spec, then plan→impl→PR→review→reviewed→watch merge. Not host /dev.
+version: 0.3.0
 ---
 
 # Build
@@ -52,8 +52,8 @@ const result = await run({ issue, specPath, cwd })
 | `result.status` | Action |
 |---|---|
 | `need-relaunch` | `omp --cwd <result.worktree>` then `/build #N`. Do not implement here. |
-| `red` | Stop. Show review. Leave the worktree. |
-| `green` | PR merged. Print `result.cleanup` (remove ω from the principal). Never delete cwd from inside it. |
+| `red` | Stop. Show review or land blocker (`reason`: ci-failed\|closed\|timeout). Leave the worktree. |
+| `green` | PR merged (`reviewed` + watch). Print `result.cleanup` (remove ω from the principal). Never delete cwd from inside it. |
 
 - Grill in this turn. Do not Skill() `grill-me`.
 - Do not Skill() dev-core children.

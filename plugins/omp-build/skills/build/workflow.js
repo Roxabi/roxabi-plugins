@@ -13,7 +13,7 @@
  * NEVER pipeline() this chain.
  */
 
-const PRINCIPALS = ['staging', 'main', 'master']
+export const PRINCIPALS = ['staging', 'main', 'master']
 const HOME = process.env.HOME || ''
 
 /** @typedef {{ issue: number, specPath: string, cwd: string, principal: string, branch: string, worktree: string, principalPath: string }} BuildContext */
@@ -61,23 +61,46 @@ export async function findSpecForIssue(root, issue) {
   return null
 }
 
-export async function detectPrincipal(cwd) {
-  try {
-    const sym = await git(cwd, ['symbolic-ref', 'refs/remotes/origin/HEAD'])
-    const name = sym.replace(/^refs\/remotes\/[^/]+\//, '')
-    if (PRINCIPALS.includes(name)) return name
-  } catch {
-    /* no origin/HEAD */
-  }
+const fetched = new Set()
+
+export function pickPrincipal(present) {
   for (const b of PRINCIPALS) {
-    try {
-      await git(cwd, ['rev-parse', '--verify', b])
-      return b
-    } catch {
-      /* next */
+    if (present.has(b)) return b
+  }
+  return null
+}
+
+export function startPointFor(principal, hasOrigin) {
+  return hasOrigin ? `origin/${principal}` : principal
+}
+
+async function refExists(cwd, ref) {
+  try {
+    await git(cwd, ['rev-parse', '--verify', '--quiet', ref])
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function fetchOrigin(cwd) {
+  const root = await git(cwd, ['rev-parse', '--show-toplevel'])
+  if (fetched.has(root)) return
+  await git(cwd, ['fetch', 'origin', '--prune'])
+  fetched.add(root)
+}
+
+export async function detectPrincipal(cwd) {
+  await fetchOrigin(cwd)
+  const present = new Set()
+  for (const b of PRINCIPALS) {
+    if ((await refExists(cwd, `refs/remotes/origin/${b}`)) || (await refExists(cwd, `refs/heads/${b}`))) {
+      present.add(b)
     }
   }
-  throw new Error('no principal branch (staging|main|master)')
+  const name = pickPrincipal(present)
+  if (!name) throw new Error('no principal branch (staging|main|master)')
+  return name
 }
 
 export async function repoName(cwd) {
@@ -132,6 +155,15 @@ export async function ensureWorktree(principalPath, names) {
   const resolved = names.branch ? names : await resolveNames({ cwd: principalPath, ...names })
   const listed = await git(principalPath, ['worktree', 'list', '--porcelain'])
   if (listed.includes(resolved.worktree)) return resolved
+
+  const dirty = await git(principalPath, ['status', '--porcelain'])
+  if (dirty) throw new Error(`principal dirty — refuse\n${dirty}`)
+
+  resolved.principal = await detectPrincipal(principalPath)
+  if (head === resolved.principal && (await refExists(principalPath, `refs/remotes/origin/${resolved.principal}`))) {
+    await git(principalPath, ['merge', '--ff-only', `origin/${resolved.principal}`])
+  }
+
   await Bun.$`mkdir -p ${resolved.worktree.split('/').slice(0, -1).join('/')}`.quiet()
   const branchExists = await git(principalPath, ['rev-parse', '--verify', resolved.branch])
     .then(() => true)
@@ -139,7 +171,11 @@ export async function ensureWorktree(principalPath, names) {
   if (branchExists) {
     await git(principalPath, ['worktree', 'add', resolved.worktree, resolved.branch])
   } else {
-    await git(principalPath, ['worktree', 'add', '-b', resolved.branch, resolved.worktree, resolved.principal])
+    const start = startPointFor(
+      resolved.principal,
+      await refExists(principalPath, `refs/remotes/origin/${resolved.principal}`),
+    )
+    await git(principalPath, ['worktree', 'add', '-b', resolved.branch, resolved.worktree, start])
   }
   return resolved
 }
@@ -223,16 +259,6 @@ Fix root causes (R₁) on this worktree. Do not switch branch. Do not git commit
 # Acceptance
 Reply one line: \`fix: ok\``,
 
-    merge: `# Target
-Issue #${issue}, PR ${extra.pr ?? ''}, cwd: ${cwd}
-
-# Change
-1. Label \`reviewed\` on issue #${issue}
-2. Merge PR ${extra.pr ?? ''} into ${principal} (repo default)
-Do not delete this worktree (session cwd). Do not switch.
-
-# Acceptance
-Reply one line: \`merge: ok\``,
   }
 
   const prompt = prompts[stage]
@@ -262,6 +288,40 @@ async function reviewPair(ctx) {
   const b = await runStage(ctx, 'review-sec', { agent: 'security-reviewer' })
   const verdict = parseVerdict(a.text) === 'red' || parseVerdict(b.text) === 'red' ? 'red' : 'green'
   return { verdict }
+}
+
+async function gh(cwd, args) {
+  const proc = Bun.spawn(['gh', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' })
+  const stdout = await new Response(proc.stdout).text()
+  const stderr = await new Response(proc.stderr).text()
+  const code = await proc.exited
+  if (code !== 0) throw new Error(`gh ${args.join(' ')} failed (${code}): ${stderr || stdout}`)
+  return stdout.trim()
+}
+
+const WATCH_MS = 20 * 60 * 1000
+const WATCH_EVERY = 15_000
+
+/** Label PR `reviewed`, enable auto-merge, watch until MERGED. No mid-CI merge. */
+export async function landPr(cwd, pr, { now = Date.now, sleep = (ms) => Bun.sleep(ms), timeout = WATCH_MS } = {}) {
+  await gh(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
+  try {
+    await gh(cwd, ['pr', 'merge', String(pr), '--auto', '--merge'])
+  } catch {
+    /* merge-on-green: label is the gate */
+  }
+  const deadline = now() + timeout
+  while (now() < deadline) {
+    const j = JSON.parse(await gh(cwd, ['pr', 'view', String(pr), '--json', 'state,statusCheckRollup']))
+    if (j.state === 'MERGED') return { status: 'merged' }
+    if (j.state === 'CLOSED') return { status: 'closed' }
+    const checks = j.statusCheckRollup || []
+    if (checks.some((c) => ['FAILURE', 'CANCELLED', 'TIMED_OUT'].includes(c.conclusion))) {
+      return { status: 'ci-failed' }
+    }
+    await sleep(WATCH_EVERY)
+  }
+  return { status: 'timeout' }
 }
 
 /**
@@ -326,7 +386,10 @@ export async function run({ issue, specPath, cwd }) {
     return { status: 'red', reviewPath, branch: expectedBranch, worktree: cwd, pr }
   }
 
-  await runStage(ctx, 'merge', { pr })
+  const land = await landPr(cwd, pr)
+  if (land.status !== 'merged') {
+    return { status: 'red', reason: land.status, reviewPath, branch: expectedBranch, worktree: cwd, pr }
+  }
   return {
     status: 'green',
     pr,
