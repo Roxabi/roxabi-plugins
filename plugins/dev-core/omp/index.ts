@@ -44,7 +44,7 @@ type ExtensionAPI = {
 const __filename = fileURLToPath(import.meta.url)
 const PLUGIN_ROOT = dirname(dirname(__filename))
 
-const SKILL_COMMANDS = ['dev', 'ship', 'dev-init', 'dev-plan', 'dev-review', 'dev-checkup'] as const
+const SKILL_COMMANDS = ['dev', 'ship', 'dev-init', 'dev-plan', 'dev-implement', 'dev-review', 'dev-checkup'] as const
 
 function stripFrontmatter(markdown: string): string {
   if (!markdown.startsWith('---\n')) return markdown

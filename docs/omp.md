@@ -35,6 +35,7 @@ Other skills resolve via `skill://` when the plugin is linked (`omp plugin link`
 | `/ship` | Land ready code (PR, review, CI) |
 | `/dev-init` | Project initialization harness |
 | `/dev-plan` | Implementation plan (not native `/plan`) |
+| `/dev-implement` | Execute implementation from a plan (not a generic implement) |
 | `/dev-review` | Multi-domain review (not native `/review`) |
 | `/dev-checkup` | Project health check (not native `/checkup`) |
 
