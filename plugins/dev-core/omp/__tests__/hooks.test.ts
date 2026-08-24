@@ -40,16 +40,26 @@ describe('OMP dev-core hooks', () => {
   describe('principal freeze pre', () => {
     it('denies git switch feat/foo on principal cwd', () => {
       const principalCwd = '/repo/principal'
-      const denied = shouldBlockPrincipalSwitch('git switch feat/foo', principalCwd, process.env, {
-        isPrincipalCwd: (cwd) => cwd === principalCwd,
-      })
+      const denied = shouldBlockPrincipalSwitch(
+        'git switch feat/foo',
+        principalCwd,
+        {},
+        {
+          isPrincipalCwd: (cwd) => cwd === principalCwd,
+        },
+      )
       expect(denied).toBe(true)
     })
 
     it('allows switch on non-principal cwd', () => {
-      const denied = shouldBlockPrincipalSwitch('git switch feat/foo', '/repo/feature-wt', process.env, {
-        isPrincipalCwd: () => false,
-      })
+      const denied = shouldBlockPrincipalSwitch(
+        'git switch feat/foo',
+        '/repo/feature-wt',
+        {},
+        {
+          isPrincipalCwd: () => false,
+        },
+      )
       expect(denied).toBe(false)
     })
 
@@ -58,7 +68,7 @@ describe('OMP dev-core hooks', () => {
       const denied = shouldBlockPrincipalSwitch(
         'git switch feat/foo',
         principalCwd,
-        { ...process.env, DEV_CORE_ALLOW_PRINCIPAL_SWITCH: '1' },
+        { DEV_CORE_ALLOW_PRINCIPAL_SWITCH: '1' },
         { isPrincipalCwd: (cwd) => cwd === principalCwd },
       )
       expect(denied).toBe(false)
