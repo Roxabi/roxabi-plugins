@@ -1,0 +1,65 @@
+{
+  "name": "roxabi-marketplace",
+  "version": "1.0.0",
+  "description": "Open-source Oh My Pi plugins by Roxabi — context engineering tools for teams.",
+  "owner": {
+    "name": "Roxabi",
+    "url": "https://github.com/Roxabi"
+  },
+  "plugins": [
+    {
+      "name": "compress",
+      "description": "Rewrite agent and skill definitions using compact math/logic notation to reduce token usage while preserving semantics.",
+      "source": "./plugins/compress",
+      "category": "development"
+    },
+    {
+      "name": "1b1",
+      "description": "Walk through a list of items one by one — brief, decide, execute, repeat.",
+      "source": "./plugins/1b1",
+      "category": "workflow"
+    },
+    {
+      "name": "dev-core",
+      "description": "Full development workflow — frame, shape, plan, implement, review, ship. Includes /dev-init project setup orchestrator. Opinionated Roxabi process: lifecycle skills, specialized agents, and safety hooks.",
+      "source": "./plugins/dev-core",
+      "category": "development"
+    },
+    {
+      "name": "linkedin-post-generator",
+      "description": "Generate engaging LinkedIn posts with best practices and visual identity.",
+      "source": "./plugins/linkedin-post-generator",
+      "category": "content"
+    },
+    {
+      "name": "image-prompt-generator",
+      "description": "Generate AI image prompts with visual identity and style consistency.",
+      "source": "./plugins/image-prompt-generator",
+      "category": "productivity"
+    },
+    {
+      "name": "cv",
+      "description": "Generate and adapt CVs from structured JSON data, with tailoring for specific job postings.",
+      "source": "./plugins/cv",
+      "category": "productivity"
+    },
+    {
+      "name": "get-invoice-details",
+      "description": "Extract structured data from invoice documents (text or PDF) and store as JSON.",
+      "source": "./plugins/get-invoice-details",
+      "category": "productivity"
+    },
+    {
+      "name": "linkedin-apply",
+      "description": "Scrape LinkedIn job offers and score them against your profile with Claude LLM — APPLY / REVIEW / SKIP decisions with 4-dimension scoring.",
+      "source": "./plugins/linkedin-apply",
+      "category": "productivity"
+    },
+    {
+      "name": "gitnexus",
+      "description": "GitNexus CLI integration — code knowledge graph tools (impact analysis, symbol context, query). CLI-only alternative to MCP for minimal token overhead.",
+      "source": "./plugins/gitnexus",
+      "category": "development"
+    }
+  ]
+}
