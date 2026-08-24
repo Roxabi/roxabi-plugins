@@ -291,9 +291,9 @@ Idempotent. **¬** relative `../../../artifacts/` (wrong under `~/.grok/worktree
 | implement | adv | `skill: "implement", args: "{N:+--issue $N}"` | pr |
 | pr | adv | `skill: "pr"` (auto-detects branch + issue) | ci-watch |
 | ci-watch | adv | `skill: "ci-watch", args: "--pr {PR#}"` | validate |
-| validate | adv | `skill: "validate"` | code-review |
+| validate | adv | `skill: "validate"` | review |
 | review | verdict | `skill: "dev-review"` | APPROVED → merge → cleanup \| CHANGES_REQUESTED → fix |
-| fix | loop | `skill: "fix", args: "#{PR_NUMBER}"` | code-review (max 2 iters, then Abort) |
+| fix | loop | `skill: "fix", args: "#{PR_NUMBER}"` | review (max 2 iters, then Abort) |
 | promote | — | `skill: "promote"` (standalone — never auto-triggered) | — |
 | cleanup | adv | `skill: "cleanup", args: "--scope #N"` | pipeline complete |
 
