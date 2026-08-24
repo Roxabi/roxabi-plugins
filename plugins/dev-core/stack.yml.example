@@ -107,7 +107,7 @@ commands:
   dev: bun run dev
   build: bun run build
   test: bun run test
-  # "test:falsify": bun run test:falsify  # optional — mechanical falsify (/implement 6b, /validate --full)
+  # "test:falsify": bun run test:falsify  # optional — mechanical falsify (/dev-implement 6b, /validate --full)
   lint: bun run lint
   typecheck: bun run typecheck
   format: "bunx biome check --write"

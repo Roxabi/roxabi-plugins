@@ -80,9 +80,9 @@ Work only from π micro-tasks table. Present progress in the reply. No host list
 | Skill | Uses H for |
 |-------|------------|
 | `/dev-plan` Step 6a | Initial seed |
-| `/implement` Step 1b | Attach / re-seed / probe once |
-| `/implement` Step 4 | Claim, load context, mark done, ready-set |
-| `/implement` Step 6 | All-completed assert |
+| `/dev-implement` Step 1b | Attach / re-seed / probe once |
+| `/dev-implement` Step 4 | Claim, load context, mark done, ready-set |
+| `/dev-implement` Step 6 | All-completed assert |
 
 ## Related
 

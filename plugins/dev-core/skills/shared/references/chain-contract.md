@@ -19,7 +19,7 @@ issue-triage (external, roxabi-issues) → recheck → frame ⏸?→ analyze ⏸
 > - `frame ⏸?`: stop only when ¬high_conf; **high_conf auto-approves** same turn (seed complete, premise ok, tier not contested).
 > - `analyze ⏸→ spec`: always prints Executive Summary and waits. τ ∈ {S, F-lite} skip analyze entirely.
 > - `spec ⏸→ plan`: chat Executive Summary (same doctrine; disk `status ≠ draft`).
-> - `plan ⏸→ implement`: plan Executive Summary → free-form approve → seed+commit; then `/dev` Step 8b **compact pause** before `/implement`. τ=S skips plan entirely.
+> - `plan ⏸→ implement`: plan Executive Summary → free-form approve → seed+commit; then `/dev` Step 8b **compact pause** before `/dev-implement`. τ=S skips plan entirely.
 
 ### Parallel meta: `/ship` (code already ready)
 
@@ -56,7 +56,7 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 | Class | Meaning | Skills | Exit behavior |
 |---|---|---|---|
 | **adv** | Continuous flow, no user gate | recheck, implement, pr, ci-watch, validate, cleanup | Return silently; `/dev` auto-advances |
-| **adv + approval stop** | Dispatched like `adv`; chat Executive Summary + free-form approve (¬AskUserQuestion). Optional high-conf auto-approve (frame only). | frame, analyze, spec, plan | Print summary → **stop** unless high_conf auto-approve (frame). `/dev` Step 8.0: disk done-signal before complete. Walk **ignores `Σ_s` alone** for these steps. Resume = skill React (¬fresh Step 0). **plan:** after approve+seed, compact pause before `/implement`. |
+| **adv + approval stop** | Dispatched like `adv`; chat Executive Summary + free-form approve (¬AskUserQuestion). Optional high-conf auto-approve (frame only). | frame, analyze, spec, plan | Print summary → **stop** unless high_conf auto-approve (frame). `/dev` Step 8.0: disk done-signal before complete. Walk **ignores `Σ_s` alone** for these steps. Resume = skill React (¬fresh Step 0). **plan:** after approve+seed, compact pause before `/dev-implement`. |
 | **gate** | (legacy / rare pre-gates only) | — | Prefer `adv + approval stop` for pipeline artifacts. `/dev` may still use structured prompts for F-full architecture sketch / issue create. |
 | **verdict** | Branches based on outcome | code-review | APPROVED → merge → cleanup; CHANGES_REQUESTED → `/fix` |
 | **loop** | Cycles back to predecessor (bounded) | fix | On success → TaskCreate follow-up review; max 2 iterations |
@@ -144,7 +144,7 @@ The Executive Summary is the gate output (not a closing recap). Frame may skip t
 
 **Frame high_conf exception:** when interview/premise gaps are zero, tier not contested, and no premise abort signal → auto-approve + commit same turn (short summary printed; no approval STOP).
 
-**`/dev-plan` exception — compact pause:** after approve+seed+commit, `/dev` Step 8b prints a compact-pause recommendation (`/compact` → `/implement`, where `/dev #N` ≡ `/implement #N`) and stops the turn. Rationale: planning context is dead weight for the build phase; tasks persist (task list + artifact `## Task IDs`) so `/implement` Step 1b re-attaches after the compact. Re-fire guard: the pause is keyed to *plan having just run*, so the post-compact `/dev #N` resume goes straight to `/implement`.
+**`/dev-plan` exception — compact pause:** after approve+seed+commit, `/dev` Step 8b prints a compact-pause recommendation (`/compact` → `/dev-implement`, where `/dev #N` ≡ `/dev-implement #N`) and stops the turn. Rationale: planning context is dead weight for the build phase; tasks persist (task list + artifact `## Task IDs`) so `/dev-implement` Step 1b re-attaches after the compact. Re-fire guard: the pause is keyed to *plan having just run*, so the post-compact `/dev #N` resume goes straight to `/dev-implement`.
 
 ### verdict-class Exit (code-review)
 
@@ -222,5 +222,5 @@ This pulls the marketplace clone and repopulates the hash-keyed cache dir, ensur
 - ADR: `docs/adr/00X-dev-core-chain-contract.md` — rationale for distributed declaration + /dev-owns-lifecycle
 - `/dev` SKILL.md — orchestration state machine
 - `/dev-plan` SKILL.md — reference implementation of sub-task creation
-- `/implement` SKILL.md — reference implementation of sub-task consumption
+- `/dev-implement` SKILL.md — reference implementation of sub-task consumption
 - [artifact-frontmatter.md](./artifact-frontmatter.md) — title hygiene + `type:`/`status:` required keys for every writer

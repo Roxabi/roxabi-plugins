@@ -1,7 +1,7 @@
 ---
-name: implement
+name: dev-implement
 argument-hint: '[--issue <N> | --plan <path> | --audit]'
-description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "implement" | "build this" | "execute plan" | "start coding" | "write the code" | "code this up" | "let's build it" | "build it out".
+description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "dev-implement" | "implement" | "build this" | "execute plan" | "start coding" | "write the code" | "code this up" | "let's build it" | "build it out" | "/dev-implement". Not the host native /implement.
 version: 0.3.3
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
@@ -28,9 +28,9 @@ Plan → ω → agents (test-first) → passing QG.
 **Flow: single continuous pipeline. ¬stop between steps. Decision response → immediately execute next step. Stop only on: explicit Cancel/Abort or Step 6 completion.**
 
 ```
-/implement --issue 42        Execute plan for issue #42
-/implement --plan artifacts/plans/42-dark-mode-plan.md   Execute from explicit plan path
-/implement --issue 42 --audit   Show reasoning checkpoint before coding
+/dev-implement --issue 42        Execute plan for issue #42
+/dev-implement --plan artifacts/plans/42-dark-mode-plan.md   Execute from explicit plan path
+/dev-implement --issue 42 --audit   Show reasoning checkpoint before coding
 ```
 
 Does NOT create a PR — that is `/pr` (next step).
@@ -86,7 +86,7 @@ Extract from frontmatter: `issue`, `tier`, `spec` path. From body: agent list, t
 
 ### Step 1b — Attach to Plan Tasks (dual harness)
 
-**Probe H** (once per `/implement` run) per [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-task-list.md):
+**Probe H** (once per `/dev-implement` run) per [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-task-list.md):
 
 ```
 tools ∋ TaskCreate ∧ TaskUpdate ∧ TaskList  → H := claude-tasks

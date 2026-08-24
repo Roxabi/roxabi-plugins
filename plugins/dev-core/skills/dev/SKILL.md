@@ -288,7 +288,7 @@ Idempotent. **¬** relative `../../../artifacts/` (wrong under `~/.grok/worktree
 | analyze | adv + approval stop | `skill: "analyze", args: "{N:+--issue $N}"` | spec **only after** α_approved on disk |
 | spec | adv + approval stop | `skill: "spec", args: "{N:+--issue $N}"` | plan **only after** σ approved (status ≠ draft) |
 | plan | adv + approval stop | `skill: "dev-plan", args: "{N:+--issue $N}"` | implement **only after** ## Task IDs — via Step 8b compact pause (F-lite/F-full; ¬auto-chain) |
-| implement | adv | `skill: "implement", args: "{N:+--issue $N}"` | pr |
+| implement | adv | `skill: "dev-implement", args: "{N:+--issue $N}"` | pr |
 | pr | adv | `skill: "pr"` (auto-detects branch + issue) | ci-watch |
 | ci-watch | adv | `skill: "ci-watch", args: "--pr {PR#}"` | validate |
 | validate | adv | `skill: "validate"` | review |
@@ -338,9 +338,9 @@ adv → re-scan → Step 7 immediately.
 **Trigger:** in Step 8, the step that just completed == `plan` ∧ τ ∈ {F-lite, F-full} ∧ new S* == `implement`.
 τ=S never reaches here — `plan` is skipped, so the pipeline goes straight to `implement` with no pause.
 
-**Why:** `/dev-plan` consumed heavy context (spec read, scope glob/grep, micro-task generation). `/implement` spawns fresh agents whose context is injected from the task list + plan artifact — the planning conversation is dead weight. Tasks persist (task list + plan artifact `## Task IDs`); `/implement` Step 1b re-attaches after a context reset. `/compact` = soft restart → safe.
+**Why:** `/dev-plan` consumed heavy context (spec read, scope glob/grep, micro-task generation). `/dev-implement` spawns fresh agents whose context is injected from the task list + plan artifact — the planning conversation is dead weight. Tasks persist (task list + plan artifact `## Task IDs`); `/dev-implement` Step 1b re-attaches after a context reset. `/compact` = soft restart → safe.
 
-**Behavior:** do **NOT** auto-chain to `/implement`. Print the recommendation block below and **STOP this turn** (Claude cannot invoke `/compact` — it is user-typed):
+**Behavior:** do **NOT** auto-chain to `/dev-implement`. Print the recommendation block below and **STOP this turn** (Claude cannot invoke `/compact` — it is user-typed):
 
 ```
 ✓ Plan approved — {n} tasks seeded + committed ({τ}).
@@ -348,12 +348,12 @@ adv → re-scan → Step 7 immediately.
 
   Recommended before building:
     1. /compact          clear planning context
-    2. /dev #{N}         resume → re-attaches tasks → ≡ /implement #{N}
+    2. /dev #{N}         resume → re-attaches tasks → ≡ /dev-implement #{N}
 
-  Skip compact? → /implement --issue {N} directly.
+  Skip compact? → /dev-implement --issue {N} directly.
 ```
 
-**Re-fire guard:** the pause is keyed to *plan having just run this turn*, not to *implement being next*. On the resume turn (`/dev #{N}` after `/compact`), `/dev` did not execute `plan` (Σ.plan already true on disk) → Step 8b does not apply → Step 7 invokes `/implement` directly, no second prompt.
+**Re-fire guard:** the pause is keyed to *plan having just run this turn*, not to *implement being next*. On the resume turn (`/dev #{N}` after `/compact`), `/dev` did not execute `plan` (Σ.plan already true on disk) → Step 8b does not apply → Step 7 invokes `/dev-implement` directly, no second prompt.
 
 ## Phases + Gate Summary
 

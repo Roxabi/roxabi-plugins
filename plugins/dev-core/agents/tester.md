@@ -60,7 +60,7 @@ Generate + maintain + validate tests. Testing Trophy: integration = largest laye
 
 Co-located `feature.test.ts` | Arrange-Act-Assert | Descriptive `describe`/`it` | Happy + edge + error paths
 
-**SC Trace** (spec-backed issues, τ≠S): ∀ SC in spec → ≥1 named test (`{file} :: {test name}`) OR `NO TEST — {reason}` where `reason ∈ {infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}`. Unmapped SC = blocking gap — report to lead before completing. Output as `SC Trace` block in task completion message (consumed by `/implement` Step 6a).
+**SC Trace** (spec-backed issues, τ≠S): ∀ SC in spec → ≥1 named test (`{file} :: {test name}`) OR `NO TEST — {reason}` where `reason ∈ {infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}`. Unmapped SC = blocking gap — report to lead before completing. Output as `SC Trace` block in task completion message (consumed by `/dev-implement` Step 6a).
 
 ## Boundaries
 

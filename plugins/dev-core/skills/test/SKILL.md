@@ -123,7 +123,7 @@ it('should return user by id', () => {
 
 ## Step 8 — Falsification Gate (standalone `/test`)
 
-Applies to: unit + fast-integration tests only. Triggered after Step 7 green run. **Ownership:** when invoked by `/implement`, the implement orchestrator drives the gate (¬tester). When invoked standalone (no implement orchestrator), `/test` owns the cycle itself — the tester agent still only writes tests; the runner is driven by the `/test` flow.
+Applies to: unit + fast-integration tests only. Triggered after Step 7 green run. **Ownership:** when invoked by `/dev-implement`, the implement orchestrator drives the gate (¬tester). When invoked standalone (no implement orchestrator), `/test` owns the cycle itself — the tester agent still only writes tests; the runner is driven by the `/test` flow.
 
 **e2e exemption:** tests generated via `--e2e` → set Status to `⚠ NO FALSIFY — e2e` (do not leave `⏳ not run`). Stop. ¬run stash cycle.
 

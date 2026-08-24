@@ -92,7 +92,7 @@ Skills organized by workflow phase:
 | `spec` | Shape | Generates specifications with smart splitting |
 | `interview` | Shape | Interactive requirements gathering |
 | `dev-plan` | Build | Creates implementation plan with micro-tasks |
-| `implement` | Build | Executes implementation from plan — merge conflict recovery, abandon-on-3-failures option |
+| `dev-implement` | Build | Executes implementation from plan — merge conflict recovery, abandon-on-3-failures option |
 | `pr` | Build | Creates pull request with proper format |
 | `dev-review` | Verify | Code review against quality gates — secret scan before spawning agents |
 | `fix` | Verify | Applies fixes from review feedback |

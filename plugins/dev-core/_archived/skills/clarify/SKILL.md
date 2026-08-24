@@ -192,7 +192,7 @@ User responds:
 
 | Response | Action |
 |---|---|
-| Approve / "go" / "proceed to tech" | Hand back: "Approved — what skill should run next? `/spec` / `/analyze` / `/implement` / continue conversation." Stop. |
+| Approve / "go" / "proceed to tech" | Hand back: "Approved — what skill should run next? `/spec` / `/analyze` / `/dev-implement` / continue conversation." Stop. |
 | Push back on a section ("restructure section 3", "I disagree with the boundary") | Revise that section inline → re-present full ⌘ → loop |
 | Answer the open Qs | Update Section 6 with answers → re-present ⌘ once with Qs marked resolved → ask if ready to proceed |
 | "Stop" / "I'm done" | "Done." Stop. |
@@ -211,7 +211,7 @@ User responds:
 
 - **Phase:** ∅ (phase-agnostic — fires anywhere in lifecycle)
 - **Predecessor:** ∅ (any state, including no state)
-- **Successor:** ∅ (hands back to whatever user wants — `/spec`, `/analyze`, `/implement`, conversation)
+- **Successor:** ∅ (hands back to whatever user wants — `/spec`, `/analyze`, `/dev-implement`, conversation)
 - **Class:** view (produces a *re-rendering* of intent, not an artifact)
 
 ## Task Integration

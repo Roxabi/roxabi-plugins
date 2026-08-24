@@ -87,7 +87,7 @@ Add `@.claude/stack.yml` as **first line** of CLAUDE.md. ¬∃ `.claude/stack.ym
 | `commands.dev` | — | Start dev server |
 | `commands.build` | devops | Build all packages |
 | `commands.test` | tester, fixer | Run test suite |
-| `commands.test:falsify` | implement, test, validate | Optional mechanical falsify gate. YAML key must be quoted (`"test:falsify"`). Absent → `/validate --full` ⏭; `/implement` 6b falls back to git-stash |
+| `commands.test:falsify` | implement, test, validate | Optional mechanical falsify gate. YAML key must be quoted (`"test:falsify"`). Absent → `/validate --full` ⏭; `/dev-implement` 6b falls back to git-stash |
 | `commands.lint` | fixer, devops | Run linter |
 | `commands.typecheck` | fixer, devops | Run type checker |
 | `commands.format` | devops | Auto-format |

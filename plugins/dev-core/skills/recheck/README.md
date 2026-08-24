@@ -55,7 +55,7 @@ No on-disk artifact (per frame Out-of-Scope). Session-only tracking inside `/dev
 
 `/recheck` only earns its place in the pipeline if it actually catches stale issues. The original frame defines two checkpoints:
 
-- **Success in 6 months:** at least one stale issue caught per month before `/implement` runs; zero S-tier issues silently re-implementing already-fixed bugs.
+- **Success in 6 months:** at least one stale issue caught per month before `/dev-implement` runs; zero S-tier issues silently re-implementing already-fixed bugs.
 - **Revisit trigger (3-month window):** if `/recheck` fires zero *ambiguous* signals across three months of usage, **or** users still override/close more often than they Proceed when the DP fires, re-open the design (git-drift-only auto-proceed is expected and not counted as skip friction).
 
 Tracking is **manual**: no metric is written to disk by design (no recheck-log artifact). Operators should periodically grep recent `/dev` runs for "Drift Signals" appearances and note skip-rate informally. If the revisit trigger fires, open an issue to re-evaluate.
