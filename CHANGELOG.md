@@ -11,6 +11,8 @@ predate that and were produced by release-please or `/promote`.
 ### Changed
 
 * **dev-core:** rename skill/slash `/implement` → `/dev-implement` (Grok/Claude host collision; pipeline step id stays `implement`)
+* **omp-build / omp-wt:** fail closed on Spark `{error}` (spark.sh exit 0), log steps on stderr, refuse numeric Spark id without a client
+
 * **dev-core:** priced SCs, mechanical falsify, shrink `/code-review` roster (#415) — fail-closed SCs declare `priced`/`not`/`oracles`; `/dev-implement` 6b + `/test` 8 prefer `test:falsify`; `/pr` REFUSE on `⏳ not run` or missing Falsification Evidence; `/code-review` default is adversarial (+ OWASP lens), not 8 always-on agents; `/fix` bans denylist/grep proxies for tautology classes
 * **dev-core / dev-init:** principal freeze = lefthook persist gate (`/ci-setup` 2e + `seed-principal-freeze`) **and** plugin Pre/Post **deny** (agent). ADR-017 amended.
 * **dev-core / dev-init:** persist detect = lefthook bind on both hooks (not substring); persist law repriced to lefthook 2.1.10 staged-file gate; `--allow-empty` skip named residual. ADR-017 amended 2026-08-15.
