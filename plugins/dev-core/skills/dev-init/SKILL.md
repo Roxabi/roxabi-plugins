@@ -1,12 +1,9 @@
 ---
 name: dev-init
+disable-model-invocation: true
 argument-hint: '[--force] [--skip-axial]'
-description: >-
-  Initialize project — orchestrates env-setup, ci-setup, release-setup + axial ADR.
-  Use when setting up a new repo or re-running Roxabi project init.
-  Triggers: "dev-init" | "setup project" | "initialize project" | "/dev-init".
-  Not the harness built-in /init (CLAUDE.md scaffold only).
-version: 0.9.3
+description: Initialize project — env-setup, ci-setup, release-setup + axial ADR. Not host /init.
+version: 0.9.4
 ---
 
 # Dev-init

@@ -1,8 +1,9 @@
 ---
 name: seed-community
+disable-model-invocation: true
 argument-hint: '[--only <file,...>] [--force]'
-description: 'Bootstrap OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), .github/PULL_REQUEST_TEMPLATE.md, .github/ISSUE_TEMPLATE/. Reads project metadata and CLAUDE.md; generates missing files idempotently. Triggers: "seed community" | "bootstrap community files" | "add contributing" | "add license" | "add security policy" | "github community files".'
-version: 0.1.0
+description: Bootstrap OSS community health files (CONTRIBUTING, LICENSE, SECURITY, templates).
+version: 0.1.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---
 

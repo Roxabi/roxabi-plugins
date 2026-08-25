@@ -1,8 +1,9 @@
 ---
 name: doc-sync
+disable-model-invocation: true
 argument-hint: '[description of change]'
-description: 'Sync all project docs after a code change — scans every doc for stale references, updates affected sections. Triggers: "sync docs" | "doc sync" | "sync plugin docs" | "update skill docs".'
-version: 0.4.0
+description: Sync project docs after a code change — stale references, affected sections.
+version: 0.4.1
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---
 

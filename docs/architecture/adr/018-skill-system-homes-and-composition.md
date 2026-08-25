@@ -147,3 +147,15 @@ Pipeline class, `/dev`-owns-lifecycle, and the five skill classes stay. Redundan
 - No `SKILL.md` edits in the landing of this ADR. No `CONTEXT.md`. No `disable-model-invocation` flip. No `plugin.json` allowlist edit.
 - First follow-up is **cadastre**, not primitive extraction: lock `notation.md` bindings; add the thin English process-words section; make `tier-classification.md` the only tier SSoT (`dev-process.md` points, does not redefine); inventory skill `description` fields against axis 2.
 - `chain-contract.md` stays on disk as an author-facing view until a later change retires or folds it into `/dev`.
+
+## Amendment (2026-08-24)
+
+Axis 2 is no longer "all model-invokable." Ten **standalone** skills are **user-invoked** (slash-only): `adr`, `stack-setup`, `promote`, `seed-docs`, `seed-community`, `doc-sync`, `readme-upgrade`, `test`, `dev-checkup`, `dev-init`. Each sets `disable-model-invocation: true` and drops the `Triggers:` list from `description` (human one-liner only).
+
+**Unchanged on axis 2:** `/dev`, `/ship`, and every skill that a factory or parent invokes via `Skill()` stay **model-invokable**. Do **not** set the flag on those.
+
+**Portable field:** `disable-model-invocation` is the Claude + OMP invocation gate. It is not `hide`, not a `commands/` shim.
+
+**OMP back-half:** After spec validation, the build pipeline (plan → implement → review → merge) lives in sibling plugin `omp-build`, not as a rewrite of `/dev`. The refuse list still blocks replacing `/dev` with a markdown-only router on Claude/Grok.
+
+**CONTEXT.md:** The refuse list still forbids a fourth glossary **inside dev-core**. Product/kit `CONTEXT.md` files (`docs/kit/`, `docs/product/`) are out of scope for this ADR.

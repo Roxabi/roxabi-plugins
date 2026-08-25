@@ -1,8 +1,9 @@
 ---
 name: adr
+disable-model-invocation: true
 argument-hint: ["Title of decision" | --list]
-description: Create/list Architecture Decision Records. Triggers: "create an ADR" | "architecture decision" | "document why we chose" | "list ADRs".
-version: 0.4.0
+description: Create/list Architecture Decision Records.
+version: 0.4.1
 allowed-tools: Write, Read, Glob, ToolSearch
 ---
 

@@ -5,6 +5,8 @@ date: 2026-08-18
 subject: plugins/dev-core/skills/*/SKILL.md
 ---
 
+> **Historical snapshot.** The table below was measured **2026-08-18**. As of **2026-08-24**, the ten user-invoked standalones (`adr`, `stack-setup`, `promote`, `seed-docs`, `seed-community`, `doc-sync`, `readme-upgrade`, `test`, `dev-checkup`, `dev-init`) set `disable-model-invocation: true` and stripped `Triggers:` from their `description` scalars. The inventory table was not rewritten.
+
 # ADR-018 description inventory — axis 2 (invocation budget)
 
 Measured 2026-08-18 from repo source `plugins/dev-core/skills/*/SKILL.md` (32 files; `shared/` and `init/` have no skill frontmatter). No `SKILL.md` was edited.

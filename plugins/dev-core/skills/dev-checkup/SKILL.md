@@ -1,10 +1,8 @@
 ---
 name: dev-checkup
-description: >-
-  Health check — verify dev-core config, GitHub project, labels, workflows, branch protection, secret scanning, CI hardening.
-  Triggers: "dev-checkup" | "checkup" | "health check" | "check setup" | "verify config" | "security baseline" | "/dev-checkup".
-  Not the host native /checkup.
-version: 0.8.1
+disable-model-invocation: true
+description: Health check — dev-core config, GitHub, labels, workflows, branch protection, CI. Not host /checkup.
+version: 0.8.2
 allowed-tools: Bash, Read, ToolSearch
 ---
 
