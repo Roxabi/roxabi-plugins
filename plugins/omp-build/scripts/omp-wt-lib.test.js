@@ -26,9 +26,7 @@ describe('parseJsonBlob', () => {
 
 describe('readSparkError', () => {
   it('returns the API error string', () => {
-    expect(readSparkError({ error: 'Clé API invalide ou absente.' })).toBe(
-      'Clé API invalide ou absente.',
-    )
+    expect(readSparkError({ error: 'Clé API invalide ou absente.' })).toBe('Clé API invalide ou absente.')
   })
 
   it('ignores a successful ticket payload', () => {
@@ -49,9 +47,7 @@ describe('sparkPayload', () => {
   })
 
   it('returns the object when there is no error field', () => {
-    expect(sparkPayload('{"project":{"clientSlug":"metalyde"}}', 'by-repo').project.clientSlug).toBe(
-      'metalyde',
-    )
+    expect(sparkPayload('{"project":{"clientSlug":"metalyde"}}', 'by-repo').project.clientSlug).toBe('metalyde')
   })
 
   it('throws when stdout is not JSON', () => {
@@ -81,9 +77,7 @@ describe('ticketFromSparkJson', () => {
   })
 
   it('fails closed when title is missing (error JSON treated as ticket)', () => {
-    expect(() => ticketFromSparkJson({ error: 'Clé API invalide ou absente.' }, { id: 59 })).toThrow(
-      /has no title/,
-    )
+    expect(() => ticketFromSparkJson({ error: 'Clé API invalide ou absente.' }, { id: 59 })).toThrow(/has no title/)
   })
 })
 
@@ -99,8 +93,8 @@ describe('linkedGithubIssue', () => {
 
 describe('formatSparkFail', () => {
   it('prefers stderr, then stdout, and includes exit code', () => {
-    expect(
-      formatSparkFail({ label: 'spark get', code: 1, stderr: 'boom', stdout: 'ignored' }),
-    ).toBe('spark get failed: exit 1: boom')
+    expect(formatSparkFail({ label: 'spark get', code: 1, stderr: 'boom', stdout: 'ignored' })).toBe(
+      'spark get failed: exit 1: boom',
+    )
   })
 })
