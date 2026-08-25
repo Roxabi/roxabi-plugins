@@ -13,8 +13,26 @@ import {
   resolveNames,
   ensureWorktree,
 } from '../skills/build/workflow.js'
+import {
+  formatSparkFail,
+  linkedGithubIssue,
+  missingClientMessage,
+  needsSparkClient,
+  sparkPayload,
+  ticketFromSparkJson,
+} from './omp-wt-lib.js'
 
 const SPARK_SH = `${process.env.HOME}/projects/gosilex/spark/plugins/silex-spark/skills/spark-tickets/scripts/spark.sh`
+
+function log(msg) {
+  console.error(`omp-wt: ${msg}`)
+}
+
+function die(err) {
+  const msg = err instanceof Error ? err.message : String(err)
+  console.error(msg.startsWith('omp-wt:') ? msg : `omp-wt: ${msg}`)
+  process.exit(1)
+}
 
 function usage() {
   console.error(`usage: omp-wt [issue|#N] [--subject <text>] [--spec <path>] [--print]
@@ -50,15 +68,6 @@ function parseSparkToken(s) {
     raw.match(/^([a-z0-9-]+)#(\d+)$/i)
   if (!m) return { id: raw.replace(/^spark:/i, ''), client: null }
   return { client: m[1] || null, id: m[2] }
-}
-
-function parseJsonBlob(text) {
-  const t = text.trim()
-  try {
-    return JSON.parse(t)
-  } catch {
-    return JSON.parse(t.split('\n').filter(Boolean).at(-1))
-  }
 }
 
 function setIssue(text, n) {
@@ -135,44 +144,17 @@ if (sparkClientFlag && !sparkId) {
   usage()
 }
 
-const root = (await Bun.$`git rev-parse --show-toplevel`.text()).trim()
-process.chdir(root)
-
-async function ask(q, def = '') {
-  const rl = createInterface({ input, output })
-  const hint = def ? ` [${def}]` : ''
-  const a = (await rl.question(`${q}${hint}: `)).trim()
-  rl.close()
-  return a || def
-}
-
-async function mintIssue(title, body) {
-  const prompt = `Create ONE GitHub issue in this repo with gh.
-Title: ${title}
-Body:
-${body}
-
-Do not implement anything. Do not edit files.
-Last line of your reply MUST be exactly: ISSUE=<number>`
-  const proc = Bun.spawn(['omp', '-p', '--no-session', '--cwd', root, prompt], {
-    stdout: 'pipe',
-    stderr: 'inherit',
-  })
-  const out = await new Response(proc.stdout).text()
+async function sparkJson(argv, label) {
+  if (!(await Bun.file(SPARK_SH).exists())) {
+    throw new Error(`spark.sh missing: ${SPARK_SH}`)
+  }
+  log(label)
+  const proc = Bun.spawn([SPARK_SH, ...argv], { stdout: 'pipe', stderr: 'pipe' })
+  const stdout = await new Response(proc.stdout).text()
+  const stderr = await new Response(proc.stderr).text()
   const code = await proc.exited
-  if (code !== 0) throw new Error(`omp -p mint failed (${code})`)
-  const m = out.trim().match(/ISSUE=(\d+)/)
-  if (!m) throw new Error(`omp -p did not print ISSUE=N\n${out}`)
-  return Number(m[1])
-}
-
-async function tracked(path) {
-  const rel = path.startsWith(root) ? path.slice(root.length + 1) : path
-  const proc = Bun.spawn(['git', '-C', root, 'ls-files', '--error-unmatch', rel], {
-    stdout: 'ignore',
-    stderr: 'ignore',
-  })
-  return (await proc.exited) === 0
+  if (code !== 0) throw new Error(formatSparkFail({ label, code, stderr, stdout }))
+  return sparkPayload(stdout, label)
 }
 
 function parseGithubOrigin(url) {
@@ -183,23 +165,24 @@ function parseGithubOrigin(url) {
 }
 
 async function resolveSparkClientFromRepo() {
-  if (!(await Bun.file(SPARK_SH).exists())) return null
   let url = ''
   try {
     url = (await Bun.$`git remote get-url origin`.text()).trim()
-  } catch {
+  } catch (e) {
+    log(`origin: ${(e instanceof Error ? e.message : e) || 'unavailable'}`)
     return null
   }
   const repo = parseGithubOrigin(url)
-  if (!repo) return null
+  if (!repo) {
+    log(`origin is not GitHub (${url})`)
+    return null
+  }
   const path = `/api/v1/projects/by-repo?owner=${encodeURIComponent(repo.owner)}&repo=${encodeURIComponent(repo.name)}`
-  const proc = Bun.spawn([SPARK_SH, 'get', path], { stdout: 'pipe', stderr: 'pipe' })
-  const out = await new Response(proc.stdout).text()
-  if ((await proc.exited) !== 0) return null
   try {
-    const json = parseJsonBlob(out)
+    const json = await sparkJson(['get', path], `spark by-repo ${repo.owner}/${repo.name}`)
     return json.project?.clientSlug || json.clientSlug || null
-  } catch {
+  } catch (e) {
+    log(e instanceof Error ? e.message : String(e))
     return null
   }
 }
@@ -211,7 +194,11 @@ async function resolveSparkClientFromConfig() {
     stderr: 'pipe',
   })
   const out = await new Response(proc.stdout).text()
-  await proc.exited
+  const code = await proc.exited
+  if (code !== 0) {
+    log(`spark config show failed (exit ${code})`)
+    return null
+  }
   const resolved = out.split('=== resolved ===')[1] || ''
   const m = resolved.match(/^\s+client:\s+(\S+)/m)
   const v = m?.[1]
@@ -219,118 +206,193 @@ async function resolveSparkClientFromConfig() {
 }
 
 async function resolveSparkClient(explicit) {
-  if (explicit) return explicit
-  return (await resolveSparkClientFromRepo()) || (await resolveSparkClientFromConfig())
+  if (explicit) {
+    log(`client ${explicit} (flag/token)`)
+    return explicit
+  }
+  const fromRepo = await resolveSparkClientFromRepo()
+  if (fromRepo) {
+    log(`client ${fromRepo} (origin by-repo)`)
+    return fromRepo
+  }
+  const fromCfg = await resolveSparkClientFromConfig()
+  if (fromCfg) {
+    log(`client ${fromCfg} (spark config)`)
+    return fromCfg
+  }
+  log('client unresolved (no -c, by-repo, or spark config)')
+  return null
 }
 
 async function fetchSpark(id, client) {
-  if (!(await Bun.file(SPARK_SH).exists())) {
-    throw new Error(`spark.sh missing: ${SPARK_SH}`)
-  }
-  const argv = [SPARK_SH, 'tickets', 'get', String(id)]
-  if (client) argv.push('--client', client)
-  const proc = Bun.spawn(argv, { stdout: 'pipe', stderr: 'pipe' })
-  const out = await new Response(proc.stdout).text()
-  const err = await new Response(proc.stderr).text()
-  if ((await proc.exited) !== 0) throw new Error(`spark get failed: ${err || out}`)
-  const json = parseJsonBlob(out)
-  const t = json.ticket || json
-  const slug = client || t.clientSlug || null
+  const getArgv = ['tickets', 'get', String(id)]
+  if (client) getArgv.push('--client', client)
+  const json = await sparkJson(getArgv, `spark tickets get ${client ? `${client}#` : ''}${id}`)
+  const ticket = ticketFromSparkJson(json, { id, client })
+  const slug = client || ticket.clientSlug || null
 
   let ghIssue = null
-  const ghArgv = [SPARK_SH, 'tickets', 'github-list', String(id)]
+  const ghArgv = ['tickets', 'github-list', String(id)]
   if (slug) ghArgv.push('--client', slug)
-  const gh = Bun.spawn(ghArgv, { stdout: 'pipe', stderr: 'pipe' })
-  const ghOut = await new Response(gh.stdout).text()
-  await gh.exited
   try {
-    const listed = parseJsonBlob(ghOut)
-    const first = listed.issues?.[0] || listed[0]
-    ghIssue = first?.number || first?.issueNumber || null
-  } catch {
-    /* no linked GH */
+    const listed = await sparkJson(
+      ghArgv,
+      `spark tickets github-list ${slug ? `${slug}#` : ''}${id}`,
+    )
+    ghIssue = linkedGithubIssue(listed)
+  } catch (e) {
+    log(`github-list: ${e instanceof Error ? e.message : e}`)
   }
 
   return {
-    title: t.title,
-    body: t.body || t.description || '',
-    spark: slug ? `${slug}#${t.ref ?? id}` : String(t.ref ?? id),
+    title: ticket.title,
+    body: ticket.body,
+    spark: slug ? `${slug}#${ticket.ref}` : String(ticket.ref),
     ghIssue,
   }
 }
 
-if (!issue && !specPath && !subject && !sparkId) {
-  const raw = await ask('Intake (GH # | spark URL | spark:<client>#N | subject)')
-  if (!raw) throw new Error('need an intake')
-  if (/^#?\d+$/.test(raw)) issue = Number(raw.replace('#', ''))
-  else if (/^spark:/i.test(raw) || /^[a-z0-9-]+#\d+$/i.test(raw) || parseSparkUrl(raw)) {
-    const p = parseSparkToken(raw)
-    sparkId = p.id
-    if (p.client) sparkClientToken = p.client
-  } else subject = raw
+async function run() {
+  const root = (await Bun.$`git rev-parse --show-toplevel`.text()).trim()
+  process.chdir(root)
+  log(`repo ${root}`)
+
+  async function ask(q, def = '') {
+    const rl = createInterface({ input, output })
+    const hint = def ? ` [${def}]` : ''
+    const a = (await rl.question(`${q}${hint}: `)).trim()
+    rl.close()
+    return a || def
+  }
+
+  async function mintIssue(title, body) {
+    log(`mint GH issue: ${title}`)
+    const prompt = `Create ONE GitHub issue in this repo with gh.
+Title: ${title}
+Body:
+${body}
+
+Do not implement anything. Do not edit files.
+Last line of your reply MUST be exactly: ISSUE=<number>`
+    const proc = Bun.spawn(['omp', '-p', '--no-session', '--cwd', root, prompt], {
+      stdout: 'pipe',
+      stderr: 'inherit',
+    })
+    const out = await new Response(proc.stdout).text()
+    const code = await proc.exited
+    if (code !== 0) throw new Error(`omp -p mint failed (${code})`)
+    const m = out.trim().match(/ISSUE=(\d+)/)
+    if (!m) throw new Error(`omp -p did not print ISSUE=N\n${out}`)
+    log(`minted GH #${m[1]}`)
+    return Number(m[1])
+  }
+
+  async function tracked(path) {
+    const rel = path.startsWith(root) ? path.slice(root.length + 1) : path
+    const proc = Bun.spawn(['git', '-C', root, 'ls-files', '--error-unmatch', rel], {
+      stdout: 'ignore',
+      stderr: 'ignore',
+    })
+    return (await proc.exited) === 0
+  }
+
+  if (!issue && !specPath && !subject && !sparkId) {
+    const raw = await ask('Intake (GH # | spark URL | spark:<client>#N | subject)')
+    if (!raw) throw new Error('need an intake')
+    if (/^#?\d+$/.test(raw)) issue = Number(raw.replace('#', ''))
+    else if (/^spark:/i.test(raw) || /^[a-z0-9-]+#\d+$/i.test(raw) || parseSparkUrl(raw)) {
+      const p = parseSparkToken(raw)
+      sparkId = p.id
+      if (p.client) sparkClientToken = p.client
+    } else subject = raw
+  }
+
+  let spark = null
+  let sourcePath = specPath
+  let content = null
+
+  if (sparkId) {
+    const sparkClient = await resolveSparkClient(sparkClientFlag || sparkClientToken)
+    if (!sparkClient && needsSparkClient(sparkId)) {
+      throw new Error(missingClientMessage(sparkId))
+    }
+    const ticket = await fetchSpark(sparkId, sparkClient)
+    subject = ticket.title
+    spark = ticket.spark
+    log(`spark ${spark}: ${ticket.title}`)
+    if (ticket.ghIssue) {
+      issue = Number(ticket.ghIssue)
+      log(`linked GH #${issue}`)
+    } else {
+      log(`no linked GH issue for ${spark}`)
+    }
+  }
+
+  if (!sourcePath && issue) sourcePath = await findSpecForIssue(root, issue)
+  if (sourcePath && (await Bun.file(sourcePath).exists())) {
+    content = await Bun.file(sourcePath).text()
+    log(`spec ${sourcePath}`)
+  }
+
+  if (!content && issue) {
+    try {
+      const gh = await Bun.$`gh issue view ${issue} --json title,body`.json()
+      subject = subject || gh.title
+      content = stubSpec({ title: gh.title, issue, spark })
+      log(`GH #${issue}: ${gh.title}`)
+    } catch (e) {
+      throw new Error(`gh issue view ${issue} failed: ${e instanceof Error ? e.message : e}`)
+    }
+  }
+
+  if (!content && subject) content = stubSpec({ title: subject, issue, spark })
+  if (!content) {
+    throw new Error(
+      sparkId
+        ? `Spark ${spark || sparkId} produced no spec (ticket fetch failed or title empty)`
+        : 'need a spec, issue, Spark ticket, or subject',
+    )
+  }
+
+  if (!issue) {
+    const title =
+      (content.match(/^title:\s*["']?(.+?)["']?\s*$/m) || [])[1] ||
+      subject ||
+      (await ask('Issue title'))
+    issue = await mintIssue(title, tldrBody(content))
+  }
+  content = setIssue(content, issue)
+
+  const meta = parseSpecMeta(content, { issue, specPath: sourcePath })
+  const names = await resolveNames({
+    cwd: root,
+    type: meta.type,
+    slug: meta.slug,
+    issue,
+  })
+  await ensureWorktree(root, names)
+  const dest = join(names.worktree, 'artifacts', 'specs', `${issue}-${meta.slug}-spec.md`)
+  await Bun.$`mkdir -p ${join(names.worktree, 'artifacts', 'specs')}`.quiet()
+  await Bun.write(dest, content)
+  log(`wrote ${dest}`)
+
+  if (sourcePath?.startsWith(root) && !(await tracked(sourcePath))) {
+    await unlink(sourcePath).catch(() => {})
+  }
+
+  console.error(`${names.branch} → ${names.worktree}`)
+
+  if (printOnly) {
+    console.log(names.worktree)
+    return
+  }
+
+  const child = Bun.spawn(['omp', '--cwd', names.worktree], {
+    stdin: 'inherit',
+    stdout: 'inherit',
+    stderr: 'inherit',
+  })
+  process.exit(await child.exited)
 }
 
-let spark = null
-let sourcePath = specPath
-let content = null
-
-if (sparkId) {
-  const sparkClient = await resolveSparkClient(sparkClientFlag || sparkClientToken)
-  const ticket = await fetchSpark(sparkId, sparkClient)
-  subject = ticket.title
-  spark = ticket.spark
-  if (ticket.ghIssue) issue = Number(ticket.ghIssue)
-}
-
-if (!sourcePath && issue) sourcePath = await findSpecForIssue(root, issue)
-if (sourcePath && (await Bun.file(sourcePath).exists())) {
-  content = await Bun.file(sourcePath).text()
-}
-
-if (!content && issue) {
-  const gh = await Bun.$`gh issue view ${issue} --json title,body`.json()
-  subject = subject || gh.title
-  content = stubSpec({ title: gh.title, issue, spark })
-}
-
-if (!content && subject) content = stubSpec({ title: subject, issue, spark })
-if (!content) throw new Error('need a spec, issue, Spark ticket, or subject')
-
-if (!issue) {
-  const title =
-    (content.match(/^title:\s*["']?(.+?)["']?\s*$/m) || [])[1] ||
-    subject ||
-    (await ask('Issue title'))
-  issue = await mintIssue(title, tldrBody(content))
-}
-content = setIssue(content, issue)
-
-const meta = parseSpecMeta(content, { issue, specPath: sourcePath })
-const names = await resolveNames({
-  cwd: root,
-  type: meta.type,
-  slug: meta.slug,
-  issue,
-})
-await ensureWorktree(root, names)
-const dest = join(names.worktree, 'artifacts', 'specs', `${issue}-${meta.slug}-spec.md`)
-await Bun.$`mkdir -p ${join(names.worktree, 'artifacts', 'specs')}`.quiet()
-await Bun.write(dest, content)
-
-if (sourcePath?.startsWith(root) && !(await tracked(sourcePath))) {
-  await unlink(sourcePath).catch(() => {})
-}
-
-console.error(`${names.branch} → ${names.worktree}`)
-
-if (printOnly) {
-  console.log(names.worktree)
-  process.exit(0)
-}
-
-const child = Bun.spawn(['omp', '--cwd', names.worktree], {
-  stdin: 'inherit',
-  stdout: 'inherit',
-  stderr: 'inherit',
-})
-process.exit(await child.exited)
+await run().catch(die)

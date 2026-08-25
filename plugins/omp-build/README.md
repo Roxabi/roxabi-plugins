@@ -25,6 +25,9 @@ omp-wt -s https://spark.gosilex.com/silex/developpement/cmt…  # Spark URL
 omp-wt                            # prompt: GH # | spark URL | spark:<client>#N | subject
 ```
 
+stderr is the log (`omp-wt: …`). Spark `{error:…}` is fatal even when `spark.sh` exits 0. A numeric `-s N` with no client (`-c`, `slug#N`, origin by-repo, or spark config) exits 1 instead of fetching the wrong ticket.
+
+
 Creates ω (`<type>/<N>-<slug>` via `resolveNames`) and `omp --cwd` there. Then `/build`:
 
 1. Grill + you type `validated` (parent turn — not `run()`)
