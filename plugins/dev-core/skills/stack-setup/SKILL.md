@@ -1,8 +1,9 @@
 ---
 name: stack-setup
+disable-model-invocation: true
 argument-hint: '[--force]'
-description: 'Interactive wizard to fill in .claude/stack.yml through guided questions — asks about runtime, backend, frontend, build, testing, deploy, docs, commands, and standards paths, then writes the file. Triggers: "stack setup" | "setup stack" | "configure stack" | "fill stack.yml" | "stack wizard" | "stack-setup".'
-version: 0.3.1
+description: Fill `.claude/stack.yml` via guided discovery.
+version: 0.3.2
 allowed-tools: Read, Edit, Write, Bash, Glob, ToolSearch
 ---
 

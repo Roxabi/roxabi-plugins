@@ -1,8 +1,9 @@
 ---
 name: promote
+disable-model-invocation: true
 argument-hint: [--dry-run | --skip-preview | --finalize]
-description: Promote staging→main — pre-flight, version bump, changelog, PR & tag. Triggers: "promote staging" | "cut a release" | "--finalize" | "promote to production" | "tag and release" | "publish release".
-version: 0.5.0
+description: Promote staging→main — pre-flight, version bump, changelog, PR and tag.
+version: 0.5.1
 allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch
 ---
 

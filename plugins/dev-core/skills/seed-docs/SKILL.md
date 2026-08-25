@@ -1,8 +1,9 @@
 ---
 name: seed-docs
+disable-model-invocation: true
 argument-hint: '[--docs-path <path>] [--no-scan]'
-description: 'Populate scaffolded architecture/standards docs with real content extracted from CLAUDE.md and codebase analysis — fills TODO stubs, writes AI Quick Reference sections. Triggers: "seed docs" | "bootstrap docs" | "populate docs" | "fill architecture docs" | "seed architecture".'
-version: 0.1.1
+description: Populate scaffolded architecture/standards docs from CLAUDE.md and the codebase.
+version: 0.1.2
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---
 

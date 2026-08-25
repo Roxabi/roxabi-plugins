@@ -1,8 +1,9 @@
 ---
 name: test
+disable-model-invocation: true
 argument-hint: [file | --e2e | --run]
-description: Generate/run unit, integration & Playwright e2e tests. Triggers: "test this file" | "write tests" | "add coverage" | "run tests" | "e2e tests" | "add tests" | "test coverage" | "generate tests" | "test this" | "write unit tests" | "add integration tests".
-version: 0.4.2
+description: Generate or run unit, integration, and Playwright e2e tests.
+version: 0.4.3
 allowed-tools: Bash, Read, Write, Glob, Grep, ToolSearch
 ---
 
