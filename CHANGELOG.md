@@ -21,6 +21,7 @@ predate that and were produced by release-please or `/promote`.
 
 ### Added
 
+* **omp-build:** OMP task agents `adversarial` (red-team) and `advisor` (constructive second opinion), both `model: "@advisor"`
 * **dev-core/ship:** meta-orchestrator `/ship` — commit → `/pr` → `/code-review` → `/fix` loop → `reviewed` label + `/ci-watch` → optional `/cleanup` (code-already-ready path; review-before-CI order differs from `/dev` Verify)
 * **dev-core/cleanup:** detect orphan Grok/Claude worktree shells (`scan-orphan-worktree-shells.sh` + Step 5b) after `git worktree remove`
 
