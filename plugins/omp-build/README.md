@@ -6,20 +6,33 @@ Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() ch
 
 ## Install
 
-```bash
-omp plugin marketplace add Roxabi/roxabi-plugins   # or the local checkout
-omp plugin install omp-build@roxabi-marketplace
-ln -sfn /path/to/roxabi-plugins/plugins/omp-build/scripts/omp-wt.sh ~/.local/bin/omp-wt
-```
-
-After a change lands on the marketplace source:
+Not in the marketplace catalog — install by **link** from a checkout of `roxabi-plugins` (monorepo subdir layout).
 
 ```bash
-omp plugin marketplace update roxabi-marketplace
-omp plugin upgrade omp-build@roxabi-marketplace
+# from repo root
+omp plugin link ./plugins/omp-build
+ln -sfn "$(pwd)/plugins/omp-build/scripts/omp-wt.sh" ~/.local/bin/omp-wt
 ```
 
-`/build` imports `workflow.js` from the installed plugin (`~/.omp/plugins/node_modules/omp-build/`). Do not put `SKILL.md` under `~/.omp/agent/skills/` — that shadows the plugin. `omp-wt` still uses the repo script via PATH.
+Requires `package.json` with `"omp": {}` (empty object is enough; `omp.extensions` is for in-process factories only).
+
+Verify:
+
+```bash
+omp plugin doctor    # expect plugin:omp-build
+omp plugin list      # npm Plugins → omp-build@0.0.0
+```
+
+`/build` loads `skills/build/` from the linked package (`~/.omp/plugins/node_modules/omp-build/`). Do **not** copy `SKILL.md` into `~/.omp/agent/skills/` — that shadows the plugin. `omp-wt` uses the repo script via PATH.
+
+### After you change the plugin
+
+| Change | Pick up |
+|---|---|
+| `skills/`, `commands/`, MCP config | `/reload-plugins` |
+| `hooks/`, `omp.extensions`, **new/changed `agents/*.md`** | **restart** OMP session |
+
+Symlinking into `~/.omp/agent/agents/` is not supported — use `link` + restart.
 
 ## Launch
 
@@ -52,6 +65,4 @@ OMP task agents in `agents/` (`model: "@advisor"`):
 | `adversarial` | Red-team. Kill the priced claim. |
 | `advisor` | Constructive second opinion. Strengthen, don't attack. Not the session WATCHDOG. |
 
-Spawn: `task` `{ agent: "adversarial" | "advisor", ... }`.
-
-With `claude-plugins` off, these files do not load from a marketplace install. Symlink them into `~/.omp/agent/agents/` (user discovery, no provider gate).
+Spawn: `task` `{ agent: "adversarial" | "advisor", ... }`. Loaded via `omp-plugins` from the linked package `agents/`. Not the session WATCHDOG (`advisor.enabled`).
