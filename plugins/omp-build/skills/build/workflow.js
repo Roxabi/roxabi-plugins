@@ -18,16 +18,27 @@ const HOME = process.env.HOME || ''
 
 /** @typedef {{ issue: number, specPath: string, cwd: string, principal: string, branch: string, worktree: string, principalPath: string }} BuildContext */
 
+/** Hook vars that redirect git. Same set as check-principal-branch.sh git_probe. */
+export const GIT_HOOK_VARS = [
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_COMMON_DIR',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_INDEX_FILE',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_CEILING_DIRECTORIES',
+]
+
+export function stripGitHookEnv(env = process.env) {
+  const out = { ...env }
+  for (const key of GIT_HOOK_VARS) delete out[key]
+  return out
+}
+
 async function git(cwd, args) {
-  const env = { ...process.env }
-  delete env.GIT_DIR
-  delete env.GIT_WORK_TREE
-  delete env.GIT_INDEX_FILE
-  delete env.GIT_OBJECT_DIRECTORY
-  delete env.GIT_PREFIX
   const proc = Bun.spawn(['git', '-C', cwd, ...args], {
     cwd,
-    env,
+    env: stripGitHookEnv(),
     stdout: 'pipe',
     stderr: 'pipe',
   })

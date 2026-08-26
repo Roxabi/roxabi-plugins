@@ -4,16 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { ensureWorktree } from './workflow.js'
+import { ensureWorktree, GIT_HOOK_VARS, stripGitHookEnv } from './workflow.js'
 
 function gitEnv(extra = {}) {
-  const env = { ...process.env, ...extra }
-  delete env.GIT_DIR
-  delete env.GIT_WORK_TREE
-  delete env.GIT_INDEX_FILE
-  delete env.GIT_OBJECT_DIRECTORY
-  delete env.GIT_PREFIX
-  return env
+  return stripGitHookEnv({ ...process.env, ...extra })
 }
 
 beforeAll(() => {
@@ -104,6 +98,15 @@ afterEach(() => {
   }
 })
 
+describe('stripGitHookEnv', () => {
+  it('drops every git_probe var and keeps the rest', () => {
+    const poisoned = Object.fromEntries(GIT_HOOK_VARS.map((key) => [key, '/decoy']))
+    const cleaned = stripGitHookEnv({ PATH: '/bin', ...poisoned })
+    for (const key of GIT_HOOK_VARS) expect(cleaned[key]).toBeUndefined()
+    expect(cleaned.PATH).toBe('/bin')
+  })
+})
+
 describe('ensureWorktree', () => {
   it('creates a worktree without switching principal HEAD off staging', async () => {
     const fx = createFixture()
@@ -123,6 +126,24 @@ describe('ensureWorktree', () => {
 
     const wtHead = git(fx.names.worktree, ['rev-parse', '--abbrev-ref', 'HEAD'], fx.env)
     expect(wtHead).toBe('feat/42-test-slug')
+  })
+
+  it('does not follow a poisoned GIT_DIR', () => {
+    const decoy = mkdtempSync(join(tmpdir(), 'git-dir-decoy-'))
+    spawnSync('git', ['init', decoy], { env: gitEnv(), encoding: 'utf8' })
+    const prev = process.env.GIT_DIR
+    process.env.GIT_DIR = join(decoy, '.git')
+    try {
+      const fx = createFixture()
+      fixtures.push({ base: fx.base, tmpHome: fx.tmpHome, worktrees: [] })
+      const gitDir = git(fx.repoPath, ['rev-parse', '--absolute-git-dir'], fx.env)
+      expect(gitDir.startsWith(fx.repoPath)).toBe(true)
+      expect(gitDir.includes(decoy)).toBe(false)
+    } finally {
+      if (prev === undefined) delete process.env.GIT_DIR
+      else process.env.GIT_DIR = prev
+      rmSync(decoy, { recursive: true, force: true })
+    }
   })
 
   it('refuses a dirty principal and leaves HEAD on staging', async () => {
