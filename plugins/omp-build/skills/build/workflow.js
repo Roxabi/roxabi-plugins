@@ -216,9 +216,10 @@ Issue #${issue}, plan: ${planPath}, spec: ${specPath}, cwd: ${cwd} (${branch})
 
 # Change
 Read spec + plan. Implement here. Root-cause only. Do not switch branch. Do not git commit or push.
+For every Acceptance criterion, exercise its public seam; if repository-executable automation can observe the outcome and no collected test protects it, add the smallest public-seam test asserting that outcome. Report the exact command and result.
 
 # Acceptance
-Acceptance met. Reply one line: \`implement: ok\``,
+Acceptance met. Command + result reported. Reply one line: \`implement: ok\``,
 
     pr: `# Target
 Issue #${issue}, spec: ${specPath}, cwd: ${cwd}
@@ -235,6 +236,7 @@ Issue #${issue}, spec: ${specPath}, cwd: ${cwd}, PR head ${branch}
 
 # Change
 You ARE the reviewer. Review the PR diff against spec Acceptance.
+Independently run collected tests covering Acceptance. Reject skipped/uncollected tests, name-only mappings, tautologies, implementation-mirroring, internal-seam assertions. Manual only when repo-executable code cannot observe the outcome — require technical blocker, procedure, observed result.
 Do not spawn subagents. Write ${reviewPath} with \`verdict: green|red\` and R₁ findings.
 
 # Acceptance

@@ -45,7 +45,7 @@ On confirm: set `status: validated`. Done when frontmatter is `validated`.
 ## 4. Plan onward
 
 ```javascript
-const { run } = await import(`${env('HOME')}/.omp/agent/skills/build/workflow.js`)
+const { run } = await import(`${env('HOME')}/.omp/plugins/node_modules/omp-build/skills/build/workflow.js`)
 const result = await run({ issue, specPath, cwd })
 ```
 
