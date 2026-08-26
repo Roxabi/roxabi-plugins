@@ -7,11 +7,19 @@ Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() ch
 ## Install
 
 ```bash
-ln -sfn /path/to/roxabi-plugins/plugins/omp-build/skills/build ~/.omp/agent/skills/build
+omp plugin marketplace add Roxabi/roxabi-plugins   # or the local checkout
+omp plugin install omp-build@roxabi-marketplace
 ln -sfn /path/to/roxabi-plugins/plugins/omp-build/scripts/omp-wt.sh ~/.local/bin/omp-wt
 ```
 
-One copy of `workflow.js` (the repo). `/build` and `omp-wt` both use it.
+After a change lands on the marketplace source:
+
+```bash
+omp plugin marketplace update roxabi-marketplace
+omp plugin upgrade omp-build@roxabi-marketplace
+```
+
+`/build` imports `workflow.js` from the installed plugin (`~/.omp/plugins/node_modules/omp-build/`). Do not put `SKILL.md` under `~/.omp/agent/skills/` — that shadows the plugin. `omp-wt` still uses the repo script via PATH.
 
 ## Launch
 
