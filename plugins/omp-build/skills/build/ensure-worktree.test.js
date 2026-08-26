@@ -128,17 +128,29 @@ describe('ensureWorktree', () => {
     expect(wtHead).toBe('feat/42-test-slug')
   })
 
-  it('does not follow a poisoned GIT_DIR', () => {
+  it('ensureWorktree does not mutate a poisoned GIT_DIR decoy', async () => {
     const decoy = mkdtempSync(join(tmpdir(), 'git-dir-decoy-'))
     spawnSync('git', ['init', decoy], { env: gitEnv(), encoding: 'utf8' })
     const prev = process.env.GIT_DIR
     process.env.GIT_DIR = join(decoy, '.git')
     try {
       const fx = createFixture()
-      fixtures.push({ base: fx.base, tmpHome: fx.tmpHome, worktrees: [] })
-      const gitDir = git(fx.repoPath, ['rev-parse', '--absolute-git-dir'], fx.env)
-      expect(gitDir.startsWith(fx.repoPath)).toBe(true)
-      expect(gitDir.includes(decoy)).toBe(false)
+      fixtures.push({ base: fx.base, tmpHome: fx.tmpHome, worktrees: [fx.names.worktree] })
+      await ensureWorktree(fx.repoPath, fx.names)
+
+      const branches = spawnSync('git', ['-C', decoy, 'branch', '--list'], {
+        env: gitEnv(),
+        encoding: 'utf8',
+      })
+      expect(branches.status).toBe(0)
+      expect(branches.stdout.trim()).toBe('')
+
+      const listed = spawnSync('git', ['-C', decoy, 'worktree', 'list'], {
+        env: gitEnv(),
+        encoding: 'utf8',
+      })
+      expect(listed.status).toBe(0)
+      expect(listed.stdout.trim().split('\n').filter(Boolean)).toHaveLength(1)
     } finally {
       if (prev === undefined) delete process.env.GIT_DIR
       else process.env.GIT_DIR = prev
