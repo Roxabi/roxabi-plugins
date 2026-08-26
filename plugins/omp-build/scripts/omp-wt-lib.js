@@ -71,3 +71,90 @@ export function formatSparkFail({ label, code, stderr, stdout }) {
   else if (out) bits.push(out.slice(0, 400))
   return bits.join(': ')
 }
+
+const SPARK_SECTIONS = new Set(['developpement', 'pilotage', 'taches', 'roadmap'])
+
+export function parseSparkUrl(s) {
+  let u
+  try {
+    u = new URL(String(s).trim())
+  } catch {
+    return null
+  }
+  const parts = u.pathname.replace(/\/+$/, '').split('/').filter(Boolean)
+  if (parts.length < 2) return null
+  const [client, section, open] = parts
+  if (!SPARK_SECTIONS.has(section)) return null
+  const id = open || u.searchParams.get('id')
+  if (!id) return null
+  return { client, id }
+}
+
+export function parseSparkToken(s) {
+  const raw = String(s).trim()
+  const fromUrl = parseSparkUrl(raw)
+  if (fromUrl) return fromUrl
+  const m = raw.match(/^spark:(?:([a-z0-9-]+)#)?([A-Za-z0-9]+)$/i) || raw.match(/^([a-z0-9-]+)#(\d+)$/i)
+  if (!m) return { id: raw.replace(/^spark:/i, ''), client: null }
+  return { client: m[1] || null, id: m[2] }
+}
+
+export function parseGithubOrigin(url) {
+  const m = String(url)
+    .trim()
+    .match(/github\.com[:/]([^/]+)\/([^/.]+)/i)
+  return m ? { owner: m[1], name: m[2] } : null
+}
+
+export function clientSlugFromByRepo(json) {
+  const slug = json?.project?.clientSlug
+  return typeof slug === 'string' && slug.trim() ? slug.trim() : null
+}
+
+export function classifyRawIntake(raw) {
+  const s = String(raw ?? '').trim()
+  if (!s) return { kind: 'empty' }
+  if (/^#?\d+$/.test(s)) return { kind: 'gh', issue: Number(s.replace('#', '')) }
+  if (/^spark:/i.test(s) || /^[a-z0-9-]+#\d+$/i.test(s) || parseSparkUrl(s)) {
+    const p = parseSparkToken(s)
+    return { kind: 'spark', id: p.id, client: p.client || null }
+  }
+  return { kind: 'subject', subject: s }
+}
+
+export function parseArgv(args) {
+  let issue = null
+  let specPath = null
+  let printOnly = false
+  let subject = null
+  let sparkId = null
+  let sparkClientFlag = null
+  let sparkClientToken = null
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]
+    if (a === '--print') printOnly = true
+    else if (a === '--spec') specPath = args[++i]
+    else if (a === '--subject') subject = args[++i]
+    else if (a === '--spark' || a === '-s') {
+      const v = args[++i]
+      if (!v || v.startsWith('-')) return { usage: true }
+      const p = parseSparkToken(v)
+      sparkId = p.id
+      if (p.client) sparkClientToken = p.client
+    } else if (a === '--client' || a === '-c') {
+      const v = args[++i]
+      if (!v || v.startsWith('-')) return { usage: true }
+      sparkClientFlag = v
+    } else if (a === '-h' || a === '--help') return { usage: true }
+    else if (/^#?\d+$/.test(a)) issue = Number(a.replace('#', ''))
+    else if (/^spark:/i.test(a) || /^[a-z0-9-]+#\d+$/i.test(a) || parseSparkUrl(a)) {
+      const p = parseSparkToken(a)
+      sparkId = p.id
+      if (p.client) sparkClientToken = p.client
+    } else if (!a.startsWith('-') && !subject) subject = a
+    else return { usage: true }
+  }
+  if (sparkClientFlag && !sparkId) return { usage: true }
+  return { printOnly, specPath, subject, issue, sparkId, sparkClientFlag, sparkClientToken }
+}
