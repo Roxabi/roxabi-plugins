@@ -19,7 +19,15 @@ const HOME = process.env.HOME || ''
 /** @typedef {{ issue: number, specPath: string, cwd: string, principal: string, branch: string, worktree: string, principalPath: string }} BuildContext */
 
 async function git(cwd, args) {
+  const env = { ...process.env }
+  delete env.GIT_DIR
+  delete env.GIT_WORK_TREE
+  delete env.GIT_INDEX_FILE
+  delete env.GIT_OBJECT_DIRECTORY
+  delete env.GIT_PREFIX
   const proc = Bun.spawn(['git', '-C', cwd, ...args], {
+    cwd,
+    env,
     stdout: 'pipe',
     stderr: 'pipe',
   })

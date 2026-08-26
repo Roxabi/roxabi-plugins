@@ -6,11 +6,21 @@ import { Readable } from 'node:stream'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ensureWorktree } from './workflow.js'
 
+function gitEnv(extra = {}) {
+  const env = { ...process.env, ...extra }
+  delete env.GIT_DIR
+  delete env.GIT_WORK_TREE
+  delete env.GIT_INDEX_FILE
+  delete env.GIT_OBJECT_DIRECTORY
+  delete env.GIT_PREFIX
+  return env
+}
+
 beforeAll(() => {
   vi.spyOn(Bun, 'spawn').mockImplementation((cmd, opts) => {
     const proc = spawn(cmd[0], cmd.slice(1), {
       cwd: opts?.cwd,
-      env: opts?.env ? { ...process.env, ...opts.env } : process.env,
+      env: gitEnv(opts?.env),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     return {
@@ -29,7 +39,7 @@ beforeAll(() => {
       }
       return {
         quiet() {
-          const r = spawnSync('bash', ['-c', cmd])
+          const r = spawnSync('bash', ['-c', cmd], { env: gitEnv() })
           if (r.status !== 0) throw new Error(`Bun.$ failed (${r.status}): ${cmd}`)
           return Promise.resolve({ exitCode: 0 })
         },
@@ -38,9 +48,9 @@ beforeAll(() => {
   }
 })
 
-function git(cwd, args, env = {}) {
+function git(cwd, args, extra = {}) {
   const result = spawnSync('git', ['-C', cwd, ...args], {
-    env: { ...process.env, ...env },
+    env: gitEnv(extra),
     encoding: 'utf8',
   })
   if (result.status !== 0) {
@@ -66,8 +76,8 @@ function createFixture() {
   const repoPath = join(base, 'repo')
   const env = { HOME: tmpHome }
 
-  spawnSync('git', ['init', '--bare', originPath], { env, encoding: 'utf8' })
-  spawnSync('git', ['init', repoPath], { env, encoding: 'utf8' })
+  spawnSync('git', ['init', '--bare', originPath], { env: gitEnv(env), encoding: 'utf8' })
+  spawnSync('git', ['init', repoPath], { env: gitEnv(env), encoding: 'utf8' })
   git(repoPath, ['config', 'user.email', 'test@example.com'], env)
   git(repoPath, ['config', 'user.name', 'Test User'], env)
   git(repoPath, ['commit', '--allow-empty', '-m', 'init'], env)
@@ -85,7 +95,7 @@ afterEach(() => {
   for (const fx of fixtures.splice(0)) {
     for (const wt of fx.worktrees) {
       spawnSync('git', ['worktree', 'remove', '--force', wt], {
-        env: { ...process.env, HOME: fx.tmpHome },
+        env: gitEnv({ HOME: fx.tmpHome }),
         encoding: 'utf8',
       })
     }
