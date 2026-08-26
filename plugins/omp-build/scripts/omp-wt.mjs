@@ -14,10 +14,14 @@ import {
   ensureWorktree,
 } from '../skills/build/workflow.js'
 import {
+  classifyRawIntake,
+  clientSlugFromByRepo,
   formatSparkFail,
   linkedGithubIssue,
   missingClientMessage,
   needsSparkClient,
+  parseArgv,
+  parseGithubOrigin,
   sparkPayload,
   ticketFromSparkJson,
 } from './omp-wt-lib.js'
@@ -41,34 +45,9 @@ function usage() {
   process.exit(2)
 }
 
-const SPARK_SECTIONS = new Set(['developpement', 'pilotage', 'taches', 'roadmap'])
-
-function parseSparkUrl(s) {
-  let u
-  try {
-    u = new URL(String(s).trim())
-  } catch {
-    return null
-  }
-  const parts = u.pathname.replace(/\/+$/, '').split('/').filter(Boolean)
-  if (parts.length < 2) return null
-  const [client, section, open] = parts
-  if (!SPARK_SECTIONS.has(section)) return null
-  const id = open || u.searchParams.get('id')
-  if (!id) return null
-  return { client, id }
-}
-
-function parseSparkToken(s) {
-  const raw = String(s).trim()
-  const fromUrl = parseSparkUrl(raw)
-  if (fromUrl) return fromUrl
-  const m =
-    raw.match(/^spark:(?:([a-z0-9-]+)#)?([A-Za-z0-9]+)$/i) ||
-    raw.match(/^([a-z0-9-]+)#(\d+)$/i)
-  if (!m) return { id: raw.replace(/^spark:/i, ''), client: null }
-  return { client: m[1] || null, id: m[2] }
-}
+const argvParsed = parseArgv(process.argv.slice(2))
+if (argvParsed.usage) usage()
+let { printOnly, specPath, subject, issue, sparkId, sparkClientFlag, sparkClientToken } = argvParsed
 
 function setIssue(text, n) {
   if (/^issue:/m.test(text)) return text.replace(/^issue:\s*.*$/m, `issue: ${n}`)
@@ -106,44 +85,6 @@ ${title}
 `
 }
 
-const args = process.argv.slice(2)
-let issue = null
-let specPath = null
-let printOnly = false
-let subject = null
-let sparkId = null
-let sparkClientFlag = null
-let sparkClientToken = null
-
-for (let i = 0; i < args.length; i++) {
-  const a = args[i]
-  if (a === '--print') printOnly = true
-  else if (a === '--spec') specPath = args[++i]
-  else if (a === '--subject') subject = args[++i]
-  else if (a === '--spark' || a === '-s') {
-    const v = args[++i]
-    if (!v || v.startsWith('-')) usage()
-    const p = parseSparkToken(v)
-    sparkId = p.id
-    if (p.client) sparkClientToken = p.client
-  } else if (a === '--client' || a === '-c') {
-    const v = args[++i]
-    if (!v || v.startsWith('-')) usage()
-    sparkClientFlag = v
-  } else if (a === '-h' || a === '--help') usage()
-  else if (/^#?\d+$/.test(a)) issue = Number(a.replace('#', ''))
-  else if (/^spark:/i.test(a) || /^[a-z0-9-]+#\d+$/i.test(a) || parseSparkUrl(a)) {
-    const p = parseSparkToken(a)
-    sparkId = p.id
-    if (p.client) sparkClientToken = p.client
-  } else if (!a.startsWith('-') && !subject) subject = a
-  else usage()
-}
-if (sparkClientFlag && !sparkId) {
-  console.error('omp-wt: -c/--client only with -s/--spark')
-  usage()
-}
-
 async function sparkJson(argv, label) {
   if (!(await Bun.file(SPARK_SH).exists())) {
     throw new Error(`spark.sh missing: ${SPARK_SH}`)
@@ -157,12 +98,6 @@ async function sparkJson(argv, label) {
   return sparkPayload(stdout, label)
 }
 
-function parseGithubOrigin(url) {
-  const m = String(url)
-    .trim()
-    .match(/github\.com[:/]([^/]+)\/([^/.]+)/i)
-  return m ? { owner: m[1], name: m[2] } : null
-}
 
 async function resolveSparkClientFromRepo() {
   let url = ''
@@ -177,10 +112,12 @@ async function resolveSparkClientFromRepo() {
     log(`origin is not GitHub (${url})`)
     return null
   }
-  const path = `/api/v1/projects/by-repo?owner=${encodeURIComponent(repo.owner)}&repo=${encodeURIComponent(repo.name)}`
   try {
-    const json = await sparkJson(['get', path], `spark by-repo ${repo.owner}/${repo.name}`)
-    return json.project?.clientSlug || json.clientSlug || null
+    const json = await sparkJson(
+      ['projects', 'by-repo', `${repo.owner}/${repo.name}`],
+      `spark by-repo ${repo.owner}/${repo.name}`,
+    )
+    return clientSlugFromByRepo(json)
   } catch (e) {
     log(e instanceof Error ? e.message : String(e))
     return null
@@ -299,12 +236,13 @@ Last line of your reply MUST be exactly: ISSUE=<number>`
   if (!issue && !specPath && !subject && !sparkId) {
     const raw = await ask('Intake (GH # | spark URL | spark:<client>#N | subject)')
     if (!raw) throw new Error('need an intake')
-    if (/^#?\d+$/.test(raw)) issue = Number(raw.replace('#', ''))
-    else if (/^spark:/i.test(raw) || /^[a-z0-9-]+#\d+$/i.test(raw) || parseSparkUrl(raw)) {
-      const p = parseSparkToken(raw)
-      sparkId = p.id
-      if (p.client) sparkClientToken = p.client
-    } else subject = raw
+    const intake = classifyRawIntake(raw)
+    if (intake.kind === 'empty') throw new Error('need an intake')
+    if (intake.kind === 'gh') issue = intake.issue
+    else if (intake.kind === 'spark') {
+      sparkId = intake.id
+      if (intake.client) sparkClientToken = intake.client
+    } else subject = intake.subject
   }
 
   let spark = null

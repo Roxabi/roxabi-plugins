@@ -52,8 +52,8 @@ const result = await run({ issue, specPath, cwd })
 | `result.status` | Action |
 |---|---|
 | `need-relaunch` | `omp --cwd <result.worktree>` then `/build #N`. Do not implement here. |
-| `red` | Stop. Show review or land blocker (`reason`: ci-failed\|closed\|timeout). Leave the worktree. |
-| `green` | PR merged (`reviewed` + watch). Print `result.cleanup` (remove ω from the principal). Never delete cwd from inside it. |
+| `red` | Stop. Show review or land blocker (`reason`: ci-failed\|ci-skipped\|no-required-checks\|auto-merge-failed\|closed\|timeout). Leave the worktree. |
+| `green` | PR merged after required status checks succeed; `reviewed` label triggers auto-merge, not the ruleset gate. Print `result.cleanup` (remove ω from the principal). Never delete cwd from inside it. |
 
 - Grill in this turn. Do not Skill() `grill-me`.
 - Do not Skill() dev-core children.

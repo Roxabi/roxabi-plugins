@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  classifyRawIntake,
+  clientSlugFromByRepo,
   formatSparkFail,
   linkedGithubIssue,
   missingClientMessage,
   needsSparkClient,
+  parseArgv,
+  parseGithubOrigin,
   parseJsonBlob,
   readSparkError,
   sparkPayload,
@@ -96,5 +100,119 @@ describe('formatSparkFail', () => {
     expect(formatSparkFail({ label: 'spark get', code: 1, stderr: 'boom', stdout: 'ignored' })).toBe(
       'spark get failed: exit 1: boom',
     )
+  })
+})
+
+describe('classifyRawIntake', () => {
+  it('treats bare numbers as GH issues', () => {
+    expect(classifyRawIntake('60')).toEqual({ kind: 'gh', issue: 60 })
+    expect(classifyRawIntake('#60')).toEqual({ kind: 'gh', issue: 60 })
+  })
+
+  it('classifies spark tokens and URLs', () => {
+    expect(classifyRawIntake('metalyde#60')).toEqual({
+      kind: 'spark',
+      id: '60',
+      client: 'metalyde',
+    })
+    expect(classifyRawIntake('spark:metalyde#60')).toEqual({
+      kind: 'spark',
+      id: '60',
+      client: 'metalyde',
+    })
+    expect(classifyRawIntake('https://spark.gosilex.com/silex/developpement/cmtxxx')).toEqual({
+      kind: 'spark',
+      id: 'cmtxxx',
+      client: 'silex',
+    })
+  })
+
+  it('returns empty for blank input', () => {
+    expect(classifyRawIntake('')).toEqual({ kind: 'empty' })
+    expect(classifyRawIntake('   ')).toEqual({ kind: 'empty' })
+  })
+
+  it('falls back to subject', () => {
+    expect(classifyRawIntake('Add pricing oracle')).toEqual({
+      kind: 'subject',
+      subject: 'Add pricing oracle',
+    })
+  })
+})
+
+describe('parseArgv', () => {
+  it('parses GH issue positional', () => {
+    expect(parseArgv(['60'])).toEqual({
+      printOnly: false,
+      specPath: null,
+      subject: null,
+      issue: 60,
+      sparkId: null,
+      sparkClientFlag: null,
+      sparkClientToken: null,
+    })
+  })
+
+  it('parses spark id without client', () => {
+    expect(parseArgv(['-s', '60'])).toEqual({
+      printOnly: false,
+      specPath: null,
+      subject: null,
+      issue: null,
+      sparkId: '60',
+      sparkClientFlag: null,
+      sparkClientToken: null,
+    })
+  })
+
+  it('parses spark id with client flag', () => {
+    expect(parseArgv(['-s', '60', '-c', 'metalyde'])).toEqual({
+      printOnly: false,
+      specPath: null,
+      subject: null,
+      issue: null,
+      sparkId: '60',
+      sparkClientFlag: 'metalyde',
+      sparkClientToken: null,
+    })
+  })
+
+  it('rejects client without spark', () => {
+    expect(parseArgv(['-c', 'x'])).toEqual({ usage: true })
+  })
+
+  it('extracts client from spark URL', () => {
+    expect(parseArgv(['-s', 'https://spark.gosilex.com/silex/developpement/cmtxxx'])).toEqual({
+      printOnly: false,
+      specPath: null,
+      subject: null,
+      issue: null,
+      sparkId: 'cmtxxx',
+      sparkClientFlag: null,
+      sparkClientToken: 'silex',
+    })
+  })
+})
+
+describe('parseGithubOrigin', () => {
+  it('parses https and ssh remotes', () => {
+    expect(parseGithubOrigin('https://github.com/roxabi/roxabi-plugins.git')).toEqual({
+      owner: 'roxabi',
+      name: 'roxabi-plugins',
+    })
+    expect(parseGithubOrigin('git@github.com:roxabi/roxabi-plugins.git')).toEqual({
+      owner: 'roxabi',
+      name: 'roxabi-plugins',
+    })
+  })
+})
+
+describe('clientSlugFromByRepo', () => {
+  it('returns project clientSlug', () => {
+    expect(clientSlugFromByRepo({ project: { clientSlug: 'metalyde' } })).toBe('metalyde')
+  })
+
+  it('ignores error payloads', () => {
+    expect(clientSlugFromByRepo({ error: 'Projet introuvable.' })).toBeNull()
   })
 })

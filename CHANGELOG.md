@@ -14,6 +14,7 @@ predate that and were produced by release-please or `/promote`.
 * **dev-core:** 10 standalone skills are slash-only (`disable-model-invocation`); Triggers stripped. Guide + ADR-018 amended.
 
 * **omp-build / omp-wt:** fail closed on Spark `{error}` (spark.sh exit 0), log steps on stderr, refuse numeric Spark id without a client
+* **omp-build:** `landPr` labels `reviewed` only after required checks (ruleset ∪ classic, case-sensitive) are SUCCESS — SKIPPED/NEUTRAL/PENDING/missing ≠ green; `--auto` fail-closed; omp-wt intake parsed in lib; `-s N` resolves client via `spark.sh projects by-repo`
 
 * **dev-core:** priced SCs, mechanical falsify, shrink `/code-review` roster (#415) — fail-closed SCs declare `priced`/`not`/`oracles`; `/dev-implement` 6b + `/test` 8 prefer `test:falsify`; `/pr` REFUSE on `⏳ not run` or missing Falsification Evidence; `/code-review` default is adversarial (+ OWASP lens), not 8 always-on agents; `/fix` bans denylist/grep proxies for tautology classes
 * **dev-core / dev-init:** principal freeze = lefthook persist gate (`/ci-setup` 2e + `seed-principal-freeze`) **and** plugin Pre/Post **deny** (agent). ADR-017 amended.

@@ -46,7 +46,7 @@ export function parseSpecMeta(text, { issue, specPath } = {}) {
   const fmIssue = (text.match(/^issue:\s*(\d+)/m) || [])[1]
   const fromName = specPath?.match(/(\d+)-(.+)-spec\.md$/)
   const n = issue ?? (fmIssue ? Number(fmIssue) : null)
-  const slug = (fromName && fromName[2]) || kebab(title) || (n ? `issue-${n}` : 'wip')
+  const slug = fromName?.[2] || kebab(title) || (n ? `issue-${n}` : 'wip')
   return { type, slug, title, issue: n }
 }
 
@@ -303,23 +303,159 @@ async function gh(cwd, args) {
 const WATCH_MS = 20 * 60 * 1000
 const WATCH_EVERY = 15_000
 
-/** Label PR `reviewed`, enable auto-merge, watch until MERGED. No mid-CI merge. */
-export async function landPr(cwd, pr, { now = Date.now, sleep = (ms) => Bun.sleep(ms), timeout = WATCH_MS } = {}) {
-  await gh(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
+const CI_FAILED = new Set(['FAILURE', 'CANCELLED', 'TIMED_OUT', 'STARTUP_FAILURE'])
+
+/** @param {string} apiJson */
+export function parseRequiredContexts(apiJson) {
+  const out = new Set()
   try {
-    await gh(cwd, ['pr', 'merge', String(pr), '--auto', '--merge'])
+    const data = JSON.parse(apiJson)
+    if (!data || typeof data !== 'object') return out
+
+    if (Array.isArray(data)) {
+      for (const rule of data) {
+        if (rule?.type === 'required_status_checks' && Array.isArray(rule?.parameters?.required_status_checks)) {
+          for (const rsc of rule.parameters.required_status_checks) {
+            if (rsc && typeof rsc.context === 'string') out.add(rsc.context)
+          }
+        }
+      }
+      return out
+    }
+
+    const rsc = data.required_status_checks ?? data
+    if (Array.isArray(rsc.contexts)) {
+      for (const ctx of rsc.contexts) {
+        if (typeof ctx === 'string') out.add(ctx)
+      }
+    }
+    if (Array.isArray(rsc.checks)) {
+      for (const ch of rsc.checks) {
+        if (ch && typeof ch.context === 'string') out.add(ch.context)
+      }
+    }
   } catch {
-    /* merge-on-green: label is the gate */
+    /* parse failure → ∅ */
   }
+  return out
+}
+
+/**
+ * @param {Array<{ name?: string, conclusion?: string | null, status?: string }>} checks
+ * @param {string[]} required
+ */
+export function evaluateRequiredRollup(checks, required) {
+  if (!required?.length) return { ready: false, status: 'no-required-checks' }
+
+  const failed = []
+  const skipped = []
+  const pending = []
+  const missing = []
+
+  for (const ctx of required) {
+    const check = checks.find((c) => c.name === ctx)
+    if (!check) {
+      missing.push(ctx)
+      pending.push(ctx)
+      continue
+    }
+    const { conclusion, status } = check
+    if (CI_FAILED.has(conclusion)) {
+      failed.push(ctx)
+      continue
+    }
+    if (conclusion === 'SKIPPED' || conclusion === 'NEUTRAL') {
+      skipped.push(ctx)
+      continue
+    }
+    if (!conclusion || conclusion === '' || status !== 'COMPLETED' || conclusion !== 'SUCCESS') {
+      pending.push(ctx)
+    }
+  }
+
+  if (failed.length) return { ready: false, status: 'ci-failed', failed }
+  if (skipped.length) return { ready: false, status: 'ci-skipped', skipped }
+  if (pending.length || missing.length) return { ready: false, status: 'pending', pending, missing }
+  return { ready: true, status: 'ok' }
+}
+
+/** @param {string} cwd @param {string | number} pr @param {(cwd: string, args: string[]) => Promise<string>} ghFn */
+async function resolveRequiredContexts(cwd, pr, ghFn) {
+  const out = new Set()
+  try {
+    const { nameWithOwner } = JSON.parse(await ghFn(cwd, ['repo', 'view', '--json', 'nameWithOwner']))
+    const [owner, repo] = (nameWithOwner || '').split('/')
+    if (!owner || !repo) return []
+
+    let base
+    try {
+      const prJson = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'baseRefName']))
+      base = prJson.baseRefName
+    } catch {
+      base = null
+    }
+    if (!base) base = await detectPrincipal(cwd)
+    if (!base) return []
+
+    try {
+      const classic = await ghFn(cwd, [
+        'api',
+        `repos/${owner}/${repo}/branches/${base}/protection/required_status_checks`,
+      ])
+      for (const ctx of parseRequiredContexts(classic)) out.add(ctx)
+    } catch {
+      /* fail-open */
+    }
+    try {
+      const rules = await ghFn(cwd, ['api', `repos/${owner}/${repo}/rules/branches/${base}`])
+      for (const ctx of parseRequiredContexts(rules)) out.add(ctx)
+    } catch {
+      /* fail-open */
+    }
+  } catch {
+    /* fail-open */
+  }
+  return [...out]
+}
+
+/** Wait for required rollup SUCCESS, then label `reviewed` and auto-merge. */
+export async function landPr(
+  cwd,
+  pr,
+  { now = Date.now, sleep = (ms) => Bun.sleep(ms), timeout = WATCH_MS, gh: ghFn = gh, requiredContexts } = {},
+) {
+  const required = requiredContexts !== undefined ? [...requiredContexts] : await resolveRequiredContexts(cwd, pr, ghFn)
+
+  if (required.length === 0) return { status: 'no-required-checks' }
+
+  let labeled = false
   const deadline = now() + timeout
+
   while (now() < deadline) {
-    const j = JSON.parse(await gh(cwd, ['pr', 'view', String(pr), '--json', 'state,statusCheckRollup']))
+    const j = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'state,statusCheckRollup']))
     if (j.state === 'MERGED') return { status: 'merged' }
     if (j.state === 'CLOSED') return { status: 'closed' }
-    const checks = j.statusCheckRollup || []
-    if (checks.some((c) => ['FAILURE', 'CANCELLED', 'TIMED_OUT'].includes(c.conclusion))) {
-      return { status: 'ci-failed' }
+
+    const rollup = evaluateRequiredRollup(j.statusCheckRollup || [], required)
+    if (rollup.status === 'ci-failed') return { status: 'ci-failed', failed: rollup.failed }
+    if (rollup.status === 'ci-skipped') return { status: 'ci-skipped', skipped: rollup.skipped }
+
+    if (rollup.status === 'pending') {
+      await sleep(WATCH_EVERY)
+      continue
     }
+
+    if (!labeled) {
+      await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
+      labeled = true
+      try {
+        await ghFn(cwd, ['pr', 'merge', String(pr), '--auto', '--merge'])
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (!/already enabled/i.test(msg)) return { status: 'auto-merge-failed' }
+      }
+    }
+
     await sleep(WATCH_EVERY)
   }
   return { status: 'timeout' }
