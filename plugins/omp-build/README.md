@@ -42,3 +42,16 @@ Creates ω (`<type>/<N>-<slug>` via `resolveNames`) and `omp --cwd` there. Then 
 2. `run()` = plan → impl → PR → review (≤2) → label `reviewed` → watch until merge
 
 Skip grill when the spec is already `status: validated`.
+
+## Agents
+
+OMP task agents in `agents/` (`model: "@advisor"`):
+
+| Agent | Posture |
+|---|---|
+| `adversarial` | Red-team. Kill the priced claim. |
+| `advisor` | Constructive second opinion. Strengthen, don't attack. Not the session WATCHDOG. |
+
+Spawn: `task` `{ agent: "adversarial" | "advisor", ... }`.
+
+With `claude-plugins` off, these files do not load from a marketplace install. Symlink them into `~/.omp/agent/agents/` (user discovery, no provider gate).
