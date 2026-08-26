@@ -14,7 +14,7 @@ beforeAll(() => {
   vi.spyOn(Bun, 'spawn').mockImplementation((cmd, opts) => {
     const proc = spawn(cmd[0], cmd.slice(1), {
       cwd: opts?.cwd,
-      env: gitEnv(opts?.env),
+      env: opts?.env ?? process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     return {
@@ -130,7 +130,17 @@ describe('ensureWorktree', () => {
 
   it('ensureWorktree does not mutate a poisoned GIT_DIR decoy', async () => {
     const decoy = mkdtempSync(join(tmpdir(), 'git-dir-decoy-'))
-    spawnSync('git', ['init', decoy], { env: gitEnv(), encoding: 'utf8' })
+    const decoyEnv = gitEnv()
+    spawnSync('git', ['init', '-b', 'staging', decoy], { env: decoyEnv, encoding: 'utf8' })
+    spawnSync('git', ['-C', decoy, 'config', 'user.email', 'test@example.com'], {
+      env: decoyEnv,
+      encoding: 'utf8',
+    })
+    spawnSync('git', ['-C', decoy, 'config', 'user.name', 'Test'], { env: decoyEnv, encoding: 'utf8' })
+    spawnSync('git', ['-C', decoy, 'commit', '--allow-empty', '-m', 'seed'], {
+      env: decoyEnv,
+      encoding: 'utf8',
+    })
     const prev = process.env.GIT_DIR
     process.env.GIT_DIR = join(decoy, '.git')
     try {
@@ -139,14 +149,15 @@ describe('ensureWorktree', () => {
       await ensureWorktree(fx.repoPath, fx.names)
 
       const branches = spawnSync('git', ['-C', decoy, 'branch', '--list'], {
-        env: gitEnv(),
+        env: decoyEnv,
         encoding: 'utf8',
       })
       expect(branches.status).toBe(0)
-      expect(branches.stdout.trim()).toBe('')
+      expect(branches.stdout).not.toMatch(/feat\/42-test-slug/)
+      expect(branches.stdout.trim().split('\n').filter(Boolean)).toEqual(['* staging'])
 
       const listed = spawnSync('git', ['-C', decoy, 'worktree', 'list'], {
-        env: gitEnv(),
+        env: decoyEnv,
         encoding: 'utf8',
       })
       expect(listed.status).toBe(0)
