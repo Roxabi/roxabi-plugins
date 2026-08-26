@@ -33,7 +33,7 @@ output:
             type: string
     risks_as_advice:
       metadata:
-        description: "do X to reduce Y" — not "this is dead"
+        description: 'do X to reduce Y — not "this is dead"'
       elements:
         type: string
     open_questions:

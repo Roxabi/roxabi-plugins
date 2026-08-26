@@ -26,12 +26,6 @@
       "category": "development"
     },
     {
-      "name": "omp-build",
-      "description": "OMP-only post-spec orchestrator — plan, isolated implement, PR, root-cause review, reviewed+cleanup.",
-      "source": "./plugins/omp-build",
-      "category": "development"
-    },
-    {
       "name": "linkedin-post-generator",
       "description": "Generate engaging LinkedIn posts with best practices and visual identity.",
       "source": "./plugins/linkedin-post-generator",

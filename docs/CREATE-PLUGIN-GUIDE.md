@@ -2,7 +2,43 @@
 
 ## Creating a New Plugin
 
-Follow these steps in order to add a new plugin to the marketplace.
+Follow these steps to add a plugin under `plugins/`. **Pick a distribution path first** — marketplace (catalog install) or link-only (OMP git/link, no catalog entry).
+
+### Choose distribution
+
+| Path | When | OMP install | Catalog |
+|---|---|---|---|
+| **Marketplace** | Ship to all users via catalog; Claude Code + OMP marketplace pipes | `omp plugin install <name>@roxabi-marketplace` (requires `claude-plugins` on) | Add to `.claude-plugin/marketplace.json` **and** `.omp-plugin/marketplace.json` |
+| **Link-only** | Monorepo subdir, internal/operator tooling, or `claude-plugins` off | `omp plugin link ./plugins/<name>` from repo root | **No** catalog entry; **no** `plugins/<name>/.omp-plugin/plugin.json` |
+
+
+For **link-only** (or any OMP git/link install), add `plugins/<plugin-name>/package.json`:
+
+```json
+{
+  "name": "<plugin-name>",
+  "private": true,
+  "omp": {}
+}
+```
+
+Link-only plugins require this file; marketplace-only plugins can omit it unless you also test with `omp plugin link`. Use `omp.extensions` only for in-process hook factories — not required for skills/agents/commands.
+
+Verify after install:
+
+```bash
+omp plugin doctor    # expect plugin:<name>
+omp plugin list      # npm Plugins → <name>@…
+```
+
+**Reload vs restart** after edits (link or marketplace):
+
+| Change | Pick up |
+|---|---|
+| `skills/`, `commands/`, MCP config | `/reload-plugins` |
+| `hooks/`, `omp.extensions`, **new/changed `agents/*.md`** | **restart** OMP session |
+
+Do **not** symlink plugin files into `~/.omp/agent/skills/` or `~/.omp/agent/agents/` — that shadows the plugin. Use `link` or marketplace install + restart.
 
 ### Step 1 — Create the plugin directory
 
@@ -63,20 +99,25 @@ allowed-tools: Write, Read, Glob, ToolSearch
 - Present a decision before any destructive action
 
 ### Step 3 — Write a README for the plugin
-
-Create `plugins/<plugin-name>/README.md` in plain English. This is for humans browsing the repo or the marketplace. It should cover:
-
 - What the plugin does and why it's useful
-- How to install it (`claude plugin marketplace add Roxabi/roxabi-plugins` then `claude plugin install <plugin-name>`)
+- How to install it:
+  - **Marketplace:** `claude plugin marketplace add Roxabi/roxabi-plugins` then `claude plugin install <plugin-name>`; OMP: `omp plugin install <plugin-name>@roxabi-marketplace`
+  - **Link-only:** `omp plugin link ./plugins/<plugin-name>` from a checkout (requires `package.json` with `"omp": {}`)
 - How to use it (trigger phrases, example workflows)
 - When to use it (typical scenarios)
 - How it works (brief explanation of the approach, no code notation)
+- Reload vs restart table if the plugin ships agents, hooks, or `omp.extensions`
 
-See `plugins/compress/README.md` for an example.
+See `plugins/compress/README.md` (marketplace) or `plugins/omp-build/README.md` (link-only) for examples.
 
-### Step 4 — Register the plugin in marketplace.json
+### Step 4 — Register in marketplace catalogs (marketplace path only)
 
-Add an entry to the `plugins` array in `.claude-plugin/marketplace.json`:
+Skip this step for link-only plugins.
+
+Add an entry to the `plugins` array in **both** catalog files at the repo root:
+
+- `.claude-plugin/marketplace.json` — Claude Code marketplace
+- `.omp-plugin/marketplace.json` — OMP marketplace (`claude-plugins` provider)
 
 ```json
 {
@@ -87,7 +128,9 @@ Add an entry to the `plugins` array in `.claude-plugin/marketplace.json`:
 }
 ```
 
-Categories used so far: `maintenance`. Pick the closest fit or create a new one if needed.
+Add `plugins/<plugin-name>/.claude-plugin/plugin.json` (Claude) and, for OMP marketplace delivery, `plugins/<plugin-name>/.omp-plugin/plugin.json`. Link-only plugins omit per-plugin `.omp-plugin/` metadata.
+
+Categories used so far: `maintenance`, `development`, `workflow`, `productivity`, `content`. Pick the closest fit or create a new one if needed.
 
 ### Step 5 — Add the plugin to the root README
 
@@ -120,7 +163,7 @@ feat(plugins): add <plugin-name> — short description
 
 When adopting a high-quality external skill rather than building from scratch, use `git subtree` to vendor it into the marketplace while keeping the ability to pull upstream updates.
 
-> **Native vs Wrapped plugins** — plugins built by Roxabi are *native*. Plugins forked from external raw-skill repos (no versioning, no install mechanism) are *wrapped*: Roxabi adds the plugin structure (frontmatter, README, marketplace entry) and vendors the source via `git subtree`. Both appear in `marketplace.json`. For endorsed external repos that already ship as proper plugin marketplaces, add them to `curated-marketplaces.json` instead — `/ci-setup` discovers and offers them at runtime without vendoring.
+> **Native vs Wrapped plugins** — plugins built by Roxabi are *native*. Plugins forked from external raw-skill repos (no versioning, no install mechanism) are *wrapped*: Roxabi adds the plugin structure (frontmatter, README, marketplace entries) and vendors the source via `git subtree`. Both appear in `.claude-plugin/marketplace.json` and `.omp-plugin/marketplace.json`. For endorsed external repos that already ship as proper plugin marketplaces, add them to `curated-marketplaces.json` instead — `/ci-setup` discovers and offers them at runtime without vendoring.
 
 ### Step 1 — Add as a subtree
 
@@ -160,7 +203,7 @@ Overwrite the upstream README with a Roxabi marketplace README (install instruct
 
 ### Steps 5–6 — Register and commit
 
-Follow Steps 4–6 from "Creating a New Plugin" above (marketplace.json, root README, commit).
+Follow Steps 4–6 from "Creating a New Plugin" above (both marketplace catalogs, root README, commit).
 
 ### Pulling upstream updates later
 

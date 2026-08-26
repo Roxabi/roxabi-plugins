@@ -12,6 +12,8 @@ predate that and were produced by release-please or `/promote`.
 
 * **dev-core:** rename skill/slash `/implement` → `/dev-implement` (Grok/Claude host collision; pipeline step id stays `implement`)
 * **dev-core:** 10 standalone skills are slash-only (`disable-model-invocation`); Triggers stripped. Guide + ADR-018 amended.
+* **omp-build:** install via `omp plugin link` only — drop marketplace catalog entry and `.omp-plugin/plugin.json`; add `package.json` with `"omp": {}` for omp-plugins
+
 
 * **omp-build / omp-wt:** fail closed on Spark `{error}` (spark.sh exit 0), log steps on stderr, refuse numeric Spark id without a client
 * **omp-build:** `landPr` labels `reviewed` only after required checks (ruleset ∪ classic, case-sensitive) are SUCCESS — SKIPPED/NEUTRAL/PENDING/missing ≠ green; `--auto` fail-closed; omp-wt intake parsed in lib; `-s N` resolves client via `spark.sh projects by-repo`
