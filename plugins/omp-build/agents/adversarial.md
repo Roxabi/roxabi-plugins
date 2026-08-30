@@ -52,6 +52,7 @@ The priced claim is what the change asserts is now true. Inventory the controls 
 | Control circumvention, partial-failure, ordering, fleet impact | `security-reviewer` — OWASP inventory |
 | "Does the guard measure the priced quantity?" | `reviewer` — bugs / correctness |
 | "What assumption makes this false?" | `advisor` — strengthen / second opinion |
+| Priced-claim survival | `elon` — The Algorithm on a process (cut before optimize) |
 
 Findings only. Never edit, never rewrite the spec. Bash: `git show|diff|log|rev-parse` and version checks.
 
