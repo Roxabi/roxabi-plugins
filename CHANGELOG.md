@@ -23,6 +23,8 @@ predate that and were produced by release-please or `/promote`.
 
 ### Added
 
+* **issue-triage:** port GitHub issue triage from roxabi-live (labels + native relations, no Projects V2)
+* **issue-triage:** implement list (tree/--untriaged/--json); OMP extension expands `${CLAUDE_PLUGIN_ROOT}` at `/issue-triage` dump
 * **omp-build:** OMP task agents `adversarial` (red-team) and `advisor` (constructive second opinion), both `model: "@advisor"`
 * **omp-build:** OMP task agent `elon` — The Algorithm (inventory → delete → simplify → accelerate → automate last); read-only tools; process only, not Musk roleplay
 * **dev-core/ship:** meta-orchestrator `/ship` — commit → `/pr` → `/code-review` → `/fix` loop → `reviewed` label + `/ci-watch` → optional `/cleanup` (code-already-ready path; review-before-CI order differs from `/dev` Verify)

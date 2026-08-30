@@ -166,7 +166,7 @@
       "upstream_branch": "staging",
       "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
       "status": "active",
-      "notes": "Roxabi-owned. Hosts the relocated issue-triage plugin (labels + native relations, no Projects V2). Extracted from dev-core."
+      "notes": "Roxabi-owned. issue-triage now ships as a native plugin in Roxabi/roxabi-plugins; this marketplace entry stays curated/active. Extracted historically from dev-core."
     }
   ],
   "wrapped_plugins": [

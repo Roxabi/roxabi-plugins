@@ -1,0 +1,254 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+process.env.GITHUB_REPO = 'Test/test-repo'
+
+vi.mock('../../shared/adapters/config-helpers', () => ({
+  GITHUB_REPO: 'Test/test-repo',
+  resolveStatus: (input: string) => {
+    const canonical = new Set(['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'])
+    if (canonical.has(input)) return input
+    const aliases: Record<string, string> = {
+      BACKLOG: 'Backlog',
+      ANALYSIS: 'Analysis',
+      SPECS: 'Specs',
+      'IN PROGRESS': 'In Progress',
+      IN_PROGRESS: 'In Progress',
+      INPROGRESS: 'In Progress',
+      REVIEW: 'Review',
+      DONE: 'Done',
+    }
+    return aliases[input.toUpperCase()]
+  },
+  resolveSize: (input: string) => {
+    const u = input.toUpperCase()
+    return new Set(['XS', 'S', 'M', 'L', 'XL']).has(u) ? u : undefined
+  },
+  resolvePriority: (input: string) => {
+    const canonical = new Set(['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'])
+    if (canonical.has(input)) return input
+    const aliases: Record<string, string> = {
+      URGENT: 'P0 - Urgent',
+      HIGH: 'P1 - High',
+      MEDIUM: 'P2 - Medium',
+      LOW: 'P3 - Low',
+      P0: 'P0 - Urgent',
+      P1: 'P1 - High',
+      P2: 'P2 - Medium',
+      P3: 'P3 - Low',
+    }
+    return aliases[input.toUpperCase()]
+  },
+  resolveLane: (input: string) =>
+    new Set(['a1', 'a2', 'a3', 'b', 'c1', 'c2', 'c3', 'd', 'e']).has(input) ? input : undefined,
+}))
+
+vi.mock('../../shared/adapters/github-infra', () => ({
+  syncPriorityLabel: vi.fn(),
+  syncSizeLabel: vi.fn(),
+  syncLaneLabel: vi.fn(),
+  syncStatusLabel: vi.fn(),
+}))
+
+vi.mock('../../shared/adapters/github-adapter', () => ({
+  createGitHubIssue: vi.fn(),
+  getNodeId: vi.fn(),
+  addBlockedBy: vi.fn(),
+  addSubIssue: vi.fn(),
+  resolveIssueTypeId: vi.fn(),
+  updateIssueIssueType: vi.fn(),
+}))
+
+const github = await import('../../shared/adapters/github-adapter')
+const mockCreateGitHubIssue = github.createGitHubIssue as ReturnType<typeof vi.fn>
+const mockGetNodeId = github.getNodeId as ReturnType<typeof vi.fn>
+const mockAddBlockedBy = github.addBlockedBy as ReturnType<typeof vi.fn>
+const mockAddSubIssue = github.addSubIssue as ReturnType<typeof vi.fn>
+
+const githubInfra = await import('../../shared/adapters/github-infra')
+const mockSyncPriorityLabel = githubInfra.syncPriorityLabel as ReturnType<typeof vi.fn>
+const mockSyncSizeLabel = githubInfra.syncSizeLabel as ReturnType<typeof vi.fn>
+const mockSyncLaneLabel = githubInfra.syncLaneLabel as ReturnType<typeof vi.fn>
+const mockSyncStatusLabel = githubInfra.syncStatusLabel as ReturnType<typeof vi.fn>
+const mockResolveIssueTypeId = github.resolveIssueTypeId as ReturnType<typeof vi.fn>
+const mockUpdateIssueIssueType = github.updateIssueIssueType as ReturnType<typeof vi.fn>
+
+const { createIssue } = await import('../lib/create')
+
+function setupMocks() {
+  vi.clearAllMocks()
+  mockCreateGitHubIssue.mockResolvedValue({
+    url: 'https://github.com/test/repo/issues/99',
+    number: 99,
+  })
+  mockGetNodeId.mockImplementation(async (num) => `node-${num}`)
+  mockResolveIssueTypeId.mockResolvedValue('issue-type-id')
+  vi.spyOn(console, 'log').mockImplementation(() => {})
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+}
+
+describe('issue-triage/create > basic creation', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  it('creates an issue with title', async () => {
+    await createIssue(['--title', 'Test issue'])
+    expect(mockCreateGitHubIssue).toHaveBeenCalledWith('Test issue', undefined, undefined)
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Created #99'))
+  })
+
+  it('syncs size label on creation', async () => {
+    await createIssue(['--title', 'Test', '--size', 'M'])
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(99, 'M')
+  })
+
+  it('syncs priority label on creation', async () => {
+    await createIssue(['--title', 'Test', '--priority', 'High'])
+    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(99, 'P1 - High')
+  })
+
+  it('syncs status label on creation', async () => {
+    await createIssue(['--title', 'Test', '--status', 'In Progress'])
+    expect(mockSyncStatusLabel).toHaveBeenCalledWith(99, 'In Progress')
+  })
+})
+
+describe('issue-triage/create > relationships', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  it('sets parent relationship', async () => {
+    await createIssue(['--title', 'Child', '--parent', '50'])
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-50', 'node-99')
+  })
+
+  it('sets cross-repo parent relationship', async () => {
+    await createIssue(['--title', 'Child', '--parent', 'Roxabi/lyra#100'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(100, 'Roxabi/lyra')
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-100', 'node-99')
+  })
+
+  it('adds children', async () => {
+    await createIssue(['--title', 'Epic', '--add-child', '60,61'])
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-99', 'node-60')
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-99', 'node-61')
+  })
+
+  it('adds cross-repo children', async () => {
+    await createIssue(['--title', 'Epic', '--add-child', 'Roxabi/lyra#60'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(60, 'Roxabi/lyra')
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-99', 'node-60')
+  })
+
+  it('sets blocked-by dependencies', async () => {
+    await createIssue(['--title', 'Test', '--blocked-by', '10,11'])
+    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-99', 'node-10')
+    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-99', 'node-11')
+  })
+
+  it('sets cross-repo blocked-by dependencies', async () => {
+    await createIssue(['--title', 'Test', '--blocked-by', 'Roxabi/lyra#728'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(728, 'Roxabi/lyra')
+    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-99', 'node-728')
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Roxabi/lyra#728'))
+  })
+
+  it('sets blocking dependencies', async () => {
+    await createIssue(['--title', 'Test', '--blocks', '20'])
+    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-20', 'node-99')
+  })
+
+  it('sets cross-repo blocking dependencies', async () => {
+    await createIssue(['--title', 'Test', '--blocks', 'Roxabi/voiceCLI#94'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(94, 'Roxabi/voiceCLI')
+    expect(mockAddBlockedBy).toHaveBeenCalledWith('node-94', 'node-99')
+  })
+
+  it('handles mixed local and cross-repo refs', async () => {
+    await createIssue(['--title', 'Test', '--blocked-by', '10, Roxabi/lyra#728, #11'])
+    expect(mockGetNodeId).toHaveBeenCalledWith(10, undefined)
+    expect(mockGetNodeId).toHaveBeenCalledWith(728, 'Roxabi/lyra')
+    expect(mockGetNodeId).toHaveBeenCalledWith(11, undefined)
+    expect(mockAddBlockedBy).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('issue-triage/create > options and error handling', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  it('includes labels in create call', async () => {
+    await createIssue(['--title', 'Test', '--label', 'bug,frontend'])
+    expect(mockCreateGitHubIssue).toHaveBeenCalledWith('Test', undefined, ['bug', 'frontend'])
+  })
+
+  it('includes body in create call', async () => {
+    await createIssue(['--title', 'Test', '--body', 'Description here'])
+    expect(mockCreateGitHubIssue).toHaveBeenCalledWith('Test', 'Description here', undefined)
+  })
+})
+
+describe('issue-triage/create > priority label sync', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  it('syncs priority label when --priority is provided', async () => {
+    await createIssue(['--title', 'Test', '--priority', 'High'])
+    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(99, 'P1 - High')
+  })
+
+  it('does not sync priority label when --priority is not provided', async () => {
+    await createIssue(['--title', 'Test'])
+    expect(mockSyncPriorityLabel).not.toHaveBeenCalled()
+  })
+
+  it('syncs size label when --size is provided', async () => {
+    await createIssue(['--title', 'Test', '--size', 'M'])
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(99, 'M')
+  })
+
+  it('syncs status label when --status is provided', async () => {
+    await createIssue(['--title', 'Test', '--status', 'In Progress'])
+    expect(mockSyncStatusLabel).toHaveBeenCalledWith(99, 'In Progress')
+  })
+})
+
+describe('issue-triage/create > type', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  it('sets issue type on creation', async () => {
+    await createIssue(['--title', 'Test', '--type', 'feat'])
+    expect(mockResolveIssueTypeId).toHaveBeenCalledWith('Test', 'feat')
+    expect(mockUpdateIssueIssueType).toHaveBeenCalledWith('node-99', 'issue-type-id')
+  })
+
+  it('accepts extended types (epic)', async () => {
+    await createIssue(['--title', 'Test', '--type', 'epic'])
+    expect(mockUpdateIssueIssueType).toHaveBeenCalledWith('node-99', 'issue-type-id')
+  })
+
+  it('normalizes type case', async () => {
+    await createIssue(['--title', 'Test', '--type', 'FIX'])
+    expect(mockResolveIssueTypeId).toHaveBeenCalledWith('Test', 'fix')
+  })
+
+  it('does not set type when --type is not provided', async () => {
+    await createIssue(['--title', 'Test'])
+    expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+  })
+})
+
+describe('issue-triage/create > lane', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  it('syncs lane label when --lane is provided', async () => {
+    await createIssue(['--title', 'Test', '--lane', 'a1'])
+    expect(mockSyncLaneLabel).toHaveBeenCalledWith(99, 'a1')
+  })
+
+  it('does not sync lane label when --lane is not provided', async () => {
+    await createIssue(['--title', 'Test'])
+    expect(mockSyncLaneLabel).not.toHaveBeenCalled()
+  })
+})
