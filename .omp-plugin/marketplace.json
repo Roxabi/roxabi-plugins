@@ -60,6 +60,12 @@
       "description": "GitNexus CLI integration — code knowledge graph tools (impact analysis, symbol context, query). CLI-only alternative to MCP for minimal token overhead.",
       "source": "./plugins/gitnexus",
       "category": "development"
+    },
+    {
+      "name": "issue-triage",
+      "description": "Triage/create GitHub issues — size/priority/lane/type labels, blocked-by deps, parent/child. Labels + native relations, no Projects V2.",
+      "source": "./plugins/issue-triage",
+      "category": "development"
     }
   ]
 }

@@ -1,0 +1,11 @@
+{
+  "name": "issue-triage",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "issue-triage": "./skills/issue-triage/triage.ts"
+  },
+  "omp": {
+    "extensions": ["./omp/index.ts"]
+  }
+}

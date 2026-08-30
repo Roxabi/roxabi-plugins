@@ -59,7 +59,8 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 
 | Plugin | Description |
 |--------|-------------|
-| [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. Includes `/dev-init` project setup (env-setup → axial → ci-setup → release-setup). Lifecycle skills, agents, safety hooks. Issues-only (no Projects V2 board); issue triage lives in the separate [roxabi-issues](https://github.com/Roxabi/roxabi-live) plugin. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
+| [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. Includes `/dev-init` project setup (env-setup → axial → ci-setup → release-setup). Lifecycle skills, agents, safety hooks. Issues-only (no Projects V2 board); issue triage is the companion [issue-triage](plugins/issue-triage/README.md) plugin. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
+| [issue-triage](plugins/issue-triage/README.md) | Triage/create GitHub issues — size/priority/lane/type labels, blocked-by deps, parent/child. Labels + native relations, no Projects V2 |
 
 ### Content & branding
 
@@ -106,7 +107,7 @@ claude plugin marketplace add <source>
 | ui-ux-pro-max-skill | UI/UX design intelligence — 67 styles, 96 palettes, 57 font pairings, 25 charts | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) |
 | roxabi-video-engine | Programmatic video generation — 55 React components, 13 kits, headless MP4 rendering | [Roxabi/roxabi-production](https://github.com/Roxabi/roxabi-production) |
 | frontend-slides | Zero-dependency HTML presentations — 12 presets, PPT conversion, Vercel deploy + PDF export | [zarazhangrui/frontend-slides](https://github.com/zarazhangrui/frontend-slides) |
-| roxabi-live | Issue management — the `roxabi-issues` plugin (labels + native relations, no Projects V2). Relocated from dev-core | [Roxabi/roxabi-live](https://github.com/Roxabi/roxabi-live) |
+| roxabi-live | Live/ops marketplace (historical host of issue triage; native `issue-triage` now ships here) | [Roxabi/roxabi-live](https://github.com/Roxabi/roxabi-live) |
 
 ## Data storage
 
@@ -124,7 +125,7 @@ Data-producing plugins store user data in `~/.roxabi-vault/` — never in the re
 
 Two kinds of plugins live in this repo:
 
-**Native plugins** — built and maintained by Roxabi. We own the full lifecycle: `dev-core`, `compress`, `1b1`, `cv`, `linkedin-post-generator`, `image-prompt-generator`, `get-invoice-details`, `linkedin-apply`.
+**Native plugins** — built and maintained by Roxabi. We own the full lifecycle: `dev-core`, `issue-triage`, `compress`, `1b1`, `cv`, `linkedin-post-generator`, `image-prompt-generator`, `get-invoice-details`, `linkedin-apply`.
 
 **Wrapped plugins** — high-quality external skills with no versioning or install mechanism in their source repo. Roxabi adds plugin structure and vendors the source (via `git subtree` or file copy) so they become installable. New wrapped plugins go into `external/`.
 

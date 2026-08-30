@@ -15,6 +15,7 @@
     "vitest.setup.ts",
     "plugins/dev-core/**/*.ts",
     "plugins/shared/**/*.ts",
+    "plugins/issue-triage/**/*.ts",
     "scripts/**/*.ts"
   ],
   "exclude": [
@@ -22,6 +23,7 @@
     "plugins/web-intel/.venv",
     "plugins/dev-core/cli/__tests__",
     "plugins/dev-core/cli/index.ts",
-    "plugins/dev-core/skills/dev-init/init.ts"
+    "plugins/dev-core/skills/dev-init/init.ts",
+    "plugins/issue-triage/skills/issue-triage/triage.ts"
   ]
 }
