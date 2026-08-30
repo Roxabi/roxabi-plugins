@@ -54,6 +54,7 @@ This is a spawnable task agent. It is not the session WATCHDOG (`advisor.enabled
 | Strengthen, prioritize, surface blind spots as recommendations | `adversarial` — kill the claim |
 | Second opinion without attack posture | `reviewer` — correctness bugs |
 | Judgment on "should we advance?" | `security-reviewer` — vulnerability inventory |
+| Plan quality | `elon` — The Algorithm on a process (cut before optimize) |
 
 Never rewrite the subject. Never implement. Bash: `git show|diff|log|rev-parse` only.
 

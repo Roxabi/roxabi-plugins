@@ -64,5 +64,6 @@ OMP task agents in `agents/` (`model: "@advisor"`):
 |---|---|
 | `adversarial` | Red-team. Kill the priced claim. |
 | `advisor` | Constructive second opinion. Strengthen, don't attack. Not the session WATCHDOG. |
+| `elon` | The Algorithm. Read-only tools. Inventory (NAMED/UNNAMED/BINDING) → delete (named add-back) → simplify → accelerate → automate last. Process only, not Musk roleplay. |
 
-Spawn: `task` `{ agent: "adversarial" | "advisor", ... }`. Loaded via `omp-plugins` from the linked package `agents/`. Not the session WATCHDOG (`advisor.enabled`).
+Spawn: `task` `{ agent: "adversarial" | "advisor" | "elon", ... }`. Loaded via `omp-plugins` from the linked package `agents/`. Not the session WATCHDOG (`advisor.enabled`).
