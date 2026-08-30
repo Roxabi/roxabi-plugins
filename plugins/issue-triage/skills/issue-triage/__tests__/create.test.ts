@@ -50,10 +50,10 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
 }))
 
 vi.mock('../../shared/adapters/github-infra', () => ({
-  syncPriorityLabel: vi.fn(),
-  syncSizeLabel: vi.fn(),
-  syncLaneLabel: vi.fn(),
-  syncStatusLabel: vi.fn(),
+  syncPriorityLabel: vi.fn(async () => true),
+  syncSizeLabel: vi.fn(async () => true),
+  syncLaneLabel: vi.fn(async () => true),
+  syncStatusLabel: vi.fn(async () => true),
 }))
 
 vi.mock('../../shared/adapters/github-adapter', () => ({

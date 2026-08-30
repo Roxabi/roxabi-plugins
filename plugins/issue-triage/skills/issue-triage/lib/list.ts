@@ -63,8 +63,10 @@ async function fetchAllIssues(): Promise<GhIssueNode[]> {
   const [owner, name] = GITHUB_REPO.split('/')
   const all: GhIssueNode[] = []
   let cursor: string | null = null
+  let prevCursor: string | null = null
+  const maxPages = 50
 
-  for (;;) {
+  for (let pageNum = 0; pageNum < maxPages; pageNum++) {
     const data = (await ghGraphQL(LIST_ISSUES_QUERY, { owner, name, cursor })) as {
       data: {
         repository: {
@@ -79,7 +81,10 @@ async function fetchAllIssues(): Promise<GhIssueNode[]> {
     const page = data.data.repository.issues
     all.push(...page.nodes)
     if (!page.pageInfo.hasNextPage) break
-    cursor = page.pageInfo.endCursor
+    const next = page.pageInfo.endCursor
+    if (!next || next === prevCursor) break
+    prevCursor = cursor
+    cursor = next
   }
 
   return all
@@ -162,7 +167,8 @@ export async function listIssues(args: string[]): Promise<void> {
   }
 
   const allChildNumbers = new Set(rows.flatMap((r) => r.subIssueNumbers))
-  const roots = rows.filter((r) => !allChildNumbers.has(r.number))
+  let roots = rows.filter((r) => !allChildNumbers.has(r.number))
+  if (roots.length === 0) roots = rows
 
   const lines: string[] = []
   renderTree(roots, byNumber, 0, lines, new Set())

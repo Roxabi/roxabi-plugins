@@ -240,8 +240,13 @@ export async function setIssue(args: string[]): Promise<void> {
 
   if (!hasAction) {
     console.error(
-      'Error: Specify --size, --priority, --status, --lane, --type, --blocked-by, --blocks, --rm-blocked-by, --rm-blocks, --parent, --add-child, --rm-parent, and/or --rm-child',
+      'Error: Specify --size, --priority, --lane, --type, --blocked-by, --blocks, --rm-blocked-by, --rm-blocks, --parent, --add-child, --rm-parent, and/or --rm-child',
     )
+    process.exit(1)
+  }
+
+  if (opts.status) {
+    console.error('Error: --status is not supported in the issues-only model (open/closed).')
     process.exit(1)
   }
 
@@ -267,7 +272,10 @@ export async function setIssue(args: string[]): Promise<void> {
   } else {
     if (opts.priority) {
       const canonical = resolvePriority(opts.priority)
-      if (canonical) await syncPriorityLabel(opts.issueNumber, canonical)
+      if (canonical) {
+        const ok = await syncPriorityLabel(opts.issueNumber, canonical)
+        if (!ok) process.exit(1)
+      }
     }
     if (opts.size) {
       const canonical = resolveSize(opts.size)
@@ -275,13 +283,15 @@ export async function setIssue(args: string[]): Promise<void> {
         console.error(`Error: Invalid size '${opts.size}'. Valid: ${DEFAULT_SIZE_OPTIONS.join(', ')}`)
         process.exit(1)
       }
-      await syncSizeLabel(opts.issueNumber, canonical)
+      const ok = await syncSizeLabel(opts.issueNumber, canonical)
+      if (!ok) process.exit(1)
       console.log(`Size=${canonical} #${opts.issueNumber}`)
     }
     if (opts.lane) {
       const canonical = resolveLane(opts.lane)
       if (canonical) {
-        await syncLaneLabel(opts.issueNumber, canonical)
+        const ok = await syncLaneLabel(opts.issueNumber, canonical)
+        if (!ok) process.exit(1)
         console.log(`Lane=${canonical} #${opts.issueNumber}`)
       }
     }

@@ -32,7 +32,7 @@ Create GitHub issues, assign Size/Priority labels, manage blockedBy dependencies
 | **L** | Large, 3-5 days | Complex feature, architectural changes |
 | **XL** | Very large, > 1 week | Major refactor, new system |
 
-**Canonical tier names:** `S / F-lite / F-full` (maps to dev tiers: S=simple, F-lite=subagents, F-full=agent team). Legacy size labels use `XS / S / M / L / XL`. Both are accepted as `--size` input. When a canonical name is used it aliases to the nearest size label (`F-full`→`XL`/`L`, `F-lite`→`M`, `S`→`S`/`XS`) — this is expected presentation drift, not a bug.
+**Canonical labels written:** `size:S` / `size:F-lite` / `size:F-full`. `--size` also accepts legacy `XS / S / M / L / XL` and aliases them (`XS`→`S`, `M`→`F-lite`, `L`/`XL`→`F-full`).
 
 ## Priority Guidelines
 

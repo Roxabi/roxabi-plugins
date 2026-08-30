@@ -52,7 +52,7 @@ Cross-repo: prefix `GITHUB_REPO=<owner/repo>`, and use fully-qualified `OWNER/RE
 | **L** | Large, 3–5 days |
 | **XL** | Very large, > 1 week |
 
-Canonical tier names `S / F-lite / F-full` are also accepted as `--size` and alias to the nearest legacy label.
+Canonical labels written: `size:S` / `size:F-lite` / `size:F-full`. Legacy `XS/S/M/L/XL` are accepted as `--size` and alias to those (`M`→`F-lite`, `L`/`XL`→`F-full`).
 
 ## Priority
 

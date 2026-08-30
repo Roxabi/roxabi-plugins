@@ -116,7 +116,8 @@ async function syncLabels(issueNumber: number, opts: CreateOptions): Promise<voi
       console.error(`Error: Invalid size '${opts.size}'. Valid: ${DEFAULT_SIZE_OPTIONS.join(', ')}`)
       process.exit(1)
     }
-    await syncSizeLabel(issueNumber, canonical)
+    const ok = await syncSizeLabel(issueNumber, canonical)
+    if (!ok) process.exit(1)
   }
   if (opts.lane) {
     const canonical = resolveLane(opts.lane)
@@ -174,7 +175,14 @@ export async function createIssue(args: string[]): Promise<void> {
     process.exit(1)
   }
 
-  // Create the issue via REST API
+  if (opts.type) {
+    const canonical = opts.type.toLowerCase()
+    if (!VALID_TYPES.includes(canonical)) {
+      console.error(`Error: Invalid type. Valid: ${VALID_TYPES.join(', ')}`)
+      process.exit(1)
+    }
+  }
+
   const labels = opts.labels
     ?.split(',')
     .map((l) => l.trim())
@@ -185,7 +193,6 @@ export async function createIssue(args: string[]): Promise<void> {
 
   const nodeId = await getNodeId(issueNumber)
 
-  // Issue type is independent of the project board
   if (opts.type) {
     await applyType(issueNumber, nodeId, opts.type)
   }

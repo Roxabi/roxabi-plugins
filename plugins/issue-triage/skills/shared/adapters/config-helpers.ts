@@ -13,7 +13,9 @@ import { ConfigError } from '../domain/errors'
  *   3rd: gh CLI auto-detect (github_repo, gh_project_id)
  */
 function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
-  // 1st: Try .claude/dev-core.yml
+  const envValue = process.env[envKey ?? key.toUpperCase()]
+  if (envValue) return envValue
+
   try {
     const yaml = readFileSync('.claude/dev-core.yml', 'utf-8')
     const match = yaml.match(new RegExp(`^${key}:\\s*['"]?(.+?)['"]?\\s*$`, 'm'))
@@ -23,11 +25,6 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
     /* file not found — fall through */
   }
 
-  // 2nd: Fall back to env var
-  const envValue = process.env[envKey ?? key.toUpperCase()]
-  if (envValue) return envValue
-
-  // 3rd: Auto-detect via gh CLI for supported keys
   if (key === 'github_repo') {
     try {
       const proc = Bun.spawnSync(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], {

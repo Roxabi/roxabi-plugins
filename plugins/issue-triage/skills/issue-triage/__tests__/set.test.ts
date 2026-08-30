@@ -58,10 +58,10 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
 }))
 
 vi.mock('../../shared/adapters/github-infra', () => ({
-  syncPriorityLabel: vi.fn(),
-  syncSizeLabel: vi.fn(),
-  syncLaneLabel: vi.fn(),
-  syncStatusLabel: vi.fn(),
+  syncPriorityLabel: vi.fn(async () => true),
+  syncSizeLabel: vi.fn(async () => true),
+  syncLaneLabel: vi.fn(async () => true),
+  syncStatusLabel: vi.fn(async () => true),
 }))
 
 vi.mock('../../shared/adapters/github-adapter', () => ({
@@ -119,9 +119,12 @@ describe('issue-triage/set > field updates', () => {
     expect(mockSyncPriorityLabel).toHaveBeenCalledWith(42, 'P1 - High')
   })
 
-  it('updates status — no status:* label sync (issues-only model)', async () => {
-    await setIssue(['42', '--status', 'In Progress'])
-    // issues-only model: status is open/closed; no redundant status:* label
+  it('exits 1 on --status (issues-only model)', async () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    await setIssue(['42', '--status', 'In Progress']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
     expect(mockSyncStatusLabel).not.toHaveBeenCalled()
   })
 
@@ -347,15 +350,13 @@ describe('issue-triage/set > cross-repo subject', () => {
     expect(mockAddSubIssue).toHaveBeenCalledWith('node-Roxabi-voiceCLI-144', 'node-Roxabi-lyra-50')
   })
 
-  it('skips label sync for cross-repo subject with --status (no-op, no error)', async () => {
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
-    await setIssue(['Roxabi/voiceCLI#144', '--status', 'Backlog'])
-    expect(exitSpy).not.toHaveBeenCalled()
-    // issues-only model: --status is a no-op (open/closed only), no label sync for any subject
+  it('exits 1 on --status for cross-repo subject too', async () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    await setIssue(['Roxabi/voiceCLI#144', '--status', 'Backlog']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
     expect(mockSyncStatusLabel).not.toHaveBeenCalled()
-    // No label-sync warning fires for --status-only cross-repo call
-    const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
-    expect(errCalls.every((m) => !m.includes('label sync'))).toBe(true)
   })
 
   it('skips label sync for cross-repo subject with --size', async () => {

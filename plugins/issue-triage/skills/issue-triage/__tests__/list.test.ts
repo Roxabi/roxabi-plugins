@@ -9,12 +9,15 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
 const { ghGraphQL } = await import('../../shared/adapters/github-adapter')
 const mockGhGraphQL = ghGraphQL as ReturnType<typeof vi.fn>
 
-function makeIssuesResponse(nodes: unknown[]) {
+function makeIssuesResponse(
+  nodes: unknown[],
+  pageInfo: { hasNextPage: boolean; endCursor: string | null } = { hasNextPage: false, endCursor: null },
+) {
   return {
     data: {
       repository: {
         issues: {
-          pageInfo: { hasNextPage: false, endCursor: null },
+          pageInfo,
           nodes,
         },
       },
@@ -273,3 +276,50 @@ describe('issue-triage/list > renderTree cycles', () => {
     expect(numbers.filter((n) => n === 2)).toHaveLength(1)
   })
 })
+
+describe('issue-triage/list > cyclic listIssues', () => {
+  beforeEach(() => mockGhGraphQL.mockReset())
+  afterEach(() => vi.restoreAllMocks())
+
+  it('listIssues still renders a 1↔2 cycle (no empty tree)', async () => {
+    mockGhGraphQL.mockResolvedValueOnce(
+      makeIssuesResponse([
+        makeIssue(1, 'One', ['size:S', 'P1-high'], [{ number: 2, state: 'OPEN', title: 'Two' }]),
+        makeIssue(2, 'Two', ['size:S', 'P2-medium'], [{ number: 1, state: 'OPEN', title: 'One' }]),
+      ]),
+    )
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { listIssues } = await import('../lib/list')
+    await listIssues([])
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n')
+    expect(output).toContain('#1')
+    expect(output).toContain('#2')
+    consoleSpy.mockRestore()
+  })
+})
+
+
+describe('issue-triage/list > pagination', () => {
+  beforeEach(() => mockGhGraphQL.mockReset())
+  afterEach(() => vi.restoreAllMocks())
+
+  it('fetches a second page when hasNextPage is true', async () => {
+    mockGhGraphQL
+      .mockResolvedValueOnce(
+        makeIssuesResponse([makeIssue(1, 'Page1', ['size:S', 'P1-high'])], { hasNextPage: true, endCursor: 'CUR1' }),
+      )
+      .mockResolvedValueOnce(makeIssuesResponse([makeIssue(2, 'Page2', ['size:S', 'P2-medium'])]))
+
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { listIssues } = await import('../lib/list')
+    await listIssues([])
+
+    expect(mockGhGraphQL).toHaveBeenCalledTimes(2)
+    expect(mockGhGraphQL.mock.calls[1]?.[1]).toMatchObject({ cursor: 'CUR1' })
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n')
+    expect(output).toContain('#1')
+    expect(output).toContain('#2')
+    consoleSpy.mockRestore()
+  })
+})
+
