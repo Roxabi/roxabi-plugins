@@ -298,7 +298,6 @@ describe('issue-triage/list > cyclic listIssues', () => {
   })
 })
 
-
 describe('issue-triage/list > pagination', () => {
   beforeEach(() => mockGhGraphQL.mockReset())
   afterEach(() => vi.restoreAllMocks())
@@ -322,4 +321,3 @@ describe('issue-triage/list > pagination', () => {
     consoleSpy.mockRestore()
   })
 })
-
