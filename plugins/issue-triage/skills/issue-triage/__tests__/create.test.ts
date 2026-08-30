@@ -4,6 +4,7 @@ process.env.GITHUB_REPO = 'Test/test-repo'
 
 vi.mock('../../shared/adapters/config-helpers', () => ({
   GITHUB_REPO: 'Test/test-repo',
+  DEFAULT_SIZE_OPTIONS: ['S', 'F-lite', 'F-full'],
   resolveStatus: (input: string) => {
     const canonical = new Set(['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'])
     if (canonical.has(input)) return input
@@ -20,8 +21,14 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
     return aliases[input.toUpperCase()]
   },
   resolveSize: (input: string) => {
-    const u = input.toUpperCase()
-    return new Set(['XS', 'S', 'M', 'L', 'XL']).has(u) ? u : undefined
+    const valid = new Set(['S', 'F-lite', 'F-full'])
+    if (valid.has(input)) return input
+    const u = input.toUpperCase().replace(/[-\s]/g, '-')
+    if (valid.has(u)) return u
+    if (u === 'XS') return 'S'
+    if (u === 'M') return 'F-lite'
+    if (u === 'L' || u === 'XL') return 'F-full'
+    return undefined
   },
   resolvePriority: (input: string) => {
     const canonical = new Set(['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'])
@@ -98,7 +105,7 @@ describe('issue-triage/create > basic creation', () => {
 
   it('syncs size label on creation', async () => {
     await createIssue(['--title', 'Test', '--size', 'M'])
-    expect(mockSyncSizeLabel).toHaveBeenCalledWith(99, 'M')
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(99, 'F-lite')
   })
 
   it('syncs priority label on creation', async () => {
@@ -185,6 +192,18 @@ describe('issue-triage/create > options and error handling', () => {
     await createIssue(['--title', 'Test', '--body', 'Description here'])
     expect(mockCreateGitHubIssue).toHaveBeenCalledWith('Test', 'Description here', undefined)
   })
+
+  it('exits 1 on invalid --size', async () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(createIssue(['--title', 'Test', '--size', 'bogus'])).rejects.toThrow('process.exit:1')
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("Invalid size 'bogus'"))
+    expect(mockSyncSizeLabel).not.toHaveBeenCalled()
+    exitSpy.mockRestore()
+    errSpy.mockRestore()
+  })
 })
 
 describe('issue-triage/create > priority label sync', () => {
@@ -203,7 +222,7 @@ describe('issue-triage/create > priority label sync', () => {
 
   it('syncs size label when --size is provided', async () => {
     await createIssue(['--title', 'Test', '--size', 'M'])
-    expect(mockSyncSizeLabel).toHaveBeenCalledWith(99, 'M')
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(99, 'F-lite')
   })
 
   it('syncs status label when --status is provided', async () => {

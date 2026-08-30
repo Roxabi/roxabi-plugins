@@ -4,6 +4,7 @@
  */
 
 import {
+  DEFAULT_SIZE_OPTIONS,
   GITHUB_REPO,
   resolveLane,
   resolvePriority,
@@ -111,7 +112,11 @@ async function syncLabels(issueNumber: number, opts: CreateOptions): Promise<voi
   }
   if (opts.size) {
     const canonical = resolveSize(opts.size)
-    if (canonical) await syncSizeLabel(issueNumber, canonical)
+    if (!canonical) {
+      console.error(`Error: Invalid size '${opts.size}'. Valid: ${DEFAULT_SIZE_OPTIONS.join(', ')}`)
+      process.exit(1)
+    }
+    await syncSizeLabel(issueNumber, canonical)
   }
   if (opts.lane) {
     const canonical = resolveLane(opts.lane)
