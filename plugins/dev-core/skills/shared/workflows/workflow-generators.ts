@@ -4,7 +4,6 @@
  * Push/write lives in workflow-push.ts.
  */
 
-import { generateClassifyPushJob, LANDING_PERMISSIONS, landingSuiteIf } from './workflow-landing'
 import { ACTION_PINS, APP_MINT_STEP } from './workflow-pins'
 import { normalizeWorkflowOpts, type WorkflowOpts } from './workflow-types'
 import { generateE2eJob } from './workflows-fleet'
@@ -168,10 +167,11 @@ ${APP_MINT_STEP}
 }
 
 /**
- * Trunk-mode release workflow (Model B — #371). Fires on every merge to `main`,
- * derives the next `<component>/vX.Y.Z` from the conventional commits since the
- * last reachable tag, and creates the tag + GitHub Release. An empty payload (no
- * version-bumping commit) is a green no-op; a stray 1-parent push is loud-red.
+ * Trunk-mode release workflow (Model B — #371). Fires after CI succeeds on a
+ * push to `main`, derives the next `<component>/vX.Y.Z` from the conventional
+ * commits since the last reachable tag, and creates the tag + GitHub Release.
+ * An empty payload (no version-bumping commit) is a green no-op; a stray
+ * 1-parent push is loud-red.
  *
  * THIN by design: the whole derive → classify → reconcile core lives in
  * `plugins/dev-core/skills/promote/auto-release.sh`, which this workflow only
@@ -196,8 +196,8 @@ export function generateAutoReleaseYml(opts: WorkflowOpts): string {
   }
   return `# Auto-release on merge to main (trunk mode, Model B — dev-core #371).
 # Derives <component>/vX.Y.Z from the conventional commits since the last
-# reachable tag, then tags + creates a GitHub Release. Fires on EVERY merge;
-# a merge with no version-bumping commit is a green no-op.
+# reachable tag, then tags + creates a GitHub Release. Fires after CI succeeds
+# on a push to main; a merge with no version-bumping commit is a green no-op.
 #
 # THIN wrapper — every derivation/classification/reconcile step lives in
 # plugins/dev-core/skills/promote/auto-release.sh. Never inline that logic here:
@@ -206,7 +206,9 @@ export function generateAutoReleaseYml(opts: WorkflowOpts): string {
 name: Auto Release
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
   workflow_dispatch: {}
 
@@ -223,14 +225,20 @@ concurrency:
 jobs:
   auto-release:
     name: Tag + release on merge to main
-    # Releases are cut from main ONLY. \`workflow_dispatch\` above carries no ref
-    # constraint, so a dispatch on any other ref (\`gh workflow run … --ref X\`, or
-    # the Actions-tab branch picker) would otherwise run this contents:write job
-    # with the App token against X's tip and publish a real tag + GitHub Release
-    # from unreviewed commits. \`github.ref\` is the dispatched ref, so this skips
-    # every non-main dispatch while still firing on the push-to-main trigger and
-    # on a deliberate manual re-run against main (FU-1).
-    if: github.ref == 'refs/heads/main'
+    # workflow_run: proceed ONLY when CI passed, the triggering run was a PUSH
+    # (not a PR), and it came from THIS repo (not a fork) — a fork PR must never
+    # cut a release under this contents:write token. workflow_dispatch: main
+    # ONLY. \`workflow_dispatch\` carries no ref constraint, so a dispatch on any
+    # other ref (\`gh workflow run … --ref X\`, or the Actions-tab branch picker)
+    # would otherwise run this job with the App token against X's tip (FU-1).
+    # A workflow_run job executes at default-branch HEAD, not the triggering
+    # commit — checkout + auto-release.sh take head_sha (falling back to
+    # github.sha on a manual dispatch).
+    if: >
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -242,6 +250,7 @@ ${APP_MINT_STEP}
         with:
           fetch-depth: 0
           token: \${{ steps.app.outputs.token }}
+          ref: \${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Fetch all tags
         run: git fetch --tags --force
@@ -252,7 +261,7 @@ ${APP_MINT_STEP}
         env:
           GH_TOKEN: \${{ steps.app.outputs.token }}
           COMPONENT: ${component}
-        run: bash ${TRUNK_AUTO_RELEASE_SCRIPT} "$COMPONENT" "\${{ github.sha }}"
+        run: bash ${TRUNK_AUTO_RELEASE_SCRIPT} "$COMPONENT" "\${{ github.event.workflow_run.head_sha || github.sha }}"
 `
 }
 
@@ -329,13 +338,12 @@ on:
       - '.grok/**'
       - '.agents/**'
 
-${LANDING_PERMISSIONS}
+permissions:
+  contents: read
 jobs:
-${generateClassifyPushJob(['Context lint'])}
   context-lint:
     name: Context lint
-    needs: [classify]
-    if: ${landingSuiteIf()}
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -431,10 +439,7 @@ export function generateCiYml(opts: WorkflowOpts): string {
 
   // Draft PRs skip full CI (WIP). ready_for_review re-triggers when undrafted.
   // `reviewed` remains the merge gate only (auto-merge / merge-on-green) — not a CI gate.
-  // Push: classify processed-PR merge vs naked commit — skip suite on pr-merge
-  // (conventions.ssot § CI landing). merge_group is a no-op unless a queue exists.
-  // Gated jobs: `ci` (`name: CI`) and, when e2e=playwright, `e2e` (`name: E2E`).
-  const suiteChecks = o.e2e === 'playwright' ? ['CI', 'E2E'] : ['CI']
+  // merge_group is a no-op unless a queue exists.
   return `name: CI
 on:
   push:
@@ -444,13 +449,12 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   merge_group: {}
 
-${LANDING_PERMISSIONS}
+permissions:
+  contents: read
 jobs:
-${generateClassifyPushJob(suiteChecks)}
   ci:
     name: CI
-    needs: [classify]
-    if: ${landingSuiteIf()}
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-latest
     steps:
       - uses: ${ACTION_PINS.checkout}

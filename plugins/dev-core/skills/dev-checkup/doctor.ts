@@ -19,7 +19,6 @@ import {
   fetchRepoMeta,
 } from './doctor-github'
 import {
-  checkLandingPath,
   checkPrereqsSection,
   checkProjectStructure,
   checkPullRequestTarget,
@@ -48,7 +47,6 @@ const sections: Section[] = [
   checkGitHubConfig(ghOk, owner, repo),
   checkWorkflows(ghOk, owner, repo),
   { name: 'Workflow drift', checks: checkWorkflowDrift() },
-  checkLandingPath(),
   checkSecrets(ghOk, owner, repo),
   checkBranchProtection(ghOk, owner, repo),
   checkRulesets(ghOk, owner, repo, meta),
