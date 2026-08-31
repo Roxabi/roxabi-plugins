@@ -13,58 +13,8 @@ permissions:
   pull-requests: read
 
 jobs:
-  # Processed PR merge → skip suite. Naked push → run suite.
-  # ~/projects/ssot/conventions.ssot.md § CI landing
-  #
-  # GET /commits/{sha}/pulls returns the SIMPLE pull request representation:
-  # it carries `state` and `merge_commit_sha` but NOT `merged` (that field only
-  # exists on GET /pulls/{number}). A `.merged == true` predicate never matches
-  # and every push is classified naked. Fix: `state == "closed" and
-  # .merge_commit_sha == $sha`. Matches the generator (dev-core v2.9.1); this
-  # committed YAML is patched in place rather than regenerated.
-  #
-  # Probe is local to this workflow: one gated job, id `ci` (no name:) → {ci}, N=1.
-  classify:
-    name: Classify push
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    outputs:
-      path: ${{ steps.out.outputs.path }}
-    steps:
-      - id: out
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          path=naked
-          n=0
-          prs="[]"
-          for i in 1 2 3 4 5; do
-            prs="$(gh api "repos/${REPO}/commits/${SHA}/pulls")"
-            n="$(printf '%s' "$prs" | jq --arg sha "$SHA" '[.[] | select(.state == "closed" and .merge_commit_sha == $sha)] | length')"
-            if [ "$n" -gt 0 ]; then
-              break
-            fi
-            if [ "$i" -lt 5 ]; then
-              sleep 4
-            fi
-          done
-          if [ "$n" -gt 0 ]; then
-            head="$(printf '%s' "$prs" | jq -r --arg sha "$SHA" '[.[] | select(.state == "closed" and .merge_commit_sha == $sha)][0].head.sha')"
-            ok="$(gh api --paginate "repos/${REPO}/commits/${head}/check-runs" --jq '[.check_runs[] | select(.conclusion == "success") | (.name | ascii_downcase) | select(. == "ci")] | unique | length')"
-            if [ "$ok" -ge 1 ]; then
-              path=pr-merge
-            fi
-          fi
-          echo "path=${path}" >> "$GITHUB_OUTPUT"
-          echo "landing path: ${path}"
-
   ci:
-    needs: [classify]
-    if: always() && !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) && (github.event_name != 'push' || needs.classify.outputs.path == 'naked')
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
