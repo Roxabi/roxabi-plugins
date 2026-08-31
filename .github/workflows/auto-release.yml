@@ -1,7 +1,7 @@
 # Auto-release on merge to main (trunk mode, Model B — dev-core #371).
 # Derives <component>/vX.Y.Z from the conventional commits since the last
-# reachable tag, then tags + creates a GitHub Release. Fires on EVERY merge;
-# a merge with no version-bumping commit is a green no-op.
+# reachable tag, then tags + creates a GitHub Release. Fires after CI succeeds
+# on a push to main; a merge with no version-bumping commit is a green no-op.
 #
 # THIN wrapper — every derivation/classification/reconcile step lives in
 # plugins/dev-core/skills/promote/auto-release.sh. Never inline that logic here:
@@ -10,7 +10,9 @@
 name: Auto Release
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
   workflow_dispatch: {}
 
@@ -27,14 +29,20 @@ concurrency:
 jobs:
   auto-release:
     name: Tag + release on merge to main
-    # Releases are cut from main ONLY. `workflow_dispatch` above carries no ref
-    # constraint, so a dispatch on any other ref (`gh workflow run … --ref X`, or
-    # the Actions-tab branch picker) would otherwise run this contents:write job
-    # with the App token against X's tip and publish a real tag + GitHub Release
-    # from unreviewed commits. `github.ref` is the dispatched ref, so this skips
-    # every non-main dispatch while still firing on the push-to-main trigger and
-    # on a deliberate manual re-run against main (FU-1).
-    if: github.ref == 'refs/heads/main'
+    # workflow_run: proceed ONLY when CI passed, the triggering run was a PUSH
+    # (not a PR), and it came from THIS repo (not a fork) — a fork PR must never
+    # cut a release under this contents:write token. workflow_dispatch: main
+    # ONLY. `workflow_dispatch` carries no ref constraint, so a dispatch on any
+    # other ref (`gh workflow run … --ref X`, or the Actions-tab branch picker)
+    # would otherwise run this job with the App token against X's tip (FU-1).
+    # A workflow_run job executes at default-branch HEAD, not the triggering
+    # commit — checkout + auto-release.sh take head_sha (falling back to
+    # github.sha on a manual dispatch).
+    if: >
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -53,6 +61,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ steps.app.outputs.token }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Fetch all tags
         run: git fetch --tags --force
@@ -63,4 +72,4 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           COMPONENT: roxabi-plugins
-        run: bash plugins/dev-core/skills/promote/auto-release.sh "$COMPONENT" "${{ github.sha }}"
+        run: bash plugins/dev-core/skills/promote/auto-release.sh "$COMPONENT" "${{ github.event.workflow_run.head_sha || github.sha }}"

@@ -11,7 +11,6 @@ import {
   generateDeployYml,
   workflowOptsFromStack,
 } from '../workflows/workflow-generators'
-import { generateClassifyPushJob } from '../workflows/workflow-landing'
 import { ACTION_PINS } from '../workflows/workflow-pins'
 import { writeWorkflows } from '../workflows/workflow-push'
 import { normalizeWorkflowOpts } from '../workflows/workflow-types'
@@ -134,8 +133,8 @@ describe('generateCiYml', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none', e2e: 'playwright' })
     expect(yml).toContain('e2e:')
     expect(yml).toContain('bun run test:e2e')
-    expect(yml).toContain('select(. == "ci" or . == "e2e")')
-    expect(yml).toContain('if [ "$ok" -ge 2 ]')
+    expect(yml).toContain("github.event_name != 'pull_request' || !github.event.pull_request.draft")
+    expect(yml).not.toContain('classify')
   })
 
   it('targets main and staging branches', () => {
@@ -147,47 +146,10 @@ describe('generateCiYml', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none' })
     expect(yml).toContain('types: [opened, synchronize, reopened, ready_for_review]')
     expect(yml).toContain("github.event_name != 'pull_request' || !github.event.pull_request.draft")
-  })
-
-  it('classifies push: skip suite on processed PR merge, run on naked commit', () => {
-    const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none' })
-    expect(yml).toContain('  classify:')
-    expect(yml).toContain('needs: [classify]')
-    expect(yml).toContain("needs.classify.outputs.path == 'naked'")
     expect(yml).toContain('merge_group: {}')
-    expect(yml).toContain('checks: read')
-    expect(yml).toContain('select(.state == "closed" and .merge_commit_sha == $sha)')
-    expect(yml).not.toContain('.merged == true')
-    expect(yml).toContain('select(. == "ci")')
-    expect(yml).toContain('if [ "$ok" -ge 1 ]')
-  })
-})
-
-describe('generateClassifyPushJob', () => {
-  it('emits closed-state predicate and probes one check with threshold 1', () => {
-    const yml = generateClassifyPushJob(['ci'])
-    expect(yml).toContain('select(.state == "closed" and .merge_commit_sha == $sha)')
-    expect(yml).not.toContain('.merged == true')
-    expect(yml).toContain('select(. == "ci")')
-    expect(yml).toContain('if [ "$ok" -ge 1 ]')
-    expect(yml).toContain('| unique | length')
-  })
-
-  it('probes every name and uses threshold 2', () => {
-    const yml = generateClassifyPushJob(['check', 'test'])
-    expect(yml).toContain('select(. == "check" or . == "test")')
-    expect(yml).toContain('if [ "$ok" -ge 2 ]')
-    expect(yml).not.toContain('.merged == true')
-  })
-
-  it('lowercases display names before emitting the probe', () => {
-    const yml = generateClassifyPushJob(['CI', 'E2E'])
-    expect(yml).toContain('select(. == "ci" or . == "e2e")')
-    expect(yml).toContain('if [ "$ok" -ge 2 ]')
-  })
-
-  it('throws on an empty suiteChecks set', () => {
-    expect(() => generateClassifyPushJob([])).toThrow(/suiteChecks must not be empty/)
+    expect(yml).not.toContain('  classify:')
+    expect(yml).not.toContain('needs: [classify]')
+    expect(yml).not.toContain('naked')
   })
 })
 
@@ -199,11 +161,8 @@ describe('generateSecretScanYml', () => {
     expect(yml).toContain(ACTION_PINS.trufflehog)
     expect(yml).toContain('--only-verified')
     expect(yml).toContain('trufflehog-exclude-paths.txt')
-    expect(yml).toContain('  classify:')
-    expect(yml).toContain("needs.classify.outputs.path == 'naked'")
-    expect(yml).toContain('select(. == "trufflehog")')
-    expect(yml).toContain('if [ "$ok" -ge 1 ]')
-    expect(yml).not.toContain('.merged == true')
+    expect(yml).not.toContain('  classify:')
+    expect(yml).not.toContain('naked')
     // Must pin exclude on the action extra_args line (not only the build step)
     expect(yml).toContain('extra_args: --only-verified --exclude-paths=trufflehog-exclude.txt')
     // Job id = protection context; no job.name override with different casing
@@ -331,11 +290,16 @@ describe('generateAutoReleaseYml (Model B / #371)', () => {
     release: { model: 'trunk', component: 'roxabi-plugins' },
   } as const
 
-  it('triggers on push:[main] + workflow_dispatch (W1)', () => {
+  it('triggers on CI workflow_run completed on main + workflow_dispatch (W1)', () => {
     const yml = generateAutoReleaseYml(trunkOpts)
-    expect(yml).toContain('push:')
+    expect(yml).toContain('workflow_run:')
+    expect(yml).toContain('workflows: ["CI"]')
+    expect(yml).toContain('types: [completed]')
     expect(yml).toMatch(/branches:\s*\[main\]/)
     expect(yml).toContain('workflow_dispatch')
+    expect(yml).toContain("github.event.workflow_run.conclusion == 'success'")
+    expect(yml).toContain("github.event.workflow_run.event == 'push'")
+    expect(yml).toContain('github.event.workflow_run.head_repository.full_name == github.repository')
   })
 
   it('has contents: write + a FIFO queue (cancel-in-progress: false + queue: max) (W2)', () => {
@@ -367,7 +331,7 @@ describe('generateAutoReleaseYml (Model B / #371)', () => {
     const yml = generateAutoReleaseYml(trunkOpts)
     expect(yml).toContain('auto-release.sh')
     expect(yml).toContain('roxabi-plugins') // COMPONENT baked at generate-time
-    expect(yml).toContain('github.sha') // M = the pushed merge (${{ github.sha }})
+    expect(yml).toContain('github.event.workflow_run.head_sha || github.sha')
     // Thin: the derive/classify/reconcile core lives in auto-release.sh, never
     // a second copy in YAML (design constraint, #353 invariant).
     expect(yml).not.toContain('rev-list --parents')
@@ -512,8 +476,7 @@ describe('generateContextLintYml', () => {
     const yml = generateContextLintYml()
     expect(yml).toContain("'**/CLAUDE.md'")
     expect(yml).toContain("'.grok/**'")
-    expect(yml).toContain('select(. == "context lint")')
-    expect(yml).toContain('if [ "$ok" -ge 1 ]')
-    expect(yml).not.toContain('.merged == true')
+    expect(yml).toContain("github.event_name != 'pull_request' || !github.event.pull_request.draft")
+    expect(yml).not.toContain('classify')
   })
 })

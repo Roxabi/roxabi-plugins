@@ -1,4 +1,3 @@
-import { generateClassifyPushJob, LANDING_PERMISSIONS, landingSuiteIf } from './workflow-landing'
 import { ACTION_PINS, APP_MINT_STEP } from './workflow-pins'
 import type { WorkflowOpts } from './workflow-types'
 
@@ -15,7 +14,8 @@ function gatingWorkflowNames(opts: WorkflowOpts): string[] {
 export function generateSecretScanYml(): string {
   return `name: Secret Scan
 
-${LANDING_PERMISSIONS}
+permissions:
+  contents: read
 on:
   push:
     branches: [main, staging]
@@ -29,12 +29,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-${generateClassifyPushJob(['trufflehog'])}
   # Job id is the GitHub check name (branch protection contexts use 'trufflehog').
   # Do not set job.name to a different casing — contexts are case-sensitive.
   trufflehog:
-    needs: [classify]
-    if: ${landingSuiteIf()}
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -248,8 +246,7 @@ export function generateE2eJob(opts: WorkflowOpts): string {
   return `
   e2e:
     name: E2E
-    needs: [classify]
-    if: ${landingSuiteIf()}
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
