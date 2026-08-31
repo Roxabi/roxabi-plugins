@@ -29,7 +29,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-${generateClassifyPushJob()}
+${generateClassifyPushJob(['trufflehog'])}
   # Job id is the GitHub check name (branch protection contexts use 'trufflehog').
   # Do not set job.name to a different casing — contexts are case-sensitive.
   trufflehog:

@@ -8,6 +8,10 @@ predate that and were produced by release-please or `/promote`.
 
 ## Unreleased
 
+### Fixed
+
+* **dev-core:** classify landing path — `GET /commits/{sha}/pulls` has no `merged` (always null on the simple PR object), so the old predicate never matched and every merge retested the suite; probe now requires the display names of this workflow's `path == 'naked'` jobs (silex-forge#15). Generator only — fleet workflows are regenerated separately.
+
 ### Changed
 
 * **dev-core:** rename skill/slash `/implement` → `/dev-implement` (Grok/Claude host collision; pipeline step id stays `implement`)
