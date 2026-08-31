@@ -11,6 +11,7 @@ import {
   generateDeployYml,
   workflowOptsFromStack,
 } from '../workflows/workflow-generators'
+import { generateClassifyPushJob } from '../workflows/workflow-landing'
 import { ACTION_PINS } from '../workflows/workflow-pins'
 import { writeWorkflows } from '../workflows/workflow-push'
 import { normalizeWorkflowOpts } from '../workflows/workflow-types'
@@ -129,11 +130,12 @@ describe('generateCiYml', () => {
     expect(yml).not.toMatch(/- name: Test/)
     expect(yml).toContain('test: none — no unit test step')
   })
-
   it('includes optional e2e job when e2e is playwright', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none', e2e: 'playwright' })
     expect(yml).toContain('e2e:')
     expect(yml).toContain('bun run test:e2e')
+    expect(yml).toContain('select(. == "ci" or . == "e2e")')
+    expect(yml).toContain('if [ "$ok" -ge 2 ]')
   })
 
   it('targets main and staging branches', () => {
@@ -154,6 +156,38 @@ describe('generateCiYml', () => {
     expect(yml).toContain("needs.classify.outputs.path == 'naked'")
     expect(yml).toContain('merge_group: {}')
     expect(yml).toContain('checks: read')
+    expect(yml).toContain('select(.state == "closed" and .merge_commit_sha == $sha)')
+    expect(yml).not.toContain('.merged == true')
+    expect(yml).toContain('select(. == "ci")')
+    expect(yml).toContain('if [ "$ok" -ge 1 ]')
+  })
+})
+
+describe('generateClassifyPushJob', () => {
+  it('emits closed-state predicate and probes one check with threshold 1', () => {
+    const yml = generateClassifyPushJob(['ci'])
+    expect(yml).toContain('select(.state == "closed" and .merge_commit_sha == $sha)')
+    expect(yml).not.toContain('.merged == true')
+    expect(yml).toContain('select(. == "ci")')
+    expect(yml).toContain('if [ "$ok" -ge 1 ]')
+    expect(yml).toContain('| unique | length')
+  })
+
+  it('probes every name and uses threshold 2', () => {
+    const yml = generateClassifyPushJob(['check', 'test'])
+    expect(yml).toContain('select(. == "check" or . == "test")')
+    expect(yml).toContain('if [ "$ok" -ge 2 ]')
+    expect(yml).not.toContain('.merged == true')
+  })
+
+  it('lowercases display names before emitting the probe', () => {
+    const yml = generateClassifyPushJob(['CI', 'E2E'])
+    expect(yml).toContain('select(. == "ci" or . == "e2e")')
+    expect(yml).toContain('if [ "$ok" -ge 2 ]')
+  })
+
+  it('throws on an empty suiteChecks set', () => {
+    expect(() => generateClassifyPushJob([])).toThrow(/suiteChecks must not be empty/)
   })
 })
 
@@ -167,6 +201,9 @@ describe('generateSecretScanYml', () => {
     expect(yml).toContain('trufflehog-exclude-paths.txt')
     expect(yml).toContain('  classify:')
     expect(yml).toContain("needs.classify.outputs.path == 'naked'")
+    expect(yml).toContain('select(. == "trufflehog")')
+    expect(yml).toContain('if [ "$ok" -ge 1 ]')
+    expect(yml).not.toContain('.merged == true')
     // Must pin exclude on the action extra_args line (not only the build step)
     expect(yml).toContain('extra_args: --only-verified --exclude-paths=trufflehog-exclude.txt')
     // Job id = protection context; no job.name override with different casing
@@ -475,5 +512,8 @@ describe('generateContextLintYml', () => {
     const yml = generateContextLintYml()
     expect(yml).toContain("'**/CLAUDE.md'")
     expect(yml).toContain("'.grok/**'")
+    expect(yml).toContain('select(. == "context lint")')
+    expect(yml).toContain('if [ "$ok" -ge 1 ]')
+    expect(yml).not.toContain('.merged == true')
   })
 })

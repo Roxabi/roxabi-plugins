@@ -39,6 +39,65 @@ export function checkPrereqsSection(prereqs: PrereqResult): Section {
 
 const LANDING_SUITE_FILES = ['ci.yml', 'secret-scan.yml', 'context-lint.yml'] as const
 
+interface LandingJob {
+  id: string
+  displayName: string
+  ifLine: string
+  body: string
+}
+
+/** 2-space job headers under `jobs:` — same idiom as parseWorkflowJobs. */
+function parseLandingJobs(yml: string): LandingJob[] {
+  const lines = yml.split('\n')
+  let jobsStart = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (/^jobs:\s*$/.test(lines[i])) {
+      jobsStart = i
+      break
+    }
+  }
+  if (jobsStart === -1) return []
+
+  const headers: Array<{ id: string; start: number }> = []
+  for (let i = jobsStart + 1; i < lines.length; i++) {
+    const m = lines[i].match(/^ {2}([A-Za-z0-9][\w-]*)\s*:\s*$/)
+    if (m) headers.push({ id: m[1], start: i })
+    else if (/^\S/.test(lines[i]) && lines[i].trim() && !lines[i].trimStart().startsWith('#')) break
+  }
+
+  return headers.map((h, idx) => {
+    const end = idx + 1 < headers.length ? headers[idx + 1].start : lines.length
+    const jobLines = lines.slice(h.start + 1, end)
+    let displayName = h.id
+    let ifLine = ''
+    for (const line of jobLines) {
+      const nm = line.match(/^ {4}name:\s+(.+)$/)
+      if (nm && displayName === h.id) {
+        displayName = nm[1].trim().replace(/^['"]|['"]$/g, '')
+      }
+      const iff = line.match(/^ {4}if:\s+(.*)$/)
+      if (iff) ifLine = iff[1].trim()
+    }
+    return { id: h.id, displayName, ifLine, body: jobLines.join('\n') }
+  })
+}
+
+/** Names the classify probe requires green on the PR head (after ascii_downcase). */
+function probedCheckNames(classifyBody: string): string[] {
+  const names: string[] = []
+  for (const m of classifyBody.matchAll(/\. == "([^"]+)"/g)) {
+    const n = m[1].toLowerCase()
+    if (!names.includes(n)) names.push(n)
+  }
+  for (const m of classifyBody.matchAll(/ascii_downcase\)\s*==\s*"([^"]+)"/g)) {
+    const n = m[1].toLowerCase()
+    if (!names.includes(n)) names.push(n)
+  }
+  return names
+}
+
+const NAKED_GATE = /path\s*==\s*['"]naked['"]/
+
 /** Processed-PR vs naked-commit classify job on push-triggered validation workflows. */
 export function checkLandingPath(): Section {
   const checks: Check[] = []
@@ -54,13 +113,41 @@ export function checkLandingPath(): Section {
       checks.push({ name: `landing:${file}`, status: 'skip', detail: 'no push trigger' })
       continue
     }
-    const hasClassify = /^ {2}classify:/m.test(yml)
+    const jobs = parseLandingJobs(yml)
+    const classify = jobs.find((j) => j.id === 'classify')
+    if (!classify) {
+      checks.push({
+        name: `landing:${file}`,
+        status: 'warn',
+        detail:
+          'push trigger without classify — processed PR merges retest the suite. See conventions.ssot § CI landing',
+      })
+      continue
+    }
+    if (/\.merged\s*==\s*true/.test(classify.body) && /\/commits\/.*\/pulls/.test(classify.body)) {
+      checks.push({
+        name: `landing:${file}`,
+        status: 'fail',
+        detail:
+          'classify uses .merged == true on /commits/.../pulls — simple PR representation has no merged (always null)',
+      })
+      continue
+    }
+    const gated = jobs.filter((j) => j.id !== 'classify' && NAKED_GATE.test(j.ifLine))
+    const probed = probedCheckNames(classify.body)
+    const missing = gated.map((j) => j.displayName.toLowerCase()).filter((n) => !probed.includes(n))
+    if (missing.length > 0) {
+      checks.push({
+        name: `landing:${file}`,
+        status: 'fail',
+        detail: `classify probe misses gated suite check(s): ${missing.join(', ')} — would skip a red suite job on merge`,
+      })
+      continue
+    }
     checks.push({
       name: `landing:${file}`,
-      status: hasClassify ? 'pass' : 'warn',
-      detail: hasClassify
-        ? 'classify job present — processed PR vs naked commit'
-        : 'push trigger without classify — processed PR merges retest the suite. See conventions.ssot § CI landing',
+      status: 'pass',
+      detail: 'classify job present — processed PR vs naked commit',
     })
   }
   return { name: 'CI landing', checks }

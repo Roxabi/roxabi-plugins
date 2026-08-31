@@ -331,7 +331,7 @@ on:
 
 ${LANDING_PERMISSIONS}
 jobs:
-${generateClassifyPushJob()}
+${generateClassifyPushJob(['Context lint'])}
   context-lint:
     name: Context lint
     needs: [classify]
@@ -433,6 +433,8 @@ export function generateCiYml(opts: WorkflowOpts): string {
   // `reviewed` remains the merge gate only (auto-merge / merge-on-green) — not a CI gate.
   // Push: classify processed-PR merge vs naked commit — skip suite on pr-merge
   // (conventions.ssot § CI landing). merge_group is a no-op unless a queue exists.
+  // Gated jobs: `ci` (`name: CI`) and, when e2e=playwright, `e2e` (`name: E2E`).
+  const suiteChecks = o.e2e === 'playwright' ? ['CI', 'E2E'] : ['CI']
   return `name: CI
 on:
   push:
@@ -444,7 +446,7 @@ on:
 
 ${LANDING_PERMISSIONS}
 jobs:
-${generateClassifyPushJob()}
+${generateClassifyPushJob(suiteChecks)}
   ci:
     name: CI
     needs: [classify]
