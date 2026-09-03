@@ -256,7 +256,7 @@ Auto-select ρ (¬ask user). Architect always included:
 Task(
   subagent_type: "dev-core:<r>",
   description: "<r> spec review — #{N}",
-  prompt: "Review the spec at {σ_path} for <focus>. Check pre-check results: {pre_check_summary}. ¬TaskCreate. Return: good / needs improvement / concerns + specific line references."
+  prompt: "Review the spec at {σ_path} for <focus>. Spawned roster (this review): {ρ}. Check pre-check results: {pre_check_summary}. ¬TaskCreate. Return: good / needs improvement / concerns + specific line references."
 )
 ```
 Agent name map: `architect` → `dev-core:architect` | `doc-writer` → `dev-core:doc-writer` | `product-lead` → `dev-core:product-lead` | `adversarial` → `dev-core:adversarial` | `devops` → `dev-core:devops` | `axial-adr-review` → `dev-core:axial-adr-review`

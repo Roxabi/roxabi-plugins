@@ -197,8 +197,8 @@ classes:
 # Authoritative listing (derived from agents/; do NOT update by hand
 # — re-run the derivation above):
 #   adversarial | architect | axial-adr-create | axial-adr-review | backend-dev
-#   devops | doc-writer | fixer | frontend-dev | product-lead | recall
-#   security-auditor | tester
+#   devops | doc-writer | finding-verifier | fixer | frontend-dev | product-lead
+#   recall | security-auditor | tester
 #
 # Filter implementation (Slice 5 cron): MUST scan plugins/dev-core/agents/*.md at
 # runtime and extract name: fields — the inline listing above is documentation-only.

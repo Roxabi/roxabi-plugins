@@ -137,6 +137,7 @@ Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, 
 | `architect` | Architecture decisions, ADRs |
 | `product-lead` | Analysis, specifications, issue management |
 | `doc-writer` | Documentation across all docs directories |
+| `finding-verifier` | Keep/drop filter over low-confidence review findings (read-only) |
 
 ## Project-Level Overrides
 

@@ -20,7 +20,7 @@ Main Claude = orchestrator. Assesses issues, spawns α, runs skills, coordinates
 
 1. **Assessment:** Fetch issue → check analysis/spec → spawn product-lead (+architect) → human approves
 2. **Implementation:** Domain α + tester. RED → GREEN → REFACTOR → tests pass → PR
-3. **Review:** Fresh α (security, adversarial, architect, product, tester + domain). Conventional Comments → `/1b1`
+3. **Review:** Fresh α from the `/dev-review` roster oracle (adversarial always; the rest gated by Δ/τ) + `finding-verifier` keep/drop pass. Conventional Comments → `/1b1`
 4. **Fix & Merge:** Fixer(s) apply accepted comments → CI → human merges. ≥6 findings spanning distinct modules → multiple fixers.
 
 ## Task Lifecycle
