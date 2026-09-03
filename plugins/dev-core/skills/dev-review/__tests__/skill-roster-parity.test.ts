@@ -46,9 +46,82 @@ describe('dispatch table ≡ oracle (doc/behaviour parity)', () => {
     expect(documentedAgents()).toEqual(expected)
   })
 
-  it('every documented agent is a gate the oracle actually emits', () => {
-    const emitted = new Set(roster().gates.map((g) => g.agent))
-    for (const agent of documentedAgents()) expect(emitted).toContain(agent)
+  it('frontend-dev: documented stack-path-then-extension gate matches', () => {
+    expect(dispatch).toContain('`{frontend.path}` ∨ `{shared.ui}` non-empty')
+    const configured = { frontendPath: 'src/web', sharedUi: '', backendPath: '' }
+    // paths configured → prefix gate, and an FE extension OUTSIDE them must not fire
+    expect(roster({ delta: ['src/web/App.tsx'], stackPaths: configured }).agents).toContain('frontend-dev')
+    expect(roster({ delta: ['src/other/App.tsx'], stackPaths: configured }).agents).not.toContain('frontend-dev')
+    expect(roster({ delta: ['src/other/app.ts'] }).agents).not.toContain('frontend-dev')
+  })
+
+  // Driven from the table cell, not hand-picked: a hand-picked `.tsx` case stayed green
+  // when `.svelte` was dropped from FE_EXT_RE — the exact drift this suite must catch.
+  it('frontend-dev: EVERY extension the table documents actually fires', () => {
+    const row = dispatch.split('\n').find((l) => l.startsWith('| **frontend-dev**')) ?? ''
+    const exts = [...row.matchAll(/`(\.[a-z]+)`/g)].map((m) => m[1])
+    expect(exts.length).toBeGreaterThanOrEqual(6)
+    for (const ext of exts) {
+      const delta = [`src/other/Comp${ext}`]
+      expect({ ext, spawns: roster({ delta }).agents.includes('frontend-dev') }).toEqual({ ext, spawns: true })
+    }
+  })
+
+  // Same rule for the infra set: each documented token must actually route to devops.
+  it('devops: EVERY infra token the table documents actually fires at τ=F-full', () => {
+    const row = dispatch.split('\n').find((l) => l.startsWith('| **devops**')) ?? ''
+    const cell = row.match(/Δ ∩ \{([^}]+)\}/)?.[1] ?? ''
+    const samples: Record<string, string> = {
+      'scripts/': 'scripts/build.sh',
+      '.github/': '.github/workflows/ci.yml',
+      'lefthook.yml': 'lefthook.yml',
+      wrangler: 'wrangler.toml',
+      deploy: 'deploy/run.ts',
+      Dockerfile: 'Dockerfile',
+    }
+    const tokens = cell
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
+    expect(tokens.length).toBeGreaterThanOrEqual(6)
+    for (const token of tokens) {
+      const sample = samples[token]
+      // A token documented but not sampled here is a coverage hole, not a pass.
+      expect({ token, sampled: Boolean(sample) }).toEqual({ token, sampled: true })
+      const agents = roster({ delta: [sample], tier: 'F-full' }).agents
+      expect({ token, devops: agents.includes('devops') }).toEqual({ token, devops: true })
+    }
+  })
+
+  it('backend-dev: documented `{backend.path}` gate matches, empty → never', () => {
+    expect(dispatch).toContain('`{backend.path}` non-empty ∧ Δ ∩ that prefix ≠ ∅')
+    const configured = { frontendPath: '', sharedUi: '', backendPath: 'api' }
+    expect(roster({ delta: ['api/foo.ts'], stackPaths: configured }).agents).toContain('backend-dev')
+    expect(roster({ delta: ['src/foo.ts'], stackPaths: configured }).agents).not.toContain('backend-dev')
+    // empty backend.path → never, even on a path that looks backend-ish
+    expect(roster({ delta: ['api/foo.ts'] }).agents).not.toContain('backend-dev')
+  })
+
+  it('axial-adr-review: documented ∃ axial ADR ∧ Δ ∩ structural dirs matches', () => {
+    expect(dispatch).toContain('∃ axial ADR')
+    for (const d of ['infrastructure/x.ts', 'adapters/x.ts', 'domains/x.ts', 'stages/x.ts']) {
+      expect(roster({ delta: [d], axialAdr: true }).agents).toContain('axial-adr-review')
+    }
+    // ADR present but Δ misses the structural dirs, and vice versa
+    expect(roster({ delta: ['src/app.ts'], axialAdr: true }).agents).not.toContain('axial-adr-review')
+    expect(roster({ delta: ['adapters/x.ts'], axialAdr: false }).agents).not.toContain('axial-adr-review')
+  })
+
+  it('recall: documented multi-chunk ∧ |Δ| > recall_min_delta matches', () => {
+    expect(dispatch).toContain('|chunks|>1 ∧ |Δ| > recall_min_delta')
+    const big = Array.from({ length: 60 }, (_, i) => `src/f${i}.ts`)
+    const small = Array.from({ length: 10 }, (_, i) => `src/f${i}.ts`)
+    expect(roster({ delta: big, chunks: 2 }).recall_eligible).toBe(true)
+    expect(roster({ delta: small, chunks: 2 }).recall_eligible).toBe(false)
+    expect(roster({ delta: big, chunks: 1 }).recall_eligible).toBe(false)
+    // strict `>`: |Δ| exactly at the threshold is NOT eligible
+    const atThreshold = Array.from({ length: 50 }, (_, i) => `src/f${i}.ts`)
+    expect(roster({ delta: atThreshold, chunks: 2 }).recall_eligible).toBe(false)
   })
 
   it('adversarial-always: documented "always" holds for the oracle floor', () => {

@@ -54,7 +54,7 @@ Default **keep**. Drop iff a rubric row matches with concrete evidence. Ambiguou
 |-----------|-------------------|
 | code at the callsite disproves the concern | cited `file:line` shows the concern cannot hold |
 | concern already handled by an existing guard/test | cite the guard/test `file:line` |
-| speculative with no callsite inside Δ, except lens ∈ {fleet-regression, bypass, assumption-kill} | no matching callsite in Δ. ¬applies when the claim is about behaviour outside Δ (those three lenses): absence of an in-Δ callsite is expected, not grounds to drop |
+| speculative with no callsite inside Δ, except the finding's own text asserts a claim about behaviour outside Δ | no matching callsite in Δ (finding text + Raw callsites). Drop only when the finding cites nothing anywhere ∧ asserts nothing outside Δ. ¬applies when the finding's own text asserts a claim about behaviour outside Δ (a consumer, a sibling repo/path, a caller, a downstream gate): absence of an in-Δ callsite is the expected shape of the evidence, not a defect |
 | duplicate of another finding in the same batch | same root cause ∧ same cited construct; cite the other finding (`file:line` — label). Same file at different sites, or same site for different root causes → ¬duplicate. When in doubt, keep the later one |
 | outside Δ scope | cited path ∉ Δ ∧ the concern is about that path's own contents (reviewing unrelated code). A cross-Δ citation used as evidence about a Δ change is in scope — keep |
 
@@ -82,10 +82,9 @@ Before returning, inspect the draft blocks from V3.
 
 Let D := {f ∈ Φ | decision = drop}.
 
-- |D| > |Φ|/2 → revert every drop
-- ∃ lens L: Φ_L ≠ ∅ ∧ Φ_L ⊆ D → revert every drop in Φ_L
+∀ f ∈ D: `reason` MUST cite a `file:line` (or a named sibling finding). Else upgrade that f: `decision: keep`, `reason: no evidence cited — defaulting to keep`, original C.
 
-Affected blocks: `decision: keep`, `reason: drop rate implausible — defaulting to keep`, original C.
+Recompute D. Secondary, |Φ| ≥ 4 ∧ |D| > |Φ|/2 → revert every remaining drop. Affected blocks: `decision: keep`, `reason: drop rate implausible — defaulting to keep`, original C.
 
 A filter that deletes most of its input is not filtering — it is silencing.
 
@@ -111,11 +110,12 @@ A filter that deletes most of its input is not filtering — it is silencing.
 | Duplicate in Φ | drop the later one iff same root cause ∧ same cited construct; cite the kept sibling. Same file at different sites, or same site for different root causes → ¬duplicate. When in doubt, keep the later one |
 | Cited path ∉ Δ | drop iff the concern is about that path's own contents (unrelated code). Cross-Δ citation used as evidence about a Δ change → keep |
 | Guard/test exists but does not cover this callsite | keep (not “already handled”) |
-| Speculative wording but callsite is in Δ, or lens ∈ {fleet-regression, bypass, assumption-kill} | keep (not “speculative”; those lenses claim behaviour outside Δ — no in-Δ callsite is expected) |
+| Speculative wording but callsite is in Δ, or the finding's own text asserts a claim about behaviour outside Δ | keep (not “speculative”; a claim about a consumer / sibling repo/path / caller / downstream gate expects no in-Δ callsite) |
 | Two rubric rows could apply | pick the first matching row in the table; still one block |
 | `Grep` returns >200 hits for a sibling check | cap at 20 diverse files; if still not disproved → keep |
 | Blocking label in input | keep (caller error; out of filter scope) |
-| drop rate > half of Φ, or every finding of a lens dropped | keep the affected drops, reason `drop rate implausible — defaulting to keep` |
+| drop whose reason cites nothing | keep, reason `no evidence cited — defaulting to keep` |
+| |Φ| ≥ 4 ∧ drop rate > half of Φ | keep the affected drops, reason `drop rate implausible — defaulting to keep` |
 
 ## Boundaries
 

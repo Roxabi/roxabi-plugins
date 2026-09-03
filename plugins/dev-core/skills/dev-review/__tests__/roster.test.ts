@@ -19,6 +19,7 @@ import {
 } from '../roster'
 
 const ROSTER = fileURLToPath(new URL('../roster.ts', import.meta.url))
+const RUNNING_AS_ROOT = typeof process.getuid === 'function' && process.getuid() === 0
 
 let dir: string
 
@@ -492,6 +493,62 @@ review:
     expect(cfg.warnings).toContain('verify_below_confidence < 0; clamped to 0')
   })
 
+  it('recall_min_delta < 0 clamped to 0 + warning', () => {
+    const cfg = parseRosterConfig(`
+review:
+  roster:
+    recall_min_delta: -5
+`)
+    expect(cfg.recallMinDelta).toBe(0)
+    expect(cfg.warnings).toContain('recall_min_delta < 0; clamped to 0')
+  })
+
+  it('recall_min_delta: 0 with chunks 2 and 1 file is eligible', () => {
+    const cfg = parseRosterConfig(`
+review:
+  roster:
+    recall_min_delta: 0
+`)
+    expect(cfg.recallMinDelta).toBe(0)
+    expect(cfg.warnings).toEqual([])
+    const out = roster({ delta: ['src/foo.ts'], chunks: 2, config: cfg })
+    expect(out.recall_eligible).toBe(true)
+    expect(out.recall_reason).toBe('multi-chunk')
+  })
+
+  it('misindented verify_below_confidence warns and is not applied', () => {
+    const cfg = parseRosterConfig(`
+review:
+  roster:
+    max_agents: 3
+      verify_below_confidence: 10
+`)
+    expect(cfg.maxAgents).toBe(3)
+    expect(cfg.verifyBelowConfidence).toBe(90)
+    expect(cfg.warnings).toContain('unrecognised roster key at indent 6: verify_below_confidence')
+  })
+
+  it('misspelled rooster: warns instead of silent defaults', () => {
+    const cfg = parseRosterConfig(`
+review:
+  rooster:
+    max_agents: 9
+`)
+    expect(cfg.maxAgents).toBe(4)
+    expect(cfg.warnings).toContain('review.roster missing')
+  })
+
+  it('dedented top-level roster: warns', () => {
+    const cfg = parseRosterConfig(`
+review:
+  other: 1
+roster:
+  max_agents: 9
+`)
+    expect(cfg.maxAgents).toBe(4)
+    expect(cfg.warnings).toContain('review.roster missing')
+  })
+
   it('agents sequence items warn instead of silent empty overrides', () => {
     const cfg = parseRosterConfig(`
 review:
@@ -567,34 +624,62 @@ review:
 })
 
 describe('pathHit', () => {
-  const rows: [string, boolean][] = [
-    ['src/oauth/provider.ts', true],
-    ['src/session/token.ts', true],
-    ['src/jwt/sign.ts', true],
-    ['src/login/password.ts', true],
-    ['api/rbac.ts', true],
-    ['src/auth/x.ts', true],
-    ['lib/mysecretstuff.ts', true],
-    ['infra/tls-cert.ts', true],
-    ['x/authz.ts', true],
-    ['src/author.ts', false],
-    ['docs/AUTHORS.md', false],
-    ['src/authoring/page.tsx', false],
-    ['lib/tokenizer.ts', false],
-    ['test/latest.ts', false],
-    ['src/designer.ts', false],
-    // Object.prototype keys must never satisfy a lookup — the tables are Record<string, true>,
-    // so a bare `TABLE[key]` would make `constructor` (and friends) truthy on external input.
-    ['src/constructor/x.ts', false],
-    ['lib/valueOf.ts', false],
-    ['a/toString.ts', false],
-    ['x/hasOwnProperty.ts', false],
-    ['y/__proto__/z.ts', false],
+  // Authored from C1 requirement lists, not from the tokenizer implementation.
+  const mustHitNew = [
+    'src/authService/index.ts',
+    'src/api/v2/AuthController.ts',
+    'src/jwtVerify.ts',
+    'src/authGuard.ts',
+    'src/SessionManager.ts',
+    'src/tokenService.ts',
+    'src/oauth2/client.ts',
+    'src/saml2/sp.ts',
+    'apps/api/src/middleware/authenticate.ts',
+    'src/webauthn/register.ts',
+    'src/encryption/aes.ts',
+    'src/AUTHZ/policy.ts',
+    'src/oAuth2/cb.ts',
+  ]
+  const mustHitRegression = [
+    'src/oauth/provider.ts',
+    'src/session/token.ts',
+    'src/jwt/sign.ts',
+    'src/login/password.ts',
+    'api/rbac.ts',
+    'src/auth/x.ts',
+    'infra/tls-cert.ts',
+    'x/authz.ts',
+    'lib/mysecretstuff.ts',
+  ]
+  const mustNotHit = [
+    'src/author.ts',
+    'docs/AUTHORS.md',
+    'src/authoring/page.tsx',
+    'lib/tokenizer.ts',
+    'test/latest.ts',
+    'src/designer.ts',
+    'src/constructor/x.ts',
+    'lib/valueOf.ts',
+    'a/toString.ts',
+    'x/hasOwnProperty.ts',
+    'y/__proto__/z.ts',
   ]
 
-  it('two-tier token+stem table', () => {
-    for (const [p, want] of rows) {
-      expect({ path: p, hit: pathHit([p]) }).toEqual({ path: p, hit: want })
+  it('must-hit-new: case/digit split + new tokens', () => {
+    for (const p of mustHitNew) {
+      expect(pathHit([p]), p).toBe(true)
+    }
+  })
+
+  it('must-hit-regression: separator-token and stem hits still fire', () => {
+    for (const p of mustHitRegression) {
+      expect(pathHit([p]), p).toBe(true)
+    }
+  })
+
+  it('must-not-hit: substring and prototype keys stay cold', () => {
+    for (const p of mustNotHit) {
+      expect(pathHit([p]), p).toBe(false)
     }
   })
 })
@@ -711,5 +796,56 @@ describe('hasAxialAdr errors', () => {
     } finally {
       chmodSync(adr, 0o700)
     }
+  })
+
+  it('unreadable member file continues and finds sibling axial: true', () => {
+    if (RUNNING_AS_ROOT) return
+    const adr = join(dir, 'adr')
+    mkdirSync(adr)
+    const locked = join(adr, '0001-locked.md')
+    writeFileSync(locked, 'not axial\n')
+    writeFileSync(join(adr, '0002-real.md'), 'axial: true\n')
+    chmodSync(locked, 0o000)
+    const warnings: string[] = []
+    try {
+      expect(hasAxialAdr(adr, warnings)).toBe(true)
+      expect(warnings.some((w) => w.includes(locked) && w.includes('unreadable'))).toBe(true)
+    } finally {
+      chmodSync(locked, 0o644)
+    }
+  })
+})
+
+describe('filesystem error policy', () => {
+  it('unreadable stack.yml warns naming the file and applies defaults', () => {
+    if (RUNNING_AS_ROOT) return
+    const delta = join(dir, 'delta.txt')
+    writeFileSync(delta, 'src/foo.ts\n')
+    const stack = join(dir, 'stack.yml')
+    writeFileSync(stack, 'review:\n  roster:\n    max_agents: 9\n    verify_below_confidence: 10\n')
+    chmodSync(stack, 0o000)
+    try {
+      const proc = spawnSync('bun', [ROSTER, '--diff-list', delta, '--stack', stack, '--json'], { encoding: 'utf8' })
+      expect(proc.status).toBe(0)
+      const json = JSON.parse(proc.stdout) as {
+        max_agents: number
+        verify_below_confidence: number
+        warnings: string[]
+      }
+      expect(json.max_agents).toBe(4)
+      expect(json.verify_below_confidence).toBe(90)
+      expect(json.warnings.some((w) => w.includes(stack) && w.includes('unreadable'))).toBe(true)
+    } finally {
+      chmodSync(stack, 0o644)
+    }
+  })
+
+  it('--diff-list that is a directory warns and exits 1', () => {
+    const asDir = join(dir, 'not-a-file')
+    mkdirSync(asDir)
+    const proc = spawnSync('bun', [ROSTER, '--diff-list', asDir, '--json'], { encoding: 'utf8' })
+    expect(proc.status).toBe(1)
+    expect(proc.stderr).toContain(asDir)
+    expect(proc.stderr).toMatch(/unreadable/)
   })
 })

@@ -5,7 +5,7 @@ description: >-
   Multi-domain code review (agents + Conventional Comments → findings + verdict).
   Triggers: "dev-review" | "code review" | "review changes" | "review PR #42" | "check my code" | "review my changes" | "review this PR" | "do a code review" | "review the diff" | "look at my code" | "/dev-review".
   Not the host natives /review or /doctor.
-version: 0.4.0
+version: 0.4.1
 allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -18,7 +18,7 @@ V := `gh pr view {N} --comments | grep "## Code Review"` ∧ verdict ∈ {Approv
 
 Review branch/PR via fresh domain-specific agents → Conventional Comments → findings + verdict.
 
-**⚠ Flow: single continuous pipeline (Phases 1→4 + 6 + 8). ¬stop between phases. Decision response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, or Phase 8 completion.**
+**⚠ Flow: single continuous pipeline (Phases 1→4 + 6 + 8). ¬stop between phases. Decision response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, roster oracle review_halt, or Phase 8 completion.**
 
 ```
 /dev-review          → diff origin/${BASE}...HEAD  (BASE = staging|main|master, first that exists)
@@ -40,7 +40,7 @@ Let:
 | 1.5 | secret-scan | ✓ | ∅ matches (or ACK) | — |
 | 2 | spec-compliance | — | criteria checked | spec ∃ |
 | 3 | multi-domain-review | ✓ | agents return | parallel · roster oracle |
-| 4 | merge-and-present | ✓ | F + verdict | dedup → keep/drop → verdict |
+| 4 | merge-and-present | ✓ | F + verdict | dedup → classify → keep/drop → verdict |
 | 6 | post-to-pr | — | comment posted | PR ∃ |
 | 8 | next-step | ✓ | decision made | — |
 
@@ -323,10 +323,15 @@ C(f) = min(diagnostic_certainty, fix_certainty)
    - same file:line + issue → keep max C
    - **one finding per `(file, class)` → keep max C** — never two agents' copies of the same class on the same file
    - ∀ pair sharing file:line with class[] sets that intersect after subsumption → merge: max C, union class[] (apply subsumption strip), union raw_callsites[]
-3. Keep/drop filter (finding-verifier) — see below
-4. Sort: C desc within category
-5. Group: Blockers → Warnings → Suggestions → Praise
-6. Disclose removals — emit in the review output unconditionally (Phase 6 copies; ¬vanish when ¬∃ PR):
+3. Classify sources — **before keep/drop**:
+   - Lane A findings: standard blocking/advisory per category label
+   - Recall findings (`source: recall`): always **blocking** regardless of label — override to `issue(blocking):` if not already
+   - Lane B findings (`pattern-class` tag): **advisory only** — cap at `Approve with comments`; ¬Request changes from Lane B alone
+4. Keep/drop filter (finding-verifier) — see below
+5. Sort: C desc within category
+6. Group: Blockers → Warnings → Suggestions → Praise
+7. Disclose removals — emit in the review output unconditionally (Phase 6 copies; ¬vanish when ¬∃ PR):
+   `capped[]`/`warnings[]` are unioned across chunk invocations and deduplicated before disclosure, attributed by chunk where they differ.
    - `Roster capped by max_agents: <names>` when `capped[] ≠ ∅`
 # CROSS-SKILL CONSUMER: /fix Phase 1 parses Conventional Comments from every PR comment body — the F_dropped block MUST stay table-shaped or the filter is defeated (fix/SKILL.md Phase 1 step 1a strips it)
    - `F_dropped` → collapsed disclosure, **table shape only** (¬Conventional-Comment grammar: a `<label>: <desc>` line would be re-ingested by `/fix` and defeat the filter):
@@ -347,9 +352,13 @@ Exactly one instance per review (¬per-chunk, ¬per-finding). Read-only (`Read`,
 
 ```
 F_low := {f ∈ F | C(f) < verify_below_confidence ∧ ¬blocks(f)}   # threshold from roster JSON
+blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):} ∨ source(f) = recall
 ```
 
-Blocking labels (`issue:`, `issue(blocking):`, `todo:`, `suggestion(blocking):`) are NEVER sent to the filter and never enter `F_dropped`. Verdict depends on a label, ¬an LLM's judgement. `verify_below_confidence` is clamped to `[0, 90]` by the oracle.
+Lane B advisory findings stay eligible for the filter.
+Invariant (checkable): no finding that is blocking by label or by source may enter `F_low`.
+
+`blocks(f)` findings are NEVER sent to the filter and never enter `F_dropped`. Verdict depends on `blocks(f)`, ¬an LLM's judgement. `verify_below_confidence` is clamped to `[0, 90]` by the oracle.
 
 Skip when `F_low = ∅ ∨ ¬verifier_enabled`.
 
@@ -377,11 +386,6 @@ finding: <file>:<line> — <label>
 - `keep` → C := min(C_orig, C_verifier)
 - `drop` → move to `F_dropped`; excluded from the verdict and from blocker counting
 - verifier fails ∨ returns nothing → **keep all of `F_low` unchanged (fail-open — never silently drop)**
-
-**Source classification before verdict:**
-- Lane A findings: standard blocking/advisory per category label
-- Recall findings (`source: recall`): always **blocking** regardless of label — override to `issue(blocking):` if not already
-- Lane B findings (`pattern-class` tag): **advisory only** — cap at `Approve with comments`; ¬Request changes from Lane B alone
 
 **Verdict** (KEPT findings only; `F_dropped` excluded from blocker counting):
 

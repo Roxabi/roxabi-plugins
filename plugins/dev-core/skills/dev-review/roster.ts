@@ -149,6 +149,28 @@ const TOKEN_SET: Record<string, true> = {
   iam: true,
   hmac: true,
   keystore: true,
+  authenticate: true,
+  authentication: true,
+  authorize: true,
+  authorization: true,
+  webauthn: true,
+  encrypt: true,
+  encryption: true,
+  decrypt: true,
+  cipher: true,
+  aes: true,
+  rsa: true,
+  csrf: true,
+  xsrf: true,
+  hash: true,
+  salt: true,
+  bcrypt: true,
+  argon: true,
+  pkcs: true,
+  apikey: true,
+  keypair: true,
+  privatekey: true,
+  publickey: true,
 }
 
 const STEM_SET = ['secret', 'crypto', 'password', 'passwd', 'credential', 'keystore']
@@ -235,12 +257,18 @@ export function specIsDraft(specContent: string): boolean {
   return status === 'draft'
 }
 
-/** path_hit := ∃ t ∈ tokens(path): t ∈ TOKEN_SET  ∨  ∃ s ∈ STEM_SET: s ⊂ lowercase(path) */
+/** tokens(path) := split on [^A-Za-z0-9] ∨ camelCase ∨ letter→digit, then lowercase.
+ *  path_hit := ∃ t ∈ tokens(path): t ∈ TOKEN_SET  ∨  ∃ s ∈ STEM_SET: s ⊂ lowercase(path) */
+const TOKEN_SPLIT = /[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Za-z])(?=[0-9])/
+
 export function pathHit(delta: string[]): boolean {
   for (const f of delta) {
-    const lower = f.toLowerCase()
-    const tokens = lower.split(/[^a-z0-9]+/).filter(Boolean)
+    const tokens = f
+      .split(TOKEN_SPLIT)
+      .filter(Boolean)
+      .map((t) => t.toLowerCase())
     if (tokens.some((t) => Object.hasOwn(TOKEN_SET, t))) return true
+    const lower = f.toLowerCase()
     if (STEM_SET.some((s) => lower.includes(s))) return true
   }
   return false
@@ -270,26 +298,49 @@ export function feHit(delta: string[], paths: { frontendPath: string; sharedUi: 
   return delta.some((f) => FE_EXT_RE.test(f))
 }
 
-export function hasAxialAdr(adrDir: string, warnings?: string[]): boolean {
-  try {
-    const entries = readdirSync(adrDir, { withFileTypes: true })
-    for (const e of entries) {
-      if (!e.isFile() || !e.name.endsWith('.md')) continue
-      const text = readFileSync(join(adrDir, e.name), 'utf-8')
-      if (/^axial:\s*true/m.test(text)) return true
-    }
-    return false
-  } catch (err) {
-    let code = ''
-    if (typeof err === 'object' && err !== null && 'code' in err) {
-      const raw = err.code
-      if (typeof raw === 'string') code = raw
-    }
-    if (code === 'ENOENT' || code === 'ENOTDIR') return false
-    const message = err instanceof Error ? err.message : String(err)
-    warnings?.push(`axial ADR dir unreadable: ${message}`)
-    return false
+function errorCode(err: unknown): string {
+  if (typeof err === 'object' && err !== null && 'code' in err) {
+    const raw = err.code
+    if (typeof raw === 'string') return raw
   }
+  return ''
+}
+
+function readOrWarn(path: string, what: string, warnings?: string[]): string | null {
+  try {
+    return readFileSync(path, 'utf-8')
+  } catch (err) {
+    const code = errorCode(err)
+    if (code === 'ENOENT' || code === 'ENOTDIR') return null
+    const message = err instanceof Error ? err.message : String(err)
+    warnings?.push(`${what} unreadable: ${message}`)
+    return null
+  }
+}
+
+function dirOrWarn(dir: string, what: string, warnings?: string[]) {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+  } catch (err) {
+    const code = errorCode(err)
+    if (code === 'ENOENT' || code === 'ENOTDIR') return null
+    const message = err instanceof Error ? err.message : String(err)
+    warnings?.push(`${what} unreadable: ${message}`)
+    return null
+  }
+}
+
+export function hasAxialAdr(adrDir: string, warnings?: string[]): boolean {
+  const entries = dirOrWarn(adrDir, 'axial ADR dir', warnings)
+  if (!entries) return false
+  for (const e of entries) {
+    if (!e.isFile() || !e.name.endsWith('.md')) continue
+    const member = join(adrDir, e.name)
+    const text = readOrWarn(member, member, warnings)
+    if (text == null) continue
+    if (/^axial:\s*true/m.test(text)) return true
+  }
+  return false
 }
 
 function stripInlineComment(line: string): string {
@@ -379,7 +430,12 @@ export function parseRosterConfig(text: string | null): RosterConfig {
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].indent === 0 && lines[i].key === 'review') reviewIdxs.push(i)
     }
-    if (!reviewIdxs.length) return defaults
+    if (!reviewIdxs.length) {
+      if (lines.some((l) => l.indent === 0 && l.key === 'roster')) {
+        return { ...defaults, warnings: ['review.roster missing'] }
+      }
+      return defaults
+    }
     const warnings: string[] = []
     if (reviewIdxs.length > 1) warnings.push('duplicate top-level review: block ignored')
     const reviewIdx = reviewIdxs[0]
@@ -392,6 +448,7 @@ export function parseRosterConfig(text: string | null): RosterConfig {
       }
     }
     if (rosterIdx < 0) {
+      warnings.push('review.roster missing')
       return { ...defaults, warnings }
     }
 
@@ -408,17 +465,20 @@ export function parseRosterConfig(text: string | null): RosterConfig {
       return { maxAgents, verifyBelowConfidence, recallMinDelta, overrides, warnings }
     }
     const directIndent = Math.min(...children.map((l) => l.indent))
+    const consumed = new Set<number>()
 
     for (let i = rosterIdx + 1; i < rosterEnd; i++) {
       const line = lines[i]
       if (line.indent !== directIndent) continue
       if (line.key === 'max_agents') {
+        consumed.add(i)
         maxAgents = parseInteger(line.value, DEFAULT_MAX_AGENTS, 'max_agents', warnings)
         if (maxAgents < 1) {
           warnings.push('max_agents < 1; clamped to 1')
           maxAgents = 1
         }
       } else if (line.key === 'verify_below_confidence') {
+        consumed.add(i)
         verifyBelowConfidence = parseInteger(line.value, DEFAULT_VERIFY, 'verify_below_confidence', warnings)
         if (verifyBelowConfidence > 90) {
           warnings.push('verify_below_confidence > 90; clamped to 90')
@@ -428,12 +488,19 @@ export function parseRosterConfig(text: string | null): RosterConfig {
           verifyBelowConfidence = 0
         }
       } else if (line.key === 'recall_min_delta') {
+        consumed.add(i)
         recallMinDelta = parseInteger(line.value, DEFAULT_RECALL_MIN, 'recall_min_delta', warnings)
+        if (recallMinDelta < 0) {
+          warnings.push('recall_min_delta < 0; clamped to 0')
+          recallMinDelta = 0
+        }
       } else if (line.key === 'agents') {
+        consumed.add(i)
         const agentsEnd = blockEnd(lines, i)
         let recognised = 0
         for (let j = i + 1; j < agentsEnd; j++) {
           if (lines[j].indent <= line.indent) break
+          consumed.add(j)
           recognised++
           const agent = lines[j].key
           const raw = lines[j].value.toLowerCase()
@@ -454,9 +521,12 @@ export function parseRosterConfig(text: string | null): RosterConfig {
         if (recognised === 0) {
           warnings.push('roster agents block present but no key: value entries recognised (sequence or flow mapping?)')
         }
-      } else {
-        warnings.push(`unknown roster key: ${line.key}`)
       }
+    }
+
+    for (let i = rosterIdx + 1; i < rosterEnd; i++) {
+      if (consumed.has(i)) continue
+      warnings.push(`unrecognised roster key at indent ${lines[i].indent}: ${lines[i].key}`)
     }
 
     return { maxAgents, verifyBelowConfidence, recallMinDelta, overrides, warnings }
@@ -722,32 +792,28 @@ function main(): void {
 
   if (!diffList) usage()
 
-  let delta: string[]
-  try {
-    delta = readFileSync(diffList, 'utf-8')
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean)
-  } catch {
-    console.error('roster: unreadable --diff-list')
+  const ioWarnings: string[] = []
+  const deltaText = readOrWarn(diffList, diffList, ioWarnings)
+  if (deltaText == null) {
+    if (ioWarnings.length) {
+      for (const w of ioWarnings) console.error(`roster: ${w}`)
+    } else {
+      console.error('roster: unreadable --diff-list')
+    }
     process.exit(1)
   }
+  const delta = deltaText
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
 
-  let stackText: string | null = null
-  try {
-    stackText = readFileSync(stackPath, 'utf-8')
-  } catch {
-    stackText = null
-  }
+  const stackText = readOrWarn(stackPath, stackPath, ioWarnings)
 
   let specContent: string | null = null
   let specUnreadable = false
   if (specPath) {
-    try {
-      specContent = readFileSync(specPath, 'utf-8')
-    } catch {
-      specUnreadable = true
-    }
+    specContent = readOrWarn(specPath, specPath, ioWarnings)
+    if (specContent == null) specUnreadable = true
   }
 
   let claims: string[] = []
@@ -763,6 +829,7 @@ function main(): void {
   }
 
   const config = parseRosterConfig(stackText)
+  config.warnings.push(...ioWarnings)
   const result = computeRoster({
     delta,
     tier,
