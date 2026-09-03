@@ -5,7 +5,7 @@ description: >-
   Multi-domain code review (agents + Conventional Comments → findings + verdict).
   Triggers: "dev-review" | "code review" | "review changes" | "review PR #42" | "check my code" | "review my changes" | "review this PR" | "do a code review" | "review the diff" | "look at my code" | "/dev-review".
   Not the host natives /review or /doctor.
-version: 0.2.3
+version: 0.4.0
 allowed-tools: Bash, Read, Write, Glob, Grep, Task, Skill, ToolSearch
 ---
 
@@ -39,8 +39,8 @@ Let:
 | 1 | gather-changes | ✓ | Δ listed | — |
 | 1.5 | secret-scan | ✓ | ∅ matches (or ACK) | — |
 | 2 | spec-compliance | — | criteria checked | spec ∃ |
-| 3 | multi-domain-review | ✓ | agents return | parallel |
-| 4 | merge-and-present | ✓ | F + verdict | — |
+| 3 | multi-domain-review | ✓ | agents return | parallel · roster oracle |
+| 4 | merge-and-present | ✓ | F + verdict | dedup → keep/drop → verdict |
 | 6 | post-to-pr | — | comment posted | PR ∃ |
 | 8 | next-step | ✓ | decision made | — |
 
@@ -113,50 +113,70 @@ digests = emit_all_digests(chunks)            # list[BoundaryDigest]
 - If `len(chunks) == 1` → single-chunk path (identical to pre-Slice-2 behaviour; all agents receive the full diff as before).
 - If `len(chunks) > 1` → per-chunk Lane A dispatch (see below).
 
-### Claim-axis spawn oracle (#419)
+### Roster oracle
 
-Before Lane A dispatch, compute **once per review** (global, not per-chunk):
+SOLE spawn decision for Phase 3. τ ← spec/plan frontmatter ∨ issue labels (default F-lite if unknown). `CHUNKS := |chunks|` from the chunker.
+
+**Global vs per-chunk.** One global call (full Δ) for review-wide fields: `claims`, `priced_claim_ok`, `recall_eligible`, `verifier_enabled`, `verify_below_confidence`, `warnings`. Per-chunk `roster.sh --diff-list <chunk_i.files> …` supplies that chunk's `agents[]` for Lane A. Single-chunk: one call (Δ = the chunk) covers both. `adversarial` is the floor in every chunk. `max_agents` is a **per-chunk** cap.
+
+**Spawn exactly `agents[]` from the (chunk) JSON — the table below is documentation of the oracle's gates, ¬an independent decision surface.** `gates[]` carries the per-agent reason; `capped[]` names agents dropped by `max_agents`. `recall` and `finding-verifier` are ¬in `agents[]` (separate phases: `recall_eligible` / `verifier_enabled`). `product-lead` ¬∈ review roster — Phase 2 owns spec compliance.
 
 ```bash
 # spec_path from Phase 2; write Δ paths to a mktemp file (see tempfile-convention.md)
 REVIEW_TMP=$(mktemp -d -t "dev-core-review-delta-419-XXXXXX")
 trap 'rm -rf "$REVIEW_TMP"' EXIT
 printf '%s\n' "${DELTA_FILES[@]}" > "$REVIEW_TMP/delta.txt"
-bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review/claim-roster.sh \
-  --spec "$spec_path" \
+bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review/roster.sh \
   --diff-list "$REVIEW_TMP/delta.txt" \
+  --tier "$TIER" \
+  --chunks "$CHUNKS" \
+  [--spec "$spec_path"] \
+  [--oracle-ok true|false] \
   --json
-# spawn_security_auditor := JSON field; exit 2 when priced fences lack valid claim (still spawn)
+# per-chunk Lane A (skip when |chunks|=1 — the call above is the chunk)
+printf '%s\n' "${CHUNK_I_FILES[@]}" > "$REVIEW_TMP/chunk_${i}.txt"
+bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review/roster.sh \
+  --diff-list "$REVIEW_TMP/chunk_${i}.txt" \
+  --tier "$TIER" \
+  --chunks "$CHUNKS" \
+  [--spec "$spec_path"] \
+  [--oracle-ok true|false] \
+  --json
 ```
 
-Interim: `Claims` = all valid tags on approved σ when Δ ≠ ∅ (true source∩Δ deferred). No approved σ → path-only.
+After every invocation: `∀ w ∈ warnings[] → echo into the review output (¬silent)`; `review_halt: true → HALT` with the warning text.
+
+**Tester gate (two-step):** first call ¬`--oracle-ok`. `delta_test_hit=true` in the JSON → run `bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json`, re-invoke `roster.sh` with `--oracle-ok true|false`. `delta_test_hit=false` → single call, tester ¬spawns. `delta_test_hit ∧ oracle_ok=missing → tester ¬spawns by design; the warning MUST appear in the output so the coverage gap is stated, ¬hidden`.
+
+Exit: `0` ok · `1` usage/IO error (incl. unreadable `--spec`) · `2` σ priced-fence hygiene (σ has ≥1 priced fence ∧ ¬priced_claim_ok → spec-hygiene warning, emit `issue(blocking):` about the σ; ¬spawn security-auditor; JSON still printed on stdout).
+
+`claims` + `priced_claim_ok` are reported for the σ-hygiene finding only; they ¬gate any spawn.
 
 ### Agent dispatch
-
-τ ← spec/plan frontmatter ∨ issue labels (default F-lite if unknown).
 
 | Agent | When | Focus |
 |-------|------|-------|
 | **adversarial** | **always** | red-team: bypass, fleet-regression, vacuous guards, assumption-kill + **OWASP lens** (secrets, injection, auth). security-auditor is independent when Δ ∩ auth/secrets/crypto (both may run) |
-| **frontend-dev** | Δ ∩ {FE, `{frontend.path}`, `{shared.ui}`} ≠ ∅ | FE patterns, components, hooks |
-| **product-lead** | spec ∃ | spec compliance, product fit |
-| **tester** | `bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` yields `oracle_ok=false` (or JSON missing) | coverage, AAA, edge cases, tautology |
-| **architect** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy} ≠ ∅ | patterns, structure, circular deps |
-| **backend-dev** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy, `{backend.path}`} ≠ ∅ | BE patterns, API, errors |
-| **devops** | τ=F-full ∨ Δ ∩ {`scripts/`, CI, `lefthook.yml`, wrangler, deploy} ≠ ∅ | config, deploy, infra |
-| **recall** | **only** multi-chunk ∧ canonical class already tagged ∧ ≥3 raw_callsites. Skip on single-chunk | class-join, uncited callsites — Phase 3b, ¬Lane A |
-| **security-auditor** | **`spawn_security_auditor`** from S1 `claim-roster.sh` — `path_hit` (Δ ∩ {auth, secrets, crypto, `**/auth/**`, `**/*secret*`, `**/*crypto*`}) ∨ claim tags on approved σ when Δ≠∅ ∨ invalid `claim` on priced fence (#419) | OWASP, secrets, injection, auth |
+| **security-auditor** | **`path_hit`** only — token+stem (path segments, ¬`\bauth\b`); covers oauth/session/jwt/login/password/rbac + `**/auth/**` | OWASP, secrets, injection, auth |
+| **tester** | `delta_test_hit ∧ oracle_ok=false` | coverage, AAA, edge cases, tautology |
 | **axial-adr-review** | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ Δ ∩ {`infrastructure/`, `adapters/`, `domains/`, `stages/`} ≠ ∅ | Drift along non-primary axis (target × concern duplication) — read-only review agent (no Write/Edit/Bash tools) |
+| **frontend-dev** | `{frontend.path}` ∨ `{shared.ui}` non-empty → Δ ∩ those prefixes ≠ ∅; both empty → Δ ∩ {`.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`} ≠ ∅ | FE patterns, components, hooks |
+| **backend-dev** | `{backend.path}` non-empty ∧ Δ ∩ that prefix ≠ ∅; empty → ¬spawn | BE patterns, API, errors |
+| **devops** | `τ=F-full ∧ Δ ∩ {scripts/, .github/, lefthook.yml, wrangler, deploy, Dockerfile} ≠ ∅` | config, deploy, infra — **the single infra agent** |
+| **architect** | `τ=F-full ∧ Δ ∩ infra = ∅` — mutually exclusive with devops | patterns, structure, circular deps |
+| **recall** | Phase 3b: `|chunks|>1 ∧ |Δ| > recall_min_delta` ∧ canonical class ∧ ≥3 callsites. Skip on single-chunk | class-join, uncited callsites — ¬Lane A |
+
+`max_agents` (default 4) is a **per-chunk** cap on `agents[]` (excl. recall / finding-verifier); truncated names land in `capped[]`.
 
 > **Note on axial-adr-review asymmetry (intentional):** The `/dev-review` condition is **structural** — it triggers when the diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`. The spec phase (`/spec`) uses a **semantic/intent-based** condition (spec adds adapter/integration/target ∨ touches `infrastructure/`). The two are complementary: `/spec` catches intent-level N×M violations, `/dev-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
 
-Skip: product-lead → spec ∄ | tester → `bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json` emits `oracle_ok=true` (markdown / `parse-falsify` alone is ¬sufficient; verify fail → spawn tester) | frontend-dev → ¬FE Δ | architect/devops → τ≠F-full ∧ Δ misses `scripts/`/CI/`lefthook.yml`/wrangler/deploy | backend-dev → τ≠F-full ∧ Δ misses those ∧ `{backend.path}` | security-auditor → **`¬spawn_security_auditor`** (S1 `claim-roster` — **not** path-only “Δ misses auth/secrets/crypto”) | recall → single-chunk ∨ ¬canonical class ∨ \|callsites\|<3
+Skip: tester → ¬`delta_test_hit` ∨ `oracle_ok=true` ∨ `oracle_ok=missing` | frontend-dev → ¬FE Δ | backend-dev → `{backend.path}` empty ∨ Δ misses prefix | devops → τ≠F-full ∨ Δ ∩ infra = ∅ | architect → τ≠F-full ∨ Δ ∩ infra ≠ ∅ | axial-adr-review → ¬∃ axial ADR ∨ Δ misses AXIAL | security-auditor → **`¬spawn_security_auditor`** | recall → single-chunk ∨ |Δ| ≤ recall_min_delta ∨ ¬canonical class ∨ |callsites|<3
 
-**Subdomain split (multi-chunk):** For each chunk `c_i`, apply the dispatch table against `c_i.files` only (not full Δ). Default: 1 agent per domain per chunk. recall is Phase 3b (not per-chunk Lane A).
+**Subdomain split (multi-chunk):** For each chunk `c_i`, invoke `roster.sh --diff-list <chunk_i.files> …` and spawn that JSON's `agents[]` on `c_i.files` only. Default: 1 agent per domain per chunk. `adversarial` is the floor in every chunk. `max_agents` is a per-chunk cap. recall is Phase 3b (not per-chunk Lane A). finding-verifier is Phase 4 (once per review).
 
 ### Security-auditor scoping
 
-Only when security-auditor is actually spawned (`spawn_security_auditor` from S1, ¬default):
+Only when security-auditor is actually spawned (`spawn_security_auditor` from the roster oracle — `path_hit`, ¬default):
 
 1. ∀ f ∈ Δ: imports(f) = static `from '...'` ∪ dynamic `import('...')`
 2. Resolve aliases:
@@ -180,17 +200,17 @@ Only when security-auditor is actually spawned (`spawn_security_auditor` from S1
 
 **Multi-chunk (|chunks| > 1) — Lane A per-chunk:**
 
-For each chunk `c_i`, spawn the applicable domain agents in parallel:
+For each chunk `c_i`, spawn that chunk's `agents[]` (per-chunk oracle) in parallel:
 
 ```
 Task(
   subagent_type: "dev-core:{agent}",
   description: "{agent} review — chunk {i}/{N} — {PR#|branch}",
-  prompt: "Code review task. Focus: {focus}. If you are adversarial: also apply an OWASP lens (secrets, injection, auth) — ¬expect a sibling security-auditor unless the orchestrator spawned one (orchestrator MAY spawn one when Δ ∩ auth/secrets/crypto, independent of adversarial). Output Conventional Comments findings only. ¬TaskCreate.\n\nYou are reviewing chunk {i} of {N}. Review ONLY the files in this chunk.\n\nAdditionally audit each chunk against the systematic blind spots in `${CLAUDE_PLUGIN_ROOT}/skills/dev-review/review-blind-spots.md` — call out each applicable one explicitly (or note none apply).\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all locations of this anti-pattern; required when Class is set; never empty\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, target-axis-trap, vacuous-guard, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$. Subsumption: bare-except subsumes missing-error-handling — when both apply, tag bare-except only. parallel-path-drift and target-axis-trap are siblings (¬overlap) — parallel-path-drift for security hardening missing on a sibling entry point, target-axis-trap for architectural concern duplication across the non-primary axis (concern copy-pasted in ≥3 sibling dirs); prefer the matching one, do not double-tag.\n\n---CHUNK DIFF (chunk {i})---\n{c_i.hunk_text for all files in chunk}\n\n---CHUNK FILES---\n{contents of files in c_i}\n\n---BOUNDARY DIGESTS (other chunks)---\n{format_digest_for_agent(d) for d in digests if d.chunk_index != i}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
+  prompt: "Code review task. Focus: {focus}.\n\nSpawned roster (this review): {agents[]}. Sibling-drop rules key off THIS list — a concern whose owner is ¬in the list is YOURS: keep the finding. If you are adversarial: also apply an OWASP lens (secrets, injection, auth); the default panel is adversarial alone, so spec-scope, structure and coverage φ are yours unless the roster names architect/tester (product-lead is ¬in the roster at all — Phase 2 owns spec compliance). Output Conventional Comments findings only. ¬TaskCreate.\n\nYou are reviewing chunk {i} of {N}. Review ONLY the files in this chunk.\n\nAdditionally audit each chunk against the systematic blind spots in `${CLAUDE_PLUGIN_ROOT}/skills/dev-review/review-blind-spots.md` — call out each applicable one explicitly (or note none apply).\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all locations of this anti-pattern; required when Class is set; never empty\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, target-axis-trap, vacuous-guard, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$. Subsumption: bare-except subsumes missing-error-handling — when both apply, tag bare-except only. parallel-path-drift and target-axis-trap are siblings (¬overlap) — parallel-path-drift for security hardening missing on a sibling entry point, target-axis-trap for architectural concern duplication across the non-primary axis (concern copy-pasted in ≥3 sibling dirs); prefer the matching one, do not double-tag.\n\n---CHUNK DIFF (chunk {i})---\n{c_i.hunk_text for all files in chunk}\n\n---CHUNK FILES---\n{contents of files in c_i}\n\n---BOUNDARY DIGESTS (other chunks)---\n{format_digest_for_agent(d) for d in digests if d.chunk_index != i}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
 )
 ```
 
-Agent name map: `adversarial` → `dev-core:adversarial` | `frontend-dev` → `dev-core:frontend-dev` | `product-lead` → `dev-core:product-lead` | `tester` → `dev-core:tester` | `architect` → `dev-core:architect` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `recall` → `dev-core:recall` | `security-auditor` → `dev-core:security-auditor` (when **`spawn_security_auditor`** from `claim-roster.sh`, ¬default) | `axial-adr-review` → `dev-core:axial-adr-review`
+Agent name map: `adversarial` → `dev-core:adversarial` | `frontend-dev` → `dev-core:frontend-dev` | `tester` → `dev-core:tester` | `architect` → `dev-core:architect` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `recall` → `dev-core:recall` | `security-auditor` → `dev-core:security-auditor` (when **`spawn_security_auditor`** — `path_hit`) | `axial-adr-review` → `dev-core:axial-adr-review` | `finding-verifier` → `dev-core:finding-verifier`
 
 ### Agent payload
 
@@ -303,23 +323,75 @@ C(f) = min(diagnostic_certainty, fix_certainty)
    - same file:line + issue → keep max C
    - **one finding per `(file, class)` → keep max C** — never two agents' copies of the same class on the same file
    - ∀ pair sharing file:line with class[] sets that intersect after subsumption → merge: max C, union class[] (apply subsumption strip), union raw_callsites[]
-3. Sort: C desc within category
-4. Group: Blockers → Warnings → Suggestions → Praise
+3. Keep/drop filter (finding-verifier) — see below
+4. Sort: C desc within category
+5. Group: Blockers → Warnings → Suggestions → Praise
+6. Disclose removals — emit in the review output unconditionally (Phase 6 copies; ¬vanish when ¬∃ PR):
+   - `Roster capped by max_agents: <names>` when `capped[] ≠ ∅`
+# CROSS-SKILL CONSUMER: /fix Phase 1 parses Conventional Comments from every PR comment body — the F_dropped block MUST stay table-shaped or the filter is defeated (fix/SKILL.md Phase 1 step 1a strips it)
+   - `F_dropped` → collapsed disclosure, **table shape only** (¬Conventional-Comment grammar: a `<label>: <desc>` line would be re-ingested by `/fix` and defeat the filter):
+     ```markdown
+     <details><summary>Filtered by finding-verifier (N)</summary>
+
+     | Dropped | Location | C | Reason |
+     |---------|----------|---|--------|
+     | {label} | {file}:{line} | {C_orig} | {drop reason} |
+
+     </details>
+     ```
+     Dropped findings always disclosed, ¬silently discarded.
+
+### Keep/drop filter (finding-verifier)
+
+Exactly one instance per review (¬per-chunk, ¬per-finding). Read-only (`Read`, `Grep`, `Glob` only).
+
+```
+F_low := {f ∈ F | C(f) < verify_below_confidence ∧ ¬blocks(f)}   # threshold from roster JSON
+```
+
+Blocking labels (`issue:`, `issue(blocking):`, `todo:`, `suggestion(blocking):`) are NEVER sent to the filter and never enter `F_dropped`. Verdict depends on a label, ¬an LLM's judgement. `verify_below_confidence` is clamped to `[0, 90]` by the oracle.
+
+Skip when `F_low = ∅ ∨ ¬verifier_enabled`.
+
+```
+Task(
+  subagent_type: "dev-core:finding-verifier",
+  description:   "finding-verifier — keep/drop — {PR#|branch}",
+  prompt: "Keep/drop filter for findings with C < {verify_below_confidence}.
+Input:
+  threshold: {verify_below_confidence}
+  findings: {F_low serialized}
+
+Read-only (Read, Grep, Glob only). Never invent findings. Never re-rank kept findings upward.
+Bias: **default keep**. Your rubric is `${CLAUDE_PLUGIN_ROOT}/agents/finding-verifier.md` Phase V2 — read it, it is authoritative. Carve-outs that matter: a cross-Δ citation used as *evidence about* a Δ change is IN scope (¬drop), and `speculative with no callsite in Δ` ¬applies to lens ∈ {fleet-regression, bypass, assumption-kill}. Blocking labels ¬∈ your input; if one appears → keep, reason `blocking label — out of filter scope`.
+
+Output, one block per input finding:
+finding: <file>:<line> — <label>
+  decision: keep | drop
+  confidence: <0-100>        # keep only; MUST be ≤ the original C
+  reason: <one line, evidence-based>
+¬TaskCreate."
+)
+```
+
+- `keep` → C := min(C_orig, C_verifier)
+- `drop` → move to `F_dropped`; excluded from the verdict and from blocker counting
+- verifier fails ∨ returns nothing → **keep all of `F_low` unchanged (fail-open — never silently drop)**
 
 **Source classification before verdict:**
 - Lane A findings: standard blocking/advisory per category label
 - Recall findings (`source: recall`): always **blocking** regardless of label — override to `issue(blocking):` if not already
 - Lane B findings (`pattern-class` tag): **advisory only** — cap at `Approve with comments`; ¬Request changes from Lane B alone
 
-**Verdict:**
+**Verdict** (KEPT findings only; `F_dropped` excluded from blocker counting):
 
 | Condition | Verdict |
 |-----------|---------|
-| ∃f: recall finding (source: recall) | Request changes |
-| ∃f: blocks(f) ∧ ¬recall | Request changes |
+| ∃f ∈ F_kept: recall finding (source: recall) | Request changes |
+| ∃f ∈ F_kept: blocks(f) ∧ ¬recall | Request changes |
 | Lane B advisory ∨ warns(f) only ∧ ¬blocks | Approve with comments |
 | suggestions/praise only | Approve |
-| F = ∅ | Approve (clean) |
+| F_kept = ∅ | Approve (clean) |
 
 ## Phase 6 — Post to PR
 
@@ -332,7 +404,8 @@ C(f) = min(diagnostic_certainty, fix_certainty)
    BODY="$TMPDIR/body.md"
    ```
    Write grouped findings to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
-3. `## Code Review` header; grouped findings + summary + verdict; ∀C included
+3. `## Code Review` header; grouped findings + summary + verdict; ∀C included.
+4. Copy the Phase 4 Disclose-removals block (`Filtered by finding-verifier (N)` table + `Roster capped by max_agents: <names>`) into the PR body. Do ¬re-render, ¬recompute.
 
 **→ immediately continue to Phase 8.**
 
@@ -366,10 +439,13 @@ Q:
 | Agents disagree | Present both with respective C |
 | ¬∃ PR | Skip Phase 6, Phase 8 local only |
 | Missing root cause/solutions | C(f) := 0 |
-| architect skipped | ¬arch review → faster |
-| product-lead skipped | Phase 2 skipped |
-| tester skipped | `run-falsify --verify` → `oracle_ok=true` → ¬coverage review |
-| security-auditor skipped | `¬spawn_security_auditor` (S1 claim-roster) — adversarial still owns OWASP on every review |
+| architect skipped | τ≠F-full |
+| tester skipped | ¬delta_test_hit ∨ oracle_ok=true → ¬coverage review |
+| security-auditor skipped | path_hit=false — adversarial owns OWASP on every review |
+| ∃f: C < verify_below_confidence | finding-verifier keep/drop pass |
+| finding-verifier ¬returns | keep all F_low (fail-open) |
+| roster capped (max_agents) | disclosed unconditionally (Phase 4) |
+| oracle warnings ≠ ∅ | echoed into output; review_halt → HALT |
 
 ## Safety Rules
 

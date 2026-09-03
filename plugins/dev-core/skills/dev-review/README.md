@@ -4,7 +4,7 @@ Multi-domain code review via fresh domain agents → Conventional Comments findi
 
 ## Why
 
-A single reviewer (even a good one) misses domain-specific issues. `/dev-review` spawns a **conditional** roster (adversarial always, with an OWASP lens — not a default 8-agent swarm), merges findings using Conventional Comments labels, deduplicates by `(file, class)` keep-max-C, and produces a structured verdict: Approve, Approve with comments, or Request changes.
+A single reviewer misses domain-specific issues; an 8-agent swarm over-spawns. `/dev-review` runs one oracle (`roster.sh`) — adversarial always, everything else gated — then a keep/drop filter over low-C findings, merges Conventional Comments, deduplicates by `(file, class)` keep-max-C, and produces a structured verdict: Approve, Approve with comments, or Request changes.
 
 ## Usage
 
@@ -20,23 +20,24 @@ Triggers: `"code review"` | `"review changes"` | `"review PR #42"` | `"check my 
 1. **Gather changes** — reads full diff and all changed files; warns if > 50 files.
 2. **Secret scan** — grep for hardcoded passwords, API keys, tokens; warns and asks before proceeding.
 3. **Spec compliance** (if spec exists) — checks each acceptance criterion against the diff.
-4. **Multi-domain review** — conditional spawn (not an 8-agent always-table):
+4. **Multi-domain review** — spawn exactly `roster.sh` `agents[]` (project knob: `.claude/stack.yml` `review.roster` — `max_agents` default 4, `verify_below_confidence` default 90, per-agent `default|always|never`):
 
    | Agent | When | Focus |
    |-------|------|-------|
-   | adversarial | always | red-team + OWASP lens (secrets, injection, auth) |
-   | frontend-dev | Δ intersects FE / `{frontend.path}` / `{shared.ui}` | components, hooks |
-   | product-lead | spec exists | spec compliance, product fit |
-   | tester | mechanical parse of PR body or `artifacts/reviews/{N}-falsify.md` **fails** (heading alone is ¬sufficient) | coverage, AAA, tautology |
-   | architect / devops | τ=F-full or Δ intersects `scripts/`, CI, `lefthook.yml`, wrangler, deploy | patterns / infra |
-   | backend-dev | τ=F-full or Δ intersects those **or** `{backend.path}` | API, errors |
-   | recall | multi-chunk **and** canonical class tagged **and** ≥3 raw_callsites | class-join (skip single-chunk) |
-   | security-auditor | **`spawn_security_auditor`** from `claim-roster.sh` (path ∨ claim tags on approved σ when Δ≠∅ ∨ invalid claim — #419); path globs retained in `path_hit` | OWASP |
+   | adversarial | always (floor) | red-team + OWASP lens |
+   | security-auditor | `path_hit` only | OWASP |
+   | tester | Δ ∩ tests ∧ `oracle_ok=false` | coverage, AAA, tautology |
+   | frontend-dev | Δ ∩ `{frontend.path}` / `{shared.ui}` | components, hooks |
+   | backend-dev | Δ ∩ `{backend.path}` | API, errors |
+   | devops | τ=F-full ∧ Δ ∩ infra | infra (the single infra agent) |
+   | architect | τ=F-full ∧ Δ ∩ infra = ∅ | patterns (xor devops) |
    | axial-adr-review | existing structural condition | N×M drift |
+   | recall | multi-chunk ∧ `|Δ| > recall_min_delta` | class-join (not in `agents[]`) |
 
-5. **Merge & present** — one finding per `(file, class)` keep max C; also dedup file:line; sorts by confidence; groups Blockers → Warnings → Suggestions → Praise.
-6. **Post to PR** — posts formatted comment with `## Code Review` header.
-7. **Next step** — asks: Fix now (`/fix`) | Merge as-is | Stop.
+5. **Keep/drop filter** — one `finding-verifier` pass over findings with `C < 90` (`verify_below_confidence`). Dropped findings disclosed in a collapsed `Filtered` block. Fail-open when the verifier returns nothing.
+6. **Merge & present** — one finding per `(file, class)` keep max C; also dedup file:line; sorts by confidence; groups Blockers → Warnings → Suggestions → Praise.
+7. **Post to PR** — posts formatted comment with `## Code Review` header.
+8. **Next step** — asks: Fix now (`/fix`) | Merge as-is | Stop.
 
 ## Finding format
 

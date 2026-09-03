@@ -122,6 +122,27 @@ commands:
 #   reasoning_audit: [implement, plan]  # steps where agent shows reasoning before execution
                                          # Valid steps: spec, plan, implement. Omit to disable.
 
+# /dev-review roster — deterministic oracle (plugins/dev-core/skills/dev-review/roster.sh).
+# All keys optional; absent → defaults below. `always` bypasses the gate; `never` suppresses
+# it. `adversarial` is a floor (`never` ignored + warning). `product-lead` is NOT a roster
+# agent — Phase 2 covers spec compliance.
+review:
+  roster:
+    max_agents: 4                 # cap on the spawn set per chunk lane (excl. recall / finding-verifier); <1 clamps to 1 + warning
+    verify_below_confidence: 90   # keep/drop pass over findings below this C; 0 disables the filter
+    recall_min_delta: 50          # recall needs multi-chunk ∧ |Δ| > this
+    agents:                       # per-agent override: default | always | never
+      adversarial: default        # floor — always spawned; `never` ignored + warning
+      security-auditor: default   # path_hit only (claim tags do not spawn)
+      tester: default             # Δ test-hit ∧ oracle_ok == false (missing → ¬spawn)
+      frontend-dev: default       # Δ ∩ frontend.path/shared.ui, else Δ ∩ FE_EXT
+      backend-dev: default        # backend.path non-empty ∧ Δ ∩ that prefix
+      devops: default             # τ=F-full ∧ Δ ∩ INFRA — the single infra agent
+      architect: default          # τ=F-full ∧ Δ ∩ INFRA = ∅ (mutually exclusive with devops)
+      axial-adr-review: default   # ∃ axial ADR ∧ Δ ∩ AXIAL
+      recall: default             # not in agents[] — multi-chunk ∧ |Δ| > recall_min_delta
+      finding-verifier: default   # not in agents[] — verify_below_confidence > 0
+
 # Directories where dev-core agents write structured artifacts.
 # All paths are relative to the project root.
 artifacts:

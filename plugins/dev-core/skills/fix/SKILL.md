@@ -2,7 +2,7 @@
 name: fix
 argument-hint: '[#PR]'
 description: 'Apply review findings — auto-apply high-confidence, 1b1 for rest, then batch-apply. Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".'
-version: 0.4.2
+version: 0.4.3
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill, ToolSearch
 ---
 
@@ -75,6 +75,7 @@ Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬
 ## Phase 1 — Gather Findings
 
 1. PR# → `gh pr view <#> --json comments,closingIssuesReferences`; parse Conventional Comments from `.comments[].body`; capture `SOURCE_ISSUE` = `.closingIssuesReferences[0].number` (∅ if none — used in Phase 5 Defer to wire blocked-by). When `SOURCE_ISSUE ≠ ∅`, also resolve `SOURCE_PARENT` = `gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number}}}}' --jq '.data.repository.issue.parent.number // empty'` — used in Phase 5 Defer to wire deferred issue as **sibling** under shared parent (see `roxabi-issues:issue-triage` "Deferred Follow-Ups — Sibling Rule").
+1a. **Strip the `/dev-review` filtered block first** — ∀ comment body: remove everything from `<summary>Filtered by finding-verifier` through the next `</details>` **before** parsing. Those f were dropped by the Phase 4 keep/drop filter (`dev-review`); re-ingesting them defeats the filter. `dev-review` posts them table-shaped (¬CC grammar) — strip explicitly anyway, ¬rely on shape alone.
 2. ¬PR# → scan conversation for latest `/dev-review` output
 3. F = ∅ → halt
 4. ∀ f: parse → label, file:line, agent, root cause, class[], raw_callsites[], solutions, C(f)

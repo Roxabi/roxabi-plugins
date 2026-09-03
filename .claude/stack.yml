@@ -45,6 +45,14 @@ docs:
   path: docs
   format: md
 
+# Panel is adversarial-by-default.
+# Per-agent overrides live in stack.yml.example.
+review:
+  roster:
+    max_agents: 3
+    verify_below_confidence: 90
+    recall_min_delta: 50
+
 commands:
   dev: ""
   build: ""

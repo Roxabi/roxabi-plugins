@@ -102,6 +102,17 @@ Add `@.claude/stack.yml` as **first line** of CLAUDE.md. ¬∃ `.claude/stack.ym
 | `artifacts.frames` | product-lead | Frames dir |
 | `artifacts.plans` | product-lead, architect | Plans dir |
 
+### `review.*`
+
+Consumer: `plugins/dev-core/skills/dev-review/roster.sh` (the deterministic roster oracle — the skill spawns exactly its `agents[]`).
+
+| σ | α | Purpose |
+|---|---|---------|
+| `review.roster.max_agents` | dev-review | Cap on the spawn set per chunk lane (excl. recall / finding-verifier). Default `4`; `<1` clamps to `1` + warning |
+| `review.roster.verify_below_confidence` | dev-review | Keep/drop pass over findings below this C. Default `90`; `0` disables the keep/drop filter |
+| `review.roster.recall_min_delta` | dev-review | Recall needs multi-chunk ∧ `|Δ|` > this. Default `50` |
+| `review.roster.agents.<agent>` | dev-review | Per-agent override: `default` \| `always` \| `never`. Default `default`. `adversarial` is a floor (`never` ignored). `product-lead` is not a roster agent (Phase 2 covers spec compliance) |
+
 ### `standards.*`
 
 | σ | α | Purpose |
@@ -239,3 +250,4 @@ frontend:
 | `standards.backend` | backend-dev | Skips framework-specific conventions |
 | `standards.frontend` | frontend-dev | Skips TS gotchas + UI library patterns |
 | `artifacts.*` | product-lead | Cannot write artifacts; reports path missing |
+| `review.roster.*` | dev-review | Defaults: max_agents 4, verify_below_confidence 90, recall_min_delta 50, every agent default |
