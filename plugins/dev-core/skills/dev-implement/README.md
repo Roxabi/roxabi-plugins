@@ -4,17 +4,17 @@ Execute the plan — set up a worktree, spawn agents, write code + tests, run th
 
 ## Why
 
-`/dev-implement` is the execution engine. It reads the plan artifact, creates an isolated git worktree, spawns domain-specific agents (test-first: RED → GREEN → REFACTOR), and gates progress on lint + typecheck + test passing. It does NOT create a PR — that is `/pr`.
+`/R-dev-implement` is the execution engine. It reads the plan artifact, creates an isolated git worktree, spawns domain-specific agents (test-first: RED → GREEN → REFACTOR), and gates progress on lint + typecheck + test passing. It does NOT create a PR — that is `/R-pr`.
 
 ## Usage
 
 ```
-/dev-implement --issue 42             Execute plan for issue #42
-/dev-implement --plan path            Execute from an explicit plan file
-/dev-implement --issue 42 --audit     Show reasoning checkpoint before coding
+/R-dev-implement --issue 42             Execute plan for issue #42
+/R-dev-implement --plan path            Execute from an explicit plan file
+/R-dev-implement --issue 42 --audit     Show reasoning checkpoint before coding
 ```
 
-Triggers: `"dev-implement"` | `"implement"` | `"build this"` | `"execute plan"` | `"start coding"` | `"write the code"` | `"code this up"` | `"let's build it"` | `"build it out"` | `"/dev-implement"`
+Triggers: `"dev-implement"` | `"implement"` | `"build this"` | `"execute plan"` | `"start coding"` | `"write the code"` | `"code this up"` | `"let's build it"` | `"build it out"` | `"/R-dev-implement"`
 
 ## How it works
 
@@ -23,18 +23,18 @@ Triggers: `"dev-implement"` | `"implement"` | `"build this"` | `"execute plan"` 
 3. **Context injection** (F-tier) — injects relevant standards docs into each agent's prompt.
 4. **Implement**:
    - **Tier S** — lead implements directly, single session, no agent spawning.
-   - **Tier F** — spawns agents per plan (test-first): `tester` writes failing tests (RED), domain agents implement to pass (GREEN), agents refactor (REFACTOR), tester verifies coverage.
-5. **Quality gate** — runs `lint && typecheck && test`; retries up to 3× with fixer agents; offers abandon on repeated failure.
-6. **Summary** — lists created/modified files, agent list, task completion rate, first-try verify pass rate. τ≠S: emit SC→Test matrix, then **falsification gate** (prefer `{pm} run test:falsify` / `scripts/test-falsify.sh` only if the script invokes a real test runner and emits non-placeholder `broke` lines with a failure token; stub `echo` → ignore, git-stash fallback). Persist matrix+evidence to `artifacts/reviews/{N}-falsify.md` — `/pr` fail-closes if missing. Fail-closed SCs without a `priced`/`not`/`oracles` block are a blocking gap. Evidence `broke {file} → {error}` required; without it the row stays `⏳ not run`.
+   - **Tier F** — spawns agents per plan (test-first): `R-tester` writes failing tests (RED), domain agents implement to pass (GREEN), agents refactor (REFACTOR), R-tester verifies coverage.
+5. **Quality gate** — runs `lint && typecheck && test`; retries up to 3× with R-fixer agents; offers abandon on repeated failure.
+6. **Summary** — lists created/modified files, agent list, task completion rate, first-try verify pass rate. τ≠S: emit SC→Test matrix, then **falsification gate** (prefer `{pm} run test:falsify` / `scripts/test-falsify.sh` only if the script invokes a real test runner and emits non-placeholder `broke` lines with a failure token; stub `echo` → ignore, git-stash fallback). Persist matrix+evidence to `artifacts/reviews/{N}-falsify.md` — `/R-pr` fail-closes if missing. Fail-closed SCs without a `priced`/`not`/`oracles` block are a blocking gap. Evidence `broke {file} → {error}` required; without it the row stays `⏳ not run`.
 
 ## Tier behavior
 
 | Tier | Mode | Agents |
 |------|------|--------|
 | S | Direct, single session | Lead only |
-| F-lite | Sequential subagents | 1–2 domain agents + tester |
+| F-lite | Sequential subagents | 1–2 domain agents + R-tester |
 | F-full | Parallel agent team | 3+ agents, full RED→GREEN→REFACTOR |
 
 ## Chain position
 
-**Predecessor:** `/dev-plan` | **Successor:** `/pr`
+**Predecessor:** `/R-dev-plan` | **Successor:** `/R-pr`

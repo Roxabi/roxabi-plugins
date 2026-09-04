@@ -1,6 +1,6 @@
 # Plan-Task Schema
 
-> **SSoT for `/dev-plan` Step 6a and `/dev-implement` Step 1b.** Host-neutral fields + rich-path shape.  
+> **SSoT for `/R-dev-plan` Step 6a and `/R-dev-implement` Step 1b.** Host-neutral fields + rich-path shape.  
 > **How to call the host:** see [`harness-task-list.md`](harness-task-list.md) (Claude `Task*` vs Grok `todo_write`).  
 > Edit field definitions here only — never inline in either SKILL.md.
 
@@ -8,10 +8,10 @@
 
 | Field | Source |
 |-------|--------|
-| `kind: "plan-task"` | Fixed — distinguishes from `dev-pipeline` tasks owned by `/dev` |
-| `agent_instance` | From the Task Seeding Blueprint row in π — named instance (e.g. `tester-A`) so `/dev-implement` groups tasks per agent session |
+| `kind: "plan-task"` | Fixed — distinguishes from `dev-pipeline` tasks owned by `/R-dev` |
+| `agent_instance` | From the Task Seeding Blueprint row in π — named instance (e.g. `R-tester-A`) so `/R-dev-implement` groups tasks per agent session |
 | `wave` | Integer derived from the Wave Structure table in π |
-| `phase` | RED \| GREEN \| REFACTOR \| RED-GATE — drives test-first ordering in `/dev-implement` Step 4 |
+| `phase` | RED \| GREEN \| REFACTOR \| RED-GATE — drives test-first ordering in `/R-dev-implement` Step 4 |
 | `spec_trace` | SC-N (Success Criteria) or U→N→S (user/need/solution) reference from the spec artifact |
 | `subject` / `verify` / `files` | Blueprint + micro-task row |
 
@@ -30,7 +30,7 @@ TaskCreate(
     wave: {wave number},
     phase: "RED|GREEN|REFACTOR|RED-GATE",
     agent: "{agent type}",
-    agent_instance: "{tester-A|backend-dev-B|devops-A|…}",
+    agent_instance: "{R-tester-A|R-backend-dev-B|R-devops-A|…}",
     subject: "{auth|cache|http|parser|…}",
     spec_trace: "{SC-N or U1→N1→S1}",
     difficulty: {1-5},

@@ -151,8 +151,8 @@ find_feature_worktree() {
 # ── Artifact classification (shared: dev/scan-state.sh, pr/gather-state.sh) ────
 # artifacts/analyses/ is not exclusively analyses. Historically three writers used
 # it, and legacy files stay where they were written:
-#   /analyze    → α analysis          (type: analysis, or status: draft|approved)
-#   /interview  → brainstorm          (type: brainstorm)   — now artifacts/brainstorms/
+#   /R-analyze    → α analysis          (type: analysis, or status: draft|approved)
+#   /R-interview  → brainstorm          (type: brainstorm)   — now artifacts/brainstorms/
 #   legacy      → consensus artifact  (status: consensus-reached) — /consensus removed 2026-08-03
 # Filename is not a discriminator (≥4 live naming forms + .orig/.rej leftovers), so
 # classify on FRONTMATTER.

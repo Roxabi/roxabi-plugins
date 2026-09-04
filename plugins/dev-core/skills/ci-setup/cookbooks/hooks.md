@@ -34,7 +34,7 @@ test -f .git/hooks/pre-commit && echo yes || echo no      # hooks actually insta
 
 Detect mismatch: if a config file for a *different* tool exists (not configFile for resolved tool) → warn:
 ```
-⚠️  stack.yml specifies <tool> but <other-tool> config found. Run /ci-setup --force to reconfigure.
+⚠️  stack.yml specifies <tool> but <other-tool> config found. Run /R-ci-setup --force to reconfigure.
 ```
 Then skip Phase 2 (don't clobber existing setup without --force).
 
@@ -90,7 +90,7 @@ d. Write `lefthook.yml` (trufflehog **inside** `commands:`):
 e. Seed principal freeze script (`scripts/check-principal-branch.sh`):
    ```bash
    bun $I_TS seed-principal-freeze
-   test -f scripts/check-principal-branch.sh || echo "WARN: seed principal-freeze failed — install dev-core + re-run /ci-setup"
+   test -f scripts/check-principal-branch.sh || echo "WARN: seed principal-freeze failed — install dev-core + re-run /R-ci-setup"
    ```
 f. `bunx lefthook install`
 g. Copy license tools (JS/bun only — after lefthook install):

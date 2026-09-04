@@ -1,5 +1,5 @@
 ---
-name: cleanup-context
+name: R-cleanup-context
 argument-hint: '[--scope <area> | --dry-run]'
 description: 'Audit and clean CLAUDE.md, memory, skills, and rules — resolve every finding (fix/promote/relocate/delete), track recurrences, target bloat=0. Triggers: "cleanup context" | "context audit" | "clean memory" | "drain memory" | "prune memory" | "audit memory" | "consolidate rules" | "spa day" | "memory audit".'
 version: 0.1.0
@@ -22,11 +22,11 @@ Let:
   Π := placement targets (auto-detected per project)
 
 ```
-/cleanup-context                    Audit all context areas
-/cleanup-context --scope claude-md  Only audit CLAUDE.md files
-/cleanup-context --scope skills     Only audit skill files
-/cleanup-context --scope memory     Only audit auto-memory (μ + τ + α)
-/cleanup-context --dry-run          Show findings without proposing fixes
+/R-cleanup-context                    Audit all context areas
+/R-cleanup-context --scope claude-md  Only audit CLAUDE.md files
+/R-cleanup-context --scope skills     Only audit skill files
+/R-cleanup-context --scope memory     Only audit auto-memory (μ + τ + α)
+/R-cleanup-context --dry-run          Show findings without proposing fixes
 ```
 
 ## Resolutions
@@ -69,7 +69,7 @@ Phase 3–5 — Resolution → Read `${CLAUDE_SKILL_DIR}/cookbooks/resolution.md
 
 ## When to Run
 
-- `/cleanup-context` or `/dev --cleanup-context` anytime
+- `/R-cleanup-context` or `/R-dev --cleanup-context` anytime
 - After shipping a feature (ephemeral context likely stale)
 - After cleaning branches (worktree refs likely stale)
 - When memory files > 5 entries or μ > 50 lines

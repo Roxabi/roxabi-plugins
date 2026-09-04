@@ -112,7 +112,7 @@ export function checkWorkflowDrift(): Check[] {
         name: 'release-model:auto-release',
         status: 'fail',
         detail:
-          'release.model is trunk but .github/workflows/auto-release.yml is absent — run /ci-setup to generate it.',
+          'release.model is trunk but .github/workflows/auto-release.yml is absent — run /R-ci-setup to generate it.',
       })
     } else if (digest(readFileSync(arPath, 'utf8')) === digest(generateAutoReleaseYml(opts))) {
       checks.push({ name: 'release-model:auto-release', status: 'pass', detail: 'matches generator' })
@@ -121,7 +121,7 @@ export function checkWorkflowDrift(): Check[] {
         name: 'release-model:auto-release',
         status: 'fail',
         detail:
-          'auto-release.yml differs from the generator (drift) — regenerate via /ci-setup, never hand-edit (N11).',
+          'auto-release.yml differs from the generator (drift) — regenerate via /R-ci-setup, never hand-edit (N11).',
       })
     }
   }

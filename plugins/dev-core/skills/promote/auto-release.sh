@@ -4,7 +4,7 @@
 # The SOLE owner of the merge-to-main derive → classify → reconcile flow. It is
 # the trunk analogue of promote SKILL.md step 9b, extracted so the generated
 # auto-release.yml stays a THIN invoker (no orchestration logic baked into YAML)
-# and so /dev-checkup can diff a stable expected workflow (N11).
+# and so /R-dev-checkup can diff a stable expected workflow (N11).
 #
 # It reuses the existing engine — NO second copy of the logic:
 #   price.sh     → the version deriver (D10): reachability floor + conventional-
@@ -13,7 +13,7 @@
 #                  drift REFUSE, per-artifact idempotent act. The tested verdict
 #                  IS the executed verdict.
 #
-# Trunk-mode specialisation vs /promote 9b:
+# Trunk-mode specialisation vs /R-promote 9b:
 #   - Every merge to main IS the promote → --is-promote true (no head=staging PR).
 #   - Witnesses are absent (auto-stamp deferred, D4) → no --witness-* flags.
 #   - A stray 1-parent push to main is LOUD-RED (D3), never a silent release.

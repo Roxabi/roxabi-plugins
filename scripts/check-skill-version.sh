@@ -16,9 +16,9 @@ fail=0
 for p in "${plugins[@]}"; do
   [ -n "$p" ] || continue
   pj="plugins/$p/.claude-plugin/plugin.json"
-  [ -f "$pj" ] || continue
+  [ -f "$pj" ] || { echo "SKIP: $p has no .claude-plugin/plugin.json — no version gate" >&2; continue; }
   cur=$(jq -r '.version // empty' "$pj" 2>/dev/null || true)
-  [ -n "$cur" ] || continue   # SHA-based plugin -> skip
+  [ -n "$cur" ] || { echo "SKIP: $p is SHA-based (no .version in $pj) — bump gate inert for this plugin" >&2; continue; }
   base=$(git show "origin/main:$pj" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)
   if [ "$base" = "$cur" ]; then
     echo "$p: skills/commands changed without version bump (still $cur) — bump $pj"; fail=1

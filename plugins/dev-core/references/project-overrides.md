@@ -23,7 +23,7 @@ Host resolves α definitions (Claude / Grok paths):
 plugin cache (installed plugin)   ← lowest priority
 ```
 
-Drop `.claude/agents/backend-dev.md` → **completely replaces** plugin version for that project.
+Drop `.claude/agents/R-backend-dev.md` → **completely replaces** plugin version for that project.
 
 ## Agent Ω anatomy
 
@@ -31,8 +31,8 @@ Start from plugin α as base. Keep what works, add project-specific:
 
 ```markdown
 ---
-name: backend-dev
-# based-on: dev-core/backend-dev     # traceability — shows which plugin version this overrides
+name: R-backend-dev
+# based-on: dev-core/R-backend-dev     # traceability — shows which plugin version this overrides
 # model: omitted — harness inherits parent / host default (¬name provider-specific models)
 # permissionMode: omitted — host-controlled; plugin agents cannot force bypass on Grok
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "Task"]
@@ -44,7 +44,7 @@ maxTurns: 50
 
 **Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
 **Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).
-**Quality gates:** after implementation run `{commands.lint} && {commands.typecheck} && {commands.test}`. ✗ → fix before reporting done. Config failures → message devops.
+**Quality gates:** after implementation run `{commands.lint} && {commands.typecheck} && {commands.test}`. ✗ → fix before reporting done. Config failures → message R-devops.
 
 If `{backend.path}` is undefined → output: "`.claude/stack.yml` not found."
 
@@ -64,7 +64,7 @@ If `{backend.path}` is undefined → output: "`.claude/stack.yml` not found."
 Skills at `.claude/skills/<skill-name>/SKILL.md`. Drop file → replaces plugin version:
 
 ```
-.claude/skills/dev-implement/SKILL.md     ← overrides dev-core's /dev-implement skill
+.claude/skills/dev-implement/SKILL.md     ← overrides dev-core's /R-dev-implement skill
 ```
 
 Same SKILL.md format. Copy plugin version as base, add project phases ∨ modify existing.

@@ -4,12 +4,12 @@ Health check — verify dev-core configuration, GitHub project, labels, workflow
 
 ## Why
 
-After running `/init` (or when something seems off), you want a single command that verifies the full configuration is correct and functional — not just that the files exist, but that the values work. `/dev-checkup` runs all checks inline and fixes issues it finds without redirecting you to other skills.
+After running `/init` (or when something seems off), you want a single command that verifies the full configuration is correct and functional — not just that the files exist, but that the values work. `/R-dev-checkup` runs all checks inline and fixes issues it finds without redirecting you to other skills.
 
 ## Usage
 
 ```
-/dev-checkup
+/R-dev-checkup
 ```
 
 Triggers: `"checkup"` | `"health check"` | `"check setup"` | `"verify config"`

@@ -1,5 +1,5 @@
 ---
-name: adversarial
+name: R-adversarial
 argument-hint: '["subject" | --issue <N> | --analysis <path> | --spec <path> | --frame <path> | --path <path>] [--write]'
 description: Red-team / devil's advocate on analyses, proposals, architecture, ideas, specs, or plans — attack assumptions, kill vacuous claims, surface bypass and failure modes. Triggers: "adversarial" | "red team" | "devil's advocate" | "attack this design" | "kill this idea" | "stress test this" | "what breaks this" | "adversarial review".
 version: 0.1.3
@@ -15,31 +15,31 @@ V := visual — findings table or formatted φ list; optional ρ written when `-
 
 Let:
   S  := subject (analysis | proposal | architecture | idea | spec | plan | free text | path)
-  Φ  := finding set from `dev-core:adversarial`
+  Φ  := finding set from `dev-core:R-adversarial`
   L  := lens ∈ {bypass, fleet-regression, operational, assumption-kill, vacuous-guard, scope-attack}
   ρ  := optional artifact `artifacts/reviews/{N}-{slug}-adversarial.md`
   AQ := present choice, wait for user reply
 
-Standalone red-team. Goal: **kill S** with concrete attack paths or disproofs — not polish, not consensus, not OWASP checklist (→ security-auditor / `/dev-review`).
+Standalone red-team. Goal: **kill S** with concrete attack paths or disproofs — not polish, not consensus, not OWASP checklist (→ R-security-auditor / `/R-dev-review`).
 
 ## When to use
 
-| Context | Use `/adversarial`? |
+| Context | Use `/R-adversarial`? |
 |---------|---------------------|
 | Shape doc (analysis, shapes, arch proposal, free idea) | ✓ primary |
 | Spec / plan before approval | ✓ primary |
 | "What could go wrong?" on a design claim | ✓ primary |
-| PR / diff review | ✗ → `/dev-review` (already spawns adversarial) |
-| Constructive strengthen-and-advise | ✗ → `/advisory` |
-| Intent recap only (no attack) | ✗ → chat; `/analyze` for structured shape exploration |
+| PR / diff review | ✗ → `/R-dev-review` (already spawns R-adversarial) |
+| Constructive strengthen-and-advise | ✗ → `/R-advisory` |
+| Intent recap only (no attack) | ✗ → chat; `/R-analyze` for structured shape exploration |
 
 ## Entry
 
 ```
-/adversarial "idea or claim"
-/adversarial --issue N
-/adversarial --analysis path | --spec path | --frame path | --path path
-/adversarial ... --write
+/R-adversarial "idea or claim"
+/R-adversarial --issue N
+/R-adversarial --analysis path | --spec path | --frame path | --path path
+/R-adversarial ... --write
 ```
 
 ## Pipeline
@@ -48,7 +48,7 @@ Standalone red-team. Goal: **kill S** with concrete attack paths or disproofs �
 |------|----|-----|----------|-------|
 | 0 | resolve | ✓ | S loaded | — |
 | 1 | scope | ✓ | priced claim stated | 1–3 sentences |
-| 2 | attack | ✓ | Φ returned | spawn adversarial |
+| 2 | attack | ✓ | Φ returned | spawn R-adversarial |
 | 3 | present | ✓ | Φ shown | severity order |
 | 4 | write | — | ρ ∃ | only if `--write` |
 
@@ -94,7 +94,7 @@ Spawn:
 
 ```
 Agent(
-  subagent_type: "dev-core:adversarial",
+  subagent_type: "dev-core:R-adversarial",
   prompt: ATTACK_PROMPT
 )
 ```
@@ -102,7 +102,7 @@ Agent(
 **ATTACK_PROMPT:**
 
 ```
-You are the adversarial red-team agent (standalone /adversarial).
+You are the R-adversarial red-team agent (standalone /R-adversarial).
 Subject class: {shape|spec|plan|control}
 Priced claim: {claim}
 Controls / AC: {list or none}
@@ -116,8 +116,8 @@ Instructions:
 - Shape subjects (analysis/idea/arch): prefer assumption-kill, scope-attack, operational (design-level partial failure). Apply bypass / fleet-regression / vacuous-guard only when S proposes a control, gate, check, or "we'll know it works because…".
 - Spec subjects: all lenses; emphasize scope-attack + vacuous AC.
 - Plan subjects: assumption-kill, operational ordering, fleet-regression if multi-repo/multi-path.
-- Control subjects: full lens suite (same as /dev-review posture).
-- ¬OWASP / injection / secrets (security-auditor owns).
+- Control subjects: full lens suite (same as /R-dev-review posture).
+- ¬OWASP / injection / secrets (R-security-auditor owns).
 - ¬style, ¬pure missing tests without vacuous-guard angle.
 - C < 65 → ¬report. Prefer findings that a friendly review would miss.
 - Output findings in agent Finding Format (severity, title, locus, lens, attack/disproof, root cause, solutions, confidence). Order fatal → major → minor.
@@ -158,12 +158,12 @@ Claims / shapes that held under attack (if any) — one line each.
 
 ### Next
 
-Revise S | `/advisory` for constructive strengthen | `/spec` / `/dev-plan` if still standing | Stop
+Revise S | `/R-advisory` for constructive strengthen | `/R-spec` / `/R-dev-plan` if still standing | Stop
 ```
 
 ∅ Φ → "No finding above confidence floor. Subject holds under red-team lenses applied. Residual risk: {1 line or none}."
 
-¬auto-edit S. ¬auto-open `/fix`. User decides.
+¬auto-edit S. ¬auto-open `/R-fix`. User decides.
 
 ## Step 4 — Write (optional)
 
@@ -189,7 +189,7 @@ verdict_lean: {survives|survives-with-major|killed}
 
 **Title hygiene ({title} is external content).** Full contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md). Before any use: strip newlines + control chars, cap 120 chars.
 - **¬ shell.** Never interpolate `{title}` into a command — `$(…)`, backticks and `;` execute. The commit subject uses the sanitized `{slug}`.
-- **YAML.** Emit as a single-line double-quoted scalar with `"` and `\` escaped. An unescaped newline lets a title inject frontmatter keys — `status:` is a pipeline gate signal read by `/dev` and `/spec`.
+- **YAML.** Emit as a single-line double-quoted scalar with `"` and `\` escaped. An unescaped newline lets a title inject frontmatter keys — `status:` is a pipeline gate signal read by `/R-dev` and `/R-spec`.
 
 **Slug:** derive `[a-z0-9]+(?:-[a-z0-9]+)*` only (strip path separators / `..`; max 48 chars). Resolve path and require prefix `artifacts/reviews/` before Write. N set → prefer `artifacts/reviews/{N}-adversarial.md` (no title slug) when slug unsafe.
 
@@ -203,16 +203,16 @@ Commit only if repo already tracks `artifacts/` and user confirms: `git add "{wr
 |----------|----------|
 | Pure docs rename / no claim | Light pass; only assumption-kill / scope-attack if claims change |
 | S already has prior adversarial ρ | Present choice **Reuse** | **Re-run** |
-| Concurrent `/dev-review` | Fine — different subject (diff vs design) |
-| User wants fixes applied | Point to revise artifact / `/fix` only for code; design stays human-owned |
+| Concurrent `/R-dev-review` | Fine — different subject (diff vs design) |
+| User wants fixes applied | Point to revise artifact / `/R-fix` only for code; design stays human-owned |
 | Issue has no artifacts | Red-team issue body + free claim only |
 
 ## Chain Position
 
 - **Phase:** Shape (also usable pre-spec / pre-plan / on free idea)
-- **Predecessor:** `/frame` ∨ `/analyze` ∨ `/spec` ∨ free text
-- **Successor:** revise S | `/advisory` | `/spec` | `/dev-plan`
-- **Class:** standalone (never auto-triggered by `/dev`; `/spec` and `/dev-review` still spawn the *agent* inline)
+- **Predecessor:** `/R-frame` ∨ `/R-analyze` ∨ `/R-spec` ∨ free text
+- **Successor:** revise S | `/R-advisory` | `/R-spec` | `/R-dev-plan`
+- **Class:** standalone (never auto-triggered by `/R-dev`; `/R-spec` and `/R-dev-review` still spawn the *agent* inline)
 
 ## Task Integration
 

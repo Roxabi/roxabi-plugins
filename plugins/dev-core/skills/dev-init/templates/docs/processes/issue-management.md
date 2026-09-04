@@ -2,7 +2,7 @@
 
 Project-specific issue conventions. Agents read this via `{standards.issue_management}`.
 
-> Universal patterns (severity x impact matrix, spec completeness checklist) are embedded in the `product-lead` agent.
+> Universal patterns (severity x impact matrix, spec completeness checklist) are embedded in the `R-product-lead` agent.
 > This file documents **your project's specific** issue workflow.
 
 ## Issue Lifecycle

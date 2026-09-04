@@ -1,5 +1,5 @@
 ---
-name: doc-sync
+name: R-doc-sync
 disable-model-invocation: true
 argument-hint: '[description of change]'
 description: Sync project docs after a code change — stale references, affected sections.
@@ -19,8 +19,8 @@ Code change → find **every** doc referencing affected concepts → update.
 **⚠ Continuous pipeline. Stop only on: Cancel or Phase 6 completion.**
 
 ```
-/doc-sync                             → auto-detect from working tree or last commit
-/doc-sync "gitleaks → trufflehog"     → user-supplied description
+/R-doc-sync                             → auto-detect from working tree or last commit
+/R-doc-sync "gitleaks → trufflehog"     → user-supplied description
 ```
 
 ## Phase 1 — Parse Input

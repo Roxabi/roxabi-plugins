@@ -1,24 +1,24 @@
 # recheck
 
-Drift-check a GitHub issue before any work begins. Catches stale issues (code evolved, symbols renamed, blockers resolved) before `/dev` spends time on a premise that no longer holds.
+Drift-check a GitHub issue before any work begins. Catches stale issues (code evolved, symbols renamed, blockers resolved) before `/R-dev` spends time on a premise that no longer holds.
 
 ## Why
 
-Issues age. By the time `/dev` fires, the fix may already exist, symbols may have been renamed or removed, or blocking dependencies may have closed — making the original premise invalid or redundant.
+Issues age. By the time `/R-dev` fires, the fix may already exist, symbols may have been renamed or removed, or blocking dependencies may have closed — making the original premise invalid or redundant.
 
-The riskiest path is S-tier: `/dev` jumps straight from triage to implementation with no intermediate gates (frame, analyze, spec, and plan are all skipped). Without `/recheck`, a stale S-tier issue produces committed work on a dead premise with no checkpoint to catch it.
+The riskiest path is S-tier: `/R-dev` jumps straight from triage to implementation with no intermediate gates (frame, analyze, spec, and plan are all skipped). Without `/R-recheck`, a stale S-tier issue produces committed work on a dead premise with no checkpoint to catch it.
 
-`/recheck` is the fail-fast guard between `/issue-triage` and `/frame`, and it runs for every tier (S, F-lite, F-full) with no skip path.
+`/R-recheck` is the fail-fast guard between `/issue-triage` and `/R-frame`, and it runs for every tier (S, F-lite, F-full) with no skip path.
 
 ## Usage
 
 ```
-/recheck #N
+/R-recheck #N
 ```
 
-Called standalone, `/recheck` runs all three drift checks. **AQ only when signals are ambiguous** (`symbol-missing` and/or `dep-resolved`) — Proceed | Close | Abort. Pure `git-drift` is printed and auto-proceeds (no prompt).
+Called standalone, `/R-recheck` runs all three drift checks. **AQ only when signals are ambiguous** (`symbol-missing` and/or `dep-resolved`) — Proceed | Close | Abort. Pure `git-drift` is printed and auto-proceeds (no prompt).
 
-When invoked by `/dev`, the same rules apply; the ambiguous DP adds **Update issue first** (re-runs `/issue-triage` then `/recheck` once). On the second run, Update is omitted.
+When invoked by `/R-dev`, the same rules apply; the ambiguous DP adds **Update issue first** (re-runs `/issue-triage` then `/R-recheck` once). On the second run, Update is omitted.
 
 Triggers: `"recheck"` | `"is this issue still valid"` | `"check drift"` | `"check issue staleness"`
 
@@ -40,22 +40,22 @@ When **ambiguous signals fire** (`symbol-missing` and/or `dep-resolved`): prints
 
 | Option | Pipeline | Standalone | Effect |
 |---|---|---|---|
-| Proceed anyway | ✓ | ✓ | Continue with the current premise; `/dev` moves to the next step |
-| Update issue first | ✓ | — | Re-run `/issue-triage`, then re-run `/recheck` exactly once |
-| Close as resolved/obsolete | ✓ | ✓ | `gh issue close N --reason completed` and abort `/dev` |
-| Abort | ✓ | ✓ | Exit `/dev` cleanly; no issue mutation |
+| Proceed anyway | ✓ | ✓ | Continue with the current premise; `/R-dev` moves to the next step |
+| Update issue first | ✓ | — | Re-run `/issue-triage`, then re-run `/R-recheck` exactly once |
+| Close as resolved/obsolete | ✓ | ✓ | `gh issue close N --reason completed` and abort `/R-dev` |
+| Abort | ✓ | ✓ | Exit `/R-dev` cleanly; no issue mutation |
 
-The **Update issue first** option is not available in standalone mode because there is no `/dev` context to loop back into — run `/issue-triage` manually and then call `/recheck #N` again.
+The **Update issue first** option is not available in standalone mode because there is no `/R-dev` context to loop back into — run `/issue-triage` manually and then call `/R-recheck #N` again.
 
 ## State
 
-No on-disk artifact (per frame Out-of-Scope). Session-only tracking inside `/dev` (`Σ_s`), the same pattern used by `validate` and `ci-watch`. Starting a new `/dev` session on the same issue re-runs the check fresh — this is intentional, as deterministic checks are cheap and fresh state is more reliable than stale cached results.
+No on-disk artifact (per frame Out-of-Scope). Session-only tracking inside `/R-dev` (`Σ_s`), the same pattern used by `validate` and `ci-watch`. Starting a new `/R-dev` session on the same issue re-runs the check fresh — this is intentional, as deterministic checks are cheap and fresh state is more reliable than stale cached results.
 
 ## Effectiveness tracking
 
-`/recheck` only earns its place in the pipeline if it actually catches stale issues. The original frame defines two checkpoints:
+`/R-recheck` only earns its place in the pipeline if it actually catches stale issues. The original frame defines two checkpoints:
 
-- **Success in 6 months:** at least one stale issue caught per month before `/dev-implement` runs; zero S-tier issues silently re-implementing already-fixed bugs.
-- **Revisit trigger (3-month window):** if `/recheck` fires zero *ambiguous* signals across three months of usage, **or** users still override/close more often than they Proceed when the DP fires, re-open the design (git-drift-only auto-proceed is expected and not counted as skip friction).
+- **Success in 6 months:** at least one stale issue caught per month before `/R-dev-implement` runs; zero S-tier issues silently re-implementing already-fixed bugs.
+- **Revisit trigger (3-month window):** if `/R-recheck` fires zero *ambiguous* signals across three months of usage, **or** users still override/close more often than they Proceed when the DP fires, re-open the design (git-drift-only auto-proceed is expected and not counted as skip friction).
 
-Tracking is **manual**: no metric is written to disk by design (no recheck-log artifact). Operators should periodically grep recent `/dev` runs for "Drift Signals" appearances and note skip-rate informally. If the revisit trigger fires, open an issue to re-evaluate.
+Tracking is **manual**: no metric is written to disk by design (no recheck-log artifact). Operators should periodically grep recent `/R-dev` runs for "Drift Signals" appearances and note skip-rate informally. If the revisit trigger fires, open an issue to re-evaluate.

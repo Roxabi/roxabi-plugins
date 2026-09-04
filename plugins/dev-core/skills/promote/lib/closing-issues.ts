@@ -1,5 +1,5 @@
 /**
- * closing-issues.ts — extract GitHub closing keywords for /promote PR body
+ * closing-issues.ts — extract GitHub closing keywords for /R-promote PR body
  *
  * Feature PRs merge into `staging` with `Closes #N`, but GitHub only auto-closes
  * when the PR that carries the keyword merges into the **default branch**.

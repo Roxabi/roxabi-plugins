@@ -1,6 +1,6 @@
 # Falsification Gate
 
-Gate definition for Phase 6.5 of `/fix`. Runs once per class after fixes are applied.
+Gate definition for Phase 6.5 of `/R-fix`. Runs once per class after fixes are applied.
 
 ## Purpose
 
@@ -68,11 +68,11 @@ parking_lot.append({
 })
 ```
 
-¬reopen the current `/fix` loop for parking lot entries. ¬increment the 2-iter cap.
+¬reopen the current `/R-fix` loop for parking lot entries. ¬increment the 2-iter cap.
 Parking lot entries are surfaced in Phase 8 under a dedicated `### Parking Lot` section.
 
 ## Retry
 
-`fail` result (per finding) → fixer agent retries the fix for that finding once (max 1 falsification-retry per finding).
+`fail` result (per finding) → R-fixer agent retries the fix for that finding once (max 1 falsification-retry per finding).
 This retry budget is independent of the CI retry budget in Phase 6 (max 3 CI retries).
 Second `fail` → finding marked `[failed]`; surfaced in Phase 8.

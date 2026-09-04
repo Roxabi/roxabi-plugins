@@ -1,5 +1,5 @@
 ---
-name: seed-docs
+name: R-seed-docs
 disable-model-invocation: true
 argument-hint: '[--docs-path <path>] [--no-scan]'
 description: Populate scaffolded architecture/standards docs from CLAUDE.md and the codebase.
@@ -21,9 +21,9 @@ Let:
 **Idempotent** — skip files with ≥ 30 lines of real content (∄ TODOs). Safe to re-run.
 
 ```
-/seed-docs                   → auto-discover DOCS from stack.yml
-/seed-docs --docs-path docs  → explicit path
-/seed-docs --no-scan         → skip codebase scan, use CLAUDE.md only
+/R-seed-docs                   → auto-discover DOCS from stack.yml
+/R-seed-docs --docs-path docs  → explicit path
+/R-seed-docs --no-scan         → skip codebase scan, use CLAUDE.md only
 ```
 
 ## Phase 1 — Load Config
@@ -33,7 +33,7 @@ Read σ (`cat .claude/stack.yml 2>/dev/null`). Record DOCS, `runtime`, `backend.
 ¬σ → DOCS=`docs`. `--docs-path <p>` ∈ $ARGUMENTS → DOCS=p. `--no-scan` ∈ $ARGUMENTS → skip Phase 3.
 
 DOCS dir ∄ → present choice **Run /init first** | **Create docs dir and seed** | **Cancel**
-- "Run /init" → explain `/env-setup` Phase 3 (`scaffold-docs`) or `/dev-init` creates stubs, exit.
+- "Run /init" → explain `/R-env-setup` Phase 3 (`scaffold-docs`) or `/R-dev-init` creates stubs, exit.
 - "Create" → `mkdir -p {DOCS}/{architecture,standards,guides,processes}`, continue.
 
 ## Phase 2 — Read CLAUDE.md
@@ -119,7 +119,7 @@ Read file → identify TODO sections → fill each using K.
 - Replace `TODO: <placeholder>` with real content; remove the TODO line.
 - Remove `<!-- comment blocks -->` covered by real content; keep only if they add context.
 - Standards docs → write for developers; AI Quick Reference → write for agents.
-- K has no data for section → keep TODO + add hint: `TODO: (seed-docs found no data — check CLAUDE.md or run /seed-docs after adding more project context)`.
+- K has no data for section → keep TODO + add hint: `TODO: (seed-docs found no data — check CLAUDE.md or run /R-seed-docs after adding more project context)`.
 - ¬fabricate — if genuinely unknown, say so with a note.
 - CI / quality-gate docs (AGENTS.md, `standards.testing`, lefthook comments): **point at** the package script (`{package_manager} run validate:full` or `{commands.*}`). **Ban enumerating** `validate:full` steps — the script is the SSoT; a copied list drifts (`parallel-path-drift`).
 - Write/fill as plain Markdown. Prefer fenced Mermaid code blocks. If filling a legacy `.mdx` file, keep its existing component conventions; never convert `.md` → `.mdx`.

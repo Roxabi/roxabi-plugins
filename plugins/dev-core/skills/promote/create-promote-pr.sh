@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# create-promote-pr.sh — forced promote PR path for /promote Step 7.
+# create-promote-pr.sh — forced promote PR path for /R-promote Step 7.
 #
 # Always harvests closing issues and injects them into the PR body.
 # Cannot be skipped by forgetting CLOSES_SECTION in free-form `gh pr create`.

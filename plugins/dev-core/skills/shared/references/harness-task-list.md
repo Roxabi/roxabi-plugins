@@ -79,10 +79,10 @@ Work only from π micro-tasks table. Present progress in the reply. No host list
 
 | Skill | Uses H for |
 |-------|------------|
-| `/dev-plan` Step 6a | Initial seed |
-| `/dev-implement` Step 1b | Attach / re-seed / probe once |
-| `/dev-implement` Step 4 | Claim, load context, mark done, ready-set |
-| `/dev-implement` Step 6 | All-completed assert |
+| `/R-dev-plan` Step 6a | Initial seed |
+| `/R-dev-implement` Step 1b | Attach / re-seed / probe once |
+| `/R-dev-implement` Step 4 | Claim, load context, mark done, ready-set |
+| `/R-dev-implement` Step 6 | All-completed assert |
 
 ## Related
 

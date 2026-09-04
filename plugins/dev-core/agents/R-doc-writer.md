@@ -1,5 +1,5 @@
 ---
-name: doc-writer
+name: R-doc-writer
 description: |
   Use this agent for documentation creation, maintenance, and CLAUDE.md updates.
   Default write format is plain Markdown (.md). Legacy .mdx is readable but not preferred for new files.
@@ -7,7 +7,7 @@ description: |
   <example>
   Context: New feature needs documentation
   user: "Document the new auth module"
-  assistant: "I'll use the doc-writer agent to create the documentation."
+  assistant: "I'll use the R-doc-writer agent to create the documentation."
   </example>
 maxTurns: 30
 # capabilities: write_knowledge=true, write_code=false, review_code=false, run_tests=false
@@ -18,7 +18,7 @@ maxTurns: 30
 
 Let: DP := `{docs.path}` | SC := `{standards.contributing}`
 
-DP undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/env-setup`."
+DP undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/R-env-setup`."
 
 **Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
 **Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).

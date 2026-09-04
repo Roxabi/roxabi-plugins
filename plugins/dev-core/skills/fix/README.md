@@ -4,20 +4,20 @@ Apply code review findings — auto-apply high-confidence ones, walk through the
 
 ## Why
 
-After a code review, manually triaging and applying dozens of findings is tedious and error-prone. `/fix` automates the high-confidence, multi-agent-validated fixes (threshold C≥80, verified by 2+ agents), then guides you through the remaining findings one by one, committing and pushing as it goes.
+After a code review, manually triaging and applying dozens of findings is tedious and error-prone. `/R-fix` automates the high-confidence, multi-agent-validated fixes (threshold C≥80, verified by 2+ agents), then guides you through the remaining findings one by one, committing and pushing as it goes.
 
 ## Usage
 
 ```
-/fix           Apply findings from the current conversation (latest /dev-review output)
-/fix #42       Gather findings from PR #42 comments
+/R-fix           Apply findings from the current conversation (latest /R-dev-review output)
+/R-fix #42       Gather findings from PR #42 comments
 ```
 
 Triggers: `"fix findings"` | `"fix review"` | `"apply fixes"` | `"apply review comments"` | `"address review feedback"` | `"fix PR comments"`
 
 ## How it works
 
-**Phase 1 — Gather** — parses PR comments (Conventional Comments format) or scans the conversation for `/dev-review` output. Parses label, file:line, agent, root cause, solutions, confidence.
+**Phase 1 — Gather** — parses PR comments (Conventional Comments format) or scans the conversation for `/R-dev-review` output. Parses label, file:line, agent, root cause, solutions, confidence.
 
 **Phase 2 — Triage** — splits findings into:
 - `Q_auto`: actionable, C≥80, verified by 2+ agents → auto-apply
@@ -44,4 +44,4 @@ Single-agent high-C findings get a fresh verifier agent before being promoted to
 
 ## Chain position
 
-**Predecessor:** `/dev-review` | **Successor:** `/dev-review` (re-review, max 2 iterations)
+**Predecessor:** `/R-dev-review` | **Successor:** `/R-dev-review` (re-review, max 2 iterations)

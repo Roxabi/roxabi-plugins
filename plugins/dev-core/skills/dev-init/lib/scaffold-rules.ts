@@ -210,7 +210,7 @@ function tldr(_stack: StackConfig, projectName: string, projectType: ProjectType
 }
 
 function devProcess(_stack: StackConfig, _projectType: ProjectType): Section {
-  const content = `**Entry point: \`/dev #N\`** — single command that scans artifacts, shows progress, and delegates to the right phase skill.
+  const content = `**Entry point: \`/R-dev #N\`** — single command that scans artifacts, shows progress, and delegates to the right phase skill.
 
 | Tier | Criteria | Phases |
 |------|----------|--------|
@@ -229,7 +229,7 @@ function orchestratorDelegation(): Section {
   return {
     id: 'orchestrator-delegation',
     title: 'Orchestrator Delegation',
-    content: `Orchestrator does not modify code/docs directly. Delegate: FE→\`frontend-dev\` | BE→\`backend-dev\` | Infra→\`devops\` | Docs→\`doc-writer\` | Tests→\`tester\` | Fixes→\`fixer\`. Exception: typo/single-line. Deploy→\`devops\` only.`,
+    content: `Orchestrator does not modify code/docs directly. Delegate: FE→\`R-frontend-dev\` | BE→\`R-backend-dev\` | Infra→\`R-devops\` | Docs→\`R-doc-writer\` | Tests→\`R-tester\` | Fixes→\`R-fixer\`. Exception: typo/single-line. Deploy→\`R-devops\` only.`,
   }
 }
 
@@ -261,7 +261,7 @@ function artifactModel(stack: StackConfig): Section {
     plans: 'artifacts/plans',
   }
 
-  const content = `Artifacts are the state markers \`/dev\` uses for progress detection and resumption.
+  const content = `Artifacts are the state markers \`/R-dev\` uses for progress detection and resumption.
 
 | Type | Directory | Question answered |
 |------|-----------|-------------------|
@@ -281,7 +281,7 @@ git worktree add ../${projectName}-XXX -b feat/XXX-slug ${facts.baseBranch}
 cd ../${projectName}-XXX && ${envPart}${facts.packageInstall}
 \`\`\`
 
-Worktree **mandatory** for all tiers (XS, S, F-lite, F-full) — no exceptions. Only skipped for \`/dev\` pre-implementation artifacts (frame, analysis, spec, plan) and \`/promote\` release artifacts.
+Worktree **mandatory** for all tiers (XS, S, F-lite, F-full) — no exceptions. Only skipped for \`/R-dev\` pre-implementation artifacts (frame, analysis, spec, plan) and \`/R-promote\` release artifacts.
 **Never code on main/${facts.baseBranch} without worktree.**`
 
   return { id: 'mandatory-worktree', title: 'Mandatory Worktree', content }
@@ -323,7 +323,7 @@ function skillsAndAgents(): Section {
     id: 'skills-agents',
     title: 'Skills & Agents',
     content: `Skills: always use appropriate skill. Workflow skills → \`dev-core\` plugin.
-Agents: Sonnet = all agents (frontend-dev, backend-dev, devops, doc-writer, fixer, tester, architect, product-lead, security-auditor).
+Agents: Sonnet = all agents (R-frontend-dev, R-backend-dev, R-devops, R-doc-writer, R-fixer, R-tester, R-architect, R-product-lead, R-security-auditor).
 
 **Shared agent rules:** Never force/hard/amend | Stage specific files only | Escalate blockers → lead | Message lead on completion.`,
   }

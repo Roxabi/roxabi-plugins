@@ -4,14 +4,14 @@ ADR-018 Word/Format home for τ (S / F-lite / F-full).
 
 Let: τ := tier | C := complexity score (1–10) | α := agent
 
-Canonical rules for classifying work into S / F-lite / F-full. Referenced by `/frame`, `/dev`, `/issue-triage`.
+Canonical rules for classifying work into S / F-lite / F-full. Referenced by `/R-frame`, `/R-dev`, `/issue-triage`.
 
 ## Scale
 
 | τ | Description |
 |---|-------------|
 | **S** | Simple + small. ≤3 files, single domain, ¬new arch, ¬unknowns. Single session, ¬α spawning. |
-| **F-lite** | Focused feature. Clear scope, single domain, ¬major unknowns. 1–2 domain α + tester. |
+| **F-lite** | Focused feature. Clear scope, single domain, ¬major unknowns. 1–2 domain α + R-tester. |
 | **F-full** | Full feature. Multiple domains, new patterns/arch, unknowns, ∨ XL size. Full α team, test-first. |
 
 ## Detection Signals
@@ -44,8 +44,8 @@ Canonical rules for classifying work into S / F-lite / F-full. Referenced by `/f
 | C | τ | Process | α Mode |
 |---|---|---------|--------|
 | 1–3 | **S** | Worktree + direct impl + PR | Single session, ¬α |
-| 4–6 | **F-lite** | Worktree + subagents + /dev-review | Task subagents (1–2 domain + tester) |
-| 7–10 | **F-full** | Bootstrap + worktree + α team + /dev-review | Task subagents (3+ α, test-first) |
+| 4–6 | **F-lite** | Worktree + subagents + /R-dev-review | Task subagents (1–2 domain + R-tester) |
+| 7–10 | **F-full** | Bootstrap + worktree + α team + /R-dev-review | Task subagents (3+ α, test-first) |
 
 ## Resolution Rules
 

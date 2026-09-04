@@ -7,7 +7,7 @@ Load via: `Read ${CLAUDE_PLUGIN_ROOT}/../shared/references/tempfile-convention.m
 ## Why
 
 Fixed paths like `/tmp/review-comment.md` collide when:
-- two `/dev` runs execute in parallel on different branches
+- two `/R-dev` runs execute in parallel on different branches
 - a skill re-runs in the same session (fix → re-review loop)
 - two developers share a host (rare, but possible)
 

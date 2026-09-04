@@ -78,16 +78,16 @@ FRAME=$(ls artifacts/frames/ 2>/dev/null | grep -iE "$N_ANCHOR" | grep -iF -- "$
 [ -z "$FRAME" ] && FRAME=$(wt_list "artifacts/frames" | grep -iF -- "${SLUG}" | head -1 || true)
 [ -n "$FRAME" ] && echo "frame=$FRAME" || echo "frame=false"
 
-# recheck (session-only state — no on-disk artifact, /dev tracks via Σ_s)
-# Value is always `null` (sentinel); /dev never parses it for truthiness — recheck always
+# recheck (session-only state — no on-disk artifact, /R-dev tracks via Σ_s)
+# Value is always `null` (sentinel); /R-dev never parses it for truthiness — recheck always
 # runs via Σ_s (see Step 1 — Scan State in dev/SKILL.md). Line exists for parser uniformity.
 echo "recheck=null"
 
 # analyze
 # Resolve by KIND (frontmatter), never by filename — see artifact_kind() above.
-# `head -1` over a name match is an alphabetical pick: an /interview brainstorm or a
+# `head -1` over a name match is an alphabetical pick: an /R-interview brainstorm or a
 # legacy consensus artifact sorting ahead of the real analysis would otherwise become
-# the gate signal. Emits the resolved kind + status so /dev's
+# the gate signal. Emits the resolved kind + status so /R-dev's
 # Σ.analyze = α ∃ ∧ (status == approved ∨ key absent) is mechanical, not a re-read.
 ANALYZE=""
 ANALYZE_DIR=""
@@ -115,7 +115,7 @@ PLAN=$(ls artifacts/plans/ 2>/dev/null | grep -E "$N_ANCHOR" | head -1 || true)
 [ -n "$PLAN" ] && echo "plan=$PLAN" || echo "plan=false"
 
 # stale — worktree or local/remote branch still lingering for this issue.
-# Consumed by /dev's cleanup skip logic (Σ.cleanup = ¬stale; should_skip
+# Consumed by /R-dev's cleanup skip logic (Σ.cleanup = ¬stale; should_skip
 # cleanup ∧ ¬stale — dev/SKILL.md). Anchored on N (same $N_ANCHOR as above)
 # to avoid cross-issue collisions; slug-independent by design (a branch
 # survives issue-title edits that would change the slug).

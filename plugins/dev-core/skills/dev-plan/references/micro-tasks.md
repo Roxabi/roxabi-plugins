@@ -63,7 +63,7 @@ Partial (one of Breadboard/Slices ¬both): fallback if ∃ Success Criteria, els
 | Time estimate | 2–5 min (up to 8–10 for atomic ops) |
 | `[P]` marker | Parallel-safe |
 | Agent | Owner α |
-| Agent instance | Named owner (backend-dev-A, tester-B, ...) |
+| Agent instance | Named owner (R-backend-dev-A, R-tester-B, ...) |
 | Subject | 1-word surface tag (auth, cache, http, parser, …) — drives per-instance subject-diversity cap |
 | Spec trace | SC-N ∨ U1→N1→S1 |
 | Slice | V1, V2, ... |
@@ -142,7 +142,7 @@ generated: {ISO}
 - **Time:** {N} min | **Difficulty:** {1-5}
 - **Traces:** {SC-N, U1→N1→S1} | **Phase:** {phase}
 
-#### RED-GATE: RED complete V1 → tester
+#### RED-GATE: RED complete V1 → R-tester
 ```
 
 ## 4f.7 Present for Approval
@@ -187,4 +187,4 @@ Owned by **SKILL.md Step 7 Approve path** only (order fixed):
 | parallel | true if [P] |
 | phase | RED ∨ GREEN ∨ REFACTOR ∨ RED-GATE |
 
-RED-GATE sentinels: auto-generate 1/slice → tester, phase: RED-GATE.
+RED-GATE sentinels: auto-generate 1/slice → R-tester, phase: RED-GATE.

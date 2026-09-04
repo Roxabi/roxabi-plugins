@@ -1,14 +1,14 @@
 # Dev Process Reference
 
-> Contributor view of the `/dev` pipeline (phases, artifacts, git). Not a SSoT for τ.
+> Contributor view of the `/R-dev` pipeline (phases, artifacts, git). Not a SSoT for τ.
 
 Let: τ := tier | α := agent
 
 ## Tier System
 
-`/dev` chooses τ. Criteria, signals, scoring, label mapping: [tier-classification.md](../skills/shared/references/tier-classification.md).
+`/R-dev` chooses τ. Criteria, signals, scoring, label mapping: [tier-classification.md](../skills/shared/references/tier-classification.md).
 
-| τ (from tier-classification.md) | Steps `/dev` runs |
+| τ (from tier-classification.md) | Steps `/R-dev` runs |
 |---|---|
 | **S** | triage → implement → pr → validate → review → fix* → promote* → cleanup* |
 | **F-lite** | Frame → spec → plan → implement → verify → ship |
@@ -28,7 +28,7 @@ Flow: **Frame** (problem) → **Shape** (spec) → **Build** (code) → **Verify
 
 ## Artifact Model
 
-Artifacts = state markers for `/dev` progress detection + resumption.
+Artifacts = state markers for `/R-dev` progress detection + resumption.
 
 | Type | Directory | Question |
 |------|-----------|----------|
@@ -38,13 +38,13 @@ Artifacts = state markers for `/dev` progress detection + resumption.
 | **Spec** | `artifacts/specs/` | What to build? |
 | **Plan** | `artifacts/plans/` | How to build? |
 
-One kind per directory for **new** writes (β never lands in `analyses/`). `/dev` scans frame/analysis/spec/plan for pipeline progress; brainstorms are exploration seeds (seen by `/interview`, `/analyze`), not Shape-phase gates. Frontmatter contract: [artifact-frontmatter.md](../skills/shared/references/artifact-frontmatter.md).
+One kind per directory for **new** writes (β never lands in `analyses/`). `/R-dev` scans frame/analysis/spec/plan for pipeline progress; brainstorms are exploration seeds (seen by `/R-interview`, `/R-analyze`), not Shape-phase gates. Frontmatter contract: [artifact-frontmatter.md](../skills/shared/references/artifact-frontmatter.md).
 
 ## Git Workflow Rules
 
 ### Worktree
 
-`/dev` bootstraps the worktree automatically before `frame` (Step 7 silent pre-step via `/setup-worktree`). All tiers (S, F-lite, F-full) execute **code** inside a non-principal worktree on `feat/{N}-{slug}`.
+`/R-dev` bootstraps the worktree automatically before `frame` (Step 7 silent pre-step via `/R-setup-worktree`). All tiers (S, F-lite, F-full) execute **code** inside a non-principal worktree on `feat/{N}-{slug}`.
 
 **Invariants** (SSoT: `skills/shared/references/harness-worktree.md`):
 
@@ -60,7 +60,7 @@ git worktree add <ω-path> "feat/N-slug"   # principal unchanged
 cd <ω-path> && cp .env.example .env && bun install
 ```
 
-**Exceptions:** `/promote` release artifacts.
+**Exceptions:** `/R-promote` release artifacts.
 
 ¬code on main/staging w/o worktree.
 

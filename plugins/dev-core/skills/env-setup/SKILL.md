@@ -1,7 +1,7 @@
 ---
-name: env-setup
+name: R-env-setup
 argument-hint: '[--force]'
-description: 'Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, LSP. Triggered by /dev-init or standalone /env-setup. Triggers: "env setup" | "setup environment" | "scaffold rules".'
+description: 'Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, LSP. Triggered by /R-dev-init or standalone /R-env-setup. Triggers: "env setup" | "setup environment" | "scaffold rules".'
 version: 0.1.0
 allowed-tools: Bash, Read, Write, Edit, ToolSearch
 ---
@@ -19,7 +19,7 @@ Let:
   ensureGitignore(entry) := `grep -q '{entry}' .gitignore 2>/dev/null || echo '{entry}' >> .gitignore`
 
 Configure local developer environment: stack config, governance rules, docs stubs, editor settings, LSP.
-Runs standalone (`/env-setup`) or called by `/init` as part of full project initialization.
+Runs standalone (`/R-env-setup`) or called by `/init` as part of full project initialization.
 
 ## Phase 1 — Stack Configuration
 
@@ -125,7 +125,7 @@ Let:
         ```
      g. D("Worktree-setup retrofit", "✅ Written (${COUNT} concerns: ${IDS}), σ keys registered").
 
-Re-run idempotency: any subsequent `/env-setup` invocation re-evaluates the predicate — once σ has the key, step 2 short-circuits silently.
+Re-run idempotency: any subsequent `/R-env-setup` invocation re-evaluates the predicate — once σ has the key, step 2 short-circuits silently.
 
 ## Phase 2 — Scaffold CLAUDE.md Critical Rules
 
@@ -217,7 +217,7 @@ Env Setup Complete
   LSP               ✅ Configured / ✅ Already set / ⏭ Disabled / ⏭ Skipped
   Worktree-setup    ✅ Scaffolded / ✅ Already configured / ⏭ Skipped
 
-Next: run /seed-docs to populate docs stubs. Issue triage (labels, blocked-by, parent/child) lives in the separate **roxabi-issues** plugin.
+Next: run /R-seed-docs to populate docs stubs. Issue triage (labels, blocked-by, parent/child) lives in the separate **roxabi-issues** plugin.
 ```
 
 ## Safety Rules

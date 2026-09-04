@@ -2,7 +2,7 @@
 
 Project-specific testing conventions. Agents read this via `{standards.testing}`.
 
-> Universal patterns (Testing Trophy, mock boundaries, coverage anti-patterns, flaky test classification) are embedded in the `tester` agent.
+> Universal patterns (Testing Trophy, mock boundaries, coverage anti-patterns, flaky test classification) are embedded in the `R-tester` agent.
 > This file documents **your project's specific** testing setup.
 
 ## Framework Setup

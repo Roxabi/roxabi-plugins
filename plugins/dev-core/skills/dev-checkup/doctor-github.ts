@@ -79,7 +79,7 @@ export function checkWorkflows(ghOk: boolean, owner: string, repo: string): Sect
       checks.push({ name: wf, status: 'skip', detail: 'skipped — deploy.platform is not cloudflare' })
       continue
     }
-    checks.push({ name: wf, status: 'warn', detail: 'missing — run /ci-setup to create' })
+    checks.push({ name: wf, status: 'warn', detail: 'missing — run /R-ci-setup to create' })
   }
   return { name: 'Workflows', checks }
 }

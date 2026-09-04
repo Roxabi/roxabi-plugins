@@ -17,7 +17,7 @@ TODO: Document setup steps.
 
 <!-- Document the contribution workflow. Example:
   1. Create/pick an issue
-  2. `/dev #N` to start the workflow
+  2. `/R-dev #N` to start the workflow
   3. Code in a worktree
   4. PR against staging (not main)
   5. Review → fix → merge

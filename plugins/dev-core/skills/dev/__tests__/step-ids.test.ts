@@ -3,11 +3,11 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 // Guards the step-id ≠ skill-name split after collision-safe rename:
-// /dev Step column keeps `plan` / `review` / `implement`;
-// Skill() invokes `dev-plan` / `dev-review` / `dev-implement`.
+// /R-dev Step column keeps `plan` / `review` / `implement`;
+// Skill() invokes `R-dev-plan` / `R-dev-review` / `R-dev-implement`.
 const SKILL = fileURLToPath(new URL('../SKILL.md', import.meta.url))
 
-describe('/dev step ids vs skill names', () => {
+describe('/R-dev step ids vs skill names', () => {
   const text = readFileSync(SKILL, 'utf-8')
 
   it('keeps pipeline step ids plan, review, and implement', () => {
@@ -20,9 +20,9 @@ describe('/dev step ids vs skill names', () => {
   })
 
   it('invokes renamed skills, not bare plan/code-review/implement', () => {
-    expect(text).toContain('skill: "dev-plan"')
-    expect(text).toContain('skill: "dev-review"')
-    expect(text).toContain('skill: "dev-implement"')
+    expect(text).toContain('skill: "R-dev-plan"')
+    expect(text).toContain('skill: "R-dev-review"')
+    expect(text).toContain('skill: "R-dev-implement"')
     expect(text).not.toMatch(/skill:\s*"plan"/)
     expect(text).not.toMatch(/skill:\s*"code-review"/)
     expect(text).not.toMatch(/skill:\s*"implement"/)

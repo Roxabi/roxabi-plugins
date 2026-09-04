@@ -1,5 +1,5 @@
 ---
-name: stack-setup
+name: R-stack-setup
 disable-model-invocation: true
 argument-hint: '[--force]'
 description: Fill `.claude/stack.yml` via guided discovery.
@@ -198,7 +198,7 @@ testing:
 #     globs: ["src/**/*.py"]
 #     exemptions_file: tools/file_exemptions.txt
 #     # metric: raw        # optional — "raw" (default, wc -l) or "sloc" (excludes blanks/comments/docstrings)
-#                          # sloc requires radon (python) or node+npx (node); see /release-setup N4b
+#                          # sloc requires radon (python) or node+npx (node); see /R-release-setup N4b
 #   folder_size:
 #     enabled: true
 #     max_files: 12
@@ -382,8 +382,8 @@ Stack configuration written
   ⚠️  Missing standards docs: (list any configured paths that don't exist on disk)
 
 Next:
-  /dev-checkup    Verify all checks pass
-  /dev #N     Start working on an issue
+  /R-dev-checkup    Verify all checks pass
+  /R-dev #N     Start working on an issue
 ```
 
 $ARGUMENTS

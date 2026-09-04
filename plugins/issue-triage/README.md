@@ -4,7 +4,7 @@ Triage and create GitHub issues — size, priority, lane, and type labels plus b
 
 ## Why
 
-Raw GitHub issues lack structure. This plugin adds Size (XS→XL), Priority (P0→P3), Lane, and Type via native labels and issue relations so the backlog is plannable and downstream skills (`/dev`, `/plan`) get the metadata they need. Optional companion of [dev-core](../dev-core/README.md).
+Raw GitHub issues lack structure. This plugin adds Size (XS→XL), Priority (P0→P3), Lane, and Type via native labels and issue relations so the backlog is plannable and downstream skills (`/R-dev`, `/plan`) get the metadata they need. Optional companion of [dev-core](../dev-core/README.md).
 
 ## Install
 

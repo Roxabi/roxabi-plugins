@@ -1,5 +1,5 @@
 ---
-name: dev-checkup
+name: R-dev-checkup
 disable-model-invocation: true
 description: Health check — dev-core config, GitHub, labels, workflows, branch protection, CI. Not host /checkup.
 version: 0.8.2

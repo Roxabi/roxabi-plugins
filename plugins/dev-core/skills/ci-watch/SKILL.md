@@ -1,5 +1,5 @@
 ---
-name: ci-watch
+name: R-ci-watch
 description: 'Watch a CI run with live status + emoji dashboard; dump logs on failure; watch auto-merge if CI green + auto-merge enabled + "reviewed" label. Triggers: "watch ci" | "ci watch" | "watch the ci" | "watch run" | "monitor ci".'
 version: 0.1.0
 argument-hint: '[PR# | --run ID | --branch NAME] [--interval N]'
@@ -72,22 +72,22 @@ Timeout: the loop self-bounds at `MERGE_WAIT_TIMEOUT` (script, 15 min) → grace
 ## Chain Position
 
 - **Phase:** Verify
-- **Predecessor:** `/pr` (via `/dev`) · or `reviewed` label step (via `/ship`)
-- **Successor:** `/validate` (via `/dev`) · or `/cleanup` (via `/ship` after merge)
+- **Predecessor:** `/R-pr` (via `/R-dev`) · or `reviewed` label step (via `/R-ship`)
+- **Successor:** `/R-validate` (via `/R-dev`) · or `/R-cleanup` (via `/R-ship` after merge)
 - **Class:** adv (continuous flow, no gate)
 
 ## Task Integration
 
-- `/dev` owns the dev-pipeline task lifecycle externally
+- `/R-dev` owns the dev-pipeline task lifecycle externally
 - This skill does NOT update its own dev-pipeline task
 - Sub-tasks created: none
-- Follow-up: CI failure → `/dev` may create a re-run / fix follow-up task
+- Follow-up: CI failure → `/R-dev` may create a re-run / fix follow-up task
 
 ## Exit
 
-- **CI green via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/validate`. `/dev` re-scans and advances.
-- **CI green standalone:** print one line: `CI passed. Next: /validate`. Stop.
-- **CI failed/cancelled (exit 1/2):** return error. `/dev` presents Retry | Skip | Abort (or creates a follow-up fix task depending on failure type).
+- **CI green via `/R-dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/R-validate`. `/R-dev` re-scans and advances.
+- **CI green standalone:** print one line: `CI passed. Next: /R-validate`. Stop.
+- **CI failed/cancelled (exit 1/2):** return error. `/R-dev` presents Retry | Skip | Abort (or creates a follow-up fix task depending on failure type).
 - **CI green but unmerged (exit 4):** ¬a CI failure — report the merge blocker (conflicts / closed / auto-merge off / timeout) and route to rebase / resolve / re-enable, ¬Retry-CI.
 
 $ARGUMENTS

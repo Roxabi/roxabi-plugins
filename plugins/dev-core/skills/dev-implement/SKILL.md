@@ -1,7 +1,7 @@
 ---
-name: dev-implement
+name: R-dev-implement
 argument-hint: '[--issue <N> | --plan <path> | --audit]'
-description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "dev-implement" | "implement" | "build this" | "execute plan" | "start coding" | "write the code" | "code this up" | "let's build it" | "build it out" | "/dev-implement". Not the host native /implement.
+description: Execute plan — setup worktree, spawn agents, write code + tests. Triggers: "dev-implement" | "implement" | "build this" | "execute plan" | "start coding" | "write the code" | "code this up" | "let's build it" | "build it out" | "/R-dev-implement". Not the host native /implement.
 version: 0.3.3
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, TaskCreate, TaskUpdate, TaskList, TaskGet, Skill, ToolSearch
 ---
@@ -28,33 +28,33 @@ Plan → ω → agents (test-first) → passing QG.
 **Flow: single continuous pipeline. ¬stop between steps. Decision response → immediately execute next step. Stop only on: explicit Cancel/Abort or Step 6 completion.**
 
 ```
-/dev-implement --issue 42        Execute plan for issue #42
-/dev-implement --plan artifacts/plans/42-dark-mode-plan.md   Execute from explicit plan path
-/dev-implement --issue 42 --audit   Show reasoning checkpoint before coding
+/R-dev-implement --issue 42        Execute plan for issue #42
+/R-dev-implement --plan artifacts/plans/42-dark-mode-plan.md   Execute from explicit plan path
+/R-dev-implement --issue 42 --audit   Show reasoning checkpoint before coding
 ```
 
-Does NOT create a PR — that is `/pr` (next step).
+Does NOT create a PR — that is `/R-pr` (next step).
 
 ## Chain Position
 
 - **Phase:** Build
-- **Predecessor:** `/dev-plan` (artifact: `artifacts/plans/{N}-{slug}-plan.md`)
-- **Successor:** `/pr`
+- **Predecessor:** `/R-dev-plan` (artifact: `artifacts/plans/{N}-{slug}-plan.md`)
+- **Successor:** `/R-pr`
 - **Class:** adv (continuous flow, no gate)
 
 ## Task Integration
 
-- `/dev` owns the dev-pipeline task lifecycle externally (mark in_progress before invoke, completed after return — host-mapped)
+- `/R-dev` owns the dev-pipeline task lifecycle externally (mark in_progress before invoke, completed after return — host-mapped)
 - This skill does NOT update its own dev-pipeline task
-- Sub-tasks: attach/re-seed plan-tasks from `/dev-plan` (Step 6a), flip lifecycle as agents execute (Step 1b + Step 4)
+- Sub-tasks: attach/re-seed plan-tasks from `/R-dev-plan` (Step 6a), flip lifecycle as agents execute (Step 1b + Step 4)
 - **Host mapping SSoT:** [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-task-list.md) — probe once, use H for all task ops
 - **Worktree SSoT:** [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md) — principal freezes on β; code only in ω
 
 ## Exit
 
-- **Success via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/pr`. `/dev` re-scans and advances.
-- **Success standalone:** print final status block (below) + `Next: /pr`. Stop.
-- **Failure:** return error. `/dev` presents Retry | Skip | Abort.
+- **Success via `/R-dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/R-pr`. `/R-dev` re-scans and advances.
+- **Success standalone:** print final status block (below) + `Next: /R-pr`. Stop.
+- **Failure:** return error. `/R-dev` presents Retry | Skip | Abort.
 
 ## Pipeline
 
@@ -78,7 +78,7 @@ Steps: locate-plan → setup → context-inject → implement → quality-gate �
 
 `--issue N` → `ls artifacts/plans/N-*.md*` → read full → extract tasks, agents, τ, slug.
 `--plan <path>` → read directly.
-¬found ⇒ suggest `/dev-plan`. **Stop.**
+¬found ⇒ suggest `/R-dev-plan`. **Stop.**
 
 **S-tier exception:** τ=S ∧ ¬π → locate spec (`ls artifacts/specs/N-*.md*`) or issue body (`gh issue view N --json body`). Skip to Step 4 (Tier S). ¬require π for τ=S.
 
@@ -86,7 +86,7 @@ Extract from frontmatter: `issue`, `tier`, `spec` path. From body: agent list, t
 
 ### Step 1b — Attach to Plan Tasks (dual harness)
 
-**Probe H** (once per `/dev-implement` run) per [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-task-list.md):
+**Probe H** (once per `/R-dev-implement` run) per [harness-task-list.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-task-list.md):
 
 ```
 tools ∋ TaskCreate ∧ TaskUpdate ∧ TaskList  → H := claude-tasks
@@ -148,13 +148,13 @@ SSoT: [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harne
 
 `principal_ok` = false → **STOP**. Principal must be on β. Present choice **Switch principal to base** | **Abort**. **¬** `git switch feat/…` on principal to “fix” this.
 
-`branch_exists` ≠ false ∧ `worktree` = false → branch exists but no ω → present choice **Recreate worktree** (invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"`) | **Abort**
+`branch_exists` ≠ false ∧ `worktree` = false → branch exists but no ω → present choice **Recreate worktree** (invoke `skill: "R-setup-worktree", args: "{N:+--issue $N }--slug {slug}"`) | **Abort**
 
 `worktree` ≠ false ∧ `dirty=true` ⇒ → present choice **Stash changes** (`git -C "$WT_PATH" stash`) | **Reset** (`git -C "$WT_PATH" checkout .`) | **Continue with dirty state** | **Abort**
 
 **2e. Worktree:**
 
-`worktree` = false → invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"`, re-run preflight.
+`worktree` = false → invoke `skill: "R-setup-worktree", args: "{N:+--issue $N }--slug {slug}"`, re-run preflight.
 
 Enter existing ω (`WT_PATH` from preflight):
 
@@ -178,17 +178,17 @@ Template: "Read `{doc}` sections: {sections}. Read `{ref_file}` for conventions.
 
 | Agent | Standards → Sections | +ref |
 |-------|---------------------|:---:|
-| frontend-dev | frontend-patterns: Component Patterns, AI Quick Ref · testing: FE Testing | ✓ |
-| backend-dev | backend-patterns: Design Patterns, Error Handling, AI Quick Ref · testing: BE Testing | ✓ |
-| tester | testing: Test Structure (AAA), Coverage, Mocking, AI-Assisted TDD | ✓ |
-| architect | frontend-patterns + backend-patterns: AI Quick Ref | ✗ |
-| devops, security-auditor, doc-writer | ∅ | ✗ |
+| R-frontend-dev | frontend-patterns: Component Patterns, AI Quick Ref · testing: FE Testing | ✓ |
+| R-backend-dev | backend-patterns: Design Patterns, Error Handling, AI Quick Ref · testing: BE Testing | ✓ |
+| R-tester | testing: Test Structure (AAA), Coverage, Mocking, AI-Assisted TDD | ✓ |
+| R-architect | frontend-patterns + backend-patterns: AI Quick Ref | ✗ |
+| R-devops, R-security-auditor, R-doc-writer | ∅ | ✗ |
 
-Ref file paths from `/dev-plan` Step 3.
+Ref file paths from `/R-dev-plan` Step 3.
 
 ## Step 3b — Reasoning Audit (optional)
 
-`--audit` → present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Read π/spec in full first.
+`--audit` → present reasoning audit per [reasoning-audit.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/reasoning-audit.md). Read π/R-spec in full first.
 → present choice **Proceed** | **Adjust approach** | **Abort**
 ¬`--audit` → skip to Step 4.
 
@@ -234,14 +234,14 @@ Spawn via host subagent tool (`Task` / `spawn_subagent`). Sequential ∨ paralle
      prompt: "Issue #{N}. Task: {task_description}. Target: {file_path}. Skeleton: {code_snippet}. Verify: {verify_command}. Ref pattern: {pattern_file}. Worktree: {WT_PATH} — stay inside this directory only; ¬checkout feat on principal. ¬seed host tasks — task lifecycle managed by lead."
    )
    ```
-   Agent name map: `tester` → `dev-core:tester` | `frontend-dev` → `dev-core:frontend-dev` | `backend-dev` → `dev-core:backend-dev` | `devops` → `dev-core:devops` | `doc-writer` → `dev-core:doc-writer` | `architect` → `dev-core:architect` | `security-auditor` → `dev-core:security-auditor`
+   Agent name map: `R-tester` → `dev-core:R-tester` | `R-frontend-dev` → `dev-core:R-frontend-dev` | `R-backend-dev` → `dev-core:R-backend-dev` | `R-devops` → `dev-core:R-devops` | `R-doc-writer` → `dev-core:R-doc-writer` | `R-architect` → `dev-core:R-architect` | `R-security-auditor` → `dev-core:R-security-auditor`
 4. Subagent returns → verify → ✓ → mark done (H). ✗ → retry (≤3).
 
 **RED → GREEN → REFACTOR:**
-1. **RED** — tester: write failing tests from spec. Structural verify only (grep test structure). Tests expected to fail pre-impl. Create RED-GATE sentinel per slice. RED tasks flip completed as each test file lands.
+1. **RED** — R-tester: write failing tests from spec. Structural verify only (grep test structure). Tests expected to fail pre-impl. Create RED-GATE sentinel per slice. RED tasks flip completed as each test file lands.
 2. **GREEN** — domain agents ∥: implement to pass. `ready` verify → run now; `deferred` → wait RED-GATE. Advance only when blueprint deps are satisfied (claude: `blockedBy` clear; grok/artifact: deps completed in checklist).
 3. **REFACTOR** — domain agents: refactor, keep tests ✓.
-4. **Verify** — tester: coverage + edge cases.
+4. **Verify** — R-tester: coverage + edge cases.
 
 **Parallel spawn:** list ready tasks (H table) for current phase → spawn ≤N agents, each with its own context-injected prompt.
 
@@ -261,34 +261,34 @@ cd "$WT_PATH"
 > format before lint — auto-format first so the linter never flags style the formatter would have fixed (¬format-induced lint noise).
 
 ✓ → Step 6.
-✗ → fix loop (max 3). Spawn domain fixer agents as needed. 3✗ → present choice **Escalate to lead** | **Continue with failures** | **Abandon ω** (H_wt claude: `ExitWorktree(action: "remove")`; harness-default: `git worktree remove "$WT_PATH"`) + delete branch.
+✗ → fix loop (max 3). Spawn domain R-fixer agents as needed. 3✗ → present choice **Escalate to lead** | **Continue with failures** | **Abandon ω** (H_wt claude: `ExitWorktree(action: "remove")`; harness-default: `git worktree remove "$WT_PATH"`) + delete branch.
 
 ## Step 6 — Summary
 
-Before printing summary → assert all plan-tasks for issue N are completed (**H table**: claude `TaskList` + metadata.issue; grok all `T#` completed; artifact-only π rows). ¬all completed → highlight stragglers (blockers for `/pr`).
+Before printing summary → assert all plan-tasks for issue N are completed (**H table**: claude `TaskList` + metadata.issue; grok all `T#` completed; artifact-only π rows). ¬all completed → highlight stragglers (blockers for `/R-pr`).
 
 ### Step 6a — SC→Test Matrix (τ ≠ S)
 
-**Tier S exemption:** τ=S (no `/dev-plan` artifact, no SC-N labels) → skip this step entirely. ¬emit matrix.
+**Tier S exemption:** τ=S (no `/R-dev-plan` artifact, no SC-N labels) → skip this step entirely. ¬emit matrix.
 
 For τ=F (F-lite or F-full):
 
 1. Read spec (`artifacts/specs/{N}-*.md*`) → extract all SC-N lines (e.g. `SC1: …`, `SC2: …`).
-2. Read tester deliverable (from task outputs or grep test files in ω): collect `{file} :: {test name}` pairs.
+2. Read R-tester deliverable (from task outputs or grep test files in ω): collect `{file} :: {test name}` pairs.
 3. For each SC:
    - ≥1 named test mapped → row: `| SC-N: {text} | {file} :: {test name}[, …] | ⏳ not run |`
    - ¬mapped → row: `| SC-N: {text} | — | ⚠ NO TEST — {reason} |` (NO TEST is a Status verdict, per the schema below)
-     - `reason` MUST ∈ `{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}` (closed enum — ¬free-form). Unmapped SC with ¬reason from enum = **blocking gap**: highlight in summary, ¬proceed to `/pr`.
-4. Persist matrix as a fenced markdown block in the summary output (consumed by `/pr` Step 3d). Disk persist of the final matrix+evidence is Step 6b.
+     - `reason` MUST ∈ `{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}` (closed enum — ¬free-form). Unmapped SC with ¬reason from enum = **blocking gap**: highlight in summary, ¬proceed to `/R-pr`.
+4. Persist matrix as a fenced markdown block in the summary output (consumed by `/R-pr` Step 3d). Disk persist of the final matrix+evidence is Step 6b.
 
-**Status column schema** (for `/pr` and falsification gate #280):
+**Status column schema** (for `/R-pr` and falsification gate #280):
 - `⏳ not run` — test exists, not yet executed against this change **or** ran without a recorded evidence line
 - `✓ proven` — test ran green + falsification check passed **and** evidence line recorded (set by #280 gate)
 - `✗ failed` — test ran red (set by #280 gate; note: `broke X → test failed with Y`)
 - `⚠ NO TEST — {reason}` — no test; reason ∈ enum
 - `⚠ NO FALSIFY — e2e` — e2e row; counts like NO TEST, ¬proven
 
-**Priced quantity (mechanical, not optional):** scan each SC checkbox. Signals: fail-closed / fail closed / deny / refuse / reject / guard / gate / auth / authz / secret / inject / security. Matching SC whose following fenced yaml does not contain `priced:` + `not:` + `oracles:` → **blocking gap**, ¬proceed to `/pr` (re-run `/spec`). Map tests to `priced` + `oracles`, never to `not`.
+**Priced quantity (mechanical, not optional):** scan each SC checkbox. Signals: fail-closed / fail closed / deny / refuse / reject / guard / gate / auth / authz / secret / inject / security. Matching SC whose following fenced yaml does not contain `priced:` + `not:` + `oracles:` → **blocking gap**, ¬proceed to `/R-pr` (re-run `/R-spec`). Map tests to `priced` + `oracles`, never to `not`.
 
 ### Step 6b — Falsification Gate (#280 / #417)
 
@@ -311,9 +311,9 @@ Build the map from the SC→Test matrix: each unit/FI row → `{ sc_id, sources:
 
 **Consumer `test:falsify` / stack.yml:** allowed **only if** the script execs this helper as a child and does not swallow non-zero. Otherwise **stub-refuse** — do not treat it as an alternate oracle. LLM-operated `git stash` is **not** an alternate oracle after #417.
 
-On `oracle_ok=true`: set each proven matrix row to `✓ proven` from JSON `rows[].status` / `error`. On `oracle_ok=false`: leave rows `⏳ not run` or `✗ failed` per JSON; **¬proceed to `/pr`**.
+On `oracle_ok=true`: set each proven matrix row to `✓ proven` from JSON `rows[].status` / `error`. On `oracle_ok=false`: leave rows `⏳ not run` or `✗ failed` per JSON; **¬proceed to `/R-pr`**.
 
-**Persist (mandatory, τ≠S):** `artifacts/reviews/{N}-falsify.json` (and optional `.md` render written by the helper). Conversation-only summary is ¬the oracle — `/pr` fail-closes on missing/failed `--verify`.
+**Persist (mandatory, τ≠S):** `artifacts/reviews/{N}-falsify.json` (and optional `.md` render written by the helper). Conversation-only summary is ¬the oracle — `/R-pr` fail-closes on missing/failed `--verify`.
 
 **Matrix format (fixed columns — parseable):**
 
@@ -339,7 +339,7 @@ Implement Complete
   Tasks:    N/total completed (stragglers: ...)
   Verify:   N/total first-try (%)
   SC Matrix: N/total mapped (gaps: ...)
-  Next:     /pr → /dev-review → /1b1 → merge
+  Next:     /R-pr → /R-dev-review → /1b1 → merge
 ```
 
 ## Rollback
@@ -371,7 +371,7 @@ Read [references/edge-cases.md](${CLAUDE_SKILL_DIR}/references/edge-cases.md).
 ## Safety
 
 1. ¬`git add -A` ∨ `git add .` — specific files only
-2. ¬push without PR via `/pr`
+2. ¬push without PR via `/R-pr`
 3. ¬create issue without user approval
 4. Always ω ∀ τ — ¬exception (XS, S, F-lite, F-full all require ω)
 5. Always HEREDOC for commit messages

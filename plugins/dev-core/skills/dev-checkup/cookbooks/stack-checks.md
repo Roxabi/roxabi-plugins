@@ -36,7 +36,7 @@ Auto-fix for partial/missing: run `/init` Phase 2c (scaffold-rules).
 Read `docs.path` from σ. ¬set → D⏭("docs.path not set"), skip doc checks.
 - `docs.path` dir ∃ → ✅ | ⚠️ "not found on disk" (auto-fixable).
 - ∃ dir → check `architecture/` ∧ `standards/`: both → ✅ | ⚠️ "incomplete — missing: {dirs}" (auto-fixable).
-- **Stub detection:** ∀ file in `docs.path` (*.md + legacy *.mdx for read): count files with `TODO:` markers or < 30 lines of real content. N > 0 → ⚠️ "{N} stub docs detected — run `/seed-docs` to populate from CLAUDE.md + codebase". N = 0 → ✅ "Docs populated".
+- **Stub detection:** ∀ file in `docs.path` (*.md + legacy *.mdx for read): count files with `TODO:` markers or < 30 lines of real content. N > 0 → ⚠️ "{N} stub docs detected — run `/R-seed-docs` to populate from CLAUDE.md + codebase". N = 0 → ✅ "Docs populated".
 
 **Artifacts:** ∀ path ∈ `artifacts.*` → chk(∃, ✅, ⚠️ "dir not found: {path}").
 
@@ -70,7 +70,7 @@ Config ∄ → ⚠️. Config ∃ ∧ hook ∄ → ⚠️ "needs `{install-cmd}`
 - exit 2 → ⚠️ "run checker to debug"
 
 **Release automation:** Only check if `release-please-config.json` ∃ ∨ `release.config.cjs` ∃.
-- `release-please-config.json` ∃ → also require `.github/workflows/release-please.yml` ∃ → ✅ | ⚠️ "Release Please config present but no workflow — config alone is a no-op. Run `/release-setup` or copy the workflow template from the cookbook." (auto-fixable)
+- `release-please-config.json` ∃ → also require `.github/workflows/release-please.yml` ∃ → ✅ | ⚠️ "Release Please config present but no workflow — config alone is a no-op. Run `/R-release-setup` or copy the workflow template from the cookbook." (auto-fixable)
 - `release.config.cjs` ∃ → semantic-release; `package.json` `scripts.release = "semantic-release"` → ✅ | ⚠️.
 - Neither → ⏭ (release automation not configured).
 
@@ -85,7 +85,7 @@ Stack config: N checks passed, M warnings, K errors
 Docs          ✅ docs/ present, structure complete, docs populated
               ⚠️ docs/ not found on disk — run scaffold-docs to fix
               ⚠️ docs structure incomplete (missing: {dirs}) — run scaffold-docs
-              ⚠️ {N} stub docs detected — run /seed-docs to populate
+              ⚠️ {N} stub docs detected — run /R-seed-docs to populate
               ⏭ docs.path not set in stack.yml
 ```
 
@@ -131,7 +131,7 @@ Ask: **Fix all** | **Select** | **Skip**
 | `tools/licenseChecker.ts missing` | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && mkdir -p tools && cp "${Φ}/tools/licenseChecker.ts" tools/licenseChecker.ts` |
 | `.license-policy.json missing` (JS) | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && cp "${Φ}/tools/license-policy.json.example" .license-policy.json` |
 | `docs.path missing` / `docs incomplete` | `bun "${Φ}/skills/dev-init/init.ts" scaffold-docs --path {docs.path}` — re-check + display |
-| `Stub docs detected` | Run `/seed-docs` — populates TODOs from CLAUDE.md + codebase analysis |
+| `Stub docs detected` | Run `/R-seed-docs` — populates TODOs from CLAUDE.md + codebase analysis |
 
 When `standards.*` paths match scaffold-docs output patterns → offer scaffold-docs instead of manual edit.
 

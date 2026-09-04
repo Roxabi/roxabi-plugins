@@ -1,5 +1,5 @@
 /**
- * finalize.ts — the finalize verdict for /promote step 9b (S11, D4/D7/D16)
+ * finalize.ts — the finalize verdict for /R-promote step 9b (S11, D4/D7/D16)
  *
  * `classifyFinalize` is a PURE function judging the finalize action AROUND
  * price.sh output. It does NOT compute versions: the authoritative $VERSION is
@@ -160,7 +160,7 @@ export function classifyFinalize(input: FinalizeInput): FinalizeVerdict {
 
 // ─── CLI (S11 step 9b — make the tested verdict the EXECUTED verdict, #369) ────────
 //
-// /promote --finalize runs this so the classifier above IS the decision, not a bash
+// /R-promote --finalize runs this so the classifier above IS the decision, not a bash
 // re-implementation of part of it. Flags in, three stdout lines out:
 //   action=<tag|create-release|noop|refuse>
 //   reason=<text>            (empty unless refuse)

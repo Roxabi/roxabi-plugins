@@ -23,7 +23,7 @@
 | License violations | Run `uv run tools/license_check.py`, create/update `.license-policy.json` |
 | `tools/licenseChecker.ts` missing | Run `/init` Phase 10d |
 | trufflehog not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` |
-| principal freeze not in lefthook | Run `/ci-setup` Phase 2e or `bun init.ts seed-principal-freeze` |
+| principal freeze not in lefthook | Run `/R-ci-setup` Phase 2e or `bun init.ts seed-principal-freeze` |
 | license check not in lefthook | Run `/init` Phase 10d — regenerates `lefthook.yml` |
 | `PR_Main` ruleset missing | `bun $I_TS protect-branches --repo <owner/repo>` — a protected branch that does not exist is reported `skipped` and left alone. Pass `--create-missing` only when bootstrapping a fresh repo: on a trunk-mode repo the absent branch (`staging`) was retired on purpose, and creating it resurrects it. |
 | `PR_Main` allowed_merge_methods ≠ `["merge"]` | **Rulesets PUT is a full replace — never send a partial body (it wipes the other rules + bypass actors).** Fetch, mutate, send whole object: `gh api repos/:owner/:repo/rulesets/<id> \| jq '(.rules[] \| select(.type=="pull_request") \| .parameters.allowed_merge_methods) = ["merge"]' \| gh api repos/:owner/:repo/rulesets/<id> --method PUT --input -` — merge-commit only, see `shared/references/release-convention.md` |
@@ -33,7 +33,7 @@
 | `pull_request_target` checks out PR head | Switch trigger to `pull_request`, or drop the PR-head `ref:` from checkout — never run PR-authored code with secrets in scope |
 | `github.token` / `secrets.GITHUB_TOKEN` in push-triggered step | Replace with App token via `actions/create-github-app-token` → `${{ steps.app.outputs.token }}` — `GITHUB_TOKEN` pushes are silently dropped by GitHub Actions and never re-trigger `push` workflows (dead gate) |
 | `trufflehog` not in `.pre-commit-config.yaml` | Add the trufflehog repo/hook to `.pre-commit-config.yaml` (mirror an existing Roxabi Python repo) |
-| `trufflehog` not in CI | Add `secret-scan.yml` workflow — `/ci-setup` Phase 1b |
+| `trufflehog` not in CI | Add `secret-scan.yml` workflow — `/R-ci-setup` Phase 1b |
 | no hook manager at all | Run `/init` Phase 10d (lefthook) or add `.pre-commit-config.yaml` |
 
 Issues requiring interactive auth / multi-step scaffolding → display exact command + explanation. Never silently redirect.

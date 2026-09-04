@@ -279,6 +279,6 @@ jobs:
     steps:
       - run: |
           echo "Deploy via Cloudflare dashboard git integration (Pages or Workers Builds)."
-          echo "See deploy.platform: cloudflare in .claude/stack.yml and /ci-setup cookbook."
+          echo "See deploy.platform: cloudflare in .claude/stack.yml and /R-ci-setup cookbook."
 `
 }

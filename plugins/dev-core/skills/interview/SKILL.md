@@ -1,5 +1,5 @@
 ---
-name: interview
+name: R-interview
 argument-hint: [topic | --promote <path>]
 description: Structured interview → brainstorm | analysis | spec (with promotion). Triggers: "interview" | "brainstorm" | "let's brainstorm" | "think through this" | "help me brainstorm" | "let's think this through" | "explore ideas".
 version: 0.2.3
@@ -34,7 +34,7 @@ Conduct structured interview → produce one of {β, α, σ}. Supports promoting
 
 ## Step 1 — Existing Document Awareness
 
-Glob B, A, S — match topic by issue#, keywords, or slug. **B included**: β moved out of A on 2026-08-03, and without it a second `/interview` on the same topic cannot see the brainstorm it wrote itself → duplicate β instead of the promote gate below.
+Glob B, A, S — match topic by issue#, keywords, or slug. **B included**: β moved out of A on 2026-08-03, and without it a second `/R-interview` on the same topic cannot see the brainstorm it wrote itself → duplicate β instead of the promote gate below.
 
 ∃ related docs → AQ:
 > "Found existing documents: {list with paths}. How to proceed?"
@@ -54,7 +54,7 @@ Glob B, A, S — match topic by issue#, keywords, or slug. **B included**: β mo
 | α | Structured investigation of topic/problem | `artifacts/analyses/{slug}-analysis.md` |
 | σ | Technical specification for implementation | `artifacts/specs/{issue}-{slug}-spec.md` |
 
-**One kind per directory.** β never lands in A: `/dev`, `/spec` and `/analyze` resolve α by scanning A, and a brainstorm sitting there is indistinguishable by filename — it has to be excluded by reading frontmatter at every consumer. Writing it elsewhere removes the need to classify at all.
+**One kind per directory.** β never lands in A: `/R-dev`, `/R-spec` and `/R-analyze` resolve α by scanning A, and a brainstorm sitting there is indistinguishable by filename — it has to be excluded by reading frontmatter at every consumer. Writing it elsewhere removes the need to classify at all.
 
 ## Step 3 — Structured Interview
 
@@ -103,7 +103,7 @@ AQ per phase. Group 2–4 questions/call. Skip questions obvious from context, a
 | Terminology | "Terms that could mean different things?" |
 | Completion Signals | "How do we know this is done?" |
 
-∀ ambiguity: rank by **Impact × Uncertainty** (H/M/L). H×H → follow-up question. Unresolved → `[NEEDS CLARIFICATION: description]` (max 3–5/spec). Must resolve before `/dev-plan`.
+∀ ambiguity: rank by **Impact × Uncertainty** (H/M/L). H×H → follow-up question. Unresolved → `[NEEDS CLARIFICATION: description]` (max 3–5/spec). Must resolve before `/R-dev-plan`.
 
 Depth by τ: β = Phase 1 + divergent (lighter) | α = Phases 1–3 thorough | σ = all phases, rigorous on edge cases + criteria.
 
@@ -131,7 +131,7 @@ Rules:
 | α | `artifacts/analyses/{slug}-analysis.md` (prefix issue# if ∃) | `type: analysis`, `status: draft` |
 | σ | `artifacts/specs/{issue}-{slug}-spec.md` | `type: spec`, `status: draft` |
 
-`type:` is how classifiers distinguish kinds when legacy files still share a directory; `status: draft` prevents `/dev` from treating an unfinished α/σ as approved (missing `status` ≡ legacy-approved).
+`type:` is how classifiers distinguish kinds when legacy files still share a directory; `status: draft` prevents `/R-dev` from treating an unfinished α/σ as approved (missing `status` ≡ legacy-approved).
 
 ---
 

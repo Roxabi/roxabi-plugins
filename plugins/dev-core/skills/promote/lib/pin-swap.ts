@@ -1,5 +1,5 @@
 /**
- * pin-swap.ts — uv git-dep pin-swap phase for /promote
+ * pin-swap.ts — uv git-dep pin-swap phase for /R-promote
  *
  * Detects [tool.uv.sources] entries with branch= and rewrites them to tag=
  * using the SHA pinned in uv.lock resolved to a matching release tag.

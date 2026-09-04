@@ -63,7 +63,7 @@ Install or skip hook runner setup.
      brew install lefthook        # macOS / Homebrew
      go install github.com/evilmartians/lefthook@latest  # Go toolchain
      scoop install lefthook       # Windows
-   Install lefthook then re-run /release-setup.
+   Install lefthook then re-run /R-release-setup.
    ```
    D⚠("Hook runner — lefthook not found") + skip to Phase 3.
 2. Generate `.lefthook.yml`:

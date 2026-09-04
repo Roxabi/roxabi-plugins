@@ -1,5 +1,5 @@
 ---
-name: seed-community
+name: R-seed-community
 disable-model-invocation: true
 argument-hint: '[--only <file,...>] [--force]'
 description: Bootstrap OSS community health files (CONTRIBUTING, LICENSE, SECURITY, templates).
@@ -22,9 +22,9 @@ Let:
 **Idempotent** — files ≥ 20 lines skipped unless `--force`.
 
 ```
-/seed-community                          → detect + generate all MISSING
-/seed-community --only SECURITY,CoC     → comma-separated subset
-/seed-community --force                 → overwrite even populated files
+/R-seed-community                          → detect + generate all MISSING
+/R-seed-community --only SECURITY,CoC     → comma-separated subset
+/R-seed-community --force                 → overwrite even populated files
 ```
 
 ## Phase 1 — Load Metadata

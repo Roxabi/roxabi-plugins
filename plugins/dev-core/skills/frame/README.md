@@ -4,13 +4,13 @@ Problem framing — capture the problem, constraints, scope, and tier before wri
 
 ## Why
 
-Jumping straight to implementation without a clear problem statement leads to scope creep and rework. `/frame` produces an approved frame artifact and auto-detects the implementation tier (S / F-lite / F-full) so the rest of the pipeline is correctly scoped.
+Jumping straight to implementation without a clear problem statement leads to scope creep and rework. `/R-frame` produces an approved frame artifact and auto-detects the implementation tier (S / F-lite / F-full) so the rest of the pipeline is correctly scoped.
 
 ## Usage
 
 ```
-/frame "idea text"      Frame a free-text idea
-/frame --issue 42       Seed from a GitHub issue
+/R-frame "idea text"      Frame a free-text idea
+/R-frame --issue 42       Seed from a GitHub issue
 ```
 
 Triggers: `"frame"` | `"frame this"` | `"what's the problem"` | `"define the problem"` | `"scope this out"` | `"problem statement"`
@@ -41,6 +41,6 @@ Fields: `title`, `issue`, `status: approved`, `tier`, `date`, Problem, Who, Cons
 
 ## Chain position
 
-Frame → **Predecessor of** `/analyze` (F-full) or `/spec` (F-lite).
+Frame → **Predecessor of** `/R-analyze` (F-full) or `/R-spec` (F-lite).
 
 Class: `adv + approval stop` with high-conf auto-approve. Disk done-signal = `status: approved`.

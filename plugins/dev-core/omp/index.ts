@@ -44,7 +44,15 @@ type ExtensionAPI = {
 const __filename = fileURLToPath(import.meta.url)
 const PLUGIN_ROOT = dirname(dirname(__filename))
 
-const SKILL_COMMANDS = ['dev', 'ship', 'dev-init', 'dev-plan', 'dev-implement', 'dev-review', 'dev-checkup'] as const
+const SKILL_COMMANDS = [
+  'R-dev',
+  'R-ship',
+  'R-dev-init',
+  'R-dev-plan',
+  'R-dev-implement',
+  'R-dev-review',
+  'R-dev-checkup',
+] as const
 
 function stripFrontmatter(markdown: string): string {
   if (!markdown.startsWith('---\n')) return markdown
@@ -54,7 +62,8 @@ function stripFrontmatter(markdown: string): string {
 }
 
 function readSkillBody(skillName: string): { body: string; skillDir: string } {
-  const skillDir = join(PLUGIN_ROOT, 'skills', skillName)
+  // Registry identity is namespaced for the host; filesystem layout is not.
+  const skillDir = join(PLUGIN_ROOT, 'skills', skillName.replace(/^R-/, ''))
   const skillPath = join(skillDir, 'SKILL.md')
   const raw = readFileSync(skillPath, 'utf8')
   return { body: rewriteHarnessPaths(stripFrontmatter(raw).trim(), skillDir, PLUGIN_ROOT), skillDir }
@@ -108,7 +117,7 @@ export default function devCoreExtension(pi: ExtensionAPI): void {
         return {
           block: true,
           reason:
-            'Principal freeze (pre): do not move principal off staging|main|master. Feature work → dedicated worktree (/setup-worktree or /dev #N).',
+            'Principal freeze (pre): do not move principal off staging|main|master. Feature work → dedicated worktree (/R-setup-worktree or /R-dev #N).',
         }
       }
     }

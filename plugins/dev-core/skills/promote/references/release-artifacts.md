@@ -39,7 +39,7 @@ PREVIEW=$(bash "${CLAUDE_SKILL_DIR}/price.sh" "$COMPONENT" origin/main origin/ma
 | `≥1` other | git/arg error | **REFUSE** — never invent a version |
 
 The preview is a **proposal**, not a decision. `Custom version` is **retained** as the escape hatch
-for the multi-component repos `/promote` does not yet handle (factory, cortex); it is no longer
+for the multi-component repos `/R-promote` does not yet handle (factory, cortex); it is no longer
 *required* on single-component repos.
 
 → present choice: **Use {VERSION}** (Recommended) | **Custom version**.
@@ -106,7 +106,7 @@ Prepend new release entry in [Keep a Changelog](https://keepachangelog.com/) for
 - docs: update deployment guide (#44)
 ```
 
-Use Edit to prepend after header (after "Entries are generated automatically by `/promote` and committed to staging before the promotion PR.").
+Use Edit to prepend after header (after "Entries are generated automatically by `/R-promote` and committed to staging before the promotion PR.").
 
 ### 4b. Update changelog page (grouped by minor V)
 

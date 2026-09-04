@@ -4,9 +4,9 @@
 
 ## Purpose
 
-Defines how the 13 dev-core pipeline skills participate in the `/dev` orchestration and how chaining, task lifecycle, and exit behavior work across them.
+Defines how the 13 dev-core pipeline skills participate in the `/R-dev` orchestration and how chaining, task lifecycle, and exit behavior work across them.
 
-> **Issue triage is not a dev-core step.** `roxabi-issues:issue-triage` runs *before* `/dev`, in a separate plugin (relocated dev-core → roxabi-issues, 2026-06-09). The dev-core pipeline itself starts at `recheck`.
+> **Issue triage is not a dev-core step.** `roxabi-issues:issue-triage` runs *before* `/R-dev`, in a separate plugin (relocated dev-core → roxabi-issues, 2026-06-09). The dev-core pipeline itself starts at `recheck`.
 
 ## Pipeline
 
@@ -19,34 +19,34 @@ issue-triage (external, roxabi-issues) → recheck → frame ⏸?→ analyze ⏸
 > - `frame ⏸?`: stop only when ¬high_conf; **high_conf auto-approves** same turn (seed complete, premise ok, tier not contested).
 > - `analyze ⏸→ spec`: always prints Executive Summary and waits. τ ∈ {S, F-lite} skip analyze entirely.
 > - `spec ⏸→ plan`: chat Executive Summary (same doctrine; disk `status ≠ draft`).
-> - `plan ⏸→ implement`: plan Executive Summary → free-form approve → seed+commit; then `/dev` Step 8b **compact pause** before `/dev-implement`. τ=S skips plan entirely.
+> - `plan ⏸→ implement`: plan Executive Summary → free-form approve → seed+commit; then `/R-dev` Step 8b **compact pause** before `/R-dev-implement`. τ=S skips plan entirely.
 
-### Parallel meta: `/ship` (code already ready)
+### Parallel meta: `/R-ship` (code already ready)
 
 ```
 commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → ci-watch → cleanup?
 ```
 
-`/ship` is a **second orchestrator** (not a step inside `/dev`). Use when the feature branch already has the work and you only want the gate path. Differences vs `/dev` Verify:
+`/R-ship` is a **second orchestrator** (not a step inside `/R-dev`). Use when the feature branch already has the work and you only want the gate path. Differences vs `/R-dev` Verify:
 
-| | `/dev` Verify | `/ship` |
+| | `/R-dev` Verify | `/R-ship` |
 |---|---|---|
 | Order | pr → **ci-watch** → validate → **review** → fix | commit → pr → **review** → fix → **reviewed + ci-watch** |
 | validate | yes | no |
 | commit | via implement | first-class step |
-| `reviewed` label | via code-review Phase 8 / fix Phase 7 | owned by ship after final APPROVED (strips premature label after `/fix` before re-review) |
+| `reviewed` label | via code-review Phase 8 / fix Phase 7 | owned by ship after final APPROVED (strips premature label after `/R-fix` before re-review) |
 
-¬add `/ship` steps to `/dev` STEPS list — they remain separate entry points.
+¬add `/R-ship` steps to `/R-dev` STEPS list — they remain separate entry points.
 
 ## Ownership model
 
 | Concern | Owner |
 |---|---|
-| dev-pipeline task lifecycle (seed, in_progress, completed, cancelled) | `/dev` |
-| Step transitions (what runs next) | `/dev` Step 5 STEPS list + Step 7 invocation map |
-| Gate approval prompts (legacy / rare) | `/dev` Step 6 only where still needed (e.g. F-full architecture sketch pre-plan) |
-| Approval-stop (frame, analyze, spec, plan) | the skill itself — chat Executive Summary (¬AQ); `/dev` Step 8.0 disk-asserts done-signal before complete |
-| Compact pause (plan→implement, F-lite/F-full) | `/dev` Step 8b |
+| dev-pipeline task lifecycle (seed, in_progress, completed, cancelled) | `/R-dev` |
+| Step transitions (what runs next) | `/R-dev` Step 5 STEPS list + Step 7 invocation map |
+| Gate approval prompts (legacy / rare) | `/R-dev` Step 6 only where still needed (e.g. F-full architecture sketch pre-plan) |
+| Approval-stop (frame, analyze, spec, plan) | the skill itself — chat Executive Summary (¬AQ); `/R-dev` Step 8.0 disk-asserts done-signal before complete |
+| Compact pause (plan→implement, F-lite/F-full) | `/R-dev` Step 8b |
 | Standalone invocation fallback | Each skill's Exit section |
 | Sub-task creation (with `kind` ≠ `dev-pipeline`) | Individual skills (plan, code-review) |
 | Loop handling (review ↔ fix) | Follow-up TaskCreate with `metadata.iteration` |
@@ -55,12 +55,12 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 
 | Class | Meaning | Skills | Exit behavior |
 |---|---|---|---|
-| **adv** | Continuous flow, no user gate | recheck, implement, pr, ci-watch, validate, cleanup | Return silently; `/dev` auto-advances |
-| **adv + approval stop** | Dispatched like `adv`; chat Executive Summary + free-form approve (¬AskUserQuestion). Optional high-conf auto-approve (frame only). | frame, analyze, spec, plan | Print summary → **stop** unless high_conf auto-approve (frame). `/dev` Step 8.0: disk done-signal before complete. Walk **ignores `Σ_s` alone** for these steps. Resume = skill React (¬fresh Step 0). **plan:** after approve+seed, compact pause before `/dev-implement`. |
-| **gate** | (legacy / rare pre-gates only) | — | Prefer `adv + approval stop` for pipeline artifacts. `/dev` may still use structured prompts for F-full architecture sketch / issue create. |
-| **verdict** | Branches based on outcome | code-review | APPROVED → merge → cleanup; CHANGES_REQUESTED → `/fix` |
+| **adv** | Continuous flow, no user gate | recheck, implement, pr, ci-watch, validate, cleanup | Return silently; `/R-dev` auto-advances |
+| **adv + approval stop** | Dispatched like `adv`; chat Executive Summary + free-form approve (¬AskUserQuestion). Optional high-conf auto-approve (frame only). | frame, analyze, spec, plan | Print summary → **stop** unless high_conf auto-approve (frame). `/R-dev` Step 8.0: disk done-signal before complete. Walk **ignores `Σ_s` alone** for these steps. Resume = skill React (¬fresh Step 0). **plan:** after approve+seed, compact pause before `/R-dev-implement`. |
+| **gate** | (legacy / rare pre-gates only) | — | Prefer `adv + approval stop` for pipeline artifacts. `/R-dev` may still use structured prompts for F-full architecture sketch / issue create. |
+| **verdict** | Branches based on outcome | code-review | APPROVED → merge → cleanup; CHANGES_REQUESTED → `/R-fix` |
 | **loop** | Cycles back to predecessor (bounded) | fix | On success → TaskCreate follow-up review; max 2 iterations |
-| **standalone** | Never auto-triggered by `/dev` | promote, adversarial, advisory | Runs only on explicit user invocation |
+| **standalone** | Never auto-triggered by `/R-dev` | promote, adversarial, advisory | Runs only on explicit user invocation |
 
 ### Done-signals (disk) for approval-stop skills
 
@@ -75,9 +75,9 @@ commit → pr → code-review → {fix ↺ review}×≤2 → label reviewed → 
 
 ### dev-pipeline task (kind: "dev-pipeline")
 
-- **Created by:** `/dev` Step 2b at the start of a pipeline run
-- **Updated by:** `/dev` only — Step 7 sets `in_progress` before invocation, Step 8 sets `completed` on success
-  - **Exception (`adv + approval stop`):** a skill that ends its turn awaiting approval has not succeeded yet. `/dev` leaves the task `in_progress` and sets `completed` only after the disk done-signal (approve reaction or frame high_conf auto-approve). Applies to: `frame`, `analyze`, `spec`, `plan`.
+- **Created by:** `/R-dev` Step 2b at the start of a pipeline run
+- **Updated by:** `/R-dev` only — Step 7 sets `in_progress` before invocation, Step 8 sets `completed` on success
+  - **Exception (`adv + approval stop`):** a skill that ends its turn awaiting approval has not succeeded yet. `/R-dev` leaves the task `in_progress` and sets `completed` only after the disk done-signal (approve reaction or frame high_conf auto-approve). Applies to: `frame`, `analyze`, `spec`, `plan`.
 - **NOT updated by:** individual pipeline skills (they are passive participants)
 - **Metadata:** `{ kind: "dev-pipeline", issue: N, step: "...", phase: "Frame|Shape|Build|Verify|Ship", tier: τ }`
 - **Dependencies:** wired sequentially via `blockedBy` during seeding (graph is a DAG, no cycles)
@@ -88,8 +88,8 @@ Skills that break their work into trackable sub-units create their own tasks wit
 
 | Skill | Sub-task kind | Purpose |
 |---|---|---|
-| `/dev-plan` | `plan-task` | One per micro-task in the plan; IDs persisted in artifact `## Task IDs` section |
-| `/dev-review` | `review-finding` (if used) | One per finding, ephemeral |
+| `/R-dev-plan` | `plan-task` | One per micro-task in the plan; IDs persisted in artifact `## Task IDs` section |
+| `/R-dev-review` | `review-finding` (if used) | One per finding, ephemeral |
 
 Sub-tasks are independent of dev-pipeline lifecycle but may `blockedBy` their parent dev-pipeline task for observability.
 
@@ -110,7 +110,7 @@ review-iter-2 (dev-pipeline)
 
 fix-iter-2 (dev-pipeline)
   └─ iteration == 2 → Phase 8 must recommend Merge as-is or Stop, not Fix
-  └─ user picks Fix anyway → /dev presents Abort
+  └─ user picks Fix anyway → /R-dev presents Abort
 ```
 
 **Loop cap: 2 fix↔review iterations.**
@@ -122,9 +122,9 @@ fix-iter-2 (dev-pipeline)
 ```markdown
 ## Exit
 
-- **Success via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce successor. `/dev` re-scans and advances.
+- **Success via `/R-dev`:** return control silently. ¬write summary. ¬ask user. ¬announce successor. `/R-dev` re-scans and advances.
 - **Success standalone:** print one line with next-skill hint. Stop.
-- **Failure:** return error. `/dev` presents Retry | Skip | Abort.
+- **Failure:** return error. `/R-dev` presents Retry | Skip | Abort.
 ```
 
 ### adv + approval-stop Exit (frame, analyze, spec, plan)
@@ -134,26 +134,26 @@ fix-iter-2 (dev-pipeline)
 
 The Executive Summary is the gate output (not a closing recap). Frame may skip the stop when high_conf auto-approves.
 
-- **While waiting for reaction:** turn ends after the summary. Task stays `in_progress`; `/dev` Step 8.0 disk-asserts done-signal → else ¬Σ_s, ¬completed.
+- **While waiting for reaction:** turn ends after the summary. Task stays `in_progress`; `/R-dev` Step 8.0 disk-asserts done-signal → else ¬Σ_s, ¬completed.
 - **Resume:** next user message → skill React only (¬fresh Step 0) unless re-* / regenerate.
-- **Approved via `/dev`:** set done-signal on disk, commit (plan: seed + ## Task IDs), return silently. `/dev` re-reads disk → completes step → successor.
+- **Approved via `/R-dev`:** set done-signal on disk, commit (plan: seed + ## Task IDs), return silently. `/R-dev` re-reads disk → completes step → successor.
 - **Approved standalone:** print one line with next-skill hint. Stop.
 - **Revise / side-path (adversarial|advisory) loop:** re-print the summary after each edit; stop again. Fix/fold only if user asks.
-- **Abort:** return → `/dev` marks task `cancelled` (draft / no Task IDs left on disk as appropriate).
+- **Abort:** return → `/R-dev` marks task `cancelled` (draft / no Task IDs left on disk as appropriate).
 ```
 
 **Frame high_conf exception:** when interview/premise gaps are zero, tier not contested, and no premise abort signal → auto-approve + commit same turn (short summary printed; no approval STOP).
 
-**`/dev-plan` exception — compact pause:** after approve+seed+commit, `/dev` Step 8b prints a compact-pause recommendation (`/compact` → `/dev-implement`, where `/dev #N` ≡ `/dev-implement #N`) and stops the turn. Rationale: planning context is dead weight for the build phase; tasks persist (task list + artifact `## Task IDs`) so `/dev-implement` Step 1b re-attaches after the compact. Re-fire guard: the pause is keyed to *plan having just run*, so the post-compact `/dev #N` resume goes straight to `/dev-implement`.
+**`/R-dev-plan` exception — compact pause:** after approve+seed+commit, `/R-dev` Step 8b prints a compact-pause recommendation (`/compact` → `/R-dev-implement`, where `/R-dev #N` ≡ `/R-dev-implement #N`) and stops the turn. Rationale: planning context is dead weight for the build phase; tasks persist (task list + artifact `## Task IDs`) so `/R-dev-implement` Step 1b re-attaches after the compact. Re-fire guard: the pause is keyed to *plan having just run*, so the post-compact `/R-dev #N` resume goes straight to `/R-dev-implement`.
 
 ### verdict-class Exit (code-review)
 
 ```markdown
 ## Exit
 
-- **APPROVED via `/dev`:** merge → return. `/dev` advances to `/cleanup`.
-- **CHANGES_REQUESTED via `/dev`:** TaskCreate follow-up fix task → return silently. `/dev` picks up the new task.
-- **Stop:** return → `/dev` presents Abort | Resume.
+- **APPROVED via `/R-dev`:** merge → return. `/R-dev` advances to `/R-cleanup`.
+- **CHANGES_REQUESTED via `/R-dev`:** TaskCreate follow-up fix task → return silently. `/R-dev` picks up the new task.
+- **Stop:** return → `/R-dev` presents Abort | Resume.
 - **Loop cap:** max 2 fix↔review iterations (metadata.iteration).
 ```
 
@@ -162,10 +162,10 @@ The Executive Summary is the gate output (not a closing recap). Frame may skip t
 ```markdown
 ## Exit
 
-- **Success via `/dev`:** fixes applied → TaskCreate follow-up review task → return silently.
-- **Success standalone:** print summary + `Next: /dev-review`. Stop.
-- **Failure:** return error. `/dev` presents Retry | Skip | Abort.
-- **Loop cap:** iteration ≥ 2 on entry → refuse, return message, `/dev` presents Abort.
+- **Success via `/R-dev`:** fixes applied → TaskCreate follow-up review task → return silently.
+- **Success standalone:** print summary + `Next: /R-dev-review`. Stop.
+- **Failure:** return error. `/R-dev` presents Retry | Skip | Abort.
+- **Loop cap:** iteration ≥ 2 on entry → refuse, return message, `/R-dev` presents Abort.
 ```
 
 ### standalone-class Exit (promote)
@@ -174,12 +174,12 @@ The Executive Summary is the gate output (not a closing recap). Frame may skip t
 ## Exit
 
 - **Success standalone:** print result. Stop.
-- **Failure:** return error. No `/dev` recovery path.
+- **Failure:** return error. No `/R-dev` recovery path.
 ```
 
 ## Suppression imperatives
 
-These imperatives exist in `/dev` Step 7/8 **and** in each skill's Exit section. Redundancy is intentional — the model reads them at different moments (orchestration vs skill execution).
+These imperatives exist in `/R-dev` Step 7/8 **and** in each skill's Exit section. Redundancy is intentional — the model reads them at different moments (orchestration vs skill execution).
 
 - ¬ask "Ready to proceed to /X?"
 - ¬ask "Shall I continue?"
@@ -193,19 +193,19 @@ These imperatives exist in `/dev` Step 7/8 **and** in each skill's Exit section.
 
 When adding a new skill to the dev-core pipeline:
 
-1. Add it to `/dev` Step 5 STEPS list at the appropriate position
-2. Add it to `/dev` Step 7 invocation map with its class (adv|adv + approval stop|gate|verdict|loop|standalone)
-3. Add it to `/dev` Step 4 skip logic if conditionally skipped
-4. Add it to `/dev` Tier Skip Matrix (S|F-lite|F-full columns)
+1. Add it to `/R-dev` Step 5 STEPS list at the appropriate position
+2. Add it to `/R-dev` Step 7 invocation map with its class (adv|adv + approval stop|gate|verdict|loop|standalone)
+3. Add it to `/R-dev` Step 4 skip logic if conditionally skipped
+4. Add it to `/R-dev` Tier Skip Matrix (S|F-lite|F-full columns)
 5. Add the three canonical body sections to the skill's own SKILL.md: **Chain Position**, **Task Integration**, **Exit** (using the class-appropriate Exit pattern)
 6. Update this reference file if the new skill introduces a new class
 
-When adding a **meta-orchestrator** (like `/ship`):
+When adding a **meta-orchestrator** (like `/R-ship`):
 
 1. New skill directory under `skills/<name>/` with SKILL.md + README.md
-2. Document relation to `/dev` (when to use which) — do **not** force-insert into `/dev` STEPS unless the full lifecycle should change
+2. Document relation to `/R-dev` (when to use which) — do **not** force-insert into `/R-dev` STEPS unless the full lifecycle should change
 3. Update this contract + plugin README skills table
-4. Child skills keep their Exit “via `/dev`” paths; add “via `/ship`” only if behavior must differ (e.g. strip `reviewed` after fix)
+4. Child skills keep their Exit “via `/R-dev`” paths; add “via `/R-ship`” only if behavior must differ (e.g. strip `reviewed` after fix)
 
 ## Cache synchronization
 
@@ -220,7 +220,7 @@ This pulls the marketplace clone and repopulates the hash-keyed cache dir, ensur
 ## Related documents
 
 - ADR: `docs/adr/00X-dev-core-chain-contract.md` — rationale for distributed declaration + /dev-owns-lifecycle
-- `/dev` SKILL.md — orchestration state machine
-- `/dev-plan` SKILL.md — reference implementation of sub-task creation
-- `/dev-implement` SKILL.md — reference implementation of sub-task consumption
+- `/R-dev` SKILL.md — orchestration state machine
+- `/R-dev-plan` SKILL.md — reference implementation of sub-task creation
+- `/R-dev-implement` SKILL.md — reference implementation of sub-task consumption
 - [artifact-frontmatter.md](./artifact-frontmatter.md) — title hygiene + `type:`/`status:` required keys for every writer

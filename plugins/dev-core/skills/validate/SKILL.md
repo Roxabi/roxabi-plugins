@@ -1,5 +1,5 @@
 ---
-name: validate
+name: R-validate
 argument-hint: [--quick | --full | --affected]
 description: Run all quality gates (lint, typecheck, test, env, i18n, license; optional falsify on --full) and produce a structured pass/fail report. Triggers: "validate" | "quality check" | "pre-push check" | "are we green".
 version: 0.2.1
@@ -39,10 +39,10 @@ Steps: scope → run-checks → report → verdict
 ## Usage
 
 ```
-/validate              → Run all checks
-/validate --quick      → Lint + typecheck only (fastest)
-/validate --full       → All checks including license, coverage, optional falsify
-/validate --affected   → Only check files changed vs main
+/R-validate              → Run all checks
+/R-validate --quick      → Lint + typecheck only (fastest)
+/R-validate --full       → All checks including license, coverage, optional falsify
+/R-validate --affected   → Only check files changed vs main
 ```
 
 ## Instructions
@@ -112,7 +112,7 @@ Test:
 
 - ∀ χ pass → `All checks passed. Safe to push.`
 - ∃ χ fail → `{N} check(s) failed. Fix before pushing.`
-- `--quick` ∧ ∀ pass → `Quick checks passed. Run /validate for full check.`
+- `--quick` ∧ ∀ pass → `Quick checks passed. Run /R-validate for full check.`
 
 ## Edge Cases
 
@@ -135,20 +135,20 @@ Test:
 ## Chain Position
 
 - **Phase:** Verify
-- **Predecessor:** `/ci-watch`
-- **Successor:** `/dev-review`
+- **Predecessor:** `/R-ci-watch`
+- **Successor:** `/R-dev-review`
 - **Class:** adv (continuous flow, no gate)
 
 ## Task Integration
 
-- `/dev` owns the dev-pipeline task lifecycle externally
+- `/R-dev` owns the dev-pipeline task lifecycle externally
 - This skill does NOT update its own dev-pipeline task
 - Sub-tasks created: none
 
 ## Exit
 
-- **All pass via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/dev-review`. `/dev` re-scans and advances.
-- **All pass standalone:** print verdict block + `Next: /dev-review`. Stop.
-- **Failure:** return error. `/dev` presents Retry | Skip | Abort.
+- **All pass via `/R-dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/R-dev-review`. `/R-dev` re-scans and advances.
+- **All pass standalone:** print verdict block + `Next: /R-dev-review`. Stop.
+- **Failure:** return error. `/R-dev` presents Retry | Skip | Abort.
 
 $ARGUMENTS

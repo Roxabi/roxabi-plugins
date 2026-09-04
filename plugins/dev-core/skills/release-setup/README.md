@@ -4,13 +4,13 @@ Set up commit standards and release automation — Commitizen, commitlint, hook 
 
 ## Why
 
-Consistent commit messages are the foundation of automated changelogs and semantic versioning. `/release-setup` wires Commitizen (interactive commit UI), commitlint (enforce Conventional Commits on push), a hook runner (Lefthook or Husky), and your choice of release automation (semantic-release or Release Please) — all idempotently.
+Consistent commit messages are the foundation of automated changelogs and semantic versioning. `/R-release-setup` wires Commitizen (interactive commit UI), commitlint (enforce Conventional Commits on push), a hook runner (Lefthook or Husky), and your choice of release automation (semantic-release or Release Please) — all idempotently.
 
 ## Usage
 
 ```
-/release-setup           Configure (skips already-configured components)
-/release-setup --force   Re-run all components
+/R-release-setup           Configure (skips already-configured components)
+/R-release-setup --force   Re-run all components
 ```
 
 Triggers: `"release setup"` | `"setup releases"` | `"commit standards"` | `"setup release automation"`

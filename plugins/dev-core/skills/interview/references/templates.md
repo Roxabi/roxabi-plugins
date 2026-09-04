@@ -43,7 +43,7 @@ status: draft
 
 Output path: `artifacts/analyses/{slug}-analysis.md`
 
-Frontmatter contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md). Same keys as `/analyze` so `/dev` and `artifact-classify` treat interview-written α identically.
+Frontmatter contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md). Same keys as `/R-analyze` so `/R-dev` and `artifact-classify` treat interview-written α identically.
 
 ```md
 ---
@@ -121,11 +121,11 @@ status: draft
 
 ## Spec
 
-> **Inline ambiguity markers:** `[NEEDS CLARIFICATION: description]` — unresolved ambiguity (max 3–5/spec). Must resolve before `/dev-plan`.
+> **Inline ambiguity markers:** `[NEEDS CLARIFICATION: description]` — unresolved ambiguity (max 3–5/spec). Must resolve before `/R-dev-plan`.
 
 Output path: `artifacts/specs/{issue}-{slug}-spec.md`
 
-Frontmatter contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md). Same keys as `/spec`.
+Frontmatter contract: [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md). Same keys as `/R-spec`.
 
 ```md
 ---
@@ -179,7 +179,7 @@ status: draft
 |----|-------|------|-------------|
 | S1 | {Table, cache, API...} | {Persistent/transient/external} | N1, N2 |
 
-{Unknowns: uncertain wiring → investigation spikes during `/analyze` before spec execution.}
+{Unknowns: uncertain wiring → investigation spikes during `/R-analyze` before spec execution.}
 
 ## Slices
 

@@ -5,7 +5,7 @@ Let: α := agent(s) | σ := stack.yml field
 `stack.yml` makes dev-core agents project-agnostic. Agents reference `{backend.path}`, `{commands.test}`, etc. from `.claude/stack.yml`, imported via CLAUDE.md `@import`.
 
 Add `@.claude/stack.yml` as **first line** of CLAUDE.md. ¬∃ `.claude/stack.yml` → agents output:
-> "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init` to generate the file, or `/dev-checkup` to diagnose."
+> "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/init` to generate the file, or `/R-dev-checkup` to diagnose."
 
 ## Field Reference
 
@@ -15,92 +15,92 @@ Add `@.claude/stack.yml` as **first line** of CLAUDE.md. ¬∃ `.claude/stack.ym
 |---|------|---|---------|
 | `schema_version` | string | checkup | Schema compat check |
 | `runtime` | string | — | Runtime ID (informational) |
-| `package_manager` | string | security-auditor, devops | Pkg mgr for audit/lockfile |
+| `package_manager` | string | R-security-auditor, R-devops | Pkg mgr for audit/lockfile |
 
 ### `backend.*`
 
 | σ | α | Purpose |
 |---|---|---------|
-| `backend.framework` | backend-dev | Framework conventions |
-| `backend.orm` | backend-dev | ORM conventions (migrations, chain mocking) |
-| `backend.path` | backend-dev, fixer, tester | Backend app root |
+| `backend.framework` | R-backend-dev | Framework conventions |
+| `backend.orm` | R-backend-dev | ORM conventions (migrations, chain mocking) |
+| `backend.path` | R-backend-dev, R-fixer, R-tester | Backend app root |
 
 ### `frontend.*`
 
 | σ | α | Purpose |
 |---|---|---------|
-| `frontend.framework` | frontend-dev | Framework conventions |
-| `frontend.path` | frontend-dev, fixer | Frontend app root |
-| `frontend.ui_package` | frontend-dev | Shared UI import path |
-| `frontend.ui_src` | frontend-dev | UI component exports dir |
+| `frontend.framework` | R-frontend-dev | Framework conventions |
+| `frontend.path` | R-frontend-dev, R-fixer | Frontend app root |
+| `frontend.ui_package` | R-frontend-dev | Shared UI import path |
+| `frontend.ui_src` | R-frontend-dev | UI component exports dir |
 
 ### `shared.*`
 
 | σ | α | Purpose |
 |---|---|---------|
-| `shared.types` | backend-dev, frontend-dev | Shared TS types path |
-| `shared.ui` | frontend-dev, backend-dev (boundary) | Shared UI path |
-| `shared.config` | devops, backend-dev (boundary) | Shared config path |
+| `shared.types` | R-backend-dev, R-frontend-dev | Shared TS types path |
+| `shared.ui` | R-frontend-dev, R-backend-dev (boundary) | Shared UI path |
+| `shared.config` | R-devops, R-backend-dev (boundary) | Shared config path |
 
 ### `build.*`
 
 | σ | α | Purpose |
 |---|---|---------|
-| `build.orchestrator` | devops | Build orchestrator name |
-| `build.orchestrator_config` | devops | Orchestrator config file |
-| `build.formatter` | devops | Formatter name |
-| `build.formatter_config` | devops | Formatter config file |
-| `build.formatter_fix_cmd` | devops | Auto-fix formatting cmd |
+| `build.orchestrator` | R-devops | Build orchestrator name |
+| `build.orchestrator_config` | R-devops | Orchestrator config file |
+| `build.formatter` | R-devops | Formatter name |
+| `build.formatter_config` | R-devops | Formatter config file |
+| `build.formatter_fix_cmd` | R-devops | Auto-fix formatting cmd |
 
 ### `testing.*`
 
 | σ | α | Purpose |
 |---|---|---------|
-| `testing.unit` | tester | Unit test framework |
-| `testing.e2e` | tester | E2E test framework |
+| `testing.unit` | R-tester | Unit test framework |
+| `testing.e2e` | R-tester | E2E test framework |
 
 ### `hooks.*`
 
 | σ | α | Purpose |
 |---|---|---------|
-| `hooks.tool` | ci-setup, release-setup | Hook runner selection: `auto` \| `lefthook` \| `pre-commit` \| `husky` \| `none`. `auto` → infers from runtime (Python → pre-commit, else lefthook). Consumed by `/ci-setup` (installs pre-commit hooks) and `/release-setup` (wires commit-msg hook). |
+| `hooks.tool` | ci-setup, release-setup | Hook runner selection: `auto` \| `lefthook` \| `pre-commit` \| `husky` \| `none`. `auto` → infers from runtime (Python → pre-commit, else lefthook). Consumed by `/R-ci-setup` (installs pre-commit hooks) and `/R-release-setup` (wires commit-msg hook). |
 
 ### `deploy.*`
 
 | σ | α | Purpose |
 |---|---|---------|
-| `deploy.platform` | devops | Deploy platform name |
-| `deploy.secrets_cmd` | devops | Add-secrets cmd |
+| `deploy.platform` | R-devops | Deploy platform name |
+| `deploy.secrets_cmd` | R-devops | Add-secrets cmd |
 
 ### `docs.*`
 
 | σ | α | Purpose |
 |---|---|---------|
-| `docs.framework` | doc-writer | Optional site framework (`none` default; Fumadocs removed) |
-| `docs.path` | doc-writer | Root doc dir |
-| `docs.format` | doc-writer (informational) | Fixed `md` write path; field optional/compat only. Legacy `.mdx` read-only |
+| `docs.framework` | R-doc-writer | Optional site framework (`none` default; Fumadocs removed) |
+| `docs.path` | R-doc-writer | Root doc dir |
+| `docs.format` | R-doc-writer (informational) | Fixed `md` write path; field optional/compat only. Legacy `.mdx` read-only |
 
 ### `commands.*`
 
 | σ | α | Purpose |
 |---|---|---------|
 | `commands.dev` | — | Start dev server |
-| `commands.build` | devops | Build all packages |
-| `commands.test` | tester, fixer | Run test suite |
-| `commands.test:falsify` | implement, test, validate | Optional mechanical falsify gate. YAML key must be quoted (`"test:falsify"`). Absent → `/validate --full` ⏭; `/dev-implement` 6b falls back to git-stash |
-| `commands.lint` | fixer, devops | Run linter |
-| `commands.typecheck` | fixer, devops | Run type checker |
-| `commands.format` | devops | Auto-format |
-| `commands.install` | devops | Install deps |
+| `commands.build` | R-devops | Build all packages |
+| `commands.test` | R-tester, R-fixer | Run test suite |
+| `commands.test:falsify` | implement, test, validate | Optional mechanical falsify gate. YAML key must be quoted (`"test:falsify"`). Absent → `/R-validate --full` ⏭; `/R-dev-implement` 6b falls back to git-stash |
+| `commands.lint` | R-fixer, R-devops | Run linter |
+| `commands.typecheck` | R-fixer, R-devops | Run type checker |
+| `commands.format` | R-devops | Auto-format |
+| `commands.install` | R-devops | Install deps |
 
 ### `artifacts.*`
 
 | σ | α | Purpose |
 |---|---|---------|
-| `artifacts.analyses` | product-lead, architect | Analysis docs dir |
-| `artifacts.specs` | product-lead | Specs dir |
-| `artifacts.frames` | product-lead | Frames dir |
-| `artifacts.plans` | product-lead, architect | Plans dir |
+| `artifacts.analyses` | R-product-lead, R-architect | Analysis docs dir |
+| `artifacts.specs` | R-product-lead | Specs dir |
+| `artifacts.frames` | R-product-lead | Frames dir |
+| `artifacts.plans` | R-product-lead, R-architect | Plans dir |
 
 ### `review.*`
 
@@ -108,30 +108,30 @@ Consumer: `plugins/dev-core/skills/dev-review/roster.sh` (the deterministic rost
 
 | σ | α | Purpose |
 |---|---|---------|
-| `review.roster.max_agents` | dev-review | Cap on the spawn set per chunk lane (excl. recall / finding-verifier). Default `4`; `<1` clamps to `1` + warning |
+| `review.roster.max_agents` | dev-review | Cap on the spawn set per chunk lane (excl. R-recall / R-finding-verifier). Default `4`; `<1` clamps to `1` + warning |
 | `review.roster.verify_below_confidence` | dev-review | Keep/drop pass over findings below this C. Default `90`; `0` disables the keep/drop filter |
 | `review.roster.recall_min_delta` | dev-review | Recall needs multi-chunk ∧ `|Δ|` > this. Default `50` |
-| `review.roster.agents.<agent>` | dev-review | Per-agent override: `default` \| `always` \| `never`. Default `default`. `adversarial` is a floor (`never` ignored). `product-lead` is not a roster agent (Phase 2 covers spec compliance) |
+| `review.roster.agents.<agent>` | dev-review | Per-agent override: `default` \| `always` \| `never`. Default `default`. `R-adversarial` is a floor (`never` ignored). `R-product-lead` is not a roster agent (Phase 2 covers spec compliance) |
 
 ### `standards.*`
 
 | σ | α | Purpose |
 |---|---|---------|
-| `standards.backend` | backend-dev, fixer, tester | Backend patterns |
-| `standards.frontend` | frontend-dev, fixer, tester | Frontend patterns + TS gotchas |
-| `standards.testing` | tester, fixer, backend-dev, frontend-dev | Test patterns, mocking |
-| `standards.code_review` | fixer | Code review conventions |
-| `standards.architecture` | architect | ADRs + diagrams |
-| `standards.configuration` | devops | Config conventions |
-| `standards.deployment` | devops | Deploy procedures |
-| `standards.troubleshooting` | devops | Troubleshooting guides |
-| `standards.issue_management` | product-lead | Issue triage/mgmt |
-| `standards.dev_process` | architect | Dev process tiers/phases |
-| `standards.contributing` | doc-writer, architect | Contributing + doc format |
+| `standards.backend` | R-backend-dev, R-fixer, R-tester | Backend patterns |
+| `standards.frontend` | R-frontend-dev, R-fixer, R-tester | Frontend patterns + TS gotchas |
+| `standards.testing` | R-tester, R-fixer, R-backend-dev, R-frontend-dev | Test patterns, mocking |
+| `standards.code_review` | R-fixer | Code review conventions |
+| `standards.architecture` | R-architect | ADRs + diagrams |
+| `standards.configuration` | R-devops | Config conventions |
+| `standards.deployment` | R-devops | Deploy procedures |
+| `standards.troubleshooting` | R-devops | Troubleshooting guides |
+| `standards.issue_management` | R-product-lead | Issue triage/mgmt |
+| `standards.dev_process` | R-architect | Dev process tiers/phases |
+| `standards.contributing` | R-doc-writer, R-architect | Contributing + doc format |
 
 ## Required Fields
 
-`/dev-checkup` flags absence of: `schema_version`, `backend.path`, `frontend.path`, `commands.test`, `commands.lint`, `commands.typecheck`, `standards.testing`, `standards.backend`, `standards.frontend`
+`/R-dev-checkup` flags absence of: `schema_version`, `backend.path`, `frontend.path`, `commands.test`, `commands.lint`, `commands.typecheck`, `standards.testing`, `standards.backend`, `standards.frontend`
 
 ## Writing Good Standards Docs
 
@@ -243,11 +243,11 @@ frontend:
 
 | Missing σ | Affected α | Behavior |
 |-----------|-----------|---------|
-| `backend.path` | backend-dev, fixer | Hard-stop error w/ /init fix |
-| `frontend.path` | frontend-dev, fixer | Hard-stop error w/ /init fix |
-| `standards.testing` | tester, fixer | Falls back to generic guidance |
-| `commands.test` | tester, fixer | Cannot run tests; reports missing config |
-| `standards.backend` | backend-dev | Skips framework-specific conventions |
-| `standards.frontend` | frontend-dev | Skips TS gotchas + UI library patterns |
-| `artifacts.*` | product-lead | Cannot write artifacts; reports path missing |
+| `backend.path` | R-backend-dev, R-fixer | Hard-stop error w/ /init fix |
+| `frontend.path` | R-frontend-dev, R-fixer | Hard-stop error w/ /init fix |
+| `standards.testing` | R-tester, R-fixer | Falls back to generic guidance |
+| `commands.test` | R-tester, R-fixer | Cannot run tests; reports missing config |
+| `standards.backend` | R-backend-dev | Skips framework-specific conventions |
+| `standards.frontend` | R-frontend-dev | Skips TS gotchas + UI library patterns |
+| `artifacts.*` | R-product-lead | Cannot write artifacts; reports path missing |
 | `review.roster.*` | dev-review | Defaults: max_agents 4, verify_below_confidence 90, recall_min_delta 50, every agent default |

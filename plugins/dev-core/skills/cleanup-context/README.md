@@ -5,11 +5,11 @@ Audit and clean CLAUDE.md files, auto-memory, skill files, and agent rules. Reso
 ## Usage
 
 ```
-/cleanup-context                        → Audit all context areas
-/cleanup-context --scope claude-md      → Only audit CLAUDE.md files
-/cleanup-context --scope skills         → Only audit skill files
-/cleanup-context --scope memory         → Only audit auto-memory
-/cleanup-context --dry-run              → Show findings without applying fixes
+/R-cleanup-context                        → Audit all context areas
+/R-cleanup-context --scope claude-md      → Only audit CLAUDE.md files
+/R-cleanup-context --scope skills         → Only audit skill files
+/R-cleanup-context --scope memory         → Only audit auto-memory
+/R-cleanup-context --dry-run              → Show findings without applying fixes
 ```
 
 ## What it does

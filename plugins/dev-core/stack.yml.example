@@ -132,16 +132,16 @@ review:
     verify_below_confidence: 90   # keep/drop pass over findings below this C; 0 disables the filter
     recall_min_delta: 50          # recall needs multi-chunk ∧ |Δ| > this
     agents:                       # per-agent override: default | always | never
-      adversarial: default        # floor — always spawned; `never` ignored + warning
-      security-auditor: default   # path_hit only (claim tags do not spawn)
-      tester: default             # Δ test-hit ∧ oracle_ok == false (missing → ¬spawn)
-      frontend-dev: default       # Δ ∩ frontend.path/shared.ui, else Δ ∩ FE_EXT
-      backend-dev: default        # backend.path non-empty ∧ Δ ∩ that prefix
-      devops: default             # τ=F-full ∧ Δ ∩ INFRA — the single infra agent
-      architect: default          # τ=F-full ∧ Δ ∩ INFRA = ∅ (mutually exclusive with devops)
-      axial-adr-review: default   # ∃ axial ADR ∧ Δ ∩ AXIAL
-      recall: default             # not in agents[] — multi-chunk ∧ |Δ| > recall_min_delta
-      finding-verifier: default   # not in agents[] — verify_below_confidence > 0
+      R-adversarial: default      # floor — always spawned; `never` ignored + warning
+      R-security-auditor: default # path_hit only (claim tags do not spawn)
+      R-tester: default           # Δ test-hit ∧ oracle_ok == false (missing → ¬spawn)
+      R-frontend-dev: default     # Δ ∩ frontend.path/shared.ui, else Δ ∩ FE_EXT
+      R-backend-dev: default      # backend.path non-empty ∧ Δ ∩ that prefix
+      R-devops: default           # τ=F-full ∧ Δ ∩ INFRA — the single infra agent
+      R-architect: default        # τ=F-full ∧ Δ ∩ INFRA = ∅ (mutually exclusive with R-devops)
+      R-axial-adr-review: default # ∃ axial ADR ∧ Δ ∩ AXIAL
+      R-recall: default           # not in agents[] — multi-chunk ∧ |Δ| > recall_min_delta
+      R-finding-verifier: default # not in agents[] — verify_below_confidence > 0
 
 # Directories where dev-core agents write structured artifacts.
 # All paths are relative to the project root.

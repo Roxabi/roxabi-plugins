@@ -4,13 +4,13 @@ Sync all project docs after a code change — scans every doc for stale referenc
 
 ## Why
 
-After renaming a tool, moving a file, or changing a config field, docs silently go stale — CLAUDE.md references old paths, skill READMEs mention removed flags, guides describe outdated workflows. `/doc-sync` extracts keywords from your change, greps every doc for matches, and makes targeted edits to the affected sections.
+After renaming a tool, moving a file, or changing a config field, docs silently go stale — CLAUDE.md references old paths, skill READMEs mention removed flags, guides describe outdated workflows. `/R-doc-sync` extracts keywords from your change, greps every doc for matches, and makes targeted edits to the affected sections.
 
 ## Usage
 
 ```
-/doc-sync                          Auto-detect change from git working tree or last commit
-/doc-sync "gitleaks → trufflehog"  Supply a description directly
+/R-doc-sync                          Auto-detect change from git working tree or last commit
+/R-doc-sync "gitleaks → trufflehog"  Supply a description directly
 ```
 
 Triggers: `"sync docs"` | `"doc sync"` | `"sync plugin docs"` | `"update skill docs"`

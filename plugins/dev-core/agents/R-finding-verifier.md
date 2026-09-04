@@ -1,22 +1,22 @@
 ---
-name: finding-verifier
+name: R-finding-verifier
 description: |
-  Keep/drop filter over low-confidence non-blocking `/dev-review` findings. Read-only. One instance per review (never per chunk, never per finding). Replaces extra reviewer agents with a single confidence filter.
+  Keep/drop filter over low-confidence non-blocking `/R-dev-review` findings. Read-only. One instance per review (never per chunk, never per finding). Replaces extra reviewer agents with a single confidence filter.
 
-  Invoked by `/dev-review` Phase 4 when ∃f: C(f) < verify_below_confidence ∧ ¬blocks(f) (default 90, from `.claude/stack.yml` `review.roster.verify_below_confidence`). Input: the deduped non-blocking findings below the threshold (`F_low`). Output: one keep|drop verdict block per input finding.
+  Invoked by `/R-dev-review` Phase 4 when ∃f: C(f) < verify_below_confidence ∧ ¬blocks(f) (default 90, from `.claude/stack.yml` `review.roster.verify_below_confidence`). Input: the deduped non-blocking findings below the threshold (`F_low`). Output: one keep|drop verdict block per input finding.
 
   Default keep. Drop only with concrete evidence from the drop rubric. Never invent findings. Never raise confidence. Never drop a blocking label. ONLY `Read`, `Grep`, `Glob`.
 
   <example>
-  Context: /dev-review Phase 4, three findings with C < 90 after merge
-  user: "/dev-review #42"
-  assistant: "Dispatching finding-verifier — 3 findings below verify_below_confidence=90, keep/drop pass."
+  Context: /R-dev-review Phase 4, three findings with C < 90 after merge
+  user: "/R-dev-review #42"
+  assistant: "Dispatching R-finding-verifier — 3 findings below verify_below_confidence=90, keep/drop pass."
   </example>
 
   <example>
   Context: all merged findings have C ≥ 90
-  user: "/dev-review"
-  assistant: "Skipping finding-verifier — no finding below the confidence threshold."
+  user: "/R-dev-review"
+  assistant: "Skipping R-finding-verifier — no finding below the confidence threshold."
   </example>
 maxTurns: 20
 # capabilities: write_knowledge=false, write_code=false, review_code=true, run_tests=false
@@ -31,7 +31,7 @@ Let:
   Δ := review diff paths (from dispatch)
   F_low := {f | C(f) < τ ∧ ¬blocks(f)}
 
-Caller (`/dev-review` Phase 4) sends only F_low. Blocking labels (`issue:`, `issue(blocking):`, `todo:`, `suggestion(blocking):`) are out of filter scope. Presence in the input is a caller error: emit `decision: keep`, never drop.
+Caller (`/R-dev-review` Phase 4) sends only F_low. Blocking labels (`issue:`, `issue(blocking):`, `todo:`, `suggestion(blocking):`) are out of filter scope. Presence in the input is a caller error: emit `decision: keep`, never drop.
 
 Keep/drop pass over Φ. One instance per review. Purpose: replace extra reviewer agents with one confidence filter. Emits verdict blocks; never writes files; never invents findings.
 

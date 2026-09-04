@@ -4,14 +4,14 @@ Implementation plan — micro-tasks, agent assignments, file groups, and depende
 
 ## Why
 
-A spec says *what* to build. A plan says *who builds what, in what order, in parallel where safe*. `/dev-plan` decomposes the spec into micro-tasks with verify commands, assigns them to domain agents, wires RED→GREEN→REFACTOR phase dependencies, and seeds the **host task list** (Claude `Task*` or Grok `todo_write`) — giving `/dev-implement` a ready-to-execute work queue.
+A spec says *what* to build. A plan says *who builds what, in what order, in parallel where safe*. `/R-dev-plan` decomposes the spec into micro-tasks with verify commands, assigns them to domain agents, wires RED→GREEN→REFACTOR phase dependencies, and seeds the **host task list** (Claude `Task*` or Grok `todo_write`) — giving `/R-dev-implement` a ready-to-execute work queue.
 
 ## Usage
 
 ```
-/dev-plan --issue 42             Generate plan for issue #42
-/dev-plan --spec path            Generate plan from an explicit spec file
-/dev-plan --issue 42 --audit     Show reasoning checkpoint as prose, then continue
+/R-dev-plan --issue 42             Generate plan for issue #42
+/R-dev-plan --spec path            Generate plan from an explicit spec file
+/R-dev-plan --issue 42 --audit     Show reasoning checkpoint as prose, then continue
 ```
 
 Triggers: `"plan"` | `"plan this"` | `"implementation plan"` | `"break it down"` | `"make a plan"` | `"task breakdown"`
@@ -35,6 +35,6 @@ artifacts/plans/{N}-{slug}-plan.md
 
 ## Chain position
 
-**Predecessor:** `/spec` | **Successor:** `/dev-implement` (via a compact pause after approval — `/dev` recommends `/compact` before building, then `/dev #N` ≡ `/dev-implement #N`)
+**Predecessor:** `/R-spec` | **Successor:** `/R-dev-implement` (via a compact pause after approval — `/R-dev` recommends `/compact` before building, then `/R-dev #N` ≡ `/R-dev-implement #N`)
 
 Class: `adv + approval stop`. Disk done-signal = `## Task IDs` (written only after free-form approve).

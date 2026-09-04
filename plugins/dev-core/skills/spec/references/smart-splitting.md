@@ -60,7 +60,7 @@ Reply free text: create / adjust … / skip
 
 ## Create Sub-Issues
 
-> **Decomposition pattern** (¬deferral): smart-splitting *plans* sub-deliverables, so sub-issues are `--parent <N>` of the original (N becomes the epic). This is distinct from `/fix` Phase 5 Defer, which uses the **sibling rule** (deferred issue gets the origin's parent, not the origin itself). See `issue-triage` SKILL "Deferred Follow-Ups — Sibling Rule".
+> **Decomposition pattern** (¬deferral): smart-splitting *plans* sub-deliverables, so sub-issues are `--parent <N>` of the original (N becomes the epic). This is distinct from `/R-fix` Phase 5 Defer, which uses the **sibling rule** (deferred issue gets the origin's parent, not the origin itself). See `issue-triage` SKILL "Deferred Follow-Ups — Sibling Rule".
 
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \
@@ -111,7 +111,7 @@ parent_issue: {parent_N}
 Full spec: [artifacts/specs/{parent_issue}-{parent_slug}-spec.md](../specs/{parent_issue}-{parent_slug}-spec.md)
 ```
 
-Inform: "Created {N} sub-issues under #{parent}. Run `/dev #N` for each sub-issue in dependency order."
+Inform: "Created {N} sub-issues under #{parent}. Run `/R-dev #N` for each sub-issue in dependency order."
 
 ## Edge Cases
 

@@ -4,15 +4,15 @@ Promote staging → main — pre-flight, version bump, changelog, deploy preview
 
 ## Why
 
-Releasing to production involves a checklist: verify CI, bump the version, write a changelog, trigger a deploy preview, create a promotion PR, and tag the release. `/promote` automates this sequence with guard rails, so you don't accidentally promote with open PRs on staging or failing CI.
+Releasing to production involves a checklist: verify CI, bump the version, write a changelog, trigger a deploy preview, create a promotion PR, and tag the release. `/R-promote` automates this sequence with guard rails, so you don't accidentally promote with open PRs on staging or failing CI.
 
 ## Usage
 
 ```
-/promote                  Full flow: pre-flight → version → changelog → preview → PR
-/promote --skip-preview   Skip deploy preview step
-/promote --dry-run        Show what would be promoted, create nothing
-/promote --finalize       Post-merge: tag + GitHub Release (run after merging the promotion PR)
+/R-promote                  Full flow: pre-flight → version → changelog → preview → PR
+/R-promote --skip-preview   Skip deploy preview step
+/R-promote --dry-run        Show what would be promoted, create nothing
+/R-promote --finalize       Post-merge: tag + GitHub Release (run after merging the promotion PR)
 ```
 
 Triggers: `"promote staging"` | `"cut a release"` | `"--finalize"` | `"promote to production"` | `"tag and release"` | `"publish release"`
@@ -33,7 +33,7 @@ Triggers: `"promote staging"` | `"cut a release"` | `"--finalize"` | `"promote t
 After merging the promotion PR manually:
 
 ```
-/promote --finalize
+/R-promote --finalize
 ```
 
 Verifies the merge, detects the version from CHANGELOG.md, creates a git tag, and publishes a GitHub Release.
@@ -46,4 +46,4 @@ Verifies the merge, detects the version from CHANGELOG.md, creates a git tag, an
 
 ## Chain position
 
-Standalone — never auto-triggered by `/dev`. Run manually when ready to ship.
+Standalone — never auto-triggered by `/R-dev`. Run manually when ready to ship.

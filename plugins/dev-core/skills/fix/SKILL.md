@@ -1,5 +1,5 @@
 ---
-name: fix
+name: R-fix
 argument-hint: '[#PR]'
 description: 'Apply review findings — auto-apply high-confidence, 1b1 for rest, then batch-apply. Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".'
 version: 0.4.3
@@ -18,8 +18,8 @@ Two-pass pipeline: auto-apply high-C findings (C≥T, 2+ agents), then 1b1 for r
 **⚠ Continuous pipeline. ¬stop between phases. Stop only on: unrecoverable failure or Phase 8 completion.**
 
 ```
-/fix        → findings from conversation context
-/fix #42    → gather findings from PR #42 comments
+/R-fix        → findings from conversation context
+/R-fix #42    → gather findings from PR #42 comments
 ```
 
 ## Pipeline
@@ -75,8 +75,8 @@ Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬
 ## Phase 1 — Gather Findings
 
 1. PR# → `gh pr view <#> --json comments,closingIssuesReferences`; parse Conventional Comments from `.comments[].body`; capture `SOURCE_ISSUE` = `.closingIssuesReferences[0].number` (∅ if none — used in Phase 5 Defer to wire blocked-by). When `SOURCE_ISSUE ≠ ∅`, also resolve `SOURCE_PARENT` = `gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number}}}}' --jq '.data.repository.issue.parent.number // empty'` — used in Phase 5 Defer to wire deferred issue as **sibling** under shared parent (see `roxabi-issues:issue-triage` "Deferred Follow-Ups — Sibling Rule").
-1a. **Strip the `/dev-review` filtered block first** — ∀ comment body: remove everything from `<summary>Filtered by finding-verifier` through the next `</details>` **before** parsing. Those f were dropped by the Phase 4 keep/drop filter (`dev-review`); re-ingesting them defeats the filter. `dev-review` posts them table-shaped (¬CC grammar) — strip explicitly anyway, ¬rely on shape alone.
-2. ¬PR# → scan conversation for latest `/dev-review` output
+1a. **Strip the `/R-dev-review` filtered block first** — ∀ comment body: remove everything from `<summary>Filtered by finding-verifier` through the next `</details>` **before** parsing. Those f were dropped by the Phase 4 keep/drop filter (`dev-review`); re-ingesting them defeats the filter. `dev-review` posts them table-shaped (¬CC grammar) — strip explicitly anyway, ¬rely on shape alone.
+2. ¬PR# → scan conversation for latest `/R-dev-review` output
 3. F = ∅ → halt
 4. ∀ f: parse → label, file:line, agent, root cause, class[], raw_callsites[], solutions, C(f)
    - `class[]` — 0–N canonical slugs from `review-classes.yml` + 0–1 `candidate/<slug>`; absent field → class[] = []
@@ -164,7 +164,7 @@ Invoke the `roxabi-issues:issue-triage` skill in **create** mode (requires the *
 
 `{details}` template:
 ```markdown
-**Origin:** PR #<N> review <comment-id> (deferred per `/fix` walkthrough).
+**Origin:** PR #<N> review <comment-id> (deferred per `/R-fix` walkthrough).
 
 {root-cause + agent finding text}
 
@@ -192,21 +192,21 @@ classes = { c | ∃ f ∈ acc: cls(f) = c }
 ∀ class ∈ classes:
   files_in_class = unique({ file(f) | f ∈ acc, cls(f) = class })
 
-  |files_in_class| ≤ 3  →  single fixer agent for the class
-  |files_in_class| > 3  →  shard by file: ⌈|files_in_class| / 3⌉ fixer agents
-                            each fixer owns ≤3 files of the same class
+  |files_in_class| ≤ 3  →  single R-fixer agent for the class
+  |files_in_class| > 3  →  shard by file: ⌈|files_in_class| / 3⌉ R-fixer agents
+                            each R-fixer owns ≤3 files of the same class
 
 unclassified = { f ∈ acc | cls(f) = ∅ }
-¬∅ → single fixer agent for unclassified findings (same path as |files_in_class| ≤ 3)
+¬∅ → single R-fixer agent for unclassified findings (same path as |files_in_class| ≤ 3)
 ```
 
-Fixer payload per agent:
+R-fixer payload per agent:
 - findings (with class + raw_callsites) for owned files
 - chosen solution per finding
 - diff context for owned files
 - instructions: "re-read targets before editing; lint + test after each fix; sweep file for same-class anti-pattern — justify or fix any uncited hit."
 
-Fixer constraints: re-read targets before editing (Phase 3 may have changed them). CI fail → retry max 3; `[failed]` if stuck.
+R-fixer constraints: re-read targets before editing (Phase 3 may have changed them). CI fail → retry max 3; `[failed]` if stuck.
 
 **Proxy-fix ban** (class ∈ {test-tautology, vacuous-guard, parallel-path-drift}):
 **Forbidden:** widen a denylist, add another grep, copy another inventory/`validate:full` list.
@@ -228,7 +228,7 @@ fail  →  fix tautological (RC-1); re-open each failed finding for that class
           (max 1 falsification-retry per finding — independent of CI retry budget in Phase 6)
 ```
 
-New findings surfaced during falsification → **parking lot**: file as candidate finding for next PR cycle. ¬reopen current `/fix` loop. ¬increment 2-iter cap. Applies to same-class and cross-class anti-patterns alike.
+New findings surfaced during falsification → **parking lot**: file as candidate finding for next PR cycle. ¬reopen current `/R-fix` loop. ¬increment 2-iter cap. Applies to same-class and cross-class anti-patterns alike.
 
 ## Phase 7 — Final Push + Approve
 
@@ -291,7 +291,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | 1b1 fix fails | `[failed]`, continue |
 | Quality gate fails 3× | Halt, leave uncommitted |
 | ¬∃ PR | Skip Phase 8, local only, no label |
-| cls(f) = ∅ for some f ∈ acc | Route to `unclassified` fixer agent (single agent, ≤3 files path) |
+| cls(f) = ∅ for some f ∈ acc | Route to `unclassified` R-fixer agent (single agent, ≤3 files path) |
 | class ∈ {test-tautology, vacuous-guard, parallel-path-drift} ∧ solution is denylist/grep/inventory | `[failed]` — change the oracle / SSoT instead |
 
 ## Safety Rules
@@ -305,21 +305,21 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 ## Chain Position
 
 - **Phase:** Verify
-- **Predecessor:** `/dev-review` (findings)
-- **Successor:** `/dev-review` (re-review after fix) — LOOP
+- **Predecessor:** `/R-dev-review` (findings)
+- **Successor:** `/R-dev-review` (re-review after fix) — LOOP
 - **Class:** loop (bounded, max 2 iterations)
 
 ## Task Integration
 
-- `/dev` owns the dev-pipeline task lifecycle externally
+- `/R-dev` owns the dev-pipeline task lifecycle externally
 - Sub-tasks created: none directly (findings are ephemeral — tracked in-skill via F, Q_auto, Q_1b1)
 - Follow-up tasks: on success → `TaskCreate` new review task with `metadata: { kind: "dev-pipeline", step: "review", follow_up: true, iteration: N+1, blockedBy: [this.id] }`
 
 ## Exit
 
-- **Success via `/dev`:** fixes applied + committed + pushed + PR comment posted → `TaskCreate` follow-up review task → return silently. `/dev` picks up the new review task.
-- **Success standalone:** print summary (Applied/Skipped/Deferred/Failed) + `Next: /dev-review` (re-verify). Stop.
-- **Failure (quality gate, ¬findings, unrecoverable):** return error. `/dev` presents Retry | Skip | Abort.
-- **Loop cap:** `metadata.iteration ≥ 2` on entry → refuse another iteration; return with message "Max fix iterations reached — resolve remaining manually". `/dev` presents Abort.
+- **Success via `/R-dev`:** fixes applied + committed + pushed + PR comment posted → `TaskCreate` follow-up review task → return silently. `/R-dev` picks up the new review task.
+- **Success standalone:** print summary (Applied/Skipped/Deferred/Failed) + `Next: /R-dev-review` (re-verify). Stop.
+- **Failure (quality gate, ¬findings, unrecoverable):** return error. `/R-dev` presents Retry | Skip | Abort.
+- **Loop cap:** `metadata.iteration ≥ 2` on entry → refuse another iteration; return with message "Max fix iterations reached — resolve remaining manually". `/R-dev` presents Abort.
 
 $ARGUMENTS

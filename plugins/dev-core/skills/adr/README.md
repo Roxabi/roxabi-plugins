@@ -9,8 +9,8 @@ Architectural decisions made today are forgotten next quarter. ADRs create a per
 ## Usage
 
 ```
-/adr "Fastify over Express"    Create a new ADR
-/adr --list                    List all existing ADRs
+/R-adr "Fastify over Express"    Create a new ADR
+/R-adr --list                    List all existing ADRs
 ```
 
 Triggers: `"create an ADR"` | `"architecture decision"` | `"document why we chose"` | `"list ADRs"`
@@ -58,4 +58,4 @@ Accepted
 
 ## Storage
 
-ADRs are stored in `docs/architecture/adr/` as Markdown and are **immutable** — `/doc-sync` warns about stale ADR references but never edits them. Legacy `.mdx` ADRs are read-only.
+ADRs are stored in `docs/architecture/adr/` as Markdown and are **immutable** — `/R-doc-sync` warns about stale ADR references but never edits them. Legacy `.mdx` ADRs are read-only.

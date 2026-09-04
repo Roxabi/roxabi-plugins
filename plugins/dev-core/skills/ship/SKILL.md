@@ -1,5 +1,5 @@
 ---
-name: ship
+name: R-ship
 argument-hint: '[#PR | --draft | --base <branch> | --from <step> | --max-fix-iters N | --no-commit | --skip-cleanup]'
 description: Meta-orchestrator to land ready code — commit → PR → code-review → fix loop → reviewed label + ci-watch. Triggers: "ship" | "ship this" | "land this" | "land the PR" | "ship PR" | "submit for merge" | "get this merged" | "ship my branch".
 version: 0.1.0
@@ -23,17 +23,17 @@ Let:
   ψ_f  := PR comments ∃ body starting with `## Review Fixes Applied`
   dirty := `git status --porcelain` non-empty
   ahead := `git rev-list --count origin/${β}..HEAD` > 0 (or unpushed commits on Β)
-  bar  := same quality bar as `/dev` — hand-authored feel; QG = floor
+  bar  := same quality bar as `/R-dev` — hand-authored feel; QG = floor
 
-**Not** a substitute for `/dev`. Use when **implementation is already done** (or nearly) and you want the gate path only:
+**Not** a substitute for `/R-dev`. Use when **implementation is already done** (or nearly) and you want the gate path only:
 
 ```
-commit → /pr → /dev-review → [/fix ↺ /dev-review]×≤K → label reviewed → /ci-watch → [/cleanup]
+commit → /R-pr → /R-dev-review → [/R-fix ↺ /R-dev-review]×≤K → label reviewed → /R-ci-watch → [/R-cleanup]
 ```
 
-Compared to `/dev` Verify (`pr → ci-watch → validate → review → fix`):
+Compared to `/R-dev` Verify (`pr → ci-watch → validate → review → fix`):
 - **Review before merge-gate** — agent review + fix loop first; `reviewed` + CI watch last
-- **No** frame/spec/plan/implement/validate (optional: jump via `/dev --from …` if you need those)
+- **No** frame/spec/plan/implement/validate (optional: jump via `/R-dev --from …` if you need those)
 - **Commit step** included (dirty tree → conventional commit + push)
 
 ¬rewrite child skill logic. ¬auto-merge mid-CI. Label `reviewed` is the merge gate (merge-on-green / `gh pr merge --auto --merge`).
@@ -41,14 +41,14 @@ Compared to `/dev` Verify (`pr → ci-watch → validate → review → fix`):
 ## Entry
 
 ```
-/ship                    → full pipeline from current branch
-/ship #42                → bind to PR #42 (must match current branch head)
-/ship --draft            → pass --draft to /pr
-/ship --base staging     → pass --base to /pr
-/ship --from review      → skip commit+pr if PR already exists
-/ship --max-fix-iters 1  → cap fix↔review loops
-/ship --no-commit        → refuse to create commits; dirty tree → halt
-/ship --skip-cleanup     → after merge, do not run /cleanup
+/R-ship                    → full pipeline from current branch
+/R-ship #42                → bind to PR #42 (must match current branch head)
+/R-ship --draft            → pass --draft to /R-pr
+/R-ship --base staging     → pass --base to /R-pr
+/R-ship --from review      → skip commit+pr if PR already exists
+/R-ship --max-fix-iters 1  → cap fix↔review loops
+/R-ship --no-commit        → refuse to create commits; dirty tree → halt
+/R-ship --skip-cleanup     → after merge, do not run /R-cleanup
 ```
 
 ## Steps
@@ -60,12 +60,12 @@ commit → pr → review → fix ↺ review → label-reviewed → ci-watch → 
 | Step | Class | Skill / action | On success → |
 |------|-------|----------------|--------------|
 | commit | adv (inline) | conventional commit + push if dirty | pr |
-| pr | adv | `skill: "pr"` (+ `--draft` / `--base` if set) | review |
-| review | verdict | `skill: "dev-review"` | APPROVED → label-reviewed · CHANGES_REQUESTED → fix · Stop → halt |
-| fix | loop | `skill: "fix", args: "#{P}"` | strip premature `reviewed` if present → review (iter++) |
+| pr | adv | `skill: "R-pr"` (+ `--draft` / `--base` if set) | review |
+| review | verdict | `skill: "R-dev-review"` | APPROVED → label-reviewed · CHANGES_REQUESTED → fix · Stop → halt |
+| fix | loop | `skill: "R-fix", args: "#{P}"` | strip premature `reviewed` if present → review (iter++) |
 | label-reviewed | adv (inline) | ensure auto-merge + `reviewed` label | ci-watch |
-| ci-watch | adv | `skill: "ci-watch", args: "--pr {P}"` | cleanup (if merged ∨ green path) |
-| cleanup | adv | `skill: "cleanup"` (scoped if issue# known) | done |
+| ci-watch | adv | `skill: "R-ci-watch", args: "--pr {P}"` | cleanup (if merged ∨ green path) |
+| cleanup | adv | `skill: "R-cleanup"` (scoped if issue# known) | done |
 
 ## Step 0 — Parse + Guard Rails
 
@@ -108,7 +108,7 @@ done
   iter:    0   # fix↔review iterations completed
 ```
 
-Present short banner (no full /dev phase bars):
+Present short banner (no full /R-dev phase bars):
 
 ```
 ## Ship — {Β}  [PR #{P}|no PR]
@@ -131,7 +131,7 @@ Present short banner (no full /dev phase bars):
 
 **If dirty:**
 1. `git status -sb` + `git diff` / `git diff --staged` + `git log -5 --oneline`
-2. Stage intentional paths only — ¬`git add -A` if secrets risk (same rule as `/fix`). Prefer explicit paths from status.
+2. Stage intentional paths only — ¬`git add -A` if secrets risk (same rule as `/R-fix`). Prefer explicit paths from status.
 3. Message: Conventional Commits, focus on *why*. HEREDOC commit.
 4. `git push -u origin HEAD` (or `git push` if upstream set).
 5. Fail → Retry | Abort.
@@ -142,19 +142,19 @@ Present short banner (no full /dev phase bars):
 
 ## Step 3 — pr
 
-**Skip if:** P ∃ open for Β (unless user forced update — then invoke `/pr` which offers Update).
+**Skip if:** P ∃ open for Β (unless user forced update — then invoke `/R-pr` which offers Update).
 
-**Invoke:** `skill: "pr"` with args:
+**Invoke:** `skill: "R-pr"` with args:
 - `--draft` if DRAFT
 - `--base {BASE}` if BASE set
 
 On success: re-resolve P from `gh pr list --head "$Β"`. ¬P → halt.
 
-**Silent via /ship:** no "Next: /ci-watch" from child — ship owns chaining.
+**Silent via /R-ship:** no "Next: /R-ci-watch" from child — ship owns chaining.
 
 ## Step 4 — code-review
 
-**Invoke:** `skill: "dev-review"` (PR auto-detected from branch).
+**Invoke:** `skill: "R-dev-review"` (PR auto-detected from branch).
 
 Interpret Phase 8 outcome (user decision inside code-review when standalone; when driven by ship, prefer):
 
@@ -165,13 +165,13 @@ Interpret Phase 8 outcome (user decision inside code-review when standalone; whe
 | Stop / Abort | halt ship |
 | F = ∅ clean approve | → label-reviewed |
 
-**Important:** `/dev-review` Phase 8 may offer Merge as-is (label + auto-merge). Under `/ship`, that path is **allowed** and equivalent to label-reviewed + handoff; then ship still runs **ci-watch** to observe green + merge. If user already labeled inside code-review, skip duplicate label step.
+**Important:** `/R-dev-review` Phase 8 may offer Merge as-is (label + auto-merge). Under `/R-ship`, that path is **allowed** and equivalent to label-reviewed + handoff; then ship still runs **ci-watch** to observe green + merge. If user already labeled inside code-review, skip duplicate label step.
 
 ## Step 5 — fix (loop)
 
 **Enter only if:** review requested changes ∧ iter < K.
 
-**Invoke:** `skill: "fix", args: "#{P}"`.
+**Invoke:** `skill: "R-fix", args: "#{P}"`.
 
 On success:
 1. `iter := iter + 1`
@@ -205,7 +205,7 @@ On success:
 
 ## Step 7 — ci-watch
 
-**Invoke:** `skill: "ci-watch", args: "--pr ${P}"`  
+**Invoke:** `skill: "R-ci-watch", args: "--pr ${P}"`  
 Bash timeout ≥ 20 min when auto-merge expected (see ci-watch skill).
 
 | Exit | Ship action |
@@ -221,11 +221,11 @@ Bash timeout ≥ 20 min when auto-merge expected (see ci-watch skill).
 
 **If PR merged:**
 ```
-skill: "cleanup"
+skill: "R-cleanup"
 ```
-If issue number known from branch (`feat/42-…` → 42) or PR closing issues: prefer `skill: "cleanup", args: "--scope #N"`.
+If issue number known from branch (`feat/42-…` → 42) or PR closing issues: prefer `skill: "R-cleanup", args: "--scope #N"`.
 
-## Continuous-flow rules (same as /dev)
+## Continuous-flow rules (same as /R-dev)
 
 - **¬ask** "Ready to proceed to /X?"
 - **¬summarize** "Just finished X, moving to Y"
@@ -235,7 +235,7 @@ If issue number known from branch (`feat/42-…` → 42) or PR closing issues: p
 
 ## Task list (optional)
 
-If TaskCreate available, seed `kind: "ship-pipeline"` tasks for active steps only (same pattern as `/dev` 2b, lighter). Metadata: `{ kind: "ship-pipeline", pr: P, step, iteration }`. ¬required for correctness.
+If TaskCreate available, seed `kind: "ship-pipeline"` tasks for active steps only (same pattern as `/R-dev` 2b, lighter). Metadata: `{ kind: "ship-pipeline", pr: P, step, iteration }`. ¬required for correctness.
 
 ## Options
 
@@ -255,10 +255,10 @@ If TaskCreate available, seed `kind: "ship-pipeline"` tasks for active steps onl
 1. **NEVER** ship from `main` / `master` / `staging`
 2. **NEVER** `git push --force` — only `--force-with-lease` on feature branch rebase
 3. **NEVER** plain `gh pr merge` while checks IN_PROGRESS/QUEUED
-4. **NEVER** leave `reviewed` on a PR that still needs re-review after `/fix` (strip before re-review)
+4. **NEVER** leave `reviewed` on a PR that still needs re-review after `/R-fix` (strip before re-review)
 5. **ALWAYS** cap fix↔review at K (default 2)
 6. **ALWAYS** stage intentional files only on commit step
-7. **NEVER** rewrite `/pr`, `/dev-review`, `/fix`, `/ci-watch`, `/cleanup` logic — delegate
+7. **NEVER** rewrite `/R-pr`, `/R-dev-review`, `/R-fix`, `/R-ci-watch`, `/R-cleanup` logic — delegate
 
 ## Edge Cases
 
@@ -266,7 +266,7 @@ If TaskCreate available, seed `kind: "ship-pipeline"` tasks for active steps onl
 |----------|----------|
 | Dirty tree + secrets patterns | Halt; ask user to unstage |
 | PR exists, local behind origin/Β | `git pull --ff-only` or halt on divergence |
-| `/pr` REFUSE (no commits) | Halt with message |
+| `/R-pr` REFUSE (no commits) | Halt with message |
 | Review clean first try | Skip fix; label + ci-watch |
 | Fix applies label early | Strip before re-review |
 | AM not available on repo | Label still applied; ci-watch reports green; note manual merge path |
@@ -276,27 +276,27 @@ If TaskCreate available, seed `kind: "ship-pipeline"` tasks for active steps onl
 ## Chain Position
 
 - **Phase:** Ship (feature → base)
-- **Predecessor:** ad-hoc implementation, or `/dev-implement`, or end of `/dev` Build without Verify
-- **Successor:** `/promote` (staging→main) when base was staging
-- **Class:** meta-orchestrator (like `/dev`, narrower)
+- **Predecessor:** ad-hoc implementation, or `/R-dev-implement`, or end of `/R-dev` Build without Verify
+- **Successor:** `/R-promote` (staging→main) when base was staging
+- **Class:** meta-orchestrator (like `/R-dev`, narrower)
 
-## Relation to `/dev`
+## Relation to `/R-dev`
 
-| | `/dev` | `/ship` |
+| | `/R-dev` | `/R-ship` |
 |---|--------|---------|
 | Scope | issue lifecycle Frame→Ship | branch already has code |
 | Order | pr → **ci-watch** → validate → **review** → fix | commit → pr → **review** → fix → **reviewed+ci-watch** |
 | validate | yes | no |
 | commit | via implement | explicit first step |
-| Entry | `/dev #N` | `/ship` on feature branch |
+| Entry | `/R-dev #N` | `/R-ship` on feature branch |
 
-Prefer `/ship` for hotfix / already-pushed work / agent sessions that coded first. Prefer `/dev` when artifacts (frame/spec/plan) matter.
+Prefer `/R-ship` for hotfix / already-pushed work / agent sessions that coded first. Prefer `/R-dev` when artifacts (frame/spec/plan) matter.
 
 ## Exit
 
-- **Merged:** print PR URL + base branch; if staging, hint `/promote` when ready. Stop.
+- **Merged:** print PR URL + base branch; if staging, hint `/R-promote` when ready. Stop.
 - **CI green, AM pending:** print status; Stop (or keep watching if user asks).
 - **Failure:** error + Retry \| Abort. Stop.
-- **User Stop:** "Stopped at {S*}. Resume: `/ship --from {S*}`."
+- **User Stop:** "Stopped at {S*}. Resume: `/R-ship --from {S*}`."
 
 $ARGUMENTS
