@@ -34,6 +34,11 @@ docs(plugins): update compress README
 - Link the issue: `Closes #N`
 - One plugin or one logical change per PR
 - CI must be green before merge
+- Merged with a **merge commit** — squash and rebase merges are disabled. Release
+  automation refuses any merge to `main` that is not a 2-parent merge, and derives
+  the version bump by walking the per-commit history; a squash breaks both.
+- Add the `reviewed` label to enable auto-merge. There is no merge queue, so if
+  several PRs must land in a given order, add the label in that order.
 
 ## Code style
 
