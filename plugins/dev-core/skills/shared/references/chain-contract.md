@@ -6,12 +6,12 @@
 
 Defines how the 13 dev-core pipeline skills participate in the `/R-dev` orchestration and how chaining, task lifecycle, and exit behavior work across them.
 
-> **Issue triage is not a dev-core step.** `roxabi-issues:issue-triage` runs *before* `/R-dev`, in a separate plugin (relocated dev-core → roxabi-issues, 2026-06-09). The dev-core pipeline itself starts at `recheck`.
+> **Issue triage is not a dev-core step.** `issue-triage:issue-triage` runs *before* `/R-dev`, in a companion plugin (`./plugins/issue-triage`; historically hosted in roxabi-live). The dev-core pipeline itself starts at `recheck`.
 
 ## Pipeline
 
 ```
-issue-triage (external, roxabi-issues) → recheck → frame ⏸?→ analyze ⏸→ spec ⏸→ plan ⏸→ implement → pr
+issue-triage (external) → recheck → frame ⏸?→ analyze ⏸→ spec ⏸→ plan ⏸→ implement → pr
             → ci-watch → validate → code-review → {fix ↺ review | merge → cleanup}
 ```
 

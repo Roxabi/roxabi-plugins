@@ -217,7 +217,7 @@ Env Setup Complete
   LSP               ✅ Configured / ✅ Already set / ⏭ Disabled / ⏭ Skipped
   Worktree-setup    ✅ Scaffolded / ✅ Already configured / ⏭ Skipped
 
-Next: run /R-seed-docs to populate docs stubs. Issue triage (labels, blocked-by, parent/child) lives in the separate **roxabi-issues** plugin.
+Next: run /R-seed-docs to populate docs stubs. Issue triage (labels, blocked-by, parent/child) lives in the companion **issue-triage** plugin.
 ```
 
 ## Safety Rules
