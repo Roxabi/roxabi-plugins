@@ -13,18 +13,7 @@ feature/fix branch → PR → main → auto-release cuts roxabi-plugins/vX.Y.Z
 
 ## Creating a new plugin
 
-1. **Create directory:** `mkdir -p plugins/<name>/skills/<skill-name>`
-2. **Write SKILL.md** with YAML frontmatter (`name`, `description`, `version`, `allowed-tools`) + instructions body
-3. **Write README.md** for the plugin (what, install, usage, how it works)
-4. **Register** in `.claude-plugin/marketplace.json`
-5. **Add row** to the Plugins table in root `README.md`
-6. **Validate and commit:**
-   ```bash
-   claude plugin validate .
-   bun lint && bun typecheck && bun test
-   ```
-
-See `CLAUDE.md` for full details on each step.
+Follow [docs/CREATE-PLUGIN-GUIDE.md](docs/CREATE-PLUGIN-GUIDE.md) — marketplace vs link-only, SKILL.md, catalogs, README row, validate, and commit format.
 
 ## Commit conventions
 
