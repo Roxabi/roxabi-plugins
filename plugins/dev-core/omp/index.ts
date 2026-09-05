@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
+  BUN_TEST_DENY_REASON,
   extractShellCommand,
   extractWriteContent,
   hasProjectContract,
@@ -109,7 +110,7 @@ export default function devCoreExtension(pi: ExtensionAPI): void {
       if (isBunTestBlocked(command)) {
         return {
           block: true,
-          reason: 'Use bun run test (Vitest), not bun test (Bun runner)',
+          reason: BUN_TEST_DENY_REASON,
         }
       }
 
