@@ -1,11 +1,19 @@
 # Auto-merge PRs that have been reviewed and passed all required checks.
-# Adds the PR to GitHub's merge queue (merge commit) once the "reviewed" label is present.
-# GitHub natively waits for all required status checks before merging.
+# Enables GitHub's native auto-merge (`gh pr merge --auto --merge`) once the
+# "reviewed" label is present; GitHub then waits for the required status
+# checks before merging.
 #
-# Project convention: merge commits only (¬squash) — see ~/projects/CLAUDE.md
-# "Release Convention". auto-release.sh REFUSEs any merge to main that is not
-# a 2-parent merge (D3), and price.sh walks per-commit history to derive the
-# bump — a squash breaks both.
+# There is NO merge queue on this repo — the `PR_Main` ruleset has no
+# merge_queue rule. Ordering between concurrently-labeled PRs is therefore
+# not guaranteed by this workflow. What does serialize them is the ruleset's
+# strict_required_status_checks_policy: every merge puts the other open PRs
+# behind main, so each must resync and go green again before it can merge.
+# If a batch has real ordering dependencies, stagger the "reviewed" labels.
+#
+# Project convention: merge commits only (¬squash) — see CONTRIBUTING.md.
+# auto-release.sh REFUSEs any merge to main that is not a 2-parent merge (D3),
+# and price.sh walks per-commit history to derive the bump — a squash breaks
+# both. The repo disables squash and rebase merges to enforce this.
 #
 # Dependabot guard: semver-major bumps are never auto-merged — they require
 # manual validation (the vite 8 SSR regression stayed dormant 10 weeks).
