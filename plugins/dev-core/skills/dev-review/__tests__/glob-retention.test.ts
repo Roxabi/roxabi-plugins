@@ -8,7 +8,7 @@ const SKILL = fileURLToPath(new URL('../SKILL.md', import.meta.url))
 const RETAINED_WHEN_TOKENS = ['scripts/', '**/auth/**', 'lefthook.yml']
 
 describe('code-review SKILL — path glob retention', () => {
-  it('security-auditor / architect / devops When rows retain listed triggers', () => {
+  it('R-security-auditor / R-architect / R-devops When rows retain listed triggers', () => {
     const text = readFileSync(SKILL, 'utf-8')
     const whenSection = text.slice(text.indexOf('### Agent dispatch'))
     for (const token of RETAINED_WHEN_TOKENS) {

@@ -15,6 +15,8 @@ predate that and were produced by release-please or `/promote`.
 
 ### Changed
 
+* **dev-core:** prefix every skill/slash + agent identity with `R-` — `/dev-review` → `/R-dev-review`, `/fix` → `/R-fix`, `adversarial` → `R-adversarial` (32 skills + 14 agents; OMP native `adversarial` shadowed plugin per plugins.ssot.md 'native/user wins over plugin'; skill directories unchanged)
+* **dev-core:** `review.roster.agents` keys in `stack.yml` must be `R-`-prefixed (`tester:` → `R-tester:`) — unprefixed key looks valid; oracle warns `unknown roster agent: <name>` and DROPS the override, so `never` still spawns (edit `.claude/stack.yml`)
 * **dev-core:** rename skill/slash `/implement` → `/dev-implement` (Grok/Claude host collision; pipeline step id stays `implement`)
 * **dev-core:** 10 standalone skills are slash-only (`disable-model-invocation`); Triggers stripped. Guide + ADR-018 amended.
 * **omp-build:** install via `omp plugin link` only — drop marketplace catalog entry and `.omp-plugin/plugin.json`; add `package.json` with `"omp": {}` for omp-plugins

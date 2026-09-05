@@ -1,5 +1,5 @@
 ---
-name: ci-setup
+name: R-ci-setup
 argument-hint: '[--force]'
 description: 'Set up CI/CD — GitHub Actions workflows, TruffleHog, Dependabot, pre-commit hooks, marketplace plugins. Triggers: "ci setup" | "setup ci" | "configure ci" | "setup hooks" | "setup github actions".'
 version: 0.2.0
@@ -19,7 +19,7 @@ Let:
 
 Configure CI/CD pipelines and local safety nets: GitHub Actions workflows, secret scanning, dependency updates, pre-commit hooks, and marketplace plugins.
 
-Can run standalone (`/ci-setup`) or be called by `/init`.
+Can run standalone (`/R-ci-setup`) or be called by `/init`.
 
 ## Dispatch
 

@@ -171,23 +171,24 @@ describe('check-skill-version.sh', () => {
     expect(code).toBe(1)
   })
 
-  it('exits 0 when a plugin has no version field (SHA-based plugin) and skills/ changed', () => {
+  it('exits 0 AND emits a visible SHA-based SKIP when a plugin has no version field and skills/ changed', () => {
     // Arrange — plugin "bar" has no version field (SHA-based)
     const { work, bare } = setupOriginWithPlugin({ pluginName: 'bar' })
     workDir = work
     bareDir = bare
 
-    // Add a change to skills/ — should be skipped because no version field
+    // Add a change to skills/ — skipped because no version field
     const skillDir = path.join(work, 'plugins', 'bar', 'skills')
     fs.writeFileSync(path.join(skillDir, 'my-skill.md'), '# skill v2 (sha-based)\n')
     git('git add -A', work)
     git('git -c user.email=t@t -c user.name=t commit -q -m "update sha-based skill"', work)
 
     // Act
-    const code = runScript(CHECK_SKILL_VERSION, work)
+    const { code, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
 
-    // Assert
+    // Assert — inertness MUST be disclosed, not silent (same bar as the origin/main SKIP)
     expect(code).toBe(0)
+    expect(stderr).toMatch(/SKIP: bar is SHA-based/)
   })
 
   it('exits 0 when a plugin version is bumped above base and skills/ changed', () => {

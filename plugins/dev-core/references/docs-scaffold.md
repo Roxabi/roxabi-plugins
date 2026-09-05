@@ -1,6 +1,6 @@
 # Docs Scaffold Reference
 
-`scaffoldDocs()` in `skills/dev-init/lib/docs.ts` — called by `/env-setup` Phase 3 and `/dev-checkup` auto-fix. Additive-only (¬overwrite existing files).
+`scaffoldDocs()` in `skills/dev-init/lib/docs.ts` — called by `/R-env-setup` Phase 3 and `/R-dev-checkup` auto-fix. Additive-only (¬overwrite existing files).
 
 **Write format:** always Markdown (`.md`). Legacy `.mdx` files in older repos are left alone (read-only compatibility). Fumadocs scaffolding was removed.
 
@@ -21,7 +21,7 @@ bun "${CLAUDE_PLUGIN_ROOT}/skills/dev-init/init.ts" scaffold-docs --path docs
     │   ├── index.md
     │   ├── patterns.md
     │   ├── ubiquitous-language.md
-    │   └── adr/                    # ADRs via /adr (always .md)
+    │   └── adr/                    # ADRs via /R-adr (always .md)
     ├── standards/
     │   ├── backend-patterns.md
     │   ├── frontend-patterns.md
@@ -52,4 +52,4 @@ docs:
 
 ## Populate stubs
 
-After scaffold, run `/seed-docs` to replace TODO placeholders from CLAUDE.md + codebase scan.
+After scaffold, run `/R-seed-docs` to replace TODO placeholders from CLAUDE.md + codebase scan.

@@ -4,13 +4,13 @@ Interactive wizard to fill in `.claude/stack.yml` through guided auto-detection 
 
 ## Why
 
-`stack.yml` is the configuration file that all dev-core skills read to find commands, file paths, and framework settings. `/stack-setup` auto-detects your runtime, package manager, framework, ORM, test runner, linter, and docs path from project files — then lets you confirm or edit before writing.
+`stack.yml` is the configuration file that all dev-core skills read to find commands, file paths, and framework settings. `/R-stack-setup` auto-detects your runtime, package manager, framework, ORM, test runner, linter, and docs path from project files — then lets you confirm or edit before writing.
 
 ## Usage
 
 ```
-/stack-setup           Auto-detect and write stack.yml (skips if already exists)
-/stack-setup --force   Re-run, overwriting existing config
+/R-stack-setup           Auto-detect and write stack.yml (skips if already exists)
+/R-stack-setup --force   Re-run, overwriting existing config
 ```
 
 Triggers: `"stack setup"` | `"setup stack"` | `"configure stack"` | `"fill stack.yml"` | `"stack wizard"`
@@ -33,7 +33,7 @@ Triggers: `"stack setup"` | `"setup stack"` | `"configure stack"` | `"fill stack
 
 ## Python quality gates
 
-On Python runtime, the wizard emits a full `quality_gates:` section in the generated `.claude/stack.yml` — three sub-blocks (`file_length`, `folder_size`, `import_layers`), all `enabled: true` by default, with `import_layers` running at the pre-push stage. The section is opt-in at the block level: an absent `quality_gates:` key disables all gates with no further configuration needed. To actually install the hooks and enforcement scripts, run `/release-setup --force` using the [quality-gates cookbook](../release-setup/cookbooks/quality-gates.md).
+On Python runtime, the wizard emits a full `quality_gates:` section in the generated `.claude/stack.yml` — three sub-blocks (`file_length`, `folder_size`, `import_layers`), all `enabled: true` by default, with `import_layers` running at the pre-push stage. The section is opt-in at the block level: an absent `quality_gates:` key disables all gates with no further configuration needed. To actually install the hooks and enforcement scripts, run `/R-release-setup --force` using the [quality-gates cookbook](../release-setup/cookbooks/quality-gates.md).
 
 ## Mixed-stack monorepos
 

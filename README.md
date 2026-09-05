@@ -25,16 +25,16 @@ Roxabi plugins are the reusable layer on top of Claude Code. Each plugin ships o
 claude plugin marketplace add Roxabi/roxabi-plugins
 
 # 2. Install the plugin you need
-claude plugin install dev-core        # full dev lifecycle + /dev-init setup
+claude plugin install dev-core        # full dev lifecycle + /R-dev-init setup
 claude plugin install compress        # token-efficient skill notation
 ```
 
 Then trigger any skill by describing what you want — no slash commands to memorize:
 
 ```
-"start working on issue #42"    → /dev
-"improve readme"                → /readme-upgrade
-"sync docs after this refactor" → /doc-sync
+"start working on issue #42"    → /R-dev
+"improve readme"                → /R-readme-upgrade
+"sync docs after this refactor" → /R-doc-sync
 "scrape and summarize this URL" → /summarize  (install roxabi-intel marketplace)
 ```
 
@@ -59,7 +59,7 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 
 | Plugin | Description |
 |--------|-------------|
-| [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. Includes `/dev-init` project setup (env-setup → axial → ci-setup → release-setup). Lifecycle skills, agents, safety hooks. Issues-only (no Projects V2 board); issue triage is the companion [issue-triage](plugins/issue-triage/README.md) plugin. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
+| [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. Includes `/R-dev-init` project setup (env-setup → axial → ci-setup → release-setup). Lifecycle skills, agents, safety hooks. Issues-only (no Projects V2 board); issue triage is the companion [issue-triage](plugins/issue-triage/README.md) plugin. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
 | [issue-triage](plugins/issue-triage/README.md) | Triage/create GitHub issues — size/priority/lane/type labels, blocked-by deps, parent/child. Labels + native relations, no Projects V2 |
 
 ### Content & branding
@@ -129,7 +129,7 @@ Two kinds of plugins live in this repo:
 
 **Wrapped plugins** — high-quality external skills with no versioning or install mechanism in their source repo. Roxabi adds plugin structure and vendors the source (via `git subtree` or file copy) so they become installable. New wrapped plugins go into `external/`.
 
-External plugin marketplaces we endorse are tracked in [`.claude-plugin/external-registry.json`](.claude-plugin/external-registry.json) (source of truth). [`.claude-plugin/curated-marketplaces.json`](.claude-plugin/curated-marketplaces.json) mirrors the curated list for runtime discovery — the `/dev-core ci-setup` skill reads it and offers installation — no skill edits needed to add a new endorsed source.
+External plugin marketplaces we endorse are tracked in [`.claude-plugin/external-registry.json`](.claude-plugin/external-registry.json) (source of truth). [`.claude-plugin/curated-marketplaces.json`](.claude-plugin/curated-marketplaces.json) mirrors the curated list for runtime discovery — the `/R-ci-setup` skill reads it and offers installation — no skill edits needed to add a new endorsed source.
 
 ## Contributing
 

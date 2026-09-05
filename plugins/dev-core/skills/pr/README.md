@@ -4,25 +4,25 @@ Create or update a pull request with a Conventional Commits title, issue linking
 
 ## Why
 
-PRs created by hand often have inconsistent titles, missing issue links, and no lifecycle table. `/pr` generates a structured PR with a Conventional Commits title, a lifecycle table (Intent → Analysis → Spec → Implementation → Verification), and a test plan — then rebases the feature branch on the latest base so reviewers see a minimal diff.
+PRs created by hand often have inconsistent titles, missing issue links, and no lifecycle table. `/R-pr` generates a structured PR with a Conventional Commits title, a lifecycle table (Intent → Analysis → Spec → Implementation → Verification), and a test plan — then rebases the feature branch on the latest base so reviewers see a minimal diff.
 
 ## Usage
 
 ```
-/pr                 Create PR (auto-detects base branch and issue number)
-/pr --draft         Create as draft
-/pr --base main     Override base branch
+/R-pr                 Create PR (auto-detects base branch and issue number)
+/R-pr --draft         Create as draft
+/R-pr --base main     Override base branch
 ```
 
 Triggers: `"create PR"` | `"open PR"` | `"submit PR"` | `"open a pull request"` | `"make a PR"` | `"raise a PR"`
 
 ## How it works
 
-1. **Guard rails** — refuses to PR from `staging`/`main`/`master`; refuses if no commits ahead; offers to update if PR already exists; pushes branch if not yet pushed; warns on lint/typecheck failures. τ≠S: **REFUSE** if `oracle_ok=false` (mechanical parse of `artifacts/reviews/{N}-falsify.md` failed — heading presence is ¬the oracle) or `priced_ok=false` (fail-closed SC missing `priced`/`not`/`oracles`) — re-run `/dev-implement` Step 6b or `/spec`.
+1. **Guard rails** — refuses to PR from `staging`/`main`/`master`; refuses if no commits ahead; offers to update if PR already exists; pushes branch if not yet pushed; warns on lint/typecheck failures. τ≠S: **REFUSE** if `oracle_ok=false` (mechanical parse of `artifacts/reviews/{N}-falsify.md` failed — heading presence is ¬the oracle) or `priced_ok=false` (fail-closed SC missing `priced`/`not`/`oracles`) — re-run `/R-dev-implement` Step 6b or `/R-spec`.
 2. **Content generation** — reads commits + diff + lifecycle artifacts (analysis, spec) to generate title (`<type>(<scope>): <desc>`, ≤70 chars) and body.
 3. **Create** — runs `gh pr create`; updates issue status to `Review`.
 4. **Rebase** — fetches latest base, rebases if behind, force-pushes with lease (no `--force`).
-5. **CI** — informs you to run `/ci-watch` to monitor CI.
+5. **CI** — informs you to run `/R-ci-watch` to monitor CI.
 
 ## PR body template
 
@@ -40,4 +40,4 @@ Triggers: `"create PR"` | `"open PR"` | `"submit PR"` | `"open a pull request"` 
 
 ## Chain position
 
-**Predecessor:** `/dev-implement` | **Successor:** `/ci-watch`
+**Predecessor:** `/R-dev-implement` | **Successor:** `/R-ci-watch`

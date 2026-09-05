@@ -4,15 +4,15 @@ Clean merged git branches, worktrees, and remote branches after merge-status ver
 
 ## Why
 
-After merging several PRs, local and remote branches accumulate. `/cleanup` audits every branch for merge status (including squash merges, which `git branch --merged` misses), shows a summary table with recommended actions, and safely deletes only what is confirmed merged — always requiring explicit confirmation for unmerged branches.
+After merging several PRs, local and remote branches accumulate. `/R-cleanup` audits every branch for merge status (including squash merges, which `git branch --merged` misses), shows a summary table with recommended actions, and safely deletes only what is confirmed merged — always requiring explicit confirmation for unmerged branches.
 
 ## Usage
 
 ```
-/cleanup             Analyze and clean both branches and worktrees
-/cleanup --branches  Only analyze branches
-/cleanup --worktrees Only analyze worktrees
-/cleanup --scope #42 Restrict branch/worktree cleanup to issue #42 (anchored match, not substring)
+/R-cleanup             Analyze and clean both branches and worktrees
+/R-cleanup --branches  Only analyze branches
+/R-cleanup --worktrees Only analyze worktrees
+/R-cleanup --scope #42 Restrict branch/worktree cleanup to issue #42 (anchored match, not substring)
 ```
 
 Triggers: `"cleanup"` | `"clean branches"` | `"cleanup worktrees"` | `"remove stale branches"`
@@ -38,4 +38,4 @@ Triggers: `"cleanup"` | `"clean branches"` | `"cleanup worktrees"` | `"remove st
 
 ## Chain position
 
-**Predecessor:** merge (after `/dev-review` APPROVED) | **Last step in `/dev` pipeline**
+**Predecessor:** merge (after `/R-dev-review` APPROVED) | **Last step in `/R-dev` pipeline**

@@ -5,7 +5,7 @@ set -euo pipefail
 
 # ── Trunk-mode guard (#371 N17) — MUST be first ──
 # A repo on release.model: trunk releases at merge-to-main (auto-release.yml),
-# never via a staging→main promote. /promote does not apply, and a trunk repo may
+# never via a staging→main promote. /R-promote does not apply, and a trunk repo may
 # have no `staging` branch — so this precedes the staging fetch below. Read the
 # model with a yq → python3 → default chain so the guard never goes inert when
 # yq is absent on CI; default staging-train keeps existing repos unaffected (N9).
@@ -23,7 +23,7 @@ read_release_model() {
 RELEASE_MODEL=$(read_release_model)
 if [ "${RELEASE_MODEL:-staging-train}" = "trunk" ]; then
   # Narrowed guard (#371 B1). Under trunk, auto-release.yml is the SOLE tagger at
-  # merge-to-main, so /promote must never tag — its --finalize step is refused
+  # merge-to-main, so /R-promote must never tag — its --finalize step is refused
   # (SKILL.md Step 9). But the staging→main *merge PR* never tags, and it is still
   # how a repo that keeps a `staging` branch through the trunk transition gets
   # commits onto main (where auto-release.yml then fires). So allow the create-PR
@@ -33,11 +33,11 @@ if [ "${RELEASE_MODEL:-staging-train}" = "trunk" ]; then
   if git rev-parse --verify --quiet refs/heads/staging >/dev/null 2>&1 \
      || git rev-parse --verify --quiet refs/remotes/origin/staging >/dev/null 2>&1; then
     echo "status=trunk_promote_pr"
-    echo "release.model==trunk — /promote opens the staging→main merge PR only; auto-release.yml tags on merge, and --finalize is refused (single writer)."
+    echo "release.model==trunk — /R-promote opens the staging→main merge PR only; auto-release.yml tags on merge, and --finalize is refused (single writer)."
     # fall through to the normal pre-flight below (fetch, commits-ahead, CI).
   else
     echo "status=trunk_mode"
-    echo "release.model==trunk with no staging branch — /promote does not apply; releases fire at merge-to-main (auto-release.yml)."
+    echo "release.model==trunk with no staging branch — /R-promote does not apply; releases fire at merge-to-main (auto-release.yml)."
     exit 0
   fi
 fi
@@ -45,7 +45,7 @@ fi
 # Branch names are intentionally hardcoded: promote always operates on the fixed
 # staging→main pair, so detect_base_branch (single-base detection) does not apply here.
 # Each git op emits a machine-readable status= key before exiting non-zero so the
-# /promote skill sees a reason rather than a bare set -e abort.
+# /R-promote skill sees a reason rather than a bare set -e abort.
 git fetch origin staging main 2>&1 || { echo "status=fetch_failed"; exit 1; }
 git checkout staging 2>&1 || { echo "status=checkout_failed"; exit 1; }
 git pull origin staging 2>&1 || { echo "status=pull_failed"; exit 1; }

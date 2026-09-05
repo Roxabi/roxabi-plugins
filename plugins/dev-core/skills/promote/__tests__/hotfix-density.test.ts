@@ -437,7 +437,7 @@ describe('formatResult', () => {
     expect(out).toContain('3/10')
     expect(out).toContain('30%')
     expect(out).toContain('WARN')
-    expect(out).toContain('/dev-checkup')
+    expect(out).toContain('/R-dev-checkup')
   })
 
   it('formats pause result with PAUSE recommended signal', () => {
@@ -451,7 +451,7 @@ describe('formatResult', () => {
     expect(out).toContain('5/10')
     expect(out).toContain('50%')
     expect(out).toContain('PAUSE')
-    expect(out).toContain('/dev-checkup')
+    expect(out).toContain('/R-dev-checkup')
   })
 
   it('appends anchorWarn note when present', () => {

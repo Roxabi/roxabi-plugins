@@ -1,5 +1,5 @@
 ---
-name: release-setup
+name: R-release-setup
 argument-hint: '[--force]'
 description: 'Set up commit standards and release automation — Commitizen, commitlint, semantic-release, Release Please, Lefthook/Husky. Triggers: "release setup" | "setup releases" | "commit standards" | "setup release automation".'
 version: 0.1.0
@@ -17,7 +17,7 @@ Let:
 
 Configure commit standards and release automation: Commitizen + commitlint, hook runner (Lefthook or Husky), and semantic-release or Release Please.
 
-Can run standalone (`/release-setup`) or be called by `/init` after `/ci-setup`.
+Can run standalone (`/R-release-setup`) or be called by `/init` after `/R-ci-setup`.
 
 ## Phase 0 — Pre-check (idempotency)
 
@@ -28,7 +28,7 @@ Check prerequisites and per-component state before any installation.
    test -f .claude/stack.yml && echo "found" || echo "missing"
    ```
    missing → warn: "stack.yml not found — release-setup reads runtime and hook runner from it."
-   → present choice **Run `/env-setup` first** | **Proceed manually**
+   → present choice **Run `/R-env-setup` first** | **Proceed manually**
    Proceed manually → continue with defaults (runtime: node, package_manager: npm, hooks.tool: none).
 
 2. Check per-component config file existence in parallel:

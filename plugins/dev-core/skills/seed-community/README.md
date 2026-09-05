@@ -5,9 +5,9 @@ Bootstrap OSS community health files — `CONTRIBUTING.md`, `LICENSE`, `SECURITY
 ## Usage
 
 ```
-/seed-community                          → Detect + generate all missing files
-/seed-community --only SECURITY,CoC     → Generate specific files only
-/seed-community --force                 → Overwrite even populated files
+/R-seed-community                          → Detect + generate all missing files
+/R-seed-community --only SECURITY,CoC     → Generate specific files only
+/R-seed-community --force                 → Overwrite even populated files
 ```
 
 ## What it does

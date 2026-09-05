@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Usage: analyze-branches.sh [--json] [--no-fetch] [--scope <#N>]
-# Analyzes local and remote branches for /cleanup merge-status verification.
+# Analyzes local and remote branches for /R-cleanup merge-status verification.
 # Analyze-only — never deletes branches, worktrees, or remotes.
 set -euo pipefail
 

@@ -5,12 +5,12 @@ Audit and upgrade project documentation quality — `README.md`, `CONTRIBUTING.m
 ## Usage
 
 ```
-/readme-upgrade                          → Audit + improve all docs
-/readme-upgrade --target root            → Root README.md only
-/readme-upgrade --target plugins         → All plugin READMEs
-/readme-upgrade --target contributing    → CONTRIBUTING.md only
-/readme-upgrade --plugin dev-core        → One specific plugin README
-/readme-upgrade --force                  → Re-audit even passing sections
+/R-readme-upgrade                          → Audit + improve all docs
+/R-readme-upgrade --target root            → Root README.md only
+/R-readme-upgrade --target plugins         → All plugin READMEs
+/R-readme-upgrade --target contributing    → CONTRIBUTING.md only
+/R-readme-upgrade --plugin dev-core        → One specific plugin README
+/R-readme-upgrade --force                  → Re-audit even passing sections
 ```
 
 ## What it does

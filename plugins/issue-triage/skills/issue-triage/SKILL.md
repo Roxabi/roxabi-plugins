@@ -116,15 +116,15 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
 
 **Why:**
 - `gh issue view E` shows the full fan-out flat (A + B + future C…) — true scope of the epic, ¬nested cascade
-- `/dev` re-scan retombe correctement sur l'épic origin pour tout follow-up
+- `/R-dev` re-scan retombe correctement sur l'épic origin pour tout follow-up
 - Multi-level deferrals (A→B→C) stay flat under E — ¬arbre profond ingérable
 
 **Decomposition vs deferral:**
 
 | Pattern | Parent-child? | Example |
 |---------|---------------|---------|
-| **Epic → phase** (planned decomposition) | ✓ child of epic | `/spec` smart-splitting: phase 1, phase 2 are children of epic |
-| **Issue → follow-up** (deferral, post-hoc) | ✗ sibling under shared parent | `/fix` Phase 5 Defer: out-of-scope finding becomes sibling |
+| **Epic → phase** (planned decomposition) | ✓ child of epic | `/R-spec` smart-splitting: phase 1, phase 2 are children of epic |
+| **Issue → follow-up** (deferral, post-hoc) | ✗ sibling under shared parent | `/R-fix` Phase 5 Defer: out-of-scope finding becomes sibling |
 | **Bug → regression** (related ¬caused) | ✗ standalone | New bug surfaced post-merge, ¬child, ¬sibling necessarily |
 
 **Recipe — defer A → create follow-up B:**
@@ -226,19 +226,19 @@ gh issue edit <number> --body "$BODY
 
 - **Phase:** Frame
 - **Predecessor:** — (entry point)
-- **Successor:** `/frame`
+- **Successor:** `/R-frame`
 - **Class:** adv (continuous flow, no gate)
 
 ## Task Integration
 
-- `/dev` owns the dev-pipeline task lifecycle externally
+- `/R-dev` owns the dev-pipeline task lifecycle externally
 - This skill does NOT update its own dev-pipeline task
 - Sub-tasks created: none
 
 ## Exit
 
-- **Success via `/dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/frame`. `/dev` re-scans and advances.
-- **Success standalone:** print one line: `Done. Next: /frame --issue N`. Stop.
-- **Failure:** return error. `/dev` presents Retry | Skip | Abort.
+- **Success via `/R-dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/R-frame`. `/R-dev` re-scans and advances.
+- **Success standalone:** print one line: `Done. Next: /R-frame --issue N`. Stop.
+- **Failure:** return error. `/R-dev` presents Retry | Skip | Abort.
 
 $ARGUMENTS

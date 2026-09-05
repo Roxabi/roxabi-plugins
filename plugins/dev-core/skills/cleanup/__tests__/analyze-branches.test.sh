@@ -92,7 +92,7 @@ scoped_names="$(echo "$result_scoped" | jq -r '[.local_branches[].name] | join("
 assert_eq "--scope 19 echoed in JSON" "19" "$scoped_scope"
 assert_eq "--scope 19 includes only feat/19-auth (excludes #33, #319)" "feat/19-auth" "$scoped_names"
 
-# --scope with a leading '#' (as /dev passes it: `cleanup --scope #N`).
+# --scope with a leading '#' (as /R-dev passes it: `cleanup --scope #N`).
 result_hash_scoped="$("$ANALYZE" --json --no-fetch --scope "#19")"
 DEBUG_JSON="$result_hash_scoped"
 assert_eq "--scope #19 strips the leading #" "19" "$(echo "$result_hash_scoped" | jq -r '.scope')"

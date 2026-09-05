@@ -1,5 +1,5 @@
 ---
-name: adr
+name: R-adr
 disable-model-invocation: true
 argument-hint: ["Title of decision" | --list]
 description: Create/list Architecture Decision Records.
@@ -20,8 +20,8 @@ Create and manage ADRs — document **why** technical choices were made.
 **Write format:** always Markdown (`.md`). Legacy `.mdx` ADRs are still readable for list/scan; never write new `.mdx`.
 
 ```
-/adr "Title"   → Create mode
-/adr --list    → List mode
+/R-adr "Title"   → Create mode
+/R-adr --list    → List mode
 ```
 
 ## Create Mode
@@ -87,7 +87,7 @@ Default status: **Accepted** unless stated otherwise. Min 2 options.
 
 ## List Mode
 
-Scan D for `.md` and legacy `.mdx` files. ¬∃ → inform + suggest `/adr "Title"`.
+Scan D for `.md` and legacy `.mdx` files. ¬∃ → inform + suggest `/R-adr "Title"`.
 
 ∃ → ∀ file: read frontmatter for title, status, date. Sort by NNN ascending.
 

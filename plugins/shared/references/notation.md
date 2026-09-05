@@ -1,6 +1,6 @@
 # Notation — Canonical Glossary
 
-Single source of truth for the formal notation used across this marketplace's skills and agents. It merges the three prior legends (compress `## Symbols`, dev-core `base.md` Notation, dev-core `doc-writer.md` compressed-notation line) — dispositions recorded in the merge audit below. This glossary is writer-side tooling: consumers of compressed files never need it — every emitted symbol must be self-sufficient via the whitelist or a Let-binding with gloss.
+Single source of truth for the formal notation used across this marketplace's skills and agents. It merges the three prior legends (compress `## Symbols`, dev-core `base.md` Notation, dev-core `R-doc-writer.md` compressed-notation line) — dispositions recorded in the merge audit below. This glossary is writer-side tooling: consumers of compressed files never need it — every emitted symbol must be self-sufficient via the whitelist or a Let-binding with gloss.
 
 Word home (ADR-018): glyphs and English process words live here. A reserved variable has one **target** sense. File-local re-bind of a target binding is not the desired model; `(local)` is a legacy lint escape only.
 
@@ -45,11 +45,11 @@ Every entry of the three source legends, with its disposition. Nothing was dropp
 | dev-core `base.md` Notation line | ¬ → ∨ ∧ ∃ ∀ | core-active (already whitelisted) |
 | dev-core `base.md` Notation line | ≥/≤ threshold · ✓/✗ pass/fail | core-active rows, promoted into the whitelist (counts above) |
 | dev-core `base.md` Notation line | S* next-step variable · Σ state dict | registry entries (variables, not operators — outside the equality domain) |
-| dev-core `doc-writer.md` compressed-notation line | ∃ ¬ ∀ ∧ ∨ ∅ | core-active (already whitelisted) |
-| dev-core `doc-writer.md` compressed-notation line | ⇒ implies | adjudicated → core-active row (cell above) |
-| dev-core `doc-writer.md` compressed-notation line | → maps-to | merged into the `→` row; maps-to is one of its 4 senses (Grammar) |
-| dev-core `doc-writer.md` compressed-notation line | ¬do-x idiom | merged into the `¬` core-active row + Grammar ¬ registers |
-| dev-core `doc-writer.md` compressed-notation line | S* · Σ state dict | registry entries (same rows as base.md's) |
+| dev-core `R-doc-writer.md` compressed-notation line | ∃ ¬ ∀ ∧ ∨ ∅ | core-active (already whitelisted) |
+| dev-core `R-doc-writer.md` compressed-notation line | ⇒ implies | adjudicated → core-active row (cell above) |
+| dev-core `R-doc-writer.md` compressed-notation line | → maps-to | merged into the `→` row; maps-to is one of its 4 senses (Grammar) |
+| dev-core `R-doc-writer.md` compressed-notation line | ¬do-x idiom | merged into the `¬` core-active row + Grammar ¬ registers |
+| dev-core `R-doc-writer.md` compressed-notation line | S* · Σ state dict | registry entries (same rows as base.md's) |
 
 ## Disambiguation Grammar
 
@@ -98,7 +98,7 @@ Variables are NOT operators and sit outside the whitelist equality domain. Count
 | var | binding(s) | target | grep counts | status |
 |-----|-----------|--------|-------------|--------|
 | `σ` | `.claude/stack.yml` (dominant) · spec artifact · status-icon map · staging branch | — (unresolved) | ×162 · 27 files | collision (4-way) |
-| `Ω` | override file (dominant) · `/interview` skill handle (residual) | override file | ×14 · 3 files | target-locked |
+| `Ω` | override file (dominant) · `/R-interview` skill handle (residual) | override file | ×14 · 3 files | target-locked |
 | `α` | agent (dominant) · analysis artifact (residual) · agent-memory file (residual) | agent | ×153 · 20 files | target-locked |
 | `β` | base branch (dominant) · brainstorm artifact (residual) · frontend path (residual) | base branch | ×42 · 7 files | target-locked |
 | `ω` | worktree (dominant) · option/choice (residual) | worktree | ×36 · 4 files | target-locked |
@@ -119,16 +119,16 @@ Variables are NOT operators and sit outside the whitelist equality domain. Count
 
 ## English process words
 
-Word home for factory English that glyphs cannot hold ([ADR-018](../../../docs/architecture/adr/018-skill-system-homes-and-composition.md)). This section owns the English words only — it does not own `τ` / `σ` / `φ`. Authors write with these words; `/dev` may Read this file once. Skills must not recopy this section.
+Word home for factory English that glyphs cannot hold ([ADR-018](../../../docs/architecture/adr/018-skill-system-homes-and-composition.md)). This section owns the English words only — it does not own `τ` / `σ` / `φ`. Authors write with these words; `/R-dev` may Read this file once. Skills must not recopy this section.
 
 **Issue** — GitHub issue the factory works; identified by N.
 Avoid: ticket (except quoting an external tracker).
 
-**Factory** — `/dev` (feature path) and `/ship` (land path). Owns pipeline task lifecycle.
+**Factory** — `/R-dev` (feature path) and `/R-ship` (land path). Owns pipeline task lifecycle.
 Avoid: "the orchestrator" as a third thing.
 
 **Approval-stop** — skill prints an Executive Summary and stops the turn; human replies in free text.
-Avoid: `/dev` treating "summary printed" as done.
+Avoid: `/R-dev` treating "summary printed" as done.
 
 **Done-signal** — on-disk fact that completes an approval-stop step (see `artifact-frontmatter.md` / chain-contract table).
 Avoid: completing these steps from chat memory (`Σ_s`) alone.
@@ -146,7 +146,7 @@ Avoid: treating the English word as settling the glyph `σ` (named residual coll
 
 - An Issue has one Tier (glyph `τ` — target binding in the registry).
 - Frame / Analysis / Spec / Plan are artifacts of one Issue.
-- Approval-stop writes a Done-signal; `/dev` reads it.
+- Approval-stop writes a Done-signal; `/R-dev` reads it.
 - Code is written in a Worktree; Principal never switches to `feat/*`.
 
 ## Register Conventions (aspirational)

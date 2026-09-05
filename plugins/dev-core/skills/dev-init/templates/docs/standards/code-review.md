@@ -2,14 +2,14 @@
 
 Project-specific review guidelines. Agents read this via `{standards.code_review}`.
 
-> Universal patterns (security checklist, severity definitions) are embedded in the `security-auditor` agent.
+> Universal patterns (security checklist, severity definitions) are embedded in the `R-security-auditor` agent.
 > This file documents **your project's specific** review criteria.
 
 ## Review Checklist
 
 - [ ] Code follows project patterns (see `backend-patterns` / `frontend-patterns`)
 - [ ] Tests added/updated for all changed behavior
-- [ ] No security vulnerabilities introduced (see security-auditor agent)
+- [ ] No security vulnerabilities introduced (see R-security-auditor agent)
 - [ ] Documentation updated if public API changed
 - [ ] No TODO comments without linked issue
 - [ ] Types are explicit (no `any` without justification)

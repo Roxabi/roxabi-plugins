@@ -35,7 +35,7 @@ And Slices:
 
 ### Slice V1: Auth + profile fetch
 
-#### Task 1: Write auth guard tests → tester
+#### Task 1: Write auth guard tests → R-tester
 - **File:** `apps/api/src/auth/jwt.guard.test.ts`
 - **Snippet:** `describe('JwtGuard', () => { it('should validate token', ...) })`
 - **Verify:** `grep -q 'describe.*JwtGuard' apps/api/src/auth/jwt.guard.test.ts` (ready)
@@ -45,7 +45,7 @@ And Slices:
 - **Traces:** N1
 - **Phase:** RED
 
-#### Task 2: Write profile service tests → tester
+#### Task 2: Write profile service tests → R-tester
 - **File:** `apps/api/src/users/users.service.test.ts`
 - **Snippet:** `describe('UsersService', () => { it('should fetch profile', ...) })`
 - **Verify:** `grep -q 'describe.*UsersService' apps/api/src/users/users.service.test.ts` (ready)
@@ -55,11 +55,11 @@ And Slices:
 - **Traces:** N2
 - **Phase:** RED
 
-#### RED-GATE: RED complete V1 → tester
+#### RED-GATE: RED complete V1 → R-tester
 - **Verify:** All test tasks for V1 marked complete
 - **Phase:** RED-GATE
 
-#### Task 3: Create user profiles schema [P] → backend-dev
+#### Task 3: Create user profiles schema [P] → R-backend-dev
 - **File:** `apps/api/src/users/schema.ts`
 - **Snippet:** `export const usersTable = pgTable('users', { id: text('id').primaryKey(), ... })`
 - **Verify:** `bun run typecheck --filter=@repo/api` (ready)
@@ -69,7 +69,7 @@ And Slices:
 - **Traces:** S2
 - **Phase:** GREEN
 
-#### Task 4: Add JWT validation middleware → backend-dev
+#### Task 4: Add JWT validation middleware → R-backend-dev
 - **File:** `apps/api/src/auth/jwt.guard.ts`
 - **Snippet:** `@Injectable() export class JwtGuard implements CanActivate { ... }`
 - **Verify:** `bun run test apps/api/src/auth/jwt.guard.test.ts` (deferred)
@@ -79,7 +79,7 @@ And Slices:
 - **Traces:** N1, S1
 - **Phase:** GREEN
 
-#### Task 5: Implement profile fetcher service → backend-dev
+#### Task 5: Implement profile fetcher service → R-backend-dev
 - **File:** `apps/api/src/users/users.service.ts`
 - **Snippet:** `async getProfile(userId: string): Promise<UserProfile> { ... }`
 - **Verify:** `bun run test apps/api/src/users/users.service.test.ts` (deferred)
@@ -89,7 +89,7 @@ And Slices:
 - **Traces:** N2, S2
 - **Phase:** GREEN
 
-> **Pre-#283:** The orchestrator manages RED-GATE ordering by spawning GREEN agents only after the tester completes RED tasks for each slice. Post-#283: Agents check the sentinel task status directly via TaskList.
+> **Pre-#283:** The orchestrator manages RED-GATE ordering by spawning GREEN agents only after R-tester completes RED tasks for each slice. Post-#283: Agents check the sentinel task status directly via TaskList.
 
 ## TaskCreate Metadata Example
 
@@ -133,7 +133,7 @@ A pre-#281 spec with Success Criteria (no Breadboard/Slices):
 
 #### Criteria SC-1: User can reset password via email link
 
-##### Task 1: Write password reset request test → tester
+##### Task 1: Write password reset request test → R-tester
 - **File:** `apps/api/src/auth/password-reset.test.ts`
 - **Snippet:** `describe('PasswordReset', () => { it('should send reset email', ...) })`
 - **Verify:** `grep -q 'describe.*PasswordReset' apps/api/src/auth/password-reset.test.ts` (ready)
@@ -143,7 +143,7 @@ A pre-#281 spec with Success Criteria (no Breadboard/Slices):
 - **Traces:** SC-1
 - **Phase:** RED
 
-##### Task 2: Implement password reset endpoint → backend-dev
+##### Task 2: Implement password reset endpoint → R-backend-dev
 - **File:** `apps/api/src/auth/password-reset.service.ts`
 - **Snippet:** `async requestReset(email: string): Promise<void> { ... }`
 - **Verify:** `bun run test apps/api/src/auth/password-reset.test.ts` (deferred)
@@ -155,7 +155,7 @@ A pre-#281 spec with Success Criteria (no Breadboard/Slices):
 
 #### Criteria SC-2: Reset token expires after 24 hours
 
-##### Task 3: Write token expiry test → tester
+##### Task 3: Write token expiry test → R-tester
 - **File:** `apps/api/src/auth/password-reset.test.ts`
 - **Snippet:** `it('should reject expired token', () => { ... })`
 - **Verify:** `grep -q 'expired token' apps/api/src/auth/password-reset.test.ts` (ready)
@@ -165,7 +165,7 @@ A pre-#281 spec with Success Criteria (no Breadboard/Slices):
 - **Traces:** SC-2
 - **Phase:** RED
 
-##### Task 4: Add token expiry validation → backend-dev
+##### Task 4: Add token expiry validation → R-backend-dev
 - **File:** `apps/api/src/auth/password-reset.service.ts`
 - **Snippet:** `if (token.createdAt < Date.now() - 24 * 60 * 60 * 1000) throw new TokenExpiredError()`
 - **Verify:** `bun run test apps/api/src/auth/password-reset.test.ts` (deferred)

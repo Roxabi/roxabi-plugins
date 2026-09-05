@@ -28,13 +28,13 @@ gh pr list --head "$BRANCH" --json number,title,url,state 2>/dev/null || echo "n
 
 # lifecycle artifacts
 # Any conventional prefix (feat|fix|chore|docs|refactor|…), not feat-only —
-# otherwise fix/# and chore/# branches report issue=none while /dev still finds α.
+# otherwise fix/# and chore/# branches report issue=none while /R-dev still finds α.
 ISSUE_NUM=$(echo "$BRANCH" | sed -n 's/^[a-z][a-z0-9]*\/\([0-9][0-9]*\)-.*/\1/p')
 if [ -n "$ISSUE_NUM" ]; then
   echo "issue=$ISSUE_NUM"
-  # Same resolver as /dev, via the shared helper — ¬a second implementation. The
+  # Same resolver as /R-dev, via the shared helper — ¬a second implementation. The
   # candidate set must match too: the previous inline glob `{N}-*` anchored at the
-  # filename start with no slug fallback, so /dev could report an analysis that /pr
+  # filename start with no slug fallback, so /R-dev could report an analysis that /R-pr
   # reported as absent (e.g. `epic-42-drift-analysis.md`, or a slug-only name).
   SLUG=$(echo "$BRANCH" | sed -n 's/^[a-z][a-z0-9]*\/[0-9][0-9]*-\(.*\)$/\1/p')
   ANALYSIS=$(resolve_analysis "artifacts/analyses" "$ISSUE_NUM" "$SLUG")

@@ -1,5 +1,5 @@
 ---
-name: dev
+name: R-dev
 argument-hint: '[#N | "idea" | --from <step> | --audit]'
 description: Workflow orchestrator — single entry point for the full dev lifecycle. Triggers: "dev" | "start working on" | "work on issue" | "work on #" | "develop" | "pick up issue" | "tackle issue" | "let's work on".
 version: 0.3.7
@@ -37,16 +37,16 @@ Single entry point: scan artifacts → detect state → show progress → delega
 ## Entry
 
 ```
-/dev #42             → resume/start from issue number
-/dev "dark mode"     → find or create issue, then start
-/dev #42 --from spec → jump to specific step (warn if deps missing)
-/dev #42 --audit     → enable reasoning checkpoint before critical steps
-/dev --cleanup-context → audit & clean CLAUDE.md, skills, memory (delegates to /cleanup-context)
+/R-dev #42             → resume/start from issue number
+/R-dev "dark mode"     → find or create issue, then start
+/R-dev #42 --from spec → jump to specific step (warn if deps missing)
+/R-dev #42 --audit     → enable reasoning checkpoint before critical steps
+/R-dev --cleanup-context → audit & clean CLAUDE.md, skills, memory (delegates to /R-cleanup-context)
 ```
 
 ## Step 0 — Parse Input
 
-`--cleanup-context` ⇒ ∃ other flags → warn "Other flags ignored." Delegate: `skill: "cleanup-context"`. **Stop.**
+`--cleanup-context` ⇒ ∃ other flags → warn "Other flags ignored." Delegate: `skill: "R-cleanup-context"`. **Stop.**
 
 `#N` ⇒ fetch:
 ```bash
@@ -122,7 +122,7 @@ Let α_approved := α ∃ ∧ (α.status == 'approved' ∨ status key absent).
 
 Host task list (Claude `Task*` or Grok `todo_write` — see `skills/shared/references/harness-task-list.md`) drives in-session progress for the dev pipeline. Treat it as authoritative for within-session state — artifacts remain authoritative across sessions.
 
-**2b.1 Check existing:** `TaskList` → filter where `metadata.issue == N` ∧ `metadata.kind == 'dev-pipeline'`. ∃ matches → skip seeding (tasks already exist from a prior `/dev` invocation in this session). Cache {step → task.id} map from the matches. Goto 2b.4.
+**2b.1 Check existing:** `TaskList` → filter where `metadata.issue == N` ∧ `metadata.kind == 'dev-pipeline'`. ∃ matches → skip seeding (tasks already exist from a prior `/R-dev` invocation in this session). Cache {step → task.id} map from the matches. Goto 2b.4.
 
 **2b.2 Build active sequence:** Apply Step 4 skip logic to τ + Σ. Skipped steps are **not** created — keeps the timeline clean.
 
@@ -151,7 +151,7 @@ TaskCreate(
 
 Wire dependencies sequentially — ∀ i > 0: `TaskUpdate(task[i].id, addBlockedBy: [task[i-1].id])`. Cache {step → task.id} map in-memory.
 
-**2b.4 Mark done from Σ:** ∀ step where Σ[step] == true ∨ Σ_s[step] == true → `TaskUpdate(task.id, status: "completed")`. Artifacts on disk mean the step is done even on first `/dev` entry of the session.
+**2b.4 Mark done from Σ:** ∀ step where Σ[step] == true ∨ Σ_s[step] == true → `TaskUpdate(task.id, status: "completed")`. Artifacts on disk mean the step is done even on first `/R-dev` entry of the session.
 
 ## Step 3 — Progress Display
 
@@ -182,7 +182,7 @@ should_skip(step, τ, Σ):
   plan     ∧ τ == S                       → skip
   ci-watch ∧ ¬PR ∃                         → skip
   fix      ∧ (Σ.fix ∨ Σ_s.fix)            → skip (fixes already applied)
-  promote                                  → skip (/promote is standalone staging→main; ¬auto-triggered by /dev)
+  promote                                  → skip (/R-promote is standalone staging→main; ¬auto-triggered by /R-dev)
   cleanup  ∧ ¬stale                       → skip
   default                                 → false
 ```
@@ -219,18 +219,18 @@ First non-done non-skipped ⇒ S*. ∀ steps done ⇒ completion banner, exit.
 
 | Gate trigger | Behavior |
 |-------------|----------|
-| S* == frame (¬Σ.frame) | **no pre-gate** — invoke `/frame` immediately. Skill: high_conf → auto-approve; else chat Executive Summary (¬AQ) + free-form react. |
-| S* == analyze (Σ.frame ∧ ¬Σ.analyze ∧ τ == F-full) | No pre-gate. `/analyze` chat Executive Summary stop (¬AQ); free-form react → re-scan → `/spec`. |
-| S* == spec (Σ.frame ∧ ¬Σ.spec) | No pre-gate. `/spec` chat Executive Summary (¬AQ); free-form react → re-scan → `/dev-plan`. |
-| S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ == F-full | Architecture sketch (see block below) → user confirm → THEN invoke /dev-plan. ¬fires for τ ∈ {S, F-lite}. Plan itself: Executive Summary + free-form approve inside skill. |
-| S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ ∈ {S, F-lite} | No pre-gate (τ=S skips plan). Invoke `/dev-plan` for F-lite; skill owns Executive Summary stop. |
-| S* == review | Post-review gate handled inside /dev-review |
+| S* == frame (¬Σ.frame) | **no pre-gate** — invoke `/R-frame` immediately. Skill: high_conf → auto-approve; else chat Executive Summary (¬AQ) + free-form react. |
+| S* == analyze (Σ.frame ∧ ¬Σ.analyze ∧ τ == F-full) | No pre-gate. `/R-analyze` chat Executive Summary stop (¬AQ); free-form react → re-scan → `/R-spec`. |
+| S* == spec (Σ.frame ∧ ¬Σ.spec) | No pre-gate. `/R-spec` chat Executive Summary (¬AQ); free-form react → re-scan → `/R-dev-plan`. |
+| S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ == F-full | Architecture sketch (see block below) → user confirm → THEN invoke /R-dev-plan. ¬fires for τ ∈ {S, F-lite}. Plan itself: Executive Summary + free-form approve inside skill. |
+| S* == plan (Σ.spec ∧ ¬Σ.plan) ∧ τ ∈ {S, F-lite} | No pre-gate (τ=S skips plan). Invoke `/R-dev-plan` for F-lite; skill owns Executive Summary stop. |
+| S* == review | Post-review gate handled inside /R-dev-review |
 
 **¬pre-ask** what the child skill will decide or auto-resolve. Approval-stop skills own their summary/react.
 
 ### Architecture Sketch Gate (F-full only, pre-plan)
 
-**Trigger:** S* == plan ∧ τ == F-full ∧ ¬Σ.plan — fires BEFORE invoking `/dev-plan`. ¬fires for τ ∈ {S, F-lite}.
+**Trigger:** S* == plan ∧ τ == F-full ∧ ¬Σ.plan — fires BEFORE invoking `/R-dev-plan`. ¬fires for τ ∈ {S, F-lite}.
 
 Present a concise architecture sketch covering four elements:
 - **(a) Component boundaries** — enumerate modules/packages/services involved and their single responsibility
@@ -238,9 +238,9 @@ Present a concise architecture sketch covering four elements:
 - **(c) State ownership** — which component owns each piece of mutable state; ¬shared-mutable across boundaries
 - **(d) Integration points** — external systems, APIs, events, or side-effects touched by this change
 
-→ present choice **Confirm sketch → proceed to /dev-plan** | **Revise sketch** (max 2 rounds) | **Abort**
+→ present choice **Confirm sketch → proceed to /R-dev-plan** | **Revise sketch** (max 2 rounds) | **Abort**
 
-User confirm received → invoke `skill: "dev-plan"` (Step 7). This gate runs earlier than (and is distinct from) the post-plan compact pause (Step 8b).
+User confirm received → invoke `skill: "R-dev-plan"` (Step 7). This gate runs earlier than (and is distinct from) the post-plan compact pause (Step 8b).
 
 ## Step 6b — Reasoning Audit (optional)
 
@@ -254,7 +254,7 @@ audit ∧ S* ∈ critical → reasoning audit per [reasoning-audit.md](${CLAUDE_
 
 ## Step 7 — Execute Step
 
-**Worktree bootstrap (silent pre-step):** `worktree` == false ∧ S* ∈ {frame, analyze, spec, plan, implement} → invoke `skill: "setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first (ensures BRANCH linked + ω; **principal stays on β**). After return, re-scan `worktree` + `principal_ok`. Still false or `principal_ok=false` → present choice: **Retry** | **Abort**. SSoT: [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md).
+**Worktree bootstrap (silent pre-step):** `worktree` == false ∧ S* ∈ {frame, analyze, spec, plan, implement} → invoke `skill: "R-setup-worktree", args: "{N:+--issue $N }--slug {slug}"` first (ensures BRANCH linked + ω; **principal stays on β**). After return, re-scan `worktree` + `principal_ok`. Still false or `principal_ok=false` → present choice: **Retry** | **Abort**. SSoT: [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md).
 
 **Artifact sync (post-bootstrap):** If S* ∈ {frame, analyze, spec, plan} and principal has artifacts that ω lacks → absolute rsync (path-agnostic — works for Claude *and* Grok layouts):
 ```bash
@@ -277,29 +277,29 @@ Idempotent. **¬** relative `../../../artifacts/` (wrong under `~/.grok/worktree
 
 **Exception:** user may type "stop"/"skip to X" before skill completes.
 
-**Follow-up tasks:** child skill surfaces new work (e.g. `/dev-review` emits findings that require a fix iteration, `/ci-watch` detects flakes needing re-run) → `TaskCreate` a follow-up task with metadata `{ kind: "dev-pipeline", issue: N, step: "{step}", follow_up: true }` and `addBlockedBy: [task_id_map[S*]]`.
+**Follow-up tasks:** child skill surfaces new work (e.g. `/R-dev-review` emits findings that require a fix iteration, `/R-ci-watch` detects flakes needing re-run) → `TaskCreate` a follow-up task with metadata `{ kind: "dev-pipeline", issue: N, step: "{step}", follow_up: true }` and `addBlockedBy: [task_id_map[S*]]`.
 
 **Skill invocation map:**
 
 | Step | Class | Skill invocation | On success → |
 |------|-------|------------------|--------------|
-| recheck | adv | `skill: "recheck", args: "--from-dev #N"` | frame |
-| frame | adv + approval stop | `skill: "frame", args: "{N:+--issue $N}"` | analyze (F-full) ∨ spec (F-lite) **only after** φ approved (high_conf same turn or free-form) |
-| analyze | adv + approval stop | `skill: "analyze", args: "{N:+--issue $N}"` | spec **only after** α_approved on disk |
-| spec | adv + approval stop | `skill: "spec", args: "{N:+--issue $N}"` | plan **only after** σ approved (status ≠ draft) |
-| plan | adv + approval stop | `skill: "dev-plan", args: "{N:+--issue $N}"` | implement **only after** ## Task IDs — via Step 8b compact pause (F-lite/F-full; ¬auto-chain) |
-| implement | adv | `skill: "dev-implement", args: "{N:+--issue $N}"` | pr |
-| pr | adv | `skill: "pr"` (auto-detects branch + issue) | ci-watch |
-| ci-watch | adv | `skill: "ci-watch", args: "--pr {PR#}"` | validate |
-| validate | adv | `skill: "validate"` | review |
-| review | verdict | `skill: "dev-review"` | APPROVED → merge → cleanup \| CHANGES_REQUESTED → fix |
-| fix | loop | `skill: "fix", args: "#{PR_NUMBER}"` | review (max 2 iters, then Abort) |
-| promote | — | `skill: "promote"` (standalone — never auto-triggered) | — |
-| cleanup | adv | `skill: "cleanup", args: "--scope #N"` | pipeline complete |
+| recheck | adv | `skill: "R-recheck", args: "--from-dev #N"` | frame |
+| frame | adv + approval stop | `skill: "R-frame", args: "{N:+--issue $N}"` | analyze (F-full) ∨ spec (F-lite) **only after** φ approved (high_conf same turn or free-form) |
+| analyze | adv + approval stop | `skill: "R-analyze", args: "{N:+--issue $N}"` | spec **only after** α_approved on disk |
+| spec | adv + approval stop | `skill: "R-spec", args: "{N:+--issue $N}"` | plan **only after** σ approved (status ≠ draft) |
+| plan | adv + approval stop | `skill: "R-dev-plan", args: "{N:+--issue $N}"` | implement **only after** ## Task IDs — via Step 8b compact pause (F-lite/F-full; ¬auto-chain) |
+| implement | adv | `skill: "R-dev-implement", args: "{N:+--issue $N}"` | pr |
+| pr | adv | `skill: "R-pr"` (auto-detects branch + issue) | ci-watch |
+| ci-watch | adv | `skill: "R-ci-watch", args: "--pr {PR#}"` | validate |
+| validate | adv | `skill: "R-validate"` | review |
+| review | verdict | `skill: "R-dev-review"` | APPROVED → merge → cleanup \| CHANGES_REQUESTED → fix |
+| fix | loop | `skill: "R-fix", args: "#{PR_NUMBER}"` | review (max 2 iters, then Abort) |
+| promote | — | `skill: "R-promote"` (standalone — never auto-triggered) | — |
+| cleanup | adv | `skill: "R-cleanup", args: "--scope #N"` | pipeline complete |
 
 **Skip to X** ⇒ → present choice **Proceed anyway** | **Cancel**. Missing artifacts → warn first. Proceed ⇒ mark prior steps skipped, S* = X.
 
-**Stop** ⇒ "Stopped at {S*}. Run `/dev #N` to resume."
+**Stop** ⇒ "Stopped at {S*}. Run `/R-dev #N` to resume."
 
 ## Step 8 — Post-skill Re-scan
 
@@ -338,9 +338,9 @@ adv → re-scan → Step 7 immediately.
 **Trigger:** in Step 8, the step that just completed == `plan` ∧ τ ∈ {F-lite, F-full} ∧ new S* == `implement`.
 τ=S never reaches here — `plan` is skipped, so the pipeline goes straight to `implement` with no pause.
 
-**Why:** `/dev-plan` consumed heavy context (spec read, scope glob/grep, micro-task generation). `/dev-implement` spawns fresh agents whose context is injected from the task list + plan artifact — the planning conversation is dead weight. Tasks persist (task list + plan artifact `## Task IDs`); `/dev-implement` Step 1b re-attaches after a context reset. `/compact` = soft restart → safe.
+**Why:** `/R-dev-plan` consumed heavy context (spec read, scope glob/grep, micro-task generation). `/R-dev-implement` spawns fresh agents whose context is injected from the task list + plan artifact — the planning conversation is dead weight. Tasks persist (task list + plan artifact `## Task IDs`); `/R-dev-implement` Step 1b re-attaches after a context reset. `/compact` = soft restart → safe.
 
-**Behavior:** do **NOT** auto-chain to `/dev-implement`. Print the recommendation block below and **STOP this turn** (Claude cannot invoke `/compact` — it is user-typed):
+**Behavior:** do **NOT** auto-chain to `/R-dev-implement`. Print the recommendation block below and **STOP this turn** (Claude cannot invoke `/compact` — it is user-typed):
 
 ```
 ✓ Plan approved — {n} tasks seeded + committed ({τ}).
@@ -348,12 +348,12 @@ adv → re-scan → Step 7 immediately.
 
   Recommended before building:
     1. /compact          clear planning context
-    2. /dev #{N}         resume → re-attaches tasks → ≡ /dev-implement #{N}
+    2. /R-dev #{N}         resume → re-attaches tasks → ≡ /R-dev-implement #{N}
 
-  Skip compact? → /dev-implement --issue {N} directly.
+  Skip compact? → /R-dev-implement --issue {N} directly.
 ```
 
-**Re-fire guard:** the pause is keyed to *plan having just run this turn*, not to *implement being next*. On the resume turn (`/dev #{N}` after `/compact`), `/dev` did not execute `plan` (Σ.plan already true on disk) → Step 8b does not apply → Step 7 invokes `/dev-implement` directly, no second prompt.
+**Re-fire guard:** the pause is keyed to *plan having just run this turn*, not to *implement being next*. On the resume turn (`/R-dev #{N}` after `/compact`), `/R-dev` did not execute `plan` (Σ.plan already true on disk) → Step 8b does not apply → Step 7 invokes `/R-dev-implement` directly, no second prompt.
 
 ## Phases + Gate Summary
 
@@ -362,7 +362,7 @@ adv → re-scan → Step 7 immediately.
 | Frame | recheck → frame | frame: high_conf auto-approve **or** chat summary free-form (status: approved) |
 | Shape | analyze → spec | chat Executive Summary free-form each (analyze F-full only) |
 | Build | plan → implement → pr | plan chat summary free-form → compact pause (F-lite/F-full, Step 8b) before implement → pr |
-| Verify | ci-watch → validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /dev-review Phase 8). |
+| Verify | ci-watch → validate → review → fix | post-review: fix/merge/stop. Merge = feature→staging (via /R-dev-review Phase 8). |
 | Ship | promote → cleanup | promote always skipped. cleanup runs if worktree/branches stale. |
 
 ## Tier Skip Matrix
@@ -401,12 +401,12 @@ cond = applicable only (see skip logic).
 Issue #{N} closed. Worktree cleaned up.
 
 Next: feature is merged to staging.
-To promote to production → run `/promote`
+To promote to production → run `/R-promote`
 ```
 
 ## Edge Cases
 
-- Session dies mid-step → `/dev #N` resumes. Re-scan detects partial state. Half-written artifact → step skill handles.
+- Session dies mid-step → `/R-dev #N` resumes. Re-scan detects partial state. Half-written artifact → step skill handles.
 - `--from <step>` ∧ missing deps → warn + → present choice **Proceed** | **Cancel**.
 - Issue ¬∃ ∧ free text → frame-only mode. φ approved → present choice **Create GitHub issue** | **Continue without**.
 - S* == validate → Σ.validate always null. Σ_s advances within session. New session → re-runs.

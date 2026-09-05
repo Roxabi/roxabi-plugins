@@ -215,7 +215,7 @@ export function checkSecurity(): Section {
     checks.push({
       name: 'dependabot.yml',
       status: 'warn',
-      detail: 'missing — run /init or /ci-setup to create (automated dependency updates)',
+      detail: 'missing — run /init or /R-ci-setup to create (automated dependency updates)',
     })
   } else {
     const depYml = fs.readFileSync(dependabotPath, 'utf8') as string
@@ -239,7 +239,7 @@ export function checkSecurity(): Section {
       checks.push({
         name: 'dependabot.yml',
         status: 'warn',
-        detail: `partial — missing ${!hasApp ? 'npm|pip ecosystem' : ''}${!hasApp && !hasGha ? ' and ' : ''}${!hasGha ? 'github-actions' : ''} block — re-run /ci-setup (generator owns full file)`,
+        detail: `partial — missing ${!hasApp ? 'npm|pip ecosystem' : ''}${!hasApp && !hasGha ? ' and ' : ''}${!hasGha ? 'github-actions' : ''} block — re-run /R-ci-setup (generator owns full file)`,
       })
     }
   }
@@ -322,7 +322,7 @@ export function checkSecurity(): Section {
       status: hasFreeze ? 'pass' : 'warn',
       detail: hasFreeze
         ? 'bound on lefthook.yml pre-commit and pre-push'
-        : 'lefthook.yml does not bind check-principal-branch.sh on both pre-commit and pre-push — run /ci-setup (2e) or bun init.ts seed-principal-freeze',
+        : 'lefthook.yml does not bind check-principal-branch.sh on both pre-commit and pre-push — run /R-ci-setup (2e) or bun init.ts seed-principal-freeze',
     })
   }
 
@@ -506,7 +506,7 @@ export function checkStandardsPaths(): Section {
           status: hasSubstantialFile ? 'pass' : 'warn',
           detail: hasSubstantialFile
             ? trimmedPath
-            : `${trimmedPath} — all files appear to be stubs — run /analyze or fill manually`,
+            : `${trimmedPath} — all files appear to be stubs — run /R-analyze or fill manually`,
         })
       } else {
         // File: check line count and TODO markers
@@ -517,10 +517,10 @@ export function checkStandardsPaths(): Section {
           const lineCount = content.split('\n').length
           if (lineCount < 10) {
             fileStatus = 'warn'
-            fileDetail = `${trimmedPath} — appears to be a stub (${lineCount} lines) — run /analyze or fill manually`
+            fileDetail = `${trimmedPath} — appears to be a stub (${lineCount} lines) — run /R-analyze or fill manually`
           } else if (content.includes('TODO:') && lineCount < 30) {
             fileStatus = 'warn'
-            fileDetail = `${trimmedPath} — has TODO markers — fill with project-specific content or run /analyze`
+            fileDetail = `${trimmedPath} — has TODO markers — fill with project-specific content or run /R-analyze`
           }
         } catch {}
         checks.push({

@@ -196,13 +196,13 @@ classes:
 #
 # Authoritative listing (derived from agents/; do NOT update by hand
 # — re-run the derivation above):
-#   adversarial | architect | axial-adr-create | axial-adr-review | backend-dev
-#   devops | doc-writer | finding-verifier | fixer | frontend-dev | product-lead
-#   recall | security-auditor | tester
+#   R-adversarial | R-architect | R-axial-adr-create | R-axial-adr-review | R-backend-dev
+#   R-devops | R-doc-writer | R-finding-verifier | R-fixer | R-frontend-dev | R-product-lead
+#   R-recall | R-security-auditor | R-tester
 #
 # Filter implementation (Slice 5 cron): MUST scan plugins/dev-core/agents/*.md at
 # runtime and extract name: fields — the inline listing above is documentation-only.
-# When recall.md (Slice 3) ships, no spec change is needed — the filter automatically
+# When R-recall.md (Slice 3) ships, no spec change is needed — the filter automatically
 # picks it up.
 #
 # Enforcement point: graduation cron (Slice 5 — docs/analysis-review-fix-strategy.md §4.3).

@@ -12,7 +12,7 @@
 | Capability probe | Detect which tools exist **in this session** (schema / known names) |
 | **Branch + issue link** | **dev-core invariant** — harness-agnostic |
 | **Path / enter / exit** | **Harness owns layout** — do not dual-hardcode opaque Grok hash paths in skills |
-| **Principal freeze** | Principal checkout **always** stays on β (`staging` \| `main` \| `master`) — **never** `git switch` / `checkout` of `feat/…` there. Agent: plugin Pre **deny**. Persist: lefthook (`check-principal-branch.sh`, `/ci-setup` 2e). |
+| **Principal freeze** | Principal checkout **always** stays on β (`staging` \| `main` \| `master`) — **never** `git switch` / `checkout` of `feat/…` there. Agent: plugin Pre **deny**. Persist: lefthook (`check-principal-branch.sh`, `/R-ci-setup` 2e). |
 
 ## Invariants (all harnesses)
 
@@ -54,9 +54,9 @@ Principal on β + ω on feat elsewhere = **healthy** (not “missing worktree”
 | Ensure BRANCH + link | bash `gh issue develop` | idem | From **principal** CWD; ¬switch principal |
 | Create ω if missing | `git worktree add .claude/worktrees/{N}-{slug} BRANCH` | `git worktree add "$(suggested_grok_worktree_path N slug)" BRANCH` | Path is layout only; detection stays branch-first |
 | Enter ω (lead) | `EnterWorktree(path)` | CWD = ω path for all code ops; session may already be in ω | **¬** `git checkout BRANCH` on principal |
-| Spawn workers | inherit CWD after Enter | `spawn_subagent(..., cwd: ω)` — **¬** `isolation: worktree` for `/dev` implement | Isolation:worktree creates anonymous trees + apply; breaks issue-linked BRANCH |
+| Spawn workers | inherit CWD after Enter | `spawn_subagent(..., cwd: ω)` — **¬** `isolation: worktree` for `/R-dev` implement | Isolation:worktree creates anonymous trees + apply; breaks issue-linked BRANCH |
 | Install / hooks | run inside ω | same | `worktree_setup` if project has it |
-| Teardown | `ExitWorktree` / `git worktree remove` | `git worktree remove` + orphan-shell scan (`/cleanup`) | |
+| Teardown | `ExitWorktree` / `git worktree remove` | `git worktree remove` + orphan-shell scan (`/R-cleanup`) | |
 | Detect resume | `find_feature_worktree` | same | |
 
 ### Create path conventions (only when creating)
@@ -83,7 +83,7 @@ Run from principal (or any CWD; all git ops that touch principal use `-C` when n
 ## Work rules (implement / code)
 
 - All Write/Edit/commit/QG: **inside ω only**
-- Orchestration (`/dev` scan, `gh`, read principal artifacts): may stay on principal
+- Orchestration (`/R-dev` scan, `gh`, read principal artifacts): may stay on principal
 - Artifact sync principal → ω: `rsync -a "$PRINCIPAL/artifacts/" "$WT/artifacts/"` (absolute paths — ¬`../../../` relative)
 
 ## Anti-patterns
@@ -102,12 +102,12 @@ Run from principal (or any CWD; all git ops that touch principal use `-C` when n
 
 | Skill / script | Uses |
 |----------------|------|
-| `/setup-worktree` | Full setup procedure + H_wt |
-| `/dev` Step 7 bootstrap | invoke setup-worktree; artifact sync absolute |
-| `/dev-implement` Step 2 | locate ω, enter per H_wt, work only in ω |
-| `/analyze` spike | throwaway ω; principal stays on β |
+| `/R-setup-worktree` | Full setup procedure + H_wt |
+| `/R-dev` Step 7 bootstrap | invoke setup-worktree; artifact sync absolute |
+| `/R-dev-implement` Step 2 | locate ω, enter per H_wt, work only in ω |
+| `/R-analyze` spike | throwaway ω; principal stays on β |
 | `scan-state.sh` / `setup-preflight.sh` | `find_feature_worktree`, principal ok flags |
-| `/cleanup` | remove ω by path; orphan Grok shells |
+| `/R-cleanup` | remove ω by path; orphan Grok shells |
 
 ## Related
 

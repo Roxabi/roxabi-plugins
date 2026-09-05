@@ -4,15 +4,15 @@ Generate or run unit, integration, and Playwright e2e tests following existing c
 
 ## Why
 
-Writing tests is slow when you have to figure out describe/it structure, mock strategies, and assertion style from scratch. `/test` reads the existing test patterns in your project and generates tests that match them exactly — with AAA structure, correct mocking for Bun/Vitest, and coverage for happy paths, edge cases, and error cases.
+Writing tests is slow when you have to figure out describe/it structure, mock strategies, and assertion style from scratch. `/R-test` reads the existing test patterns in your project and generates tests that match them exactly — with AAA structure, correct mocking for Bun/Vitest, and coverage for happy paths, edge cases, and error cases.
 
 ## Usage
 
 ```
-/test                      Generate tests for files changed vs base branch
-/test src/auth/login.ts    Generate tests for a specific file
-/test --e2e                Generate Playwright e2e tests for changed files
-/test --run                Run existing tests (commands.test from stack.yml)
+/R-test                      Generate tests for files changed vs base branch
+/R-test src/auth/login.ts    Generate tests for a specific file
+/R-test --e2e                Generate Playwright e2e tests for changed files
+/R-test --run                Run existing tests (commands.test from stack.yml)
 ```
 
 Triggers: `"test this file"` | `"write tests"` | `"add coverage"` | `"run tests"` | `"e2e tests"` | `"generate tests"` | `"write unit tests"`

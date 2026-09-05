@@ -4,16 +4,16 @@ Watch a GitHub Actions CI run live — emoji dashboard, failed log dump, and aut
 
 ## Why
 
-After pushing a PR, you have to manually poll GitHub or wait for email notifications. `/ci-watch` streams the CI run in real time with a live emoji dashboard, dumps failed job logs on exit, and — if CI passes and auto-merge is enabled with a `reviewed` label — watches the PR until it merges automatically.
+After pushing a PR, you have to manually poll GitHub or wait for email notifications. `/R-ci-watch` streams the CI run in real time with a live emoji dashboard, dumps failed job logs on exit, and — if CI passes and auto-merge is enabled with a `reviewed` label — watches the PR until it merges automatically.
 
 ## Usage
 
 ```
-/ci-watch                     Auto-detect current branch's CI run
-/ci-watch 42                  Watch PR #42
-/ci-watch --run 12345678      Watch a specific run ID
-/ci-watch --branch feat/42    Watch a specific branch
-/ci-watch --interval 15       Poll every 15 seconds
+/R-ci-watch                     Auto-detect current branch's CI run
+/R-ci-watch 42                  Watch PR #42
+/R-ci-watch --run 12345678      Watch a specific run ID
+/R-ci-watch --branch feat/42    Watch a specific branch
+/R-ci-watch --interval 15       Poll every 15 seconds
 ```
 
 Triggers: `"watch ci"` | `"ci watch"` | `"watch the ci"` | `"watch run"` | `"monitor ci"`
@@ -36,4 +36,4 @@ Triggers: `"watch ci"` | `"ci watch"` | `"watch the ci"` | `"watch run"` | `"mon
 
 ## Chain position
 
-**Predecessor:** `/pr` | **Successor:** `/validate`
+**Predecessor:** `/R-pr` | **Successor:** `/R-validate`

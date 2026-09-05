@@ -8,14 +8,14 @@ const text = readFileSync(SKILL, 'utf-8')
 
 const section = (from: string, to: string): string => text.slice(text.indexOf(from), text.indexOf(to))
 
-const dispatch = section('### Agent dispatch', '### Security-auditor scoping')
+const dispatch = section('### Agent dispatch', '### R-security-auditor scoping')
 const phase4 = section('## Phase 4', '## Phase 6')
 const phase6 = section('## Phase 6', '## Phase 8')
 
 /** Agent names as documented in the `### Agent dispatch` table, in table order. */
 function documentedAgents(): string[] {
   const rows = dispatch.split('\n').filter((l) => l.startsWith('| **'))
-  return rows.map((l) => l.match(/^\| \*\*([a-z-]+)\*\*/)?.[1] ?? '')
+  return rows.map((l) => l.match(/^\| \*\*(R-[a-z-]+)\*\*/)?.[1] ?? '')
 }
 
 const roster = (over: Partial<Parameters<typeof computeRoster>[0]> = {}) =>
@@ -40,36 +40,36 @@ const roster = (over: Partial<Parameters<typeof computeRoster>[0]> = {}) =>
  * documented rows against what `computeRoster` actually decides.
  */
 describe('dispatch table ≡ oracle (doc/behaviour parity)', () => {
-  it('documents exactly the oracle agent set (Lane A + recall)', () => {
-    // finding-verifier is documented in Phase 4, not the dispatch table.
-    const expected = [...DISPATCHABLE, ...PHASE_AGENTS.filter((a) => a !== 'finding-verifier')]
+  it('documents exactly the oracle agent set (Lane A + R-recall)', () => {
+    // R-finding-verifier is documented in Phase 4, not the dispatch table.
+    const expected = [...DISPATCHABLE, ...PHASE_AGENTS.filter((a) => a !== 'R-finding-verifier')]
     expect(documentedAgents()).toEqual(expected)
   })
 
-  it('frontend-dev: documented stack-path-then-extension gate matches', () => {
+  it('R-frontend-dev: documented stack-path-then-extension gate matches', () => {
     expect(dispatch).toContain('`{frontend.path}` ∨ `{shared.ui}` non-empty')
     const configured = { frontendPath: 'src/web', sharedUi: '', backendPath: '' }
     // paths configured → prefix gate, and an FE extension OUTSIDE them must not fire
-    expect(roster({ delta: ['src/web/App.tsx'], stackPaths: configured }).agents).toContain('frontend-dev')
-    expect(roster({ delta: ['src/other/App.tsx'], stackPaths: configured }).agents).not.toContain('frontend-dev')
-    expect(roster({ delta: ['src/other/app.ts'] }).agents).not.toContain('frontend-dev')
+    expect(roster({ delta: ['src/web/App.tsx'], stackPaths: configured }).agents).toContain('R-frontend-dev')
+    expect(roster({ delta: ['src/other/App.tsx'], stackPaths: configured }).agents).not.toContain('R-frontend-dev')
+    expect(roster({ delta: ['src/other/app.ts'] }).agents).not.toContain('R-frontend-dev')
   })
 
   // Driven from the table cell, not hand-picked: a hand-picked `.tsx` case stayed green
   // when `.svelte` was dropped from FE_EXT_RE — the exact drift this suite must catch.
-  it('frontend-dev: EVERY extension the table documents actually fires', () => {
-    const row = dispatch.split('\n').find((l) => l.startsWith('| **frontend-dev**')) ?? ''
+  it('R-frontend-dev: EVERY extension the table documents actually fires', () => {
+    const row = dispatch.split('\n').find((l) => l.startsWith('| **R-frontend-dev**')) ?? ''
     const exts = [...row.matchAll(/`(\.[a-z]+)`/g)].map((m) => m[1])
     expect(exts.length).toBeGreaterThanOrEqual(6)
     for (const ext of exts) {
       const delta = [`src/other/Comp${ext}`]
-      expect({ ext, spawns: roster({ delta }).agents.includes('frontend-dev') }).toEqual({ ext, spawns: true })
+      expect({ ext, spawns: roster({ delta }).agents.includes('R-frontend-dev') }).toEqual({ ext, spawns: true })
     }
   })
 
-  // Same rule for the infra set: each documented token must actually route to devops.
-  it('devops: EVERY infra token the table documents actually fires at τ=F-full', () => {
-    const row = dispatch.split('\n').find((l) => l.startsWith('| **devops**')) ?? ''
+  // Same rule for the infra set: each documented token must actually route to R-devops.
+  it('R-devops: EVERY infra token the table documents actually fires at τ=F-full', () => {
+    const row = dispatch.split('\n').find((l) => l.startsWith('| **R-devops**')) ?? ''
     const cell = row.match(/Δ ∩ \{([^}]+)\}/)?.[1] ?? ''
     const samples: Record<string, string> = {
       'scripts/': 'scripts/build.sh',
@@ -89,30 +89,30 @@ describe('dispatch table ≡ oracle (doc/behaviour parity)', () => {
       // A token documented but not sampled here is a coverage hole, not a pass.
       expect({ token, sampled: Boolean(sample) }).toEqual({ token, sampled: true })
       const agents = roster({ delta: [sample], tier: 'F-full' }).agents
-      expect({ token, devops: agents.includes('devops') }).toEqual({ token, devops: true })
+      expect({ token, 'R-devops': agents.includes('R-devops') }).toEqual({ token, 'R-devops': true })
     }
   })
 
-  it('backend-dev: documented `{backend.path}` gate matches, empty → never', () => {
+  it('R-backend-dev: documented `{backend.path}` gate matches, empty → never', () => {
     expect(dispatch).toContain('`{backend.path}` non-empty ∧ Δ ∩ that prefix ≠ ∅')
     const configured = { frontendPath: '', sharedUi: '', backendPath: 'api' }
-    expect(roster({ delta: ['api/foo.ts'], stackPaths: configured }).agents).toContain('backend-dev')
-    expect(roster({ delta: ['src/foo.ts'], stackPaths: configured }).agents).not.toContain('backend-dev')
+    expect(roster({ delta: ['api/foo.ts'], stackPaths: configured }).agents).toContain('R-backend-dev')
+    expect(roster({ delta: ['src/foo.ts'], stackPaths: configured }).agents).not.toContain('R-backend-dev')
     // empty backend.path → never, even on a path that looks backend-ish
-    expect(roster({ delta: ['api/foo.ts'] }).agents).not.toContain('backend-dev')
+    expect(roster({ delta: ['api/foo.ts'] }).agents).not.toContain('R-backend-dev')
   })
 
-  it('axial-adr-review: documented ∃ axial ADR ∧ Δ ∩ structural dirs matches', () => {
+  it('R-axial-adr-review: documented ∃ axial ADR ∧ Δ ∩ structural dirs matches', () => {
     expect(dispatch).toContain('∃ axial ADR')
     for (const d of ['infrastructure/x.ts', 'adapters/x.ts', 'domains/x.ts', 'stages/x.ts']) {
-      expect(roster({ delta: [d], axialAdr: true }).agents).toContain('axial-adr-review')
+      expect(roster({ delta: [d], axialAdr: true }).agents).toContain('R-axial-adr-review')
     }
     // ADR present but Δ misses the structural dirs, and vice versa
-    expect(roster({ delta: ['src/app.ts'], axialAdr: true }).agents).not.toContain('axial-adr-review')
-    expect(roster({ delta: ['adapters/x.ts'], axialAdr: false }).agents).not.toContain('axial-adr-review')
+    expect(roster({ delta: ['src/app.ts'], axialAdr: true }).agents).not.toContain('R-axial-adr-review')
+    expect(roster({ delta: ['adapters/x.ts'], axialAdr: false }).agents).not.toContain('R-axial-adr-review')
   })
 
-  it('recall: documented multi-chunk ∧ |Δ| > recall_min_delta matches', () => {
+  it('R-recall: documented multi-chunk ∧ |Δ| > recall_min_delta matches', () => {
     expect(dispatch).toContain('|chunks|>1 ∧ |Δ| > recall_min_delta')
     const big = Array.from({ length: 60 }, (_, i) => `src/f${i}.ts`)
     const small = Array.from({ length: 10 }, (_, i) => `src/f${i}.ts`)
@@ -125,39 +125,39 @@ describe('dispatch table ≡ oracle (doc/behaviour parity)', () => {
   })
 
   it('adversarial-always: documented "always" holds for the oracle floor', () => {
-    expect(dispatch).toMatch(/\| \*\*adversarial\*\* \| \*\*always\*\*/)
-    expect(roster().agents).toEqual(['adversarial'])
+    expect(dispatch).toMatch(/\| \*\*R-adversarial\*\* \| \*\*always\*\*/)
+    expect(roster().agents).toEqual(['R-adversarial'])
   })
 
-  it('tester: documented `delta_test_hit ∧ oracle_ok=false` matches the gate', () => {
+  it('R-tester: documented `delta_test_hit ∧ oracle_ok=false` matches the gate', () => {
     expect(dispatch).toContain('`delta_test_hit ∧ oracle_ok=false`')
     const tests = ['src/__tests__/a.test.ts']
-    expect(roster({ delta: tests, oracleOk: 'false' }).agents).toContain('tester')
-    expect(roster({ delta: tests, oracleOk: 'true' }).agents).not.toContain('tester')
-    expect(roster({ delta: tests, oracleOk: 'missing' }).agents).not.toContain('tester')
+    expect(roster({ delta: tests, oracleOk: 'false' }).agents).toContain('R-tester')
+    expect(roster({ delta: tests, oracleOk: 'true' }).agents).not.toContain('R-tester')
+    expect(roster({ delta: tests, oracleOk: 'missing' }).agents).not.toContain('R-tester')
   })
 
-  it('devops/architect: documented τ=F-full xor on infra matches the gates', () => {
+  it('R-devops/R-architect: documented τ=F-full xor on infra matches the gates', () => {
     expect(dispatch).toContain('τ=F-full ∧ Δ ∩ infra = ∅')
     const infra = ['.github/workflows/ci.yml']
     const plain = ['src/app.ts']
-    expect(roster({ delta: infra, tier: 'F-full' }).agents).toEqual(['adversarial', 'devops'])
-    expect(roster({ delta: plain, tier: 'F-full' }).agents).toEqual(['adversarial', 'architect'])
+    expect(roster({ delta: infra, tier: 'F-full' }).agents).toEqual(['R-adversarial', 'R-devops'])
+    expect(roster({ delta: plain, tier: 'F-full' }).agents).toEqual(['R-adversarial', 'R-architect'])
     // τ≠F-full → neither, whatever the paths
     const lite = roster({ delta: infra }).agents
-    expect(lite).not.toContain('devops')
-    expect(lite).not.toContain('architect')
+    expect(lite).not.toContain('R-devops')
+    expect(lite).not.toContain('R-architect')
   })
 
-  it('security-auditor: documented `path_hit` only — no claim-tag spawn', () => {
+  it('R-security-auditor: documented `path_hit` only — no claim-tag spawn', () => {
     expect(dispatch).toMatch(/\*\*`path_hit`\*\* only/)
     expect(roster({ delta: ['src/oauth/provider.ts'] }).spawn_security_auditor).toBe(true)
     expect(roster({ delta: ['src/app.ts'], claims: ['fail-closed'] }).spawn_security_auditor).toBe(false)
   })
 
-  it('product-lead is absent from both the table and the oracle', () => {
-    expect(dispatch).not.toMatch(/product-lead/)
-    expect(roster().gates.some((g) => g.agent === 'product-lead')).toBe(false)
+  it('R-product-lead is absent from both the table and the oracle', () => {
+    expect(dispatch).not.toMatch(/R-product-lead/)
+    expect(roster().gates.some((g) => g.agent === 'R-product-lead')).toBe(false)
   })
 })
 
@@ -178,7 +178,7 @@ describe('roster oracle wiring documented in the SKILL', () => {
   })
 
   it('Skip line keys off spawn_security_auditor', () => {
-    expect(text).toMatch(/security-auditor → \*\*`¬spawn_security_auditor`\*\*/)
+    expect(text).toMatch(/R-security-auditor → \*\*`¬spawn_security_auditor`\*\*/)
   })
 })
 
@@ -212,25 +212,25 @@ describe('removal mechanisms are bounded and disclosed', () => {
   })
 
   it('a forced agent survives max_agents, and truncation always warns', () => {
-    const cfg = parseRosterConfig('review:\n  roster:\n    max_agents: 2\n    agents:\n      architect: always\n')
+    const cfg = parseRosterConfig('review:\n  roster:\n    max_agents: 2\n    agents:\n      R-architect: always\n')
     const out = roster({
       delta: ['src/auth/token.ts', 'src/__tests__/a.test.ts'],
       oracleOk: 'false',
       config: cfg,
     })
-    expect(out.agents).toContain('adversarial')
-    expect(out.agents).toContain('architect')
+    expect(out.agents).toContain('R-adversarial')
+    expect(out.agents).toContain('R-architect')
     expect(out.capped.length).toBeGreaterThan(0)
     expect(out.warnings.join(' ')).toMatch(/dropped by max_agents/)
   })
 })
 
 /**
- * /fix Phase 1 parses Conventional Comments from every PR comment body. A dropped
- * finding rendered in `<label>: <desc>` shape would be re-ingested by /fix and defeat
- * the keep/drop filter — so the disclosure block stays table-shaped AND /fix strips it.
+ * /R-fix Phase 1 parses Conventional Comments from every PR comment body. A dropped
+ * finding rendered in `<label>: <desc>` shape would be re-ingested by /R-fix and defeat
+ * the keep/drop filter — so the disclosure block stays table-shaped AND /R-fix strips it.
  */
-describe('F_dropped disclosure — cross-skill contract with /fix', () => {
+describe('F_dropped disclosure — cross-skill contract with /R-fix', () => {
   const fix = readFileSync(fileURLToPath(new URL('../../fix/SKILL.md', import.meta.url)), 'utf-8')
 
   it('dev-review renders F_dropped as a table, never as Conventional Comments', () => {
@@ -244,21 +244,24 @@ describe('F_dropped disclosure — cross-skill contract with /fix', () => {
 })
 
 /**
- * Cutting the panel to adversarial-alone only holds if adversarial stops deferring to
+ * Cutting the panel to adversarial-alone only holds if R-adversarial stops deferring to
  * siblings that are no longer spawned. Every sibling-drop MUST be conditional on the
  * roster, and the dispatch payload MUST carry that roster.
  */
-describe('adversarial coverage — no drop to unspawned siblings', () => {
-  const adversarial = readFileSync(fileURLToPath(new URL('../../../agents/adversarial.md', import.meta.url)), 'utf-8')
+describe('R-adversarial coverage — no drop to unspawned siblings', () => {
+  const adversarialMd = readFileSync(
+    fileURLToPath(new URL('../../../agents/R-adversarial.md', import.meta.url)),
+    'utf-8',
+  )
 
   it('dispatch payload injects the spawned roster', () => {
     expect(text).toContain('Spawned roster (this review): {agents[]}')
   })
 
-  it('adversarial gates every sibling drop on roster membership', () => {
-    expect(adversarial).toContain('Sibling rule — one rule, all siblings')
-    expect(adversarial).toMatch(/only when that sibling is in the roster/)
-    expect(adversarial).toMatch(/product-lead.*¬in the `\/dev-review` roster at all/)
-    expect(adversarial).not.toMatch(/vacuous-guard angle \(→ tester\)/)
+  it('R-adversarial gates every sibling drop on roster membership', () => {
+    expect(adversarialMd).toContain('Sibling rule — one rule, all siblings')
+    expect(adversarialMd).toMatch(/only when that sibling is in the roster/)
+    expect(adversarialMd).toMatch(/R-product-lead.*¬in the `\/R-dev-review` roster at all/)
+    expect(adversarialMd).not.toMatch(/vacuous-guard angle \(→ R-tester\)/)
   })
 })

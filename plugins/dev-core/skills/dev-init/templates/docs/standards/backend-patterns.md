@@ -2,7 +2,7 @@
 
 Project-specific backend conventions. Agents read this via `{standards.backend}`.
 
-> Universal patterns (REST status codes, ORM anti-patterns, error handling) are embedded in the `backend-dev` agent.
+> Universal patterns (REST status codes, ORM anti-patterns, error handling) are embedded in the `R-backend-dev` agent.
 > This file documents **your project's specific** choices.
 
 ## Framework & ORM

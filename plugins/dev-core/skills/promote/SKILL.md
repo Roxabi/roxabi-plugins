@@ -1,5 +1,5 @@
 ---
-name: promote
+name: R-promote
 disable-model-invocation: true
 argument-hint: [--dry-run | --skip-preview | --finalize]
 description: Promote staging→main — pre-flight, version bump, changelog, PR and tag.
@@ -45,10 +45,10 @@ Steps: pre-flight → version → changelog → commit → preview → create-pr
 ## Usage
 
 ```
-/promote                   → Full flow
-/promote --skip-preview    → Skip deploy preview
-/promote --dry-run         → Show what would be promoted, create nothing
-/promote --finalize        → Post-merge: tag + GitHub Release
+/R-promote                   → Full flow
+/R-promote --skip-preview    → Skip deploy preview
+/R-promote --dry-run         → Show what would be promoted, create nothing
+/R-promote --finalize        → Post-merge: tag + GitHub Release
 ```
 
 ## Step 1 — Pre-flight
@@ -62,11 +62,11 @@ Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI
 | Check | Condition | Action |
 |-------|-----------|--------|
 | Release mode (trunk + staging) | `status=trunk_promote_pr` | **Proceed.** Open the staging→main merge PR — Step 1a runs the **Component check only** (the Gate-probe / Unfinalized-promote / Version-file guards are staging-train finalize invariants, skipped under trunk), then Steps 1b–8; `auto-release.yml` tags on merge. Do **not** run `--finalize` — Step 9 refuses it under trunk (single writer). See `## Trunk mode`. |
-| Release mode (trunk, no staging) | `status=trunk_mode` (`release.model==trunk`) | **REFUSE / no-op.** `/promote` does not apply — a pure trunk repo (no `staging` branch) releases at merge-to-main via `auto-release.yml`. Stop (see `## Trunk mode`). |
+| Release mode (trunk, no staging) | `status=trunk_mode` (`release.model==trunk`) | **REFUSE / no-op.** `/R-promote` does not apply — a pure trunk repo (no `staging` branch) releases at merge-to-main via `auto-release.yml`. Stop (see `## Trunk mode`). |
 | No commits | `commits_ahead=0` | **REFUSE.** Stop. |
 | Open PRs on σ | open_prs section non-empty | **WARN** + Q: **Continue** \| **Wait** |
 | CI status | ci section | **WARN** if ¬passing |
-| Hotfix density | `hotfix_density` section | **WARN** if gauge=warn (20–40%); **recommend pause** + `/dev-checkup` if gauge=pause (>40%); advisory-only — never hard-block |
+| Hotfix density | `hotfix_density` section | **WARN** if gauge=warn (20–40%); **recommend pause** + `/R-dev-checkup` if gauge=pause (>40%); advisory-only — never hard-block |
 | Component set | `release.component` null/absent | **REFUSE** (S6/D13) + paste-ready `release:` block. On day 1 every repo takes this — it is the onboarding step, not a dead end. |
 | Version-file drift | any `release.version_files` path ≠ `BASE` | **REFUSE** (S5). Message distinguishes *hand-drift* (`file < BASE`) from *a promote abandoned after step 2b* (`file > BASE`) — a reconcile command for each. |
 | Gate provisioned | `release-consistency` **required** on `main` ∧ zero bypass actors | **REFUSE** on a **protectable** repo where it is missing/bypassable (name `scripts/provision-release-gate.sh`); **WARN** if the repo is un-protectable (`403` — private, free plan, D17); `Branch not protected` → REFUSE-with-onboarding. |
@@ -110,7 +110,7 @@ esac
 ```bash
 LAST=$(gh pr list --base main --head staging --state merged --limit 1 --json number,mergeCommit --jq '.[0].mergeCommit.oid')
 # Derive its version: price.sh "$COMPONENT" "${LAST}^1" "$LAST". No matching tag on that version → offer to resume:
-#   "Unfinalized promote detected (PR merged, no tag). Run /promote --finalize?"
+#   "Unfinalized promote detected (PR merged, no tag). Run /R-promote --finalize?"
 ```
 
 **Version-file drift (S5)** — each `release.version_files` path is compared to `BASE`; `file < BASE` = hand-drift (reconcile: re-stamp from BASE), `file > BASE` = a promote stopped after step 2b (resume: re-open the promotion PR). `[]` → skip.
@@ -222,7 +222,7 @@ Promotion Summary
   Preview:   verified/skipped
 ```
 
-`--dry-run` ⇒ display + stop. "Run `/promote` to create the promotion PR."
+`--dry-run` ⇒ display + stop. "Run `/R-promote` to create the promotion PR."
 
 ## Step 6b — Changelog Commit
 
@@ -255,7 +255,7 @@ cat >"$BODY_FILE" <<EOF
 - [x] Release notes committed to staging
 
 ---
-Generated with [Roxabi dev-core](https://github.com/Roxabi/roxabi-plugins) via \`/promote\`
+Generated with [Roxabi dev-core](https://github.com/Roxabi/roxabi-plugins) via \`/R-promote\`
 EOF
 
 # 2) Create or update staging→main PR (harvest + inject mandatory)
@@ -284,20 +284,20 @@ Promotion PR created: {URL}
 After merge:
   1. Vercel auto-deploys to production
   2. Verify production at your domain
-  3. Run /promote --finalize to tag + create GitHub Release
-  4. Run /cleanup to clean up merged branches
+  3. Run /R-promote --finalize to tag + create GitHub Release
+  4. Run /R-cleanup to clean up merged branches
 ```
 
 ## Step 9 — Finalize (`--finalize` only)
 
 Skip Steps 1-8. Post-merge only.
 
-**9.0 Trunk guard (#371 B1).** `/promote --finalize` is the *staging-train* tagger. Under `release.model: trunk`, `auto-release.yml` already tags at merge-to-main, so a second tagger here breaks the single-writer property — refuse before touching anything (a failed trunk run recovers via the workflow's **Re-run failed jobs**, see `## Trunk mode`, not via `--finalize`):
+**9.0 Trunk guard (#371 B1).** `/R-promote --finalize` is the *staging-train* tagger. Under `release.model: trunk`, `auto-release.yml` already tags at merge-to-main, so a second tagger here breaks the single-writer property — refuse before touching anything (a failed trunk run recovers via the workflow's **Re-run failed jobs**, see `## Trunk mode`, not via `--finalize`):
 
 ```bash
 MODEL=$(yq -r '.release.model // "staging-train"' .claude/stack.yml 2>/dev/null \
   || { [ -f .claude/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".claude/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
-[ "$MODEL" = trunk ] && { echo "REFUSE: release.model==trunk — auto-release.yml owns tag/release at merge-to-main; /promote --finalize does not apply."; exit 1; }
+[ "$MODEL" = trunk ] && { echo "REFUSE: release.model==trunk — auto-release.yml owns tag/release at merge-to-main; /R-promote --finalize does not apply."; exit 1; }
 ```
 
 **9a.** Verify merge:
@@ -367,7 +367,7 @@ done
 ```
 Re-running once **both** exist and point at `M` is a green no-op.
 
-Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
+Inform: "Release $VERSION finalized. Run `/R-cleanup` to clean branches."
 
 ## Trunk mode — `release.model`
 
@@ -379,11 +379,11 @@ Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
 Under `release.model: trunk` the contract changes on four points:
 
 - **Merge-commits required.** `auto-release.sh` derives from `M^1..M`, so a release needs a 2-parent merge. A stray 1-parent push to `main` (direct commit, squash, fast-forward) is **loud-red**, never a silent release (D3). Keep the merge queue on merge-commits (never squash).
-- **No `/promote --finalize`; the create-PR path stays open while `staging` exists (#371 B1).** `auto-release.yml` is the sole tagger at merge-to-main, so `/promote --finalize` is **refused** under trunk (Step 9) — a second tagger would break the single-writer property. But a repo mid-transition that still keeps a `staging` branch uses `/promote`'s **create-PR** path (`status=trunk_promote_pr`) to open the staging→main merge PR; merging it lands on `main` and `auto-release.yml` cuts the release. A pure trunk repo with **no** `staging` branch no-ops entirely (`status=trunk_mode`) — `/promote` does not apply.
+- **No `/R-promote --finalize`; the create-PR path stays open while `staging` exists (#371 B1).** `auto-release.yml` is the sole tagger at merge-to-main, so `/R-promote --finalize` is **refused** under trunk (Step 9) — a second tagger would break the single-writer property. But a repo mid-transition that still keeps a `staging` branch uses `/R-promote`'s **create-PR** path (`status=trunk_promote_pr`) to open the staging→main merge PR; merging it lands on `main` and `auto-release.yml` cuts the release. A pure trunk repo with **no** `staging` branch no-ops entirely (`status=trunk_mode`) — `/R-promote` does not apply.
 - **Fires on every merge; empty is a green no-op.** The workflow runs on each `push: main`. A merge that adds no version-bumping conventional commit derives `== BASE` and exits green **without tagging** (D18). Only a bumping payload cuts a release, so most merges are no-ops.
 - **Recovery via `workflow_dispatch`.** If a run dies mid-finalize (tag pushed, release not created), re-run the workflow from the Actions tab — the reconcile loop is per-artifact idempotent (D16): it creates only the missing artifact and no-ops once both the tag and release point at `M`.
 
-`/dev-checkup` enforces the trunk contract: it **fails** when `auto-release.yml` is absent or drifts from the generator (N11), or when a stray `release-please.yml` writer lingers (N10). Switch modes by flipping this one `release.model` value and regenerating workflows with `/ci-setup`.
+`/R-dev-checkup` enforces the trunk contract: it **fails** when `auto-release.yml` is absent or drifts from the generator (N11), or when a stray `release-please.yml` writer lingers (N10). Switch modes by flipping this one `release.model` value and regenerating workflows with `/R-ci-setup`.
 
 ## Options
 
@@ -424,20 +424,20 @@ Under `release.model: trunk` the contract changes on four points:
 ## Chain Position
 
 - **Phase:** Ship
-- **Predecessor:** — (standalone, NOT auto-triggered by `/dev`)
+- **Predecessor:** — (standalone, NOT auto-triggered by `/R-dev`)
 - **Successor:** — (manual `--finalize` follow-up)
-- **Class:** standalone (user explicitly invokes `/promote`, never chained from a feature pipeline)
+- **Class:** standalone (user explicitly invokes `/R-promote`, never chained from a feature pipeline)
 
 ## Task Integration
 
-- `/dev` SKIPS this step by default (Step 4 skip logic: `promote → skip`)
+- `/R-dev` SKIPS this step by default (Step 4 skip logic: `promote → skip`)
 - This skill does NOT participate in dev-pipeline tasks
 - Sub-tasks created: none
-- When invoked manually: runs without any `/dev`-owned task lifecycle
+- When invoked manually: runs without any `/R-dev`-owned task lifecycle
 
 ## Exit
 
 - **Success standalone:** print PR URL + manual next step (`--finalize` after merge). Stop.
-- **Failure:** return error to user. No `/dev` recovery path (standalone).
+- **Failure:** return error to user. No `/R-dev` recovery path (standalone).
 
 $ARGUMENTS

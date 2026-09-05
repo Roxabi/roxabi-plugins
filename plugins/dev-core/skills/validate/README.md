@@ -4,15 +4,15 @@ Run all quality gates (lint, typecheck, test, env, i18n, license) and produce a 
 
 ## Why
 
-Before a code review, you want a single command that runs every quality check and tells you exactly what's broken — without stopping at the first failure. `/validate` runs all checks sequentially, shows durations and failure details, and gives a clear verdict: safe to push or not.
+Before a code review, you want a single command that runs every quality check and tells you exactly what's broken — without stopping at the first failure. `/R-validate` runs all checks sequentially, shows durations and failure details, and gives a clear verdict: safe to push or not.
 
 ## Usage
 
 ```
-/validate              Run all checks (lint, typecheck, test, env, i18n)
-/validate --quick      Lint + typecheck only (fastest)
-/validate --full       All checks including license, coverage, and optional falsify
-/validate --affected   Only check files changed vs main
+/R-validate              Run all checks (lint, typecheck, test, env, i18n)
+/R-validate --quick      Lint + typecheck only (fastest)
+/R-validate --full       All checks including license, coverage, and optional falsify
+/R-validate --affected   Only check files changed vs main
 ```
 
 Triggers: `"validate"` | `"quality check"` | `"pre-push check"` | `"are we green"`
@@ -47,4 +47,4 @@ All commands come from `stack.yml` (`commands.*`) — never raw runners.
 
 ## Chain position
 
-**Predecessor:** `/ci-watch` | **Successor:** `/dev-review`
+**Predecessor:** `/R-ci-watch` | **Successor:** `/R-dev-review`

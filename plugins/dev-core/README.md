@@ -30,44 +30,44 @@ claude plugin install dev-core
 claude plugin install dev-core
 ```
 
-Without this step, recently-added skills (e.g. `/recheck`) won't appear in your trigger list even though they're in the repo.
+Without this step, recently-added skills (e.g. `/R-recheck`) won't appear in your trigger list even though they're in the repo.
 
 ## Getting Started
 
 After installing **dev-core**, run the full project harness:
 
 ```
-/dev-init
+/R-dev-init
 ```
 
-> **Not** bare `/init` — that is the host built-in (scaffolds a `CLAUDE.md` only). The Roxabi harness is namespaced: `/dev-init`.
+> **Not** bare `/init` — that is the host built-in (scaffolds a `CLAUDE.md` only). The Roxabi harness is namespaced: `/R-dev-init`.
 
-Auto-detects your GitHub repo. Writes `.claude/dev-core.yml` (primary config) and `.env` (legacy fallback), registers the project in `~/.roxabi-vault/workspace.json`, generates a self-healing `roxabi` shim, and creates the `artifacts/` directory. Works for any project type. Re-run with `/dev-init --force` to reconfigure.
+Auto-detects your GitHub repo. Writes `.claude/dev-core.yml` (primary config) and `.env` (legacy fallback), registers the project in `~/.roxabi-vault/workspace.json`, generates a self-healing `roxabi` shim, and creates the `artifacts/` directory. Works for any project type. Re-run with `/R-dev-init --force` to reconfigure.
 
-Then configure the agent stack (also available standalone as `/env-setup` / `/stack-setup` without the full harness):
+Then configure the agent stack (also available standalone as `/R-env-setup` / `/R-stack-setup` without the full harness):
 
 ```
-/stack-setup
+/R-stack-setup
 ```
 
 Auto-discovers your runtime, framework, test tooling, and linter from the codebase, shows a confirmation screen, and writes `.claude/stack.yml` so all agents know where things live.
 
-**Project-agnostic:** All skills and agents read commands and paths from `.claude/stack.yml` at runtime — `{commands.test}`, `{commands.lint}`, `{package_manager}`, `{backend.path}`, etc. If a required field is missing, the agent immediately tells you to run `/env-setup` or `/stack-setup`. This means dev-core works with any stack — Bun/npm/pnpm/yarn, NestJS/Express/Django, Vitest/Jest/Pytest.
+**Project-agnostic:** All skills and agents read commands and paths from `.claude/stack.yml` at runtime — `{commands.test}`, `{commands.lint}`, `{package_manager}`, `{backend.path}`, etc. If a required field is missing, the agent immediately tells you to run `/R-env-setup` or `/R-stack-setup`. This means dev-core works with any stack — Bun/npm/pnpm/yarn, NestJS/Express/Django, Vitest/Jest/Pytest.
 
-**Note:** dev-core is issues-only — no GitHub Project V2 board. Issue triage (labels for size/priority/lane/type, blocked-by deps, parent/child sub-issues) lives in the separate **`roxabi-issues`** plugin (Roxabi/roxabi-live); dev-core's `/dev` lifecycle reads issues but no longer mutates them.
+**Note:** dev-core is issues-only — no GitHub Project V2 board. Issue triage (labels for size/priority/lane/type, blocked-by deps, parent/child sub-issues) lives in the separate **`roxabi-issues`** plugin (Roxabi/roxabi-live); dev-core's `/R-dev` lifecycle reads issues but no longer mutates them.
 
 ## Usage
 
 Main entry points:
 
 ```
-/dev #N     Full lifecycle from issue (frame → … → merge)
-/ship       Land ready code on the current feature branch (commit → PR → review → merge gate)
+/R-dev #N     Full lifecycle from issue (frame → … → merge)
+/R-ship       Land ready code on the current feature branch (commit → PR → review → merge gate)
 ```
 
-`/dev #N` — `#N` is a GitHub issue number. Scans artifacts, determines tier (S / F-lite / F-full), shows progress, drives Frame→Ship.
+`/R-dev #N` — `#N` is a GitHub issue number. Scans artifacts, determines tier (S / F-lite / F-full), shows progress, drives Frame→Ship.
 
-`/ship` — use when the code is already on a feature branch and you only want commit → PR → agent review → fix loop → `reviewed` label + CI/auto-merge watch.
+`/R-ship` — use when the code is already on a feature branch and you only want commit → PR → agent review → fix loop → `reviewed` label + CI/auto-merge watch.
 
 ## Skills
 
@@ -75,69 +75,69 @@ Skills organized by workflow phase:
 
 | Skill | Phase | Description |
 |-------|-------|-------------|
-| `dev-init` | Setup | Project setup orchestrator — env-setup → axial ADR gate → ci-setup → release-setup in one harness. Invoke as `/dev-init` (not the host built-in `/init`, which only scaffolds `CLAUDE.md`) |
-| `env-setup` | Setup | Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding (Markdown), LSP. Triggered by `/dev-init` or standalone `/env-setup` |
-| `ci-setup` | Setup | Set up CI/CD — GitHub Actions workflows, TruffleHog, Dependabot, pre-commit hooks, marketplace plugins. Discovers Roxabi plugins live from `marketplace.json` and endorsed external marketplaces from `curated-marketplaces.json` |
-| `stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.claude/stack.yml`. Single confirmation screen — no wizard questions |
-| `dev-checkup` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows (checks both local files and remote via REST API), required secrets (PAT for auto-merge.yml), branch protection, stack.yml, workspace.json registration, and LSP plugin install (typescript-lsp / pyright-lsp with auto-fix). Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
-| `seed-docs` | Setup | Populates scaffolded architecture/standards docs with real content — reads CLAUDE.md for conventions, optionally scans codebase (entry points, import graph, naming patterns), fills TODO stubs, writes AI Quick Reference sections. Idempotent: skips already-populated files |
-| `seed-community` | Setup | Bootstraps OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), `.github/PULL_REQUEST_TEMPLATE.md`, issue templates. Reads project metadata + CLAUDE.md; generates missing files idempotently |
-| `dev` | Orchestrator | Routes issues through the full workflow (Frame→Ship) |
-| `ship` | Orchestrator | Lands ready code: commit → PR → code-review → fix loop → `reviewed` + ci-watch → cleanup |
-| `recheck` | Frame | Drift-check an issue (git-drift, symbol-missing, dep-resolved) before /dev work begins. Runs before /frame for every tier — no skip path. Signal-clean returns silently; signal-fire blocks with user choice (Proceed/Update/Close/Abort) |
-| `frame` | Frame | Creates initial feature frame from issue |
-| `analyze` | Shape | Deep analysis with expert consultation |
-| `adversarial` | Shape | Standalone red-team on analyses, proposals, architecture, ideas, specs, plans — kill claims via bypass / assumption / scope lenses |
-| `advisory` | Shape | Constructive expert second opinion (architect + product-lead [+ optional domain]) — keep / strengthen / prioritize next moves |
-| `spec` | Shape | Generates specifications with smart splitting |
-| `interview` | Shape | Interactive requirements gathering |
-| `dev-plan` | Build | Creates implementation plan with micro-tasks |
-| `dev-implement` | Build | Executes implementation from plan — merge conflict recovery, abandon-on-3-failures option |
-| `pr` | Build | Creates pull request with proper format |
-| `dev-review` | Verify | Code review against quality gates — secret scan before spawning agents |
-| `fix` | Verify | Applies fixes from review feedback |
-| `validate` | Verify | Validates implementation against spec |
-| `cleanup` | Ship | Post-merge cleanup |
-| `promote` | Ship | Staging-train repos: promotes staging→main. Trunk repos: pre-flight only — auto-release owns the cut |
-| `test` | Supporting | Runs and manages tests |
-| `adr` | Supporting | Creates Architecture Decision Records |
-| `doc-sync` | Supporting | Syncs CLAUDE.md, README.md, and plugin SKILL.md after a code change |
-| `readme-upgrade` | Supporting | Audits and improves root README, CONTRIBUTING.md, and plugin READMEs against the developer-tool quality pattern (Why, Quick Start, How it works, categorized tables, diagrams). Auto-detects Mermaid vs ASCII based on host |
-| `cleanup-context` | Supporting | Audits and cleans CLAUDE.md, memory, skills, and rules — resolves every finding (fix/promote/relocate/delete), tracks recurrences, targets bloat=0 |
-| `ci-watch` | Supporting | Watch a CI run with live emoji dashboard — polls every Ns, shows job/step status, dumps failed logs on error. Auto-detects `ci.yml` workflow |
-| `release-setup` | Supporting | Wires release-please for a repo — tag convention, manifest, config, workflow. Re-run with `--force` to patch. **Quality gates** (Python only) — optional `quality_gates:` section in `stack.yml` installs file-length / folder-size / import-layer pre-commit hooks. See [`skills/release-setup/cookbooks/quality-gates.md`](skills/release-setup/cookbooks/quality-gates.md) |
+| `R-dev-init` | Setup | Project setup orchestrator — env-setup → axial ADR gate → ci-setup → release-setup in one harness. Invoke as `/R-dev-init` (not the host built-in `/init`, which only scaffolds `CLAUDE.md`) |
+| `R-env-setup` | Setup | Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding (Markdown), LSP. Triggered by `/R-dev-init` or standalone `/R-env-setup` |
+| `R-ci-setup` | Setup | Set up CI/CD — GitHub Actions workflows, TruffleHog, Dependabot, pre-commit hooks, marketplace plugins. Discovers Roxabi plugins live from `marketplace.json` and endorsed external marketplaces from `curated-marketplaces.json` |
+| `R-stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.claude/stack.yml`. Single confirmation screen — no wizard questions |
+| `R-dev-checkup` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows (checks both local files and remote via REST API), required secrets (PAT for auto-merge.yml), branch protection, stack.yml, workspace.json registration, and LSP plugin install (typescript-lsp / pyright-lsp with auto-fix). Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
+| `R-seed-docs` | Setup | Populates scaffolded architecture/standards docs with real content — reads CLAUDE.md for conventions, optionally scans codebase (entry points, import graph, naming patterns), fills TODO stubs, writes AI Quick Reference sections. Idempotent: skips already-populated files |
+| `R-seed-community` | Setup | Bootstraps OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), `.github/PULL_REQUEST_TEMPLATE.md`, issue templates. Reads project metadata + CLAUDE.md; generates missing files idempotently |
+| `R-dev` | Orchestrator | Routes issues through the full workflow (Frame→Ship) |
+| `R-ship` | Orchestrator | Lands ready code: commit → PR → code-review → fix loop → `reviewed` + ci-watch → cleanup |
+| `R-recheck` | Frame | Drift-check an issue (git-drift, symbol-missing, dep-resolved) before /R-dev work begins. Runs before /R-frame for every tier — no skip path. Signal-clean returns silently; signal-fire blocks with user choice (Proceed/Update/Close/Abort) |
+| `R-frame` | Frame | Creates initial feature frame from issue |
+| `R-analyze` | Shape | Deep analysis with expert consultation |
+| `R-adversarial` | Shape | Standalone red-team on analyses, proposals, architecture, ideas, specs, plans — kill claims via bypass / assumption / scope lenses |
+| `R-advisory` | Shape | Constructive expert second opinion (R-architect + R-product-lead [+ optional domain]) — keep / strengthen / prioritize next moves |
+| `R-spec` | Shape | Generates specifications with smart splitting |
+| `R-interview` | Shape | Interactive requirements gathering |
+| `R-dev-plan` | Build | Creates implementation plan with micro-tasks |
+| `R-dev-implement` | Build | Executes implementation from plan — merge conflict recovery, abandon-on-3-failures option |
+| `R-pr` | Build | Creates pull request with proper format |
+| `R-dev-review` | Verify | Code review against quality gates — secret scan before spawning agents |
+| `R-fix` | Verify | Applies fixes from review feedback |
+| `R-validate` | Verify | Validates implementation against spec |
+| `R-cleanup` | Ship | Post-merge cleanup |
+| `R-promote` | Ship | Staging-train repos: promotes staging→main. Trunk repos: pre-flight only — auto-release owns the cut |
+| `R-test` | Supporting | Runs and manages tests |
+| `R-adr` | Supporting | Creates Architecture Decision Records |
+| `R-doc-sync` | Supporting | Syncs CLAUDE.md, README.md, and plugin SKILL.md after a code change |
+| `R-readme-upgrade` | Supporting | Audits and improves root README, CONTRIBUTING.md, and plugin READMEs against the developer-tool quality pattern (Why, Quick Start, How it works, categorized tables, diagrams). Auto-detects Mermaid vs ASCII based on host |
+| `R-cleanup-context` | Supporting | Audits and cleans CLAUDE.md, memory, skills, and rules — resolves every finding (fix/promote/relocate/delete), tracks recurrences, targets bloat=0 |
+| `R-ci-watch` | Supporting | Watch a CI run with live emoji dashboard — polls every Ns, shows job/step status, dumps failed logs on error. Auto-detects `ci.yml` workflow |
+| `R-release-setup` | Supporting | Wires release-please for a repo — tag convention, manifest, config, workflow. Re-run with `--force` to patch. **Quality gates** (Python only) — optional `quality_gates:` section in `stack.yml` installs file-length / folder-size / import-layer pre-commit hooks. See [`skills/release-setup/cookbooks/quality-gates.md`](skills/release-setup/cookbooks/quality-gates.md) |
 
 ## Agents
 
-Specialized agents organized in three tiers (plus review specialists: `adversarial`, `axial-adr-review`, `recall`). Each agent has a built-in **config guard** (fails fast if `stack.yml` is missing), a domain-specific **escalation path** (knows who to message for out-of-scope issues), and a **confidence threshold** (stops and escalates instead of guessing when certainty is below 70–80%).
+Specialized agents organized in three tiers (plus review specialists: `R-adversarial`, `R-axial-adr-review`, `R-recall`). Each agent has a built-in **config guard** (fails fast if `stack.yml` is missing), a domain-specific **escalation path** (knows who to message for out-of-scope issues), and a **confidence threshold** (stops and escalates instead of guessing when certainty is below 70–80%).
 
-Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, `write_code`, `review_code`, `run_tests`) for human-readable permission reference, and a `# based-on:` traceability comment. All agents inline a base communication + research-order protocol in their body. `backend-dev`, `frontend-dev`, `fixer`, and `tester` additionally inline quality-gate rules. The shared reference files live in `skills/shared/references/` (`base.md`, `engineer.md`).
+Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, `write_code`, `review_code`, `run_tests`) for human-readable permission reference, and a `# based-on:` traceability comment. All agents inline a base communication + research-order protocol in their body. `R-backend-dev`, `R-frontend-dev`, `R-fixer`, and `R-tester` additionally inline quality-gate rules. The shared reference files live in `skills/shared/references/` (`base.md`, `engineer.md`).
 
 ### Domain
 
 | Agent | Role |
 |-------|------|
-| `frontend-dev` | Frontend implementation (`{frontend.path}`, `{shared.ui}` from stack.yml) |
-| `backend-dev` | Backend implementation (`{backend.path}`, `{shared.types}` from stack.yml) |
-| `devops` | Infrastructure, CI/CD, root configs |
+| `R-frontend-dev` | Frontend implementation (`{frontend.path}`, `{shared.ui}` from stack.yml) |
+| `R-backend-dev` | Backend implementation (`{backend.path}`, `{shared.types}` from stack.yml) |
+| `R-devops` | Infrastructure, CI/CD, root configs |
 
 ### Quality
 
 | Agent | Role |
 |-------|------|
-| `tester` | Writes and runs tests, manages RED-GATE |
-| `fixer` | Applies accepted review findings |
-| `security-auditor` | OWASP Top 10 audit with exploit scenarios, confidence scoring (C ≥ 60), and false-positive filtering |
-| `adversarial` | Red-team for `/adversarial` + `/spec` + `/dev-review`: bypass, fleet-regression, vacuous guards, assumption-kill; OWASP lens on `/dev-review` (read-only) |
+| `R-tester` | Writes and runs tests, manages RED-GATE |
+| `R-fixer` | Applies accepted review findings |
+| `R-security-auditor` | OWASP Top 10 audit with exploit scenarios, confidence scoring (C ≥ 60), and false-positive filtering |
+| `R-adversarial` | Red-team for `/R-adversarial` + `/R-spec` + `/R-dev-review`: bypass, fleet-regression, vacuous guards, assumption-kill; OWASP lens on `/R-dev-review` (read-only) |
 
 ### Strategy
 
 | Agent | Role |
 |-------|------|
-| `architect` | Architecture decisions, ADRs |
-| `product-lead` | Analysis, specifications, issue management |
-| `doc-writer` | Documentation across all docs directories |
-| `finding-verifier` | Keep/drop filter over low-confidence review findings (read-only) |
+| `R-architect` | Architecture decisions, ADRs |
+| `R-product-lead` | Analysis, specifications, issue management |
+| `R-doc-writer` | Documentation across all docs directories |
+| `R-finding-verifier` | Keep/drop filter over low-confidence review findings (read-only) |
 
 ## Project-Level Overrides
 
@@ -159,7 +159,7 @@ Plugin hooks for safety and consistency (Claude + Grok compatible):
 | Principal freeze (post) | PostToolUse on Bash | **Deny after exec** — if principal HEAD left β, tell the agent to restore (checkout already happened) |
 | Auto-format | PostToolUse on Edit/Write | Reads `build.formatter_fix_cmd` (single) or `build.formatters[]` (multi, for mixed JS+Python monorepos) from `stack.yml` and runs the right formatter per file extension. Silent no-op when unconfigured. |
 
-Lefthook (`/dev-init` → `/ci-setup`, `scripts/check-principal-branch.sh`) is the persist gate (commit/push). Plugin hooks are the agent deny. Both needed. ADR-017.
+Lefthook (`/R-dev-init` → `/R-ci-setup`, `scripts/check-principal-branch.sh`) is the persist gate (commit/push). Plugin hooks are the agent deny. Both needed. ADR-017.
 
 ## Optional companion plugins
 

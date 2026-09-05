@@ -55,17 +55,17 @@ review:
     max_agents: 4                 # spawn-set cap per chunk lane (excl. recall / finding-verifier); <1 → 1 + warning
     verify_below_confidence: 90   # keep/drop findings below this C; 0 disables the filter
     recall_min_delta: 50          # recall needs multi-chunk ∧ |Δ| > this
-    agents:                       # default | always | never — adversarial is a floor (`never` ignored)
-      adversarial: default
-      security-auditor: default
-      tester: default
-      frontend-dev: default
-      backend-dev: default
-      devops: default
-      architect: default
-      axial-adr-review: default
-      recall: default
-      finding-verifier: default
+    agents:                       # default | always | never — R-adversarial is a floor (`never` ignored)
+      R-adversarial: default
+      R-security-auditor: default
+      R-tester: default
+      R-frontend-dev: default
+      R-backend-dev: default
+      R-devops: default
+      R-architect: default
+      R-axial-adr-review: default
+      R-recall: default
+      R-finding-verifier: default
 
 artifacts:
   brainstorms: artifacts/brainstorms

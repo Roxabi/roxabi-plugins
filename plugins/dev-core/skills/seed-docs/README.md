@@ -5,9 +5,9 @@ Populate scaffolded architecture and standards docs with real content extracted 
 ## Usage
 
 ```
-/seed-docs                     → Auto-discover docs path from stack.yml
-/seed-docs --docs-path docs    → Explicit path
-/seed-docs --no-scan           → Skip codebase scan, use CLAUDE.md only
+/R-seed-docs                     → Auto-discover docs path from stack.yml
+/R-seed-docs --docs-path docs    → Explicit path
+/R-seed-docs --no-scan           → Skip codebase scan, use CLAUDE.md only
 ```
 
 ## What it does

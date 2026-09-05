@@ -1,5 +1,5 @@
 ---
-name: readme-upgrade
+name: R-readme-upgrade
 disable-model-invocation: true
 argument-hint: '[--target root|plugins|contributing|all] [--plugin <name>] [--force]'
 description: Audit README, CONTRIBUTING, and plugin READMEs against the developer-tool pattern.
@@ -24,12 +24,12 @@ Let:
 **Idempotent** — sections already meeting the checklist are skipped unless `--force` is passed.
 
 ```
-/readme-upgrade                            → audit + improve all docs
-/readme-upgrade --target root              → root ρ only
-/readme-upgrade --target plugins           → all plugin READMEs
-/readme-upgrade --target contributing      → κ only
-/readme-upgrade --plugin dev-core          → one plugin README only
-/readme-upgrade --force                    → re-audit even passing sections
+/R-readme-upgrade                            → audit + improve all docs
+/R-readme-upgrade --target root              → root ρ only
+/R-readme-upgrade --target plugins           → all plugin READMEs
+/R-readme-upgrade --target contributing      → κ only
+/R-readme-upgrade --plugin dev-core          → one plugin README only
+/R-readme-upgrade --force                    → re-audit even passing sections
 ```
 
 ## Developer-Tool Documentation Pattern
@@ -115,7 +115,7 @@ ls plugins/ 2>/dev/null && echo "has-plugins"
 | `plugins` | `plugins/*/README.md` (∀ plugins) |
 | `all` | all of the above |
 
-∀ file: check existence. ¬exist → note in FINDINGS as `missing` severity; do not create (use `/seed-community`). ≥ 1 missing → warn once at end.
+∀ file: check existence. ¬exist → note in FINDINGS as `missing` severity; do not create (use `/R-seed-community`). ≥ 1 missing → warn once at end.
 
 ## Phase 3 — Audit Each File
 
@@ -270,8 +270,8 @@ docs: improve readme and contributing quality
 
 | Scenario | Behavior |
 |----------|----------|
-| ¬κ | Note: "run /seed-community to create it" |
-| Plugin README ∄ | Note: "run /seed-community or create manually" |
+| ¬κ | Note: "run /R-seed-community to create it" |
+| Plugin README ∄ | Note: "run /R-seed-community or create manually" |
 | `--plugin` names unknown plugin | List available plugins, present choice |
 | Mermaid + npm publish | Warn: "npm pages don't render Mermaid — switching to ASCII" |
 | M.description ∅ ∧ ¬gh CLI | → ask user "One-liner for <name>?" |

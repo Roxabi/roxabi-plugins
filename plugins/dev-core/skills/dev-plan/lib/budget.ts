@@ -1,5 +1,5 @@
 /**
- * Task budget classifier for /dev-plan Step 2d.
+ * Task budget classifier for /R-dev-plan Step 2d.
  *
  * Each task is assigned a cost class based on the nature of its work.
  * The class drives an ops-range estimate used to flag tasks that exceed

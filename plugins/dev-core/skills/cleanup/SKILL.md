@@ -1,5 +1,5 @@
 ---
-name: cleanup
+name: R-cleanup
 argument-hint: [--all | --report-only | --yes | --scope <#N>]
 description: Clean git branches/worktrees/remotes after merge-status verification; sweep stuck pipeline labels and orphan CI runs. Triggers: "cleanup" | "clean branches" | "cleanup worktrees" | "remove stale branches".
 version: 0.6.2
@@ -63,7 +63,7 @@ fi
 
 Use `--json` when you need structured output for scripting. Use `--no-fetch` only in tests or when origin was fetched immediately before.
 
-**Scoping (`--scope <#N>`):** restricts local/remote branches and worktrees to the ones belonging to issue N, using the same anchored issue-number extraction as `dev/scan-state.sh`'s `N_ANCHOR` (char before the number is start/non-digit, char after is `/`, `-`, `_`, or end) — so `--scope 1` cannot pick up issue #14's branch (`extract_issue_number()` in `analyze-branches.sh`). Without `--scope`, behavior is unchanged (repo-wide). This is what `/dev`'s Ship phase relies on: `cleanup --scope #N` after an issue's PR merges must only touch that issue's branch/worktree, not every stale branch in the repo.
+**Scoping (`--scope <#N>`):** restricts local/remote branches and worktrees to the ones belonging to issue N, using the same anchored issue-number extraction as `dev/scan-state.sh`'s `N_ANCHOR` (char before the number is start/non-digit, char after is `/`, `-`, `_`, or end) — so `--scope 1` cannot pick up issue #14's branch (`extract_issue_number()` in `analyze-branches.sh`). Without `--scope`, behavior is unchanged (repo-wide). This is what `/R-dev`'s Ship phase relies on: `cleanup --scope #N` after an issue's PR merges must only touch that issue's branch/worktree, not every stale branch in the repo.
 
 The script analyzes ∀ β ∉ {Π, current branch} (∧ β ∈ scope N, if set) with these checks (base branch = `staging` if `origin/staging` exists, else `main`):
 
@@ -363,21 +363,21 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 ## Chain Position
 
 - **Phase:** Ship
-- **Predecessor:** merge (after `/dev-review` APPROVED → merge)
+- **Predecessor:** merge (after `/R-dev-review` APPROVED → merge)
 - **Successor:** — (pipeline complete)
-- **Class:** adv (tail — last step in `/dev` pipeline)
+- **Class:** adv (tail — last step in `/R-dev` pipeline)
 
 ## Task Integration
 
-- `/dev` owns the dev-pipeline task lifecycle externally
+- `/R-dev` owns the dev-pipeline task lifecycle externally
 - This skill does NOT update its own dev-pipeline task
 - Sub-tasks created: none
 
 ## Exit
 
-- **Success via `/dev`:** stale branches/worktrees removed → return control silently. ¬write summary. `/dev` re-scans, all steps done/skipped, shows completion banner.
+- **Success via `/R-dev`:** stale branches/worktrees removed → return control silently. ¬write summary. `/R-dev` re-scans, all steps done/skipped, shows completion banner.
 - **Success standalone:** print summary (branches deleted, worktrees pruned, labels stripped, runs cancelled). Stop.
 - **`--report-only`:** print findings report, no mutations. Exit 0.
-- **Failure:** return error. `/dev` presents Retry | Skip | Abort.
+- **Failure:** return error. `/R-dev` presents Retry | Skip | Abort.
 
 $ARGUMENTS

@@ -21,7 +21,7 @@ describe('promote docs — release.model contract (#371 S5 / N12,N13)', () => {
     expect(skill).toMatch(/merge.commit/i)
   })
 
-  it('(b) documents that /promote no-ops under trunk (status=trunk_mode)', () => {
+  it('(b) documents that /R-promote no-ops under trunk (status=trunk_mode)', () => {
     expect(skill).toContain('status=trunk_mode')
   })
 
@@ -35,7 +35,7 @@ describe('promote docs — release.model contract (#371 S5 / N12,N13)', () => {
   })
 
   it('(e) narrows the trunk guard (B1) — create-PR path stays open, --finalize is refused', () => {
-    // The blanket "no /promote" no-op stranded a staging-keeping repo with no path
+    // The blanket "no /R-promote" no-op stranded a staging-keeping repo with no path
     // to main (#371 B1). The create-PR path must be documented AND --finalize must
     // be refused (single writer) — both grep-checkable so the narrowing cannot rot.
     expect(skill).toContain('status=trunk_promote_pr')

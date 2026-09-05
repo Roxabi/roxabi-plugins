@@ -4,13 +4,13 @@ Set up CI/CD — GitHub Actions workflows, TruffleHog secret scanning, Dependabo
 
 ## Why
 
-A project without CI is a liability: no automatic checks on PRs, no secret scanning, and no dependency updates. `/ci-setup` wires all of these up from a single command — adapting to your stack (Node/Bun/Python), your hook runner (Lefthook/Husky), and your test framework.
+A project without CI is a liability: no automatic checks on PRs, no secret scanning, and no dependency updates. `/R-ci-setup` wires all of these up from a single command — adapting to your stack (Node/Bun/Python), your hook runner (Lefthook/Husky), and your test framework.
 
 ## Usage
 
 ```
-/ci-setup           Configure CI/CD (skips already-configured items)
-/ci-setup --force   Re-run all steps
+/R-ci-setup           Configure CI/CD (skips already-configured items)
+/R-ci-setup --force   Re-run all steps
 ```
 
 Triggers: `"ci setup"` | `"setup ci"` | `"configure ci"` | `"setup hooks"` | `"setup github actions"`

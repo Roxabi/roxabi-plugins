@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-// scan-state.sh feeds Σ for every gate decision in /dev, and had no test until a
+// scan-state.sh feeds Σ for every gate decision in /R-dev, and had no test until a
 // consensus artifact silently resolved as an analysis and wedged the pipeline. /consensus
 // itself was removed 2026-08-03; its artifacts remain on disk, so the guard still matters.
 // Both hooks below run the SAME functions the live scan runs, dispatched before any
@@ -54,7 +54,7 @@ describe('artifact_kind — frontmatter decides, never the filename', () => {
     write('c-analysis.md', { type: 'brainstorm' })
     expect(classify('a-analysis.md')).toBe('analysis|approved')
     expect(classify('b-consensus.md')).toBe('consensus|consensus-reached')
-    // /interview writes brainstorms to {slug}-analysis.md — the name says analysis, the
+    // /R-interview writes brainstorms to {slug}-analysis.md — the name says analysis, the
     // frontmatter says otherwise, and the frontmatter wins.
     expect(classify('c-analysis.md')).toBe('brainstorm|')
   })
@@ -94,7 +94,7 @@ describe('resolve_analysis — the alphabetical-pick regression', () => {
   })
 
   it('returns nothing when only a consensus artifact exists', () => {
-    // Must be empty, not the consensus file: /dev then dispatches /analyze, which is
+    // Must be empty, not the consensus file: /R-dev then dispatches /R-analyze, which is
     // the recovery path. Returning the consensus file is what removed that path.
     write('42-auth-consensus.md', { status: 'consensus-reached' })
     expect(resolve('42', 'auth')).toBe('')

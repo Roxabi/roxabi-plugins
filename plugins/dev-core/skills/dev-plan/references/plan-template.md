@@ -91,11 +91,11 @@ Caps: `Σ ops > 50` OR `|tasks| > 4` OR `distinct subjects > 2` → split into n
 - **Traces:** {SC-N}
 - **Phase:** {RED|GREEN|REFACTOR}
 
-#### RED-GATE: RED complete V1 → tester
+#### RED-GATE: RED complete V1 → R-tester
 - **Verify:** All test tasks for V1 marked complete
 - **Phase:** RED-GATE
 
-> **Pre-#283:** The orchestrator manages RED-GATE ordering by spawning GREEN agents only after the tester completes RED tasks for each slice. Post-#283: Agents check the sentinel task status directly via TaskList.
+> **Pre-#283:** The orchestrator manages RED-GATE ordering by spawning GREEN agents only after R-tester completes RED tasks for each slice. Post-#283: Agents check the sentinel task status directly via TaskList.
 
 ### Slice V2: {Description}
 
@@ -103,10 +103,10 @@ Caps: `Σ ops > 50` OR `|tasks| > 4` OR `distinct subjects > 2` → split into n
 
 ## Task Seeding Blueprint
 
-<!-- Used by /dev-implement to seed TaskCreate calls on session start.
+<!-- Used by /R-dev-implement to seed TaskCreate calls on session start.
      Format: T{n} | agent-instance | blockedBy | subject
      blockedBy refs T-numbers within this list (not session task IDs).
-     Agent instances are named (tester-A/B, backend-dev-A/B/C, devops-A/B)
+     Agent instances are named (R-tester-A/B, R-backend-dev-A/B/C, R-devops-A/B)
      so parallel tasks map to distinct spawned agents.
      Seed in wave order; within a wave all rows are parallel (∥). -->
 
@@ -114,12 +114,12 @@ Caps: `Σ ops > 50` OR `|tasks| > 4` OR `distinct subjects > 2` → split into n
 
 | Task | Agent instance | blockedBy | Subject |
 |------|---------------|-----------|---------|
-| T1 | tester-A | — | {subject} |
-| T2 | backend-dev-A | — | {subject} |
+| T1 | R-tester-A | — | {subject} |
+| T2 | R-backend-dev-A | — | {subject} |
 
 ### Wave 2 — after Wave 1, {K} agents ∥
 
 | Task | Agent instance | blockedBy | Subject |
 |------|---------------|-----------|---------|
-| T3 | devops-A | T2 | {subject} |
-| T4 | tester-A | T3 | {subject} |
+| T3 | R-devops-A | T2 | {subject} |
+| T4 | R-tester-A | T3 | {subject} |

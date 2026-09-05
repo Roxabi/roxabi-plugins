@@ -70,17 +70,17 @@ export type ComputeRosterInput = {
 type Gate = { spawn: boolean; reason: string }
 
 export const DISPATCHABLE = [
-  'adversarial',
-  'security-auditor',
-  'tester',
-  'axial-adr-review',
-  'frontend-dev',
-  'backend-dev',
-  'devops',
-  'architect',
+  'R-adversarial',
+  'R-security-auditor',
+  'R-tester',
+  'R-axial-adr-review',
+  'R-frontend-dev',
+  'R-backend-dev',
+  'R-devops',
+  'R-architect',
 ] as const
 
-export const PHASE_AGENTS = ['recall', 'finding-verifier'] as const
+export const PHASE_AGENTS = ['R-recall', 'R-finding-verifier'] as const
 
 const KNOWN_AGENTS: Record<string, true> = Object.fromEntries([...DISPATCHABLE, ...PHASE_AGENTS].map((a) => [a, true]))
 
@@ -504,8 +504,8 @@ export function parseRosterConfig(text: string | null): RosterConfig {
           recognised++
           const agent = lines[j].key
           const raw = lines[j].value.toLowerCase()
-          if (agent === 'product-lead') {
-            warnings.push('product-lead is not part of the review roster — Phase 2 covers spec compliance')
+          if (agent === 'R-product-lead') {
+            warnings.push('R-product-lead is not part of the review roster — Phase 2 covers spec compliance')
             continue
           }
           if (!Object.hasOwn(KNOWN_AGENTS, agent)) {
@@ -564,8 +564,8 @@ function applyOverride(agent: string, gate: Gate, overrides: Record<string, Agen
   // `overrides` may be a caller-built literal (prototype-exposed), so read own keys only —
   // an inherited `constructor`/`toString` must never resolve as an override.
   const o = Object.hasOwn(overrides, agent) ? overrides[agent] : undefined
-  if (agent === 'adversarial') {
-    if (o === 'never') warnings.push('adversarial cannot be disabled')
+  if (agent === 'R-adversarial') {
+    if (o === 'never') warnings.push('R-adversarial cannot be disabled')
     return { spawn: true, reason: 'floor' }
   }
   if (o === 'always') return { spawn: true, reason: 'stack:always' }
@@ -576,7 +576,7 @@ function applyOverride(agent: string, gate: Gate, overrides: Record<string, Agen
 function testerGate(deltaTestHit: boolean, oracleOk: OracleOk, warnings: string[]): Gate {
   if (!deltaTestHit) return { spawn: false, reason: 'no-test-delta' }
   if (oracleOk === 'missing') {
-    warnings.push('tester gate undecided: re-run roster.sh with --oracle-ok')
+    warnings.push('R-tester gate undecided: re-run roster.sh with --oracle-ok')
     return { spawn: false, reason: 'oracle-unknown' }
   }
   if (oracleOk === 'true') return { spawn: false, reason: 'oracle-ok' }
@@ -624,48 +624,58 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
 
   const gates: Record<string, Gate> = {}
 
-  gates.adversarial = applyOverride('adversarial', { spawn: true, reason: 'floor' }, config.overrides, warnings)
+  gates['R-adversarial'] = applyOverride('R-adversarial', { spawn: true, reason: 'floor' }, config.overrides, warnings)
 
-  gates['security-auditor'] = applyOverride(
-    'security-auditor',
+  gates['R-security-auditor'] = applyOverride(
+    'R-security-auditor',
     { spawn: path_hit, reason: path_hit ? 'path-hit' : 'no-path-hit' },
     config.overrides,
     warnings,
   )
 
-  gates.tester = applyOverride('tester', testerGate(delta_test_hit, oracleOk, warnings), config.overrides, warnings)
+  gates['R-tester'] = applyOverride(
+    'R-tester',
+    testerGate(delta_test_hit, oracleOk, warnings),
+    config.overrides,
+    warnings,
+  )
 
-  gates['axial-adr-review'] = applyOverride('axial-adr-review', axialGate(axialAdr, delta), config.overrides, warnings)
+  gates['R-axial-adr-review'] = applyOverride(
+    'R-axial-adr-review',
+    axialGate(axialAdr, delta),
+    config.overrides,
+    warnings,
+  )
 
   const feSpawn = feHit(delta, stackPaths)
-  gates['frontend-dev'] = applyOverride(
-    'frontend-dev',
+  gates['R-frontend-dev'] = applyOverride(
+    'R-frontend-dev',
     { spawn: feSpawn, reason: feSpawn ? 'path-hit' : 'no-path-hit' },
     config.overrides,
     warnings,
   )
 
-  gates['backend-dev'] = applyOverride(
-    'backend-dev',
+  gates['R-backend-dev'] = applyOverride(
+    'R-backend-dev',
     backendGate(delta, stackPaths.backendPath),
     config.overrides,
     warnings,
   )
 
-  gates.devops = applyOverride('devops', devopsGate(isFull, infra), config.overrides, warnings)
+  gates['R-devops'] = applyOverride('R-devops', devopsGate(isFull, infra), config.overrides, warnings)
 
-  gates.architect = applyOverride('architect', architectGate(isFull, infra), config.overrides, warnings)
+  gates['R-architect'] = applyOverride('R-architect', architectGate(isFull, infra), config.overrides, warnings)
 
-  gates.recall = applyOverride(
-    'recall',
+  gates['R-recall'] = applyOverride(
+    'R-recall',
     recallGate(chunks, delta.length, config.recallMinDelta),
     config.overrides,
     warnings,
   )
 
   const verifierSpawn = config.verifyBelowConfidence > 0
-  gates['finding-verifier'] = applyOverride(
-    'finding-verifier',
+  gates['R-finding-verifier'] = applyOverride(
+    'R-finding-verifier',
     { spawn: verifierSpawn, reason: verifierSpawn ? 'threshold' : 'disabled' },
     config.overrides,
     warnings,
@@ -710,13 +720,13 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
     gates: gateRows,
     capped,
     path_hit,
-    spawn_security_auditor: gates['security-auditor'].spawn,
+    spawn_security_auditor: gates['R-security-auditor'].spawn,
     delta_test_hit,
     claims,
     priced_claim_ok: pricedClaimOk,
-    recall_eligible: gates.recall.spawn,
-    recall_reason: gates.recall.reason,
-    verifier_enabled: gates['finding-verifier'].spawn,
+    recall_eligible: gates['R-recall'].spawn,
+    recall_reason: gates['R-recall'].reason,
+    verifier_enabled: gates['R-finding-verifier'].spawn,
     verify_below_confidence: config.verifyBelowConfidence,
     max_agents: maxAgents,
     warnings,

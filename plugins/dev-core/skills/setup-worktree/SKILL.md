@@ -1,5 +1,5 @@
 ---
-name: setup-worktree
+name: R-setup-worktree
 argument-hint: '[--issue <N> --slug <slug>]'
 description: Create + link feature branch to issue, then check out worktree. Triggers: "setup worktree" | "create worktree" | "prepare workspace" | "bootstrap branch".
 version: 0.3.2
@@ -29,8 +29,8 @@ One-time setup per issue. Idempotent — safe to re-run if branch/link/ω alread
 ## Entry
 
 ```
-/setup-worktree --issue 42 --slug dark-mode    Create + link feat/42-dark-mode + ω for #42
-/setup-worktree --slug spike-foo               Frame-only (no link, no issue)
+/R-setup-worktree --issue 42 --slug dark-mode    Create + link feat/42-dark-mode + ω for #42
+/R-setup-worktree --slug spike-foo               Frame-only (no link, no issue)
 ```
 
 ## Pipeline
@@ -91,7 +91,7 @@ Run from principal CWD (or any path). **Never** `git switch "$BRANCH"` on princi
 gh issue develop "$N" --base "$BASE" --name "$BRANCH"
 ```
 
-∃ N ∧ `LINKED` = false ∧ `REMOTE_BRANCH` = exists → branch pushed before /dev workflow. **Cannot auto-link existing remote branches** — the `createLinkedBranch` GraphQL mutation is create-only. Warn:
+∃ N ∧ `LINKED` = false ∧ `REMOTE_BRANCH` = exists → branch pushed before /R-dev workflow. **Cannot auto-link existing remote branches** — the `createLinkedBranch` GraphQL mutation is create-only. Warn:
 ```bash
 echo "WARN: $BRANCH on origin but not linked to #$N — attach manually via the issue's Development panel." >&2
 ```
@@ -176,12 +176,12 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set "$N" --status "In Pr
 
 - **Phase:** Frame (pre-step)
 - **Predecessor:** `/issue-triage`
-- **Successor:** `/frame`
+- **Successor:** `/R-frame`
 - **Class:** adv (continuous flow, no gate)
 
 ## Task Integration
 
-- `/dev` owns the dev-pipeline task lifecycle externally
+- `/R-dev` owns the dev-pipeline task lifecycle externally
 - This skill does NOT update its own dev-pipeline task
 - Sub-tasks created: none
 

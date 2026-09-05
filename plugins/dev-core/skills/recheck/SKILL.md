@@ -1,5 +1,5 @@
 ---
-name: recheck
+name: R-recheck
 argument-hint: '[#N | --issue N]'
 description: Drift-check an issue before work begins — fails fast when code has evolved (git-drift, symbol-missing, dep-resolved). Triggers: "recheck" | "is this issue still valid" | "check drift" | "check issue staleness".
 version: 0.2.0
@@ -20,13 +20,13 @@ Let:
   informative(S) ≔ S ≠ ∅ ∧ ¬ambiguous(S)   # git-drift only
 
 Drift-check N against 3 deterministic signals (no LLM). **AQ only when signals are ambiguous** (missing symbols / closed blockers). Pure git-drift is informational — print and auto-proceed.
-Standalone-safe: callable without `/dev`. Invoked by `/dev` between `triage` and `frame`.
+Standalone-safe: callable without `/R-dev`. Invoked by `/R-dev` between `triage` and `frame`.
 
 ## Entry
 
 ```
-/recheck #N            standalone — DP only if ambiguous signals (Proceed | Close | Abort)
-(invoked by /dev)      pipeline  — same; DP adds Update issue first when ambiguous
+/R-recheck #N            standalone — DP only if ambiguous signals (Proceed | Close | Abort)
+(invoked by /R-dev)      pipeline  — same; DP adds Update issue first when ambiguous
 ```
 
 ## Pipeline
@@ -151,7 +151,7 @@ Rationale: git-drift alone means “code moved nearby” — issue still open, s
 
 - **Pipeline mode (M == pipeline):**
   Print exactly: `Issue still relevant.`
-  Return silently. `/dev` proceeds to next step.
+  Return silently. `/R-dev` proceeds to next step.
 
 - **Standalone mode (M == standalone):**
   Print richer summary:
@@ -166,10 +166,10 @@ Rationale: git-drift alone means “code moved nearby” — issue still open, s
 Render `## Drift Signals` block (same table as below), then print exactly one line and return exit 0:
 
 ```
-Drift noted (git-drift only) — proceeding. Re-run /recheck or update the issue if scope looks stale.
+Drift noted (git-drift only) — proceeding. Re-run /R-recheck or update the issue if scope looks stale.
 ```
 
-¬AQ. Pipeline and standalone share this path. `/dev` continues to next step.
+¬AQ. Pipeline and standalone share this path. `/R-dev` continues to next step.
 
 ### ambiguous (symbol-missing and/or dep-resolved — AQ)
 
@@ -199,9 +199,9 @@ Path:        executed immediately after choice
 
 Options:
   1. Proceed anyway        — continue, current premise accepted as-is
-  2. Update issue first    — re-invoke /issue-triage, then re-run /recheck once
-  3. Close as resolved/obsolete — gh issue close N --reason completed ; abort /dev
-  4. Abort                 — exit /dev cleanly, no mutation
+  2. Update issue first    — re-invoke /issue-triage, then re-run /R-recheck once
+  3. Close as resolved/obsolete — gh issue close N --reason completed ; abort /R-dev
+  4. Abort                 — exit /R-dev cleanly, no mutation
 Recommended: Option 2 if symbols/blockers suggest rewrite; Option 3 if issue is moot
 ```
 
@@ -227,14 +227,14 @@ Recommended: Option 2 if issue is moot; Option 1 if premise still holds
 
 | Option               | Effect                                                                                    |
 |----------------------|-------------------------------------------------------------------------------------------|
-| **Proceed anyway**   | Return exit 0. In pipeline, `/dev` re-scans and continues to next step.                  |
-| **Update issue first** | `Skill: "issue-triage", args: "N"` → then re-run self with `--from-dev --update-iter=2 #N`. On 2nd run, omit Update from DP (loop bound = 1 iteration). **Note on task state:** `/dev` has already marked its `triage` task `completed` in the prior Step 8 cycle and does not re-mark it during this in-skill re-invocation. The triage task remains `completed` in `/dev`'s task list — by design, since recheck owns the side-channel refinement, not `/dev`. The actual triage work is re-executed and its effects (label changes, re-classification) take hold immediately; only the task-list flag is stale, and that has no downstream consumer. |
-| **Close as resolved/obsolete** | `gh issue close N --reason completed --comment "Closed by /recheck — drift signals indicated issue is no longer applicable."` → exit with abort signal so `/dev` marks task cancelled. |
-| **Abort**            | Exit cleanly. No mutation. `/dev` halts cleanly.                                         |
+| **Proceed anyway**   | Return exit 0. In pipeline, `/R-dev` re-scans and continues to next step.                  |
+| **Update issue first** | `Skill: "issue-triage", args: "N"` → then re-run self with `--from-dev --update-iter=2 #N`. On 2nd run, omit Update from DP (loop bound = 1 iteration). **Note on task state:** `/R-dev` has already marked its `triage` task `completed` in the prior Step 8 cycle and does not re-mark it during this in-skill re-invocation. The triage task remains `completed` in `/R-dev`'s task list — by design, since recheck owns the side-channel refinement, not `/R-dev`. The actual triage work is re-executed and its effects (label changes, re-classification) take hold immediately; only the task-list flag is stale, and that has no downstream consumer. |
+| **Close as resolved/obsolete** | `gh issue close N --reason completed --comment "Closed by /R-recheck — drift signals indicated issue is no longer applicable."` → exit with abort signal so `/R-dev` marks task cancelled. |
+| **Abort**            | Exit cleanly. No mutation. `/R-dev` halts cleanly.                                         |
 
 ## State
 
-No on-disk artifact. `/dev` tracks recheck as Σ_s (session-only) like `validate`, `ci-watch`. Re-running `/dev #N` in a new session re-runs `/recheck` — acceptable: deterministic checks are cheap and fresh state is more valuable than skip-on-resume.
+No on-disk artifact. `/R-dev` tracks recheck as Σ_s (session-only) like `validate`, `ci-watch`. Re-running `/R-dev #N` in a new session re-runs `/R-recheck` — acceptable: deterministic checks are cheap and fresh state is more valuable than skip-on-resume.
 
 `RecheckResult` is ephemeral — built during execution, consumed by decide step, then discarded:
 - `issue_number: int`
@@ -243,7 +243,7 @@ No on-disk artifact. `/dev` tracks recheck as Σ_s (session-only) like `validate
 
 ## Task Integration
 
-- `/dev` owns the dev-pipeline task lifecycle externally
+- `/R-dev` owns the dev-pipeline task lifecycle externally
 - This skill does NOT update its own dev-pipeline task
 - Sub-tasks created: none
 
@@ -251,19 +251,19 @@ No on-disk artifact. `/dev` tracks recheck as Σ_s (session-only) like `validate
 
 - **Phase:** Frame
 - **Predecessor:** `/issue-triage`
-- **Successor:** `/frame` (F-lite, F-full) ∨ `/dev-implement` (S, frame skipped)
-- **Class:** `adv` — `/dev` treats approval-stop separately (`frame|analyze|spec|plan`); all others are `adv` (or verdict/loop). The DP rendered on signal-fire is **skill-internal**: `/recheck` self-manages the blocking decision the same way `/validate` and `/ci-watch` do when they surface failures. From `/dev`'s perspective, `/recheck` is always `adv`.
+- **Successor:** `/R-frame` (F-lite, F-full) ∨ `/R-dev-implement` (S, frame skipped)
+- **Class:** `adv` — `/R-dev` treats approval-stop separately (`frame|analyze|spec|plan`); all others are `adv` (or verdict/loop). The DP rendered on signal-fire is **skill-internal**: `/R-recheck` self-manages the blocking decision the same way `/R-validate` and `/R-ci-watch` do when they surface failures. From `/R-dev`'s perspective, `/R-recheck` is always `adv`.
 
 ## Exit
 
 | Path                              | Effect                                                                 |
 |-----------------------------------|------------------------------------------------------------------------|
-| Via `/dev` — clean                | Print `Issue still relevant.` → return silently → `/dev` continues     |
-| Via `/dev` — informative          | Print drift table + proceed line → exit 0 → `/dev` continues           |
-| Via `/dev` — Proceed on ambiguous | Return exit 0 → `/dev` re-scans → next step                           |
-| Via `/dev` — Update issue first   | Invoke `issue-triage` → re-run self once (`--update-iter=2`)          |
-| Via `/dev` — Close                | `gh issue close N` → exit with abort signal → `/dev` marks cancelled  |
-| Via `/dev` — Abort                | Exit cleanly, no mutation → `/dev` halts                              |
+| Via `/R-dev` — clean                | Print `Issue still relevant.` → return silently → `/R-dev` continues     |
+| Via `/R-dev` — informative          | Print drift table + proceed line → exit 0 → `/R-dev` continues           |
+| Via `/R-dev` — Proceed on ambiguous | Return exit 0 → `/R-dev` re-scans → next step                           |
+| Via `/R-dev` — Update issue first   | Invoke `issue-triage` → re-run self once (`--update-iter=2`)          |
+| Via `/R-dev` — Close                | `gh issue close N` → exit with abort signal → `/R-dev` marks cancelled  |
+| Via `/R-dev` — Abort                | Exit cleanly, no mutation → `/R-dev` halts                              |
 | Standalone — clean                | Print richer summary (counts per check) → exit 0                      |
 | Standalone — informative          | Print drift table + proceed line → exit 0                              |
 | Standalone — ambiguous            | Render `## Drift Signals` + 3-option DP → apply outcome               |

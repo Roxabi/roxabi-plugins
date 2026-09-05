@@ -1,22 +1,22 @@
 ---
-name: axial-adr-review
+name: R-axial-adr-review
 description: |
   Read-only review agent for axial-decomposition drift. Parses the project's axial ADR (`axial: true` frontmatter) and reviews a diff or spec for drift along the non-primary axis (N×M trap). Emits Conventional Comments findings tagged with the canonical `target-axis-trap` class.
 
-  Invoked by `/spec` (Step 4 — Expert Review) or `/dev-review` (Phase 3 — Multi-Domain Review) when scope touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`.
+  Invoked by `/R-spec` (Step 4 — Expert Review) or `/R-dev-review` (Phase 3 — Multi-Domain Review) when scope touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`.
 
-  Write companion: `axial-adr-create` for ADR creation/supersede. This agent has NO Write/Edit/Bash/Skill tools — read-only by capability, not by prose.
+  Write companion: `R-axial-adr-create` for ADR creation/supersede. This agent has NO Write/Edit/Bash/Skill tools — read-only by capability, not by prose.
 
   <example>
-  Context: PR adds a new transport adapter, /dev-review dispatches axial-adr-review
-  user: "/dev-review #42"
-  assistant: "Dispatching axial-adr-review — diff touches infrastructure/, axial ADR present, checking for wrong-axis duplication."
+  Context: PR adds a new transport adapter, /R-dev-review dispatches R-axial-adr-review
+  user: "/R-dev-review #42"
+  assistant: "Dispatching R-axial-adr-review — diff touches infrastructure/, axial ADR present, checking for wrong-axis duplication."
   </example>
 
   <example>
   Context: Spec proposes a new integration target
-  user: "/spec --issue 88"
-  assistant: "Including axial-adr-review among spec reviewers to flag drift along non-primary axis."
+  user: "/R-spec --issue 88"
+  assistant: "Including R-axial-adr-review among spec reviewers to flag drift along non-primary axis."
   </example>
 maxTurns: 20
 # capabilities: write_knowledge=false, write_code=false, review_code=true, run_tests=false
@@ -29,7 +29,7 @@ Let:
   D := `docs/architecture/adr/`
   R := `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
 
-Read-only mode. Parses an existing axial ADR, then audits a diff (from `/dev-review`) or a spec (from `/spec`) for drift along the non-primary axis. Emits findings; never writes files.
+Read-only mode. Parses an existing axial ADR, then audits a diff (from `/R-dev-review`) or a spec (from `/R-spec`) for drift along the non-primary axis. Emits findings; never writes files.
 
 **Rationale:** Read R before starting — framework, primary-axis reasoning categories, three-strikes rule.
 
@@ -48,12 +48,12 @@ Read-only mode. Parses an existing axial ADR, then audits a diff (from `/dev-rev
    ```
    issue(blocking): no axial ADR exists; project at risk of N×M drift
      docs/architecture/adr/:0
-     -- axial-adr-review
+     -- R-axial-adr-review
      Root cause: foundational architectural decision was never made explicit
      Class: target-axis-trap
      Raw callsites: [{file: "docs/architecture/adr/", line: 0}]
      Solutions:
-       1. Run /init or invoke axial-adr-create to elicit primary axis
+       1. Run /init or invoke R-axial-adr-create to elicit primary axis
        2. Skip if project is trivial (single-axis system) — document why in CLAUDE.md
      Confidence: 95%
    ```
@@ -62,12 +62,12 @@ Read-only mode. Parses an existing axial ADR, then audits a diff (from `/dev-rev
    ```
    issue(blocking): multiple ADRs carry `axial: true` — singleton invariant violated
      {matched paths}
-     -- axial-adr-review
+     -- R-axial-adr-review
      Root cause: prior supersede did not strip `axial: true` from the old ADR
      Class: parallel-path-drift
      Raw callsites: [{file: <path>, line: 1}, ...]
      Solutions:
-       1. Re-run axial-adr-create — Phase 1 offers auto-fix to strip `axial: true` from all but the newest
+       1. Re-run R-axial-adr-create — Phase 1 offers auto-fix to strip `axial: true` from all but the newest
        2. Manually edit older ADRs to remove `axial: true` from frontmatter
      Confidence: 100%
    ```
@@ -85,24 +85,24 @@ Read-only mode. Parses an existing axial ADR, then audits a diff (from `/dev-rev
      ```
      issue(blocking): axial ADR contains a non-grep-shaped ANTI_PATTERN.pattern; refusing to propagate
        {path}:{line of Grep pattern}
-       -- axial-adr-review
-       Root cause: pattern was authored as prose instead of a grep token — re-run axial-adr-create to repair
+       -- R-axial-adr-review
+       Root cause: pattern was authored as prose instead of a grep token — re-run R-axial-adr-create to repair
        Class: missing-input-validation
        Raw callsites: [{file: <path>, line: <n>}]
        Solutions:
-         1. Re-run axial-adr-create (supersede) and provide a single-token grep pattern in Q3
-         2. Edit the ADR manually to a valid pattern, then re-run /spec or /dev-review
+         1. Re-run R-axial-adr-create (supersede) and provide a single-token grep pattern in Q3
+         2. Edit the ADR manually to a valid pattern, then re-run /R-spec or /R-dev-review
        Confidence: 95%
      ```
      → exit review.
 
-6. ADR malformed (any of PRIMARY.axis / ANTI_PATTERN.pattern unparseable from sections) → emit `issue(blocking)`: cannot parse axial ADR; recommend re-running `axial-adr-create`; exit.
+6. ADR malformed (any of PRIMARY.axis / ANTI_PATTERN.pattern unparseable from sections) → emit `issue(blocking)`: cannot parse axial ADR; recommend re-running `R-axial-adr-create`; exit.
 
 ## Phase R2 — Parse artifact under review
 
 Dispatch context provides one of:
-- **Code diff** (from `/dev-review`): chunk text or full diff in the dispatch prompt
-- **Spec** (from `/spec`): path to spec.md in the dispatch prompt
+- **Code diff** (from `/R-dev-review`): chunk text or full diff in the dispatch prompt
+- **Spec** (from `/R-spec`): path to spec.md in the dispatch prompt
 
 Determine artifact type from prompt context. ¬artifact context → emit `issue:` request missing context; exit.
 
@@ -121,12 +121,12 @@ For sibling-occurrence checks, ALWAYS use the `Grep` tool with `ANTI_PATTERN.pat
 
 ## Phase R4 — Emit findings
 
-Conventional Comments format (same shape as `security-auditor`, `architect`):
+Conventional Comments format (same shape as `R-security-auditor`, `R-architect`):
 
 ```
 <label>: <description>
   <file>:<line>
-  -- axial-adr-review
+  -- R-axial-adr-review
   Root cause: <why drift, referencing PRIMARY.axis>
   Class: target-axis-trap
   Raw callsites: [{file: <path>, line: <n>}, ...]
@@ -145,15 +145,15 @@ Required:
 
 ## Phase R5 — Exit silently
 
-Review mode does NOT modify any file. The tool set (`Read`, `Glob`, `Grep`) makes file mutation structurally impossible — this is a capability boundary, not a prose contract. Return findings to caller (Phase 4 merge in `/dev-review`, or Step 4 incorporate-feedback in `/spec`).
+Review mode does NOT modify any file. The tool set (`Read`, `Glob`, `Grep`) makes file mutation structurally impossible — this is a capability boundary, not a prose contract. Return findings to caller (Phase 4 merge in `/R-dev-review`, or Step 4 incorporate-feedback in `/R-spec`).
 
 ## Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| No axial ADR | Emit single blocking finding pointing to `axial-adr-create`; exit |
+| No axial ADR | Emit single blocking finding pointing to `R-axial-adr-create`; exit |
 | Multiple ADRs with `axial: true` (singleton violation) | Emit `issue(blocking)`; refuse to pick one; exit |
-| ADR malformed | Emit `issue(blocking)`: cannot parse; recommend re-running `axial-adr-create`; exit |
+| ADR malformed | Emit `issue(blocking)`: cannot parse; recommend re-running `R-axial-adr-create`; exit |
 | `ANTI_PATTERN.pattern` fails sanitization | Emit `issue(blocking)` (missing-input-validation); exit |
 | Review mode without diff/spec context | Emit `issue:` request missing context; exit |
 | `Grep` tool returns excessive matches (>200) | Cap reporting to top 20 by file diversity; note truncation in finding |
@@ -168,5 +168,5 @@ Review mode does NOT modify any file. The tool set (`Read`, `Glob`, `Grep`) make
 
 ## Escalation
 
-- ADR is itself outdated (e.g., axis chosen 12mo ago, growth_12m vastly exceeded) → emit `thought:` recommending axial revue (supersede flow via `axial-adr-create`).
+- ADR is itself outdated (e.g., axis chosen 12mo ago, growth_12m vastly exceeded) → emit `thought:` recommending axial revue (supersede flow via `R-axial-adr-create`).
 - Detected drift but unclear which axis is non-primary (ADR ambiguous) → emit `question:` asking the caller to disambiguate before merging.

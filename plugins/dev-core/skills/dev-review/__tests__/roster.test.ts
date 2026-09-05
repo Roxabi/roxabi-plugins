@@ -104,19 +104,19 @@ oracles: ["z"]
 })
 
 describe('default roster', () => {
-  it('plain TS diff at F-lite is exactly adversarial', () => {
+  it('plain TS diff at F-lite is exactly R-adversarial', () => {
     const out = roster({ delta: ['src/foo.ts'], tier: 'F-lite' })
-    expect(out.agents).toEqual(['adversarial'])
+    expect(out.agents).toEqual(['R-adversarial'])
   })
 })
 
-describe('security-auditor', () => {
+describe('R-security-auditor', () => {
   it('src/auth/token.ts → spawn', () => {
     const out = roster({ delta: ['src/auth/token.ts'] })
     expect(out.path_hit).toBe(true)
     expect(out.spawn_security_auditor).toBe(true)
-    expect(out.agents).toContain('security-auditor')
-    expect(gate(out, 'security-auditor')).toMatchObject({ spawn: true, reason: 'path-hit' })
+    expect(out.agents).toContain('R-security-auditor')
+    expect(gate(out, 'R-security-auditor')).toMatchObject({ spawn: true, reason: 'path-hit' })
   })
 
   it('claim tags on non-security Δ do not spawn (cut)', () => {
@@ -139,7 +139,7 @@ oracles: ["z"]
     expect(out.path_hit).toBe(false)
     expect(out.claims).toContain('fail-closed')
     expect(out.spawn_security_auditor).toBe(false)
-    expect(out.agents).toEqual(['adversarial'])
+    expect(out.agents).toEqual(['R-adversarial'])
   })
 
   it('priced fence without valid claim → priced_claim_ok false ∧ ¬spawn', () => {
@@ -183,82 +183,82 @@ oracles: ["z"]
   })
 })
 
-describe('tester', () => {
+describe('R-tester', () => {
   it('test file in Δ + oracleOk false → spawn', () => {
     const out = roster({ delta: ['src/__tests__/foo.ts'], oracleOk: 'false' })
     expect(out.delta_test_hit).toBe(true)
-    expect(out.agents).toContain('tester')
-    expect(gate(out, 'tester')).toMatchObject({ spawn: true, reason: 'oracle-false' })
+    expect(out.agents).toContain('R-tester')
+    expect(gate(out, 'R-tester')).toMatchObject({ spawn: true, reason: 'oracle-false' })
   })
 
   it('test file + missing → ¬spawn, oracle-unknown, warning', () => {
     const out = roster({ delta: ['src/foo.test.ts'], oracleOk: 'missing' })
-    expect(out.agents).not.toContain('tester')
-    expect(gate(out, 'tester')).toMatchObject({ spawn: false, reason: 'oracle-unknown' })
-    expect(out.warnings).toContain('tester gate undecided: re-run roster.sh with --oracle-ok')
+    expect(out.agents).not.toContain('R-tester')
+    expect(gate(out, 'R-tester')).toMatchObject({ spawn: false, reason: 'oracle-unknown' })
+    expect(out.warnings).toContain('R-tester gate undecided: re-run roster.sh with --oracle-ok')
   })
 
   it("test file + 'true' → ¬spawn", () => {
     const out = roster({ delta: ['src/foo.spec.ts'], oracleOk: 'true' })
-    expect(out.agents).not.toContain('tester')
-    expect(gate(out, 'tester')).toMatchObject({ spawn: false, reason: 'oracle-ok' })
+    expect(out.agents).not.toContain('R-tester')
+    expect(gate(out, 'R-tester')).toMatchObject({ spawn: false, reason: 'oracle-ok' })
   })
 
   it("no test file + 'false' → ¬spawn", () => {
     const out = roster({ delta: ['src/foo.ts'], oracleOk: 'false' })
     expect(out.delta_test_hit).toBe(false)
-    expect(out.agents).not.toContain('tester')
-    expect(gate(out, 'tester')).toMatchObject({ spawn: false, reason: 'no-test-delta' })
+    expect(out.agents).not.toContain('R-tester')
+    expect(gate(out, 'R-tester')).toMatchObject({ spawn: false, reason: 'no-test-delta' })
   })
 })
 
 describe('infra', () => {
-  it('.github/workflows/ci.yml at F-lite → neither architect nor devops nor backend-dev', () => {
+  it('.github/workflows/ci.yml at F-lite → neither R-architect nor R-devops nor R-backend-dev', () => {
     const out = roster({ delta: ['.github/workflows/ci.yml'], tier: 'F-lite' })
-    expect(out.agents).not.toContain('architect')
-    expect(out.agents).not.toContain('devops')
-    expect(out.agents).not.toContain('backend-dev')
-    expect(gate(out, 'devops')).toMatchObject({ spawn: false, reason: 'tier' })
-    expect(gate(out, 'architect')).toMatchObject({ spawn: false, reason: 'tier' })
+    expect(out.agents).not.toContain('R-architect')
+    expect(out.agents).not.toContain('R-devops')
+    expect(out.agents).not.toContain('R-backend-dev')
+    expect(gate(out, 'R-devops')).toMatchObject({ spawn: false, reason: 'tier' })
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: false, reason: 'tier' })
   })
 
-  it('same Δ at F-full → exactly devops (no architect, no backend-dev)', () => {
+  it('same Δ at F-full → exactly R-devops (no R-architect, no R-backend-dev)', () => {
     const out = roster({ delta: ['.github/workflows/ci.yml'], tier: 'F-full' })
-    expect(out.agents).toEqual(['adversarial', 'devops'])
-    expect(out.agents).not.toContain('architect')
-    expect(out.agents).not.toContain('backend-dev')
+    expect(out.agents).toEqual(['R-adversarial', 'R-devops'])
+    expect(out.agents).not.toContain('R-architect')
+    expect(out.agents).not.toContain('R-backend-dev')
   })
 
-  it('non-infra Δ at F-full → exactly architect', () => {
+  it('non-infra Δ at F-full → exactly R-architect', () => {
     const out = roster({ delta: ['src/foo.ts'], tier: 'F-full' })
-    expect(out.agents).toEqual(['adversarial', 'architect'])
-    expect(out.agents).not.toContain('devops')
+    expect(out.agents).toEqual(['R-adversarial', 'R-architect'])
+    expect(out.agents).not.toContain('R-devops')
   })
 })
 
-describe('product-lead', () => {
+describe('R-product-lead', () => {
   it('never appears in agents nor gates', () => {
     const out = roster()
-    expect(out.agents).not.toContain('product-lead')
-    expect(out.gates.some((g) => g.agent === 'product-lead')).toBe(false)
+    expect(out.agents).not.toContain('R-product-lead')
+    expect(out.gates.some((g) => g.agent === 'R-product-lead')).toBe(false)
   })
 
-  it('product-lead: always stack override warns and does not spawn', () => {
+  it('R-product-lead: always stack override warns and does not spawn', () => {
     const cfg = parseRosterConfig(`
 review:
   roster:
     agents:
-      product-lead: always
+      R-product-lead: always
 `)
-    expect(cfg.warnings).toContain('product-lead is not part of the review roster — Phase 2 covers spec compliance')
-    expect(cfg.overrides['product-lead']).toBeUndefined()
+    expect(cfg.warnings).toContain('R-product-lead is not part of the review roster — Phase 2 covers spec compliance')
+    expect(cfg.overrides['R-product-lead']).toBeUndefined()
     const out = roster({ config: cfg })
-    expect(out.agents).not.toContain('product-lead')
-    expect(out.gates.some((g) => g.agent === 'product-lead')).toBe(false)
+    expect(out.agents).not.toContain('R-product-lead')
+    expect(out.gates.some((g) => g.agent === 'R-product-lead')).toBe(false)
   })
 })
 
-describe('frontend-dev', () => {
+describe('R-frontend-dev', () => {
   it('frontend.path set → prefix gate', () => {
     const paths = parseStackPaths('frontend:\n  path: src/web\n')
     expect(paths.frontendPath).toBe('src/web')
@@ -266,14 +266,14 @@ describe('frontend-dev', () => {
       delta: ['src/web/util.ts'],
       stackPaths: { frontendPath: paths.frontendPath, sharedUi: '', backendPath: '' },
     })
-    expect(hit.agents).toContain('frontend-dev')
+    expect(hit.agents).toContain('R-frontend-dev')
   })
 
   it('both paths empty → FE_EXT gate', () => {
     const hit = roster({ delta: ['anywhere/App.tsx'] })
-    expect(hit.agents).toContain('frontend-dev')
+    expect(hit.agents).toContain('R-frontend-dev')
     const miss = roster({ delta: ['anywhere/app.ts'] })
-    expect(miss.agents).not.toContain('frontend-dev')
+    expect(miss.agents).not.toContain('R-frontend-dev')
   })
 
   it('.tsx outside a configured frontend.path → ¬spawn', () => {
@@ -281,7 +281,7 @@ describe('frontend-dev', () => {
       delta: ['other/App.tsx'],
       stackPaths: { frontendPath: 'src/web', sharedUi: '', backendPath: '' },
     })
-    expect(out.agents).not.toContain('frontend-dev')
+    expect(out.agents).not.toContain('R-frontend-dev')
   })
 })
 
@@ -292,19 +292,19 @@ describe('axial', () => {
     writeFileSync(join(adr, '0001-foo.md'), '---\naxial: true\n---\n')
     expect(hasAxialAdr(adr)).toBe(true)
     const out = roster({ delta: ['adapters/x.ts'], axialAdr: true })
-    expect(out.agents).toContain('axial-adr-review')
-    expect(gate(out, 'axial-adr-review')).toMatchObject({ spawn: true, reason: 'path-hit' })
+    expect(out.agents).toContain('R-axial-adr-review')
+    expect(gate(out, 'R-axial-adr-review')).toMatchObject({ spawn: true, reason: 'path-hit' })
   })
 
   it('no ADR dir → ¬spawn with no-axial-adr', () => {
     expect(hasAxialAdr(join(dir, 'missing'))).toBe(false)
     const out = roster({ delta: ['adapters/x.ts'], axialAdr: false })
-    expect(out.agents).not.toContain('axial-adr-review')
-    expect(gate(out, 'axial-adr-review')).toMatchObject({ spawn: false, reason: 'no-axial-adr' })
+    expect(out.agents).not.toContain('R-axial-adr-review')
+    expect(gate(out, 'R-axial-adr-review')).toMatchObject({ spawn: false, reason: 'no-axial-adr' })
   })
 })
 
-describe('recall', () => {
+describe('R-recall', () => {
   it('chunks 2 + 10 files → recall_eligible false', () => {
     const delta = Array.from({ length: 10 }, (_, i) => `src/f${i}.ts`)
     const out = roster({ delta, chunks: 2 })
@@ -335,28 +335,28 @@ describe('cap', () => {
       stackPaths: { frontendPath: 'src/ui', sharedUi: '', backendPath: 'src/api' },
       config: defaultConfig({ maxAgents: 3 }),
     })
-    expect(out.agents).toEqual(['adversarial', 'security-auditor', 'tester'])
+    expect(out.agents).toEqual(['R-adversarial', 'R-security-auditor', 'R-tester'])
     expect(out.agents).toHaveLength(3)
-    expect(out.capped).toEqual(['axial-adr-review', 'frontend-dev', 'backend-dev'])
+    expect(out.capped).toEqual(['R-axial-adr-review', 'R-frontend-dev', 'R-backend-dev'])
     for (const name of out.capped) {
       expect(gate(out, name)).toEqual({ agent: name, spawn: false, reason: 'capped' })
     }
     expect(out.warnings).toContain(
-      'roster: 3 agent(s) dropped by max_agents: axial-adr-review, frontend-dev, backend-dev',
+      'roster: 3 agent(s) dropped by max_agents: R-axial-adr-review, R-frontend-dev, R-backend-dev',
     )
   })
 
-  it('forced architect survives max_agents 2 when path_hit ∧ tester also trip', () => {
+  it('forced R-architect survives max_agents 2 when path_hit ∧ R-tester also trip', () => {
     const out = roster({
       delta: ['src/auth/token.ts', 'src/foo.test.ts'],
       oracleOk: 'false',
-      config: defaultConfig({ maxAgents: 2, overrides: { architect: 'always' } }),
+      config: defaultConfig({ maxAgents: 2, overrides: { 'R-architect': 'always' } }),
     })
-    expect(out.agents).toContain('architect')
-    expect(out.agents).toEqual(['adversarial', 'architect'])
+    expect(out.agents).toContain('R-architect')
+    expect(out.agents).toEqual(['R-adversarial', 'R-architect'])
     expect(out.capped.length).toBeGreaterThan(0)
-    expect(out.capped).toEqual(['security-auditor', 'tester'])
-    expect(out.warnings).toContain('roster: 2 agent(s) dropped by max_agents: security-auditor, tester')
+    expect(out.capped).toEqual(['R-security-auditor', 'R-tester'])
+    expect(out.warnings).toContain('roster: 2 agent(s) dropped by max_agents: R-security-auditor, R-tester')
   })
 
   it('|forced| > max_agents raises cap and keeps every forced agent', () => {
@@ -364,10 +364,10 @@ describe('cap', () => {
       delta: ['src/foo.ts'],
       config: defaultConfig({
         maxAgents: 1,
-        overrides: { architect: 'always', devops: 'always' },
+        overrides: { 'R-architect': 'always', 'R-devops': 'always' },
       }),
     })
-    expect(out.agents).toEqual(['adversarial', 'devops', 'architect'])
+    expect(out.agents).toEqual(['R-adversarial', 'R-devops', 'R-architect'])
     expect(out.capped).toEqual([])
     expect(out.max_agents).toBe(3)
     expect(out.warnings).toContain('max_agents (1) < forced agents (3) — cap raised to 3')
@@ -385,33 +385,33 @@ describe('cap', () => {
 })
 
 describe('overrides', () => {
-  it('security-auditor never + path hit → ¬spawn stack:never', () => {
+  it('R-security-auditor never + path hit → ¬spawn stack:never', () => {
     const out = roster({
       delta: ['src/auth/token.ts'],
-      config: defaultConfig({ overrides: { 'security-auditor': 'never' } }),
+      config: defaultConfig({ overrides: { 'R-security-auditor': 'never' } }),
     })
     expect(out.spawn_security_auditor).toBe(false)
-    expect(out.agents).not.toContain('security-auditor')
-    expect(gate(out, 'security-auditor')).toMatchObject({ spawn: false, reason: 'stack:never' })
+    expect(out.agents).not.toContain('R-security-auditor')
+    expect(gate(out, 'R-security-auditor')).toMatchObject({ spawn: false, reason: 'stack:never' })
   })
 
-  it('architect always at F-lite → spawn', () => {
+  it('R-architect always at F-lite → spawn', () => {
     const out = roster({
       delta: ['src/foo.ts'],
       tier: 'F-lite',
-      config: defaultConfig({ overrides: { architect: 'always' } }),
+      config: defaultConfig({ overrides: { 'R-architect': 'always' } }),
     })
-    expect(out.agents).toContain('architect')
-    expect(gate(out, 'architect')).toMatchObject({ spawn: true, reason: 'stack:always' })
+    expect(out.agents).toContain('R-architect')
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: true, reason: 'stack:always' })
   })
 
-  it('adversarial never → still spawned with floor + warning', () => {
+  it('R-adversarial never → still spawned with floor + warning', () => {
     const out = roster({
-      config: defaultConfig({ overrides: { adversarial: 'never' } }),
+      config: defaultConfig({ overrides: { 'R-adversarial': 'never' } }),
     })
-    expect(out.agents).toContain('adversarial')
-    expect(gate(out, 'adversarial')).toMatchObject({ spawn: true, reason: 'floor' })
-    expect(out.warnings).toContain('adversarial cannot be disabled')
+    expect(out.agents).toContain('R-adversarial')
+    expect(gate(out, 'R-adversarial')).toMatchObject({ spawn: true, reason: 'floor' })
+    expect(out.warnings).toContain('R-adversarial cannot be disabled')
   })
 })
 
@@ -424,14 +424,14 @@ review:
     verify_below_confidence: 90
     recall_min_delta: 50
     agents:
-      security-auditor: default
-      tester: default
+      R-security-auditor: default
+      R-tester: default
 `)
     expect(cfg.maxAgents).toBe(4)
     expect(cfg.verifyBelowConfidence).toBe(90)
     expect(cfg.recallMinDelta).toBe(50)
-    expect(cfg.overrides['security-auditor']).toBe('default')
-    expect(cfg.overrides.tester).toBe('default')
+    expect(cfg.overrides['R-security-auditor']).toBe('default')
+    expect(cfg.overrides['R-tester']).toBe('default')
     expect(cfg.warnings).toEqual([])
   })
 
@@ -443,12 +443,12 @@ review: # top
     verify_below_confidence: '70'
     recall_min_delta: 40
     agents:
-      tester: "always"  # quoted
+      R-tester: "always"  # quoted
 `)
     expect(cfg.maxAgents).toBe(8)
     expect(cfg.verifyBelowConfidence).toBe(70)
     expect(cfg.recallMinDelta).toBe(40)
-    expect(cfg.overrides.tester).toBe('always')
+    expect(cfg.overrides['R-tester']).toBe('always')
     expect(cfg.warnings).toEqual([])
   })
 
@@ -554,8 +554,8 @@ roster:
 review:
   roster:
     agents:
-      - tester
-      - architect
+      - R-tester
+      - R-architect
 `)
     expect(cfg.overrides).toEqual({})
     expect(cfg.warnings).toContain(
@@ -567,7 +567,7 @@ review:
     const cfg = parseRosterConfig(`
 review:
   roster:
-    agents: {tester: always}
+    agents: {R-tester: always}
 `)
     expect(cfg.overrides).toEqual({})
     expect(cfg.warnings).toContain(
@@ -608,17 +608,17 @@ review:
     roster:
         max_agents: 6
         agents:
-            tester: always
+            R-tester: always
 `)
     expect(cfg.maxAgents).toBe(6)
-    expect(cfg.overrides.tester).toBe('always')
+    expect(cfg.overrides['R-tester']).toBe('always')
     expect(cfg.warnings).toEqual([])
   })
 
   it('tab-indented roster block parses', () => {
-    const cfg = parseRosterConfig('review:\n\troster:\n\t\tmax_agents: 5\n\t\tagents:\n\t\t\ttester: never\n')
+    const cfg = parseRosterConfig('review:\n\troster:\n\t\tmax_agents: 5\n\t\tagents:\n\t\t\tR-tester: never\n')
     expect(cfg.maxAgents).toBe(5)
-    expect(cfg.overrides.tester).toBe('never')
+    expect(cfg.overrides['R-tester']).toBe('never')
     expect(cfg.warnings).toEqual([])
   })
 })
@@ -694,27 +694,27 @@ describe('prototype keys are not table members', () => {
   })
 
   it('a bogus override value named after an Object.prototype key warns and is ignored', () => {
-    const cfg = parseRosterConfig('review:\n  roster:\n    agents:\n      tester: constructor\n')
-    expect(cfg.warnings.join(' ')).toMatch(/invalid override for tester/)
-    expect(cfg.overrides.tester).toBeUndefined()
+    const cfg = parseRosterConfig('review:\n  roster:\n    agents:\n      R-tester: constructor\n')
+    expect(cfg.warnings.join(' ')).toMatch(/invalid override for R-tester/)
+    expect(cfg.overrides['R-tester']).toBeUndefined()
   })
 
   it('parseRosterConfig returns a null-prototype overrides table', () => {
-    const cfg = parseRosterConfig('review:\n  roster:\n    agents:\n      tester: always\n')
+    const cfg = parseRosterConfig('review:\n  roster:\n    agents:\n      R-tester: always\n')
     expect(Object.getPrototypeOf(cfg.overrides)).toBeNull()
   })
 
   // The safety must live in applyOverride, not in how a caller happened to build the config:
   // an inherited `never` must never suppress a gate that fired.
   it('inherited override properties are ignored by applyOverride', () => {
-    const overrides: Record<string, AgentOverride> = Object.create({ architect: 'never' })
+    const overrides: Record<string, AgentOverride> = Object.create({ 'R-architect': 'never' })
     const out = roster({
       delta: ['src/app.ts'],
       tier: 'F-full',
       config: defaultConfig({ overrides }),
     })
-    expect(out.agents).toContain('architect')
-    expect(gate(out, 'architect')).toMatchObject({ spawn: true, reason: 'structure' })
+    expect(out.agents).toContain('R-architect')
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: true, reason: 'structure' })
   })
 })
 
@@ -760,12 +760,12 @@ describe('infraHit', () => {
     }
   })
 
-  it('nested scripts/ at F-full → devops not architect', () => {
+  it('nested scripts/ at F-full → R-devops not R-architect', () => {
     const out = roster({ delta: ['apps/web/scripts/build.sh'], tier: 'F-full' })
-    expect(out.agents).toContain('devops')
-    expect(out.agents).not.toContain('architect')
-    expect(gate(out, 'devops')).toMatchObject({ spawn: true, reason: 'infra' })
-    expect(gate(out, 'architect')).toMatchObject({ spawn: false, reason: 'infra' })
+    expect(out.agents).toContain('R-devops')
+    expect(out.agents).not.toContain('R-architect')
+    expect(gate(out, 'R-devops')).toMatchObject({ spawn: true, reason: 'infra' })
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: false, reason: 'infra' })
   })
 })
 

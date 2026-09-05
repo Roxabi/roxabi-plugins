@@ -4,14 +4,14 @@ Structured interview → brainstorm, analysis, or spec artifact (with promotion 
 
 ## Why
 
-Unstructured conversations produce vague documents. `/interview` conducts a phased interview — context, scope, depth, validation — and produces a well-structured artifact at exactly the right level: brainstorm (divergent exploration), analysis (structured investigation), or spec (implementable specification).
+Unstructured conversations produce vague documents. `/R-interview` conducts a phased interview — context, scope, depth, validation — and produces a well-structured artifact at exactly the right level: brainstorm (divergent exploration), analysis (structured investigation), or spec (implementable specification).
 
 ## Usage
 
 ```
-/interview                         Determine document type, then interview
-/interview "topic"                 Seed interview with free text
-/interview --promote path          Promote an existing doc to the next level
+/R-interview                         Determine document type, then interview
+/R-interview "topic"                 Seed interview with free text
+/R-interview --promote path          Promote an existing doc to the next level
 ```
 
 Triggers: `"interview"` | `"brainstorm"` | `"let's brainstorm"` | `"think through this"` | `"help me brainstorm"` | `"let's think this through"` | `"explore ideas"`
@@ -38,11 +38,11 @@ One kind per directory — β never lands in `analyses/`. Title hygiene + full k
 ## Promotion
 
 ```
-/interview --promote artifacts/analyses/my-analysis.md
+/R-interview --promote artifacts/analyses/my-analysis.md
 ```
 
 Detects the current document type from frontmatter/structure and promotes it to the next level (β → α → σ). Fills only the gaps between levels — preserves existing content.
 
 ## Output format
 
-`.md` with YAML frontmatter: always `title` (yaml-escaped), `description`, `type:`, `status: draft`. Kebab-case slugs. Approval for α/σ (when used as pipeline gates) flips `status` to `approved` via the owning skill (`/analyze`, `/spec`) — interview writes drafts only.
+`.md` with YAML frontmatter: always `title` (yaml-escaped), `description`, `type:`, `status: draft`. Kebab-case slugs. Approval for α/σ (when used as pipeline gates) flips `status` to `approved` via the owning skill (`/R-analyze`, `/R-spec`) — interview writes drafts only.

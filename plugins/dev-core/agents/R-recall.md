@@ -1,14 +1,14 @@
 ---
-name: recall
+name: R-recall
 description: |
-  Targeted recall agent for cross-chunk class join in /dev-review.
+  Targeted recall agent for cross-chunk class join in /R-dev-review.
   Receives only callsites + context window, never the full diff.
   Confirms scope (RC-3) and finds un-cited instances (RC-6) for a single class.
 
   <example>
   Context: class "parallel-path-drift" hit in 3 chunks
-  orchestrator: "Spawn recall agent for parallel-path-drift"
-  assistant: "I'll use the recall agent to confirm scope and find un-cited callsites."
+  orchestrator: "Spawn R-recall agent for parallel-path-drift"
+  assistant: "I'll use the R-recall agent to confirm scope and find un-cited callsites."
   </example>
 maxTurns: 20
 # capabilities: write_knowledge=false, write_code=false, review_code=true, run_tests=false
@@ -42,8 +42,8 @@ cross_chunk_index: {
 
 1. ∀ cs ∈ callsites: read `±context_lines` lines around `cs.file:cs.line`.
 2. Grep repo for structural siblings of flagged patterns (same function signature shape, same import, same decorator).
-3. For each un-cited sibling found: emit finding with `source: "recall"`.
-4. For each confirmed callsite: emit finding with `source: "recall", confirmed: true`.
+3. For each un-cited sibling found: emit finding with `source: "R-recall"`.
+4. For each confirmed callsite: emit finding with `source: "R-recall", confirmed: true`.
 5. ¬read files outside callsite context windows + grep targets. ¬read full diff.
 
 ## Output format
@@ -53,11 +53,11 @@ One finding per un-cited instance or scope-confirmation. Use Conventional Commen
 ```
 <label>: <description>
   <file>:<line>
-  -- recall
+  -- R-recall
   Root cause: <why this callsite matches the class pattern>
   Class: [<cls>]
   Raw callsites: [{file: <path>, line: <n>}, ...]
-  Source: recall
+  Source: R-recall
   Solutions:
     1. <primary> (recommended)
     2. <alternative>
@@ -66,8 +66,8 @@ One finding per un-cited instance or scope-confirmation. Use Conventional Commen
 
 ## Rules
 
-- Output category = `issue(blocking):` for all recall findings (verdict-grade, never advisory)
-- `candidate/*` classes → ¬trigger recall (advisory only per taxonomy rules)
-- ¬emit praise or nitpick — recall scope is confirmation + un-cited detection only
+- Output category = `issue(blocking):` for all R-recall findings (verdict-grade, never advisory)
+- `candidate/*` classes → ¬trigger R-recall (advisory only per taxonomy rules)
+- ¬emit praise or nitpick — R-recall scope is confirmation + un-cited detection only
 - Confidence = certainty that the pattern matches the class definition (¬guess)
 - If no un-cited instances found: emit single `praise:` "Scope confirmed — no additional callsites found for {cls}"

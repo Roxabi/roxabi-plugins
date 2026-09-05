@@ -1,5 +1,5 @@
 ---
-name: test
+name: R-test
 disable-model-invocation: true
 argument-hint: [file | --e2e | --run]
 description: Generate or run unit, integration, and Playwright e2e tests.
@@ -24,10 +24,10 @@ Generate tests for changed/specified files. Follow existing codebase patterns.
 ## Usage
 
 ```
-/test                      → Generate tests for files changed vs base branch
-/test src/auth/login.ts    → Generate tests for a specific file
-/test --e2e                → Generate Playwright e2e tests for changed files
-/test --run                → Run existing tests ({commands.test})
+/R-test                      → Generate tests for files changed vs base branch
+/R-test src/auth/login.ts    → Generate tests for a specific file
+/R-test --e2e                → Generate Playwright e2e tests for changed files
+/R-test --run                → Run existing tests ({commands.test})
 ```
 
 ## Pipeline
@@ -122,9 +122,9 @@ it('should return user by id', () => {
 ∀ approved τ: write via Write tool → `{commands.test} {test_file_path}` → report pass/fail.
 ∃ failures ⇒ → present choice show failing test + error → propose fix → re-run.
 
-## Step 8 — Falsification Gate (standalone `/test`)
+## Step 8 — Falsification Gate (standalone `/R-test`)
 
-Applies to: unit + fast-integration tests only. Triggered after Step 7 green run. **Ownership:** when invoked by `/dev-implement`, the implement orchestrator drives the gate (¬tester). When invoked standalone (no implement orchestrator), `/test` owns the cycle itself — the tester agent still only writes tests; the runner is driven by the `/test` flow.
+Applies to: unit + fast-integration tests only. Triggered after Step 7 green run. **Ownership:** when invoked by `/R-dev-implement`, the implement orchestrator drives the gate (¬R-tester). When invoked standalone (no implement orchestrator), `/R-test` owns the cycle itself — the R-tester agent still only writes tests; the runner is driven by the `/R-test` flow.
 
 **e2e exemption:** tests generated via `--e2e` → set Status to `⚠ NO FALSIFY — e2e` (do not leave `⏳ not run`). Stop. ¬run stash cycle.
 

@@ -12,7 +12,7 @@ const REUSABLE_PATH = fileURLToPath(
 const PROVISIONER_PATH = fileURLToPath(new URL('../../../../../scripts/provision-release-gate.sh', import.meta.url))
 
 // The one string that must be byte-identical across all three surfaces: the
-// reusable job name, the ruleset-required context, and the /promote step-1 probe.
+// reusable job name, the ruleset-required context, and the /R-promote step-1 probe.
 const CHECK = 'release-consistency'
 
 const reusableSrc = readFileSync(REUSABLE_PATH, 'utf8')

@@ -5,8 +5,8 @@
 #
 # THIN wrapper — every derivation/classification/reconcile step lives in
 # plugins/dev-core/skills/promote/auto-release.sh. Never inline that logic here:
-# /dev-checkup diffs this file against the generator output (N11), so it must stay
-# byte-stable. Regenerate with /ci-setup after a dev-core bump, never hand-edit.
+# /R-dev-checkup diffs this file against the generator output (N11), so it must stay
+# byte-stable. Regenerate with /R-ci-setup after a dev-core bump, never hand-edit.
 name: Auto Release
 
 on:

@@ -2,7 +2,7 @@
 
 Project-specific frontend conventions. Agents read this via `{standards.frontend}`.
 
-> Universal patterns (component design, state management signals, WCAG 2.1 AA, performance) are embedded in the `frontend-dev` agent.
+> Universal patterns (component design, state management signals, WCAG 2.1 AA, performance) are embedded in the `R-frontend-dev` agent.
 > This file documents **your project's specific** choices.
 
 ## Framework & UI Library

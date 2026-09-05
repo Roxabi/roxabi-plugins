@@ -4,13 +4,13 @@ Set up the local development environment — stack.yml, CLAUDE.md Critical Rules
 
 ## Why
 
-Before using dev-core skills, a project needs a `stack.yml` describing its runtime, commands, and paths — plus governance rules in CLAUDE.md, docs stubs, and optional tooling (LSP). `/env-setup` handles all of this idempotently, whether run standalone or as the first step of `/init`.
+Before using dev-core skills, a project needs a `stack.yml` describing its runtime, commands, and paths — plus governance rules in CLAUDE.md, docs stubs, and optional tooling (LSP). `/R-env-setup` handles all of this idempotently, whether run standalone or as the first step of `/init`.
 
 ## Usage
 
 ```
-/env-setup           Configure environment (skips already-configured items)
-/env-setup --force   Re-run all phases, overwriting existing config
+/R-env-setup           Configure environment (skips already-configured items)
+/R-env-setup --force   Re-run all phases, overwriting existing config
 ```
 
 Triggers: `"env setup"` | `"setup environment"` | `"scaffold rules"`

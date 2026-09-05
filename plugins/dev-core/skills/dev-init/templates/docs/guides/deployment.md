@@ -2,7 +2,7 @@
 
 Project-specific deployment procedures. Agents read this via `{standards.deployment}`.
 
-> Universal patterns (CI/CD pipeline stages, Docker best practices, secret management) are embedded in the `devops` agent.
+> Universal patterns (CI/CD pipeline stages, Docker best practices, secret management) are embedded in the `R-devops` agent.
 > This file documents **your project's specific** deployment setup.
 
 ## Environments
@@ -21,7 +21,7 @@ TODO: Document your environments.
 
 <!-- Document how deployments work. Examples:
   - Vercel auto-deploys on push to staging
-  - Production: /promote creates staging→main PR, merge triggers deploy
+  - Production: /R-promote creates staging→main PR, merge triggers deploy
   - Rollback: revert commit on main, auto-redeploy
 -->
 
