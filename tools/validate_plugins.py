@@ -5,7 +5,8 @@ Checks:
 - No personal data in plugin source files
 - No references to memory.db (legacy)
 - No references to _shared/ (2ndBrain legacy)
-- data.root is unique across all plugin.json files
+- data.root is unique across all plugin.json files (never metadata.json)
+- No leftover .claude-plugin/metadata.json (data.* lives in plugin.json)
 - Example files referenced in plugin.json exist
 - Vendored paths.py copies match the canonical version
 - Fixed /tmp/ literals in SKILL.md files (tempfile-convention.md)
@@ -150,6 +151,21 @@ def check_data_root_uniqueness() -> list[str]:
             )
         else:
             roots[root] = plugin_name
+    return errors
+
+
+def check_no_metadata_json() -> list[str]:
+    """Fail if any plugin still ships .claude-plugin/metadata.json.
+
+    data.* (and vault) belong in plugin.json only.
+    """
+    errors = []
+    for meta in sorted(PLUGINS_DIR.glob('*/.claude-plugin/metadata.json')):
+        plugin_name = meta.parent.parent.name
+        errors.append(
+            f'{plugin_name}: .claude-plugin/metadata.json is forbidden; '
+            f'declare data.* in plugin.json'
+        )
     return errors
 
 
@@ -767,6 +783,7 @@ def main(argv: list[str] | None = None) -> int:
         ('Personal data scan', check_personal_data),
         ('Legacy references', check_legacy_refs),
         ('data.root uniqueness', check_data_root_uniqueness),
+        ('No metadata.json', check_no_metadata_json),
         ('Example files exist', check_examples_exist),
         ('Vendored paths.py sync', check_vendored_paths),
         ('Tempfile convention', check_tempfile_convention),
