@@ -61,6 +61,7 @@ Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at r
 |--------|-------------|
 | [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. Includes `/R-dev-init` project setup (env-setup → axial → ci-setup → release-setup). Lifecycle skills, agents, safety hooks. Issues-only (no Projects V2 board); issue triage is the companion [issue-triage](plugins/issue-triage/README.md) plugin. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
 | [issue-triage](plugins/issue-triage/README.md) | Triage/create GitHub issues — size/priority/lane/type labels, blocked-by deps, parent/child. Labels + native relations, no Projects V2 |
+| [gitnexus](plugins/gitnexus/README.md) | GitNexus CLI — code knowledge graph (impact, symbol context, query). CLI-only alternative to MCP for minimal token overhead |
 
 ### Content & branding
 
@@ -125,7 +126,9 @@ Data-producing plugins store user data in `~/.roxabi-vault/` — never in the re
 
 Two kinds of plugins live in this repo:
 
-**Native plugins** — built and maintained by Roxabi. We own the full lifecycle: `dev-core`, `issue-triage`, `compress`, `1b1`, `cv`, `linkedin-post-generator`, `image-prompt-generator`, `get-invoice-details`, `linkedin-apply`.
+**Native plugins** — built and maintained by Roxabi. We own the full lifecycle: `dev-core`, `issue-triage`, `gitnexus`, `compress`, `1b1`, `cv`, `linkedin-post-generator`, `image-prompt-generator`, `get-invoice-details`, `linkedin-apply`.
+
+`omp-build` is link-only (`omp plugin link ./plugins/omp-build`) — not a catalog row.
 
 **Wrapped plugins** — high-quality external skills with no versioning or install mechanism in their source repo. Roxabi adds plugin structure and vendors the source (via `git subtree` or file copy) so they become installable. New wrapped plugins go into `external/`.
 
