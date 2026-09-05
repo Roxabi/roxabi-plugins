@@ -74,7 +74,7 @@ Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬
 
 ## Phase 1 — Gather Findings
 
-1. PR# → `gh pr view <#> --json comments,closingIssuesReferences`; parse Conventional Comments from `.comments[].body`; capture `SOURCE_ISSUE` = `.closingIssuesReferences[0].number` (∅ if none — used in Phase 5 Defer to wire blocked-by). When `SOURCE_ISSUE ≠ ∅`, also resolve `SOURCE_PARENT` = `gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number}}}}' --jq '.data.repository.issue.parent.number // empty'` — used in Phase 5 Defer to wire deferred issue as **sibling** under shared parent (see `roxabi-issues:issue-triage` "Deferred Follow-Ups — Sibling Rule").
+1. PR# → `gh pr view <#> --json comments,closingIssuesReferences`; parse Conventional Comments from `.comments[].body`; capture `SOURCE_ISSUE` = `.closingIssuesReferences[0].number` (∅ if none — used in Phase 5 Defer to wire blocked-by). When `SOURCE_ISSUE ≠ ∅`, also resolve `SOURCE_PARENT` = `gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number}}}}' --jq '.data.repository.issue.parent.number // empty'` — used in Phase 5 Defer to wire deferred issue as **sibling** under shared parent (see `issue-triage:issue-triage` "Deferred Follow-Ups — Sibling Rule").
 1a. **Strip the `/R-dev-review` filtered block first** — ∀ comment body: remove everything from `<summary>Filtered by finding-verifier` through the next `</details>` **before** parsing. Those f were dropped by the Phase 4 keep/drop filter (`dev-review`); re-ingesting them defeats the filter. `dev-review` posts them table-shaped (¬CC grammar) — strip explicitly anyway, ¬rely on shape alone.
 2. ¬PR# → scan conversation for latest `/R-dev-review` output
 3. F = ∅ → halt
@@ -151,9 +151,9 @@ Demoted from auto-apply → prepend: `Auto-apply failed: {reason}`
 
 → present choice(single per finding): **Solution 1** | **Solution 2** | **Defer** (→ create issue) | **Skip**
 
-Defer → create linked follow-up issue via `roxabi-issues:issue-triage` (¬raw `gh issue create` — global rule: issue mutations go through the skill so blocked-by + parent are wired atomically). **Sibling rule:** the deferred issue is a sibling of `SOURCE_ISSUE` under their shared parent (¬child of `SOURCE_ISSUE`) — see `roxabi-issues:issue-triage` SKILL "Deferred Follow-Ups — Sibling Rule":
+Defer → create linked follow-up issue via `Skill(skill: "issue-triage:issue-triage")` (¬raw `gh issue create` — global rule: issue mutations go through the skill so blocked-by + parent are wired atomically). **Sibling rule:** the deferred issue is a sibling of `SOURCE_ISSUE` under their shared parent (¬child of `SOURCE_ISSUE`) — see `issue-triage:issue-triage` SKILL "Deferred Follow-Ups — Sibling Rule":
 
-Invoke the `roxabi-issues:issue-triage` skill in **create** mode (requires the **roxabi-issues** plugin installed — issue-triage relocated dev-core → roxabi-issues, 2026-06-09). Pass:
+Invoke `Skill(skill: "issue-triage:issue-triage")` in **create** mode (requires the **issue-triage** plugin installed). Pass:
 
 - `--title "{cat}: {summary}"`
 - `--body "{details}"`

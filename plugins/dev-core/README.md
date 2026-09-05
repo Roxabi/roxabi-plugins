@@ -54,7 +54,7 @@ Auto-discovers your runtime, framework, test tooling, and linter from the codeba
 
 **Project-agnostic:** All skills and agents read commands and paths from `.claude/stack.yml` at runtime — `{commands.test}`, `{commands.lint}`, `{package_manager}`, `{backend.path}`, etc. If a required field is missing, the agent immediately tells you to run `/R-env-setup` or `/R-stack-setup`. This means dev-core works with any stack — Bun/npm/pnpm/yarn, NestJS/Express/Django, Vitest/Jest/Pytest.
 
-**Note:** dev-core is issues-only — no GitHub Project V2 board. Issue triage (labels for size/priority/lane/type, blocked-by deps, parent/child sub-issues) lives in the separate **`roxabi-issues`** plugin (Roxabi/roxabi-live); dev-core's `/R-dev` lifecycle reads issues but no longer mutates them.
+**Note:** dev-core is issues-only — no GitHub Project V2 board. Issue triage (labels for size/priority/lane/type, blocked-by deps, parent/child sub-issues) lives in the companion **`issue-triage`** plugin (`./plugins/issue-triage`); historically hosted in Roxabi/roxabi-live. dev-core's `/R-dev` lifecycle reads issues but no longer mutates them.
 
 ## Usage
 

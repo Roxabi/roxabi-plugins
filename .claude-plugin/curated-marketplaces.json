@@ -70,7 +70,7 @@
     {
       "name": "roxabi-live",
       "source": "https://github.com/Roxabi/roxabi-live",
-      "description": "Issue management — the roxabi-issues plugin (labels + native relations, no Projects V2). Relocated from dev-core."
+      "description": "Historical host of issue triage (relocated from dev-core). Current home is the native issue-triage plugin in this marketplace (./plugins/issue-triage); labels + native relations, no Projects V2. roxabi-live is not the install name."
     }
   ]
 }
