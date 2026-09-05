@@ -1,12 +1,26 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+**Archive, not a live changelog.** Releases are cut by `.github/workflows/auto-release.yml` on
+every merge to `main`, and the generated GitHub Release notes are the source of truth for what
+shipped in which version — see <https://github.com/Roxabi/roxabi-plugins/releases>.
 
-Historical. Releases are now cut by `.github/workflows/auto-release.yml` on every merge to
-`main`, and the generated GitHub Release notes are the source of truth. Entries below `[0.4.0]`
-predate that and were produced by release-please or `/promote`.
+**Do not add entries here.** Per-change prose (failure mode, migration path, why) belongs in the
+PR body: `--generate-notes` links the PR from the release, so the release stays the entry point.
+A second hand-maintained surface is what produced the drift recorded below.
 
-## Unreleased
+Sections `[0.4.0]` and older were produced by release-please or `/promote`, when a version was
+known before the merge. Under trunk mode the version is derived *at* merge from the payload's
+commit types (`skills/promote/price.sh`), so no author can write the correct heading ahead of
+time — and `auto-release.sh` cannot stamp one afterwards, because a 1-parent push to `main` is
+a hard REFUSE (D3). This is why `finalize.ts`'s `heading` witness is left null under trunk
+(`auto-release.sh:18,99`, D4): it is a drift detector for the staging-train model, ¬a writer.
+Populating it here would warn on every release. See `docs/release-convention.md` § Changelog.
+
+## Unversioned — shipped across v0.5.0 … v4.0.1
+
+Everything below this heading and above `[0.4.0]` was written by hand under a `## Unreleased`
+heading that was never cut. All of it has shipped; the per-version mapping is in GitHub Releases.
+Kept verbatim as the record of what changed, ¬as a statement about what is pending.
 
 ### Fixed
 

@@ -9,6 +9,35 @@ vX.Y.Z                 # single-package repo (e.g. v0.5.0)
 
 PRs: merge-commit only (¬squash) — squash causes history divergence on next promotion.
 
+## Changelog
+
+| Surface | Role |
+|---|---|
+| GitHub Releases (`--generate-notes`) | **SSoT** — what shipped in which version |
+| PR body | per-change prose: failure mode, migration path, why. Linked from the release |
+| `CHANGELOG.md` | **archive only** (`[0.4.0]` and older + an unversioned pile). ¬add entries |
+
+One writable surface, by design. Two of them produced ~30 releases of drift: entries piled up
+under `## Unreleased` while v0.5.0 … v4.0.1 shipped, so the heading was false for most of its
+content. Enforced by `scripts/__tests__/changelog-archive.test.ts`.
+
+### Why `finalize.ts`'s `heading` witness stays null under trunk
+
+`lib/finalize.ts` compares three witnesses against the derived version — PR title, **CHANGELOG
+heading**, version file — and warns on disagreement (D7). A null witness is silent (D12).
+
+Under **staging-train** the version is known before the promotion PR merges, so an author can
+write `## [X.Y.Z]` and the witness catches drift. Under **trunk** it cannot work:
+
+- the version is derived *at* merge from the payload's commit types (`price.sh:117-132`), so no
+  author can write the correct heading ahead of time;
+- `auto-release.sh` cannot stamp one afterwards — a 1-parent push to `main` is a hard REFUSE (D3),
+  so a CI-authored commit would break the next release.
+
+`auto-release.sh:18,99` therefore passes no `--witness-*` flags (D4, with `version_files: []`).
+That is deliberate, ¬an omission: populating `--witness-heading` in trunk mode would warn on
+every single release. Do not "fix" it without reversing D3 or D4.
+
 ## Branch convention for uv git deps
 
 Roxabi Python repos consume cross-repo deps via `[tool.uv.sources]` in `pyproject.toml`.
