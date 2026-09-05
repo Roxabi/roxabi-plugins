@@ -102,6 +102,33 @@ class TestStorage:
 
         assert storage.load_recap('evil-1') is None
 
+    def test_load_recap_rejects_recap_json_symlinked_out_of_tree(self, apps_dir, tmp_path):
+        """In-tree dir + recap.json symlink escaping the tree must not be read."""
+        outside = tmp_path / 'outside'
+        outside.mkdir()
+        loot = outside / 'loot.json'
+        inside = apps_dir / '2026-09' / '20260901_acme_dev'
+        inside.mkdir(parents=True)
+        entry = _index_entry(job_id='evil-2', storage_path=str(inside))
+        loot.write_text(
+            json.dumps({**entry, 'match_score': 1.0}), encoding='utf-8')
+        (inside / 'recap.json').symlink_to(loot)
+        (apps_dir / 'index.jsonl').write_text(
+            json.dumps(entry) + '\n', encoding='utf-8')
+
+        recap = storage.load_recap('evil-2')
+        assert recap is None
+
+    def test_load_recap_returns_none_on_symlink_loop_storage_path(self, apps_dir):
+        """A looping storage_path is skipped, not fatal (resolve() raises here)."""
+        loop = apps_dir / 'loop-dir'
+        loop.symlink_to(loop)
+        entry = _index_entry(job_id='loop-1', storage_path=str(loop))
+        (apps_dir / 'index.jsonl').write_text(
+            json.dumps(entry) + '\n', encoding='utf-8')
+
+        assert storage.load_recap('loop-1') is None
+
     def test_list_applications(self, apps_dir):
         storage.save_analysis(FakeJob(job_id='a'), FakeMatch(job_id='a'))
         storage.save_analysis(FakeJob(job_id='b', company='Beta'), FakeMatch(job_id='b'))
