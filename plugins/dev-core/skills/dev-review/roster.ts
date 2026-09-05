@@ -1004,6 +1004,16 @@ function main(): void {
         else seen[p] = true
       }
     }
+    // Coverage gap: a Δ path in no chunk is reviewed by nobody. Warn (¬exit 1) —
+    // the chunker drops binaries that `--name-only` still lists, so a legitimate
+    // gap exists. Aggregated: one warning, not one per path (a 1-chunk call on a
+    // 95-file Δ would otherwise bury every other warning).
+    const uncovered = delta.filter((p) => !Object.hasOwn(seen, p))
+    if (uncovered.length) {
+      const shown = uncovered.slice(0, 5).join(', ')
+      const more = uncovered.length > 5 ? ` (+${uncovered.length - 5} more)` : ''
+      ioWarnings.push(`${uncovered.length} delta path(s) in no chunk: ${shown}${more}`)
+    }
   }
   const stackText = readOrWarn(stackPath, stackPath, ioWarnings)
 
