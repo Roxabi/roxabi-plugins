@@ -187,11 +187,22 @@ def check_examples_exist() -> list[str]:
 
 
 def check_vendored_paths() -> list[str]:
-    """Fail if any plugin still vendors a copy of paths.py."""
+    """Fail if any plugin vendors a path helper; roxabi_sdk.paths is the only home.
+
+    Depth-agnostic on purpose: the pre-SDK copies lived at both
+    `<plugin>/scripts/_lib/paths.py` and `<plugin>/_lib/paths.py` (ADR-001).
+    """
+    vendored_names = {'paths.py', '_paths.py'}
     errors = []
-    for vendored in sorted(PLUGINS_DIR.glob('*/scripts/_lib/paths.py')):
-        rel = vendored.relative_to(REPO_ROOT)
-        errors.append(f'leftover vendored paths.py: {rel}')
+    for candidate in sorted(PLUGINS_DIR.rglob('*.py')):
+        is_module = candidate.name in vendored_names
+        is_package = candidate.name == '__init__.py' and candidate.parent.name == 'paths'
+        if not (is_module or is_package):
+            continue
+        rel = candidate.relative_to(REPO_ROOT)
+        errors.append(
+            f'vendored path helper: {rel} — import from roxabi_sdk.paths instead'
+        )
     return errors
 
 
