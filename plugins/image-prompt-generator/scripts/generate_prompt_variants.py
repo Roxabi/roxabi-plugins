@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
-from roxabi_sdk.paths import get_vault_home
+from roxabi_sdk.paths import get_config
 
 
 STYLES = [
@@ -80,7 +80,7 @@ def load_charter(charter_path):
     if charter_path:
         path = Path(charter_path)
     else:
-        path = get_vault_home() / 'config' / 'visual-charter.json'
+        path = get_config('visual-charter')
 
     if not path.exists():
         return None

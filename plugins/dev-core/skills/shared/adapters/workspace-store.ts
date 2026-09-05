@@ -3,6 +3,8 @@ import { WorkspaceError } from '../domain/errors'
 import type { Workspace, WorkspaceProject } from '../ports/workspace'
 
 export function getWorkspacePath(): string {
+  const vaultHome = process.env.ROXABI_VAULT_HOME
+  if (vaultHome) return `${vaultHome}/workspace.json`
   const home = process.env.HOME ?? ''
   const vault = `${home}/.roxabi-vault`
   if (existsSync(vault)) return `${vault}/workspace.json`

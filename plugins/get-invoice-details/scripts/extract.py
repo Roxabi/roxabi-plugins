@@ -74,7 +74,7 @@ def index_in_vault(data: dict) -> bool:
 def main():
     parser = argparse.ArgumentParser(description='Extract invoice details from a document.')
     parser.add_argument('--input', required=True, help='Path to the invoice file.')
-    parser.add_argument('--output', default=None, help='Output directory (default: ~/.roxabi-vault/invoices/).')
+    parser.add_argument('--output', default=None, help=f'Output directory (default: {get_plugin_data(PLUGIN_NAME)}/).')
     args = parser.parse_args()
 
     input_path = Path(args.input).expanduser().resolve()
