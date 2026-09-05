@@ -39,6 +39,7 @@ export type RosterResult = {
   delta_count: number
   chunks: number
   agents: string[]
+  candidates: string[]
   gates: GateRow[]
   capped: string[]
   path_hit: boolean
@@ -132,7 +133,7 @@ const INFRA_RES = [
   /(^|\/)\.buildkite\//,
   /(^|\/)serverless\.ya?ml$/,
   /(^|\/)Taskfile\.ya?ml$/,
-  /(^|\/)charts\/.+\/values\.ya?ml$/,
+  /(^|\/)charts\/(?:.*\/)?values\.ya?ml$/,
   /(^|\/)Vagrantfile$/,
   /(^|\/)Pulumi\.ya?ml$/,
   /(^|\/)\.dockerignore$/,
@@ -647,6 +648,29 @@ function recallGate(chunks: number, deltaCount: number, minDelta: number): Gate 
   return { spawn: true, reason: 'multi-chunk' }
 }
 
+function applyCap(
+  candidates: string[],
+  isForced: (agent: string) => boolean,
+  max: number,
+  knob: string,
+  warnings: string[],
+): { kept: string[]; capped: string[] } {
+  const forced = candidates.filter(isForced)
+  const gated = candidates.filter((a) => !isForced(a))
+  let cap = max
+  if (forced.length > cap) {
+    warnings.push(`${knob} (${max}) < forced agents (${forced.length}) — cap raised to ${forced.length}`)
+    cap = forced.length
+  }
+  const room = cap - forced.length
+  const keptGated = gated.slice(0, room)
+  const capped = gated.slice(room)
+  if (capped.length) {
+    warnings.push(`roster: ${capped.length} agent(s) dropped by ${knob}: ${capped.join(', ')}`)
+  }
+  return { kept: [...forced, ...keptGated], capped }
+}
+
 export function computeRoster(input: ComputeRosterInput): RosterResult {
   const { delta, tier, chunks, oracleOk, pricedClaimOk, axialAdr, stackPaths, config } = input
   const warnings = [...config.warnings]
@@ -715,30 +739,16 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
     warnings,
   )
 
-  const spawned = DISPATCHABLE.filter((a) => gates[a].spawn)
-  let maxAgents = config.maxAgents
-  const forced = spawned.filter((a) => {
+  const candidates = DISPATCHABLE.filter((a) => gates[a].spawn)
+  const isForced = (a: string): boolean => {
     const r = gates[a].reason
     return r === 'floor' || r === 'stack:always'
-  })
-  const gated = spawned.filter((a) => {
-    const r = gates[a].reason
-    return r !== 'floor' && r !== 'stack:always'
-  })
-  if (forced.length > maxAgents) {
-    warnings.push(`max_agents (${maxAgents}) < forced agents (${forced.length}) — cap raised to ${forced.length}`)
-    maxAgents = forced.length
   }
-  const room = maxAgents - forced.length
-  const keptGated = gated.slice(0, room)
-  const capped = gated.slice(room)
-  const kept = [...forced, ...keptGated]
+  const { kept, capped } = applyCap(candidates, isForced, config.maxAgents, 'max_agents', warnings)
   for (const a of capped) {
     gates[a] = { spawn: false, reason: 'capped' }
   }
-  if (capped.length) {
-    warnings.push(`roster: ${capped.length} agent(s) dropped by max_agents: ${capped.join(', ')}`)
-  }
+  const maxAgents = Math.max(config.maxAgents, candidates.filter(isForced).length)
 
   const gateRows: GateRow[] = [...DISPATCHABLE, ...PHASE_AGENTS].map((agent) => ({
     agent,
@@ -751,6 +761,7 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
     delta_count: delta.length,
     chunks,
     agents: [...kept],
+    candidates: [...candidates],
     gates: gateRows,
     capped,
     path_hit,
@@ -772,7 +783,7 @@ export function allocateReview(input: AllocateReviewInput): AllocateReviewResult
   const { chunkDeltas, shared } = input
   const global = computeRoster(shared)
   const per = chunkDeltas.map((d) => computeRoster({ ...shared, delta: d }))
-  const remaining = per.map((r) => [...r.agents])
+  const remaining = per.map((r) => [...r.candidates])
   const collapsed: string[] = []
   for (const agent of COLLAPSE_ONCE) {
     let keepFirst = true
@@ -788,9 +799,28 @@ export function allocateReview(input: AllocateReviewInput): AllocateReviewResult
     }
   }
 
-  const warnings = [...global.warnings]
+  const droppedByMaxAgents = (w: string): boolean => w.includes('dropped by max_agents:')
+  const warnings = global.warnings.filter((w) => !droppedByMaxAgents(w))
   for (const r of per) {
     for (const w of r.warnings) {
+      if (droppedByMaxAgents(w)) continue
+      if (!warnings.includes(w)) warnings.push(w)
+    }
+  }
+
+  const capped: string[] = []
+  for (let i = 0; i < remaining.length; i++) {
+    const chunkWarnings: string[] = []
+    const isForced = (agent: string): boolean => {
+      const reason = per[i].gates.find((row) => row.agent === agent)?.reason ?? ''
+      return reason === 'floor' || reason === 'stack:always'
+    }
+    const cap = applyCap(remaining[i], isForced, shared.config.maxAgents, 'max_agents', chunkWarnings)
+    remaining[i] = cap.kept
+    for (const a of cap.capped) {
+      if (!capped.includes(a)) capped.push(a)
+    }
+    for (const w of chunkWarnings) {
       if (!warnings.includes(w)) warnings.push(w)
     }
   }
@@ -834,13 +864,6 @@ export function allocateReview(input: AllocateReviewInput): AllocateReviewResult
     }
   }
 
-  const capped: string[] = []
-  for (const r of per) {
-    for (const a of r.capped) {
-      if (!capped.includes(a)) capped.push(a)
-    }
-  }
-
   return {
     global,
     chunk_agents: remaining,
@@ -881,6 +904,7 @@ function main(): void {
   let specPath: string | null = null
   let oracleOk: OracleOk = 'missing'
   let chunks = 1
+  let chunksExplicit = false
   let stackPath = '.claude/stack.yml'
   let adrDir = 'docs/architecture/adr'
   let json = false
@@ -908,6 +932,7 @@ function main(): void {
     } else if (a === '--chunks' && next !== undefined) {
       if (!/^[1-9]\d*$/.test(next)) usage()
       chunks = Number(next)
+      chunksExplicit = true
       i++
     } else if (a === '--stack' && next !== undefined) {
       stackPath = next
@@ -939,6 +964,47 @@ function main(): void {
     .map((l) => l.trim())
     .filter(Boolean)
 
+  const chunkDeltas: string[][] = []
+  if (chunkLists.length) {
+    for (const file of chunkLists) {
+      const text = readOrWarn(file, file, ioWarnings)
+      if (text == null) {
+        if (ioWarnings.length) {
+          for (const w of ioWarnings) console.error(`roster: ${w}`)
+        } else {
+          console.error(`roster: unreadable --chunk-list ${file}`)
+        }
+        process.exit(1)
+      }
+      const files = text
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+      if (!files.length) {
+        console.error(`roster: empty --chunk-list ${file}`)
+        process.exit(1)
+      }
+      chunkDeltas.push(files)
+    }
+    if (!chunksExplicit) {
+      chunks = chunkLists.length
+    } else if (chunks !== chunkLists.length) {
+      ioWarnings.push(
+        `--chunks ${chunks} disagrees with ${chunkLists.length} --chunk-list file(s); using ${chunkLists.length}`,
+      )
+      chunks = chunkLists.length
+    }
+    const deltaSet: Record<string, true> = Object.create(null)
+    for (const p of delta) deltaSet[p] = true
+    const seen: Record<string, true> = Object.create(null)
+    for (const files of chunkDeltas) {
+      for (const p of files) {
+        if (!Object.hasOwn(deltaSet, p)) ioWarnings.push(`chunk path not in --diff-list: ${p}`)
+        if (Object.hasOwn(seen, p)) ioWarnings.push(`duplicate chunk path: ${p}`)
+        else seen[p] = true
+      }
+    }
+  }
   const stackText = readOrWarn(stackPath, stackPath, ioWarnings)
 
   let specContent: string | null = null
@@ -976,25 +1042,6 @@ function main(): void {
   }
 
   if (chunkLists.length) {
-    const chunkDeltas: string[][] = []
-    for (const file of chunkLists) {
-      const text = readOrWarn(file, file, ioWarnings)
-      if (text == null) {
-        if (ioWarnings.length) {
-          for (const w of ioWarnings) console.error(`roster: ${w}`)
-        } else {
-          console.error(`roster: unreadable --chunk-list ${file}`)
-        }
-        process.exit(1)
-      }
-      chunkDeltas.push(
-        text
-          .split('\n')
-          .map((l) => l.trim())
-          .filter(Boolean),
-      )
-    }
-    config.warnings.push(...ioWarnings.filter((w) => !config.warnings.includes(w)))
     const allocated = allocateReview({ chunkDeltas, shared })
     if (specUnreadable) {
       allocated.global.review_halt = true

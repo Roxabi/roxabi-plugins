@@ -192,6 +192,18 @@ describe('roster oracle wiring documented in the SKILL', () => {
     expect(text).toMatch(/one allocate call/)
     expect(text).toMatch(/Spawn exactly `chunk_agents\[i\]`/)
   })
+
+  it('documents collapse-before-cap', () => {
+    expect(text).toContain('collapse → per-chunk max_agents')
+  })
+
+  it('documents --chunks derived from --chunk-list', () => {
+    expect(text).toContain('`--chunks` derived from `--chunk-list`')
+  })
+
+  it('documents max_agents_review floors caveat', () => {
+    expect(text).toMatch(/max_agents_review.*floors ¬capped/)
+  })
 })
 
 /**

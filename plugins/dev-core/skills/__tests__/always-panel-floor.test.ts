@@ -31,6 +31,12 @@ describe('/R-spec auto-panel floor', () => {
     expect(alwaysAgents(table)).toEqual(['R-adversarial', 'R-architect'])
     expect(table).not.toMatch(/^\| R-doc-writer \| Always/m)
   })
+
+  it('product fit is owned upstream, ¬by Step 3 pre-check', () => {
+    const rationale = table.split('\n').find((l) => l.includes('R-product-lead ¬in ρ')) ?? ''
+    expect(rationale).toMatch(/product fit is owned \*\*upstream\*\*/)
+    expect(rationale).not.toMatch(/pre-check/)
+  })
 })
 
 describe('/R-analyze auto-panel floor', () => {

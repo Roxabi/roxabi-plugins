@@ -117,9 +117,9 @@ digests = emit_all_digests(chunks)            # list[BoundaryDigest]
 
 SOLE spawn decision for Phase 3. τ ← spec/plan frontmatter ∨ issue labels (default F-lite if unknown). `CHUNKS := |chunks|` from the chunker.
 
-**Global vs per-chunk.** Single-chunk: one `roster.sh --diff-list` (Δ = the chunk) — `computeRoster`. Multi-chunk: **one** allocate call (`--diff-list` full Δ + `--chunk-list` per chunk). Spawn exactly `chunk_agents[i]` on chunk i. `Spawned roster (this review): {agents}` uses the union. `R-adversarial` is the floor in every chunk. `max_agents` is a **per-chunk** cap. COLLAPSE_ONCE (`R-architect`, `R-devops`, `R-tester`, `R-axial-adr-review`) once per review (first chunk that gates them). `max_agents_review` default 0 = off (collapse is the bound).
+**Global vs per-chunk.** Single-chunk: one `roster.sh --diff-list` (Δ = the chunk) — `computeRoster`. Multi-chunk: **one** allocate call (`--diff-list` full Δ + `--chunk-list` per chunk). `--chunk-list` count **defines** `chunks` (`--chunks` derived from `--chunk-list`; omit it; explicit disagreement → warning, file count wins). Chunk path ∉ `--diff-list` ∨ in two chunks → warning. Spawn exactly `chunk_agents[i]` on chunk i. `Spawned roster (this review): {agents}` uses the union. `R-adversarial` is the floor in every chunk. Removal order: candidates → COLLAPSE_ONCE → per-chunk `max_agents` → `max_agents_review` (`collapse → per-chunk max_agents` — collapse happens **before** the per-chunk cap). COLLAPSE_ONCE (`R-architect`, `R-devops`, `R-tester`, `R-axial-adr-review`) once per review (first chunk that gates them). `max_agents_review` default 0 = off; floors ¬capped (`R-adversarial` 1×/chunk, `stack:always`); forced > value → cap raised to forced count + warning. Off: COLLAPSE_ONCE bounds the four collapse roles, ¬`R-adversarial`.
 
-**Spawn exactly `chunk_agents[i]` (multi-chunk) or `agents[]` (single-chunk) from the JSON — the table below is documentation of the oracle's gates, ¬an independent decision surface.** `gates[]` carries the per-agent reason; `capped[]` names agents dropped by `max_agents`; `collapsed[]` / `capped_review[]` name review-level removals. `R-recall` and `R-finding-verifier` are ¬in `agents[]` (separate phases: `recall_eligible` / `verifier_enabled`). `R-product-lead` ¬∈ review roster — Phase 2 owns spec compliance.
+**Spawn exactly `chunk_agents[i]` (multi-chunk) or `agents[]` (single-chunk) from the JSON — the table below is documentation of the oracle's gates, ¬an independent decision surface.** `gates[]` carries the per-agent reason; `capped[]` = union of per-chunk capped sets (agents dropped by `max_agents`); `collapsed[]` / `capped_review[]` name review-level removals. `R-recall` and `R-finding-verifier` are ¬in `agents[]` (separate phases: `recall_eligible` / `verifier_enabled`). `R-product-lead` ¬∈ review roster — Phase 2 owns spec compliance.
 
 ```bash
 # spec_path from Phase 2; write Δ paths to a mktemp file (see tempfile-convention.md)
@@ -134,14 +134,13 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review/roster.sh \
   [--spec "$spec_path"] \
   [--oracle-ok true|false] \
   --json
-# multi-chunk: one allocate call — spawn chunk_agents[i] on chunk i
+# multi-chunk: one allocate call — spawn chunk_agents[i] on chunk i; --chunks derived from --chunk-list
 printf '%s\n' "${CHUNK_I_FILES[@]}" > "$REVIEW_TMP/chunk_${i}.txt"
 bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review/roster.sh \
   --diff-list "$REVIEW_TMP/delta.txt" \
   --chunk-list "$REVIEW_TMP/chunk_0.txt" \
   --chunk-list "$REVIEW_TMP/chunk_1.txt" \
   --tier "$TIER" \
-  --chunks "$CHUNKS" \
   [--spec "$spec_path"] \
   [--oracle-ok true|false] \
   --json
@@ -151,7 +150,7 @@ After every invocation: `∀ w ∈ warnings[] → echo into the review output (�
 
 **R-tester gate (two-step):** first call ¬`--oracle-ok`. `delta_test_hit=true` in the JSON → run `bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --verify artifacts/reviews/{N}-falsify.json`, re-invoke `roster.sh` with `--oracle-ok true|false`. `delta_test_hit=false` → single call, R-tester ¬spawns. `delta_test_hit ∧ oracle_ok=missing → R-tester ¬spawns by design; the warning MUST appear in the output so the coverage gap is stated, ¬hidden`.
 
-Exit: `0` ok · `1` usage/IO error (incl. unreadable `--spec`) · `2` σ priced-fence hygiene (σ has ≥1 priced fence ∧ ¬priced_claim_ok → spec-hygiene warning, emit `issue(blocking):` about the σ; ¬spawn R-security-auditor; JSON still printed on stdout).
+Exit: `0` ok · `1` usage/IO error (incl. unreadable `--spec`, empty `--chunk-list`) · `2` σ priced-fence hygiene (σ has ≥1 priced fence ∧ ¬priced_claim_ok → spec-hygiene warning, emit `issue(blocking):` about the σ; ¬spawn R-security-auditor; JSON still printed on stdout).
 
 `claims` + `priced_claim_ok` are reported for the σ-hygiene finding only; they ¬gate any spawn.
 
@@ -169,13 +168,13 @@ Exit: `0` ok · `1` usage/IO error (incl. unreadable `--spec`) · `2` σ priced-
 | **R-architect** | `τ=F-full ∧ Δ ∩ infra = ∅` — mutually exclusive with R-devops | patterns, structure, circular deps |
 | **R-recall** | Phase 3b: `|chunks|>1 ∧ |Δ| > recall_min_delta` ∧ canonical class ∧ ≥3 callsites. Skip on single-chunk | class-join, uncited callsites — ¬Lane A |
 
-`max_agents` (default 4) is a **per-chunk** cap on `agents[]` (excl. R-recall / R-finding-verifier); truncated names land in `capped[]`. `max_agents_review` (default 0 = off) caps flattened Lane A after collapse; truncated names land in `capped_review[]`. COLLAPSE_ONCE kept in the first chunk that gates them; later drops land in `collapsed[]`.
+`max_agents` (default 4) is a **per-chunk** cap on `agents[]` (excl. R-recall / R-finding-verifier); truncated names land in `capped[]` (`capped[]` = union of per-chunk capped sets). Removal order: candidates → COLLAPSE_ONCE → per-chunk `max_agents` → `max_agents_review` (`collapse → per-chunk max_agents`). `max_agents_review` (default 0 = off) caps flattened Lane A after collapse; floors ¬capped (`R-adversarial` 1×/chunk, `stack:always`); forced > value → cap raised to forced count + warning; truncated names land in `capped_review[]`. COLLAPSE_ONCE kept in the first chunk that gates them; later drops land in `collapsed[]`.
 
 > **Note on R-axial-adr-review asymmetry (intentional):** The `/R-dev-review` condition is **structural** — it triggers when the diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`. The spec phase (`/R-spec`) uses a **semantic/intent-based** condition (spec adds adapter/integration/target ∨ touches `infrastructure/`). The two are complementary: `/R-spec` catches intent-level N×M violations, `/R-dev-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
 
 Skip: R-tester → ¬`delta_test_hit` ∨ `oracle_ok=true` ∨ `oracle_ok=missing` | R-frontend-dev → ¬FE Δ | R-backend-dev → `{backend.path}` empty ∨ Δ misses prefix | R-devops → τ≠F-full ∨ Δ ∩ infra = ∅ | R-architect → τ≠F-full ∨ Δ ∩ infra ≠ ∅ | R-axial-adr-review → ¬∃ axial ADR ∨ Δ misses AXIAL | R-security-auditor → **`¬spawn_security_auditor`** | R-recall → single-chunk ∨ |Δ| ≤ recall_min_delta ∨ ¬canonical class ∨ |callsites|<3
 
-**Subdomain split (multi-chunk):** one allocate call (`--diff-list` full Δ + `--chunk-list` per chunk). Spawn exactly `chunk_agents[i]` on `c_i.files`. `Spawned roster (this review): {agents}` = union. COLLAPSE_ONCE once per review. `max_agents` per-chunk; `max_agents_review` default 0 = off. R-recall is Phase 3b (not per-chunk Lane A). R-finding-verifier is Phase 4 (once per review).
+**Subdomain split (multi-chunk):** one allocate call (`--diff-list` full Δ + `--chunk-list` per chunk). `--chunks` derived from `--chunk-list` (omit `--chunks`; disagreement → warning, file count wins). Empty `--chunk-list` file → exit 1. Chunk path ∉ `--diff-list` ∨ in two chunks → warning. Spawn exactly `chunk_agents[i]` on `c_i.files`. `Spawned roster (this review): {agents}` = union. COLLAPSE_ONCE once per review. `max_agents` per-chunk; `max_agents_review` default 0 = off (floors ¬capped). R-recall is Phase 3b (not per-chunk Lane A). R-finding-verifier is Phase 4 (once per review).
 
 ### R-security-auditor scoping
 

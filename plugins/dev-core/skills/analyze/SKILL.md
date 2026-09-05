@@ -235,7 +235,7 @@ See [references/investigation.md](${CLAUDE_SKILL_DIR}/references/investigation.m
 
 ## Step 3 — Expert Review
 
-Auto-select ρ (¬ask user). Floor: R-product-lead. Orchestrator owns structure/clarity of α — R-doc-writer ¬in this panel. Kill-pass → `/R-adversarial` in React (¬here).
+Auto-select ρ (¬ask user). Floor = the Always rows **when Step 3 runs**; the step itself is optional (Pipeline: Required = —). Orchestrator owns structure/clarity of α — R-doc-writer ¬in this panel. Kill-pass → `/R-adversarial` in React (¬here).
 
 | ρ | When | Focus |
 |---|------|-------|

@@ -238,7 +238,7 @@ Remaining failures → list in Executive Summary under **Pre-check** (do not AQ 
 
 ## Step 4 — Expert Review
 
-Auto-select ρ (¬ask user). Floor: R-adversarial + R-architect.
+Auto-select ρ (¬ask user). Floor = the Always rows **when Step 4 runs**; the step itself is optional (Pipeline: Required = —).
 
 | ρ | When | Focus |
 |---|------|-------|
@@ -247,7 +247,7 @@ Auto-select ρ (¬ask user). Floor: R-adversarial + R-architect.
 | R-devops | ∃ CI/CD / deploy / infra criteria | operational feasibility |
 | R-axial-adr-review | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ (spec adds adapter/integration/target ∨ touches `infrastructure/`) | Drift along non-primary axis (N×M trap) — read-only review |
 
-R-doc-writer / R-product-lead ¬in ρ: orchestrator already owns structure/clarity/AC quality (same reason R-product-lead is ¬in the `/R-dev-review` roster — Phase 2 / pre-check).
+R-doc-writer / R-product-lead ¬in ρ: product fit is owned **upstream** by the `/R-analyze` floor (`R-product-lead`). Spec panel = soundness (`R-architect`) + red-team (`R-adversarial`); Step 3 mechanical AC hygiene is ¬a product-fit review.
 
 > **Note on R-axial-adr-review asymmetry (intentional):** The `/R-spec` condition is **semantic/intent-based** — it triggers when the spec proposes adding a new adapter/integration/target or touches `infrastructure/`. The code-review phase (`/R-dev-review`) uses a **structural** condition (diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`). The two are complementary: `/R-spec` catches intent-level N×M violations, `/R-dev-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
 

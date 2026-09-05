@@ -337,6 +337,14 @@ describe('cap', () => {
       stackPaths: { frontendPath: 'src/ui', sharedUi: '', backendPath: 'src/api' },
       config: defaultConfig({ maxAgents: 3 }),
     })
+    expect(out.candidates).toEqual([
+      'R-adversarial',
+      'R-security-auditor',
+      'R-tester',
+      'R-axial-adr-review',
+      'R-frontend-dev',
+      'R-backend-dev',
+    ])
     expect(out.agents).toEqual(['R-adversarial', 'R-security-auditor', 'R-tester'])
     expect(out.agents).toHaveLength(3)
     expect(out.capped).toEqual(['R-axial-adr-review', 'R-frontend-dev', 'R-backend-dev'])
@@ -799,6 +807,8 @@ describe('infraHit', () => {
     'serverless.yml',
     'Taskfile.yml',
     'charts/app/values.yaml',
+    'charts/values.yaml',
+    'charts/app/nested/values.yml',
     'Vagrantfile',
     'Pulumi.yaml',
     '.dockerignore',
@@ -994,6 +1004,43 @@ describe('allocateReview', () => {
     expect(out.collapsed).toContain('R-architect')
   })
 
+  it('collapse-before-cap backfills R-frontend-dev in chunk 1 (max_agents=2)', () => {
+    const chunkDeltas = [['src/a.test.ts'], ['src/form.test.tsx']]
+    const out = allocateReview({
+      chunkDeltas,
+      shared: allocateShared({
+        delta: chunkDeltas.flat(),
+        chunks: 2,
+        oracleOk: 'false',
+        config: defaultConfig({ maxAgents: 2 }),
+      }),
+    })
+    expect(out.chunk_agents[0]).toEqual(['R-adversarial', 'R-tester'])
+    expect(out.chunk_agents[1]).toEqual(['R-adversarial', 'R-frontend-dev'])
+    expect(out.collapsed).toEqual(expect.arrayContaining(['R-tester']))
+    const dropped = out.warnings.filter((w) => w.includes('dropped by max_agents:'))
+    expect(dropped.every((w, i) => dropped.indexOf(w) === i)).toBe(true)
+    expect(dropped.some((w) => w.includes('R-frontend-dev'))).toBe(false)
+  })
+
+  it('max_agents_review raises when per-chunk floors exceed the cap', () => {
+    const chunkDeltas = Array.from({ length: 5 }, (_, i) => [`src/app${i}.ts`])
+    const out = allocateReview({
+      chunkDeltas,
+      shared: allocateShared({
+        delta: chunkDeltas.flat(),
+        chunks: 5,
+        config: defaultConfig({ maxAgentsReview: 2 }),
+      }),
+    })
+    expect(out.warnings).toContain('max_agents_review (2) < forced agents (5) — cap raised to 5')
+    expect(out.chunk_agents.filter((c) => c.includes('R-adversarial'))).toHaveLength(5)
+    for (const agents of out.chunk_agents) {
+      expect(agents).toContain('R-adversarial')
+    }
+    expect(out.capped_review).toEqual(['R-architect'])
+  })
+
   it('single-chunk allocateReview ≡ computeRoster.agents (no collapse)', () => {
     const delta = ['src/app.ts']
     const shared = allocateShared({ delta, chunks: 1 })
@@ -1017,7 +1064,105 @@ describe('allocateReview', () => {
       { encoding: 'utf8' },
     )
     expect(proc.status, proc.stderr).toBe(0)
-    const json = JSON.parse(proc.stdout) as { chunk_agents: string[][]; agents: string[]; collapsed: string[] }
+    const json = JSON.parse(proc.stdout) as {
+      chunk_agents: string[][]
+      agents: string[]
+      collapsed: string[]
+      chunks: number
+    }
     expect(json.chunk_agents).toHaveLength(2)
+    expect(json.chunks).toBe(2)
+  })
+
+  it('two --chunk-list files without --chunks derive chunks=2', () => {
+    const delta = join(dir, 'delta.txt')
+    writeFileSync(delta, 'src/a.ts\nsrc/b.ts\n')
+    const c0 = join(dir, 'c0.txt')
+    const c1 = join(dir, 'c1.txt')
+    writeFileSync(c0, 'src/a.ts\n')
+    writeFileSync(c1, 'src/b.ts\n')
+    const proc = spawnSync(
+      'bun',
+      [ROSTER, '--diff-list', delta, '--chunk-list', c0, '--chunk-list', c1, '--tier', 'F-full', '--json'],
+      { encoding: 'utf8' },
+    )
+    expect(proc.status, proc.stderr).toBe(0)
+    const json = JSON.parse(proc.stdout) as { chunks: number; chunk_agents: string[][] }
+    expect(json.chunks).toBe(2)
+    expect(json.chunk_agents).toHaveLength(2)
+  })
+
+  it('--chunks disagrees with --chunk-list count: warning + file count wins', () => {
+    const delta = join(dir, 'delta.txt')
+    writeFileSync(delta, 'src/a.ts\nsrc/b.ts\n')
+    const c0 = join(dir, 'c0.txt')
+    const c1 = join(dir, 'c1.txt')
+    writeFileSync(c0, 'src/a.ts\n')
+    writeFileSync(c1, 'src/b.ts\n')
+    const proc = spawnSync(
+      'bun',
+      [
+        ROSTER,
+        '--diff-list',
+        delta,
+        '--chunk-list',
+        c0,
+        '--chunk-list',
+        c1,
+        '--chunks',
+        '1',
+        '--tier',
+        'F-full',
+        '--json',
+      ],
+      { encoding: 'utf8' },
+    )
+    expect(proc.status, proc.stderr).toBe(0)
+    const json = JSON.parse(proc.stdout) as { chunks: number; warnings: string[] }
+    expect(json.chunks).toBe(2)
+    expect(json.warnings.some((w) => w.includes('disagrees'))).toBe(true)
+    expect(json.warnings).toContain('--chunks 1 disagrees with 2 --chunk-list file(s); using 2')
+  })
+
+  it('empty --chunk-list file exits 1', () => {
+    const delta = join(dir, 'delta.txt')
+    writeFileSync(delta, 'src/a.ts\n')
+    const empty = join(dir, 'empty.txt')
+    writeFileSync(empty, '\n\n')
+    const proc = spawnSync('bun', [ROSTER, '--diff-list', delta, '--chunk-list', empty, '--json'], {
+      encoding: 'utf8',
+    })
+    expect(proc.status).toBe(1)
+    expect(proc.stderr).toMatch(/empty --chunk-list/)
+  })
+
+  it('chunk path absent from --diff-list warns', () => {
+    const delta = join(dir, 'delta.txt')
+    writeFileSync(delta, 'src/a.ts\n')
+    const c0 = join(dir, 'c0.txt')
+    writeFileSync(c0, 'src/a.ts\nsrc/missing.ts\n')
+    const proc = spawnSync('bun', [ROSTER, '--diff-list', delta, '--chunk-list', c0, '--tier', 'F-full', '--json'], {
+      encoding: 'utf8',
+    })
+    expect(proc.status, proc.stderr).toBe(0)
+    const json = JSON.parse(proc.stdout) as { warnings: string[] }
+    expect(json.warnings).toContain('chunk path not in --diff-list: src/missing.ts')
+  })
+
+  it('path in two chunks warns duplicate chunk path', () => {
+    const delta = join(dir, 'delta.txt')
+    writeFileSync(delta, 'src/a.ts\n')
+    const c0 = join(dir, 'c0.txt')
+    const c1 = join(dir, 'c1.txt')
+    writeFileSync(c0, 'src/a.ts\n')
+    writeFileSync(c1, 'src/a.ts\n')
+    const proc = spawnSync(
+      'bun',
+      [ROSTER, '--diff-list', delta, '--chunk-list', c0, '--chunk-list', c1, '--tier', 'F-full', '--json'],
+      { encoding: 'utf8' },
+    )
+    expect(proc.status, proc.stderr).toBe(0)
+    const json = JSON.parse(proc.stdout) as { warnings: string[] }
+    expect(json.warnings).toContain('duplicate chunk path: src/a.ts')
   })
 })
