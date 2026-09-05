@@ -8,18 +8,20 @@ allowed-tools: Bash, Read, ToolSearch
 
 # Issue Triage
 
-Let: τ := `bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts` | κ := complexity score
+Let: T := `bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts` — triage CLI | κ := complexity score
 
-Default: `τ` or `τ list` (no args = list).
+Default: `T` or `T list` (no args = list).
 
 Create GitHub issues, assign Size/Priority labels, manage blockedBy dependencies and parent/child relationships.
 
+Companion of `/R-dev`: run **before** `/R-dev`. Not a STEPS entry — `/R-dev` does not invoke this skill.
+
 ## Instructions
 
-1. List all open issues: `τ` / `τ list` | List untriaged only: `τ list --untriaged`
+1. List all open issues: `T` / `T list` | List untriaged only: `T list --untriaged`
 2. ∀ issue: determine Size, Priority, κ (see [Complexity Scoring](#complexity-scoring))
-3. Set values: `τ set <number> --size <S> --priority <P>`
-4. Create issues: `τ create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--type feat] [--lane b] [--parent 163]`
+3. Set values: `T set <number> --size <S> --priority <P>`
+4. Create issues: `T create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--type feat] [--lane b] [--parent 163]`
 5. → ask userif unsure about Size ∨ Priority.
 
 ## Size Guidelines
@@ -92,7 +94,7 @@ Set `GITHUB_REPO=<owner/repo>` to retarget the CREATE to a different repo than t
 
 ```bash
 # File a voiceCLI issue while cwd is lyra (or any other repo)
-GITHUB_REPO=Roxabi/voiceCLI τ create \
+GITHUB_REPO=Roxabi/voiceCLI T create \
   --title 'STT: audio dropout at segment boundary' \
   --blocked-by Roxabi/lyra#728
 ```
@@ -135,7 +137,7 @@ A_PARENT=$(gh api graphql -f query="query{repository(owner:\"$OWNER\",name:\"$RE
   --jq '.data.repository.issue.parent.number // empty')
 
 # 2. Create B as sibling: same parent as A, blocked-by A
-τ create \
+T create \
   --title "{deferred title}" \
   --body "**Origin:** #${A} (deferred from ...)\n\n{details}" \
   --blocked-by "#${A}" \
@@ -147,9 +149,9 @@ A_PARENT=$(gh api graphql -f query="query{repository(owner:\"$OWNER\",name:\"$RE
 - A is already top-level epic → defer creates child of A (epic decomposition pattern applies).
 - Existing follow-up issue B mis-parented under A → fix retroactively:
   ```bash
-  τ set <B> --rm-parent
-  τ set <B> --parent "#${A_PARENT}"
-  τ set <B> --blocked-by "#${A}"  # ensure traceability link
+  T set <B> --rm-parent
+  T set <B> --parent "#${A_PARENT}"
+  T set <B> --blocked-by "#${A}"  # ensure traceability link
   ```
 
 ## Complexity Scoring
@@ -190,55 +192,41 @@ gh issue edit <number> --body "$BODY
 ## Example Workflow
 
 ```bash
-τ list
-τ list --untriaged
-τ set 42 --size M --priority High
-τ set 91 --blocked-by 117
-τ set 117 --blocks 91,118
-τ set 91 --rm-blocked-by 117
-τ set 164 --parent 163
-τ set 163 --add-child 164,165,166
-τ set 164 --rm-parent
-τ set 163 --rm-child 166
+T list
+T list --untriaged
+T set 42 --size M --priority High
+T set 91 --blocked-by 117
+T set 117 --blocks 91,118
+T set 91 --rm-blocked-by 117
+T set 164 --parent 163
+T set 163 --add-child 164,165,166
+T set 164 --rm-parent
+T set 163 --rm-child 166
 
 # Cross-repo dependencies (owner/repo#N format)
-τ set 42 --blocked-by Roxabi/lyra#728
-τ set 42 --blocks Roxabi/voiceCLI#94
+T set 42 --blocked-by Roxabi/lyra#728
+T set 42 --blocks Roxabi/voiceCLI#94
 
-τ create \
+T create \
   --title "research: compare against example/repo" \
   --body "Deep analysis of example/repo" \
   --label "research" \
   --size S --priority Medium \
   --parent 163
-τ create \
+T create \
   --title "epic: improve CI pipeline" \
   --size L --priority High \
   --add-child 150,151,152
 
 # Lane and type (additive, optional)
-τ set 42 --lane b
-τ set 42 --type feat
-τ set 42 --size M --priority High --lane c1 --type fix
+T set 42 --lane b
+T set 42 --type feat
+T set 42 --size M --priority High --lane c1 --type fix
 ```
 
-## Chain Position
+## Completion
 
-- **Phase:** Frame
-- **Predecessor:** — (entry point)
-- **Successor:** `/R-frame`
-- **Class:** adv (continuous flow, no gate)
-
-## Task Integration
-
-- `/R-dev` owns the dev-pipeline task lifecycle externally
-- This skill does NOT update its own dev-pipeline task
-- Sub-tasks created: none
-
-## Exit
-
-- **Success via `/R-dev`:** return control silently. ¬write summary. ¬ask user. ¬announce `/R-frame`. `/R-dev` re-scans and advances.
-- **Success standalone:** print one line: `Done. Next: /R-frame --issue N`. Stop.
-- **Failure:** return error. `/R-dev` presents Retry | Skip | Abort.
+- **Success:** print one line: `Done. Next: /R-dev #N`. Stop.
+- **Failure:** return error.
 
 $ARGUMENTS
