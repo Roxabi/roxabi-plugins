@@ -8,7 +8,7 @@ Checks:
 - data.root is unique across all plugin.json files (never metadata.json)
 - No leftover .claude-plugin/metadata.json (data.* lives in plugin.json)
 - Example files referenced in plugin.json exist
-- Vendored paths.py copies match the canonical version
+- No leftover plugins/*/scripts/_lib/paths.py (use roxabi_sdk.paths)
 - Fixed /tmp/ literals in SKILL.md files (tempfile-convention.md)
 - Inline class list in dev-review/SKILL.md spawn template matches review-classes.yml
 - Subsumption pairs declared in review-classes.yml notes are mentioned together in
@@ -28,7 +28,6 @@ Usage:
   python3 tools/validate_plugins.py --check subsumption-pairs   # run only subsumption-pairs
 """
 import argparse
-import filecmp
 import json
 import re
 import subprocess
@@ -40,7 +39,6 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGINS_DIR = REPO_ROOT / 'plugins'
-CANONICAL_PATHS = REPO_ROOT / 'roxabi_sdk' / 'paths.py'
 # Link-only plugins are not catalog rows and are not required in README.md.
 LINK_ONLY_PLUGIN_NAMES = frozenset({'omp-build'})
 MARKETPLACE_JSON = REPO_ROOT / '.claude-plugin' / 'marketplace.json'
@@ -189,18 +187,11 @@ def check_examples_exist() -> list[str]:
 
 
 def check_vendored_paths() -> list[str]:
-    """Vendored paths.py copies must match the canonical version."""
+    """Fail if any plugin still vendors a copy of paths.py."""
     errors = []
-    if not CANONICAL_PATHS.exists():
-        errors.append('Canonical paths.py not found at roxabi_sdk/paths.py')
-        return errors
-    for vendored in PLUGINS_DIR.glob('*/scripts/_lib/paths.py'):
-        plugin_name = vendored.parent.parent.parent.name
-        if not filecmp.cmp(CANONICAL_PATHS, vendored, shallow=False):
-            errors.append(
-                f'{plugin_name}: vendored paths.py differs from canonical '
-                f'(roxabi_sdk/paths.py)'
-            )
+    for vendored in sorted(PLUGINS_DIR.glob('*/scripts/_lib/paths.py')):
+        rel = vendored.relative_to(REPO_ROOT)
+        errors.append(f'leftover vendored paths.py: {rel}')
     return errors
 
 
@@ -785,7 +776,7 @@ def main(argv: list[str] | None = None) -> int:
         ('data.root uniqueness', check_data_root_uniqueness),
         ('No metadata.json', check_no_metadata_json),
         ('Example files exist', check_examples_exist),
-        ('Vendored paths.py sync', check_vendored_paths),
+        ('No vendored paths.py', check_vendored_paths),
         ('Tempfile convention', check_tempfile_convention),
         ('Class list sync', check_class_list_sync),
         ('Subsumption pairs', check_subsumption_pairs),
