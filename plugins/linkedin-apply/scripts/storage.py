@@ -39,9 +39,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-# Resolve plugin root and repo root for imports
+# Resolve plugin root, then the SDK (repo checkout or installed marketplace)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # plugin root
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
+from _sdk_bootstrap import ensure_sdk_on_path
+ensure_sdk_on_path(__file__)
 from roxabi_sdk.paths import get_plugin_data, ensure_dir as vault_ensure_dir
 
 # Re-export from domain for backward compatibility
