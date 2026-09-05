@@ -11,6 +11,13 @@ PRs: merge-commit only (¬squash) — squash causes history divergence on next p
 
 ## Changelog
 
+**Scope: this repo only** (`release.model: trunk`). It does ¬change the `/R-promote` machinery,
+and a `staging-train` consumer MUST keep maintaining its changelog: `/R-promote` step 3 writes it
+(`skills/promote/SKILL.md:29`, `references/release-artifacts.md` §4a) and step 9b ships the
+section as the **release body** — `gh release create --notes "$CHANGELOG_CONTENT"`
+(`SKILL.md:363`). Under trunk `auto-release.sh:162` uses `--generate-notes` instead, so the file
+is load-bearing there and inert here. Deleting it under staging-train would ship empty releases.
+
 | Surface | Role |
 |---|---|
 | GitHub Releases (`--generate-notes`) | **SSoT** — what shipped in which version. Emits merged-PR **titles + links**, ¬bodies |

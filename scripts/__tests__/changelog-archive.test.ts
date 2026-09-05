@@ -59,6 +59,17 @@ describe('release-convention documents the trunk-mode changelog contract', () =>
     expect(section).toMatch(/GitHub Releases/)
   })
 
+  // Cross-model carve-out. Retiring the changelog is a TRUNK decision: under staging-train
+  // /R-promote step 3 writes the file and step 9b ships the section as the release body
+  // (`--notes "$CHANGELOG_CONTENT"`, SKILL.md:363). A consumer who reads this policy as
+  // "stop maintaining a changelog" would ship empty releases, so the scope stays stated.
+  it('scopes the retirement to trunk and keeps staging-train maintaining its changelog', () => {
+    const section = convention.slice(convention.indexOf('## Changelog'))
+    expect(section).toMatch(/Scope: this repo only/)
+    expect(section).toMatch(/staging-train/)
+    expect(section).toMatch(/release body|--notes/)
+  })
+
   // Why the null `heading` witness (finalize.ts:72-88) is a choice, not an omission: a
   // post-hoc heading is still the PREVIOUS version when the next release derives, so the
   // witness disagrees forever. Recorded so nobody "fixes" the null and reds every release.
