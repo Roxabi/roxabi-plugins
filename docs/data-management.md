@@ -39,7 +39,7 @@ Plugins with data declare it in `plugin.json`:
 
 All plugins use `roxabi_sdk/paths.py` for path resolution.
 
-The canonical copy lives at `roxabi_sdk/paths.py` (repo root). The sync script copies `roxabi_sdk/` into each plugin cache dir so imports work in both repo and installed contexts.
+The canonical copy lives at `roxabi_sdk/paths.py` (marketplace/repo root). Plugins import it from that root (`sys.path` to repo root, or `$CLAUDE_PLUGIN_ROOT/../..`). It is **not** copied into per-plugin hash caches.
 
 Key functions:
 - `get_vault_home()`
@@ -55,5 +55,5 @@ Vault/indexing functionality has moved to [roxabi-vault](https://github.com/Roxa
 1. **Zero personal data** in the repo — use fictional data in `examples/`
 2. **English names** — `invoices/` not `factures/`, skills in English
 3. **Self-check in skills** — verify preconditions at start, suggest init skill if data missing
-4. **Shared SDK** — `roxabi_sdk/` at repo root is the single source of truth for path resolution. Sync script copies it into each plugin cache dir. Import via `from roxabi_sdk.paths import ...`
+4. **Shared SDK** — `roxabi_sdk/` at marketplace/repo root is the single source of truth for path resolution. Import via `from roxabi_sdk.paths import ...`. Do not vendor copies into plugin caches.
 5. **CI checks** — `tools/validate_plugins.py` enforces no personal data, unique `data.root`, examples exist
