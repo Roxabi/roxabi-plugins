@@ -161,7 +161,10 @@ def load_recap(job_id: str) -> ApplicationRecap | None:
                 if entry.get("job_id") == job_id:
                     storage_path = entry.get("storage_path")
                     if storage_path:
-                        recap_file = Path(storage_path) / "recap.json"
+                        resolved = Path(storage_path).resolve()
+                        if not resolved.is_relative_to(APPLICATIONS_DIR.resolve()):
+                            continue
+                        recap_file = resolved / "recap.json"
                         if recap_file.exists():
                             with open(recap_file, "r", encoding="utf-8") as rf:
                                 return ApplicationRecap.from_dict(json.load(rf))

@@ -63,7 +63,6 @@ cd <scripts_dir> && python3 matcher.py \
 ```bash
 cd <scripts_dir> && python3 -c "
 import json, sys
-sys.path.insert(0, '_lib')
 from storage import save_analysis
 # reconstruct dataclasses and call save_analysis(job, match)
 "
