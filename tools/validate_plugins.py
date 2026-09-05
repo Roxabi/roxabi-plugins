@@ -17,6 +17,9 @@ Checks:
   glossary, and compress's inline whitelist stays set-equal to its core table
 - Golden compressed artifacts stay inventory-equivalent to their expected
   inventories (compress read-back goldens, issue #311)
+- Catalogued `.claude-plugin/marketplace.json` plugin names (except link-only
+  `omp-build`) appear in root `README.md`
+
 
 Usage:
   python3 tools/validate_plugins.py                     # run all checks
@@ -37,6 +40,11 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGINS_DIR = REPO_ROOT / 'plugins'
 CANONICAL_PATHS = REPO_ROOT / 'roxabi_sdk' / 'paths.py'
+# Link-only plugins are not catalog rows and are not required in README.md.
+LINK_ONLY_PLUGIN_NAMES = frozenset({'omp-build'})
+MARKETPLACE_JSON = REPO_ROOT / '.claude-plugin' / 'marketplace.json'
+README_MD = REPO_ROOT / 'README.md'
+
 
 # Plugin name → max physical lines of its skills/*/SKILL.md (issue #309 Decision 5)
 SKILL_LINE_BUDGETS = {'compress': 110}
@@ -650,6 +658,58 @@ def check_golden_inventories(golden_dir=None) -> list[str]:
             continue
     return errors
 
+def check_marketplace_readme_catalog(
+    marketplace_path=None,
+    readme_path=None,
+    link_only=None,
+) -> list[str]:
+    """marketplace.json plugin names must appear in README.md.
+
+    Link-only plugins (currently omp-build) are excluded — they stay unlisted
+    as catalog rows even if they exist on disk.
+    """
+    errors = []
+    if marketplace_path is None:
+        marketplace_path = MARKETPLACE_JSON
+    if readme_path is None:
+        readme_path = README_MD
+    if link_only is None:
+        link_only = LINK_ONLY_PLUGIN_NAMES
+    marketplace_path = Path(marketplace_path)
+    readme_path = Path(readme_path)
+
+    if not marketplace_path.is_file():
+        return [f'marketplace.json not found at {marketplace_path}']
+    if not readme_path.is_file():
+        return [f'README.md not found at {readme_path}']
+
+    try:
+        data = json.loads(marketplace_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as e:
+        return [f'failed to parse marketplace.json: {e}']
+
+    plugins = data.get('plugins', [])
+    if not isinstance(plugins, list):
+        return ['failed to parse marketplace.json: plugins is not a list']
+
+    try:
+        readme = readme_path.read_text(encoding='utf-8')
+    except OSError as e:
+        return [f'failed to parse README.md: {e}']
+
+    for plugin in plugins:
+        if not isinstance(plugin, dict):
+            continue
+        name = plugin.get('name')
+        if not name or name in link_only:
+            continue
+        if name not in readme:
+            errors.append(
+                f'{name}: catalogued in marketplace.json but missing from README.md'
+            )
+    return errors
+
+
 
 def _is_io_error(msg: str) -> bool:
     """Return True when the error message signals an IO/parse failure (exit 2).
@@ -715,6 +775,7 @@ def main(argv: list[str] | None = None) -> int:
         ('SKILL.md line budget', check_skill_line_budget),
         ('Notation legends', check_notation_legends),
         ('Golden inventories', check_golden_inventories),
+        ('Marketplace README catalog', check_marketplace_readme_catalog),
     ]
 
     for name, check_fn in checks:
