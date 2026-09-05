@@ -3,24 +3,8 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { loadHookInput, extractWriteContent } = require('./lib/hook-input.cjs')
-
-const SECURITY_PATTERNS = [
-  {
-    id: 'hardcoded-secret',
-    pattern: /(api[_-]?key|secret|password|token)\s*[:=]\s*['"][^'"]{8,}['"]/gi,
-    message: 'BLOCKED: Potential hardcoded secret detected',
-  },
-  {
-    id: 'sql-injection',
-    pattern: /`SELECT.*\$\{|`INSERT.*\$\{|`UPDATE.*\$\{|`DELETE.*\$\{/gi,
-    message: 'BLOCKED: Potential SQL injection via template literal interpolation',
-  },
-  {
-    id: 'command-injection',
-    pattern: /exec\s*\(\s*`|spawn\s*\(\s*`|execSync\s*\(\s*`/gi,
-    message: 'BLOCKED: Potential command injection via template literal',
-  },
-]
+const { SECURITY_PATTERNS } = require('./lib/security-patterns.cjs')
+const { emitDeny } = require('./lib/principal-freeze.cjs')
 
 const PROJECT_ROOT = process.cwd()
 const STATE_DIR = path.join(PROJECT_ROOT, '.claude', 'security_warnings')
@@ -81,24 +65,6 @@ function checkContent(content, filePath, state) {
   }
 
   return blocked
-}
-
-/**
- * Dual deny payload:
- * - Grok PreToolUse: decision "deny" + reason
- * - Claude Code: decision "block" + message (legacy) + exit 2
- */
-function emitDeny(reason) {
-  const payload = {
-    decision: 'deny',
-    reason,
-    // Claude-compatible aliases
-    message: reason,
-  }
-  // Some Claude builds still key off decision:block
-  process.stdout.write(JSON.stringify({ ...payload, decision: 'deny' }) + '\n')
-  process.stderr.write(reason + '\n')
-  process.exit(2)
 }
 
 function main() {

@@ -6,23 +6,16 @@
  */
 
 const { loadHookInput, extractShellCommand } = require('./lib/hook-input.cjs')
+const { emitDeny } = require('./lib/principal-freeze.cjs')
+const { isBunTestBlocked, BUN_TEST_DENY_REASON } = require('./lib/bun-test-pattern.cjs')
 
 function main() {
   const { toolInput } = loadHookInput()
   const cmd = extractShellCommand(toolInput)
   if (!cmd) process.exit(0)
 
-  const hasBunTest = /(^|\s|&&|;|\|)bun test(\s|$)/.test(cmd)
-  const hasBunRunTest = /bun run test/.test(cmd)
-
-  if (hasBunTest && !hasBunRunTest) {
-    const reason = 'Use bun run test (Vitest), not bun test (Bun runner)'
-    // Grok: decision deny; exit 2 also blocks on both hosts
-    process.stdout.write(
-      JSON.stringify({ decision: 'deny', reason, message: reason }) + '\n',
-    )
-    process.stderr.write(reason + '\n')
-    process.exit(2)
+  if (isBunTestBlocked(cmd)) {
+    emitDeny(BUN_TEST_DENY_REASON)
   }
 
   process.exit(0)
