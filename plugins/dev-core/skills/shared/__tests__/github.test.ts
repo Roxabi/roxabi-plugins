@@ -1,5 +1,5 @@
 import { vi } from 'vitest'
-import { registerGithubSuite } from '../../../../shared/__tests__/github.suite'
+import { registerGithubSuite } from './suites/github.suite'
 
 const mockFetch = vi.fn()
 ;(globalThis as unknown as { fetch: unknown }).fetch = mockFetch
