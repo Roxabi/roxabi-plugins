@@ -3,10 +3,10 @@
 LinkedIn Application Storage Module.
 
 Manages persistent storage for job analyses in a structured directory hierarchy
-under get_plugin_data('linkedin-apply') / 'applications'.
+under ~/.roxabi-vault/linkedin-apply/applications/.
 
 Storage structure:
-    <vault-home>/linkedin-apply/
+    ~/.roxabi-vault/linkedin-apply/
     ├── candidate.yaml               # User profile (created by init skill)
     ├── criteria.yaml                # Optional scoring criteria override
     └── applications/
