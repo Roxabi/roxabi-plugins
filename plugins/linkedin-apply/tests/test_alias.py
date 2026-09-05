@@ -18,7 +18,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Match the sys.path bootstrapping used by tests/test_adapters.py.
+# Match the sys.path bootstrapping used by tests/test_storage.py.
 _plugin_root = str(Path(__file__).resolve().parents[1])
 _repo_root = str(Path(__file__).resolve().parents[3])
 for _p in (_plugin_root, _repo_root):

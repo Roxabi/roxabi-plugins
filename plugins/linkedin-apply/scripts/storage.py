@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import sys
 from dataclasses import asdict
@@ -146,6 +147,11 @@ def save_analysis(job: "LinkedInJob", match: "MatchResult") -> Path:
     return storage_path
 
 
+def _open_no_follow(path: str, flags: int) -> int:
+    """``open()`` opener that refuses a symlinked final component."""
+    return os.open(path, flags | os.O_NOFOLLOW)
+
+
 def load_recap(job_id: str) -> ApplicationRecap | None:
     """Load an ApplicationRecap by job_id."""
     if not INDEX_FILE.exists():
@@ -161,10 +167,39 @@ def load_recap(job_id: str) -> ApplicationRecap | None:
                 if entry.get("job_id") == job_id:
                     storage_path = entry.get("storage_path")
                     if storage_path:
-                        recap_file = Path(storage_path) / "recap.json"
-                        if recap_file.exists():
-                            with open(recap_file, "r", encoding="utf-8") as rf:
+                        root = APPLICATIONS_DIR.resolve()
+                        try:
+                            resolved = Path(storage_path).resolve()
+                            recap_file = (resolved / "recap.json").resolve()
+                            contained = resolved.is_relative_to(
+                                root
+                            ) and recap_file.is_relative_to(root)
+                        except (OSError, RuntimeError):
+                            # Symlink loop or unreadable path: containment
+                            # cannot be established, so fail shut.
+                            continue
+                        if not contained:
+                            # Fail shut on purpose: an entry whose directory or
+                            # whose recap.json leaf escapes APPLICATIONS_DIR is
+                            # skipped entirely, never read and never handed back
+                            # (find_existing_analysis returns recap.storage_path
+                            # to callers). `show` therefore returns nothing for
+                            # an entry `list` still displays — index metadata is
+                            # not trusted to stand in for a rejected path.
+                            continue
+                        try:
+                            with open(
+                                recap_file,
+                                "r",
+                                encoding="utf-8",
+                                opener=_open_no_follow,
+                            ) as rf:
                                 return ApplicationRecap.from_dict(json.load(rf))
+                        except OSError:
+                            # recap.json is absent, unreadable, or was swapped
+                            # for a symlink after the resolve (O_NOFOLLOW →
+                            # ELOOP): fall back to the in-tree index metadata.
+                            pass
                     return ApplicationRecap.from_dict(entry)
             except json.JSONDecodeError:
                 continue
