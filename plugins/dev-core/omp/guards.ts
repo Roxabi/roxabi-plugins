@@ -17,23 +17,17 @@ const principalFreeze = require('../hooks/lib/principal-freeze.cjs') as {
   isBaseBranch: (name: string | null | undefined) => boolean
 }
 
-export const SECURITY_PATTERNS = [
-  {
-    id: 'hardcoded-secret',
-    pattern: /(api[_-]?key|secret|password|token)\s*[:=]\s*['"][^'"]{8,}['"]/gi,
-    message: 'BLOCKED: Potential hardcoded secret detected',
-  },
-  {
-    id: 'sql-injection',
-    pattern: /`SELECT.*\$\{|`INSERT.*\$\{|`UPDATE.*\$\{|`DELETE.*\$\{/gi,
-    message: 'BLOCKED: Potential SQL injection via template literal interpolation',
-  },
-  {
-    id: 'command-injection',
-    pattern: /exec\s*\(\s*`|spawn\s*\(\s*`|execSync\s*\(\s*`/gi,
-    message: 'BLOCKED: Potential command injection via template literal',
-  },
-] as const
+const { SECURITY_PATTERNS } = require('../hooks/lib/security-patterns.cjs') as {
+  SECURITY_PATTERNS: Array<{ id: string; pattern: RegExp; message: string }>
+}
+
+const bunTestPattern = require('../hooks/lib/bun-test-pattern.cjs') as {
+  isBunTestBlocked: (command: string) => boolean
+  BUN_TEST_DENY_REASON: string
+}
+
+export { SECURITY_PATTERNS }
+export const { isBunTestBlocked, BUN_TEST_DENY_REASON } = bunTestPattern
 
 /** Max content bytes scanned by the OMP security hook (fail-open above this). */
 export const SECURITY_SCAN_MAX_BYTES = 256_000
@@ -43,12 +37,6 @@ export const PROJECT_CONTRACT_FILES = ['stack.yml', '.omp/stack.yml', 'dev-core.
 
 export function hasProjectContract(cwd: string, exists: (path: string) => boolean = existsSync): boolean {
   return PROJECT_CONTRACT_FILES.some((rel) => exists(join(cwd, rel)))
-}
-
-export function isBunTestBlocked(command: string): boolean {
-  const hasBunTest = /(^|\s|&&|;|\|)bun test(\s|$)/.test(command)
-  const hasBunRunTest = /bun run test/.test(command)
-  return hasBunTest && !hasBunRunTest
 }
 
 export function shouldBlockPrincipalSwitch(
