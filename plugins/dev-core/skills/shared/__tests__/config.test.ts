@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { registerGitHubRepoDetectionSuite } from '../../../../shared/__tests__/detect-github-repo.suite'
+import { registerGitHubRepoDetectionSuite } from './suites/detect-github-repo.suite'
 
 // Mock fs to block only .claude/dev-core.yml, pass through everything else.
 // vi.spyOn doesn't work on ESM namespace objects (non-configurable exports).

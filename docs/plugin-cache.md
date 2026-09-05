@@ -43,7 +43,7 @@ These are substituted at skill load time by Claude Code (not shell env vars):
 With the merge of `dev-init` into `dev-core` as the `/dev-init` skill, the TS copy-sync and caller-parity mechanisms between the two plugins are retired. 
 
 - **roxabi_sdk** — lives at marketplace/repo root (`roxabi_sdk/`). Plugins import it from there. Hash-keyed plugin caches do **not** contain a copy. Edit at repo root; no rsync step.
-- **Shared-import (test-only)** — files under `plugins/shared/__tests__/` imported directly by tests. No duplication at runtime, no sync gate.
+- Test-only suite factories live under `plugins/dev-core/skills/shared/__tests__/suites/` (in-plugin, next to their callers). No cross-plugin test imports, no sync gate.
 
 `tools/shared-sources.json` and the `sync:shared` script are retired.
 
