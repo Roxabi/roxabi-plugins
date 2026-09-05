@@ -5,7 +5,7 @@
 <h1 align="center">Roxabi-plugins</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/license-MIT-22c55e" alt="License">
+  <img src="https://img.shields.io/badge/license-AGPL--3.0-22c55e" alt="License">
   <img src="https://img.shields.io/badge/Bun-runtime-FBF0DF?logo=bun&logoColor=black" alt="Bun">
   <img src="https://img.shields.io/badge/Claude%20Code-plugins-CC785C" alt="Claude Code">
 </p>
@@ -140,4 +140,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add a plugin, wrap an external
 
 ## License
 
-MIT
+AGPL-3.0
