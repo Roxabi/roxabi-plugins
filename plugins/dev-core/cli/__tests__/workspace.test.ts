@@ -8,15 +8,27 @@
  * - workspace add — writes {repo, label} entry, exits 0 with confirmation
  * - workspace remove (registered repo) — removes entry, exits 0 with message
  * - workspace remove (unregistered repo) — exits 1 with error
- * - path resolution — ~/.roxabi-vault/workspace.json when vault exists, else
- *     ~/.config/roxabi/workspace.json with 0700 parent dir on fresh install
+ * - path resolution — ROXABI_VAULT_HOME wins; else ~/.roxabi-vault/workspace.json
+ *     when vault exists, else ~/.config/roxabi/workspace.json with 0700 parent dir
  * - parseWorkspace — fail-loud validation at the workspace.json boundary
  */
 
-import { describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+let originalVaultHome: string | undefined
+
+beforeEach(() => {
+  originalVaultHome = process.env.ROXABI_VAULT_HOME
+  delete process.env.ROXABI_VAULT_HOME
+})
+
+afterEach(() => {
+  if (originalVaultHome === undefined) delete process.env.ROXABI_VAULT_HOME
+  else process.env.ROXABI_VAULT_HOME = originalVaultHome
+})
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -330,6 +342,24 @@ describe('path resolution', () => {
 
       const workspacePath = join(configDir, 'workspace.json')
       expect(existsSync(workspacePath)).toBe(true)
+    } finally {
+      process.env.HOME = originalHome
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('uses ROXABI_VAULT_HOME/workspace.json when set, even if ~/.roxabi-vault exists', async () => {
+    const tmpDir = makeTmpDir()
+    const vaultDir = join(tmpDir, '.roxabi-vault')
+    mkdirSync(vaultDir, { recursive: true })
+    const overrideDir = join(tmpDir, 'custom-vault')
+    const originalHome = process.env.HOME
+    process.env.HOME = tmpDir
+    process.env.ROXABI_VAULT_HOME = overrideDir
+
+    try {
+      const { getWorkspacePath } = await import('../lib/workspace-store')
+      expect(getWorkspacePath()).toBe(`${overrideDir}/workspace.json`)
     } finally {
       process.env.HOME = originalHome
       rmSync(tmpDir, { recursive: true, force: true })
