@@ -19,11 +19,6 @@ Standard locations and naming for procedural guides in Roxabi ecosystem.
 ### Cookbooks
 
 ```
-roxabi-plugins/plugins/shared/cookbooks/    # Cross-project, reusable
-  first-principles.md
-  error-recovery.md
-  ...
-
 roxabi-plugins/plugins/<plugin>/cookbooks/   # Plugin-specific
   dev-core/skills/dev-checkup/cookbooks/
     devcore-checks.md
@@ -32,7 +27,7 @@ roxabi-plugins/plugins/<plugin>/cookbooks/   # Plugin-specific
     ...
 ```
 
-**Rule:** Cookbook that applies to >1 plugin → `shared/cookbooks/`
+**Rule:** Cookbook that applies to >1 plugin → plugin-local copies or a skill reference. Do not add `plugins/shared/cookbooks/` (removed, unused).
 
 ### Playbooks
 
@@ -64,7 +59,7 @@ roxabi-plugins/plugins/<plugin>/skills/<skill>/references/  # Skill-level refs
 
 | Type | Pattern | Example |
 |------|---------|---------|
-| Cookbook | `{topic}.md` | `first-principles.md`, `error-recovery.md` |
+| Cookbook | `{topic}.md` | `devcore-checks.md` |
 | Playbook | `{TOPIC}-PLAYBOOK.md` | `AVATAR-PLAYBOOK.md` |
 | Reference | `{topic}.md` | `templates.md`, `edge-cases.md` |
 
@@ -78,10 +73,10 @@ roxabi-plugins/plugins/<plugin>/skills/<skill>/references/  # Skill-level refs
 Read [references/templates.md](${CLAUDE_SKILL_DIR}/references/templates.md)
 ```
 
-### From cookbooks (cross-plugin)
+### From cookbooks (plugin-local)
 
 ```markdown
-Read [first-principles.md](${CLAUDE_PLUGIN_ROOT}/../shared/cookbooks/first-principles.md)
+Read [devcore-checks.md](${CLAUDE_PLUGIN_ROOT}/skills/dev-checkup/cookbooks/devcore-checks.md)
 ```
 
 ### From playbooks (centralized)
@@ -96,7 +91,7 @@ Read [AVATAR-PLAYBOOK.md](~/projects/roxabi-plugins/playbooks/AVATAR-PLAYBOOK.md
 
 When adding a new cookbook/playbook:
 
-1. **Determine scope:** Cross-project? → `shared/cookbooks/` | Plugin-specific? → `plugins/<name>/cookbooks/`
+1. **Determine scope:** every cookbook is plugin-local → `plugins/<name>/cookbooks/`. There is no `shared/cookbooks/`.
 2. **Check naming:** Cookbook = `{topic}.md` | Playbook = `{TOPIC}-PLAYBOOK.md`
 3. **Add to index:** Update this doc's examples if new category
 4. **Link from consumer:** Add reference in skills/CLAUDE.md that use it
@@ -105,12 +100,9 @@ When adding a new cookbook/playbook:
 
 ## Current Inventory
 
-### Shared Cookbooks (`plugins/shared/cookbooks/`)
+### Shared Cookbooks
 
-| File | Description |
-|------|-------------|
-| `first-principles.md` | 8 recipes for AI code dev (intent, decomposition, verification) |
-| `musk-algorithm.md` | 5-step anti-bureaucracy algorithm (question → delete → simplify → accelerate → automate) |
+None — `plugins/shared/cookbooks/` was removed (unused).
 
 ### Plugin Cookbooks (`plugins/*/cookbooks/`)
 
