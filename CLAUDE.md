@@ -33,7 +33,7 @@ roxabi-plugins/
 │           └── <command-name>.md
 ├── CLAUDE.md                    # this
 ├── README.md                    # public docs
-└── LICENSE                      # MIT
+└── LICENSE                      # AGPL-3.0
 ```
 
 ## Pointers
