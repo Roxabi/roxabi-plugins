@@ -5,7 +5,7 @@ description: Documents the port/adapter/domain boundary decisions, shim strategy
 
 ## Status
 
-Accepted. **Partially superseded by [ADR-015](015-direct-call-over-role-interface-ports-typescript.mdx) for the TypeScript (dev-core/dev-init) layer** — the role interfaces `IssuePort`/`ProjectPort` and the `services` DI composition root were consolidated back to direct-call standalone functions in #192. The **Python-plugin** decisions in this ADR (`EntryRepository`, `SearchPort`, `FetcherPort`, `StoragePort`, `ConfigLoader[T]`, per-plugin `PluginError`) remain in force.
+Accepted. **Partially superseded by [ADR-015](015-direct-call-over-role-interface-ports-typescript.mdx) for the TypeScript (dev-core/dev-init) layer** — the role interfaces `IssuePort`/`ProjectPort` and the `services` DI composition root were consolidated back to direct-call standalone functions in #192. **Also partially superseded for the `linkedin-apply` (Python) layer** — `StoragePort`, `FileStorageAdapter` and the `scraper.py` storage composition root were removed in PR #452; `scripts/storage.py` is now a single direct-call storage module, and therefore the single writer that enforces `APPLICATIONS_DIR` containment. This applies ADR-015's rationale (one implementation, one home for the fact) to Python. The other **Python-plugin** decisions in this ADR (`EntryRepository`, `SearchPort`, `FetcherPort`, `ConfigLoader[T]`, per-plugin `PluginError`) remain in force.
 
 ## Context
 
@@ -52,7 +52,7 @@ For Python plugins:
 
 - `EntryRepository` + `SearchPort` are the vault ports (write/read separation across different underlying mechanisms — SQL vs FTS5).
 - `FetcherPort` is a new thin interface (`supports(url) → bool`, `fetch(url) → FetchResult`) sitting above `BaseFetcher`. `BaseFetcher` is demoted to internal infrastructure base class.
-- `StoragePort` covers `save_analysis`, `load_recap`, `list_applications`. `get_stats`, `get_daily_count`, and `find_existing_analysis` are also on `StoragePort` — any caller that needs them must receive `StoragePort`, not `FileStorageAdapter`, to preserve dependency inversion.
+- `StoragePort` covers `save_analysis`, `load_recap`, `list_applications`. `get_stats`, `get_daily_count`, and `find_existing_analysis` are also on `StoragePort` — any caller that needs them must receive `StoragePort`, not `FileStorageAdapter`, to preserve dependency inversion. **Superseded (PR #452):** these functions live in `scripts/storage.py` and are called directly; there is no port and no adapter.
 - `ConfigLoader[T]` is a generic ABC — `cv` specialises it as `ConfigLoader[CVConfig]`, `image-prompt-generator` as `ConfigLoader[VisualCharter]`. This avoids a shared untyped dict crossing the port boundary.
 
 ### Shim strategy
@@ -63,7 +63,7 @@ Existing infrastructure files (`VaultDB`, `github.ts`, `config.ts`, `workspace.t
 
 1. The composition root for each Python plugin is the CLI entrypoint script (`manage_vault.py`, `scraper.py`, `generate_cv.py`). It constructs concrete adapters and passes them to use cases or business logic through port interfaces.
 2. After Slice 2, `manage_vault.py` must no longer contain direct `db.conn.execute(...)` calls. All SQL goes through `SqliteEntryRepository`. "Works identically" in the Slice 2 success criterion means "through the adapter, raw SQL bypasses removed."
-3. For linkedin-apply, the composition root after Slice 3 is `scraper.py` (linkedin-apply's own scraper, not web-intel's). It constructs `FileStorageAdapter` and passes it to both the matching and storage call sites. The Breadboard must name this file explicitly.
+3. For linkedin-apply, the composition root after Slice 3 is `scraper.py` (linkedin-apply's own scraper, not web-intel's). It constructs `FileStorageAdapter` and passes it to both the matching and storage call sites. The Breadboard must name this file explicitly. **Superseded (PR #452):** there is nothing to compose — callers import `scripts.storage` directly.
 4. For dev-core TypeScript, `dashboard.ts` is the composition root for the dashboard. Individual skill entry `.ts` files are each a composition root for their skill. The `GitHubAdapter` constructor calls `getToken()` internally — the shim (`github.ts`) must not trigger eager env reads at import time after Slice 4.
 
 ### Redirect resolution placement (web-intel)
@@ -98,4 +98,4 @@ Phase 5 (SDK extraction: canonical `paths.py`, shared exception base, cross-plug
 
 - `content_indexer.py` in vault is in scope for Slice 2 — it accesses VaultDB directly and must route through `SqliteEntryRepository` post-migration. It is not a separate slice.
 - `FetchResult.to_dict()` must produce the same keys as the current `scrape_content()` return dict (`success`, `content_type`, `url`, `resolved_url`, `data`, `error`, `raw`) to preserve the CLI JSON contract for skill callers.
-- Module-level globals in `storage.py` (`APPLICATIONS_DIR`, `INDEX_FILE` at lines 60–61) must be moved into `FileStorageAdapter.__init__` so the path is resolved at construction time, not at import time.
+- Module-level globals in `storage.py` (`APPLICATIONS_DIR`, `INDEX_FILE` at lines 60–61) must be moved into `FileStorageAdapter.__init__` so the path is resolved at construction time, not at import time. **Superseded (PR #452):** they stay module-level in `scripts/storage.py`; tests monkeypatch them.
