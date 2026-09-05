@@ -55,8 +55,8 @@ VAULT_UNAVAILABLE → skip; generate from topic alone.
 ## Phase 4 — Generate Post
 
 ```bash
-cat "$CLAUDE_PLUGIN_ROOT/../../references/linkedin_best_practices.md"
-cat "$CLAUDE_PLUGIN_ROOT/../../references/emoji_guide.md"
+cat "$CLAUDE_PLUGIN_ROOT/references/linkedin_best_practices.md"
+cat "$CLAUDE_PLUGIN_ROOT/references/emoji_guide.md"
 ```
 
 Apply rules: 1300-2000 chars; strong hook (pattern interrupt/bold claim/question/story opener); 1-3 sentence paragraphs; line breaks between paragraphs; bullet/numbered lists where appropriate; 3-5 hashtags at end; clear CTA in closing; emojis sparingly per guide. ∃CH → apply tone/voice. ∃LC signature → append.

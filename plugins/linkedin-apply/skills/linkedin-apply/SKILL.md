@@ -11,7 +11,7 @@ Analyze a LinkedIn job offer against your candidate profile and get an LLM-power
 
 Let:
   VL := ~/.roxabi-vault/linkedin-apply/
-  SD := `$CLAUDE_PLUGIN_ROOT/../../scripts/`
+  SD := `$CLAUDE_PLUGIN_ROOT/scripts/`
 
 ## Phase 1 — Validate Arguments and Prerequisites
 

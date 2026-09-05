@@ -39,7 +39,7 @@ Plugins with data declare it in `plugin.json`:
 
 All plugins use `roxabi_sdk/paths.py` for path resolution.
 
-The canonical copy lives at `roxabi_sdk/paths.py` (marketplace/repo root). Plugins import it from that root (`sys.path` to repo root, or `$CLAUDE_PLUGIN_ROOT/../..`). It is **not** copied into per-plugin hash caches.
+The canonical copy lives at `roxabi_sdk/paths.py` (marketplace/repo root). Plugins import it via per-plugin `_sdk_bootstrap.py` (env override, upward walk, then cache→marketplaces hop). It is **not** copied into per-plugin hash caches.
 
 Key functions:
 - `get_vault_home()`

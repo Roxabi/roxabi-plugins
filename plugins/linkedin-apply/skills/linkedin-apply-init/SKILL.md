@@ -43,7 +43,7 @@ Vault home: `~/.roxabi-vault/linkedin-apply/` (default) or `$ROXABI_VAULT_HOME/l
 
 ¬`VL/candidate.yaml`:
 1. `mkdir -p ~/.roxabi-vault/linkedin-apply`
-2. Copy `$CLAUDE_PLUGIN_ROOT/../../examples/candidate.example.yaml` → `VL/candidate.yaml`
+2. Copy `$CLAUDE_PLUGIN_ROOT/examples/candidate.example.yaml` → `VL/candidate.yaml`
 3. Inform user: "candidate.yaml created — please edit it with your real data before using /linkedin-apply"
 4. Show required fields: `personal.full_name`, `personal.email`, `personal.phone`, `professional.current_title`, `professional.years_experience`, `preferences.salary`
 
