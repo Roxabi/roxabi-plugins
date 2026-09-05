@@ -12,10 +12,10 @@ except ImportError:
     sys.exit(1)
 
 _plugin_root = str(Path(__file__).resolve().parent.parent)
-_repo_root = str(Path(__file__).resolve().parents[3])
-for _p in [_plugin_root, _repo_root]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if _plugin_root not in sys.path:
+    sys.path.insert(0, _plugin_root)
+from _sdk_bootstrap import ensure_sdk_on_path
+ensure_sdk_on_path(__file__)
 
 from roxabi_sdk.paths import get_plugin_data, get_config, ensure_dir
 from adapters.json_config import JsonConfigLoader

@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Generic, TypeVar
 
 _plugin_root = str(Path(__file__).resolve().parents[1])
-_repo_root = str(Path(__file__).resolve().parents[3])
-for _p in [_plugin_root, _repo_root]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if _plugin_root not in sys.path:
+    sys.path.insert(0, _plugin_root)
+from _sdk_bootstrap import ensure_sdk_on_path
+ensure_sdk_on_path(__file__)
 
 from ports.config import ConfigLoader
 
