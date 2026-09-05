@@ -7,7 +7,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-export const VALID_CLAIMS = new Set(['fail-closed', 'authz', 'ssot'])
+export const VALID_CLAIMS: Record<string, true> = { 'fail-closed': true, authz: true, ssot: true }
 
 export type ReviewTier = 'S' | 'F-lite' | 'F-full'
 export type OracleOk = 'true' | 'false' | 'missing'
@@ -21,6 +21,7 @@ export type StackPaths = {
 
 export type RosterConfig = {
   maxAgents: number
+  maxAgentsReview: number
   verifyBelowConfidence: number
   recallMinDelta: number
   overrides: Record<string, AgentOverride>
@@ -82,6 +83,23 @@ export const DISPATCHABLE = [
 
 export const PHASE_AGENTS = ['R-recall', 'R-finding-verifier'] as const
 
+export const COLLAPSE_ONCE = ['R-architect', 'R-devops', 'R-tester', 'R-axial-adr-review'] as const
+
+export type AllocateReviewInput = {
+  chunkDeltas: string[][]
+  shared: Omit<ComputeRosterInput, 'delta'> & { delta: string[] }
+}
+
+export type AllocateReviewResult = {
+  global: RosterResult
+  chunk_agents: string[][]
+  collapsed: string[]
+  capped: string[]
+  capped_review: string[]
+  warnings: string[]
+  agents: string[]
+}
+
 const KNOWN_AGENTS: Record<string, true> = Object.fromEntries([...DISPATCHABLE, ...PHASE_AGENTS].map((a) => [a, true]))
 
 const OVERRIDE_VALUES: Record<string, true> = { default: true, always: true, never: true }
@@ -99,16 +117,27 @@ const INFRA_RES = [
   /(^|\/)wrangler\.(toml|jsonc?|json)$/,
   /(^|\/)deploy\//,
   /(^|\/)deploy\.sh$/,
-  /(^|\/)Dockerfile$/,
+  /(^|\/)(Dockerfile|Containerfile)$/,
   /(^|\/)docker-compose\.ya?ml$/,
-  /(^|\/)Makefile$/,
+  /(^|\/)(makefile|gnumakefile)$/i,
   /(^|\/)Justfile$/,
   /\.tf$/,
+  /\.tfvars$/,
   /(^|\/)k8s\//,
   /(^|\/)helm\//,
   /(^|\/)terraform\//,
-  /(^|\/)\.gitlab-ci\.yml$/,
+  /(^|\/)\.gitlab-ci\.ya?ml$/,
   /(^|\/)\.circleci\//,
+  /(^|\/)ansible\//,
+  /(^|\/)\.buildkite\//,
+  /(^|\/)serverless\.ya?ml$/,
+  /(^|\/)Taskfile\.ya?ml$/,
+  /(^|\/)charts\/.+\/values\.ya?ml$/,
+  /(^|\/)Vagrantfile$/,
+  /(^|\/)Pulumi\.ya?ml$/,
+  /(^|\/)\.dockerignore$/,
+  /\.bicep$/,
+  /(^|\/)skaffold\.ya?ml$/,
 ]
 
 /** Security path vocabulary — exact token match (¬substring: `author` must not hit `auth`). */
@@ -129,8 +158,6 @@ const TOKEN_SET: Record<string, true> = {
   signin: true,
   signup: true,
   logout: true,
-  token: true,
-  tokens: true,
   secret: true,
   secrets: true,
   crypto: true,
@@ -173,9 +200,8 @@ const TOKEN_SET: Record<string, true> = {
   publickey: true,
 }
 
-const STEM_SET = ['secret', 'crypto', 'password', 'passwd', 'credential', 'keystore']
-
 const DEFAULT_MAX_AGENTS = 4
+const DEFAULT_MAX_AGENTS_REVIEW = 0
 const DEFAULT_VERIFY = 90
 const DEFAULT_RECALL_MIN = 50
 
@@ -217,7 +243,7 @@ export function parseClaimTags(yaml: string): string[] | null {
 
 export function validateClaimTags(tags: string[] | null): tags is string[] {
   if (!tags?.length) return false
-  return tags.every((t) => VALID_CLAIMS.has(t))
+  return tags.every((t) => Object.hasOwn(VALID_CLAIMS, t))
 }
 
 export function parsePricedFences(specContent: string): {
@@ -258,7 +284,8 @@ export function specIsDraft(specContent: string): boolean {
 }
 
 /** tokens(path) := split on [^A-Za-z0-9] ∨ camelCase ∨ letter→digit, then lowercase.
- *  path_hit := ∃ t ∈ tokens(path): t ∈ TOKEN_SET  ∨  ∃ s ∈ STEM_SET: s ⊂ lowercase(path) */
+ *  path_hit := ∃ t ∈ tokens(path): Object.hasOwn(TOKEN_SET, t)
+ *  ¬naked `token`/`tokens` (design-token collision); ¬unanchored stem substring. */
 const TOKEN_SPLIT = /[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Za-z])(?=[0-9])/
 
 export function pathHit(delta: string[]): boolean {
@@ -268,8 +295,6 @@ export function pathHit(delta: string[]): boolean {
       .filter(Boolean)
       .map((t) => t.toLowerCase())
     if (tokens.some((t) => Object.hasOwn(TOKEN_SET, t))) return true
-    const lower = f.toLowerCase()
-    if (STEM_SET.some((s) => lower.includes(s))) return true
   }
   return false
 }
@@ -417,6 +442,7 @@ function parseInteger(raw: string, fallback: number, name: string, warnings: str
 export function parseRosterConfig(text: string | null): RosterConfig {
   const defaults: RosterConfig = {
     maxAgents: DEFAULT_MAX_AGENTS,
+    maxAgentsReview: DEFAULT_MAX_AGENTS_REVIEW,
     verifyBelowConfidence: DEFAULT_VERIFY,
     recallMinDelta: DEFAULT_RECALL_MIN,
     overrides: Object.create(null),
@@ -453,6 +479,7 @@ export function parseRosterConfig(text: string | null): RosterConfig {
     }
 
     let maxAgents = DEFAULT_MAX_AGENTS
+    let maxAgentsReview = DEFAULT_MAX_AGENTS_REVIEW
     let verifyBelowConfidence = DEFAULT_VERIFY
     let recallMinDelta = DEFAULT_RECALL_MIN
     // Null-prototype: keys come from stack.yml, so `overrides.constructor` must be undefined.
@@ -462,7 +489,7 @@ export function parseRosterConfig(text: string | null): RosterConfig {
     const rosterEnd = blockEnd(lines, rosterIdx)
     const children = lines.slice(rosterIdx + 1, rosterEnd).filter((l) => l.indent > rosterIndent)
     if (!children.length) {
-      return { maxAgents, verifyBelowConfidence, recallMinDelta, overrides, warnings }
+      return { maxAgents, maxAgentsReview, verifyBelowConfidence, recallMinDelta, overrides, warnings }
     }
     const directIndent = Math.min(...children.map((l) => l.indent))
     const consumed = new Set<number>()
@@ -493,6 +520,13 @@ export function parseRosterConfig(text: string | null): RosterConfig {
         if (recallMinDelta < 0) {
           warnings.push('recall_min_delta < 0; clamped to 0')
           recallMinDelta = 0
+        }
+      } else if (line.key === 'max_agents_review') {
+        consumed.add(i)
+        maxAgentsReview = parseInteger(line.value, DEFAULT_MAX_AGENTS_REVIEW, 'max_agents_review', warnings)
+        if (maxAgentsReview < 0) {
+          warnings.push('max_agents_review < 0; clamped to 0')
+          maxAgentsReview = 0
         }
       } else if (line.key === 'agents') {
         consumed.add(i)
@@ -529,7 +563,7 @@ export function parseRosterConfig(text: string | null): RosterConfig {
       warnings.push(`unrecognised roster key at indent ${lines[i].indent}: ${lines[i].key}`)
     }
 
-    return { maxAgents, verifyBelowConfidence, recallMinDelta, overrides, warnings }
+    return { maxAgents, maxAgentsReview, verifyBelowConfidence, recallMinDelta, overrides, warnings }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return {
@@ -616,7 +650,7 @@ function recallGate(chunks: number, deltaCount: number, minDelta: number): Gate 
 export function computeRoster(input: ComputeRosterInput): RosterResult {
   const { delta, tier, chunks, oracleOk, pricedClaimOk, axialAdr, stackPaths, config } = input
   const warnings = [...config.warnings]
-  const claims = input.specDraft ? [] : input.claims.filter((c) => VALID_CLAIMS.has(c))
+  const claims = input.specDraft ? [] : input.claims.filter((c) => Object.hasOwn(VALID_CLAIMS, c))
   const path_hit = pathHit(delta)
   const delta_test_hit = testHit(delta)
   const infra = infraHit(delta)
@@ -734,9 +768,93 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
   }
 }
 
+export function allocateReview(input: AllocateReviewInput): AllocateReviewResult {
+  const { chunkDeltas, shared } = input
+  const global = computeRoster(shared)
+  const per = chunkDeltas.map((d) => computeRoster({ ...shared, delta: d }))
+  const remaining = per.map((r) => [...r.agents])
+  const collapsed: string[] = []
+  for (const agent of COLLAPSE_ONCE) {
+    let keepFirst = true
+    for (let i = 0; i < remaining.length; i++) {
+      const idx = remaining[i].indexOf(agent)
+      if (idx < 0) continue
+      if (keepFirst) {
+        keepFirst = false
+        continue
+      }
+      remaining[i].splice(idx, 1)
+      if (!collapsed.includes(agent)) collapsed.push(agent)
+    }
+  }
+
+  const warnings = [...global.warnings]
+  for (const r of per) {
+    for (const w of r.warnings) {
+      if (!warnings.includes(w)) warnings.push(w)
+    }
+  }
+
+  const instances: { chunk: number; agent: string; floor: boolean }[] = []
+  for (let i = 0; i < remaining.length; i++) {
+    for (const agent of remaining[i]) {
+      const reason = per[i].gates.find((row) => row.agent === agent)?.reason ?? ''
+      instances.push({
+        chunk: i,
+        agent,
+        floor: reason === 'floor' || reason === 'stack:always',
+      })
+    }
+  }
+
+  const capped_review: string[] = []
+  let maxReview = shared.config.maxAgentsReview
+  if (maxReview >= 1) {
+    const floorInst = instances.filter((x) => x.floor)
+    const gatedInst = instances.filter((x) => !x.floor)
+    if (floorInst.length > maxReview) {
+      warnings.push(
+        `max_agents_review (${maxReview}) < forced agents (${floorInst.length}) — cap raised to ${floorInst.length}`,
+      )
+      maxReview = floorInst.length
+    }
+    const dropped = gatedInst.slice(maxReview - floorInst.length)
+    const dropKeys: Record<string, true> = Object.create(null)
+    for (const d of dropped) {
+      dropKeys[`${d.chunk}\0${d.agent}`] = true
+      if (!capped_review.includes(d.agent)) capped_review.push(d.agent)
+    }
+    for (let i = 0; i < remaining.length; i++) {
+      remaining[i] = remaining[i].filter((a) => !Object.hasOwn(dropKeys, `${i}\0${a}`))
+    }
+    if (dropped.length) {
+      warnings.push(
+        `roster: ${capped_review.length} agent(s) dropped by max_agents_review: ${capped_review.join(', ')}`,
+      )
+    }
+  }
+
+  const capped: string[] = []
+  for (const r of per) {
+    for (const a of r.capped) {
+      if (!capped.includes(a)) capped.push(a)
+    }
+  }
+
+  return {
+    global,
+    chunk_agents: remaining,
+    collapsed,
+    capped,
+    capped_review,
+    warnings,
+    agents: DISPATCHABLE.filter((a) => remaining.some((c) => c.includes(a))),
+  }
+}
+
 function usage(): never {
   console.error(
-    'usage: roster.ts --diff-list FILE [--tier S|F-lite|F-full] [--spec PATH] [--oracle-ok true|false|missing] [--chunks N] [--stack PATH] [--adr-dir PATH] [--json]',
+    'usage: roster.ts --diff-list FILE [--chunk-list FILE ...] [--tier S|F-lite|F-full] [--spec PATH] [--oracle-ok true|false|missing] [--chunks N] [--stack PATH] [--adr-dir PATH] [--json]',
   )
   process.exit(1)
 }
@@ -744,7 +862,7 @@ function usage(): never {
 const TIERS: Record<string, true> = { S: true, 'F-lite': true, 'F-full': true }
 const ORACLE_OK: Record<string, true> = { true: true, false: true, missing: true }
 
-function printResult(result: RosterResult, json: boolean): void {
+function printResult(result: object, json: boolean): void {
   if (json) {
     console.log(JSON.stringify(result, null, 2))
     return
@@ -758,6 +876,7 @@ function printResult(result: RosterResult, json: boolean): void {
 function main(): void {
   const args = process.argv.slice(2)
   let diffList = ''
+  const chunkLists: string[] = []
   let tier: ReviewTier = 'F-lite'
   let specPath: string | null = null
   let oracleOk: OracleOk = 'missing'
@@ -771,6 +890,9 @@ function main(): void {
     const next = args[i + 1]
     if (a === '--diff-list' && next !== undefined) {
       diffList = next
+      i++
+    } else if (a === '--chunk-list' && next !== undefined) {
+      chunkLists.push(next)
       i++
     } else if (a === '--tier' && next !== undefined) {
       if (!Object.hasOwn(TIERS, next)) usage()
@@ -840,7 +962,7 @@ function main(): void {
 
   const config = parseRosterConfig(stackText)
   config.warnings.push(...ioWarnings)
-  const result = computeRoster({
+  const shared: ComputeRosterInput = {
     delta,
     tier,
     chunks,
@@ -851,7 +973,57 @@ function main(): void {
     axialAdr: hasAxialAdr(adrDir, config.warnings),
     stackPaths: parseStackPaths(stackText),
     config,
-  })
+  }
+
+  if (chunkLists.length) {
+    const chunkDeltas: string[][] = []
+    for (const file of chunkLists) {
+      const text = readOrWarn(file, file, ioWarnings)
+      if (text == null) {
+        if (ioWarnings.length) {
+          for (const w of ioWarnings) console.error(`roster: ${w}`)
+        } else {
+          console.error(`roster: unreadable --chunk-list ${file}`)
+        }
+        process.exit(1)
+      }
+      chunkDeltas.push(
+        text
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean),
+      )
+    }
+    config.warnings.push(...ioWarnings.filter((w) => !config.warnings.includes(w)))
+    const allocated = allocateReview({ chunkDeltas, shared })
+    if (specUnreadable) {
+      allocated.global.review_halt = true
+      allocated.warnings.push(`unreadable spec: ${specPath}`)
+    }
+    printResult(
+      {
+        ...allocated.global,
+        chunk_agents: allocated.chunk_agents,
+        collapsed: allocated.collapsed,
+        capped: allocated.capped,
+        capped_review: allocated.capped_review,
+        agents: allocated.agents,
+        warnings: allocated.warnings,
+      },
+      json,
+    )
+    if (specUnreadable) {
+      console.error(`roster: unreadable spec: ${specPath}`)
+      process.exit(1)
+    }
+    if (hasPricedFence && !allocated.global.priced_claim_ok) {
+      console.error('roster: priced fence missing a valid claim')
+      process.exit(2)
+    }
+    process.exit(0)
+  }
+
+  const result = computeRoster(shared)
 
   if (specUnreadable) {
     result.review_halt = true

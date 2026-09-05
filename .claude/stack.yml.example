@@ -53,6 +53,7 @@ commands:
 review:
   roster:
     max_agents: 4                 # spawn-set cap per chunk lane (excl. recall / finding-verifier); <1 → 1 + warning
+    max_agents_review: 0          # aggregate Lane A cap after collapse; 0 = off
     verify_below_confidence: 90   # keep/drop findings below this C; 0 disables the filter
     recall_min_delta: 50          # recall needs multi-chunk ∧ |Δ| > this
     agents:                       # default | always | never — R-adversarial is a floor (`never` ignored)

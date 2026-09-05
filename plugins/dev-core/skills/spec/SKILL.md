@@ -238,16 +238,16 @@ Remaining failures → list in Executive Summary under **Pre-check** (do not AQ 
 
 ## Step 4 — Expert Review
 
-Auto-select ρ (¬ask user). R-architect always included:
+Auto-select ρ (¬ask user). Floor: R-adversarial + R-architect.
 
 | ρ | When | Focus |
 |---|------|-------|
-| R-architect | Always | Technical soundness, feasibility, slice ordering |
-| R-doc-writer | Always | Structure, clarity, breadboard completeness |
-| R-product-lead | Always | Criteria quality, scope, user story validity |
-| R-adversarial | Always | Red-team: scope-attack, vacuous AC, missing adversarial flows, assumption-kill, control bypass in proposed design |
-| R-devops | ∃ CI/CD / deploy / infra criteria | Operational feasibility |
+| R-adversarial | Always (floor) | red-team: scope-attack, vacuous AC, missing adversarial flows, assumption-kill, control bypass |
+| R-architect | Always | technical soundness, feasibility, slice ordering |
+| R-devops | ∃ CI/CD / deploy / infra criteria | operational feasibility |
 | R-axial-adr-review | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ (spec adds adapter/integration/target ∨ touches `infrastructure/`) | Drift along non-primary axis (N×M trap) — read-only review |
+
+R-doc-writer / R-product-lead ¬in ρ: orchestrator already owns structure/clarity/AC quality (same reason R-product-lead is ¬in the `/R-dev-review` roster — Phase 2 / pre-check).
 
 > **Note on R-axial-adr-review asymmetry (intentional):** The `/R-spec` condition is **semantic/intent-based** — it triggers when the spec proposes adding a new adapter/integration/target or touches `infrastructure/`. The code-review phase (`/R-dev-review`) uses a **structural** condition (diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`). The two are complementary: `/R-spec` catches intent-level N×M violations, `/R-dev-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
 
@@ -259,7 +259,7 @@ Task(
   prompt: "Review the spec at {σ_path} for <focus>. Spawned roster (this review): {ρ}. Check pre-check results: {pre_check_summary}. ¬TaskCreate. Return: good / needs improvement / concerns + specific line references."
 )
 ```
-Agent name map: `R-architect` → `dev-core:R-architect` | `R-doc-writer` → `dev-core:R-doc-writer` | `R-product-lead` → `dev-core:R-product-lead` | `R-adversarial` → `dev-core:R-adversarial` | `R-devops` → `dev-core:R-devops` | `R-axial-adr-review` → `dev-core:R-axial-adr-review`
+Agent name map: `R-adversarial` → `dev-core:R-adversarial` | `R-architect` → `dev-core:R-architect` | `R-devops` → `dev-core:R-devops` | `R-axial-adr-review` → `dev-core:R-axial-adr-review`
 
 Incorporate high-confidence feedback into σ. Unresolved expert concerns → list in Executive Summary (not AQ).
 

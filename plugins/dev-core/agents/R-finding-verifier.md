@@ -129,3 +129,4 @@ A filter that deletes most of its input is not filtering — it is silencing.
 
 - τ missing from dispatch → treat τ := 90.
 - Dispatch omits Δ → cannot prove “outside Δ” or “no callsite in Δ”; those rows are unavailable; default keep.
+- If a rubric path is provided and unreadable, the inlined V2 table in this file is authoritative; default keep. Never require a plugin-root variable.

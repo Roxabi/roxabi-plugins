@@ -24,7 +24,7 @@ Triggers: `"write spec"` | `"spec this"` | `"solution design"` | `"acceptance cr
 1. **Resolve source** — analysis or frame (if F-lite); kind read from frontmatter, not the filename. Stop with prose if missing.
 2. **Generate** — promote SRC → σ without interactive `/R-interview` AQs; unknowns become `[NEEDS CLARIFICATION]`.
 3. **Pre-check** — binary criteria, breadboard refs, χ budget, slice coverage; auto-fix cheap issues.
-4. **Expert review** — R-architect, R-doc-writer, R-product-lead, R-adversarial (R-devops/R-axial-adr-review when relevant) in parallel.
+4. **Expert review** — R-adversarial, R-architect always; R-devops/R-axial-adr-review when relevant. In parallel.
 5. **Executive Summary (lean)** — Intent (Solve + Done when) → Scope → Delivery → Gates; ≤30s scan; hard caps (≤5 criteria, ≤4 In bullets) — then **stop**.
 6. **React** — natural language: approve · change X · questions · re-spec · split. Revise loops re-print the summary.
 

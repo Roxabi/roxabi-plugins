@@ -73,9 +73,14 @@ Same resolution rules as `/R-adversarial`:
 
 ## Step 1 — Select Advisors
 
-A₁ := **R-architect** (always). A₂ := **R-product-lead** (always).
+Auto-select A (¬ask, ¬DP). Floor |A|=2. Optional A₃ xor (first matching signal). |A|≤3.
 
-Optional A₃ (context):
+| ρ | When | Role |
+|---|------|------|
+| R-architect | Always (floor) | A₁ |
+| R-product-lead | Always (floor) | A₂ |
+
+A₃ — at most one; first matching row wins; skip if name ∈ {A₁,A₂}; no signal → |A|=2:
 
 | Signal in S | A₃ |
 |-------------|-----|
@@ -83,9 +88,6 @@ Optional A₃ (context):
 | Auth / data / threat surface | R-security-auditor |
 | Heavy UI / client UX | R-frontend-dev |
 | API / domain model / storage | R-backend-dev |
-| Unclear / pure product+arch | ∅ (keep |A|=2) |
-
-Default: R-architect + R-product-lead. Context unclear → DP with suggested A₃ or skip.
 
 ## Step 2 — Independent Advisory (∥)
 

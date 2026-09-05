@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   type AgentOverride,
+  allocateReview,
   type ComputeRosterInput,
   computeRoster,
   hasAxialAdr,
@@ -50,6 +51,7 @@ ${body}
 function defaultConfig(overrides: Partial<RosterConfig> = {}): RosterConfig {
   return {
     maxAgents: 4,
+    maxAgentsReview: 0,
     verifyBelowConfidence: 90,
     recallMinDelta: 50,
     overrides: {},
@@ -456,6 +458,7 @@ review: # top
     const cfg = parseRosterConfig('runtime: bun\nbackend:\n  path: apps/api\n')
     expect(cfg).toEqual({
       maxAgents: 4,
+      maxAgentsReview: 0,
       verifyBelowConfidence: 90,
       recallMinDelta: 50,
       overrides: {},
@@ -471,6 +474,36 @@ review:
 `)
     expect(cfg.maxAgents).toBe(1)
     expect(cfg.warnings).toContain('max_agents < 1; clamped to 1')
+  })
+
+  it('max_agents_review defaults to 0', () => {
+    const cfg = parseRosterConfig(`
+review:
+  roster:
+    max_agents: 4
+`)
+    expect(cfg.maxAgentsReview).toBe(0)
+    expect(cfg.warnings).toEqual([])
+  })
+
+  it('max_agents_review < 0 clamped to 0 + warning', () => {
+    const cfg = parseRosterConfig(`
+review:
+  roster:
+    max_agents_review: -3
+`)
+    expect(cfg.maxAgentsReview).toBe(0)
+    expect(cfg.warnings).toContain('max_agents_review < 0; clamped to 0')
+  })
+
+  it('max_agents_review is a recognised key', () => {
+    const cfg = parseRosterConfig(`
+review:
+  roster:
+    max_agents_review: 6
+`)
+    expect(cfg.maxAgentsReview).toBe(6)
+    expect(cfg.warnings).toEqual([])
   })
 
   it('verify_below_confidence > 90 clamped to 90', () => {
@@ -624,14 +657,13 @@ review:
 })
 
 describe('pathHit', () => {
-  // Authored from C1 requirement lists, not from the tokenizer implementation.
+  // Authored from the requirement (exact TOKEN_SET membership), not the tokenizer.
   const mustHitNew = [
     'src/authService/index.ts',
     'src/api/v2/AuthController.ts',
     'src/jwtVerify.ts',
     'src/authGuard.ts',
     'src/SessionManager.ts',
-    'src/tokenService.ts',
     'src/oauth2/client.ts',
     'src/saml2/sp.ts',
     'apps/api/src/middleware/authenticate.ts',
@@ -649,7 +681,6 @@ describe('pathHit', () => {
     'src/auth/x.ts',
     'infra/tls-cert.ts',
     'x/authz.ts',
-    'lib/mysecretstuff.ts',
   ]
   const mustNotHit = [
     'src/author.ts',
@@ -663,6 +694,13 @@ describe('pathHit', () => {
     'a/toString.ts',
     'x/hasOwnProperty.ts',
     'y/__proto__/z.ts',
+    'src/tokenService.ts',
+    'lib/mysecretstuff.ts',
+    'brand/tokens.css',
+    'brand/design-tokens.json',
+    'docs/secretariat.md',
+    'src/credentialing/board.ts',
+    'src/cryptocurrency/price.ts',
   ]
 
   it('must-hit-new: case/digit split + new tokens', () => {
@@ -671,16 +709,29 @@ describe('pathHit', () => {
     }
   })
 
-  it('must-hit-regression: separator-token and stem hits still fire', () => {
+  it('must-hit-regression: separator-token hits still fire', () => {
     for (const p of mustHitRegression) {
       expect(pathHit([p]), p).toBe(true)
     }
   })
 
-  it('must-not-hit: substring and prototype keys stay cold', () => {
+  it('packages/crypto-prices/index.ts hits via crypto token — accepted over-match', () => {
+    expect(pathHit(['packages/crypto-prices/index.ts'])).toBe(true)
+  })
+
+  it('must-not-hit: substring, prototype keys, naked token, unanchored stem stay cold', () => {
     for (const p of mustNotHit) {
       expect(pathHit([p]), p).toBe(false)
     }
+  })
+
+  it('brand/tokens.css does not spawn security-auditor', () => {
+    const css = roster({ delta: ['brand/tokens.css'] })
+    expect(css.path_hit).toBe(false)
+    expect(css.spawn_security_auditor).toBe(false)
+    const auth = roster({ delta: ['apps/app/src/auth/login.ts'] })
+    expect(auth.path_hit).toBe(true)
+    expect(auth.spawn_security_auditor).toBe(true)
   })
 })
 
@@ -719,44 +770,52 @@ describe('prototype keys are not table members', () => {
 })
 
 describe('infraHit', () => {
-  const patterns: [string, string][] = [
-    ['scripts/', 'scripts/x.sh'],
-    ['scripts/ nested', 'apps/web/scripts/build.sh'],
-    ['.github/', '.github/workflows/ci.yml'],
-    ['.github/ nested', 'apps/web/.github/workflows/ci.yml'],
-    ['lefthook', 'lefthook.yml'],
-    ['lefthook nested', 'apps/web/lefthook.yml'],
-    ['wrangler', 'wrangler.toml'],
-    ['wrangler nested', 'apps/web/wrangler.toml'],
-    ['deploy/', 'deploy/hook.sh'],
-    ['deploy/ nested', 'apps/web/deploy/hook.sh'],
-    ['deploy.sh', 'deploy.sh'],
-    ['deploy.sh nested', 'apps/web/deploy.sh'],
-    ['Dockerfile', 'Dockerfile'],
-    ['Dockerfile nested', 'apps/web/Dockerfile'],
-    ['docker-compose', 'docker-compose.yml'],
-    ['docker-compose nested', 'apps/web/docker-compose.yml'],
-    ['Makefile', 'Makefile'],
-    ['Makefile nested', 'apps/web/Makefile'],
-    ['Justfile', 'Justfile'],
-    ['Justfile nested', 'apps/web/Justfile'],
-    ['*.tf', 'main.tf'],
-    ['*.tf nested', 'apps/web/main.tf'],
-    ['k8s/', 'k8s/deploy.yml'],
-    ['k8s/ nested', 'apps/web/k8s/deploy.yml'],
-    ['helm/', 'helm/Chart.yaml'],
-    ['helm/ nested', 'apps/web/helm/Chart.yaml'],
-    ['terraform/', 'terraform/main.tf'],
-    ['terraform/ nested', 'apps/web/terraform/main.tf'],
-    ['.gitlab-ci.yml', '.gitlab-ci.yml'],
-    ['.gitlab-ci.yml nested', 'apps/web/.gitlab-ci.yml'],
-    ['.circleci/', '.circleci/config.yml'],
-    ['.circleci/ nested', 'apps/web/.circleci/config.yml'],
+  // Requirement: CI/CD, containers, IaC, deploy, host/config-as-code. ¬app source, docs, manifests.
+  const mustHit = [
+    'scripts/x.sh',
+    'apps/web/scripts/build.sh',
+    '.github/workflows/ci.yml',
+    'lefthook.yml',
+    'wrangler.toml',
+    'deploy/hook.sh',
+    'deploy.sh',
+    'Dockerfile',
+    'docker-compose.yml',
+    'Makefile',
+    'Justfile',
+    'main.tf',
+    'k8s/deploy.yml',
+    'helm/Chart.yaml',
+    'terraform/main.tf',
+    '.gitlab-ci.yml',
+    '.gitlab-ci.yaml',
+    '.circleci/config.yml',
+    'makefile',
+    'GNUmakefile',
+    'vars.tfvars',
+    'Containerfile',
+    'ansible/site.yml',
+    '.buildkite/pipeline.yml',
+    'serverless.yml',
+    'Taskfile.yml',
+    'charts/app/values.yaml',
+    'Vagrantfile',
+    'Pulumi.yaml',
+    '.dockerignore',
+    'infra/main.bicep',
+    'skaffold.yaml',
   ]
+  const mustNotHit = ['src/app.ts', 'README.md', 'package.json', 'apps/web/src/main.tsx']
 
-  it('root and monorepo-nested spelling of each pattern', () => {
-    for (const [label, p] of patterns) {
-      expect({ label, path: p, hit: infraHit([p]) }).toEqual({ label, path: p, hit: true })
+  it('CI/CD, containers, IaC, deploy, host/config-as-code hit', () => {
+    for (const p of mustHit) {
+      expect({ path: p, hit: infraHit([p]) }).toEqual({ path: p, hit: true })
+    }
+  })
+
+  it('application source, docs, package manifests miss', () => {
+    for (const p of mustNotHit) {
+      expect({ path: p, hit: infraHit([p]) }).toEqual({ path: p, hit: false })
     }
   })
 
@@ -847,5 +906,118 @@ describe('filesystem error policy', () => {
     expect(proc.status).toBe(1)
     expect(proc.stderr).toContain(asDir)
     expect(proc.stderr).toMatch(/unreadable/)
+  })
+})
+
+function allocateShared(partial: Partial<ComputeRosterInput> = {}): ComputeRosterInput {
+  return {
+    delta: ['src/foo.ts'],
+    tier: 'F-full',
+    chunks: 1,
+    oracleOk: 'missing',
+    claims: [],
+    pricedClaimOk: true,
+    specDraft: false,
+    axialAdr: false,
+    stackPaths: emptyPaths(),
+    config: defaultConfig(),
+    ...partial,
+  }
+}
+
+describe('allocateReview', () => {
+  it('5 identical F-full app chunks collapse architect to chunk 0', () => {
+    const chunkDeltas = Array.from({ length: 5 }, (_, i) => [`src/app${i}.ts`])
+    const out = allocateReview({
+      chunkDeltas,
+      shared: allocateShared({ delta: chunkDeltas.flat(), chunks: 5 }),
+    })
+    expect(out.chunk_agents[0]).toEqual(['R-adversarial', 'R-architect'])
+    expect(out.collapsed).toContain('R-architect')
+    for (let i = 1; i < 5; i++) {
+      expect(out.chunk_agents[i]).toEqual(['R-adversarial'])
+    }
+  })
+
+  it('mixed devops+architect both kept — collapse is per-agent, not xor on full Δ', () => {
+    const out = allocateReview({
+      chunkDeltas: [['Dockerfile'], ['src/app.ts']],
+      shared: allocateShared({ delta: ['Dockerfile', 'src/app.ts'], chunks: 2 }),
+    })
+    expect(out.chunk_agents[0]).toContain('R-devops')
+    expect(out.chunk_agents[0]).not.toContain('R-architect')
+    expect(out.chunk_agents[1]).toContain('R-architect')
+    expect(out.chunk_agents[1]).not.toContain('R-devops')
+    expect(out.collapsed).toEqual([])
+  })
+
+  it('capped is the per-chunk union, not global xor (mixed Δ, max_agents=1)', () => {
+    const out = allocateReview({
+      chunkDeltas: [['Dockerfile'], ['src/app.ts']],
+      shared: allocateShared({
+        delta: ['Dockerfile', 'src/app.ts'],
+        chunks: 2,
+        config: defaultConfig({ maxAgents: 1 }),
+      }),
+    })
+    expect(out.global.capped).toEqual(['R-devops'])
+    expect(out.capped).toEqual(['R-devops', 'R-architect'])
+  })
+
+  it('max_agents_review=6 drops gated names into capped_review; adversarial count equals chunk count', () => {
+    const chunkDeltas = Array.from({ length: 5 }, (_, i) => [`src/auth/login${i}.ts`])
+    const out = allocateReview({
+      chunkDeltas,
+      shared: allocateShared({
+        delta: chunkDeltas.flat(),
+        chunks: 5,
+        config: defaultConfig({ maxAgentsReview: 6 }),
+      }),
+    })
+    const advCount = out.chunk_agents.filter((c) => c.includes('R-adversarial')).length
+    expect(advCount).toBe(5)
+    expect(out.capped_review.length).toBeGreaterThan(0)
+    expect(out.chunk_agents.reduce((n, c) => n + c.length, 0)).toBe(6)
+  })
+
+  it('max_agents_review=0 never populates capped_review after collapse', () => {
+    const chunkDeltas = Array.from({ length: 5 }, (_, i) => [`src/app${i}.ts`])
+    const out = allocateReview({
+      chunkDeltas,
+      shared: allocateShared({
+        delta: chunkDeltas.flat(),
+        chunks: 5,
+        config: defaultConfig({ maxAgentsReview: 0 }),
+      }),
+    })
+    expect(out.capped_review).toEqual([])
+    expect(out.collapsed).toContain('R-architect')
+  })
+
+  it('single-chunk allocateReview ≡ computeRoster.agents (no collapse)', () => {
+    const delta = ['src/app.ts']
+    const shared = allocateShared({ delta, chunks: 1 })
+    const a = allocateReview({ chunkDeltas: [delta], shared })
+    const c = computeRoster(shared)
+    expect(a.agents).toEqual(c.agents)
+    expect(a.collapsed).toEqual([])
+    expect(a.chunk_agents).toEqual([c.agents])
+  })
+
+  it('CLI --chunk-list twice produces chunk_agents length 2', () => {
+    const delta = join(dir, 'delta.txt')
+    writeFileSync(delta, 'src/a.ts\nsrc/b.ts\n')
+    const c0 = join(dir, 'c0.txt')
+    const c1 = join(dir, 'c1.txt')
+    writeFileSync(c0, 'src/a.ts\n')
+    writeFileSync(c1, 'src/b.ts\n')
+    const proc = spawnSync(
+      'bun',
+      [ROSTER, '--diff-list', delta, '--chunk-list', c0, '--chunk-list', c1, '--tier', 'F-full', '--json'],
+      { encoding: 'utf8' },
+    )
+    expect(proc.status, proc.stderr).toBe(0)
+    const json = JSON.parse(proc.stdout) as { chunk_agents: string[][]; agents: string[]; collapsed: string[] }
+    expect(json.chunk_agents).toHaveLength(2)
   })
 })

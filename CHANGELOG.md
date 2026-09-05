@@ -10,12 +10,20 @@ predate that and were produced by release-please or `/promote`.
 
 ### Fixed
 
+* **dev-core / dev-review:** `pathHit` no longer matches naked `token`/`tokens` (design-token collision: `brand/tokens.css` was spawning the OWASP auditor) or unanchored STEM_SET substrings (`secretariat`, `credentialing`). `crypto` as an exact token remains an accepted over-match.
+* **dev-core / dev-review:** INFRA_RES rewritten from the infra requirement (`.gitlab-ci.yaml`, `makefile`/`GNUmakefile`, `*.tfvars`, `Containerfile`, ansible/buildkite/serverless/Taskfile/charts/Vagrantfile/Pulumi/bicep/skaffold/`.dockerignore`). Test includes negatives — the old table was a transcription of the regexes.
+* **dev-core / finding-verifier:** Phase 4 Task prompt no longer tells the agent to `Read ${CLAUDE_PLUGIN_ROOT}/agents/…` (no Bash, variable may be literal). Inlined V2 table is authoritative; Escalation fallback if a path is unreadable.
+
 * **dev-core:** classify landing path — `GET /commits/{sha}/pulls` has no `merged` (always null on the simple PR object), so the old predicate never matched and every merge retested the suite; probe now requires the display names of this workflow's `path == 'naked'` jobs (silex-forge#15). Generator only — fleet workflows are regenerated separately.
 * **ci:** classify landing path on committed workflows — `GET /commits/{sha}/pulls` has no `merged` (always null on the simple PR object), so the old predicate never matched and every merge retested the suite; probe now uses `state == "closed" and .merge_commit_sha == $sha` plus this workflow's gated job display name (`ci` / `trufflehog` / `context lint`). Matches generator v2.9.1; YAML patched in place.
 
 ### Changed
 
 * **dev-core:** prefix every skill/slash + agent identity with `R-` — `/dev-review` → `/R-dev-review`, `/fix` → `/R-fix`, `adversarial` → `R-adversarial` (32 skills + 14 agents; OMP native `adversarial` shadowed plugin per plugins.ssot.md 'native/user wins over plugin'; skill directories unchanged)
+* **dev-core / dev-review:** `allocateReview` collapses `R-architect`/`R-devops`/`R-tester`/`R-axial-adr-review` to one spawn per review (first gating chunk). New knob `review.roster.max_agents_review` (default 0 = off). Multi-chunk dispatch is one `--chunk-list` call; spawn `chunk_agents[i]`. Phase 4 discloses `collapsed[]` / `capped_review[]`.
+* **dev-core:** `/R-spec` auto-panel Always = R-adversarial + R-architect (dropped R-doc-writer / R-product-lead). `/R-analyze` Always = R-product-lead (dropped R-doc-writer). `/R-advisory` stays 2-advisor floor; A₃ is xor, `|A|≤3`.
+* **dev-core / roster:** `VALID_CLAIMS` is `Record<string, true>` with `Object.hasOwn` — last static table that was still a `Set`.
+
 * **dev-core:** `review.roster.agents` keys in `stack.yml` must be `R-`-prefixed (`tester:` → `R-tester:`) — unprefixed key looks valid; oracle warns `unknown roster agent: <name>` and DROPS the override, so `never` still spawns (edit `.claude/stack.yml`)
 * **dev-core:** rename skill/slash `/implement` → `/dev-implement` (Grok/Claude host collision; pipeline step id stays `implement`)
 * **dev-core:** 10 standalone skills are slash-only (`disable-model-invocation`); Triggers stripped. Guide + ADR-018 amended.

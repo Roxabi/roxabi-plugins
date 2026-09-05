@@ -20,7 +20,7 @@ Triggers: `"advisory"` | `"second opinion"` | `"advise on this"` | `"strengthen 
 ## How it works
 
 1. **Resolve** — free text, issue (+ artifacts), or path.
-2. **Select advisors** — always `R-architect` + `R-product-lead`; optional third (`R-devops`, `R-security-auditor`, domain) from context.
+2. **Select advisors** — always `R-architect` + `R-product-lead`; optional A₃ xor (first matching signal) — `|A|≤3`, ¬prompt.
 3. **Advise in parallel** — each returns Keep / Strengthen (P0–P2) / Risks→advice / Open Qs / Next.
 4. **Synthesize** — one memo; conflicts on P0 are surfaced, not papered over.
 5. **Write** (optional `--write`) — `artifacts/reviews/{N}-{slug}-advisory.md`.

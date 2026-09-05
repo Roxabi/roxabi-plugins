@@ -109,6 +109,7 @@ Consumer: `plugins/dev-core/skills/dev-review/roster.sh` (the deterministic rost
 | σ | α | Purpose |
 |---|---|---------|
 | `review.roster.max_agents` | dev-review | Cap on the spawn set per chunk lane (excl. R-recall / R-finding-verifier). Default `4`; `<1` clamps to `1` + warning |
+| `review.roster.max_agents_review` | dev-review | Aggregate cap on flattened Lane A instances after COLLAPSE_ONCE. Default `0` = off (collapse is the bound). `<0` clamps to `0` + warning |
 | `review.roster.verify_below_confidence` | dev-review | Keep/drop pass over findings below this C. Default `90`; `0` disables the keep/drop filter |
 | `review.roster.recall_min_delta` | dev-review | Recall needs multi-chunk ∧ `|Δ|` > this. Default `50` |
 | `review.roster.agents.<agent>` | dev-review | Per-agent override: `default` \| `always` \| `never`. Default `default`. `R-adversarial` is a floor (`never` ignored). `R-product-lead` is not a roster agent (Phase 2 covers spec compliance) |
@@ -250,4 +251,4 @@ frontend:
 | `standards.backend` | R-backend-dev | Skips framework-specific conventions |
 | `standards.frontend` | R-frontend-dev | Skips TS gotchas + UI library patterns |
 | `artifacts.*` | R-product-lead | Cannot write artifacts; reports path missing |
-| `review.roster.*` | dev-review | Defaults: max_agents 4, verify_below_confidence 90, recall_min_delta 50, every agent default |
+| `review.roster.*` | dev-review | Defaults: max_agents 4, max_agents_review 0, verify_below_confidence 90, recall_min_delta 50, every agent default |

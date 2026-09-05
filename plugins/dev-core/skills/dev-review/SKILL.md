@@ -117,15 +117,16 @@ digests = emit_all_digests(chunks)            # list[BoundaryDigest]
 
 SOLE spawn decision for Phase 3. τ ← spec/plan frontmatter ∨ issue labels (default F-lite if unknown). `CHUNKS := |chunks|` from the chunker.
 
-**Global vs per-chunk.** One global call (full Δ) for review-wide fields: `claims`, `priced_claim_ok`, `recall_eligible`, `verifier_enabled`, `verify_below_confidence`, `warnings`. Per-chunk `roster.sh --diff-list <chunk_i.files> …` supplies that chunk's `agents[]` for Lane A. Single-chunk: one call (Δ = the chunk) covers both. `R-adversarial` is the floor in every chunk. `max_agents` is a **per-chunk** cap.
+**Global vs per-chunk.** Single-chunk: one `roster.sh --diff-list` (Δ = the chunk) — `computeRoster`. Multi-chunk: **one** allocate call (`--diff-list` full Δ + `--chunk-list` per chunk). Spawn exactly `chunk_agents[i]` on chunk i. `Spawned roster (this review): {agents}` uses the union. `R-adversarial` is the floor in every chunk. `max_agents` is a **per-chunk** cap. COLLAPSE_ONCE (`R-architect`, `R-devops`, `R-tester`, `R-axial-adr-review`) once per review (first chunk that gates them). `max_agents_review` default 0 = off (collapse is the bound).
 
-**Spawn exactly `agents[]` from the (chunk) JSON — the table below is documentation of the oracle's gates, ¬an independent decision surface.** `gates[]` carries the per-agent reason; `capped[]` names agents dropped by `max_agents`. `R-recall` and `R-finding-verifier` are ¬in `agents[]` (separate phases: `recall_eligible` / `verifier_enabled`). `R-product-lead` ¬∈ review roster — Phase 2 owns spec compliance.
+**Spawn exactly `chunk_agents[i]` (multi-chunk) or `agents[]` (single-chunk) from the JSON — the table below is documentation of the oracle's gates, ¬an independent decision surface.** `gates[]` carries the per-agent reason; `capped[]` names agents dropped by `max_agents`; `collapsed[]` / `capped_review[]` name review-level removals. `R-recall` and `R-finding-verifier` are ¬in `agents[]` (separate phases: `recall_eligible` / `verifier_enabled`). `R-product-lead` ¬∈ review roster — Phase 2 owns spec compliance.
 
 ```bash
 # spec_path from Phase 2; write Δ paths to a mktemp file (see tempfile-convention.md)
 REVIEW_TMP=$(mktemp -d -t "dev-core-review-delta-419-XXXXXX")
 trap 'rm -rf "$REVIEW_TMP"' EXIT
 printf '%s\n' "${DELTA_FILES[@]}" > "$REVIEW_TMP/delta.txt"
+# single-chunk: one computeRoster call (no --chunk-list)
 bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review/roster.sh \
   --diff-list "$REVIEW_TMP/delta.txt" \
   --tier "$TIER" \
@@ -133,10 +134,12 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review/roster.sh \
   [--spec "$spec_path"] \
   [--oracle-ok true|false] \
   --json
-# per-chunk Lane A (skip when |chunks|=1 — the call above is the chunk)
+# multi-chunk: one allocate call — spawn chunk_agents[i] on chunk i
 printf '%s\n' "${CHUNK_I_FILES[@]}" > "$REVIEW_TMP/chunk_${i}.txt"
 bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review/roster.sh \
-  --diff-list "$REVIEW_TMP/chunk_${i}.txt" \
+  --diff-list "$REVIEW_TMP/delta.txt" \
+  --chunk-list "$REVIEW_TMP/chunk_0.txt" \
+  --chunk-list "$REVIEW_TMP/chunk_1.txt" \
   --tier "$TIER" \
   --chunks "$CHUNKS" \
   [--spec "$spec_path"] \
@@ -157,7 +160,7 @@ Exit: `0` ok · `1` usage/IO error (incl. unreadable `--spec`) · `2` σ priced-
 | Agent | When | Focus |
 |-------|------|-------|
 | **R-adversarial** | **always** | red-team: bypass, fleet-regression, vacuous guards, assumption-kill + **OWASP lens** (secrets, injection, auth). R-security-auditor is independent when Δ ∩ auth/secrets/crypto (both may run) |
-| **R-security-auditor** | **`path_hit`** only — token+stem (path segments, ¬`\bauth\b`); covers oauth/session/jwt/login/password/rbac + `**/auth/**` | OWASP, secrets, injection, auth |
+| **R-security-auditor** | **`path_hit`** only — token match (path segments, ¬`\bauth\b`); covers oauth/session/jwt/login/password/rbac + `**/auth/**` | OWASP, secrets, injection, auth |
 | **R-tester** | `delta_test_hit ∧ oracle_ok=false` | coverage, AAA, edge cases, tautology |
 | **R-axial-adr-review** | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ Δ ∩ {`infrastructure/`, `adapters/`, `domains/`, `stages/`} ≠ ∅ | Drift along non-primary axis (target × concern duplication) — read-only review agent (no Write/Edit/Bash tools) |
 | **R-frontend-dev** | `{frontend.path}` ∨ `{shared.ui}` non-empty → Δ ∩ those prefixes ≠ ∅; both empty → Δ ∩ {`.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`} ≠ ∅ | FE patterns, components, hooks |
@@ -166,13 +169,13 @@ Exit: `0` ok · `1` usage/IO error (incl. unreadable `--spec`) · `2` σ priced-
 | **R-architect** | `τ=F-full ∧ Δ ∩ infra = ∅` — mutually exclusive with R-devops | patterns, structure, circular deps |
 | **R-recall** | Phase 3b: `|chunks|>1 ∧ |Δ| > recall_min_delta` ∧ canonical class ∧ ≥3 callsites. Skip on single-chunk | class-join, uncited callsites — ¬Lane A |
 
-`max_agents` (default 4) is a **per-chunk** cap on `agents[]` (excl. R-recall / R-finding-verifier); truncated names land in `capped[]`.
+`max_agents` (default 4) is a **per-chunk** cap on `agents[]` (excl. R-recall / R-finding-verifier); truncated names land in `capped[]`. `max_agents_review` (default 0 = off) caps flattened Lane A after collapse; truncated names land in `capped_review[]`. COLLAPSE_ONCE kept in the first chunk that gates them; later drops land in `collapsed[]`.
 
 > **Note on R-axial-adr-review asymmetry (intentional):** The `/R-dev-review` condition is **structural** — it triggers when the diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`. The spec phase (`/R-spec`) uses a **semantic/intent-based** condition (spec adds adapter/integration/target ∨ touches `infrastructure/`). The two are complementary: `/R-spec` catches intent-level N×M violations, `/R-dev-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
 
 Skip: R-tester → ¬`delta_test_hit` ∨ `oracle_ok=true` ∨ `oracle_ok=missing` | R-frontend-dev → ¬FE Δ | R-backend-dev → `{backend.path}` empty ∨ Δ misses prefix | R-devops → τ≠F-full ∨ Δ ∩ infra = ∅ | R-architect → τ≠F-full ∨ Δ ∩ infra ≠ ∅ | R-axial-adr-review → ¬∃ axial ADR ∨ Δ misses AXIAL | R-security-auditor → **`¬spawn_security_auditor`** | R-recall → single-chunk ∨ |Δ| ≤ recall_min_delta ∨ ¬canonical class ∨ |callsites|<3
 
-**Subdomain split (multi-chunk):** For each chunk `c_i`, invoke `roster.sh --diff-list <chunk_i.files> …` and spawn that JSON's `agents[]` on `c_i.files` only. Default: 1 agent per domain per chunk. `R-adversarial` is the floor in every chunk. `max_agents` is a per-chunk cap. R-recall is Phase 3b (not per-chunk Lane A). R-finding-verifier is Phase 4 (once per review).
+**Subdomain split (multi-chunk):** one allocate call (`--diff-list` full Δ + `--chunk-list` per chunk). Spawn exactly `chunk_agents[i]` on `c_i.files`. `Spawned roster (this review): {agents}` = union. COLLAPSE_ONCE once per review. `max_agents` per-chunk; `max_agents_review` default 0 = off. R-recall is Phase 3b (not per-chunk Lane A). R-finding-verifier is Phase 4 (once per review).
 
 ### R-security-auditor scoping
 
@@ -331,8 +334,10 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 5. Sort: C desc within category
 6. Group: Blockers → Warnings → Suggestions → Praise
 7. Disclose removals — emit in the review output unconditionally (Phase 6 copies; ¬vanish when ¬∃ PR):
-   `capped[]`/`warnings[]` are unioned across chunk invocations and deduplicated before disclosure, attributed by chunk where they differ.
+   `capped[]`/`collapsed[]`/`capped_review[]`/`warnings[]` from the allocate/compute JSON. Per-chunk `capped[]` still from `computeRoster`.
    - `Roster capped by max_agents: <names>` when `capped[] ≠ ∅`
+   - `Roster collapsed (once per review): <names>` when `collapsed[] ≠ ∅`
+   - `Roster capped by max_agents_review: <names>` when `capped_review[] ≠ ∅`
 # CROSS-SKILL CONSUMER: /R-fix Phase 1 parses Conventional Comments from every PR comment body — the F_dropped block MUST stay table-shaped or the filter is defeated (fix/SKILL.md Phase 1 step 1a strips it)
    - `F_dropped` → collapsed disclosure, **table shape only** (¬Conventional-Comment grammar: a `<label>: <desc>` line would be re-ingested by `/R-fix` and defeat the filter):
      ```markdown
@@ -372,7 +377,7 @@ Input:
   findings: {F_low serialized}
 
 Read-only (Read, Grep, Glob only). Never invent findings. Never re-rank kept findings upward.
-Bias: **default keep**. Your rubric is `${CLAUDE_PLUGIN_ROOT}/agents/R-finding-verifier.md` Phase V2 — read it, it is authoritative. Carve-outs that matter: a cross-Δ citation used as *evidence about* a Δ change is IN scope (¬drop), and `speculative with no callsite in Δ` ¬applies to lens ∈ {fleet-regression, bypass, assumption-kill}. Blocking labels ¬∈ your input; if one appears → keep, reason `blocking label — out of filter scope`.
+Bias: **default keep**. Your rubric is Phase V2 already in the agent instructions — it is authoritative. Carve-outs that matter: a cross-Δ citation used as *evidence about* a Δ change is IN scope (¬drop), and `speculative with no callsite in Δ` ¬applies to lens ∈ {fleet-regression, bypass, assumption-kill}. Blocking labels ¬∈ your input; if one appears → keep, reason `blocking label — out of filter scope`.
 
 Output, one block per input finding:
 finding: <file>:<line> — <label>
@@ -409,7 +414,7 @@ finding: <file>:<line> — <label>
    ```
    Write grouped findings to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
 3. `## Code Review` header; grouped findings + summary + verdict; ∀C included.
-4. Copy the Phase 4 Disclose-removals block (`Filtered by finding-verifier (N)` table + `Roster capped by max_agents: <names>`) into the PR body. Do ¬re-render, ¬recompute.
+4. Copy the Phase 4 Disclose-removals block (`Filtered by finding-verifier (N)` table + `Roster capped by max_agents` + collapse/`capped_review`) into the PR body. Do ¬re-render, ¬recompute.
 
 **→ immediately continue to Phase 8.**
 
@@ -448,7 +453,7 @@ Q:
 | R-security-auditor skipped | path_hit=false — R-adversarial owns OWASP on every review |
 | ∃f: C < verify_below_confidence | R-finding-verifier keep/drop pass |
 | R-finding-verifier ¬returns | keep all F_low (fail-open) |
-| roster capped (max_agents) | disclosed unconditionally (Phase 4) |
+| roster capped (max_agents) / collapsed / capped_review | disclosed when ≠ ∅ (Phase 4) |
 | oracle warnings ≠ ∅ | echoed into output; review_halt → HALT |
 
 ## Safety Rules

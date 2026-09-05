@@ -129,6 +129,7 @@ commands:
 review:
   roster:
     max_agents: 4                 # cap on the spawn set per chunk lane (excl. recall / finding-verifier); <1 clamps to 1 + warning
+    max_agents_review: 0          # aggregate Lane A cap after collapse; 0 = off (collapse is the bound)
     verify_below_confidence: 90   # keep/drop pass over findings below this C; 0 disables the filter
     recall_min_delta: 50          # recall needs multi-chunk ∧ |Δ| > this
     agents:                       # per-agent override: default | always | never
