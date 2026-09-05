@@ -3,5 +3,18 @@
   "description": "Extract and store invoice details from documents.",
   "author": {
     "name": "Roxabi"
+  },
+  "data": {
+    "root": "invoices",
+    "directories": [],
+    "files": {},
+    "shared": []
+  },
+  "vault": {
+    "optional": true,
+    "indexes": {
+      "category": "invoices",
+      "types": ["invoice", "receipt", "quote"]
+    }
   }
 }
