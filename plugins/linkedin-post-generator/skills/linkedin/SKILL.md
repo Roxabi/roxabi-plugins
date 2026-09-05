@@ -26,7 +26,10 @@ Load LC if ∃: author name, default language, tone, hashtag sets, post signatur
 
 ```bash
 python3 -c "
-import sys; sys.path.insert(0, '$CLAUDE_PLUGIN_ROOT/../..')
+import sys
+sys.path.insert(0, '$CLAUDE_PLUGIN_ROOT')
+from _sdk_bootstrap import ensure_sdk_on_path
+ensure_sdk_on_path('$CLAUDE_PLUGIN_ROOT')
 from roxabi_sdk.paths import vault_healthy
 print('VAULT_OK' if vault_healthy() else 'VAULT_UNAVAILABLE')
 "

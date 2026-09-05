@@ -11,7 +11,9 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # plugin root
+from _sdk_bootstrap import ensure_sdk_on_path
+ensure_sdk_on_path(__file__)
 from roxabi_sdk.paths import get_config
 
 
