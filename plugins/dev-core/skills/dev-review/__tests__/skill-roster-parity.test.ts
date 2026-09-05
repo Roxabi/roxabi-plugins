@@ -180,6 +180,30 @@ describe('roster oracle wiring documented in the SKILL', () => {
   it('Skip line keys off spawn_security_auditor', () => {
     expect(text).toMatch(/R-security-auditor → \*\*`¬spawn_security_auditor`\*\*/)
   })
+
+  it('documents --chunk-list, chunk_agents, collapse, max_agents_review', () => {
+    expect(text).toContain('--chunk-list')
+    expect(text).toContain('chunk_agents')
+    expect(text).toMatch(/COLLAPSE_ONCE/)
+    expect(text).toContain('max_agents_review')
+  })
+
+  it('multi-chunk uses one allocate call', () => {
+    expect(text).toMatch(/one allocate call/)
+    expect(text).toMatch(/Spawn exactly `chunk_agents\[i\]`/)
+  })
+
+  it('documents collapse-before-cap', () => {
+    expect(text).toContain('collapse → per-chunk max_agents')
+  })
+
+  it('documents --chunks derived from --chunk-list', () => {
+    expect(text).toContain('`--chunks` derived from `--chunk-list`')
+  })
+
+  it('documents max_agents_review floors caveat', () => {
+    expect(text).toMatch(/max_agents_review.*floors ¬capped/)
+  })
 })
 
 /**
@@ -207,6 +231,10 @@ describe('removal mechanisms are bounded and disclosed', () => {
     expect(phase4).toContain('Disclose removals')
     expect(phase4).toContain('Filtered by finding-verifier')
     expect(phase4).toMatch(/Roster capped by max_agents/)
+    expect(phase4).toMatch(/Roster collapsed \(once per review\)/)
+    expect(phase4).toMatch(/Roster capped by max_agents_review/)
+    expect(phase4).toContain('collapsed[]')
+    expect(phase4).toContain('capped_review[]')
     // Phase 6 may only copy what Phase 4 already rendered
     expect(phase6).toMatch(/cop(y|ies)/i)
   })
@@ -240,6 +268,25 @@ describe('F_dropped disclosure — cross-skill contract with /R-fix', () => {
   it('fix strips the filtered block before parsing findings', () => {
     expect(fix).toContain('Filtered by finding-verifier')
     expect(fix).toMatch(/strip/i)
+  })
+})
+
+describe('finding-verifier rubric pointer', () => {
+  const verifier = readFileSync(
+    fileURLToPath(new URL('../../../agents/R-finding-verifier.md', import.meta.url)),
+    'utf-8',
+  )
+  const task = phase4.slice(phase4.indexOf('Task('), phase4.indexOf('¬TaskCreate'))
+
+  it('Phase 4 prompt does not tell the verifier to Read CLAUDE_PLUGIN_ROOT', () => {
+    expect(task).not.toMatch(/CLAUDE_PLUGIN_ROOT/)
+    expect(task).toMatch(/Phase V2 already in the agent instructions/)
+  })
+
+  it('Escalation contains the unreadable-path fallback', () => {
+    const escalation = verifier.slice(verifier.indexOf('## Escalation'))
+    expect(escalation).toMatch(/inlined V2 table/)
+    expect(escalation).toMatch(/Never require a plugin-root variable/)
   })
 })
 

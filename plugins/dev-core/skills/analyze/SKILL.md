@@ -235,14 +235,13 @@ See [references/investigation.md](${CLAUDE_SKILL_DIR}/references/investigation.m
 
 ## Step 3 — Expert Review
 
-Auto-select ρ (¬ask user):
+Auto-select ρ (¬ask user). Floor = the Always rows **when Step 3 runs**; the step itself is optional (Pipeline: Required = —). Orchestrator owns structure/clarity of α — R-doc-writer ¬in this panel. Kill-pass → `/R-adversarial` in React (¬here).
 
 | ρ | When | Focus |
 |---|------|-------|
-| R-doc-writer | Always | Structure, clarity |
-| R-product-lead | Always | Product fit, Outcome quality, Problem↔Outcome alignment |
-| R-architect | ∃ arch / trade-offs / multi-domain | Technical soundness, shape feasibility |
-| R-devops | ∃ CI/CD / deploy / infra | Operational impact |
+| R-product-lead | Always (floor) | product fit, Outcome quality, Problem↔Outcome alignment |
+| R-architect | ∃ arch / trade-offs / multi-domain | technical soundness, shape feasibility |
+| R-devops | ∃ CI/CD / deploy / infra | operational impact |
 
 ∀ r ∈ ρ → spawn ∥ `Task(subagent_type: "dev-core:<r>", prompt: "Review α for <focus>. ¬TaskCreate. Return: good / needs improvement / concerns + specific line references.")`.
 
