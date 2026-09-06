@@ -12,10 +12,12 @@ Let:
   I_TS := `${CLAUDE_PLUGIN_ROOT}/skills/dev-init/init.ts`
   Φ    := CLAUDE_PLUGIN_ROOT
   F    := `--force` flag present in `$ARGUMENTS`
-  σ    := `.claude/stack.yml`
+  σ    := `.dev/stack.yml`
   D(label, result) := Display: `{label} {result}`
   D✅(label)       := D(label, "✅ Created")
   D⏭(label)       := D(label, "⏭ Skipped")
+
+**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
 
 Configure CI/CD pipelines and local safety nets: GitHub Actions workflows, secret scanning, dependency updates, pre-commit hooks, and marketplace plugins.
 

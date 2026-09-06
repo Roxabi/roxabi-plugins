@@ -1,16 +1,15 @@
-# .claude/stack.yml — dev-core stack configuration
+# .dev/stack.yml — dev-core stack configuration
 # COMMIT this file — it declares project stack conventions (paths, commands,
 # formatter, test runner). No secrets go here; only `.env` stays gitignored.
-# `.claude/dev-core.yml` holds GitHub Project node IDs (public, not secrets) — commit it too.
+# `.dev/dev-core.yml` holds GitHub Project node IDs (public, not secrets) — commit it too.
 #
 # stack.yml.example remains as a reference template for fresh clones.
 #
 # Usage:
-#   1. Copy to your project: cp stack.yml.example .claude/stack.yml
-#   2. Add as first line of CLAUDE.md: @.claude/stack.yml
-#   3. Fill in the values below for your project's stack.
-#   4. Commit .claude/stack.yml alongside code.
-#   5. Run /init to verify setup, /dev-checkup to health-check.
+#   1. Copy to your project: mkdir -p .dev && cp stack.yml.example .dev/stack.yml
+#   2. Fill in the values below for your project's stack.
+#   3. Commit .dev/stack.yml alongside code.
+#   4. Run /init to verify setup, /dev-checkup to health-check.
 
 schema_version: "1.0"
 

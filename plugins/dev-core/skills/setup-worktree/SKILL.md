@@ -22,6 +22,8 @@ Let:
   ω    := non-principal worktree checked out on BRANCH (path = harness layout)
   H_wt := claude-enter | harness-default — see [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md)
 
+**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
+
 One-time setup per issue. Idempotent — safe to re-run if branch/link/ω already exist.
 
 **SSoT dual-harness:** [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md)

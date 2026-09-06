@@ -21,7 +21,7 @@
 # (base + head), so anything read from it can be dictated by the PR author. Split
 # accordingly:
 #   AUTHORITY (decides whether/how the gate runs) — release.model, release.component
-#     → read from the BASE ref (refs/remotes/origin/<base>:.claude/stack.yml). A PR
+#     → read from the BASE ref (refs/remotes/origin/<base>:.dev/stack.yml). A PR
 #       that added `release.model: trunk` (or rewrote release.component) to its own
 #       stack.yml would otherwise flip its OWN gate to unconditional early-green.
 #   WITNESSES (the claim under check) — PR title core, newest CHANGELOG heading.
@@ -47,7 +47,7 @@ name: release-consistency
       version_files_override:
         description: >-
           JSON/YAML list of version-file paths to check on the push/dispatch
-          path, overriding release.version_files from .claude/stack.yml. Used to
+          path, overriding release.version_files from .dev/stack.yml. Used to
           exercise the otherwise-universal-no-op push path (S10 verification).
         type: string
         required: false
@@ -94,7 +94,7 @@ jobs:
           set -euo pipefail
 
           PRICE="plugins/dev-core/skills/promote/price.sh"
-          STACK=".claude/stack.yml"
+          STACK=".dev/stack.yml"
 
           # ── config readers (yq preferred, python3 YAML fallback — S2/D15) ──
           # No heredocs: their column-0 terminators would break the YAML block

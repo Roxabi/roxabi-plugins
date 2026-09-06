@@ -51,7 +51,7 @@ flowchart LR
     E --> F[Result in your repo]
 ```
 
-Plugins are project-agnostic: they read your stack from `.claude/stack.yml` at runtime and adapt to your framework, package manager, and file layout. The same `dev-core` plugin works on a NestJS monorepo and a Django service.
+Plugins are project-agnostic: they read your stack from `.dev/stack.yml` at runtime and adapt to your framework, package manager, and file layout. The same `dev-core` plugin works on a NestJS monorepo and a Django service.
 
 ## Plugins
 

@@ -32,6 +32,8 @@ Let:
   τ := tier (S | F-lite | F-full)
   Q := present choice, wait for user reply
 
+**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
+
 ## Pipeline
 
 | Phase | ID | Required | Verifies via | Notes |

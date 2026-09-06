@@ -10,7 +10,7 @@ allowed-tools: Bash, Read, ToolSearch
 
 Let:
   F    := `--force` flag present in `$ARGUMENTS`
-  σ    := `.claude/stack.yml`
+  σ    := `.dev/stack.yml`
   D✅(label) := Display: `{label} ✅ Configured`
   D⏭(label)  := Display: `{label} ⏭ Already configured`
   D⚠(label)  := Display: `{label} ⚠️ Install failed — check network/lockfile`
@@ -25,8 +25,9 @@ Check prerequisites and per-component state before any installation.
 
 1. Verify σ exists:
    ```bash
-   test -f .claude/stack.yml && echo "found" || echo "missing"
+   test -f .dev/stack.yml && echo "found" || echo "missing"
    ```
+   found → Read σ; bind `runtime`, `package_manager`, `hooks.tool` from it before any phase — the cookbooks resolve `{package_manager}` from these.
    missing → warn: "stack.yml not found — release-setup reads runtime and hook runner from it."
    → present choice **Run `/R-env-setup` first** | **Proceed manually**
    Proceed manually → continue with defaults (runtime: node, package_manager: npm, hooks.tool: none).

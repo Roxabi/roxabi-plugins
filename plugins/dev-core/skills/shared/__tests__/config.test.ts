@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import { registerGitHubRepoDetectionSuite } from './suites/detect-github-repo.suite'
 
-// Mock fs to block only .claude/dev-core.yml, pass through everything else.
+// Mock fs to block only .dev/dev-core.yml, pass through everything else.
 // vi.spyOn doesn't work on ESM namespace objects (non-configurable exports).
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
   return {
     ...actual,
     readFileSync: (path: string, encoding?: BufferEncoding) => {
-      if (path === '.claude/dev-core.yml') {
+      if (path === '.dev/dev-core.yml') {
         throw new Error('ENOENT')
       }
       return actual.readFileSync(path, encoding ?? 'utf-8')

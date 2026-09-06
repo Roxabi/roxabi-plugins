@@ -18,7 +18,7 @@ Plugin hooks that run automatically on file writes and shell commands (Claude Co
 
 ## How `format.cjs` Works
 
-`format.cjs` reads `build.formatter_fix_cmd` from `.claude/stack.yml` at runtime:
+`format.cjs` reads `build.formatter_fix_cmd` from `.dev/stack.yml` at runtime:
 
 - **Empty / key absent** → exits silently, no formatting applied
 - **Set** → runs the command with the modified file paths appended as arguments
@@ -37,7 +37,7 @@ Formatting errors are **non-fatal**: if the formatter exits non-zero, the hook e
 
 ## Configuring Your Formatter
 
-Set `build.formatter_fix_cmd` (single) or `build.formatters` (multi) in `.claude/stack.yml`.
+Set `build.formatter_fix_cmd` (single) or `build.formatters` (multi) in `.dev/stack.yml`.
 
 ### Single formatter — Bun + Biome
 

@@ -10,7 +10,7 @@ set -euo pipefail
 # model with a yq → python3 → default chain so the guard never goes inert when
 # yq is absent on CI; default staging-train keeps existing repos unaffected (N9).
 read_release_model() {
-  local stack=".claude/stack.yml"
+  local stack=".dev/stack.yml"
   [ -f "$stack" ] || { echo staging-train; return; }
   if command -v yq >/dev/null 2>&1; then
     yq -r '.release.model // "staging-train"' "$stack"

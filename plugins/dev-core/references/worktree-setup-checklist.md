@@ -4,7 +4,7 @@ version: 1
 
 # Worktree Setup Checklist
 
-This file is parsed by `tools/worktreeScaffold.ts` (dev-core). The scaffolder reads each concern, evaluates its `applies_when` signals against the current project's `ProjectContext` (derived from `.claude/stack.yml` and filesystem probes), then composes the matching setup/teardown snippets into `tools/worktree-setup.sh` and `tools/worktree-teardown.sh` in the user's project root. The LLM may re-order concerns and insert bridging comments between snippets for readability, but **must not rewrite snippet bodies** — snippets are audited for correctness and must land verbatim.
+This file is parsed by `tools/worktreeScaffold.ts` (dev-core). The scaffolder reads each concern, evaluates its `applies_when` signals against the current project's `ProjectContext` (derived from `.dev/stack.yml` and filesystem probes), then composes the matching setup/teardown snippets into `tools/worktree-setup.sh` and `tools/worktree-teardown.sh` in the user's project root. The LLM may re-order concerns and insert bridging comments between snippets for readability, but **must not rewrite snippet bodies** — snippets are audited for correctness and must land verbatim.
 
 ## Concerns
 
@@ -142,7 +142,7 @@ Suppose your project uses Docker Compose and you want each worktree to start wit
     validation: "volume is created on setup and removed on teardown; both sides exit 0 if docker is unavailable"
 ```
 
-Then set `infrastructure: docker-compose` in `.claude/stack.yml`. The scaffolder picks up the signal on next run and regenerates the scripts. **No skill code changes required.**
+Then set `infrastructure: docker-compose` in `.dev/stack.yml`. The scaffolder picks up the signal on next run and regenerates the scripts. **No skill code changes required.**
 
 The `neon-db-branch` concern above follows the same pattern: it accepts an optional branch name argument `$1`, silently exits when not provided, and delegates to a project-local `bun run` command — showing that snippets can call project tooling without coupling to scaffolder internals.
 

@@ -4,13 +4,14 @@
 
 import * as fs from 'node:fs'
 import * as os from 'node:os'
+import { DEV_CORE_YML, STACK_YML } from '../../hooks/lib/contract-paths.cjs'
 import { parseStackYml } from '../../hooks/lib/parse-stack-yml.cjs'
 import { lefthookHasPrincipalFreeze } from '../shared/lefthook-persist'
 import type { PrereqResult } from '../shared/prereqs'
 import { type Check, readConfig, type Section, spawnSync } from './doctor-shared'
 
 function readParsedStack(): ReturnType<typeof parseStackYml> {
-  const raw = fs.readFileSync('.claude/stack.yml', 'utf8') as string
+  const raw = fs.readFileSync(STACK_YML, 'utf8') as string
   return parseStackYml(raw)
 }
 
@@ -40,13 +41,13 @@ export function checkPrereqsSection(prereqs: PrereqResult): Section {
 export function checkProjectStructure(): Section {
   const checks: Check[] = []
 
-  // .claude/dev-core.yml (primary config)
-  const devCoreYmlExists = fs.existsSync('.claude/dev-core.yml')
+  // dev-core.yml (primary config)
+  const devCoreYmlExists = fs.existsSync(DEV_CORE_YML)
   checks.push({
     name: 'dev-core.yml',
     status: devCoreYmlExists ? 'pass' : 'warn',
     detail: devCoreYmlExists
-      ? 'found (.claude/dev-core.yml)'
+      ? `found (${DEV_CORE_YML})`
       : 'missing — config read from .env fallback. Run /init to generate.',
   })
 
@@ -464,7 +465,7 @@ export function checkVercel(): Section {
 export function checkStandardsPaths(): Section {
   const checks: Check[] = []
 
-  if (!fs.existsSync('.claude/stack.yml')) {
+  if (!fs.existsSync(STACK_YML)) {
     return { name: 'Standards', checks: [{ name: 'stack.yml', status: 'skip', detail: 'not found' }] }
   }
 

@@ -42,11 +42,11 @@ maxTurns: 50
 
 # Backend Dev (project override)
 
+**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
+`{backend.path}` unset → output: "backend.path not set in `.dev/stack.yml` — run `/R-env-setup`." and stop.
 **Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
 **Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).
 **Quality gates:** after implementation run `{commands.lint} && {commands.typecheck} && {commands.test}`. ✗ → fix before reporting done. Config failures → message R-devops.
-
-If `{backend.path}` is undefined → output: "`.claude/stack.yml` not found."
 
 <!-- all plugin content -->
 
@@ -80,7 +80,7 @@ Same SKILL.md format. Copy plugin version as base, add project phases ∨ modify
 | Base protocol (Communication, Research, Quality gates) | Edge cases (add project-specific) |
 | Core workflow phases in skills | Standards refs (point to project docs) |
 
-**¬remove** Phase 0 config guard — α hard-stop w/o it when `stack.yml` missing.
+**¬remove** Phase 0 config guard — it carries the `.dev/stack.yml` Read; w/o it ∀ `{field}` stays unresolved ∧ α ¬hard-stop when the file is missing.
 
 ## When ¬override
 

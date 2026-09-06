@@ -19,9 +19,9 @@ TODO: Document environment variables.
 <!-- Document configuration files and their purpose. Example:
   | File | Purpose | Committed? |
   |------|---------|:---:|
-  | .claude/stack.yml | Dev-core stack config | Yes |
-  | .claude/stack.yml.example | Reference template for fresh clones | Yes |
-  | .claude/dev-core.yml | Dev-core plugin config (GitHub IDs, Vercel) | Yes |
+  | .dev/stack.yml | Dev-core stack config | Yes |
+  | .dev/stack.yml.example | Reference template for fresh clones | Yes |
+  | .dev/dev-core.yml | Dev-core plugin config (GitHub IDs, Vercel) | Yes |
   | .env | Per-machine secrets / env vars | No (.gitignored) |
   | biome.json | Linter/formatter config | Yes |
   | tsconfig.json | TypeScript config | Yes |
@@ -33,7 +33,7 @@ TODO: Document config files.
 
 <!-- Document precedence when multiple config sources exist. Example:
   1. Environment variable (highest)
-  2. .claude/dev-core.yml
+  2. .dev/dev-core.yml
   3. .env file
   4. Default value (lowest)
 -->

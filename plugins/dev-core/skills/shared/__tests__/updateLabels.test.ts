@@ -14,13 +14,13 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Block .claude/dev-core.yml so the vitest.config.ts env (GITHUB_REPO=Test/test-repo) is the sole source.
+// Block .dev/dev-core.yml so the vitest.config.ts env (GITHUB_REPO=Test/test-repo) is the sole source.
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
   return {
     ...actual,
     readFileSync: (path: string, encoding?: BufferEncoding) => {
-      if (path === '.claude/dev-core.yml') throw new Error('ENOENT')
+      if (path === '.dev/dev-core.yml') throw new Error('ENOENT')
       return actual.readFileSync(path, encoding ?? 'utf-8')
     },
   }

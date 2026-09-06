@@ -20,7 +20,7 @@ Triggers: `"dev-init"` | `"setup project"` | `"initialize project"`
 
 ## How it works
 
-1. **Idempotency check** — detects existing `.claude/dev-core.yml` or `.env` config; asks to re-configure or skip.
+1. **Idempotency check** — detects existing `.dev/dev-core.yml` or `.env` config; asks to re-configure or skip.
 2. **Prerequisites** — verifies `bun`, `gh`, and `git remote` are available; shows install links for missing tools.
 3. **Sub-skills** — calls in order:
    - `/R-env-setup` — stack.yml, CLAUDE.md rules, docs stubs, LSP
@@ -41,6 +41,6 @@ Each sub-skill is independently re-runnable to reconfigure a single concern:
 
 ## Safety
 
-- Never commits secrets — `.env` is gitignored. `.claude/dev-core.yml` contains only the public `github_repo` slug and is committed.
+- Never commits secrets — `.env` is gitignored. `.dev/dev-core.yml` contains only the public `github_repo` slug and is committed.
 - Idempotent — sub-skills skip already-configured items unless `--force`.
 - On a repo that already has CI/hooks: prefer `/R-env-setup` alone, or `/R-dev-init --force` only with intent.

@@ -2,29 +2,29 @@
 name: R-stack-setup
 disable-model-invocation: true
 argument-hint: '[--force]'
-description: Fill `.claude/stack.yml` via guided discovery.
+description: Fill `.dev/stack.yml` via guided discovery.
 version: 0.3.2
 allowed-tools: Read, Edit, Write, Bash, Glob, ToolSearch
 ---
 
 # Stack Setup Wizard
 
-Auto-discover project config → confirm → write `.claude/stack.yml`. Safe to re-run.
+Auto-discover project config → confirm → write `.dev/stack.yml`. Safe to re-run.
 
-Let: σ := `.claude/stack.yml` | π := proposed config table
+Let: σ := `.dev/stack.yml` | π := proposed config table
 
 ## Phase 0 — Idempotency
 
-`test -f .claude/stack.yml && echo exists || echo missing`
+`test -f .dev/stack.yml && echo exists || echo missing`
 
 σ ∃ ∧ `--force` ∉ `$ARGUMENTS` → present choice **Re-configure** | **Skip**
 → Skip: "Keeping existing σ. Run with `--force` to reconfigure."
 
-σ ∄ → `mkdir -p .claude`
+σ ∄ → `mkdir -p .dev`
 
 ## Phase 1 — Check /init prerequisite
 
-`test -f .claude/dev-core.yml && echo done || echo missing`
+`test -f .dev/dev-core.yml && echo done || echo missing`
 
 `missing` → present choice **Continue anyway** | **Abort (run /init first)**
 
@@ -151,10 +151,10 @@ Detected configuration
 
 ## Phase 4 — Write stack.yml
 
-Assemble σ. Omit `none`/empty keys entirely.
+Assemble σ. Omit `none`/empty keys entirely. Ensure the directory exists first: `mkdir -p .dev`.
 
 ```yaml
-# .claude/stack.yml — dev-core stack configuration
+# .dev/stack.yml — dev-core stack configuration
 # Commit this file with the project. Secrets live in .env only.
 schema_version: "1.0"
 
@@ -334,7 +334,7 @@ Let:
    chmod +x tools/worktree-setup.sh tools/worktree-teardown.sh
    ```
 
-7. **Register keys in σ.** Append under `commands:` block of `.claude/stack.yml`:
+7. **Register keys in σ.** Append under `commands:` block of `.dev/stack.yml`:
    ```yaml
      worktree_setup: tools/worktree-setup.sh
      worktree_teardown: tools/worktree-teardown.sh
@@ -350,12 +350,11 @@ Let:
      commands.worktree_teardown    ✅ Registered in σ
    ```
 
-## Phase 5 — CLAUDE.md and reference template
+## Phase 5 — Reference template
 
-1. **@import:** `head -1 CLAUDE.md` ≠ `@.claude/stack.yml` → prepend; else already present.
-2. **Example:** `.claude/stack.yml.example` ∄ → copy σ → "Created as reference template."
+1. **Example:** `.dev/stack.yml.example` ∄ → copy σ → "Created as reference template."
 
-Note: `.claude/stack.yml` itself is committed (project stack conventions — no secrets). Only `.env` is gitignored by dev-core. `.claude/dev-core.yml` contains only public repo configuration and is committed.
+Note: `.dev/stack.yml` itself is committed (project stack conventions — no secrets). Only `.env` is gitignored by dev-core. `.dev/dev-core.yml` contains only public repo configuration and is committed.
 
 ## Phase 6 — Summary
 
@@ -370,10 +369,9 @@ Stack configuration written
   Linter:      {FORMATTER} ({FORMATTER_CONFIG})
   Docs:        {DOCS_PATH | "none"}
 
-  .claude/stack.yml           ✅ Written
-  CLAUDE.md @import           ✅ Added / Already present
+  .dev/stack.yml              ✅ Written
   .gitignore                  ✅ Updated / Already set
-  .claude/stack.yml.example   ✅ Created / Already exists
+  .dev/stack.yml.example      ✅ Created / Already exists
   tools/worktree-setup.sh     ✅ Written / Skipped (unsupported runtime | already present)
   tools/worktree-teardown.sh  ✅ Written / Skipped (unsupported runtime | already present)
   commands.worktree_setup     ✅ Registered in σ / Skipped

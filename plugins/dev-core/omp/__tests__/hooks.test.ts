@@ -3,21 +3,28 @@ import {
   extractWriteContent,
   hasProjectContract,
   isBunTestBlocked,
-  PROJECT_CONTRACT_FILES,
   rewriteHarnessPaths,
   shouldBlockPrincipalSwitch,
 } from '../guards'
 
 describe('OMP dev-core hooks', () => {
   describe('project contract', () => {
-    it('accepts host-neutral contract files', () => {
-      for (const rel of PROJECT_CONTRACT_FILES) {
-        expect(hasProjectContract('/repo', (path) => path.endsWith(`/${rel}`))).toBe(true)
-      }
+    it('accepts .dev/stack.yml alone', () => {
+      expect(hasProjectContract('/repo', (path) => path === '/repo/.dev/stack.yml')).toBe(true)
+    })
+
+    it('accepts .dev/dev-core.yml alone', () => {
+      expect(hasProjectContract('/repo', (path) => path === '/repo/.dev/dev-core.yml')).toBe(true)
     })
 
     it('ignores .claude/stack.yml', () => {
       expect(hasProjectContract('/repo', (path) => path === '/repo/.claude/stack.yml')).toBe(false)
+    })
+
+    it('ignores the retired pre-.dev contract locations', () => {
+      for (const rel of ['stack.yml', '.omp/stack.yml', 'dev-core.yml', '.omp/dev-core.yml']) {
+        expect(hasProjectContract('/repo', (path) => path === `/repo/${rel}`)).toBe(false)
+      }
     })
 
     it('is false when no contract exists', () => {

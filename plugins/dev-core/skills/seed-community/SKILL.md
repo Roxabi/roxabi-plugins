@@ -10,7 +10,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 # Seed Community
 
 Let:
-  σ := `.claude/stack.yml` config
+  σ := `.dev/stack.yml` config
   M := project metadata (name, description, license, author, repo URL)
   χ := community health file
   θ := stub threshold (< 20 lines of real content)
@@ -29,7 +29,7 @@ Let:
 
 ## Phase 1 — Load Metadata
 
-**1a.** Read σ (`cat .claude/stack.yml 2>/dev/null`). Extract: `runtime`, `package_manager`, `commands.*`, `build.formatter`.
+**1a.** Read σ (`cat .dev/stack.yml 2>/dev/null`). Extract: `runtime`, `package_manager`, `commands.*`, `build.formatter`.
 
 **1b.** Read project metadata:
 ```bash

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  *
  * **Caller contract — required hoisted mock.** Each calling test file must
  * hoist a `node:fs` mock at module scope (vitest hoists `vi.mock(...)` above
- * imports) to block `.claude/dev-core.yml` reads so config-helper loads stay
+ * imports) to block `.dev/dev-core.yml` reads so config-helper loads stay
  * deterministic. The suite installs its own `Bun.spawnSync` / `execSync` spies.
  */
 export function registerGitHubRepoDetectionSuite(opts: { detectGitHubRepo: () => string }) {

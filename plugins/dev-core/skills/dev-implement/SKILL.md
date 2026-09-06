@@ -23,6 +23,8 @@ Let:
   QG := `{commands.format} && {commands.lint} && {commands.typecheck} && {commands.test}`
   bar := mechanical floor (format/lint/typecheck/test pass), ¬the quality bar — output must read as hand-authored by a dev-core maintainer: match surrounding idiom, naming, and comment density; calibrate against `plugins/dev-core/`
 
+**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
+
 Plan → ω → agents (test-first) → passing QG.
 
 **Flow: single continuous pipeline. ¬stop between steps. Decision response → immediately execute next step. Stop only on: explicit Cancel/Abort or Step 6 completion.**

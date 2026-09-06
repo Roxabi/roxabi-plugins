@@ -42,7 +42,7 @@ After installing **dev-core**, run the full project harness:
 
 > **Not** bare `/init` — that is the host built-in (scaffolds a `CLAUDE.md` only). The Roxabi harness is namespaced: `/R-dev-init`.
 
-Auto-detects your GitHub repo. Writes `.claude/dev-core.yml` (primary config) and `.env` (legacy fallback), registers the project in `~/.roxabi-vault/workspace.json`, generates a self-healing `roxabi` shim, and creates the `artifacts/` directory. Works for any project type. Re-run with `/R-dev-init --force` to reconfigure.
+Auto-detects your GitHub repo. Writes `.dev/dev-core.yml` (primary config) and `.env` (legacy fallback), registers the project in `~/.roxabi-vault/workspace.json`, generates a self-healing `roxabi` shim, and creates the `artifacts/` directory. Works for any project type. Re-run with `/R-dev-init --force` to reconfigure.
 
 Then configure the agent stack (also available standalone as `/R-env-setup` / `/R-stack-setup` without the full harness):
 
@@ -50,9 +50,11 @@ Then configure the agent stack (also available standalone as `/R-env-setup` / `/
 /R-stack-setup
 ```
 
-Auto-discovers your runtime, framework, test tooling, and linter from the codebase, shows a confirmation screen, and writes `.claude/stack.yml` so all agents know where things live.
+Auto-discovers your runtime, framework, test tooling, and linter from the codebase, shows a confirmation screen, and writes `.dev/stack.yml` so all agents know where things live.
 
-**Project-agnostic:** All skills and agents read commands and paths from `.claude/stack.yml` at runtime — `{commands.test}`, `{commands.lint}`, `{package_manager}`, `{backend.path}`, etc. If a required field is missing, the agent immediately tells you to run `/R-env-setup` or `/R-stack-setup`. This means dev-core works with any stack — Bun/npm/pnpm/yarn, NestJS/Express/Django, Vitest/Jest/Pytest.
+**Project-agnostic:** All skills and agents read commands and paths from `.dev/stack.yml` at runtime — `{commands.test}`, `{commands.lint}`, `{package_manager}`, `{backend.path}`, etc. If a required field is missing, the agent immediately tells you to run `/R-env-setup` or `/R-stack-setup`. This means dev-core works with any stack — Bun/npm/pnpm/yarn, NestJS/Express/Django, Vitest/Jest/Pytest.
+
+**Host-neutral contract:** the project contract lives in `.dev/` — `stack.yml` (stack conventions) and `dev-core.yml` (GitHub IDs). Both are committed and read identically by Claude, OMP, Grok and CI; no host owns them. `.claude/` keeps only Claude host state (`settings.json`, worktrees) and holds no project contract.
 
 **Note:** dev-core is issues-only — no GitHub Project V2 board. Issue triage (labels for size/priority/lane/type, blocked-by deps, parent/child sub-issues) lives in the companion **`issue-triage`** plugin (`./plugins/issue-triage`); historically hosted in Roxabi/roxabi-live. dev-core's `/R-dev` lifecycle reads issues but no longer mutates them.
 
@@ -78,7 +80,7 @@ Skills organized by workflow phase:
 | `R-dev-init` | Setup | Project setup orchestrator — env-setup → axial ADR gate → ci-setup → release-setup in one harness. Invoke as `/R-dev-init` (not the host built-in `/init`, which only scaffolds `CLAUDE.md`) |
 | `R-env-setup` | Setup | Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding (Markdown), LSP. Triggered by `/R-dev-init` or standalone `/R-env-setup` |
 | `R-ci-setup` | Setup | Set up CI/CD — GitHub Actions workflows, TruffleHog, Dependabot, pre-commit hooks, marketplace plugins. Discovers Roxabi plugins live from `marketplace.json` and endorsed external marketplaces from `curated-marketplaces.json` |
-| `R-stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.claude/stack.yml`. Single confirmation screen — no wizard questions |
+| `R-stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.dev/stack.yml`. Single confirmation screen — no wizard questions |
 | `R-dev-checkup` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows (checks both local files and remote via REST API), required secrets (PAT for auto-merge.yml), branch protection, stack.yml, workspace.json registration, and LSP plugin install (typescript-lsp / pyright-lsp with auto-fix). Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
 | `R-seed-docs` | Setup | Populates scaffolded architecture/standards docs with real content — reads CLAUDE.md for conventions, optionally scans codebase (entry points, import graph, naming patterns), fills TODO stubs, writes AI Quick Reference sections. Idempotent: skips already-populated files |
 | `R-seed-community` | Setup | Bootstraps OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), `.github/PULL_REQUEST_TEMPLATE.md`, issue templates. Reads project metadata + CLAUDE.md; generates missing files idempotently |

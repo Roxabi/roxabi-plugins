@@ -37,7 +37,7 @@ Record SRC. ¬δ after scan → ask user describe change.
 
 ## Phase 2 — Discover Context
 
-**2a.** `cat .claude/stack.yml 2>/dev/null` → ∃ `docs.path` → DOCS_ROOT = docs.path; else project root.
+**2a.** `cat .dev/stack.yml 2>/dev/null` → ∃ `docs.path` → DOCS_ROOT = docs.path; else project root.
 
 **2b.** `ls .claude-plugin/marketplace.json 2>/dev/null` → ∃ → `PLUGINS_REPO=$(pwd)`. Skip to 2d.
 

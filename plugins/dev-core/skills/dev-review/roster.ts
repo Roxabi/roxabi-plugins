@@ -6,6 +6,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { STACK_YML } from '../../hooks/lib/contract-paths.cjs'
 
 export const VALID_CLAIMS: Record<string, true> = { 'fail-closed': true, authz: true, ssot: true }
 
@@ -905,7 +906,7 @@ function main(): void {
   let oracleOk: OracleOk = 'missing'
   let chunks = 1
   let chunksExplicit = false
-  let stackPath = '.claude/stack.yml'
+  let stackPath: string = STACK_YML
   let adrDir = 'docs/architecture/adr'
   let json = false
 

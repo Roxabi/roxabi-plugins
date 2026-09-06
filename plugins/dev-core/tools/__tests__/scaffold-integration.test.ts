@@ -390,7 +390,7 @@ describe('bun.monorepo+neon fixture integration', () => {
 
 describe('env-setup retrofit detection', () => {
   const FIXTURE_PATH = path.join(FIXTURES_ROOT, 'retrofit-bun')
-  const STACK_YML_PATH = path.join(FIXTURE_PATH, '.claude/stack.yml')
+  const STACK_YML_PATH = path.join(FIXTURE_PATH, '.dev/stack.yml')
   let tmpDir: string
 
   afterEach(() => {
@@ -416,7 +416,7 @@ describe('env-setup retrofit detection', () => {
     fs.mkdirSync(path.join(tmpDir, 'tools'), { recursive: true })
     fs.writeFileSync(path.join(tmpDir, 'tools', 'worktree-setup.sh'), '#!/usr/bin/env bash\n')
 
-    const content = fs.readFileSync(path.join(tmpDir, '.claude', 'stack.yml'), 'utf-8')
+    const content = fs.readFileSync(path.join(tmpDir, '.dev', 'stack.yml'), 'utf-8')
     expect(shouldOfferRetrofit(content, tmpDir)).toBe(false)
   })
 

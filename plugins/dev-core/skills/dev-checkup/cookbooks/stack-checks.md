@@ -10,19 +10,17 @@ Run all checks. Collect fixable items. Apply fixes at end (Phase 2 Fix).
 |-------|----|----|
 | δ ∃ | "dev-core.yml found (primary config)" | ⚠️ "missing — config from .env fallback. Run `/init`" |
 | σ ∃ | ✅ | ❌ "stack.yml missing" |
-| `.claude/stack.yml.example` ∃ | ✅ | ⚠️ "stack.yml.example missing" |
+| `.dev/stack.yml.example` ∃ | ✅ | ⚠️ "stack.yml.example missing" |
 
 σ missing → Ask: **Set up now** (recommended) | **Continue with warnings** (stack checks → ⏭).
-Set up → O_stackSetup { `cp "${Φ}/stack.yml.example" .claude/stack.yml`; Ask ∀ critical field (Runtime, Backend path, Frontend path, Test command); write values; prepend @import to CLAUDE.md if missing; ¬example → copy; D✅("stack.yml — fill remaining fields; commit alongside code") }. Continue checks against new file.
+Set up → O_stackSetup { `mkdir -p .dev && cp "${Φ}/stack.yml.example" .dev/stack.yml`; Ask ∀ critical field (Runtime, Backend path, Frontend path, Test command); write values; ¬example → copy; D✅("stack.yml — fill remaining fields; commit alongside code") }. Continue checks against new file.
 
 **Schema:** ∀ field ∈ {`schema_version`, `commands.test`, `commands.lint`, `commands.typecheck`}: chk(∃, ✅, ⚠️ "Missing {field}").
 Contextual (warn only if parent section ∃ but field blank): `backend.path`, `frontend.path`, `standards.testing`, `standards.backend`, `standards.frontend`.
 
-**CLAUDE.md import:** first line = `@.claude/stack.yml` → ✅ | ⚠️ "missing @import".
-
 **CLAUDE.md Critical Rules completeness:**
 
-Run: `bun $I_TS scaffold-rules --stack-path .claude/stack.yml --claude-md CLAUDE.md`. Parse JSON → `projectType`, `sections`, `existing`.
+Run: `bun $I_TS scaffold-rules --stack-path .dev/stack.yml --claude-md CLAUDE.md`. Parse JSON → `projectType`, `sections`, `existing`.
 
 - `existing.sectionIds` covers all expected sections for `projectType` → ✅ "Critical Rules complete ({N}/{N} sections for {projectType})"
 - partial → ⚠️ "Critical Rules incomplete — missing: {missing section ids}. Run `/init` to scaffold." (auto-fixable)
@@ -97,7 +95,6 @@ Show list:
 ```
 Auto-fixable issues:
   [ ] stack.yml missing
-  [ ] CLAUDE.md import missing
   [ ] artifacts/analyses dir missing
   [ ] hooks.tool not set
   [ ] lefthook not installed
@@ -114,8 +111,7 @@ Ask: **Fix all** | **Select** | **Skip**
 | Issue | Fix |
 |-------|-----|
 | `stack.yml missing` | Re-offer O_stackSetup |
-| `stack.yml.example missing` | `cp "${Φ}/stack.yml.example" .claude/stack.yml.example` |
-| `CLAUDE.md import missing` | Prepend `@.claude/stack.yml\n` to CLAUDE.md |
+| `stack.yml.example missing` | `mkdir -p .dev && cp "${Φ}/stack.yml.example" .dev/stack.yml.example` |
 | `Critical Rules missing/incomplete` | Run `bun $I_TS scaffold-rules`, then append/merge generated markdown into CLAUDE.md (same logic as `/init` Phase 2c) |
 | `dev-core.yml missing` | Run `/init` |
 | `artifacts.* dir missing` | `mkdir -p {path}` ∀ missing |

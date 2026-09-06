@@ -27,7 +27,7 @@ Unregistered scan:
 ```bash
 SEARCH_DIRS="$(dirname $PWD) $HOME/projects"
 for dir in $SEARCH_DIRS; do
-  find "$dir" -maxdepth 3 \( -path "*/.claude/dev-core.yml" -o -name ".env" \) 2>/dev/null
+  find "$dir" -maxdepth 3 \( -path "*/.dev/dev-core.yml" -o -name ".env" \) 2>/dev/null
 done | sort -u
 ```
 

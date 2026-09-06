@@ -47,7 +47,7 @@ Other skills resolve via `skill://` when the plugin is linked (`omp plugin link`
 - Principal-branch freeze (pre) on high-traffic `git switch` / `checkout` forms
 - Security scan on `write` and OMP `edit` hashline payloads (fail-open on very large payloads)
 
-Guards no-op unless a project contract file exists: `stack.yml`, `.omp/stack.yml`, `dev-core.yml`, or `.omp/dev-core.yml`. Missing contract → one stderr warning per cwd, then silent no-op. `.claude/stack.yml` is not a contract.
+Guards no-op unless a project contract file exists: `.dev/stack.yml` or `.dev/dev-core.yml`. Missing contract → one stderr warning per cwd, then silent no-op. `.claude/stack.yml` is not a contract.
 
 No post-bash nudge (OMP would treat it as a user turn). No format hook (v1). Escape: `DEV_CORE_ALLOW_PRINCIPAL_SWITCH=1`.
 

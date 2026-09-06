@@ -10,7 +10,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 # Seed Docs
 
 Let:
-  σ := `.claude/stack.yml` config
+  σ := `.dev/stack.yml` config
   DOCS := `docs.path` from σ (default: `docs`)
   FMT := `md` (write always Markdown; legacy `.mdx` stubs still eligible for fill)
   θ := stub threshold (< 30 non-blank, non-frontmatter lines OR ∃ `TODO:` markers)
@@ -28,7 +28,7 @@ Let:
 
 ## Phase 1 — Load Config
 
-Read σ (`cat .claude/stack.yml 2>/dev/null`). Record DOCS, `runtime`, `backend.framework`, `frontend.framework`, `backend.orm`.
+Read σ (`cat .dev/stack.yml 2>/dev/null`). Record DOCS, `runtime`, `backend.framework`, `frontend.framework`, `backend.orm`.
 
 ¬σ → DOCS=`docs`. `--docs-path <p>` ∈ $ARGUMENTS → DOCS=p. `--no-scan` ∈ $ARGUMENTS → skip Phase 3.
 

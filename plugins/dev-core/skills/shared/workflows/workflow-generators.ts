@@ -4,6 +4,7 @@
  * Push/write lives in workflow-push.ts.
  */
 
+import { STACK_YML } from '../../../hooks/lib/contract-paths.cjs'
 import { ACTION_PINS, APP_MINT_STEP } from './workflow-pins'
 import { normalizeWorkflowOpts, type WorkflowOpts } from './workflow-types'
 import { generateE2eJob } from './workflows-fleet'
@@ -191,7 +192,7 @@ export function generateAutoReleaseYml(opts: WorkflowOpts): string {
     throw new Error(
       `generateAutoReleaseYml: release.component must match /^[A-Za-z0-9._-]+$/ (got ${JSON.stringify(
         component,
-      )}). Set release.component in .claude/stack.yml before enabling trunk mode.`,
+      )}). Set release.component in ${STACK_YML} before enabling trunk mode.`,
     )
   }
   return `# Auto-release on merge to main (trunk mode, Model B — dev-core #371).

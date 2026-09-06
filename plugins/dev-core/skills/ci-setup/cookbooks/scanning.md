@@ -1,7 +1,7 @@
 # Cookbook: Secret Scanning + Dependabot
 
 Let:
-  σ    := `.claude/stack.yml`
+  σ    := `.dev/stack.yml`
   I_TS := `${CLAUDE_PLUGIN_ROOT}/skills/dev-init/init.ts`
   D(label, result) := Display: `{label} {result}`
   D✅(label)       := D(label, "✅ Created")

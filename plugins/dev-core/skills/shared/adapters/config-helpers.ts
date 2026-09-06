@@ -4,18 +4,19 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { DEV_CORE_YML } from '../../../hooks/lib/contract-paths.cjs'
 import { ConfigError } from '../domain/errors'
 
 /**
- * Load a config value from .claude/dev-core.yml with 3-tier fallback:
- *   1st: .claude/dev-core.yml (YAML key lookup)
+ * Load a config value from .dev/dev-core.yml with 3-tier fallback:
+ *   1st: .dev/dev-core.yml (YAML key lookup)
  *   2nd: process.env[envKey]
  *   3rd: gh CLI auto-detect (github_repo)
  */
 function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
-  // 1st: Try .claude/dev-core.yml
+  // 1st: Try the project contract's dev-core.yml
   try {
-    const yaml = readFileSync('.claude/dev-core.yml', 'utf-8')
+    const yaml = readFileSync(DEV_CORE_YML, 'utf-8')
     const match = yaml.match(new RegExp(`^${key}:\\s*['"]?(.+?)['"]?\\s*$`, 'm'))
     const value = match?.[1]
     if (value && value !== "''") return value

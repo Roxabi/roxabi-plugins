@@ -19,6 +19,8 @@ Let:
   π := test file adjacent to source (`{name}.test.ts` | `{name}.spec.ts` | `__tests__/{name}.test.ts`)
   Σ := `{standards.testing}`
 
+**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
+
 Generate tests for changed/specified files. Follow existing codebase patterns.
 
 ## Usage

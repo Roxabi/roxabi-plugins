@@ -43,7 +43,7 @@ When a step needs a subagent, instruct: *“spawn the project agent for role X w
 
 ## Phase 1 — Parse Input + Idempotency
 
-¬F → check existing: `test -f .claude/dev-core.yml && echo "1" || grep -c 'dev-core' .env 2>/dev/null || echo "0"`.
+¬F → check existing: `test -f .dev/dev-core.yml && echo "1" || grep -c 'dev-core' .env 2>/dev/null || echo "0"`.
 result > 0 → present choice **Re-configure** (≡F) | **Skip** (abort).
 
 ## Phase 2 — Prerequisites
@@ -132,7 +132,7 @@ Next steps:
 
 ## Safety Rules
 
-1. **Never commit secrets** — `.env` must be gitignored (`.claude/dev-core.yml` contains only public repo configuration — commit it)
+1. **Never commit secrets** — `.env` must be gitignored (`.dev/dev-core.yml` contains only public repo configuration — commit it)
 2. **Always present choices and wait for user reply** before destructive operations (delegated to sub-skills)
 3. **Idempotent** — safe to re-run; sub-skills merge rather than overwrite
 

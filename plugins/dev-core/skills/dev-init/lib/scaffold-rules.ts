@@ -1,11 +1,11 @@
 /**
  * scaffold-rules.ts — Generate CLAUDE.md Critical Rules sections from stack.yml values.
  *
- * Reads .claude/stack.yml, detects project type, and produces markdown sections
+ * Reads .dev/stack.yml, detects project type, and produces markdown sections
  * that can be appended to or merged into an existing CLAUDE.md.
  *
  * Usage:
- *   bun init.ts scaffold-rules [--stack-path .claude/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
+ *   bun init.ts scaffold-rules [--stack-path .dev/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
  *
  * Output: JSON { sections: Section[], markdown: string, projectType: string }
  */
@@ -13,6 +13,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
+import { CONTRACT_DIR, STACK_YML } from '../../../hooks/lib/contract-paths.cjs'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -419,7 +420,6 @@ function sectionsToMarkdown(sections: Section[]): string {
 // ---------------------------------------------------------------------------
 
 interface ExistingSections {
-  hasImport: boolean
   sectionIds: string[]
   /** Parent CLAUDE.md paths found walking up from the repo (until $HOME). */
   parentPaths: string[]
@@ -477,13 +477,11 @@ function analyzeExistingClaudeMd(claudeMdPath: string): ExistingSections {
   const parents = discoverParentClaudeMd(claudeMdPath)
 
   if (!existsSync(claudeMdPath)) {
-    return { hasImport: false, sectionIds: [], ...parents }
+    return { sectionIds: [], ...parents }
   }
 
   const content = readFileSync(claudeMdPath, 'utf-8')
   const lines = content.split('\n')
-
-  const hasImport = lines[0]?.trim() === '@.claude/stack.yml'
 
   // Detect which Critical Rules sections already exist (local only — title match)
   const sectionPatterns: Record<string, RegExp> = {
@@ -509,7 +507,7 @@ function analyzeExistingClaudeMd(claudeMdPath: string): ExistingSections {
     }
   }
 
-  return { hasImport, sectionIds: found, ...parents }
+  return { sectionIds: found, ...parents }
 }
 
 // ---------------------------------------------------------------------------
@@ -525,10 +523,10 @@ export interface ScaffoldRulesOptions {
 export function scaffoldRules(
   options: ScaffoldRulesOptions = {},
 ): ScaffoldRulesResult & { existing: ExistingSections; facts: ScaffoldFacts } {
-  const stackPath = resolve(options.stackPath ?? '.claude/stack.yml')
+  const stackPath = resolve(options.stackPath ?? STACK_YML)
   const claudeMdPath = resolve(options.claudeMdPath ?? 'CLAUDE.md')
-  // Prefer repo root from stack.yml path: <repo>/.claude/stack.yml
-  const repoRoot = basename(dirname(stackPath)) === '.claude' ? dirname(dirname(stackPath)) : process.cwd()
+  // Prefer repo root from stack.yml path: <repo>/.dev/stack.yml
+  const repoRoot = basename(dirname(stackPath)) === CONTRACT_DIR ? dirname(dirname(stackPath)) : process.cwd()
 
   const stack = loadStack(stackPath)
   const projectType = detectProjectType(stack)

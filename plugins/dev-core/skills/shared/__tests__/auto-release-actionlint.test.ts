@@ -74,7 +74,7 @@ describe('generateAutoReleaseYml — actionlint schema validity (#371 S2-T11)', 
 })
 
 /**
- * release.model + release.component as declared in the repo's own .claude/stack.yml.
+ * release.model + release.component as declared in the repo's own .dev/stack.yml.
  * The byte gate below derives the expected COMPONENT from HERE — the same source
  * /R-dev-checkup N11 (workflow-drift.ts) reads — rather than a hardcoded literal, so a
  * rename of release.component that is NOT propagated into the committed
@@ -83,7 +83,7 @@ describe('generateAutoReleaseYml — actionlint schema validity (#371 S2-T11)', 
  * dep: the release block is 2-space-indented children, one `component:` repo-wide.
  */
 function stackRelease(): { model: string; component: string } {
-  const src = readFileSync('.claude/stack.yml', 'utf8')
+  const src = readFileSync('.dev/stack.yml', 'utf8')
   const block = src.match(/^release:[^\n]*\n((?:[ \t]+.*\n?)*)/m)?.[1] ?? ''
   return {
     model: block.match(/^\s+model:\s*([^\s#]+)/m)?.[1] ?? 'staging-train',
@@ -92,7 +92,7 @@ function stackRelease(): { model: string; component: string } {
 }
 
 describe('committed auto-release.yml is byte-equal to the generator (dogfood fidelity, #371 B5)', () => {
-  it('the checked-in workflow matches the generator for .claude/stack.yml release.component (#374 FU-4)', () => {
+  it('the checked-in workflow matches the generator for .dev/stack.yml release.component (#374 FU-4)', () => {
     // The CI analogue of /R-dev-checkup N11 (which only runs at human runtime): a
     // generator edit not mirrored into the committed workflow — or a hand-edit
     // of the committed workflow, or a stack.yml component rename that skipped
