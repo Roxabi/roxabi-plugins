@@ -4,7 +4,7 @@
  * path_hit / priced-fence parsing provenance: #419.
  */
 
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { STACK_YML } from '../../hooks/lib/contract-paths.cjs'
 
@@ -343,6 +343,24 @@ function readOrWarn(path: string, what: string, warnings?: string[]): string | n
     warnings?.push(`${what} unreadable: ${message}`)
     return null
   }
+}
+
+// Legacy contract location: a presence probe, never a read path. Deliberately local
+// (¬a resolver export) so no caller can ever read the contract from `.claude/`.
+const LEGACY_STACK_YML = '.claude/stack.yml'
+
+/** Absent stack ⇒ every roster override (max_agents, `agents: always|never`) is
+ *  dropped in silence — a pinned `R-security-auditor: always` would just vanish.
+ *  Warn instead, and name the gesture: move it, or write it. */
+function stackAbsenceWarning(stackPath: string): string | null {
+  if (existsSync(stackPath)) return null
+  if (stackPath.endsWith(STACK_YML)) {
+    const legacy = stackPath.slice(0, -STACK_YML.length) + LEGACY_STACK_YML
+    if (existsSync(legacy)) {
+      return `${stackPath} not found but ${legacy} exists — legacy contract layout: move it to ${STACK_YML}; roster overrides ignored until then`
+    }
+  }
+  return `${stackPath} not found — roster overrides ignored`
 }
 
 function dirOrWarn(dir: string, what: string, warnings?: string[]) {
@@ -1017,6 +1035,10 @@ function main(): void {
     }
   }
   const stackText = readOrWarn(stackPath, stackPath, ioWarnings)
+  if (stackText == null) {
+    const absent = stackAbsenceWarning(stackPath)
+    if (absent) ioWarnings.push(absent)
+  }
 
   let specContent: string | null = null
   let specUnreadable = false

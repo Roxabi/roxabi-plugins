@@ -237,6 +237,49 @@ describe('doctor', () => {
       expect(result.stdout).toContain('no local workflow files found')
     })
   })
+
+  describe('legacy contract layout', () => {
+    function projectChecks(dir: string) {
+      const sections = JSON.parse(runDoctor(dir, ['--json']).stdout) as Array<{
+        name: string
+        checks: Array<{ name: string; status: string; detail: string }>
+      }>
+      return sections.find((s) => s.name === 'Project')?.checks ?? []
+    }
+
+    it('warns with the git mv migration when the contract still sits in .claude/', () => {
+      // Arrange: un-migrated repo — contract in .claude/, no .dev/ counterpart
+      fs.mkdirSync(path.join(tmpDir, '.claude'), { recursive: true })
+      fs.writeFileSync(path.join(tmpDir, '.claude', 'stack.yml'), 'runtime: bun\n')
+      fs.writeFileSync(path.join(tmpDir, '.claude', 'dev-core.yml'), 'github_repo: TestOrg/test-repo\n')
+
+      // Act
+      const layout = projectChecks(tmpDir).find((c) => c.name === 'contract layout')
+
+      // Assert: warn naming the migration for both orphaned files
+      expect(layout?.status).toBe('warn')
+      expect(layout?.detail).toContain('git mv .claude/stack.yml .dev/')
+      expect(layout?.detail).toContain('git mv .claude/dev-core.yml .dev/')
+    })
+
+    it('stays silent when the contract lives in .dev/, even with a .claude/ leftover', () => {
+      // Arrange: migrated repo that kept a non-contract leftover behind
+      fs.mkdirSync(path.join(tmpDir, '.dev'), { recursive: true })
+      fs.mkdirSync(path.join(tmpDir, '.claude'), { recursive: true })
+      fs.writeFileSync(path.join(tmpDir, '.dev', 'stack.yml'), 'runtime: bun\n')
+      fs.writeFileSync(path.join(tmpDir, '.claude', 'stack.yml'), 'runtime: bun\n')
+
+      // Act + Assert
+      expect(projectChecks(tmpDir).map((c) => c.name)).not.toContain('contract layout')
+    })
+
+    it('stays silent when no contract exists at either location', () => {
+      // Arrange: bare repo (tmpDir has neither .dev/ nor .claude/)
+
+      // Act + Assert
+      expect(projectChecks(tmpDir).map((c) => c.name)).not.toContain('contract layout')
+    })
+  })
 })
 
 describe('readStackYml — release passthrough (Model B / #371)', () => {

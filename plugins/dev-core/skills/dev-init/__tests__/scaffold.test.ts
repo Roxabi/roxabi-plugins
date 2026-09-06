@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { DEV_CORE_YML } from '../../../hooks/lib/contract-paths.cjs'
 import { mergeEnv, mergeEnvExample } from '../lib/scaffold'
 
 describe('mergeEnv', () => {
@@ -127,6 +128,20 @@ describe('scaffold', () => {
     expect(writtenFiles['.env.example']).toContain('GITHUB_REPO=owner/repo')
   })
 
+  it('writes the contract at the host-neutral path, nothing under .claude/', async () => {
+    const { scaffold } = await import('../lib/scaffold')
+    const result = await scaffold({
+      githubRepo: 'Org/repo',
+      force: false,
+    })
+
+    expect(result.devCoreYmlWritten).toBe(true)
+    expect(Object.keys(writtenFiles)).toContain(DEV_CORE_YML)
+    // `.claude` stays a literal on purpose: it is the archaeology the cutover forbids,
+    // never a value the resolver may hand back.
+    expect(Object.keys(writtenFiles).filter((p) => p.startsWith('.claude'))).toEqual([])
+  })
+
   it('preserves existing .env.example user content on re-init', async () => {
     mockFs['.env.example'] = 'MY_APP_VAR=something\n# --- dev-core: GitHub Project V2 ---\nGITHUB_REPO=old/repo\n'
 
@@ -171,6 +186,6 @@ describe('scaffold', () => {
     })
 
     expect(result.gitignoreUpdated).toBe(true)
-    expect(writtenFiles['.gitignore']).not.toContain('.dev/dev-core.yml')
+    expect(writtenFiles['.gitignore'].split('\n').map((l) => l.trim())).toContain('.env')
   })
 })

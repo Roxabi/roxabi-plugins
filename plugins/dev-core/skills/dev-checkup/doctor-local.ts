@@ -4,7 +4,7 @@
 
 import * as fs from 'node:fs'
 import * as os from 'node:os'
-import { DEV_CORE_YML, STACK_YML } from '../../hooks/lib/contract-paths.cjs'
+import { CONTRACT_DIR, DEV_CORE_YML, STACK_YML } from '../../hooks/lib/contract-paths.cjs'
 import { parseStackYml } from '../../hooks/lib/parse-stack-yml.cjs'
 import { lefthookHasPrincipalFreeze } from '../shared/lefthook-persist'
 import type { PrereqResult } from '../shared/prereqs'
@@ -13,6 +13,37 @@ import { type Check, readConfig, type Section, spawnSync } from './doctor-shared
 function readParsedStack(): ReturnType<typeof parseStackYml> {
   const raw = fs.readFileSync(STACK_YML, 'utf8') as string
   return parseStackYml(raw)
+}
+
+/**
+ * Pre-`.dev/` contract locations. These `.claude/` literals stay local to the
+ * detector: `contract-paths.cjs` describes the living contract, not archaeology.
+ */
+const LEGACY_CONTRACT_PAIRS: Array<readonly [legacy: string, current: string]> = [
+  ['.claude/stack.yml', STACK_YML],
+  ['.claude/dev-core.yml', DEV_CORE_YML],
+]
+
+/**
+ * A contract file still sitting in `.claude/` while its `.dev/` counterpart is
+ * absent means the project never migrated: guards read `.dev/` only, so the real
+ * contract is orphaned and the degradation is otherwise silent.
+ *
+ * Per-file, not per-directory: once `.dev/<file>` exists, the `.claude/` twin is a
+ * documented non-contract leftover, so it earns no warning.
+ */
+function detectLegacyContractLayout(): Check | null {
+  const orphans = LEGACY_CONTRACT_PAIRS.filter(([legacy, current]) => fs.existsSync(legacy) && !fs.existsSync(current))
+  if (orphans.length === 0) return null
+  const moves = orphans.map(([legacy]) => `git mv ${legacy} ${CONTRACT_DIR}/`).join(' && ')
+  return {
+    name: 'contract layout',
+    status: 'warn',
+    detail:
+      `legacy contract not migrated: ${orphans.map(([legacy]) => legacy).join(', ')} — run ` +
+      `\`mkdir -p ${CONTRACT_DIR} && ${moves}\` and commit alongside code. ` +
+      'Do NOT reach for /R-env-setup here: it would write the generic template over the real contract.',
+  }
 }
 
 export function checkPrereqsSection(prereqs: PrereqResult): Section {
@@ -50,6 +81,10 @@ export function checkProjectStructure(): Section {
       ? `found (${DEV_CORE_YML})`
       : 'missing — config read from .env fallback. Run /init to generate.',
   })
+
+  // legacy `.claude/` contract layout — warn-only, so nothing is reported on a migrated repo
+  const legacyLayout = detectLegacyContractLayout()
+  if (legacyLayout) checks.push(legacyLayout)
 
   // .env (legacy fallback)
   const envExists = fs.existsSync('.env')

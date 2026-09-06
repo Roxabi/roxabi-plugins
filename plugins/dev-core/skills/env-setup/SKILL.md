@@ -26,13 +26,17 @@ Runs standalone (`/R-env-setup`) or called by `/init` as part of full project in
 Set up σ early — later phases read runtime, package manager, commands, deploy platform, hooks tool, docs path.
 
 1. `test -f .dev/stack.yml && echo exists || echo missing`
-2. missing → Ask: **Set up stack.yml now** (recommended) | **Skip** (fallback defaults).
-3. **Set up** → O_stackSetup:
+2. missing ∧ (`test -f .claude/stack.yml` ∨ `test -f .claude/dev-core.yml`) → **legacy layout** (contract predates `.dev/`) → Ask: **Migrate now** (recommended) | **Skip**.
+   - **Migrate** → O_stackMigrate: `mkdir -p .dev && git mv .claude/stack.yml .dev/ 2>/dev/null; git mv .claude/dev-core.yml .dev/ 2>/dev/null; git mv .claude/stack.yml.example .dev/ 2>/dev/null`
+     D("stack.yml", "✅ Migrated to .dev/ — commit alongside code"). **¬`cp` of the template**: the real contract already exists; copying `stack.yml.example` over it would replace hand-tuned values (`release.model`, paths, commands) with generic defaults. Continue at step 5.
+   - **Skip** → D⏭("stack.yml — contract left in .claude/, dev-core guards stay off"), skip to Phase 2.
+3. missing ∧ ¬legacy → Ask: **Set up stack.yml now** (recommended) | **Skip** (fallback defaults).
+4. **Set up** → O_stackSetup:
    - `mkdir -p .dev && cp "${Φ}/stack.yml.example" .dev/stack.yml`
    - Ask ∀ critical field: **Runtime** → bun|node|python → `runtime`+`package_manager` | **Backend path** (e.g. `apps/api`, blank=none) | **Frontend path** (e.g. `apps/web`, blank=none) | **Test command** → `commands.test`
    - Write values into σ. Inform: "Fill in remaining fields in σ before running agents."
-4. ¬`.dev/stack.yml.example` → `mkdir -p .dev && cp "${Φ}/stack.yml.example" .dev/stack.yml.example`. D("stack.yml.example", "✅ Created (reference template)").
-5. existing → D("stack.yml", "✅ Already exists"), skip.
+5. ¬`.dev/stack.yml.example` → `mkdir -p .dev && cp "${Φ}/stack.yml.example" .dev/stack.yml.example`. D("stack.yml.example", "✅ Created (reference template)").
+6. existing → D("stack.yml", "✅ Already exists"), skip.
 
 Note: `.dev/stack.yml` is **committed** (project stack conventions — no secrets). Only `.env` is gitignored by dev-core. `.dev/dev-core.yml` contains only public GitHub Project node IDs and is committed.
 

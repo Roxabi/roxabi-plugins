@@ -38,6 +38,9 @@
 #       replace this `uses:` job with `run: exit 0`. Not fixable here — needs a
 #       ruleset file_path_restriction on .github/workflows/**, CODEOWNERS, or an
 #       org required-workflow.
+#   (c) MIGRATION ORDER. Authority is the BASE stack, so a staging→main promote PR
+#       on a repo whose base lacks .dev/stack.yml reads COMPONENT="" → hard red: the
+#       PR carrying the migration is unmergeable. Land .dev/stack.yml on the base first.
 name: release-consistency
 
 # Quoted so YAML 1.1 does not coerce the `on` key to boolean true.
@@ -235,6 +238,17 @@ jobs:
           # ══════════════════════════════════════════════════════════════════
           # push / workflow_dispatch path (D14) — at-rest floor check on main
           # ══════════════════════════════════════════════════════════════════
+          # Fail CLOSED on a missing contract — push path ONLY. `read_version_files`
+          # carries no [ -f ] coercion by design, and `mapfile < <(read_version_files)`
+          # swallows the subshell failure under `set -euo pipefail`: n=0 then reads as
+          # `version_files: []` → "nothing to check" early GREEN, i.e. a wrong/absent
+          # $STACK DISARMS the at-rest floor in green. It sits below the whole PR
+          # `if … fi` (every branch of which exits), so it can never fire on a
+          # pull_request: with zero bypass actors a guard above the trunk /
+          # head!=staging early greens would make every PR on a not-yet-migrated base
+          # unmergeable — the FU-2 (c) trap itself.
+          [ -f "$STACK" ] || { echo "::error::release-consistency: ${STACK} absent — refusing to gate" >&2; exit 1; }
+
           # version_files: override input wins, else release.version_files.
           if [ -n "${VERSION_FILES_OVERRIDE:-}" ]; then
             mapfile -t VFILES < <(parse_override)

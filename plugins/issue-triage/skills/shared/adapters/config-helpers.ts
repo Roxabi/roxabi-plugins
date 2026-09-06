@@ -7,17 +7,34 @@ import { readFileSync } from 'node:fs'
 import { ConfigError } from '../domain/errors'
 
 /**
- * Load a config value from .claude/dev-core.yml with 3-tier fallback:
- *   1st: .claude/dev-core.yml (YAML key lookup)
- *   2nd: process.env[envKey]
- *   3rd: gh CLI auto-detect (github_repo, gh_project_id)
+ * dev-core project contract file, relative to the repo root.
+ *
+ * Deliberate duplicate of dev-core's own contract constant
+ * (`plugins/dev-core/hooks/lib/contract-paths.cjs` → `DEV_CORE_YML`).
+ * Importing that resolver is excluded by design: AGENTS.md requires every
+ * plugin to stay self-contained and individually installable, so issue-triage
+ * must not resolve a path through a sibling plugin at runtime — and the
+ * cross-plugin shared-import mechanism was retired
+ * (ADR 014 `docs/architecture/adr/014-shared-ts-governance-scope.mdx`,
+ * `status: superseded`).
+ * ⚠ Must follow dev-core if it ever relocates the contract again. There is no
+ * fallback to the pre-cutover `.claude/` location: the old path is never read.
+ */
+const DEV_CORE_YML = '.dev/dev-core.yml'
+
+/**
+ * Load a config value with a 3-tier chain:
+ *   1st: process.env[envKey] (explicit override — checked first)
+ *   2nd: `.dev/dev-core.yml` (committed contract pin, YAML key lookup)
+ *   3rd: gh CLI auto-detect (github_repo only)
+ * detectGitHubRepo() adds a last-resort `git remote get-url origin` probe.
  */
 function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
   const envValue = process.env[envKey ?? key.toUpperCase()]
   if (envValue) return envValue
 
   try {
-    const yaml = readFileSync('.claude/dev-core.yml', 'utf-8')
+    const yaml = readFileSync(DEV_CORE_YML, 'utf-8')
     const match = yaml.match(new RegExp(`^${key}:\\s*['"]?(.+?)['"]?\\s*$`, 'm'))
     const value = match?.[1]
     if (value && value !== "''") return value

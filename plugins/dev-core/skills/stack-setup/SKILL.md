@@ -20,7 +20,11 @@ Let: σ := `.dev/stack.yml` | π := proposed config table
 σ ∃ ∧ `--force` ∉ `$ARGUMENTS` → present choice **Re-configure** | **Skip**
 → Skip: "Keeping existing σ. Run with `--force` to reconfigure."
 
-σ ∄ → `mkdir -p .dev`
+σ ∄ ∧ (`test -f .claude/stack.yml` ∨ `test -f .claude/dev-core.yml`) → **legacy layout** (contract predates `.dev/`) → present choice **Migrate now** (recommended) | **Skip**
+→ Migrate: `mkdir -p .dev && git mv .claude/stack.yml .dev/ 2>/dev/null; git mv .claude/dev-core.yml .dev/ 2>/dev/null; git mv .claude/stack.yml.example .dev/ 2>/dev/null` → "Contract migrated to .dev/ — commit alongside code." σ now ∃ → re-enter the σ ∃ branch (**Re-configure** | **Skip**); ¬overwrite the migrated values without `--force`.
+→ Skip: abort — "Contract left in .claude/. Writing a fresh σ would orphan it; migrate first."
+
+σ ∄ ∧ ¬legacy → `mkdir -p .dev`
 
 ## Phase 1 — Check /init prerequisite
 
