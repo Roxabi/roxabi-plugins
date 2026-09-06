@@ -10,7 +10,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 # Readme Upgrade
 
 Let:
-  σ := `.claude/stack.yml` config
+  σ := `.dev/stack.yml` config
   M := project metadata (name, description, repo URL, license)
   ρ := `README.md`
   κ := `CONTRIBUTING.md`

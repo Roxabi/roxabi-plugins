@@ -97,7 +97,7 @@ Variables are NOT operators and sit outside the whitelist equality domain. Count
 
 | var | binding(s) | target | grep counts | status |
 |-----|-----------|--------|-------------|--------|
-| `σ` | `.claude/stack.yml` (dominant) · spec artifact · status-icon map · staging branch | — (unresolved) | ×162 · 27 files | collision (4-way) |
+| `σ` | `.dev/stack.yml` (dominant) · spec artifact · status-icon map · staging branch | — (unresolved) | ×162 · 27 files | collision (4-way) |
 | `Ω` | override file (dominant) · `/R-interview` skill handle (residual) | override file | ×14 · 3 files | target-locked |
 | `α` | agent (dominant) · analysis artifact (residual) · agent-memory file (residual) | agent | ×153 · 20 files | target-locked |
 | `β` | base branch (dominant) · brainstorm artifact (residual) · frontend path (residual) | base branch | ×42 · 7 files | target-locked |
@@ -111,7 +111,7 @@ Variables are NOT operators and sit outside the whitelist equality domain. Count
 | `S*` | next-step variable (dev-core base legend) | next-step variable | ×42 · 14 files | canonical |
 
 **Unresolved (follow-up, not this lock):**
-- `σ` — factory English word is Spec (`## English process words`). Glyph target is unresolved because `.claude/stack.yml` (registry-dominant / lint heuristic) and spec-artifact both live. Do not treat the dominant mark as the winner.
+- `σ` — factory English word is Spec (`## English process words`). Glyph target is unresolved because `.dev/stack.yml` (registry-dominant / lint heuristic) and spec-artifact both live. Do not treat the dominant mark as the winner.
 - `π` — no dominant; stay collision.
 - `μ` — no dominant; stay collision.
 

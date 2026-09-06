@@ -3,6 +3,7 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { DEV_CORE_YML, STACK_YML } from '../../hooks/lib/contract-paths.cjs'
 import { parseStackYml } from '../../hooks/lib/parse-stack-yml.cjs'
 
 // --- Types ---
@@ -31,10 +32,10 @@ export function spawnSync(cmd: string[]): { stdout: string; ok: boolean } {
   }
 }
 
-/** Read .claude/dev-core.yml and return a map of YAML keys to values (uppercase keys for compat). */
+/** Read the contract's dev-core.yml and return a map of YAML keys to values (uppercase keys for compat). */
 export function readDevCoreYml(): Record<string, string> {
   try {
-    const text = readFileSync('.claude/dev-core.yml', 'utf8') as string
+    const text = readFileSync(DEV_CORE_YML, 'utf8') as string
     const config: Record<string, string> = {}
     for (const line of text.split('\n')) {
       const trimmed = line.trim()
@@ -97,7 +98,7 @@ export interface StackInfo {
 
 export function readStackYml(): StackInfo {
   try {
-    const text = readFileSync('.claude/stack.yml', 'utf8') as string
+    const text = readFileSync(STACK_YML, 'utf8') as string
     const stack = parseStackYml(text)
     const merge = stack.ciMerge === 'merge-on-green' || stack.ciMerge === 'auto-merge' ? stack.ciMerge : null
     return {

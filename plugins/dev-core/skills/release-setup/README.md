@@ -29,7 +29,7 @@ Triggers: `"release setup"` | `"setup releases"` | `"commit standards"` | `"setu
 - **semantic-release** — `release.config.cjs` for automatic versioning from commit history
 - **Release Please** — `release-please-config.json` + `.release-please-manifest.json` **and** the runner `.github/workflows/release-please.yml` (config alone is a no-op — config-without-workflow was a known gap in versions ≤ 0.1.0)
 
-**Phase 4.5 — Quality Gates** *(Python only)* — triggers when `runtime == python` AND a `quality_gates:` section is present in `.claude/stack.yml`. Dispatches the [`quality-gates` cookbook](cookbooks/quality-gates.md), which:
+**Phase 4.5 — Quality Gates** *(Python only)* — triggers when `runtime == python` AND a `quality_gates:` section is present in `.dev/stack.yml`. Dispatches the [`quality-gates` cookbook](cookbooks/quality-gates.md), which:
 
 - Copies canonical shell scripts from `plugins/dev-core/tools/` into the project's `tools/` directory.
 - Seeds `tools/file_exemptions.txt` and `tools/folder_exemptions.txt` with header comments (creates the files if absent).

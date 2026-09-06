@@ -4,7 +4,7 @@ Let:
   I_TS := `${CLAUDE_PLUGIN_ROOT}/skills/dev-init/init.ts`
   Φ    := CLAUDE_PLUGIN_ROOT
   F    := `--force` flag present in `$ARGUMENTS`
-  σ    := `.claude/stack.yml`
+  σ    := `.dev/stack.yml`
   D(label, result) := Display: `{label} {result}`
   D✅(label)       := D(label, "✅ Created")
   D⏭(label)       := D(label, "⏭ Skipped")

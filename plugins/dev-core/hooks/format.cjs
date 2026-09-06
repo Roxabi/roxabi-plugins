@@ -4,6 +4,7 @@ const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
 const { parseStackYml } = require('./lib/parse-stack-yml.cjs')
+const { STACK_YML } = require('./lib/contract-paths.cjs')
 const { loadHookInput } = require('./lib/hook-input.cjs')
 
 // All extensions common formatters can handle.
@@ -34,7 +35,7 @@ const FORMATTABLE_EXTENSIONS = new Set([
 
 function readStackYml() {
   try {
-    return fs.readFileSync(path.join(process.cwd(), '.claude', 'stack.yml'), 'utf8')
+    return fs.readFileSync(path.join(process.cwd(), STACK_YML), 'utf8')
   } catch {
     return null
   }

@@ -9,7 +9,7 @@ describe('scaffold-rules', () => {
 
   beforeEach(() => {
     tmp = mkdtempSync(join(tmpdir(), 'scaffold-rules-'))
-    mkdirSync(join(tmp, '.claude'), { recursive: true })
+    mkdirSync(join(tmp, '.dev'), { recursive: true })
   })
 
   afterEach(() => {
@@ -17,7 +17,7 @@ describe('scaffold-rules', () => {
   })
 
   function writeStack(content: string) {
-    writeFileSync(join(tmp, '.claude', 'stack.yml'), content)
+    writeFileSync(join(tmp, '.dev', 'stack.yml'), content)
   }
 
   function writeClaudeMd(content: string) {
@@ -40,7 +40,7 @@ frontend:
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'test-project',
       })
@@ -62,7 +62,7 @@ frontend:
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'api-service',
       })
@@ -84,7 +84,7 @@ frontend:
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'web-app',
       })
@@ -106,7 +106,7 @@ frontend:
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'my-cli',
       })
@@ -129,7 +129,7 @@ docs:
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'docs-site',
       })
@@ -146,7 +146,7 @@ schema_version: "1.0"
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'new-project',
       })
@@ -169,7 +169,7 @@ frontend:
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'full-app',
       })
@@ -203,7 +203,7 @@ frontend:
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'my-cli',
       })
@@ -232,7 +232,7 @@ docs:
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'docs',
       })
@@ -245,7 +245,7 @@ docs:
       // Arrange + Act
       writeStack('schema_version: "1.0"\n')
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'new',
       })
@@ -268,7 +268,7 @@ frontend:
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'test',
       })
@@ -292,7 +292,7 @@ frontend:
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'my-cli',
       })
@@ -310,7 +310,7 @@ frontend:
       // Arrange + Act
       writeStack('runtime: bun\n')
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'my-awesome-project',
       })
@@ -336,7 +336,7 @@ artifacts:
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'test',
       })
@@ -363,7 +363,7 @@ standards:
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'test',
       })
@@ -386,7 +386,7 @@ frontend:
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'defaults',
       })
@@ -404,9 +404,7 @@ frontend:
     it('detects existing sections', () => {
       // Arrange
       writeStack('runtime: bun\n')
-      writeClaudeMd(`@.claude/stack.yml
-
-## TL;DR
+      writeClaudeMd(`## TL;DR
 
 Some content
 
@@ -417,31 +415,29 @@ Commit rules
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'test',
       })
 
       // Assert
-      expect(result.existing.hasImport).toBe(true)
       expect(result.existing.sectionIds).toContain('tldr')
       expect(result.existing.sectionIds).toContain('git')
     })
 
-    it('detects missing import', () => {
+    it('reports no sections when CLAUDE.md has none of the Critical Rules headings', () => {
       // Arrange
       writeStack('runtime: bun\n')
       writeClaudeMd('# My Project\n\nSome content\n')
 
       // Act
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'test',
       })
 
       // Assert
-      expect(result.existing.hasImport).toBe(false)
       expect(result.existing.sectionIds).toEqual([])
     })
 
@@ -449,26 +445,25 @@ Commit rules
       // Arrange + Act
       writeStack('runtime: bun\n')
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'nonexistent-CLAUDE.md'),
         projectName: 'test',
       })
 
       // Assert
-      expect(result.existing.hasImport).toBe(false)
       expect(result.existing.sectionIds).toEqual([])
     })
 
     it('reports parent CLAUDE.md and @imports without using them as skip authority', () => {
       const parentDir = join(tmp, 'parent')
       const childDir = join(parentDir, 'child')
-      mkdirSync(join(childDir, '.claude'), { recursive: true })
+      mkdirSync(join(childDir, '.dev'), { recursive: true })
       writeFileSync(join(parentDir, 'CLAUDE.md'), '@ssot/operator.ssot.md\n@ssot/conventions.ssot.md\n')
-      writeFileSync(join(childDir, '.claude', 'stack.yml'), 'runtime: bun\npackage_manager: bun\n')
-      writeFileSync(join(childDir, 'CLAUDE.md'), '@.claude/stack.yml\n')
+      writeFileSync(join(childDir, '.dev', 'stack.yml'), 'runtime: bun\npackage_manager: bun\n')
+      writeFileSync(join(childDir, 'CLAUDE.md'), '# Child\n')
 
       const result = scaffoldRules({
-        stackPath: join(childDir, '.claude', 'stack.yml'),
+        stackPath: join(childDir, '.dev', 'stack.yml'),
         claudeMdPath: join(childDir, 'CLAUDE.md'),
         projectName: 'child',
       })
@@ -495,7 +490,7 @@ frontend:
   framework: nextjs
 `)
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'app',
       })
@@ -513,7 +508,7 @@ frontend:
   framework: nextjs
 `)
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'app',
       })
@@ -531,7 +526,7 @@ frontend:
 `)
       writeFileSync(join(tmp, '.env.example'), 'FOO=1\n')
       const result = scaffoldRules({
-        stackPath: join(tmp, '.claude', 'stack.yml'),
+        stackPath: join(tmp, '.dev', 'stack.yml'),
         claudeMdPath: join(tmp, 'CLAUDE.md'),
         projectName: 'app',
       })

@@ -76,8 +76,8 @@ Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI
 **Trunk skip (`release.model: trunk`, #371 B1).** Under trunk the create-PR path opens a *plain* staging→main merge PR: there is **no pre-declared version** to validate, and `auto-release.yml` — with its own D3 loud-red guards — is the sole tagger on `push:main`. So the **Gate probe, Unfinalized-promote, and Version-file** checks below (all staging-train *finalize* invariants) are **SKIPPED**; only the **Component** check runs (`auto-release.sh` needs `release.component`). Detect and short-circuit before the staging-train guards:
 
 ```bash
-MODEL=$(yq -r '.release.model // "staging-train"' .claude/stack.yml 2>/dev/null \
-  || { [ -f .claude/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".claude/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
+MODEL=$(yq -r '.release.model // "staging-train"' .dev/stack.yml 2>/dev/null \
+  || { [ -f .dev/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".dev/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
 # → if MODEL=trunk: run ONLY the Component check below, then jump to Step 1b.
 #   (The promote-PR's version heading/title, computed in Steps 2–4, is COSMETIC under
 #    trunk — auto-release.sh re-derives the authoritative version from M^1..M at merge.)
@@ -86,8 +86,8 @@ MODEL=$(yq -r '.release.model // "staging-train"' .claude/stack.yml 2>/dev/null 
 **Component (S6/D13):**
 
 ```bash
-COMPONENT=$(yq -r '.release.component // "null"' .claude/stack.yml 2>/dev/null \
-  || python3 -c 'import yaml;print((yaml.safe_load(open(".claude/stack.yml")).get("release") or {}).get("component") or "null")')
+COMPONENT=$(yq -r '.release.component // "null"' .dev/stack.yml 2>/dev/null \
+  || python3 -c 'import yaml;print((yaml.safe_load(open(".dev/stack.yml")).get("release") or {}).get("component") or "null")')
 { [ "$COMPONENT" = null ] || [ -z "$COMPONENT" ]; } && { echo "REFUSE: release.component unset — paste a release: block (see stack.yml.example)"; exit 1; }
 ```
 
@@ -295,8 +295,8 @@ Skip Steps 1-8. Post-merge only.
 **9.0 Trunk guard (#371 B1).** `/R-promote --finalize` is the *staging-train* tagger. Under `release.model: trunk`, `auto-release.yml` already tags at merge-to-main, so a second tagger here breaks the single-writer property — refuse before touching anything (a failed trunk run recovers via the workflow's **Re-run failed jobs**, see `## Trunk mode`, not via `--finalize`):
 
 ```bash
-MODEL=$(yq -r '.release.model // "staging-train"' .claude/stack.yml 2>/dev/null \
-  || { [ -f .claude/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".claude/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
+MODEL=$(yq -r '.release.model // "staging-train"' .dev/stack.yml 2>/dev/null \
+  || { [ -f .dev/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".dev/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
 [ "$MODEL" = trunk ] && { echo "REFUSE: release.model==trunk — auto-release.yml owns tag/release at merge-to-main; /R-promote --finalize does not apply."; exit 1; }
 ```
 
@@ -331,7 +331,7 @@ VERSION="${COMPONENT}/v${DERIVED}"
 # Witnesses (WARN-only, D7) — empty string ⇒ artifact absent (a null witness, D12).
 TITLE_V=$(gh pr view "$M" --json title --jq '.title' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
 HEADING_V=$(grep -oE '^##[[:space:]]+\[?v?[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
-VFILE=$(yq -r '.release.version_files[0] // ""' .claude/stack.yml 2>/dev/null || true)
+VFILE=$(yq -r '.release.version_files[0] // ""' .dev/stack.yml 2>/dev/null || true)
 FILE_V=$([ -n "$VFILE" ] && [ -f "$VFILE" ] && grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$VFILE" | head -n1 || true)
 ```
 `Custom version` is retained only as the multi-component escape hatch (factory/cortex), never required here.
@@ -371,7 +371,7 @@ Inform: "Release $VERSION finalized. Run `/R-cleanup` to clean branches."
 
 ## Trunk mode — `release.model`
 
-`release.model` in `.claude/stack.yml` selects the release train (#371, Model B):
+`release.model` in `.dev/stack.yml` selects the release train (#371, Model B):
 
 - `staging-train` (**default** — absent ⇒ this) — the staging→main promote flow documented above. The whole fleet stays here until it opts in.
 - `trunk` — versions are derived and releases cut **on every merge to `main`** by the generated `auto-release.yml`. No staging branch, no promotion PR, no pre-declared version.

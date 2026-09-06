@@ -12,8 +12,8 @@ computed; the PR title, CHANGELOG heading and version file are all **witnesses**
 ### 2a. Resolve the component (guard)
 
 ```bash
-COMPONENT=$(yq -r '.release.component // "null"' .claude/stack.yml 2>/dev/null \
-  || python3 -c 'import yaml;print((yaml.safe_load(open(".claude/stack.yml")).get("release") or {}).get("component") or "null")')
+COMPONENT=$(yq -r '.release.component // "null"' .dev/stack.yml 2>/dev/null \
+  || python3 -c 'import yaml;print((yaml.safe_load(open(".dev/stack.yml")).get("release") or {}).get("component") or "null")')
 ```
 
 `COMPONENT` is `null`/empty → **REFUSE** (S6/D13). Never fall back to a bare tag —
@@ -50,8 +50,8 @@ Write the previewed version into every path in `release.version_files` **before*
 so each file becomes a witness of the derivation (S4/D12/D14).
 
 ```bash
-FILES=$(yq -r '.release.version_files[]?' .claude/stack.yml 2>/dev/null \
-  || python3 -c 'import yaml;[print(p) for p in ((yaml.safe_load(open(".claude/stack.yml")).get("release") or {}).get("version_files") or [])]')
+FILES=$(yq -r '.release.version_files[]?' .dev/stack.yml 2>/dev/null \
+  || python3 -c 'import yaml;[print(p) for p in ((yaml.safe_load(open(".dev/stack.yml")).get("release") or {}).get("version_files") or [])]')
 ```
 
 - `version_files: []` → **no-op, green.** 9 of 14 repos ship this — a file that does not exist cannot drift.

@@ -18,7 +18,8 @@ maxTurns: 50
 
 Let: C := confidence (0–100) | ς := `{standards.testing}`
 
-ς undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/R-env-setup`."
+**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
+ς unset → output: "standards.testing not set in `.dev/stack.yml` — run `/R-env-setup`." and stop.
 
 **Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
 **Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).

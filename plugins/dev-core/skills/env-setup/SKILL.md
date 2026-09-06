@@ -12,7 +12,7 @@ Let:
   I_TS := `${CLAUDE_PLUGIN_ROOT}/skills/dev-init/init.ts`
   Φ    := CLAUDE_PLUGIN_ROOT
   F    := `--force` flag present in `$ARGUMENTS`
-  σ    := `.claude/stack.yml`
+  σ    := `.dev/stack.yml`
   D(label, result) := Display: `{label} {result}`
   D✅(label)       := D(label, "✅ Created")
   D⏭(label)       := D(label, "⏭ Skipped")
@@ -25,17 +25,20 @@ Runs standalone (`/R-env-setup`) or called by `/init` as part of full project in
 
 Set up σ early — later phases read runtime, package manager, commands, deploy platform, hooks tool, docs path.
 
-1. `test -f .claude/stack.yml && echo exists || echo missing`
-2. missing → Ask: **Set up stack.yml now** (recommended) | **Skip** (fallback defaults).
-3. **Set up** → O_stackSetup:
-   - `cp "${Φ}/stack.yml.example" .claude/stack.yml`
+1. `test -f .dev/stack.yml && echo exists || echo missing`
+2. missing ∧ (`test -f .claude/stack.yml` ∨ `test -f .claude/dev-core.yml`) → **legacy layout** (contract predates `.dev/`) → Ask: **Migrate now** (recommended) | **Skip**.
+   - **Migrate** → O_stackMigrate: `mkdir -p .dev && git mv .claude/stack.yml .dev/ 2>/dev/null; git mv .claude/dev-core.yml .dev/ 2>/dev/null; git mv .claude/stack.yml.example .dev/ 2>/dev/null`
+     D("stack.yml", "✅ Migrated to .dev/ — commit alongside code"). **¬`cp` of the template**: the real contract already exists; copying `stack.yml.example` over it would replace hand-tuned values (`release.model`, paths, commands) with generic defaults. Continue at step 5.
+   - **Skip** → D⏭("stack.yml — contract left in .claude/, dev-core guards stay off"), skip to Phase 2.
+3. missing ∧ ¬legacy → Ask: **Set up stack.yml now** (recommended) | **Skip** (fallback defaults).
+4. **Set up** → O_stackSetup:
+   - `mkdir -p .dev && cp "${Φ}/stack.yml.example" .dev/stack.yml`
    - Ask ∀ critical field: **Runtime** → bun|node|python → `runtime`+`package_manager` | **Backend path** (e.g. `apps/api`, blank=none) | **Frontend path** (e.g. `apps/web`, blank=none) | **Test command** → `commands.test`
    - Write values into σ. Inform: "Fill in remaining fields in σ before running agents."
-4. `head -1 CLAUDE.md` → ¬`@.claude/stack.yml` → prepend `@.claude/stack.yml\n`. D✅("@import").
-5. ¬`.claude/stack.yml.example` → `cp "${Φ}/stack.yml.example" .claude/stack.yml.example`. D("stack.yml.example", "✅ Created (reference template)").
+5. ¬`.dev/stack.yml.example` → `mkdir -p .dev && cp "${Φ}/stack.yml.example" .dev/stack.yml.example`. D("stack.yml.example", "✅ Created (reference template)").
 6. existing → D("stack.yml", "✅ Already exists"), skip.
 
-Note: `.claude/stack.yml` is **committed** (project stack conventions — no secrets). Only `.env` is gitignored by dev-core. `.claude/dev-core.yml` contains only public GitHub Project node IDs and is committed.
+Note: `.dev/stack.yml` is **committed** (project stack conventions — no secrets). Only `.env` is gitignored by dev-core. `.dev/dev-core.yml` contains only public GitHub Project node IDs and is committed.
 
 ### Phase 1b — Worktree-setup retrofit
 
@@ -48,7 +51,7 @@ Let:
   WT  := tools/worktree-teardown.sh
   CL  := ${CLAUDE_PLUGIN_ROOT}/references/worktree-setup-checklist.md
   TS  := ${CLAUDE_PLUGIN_ROOT}/tools/worktreeScaffold.ts
-  σ_has_hook       := `grep -q 'worktree_setup:' .claude/stack.yml`
+  σ_has_hook       := `grep -q 'worktree_setup:' .dev/stack.yml`
   runtime_supported := σ.runtime ∈ {python, bun, node}
 
 1. **σ missing** → D⏭("Worktree-setup retrofit — requires stack.yml"), skip.
@@ -68,8 +71,8 @@ Let:
    - **Scaffold** → execute the following inline (verbatim duplication of stack-setup Phase 4b — required because cross-skill references do not bind at runtime):
      a. Re-detect variables from σ and filesystem:
         ```bash
-        RUNTIME=$(grep '^runtime:' .claude/stack.yml | awk '{print $2}')
-        PM=$(grep '^package_manager:' .claude/stack.yml | awk '{print $2}')
+        RUNTIME=$(grep '^runtime:' .dev/stack.yml | awk '{print $2}')
+        PM=$(grep '^package_manager:' .dev/stack.yml | awk '{print $2}')
         MONOREPO_BOOL=$([ -f turbo.jsonc ] || [ -f turbo.json ] || [ -f nx.json ] && echo true || echo false)
         HOOKS_TOOL=$([ -f lefthook.yml ] || [ -f .lefthook.yml ] && echo lefthook \
           || ([ -f .pre-commit-config.yaml ] && echo pre-commit) || echo none)
@@ -118,7 +121,7 @@ Let:
         chmod +x tools/worktree-setup.sh tools/worktree-teardown.sh
         ```
      f. Register keys in σ (idempotent — skip lines already present):
-        Append under `commands:` in `.claude/stack.yml`:
+        Append under `commands:` in `.dev/stack.yml`:
         ```yaml
           worktree_setup: tools/worktree-setup.sh
           worktree_teardown: tools/worktree-teardown.sh
@@ -133,14 +136,14 @@ Generate governance rules (dev process, decision protocol, git conventions, etc.
 
 σ ∄ → D("Critical Rules", "⏭ Skipped — requires stack.yml"), skip to Phase 3.
 
-1. Run: `bun $I_TS scaffold-rules --stack-path .claude/stack.yml --claude-md CLAUDE.md`
+1. Run: `bun $I_TS scaffold-rules --stack-path .dev/stack.yml --claude-md CLAUDE.md`
 2. Parse JSON → extract `projectType`, `sections`, `markdown`, `existing`, `facts`.
 3. Display:
    ```
    Project type: {projectType}
    Repo facts:   baseBranch={facts.baseBranch}  pm={facts.packageManager}  .env.example={facts.hasEnvExample}
    Parent CLAUDE.md: {existing.parentPaths joined | "none"}
-   Parent @imports:  {existing.parentImports joined | "none"}  ← machine-local; not auto-skip authority
+   Parent imports:   {existing.parentImports joined | "none"}  ← machine-local; not auto-skip authority
    Local sections:   {existing.sectionIds or "none"}
    Sections to scaffold: {sections.length} ({section ids})
    ```
@@ -222,9 +225,9 @@ Next: run /R-seed-docs to populate docs stubs. Issue triage (labels, blocked-by,
 
 ## Safety Rules
 
-1. **Never overwrite existing `.claude/stack.yml` values** without F or explicit confirmation
+1. **Never overwrite existing `.dev/stack.yml` values** without F or explicit confirmation
 2. **Always present choices and wait for user reply** before any write operation
-3. **Commit `.claude/stack.yml`** — it holds project stack conventions, not secrets. Gitignore `.env` only.
+3. **Commit `.dev/stack.yml`** — it holds project stack conventions, not secrets. Gitignore `.env` only.
 4. **Idempotent** — skip already-configured items unless F
 
 $ARGUMENTS

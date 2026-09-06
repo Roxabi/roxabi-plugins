@@ -27,8 +27,8 @@ function runPreflight(stackYml: string | null): { out: string; code: number } {
   const dir = mkdtempSync(join(tmpdir(), 'preflight-'))
   dirs.push(dir)
   if (stackYml !== null) {
-    mkdirSync(join(dir, '.claude'), { recursive: true })
-    writeFileSync(join(dir, '.claude', 'stack.yml'), stackYml)
+    mkdirSync(join(dir, '.dev'), { recursive: true })
+    writeFileSync(join(dir, '.dev', 'stack.yml'), stackYml)
   }
   const r = spawnSync('bash', [PREFLIGHT_SH], { cwd: dir, encoding: 'utf8', env: cleanEnv() })
   return { out: `${r.stdout ?? ''}${r.stderr ?? ''}`, code: r.status ?? -1 }
@@ -68,8 +68,8 @@ describe('preflight.sh — trunk-mode guard (#371 N17)', () => {
     spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: dir, env })
     spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: dir, env })
     spawnSync('git', ['branch', 'staging'], { cwd: dir, env })
-    mkdirSync(join(dir, '.claude'), { recursive: true })
-    writeFileSync(join(dir, '.claude', 'stack.yml'), 'release:\n  model: trunk\n  component: x\n')
+    mkdirSync(join(dir, '.dev'), { recursive: true })
+    writeFileSync(join(dir, '.dev', 'stack.yml'), 'release:\n  model: trunk\n  component: x\n')
     const r = spawnSync('bash', [PREFLIGHT_SH], { cwd: dir, encoding: 'utf8', env })
     const out = `${r.stdout ?? ''}${r.stderr ?? ''}`
     // Fell through to the create-PR flow (the informational line is printed before

@@ -20,7 +20,7 @@ Triggers: `"code review"` | `"review changes"` | `"review PR #42"` | `"check my 
 1. **Gather changes** — reads full diff and all changed files; warns if > 50 files.
 2. **Secret scan** — grep for hardcoded passwords, API keys, tokens; warns and asks before proceeding.
 3. **Spec compliance** (if spec exists) — checks each acceptance criterion against the diff.
-4. **Multi-domain review** — spawn exactly `roster.sh` `agents[]` (project knob: `.claude/stack.yml` `review.roster` — `max_agents` default 4, `verify_below_confidence` default 90, per-agent `default|always|never`):
+4. **Multi-domain review** — spawn exactly `roster.sh` `agents[]` (project knob: `.dev/stack.yml` `review.roster` — `max_agents` default 4, `verify_below_confidence` default 90, per-agent `default|always|never`):
 
    | Agent | When | Focus |
    |-------|------|-------|

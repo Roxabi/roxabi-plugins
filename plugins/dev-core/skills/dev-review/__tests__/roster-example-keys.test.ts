@@ -8,19 +8,19 @@ import { DISPATCHABLE, PHASE_AGENTS } from '../roster'
 
 // Example-file roster-key sentinel. The oracle emits `unknown roster agent: X` then
 // DROPS the override — an unprefixed key in a shipped example is a silent no-op.
-// Copy each file VERBATIM as `.claude/stack.yml` and assert keys ∈ DISPATCHABLE ∪ PHASE_AGENTS
+// Copy each file VERBATIM as `.dev/stack.yml` and assert keys ∈ DISPATCHABLE ∪ PHASE_AGENTS
 // (¬DISPATCHABLE alone: examples list the 2 PHASE_AGENTS).
 //   __tests__ → dev-review → skills → dev-core (stack.yml.example)
-//   __tests__ → dev-review → skills → dev-core → plugins → repo-root (.claude/stack.yml.example)
+//   __tests__ → dev-review → skills → dev-core → plugins → repo-root (.dev/stack.yml.example)
 const ROSTER = fileURLToPath(new URL('../roster.ts', import.meta.url))
 const PLUGIN_EXAMPLE = fileURLToPath(new URL('../../../stack.yml.example', import.meta.url))
-const ROOT_EXAMPLE = fileURLToPath(new URL('../../../../../.claude/stack.yml.example', import.meta.url))
+const ROOT_EXAMPLE = fileURLToPath(new URL('../../../../../.dev/stack.yml.example', import.meta.url))
 
 const KNOWN: Record<string, true> = Object.fromEntries([...DISPATCHABLE, ...PHASE_AGENTS].map((a) => [a, true]))
 
 const EXAMPLES: Record<string, string> = {
   'plugins/dev-core/stack.yml.example': PLUGIN_EXAMPLE,
-  '.claude/stack.yml.example': ROOT_EXAMPLE,
+  '.dev/stack.yml.example': ROOT_EXAMPLE,
 }
 
 let dir: string
@@ -55,9 +55,9 @@ function rosterAgentKeys(text: string): string[] {
 
 for (const [name, examplePath] of Object.entries(EXAMPLES)) {
   describe(`shipped example roster keys — ${name}`, () => {
-    it('A1 no silent drop — verbatim .claude/stack.yml emits no unknown-agent warning', () => {
-      mkdirSync(join(dir, '.claude'))
-      const stack = join(dir, '.claude', 'stack.yml')
+    it('A1 no silent drop — verbatim .dev/stack.yml emits no unknown-agent warning', () => {
+      mkdirSync(join(dir, '.dev'))
+      const stack = join(dir, '.dev', 'stack.yml')
       copyFileSync(examplePath, stack)
       const delta = join(dir, 'delta.txt')
       writeFileSync(delta, 'src/foo.ts\n')

@@ -11,8 +11,8 @@ allowed-tools: Bash, Read, ToolSearch
 Let:
   Σ := severity icon (❌ blocking | ⚠️ warning | ✅ pass | ⏭ skipped)
   Φ := CLAUDE_PLUGIN_ROOT
-  σ := `.claude/stack.yml`
-  δ := `.claude/dev-core.yml`
+  σ := `.dev/stack.yml`
+  δ := `.dev/dev-core.yml`
   I_TS := `${Φ}/skills/dev-init/init.ts`
   D(label, result) := Display: `{label} {result}`
   Ask(opts) := present opts, wait for user reply

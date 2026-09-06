@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
+import type * as ContractPaths from '../hooks/lib/contract-paths.cjs'
 
 const require = createRequire(import.meta.url)
 
@@ -26,14 +27,19 @@ const bunTestPattern = require('../hooks/lib/bun-test-pattern.cjs') as {
   BUN_TEST_DENY_REASON: string
 }
 
+const contractPaths = require('../hooks/lib/contract-paths.cjs') as typeof ContractPaths
+
 export { SECURITY_PATTERNS }
 export const { isBunTestBlocked, BUN_TEST_DENY_REASON } = bunTestPattern
 
 /** Max content bytes scanned by the OMP security hook (fail-open above this). */
 export const SECURITY_SCAN_MAX_BYTES = 256_000
 
-/** Host-neutral project contract. `.claude/stack.yml` is not a contract. */
-export const PROJECT_CONTRACT_FILES = ['stack.yml', '.omp/stack.yml', 'dev-core.yml', '.omp/dev-core.yml'] as const
+/**
+ * Host-neutral project contract: `.dev/` is read identically by every harness.
+ * `.claude/stack.yml` is not a contract — `.claude/` holds host state only.
+ */
+export const PROJECT_CONTRACT_FILES = contractPaths.PROJECT_CONTRACT_FILES
 
 export function hasProjectContract(cwd: string, exists: (path: string) => boolean = existsSync): boolean {
   return PROJECT_CONTRACT_FILES.some((rel) => exists(join(cwd, rel)))

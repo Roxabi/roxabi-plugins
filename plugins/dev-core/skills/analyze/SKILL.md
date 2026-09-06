@@ -20,6 +20,8 @@ Let:
   Ω := `skill: "R-interview"`
   χ := open unknown (unresolved question blocking shape choice)
 
+**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
+
 Frame → codebase exploration → expert review → **executive summary in chat** → free-form human reaction.
 ¬spec, ¬worktree (except the consent-gated Step 2.5 spike). Shape phase only. Spec → `/R-spec`.
 

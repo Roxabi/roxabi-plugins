@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { STACK_YML } from '../../../hooks/lib/contract-paths.cjs'
 
 // The two D15 artifacts under test. Resolved relative to this file (never a
 // hardcoded worktree path) so the suite survives the worktree being merged
@@ -224,5 +225,41 @@ describe('release-consistency — authority from BASE ref, not PR head (#374)', 
     expect(reusableSrc).toContain(`yq -r '.release.component // ""' "$f" 2>/dev/null || echo ""`)
     // The readers take a file arg so the PR path can pass the base stack.
     expect(reusableSrc).toContain('local f="${1:-$STACK}"')
+  })
+})
+
+// ─── push path fails CLOSED on a missing contract ──────────────────────────────
+//
+// Same source-assertion regime as the #374 block above (the reusable is inert
+// here). The observable defended: a $STACK that resolves to nothing must NOT
+// reach the `version_files empty — nothing to check` early green.
+describe('release-consistency — push path refuses to gate without the contract', () => {
+  it('declares $STACK from the contract resolver, not a second hardcoded literal', () => {
+    // Pinned against contract-paths.cjs, so the workflow cannot drift back to
+    // `.claude/stack.yml` (or anywhere else) while the resolver says otherwise.
+    expect(reusableSrc).toContain(`STACK="${STACK_YML}"`)
+  })
+
+  it('hard-fails when $STACK is absent instead of early-greening the floor check', () => {
+    // `read_version_files` has no `[ -f ]` coercion (deliberate: an absent contract
+    // must not read as an empty list) and `mapfile < <(read_version_files)` swallows
+    // the subshell failure under `set -euo pipefail` → n=0 → early GREEN. Verified:
+    // with the guard stripped and $STACK pointed at a missing file the block exits 0;
+    // with it, exit 1. So the guard IS the fail-closed behaviour, not decoration.
+    expect(reusableSrc).toMatch(/\[ -f "\$STACK" \] \|\| \{.*exit 1.*\}/)
+  })
+
+  it('places that guard AFTER every PR-path early green and BEFORE the version_files read', () => {
+    // Placement is the whole safety argument. Above the trunk / head!=staging early
+    // greens the guard would red every PR of a repo whose base is not migrated yet —
+    // and with zero bypass actors, red == unmergeable (KNOWN-OPEN (c)). Below the PR
+    // `if … fi`, whose every branch exits, it is unreachable on a pull_request.
+    const trunkIdx = reusableSrc.search(/[^!]= "trunk" \]/)
+    const headStagingIdx = reusableSrc.indexOf('PR_HEAD_REF" != "staging"')
+    const guardIdx = reusableSrc.search(/\[ -f "\$STACK" \] \|\|/)
+    const readVfIdx = reusableSrc.indexOf('mapfile -t VFILES < <(read_version_files)')
+    expect(guardIdx).toBeGreaterThan(trunkIdx)
+    expect(guardIdx).toBeGreaterThan(headStagingIdx)
+    expect(guardIdx).toBeLessThan(readVfIdx)
   })
 })

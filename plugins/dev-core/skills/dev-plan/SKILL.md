@@ -22,6 +22,8 @@ Let:
   τ := tier ∈ {S, F-lite, F-full}
   χ := open gap (e.g. leftover `[NEEDS CLARIFICATION]` in σ)
 
+**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
+
 Spec → micro-tasks → agent assignments → plan artifact → **Executive Summary** → free-form approve → seed + commit.
 
 **Flow: single continuous pipeline. ¬stop between steps except (a) blocking χ pre-flight prose, (b) optional `--audit` prose note, (c) Step 6 sole approval stop.**  

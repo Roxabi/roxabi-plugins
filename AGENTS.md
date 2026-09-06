@@ -2,7 +2,7 @@
 
 Open-source Claude Code plugins by Roxabi. Context engineering tools for teams using Claude Code.
 
-Stack conventions — paths, commands, formatter, test runner — live in [`.claude/stack.yml`](.claude/stack.yml).
+Stack conventions — paths, commands, formatter, test runner — live in [`.dev/stack.yml`](.dev/stack.yml).
 
 ## Purpose
 

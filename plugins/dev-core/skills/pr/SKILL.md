@@ -18,6 +18,8 @@ Let:
   Β := current branch
   N := issue# (first number after `/` in Β)
 
+**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
+
 Β → PR: Conventional Commits title, issue linking, guard rails.
 
 **Flow: single continuous pipeline. ¬stop between steps. Stop only on: REFUSE, explicit Cancel, or Step 6 completion.**

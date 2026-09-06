@@ -18,9 +18,10 @@ maxTurns: 50
 
 Let: C := confidence score (0–100) | SA := `{standards.architecture}` | SD := `{standards.dev_process}` | SC := `{standards.contributing}`
 
-SA undefined → output: "`.claude/stack.yml` not found in context. Add `@.claude/stack.yml` as the first line of your CLAUDE.md, then run `/R-env-setup`."
-SD undefined → warn: "standards.dev_process not set in stack.yml — proceeding without dev process standards." and continue.
-SC undefined → warn: "standards.contributing not set in stack.yml — proceeding without contributing standards." and continue.
+**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
+SA unset → output: "standards.architecture not set in `.dev/stack.yml` — run `/R-env-setup`." and stop.
+SD unset → warn: "standards.dev_process not set in stack.yml — proceeding without dev process standards." and continue.
+SC unset → warn: "standards.contributing not set in stack.yml — proceeding without contributing standards." and continue.
 
 **Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
 **Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).

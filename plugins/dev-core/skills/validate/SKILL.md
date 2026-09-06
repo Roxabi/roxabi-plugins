@@ -17,6 +17,8 @@ Let:
   χ := quality check (name, command from `{commands.*}`, timeout, result)
   σ := {✅ pass (exit 0), ❌ FAIL (exit ≠0), ⚠️ warn (exit 0 + warnings), ⏭ skip (¬in scope)}
 
+**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
+
 Run all χ sequentially → single structured pass/fail report. ¬stop on first failure — run all for complete picture.
 
 ## Pipeline

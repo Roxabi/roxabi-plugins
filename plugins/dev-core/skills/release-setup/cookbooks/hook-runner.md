@@ -2,7 +2,7 @@
 
 Let:
   F    := `--force` flag present in `$ARGUMENTS`
-  σ    := `.claude/stack.yml`
+  σ    := `.dev/stack.yml`
   D✅(label) := Display: `{label} ✅ Configured`
   D⏭(label)  := Display: `{label} ⏭ Already configured`
   D⚠(label)  := Display: `{label} ⚠️ Install failed — check network/lockfile`

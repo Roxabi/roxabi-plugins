@@ -3,6 +3,8 @@
  * Handles .env merge, .env.example, artifacts dirs, .gitignore.
  */
 
+import { CONTRACT_DIR, DEV_CORE_YML } from '../../../hooks/lib/contract-paths.cjs'
+
 const fs = require('node:fs')
 
 export interface ScaffoldOpts {
@@ -250,9 +252,9 @@ export async function scaffold(opts: ScaffoldOpts): Promise<ScaffoldResult> {
     envVarCount: 0,
   }
 
-  // .claude/dev-core.yml (primary config)
-  fs.mkdirSync('.claude', { recursive: true })
-  fs.writeFileSync('.claude/dev-core.yml', buildDevCoreYml(opts))
+  // Contract dev-core.yml (primary config)
+  fs.mkdirSync(CONTRACT_DIR, { recursive: true })
+  fs.writeFileSync(DEV_CORE_YML, buildDevCoreYml(opts))
   result.devCoreYmlWritten = true
 
   const sections = buildDevCoreSections(opts)

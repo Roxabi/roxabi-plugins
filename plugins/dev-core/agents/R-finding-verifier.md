@@ -3,7 +3,7 @@ name: R-finding-verifier
 description: |
   Keep/drop filter over low-confidence non-blocking `/R-dev-review` findings. Read-only. One instance per review (never per chunk, never per finding). Replaces extra reviewer agents with a single confidence filter.
 
-  Invoked by `/R-dev-review` Phase 4 when ∃f: C(f) < verify_below_confidence ∧ ¬blocks(f) (default 90, from `.claude/stack.yml` `review.roster.verify_below_confidence`). Input: the deduped non-blocking findings below the threshold (`F_low`). Output: one keep|drop verdict block per input finding.
+  Invoked by `/R-dev-review` Phase 4 when ∃f: C(f) < verify_below_confidence ∧ ¬blocks(f) (default 90, from `.dev/stack.yml` `review.roster.verify_below_confidence`). Input: the deduped non-blocking findings below the threshold (`F_low`). Output: one keep|drop verdict block per input finding.
 
   Default keep. Drop only with concrete evidence from the drop rubric. Never invent findings. Never raise confidence. Never drop a blocking label. ONLY `Read`, `Grep`, `Glob`.
 
