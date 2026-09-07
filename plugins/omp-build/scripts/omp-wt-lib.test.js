@@ -6,10 +6,14 @@ import {
   linkedGithubIssue,
   missingClientMessage,
   needsSparkClient,
+  notSparkFlagMessage,
   parseArgv,
   parseGithubOrigin,
   parseJsonBlob,
+  parseSparkToken,
+  parseSparkUrl,
   readSparkError,
+  sparkChildEnv,
   sparkPayload,
   ticketFromSparkJson,
 } from './omp-wt-lib.js'
@@ -138,6 +142,12 @@ describe('classifyRawIntake', () => {
       subject: 'Add pricing oracle',
     })
   })
+  it('treats an Excalidraw URL as a subject, not Spark', () => {
+    expect(classifyRawIntake('https://app.excalidraw.com/s/7ad586Zigro/9tKtSYT5Xcm')).toEqual({
+      kind: 'subject',
+      subject: 'https://app.excalidraw.com/s/7ad586Zigro/9tKtSYT5Xcm',
+    })
+  })
 })
 
 describe('parseArgv', () => {
@@ -192,6 +202,52 @@ describe('parseArgv', () => {
       sparkClientToken: 'silex',
     })
   })
+
+  it('rejects -s with a non-Spark URL instead of sending it as a ticket id', () => {
+    const url = 'https://app.excalidraw.com/s/7ad586Zigro/9tKtSYT5Xcm'
+    expect(parseArgv(['-s', url])).toEqual({ usage: true, error: notSparkFlagMessage(url) })
+  })
+
+  it('treats a positional Excalidraw URL as subject', () => {
+    expect(parseArgv(['https://app.excalidraw.com/s/7ad586Zigro/9tKtSYT5Xcm'])).toMatchObject({
+      subject: 'https://app.excalidraw.com/s/7ad586Zigro/9tKtSYT5Xcm',
+      sparkId: null,
+    })
+  })
+
+  it('still accepts a bare Spark cuid with -s', () => {
+    expect(parseArgv(['-s', 'cmrlsrvwm000sxdmkb7jai3sv'])).toMatchObject({
+      sparkId: 'cmrlsrvwm000sxdmkb7jai3sv',
+      sparkClientToken: null,
+    })
+  })
+})
+
+describe('parseSparkUrl / parseSparkToken', () => {
+  it('requires a Spark host and rejects Excalidraw', () => {
+    expect(parseSparkUrl('https://spark.gosilex.com/silex/developpement/cmtxxx')).toEqual({
+      client: 'silex',
+      id: 'cmtxxx',
+    })
+    expect(parseSparkUrl('https://app.excalidraw.com/s/7ad586Zigro/9tKtSYT5Xcm')).toBeNull()
+    expect(parseSparkUrl('https://evil.example/metalyde/developpement/cmtxxx')).toBeNull()
+  })
+
+  it('does not treat a non-Spark URL as a ticket id', () => {
+    expect(parseSparkToken('https://app.excalidraw.com/s/7ad586Zigro/9tKtSYT5Xcm')).toBeNull()
+  })
+
+  it('still parses slug#N and spark:client#N', () => {
+    expect(parseSparkToken('metalyde#60')).toEqual({ client: 'metalyde', id: '60' })
+    expect(parseSparkToken('spark:metalyde#60')).toEqual({ client: 'metalyde', id: '60' })
+  })
+
+  it('still accepts a bare cuid', () => {
+    expect(parseSparkToken('cmrlsrvwm000sxdmkb7jai3sv')).toEqual({
+      id: 'cmrlsrvwm000sxdmkb7jai3sv',
+      client: null,
+    })
+  })
 })
 
 describe('parseGithubOrigin', () => {
@@ -214,5 +270,21 @@ describe('clientSlugFromByRepo', () => {
 
   it('ignores error payloads', () => {
     expect(clientSlugFromByRepo({ error: 'Projet introuvable.' })).toBeNull()
+  })
+})
+
+describe('sparkChildEnv', () => {
+  it('strips SPARK_URL and SPARK_API_KEY so a project .env cannot point spark.sh at staging', () => {
+    expect(
+      sparkChildEnv({
+        HOME: '/home/dev',
+        SPARK_URL: 'https://spark-staging.gosilex.com',
+        SPARK_API_KEY: 'spk_placeholder',
+        SPARK_USER_API_KEY: 'spu_keep',
+      }),
+    ).toEqual({
+      HOME: '/home/dev',
+      SPARK_USER_API_KEY: 'spu_keep',
+    })
   })
 })

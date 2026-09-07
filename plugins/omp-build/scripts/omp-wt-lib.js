@@ -73,6 +73,7 @@ export function formatSparkFail({ label, code, stderr, stdout }) {
 }
 
 const SPARK_SECTIONS = new Set(['developpement', 'pilotage', 'taches', 'roadmap'])
+const SPARK_HOSTS = new Set(['spark.gosilex.com', 'spark-staging.gosilex.com', 'localhost'])
 
 export function parseSparkUrl(s) {
   let u
@@ -81,6 +82,7 @@ export function parseSparkUrl(s) {
   } catch {
     return null
   }
+  if (!SPARK_HOSTS.has(u.hostname.toLowerCase())) return null
   const parts = u.pathname.replace(/\/+$/, '').split('/').filter(Boolean)
   if (parts.length < 2) return null
   const [client, section, open] = parts
@@ -90,13 +92,19 @@ export function parseSparkUrl(s) {
   return { client, id }
 }
 
+export function notSparkFlagMessage(v) {
+  return `-s expects a Spark ticket (id, slug#N, or spark.gosilex.com URL), not ${v}`
+}
+
 export function parseSparkToken(s) {
   const raw = String(s).trim()
+  if (!raw) return null
   const fromUrl = parseSparkUrl(raw)
   if (fromUrl) return fromUrl
   const m = raw.match(/^spark:(?:([a-z0-9-]+)#)?([A-Za-z0-9]+)$/i) || raw.match(/^([a-z0-9-]+)#(\d+)$/i)
-  if (!m) return { id: raw.replace(/^spark:/i, ''), client: null }
-  return { client: m[1] || null, id: m[2] }
+  if (m) return { client: m[1] || null, id: m[2] }
+  if (/^https?:\/\//i.test(raw) || /[/:?#]/.test(raw)) return null
+  return { id: raw.replace(/^spark:/i, ''), client: null }
 }
 
 export function parseGithubOrigin(url) {
@@ -140,6 +148,7 @@ export function parseArgv(args) {
       const v = args[++i]
       if (!v || v.startsWith('-')) return { usage: true }
       const p = parseSparkToken(v)
+      if (!p) return { usage: true, error: notSparkFlagMessage(v) }
       sparkId = p.id
       if (p.client) sparkClientToken = p.client
     } else if (a === '--client' || a === '-c') {
@@ -150,6 +159,7 @@ export function parseArgv(args) {
     else if (/^#?\d+$/.test(a)) issue = Number(a.replace('#', ''))
     else if (/^spark:/i.test(a) || /^[a-z0-9-]+#\d+$/i.test(a) || parseSparkUrl(a)) {
       const p = parseSparkToken(a)
+      if (!p) return { usage: true, error: notSparkFlagMessage(a) }
       sparkId = p.id
       if (p.client) sparkClientToken = p.client
     } else if (!a.startsWith('-') && !subject) subject = a
@@ -157,4 +167,12 @@ export function parseArgv(args) {
   }
   if (sparkClientFlag && !sparkId) return { usage: true }
   return { printOnly, specPath, subject, issue, sparkId, sparkClientFlag, sparkClientToken }
+}
+
+/** Drop app .env SPARK_URL / SPARK_API_KEY so Bun-loaded staging M2M cannot override spark.env. */
+export function sparkChildEnv(env = process.env) {
+  const out = { ...env }
+  delete out.SPARK_URL
+  delete out.SPARK_API_KEY
+  return out
 }
