@@ -43,3 +43,17 @@ export function normalizeWorkflowOpts(opts: WorkflowOpts): Required<WorkflowOpts
 export function triggerBranches(opts?: Pick<WorkflowOpts, 'release'>): string {
   return (opts?.release?.model ?? 'staging-train') === 'trunk' ? '[main]' : '[main, staging]'
 }
+
+/** Flag wins; else stack.yml; else staging-train. Empty flag is absent. */
+export function resolveRelease(
+  flag?: { model?: string; component?: string },
+  stack?: { model?: string | null; component?: string | null } | null,
+): WorkflowRelease {
+  const model: ReleaseModel =
+    flag?.model === 'trunk' || flag?.model === 'staging-train'
+      ? flag.model
+      : stack?.model === 'trunk' || stack?.model === 'staging-train'
+        ? stack.model
+        : 'staging-train'
+  return { model, component: flag?.component || stack?.component || '' }
+}

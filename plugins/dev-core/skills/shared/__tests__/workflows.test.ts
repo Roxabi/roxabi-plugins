@@ -14,7 +14,7 @@ import {
 } from '../workflows/workflow-generators'
 import { ACTION_PINS } from '../workflows/workflow-pins'
 import { writeWorkflows } from '../workflows/workflow-push'
-import { normalizeWorkflowOpts, triggerBranches } from '../workflows/workflow-types'
+import { normalizeWorkflowOpts, resolveRelease, triggerBranches } from '../workflows/workflow-types'
 import {
   generateDependabotAutomergeYml,
   generateDependabotYml,
@@ -119,6 +119,31 @@ describe('triggerBranches', () => {
       expect(yml).not.toContain('branches: [main, staging]')
       expect(yml).not.toContain('branches: [staging, main]')
     }
+  })
+})
+
+describe('resolveRelease', () => {
+  it('defaults to staging-train', () => {
+    expect(resolveRelease()).toEqual({ model: 'staging-train', component: '' })
+    expect(resolveRelease({ model: '' }, null)).toEqual({ model: 'staging-train', component: '' })
+  })
+
+  it('takes trunk from stack when no flag', () => {
+    expect(resolveRelease(undefined, { model: 'trunk', component: 'x' })).toEqual({
+      model: 'trunk',
+      component: 'x',
+    })
+  })
+
+  it('lets the flag override stack', () => {
+    expect(resolveRelease({ model: 'staging-train' }, { model: 'trunk', component: 'x' })).toEqual({
+      model: 'staging-train',
+      component: 'x',
+    })
+    expect(resolveRelease({ model: 'trunk', component: 'y' }, { model: 'staging-train', component: 'x' })).toEqual({
+      model: 'trunk',
+      component: 'y',
+    })
   })
 })
 
@@ -505,6 +530,14 @@ describe('writeWorkflows', () => {
     expect(results).toContainEqual({ file: 'auto-release.yml', status: 'created' })
     expect(fs.existsSync('.github/workflows/auto-release.yml')).toBe(true)
     expect(fs.readFileSync('.github/workflows/auto-release.yml', 'utf8')).toContain('name: Auto Release')
+  })
+
+  it('writes [main] into context-lint.yml under trunk', async () => {
+    seedTrunkReleaseScript()
+    await writeWorkflows({ ...opts, release: { model: 'trunk', component: 'x' } })
+    const yml = fs.readFileSync('.github/workflows/context-lint.yml', 'utf8')
+    expect(yml).toContain('branches: [main]\n')
+    expect(yml).not.toContain('branches: [main, staging]')
   })
 
   it('REFUSES to write a trunk auto-release.yml when auto-release.sh is not vendored (#375)', async () => {

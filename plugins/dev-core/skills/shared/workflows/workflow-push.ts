@@ -175,13 +175,16 @@ function workflowFileSet(o: Required<WorkflowOpts>): WorkflowFile[] {
   return files
 }
 
-/** Push only context-lint.yml (always updates — safe to re-run after generator changes). */
+/** Push only context-lint.yml (always updates — safe to re-run after generator changes).
+ *  Pass `opts.release` so trunk repos keep `branches: [main]` — the default
+ *  generator is staging-train and this path does not skip existing files. */
 export async function pushContextLintYml(
   owner: string,
   repo: string,
   branch: string,
+  opts?: WorkflowOpts,
 ): Promise<'created' | 'updated' | 'skipped'> {
-  return pushWorkflowFile(owner, repo, '.github/workflows/context-lint.yml', generateContextLintYml(), {
+  return pushWorkflowFile(owner, repo, '.github/workflows/context-lint.yml', generateContextLintYml(opts), {
     branch,
     message: 'chore: update context-lint.yml (Grok + Claude harness paths)',
     skipExisting: false,
@@ -219,11 +222,12 @@ export async function pushGenericWorkflows(
   repo: string,
   branch: string,
   force = false,
+  opts?: WorkflowOpts,
 ): Promise<PushResult[]> {
   const files = [
-    { name: 'auto-merge.yml', content: generateAutoMergeYml() },
-    { name: 'pr-title.yml', content: generatePrTitleYml() },
-    { name: 'context-lint.yml', content: generateContextLintYml() },
+    { name: 'auto-merge.yml', content: generateAutoMergeYml(opts) },
+    { name: 'pr-title.yml', content: generatePrTitleYml(opts) },
+    { name: 'context-lint.yml', content: generateContextLintYml(opts) },
   ]
   const results: PushResult[] = []
   for (const { name, content } of files) {
