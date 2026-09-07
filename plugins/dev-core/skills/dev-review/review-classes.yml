@@ -193,12 +193,13 @@ classes:
 #   trusted_agents := { name from each plugins/dev-core/agents/*.md }
 #   derivation: `grep -h '^name:' plugins/dev-core/agents/*.md | awk '{print $2}'`
 #   SSoT: agents/*.md (no other location is authoritative)
+#   Scoped, ¬endorsed: location-derived ⇒ the set admits agents that by contract can never emit a class (R-options: review_code=false); Slice 5 narrows it to { name | review_code=true }, which each agent's `# capabilities:` comment already carries.
 #
 # Authoritative listing (derived from agents/; do NOT update by hand
 # — re-run the derivation above):
 #   R-adversarial | R-architect | R-axial-adr-create | R-axial-adr-review | R-backend-dev
-#   R-devops | R-doc-writer | R-finding-verifier | R-fixer | R-frontend-dev | R-product-lead
-#   R-recall | R-security-auditor | R-tester
+#   R-devops | R-doc-writer | R-finding-verifier | R-fixer | R-frontend-dev | R-options
+#   R-product-lead | R-recall | R-security-auditor | R-tester
 #
 # Filter implementation (Slice 5 cron): MUST scan plugins/dev-core/agents/*.md at
 # runtime and extract name: fields — the inline listing above is documentation-only.
