@@ -10,6 +10,8 @@ Full development lifecycle orchestrator for Roxabi projects. Covers framing, ana
 
 ## Install
 
+### Claude Code
+
 Add the Roxabi marketplace (if not already added):
 
 ```bash
@@ -22,7 +24,28 @@ Install the plugin:
 claude plugin install dev-core
 ```
 
-### Keeping your install up to date
+### OMP
+
+```bash
+omp plugin marketplace add Roxabi/roxabi-plugins   # once per machine
+omp plugin marketplace update roxabi-marketplace   # after a catalog change lands
+omp plugin install dev-core@roxabi-marketplace
+```
+
+**Then arm the surfaces.** With the `claude-plugins` provider disabled, a marketplace install loads only `package.json#omp.extensions` — `skills/` and `agents/` stay dark, because the realpath filter that hides marketplace roots lives in the *installed* lane that both `omp-plugins` (skills/commands/hooks) and the agents gate read. Add the stable `node_modules` symlink to `extensions:` in `~/.omp/agent/config.yml`:
+
+```yaml
+extensions:
+  - ~/.omp/plugins/node_modules/dev-core
+```
+
+Then **restart** the OMP session — agents and extension modules are not picked up by `/reload-plugins`. Once armed, the `R-*` skills and agents load from the installed package.
+
+`dev-core` deliberately ships **no `plugin.json` at the package root**: with one, `agent-plugins` unions the cache directory and the `node_modules` symlink as two distinct path strings and loads every skill twice.
+
+`omp plugin link ./plugins/dev-core` from a checkout stays the local-authoring alternative (no `extensions:` line needed — the link lane is not filtered).
+
+### Keeping your Claude install up to date
 
 `dev-core` ships through a hash-keyed cache at `~/.claude/plugins/cache/roxabi-marketplace/dev-core/<hash>/`. When new versions land on `main`, pull the latest by re-installing from the marketplace:
 
@@ -31,6 +54,15 @@ claude plugin install dev-core
 ```
 
 Without this step, recently-added skills (e.g. `/R-recheck`) won't appear in your trigger list even though they're in the repo.
+
+### Keeping your OMP install up to date
+
+```bash
+omp plugin marketplace update roxabi-marketplace
+omp plugin upgrade dev-core
+```
+
+The OMP install caches under `~/.omp/plugins/cache/plugins/roxabi-marketplace___dev-core___<version>/`. That key carries no ref, and `omp plugin upgrade` only compares catalog rows that declare a `version` — so an upgrade is only visible once the `version` in `.omp-plugin/marketplace.json` (and `package.json`) is bumped. Same version, new commit ⇒ the same cache directory is reused.
 
 ## Getting Started
 

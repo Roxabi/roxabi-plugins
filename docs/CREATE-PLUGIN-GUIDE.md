@@ -8,7 +8,7 @@ Follow these steps to add a plugin under `plugins/`. **Pick a distribution path 
 
 | Path | When | OMP install | Catalog |
 |---|---|---|---|
-| **Marketplace** | Ship to all users via catalog; Claude Code + OMP marketplace pipes | `omp plugin install <name>@roxabi-marketplace` (requires `claude-plugins` on) | Add to `.claude-plugin/marketplace.json` **and** `.omp-plugin/marketplace.json` |
+| **Marketplace** | Ship to all users via catalog; Claude Code + OMP marketplace pipes | `omp plugin install <name>@roxabi-marketplace` (works with `claude-plugins` off, but `skills/`/`agents/` stay dark until the operator adds `~/.omp/plugins/node_modules/<name>` to `extensions:` in `~/.omp/agent/config.yml`) | Add to `.claude-plugin/marketplace.json` **and** `.omp-plugin/marketplace.json` — an OMP-only plugin (`omp-build`) takes the `.omp-plugin/` catalog alone |
 | **Link-only** | Monorepo subdir, internal/operator tooling, or `claude-plugins` off | `omp plugin link ./plugins/<name>` from repo root | **No** catalog entry; **no** `plugins/<name>/.omp-plugin/plugin.json` |
 
 
@@ -108,7 +108,7 @@ allowed-tools: Write, Read, Glob, ToolSearch
 - How it works (brief explanation of the approach, no code notation)
 - Reload vs restart table if the plugin ships agents, hooks, or `omp.extensions`
 
-See `plugins/compress/README.md` (marketplace) or `plugins/omp-build/README.md` (link-only) for examples.
+See `plugins/compress/README.md` (marketplace) or `plugins/omp-build/README.md` (OMP catalog + link) for examples.
 
 ### Step 4 — Register in marketplace catalogs (marketplace path only)
 
@@ -127,6 +127,15 @@ Add an entry to the `plugins` array in **both** catalog files at the repo root:
   "category": "category"
 }
 ```
+
+The **OMP row additionally needs `"version": "0.1.0"`**, kept in sync with
+`plugins/<plugin-name>/package.json#version`: the OMP install cache is keyed
+`<marketplace>___<plugin>___<version>` with no ref component, so a version-less row installs as
+`___0.0.0` — two commits then overwrite one cache directory and `omp plugin upgrade`, which only
+compares rows that declare a version, sees nothing to do. The **Claude row is left version-less on
+purpose**: with no version Claude resolves to the commit SHA, so every merge auto-ships (AGENTS.md
+§ Editing Plugins). Pinning it there would trade that for a manual bump the repo does not
+enforce (`release.version_files: []`).
 
 Add `plugins/<plugin-name>/.claude-plugin/plugin.json` (Claude) and, for OMP marketplace delivery, `plugins/<plugin-name>/.omp-plugin/plugin.json`. Link-only plugins omit per-plugin `.omp-plugin/` metadata.
 

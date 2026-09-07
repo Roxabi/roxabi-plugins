@@ -18,8 +18,8 @@ Checks:
   glossary, and compress's inline whitelist stays set-equal to its core table
 - Golden compressed artifacts stay inventory-equivalent to their expected
   inventories (compress read-back goldens, issue #311)
-- Catalogued `.claude-plugin/marketplace.json` plugin names (except link-only
-  `omp-build`) appear in root `README.md`
+- Catalogued `.claude-plugin/marketplace.json` plugin names appear in root
+  `README.md` (link-only plugins are exempt)
 
 
 Usage:
@@ -39,8 +39,9 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGINS_DIR = REPO_ROOT / 'plugins'
-# Link-only plugins are not catalog rows and are not required in README.md.
-LINK_ONLY_PLUGIN_NAMES = frozenset({'omp-build'})
+# Link-only plugins ship via `omp plugin link` only, so they are never catalog rows and are not
+# required in README.md. Empty today: omp-build now ships as a versioned `.omp-plugin/` catalog row.
+LINK_ONLY_PLUGIN_NAMES = frozenset()
 MARKETPLACE_JSON = REPO_ROOT / '.claude-plugin' / 'marketplace.json'
 README_MD = REPO_ROOT / 'README.md'
 
@@ -683,8 +684,10 @@ def check_marketplace_readme_catalog(
 ) -> list[str]:
     """marketplace.json plugin names must appear in README.md.
 
-    Link-only plugins (currently omp-build) are excluded — they stay unlisted
-    as catalog rows even if they exist on disk.
+    Names in LINK_ONLY_PLUGIN_NAMES (empty today) are excluded: a link-only plugin
+    ships via `omp plugin link`, so it is never a catalog row even though it exists
+    on disk. Only `.claude-plugin/marketplace.json` is read — an OMP-only plugin
+    (`omp-build`) is catalogued in `.omp-plugin/marketplace.json` alone.
     """
     errors = []
     if marketplace_path is None:
