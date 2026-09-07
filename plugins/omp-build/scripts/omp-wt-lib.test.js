@@ -148,6 +148,10 @@ describe('classifyRawIntake', () => {
       subject: 'https://app.excalidraw.com/s/7ad586Zigro/9tKtSYT5Xcm',
     })
   })
+  it('does not throw when spark: prefixes a non-Spark URL', () => {
+    const s = 'spark:https://app.excalidraw.com/s/7ad586Zigro/9tKtSYT5Xcm'
+    expect(classifyRawIntake(s)).toEqual({ kind: 'subject', subject: s })
+  })
 })
 
 describe('parseArgv', () => {

@@ -125,6 +125,7 @@ export function classifyRawIntake(raw) {
   if (/^#?\d+$/.test(s)) return { kind: 'gh', issue: Number(s.replace('#', '')) }
   if (/^spark:/i.test(s) || /^[a-z0-9-]+#\d+$/i.test(s) || parseSparkUrl(s)) {
     const p = parseSparkToken(s)
+    if (!p) return { kind: 'subject', subject: s }
     return { kind: 'spark', id: p.id, client: p.client || null }
   }
   return { kind: 'subject', subject: s }
