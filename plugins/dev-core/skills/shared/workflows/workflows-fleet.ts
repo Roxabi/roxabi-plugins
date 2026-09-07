@@ -1,6 +1,6 @@
 import { STACK_YML } from '../../../hooks/lib/contract-paths.cjs'
 import { ACTION_PINS, APP_MINT_STEP } from './workflow-pins'
-import type { WorkflowOpts } from './workflow-types'
+import { triggerBranches, type WorkflowOpts } from './workflow-types'
 
 function gatingWorkflowNames(opts: WorkflowOpts): string[] {
   const names = ['CI', 'PR Title', 'Secret Scan', 'Context lint']
@@ -12,7 +12,8 @@ function gatingWorkflowNames(opts: WorkflowOpts): string[] {
  * Secret scan CI — secondary filet (local scripts/trufflehog-check.sh is primary).
  * Diff-scoped (base/head, like roxabi-boilerplate-cf) + shared exclude SSoT.
  */
-export function generateSecretScanYml(): string {
+export function generateSecretScanYml(opts?: WorkflowOpts): string {
+  const branches = triggerBranches(opts)
   return `name: Secret Scan
 
 permissions:
@@ -22,9 +23,9 @@ permissions:
 
 on:
   push:
-    branches: [main, staging]
+    branches: ${branches}
   pull_request:
-    branches: [main, staging]
+    branches: ${branches}
     types: [opened, synchronize, reopened, ready_for_review]
   merge_group: {}
   workflow_dispatch: {}

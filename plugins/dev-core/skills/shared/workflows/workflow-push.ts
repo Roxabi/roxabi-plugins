@@ -141,12 +141,12 @@ function workflowFileSet(o: Required<WorkflowOpts>): WorkflowFile[] {
   const mergeFile =
     o.merge === 'merge-on-green'
       ? { name: 'merge-on-green.yml', content: generateMergeOnGreenYml(o) }
-      : { name: 'auto-merge.yml', content: generateAutoMergeYml() }
+      : { name: 'auto-merge.yml', content: generateAutoMergeYml(o) }
   const workflows: Array<{ name: string; content: string }> = [
     mergeFile,
-    { name: 'pr-title.yml', content: generatePrTitleYml() },
-    { name: 'context-lint.yml', content: generateContextLintYml() },
-    { name: 'secret-scan.yml', content: generateSecretScanYml() },
+    { name: 'pr-title.yml', content: generatePrTitleYml(o) },
+    { name: 'context-lint.yml', content: generateContextLintYml(o) },
+    { name: 'secret-scan.yml', content: generateSecretScanYml(o) },
     { name: 'ci.yml', content: generateCiYml(o) },
     { name: 'dependabot-automerge.yml', content: generateDependabotAutomergeYml() },
   ]

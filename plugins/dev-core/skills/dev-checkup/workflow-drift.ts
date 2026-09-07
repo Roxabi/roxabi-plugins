@@ -59,13 +59,13 @@ export function checkWorkflowDrift(): Check[] {
   })
   const expected: Record<string, string> = {
     'ci.yml': generateCiYml(opts),
-    'pr-title.yml': generatePrTitleYml(),
-    'context-lint.yml': generateContextLintYml(),
-    'secret-scan.yml': generateSecretScanYml(),
+    'pr-title.yml': generatePrTitleYml(opts),
+    'context-lint.yml': generateContextLintYml(opts),
+    'secret-scan.yml': generateSecretScanYml(opts),
     'dependabot-automerge.yml': generateDependabotAutomergeYml(),
     ...(opts.merge === 'merge-on-green'
       ? { 'merge-on-green.yml': generateMergeOnGreenYml(opts) }
-      : { 'auto-merge.yml': generateAutoMergeYml() }),
+      : { 'auto-merge.yml': generateAutoMergeYml(opts) }),
     ...(opts.deploy === 'vercel' ? { 'deploy-preview.yml': generateDeployYml(opts) } : {}),
     ...(opts.deploy === 'cloudflare' ? { 'deploy-cloudflare.yml': generateCloudflareDeployYml() } : {}),
   }

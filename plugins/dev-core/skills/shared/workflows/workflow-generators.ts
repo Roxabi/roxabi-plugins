@@ -6,11 +6,11 @@
 
 import { STACK_YML } from '../../../hooks/lib/contract-paths.cjs'
 import { ACTION_PINS, APP_MINT_STEP } from './workflow-pins'
-import { normalizeWorkflowOpts, type WorkflowOpts } from './workflow-types'
+import { normalizeWorkflowOpts, triggerBranches, type WorkflowOpts } from './workflow-types'
 import { generateE2eJob } from './workflows-fleet'
 
 export type { WorkflowOpts } from './workflow-types'
-export { normalizeWorkflowOpts }
+export { normalizeWorkflowOpts, triggerBranches }
 
 // The repo-relative path the trunk auto-release workflow's `run:` step invokes.
 // It resolves ONLY where dev-core is vendored under `plugins/` (roxabi-plugins
@@ -23,12 +23,14 @@ export const TRUNK_AUTO_RELEASE_SCRIPT = 'plugins/dev-core/skills/promote/auto-r
 
 // --- Content generators ---
 
-/** Generic auto-merge workflow: enables merge queue on 'reviewed' label,
+/** Generic auto-merge workflow: enables native auto-merge on 'reviewed' label,
  *  updates behind PRs on push, closes linked issues on merge. */
-export function generateAutoMergeYml(): string {
+export function generateAutoMergeYml(opts?: WorkflowOpts): string {
+  const branches = triggerBranches(opts)
   return `# Auto-merge PRs that have been reviewed and passed all required checks.
-# Adds the PR to GitHub's merge queue (merge commit) once the "reviewed" label is present.
-# GitHub natively waits for all required status checks before merging.
+# Enables GitHub's native auto-merge (\`gh pr merge --auto --merge\`) once the
+# "reviewed" label is present; GitHub then waits for the required status
+# checks before merging.
 # Uses merge commit (not squash) to preserve history — required for staging→main promotions.
 #
 # Dependabot guard: semver-major bumps are never auto-merged — they require
@@ -44,7 +46,7 @@ on:
   check_suite:
     types: [completed]
   push:
-    branches: [staging, main]
+    branches: ${branches}
 
 permissions:
   contents: write
@@ -267,13 +269,14 @@ ${APP_MINT_STEP}
 }
 
 /** Generic PR title validator — enforces Conventional Commits format. */
-export function generatePrTitleYml(): string {
+export function generatePrTitleYml(opts?: WorkflowOpts): string {
+  const branches = triggerBranches(opts)
   return `name: PR Title
 
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
-    branches: [main, staging]
+    branches: ${branches}
 
 permissions:
   pull-requests: read
@@ -319,7 +322,8 @@ jobs:
  *  are machine-local and skipped on CI. Stack-agnostic (pure bash, no deps).
  *  Ecosystem-level checks (project index, factory registry) live in the central
  *  ~/projects/scripts/context-lint.sh, deliberately not here. */
-export function generateContextLintYml(): string {
+export function generateContextLintYml(opts?: WorkflowOpts): string {
+  const branches = triggerBranches(opts)
   return `name: Context Lint
 
 on:
@@ -332,7 +336,7 @@ on:
       - '.grok/**'
       - '.agents/**'
   push:
-    branches: [main, staging]
+    branches: ${branches}
     paths:
       - '**/CLAUDE.md'
       - '**/AGENTS.md'
@@ -447,9 +451,9 @@ export function generateCiYml(opts: WorkflowOpts): string {
   return `name: CI
 on:
   push:
-    branches: [main, staging]
+    branches: ${triggerBranches(o)}
   pull_request:
-    branches: [main, staging]
+    branches: ${triggerBranches(o)}
     types: [opened, synchronize, reopened, ready_for_review]
   merge_group: {}
 

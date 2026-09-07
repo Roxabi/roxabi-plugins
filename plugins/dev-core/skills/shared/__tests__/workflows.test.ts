@@ -9,11 +9,12 @@ import {
   generateCiYml,
   generateContextLintYml,
   generateDeployYml,
+  generatePrTitleYml,
   workflowOptsFromStack,
 } from '../workflows/workflow-generators'
 import { ACTION_PINS } from '../workflows/workflow-pins'
 import { writeWorkflows } from '../workflows/workflow-push'
-import { normalizeWorkflowOpts } from '../workflows/workflow-types'
+import { normalizeWorkflowOpts, triggerBranches } from '../workflows/workflow-types'
 import {
   generateDependabotAutomergeYml,
   generateDependabotYml,
@@ -69,6 +70,55 @@ describe('generateAutoMergeYml', () => {
     // Scoped to the Block step only — the whole YAML also has a legitimate
     // `exit 0` elsewhere (update-behind-prs' empty-PR-list check).
     expect(blockRegion).toContain('exit 1')
+  })
+  it('documents native auto-merge, not a merge queue', () => {
+    const yml = generateAutoMergeYml()
+    expect(yml).toContain('native auto-merge')
+    expect(yml).toContain('gh pr merge --auto --merge')
+    expect(yml).not.toContain('merge queue')
+  })
+})
+
+const trunkOpts = {
+  stack: 'bun' as const,
+  test: 'vitest' as const,
+  deploy: 'none' as const,
+  release: { model: 'trunk' as const, component: 'x' },
+}
+
+describe('triggerBranches', () => {
+  it('defaults to staging-train', () => {
+    expect(triggerBranches()).toBe('[main, staging]')
+    expect(triggerBranches({ release: { model: 'staging-train', component: 'x' } })).toBe('[main, staging]')
+  })
+
+  it('emits [main] for trunk', () => {
+    expect(triggerBranches({ release: { model: 'trunk', component: 'x' } })).toBe('[main]')
+  })
+
+  it('interpolates into every trigger workflow', () => {
+    const staging = [
+      generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none' }),
+      generatePrTitleYml(),
+      generateContextLintYml(),
+      generateSecretScanYml(),
+      generateAutoMergeYml(),
+    ]
+    for (const yml of staging) {
+      expect(yml).toContain('branches: [main, staging]')
+    }
+    const trunk = [
+      generateCiYml(trunkOpts),
+      generatePrTitleYml(trunkOpts),
+      generateContextLintYml(trunkOpts),
+      generateSecretScanYml(trunkOpts),
+      generateAutoMergeYml(trunkOpts),
+    ]
+    for (const yml of trunk) {
+      expect(yml).toContain('branches: [main]\n')
+      expect(yml).not.toContain('branches: [main, staging]')
+      expect(yml).not.toContain('branches: [staging, main]')
+    }
   })
 })
 
