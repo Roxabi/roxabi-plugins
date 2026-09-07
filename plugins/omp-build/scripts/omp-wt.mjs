@@ -22,6 +22,7 @@ import {
   needsSparkClient,
   parseArgv,
   parseGithubOrigin,
+  sparkChildEnv,
   sparkPayload,
   ticketFromSparkJson,
 } from './omp-wt-lib.js'
@@ -38,15 +39,16 @@ function die(err) {
   process.exit(1)
 }
 
-function usage() {
+function usage(error) {
+  if (error) console.error(`omp-wt: ${error}`)
   console.error(`usage: omp-wt [issue|#N] [--subject <text>] [--spec <path>] [--print]
-       omp-wt -s <id|url> [-c <slug>]   # Spark; client from URL/-c, else origin, else config
+       omp-wt -s <id|spark-url> [-c <slug>]   # Spark only; other URLs: drop -s
        omp-wt                       # prompt: GH # | spark URL | spark:<client>#N | subject`)
   process.exit(2)
 }
 
 const argvParsed = parseArgv(process.argv.slice(2))
-if (argvParsed.usage) usage()
+if (argvParsed.usage) usage(argvParsed.error)
 let { printOnly, specPath, subject, issue, sparkId, sparkClientFlag, sparkClientToken } = argvParsed
 
 function setIssue(text, n) {
@@ -90,7 +92,11 @@ async function sparkJson(argv, label) {
     throw new Error(`spark.sh missing: ${SPARK_SH}`)
   }
   log(label)
-  const proc = Bun.spawn([SPARK_SH, ...argv], { stdout: 'pipe', stderr: 'pipe' })
+  const proc = Bun.spawn([SPARK_SH, ...argv], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: sparkChildEnv(),
+  })
   const stdout = await new Response(proc.stdout).text()
   const stderr = await new Response(proc.stderr).text()
   const code = await proc.exited
@@ -129,6 +135,7 @@ async function resolveSparkClientFromConfig() {
   const proc = Bun.spawn([SPARK_SH, 'config', 'show'], {
     stdout: 'pipe',
     stderr: 'pipe',
+    env: sparkChildEnv(),
   })
   const out = await new Response(proc.stdout).text()
   const code = await proc.exited
