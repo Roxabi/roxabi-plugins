@@ -233,6 +233,52 @@ def check_tempfile_convention() -> list[str]:
     return errors
 
 
+def check_skill_frontmatter_scalars() -> list[str]:
+    """SKILL.md frontmatter must not open an unquoted YAML flow collection.
+
+    `argument-hint: [#PR]` is invalid YAML: `#` after `[` opens a comment, so the
+    flow sequence never closes, the scanner swallows the following keys, and the
+    whole frontmatter fails to parse. The host then drops the skill *silently* —
+    it stays invocable as a slash command (the OMP extension strips frontmatter
+    as text, never parsing it) while being invisible to the model and to
+    `skill: "<name>"` chaining. Measured 2026-09-07: R-adr, R-dev-review and
+    issue-triage were all dark this way.
+
+    Even when the bracket does close on the same line, an unquoted value parses
+    as a *list* rather than the intended string, and is one `#` away from going
+    dark. So the invariant is total: quote it.
+    """
+    errors = []
+    flow_open = re.compile(r'^([A-Za-z0-9_-]+):\s*([\[{].*)$')
+
+    for skill_md in sorted(PLUGINS_DIR.glob('*/skills/**/SKILL.md')):
+        plugin_name = skill_md.relative_to(PLUGINS_DIR).parts[0]
+        try:
+            text = skill_md.read_text()
+        except UnicodeDecodeError as e:
+            errors.append(f'{plugin_name}: {skill_md.relative_to(REPO_ROOT)} is not valid UTF-8: {e}')
+            continue
+        if not text.startswith('---\n'):
+            continue
+        end = text.find('\n---\n', 4)
+        if end == -1:
+            errors.append(
+                f'{plugin_name}: {skill_md.relative_to(REPO_ROOT)} frontmatter is never closed'
+            )
+            continue
+
+        rel = skill_md.relative_to(REPO_ROOT)
+        for offset, line in enumerate(text[4:end].splitlines()):
+            match = flow_open.match(line)
+            if match:
+                errors.append(
+                    f'{plugin_name}: unquoted flow collection at {rel}:{offset + 2} '
+                    f'→ {match.group(1)}: quote the value '
+                    f"(e.g. {match.group(1)}: '{match.group(2).strip()}')"
+                )
+    return errors
+
+
 def check_class_list_sync(
     yaml_path: Path = _DEFAULT_YAML_PATH,
     skill_path: Path = _DEFAULT_SKILL_PATH,
@@ -792,6 +838,7 @@ def main(argv: list[str] | None = None) -> int:
         ('Example files exist', check_examples_exist),
         ('No vendored paths.py', check_vendored_paths),
         ('Tempfile convention', check_tempfile_convention),
+        ('SKILL.md frontmatter scalars', check_skill_frontmatter_scalars),
         ('Class list sync', check_class_list_sync),
         ('Subsumption pairs', check_subsumption_pairs),
         ('SKILL.md line budget', check_skill_line_budget),
