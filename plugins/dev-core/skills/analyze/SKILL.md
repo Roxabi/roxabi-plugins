@@ -1,8 +1,8 @@
 ---
 name: R-analyze
 argument-hint: '[--issue <N> | --frame <path>]'
-description: Deep technical analysis — explore existing code, risks, alternatives. Triggers: "analyze" | "technical analysis" | "how deep is it" | "deep dive" | "investigate this" | "analyze this feature" | "what are the risks" | "explore the codebase" | "look into this" | "explain the architecture" | "what is the architecture" | "explain from intent down".
-version: 0.4.5
+description: Deep technical analysis — explore existing code, risks, shapes. Triggers: "analyze" | "technical analysis" | "how deep is it" | "deep dive" | "investigate this" | "analyze this feature" | "what are the risks" | "explore the codebase" | "look into this" | "explain the architecture" | "what is the architecture" | "explain from intent down".
+version: 0.4.6
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, EnterWorktree, ExitWorktree, Task, Skill, ToolSearch
 ---
 

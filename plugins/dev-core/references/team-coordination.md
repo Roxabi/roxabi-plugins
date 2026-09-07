@@ -13,7 +13,7 @@ Main Claude = orchestrator. Assesses issues, spawns α, runs skills, coordinates
 | Tier | α | Role |
 |------|---|------|
 | **Domain** | R-frontend-dev, R-backend-dev, R-devops | Write code in their packages |
-| **Quality** | R-fixer, R-tester, R-security-auditor, R-adversarial | Fix findings, write tests, OWASP audit, red-team (`/R-adversarial` skill or review agent) |
+| **Quality** | R-fixer, R-tester, R-security-auditor, R-adversarial, R-options | Fix findings, write tests, OWASP audit, red-team (`/R-adversarial` skill or review agent), option-space sweep (standalone, ¬roster) |
 | **Strategy** | R-architect, R-product-lead, R-doc-writer | Plan, analyze, document |
 
 ## 4-Phase Workflow
@@ -64,6 +64,7 @@ Omit empty fields. Lead forwards relevant sections to next α spawn prompt.
 | R-tester | Test files in all packages | Source files |
 | R-security-auditor | Read-only + Bash | Source files |
 | R-adversarial | Read-only + Bash (git read-only) | Source files |
+| R-options | Read-only + Bash (git read-only) | Source files, plans, specs |
 | R-architect | `docs/architecture/`, ADRs | App code |
 | R-product-lead | `artifacts/analyses/`, `artifacts/specs/`, `gh` CLI | App code |
 | R-doc-writer | `docs/`, `CLAUDE.md` | App code |

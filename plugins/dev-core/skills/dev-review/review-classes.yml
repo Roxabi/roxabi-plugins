@@ -197,8 +197,8 @@ classes:
 # Authoritative listing (derived from agents/; do NOT update by hand
 # — re-run the derivation above):
 #   R-adversarial | R-architect | R-axial-adr-create | R-axial-adr-review | R-backend-dev
-#   R-devops | R-doc-writer | R-finding-verifier | R-fixer | R-frontend-dev | R-product-lead
-#   R-recall | R-security-auditor | R-tester
+#   R-devops | R-doc-writer | R-finding-verifier | R-fixer | R-frontend-dev | R-options
+#   R-product-lead | R-recall | R-security-auditor | R-tester
 #
 # Filter implementation (Slice 5 cron): MUST scan plugins/dev-core/agents/*.md at
 # runtime and extract name: fields — the inline listing above is documentation-only.

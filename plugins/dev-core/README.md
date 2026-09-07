@@ -111,7 +111,7 @@ Skills organized by workflow phase:
 
 ## Agents
 
-Specialized agents organized in three tiers (plus review specialists: `R-adversarial`, `R-axial-adr-review`, `R-recall`). Each agent has a built-in **config guard** (fails fast if `stack.yml` is missing), a domain-specific **escalation path** (knows who to message for out-of-scope issues), and a **confidence threshold** (stops and escalates instead of guessing when certainty is below 70–80%).
+Specialized agents organized in three tiers (plus review specialists: `R-adversarial`, `R-axial-adr-review`, `R-recall`), plus the standalone, human-invoked `R-options` (¬in any roster). Most agents have a built-in **config guard** (fails fast if `stack.yml` is missing), a domain-specific **escalation path** (knows who to message for out-of-scope issues), and a **confidence threshold** (stops and escalates instead of guessing when certainty is below 70–80%).
 
 Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, `write_code`, `review_code`, `run_tests`) for human-readable permission reference, and a `# based-on:` traceability comment. All agents inline a base communication + research-order protocol in their body. `R-backend-dev`, `R-frontend-dev`, `R-fixer`, and `R-tester` additionally inline quality-gate rules. The shared reference files live in `skills/shared/references/` (`base.md`, `engineer.md`).
 
@@ -131,6 +131,7 @@ Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, 
 | `R-fixer` | Applies accepted review findings |
 | `R-security-auditor` | OWASP Top 10 audit with exploit scenarios, confidence scoring (C ≥ 60), and false-positive filtering |
 | `R-adversarial` | Red-team for `/R-adversarial` + `/R-spec` + `/R-dev-review`: bypass, fleet-regression, vacuous guards, assumption-kill; OWASP lens on `/R-dev-review` (read-only) |
+| `R-options` | Morphological option-space sweep — derives must-haves, sweeps 3–5 independent axes, prunes and ranks options, locates the incumbent as one point in the lattice (read-only). Human / side-path invoked; ¬in any review roster |
 
 ### Strategy
 
