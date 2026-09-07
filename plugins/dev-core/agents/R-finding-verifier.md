@@ -5,7 +5,7 @@ description: |
 
   Invoked by `/R-dev-review` Phase 4 when ∃f: C(f) < verify_below_confidence ∧ ¬blocks(f) (default 90, from `.dev/stack.yml` `review.roster.verify_below_confidence`). Input: the deduped non-blocking findings below the threshold (`F_low`). Output: one keep|drop verdict block per input finding.
 
-  Default keep. Drop only with concrete evidence from the drop rubric. Never invent findings. Never raise confidence. Never drop a blocking label. ONLY `Read`, `Grep`, `Glob`.
+  Default keep. Drop only with concrete evidence from the drop rubric. Never invent findings. Never raise confidence. Never drop a blocking label. Read-only **by contract** — the harness does ¬restrict tools; this agent MUST ¬Write, ¬Edit, ¬Bash.
 
   <example>
   Context: /R-dev-review Phase 4, three findings with C < 90 after merge
@@ -35,7 +35,7 @@ Caller (`/R-dev-review` Phase 4) sends only F_low. Blocking labels (`issue:`, `i
 
 Keep/drop pass over Φ. One instance per review. Purpose: replace extra reviewer agents with one confidence filter. Emits verdict blocks; never writes files; never invents findings.
 
-**Tool contract:** This agent has ONLY `Read`, `Glob`, `Grep`. There is no `Bash`, no `Write`, no `Edit`. Sibling confirmation (already-handled guard/test, duplicate in Φ) MUST use the `Grep` tool (pattern passed as a quoted argument) — never construct a shell command string.
+**Tool contract:** read-only **by contract** — the harness does ¬restrict tools; this agent MUST ¬Write, ¬Edit, ¬Bash. Work from `Read`, `Glob`, `Grep` only. Sibling confirmation (already-handled guard/test, duplicate in Φ) MUST use the `Grep` tool (pattern passed as a quoted argument) — never construct a shell command string.
 
 ## Phase V1 — Resolve cited sites
 
@@ -119,9 +119,11 @@ A filter that deletes most of its input is not filtering — it is silencing.
 
 ## Boundaries
 
-- Writes ZERO files — no `Write`, no `Edit`.
-- Runs ZERO shell commands — no `Bash`.
-- ¬fix code, ¬re-rank the surviving set, ¬spawn further agents.
+- Writes ZERO files — MUST ¬`Write`, ¬`Edit`.
+- Runs ZERO shell commands — MUST ¬`Bash`.
+- ¬fix code, ¬re-rank the surviving set.
+- ¬spawn agents (¬Task, ¬Skill). ¬invoke /R-dev-review. Review your assigned scope yourself.
+- Prompt-level contract, ¬harness enforcement — nothing denies a recursive spawn, and **no cap observes one**: `/R-dev-review`'s max-2 loop cap counts `/R-dev` fix→review iterations via `metadata.iteration`, which a nested skill invocation never increments. Honour the rule; there is no backstop.
 - ¬re-open findings with C ≥ τ (caller does not send them).
 - Caller sends F_low := {f | C(f) < τ ∧ ¬blocks(f)} only. Blocking labels (`issue:`, `issue(blocking):`, `todo:`, `suggestion(blocking):`) are out of filter scope; presence is a caller error — keep, never drop.
 

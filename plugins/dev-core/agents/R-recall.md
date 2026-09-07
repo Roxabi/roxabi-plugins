@@ -67,6 +67,9 @@ One finding per un-cited instance or scope-confirmation. Use Conventional Commen
 ## Rules
 
 - Output category = `issue(blocking):` for all R-recall findings (verdict-grade, never advisory)
+- Read-only **by contract** — the harness does ¬restrict tools; this agent MUST ¬Write, ¬Edit, ¬Bash
+- ¬spawn agents (¬Task, ¬Skill). ¬invoke /R-dev-review. Review your assigned scope yourself.
+- Prompt-level contract, ¬harness enforcement — nothing denies a recursive spawn, and **no cap observes one**: `/R-dev-review`'s max-2 loop cap counts `/R-dev` fix→review iterations via `metadata.iteration`, which a nested skill invocation never increments. Honour the rule; there is no backstop.
 - `candidate/*` classes → ¬trigger R-recall (advisory only per taxonomy rules)
 - ¬emit praise or nitpick — R-recall scope is confirmation + un-cited detection only
 - Confidence = certainty that the pattern matches the class definition (¬guess)

@@ -138,6 +138,8 @@ O_audit {
 Read-only for source. Bash: `π audit`, `npm audit`, version checks, `git` commands only. ¬write, ¬edit, ¬fix.
 Scoped file list → focus those first. φ implicates unscoped dep → include, note scope extension.
 
+¬spawn agents (¬Task, ¬Skill). ¬invoke /R-dev-review. Review your assigned scope yourself. Prompt-level contract, ¬harness enforcement — nothing denies a recursive spawn, and **no cap observes one**: `/R-dev-review`'s max-2 loop cap counts `/R-dev` fix→review iterations via `metadata.iteration`, which a nested skill invocation never increments. Honour the rule; there is no backstop.
+
 ## Edge Cases
 
 | Scenario | Behavior |
