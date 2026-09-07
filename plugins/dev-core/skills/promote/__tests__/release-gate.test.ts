@@ -117,6 +117,15 @@ describe('provisioner — provision-release-gate.sh', () => {
     // Ruleset guard: name lookup short-circuits when already present.
     expect(provisionerSrc).toMatch(/already present/)
   })
+
+  it('DEFAULT_REF pins v4.1.0 — the tag that reads .dev/stack.yml — not v0.5.0', () => {
+    // v0.5.0's reusable workflow still reads .claude/stack.yml and has no
+    // fail-closed `[ -f "$STACK" ]`. usage is a quoted heredoc, so the pin is
+    // a second literal, not `$DEFAULT_REF`.
+    const def = provisionerSrc.match(/^DEFAULT_REF="([^"]+)"/m)?.[1]
+    expect(def).toBe('roxabi-plugins/v4.1.0')
+    expect(provisionerSrc).toContain('roxabi-plugins/v4.1.0 — always pin to a tag, never a branch')
+  })
 })
 
 // ─── F3/F7: the gate delegates derivation to the sole deriver, no duplicate ─────
