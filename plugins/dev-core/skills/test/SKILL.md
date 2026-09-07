@@ -1,7 +1,7 @@
 ---
 name: R-test
 disable-model-invocation: true
-argument-hint: [file | --e2e | --run]
+argument-hint: '[file | --e2e | --run]'
 description: Generate or run unit, integration, and Playwright e2e tests.
 version: 0.4.3
 allowed-tools: Bash, Read, Write, Glob, Grep, ToolSearch

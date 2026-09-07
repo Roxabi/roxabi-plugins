@@ -1,6 +1,6 @@
 ---
 name: issue-triage
-argument-hint: [list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] [--type T] [--lane L]]
+argument-hint: '[list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] [--type T] [--lane L]]'
 description: Triage/create GitHub issues — set size/priority/lane/type labels, manage dependencies & parent/child. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type".
 version: 0.5.0
 allowed-tools: Bash, Read, ToolSearch

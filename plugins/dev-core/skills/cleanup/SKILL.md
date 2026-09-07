@@ -1,6 +1,6 @@
 ---
 name: R-cleanup
-argument-hint: [--all | --report-only | --yes | --scope <#N>]
+argument-hint: '[--all | --report-only | --yes | --scope <#N>]'
 description: Clean git branches/worktrees/remotes after merge-status verification; sweep stuck pipeline labels and orphan CI runs. Triggers: "cleanup" | "clean branches" | "cleanup worktrees" | "remove stale branches".
 version: 0.6.2
 allowed-tools: Bash, Read, EnterWorktree, ExitWorktree, ToolSearch

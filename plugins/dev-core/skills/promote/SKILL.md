@@ -1,7 +1,7 @@
 ---
 name: R-promote
 disable-model-invocation: true
-argument-hint: [--dry-run | --skip-preview | --finalize]
+argument-hint: '[--dry-run | --skip-preview | --finalize]'
 description: Promote staging→main — pre-flight, version bump, changelog, PR and tag.
 version: 0.5.1
 allowed-tools: Bash, Read, Grep, Write, Edit, ToolSearch

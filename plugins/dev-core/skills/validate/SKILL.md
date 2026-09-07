@@ -1,6 +1,6 @@
 ---
 name: R-validate
-argument-hint: [--quick | --full | --affected]
+argument-hint: '[--quick | --full | --affected]'
 description: Run all quality gates (lint, typecheck, test, env, i18n, license; optional falsify on --full) and produce a structured pass/fail report. Triggers: "validate" | "quality check" | "pre-push check" | "are we green".
 version: 0.2.1
 allowed-tools: Bash, Read

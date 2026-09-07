@@ -1,7 +1,7 @@
 ---
 name: R-adr
 disable-model-invocation: true
-argument-hint: ["Title of decision" | --list]
+argument-hint: '["Title of decision" | --list]'
 description: Create/list Architecture Decision Records.
 version: 0.4.1
 allowed-tools: Write, Read, Glob, ToolSearch
