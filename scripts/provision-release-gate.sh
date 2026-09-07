@@ -40,7 +40,7 @@ RULESET_NAME="release-consistency-gate" # ruleset object name (distinct from PR_
 REUSABLE="Roxabi/roxabi-plugins/.github/workflows/release-consistency.yml"
 COMMIT_BRANCH="main"                    # the gate lives on main: the ruleset targets refs/heads/main
                                         # and pull_request(base=main) reads the workflow from main.
-DEFAULT_REF="roxabi-plugins/v0.5.0"     # reusable-workflow pin; a tag, not a branch — `staging`
+DEFAULT_REF="roxabi-plugins/v4.1.0"     # reusable-workflow pin; a tag, not a branch — `staging`
                                         # no longer exists and a moving branch is not a safe pin
 
 usage() {
@@ -49,7 +49,7 @@ Usage: provision-release-gate.sh <owner/repo> [--ref <git-ref>] [--remove]
 
   <owner/repo>   target repo (a bare name is prefixed with the Roxabi org)
   --ref <ref>    reusable-workflow pin in the stub's `uses:` (default:
-                 roxabi-plugins/v0.5.0 — always pin to a tag, never a branch)
+                 roxabi-plugins/v4.1.0 — always pin to a tag, never a branch)
   --remove       reverse BOTH artifacts: delete the caller stub and the ruleset
 
 Provisions (idempotent):
