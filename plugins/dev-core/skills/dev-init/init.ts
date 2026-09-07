@@ -5,19 +5,22 @@
  * `bun init.ts --help` prints USAGE.
  */
 
+import { existsSync, readFileSync } from 'node:fs'
 import { STACK_YML } from '../../hooks/lib/contract-paths.cjs'
+import { parseStackYml } from '../../hooks/lib/parse-stack-yml.cjs'
+import { resolveRelease, type WorkflowOpts } from '../shared/workflows/workflow-types'
 
 const USAGE = `Init CLI — router that delegates to subcommand modules.
 
 Usage:
   bun init.ts prereqs [--json]
   bun init.ts discover [--json]
-  bun init.ts workflows (--owner <owner> --repo <repo> | --local) --stack <bun|node|python> --test <vitest|jest|pytest|bun|none> --deploy <vercel|cloudflare|none> [--merge auto-merge|merge-on-green] [--e2e playwright|none] [--lint true|false] [--typecheck true|false] [--test-command <cmd>] [--branch <branch>] [--force]
+  bun init.ts workflows (--owner <owner> --repo <repo> | --local) --stack <bun|node|python> --test <vitest|jest|pytest|bun|none> --deploy <vercel|cloudflare|none> [--merge auto-merge|merge-on-green] [--e2e playwright|none] [--lint true|false] [--typecheck true|false] [--test-command <cmd>] [--branch <branch>] [--force] [--release-model trunk|staging-train] [--release-component <name>]
       --owner + --repo push via the GitHub REST API; --local writes into ./.github instead
       (offline use — no gh auth, no remote). The two are mutually exclusive.
-  bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>] [--force]  # generic only (auto-merge + pr-title + context-lint)
-  bun init.ts push-context-lint --owner <owner> --repo <repo> [--branch <branch>]  # context-lint.yml only (always updates)
-  (workflows/push-workflows default to TOP-UP: existing files are skipped; --force overwrites)
+      --release-model defaults from ${STACK_YML} when present, else staging-train.
+  bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>] [--force] [--release-model trunk|staging-train]
+  bun init.ts push-context-lint --owner <owner> --repo <repo> [--branch <branch>] [--release-model trunk|staging-train]  # context-lint.yml only (always updates)
   bun init.ts protect-branches --repo <owner/repo>
   bun init.ts scaffold-docs [--path docs]
   bun init.ts scaffold-rules [--stack-path ${STACK_YML}] [--project-name <name>] [--claude-md CLAUDE.md]
@@ -37,6 +40,14 @@ function parseFlag(flag: string, fallback: string): string {
 
 function hasFlag(flag: string): boolean {
   return rest.includes(flag)
+}
+
+function releaseFromCwd(): NonNullable<WorkflowOpts['release']> {
+  const stackRelease = existsSync(STACK_YML) ? parseStackYml(readFileSync(STACK_YML, 'utf8')).release : null
+  return resolveRelease(
+    { model: parseFlag('--release-model', ''), component: parseFlag('--release-component', '') },
+    stackRelease,
+  )
 }
 
 if (command === '--help' || command === '-h' || hasFlag('--help') || hasFlag('-h')) {
@@ -82,6 +93,7 @@ switch (command) {
       e2e,
       lint,
       typecheck,
+      release: releaseFromCwd(),
     }
     // Local write is opt-in, never the fallback for missing flags — a typo'd --owner
     // must not silently rewrite the current repo's .github/.
@@ -114,7 +126,12 @@ switch (command) {
       console.error('Usage: init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>]')
       process.exit(1)
     }
-    const result = await pushGenericWorkflows(owner, repo, branch, process.argv.includes('--force'))
+    const result = await pushGenericWorkflows(owner, repo, branch, process.argv.includes('--force'), {
+      stack: 'bun',
+      test: 'none',
+      deploy: 'none',
+      release: releaseFromCwd(),
+    })
     console.log(JSON.stringify({ pushed: result }, null, 2))
     break
   }
@@ -128,7 +145,12 @@ switch (command) {
       console.error('Usage: init.ts push-context-lint --owner <owner> --repo <repo> [--branch <branch>]')
       process.exit(1)
     }
-    const status = await pushContextLintYml(owner, repo, branch)
+    const status = await pushContextLintYml(owner, repo, branch, {
+      stack: 'bun',
+      test: 'none',
+      deploy: 'none',
+      release: releaseFromCwd(),
+    })
     console.log(JSON.stringify({ file: 'context-lint.yml', status }, null, 2))
     break
   }
