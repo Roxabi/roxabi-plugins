@@ -1,10 +1,16 @@
-"""An unquoted YAML flow collection in SKILL.md frontmatter makes the skill dark.
+"""A *non-terminated* YAML flow collection in SKILL.md frontmatter makes a skill dark.
 
-`argument-hint: [#PR]` is invalid YAML — `#` after `[` opens a comment, the flow
-sequence never closes, and the scanner swallows every following key. The host
-drops the skill silently: it stays reachable as a slash command (the OMP
-extension strips frontmatter as text and never parses it) while being invisible
-to the model and to `skill: "<name>"` chaining.
+`argument-hint: [#PR]` is invalid YAML — `#` after `[` opens a comment that eats
+the closing `]`, so the sequence never terminates and the scanner consumes every
+following key to EOF. The host drops the skill silently: it stays reachable as a
+slash command (the OMP extension strips frontmatter as text and never parses it)
+while being invisible to the model and to `skill: "<name>"` chaining.
+
+Measured 2026-09-07 on OMP: `R-dev-review` only. `R-adr`'s
+`["Title of decision" | --list]` also fails `yaml.safe_load` but loaded fine —
+its error is bounded to its own line, so non-termination is the discriminator.
+The guard is still total, as hygiene: an unquoted value yields a list where a
+string is meant, and is one `#` from non-termination.
 """
 
 import yaml
@@ -35,7 +41,7 @@ def test_every_argument_hint_is_a_string():
 
 
 def test_detects_the_bracket_hash_shape(tmp_path, monkeypatch):
-    """The exact shape that took R-adr, R-dev-review and issue-triage dark."""
+    """The exact shape that took R-dev-review dark on OMP."""
     skill = tmp_path / 'demo' / 'skills' / 'demo'
     skill.mkdir(parents=True)
     (skill / 'SKILL.md').write_text("---\nname: demo\nargument-hint: [#PR]\ndescription: x\n---\n\nbody\n")
@@ -47,13 +53,28 @@ def test_detects_the_bracket_hash_shape(tmp_path, monkeypatch):
     assert len(errors) == 1
     assert 'argument-hint' in errors[0]
 
-    # and the frontmatter really is unparseable, which is why it must be caught
-    try:
-        yaml.safe_load('name: demo\nargument-hint: [#PR]\ndescription: x\n')
-    except yaml.YAMLError:
-        pass
-    else:
-        raise AssertionError('expected the unquoted flow sequence to fail YAML parsing')
+
+def test_bracket_hash_consumes_the_whole_frontmatter():
+    """Non-termination is the mechanism: the scanner runs to EOF, losing every key.
+
+    A merely *malformed* flow collection fails on its own line and leaves the
+    earlier keys standing — that is why `R-adr` loaded while `R-dev-review` did
+    not. Pinning the span, not just "it raises", keeps the two apart.
+    """
+    fatal = 'name: demo\nargument-hint: [#PR]\ndescription: x\nversion: 1.0.0\n'
+    bounded = 'name: demo\nargument-hint: ["Title" | --list]\ndescription: x\nversion: 1.0.0\n'
+
+    def error_line(src):
+        try:
+            yaml.safe_load(src)
+        except yaml.YAMLError as exc:
+            mark = exc.problem_mark or exc.context_mark
+            return mark.line + 1
+        raise AssertionError(f'expected {src!r} to fail YAML parsing')
+
+    total = len(fatal.splitlines())
+    assert error_line(fatal) == total, 'bracket-hash must consume to EOF'
+    assert error_line(bounded) == 2, 'a terminated-but-malformed value stays on its line'
 
 
 def test_accepts_the_quoted_form(tmp_path, monkeypatch):
