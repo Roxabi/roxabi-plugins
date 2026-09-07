@@ -151,6 +151,11 @@ describe('generateCiYml', () => {
     expect(yml).not.toContain('needs: [classify]')
     expect(yml).not.toContain('naked')
   })
+
+  it('scopes the default token to contents/checks/pull-requests read', () => {
+    const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none' })
+    expect(yml).toContain('permissions:\n  contents: read\n  checks: read\n  pull-requests: read\n')
+  })
 })
 
 describe('generateSecretScanYml', () => {
@@ -172,6 +177,12 @@ describe('generateSecretScanYml', () => {
     expect(yml).toContain('base:')
     expect(yml).toContain('head:')
     expect(yml).toContain('path: ./')
+  })
+
+  it('declares PR types including ready_for_review and least-privilege permissions', () => {
+    const yml = generateSecretScanYml()
+    expect(yml).toContain('types: [opened, synchronize, reopened, ready_for_review]')
+    expect(yml).toContain('permissions:\n  contents: read\n  checks: read\n  pull-requests: read\n')
   })
 })
 
@@ -478,5 +489,11 @@ describe('generateContextLintYml', () => {
     expect(yml).toContain("'.grok/**'")
     expect(yml).toContain("github.event_name != 'pull_request' || !github.event.pull_request.draft")
     expect(yml).not.toContain('classify')
+  })
+
+  it('declares PR types including ready_for_review and least-privilege permissions', () => {
+    const yml = generateContextLintYml()
+    expect(yml).toContain('types: [opened, synchronize, reopened, ready_for_review]')
+    expect(yml).toContain('permissions:\n  contents: read\n  checks: read\n  pull-requests: read\n')
   })
 })

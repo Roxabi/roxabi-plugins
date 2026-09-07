@@ -17,11 +17,15 @@ export function generateSecretScanYml(): string {
 
 permissions:
   contents: read
+  checks: read
+  pull-requests: read
+
 on:
   push:
     branches: [main, staging]
   pull_request:
     branches: [main, staging]
+    types: [opened, synchronize, reopened, ready_for_review]
   merge_group: {}
   workflow_dispatch: {}
 

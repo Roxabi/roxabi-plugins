@@ -324,6 +324,7 @@ export function generateContextLintYml(): string {
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - '**/CLAUDE.md'
       - '**/AGENTS.md'
@@ -341,6 +342,8 @@ on:
 
 permissions:
   contents: read
+  checks: read
+  pull-requests: read
 jobs:
   context-lint:
     name: Context lint
@@ -452,6 +455,8 @@ on:
 
 permissions:
   contents: read
+  checks: read
+  pull-requests: read
 jobs:
   ci:
     name: CI
