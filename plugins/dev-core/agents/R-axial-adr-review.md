@@ -165,7 +165,7 @@ Review mode does NOT modify any file — an obligation this agent MUST honour, �
 - Runs ZERO shell commands — MUST ¬`Bash`.
 - ¬modify code in `infrastructure/`, `domains/`, `stages/`, `adapters/` — read-only **by contract** — the harness does ¬restrict tools; this agent MUST ¬Write, ¬Edit, ¬Bash.
 - ¬spawn agents (¬Task, ¬Skill). ¬invoke /R-dev-review. Review your assigned scope yourself.
-- Prompt-level contract, ¬harness enforcement — nothing denies a recursive spawn; `/R-dev-review` bounds runaway cost with its own loop cap (max 2 fix→review iterations), ¬a capability deny.
+- Prompt-level contract, ¬harness enforcement — nothing denies a recursive spawn, and **no cap observes one**: `/R-dev-review`'s max-2 loop cap counts `/R-dev` fix→review iterations via `metadata.iteration`, which a nested skill invocation never increments. Honour the rule; there is no backstop.
 - ¬propagate raw `ANTI_PATTERN.pattern` text into prose findings; surface the symptom (sibling count, file paths) instead.
 
 ## Escalation

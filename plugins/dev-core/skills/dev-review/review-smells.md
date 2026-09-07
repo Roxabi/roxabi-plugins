@@ -14,7 +14,7 @@ Fowler, *Refactoring* ch.3. **Judgement calls**, never merge blockers.
 - **Repo overrides.** A documented repo standard (`CONTRIBUTING.md`, `CODING_STANDARDS.md`, `docs/**/adr/**`, `.dev/stack.yml`) always wins. Where it endorses what a smell would flag, suppress the smell.
 - **Always a judgement call.** Prefix every row `possible <Smell>`. Never a hard violation.
 - **Skip tooling.** If a linter, formatter, or jscpd-class clone detector already covers the shape, skip.
-- **Never enter F.** No `Class:`, no Conventional Comment label (`issue:`, `suggestion:`, `thought:`, `praise:`, `todo:`, `question:`), no `Confidence:`. `/R-fix` parses the whole PR comment; a live label here becomes a second fix task.
+- **Never enter F.** No `Class:`, no `Confidence:`, and **no Conventional Comment label** — the forbidden set is a shape, ¬a list, and lives in one place: `dev-review/SKILL.md` Phase 6 § `/R-fix` partition. Do ¬re-enumerate it here; a second copy drifts and the copy read at generation time wins. `/R-fix` parses the whole PR comment; a live label in a smell row becomes a fix task.
 - **Cap.** ≤1 row per smell. None fire → `smells: RAS`. Do not invent.
 
 ## Baseline

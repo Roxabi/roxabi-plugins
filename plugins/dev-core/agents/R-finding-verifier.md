@@ -123,7 +123,7 @@ A filter that deletes most of its input is not filtering — it is silencing.
 - Runs ZERO shell commands — MUST ¬`Bash`.
 - ¬fix code, ¬re-rank the surviving set.
 - ¬spawn agents (¬Task, ¬Skill). ¬invoke /R-dev-review. Review your assigned scope yourself.
-- Prompt-level contract, ¬harness enforcement — nothing denies a recursive spawn; `/R-dev-review` bounds runaway cost with its own loop cap (max 2 fix→review iterations), ¬a capability deny.
+- Prompt-level contract, ¬harness enforcement — nothing denies a recursive spawn, and **no cap observes one**: `/R-dev-review`'s max-2 loop cap counts `/R-dev` fix→review iterations via `metadata.iteration`, which a nested skill invocation never increments. Honour the rule; there is no backstop.
 - ¬re-open findings with C ≥ τ (caller does not send them).
 - Caller sends F_low := {f | C(f) < τ ∧ ¬blocks(f)} only. Blocking labels (`issue:`, `issue(blocking):`, `todo:`, `suggestion(blocking):`) are out of filter scope; presence is a caller error — keep, never drop.
 

@@ -86,7 +86,7 @@ git diff origin/${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|a
 2. **spec** ← lexicographically first `artifacts/specs/{issue_num}-*.md(x)` when issue_num set
 3. **Approved σ only** — read frontmatter; `status: draft` → treat as spec ∄ for claim spawn (warn once); path-only roster
 4. spec ∃ ∧ approved → ∀ criterion: met → ∅ | ¬met → `issue(blocking):` | ∀ met → `praise:`
-4a. **Retain Σ (Phase 6 display input, ¬a finding source):** Σ := [{ac_id, verdict ∈ {met, partial, missing}, cite}] ∀ criterion; `creep[]` := paths ∈ Δ ¬traceable to any criterion. `partial` = criterion implemented ∧ an explicit sub-clause unmet — step 4 still emits `issue(blocking):`; Σ only records the shade. Σ ∧ `creep[]` carry ¬label, ¬C, ¬class: they add no blocker and ¬enter F.
+4a. **Retain Σ (review-output display input, ¬a finding source):** Σ := [{criterion_text, verdict ∈ {met, missing}}] ∀ criterion — a **mirror of step 4**, same binary call, ¬a second judgement. `criterion_text` is the σ line already read in step 4 (verbatim, trimmed); `missing` ⟺ step 4 emitted `issue(blocking):` for that criterion. ¬`ac_id` (no AC-numbering scheme exists — `/R-spec` specifies binary criteria, ¬ids; a positional id would be fabricated), ¬`partial`, ¬scope-creep set: none has a producer in steps 1–4, and an unproduced row is an invented one. Σ carries ¬label, ¬C, ¬class: it adds no blocker and ¬enters F.
 5. spec ∄ → skip (steps 4–5 unchanged when no spec)
 6. SC→Test matrix (τ≠S): matrix ∃ in PR body → verify no silent gaps (every SC has a row), NO TEST reasons ∈ `{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}` enum. ¬matrix ∧ τ≠S → `issue(blocking):` missing SC→Test matrix.
 
@@ -201,7 +201,7 @@ Only when R-security-auditor is actually spawned (`spawn_security_auditor` from 
 
 > **Note (orchestrator):** The `{format_digest_for_agent(d) for d in digests if d.chunk_index != i}` placeholder is a Python expression evaluated by the orchestrator (Claude main context) BEFORE the Task call — substitute its rendered value into the prompt string. It is NOT a runtime-resolved placeholder. All other `{...}` placeholders are simple value substitutions.
 
-**Single-chunk (|chunks| = 1):** agents receive full diff. R-adversarial prompt still includes the OWASP lens. ¬spawn R-recall (Phase 3b skipped).
+**Single-chunk (|chunks| = 1):** agents receive full diff. **Use the same `Task()` template below** with `i=1, N=1` and Δ as the chunk — it is the only spawn carrier, so the `¬spawn` / `¬invoke` clause reaches single-chunk agents too (dual-use members — `R-tester`, `R-frontend-dev`, `R-backend-dev`, `R-devops`, `R-architect` — carry ¬spawn **only** via this prompt: their bodies serve `/R-dev-implement` where spawning is legitimate). At `N=1` drop the two chunk-relative sections: omit `---BOUNDARY DIGESTS---` (the set is empty) and replace `You are reviewing chunk 1 of 1. Review ONLY the files in this chunk.` with `You are reviewing the full diff.` R-adversarial prompt still includes the OWASP lens. ¬spawn R-recall (Phase 3b skipped).
 
 **Multi-chunk (|chunks| > 1) — Lane A per-chunk:**
 
@@ -219,7 +219,7 @@ Agent name map: `R-adversarial` → `dev-core:R-adversarial` | `R-frontend-dev` 
 
 ### Agent payload
 
-**Single-chunk:** each agent receives full diff + Δ + spec (if ∃) + "output Conventional Comments". R-adversarial: + OWASP lens (secrets, injection, auth).
+**Single-chunk:** identical to § Spawn template with `i=1, N=1` — see there, ¬a second payload spec. That template is the only spawn carrier (it holds `¬TaskCreate` / `¬spawn agents` / `¬invoke /R-dev-review`); do ¬rebuild the prompt from this summary.
 
 **Multi-chunk (Lane A):** each agent receives chunk diff + chunk file contents + boundary digests of all *other* chunks + spec (if ∃).
 
@@ -323,7 +323,7 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 
 ## Phase 4 — Merge & Present
 
-1. Collect F from all agents (Lane A + R-recall agents + Lane B)
+1. Collect F from **Phase 2 (spec compliance — orchestrator-emitted, ¬an agent)** + all agents (Lane A + R-recall agents + Lane B). Phase 2's `issue(blocking):` per unmet criterion is a member of F like any other: it dedups, it counts through `blocks(f)`, and it renders once in the grouped pile. Omitting it would let a `✗` row in `## Spec` sit above `Approve (clean)`.
 2. Dedup — **mandatory, two keys, both always applied** (unavoidable; never present two copies):
    - same file:line + issue → keep max C
    - **one finding per `(file, class)` → keep max C** — never two agents' copies of the same class on the same file
@@ -415,17 +415,17 @@ finding: <file>:<line> — <label>
    BODY="$TMPDIR/body.md"
    ```
    Write grouped findings to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
-3. `## Code Review` header, then **block order — top to bottom**:
-   1. `## Spec` — render Σ (Phase 2 step 4a). One row per criterion (`✓` met / `✗` missing / `~` partial) + one row per `creep[]` entry. ∀ row cites σ (AC id ∨ quoted spec line). σ ∄ ∨ `status: draft` → the block MUST say `no spec available — spec axis not evaluated` (¬omit the block, ¬fill it with inferred criteria).
-   2. `## Standards` — **this orchestrator is the single consumer** of `${CLAUDE_PLUGIN_ROOT}/skills/dev-review/review-smells.md`. ¬paste that file into Lane A. After F is merged, this context reads it **once** and fills the block:
-      - **conventions (rollup, ¬a second pile):** F_kept ≠ ∅ → `conventions: see findings`. F_kept = ∅ → `conventions: RAS`. Do ¬count citations of `CONTRIBUTING.md` / ADR paths — Lane A findings emit `Class:` + `file:line`, almost never those filenames, so a filename-count prints RAS next to a full pile.
-      - **smells (judgement, ¬F):** walk Δ against the baseline in `review-smells.md`. ≤1 row per smell, prefixed `possible <Smell>`. Repo overrides. Skip tooling-covered. None fire → `smells: RAS`. Binding rules in that file (never `Class:`, never enter F, never a CC label) are load-bearing.
-   3. Grouped findings (Phase 4 step 6: Blockers → Warnings → Suggestions → Praise); ∀C included. **Each finding is rendered exactly once, here.** `## Spec` is a roll-up of Σ; `## Standards` is a roll-up of conventions + a judgement smell pass — neither restates F.
+3. `## Code Review` header, then **block order — top to bottom**. Both axis blocks are **review output**, ¬PR-comment decoration: emit them unconditionally (this phase copies; ¬vanish when ¬∃ PR — same rule as Phase 4 step 7). ¬∃ PR → render the whole block order to the user and skip only the `gh pr comment` call.
+   1. `## Spec` — render Σ (Phase 2 step 4a). One row per criterion, **∀ criterion, in σ order, none elided**: `✓` met / `✗` missing, each quoting `criterion_text`. σ ∄ ∨ `status: draft` → the block MUST say `no spec available — spec axis not evaluated` (¬omit the block, ¬fill it with inferred criteria).
+   2. `## Standards` — **this orchestrator is the single consumer** of `${CLAUDE_PLUGIN_ROOT}/skills/dev-review/review-smells.md`. ¬paste that file into Lane A. After F is merged, this context reads it **once**, walks Δ against the baseline, and emits ≤1 row per smell prefixed `possible <Smell>`. Repo overrides. Skip tooling-covered. **Render the receipt** in the heading — `## Standards (judgement pass — {n} smells walked, {k} fired)` — so a bare `smells: RAS` cannot be confused with a pass that never ran. Binding rules in that file (never `Class:`, never enter F, never a CC label) are load-bearing.
+      **¬a conventions rollup.** Do ¬add a `conventions:` line. Any proxy over F (`F_kept ≠ ∅`, or counting `CONTRIBUTING.md` citations) is vacuous: the first restates the verdict — a lone `secret-leak` would print "conventions dirty" — and the second always prints RAS, because Lane A emits `Class:` + `file:line`, ¬standards filenames. Convention breaks **are** the findings pile below; this axis adds the smell pass only.
+   3. Grouped findings (Phase 4 step 6: Blockers → Warnings → Suggestions → Praise); ∀C included. **Each finding is rendered exactly once, here.** `## Spec` is a roll-up of Σ; `## Standards` is a judgement smell pass — neither restates F.
    4. Disclose-removals block (step 4).
    5. Summary + verdict.
-   `## Spec` ∧ `## Standards` are **presentation** — ¬new blocking rule, ¬new agent, ¬new confidence path, ¬roster slot. A missing/partial criterion already emitted `issue(blocking):` in Phase 2 step 4 and already counts through `blocks(f)`; smell rows never do. The verdict table is untouched.
+   `## Spec` ∧ `## Standards` are **presentation** — ¬new blocking rule, ¬new agent, ¬new confidence path, ¬roster slot. A missing criterion already emitted `issue(blocking):` in Phase 2 step 4, which Phase 4 step 1 collects into F, so it already counts through `blocks(f)`; smell rows never do. The verdict table is untouched.
    **`/R-fix` partition (load-bearing):** `fix/SKILL.md` Phase 1 parses Conventional Comments from the **whole** PR comment body and only strips the finding-verifier `<details>` (step 1a). There is no file:line dedup. Therefore:
-   - `## Spec` ∧ `## Standards` rows MUST be non-CC-shaped. Forbidden substrings in both blocks: `issue:`, `issue(blocking):`, `todo:`, `suggestion:`, `suggestion(blocking):`, `thought:`, `praise:`, `question:`. Point at the findings pile in prose (`see findings`) — never embed a live label.
+   - `## Spec` ∧ `## Standards` rows MUST be non-CC-shaped. The rule is a **shape, ¬a denylist**: no line in either block may match `^\s*[-*]?\s*[a-z]+(\([a-z-]+\))?:` — that is CC grammar whatever the stem, so `issue(security):` and `nitpick(style):` are caught too. `/R-fix` keys off the stem (`actionable := {issue, suggestion, todo, nitpick}`, `fix/SKILL.md`), ¬the exact string. The Phase 4 § Finding categories table enumerates the stems in use; treat it as illustration, the shape as the rule. Point at the findings pile in prose (`see findings`) — never embed a live label.
+   - A quoted σ **or** Δ line that itself matches that shape → paraphrase it, ∨ cite the location alone. Quoted external text lands outside the only stripped region, and `review-smells.md`'s "In Δ look for" column invites quoting hunks.
    - Do ¬restate a finding from the grouped pile inside either axis block. Duplication → a second `/R-fix` task.
 4. Copy the Phase 4 Disclose-removals block (`Filtered by finding-verifier (N)` table + `Roster capped by max_agents` + collapse/`capped_review`) into the PR body — **between the grouped findings and the verdict**. Do ¬re-render, ¬recompute.
 
@@ -435,13 +435,11 @@ finding: <file>:<line> — <label>
 ## Code Review
 
 ## Spec
-- ✓ AC-1 "`roster.sh` emits `capped_review[]`" — met
-- ✗ AC-3 "oracle warnings echoed into the output" — missing: no emit path in Δ (see Blockers)
-- ~ AC-4 "spec ∄ → skip" — partial: skips, ¬warns ("path-only roster") (see Blockers)
-- scope creep: `chunker.py` budget rewrite ¬∈ σ
+- ✓ "`roster.sh` emits `capped_review[]`" — met
+- ✓ "`--chunk-list` count defines chunks" — met
+- ✗ "oracle warnings echoed into the output" — missing (see Blockers)
 
-## Standards
-- conventions: see findings
+## Standards (judgement pass — 12 smells walked, 1 fired)
 - possible Feature Envy — `roster.ts:80` (judgement)
 
 ### Blockers
