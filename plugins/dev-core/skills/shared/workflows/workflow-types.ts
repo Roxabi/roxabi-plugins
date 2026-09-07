@@ -38,3 +38,8 @@ export function normalizeWorkflowOpts(opts: WorkflowOpts): Required<WorkflowOpts
     release: opts.release ?? { model: 'staging-train', component: '' },
   }
 }
+
+/** YAML list for `on.*.branches`. Trunk has no staging branch. */
+export function triggerBranches(opts?: Pick<WorkflowOpts, 'release'>): string {
+  return (opts?.release?.model ?? 'staging-train') === 'trunk' ? '[main]' : '[main, staging]'
+}
