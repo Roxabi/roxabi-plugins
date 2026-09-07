@@ -37,6 +37,8 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
    - `lint` ← `commands.lint` present → `true`, else `false`
    - `typecheck` ← `commands.typecheck` present → `true`, else `false`
    - `e2e` ← `testing.e2e: playwright` → `playwright`, else `none`
+   - `release-model` ← `release.model` (`trunk` | `staging-train`; default `staging-train`)
+   - `release-component` ← `release.component` (required when model is trunk — baked into auto-release.yml)
 
 4. ∃ missing → Ask: **Set up CI/CD** | **Skip**.
 
@@ -48,7 +50,7 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
      ```bash
      gh api repos/<owner>/<repo> --jq '{private: .private, allow_auto_merge: .allow_auto_merge}'
      ```
-     - `allow_auto_merge=true` → pre-select **auto-merge** (native merge queue)
+     - `allow_auto_merge=true` → pre-select **auto-merge** (native auto-merge)
      - `allow_auto_merge=false` on private repo → pre-select **merge-on-green** (free-plan pattern)
      - Ask: **auto-merge** | **merge-on-green**
    - Run:
@@ -58,10 +60,12 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
        --merge <auto-merge|merge-on-green> \
        --e2e <playwright|none> \
        --lint <true|false> --typecheck <true|false> \
-       --test-command "<commands.test from σ, if set>"
+       --test-command "<commands.test from σ, if set>" \
+       --release-model <σ.release.model or staging-train> \
+       --release-component "<σ.release.component>"
      ```
      > **Top-up par défaut** : les fichiers déjà présents sur le repo sont **skippés** — les repos font évoluer leur `ci.yml` bien au-delà du template (multi-job, e2e, etc.). Ajouter `--force` UNIQUEMENT pour régénérer volontairement, après diff explicite des fichiers qui seraient écrasés.
-     > **Trunk mode (`release.model: trunk`, #375)** : le `auto-release.yml` généré invoque `plugins/dev-core/skills/promote/auto-release.sh` (+ sa closure `price.sh`/`lib/finalize.ts`) depuis la racine du repo. Ce chemin ne résout que si dev-core est **vendored sous `plugins/`** (comme dans roxabi-plugins) ; un repo qui consomme dev-core depuis `~/.claude/plugins/cache/…` ne l'a pas → le workflow mourrait `exit 127` à sa première release. Le writer (`writeWorkflows`/`pushWorkflows`) **REFUSE loud à la provision** si le script n'est pas résolvable (localement via `fs.existsSync`, à distance via l'API contents) plutôt que d'expédier un workflow cassé. Vendorer le script, ou ne pas activer trunk. Aujourd'hui seul roxabi-plugins est trunk et `init.ts workflows` n'expose pas encore de flag `--release-model` (productisation consommateur différée → #375 FU-5).
+     > **Trunk mode (`release.model: trunk`, #375)** : le `auto-release.yml` généré invoque `plugins/dev-core/skills/promote/auto-release.sh` (+ sa closure `price.sh`/`lib/finalize.ts`) depuis la racine du repo. Ce chemin ne résout que si dev-core est **vendored sous `plugins/`** (comme dans roxabi-plugins) ; un repo qui consomme dev-core depuis `~/.claude/plugins/cache/…` ne l'a pas → le workflow mourrait `exit 127` à sa première release. Le writer (`writeWorkflows`/`pushWorkflows`) **REFUSE loud à la provision** si le script n'est pas résolvable. Vendorer le script, ou ne pas activer trunk. Passer `--release-model` + `--release-component` depuis σ (le CLI lit aussi σ si les flags sont omis).
    - **App token provisioning** (always — PAT mode retired):
      - `gh variable set ROXABI_CI_APP_ID --org <org> --body <app-id>` (org-level)
        OR (private repo / free-plan org): `gh variable set ROXABI_CI_APP_ID --repo <owner>/<repo> --body <app-id>`
