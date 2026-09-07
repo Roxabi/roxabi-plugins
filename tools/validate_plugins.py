@@ -236,17 +236,28 @@ def check_tempfile_convention() -> list[str]:
 def check_skill_frontmatter_scalars() -> list[str]:
     """SKILL.md frontmatter must not open an unquoted YAML flow collection.
 
-    `argument-hint: [#PR]` is invalid YAML: `#` after `[` opens a comment, so the
-    flow sequence never closes, the scanner swallows the following keys, and the
-    whole frontmatter fails to parse. The host then drops the skill *silently* —
-    it stays invocable as a slash command (the OMP extension strips frontmatter
-    as text, never parsing it) while being invisible to the model and to
-    `skill: "<name>"` chaining. Measured 2026-09-07: R-adr, R-dev-review and
-    issue-triage were all dark this way.
+    `argument-hint: [#PR]` is invalid YAML: `#` after `[` opens a comment, which
+    eats the closing `]`, so the flow sequence never terminates and the scanner
+    consumes every following key to EOF. The whole frontmatter is lost and the
+    host drops the skill *silently* — it stays invocable as a slash command (the
+    OMP extension strips frontmatter as text, never parsing it) while being
+    invisible to the model and to `skill: "<name>"` chaining.
 
-    Even when the bracket does close on the same line, an unquoted value parses
-    as a *list* rather than the intended string, and is one `#` away from going
-    dark. So the invariant is total: quote it.
+    Measured 2026-09-07 on OMP: `R-dev-review` was dark this way. That is the
+    only attributable case. Two facts bound the claim:
+
+    - `R-adr` carried `argument-hint: ["Title of decision" | --list]`, which also
+      fails `yaml.safe_load`, yet it loaded fine. Its error is bounded to its own
+      line (`found character '|'`) instead of running to EOF, so the discriminator
+      is **non-termination**, not "invalid flow collection".
+    - `issue-triage` is not installed on OMP, so its absence from the skill list
+      is explained by that, not by this defect.
+
+    The invariant stays total anyway, as hygiene rather than as an evidenced fix:
+    a closed-but-unquoted `[a | b]` parses as a *list* where a string is intended,
+    and is one `#` away from non-termination. Quote it.
+
+    Scope: measured on OMP only. Not verified on Claude / Codex / Grok.
     """
     errors = []
     flow_open = re.compile(r'^([A-Za-z0-9_-]+):\s*([\[{].*)$')
