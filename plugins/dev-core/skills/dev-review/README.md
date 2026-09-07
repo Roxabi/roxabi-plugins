@@ -36,7 +36,7 @@ Triggers: `"code review"` | `"review changes"` | `"review PR #42"` | `"check my 
 
 5. **Keep/drop filter** — one `R-finding-verifier` pass over findings with `C < 90` (`verify_below_confidence`). Dropped findings disclosed in a collapsed `Filtered` block. Fail-open when the verifier returns nothing.
 6. **Merge & present** — one finding per `(file, class)` keep max C; also dedup file:line; sorts by confidence; groups Blockers → Warnings → Suggestions → Praise.
-7. **Post to PR** — posts formatted comment with `## Code Review` header.
+7. **Post to PR** — `## Code Review` comment: `## Spec` (Σ roll-up: AC met/missing/partial + scope creep, cited) → `## Standards` (conventions rollup + Fowler judgement smells from `review-smells.md`, orchestrator-only) → grouped findings (each finding rendered once) → filtered/capped disclosure → verdict. Both axis blocks are **non-CC-shaped** display — `/R-fix` parses the whole comment body and would otherwise open a second fix task per duplicated finding. `review-smells.md` is ¬pasted into Lane A.
 8. **Next step** — asks: Fix now (`/R-fix`) | Merge as-is | Stop.
 
 ## Finding format
@@ -60,6 +60,13 @@ Triggers: `"code review"` | `"review changes"` | `"review PR #42"` | `"check my 
 | Warnings only | Approve with comments |
 | Suggestions/praise only | Approve |
 | No findings | Approve (clean) |
+
+## Honesty
+
+- **Findings are hypotheses, ¬verdicts on intent.** A finding is one agent's reading of the diff at one moment; `Confidence:` prices that reading, ¬the author's intent. The `R-finding-verifier` keep/drop pass is fail-open — it trims noise, it does ¬certify what survives.
+- **The review does ¬converge.** Re-running `/R-dev-review` on the same diff can surface a different judgement set: roster gates key off τ/labels, chunking keys off the active context window, and the agents are LLMs. A clean second run ¬proves the first was wrong — nor the reverse.
+- **Read-only is a contract, ¬a capability.** Review agents are read-only **by contract**: there is deliberately no `tools:` frontmatter on the `R-*` agents, because dev-core is multi-harness (Claude / Codex / Grok / OMP) and host-only tool names ¬belong in portable frontmatter. Nothing in the harness restricts them; the agent prompts state `¬Write, ¬Edit, ¬Bash` and `¬spawn agents (¬Task, ¬Skill)`. Lane A recursion is likewise **bounded, ¬prevented** — the loop cap of 2 fix→review iterations limits the blast radius; no capability deny exists that could tell a legitimate Phase 3 spawn from a Lane A re-spawn.
+- **Smells are judgement, ¬blockers.** `review-smells.md` (Fowler ch.3) is read once by the orchestrator into `## Standards`. Re-runs will surface a different smell set. Rows never enter F, never carry `Class:`, never bind `/R-fix`.
 
 ## Chain position
 

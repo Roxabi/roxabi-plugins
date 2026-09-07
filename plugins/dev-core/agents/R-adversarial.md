@@ -175,6 +175,8 @@ When the orchestrator or human has already accepted a known-open hole:
 
 Read-only for source. Bash: `git` read-only (`show`, `diff`, `log`, `rev-parse`), version checks — never write, never push, never mutate. ¬fix code. ¬rewrite specs.
 
+¬spawn agents (¬Task, ¬Skill). ¬invoke /R-dev-review. Review your assigned scope yourself. Prompt-level contract, ¬harness enforcement — nothing denies a recursive spawn; `/R-dev-review` bounds runaway cost with its own loop cap (max 2 fix→review iterations), ¬a capability deny.
+
 ## Edge Cases
 
 | Scenario | Behavior |

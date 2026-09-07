@@ -86,6 +86,7 @@ git diff origin/${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|a
 2. **spec** ← lexicographically first `artifacts/specs/{issue_num}-*.md(x)` when issue_num set
 3. **Approved σ only** — read frontmatter; `status: draft` → treat as spec ∄ for claim spawn (warn once); path-only roster
 4. spec ∃ ∧ approved → ∀ criterion: met → ∅ | ¬met → `issue(blocking):` | ∀ met → `praise:`
+4a. **Retain Σ (Phase 6 display input, ¬a finding source):** Σ := [{ac_id, verdict ∈ {met, partial, missing}, cite}] ∀ criterion; `creep[]` := paths ∈ Δ ¬traceable to any criterion. `partial` = criterion implemented ∧ an explicit sub-clause unmet — step 4 still emits `issue(blocking):`; Σ only records the shade. Σ ∧ `creep[]` carry ¬label, ¬C, ¬class: they add no blocker and ¬enter F.
 5. spec ∄ → skip (steps 4–5 unchanged when no spec)
 6. SC→Test matrix (τ≠S): matrix ∃ in PR body → verify no silent gaps (every SC has a row), NO TEST reasons ∈ `{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}` enum. ¬matrix ∧ τ≠S → `issue(blocking):` missing SC→Test matrix.
 
@@ -210,7 +211,7 @@ For each chunk `c_i`, spawn that chunk's `agents[]` (per-chunk oracle) in parall
 Task(
   subagent_type: "dev-core:{agent}",
   description: "{agent} review — chunk {i}/{N} — {PR#|branch}",
-  prompt: "Code review task. Focus: {focus}.\n\nSpawned roster (this review): {agents[]}. Sibling-drop rules key off THIS list — a concern whose owner is ¬in the list is YOURS: keep the finding. If you are R-adversarial: also apply an OWASP lens (secrets, injection, auth); the default panel is R-adversarial alone, so spec-scope, structure and coverage φ are yours unless the roster names R-architect/R-tester (R-product-lead is ¬in the roster at all — Phase 2 owns spec compliance). Output Conventional Comments findings only. ¬TaskCreate.\n\nYou are reviewing chunk {i} of {N}. Review ONLY the files in this chunk.\n\nAdditionally audit each chunk against the systematic blind spots in `${CLAUDE_PLUGIN_ROOT}/skills/dev-review/review-blind-spots.md` — call out each applicable one explicitly (or note none apply).\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all locations of this anti-pattern; required when Class is set; never empty\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, target-axis-trap, vacuous-guard, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$. Subsumption: bare-except subsumes missing-error-handling — when both apply, tag bare-except only. parallel-path-drift and target-axis-trap are siblings (¬overlap) — parallel-path-drift for security hardening missing on a sibling entry point, target-axis-trap for architectural concern duplication across the non-primary axis (concern copy-pasted in ≥3 sibling dirs); prefer the matching one, do not double-tag.\n\n---CHUNK DIFF (chunk {i})---\n{c_i.hunk_text for all files in chunk}\n\n---CHUNK FILES---\n{contents of files in c_i}\n\n---BOUNDARY DIGESTS (other chunks)---\n{format_digest_for_agent(d) for d in digests if d.chunk_index != i}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
+  prompt: "Code review task. Focus: {focus}.\n\nSpawned roster (this review): {agents[]}. Sibling-drop rules key off THIS list — a concern whose owner is ¬in the list is YOURS: keep the finding. If you are R-adversarial: also apply an OWASP lens (secrets, injection, auth); the default panel is R-adversarial alone, so spec-scope, structure and coverage φ are yours unless the roster names R-architect/R-tester (R-product-lead is ¬in the roster at all — Phase 2 owns spec compliance). Output Conventional Comments findings only. ¬TaskCreate. ¬spawn agents (¬Task, ¬Skill). ¬invoke /R-dev-review. Review your assigned scope yourself.\n\nYou are reviewing chunk {i} of {N}. Review ONLY the files in this chunk.\n\nAdditionally audit each chunk against the systematic blind spots in `${CLAUDE_PLUGIN_ROOT}/skills/dev-review/review-blind-spots.md` — call out each applicable one explicitly (or note none apply).\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Root cause: <why>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all locations of this anti-pattern; required when Class is set; never empty\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, target-axis-trap, vacuous-guard, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$. Subsumption: bare-except subsumes missing-error-handling — when both apply, tag bare-except only. parallel-path-drift and target-axis-trap are siblings (¬overlap) — parallel-path-drift for security hardening missing on a sibling entry point, target-axis-trap for architectural concern duplication across the non-primary axis (concern copy-pasted in ≥3 sibling dirs); prefer the matching one, do not double-tag.\n\n---CHUNK DIFF (chunk {i})---\n{c_i.hunk_text for all files in chunk}\n\n---CHUNK FILES---\n{contents of files in c_i}\n\n---BOUNDARY DIGESTS (other chunks)---\n{format_digest_for_agent(d) for d in digests if d.chunk_index != i}\n\n---SPEC---\n{spec contents if ∃, else omit section}"
 )
 ```
 
@@ -263,7 +264,7 @@ Input:
   cross_chunk_index: {chunks: {class_index[cls].chunks}, agents: {agents_that_flagged}}
 
 Follow agents/R-recall.md procedure. Output Conventional Comments findings only.
-All R-recall findings MUST use label `issue(blocking):`. ¬TaskCreate."
+All R-recall findings MUST use label `issue(blocking):`. ¬TaskCreate. ¬spawn agents (¬Task, ¬Skill). ¬invoke /R-dev-review. Review your assigned scope yourself."
 )
 ```
 
@@ -385,7 +386,7 @@ finding: <file>:<line> — <label>
   decision: keep | drop
   confidence: <0-100>        # keep only; MUST be ≤ the original C
   reason: <one line, evidence-based>
-¬TaskCreate."
+¬TaskCreate. ¬spawn agents (¬Task, ¬Skill). ¬invoke /R-dev-review. Review your assigned scope yourself."
 )
 ```
 
@@ -414,8 +415,52 @@ finding: <file>:<line> — <label>
    BODY="$TMPDIR/body.md"
    ```
    Write grouped findings to `"$BODY"` → `gh pr comment "$PR" --body-file "$BODY"`
-3. `## Code Review` header; grouped findings + summary + verdict; ∀C included.
-4. Copy the Phase 4 Disclose-removals block (`Filtered by finding-verifier (N)` table + `Roster capped by max_agents` + collapse/`capped_review`) into the PR body. Do ¬re-render, ¬recompute.
+3. `## Code Review` header, then **block order — top to bottom**:
+   1. `## Spec` — render Σ (Phase 2 step 4a). One row per criterion (`✓` met / `✗` missing / `~` partial) + one row per `creep[]` entry. ∀ row cites σ (AC id ∨ quoted spec line). σ ∄ ∨ `status: draft` → the block MUST say `no spec available — spec axis not evaluated` (¬omit the block, ¬fill it with inferred criteria).
+   2. `## Standards` — **this orchestrator is the single consumer** of `${CLAUDE_PLUGIN_ROOT}/skills/dev-review/review-smells.md`. ¬paste that file into Lane A. After F is merged, this context reads it **once** and fills the block:
+      - **conventions (rollup, ¬a second pile):** F_kept ≠ ∅ → `conventions: see findings`. F_kept = ∅ → `conventions: RAS`. Do ¬count citations of `CONTRIBUTING.md` / ADR paths — Lane A findings emit `Class:` + `file:line`, almost never those filenames, so a filename-count prints RAS next to a full pile.
+      - **smells (judgement, ¬F):** walk Δ against the baseline in `review-smells.md`. ≤1 row per smell, prefixed `possible <Smell>`. Repo overrides. Skip tooling-covered. None fire → `smells: RAS`. Binding rules in that file (never `Class:`, never enter F, never a CC label) are load-bearing.
+   3. Grouped findings (Phase 4 step 6: Blockers → Warnings → Suggestions → Praise); ∀C included. **Each finding is rendered exactly once, here.** `## Spec` is a roll-up of Σ; `## Standards` is a roll-up of conventions + a judgement smell pass — neither restates F.
+   4. Disclose-removals block (step 4).
+   5. Summary + verdict.
+   `## Spec` ∧ `## Standards` are **presentation** — ¬new blocking rule, ¬new agent, ¬new confidence path, ¬roster slot. A missing/partial criterion already emitted `issue(blocking):` in Phase 2 step 4 and already counts through `blocks(f)`; smell rows never do. The verdict table is untouched.
+   **`/R-fix` partition (load-bearing):** `fix/SKILL.md` Phase 1 parses Conventional Comments from the **whole** PR comment body and only strips the finding-verifier `<details>` (step 1a). There is no file:line dedup. Therefore:
+   - `## Spec` ∧ `## Standards` rows MUST be non-CC-shaped. Forbidden substrings in both blocks: `issue:`, `issue(blocking):`, `todo:`, `suggestion:`, `suggestion(blocking):`, `thought:`, `praise:`, `question:`. Point at the findings pile in prose (`see findings`) — never embed a live label.
+   - Do ¬restate a finding from the grouped pile inside either axis block. Duplication → a second `/R-fix` task.
+4. Copy the Phase 4 Disclose-removals block (`Filtered by finding-verifier (N)` table + `Roster capped by max_agents` + collapse/`capped_review`) into the PR body — **between the grouped findings and the verdict**. Do ¬re-render, ¬recompute.
+
+**Comment shape (worked example — order is normative, content illustrative):**
+
+```markdown
+## Code Review
+
+## Spec
+- ✓ AC-1 "`roster.sh` emits `capped_review[]`" — met
+- ✗ AC-3 "oracle warnings echoed into the output" — missing: no emit path in Δ (see Blockers)
+- ~ AC-4 "spec ∄ → skip" — partial: skips, ¬warns ("path-only roster") (see Blockers)
+- scope creep: `chunker.py` budget rewrite ¬∈ σ
+
+## Standards
+- conventions: see findings
+- possible Feature Envy — `roster.ts:80` (judgement)
+
+### Blockers
+issue(blocking): oracle warnings dropped …
+
+### Warnings
+…
+
+<details><summary>Filtered by finding-verifier (2)</summary>
+
+| Dropped | Location | C | Reason |
+…
+
+</details>
+
+Roster capped by max_agents: R-devops
+
+**Verdict: Request changes** — 1 blocking finding
+```
 
 **→ immediately continue to Phase 8.**
 
