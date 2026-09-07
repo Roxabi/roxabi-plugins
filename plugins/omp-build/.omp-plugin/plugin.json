@@ -1,0 +1,7 @@
+{
+  "name": "omp-build",
+  "description": "OMP-only back-half orchestrator — after spec validation, run plan→impl→PR→review→fix→merge. Not host /dev.",
+  "author": {
+    "name": "Roxabi"
+  }
+}

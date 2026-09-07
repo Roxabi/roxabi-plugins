@@ -21,6 +21,7 @@
     },
     {
       "name": "dev-core",
+      "version": "0.1.0",
       "description": "Full development workflow — frame, shape, plan, implement, review, ship. Includes /dev-init project setup orchestrator. Opinionated Roxabi process: lifecycle skills, specialized agents, and safety hooks.",
       "source": "./plugins/dev-core",
       "category": "development"
@@ -65,6 +66,13 @@
       "name": "issue-triage",
       "description": "Triage/create GitHub issues — size/priority/lane/type labels, blocked-by deps, parent/child. Labels + native relations, no Projects V2.",
       "source": "./plugins/issue-triage",
+      "category": "development"
+    },
+    {
+      "name": "omp-build",
+      "version": "0.1.0",
+      "description": "OMP-only post-spec orchestrator — plan, isolated implement, PR, review, merge.",
+      "source": "./plugins/omp-build",
       "category": "development"
     }
   ]

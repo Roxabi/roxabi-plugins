@@ -6,7 +6,29 @@ Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() ch
 
 ## Install
 
-Not in the marketplace catalog — install by **link** from a checkout of `roxabi-plugins` (monorepo subdir layout).
+OMP marketplace — catalogued in `.omp-plugin/marketplace.json` only (OMP-only plugin, absent from the Claude Code catalog).
+
+```bash
+omp plugin marketplace add Roxabi/roxabi-plugins   # once per machine
+omp plugin marketplace update roxabi-marketplace   # after a catalog change lands
+omp plugin install omp-build@roxabi-marketplace
+ln -sfn ~/.omp/plugins/node_modules/omp-build/scripts/omp-wt.sh ~/.local/bin/omp-wt
+```
+
+**Then arm the surfaces.** With the `claude-plugins` provider disabled, a marketplace install loads only `package.json#omp.extensions` — `skills/` and `agents/` stay dark, because the realpath filter that hides marketplace roots lives in the *installed* lane that both `omp-plugins` (skills/commands/hooks) and the agents gate read. Add the stable `node_modules` symlink to `extensions:` in `~/.omp/agent/config.yml`:
+
+```yaml
+extensions:
+  - ~/.omp/plugins/node_modules/omp-build
+```
+
+Then **restart** the OMP session — agents and extension modules are not picked up by `/reload-plugins`.
+
+Keep this package **legacy**: no `plugin.json` at the package root. With one, `agent-plugins` unions the cache directory and the `node_modules` symlink as two distinct path strings and loads every skill twice.
+
+### Local authoring (link)
+
+Alternative to the catalog install, from a checkout of `roxabi-plugins` (monorepo subdir layout):
 
 ```bash
 # from repo root
@@ -19,11 +41,11 @@ Requires `package.json` with `"omp": {}` (empty object is enough; `omp.extension
 Verify:
 
 ```bash
-omp plugin doctor    # expect plugin:omp-build
-omp plugin list      # npm Plugins → omp-build@0.0.0
+omp plugin doctor    # expect plugin:omp-build (link lane; a marketplace install has no plugin:* line)
+omp plugin list      # npm Plugins → omp-build@0.1.0
 ```
 
-`/build` loads `skills/build/` from the linked package (`~/.omp/plugins/node_modules/omp-build/`). Do **not** copy `SKILL.md` into `~/.omp/agent/skills/` — that shadows the plugin. `omp-wt` uses the repo script via PATH.
+Either way `/build` loads `skills/build/` from `~/.omp/plugins/node_modules/omp-build/`. Do **not** copy `SKILL.md` into `~/.omp/agent/skills/` — that shadows the plugin. `omp-wt` uses the script that symlink points at.
 
 ### After you change the plugin
 
@@ -32,7 +54,7 @@ omp plugin list      # npm Plugins → omp-build@0.0.0
 | `skills/`, `commands/`, MCP config | `/reload-plugins` |
 | `hooks/`, `omp.extensions`, **new/changed `agents/*.md`** | **restart** OMP session |
 
-Symlinking into `~/.omp/agent/agents/` is not supported — use `link` + restart.
+Symlinking into `~/.omp/agent/agents/` is not supported — use `link` (or the catalog install armed by `extensions:`) + restart.
 
 ## Launch
 
@@ -66,4 +88,4 @@ OMP task agents in `agents/` (`model: "@advisor"`):
 | `advisor` | Constructive second opinion. Strengthen, don't attack. Not the session WATCHDOG. |
 | `elon` | The Algorithm. Read-only tools. Inventory (NAMED/UNNAMED/BINDING) → delete (named add-back) → simplify → accelerate → automate last. Process only, not Musk roleplay. |
 
-Spawn: `task` `{ agent: "adversarial" | "advisor" | "elon", ... }`. Loaded via `omp-plugins` from the linked package `agents/`. Not the session WATCHDOG (`advisor.enabled`).
+Spawn: `task` `{ agent: "adversarial" | "advisor" | "elon", ... }`. Read from `agents/` of whichever package root is in the extension lane — the `link` symlink, or the marketplace install's `node_modules` symlink once it is listed in `extensions:`. Not the session WATCHDOG (`advisor.enabled`).
