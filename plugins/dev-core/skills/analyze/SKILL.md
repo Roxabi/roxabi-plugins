@@ -294,7 +294,7 @@ Print **exactly this structure** (fill from α + Steps 2–3). HITL surface — 
 
 ---
 **Your move (free text — no menu):**
-approve / ok → commit + advance · shape 2 / change … → revise + re-print · question … → answer · spike {unknown} · re-analyze · adversarial / advisory (side-path on α)
+approve / ok → commit + advance · shape 2 / change … → revise + re-print · question … → answer · spike {unknown} · re-analyze · adversarial / advisory / options (side-path on α)
 ```
 
 **STOP this turn** after printing the summary. Do not commit. Do not invoke `/R-spec`. Do not AskUserQuestion.
@@ -312,6 +312,7 @@ On the user's next message, interpret intent (no AQ):
 | re-analyze / start over / regenerate | Re-run from Step 2 (fresh exploration + interview) |
 | adversarial / red team / kill this | `Skill(skill: "R-adversarial", args: "--analysis <α path>")` → fold useful **findings (Φ)** into α if user asks → **re-print Executive Summary → STOP again** (nested skill never completes analyze) |
 | advisory / second opinion / strengthen | `Skill(skill: "R-advisory", args: "--analysis <α path>")` → fold Strengthen P0s if user asks → **re-print Executive Summary → STOP again** |
+| options / alternatives / cheaper route | `Task(subagent_type: "dev-core:R-options", prompt: "subject: <α path>")` → fold survivors/verdict into α if user asks → **re-print Executive Summary → STOP again** |
 | abort / stop / cancel | Stop; leave α on disk **as `status: draft`** (so `/R-dev` ¬counts it done); return cancel to `/R-dev` if applicable |
 
 Ambiguous free text → ask **one short prose clarifying question** in the message (plain text). Still ¬AskUserQuestion.
@@ -348,7 +349,7 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Analysi
 
 - **Phase:** Shape
 - **Predecessor:** `/R-frame` (artifact: `artifacts/frames/{N}-{slug}-frame.md`)
-- **Successor:** `/R-spec` (optional side-paths before advance: `/R-adversarial` kill-pass, `/R-advisory` strengthen)
+- **Successor:** `/R-spec` (optional side-paths before advance: `/R-adversarial` kill-pass, `/R-advisory` strengthen, `R-options` sweep)
 - **Class:** `adv` **+ approval stop** — map class in `/R-dev` is `adv + approval stop`. Protection is **disk** α_approved (`status == 'approved'` ∨ missing key legacy); `/R-dev` Walk ignores `Σ_s[analyze]` alone and Step 8 item 0 re-reads frontmatter before any complete. Resume after stop = Step 5 React, not fresh Step 0. See [chain-contract.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/chain-contract.md).
 
 ## Task Integration

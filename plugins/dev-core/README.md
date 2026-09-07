@@ -131,7 +131,6 @@ Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, 
 | `R-fixer` | Applies accepted review findings |
 | `R-security-auditor` | OWASP Top 10 audit with exploit scenarios, confidence scoring (C ≥ 60), and false-positive filtering |
 | `R-adversarial` | Red-team for `/R-adversarial` + `/R-spec` + `/R-dev-review`: bypass, fleet-regression, vacuous guards, assumption-kill; OWASP lens on `/R-dev-review` (read-only) |
-| `R-options` | Morphological option-space sweep — derives must-haves, sweeps 3–5 independent axes, prunes and ranks options, locates the incumbent as one point in the lattice (read-only). Human / side-path invoked; ¬in any review roster |
 
 ### Strategy
 
@@ -141,6 +140,7 @@ Each agent frontmatter includes a `# capabilities:` comment (`write_knowledge`, 
 | `R-product-lead` | Analysis, specifications, issue management |
 | `R-doc-writer` | Documentation across all docs directories |
 | `R-finding-verifier` | Keep/drop filter over low-confidence review findings (read-only) |
+| `R-options` | Morphological option-space sweep — derives must-haves, sweeps 3–5 independent axes, prunes and ranks options, locates the incumbent as one point in the lattice (read-only). Human / side-path invoked; ¬in any review roster |
 
 ## Project-Level Overrides
 
