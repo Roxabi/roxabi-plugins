@@ -54,10 +54,25 @@ describe('/R-analyze auto-panel floor', () => {
 })
 
 describe('/R-analyze options side-path', () => {
-  it('uses a generic Task, ¬R-options manifest', () => {
+  it('uses a host-mapped explore worker, ¬R-options manifest', () => {
     const body = skill('analyze')
     expect(body).not.toMatch(/dev-core:R-options/)
     expect(body).toMatch(/options-lattice\.md/)
+    expect(body).toMatch(/host-native read-only exploration worker/)
+    expect(body).toMatch(/each host maps the role/)
+    expect(body).toMatch(/Claude example/)
+  })
+})
+
+describe('/R-dev-review Phase 3b recall spawn', () => {
+  it('documents Explore as a Claude host mapping, ¬sole portable type', () => {
+    const body = skill('dev-review')
+    const phase3b = section(body, '### Phase 3b — Isolated cross-chunk recall', '### Review dimensions')
+    expect(phase3b).not.toMatch(/dev-core:R-recall/)
+    expect(phase3b).toMatch(/host-native read-only exploration worker/)
+    expect(phase3b).toMatch(/each host maps the role/)
+    expect(phase3b).toMatch(/Claude example only/)
+    expect(phase3b).toMatch(/subagent_type: "Explore"/)
   })
 })
 

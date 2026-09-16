@@ -34,12 +34,14 @@ Let: C := confidence score (0–100) | SA := `{standards.architecture}` | SD := 
 
 ## Mode resolution (first)
 
-Resolve mode **before** stack guards. Dispatch prompt selects; default = **normal**.
+Resolve mode **before** stack guards. Dispatch prompt selects.
+
+**Default posture:** when dispatched from `/R-dev-review` (or findings-only / "review the diff"), default = **review/axial findings-only** — write nothing. Implement/design writes (normal-mode ADRs, SA edits) require explicit normal design/ADR Implement signals (`/R-dev-implement`, design tasks, ADR authoring). Absent those signals, stay findings-only.
 
 | Mode | Signals | Write |
 |------|---------|-------|
-| **Normal** | design, ADR (non-axial), spec soundness, tier, plans | SA + ADRs only |
-| **Axial** | "axial mode", `target-axis-trap`, `/R-spec` axial row / `axial_addendum`, `/R-dev-review` when axial ADR ∧ axial paths proven | **none** — findings only |
+| **Normal** | explicit design, ADR (non-axial), spec soundness, tier, plans, `/R-dev-implement` | SA + ADRs only |
+| **Axial** | focus begins with axial / "axial mode", `target-axis-trap`, `/R-spec` axial row / `axial_addendum`, `/R-dev-review` when axial ADR ∧ axial paths proven | **none** — findings only |
 
 Do **not** mix: axial review never writes or supersedes the ADR. Create/supersede → `/R-adr --axial`.
 
@@ -143,7 +145,7 @@ Dependencies point inward only: **Domain ← Application ← Infrastructure**
 | Generic exception in domain | Throwing base `Error`/`Exception` | Domain-specific exception |
 | God service | Single service >300 lines, mixed concerns | Split by aggregate / use case |
 | Circular deps between modules | A imports B imports A | Shared interface ∨ event |
-| Wrong-axis duplication (N×M trap) | concern in ≥3 sibling dirs along non-primary axis | **Axial mode** (this agent) — `target-axis-trap`. See `shared/references/axial-decomposition.md`. |
+| Wrong-axis duplication (N×M trap) | concern in ≥3 sibling dirs along non-primary axis | Structure/normal: `thought:` / handoff that axial review is warranted — NEVER invent axial ADR absence/requirements or run axial R1–R4 unless focus begins with axial. Full `target-axis-trap` → **Axial mode** only. See `shared/references/axial-decomposition.md`. |
 
 ### Decision Signals
 
@@ -163,5 +165,5 @@ Dependencies point inward only: **Domain ← Application ← Infrastructure**
 - Conflicting domain reqs → document trade-offs, recommend, message R-product-lead
 - Scope exceeds tier → stop, message team lead + reclassify with R-product-lead
 - ¬existing pattern → create ADR first, then escalate if architectural impact is high
-- Axial ADR missing / singleton broken / unparseable pattern → finding + point to `/R-adr --axial`; ¬write the axial ADR in review
-- Axial ADR outdated (growth_12m vastly exceeded) → `thought:` recommending `/R-adr --axial` supersede
+- Axial ADR missing / singleton broken / unparseable pattern → **Axial mode only:** finding + point to `/R-adr --axial`; ¬write the axial ADR in review. Structure/normal: at most `thought:` that axial review is warranted — ¬issue axial ADR obligations
+- Axial ADR outdated (growth_12m vastly exceeded) → **Axial mode only:** `thought:` recommending `/R-adr --axial` supersede

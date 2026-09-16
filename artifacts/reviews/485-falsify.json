@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "issue": 485,
-  "head": "b91d31a495f45d9c6eb4775aa18bf4c9e290de81",
+  "head": "4a9ef803a174f2127dc60cb53f11143c43dca5fc",
   "runner_id": "run-falsify/1",
   "oracle_ok": true,
   "oracle_reason": "ok",
@@ -13,13 +13,13 @@
         "plugins/dev-core/skills/dev-review/SKILL.md"
       ],
       "source_hashes": {
-        "plugins/dev-core/skills/dev-review/roster.ts": "50f25d4064cc55238f09b8f76449d8a8facc09c220744ec94f89b3a6dd3de201",
-        "plugins/dev-core/skills/dev-review/SKILL.md": "45201c5bf29d396b51dcca35f4d6ebb1ae7cb9162877f5492153357c446b4811"
+        "plugins/dev-core/skills/dev-review/roster.ts": "b2176f746b735e500f20e6c7c77070981c3509b1f643c0805afbdafc0dd6393e",
+        "plugins/dev-core/skills/dev-review/SKILL.md": "bf690a9a0aecdaeb8951645ba843a3edbeecd04dc6ed0f33a51a35a031d5f341"
       },
-      "test_cmd": "grep -qF \"export const DISPATCHABLE\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"'R-adversarial'\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"'R-security-auditor'\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"'R-architect'\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"'R-frontend-dev'\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"'R-backend-dev'\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"'R-devops'\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"'R-tester'\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"PHASE_AGENTS = []\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"| **R-adversarial**\" plugins/dev-core/skills/dev-review/SKILL.md && grep -qF \"| **R-tester**\" plugins/dev-core/skills/dev-review/SKILL.md",
-      "fail_exit": 2,
+      "test_cmd": "bun -e 'import { readFileSync } from \"node:fs\"; import { DISPATCHABLE, PHASE_AGENTS } from \"./plugins/dev-core/skills/dev-review/roster.ts\"; const want=[\"R-adversarial\",\"R-security-auditor\",\"R-architect\",\"R-frontend-dev\",\"R-backend-dev\",\"R-devops\",\"R-tester\"]; if (JSON.stringify([...DISPATCHABLE])!==JSON.stringify(want)) throw new Error(\"DISPATCHABLE\"); if (PHASE_AGENTS.length!==0) throw new Error(\"PHASE\"); const s=readFileSync(\"plugins/dev-core/skills/dev-review/SKILL.md\",\"utf8\"); const i=s.indexOf(\"### Agent dispatch\"); const j=s.indexOf(\"### R-security-auditor\", i); const block=s.slice(i,j); for (const a of want) if (!block.includes(\"| **\"+a+\"**\")) throw new Error(\"table \"+a); if (block.includes(\"R-recall\")||block.includes(\"R-finding-verifier\")) throw new Error(\"phase\")' ",
+      "fail_exit": 1,
       "pass_exit": 0,
-      "error": "FAIL exit=2: grep: plugins/dev-core/skills/dev-review/roster.ts: No such file or directory ",
+      "error": "FAIL exit=1: error: Cannot find module './plugins/dev-core/skills/dev-review/roster.ts' from '/tmp/rf-fail.g3gyrwgq/[eval]'  Bun v1.4.0 (Linux x64) ",
       "status": "proven"
     },
     {
@@ -28,12 +28,12 @@
         "plugins/dev-core/skills/dev-review/roster.ts"
       ],
       "source_hashes": {
-        "plugins/dev-core/skills/dev-review/roster.ts": "50f25d4064cc55238f09b8f76449d8a8facc09c220744ec94f89b3a6dd3de201"
+        "plugins/dev-core/skills/dev-review/roster.ts": "b2176f746b735e500f20e6c7c77070981c3509b1f643c0805afbdafc0dd6393e"
       },
-      "test_cmd": "grep -qF \"const DEFAULT_MAX_AGENTS = 3\" plugins/dev-core/skills/dev-review/roster.ts",
-      "fail_exit": 2,
+      "test_cmd": "bun -e 'import { computeRoster, parseRosterConfig } from \"./plugins/dev-core/skills/dev-review/roster.ts\"; const cfg=parseRosterConfig(\"review:\\n  roster:\\n\"); if (cfg.maxAgents!==3) throw new Error(\"default max\"); const empty={frontendPath:\"\",sharedUi:\"\",backendPath:\"\"}; const out=computeRoster({delta:[\"src/foo.ts\"],tier:\"F-lite\",chunks:1,oracleOk:\"true\",pricedClaimOk:true,axialAdr:false,stackPaths:empty,config:cfg,claims:[],specDraft:false}); if (out.max_agents!==3) throw new Error(\"out max\"); if (out.agents.length>3) throw new Error(\"cap\")' ",
+      "fail_exit": 1,
       "pass_exit": 0,
-      "error": "FAIL exit=2: grep: plugins/dev-core/skills/dev-review/roster.ts: No such file or directory ",
+      "error": "FAIL exit=1: error: Cannot find module './plugins/dev-core/skills/dev-review/roster.ts' from '/tmp/rf-fail.rjbqanm_/[eval]'  Bun v1.4.0 (Linux x64) ",
       "status": "proven"
     },
     {
@@ -42,12 +42,12 @@
         "plugins/dev-core/skills/dev-review/roster.ts"
       ],
       "source_hashes": {
-        "plugins/dev-core/skills/dev-review/roster.ts": "50f25d4064cc55238f09b8f76449d8a8facc09c220744ec94f89b3a6dd3de201"
+        "plugins/dev-core/skills/dev-review/roster.ts": "b2176f746b735e500f20e6c7c77070981c3509b1f643c0805afbdafc0dd6393e"
       },
-      "test_cmd": "grep -qF \"function prioritizeCandidates\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"if (agent === 'R-security-auditor') return 100\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"gates[agent].reason.startsWith('axial:')) return 95\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"if (agent === 'R-devops') return 80\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"if (agent === 'R-tester') return 75\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"cap raised to\" plugins/dev-core/skills/dev-review/roster.ts",
-      "fail_exit": 2,
+      "test_cmd": "bun -e 'import { computeRoster, parseRosterConfig } from \"./plugins/dev-core/skills/dev-review/roster.ts\"; const cfg=parseRosterConfig(\"review:\\n  roster:\\n    max_agents: 3\\n\"); const paths={frontendPath:\"src/ui\",sharedUi:\"\",backendPath:\"src/api\"}; const out=computeRoster({delta:[\"src/auth/token.ts\",\"src/ui/App.tsx\",\"src/api/x.ts\",\"src/__tests__/t.ts\",\".github/workflows/ci.yml\",\"adapters/x.ts\"],tier:\"F-lite\",chunks:1,oracleOk:\"false\",pricedClaimOk:true,axialAdr:true,stackPaths:paths,config:cfg,claims:[],specDraft:false}); if (out.agents[0]!==\"R-adversarial\") throw new Error(\"floor\"); if (!out.agents.includes(\"R-security-auditor\")) throw new Error(\"sec first specialist expected\"); if (out.agents.length>3) throw new Error(\"cap\"); const forced=parseRosterConfig(\"review:\\n  roster:\\n    max_agents: 2\\n    agents:\\n      R-devops: always\\n      R-tester: always\\n\"); const f=computeRoster({delta:[\"src/foo.ts\"],tier:\"F-lite\",chunks:1,oracleOk:\"false\",pricedClaimOk:true,axialAdr:false,stackPaths:{frontendPath:\"\",sharedUi:\"\",backendPath:\"\"},config:forced,claims:[],specDraft:false}); if (!f.agents.includes(\"R-devops\")||!f.agents.includes(\"R-tester\")) throw new Error(\"forced retained\"); if (!f.warnings.some(w=>w.includes(\"cap raised to\"))) throw new Error(\"cap raise\")' ",
+      "fail_exit": 1,
       "pass_exit": 0,
-      "error": "FAIL exit=2: grep: plugins/dev-core/skills/dev-review/roster.ts: No such file or directory ",
+      "error": "FAIL exit=1: error: Cannot find module './plugins/dev-core/skills/dev-review/roster.ts' from '/tmp/rf-fail.kgcnbp2h/[eval]'  Bun v1.4.0 (Linux x64) ",
       "status": "proven"
     },
     {
@@ -57,13 +57,13 @@
         "plugins/dev-core/agents/R-architect.md"
       ],
       "source_hashes": {
-        "plugins/dev-core/skills/dev-review/roster.ts": "50f25d4064cc55238f09b8f76449d8a8facc09c220744ec94f89b3a6dd3de201",
-        "plugins/dev-core/agents/R-architect.md": "369f693c33c87392b9255a8d94075f2be60b31de177af63c45296074d69c18e1"
+        "plugins/dev-core/skills/dev-review/roster.ts": "b2176f746b735e500f20e6c7c77070981c3509b1f643c0805afbdafc0dd6393e",
+        "plugins/dev-core/agents/R-architect.md": "14d4fa6d318b4755b44975481b9831e7e343063d57dc49796f2c5ab20d157a26"
       },
-      "test_cmd": "grep -qF \"R-axial-adr-review override applies to R-architect axial mode only; rename the key\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"R-architect takes global precedence\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"startsWith('axial:')\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"/R-adr --axial\" plugins/dev-core/agents/R-architect.md && grep -qF \"writes ZERO files\" plugins/dev-core/agents/R-architect.md",
-      "fail_exit": 2,
+      "test_cmd": "bun -e 'import { readFileSync } from \"node:fs\"; import { computeRoster, parseRosterConfig, structureHit } from \"./plugins/dev-core/skills/dev-review/roster.ts\"; const empty={frontendPath:\"\",sharedUi:\"\",backendPath:\"\"}; if (structureHit([\"plugins/dev-core/skills/adr/SKILL.md\"], empty)) throw new Error(\"skills/adr false positive\"); const axial=parseRosterConfig(\"review:\\n  roster:\\n\"); const a=computeRoster({delta:[\"adapters/x.ts\"],tier:\"F-lite\",chunks:1,oracleOk:\"true\",pricedClaimOk:true,axialAdr:true,stackPaths:empty,config:axial,claims:[],specDraft:false}); const g=a.gates.find(x=>x.agent===\"R-architect\"); if (!g?.spawn || !String(g.reason).startsWith(\"axial:\")) throw new Error(\"axial gate\"); const legacy=parseRosterConfig(\"review:\\n  roster:\\n    agents:\\n      R-axial-adr-review: always\\n\"); if (!legacy.warnings.some(w=>w.includes(\"rename the key\"))) throw new Error(\"rename\"); const conflict=parseRosterConfig(\"review:\\n  roster:\\n    agents:\\n      R-architect: never\\n      R-axial-adr-review: always\\n\"); if (!conflict.warnings.some(w=>w.includes(\"R-architect takes global precedence\"))) throw new Error(\"conflict\"); const md=readFileSync(\"plugins/dev-core/agents/R-architect.md\",\"utf8\"); if (!md.includes(\"/R-adr --axial\")) throw new Error(\"adr route\"); if (!/Default = \\*\\*review\\/axial findings-only\\*\\*|findings-only/i.test(md)) throw new Error(\"review default\")' ",
+      "fail_exit": 1,
       "pass_exit": 0,
-      "error": "FAIL exit=2: grep: plugins/dev-core/skills/dev-review/roster.ts: No such file or directory ",
+      "error": "FAIL exit=1: error: Cannot find module './plugins/dev-core/skills/dev-review/roster.ts' from '/tmp/rf-fail.k2v2x0pr/[eval]'  Bun v1.4.0 (Linux x64) ",
       "status": "proven"
     },
     {
@@ -75,15 +75,15 @@
         "plugins/dev-core/skills/dev-init/SKILL.md"
       ],
       "source_hashes": {
-        "plugins/dev-core/skills/dev-review/SKILL.md": "45201c5bf29d396b51dcca35f4d6ebb1ae7cb9162877f5492153357c446b4811",
-        "plugins/dev-core/skills/analyze/SKILL.md": "617b3e18e59c681ef6a0892058023b1db587e23d99db41022999de3871c38562",
+        "plugins/dev-core/skills/dev-review/SKILL.md": "bf690a9a0aecdaeb8951645ba843a3edbeecd04dc6ed0f33a51a35a031d5f341",
+        "plugins/dev-core/skills/analyze/SKILL.md": "8523b49e76b0f2fef6214eae57561be510280b505c8671ac968859b6f1df93ed",
         "plugins/dev-core/skills/adr/SKILL.md": "ff613955ccb73daccf744c046391bfaf08c3fd873a2ce5b5a2ffb7a530c7d175",
         "plugins/dev-core/skills/dev-init/SKILL.md": "36e4b7b1f67b6745dd700d67e158d604f12e57ad1338a91f917792efc7bf5fd0"
       },
-      "test_cmd": "grep -qF 'subagent_type: \"Explore\"' plugins/dev-core/skills/dev-review/SKILL.md && grep -qF \"host-native\" plugins/dev-core/skills/dev-review/SKILL.md && grep -qF \"host-native\" plugins/dev-core/skills/analyze/SKILL.md && grep -qF \"options-lattice.md\" plugins/dev-core/skills/analyze/SKILL.md && grep -qF \"/R-adr --axial\" plugins/dev-core/skills/adr/SKILL.md && grep -qF \"/R-adr --axial\" plugins/dev-core/skills/dev-init/SKILL.md && test ! -f plugins/dev-core/agents/R-recall.md && test ! -f plugins/dev-core/agents/R-options.md",
-      "fail_exit": 2,
+      "test_cmd": "bun -e 'import { existsSync, readFileSync } from \"node:fs\"; if (existsSync(\"plugins/dev-core/agents/R-recall.md\")||existsSync(\"plugins/dev-core/agents/R-options.md\")) throw new Error(\"manifest\"); const rev=readFileSync(\"plugins/dev-core/skills/dev-review/SKILL.md\",\"utf8\"); if (!rev.includes(\"host-native read-only exploration worker\")) throw new Error(\"host map\"); if (!rev.includes(\"Claude example only\")) throw new Error(\"claude example\"); const ana=readFileSync(\"plugins/dev-core/skills/analyze/SKILL.md\",\"utf8\"); if (!ana.includes(\"options-lattice.md\")) throw new Error(\"lattice\"); if (ana.includes(\"dev-core:R-options\")) throw new Error(\"options manifest\"); const adr=readFileSync(\"plugins/dev-core/skills/adr/SKILL.md\",\"utf8\"); const ini=readFileSync(\"plugins/dev-core/skills/dev-init/SKILL.md\",\"utf8\"); if (!adr.includes(\"/R-adr --axial\")||!ini.includes(\"/R-adr --axial\")) throw new Error(\"axial route\")' ",
+      "fail_exit": 1,
       "pass_exit": 0,
-      "error": "FAIL exit=2: grep: plugins/dev-core/skills/dev-review/SKILL.md: No such file or directory ",
+      "error": "FAIL exit=1: 1 | import { existsSync, readFileSync } from \"node:fs\"; if (existsSync(\"plugins/dev-core/agents/R-recall.md\")||existsSync(\"plugins/dev-core/agents/R-options.md\")) throw new Error(\"manifest\"); const rev=readFileSync(\"plugins/dev-core/skills/",
       "status": "proven"
     },
     {
@@ -98,10 +98,10 @@
         "plugins/dev-core/stack.yml.example": "19a597bf19612cab51c0adf5f1390ab0840a84130bf7bd770e1c7308022fba16",
         "plugins/dev-core/skills/dev-review/README.md": "02edf75830aacb6554c410e0a4a962cf8088698da5614dfdfbf29679bf1ec74f"
       },
-      "test_cmd": "grep -qF \"max_agents: 3\" .dev/stack.yml.example && grep -qF \"max_agents: 3\" plugins/dev-core/stack.yml.example && grep -qF \"R-adversarial:\" .dev/stack.yml.example && grep -qF \"R-security-auditor:\" .dev/stack.yml.example && grep -qF \"R-architect:\" .dev/stack.yml.example && grep -qF \"R-frontend-dev:\" .dev/stack.yml.example && grep -qF \"R-backend-dev:\" .dev/stack.yml.example && grep -qF \"R-devops:\" .dev/stack.yml.example && grep -qF \"R-tester:\" .dev/stack.yml.example && ! grep -qE \"R-recall:|R-options:|R-finding-verifier:|R-axial-adr-review:\" .dev/stack.yml.example && grep -qF \"max_agents=3\" plugins/dev-core/skills/dev-review/README.md",
-      "fail_exit": 2,
+      "test_cmd": "bun -e 'import { readFileSync } from \"node:fs\"; import { DISPATCHABLE } from \"./plugins/dev-core/skills/dev-review/roster.ts\"; const root=readFileSync(\".dev/stack.yml.example\",\"utf8\"); const plug=readFileSync(\"plugins/dev-core/stack.yml.example\",\"utf8\"); const readme=readFileSync(\"plugins/dev-core/skills/dev-review/README.md\",\"utf8\"); if (!root.includes(\"max_agents: 3\")||!plug.includes(\"max_agents: 3\")) throw new Error(\"max\"); for (const a of DISPATCHABLE) { if (!root.includes(a+\":\")||!plug.includes(a+\":\")) throw new Error(\"key \"+a) } for (const bad of [\"R-recall:\",\"R-options:\",\"R-finding-verifier:\",\"R-axial-adr-review:\"]) { if (root.includes(bad)||plug.includes(bad)) throw new Error(\"legacy \"+bad) } if (!readme.includes(\"max_agents=3\")) throw new Error(\"readme\")' ",
+      "fail_exit": 1,
       "pass_exit": 0,
-      "error": "FAIL exit=2: grep: .dev/stack.yml.example: No such file or directory ",
+      "error": "FAIL exit=1: 1 | import { readFileSync } from \"node:fs\"; import { DISPATCHABLE } from \"./plugins/dev-core/skills/dev-review/roster.ts\"; const root=readFileSync(\".dev/stack.yml.example\",\"utf8\"); const plug=readFileSync(\"plugins/dev-core/stack.yml.example",
       "status": "proven"
     }
   ]

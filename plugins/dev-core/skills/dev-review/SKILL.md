@@ -219,7 +219,7 @@ Agent name map: `R-adversarial` → `dev-core:R-adversarial` | `R-frontend-dev` 
 
 ### Phase 3b — Isolated cross-chunk recall (multi-chunk only)
 
-After per-chunk agents complete, build a deterministic class index and spawn one fresh native generic worker for each triggered class. This worker is not a dev-core manifest and receives no implementation context or full diff.
+After per-chunk agents complete, build a deterministic class index and spawn one fresh host-native read-only exploration worker for each triggered class (each host maps the role — Claude→`Explore`, OMP→`scout`, etc.). This worker is not a `dev-core` manifest and receives no implementation context or full diff.
 
 **Step 1 — Build index:**
 
@@ -247,9 +247,12 @@ There is no diff-size or confidence knob. A single-chunk concentration never tri
 
 **Step 3 — Spawn one isolated worker per triggered class:**
 
+Spawn a **fresh host-native read-only exploration worker** — each host maps the role (Claude→`Explore`, OMP→`scout`, etc.). Not a `dev-core` manifest; empty/isolated context only (no implementation context, no full diff).
+
 ```
+# Claude example only — other hosts substitute their mapped read-only explore role for subagent_type
 Task(
-  subagent_type: "Explore",  # host-native read-only worker; no dev-core manifest
+  subagent_type: "Explore",
   description: "Cross-chunk recall — {cls} — {PR#|branch}",
   prompt: "Fresh isolated read-only recall for canonical class '{cls}'.
 

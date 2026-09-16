@@ -101,6 +101,7 @@ const REMOVED_AGENTS: Record<string, true> = {
   'R-axial-adr-review': true,
   'R-recall': true,
   'R-finding-verifier': true,
+  'R-options': true,
 }
 
 const OVERRIDE_VALUES: Record<string, true> = { default: true, always: true, never: true }
@@ -112,7 +113,7 @@ const TEST_SUFFIX_RE = /_test\.(py|go|rs)$/
 const FE_EXT_RE = /\.(tsx|jsx|vue|svelte|css|scss)$/
 const AXIAL_RE = /^(infrastructure|adapters|domains|stages)\//
 const STRUCTURAL_RES = [
-  /(^|\/)(architecture|architectures|adr|adrs)\//,
+  /(^|\/)docs\/(architecture|architectures)(\/|$)/,
   /(^|\/)\.?dependency-cruiser\.(c?js|mjs|json|ya?ml)$/,
   /(^|\/)(nx|turbo)\.jsonc?$/,
   /(^|\/)pnpm-workspace\.ya?ml$/,
@@ -559,12 +560,7 @@ export function parseRosterConfig(text: string | null): RosterConfig {
         warnings.push('recall_min_delta is deprecated and ignored; /R-dev-review controls the isolated recall worker')
       } else if (line.key === 'max_agents_review') {
         consumed.add(i)
-        warnings.push('max_agents_review is deprecated; use the per-chunk max_agents cap')
-        maxAgentsReview = parseInteger(line.value, DEFAULT_MAX_AGENTS_REVIEW, 'max_agents_review', warnings)
-        if (maxAgentsReview < 0) {
-          warnings.push('max_agents_review < 0; clamped to 0')
-          maxAgentsReview = 0
-        }
+        warnings.push('max_agents_review is deprecated and ignored; use the per-chunk max_agents cap')
       } else if (line.key === 'agents') {
         consumed.add(i)
         const agentsEnd = blockEnd(lines, i)
@@ -592,6 +588,8 @@ export function parseRosterConfig(text: string | null): RosterConfig {
               warnings.push('R-recall override ignored; recall is no longer a roster agent')
             } else if (agent === 'R-finding-verifier') {
               warnings.push('R-finding-verifier override ignored; confidence-only finding removal was retired')
+            } else if (agent === 'R-options') {
+              warnings.push('R-options override ignored; options is an /R-analyze host-native worker')
             }
             continue
           }
@@ -691,7 +689,9 @@ function testerGate(deltaTestHit: boolean, oracleOk: OracleOk, warnings: string[
 }
 
 function architectGate(axialAdr: boolean, delta: string[], structural: boolean, axialOverride: AgentOverride): Gate {
-  if (axialOverride === 'always') return { spawn: true, reason: 'axial:stack:always' }
+  if (axialOverride === 'always' && axialAdr && axialDeltaHit(delta)) {
+    return { spawn: true, reason: 'axial:stack:always' }
+  }
   if (axialOverride !== 'never' && axialAdr && axialDeltaHit(delta)) {
     return { spawn: true, reason: 'axial:adr-delta' }
   }
@@ -814,7 +814,7 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
   )
   const isForced = (a: string): boolean => {
     const r = gates[a].reason
-    return r === 'floor' || r.endsWith('stack:always')
+    return r === 'floor' || r === 'stack:always'
   }
   const { kept, capped } = applyCap(candidates, isForced, config.maxAgents, 'max_agents', warnings)
   for (const a of capped) {
@@ -881,7 +881,7 @@ export function allocateReview(input: AllocateReviewInput): AllocateReviewResult
     const chunkWarnings: string[] = []
     const isForced = (agent: string): boolean => {
       const reason = per[i].gates.find((row) => row.agent === agent)?.reason ?? ''
-      return reason === 'floor' || reason.endsWith('stack:always')
+      return reason === 'floor' || reason === 'stack:always'
     }
     const cap = applyCap(remaining[i], isForced, shared.config.maxAgents, 'max_agents', chunkWarnings)
     remaining[i] = cap.kept
@@ -900,7 +900,7 @@ export function allocateReview(input: AllocateReviewInput): AllocateReviewResult
       instances.push({
         chunk: i,
         agent,
-        floor: reason === 'floor' || reason.endsWith('stack:always'),
+        floor: reason === 'floor' || reason === 'stack:always',
       })
     }
   }

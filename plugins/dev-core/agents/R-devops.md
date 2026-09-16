@@ -27,7 +27,7 @@ PM unset → output: "package_manager not set in `.dev/stack.yml` — run `/R-en
 
 ## Review mode vs Implement mode
 
-Dispatch prompt selects the mode. Default = **Implement**.
+Dispatch prompt selects the mode. Default = **Review**. Implement mode requires explicit Implement signals (`/R-dev-implement`, implement tasks, etc.).
 
 ### Review mode
 
