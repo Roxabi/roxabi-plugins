@@ -49,24 +49,21 @@ commands:
   format: "bunx biome check --write"
   install: bun install
 
-# /dev-review roster. product-lead is NOT a roster agent (Phase 2 covers spec compliance).
+# /dev-review roster — deterministic oracle (plugins/dev-core/skills/dev-review/roster.sh).
+# The cap is total agents per chunk, including the R-adversarial floor. Overrides are
+# optional and list active roles only: `always` bypasses a gate, `never` suppresses it,
+# and the floor ignores `never`.
 review:
   roster:
-    max_agents: 4                 # spawn-set cap per chunk lane (excl. recall / finding-verifier); <1 → 1 + warning
-    max_agents_review: 0          # flattened Lane A cap after collapse; floors ¬capped; forced>value → raise + warn; 0 = off
-    verify_below_confidence: 90   # keep/drop findings below this C; 0 disables the filter
-    recall_min_delta: 50          # recall needs multi-chunk ∧ |Δ| > this
-    agents:                       # default | always | never — R-adversarial is a floor (`never` ignored)
-      R-adversarial: default
-      R-security-auditor: default
-      R-tester: default
-      R-frontend-dev: default
-      R-backend-dev: default
-      R-devops: default
-      R-architect: default
-      R-axial-adr-review: default
-      R-recall: default
-      R-finding-verifier: default
+    max_agents: 3                 # R-adversarial + at most 2 specialists per chunk
+    agents:                       # per-agent override: default | always | never
+      R-adversarial: default      # immutable floor
+      R-security-auditor: default # security path signals
+      R-tester: default           # test delta ∧ oracle_ok=false; after dominant domain
+      R-frontend-dev: default     # configured FE/shared-UI path, else FE extension
+      R-backend-dev: default      # configured backend path
+      R-devops: default           # infra path signal, independent of tier
+      R-architect: default        # axial mode or conservative structural signal
 
 artifacts:
   brainstorms: artifacts/brainstorms

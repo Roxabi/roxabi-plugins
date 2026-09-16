@@ -1,73 +1,76 @@
 # dev-review
 
-Multi-domain code review via fresh domain agents → Conventional Comments findings + verdict.
-
-## Why
-
-A single reviewer misses domain-specific issues; an 8-agent swarm over-spawns. `/R-dev-review` runs one oracle (`roster.sh`) — R-adversarial always, everything else gated — then a keep/drop filter over low-C findings, merges Conventional Comments, deduplicates by `(file, class)` keep-max-C, and produces a structured verdict: Approve, Approve with comments, or Request changes.
+`/R-dev-review` reviews a branch or PR with a small evidence-selected panel, merges Conventional Comments once, and produces a fail-closed verdict. The workflow preserves spec, secret, and human gates while keeping review separate from `/R-fix`.
 
 ## Usage
 
-```
+```text
 /R-dev-review         Review current branch vs staging/main
 /R-dev-review #42     Review PR #42
 ```
 
 Triggers: `"code review"` | `"review changes"` | `"review PR #42"` | `"check my code"` | `"do a code review"`
 
-## How it works
+## Workflow
 
-1. **Gather changes** — reads full diff and all changed files; warns if > 50 files.
-2. **Secret scan** — grep for hardcoded passwords, API keys, tokens; warns and asks before proceeding.
-3. **Spec compliance** (if spec exists) — checks each acceptance criterion against the diff.
-4. **Multi-domain review** — spawn exactly `roster.sh` `agents[]` (project knob: `.dev/stack.yml` `review.roster` — `max_agents` default 4, `verify_below_confidence` default 90, per-agent `default|always|never`):
+1. **Gather changes** — read the full diff and changed files; note binaries and warn above 50 files.
+2. **Secret preflight** — scan for hardcoded credentials, redact matches, and require Review/Abort input when any match exists.
+3. **Spec compliance** — when an approved spec exists, check every criterion and emit a blocking finding for every gap. Preserve the complete met/missing mirror for display.
+4. **Chunk** — partition large diffs and retain boundary digests so each worker sees its scope and cross-chunk interfaces.
+5. **Select and run the panel** — call `roster.sh` once for a single chunk or once in allocation mode for all chunks. Spawn exactly the returned roles per chunk.
+6. **Recall cross-chunk classes** — after review workers finish, build the deterministic class index. For each canonical class present in at least two chunks with at least three unique callsites, spawn one fresh native generic read-only worker. It receives only the class, callsites, ±10 context lines, and cross-chunk index; RC-3 confirms sibling scope and RC-6 searches for uncited instances. Every emitted finding is blocking. Single-chunk reviews and `candidate/*` classes skip recall; there is no diff-size knob.
+7. **Merge, render, and post once** — deterministically deduplicate findings, keep every remaining finding, group them, compute the verdict, render each finding exactly once, then post that same body when a PR exists.
+8. **Human decision** — Fix now (`/R-fix`) | Merge as-is | Stop.
 
-   | Agent | When | Focus |
-   |-------|------|-------|
-   | R-adversarial | always (floor) | red-team + OWASP lens |
-   | R-security-auditor | `path_hit` only | OWASP |
-   | R-tester | Δ ∩ tests ∧ `oracle_ok=false` | coverage, AAA, tautology |
-   | R-frontend-dev | Δ ∩ `{frontend.path}` / `{shared.ui}` | components, hooks |
-   | R-backend-dev | Δ ∩ `{backend.path}` | API, errors |
-   | R-devops | τ=F-full ∧ Δ ∩ infra | infra (the single infra agent) |
-   | R-architect | τ=F-full ∧ Δ ∩ infra = ∅ | patterns (xor R-devops) |
-   | R-axial-adr-review | existing structural condition | N×M drift |
-   | R-recall | multi-chunk ∧ `|Δ| > recall_min_delta` | class-join (not in `agents[]`) |
+## Per-chunk panel
 
-5. **Keep/drop filter** — one `R-finding-verifier` pass over findings with `C < 90` (`verify_below_confidence`). Dropped findings disclosed in a collapsed `Filtered` block. Fail-open when the verifier returns nothing.
-6. **Merge & present** — one finding per `(file, class)` keep max C; also dedup file:line; sorts by confidence; groups Blockers → Warnings → Suggestions → Praise.
-7. **Post to PR** — `## Code Review` comment: `## Spec` (Σ mirror of the Phase 2 met/missing call, cited) → `## Standards` (Fowler judgement smells from `review-smells.md`, orchestrator-only — convention breaks live in the findings pile, ¬in a rollup line) → grouped findings (each finding rendered once) → filtered/capped disclosure → verdict. Both axis blocks are **non-CC-shaped** display — `/R-fix` parses the whole comment body and would otherwise open a second fix task per duplicated finding. `review-smells.md` is ¬pasted into Lane A.
-8. **Next step** — asks: Fix now (`/R-fix`) | Merge as-is | Stop.
+Each chunk has the `R-adversarial` floor plus at most two specialists by default (`max_agents=3`). The oracle prioritizes proved relevance from the chunk, not manifest order.
+
+| Role | Expected evidence trigger | Focus |
+|------|---------------------------|-------|
+| `R-adversarial` | always; floor | red-team + OWASP lens |
+| `R-security-auditor` | strong auth, secrets, or crypto path/diff evidence | OWASP, secrets, injection, auth |
+| `R-architect` | axial ADR + root axial path; otherwise architecture/ADR path, workspace graph config, or configured FE+BE crossing | axial N×M drift, boundaries, coupling |
+| `R-frontend-dev` | frontend prefix/extension evidence; dominant domain first, secondary last | components, hooks, client behavior |
+| `R-backend-dev` | configured backend-prefix evidence; dominant domain first, secondary last | APIs, contracts, errors |
+| `R-devops` | infra/config/deploy evidence, with no tier gate | config, deploy, infra |
+| `R-tester` | changed-test evidence and failed oracle, after devops in priority | coverage, edge cases, tautology |
+
+Roster priority is floor → security path → architect axial mode → dominant FE/BE domain → devops → tester → architect structural mode → secondary FE/BE domain. FE/BE dominance is by chunk file count. Architect requires axial or structural evidence; F-full alone is cold. Project `always`/`never` overrides remain authoritative, and forced roles bypass the cap. `max_agents_review` defaults to `0`, exists only for allocation compatibility, and warns whenever explicitly configured. Legacy recall sizing and override inputs are ignored with warnings. The roster returns only dispatch roles; isolated recall remains native to this workflow.
 
 ## Finding format
 
-```
+```text
 <label>: <description>
   file.ts:42
   -- agent-name
   Root cause: <why>
+  Class: [<canonical-class>, ...]
+  Raw callsites: [{file: <path>, line: <n>}, ...]
   Solutions:
     1. <primary> (recommended)
     2. <alternative>
   Confidence: 87%
 ```
 
-## Verdict
+`Class` and `Raw callsites` are optional only when no class applies. Confidence prices a hypothesis; it controls ordering and `/R-fix` routing, never whether the finding survives.
+
+## Deduplication and verdict
+
+Deduplication is deterministic: same file/line issue keeps max confidence; one `(file, class)` finding keeps max confidence; intersecting class sets at one location merge callsites after subsumption. Every deduplicated finding remains, and recall-source findings normalize to blocking.
 
 | Condition | Verdict |
 |-----------|---------|
-| Any blocking findings | Request changes |
+| Any blocking finding | Request changes |
 | Warnings only | Approve with comments |
 | Suggestions/praise only | Approve |
 | No findings | Approve (clean) |
 
-## Honesty
+## Output integrity
 
-- **Findings are hypotheses, ¬verdicts on intent.** A finding is one agent's reading of the diff at one moment; `Confidence:` prices that reading, ¬the author's intent. The `R-finding-verifier` keep/drop pass is fail-open — it trims noise, it does ¬certify what survives.
-- **The review does ¬converge.** Re-running `/R-dev-review` on the same diff can surface a different judgement set: roster gates key off τ/labels, chunking keys off the active context window, and the agents are LLMs. A clean second run ¬proves the first was wrong — nor the reverse.
-- **Read-only is a contract, ¬a capability.** The five review-only agents (`R-adversarial`, `R-security-auditor`, `R-axial-adr-review`, `R-finding-verifier`, `R-recall`) are read-only **by contract**: there is deliberately no `tools:` frontmatter on any `R-*` agent, because dev-core is multi-harness (Claude / Codex / Grok / OMP) and host-only tool names ¬belong in portable frontmatter. Nothing in the harness restricts them. Their bodies state ¬`Write`/¬`Edit` and ¬spawn; two keep a **read-only** shell on purpose (`R-adversarial`: `git show|diff|log|rev-parse`; `R-security-auditor`: `npm audit` + version checks). Dual-use roster members (`R-tester`, `R-frontend-dev`, `R-backend-dev`, `R-devops`, `R-architect`) write by design in `/R-dev-implement`; in review they carry ¬spawn **only** through the Phase 3 dispatch prompt.
-- **Recursion is unbounded, ¬merely unenforced.** No capability deny can tell a legitimate Phase 3 spawn from a Lane A re-spawn (`hooks/lib/hook-input.cjs` exposes no caller identity), **and no cap catches it**: the max-2 loop cap counts `/R-dev` fix→review iterations via `metadata.iteration`, which a nested `/R-dev-review` never increments. The prompt rule is the only control.
-- **Smells are judgement, ¬blockers.** `review-smells.md` (Fowler ch.3) is read once by the orchestrator into `## Standards`. Re-runs will surface a different smell set. Rows never enter F, never carry `Class:`, never bind `/R-fix`.
+The single review body is ordered `Spec → Standards → grouped findings → roster disclosures → verdict`. Spec and Standards rows are non-Conventional-Comment-shaped and never duplicate a finding, so `/R-fix` creates one task per actionable finding. Standards remains an orchestrator-only judgement pass and never affects verdict.
+
+Findings remain hypotheses, and repeat runs can differ because review workers are LLMs. The adversarial and security manifests are read-only by contract; the native recall worker is freshly isolated and explicitly limited to Read/Grep/Glob. Dual-use specialists are constrained to findings-only behavior by the review prompt. Every worker is forbidden from recursively spawning or invoking `/R-dev-review`.
 
 ## Chain position
 

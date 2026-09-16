@@ -11,6 +11,7 @@ Architectural decisions made today are forgotten next quarter. ADRs create a per
 ```
 /R-adr "Fastify over Express"    Create a new ADR
 /R-adr --list                    List all existing ADRs
+/R-adr --axial                   Axis of Decomposition interview + ADR (`axial: true`)
 ```
 
 Triggers: `"create an ADR"` | `"architecture decision"` | `"document why we chose"` | `"list ADRs"`
@@ -22,6 +23,10 @@ Triggers: `"create an ADR"` | `"architecture decision"` | `"document why we chos
 1. **Next number** — scans `docs/architecture/adr/` for existing `{NNN}-*.md` (and legacy `{NNN}-*.mdx`); assigns next sequential number.
 2. **Interview** — asks about: context (what triggered the decision), options considered (≥2, with pros/cons), decision and rationale, consequences (positive, negative, neutral). Skips questions clear from the title.
 3. **Write ADR** — creates `docs/architecture/adr/{NNN}-{slug}.md` with standard Markdown structure.
+
+### Axial mode (`--axial`)
+
+Elicits the unique Axis of Decomposition ADR (4 mandatory questions + optional revisit). Writes `axial: true` frontmatter. `/R-dev-init` Phase 3a calls this skill — no separate agent. Procedure: [references/axial-interview.md](references/axial-interview.md). Drift review later is **R-architect axial mode**.
 
 ### List mode
 

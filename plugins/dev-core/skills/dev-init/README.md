@@ -24,7 +24,7 @@ Triggers: `"dev-init"` | `"setup project"` | `"initialize project"`
 2. **Prerequisites** — verifies `bun`, `gh`, and `git remote` are available; shows install links for missing tools.
 3. **Sub-skills** — calls in order:
    - `/R-env-setup` — stack.yml, CLAUDE.md rules, docs stubs, LSP
-   - `R-axial-adr-create` — axis of decomposition ADR (unless `--skip-axial`)
+   - `/R-adr --axial` — axis of decomposition ADR (unless `--skip-axial`)
    - `/R-ci-setup` — GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins
    - `/R-release-setup` — Commitizen, commitlint, semantic-release / Release Please
 4. **Report** — shows next steps: `/R-dev-checkup`, `/R-seed-docs`, `/R-dev #N`.
@@ -36,6 +36,7 @@ Each sub-skill is independently re-runnable to reconfigure a single concern:
 | Sub-skill | Concern |
 |-----------|---------|
 | `/R-env-setup` | Stack config, governance rules, docs stubs |
+| `/R-adr --axial` | Axis of decomposition ADR (skip with `--skip-axial`) |
 | `/R-ci-setup` | GitHub Actions workflows, secret scanning (seeds `scripts/trufflehog-*` + lefthook + CI), hooks |
 | `/R-release-setup` | Commit standards, hook runner, release automation |
 

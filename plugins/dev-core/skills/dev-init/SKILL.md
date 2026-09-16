@@ -14,14 +14,14 @@ Let:
   SKIP_AXIAL := `--skip-axial` flag present in `$ARGUMENTS`
   args       := join(F ? "--force" : "", SKIP_AXIAL ? "--skip-axial" : "")
 
-Full project initialization harness. Orchestrates focused sub-skills in sequence (env-setup, R-axial-adr-create, ci-setup, release-setup), each independently re-runnable.
+Full project initialization harness. Orchestrates focused sub-skills in sequence (env-setup, `/R-adr --axial`, ci-setup, release-setup), each independently re-runnable.
 
 **Invoke:** `/R-dev-init` (skill name = plugin name). Claude Code / Grok built-in `/init` (scaffold CLAUDE.md only) is a **different** command.
 
 | Sub-skill | Concern |
 |-----------|---------|
 | `/R-env-setup` | stack.yml, CLAUDE.md rules, docs stubs, LSP |
-| `R-axial-adr-create` (agent) | **Axis of decomposition ADR** — mandatory drift prevention (N×M trap). Skippable via `--skip-axial` for trivial single-axis projects. See `shared/references/axial-decomposition.md` |
+| `/R-adr --axial` | **Axis of decomposition ADR** — mandatory drift prevention (N×M trap). Skippable via `--skip-axial` for trivial single-axis projects. See `shared/references/axial-decomposition.md` |
 | `/R-ci-setup` | GitHub Actions, TruffleHog (**seed** `scripts/trufflehog-check.sh` + exclude + lefthook + CI `secret-scan.yml`), principal freeze lefthook gate (offer), Dependabot, marketplace plugins |
 | `/R-release-setup` | Commit standards (Commitizen), hook additions, release automation (semantic-release / Release Please) |
 
@@ -36,7 +36,7 @@ Keep this skill **portable** across hosts:
 | Prefer **semantic steps** (what to run, what to check, what to write) | Hardcode host-only tool names in frontmatter (`allowed-tools: Bash, Agent, …`) |
 | Use portable env: `CLAUDE_PLUGIN_ROOT` **or** `GROK_PLUGIN_ROOT` (Grok sets both) | Require one host's tool whitelist to load the skill |
 | Invoke sub-skills by **stable slash id** (`/R-env-setup`) | Assume Claude `Skill` / `Agent` tool shape is available |
-| Spawn agents by **role name** (`R-axial-adr-create`) | Embed Claude-only or Grok-only APIs as the only path |
+| Invoke `/R-adr --axial` by **stable slash id** | Embed Claude-only or Grok-only APIs as the only path |
 | Shell via the host's bash tool (Claude `Bash` / Grok `run_terminal_command`) | Rely on `allowed-tools` for discovery |
 
 When a step needs a subagent, instruct: *“spawn the project agent for role X with prompt …”* — each host maps that to its Task / spawn_subagent / Agent tool.
@@ -79,14 +79,13 @@ Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
    ```
    Grep tool: pattern="^axial: true|axis of decomposition", path="docs/architecture/adr/", -l, -i
    ```
-2. ≥1 match → D("Axial ADR", "✅ Already present"), continue. (Singleton invariant — if >1 match, dispatch `R-axial-adr-review` later to surface the violation.)
-3. ∅ → spawn the `R-axial-adr-create` sub-agent (host: Agent / Task / spawn_subagent):
+2. Exactly 1 match → D("Axial ADR", "✅ Already present"), continue.
+3. ∅ ∨ >1 match → invoke the skill (host: Skill / slash):
    ```
-   subagent_type: "R-axial-adr-create"
-   description:   "Elicit axial decomposition decision"
-   prompt:        "Conduct the axial-decomposition interview for this project. Read ${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md first. Output: ADR file in docs/architecture/adr/ with `axial: true` frontmatter (grep-discoverable canonical marker — singleton invariant)."
+   skill: "R-adr", args: "--axial"
    ```
-4. Agent exit status:
+   >1 match: `/R-adr --axial` Phase 1 offers auto-fix for the singleton violation. ∅: full interview.
+4. Skill exit status:
    - `created` ∨ `superseded` ∨ `kept` → D("Axial ADR", "✅ {status}"), continue.
    - `cancelled` ∧ ¬F → halt `/R-dev-init`:
      ```
@@ -96,8 +95,8 @@ Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
                ci-setup, release-setup have NOT run.
 
         Options:
-          • Re-run `/R-dev-init` — will redo env-setup (idempotent) + re-prompt R-axial-adr-create.
-          • Invoke the agent standalone: spawn `R-axial-adr-create` directly, then re-run `/R-dev-init`.
+          • Re-run `/R-dev-init` — will redo env-setup (idempotent) + re-prompt `/R-adr --axial`.
+          • Invoke `/R-adr --axial` standalone, then re-run `/R-dev-init`.
           • Skip if this is a trivial single-axis project: `/R-dev-init --skip-axial` (re-runs env-setup; documents the skip in dev-core.yml).
 
         Rationale: shared/references/axial-decomposition.md

@@ -23,7 +23,7 @@ Triggers: `"analyze"` | `"technical analysis"` | `"deep dive"` | `"investigate t
 4. **Investigation spike** (optional) — an unknown that blocks shape selection is named in chat; say `spike` and it tests the hypothesis in a throwaway worktree, then verifies teardown left nothing behind. Never runs without your go-ahead. Other unknowns are carried into the summary as open questions (χ).
 5. **Expert review** — `R-product-lead` (fit) always; `R-architect` (soundness) / `R-devops` (ops) when relevant.
 6. **Executive Summary (lean)** — Intent (Solve + Done when + Appetite) → Options table → Recommendation → Gates; ≤30s scan; hard caps (≤3 shapes, ≤3 open questions, ≤3 expert notes) — then **stop**. χ in the summary = open unknown.
-7. **React** — natural language: approve · shape 2 / change X · questions · spike X · re-analyze. Revise loops re-print the summary.
+7. **React** — natural language: approve · shape 2 / change X · questions · spike X · re-analyze · `options` (isolated generic Task, lattice in [references/options-lattice.md](references/options-lattice.md)). Revise loops re-print the summary.
 
 ## Output artifact
 

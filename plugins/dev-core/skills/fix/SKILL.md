@@ -75,7 +75,7 @@ Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬
 ## Phase 1 — Gather Findings
 
 1. PR# → `gh pr view <#> --json comments,closingIssuesReferences`; parse Conventional Comments from `.comments[].body`; capture `SOURCE_ISSUE` = `.closingIssuesReferences[0].number` (∅ if none — used in Phase 5 Defer to wire blocked-by). When `SOURCE_ISSUE ≠ ∅`, also resolve `SOURCE_PARENT` = `gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number}}}}' --jq '.data.repository.issue.parent.number // empty'` — used in Phase 5 Defer to wire deferred issue as **sibling** under shared parent (see `issue-triage:issue-triage` "Deferred Follow-Ups — Sibling Rule").
-1a. **Strip the `/R-dev-review` filtered block first** — ∀ comment body: remove everything from `<summary>Filtered by finding-verifier` through the next `</details>` **before** parsing. Those f were dropped by the Phase 4 keep/drop filter (`dev-review`); re-ingesting them defeats the filter. `dev-review` posts them table-shaped (¬CC grammar) — strip explicitly anyway, ¬rely on shape alone.
+1a. **Strip historical finding-verifier HTML** — ∀ comment body: remove everything from `<summary>Filtered by finding-verifier` through the next `</details>` **before** parsing. That keep/drop filter is retired; current `/R-dev-review` keeps findings after deterministic dedup (especially blockers) and does ¬drop on C alone. Strip leftover HTML so old PR comments cannot re-ingest dropped rows.
 2. ¬PR# → scan conversation for latest `/R-dev-review` output
 3. F = ∅ → halt
 4. ∀ f: parse → label, file:line, agent, root cause, class[], raw_callsites[], solutions, C(f)
@@ -214,7 +214,7 @@ R-fixer constraints: re-read targets before editing (Phase 3 may have changed th
 A proxy "fix" → `[failed]`, do not apply.
 
 `pattern-class` findings (Lane B tag) → same class-shard dispatch as Lane A findings.
-_(TODO: `pattern-class` tag and Lane B defined in Slice 3 — targeted recall. Until Slice 3 lands, this clause is a forward-reference only; `pattern-class` is not yet in review-classes.yml.)_
+Cross-chunk recall (if the review skill emits extra callsites) is a **fresh generic read-only worker** inside `/R-dev-review`, not a durable agent. `pattern-class` / Lane B remain as tagged on the finding.
 
 ## Phase 6.5 — Falsification Gate
 

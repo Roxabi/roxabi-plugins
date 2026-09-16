@@ -312,7 +312,7 @@ On the user's next message, interpret intent (no AQ):
 | re-analyze / start over / regenerate | Re-run from Step 2 (fresh exploration + interview) |
 | adversarial / red team / kill this | `Skill(skill: "R-adversarial", args: "--analysis <α path>")` → fold useful **findings (Φ)** into α if user asks → **re-print Executive Summary → STOP again** (nested skill never completes analyze) |
 | advisory / second opinion / strengthen | `Skill(skill: "R-advisory", args: "--analysis <α path>")` → fold Strengthen P0s if user asks → **re-print Executive Summary → STOP again** |
-| options / alternatives / cheaper route | `Task(subagent_type: "dev-core:R-options", prompt: "subject: <α path>")` → fold survivors/verdict into α if user asks → **re-print Executive Summary → STOP again** |
+| options / alternatives / cheaper route | Fresh host-native read-only `Task(subagent_type: "Explore")` with empty context. Prompt: `Read-only morphological option-space sweep. Follow ${CLAUDE_SKILL_DIR}/references/options-lattice.md exactly. Isolation: no prior context. Subject: <α path>. Never write files. Return the lattice + verdict.` → fold survivors/verdict into α if user asks → **re-print Executive Summary → STOP again**. |
 | abort / stop / cancel | Stop; leave α on disk **as `status: draft`** (so `/R-dev` ¬counts it done); return cancel to `/R-dev` if applicable |
 
 Ambiguous free text → ask **one short prose clarifying question** in the message (plain text). Still ¬AskUserQuestion.
@@ -349,7 +349,7 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Analysi
 
 - **Phase:** Shape
 - **Predecessor:** `/R-frame` (artifact: `artifacts/frames/{N}-{slug}-frame.md`)
-- **Successor:** `/R-spec` (optional side-paths before advance: `/R-adversarial` kill-pass, `/R-advisory` strengthen, `R-options` sweep)
+- **Successor:** `/R-spec` (optional side-paths before advance: `/R-adversarial` kill-pass, `/R-advisory` strengthen, isolated option-space sweep per `references/options-lattice.md`)
 - **Class:** `adv` **+ approval stop** — map class in `/R-dev` is `adv + approval stop`. Protection is **disk** α_approved (`status == 'approved'` ∨ missing key legacy); `/R-dev` Walk ignores `Σ_s[analyze]` alone and Step 8 item 0 re-reads frontmatter before any complete. Resume after stop = Step 5 React, not fresh Step 0. See [chain-contract.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/chain-contract.md).
 
 ## Task Integration

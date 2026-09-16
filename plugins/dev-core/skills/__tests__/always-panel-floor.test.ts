@@ -32,6 +32,11 @@ describe('/R-spec auto-panel floor', () => {
     expect(table).not.toMatch(/^\| R-doc-writer \| Always/m)
   })
 
+  it('axial review is R-architect mode, ¬a deleted manifest', () => {
+    expect(table).not.toMatch(/R-axial-adr-review/)
+    expect(table).toMatch(/[Aa]xial mode/)
+  })
+
   it('product fit is owned upstream, ¬by Step 3 pre-check', () => {
     const rationale = table.split('\n').find((l) => l.includes('R-product-lead ¬in ρ')) ?? ''
     expect(rationale).toMatch(/product fit is owned \*\*upstream\*\*/)
@@ -45,6 +50,14 @@ describe('/R-analyze auto-panel floor', () => {
   it('Always rows are R-product-lead; R-doc-writer ¬Always', () => {
     expect(alwaysAgents(table)).toEqual(['R-product-lead'])
     expect(table).not.toMatch(/^\| R-doc-writer \| Always/m)
+  })
+})
+
+describe('/R-analyze options side-path', () => {
+  it('uses a generic Task, ¬R-options manifest', () => {
+    const body = skill('analyze')
+    expect(body).not.toMatch(/dev-core:R-options/)
+    expect(body).toMatch(/options-lattice\.md/)
   })
 })
 
