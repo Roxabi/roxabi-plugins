@@ -1,0 +1,108 @@
+{
+  "schema_version": "1",
+  "issue": 485,
+  "head": "b91d31a495f45d9c6eb4775aa18bf4c9e290de81",
+  "runner_id": "run-falsify/1",
+  "oracle_ok": true,
+  "oracle_reason": "ok",
+  "rows": [
+    {
+      "sc_id": "SC-1",
+      "sources": [
+        "plugins/dev-core/skills/dev-review/roster.ts",
+        "plugins/dev-core/skills/dev-review/SKILL.md"
+      ],
+      "source_hashes": {
+        "plugins/dev-core/skills/dev-review/roster.ts": "50f25d4064cc55238f09b8f76449d8a8facc09c220744ec94f89b3a6dd3de201",
+        "plugins/dev-core/skills/dev-review/SKILL.md": "45201c5bf29d396b51dcca35f4d6ebb1ae7cb9162877f5492153357c446b4811"
+      },
+      "test_cmd": "grep -qF \"export const DISPATCHABLE\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"'R-adversarial'\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"'R-security-auditor'\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"'R-architect'\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"'R-frontend-dev'\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"'R-backend-dev'\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"'R-devops'\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"'R-tester'\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"PHASE_AGENTS = []\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"| **R-adversarial**\" plugins/dev-core/skills/dev-review/SKILL.md && grep -qF \"| **R-tester**\" plugins/dev-core/skills/dev-review/SKILL.md",
+      "fail_exit": 2,
+      "pass_exit": 0,
+      "error": "FAIL exit=2: grep: plugins/dev-core/skills/dev-review/roster.ts: No such file or directory ",
+      "status": "proven"
+    },
+    {
+      "sc_id": "SC-2",
+      "sources": [
+        "plugins/dev-core/skills/dev-review/roster.ts"
+      ],
+      "source_hashes": {
+        "plugins/dev-core/skills/dev-review/roster.ts": "50f25d4064cc55238f09b8f76449d8a8facc09c220744ec94f89b3a6dd3de201"
+      },
+      "test_cmd": "grep -qF \"const DEFAULT_MAX_AGENTS = 3\" plugins/dev-core/skills/dev-review/roster.ts",
+      "fail_exit": 2,
+      "pass_exit": 0,
+      "error": "FAIL exit=2: grep: plugins/dev-core/skills/dev-review/roster.ts: No such file or directory ",
+      "status": "proven"
+    },
+    {
+      "sc_id": "SC-3",
+      "sources": [
+        "plugins/dev-core/skills/dev-review/roster.ts"
+      ],
+      "source_hashes": {
+        "plugins/dev-core/skills/dev-review/roster.ts": "50f25d4064cc55238f09b8f76449d8a8facc09c220744ec94f89b3a6dd3de201"
+      },
+      "test_cmd": "grep -qF \"function prioritizeCandidates\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"if (agent === 'R-security-auditor') return 100\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"gates[agent].reason.startsWith('axial:')) return 95\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"if (agent === 'R-devops') return 80\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"if (agent === 'R-tester') return 75\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"cap raised to\" plugins/dev-core/skills/dev-review/roster.ts",
+      "fail_exit": 2,
+      "pass_exit": 0,
+      "error": "FAIL exit=2: grep: plugins/dev-core/skills/dev-review/roster.ts: No such file or directory ",
+      "status": "proven"
+    },
+    {
+      "sc_id": "SC-4",
+      "sources": [
+        "plugins/dev-core/skills/dev-review/roster.ts",
+        "plugins/dev-core/agents/R-architect.md"
+      ],
+      "source_hashes": {
+        "plugins/dev-core/skills/dev-review/roster.ts": "50f25d4064cc55238f09b8f76449d8a8facc09c220744ec94f89b3a6dd3de201",
+        "plugins/dev-core/agents/R-architect.md": "369f693c33c87392b9255a8d94075f2be60b31de177af63c45296074d69c18e1"
+      },
+      "test_cmd": "grep -qF \"R-axial-adr-review override applies to R-architect axial mode only; rename the key\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"R-architect takes global precedence\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"startsWith('axial:')\" plugins/dev-core/skills/dev-review/roster.ts && grep -qF \"/R-adr --axial\" plugins/dev-core/agents/R-architect.md && grep -qF \"writes ZERO files\" plugins/dev-core/agents/R-architect.md",
+      "fail_exit": 2,
+      "pass_exit": 0,
+      "error": "FAIL exit=2: grep: plugins/dev-core/skills/dev-review/roster.ts: No such file or directory ",
+      "status": "proven"
+    },
+    {
+      "sc_id": "SC-5",
+      "sources": [
+        "plugins/dev-core/skills/dev-review/SKILL.md",
+        "plugins/dev-core/skills/analyze/SKILL.md",
+        "plugins/dev-core/skills/adr/SKILL.md",
+        "plugins/dev-core/skills/dev-init/SKILL.md"
+      ],
+      "source_hashes": {
+        "plugins/dev-core/skills/dev-review/SKILL.md": "45201c5bf29d396b51dcca35f4d6ebb1ae7cb9162877f5492153357c446b4811",
+        "plugins/dev-core/skills/analyze/SKILL.md": "617b3e18e59c681ef6a0892058023b1db587e23d99db41022999de3871c38562",
+        "plugins/dev-core/skills/adr/SKILL.md": "ff613955ccb73daccf744c046391bfaf08c3fd873a2ce5b5a2ffb7a530c7d175",
+        "plugins/dev-core/skills/dev-init/SKILL.md": "36e4b7b1f67b6745dd700d67e158d604f12e57ad1338a91f917792efc7bf5fd0"
+      },
+      "test_cmd": "grep -qF 'subagent_type: \"Explore\"' plugins/dev-core/skills/dev-review/SKILL.md && grep -qF \"host-native\" plugins/dev-core/skills/dev-review/SKILL.md && grep -qF \"host-native\" plugins/dev-core/skills/analyze/SKILL.md && grep -qF \"options-lattice.md\" plugins/dev-core/skills/analyze/SKILL.md && grep -qF \"/R-adr --axial\" plugins/dev-core/skills/adr/SKILL.md && grep -qF \"/R-adr --axial\" plugins/dev-core/skills/dev-init/SKILL.md && test ! -f plugins/dev-core/agents/R-recall.md && test ! -f plugins/dev-core/agents/R-options.md",
+      "fail_exit": 2,
+      "pass_exit": 0,
+      "error": "FAIL exit=2: grep: plugins/dev-core/skills/dev-review/SKILL.md: No such file or directory ",
+      "status": "proven"
+    },
+    {
+      "sc_id": "SC-6",
+      "sources": [
+        ".dev/stack.yml.example",
+        "plugins/dev-core/stack.yml.example",
+        "plugins/dev-core/skills/dev-review/README.md"
+      ],
+      "source_hashes": {
+        ".dev/stack.yml.example": "90593a1a2cd59670b97e6167235396dc2aa76ad044c6aaa0e7ef6a8c83fdc7cd",
+        "plugins/dev-core/stack.yml.example": "19a597bf19612cab51c0adf5f1390ab0840a84130bf7bd770e1c7308022fba16",
+        "plugins/dev-core/skills/dev-review/README.md": "02edf75830aacb6554c410e0a4a962cf8088698da5614dfdfbf29679bf1ec74f"
+      },
+      "test_cmd": "grep -qF \"max_agents: 3\" .dev/stack.yml.example && grep -qF \"max_agents: 3\" plugins/dev-core/stack.yml.example && grep -qF \"R-adversarial:\" .dev/stack.yml.example && grep -qF \"R-security-auditor:\" .dev/stack.yml.example && grep -qF \"R-architect:\" .dev/stack.yml.example && grep -qF \"R-frontend-dev:\" .dev/stack.yml.example && grep -qF \"R-backend-dev:\" .dev/stack.yml.example && grep -qF \"R-devops:\" .dev/stack.yml.example && grep -qF \"R-tester:\" .dev/stack.yml.example && ! grep -qE \"R-recall:|R-options:|R-finding-verifier:|R-axial-adr-review:\" .dev/stack.yml.example && grep -qF \"max_agents=3\" plugins/dev-core/skills/dev-review/README.md",
+      "fail_exit": 2,
+      "pass_exit": 0,
+      "error": "FAIL exit=2: grep: .dev/stack.yml.example: No such file or directory ",
+      "status": "proven"
+    }
+  ]
+}
