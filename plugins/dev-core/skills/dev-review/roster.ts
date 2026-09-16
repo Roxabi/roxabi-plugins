@@ -528,7 +528,7 @@ export function parseRosterConfig(text: string | null): RosterConfig {
     }
 
     let maxAgents = DEFAULT_MAX_AGENTS
-    let maxAgentsReview = DEFAULT_MAX_AGENTS_REVIEW
+    const maxAgentsReview = DEFAULT_MAX_AGENTS_REVIEW
     let axialOverride: AgentOverride = 'default'
     // Null-prototype: keys come from stack.yml, so `overrides.constructor` must be undefined.
     const overrides: Record<string, AgentOverride> = Object.create(null)
