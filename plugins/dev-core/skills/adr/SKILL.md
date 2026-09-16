@@ -1,10 +1,9 @@
 ---
 name: R-adr
-disable-model-invocation: true
-argument-hint: '["Title of decision" | --list]'
-description: Create/list Architecture Decision Records.
-version: 0.4.1
-allowed-tools: Write, Read, Glob, ToolSearch
+argument-hint: '["Title of decision" | --list | --axial]'
+description: Create/list Architecture Decision Records. `--axial` elicits the Axis of Decomposition ADR.
+version: 0.5.0
+allowed-tools: Write, Read, Glob, Grep, ToolSearch
 ---
 
 # ADR (Architecture Decision Record)
@@ -22,7 +21,16 @@ Create and manage ADRs — document **why** technical choices were made.
 ```
 /R-adr "Title"   → Create mode
 /R-adr --list    → List mode
+/R-adr --axial   → Axial mode (Axis of Decomposition interview + ADR)
 ```
+
+`--axial` present → **Axial Mode** (below). Do not also run Create Mode.
+
+## Axial Mode
+
+Follow [references/axial-interview.md](${CLAUDE_SKILL_DIR}/references/axial-interview.md) end-to-end. That file is the procedure (interview, singleton, write, supersede). Exit `created` | `kept` | `superseded` | `cancelled`.
+
+Called from `/R-dev-init` Phase 3a when no unique `axial: true` ADR exists (or singleton is broken). Standalone to re-elicit / supersede. ¬spawn a dedicated agent — this skill **is** the writer.
 
 ## Create Mode
 
@@ -110,5 +118,6 @@ Architecture Decision Records
 | Superseding an ADR | Update old status to `Superseded by ADR-{NNN}`; reference old in new context |
 | Legacy `.mdx` present | Include in NNN scan + list; new ADRs still write `.md` |
 | Same NNN as both `.md` and `.mdx` | Prefer `.md` for display; do not write over either |
+| `--axial` | Axial Mode only — see `references/axial-interview.md` |
 
 $ARGUMENTS

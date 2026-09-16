@@ -104,15 +104,31 @@ No context injection via CLAUDE.md: `@`-prefixed file imports are Claude Code-sp
 
 ### `review.*`
 
-Consumer: `plugins/dev-core/skills/dev-review/roster.sh` (the deterministic roster oracle — the skill spawns exactly its `agents[]`).
+Consumer: `plugins/dev-core/skills/dev-review/roster.sh` (the deterministic roster oracle — single-chunk spawns `agents[]`; multi-chunk spawns each `chunk_agents[i]`).
 
 | σ | α | Purpose |
 |---|---|---------|
-| `review.roster.max_agents` | dev-review | Cap on the spawn set per chunk lane (excl. R-recall / R-finding-verifier). Default `4`; `<1` clamps to `1` + warning |
-| `review.roster.max_agents_review` | dev-review | Cap on flattened Lane A instances after COLLAPSE_ONCE. Floors ¬capped (`R-adversarial` 1×/chunk, `stack:always`). Forced > value → cap raised to forced count + warning (same as `max_agents`). Default `0` = off. `<0` clamps to `0` + warning. Off: COLLAPSE_ONCE bounds the four collapse roles, ¬`R-adversarial` (still 1×/chunk) |
-| `review.roster.verify_below_confidence` | dev-review | Keep/drop pass over findings below this C. Default `90`; `0` disables the keep/drop filter |
-| `review.roster.recall_min_delta` | dev-review | Recall needs multi-chunk ∧ `|Δ|` > this. Default `50` |
-| `review.roster.agents.<agent>` | dev-review | Per-agent override: `default` \| `always` \| `never`. Default `default`. `R-adversarial` is a floor (`never` ignored). `R-product-lead` is not a roster agent (Phase 2 covers spec compliance) |
+| `review.roster.max_agents` | dev-review | Total cap per chunk, including the `R-adversarial` floor. Default `3` = floor + at most two specialists. Explicit `always` roles survive; when forced roles exceed the cap, the effective cap is raised with a warning |
+| `review.roster.agents.<agent>` | dev-review | Per-agent override: `default` \| `always` \| `never`. Active roles: `R-adversarial`, `R-security-auditor`, `R-tester`, `R-frontend-dev`, `R-backend-dev`, `R-devops`, `R-architect`. `R-adversarial` is an immutable floor (`never` warns and is ignored) |
+
+Selection is deterministic and evidence-ranked inside each chunk: security paths and axial `R-architect`
+mode are strongest; the dominant FE/BE domain is chosen by changed-file count; then infra routes to
+`R-devops` at every tier, oracle-false routes to `R-tester`, conservative structural signals route to
+`R-architect`, and the secondary domain follows. Structural signals are explicit architecture/ADR paths,
+workspace graph files (`nx.json`, `turbo.json[c]`, `pnpm-workspace.yaml`, dependency-cruiser config),
+or a diff crossing configured frontend and backend boundaries. Plain `F-full` source does not route
+to `R-architect`.
+
+Deprecated compatibility keys remain parseable and always warn:
+
+| Legacy key | Compatibility behavior |
+|---|---|
+| `review.roster.max_agents_review` | Default-off (`0`) flattened cap retained only for old configs; prefer the per-chunk `max_agents` model |
+| `review.roster.verify_below_confidence` | Ignored. Findings are retained after deterministic deduplication; confidence alone never removes one |
+| `review.roster.recall_min_delta` | Ignored. `/R-dev-review` controls the fresh isolated recall worker |
+| `review.roster.agents.R-axial-adr-review` | Deprecated mode-specific override applies only to `R-architect` axial mode and warns; canonical `R-architect: always|never` has global precedence |
+| `review.roster.agents.R-recall` | Deprecated override is ignored and warns; recall is no longer a roster manifest |
+| `review.roster.agents.R-finding-verifier` | Deprecated override is ignored and warns; the verifier phase was removed |
 
 ### `standards.*`
 
@@ -251,4 +267,4 @@ frontend:
 | `standards.backend` | R-backend-dev | Skips framework-specific conventions |
 | `standards.frontend` | R-frontend-dev | Skips TS gotchas + UI library patterns |
 | `artifacts.*` | R-product-lead | Cannot write artifacts; reports path missing |
-| `review.roster.*` | dev-review | Defaults: max_agents 4, max_agents_review 0, verify_below_confidence 90, recall_min_delta 50, every agent default |
+| `review.roster.*` | dev-review | Active default: `max_agents` 3 and every agent `default`. Compatibility-only `max_agents_review` defaults to `0`. Deprecated `verify_below_confidence` and `recall_min_delta` are ignored |

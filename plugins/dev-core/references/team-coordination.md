@@ -14,13 +14,13 @@ Main Claude = orchestrator. Assesses issues, spawns α, runs skills, coordinates
 |------|---|------|
 | **Domain** | R-frontend-dev, R-backend-dev, R-devops | Write code in their packages |
 | **Quality** | R-fixer, R-tester, R-security-auditor, R-adversarial | Fix findings, write tests, OWASP audit, red-team (`/R-adversarial` skill or review agent) |
-| **Strategy** | R-architect, R-product-lead, R-doc-writer, R-options | Plan, analyze, document, option-space sweep (standalone, ¬roster) |
+| **Strategy** | R-architect, R-product-lead, R-doc-writer | Plan, analyze, document. Axial review = R-architect axial mode. Option-space = generic Task from `/R-analyze`. |
 
 ## 4-Phase Workflow
 
 1. **Assessment:** Fetch issue → check analysis/spec → spawn R-product-lead (+R-architect) → human approves
 2. **Implementation:** Domain α + R-tester. RED → GREEN → REFACTOR → tests pass → PR
-3. **Review:** Fresh α from the `/R-dev-review` roster oracle (R-adversarial always; the rest gated by Δ/τ) + `R-finding-verifier` keep/drop pass. Conventional Comments → `/1b1`
+3. **Review:** Fresh α from the `/R-dev-review` roster oracle (R-adversarial always; specialists gated by Δ/τ; max 3 per chunk). After deterministic dedup, **keep findings by default** (especially blockers). ¬drop on C alone. Conventional Comments → `/1b1`
 4. **Fix & Merge:** R-fixer(s) apply accepted comments → CI → human merges. ≥6 findings spanning distinct modules → multiple R-fixers.
 
 ## Task Lifecycle
@@ -64,7 +64,6 @@ Omit empty fields. Lead forwards relevant sections to next α spawn prompt.
 | R-tester | Test files in all packages | Source files |
 | R-security-auditor | Read-only + Bash | Source files |
 | R-adversarial | Read-only + Bash (git read-only) | Source files |
-| R-options | Read-only + Bash (git read-only) | All writes |
 | R-architect | `docs/architecture/`, ADRs | App code |
 | R-product-lead | `artifacts/analyses/`, `artifacts/specs/`, `gh` CLI | App code |
 | R-doc-writer | `docs/`, `CLAUDE.md` | App code |

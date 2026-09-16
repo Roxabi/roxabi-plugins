@@ -243,23 +243,28 @@ Auto-select ρ (¬ask user). Floor = the Always rows **when Step 4 runs**; the s
 | ρ | When | Focus |
 |---|------|-------|
 | R-adversarial | Always (floor) | red-team: scope-attack, vacuous AC, missing adversarial flows, assumption-kill, control bypass |
-| R-architect | Always | technical soundness, feasibility, slice ordering |
+| R-architect | Always | technical soundness, feasibility, slice ordering. **Axial mode** (same spawn, extra prompt — ¬second agent) when ∃ unique `axial: true` ADR ∧ (spec adds adapter/integration/target ∨ touches `infrastructure/`): read-only N×M review, `target-axis-trap`, three-strikes ≥3 siblings |
 | R-devops | ∃ CI/CD / deploy / infra criteria | operational feasibility |
-| R-axial-adr-review | ∃ axial ADR (`axial: true` ∈ `docs/architecture/adr/`) ∧ (spec adds adapter/integration/target ∨ touches `infrastructure/`) | Drift along non-primary axis (N×M trap) — read-only review |
 
 R-doc-writer / R-product-lead ¬in ρ: product fit is owned **upstream** by the `/R-analyze` floor (`R-product-lead`). Spec panel = soundness (`R-architect`) + red-team (`R-adversarial`); Step 3 mechanical AC hygiene is ¬a product-fit review.
 
-> **Note on R-axial-adr-review asymmetry (intentional):** The `/R-spec` condition is **semantic/intent-based** — it triggers when the spec proposes adding a new adapter/integration/target or touches `infrastructure/`. The code-review phase (`/R-dev-review`) uses a **structural** condition (diff touches `infrastructure/`, `adapters/`, `domains/`, or `stages/`). The two are complementary: `/R-spec` catches intent-level N×M violations, `/R-dev-review` catches implementation-level ones. See `plugins/shared/references/axial-decomposition.md`.
+> **Axial dispatch (intentional asymmetry):** `/R-spec` is **semantic/intent-based** — axial mode on R-architect when the spec proposes a new adapter/integration/target or touches `infrastructure/`. `/R-dev-review` uses a **structural** condition (diff ∩ axial paths) and recruits R-architect the same way (roster-owned). Complementary: spec catches intent-level N×M; review catches implementation-level. See `plugins/shared/references/axial-decomposition.md`. Axial create is `/R-adr --axial`.
 
 ∀ r ∈ ρ → spawn ∥:
 ```
 Task(
   subagent_type: "dev-core:<r>",
   description: "<r> spec review — #{N}",
-  prompt: "Review the spec at {σ_path} for <focus>. Spawned roster (this review): {ρ}. Check pre-check results: {pre_check_summary}. ¬TaskCreate. Return: good / needs improvement / concerns + specific line references."
+  prompt: "Review the spec at {σ_path} for <focus>. Spawned roster (this review): {ρ}. Check pre-check results: {pre_check_summary}. ¬TaskCreate. Return: good / needs improvement / concerns + specific line references.{axial_addendum}"
 )
 ```
-Agent name map: `R-adversarial` → `dev-core:R-adversarial` | `R-architect` → `dev-core:R-architect` | `R-devops` → `dev-core:R-devops` | `R-axial-adr-review` → `dev-core:R-axial-adr-review`
+When the axial condition holds, the `R-architect` Task gets `axial_addendum`:
+```
+AXIAL MODE (read-only). Follow R-architect axial procedure: unique axial ADR, parse PRIMARY.axis + ANTI_PATTERN, sanitize pattern, three-strikes ≥3 siblings, emit target-axis-trap. MUST ¬Write ¬Edit ¬Bash.
+```
+Otherwise `axial_addendum` is empty. One R-architect Task, never two.
+
+Agent name map: `R-adversarial` → `dev-core:R-adversarial` | `R-architect` → `dev-core:R-architect` | `R-devops` → `dev-core:R-devops`
 
 Incorporate high-confidence feedback into σ. Unresolved expert concerns → list in Executive Summary (not AQ).
 

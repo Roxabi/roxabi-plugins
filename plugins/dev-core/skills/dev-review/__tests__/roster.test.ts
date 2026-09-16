@@ -17,6 +17,7 @@ import {
   pathHit,
   type RosterConfig,
   type StackPaths,
+  structureHit,
 } from '../roster'
 
 const ROSTER = fileURLToPath(new URL('../roster.ts', import.meta.url))
@@ -50,10 +51,9 @@ ${body}
 
 function defaultConfig(overrides: Partial<RosterConfig> = {}): RosterConfig {
   return {
-    maxAgents: 4,
+    maxAgents: 3,
+    axialOverride: 'default',
     maxAgentsReview: 0,
-    verifyBelowConfidence: 90,
-    recallMinDelta: 50,
     overrides: {},
     warnings: [],
     ...overrides,
@@ -215,26 +215,24 @@ describe('R-tester', () => {
 })
 
 describe('infra', () => {
-  it('.github/workflows/ci.yml at F-lite → neither R-architect nor R-devops nor R-backend-dev', () => {
+  it('.github/workflows/ci.yml at F-lite → R-devops without R-architect or R-backend-dev', () => {
     const out = roster({ delta: ['.github/workflows/ci.yml'], tier: 'F-lite' })
+    expect(out.agents).toContain('R-devops')
     expect(out.agents).not.toContain('R-architect')
-    expect(out.agents).not.toContain('R-devops')
     expect(out.agents).not.toContain('R-backend-dev')
-    expect(gate(out, 'R-devops')).toMatchObject({ spawn: false, reason: 'tier' })
-    expect(gate(out, 'R-architect')).toMatchObject({ spawn: false, reason: 'tier' })
+    expect(gate(out, 'R-devops')).toMatchObject({ spawn: true, reason: 'infra' })
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: false, reason: 'no-structure' })
   })
 
-  it('same Δ at F-full → exactly R-devops (no R-architect, no R-backend-dev)', () => {
+  it('the same infra Δ at F-full has the same tier-independent route', () => {
     const out = roster({ delta: ['.github/workflows/ci.yml'], tier: 'F-full' })
     expect(out.agents).toEqual(['R-adversarial', 'R-devops'])
-    expect(out.agents).not.toContain('R-architect')
-    expect(out.agents).not.toContain('R-backend-dev')
   })
 
-  it('non-infra Δ at F-full → exactly R-architect', () => {
+  it('plain non-infra Δ at F-full does not add R-architect', () => {
     const out = roster({ delta: ['src/foo.ts'], tier: 'F-full' })
-    expect(out.agents).toEqual(['R-adversarial', 'R-architect'])
-    expect(out.agents).not.toContain('R-devops')
+    expect(out.agents).toEqual(['R-adversarial'])
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: false, reason: 'no-structure' })
   })
 })
 
@@ -288,72 +286,125 @@ describe('R-frontend-dev', () => {
 })
 
 describe('axial', () => {
-  it('axial ADR present + adapters/x.ts → spawn', () => {
+  it('axial ADR present + adapters/x.ts → R-architect axial mode at F-lite', () => {
     const adr = join(dir, 'adr')
     mkdirSync(adr)
     writeFileSync(join(adr, '0001-foo.md'), '---\naxial: true\n---\n')
     expect(hasAxialAdr(adr)).toBe(true)
-    const out = roster({ delta: ['adapters/x.ts'], axialAdr: true })
-    expect(out.agents).toContain('R-axial-adr-review')
-    expect(gate(out, 'R-axial-adr-review')).toMatchObject({ spawn: true, reason: 'path-hit' })
+    const out = roster({ delta: ['adapters/x.ts'], axialAdr: true, tier: 'F-lite' })
+    expect(out.agents).toContain('R-architect')
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: true, reason: 'axial:adr-delta' })
   })
 
-  it('no ADR dir → ¬spawn with no-axial-adr', () => {
+  it('no ADR and no structural signal leaves R-architect cold', () => {
     expect(hasAxialAdr(join(dir, 'missing'))).toBe(false)
     const out = roster({ delta: ['adapters/x.ts'], axialAdr: false })
-    expect(out.agents).not.toContain('R-axial-adr-review')
-    expect(gate(out, 'R-axial-adr-review')).toMatchObject({ spawn: false, reason: 'no-axial-adr' })
+    expect(out.agents).not.toContain('R-architect')
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: false, reason: 'no-structure' })
+  })
+
+  it('legacy never disables axial mode but preserves structural review', () => {
+    const out = roster({
+      delta: ['docs/architecture/model.md'],
+      axialAdr: true,
+      config: defaultConfig({ axialOverride: 'never' }),
+    })
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: true, reason: 'structure' })
+  })
+
+  it('legacy always enables axial mode for a plain delta', () => {
+    const out = roster({ config: defaultConfig({ axialOverride: 'always' }) })
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: false, reason: 'no-structure' })
+    expect(out.agents).not.toContain('R-architect')
+  })
+
+  it('legacy always + ADR + adapters path still spawns axial', () => {
+    const out = roster({
+      delta: ['adapters/x.ts'],
+      axialAdr: true,
+      config: defaultConfig({ axialOverride: 'always' }),
+    })
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: true, reason: 'axial:stack:always' })
+    expect(out.agents).toContain('R-architect')
+  })
+
+  it('legacy always on plain delta does not starve security under max_agents=3', () => {
+    const out = roster({
+      delta: ['src/auth/token.ts', 'src/foo.test.ts', 'src/ui/App.tsx'],
+      oracleOk: 'false',
+      stackPaths: { frontendPath: 'src/ui', sharedUi: '', backendPath: '' },
+      config: defaultConfig({ maxAgents: 3, axialOverride: 'always' }),
+    })
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: false, reason: 'no-structure' })
+    expect(out.agents).not.toContain('R-architect')
+    expect(out.agents).toContain('R-security-auditor')
+    expect(out.agents).toEqual(['R-adversarial', 'R-security-auditor', 'R-frontend-dev'])
+  })
+
+  it('canonical never takes global precedence over legacy axial always', () => {
+    const out = roster({
+      config: defaultConfig({ axialOverride: 'always', overrides: { 'R-architect': 'never' } }),
+    })
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: false, reason: 'stack:never' })
   })
 })
 
-describe('R-recall', () => {
-  it('chunks 2 + 10 files → recall_eligible false', () => {
-    const delta = Array.from({ length: 10 }, (_, i) => `src/f${i}.ts`)
-    const out = roster({ delta, chunks: 2 })
-    expect(out.recall_eligible).toBe(false)
-    expect(out.recall_reason).toBe('delta-below-min')
+describe('structural signals', () => {
+  it('explicit architecture and workspace graph files route to R-architect', () => {
+    for (const path of ['docs/architecture/adr/001.md', 'turbo.json', 'pnpm-workspace.yaml']) {
+      expect(structureHit([path], emptyPaths()), path).toBe(true)
+      expect(roster({ delta: [path] }).agents, path).toContain('R-architect')
+    }
   })
 
-  it('chunks 2 + 60 files → true', () => {
-    const delta = Array.from({ length: 60 }, (_, i) => `src/f${i}.ts`)
-    const out = roster({ delta, chunks: 2 })
-    expect(out.recall_eligible).toBe(true)
+  it('plugins/dev-core/skills/adr path is not a structural signal alone', () => {
+    expect(structureHit(['plugins/dev-core/skills/adr/SKILL.md'], emptyPaths())).toBe(false)
+    const out = roster({ delta: ['plugins/dev-core/skills/adr/SKILL.md'] })
+    expect(out.agents).not.toContain('R-architect')
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: false, reason: 'no-structure' })
   })
 
-  it('single chunk + 60 files → false', () => {
-    const delta = Array.from({ length: 60 }, (_, i) => `src/f${i}.ts`)
-    const out = roster({ delta, chunks: 1 })
-    expect(out.recall_eligible).toBe(false)
-    expect(out.recall_reason).toBe('single-chunk')
+  it('configured frontend + backend crossing is structural; one domain alone is not', () => {
+    const stackPaths = { frontendPath: 'apps/web', sharedUi: '', backendPath: 'apps/api' }
+    expect(structureHit(['apps/web/a.tsx', 'apps/api/a.ts'], stackPaths)).toBe(true)
+    expect(structureHit(['apps/web/a.tsx'], stackPaths)).toBe(false)
   })
 })
 
 describe('cap', () => {
-  it('6 gate-passing agents with max_agents 3 → priority truncate', () => {
+  it('default cap is at most 3 total agents per chunk', () => {
     const out = roster({
       delta: ['src/auth/token.ts', 'src/__tests__/x.ts', 'adapters/x.ts', 'src/ui/App.tsx', 'src/api/foo.ts'],
       oracleOk: 'false',
       axialAdr: true,
       stackPaths: { frontendPath: 'src/ui', sharedUi: '', backendPath: 'src/api' },
-      config: defaultConfig({ maxAgents: 3 }),
     })
+    expect(out.max_agents).toBe(3)
+    expect(out.agents.length).toBeLessThanOrEqual(3)
     expect(out.candidates).toEqual([
       'R-adversarial',
       'R-security-auditor',
-      'R-tester',
-      'R-axial-adr-review',
+      'R-architect',
       'R-frontend-dev',
       'R-backend-dev',
+      'R-tester',
     ])
-    expect(out.agents).toEqual(['R-adversarial', 'R-security-auditor', 'R-tester'])
-    expect(out.agents).toHaveLength(3)
-    expect(out.capped).toEqual(['R-axial-adr-review', 'R-frontend-dev', 'R-backend-dev'])
+    expect(out.agents).toEqual(['R-adversarial', 'R-security-auditor', 'R-architect'])
+    expect(out.capped).toEqual(['R-frontend-dev', 'R-backend-dev', 'R-tester'])
     for (const name of out.capped) {
       expect(gate(out, name)).toEqual({ agent: name, spawn: false, reason: 'capped' })
     }
-    expect(out.warnings).toContain(
-      'roster: 3 agent(s) dropped by max_agents: R-axial-adr-review, R-frontend-dev, R-backend-dev',
-    )
+    expect(out.warnings).toContain('roster: 3 agent(s) dropped by max_agents: R-frontend-dev, R-backend-dev, R-tester')
+  })
+
+  it('dominant domain survives the cap and R-tester follows it', () => {
+    const out = roster({
+      delta: ['apps/web/a.tsx', 'apps/web/b.tsx', 'apps/web/c.tsx', 'apps/api/a.ts', 'tests/a.test.ts'],
+      oracleOk: 'false',
+      stackPaths: { frontendPath: 'apps/web', sharedUi: '', backendPath: 'apps/api' },
+    })
+    expect(out.agents).toEqual(['R-adversarial', 'R-frontend-dev', 'R-tester'])
+    expect(out.capped).toEqual(['R-architect', 'R-backend-dev'])
   })
 
   it('forced R-architect survives max_agents 2 when path_hit ∧ R-tester also trip', () => {
@@ -426,241 +477,169 @@ describe('overrides', () => {
 })
 
 describe('parseRosterConfig', () => {
-  it('full block parses', () => {
-    const cfg = parseRosterConfig(`
-review:
-  roster:
-    max_agents: 4
-    verify_below_confidence: 90
-    recall_min_delta: 50
-    agents:
-      R-security-auditor: default
-      R-tester: default
-`)
-    expect(cfg.maxAgents).toBe(4)
-    expect(cfg.verifyBelowConfidence).toBe(90)
-    expect(cfg.recallMinDelta).toBe(50)
-    expect(cfg.overrides['R-security-auditor']).toBe('default')
-    expect(cfg.overrides['R-tester']).toBe('default')
-    expect(cfg.warnings).toEqual([])
-  })
-
-  it('comments and quotes tolerated', () => {
-    const cfg = parseRosterConfig(`
-review: # top
-  roster:
-    max_agents: "8"  # cap
-    verify_below_confidence: '70'
-    recall_min_delta: 40
-    agents:
-      R-tester: "always"  # quoted
-`)
-    expect(cfg.maxAgents).toBe(8)
-    expect(cfg.verifyBelowConfidence).toBe(70)
-    expect(cfg.recallMinDelta).toBe(40)
-    expect(cfg.overrides['R-tester']).toBe('always')
-    expect(cfg.warnings).toEqual([])
-  })
-
-  it('absent review block → defaults with no warnings', () => {
-    const cfg = parseRosterConfig('runtime: bun\nbackend:\n  path: apps/api\n')
-    expect(cfg).toEqual({
-      maxAgents: 4,
-      maxAgentsReview: 0,
-      verifyBelowConfidence: 90,
-      recallMinDelta: 50,
-      overrides: {},
-      warnings: [],
-    })
-  })
-
-  it('max_agents 0 → clamped to 1 + warning', () => {
-    const cfg = parseRosterConfig(`
-review:
-  roster:
-    max_agents: 0
-`)
-    expect(cfg.maxAgents).toBe(1)
-    expect(cfg.warnings).toContain('max_agents < 1; clamped to 1')
-  })
-
-  it('max_agents_review defaults to 0', () => {
-    const cfg = parseRosterConfig(`
-review:
-  roster:
-    max_agents: 4
-`)
-    expect(cfg.maxAgentsReview).toBe(0)
-    expect(cfg.warnings).toEqual([])
-  })
-
-  it('max_agents_review < 0 clamped to 0 + warning', () => {
-    const cfg = parseRosterConfig(`
-review:
-  roster:
-    max_agents_review: -3
-`)
-    expect(cfg.maxAgentsReview).toBe(0)
-    expect(cfg.warnings).toContain('max_agents_review < 0; clamped to 0')
-  })
-
-  it('max_agents_review is a recognised key', () => {
-    const cfg = parseRosterConfig(`
-review:
-  roster:
-    max_agents_review: 6
-`)
-    expect(cfg.maxAgentsReview).toBe(6)
-    expect(cfg.warnings).toEqual([])
-  })
-
-  it('verify_below_confidence > 90 clamped to 90', () => {
-    const cfg = parseRosterConfig(`
-review:
-  roster:
-    verify_below_confidence: 99
-`)
-    expect(cfg.verifyBelowConfidence).toBe(90)
-    expect(cfg.warnings).toContain('verify_below_confidence > 90; clamped to 90')
-  })
-
-  it('verify_below_confidence < 0 clamped to 0', () => {
-    const cfg = parseRosterConfig(`
-review:
-  roster:
-    verify_below_confidence: -5
-`)
-    expect(cfg.verifyBelowConfidence).toBe(0)
-    expect(cfg.warnings).toContain('verify_below_confidence < 0; clamped to 0')
-  })
-
-  it('recall_min_delta < 0 clamped to 0 + warning', () => {
-    const cfg = parseRosterConfig(`
-review:
-  roster:
-    recall_min_delta: -5
-`)
-    expect(cfg.recallMinDelta).toBe(0)
-    expect(cfg.warnings).toContain('recall_min_delta < 0; clamped to 0')
-  })
-
-  it('recall_min_delta: 0 with chunks 2 and 1 file is eligible', () => {
-    const cfg = parseRosterConfig(`
-review:
-  roster:
-    recall_min_delta: 0
-`)
-    expect(cfg.recallMinDelta).toBe(0)
-    expect(cfg.warnings).toEqual([])
-    const out = roster({ delta: ['src/foo.ts'], chunks: 2, config: cfg })
-    expect(out.recall_eligible).toBe(true)
-    expect(out.recall_reason).toBe('multi-chunk')
-  })
-
-  it('misindented verify_below_confidence warns and is not applied', () => {
+  it('active block parses', () => {
     const cfg = parseRosterConfig(`
 review:
   roster:
     max_agents: 3
-      verify_below_confidence: 10
+    agents:
+      R-security-auditor: default
+      R-tester: always
 `)
     expect(cfg.maxAgents).toBe(3)
-    expect(cfg.verifyBelowConfidence).toBe(90)
-    expect(cfg.warnings).toContain('unrecognised roster key at indent 6: verify_below_confidence')
-  })
-
-  it('misspelled rooster: warns instead of silent defaults', () => {
-    const cfg = parseRosterConfig(`
-review:
-  rooster:
-    max_agents: 9
-`)
-    expect(cfg.maxAgents).toBe(4)
-    expect(cfg.warnings).toContain('review.roster missing')
-  })
-
-  it('dedented top-level roster: warns', () => {
-    const cfg = parseRosterConfig(`
-review:
-  other: 1
-roster:
-  max_agents: 9
-`)
-    expect(cfg.maxAgents).toBe(4)
-    expect(cfg.warnings).toContain('review.roster missing')
-  })
-
-  it('agents sequence items warn instead of silent empty overrides', () => {
-    const cfg = parseRosterConfig(`
-review:
-  roster:
-    agents:
-      - R-tester
-      - R-architect
-`)
-    expect(cfg.overrides).toEqual({})
-    expect(cfg.warnings).toContain(
-      'roster agents block present but no key: value entries recognised (sequence or flow mapping?)',
-    )
-  })
-
-  it('agents flow mapping warns instead of silent empty overrides', () => {
-    const cfg = parseRosterConfig(`
-review:
-  roster:
-    agents: {R-tester: always}
-`)
-    expect(cfg.overrides).toEqual({})
-    expect(cfg.warnings).toContain(
-      'roster agents block present but no key: value entries recognised (sequence or flow mapping?)',
-    )
-  })
-
-  it('duplicate top-level review: block ignored', () => {
-    const cfg = parseRosterConfig(`
-review:
-  roster:
-    max_agents: 2
-review:
-  roster:
-    max_agents: 9
-`)
-    expect(cfg.maxAgents).toBe(2)
-    expect(cfg.warnings).toContain('duplicate top-level review: block ignored')
-  })
-
-  it('parse fault warns instead of silent defaults', () => {
-    const poison = {
-      trim: () => 'x',
-      replace() {
-        throw new Error('boom')
-      },
-    } as unknown as string
-    const cfg = parseRosterConfig(poison)
-    expect(cfg.maxAgents).toBe(4)
-    expect(cfg.verifyBelowConfidence).toBe(90)
-    expect(cfg.overrides).toEqual({})
-    expect(cfg.warnings).toEqual(['review.roster parse failed: boom; using defaults'])
-  })
-
-  it('4-space-indent roster block parses', () => {
-    const cfg = parseRosterConfig(`
-review:
-    roster:
-        max_agents: 6
-        agents:
-            R-tester: always
-`)
-    expect(cfg.maxAgents).toBe(6)
+    expect(cfg.overrides['R-security-auditor']).toBe('default')
     expect(cfg.overrides['R-tester']).toBe('always')
     expect(cfg.warnings).toEqual([])
   })
 
-  it('tab-indented roster block parses', () => {
-    const cfg = parseRosterConfig('review:\n\troster:\n\t\tmax_agents: 5\n\t\tagents:\n\t\t\tR-tester: never\n')
-    expect(cfg.maxAgents).toBe(5)
-    expect(cfg.overrides['R-tester']).toBe('never')
+  it('comments and quotes are tolerated', () => {
+    const cfg = parseRosterConfig(`
+review: # top
+  roster:
+    max_agents: "8" # cap
+    agents:
+      R-tester: "always" # quoted
+`)
+    expect(cfg.maxAgents).toBe(8)
+    expect(cfg.overrides['R-tester']).toBe('always')
     expect(cfg.warnings).toEqual([])
+  })
+
+  it('absent review block uses the max_agents=3 default', () => {
+    const cfg = parseRosterConfig('runtime: bun\nbackend:\n  path: apps/api\n')
+    expect(cfg).toEqual({ maxAgents: 3, maxAgentsReview: 0, axialOverride: 'default', overrides: {}, warnings: [] })
+  })
+
+  it('max_agents 0 clamps to 1 with a warning', () => {
+    const cfg = parseRosterConfig('review:\n  roster:\n    max_agents: 0\n')
+    expect(cfg.maxAgents).toBe(1)
+    expect(cfg.warnings).toContain('max_agents < 1; clamped to 1')
+  })
+
+  it('max_agents_review remains default-off compatibility and warns when explicit', () => {
+    expect(parseRosterConfig('review:\n  roster:\n    max_agents: 3\n').maxAgentsReview).toBe(0)
+    const cfg = parseRosterConfig('review:\n  roster:\n    max_agents_review: 6\n')
+    expect(cfg.maxAgentsReview).toBe(0)
+    expect(cfg.warnings).toContain('max_agents_review is deprecated and ignored; use the per-chunk max_agents cap')
+  })
+
+  it('negative max_agents_review is ignored without clamping side effects', () => {
+    const cfg = parseRosterConfig('review:\n  roster:\n    max_agents_review: -3\n')
+    expect(cfg.maxAgentsReview).toBe(0)
+    expect(cfg.warnings).toContain('max_agents_review is deprecated and ignored; use the per-chunk max_agents cap')
+    expect(cfg.warnings.some((w) => w.includes('clamped'))).toBe(false)
+  })
+
+  it('removed confidence and recall knobs are accepted only as deprecated no-ops', () => {
+    const cfg = parseRosterConfig(`
+review:
+  roster:
+    verify_below_confidence: 20
+    recall_min_delta: 5
+`)
+    expect(Object.hasOwn(cfg, 'verifyBelowConfidence')).toBe(false)
+    expect(Object.hasOwn(cfg, 'recallMinDelta')).toBe(false)
+    expect(cfg.warnings.some((w) => w.startsWith('verify_below_confidence is deprecated'))).toBe(true)
+    expect(cfg.warnings.some((w) => w.startsWith('recall_min_delta is deprecated'))).toBe(true)
+  })
+
+  it('removed overrides emit deprecations; axial gets a mode-specific override and phase agents stay ignored', () => {
+    const cfg = parseRosterConfig(`
+review:
+  roster:
+    agents:
+      R-axial-adr-review: always
+      R-recall: never
+      R-finding-verifier: always
+      R-options: always
+`)
+    expect(cfg.axialOverride).toBe('always')
+    expect(cfg.overrides['R-architect']).toBeUndefined()
+    expect(cfg.overrides['R-recall']).toBeUndefined()
+    expect(cfg.overrides['R-finding-verifier']).toBeUndefined()
+    expect(cfg.overrides['R-options']).toBeUndefined()
+    for (const agent of ['R-axial-adr-review', 'R-recall', 'R-finding-verifier', 'R-options']) {
+      expect(cfg.warnings).toContain(`deprecated roster agent override: ${agent}`)
+    }
+    expect(cfg.warnings).toContain('R-recall override ignored; recall is no longer a roster agent')
+    expect(cfg.warnings).toContain('R-finding-verifier override ignored; confidence-only finding removal was retired')
+    expect(cfg.warnings).toContain('R-options override ignored; options is an /R-analyze host-native worker')
+  })
+
+  it.each([
+    ['legacy before canonical', '      R-axial-adr-review: always\n      R-architect: default'],
+    ['canonical before legacy', '      R-architect: default\n      R-axial-adr-review: always'],
+  ])('parses legacy axial mode independently of canonical key order: %s', (_label, agents) => {
+    const cfg = parseRosterConfig(`review:\n  roster:\n    agents:\n${agents}\n`)
+    expect(cfg.axialOverride).toBe('always')
+    expect(cfg.overrides['R-architect']).toBe('default')
+    expect(cfg.warnings).toContain('R-axial-adr-review override applies to R-architect axial mode only; rename the key')
+  })
+
+  it.each([
+    ['legacy before canonical', '      R-axial-adr-review: always\n      R-architect: never'],
+    ['canonical before legacy', '      R-architect: never\n      R-axial-adr-review: always'],
+  ])('canonical architect override has deterministic global precedence: %s', (_label, agents) => {
+    const cfg = parseRosterConfig(`review:\n  roster:\n    agents:\n${agents}\n`)
+    expect(cfg.axialOverride).toBe('always')
+    expect(cfg.overrides['R-architect']).toBe('never')
+    expect(cfg.warnings).toContain(
+      'conflicting R-architect (never) and R-axial-adr-review (always) overrides; R-architect takes global precedence',
+    )
+  })
+
+  it('misindented legacy key warns and is not parsed', () => {
+    const cfg = parseRosterConfig('review:\n  roster:\n    max_agents: 3\n      recall_min_delta: 10\n')
+    expect(cfg.warnings).toContain('unrecognised roster key at indent 6: recall_min_delta')
+  })
+
+  it('misspelled or dedented roster blocks warn instead of silently applying', () => {
+    const misspelled = parseRosterConfig('review:\n  rooster:\n    max_agents: 9\n')
+    const dedented = parseRosterConfig('review:\n  other: 1\nroster:\n  max_agents: 9\n')
+    expect(misspelled.maxAgents).toBe(3)
+    expect(dedented.maxAgents).toBe(3)
+    expect(misspelled.warnings).toContain('review.roster missing')
+    expect(dedented.warnings).toContain('review.roster missing')
+  })
+
+  it('sequence and flow agent mappings warn instead of silently empty overrides', () => {
+    for (const text of [
+      'review:\n  roster:\n    agents:\n      - R-tester\n',
+      'review:\n  roster:\n    agents: {R-tester: always}\n',
+    ]) {
+      const cfg = parseRosterConfig(text)
+      expect(cfg.overrides).toEqual({})
+      expect(cfg.warnings).toContain(
+        'roster agents block present but no key: value entries recognised (sequence or flow mapping?)',
+      )
+    }
+  })
+
+  it('duplicate top-level review keeps the first block and warns', () => {
+    const cfg = parseRosterConfig('review:\n  roster:\n    max_agents: 2\nreview:\n  roster:\n    max_agents: 9\n')
+    expect(cfg.maxAgents).toBe(2)
+    expect(cfg.warnings).toContain('duplicate top-level review: block ignored')
+  })
+
+  it('parse faults warn and use current defaults', () => {
+    const poison = {
+      trim: () => 'x',
+      replace: () => {
+        throw new Error('boom')
+      },
+    } as unknown as string
+    const cfg = parseRosterConfig(poison)
+    expect(cfg.maxAgents).toBe(3)
+    expect(cfg.overrides).toEqual({})
+    expect(cfg.warnings).toEqual(['review.roster parse failed: boom; using defaults'])
+  })
+
+  it('four-space and tab indentation parse', () => {
+    const spaces = parseRosterConfig('review:\n    roster:\n        max_agents: 6\n')
+    const tabs = parseRosterConfig('review:\n\troster:\n\t\tmax_agents: 5\n\t\tagents:\n\t\t\tR-tester: never\n')
+    expect(spaces.maxAgents).toBe(6)
+    expect(tabs.maxAgents).toBe(5)
+    expect(tabs.overrides['R-tester']).toBe('never')
   })
 })
 
@@ -768,7 +747,7 @@ describe('prototype keys are not table members', () => {
   it('inherited override properties are ignored by applyOverride', () => {
     const overrides: Record<string, AgentOverride> = Object.create({ 'R-architect': 'never' })
     const out = roster({
-      delta: ['src/app.ts'],
+      delta: ['docs/architecture/model.md'],
       tier: 'F-full',
       config: defaultConfig({ overrides }),
     })
@@ -829,12 +808,12 @@ describe('infraHit', () => {
     }
   })
 
-  it('nested scripts/ at F-full → R-devops not R-architect', () => {
-    const out = roster({ delta: ['apps/web/scripts/build.sh'], tier: 'F-full' })
+  it('nested scripts/ at F-lite → R-devops not R-architect', () => {
+    const out = roster({ delta: ['apps/web/scripts/build.sh'], tier: 'F-lite' })
     expect(out.agents).toContain('R-devops')
     expect(out.agents).not.toContain('R-architect')
     expect(gate(out, 'R-devops')).toMatchObject({ spawn: true, reason: 'infra' })
-    expect(gate(out, 'R-architect')).toMatchObject({ spawn: false, reason: 'infra' })
+    expect(gate(out, 'R-architect')).toMatchObject({ spawn: false, reason: 'no-structure' })
   })
 })
 
@@ -898,11 +877,10 @@ describe('filesystem error policy', () => {
       expect(proc.status).toBe(0)
       const json = JSON.parse(proc.stdout) as {
         max_agents: number
-        verify_below_confidence: number
         warnings: string[]
       }
-      expect(json.max_agents).toBe(4)
-      expect(json.verify_below_confidence).toBe(90)
+      expect(json.max_agents).toBe(3)
+      expect(Object.hasOwn(json, 'verify_below_confidence')).toBe(false)
       expect(json.warnings.some((w) => w.includes(stack) && w.includes('unreadable'))).toBe(true)
     } finally {
       chmodSync(stack, 0o644)
@@ -978,23 +956,37 @@ function allocateShared(partial: Partial<ComputeRosterInput> = {}): ComputeRoste
 }
 
 describe('allocateReview', () => {
-  it('5 identical F-full app chunks collapse architect to chunk 0', () => {
-    const chunkDeltas = Array.from({ length: 5 }, (_, i) => [`src/app${i}.ts`])
+  it('keeps R-architect in every architecture chunk', () => {
+    const chunkDeltas = Array.from({ length: 5 }, (_, i) => [`docs/architecture/model${i}.md`])
     const out = allocateReview({
       chunkDeltas,
       shared: allocateShared({ delta: chunkDeltas.flat(), chunks: 5 }),
     })
-    expect(out.chunk_agents[0]).toEqual(['R-adversarial', 'R-architect'])
-    expect(out.collapsed).toContain('R-architect')
-    for (let i = 1; i < 5; i++) {
-      expect(out.chunk_agents[i]).toEqual(['R-adversarial'])
+    for (const agents of out.chunk_agents) {
+      expect(agents).toEqual(['R-adversarial', 'R-architect'])
+      expect(agents).toHaveLength(2)
     }
+    expect(out.collapsed).toEqual([])
+  })
+
+  it('keeps R-architect in axial and structural chunks under the per-chunk cap', () => {
+    const chunkDeltas = [['adapters/model.ts'], ['docs/architecture/model.md']]
+    const out = allocateReview({
+      chunkDeltas,
+      shared: allocateShared({ delta: chunkDeltas.flat(), chunks: 2, axialAdr: true }),
+    })
+    expect(out.chunk_agents).toEqual([
+      ['R-adversarial', 'R-architect'],
+      ['R-adversarial', 'R-architect'],
+    ])
+    expect(out.chunk_agents.every((agents) => agents.length <= 3)).toBe(true)
+    expect(out.collapsed).toEqual([])
   })
 
   it('mixed devops+architect both kept — collapse is per-agent, not xor on full Δ', () => {
     const out = allocateReview({
-      chunkDeltas: [['Dockerfile'], ['src/app.ts']],
-      shared: allocateShared({ delta: ['Dockerfile', 'src/app.ts'], chunks: 2 }),
+      chunkDeltas: [['Dockerfile'], ['docs/architecture/model.md']],
+      shared: allocateShared({ delta: ['Dockerfile', 'docs/architecture/model.md'], chunks: 2 }),
     })
     expect(out.chunk_agents[0]).toContain('R-devops')
     expect(out.chunk_agents[0]).not.toContain('R-architect')
@@ -1005,35 +997,38 @@ describe('allocateReview', () => {
 
   it('capped is the per-chunk union, not global xor (mixed Δ, max_agents=1)', () => {
     const out = allocateReview({
-      chunkDeltas: [['Dockerfile'], ['src/app.ts']],
+      chunkDeltas: [['Dockerfile'], ['docs/architecture/model.md']],
       shared: allocateShared({
-        delta: ['Dockerfile', 'src/app.ts'],
+        delta: ['Dockerfile', 'docs/architecture/model.md'],
         chunks: 2,
         config: defaultConfig({ maxAgents: 1 }),
       }),
     })
-    expect(out.global.capped).toEqual(['R-devops'])
+    expect(out.global.capped).toEqual(['R-devops', 'R-architect'])
     expect(out.capped).toEqual(['R-devops', 'R-architect'])
   })
 
-  it('max_agents_review=6 drops gated names into capped_review; adversarial count equals chunk count', () => {
+  it('max_agents_review YAML knob is ignored and does not populate capped_review', () => {
+    const parsed = parseRosterConfig('review:\n  roster:\n    max_agents_review: 6\n')
+    expect(parsed.maxAgentsReview).toBe(0)
+    expect(parsed.warnings).toContain('max_agents_review is deprecated and ignored; use the per-chunk max_agents cap')
     const chunkDeltas = Array.from({ length: 5 }, (_, i) => [`src/auth/login${i}.ts`])
     const out = allocateReview({
       chunkDeltas,
       shared: allocateShared({
         delta: chunkDeltas.flat(),
         chunks: 5,
-        config: defaultConfig({ maxAgentsReview: 6 }),
+        config: defaultConfig({ ...parsed, warnings: [] }),
       }),
     })
     const advCount = out.chunk_agents.filter((c) => c.includes('R-adversarial')).length
     expect(advCount).toBe(5)
-    expect(out.capped_review.length).toBeGreaterThan(0)
-    expect(out.chunk_agents.reduce((n, c) => n + c.length, 0)).toBe(6)
+    expect(out.capped_review).toEqual([])
+    expect(out.chunk_agents.reduce((n, c) => n + c.length, 0)).toBeGreaterThan(6)
   })
 
-  it('max_agents_review=0 never populates capped_review after collapse', () => {
-    const chunkDeltas = Array.from({ length: 5 }, (_, i) => [`src/app${i}.ts`])
+  it('max_agents_review=0 leaves every chunk uncapped globally', () => {
+    const chunkDeltas = Array.from({ length: 5 }, (_, i) => [`docs/architecture/model${i}.md`])
     const out = allocateReview({
       chunkDeltas,
       shared: allocateShared({
@@ -1043,10 +1038,11 @@ describe('allocateReview', () => {
       }),
     })
     expect(out.capped_review).toEqual([])
-    expect(out.collapsed).toContain('R-architect')
+    expect(out.collapsed).toEqual([])
+    expect(out.chunk_agents.every((agents) => agents.includes('R-architect'))).toBe(true)
   })
 
-  it('collapse-before-cap backfills R-frontend-dev in chunk 1 (max_agents=2)', () => {
+  it('per-chunk cap is applied without collapsing repeated specialists', () => {
     const chunkDeltas = [['src/a.test.ts'], ['src/form.test.tsx']]
     const out = allocateReview({
       chunkDeltas,
@@ -1059,28 +1055,32 @@ describe('allocateReview', () => {
     })
     expect(out.chunk_agents[0]).toEqual(['R-adversarial', 'R-tester'])
     expect(out.chunk_agents[1]).toEqual(['R-adversarial', 'R-frontend-dev'])
-    expect(out.collapsed).toEqual(expect.arrayContaining(['R-tester']))
+    expect(out.collapsed).toEqual([])
+    expect(out.chunk_agents.every((agents) => agents.length <= 2)).toBe(true)
     const dropped = out.warnings.filter((w) => w.includes('dropped by max_agents:'))
     expect(dropped.every((w, i) => dropped.indexOf(w) === i)).toBe(true)
     expect(dropped.some((w) => w.includes('R-frontend-dev'))).toBe(false)
   })
 
-  it('max_agents_review raises when per-chunk floors exceed the cap', () => {
-    const chunkDeltas = Array.from({ length: 5 }, (_, i) => [`src/app${i}.ts`])
+  it('max_agents_review YAML knob never raises or caps across chunks', () => {
+    const parsed = parseRosterConfig('review:\n  roster:\n    max_agents_review: 2\n')
+    expect(parsed.maxAgentsReview).toBe(0)
+    const chunkDeltas = Array.from({ length: 5 }, (_, i) => [`docs/architecture/model${i}.md`])
     const out = allocateReview({
       chunkDeltas,
       shared: allocateShared({
         delta: chunkDeltas.flat(),
         chunks: 5,
-        config: defaultConfig({ maxAgentsReview: 2 }),
+        config: defaultConfig({ ...parsed, warnings: [] }),
       }),
     })
-    expect(out.warnings).toContain('max_agents_review (2) < forced agents (5) — cap raised to 5')
+    expect(out.warnings.some((w) => w.includes('max_agents_review'))).toBe(false)
     expect(out.chunk_agents.filter((c) => c.includes('R-adversarial'))).toHaveLength(5)
     for (const agents of out.chunk_agents) {
       expect(agents).toContain('R-adversarial')
+      expect(agents).toContain('R-architect')
     }
-    expect(out.capped_review).toEqual(['R-architect'])
+    expect(out.capped_review).toEqual([])
   })
 
   it('single-chunk allocateReview ≡ computeRoster.agents (no collapse)', () => {

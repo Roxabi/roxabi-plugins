@@ -1,29 +1,6 @@
----
-name: R-axial-adr-create
-description: |
-  Interview agent for the foundational "Axis of Decomposition" ADR — captures the primary axis of system variation to prevent N×M drift (cross-cutting concerns duplicated across non-primary axis siblings).
+# Axial ADR — `/R-adr --axial`
 
-  Invoked by `/init` Phase 3a (mandatory) or standalone (re-run, supersede). Conducts 4 mandatory + 1 optional question interview, then writes the ADR with `axial: true` frontmatter — the grep-discoverable canonical marker.
-
-  Write-mode agent. Read companion: `R-axial-adr-review` for drift checking against an existing ADR.
-
-  <example>
-  Context: /init detects no axial ADR exists
-  user: "/init"
-  assistant: "Spawning R-axial-adr-create to elicit the axis of decomposition before scaffolding can continue."
-  </example>
-
-  <example>
-  Context: User invokes the interview standalone (e.g., to supersede a stale axis)
-  user: "Re-elicit the axial decomposition"
-  assistant: "Running R-axial-adr-create. Will offer Keep / Supersede / Review if an ADR already exists."
-  </example>
-maxTurns: 30
-# capabilities: write_knowledge=true, write_code=false, review_code=false, run_tests=false
-# based-on: shared/base
----
-
-# Axial ADR — Create
+Interview + write path for the foundational Axis of Decomposition ADR. Invoked by `/R-adr --axial` (standalone or from `/R-dev-init` Phase 3a). No durable agent manifest.
 
 Let:
   D := `docs/architecture/adr/`
@@ -31,19 +8,19 @@ Let:
   AQ := ask user directly
   AXES, PRIMARY, ANTI_PATTERN, EXPECTED_DEBT, REVISIT := capture vars
 
-Write-only mode. Conducts the axial-decomposition interview, then writes the ADR with `axial: true` frontmatter. Drift checking against the ADR is owned by the sibling agent `R-axial-adr-review`.
+Write-only for this ADR. Drift checking against an existing ADR is **R-architect axial mode** (read-only).
 
 **Rationale:** Read R before starting — framework, 4 mandatory questions, reason categories.
 
 ## Phase 1 — Detect existing axial ADR
 
-1. `mkdir -p $D 2>/dev/null`
-2. Search:
-   ```bash
-   grep -rli "^axial: true\|axis of decomposition" $D 2>/dev/null
+1. `mkdir -p $D` if missing (Write/Glob; ¬shell mkdir required).
+2. Grep:
    ```
-   Use the **Grep tool** (not Bash) when available — it scopes searches to the project and quotes the pattern.
-3. ≥1 match → Read **all** matched files (do not `head -1` — the singleton invariant is enforced in Phase 5, but here we must surface accidental duplicates):
+   pattern: "^axial: true|axis of decomposition"
+   path: docs/architecture/adr/
+   ```
+3. ≥1 match → Read **all** matched files (do not `head -1` — singleton invariant is enforced here):
    - Exactly 1 match → display:
      ```
      Axial ADR already exists
@@ -106,9 +83,9 @@ Tied candidates → tiebreaker: *"If you HAD to pick one for the next 6 months, 
 
 Ask: *"What does drift along the wrong axis look like in code? Give 1 grep-able pattern (file glob, regex, symbol)."*
 
-Constraint: the answer is later parsed by `R-axial-adr-review` and passed to the Grep tool as a search pattern. To preserve that contract, the pattern MUST be a single token (no whitespace-separated prose), ≤200 chars, using only the character set `[a-zA-Z0-9_/*.\-\[\]^$|(){}\\]`. Reject prose-shaped answers ("things that look like a god class") and re-ask for a concrete grep pattern.
+Constraint: R-architect axial mode later parses this and passes it to Grep. The pattern MUST be a single token (no whitespace-separated prose), ≤200 chars, using only `[a-zA-Z0-9_/*.\-\[\]^$|(){}\\]`. Reject prose-shaped answers ("things that look like a god class") and re-ask.
 
-Record `ANTI_PATTERN := { pattern, where_to_grep }`. Used downstream by `R-axial-adr-review` + lint rules + sibling-rate alarms.
+Record `ANTI_PATTERN := { pattern, where_to_grep }`.
 
 ### Q4 — Expected debt (required)
 
@@ -151,9 +128,8 @@ Draft — Axial ADR
 
 ## Phase 4 — Write ADR
 
-1. Invoke `/R-adr` skill with args: `"Axis of Decomposition"`.
-2. After file is written, locate it (scan D for newest `*-axis-of-decomposition.md`, fallback legacy `.mdx`).
-3. **Overwrite** body with axial template (preserve NNN from `/R-adr`). Write path is always `.md`.
+1. Next NNN: scan D for `{NNN}-*.md` and legacy `{NNN}-*.mdx` → highest + 1. ¬D ∨ ¬files → start at `001`.
+2. Write `D/{NNN}-axis-of-decomposition.md` (always `.md`).
 
 ```md
 ---
@@ -218,7 +194,7 @@ If this pattern appears, drift along the wrong axis is starting.
 From Phase 1 supersede flow: mutate the previous axial ADR:
 
 1. `## Status` line → `Superseded by ADR-{NNN}`
-2. **Strip `axial: true` from the old ADR's frontmatter** (singleton invariant — only the newest ADR carries the marker; otherwise downstream `grep` returns multiple matches and consumers pick non-deterministically)
+2. **Strip `axial: true` from the old ADR's frontmatter** (singleton invariant)
 3. New ADR `## Context` references old NNN
 
 ¬supersede → skip.
@@ -238,8 +214,8 @@ Canonical marker: `axial: true` in frontmatter (grep-discoverable).
 Singleton invariant: exactly one ADR per project carries `axial: true`.
 
 Next:
-  /init can continue scaffolding (if called from /init)
-  /R-spec, /R-dev-review will detect this ADR and dispatch R-axial-adr-review when scope touches infrastructure/
+  /R-dev-init can continue (if called from init)
+  /R-spec and /R-dev-review dispatch R-architect **axial mode** when scope crosses the non-primary axis
 ```
 
 Exit status: `created` | `kept` | `superseded` | `cancelled`.
@@ -248,12 +224,11 @@ Exit status: `created` | `kept` | `superseded` | `cancelled`.
 
 | Scenario | Behavior |
 |----------|----------|
-| `$D` missing | mkdir, proceed |
-| `/R-adr` skill unavailable | Write ADR directly to `$D/{NNN}-axis-of-decomposition.md` (scan NNN = max + 1 over `.md` + legacy `.mdx`) |
+| `$D` missing | create D, proceed |
 | User cannot articulate axes | Offer 3 templates (target×concern, domain×layer, stage×pipeline) |
 | Tied primary candidates | Tiebreaker: 6-month horizon |
 | Existing axial ADR + supersede | Old → `Superseded by ADR-{NNN}` + strip `axial: true`; new ADR Context references old |
-| Multiple ADRs with `axial: true` (singleton violation) | Phase 1: auto-fix (strip from all but newest) or abort |
+| Multiple ADRs with `axial: true` | Phase 1: auto-fix (strip from all but newest) or abort |
 | Q1–Q4 skipped | Refuse — mandatory |
 | Q3 answer is prose, not a grep pattern | Re-ask with the constraint stated |
 
@@ -263,8 +238,9 @@ Exit status: `created` | `kept` | `superseded` | `cancelled`.
 - ¬judge axis quality — surface trade-offs; the user owns the decision.
 - ¬touch unrelated files in `$D`.
 - ¬modify code outside `$D`.
+- ¬spawn a dedicated axial-create agent. This reference **is** the procedure.
 
 ## Escalation
 
-- User unable to articulate any axes → message back: "Cannot proceed without axes. Suggest `/R-frame` first."
+- User unable to articulate any axes → "Cannot proceed without axes. Suggest `/R-frame` first." Exit `cancelled`.
 - Conflict between axes, no clear primary → write ADR with `## Status: Proposed`, document open question in `## Context`, exit `created` with warning.

@@ -10,7 +10,7 @@ description: |
   assistant: "I'll use the R-devops agent to debug the CI pipeline."
   </example>
 maxTurns: 50
-# capabilities: write_knowledge=false, write_code=true, review_code=false, run_tests=true
+# capabilities: write_knowledge=false, write_code=true, review_code=true, run_tests=true
 # based-on: shared/base
 ---
 
@@ -23,7 +23,24 @@ PM unset → output: "package_manager not set in `.dev/stack.yml` — run `/R-en
 
 **Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
 **Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).
-**Quality gates:** after config changes: `{commands.build}` (if defined). ✗ → fix before reporting done. App behaviour change → notify domain agent.
+**Quality gates (Implement mode):** after config changes: `{commands.build}` (if defined). ✗ → fix before reporting done. App behaviour change → notify domain agent.
+
+## Review mode vs Implement mode
+
+Dispatch prompt selects the mode. Default = **Review**. Implement mode requires explicit Implement signals (`/R-dev-implement`, implement tasks, etc.).
+
+### Review mode
+
+Signals: `/R-dev-review`, `Spawned roster:`, findings-only / "review the diff".
+- Findings only (Conventional Comments). ¬edit CI, Docker, or root configs.
+- Read-only **by contract** — MUST ¬Write, ¬Edit. Bash: git read-only + inspect commands; never apply patches.
+- Flag secret-in-source, skipped gates, unpinned `latest`, root containers as findings; do not "fix" them here.
+- ¬spawn agents. Return findings to the caller.
+
+### Implement mode
+
+Signals: `/R-dev-implement`, infra/CI tasks, dependency updates.
+- Write config/CI/Docker in domain. Run quality gates. Notify domain agents when app behavior changes.
 
 **Domain:** `{shared.config}/` | Root configs (`package.json`, `{build.orchestrator_config}`, `{build.formatter_config}`, `tsconfig.json`, `docker-compose.yml`) | `.github/` | `Dockerfile`, `.dockerignore`, `.env.example`
 

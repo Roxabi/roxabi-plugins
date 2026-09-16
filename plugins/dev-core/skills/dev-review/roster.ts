@@ -23,8 +23,7 @@ export type StackPaths = {
 export type RosterConfig = {
   maxAgents: number
   maxAgentsReview: number
-  verifyBelowConfidence: number
-  recallMinDelta: number
+  axialOverride: AgentOverride
   overrides: Record<string, AgentOverride>
   warnings: string[]
 }
@@ -48,10 +47,6 @@ export type RosterResult = {
   delta_test_hit: boolean
   claims: string[]
   priced_claim_ok: boolean
-  recall_eligible: boolean
-  recall_reason: string
-  verifier_enabled: boolean
-  verify_below_confidence: number
   max_agents: number
   warnings: string[]
   review_halt: boolean
@@ -75,17 +70,16 @@ type Gate = { spawn: boolean; reason: string }
 export const DISPATCHABLE = [
   'R-adversarial',
   'R-security-auditor',
-  'R-tester',
-  'R-axial-adr-review',
+  'R-architect',
   'R-frontend-dev',
   'R-backend-dev',
   'R-devops',
-  'R-architect',
+  'R-tester',
 ] as const
 
-export const PHASE_AGENTS = ['R-recall', 'R-finding-verifier'] as const
+export const PHASE_AGENTS = [] as const
 
-export const COLLAPSE_ONCE = ['R-architect', 'R-devops', 'R-tester', 'R-axial-adr-review'] as const
+export const COLLAPSE_ONCE: readonly (typeof DISPATCHABLE)[number][] = []
 
 export type AllocateReviewInput = {
   chunkDeltas: string[][]
@@ -102,7 +96,13 @@ export type AllocateReviewResult = {
   agents: string[]
 }
 
-const KNOWN_AGENTS: Record<string, true> = Object.fromEntries([...DISPATCHABLE, ...PHASE_AGENTS].map((a) => [a, true]))
+const KNOWN_AGENTS: Record<string, true> = Object.fromEntries(DISPATCHABLE.map((a) => [a, true]))
+const REMOVED_AGENTS: Record<string, true> = {
+  'R-axial-adr-review': true,
+  'R-recall': true,
+  'R-finding-verifier': true,
+  'R-options': true,
+}
 
 const OVERRIDE_VALUES: Record<string, true> = { default: true, always: true, never: true }
 
@@ -112,6 +112,13 @@ const TEST_PY_RE = /(^|\/)test_[^/]+\.py$/
 const TEST_SUFFIX_RE = /_test\.(py|go|rs)$/
 const FE_EXT_RE = /\.(tsx|jsx|vue|svelte|css|scss)$/
 const AXIAL_RE = /^(infrastructure|adapters|domains|stages)\//
+const STRUCTURAL_RES = [
+  /(^|\/)docs\/(architecture|architectures)(\/|$)/,
+  /(^|\/)\.?dependency-cruiser\.(c?js|mjs|json|ya?ml)$/,
+  /(^|\/)(nx|turbo)\.jsonc?$/,
+  /(^|\/)pnpm-workspace\.ya?ml$/,
+  /(^|\/)(workspace|workspaces)\.ya?ml$/,
+]
 const INFRA_RES = [
   /(^|\/)scripts\//,
   /(^|\/)\.github\//,
@@ -202,10 +209,8 @@ const TOKEN_SET: Record<string, true> = {
   publickey: true,
 }
 
-const DEFAULT_MAX_AGENTS = 4
+const DEFAULT_MAX_AGENTS = 3
 const DEFAULT_MAX_AGENTS_REVIEW = 0
-const DEFAULT_VERIFY = 90
-const DEFAULT_RECALL_MIN = 50
 
 export function extractYamlBlocks(content: string): string[] {
   const blocks: string[] = []
@@ -323,6 +328,31 @@ export function feHit(delta: string[], paths: { frontendPath: string; sharedUi: 
   const prefixes = [paths.frontendPath, paths.sharedUi].map((s) => s.replace(/\/+$/, '')).filter(Boolean)
   if (prefixes.length) return prefixes.some((p) => prefixHit(delta, p))
   return delta.some((f) => FE_EXT_RE.test(f))
+}
+
+function prefixCount(delta: string[], prefixes: string[]): number {
+  const normalized = prefixes.map((s) => s.replace(/\/+$/, '')).filter(Boolean)
+  return delta.filter((f) => normalized.some((p) => f === p || f.startsWith(`${p}/`))).length
+}
+
+export function domainFileCounts(delta: string[], paths: StackPaths): { frontend: number; backend: number } {
+  const frontendPrefixes = [paths.frontendPath, paths.sharedUi].filter(Boolean)
+  const frontend = frontendPrefixes.length
+    ? prefixCount(delta, frontendPrefixes)
+    : delta.filter((f) => FE_EXT_RE.test(f)).length
+  return {
+    frontend,
+    backend: prefixCount(delta, [paths.backendPath]),
+  }
+}
+
+/** Conservative architecture signals: explicit architecture/workspace files or a
+ * diff crossing configured frontend and backend boundaries. Ordinary F-full source
+ * changes deliberately stay cold. */
+export function structureHit(delta: string[], paths: StackPaths): boolean {
+  if (delta.some((f) => STRUCTURAL_RES.some((re) => re.test(f)))) return true
+  const counts = domainFileCounts(delta, paths)
+  return counts.frontend > 0 && counts.backend > 0
 }
 
 function errorCode(err: unknown): string {
@@ -463,8 +493,7 @@ export function parseRosterConfig(text: string | null): RosterConfig {
   const defaults: RosterConfig = {
     maxAgents: DEFAULT_MAX_AGENTS,
     maxAgentsReview: DEFAULT_MAX_AGENTS_REVIEW,
-    verifyBelowConfidence: DEFAULT_VERIFY,
-    recallMinDelta: DEFAULT_RECALL_MIN,
+    axialOverride: 'default',
     overrides: Object.create(null),
     warnings: [],
   }
@@ -499,9 +528,8 @@ export function parseRosterConfig(text: string | null): RosterConfig {
     }
 
     let maxAgents = DEFAULT_MAX_AGENTS
-    let maxAgentsReview = DEFAULT_MAX_AGENTS_REVIEW
-    let verifyBelowConfidence = DEFAULT_VERIFY
-    let recallMinDelta = DEFAULT_RECALL_MIN
+    const maxAgentsReview = DEFAULT_MAX_AGENTS_REVIEW
+    let axialOverride: AgentOverride = 'default'
     // Null-prototype: keys come from stack.yml, so `overrides.constructor` must be undefined.
     const overrides: Record<string, AgentOverride> = Object.create(null)
 
@@ -509,7 +537,7 @@ export function parseRosterConfig(text: string | null): RosterConfig {
     const rosterEnd = blockEnd(lines, rosterIdx)
     const children = lines.slice(rosterIdx + 1, rosterEnd).filter((l) => l.indent > rosterIndent)
     if (!children.length) {
-      return { maxAgents, maxAgentsReview, verifyBelowConfidence, recallMinDelta, overrides, warnings }
+      return { maxAgents, maxAgentsReview, axialOverride, overrides, warnings }
     }
     const directIndent = Math.min(...children.map((l) => l.indent))
     const consumed = new Set<number>()
@@ -526,32 +554,18 @@ export function parseRosterConfig(text: string | null): RosterConfig {
         }
       } else if (line.key === 'verify_below_confidence') {
         consumed.add(i)
-        verifyBelowConfidence = parseInteger(line.value, DEFAULT_VERIFY, 'verify_below_confidence', warnings)
-        if (verifyBelowConfidence > 90) {
-          warnings.push('verify_below_confidence > 90; clamped to 90')
-          verifyBelowConfidence = 90
-        } else if (verifyBelowConfidence < 0) {
-          warnings.push('verify_below_confidence < 0; clamped to 0')
-          verifyBelowConfidence = 0
-        }
+        warnings.push('verify_below_confidence is deprecated and ignored; deterministic deduplication retains findings')
       } else if (line.key === 'recall_min_delta') {
         consumed.add(i)
-        recallMinDelta = parseInteger(line.value, DEFAULT_RECALL_MIN, 'recall_min_delta', warnings)
-        if (recallMinDelta < 0) {
-          warnings.push('recall_min_delta < 0; clamped to 0')
-          recallMinDelta = 0
-        }
+        warnings.push('recall_min_delta is deprecated and ignored; /R-dev-review controls the isolated recall worker')
       } else if (line.key === 'max_agents_review') {
         consumed.add(i)
-        maxAgentsReview = parseInteger(line.value, DEFAULT_MAX_AGENTS_REVIEW, 'max_agents_review', warnings)
-        if (maxAgentsReview < 0) {
-          warnings.push('max_agents_review < 0; clamped to 0')
-          maxAgentsReview = 0
-        }
+        warnings.push('max_agents_review is deprecated and ignored; use the per-chunk max_agents cap')
       } else if (line.key === 'agents') {
         consumed.add(i)
         const agentsEnd = blockEnd(lines, i)
         let recognised = 0
+        let legacyArchitectOverride: AgentOverride | undefined
         for (let j = i + 1; j < agentsEnd; j++) {
           if (lines[j].indent <= line.indent) break
           consumed.add(j)
@@ -560,6 +574,23 @@ export function parseRosterConfig(text: string | null): RosterConfig {
           const raw = lines[j].value.toLowerCase()
           if (agent === 'R-product-lead') {
             warnings.push('R-product-lead is not part of the review roster — Phase 2 covers spec compliance')
+            continue
+          }
+          if (Object.hasOwn(REMOVED_AGENTS, agent)) {
+            warnings.push(`deprecated roster agent override: ${agent}`)
+            if (!Object.hasOwn(OVERRIDE_VALUES, raw)) {
+              warnings.push(`invalid override for ${agent}: ${lines[j].value}; ignored`)
+              continue
+            }
+            if (agent === 'R-axial-adr-review') {
+              legacyArchitectOverride = raw as AgentOverride
+            } else if (agent === 'R-recall') {
+              warnings.push('R-recall override ignored; recall is no longer a roster agent')
+            } else if (agent === 'R-finding-verifier') {
+              warnings.push('R-finding-verifier override ignored; confidence-only finding removal was retired')
+            } else if (agent === 'R-options') {
+              warnings.push('R-options override ignored; options is an /R-analyze host-native worker')
+            }
             continue
           }
           if (!Object.hasOwn(KNOWN_AGENTS, agent)) {
@@ -572,6 +603,21 @@ export function parseRosterConfig(text: string | null): RosterConfig {
           }
           overrides[agent] = raw as AgentOverride
         }
+        if (legacyArchitectOverride !== undefined) {
+          axialOverride = legacyArchitectOverride
+          const architectOverride = overrides['R-architect']
+          warnings.push('R-axial-adr-review override applies to R-architect axial mode only; rename the key')
+          if (
+            architectOverride !== undefined &&
+            architectOverride !== 'default' &&
+            legacyArchitectOverride !== 'default' &&
+            architectOverride !== legacyArchitectOverride
+          ) {
+            warnings.push(
+              `conflicting R-architect (${architectOverride}) and R-axial-adr-review (${legacyArchitectOverride}) overrides; R-architect takes global precedence`,
+            )
+          }
+        }
         if (recognised === 0) {
           warnings.push('roster agents block present but no key: value entries recognised (sequence or flow mapping?)')
         }
@@ -583,7 +629,7 @@ export function parseRosterConfig(text: string | null): RosterConfig {
       warnings.push(`unrecognised roster key at indent ${lines[i].indent}: ${lines[i].key}`)
     }
 
-    return { maxAgents, maxAgentsReview, verifyBelowConfidence, recallMinDelta, overrides, warnings }
+    return { maxAgents, maxAgentsReview, axialOverride, overrides, warnings }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return {
@@ -622,7 +668,12 @@ function applyOverride(agent: string, gate: Gate, overrides: Record<string, Agen
     if (o === 'never') warnings.push('R-adversarial cannot be disabled')
     return { spawn: true, reason: 'floor' }
   }
-  if (o === 'always') return { spawn: true, reason: 'stack:always' }
+  if (o === 'always') {
+    return {
+      spawn: true,
+      reason: agent === 'R-architect' && gate.reason.startsWith('axial') ? 'axial:stack:always' : 'stack:always',
+    }
+  }
   if (o === 'never') return { spawn: false, reason: 'stack:never' }
   return gate
 }
@@ -637,10 +688,15 @@ function testerGate(deltaTestHit: boolean, oracleOk: OracleOk, warnings: string[
   return { spawn: true, reason: 'oracle-false' }
 }
 
-function axialGate(axialAdr: boolean, delta: string[]): Gate {
-  if (!axialAdr) return { spawn: false, reason: 'no-axial-adr' }
-  if (!axialDeltaHit(delta)) return { spawn: false, reason: 'no-path-hit' }
-  return { spawn: true, reason: 'path-hit' }
+function architectGate(axialAdr: boolean, delta: string[], structural: boolean, axialOverride: AgentOverride): Gate {
+  if (axialOverride === 'always' && axialAdr && axialDeltaHit(delta)) {
+    return { spawn: true, reason: 'axial:stack:always' }
+  }
+  if (axialOverride !== 'never' && axialAdr && axialDeltaHit(delta)) {
+    return { spawn: true, reason: 'axial:adr-delta' }
+  }
+  if (structural) return { spawn: true, reason: 'structure' }
+  return { spawn: false, reason: 'no-structure' }
 }
 
 function backendGate(delta: string[], backendPath: string): Gate {
@@ -649,22 +705,31 @@ function backendGate(delta: string[], backendPath: string): Gate {
   return { spawn: false, reason: 'no-path-hit' }
 }
 
-function devopsGate(isFull: boolean, infra: boolean): Gate {
-  if (!isFull) return { spawn: false, reason: 'tier' }
+function devopsGate(infra: boolean): Gate {
   if (infra) return { spawn: true, reason: 'infra' }
   return { spawn: false, reason: 'no-path-hit' }
 }
 
-function architectGate(isFull: boolean, infra: boolean): Gate {
-  if (!isFull) return { spawn: false, reason: 'tier' }
-  if (infra) return { spawn: false, reason: 'infra' }
-  return { spawn: true, reason: 'structure' }
-}
-
-function recallGate(chunks: number, deltaCount: number, minDelta: number): Gate {
-  if (chunks <= 1) return { spawn: false, reason: 'single-chunk' }
-  if (deltaCount <= minDelta) return { spawn: false, reason: 'delta-below-min' }
-  return { spawn: true, reason: 'multi-chunk' }
+function prioritizeCandidates(
+  candidates: string[],
+  gates: Record<string, Gate>,
+  delta: string[],
+  paths: StackPaths,
+): string[] {
+  const counts = domainFileCounts(delta, paths)
+  const score = (agent: string): number => {
+    if (agent === 'R-adversarial') return 1_000
+    if (agent === 'R-security-auditor') return 100
+    if (agent === 'R-architect' && gates[agent].reason.startsWith('axial:')) return 95
+    if (agent === 'R-frontend-dev') return counts.frontend >= counts.backend ? 85 : 60
+    if (agent === 'R-backend-dev') return counts.backend >= counts.frontend ? 85 : 60
+    if (agent === 'R-devops') return 80
+    if (agent === 'R-tester') return 75
+    if (agent === 'R-architect') return 70
+    return 0
+  }
+  const stableOrder = new Map<string, number>(DISPATCHABLE.map((agent, index) => [agent, index] as [string, number]))
+  return [...candidates].sort((a, b) => score(b) - score(a) || (stableOrder.get(a) ?? 0) - (stableOrder.get(b) ?? 0))
 }
 
 function applyCap(
@@ -697,7 +762,7 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
   const path_hit = pathHit(delta)
   const delta_test_hit = testHit(delta)
   const infra = infraHit(delta)
-  const isFull = tier === 'F-full'
+  const structural = structureHit(delta, stackPaths)
 
   const gates: Record<string, Gate> = {}
 
@@ -717,13 +782,6 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
     warnings,
   )
 
-  gates['R-axial-adr-review'] = applyOverride(
-    'R-axial-adr-review',
-    axialGate(axialAdr, delta),
-    config.overrides,
-    warnings,
-  )
-
   const feSpawn = feHit(delta, stackPaths)
   gates['R-frontend-dev'] = applyOverride(
     'R-frontend-dev',
@@ -739,26 +797,21 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
     warnings,
   )
 
-  gates['R-devops'] = applyOverride('R-devops', devopsGate(isFull, infra), config.overrides, warnings)
+  gates['R-devops'] = applyOverride('R-devops', devopsGate(infra), config.overrides, warnings)
 
-  gates['R-architect'] = applyOverride('R-architect', architectGate(isFull, infra), config.overrides, warnings)
-
-  gates['R-recall'] = applyOverride(
-    'R-recall',
-    recallGate(chunks, delta.length, config.recallMinDelta),
+  gates['R-architect'] = applyOverride(
+    'R-architect',
+    architectGate(axialAdr, delta, structural, config.axialOverride),
     config.overrides,
     warnings,
   )
 
-  const verifierSpawn = config.verifyBelowConfidence > 0
-  gates['R-finding-verifier'] = applyOverride(
-    'R-finding-verifier',
-    { spawn: verifierSpawn, reason: verifierSpawn ? 'threshold' : 'disabled' },
-    config.overrides,
-    warnings,
+  const candidates = prioritizeCandidates(
+    DISPATCHABLE.filter((a) => gates[a].spawn),
+    gates,
+    delta,
+    stackPaths,
   )
-
-  const candidates = DISPATCHABLE.filter((a) => gates[a].spawn)
   const isForced = (a: string): boolean => {
     const r = gates[a].reason
     return r === 'floor' || r === 'stack:always'
@@ -788,10 +841,6 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
     delta_test_hit,
     claims,
     priced_claim_ok: pricedClaimOk,
-    recall_eligible: gates['R-recall'].spawn,
-    recall_reason: gates['R-recall'].reason,
-    verifier_enabled: gates['R-finding-verifier'].spawn,
-    verify_below_confidence: config.verifyBelowConfidence,
     max_agents: maxAgents,
     warnings,
     review_halt: false,

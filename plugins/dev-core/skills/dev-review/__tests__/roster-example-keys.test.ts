@@ -4,19 +4,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { DISPATCHABLE, PHASE_AGENTS } from '../roster'
+import { DISPATCHABLE } from '../roster'
 
-// Example-file roster-key sentinel. The oracle emits `unknown roster agent: X` then
-// DROPS the override — an unprefixed key in a shipped example is a silent no-op.
-// Copy each file VERBATIM as `.dev/stack.yml` and assert keys ∈ DISPATCHABLE ∪ PHASE_AGENTS
-// (¬DISPATCHABLE alone: examples list the 2 PHASE_AGENTS).
+// Example-file roster-key sentinel. Shipped examples must advertise only active
+// dispatchable roles; legacy keys are parser compatibility, not target config.
 //   __tests__ → dev-review → skills → dev-core (stack.yml.example)
 //   __tests__ → dev-review → skills → dev-core → plugins → repo-root (.dev/stack.yml.example)
 const ROSTER = fileURLToPath(new URL('../roster.ts', import.meta.url))
 const PLUGIN_EXAMPLE = fileURLToPath(new URL('../../../stack.yml.example', import.meta.url))
 const ROOT_EXAMPLE = fileURLToPath(new URL('../../../../../.dev/stack.yml.example', import.meta.url))
 
-const KNOWN: Record<string, true> = Object.fromEntries([...DISPATCHABLE, ...PHASE_AGENTS].map((a) => [a, true]))
+const KNOWN: Record<string, true> = Object.fromEntries(DISPATCHABLE.map((a) => [a, true]))
 
 const EXAMPLES: Record<string, string> = {
   'plugins/dev-core/stack.yml.example': PLUGIN_EXAMPLE,
@@ -71,7 +69,7 @@ for (const [name, examplePath] of Object.entries(EXAMPLES)) {
       expect(rosterAgentKeys(readFileSync(examplePath, 'utf8')).length).toBeGreaterThanOrEqual(1)
     })
 
-    it('A3 referential — every key ∈ DISPATCHABLE ∪ PHASE_AGENTS', () => {
+    it('A3 referential — every advertised key is dispatchable', () => {
       const keys = rosterAgentKeys(readFileSync(examplePath, 'utf8'))
       expect(keys.filter((k) => !Object.hasOwn(KNOWN, k))).toEqual([])
     })

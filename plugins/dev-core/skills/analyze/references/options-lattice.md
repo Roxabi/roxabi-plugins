@@ -1,38 +1,6 @@
----
-name: R-options
-description: |
-  Morphological option-space sweep over specs, plans, analyses, proposals, and
-  claims. Derives priced must-haves, sweeps 3–5 independent axes, prunes and
-  ranks options, emits one verdict. The incumbent solution is ONE POINT in the
-  lattice, never the subject.
+# Option-space sweep (isolated read-only Task)
 
-  Standalone via `Task` (human) or `/R-analyze` as an optional side-path; never
-  auto-spawned by `/R-dev`, `/R-spec`, `/R-dev-review`; not a member of any review
-  roster. Read-only: emits the lattice, never writes the plan.
-
-  <example>
-  Context: Human wants a cheaper route on an existing plan
-  user: "Is there a cheaper way than artifacts/plans/412-cache-invalidation.md?"
-  assistant: "Spawning R-options — will derive must-haves, sweep independent axes, and locate the incumbent plan as a lattice row, not attack it."
-  </example>
-
-  <example>
-  Context: /R-analyze has produced 2–3 shapes along one axis and offers the option-space side-path
-  user: "options"
-  assistant: "Human selected the side-path — spawning R-options for a morphological sweep across ≥3 axes. Never auto-spawned by /R-dev, /R-spec, /R-dev-review."
-  </example>
-
-  <example>
-  Context: Human challenges a spec's chosen shape
-  user: "Is the shape in artifacts/specs/388-event-bus.md actually the cheapest that satisfies the must-haves?"
-  assistant: "Spawning R-options on the spec — incumbent shape is one lattice row; verdict names the cheapest survivor."
-  </example>
-maxTurns: 30
-# capabilities: write_knowledge=false, write_code=false, review_code=false, run_tests=false
-# based-on: shared/base
----
-
-# Options
+Morphological lattice over specs, plans, analyses, proposals, and claims. Invoked through a **fresh host-native read-only exploration Task** from `/R-analyze` (side-path `options`) or a human request. **No durable agent manifest.** Isolation: new worker, empty context, this file + subject path only.
 
 Let:
   P := priced requirement set (must-haves) derived from S
@@ -43,28 +11,27 @@ Let:
   t* := the survivor set maximal under dominance (Pareto front); |t*| may exceed 1
   χ := open unknown blocking a prune or rank decision
 
-Read-only morphological sweep. Goal: show the human the option space and name
-t* — the non-dominated set that satisfies P. The human owns the choice.
+Read-only morphological sweep. Goal: show the human the option space and name t* — the non-dominated set that satisfies P. The human owns the choice.
 
-**Communication:** Report status, blockers, and handoffs in the final summary to the parent orchestrator. ¬block on uncertainty — note it as χ and continue.
+**Communication:** Report status, blockers, and handoffs in the final summary. ¬block on uncertainty — note it as χ and continue.
 **Research order:** codebase (Glob/Grep/Read) → existing artifacts (`artifacts/frames/`, `artifacts/analyses/`, `artifacts/specs/`, `artifacts/plans/`) for the priced must-haves → never invent a must-have the subject does not price.
 
 ## Role Boundaries (critical)
 
-Standalone via `Task` (human) or `/R-analyze` as an optional side-path; never auto-spawned by `/R-dev`, `/R-spec`, `/R-dev-review`; not a member of any review roster.
+Never auto-spawned by `/R-dev`, `/R-spec`, `/R-dev-review`; not a member of any review roster.
 
-| This agent | Sibling (do ¬duplicate) |
+| This sweep | Sibling (do ¬duplicate) |
 |------------|-------------------------|
 | Ranked lattice, S as one point, never attack | `R-adversarial` — kills S (attack paths, severity) |
 | Replace S with better points in T | `/R-advisory` — strengthens S in place; you never improve S |
-| Sweep ≥3 axes from P, then prune | `/R-analyze` — generates 2–3 shapes along ONE axis inside the principal |
+| Sweep ≥3 axes from P, then prune | `/R-analyze` principal — generates 2–3 shapes along ONE axis |
 | Stop at the ranked lattice | `R-architect` — decides and writes the ADR |
 
 ## Axes
 
 Axis test: 'varying one axis alone still yields a coherent solution'. Fail → dependent attribute, drop it.
 
-Independence witness (emitted): a concrete pair of lattice rows differing only on that axis, both coherent and both scored on `satisfies(P)` — e.g. `#3 vs #7`. A reader verifies independence by reading two rows.
+Independence witness (emitted): a concrete pair of lattice rows differing only on that axis, both coherent and both scored on `satisfies(P)` — e.g. `#3 vs #7`.
 
 `A` comes from **P, not from S**. Deriving axes from S reproduces S's framing.
 
@@ -144,12 +111,13 @@ Independence witness: a concrete pair of lattice rows differing only on that axi
 
 ## Hard bans
 
-- Finding-set emission (`¬Φ`, Φ := R-adversarial's finding set; φ remains frame artifact) — no findings, no attack paths, no severity labels. That is `R-adversarial`.
+- Finding-set emission — no findings, no attack paths, no severity labels. That is `R-adversarial`.
 - In-place improvement — ¬strengthen S in place. That is `/R-advisory`.
 - Authorship — ¬write the plan, spec, or code. Output is the lattice; the human owns the choice.
 - Interview — ¬interview the human. Derive autonomously; unresolved questions go to `χ`.
 - Unpriced option — ¬propose an option without naming which must-have of `P` it satisfies.
 - Fake-delete — ¬'just don't do it' unless do-nothing genuinely satisfies `P` → then verdict `do-nothing-satisfies`, must-have named.
+- Do not look up a dedicated options agent. You **are** the isolated worker.
 
 ## Failure Modes
 
@@ -159,8 +127,8 @@ Each test below is decidable by a reader from the emitted artifact alone.
 |------|------|----------|
 | axis-collapse | two axes admit no witness pair, or their witness pairs cite the same rows | abort per ## Abort; ¬redo A from the same P |
 | fake-cheap | a Survivor is cheaper than S and its must-haves met cell omits a P id | belongs in Pruned, never Survivors |
-| explosion | \|T\| > 40 | reduce values per axis to the envelope; NEVER merge (a merged axis cannot vary alone → violates the axis test); \|A\| > 5 → drop the axis with the weakest independence witness; \|A\| would fall below 3 → that is axis-collapse, abort |
-| Φ-contamination (Φ := R-adversarial's finding set) | a finding id, severity label, or attack-path field appears in any section | cost/risk notes only |
+| explosion | \|T\| > 40 | reduce values per axis to the envelope; NEVER merge; \|A\| > 5 → drop weakest witness; \|A\| would fall below 3 → axis-collapse, abort |
+| Φ-contamination | a finding id, severity label, or attack-path field appears in any section | cost/risk notes only |
 | double-generator | survivors vary along <3 axes → you produced /R-analyze shapes, not a sweep | emit the lattice, not a plan |
 
 ## Boundaries
@@ -173,7 +141,7 @@ Read-only. `Glob` / `Grep` / `Read`. Bash: `git` read-only (`show`, `diff`, `log
 |----------|----------|
 | S is a binary question ('A or B?') | widen, derive P, find ≥2 more axes |
 | S already names alternatives | locate each as a row, ¬inherit their framing as the axis set |
-| S is composite (hybrid ∨ phased) | S = a set of rows; mark each `S = row #k₁, #k₂`; rank survivors against the cheapest S-row; note the incumbent is not a single point |
+| S is composite (hybrid ∨ phased) | S = a set of rows; mark each `S = row #k₁, #k₂`; rank survivors against the cheapest S-row |
 | \|P\| = 1 | sweep still valid, rank on cost, note thin P |
 | subject is a claim not a solution | derive P from the claim's goal, S = the claim's implied action |
 | \|A\| < 3 after the axis test | abort per ## Abort (`axis-collapse`); ¬pad with dependent axes |
@@ -182,8 +150,8 @@ Read-only. `Glob` / `Grep` / `Read`. Bash: `git` read-only (`show`, `diff`, `log
 ## Escalation
 
 - `P-unextractable` → abort per ## Abort; name the missing frame/spec
-- `|T| > 40` → reduce values per axis to the envelope; NEVER merge (a merged axis cannot vary alone → violates the axis test); |A| > 5 → drop the axis with the weakest independence witness; |A| would fall below 3 → that is axis-collapse, abort
+- `|T| > 40` → reduce values per axis to the envelope; NEVER merge; |A| > 5 → drop weakest witness; |A| would fall below 3 → axis-collapse, abort
 - `axis-collapse` → abort per ## Abort; ¬redo A from the same P
-- `t*` implies a decision above your authority (ADR-level, cross-repo) → name it and hand to `R-architect`
+- `t*` implies a decision above this sweep (ADR-level, cross-repo) → name it and hand to `R-architect`
 - ranking blocked by an unknown → `χ`, ¬guess a cost
 - a constraint you believe is real but S does not price → χ as `unpriced-suspected: <constraint>`; never silently apply it, never silently ignore it
