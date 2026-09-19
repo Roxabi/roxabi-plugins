@@ -66,7 +66,7 @@ Omit empty fields. Lead forwards relevant sections to next α spawn prompt.
 | R-adversarial | Read-only + Bash (git read-only) | Source files |
 | R-architect | `docs/architecture/`, ADRs | App code |
 | R-product-lead | `artifacts/analyses/`, `artifacts/specs/`, `gh` CLI | App code |
-| R-doc-writer | `docs/`, `CLAUDE.md` | App code |
+| R-doc-writer | `docs/`, `AGENTS.md` | App code |
 
 Intra-domain parallel: multiple same-type α on non-overlapping files OK. Shared files → merge into single α.
 

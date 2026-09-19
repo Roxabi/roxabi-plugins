@@ -83,12 +83,12 @@ find . -type f \( -name "*.md" -o -name "*.mdx" \) \
 
 ∀ k ∈ K: grep across docs. D = {file | ∃ k ∈ K : k ∈ file.content}.
 
-Always include (even if K ∉ content): `CLAUDE.md`, root `README.md`, plugin `README.md` (∃ PLUGINS_REPO), matching `SKILL.md` files.
+Always include (even if K ∉ content): `AGENTS.md`, root `README.md`, plugin `README.md` (∃ PLUGINS_REPO), matching `SKILL.md` files.
 
 Display:
 ```
 Docs referencing changed concepts:
-  CLAUDE.md                              2 matches (gitleaks)
+  AGENTS.md                              2 matches (gitleaks)
   docs/guides/deployment.mdx             1 match (gitleaks)
   plugins/dev-core/hooks/README.md       3 matches (gitleaks, .gitleaks.toml)
   README.md                              0 matches (always checked)
@@ -101,13 +101,13 @@ Docs referencing changed concepts:
 
 ## Phase 5 — Update Docs
 
-∀ file ∈ D (order: CLAUDE.md → README.md → SKILL.md → rest alphabetically):
+∀ file ∈ D (order: AGENTS.md → README.md → SKILL.md → rest alphabetically):
 
 Targeted edits only — find affected section, update those lines. ¬rewrite unrelated. Append to EDITED after each.
 
 | Doc type | Audience | Guidelines |
 |----------|----------|------------|
-| `CLAUDE.md` | LLM | Codebase instructions, paths, conventions. Precise. |
+| `AGENTS.md` | LLM | Codebase instructions, paths, conventions. Precise. |
 | `README.md` (root) | Humans | User perspective. ¬implementation details. |
 | `SKILL.md` | LLM | Skill instructions. ¬bump version unless behavior changed. |
 | Plugin `README.md` | Humans | Usage, install, triggers. |
@@ -131,7 +131,7 @@ Doc Sync Complete
   Scanned: <N> doc files for <|K|> keywords
 
   Updated:
-    CLAUDE.md                           ✅ <section>
+    AGENTS.md                           ✅ <section>
     plugins/dev-core/hooks/README.md    ✅ <section>
     ...
 
@@ -152,7 +152,7 @@ Commit → `git add ${EDITED}` + `docs:` prefix. Plugin repo ≠ CWD ∧ plugin 
 | Scenario | Behavior |
 |----------|----------|
 | ¬git repo | Read docs from CWD, skip git context |
-| ¬CLAUDE.md ∨ ¬README.md | Skip, warn |
+| ¬AGENTS.md ∨ ¬README.md | Skip, warn |
 | ¬PLUGINS_REPO | Project docs only |
 | ¬plugin dir | Project docs only, warn |
 | δ vague | → ask user narrow to one feature |

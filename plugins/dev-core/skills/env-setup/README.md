@@ -1,10 +1,10 @@
 # env-setup
 
-Set up the local development environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, LSP.
+Set up the local development environment — stack.yml, AGENTS.md Critical Rules, docs scaffolding, LSP.
 
 ## Why
 
-Before using dev-core skills, a project needs a `stack.yml` describing its runtime, commands, and paths — plus governance rules in CLAUDE.md, docs stubs, and optional tooling (LSP). `/R-env-setup` handles all of this idempotently, whether run standalone or as the first step of `/init`.
+Before using dev-core skills, a project needs a `stack.yml` describing its runtime, commands, and paths — plus governance rules in AGENTS.md, docs stubs, and optional tooling (LSP). `/R-env-setup` handles all of this idempotently, whether run standalone or as the first step of `/init`.
 
 ## Usage
 
@@ -19,7 +19,7 @@ Triggers: `"env setup"` | `"setup environment"` | `"scaffold rules"`
 
 **Phase 1 — Stack configuration** — copies `stack.yml.example` to `.dev/stack.yml`, asks for critical fields (runtime, backend/frontend paths, test command). `stack.yml` is committed (project conventions, no secrets); only `.env` is gitignored.
 
-**Phase 2 — CLAUDE.md Critical Rules** — scaffolds governance rules (dev process, decision protocol, git conventions, Conventional Commits) from stack.yml values. Supports append-only (add missing sections), replace (rewrite all), or skip.
+**Phase 2 — AGENTS.md Critical Rules** — scaffolds governance rules (dev process, decision protocol, git conventions, Conventional Commits) from stack.yml values. Supports append-only (add missing sections), replace (rewrite all), or skip.
 
 **Phase 3 — Docs scaffolding** (optional) — creates `docs/architecture/`, `docs/standards/`, `docs/guides/` with Markdown template stubs (always `.md`).
 

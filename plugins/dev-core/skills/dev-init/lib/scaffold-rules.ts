@@ -1,11 +1,11 @@
 /**
- * scaffold-rules.ts — Generate CLAUDE.md Critical Rules sections from stack.yml values.
+ * scaffold-rules.ts — Generate AGENTS.md Critical Rules sections from stack.yml values.
  *
  * Reads .dev/stack.yml, detects project type, and produces markdown sections
- * that can be appended to or merged into an existing CLAUDE.md.
+ * that can be appended to or merged into an existing AGENTS.md.
  *
  * Usage:
- *   bun init.ts scaffold-rules [--stack-path .dev/stack.yml] [--project-name <name>] [--claude-md CLAUDE.md]
+ *   bun init.ts scaffold-rules [--stack-path .dev/stack.yml] [--project-name <name>] [--agents-md AGENTS.md]
  *
  * Output: JSON { sections: Section[], markdown: string, projectType: string }
  */
@@ -390,7 +390,7 @@ function generateSections(
   return sectionIds.map((id) => generators[id]?.()).filter((s): s is Section => s !== undefined)
 }
 
-/** Project-local subset — for users who inherit fleet governance from a parent CLAUDE.md. */
+/** Project-local subset — for users who inherit fleet governance from a parent AGENTS.md. */
 const PROJECT_LOCAL_IDS = new Set(['tldr', 'coding-standards', 'gotchas', 'artifact-model'])
 
 export function filterProjectLocalSections(sections: Section[]): Section[] {
@@ -416,14 +416,14 @@ function sectionsToMarkdown(sections: Section[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// Existing CLAUDE.md analysis
+// Existing AGENTS.md analysis
 // ---------------------------------------------------------------------------
 
 interface ExistingSections {
   sectionIds: string[]
-  /** Parent CLAUDE.md paths found walking up from the repo (until $HOME). */
+  /** Parent AGENTS.md paths found walking up from the repo (until $HOME). */
   parentPaths: string[]
-  /** First-hop @imports collected from parent CLAUDE.md files (reporting only). */
+  /** First-hop @imports collected from parent AGENTS.md files (reporting only). */
   parentImports: string[]
 }
 
@@ -443,20 +443,20 @@ function collectAtImports(content: string): string[] {
   return imports
 }
 
-/** Walk parent dirs for CLAUDE.md — signal only, never auto-skip authority. */
-export function discoverParentClaudeMd(claudeMdPath: string): {
+/** Walk parent dirs for AGENTS.md — signal only, never auto-skip authority. */
+export function discoverParentAgentsMd(agentsMdPath: string): {
   parentPaths: string[]
   parentImports: string[]
 } {
   const parentPaths: string[] = []
   const parentImports: string[] = []
   const home = resolve(homedir())
-  let current = dirname(resolve(claudeMdPath))
+  let current = dirname(resolve(agentsMdPath))
 
   // Start from parent of the target file's directory
   current = dirname(current)
   while (current && current !== '/' && current !== home) {
-    const candidate = join(current, 'CLAUDE.md')
+    const candidate = join(current, 'AGENTS.md')
     if (existsSync(candidate)) {
       parentPaths.push(candidate)
       try {
@@ -473,14 +473,14 @@ export function discoverParentClaudeMd(claudeMdPath: string): {
   return { parentPaths, parentImports: [...new Set(parentImports)] }
 }
 
-function analyzeExistingClaudeMd(claudeMdPath: string): ExistingSections {
-  const parents = discoverParentClaudeMd(claudeMdPath)
+function analyzeExistingAgentsMd(agentsMdPath: string): ExistingSections {
+  const parents = discoverParentAgentsMd(agentsMdPath)
 
-  if (!existsSync(claudeMdPath)) {
+  if (!existsSync(agentsMdPath)) {
     return { sectionIds: [], ...parents }
   }
 
-  const content = readFileSync(claudeMdPath, 'utf-8')
+  const content = readFileSync(agentsMdPath, 'utf-8')
   const lines = content.split('\n')
 
   // Detect which Critical Rules sections already exist (local only — title match)
@@ -517,14 +517,14 @@ function analyzeExistingClaudeMd(claudeMdPath: string): ExistingSections {
 export interface ScaffoldRulesOptions {
   stackPath?: string
   projectName?: string
-  claudeMdPath?: string
+  agentsMdPath?: string
 }
 
 export function scaffoldRules(
   options: ScaffoldRulesOptions = {},
 ): ScaffoldRulesResult & { existing: ExistingSections; facts: ScaffoldFacts } {
   const stackPath = resolve(options.stackPath ?? STACK_YML)
-  const claudeMdPath = resolve(options.claudeMdPath ?? 'CLAUDE.md')
+  const agentsMdPath = resolve(options.agentsMdPath ?? 'AGENTS.md')
   // Prefer repo root from stack.yml path: <repo>/.dev/stack.yml
   const repoRoot = basename(dirname(stackPath)) === CONTRACT_DIR ? dirname(dirname(stackPath)) : process.cwd()
 
@@ -534,7 +534,7 @@ export function scaffoldRules(
   const facts = detectScaffoldFacts(stack, repoRoot)
   const sections = generateSections(stack, projectType, projectName, facts)
   const markdown = sectionsToMarkdown(sections)
-  const existing = analyzeExistingClaudeMd(claudeMdPath)
+  const existing = analyzeExistingAgentsMd(agentsMdPath)
 
   return { projectType, sections, markdown, existing, facts }
 }

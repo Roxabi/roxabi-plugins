@@ -20,7 +20,7 @@ Full project initialization harness. Orchestrates focused sub-skills in sequence
 
 | Sub-skill | Concern |
 |-----------|---------|
-| `/R-env-setup` | stack.yml, CLAUDE.md rules, docs stubs, LSP |
+| `/R-env-setup` | stack.yml, AGENTS.md rules, docs stubs, LSP |
 | `/R-adr --axial` | **Axis of decomposition ADR** — mandatory drift prevention (N×M trap). Skippable via `--skip-axial` for trivial single-axis projects. See `shared/references/axial-decomposition.md` |
 | `/R-ci-setup` | GitHub Actions, TruffleHog (**seed** `scripts/trufflehog-check.sh` + exclude + lefthook + CI `secret-scan.yml`), principal freeze lefthook gate (offer), Dependabot, marketplace plugins |
 | `/R-release-setup` | Commit standards (Commitizen), hook additions, release automation (semantic-release / Release Please) |
@@ -117,11 +117,11 @@ dev-init complete
 =================
 
   Run /R-dev-checkup   to verify full configuration health
-  Run /R-seed-docs to populate docs stubs from CLAUDE.md + codebase
+  Run /R-seed-docs to populate docs stubs from AGENTS.md + codebase
 
 Next steps:
   /R-dev-checkup           Verify full configuration health
-  /R-seed-docs         Populate scaffolded docs with content from CLAUDE.md + codebase
+  /R-seed-docs         Populate scaffolded docs with content from AGENTS.md + codebase
   /R-dev #N            Start working on an issue
   /R-dev-init --force           Re-configure anytime
   /R-env-setup         Re-run environment setup only

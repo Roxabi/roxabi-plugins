@@ -32,7 +32,6 @@ roxabi-plugins/
 │       └── commands/            # (optional) slash commands
 │           └── <command-name>.md
 ├── AGENTS.md                    # this — agent instructions for every harness
-├── CLAUDE.md                    # two-line pointer to AGENTS.md
 ├── README.md                    # public docs
 └── LICENSE                      # AGPL-3.0
 ```

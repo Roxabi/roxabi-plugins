@@ -314,7 +314,7 @@ Ambiguous free text → **one short prose clarifying question** then **STOP this
 
 φ written with `status: approved`.
 
-Commit: `git add artifacts/frames/{N}-{slug}-frame.md` + commit per CLAUDE.md Rule 5.
+Commit: `git add artifacts/frames/{N}-{slug}-frame.md` + commit per AGENTS.md Rule 5.
 
 ∃ N (digit-validated) →
 ```bash

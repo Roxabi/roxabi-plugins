@@ -73,7 +73,7 @@ Read R first. Tool contract: MUST ¬Write, ¬Edit, ¬Bash. `Read` / `Glob` / `Gr
 **R1 — Resolve the unique axial ADR**
 
 1. Grep `pattern: "^axial: true|axis of decomposition"`, `path: docs/architecture/adr/`.
-2. ∅ matches → one blocking finding (`target-axis-trap`): no axial ADR; solutions: `/R-adr --axial` or document why trivial in CLAUDE.md; exit.
+2. ∅ matches → one blocking finding (`target-axis-trap`): no axial ADR; solutions: `/R-adr --axial` or document why trivial in AGENTS.md; exit.
 3. >1 match → blocking `parallel-path-drift`: singleton violated; solutions: `/R-adr --axial` auto-fix or strip `axial: true` from older files; refuse to pick one; exit.
 4. Exactly 1 → Read it. Extract `PRIMARY.axis` from `## Decision` (bold `Primary axis:`), `ANTI_PATTERN.pattern` from `## Consequences > Anti-pattern signal` (first backtick pair on `Grep pattern:`), `EXPECTED_DEBT` from `## Negative (Expected Debt)`.
 5. Sanitize `ANTI_PATTERN.pattern` before use: `len ≤ 200`; `re.fullmatch(r'[a-zA-Z0-9_/*.\-\[\]^$|(){}\\]+')`; no prose word-runs. Fail → blocking `missing-input-validation`; recommend `/R-adr --axial` supersede; exit.

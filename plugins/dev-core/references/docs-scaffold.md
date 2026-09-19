@@ -52,4 +52,4 @@ docs:
 
 ## Populate stubs
 
-After scaffold, run `/R-seed-docs` to replace TODO placeholders from CLAUDE.md + codebase scan.
+After scaffold, run `/R-seed-docs` to replace TODO placeholders from AGENTS.md + codebase scan.

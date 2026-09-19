@@ -401,7 +401,7 @@ This lets `/R-dev-implement` re-attach to tasks after a session restart (TaskLis
 
 #### Commit
 
-`git add artifacts/plans/{N}-{slug}-plan.md` + commit per CLAUDE.md Rule 5.
+`git add artifacts/plans/{N}-{slug}-plan.md` + commit per AGENTS.md Rule 5.
 
 `## Task IDs` must contain ≥1 `- T\d+:` line before counting as done (empty heading alone is ¬done).
 

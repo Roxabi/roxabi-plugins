@@ -1,7 +1,7 @@
 ---
 name: R-env-setup
 argument-hint: '[--force]'
-description: 'Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, LSP. Triggered by /R-dev-init or standalone /R-env-setup. Triggers: "env setup" | "setup environment" | "scaffold rules".'
+description: 'Set up local dev environment — stack.yml, AGENTS.md Critical Rules, docs scaffolding, LSP. Triggered by /R-dev-init or standalone /R-env-setup. Triggers: "env setup" | "setup environment" | "scaffold rules".'
 version: 0.1.0
 allowed-tools: Bash, Read, Write, Edit, ToolSearch
 ---
@@ -130,24 +130,24 @@ Let:
 
 Re-run idempotency: any subsequent `/R-env-setup` invocation re-evaluates the predicate — once σ has the key, step 2 short-circuits silently.
 
-## Phase 2 — Scaffold CLAUDE.md Critical Rules
+## Phase 2 — Scaffold AGENTS.md Critical Rules
 
 Generate governance rules (dev process, decision protocol, git conventions, etc.) from σ values. Sections vary by project type.
 
 σ ∄ → D("Critical Rules", "⏭ Skipped — requires stack.yml"), skip to Phase 3.
 
-1. Run: `bun $I_TS scaffold-rules --stack-path .dev/stack.yml --claude-md CLAUDE.md`
+1. Run: `bun $I_TS scaffold-rules --stack-path .dev/stack.yml --agents-md AGENTS.md`
 2. Parse JSON → extract `projectType`, `sections`, `markdown`, `existing`, `facts`.
 3. Display:
    ```
    Project type: {projectType}
    Repo facts:   baseBranch={facts.baseBranch}  pm={facts.packageManager}  .env.example={facts.hasEnvExample}
-   Parent CLAUDE.md: {existing.parentPaths joined | "none"}
+   Parent AGENTS.md: {existing.parentPaths joined | "none"}
    Parent imports:   {existing.parentImports joined | "none"}  ← machine-local; not auto-skip authority
    Local sections:   {existing.sectionIds or "none"}
    Sections to scaffold: {sections.length} ({section ids})
    ```
-   > Parent context is **reporting only**. Silent auto-skip is forbidden — parent/ssot paths are often machine-local; committed CLAUDE.md must stay portable for clones without that parent.
+   > Parent context is **reporting only**. Silent auto-skip is forbidden — parent/ssot paths are often machine-local; committed AGENTS.md must stay portable for clones without that parent.
 4. Present choice (always a gate — user is the gate):
    - **Scaffold full** — all generated sections (portable governance for any clone)
    - **Scaffold project-local only** — tldr + artifact-model + coding-standards + gotchas (when parent already loads fleet rules)

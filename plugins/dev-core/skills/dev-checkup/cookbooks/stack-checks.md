@@ -22,9 +22,9 @@ Set up → O_stackSetup { `mkdir -p .dev && cp "${Φ}/stack.yml.example" .dev/st
 **Schema:** ∀ field ∈ {`schema_version`, `commands.test`, `commands.lint`, `commands.typecheck`}: chk(∃, ✅, ⚠️ "Missing {field}").
 Contextual (warn only if parent section ∃ but field blank): `backend.path`, `frontend.path`, `standards.testing`, `standards.backend`, `standards.frontend`.
 
-**CLAUDE.md Critical Rules completeness:**
+**AGENTS.md Critical Rules completeness:**
 
-Run: `bun $I_TS scaffold-rules --stack-path .dev/stack.yml --claude-md CLAUDE.md`. Parse JSON → `projectType`, `sections`, `existing`.
+Run: `bun $I_TS scaffold-rules --stack-path .dev/stack.yml --agents-md AGENTS.md`. Parse JSON → `projectType`, `sections`, `existing`.
 
 - `existing.sectionIds` covers all expected sections for `projectType` → ✅ "Critical Rules complete ({N}/{N} sections for {projectType})"
 - partial → ⚠️ "Critical Rules incomplete — missing: {missing section ids}. Run `/init` to scaffold." (auto-fixable)
@@ -38,7 +38,7 @@ Auto-fix for partial/missing: run `/init` Phase 2c (scaffold-rules).
 Read `docs.path` from σ. ¬set → D⏭("docs.path not set"), skip doc checks.
 - `docs.path` dir ∃ → ✅ | ⚠️ "not found on disk" (auto-fixable).
 - ∃ dir → check `architecture/` ∧ `standards/`: both → ✅ | ⚠️ "incomplete — missing: {dirs}" (auto-fixable).
-- **Stub detection:** ∀ file in `docs.path` (*.md + legacy *.mdx for read): count files with `TODO:` markers or < 30 lines of real content. N > 0 → ⚠️ "{N} stub docs detected — run `/R-seed-docs` to populate from CLAUDE.md + codebase". N = 0 → ✅ "Docs populated".
+- **Stub detection:** ∀ file in `docs.path` (*.md + legacy *.mdx for read): count files with `TODO:` markers or < 30 lines of real content. N > 0 → ⚠️ "{N} stub docs detected — run `/R-seed-docs` to populate from AGENTS.md + codebase". N = 0 → ✅ "Docs populated".
 
 **Artifacts:** ∀ path ∈ `artifacts.*` → chk(∃, ✅, ⚠️ "dir not found: {path}").
 
@@ -120,7 +120,7 @@ Ask: **Fix all** | **Select** | **Skip**
 | `stack.yml missing` ∧ ¬legacy | Re-offer O_stackSetup |
 | `dev-core.yml missing` ∧ legacy | O_stackMigrate, ¬`/init` |
 | `stack.yml.example missing` | `mkdir -p .dev && cp "${Φ}/stack.yml.example" .dev/stack.yml.example` |
-| `Critical Rules missing/incomplete` | Run `bun $I_TS scaffold-rules`, then append/merge generated markdown into CLAUDE.md (same logic as `/init` Phase 2c) |
+| `Critical Rules missing/incomplete` | Run `bun $I_TS scaffold-rules`, then append/merge generated markdown into AGENTS.md (same logic as `/init` Phase 2c) |
 | `dev-core.yml missing` | Run `/init` |
 | `artifacts.* dir missing` | `mkdir -p {path}` ∀ missing |
 | `hooks.tool not set` | Append `hooks:\n  tool: auto` to σ |
@@ -135,7 +135,7 @@ Ask: **Fix all** | **Select** | **Skip**
 | `tools/licenseChecker.ts missing` | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && mkdir -p tools && cp "${Φ}/tools/licenseChecker.ts" tools/licenseChecker.ts` |
 | `.license-policy.json missing` (JS) | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && cp "${Φ}/tools/license-policy.json.example" .license-policy.json` |
 | `docs.path missing` / `docs incomplete` | `bun "${Φ}/skills/dev-init/init.ts" scaffold-docs --path {docs.path}` — re-check + display |
-| `Stub docs detected` | Run `/R-seed-docs` — populates TODOs from CLAUDE.md + codebase analysis |
+| `Stub docs detected` | Run `/R-seed-docs` — populates TODOs from AGENTS.md + codebase analysis |
 
 When `standards.*` paths match scaffold-docs output patterns → offer scaffold-docs instead of manual edit.
 

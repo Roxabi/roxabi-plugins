@@ -4,7 +4,7 @@ Let: α := agent(s) | σ := stack.yml field
 
 `stack.yml` makes dev-core agents project-agnostic. Agents reference `{backend.path}`, `{commands.test}`, etc. from `.dev/stack.yml`, which they Read straight from the repo **first** — before resolving any `{field}`, ¬lazily when one field happens to be needed.
 
-No context injection via CLAUDE.md: `@`-prefixed file imports are Claude Code-specific, while the `.dev/` contract must stay readable by any harness. ¬∃ `.dev/stack.yml` → agents output:
+**The contract is read, never imported.** No `@`-import line may be added to `AGENTS.md` (or any host context file) to inject it: `@`-prefixed imports resolve harness-by-harness, while the `.dev/` contract must stay readable by any harness. Agents and tooling open `.dev/stack.yml` themselves. ¬∃ `.dev/stack.yml` → agents output:
 > "`.dev/stack.yml` not found — run `/init` to generate the file, or `/R-dev-checkup` to diagnose."
 
 ## Field Reference
