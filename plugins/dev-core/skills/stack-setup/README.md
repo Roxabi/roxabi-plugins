@@ -29,7 +29,7 @@ Triggers: `"stack setup"` | `"setup stack"` | `"configure stack"` | `"fill stack
    - Build orchestrator (Turbo, Nx)
    - Docs path
 3. **Confirm** — displays detected configuration table; lets you edit any field before writing.
-4. **Write** — creates `.dev/stack.yml` (committed with project), creates `.dev/stack.yml.example` (reference template).
+4. **Write** — creates `.dev/stack.yml` (committed with project).
 
 ## Python quality gates
 

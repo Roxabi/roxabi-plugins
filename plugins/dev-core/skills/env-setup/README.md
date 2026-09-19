@@ -17,7 +17,7 @@ Triggers: `"env setup"` | `"setup environment"` | `"scaffold rules"`
 
 ## Phases
 
-**Phase 1 — Stack configuration** — copies `stack.yml.example` to `.dev/stack.yml`, asks for critical fields (runtime, backend/frontend paths, test command). `stack.yml` is committed (project conventions, no secrets); only `.env` is gitignored.
+**Phase 1 — Stack configuration** — copies the plugin's `stack.yml.example` template to `.dev/stack.yml`, asks for critical fields (runtime, backend/frontend paths, test command). `stack.yml` is committed (project conventions, no secrets); only `.env` is gitignored. No `.example` copy is left in the repo — the template ships with dev-core.
 
 **Phase 2 — AGENTS.md Critical Rules** — scaffolds governance rules (dev process, decision protocol, git conventions, Conventional Commits) from stack.yml values. Supports append-only (add missing sections), replace (rewrite all), or skip.
 

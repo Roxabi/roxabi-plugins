@@ -10,14 +10,13 @@ Run all checks. Collect fixable items. Apply fixes at end (Phase 2 Fix).
 |-------|----|----|
 | δ ∃ | "dev-core.yml found (primary config)" | ⚠️ "missing — config from .env fallback. Run `/init`" |
 | σ ∃ | ✅ | ❌ "stack.yml missing" |
-| `.dev/stack.yml.example` ∃ | ✅ | ⚠️ "stack.yml.example missing" |
 | ¬legacy, where legacy := ∃ f ∈ {`stack.yml`, `dev-core.yml`}: `.claude/{f}` ∃ ∧ `.dev/{f}` ∄ | ✅ | ⚠️ "legacy contract layout — {files} still in .claude/; dev-core reads `.dev/` only" |
 
 σ missing ∧ legacy → Ask: **Migrate now** (recommended) | **Skip**.
-Migrate → O_stackMigrate { `mkdir -p .dev && git mv .claude/stack.yml .dev/ 2>/dev/null; git mv .claude/dev-core.yml .dev/ 2>/dev/null; git mv .claude/stack.yml.example .dev/ 2>/dev/null`; D✅("contract migrated to .dev/ — commit alongside code") }. **¬O_stackSetup**: the template `cp` would overwrite the real contract with generic defaults (`release.model: staging-train`, `apps/api`, `apps/web`) and orphan the tuned one. Continue checks against the migrated file.
+Migrate → O_stackMigrate { `mkdir -p .dev && git mv .claude/stack.yml .dev/ 2>/dev/null; git mv .claude/dev-core.yml .dev/ 2>/dev/null`; D✅("contract migrated to .dev/ — commit alongside code") }. **¬O_stackSetup**: the template `cp` would overwrite the real contract with generic defaults (`release.model: staging-train`, `apps/api`, `apps/web`) and orphan the tuned one. Continue checks against the migrated file.
 
 σ missing ∧ ¬legacy → Ask: **Set up now** (recommended) | **Continue with warnings** (stack checks → ⏭).
-Set up → O_stackSetup { `mkdir -p .dev && cp "${Φ}/stack.yml.example" .dev/stack.yml`; Ask ∀ critical field (Runtime, Backend path, Frontend path, Test command); write values; ¬example → copy; D✅("stack.yml — fill remaining fields; commit alongside code") }. Continue checks against new file.
+Set up → O_stackSetup { `mkdir -p .dev && cp "${Φ}/stack.yml.example" .dev/stack.yml`; Ask ∀ critical field (Runtime, Backend path, Frontend path, Test command); write values; D✅("stack.yml — fill remaining fields; commit alongside code") }. Continue checks against new file.
 
 **Schema:** ∀ field ∈ {`schema_version`, `commands.test`, `commands.lint`, `commands.typecheck`}: chk(∃, ✅, ⚠️ "Missing {field}").
 Contextual (warn only if parent section ∃ but field blank): `backend.path`, `frontend.path`, `standards.testing`, `standards.backend`, `standards.frontend`.
@@ -119,7 +118,6 @@ Ask: **Fix all** | **Select** | **Skip**
 | `stack.yml missing` ∧ legacy | O_stackMigrate (migration is the fix — the contract exists, it is just in the old place) |
 | `stack.yml missing` ∧ ¬legacy | Re-offer O_stackSetup |
 | `dev-core.yml missing` ∧ legacy | O_stackMigrate, ¬`/init` |
-| `stack.yml.example missing` | `mkdir -p .dev && cp "${Φ}/stack.yml.example" .dev/stack.yml.example` |
 | `Critical Rules missing/incomplete` | Run `bun $I_TS scaffold-rules`, then append/merge generated markdown into AGENTS.md (same logic as `/init` Phase 2c) |
 | `dev-core.yml missing` | Run `/init` |
 | `artifacts.* dir missing` | `mkdir -p {path}` ∀ missing |
