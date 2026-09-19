@@ -150,6 +150,6 @@ description: All vX.Y releases
 
 ### 4d. Commit to staging
 
-`git add CHANGELOG.md docs/changelog/` + commit per CLAUDE.md Rule 5.
+`git add CHANGELOG.md docs/changelog/` + commit per AGENTS.md Rule 5.
 
 > Commits to staging, ¬main. Release notes included in staging→main PR.

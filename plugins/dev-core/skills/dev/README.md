@@ -9,7 +9,7 @@ Single entry point for the full dev lifecycle — scan artifacts, detect state, 
 /R-dev "dark mode"     Find or create an issue, then start
 /R-dev #42 --from spec Jump directly to a specific step
 /R-dev #42 --audit     Enable reasoning checkpoints before critical steps
-/R-dev --cleanup-context  Audit and clean CLAUDE.md, skills, memory
+/R-dev --cleanup-context  Audit and clean agent context files, skills, memory
 ```
 
 **Triggers:** `"dev"` | `"start working on"` | `"work on issue"` | `"work on #"` | `"develop"` | `"pick up issue"` | `"tackle issue"` | `"let's work on"`

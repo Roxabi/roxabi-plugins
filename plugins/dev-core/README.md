@@ -110,12 +110,12 @@ Skills organized by workflow phase:
 | Skill | Phase | Description |
 |-------|-------|-------------|
 | `R-dev-init` | Setup | Project setup orchestrator — env-setup → axial ADR gate → ci-setup → release-setup in one harness. Invoke as `/R-dev-init` (not the host built-in `/init`, which only scaffolds `CLAUDE.md`) |
-| `R-env-setup` | Setup | Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding (Markdown), LSP. Triggered by `/R-dev-init` or standalone `/R-env-setup` |
+| `R-env-setup` | Setup | Set up local dev environment — stack.yml, AGENTS.md Critical Rules, docs scaffolding (Markdown), LSP. Triggered by `/R-dev-init` or standalone `/R-env-setup` |
 | `R-ci-setup` | Setup | Set up CI/CD — GitHub Actions workflows, TruffleHog, Dependabot, pre-commit hooks, marketplace plugins. Discovers Roxabi plugins live from `marketplace.json` and endorsed external marketplaces from `curated-marketplaces.json` |
 | `R-stack-setup` | Setup | Auto-discovers runtime, framework, test tooling, and linter from the codebase, then writes `.dev/stack.yml`. Single confirmation screen — no wizard questions |
 | `R-dev-checkup` | Setup | Project-type-aware health check — verifies prerequisites, GitHub config, labels, CI/CD workflows (checks both local files and remote via REST API), required secrets (PAT for auto-merge.yml), branch protection, stack.yml, workspace.json registration, and LSP plugin install (typescript-lsp / pyright-lsp with auto-fix). Distinguishes ❌ blocking errors from ⚠️ optional warnings; exits 0 when warnings-only |
-| `R-seed-docs` | Setup | Populates scaffolded architecture/standards docs with real content — reads CLAUDE.md for conventions, optionally scans codebase (entry points, import graph, naming patterns), fills TODO stubs, writes AI Quick Reference sections. Idempotent: skips already-populated files |
-| `R-seed-community` | Setup | Bootstraps OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), `.github/PULL_REQUEST_TEMPLATE.md`, issue templates. Reads project metadata + CLAUDE.md; generates missing files idempotently |
+| `R-seed-docs` | Setup | Populates scaffolded architecture/standards docs with real content — reads AGENTS.md for conventions, optionally scans codebase (entry points, import graph, naming patterns), fills TODO stubs, writes AI Quick Reference sections. Idempotent: skips already-populated files |
+| `R-seed-community` | Setup | Bootstraps OSS community health files — CONTRIBUTING.md, LICENSE, SECURITY.md, CODE_OF_CONDUCT.md, README sections (Getting Started, Badges), `.github/PULL_REQUEST_TEMPLATE.md`, issue templates. Reads project metadata + AGENTS.md; generates missing files idempotently |
 | `R-dev` | Orchestrator | Routes issues through the full workflow (Frame→Ship) |
 | `R-ship` | Orchestrator | Lands ready code: commit → PR → code-review → fix loop → `reviewed` + ci-watch → cleanup |
 | `R-recheck` | Frame | Drift-check an issue (git-drift, symbol-missing, dep-resolved) before /R-dev work begins. Runs before /R-frame for every tier — no skip path. Signal-clean returns silently; signal-fire blocks with user choice (Proceed/Update/Close/Abort) |
@@ -135,7 +135,7 @@ Skills organized by workflow phase:
 | `R-promote` | Ship | Staging-train repos: promotes staging→main. Trunk repos: pre-flight only — auto-release owns the cut |
 | `R-test` | Supporting | Runs and manages tests |
 | `R-adr` | Supporting | Creates Architecture Decision Records. `/R-adr --axial` elicits the Axis of Decomposition ADR (used by `/R-dev-init`) |
-| `R-doc-sync` | Supporting | Syncs CLAUDE.md, README.md, and plugin SKILL.md after a code change |
+| `R-doc-sync` | Supporting | Syncs AGENTS.md, README.md, and plugin SKILL.md after a code change |
 | `R-readme-upgrade` | Supporting | Audits and improves root README, CONTRIBUTING.md, and plugin READMEs against the developer-tool quality pattern (Why, Quick Start, How it works, categorized tables, diagrams). Auto-detects Mermaid vs ASCII based on host |
 | `R-cleanup-context` | Supporting | Audits and cleans CLAUDE.md, memory, skills, and rules — resolves every finding (fix/promote/relocate/delete), tracks recurrences, targets bloat=0 |
 | `R-ci-watch` | Supporting | Watch a CI run with live emoji dashboard — polls every Ns, shows job/step status, dumps failed logs on error. Auto-detects `ci.yml` workflow |

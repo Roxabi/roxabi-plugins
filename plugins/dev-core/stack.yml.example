@@ -3,10 +3,11 @@
 # formatter, test runner). No secrets go here; only `.env` stays gitignored.
 # `.dev/dev-core.yml` holds GitHub Project node IDs (public, not secrets) — commit it too.
 #
-# stack.yml.example remains as a reference template for fresh clones.
+# This template ships with the dev-core plugin and stays there: a project keeps
+# `.dev/stack.yml` (its real contract) and no `.example` copy of its own.
 #
 # Usage:
-#   1. Copy to your project: mkdir -p .dev && cp stack.yml.example .dev/stack.yml
+#   1. Copy into your project: mkdir -p .dev && cp "${DEV_CORE}/stack.yml.example" .dev/stack.yml
 #   2. Fill in the values below for your project's stack.
 #   3. Commit .dev/stack.yml alongside code.
 #   4. Run /init to verify setup, /dev-checkup to health-check.

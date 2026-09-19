@@ -205,7 +205,7 @@ Skip if ¬technical uncertainty in Step 2 findings.
 - unknown blocks shape selection → name it in one prose line + say `spike` to run it in a throwaway worktree, `continue` to rank shapes without it → **stop the turn** (Step 5 already routes `spike …`)
 - else → continue to Step 3; χ surfaces in the Executive Summary, user can ask later
 
-**¬AQ bans menus, ¬consent.** A spike creates a branch + worktree and runs code — a repo mutation, carved out of the `¬worktree` scope line. Prose-ask + stop satisfies both the ban and CLAUDE.md Design Principle 2.
+**¬AQ bans menus, ¬consent.** A spike creates a branch + worktree and runs code — a repo mutation, carved out of the `¬worktree` scope line. Prose-ask + stop satisfies both the ban and AGENTS.md Design Principle 2.
 
 **Spike flow** — runs **only** after the user says `spike` (principal stays on β — [harness-worktree.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/harness-worktree.md)):
 
@@ -322,7 +322,7 @@ Ambiguous free text → ask **one short prose clarifying question** in the messa
 ### Approve path
 
 1. Set frontmatter `status: approved` via Edit.
-2. Commit: `git add artifacts/analyses/{N}-{slug}-analysis.md` + commit per CLAUDE.md Rule 5.
+2. Commit: `git add artifacts/analyses/{N}-{slug}-analysis.md` + commit per AGENTS.md Rule 5.
 3. Update issue status:
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Analysis

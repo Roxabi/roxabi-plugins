@@ -21,7 +21,7 @@ Let: σ := `.dev/stack.yml` | π := proposed config table
 → Skip: "Keeping existing σ. Run with `--force` to reconfigure."
 
 σ ∄ ∧ (`test -f .claude/stack.yml` ∨ `test -f .claude/dev-core.yml`) → **legacy layout** (contract predates `.dev/`) → present choice **Migrate now** (recommended) | **Skip**
-→ Migrate: `mkdir -p .dev && git mv .claude/stack.yml .dev/ 2>/dev/null; git mv .claude/dev-core.yml .dev/ 2>/dev/null; git mv .claude/stack.yml.example .dev/ 2>/dev/null` → "Contract migrated to .dev/ — commit alongside code." σ now ∃ → re-enter the σ ∃ branch (**Re-configure** | **Skip**); ¬overwrite the migrated values without `--force`.
+→ Migrate: `mkdir -p .dev && git mv .claude/stack.yml .dev/ 2>/dev/null; git mv .claude/dev-core.yml .dev/ 2>/dev/null` → "Contract migrated to .dev/ — commit alongside code." σ now ∃ → re-enter the σ ∃ branch (**Re-configure** | **Skip**); ¬overwrite the migrated values without `--force`.
 → Skip: abort — "Contract left in .claude/. Writing a fresh σ would orphan it; migrate first."
 
 σ ∄ ∧ ¬legacy → `mkdir -p .dev`
@@ -354,13 +354,9 @@ Let:
      commands.worktree_teardown    ✅ Registered in σ
    ```
 
-## Phase 5 — Reference template
-
-1. **Example:** `.dev/stack.yml.example` ∄ → copy σ → "Created as reference template."
-
 Note: `.dev/stack.yml` itself is committed (project stack conventions — no secrets). Only `.env` is gitignored by dev-core. `.dev/dev-core.yml` contains only public repo configuration and is committed.
 
-## Phase 6 — Summary
+## Phase 5 — Summary
 
 ```
 Stack configuration written
@@ -375,7 +371,6 @@ Stack configuration written
 
   .dev/stack.yml              ✅ Written
   .gitignore                  ✅ Updated / Already set
-  .dev/stack.yml.example      ✅ Created / Already exists
   tools/worktree-setup.sh     ✅ Written / Skipped (unsupported runtime | already present)
   tools/worktree-teardown.sh  ✅ Written / Skipped (unsupported runtime | already present)
   commands.worktree_setup     ✅ Registered in σ / Skipped

@@ -43,7 +43,7 @@ last_updated: "2026-04-28"
 
 | Agent | Focus | What to extract |
 |-------|-------|-----------------|
-| **Structure scanner** | Top-level layout | Directory tree (3 levels), README, CLAUDE.md, package.json, config files, git log, file counts by type |
+| **Structure scanner** | Top-level layout | Directory tree (3 levels), README, AGENTS.md, package.json, config files, git log, file counts by type |
 | **Core/agent scanner** | Architecture internals | Entry points, main loop, tool system, memory, LLM integration, identity/soul/persona, plugin system |
 | **Features scanner** | All capabilities | Channels, RAG, web search, browser, code execution, image/voice, task management, DB, API, auth, cron, deployment |
 

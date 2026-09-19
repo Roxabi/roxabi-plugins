@@ -20,7 +20,6 @@ TODO: Document environment variables.
   | File | Purpose | Committed? |
   |------|---------|:---:|
   | .dev/stack.yml | Dev-core stack config | Yes |
-  | .dev/stack.yml.example | Reference template for fresh clones | Yes |
   | .dev/dev-core.yml | Dev-core plugin config (GitHub IDs, Vercel) | Yes |
   | .env | Per-machine secrets / env vars | No (.gitignored) |
   | biome.json | Linter/formatter config | Yes |

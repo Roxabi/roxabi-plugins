@@ -322,7 +322,7 @@ describe('generateContextLintYml', () => {
 
   it('triggers only on agent-context file paths', () => {
     const yml = generateContextLintYml()
-    expect(yml).toContain("'**/CLAUDE.md'")
+    expect(yml).toContain("'**/AGENTS.md'")
     expect(yml).toContain("'.grok/**'")
   })
 })

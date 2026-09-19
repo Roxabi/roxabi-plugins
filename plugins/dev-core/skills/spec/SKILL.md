@@ -337,7 +337,7 @@ Ambiguous free text → ask **one short prose clarifying question** in the messa
 ### Approve path
 
 1. Set frontmatter `status: approved` via Edit.
-2. Commit: `git add artifacts/specs/{N}-{slug}-spec.md` + commit per CLAUDE.md Rule 5.
+2. Commit: `git add artifacts/specs/{N}-{slug}-spec.md` + commit per AGENTS.md Rule 5.
 3. Run Gate 2.5 only if triggers fire **and** user already said "split" — otherwise skip (do not force-split).
 4. Update issue status:
 ```bash

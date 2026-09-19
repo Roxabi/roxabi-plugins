@@ -41,7 +41,7 @@ Single entry point: scan artifacts → detect state → show progress → delega
 /R-dev "dark mode"     → find or create issue, then start
 /R-dev #42 --from spec → jump to specific step (warn if deps missing)
 /R-dev #42 --audit     → enable reasoning checkpoint before critical steps
-/R-dev --cleanup-context → audit & clean CLAUDE.md, skills, memory (delegates to /R-cleanup-context)
+/R-dev --cleanup-context → audit & clean agent context files, skills, memory (delegates to /R-cleanup-context)
 ```
 
 ## Step 0 — Parse Input

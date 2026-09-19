@@ -13,7 +13,7 @@ Bootstrap OSS community health files — `CONTRIBUTING.md`, `LICENSE`, `SECURITY
 ## What it does
 
 1. Reads project metadata from `package.json` / `pyproject.toml` / `go.mod` + GitHub API
-2. Reads `CLAUDE.md` for commit format, PR process, and stack notes
+2. Reads `AGENTS.md` for commit format, PR process, and stack notes
 3. Detects which community health files are missing or below the content threshold
 4. Asks for: license type, author/org name, optional extras (FUNDING.yml, CODEOWNERS)
 5. Generates each missing file with project-specific content

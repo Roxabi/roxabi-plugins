@@ -4,7 +4,6 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
-      - '**/CLAUDE.md'
       - '**/AGENTS.md'
       - '.claude/**'
       - '.grok/**'
@@ -12,7 +11,6 @@ on:
   push:
     branches: [main]
     paths:
-      - '**/CLAUDE.md'
       - '**/AGENTS.md'
       - '.claude/**'
       - '.grok/**'
@@ -37,7 +35,7 @@ jobs:
           V=0
           find_context_files() {
             find . \( -name node_modules -o -name .worktrees -o -name worktrees -o -name .git \) -prune -o -type f \( \
-              -name 'CLAUDE.md' -o -name 'AGENTS.md' -o \
+              -name 'AGENTS.md' -o \
               \( -name 'SKILL.md' \( -path '*/.grok/skills/*' -o -path '*/.claude/skills/*' -o -path '*/.agents/skills/*' \) \) -o \
               \( -name '*.md' \( -path '*/.grok/rules/*' -o -path '*/.claude/rules/*' -o -path '*/.grok/agents/*' \) \) \
             \) -print
@@ -58,7 +56,7 @@ jobs:
           while IFS= read -r f; do
             echo "::error file=$f::unfilled scaffold placeholder (gotchas)"
             V=$((V + 1))
-          done < <(grep -rl 'Add project-specific gotchas here' --include=CLAUDE.md . 2>/dev/null || true)
+          done < <(grep -rl 'Add project-specific gotchas here' --include=AGENTS.md . 2>/dev/null || true)
           if [ "$V" -eq 0 ]; then
             echo "context-lint: clean"
           else

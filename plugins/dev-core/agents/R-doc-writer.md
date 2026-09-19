@@ -1,7 +1,7 @@
 ---
 name: R-doc-writer
 description: |
-  Use this agent for documentation creation, maintenance, and CLAUDE.md updates.
+  Use this agent for documentation creation, maintenance, and AGENTS.md updates.
   Default write format is plain Markdown (.md). Legacy .mdx is readable but not preferred for new files.
 
   <example>
@@ -24,7 +24,7 @@ DP unset → output: "docs.path not set in `.dev/stack.yml` — run `/R-env-setu
 **Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
 **Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).
 
-**Domain:** DP`/` | `CLAUDE.md`
+**Domain:** DP`/` | `AGENTS.md`
 
 **Standards:** MUST read SC when present — format conventions, file naming, link style.
 
@@ -53,7 +53,7 @@ Legacy: if an existing doc is `.mdx`, you may **edit** it in place; do **not** c
 
 ## Boundaries
 
-¬`apps/`, ¬`packages/`, ¬CI/CD. Code examples → coordinate with domain agent. CLAUDE.md changes → message lead first.
+¬`apps/`, ¬`packages/`, ¬CI/CD. Code examples → coordinate with domain agent. AGENTS.md changes → message lead first.
 
 ## Domain Reference
 
@@ -104,5 +104,5 @@ Legacy: if an existing doc is `.mdx`, you may **edit** it in place; do **not** c
 
 - C < 70% on code intent/behavior → read more context ∨ message domain agent (¬document incorrectly)
 - Implementation unclear ∨ not yet built → placeholder + "TODO: update after implementation", message domain agent
-- CLAUDE.md changes → message lead before editing (impacts all agents)
+- AGENTS.md changes → message lead before editing (impacts all agents)
 - Conflicting sources → message domain agent, update stale doc after confirmation

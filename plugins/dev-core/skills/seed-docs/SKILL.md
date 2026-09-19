@@ -2,7 +2,7 @@
 name: R-seed-docs
 disable-model-invocation: true
 argument-hint: '[--docs-path <path>] [--no-scan]'
-description: Populate scaffolded architecture/standards docs from CLAUDE.md and the codebase.
+description: Populate scaffolded architecture/standards docs from AGENTS.md and the codebase.
 version: 0.1.2
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, ToolSearch
 ---
@@ -14,7 +14,7 @@ Let:
   DOCS := `docs.path` from σ (default: `docs`)
   FMT := `md` (write always Markdown; legacy `.mdx` stubs still eligible for fill)
   θ := stub threshold (< 30 non-blank, non-frontmatter lines OR ∃ `TODO:` markers)
-  K := knowledge extracted from CLAUDE.md + codebase scan
+  K := knowledge extracted from AGENTS.md + codebase scan
 
 **Goal:** fill every stub doc so agents find actionable guidance, not placeholder text.
 
@@ -23,7 +23,7 @@ Let:
 ```
 /R-seed-docs                   → auto-discover DOCS from stack.yml
 /R-seed-docs --docs-path docs  → explicit path
-/R-seed-docs --no-scan         → skip codebase scan, use CLAUDE.md only
+/R-seed-docs --no-scan         → skip codebase scan, use AGENTS.md only
 ```
 
 ## Phase 1 — Load Config
@@ -36,9 +36,9 @@ DOCS dir ∄ → present choice **Run /init first** | **Create docs dir and seed
 - "Run /init" → explain `/R-env-setup` Phase 3 (`scaffold-docs`) or `/R-dev-init` creates stubs, exit.
 - "Create" → `mkdir -p {DOCS}/{architecture,standards,guides,processes}`, continue.
 
-## Phase 2 — Read CLAUDE.md
+## Phase 2 — Read AGENTS.md
 
-Read `CLAUDE.md` (∃) + any `@`-imported files it references.
+Read `AGENTS.md` (∃) + any `@`-imported files it references.
 
 Extract into K:
 - **Purpose** — one-paragraph project summary
@@ -46,14 +46,14 @@ Extract into K:
 - **Module/folder structure** — src/ layout, package names, plugin dirs
 - **Naming conventions** — file, class, function, DB naming rules
 - **Stack** — framework, ORM, UI lib, test runner, deploy target
-- **Key commands** — dev, build, test, lint (from `commands.*` in σ or CLAUDE.md)
+- **Key commands** — dev, build, test, lint (from `commands.*` in σ or AGENTS.md)
 - **Domain terms** — glossary items, entity names, bounded contexts
 - **Patterns** — "always X", "never Y", "use X for Y" rules
 - **Data flow** — request lifecycle, event patterns, module boundaries
 - **Error handling** — exception hierarchy, boundary rules
-- **Design principles** — numbered/bulleted principles from CLAUDE.md
+- **Design principles** — numbered/bulleted principles from AGENTS.md
 
-Display: `Extracted {|K topics|} topics from CLAUDE.md.`
+Display: `Extracted {|K topics|} topics from AGENTS.md.`
 
 ## Phase 3 — Codebase Scan (skip if `--no-scan`)
 
@@ -110,7 +110,7 @@ Read file → identify TODO sections → fill each using K.
 | Data Flow | K.data_flow + K.module_structure | Request path description |
 | Framework & ORM | K.stack + σ fields | Actual framework/ORM versions |
 | Module Structure | K.module_structure + scan | Actual dir tree snippet |
-| API Conventions | K.patterns + scan (controllers) | Concrete rules from CLAUDE.md + inferred |
+| API Conventions | K.patterns + scan (controllers) | Concrete rules from AGENTS.md + inferred |
 | Test conventions | K.test + scan findings | Actual test file examples |
 | Domain terms / Ubiquitous Language | K.domain_terms | Table: Term \| Definition |
 | **AI Quick Reference** | K.patterns | ≤ 10 imperative rules, "ALWAYS/NEVER/PREFER" format |
@@ -119,7 +119,7 @@ Read file → identify TODO sections → fill each using K.
 - Replace `TODO: <placeholder>` with real content; remove the TODO line.
 - Remove `<!-- comment blocks -->` covered by real content; keep only if they add context.
 - Standards docs → write for developers; AI Quick Reference → write for agents.
-- K has no data for section → keep TODO + add hint: `TODO: (seed-docs found no data — check CLAUDE.md or run /R-seed-docs after adding more project context)`.
+- K has no data for section → keep TODO + add hint: `TODO: (seed-docs found no data — check AGENTS.md or run /R-seed-docs after adding more project context)`.
 - ¬fabricate — if genuinely unknown, say so with a note.
 - CI / quality-gate docs (AGENTS.md, `standards.testing`, lefthook comments): **point at** the package script (`{package_manager} run validate:full` or `{commands.*}`). **Ban enumerating** `validate:full` steps — the script is the SSoT; a copied list drifts (`parallel-path-drift`).
 - Write/fill as plain Markdown. Prefer fenced Mermaid code blocks. If filling a legacy `.mdx` file, keep its existing component conventions; never convert `.md` → `.mdx`.
@@ -136,7 +136,7 @@ After populating, verify ∀ `## AI Quick Reference` section across all standard
 Seed Docs Complete
 ==================
 
-  Source:      CLAUDE.md{+ codebase scan}
+  Source:      AGENTS.md{+ codebase scan}
   Topics:      {|K|} knowledge items extracted
   Populated:   {N} files
   Skipped:     {M} already-populated files
@@ -153,14 +153,14 @@ Seed Docs Complete
 
 "Commit" → `git add {DOCS}` + commit:
 ```
-docs: seed architecture and standards docs from CLAUDE.md
+docs: seed architecture and standards docs from AGENTS.md
 ```
 
 ## Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| ¬CLAUDE.md | Warn "CLAUDE.md not found — scan only". Proceed with Phase 3. |
+| ¬AGENTS.md | Warn "AGENTS.md not found — scan only". Proceed with Phase 3. |
 | ¬git repo | Skip commit offer |
 | Python/Go project | Phase 3 adapts scan patterns; TS-specific patterns skipped |
 | Monorepo | Scan top-level packages only; note in summary |

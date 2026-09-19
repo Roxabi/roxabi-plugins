@@ -3,7 +3,7 @@
 # formatter, test runner), and dev-core/CI read release.model + release.component
 # from it. No secrets go here; only `.env` stays gitignored.
 # `.dev/dev-core.yml` holds GitHub Project node IDs (public, not secrets) — commit it too.
-# stack.yml.example remains as a reference template for fresh clones.
+# The reference template ships with the plugin: plugins/dev-core/stack.yml.example.
 schema_version: "1.0"
 
 runtime: bun
@@ -46,7 +46,7 @@ docs:
   format: md
 
 # Panel is adversarial-by-default.
-# Per-agent overrides live in stack.yml.example.
+# Per-agent overrides: see plugins/dev-core/stack.yml.example.
 review:
   roster:
     max_agents: 3

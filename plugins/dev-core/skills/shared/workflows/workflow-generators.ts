@@ -317,8 +317,9 @@ jobs:
 
 /** Generic context lint — keeps agent-context files honest:
  *  repo-relative `@imports` in harness context files must resolve, and scaffold
- *  placeholders must be filled. Covers Claude (.claude/rules, CLAUDE.md) and Grok
- *  (.grok/rules, .grok/skills/SKILL.md, .grok/agents). Home-dir imports (`@~/...`)
+ *  placeholders must be filled. Covers AGENTS.md (read by Claude, Codex, Grok and
+ *  OMP alike), .claude/rules, and Grok (.grok/rules, .grok/skills/SKILL.md,
+ *  .grok/agents). Home-dir imports (`@~/...`)
  *  are machine-local and skipped on CI. Stack-agnostic (pure bash, no deps).
  *  Ecosystem-level checks (project index, factory registry) live in the central
  *  ~/projects/scripts/context-lint.sh, deliberately not here. */
@@ -330,7 +331,6 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
-      - '**/CLAUDE.md'
       - '**/AGENTS.md'
       - '.claude/**'
       - '.grok/**'
@@ -338,7 +338,6 @@ on:
   push:
     branches: ${branches}
     paths:
-      - '**/CLAUDE.md'
       - '**/AGENTS.md'
       - '.claude/**'
       - '.grok/**'
@@ -362,7 +361,7 @@ jobs:
           V=0
           find_context_files() {
             find . \\( -name node_modules -o -name .worktrees -o -name worktrees -o -name .git \\) -prune -o -type f \\( \\
-              -name 'CLAUDE.md' -o -name 'AGENTS.md' -o \\
+              -name 'AGENTS.md' -o \\
               \\( -name 'SKILL.md' \\( -path '*/.grok/skills/*' -o -path '*/.claude/skills/*' -o -path '*/.agents/skills/*' \\) \\) -o \\
               \\( -name '*.md' \\( -path '*/.grok/rules/*' -o -path '*/.claude/rules/*' -o -path '*/.grok/agents/*' \\) \\) \\
             \\) -print
@@ -383,7 +382,7 @@ jobs:
           while IFS= read -r f; do
             echo "::error file=$f::unfilled scaffold placeholder (gotchas)"
             V=$((V + 1))
-          done < <(grep -rl 'Add project-specific gotchas here' --include=CLAUDE.md . 2>/dev/null || true)
+          done < <(grep -rl 'Add project-specific gotchas here' --include=AGENTS.md . 2>/dev/null || true)
           if [ "$V" -eq 0 ]; then
             echo "context-lint: clean"
           else

@@ -23,7 +23,7 @@ Triggers: `"dev-init"` | `"setup project"` | `"initialize project"`
 1. **Idempotency check** — detects existing `.dev/dev-core.yml` or `.env` config; asks to re-configure or skip.
 2. **Prerequisites** — verifies `bun`, `gh`, and `git remote` are available; shows install links for missing tools.
 3. **Sub-skills** — calls in order:
-   - `/R-env-setup` — stack.yml, CLAUDE.md rules, docs stubs, LSP
+   - `/R-env-setup` — stack.yml, AGENTS.md rules, docs stubs, LSP
    - `/R-adr --axial` — axis of decomposition ADR (unless `--skip-axial`)
    - `/R-ci-setup` — GitHub Actions, TruffleHog, Dependabot, hooks, marketplace plugins
    - `/R-release-setup` — Commitizen, commitlint, semantic-release / Release Please

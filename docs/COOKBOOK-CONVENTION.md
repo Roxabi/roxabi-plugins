@@ -94,7 +94,7 @@ When adding a new cookbook/playbook:
 1. **Determine scope:** every cookbook is plugin-local → `plugins/<name>/cookbooks/`. There is no `shared/cookbooks/`.
 2. **Check naming:** Cookbook = `{topic}.md` | Playbook = `{TOPIC}-PLAYBOOK.md`
 3. **Add to index:** Update this doc's examples if new category
-4. **Link from consumer:** Add reference in skills/CLAUDE.md that use it
+4. **Link from consumer:** Add reference in the `SKILL.md` files that use it
 
 ---
 

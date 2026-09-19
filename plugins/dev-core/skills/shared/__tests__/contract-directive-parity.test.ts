@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { STACK_YML } from '../../../hooks/lib/contract-paths.cjs'
 
-// Since the CLAUDE.md `@`-import was dropped (it is Claude-Code-specific), nothing
+// Since the `AGENTS.md` `@`-import was dropped (resolution is harness-specific), nothing
 // injects the contract into context: an agent or skill that interpolates a stack
 // field MUST read `.dev/stack.yml` itself. The plausible bug is a NEW agent/skill
 // that consumes `{commands.test}` without referencing the contract — the placeholder

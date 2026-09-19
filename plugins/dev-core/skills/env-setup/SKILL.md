@@ -1,7 +1,7 @@
 ---
 name: R-env-setup
 argument-hint: '[--force]'
-description: 'Set up local dev environment — stack.yml, CLAUDE.md Critical Rules, docs scaffolding, LSP. Triggered by /R-dev-init or standalone /R-env-setup. Triggers: "env setup" | "setup environment" | "scaffold rules".'
+description: 'Set up local dev environment — stack.yml, AGENTS.md Critical Rules, docs scaffolding, LSP. Triggered by /R-dev-init or standalone /R-env-setup. Triggers: "env setup" | "setup environment" | "scaffold rules".'
 version: 0.1.0
 allowed-tools: Bash, Read, Write, Edit, ToolSearch
 ---
@@ -27,16 +27,15 @@ Set up σ early — later phases read runtime, package manager, commands, deploy
 
 1. `test -f .dev/stack.yml && echo exists || echo missing`
 2. missing ∧ (`test -f .claude/stack.yml` ∨ `test -f .claude/dev-core.yml`) → **legacy layout** (contract predates `.dev/`) → Ask: **Migrate now** (recommended) | **Skip**.
-   - **Migrate** → O_stackMigrate: `mkdir -p .dev && git mv .claude/stack.yml .dev/ 2>/dev/null; git mv .claude/dev-core.yml .dev/ 2>/dev/null; git mv .claude/stack.yml.example .dev/ 2>/dev/null`
-     D("stack.yml", "✅ Migrated to .dev/ — commit alongside code"). **¬`cp` of the template**: the real contract already exists; copying `stack.yml.example` over it would replace hand-tuned values (`release.model`, paths, commands) with generic defaults. Continue at step 5.
+   - **Migrate** → O_stackMigrate: `mkdir -p .dev && git mv .claude/stack.yml .dev/ 2>/dev/null; git mv .claude/dev-core.yml .dev/ 2>/dev/null`
+     D("stack.yml", "✅ Migrated to .dev/ — commit alongside code"). **¬`cp` of the template**: the real contract already exists; copying the template over it would replace hand-tuned values (`release.model`, paths, commands) with generic defaults. Phase 1 complete — continue at Phase 1b.
    - **Skip** → D⏭("stack.yml — contract left in .claude/, dev-core guards stay off"), skip to Phase 2.
 3. missing ∧ ¬legacy → Ask: **Set up stack.yml now** (recommended) | **Skip** (fallback defaults).
 4. **Set up** → O_stackSetup:
    - `mkdir -p .dev && cp "${Φ}/stack.yml.example" .dev/stack.yml`
    - Ask ∀ critical field: **Runtime** → bun|node|python → `runtime`+`package_manager` | **Backend path** (e.g. `apps/api`, blank=none) | **Frontend path** (e.g. `apps/web`, blank=none) | **Test command** → `commands.test`
    - Write values into σ. Inform: "Fill in remaining fields in σ before running agents."
-5. ¬`.dev/stack.yml.example` → `mkdir -p .dev && cp "${Φ}/stack.yml.example" .dev/stack.yml.example`. D("stack.yml.example", "✅ Created (reference template)").
-6. existing → D("stack.yml", "✅ Already exists"), skip.
+5. existing → D("stack.yml", "✅ Already exists"), skip.
 
 Note: `.dev/stack.yml` is **committed** (project stack conventions — no secrets). Only `.env` is gitignored by dev-core. `.dev/dev-core.yml` contains only public GitHub Project node IDs and is committed.
 
@@ -130,24 +129,24 @@ Let:
 
 Re-run idempotency: any subsequent `/R-env-setup` invocation re-evaluates the predicate — once σ has the key, step 2 short-circuits silently.
 
-## Phase 2 — Scaffold CLAUDE.md Critical Rules
+## Phase 2 — Scaffold AGENTS.md Critical Rules
 
 Generate governance rules (dev process, decision protocol, git conventions, etc.) from σ values. Sections vary by project type.
 
 σ ∄ → D("Critical Rules", "⏭ Skipped — requires stack.yml"), skip to Phase 3.
 
-1. Run: `bun $I_TS scaffold-rules --stack-path .dev/stack.yml --claude-md CLAUDE.md`
+1. Run: `bun $I_TS scaffold-rules --stack-path .dev/stack.yml --agents-md AGENTS.md`
 2. Parse JSON → extract `projectType`, `sections`, `markdown`, `existing`, `facts`.
 3. Display:
    ```
    Project type: {projectType}
    Repo facts:   baseBranch={facts.baseBranch}  pm={facts.packageManager}  .env.example={facts.hasEnvExample}
-   Parent CLAUDE.md: {existing.parentPaths joined | "none"}
+   Parent AGENTS.md: {existing.parentPaths joined | "none"}
    Parent imports:   {existing.parentImports joined | "none"}  ← machine-local; not auto-skip authority
    Local sections:   {existing.sectionIds or "none"}
    Sections to scaffold: {sections.length} ({section ids})
    ```
-   > Parent context is **reporting only**. Silent auto-skip is forbidden — parent/ssot paths are often machine-local; committed CLAUDE.md must stay portable for clones without that parent.
+   > Parent context is **reporting only**. Silent auto-skip is forbidden — parent/ssot paths are often machine-local; committed AGENTS.md must stay portable for clones without that parent.
 4. Present choice (always a gate — user is the gate):
    - **Scaffold full** — all generated sections (portable governance for any clone)
    - **Scaffold project-local only** — tldr + artifact-model + coding-standards + gotchas (when parent already loads fleet rules)

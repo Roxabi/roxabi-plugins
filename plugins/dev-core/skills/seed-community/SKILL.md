@@ -46,7 +46,7 @@ cat go.mod 2>/dev/null | head -5
 gh repo view --json nameWithOwner,description,licenseInfo,url 2>/dev/null
 ```
 
-**1d.** Read `CLAUDE.md` (∃). Extract: purpose (1–3 sentences), commit format, branch conventions, PR/review process, stack notes. Merge into M: `{name, description, license, author, repo_url, commit_format, pr_process, stack}`.
+**1d.** Read `AGENTS.md` (∃). Extract: purpose (1–3 sentences), commit format, branch conventions, PR/review process, stack notes. Merge into M: `{name, description, license, author, repo_url, commit_format, pr_process, stack}`.
 
 ## Phase 2 — Detect Missing Files
 

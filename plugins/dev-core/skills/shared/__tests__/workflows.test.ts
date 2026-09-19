@@ -568,10 +568,16 @@ describe('generateContextLintYml', () => {
 
   it('triggers only on agent-context file paths', () => {
     const yml = generateContextLintYml()
-    expect(yml).toContain("'**/CLAUDE.md'")
+    expect(yml).toContain("'**/AGENTS.md'")
     expect(yml).toContain("'.grok/**'")
     expect(yml).toContain("github.event_name != 'pull_request' || !github.event.pull_request.draft")
     expect(yml).not.toContain('classify')
+  })
+
+  it('lints the scaffold placeholder in the file scaffold-rules writes (AGENTS.md)', () => {
+    const yml = generateContextLintYml()
+    expect(yml).toContain("grep -rl 'Add project-specific gotchas here' --include=AGENTS.md")
+    expect(yml).not.toContain('CLAUDE.md')
   })
 
   it('declares PR types including ready_for_review and least-privilege permissions', () => {

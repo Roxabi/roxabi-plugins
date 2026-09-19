@@ -23,9 +23,6 @@ const CONTRACT_DIR = '.dev'
 /** Stack conventions: paths, commands, formatter, test runner, release. */
 const STACK_YML = `${CONTRACT_DIR}/stack.yml`
 
-/** Reference template kept alongside the real stack for fresh clones. */
-const STACK_YML_EXAMPLE = `${CONTRACT_DIR}/stack.yml.example`
-
 /** dev-core plugin config: github_repo and other public (non-secret) IDs. */
 const DEV_CORE_YML = `${CONTRACT_DIR}/dev-core.yml`
 
@@ -35,7 +32,6 @@ const PROJECT_CONTRACT_FILES = [STACK_YML, DEV_CORE_YML]
 module.exports = {
   CONTRACT_DIR,
   STACK_YML,
-  STACK_YML_EXAMPLE,
   DEV_CORE_YML,
   PROJECT_CONTRACT_FILES,
 }

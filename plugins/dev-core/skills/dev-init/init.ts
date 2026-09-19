@@ -23,7 +23,7 @@ Usage:
   bun init.ts push-context-lint --owner <owner> --repo <repo> [--branch <branch>] [--release-model trunk|staging-train]  # context-lint.yml only (always updates)
   bun init.ts protect-branches --repo <owner/repo>
   bun init.ts scaffold-docs [--path docs]
-  bun init.ts scaffold-rules [--stack-path ${STACK_YML}] [--project-name <name>] [--claude-md CLAUDE.md]
+  bun init.ts scaffold-rules [--stack-path ${STACK_YML}] [--project-name <name>] [--agents-md AGENTS.md]
   bun init.ts seed-trufflehog [--force] [--cwd <dir>] [--source-dir <dir>]
   bun init.ts seed-principal-freeze [--force] [--cwd <dir>] [--source-dir <dir>] [--no-patch-hooks] [--check]
   bun init.ts scaffold --github-repo <owner/repo> [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
@@ -180,7 +180,7 @@ switch (command) {
     const result = scaffoldRules({
       stackPath: parseFlag('--stack-path', STACK_YML),
       projectName: parseFlag('--project-name', ''),
-      claudeMdPath: parseFlag('--claude-md', 'CLAUDE.md'),
+      agentsMdPath: parseFlag('--agents-md', 'AGENTS.md'),
     })
     console.log(JSON.stringify(result, null, 2))
     break

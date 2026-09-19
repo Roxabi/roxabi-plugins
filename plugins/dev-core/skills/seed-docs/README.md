@@ -1,18 +1,18 @@
 # seed-docs
 
-Populate scaffolded architecture and standards docs with real content extracted from `CLAUDE.md` and codebase analysis — fills TODO stubs, writes AI Quick Reference sections.
+Populate scaffolded architecture and standards docs with real content extracted from `AGENTS.md` and codebase analysis — fills TODO stubs, writes AI Quick Reference sections.
 
 ## Usage
 
 ```
 /R-seed-docs                     → Auto-discover docs path from stack.yml
 /R-seed-docs --docs-path docs    → Explicit path
-/R-seed-docs --no-scan           → Skip codebase scan, use CLAUDE.md only
+/R-seed-docs --no-scan           → Skip codebase scan, use AGENTS.md only
 ```
 
 ## What it does
 
-1. **Reads `CLAUDE.md`** — extracts purpose, architecture style, module structure, naming conventions, stack, key commands, domain terms, patterns, data flow, error handling, design principles
+1. **Reads `AGENTS.md`** — extracts purpose, architecture style, module structure, naming conventions, stack, key commands, domain terms, patterns, data flow, error handling, design principles
 2. **Scans codebase** — samples entry points, module structure, naming patterns, dependencies, test conventions (skip with `--no-scan`)
 3. **Identifies stub docs** — files with < 30 lines of real content or `TODO:` markers
 4. **Fills each stub** — replaces TODO placeholders with real content from the extracted knowledge; adds an "AI Quick Reference" section with ≤10 imperative rules per standards doc
@@ -22,13 +22,13 @@ Populate scaffolded architecture and standards docs with real content extracted 
 
 | Section | Source |
 |---------|--------|
-| Architecture overview | CLAUDE.md purpose + style |
+| Architecture overview | AGENTS.md purpose + style |
 | Module/layer structure | Actual directory tree |
 | Naming conventions | Sampled file names |
-| Error handling | CLAUDE.md hierarchy |
+| Error handling | AGENTS.md hierarchy |
 | API conventions | Patterns + controllers |
 | Test conventions | Sampled test files |
-| Domain terms | CLAUDE.md glossary |
+| Domain terms | AGENTS.md glossary |
 | AI Quick Reference | "always/never/prefer" rules |
 
 Idempotent — skips fully-populated files (≥30 lines, no TODOs).
