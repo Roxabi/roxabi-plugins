@@ -4,7 +4,12 @@ pre-commit:
       run: bunx biome check --write --no-errors-on-unmatched {staged_files}
       glob: "*.{ts,tsx,js,jsx}"
     typecheck:
+      # tsconfig `include` is *.ts only and allowJs is off, so a commit with no
+      # TypeScript staged has nothing to check. Without this glob the step ran
+      # a repo-wide tsc on doc-only commits — and failed outright in a fresh
+      # worktree, where node_modules (and therefore tsc) does not exist yet.
       run: bun run typecheck
+      glob: "*.{ts,tsx}"
     detectLocalPath-guard:
       run: |
         # Fail on detectLocalPath imports outside canonical module
