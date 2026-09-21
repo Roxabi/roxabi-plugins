@@ -9,6 +9,9 @@ description: >
 ## Status
 
 Accepted — 2026-08-21. Implements Roxabi/roxabi-plugins#417 Shape 1 (V1).
+**Narrowed 2026-09-21 by ADR-020** — this ADR governs the Claude/Grok product only.
+The OMP product does not absorb `R-pr`, so it has no oracle producer and no tester
+falsify gate.
 
 ## Context
 
