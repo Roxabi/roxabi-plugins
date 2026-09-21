@@ -3,13 +3,18 @@
 ## Workflow
 
 ```
-feature/fix branch → PR → main → auto-release cuts roxabi-plugins/vX.Y.Z
+feature/fix branch → PR → main
+git tag -a roxabi-plugins/vX.Y.Z → release.yml publishes the GitHub Release
 ```
 
 1. Create a branch from `main`: `feat/plugins/new-skill`, `fix/plugins/compress-edge-case`
 2. Open a PR targeting `main`
 3. Pass CI (`bun lint`, `bun typecheck`, `bun test`)
 4. Merge
+
+Merging cuts **no** release. A release exists because someone decided a state was
+worth naming and pushed an annotated tag — see
+[ADR-021](docs/architecture/adr/021-release-is-an-explicit-act.md).
 
 ## Creating a new plugin
 

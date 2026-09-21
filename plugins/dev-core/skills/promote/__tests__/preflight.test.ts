@@ -51,9 +51,10 @@ describe('preflight.sh — trunk-mode guard (#371 N17)', () => {
 
   it('trunk WITH a staging branch → opens the create-PR path (trunk_promote_pr), not a blanket no-op (#371 B1)', () => {
     // The narrowed guard (B1): a repo mid-transition that keeps `staging` must
-    // still be able to open the staging→main merge PR — auto-release.yml tags on
-    // merge. Falsifiable: reverting to the blanket `status=trunk_mode; exit 0`
-    // guard makes this emit trunk_mode and never reach the fall-through line.
+    // still be able to open the staging→main merge PR — merging lands the commits
+    // on main, where an annotated tag may later name them. Falsifiable: reverting
+    // to the blanket `status=trunk_mode; exit 0` guard makes this emit trunk_mode
+    // and never reach the fall-through line.
     const dir = mkdtempSync(join(tmpdir(), 'preflight-'))
     dirs.push(dir)
     const env = {
