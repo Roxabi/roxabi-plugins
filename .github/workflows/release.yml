@@ -30,8 +30,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history + tags: the ancestry assertion below needs origin/main,
-          # and --verify-tag needs the tag object itself.
+          # Full history + tags: fetch-depth 0 is what creates origin/main for the
+          # ancestry assertion below, and --verify-tag needs the tag object itself.
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
@@ -46,8 +46,10 @@ jobs:
           test "$(git rev-list -n 1 "$GITHUB_REF_NAME")" = "$GITHUB_SHA"
           # 3. That commit is reachable from main. This replaces the derived
           #    reachability floor: a tag on an unmerged branch is not a release.
-          #    checkout leaves no remote-tracking ref for main, so fetch it first.
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          #    origin/main is already there — fetch-depth: 0 makes checkout fetch
+          #    +refs/heads/*:refs/remotes/origin/* (actions/checkout ref-helper.ts,
+          #    getRefSpecForAllHistory). Re-fetching here would also break the day
+          #    this repo goes private, since persist-credentials is false.
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
 
       - name: Create the GitHub Release

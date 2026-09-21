@@ -35,11 +35,13 @@ jobs:
           curl -sSfL https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
             | tar xz -C "${RUNNER_TEMP}/actionlint" actionlint
           echo "${RUNNER_TEMP}/actionlint" >> "$GITHUB_PATH"
-      # Schema gate for the committed workflows. release.yml is hand-written and
-      # deliberately ungoverned by a generator or an N11 byte gate (ADR-021), so
-      # this is the only thing standing between a typo and a dead release run.
-      - name: Lint workflows (actionlint)
-        run: actionlint
+      # Schema gate for release.yml. It is hand-written and deliberately ungoverned
+      # by a generator or an N11 byte gate (ADR-021), so this is the only thing
+      # standing between a typo and a dead release run. Scoped to that one file on
+      # purpose: a repo-wide run also reports pre-existing findings in the
+      # GENERATED workflows, whose fix belongs in the generator, not here.
+      - name: Lint release.yml (actionlint)
+        run: actionlint .github/workflows/release.yml
       - name: Test (vitest)
         run: bun run test
       - name: Test (cli — bun:test)
