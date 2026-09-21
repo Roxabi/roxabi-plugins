@@ -15,7 +15,7 @@ PRs: merge-commit only (¬squash) — squash causes history divergence on next p
 and a `staging-train` consumer MUST keep maintaining its changelog: `/R-promote` step 3 writes it
 (`skills/promote/SKILL.md:29`, `references/release-artifacts.md` §4a) and step 9b ships the
 section as the **release body** — `gh release create --notes "$CHANGELOG_CONTENT"`
-(`SKILL.md:363`). Under trunk `auto-release.sh:162` uses `--generate-notes` instead, so the file
+(`SKILL.md:363`). Under trunk `release.yml` uses `--generate-notes` instead, so the file
 is load-bearing there and inert here. Deleting it under staging-train would ship empty releases.
 
 | Surface | Role |
@@ -36,19 +36,17 @@ added to the unversioned pile. The freeze is the only control that does.
 
 ### Why in-tree per-version headings are ¬used under trunk
 
-Not impossible — **racy and self-releasing**:
+Historically: **racy and self-releasing**. The version was derived *at* merge from the payload's
+commit types (`price.sh:117-132`), so concurrent PRs raced the number; and a follow-up PR adding
+the heading was itself a payload that `price.sh:123` priced as a patch bump (D18), cutting
+another release. D3 was ¬the blocker — it checks the parent count of the SHA being released,
+so a 1-parent stamp reds only that run.
 
-- **Stamp in the feature PR:** the version is derived *at* merge from the payload's commit types
-  (`price.sh:117-132`), so an author can predict it only for a serial merge. Concurrent PRs race
-  the number.
-- **Stamp in a follow-up PR after the tag exists:** the cut PR is itself a payload, and
-  `price.sh:123` defaults every conventional type — `docs:`, `chore:` — to a **patch bump**
-  (D18). The cut would cut a release. `auto-release.sh:91`'s empty-payload no-op does not save
-  it: `DERIVED != BASE`.
-
-D3 is ¬the blocker. It checks the parent count of the SHA **being released**
-(`auto-release.sh:44-51`): a 1-parent stamp reds *that* run only, and the next 2-parent merge
-releases normally.
+**Both hazards died with the tagger** (ADR-021). Nothing derives at merge, so nothing races and
+nothing self-releases; the version is known at `git tag -a` time. In-tree headings are now
+*possible*. They stay unused because the release body comes from `--generate-notes` and the
+archive is byte-frozen — one writable surface, by design. Reopening the question means changing
+the release-notes source first, ¬adding a heading beside it.
 
 ### Why `finalize.ts`'s `heading` witness stays null under trunk
 
@@ -57,12 +55,9 @@ releases normally.
 silent (D12).
 
 Under **staging-train** the version is known before the promotion PR merges, so an author writes
-`## [X.Y.Z]` and the witness catches drift. Under trunk a heading written *after* a release is
-still the **previous version** when the next release derives, so the witness would disagree on
-every release, forever — noise, ¬signal.
-
-`auto-release.sh:18,99` therefore passes no `--witness-*` flags (D4, with `version_files: []`).
-That is deliberate, ¬an omission.
+`## [X.Y.Z]` and the witness catches drift. Under trunk `finalize.ts` is not on the path at all —
+nothing derives a version at merge, so there is no derivation for a witness to disagree with.
+The null is deliberate, ¬an omission.
 
 ## Branch convention for uv git deps
 

@@ -132,7 +132,7 @@ Skills organized by workflow phase:
 | `R-fix` | Verify | Applies fixes from review feedback |
 | `R-validate` | Verify | Validates implementation against spec |
 | `R-cleanup` | Ship | Post-merge cleanup |
-| `R-promote` | Ship | Staging-train repos: promotes staging→main. Trunk repos: pre-flight only — auto-release owns the cut |
+| `R-promote` | Ship | Staging-train repos: promotes staging→main. Trunk repos: pre-flight only — a release is cut by pushing an annotated tag |
 | `R-test` | Supporting | Runs and manages tests |
 | `R-adr` | Supporting | Creates Architecture Decision Records. `/R-adr --axial` elicits the Axis of Decomposition ADR (used by `/R-dev-init`) |
 | `R-doc-sync` | Supporting | Syncs AGENTS.md, README.md, and plugin SKILL.md after a code change |

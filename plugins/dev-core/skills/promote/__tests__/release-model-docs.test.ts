@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-// Docs sentinel for the release.model contract (#371 N12/N13). Grep-checkable so
-// the four trunk-mode concepts + the stack.yml.example key cannot silently rot.
+// Docs sentinel for the release.model contract (#371 N12/N13, narrowed by ADR-021).
+// Grep-checkable so the trunk-mode concepts + the stack.yml.example key cannot
+// silently rot.
 //   __tests__ → promote (SKILL.md) ; __tests__ → promote → skills → dev-core (stack.yml.example)
 const SKILL_MD = fileURLToPath(new URL('../SKILL.md', import.meta.url))
 const STACK_EXAMPLE = fileURLToPath(new URL('../../../stack.yml.example', import.meta.url))
@@ -17,21 +18,18 @@ describe('promote docs — release.model contract (#371 S5 / N12,N13)', () => {
     expect(skill).toContain('release.model')
   })
 
-  it('(a) documents the merge-commit requirement', () => {
-    expect(skill).toMatch(/merge.commit/i)
+  it('(a) documents that a trunk release is an annotated tag, pushed by a human (ADR-021)', () => {
+    // The four original bullets described the merge-to-main tagger: merge-commits
+    // required (D3), fires on every merge, empty payload = green no-op (D18), and
+    // workflow_dispatch recovery. All four named machinery that no longer exists,
+    // so they are deleted rather than re-pinned to replacement prose. What is left
+    // is the one claim a reader can act on.
+    expect(skill).toMatch(/git tag -a/)
+    expect(skill).toMatch(/annotated/i)
   })
 
   it('(b) documents that /R-promote no-ops under trunk (status=trunk_mode)', () => {
     expect(skill).toContain('status=trunk_mode')
-  })
-
-  it('(c) documents firing on every merge, with the empty payload = green no-op (D18)', () => {
-    expect(skill).toMatch(/every merge/i)
-    expect(skill).toContain('D18')
-  })
-
-  it('(d) documents the workflow_dispatch recovery runbook', () => {
-    expect(skill).toContain('workflow_dispatch')
   })
 
   it('(e) narrows the trunk guard (B1) — create-PR path stays open, --finalize is refused', () => {

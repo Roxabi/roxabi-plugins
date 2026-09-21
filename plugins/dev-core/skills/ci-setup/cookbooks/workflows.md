@@ -38,7 +38,7 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
    - `typecheck` ← `commands.typecheck` present → `true`, else `false`
    - `e2e` ← `testing.e2e: playwright` → `playwright`, else `none`
    - `release-model` ← `release.model` (`trunk` | `staging-train`; default `staging-train`)
-   - `release-component` ← `release.component` (required when model is trunk — baked into auto-release.yml)
+   - `release-component` ← `release.component` (préfixe du tag `<component>/vX.Y.Z` ; scope le plancher release-consistency)
 
 4. ∃ missing → Ask: **Set up CI/CD** | **Skip**.
 
@@ -65,7 +65,7 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
        --release-component "<σ.release.component>"
      ```
      > **Top-up par défaut** : les fichiers déjà présents sur le repo sont **skippés** — les repos font évoluer leur `ci.yml` bien au-delà du template (multi-job, e2e, etc.). Ajouter `--force` UNIQUEMENT pour régénérer volontairement, après diff explicite des fichiers qui seraient écrasés.
-     > **Trunk mode (`release.model: trunk`, #375)** : le `auto-release.yml` généré invoque `plugins/dev-core/skills/promote/auto-release.sh` (+ sa closure `price.sh`/`lib/finalize.ts`) depuis la racine du repo. Ce chemin ne résout que si dev-core est **vendored sous `plugins/`** (comme dans roxabi-plugins) ; un repo qui consomme dev-core depuis `~/.claude/plugins/cache/…` ne l'a pas → le workflow mourrait `exit 127` à sa première release. Le writer (`writeWorkflows`/`pushWorkflows`) **REFUSE loud à la provision** si le script n'est pas résolvable. Vendorer le script, ou ne pas activer trunk. Passer `--release-model` + `--release-component` depuis σ (le CLI lit aussi σ si les flags sont omis).
+     > **Trunk mode (`release.model: trunk`)** : depuis ADR-021 le générateur n'émet **aucun** workflow de release. `trunk` ne décrit plus qu'un flux de branches (pas de `staging`, les features atterrissent sur `main`) ; une release est coupée en poussant un tag annoté `<component>/vX.Y.Z`, et le workflow qui la publie est écrit à la main dans le repo — ni généré, ni byte-gaté (N11 est mort avec le tagger). Passer `--release-model` + `--release-component` depuis σ (le CLI lit aussi σ si les flags sont omis) : le component reste requis, il scope le plancher release-consistency et le préfixe du tag.
    - **App token provisioning** (always — PAT mode retired):
      - `gh variable set ROXABI_CI_APP_ID --org <org> --body <app-id>` (org-level)
        OR (private repo / free-plan org): `gh variable set ROXABI_CI_APP_ID --repo <owner>/<repo> --body <app-id>`
