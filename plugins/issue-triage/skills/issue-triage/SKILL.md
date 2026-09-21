@@ -1,8 +1,8 @@
 ---
 name: issue-triage
 argument-hint: '[list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] [--type T] [--lane L]]'
-description: Triage/create GitHub issues — set size/priority/lane/type labels, manage dependencies & parent/child. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type".
-version: 0.5.0
+description: Triage/create GitHub issues — set size/priority/lane/type labels, manage dependencies & parent/child. Run before `/feature` picks a ticket up. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type".
+version: 0.6.0
 allowed-tools: Bash, Read, ToolSearch
 ---
 
@@ -14,7 +14,12 @@ Default: `T` or `T list` (no args = list).
 
 Create GitHub issues, assign Size/Priority labels, manage blockedBy dependencies and parent/child relationships.
 
-Companion of `/R-dev`: run **before** `/R-dev`. Not a STEPS entry — `/R-dev` does not invoke this skill.
+This skill owns every issue write: creation, `size:` tier, priority, type, and the
+native relations. Nothing else writes them — not `gh issue create`, not a
+`Blocked by:` line in a body. The project contract is `docs/agents/issue-tracker.md`.
+
+It runs **before** the delivery cycle, not inside it: `/feature` reads tickets and
+never mutates them.
 
 ## Instructions
 
@@ -118,15 +123,15 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
 
 **Why:**
 - `gh issue view E` shows the full fan-out flat (A + B + future C…) — true scope of the epic, ¬nested cascade
-- `/R-dev` re-scan retombe correctement sur l'épic origin pour tout follow-up
+- A frontier query lands on the origin epic for every follow-up, however deep the deferral chain
 - Multi-level deferrals (A→B→C) stay flat under E — ¬arbre profond ingérable
 
 **Decomposition vs deferral:**
 
 | Pattern | Parent-child? | Example |
 |---------|---------------|---------|
-| **Epic → phase** (planned decomposition) | ✓ child of epic | `/R-spec` smart-splitting: phase 1, phase 2 are children of epic |
-| **Issue → follow-up** (deferral, post-hoc) | ✗ sibling under shared parent | `/R-fix` Phase 5 Defer: out-of-scope finding becomes sibling |
+| **Epic → phase** (planned decomposition) | ✓ child of epic | `to-spec` splits an epic: phase 1, phase 2 are children of it |
+| **Issue → follow-up** (deferral, post-hoc) | ✗ sibling under shared parent | A review finding deferred out of `/feature` becomes a sibling |
 | **Bug → regression** (related ¬caused) | ✗ standalone | New bug surfaced post-merge, ¬child, ¬sibling necessarily |
 
 **Recipe — defer A → create follow-up B:**
@@ -165,7 +170,7 @@ gh issue edit <number> --body "$BODY
 <!-- complexity: <score> -->"
 ```
 
-`<!-- complexity: N -->` is machine-parseable; downstream tools (e.g. `/plan`) read it.
+`<!-- complexity: N -->` is machine-parseable, so a later read can recover the score behind a tier.
 
 **Factors (each 1-10, weighted):**
 
@@ -181,11 +186,16 @@ gh issue edit <number> --body "$BODY
 
 **Tier mapping:**
 
-| Score | Tier | Process | Agent Mode |
-|-------|------|---------|-----------|
-| 1-3 | **S** | Worktree + direct implementation + PR | Single session, no agents |
-| 4-6 | **F-lite** | Worktree + subagents + /code-review | Task subagents (1-2 domain + tester) |
-| 7-10 | **F-full** | Bootstrap + worktree + agent team + /code-review | TeamCreate (3+ agents, test-first) |
+| Score | Tier | Label written |
+|-------|------|---------------|
+| 1-3 | **S** | `size:S` |
+| 4-6 | **F-lite** | `size:F-lite` |
+| 7-10 | **F-full** | `size:F-full` |
+
+The label is the **only** source of the review tier — `R-dev-review` reads τ from
+the issue, so a ticket created without a `size:` label silently downgrades its own
+review to `F-lite`. What each tier costs downstream is the project contract's to
+state, not this skill's: `docs/agents/issue-tracker.md` § Tier is mandatory.
 
 κ is advisory. Human judgment overrides. → ask userif score ≠ intuition.
 
@@ -226,7 +236,7 @@ T set 42 --size M --priority High --lane c1 --type fix
 
 ## Completion
 
-- **Success:** print one line: `Done. Next: /R-dev #N`. Stop.
+- **Success:** print one line: `Done. Next: /feature #N`. Stop.
 - **Failure:** return error.
 
 $ARGUMENTS
