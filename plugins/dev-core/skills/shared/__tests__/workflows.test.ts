@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   classifyTestRunner,
   generateAutoMergeYml,
-  generateAutoReleaseYml,
   generateCiYml,
   generateContextLintYml,
   generateDeployYml,
@@ -368,64 +367,6 @@ describe('normalizeWorkflowOpts — release (Model B / #371)', () => {
   })
 })
 
-describe('generateAutoReleaseYml (Model B / #371)', () => {
-  const trunkOpts = {
-    stack: 'bun',
-    test: 'vitest',
-    deploy: 'none',
-    release: { model: 'trunk', component: 'roxabi-plugins' },
-  } as const
-
-  it('triggers on CI workflow_run completed on main + workflow_dispatch (W1)', () => {
-    const yml = generateAutoReleaseYml(trunkOpts)
-    expect(yml).toContain('workflow_run:')
-    expect(yml).toContain('workflows: ["CI"]')
-    expect(yml).toContain('types: [completed]')
-    expect(yml).toMatch(/branches:\s*\[main\]/)
-    expect(yml).toContain('workflow_dispatch')
-    expect(yml).toContain("github.event.workflow_run.conclusion == 'success'")
-    expect(yml).toContain("github.event.workflow_run.event == 'push'")
-    expect(yml).toContain('github.event.workflow_run.head_repository.full_name == github.repository')
-  })
-
-  it('has contents: write + a FIFO queue (cancel-in-progress: false + queue: max) (W2)', () => {
-    const yml = generateAutoReleaseYml(trunkOpts)
-    expect(yml).toContain('permissions:\n  contents: write')
-    expect(yml).toContain('group: auto-release-')
-    expect(yml).toContain('cancel-in-progress: false')
-    expect(yml).toContain('queue: max')
-  })
-
-  it('mints the roxabi-ci app token BEFORE checkout (pushed tag re-triggers builds) (W3/N6)', () => {
-    const yml = generateAutoReleaseYml(trunkOpts)
-    const mintIdx = yml.indexOf('Mint app token')
-    const checkoutIdx = yml.indexOf(ACTION_PINS.checkout)
-    expect(mintIdx).toBeGreaterThan(-1)
-    expect(checkoutIdx).toBeGreaterThan(mintIdx)
-    expect(yml).toContain(ACTION_PINS.createAppToken)
-  })
-
-  it('checks out full history + tags so select_base never starves → regressive v0.1.0 (W4)', () => {
-    const yml = generateAutoReleaseYml(trunkOpts)
-    expect(yml).toContain('fetch-depth: 0')
-    expect(yml).toContain('token: ') // checkout authed with steps.app.outputs.token
-    expect(yml).toContain('steps.app.outputs.token')
-    expect(yml).toContain('git fetch --tags')
-  })
-
-  it('bakes COMPONENT into a THIN invocation of auto-release.sh — no inline orchestration (N4)', () => {
-    const yml = generateAutoReleaseYml(trunkOpts)
-    expect(yml).toContain('auto-release.sh')
-    expect(yml).toContain('roxabi-plugins') // COMPONENT baked at generate-time
-    expect(yml).toContain('github.event.workflow_run.head_sha || github.sha')
-    // Thin: the derive/classify/reconcile core lives in auto-release.sh, never
-    // a second copy in YAML (design constraint, #353 invariant).
-    expect(yml).not.toContain('rev-list --parents')
-    expect(yml).not.toContain('--base-only')
-    expect(yml).not.toContain('finalize.ts')
-  })
-})
-
 describe('generateDeployYml', () => {
   it('generates Vercel deploy workflow', () => {
     const yml = generateDeployYml({ stack: 'bun', test: 'none', deploy: 'vercel' })
@@ -515,46 +456,21 @@ describe('writeWorkflows', () => {
     expect(results).toContainEqual({ file: 'deploy-cloudflare.yml', status: 'created' })
   })
 
-  // A trunk auto-release.yml `run:`s plugins/dev-core/skills/promote/auto-release.sh
-  // from the repo root; the resolvability guard (#375) requires that path to exist
-  // before it will write the workflow, so seed the closure in the throwaway repo.
-  function seedTrunkReleaseScript(): void {
-    fs.mkdirSync('plugins/dev-core/skills/promote', { recursive: true })
-    fs.writeFileSync('plugins/dev-core/skills/promote/auto-release.sh', '#!/usr/bin/env bash\n')
-  }
-
-  it('emits auto-release.yml when release.model is trunk (N18)', async () => {
-    seedTrunkReleaseScript()
-    const results = await writeWorkflows({ ...opts, release: { model: 'trunk', component: 'roxabi-plugins' } })
-
-    expect(results).toContainEqual({ file: 'auto-release.yml', status: 'created' })
-    expect(fs.existsSync('.github/workflows/auto-release.yml')).toBe(true)
-    expect(fs.readFileSync('.github/workflows/auto-release.yml', 'utf8')).toContain('name: Auto Release')
-  })
-
   it('writes [main] into context-lint.yml under trunk', async () => {
-    seedTrunkReleaseScript()
     await writeWorkflows({ ...opts, release: { model: 'trunk', component: 'x' } })
     const yml = fs.readFileSync('.github/workflows/context-lint.yml', 'utf8')
     expect(yml).toContain('branches: [main]\n')
     expect(yml).not.toContain('branches: [main, staging]')
   })
 
-  it('REFUSES to write a trunk auto-release.yml when auto-release.sh is not vendored (#375)', async () => {
-    // Empty repo — the baked `run:` path does not resolve here, so the workflow
-    // would die exit 127 at its first release. Fail loud at provision time.
-    await expect(writeWorkflows({ ...opts, release: { model: 'trunk', component: 'roxabi-plugins' } })).rejects.toThrow(
-      /auto-release\.sh.*not resolvable|not resolvable.*auto-release\.sh/s,
-    )
-    // Nothing was written — the refusal precedes mkdir/write, so no partial .github/.
-    expect(fs.existsSync('.github/workflows/auto-release.yml')).toBe(false)
-  })
+  it('emits NO release workflow under either model — a release is a pushed tag, not a merge (ADR-021)', async () => {
+    const staging = await writeWorkflows(opts)
+    expect(staging.map((r) => r.file)).not.toContain('auto-release.yml')
 
-  it('does NOT emit auto-release.yml under staging-train (default)', async () => {
-    const results = await writeWorkflows(opts)
-
-    expect(results.map((r) => r.file)).not.toContain('auto-release.yml')
-    expect(fs.existsSync('.github/workflows/auto-release.yml')).toBe(false)
+    fs.rmSync('.github', { recursive: true, force: true })
+    const trunk = await writeWorkflows({ ...opts, release: { model: 'trunk', component: 'roxabi-plugins' } })
+    expect(trunk.map((r) => r.file)).not.toContain('auto-release.yml')
+    expect(fs.readdirSync('.github/workflows').filter((f) => /release/.test(f))).toEqual([])
   })
 })
 
