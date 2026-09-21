@@ -4,8 +4,9 @@
 set -euo pipefail
 
 # ── Trunk-mode guard (#371 N17) — MUST be first ──
-# A repo on release.model: trunk releases at merge-to-main (auto-release.yml),
-# never via a staging→main promote. /R-promote does not apply, and a trunk repo may
+# A repo on release.model: trunk lands features directly on main and cuts releases
+# by pushing an annotated tag (ADR-021), never via a staging→main promote.
+# /R-promote does not apply, and a trunk repo may
 # have no `staging` branch — so this precedes the staging fetch below. Read the
 # model with a yq → python3 → default chain so the guard never goes inert when
 # yq is absent on CI; default staging-train keeps existing repos unaffected (N9).
@@ -22,22 +23,22 @@ read_release_model() {
 }
 RELEASE_MODEL=$(read_release_model)
 if [ "${RELEASE_MODEL:-staging-train}" = "trunk" ]; then
-  # Narrowed guard (#371 B1). Under trunk, auto-release.yml is the SOLE tagger at
-  # merge-to-main, so /R-promote must never tag — its --finalize step is refused
-  # (SKILL.md Step 9). But the staging→main *merge PR* never tags, and it is still
-  # how a repo that keeps a `staging` branch through the trunk transition gets
-  # commits onto main (where auto-release.yml then fires). So allow the create-PR
+  # Narrowed guard (#371 B1). Under trunk nothing tags at merge-to-main — a release
+  # is cut by pushing an annotated tag (ADR-021) — so /R-promote must never tag
+  # either; its --finalize step is refused (SKILL.md Step 9). But the staging→main
+  # *merge PR* never tags, and it is still how a repo that keeps a `staging` branch
+  # through the trunk transition gets commits onto main. So allow the create-PR
   # flow when a staging branch exists; a pure trunk repo (no staging) has nothing
   # to promote → clean no-op. Local ref check (no network) so it runs before the
   # staging fetch below and stays deterministic under test.
   if git rev-parse --verify --quiet refs/heads/staging >/dev/null 2>&1 \
      || git rev-parse --verify --quiet refs/remotes/origin/staging >/dev/null 2>&1; then
     echo "status=trunk_promote_pr"
-    echo "release.model==trunk — /R-promote opens the staging→main merge PR only; auto-release.yml tags on merge, and --finalize is refused (single writer)."
+    echo "release.model==trunk — /R-promote opens the staging→main merge PR only; it never tags, and --finalize is refused (ADR-021: a trunk release is a pushed tag)."
     # fall through to the normal pre-flight below (fetch, commits-ahead, CI).
   else
     echo "status=trunk_mode"
-    echo "release.model==trunk with no staging branch — /R-promote does not apply; releases fire at merge-to-main (auto-release.yml)."
+    echo "release.model==trunk with no staging branch — /R-promote does not apply; a trunk release is cut by pushing an annotated tag (ADR-021)."
     exit 0
   fi
 fi

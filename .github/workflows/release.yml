@@ -1,0 +1,70 @@
+# Release on an annotated tag (ADR-021 — a release is an explicit act).
+#
+# A merge to `main` cuts nothing. A release exists because a human decided a state
+# was worth naming and pushed an annotated tag:
+#
+#   git tag -a roxabi-plugins/vX.Y.Z -m "…" && git push origin roxabi-plugins/vX.Y.Z
+#
+# Nothing is derived here — no conventional-commit bump map, no reachability floor.
+# The version is the one in the tag. This file is HAND-WRITTEN on purpose: it is not
+# emitted by /R-ci-setup and not byte-gated by /R-dev-checkup (N11 died with the
+# tagger it guarded). Edit it here, in review.
+name: Release
+
+on:
+  push:
+    tags:
+      - "roxabi-plugins/v*"
+
+permissions: {}
+
+jobs:
+  release:
+    name: Verify the tag and publish the Release
+    # A fork pushing a matching tag must not publish under this repo's token.
+    if: github.repository == 'Roxabi/roxabi-plugins'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history + tags: fetch-depth 0 is what creates origin/main for the
+          # ancestry assertion below, and --verify-tag needs the tag object itself.
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Verify the tag is annotated, points here, and is on main
+        shell: bash
+        run: |
+          # 1. Annotated, not lightweight — a lightweight tag carries no author,
+          #    no date and no message, so it cannot witness a deliberate release.
+          test "$(git cat-file -t "$GITHUB_REF_NAME")" = "tag"
+          # 2. The tag points at exactly the commit this run was triggered for.
+          test "$(git rev-list -n 1 "$GITHUB_REF_NAME")" = "$GITHUB_SHA"
+          # 3. That commit is reachable from main. This replaces the derived
+          #    reachability floor: a tag on an unmerged branch is not a release.
+          #    origin/main is already there — fetch-depth: 0 makes checkout fetch
+          #    +refs/heads/*:refs/remotes/origin/* (actions/checkout ref-helper.ts,
+          #    getRefSpecForAllHistory). Re-fetching here would also break the day
+          #    this repo goes private, since persist-credentials is false.
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          # Idempotent by presence: a re-run of a run whose tag push already
+          # produced a Release must not fail, and must never recreate it.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "noop: Release $GITHUB_REF_NAME already exists."
+            exit 0
+          fi
+          title="${GITHUB_REF_NAME/\// }"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$title" \
+            --verify-tag \
+            --generate-notes

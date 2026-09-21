@@ -3,7 +3,6 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   generateAutoMergeYml,
-  generateAutoReleaseYml,
   generateCiYml,
   generateContextLintYml,
   generateDeployYml,
@@ -88,40 +87,20 @@ export function checkWorkflowDrift(): Check[] {
     }
   }
 
-  // ── Trunk-mode double-writer guards (#371 N10/N11) — hard FAILS, not warns ──
-  // A drifted/absent release workflow, or a second release writer, is a
-  // correctness hazard (wrong or no release on merge), so unlike the digest loop
-  // above these are `fail`. Only trunk repos are guarded; staging-train is inert.
+  // ── Trunk-mode double-writer guard (#371 N10) — a hard FAIL, not a warn ──
+  // A second release writer is a correctness hazard (two workflows racing to own
+  // the release), so unlike the digest loop above this is `fail`. Only trunk repos
+  // are guarded; staging-train is inert. N11 — which required a generated
+  // auto-release.yml to exist and match — is gone with the tagger it guarded
+  // (ADR-021): a trunk repo now generates no release workflow at all, and its
+  // hand-written release.yml is deliberately ungoverned.
   if (stack.release?.model === 'trunk') {
-    // N10 — release.model:trunk and release-please.yml both present is a split
-    // brain: two workflows racing to own the release. auto-release.yml wins.
     if (existsSync('.github/workflows/release-please.yml')) {
       checks.push({
         name: 'release-model:release-please-collision',
         status: 'fail',
         detail:
-          'release.model is trunk but .github/workflows/release-please.yml is present — two release writers. Delete the release-please trio (auto-release.yml owns releases).',
-      })
-    }
-    // N11 — the committed auto-release.yml must EXIST and match the generator
-    // exactly. A trunk repo with no release workflow never releases; a drifted
-    // one releases with unknown behavior. Both are fail, not warn.
-    const arPath = join('.github/workflows', 'auto-release.yml')
-    if (!existsSync(arPath)) {
-      checks.push({
-        name: 'release-model:auto-release',
-        status: 'fail',
-        detail:
-          'release.model is trunk but .github/workflows/auto-release.yml is absent — run /R-ci-setup to generate it.',
-      })
-    } else if (digest(readFileSync(arPath, 'utf8')) === digest(generateAutoReleaseYml(opts))) {
-      checks.push({ name: 'release-model:auto-release', status: 'pass', detail: 'matches generator' })
-    } else {
-      checks.push({
-        name: 'release-model:auto-release',
-        status: 'fail',
-        detail:
-          'auto-release.yml differs from the generator (drift) — regenerate via /R-ci-setup, never hand-edit (N11).',
+          'release.model is trunk but .github/workflows/release-please.yml is present — a second release writer. Delete the release-please trio; a trunk release is cut by pushing an annotated tag.',
       })
     }
   }

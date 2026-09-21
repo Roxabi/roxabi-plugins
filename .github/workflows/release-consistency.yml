@@ -172,12 +172,12 @@ jobs:
             git show "refs/remotes/origin/${PR_BASE_REF}:${STACK}" > "$BASE_STACK" 2>/dev/null || : > "$BASE_STACK"
 
             # Trunk mode (#371 N7/N8): a trunk repo has no staging→main promotion
-            # PR — the release fires at merge-to-main via auto-release.yml, and the
+            # PR — a release is cut by pushing an annotated tag (ADR-021), and the
             # push-path floor below still guards at-rest drift. The three-way
             # promote-PR check does not apply, so every PR is an early GREEN (a
             # real check-run, never a skip — D9/D15c). Must precede the head gate.
             if [ "$(read_model "$BASE_STACK")" = "trunk" ]; then
-              echo "trunk mode (base ${PR_BASE_REF}) — release consistency enforced at merge-to-main, not on PRs — early green"
+              echo "trunk mode (base ${PR_BASE_REF}) — no promotion PR to check; the push-path floor still guards at-rest drift — early green"
               exit 0
             fi
             # Scope gate FIRST, inside the job: a non-promote (head != staging)

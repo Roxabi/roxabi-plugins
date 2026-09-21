@@ -1,12 +1,13 @@
 export type WorkflowTestRunner = 'vitest' | 'jest' | 'pytest' | 'bun' | 'none'
 
 /** Release train mode (#371). `staging-train` = the default staging→main flow;
- * `trunk` = version+tag+release derived on every merge-to-main (Model B). */
+ * `trunk` = no staging branch, feature lands directly on `main`. Trunk releases are
+ * cut by pushing an annotated tag — nothing is derived at merge (ADR-021). */
 export type ReleaseModel = 'staging-train' | 'trunk'
 
 export interface WorkflowRelease {
   model: ReleaseModel
-  /** `<component>` half of the `<component>/vX.Y.Z` tag — baked into auto-release.yml. */
+  /** `<component>` half of the `<component>/vX.Y.Z` tag — scopes the release-consistency floor. */
   component: string
 }
 

@@ -11,9 +11,9 @@
 # If a batch has real ordering dependencies, stagger the "reviewed" labels.
 #
 # Project convention: merge commits only (¬squash) — see CONTRIBUTING.md.
-# auto-release.sh REFUSEs any merge to main that is not a 2-parent merge (D3),
-# and price.sh walks per-commit history to derive the bump — a squash breaks
-# both. The repo disables squash and rebase merges to enforce this.
+# Nothing derives a version from history any more (ADR-021 removed the tagger),
+# but a squash rewrites every hash at the boundary and phantom-conflicts the next
+# merge. The repo disables squash and rebase merges to enforce this.
 #
 # Dependabot guard: semver-major bumps are never auto-merged — they require
 # manual validation (the vite 8 SSR regression stayed dormant 10 weeks).
