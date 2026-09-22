@@ -4,8 +4,11 @@
  */
 
 import {
+  DEFAULT_LANE_OPTIONS,
   DEFAULT_SIZE_OPTIONS,
+  DEFAULT_STATUS_OPTIONS,
   GITHUB_REPO,
+  PRIORITY_INPUT_HINT,
   resolveLane,
   resolvePriority,
   resolveSize,
@@ -105,30 +108,74 @@ async function applyType(issueNumber: number, nodeId: string, type: string): Pro
   console.log(`Type=${canonical} #${issueNumber}`)
 }
 
-async function syncLabels(issueNumber: number, opts: CreateOptions): Promise<void> {
+interface ResolvedLabels {
+  priority?: string
+  size?: string
+  lane?: string
+  status?: string
+}
+
+/**
+ * Canonicalise every label flag, rejecting unrecognised values loudly.
+ *
+ * Runs with the --type pre-check, ahead of createGitHubIssue: a bad value must
+ * neither pass for a successful write nor leave a created, half-triaged issue
+ * behind (#525).
+ */
+function resolveLabelFlags(opts: CreateOptions): ResolvedLabels {
+  const resolved: ResolvedLabels = {}
   if (opts.priority) {
-    const canonical = resolvePriority(opts.priority)
-    if (canonical) await syncPriorityLabel(issueNumber, canonical)
+    resolved.priority = resolvePriority(opts.priority)
+    if (!resolved.priority) {
+      console.error(`Error: Invalid priority '${opts.priority}'. Valid: ${PRIORITY_INPUT_HINT}`)
+      process.exit(1)
+    }
   }
   if (opts.size) {
-    const canonical = resolveSize(opts.size)
-    if (!canonical) {
+    resolved.size = resolveSize(opts.size)
+    if (!resolved.size) {
       console.error(`Error: Invalid size '${opts.size}'. Valid: ${DEFAULT_SIZE_OPTIONS.join(', ')}`)
       process.exit(1)
     }
-    const ok = await syncSizeLabel(issueNumber, canonical)
-    if (!ok) process.exit(1)
   }
   if (opts.lane) {
-    const canonical = resolveLane(opts.lane)
-    if (canonical) {
-      await syncLaneLabel(issueNumber, canonical)
-      console.log(`Lane=${canonical} #${issueNumber}`)
+    resolved.lane = resolveLane(opts.lane)
+    if (!resolved.lane) {
+      console.error(`Error: Invalid lane '${opts.lane}'. Valid: ${DEFAULT_LANE_OPTIONS.join(', ')}`)
+      process.exit(1)
     }
   }
   if (opts.status) {
-    const canonical = resolveStatus(opts.status)
-    if (canonical) await syncStatusLabel(issueNumber, canonical)
+    resolved.status = resolveStatus(opts.status)
+    if (!resolved.status) {
+      console.error(`Error: Invalid status '${opts.status}'. Valid: ${DEFAULT_STATUS_OPTIONS.join(', ')}`)
+      process.exit(1)
+    }
+  }
+  return resolved
+}
+
+/** Write the canonical labels, echoing each one — every write is reported. */
+async function syncLabels(issueNumber: number, resolved: ResolvedLabels): Promise<void> {
+  if (resolved.priority) {
+    const ok = await syncPriorityLabel(issueNumber, resolved.priority)
+    if (!ok) process.exit(1)
+    console.log(`Priority=${resolved.priority} #${issueNumber}`)
+  }
+  if (resolved.size) {
+    const ok = await syncSizeLabel(issueNumber, resolved.size)
+    if (!ok) process.exit(1)
+    console.log(`Size=${resolved.size} #${issueNumber}`)
+  }
+  if (resolved.lane) {
+    const ok = await syncLaneLabel(issueNumber, resolved.lane)
+    if (!ok) process.exit(1)
+    console.log(`Lane=${resolved.lane} #${issueNumber}`)
+  }
+  if (resolved.status) {
+    const ok = await syncStatusLabel(issueNumber, resolved.status)
+    if (!ok) process.exit(1)
+    console.log(`Status=${resolved.status} #${issueNumber}`)
   }
 }
 
@@ -183,6 +230,8 @@ export async function createIssue(args: string[]): Promise<void> {
     }
   }
 
+  const resolved = resolveLabelFlags(opts)
+
   const labels = opts.labels
     ?.split(',')
     .map((l) => l.trim())
@@ -198,7 +247,7 @@ export async function createIssue(args: string[]): Promise<void> {
   }
 
   // Set size/priority/status/lane via labels only (issues-only mode)
-  await syncLabels(issueNumber, opts)
+  await syncLabels(issueNumber, resolved)
 
   await applyRelationships(nodeId, issueNumber, opts)
 }

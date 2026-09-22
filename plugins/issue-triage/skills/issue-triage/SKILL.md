@@ -65,7 +65,7 @@ never mutates them.
 | Flag | Description |
 |------|-------------|
 | `--size <S>` | Set size label — canonical `S/F-lite/F-full` or legacy `XS/S/M/L/XL` (canonical names alias to nearest legacy label) |
-| `--priority <P>` | Set priority label (Urgent, High, Medium, Low) |
+| `--priority <P>` | Set priority label. Accepts `Urgent/High/Medium/Low`, `P0`–`P3`, and the label spelling `P0-critical`/`P1-high`/`P2-medium`/`P3-low`. Anything else exits 1 |
 | `--blocked-by <REF>[,<REF>...]` | Add blocked-by dependency. REF = `#N` or `owner/repo#N` |
 | `--blocks <REF>[,<REF>...]` | Add blocking dependency. REF = `#N` or `owner/repo#N` |
 | `--rm-blocked-by <REF>[,<REF>...]` | Remove blocked-by dependency |
@@ -85,7 +85,7 @@ never mutates them.
 | `--body "..."` | Issue body/description |
 | `--label "l1,l2"` | Comma-separated labels |
 | `--size <S>` | Set size on creation — canonical `S/F-lite/F-full` or legacy `XS/S/M/L/XL` accepted |
-| `--priority <P>` | Set priority on creation |
+| `--priority <P>` | Set priority on creation — same spellings as `set --priority`. An unrecognised value exits 1 **before** the issue is created |
 | `--lane <L>` | Set lane on creation (label-only, additive). Valid: `a1`, `a2`, `a3`, `b`, `c1`, `c2`, `c3`, `d`–`o`, `standalone` |
 | `--type <T>` | Set org issueType on creation (additive). Valid: `fix`, `feat`, `docs`, `test`, `chore`, `ci`, `perf`, `epic`, `research`, `refactor` |
 | `--parent <REF>` | Set parent issue on creation. REF = `#N` or `owner/repo#N` |

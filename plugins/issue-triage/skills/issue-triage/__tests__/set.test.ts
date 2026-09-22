@@ -10,6 +10,8 @@ vi.mock('../../shared/adapters/config-helpers', () => ({
   NOT_CONFIGURED_MSG: 'GitHub Project V2 is not configured.',
   GITHUB_REPO: 'Test/test-repo',
   DEFAULT_SIZE_OPTIONS: ['S', 'F-lite', 'F-full'],
+  DEFAULT_LANE_OPTIONS: ['a1', 'a2', 'b', 'c1', 'c2', 'c3', 'd', 'e', 'f', 'standalone'],
+  PRIORITY_INPUT_HINT: 'P0 - Urgent, P1 - High, P2 - Medium, P3 - Low',
   resolveStatus: (input: string) => {
     const canonical = new Set(['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'])
     if (canonical.has(input)) return input
@@ -139,6 +141,31 @@ describe('issue-triage/set > field updates', () => {
     expect(exitSpy).toHaveBeenCalledWith(1)
     const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
     expect(errCalls.some((m) => m.includes('Invalid size'))).toBe(true)
+  })
+
+  it('exits with error for invalid --priority value', async () => {
+    // Arrange — throw on exit so execution stops after the guard, matching real process.exit semantics
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    // Act
+    await setIssue(['42', '--priority', 'P3-nope']).catch(() => {})
+    // Assert — an unrecognised value must not pass for a write that never happened
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockSyncPriorityLabel).not.toHaveBeenCalled()
+    expect(errors.some((m) => m.includes('Invalid priority'))).toBe(true)
+  })
+
+  it('echoes the canonical priority on a successful write', async () => {
+    // Arrange
+    const logs: string[] = []
+    vi.spyOn(console, 'log').mockImplementation((...args) => logs.push(String(args[0])))
+    // Act
+    await setIssue(['42', '--priority', 'Medium'])
+    // Assert
+    expect(logs).toContain('Priority=P2 - Medium #42')
   })
 
   it('logs Size= exactly once for --size (no duplicate)', async () => {
@@ -284,9 +311,19 @@ describe('issue-triage/set > --lane flag', () => {
     expect(mockSyncLaneLabel).toHaveBeenCalledWith(123, 'c1')
   })
 
-  it('does nothing for invalid lane key (resolveLane returns undefined)', async () => {
-    await setIssue(['123', '--lane', 'zzz'])
+  it('exits with error for an invalid lane key', async () => {
+    // Arrange
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    // Act
+    await setIssue(['123', '--lane', 'zzz']).catch(() => {})
+    // Assert
+    expect(exitSpy).toHaveBeenCalledWith(1)
     expect(mockSyncLaneLabel).not.toHaveBeenCalled()
+    expect(errors.some((m) => m.includes('Invalid lane'))).toBe(true)
   })
 })
 

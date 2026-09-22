@@ -4,8 +4,10 @@
  */
 
 import {
+  DEFAULT_LANE_OPTIONS,
   DEFAULT_SIZE_OPTIONS,
   GITHUB_REPO,
+  PRIORITY_INPUT_HINT,
   resolveLane,
   resolvePriority,
   resolveSize,
@@ -272,10 +274,13 @@ export async function setIssue(args: string[]): Promise<void> {
   } else {
     if (opts.priority) {
       const canonical = resolvePriority(opts.priority)
-      if (canonical) {
-        const ok = await syncPriorityLabel(opts.issueNumber, canonical)
-        if (!ok) process.exit(1)
+      if (!canonical) {
+        console.error(`Error: Invalid priority '${opts.priority}'. Valid: ${PRIORITY_INPUT_HINT}`)
+        process.exit(1)
       }
+      const ok = await syncPriorityLabel(opts.issueNumber, canonical)
+      if (!ok) process.exit(1)
+      console.log(`Priority=${canonical} #${opts.issueNumber}`)
     }
     if (opts.size) {
       const canonical = resolveSize(opts.size)
@@ -289,11 +294,13 @@ export async function setIssue(args: string[]): Promise<void> {
     }
     if (opts.lane) {
       const canonical = resolveLane(opts.lane)
-      if (canonical) {
-        const ok = await syncLaneLabel(opts.issueNumber, canonical)
-        if (!ok) process.exit(1)
-        console.log(`Lane=${canonical} #${opts.issueNumber}`)
+      if (!canonical) {
+        console.error(`Error: Invalid lane '${opts.lane}'. Valid: ${DEFAULT_LANE_OPTIONS.join(', ')}`)
+        process.exit(1)
       }
+      const ok = await syncLaneLabel(opts.issueNumber, canonical)
+      if (!ok) process.exit(1)
+      console.log(`Lane=${canonical} #${opts.issueNumber}`)
     }
   }
 

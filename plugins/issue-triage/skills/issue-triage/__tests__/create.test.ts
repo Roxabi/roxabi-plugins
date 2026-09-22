@@ -5,6 +5,9 @@ process.env.GITHUB_REPO = 'Test/test-repo'
 vi.mock('../../shared/adapters/config-helpers', () => ({
   GITHUB_REPO: 'Test/test-repo',
   DEFAULT_SIZE_OPTIONS: ['S', 'F-lite', 'F-full'],
+  DEFAULT_LANE_OPTIONS: ['a1', 'a2', 'a3', 'b', 'c1', 'c2', 'c3', 'd', 'e'],
+  DEFAULT_STATUS_OPTIONS: ['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'],
+  PRIORITY_INPUT_HINT: 'P0 - Urgent, P1 - High, P2 - Medium, P3 - Low',
   resolveStatus: (input: string) => {
     const canonical = new Set(['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'])
     if (canonical.has(input)) return input
@@ -116,6 +119,22 @@ describe('issue-triage/create > basic creation', () => {
   it('syncs status label on creation', async () => {
     await createIssue(['--title', 'Test', '--status', 'In Progress'])
     expect(mockSyncStatusLabel).toHaveBeenCalledWith(99, 'In Progress')
+  })
+
+  it('rejects an unrecognised priority before the issue is created', async () => {
+    // Arrange — throw on exit so execution stops at the guard, as real process.exit would
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    // Act
+    await createIssue(['--title', 'Test', '--priority', 'P3-nope']).catch(() => {})
+    // Assert — nothing written: no issue, no label, and no silent success
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockCreateGitHubIssue).not.toHaveBeenCalled()
+    expect(mockSyncPriorityLabel).not.toHaveBeenCalled()
+    expect(errors.some((m) => m.includes('Invalid priority'))).toBe(true)
   })
 })
 

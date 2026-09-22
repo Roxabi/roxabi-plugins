@@ -165,10 +165,18 @@ export function resolveStatus(input: string): string | undefined {
   return STATUS_ALIASES[input.toUpperCase()]
 }
 
-/** Resolve loose user input to a canonical priority key, or undefined. */
+/**
+ * Resolve loose user input to a canonical priority key, or undefined.
+ *
+ * Accepts, in order: the canonical value (`P3 - Low`), the short/word aliases
+ * (`P3`, `LOW`), then any separator/case variant of either the canonical value
+ * or the GitHub *label* spelling (`P3-low`, `p3_low`, `P3 Low`). The label is
+ * what `gh issue view` and `gh label list` display, so it is the string a
+ * caller is most likely to type — it used to be the one string rejected (#525).
+ */
 export function resolvePriority(input: string): string | undefined {
   if (CANONICAL_PRIORITIES.has(input)) return input
-  return PRIORITY_ALIASES[input.toUpperCase()]
+  return PRIORITY_ALIASES[input.toUpperCase()] ?? PRIORITY_SPELLING_ALIASES[normalizePrioritySpelling(input)]
 }
 
 /** Resolve loose user input to a canonical size key, or undefined. */
@@ -215,6 +223,26 @@ export const PRIORITY_LABEL_MAP: Record<string, string> = {
 
 /** Set of all priority label names (for stale label removal). */
 export const PRIORITY_LABELS_SET = new Set(Object.values(PRIORITY_LABEL_MAP))
+
+/**
+ * Fold case and separators so `P3 - Low`, `P3-low` and `p3_low` share one key.
+ * Shared by the alias-table builder and the lookup below on purpose: if the two
+ * ever normalise differently, every lookup misses silently.
+ */
+function normalizePrioritySpelling(input: string): string {
+  return input.toUpperCase().replace(/[-_\s]+/g, '-')
+}
+
+/** Every separator-insensitive spelling of a canonical value or its label → canonical. */
+const PRIORITY_SPELLING_ALIASES: Record<string, string> = Object.fromEntries(
+  Object.entries(PRIORITY_LABEL_MAP).flatMap(([canonical, label]) => [
+    [normalizePrioritySpelling(canonical), canonical],
+    [normalizePrioritySpelling(label), canonical],
+  ]),
+)
+
+/** Accepted `--priority` spellings, for CLI error messages. */
+export const PRIORITY_INPUT_HINT = `${DEFAULT_PRIORITY_OPTIONS.join(', ')} (aliases: P0-P3, Urgent/High/Medium/Low, ${Object.values(PRIORITY_LABEL_MAP).join('/')})`
 
 /** Map canonical size → GitHub label name. */
 export const SIZE_LABEL_MAP: Record<string, string> = {
