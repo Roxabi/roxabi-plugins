@@ -1,55 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type * as ConfigHelpers from '../../shared/adapters/config-helpers'
 
 process.env.GITHUB_REPO = 'Test/test-repo'
 
-vi.mock('../../shared/adapters/config-helpers', () => ({
+// Only GITHUB_REPO is stubbed — the resolvers are pure and are part of the
+// contract under test (PR #528 review).
+vi.mock('../../shared/adapters/config-helpers', async (importOriginal) => ({
+  ...(await importOriginal<typeof ConfigHelpers>()),
   GITHUB_REPO: 'Test/test-repo',
-  DEFAULT_SIZE_OPTIONS: ['S', 'F-lite', 'F-full'],
-  DEFAULT_LANE_OPTIONS: ['a1', 'a2', 'a3', 'b', 'c1', 'c2', 'c3', 'd', 'e'],
-  DEFAULT_STATUS_OPTIONS: ['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'],
-  PRIORITY_INPUT_HINT: 'P0 - Urgent, P1 - High, P2 - Medium, P3 - Low',
-  resolveStatus: (input: string) => {
-    const canonical = new Set(['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'])
-    if (canonical.has(input)) return input
-    const aliases: Record<string, string> = {
-      BACKLOG: 'Backlog',
-      ANALYSIS: 'Analysis',
-      SPECS: 'Specs',
-      'IN PROGRESS': 'In Progress',
-      IN_PROGRESS: 'In Progress',
-      INPROGRESS: 'In Progress',
-      REVIEW: 'Review',
-      DONE: 'Done',
-    }
-    return aliases[input.toUpperCase()]
-  },
-  resolveSize: (input: string) => {
-    const valid = new Set(['S', 'F-lite', 'F-full'])
-    if (valid.has(input)) return input
-    const u = input.toUpperCase().replace(/[-\s]/g, '-')
-    if (valid.has(u)) return u
-    if (u === 'XS') return 'S'
-    if (u === 'M') return 'F-lite'
-    if (u === 'L' || u === 'XL') return 'F-full'
-    return undefined
-  },
-  resolvePriority: (input: string) => {
-    const canonical = new Set(['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'])
-    if (canonical.has(input)) return input
-    const aliases: Record<string, string> = {
-      URGENT: 'P0 - Urgent',
-      HIGH: 'P1 - High',
-      MEDIUM: 'P2 - Medium',
-      LOW: 'P3 - Low',
-      P0: 'P0 - Urgent',
-      P1: 'P1 - High',
-      P2: 'P2 - Medium',
-      P3: 'P3 - Low',
-    }
-    return aliases[input.toUpperCase()]
-  },
-  resolveLane: (input: string) =>
-    new Set(['a1', 'a2', 'a3', 'b', 'c1', 'c2', 'c3', 'd', 'e']).has(input) ? input : undefined,
 }))
 
 vi.mock('../../shared/adapters/github-infra', () => ({
@@ -135,6 +93,35 @@ describe('issue-triage/create > basic creation', () => {
     expect(mockCreateGitHubIssue).not.toHaveBeenCalled()
     expect(mockSyncPriorityLabel).not.toHaveBeenCalled()
     expect(errors.some((m) => m.includes('Invalid priority'))).toBe(true)
+  })
+
+  it('rejects a flag given no value before the issue is created', async () => {
+    // Arrange
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    // Act
+    await createIssue(['--title', 'Test', '--priority', '']).catch(() => {})
+    // Assert
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockCreateGitHubIssue).not.toHaveBeenCalled()
+    expect(errors.some((m) => m.includes('--priority requires a value'))).toBe(true)
+  })
+
+  it('still links the parent when a label write fails, then exits 1', async () => {
+    // Arrange — this repo carries no lane label, so syncLaneLabel returns false
+    mockSyncLaneLabel.mockResolvedValueOnce(false)
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    // Act — the shape documented in README.md:38
+    await createIssue(['--title', 'Test', '--lane', 'b', '--parent', '163']).catch(() => {})
+    // Assert — the issue is created and linked; the failure is reported last
+    expect(mockCreateGitHubIssue).toHaveBeenCalled()
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-163', 'node-99')
+    expect(exitSpy).toHaveBeenCalledWith(1)
   })
 })
 

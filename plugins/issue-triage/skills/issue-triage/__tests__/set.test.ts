@@ -1,62 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type * as ConfigHelpers from '../../shared/adapters/config-helpers'
 import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
 
 // Provide base project config for tests
 process.env.GITHUB_REPO = 'Test/test-repo'
 
-// Mock config before github — vi.mock is hoisted before process.env assignments,
-// so importOriginal would load config.ts with empty env vars. Manual factory is required.
-vi.mock('../../shared/adapters/config-helpers', () => ({
-  NOT_CONFIGURED_MSG: 'GitHub Project V2 is not configured.',
+// Only GITHUB_REPO is stubbed. The resolvers are pure and are the contract under
+// test: re-implementing them in a factory let the suite stay green while the real
+// `resolvePriority` regressed (PR #528 review). `vitest.config.ts` sets
+// `env.GITHUB_REPO`, so importing the real module is safe despite the hoist.
+vi.mock('../../shared/adapters/config-helpers', async (importOriginal) => ({
+  ...(await importOriginal<typeof ConfigHelpers>()),
   GITHUB_REPO: 'Test/test-repo',
-  DEFAULT_SIZE_OPTIONS: ['S', 'F-lite', 'F-full'],
-  DEFAULT_LANE_OPTIONS: ['a1', 'a2', 'b', 'c1', 'c2', 'c3', 'd', 'e', 'f', 'standalone'],
-  PRIORITY_INPUT_HINT: 'P0 - Urgent, P1 - High, P2 - Medium, P3 - Low',
-  resolveStatus: (input: string) => {
-    const canonical = new Set(['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'])
-    if (canonical.has(input)) return input
-    const aliases: Record<string, string> = {
-      BACKLOG: 'Backlog',
-      ANALYSIS: 'Analysis',
-      SPECS: 'Specs',
-      'IN PROGRESS': 'In Progress',
-      IN_PROGRESS: 'In Progress',
-      INPROGRESS: 'In Progress',
-      REVIEW: 'Review',
-      DONE: 'Done',
-    }
-    return aliases[input.toUpperCase()]
-  },
-  resolveSize: (input: string) => {
-    const valid = new Set(['S', 'F-lite', 'F-full'])
-    if (valid.has(input)) return input
-    const u = input.toUpperCase().replace(/[-\s]/g, '-')
-    if (valid.has(u as 'S' | 'F-lite' | 'F-full')) return u
-    // Aliases
-    if (u === 'XS') return 'S'
-    if (u === 'M') return 'F-lite'
-    if (u === 'L' || u === 'XL') return 'F-full'
-    return undefined
-  },
-  resolvePriority: (input: string) => {
-    const canonical = new Set(['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'])
-    if (canonical.has(input)) return input
-    const aliases: Record<string, string> = {
-      URGENT: 'P0 - Urgent',
-      HIGH: 'P1 - High',
-      MEDIUM: 'P2 - Medium',
-      LOW: 'P3 - Low',
-      P0: 'P0 - Urgent',
-      P1: 'P1 - High',
-      P2: 'P2 - Medium',
-      P3: 'P3 - Low',
-    }
-    return aliases[input.toUpperCase()]
-  },
-  resolveLane: (input: string) => {
-    const valid = new Set(['a1', 'a2', 'b', 'c1', 'c2', 'c3', 'd', 'e', 'f', 'standalone'])
-    return valid.has(input) ? input : undefined
-  },
 }))
 
 vi.mock('../../shared/adapters/github-infra', () => ({
@@ -166,6 +121,45 @@ describe('issue-triage/set > field updates', () => {
     await setIssue(['42', '--priority', 'Medium'])
     // Assert
     expect(logs).toContain('Priority=P2 - Medium #42')
+  })
+
+  it('accepts the label spelling the CLI itself writes', async () => {
+    // #525's own reproduction: `P3-low` is what `gh issue view` displays.
+    await setIssue(['42', '--priority', 'P3-low'])
+    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(42, 'P3 - Low')
+  })
+
+  it('folds case on a lane key instead of rejecting it', async () => {
+    await setIssue(['42', '--lane', 'A1'])
+    expect(mockSyncLaneLabel).toHaveBeenCalledWith(42, 'a1')
+  })
+
+  it('exits 1 when a flag is given no value', async () => {
+    // Arrange — `--priority "$P"` with an unset variable used to skip every guard
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    // Act
+    await setIssue(['42', '--priority', '']).catch(() => {})
+    // Assert
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockSyncPriorityLabel).not.toHaveBeenCalled()
+    expect(errors.some((m) => m.includes('--priority requires a value'))).toBe(true)
+  })
+
+  it('still links the parent when a label write fails, then exits 1', async () => {
+    // Arrange — a repo without the lane label makes syncLaneLabel return false
+    mockSyncLaneLabel.mockResolvedValueOnce(false)
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    // Act
+    await setIssue(['42', '--lane', 'b', '--parent', '7']).catch(() => {})
+    // Assert — the relationship queued behind the label must not be cancelled
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-7', 'node-42')
+    expect(exitSpy).toHaveBeenCalledWith(1)
   })
 
   it('logs Size= exactly once for --size (no duplicate)', async () => {

@@ -159,6 +159,51 @@ const CANONICAL_SIZES = new Set(DEFAULT_SIZE_OPTIONS)
 const CANONICAL_PRIORITIES = new Set(DEFAULT_PRIORITY_OPTIONS)
 export const CANONICAL_LANES = new Set(DEFAULT_LANE_OPTIONS)
 
+export const PRIORITY_SHORT: Record<string, string> = {
+  'P0 - Urgent': 'P0',
+  'P1 - High': 'P1',
+  'P2 - Medium': 'P2',
+  'P3 - Low': 'P3',
+}
+
+/** Map canonical project priority → GitHub label name. */
+export const PRIORITY_LABEL_MAP: Record<string, string> = {
+  'P0 - Urgent': 'P0-critical',
+  'P1 - High': 'P1-high',
+  'P2 - Medium': 'P2-medium',
+  'P3 - Low': 'P3-low',
+}
+
+/** Set of all priority label names (for stale label removal). */
+export const PRIORITY_LABELS_SET = new Set(Object.values(PRIORITY_LABEL_MAP))
+
+/**
+ * Fold case and separators so `P3 - Low`, `P3-low` and `p3_low` share one key.
+ * Shared by the alias-table builder and the lookup below on purpose: if the two
+ * ever normalise differently, every lookup misses silently.
+ */
+function normalizePrioritySpelling(input: string): string {
+  return input
+    .trim()
+    .toUpperCase()
+    .replace(/[-_\s]+/g, '-')
+}
+
+/** Every separator-insensitive spelling of a canonical value or its label → canonical. */
+const PRIORITY_SPELLING_ALIASES: Record<string, string> = Object.fromEntries(
+  Object.entries(PRIORITY_LABEL_MAP).flatMap(([canonical, label]) => [
+    [normalizePrioritySpelling(canonical), canonical],
+    [normalizePrioritySpelling(label), canonical],
+  ]),
+)
+
+/**
+ * Accepted `--priority` spellings, for CLI error messages. Every segment is
+ * derived from the table that decides it — a new alias cannot be advertised
+ * without being accepted, nor accepted without being advertised.
+ */
+export const PRIORITY_INPUT_HINT = `${DEFAULT_PRIORITY_OPTIONS.join(', ')} (aliases: ${Object.keys(PRIORITY_ALIASES).join('/')}, ${Object.values(PRIORITY_LABEL_MAP).join('/')})`
+
 /** Resolve loose user input to a canonical status key, or undefined. */
 export function resolveStatus(input: string): string | undefined {
   if (CANONICAL_STATUSES.has(input)) return input
@@ -196,53 +241,22 @@ export function resolveSize(input: string): string | undefined {
   return
 }
 
-/** Resolve loose user input to a canonical lane key, or undefined. */
+/**
+ * Resolve loose user input to a canonical lane key, or undefined.
+ *
+ * Lane keys are lower-case by definition, so `A1` and ` a1 ` fold to `a1`
+ * rather than being rejected: the flag is fatal on an unrecognised value, so
+ * intolerance here turns a typo into a half-applied command.
+ */
 export function resolveLane(input: string): string | undefined {
   if (CANONICAL_LANES.has(input)) return input
-  return
+  const folded = input.trim().toLowerCase()
+  return CANONICAL_LANES.has(folded) ? folded : undefined
 }
 
 // --- Exports consolidated from legacy config.ts shim ---
 
 export const GITHUB_REPO = detectGitHubRepo()
-
-export const PRIORITY_SHORT: Record<string, string> = {
-  'P0 - Urgent': 'P0',
-  'P1 - High': 'P1',
-  'P2 - Medium': 'P2',
-  'P3 - Low': 'P3',
-}
-
-/** Map canonical project priority → GitHub label name. */
-export const PRIORITY_LABEL_MAP: Record<string, string> = {
-  'P0 - Urgent': 'P0-critical',
-  'P1 - High': 'P1-high',
-  'P2 - Medium': 'P2-medium',
-  'P3 - Low': 'P3-low',
-}
-
-/** Set of all priority label names (for stale label removal). */
-export const PRIORITY_LABELS_SET = new Set(Object.values(PRIORITY_LABEL_MAP))
-
-/**
- * Fold case and separators so `P3 - Low`, `P3-low` and `p3_low` share one key.
- * Shared by the alias-table builder and the lookup below on purpose: if the two
- * ever normalise differently, every lookup misses silently.
- */
-function normalizePrioritySpelling(input: string): string {
-  return input.toUpperCase().replace(/[-_\s]+/g, '-')
-}
-
-/** Every separator-insensitive spelling of a canonical value or its label → canonical. */
-const PRIORITY_SPELLING_ALIASES: Record<string, string> = Object.fromEntries(
-  Object.entries(PRIORITY_LABEL_MAP).flatMap(([canonical, label]) => [
-    [normalizePrioritySpelling(canonical), canonical],
-    [normalizePrioritySpelling(label), canonical],
-  ]),
-)
-
-/** Accepted `--priority` spellings, for CLI error messages. */
-export const PRIORITY_INPUT_HINT = `${DEFAULT_PRIORITY_OPTIONS.join(', ')} (aliases: P0-P3, Urgent/High/Medium/Low, ${Object.values(PRIORITY_LABEL_MAP).join('/')})`
 
 /** Map canonical size → GitHub label name. */
 export const SIZE_LABEL_MAP: Record<string, string> = {

@@ -74,8 +74,10 @@ never mutates them.
 | `--add-child <REF>[,<REF>...]` | Add child sub-issues |
 | `--rm-parent` | Remove parent relationship |
 | `--rm-child <REF>[,<REF>...]` | Remove child sub-issues |
-| `--lane <L>` | Set lane label (optional, additive). Valid: `a1`, `a2`, `a3`, `b`, `c1`, `c2`, `c3`, `d`–`o`, `standalone` |
+| `--lane <L>` | Set lane label (optional, additive). Valid: `a1`, `a2`, `a3`, `b`, `c1`, `c2`, `c3`, `d`–`o`, `standalone` — case-folded; anything else exits 1 |
 | `--type <T>` | Set org issueType (optional, additive). Valid: `fix`, `feat`, `docs`, `test`, `chore`, `ci`, `perf`, `epic`, `research`, `refactor` |
+
+Every flag is canonicalised **before** the first write, so a rejected value leaves the issue untouched. A flag given no value (`--priority` with nothing after it, or `--priority "$UNSET"`) exits 1 rather than being ignored. A label that the repository does not carry is reported and exits 1 **after** the dependency and parent/child writes have run, never instead of them.
 
 ### `create` — Create a new issue
 
@@ -86,7 +88,8 @@ never mutates them.
 | `--label "l1,l2"` | Comma-separated labels |
 | `--size <S>` | Set size on creation — canonical `S/F-lite/F-full` or legacy `XS/S/M/L/XL` accepted |
 | `--priority <P>` | Set priority on creation — same spellings as `set --priority`. An unrecognised value exits 1 **before** the issue is created |
-| `--lane <L>` | Set lane on creation (label-only, additive). Valid: `a1`, `a2`, `a3`, `b`, `c1`, `c2`, `c3`, `d`–`o`, `standalone` |
+| `--lane <L>` | Set lane on creation (label-only, additive). Valid: `a1`, `a2`, `a3`, `b`, `c1`, `c2`, `c3`, `d`–`o`, `standalone` — case-folded; anything else exits 1 |
+| `--status <S>` | Set status label. Valid: `Backlog`, `Analysis`, `Specs`, `In Progress`, `Review`, `Done`. Legacy — `set` rejects `--status` outright in the issues-only model |
 | `--type <T>` | Set org issueType on creation (additive). Valid: `fix`, `feat`, `docs`, `test`, `chore`, `ci`, `perf`, `epic`, `research`, `refactor` |
 | `--parent <REF>` | Set parent issue on creation. REF = `#N` or `owner/repo#N` |
 | `--add-child <REF>[,<REF>...]` | Add existing issues as children |
