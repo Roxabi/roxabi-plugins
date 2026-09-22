@@ -83,6 +83,7 @@ Keep all READMEs current. Adding/modifying/removing a plugin → update:
 
 - Single quotes, no semicolons (any JS/TS ∈ plugins)
 - Markdown: ATX headings (`#`), tables for structured data, code blocks for commands
+- A test that forks a process (`child_process`, `Bun.spawn*`) MUST be named `*.integration.test.ts` — it runs in the `integration` vitest project on a 30s budget instead of the 5s unit default, which a loaded CI runner blows (#502). `tools/__tests__/forking-tests.test.ts` fails the build when a forking test is misnamed.
 
 ## Gotchas
 
