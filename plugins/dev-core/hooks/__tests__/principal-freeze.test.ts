@@ -188,6 +188,33 @@ describe('pre: matchHighTrafficBranchMove', () => {
     expect(pre.matchHighTrafficBranchMove('bun run test')).toBe(null)
     expect(pre.matchHighTrafficBranchMove('git status')).toBe(null)
   })
+
+  it('prices a real move in any segment, with global flags or env prefixes', () => {
+    expect(pre.matchHighTrafficBranchMove('cd /tmp && git switch feat/x')?.target).toBe('feat/x')
+    expect(pre.matchHighTrafficBranchMove('git fetch ; git checkout feat/y')?.target).toBe('feat/y')
+    expect(pre.matchHighTrafficBranchMove('git -C /repo switch feat/z')?.target).toBe('feat/z')
+    expect(pre.matchHighTrafficBranchMove('GIT_PAGER=cat git switch feat/w')?.target).toBe('feat/w')
+    expect(pre.matchHighTrafficBranchMove('git -c core.hooksPath=/x switch feat/v')?.target).toBe('feat/v')
+  })
+
+  it('does not read argv out of quoted prose', () => {
+    // The message discusses a branch move; it does not request one.
+    expect(pre.matchHighTrafficBranchMove('git commit -m "explain why git switch feat/x was wrong"')).toBe(null)
+    expect(
+      pre.matchHighTrafficBranchMove('gh issue create --body "the pattern is git checkout feat/x and it over-matches"'),
+    ).toBe(null)
+    // A separator inside quotes must not cut a segment either.
+    expect(pre.matchHighTrafficBranchMove('git commit -m "one && git switch feat/x"')).toBe(null)
+  })
+
+  it('does not let one command lend its verb to another', () => {
+    // `git` here, the verb four commands later: never one invocation.
+    expect(pre.matchHighTrafficBranchMove('git status && ls && echo checkout feat/x')).toBe(null)
+    // A heredoc line documenting the form is prose, not an invocation.
+    expect(pre.matchHighTrafficBranchMove("cat > /tmp/x.md <<'EOF'\nrun git checkout feat/x to reproduce\nEOF")).toBe(
+      null,
+    )
+  })
 })
 
 describe('pre: shouldDenyPre', () => {
