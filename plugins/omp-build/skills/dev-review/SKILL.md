@@ -30,7 +30,7 @@ Let:
   Δ := changed files | BASE := staging ∨ main
   τ := tier (S | F-lite | F-full)
   Q := present choice, wait for user reply
-  `$SKILL_DIR` := the skill directory announced with this body
+  `$SKILL_DIR` := the skill directory announced with this body — an environment variable this skill does **not** produce. Every fence that uses it asserts it first; unset means stop, never an empty prefix.
 
 **Stack:** read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → the roster still runs (it warns that overrides are ignored); say so once and continue.
 
@@ -54,7 +54,12 @@ Steps: gather-changes → secret-scan → spec-compliance → multi-domain-revie
 
 ## Phase 1 — Gather Changes
 
-0. `BASE=$(. "$SKILL_DIR/../shared/lib.sh" && detect_base_branch)`
+0. Source the shared helpers. `skill://` rejects `..`, so `lib.sh` (one level up, outside any skill directory) is reachable only from a real path — and an unset `SKILL_DIR` would silently make that path `/../shared/lib.sh`, i.e. a base branch detected against nothing:
+
+   ```bash
+   SKILL_DIR="${SKILL_DIR:?dev-review Phase 1: skill directory not announced — export SKILL_DIR to this skill's directory and re-run}"
+   BASE=$(. "$SKILL_DIR/../shared/lib.sh" && detect_base_branch)
+   ```
 1. PR# → `gh pr diff <#>` | else → `git diff origin/${BASE}...HEAD`
 2. Δ = `git diff --name-only origin/${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
 3. ∀ f ∈ Δ: read full (skip binaries, note)
@@ -132,7 +137,7 @@ SOLE spawn decision for Phase 3. τ from the `size:` label (above). `CHUNKS := |
 
 **Panel invariant:** every chunk gets the `R-adversarial` floor plus at most two relevant specialists (`max_agents` default is `3`). Selection is evidence-based from that chunk's paths and diff signals, not static manifest order. Priority is floor → security path → architect axial mode → devops → tester → architect structural mode. `always`/`never` overrides remain authoritative; forced roles bypass the cap and are never silently dropped.
 
-Spawn exactly `chunk_agents[i]` (multi-chunk) or `agents[]` (single-chunk) from the JSON. The dispatch table below documents oracle gates; it is not a second decision surface. The roster JSON keeps `agents`, `candidates`, `gates`, `capped`, and `max_agents`; allocation additionally keeps `chunk_agents`, `collapsed`, and compatibility-only `capped_review`. It returns no phase-owned workers and no recall/filter gates. Echo every `warnings[]` entry. `review_halt: true` → HALT with the warning text. `max_agents_review` may still be parsed for compatibility, but it defaults to `0`; every explicit use emits a deprecation warning. Legacy recall sizing and override inputs are ignored no-ops with warnings. A stack override naming a cut role (`R-frontend-dev`, `R-backend-dev`, `R-fixer`) warns and is dropped — it never resurrects the role. `R-product-lead` is outside the review roster because Phase 2 owns spec compliance.
+Spawn exactly `chunk_agents[i]` (multi-chunk) or `agents[]` (single-chunk) from the JSON. The dispatch table below documents oracle gates; it is not a second decision surface. The roster JSON keeps `agents`, `candidates`, `gates`, `capped`, and `max_agents`; allocation additionally keeps `chunk_agents` and `chunk_gates`, index-aligned. **On the multi-chunk path `gates` and the rest of the top level describe the full Δ, not chunk i** — they are the review-wide signal summary. Every per-chunk question (why did this chunk spawn this role, what did this chunk's cap drop) is answered by `chunk_gates[i]` and nothing else. It returns no phase-owned workers and no recall/filter gates. Echo every `warnings[]` entry. `review_halt: true` → HALT with the warning text. A `max_agents_review` key is still parsed so a project carrying it hears a deprecation warning; it has no field and no effect. Legacy recall sizing and override inputs are ignored no-ops with warnings. A stack override naming a cut role (`R-frontend-dev`, `R-backend-dev`, `R-fixer`) warns and is dropped — it never resurrects the role. `R-product-lead` is outside the review roster because Phase 2 owns spec compliance.
 
 ```bash
 # σ from Phase 2; write Δ paths — and the issue body, when priced fences are in it —
@@ -170,7 +175,7 @@ Exit: `0` ok · `1` usage/IO error (including unreadable `--spec` or empty `--ch
 | **R-adversarial** | **always; floor in every chunk** | bypass, fleet regression, vacuous guards, assumption-kill + OWASP lens |
 | **R-security-auditor** | strong auth/secrets/crypto path or diff evidence (`path_hit`, including `**/auth/**`) | OWASP, secrets, injection, auth |
 | **R-architect** | axial ADR + root axial path → axial mode; otherwise architecture/ADR path, workspace graph config, or configured FE+BE crossing → structural mode | axial N×M drift, boundaries, coupling, circular dependencies |
-| **R-devops** | infra/config/deploy evidence such as `scripts/`, `.github/`, or `lefthook.yml`, independent of τ | config, deploy, infra |
+| **R-devops** | infra/config/deploy evidence such as `scripts/`, `.github/`, or `lefthook.yml` | config, deploy, infra |
 | **R-tester** | `delta_test_hit` — changed tests in Δ, after devops in priority | coverage, AAA, edge cases, tautology |
 
 Five roles, and that is the whole panel: the oracle selects at most two specialists after the floor unless forced overrides bypass the cap. There is **no** `R-frontend-dev` and **no** `R-backend-dev` here — both are cut (ADR-020 §7), and component, hook, client-behaviour, API, contract and error concerns fall to the `R-adversarial` floor through the sibling-drop rule, which keys off the `Spawned roster:` line in the prompt below. Nothing replaces them; a domain-heavy diff simply gets the floor plus whatever evidence actually fired. Likewise **no** `R-fixer`: `skill://fix` applies findings inline.
@@ -179,7 +184,9 @@ Architect requires axial or structural evidence; F-full alone is cold. Axial mod
 
 Skip: tester → ¬`delta_test_hit` | devops → no infra evidence | architect → no axial/structural evidence | security → `¬spawn_security_auditor`.
 
-**Subdomain split (multi-chunk):** one allocate call, exact per-chunk spawn from `chunk_agents[i]`, one `R-adversarial` floor per chunk, and at most two selected specialists per chunk. `max_agents` is the active per-chunk cap. `max_agents_review` is compatibility-only and default-off.
+**No gate reads τ.** Every row above fires on Δ, the stack overrides and the axial ADR alone — the tier is validated, echoed back in the JSON, and consumed by Phase 2 (SC→Test matrix at τ≠S), never by the oracle. A gate described as tier-driven would be describing a branch that does not exist.
+
+**Subdomain split (multi-chunk):** one allocate call, exact per-chunk spawn from `chunk_agents[i]`, one `R-adversarial` floor per chunk, and at most two selected specialists per chunk. `max_agents` is the active per-chunk cap; it is the only cap. A `max_agents_review` key in `.dev/stack.yml` is parsed, warned about as deprecated, and then has no effect whatsoever — there is no review-wide ceiling to raise or lower.
 
 ### R-security-auditor scoping
 
@@ -212,7 +219,7 @@ The snapshotted agent bodies call this workflow `/R-dev-review` in their prose �
 
 **Multi-chunk — per-chunk review:** for each chunk `c_i`, let `agents[] := chunk_agents[i]`.
 
-For `R-architect`, derive `focus` from that chunk's gate reason before spawning. A reason beginning with `axial` MUST set `focus := "AXIAL MODE (read-only): run the complete axial ADR procedure and also inspect structural boundaries/coupling in this chunk; no writes"`. A `structure` reason sets normal read-only structural review. This mode string is part of the dispatch prompt; the agent must never infer axial mode from the manifest name alone.
+For `R-architect`, derive `focus` from **that chunk's** gate reason — `chunk_gates[i]`, the row whose `agent` is `R-architect` — before spawning. Never from top-level `gates`: that row is computed over the full Δ, so a Δ that is axial anywhere reports `axial` for every chunk, including the one whose own evidence was a `structure` hit. A reason beginning with `axial` MUST set `focus := "AXIAL MODE (read-only): run the complete axial ADR procedure and also inspect structural boundaries/coupling in this chunk; no writes"`. A `structure` reason sets normal read-only structural review. This mode string is part of the dispatch prompt; the agent must never infer axial mode from the manifest name alone.
 
 One `task` call carries every agent of a chunk, so the panel runs in parallel:
 
@@ -340,7 +347,7 @@ One phase owns the final finding set, the single rendered review, and the option
 3. **Classify:** normal findings follow their category label. A finding with `Source: recall` is always blocking; normalize its label to `issue(blocking):`.
 4. **Keep by default:** after deterministic dedup, every finding remains in F. Confidence controls ordering and `skill://fix` handling only; no confidence threshold, agent judgement, or second LLM pass may remove a finding. Blocking findings are never filtered.
 5. **Sort and group:** C descending within Blockers → Warnings → Suggestions → Praise.
-6. **Disclose roster allocation** in the review output whenever non-empty: `capped[]`, `collapsed[]`, compatibility-only `capped_review[]`, and `warnings[]`.
+6. **Disclose roster allocation** in the review output whenever non-empty: `capped[]` (the per-chunk union) and `warnings[]`.
 
 `blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):} ∨ source(f)=recall`.
 
@@ -441,7 +448,7 @@ Q:
 | FE/BE concern in Δ | R-adversarial floor owns it — the domain roles are cut, ¬spawn a substitute |
 | Low-confidence finding | keep; sort by C and let `skill://fix` route it |
 | Recall worker skipped | single chunk ∨ class appears in <2 chunks ∨ <3 unique callsites |
-| roster capped (max_agents) / collapsed / capped_review | disclosed when ≠ ∅ (Phase 4) |
+| roster capped (max_agents, per chunk) | disclosed when ≠ ∅ (Phase 4) |
 | oracle warnings ≠ ∅ | echoed into output; review_halt → HALT |
 
 ## Safety Rules

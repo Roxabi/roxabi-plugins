@@ -9,6 +9,7 @@ import {
   allocateReview,
   type ComputeRosterInput,
   computeRoster,
+  type GateRow,
   hasAxialAdr,
   infraHit,
   parsePricedFences,
@@ -52,7 +53,6 @@ function defaultConfig(overrides: Partial<RosterConfig> = {}): RosterConfig {
   return {
     maxAgents: 3,
     axialOverride: 'default',
-    maxAgentsReview: 0,
     overrides: {},
     warnings: [],
     ...overrides,
@@ -401,7 +401,7 @@ describe('cap', () => {
     expect(out.agents).toEqual(['R-adversarial', 'R-security-auditor', 'R-architect'])
     expect(out.capped).toEqual(['R-devops', 'R-tester'])
     for (const name of out.capped) {
-      expect(gate(out, name)).toEqual({ agent: name, spawn: false, reason: 'capped' })
+      expect(gate(out, name)).toEqual({ agent: name, spawn: false, reason: 'capped', forced: false })
     }
     expect(out.warnings).toContain('roster: 2 agent(s) dropped by max_agents: R-devops, R-tester')
   })
@@ -445,6 +445,25 @@ describe('cap', () => {
     })
     expect(out.capped.length).toBeGreaterThan(0)
     expect(out.warnings.some((w) => w.startsWith('roster:') && w.includes('dropped by max_agents:'))).toBe(true)
+  })
+
+  // The axial reason carries a mode prefix (`axial:stack:always`), so an equality
+  // test against `stack:always` silently unforces the pin the operator wrote:
+  // `always` held in structural mode and dropped in axial mode (#535 F5).
+  it('always survives the cap in axial mode too — forced is a flag, not a spelling', () => {
+    const out = roster({
+      delta: ['adapters/x.ts', 'src/auth/token.ts', 'src/foo.test.ts'],
+      axialAdr: true,
+      config: defaultConfig({ maxAgents: 2, overrides: { 'R-architect': 'always' } }),
+    })
+    expect(gate(out, 'R-architect')).toEqual({
+      agent: 'R-architect',
+      spawn: true,
+      reason: 'axial:stack:always',
+      forced: true,
+    })
+    expect(out.agents).toEqual(['R-adversarial', 'R-architect'])
+    expect(out.capped).toEqual(['R-security-auditor', 'R-tester'])
   })
 })
 
@@ -510,7 +529,7 @@ review: # top
 
   it('absent review block uses the max_agents=3 default', () => {
     const cfg = parseRosterConfig('runtime: bun\nbackend:\n  path: apps/api\n')
-    expect(cfg).toEqual({ maxAgents: 3, maxAgentsReview: 0, axialOverride: 'default', overrides: {}, warnings: [] })
+    expect(cfg).toEqual({ maxAgents: 3, axialOverride: 'default', overrides: {}, warnings: [] })
   })
 
   it('max_agents 0 clamps to 1 with a warning', () => {
@@ -519,18 +538,16 @@ review: # top
     expect(cfg.warnings).toContain('max_agents < 1; clamped to 1')
   })
 
-  it('max_agents_review remains default-off compatibility and warns when explicit', () => {
-    expect(parseRosterConfig('review:\n  roster:\n    max_agents: 3\n').maxAgentsReview).toBe(0)
+  // The key still has a real input — a project carrying it must be told. What it
+  // no longer has is a value anyone can read: the review-wide cap it fed is gone
+  // (#535 F4), so the warning is the whole observable effect.
+  it('max_agents_review is a deprecated no-op: warning only, no field, no clamping', () => {
     const cfg = parseRosterConfig('review:\n  roster:\n    max_agents_review: 6\n')
-    expect(cfg.maxAgentsReview).toBe(0)
+    expect(Object.hasOwn(cfg, 'maxAgentsReview')).toBe(false)
     expect(cfg.warnings).toContain('max_agents_review is deprecated and ignored; use the per-chunk max_agents cap')
-  })
-
-  it('negative max_agents_review is ignored without clamping side effects', () => {
-    const cfg = parseRosterConfig('review:\n  roster:\n    max_agents_review: -3\n')
-    expect(cfg.maxAgentsReview).toBe(0)
-    expect(cfg.warnings).toContain('max_agents_review is deprecated and ignored; use the per-chunk max_agents cap')
-    expect(cfg.warnings.some((w) => w.includes('clamped'))).toBe(false)
+    const negative = parseRosterConfig('review:\n  roster:\n    max_agents_review: -3\n')
+    expect(negative.warnings).toContain('max_agents_review is deprecated and ignored; use the per-chunk max_agents cap')
+    expect(negative.warnings.some((w) => w.includes('clamped'))).toBe(false)
   })
 
   it('removed confidence and recall knobs are accepted only as deprecated no-ops', () => {
@@ -968,7 +985,6 @@ describe('allocateReview', () => {
       expect(agents).toEqual(['R-adversarial', 'R-architect'])
       expect(agents).toHaveLength(2)
     }
-    expect(out.collapsed).toEqual([])
   })
 
   it('keeps R-architect in axial and structural chunks under the per-chunk cap', () => {
@@ -982,10 +998,9 @@ describe('allocateReview', () => {
       ['R-adversarial', 'R-architect'],
     ])
     expect(out.chunk_agents.every((agents) => agents.length <= 3)).toBe(true)
-    expect(out.collapsed).toEqual([])
   })
 
-  it('mixed devops+architect both kept — collapse is per-agent, not xor on full Δ', () => {
+  it('mixed devops+architect: each chunk spawns only what its own paths fired', () => {
     const out = allocateReview({
       chunkDeltas: [['Dockerfile'], ['docs/architecture/model.md']],
       shared: allocateShared({ delta: ['Dockerfile', 'docs/architecture/model.md'], chunks: 2 }),
@@ -994,7 +1009,6 @@ describe('allocateReview', () => {
     expect(out.chunk_agents[0]).not.toContain('R-architect')
     expect(out.chunk_agents[1]).toContain('R-architect')
     expect(out.chunk_agents[1]).not.toContain('R-devops')
-    expect(out.collapsed).toEqual([])
   })
 
   it('capped is the per-chunk union, not global xor (mixed Δ, max_agents=1)', () => {
@@ -1010,41 +1024,54 @@ describe('allocateReview', () => {
     expect(out.capped).toEqual(['R-devops', 'R-architect'])
   })
 
-  it('max_agents_review YAML knob is ignored and does not populate capped_review', () => {
-    const parsed = parseRosterConfig('review:\n  roster:\n    max_agents_review: 6\n')
-    expect(parsed.maxAgentsReview).toBe(0)
-    expect(parsed.warnings).toContain('max_agents_review is deprecated and ignored; use the per-chunk max_agents cap')
+  // SKILL.md Phase 3 sets AXIAL MODE from the architect's gate reason. Read off
+  // `global`, every chunk is axial: the structural chunk would be told to run the
+  // complete axial ADR procedure for an ADR delta it does not carry (#535 F1).
+  it('chunk_gates carry each chunk’s own architect reason; global carries the Δ-wide one', () => {
+    const chunkDeltas = [['adapters/model.ts'], ['docs/architecture/model.md']]
+    const out = allocateReview({
+      chunkDeltas,
+      shared: allocateShared({ delta: chunkDeltas.flat(), chunks: 2, axialAdr: true }),
+    })
+    const chunkReason = (i: number): string | undefined =>
+      out.chunk_gates[i].find((row) => row.agent === 'R-architect')?.reason
+    expect(chunkReason(0)).toMatch(/^axial/)
+    expect(chunkReason(1)).toBe('structure')
+    expect(out.global.gates.find((row) => row.agent === 'R-architect')?.reason).toMatch(/^axial/)
+  })
+
+  // The same divergence on the cap verdict: the Δ-wide roster drops two roles it
+  // has no room for, while every chunk spawns its own within the per-chunk cap.
+  it('chunk_gates report the chunk cap verdict, not the review-wide one', () => {
+    const chunkDeltas = [['src/auth/login.ts'], ['src/a.test.ts'], ['Dockerfile'], ['docs/architecture/model.md']]
+    const out = allocateReview({
+      chunkDeltas,
+      shared: allocateShared({ delta: chunkDeltas.flat(), chunks: 4 }),
+    })
+    expect(out.global.capped).toEqual(['R-tester', 'R-architect'])
+    expect(out.capped).toEqual([])
+    const row = (i: number, agent: string): GateRow | undefined => out.chunk_gates[i].find((r) => r.agent === agent)
+    expect(out.chunk_agents[1]).toContain('R-tester')
+    expect(row(1, 'R-tester')).toEqual({ agent: 'R-tester', spawn: true, reason: 'test-delta', forced: false })
+    expect(row(3, 'R-architect')).toEqual({ agent: 'R-architect', spawn: true, reason: 'structure', forced: false })
+    expect(out.global.gates.find((r) => r.agent === 'R-tester')?.reason).toBe('capped')
+  })
+
+  // What the removed review-wide cap claimed to guard: nothing collapses instances
+  // across chunks. Five auth chunks spawn five floors and five auditors — ten
+  // instances against a per-chunk cap of 3, so no review-wide ceiling exists.
+  it('no review-wide cap collapses per-chunk instances', () => {
     const chunkDeltas = Array.from({ length: 5 }, (_, i) => [`src/auth/login${i}.ts`])
     const out = allocateReview({
       chunkDeltas,
-      shared: allocateShared({
-        delta: chunkDeltas.flat(),
-        chunks: 5,
-        config: defaultConfig({ ...parsed, warnings: [] }),
-      }),
+      shared: allocateShared({ delta: chunkDeltas.flat(), chunks: 5 }),
     })
-    const advCount = out.chunk_agents.filter((c) => c.includes('R-adversarial')).length
-    expect(advCount).toBe(5)
-    expect(out.capped_review).toEqual([])
-    expect(out.chunk_agents.reduce((n, c) => n + c.length, 0)).toBeGreaterThan(6)
+    expect(out.chunk_agents.filter((c) => c.includes('R-adversarial'))).toHaveLength(5)
+    expect(out.chunk_agents.reduce((n, c) => n + c.length, 0)).toBe(10)
+    expect(out.capped).toEqual([])
   })
 
-  it('max_agents_review=0 leaves every chunk uncapped globally', () => {
-    const chunkDeltas = Array.from({ length: 5 }, (_, i) => [`docs/architecture/model${i}.md`])
-    const out = allocateReview({
-      chunkDeltas,
-      shared: allocateShared({
-        delta: chunkDeltas.flat(),
-        chunks: 5,
-        config: defaultConfig({ maxAgentsReview: 0 }),
-      }),
-    })
-    expect(out.capped_review).toEqual([])
-    expect(out.collapsed).toEqual([])
-    expect(out.chunk_agents.every((agents) => agents.includes('R-architect'))).toBe(true)
-  })
-
-  it('per-chunk cap is applied without collapsing repeated specialists', () => {
+  it('per-chunk cap keeps the same specialist in more than one chunk', () => {
     const chunkDeltas = [['src/a.test.ts'], ['src/auth/login.ts', 'src/auth/login.test.ts']]
     const out = allocateReview({
       chunkDeltas,
@@ -1056,41 +1083,18 @@ describe('allocateReview', () => {
     })
     expect(out.chunk_agents[0]).toEqual(['R-adversarial', 'R-tester'])
     expect(out.chunk_agents[1]).toEqual(['R-adversarial', 'R-security-auditor'])
-    expect(out.collapsed).toEqual([])
     expect(out.chunk_agents.every((agents) => agents.length <= 2)).toBe(true)
     const dropped = out.warnings.filter((w) => w.includes('dropped by max_agents:'))
     expect(dropped.every((w, i) => dropped.indexOf(w) === i)).toBe(true)
     expect(dropped.some((w) => w.includes('R-tester'))).toBe(true)
   })
 
-  it('max_agents_review YAML knob never raises or caps across chunks', () => {
-    const parsed = parseRosterConfig('review:\n  roster:\n    max_agents_review: 2\n')
-    expect(parsed.maxAgentsReview).toBe(0)
-    const chunkDeltas = Array.from({ length: 5 }, (_, i) => [`docs/architecture/model${i}.md`])
-    const out = allocateReview({
-      chunkDeltas,
-      shared: allocateShared({
-        delta: chunkDeltas.flat(),
-        chunks: 5,
-        config: defaultConfig({ ...parsed, warnings: [] }),
-      }),
-    })
-    expect(out.warnings.some((w) => w.includes('max_agents_review'))).toBe(false)
-    expect(out.chunk_agents.filter((c) => c.includes('R-adversarial'))).toHaveLength(5)
-    for (const agents of out.chunk_agents) {
-      expect(agents).toContain('R-adversarial')
-      expect(agents).toContain('R-architect')
-    }
-    expect(out.capped_review).toEqual([])
-  })
-
-  it('single-chunk allocateReview ≡ computeRoster.agents (no collapse)', () => {
+  it('single-chunk allocateReview ≡ computeRoster.agents', () => {
     const delta = ['src/app.ts']
     const shared = allocateShared({ delta, chunks: 1 })
     const a = allocateReview({ chunkDeltas: [delta], shared })
     const c = computeRoster(shared)
     expect(a.agents).toEqual(c.agents)
-    expect(a.collapsed).toEqual([])
     expect(a.chunk_agents).toEqual([c.agents])
   })
 
@@ -1110,7 +1114,6 @@ describe('allocateReview', () => {
     const json = JSON.parse(proc.stdout) as {
       chunk_agents: string[][]
       agents: string[]
-      collapsed: string[]
       chunks: number
     }
     expect(json.chunk_agents).toHaveLength(2)

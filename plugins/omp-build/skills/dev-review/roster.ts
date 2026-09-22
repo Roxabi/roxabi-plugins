@@ -8,7 +8,7 @@
  * oracle has no producer on OMP, so there is no second handshake to wait for.
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { STACK_YML } from '../../hooks/lib/contract-paths.cjs'
 
@@ -25,7 +25,6 @@ export type StackPaths = {
 
 export type RosterConfig = {
   maxAgents: number
-  maxAgentsReview: number
   axialOverride: AgentOverride
   overrides: Record<string, AgentOverride>
   warnings: string[]
@@ -35,6 +34,10 @@ export type GateRow = {
   agent: string
   spawn: boolean
   reason: string
+  /** Operator-pinned (`floor`, `agents: <role>: always`, `axial: always`). A
+   *  property, ¬a spelling of `reason`: the cap reads this, and a reason that
+   *  also carries a mode prefix (`axial:stack:always`) must still bypass it. */
+  forced: boolean
 }
 
 export type RosterResult = {
@@ -67,13 +70,11 @@ export type ComputeRosterInput = {
   config: RosterConfig
 }
 
-type Gate = { spawn: boolean; reason: string }
+type Gate = { spawn: boolean; reason: string; forced: boolean }
 
 export const DISPATCHABLE = ['R-adversarial', 'R-security-auditor', 'R-architect', 'R-devops', 'R-tester'] as const
 
 export const PHASE_AGENTS = [] as const
-
-export const COLLAPSE_ONCE: readonly (typeof DISPATCHABLE)[number][] = []
 
 export type AllocateReviewInput = {
   chunkDeltas: string[][]
@@ -81,11 +82,17 @@ export type AllocateReviewInput = {
 }
 
 export type AllocateReviewResult = {
+  /** Review-wide roster over the full Δ: signals (`path_hit`, `claims`, …) and
+   *  the review-wide gate rows. It is **not** the dispatch source — see
+   *  `chunk_gates`. */
   global: RosterResult
   chunk_agents: string[][]
-  collapsed: string[]
+  /** Per-chunk gate rows, index-aligned with `chunk_agents`. The dispatch source:
+   *  a chunk's spawn reason (axial vs structure) and its cap verdict are chunk
+   *  facts, and reading them off `global` sets AXIAL MODE on chunks whose own
+   *  gate said `structure`. */
+  chunk_gates: GateRow[][]
   capped: string[]
-  capped_review: string[]
   warnings: string[]
   agents: string[]
 }
@@ -211,7 +218,6 @@ const TOKEN_SET: Record<string, true> = {
 }
 
 const DEFAULT_MAX_AGENTS = 3
-const DEFAULT_MAX_AGENTS_REVIEW = 0
 
 export function extractYamlBlocks(content: string): string[] {
   const blocks: string[] = []
@@ -355,8 +361,16 @@ function errorCode(err: unknown): string {
   return ''
 }
 
+/** Every path here is operator-supplied (`--diff-list`, `--chunk-list`, `--spec`,
+ *  `--stack`). `readFileSync` on a FIFO or a character device never returns, so
+ *  the type precondition comes first: anything that is not a regular file falls
+ *  into the same warning path as an unreadable one. */
 function readOrWarn(path: string, what: string, warnings?: string[]): string | null {
   try {
+    if (!statSync(path).isFile()) {
+      warnings?.push(`${what} unreadable: not a regular file`)
+      return null
+    }
     return readFileSync(path, 'utf-8')
   } catch (err) {
     const code = errorCode(err)
@@ -484,7 +498,6 @@ function parseInteger(raw: string, fallback: number, name: string, warnings: str
 export function parseRosterConfig(text: string | null): RosterConfig {
   const defaults: RosterConfig = {
     maxAgents: DEFAULT_MAX_AGENTS,
-    maxAgentsReview: DEFAULT_MAX_AGENTS_REVIEW,
     axialOverride: 'default',
     overrides: Object.create(null),
     warnings: [],
@@ -520,7 +533,6 @@ export function parseRosterConfig(text: string | null): RosterConfig {
     }
 
     let maxAgents = DEFAULT_MAX_AGENTS
-    const maxAgentsReview = DEFAULT_MAX_AGENTS_REVIEW
     let axialOverride: AgentOverride = 'default'
     // Null-prototype: keys come from stack.yml, so `overrides.constructor` must be undefined.
     const overrides: Record<string, AgentOverride> = Object.create(null)
@@ -529,7 +541,7 @@ export function parseRosterConfig(text: string | null): RosterConfig {
     const rosterEnd = blockEnd(lines, rosterIdx)
     const children = lines.slice(rosterIdx + 1, rosterEnd).filter((l) => l.indent > rosterIndent)
     if (!children.length) {
-      return { maxAgents, maxAgentsReview, axialOverride, overrides, warnings }
+      return { maxAgents, axialOverride, overrides, warnings }
     }
     const directIndent = Math.min(...children.map((l) => l.indent))
     const consumed = new Set<number>()
@@ -625,7 +637,7 @@ export function parseRosterConfig(text: string | null): RosterConfig {
       warnings.push(`unrecognised roster key at indent ${lines[i].indent}: ${lines[i].key}`)
     }
 
-    return { maxAgents, maxAgentsReview, axialOverride, overrides, warnings }
+    return { maxAgents, axialOverride, overrides, warnings }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return {
@@ -662,15 +674,18 @@ function applyOverride(agent: string, gate: Gate, overrides: Record<string, Agen
   const o = Object.hasOwn(overrides, agent) ? overrides[agent] : undefined
   if (agent === 'R-adversarial') {
     if (o === 'never') warnings.push('R-adversarial cannot be disabled')
-    return { spawn: true, reason: 'floor' }
+    return { spawn: true, reason: 'floor', forced: true }
   }
   if (o === 'always') {
+    // The reason carries the mode (`axial:` prefix) so the dispatch prompt can
+    // read it; forced-ness rides the flag, never the spelling.
     return {
       spawn: true,
       reason: agent === 'R-architect' && gate.reason.startsWith('axial') ? 'axial:stack:always' : 'stack:always',
+      forced: true,
     }
   }
-  if (o === 'never') return { spawn: false, reason: 'stack:never' }
+  if (o === 'never') return { spawn: false, reason: 'stack:never', forced: false }
   return gate
 }
 
@@ -679,24 +694,26 @@ function applyOverride(agent: string, gate: Gate, overrides: Record<string, Agen
  *  (ADR-020 §8), so waiting for it here would park `R-tester` permanently at
  *  `oracle-unknown` — a gate that never opens is not a gate. */
 function testerGate(deltaTestHit: boolean): Gate {
-  if (!deltaTestHit) return { spawn: false, reason: 'no-test-delta' }
-  return { spawn: true, reason: 'test-delta' }
+  if (!deltaTestHit) return { spawn: false, reason: 'no-test-delta', forced: false }
+  return { spawn: true, reason: 'test-delta', forced: false }
 }
 
 function architectGate(axialAdr: boolean, delta: string[], structural: boolean, axialOverride: AgentOverride): Gate {
+  // `axial: always` is an operator pin exactly like `agents: R-architect: always`,
+  // so it is forced too — same flag, one meaning.
   if (axialOverride === 'always' && axialAdr && axialDeltaHit(delta)) {
-    return { spawn: true, reason: 'axial:stack:always' }
+    return { spawn: true, reason: 'axial:stack:always', forced: true }
   }
   if (axialOverride !== 'never' && axialAdr && axialDeltaHit(delta)) {
-    return { spawn: true, reason: 'axial:adr-delta' }
+    return { spawn: true, reason: 'axial:adr-delta', forced: false }
   }
-  if (structural) return { spawn: true, reason: 'structure' }
-  return { spawn: false, reason: 'no-structure' }
+  if (structural) return { spawn: true, reason: 'structure', forced: false }
+  return { spawn: false, reason: 'no-structure', forced: false }
 }
 
 function devopsGate(infra: boolean): Gate {
-  if (infra) return { spawn: true, reason: 'infra' }
-  return { spawn: false, reason: 'no-path-hit' }
+  if (infra) return { spawn: true, reason: 'infra', forced: false }
+  return { spawn: false, reason: 'no-path-hit', forced: false }
 }
 
 function prioritizeCandidates(candidates: string[], gates: Record<string, Gate>): string[] {
@@ -748,11 +765,16 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
 
   const gates: Record<string, Gate> = {}
 
-  gates['R-adversarial'] = applyOverride('R-adversarial', { spawn: true, reason: 'floor' }, config.overrides, warnings)
+  gates['R-adversarial'] = applyOverride(
+    'R-adversarial',
+    { spawn: true, reason: 'floor', forced: true },
+    config.overrides,
+    warnings,
+  )
 
   gates['R-security-auditor'] = applyOverride(
     'R-security-auditor',
-    { spawn: path_hit, reason: path_hit ? 'path-hit' : 'no-path-hit' },
+    { spawn: path_hit, reason: path_hit ? 'path-hit' : 'no-path-hit', forced: false },
     config.overrides,
     warnings,
   )
@@ -772,13 +794,10 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
     DISPATCHABLE.filter((a) => gates[a].spawn),
     gates,
   )
-  const isForced = (a: string): boolean => {
-    const r = gates[a].reason
-    return r === 'floor' || r === 'stack:always'
-  }
+  const isForced = (a: string): boolean => gates[a].forced
   const { kept, capped } = applyCap(candidates, isForced, config.maxAgents, 'max_agents', warnings)
   for (const a of capped) {
-    gates[a] = { spawn: false, reason: 'capped' }
+    gates[a] = { spawn: false, reason: 'capped', forced: false }
   }
   const maxAgents = Math.max(config.maxAgents, candidates.filter(isForced).length)
 
@@ -786,6 +805,7 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
     agent,
     spawn: gates[agent].spawn,
     reason: gates[agent].reason,
+    forced: gates[agent].forced,
   }))
 
   return {
@@ -812,20 +832,6 @@ export function allocateReview(input: AllocateReviewInput): AllocateReviewResult
   const global = computeRoster(shared)
   const per = chunkDeltas.map((d) => computeRoster({ ...shared, delta: d }))
   const remaining = per.map((r) => [...r.candidates])
-  const collapsed: string[] = []
-  for (const agent of COLLAPSE_ONCE) {
-    let keepFirst = true
-    for (let i = 0; i < remaining.length; i++) {
-      const idx = remaining[i].indexOf(agent)
-      if (idx < 0) continue
-      if (keepFirst) {
-        keepFirst = false
-        continue
-      }
-      remaining[i].splice(idx, 1)
-      if (!collapsed.includes(agent)) collapsed.push(agent)
-    }
-  }
 
   const droppedByMaxAgents = (w: string): boolean => w.includes('dropped by max_agents:')
   const warnings = global.warnings.filter((w) => !droppedByMaxAgents(w))
@@ -837,14 +843,24 @@ export function allocateReview(input: AllocateReviewInput): AllocateReviewResult
   }
 
   const capped: string[] = []
+  // Per-chunk gate rows, index-aligned with `chunk_agents`: the reason chunk i
+  // spawned an agent, and chunk i's own cap verdict. `global.gates` answers the
+  // same questions for the whole Δ and disagrees by construction (#535 F1).
+  const chunk_gates: GateRow[][] = []
   for (let i = 0; i < remaining.length; i++) {
     const chunkWarnings: string[] = []
-    const isForced = (agent: string): boolean => {
-      const reason = per[i].gates.find((row) => row.agent === agent)?.reason ?? ''
-      return reason === 'floor' || reason === 'stack:always'
-    }
-    const cap = applyCap(remaining[i], isForced, shared.config.maxAgents, 'max_agents', chunkWarnings)
+    const forcedInChunk = (agent: string): boolean => per[i].gates.find((row) => row.agent === agent)?.forced ?? false
+    const cap = applyCap(remaining[i], forcedInChunk, shared.config.maxAgents, 'max_agents', chunkWarnings)
     remaining[i] = cap.kept
+    const droppedHere = new Set(cap.capped)
+    chunk_gates.push(
+      per[i].gates.map((row) => ({
+        agent: row.agent,
+        spawn: cap.kept.includes(row.agent),
+        reason: droppedHere.has(row.agent) ? 'capped' : row.reason,
+        forced: row.forced,
+      })),
+    )
     for (const a of cap.capped) {
       if (!capped.includes(a)) capped.push(a)
     }
@@ -853,51 +869,11 @@ export function allocateReview(input: AllocateReviewInput): AllocateReviewResult
     }
   }
 
-  const instances: { chunk: number; agent: string; floor: boolean }[] = []
-  for (let i = 0; i < remaining.length; i++) {
-    for (const agent of remaining[i]) {
-      const reason = per[i].gates.find((row) => row.agent === agent)?.reason ?? ''
-      instances.push({
-        chunk: i,
-        agent,
-        floor: reason === 'floor' || reason === 'stack:always',
-      })
-    }
-  }
-
-  const capped_review: string[] = []
-  let maxReview = shared.config.maxAgentsReview
-  if (maxReview >= 1) {
-    const floorInst = instances.filter((x) => x.floor)
-    const gatedInst = instances.filter((x) => !x.floor)
-    if (floorInst.length > maxReview) {
-      warnings.push(
-        `max_agents_review (${maxReview}) < forced agents (${floorInst.length}) — cap raised to ${floorInst.length}`,
-      )
-      maxReview = floorInst.length
-    }
-    const dropped = gatedInst.slice(maxReview - floorInst.length)
-    const dropKeys: Record<string, true> = Object.create(null)
-    for (const d of dropped) {
-      dropKeys[`${d.chunk}\0${d.agent}`] = true
-      if (!capped_review.includes(d.agent)) capped_review.push(d.agent)
-    }
-    for (let i = 0; i < remaining.length; i++) {
-      remaining[i] = remaining[i].filter((a) => !Object.hasOwn(dropKeys, `${i}\0${a}`))
-    }
-    if (dropped.length) {
-      warnings.push(
-        `roster: ${capped_review.length} agent(s) dropped by max_agents_review: ${capped_review.join(', ')}`,
-      )
-    }
-  }
-
   return {
     global,
     chunk_agents: remaining,
-    collapsed,
+    chunk_gates,
     capped,
-    capped_review,
     warnings,
     agents: DISPATCHABLE.filter((a) => remaining.some((c) => c.includes(a))),
   }
@@ -910,6 +886,10 @@ function usage(): never {
   process.exit(1)
 }
 
+/** τ is validated and echoed back, and **no gate reads it**: every spawn decision
+ *  comes from Δ, the stack overrides and the axial ADR. It is carried for the
+ *  caller — Phase 2 of the skill branches on τ≠S, and the echo records the tier
+ *  the run actually used. */
 const TIERS: Record<string, true> = { S: true, 'F-lite': true, 'F-full': true }
 
 function printResult(result: object, json: boolean): void {
@@ -927,7 +907,7 @@ function main(): void {
   const args = process.argv.slice(2)
   let diffList = ''
   const chunkLists: string[] = []
-  let tier: ReviewTier = 'F-lite'
+  let tier: ReviewTier = 'F-lite' // carried for the caller; no roster gate reads it
   let specPath: string | null = null
   let chunks = 1
   let chunksExplicit = false
@@ -1082,13 +1062,14 @@ function main(): void {
       allocated.global.review_halt = true
       allocated.warnings.push(`unreadable spec: ${specPath}`)
     }
+    // `gates` (from `...global`) is the review-wide row set: a signal summary over
+    // the full Δ, never the per-chunk dispatch source. `chunk_gates[i]` is.
     printResult(
       {
         ...allocated.global,
         chunk_agents: allocated.chunk_agents,
-        collapsed: allocated.collapsed,
+        chunk_gates: allocated.chunk_gates,
         capped: allocated.capped,
-        capped_review: allocated.capped_review,
         agents: allocated.agents,
         warnings: allocated.warnings,
       },

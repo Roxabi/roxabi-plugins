@@ -36,8 +36,33 @@ function loadAgents(): Agent[] {
     })
 }
 
+/** Bundled by the host, resolvable without any plugin: naming one is legal here.
+ *  `omp://task-agent-discovery.md` § Agent lookup. */
+const HOST_BUNDLED = ['scout', 'task', 'sonic', 'reviewer', 'security-reviewer']
+
+/** Deliberate mentions of roles this plugin does not carry — each says, in prose,
+ *  that the role is absent: `R-frontend-dev`/`R-backend-dev`/`R-fixer` are the
+ *  ADR-020 §7 cut, `R-product-lead` is named to say Phase 2 owns spec compliance,
+ *  and `R-pr` to say its falsify oracle is not snapshotted. Removing one from
+ *  this list must make the mention illegal, not silently legal. */
+const STATED_ABSENT_ROLES = ['R-fixer', 'R-frontend-dev', 'R-backend-dev', 'R-product-lead', 'R-pr']
+
 describe('omp-build agent roster', () => {
   const agents = loadAgents()
+  // Skill bodies are in scope for the same reason agent bodies are: `/feature`
+  // dumps `skills/feature/SKILL.md` into the conversation verbatim (`omp/index.ts`)
+  // and `dev-review`'s body is the dispatch contract, so a name that resolves
+  // nowhere reaches the model from either place (#535 F3).
+  const skillsDir = path.resolve(AGENTS_DIR, '..', 'skills')
+  const sources = [
+    ...agents.map((agent) => ({ file: agent.file, text: `${agent.frontmatter}\n${agent.body}` })),
+    ...readdirSync(skillsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && existsSync(path.join(skillsDir, entry.name, 'SKILL.md')))
+      .map((entry) => ({
+        file: `skills/${entry.name}/SKILL.md`,
+        text: readFileSync(path.join(skillsDir, entry.name, 'SKILL.md'), 'utf8'),
+      })),
+  ]
 
   it('is exactly the seven ADR-020 keeps', () => {
     expect(agents.map((a) => a.name).sort()).toEqual([...EXPECTED].sort())
@@ -54,37 +79,22 @@ describe('omp-build agent roster', () => {
     for (const agent of agents) expect(agent.frontmatter).toMatch(/^tools:\s*\S/m)
   })
 
-  it('never names an agent or skill that exists nowhere in the repo', () => {
+  it('never names an agent this plugin cannot resolve on its own', () => {
     // The defect this catches: a Boundaries row routing work to `reviewer` /
     // `security-reviewer`, which exist in no plugin (PR #533 review). A
     // rename-driven sweep cannot find a name that was already wrong.
     //
-    // Deliberate mentions of things absent *here* but real elsewhere stay
-    // legal: `R-product-lead` is named precisely to say it is not in the
-    // roster, and `R-pr` to say its falsify oracle is not snapshotted.
-    const plugins = path.resolve(AGENTS_DIR, '..', '..')
-    // Not every plugin ships agents or skills.
-    const entries = (dir: string) => (existsSync(dir) ? readdirSync(dir, { withFileTypes: true }) : [])
-    const known = new Set<string>()
-    for (const plugin of readdirSync(plugins)) {
-      for (const file of entries(path.join(plugins, plugin, 'agents'))) {
-        if (!file.isFile()) continue
-        const name = /^name:\s*(\S+)/m.exec(readFileSync(path.join(plugins, plugin, 'agents', file.name), 'utf8'))?.[1]
-        if (name) known.add(name)
-      }
-      for (const dir of entries(path.join(plugins, plugin, 'skills'))) {
-        if (!dir.isDirectory()) continue
-        known.add(dir.name)
-        known.add(`R-${dir.name}`)
-      }
-    }
-
+    // `known` is plugin-local on purpose. A repo-wide scan makes `R-doc-writer`
+    // — a dev-core agent this plugin does not ship — legal in an omp-build body,
+    // which is precisely the standalone-installability failure ADR-020 exists to
+    // prevent: uninstall dev-core and the name resolves nowhere.
+    const known = new Set<string>([...agents.map((agent) => agent.name), ...HOST_BUNDLED, ...STATED_ABSENT_ROLES])
     const strays: string[] = []
-    for (const agent of agents) {
-      for (const [, quoted] of agent.body.matchAll(
-        /`(R-[a-z-]+|elon|adversarial|advisor|reviewer|security-reviewer)`/g,
+    for (const source of sources) {
+      for (const [, quoted] of source.text.matchAll(
+        /`(R-[a-z-]+|elon|adversarial|advisor|reviewer|security-reviewer|scout|sonic)`/g,
       )) {
-        if (!known.has(quoted)) strays.push(`${agent.file} → ${quoted}`)
+        if (!known.has(quoted)) strays.push(`${source.file} → ${quoted}`)
       }
     }
     expect(strays).toEqual([])
@@ -93,19 +103,7 @@ describe('omp-build agent roster', () => {
   it('cites no plugin-root token, in an agent body or a skill body', () => {
     // omp-build carries no `rewriteHarnessPaths` at all, so a
     // `${CLAUDE_PLUGIN_ROOT}` citation is a path that resolves nowhere (#529
-    // class). Skill bodies are in scope for the same reason agent bodies are:
-    // `/feature` dumps `skills/feature/SKILL.md` into the conversation verbatim
-    // (`omp/index.ts`), so an unexpandable token there reaches the model too.
-    const skillsDir = path.resolve(AGENTS_DIR, '..', 'skills')
-    const sources = [
-      ...agents.map((agent) => ({ file: agent.file, text: `${agent.frontmatter}\n${agent.body}` })),
-      ...readdirSync(skillsDir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory() && existsSync(path.join(skillsDir, entry.name, 'SKILL.md')))
-        .map((entry) => ({
-          file: `skills/${entry.name}/SKILL.md`,
-          text: readFileSync(path.join(skillsDir, entry.name, 'SKILL.md'), 'utf8'),
-        })),
-    ]
+    // class).
     // Frontmatter included: a dead citation is dead wherever it sits.
     expect(sources.length).toBeGreaterThan(agents.length)
     const cited = sources

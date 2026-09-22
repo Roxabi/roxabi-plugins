@@ -29,6 +29,43 @@ function dispatchRow(agent: string): string {
   return dispatch.split('\n').find((line) => line.startsWith(`| **${agent}**`)) ?? ''
 }
 
+/** `| **Agent** | evidence gate | focus |` → the gate cell alone.
+ *
+ *  Matching a gate claim against the whole row makes the Focus cell an accomplice:
+ *  `R-devops`'s focus is "config, deploy, infra", so deleting `infra` from its
+ *  gate leaves `row.toContain('infra')` green, and the same holds for `axial` on
+ *  `R-architect`. Doc→code drift then passes while code→doc drift fails — a
+ *  one-directional pairing (#535 F2). */
+function gateCell(agent: string): string {
+  return dispatchRow(agent).split('|')[2] ?? ''
+}
+
+/** The closed vocabulary: every signal `computeRoster` actually branches on. */
+const SIGNALS: Record<string, RegExp> = {
+  floor: /always|floor/i,
+  path_hit: /path_hit/,
+  delta_test_hit: /delta_test_hit/,
+  infra: /\binfra\b/i,
+  axial: /axial/i,
+  structural: /structural|FE\+BE/i,
+}
+
+/** What each gate reads — nothing more. A cell naming a signal its gate never
+ *  reads documents a spawn the oracle will not make; a cell dropping one
+ *  documents a spawn it makes anyway. */
+const GATE_READS: Record<string, string[]> = {
+  'R-adversarial': ['floor'],
+  'R-security-auditor': ['path_hit'],
+  'R-architect': ['axial', 'structural'],
+  'R-devops': ['infra'],
+  'R-tester': ['delta_test_hit'],
+}
+
+/** No gate reads τ (roster.ts § TIERS — it is validated, echoed, and read by
+ *  nobody), so a tier word in a gate cell documents a branch that does not
+ *  exist. Phase 2 branches on τ; the oracle never does. */
+const TIER_WORDS = /F-lite|F-full|\btier\b|τ|size:/i
+
 const roster = (over: Partial<Parameters<typeof computeRoster>[0]> = {}) =>
   computeRoster({
     delta: ['src/app.ts'],
@@ -50,43 +87,53 @@ describe('dispatch table ≡ roster oracle', () => {
     expect(PHASE_AGENTS).toEqual([])
   })
 
+  it('every gate cell names exactly the signals its gate reads, and no tier', () => {
+    for (const agent of DISPATCHABLE) {
+      const cell = gateCell(agent)
+      expect(cell, `${agent}: no gate cell`).not.toBe('')
+      expect(cell, `${agent}: gate cell names a tier, but no gate reads τ`).not.toMatch(TIER_WORDS)
+      for (const [signal, re] of Object.entries(SIGNALS)) {
+        expect(
+          re.test(cell),
+          `${agent} gate cell ${GATE_READS[agent].includes(signal) ? 'must' : 'must not'} name ${signal}`,
+        ).toBe(GATE_READS[agent].includes(signal))
+      }
+    }
+  })
+
   it('documents the adversarial floor', () => {
-    expect(dispatchRow('R-adversarial')).toContain('always')
+    expect(gateCell('R-adversarial')).toContain('always')
     expect(roster().agents).toEqual(['R-adversarial'])
   })
 
   it('documents tier-independent infra routing to R-devops', () => {
-    const row = dispatchRow('R-devops')
-    expect(row).toContain('infra')
-    expect(row).not.toContain('F-full')
+    expect(gateCell('R-devops')).toContain('infra')
     expect(roster({ delta: ['.github/workflows/ci.yml'], tier: 'F-lite' }).agents).toContain('R-devops')
+    expect(roster({ delta: ['.github/workflows/ci.yml'], tier: 'S' }).agents).toContain('R-devops')
   })
 
   it('documents axial as an R-architect mode and not a separate role', () => {
-    const row = dispatchRow('R-architect')
-    expect(row.toLowerCase()).toContain('axial')
+    expect(gateCell('R-architect').toLowerCase()).toContain('axial')
     expect(dispatch).not.toContain('R-axial-adr-review')
     const out = roster({ delta: ['adapters/x.ts'], axialAdr: true, tier: 'F-lite' })
     expect(out.agents).toContain('R-architect')
     expect(out.gates.find((gate) => gate.agent === 'R-architect')?.reason).toMatch(/^axial:/)
   })
 
-  it('does not document or implement blanket F-full architect routing', () => {
-    expect(dispatchRow('R-architect')).not.toContain('F-full non-infra')
+  it('implements no blanket F-full architect routing', () => {
     expect(roster({ delta: ['src/app.ts'], tier: 'F-full' }).agents).toEqual(['R-adversarial'])
   })
 
   it('documents R-tester on changed-test evidence alone, with no oracle handshake', () => {
-    const row = dispatchRow('R-tester')
-    expect(row).toContain('delta_test_hit')
-    expect(row).not.toContain('oracle')
+    expect(gateCell('R-tester')).toContain('delta_test_hit')
+    expect(gateCell('R-tester')).not.toContain('oracle')
     const out = roster({ delta: ['src/app.test.ts'] })
     expect(out.agents).toEqual(['R-adversarial', 'R-tester'])
     expect(out.gates.find((gate) => gate.agent === 'R-tester')?.reason).toBe('test-delta')
   })
 
   it('keeps security path-only routing', () => {
-    expect(dispatchRow('R-security-auditor')).toContain('path_hit')
+    expect(gateCell('R-security-auditor')).toContain('path_hit')
     expect(roster({ delta: ['src/auth/login.ts'] }).agents).toContain('R-security-auditor')
     expect(roster({ delta: ['src/app.ts'], claims: ['fail-closed'] }).agents).not.toContain('R-security-auditor')
   })
