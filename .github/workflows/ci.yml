@@ -26,8 +26,8 @@ jobs:
         run: bun typecheck
       # actionlint is the schema-validity gate for the committed workflow files.
       # It used to exist only for the generated auto-release.yml byte test
-      # (#371 B5); that tagger is gone (ADR-021) and the gate now runs directly
-      # against .github/workflows, so the install must precede it.
+      # (#371 B5); that tagger is gone (ADR-021) and the gate now runs over
+      # .github/workflows, so the install must precede it.
       - name: Install actionlint (workflow schema gate)
         run: |
           set -euo pipefail
@@ -35,13 +35,13 @@ jobs:
           curl -sSfL https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
             | tar xz -C "${RUNNER_TEMP}/actionlint" actionlint
           echo "${RUNNER_TEMP}/actionlint" >> "$GITHUB_PATH"
-      # Schema gate for release.yml. It is hand-written and deliberately ungoverned
+      # Schema gate for every committed workflow. `actionlint` with no argument
+      # walks .github/workflows itself; passing the directory is an error.
+      # release.yml matters most — it is hand-written and deliberately ungoverned
       # by a generator or an N11 byte gate (ADR-021), so this is the only thing
-      # standing between a typo and a dead release run. Scoped to that one file on
-      # purpose: a repo-wide run also reports pre-existing findings in the
-      # GENERATED workflows, whose fix belongs in the generator, not here.
-      - name: Lint release.yml (actionlint)
-        run: actionlint .github/workflows/release.yml
+      # standing between a typo and a dead release run.
+      - name: Lint workflows (actionlint)
+        run: actionlint
       - name: Test (vitest)
         run: bun run test
       - name: Test (cli — bun:test)
