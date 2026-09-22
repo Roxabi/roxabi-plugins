@@ -36,7 +36,7 @@ omp plugin link ./plugins/omp-build
 ln -sfn "$(pwd)/plugins/omp-build/scripts/omp-wt.sh" ~/.local/bin/omp-wt
 ```
 
-Requires `package.json` with `"omp": {}` (empty object is enough; `omp.extensions` is for in-process factories only).
+Requires `package.json` with an `omp` key. `omp.extensions` is the in-process lane — this plugin ships `./omp/index.ts` there (see [Guards](#guards)).
 
 Verify:
 
@@ -77,6 +77,24 @@ Creates ω (`<type>/<N>-<slug>` via `resolveNames`) and `omp --cwd` there. Then 
 2. `run()` = plan → impl → PR → review (≤2) → label `reviewed` → watch until merge
 
 Skip grill when the spec is already `status: validated`.
+
+## Guards
+
+The plugin arms its guard chain **in-process**, through `omp.extensions` → `omp/index.ts`. It intercepts `tool_call` and refuses, before the tool runs:
+
+| Tool | Refusal |
+|---|---|
+| `bash` | bare `bun test` (`bun run test` passes) |
+| `bash` | `git switch`/`checkout` off `staging\|main\|master` **in the principal worktree** — escape hatch `DEV_CORE_ALLOW_PRINCIPAL_SWITCH=1` |
+| `write`, `edit` | content matching the hardcoded-secret / SQL-injection / command-injection table |
+
+The scan **fails open** above `SECURITY_SCAN_MAX_BYTES` (256 KB): a payload larger than the ceiling is not scanned at all. Once `dev-core` is uninstalled there is no second layer behind this one.
+
+Guards are **off** unless the project declares the host-neutral contract (`.dev/stack.yml` or `.dev/dev-core.yml`); without it the interceptor is a no-op and warns once per cwd.
+
+`omp/guards.ts` and `hooks/` are a **frozen snapshot** (ADR-020): omp-build resolves nothing through a sibling plugin at runtime, so it stays installable on its own. The snapshot is not resynced.
+
+> **Known caveat, this slice only.** While both this plugin and `dev-core` are installed, both interceptors see the same `tool_call` and reach the same verdict — the snapshots are byte-identical and read the same escape hatch. Expect the refusal, and the no-contract warning, to be reported **once per plugin**: each extension owns a private warned-cwd set, so neither dedupes the other.
 
 ## Agents
 
