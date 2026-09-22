@@ -253,35 +253,42 @@ export async function setIssue(args: string[]): Promise<void> {
   // Canonicalise every flag before the first write: a rejected value must not
   // leave the issue half-updated — type applied, label refused, parent never
   // linked (PR #528 review).
+  // --type is not applied to a cross-repo subject, but the value is still
+  // canonicalised: skipping the write must not skip the guard, or the typo
+  // door #525 closed stays open on the cross-repo path.
   if (opts.type && opts.subjectRepo) {
     console.error(
       `Warning: --type is not supported for cross-repo subjects (${opts.subjectRepo}#${opts.issueNumber}) — skipped`,
     )
   }
-  const type = opts.type && !opts.subjectRepo ? resolveType(opts.type) : undefined
+  const type = opts.type ? resolveType(opts.type) : undefined
 
-  // Labels are skipped for cross-repo subjects.
+  // Labels are skipped for cross-repo subjects — resolved first all the same.
   // Status is intentionally excluded: in the issues-only model status is just
   // open/closed and the dep-graph derives ready/blocked/done from edges, so a
   // `status:*` label is redundant (and noisy on repos that lack the label).
+  const resolved = resolveLabelFlags({ priority: opts.priority, size: opts.size, lane: opts.lane })
   const crossRepoLabels = Boolean(opts.subjectRepo && (opts.priority || opts.size || opts.lane))
   if (crossRepoLabels) {
     console.error(
       `Warning: --size/--priority/--lane label sync is not supported for cross-repo subjects (${opts.subjectRepo}#${opts.issueNumber}) — skipped`,
     )
   }
-  const labels: LabelFlags = crossRepoLabels
-    ? {}
-    : resolveLabelFlags({ priority: opts.priority, size: opts.size, lane: opts.lane })
+  const labels: LabelFlags = crossRepoLabels ? {} : resolved
 
-  if (type) await applyType(opts.issueNumber, type)
+  if (type && !opts.subjectRepo) await applyType(opts.issueNumber, type)
   const unwritten = await writeLabels(opts.issueNumber, labels)
 
-  await applyDependencies(opts.issueNumber, opts)
-  await applyParentChild(opts.issueNumber, opts)
-
-  if (unwritten.length > 0) {
-    console.error(`Error: label not written for ${unwritten.join(', ')} on #${opts.issueNumber}`)
-    process.exit(1)
+  // `finally`: a throw from the relationship writes must not swallow the
+  // report of a label that never landed.
+  try {
+    await applyDependencies(opts.issueNumber, opts)
+    await applyParentChild(opts.issueNumber, opts)
+  } finally {
+    if (unwritten.length > 0) {
+      console.error(`Error: label not written for ${unwritten.join(', ')} on #${opts.issueNumber}`)
+    }
   }
+
+  if (unwritten.length > 0) process.exit(1)
 }

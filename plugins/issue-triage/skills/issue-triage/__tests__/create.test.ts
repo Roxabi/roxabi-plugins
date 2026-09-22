@@ -95,6 +95,18 @@ describe('issue-triage/create > basic creation', () => {
     expect(errors.some((m) => m.includes('Invalid priority'))).toBe(true)
   })
 
+  it('accepts the label spelling the CLI itself writes', async () => {
+    // The input the pre-#525 resolver rejects — without it this suite cannot
+    // tell the two implementations apart (PR #528 review).
+    await createIssue(['--title', 'Test', '--priority', 'P3-low'])
+    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(99, 'P3 - Low')
+  })
+
+  it('treats an empty --body as "no body" rather than a missing value', async () => {
+    await createIssue(['--title', 'Test', '--body', ''])
+    expect(mockCreateGitHubIssue).toHaveBeenCalledWith('Test', '', undefined)
+  })
+
   it('rejects a flag given no value before the issue is created', async () => {
     // Arrange
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
@@ -108,6 +120,19 @@ describe('issue-triage/create > basic creation', () => {
     expect(exitSpy).toHaveBeenCalledWith(1)
     expect(mockCreateGitHubIssue).not.toHaveBeenCalled()
     expect(errors.some((m) => m.includes('--priority requires a value'))).toBe(true)
+  })
+
+  it('still reports the unwritten label when a relationship write throws', async () => {
+    // Arrange — the report used to be a tail statement of the happy path, so
+    // any throw from applyRelationships swallowed it (PR #528 review).
+    mockSyncLaneLabel.mockResolvedValueOnce(false)
+    mockAddSubIssue.mockRejectedValueOnce(new Error('gh: sub-issue add failed'))
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    // Act
+    await createIssue(['--title', 'Test', '--lane', 'b', '--parent', '163']).catch(() => {})
+    // Assert
+    expect(errors.some((m) => m.includes('label not written for lane'))).toBe(true)
   })
 
   it('still links the parent when a label write fails, then exits 1', async () => {

@@ -198,16 +198,18 @@ const PRIORITY_SPELLING_ALIASES: Record<string, string> = Object.fromEntries(
 )
 
 /**
- * Accepted `--priority` spellings, for CLI error messages. Every segment is
- * derived from the table that decides it — a new alias cannot be advertised
- * without being accepted, nor accepted without being advertised.
+ * Accepted `--priority` spelling families, for CLI error messages. Each family
+ * is derived from the table that decides it, so an alias cannot be advertised
+ * without being accepted. The reverse does not hold: separator and case
+ * variants of the listed spellings resolve too and are not enumerated here.
  */
 export const PRIORITY_INPUT_HINT = `${DEFAULT_PRIORITY_OPTIONS.join(', ')} (aliases: ${Object.keys(PRIORITY_ALIASES).join('/')}, ${Object.values(PRIORITY_LABEL_MAP).join('/')})`
 
 /** Resolve loose user input to a canonical status key, or undefined. */
 export function resolveStatus(input: string): string | undefined {
-  if (CANONICAL_STATUSES.has(input)) return input
-  return STATUS_ALIASES[input.toUpperCase()]
+  const value = input.trim()
+  if (CANONICAL_STATUSES.has(value)) return value
+  return STATUS_ALIASES[value.toUpperCase()]
 }
 
 /**
@@ -220,15 +222,19 @@ export function resolveStatus(input: string): string | undefined {
  * caller is most likely to type — it used to be the one string rejected (#525).
  */
 export function resolvePriority(input: string): string | undefined {
-  if (CANONICAL_PRIORITIES.has(input)) return input
-  return PRIORITY_ALIASES[input.toUpperCase()] ?? PRIORITY_SPELLING_ALIASES[normalizePrioritySpelling(input)]
+  // Trimmed once here rather than inside one branch: whether padding is
+  // tolerated must not depend on which spelling the caller happened to type.
+  const value = input.trim()
+  if (CANONICAL_PRIORITIES.has(value)) return value
+  return PRIORITY_ALIASES[value.toUpperCase()] ?? PRIORITY_SPELLING_ALIASES[normalizePrioritySpelling(value)]
 }
 
 /** Resolve loose user input to a canonical size key, or undefined. */
 export function resolveSize(input: string): string | undefined {
-  const upper = input.toUpperCase().replace(/[-\s]/g, '-')
+  const value = input.trim()
+  const upper = value.toUpperCase().replace(/[-\s]/g, '-')
   // Tier-based schema (S / F-lite / F-full).
-  if (CANONICAL_SIZES.has(input)) return input
+  if (CANONICAL_SIZES.has(value)) return value
   if (CANONICAL_SIZES.has(upper)) return upper
   // Legacy → new schema aliasing.
   if (upper === 'XS') return 'S'

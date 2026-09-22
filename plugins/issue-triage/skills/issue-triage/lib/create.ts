@@ -43,10 +43,10 @@ function parseArgs(args: string[]): CreateOptions {
         opts.title = requireFlagValue(args, ++i, '--title')
         break
       case '--body':
-        opts.body = requireFlagValue(args, ++i, '--body')
+        opts.body = requireFlagValue(args, ++i, '--body', true)
         break
       case '--label':
-        opts.labels = requireFlagValue(args, ++i, '--label')
+        opts.labels = requireFlagValue(args, ++i, '--label', true)
         break
       case '--size':
         opts.size = requireFlagValue(args, ++i, '--size')
@@ -173,10 +173,15 @@ export async function createIssue(args: string[]): Promise<void> {
   // cancel the relationship writes queued behind it — collect, then fail last.
   const unwritten = await writeLabels(issueNumber, flags)
 
-  await applyRelationships(nodeId, issueNumber, opts)
-
-  if (unwritten.length > 0) {
-    console.error(`Error: label not written for ${unwritten.join(', ')} on #${issueNumber}`)
-    process.exit(1)
+  // `finally`: a throw from the relationship writes must not swallow the
+  // report of a label that never landed.
+  try {
+    await applyRelationships(nodeId, issueNumber, opts)
+  } finally {
+    if (unwritten.length > 0) {
+      console.error(`Error: label not written for ${unwritten.join(', ')} on #${issueNumber}`)
+    }
   }
+
+  if (unwritten.length > 0) process.exit(1)
 }

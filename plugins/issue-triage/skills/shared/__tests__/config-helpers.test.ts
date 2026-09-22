@@ -23,6 +23,14 @@ describe('issue-triage/shared > resolvePriority', () => {
     expect(resolvePriority('P2-Medium')).toBe('P2 - Medium')
   })
 
+  it('tolerates padding on every branch, not just the label one', () => {
+    // The trim used to live inside the separator normaliser, so whether padding
+    // was accepted depended on which spelling the caller typed (PR #528 review).
+    expect(resolvePriority(' P0 ')).toBe('P0 - Urgent')
+    expect(resolvePriority('high ')).toBe('P1 - High')
+    expect(resolvePriority(' P3 - Low ')).toBe('P3 - Low')
+    expect(resolvePriority(' P3-low ')).toBe('P3 - Low')
+  })
   it('returns undefined for a value it cannot canonicalise', () => {
     expect(resolvePriority('P4')).toBeUndefined()
     expect(resolvePriority('lowish')).toBeUndefined()

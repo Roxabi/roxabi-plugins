@@ -336,15 +336,22 @@ describe('issue-triage/set > --type flag', () => {
     expect(exitSpy).not.toHaveBeenCalled()
   })
 
-  it('calls process.exit(1) and prints error for invalid type', async () => {
-    // Arrange
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
-    // Act
-    await setIssue(['123', '--type', 'bogus'])
-    // Assert
+  it('writes nothing at all when the type is invalid', async () => {
+    // Arrange — a throwing stub, because a no-op process.exit lets execution
+    // continue past the guard and the test then passes on either ordering.
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    // Act — a parent is queued behind the bad type
+    await setIssue(['123', '--type', 'bogus', '--parent', '7']).catch(() => {})
+    // Assert — the priced quantity is "nothing was written", not "it printed"
     expect(exitSpy).toHaveBeenCalledWith(1)
-    const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
-    expect(errCalls.some((msg) => msg.includes('Invalid type') || msg.includes('Valid'))).toBe(true)
+    expect(mockResolveIssueTypeId).not.toHaveBeenCalled()
+    expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+    expect(mockAddSubIssue).not.toHaveBeenCalled()
+    expect(errors.some((msg) => msg.includes('Invalid type'))).toBe(true)
   })
 })
 
@@ -372,6 +379,22 @@ describe('issue-triage/set > cross-repo subject', () => {
     expect(mockGetNodeId).toHaveBeenCalledWith(144, 'Roxabi/voiceCLI')
     expect(mockGetNodeId).toHaveBeenCalledWith(10, 'Roxabi/lyra')
     expect(mockAddSubIssue).toHaveBeenCalledWith('node-Roxabi-lyra-10', 'node-Roxabi-voiceCLI-144')
+  })
+
+  it('rejects an unrecognised value even when the label write is skipped', async () => {
+    // Arrange — skipping the write used to skip the guard, so #525's silent
+    // success survived on the cross-repo path (PR #528 review).
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    // Act
+    await setIssue(['Roxabi/lyra#144', '--priority', 'totally-bogus', '--parent', '#7']).catch(() => {})
+    // Assert
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockAddSubIssue).not.toHaveBeenCalled()
+    expect(errors.some((m) => m.includes('Invalid priority'))).toBe(true)
   })
 
   it('resolves cross-repo subject for --add-child', async () => {
@@ -467,12 +490,16 @@ describe('issue-triage/set > applyType accepts all 10 canonical values', () => {
     }
   })
 
-  it('rejects an unknown type and calls process.exit(1)', async () => {
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
-    await setIssue(['123', '--type', 'unknown-type'])
+  it('rejects an unknown type before any write', async () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    await setIssue(['123', '--type', 'unknown-type']).catch(() => {})
     expect(exitSpy).toHaveBeenCalledWith(1)
-    const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
-    expect(errCalls.some((m) => m.includes('Invalid type'))).toBe(true)
+    expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+    expect(errors.some((m) => m.includes('Invalid type'))).toBe(true)
   })
 })
 
