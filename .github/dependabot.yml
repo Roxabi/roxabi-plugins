@@ -24,12 +24,17 @@ updates:
   # Bun supports both default-days and the semver-*-days cooldown keys.
   #
   # ACCEPTED COST: the bun ecosystem has version updates but NO security
-  # updates, and GitHub's dependency graph does not parse bun.lock. Alerts
-  # still fire from package.json at range precision; only the automated
-  # security-fix PR is lost. Accepted because this repo has zero runtime
-  # dependencies, eight dev dependencies, and is private. Revisit — and move
-  # back to a graph-supported lockfile — if it gains a runtime dependency,
-  # is published, or stops being private. See ADR-022.
+  # updates, and GitHub's dependency graph does not parse bun.lock.
+  # That surrenders a capability this repo had ALREADY switched off:
+  # dependabot_security_updates is `disabled` at the repository level, and the
+  # alert ledger shows fixed=0, dismissed=0 — nothing was ever auto-remediated.
+  # Platform-side DETECTION is currently unproven: the open alerts still carry
+  # manifest_path=package-lock.json, a file that no longer exists. `bun audit`
+  # is the detection path that does not depend on GitHub parsing bun.lock.
+  # Accepted because this repo has zero runtime dependencies, eight dev
+  # dependencies, and is private. Revisit — and move back to a graph-supported
+  # lockfile — if it gains a runtime dependency, is published, or stops being
+  # private. See ADR-022.
   - package-ecosystem: bun
     directory: /
     schedule:
