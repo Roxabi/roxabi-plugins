@@ -18,12 +18,15 @@ updates:
     # semver-*-days fall back to default-days, so 3 days applies to every bump.
     cooldown:
       default-days: 3
-  - package-ecosystem: npm
+  # `bun`, not `npm` (#518). The npm updater reads package-lock.json and never
+  # writes bun.lock, so it left the lockfile stale while bumping package.json.
+  # Bun supports both default-days and the semver-*-days cooldown keys.
+  - package-ecosystem: bun
     directory: /
     schedule:
       interval: weekly
     groups:
-      npm-dependencies:
+      bun-dependencies:
         patterns:
           - "*"
         # Majors excluded from the group → emitted as individual PRs so the

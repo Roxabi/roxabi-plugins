@@ -315,7 +315,7 @@ export function generateCiYml(opts: WorkflowOpts): string {
     if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: uv run pyright'
   } else if (o.stack === 'bun') {
     setupStep = `      - uses: ${ACTION_PINS.setupBun}
-      - run: bun install`
+      - run: bun install --frozen-lockfile`
     if (o.lint) lintStep = '\n      - name: Lint\n        run: bun lint'
     if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: bun typecheck'
   } else {
@@ -367,7 +367,7 @@ ${generateE2eJob(o)}`
 export function generateDeployYml(opts: WorkflowOpts): string {
   const setupStep =
     opts.stack === 'bun'
-      ? `      - uses: ${ACTION_PINS.setupBun}\n      - run: bun install`
+      ? `      - uses: ${ACTION_PINS.setupBun}\n      - run: bun install --frozen-lockfile`
       : `      - uses: ${ACTION_PINS.setupNode}\n        with:\n          node-version: 20\n      - run: npm ci`
 
   let deployStep: string

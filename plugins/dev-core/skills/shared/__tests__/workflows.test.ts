@@ -150,11 +150,22 @@ describe('generateCiYml', () => {
   it('generates bun + vitest CI with SHA-pinned setup-bun', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none' })
     expect(yml).toContain(ACTION_PINS.setupBun)
-    expect(yml).toContain('bun install')
+    expect(yml).toContain('bun install --frozen-lockfile')
     expect(yml).toContain('bun lint')
     expect(yml).toContain('bun typecheck')
     expect(yml).toContain('run: bun run test')
     expect(yml).not.toContain('trufflehog')
+  })
+
+  it('never lets a bun stack install with a floating lockfile', () => {
+    // A bare `bun install` re-resolves whenever bun.lock disagrees with
+    // package.json, so two runs of the same commit can pick different tool
+    // versions and disagree on lint (#518). Its siblings are already pinned:
+    // python uses `uv sync --frozen`, node uses `npm ci`.
+    for (const stack of ['bun', 'node', 'python'] as const) {
+      const yml = generateCiYml({ stack, test: 'none', deploy: 'none' })
+      expect(yml).not.toMatch(/bun install(?! --frozen-lockfile)/)
+    }
   })
 
   it('omits lint/typecheck when disabled', () => {
@@ -282,12 +293,20 @@ describe('generateDependabotAutomergeYml', () => {
 })
 
 describe('generateDependabotYml', () => {
-  it('emits npm + github-actions for bun stack', () => {
+  it('emits the bun ecosystem for a bun stack, never npm', () => {
     const yml = generateDependabotYml({ stack: 'bun' })
-    expect(yml).toContain('package-ecosystem: npm')
+    expect(yml).toContain('package-ecosystem: bun')
+    // npm would read package-lock.json and leave bun.lock stale (#518).
+    expect(yml).not.toContain('package-ecosystem: npm')
     expect(yml).toContain('package-ecosystem: github-actions')
     expect(yml).toContain('default-days: 3')
     expect(yml).not.toContain('semver-major-days')
+  })
+
+  it('emits npm for a node stack', () => {
+    const yml = generateDependabotYml({ stack: 'node' })
+    expect(yml).toContain('package-ecosystem: npm')
+    expect(yml).not.toContain('package-ecosystem: bun')
   })
 
   it('emits pip ecosystem for python stack', () => {
@@ -434,7 +453,7 @@ describe('writeWorkflows', () => {
     const results = await writeWorkflows(opts, true)
 
     expect(fs.readFileSync('.github/workflows/ci.yml', 'utf8')).toContain('name: CI')
-    expect(fs.readFileSync('.github/dependabot.yml', 'utf8')).toContain('package-ecosystem: npm')
+    expect(fs.readFileSync('.github/dependabot.yml', 'utf8')).toContain('package-ecosystem: bun')
     expect(results).toContainEqual({ file: 'ci.yml', status: 'updated' })
     expect(results).toContainEqual({ file: 'dependabot.yml', status: 'updated' })
   })
