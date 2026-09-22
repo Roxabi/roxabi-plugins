@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Canonical source: plugins/dev-core/tools/ — do not edit project-side copies directly
-# Shared exemption helpers for check_file_length.sh / check_folder_size.sh.
+# Shared helpers for check_file_length.sh / check_folder_size.sh.
 # Sourced, not executed. Caller contract (shell variables — export NOT required, they
 # are read at call time, not at source time):
 #   EXEMPT_FILE       path to the exemptions file — set before calling any helper
 #   QG_EXEMPT_UNIT    cap unit word in exemption lines ("lines" | "files") — set before
 #                     calling exempt_cap (unused by is_exempt / assert_exempt_no_spaces)
+#   FIND_ROOT         directory the gate scans — set before require_scan_root
 # No `set` here: sourcing must not mutate the caller's shell options.
 
 # Return 0 if "$1" is listed (exact first-field match) in the exemptions file.
@@ -46,6 +47,32 @@ assert_exempt_no_spaces() {
     [ ! -f "$EXEMPT_FILE" ] && return 0
     if awk '/^[[:space:]]*#/ { next } NF > 2 && $2 !~ /^#/ { found=1 } END { exit !found }' "$EXEMPT_FILE"; then
         echo "ERROR: $EXEMPT_FILE: exemption path contains spaces — paths with spaces are not supported" >&2
+        exit 1
+    fi
+}
+
+# require_scan_root DISABLE_VAR ROOT_VAR GATE_NAME
+# Fail closed when the scan root is missing. Silence is never inferred.
+#   Exits 0 (no output) when $DISABLE_VAR is exactly 1, true, or yes
+#     (case-insensitive). That is the only opt-out. Unset, empty, 0, or any
+#     other value means the gate applies.
+#   Exits 1 when FIND_ROOT is not a directory and the gate was not disabled.
+#     The message names the missing path, $ROOT_VAR, and $DISABLE_VAR.
+#   Returns 0 when FIND_ROOT exists and the gate applies.
+# Exits the sourcing script (not a subshell return) on opt-out or hard failure.
+# bash 3.2 safe: indirect expansion, no ${var,,}.
+require_scan_root() {
+    local disable_var="$1" root_var="$2" gate="$3" val folded
+    val="${!disable_var-}"
+    folded=$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')
+    case "$folded" in
+        1|true|yes)
+            exit 0
+            ;;
+    esac
+    if [ ! -d "$FIND_ROOT" ]; then
+        echo "ERROR: $gate: expected directory '$FIND_ROOT' not found under $(pwd) (from \$$root_var)." >&2
+        echo "A missing target is not a pass. Set \$$root_var to an existing directory, or set $disable_var=1 (also accepts true or yes) to declare this repository out of scope." >&2
         exit 1
     fi
 }
