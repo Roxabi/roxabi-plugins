@@ -1,8 +1,10 @@
-import { execFileSync } from 'node:child_process'
+import { exec, execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { afterAll, describe, expect, it } from 'vitest'
+import { createVitest } from 'vitest/node'
 
 /**
  * The fork budget guard lives in vitest.setup.ts, so the only way to observe it
@@ -66,5 +68,39 @@ describe('fork budget guard', () => {
     // ...and the integration-named twin is not accused.
     expect(output).not.toContain('allowed.integration.test.ts >')
     expect(output).toMatch(/1 failed \| 1 passed/)
+  })
+
+  it('counts a fork without changing what child_process returns', async () => {
+    // util.promisify dispatches on the promisify.custom symbol, which is what
+    // makes this resolve to an object rather than the bare first callback
+    // argument. A wrapper that dropped the original's own properties would
+    // silently reshape every promisified caller in the suite — for instance
+    // promote/lib/hotfix-density.ts.
+    const result = await promisify(exec)('echo counted')
+    expect(result.stdout.trim()).toBe('counted')
+    expect(result.stderr).toBe('')
+  })
+})
+
+describe('the repo suite is wired to the guard', () => {
+  it('gives both projects the setup file and their own budget', async () => {
+    // The guard only protects files whose project loads vitest.setup.ts.
+    // Dropping `setupFiles`, or dropping `extends: true` from a project, would
+    // leave forking unit tests green while the fixture test above still passes.
+    const vitest = await createVitest('test', { watch: false, run: true })
+    try {
+      const byName = Object.fromEntries(vitest.projects.map((project) => [project.config.name, project.config]))
+      expect(Object.keys(byName).sort()).toEqual(['integration', 'unit'])
+      const setupFile = path.join(ROOT, 'vitest.setup.ts')
+      for (const name of ['unit', 'integration']) {
+        expect(byName[name].setupFiles, `${name} must load the fork guard`).toContain(setupFile)
+        // Inherited from the root config — proof that `extends: true` is live.
+        expect(byName[name].env.GITHUB_REPO, `${name} must inherit root env`).toBe('Test/test-repo')
+      }
+      expect(byName.unit.testTimeout).toBe(5_000)
+      expect(byName.integration.testTimeout).toBe(30_000)
+    } finally {
+      await vitest.close()
+    }
   })
 })
