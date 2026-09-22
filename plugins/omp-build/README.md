@@ -78,6 +78,23 @@ Creates ω (`<type>/<N>-<slug>` via `resolveNames`) and `omp --cwd` there. Then 
 
 Skip grill when the spec is already `status: validated`.
 
+## Slash commands
+
+| Command | Lane |
+|---|---|
+| `/feature` | `omp/index.ts` → `registerCommand('feature')`, in-process. Dumps `skills/feature/SKILL.md` |
+
+Slash-only: `registerCommand` is the user lane, `registerTool` is the LLM one, and
+`skills/feature/SKILL.md` carries `disable-model-invocation`, so the model reaches
+`/feature` through neither. Requires a **restart** (extension module), not
+`/reload-plugins`.
+
+`/feature` from the Principal creates ω, installs it, prints `/wt <branch>` and
+stops — the in-session cwd hop is not extension-facing (ADR-020 §3). Inside ω with
+no ticket it frames: grill → spec → tickets through `issue-triage`, then stops at
+the frontier. Mode 2 (implement → review → land) is #494; `/build` carries it until
+then.
+
 ## Guards
 
 The plugin arms its guard chain **in-process**, through `omp.extensions` → `omp/index.ts`. It intercepts `tool_call` and refuses, before the tool runs:

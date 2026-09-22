@@ -39,6 +39,14 @@ Other skills resolve via `skill://` when the plugin is linked (`omp plugin link`
 | `/dev-review` | Multi-domain review (not native `/review`) |
 | `/dev-checkup` | Project health check (not native `/checkup`) |
 
+`omp-build` registers one of its own (`plugins/omp-build/omp/index.ts`):
+
+| Command | What it does |
+|---------|--------------|
+| `/feature` | One OMP feature — hop into ω from the Principal, or frame (grill → spec → tickets → frontier) inside it |
+
+A registered command is user-only: `registerCommand` is the slash lane, `registerTool` is the LLM one. `/feature` additionally carries `disable-model-invocation` in its skill body, so the model cannot autoload or `Skill()` it either.
+
 ## Safety hooks
 
 `plugins/dev-core/omp/index.ts` registers:

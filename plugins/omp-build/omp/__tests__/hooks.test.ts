@@ -142,6 +142,8 @@ describe('OMP omp-build hooks', () => {
         on: (_event, fn) => {
           captured = fn as ToolCallHandler
         },
+        registerCommand: () => {},
+        sendUserMessage: () => {},
       })
       if (!captured) throw new Error('extension registered no tool_call handler')
       handler = captured
@@ -214,6 +216,40 @@ describe('OMP omp-build hooks', () => {
       } finally {
         warn.mockRestore()
       }
+    })
+  })
+
+  describe('/feature command', () => {
+    type Command = { description?: string; handler: (args: string, ctx: { cwd: string }) => Promise<void> }
+
+    const commands = new Map<string, Command>()
+    const sent: string[] = []
+
+    beforeAll(() => {
+      ompBuildExtension({
+        on: () => {},
+        registerCommand: (name, options) => {
+          commands.set(name, options as Command)
+        },
+        sendUserMessage: (content) => {
+          sent.push(content)
+        },
+      })
+    })
+
+    it('registers exactly one command, /feature', () => {
+      expect([...commands.keys()]).toEqual(['feature'])
+    })
+
+    it('dumps the skill body, frontmatter stripped, with its directory and the args', async () => {
+      await commands.get('feature')?.handler('#493', { cwd: '/repo' })
+      const message = sent[0]
+      expect(message).toBeDefined()
+      // Frontmatter in the conversation would be noise the model reads as content.
+      expect(message).not.toContain('disable-model-invocation')
+      expect(message).toContain('# Feature')
+      expect(message).toMatch(/\[Skill directory: .*plugins\/omp-build\/skills\/feature]/)
+      expect(message?.endsWith('#493')).toBe(true)
     })
   })
 })

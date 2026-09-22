@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   BUN_TEST_DENY_REASON,
   extractShellCommand,
@@ -28,9 +31,45 @@ type ExtensionAPI = {
     event: 'tool_call',
     handler: (event: ToolCallEvent, ctx: ExtensionContext) => Promise<ToolCallEventResult | undefined>,
   ): void
+  registerCommand(
+    name: string,
+    options: {
+      description?: string
+      handler: (args: string, ctx: ExtensionContext) => Promise<void>
+    },
+  ): void
+  sendUserMessage: (content: string, options?: { deliverAs?: 'steer' | 'followUp' }) => void
+}
+
+const FEATURE_SKILL_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), 'skills', 'feature')
+
+function stripFrontmatter(markdown: string): string {
+  if (!markdown.startsWith('---\n')) return markdown
+  const end = markdown.indexOf('\n---\n', 4)
+  if (end === -1) return markdown
+  return markdown.slice(end + 5)
 }
 
 export default function ompBuildExtension(pi: ExtensionAPI): void {
+  // Slash-only by construction: `registerCommand` is the slash lane, `registerTool`
+  // is the LLM one (omp://extensions.md). The model cannot reach a command, and
+  // `disable-model-invocation` in the SKILL.md keeps `Skill()` and autoload off it
+  // too, so `/feature` is user-driven on both lanes.
+  //
+  // No `rewriteHarnessPaths` here: omp-build expands no `${CLAUDE_*}` token
+  // anywhere (README § Guards, agents/__tests__/roster.test.ts), so dumping the
+  // body verbatim plus its directory is the whole contract.
+  pi.registerCommand('feature', {
+    description: 'Run one OMP feature cycle — frame in ω, or build the named ticket',
+    handler: async (args) => {
+      const body = stripFrontmatter(readFileSync(join(FEATURE_SKILL_DIR, 'SKILL.md'), 'utf8')).trim()
+      const trimmedArgs = args.trim()
+      pi.sendUserMessage(
+        [body, '', `[Skill directory: ${FEATURE_SKILL_DIR}]`, trimmedArgs ? `\n${trimmedArgs}` : ''].join('\n').trim(),
+      )
+    },
+  })
+
   const warnedMissingContract = new Set<string>()
 
   pi.on('tool_call', async (event, ctx) => {
