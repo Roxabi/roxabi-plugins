@@ -45,7 +45,7 @@ describe('forksAProcess', () => {
   it('does not flag an import quoted inside a fixture string — data, not code', () => {
     // This very file is scanned by the convention test below. Without telling
     // code position from data, the predicate would denounce its own fixtures.
-    const fixture = String.raw`expect(run("import { execSync } from 'node:child_process'")).toBe(true)`
+    const fixture = 'expect(run("import { execSync } from \'node:child_process\'")).toBe(true)'
     expect(forksAProcess(fixture)).toBe(false)
   })
 
