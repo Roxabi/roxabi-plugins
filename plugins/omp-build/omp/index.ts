@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   BUN_TEST_DENY_REASON,
   extractShellCommand,
@@ -28,9 +31,61 @@ type ExtensionAPI = {
     event: 'tool_call',
     handler: (event: ToolCallEvent, ctx: ExtensionContext) => Promise<ToolCallEventResult | undefined>,
   ): void
+  registerCommand(
+    name: string,
+    options: {
+      description?: string
+      handler: (args: string, ctx: ExtensionContext) => Promise<void>
+    },
+  ): void
+  sendUserMessage: (content: string, options?: { deliverAs?: 'steer' | 'followUp' }) => void
+}
+
+const FEATURE_SKILL_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), 'skills', 'feature')
+
+function stripFrontmatter(markdown: string): string {
+  if (!markdown.startsWith('---\n')) return markdown
+  const end = markdown.indexOf('\n---\n', 4)
+  if (end === -1) return markdown
+  return markdown.slice(end + 5)
 }
 
 export default function ompBuildExtension(pi: ExtensionAPI): void {
+  // User-only by construction, on the one lane that exists: `registerCommand` is
+  // the slash lane, `registerTool` is the LLM one (omp://extensions.md), and the
+  // model cannot reach a command. That alone is the property. The skill body's
+  // `disable-model-invocation` is not a second gate — omp normalises it to `hide`,
+  // which omits the skill from the prompt listing while `skill://feature` and
+  // `/skill:feature` still reach it (measured on omp 18.2.9).
+  //
+  // No `rewriteHarnessPaths` here: nothing this plugin dumps carries a
+  // `${CLAUDE_*}` path token to expand — agent bodies *and* skill bodies, the
+  // surface this command added, are held to that by
+  // `agents/__tests__/roster.test.ts` ("cites no plugin-root token").
+  pi.registerCommand('feature', {
+    description: 'Run one OMP feature cycle — frame in ω, or build the named ticket',
+    handler: async (args) => {
+      const skillPath = join(FEATURE_SKILL_DIR, 'SKILL.md')
+      let raw: string
+      try {
+        raw = readFileSync(skillPath, 'utf8')
+      } catch (error) {
+        // omp catches a handler throw and reports it on a channel the operator
+        // may not be watching: a partial install would produce no turn and no
+        // visible error at all. Say it in the conversation, naming the path.
+        pi.sendUserMessage(
+          `/feature: cannot read its own body at ${skillPath} — ${error instanceof Error ? error.message : String(error)}. Reinstall omp-build.`,
+        )
+        return
+      }
+      const body = stripFrontmatter(raw).trim()
+      const trimmedArgs = args.trim()
+      pi.sendUserMessage(
+        [body, '', `[Skill directory: ${FEATURE_SKILL_DIR}]`, trimmedArgs ? `\n${trimmedArgs}` : ''].join('\n').trim(),
+      )
+    },
+  })
+
   const warnedMissingContract = new Set<string>()
 
   pi.on('tool_call', async (event, ctx) => {

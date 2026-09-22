@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import type * as NodeFs from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   extractWriteContent,
@@ -11,6 +12,21 @@ import {
   shouldBlockPrincipalSwitch,
 } from '../guards'
 import ompBuildExtension from '../index'
+
+// The only fs call intercepted is the command handler's own body read, and only
+// while `skillRead.fail` is set: everything else — including this file's temp
+// dirs — goes straight through to the real module.
+const skillRead = vi.hoisted(() => ({ fail: false }))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof NodeFs>()
+  const readFileSync = ((path: Parameters<typeof actual.readFileSync>[0], ...rest: unknown[]) => {
+    if (skillRead.fail && String(path).endsWith('SKILL.md')) {
+      throw new Error(`ENOENT: no such file or directory, open '${String(path)}'`)
+    }
+    return (actual.readFileSync as (...args: unknown[]) => unknown)(path, ...rest)
+  }) as typeof actual.readFileSync
+  return { ...actual, readFileSync, default: { ...actual, readFileSync } }
+})
 
 describe('OMP omp-build hooks', () => {
   describe('project contract', () => {
@@ -87,8 +103,11 @@ describe('OMP omp-build hooks', () => {
     })
   })
 
-  // `rewriteHarnessPaths` is deliberately absent: it only mattered while
-  // registerCommand injected SKILL.md bodies, which this plugin does not do.
+  // `rewriteHarnessPaths` is deliberately absent. `/feature` *does* inject a
+  // SKILL.md body, so the justification is no longer "this plugin dumps none":
+  // it is that nothing it dumps carries a `${CLAUDE_*}` path token to expand,
+  // asserted over agent bodies and skill bodies alike by
+  // `agents/__tests__/roster.test.ts` ("cites no plugin-root token").
 
   describe('extractWriteContent', () => {
     it('reads OMP edit hashline from input', () => {
@@ -142,6 +161,8 @@ describe('OMP omp-build hooks', () => {
         on: (_event, fn) => {
           captured = fn as ToolCallHandler
         },
+        registerCommand: () => {},
+        sendUserMessage: () => {},
       })
       if (!captured) throw new Error('extension registered no tool_call handler')
       handler = captured
@@ -214,6 +235,66 @@ describe('OMP omp-build hooks', () => {
       } finally {
         warn.mockRestore()
       }
+    })
+  })
+
+  describe('/feature command', () => {
+    type Command = { description?: string; handler: (args: string, ctx: { cwd: string }) => Promise<void> }
+
+    const commands = new Map<string, Command>()
+    const sent: string[] = []
+
+    beforeAll(() => {
+      ompBuildExtension({
+        on: () => {},
+        registerCommand: (name, options) => {
+          commands.set(name, options as Command)
+        },
+        sendUserMessage: (content) => {
+          sent.push(content)
+        },
+      })
+    })
+
+    it('registers exactly one command, /feature', () => {
+      expect([...commands.keys()]).toEqual(['feature'])
+    })
+
+    // Built the way the source builds it — two levels up from the module, then
+    // `skills/feature` — instead of matched against `plugins/omp-build/…`: the
+    // monorepo layout is not the contract, and a marketplace install is a
+    // byte-identical copy at another path.
+    const skillDir = resolve(import.meta.dirname, '..', '..', 'skills', 'feature')
+
+    it('dumps the skill body, frontmatter stripped, with its directory and the args', async () => {
+      await commands.get('feature')?.handler('#493', { cwd: '/repo' })
+      const message = sent.at(-1)
+      expect(message).toBeDefined()
+      // Frontmatter in the conversation would be noise the model reads as content.
+      expect(message).not.toContain('disable-model-invocation')
+      expect(message).toContain('# Feature')
+      expect(message?.endsWith('#493')).toBe(true)
+
+      const printed = /\[Skill directory: (.+)]/.exec(message ?? '')?.[1]
+      expect(printed).toBe(skillDir)
+      // §2 tells the agent to `import(`${SKILL_DIR}/entry.js`)`. A directory that
+      // does not carry the seam is a dead instruction, wherever it resolves.
+      expect(existsSync(join(printed ?? '', 'entry.js'))).toBe(true)
+    })
+
+    it('says so in the conversation when its own body cannot be read', async () => {
+      // omp catches a handler throw and reports it on a channel the operator may
+      // not be watching: a partial install would otherwise produce no turn at all.
+      skillRead.fail = true
+      try {
+        await commands.get('feature')?.handler('', { cwd: '/repo' })
+      } finally {
+        skillRead.fail = false
+      }
+      const message = sent.at(-1)
+      expect(message).toContain('cannot read its own body')
+      expect(message).toContain(join(skillDir, 'SKILL.md'))
+      expect(message).not.toContain('# Feature')
     })
   })
 })

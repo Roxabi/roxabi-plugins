@@ -44,6 +44,8 @@ describe('omp-build interceptor > principal freeze', () => {
       on: (_event, fn) => {
         captured = fn as ToolCallHandler
       },
+      registerCommand: () => {},
+      sendUserMessage: () => {},
     })
     if (!captured) throw new Error('extension registered no tool_call handler')
     handler = captured
