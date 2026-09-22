@@ -1,0 +1,1128 @@
+#!/usr/bin/env bun
+/**
+ * Review roster oracle: (Δ, τ, σ, stack) → spawn set.
+ * path_hit / priced-fence parsing provenance: #419.
+ *
+ * omp-build snapshot (ADR-020 §7–8, #492): five dispatchable roles, and
+ * `R-tester` arms on changed-test evidence alone — the executable falsify
+ * oracle has no producer on OMP, so there is no second handshake to wait for.
+ */
+
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { STACK_YML } from '../../hooks/lib/contract-paths.cjs'
+
+export const VALID_CLAIMS: Record<string, true> = { 'fail-closed': true, authz: true, ssot: true }
+
+export type ReviewTier = 'S' | 'F-lite' | 'F-full'
+export type AgentOverride = 'default' | 'always' | 'never'
+
+export type StackPaths = {
+  frontendPath: string
+  sharedUi: string
+  backendPath: string
+}
+
+export type RosterConfig = {
+  maxAgents: number
+  maxAgentsReview: number
+  axialOverride: AgentOverride
+  overrides: Record<string, AgentOverride>
+  warnings: string[]
+}
+
+export type GateRow = {
+  agent: string
+  spawn: boolean
+  reason: string
+}
+
+export type RosterResult = {
+  tier: ReviewTier
+  delta_count: number
+  chunks: number
+  agents: string[]
+  candidates: string[]
+  gates: GateRow[]
+  capped: string[]
+  path_hit: boolean
+  spawn_security_auditor: boolean
+  delta_test_hit: boolean
+  claims: string[]
+  priced_claim_ok: boolean
+  max_agents: number
+  warnings: string[]
+  review_halt: boolean
+}
+
+export type ComputeRosterInput = {
+  delta: string[]
+  tier: ReviewTier
+  chunks: number
+  claims: string[]
+  pricedClaimOk: boolean
+  specDraft: boolean
+  axialAdr: boolean
+  stackPaths: StackPaths
+  config: RosterConfig
+}
+
+type Gate = { spawn: boolean; reason: string }
+
+export const DISPATCHABLE = ['R-adversarial', 'R-security-auditor', 'R-architect', 'R-devops', 'R-tester'] as const
+
+export const PHASE_AGENTS = [] as const
+
+export const COLLAPSE_ONCE: readonly (typeof DISPATCHABLE)[number][] = []
+
+export type AllocateReviewInput = {
+  chunkDeltas: string[][]
+  shared: Omit<ComputeRosterInput, 'delta'> & { delta: string[] }
+}
+
+export type AllocateReviewResult = {
+  global: RosterResult
+  chunk_agents: string[][]
+  collapsed: string[]
+  capped: string[]
+  capped_review: string[]
+  warnings: string[]
+  agents: string[]
+}
+
+const KNOWN_AGENTS: Record<string, true> = Object.fromEntries(DISPATCHABLE.map((a) => [a, true]))
+/** A key parsed, warned about, and dropped — never silently ignored. The two domain
+ *  roles and the fixer are not absent by oversight here: they are cut (ADR-020 §7),
+ *  and a project carrying them in `.dev/stack.yml` must be told, not have its pin
+ *  vanish into an `unknown roster agent` line that reads like a typo. */
+const REMOVED_AGENTS: Record<string, true> = {
+  'R-axial-adr-review': true,
+  'R-recall': true,
+  'R-finding-verifier': true,
+  'R-options': true,
+  'R-frontend-dev': true,
+  'R-backend-dev': true,
+  'R-fixer': true,
+}
+
+const OVERRIDE_VALUES: Record<string, true> = { default: true, always: true, never: true }
+
+const TEST_DIR_RE = /(^|\/)(__tests__|tests?)\//
+const TEST_EXT_RE = /\.(test|spec)\.[cm]?[jt]sx?$/
+const TEST_PY_RE = /(^|\/)test_[^/]+\.py$/
+const TEST_SUFFIX_RE = /_test\.(py|go|rs)$/
+const FE_EXT_RE = /\.(tsx|jsx|vue|svelte|css|scss)$/
+const AXIAL_RE = /^(infrastructure|adapters|domains|stages)\//
+const STRUCTURAL_RES = [
+  /(^|\/)docs\/(architecture|architectures)(\/|$)/,
+  /(^|\/)\.?dependency-cruiser\.(c?js|mjs|json|ya?ml)$/,
+  /(^|\/)(nx|turbo)\.jsonc?$/,
+  /(^|\/)pnpm-workspace\.ya?ml$/,
+  /(^|\/)(workspace|workspaces)\.ya?ml$/,
+]
+const INFRA_RES = [
+  /(^|\/)scripts\//,
+  /(^|\/)\.github\//,
+  /(^|\/)lefthook\.ya?ml$/,
+  /(^|\/)wrangler\.(toml|jsonc?|json)$/,
+  /(^|\/)deploy\//,
+  /(^|\/)deploy\.sh$/,
+  /(^|\/)(Dockerfile|Containerfile)$/,
+  /(^|\/)docker-compose\.ya?ml$/,
+  /(^|\/)(makefile|gnumakefile)$/i,
+  /(^|\/)Justfile$/,
+  /\.tf$/,
+  /\.tfvars$/,
+  /(^|\/)k8s\//,
+  /(^|\/)helm\//,
+  /(^|\/)terraform\//,
+  /(^|\/)\.gitlab-ci\.ya?ml$/,
+  /(^|\/)\.circleci\//,
+  /(^|\/)ansible\//,
+  /(^|\/)\.buildkite\//,
+  /(^|\/)serverless\.ya?ml$/,
+  /(^|\/)Taskfile\.ya?ml$/,
+  /(^|\/)charts\/(?:.*\/)?values\.ya?ml$/,
+  /(^|\/)Vagrantfile$/,
+  /(^|\/)Pulumi\.ya?ml$/,
+  /(^|\/)\.dockerignore$/,
+  /\.bicep$/,
+  /(^|\/)skaffold\.ya?ml$/,
+]
+
+/** Security path vocabulary — exact token match (¬substring: `author` must not hit `auth`). */
+const TOKEN_SET: Record<string, true> = {
+  auth: true,
+  authn: true,
+  authz: true,
+  oauth: true,
+  oidc: true,
+  saml: true,
+  sso: true,
+  mfa: true,
+  otp: true,
+  session: true,
+  sessions: true,
+  jwt: true,
+  login: true,
+  signin: true,
+  signup: true,
+  logout: true,
+  secret: true,
+  secrets: true,
+  crypto: true,
+  credential: true,
+  credentials: true,
+  password: true,
+  passwd: true,
+  cert: true,
+  certs: true,
+  tls: true,
+  ssl: true,
+  rbac: true,
+  permission: true,
+  permissions: true,
+  acl: true,
+  iam: true,
+  hmac: true,
+  keystore: true,
+  authenticate: true,
+  authentication: true,
+  authorize: true,
+  authorization: true,
+  webauthn: true,
+  encrypt: true,
+  encryption: true,
+  decrypt: true,
+  cipher: true,
+  aes: true,
+  rsa: true,
+  csrf: true,
+  xsrf: true,
+  hash: true,
+  salt: true,
+  bcrypt: true,
+  argon: true,
+  pkcs: true,
+  apikey: true,
+  keypair: true,
+  privatekey: true,
+  publickey: true,
+}
+
+const DEFAULT_MAX_AGENTS = 3
+const DEFAULT_MAX_AGENTS_REVIEW = 0
+
+export function extractYamlBlocks(content: string): string[] {
+  const blocks: string[] = []
+  const re = /```ya?ml[^\n]*\n([\s\S]*?)```/gi
+  let m = re.exec(content)
+  while (m) {
+    blocks.push(m[1].replace(/\r\n/g, '\n'))
+    m = re.exec(content)
+  }
+  return blocks
+}
+
+export function parseClaimTags(yaml: string): string[] | null {
+  const lines = yaml.split('\n')
+  for (const line of lines) {
+    const m = line.match(/^\s*claim:\s*(.*)$/)
+    if (!m) continue
+    const raw = m[1].trim()
+    if (!raw) return null
+    if (raw.startsWith('[')) {
+      const inner = raw.slice(1, raw.endsWith(']') ? -1 : undefined)
+      const tags = inner
+        .split(',')
+        .map((t) =>
+          t
+            .trim()
+            .replace(/^['"]|['"]$/g, '')
+            .toLowerCase(),
+        )
+        .filter(Boolean)
+      return tags.length ? tags : null
+    }
+    return [raw.replace(/^['"]|['"]$/g, '').toLowerCase()]
+  }
+  return null
+}
+
+export function validateClaimTags(tags: string[] | null): tags is string[] {
+  if (!tags?.length) return false
+  return tags.every((t) => Object.hasOwn(VALID_CLAIMS, t))
+}
+
+export function parsePricedFences(specContent: string): {
+  claims: string[]
+  pricedClaimOk: boolean
+  hasPricedFence: boolean
+} {
+  const allClaims = new Set<string>()
+  let hasPricedFence = false
+  let pricedClaimOk = true
+
+  for (const block of extractYamlBlocks(specContent)) {
+    if (!/^\s*priced:/m.test(block)) continue
+    hasPricedFence = true
+    if (!/^\s*not:/m.test(block) || !/^\s*oracles:/m.test(block)) {
+      pricedClaimOk = false
+      continue
+    }
+    const tags = parseClaimTags(block)
+    if (!validateClaimTags(tags)) {
+      pricedClaimOk = false
+      continue
+    }
+    for (const t of tags) allClaims.add(t)
+  }
+
+  return { claims: [...allClaims], pricedClaimOk, hasPricedFence }
+}
+
+export function specIsDraft(specContent: string): boolean {
+  const fm = specContent.match(/^---\n([\s\S]*?)\n---/)
+  if (!fm) return false
+  const status = fm[1]
+    .match(/^status:\s*(.+)$/m)?.[1]
+    ?.trim()
+    .replace(/^['"]|['"]$/g, '')
+  return status === 'draft'
+}
+
+/** tokens(path) := split on [^A-Za-z0-9] ∨ camelCase ∨ letter→digit, then lowercase.
+ *  path_hit := ∃ t ∈ tokens(path): Object.hasOwn(TOKEN_SET, t)
+ *  ¬naked `token`/`tokens` (design-token collision); ¬unanchored stem substring. */
+const TOKEN_SPLIT = /[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Za-z])(?=[0-9])/
+
+export function pathHit(delta: string[]): boolean {
+  for (const f of delta) {
+    const tokens = f
+      .split(TOKEN_SPLIT)
+      .filter(Boolean)
+      .map((t) => t.toLowerCase())
+    if (tokens.some((t) => Object.hasOwn(TOKEN_SET, t))) return true
+  }
+  return false
+}
+
+export function testHit(delta: string[]): boolean {
+  return delta.some((f) => TEST_DIR_RE.test(f) || TEST_EXT_RE.test(f) || TEST_PY_RE.test(f) || TEST_SUFFIX_RE.test(f))
+}
+
+export function infraHit(delta: string[]): boolean {
+  return delta.some((f) => INFRA_RES.some((re) => re.test(f)))
+}
+
+export function axialDeltaHit(delta: string[]): boolean {
+  return delta.some((f) => AXIAL_RE.test(f))
+}
+
+function prefixCount(delta: string[], prefixes: string[]): number {
+  const normalized = prefixes.map((s) => s.replace(/\/+$/, '')).filter(Boolean)
+  return delta.filter((f) => normalized.some((p) => f === p || f.startsWith(`${p}/`))).length
+}
+
+/** The domain split outlives the domain roles: it is the only evidence that a diff
+ *  crosses the configured frontend/backend boundary, which is an `R-architect`
+ *  structural signal (§ structureHit). It selects no agent by itself. */
+export function domainFileCounts(delta: string[], paths: StackPaths): { frontend: number; backend: number } {
+  const frontendPrefixes = [paths.frontendPath, paths.sharedUi].filter(Boolean)
+  const frontend = frontendPrefixes.length
+    ? prefixCount(delta, frontendPrefixes)
+    : delta.filter((f) => FE_EXT_RE.test(f)).length
+  return {
+    frontend,
+    backend: prefixCount(delta, [paths.backendPath]),
+  }
+}
+
+/** Conservative architecture signals: explicit architecture/workspace files or a
+ * diff crossing configured frontend and backend boundaries. Ordinary F-full source
+ * changes deliberately stay cold. */
+export function structureHit(delta: string[], paths: StackPaths): boolean {
+  if (delta.some((f) => STRUCTURAL_RES.some((re) => re.test(f)))) return true
+  const counts = domainFileCounts(delta, paths)
+  return counts.frontend > 0 && counts.backend > 0
+}
+
+function errorCode(err: unknown): string {
+  if (typeof err === 'object' && err !== null && 'code' in err) {
+    const raw = err.code
+    if (typeof raw === 'string') return raw
+  }
+  return ''
+}
+
+function readOrWarn(path: string, what: string, warnings?: string[]): string | null {
+  try {
+    return readFileSync(path, 'utf-8')
+  } catch (err) {
+    const code = errorCode(err)
+    if (code === 'ENOENT' || code === 'ENOTDIR') return null
+    const message = err instanceof Error ? err.message : String(err)
+    warnings?.push(`${what} unreadable: ${message}`)
+    return null
+  }
+}
+
+// Legacy contract location: a presence probe, never a read path. Deliberately local
+// (¬a resolver export) so no caller can ever read the contract from `.claude/`.
+const LEGACY_STACK_YML = '.claude/stack.yml'
+
+/** Absent stack ⇒ every roster override (max_agents, `agents: always|never`) is
+ *  dropped in silence — a pinned `R-security-auditor: always` would just vanish.
+ *  Warn instead, and name the gesture: move it, or write it. */
+function stackAbsenceWarning(stackPath: string): string | null {
+  if (existsSync(stackPath)) return null
+  if (stackPath.endsWith(STACK_YML)) {
+    const legacy = stackPath.slice(0, -STACK_YML.length) + LEGACY_STACK_YML
+    if (existsSync(legacy)) {
+      return `${stackPath} not found but ${legacy} exists — legacy contract layout: move it to ${STACK_YML}; roster overrides ignored until then`
+    }
+  }
+  return `${stackPath} not found — roster overrides ignored`
+}
+
+function dirOrWarn(dir: string, what: string, warnings?: string[]) {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+  } catch (err) {
+    const code = errorCode(err)
+    if (code === 'ENOENT' || code === 'ENOTDIR') return null
+    const message = err instanceof Error ? err.message : String(err)
+    warnings?.push(`${what} unreadable: ${message}`)
+    return null
+  }
+}
+
+export function hasAxialAdr(adrDir: string, warnings?: string[]): boolean {
+  const entries = dirOrWarn(adrDir, 'axial ADR dir', warnings)
+  if (!entries) return false
+  for (const e of entries) {
+    if (!e.isFile() || !e.name.endsWith('.md')) continue
+    const member = join(adrDir, e.name)
+    const text = readOrWarn(member, member, warnings)
+    if (text == null) continue
+    if (/^axial:\s*true/m.test(text)) return true
+  }
+  return false
+}
+
+function stripInlineComment(line: string): string {
+  let out = ''
+  let quote: string | null = null
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (quote) {
+      out += c
+      if (c === quote && line[i - 1] !== '\\') quote = null
+      continue
+    }
+    if (c === '"' || c === "'") {
+      quote = c
+      out += c
+      continue
+    }
+    if (c === '#') break
+    out += c
+  }
+  return out.trimEnd()
+}
+
+function unquote(v: string): string {
+  const t = v.trim()
+  if (t.length >= 2 && ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")))) {
+    return t.slice(1, -1)
+  }
+  return t
+}
+
+function lineIndent(line: string): number {
+  const m = line.match(/^[ ]*/)
+  return m ? m[0].length : 0
+}
+
+type YamlLine = { indent: number; key: string; value: string }
+
+function parseYamlLines(text: string): YamlLine[] {
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\t/g, '  ')
+  const rows: YamlLine[] = []
+  for (const raw of normalized.split('\n')) {
+    const stripped = stripInlineComment(raw)
+    if (!stripped.trim()) continue
+    const indent = lineIndent(stripped)
+    const content = stripped.trim()
+    const colon = content.indexOf(':')
+    if (colon < 0) continue
+    const key = content.slice(0, colon).trim()
+    const value = unquote(content.slice(colon + 1))
+    if (!key) continue
+    rows.push({ indent, key, value })
+  }
+  return rows
+}
+
+function blockEnd(lines: YamlLine[], startIdx: number): number {
+  const base = lines[startIdx].indent
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (lines[i].indent <= base) return i
+  }
+  return lines.length
+}
+
+function parseInteger(raw: string, fallback: number, name: string, warnings: string[]): number {
+  if (!raw) return fallback
+  if (!/^-?\d+$/.test(raw)) {
+    warnings.push(`${name} is not an integer; using default ${fallback}`)
+    return fallback
+  }
+  return Number(raw)
+}
+
+export function parseRosterConfig(text: string | null): RosterConfig {
+  const defaults: RosterConfig = {
+    maxAgents: DEFAULT_MAX_AGENTS,
+    maxAgentsReview: DEFAULT_MAX_AGENTS_REVIEW,
+    axialOverride: 'default',
+    overrides: Object.create(null),
+    warnings: [],
+  }
+  if (text == null || !text.trim()) return defaults
+
+  try {
+    const lines = parseYamlLines(text)
+    const reviewIdxs: number[] = []
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].indent === 0 && lines[i].key === 'review') reviewIdxs.push(i)
+    }
+    if (!reviewIdxs.length) {
+      if (lines.some((l) => l.indent === 0 && l.key === 'roster')) {
+        return { ...defaults, warnings: ['review.roster missing'] }
+      }
+      return defaults
+    }
+    const warnings: string[] = []
+    if (reviewIdxs.length > 1) warnings.push('duplicate top-level review: block ignored')
+    const reviewIdx = reviewIdxs[0]
+    const reviewEnd = blockEnd(lines, reviewIdx)
+    let rosterIdx = -1
+    for (let i = reviewIdx + 1; i < reviewEnd; i++) {
+      if (lines[i].key === 'roster' && lines[i].indent > lines[reviewIdx].indent) {
+        rosterIdx = i
+        break
+      }
+    }
+    if (rosterIdx < 0) {
+      warnings.push('review.roster missing')
+      return { ...defaults, warnings }
+    }
+
+    let maxAgents = DEFAULT_MAX_AGENTS
+    const maxAgentsReview = DEFAULT_MAX_AGENTS_REVIEW
+    let axialOverride: AgentOverride = 'default'
+    // Null-prototype: keys come from stack.yml, so `overrides.constructor` must be undefined.
+    const overrides: Record<string, AgentOverride> = Object.create(null)
+
+    const rosterIndent = lines[rosterIdx].indent
+    const rosterEnd = blockEnd(lines, rosterIdx)
+    const children = lines.slice(rosterIdx + 1, rosterEnd).filter((l) => l.indent > rosterIndent)
+    if (!children.length) {
+      return { maxAgents, maxAgentsReview, axialOverride, overrides, warnings }
+    }
+    const directIndent = Math.min(...children.map((l) => l.indent))
+    const consumed = new Set<number>()
+
+    for (let i = rosterIdx + 1; i < rosterEnd; i++) {
+      const line = lines[i]
+      if (line.indent !== directIndent) continue
+      if (line.key === 'max_agents') {
+        consumed.add(i)
+        maxAgents = parseInteger(line.value, DEFAULT_MAX_AGENTS, 'max_agents', warnings)
+        if (maxAgents < 1) {
+          warnings.push('max_agents < 1; clamped to 1')
+          maxAgents = 1
+        }
+      } else if (line.key === 'verify_below_confidence') {
+        consumed.add(i)
+        warnings.push('verify_below_confidence is deprecated and ignored; deterministic deduplication retains findings')
+      } else if (line.key === 'recall_min_delta') {
+        consumed.add(i)
+        warnings.push('recall_min_delta is deprecated and ignored; /R-dev-review controls the isolated recall worker')
+      } else if (line.key === 'max_agents_review') {
+        consumed.add(i)
+        warnings.push('max_agents_review is deprecated and ignored; use the per-chunk max_agents cap')
+      } else if (line.key === 'agents') {
+        consumed.add(i)
+        const agentsEnd = blockEnd(lines, i)
+        let recognised = 0
+        let legacyArchitectOverride: AgentOverride | undefined
+        for (let j = i + 1; j < agentsEnd; j++) {
+          if (lines[j].indent <= line.indent) break
+          consumed.add(j)
+          recognised++
+          const agent = lines[j].key
+          const raw = lines[j].value.toLowerCase()
+          if (agent === 'R-product-lead') {
+            warnings.push('R-product-lead is not part of the review roster — Phase 2 covers spec compliance')
+            continue
+          }
+          if (Object.hasOwn(REMOVED_AGENTS, agent)) {
+            warnings.push(`deprecated roster agent override: ${agent}`)
+            if (!Object.hasOwn(OVERRIDE_VALUES, raw)) {
+              warnings.push(`invalid override for ${agent}: ${lines[j].value}; ignored`)
+              continue
+            }
+            if (agent === 'R-axial-adr-review') {
+              legacyArchitectOverride = raw as AgentOverride
+            } else if (agent === 'R-recall') {
+              warnings.push('R-recall override ignored; recall is no longer a roster agent')
+            } else if (agent === 'R-finding-verifier') {
+              warnings.push('R-finding-verifier override ignored; confidence-only finding removal was retired')
+            } else if (agent === 'R-options') {
+              warnings.push('R-options override ignored; options is an /R-analyze host-native worker')
+            } else if (agent === 'R-frontend-dev' || agent === 'R-backend-dev') {
+              warnings.push(`${agent} override ignored; the domain roles are cut — R-adversarial owns their concerns`)
+            } else if (agent === 'R-fixer') {
+              warnings.push('R-fixer override ignored; /fix applies findings inline, it spawns no fixer')
+            }
+            continue
+          }
+          if (!Object.hasOwn(KNOWN_AGENTS, agent)) {
+            warnings.push(`unknown roster agent: ${agent}`)
+            continue
+          }
+          if (!Object.hasOwn(OVERRIDE_VALUES, raw)) {
+            warnings.push(`invalid override for ${agent}: ${lines[j].value}; using default`)
+            continue
+          }
+          overrides[agent] = raw as AgentOverride
+        }
+        if (legacyArchitectOverride !== undefined) {
+          axialOverride = legacyArchitectOverride
+          const architectOverride = overrides['R-architect']
+          warnings.push('R-axial-adr-review override applies to R-architect axial mode only; rename the key')
+          if (
+            architectOverride !== undefined &&
+            architectOverride !== 'default' &&
+            legacyArchitectOverride !== 'default' &&
+            architectOverride !== legacyArchitectOverride
+          ) {
+            warnings.push(
+              `conflicting R-architect (${architectOverride}) and R-axial-adr-review (${legacyArchitectOverride}) overrides; R-architect takes global precedence`,
+            )
+          }
+        }
+        if (recognised === 0) {
+          warnings.push('roster agents block present but no key: value entries recognised (sequence or flow mapping?)')
+        }
+      }
+    }
+
+    for (let i = rosterIdx + 1; i < rosterEnd; i++) {
+      if (consumed.has(i)) continue
+      warnings.push(`unrecognised roster key at indent ${lines[i].indent}: ${lines[i].key}`)
+    }
+
+    return { maxAgents, maxAgentsReview, axialOverride, overrides, warnings }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return {
+      ...defaults,
+      warnings: [`review.roster parse failed: ${message}; using defaults`],
+    }
+  }
+}
+
+export function parseStackPaths(text: string | null): StackPaths {
+  if (text == null || !text.trim()) {
+    return { frontendPath: '', sharedUi: '', backendPath: '' }
+  }
+  const lines = parseYamlLines(text)
+  const childScalar = (blockKey: string, childKey: string): string => {
+    const idx = lines.findIndex((l) => l.indent === 0 && l.key === blockKey)
+    if (idx < 0) return ''
+    const end = blockEnd(lines, idx)
+    for (let i = idx + 1; i < end; i++) {
+      if (lines[i].indent > 0 && lines[i].key === childKey) return lines[i].value
+    }
+    return ''
+  }
+  return {
+    frontendPath: childScalar('frontend', 'path'),
+    sharedUi: childScalar('shared', 'ui'),
+    backendPath: childScalar('backend', 'path'),
+  }
+}
+
+function applyOverride(agent: string, gate: Gate, overrides: Record<string, AgentOverride>, warnings: string[]): Gate {
+  // `overrides` may be a caller-built literal (prototype-exposed), so read own keys only —
+  // an inherited `constructor`/`toString` must never resolve as an override.
+  const o = Object.hasOwn(overrides, agent) ? overrides[agent] : undefined
+  if (agent === 'R-adversarial') {
+    if (o === 'never') warnings.push('R-adversarial cannot be disabled')
+    return { spawn: true, reason: 'floor' }
+  }
+  if (o === 'always') {
+    return {
+      spawn: true,
+      reason: agent === 'R-architect' && gate.reason.startsWith('axial') ? 'axial:stack:always' : 'stack:always',
+    }
+  }
+  if (o === 'never') return { spawn: false, reason: 'stack:never' }
+  return gate
+}
+
+/** Changed-test evidence is the whole gate. dev-core held the spawn behind a second
+ *  `--oracle-ok` round-trip fed by `run-falsify.sh`; that producer is not snapshotted
+ *  (ADR-020 §8), so waiting for it here would park `R-tester` permanently at
+ *  `oracle-unknown` — a gate that never opens is not a gate. */
+function testerGate(deltaTestHit: boolean): Gate {
+  if (!deltaTestHit) return { spawn: false, reason: 'no-test-delta' }
+  return { spawn: true, reason: 'test-delta' }
+}
+
+function architectGate(axialAdr: boolean, delta: string[], structural: boolean, axialOverride: AgentOverride): Gate {
+  if (axialOverride === 'always' && axialAdr && axialDeltaHit(delta)) {
+    return { spawn: true, reason: 'axial:stack:always' }
+  }
+  if (axialOverride !== 'never' && axialAdr && axialDeltaHit(delta)) {
+    return { spawn: true, reason: 'axial:adr-delta' }
+  }
+  if (structural) return { spawn: true, reason: 'structure' }
+  return { spawn: false, reason: 'no-structure' }
+}
+
+function devopsGate(infra: boolean): Gate {
+  if (infra) return { spawn: true, reason: 'infra' }
+  return { spawn: false, reason: 'no-path-hit' }
+}
+
+function prioritizeCandidates(candidates: string[], gates: Record<string, Gate>): string[] {
+  const score = (agent: string): number => {
+    if (agent === 'R-adversarial') return 1_000
+    if (agent === 'R-security-auditor') return 100
+    if (agent === 'R-architect' && gates[agent].reason.startsWith('axial:')) return 95
+    if (agent === 'R-devops') return 80
+    if (agent === 'R-tester') return 75
+    if (agent === 'R-architect') return 70
+    return 0
+  }
+  // Ties break on manifest order. Five entries — the scan is the table.
+  const stableOrder = (agent: string): number => (DISPATCHABLE as readonly string[]).indexOf(agent)
+  return [...candidates].sort((a, b) => score(b) - score(a) || stableOrder(a) - stableOrder(b))
+}
+
+function applyCap(
+  candidates: string[],
+  isForced: (agent: string) => boolean,
+  max: number,
+  knob: string,
+  warnings: string[],
+): { kept: string[]; capped: string[] } {
+  const forced = candidates.filter(isForced)
+  const gated = candidates.filter((a) => !isForced(a))
+  let cap = max
+  if (forced.length > cap) {
+    warnings.push(`${knob} (${max}) < forced agents (${forced.length}) — cap raised to ${forced.length}`)
+    cap = forced.length
+  }
+  const room = cap - forced.length
+  const keptGated = gated.slice(0, room)
+  const capped = gated.slice(room)
+  if (capped.length) {
+    warnings.push(`roster: ${capped.length} agent(s) dropped by ${knob}: ${capped.join(', ')}`)
+  }
+  return { kept: [...forced, ...keptGated], capped }
+}
+
+export function computeRoster(input: ComputeRosterInput): RosterResult {
+  const { delta, tier, chunks, pricedClaimOk, axialAdr, stackPaths, config } = input
+  const warnings = [...config.warnings]
+  const claims = input.specDraft ? [] : input.claims.filter((c) => Object.hasOwn(VALID_CLAIMS, c))
+  const path_hit = pathHit(delta)
+  const delta_test_hit = testHit(delta)
+  const infra = infraHit(delta)
+  const structural = structureHit(delta, stackPaths)
+
+  const gates: Record<string, Gate> = {}
+
+  gates['R-adversarial'] = applyOverride('R-adversarial', { spawn: true, reason: 'floor' }, config.overrides, warnings)
+
+  gates['R-security-auditor'] = applyOverride(
+    'R-security-auditor',
+    { spawn: path_hit, reason: path_hit ? 'path-hit' : 'no-path-hit' },
+    config.overrides,
+    warnings,
+  )
+
+  gates['R-tester'] = applyOverride('R-tester', testerGate(delta_test_hit), config.overrides, warnings)
+
+  gates['R-devops'] = applyOverride('R-devops', devopsGate(infra), config.overrides, warnings)
+
+  gates['R-architect'] = applyOverride(
+    'R-architect',
+    architectGate(axialAdr, delta, structural, config.axialOverride),
+    config.overrides,
+    warnings,
+  )
+
+  const candidates = prioritizeCandidates(
+    DISPATCHABLE.filter((a) => gates[a].spawn),
+    gates,
+  )
+  const isForced = (a: string): boolean => {
+    const r = gates[a].reason
+    return r === 'floor' || r === 'stack:always'
+  }
+  const { kept, capped } = applyCap(candidates, isForced, config.maxAgents, 'max_agents', warnings)
+  for (const a of capped) {
+    gates[a] = { spawn: false, reason: 'capped' }
+  }
+  const maxAgents = Math.max(config.maxAgents, candidates.filter(isForced).length)
+
+  const gateRows: GateRow[] = [...DISPATCHABLE, ...PHASE_AGENTS].map((agent) => ({
+    agent,
+    spawn: gates[agent].spawn,
+    reason: gates[agent].reason,
+  }))
+
+  return {
+    tier,
+    delta_count: delta.length,
+    chunks,
+    agents: [...kept],
+    candidates: [...candidates],
+    gates: gateRows,
+    capped,
+    path_hit,
+    spawn_security_auditor: gates['R-security-auditor'].spawn,
+    delta_test_hit,
+    claims,
+    priced_claim_ok: pricedClaimOk,
+    max_agents: maxAgents,
+    warnings,
+    review_halt: false,
+  }
+}
+
+export function allocateReview(input: AllocateReviewInput): AllocateReviewResult {
+  const { chunkDeltas, shared } = input
+  const global = computeRoster(shared)
+  const per = chunkDeltas.map((d) => computeRoster({ ...shared, delta: d }))
+  const remaining = per.map((r) => [...r.candidates])
+  const collapsed: string[] = []
+  for (const agent of COLLAPSE_ONCE) {
+    let keepFirst = true
+    for (let i = 0; i < remaining.length; i++) {
+      const idx = remaining[i].indexOf(agent)
+      if (idx < 0) continue
+      if (keepFirst) {
+        keepFirst = false
+        continue
+      }
+      remaining[i].splice(idx, 1)
+      if (!collapsed.includes(agent)) collapsed.push(agent)
+    }
+  }
+
+  const droppedByMaxAgents = (w: string): boolean => w.includes('dropped by max_agents:')
+  const warnings = global.warnings.filter((w) => !droppedByMaxAgents(w))
+  for (const r of per) {
+    for (const w of r.warnings) {
+      if (droppedByMaxAgents(w)) continue
+      if (!warnings.includes(w)) warnings.push(w)
+    }
+  }
+
+  const capped: string[] = []
+  for (let i = 0; i < remaining.length; i++) {
+    const chunkWarnings: string[] = []
+    const isForced = (agent: string): boolean => {
+      const reason = per[i].gates.find((row) => row.agent === agent)?.reason ?? ''
+      return reason === 'floor' || reason === 'stack:always'
+    }
+    const cap = applyCap(remaining[i], isForced, shared.config.maxAgents, 'max_agents', chunkWarnings)
+    remaining[i] = cap.kept
+    for (const a of cap.capped) {
+      if (!capped.includes(a)) capped.push(a)
+    }
+    for (const w of chunkWarnings) {
+      if (!warnings.includes(w)) warnings.push(w)
+    }
+  }
+
+  const instances: { chunk: number; agent: string; floor: boolean }[] = []
+  for (let i = 0; i < remaining.length; i++) {
+    for (const agent of remaining[i]) {
+      const reason = per[i].gates.find((row) => row.agent === agent)?.reason ?? ''
+      instances.push({
+        chunk: i,
+        agent,
+        floor: reason === 'floor' || reason === 'stack:always',
+      })
+    }
+  }
+
+  const capped_review: string[] = []
+  let maxReview = shared.config.maxAgentsReview
+  if (maxReview >= 1) {
+    const floorInst = instances.filter((x) => x.floor)
+    const gatedInst = instances.filter((x) => !x.floor)
+    if (floorInst.length > maxReview) {
+      warnings.push(
+        `max_agents_review (${maxReview}) < forced agents (${floorInst.length}) — cap raised to ${floorInst.length}`,
+      )
+      maxReview = floorInst.length
+    }
+    const dropped = gatedInst.slice(maxReview - floorInst.length)
+    const dropKeys: Record<string, true> = Object.create(null)
+    for (const d of dropped) {
+      dropKeys[`${d.chunk}\0${d.agent}`] = true
+      if (!capped_review.includes(d.agent)) capped_review.push(d.agent)
+    }
+    for (let i = 0; i < remaining.length; i++) {
+      remaining[i] = remaining[i].filter((a) => !Object.hasOwn(dropKeys, `${i}\0${a}`))
+    }
+    if (dropped.length) {
+      warnings.push(
+        `roster: ${capped_review.length} agent(s) dropped by max_agents_review: ${capped_review.join(', ')}`,
+      )
+    }
+  }
+
+  return {
+    global,
+    chunk_agents: remaining,
+    collapsed,
+    capped,
+    capped_review,
+    warnings,
+    agents: DISPATCHABLE.filter((a) => remaining.some((c) => c.includes(a))),
+  }
+}
+
+function usage(): never {
+  console.error(
+    'usage: roster.ts --diff-list FILE [--chunk-list FILE ...] [--tier S|F-lite|F-full] [--spec PATH] [--chunks N] [--stack PATH] [--adr-dir PATH] [--json]',
+  )
+  process.exit(1)
+}
+
+const TIERS: Record<string, true> = { S: true, 'F-lite': true, 'F-full': true }
+
+function printResult(result: object, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  for (const [k, v] of Object.entries(result)) {
+    if (Array.isArray(v) || (typeof v === 'object' && v !== null)) console.log(`${k}=${JSON.stringify(v)}`)
+    else console.log(`${k}=${v}`)
+  }
+}
+
+function main(): void {
+  const args = process.argv.slice(2)
+  let diffList = ''
+  const chunkLists: string[] = []
+  let tier: ReviewTier = 'F-lite'
+  let specPath: string | null = null
+  let chunks = 1
+  let chunksExplicit = false
+  let stackPath: string = STACK_YML
+  let adrDir = 'docs/architecture/adr'
+  let json = false
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]
+    const next = args[i + 1]
+    if (a === '--diff-list' && next !== undefined) {
+      diffList = next
+      i++
+    } else if (a === '--chunk-list' && next !== undefined) {
+      chunkLists.push(next)
+      i++
+    } else if (a === '--tier' && next !== undefined) {
+      if (!Object.hasOwn(TIERS, next)) usage()
+      tier = next as ReviewTier
+      i++
+    } else if (a === '--spec' && next !== undefined) {
+      specPath = next
+      i++
+    } else if (a === '--chunks' && next !== undefined) {
+      if (!/^[1-9]\d*$/.test(next)) usage()
+      chunks = Number(next)
+      chunksExplicit = true
+      i++
+    } else if (a === '--stack' && next !== undefined) {
+      stackPath = next
+      i++
+    } else if (a === '--adr-dir' && next !== undefined) {
+      adrDir = next
+      i++
+    } else if (a === '--json') {
+      json = true
+    } else {
+      usage()
+    }
+  }
+
+  if (!diffList) usage()
+
+  const ioWarnings: string[] = []
+  const deltaText = readOrWarn(diffList, diffList, ioWarnings)
+  if (deltaText == null) {
+    if (ioWarnings.length) {
+      for (const w of ioWarnings) console.error(`roster: ${w}`)
+    } else {
+      console.error('roster: unreadable --diff-list')
+    }
+    process.exit(1)
+  }
+  const delta = deltaText
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+
+  const chunkDeltas: string[][] = []
+  if (chunkLists.length) {
+    for (const file of chunkLists) {
+      const text = readOrWarn(file, file, ioWarnings)
+      if (text == null) {
+        if (ioWarnings.length) {
+          for (const w of ioWarnings) console.error(`roster: ${w}`)
+        } else {
+          console.error(`roster: unreadable --chunk-list ${file}`)
+        }
+        process.exit(1)
+      }
+      const files = text
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+      if (!files.length) {
+        console.error(`roster: empty --chunk-list ${file}`)
+        process.exit(1)
+      }
+      chunkDeltas.push(files)
+    }
+    if (!chunksExplicit) {
+      chunks = chunkLists.length
+    } else if (chunks !== chunkLists.length) {
+      ioWarnings.push(
+        `--chunks ${chunks} disagrees with ${chunkLists.length} --chunk-list file(s); using ${chunkLists.length}`,
+      )
+      chunks = chunkLists.length
+    }
+    const deltaSet: Record<string, true> = Object.create(null)
+    for (const p of delta) deltaSet[p] = true
+    const seen: Record<string, true> = Object.create(null)
+    for (const files of chunkDeltas) {
+      for (const p of files) {
+        if (!Object.hasOwn(deltaSet, p)) ioWarnings.push(`chunk path not in --diff-list: ${p}`)
+        if (Object.hasOwn(seen, p)) ioWarnings.push(`duplicate chunk path: ${p}`)
+        else seen[p] = true
+      }
+    }
+    // Coverage gap: a Δ path in no chunk is reviewed by nobody. Warn (¬exit 1) —
+    // the chunker drops binaries that `--name-only` still lists, so a legitimate
+    // gap exists. Aggregated: one warning, not one per path (a 1-chunk call on a
+    // 95-file Δ would otherwise bury every other warning).
+    const uncovered = delta.filter((p) => !Object.hasOwn(seen, p))
+    if (uncovered.length) {
+      const shown = uncovered.slice(0, 5).join(', ')
+      const more = uncovered.length > 5 ? ` (+${uncovered.length - 5} more)` : ''
+      ioWarnings.push(`${uncovered.length} delta path(s) in no chunk: ${shown}${more}`)
+    }
+  }
+  const stackText = readOrWarn(stackPath, stackPath, ioWarnings)
+  if (stackText == null) {
+    const absent = stackAbsenceWarning(stackPath)
+    if (absent) ioWarnings.push(absent)
+  }
+
+  let specContent: string | null = null
+  let specUnreadable = false
+  if (specPath) {
+    specContent = readOrWarn(specPath, specPath, ioWarnings)
+    if (specContent == null) specUnreadable = true
+  }
+
+  let claims: string[] = []
+  let pricedClaimOk = true
+  let hasPricedFence = false
+  let specDraft = false
+  if (specContent != null) {
+    const parsed = parsePricedFences(specContent)
+    claims = parsed.claims
+    pricedClaimOk = parsed.pricedClaimOk
+    hasPricedFence = parsed.hasPricedFence
+    specDraft = specIsDraft(specContent)
+  }
+
+  const config = parseRosterConfig(stackText)
+  config.warnings.push(...ioWarnings)
+  const shared: ComputeRosterInput = {
+    delta,
+    tier,
+    chunks,
+    claims,
+    pricedClaimOk,
+    specDraft,
+    axialAdr: hasAxialAdr(adrDir, config.warnings),
+    stackPaths: parseStackPaths(stackText),
+    config,
+  }
+
+  if (chunkLists.length) {
+    const allocated = allocateReview({ chunkDeltas, shared })
+    if (specUnreadable) {
+      allocated.global.review_halt = true
+      allocated.warnings.push(`unreadable spec: ${specPath}`)
+    }
+    printResult(
+      {
+        ...allocated.global,
+        chunk_agents: allocated.chunk_agents,
+        collapsed: allocated.collapsed,
+        capped: allocated.capped,
+        capped_review: allocated.capped_review,
+        agents: allocated.agents,
+        warnings: allocated.warnings,
+      },
+      json,
+    )
+    if (specUnreadable) {
+      console.error(`roster: unreadable spec: ${specPath}`)
+      process.exit(1)
+    }
+    if (hasPricedFence && !allocated.global.priced_claim_ok) {
+      console.error('roster: priced fence missing a valid claim')
+      process.exit(2)
+    }
+    process.exit(0)
+  }
+
+  const result = computeRoster(shared)
+
+  if (specUnreadable) {
+    result.review_halt = true
+    result.warnings.push(`unreadable spec: ${specPath}`)
+  }
+
+  printResult(result, json)
+
+  if (specUnreadable) {
+    console.error(`roster: unreadable spec: ${specPath}`)
+    process.exit(1)
+  }
+  if (hasPricedFence && !result.priced_claim_ok) {
+    console.error('roster: priced fence missing a valid claim')
+    process.exit(2)
+  }
+  process.exit(0)
+}
+
+if (import.meta.main) main()

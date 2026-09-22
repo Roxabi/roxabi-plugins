@@ -52,14 +52,14 @@ disproofs — not restate what a sibling **actually in this roster** already cov
 
 | This agent | Sibling (do ¬duplicate — **only when that sibling is in the roster**) |
 |------------|-------------------------|
-| Control circumvention, partial-failure, ordering, fleet impact, **OWASP on /R-dev-review** | `R-security-auditor` — spawned only on `path_hit` (Δ ∩ auth/secrets/crypto) |
-| "Does the guard measure the priced quantity?" | `R-tester` — spawned only on Δ ∩ tests ∧ `oracle_ok=false` |
-| "What assumption makes this false?" | `R-architect` — spawned only at τ=F-full ∧ Δ ∩ infra = ∅ |
-| Spec: untestable AC, missing adversarial flow, scope that passes on wrong design | `R-product-lead` — **¬in the `/R-dev-review` roster at all** (Phase 2 owns spec compliance) |
+| Control circumvention, partial-failure, ordering, fleet impact, **OWASP on every review** | `R-security-auditor` — spawned only on `path_hit` (Δ ∩ auth/secrets/crypto) |
+| "Does the guard measure the priced quantity?" | `R-tester` — spawned only on Δ ∩ tests (that evidence is the whole gate; ADR-020 §8 cut the second input) |
+| "What assumption makes this false?" | `R-architect` — spawned only on axial-ADR or structural evidence; a plain F-full diff leaves it cold |
+| Spec: untestable AC, missing adversarial flow, scope that passes on wrong design | `R-product-lead` — **¬in the `dev-review` roster at all** (Phase 2 owns spec compliance) |
 
 **Sibling rule — one rule, all siblings:** drop a φ as "sibling territory" **iff that sibling
 appears in `Spawned roster:` for this review**. Sibling ¬in the roster → **you own it, keep the
-φ**. The `/R-dev-review` default panel is R-adversarial alone, so spec-scope, structure and coverage
+φ**. The `dev-review` default panel is R-adversarial alone, so spec-scope, structure and coverage
 φ are yours unless the roster says otherwise. Roster absent from the dispatch prompt → assume
 R-adversarial-only, keep everything.
 

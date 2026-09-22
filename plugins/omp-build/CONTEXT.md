@@ -76,9 +76,17 @@ _Avoid_: ω, /wt, omp-wt
 In-process OMP `tool_call` interceptor (principal freeze, bare `bun test`, secret scan).
 _Avoid_: hook (Claude `hooks.json`), lefthook (commit/push persist law)
 
-**R-dev-review**:
-Roxabi multi-domain review: roster, Conventional Comments, findings + verdict.
-_Avoid_: code-review (Matt), /review (host builtin)
+**dev-review**:
+The skill holding Roxabi's multi-domain review on OMP: roster, Conventional Comments, findings + verdict. Named `dev-review`, not `R-dev-review`, so it cannot shadow dev-core's while both are installed.
+_Avoid_: R-dev-review as the skill name, code-review (Matt), /review (host builtin)
+
+**fix**:
+The skill that applies review findings — auto-apply, then 1b1, every edit made inline in the session.
+_Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent
+
+**Panel**:
+The five dispatchable review roles: the `R-adversarial` floor plus at most two specialists the roster proved relevant.
+_Avoid_: domain roles, FE/BE reviewers, a per-language reviewer
 
 **R-adversarial**:
 The single red-team posture and review-panel floor (OWASP + sibling-drop).
