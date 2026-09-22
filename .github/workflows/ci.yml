@@ -24,10 +24,7 @@ jobs:
         run: bun lint
       - name: Typecheck
         run: bun typecheck
-      # actionlint is the schema-validity gate for the committed workflow files.
-      # It used to exist only for the generated auto-release.yml byte test
-      # (#371 B5); that tagger is gone (ADR-021) and the gate now runs over
-      # .github/workflows, so the install must precede it.
+      # Install before the gate below, which needs actionlint on PATH.
       - name: Install actionlint (workflow schema gate)
         run: |
           set -euo pipefail

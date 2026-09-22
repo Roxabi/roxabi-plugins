@@ -118,13 +118,16 @@ describe('provisioner — provision-release-gate.sh', () => {
     expect(provisionerSrc).toMatch(/already present/)
   })
 
-  it('DEFAULT_REF pins v4.1.0 — the tag that reads .dev/stack.yml — not v0.5.0', () => {
-    // v0.5.0's reusable workflow still reads .claude/stack.yml and has no
-    // fail-closed `[ -f "$STACK" ]`. usage is a quoted heredoc, so the pin is
-    // a second literal, not `$DEFAULT_REF`.
+  it('DEFAULT_REF pins a tag whose reusable is the current one — never a branch', () => {
+    // The literal is a proxy for three properties of the pinned tag's reusable:
+    // it reads .dev/stack.yml (v0.5.0 read .claude/stack.yml), it is fail-closed,
+    // and it describes the current release trigger (v4.1.0 still announced a
+    // release at merge-to-main, which ADR-021 removed). Bump only for those.
+    // usage is a quoted heredoc, so the pin is a second literal, not `$DEFAULT_REF`.
     const def = provisionerSrc.match(/^DEFAULT_REF="([^"]+)"/m)?.[1]
-    expect(def).toBe('roxabi-plugins/v4.1.0')
-    expect(provisionerSrc).toContain('roxabi-plugins/v4.1.0 — always pin to a tag, never a branch')
+    expect(def).toBe('roxabi-plugins/v5.1.0')
+    expect(def).toMatch(/^roxabi-plugins\/v\d+\.\d+\.\d+$/)
+    expect(provisionerSrc).toContain('roxabi-plugins/v5.1.0 — always pin to a tag, never a branch')
   })
 })
 
