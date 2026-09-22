@@ -1,0 +1,39 @@
+'use strict'
+
+/**
+ * Host-neutral project contract paths.
+ *
+ * Frozen snapshot (ADR-020): omp-build owns its own copy so it stays
+ * installable on its own. The literals below are the cross-harness contract,
+ * not this plugin's private convention — they are kept identical by hand.
+ *
+ * `.dev/` is read identically by Claude, OMP, Grok and CI. `.claude/` holds
+ * host state only (settings.json, worktrees/) and is NOT a contract: nothing
+ * here falls back to it.
+ *
+ * Consumed by:
+ *   - plugins/omp-build/omp/guards.ts      (createRequire)
+ *
+ * Paths are POSIX-relative literals, not `path.join` results: skills use them
+ * verbatim inside shell snippets. Callers anchor them with
+ * `path.join(cwd, …)` when they need an absolute path.
+ */
+
+/** Contract directory, relative to the repo root. */
+const CONTRACT_DIR = '.dev'
+
+/** Stack conventions: paths, commands, formatter, test runner, release. */
+const STACK_YML = `${CONTRACT_DIR}/stack.yml`
+
+/** dev-core plugin config: github_repo and other public (non-secret) IDs. */
+const DEV_CORE_YML = `${CONTRACT_DIR}/dev-core.yml`
+
+/** Any one present ⇒ the project declares a dev-core contract (guards ON). */
+const PROJECT_CONTRACT_FILES = [STACK_YML, DEV_CORE_YML]
+
+module.exports = {
+  CONTRACT_DIR,
+  STACK_YML,
+  DEV_CORE_YML,
+  PROJECT_CONTRACT_FILES,
+}
