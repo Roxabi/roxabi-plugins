@@ -15,6 +15,20 @@ step and specified nowhere in this file.
 Bundled seam: `skill://feature/entry.js`. The skill directory is printed at the end
 of this body; import from there.
 
+## 0. The tail is offered, never run
+
+`/promote` and `/cleanup` sit outside this cycle (#495). Mode 2 ends at **land**;
+after it lands, print the offer and stop:
+
+> Landed #N. Optional: `/cleanup` to sweep merged branches · `/promote` to cut a
+> release from staging.
+
+Printing that line is the whole handoff. Never invoke either skill — not from
+mode 2's land step, and above all not from the review→fix loop, where `/cleanup`
+would delete the branch under review and `/promote` would cut a release out of a
+half-reviewed diff. Both are `registerCommand` slash commands: the operator types
+one, or it does not run.
+
 ## 1. Preflight — the capabilities §4 actually calls
 
 §4 invokes four skills by name. Three come from an external plugin, one from this

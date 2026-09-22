@@ -83,12 +83,14 @@ Skip grill when the spec is already `status: validated`.
 | Command | Lane |
 |---|---|
 | `/feature` | `omp/index.ts` → `registerCommand('feature')`, in-process. Dumps `skills/feature/SKILL.md` |
+| `/promote` | idem, `registerCommand('promote')`. Dumps `skills/promote/SKILL.md` |
+| `/cleanup` | idem, `registerCommand('cleanup')`. Dumps `skills/cleanup/SKILL.md` |
 
 Slash-only, on the one lane there is: `registerCommand` is the user lane,
 `registerTool` is the LLM one, and the model cannot reach a command — that is the
-whole property, and it is sufficient. The skill body's `disable-model-invocation`
+whole property, and it is sufficient. A skill body's `disable-model-invocation`
 is **not** a second gate: omp normalises it to `hide`, which omits the skill from
-the prompt listing while `skill://feature` and `/skill:feature` still reach it
+the prompt listing while `skill://<name>` and `/skill:<name>` still reach it
 (omp 18.2.9). Requires a **restart** (extension module), not `/reload-plugins`.
 
 `/feature` from the Principal creates ω, installs it, prints `omp --cwd <ω>` and
@@ -115,7 +117,7 @@ Guards are **off** unless the project declares the host-neutral contract (`.dev/
 
 `omp/guards.ts`, `hooks/`, `agents/R-*` (except `R-advisor`) and `skills/shared/` are a **frozen snapshot** (ADR-020): omp-build resolves nothing through a sibling plugin at runtime, so it stays installable on its own. The snapshot is not resynced.
 
-`skills/shared/` holds `lib.sh` (base-branch / worktree helpers, sourced as `. "$SCRIPT_DIR/../shared/lib.sh"`) and its `artifact-classify.ts` closure. No `references/` directory travels: the one reference a snapshotted agent cited is inlined into `R-architect` itself, because a `${CLAUDE_PLUGIN_ROOT}` token only expands in SKILL.md bodies — never in an agent body, and never at all in this plugin. `skills/dev-review/SKILL.md` Phase 1 is `lib.sh`'s first in-plugin caller (`detect_base_branch`); `cleanup` (#495) is the other one still to land.
+`skills/shared/` holds `lib.sh` (base-branch / worktree helpers, sourced as `. "$SCRIPT_DIR/../shared/lib.sh"`) and its `artifact-classify.ts` closure. No `references/` directory travels: the one reference a snapshotted agent cited is inlined into `R-architect` itself, because a `${CLAUDE_PLUGIN_ROOT}` token only expands in SKILL.md bodies — never in an agent body, and never at all in this plugin. `skills/dev-review/SKILL.md` Phase 1 and `skills/cleanup/analyze-branches.sh` are `lib.sh`'s in-plugin callers (`detect_base_branch`).
 
 > **Known caveat, this slice only.** While both this plugin and `dev-core` are installed, both interceptors see the same `tool_call` and reach the same verdict — the snapshots are byte-identical and read the same escape hatch. Expect the refusal, and the no-contract warning, to be reported **once per plugin**: each extension owns a private warned-cwd set, so neither dedupes the other.
 
@@ -145,7 +147,19 @@ Spawn: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devop
 | `feature` | `/feature` (registered command) |
 | `dev-review` | model-invocable · the five-role review panel |
 | `fix` | model-invocable · applies the findings, inline |
+| `promote` | `/promote` (registered command) · the optional tail |
+| `cleanup` | `/cleanup` (registered command) · the optional tail |
 
-`dev-review` and `fix` are the #492 snapshot of dev-core's `dev-review`/`fix` pair, cut to this plugin's roster: five dispatchable roles, `R-tester` armed by changed-test evidence alone, and every finding applied in-session. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only `/feature` prints a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing.
+`dev-review` and `fix` are the #492 snapshot of dev-core's `dev-review`/`fix` pair, cut to this plugin's roster: five dispatchable roles, `R-tester` armed by changed-test evidence alone, and every finding applied in-session. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
+
+`promote` and `cleanup` are the #495 snapshot of dev-core's tail. They are **offered
+after land, never automatic, and never inside the review→fix loop** — `/feature` §0
+prints the offer and stops, and both bodies say the same thing. Two behaviours
+changed in the copy: `promote/preflight.sh` is now read-only (dev-core's ran
+`git checkout staging && git pull` before asking the operator anything), and
+`cleanup/scan-orphan-worktree-shells.sh` scans `~/.omp/worktrees/<repo>/` and
+`<principal>/.claude/worktrees/` instead of the Grok roots this plugin never writes
+to. dev-core's `shared/references/release-convention.md` did not travel: its two
+rules are inlined in `promote/SKILL.md` § Merge method.
 
 **The names are deliberately not `R-dev-review`/`R-fix`.** Skill discovery dedups by `name` across every provider, first-wins: while `dev-core` is still installed next to this plugin, identical names would make one of the two workflows shadow the other silently — and the shadowed one is the panel the operator thinks is running. Snapshotted agent bodies still call the workflow `/R-dev-review` in prose; that is a label, not an invocation, and the dispatch prompt in `skills/dev-review/SKILL.md` is the contract they actually obey.

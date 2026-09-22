@@ -41,7 +41,26 @@ type ExtensionAPI = {
   sendUserMessage: (content: string, options?: { deliverAs?: 'steer' | 'followUp' }) => void
 }
 
-const FEATURE_SKILL_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), 'skills', 'feature')
+const SKILLS_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), 'skills')
+
+/** Every slash command this extension owns: one skill body, dumped verbatim. */
+const SKILL_COMMANDS = [
+  {
+    name: 'feature',
+    description: 'Run one OMP feature cycle — frame in ω, or build the named ticket',
+  },
+  {
+    // The optional tail (#495). Offered after a ticket lands, never chained:
+    // `/feature` prints the offer and stops, and neither body is reachable from
+    // the review→fix loop.
+    name: 'promote',
+    description: 'Promote staging→main — pre-flight, version, changelog, PR, tag',
+  },
+  {
+    name: 'cleanup',
+    description: 'Clean merged branches, worktrees and remotes after verification',
+  },
+] as const
 
 function stripFrontmatter(markdown: string): string {
   if (!markdown.startsWith('---\n')) return markdown
@@ -53,38 +72,41 @@ function stripFrontmatter(markdown: string): string {
 export default function ompBuildExtension(pi: ExtensionAPI): void {
   // User-only by construction, on the one lane that exists: `registerCommand` is
   // the slash lane, `registerTool` is the LLM one (omp://extensions.md), and the
-  // model cannot reach a command. That alone is the property. The skill body's
+  // model cannot reach a command. That alone is the property. A body's
   // `disable-model-invocation` is not a second gate — omp normalises it to `hide`,
-  // which omits the skill from the prompt listing while `skill://feature` and
-  // `/skill:feature` still reach it (measured on omp 18.2.9).
+  // which omits the skill from the prompt listing while `skill://<name>` and
+  // `/skill:<name>` still reach it (measured on omp 18.2.9).
   //
   // No `rewriteHarnessPaths` here: nothing this plugin dumps carries a
   // `${CLAUDE_*}` path token to expand — agent bodies *and* skill bodies, the
-  // surface this command added, are held to that by
+  // surface these commands added, are held to that by
   // `agents/__tests__/roster.test.ts` ("cites no plugin-root token").
-  pi.registerCommand('feature', {
-    description: 'Run one OMP feature cycle — frame in ω, or build the named ticket',
-    handler: async (args) => {
-      const skillPath = join(FEATURE_SKILL_DIR, 'SKILL.md')
-      let raw: string
-      try {
-        raw = readFileSync(skillPath, 'utf8')
-      } catch (error) {
-        // omp catches a handler throw and reports it on a channel the operator
-        // may not be watching: a partial install would produce no turn and no
-        // visible error at all. Say it in the conversation, naming the path.
+  for (const { name, description } of SKILL_COMMANDS) {
+    const skillDir = join(SKILLS_DIR, name)
+    pi.registerCommand(name, {
+      description,
+      handler: async (args) => {
+        const skillPath = join(skillDir, 'SKILL.md')
+        let raw: string
+        try {
+          raw = readFileSync(skillPath, 'utf8')
+        } catch (error) {
+          // omp catches a handler throw and reports it on a channel the operator
+          // may not be watching: a partial install would produce no turn and no
+          // visible error at all. Say it in the conversation, naming the path.
+          pi.sendUserMessage(
+            `/${name}: cannot read its own body at ${skillPath} — ${error instanceof Error ? error.message : String(error)}. Reinstall omp-build.`,
+          )
+          return
+        }
+        const body = stripFrontmatter(raw).trim()
+        const trimmedArgs = args.trim()
         pi.sendUserMessage(
-          `/feature: cannot read its own body at ${skillPath} — ${error instanceof Error ? error.message : String(error)}. Reinstall omp-build.`,
+          [body, '', `[Skill directory: ${skillDir}]`, trimmedArgs ? `\n${trimmedArgs}` : ''].join('\n').trim(),
         )
-        return
-      }
-      const body = stripFrontmatter(raw).trim()
-      const trimmedArgs = args.trim()
-      pi.sendUserMessage(
-        [body, '', `[Skill directory: ${FEATURE_SKILL_DIR}]`, trimmedArgs ? `\n${trimmedArgs}` : ''].join('\n').trim(),
-      )
-    },
-  })
+      },
+    })
+  }
 
   const warnedMissingContract = new Set<string>()
 

@@ -238,7 +238,7 @@ describe('OMP omp-build hooks', () => {
     })
   })
 
-  describe('/feature command', () => {
+  describe('slash commands', () => {
     type Command = { description?: string; handler: (args: string, ctx: { cwd: string }) => Promise<void> }
 
     const commands = new Map<string, Command>()
@@ -256,8 +256,11 @@ describe('OMP omp-build hooks', () => {
       })
     })
 
-    it('registers exactly one command, /feature', () => {
-      expect([...commands.keys()]).toEqual(['feature'])
+    it('registers exactly the three skill commands', () => {
+      // The tail (#495) is reachable by slash and by nothing else. Dropping a
+      // registration makes `/promote` or `/cleanup` unreachable while the body
+      // still sits on disk looking installed.
+      expect([...commands.keys()].sort()).toEqual(['cleanup', 'feature', 'promote'])
     })
 
     // Built the way the source builds it — two levels up from the module, then
@@ -295,6 +298,36 @@ describe('OMP omp-build hooks', () => {
       expect(message).toContain('cannot read its own body')
       expect(message).toContain(join(skillDir, 'SKILL.md'))
       expect(message).not.toContain('# Feature')
+    })
+
+    it.each(['promote', 'cleanup'])('dumps the %s body with its own skill directory', async (name) => {
+      await commands.get(name)?.handler('--dry-run', { cwd: '/repo' })
+      const message = sent.at(-1)
+      expect(message).toBeDefined()
+      // Both tail bodies *discuss* `disable-model-invocation` in prose, so the
+      // keyword cannot stand in for "frontmatter stripped". The boundary can:
+      // a stripped body starts at its H1 and carries no `version:` key.
+      expect(message?.startsWith('# ')).toBe(true)
+      expect(message).not.toMatch(/^version:/m)
+      expect(message?.endsWith('--dry-run')).toBe(true)
+
+      const printed = /\[Skill directory: (.+)]/.exec(message ?? '')?.[1]
+      expect(printed).toBe(resolve(import.meta.dirname, '..', '..', 'skills', name))
+      // Each tail body invokes its own scripts by `skill://<name>/<file>.sh`; a
+      // directory that carries none of them is a dead instruction.
+      expect(existsSync(join(printed ?? '', 'SKILL.md'))).toBe(true)
+    })
+
+    it('keeps both tail bodies out of the review loop, in the text the model receives', async () => {
+      // The offered-tail contract is only real if it survives into the dumped
+      // body — the command handler strips frontmatter, so a claim made only in
+      // `disable-model-invocation` reaches nobody.
+      for (const name of ['promote', 'cleanup']) {
+        await commands.get(name)?.handler('', { cwd: '/repo' })
+        const message = sent.at(-1) ?? ''
+        expect(message).toContain('never run on its own initiative')
+        expect(message).toContain('review→fix loop')
+      }
     })
   })
 })
