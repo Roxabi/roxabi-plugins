@@ -27,6 +27,8 @@ description: |
   user: "/R-adversarial --analysis artifacts/analyses/374-release-gate-analysis.md"
   assistant: "Spawning R-adversarial on the analysis — assumption-kill + scope-attack first, control lenses if a gate is proposed."
   </example>
+# Tool pin: review floor, findings only — the body says "never write, never push, never mutate".
+tools: read, grep, glob, bash, lsp, ast_grep, web_search
 maxTurns: 30
 # capabilities: write_knowledge=false, write_code=false, review_code=true, run_tests=false
 # based-on: shared/base

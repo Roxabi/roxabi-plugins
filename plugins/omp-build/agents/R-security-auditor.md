@@ -9,6 +9,8 @@ description: |
   user: "Audit the authentication module for vulnerabilities"
   assistant: "I'll use the R-security-auditor agent to perform a security audit."
   </example>
+# Tool pin: audit role — reports, never remediates.
+tools: read, grep, glob, bash, lsp, ast_grep, web_search
 maxTurns: 30
 # capabilities: write_knowledge=false, write_code=false, review_code=true, run_tests=false
 # based-on: shared/base
@@ -18,8 +20,8 @@ maxTurns: 30
 
 Let: C := confidence (0–100) | φ := finding | Φ := finding set | E := exclusion list | σ := severity | π := `{package_manager}`
 
-**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
-π unset → output: "package_manager not set in `.dev/stack.yml` — run `/R-env-setup`." and stop.
+**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → state the assumption ("no `.dev/stack.yml`; using host defaults") and continue. OMP has no project-init surface (ADR-020, named residuals), so stopping here would strand the run.
+π unset → output: "package_manager not set in `.dev/stack.yml`; proceeding on host defaults and recording it as an explicit uncertainty." and continue.
 
 **Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
 **Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).

@@ -9,6 +9,8 @@ description: |
   user: "GitHub Actions is failing on the typecheck step"
   assistant: "I'll use the R-devops agent to debug the CI pipeline."
   </example>
+# Tool pin: write_code=true per its capabilities line.
+tools: read, grep, glob, bash, lsp, ast_grep, web_search, write, edit
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=true, run_tests=true
 # based-on: shared/base
@@ -18,8 +20,8 @@ maxTurns: 50
 
 Let: C := confidence score (0–100) | PM := `{package_manager}` | BO := `{build.orchestrator}`
 
-**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
-PM unset → output: "package_manager not set in `.dev/stack.yml` — run `/R-env-setup`." and stop.
+**Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → state the assumption ("no `.dev/stack.yml`; using host defaults") and continue. OMP has no project-init surface (ADR-020, named residuals), so stopping here would strand the run.
+PM unset → output: "package_manager not set in `.dev/stack.yml`; proceeding on host defaults and recording it as an explicit uncertainty." and continue.
 
 **Communication:** Report status, blockers, and handoffs in your final summary to the parent orchestrator. ¬block on uncertainty — note the blocker and continue on unblocked work where possible.
 **Research order:** codebase (Glob/Grep/Read) → WebSearch (last resort, ¬for internal project questions).

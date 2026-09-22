@@ -1,10 +1,12 @@
 {
   "name": "omp-build",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "OMP-only post-spec orchestrator — plan, isolated implement, PR, review, merge.",
+  "description": "OMP-only post-spec orchestrator \u2014 plan, isolated implement, PR, review, merge.",
   "omp": {
-    "extensions": ["./omp/index.ts"]
+    "extensions": [
+      "./omp/index.ts"
+    ]
   }
 }

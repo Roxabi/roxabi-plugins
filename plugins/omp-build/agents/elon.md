@@ -50,7 +50,7 @@ Spawnable task agent. Applies The Algorithm (Starbase 2021 / *The Book of Elon*)
 |---|---|
 | Order gates on a process / system | `R-advisor` — strengthen a plan |
 | Named owner, deletion list, Fremont | `R-adversarial` — kill a priced claim |
-| Feature / system grain | `reviewer` — correctness bugs |
+| Feature / system grain | `R-adversarial` — correctness bugs |
 
 Never rewrite the subject.
 

@@ -23,6 +23,8 @@ description: |
   user: "/R-dev-review #42"
   assistant: "Recruiting R-architect (axial mode) — unique ADR, parse axis/anti-pattern, three-strikes on siblings."
   </example>
+# Tool pin: spawned by omp-build only as a review role; its axial contract is ¬Write ¬Edit ¬Bash.
+tools: read, grep, glob, bash, lsp, ast_grep, web_search
 maxTurns: 50
 # capabilities: write_knowledge=true, write_code=false, review_code=true, run_tests=false
 # based-on: shared/base
@@ -47,8 +49,8 @@ Do **not** mix: axial review never writes or supersedes the ADR. Create/supersed
 
 **Axial mode:** skip stack.yml / SA / SD / SC guards (parity with the former axial reviewer — ADR + Grep only). Jump to **Axial mode (read-only)** below.
 
-**Normal mode — Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
-SA unset → output: "standards.architecture not set in `.dev/stack.yml` — run `/R-env-setup`." and stop.
+**Normal mode — Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → state the assumption ("no `.dev/stack.yml`; using host defaults") and continue. OMP has no project-init surface (ADR-020, named residuals), so stopping here would strand the run.
+SA unset → output: "standards.architecture not set in `.dev/stack.yml`; proceeding on host defaults and recording it as an explicit uncertainty." and continue.
 SD unset → warn: "standards.dev_process not set in stack.yml — proceeding without dev process standards." and continue.
 SC unset → warn: "standards.contributing not set in stack.yml — proceeding without contributing standards." and continue.
 
@@ -66,9 +68,14 @@ Design system-level architecture | Ensure cross-package consistency | Classify t
 
 Let:
   D := `docs/architecture/adr/`
-  R := `${CLAUDE_PLUGIN_ROOT}/skills/shared/references/axial-decomposition.md`
 
-Read R first. Tool contract: MUST ¬Write, ¬Edit, ¬Bash. `Read` / `Glob` / `Grep` only. Sibling-occurrence checks MUST use Grep with the pattern as a quoted argument.
+The axial procedure is inlined at the end of this file (§ Axial decomposition —
+reference). It used to live behind a `${CLAUDE_PLUGIN_ROOT}` token, which only
+expands in SKILL.md bodies and never in an agent body — and omp-build does not
+expand it at all. A pointer that cannot resolve on the host the agent runs on is
+worse than no pointer.
+
+Tool contract: MUST ¬Write, ¬Edit, ¬Bash. `Read` / `Glob` / `Grep` only. Sibling-occurrence checks MUST use Grep with the pattern as a quoted argument.
 
 **R1 — Resolve the unique axial ADR**
 
@@ -145,7 +152,7 @@ Dependencies point inward only: **Domain ← Application ← Infrastructure**
 | Generic exception in domain | Throwing base `Error`/`Exception` | Domain-specific exception |
 | God service | Single service >300 lines, mixed concerns | Split by aggregate / use case |
 | Circular deps between modules | A imports B imports A | Shared interface ∨ event |
-| Wrong-axis duplication (N×M trap) | concern in ≥3 sibling dirs along non-primary axis | Structure/normal: `thought:` / handoff that axial review is warranted — NEVER invent axial ADR absence/requirements or run axial R1–R4 unless focus begins with axial. Full `target-axis-trap` → **Axial mode** only. See `skills/shared/references/axial-decomposition.md`. |
+| Wrong-axis duplication (N×M trap) | concern in ≥3 sibling dirs along non-primary axis | Structure/normal: `thought:` / handoff that axial review is warranted — NEVER invent axial ADR absence/requirements or run axial R1–R4 unless focus begins with axial. Full `target-axis-trap` → **Axial mode** only. See § Axial decomposition — reference, at the end of this file. |
 
 ### Decision Signals
 
@@ -167,3 +174,86 @@ Dependencies point inward only: **Domain ← Application ← Infrastructure**
 - ¬existing pattern → create ADR first, then escalate if architectural impact is high
 - Axial ADR missing / singleton broken / unparseable pattern → **Axial mode only:** finding + point to `/R-adr --axial`; ¬write the axial ADR in review. Structure/normal: at most `thought:` that axial review is warranted — ¬issue axial ADR obligations
 - Axial ADR outdated (growth_12m vastly exceeded) → **Axial mode only:** `thought:` recommending `/R-adr --axial` supersede
+
+---
+
+## Axial decomposition — reference
+
+> Foundational decision: which axis of variation is **primary** in your system. Without it, projects drift N×M (target × concern duplication).
+
+## The trap
+
+When a system varies along multiple axes (e.g., transport targets × cross-cutting concerns), code naturally duplicates along the **wrong** axis. Symptom: adding the 4th target requires copy-pasting the same 5 concerns again. Each cell of the N×M matrix gets its own (drifted) copy.
+
+## The decision
+
+Pick the **primary axis** — the one that grows by +1 row (not by ×M cells) when the system is extended.
+
+| Pattern | Axis candidates | Typical primary |
+|---------|-----------------|-----------------|
+| Transport adapters | targets × concerns | concerns (stages) |
+| DDD domain | domains × layers | domains |
+| Data pipeline | stages × pipelines | stages |
+| Multi-tenant | tenants × features | features |
+
+## The 4 mandatory questions
+
+1. **Axes** — name the dimensions of variation, list instances now, expected growth over 12 months.
+2. **Primary** — which axis grows by 1 row when extended? Reason category: **stability** | **composition** | **ownership**.
+3. **Anti-pattern signal** — concrete grep-able pattern (file glob, regex, symbol) that would indicate drift along the wrong axis.
+4. **Expected debt** — what trade-off does this choice accept? Where will it bite later? (Force naming, no hidden cost.)
+
+Optional Q5: **Revisit trigger** (default: sibling-fix rate > 3/week ∨ 6-monthly review).
+
+## Persistence
+
+- ADR with `axial: true` in frontmatter → **canonical marker** (grep-discoverable)
+- No YAML pointer needed — `grep -rli "^axial: true" docs/architecture/adr/` finds it in O(N) ADR files (<50 in practice)
+- Downstream consumers: `/init`, `/R-spec`, `/code-review`, `/checkup`, `/axis-check`, lint rules, sibling-rate detection all read this ADR directly
+
+## Why mandatory at `/init`
+
+`/init` is the only moment where the cost of asking is **zero**. Once scaffolding lands, the axis is implicit in the code structure — changing it costs a refactor. Forcing the decision now makes it:
+
+- **Defendable** — written rationale, not folklore
+- **Revisitable** — superseded, not lost
+- **Visible** — surfaces the design choice that would otherwise stay invisible (the 1st of 4 N×M angles morts)
+
+## Reason categories
+
+Reject vague answers. Push the user toward one of:
+
+| Category | Pattern |
+|----------|---------|
+| **Stability** | "Axis X changes rarely; axis Y multiplies fast → X is primary" |
+| **Composition** | "Axis X primitives compose to express axis Y instances → X is primary" |
+| **Ownership** | "Axis X is owned by one stable team/concern; axis Y is product-driven → X is primary" |
+
+## Anti-pattern catalog (Roxabi)
+
+| Slug | Signal | Fix |
+|------|--------|-----|
+| `target-axis-trap` | Scaffolding a bounded context per integration target → N×M code | Compose stages, leaf-target as YAML |
+| `dispatch-on-type` | if/elif on adapter type in business logic | Adapter registry / DI |
+| `god-adapter` | Single adapter >300 lines, mixed concerns | Split by concern (the primary axis) |
+
+## Three-strikes rule
+
+If a concern X appears in 3+ sibling dirs, it's no longer a coincidence — it's a duplication. Promote it to a shared primitive along the **primary axis**.
+
+## Dispatch asymmetry (intentional)
+
+`/R-spec` and `/R-dev-review` both recruit **R-architect axial mode** (same durable agent, extra prompt — ¬a second manifest), with different conditions:
+
+| Skill | Trigger | Nature |
+|-------|---------|--------|
+| `/R-spec` | spec adds adapter/integration/target ∨ touches `infrastructure/` | **Semantic/intent** — reviews design proposals |
+| `/R-dev-review` | Δ ∩ {`infrastructure/`, `adapters/`, `domains/`, `stages/`} ≠ ∅ ∧ unique `axial: true` ADR | **Structural** — reviews actual file changes |
+
+Create/supersede the ADR with `/R-adr --axial` (from `/R-dev-init` Phase 3a or standalone).
+
+This asymmetry is intentional. A spec may add `infrastructure/` changes without proposing a new adapter (e.g., refactoring existing stage wiring). In that case, the axial concern is not relevant at the spec level because no new axis-crossing is being proposed — but it becomes relevant at code-review if the diff shows structural drift. The two gates are complementary: `/R-spec` catches intent-level N×M violations, `/R-dev-review` catches implementation-level ones.
+
+## Boundaries
+
+This reference describes the **decision** + the **interview**. It does NOT prescribe a specific axis — every system has its own answer. Surface trade-offs; the project owner picks.

@@ -1,6 +1,6 @@
 ---
 name: R-advisor
-description: MUST be used for a constructive second opinion that strengthens a plan, spec, diff, or idea. Keep / strengthen / risks-as-advice / open questions / next. Not red-team (use R-adversarial). Not bug hunt (use reviewer). Not the session WATCHDOG advisor runtime.
+description: MUST be used for a constructive second opinion that strengthens a plan, spec, diff, or idea. Keep / strengthen / risks-as-advice / open questions / next. Not red-team (use R-adversarial). Not bug hunt (use R-adversarial). Not the session WATCHDOG advisor runtime.
 tools: read, grep, glob, bash, lsp, ast_grep, web_search
 model: "@advisor"
 read-summarize: false
@@ -52,8 +52,8 @@ This is a spawnable task agent. It is not the session WATCHDOG (`advisor.enabled
 | This agent | Sibling |
 |---|---|
 | Strengthen, prioritize, surface blind spots as recommendations | `R-adversarial` — kill the claim |
-| Second opinion without attack posture | `reviewer` — correctness bugs |
-| Judgment on "should we advance?" | `security-reviewer` — vulnerability inventory |
+| Second opinion without attack posture | `R-adversarial` — correctness bugs when no sibling owns them |
+| Judgment on "should we advance?" | `R-security-auditor` — vulnerability inventory |
 | Plan quality | `elon` — The Algorithm on a process (cut before optimize) |
 
 Never rewrite the subject. Never implement. Bash: `git show|diff|log|rev-parse` only.
