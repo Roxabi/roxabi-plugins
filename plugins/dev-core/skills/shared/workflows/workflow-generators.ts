@@ -263,7 +263,7 @@ jobs:
             while IFS= read -r imp; do
               target=\${imp#@}
               # \\~ keeps the tilde literal: $target holds the raw import text, so an
-              # expanded \$HOME would never match it (and quoting it trips SC2088).
+              # expanded $HOME would never match it (and quoting it trips SC2088).
               case "$target" in \\~/*|/*) continue ;; esac
               if [ ! -e "$dir/$target" ]; then
                 echo "::error file=$file::dead @import: $imp"
