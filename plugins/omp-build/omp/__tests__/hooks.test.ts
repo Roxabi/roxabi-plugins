@@ -6,7 +6,6 @@ import {
   extractWriteContent,
   hasProjectContract,
   isBunTestBlocked,
-  rewriteHarnessPaths,
   SECURITY_SCAN_MAX_BYTES,
   scanSecurityContent,
   shouldBlockPrincipalSwitch,
@@ -88,12 +87,8 @@ describe('OMP omp-build hooks', () => {
     })
   })
 
-  describe('rewriteHarnessPaths', () => {
-    it('expands leftover CLAUDE_SKILL_DIR and CLAUDE_PLUGIN_ROOT for dump fallback', () => {
-      const out = rewriteHarnessPaths('bash "${CLAUDE_SKILL_DIR}/ci-watch.sh"', '/plug/skills/ci-watch', '/plug')
-      expect(out).toBe('bash "/plug/skills/ci-watch/ci-watch.sh"')
-    })
-  })
+  // `rewriteHarnessPaths` is deliberately absent: it only mattered while
+  // registerCommand injected SKILL.md bodies, which this plugin does not do.
 
   describe('extractWriteContent', () => {
     it('reads OMP edit hashline from input', () => {
@@ -179,6 +174,26 @@ describe('OMP omp-build hooks', () => {
       const verdict = await handler({ toolName: 'write', input: { content: CREDENTIAL } }, { cwd: contractCwd })
       expect(verdict?.block).toBe(true)
       expect(verdict?.reason).toBe(`Security check: ${SECRET_REASON}`)
+    })
+
+    it('blocks an edit carrying a credential in new_string', async () => {
+      // `edit` is the dominant tool in an agent loop; narrowing the branch to
+      // `write` alone used to leave every test green (PR #531 review).
+      const verdict = await handler({ toolName: 'edit', input: { new_string: CREDENTIAL } }, { cwd: contractCwd })
+      expect(verdict?.block).toBe(true)
+      expect(verdict?.reason).toBe(`Security check: ${SECRET_REASON}`)
+    })
+
+    it('blocks an edit carrying a credential in an OMP hashline', async () => {
+      const verdict = await handler({ toolName: 'edit', input: { input: `+${CREDENTIAL}` } }, { cwd: contractCwd })
+      expect(verdict?.block).toBe(true)
+      expect(verdict?.reason).toBe(`Security check: ${SECRET_REASON}`)
+    })
+
+    it('blocks a bare bun test arriving under the cmd alias', async () => {
+      const verdict = await handler({ toolName: 'bash', input: { cmd: 'bun test' } }, { cwd: contractCwd })
+      expect(verdict?.block).toBe(true)
+      expect(verdict?.reason).toMatch(/bun test/i)
     })
 
     it('lets a clean write through', async () => {

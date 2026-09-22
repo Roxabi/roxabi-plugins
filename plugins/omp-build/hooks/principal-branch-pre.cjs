@@ -206,6 +206,9 @@ module.exports = {
   main,
 }
 
+// CLI entry point — unreachable in omp-build, which ships no hooks.json and
+// never execs this file. Kept so the snapshot loads unmodified; `main()` and
+// everything it reaches (hook-input.cjs) exist for that reason alone.
 if (require.main === module) {
   main()
 }
