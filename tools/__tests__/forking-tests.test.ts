@@ -23,9 +23,9 @@ describe('forksAProcess', () => {
   })
 
   it('does not flag a spawn API named inside a block comment', () => {
-    expect(forksAProcess("/*\n * Callers reach execSync from 'node:child_process' here.\n */\nexport const x = 1")).toBe(
-      false,
-    )
+    expect(
+      forksAProcess("/*\n * Callers reach execSync from 'node:child_process' here.\n */\nexport const x = 1"),
+    ).toBe(false)
   })
 
   it('does not flag a file that mocks child_process away', () => {
@@ -50,7 +50,7 @@ describe('forksAProcess', () => {
   })
 
   it('survives a regex literal holding an unbalanced quote', () => {
-    const source = ["const QUOTE = /['\"]/", "import { execSync } from 'node:child_process'"].join('\n')
+    const source = ['const QUOTE = /[\'"]/', "import { execSync } from 'node:child_process'"].join('\n')
     expect(forksAProcess(source)).toBe(true)
   })
 })
@@ -66,8 +66,7 @@ describe('integration test naming', () => {
 
   it('every test that forks a process is named for the integration project', () => {
     const misnamed = findTestFiles(ROOT).filter(
-      (file) =>
-        !file.includes(INTEGRATION_SUFFIX) && forksAProcess(fs.readFileSync(path.join(ROOT, file), 'utf8')),
+      (file) => !file.includes(INTEGRATION_SUFFIX) && forksAProcess(fs.readFileSync(path.join(ROOT, file), 'utf8')),
     )
     expect(
       misnamed,
