@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 /**
  * Branch protection trufflehog context drift tests.
- * Uses the subprocess + fake-gh approach from doctor.test.ts:
+ * Uses the subprocess + fake-gh approach from doctor.integration.test.ts:
  * we put a shell script named `gh` on PATH that returns controlled JSON per API call.
  */
 
