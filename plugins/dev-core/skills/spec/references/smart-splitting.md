@@ -39,7 +39,7 @@ Split heuristics (priority order):
 | Scope | Which slices/affordances/criteria |
 | Dependencies | Infer from slice order ∨ phase deps |
 | Tier | Score via complexity rubric (Step 1a) |
-| Size | XS/S/M/L/XL from τ |
+| Size | S/F-lite/F-full — the size label *is* τ |
 | Priority | Inherit parent ∨ default Medium |
 
 Present as **prose table** (chat), then stop:
@@ -50,8 +50,8 @@ Trigger: {criteria} criteria / {slices} slices
 
 | # | Title | Scope | Size | Deps |
 |---|-------|-------|------|------|
-| 1 | … | … | S/M/L | none |
-| 2 | … | … | S/M/L | #1 |
+| 1 | … | … | S/F-lite/F-full | none |
+| 2 | … | … | S/F-lite/F-full | #1 |
 
 Reply free text: create / adjust … / skip
 ```
@@ -62,11 +62,16 @@ Reply free text: create / adjust … / skip
 
 > **Decomposition pattern** (¬deferral): smart-splitting *plans* sub-deliverables, so sub-issues are `--parent <N>` of the original (N becomes the epic). This is distinct from `/R-fix` Phase 5 Defer, which uses the **sibling rule** (deferred issue gets the origin's parent, not the origin itself). See `issue-triage` SKILL "Deferred Follow-Ups — Sibling Rule".
 
-```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \
-  --title "<title>" --body "<body>" \
-  --parent <parent_N> --size <XS|S|M|L|XL> --priority <priority>
+Invoke `Skill(skill: "issue-triage:issue-triage")` in **create** mode (requires
+the **issue-triage** plugin installed — it is a companion plugin, so its CLI is
+not reachable from dev-core's `${CLAUDE_PLUGIN_ROOT}`). Pass:
+
 ```
+--title "<title>" --body "<body>"
+--parent <parent_N> --size <S|F-lite|F-full> --priority <P0|P1|P2|P3>
+```
+
+`--body` is optional; pass it only when there is a body to pass.
 
 **Body template:**
 
@@ -83,11 +88,9 @@ bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create \
 {sibling deps}
 ```
 
-Parse output `Created #N: <title>` → store mapping. Wire deps:
-
-```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <B> --blocked-by <A>
-```
+The `create` run prints `Created #N: <title>` on stdout — parse it → store the
+mapping, which the dependency wiring below needs. Wire deps through the same
+skill in **set** mode: `set <B> --blocked-by <A>`.
 
 **Generate sub-specs** ∀ sub-issue at `artifacts/specs/{sub_N}-{sub_slug}-spec.md` (same frontmatter contract as parent — [artifact-frontmatter.md](${CLAUDE_PLUGIN_ROOT}/skills/shared/references/artifact-frontmatter.md); title hygiene on the sub-issue title):
 
