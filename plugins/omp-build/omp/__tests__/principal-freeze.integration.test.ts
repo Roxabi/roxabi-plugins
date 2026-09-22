@@ -19,8 +19,20 @@ type ToolCallHandler = (
 describe('omp-build interceptor > principal freeze', () => {
   let handler: ToolCallHandler
   let principalCwd: string
+  let gitEnv: Record<string, string> = {}
 
   beforeAll(() => {
+    // `git` reads GIT_DIR / GIT_INDEX_FILE from the environment and they beat
+    // `cwd`. Under a git hook (lefthook's pre-push runs this suite) they point
+    // at the outer repo, so the guard's probe would answer about the wrong
+    // repository and the assertion would pass or fail on ambient state.
+    for (const [key, value] of Object.entries(process.env)) {
+      if (key.startsWith('GIT_') && value !== undefined) {
+        gitEnv[key] = value
+        delete process.env[key]
+      }
+    }
+
     // A single-worktree repo is its own principal, so no fixture gymnastics.
     principalCwd = mkdtempSync(join(tmpdir(), 'omp-build-principal-'))
     execFileSync('git', ['init', '-b', 'main'], { cwd: principalCwd, stdio: 'ignore' })
@@ -36,9 +48,10 @@ describe('omp-build interceptor > principal freeze', () => {
     if (!captured) throw new Error('extension registered no tool_call handler')
     handler = captured
   })
-
   afterAll(() => {
     rmSync(principalCwd, { recursive: true, force: true })
+    Object.assign(process.env, gitEnv)
+    gitEnv = {}
   })
 
   it('refuses a feature switch inside the principal worktree', async () => {
