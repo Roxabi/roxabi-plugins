@@ -30,6 +30,18 @@ if ! command -v trufflehog >/dev/null 2>&1; then
   exit 1
 fi
 
+# `trufflehog git file://…` shells out to `git clone`. Git exports GIT_INDEX_FILE
+# (and friends) to every hook it runs, and in a linked worktree that value is an
+# ABSOLUTE path to that worktree's index — so the nested clone writes its own
+# index straight over ours, and the commit in flight loses everything staged.
+# Run the scanner with the inherited git context stripped. Our own `git` calls
+# below keep it, because `git diff --cached` must read the index being committed.
+trufflehog_clean() {
+  env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
+      -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_PREFIX \
+      trufflehog "$@"
+}
+
 # First existing remote/local base (prefer remote tracking).
 detect_base_ref() {
   local c
@@ -55,7 +67,7 @@ if base_ref="$(detect_base_ref)"; then
     if [ "${ahead:-0}" -gt 0 ]; then
       echo "trufflehog: scanning ${ahead} commit(s) after ${base_ref} (${since_sha:0:7}..HEAD)"
       scanned=1
-      if ! trufflehog git "file://${ROOT}" \
+      if ! trufflehog_clean git "file://${ROOT}" \
         --since-commit="$since_sha" \
         --only-verified \
         --fail \
@@ -83,7 +95,7 @@ if [ -s "$staged_list" ]; then
   done < "$staged_list"
   echo "trufflehog: scanning ${#staged_files[@]} staged file(s)"
   scanned=1
-  if ! trufflehog filesystem \
+  if ! trufflehog_clean filesystem \
     --only-verified \
     --fail \
     --exclude-paths="$excl" \
