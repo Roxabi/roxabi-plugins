@@ -12,6 +12,9 @@ const AGENTS_DIR = path.resolve(import.meta.dirname, '..')
 
 const EXPECTED = ['R-adversarial', 'R-advisor', 'R-architect', 'R-devops', 'R-security-auditor', 'R-tester', 'elon']
 
+/** The one legal mention: a line that documents the token as *not* expanding here. */
+const STATED_ABSENT = /^.*only expands in SKILL\.md.*$/gm
+
 interface Agent {
   file: string
   name: string
@@ -87,14 +90,27 @@ describe('omp-build agent roster', () => {
     expect(strays).toEqual([])
   })
 
-  it('cites no plugin-root token, which this plugin cannot expand', () => {
-    // `rewriteHarnessPaths` expands SKILL.md bodies only, and omp-build does
-    // not carry it at all — a `${CLAUDE_PLUGIN_ROOT}` citation in an agent body
-    // is a path that resolves nowhere (#529 class).
-    for (const agent of agents) {
-      // Frontmatter included: a dead citation is dead wherever it sits.
-      const text = `${agent.frontmatter}\n${agent.body}`.replace(/^.*only expands in SKILL\.md.*$/gm, '')
-      expect(text).not.toMatch(/\$\{CLAUDE_(PLUGIN_ROOT|SKILL_DIR)\}\S*\.md/)
-    }
+  it('cites no plugin-root token, in an agent body or a skill body', () => {
+    // omp-build carries no `rewriteHarnessPaths` at all, so a
+    // `${CLAUDE_PLUGIN_ROOT}` citation is a path that resolves nowhere (#529
+    // class). Skill bodies are in scope for the same reason agent bodies are:
+    // `/feature` dumps `skills/feature/SKILL.md` into the conversation verbatim
+    // (`omp/index.ts`), so an unexpandable token there reaches the model too.
+    const skillsDir = path.resolve(AGENTS_DIR, '..', 'skills')
+    const sources = [
+      ...agents.map((agent) => ({ file: agent.file, text: `${agent.frontmatter}\n${agent.body}` })),
+      ...readdirSync(skillsDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && existsSync(path.join(skillsDir, entry.name, 'SKILL.md')))
+        .map((entry) => ({
+          file: `skills/${entry.name}/SKILL.md`,
+          text: readFileSync(path.join(skillsDir, entry.name, 'SKILL.md'), 'utf8'),
+        })),
+    ]
+    // Frontmatter included: a dead citation is dead wherever it sits.
+    expect(sources.length).toBeGreaterThan(agents.length)
+    const cited = sources
+      .filter(({ text }) => /\$\{CLAUDE_(PLUGIN_ROOT|SKILL_DIR)\}\S*\.md/.test(text.replace(STATED_ABSENT, '')))
+      .map(({ file }) => file)
+    expect(cited).toEqual([])
   })
 })

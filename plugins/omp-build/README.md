@@ -84,15 +84,19 @@ Skip grill when the spec is already `status: validated`.
 |---|---|
 | `/feature` | `omp/index.ts` → `registerCommand('feature')`, in-process. Dumps `skills/feature/SKILL.md` |
 
-Slash-only: `registerCommand` is the user lane, `registerTool` is the LLM one, and
-`skills/feature/SKILL.md` carries `disable-model-invocation`, so the model reaches
-`/feature` through neither. Requires a **restart** (extension module), not
-`/reload-plugins`.
+Slash-only, on the one lane there is: `registerCommand` is the user lane,
+`registerTool` is the LLM one, and the model cannot reach a command — that is the
+whole property, and it is sufficient. The skill body's `disable-model-invocation`
+is **not** a second gate: omp normalises it to `hide`, which omits the skill from
+the prompt listing while `skill://feature` and `/skill:feature` still reach it
+(omp 18.2.9). Requires a **restart** (extension module), not `/reload-plugins`.
 
-`/feature` from the Principal creates ω, installs it, prints `/wt <branch>` and
-stops — the in-session cwd hop is not extension-facing (ADR-020 §3). Inside ω with
-no ticket it frames: grill → spec → tickets through `issue-triage`, then stops at
-the frontier. Mode 2 (implement → review → land) is #494; `/build` carries it until
+`/feature` from the Principal creates ω, installs it, prints `omp --cwd <ω>` and
+stops — the in-session cwd hop is not extension-facing (ADR-020 §3), and the
+relaunch names ω's **directory**, never `/wt`: that command mints a fresh branch
+in `~/.omp/wt/…` instead of entering the worktree just built. Inside ω with no
+ticket it frames: grill → spec → tickets through `issue-triage`, then stops at the
+frontier. Mode 2 (implement → review → land) is #494; `/build` carries it until
 then.
 
 ## Guards

@@ -51,18 +51,34 @@ function stripFrontmatter(markdown: string): string {
 }
 
 export default function ompBuildExtension(pi: ExtensionAPI): void {
-  // Slash-only by construction: `registerCommand` is the slash lane, `registerTool`
-  // is the LLM one (omp://extensions.md). The model cannot reach a command, and
-  // `disable-model-invocation` in the SKILL.md keeps `Skill()` and autoload off it
-  // too, so `/feature` is user-driven on both lanes.
+  // User-only by construction, on the one lane that exists: `registerCommand` is
+  // the slash lane, `registerTool` is the LLM one (omp://extensions.md), and the
+  // model cannot reach a command. That alone is the property. The skill body's
+  // `disable-model-invocation` is not a second gate — omp normalises it to `hide`,
+  // which omits the skill from the prompt listing while `skill://feature` and
+  // `/skill:feature` still reach it (measured on omp 18.2.9).
   //
-  // No `rewriteHarnessPaths` here: omp-build expands no `${CLAUDE_*}` token
-  // anywhere (README § Guards, agents/__tests__/roster.test.ts), so dumping the
-  // body verbatim plus its directory is the whole contract.
+  // No `rewriteHarnessPaths` here: nothing this plugin dumps carries a
+  // `${CLAUDE_*}` path token to expand — agent bodies *and* skill bodies, the
+  // surface this command added, are held to that by
+  // `agents/__tests__/roster.test.ts` ("cites no plugin-root token").
   pi.registerCommand('feature', {
     description: 'Run one OMP feature cycle — frame in ω, or build the named ticket',
     handler: async (args) => {
-      const body = stripFrontmatter(readFileSync(join(FEATURE_SKILL_DIR, 'SKILL.md'), 'utf8')).trim()
+      const skillPath = join(FEATURE_SKILL_DIR, 'SKILL.md')
+      let raw: string
+      try {
+        raw = readFileSync(skillPath, 'utf8')
+      } catch (error) {
+        // omp catches a handler throw and reports it on a channel the operator
+        // may not be watching: a partial install would produce no turn and no
+        // visible error at all. Say it in the conversation, naming the path.
+        pi.sendUserMessage(
+          `/feature: cannot read its own body at ${skillPath} — ${error instanceof Error ? error.message : String(error)}. Reinstall omp-build.`,
+        )
+        return
+      }
+      const body = stripFrontmatter(raw).trim()
       const trimmedArgs = args.trim()
       pi.sendUserMessage(
         [body, '', `[Skill directory: ${FEATURE_SKILL_DIR}]`, trimmedArgs ? `\n${trimmedArgs}` : ''].join('\n').trim(),

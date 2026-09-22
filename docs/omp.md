@@ -45,7 +45,7 @@ Other skills resolve via `skill://` when the plugin is linked (`omp plugin link`
 |---------|--------------|
 | `/feature` | One OMP feature — hop into ω from the Principal, or frame (grill → spec → tickets → frontier) inside it |
 
-A registered command is user-only: `registerCommand` is the slash lane, `registerTool` is the LLM one. `/feature` additionally carries `disable-model-invocation` in its skill body, so the model cannot autoload or `Skill()` it either.
+A registered command is user-only: `registerCommand` is the slash lane, `registerTool` is the LLM one, and the model cannot reach a command. That is the whole property — `disable-model-invocation` in the skill body is not a second lane: omp normalises it to `hide`, which drops the skill from the prompt listing while `skill://feature` and `/skill:feature` still reach it (measured on omp 18.2.9).
 
 ## Safety hooks
 
