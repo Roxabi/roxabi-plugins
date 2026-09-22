@@ -104,4 +104,4 @@ yes:
 
 skip → D⏭("Dependabot").
 
-Note: bun → Dependabot `npm` ecosystem (fleet convention). Lockfile support for `bun.lock` is GitHub-side — not re-verified here.
+Note: bun → Dependabot `bun` ecosystem, never `npm` (#518). Trade-off to state when you set this up: the `bun` ecosystem has version updates but **no security updates**, and GitHub's dependency graph does not parse `bun.lock`. A repo that needs automated security-fix PRs must keep a graph-supported lockfile instead.

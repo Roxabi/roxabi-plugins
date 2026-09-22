@@ -273,6 +273,8 @@ export function generateE2eJob(opts: WorkflowOpts): string {
     steps:
       - uses: ${ACTION_PINS.checkout}
       - uses: ${ACTION_PINS.setupBun}
+      - name: Verify bun.lock is committed
+        run: git ls-files --error-unmatch bun.lock > /dev/null
       - run: bun install --frozen-lockfile
       - name: Install Playwright Chromium
         run: bunx playwright install chromium --with-deps

@@ -157,15 +157,35 @@ describe('generateCiYml', () => {
     expect(yml).not.toContain('trufflehog')
   })
 
-  it('never lets a bun stack install with a floating lockfile', () => {
+  it('never lets a generated workflow install with a floating lockfile', () => {
     // A bare `bun install` re-resolves whenever bun.lock disagrees with
     // package.json, so two runs of the same commit can pick different tool
     // versions and disagree on lint (#518). Its siblings are already pinned:
     // python uses `uv sync --frozen`, node uses `npm ci`.
-    for (const stack of ['bun', 'node', 'python'] as const) {
-      const yml = generateCiYml({ stack, test: 'none', deploy: 'none' })
+    //
+    // Every generated install site is covered: the ci job, the e2e job
+    // (generateE2eJob) and the deploy job. Pinning only one of the three
+    // leaves the others floating.
+    const emitted = [
+      generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none', e2e: 'playwright' }),
+      generateCiYml({ stack: 'node', test: 'none', deploy: 'none' }),
+      generateCiYml({ stack: 'python', test: 'none', deploy: 'none' }),
+      generateDeployYml({ stack: 'bun', test: 'vitest', deploy: 'vercel' }),
+    ]
+    let installs = 0
+    for (const yml of emitted) {
+      installs += (yml.match(/bun install/g) ?? []).length
       expect(yml).not.toMatch(/bun install(?! --frozen-lockfile)/)
+      // --frozen-lockfile forbids CHANGES to the lockfile; with no lockfile at
+      // all it installs a fresh floating resolution and still exits 0. So each
+      // install must be preceded by a presence gate or the pin is a no-op.
+      expect((yml.match(/bun install/g) ?? []).length).toBe(
+        (yml.match(/git ls-files --error-unmatch bun\.lock/g) ?? []).length,
+      )
     }
+    // Guards the guard: if the generators stop emitting bun installs the
+    // assertions above would all pass vacuously.
+    expect(installs).toBe(3)
   })
 
   it('omits lint/typecheck when disabled', () => {
