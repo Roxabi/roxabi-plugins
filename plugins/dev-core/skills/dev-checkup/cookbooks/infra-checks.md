@@ -4,7 +4,7 @@
 
 ```bash
 bun -e "
-import { getWorkspacePath, readWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/adapters/workspace-helpers.ts'
+import { getWorkspacePath, readWorkspace } from '${CLAUDE_PLUGIN_ROOT}/skills/shared/adapters/workspace-store.ts'
 import { existsSync } from 'node:fs'
 const path = getWorkspacePath()
 if (!existsSync(path)) { console.log(JSON.stringify({ found: false })); process.exit(0) }

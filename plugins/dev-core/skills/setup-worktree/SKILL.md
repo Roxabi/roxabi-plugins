@@ -43,7 +43,6 @@ One-time setup per issue. Idempotent — safe to re-run if branch/link/ω alread
 | 1 | detect | ✓ | β, principal_ok, WORKTREE, REMOTE_BRANCH, LINKED | idempotent |
 | 2 | branch + link | ✓ | branch on origin + linked to issue | `gh issue develop` (atomic create+link) |
 | 3 | worktree + deps | ✓ | ω ∃ + deps installed | skip if exists; **¬** touch principal branch |
-| 4 | status | — | issue status updated | optional |
 
 ## Step 0 — Probe H_wt
 
