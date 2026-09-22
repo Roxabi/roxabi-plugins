@@ -256,7 +256,7 @@ export function checkSecurity(): Section {
   } else {
     const depYml = fs.readFileSync(dependabotPath, 'utf8') as string
     const hasGha = /package-ecosystem:\s*github-actions/.test(depYml)
-    const hasApp = /package-ecosystem:\s*(npm|pip)/.test(depYml)
+    const hasApp = /package-ecosystem:\s*(npm|pip|bun)/.test(depYml)
     const cooldownViolations = detectDependabotCooldownViolations(depYml)
     if (cooldownViolations.length > 0) {
       const offenders = [...new Set(cooldownViolations.map((v) => `${v.property} under '${v.ecosystem}'`))].join(', ')
@@ -275,7 +275,7 @@ export function checkSecurity(): Section {
       checks.push({
         name: 'dependabot.yml',
         status: 'warn',
-        detail: `partial — missing ${!hasApp ? 'npm|pip ecosystem' : ''}${!hasApp && !hasGha ? ' and ' : ''}${!hasGha ? 'github-actions' : ''} block — re-run /R-ci-setup (generator owns full file)`,
+        detail: `partial — missing ${!hasApp ? 'npm|pip|bun ecosystem' : ''}${!hasApp && !hasGha ? ' and ' : ''}${!hasGha ? 'github-actions' : ''} block — re-run /R-ci-setup (generator owns full file)`,
       })
     }
   }

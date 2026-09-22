@@ -52,12 +52,12 @@ skip → D⏭("TruffleHog").
 
 Ask: **Set up Dependabot** | **Skip**.
 yes:
-1. Auto-detect ecosystem from σ `package_manager` / `runtime`: `uv`/`pip`/`python` → `pip` | `bun`/`npm`/`pnpm`/`yarn`/`node` → `npm`. Unknown → Ask: **pip**|**npm**|**Skip**.
+1. Auto-detect ecosystem from σ `package_manager` / `runtime`: `uv`/`pip`/`python` → `pip` | `bun` → `bun` | `npm`/`pnpm`/`yarn`/`node` → `npm`. Unknown → Ask: **pip**|**npm**|**Skip**. A bun repo is **not** `npm`: the npm updater reads `package-lock.json` and never writes `bun.lock`, so it bumps the manifest and leaves the lockfile stale (#518).
 2. Check content (not just path):
    ```bash
    test -f .github/dependabot.yml && \
      grep -q 'package-ecosystem: github-actions' .github/dependabot.yml && \
-     grep -qE 'package-ecosystem: (npm|pip)' .github/dependabot.yml \
+     grep -qE 'package-ecosystem: (npm|pip|bun)' .github/dependabot.yml \
      && echo complete || echo incomplete
    ```
    - **complete** → D("Dependabot", "✅ Already complete (ecosystem + github-actions)"), skip write.
@@ -73,7 +73,7 @@ yes:
    ```yaml
    version: 2
    updates:
-     - package-ecosystem: <ecosystem>   # npm | pip
+     - package-ecosystem: <ecosystem>   # npm | pip | bun
        directory: /
        schedule:
          interval: weekly
@@ -104,4 +104,4 @@ yes:
 
 skip → D⏭("Dependabot").
 
-Note: bun → Dependabot `npm` ecosystem (fleet convention). Lockfile support for `bun.lock` is GitHub-side — not re-verified here.
+Note: bun → Dependabot `bun` ecosystem, never `npm` (#518). Trade-off to state when you set this up: the `bun` ecosystem has version updates but **no security updates**, and GitHub's dependency graph does not parse `bun.lock`. A repo that needs automated security-fix PRs must keep a graph-supported lockfile instead.

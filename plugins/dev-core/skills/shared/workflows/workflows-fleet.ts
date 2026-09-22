@@ -70,9 +70,24 @@ jobs:
 `
 }
 
-/** Map stack → Dependabot package-ecosystem (bun/node → npm; python → pip). */
-export function dependabotEcosystemFromStack(stack: WorkflowOpts['stack'] | string): 'npm' | 'pip' {
-  return stack === 'python' ? 'pip' : 'npm'
+/**
+ * Map stack → Dependabot package-ecosystem.
+ *
+ * `bun` is its own ecosystem, NOT npm (#518). The npm updater reads
+ * `package-lock.json` and never writes `bun.lock`, so a bun repo configured as
+ * npm gets a manifest bump whose lockfile is left stale. CI then re-resolves
+ * the floating range on every run and consecutive runs can disagree.
+ * Requires bun >= 1.1.39 and the text `bun.lock` (the binary `bun.lockb` is
+ * unsupported by Dependabot).
+ */
+const DEPENDABOT_ECOSYSTEM: Record<string, 'npm' | 'pip' | 'bun'> = {
+  bun: 'bun',
+  node: 'npm',
+  python: 'pip',
+}
+
+export function dependabotEcosystemFromStack(stack: WorkflowOpts['stack'] | string): 'npm' | 'pip' | 'bun' {
+  return DEPENDABOT_ECOSYSTEM[stack] ?? 'npm'
 }
 
 /**
@@ -81,7 +96,7 @@ export function dependabotEcosystemFromStack(stack: WorkflowOpts['stack'] | stri
  * github-actions cooldown: default-days only (semver-*-days rejected by GitHub for gha).
  */
 export function generateDependabotYml(
-  opts: { stack: WorkflowOpts['stack'] } | { ecosystem: 'npm' | 'pip' } = { stack: 'bun' },
+  opts: { stack: WorkflowOpts['stack'] } | { ecosystem: 'npm' | 'pip' | 'bun' } = { stack: 'bun' },
 ): string {
   const ecosystem = 'ecosystem' in opts ? opts.ecosystem : dependabotEcosystemFromStack(opts.stack)
   return `version: 2
@@ -258,7 +273,9 @@ export function generateE2eJob(opts: WorkflowOpts): string {
     steps:
       - uses: ${ACTION_PINS.checkout}
       - uses: ${ACTION_PINS.setupBun}
-      - run: bun install
+      - name: Verify bun.lock is committed
+        run: git ls-files --error-unmatch bun.lock > /dev/null
+      - run: bun install --frozen-lockfile
       - name: Install Playwright Chromium
         run: bunx playwright install chromium --with-deps
       - name: E2E tests
