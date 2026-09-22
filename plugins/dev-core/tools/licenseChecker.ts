@@ -6,24 +6,40 @@
  * CLI summary plus a machine-readable JSON report.
  *
  * Usage: bun run tools/licenseChecker.ts
+ *        bun run tools/licenseChecker.ts --self-test
  * Turbo: turbo run license:check
+ *
+ * --self-test proves the gate can fail: a temp tree with a GPL package and an
+ * MIT-only policy must exit 1. The work tree is never modified. Exits 0 only
+ * when that invocation exits 1.
+ *
+ * QG_LICENSE_ROOT overrides the scan root (default: parent of this file).
+ * Unset or empty keeps the default. Used by --self-test; not an opt-out.
+ *
+ * A missing node_modules is already a hard failure (exit 1). There is no
+ * directory-absent skip in this checker.
  *
  * Zero external dependencies — uses only Bun built-ins and Node.js fs/path.
  *
  * Copied into projects by /init Phase 10d via dev-core plugin.
  */
 
+import { spawnSync } from 'node:child_process'
 import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -570,11 +586,48 @@ export function printSummary(report: LicenseReport, reportPath: string): void {
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
+function resolveRepoRoot(): string {
+  const override = process.env.QG_LICENSE_ROOT
+  if (override?.trim()) return resolve(override)
+  return resolve(import.meta.dirname ?? '.', '..')
+}
+
+function selfTest(): never {
+  const tmp = mkdtempSync(join(tmpdir(), 'license-checker-self-test-'))
+  let failed = false
+  try {
+    const pkgDir = join(tmp, 'node_modules', 'evil-gpl')
+    mkdirSync(pkgDir, { recursive: true })
+    writeFileSync(
+      join(pkgDir, 'package.json'),
+      JSON.stringify({ name: 'evil-gpl', version: '1.0.0', license: 'GPL-3.0-only' }),
+    )
+    writeFileSync(join(tmp, '.license-policy.json'), JSON.stringify({ allowedLicenses: ['MIT'] }))
+    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--json'], {
+      env: { ...process.env, QG_LICENSE_ROOT: tmp },
+      encoding: 'utf8',
+    })
+    if (child.status !== 1) {
+      process.stderr.write(
+        `ERROR: licenseChecker --self-test: expected exit 1 on a disallowed license, got ${child.status}\n`,
+      )
+      if (child.stderr) process.stderr.write(child.stderr)
+      failed = true
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+  process.exit(failed ? 1 : 0)
+}
+
 function main(): void {
+  if (process.argv.includes('--self-test')) {
+    selfTest()
+  }
   const jsonMode = process.argv.includes('--json')
 
   try {
-    const repoRoot = resolve(import.meta.dirname ?? '.', '..')
+    const repoRoot = resolveRepoRoot()
 
     // 1. Validate node_modules exists
     if (!existsSync(join(repoRoot, 'node_modules'))) {
