@@ -150,11 +150,42 @@ describe('generateCiYml', () => {
   it('generates bun + vitest CI with SHA-pinned setup-bun', () => {
     const yml = generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none' })
     expect(yml).toContain(ACTION_PINS.setupBun)
-    expect(yml).toContain('bun install')
+    expect(yml).toContain('bun install --frozen-lockfile')
     expect(yml).toContain('bun lint')
     expect(yml).toContain('bun typecheck')
     expect(yml).toContain('run: bun run test')
     expect(yml).not.toContain('trufflehog')
+  })
+
+  it('never lets a generated workflow install with a floating lockfile', () => {
+    // A bare `bun install` re-resolves whenever bun.lock disagrees with
+    // package.json, so two runs of the same commit can pick different tool
+    // versions and disagree on lint (#518). Its siblings are already pinned:
+    // python uses `uv sync --frozen`, node uses `npm ci`.
+    //
+    // Every generated install site is covered: the ci job, the e2e job
+    // (generateE2eJob) and the deploy job. Pinning only one of the three
+    // leaves the others floating.
+    const emitted = [
+      generateCiYml({ stack: 'bun', test: 'vitest', deploy: 'none', e2e: 'playwright' }),
+      generateCiYml({ stack: 'node', test: 'none', deploy: 'none' }),
+      generateCiYml({ stack: 'python', test: 'none', deploy: 'none' }),
+      generateDeployYml({ stack: 'bun', test: 'vitest', deploy: 'vercel' }),
+    ]
+    let installs = 0
+    for (const yml of emitted) {
+      installs += (yml.match(/bun install/g) ?? []).length
+      expect(yml).not.toMatch(/bun install(?! --frozen-lockfile)/)
+      // --frozen-lockfile forbids CHANGES to the lockfile; with no lockfile at
+      // all it installs a fresh floating resolution and still exits 0. So each
+      // install must be preceded by a presence gate or the pin is a no-op.
+      expect((yml.match(/bun install/g) ?? []).length).toBe(
+        (yml.match(/git ls-files --error-unmatch bun\.lock/g) ?? []).length,
+      )
+    }
+    // Guards the guard: if the generators stop emitting bun installs the
+    // assertions above would all pass vacuously.
+    expect(installs).toBe(3)
   })
 
   it('omits lint/typecheck when disabled', () => {
@@ -282,12 +313,20 @@ describe('generateDependabotAutomergeYml', () => {
 })
 
 describe('generateDependabotYml', () => {
-  it('emits npm + github-actions for bun stack', () => {
+  it('emits the bun ecosystem for a bun stack, never npm', () => {
     const yml = generateDependabotYml({ stack: 'bun' })
-    expect(yml).toContain('package-ecosystem: npm')
+    expect(yml).toContain('package-ecosystem: bun')
+    // npm would read package-lock.json and leave bun.lock stale (#518).
+    expect(yml).not.toContain('package-ecosystem: npm')
     expect(yml).toContain('package-ecosystem: github-actions')
     expect(yml).toContain('default-days: 3')
     expect(yml).not.toContain('semver-major-days')
+  })
+
+  it('emits npm for a node stack', () => {
+    const yml = generateDependabotYml({ stack: 'node' })
+    expect(yml).toContain('package-ecosystem: npm')
+    expect(yml).not.toContain('package-ecosystem: bun')
   })
 
   it('emits pip ecosystem for python stack', () => {
@@ -434,7 +473,7 @@ describe('writeWorkflows', () => {
     const results = await writeWorkflows(opts, true)
 
     expect(fs.readFileSync('.github/workflows/ci.yml', 'utf8')).toContain('name: CI')
-    expect(fs.readFileSync('.github/dependabot.yml', 'utf8')).toContain('package-ecosystem: npm')
+    expect(fs.readFileSync('.github/dependabot.yml', 'utf8')).toContain('package-ecosystem: bun')
     expect(results).toContainEqual({ file: 'ci.yml', status: 'updated' })
     expect(results).toContainEqual({ file: 'dependabot.yml', status: 'updated' })
   })

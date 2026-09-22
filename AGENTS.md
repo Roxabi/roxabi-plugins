@@ -83,6 +83,7 @@ Keep all READMEs current. Adding/modifying/removing a plugin → update:
 
 - Single quotes, no semicolons (any JS/TS ∈ plugins)
 - Markdown: ATX headings (`#`), tables for structured data, code blocks for commands
+- A test that forks a process MUST be named `*.integration.test.*` — 30s budget, not the 5s unit default (#502); `vitest.setup.ts` counts real forks and fails the build if one lands in `unit`
 
 ## Gotchas
 

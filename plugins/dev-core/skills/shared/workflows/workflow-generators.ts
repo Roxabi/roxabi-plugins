@@ -263,7 +263,7 @@ jobs:
             while IFS= read -r imp; do
               target=\${imp#@}
               # \\~ keeps the tilde literal: $target holds the raw import text, so an
-              # expanded \$HOME would never match it (and quoting it trips SC2088).
+              # expanded $HOME would never match it (and quoting it trips SC2088).
               case "$target" in \\~/*|/*) continue ;; esac
               if [ ! -e "$dir/$target" ]; then
                 echo "::error file=$file::dead @import: $imp"
@@ -315,7 +315,9 @@ export function generateCiYml(opts: WorkflowOpts): string {
     if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: uv run pyright'
   } else if (o.stack === 'bun') {
     setupStep = `      - uses: ${ACTION_PINS.setupBun}
-      - run: bun install`
+      - name: Verify bun.lock is committed
+        run: git ls-files --error-unmatch bun.lock > /dev/null
+      - run: bun install --frozen-lockfile`
     if (o.lint) lintStep = '\n      - name: Lint\n        run: bun lint'
     if (o.typecheck) typecheckStep = '\n      - name: Typecheck\n        run: bun typecheck'
   } else {
@@ -367,7 +369,7 @@ ${generateE2eJob(o)}`
 export function generateDeployYml(opts: WorkflowOpts): string {
   const setupStep =
     opts.stack === 'bun'
-      ? `      - uses: ${ACTION_PINS.setupBun}\n      - run: bun install`
+      ? `      - uses: ${ACTION_PINS.setupBun}\n      - name: Verify bun.lock is committed\n        run: git ls-files --error-unmatch bun.lock > /dev/null\n      - run: bun install --frozen-lockfile`
       : `      - uses: ${ACTION_PINS.setupNode}\n        with:\n          node-version: 20\n      - run: npm ci`
 
   let deployStep: string

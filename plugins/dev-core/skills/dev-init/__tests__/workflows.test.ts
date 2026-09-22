@@ -177,9 +177,11 @@ describe('generateDependabotAutomergeYml', () => {
 })
 
 describe('generateDependabotYml', () => {
-  it('emits npm + github-actions for bun stack', () => {
+  it('emits the bun ecosystem for a bun stack, never npm', () => {
     const yml = generateDependabotYml({ stack: 'bun' })
-    expect(yml).toContain('package-ecosystem: npm')
+    expect(yml).toContain('package-ecosystem: bun')
+    // npm would read package-lock.json and leave bun.lock stale (#518).
+    expect(yml).not.toContain('package-ecosystem: npm')
     expect(yml).toContain('package-ecosystem: github-actions')
     expect(yml).toContain('default-days: 3')
     expect(yml).not.toContain('semver-major-days')
@@ -289,7 +291,7 @@ describe('writeWorkflows', () => {
     const results = await writeWorkflows(opts, true)
 
     expect(fs.readFileSync('.github/workflows/ci.yml', 'utf8')).toContain('name: CI')
-    expect(fs.readFileSync('.github/dependabot.yml', 'utf8')).toContain('package-ecosystem: npm')
+    expect(fs.readFileSync('.github/dependabot.yml', 'utf8')).toContain('package-ecosystem: bun')
     expect(results).toContainEqual({ file: 'ci.yml', status: 'updated' })
     expect(results).toContainEqual({ file: 'dependabot.yml', status: 'updated' })
   })
