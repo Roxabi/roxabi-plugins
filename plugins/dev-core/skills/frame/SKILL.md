@@ -316,11 +316,6 @@ Ambiguous free text → **one short prose clarifying question** then **STOP this
 
 Commit: `git add artifacts/frames/{N}-{slug}-frame.md` + commit per AGENTS.md Rule 5.
 
-∃ N (digit-validated) →
-```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set N --status Analysis
-```
-
 - **Via `/R-dev`:** return silently after commit. ¬ask "proceed to /R-analyze?".
 - **Standalone:** print one line: `Approved. Next: /R-analyze --issue N` (F-full) or `/R-spec --issue N` (F-lite).
 

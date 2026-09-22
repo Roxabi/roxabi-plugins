@@ -339,11 +339,7 @@ Ambiguous free text → ask **one short prose clarifying question** in the messa
 1. Set frontmatter `status: approved` via Edit.
 2. Commit: `git add artifacts/specs/{N}-{slug}-spec.md` + commit per AGENTS.md Rule 5.
 3. Run Gate 2.5 only if triggers fire **and** user already said "split" — otherwise skip (do not force-split).
-4. Update issue status:
-```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <N> --status Specs
-```
-5. Exit per Exit section.
+4. Exit per Exit section.
 
 ## Gate 2.5: Smart Splitting (optional, chat-only)
 

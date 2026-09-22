@@ -159,13 +159,6 @@ is_base_branch "$(principal_branch)" || { echo "FATAL: principal left base branc
 git -C "$WT_PATH" rev-parse --abbrev-ref HEAD | grep -qx "$BRANCH"
 ```
 
-## Step 4 — Issue Status (optional)
-
-∃ N →
-```bash
-bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set "$N" --status "In Progress"
-```
-
 ## Exit
 
 - **Success:** BRANCH on origin + link (∃N) + ω ∃ + principal on β. Return silently.
