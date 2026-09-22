@@ -1,60 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type * as ConfigHelpers from '../../shared/adapters/config-helpers'
 import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
 
 // Provide base project config for tests
 process.env.GITHUB_REPO = 'Test/test-repo'
 
-// Mock config before github — vi.mock is hoisted before process.env assignments,
-// so importOriginal would load config.ts with empty env vars. Manual factory is required.
-vi.mock('../../shared/adapters/config-helpers', () => ({
-  NOT_CONFIGURED_MSG: 'GitHub Project V2 is not configured.',
+// Only GITHUB_REPO is stubbed. The resolvers are pure and are the contract under
+// test: re-implementing them in a factory let the suite stay green while the real
+// `resolvePriority` regressed (PR #528 review). `vitest.config.ts` sets
+// `env.GITHUB_REPO`, so importing the real module is safe despite the hoist.
+vi.mock('../../shared/adapters/config-helpers', async (importOriginal) => ({
+  ...(await importOriginal<typeof ConfigHelpers>()),
   GITHUB_REPO: 'Test/test-repo',
-  DEFAULT_SIZE_OPTIONS: ['S', 'F-lite', 'F-full'],
-  resolveStatus: (input: string) => {
-    const canonical = new Set(['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done'])
-    if (canonical.has(input)) return input
-    const aliases: Record<string, string> = {
-      BACKLOG: 'Backlog',
-      ANALYSIS: 'Analysis',
-      SPECS: 'Specs',
-      'IN PROGRESS': 'In Progress',
-      IN_PROGRESS: 'In Progress',
-      INPROGRESS: 'In Progress',
-      REVIEW: 'Review',
-      DONE: 'Done',
-    }
-    return aliases[input.toUpperCase()]
-  },
-  resolveSize: (input: string) => {
-    const valid = new Set(['S', 'F-lite', 'F-full'])
-    if (valid.has(input)) return input
-    const u = input.toUpperCase().replace(/[-\s]/g, '-')
-    if (valid.has(u as 'S' | 'F-lite' | 'F-full')) return u
-    // Aliases
-    if (u === 'XS') return 'S'
-    if (u === 'M') return 'F-lite'
-    if (u === 'L' || u === 'XL') return 'F-full'
-    return undefined
-  },
-  resolvePriority: (input: string) => {
-    const canonical = new Set(['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'])
-    if (canonical.has(input)) return input
-    const aliases: Record<string, string> = {
-      URGENT: 'P0 - Urgent',
-      HIGH: 'P1 - High',
-      MEDIUM: 'P2 - Medium',
-      LOW: 'P3 - Low',
-      P0: 'P0 - Urgent',
-      P1: 'P1 - High',
-      P2: 'P2 - Medium',
-      P3: 'P3 - Low',
-    }
-    return aliases[input.toUpperCase()]
-  },
-  resolveLane: (input: string) => {
-    const valid = new Set(['a1', 'a2', 'b', 'c1', 'c2', 'c3', 'd', 'e', 'f', 'standalone'])
-    return valid.has(input) ? input : undefined
-  },
 }))
 
 vi.mock('../../shared/adapters/github-infra', () => ({
@@ -139,6 +96,70 @@ describe('issue-triage/set > field updates', () => {
     expect(exitSpy).toHaveBeenCalledWith(1)
     const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
     expect(errCalls.some((m) => m.includes('Invalid size'))).toBe(true)
+  })
+
+  it('exits with error for invalid --priority value', async () => {
+    // Arrange — throw on exit so execution stops after the guard, matching real process.exit semantics
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    // Act
+    await setIssue(['42', '--priority', 'P3-nope']).catch(() => {})
+    // Assert — an unrecognised value must not pass for a write that never happened
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockSyncPriorityLabel).not.toHaveBeenCalled()
+    expect(errors.some((m) => m.includes('Invalid priority'))).toBe(true)
+  })
+
+  it('echoes the canonical priority on a successful write', async () => {
+    // Arrange
+    const logs: string[] = []
+    vi.spyOn(console, 'log').mockImplementation((...args) => logs.push(String(args[0])))
+    // Act
+    await setIssue(['42', '--priority', 'Medium'])
+    // Assert
+    expect(logs).toContain('Priority=P2 - Medium #42')
+  })
+
+  it('accepts the label spelling the CLI itself writes', async () => {
+    // #525's own reproduction: `P3-low` is what `gh issue view` displays.
+    await setIssue(['42', '--priority', 'P3-low'])
+    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(42, 'P3 - Low')
+  })
+
+  it('folds case on a lane key instead of rejecting it', async () => {
+    await setIssue(['42', '--lane', 'A1'])
+    expect(mockSyncLaneLabel).toHaveBeenCalledWith(42, 'a1')
+  })
+
+  it('exits 1 when a flag is given no value', async () => {
+    // Arrange — `--priority "$P"` with an unset variable used to skip every guard
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    // Act
+    await setIssue(['42', '--priority', '']).catch(() => {})
+    // Assert
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockSyncPriorityLabel).not.toHaveBeenCalled()
+    expect(errors.some((m) => m.includes('--priority requires a value'))).toBe(true)
+  })
+
+  it('still links the parent when a label write fails, then exits 1', async () => {
+    // Arrange — a repo without the lane label makes syncLaneLabel return false
+    mockSyncLaneLabel.mockResolvedValueOnce(false)
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    // Act
+    await setIssue(['42', '--lane', 'b', '--parent', '7']).catch(() => {})
+    // Assert — the relationship queued behind the label must not be cancelled
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-7', 'node-42')
+    expect(exitSpy).toHaveBeenCalledWith(1)
   })
 
   it('logs Size= exactly once for --size (no duplicate)', async () => {
@@ -284,9 +305,19 @@ describe('issue-triage/set > --lane flag', () => {
     expect(mockSyncLaneLabel).toHaveBeenCalledWith(123, 'c1')
   })
 
-  it('does nothing for invalid lane key (resolveLane returns undefined)', async () => {
-    await setIssue(['123', '--lane', 'zzz'])
+  it('exits with error for an invalid lane key', async () => {
+    // Arrange
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    // Act
+    await setIssue(['123', '--lane', 'zzz']).catch(() => {})
+    // Assert
+    expect(exitSpy).toHaveBeenCalledWith(1)
     expect(mockSyncLaneLabel).not.toHaveBeenCalled()
+    expect(errors.some((m) => m.includes('Invalid lane'))).toBe(true)
   })
 })
 
@@ -305,15 +336,22 @@ describe('issue-triage/set > --type flag', () => {
     expect(exitSpy).not.toHaveBeenCalled()
   })
 
-  it('calls process.exit(1) and prints error for invalid type', async () => {
-    // Arrange
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
-    // Act
-    await setIssue(['123', '--type', 'bogus'])
-    // Assert
+  it('writes nothing at all when the type is invalid', async () => {
+    // Arrange — a throwing stub, because a no-op process.exit lets execution
+    // continue past the guard and the test then passes on either ordering.
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    // Act — a parent is queued behind the bad type
+    await setIssue(['123', '--type', 'bogus', '--parent', '7']).catch(() => {})
+    // Assert — the priced quantity is "nothing was written", not "it printed"
     expect(exitSpy).toHaveBeenCalledWith(1)
-    const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
-    expect(errCalls.some((msg) => msg.includes('Invalid type') || msg.includes('Valid'))).toBe(true)
+    expect(mockResolveIssueTypeId).not.toHaveBeenCalled()
+    expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+    expect(mockAddSubIssue).not.toHaveBeenCalled()
+    expect(errors.some((msg) => msg.includes('Invalid type'))).toBe(true)
   })
 })
 
@@ -341,6 +379,22 @@ describe('issue-triage/set > cross-repo subject', () => {
     expect(mockGetNodeId).toHaveBeenCalledWith(144, 'Roxabi/voiceCLI')
     expect(mockGetNodeId).toHaveBeenCalledWith(10, 'Roxabi/lyra')
     expect(mockAddSubIssue).toHaveBeenCalledWith('node-Roxabi-lyra-10', 'node-Roxabi-voiceCLI-144')
+  })
+
+  it('rejects an unrecognised value even when the label write is skipped', async () => {
+    // Arrange — skipping the write used to skip the guard, so #525's silent
+    // success survived on the cross-repo path (PR #528 review).
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    // Act
+    await setIssue(['Roxabi/lyra#144', '--priority', 'totally-bogus', '--parent', '#7']).catch(() => {})
+    // Assert
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockAddSubIssue).not.toHaveBeenCalled()
+    expect(errors.some((m) => m.includes('Invalid priority'))).toBe(true)
   })
 
   it('resolves cross-repo subject for --add-child', async () => {
@@ -436,12 +490,16 @@ describe('issue-triage/set > applyType accepts all 10 canonical values', () => {
     }
   })
 
-  it('rejects an unknown type and calls process.exit(1)', async () => {
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
-    await setIssue(['123', '--type', 'unknown-type'])
+  it('rejects an unknown type before any write', async () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    await setIssue(['123', '--type', 'unknown-type']).catch(() => {})
     expect(exitSpy).toHaveBeenCalledWith(1)
-    const errCalls = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
-    expect(errCalls.some((m) => m.includes('Invalid type'))).toBe(true)
+    expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+    expect(errors.some((m) => m.includes('Invalid type'))).toBe(true)
   })
 })
 

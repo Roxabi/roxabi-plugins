@@ -83,6 +83,12 @@ describe('shared/config', () => {
     })
   })
 
+  // Deliberate lag, not an omission: issue-triage's copy of this resolver also
+  // accepts the GitHub label spelling (`P3-low`) since #525. dev-core's copy is
+  // reached only through EnvConfigAdapter, whose sole consumer is the port
+  // conformance test — no live path feeds it user input, so the two copies are
+  // allowed to differ. Port the alias table here the day dev-core grows a CLI
+  // that takes `--priority`.
   describe('resolvePriority', () => {
     it('resolves canonical values', () => {
       expect(resolvePriority('P0 - Urgent')).toBe('P0 - Urgent')

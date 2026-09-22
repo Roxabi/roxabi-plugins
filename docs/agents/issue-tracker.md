@@ -37,7 +37,7 @@ written.
 | Blocked by | `--blocked-by "#N"` |
 | Blocks | `--blocks "#N"` |
 | Tier | `--size S` \| `F-lite` \| `F-full` |
-| Priority | `--priority Urgent` \| `High` \| `Medium` \| `Low` |
+| Priority | `--priority Urgent` \| `High` \| `Medium` \| `Low` (also `P0`–`P3` and the label spelling `P3-low`) |
 | Type | `--type feat` \| `fix` \| `docs` \| `test` \| `chore` \| `ci` \| `perf` \| `epic` \| `research` \| `refactor` |
 | Change an existing issue | `set <number> <same flags>` |
 

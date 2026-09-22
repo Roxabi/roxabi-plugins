@@ -3,13 +3,7 @@
  * Replaces set.sh.
  */
 
-import {
-  DEFAULT_SIZE_OPTIONS,
-  GITHUB_REPO,
-  resolveLane,
-  resolvePriority,
-  resolveSize,
-} from '../../shared/adapters/config-helpers'
+import { GITHUB_REPO } from '../../shared/adapters/config-helpers'
 import {
   addBlockedBy,
   addSubIssue,
@@ -20,9 +14,10 @@ import {
   resolveIssueTypeId,
   updateIssueIssueType,
 } from '../../shared/adapters/github-adapter'
-import { syncLaneLabel, syncPriorityLabel, syncSizeLabel } from '../../shared/adapters/github-infra'
+import { requireFlagValue } from '../../shared/domain/cli-args'
 import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
 import { formatRef, parseIssueRef, parseIssueRefs } from '../../shared/domain/parse-issue-ref'
+import { type LabelFlags, resolveLabelFlags, writeLabels } from './label-flags'
 
 interface SetOptions {
   issueNumber: number
@@ -50,43 +45,43 @@ function parseArgs(args: string[]): SetOptions {
     const arg = args[i]
     switch (arg) {
       case '--size':
-        opts.size = args[++i]
+        opts.size = requireFlagValue(args, ++i, '--size')
         break
       case '--priority':
-        opts.priority = args[++i]
+        opts.priority = requireFlagValue(args, ++i, '--priority')
         break
       case '--status':
-        opts.status = args[++i]
+        opts.status = requireFlagValue(args, ++i, '--status')
         break
       case '--lane':
-        opts.lane = args[++i]
+        opts.lane = requireFlagValue(args, ++i, '--lane')
         break
       case '--type':
-        opts.type = args[++i]
+        opts.type = requireFlagValue(args, ++i, '--type')
         break
       case '--blocked-by':
-        opts.blockedBy = args[++i]
+        opts.blockedBy = requireFlagValue(args, ++i, '--blocked-by')
         break
       case '--blocks':
-        opts.blocks = args[++i]
+        opts.blocks = requireFlagValue(args, ++i, '--blocks')
         break
       case '--rm-blocked-by':
-        opts.rmBlockedBy = args[++i]
+        opts.rmBlockedBy = requireFlagValue(args, ++i, '--rm-blocked-by')
         break
       case '--rm-blocks':
-        opts.rmBlocks = args[++i]
+        opts.rmBlocks = requireFlagValue(args, ++i, '--rm-blocks')
         break
       case '--parent':
-        opts.parent = args[++i]
+        opts.parent = requireFlagValue(args, ++i, '--parent')
         break
       case '--add-child':
-        opts.addChild = args[++i]
+        opts.addChild = requireFlagValue(args, ++i, '--add-child')
         break
       case '--rm-parent':
         opts.rmParent = true
         break
       case '--rm-child':
-        opts.rmChild = args[++i]
+        opts.rmChild = requireFlagValue(args, ++i, '--rm-child')
         break
       default:
         if (!opts.issueNumber) {
@@ -114,12 +109,17 @@ function subjectStr(issueNumber: number, repo?: string): string {
 
 const VALID_TYPES: string[] = [...ISSUE_TYPE_NAMES, ...EXTENDED_ISSUE_TYPES]
 
-async function applyType(issueNumber: number, type: string): Promise<void> {
-  const canonical = type.toLowerCase()
+/** Canonicalise the type flag, rejecting an unknown one before any write. */
+function resolveType(input: string): string {
+  const canonical = input.toLowerCase()
   if (!VALID_TYPES.includes(canonical)) {
     console.error(`Error: Invalid type. Valid: ${VALID_TYPES.join(', ')}`)
     process.exit(1)
   }
+  return canonical
+}
+
+async function applyType(issueNumber: number, canonical: string): Promise<void> {
   const issueNodeId = await getNodeId(issueNumber)
   const org = GITHUB_REPO.split('/')[0]
   const typeId = await resolveIssueTypeId(org, canonical)
@@ -250,53 +250,45 @@ export async function setIssue(args: string[]): Promise<void> {
     process.exit(1)
   }
 
-  // Type is independent of project board
-  if (opts.type) {
-    if (opts.subjectRepo) {
-      console.error(
-        `Warning: --type is not supported for cross-repo subjects (${opts.subjectRepo}#${opts.issueNumber}) — skipped`,
-      )
-    } else {
-      await applyType(opts.issueNumber, opts.type)
-    }
+  // Canonicalise every flag before the first write: a rejected value must not
+  // leave the issue half-updated — type applied, label refused, parent never
+  // linked (PR #528 review).
+  // --type is not applied to a cross-repo subject, but the value is still
+  // canonicalised: skipping the write must not skip the guard, or the typo
+  // door #525 closed stays open on the cross-repo path.
+  if (opts.type && opts.subjectRepo) {
+    console.error(
+      `Warning: --type is not supported for cross-repo subjects (${opts.subjectRepo}#${opts.issueNumber}) — skipped`,
+    )
   }
+  const type = opts.type ? resolveType(opts.type) : undefined
 
-  // Sync labels — skipped for cross-repo subjects.
+  // Labels are skipped for cross-repo subjects — resolved first all the same.
   // Status is intentionally excluded: in the issues-only model status is just
   // open/closed and the dep-graph derives ready/blocked/done from edges, so a
   // `status:*` label is redundant (and noisy on repos that lack the label).
-  if (opts.subjectRepo && (opts.priority || opts.size || opts.lane)) {
+  const resolved = resolveLabelFlags({ priority: opts.priority, size: opts.size, lane: opts.lane })
+  const crossRepoLabels = Boolean(opts.subjectRepo && (opts.priority || opts.size || opts.lane))
+  if (crossRepoLabels) {
     console.error(
       `Warning: --size/--priority/--lane label sync is not supported for cross-repo subjects (${opts.subjectRepo}#${opts.issueNumber}) — skipped`,
     )
-  } else {
-    if (opts.priority) {
-      const canonical = resolvePriority(opts.priority)
-      if (canonical) {
-        const ok = await syncPriorityLabel(opts.issueNumber, canonical)
-        if (!ok) process.exit(1)
-      }
-    }
-    if (opts.size) {
-      const canonical = resolveSize(opts.size)
-      if (!canonical) {
-        console.error(`Error: Invalid size '${opts.size}'. Valid: ${DEFAULT_SIZE_OPTIONS.join(', ')}`)
-        process.exit(1)
-      }
-      const ok = await syncSizeLabel(opts.issueNumber, canonical)
-      if (!ok) process.exit(1)
-      console.log(`Size=${canonical} #${opts.issueNumber}`)
-    }
-    if (opts.lane) {
-      const canonical = resolveLane(opts.lane)
-      if (canonical) {
-        const ok = await syncLaneLabel(opts.issueNumber, canonical)
-        if (!ok) process.exit(1)
-        console.log(`Lane=${canonical} #${opts.issueNumber}`)
-      }
+  }
+  const labels: LabelFlags = crossRepoLabels ? {} : resolved
+
+  if (type && !opts.subjectRepo) await applyType(opts.issueNumber, type)
+  const unwritten = await writeLabels(opts.issueNumber, labels)
+
+  // `finally`: a throw from the relationship writes must not swallow the
+  // report of a label that never landed.
+  try {
+    await applyDependencies(opts.issueNumber, opts)
+    await applyParentChild(opts.issueNumber, opts)
+  } finally {
+    if (unwritten.length > 0) {
+      console.error(`Error: label not written for ${unwritten.join(', ')} on #${opts.issueNumber}`)
     }
   }
 
-  await applyDependencies(opts.issueNumber, opts)
-  await applyParentChild(opts.issueNumber, opts)
+  if (unwritten.length > 0) process.exit(1)
 }

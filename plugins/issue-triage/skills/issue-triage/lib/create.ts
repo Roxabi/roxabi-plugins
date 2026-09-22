@@ -3,14 +3,7 @@
  * Issues-only mode: size/priority/status/lane are set via labels only (no ProjectV2 board).
  */
 
-import {
-  DEFAULT_SIZE_OPTIONS,
-  GITHUB_REPO,
-  resolveLane,
-  resolvePriority,
-  resolveSize,
-  resolveStatus,
-} from '../../shared/adapters/config-helpers'
+import { GITHUB_REPO } from '../../shared/adapters/config-helpers'
 import {
   addBlockedBy,
   addSubIssue,
@@ -19,9 +12,10 @@ import {
   resolveIssueTypeId,
   updateIssueIssueType,
 } from '../../shared/adapters/github-adapter'
-import { syncLaneLabel, syncPriorityLabel, syncSizeLabel, syncStatusLabel } from '../../shared/adapters/github-infra'
+import { requireFlagValue } from '../../shared/domain/cli-args'
 import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
 import { formatRef, parseIssueRefs } from '../../shared/domain/parse-issue-ref'
+import { type LabelFlags, resolveLabelFlags, writeLabels } from './label-flags'
 
 interface CreateOptions {
   title: string
@@ -46,40 +40,40 @@ function parseArgs(args: string[]): CreateOptions {
     const arg = args[i]
     switch (arg) {
       case '--title':
-        opts.title = args[++i]
+        opts.title = requireFlagValue(args, ++i, '--title')
         break
       case '--body':
-        opts.body = args[++i]
+        opts.body = requireFlagValue(args, ++i, '--body', true)
         break
       case '--label':
-        opts.labels = args[++i]
+        opts.labels = requireFlagValue(args, ++i, '--label', true)
         break
       case '--size':
-        opts.size = args[++i]
+        opts.size = requireFlagValue(args, ++i, '--size')
         break
       case '--priority':
-        opts.priority = args[++i]
+        opts.priority = requireFlagValue(args, ++i, '--priority')
         break
       case '--status':
-        opts.status = args[++i]
+        opts.status = requireFlagValue(args, ++i, '--status')
         break
       case '--lane':
-        opts.lane = args[++i]
+        opts.lane = requireFlagValue(args, ++i, '--lane')
         break
       case '--type':
-        opts.type = args[++i]
+        opts.type = requireFlagValue(args, ++i, '--type')
         break
       case '--parent':
-        opts.parent = args[++i]
+        opts.parent = requireFlagValue(args, ++i, '--parent')
         break
       case '--blocked-by':
-        opts.blockedBy = args[++i]
+        opts.blockedBy = requireFlagValue(args, ++i, '--blocked-by')
         break
       case '--blocks':
-        opts.blocks = args[++i]
+        opts.blocks = requireFlagValue(args, ++i, '--blocks')
         break
       case '--add-child':
-        opts.addChild = args[++i]
+        opts.addChild = requireFlagValue(args, ++i, '--add-child')
         break
       default:
         console.error(`Error: Unknown option '${arg}'`)
@@ -93,43 +87,21 @@ function parseArgs(args: string[]): CreateOptions {
 
 const VALID_TYPES: string[] = [...ISSUE_TYPE_NAMES, ...EXTENDED_ISSUE_TYPES]
 
-async function applyType(issueNumber: number, nodeId: string, type: string): Promise<void> {
-  const canonical = type.toLowerCase()
+/** Canonicalise the type flag, rejecting an unknown one before any write. */
+function resolveType(input: string): string {
+  const canonical = input.toLowerCase()
   if (!VALID_TYPES.includes(canonical)) {
     console.error(`Error: Invalid type. Valid: ${VALID_TYPES.join(', ')}`)
     process.exit(1)
   }
+  return canonical
+}
+
+async function applyType(issueNumber: number, nodeId: string, canonical: string): Promise<void> {
   const org = GITHUB_REPO.split('/')[0]
   const typeId = await resolveIssueTypeId(org, canonical)
   await updateIssueIssueType(nodeId, typeId)
   console.log(`Type=${canonical} #${issueNumber}`)
-}
-
-async function syncLabels(issueNumber: number, opts: CreateOptions): Promise<void> {
-  if (opts.priority) {
-    const canonical = resolvePriority(opts.priority)
-    if (canonical) await syncPriorityLabel(issueNumber, canonical)
-  }
-  if (opts.size) {
-    const canonical = resolveSize(opts.size)
-    if (!canonical) {
-      console.error(`Error: Invalid size '${opts.size}'. Valid: ${DEFAULT_SIZE_OPTIONS.join(', ')}`)
-      process.exit(1)
-    }
-    const ok = await syncSizeLabel(issueNumber, canonical)
-    if (!ok) process.exit(1)
-  }
-  if (opts.lane) {
-    const canonical = resolveLane(opts.lane)
-    if (canonical) {
-      await syncLaneLabel(issueNumber, canonical)
-      console.log(`Lane=${canonical} #${issueNumber}`)
-    }
-  }
-  if (opts.status) {
-    const canonical = resolveStatus(opts.status)
-    if (canonical) await syncStatusLabel(issueNumber, canonical)
-  }
 }
 
 async function applyRelationships(nodeId: string, issueNumber: number, opts: CreateOptions): Promise<void> {
@@ -175,13 +147,15 @@ export async function createIssue(args: string[]): Promise<void> {
     process.exit(1)
   }
 
-  if (opts.type) {
-    const canonical = opts.type.toLowerCase()
-    if (!VALID_TYPES.includes(canonical)) {
-      console.error(`Error: Invalid type. Valid: ${VALID_TYPES.join(', ')}`)
-      process.exit(1)
-    }
-  }
+  // Canonicalise every flag ahead of createGitHubIssue: a rejected value must
+  // not leave a created, half-triaged issue behind (#525).
+  const type = opts.type ? resolveType(opts.type) : undefined
+  const flags: LabelFlags = resolveLabelFlags({
+    priority: opts.priority,
+    size: opts.size,
+    lane: opts.lane,
+    status: opts.status,
+  })
 
   const labels = opts.labels
     ?.split(',')
@@ -193,12 +167,21 @@ export async function createIssue(args: string[]): Promise<void> {
 
   const nodeId = await getNodeId(issueNumber)
 
-  if (opts.type) {
-    await applyType(issueNumber, nodeId, opts.type)
+  if (type) await applyType(issueNumber, nodeId, type)
+
+  // Labels only (issues-only mode). A label the repo does not carry must not
+  // cancel the relationship writes queued behind it — collect, then fail last.
+  const unwritten = await writeLabels(issueNumber, flags)
+
+  // `finally`: a throw from the relationship writes must not swallow the
+  // report of a label that never landed.
+  try {
+    await applyRelationships(nodeId, issueNumber, opts)
+  } finally {
+    if (unwritten.length > 0) {
+      console.error(`Error: label not written for ${unwritten.join(', ')} on #${issueNumber}`)
+    }
   }
 
-  // Set size/priority/status/lane via labels only (issues-only mode)
-  await syncLabels(issueNumber, opts)
-
-  await applyRelationships(nodeId, issueNumber, opts)
+  if (unwritten.length > 0) process.exit(1)
 }
