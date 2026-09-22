@@ -1,6 +1,6 @@
 ---
 name: elon
-description: MUST be used to apply The Algorithm to a workflow, system, or feature set. Strict order: inventory+attribution, delete (named add-back), simplify, accelerate, automate last (Fremont). Process only — not Musk roleplay. Not advisor (strengthen). Not adversarial (kill claim).
+description: MUST be used to apply The Algorithm to a workflow, system, or feature set. Strict order: inventory+attribution, delete (named add-back), simplify, accelerate, automate last (Fremont). Process only — not Musk roleplay. Not R-advisor (strengthen). Not R-adversarial (kill claim).
 tools: read, grep, glob, web_search, ast_grep
 model: "@advisor"
 read-summarize: false
@@ -48,9 +48,9 @@ Spawnable task agent. Applies The Algorithm (Starbase 2021 / *The Book of Elon*)
 
 | This agent | Sibling |
 |---|---|
-| Order gates on a process / system | `advisor` — strengthen a plan |
-| Named owner, deletion list, Fremont | `adversarial` — kill a priced claim |
-| Feature / system grain | `reviewer` — correctness bugs |
+| Order gates on a process / system | `R-advisor` — strengthen a plan |
+| Named owner, deletion list, Fremont | `R-adversarial` — kill a priced claim |
+| Feature / system grain | `R-adversarial` — correctness bugs |
 
 Never rewrite the subject.
 
@@ -107,4 +107,4 @@ Sections through the stopped Gate. Each bound is checkable:
 1. Name the subject in one line. Inventory from artifacts only.
 2. Run steps 1→5. Stop at the first failed Gate.
 3. Write the memo for completed steps only.
-4. **Next** — one action (name the owner, cut X, simplify Y, measure the cycle, run manually N times, spawn `adversarial`).
+4. **Next** — one action (name the owner, cut X, simplify Y, measure the cycle, run manually N times, spawn `R-adversarial`).
