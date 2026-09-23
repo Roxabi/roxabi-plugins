@@ -57,8 +57,8 @@ The Claude/Grok factory plugin. Source stays in the marketplace; it is not loade
 _Avoid_: "the plugin" when the host is OMP
 
 **Dark-to-model**:
-A skill that ships in the armed package (`extensions:`) so slash and `skill://` work, with `disable-model-invocation` so the model does not autoload it.
-_Avoid_: unloaded, hidden, Isolation-dark (that last one is not invocable)
+A skill that ships in the armed package (`extensions:`) so slash and `skill://` work, with `disable-model-invocation` so the model does not autoload it. omp normalises that key to `hide`: it omits the skill from the prompt listing and gates nothing — `skill://<name>` and `/skill:<name>` still reach the body. What makes a skill user-only is `registerCommand`, the lane the model cannot call.
+_Avoid_: unloaded, hidden, Isolation-dark (that last one is not invocable), "two gates"
 
 **Principal**:
 The first `git worktree list --porcelain` worktree. Feature work does not run here.

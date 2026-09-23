@@ -64,6 +64,23 @@ describe('omp-build agent roster', () => {
       })),
   ]
 
+  it('scans every skill body, and each carries content', () => {
+    // Both closure checks below are `expect(strays).toEqual([])` shaped: an empty
+    // corpus passes them. So pin the corpus. Every directory under `skills/` that
+    // ships a SKILL.md must be in it, and each body must be substantial enough to
+    // be the thing the model reads — an emptied file would otherwise turn a guard
+    // green by deleting what it guards (#495).
+    const onDisk = readdirSync(skillsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && existsSync(path.join(skillsDir, entry.name, 'SKILL.md')))
+      .map((entry) => `skills/${entry.name}/SKILL.md`)
+    const scanned = sources.map(({ file }) => file).filter((file) => file.startsWith('skills/'))
+    expect(scanned.sort()).toEqual(onDisk.sort())
+    // The tail landed in #495; naming them makes a *deleted directory* fail here
+    // rather than silently shrink the corpus.
+    expect(scanned).toEqual(expect.arrayContaining(['skills/promote/SKILL.md', 'skills/cleanup/SKILL.md']))
+    for (const { file, text } of sources) expect(`${file} → ${text.trim().length > 400}`).toBe(`${file} → true`)
+  })
+
   it('is exactly the seven ADR-020 keeps', () => {
     expect(agents.map((a) => a.name).sort()).toEqual([...EXPECTED].sort())
   })

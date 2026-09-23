@@ -238,7 +238,7 @@ describe('OMP omp-build hooks', () => {
     })
   })
 
-  describe('/feature command', () => {
+  describe('slash commands', () => {
     type Command = { description?: string; handler: (args: string, ctx: { cwd: string }) => Promise<void> }
 
     const commands = new Map<string, Command>()
@@ -256,8 +256,11 @@ describe('OMP omp-build hooks', () => {
       })
     })
 
-    it('registers exactly one command, /feature', () => {
-      expect([...commands.keys()]).toEqual(['feature'])
+    it('registers exactly the three skill commands', () => {
+      // The tail (#495) is reachable by slash and by nothing else. Dropping a
+      // registration makes `/promote` or `/cleanup` unreachable while the body
+      // still sits on disk looking installed.
+      expect([...commands.keys()].sort()).toEqual(['cleanup', 'feature', 'promote'])
     })
 
     // Built the way the source builds it — two levels up from the module, then
@@ -295,6 +298,53 @@ describe('OMP omp-build hooks', () => {
       expect(message).toContain('cannot read its own body')
       expect(message).toContain(join(skillDir, 'SKILL.md'))
       expect(message).not.toContain('# Feature')
+    })
+
+    it.each(['promote', 'cleanup'])('dumps the %s body with its own skill directory', async (name) => {
+      await commands.get(name)?.handler('--dry-run', { cwd: '/repo' })
+      const message = sent.at(-1)
+      expect(message).toBeDefined()
+      // Both tail bodies *discuss* `disable-model-invocation` in prose, so the
+      // keyword cannot stand in for "frontmatter stripped". The boundary can:
+      // a stripped body starts at its H1 and carries no `version:` key.
+      expect(message?.startsWith('# ')).toBe(true)
+      expect(message).not.toMatch(/^version:/m)
+      expect(message?.endsWith('--dry-run')).toBe(true)
+
+      const printed = /\[Skill directory: (.+)]/.exec(message ?? '')?.[1]
+      expect(printed).toBe(resolve(import.meta.dirname, '..', '..', 'skills', name))
+      // Each tail body instructs by `skill://<skill>/<file>`. Two things must
+      // hold for that to resolve: `<skill>` is a skill — a directory carrying a
+      // SKILL.md, which is what the harness looks a name up in — and the asset
+      // exists inside it. `skill://shared/lib.sh` satisfied only the second:
+      // `skills/shared/` is a plain directory of this plugin, so the URL named a
+      // file that is really there through a namespace that cannot reach it.
+      //
+      // The assertion this replaces, `existsSync(<printed>/SKILL.md)`, restated
+      // the precondition: the body under test was just read from that file, so it
+      // could not fail while the handler worked at all.
+      const skillsDir = resolve(import.meta.dirname, '..', '..', 'skills')
+      const cited = [...(message ?? '').matchAll(/skill:\/\/([a-z0-9-]+)\/([\w./-]+)/g)]
+      expect(cited.length).toBeGreaterThan(0)
+      const unresolvable = cited
+        .filter(
+          ([, skill, rel]) =>
+            !existsSync(join(skillsDir, skill, 'SKILL.md')) || !existsSync(join(skillsDir, skill, rel)),
+        )
+        .map(([url]) => url)
+      expect(unresolvable).toEqual([])
+    })
+
+    it('keeps both tail bodies out of the review loop, in the text the model receives', async () => {
+      // The offered-tail contract is only real if it survives into the dumped
+      // body — the command handler strips frontmatter, so a claim made only in
+      // `disable-model-invocation` reaches nobody.
+      for (const name of ['promote', 'cleanup']) {
+        await commands.get(name)?.handler('', { cwd: '/repo' })
+        const message = sent.at(-1) ?? ''
+        expect(message).toContain('never run on its own initiative')
+        expect(message).toContain('review→fix loop')
+      }
     })
   })
 })
