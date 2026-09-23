@@ -414,7 +414,7 @@ Roster capped by max_agents: R-devops
 ## Phase 8 — Next Step
 
 Q:
-- **Fix now** — invoke `skill://fix` (auto-apply + 1b1, applied inline; its Phase 8 offers rebase + label + merge)
+- **Fix now** — invoke `skill://fix` (auto-apply + 1b1, applied inline; its Phase 7 writes the `reviewed` label unless it is invoked `--no-label`, and its Phase 8 posts the follow-up comment — it offers no rebase and no merge)
 - **Merge as-is** — rebase + label + auto-merge (below)
 - **Stop** — exit
 

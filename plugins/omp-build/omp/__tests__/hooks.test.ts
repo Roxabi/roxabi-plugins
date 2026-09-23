@@ -1,7 +1,7 @@
 import type * as NodeFs from 'node:fs'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   extractWriteContent,
@@ -345,6 +345,62 @@ describe('OMP omp-build hooks', () => {
         expect(message).toContain('never run on its own initiative')
         expect(message).toContain('review→fix loop')
       }
+    })
+
+    it('names every plugin-local skill /feature invokes, and each one is installed', async () => {
+      // §6 is a chain of `Skill(skill: "…")` calls. A name that resolves nowhere
+      // reaches the model as an instruction and dies three steps into a live
+      // ticket, so the body may only name skills this plugin ships — or one of the
+      // upstream capabilities its own preflight checks for and stops on.
+      const UPSTREAM = ['grill-with-docs', 'to-spec', 'to-tickets', 'implement', 'tdd']
+      const skillsDir = resolve(import.meta.dirname, '..', '..', 'skills')
+      await commands.get('feature')?.handler('#494', { cwd: '/repo' })
+      const message = sent.at(-1) ?? ''
+
+      const invoked = [...message.matchAll(/Skill\(skill:\s*"([^"]+)"\)/g)].map(([, name]) => name)
+      expect(invoked).toEqual(expect.arrayContaining(['dev-review', 'fix', 'implement']))
+      const local = invoked.filter((name) => !name.includes(':') && !UPSTREAM.includes(name))
+      expect(local.length).toBeGreaterThan(0)
+      const unresolvable = local.filter((name) => !existsSync(join(skillsDir, name, 'SKILL.md')))
+      expect(unresolvable).toEqual([])
+    })
+
+    it('dumps no install banner while the skills mode 2 names are all present', async () => {
+      await commands.get('feature')?.handler('#494', { cwd: '/repo' })
+      const message = sent.at(-1) ?? ''
+      expect(message.startsWith('# Feature')).toBe(true)
+      expect(message).not.toContain('partially installed')
+    })
+
+    it('says which of them is missing, instead of dumping a body that cannot run', async () => {
+      // The failure it catches: `skills/dev-review/` absent from the install.
+      // Nothing else observes that — `/feature` still reads its own body, still
+      // prints its own directory, and §6.4 calls a review that resolves nowhere.
+      const partial = new Map<string, Command>()
+      const messages: string[] = []
+      ompBuildExtension(
+        {
+          on: () => {},
+          registerCommand: (name, options) => {
+            partial.set(name, options as Command)
+          },
+          sendUserMessage: (content) => {
+            messages.push(content)
+          },
+        },
+        { exists: (path) => !path.includes(`${sep}dev-review${sep}`) },
+      )
+      await partial.get('feature')?.handler('#494', { cwd: '/repo' })
+      const message = messages.at(-1) ?? ''
+      // The banner is the first line; the body below it names `fix` all over §6,
+      // so the whole message cannot say which one was found missing.
+      const banner = message.split('\n')[0] ?? ''
+      expect(banner).toContain('partially installed')
+      expect(banner).toContain('`dev-review`')
+      expect(banner).not.toContain('`fix`')
+      // The body still arrives: mode 1 needs none of these.
+      expect(message).toContain('# Feature')
+      expect(message.endsWith('#494')).toBe(true)
     })
   })
 })

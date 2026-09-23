@@ -28,6 +28,15 @@ _Avoid_: R-dev-implement, listing tdd as a sibling step
 After a green review loop: required checks, `reviewed` label, auto-merge (`landPr`).
 _Avoid_: R-ci-watch, gh pr merge while checks run
 
+**Review bound**:
+At most two review→fix rounds per PR, counted by `createReviewLoop` and resumed from
+the PR by `resumeReviewLoop`. The third red returns `stop`; `enforceStop` then reads
+the labels back and removes `reviewed`, so the PR really is unlabelled and unmerged.
+A CI failure after a green verdict re-enters through `reopen('ci-failed')`, which
+spends a round rather than refunding one.
+_Avoid_: "one more review", a second loop on the same PR, a round counter held in
+prose, a `reviewed` label written by anything but the landing step
+
 **Snapshot**:
 A frozen copy of selected `dev-core` files inside `omp-build`. No resync. Claude's `dev-core` evolves alone.
 _Avoid_: fork, submodule, live share
