@@ -1,6 +1,6 @@
 {
   "name": "omp-build",
-  "description": "OMP-only back-half orchestrator — after spec validation, run plan→impl→PR→review→fix→merge. Not host /dev.",
+  "description": "OMP-only feature cycle — issue, branch proposal and operator /wt, then implement, bounded review/fix, land.",
   "author": {
     "name": "Roxabi"
   }

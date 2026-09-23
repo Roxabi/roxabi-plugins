@@ -43,6 +43,7 @@ PLUGINS_DIR = REPO_ROOT / 'plugins'
 # required in README.md. Empty today: omp-build now ships as a versioned `.omp-plugin/` catalog row.
 LINK_ONLY_PLUGIN_NAMES = frozenset()
 MARKETPLACE_JSON = REPO_ROOT / '.claude-plugin' / 'marketplace.json'
+OMP_MARKETPLACE_JSON = REPO_ROOT / '.omp-plugin' / 'marketplace.json'
 README_MD = REPO_ROOT / 'README.md'
 
 
@@ -788,6 +789,60 @@ def check_marketplace_readme_catalog(
     return errors
 
 
+def check_omp_catalog(catalog_path=None, repo_root=None) -> list[str]:
+    """The OMP catalog must parse, point at real plugin dirs, and carry the package version.
+
+    OMP keys a marketplace install's cache on the catalog row's `version`, not on
+    `package.json` (#568): a bump written in one file only ships new content under
+    the old key, and `omp plugin upgrade` sees nothing. A version declared on one
+    side only is the same drift. Invalid JSON rejects every row of the catalog at once.
+    Rows whose plugin dir has no `package.json` have nothing to compare against.
+    """
+    catalog_path = Path(catalog_path) if catalog_path is not None else OMP_MARKETPLACE_JSON
+    repo_root = Path(repo_root) if repo_root is not None else REPO_ROOT
+
+    if not catalog_path.is_file():
+        return [f'OMP marketplace.json not found at {catalog_path}']
+    try:
+        data = json.loads(catalog_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as e:
+        return [f'failed to parse OMP marketplace.json: {e}']
+    plugins = data.get('plugins') if isinstance(data, dict) else None
+    if not isinstance(plugins, list):
+        return ['failed to parse OMP marketplace.json: plugins is not a list']
+
+    errors = []
+    for row in plugins:
+        name = row.get('name') if isinstance(row, dict) else None
+        if not name:
+            errors.append(f'OMP catalog row without a name: {row!r}')
+            continue
+        source = row.get('source')
+        if not isinstance(source, str) or not source.startswith('./'):
+            continue  # a remote source has no local package to compare
+        plugin_dir = repo_root / source
+        if not plugin_dir.is_dir():
+            errors.append(f'{name}: OMP catalog source {source} is not a directory')
+            continue
+        package_json = plugin_dir / 'package.json'
+        if not package_json.is_file():
+            continue
+        try:
+            package = json.loads(package_json.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError) as e:
+            errors.append(f'{name}: failed to parse {source}/package.json: {e}')
+            continue
+        catalog_version = row.get('version')
+        package_version = package.get('version') if isinstance(package, dict) else None
+        if catalog_version != package_version:
+            errors.append(
+                f'{name}: OMP catalog version {catalog_version!r} does not match '
+                f'{source}/package.json version {package_version!r} — OMP keys its cache on the catalog version'
+            )
+    return errors
+
+
+
 
 def _is_io_error(msg: str) -> bool:
     """Return True when the error message signals an IO/parse failure (exit 2).
@@ -856,6 +911,7 @@ def main(argv: list[str] | None = None) -> int:
         ('Notation legends', check_notation_legends),
         ('Golden inventories', check_golden_inventories),
         ('Marketplace README catalog', check_marketplace_readme_catalog),
+        ('OMP catalog versions', check_omp_catalog),
     ]
 
     for name, check_fn in checks:

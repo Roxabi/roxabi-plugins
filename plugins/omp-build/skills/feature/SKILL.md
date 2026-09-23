@@ -61,7 +61,7 @@ Use `isPrincipal(cwd, principalPath)` before `resolveEntry`: its legacy Principa
 hop route is not used. A branch for #N is not a branch for #M, including an epic's
 branch versus a child's. Read the ticket before deciding whether its scope is ready.
 
-## 3. Issue → branch proposal → human `/wt`
+## 3. Issue → branch proposal → operator `/wt`
 
 **Run this immediately after creating or selecting an issue**, before more grilling,
 spec refinement, decomposition or implementation. Do not wait for a finished spec
@@ -73,7 +73,12 @@ or a batch of tickets. Reuse an already tracked issue instead of minting a dupli
 2. Resolve the base from the release model: trunk → repository default branch;
    staging-train → `staging`. Fetch the intended base before proposing creation.
    Unknown base/model → resolve from repository configuration before proceeding.
-3. Present the concrete branch, base and next operator action:
+3. Check the checkout `/wt` will branch from — it creates the branch from the
+   current `HEAD`: on the intended base, clean and up to date. Otherwise report the
+   precise mismatch and the operator action needed, and print no `/wt` line until it
+   holds. Never branch from an unrelated ticket, and never move or stash the
+   operator's changes. Do not pre-create a branch that `/wt` would then refuse.
+4. Present the concrete branch, base and next operator action:
 
    > Issue #N créée. Je propose la branche `<type>/<N>-<slug>` depuis `<base>`.
    > Pour créer la branche et son worktree, saisis `/wt <type>/<N>-<slug>`.
@@ -81,16 +86,13 @@ or a batch of tickets. Reuse an already tracked issue instead of minting a dupli
 
    For an existing issue, say “Issue #N sélectionnée”. **The proposal is not a
    branch-creation receipt.** Only report creation after observing the branch.
-4. Stop for the operator. Do not invoke `/wt` through a tool, create the worktree,
+5. Stop for the operator. Do not invoke `/wt` through a tool, create the worktree,
    switch the Principal's branch, or implement while waiting. If they defer the
    branch, continue only read-only exploration/conversation and tracker framing;
-   retain the worktree gate before any local file edit.
+   no local file edit happens outside the matching worktree.
 
-`/wt` creates a new branch from the current checkout. Before handing off, verify
-that checkout is on the intended base, up to date and clean. Otherwise report the
-precise mismatch and the operator action needed; do not silently branch from an
-unrelated ticket or move/stash their changes. Do not pre-create a branch that `/wt`
-would then refuse.
+These rules are agent discipline: the plugin's guard blocks moving the Principal's
+`HEAD`, not creating a branch or worktree from it.
 
 Existing branch/worktree → offer reuse, not another branch. For a registered
 worktree, print `omp --cwd <quoted-existing-path>`, then `/feature #N`. For a branch
@@ -141,6 +143,9 @@ worktree with fresh context (`/clear` when staying in that same worktree).
 
 Verify the actual cwd/branch again after the operator's handoff. Read the issue body,
 `size:` label and open blockers (§5). Missing scope → §4; open blocker → stop.
+Resolve the base as in §3, fetch it, and check history: every commit in
+`origin/<base>..HEAD` belongs to this ticket (none on first entry). A foreign commit,
+or a fork point off `<base>`, → stop and name it; a correct branch name proves nothing.
 Install dependencies with the repository's documented command in this worktree
 before running hooks/builds; no unconditional `bun install` for unrelated stacks.
 
@@ -207,14 +212,20 @@ without fixing or merging. On `stop`, enforce §6.6 rather than offer another ro
 Never choose on the user's behalf or offer “Merge as-is” for a red verdict.
 The human's **Stop** simply exits; `enforceStop` is valid only when the loop itself
 returned `step.action === 'stop'`, not when the user declines an available fix.
+`record` has already counted the round when the choice is offered: say so, since a
+red verdict spends a fix round whether or not the operator then fixes.
 
 ### 6.5 Fix
 
-`step.action === 'fix'` → execute `skill://fix` with `#<pr> --no-label`.
-Its inline fixes and deferrals remain subject to its human choices. Verify and
-commit/push the fixes, then return to §6.4 on the same PR. State `step.remaining`.
-A CI failure from §6.7 is fixed from the failed check's evidence, then re-reviewed;
-it is not an instruction to replay stale review findings.
+`step.action === 'fix'`, by `step.reason`:
+
+- review round (no reason) → execute `skill://fix` with `#<pr> --no-label`. Its inline
+  fixes and deferrals remain subject to its human choices.
+- `ci-failed` → fix inline from the failed checks (`land.failed`) and their logs.
+  `fix` reads review comments, not CI: running it here replays stale findings.
+
+Verify and commit/push the fixes, then return to §6.4 on the same PR for a fresh
+review. State `step.remaining`.
 
 ### 6.6 Bound
 
@@ -226,7 +237,9 @@ it is not an instruction to replay stale review findings.
 
 At most two fix rounds; a third red stops. Persist every verdict and CI reopening;
 resume from the PR on re-entry, never reset its spent rounds. `enforceStop` removes
-an unexpected `reviewed` label; do not claim it reverses an already completed merge.
+the `reviewed` label and disables native auto-merge; it cannot reverse a completed merge.
+The PR marker stores counts, not the stop itself: a re-entry after a stop resumes an
+open loop, so report the exhausted bound rather than start another round unasked.
 Nothing on a stopped path invokes landing or the optional tail.
 `loop.reopen('ci-failed')` **spends one fix round immediately** (0 → 1, 1 → 2;
 already 2 → stop). It never refunds or preserves an unspent round after reopening.
@@ -235,14 +248,16 @@ already 2 → stop). It never refunds or preserves an unspent round after reopen
 
 Only `step.action === 'land'` may reach this step. Obtain the operator's merge
 approval if not already explicit for this PR. Then `await landPr(cwd, pr)` waits
-for required contexts, writes `reviewed` and enables merge-commit auto-merge.
+for required contexts, writes `reviewed` and enables merge-commit auto-merge. If a
+required check fails or is skipped after that, it removes the label and disables
+auto-merge before returning (`land.disarmed`).
 Neither a fix round nor another review action may write that label in this cycle.
 
 | `land.status` | Action |
 |---|---|
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
-| `ci-failed` | `step = loop.reopen('ci-failed')`; `await loop.persist(cwd)`; follow §6.6 |
-| `ci-skipped` / `no-required-checks` | Stop; report skipped contexts / missing protection, no bypass |
+| `ci-failed` | Gate already disarmed if armed; `step = loop.reopen('ci-failed')`; `await loop.persist(cwd)`; follow §6.6 |
+| `ci-skipped` / `no-required-checks` | Stop; report skipped contexts / missing protection, no bypass — a skipped required check counts as passing on GitHub, hence the disarm |
 | `timeout` / `auto-merge-failed` | Stop; inspect and report actual PR/label/auto-merge state, never claim merged |
 | `closed` | Stop; report closure |
 

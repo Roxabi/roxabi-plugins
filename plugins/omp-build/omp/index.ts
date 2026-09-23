@@ -55,7 +55,8 @@ const SKILLS_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), 'skill
 const SKILL_COMMANDS = [
   {
     name: 'feature',
-    description: 'Run one OMP feature cycle — issue, branch proposal, human /wt, then implement and review',
+    description:
+      'Run one OMP feature cycle — issue, branch proposal, operator /wt, implement, bounded review/fix, land',
     requires: ['dev-review', 'fix'],
   },
   {

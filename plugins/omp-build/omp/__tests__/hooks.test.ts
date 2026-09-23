@@ -1,5 +1,5 @@
 import type * as NodeFs from 'node:fs'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -285,6 +285,28 @@ describe('OMP omp-build hooks', () => {
       expect(existsSync(join(printed ?? '', 'entry.js'))).toBe(true)
     })
 
+    it('destructures only exported functions from every module it tells the model to import', async () => {
+      // The body runs `const { … } = await import(`${SKILL_DIR}/…`)` in a live session.
+      // The modules' own tests import their functions directly, so a renamed or dropped
+      // export in the body stays green there and throws three steps into a ticket.
+      await commands.get('feature')?.handler('#494', { cwd: '/repo' })
+      const message = sent.at(-1) ?? ''
+      const printed = /\[Skill directory: (.+)]/.exec(message)?.[1] ?? ''
+      const fences = [...message.matchAll(/const \{([^}]+)\} =\s*await import\(`\$\{SKILL_DIR\}\/([^`]+)`\)/g)]
+      expect(fences.length).toBeGreaterThan(0)
+      for (const [, names, rel] of fences) {
+        // Dynamic on purpose: the specifier is read out of the body under test.
+        const module = await import(resolve(printed, rel))
+        const wanted = names
+          .split(',')
+          .map((name) => name.trim())
+          .filter(Boolean)
+        expect(Object.fromEntries(wanted.map((name) => [name, typeof module[name]]))).toEqual(
+          Object.fromEntries(wanted.map((name) => [name, 'function'])),
+        )
+      }
+    })
+
     it('says so in the conversation when its own body cannot be read', async () => {
       // omp catches a handler throw and reports it on a channel the operator may
       // not be watching: a partial install would otherwise produce no turn at all.
@@ -383,6 +405,55 @@ describe('OMP omp-build hooks', () => {
       // The body still arrives: mode 1 needs none of these.
       expect(message).toContain('# Feature')
       expect(message.endsWith('#494')).toBe(true)
+    })
+
+    it('cites only skills that resolve, and its install banner checks every local one', async () => {
+      // The body tells the model which skills to read by `skill://<name>`. A local name
+      // with no SKILL.md — or one the partial-install banner never checks — dies mid-ticket
+      // with nothing having said so. Upstream names come from other plugins.
+      const UPSTREAM = ['grilling', 'issue-triage', 'tdd']
+      const skillsDir = resolve(import.meta.dirname, '..', '..', 'skills')
+      await commands.get('feature')?.handler('#494', { cwd: '/repo' })
+      const cited = new Set([...(sent.at(-1) ?? '').matchAll(/skill:\/\/([a-z0-9-]+)/g)].map(([, name]) => name))
+      const local = [...cited].filter((name) => !UPSTREAM.includes(name))
+      expect(local.length).toBeGreaterThan(0)
+      expect(local.filter((name) => !existsSync(join(skillsDir, name, 'SKILL.md')))).toEqual([])
+
+      // With nothing installed, the banner names every skill it checks.
+      const bare = new Map<string, Command>()
+      const messages: string[] = []
+      ompBuildExtension(
+        {
+          on: () => {},
+          registerCommand: (name, options) => {
+            bare.set(name, options as Command)
+          },
+          sendUserMessage: (content) => {
+            messages.push(content)
+          },
+        },
+        { exists: () => false },
+      )
+      await bare.get('feature')?.handler('', { cwd: '/repo' })
+      const banner = (messages.at(-1) ?? '').split('\n')[0] ?? ''
+      expect(local.filter((name) => !banner.includes(`\`${name}\``))).toEqual([])
+    })
+
+    it('hands fix the no-label mode, and fix writes `reviewed` only in label mode', async () => {
+      // `reviewed` is a merge, not a status: auto-merge.yml turns it into
+      // `gh pr merge --auto --merge`. A fix round that labels merges the PR before the
+      // re-review that judges the fix. Commands are matched, never section titles.
+      await commands.get('feature')?.handler('#494', { cwd: '/repo' })
+      const invocations = (sent.at(-1) ?? '')
+        .split('\n')
+        .filter((line) => line.includes('skill://fix') && line.includes('#<pr>'))
+      expect(invocations.length).toBeGreaterThan(0)
+      expect(invocations.filter((line) => !line.includes('--no-label'))).toEqual([])
+
+      const fixBody = readFileSync(resolve(import.meta.dirname, '..', '..', 'skills', 'fix', 'SKILL.md'), 'utf8')
+      const writes = fixBody.split('\n').filter((line) => line.includes('gh api repos/:owner/:repo/issues/<#>/labels'))
+      expect(writes.length).toBeGreaterThan(0)
+      expect(writes.filter((line) => !line.includes('mode = `label`'))).toEqual([])
     })
   })
 })

@@ -46,23 +46,30 @@ function mockGh({
 }
 
 /**
- * The client the loop drives: label read-back, label removal, the round marker.
- * Injected, like every other client here — nothing labels or merges a real PR.
+ * The client the loop drives: label and auto-merge read-back, their removal, the
+ * round marker. Injected, like every other client here — nothing labels or merges a
+ * real PR.
  */
-function mockLoopGh({ labels = [], comments = [] } = {}) {
+function mockLoopGh({ labels = [], comments = [], autoMerge = null } = {}) {
   const calls = []
   const present = new Set(labels)
   const posted = [...comments]
+  const state = { autoMerge }
   const gh = async (_cwd, args) => {
     calls.push(args)
-    if (args[0] === 'pr' && args[1] === 'view' && args.includes('labels')) {
-      return JSON.stringify({ labels: [...present].map((name) => ({ name })) })
+    const fields = args[0] === 'pr' && args[1] === 'view' ? (args.at(-1) ?? '').split(',') : []
+    if (fields.includes('labels')) {
+      return JSON.stringify({ labels: [...present].map((name) => ({ name })), autoMergeRequest: state.autoMerge })
     }
-    if (args[0] === 'pr' && args[1] === 'view' && args.includes('comments')) {
+    if (fields.includes('comments')) {
       return JSON.stringify({ comments: posted.map((body) => ({ body })) })
     }
     if (args[0] === 'pr' && args[1] === 'edit' && args.includes('--remove-label')) {
       present.delete(args[args.indexOf('--remove-label') + 1])
+      return ''
+    }
+    if (args[0] === 'pr' && args[1] === 'merge' && args.includes('--disable-auto')) {
+      state.autoMerge = null
       return ''
     }
     if (args[0] === 'pr' && args[1] === 'comment') {
@@ -71,7 +78,7 @@ function mockLoopGh({ labels = [], comments = [] } = {}) {
     }
     throw new Error(`unexpected gh call: ${args.join(' ')}`)
   }
-  return { gh, calls, labels: present, comments: posted }
+  return { gh, calls, labels: present, comments: posted, state }
 }
 
 const INPUT = { issue: 494, branch: 'feat/494-feature-back-half', base: 'staging', title: 'feat: back half' }
@@ -340,7 +347,7 @@ describe('the bound, measured on the PR rather than on the object', () => {
   }
 
   it('removes a `reviewed` label it finds on a stopped PR, and says it did', async () => {
-    // The label is the whole of what `stop` promises: auto-merge.yml turns it into
+    // The label is half of what `stop` promises: auto-merge.yml turns it into
     // `gh pr merge --auto --merge`. A stop that only *says* "unlabelled" while the
     // label sits on the PR is the merge the bound exists to prevent.
     const { loop } = stopped()
@@ -349,19 +356,35 @@ describe('the bound, measured on the PR rather than on the object', () => {
     expect(outcome.removed).toBe(true)
     expect([...labels]).toEqual(['size:F-full'])
     expect(calls).toEqual([
-      ['pr', 'view', '512', '--json', 'labels'],
+      ['pr', 'view', '512', '--json', 'labels,autoMergeRequest'],
       ['pr', 'edit', '512', '--remove-label', 'reviewed'],
     ])
     expect(outcome.message).toContain('unlabelled and unmerged')
     expect(outcome.message).toContain('removed')
   })
 
-  it('touches nothing when the stopped PR carries no label', async () => {
+  it('disables native auto-merge left on a stopped PR, label first', async () => {
+    // Once enabled, GitHub's auto-merge outlives the label: removing `reviewed` alone
+    // leaves a PR that the next green run merges, under a message saying it will not.
+    const { loop } = stopped()
+    const { gh, calls, labels, state } = mockLoopGh({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
+    const outcome = await loop.enforceStop('/tmp/wt', { gh })
+    expect(outcome).toMatchObject({ removed: true, autoMergeDisabled: true })
+    expect([...labels]).toEqual([])
+    expect(state.autoMerge).toBe(null)
+    expect(calls.slice(1)).toEqual([
+      ['pr', 'edit', '512', '--remove-label', 'reviewed'],
+      ['pr', 'merge', '512', '--disable-auto'],
+    ])
+    expect(outcome.message).toContain('Auto-merge was enabled on PR #512 — disabled.')
+  })
+
+  it('touches nothing when the stopped PR carries neither label nor auto-merge', async () => {
     const { loop, step } = stopped()
     const { gh, calls } = mockLoopGh({ labels: ['size:F-full'] })
     const outcome = await loop.enforceStop('/tmp/wt', { gh })
-    expect(outcome).toMatchObject({ removed: false, labels: ['size:F-full'] })
-    expect(calls).toEqual([['pr', 'view', '512', '--json', 'labels']])
+    expect(outcome).toMatchObject({ removed: false, autoMergeDisabled: false, labels: ['size:F-full'] })
+    expect(calls).toEqual([['pr', 'view', '512', '--json', 'labels,autoMergeRequest']])
     expect(outcome.message).toBe(step.message)
   })
 

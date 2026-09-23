@@ -62,7 +62,7 @@ Plugins are project-agnostic: they read your stack from `.dev/stack.yml` at runt
 | [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. Includes `/R-dev-init` project setup (env-setup → axial → ci-setup → release-setup). Lifecycle skills, agents, safety hooks. Issues-only (no Projects V2 board); issue triage is the companion [issue-triage](plugins/issue-triage/README.md) plugin. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
 | [issue-triage](plugins/issue-triage/README.md) | Triage/create GitHub issues — size/priority/lane/type labels, blocked-by deps, parent/child. Labels + native relations, no Projects V2 |
 | [gitnexus](plugins/gitnexus/README.md) | GitNexus CLI — code knowledge graph (impact, symbol context, query). CLI-only alternative to MCP for minimal token overhead |
-| [omp-build](plugins/omp-build/README.md) | OMP-only feature cycle — frame → GitHub issue → branch proposal + user `/wt` → implement → bounded review/fix → land. Ships in the OMP catalog only: `omp plugin install omp-build@roxabi-marketplace` |
+| [omp-build](plugins/omp-build/README.md) | OMP-only feature cycle — frame → GitHub issue → branch proposal + operator `/wt` → implement → bounded review/fix → land. Issue writes go through the companion [issue-triage](plugins/issue-triage/README.md) plugin. Ships in the OMP catalog only: `omp plugin install omp-build@roxabi-marketplace` |
 
 ### Content & branding
 

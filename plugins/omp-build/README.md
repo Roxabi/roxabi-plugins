@@ -1,6 +1,6 @@
 # omp-build
 
-OMP-only cycle: frame → GitHub issue → branch proposal + human `/wt` → implement → bounded review/fix → land.
+OMP-only cycle: frame → GitHub issue → branch proposal + operator `/wt` → implement → bounded review/fix → land.
 
 Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children.
 
@@ -98,16 +98,17 @@ the prompt listing while `skill://<name>` and `/skill:<name>` still reach it
 (omp 18.2.9). Requires a **restart** (extension module), not `/reload-plugins`.
 
 `/feature` offers the branch handoff immediately after issue creation/selection,
-not after the entire spec or ticket batch. `/wt` is user-only; the skill does not
+not after the entire spec or ticket batch. `/wt` is operator-only; the skill does not
 simulate its invocation through a tool. Existing worktrees are entered by their
 directory (`omp --cwd <path>`), not recreated.
 
 In the matching worktree: implement → `dev-review` → `fix --no-label` → land.
 `openPr` returns the PR number; `resumeReviewLoop` restores rounds from PR comments.
-At most two fix rounds; a third red stops and `enforceStop` removes an unexpected
-`reviewed` label. Every verdict and CI reopening is persisted. Only an approved
-landing calls `landPr`, which waits for green required checks before labelling and
-enabling auto-merge. No duplicate spec files or `validated` gate.
+At most two fix rounds; a third red stops and `enforceStop` removes the `reviewed`
+label and disables native auto-merge. Every verdict and CI reopening is persisted
+(counts only, not the stop). Only an approved landing calls `landPr`, which waits for
+green required checks before labelling and enabling auto-merge, and disarms both if a
+required check then fails or is skipped. No duplicate spec files or `validated` gate.
 
 ## Guards
 
