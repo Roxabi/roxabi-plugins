@@ -43,6 +43,16 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    written. `oracle_ok` attests **the working tree as it stands at run time**,
    never the PR's HEAD.
 
+   The snapshot also carries a **linked dependency surface** (#541): installed
+   dependencies are gitignored, so the overlay alone never holds them and a
+   `{commands.test}` such as `bun run test` would exit 127. Each entry of a
+   `node_modules` next to a carried `package.json` (and of a root `.venv`) is
+   symlinked into a real directory of the snapshot, so what a run creates stays
+   in the snapshot while the dependencies themselves are shared, read-mostly,
+   with the real tree. Every other ignored path (`.env`, caches) stays out. The
+   snapshot is also not a git repository: a test that shells out to git inside
+   it cannot be a falsify row.
+
    2b. **Named residual — the gate-time call inherits that, and the record
    cannot fix it.** `/R-pr` refuse and `/R-dev-review` tester-skip read
    `oracle_ok` from a `--verify` re-exec on the same snapshot path, so against a
@@ -57,25 +67,41 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    gate-time `oracle_ok` is only as strong as the cleanliness of the tree it ran
    in.
 
-   2c. **The gate no longer trusts the artifact's commands (#541) — it still
-   runs the PR's tests.** `verify()` rebuilds its map from the committed
+   2c. **The gate no longer takes its command from the artifact (#541) — the
+   PR still decides what a green row proves, and its tests still run.**
+   `verify()` rebuilds its map from the committed
    `artifacts/reviews/{N}-falsify.json`, and until #541 it executed each row's
    `test_cmd` through `bash -lc`, so a PR author chose what ran on a reviewer's
-   machine. A row now only *names test paths*: its `test_cmd` must be exactly
-   `.dev/stack.yml` `commands.test` followed by plain relative paths, and the
-   runner executes that argv with no shell. A non-conforming row — or a source
-   path that is absolute or escapes the repo — is refused before **any** row
-   runs (`oracle_reason=refused-test-cmd:row<i>`, the row named on stderr); a
-   contract with no plain `commands.test` refuses everything
-   (`missing-test-command` / `unsupported-test-command`). The artifact records
-   what ran; it no longer decides it.
+   machine. Now a row only names test files: its `test_cmd` must be exactly
+   `.dev/stack.yml` `commands.test` followed by plain relative paths, each a file
+   the snapshot carries, and the runner executes that argv — with no shell
+   anywhere in the runner. `commands.test` is read the way YAML reads it (a
+   direct child of the one top-level `commands:`, unquoted, a duplicate refused)
+   and must be plain words with no `VAR=` prefix. A non-conforming row — or a
+   source that is absolute or has a `..` segment — is refused before **any** row
+   runs, with `oracle_reason=refused-test-cmd:row<i>` naming the first refused
+   row; a direct run (`/R-dev-implement` Step 6b, `--map`) names every refused
+   row and its `sc_id` on stderr, which `/R-pr` gather-state discards. A
+   contract that is unusable refuses everything (`missing-test-command` /
+   `unsupported-test-command`), and `/R-pr` routes those to `.dev/stack.yml`,
+   not to Step 6b. A source that still resolves outside the snapshot (a committed
+   symlink) fails its row as `source-escape` instead of being deleted.
 
-   **Named residual.** The re-derived command is still PR content: the contract is
-   read from the checked-out tree, `commands.test` is typically indirect
-   (`bun run test` → `package.json`), and the test files are PR code. `--verify`
-   on an untrusted checkout is therefore exactly as dangerous as running
-   `{commands.test}` on it — no more, and no less. Gating the re-exec on the PR
-   author's trust is tracked as #569.
+   What the artifact still decides: `sources` and the test files. A row is
+   proven when the test fails with its sources absent and passes with them
+   present, and nothing checks what the test asserts or which files it names as
+   sources — a row whose source is its own test file, the runner script, or a
+   file the test merely loads verifies green. Those checks belong to the trust
+   gate, not to the row shape.
+
+   **Named residual.** Everything the re-exec runs is still PR content: the
+   contract is read from the checked-out tree, `commands.test` is typically
+   indirect (`bun run test` → `package.json`), and the test files are PR code
+   that runs as the reviewer — including writing to the stdout the gates read
+   `oracle_ok` from. `--verify` on an untrusted checkout is therefore as
+   dangerous as running `{commands.test}` on the PR's own test files, and its
+   `oracle_ok` is advisory. Gating the re-exec on the PR author's trust — and
+   pricing what a green row proves — is tracked as #569.
 
 3. **Proven record** — `artifacts/reviews/{N}-falsify.json` (`schema_version: "1"`)
    holds `head`, `runner_id`, `rows[]`, `oracle_ok`. Markdown `*-falsify.md` is an

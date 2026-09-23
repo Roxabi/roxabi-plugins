@@ -52,35 +52,72 @@ def sha_file(p: Path) -> str:
 # a shell: the artifact is committed by the PR author, who is the untrusted party at
 # review time (#541). ADR-019 §2c prices what this does not close.
 PLAIN_PATH = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./@+-]*")
-SHELL_CHARS = set(";&|<>$`()\\\n")
+PLAIN_TOKEN = re.compile(r"[A-Za-z0-9_./@%+=:,-]+")
 
 def plain_path(p) -> bool:
     return isinstance(p, str) and PLAIN_PATH.fullmatch(p) is not None and ".." not in p.split("/")
 
+def in_tree(root: Path, rel: str) -> bool:
+    p = root / rel
+    return p.resolve().is_relative_to(root.resolve()) and p.is_file()
+
 def contract_test_argv() -> tuple[list[str] | None, str]:
+    # The value YAML gives `commands.test`, or a refusal: only a direct child of the one
+    # top-level `commands:` counts (a nested `e2e: {test: …}` is not commands.test), and
+    # a duplicate key is refused rather than resolved first-wins or last-wins.
     try:
         lines = Path(".dev/stack.yml").read_text(encoding="utf-8").splitlines()
     except OSError:
         return None, "missing-test-command"
-    in_commands = False
-    for line in lines:
-        if not line.strip() or line.lstrip().startswith("#"):
+    heads = [i for i, line in enumerate(lines) if re.fullmatch(r"commands:\s*(#.*)?", line)]
+    if not heads:
+        return None, "missing-test-command"
+    if len(heads) > 1:
+        return None, "unsupported-test-command"
+    child, values = None, []
+    for line in lines[heads[0] + 1:]:
+        if line.startswith("\t"):
+            return None, "unsupported-test-command"
+        body = line.lstrip(" ")
+        if not body or body.startswith("#"):
             continue
-        if not line[0].isspace():
-            in_commands = line.split("#", 1)[0].rstrip() == "commands:"
-            continue
-        m = re.match(r"\s+test:(?:\s+(.*))?$", line) if in_commands else None
+        indent = len(line) - len(body)
+        if indent == 0:
+            break
+        child = indent if child is None else child
+        if indent < child:
+            return None, "unsupported-test-command"
+        m = re.fullmatch(r"test:(?:[ \t]+(.*))?", body) if indent == child else None
         if m:
-            try:
-                argv = shlex.split(m.group(1) or "", comments=True)
-            except ValueError:
-                return None, "unsupported-test-command"
-            if not argv:
-                return None, "missing-test-command"
-            if any(SHELL_CHARS & set(t) for t in argv):
-                return None, "unsupported-test-command"
-            return argv, ""
-    return None, "missing-test-command"
+            values.append((m.group(1) or "").strip())
+    if not values:
+        return None, "missing-test-command"
+    if len(values) > 1:
+        return None, "unsupported-test-command"
+    return scalar_argv(values[0])
+
+def scalar_argv(raw: str) -> tuple[list[str] | None, str]:
+    # One YAML scalar → argv. Every token must be a plain word, and argv[0] must not be a
+    # `VAR=value` prefix: the command runs without a shell, so anything whose meaning
+    # needs one (operators, globs, `~`, env prefixes, escapes) is refused, never guessed.
+    if not raw or raw.startswith("#"):
+        return None, "missing-test-command"
+    if raw[0] in ("'", '"'):
+        end = raw.find(raw[0], 1)
+        rest = raw[end + 1:].strip() if end != -1 else ""
+        if end == -1 or (rest and not rest.startswith("#")) or (raw[0] == '"' and "\\" in raw[1:end]):
+            return None, "unsupported-test-command"
+        value = raw[1:end]
+    elif raw[0] in "|>{[&*!%@`":
+        return None, "unsupported-test-command"
+    else:
+        value = re.split(r"[ \t]#", raw, maxsplit=1)[0]
+    argv = value.split()
+    if not argv:
+        return None, "missing-test-command"
+    if "=" in argv[0] or not all(PLAIN_TOKEN.fullmatch(t) for t in argv):
+        return None, "unsupported-test-command"
+    return argv, ""
 
 def derive_argv(test_cmd, base: list[str]) -> tuple[list[str] | None, str]:
     if not isinstance(test_cmd, str):
@@ -137,8 +174,12 @@ def write_artifacts(out: Path, issue, head: str, ok: bool, reason: str, rows: li
 
 def snapshot_repo(dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
-    # HEAD tree
-    subprocess.run(["bash", "-lc", f"git archive HEAD | tar -x -C {dest}"], check=True)
+    # HEAD tree — argv pipe, no shell anywhere in the runner
+    archive = subprocess.Popen(["git", "archive", "HEAD"], stdout=subprocess.PIPE)
+    subprocess.run(["tar", "-x", "-C", str(dest)], stdin=archive.stdout, check=True)
+    archive.stdout.close()
+    if archive.wait() != 0:
+        raise subprocess.CalledProcessError(archive.returncode, ["git", "archive", "HEAD"])
     # Overlay dirty + untracked (best-effort)
     r = subprocess.run(
         ["git", "ls-files", "-co", "--exclude-standard", "-z"],
@@ -154,6 +195,42 @@ def snapshot_repo(dest: Path) -> None:
         target = dest / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, target)
+    link_dependencies(dest)
+
+def link_dependencies(dest: Path) -> None:
+    # Installed dependencies are gitignored, so the overlay above never carries them,
+    # and a re-derived `{commands.test}` (`bun run test` → vitest) would exit 127 in the
+    # snapshot. Link each *entry* of a package's node_modules (and a root .venv) into a
+    # real dir of the snapshot: tests resolve their deps, while the dirs a run creates
+    # (caches, results) stay inside the snapshot. Only dirs next to a package.json the
+    # overlay carries — never a blanket "every ignored path" (`.env` stays out).
+    r = subprocess.run(
+        ["git", "ls-files", "-co", "--exclude-standard", "-z", "--", "package.json", "*/package.json"],
+        capture_output=True,
+    )
+    pkg_dirs = {Path(raw.decode("utf-8", "surrogateescape")).parent for raw in r.stdout.split(b"\0") if raw}
+    for dep in [d / "node_modules" for d in sorted(pkg_dirs)] + [Path(".venv")]:
+        if dep.is_symlink() or not dep.is_dir():
+            continue
+        target = dest / dep
+        target.mkdir(parents=True, exist_ok=True)
+        for entry in dep.iterdir():
+            link = target / entry.name
+            if not link.exists() and not link.is_symlink():
+                os.symlink(entry.absolute(), link)
+
+def remove_sources(root: Path, sources: list[str]) -> str:
+    # The snapshot keeps symlinks (committed ones, and the dependency links above), so a
+    # lexically plain source can still resolve outside it: refuse instead of deleting.
+    for s in sources:
+        p = root / s
+        if not p.resolve().is_relative_to(root.resolve()):
+            return f"source {s!r} resolves outside the snapshot"
+        if p.is_dir():
+            shutil.rmtree(p)
+        elif p.exists():
+            p.unlink()
+    return ""
 
 def execute_map(map_path: Path, out_path: Path | None, issue_override) -> tuple[bool, str]:
     data = json.loads(map_path.read_text(encoding="utf-8"))
@@ -161,42 +238,60 @@ def execute_map(map_path: Path, out_path: Path | None, issue_override) -> tuple[
     rows_in = data.get("rows") or []
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 
-    if not rows_in:
-        if out_path:
-            write_artifacts(out_path, issue, head, False, "empty-map", [])
-        return False, "empty-map"
-
-    base, base_reason = contract_test_argv()
-    if base is None:
-        print(f"run-falsify: {base_reason}: .dev/stack.yml commands.test must be a plain command (no shell syntax)", file=sys.stderr)
-        if out_path:
-            write_artifacts(out_path, issue, head, False, base_reason, [])
-        return False, base_reason
-
-    # Validate every row before anything runs: one refused row executes nothing.
-    refused = []
-    argvs = []
-    for i, row in enumerate(rows_in):
-        argv, why = derive_argv(row.get("test_cmd"), base)
-        if argv is not None and not all(plain_path(s) for s in row.get("sources") or []):
-            argv, why = None, "sources must be plain relative paths"
-        if argv is None:
-            refused.append(i)
-            print(
-                f"run-falsify: refused row {i} (sc_id={row.get('sc_id')!r}): {why}; "
-                f"test_cmd must be {shlex.join(base)!r} followed by test paths",
-                file=sys.stderr,
-            )
-        argvs.append(argv)
-    if refused:
-        reason = f"refused-test-cmd:row{refused[0]}"
+    def fail(reason: str) -> tuple[bool, str]:
         if out_path:
             write_artifacts(out_path, issue, head, False, reason, [])
         return False, reason
 
+    refused = []
+
+    def refuse(i: int, row, why: str) -> None:
+        refused.append(i)
+        sc_id = row.get("sc_id") if isinstance(row, dict) else None
+        print(
+            f"run-falsify: refused row {i} (sc_id={sc_id!r}): {why}; "
+            f"test_cmd must be {shlex.join(base)!r} followed by test file paths",
+            file=sys.stderr,
+        )
+
+    if not rows_in:
+        return fail("empty-map")
+
+    base, base_reason = contract_test_argv()
+    if base is None:
+        print(
+            f"run-falsify: {base_reason}: .dev/stack.yml commands.test must be one plain command "
+            "(plain words, no shell syntax, no VAR= prefix)",
+            file=sys.stderr,
+        )
+        return fail(base_reason)
+
+    # Validate every row before anything runs: one refused row executes nothing.
+    argvs = []
+    for i, row in enumerate(rows_in):
+        if not isinstance(row, dict) or not isinstance(row.get("sources") or [], list):
+            argv, why = None, "row must be an object with a sources list"
+        else:
+            argv, why = derive_argv(row.get("test_cmd"), base)
+        if argv is not None and not all(plain_path(s) for s in row.get("sources") or []):
+            argv, why = None, "sources must be plain relative paths"
+        if argv is None:
+            refuse(i, row, why)
+        argvs.append(argv)
+    if refused:
+        return fail(f"refused-test-cmd:row{refused[0]}")
+
     wt = Path(tempfile.mkdtemp(prefix="rf-wt."))
     try:
         snapshot_repo(wt)
+        # A test path must be a file the snapshot carries: a runner may read a trailing
+        # token as anything (`make test publish` selects a second target).
+        for i, (row, argv) in enumerate(zip(rows_in, argvs)):
+            stray = next((p for p in argv[len(base):] if not in_tree(wt, p)), None)
+            if stray is not None:
+                refuse(i, row, f"{stray!r} is not a file in the snapshot")
+        if refused:
+            return fail(f"refused-test-cmd:row{refused[0]}")
         rows_out = []
         any_proven = False
         reason = "ok"
@@ -209,12 +304,17 @@ def execute_map(map_path: Path, out_path: Path | None, issue_override) -> tuple[
 
             fail_dir = Path(tempfile.mkdtemp(prefix="rf-fail."))
             try:
-                # copy wt → fail_dir then delete sources
-                shutil.copytree(wt, fail_dir, dirs_exist_ok=True)
-                for s in sources:
-                    p = fail_dir / s
-                    if p.exists():
-                        p.unlink()
+                # copy wt → fail_dir (links stay links) then delete sources
+                shutil.copytree(wt, fail_dir, symlinks=True, dirs_exist_ok=True)
+                escape = remove_sources(fail_dir, sources)
+                if escape:
+                    rows_out.append({
+                        "sc_id": sc, "sources": sources, "source_hashes": hashes,
+                        "test_cmd": test_cmd, "fail_exit": None, "pass_exit": None,
+                        "error": escape, "status": "failed",
+                    })
+                    reason = "source-escape"
+                    continue
 
                 fail_ec, fail_out = run_cmd(fail_dir, argv)
                 if fail_ec == 0:

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,6 +8,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 const RUN = fileURLToPath(new URL('../run-falsify.sh', import.meta.url))
 const ROOT = join(RUN, '..', '..', '..', '..', '..')
 
+// A git hook (lefthook pre-push runs this suite) exports GIT_DIR/GIT_INDEX_FILE, which
+// beat `cwd`: without this, fixture commits land on the invoking branch (#541 review).
+const CLEAN_ENV: NodeJS.ProcessEnv = {
+  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))),
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_SYSTEM: '/dev/null',
+}
 let dir: string
 
 beforeEach(() => {
@@ -18,7 +25,7 @@ afterEach(() => {
 })
 
 function run(args: string[], cwd = ROOT): { ok: string; reason: string; stdout: string; stderr: string } {
-  const r = spawnSync('bash', [RUN, ...args], { encoding: 'utf-8', cwd })
+  const r = spawnSync('bash', [RUN, ...args], { encoding: 'utf-8', cwd, env: { ...CLEAN_ENV, RF_LOG: ranLog() } })
   const stdout = r.stdout ?? ''
   return {
     ok: stdout.match(/^oracle_ok=(.*)$/m)?.[1] ?? '',
@@ -29,26 +36,42 @@ function run(args: string[], cwd = ROOT): { ok: string; reason: string; stdout: 
 }
 
 // A throwaway repo that owns its own `.dev/stack.yml` contract: `commands.test` is a
-// tiny checker that passes iff every named file contains MARK. The runner must derive
-// what it runs from that contract, never from a row's free text (#541).
-function fixtureRepo(stackYml: string | null = 'commands:\n  test: sh check.sh\n'): string {
+// tiny checker that passes iff every named file contains MARK, and logs every run to
+// RF_LOG (outside the repo) so a refusal can prove that nothing executed. The runner
+// must derive what it runs from that contract, never from a row's free text (#541).
+function ranLog(): string {
+  return join(dir, 'ran.log')
+}
+
+function fixtureRepo(
+  stackYml: string | null = 'commands:\n  test: sh check.sh\n',
+  setup?: (repo: string) => void,
+): string {
   const repo = join(dir, 'repo')
   mkdirSync(join(repo, '.dev'), { recursive: true })
   mkdirSync(join(repo, 'src'), { recursive: true })
-  writeFileSync(join(repo, 'check.sh'), 'for f in "$@"; do grep -q MARK "$f" || exit 1; done\n')
+  writeFileSync(join(repo, 'check.sh'), 'echo ran >> "$RF_LOG"\nfor f in "$@"; do grep -q MARK "$f" || exit 1; done\n')
   writeFileSync(join(repo, 'src', 'lib.txt'), 'MARK\n')
   writeFileSync(join(repo, 'src', 'other.txt'), 'MARK\n')
   if (stackYml !== null) writeFileSync(join(repo, '.dev', 'stack.yml'), stackYml)
-  const git = (...a: string[]) =>
-    spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: repo, encoding: 'utf-8' })
-  git('init', '-q')
-  git('add', '-A')
-  git('commit', '-q', '-m', 'fixture')
+  setup?.(repo)
+  for (const args of [
+    ['init', '-q'],
+    ['add', '-A'],
+    ['commit', '-q', '-m', 'fixture'],
+  ]) {
+    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      cwd: repo,
+      encoding: 'utf-8',
+      env: CLEAN_ENV,
+    })
+    if (r.status !== 0) throw new Error(`fixture git ${args[0]} failed: ${r.stderr}`)
+  }
   return repo
 }
 
 function forgedArtifact(repo: string, rows: object[]): string {
-  const head = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf-8', cwd: repo }).stdout.trim()
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf-8', cwd: repo, env: CLEAN_ENV }).stdout.trim()
   const path = join(dir, 'forged-artifact.json')
   writeFileSync(
     path,
@@ -58,36 +81,70 @@ function forgedArtifact(repo: string, rows: object[]): string {
 }
 
 describe('run-falsify.sh — test_cmd is re-derived from the contract, never executed as text (#541)', () => {
-  // Each shape reaches a different refusal branch; the side effect proves nothing ran.
+  // One row per refusal branch, behind a valid SC0. A refusal must stop SC0 too, so an
+  // absent run log proves nothing executed; `why` pins which branch refused the row.
   it.each([
+    ['shell sequencing', 'is not a plain relative path', { test_cmd: 'sh check.sh src/lib.txt; touch PWNED' }],
+    ['a runner other than commands.test', 'does not start with commands.test', { test_cmd: 'sh other.sh src/lib.txt' }],
+    ['a row naming no test path', 'names no test path', { test_cmd: 'sh check.sh' }],
+    ['a `..` segment after a plain one', 'is not a plain relative path', { test_cmd: 'sh check.sh src/../../x' }],
+    ['an unbalanced quote', 'unparseable', { test_cmd: 'sh check.sh "src/lib.txt' }],
+    ['a non-string test_cmd', 'test_cmd is not a string', { test_cmd: ['sh', 'check.sh', 'src/lib.txt'] }],
+    // Deliberate: `bun run` / `npm run` re-shell their trailing args, so the allowlist stays narrow.
+    ['a route-group path', 'is not a plain relative path', { test_cmd: 'sh check.sh app/(g)/x.test.ts' }],
+    ['a test path the snapshot does not carry', 'is not a file in the snapshot', { test_cmd: 'sh check.sh src/nope' }],
     [
-      'shell sequencing',
-      (pwned: string) => ({ sources: ['src/lib.txt'], test_cmd: `sh check.sh src/lib.txt; touch ${pwned}` }),
+      'a source with a `..` segment',
+      'sources must be plain relative paths',
+      { test_cmd: 'sh check.sh src/lib.txt', sources: ['src/../../victim.txt'] },
     ],
-    [
-      'command substitution',
-      (pwned: string) => ({ sources: ['src/lib.txt'], test_cmd: `sh check.sh "$(touch ${pwned})"` }),
-    ],
-    [
-      'a runner other than commands.test',
-      (pwned: string) => ({ sources: ['src/lib.txt'], test_cmd: `sh -c 'touch ${pwned}' src/lib.txt` }),
-    ],
-    [
-      'a test path escaping the repo',
-      (pwned: string) => ({ sources: ['src/lib.txt'], test_cmd: `sh check.sh ../${pwned}` }),
-    ],
-  ])('--verify refuses %s and executes nothing', (_, shape) => {
+  ])('--verify refuses %s and executes nothing', (_, why, shape) => {
     const repo = fixtureRepo()
-    const pwned = join(dir, 'PWNED')
     const artifact = forgedArtifact(repo, [
       { sc_id: 'SC0', sources: ['src/lib.txt'], test_cmd: 'sh check.sh src/lib.txt', status: 'proven' },
-      { sc_id: 'SC1', status: 'proven', ...shape(pwned) },
+      { sc_id: 'SC1', sources: ['src/lib.txt'], status: 'proven', ...shape },
     ])
     const out = run(['--verify', artifact], repo)
     expect(out.ok).toBe('false')
     expect(out.reason).toBe('refused-test-cmd:row1')
-    expect(out.stderr).toContain("sc_id='SC1'")
-    expect(existsSync(pwned)).toBe(false)
+    expect(out.stderr).toContain("refused row 1 (sc_id='SC1')")
+    expect(out.stderr).toContain(why)
+    expect(existsSync(ranLog())).toBe(false)
+  })
+
+  it.each([
+    ['no .dev/stack.yml', null, 'missing-test-command'],
+    ['only a nested test key', 'commands:\n  e2e:\n    test: sh check.sh\n', 'missing-test-command'],
+    ['test under another top-level key', 'ci:\n  test: sh check.sh\ncommands:\n  lint: x\n', 'missing-test-command'],
+    ['an empty scalar', 'commands:\n  test: ""\n', 'missing-test-command'],
+    ['a duplicate test key', 'commands:\n  test: sh check.sh\n  test: sh check.sh\n', 'unsupported-test-command'],
+    ['two commands blocks', 'commands:\n  test: sh check.sh\ncommands:\n  lint: x\n', 'unsupported-test-command'],
+    ['shell syntax', 'commands:\n  test: sh check.sh && true\n', 'unsupported-test-command'],
+    ['a VAR= prefix', 'commands:\n  test: CI=1 sh check.sh\n', 'unsupported-test-command'],
+    ['an unbalanced quote', 'commands:\n  test: "sh check.sh\n', 'unsupported-test-command'],
+  ])('a contract with %s refuses every row and executes nothing', (_, stackYml, reason) => {
+    const repo = fixtureRepo(stackYml)
+    const artifact = forgedArtifact(repo, [
+      { sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh check.sh src/lib.txt' },
+    ])
+    const out = run(['--verify', artifact], repo)
+    expect(out.ok).toBe('false')
+    expect(out.reason).toBe(reason)
+    expect(existsSync(ranLog())).toBe(false)
+  })
+
+  it.each([
+    ['a quoted scalar', 'commands:\n  test: "sh check.sh"\n'],
+    [
+      'a trailing comment beside a nested test key',
+      'commands:\n  e2e:\n    test: sh evil.sh\n  test: sh check.sh  # checker\n',
+    ],
+  ])('reads commands.test from %s the way YAML does', (_, stackYml) => {
+    const repo = fixtureRepo(stackYml)
+    const artifact = forgedArtifact(repo, [
+      { sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh check.sh src/lib.txt' },
+    ])
+    expect(run(['--verify', artifact], repo).ok).toBe('true')
   })
 
   it('--verify refuses an absolute source path instead of deleting it', () => {
@@ -98,25 +155,77 @@ describe('run-falsify.sh — test_cmd is re-derived from the contract, never exe
       { sc_id: 'SC1', sources: [victim], test_cmd: 'sh check.sh src/lib.txt', status: 'proven' },
     ])
     const out = run(['--verify', artifact], repo)
+    expect(out.ok).toBe('false')
     expect(out.reason).toBe('refused-test-cmd:row0')
+    expect(out.stderr).toContain("sc_id='SC1'")
     expect(existsSync(victim)).toBe(true)
   })
 
-  it('--verify with no commands.test in the contract executes nothing', () => {
-    const repo = fixtureRepo(null)
-    const pwned = join(dir, 'PWNED')
-    const artifact = forgedArtifact(repo, [{ sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: `touch ${pwned}` }])
+  it('--verify fails a source that escapes through a committed symlink, deleting nothing', () => {
+    const outside = join(dir, 'outside')
+    mkdirSync(outside)
+    const victim = join(outside, 'victim.txt')
+    writeFileSync(victim, 'MARK\n')
+    const repo = fixtureRepo(undefined, (r) => symlinkSync(outside, join(r, 'lnk')))
+    const artifact = forgedArtifact(repo, [
+      { sc_id: 'SC1', sources: ['lnk/victim.txt'], test_cmd: 'sh check.sh src/lib.txt' },
+    ])
     const out = run(['--verify', artifact], repo)
     expect(out.ok).toBe('false')
-    expect(out.reason).toBe('missing-test-command')
-    expect(existsSync(pwned)).toBe(false)
+    expect(out.reason).toBe('source-escape')
+    expect(existsSync(victim)).toBe(true)
+  })
+
+  it('--map refuses a bad row and records the refusal in the artifact it writes', () => {
+    const repo = fixtureRepo()
+    const map = join(dir, 'map.json')
+    const outPath = join(dir, 'refused.json')
+    writeFileSync(
+      map,
+      JSON.stringify({
+        issue: 541,
+        rows: [{ sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh other.sh src/lib.txt' }],
+      }),
+    )
+    const out = run(['--map', map, '--out', outPath, '--issue', '541'], repo)
+    expect(out.reason).toBe('refused-test-cmd:row0')
+    expect(JSON.parse(readFileSync(outPath, 'utf-8'))).toMatchObject({
+      oracle_ok: false,
+      oracle_reason: 'refused-test-cmd:row0',
+      rows: [],
+    })
+    expect(existsSync(ranLog())).toBe(false)
+  })
+
+  it('a commands.test installed under gitignored node_modules still runs in the snapshot', () => {
+    const repo = fixtureRepo('commands:\n  test: sh node_modules/checker/check.sh\n', (r) => {
+      writeFileSync(join(r, 'package.json'), '{}\n')
+      writeFileSync(join(r, '.gitignore'), 'node_modules/\n')
+      mkdirSync(join(r, 'node_modules', 'checker'), { recursive: true })
+      writeFileSync(
+        join(r, 'node_modules', 'checker', 'check.sh'),
+        'for f in "$@"; do grep -q MARK "$f" || exit 1; done\n',
+      )
+    })
+    const map = join(dir, 'map.json')
+    const outPath = join(dir, 'deps.json')
+    writeFileSync(
+      map,
+      JSON.stringify({
+        issue: 541,
+        rows: [{ sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh node_modules/checker/check.sh src/lib.txt' }],
+      }),
+    )
+    const out = run(['--map', map, '--out', outPath, '--issue', '541'], repo)
+    expect(out.reason).toBe('ok')
+    expect(JSON.parse(readFileSync(outPath, 'utf-8')).rows[0].status).toBe('proven')
   })
 })
 
 describe('run-falsify.sh — forged / empty fail-closed', () => {
   it('forged green json fails verify (empty rows sold as ok)', () => {
     const forged = join(dir, 'forged.json')
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf-8', cwd: ROOT }).stdout.trim()
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf-8', cwd: ROOT, env: CLEAN_ENV }).stdout.trim()
     writeFileSync(
       forged,
       JSON.stringify({
