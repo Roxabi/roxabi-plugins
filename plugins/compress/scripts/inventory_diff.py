@@ -183,7 +183,10 @@ def append_log(payload: dict, target: str, source_ref: str, correlation: str) ->
     """Append one Observation-enveloped verify row to verify-log.jsonl.
 
     Same envelope as the train-A ledger (category 'verify', verify-specific
-    payload). Returns the written row.
+    payload). O_APPEND atomicity is per-syscall, not per-open: the row is
+    written in exactly ONE os.write() and a short write is a hard error, never
+    a resumed loop (a second syscall could land after another writer's row and
+    splice the two). Returns the written row.
     """
     row = {
         'id': new_ulid(),
@@ -197,12 +200,19 @@ def append_log(payload: dict, target: str, source_ref: str, correlation: str) ->
     log = ensure_dir(get_plugin_data(PLUGIN_NAME)) / 'verify-log.jsonl'
     # lockstep: keep identical to scripts/count_tokens.py::append_row — see #311
     line = json.dumps(row, ensure_ascii=False) + '\n'
-    data = memoryview(line.encode('utf-8'))
+    data = line.encode('utf-8')
     fd = os.open(log, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
     try:
-        while data:
-            written = os.write(fd, data)
-            data = data[written:]
+        written = os.write(fd, data)
+        if written != len(data):
+            if written:
+                # Seal the fragment on its own line so it can only ever fail to
+                # parse, instead of merging with the next writer's valid row.
+                os.write(fd, b'\n')
+            raise OSError(
+                f'verify-log row truncated: wrote {written}/{len(data)} bytes to {log} '
+                '— the last line is a fragment, discard it before trusting the log'
+            )
     finally:
         os.close(fd)
     return row

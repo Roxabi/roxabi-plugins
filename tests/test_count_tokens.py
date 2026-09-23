@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import os
 import re
 import sys
 from datetime import datetime, timedelta
@@ -11,6 +12,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / 'plugins' / 'compress' / 'scripts' / 'count_tokens.py'
+SKILL_MD = REPO_ROOT / 'plugins' / 'compress' / 'skills' / 'compress' / 'SKILL.md'
 
 # Crockford base32 alphabet — no I, L, O, U
 ULID_RE = re.compile(r'^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{26}$')
@@ -115,6 +117,49 @@ def test_fenced_hash_does_not_split_section(ct):
     assert [s['name'] for s in sections] == ['Alpha']
 
 
+def test_list_indented_fence_masks_headings(ct):
+    """A fence nested in a list item (2-space indent) still suspends heading detection."""
+    text = (
+        '# Alpha\n'
+        '\n'
+        '- step one:\n'
+        '\n'
+        '  ```bash\n'
+        '# not a heading — it is shell\n'
+        '  echo hi\n'
+        '  ```\n'
+        '\n'
+        'More text.\n'
+    )
+    sections = ct.split_sections(text)
+    assert [s['name'] for s in sections] == ['Alpha']
+
+
+def test_three_space_fence_still_closes_a_column_zero_fence(ct):
+    """Fence parity holds across a column-0 opener and a 3-space closer (CommonMark max)."""
+    text = (
+        '# Alpha\n'
+        '\n'
+        '```bash\n'
+        '# inside\n'
+        '   ```\n'
+        '\n'
+        '# Beta\n'
+        '\n'
+        'Body.\n'
+    )
+    sections = ct.split_sections(text)
+    assert [s['name'] for s in sections] == ['Alpha', 'Beta']
+
+
+def test_four_space_and_tab_runs_are_not_fences(ct):
+    """4-space / tab-indented backticks are indented code, not fences — headings still split."""
+    four = '# Alpha\n\n    ```\n\n# Beta\n\nBody.\n'
+    assert [s['name'] for s in ct.split_sections(four)] == ['Alpha', 'Beta']
+    tab = '# Alpha\n\n\t```\n\n# Beta\n\nBody.\n'
+    assert [s['name'] for s in ct.split_sections(tab)] == ['Alpha', 'Beta']
+
+
 def test_preamble_before_first_heading(ct):
     """Text before the first heading lands in a '(preamble)' section."""
     text = 'Some intro text.\n\n# Alpha\n\nBody.\n'
@@ -209,6 +254,52 @@ def test_anthropic_api_failure_degrades_to_estimate_when_no_proxy(ct, sample_md,
     assert 'warning' in report
 
 
+def test_calibration_failure_keeps_api_counts_and_tier(ct, sample_md, monkeypatch):
+    """A calibration-only failure never discards correct API counts nor degrades the tier."""
+    def exploding_encoder(text):
+        raise RuntimeError('bpe data unavailable')
+
+    monkeypatch.setattr(ct, '_api_count', lambda text: len(text.split()))
+    monkeypatch.setattr(
+        ct, '_load_proxy_encoders', lambda: (exploding_encoder, exploding_encoder)
+    )
+    report = ct.count_target(sample_md, method='anthropic-api')
+    assert report['method'] == 'anthropic-api'
+    assert 'degraded_from' not in report
+    assert report['tokens'] == sum(
+        len(s['text'].split()) for s in ct.split_sections(SAMPLE_MD)
+    )
+    assert [s['name'] for s in report['sections']] == ['Alpha', 'Beta']
+    assert 'calibration' not in report
+    assert 'bpe data unavailable' in report['calibration_error']
+
+
+def test_calibration_loader_failure_keeps_api_counts(ct, sample_md, monkeypatch):
+    """Even a raising encoder LOADER leaves the API counts and the tier intact."""
+    def boom():
+        raise RuntimeError('tiktoken import exploded')
+
+    monkeypatch.setattr(ct, '_api_count', lambda text: 7)
+    monkeypatch.setattr(ct, '_load_proxy_encoders', boom)
+    report = ct.count_target(sample_md, method='anthropic-api')
+    assert report['method'] == 'anthropic-api'
+    assert 'degraded_from' not in report
+    assert report['tokens'] == 14
+    assert 'tiktoken import exploded' in report['calibration_error']
+
+
+def test_calibration_success_annotates_without_degrading(ct, sample_md, monkeypatch):
+    """When both tiers work the report carries a calibration line and no error."""
+    fake = lambda text: text.split()  # noqa: E731
+    monkeypatch.setattr(ct, '_api_count', lambda text: len(text.split()))
+    monkeypatch.setattr(ct, '_load_proxy_encoders', lambda: (fake, fake))
+    report = ct.count_target(sample_md, method='anthropic-api')
+    assert report['method'] == 'anthropic-api'
+    assert 'degraded_from' not in report
+    assert 'calibration: o200k=' in report['calibration']
+    assert 'calibration_error' not in report
+
+
 # ---------------------------------------------------------------------------
 # append — Observation-shaped ledger row
 # ---------------------------------------------------------------------------
@@ -269,6 +360,40 @@ def test_append_row_is_append_only(ct, isolated_vault):
     assert len(lines) == 2
     assert json.loads(lines[0])['id'] == first['id']
     assert json.loads(lines[0])['id'] != json.loads(lines[1])['id']
+
+
+def test_short_ledger_write_fails_loudly(ct, isolated_vault, monkeypatch):
+    """A short write raises instead of resuming — a second O_APPEND syscall can splice rows."""
+    real_write = os.write
+    marker = b'"source": "compress-skill"'
+    shortened = []
+
+    def short_write(fd, data):
+        payload = bytes(data)
+        # One-shot, and only for the ledger row: other fds (and the recovery
+        # append below) must keep the real syscall. Never monkeypatch.undo()
+        # here — the vault-isolation fixture shares this monkeypatch instance.
+        if marker in payload and not shortened:
+            shortened.append(True)
+            return real_write(fd, payload[:len(payload) // 2])
+        return real_write(fd, payload)
+
+    monkeypatch.setattr(ct.os, 'write', short_write)
+    with pytest.raises(OSError, match='truncated'):
+        _append_sample_row(ct, ct.new_ulid())
+
+    ledger = isolated_vault / 'compress' / 'ledger.jsonl'
+    lines = ledger.read_text(encoding='utf-8').splitlines()
+    # The fragment is sealed on its own line: it can only fail to parse, never
+    # merge with the next writer's row.
+    assert len(lines) == 1
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(lines[0])
+
+    good = _append_sample_row(ct, ct.new_ulid())
+    lines = ledger.read_text(encoding='utf-8').splitlines()
+    assert len(lines) == 2
+    assert json.loads(lines[1])['id'] == good['id']
 
 
 def test_append_cli_writes_row(ct, isolated_vault):
@@ -345,3 +470,20 @@ def test_real_tiktoken_count_sanity(ct, sample_md):
     )
     assert 0 < report['tokens_o200k'] < len(SAMPLE_MD)
     assert 0 < report['tokens_cl100k'] < len(SAMPLE_MD)
+
+
+# ---------------------------------------------------------------------------
+# Skill contract — the degradation marker has to reach a human
+# ---------------------------------------------------------------------------
+
+def test_skill_phase2_surfaces_degraded_from():
+    """Phase 2 instructs the skill to tell the user a tier degradation happened."""
+    phase2 = (
+        SKILL_MD.read_text(encoding='utf-8')
+        .split('## Phase 2 — Analyze', 1)[1]
+        .split('## Phase 3', 1)[0]
+    )
+    assert 'degraded_from' in phase2
+    assert 'counts degraded' in phase2          # the line the user sees
+    assert '<method>' in phase2                 # the tier landed on
+    assert 'bind' in phase2                     # what the degradation costs

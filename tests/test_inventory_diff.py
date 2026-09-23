@@ -519,6 +519,32 @@ def test_log_is_append_only(inv_diff, tmp_path, isolated_vault, capsys):
     assert len(log.read_text(encoding='utf-8').splitlines()) == 2
 
 
+def test_log_short_write_fails_loudly(inv_diff, isolated_vault, monkeypatch):
+    """Lockstep with count_tokens.append_row: a short write raises, never resumes."""
+    real_write = inv_diff.os.write
+    marker = b'"category": "verify"'
+    shortened = []
+
+    def short_write(fd, data):
+        payload = bytes(data)
+        # One-shot, ledger row only. Never monkeypatch.undo() here — the
+        # vault-isolation fixture shares this monkeypatch instance.
+        if marker in payload and not shortened:
+            shortened.append(True)
+            return real_write(fd, payload[:len(payload) // 2])
+        return real_write(fd, payload)
+
+    monkeypatch.setattr(inv_diff.os, 'write', short_write)
+    with pytest.raises(OSError, match='truncated'):
+        inv_diff.append_log({'recall': 1.0}, 't.md', 'abc', 'CORR1')
+
+    log = isolated_vault / 'compress' / 'verify-log.jsonl'
+    lines = log.read_text(encoding='utf-8').splitlines()
+    assert len(lines) == 1
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(lines[0])
+
+
 def test_log_requires_envelope_flags(inv_diff, tmp_path, capsys):
     """--log without target/source-ref/correlation is a usage error → exit 2."""
     writer = make_inventory(8)

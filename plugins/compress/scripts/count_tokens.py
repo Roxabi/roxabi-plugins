@@ -51,7 +51,10 @@ ESTIMATE_WARNING = 'estimate tier — chars/4 heuristic, not a real token count'
 
 _CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 _HEADING_RE = re.compile(r'^(#{1,6}) (.+)$')
-_FENCE_RE = re.compile(r'^```')
+# CommonMark allows a fence to be indented up to 3 spaces (e.g. nested in a list
+# item); 4+ spaces is an indented code block, not a fence, and a leading tab
+# counts as 4 — hence ` {0,3}` and not `\s{0,3}`, which would also swallow tabs.
+_FENCE_RE = re.compile(r'^ {0,3}```')
 
 
 def new_ulid() -> str:
@@ -109,7 +112,10 @@ def split_sections(text: str) -> list[dict]:
     """Split markdown on ATX headings; each section includes its heading line.
 
     Heading detection is suspended inside fenced code blocks (``` ... ```) so
-    a `# comment` inside a bash block does not split a section.
+    a `# comment` inside a bash block does not split a section. Fences indented
+    up to 3 spaces count (CommonMark) — a fence nested in a list item used to be
+    invisible here, which both unmasked `#` lines inside the block and flipped
+    fence parity for the rest of the file when its twin sat at column 0.
     """
     sections = []
     name, buf = '(preamble)', []
@@ -188,21 +194,14 @@ def count_target(path, method=None, encoders=None) -> dict:
         return report
 
     if method == 'anthropic-api':
+        # The try covers the API loop ONLY: degradation is a statement about the
+        # counts, so anything that cannot invalidate them stays outside it.
         try:
             total = 0
             for section in sections:
                 tokens = _api_count(section['text'])
                 total += tokens
                 report['sections'].append({'name': section['name'], 'tokens': tokens})
-            report['tokens'] = total
-            proxy = _load_proxy_encoders()
-            if proxy is not None and total:
-                proxy_total = sum(len(proxy[0](s['text'])) for s in sections)
-                delta = (proxy_total - total) / total * 100
-                report['calibration'] = (
-                    f'calibration: o200k={proxy_total} api={total} delta={delta:+.1f}%'
-                )
-            return report
         except Exception as exc:
             # Mirrors _load_proxy_encoders' degradation idiom: any anthropic-api
             # failure (network, auth, timeout) falls back in-run rather than
@@ -216,6 +215,23 @@ def count_target(path, method=None, encoders=None) -> dict:
                 f'anthropic-api failed ({exc}) — degraded to {fallback_method}'
             )
             return fallback
+        report['tokens'] = total
+        # Calibration is an observation ABOUT counts that are already correct:
+        # its own failure must never discard them nor label the run degraded.
+        # Swallowed, but never silently — the report says calibration is missing.
+        try:
+            proxy = _load_proxy_encoders()
+            if proxy is not None and total:
+                proxy_total = sum(len(proxy[0](s['text'])) for s in sections)
+                delta = (proxy_total - total) / total * 100
+                report['calibration'] = (
+                    f'calibration: o200k={proxy_total} api={total} delta={delta:+.1f}%'
+                )
+        except Exception as exc:
+            report['calibration_error'] = (
+                f'proxy calibration failed ({exc}) — api counts stand, tier not degraded'
+            )
+        return report
 
     total = 0
     for section in sections:
@@ -234,11 +250,11 @@ def append_row(mode, target, source_ref, tokens_before, tokens_after, sections,
     """Append one Observation-shaped row (ADR-005) to the compress ledger.
 
     source_ref is the pre-image hash of the target, captured by the caller
-    BEFORE any write. O_APPEND keeps concurrent appends line-atomic on POSIX
-    as long as each row is written within one open() lifetime; os.write()
-    can still return short on a single call, so the write loops until the
-    full encoded line (trailing newline included) is flushed. glossary_version
-    and level stay null until #310 / #311 land. Returns the written row.
+    BEFORE any write. O_APPEND atomicity is per-syscall, not per-open: the row
+    is therefore written in exactly ONE os.write() and a short write is a hard
+    error, never a resumed loop (a second syscall could land after another
+    writer's row and splice the two). glossary_version and level stay null
+    until #310 / #311 land. Returns the written row.
     """
     row = {
         'id': new_ulid(),
@@ -263,12 +279,19 @@ def append_row(mode, target, source_ref, tokens_before, tokens_after, sections,
     ledger = ensure_dir(get_plugin_data(PLUGIN_NAME)) / 'ledger.jsonl'
     # lockstep: keep identical to scripts/inventory_diff.py::append_log — see #311
     line = json.dumps(row, ensure_ascii=False) + '\n'
-    data = memoryview(line.encode('utf-8'))
+    data = line.encode('utf-8')
     fd = os.open(ledger, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
     try:
-        while data:
-            written = os.write(fd, data)
-            data = data[written:]
+        written = os.write(fd, data)
+        if written != len(data):
+            if written:
+                # Seal the fragment on its own line so it can only ever fail to
+                # parse, instead of merging with the next writer's valid row.
+                os.write(fd, b'\n')
+            raise OSError(
+                f'ledger row truncated: wrote {written}/{len(data)} bytes to {ledger} '
+                '— the last line is a fragment, discard it before trusting the ledger'
+            )
     finally:
         os.close(fd)
     return row
