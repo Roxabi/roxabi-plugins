@@ -45,7 +45,7 @@
     {
       "name": "roxabi-forge",
       "source": "https://github.com/Roxabi/roxabi-forge",
-      "description": "Forge — HTML visual artifacts (diagrams, galleries, guides, epics). Brand-aware, manifest-indexed, Cloudflare Pages ready."
+      "description": "Forge — team HTML artifact host (forge.roxabi.dev): tree-layout engine, per-page ACL, share links, OG previews. Plugin roxabi-forge (publish + setup)."
     },
     {
       "name": "roxabi-video-engine",
