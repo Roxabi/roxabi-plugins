@@ -84,7 +84,11 @@ oracles: ["concrete input that must fail closed"]
 claim:   [fail-closed]   # required whenever this fence exists — closed set: fail-closed | authz | ssot
 ```
 
-Implementer + R-tester test `priced` + `oracles`, never `not`. **`claim`** drives `/R-dev-review` security-class spawn (see #419).
+Implementer + R-tester test `priced` + `oracles`, never `not`. **`claim`** is
+priced-fence hygiene only — `priced_ok` at `/R-pr`, and an exit-2 blocking
+finding at review. It does **not** drive a spawn: the security auditor keys off
+`path_hit` alone (ADR-019 §6, #469). A `claim:` tag buys a hygiene check, not a
+reviewer.
 
 ## Open Questions
 
