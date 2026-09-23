@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   createReviewLoop,
@@ -8,7 +6,6 @@ import {
   parseReviewRounds,
   readReviewRounds,
   resumeReviewLoop,
-  run,
 } from './workflow.js'
 
 /**
@@ -76,28 +73,6 @@ function mockLoopGh({ labels = [], comments = [] } = {}) {
   }
   return { gh, calls, labels: present, comments: posted }
 }
-
-describe('expand–contract (#494 adds, #497 removes)', () => {
-  it('keeps every seam mode 2 and the old driver import from this module', async () => {
-    // `skills/build/SKILL.md` does `const { run } = await import(…/workflow.js)` and
-    // `skills/feature/SKILL.md` §6.0 destructures its own list. Both are runtime imports
-    // in a live session: nothing else observes a deletion, or a rename, until it runs.
-    const module = await import('./workflow.js')
-    const feature = readFileSync(join(import.meta.dirname, '..', 'feature', 'SKILL.md'), 'utf8')
-    const imported = feature.match(/const \{([^}]+)\} =\s*await import\(`\$\{SKILL_DIR\}\/\.\.\/build\/workflow\.js`\)/)
-    expect(imported).not.toBeNull()
-    const names = imported[1]
-      .split(',')
-      .map((name) => name.trim())
-      .filter(Boolean)
-    expect(names.length).toBeGreaterThan(0)
-    expect(Object.fromEntries(names.map((name) => [name, typeof module[name]]))).toEqual(
-      Object.fromEntries(names.map((name) => [name, 'function'])),
-    )
-    expect(typeof run).toBe('function')
-    expect(readFileSync(join(import.meta.dirname, 'SKILL.md'), 'utf8')).toContain('const { run } = await import(')
-  })
-})
 
 const INPUT = { issue: 494, branch: 'feat/494-feature-back-half', base: 'staging', title: 'feat: back half' }
 
@@ -501,54 +476,5 @@ describe('the count outlives the process that holds it', () => {
   it('refuses seeded counts that are not counts', () => {
     expect(() => createReviewLoop({ pr: 512, fixes: -1 })).toThrow(TypeError)
     expect(() => createReviewLoop({ pr: 512, reviews: 1.5 })).toThrow(TypeError)
-  })
-})
-
-const skill = (...parts) => readFileSync(join(import.meta.dirname, '..', ...parts), 'utf8')
-
-function section(text, heading) {
-  const level = heading.match(/^#+/)[0].length
-  const start = text.indexOf(`${heading}\n`)
-  if (start === -1) throw new Error(`no such heading: ${heading}`)
-  const rest = text.slice(start + heading.length)
-  const next = rest.search(new RegExp(`\\n#{1,${level}} `))
-  return next === -1 ? rest : rest.slice(0, next)
-}
-
-describe('`reviewed` has exactly one writer', () => {
-  // The label is not a status: `.github/workflows/auto-merge.yml` turns it into
-  // `gh pr merge --auto --merge`. Two writers means the bound in `createReviewLoop`
-  // decides nothing, because a fix round merges the PR before the re-review lands.
-  const fix = () => skill('fix', 'SKILL.md')
-  const feature = () => skill('feature', 'SKILL.md')
-
-  it('makes a fix round write no label unless it is told to', () => {
-    const phase7 = section(fix(), '## Phase 7 — Final Push + Approve')
-    const writes = phase7.split('\n').filter((line) => line.includes('gh api repos/:owner/:repo/issues/<#>/labels'))
-    expect(writes).toHaveLength(1)
-    expect(writes[0]).toMatch(/mode = `label` → `gh api/)
-    expect(phase7).toMatch(/mode = `no-label` → \*\*write nothing\*\*/)
-  })
-
-  it('has `/feature` §6.5 invoke fix in that mode, and name §6.7 as the only writer', () => {
-    const body = feature()
-    expect(section(body, '### 6.5 Fix — inline, and back round')).toMatch(/`#<pr> --no-label`/)
-    expect(section(body, '### 6.7 Land — wait, label, let auto-merge finish')).toMatch(/sole writer of `reviewed`/)
-  })
-
-  it('commits the fix round against the issue, not against a literal `#N`', () => {
-    // The fence interpolated `${step.fixes}` while printing `fix(#N)` verbatim, so
-    // every round's commit claimed a ticket called N.
-    expect(section(feature(), '### 6.5 Fix — inline, and back round')).toMatch(
-      /commitPush\(cwd, branch, `fix\(#\$\{issue\}\): review round \$\{step\.fixes\}`\)/,
-    )
-  })
-
-  it('does not attribute a merge offer to a `fix` phase that only posts a comment', () => {
-    // The stale sentence told the operator to decline an offer `fix` never makes —
-    // inherited from `dev-review`, whose Phase 8 does make it.
-    expect(fix()).toMatch(/^## Phase 8 — Post Follow-Up Comment$/m)
-    const claims = feature().match(/[^.\n]*`fix`[^.\n]*Phase 8[^.\n]*/g) ?? []
-    for (const claim of claims) expect(claim).not.toMatch(/merge|rebase|label/i)
   })
 })

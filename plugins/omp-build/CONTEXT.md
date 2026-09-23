@@ -13,16 +13,16 @@ The unit of OMP delivery, run by `/feature`.
 _Avoid_: build, /build, /dev, /R-dev, omp-wt
 
 **Spec**:
-The tracker issue body produced by Matt `to-spec`. The SSoT for what to build.
+The GitHub issue body: agreed scope, acceptance criteria, invariants and exclusions. The SSoT for what to build.
 _Avoid_: artifacts/specs, validated, /R-spec
 
 **TDD**:
-Matt's model-invoked `tdd` skill — red→green at agreed seams, driven by `implement`.
-_Avoid_: R-tester, /test, a user slash in `/feature`
+Test-first implementation at the seams agreed with the operator, using the model-invoked `tdd` skill.
+_Avoid_: automatic tests for every change, a mandatory user slash
 
-**implement**:
-Matt's user-invoked build step. Drives TDD, then we run R-dev-review instead of Matt `code-review`.
-_Avoid_: R-dev-implement, listing tdd as a sibling step
+**Implementation**:
+Work that satisfies one ticket's acceptance criteria inside its matching Worktree.
+_Avoid_: an external `implement` skill as a prerequisite, implementation on the Principal
 
 **Land**:
 After a green review loop: required checks, `reviewed` label, auto-merge (`landPr`).
@@ -50,15 +50,15 @@ A deferred follow-up is a sibling of its origin under their shared parent, block
 _Avoid_: child-of-origin, nested deferral cascade
 
 **Tier**:
-`S` | `F-lite` | `F-full`, read from the tracker issue's `size:` label. Sizes the review panel.
-_Avoid_: spec frontmatter, κ alone, guessing a default
+`S` | `F-lite` | `F-full`, read from the tracker issue's `size:` label. Determines the review's spec-evidence requirements, not its agent roster.
+_Avoid_: spec frontmatter, κ alone, tier-selected review agents
 
 **issue-triage**:
 The tracker plugin: creates issues, writes `size:`/`priority:`/type labels, and owns every Ticket link. Sibling to `omp-build`, not part of it.
 _Avoid_: folding it into omp-build, copying its mutations
 
 **Optional tail**:
-`promote` and `cleanup`, offered after land, not part of the happy path.
+`cleanup` after land, plus `promote` for staging-train projects only. Both remain the operator's decision.
 _Avoid_: putting them in the review loop
 
 **dev-core**:
@@ -70,7 +70,7 @@ A skill that ships in the armed package (`extensions:`) so slash and `skill://` 
 _Avoid_: unloaded, hidden, Isolation-dark (that last one is not invocable), "two gates"
 
 **Principal**:
-The first `git worktree list --porcelain` worktree. Feature work does not run here.
+The first `git worktree list --porcelain` worktree. Read-only exploration and tracker framing can start here; feature file edits belong in a matching Worktree.
 _Avoid_: main, staging, master (those are bases, not this worktree)
 
 **Worktree**:

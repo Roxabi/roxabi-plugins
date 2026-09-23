@@ -413,6 +413,13 @@ Roster capped by max_agents: R-devops
 
 ## Phase 8 — Next Step
 
+**Called by `/feature`:** return the posted verdict to `skill://feature` §6.4
+before presenting this decision. That caller records the bounded round and owns
+the human choices and their execution (`fix --no-label` or gated landing).
+Skip the standalone actions below; never choose on the operator's behalf.
+
+**Standalone review:**
+
 Q:
 - **Fix now** — invoke `skill://fix` (auto-apply + 1b1, applied inline; its Phase 7 writes the `reviewed` label unless it is invoked `--no-label`, and its Phase 8 posts the follow-up comment — it offers no rebase and no merge)
 - **Merge as-is** — rebase + label + auto-merge (below)

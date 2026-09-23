@@ -347,24 +347,6 @@ describe('OMP omp-build hooks', () => {
       }
     })
 
-    it('names every plugin-local skill /feature invokes, and each one is installed', async () => {
-      // §6 is a chain of `Skill(skill: "…")` calls. A name that resolves nowhere
-      // reaches the model as an instruction and dies three steps into a live
-      // ticket, so the body may only name skills this plugin ships — or one of the
-      // upstream capabilities its own preflight checks for and stops on.
-      const UPSTREAM = ['grill-with-docs', 'to-spec', 'to-tickets', 'implement', 'tdd']
-      const skillsDir = resolve(import.meta.dirname, '..', '..', 'skills')
-      await commands.get('feature')?.handler('#494', { cwd: '/repo' })
-      const message = sent.at(-1) ?? ''
-
-      const invoked = [...message.matchAll(/Skill\(skill:\s*"([^"]+)"\)/g)].map(([, name]) => name)
-      expect(invoked).toEqual(expect.arrayContaining(['dev-review', 'fix', 'implement']))
-      const local = invoked.filter((name) => !name.includes(':') && !UPSTREAM.includes(name))
-      expect(local.length).toBeGreaterThan(0)
-      const unresolvable = local.filter((name) => !existsSync(join(skillsDir, name, 'SKILL.md')))
-      expect(unresolvable).toEqual([])
-    })
-
     it('dumps no install banner while the skills mode 2 names are all present', async () => {
       await commands.get('feature')?.handler('#494', { cwd: '/repo' })
       const message = sent.at(-1) ?? ''

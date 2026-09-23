@@ -1,9 +1,9 @@
 {
   "name": "omp-build",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "OMP-only post-spec orchestrator \u2014 plan, isolated implement, PR, review, merge.",
+  "description": "OMP-only feature cycle \u2014 issue, branch proposal and operator /wt, then implement, bounded review/fix, land.",
   "omp": {
     "extensions": [
       "./omp/index.ts"
