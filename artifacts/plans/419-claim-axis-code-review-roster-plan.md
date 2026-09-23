@@ -7,6 +7,12 @@ tier: F-lite
 generated: "2026-08-22T08:55:00+02:00"
 ---
 
+> **Superseded 2026-09-22 (#469).** The claim-axis spawn this plan shapes was
+> **cut**, not deferred: HEAD accepted path-only as the settled security-auditor
+> posture, and ADR-019 §6 now records that. Nothing below is scheduled. It is
+> kept as the record of what a repricing would have to re-argue — read it as
+> history, not as a backlog.
+
 ## Summary
 
 Ship structured `claim:` on priced YAML fences, extend `priced_ok` parse (all fences), add S1 `claim-roster` spawn oracle, wire `/code-review` When+Skip+README parity, deterministic σ resolver in Phase 2, unconditional path-glob retention test. Migrate legacy spec fences (417) with `claim:` tags.
