@@ -42,7 +42,7 @@ Verify:
 
 ```bash
 omp plugin doctor    # expect plugin:omp-build (link lane; a marketplace install has no plugin:* line)
-omp plugin list      # npm Plugins → omp-build@0.1.0
+omp plugin list      # npm Plugins → omp-build@<version in plugins/omp-build/package.json>
 ```
 
 `/feature` loads `skills/feature/` from the installed plugin. Do **not** copy `SKILL.md` into `~/.omp/agent/skills/` — that shadows the plugin.

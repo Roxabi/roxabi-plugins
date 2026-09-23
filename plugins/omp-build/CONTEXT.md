@@ -90,8 +90,16 @@ The skill holding Roxabi's multi-domain review on OMP: roster, Conventional Comm
 _Avoid_: R-dev-review as the skill name, code-review (Matt), /review (host builtin)
 
 **fix**:
-The skill that applies review findings — auto-apply, then 1b1, every edit made inline in the session.
-_Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent
+The skill that applies one change per common root cause from a review, inline, with no per-finding choice.
+_Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent, a per-finding walkthrough
+
+**Root cause**:
+The shared mechanism behind one or more review findings. Named after the review, before any edit. The unit `fix` applies.
+_Avoid_: the finding itself, a class slug alone, a file
+
+**Review record**:
+The one PR comment `fix` reads: first line `<!-- omp-build:code-review -->`, authored by the account running `fix`, newest wins. Root causes and findings both come from it.
+_Avoid_: scraping every PR comment, matching `## Code Review` as a substring
 
 **Panel**:
 The five dispatchable review roles: the `R-adversarial` floor plus at most two specialists the roster proved relevant.

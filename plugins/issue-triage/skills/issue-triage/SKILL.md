@@ -83,8 +83,10 @@ Every flag is canonicalised **before** the first write, so a rejected value leav
 
 | Flag | Description |
 |------|-------------|
-| `--title "..."` | Issue title (**required**) |
+| `--title "..."` | Issue title (**required**, or `--title-file`) |
+| `--title-file <path>` | Read the title from a file (trimmed). Use it for text you did not write |
 | `--body "..."` | Issue body/description |
+| `--body-file <path>` | Read the body from a file. Use it for text you did not write: `$(…)` or a backtick in a double-quoted `--body` runs in your shell |
 | `--label "l1,l2"` | Comma-separated labels |
 | `--size <S>` | Set size on creation — canonical `S/F-lite/F-full` or legacy `XS/S/M/L/XL` accepted |
 | `--priority <P>` | Set priority on creation — same spellings as `set --priority`. An unrecognised value exits 1 **before** the issue is created |
@@ -144,12 +146,17 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
 A_PARENT=$(gh api graphql -f query="query{repository(owner:\"$OWNER\",name:\"$REPO\"){issue(number:$A){parent{number}}}}" \
   --jq '.data.repository.issue.parent.number // empty')
 
-# 2. Create B as sibling: same parent as A, blocked-by A
+# 2. Create B as sibling: same parent as A, blocked-by A.
+#    Title and body go through files — both often quote review text you did not write.
+DIR=$(mktemp -d -t "issue-triage-defer-XXXXXX")
+# write "$DIR/title.txt" ({deferred title}) and "$DIR/body.md"
+# (**Origin:** #A (deferred from ...), then {details}) with an editor or a write tool
 T create \
-  --title "{deferred title}" \
-  --body "**Origin:** #${A} (deferred from ...)\n\n{details}" \
+  --title-file "$DIR/title.txt" \
+  --body-file "$DIR/body.md" \
   --blocked-by "#${A}" \
   ${A_PARENT:+--parent "#${A_PARENT}"}
+rm -rf "$DIR"
 ```
 
 **Edge cases:**

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+
 /**
  * Argument-parsing guards shared by every triage command.
  */
@@ -21,4 +23,21 @@ export function requireFlagValue(args: string[], index: number, flag: string, al
     process.exit(1)
   }
   return value
+}
+
+/**
+ * Consume a path flag and return the file's text.
+ *
+ * `--title` and `--body` travel as argv, so a caller that builds them from
+ * untrusted text (a PR comment) has to quote them in a shell, where `$(…)`
+ * and backticks still run. A file carries the text without a shell.
+ */
+export function readFlagFile(args: string[], index: number, flag: string): string {
+  const path = requireFlagValue(args, index, flag)
+  try {
+    return readFileSync(path, 'utf8')
+  } catch (error) {
+    console.error(`Error: ${flag} cannot read ${path}: ${(error as Error).message}`)
+    process.exit(1)
+  }
 }

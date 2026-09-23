@@ -12,7 +12,7 @@ import {
   resolveIssueTypeId,
   updateIssueIssueType,
 } from '../../shared/adapters/github-adapter'
-import { requireFlagValue } from '../../shared/domain/cli-args'
+import { readFlagFile, requireFlagValue } from '../../shared/domain/cli-args'
 import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
 import { formatRef, parseIssueRefs } from '../../shared/domain/parse-issue-ref'
 import { type LabelFlags, resolveLabelFlags, writeLabels } from './label-flags'
@@ -44,6 +44,12 @@ function parseArgs(args: string[]): CreateOptions {
         break
       case '--body':
         opts.body = requireFlagValue(args, ++i, '--body', true)
+        break
+      case '--title-file':
+        opts.title = readFlagFile(args, ++i, '--title-file').trim()
+        break
+      case '--body-file':
+        opts.body = readFlagFile(args, ++i, '--body-file')
         break
       case '--label':
         opts.labels = requireFlagValue(args, ++i, '--label', true)
