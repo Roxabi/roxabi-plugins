@@ -38,13 +38,17 @@ Let:
 | **Fix** | Root cause = bug/wrong config/design flaw | Fix code/config/workflow, delete ε |
 | **Promote** | Durable insight needed by multiple agents | Move to permanent target (see Π), delete ε |
 | **Relocate** | Domain/agent-specific knowledge in wrong scope | Move to narrower target, delete ε |
-| **Delete** | Ephemeral, stale, already covered, resolved | Delete ε |
+| **Delete** | Ephemeral, stale, already covered — ∧ the Promote question was asked and answered "no" | Delete ε |
+
+A finished tracker is ¬automatically Delete: refs all CLOSED/MERGED makes an entry stale **as a status tracker**, so it becomes a candidate whose durable lesson must be offered to **Promote** first. Ref state that cannot be resolved counts as OPEN — keep.
 
 ## Dispatch
 
 Phase 1 — Discovery → Read `${CLAUDE_SKILL_DIR}/cookbooks/discovery.md`, execute.
 Phase 2 — Analysis → Read `${CLAUDE_SKILL_DIR}/cookbooks/analysis.md`, execute.
 Phase 3–5 — Resolution → Read `${CLAUDE_SKILL_DIR}/cookbooks/resolution.md`, execute.
+
+Phase 2's ref-state sweep costs one `gh` round-trip per unique `#NNNN` (≈1s each). It prints the count and the expected wall-clock before the first call; `CLEANUP_CONTEXT_SKIP_GH=1` skips the network and degrades to keeping every entry.
 
 ## Safety
 
@@ -55,6 +59,8 @@ Phase 3–5 — Resolution → Read `${CLAUDE_SKILL_DIR}/cookbooks/resolution.md
 5. CLAUDE.md changes — show full before/after of modified sections
 6. Installed skill files — read-only (report issues, don't modify cache copies)
 7. Back up large changes: copy original to `{file}.bak` before multi-line edits
+8. Removing a memory file — under **any** resolution, Fix included — → sweep its `[[wikilink]]` backlinks **in the same pass, before the removal** (resolution cookbook); a citation left dangling is indistinguishable from a deliberate forward-reference
+9. That sweep *reads* every store (citations cross projects) but *edits* only this one. Out-of-project citations are reported and the pass stops: **Execute all** is consent for this project, ¬the approval rules 2 and 4 require for someone else's store
 
 ## Edge Cases
 
