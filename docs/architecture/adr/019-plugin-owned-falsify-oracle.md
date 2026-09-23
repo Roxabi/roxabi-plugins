@@ -59,7 +59,7 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    `.venv -> <main>/.venv` (the `uv-venv-symlink` scaffold), untracked or staged —
    is local environment, and `uv run` would re-sync *through* it into the real
    venv. A link committed in HEAD comes with the archive: it is PR content
-   (#569). A `.venv` is never linked either; a uv
+   (#571). A `.venv` is never linked either; a uv
    contract builds the snapshot's own venv. Every other ignored path (`.env`,
    other caches) stays out. The runner unsets the git location variables
    (`GIT_DIR`, `GIT_INDEX_FILE`, …) on entry, and runs every test with
@@ -139,7 +139,7 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    with them present, and nothing checks what the test asserts or which files the
    row names as sources. A row whose source is its own test file, the runner
    script, or a file the test only loads therefore verifies green. The row shape
-   cannot close either gap. Both belong to #569 (row-result classification and
+   cannot close either gap. Both belong to #571 (row-result classification and
    trust gating).
 
    **Named residual.** Everything the re-exec runs is still PR content: the
@@ -151,7 +151,7 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    untrusted checkout is therefore as dangerous as running the contract's test
    command, with arguments the PR chose, on the PR's tree, and its `oracle_ok` is
    advisory. Gating the re-exec on the PR author's trust, a time bound, and
-   pricing what a green row proves are tracked as #569.
+   pricing what a green row proves are tracked as #571.
 
 3. **Proven record** — `artifacts/reviews/{N}-falsify.json` (`schema_version: "1"`)
    holds `head`, `runner_id`, `rows[]`, `oracle_ok`. Markdown `*-falsify.md` is an
@@ -160,7 +160,7 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
 4. **Gate boolean graph** — `/R-pr` refuse and `/R-dev-review` tester-skip read
    only **`oracle_ok`** from `run-falsify --verify` (full re-exec of mapped rows),
    which §2b and §2c qualify: that boolean is about the tree the re-exec ran in,
-   and on an untrusted checkout it is advisory (#569).
+   and on an untrusted checkout it is advisory (#571).
    Schema-parse of a pre-written green JSON alone → ¬`oracle_ok`.
    `falsify_ok` from `parse-falsify.sh` is removed from refuse/skip paths.
    `parse-falsify.sh` may remain as ungated markdown hygiene.
