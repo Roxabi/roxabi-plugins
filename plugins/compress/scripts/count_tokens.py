@@ -7,7 +7,7 @@
                     BOTH o200k_base and cl100k_base and marks agreement
   estimate        — ~chars/4 heuristic, output labeled with a warning
 
-Binary thresholds (<5% skip, delta ~= 0) bind only under method=anthropic-api;
+The binary threshold (delta ~= 0) binds only under method=anthropic-api;
 the proxy tier acts only when both encodings agree, and when API + tiktoken
 are both available the count emits a one-shot proxy-vs-API calibration line.
 
@@ -51,10 +51,25 @@ ESTIMATE_WARNING = 'estimate tier — chars/4 heuristic, not a real token count'
 
 _CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 _HEADING_RE = re.compile(r'^(#{1,6}) (.+)$')
-# CommonMark allows a fence to be indented up to 3 spaces (e.g. nested in a list
-# item); 4+ spaces is an indented code block, not a fence, and a leading tab
-# counts as 4 — hence ` {0,3}` and not `\s{0,3}`, which would also swallow tabs.
-_FENCE_RE = re.compile(r'^ {0,3}```')
+# Absolute-indent rule: a fence indented 0-3 spaces opens/closes, 4+ spaces is an
+# indented code block, and a leading tab counts as 4 — hence ` {0,3}` and not
+# `\s{0,3}`, which would also swallow tabs. This is NOT the CommonMark rule for a
+# fence inside a list item, where the 0-3 allowance is measured from the item's
+# content column: a fence under `1. ` (content column 3) may sit at 3-6 absolute
+# spaces, so the 4+ cases stay invisible here. Covered today: top-level fences and
+# list-nested fences whose absolute indent is still ≤ 3.
+# Groups: `run` = the marker run (its length gates the closer), `info` = the rest
+# of the line (an info string opens; only a bare run can close).
+_FENCE_RE = re.compile(r'^ {0,3}(?P<run>`{3,}|~{3,})(?P<info>.*)$')
+
+
+class LedgerTruncatedError(OSError):
+    """A ledger append left a fragment on disk — the ledger tail is corrupt.
+
+    Distinct from the other OSErrors an append can raise (uncreatable vault,
+    permission denied), which all mean "no row was written". A caller that
+    downgrades those to a report-only note must NOT swallow this one.
+    """
 
 
 def new_ulid() -> str:
@@ -111,19 +126,27 @@ def estimate_tokens(text: str) -> int:
 def split_sections(text: str) -> list[dict]:
     """Split markdown on ATX headings; each section includes its heading line.
 
-    Heading detection is suspended inside fenced code blocks (``` ... ```) so
-    a `# comment` inside a bash block does not split a section. Fences indented
-    up to 3 spaces count (CommonMark) — a fence nested in a list item used to be
-    invisible here, which both unmasked `#` lines inside the block and flipped
-    fence parity for the rest of the file when its twin sat at column 0.
+    Heading detection is suspended inside fenced code blocks (``` or ~~~) so a
+    `# comment` inside a bash block does not split a section. A fence indented
+    0-3 absolute spaces counts (see `_FENCE_RE` for what that does and does not
+    cover inside list items). Closing follows CommonMark: same marker character,
+    a run at least as long as the opener, and nothing after it — an indented
+    ```` ```bash ```` line therefore opens a block, it never closes one.
     """
     sections = []
     name, buf = '(preamble)', []
-    in_fence = False
+    fence = None  # None | (marker char, opening run length)
     for line in text.splitlines(keepends=True):
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-        m = None if in_fence else _HEADING_RE.match(line)
+        match = _FENCE_RE.match(line)
+        if match:
+            run, info = match.group('run'), match.group('info')
+            if fence is None:
+                # A backtick opener's info string may not contain a backtick.
+                if run[0] == '~' or '`' not in info:
+                    fence = (run[0], len(run))
+            elif run[0] == fence[0] and len(run) >= fence[1] and not info.strip():
+                fence = None
+        m = None if fence else _HEADING_RE.match(line)
         if m:
             if ''.join(buf).strip():
                 sections.append({'name': name, 'text': ''.join(buf)})
@@ -168,12 +191,18 @@ def count_target(path, method=None, encoders=None) -> dict:
     text = path.read_text(encoding='utf-8')
     if method is None:
         method = resolve_method()
+    requested = method
     if method == 'tiktoken-proxy' and encoders is None:
         encoders = _load_proxy_encoders()
         if encoders is None:
             method = 'estimate'
     sections = split_sections(text)
     report = {'target': str(path), 'method': method, 'sections': []}
+    if method != requested:
+        # `degraded_from` carries one meaning at every site: the tier resolved is
+        # not the tier delivered. Here that is a proxy→estimate collapse; the
+        # anthropic-api failure path below sets it for the same reason.
+        report['degraded_from'] = requested
 
     if method == 'tiktoken-proxy':
         total_o200k = total_cl100k = 0
@@ -210,9 +239,12 @@ def count_target(path, method=None, encoders=None) -> dict:
                 'tiktoken-proxy' if _load_proxy_encoders() is not None else 'estimate'
             )
             fallback = count_target(path, method=fallback_method)
+            # Name the tier the fallback actually landed on, not the one probed
+            # for: the recursive call collapses proxy→estimate on its own when
+            # the encoders fail to load between the probe and the count.
             fallback['degraded_from'] = 'anthropic-api'
             fallback['warning'] = (
-                f'anthropic-api failed ({exc}) — degraded to {fallback_method}'
+                f'anthropic-api failed ({exc}) — degraded to {fallback["method"]}'
             )
             return fallback
         report['tokens'] = total
@@ -246,15 +278,20 @@ def count_target(path, method=None, encoders=None) -> dict:
 
 def append_row(mode, target, source_ref, tokens_before, tokens_after, sections,
                correlation, method='estimate', proxy_agreement=None,
-               calibration=None) -> dict:
+               calibration=None, calibration_error=None) -> dict:
     """Append one Observation-shaped row (ADR-005) to the compress ledger.
 
     source_ref is the pre-image hash of the target, captured by the caller
-    BEFORE any write. O_APPEND atomicity is per-syscall, not per-open: the row
-    is therefore written in exactly ONE os.write() and a short write is a hard
-    error, never a resumed loop (a second syscall could land after another
-    writer's row and splice the two). glossary_version and level stay null
-    until #310 / #311 land. Returns the written row.
+    BEFORE any write. O_APPEND atomicity is per-syscall, not per-open, so the
+    row goes out in exactly ONE os.write() and a short write is a hard error,
+    never a resumed loop. The record separator LEADS the row (one newline, then
+    the JSON) rather than trailing it: the row is self-delimiting from the left,
+    so a fragment left by a short write can never absorb the next row, and the
+    framing needs no write on the error path — a repair byte would be a second
+    syscall that could itself land after a concurrent writer's row. Do not
+    "tidy" this back to a trailing newline: that is the bug it fixes. Readers
+    skip blank lines and unparseable ones (`read_rows`). glossary_version and
+    level stay null until #310 / #311 land. Returns the written row.
     """
     row = {
         'id': new_ulid(),
@@ -271,6 +308,7 @@ def append_row(mode, target, source_ref, tokens_before, tokens_after, sections,
             'tokens_after': tokens_after,
             'proxy_agreement': proxy_agreement,
             'calibration': calibration,
+            'calibration_error': calibration_error,
             'glossary_version': None,  # reserved — dep #310
             'level': None,  # reserved — dep #311
         },
@@ -278,23 +316,48 @@ def append_row(mode, target, source_ref, tokens_before, tokens_after, sections,
     }
     ledger = ensure_dir(get_plugin_data(PLUGIN_NAME)) / 'ledger.jsonl'
     # lockstep: keep identical to scripts/inventory_diff.py::append_log — see #311
-    line = json.dumps(row, ensure_ascii=False) + '\n'
-    data = line.encode('utf-8')
+    data = b'\n' + json.dumps(row, ensure_ascii=False).encode('utf-8')
     fd = os.open(ledger, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
     try:
         written = os.write(fd, data)
         if written != len(data):
-            if written:
-                # Seal the fragment on its own line so it can only ever fail to
-                # parse, instead of merging with the next writer's valid row.
-                os.write(fd, b'\n')
-            raise OSError(
+            raise LedgerTruncatedError(
                 f'ledger row truncated: wrote {written}/{len(data)} bytes to {ledger} '
-                '— the last line is a fragment, discard it before trusting the ledger'
+                '— that line is a fragment, discard it; rows around it still parse'
             )
     finally:
         os.close(fd)
     return row
+
+
+def read_rows(path) -> list[dict]:
+    """Read a compress append-only log (ledger.jsonl, verify-log.jsonl).
+
+    Canonical reader for the framing `append_row` writes; its twin in
+    inventory_diff.py frames rows identically, so one reader covers both files.
+    Two kinds of line are skipped rather than raised on:
+
+      blank — the leading separator makes one at the head of the file, and one
+              at every seam with rows written under the older trailing-newline
+              framing, so a mixed file reads back whole;
+      unparseable — what a truncated append leaves behind. It was already
+              raised loudly, at write time, as LedgerTruncatedError; losing
+              the rows around it would be the reader repeating the damage.
+
+    Missing file → no rows: nothing has been appended yet.
+    """
+    path = Path(path)
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(encoding='utf-8').splitlines():
+        if not line.strip():
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return rows
 
 
 def main(argv=None) -> int:
@@ -328,6 +391,9 @@ def main(argv=None) -> int:
     append_p.add_argument('--method', default='estimate', choices=METHODS)
     append_p.add_argument('--proxy-agreement', choices=['true', 'false'])
     append_p.add_argument('--calibration')
+    append_p.add_argument('--calibration-error',
+                          help="the count report's calibration_error, when calibration failed "
+                               '— a failed calibration reads differently from an absent one')
 
     args = parser.parse_args(argv)
 
@@ -398,6 +464,7 @@ def main(argv=None) -> int:
             None if args.proxy_agreement is None else args.proxy_agreement == 'true'
         ),
         calibration=args.calibration,
+        calibration_error=args.calibration_error,
     )
     print(json.dumps(row, ensure_ascii=False))
     return 0

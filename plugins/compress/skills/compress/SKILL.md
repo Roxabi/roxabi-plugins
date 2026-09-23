@@ -59,7 +59,7 @@ N = 0 → halt, list every attempted resolution. Name matches in both layouts �
 
 ∀ f ∈ T, before any write:
 - `source_ref(f)` := `git hash-object "<f>"` (fallback: `sha256sum`) — pre-image hash, captured now, carried to Phase 5
-- tokens_before per section: `python3 S count "<f>"` — note the report's `method:` ∈ {anthropic-api, tiktoken-proxy, estimate}; also capture `agreement`/`calibration` when present. Report carries `degraded_from` → say it to the user before Phase 3, one line, verbatim shape: `counts degraded: <degraded_from> unavailable → <method> — Δtokens are unmeasured (proxy ∨ chars/4 estimate), not an API count; the binary thresholds (<5% skip, Δ ≈ 0) do ¬bind this run`
+- tokens_before per section: `python3 S count "<f>"` — note the report's `method:` ∈ {anthropic-api, tiktoken-proxy, estimate}; also capture `agreement`/`calibration`/`calibration_error` when present (a failed calibration ≠ an absent one — both reach the ledger row). Report carries `degraded_from` → say it to the user before Phase 3, one line, verbatim shape: `counts degraded: <degraded_from> unavailable → <method> — Δtokens are unmeasured (proxy ∨ chars/4 estimate), not an API count; the binary threshold (Δ ≈ 0) does ¬bind this run`
 - total < ~200 tokens → warn (cheap pre-check heuristic), proceed only if confirmed; mark compression candidates per ref(μ); emit inventory: ∀ non-L0 rule/cond/prohib/thresh/edge → one `<!-- INV-<cat>-<n> -->` anchor (grammar: references/verify.md; anchor tokens subtracted from savings)
 
 ## Phase 3 — Transform

@@ -31,6 +31,8 @@ Anchors absent from the file (or the file itself absent) stay unclassified
 (None) and block the verdict conservatively; this script never guesses.
 
 Exit codes: 0 report produced (verdict inside the JSON), 2 on IO/usage errors.
+A VerifyLogTruncatedError is neither: a fragment on disk is corruption, so it
+propagates out of main() and the process exits non-zero.
 """
 import argparse
 import json
@@ -64,6 +66,15 @@ _NORM_DROP_RE = re.compile(r'[^a-z0-9∀∃∄∈∉∧∨¬→⟺∅≥≤]')
 # --classified values — the writer's own runtime semantic call; anything else
 # is a usage error, never silently coerced.
 _VALID_CLASSIFICATIONS = {'faithful', 'weakened', 'inverted'}
+
+
+class VerifyLogTruncatedError(OSError):
+    """A verify-log append left a fragment on disk — the log tail is corrupt.
+
+    Distinct from the other OSErrors an append can raise (uncreatable vault,
+    permission denied), which all mean "no row was written". A caller that
+    downgrades those to a report-only note must NOT swallow this one.
+    """
 
 
 def new_ulid() -> str:
@@ -183,10 +194,15 @@ def append_log(payload: dict, target: str, source_ref: str, correlation: str) ->
     """Append one Observation-enveloped verify row to verify-log.jsonl.
 
     Same envelope as the train-A ledger (category 'verify', verify-specific
-    payload). O_APPEND atomicity is per-syscall, not per-open: the row is
-    written in exactly ONE os.write() and a short write is a hard error, never
-    a resumed loop (a second syscall could land after another writer's row and
-    splice the two). Returns the written row.
+    payload). O_APPEND atomicity is per-syscall, not per-open, so the
+    row goes out in exactly ONE os.write() and a short write is a hard error,
+    never a resumed loop. The record separator LEADS the row (one newline, then
+    the JSON) rather than trailing it: the row is self-delimiting from the left,
+    so a fragment left by a short write can never absorb the next row, and the
+    framing needs no write on the error path — a repair byte would be a second
+    syscall that could itself land after a concurrent writer's row. Do not
+    "tidy" this back to a trailing newline: that is the bug it fixes. Readers
+    skip blank lines and unparseable ones (`read_rows`). Returns the written row.
     """
     row = {
         'id': new_ulid(),
@@ -199,23 +215,48 @@ def append_log(payload: dict, target: str, source_ref: str, correlation: str) ->
     }
     log = ensure_dir(get_plugin_data(PLUGIN_NAME)) / 'verify-log.jsonl'
     # lockstep: keep identical to scripts/count_tokens.py::append_row — see #311
-    line = json.dumps(row, ensure_ascii=False) + '\n'
-    data = line.encode('utf-8')
+    data = b'\n' + json.dumps(row, ensure_ascii=False).encode('utf-8')
     fd = os.open(log, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
     try:
         written = os.write(fd, data)
         if written != len(data):
-            if written:
-                # Seal the fragment on its own line so it can only ever fail to
-                # parse, instead of merging with the next writer's valid row.
-                os.write(fd, b'\n')
-            raise OSError(
+            raise VerifyLogTruncatedError(
                 f'verify-log row truncated: wrote {written}/{len(data)} bytes to {log} '
-                '— the last line is a fragment, discard it before trusting the log'
+                '— that line is a fragment, discard it; rows around it still parse'
             )
     finally:
         os.close(fd)
     return row
+
+
+def read_rows(path) -> list[dict]:
+    """Read a compress append-only log (ledger.jsonl, verify-log.jsonl).
+
+    Canonical reader for the framing `append_log` writes; its twin in
+    count_tokens.py frames rows identically, so one reader covers both files.
+    Two kinds of line are skipped rather than raised on:
+
+      blank — the leading separator makes one at the head of the file, and one
+              at every seam with rows written under the older trailing-newline
+              framing, so a mixed file reads back whole;
+      unparseable — what a truncated append leaves behind. It was already
+              raised loudly, at write time, as VerifyLogTruncatedError; losing
+              the rows around it would be the reader repeating the damage.
+
+    Missing file → no rows: nothing has been appended yet.
+    """
+    path = Path(path)
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(encoding='utf-8').splitlines():
+        if not line.strip():
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return rows
 
 
 def _validate_inventory_shape(data) -> str | None:
@@ -341,6 +382,10 @@ def main(argv=None) -> int:
     if args.log:
         try:
             append_log(payload, args.target, args.source_ref, args.correlation)
+        except VerifyLogTruncatedError:
+            # A fragment ON disk is corruption, not an unavailable vault: it
+            # must reach the operator as a failure, never as a report-only note.
+            raise
         except OSError as exc:
             # Spec edge case: vault dir uncreatable → report-only, no log row.
             print(f'note: verify-log unavailable ({exc}) — report-only, no log row',
