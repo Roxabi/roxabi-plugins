@@ -21,10 +21,18 @@ COMPONENT=$(yq -r '.release.component // "null"' .dev/stack.yml 2>/dev/null \
 
 ```yaml
 release:
-  class: NONE            # or PRODUCER / TRIGGER
   component: <name>
   version_files: []
 ```
+
+Two keys, because two are read: `release.component` scopes the tag glob and the
+`<component>/vX.Y.Z` prefix, `release.version_files` lists the files stamped in
+Step 2b and compared in the drift guard. dev-core's block also carried
+`class: NONE | PRODUCER | TRIGGER`, defined by a document that did not travel
+here (ADR-020 §3) and read by nothing in omp-build — a paste-ready block whose
+field the reader cannot resolve is an instruction to guess, so it is dropped
+rather than restated from memory. `release.model` is separate and optional
+(`staging-train` when absent) — see `## Trunk mode` in the skill body.
 
 ### 2b. Preview via price.sh
 

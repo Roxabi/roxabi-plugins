@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import ompBuildExtension from '../../../omp/index'
 import {
   classifyDensity,
   computeHotfixDensity,
@@ -409,6 +410,24 @@ describe('computeHotfixDensity', () => {
 
 // ─── formatResult ─────────────────────────────────────────────────────────────
 
+/**
+ * Slash-command tokens as an operator reads them: `/name` at a word boundary,
+ * so `2/10` and `docs/changelog` are not commands.
+ */
+function slashCommands(text: string): string[] {
+  return [...text.matchAll(/(?<![\w/])\/[A-Za-z][\w-]*/g)].map(([cmd]) => cmd)
+}
+
+/** Every slash command this plugin registers — the set a printed `/x` must be in. */
+const SHIPPED = new Set<string>()
+ompBuildExtension({
+  on: () => {},
+  registerCommand: (name) => {
+    SHIPPED.add(`/${name}`)
+  },
+  sendUserMessage: () => {},
+})
+
 describe('formatResult', () => {
   const baseResult: HotfixDensityResult = {
     total: 10,
@@ -442,11 +461,21 @@ describe('formatResult', () => {
   it('never points the operator at a command this plugin does not ship', () => {
     // dev-core's signals ended in `/R-dev-checkup`; omp-build carries no such
     // skill (ADR-020 §7), so a slash-command in this line is a dead end printed
-    // in the middle of a release. Both non-green gauges are checked, because
-    // only one of them carried the reference before.
+    // in the middle of a release.
+    //
+    // Measured as membership, not as absence. `not.toMatch(/\/[A-Za-z][\w-]*/)`
+    // asked "does this contain no /word", which is a different claim: it fails a
+    // line that correctly says `/cleanup`, and passes one that says
+    // `R-dev-checkup` without the slash. The shipped set comes from the lane that
+    // makes a slash command real — `registerCommand` in `omp/index.ts` — so a
+    // command that is dropped from the extension turns every line naming it red.
+    expect(slashCommands('WARN: elevated rate; consider /R-dev-checkup')).toEqual(['/R-dev-checkup'])
+    expect(SHIPPED.has('/R-dev-checkup')).toBe(false)
+    expect(slashCommands('done — run /cleanup next').filter((cmd) => !SHIPPED.has(cmd))).toEqual([])
+
     for (const gauge of ['green', 'warn', 'pause'] as const) {
       const out = formatResult({ ...baseResult, gauge })
-      expect(out).not.toMatch(/\/[A-Za-z][\w-]*\b/)
+      expect(`${gauge}: ${slashCommands(out).filter((cmd) => !SHIPPED.has(cmd))}`).toBe(`${gauge}: `)
     }
   })
 

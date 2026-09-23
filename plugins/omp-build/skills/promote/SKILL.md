@@ -47,12 +47,17 @@ Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := user choi
 | 6b | changelog-commit | — | PR merged → staging | branch protection |
 | 7 | create-pr | ✓ | PR URL shown | — |
 | 8 | post-merge | — | — | reminder |
-| 9 | finalize | — | tag + release ∃ | `--finalize` only |
+| 9 | finalize | — | tag + release ∃ | `--finalize` only — reads and derives, **then asks**, then writes |
 
-**Nothing before the Step 2 version choice writes to the operator's worktree.**
-Step 1 reads; Step 1b writes only on an explicit *Apply*; Step 2b stamps only
-after *Use {VERSION}* is chosen. Any edit that moves a mutation earlier than the
-choice that authorises it is a defect, not an optimisation.
+**No mutation precedes the first question — on any invocation.** Not "in the full
+flow": every entrypoint. Step 1 reads; Step 1b writes only on an explicit *Apply*;
+Step 2b stamps only after *Use {VERSION}* is chosen; `--finalize` derives the
+version, the tag target and the tag/release states, prints them, and writes
+nothing until Step 9c is answered. A flag selects a **route**, never approves its
+result — a `--finalize` that tags and pushes because it was invoked is the same
+"the invocation is the consent" argument this skill rejects for `/feature` and
+`/cleanup`. Any edit that moves a mutation earlier than the choice that
+authorises it is a defect, not an optimisation.
 
 ## Pre-flight
 
@@ -117,22 +122,39 @@ COMPONENT=$(yq -r '.release.component // "null"' .dev/stack.yml 2>/dev/null \
 { [ "$COMPONENT" = null ] || [ -z "$COMPONENT" ]; } && { echo "REFUSE: release.component unset — paste the release: block from references/release-artifacts.md §2a"; exit 1; }
 ```
 
-**Gate probe (S7/D6/D17)** — the check must be *required*, not merely present; a bypassable required check is advisory with better marketing, so the probe reads the actor list too:
+**Gate probe (S7/D6/D17)** — the check must be *required*, not merely present; a bypassable required check is advisory with better marketing, so the probe reads the actor list too. Read the **effective rules for `main`** (`rules/branches/main` resolves org-level and repo-level rulesets, including parents), then the bypass list of each ruleset that contributes the check:
 
 ```bash
-RS=$(gh api "repos/:owner/:repo/rulesets?includes_parents=true" 2>&1) || true
-case "$RS" in
+RULES=$(gh api "repos/:owner/:repo/rules/branches/main" 2>&1) || true
+case "$RULES" in
   *"Upgrade to GitHub Pro"*|*"Not Found"*403*)
     echo "WARN: repo un-protectable (private, free plan) — release-consistency cannot be required here (D17). D4's derivation still yields the correct version.";;
   *)
-    # Assert a main-targeting ruleset REQUIRES the `release-consistency` context with an empty bypass_actors list.
-    # Absent/bypassable on a protectable repo → REFUSE; `Branch not protected` → REFUSE-with-onboarding.
-    echo "REFUSE: release-consistency is not an enforced required check on main. Provision a ruleset targeting refs/heads/main with required_status_checks containing the context 'release-consistency' and bypass_actors: []."; exit 1;;
+    # Is `release-consistency` actually required on main? `[]` here is the
+    # unprotected repo — no rules apply — and takes the same REFUSE, whose text
+    # is the onboarding: it names the ruleset to provision.
+    REQUIRED=$(printf '%s' "$RULES" | jq -r '
+      [ .[]? | select(.type == "required_status_checks")
+             | .parameters.required_status_checks[]?.context ]
+      | index("release-consistency") // empty' 2>/dev/null || true)
+    [ -z "$REQUIRED" ] && { echo "REFUSE: release-consistency is not an enforced required check on main. Provision a ruleset targeting refs/heads/main with required_status_checks containing the context 'release-consistency' and bypass_actors: []."; exit 1; }
+
+    # Required, but by whom can it be skipped? Every contributing ruleset must
+    # carry an empty bypass list, or the gate is advisory for the actors listed.
+    BYPASSABLE=""
+    for RS_ID in $(printf '%s' "$RULES" | jq -r '.[]? | select(.type == "required_status_checks") | .ruleset_id' 2>/dev/null | sort -u); do
+      ACTORS=$(gh api "repos/:owner/:repo/rulesets/${RS_ID}" --jq '(.bypass_actors // []) | length' 2>/dev/null || echo 0)
+      [ "${ACTORS:-0}" -gt 0 ] && BYPASSABLE="${BYPASSABLE} ${RS_ID}"
+    done
+    [ -n "$BYPASSABLE" ] && { echo "REFUSE: release-consistency is required on main but bypassable — ruleset(s)${BYPASSABLE} declare bypass_actors. Empty the list; a bypassable required check is not a gate."; exit 1; }
+    ;;
 esac
 ```
 
 The remediation names the ruleset shape, not a provisioning script: the gate lives
-in the *promoted repository*, and this plugin ships no writer for it.
+in the *promoted repository*, and this plugin ships no writer for it. The probe
+refuses on a measured absence — never unconditionally, or the remediation it
+prints could not be satisfied by doing what it says.
 
 **Unfinalized promote (S5/D8)** — the newest merged promote **by PR metadata**, never by commit lineage (a `<merge>^2`-vs-staging ancestry test false-positives after any backmerge — it flags real hotfixes #267/#257 as promotes):
 
@@ -332,12 +354,19 @@ MODEL=$(yq -r '.release.model // "staging-train"' .dev/stack.yml 2>/dev/null \
 [ "$MODEL" = trunk ] && { echo "REFUSE: release.model==trunk — a trunk release is cut by pushing an annotated tag (ADR-021); /promote --finalize does not apply."; exit 1; }
 ```
 
-**9a.** Verify merge:
+**9a.** Verify the merge — **read-only**:
 ```bash
-git fetch origin main && git checkout main && git pull origin main
+git fetch origin main      # refs/remotes/* only
 gh pr list --base main --head staging --state merged --limit 1 --json number,title,mergedAt
 ```
 ¬merged → REFUSE: "Merge the promotion PR first."
+
+There is no `git checkout main && git pull` here. `--finalize` runs from wherever
+the operator is — routinely a feature worktree — and a checkout either fails or
+drags that tree off its own branch, before a single question has been asked. The
+fetch brings the merge object in; everything below is derived from that object,
+and Step 9d tags it by SHA. dev-core's copy checked out first for the same reason
+its pre-flight did, and it is wrong here for the same reason.
 
 **9b.** Derive V from the **merge object alone** (S11/D4) — never from a witness. The finalize verdict (structural REFUSE, drift REFUSE, witness WARN, per-artifact act) is computed by `lib/finalize.ts` — the **tested classifier IS the executed decision** (#369), not a bash re-implementation of part of it. The PR title, CHANGELOG heading and version file are compared only to **WARN** (D7); a disagreement prints repair actions and finalize **tags the derived version anyway**, because the merge already shipped and a post-merge REFUSE would re-manufacture the shipped-no-release defect. Gather the inputs:
 
@@ -362,13 +391,43 @@ VERSION="${COMPONENT}/v${DERIVED}"
 
 # Witnesses (WARN-only, D7) — empty string ⇒ artifact absent (a null witness, D12).
 TITLE_V=$(gh pr view "$M" --json title --jq '.title' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
-HEADING_V=$(grep -oE '^##[[:space:]]+\[?v?[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+# Witnesses come out of the merge object, not the working tree: with no checkout
+# the tree is whatever branch the operator was on, and a feature branch's
+# CHANGELOG is not a witness of what main shipped.
+HEADING_V=$(git show "${M}:CHANGELOG.md" 2>/dev/null | grep -oE '^##[[:space:]]+\[?v?[0-9]+\.[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
 VFILE=$(yq -r '.release.version_files[0] // ""' .dev/stack.yml 2>/dev/null || true)
-FILE_V=$([ -n "$VFILE" ] && [ -f "$VFILE" ] && grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$VFILE" | head -n1 || true)
+FILE_V=$([ -n "$VFILE" ] && git show "${M}:${VFILE}" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+CHANGELOG_CONTENT=$(git show "${M}:CHANGELOG.md" 2>/dev/null | awk '/^## /{n++} n==1' || true)
 ```
 `Custom version` is retained only as the multi-component escape hatch (factory/cortex), never required here.
 
-**9c/9d.** Let `finalize.ts` rule, then reconcile tag + release **per artifact** (D16). Re-evaluate after each act, so a finalize that died mid-way recovers and the loop converges (tag → create-release → noop). `finalize.ts` owns every hard REFUSE (≠2 parents, not-a-promote, empty payload, tag/release drift) and emits the witness WARNs:
+**9c — Decision gate. Nothing above this line writes; nothing below it runs unanswered.**
+A pushed tag is public the moment it lands, and a GitHub Release announces it;
+"undo" is a force-delete on a ref other people have already fetched. So the
+derived verdict is shown and approved *before* the first write, exactly as Step 2
+gates the version bump. `--finalize` chose the route; it did not answer this
+question (Safety Rule 7).
+
+```
+── Decision: Finalize release ──
+Context:   promotion PR merged as {M} ({PARENT_COUNT} parents, is_promote={IS_PROMOTE})
+Derived:   {VERSION}          ← price.sh over {M}^1..{M}, BASE floor {BASE}
+Target:    tag {VERSION} → {M}
+State:     tag={TAG_STATE} · release={RELEASE_STATE}
+Witnesses: title={TITLE_V} · changelog={HEADING_V} · file={FILE_V}   (WARN-only, D7)
+
+Options:
+  1. Finalize — push the tag at {M}, create the GitHub Release
+  2. Abort — write nothing
+Recommended: Option 1
+```
+
+Anything other than an explicit Option 1 stops here, having written nothing.
+`--dry-run` with `--finalize` prints this block and stops without asking — same
+derivation, no tag. A `refuse` verdict from `finalize.ts` (Step 9d) still stops
+the run after the gate: consent is not a check.
+
+**9d.** On Option 1, let `finalize.ts` rule, then reconcile tag + release **per artifact** (D16). Re-evaluate after each act, so a finalize that died mid-way recovers and the loop converges (tag → create-release → noop). `finalize.ts` owns every hard REFUSE (≠2 parents, not-a-promote, empty payload, tag/release drift) and emits the witness WARNs:
 
 ```bash
 for _ in 1 2 3; do
@@ -391,7 +450,7 @@ for _ in 1 2 3; do
 
   case "$ACTION" in
     refuse)         printf '%s\n' "$VERDICT" | sed -n 's/^reason=/REFUSE: /p'; exit 1 ;;
-    tag)            git tag -a "$VERSION" -m "Release $VERSION" && git push origin "$VERSION" ;;
+    tag)            git tag -a "$VERSION" -m "Release $VERSION" "$M" && git push origin "$VERSION" ;;
     create-release) TITLE="${VERSION/\/v/ v}"; gh release create "$VERSION" --title "$TITLE" --notes "$CHANGELOG_CONTENT" ;;
     noop|*)         break ;;
   esac
@@ -446,7 +505,7 @@ split brain (N10) — two release writers, one repo. Switch modes by flipping th
 | (none) | Full flow: pre-flight → version → changelog → commit → preview → PR |
 | `--skip-preview` | Skip deploy preview |
 | `--dry-run` | Show summary + changelog, create nothing |
-| `--finalize` | Post-merge: tag + GitHub Release |
+| `--finalize` | Post-merge: derive, **ask** (Step 9c), then tag + GitHub Release. Read-only until the answer |
 
 ## Edge Cases
 
@@ -463,8 +522,8 @@ split brain (N10) — two release writers, one repo. Switch modes by flipping th
 | Harvest degraded (collect exit 3) | REFUSE create-pr unless `--allow-degraded` after human review |
 | Free-form `gh pr create` for promote | **Forbidden** — use `create-promote-pr.sh` only |
 | `--dry-run` | Summary only, ¬create PR/commit |
-| ¬merged (`--finalize`) | REFUSE: merge first |
-| Tag exists (`--finalize`) | REFUSE |
+| ¬merged (`--finalize`) | REFUSE: merge first — before Step 9c, so nothing was written |
+| Tag exists (`--finalize`) | `finalize.ts` rules per artifact: points at M → noop; points elsewhere → REFUSE (drift) |
 | Invalid version | REFUSE: ask for valid `vX.Y.Z` |
 
 ## Safety Rules
@@ -475,7 +534,8 @@ split brain (N10) — two release writers, one repo. Switch modes by flipping th
 4. Always check CI before promoting
 5. Always warn about open PRs on σ
 6. ¬push directly to μ — changelog reaches μ via promotion PR
-7. Pre-flight never writes to the worktree — the first mutation follows the first user choice
+7. **No mutation precedes the first question, on every invocation** — not just the full flow. Pre-flight reads; `--finalize` fetches refs, derives, prints Step 9c and writes nothing until it is answered. **A flag is a route, not consent**: `--finalize` says *which* operation, never that its result was approved. Any invocation that writes before it asks violates this rule, whatever flag selected it
+8. `--finalize` never checks out or pulls — it tags the merge SHA it derived from (`git tag -a "$VERSION" … "$M"`), so a finalize run from a feature worktree cannot move that tree
 
 ## Chain Position
 

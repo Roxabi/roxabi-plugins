@@ -15,7 +15,7 @@ ANALYZE="${SCRIPT_DIR}/../analyze-branches.sh"
 
 TMPDIR_FIXTURE="$(mktemp -d)"
 WT_DIR="${TMPDIR_FIXTURE}/wt-i18n"
-trap 'rm -rf "$TMPDIR_FIXTURE" "${ORIGIN_ROOT:-}"' EXIT
+trap 'rm -rf "$TMPDIR_FIXTURE" "${ORIGIN_ROOT:-}" "${GREP_ROOT:-}"' EXIT
 
 cd "$TMPDIR_FIXTURE"
 git init -q
@@ -131,5 +131,98 @@ feat50_merged="$(echo "$result_origin" | jq -r '.local_branches[] | select(.name
 assert_eq "origin-only base resolves to staging" "staging" "$origin_base"
 assert_eq "unmerged branch NOT safe_delete when base only on origin/*" "unmerged" "$feat50_action"
 assert_eq "unmerged branch merged=false when base only on origin/*" "false" "$feat50_merged"
+
+# Regression (#536 F1): a commit on BASE that merely *mentions* `#50` is not
+# evidence that feat/50-thing shipped — any commit can type the number. The
+# branch below has a real, unmerged commit and is pushed to origin. Before the
+# merge_reason fix, the grep hit set merged=true, the branch landed in
+# `safe_remote`, and Step 6e's `git push origin --delete` deleted the only copy
+# of the work that was still on the server — a deletion no git-side check
+# refuses and no local branch can recover.
+GREP_ROOT="$(mktemp -d)"
+git init -q --bare "${GREP_ROOT}/origin.git"
+git init -q "${GREP_ROOT}/work"
+cd "${GREP_ROOT}/work"
+git config user.email "test@example.com"
+git config user.name "Test User"
+git remote add origin "${GREP_ROOT}/origin.git"
+echo base > f.txt
+git add f.txt
+git commit -q -m "chore: base"
+git branch -M staging
+echo note > note.txt
+git add note.txt
+git commit -q -m "docs: describe the plan for #50"   # mentions the issue; merges nothing
+git push -q -u origin staging
+
+git checkout -q -b feat/50-thing
+echo wip > wip.txt
+git add wip.txt
+git commit -q -m "feat: real work (#50)"
+git push -q -u origin feat/50-thing
+git checkout -q -b scratch        # sit off the feature so it is not the current branch
+
+result_grep="$("$ANALYZE" --json --no-fetch)"
+DEBUG_JSON="$result_grep"
+
+grep_local="$(echo "$result_grep" | jq -r '.local_branches[] | select(.name == "feat/50-thing")')"
+grep_remote="$(echo "$result_grep" | jq -r '.remote_branches[] | select(.name == "feat/50-thing")')"
+
+assert_eq "grep hit is not proof of merge" "false" "$(echo "$grep_local" | jq -r '.merged')"
+assert_eq "grep hit is labelled as such" "squash_grep" "$(echo "$grep_local" | jq -r '.merge_reason')"
+assert_eq "commits ahead of base are surfaced" "1" "$(echo "$grep_local" | jq -r '.commits_ahead')"
+assert_eq "grep hit gets its own action, not safe_delete" "probably_merged" "$(echo "$grep_local" | jq -r '.action')"
+assert_eq "remote row too" "probably_merged" "$(echo "$grep_remote" | jq -r '.action')"
+assert_eq "grep hit never reaches safe_remote" "false" \
+  "$(echo "$result_grep" | jq -r '.safe_remote | index("feat/50-thing") != null')"
+assert_eq "grep hit never reaches safe_local" "false" \
+  "$(echo "$result_grep" | jq -r '.safe_local | index("feat/50-thing") != null')"
+assert_eq "it is still reported, on the list that says verify" "true" \
+  "$(echo "$result_grep" | jq -r '.probably_remote | index("feat/50-thing") != null')"
+
+# The other half of the same contract: a squash merge IS provable, and the proof
+# is `MERGED` plus ancestry — the PR's head SHA reachable from the commit that
+# merged it. `gh` is stubbed rather than called: the assertion is about what the
+# analyser does with the PR record, and a fixture repo has no GitHub.
+STUB_BIN="${GREP_ROOT}/bin"
+mkdir -p "$STUB_BIN"
+stub_gh() {
+  # $1 = headRefOid, $2 = mergeCommit oid
+  cat > "${STUB_BIN}/gh" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  "pr list --state all"*) printf '%s' '[{"headRefName":"feat/50-thing","number":50,"state":"MERGED","title":"feat: real work","headRefOid":"$1","mergeCommit":{"oid":"$2"}}]' ;;
+  *) printf '%s' '[]' ;;
+esac
+EOF
+  chmod +x "${STUB_BIN}/gh"
+}
+
+HEAD_SHA="$(git rev-parse feat/50-thing)"
+git checkout -q staging 2>/dev/null || git checkout -q -b staging origin/staging
+git merge -q --no-ff feat/50-thing -m "Merge pull request #50 from feat/50-thing"
+MERGE_SHA="$(git rev-parse HEAD)"
+git reset -q --hard HEAD~1   # base drops it again: only the PR record can prove the merge
+git checkout -q scratch
+
+stub_gh "$HEAD_SHA" "$MERGE_SHA"
+verified="$(PATH="${STUB_BIN}:$PATH" "$ANALYZE" --json --no-fetch)"
+DEBUG_JSON="$verified"
+assert_eq "verified squash is proof" "true" \
+  "$(echo "$verified" | jq -r '.remote_branches[] | select(.name == "feat/50-thing") | .merged')"
+assert_eq "verified squash is labelled squash_pr" "squash_pr" \
+  "$(echo "$verified" | jq -r '.remote_branches[] | select(.name == "feat/50-thing") | .merge_reason')"
+assert_eq "verified squash reaches safe_remote" "true" \
+  "$(echo "$verified" | jq -r '.safe_remote | index("feat/50-thing") != null')"
+
+# Same PR record, merge commit that does not contain the head: MERGED is a label,
+# not evidence about these commits.
+stub_gh "$HEAD_SHA" "$(git rev-parse staging)"
+unverified="$(PATH="${STUB_BIN}:$PATH" "$ANALYZE" --json --no-fetch)"
+DEBUG_JSON="$unverified"
+assert_eq "MERGED without ancestry is not proof" "squash_pr_unverified" \
+  "$(echo "$unverified" | jq -r '.remote_branches[] | select(.name == "feat/50-thing") | .merge_reason')"
+assert_eq "MERGED without ancestry stays out of safe_remote" "false" \
+  "$(echo "$unverified" | jq -r '.safe_remote | index("feat/50-thing") != null')"
 
 echo "PASS: analyze-branches.test.sh"

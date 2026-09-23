@@ -313,9 +313,26 @@ describe('OMP omp-build hooks', () => {
 
       const printed = /\[Skill directory: (.+)]/.exec(message ?? '')?.[1]
       expect(printed).toBe(resolve(import.meta.dirname, '..', '..', 'skills', name))
-      // Each tail body invokes its own scripts by `skill://<name>/<file>.sh`; a
-      // directory that carries none of them is a dead instruction.
-      expect(existsSync(join(printed ?? '', 'SKILL.md'))).toBe(true)
+      // Each tail body instructs by `skill://<skill>/<file>`. Two things must
+      // hold for that to resolve: `<skill>` is a skill — a directory carrying a
+      // SKILL.md, which is what the harness looks a name up in — and the asset
+      // exists inside it. `skill://shared/lib.sh` satisfied only the second:
+      // `skills/shared/` is a plain directory of this plugin, so the URL named a
+      // file that is really there through a namespace that cannot reach it.
+      //
+      // The assertion this replaces, `existsSync(<printed>/SKILL.md)`, restated
+      // the precondition: the body under test was just read from that file, so it
+      // could not fail while the handler worked at all.
+      const skillsDir = resolve(import.meta.dirname, '..', '..', 'skills')
+      const cited = [...(message ?? '').matchAll(/skill:\/\/([a-z0-9-]+)\/([\w./-]+)/g)]
+      expect(cited.length).toBeGreaterThan(0)
+      const unresolvable = cited
+        .filter(
+          ([, skill, rel]) =>
+            !existsSync(join(skillsDir, skill, 'SKILL.md')) || !existsSync(join(skillsDir, skill, rel)),
+        )
+        .map(([url]) => url)
+      expect(unresolvable).toEqual([])
     })
 
     it('keeps both tail bodies out of the review loop, in the text the model receives', async () => {
