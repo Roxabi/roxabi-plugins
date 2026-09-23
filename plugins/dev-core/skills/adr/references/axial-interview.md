@@ -15,19 +15,19 @@ Write-only for this ADR. Drift checking against an existing ADR is **R-architect
 ## Phase 1 — Detect existing axial ADR
 
 1. `mkdir -p $D` if missing (Write/Glob; ¬shell mkdir required).
-2. Grep:
-   ```
-   pattern: "^axial: true|axis of decomposition"
-   path: docs/architecture/adr/
-   ```
-3. ≥1 match → Read **all** matched files (do not `head -1` — singleton invariant is enforced here):
+2. `bun ${CLAUDE_PLUGIN_ROOT}/skills/adr/adr.ts axial` → `{count, files, singleton, declared, violated}`.
+   The scan covers `D/archived/` as well, so a botched supersede that left
+   `axial: true` on an archived ADR still counts here. Exit 1 ⟺ `violated`
+   (>1 axial ADR — the invariant). `declared: false` is not a failure: it is a
+   repo that has not declared its axis yet, which is why you are running this.
+3. `count ≥ 1` → Read **all** `files` (do not `head -1` — singleton invariant is enforced here):
    - Exactly 1 match → display:
      ```
      Axial ADR already exists
      ════════════════════════
        File:    {path}
        Title:   {frontmatter.title}
-       Status:  {section "## Status" first line}
+       Status:  {frontmatter.status}
        Primary: {one-line excerpt from "## Decision"}
      ```
      → AQ:
@@ -128,74 +128,47 @@ Draft — Axial ADR
 
 ## Phase 4 — Write ADR
 
-1. Next NNN: scan D for `{NNN}-*.md` and legacy `{NNN}-*.mdx` → highest + 1. ¬D ∨ ¬files → start at `001`.
+1. Next NNN: `bun ${CLAUDE_PLUGIN_ROOT}/skills/adr/adr.ts next-nnn` — scans
+   `D/archived/` too, so an archived axial ADR never has its number reissued.
+   ¬D → start at `001`.
 2. Write `D/{NNN}-axis-of-decomposition.md` (always `.md`).
 
-```md
----
-title: "ADR-{NNN}: Axis of Decomposition"
-description: Primary axis chosen for system variation — prevents N×M drift
-axial: true
----
+**Frontmatter and section skeleton: [adr-template.md](adr-template.md).** Use it
+verbatim, plus the three deltas it specifies under *Axial delta* — `axial: true`,
+the fixed title, and the two extra `## Consequences` subsections. Do not restate
+the skeleton here; the copy that used to live in this file is how the axial path
+and the skill drifted apart.
 
-## Status
+`status` := `accepted` (`proposed` when Phase 5 of *Escalation* applies).
+`normative` := `true`. `date` := today.
 
-Accepted
+Section content specific to this ADR:
 
-## Context
-
-This system varies along {len(AXES)} axes:
-
-| Axis | Instances (now) | Growth (12m) |
-|------|-----------------|--------------|
-{∀ axis ∈ AXES: row}
-
-Without an explicit primary axis, code drifts along the wrong dimension. This ADR makes the choice explicit and revisitable.
-
-Reference: `shared/references/axial-decomposition.md`.
-
-## Options Considered
-
-{∀ axis ∈ AXES, generate:
-### Option: `{axis.name}` as primary
-- **Pros:** {derived from reason categories}
-- **Cons:** {derived from EXPECTED_DEBT}
-- **Drift signature:** {what wrong-axis duplication looks like}
-}
-
-## Decision
-
-**Primary axis:** `{PRIMARY.axis}`
-**Reason category:** {PRIMARY.reason_category}
-**Rationale:** {PRIMARY.reason_text}
-
-When extending the system:
-- New `{PRIMARY.axis}` instance → grows by 1 row, composes existing primitives
-- New non-primary instance → composes via existing `{PRIMARY.axis}` primitives; does NOT duplicate them
-
-## Consequences
-
-### Positive
-{benefits derived from PRIMARY choice}
-
-### Negative (Expected Debt)
-{∀ d ∈ EXPECTED_DEBT: - {d.description} — Mitigation: {d.mitigation_strategy}}
-
-### Anti-pattern signal
-Grep pattern: `{ANTI_PATTERN.pattern}` in `{ANTI_PATTERN.where_to_grep}`.
-If this pattern appears, drift along the wrong axis is starting.
-
-### Revisit triggers
-{∀ r ∈ REVISIT: - {r}}
-```
+| Section | Content |
+|---------|---------|
+| `## Context` | `This system varies along {len(AXES)} axes:` + table (Axis \| Instances now \| Growth 12m). Then: without an explicit primary axis, code drifts along the wrong dimension. Reference `shared/references/axial-decomposition.md`. ∃ superseded ADR → reference its NNN. |
+| `## Options Considered` | ∀ axis ∈ AXES → `### Option: {axis.name} as primary` with **Pros** (from reason categories), **Cons** (from EXPECTED_DEBT), **Drift signature** (what wrong-axis duplication looks like) |
+| `## Decision` | **Primary axis** `{PRIMARY.axis}`, **Reason category** `{PRIMARY.reason_category}`, **Rationale** `{PRIMARY.reason_text}`. Then: new `{PRIMARY.axis}` instance → grows by 1 row, composes existing primitives; new non-primary instance → composes via existing `{PRIMARY.axis}` primitives, does NOT duplicate them |
+| `### Positive` | Benefits derived from the PRIMARY choice |
+| `### Negative (Expected Debt)` | ∀ d ∈ EXPECTED_DEBT → `- {d.description} — Mitigation: {d.mitigation_strategy}` |
+| `### Anti-pattern signal` | `Grep pattern: {ANTI_PATTERN.pattern} in {ANTI_PATTERN.where_to_grep}.` + if this pattern appears, drift along the wrong axis is starting |
+| `### Revisit triggers` | ∀ r ∈ REVISIT → `- {r}` |
 
 ## Phase 5 — Supersede (if applicable)
 
-From Phase 1 supersede flow: mutate the previous axial ADR:
+From Phase 1 supersede flow, on the previous axial ADR:
 
-1. `## Status` line → `Superseded by ADR-{NNN}`
-2. **Strip `axial: true` from the old ADR's frontmatter** (singleton invariant)
-3. New ADR `## Context` references old NNN
+```
+bun ${CLAUDE_PLUGIN_ROOT}/skills/adr/adr.ts supersede --nnn {OLD} --by ADR-{NNN}
+```
+
+That one command does all four things the invariant needs: `status: superseded`,
+`normative: false`, `superseded_by: ADR-{NNN}`, **strips `axial: true`**, and
+moves the file to `D/archived/`.
+
+Verify afterwards: `bun ${CLAUDE_PLUGIN_ROOT}/skills/adr/adr.ts axial` → exit 0
+and `"count": 1`. The archived ADR must no longer answer the singleton grep, and
+its number must still be taken.
 
 ¬supersede → skip.
 
@@ -211,7 +184,7 @@ Axial ADR — {created | superseded | kept}
   Revisit:      {REVISIT summary}
 
 Canonical marker: `axial: true` in frontmatter (grep-discoverable).
-Singleton invariant: exactly one ADR per project carries `axial: true`.
+Invariant: **at most one** ADR carries `axial: true`, across `$D` and `$D/archived/` — exactly one once this run completes.
 
 Next:
   /R-dev-init can continue (if called from init)
@@ -227,14 +200,15 @@ Exit status: `created` | `kept` | `superseded` | `cancelled`.
 | `$D` missing | create D, proceed |
 | User cannot articulate axes | Offer 3 templates (target×concern, domain×layer, stage×pipeline) |
 | Tied primary candidates | Tiebreaker: 6-month horizon |
-| Existing axial ADR + supersede | Old → `Superseded by ADR-{NNN}` + strip `axial: true`; new ADR Context references old |
+| Existing axial ADR + supersede | `adr.ts supersede` → `status: superseded` + `normative: false` + `superseded_by` + strip `axial: true` + move to `$D/archived/`; new ADR Context references old |
 | Multiple ADRs with `axial: true` | Phase 1: auto-fix (strip from all but newest) or abort |
+| Previous axial ADR archived | Its number stays taken and its `axial: true` is gone — `adr.ts axial` must still report `count: 1` |
 | Q1–Q4 skipped | Refuse — mandatory |
 | Q3 answer is prose, not a grep pattern | Re-ask with the constraint stated |
 
 ## Boundaries
 
-- Writes ONE ADR file (+ optional supersede update of previous ADR). Nothing else.
+- Writes ONE ADR file (+ optional supersede transition of the previous ADR). Nothing else.
 - ¬judge axis quality — surface trade-offs; the user owns the decision.
 - ¬touch unrelated files in `$D`.
 - ¬modify code outside `$D`.
@@ -243,4 +217,4 @@ Exit status: `created` | `kept` | `superseded` | `cancelled`.
 ## Escalation
 
 - User unable to articulate any axes → "Cannot proceed without axes. Suggest `/R-frame` first." Exit `cancelled`.
-- Conflict between axes, no clear primary → write ADR with `## Status: Proposed`, document open question in `## Context`, exit `created` with warning.
+- Conflict between axes, no clear primary → write ADR with `status: proposed` in frontmatter, document the open question in `## Context`, exit `created` with warning.

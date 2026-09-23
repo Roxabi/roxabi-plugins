@@ -7,14 +7,15 @@ description: >
   repo-local release.yml. price.sh and finalize.ts stay — the staging-train fleet
   uses them. Resolves #500 by removing the deriver from the path, not by
   amending D18.
+status: accepted
+normative: true
+date: 2026-09-21
 ---
 
-## Status
-
-Accepted — 2026-09-21. Resolves Roxabi/roxabi-plugins#500.
-
-Narrows **#371 / Model B**: the trunk *branch* model survives; the trunk *tagger*
-does not. Leaves the spec-S2 deriver (D1–D18) in force for staging-train.
+> Resolves Roxabi/roxabi-plugins#500.
+>
+> Narrows **#371 / Model B**: the trunk *branch* model survives; the trunk *tagger*
+> does not. Leaves the spec-S2 deriver (D1–D18) in force for staging-train.
 
 ## Context
 

@@ -1,11 +1,13 @@
 ---
 title: "ADR-005: Clean Architecture & Hexagonal Migration — Boundary Decisions"
 description: Documents the port/adapter/domain boundary decisions, shim strategy, composition root rules, and Phase 5 SDK gate for the cross-plugin Clean Architecture migration (issue #20).
+status: accepted
+normative: true
+date: 2026-04-22
+superseded_in_part_by: [ADR-015, #452]
 ---
 
-## Status
-
-Accepted. **Partially superseded by [ADR-015](015-direct-call-over-role-interface-ports-typescript.mdx) for the TypeScript (dev-core/dev-init) layer** — the role interfaces `IssuePort`/`ProjectPort` and the `services` DI composition root were consolidated back to direct-call standalone functions in #192. **Also partially superseded for the `linkedin-apply` (Python) layer** — `StoragePort`, `FileStorageAdapter` and the `scraper.py` storage composition root were removed in PR #452; `scripts/storage.py` is now a single direct-call storage module, and therefore the single writer that enforces `APPLICATIONS_DIR` containment. This applies ADR-015's rationale (one implementation, one home for the fact) to Python. The other **Python-plugin** decisions in this ADR (`EntryRepository`, `SearchPort`, `FetcherPort`, `ConfigLoader[T]`, per-plugin `PluginError`) remain in force.
+> **Partially superseded by [ADR-015](015-direct-call-over-role-interface-ports-typescript.mdx) for the TypeScript (dev-core/dev-init) layer** — the role interfaces `IssuePort`/`ProjectPort` and the `services` DI composition root were consolidated back to direct-call standalone functions in #192. **Also partially superseded for the `linkedin-apply` (Python) layer** — `StoragePort`, `FileStorageAdapter` and the `scraper.py` storage composition root were removed in PR #452; `scripts/storage.py` is now a single direct-call storage module, and therefore the single writer that enforces `APPLICATIONS_DIR` containment. This applies ADR-015's rationale (one implementation, one home for the fact) to Python. The other **Python-plugin** decisions in this ADR (`EntryRepository`, `SearchPort`, `FetcherPort`, `ConfigLoader[T]`, per-plugin `PluginError`) remain in force.
 
 ## Context
 

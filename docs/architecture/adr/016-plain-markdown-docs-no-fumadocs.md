@@ -1,11 +1,10 @@
 ---
 title: "ADR-016: Plain Markdown docs — drop Fumadocs scaffold"
 description: Write path for project docs is always Markdown (.md). Fumadocs scaffolding and MDX verification are removed; legacy .mdx remains read-only.
+status: accepted
+normative: true
+date: 2026-07-19
 ---
-
-## Status
-
-Accepted
 
 ## Context
 

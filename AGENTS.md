@@ -72,7 +72,7 @@ Keep all READMEs current. Adding/modifying/removing a plugin → update:
 
 - **Source of truth** = repo: `plugins/<plugin-name>/`. Cache @ `~/.claude/plugins/cache/roxabi-marketplace/<plugin-name>/<hash>/` is a copy.
 - **Never edit cache only** — changes lost on plugin update/reinstall.
-- **Workflow:** edit repo source → commit + push → re-install via `claude plugin install <plugin-name>` to refresh local cache.
+- **Workflow:** edit repo source → commit + push → re-install via `claude plugin install <plugin-name>` to refresh local cache. Recorded in [ADR-023](docs/architecture/adr/023-plugin-cache-refresh-via-marketplace-install.md).
 - **Versioning** ([docs](https://code.claude.com/docs/en/plugin-marketplaces#version-resolution-and-release-channels)): resolution order = `plugin.json.version` > marketplace entry `version` > git commit SHA (first set wins). **Default policy: omit `version` from `plugin.json`** → every commit auto-ships as a new version (SHA-based, zero discipline). Set `version` only on semver-disciplined plugins (e.g., `dev-core`); bump on every release or users will not receive updates. Never set in both `plugin.json` AND marketplace entry — `plugin.json` silently wins, masking the marketplace value.
 
 - **Shared-source TS files** — with the merge of `dev-init` into `dev-core` as skill `/dev-init`, the copy-sync, caller-parity, and cross-plugin shared-import mechanisms are retired. Test-only suite factories live next to their callers under `plugins/dev-core/skills/shared/__tests__/suites/`. Full historical governance scope (pre-merge) recorded in [ADR-014](docs/architecture/adr/014-shared-ts-governance-scope.mdx) (now superseded).

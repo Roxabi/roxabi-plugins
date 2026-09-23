@@ -26,6 +26,7 @@ Usage:
   bun init.ts scaffold-rules [--stack-path ${STACK_YML}] [--project-name <name>] [--agents-md AGENTS.md]
   bun init.ts seed-trufflehog [--force] [--cwd <dir>] [--source-dir <dir>]
   bun init.ts seed-principal-freeze [--force] [--cwd <dir>] [--source-dir <dir>] [--no-patch-hooks] [--check]
+  bun init.ts seed-adr-hygiene [--force] [--cwd <dir>] [--source-dir <dir>]
   bun init.ts scaffold --github-repo <owner/repo> [--vercel-token <token>] [--vercel-project-id <id>] [--vercel-team-id <id>] [--force]`
 
 const args = process.argv.slice(2)
@@ -226,6 +227,20 @@ switch (command) {
       cwd,
       sourceDir,
       patchHooks: !hasFlag('--no-patch-hooks'),
+    })
+    console.log(JSON.stringify(result, null, 2))
+    if (result.error) process.exit(1)
+    break
+  }
+
+  case 'seed-adr-hygiene': {
+    // Lazy like every other arm: this is a router, and a static import here
+    // would load every subcommand's module on every invocation.
+    const { seedAdrHygieneScript } = await import('./lib/seed-adr-hygiene')
+    const result = seedAdrHygieneScript({
+      force: hasFlag('--force'),
+      cwd: parseFlag('--cwd', process.cwd()),
+      sourceDir: parseFlag('--source-dir', '') || undefined,
     })
     console.log(JSON.stringify(result, null, 2))
     if (result.error) process.exit(1)
