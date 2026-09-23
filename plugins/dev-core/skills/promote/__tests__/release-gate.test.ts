@@ -118,16 +118,133 @@ describe('provisioner — provision-release-gate.sh', () => {
     expect(provisionerSrc).toMatch(/already present/)
   })
 
-  it('DEFAULT_REF pins a tag whose reusable is the current one — never a branch', () => {
-    // The literal is a proxy for three properties of the pinned tag's reusable:
-    // it reads .dev/stack.yml (v0.5.0 read .claude/stack.yml), it is fail-closed,
-    // and it describes the current release trigger (v4.1.0 still announced a
-    // release at merge-to-main, which ADR-021 removed). Bump only for those.
-    // usage is a quoted heredoc, so the pin is a second literal, not `$DEFAULT_REF`.
-    const def = provisionerSrc.match(/^DEFAULT_REF="([^"]+)"/m)?.[1]
-    expect(def).toBe('roxabi-plugins/v5.1.0')
-    expect(def).toMatch(/^roxabi-plugins\/v\d+\.\d+\.\d+$/)
-    expect(provisionerSrc).toContain('roxabi-plugins/v5.1.0 — always pin to a tag, never a branch')
+  it('resolves the pin at provision time instead of hardcoding a tag that rots (#385 item 5)', () => {
+    // The old contract WAS the literal `DEFAULT_REF="roxabi-plugins/v5.1.0"`, and
+    // that literal is the defect: trunk cuts a new roxabi-plugins/vX.Y.Z on every
+    // merge, so a pin written into this file is stale the day after and silently
+    // provisions a repo against an old gate. The contract now: no version literal
+    // is the default, the newest tag is resolved from the host repo, and an
+    // unresolvable pin provisions NOTHING.
+    expect(provisionerSrc).not.toMatch(/^DEFAULT_REF=/m)
+    expect(provisionerSrc).not.toMatch(/^REF="[^"]+"/m)
+    expect(provisionerSrc).toMatch(/^REF=""/m)
+    expect(provisionerSrc).toMatch(/^resolve_pin\(\) \{/m)
+    // Loud, not a fallback: no literal, no branch, nothing provisioned.
+    expect(provisionerSrc).toContain('could not resolve a pin')
+    expect(provisionerSrc).toContain('does NOT fall back to a hardcoded tag')
+  })
+
+  it('rejects a moving ref as a pin — a branch re-points every provisioned stub', () => {
+    expect(provisionerSrc).toMatch(/^validate_pin\(\) \{/m)
+    expect(provisionerSrc).toContain('is not an immutable pin')
+  })
+})
+
+// ─── #385 item 1: the deriver is pinned, and the pin cannot fail the job ──────
+//
+// Behaviour lives in release-gate-exec.integration.test.ts, which runs the
+// extracted shell. What execution structurally CANNOT see is the YAML step
+// machinery around it — the exec harness supplies GATE_* itself, so it would not
+// notice the checkout step, its `continue-on-error`, or the env plumbing going
+// missing. Those three are asserted here and nowhere else.
+describe('release-consistency — pinned gate tooling step (#385 item 1)', () => {
+  it('checks out the REUSABLE workflow\u2019s own repo and commit, not the caller\u2019s', () => {
+    // github.* in a reusable workflow is the CALLER's context; job.workflow_* is
+    // the only pair that names this file's own repo and sha.
+    expect(reusableSrc).toMatch(/repository: \$\{\{ job\.workflow_repository \}\}/)
+    expect(reusableSrc).toMatch(/ref: \$\{\{ job\.workflow_sha \}\}/)
+    expect(reusableSrc).toMatch(/path: \.gate-tools/)
+  })
+
+  it('cannot fail the job: the pinned checkout is continue-on-error and guarded by an if', () => {
+    // The load-bearing bit. This step runs BEFORE every in-job early green, so a
+    // step failure here is a JOB failure in front of them — and with zero bypass
+    // actors that deadlocks main in every provisioned repo (D15c at job level).
+    const stepIdx = reusableSrc.indexOf('- name: Checkout pinned gate tooling')
+    const gateIdx = reusableSrc.indexOf('- name: Gate')
+    expect(stepIdx).toBeGreaterThan(-1)
+    expect(gateIdx).toBeGreaterThan(stepIdx)
+    const step = reusableSrc.slice(stepIdx, gateIdx)
+    expect(step).toMatch(/continue-on-error: true/)
+    expect(step).toMatch(/if: \$\{\{ job\.workflow_repository != '' && job\.workflow_sha != '' \}\}/)
+    // The clone is credential-free: `persist-credentials: false` keeps the
+    // cross-repo token out of .gate-tools/.git/config, where any later step —
+    // including `bash "$PRICE"` itself — could read it. Scoped to this step like
+    // its three siblings in the same `with:` block, so a drop is caught here
+    // rather than satisfied by the string appearing anywhere in the file.
+    expect(step).toMatch(/persist-credentials: false/)
+  })
+
+  it('clears .gate-tools/ before the pinned checkout — the head must not own that path', () => {
+    // `.gate-tools/` lives in the PR-author-controlled checkout, and the pinned
+    // step writes it ONLY when it runs (its `if:` and `continue-on-error` both
+    // exist for good reasons). Without an unconditional clear, a
+    // `.gate-tools/…/price.sh` committed by the PR survives into the Gate step.
+    // Exec cannot see this: the harness runs the Gate script alone.
+    const clearIdx = reusableSrc.indexOf('- name: Clear the pinned gate-tooling path')
+    const pinIdx = reusableSrc.indexOf('- name: Checkout pinned gate tooling')
+    expect(clearIdx).toBeGreaterThan(-1)
+    expect(pinIdx).toBeGreaterThan(clearIdx)
+    const step = reusableSrc.slice(clearIdx, pinIdx)
+    expect(step).toMatch(/run: rm -rf \.gate-tools/)
+    // Unconditional: no `if:` may gate it, or the attack path re-opens exactly
+    // where the pinned step is skipped.
+    expect(step).not.toMatch(/^\s+if:/m)
+    // And it may not fail the job in front of an early green (D15c).
+    expect(step).toMatch(/continue-on-error: true/)
+  })
+
+  it('plumbs the pin identity and the checkout outcome into the Gate step', () => {
+    // Without these the gate cannot tell an operator WHY the deriver is missing,
+    // and the exec suite — which supplies them — cannot observe their loss.
+    expect(reusableSrc).toMatch(/^\s+GATE_TOOLS_OUTCOME: \$\{\{ steps\.gate_tools\.outcome \}\}$/m)
+    expect(reusableSrc).toMatch(/^\s+GATE_PIN: \$\{\{ job\.workflow_repository \}\}@\$\{\{ job\.workflow_sha \}\}$/m)
+  })
+
+  it('runs the pinned deriver and never the checked-out one', () => {
+    expect(reusableSrc).toContain('PRICE=".gate-tools/plugins/dev-core/skills/promote/price.sh"')
+    expect(reusableSrc).not.toMatch(/PRICE="plugins\//)
+  })
+
+  it('decides on PROVENANCE: only a pinned checkout that RAN and SUCCEEDED blesses the deriver', () => {
+    // `[ -f "$PRICE" ]` alone is presence, and the head can create presence at
+    // that path. `steps.gate_tools.outcome` is the one witness it cannot write.
+    // The exec suite proves the behaviour; this pins the predicate so a future
+    // edit cannot quietly drop the outcome conjunct and keep the file check.
+    expect(reusableSrc).toMatch(/^\s+price_available\(\) \{$/m)
+    expect(reusableSrc).toContain('[ "${GATE_TOOLS_OUTCOME:-}" = "success" ] && [ -f "$PRICE" ]')
+  })
+
+  it('every `bash "$PRICE"` is immediately preceded by the lazy guard, and no guard precedes an early green', () => {
+    // The placement contract of #385 item 3, read off the shipped bytes. The
+    // behavioural half (early greens still exit 0 with no deriver) is in the exec
+    // suite; this half pins the *structure* that makes it true, so a future edit
+    // that adds a third call site without a guard fails here rather than shipping
+    // an unguarded `bash "$PRICE"`.
+    const lines = reusableSrc.split('\n')
+    const callSites = lines.flatMap((l, i) => (/^\s*[A-Z_]+=\$\(bash "\$PRICE"/.test(l) ? [i] : []))
+    const guards = lines.flatMap((l, i) => (/^\s*price_available \|\|/.test(l) ? [i] : []))
+    expect(callSites.length).toBe(2)
+    expect(guards.length).toBe(callSites.length)
+    // No call site may be guarded by the old presence-only test.
+    expect(reusableSrc).not.toMatch(/^\s*\[ -f "\$PRICE" \] \|\|/m)
+
+    // Each call site has a guard above it with only comments and `set +e` between.
+    for (const site of callSites) {
+      const guard = guards.filter((g) => g < site).pop()
+      expect(guard).toBeDefined()
+      const between = lines
+        .slice((guard as number) + 1, site)
+        .filter((l) => l.trim() !== '' && !l.trim().startsWith('#'))
+      expect(between.every((l) => l.trim() === 'set +e')).toBe(true)
+    }
+
+    // And no guard sits above the first early green — that ordering is the P1
+    // deadlock the #374 review killed.
+    const firstEarlyGreen = reusableSrc.search(/[^!]= "trunk" \]/)
+    expect(firstEarlyGreen).toBeGreaterThan(-1)
+    const firstGuardOffset = reusableSrc.search(/^\s*price_available \|\|/m)
+    expect(firstGuardOffset).toBeGreaterThan(firstEarlyGreen)
   })
 })
 

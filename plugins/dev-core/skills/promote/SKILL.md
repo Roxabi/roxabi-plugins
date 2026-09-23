@@ -75,21 +75,38 @@ Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI
 
 **Trunk skip (`release.model: trunk`, #371 B1).** Under trunk the create-PR path opens a *plain* staging→main merge PR: there is **no pre-declared version** to validate, and merging tags nothing (ADR-021). So the **Gate probe, Unfinalized-promote, and Version-file** checks below (all staging-train *finalize* invariants) are **SKIPPED**; only the **Component** check runs — `release.component` still scopes the release-consistency floor and the `<component>/vX.Y.Z` tag prefix. Detect and short-circuit before the staging-train guards:
 
+**Authority comes from the BASE branch, not your working tree (#374 F2, #385 item 4).** The `release-consistency` gate resolves `release.model` and `release.component` from `refs/remotes/origin/<base>:.dev/stack.yml` — for a staging→main promote, from `main`. `/R-promote` runs on `staging`. On `roxabi-factory` those two trees are 3934 commits apart and their `stack.yml` blobs differ, so reading the local file here makes `/R-promote` predict a verdict the gate will not return. Read what the gate reads:
+
 ```bash
-MODEL=$(yq -r '.release.model // "staging-train"' .dev/stack.yml 2>/dev/null \
-  || { [ -f .dev/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".dev/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
+BASE_REF=refs/remotes/origin/main    # the promote PR's base — same ref the gate anchors on
+# A failed fetch is not fatal — /R-promote must work offline — but it is NOT silent
+# either: `git show` below succeeds against a STALE refs/remotes/origin/main, so
+# without this warning a moved base produces a confident prediction of the wrong
+# verdict, and neither the fallback nor anything else fires (#385 m8).
+git fetch --force origin '+refs/heads/*:refs/remotes/origin/*' >/dev/null 2>&1 \
+  || echo "WARN: fetch failed — ${BASE_REF} may be stale; the gate anchors on the REAL base, so this prediction can differ from its verdict. Re-run with network before trusting a green." >&2
+BASE_STACK=$(mktemp)
+git show "${BASE_REF}:.dev/stack.yml" > "$BASE_STACK" 2>/dev/null || : > "$BASE_STACK"
+
+MODEL=$(yq -r '.release.model // "staging-train"' "$BASE_STACK" 2>/dev/null \
+  || python3 -c 'import sys,yaml;d=yaml.safe_load(open(sys.argv[1])) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' "$BASE_STACK" 2>/dev/null \
+  || echo staging-train)
+MODEL=${MODEL:-staging-train}        # absent/unparseable coerces to the strict path, like the gate
 # → if MODEL=trunk: run ONLY the Component check below, then jump to Step 1b.
 #   (The promote-PR's version heading/title, computed in Steps 2–4, is COSMETIC under
 #    trunk — no tag is cut at merge; a release is named later by an annotated tag.)
 ```
 
-**Component (S6/D13):**
+**Component (S6/D13)** — same source, same reason:
 
 ```bash
-COMPONENT=$(yq -r '.release.component // "null"' .dev/stack.yml 2>/dev/null \
-  || python3 -c 'import yaml;print((yaml.safe_load(open(".dev/stack.yml")).get("release") or {}).get("component") or "null")')
-{ [ "$COMPONENT" = null ] || [ -z "$COMPONENT" ]; } && { echo "REFUSE: release.component unset — paste a release: block (see stack.yml.example)"; exit 1; }
+COMPONENT=$(yq -r '.release.component // ""' "$BASE_STACK" 2>/dev/null \
+  || python3 -c 'import sys,yaml;d=yaml.safe_load(open(sys.argv[1])) or {};print(((d.get("release") or {}).get("component")) or "")' "$BASE_STACK" 2>/dev/null \
+  || true)
+{ [ -z "$COMPONENT" ] || [ "$COMPONENT" = null ]; } && { echo "REFUSE: release.component unset on ${BASE_REF}:.dev/stack.yml — paste a release: block (see stack.yml.example)"; exit 1; }
 ```
+
+If this is empty while your **working tree** declares a component, the `release:` block (or the rename) has not landed on the base yet. Land it first via an ordinary branch→`main` PR — that PR early-greens at the gate's `head != staging` scope gate, so it is mergeable even with the gate already armed — then re-run `/R-promote`.
 
 **Gate probe (S7/D6/D17)** — the check must be *required*, not merely present; a bypassable required check is advisory with better marketing, so the probe reads the actor list too:
 
@@ -292,7 +309,14 @@ After merge:
 
 Skip Steps 1-8. Post-merge only.
 
-**9.0 Trunk guard (#371 B1).** `/R-promote --finalize` is the *staging-train* tagger. Under `release.model: trunk` a release is cut by pushing an annotated tag (ADR-021), and there is no promotion to finalize — refuse before touching anything (see `## Trunk mode`):
+**9a.** Verify merge — and land on the base **first**, because 9.1's trunk guard reads the working tree:
+```bash
+git fetch origin main && git checkout main && git pull origin main
+gh pr list --base main --head staging --state merged --limit 1 --json number,title,mergedAt
+```
+¬merged → REFUSE: "Merge the promotion PR first."
+
+**9.1 Trunk guard (#371 B1).** `/R-promote --finalize` is the *staging-train* tagger. Under `release.model: trunk` a release is cut by pushing an annotated tag (ADR-021), and there is no promotion to finalize — refuse before tagging anything (see `## Trunk mode`):
 
 ```bash
 MODEL=$(yq -r '.release.model // "staging-train"' .dev/stack.yml 2>/dev/null \
@@ -300,12 +324,9 @@ MODEL=$(yq -r '.release.model // "staging-train"' .dev/stack.yml 2>/dev/null \
 [ "$MODEL" = trunk ] && { echo "REFUSE: release.model==trunk — a trunk release is cut by pushing an annotated tag (ADR-021); /R-promote --finalize does not apply."; exit 1; }
 ```
 
-**9a.** Verify merge:
-```bash
-git fetch origin main && git checkout main && git pull origin main
-gh pr list --base main --head staging --state merged --limit 1 --json number,title,mergedAt
-```
-¬merged → REFUSE: "Merge the promotion PR first."
+Unlike Step 1a, this one legitimately reads the **local** `.dev/stack.yml` — but **only because it sits after 9a** (#385 item 4). 9a is what checks out and pulls `main`; before it, `--finalize` is still standing wherever it was invoked, which per Step 1a is `staging`. Read there, the local file is the *head's* stack.yml, i.e. exactly the source Step 1a refuses. After 9a the working tree **is** the base the gate reads, so there is no divergence to correct. Move this guard back above 9a and that sentence stops being true.
+
+Nothing is written before this point: 9a fetches, checks out and lists. The guard still refuses before the first mutation (the tag in 9d).
 
 **9b.** Derive V from the **merge object alone** (S11/D4) — never from a witness. The finalize verdict (structural REFUSE, drift REFUSE, witness WARN, per-artifact act) is computed by `lib/finalize.ts` — the **tested classifier IS the executed decision** (#369), not a bash re-implementation of part of it. The PR title, CHANGELOG heading and version file are compared only to **WARN** (D7); a disagreement prints repair actions and finalize **tags the derived version anyway**, because the merge already shipped and a post-merge REFUSE would re-manufacture the shipped-no-release defect. Gather the inputs:
 

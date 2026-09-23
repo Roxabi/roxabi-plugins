@@ -1,0 +1,30 @@
+# actionlint configuration.
+#
+# The ONLY entry here is a narrowly scoped suppression, path-pinned to one file,
+# text-pinned to two property names AND context-pinned to the `job` object type,
+# so nothing else in .github/workflows/ loses a single check.
+#
+# WHY: `job.workflow_repository` / `job.workflow_sha` are real, documented
+# GitHub Actions context properties (shipped 2026-04-23) that let a REUSABLE
+# workflow identify its own source repo and commit — they are what makes
+# release-consistency.yml run the deriver from a pinned copy of its own repo
+# instead of the PR author's checkout (#385 item 1). actionlint 1.7.12 bundles a
+# static type table for the `job` context that predates them, so it type-errors
+# on a correct expression.
+#
+# WHY THE PATTERN CARRIES `in object type \{check_run_id`: actionlint matches
+# these entries as REGULAR EXPRESSIONS against the whole message, so a pattern
+# that stops at the property name is property-pinned but not CONTEXT-pinned — it
+# also swallows `github.workflow_repository`, which is NOT a real property of the
+# `github` context and whose type error is a genuine defect. `{check_run_id` is
+# the opening of actionlint's own rendering of the `job` object type, so the
+# suppression is exactly as wide as its cause. Verified both ways: the shipped
+# file is clean, and mutating `job.` → `github.` on the `if:` is caught.
+#
+# REMOVE THIS FILE when the pinned actionlint in .github/workflows/ci.yml knows
+# those two properties: delete the entry, run `actionlint`, and if it is clean
+# the suppression has outlived its cause.
+paths:
+  .github/workflows/release-consistency.yml:
+    ignore:
+      - 'property "workflow_(repository|sha)" is not defined in object type \{check_run_id'
