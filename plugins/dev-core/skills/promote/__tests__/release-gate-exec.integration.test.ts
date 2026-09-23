@@ -103,16 +103,21 @@ function scratch(prefix: string): string {
  */
 function gitEnv(): NodeJS.ProcessEnv {
   const e: NodeJS.ProcessEnv = {}
-  // GIT_* would leak the runner's repo state. GH_*/GITHUB_* are stripped for a
-  // sharper reason: every `gh` in these tests is meant to be the stub, and the
-  // stub is only *prepended* to PATH. If resolution ever misses it, the real
-  // `gh` runs — and with the runner's token still in the environment it runs
-  // AUTHENTICATED, against live repos, from a unit test. Removing the credentials
-  // means a fall-through can only fail, never act.
+  // GIT_* would leak the runner's repo state. GH_*/GITHUB_* go for a sharper
+  // reason: every `gh` here is meant to be the stub, and the stub is only
+  // *prepended* to PATH, so a missed resolution runs the real binary.
+  //
+  // Stripping the token vars is NOT sufficient on its own — `gh` also reads
+  // `$GH_CONFIG_DIR`, else `$XDG_CONFIG_HOME/gh/hosts.yml`, else
+  // `$HOME/.config/gh/hosts.yml`, and from there the system keyring. On a
+  // developer box that path carries admin:org / delete_repo / workflow scopes.
+  // So the config dir is redirected at a scratch path that does not exist:
+  // a fall-through then has no credentials by any route and can only fail.
   for (const [k, v] of Object.entries(process.env)) {
     if (k.startsWith('GIT_') || k.startsWith('GH_') || k.startsWith('GITHUB_')) continue
     e[k] = v
   }
+  e.GH_CONFIG_DIR = path.join(os.tmpdir(), 'gh-config-absent-fixture')
   e.GIT_CONFIG_GLOBAL = '/dev/null'
   e.GIT_CONFIG_SYSTEM = '/dev/null'
   e.GIT_AUTHOR_NAME = 'Fixture'
@@ -604,12 +609,18 @@ type StubMode = 'fail' | 'silent-ok' | 'stack-without-release'
  */
 function ghStub(mode: StubMode): string {
   const dir = scratch('gh-stub-')
+  // Every stub drains stdin first. Real `gh` always reads it (verified against
+  // 2.100.0, including an early exit on an unknown flag), so a stub that exits
+  // without reading models a `gh` that does not exist — and it is the reader
+  // half of the SIGPIPE that produced #524. Keeping the stub honest means the
+  // fixture cannot manufacture a failure the real binary would never cause.
+  const drain = 'cat >/dev/null 2>&1\n'
   let body: string
-  if (mode === 'fail') body = '#!/bin/sh\nexit 1\n'
-  else if (mode === 'silent-ok') body = '#!/bin/sh\nexit 0\n'
+  if (mode === 'fail') body = `#!/bin/sh\n${drain}exit 1\n`
+  else if (mode === 'silent-ok') body = `#!/bin/sh\n${drain}exit 0\n`
   else {
     const b64 = Buffer.from('schema_version: "1.0"\nruntime: bun\n').toString('base64')
-    body = `#!/bin/sh\ncase "$*" in\n  *contents/.dev/stack.yml*) printf '%s\\n' '${b64}' ;;\nesac\nexit 0\n`
+    body = `#!/bin/sh\n${drain}case "$*" in\n  *contents/.dev/stack.yml*) printf '%s\\n' '${b64}' ;;\nesac\nexit 0\n`
   }
   fs.writeFileSync(path.join(dir, 'gh'), body, { mode: 0o755 })
   return dir
