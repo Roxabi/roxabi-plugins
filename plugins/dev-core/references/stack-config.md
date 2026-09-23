@@ -84,17 +84,17 @@ Let: α := agent(s) | σ := stack.yml field
 
 Opt-in code-hygiene gates. Consumer: `skills/release-setup/cookbooks/quality-gates.md` (Phase 4.5 of `/R-release-setup`, steps N1–N8) — it copies `tools/check_file_length.sh`, `tools/check_folder_size.sh`, `tools/check_lib.sh` into the project, regenerates `tools/qg.conf` from σ, and merges hooks into `.pre-commit-config.yaml`. Nothing here is read at agent time; σ only feeds the generator, and the gates then run from `tools/qg.conf`.
 
-Block-level gating: `quality_gates` absent → all gates off · sub-block absent ∨ `enabled: false` → that gate off. Generator entry guard (N1/N1a) also skips the whole block when `runtime ∉ {python, node}` ∨ `schema_version` < `"1.0"`. `folder_size` and `import_layers` are Python-only — skipped on `runtime: node` whatever their `enabled:`.
+Block-level gating: `quality_gates` absent → all gates off · sub-block absent ∨ `enabled: false` → that gate off. Generator entry guard (N1/N1a) also skips the whole block when `runtime ∉ {python, node}`, or when `schema_version` is **missing or** `< "1.0"` — a stack with no `schema_version` installs nothing, it is not treated as current. The version test is a string-literal comparison on the `major.minor` prefix (cookbook N1a), not semver parsing. `folder_size` and `import_layers` are Python-only — skipped on `runtime: node` whatever their `enabled:`.
 
-Only the three sub-blocks below exist. No other key is implemented.
+Only the three sub-blocks below exist. No other key is implemented. Planned, not yet emitted by any generator: `secrets` (with a `tool: trufflehog|gitleaks` discriminator), `license`, `file_length.packages`, `custom_hooks`, `dup_test` — see #251; each is documented here only by the slice that ships its emitter.
 
 #### `quality_gates.file_length`
 
-| σ | Type | Req | Default | Generator effect |
+| σ | Type | Req | Default (key **absent**) | Generator effect |
 |---|------|-----|---------|------------------|
 | `enabled` | bool | yes | — (absent = off) | `false` → gate skipped; never uninstalls an installed gate (D6) |
 | `max_lines` | int | no | `300` | → `QG_FILE_MAX` in `tools/qg.conf` (N4a); script falls back to `300` when qg.conf is absent |
-| `metric` | `raw` \| `sloc` | no | `raw` | → `QG_FILE_METRIC`; with `runtime` derives `QG_FILE_EXTS` + `QG_FILE_COUNTER` (`raw`→`wc`, `sloc`→`radon` python / `sloc-npm` node). `sloc` on Python also triggers `uv add --group dev radon` (N4b) |
+| `metric` | `raw` \| `sloc` | no | `raw` | → `QG_FILE_METRIC`; with `runtime` derives `QG_FILE_EXTS` + `QG_FILE_COUNTER` (`raw`→`wc`, `sloc`→`radon` python / `sloc-npm` node). `sloc` on Python also triggers `uv add --group dev "radon>=6.0"` (N4b) — the lower bound is load-bearing: radon 6.x ships the `raw -j` JSON format the gate parses |
 | `globs` | list\<str\> | no | — | **None.** No code reads it — see Surprises |
 | `exemptions_file` | path | no | `tools/file_exemptions.txt` | → `QG_FILE_EXEMPTIONS`; N4 creates the file with a header comment if absent, never overwrites |
 
@@ -102,7 +102,7 @@ Hook merged by N7: `id: check-file-length`, `entry: tools/check_file_length.sh`,
 
 #### `quality_gates.folder_size`
 
-| σ | Type | Req | Default | Generator effect |
+| σ | Type | Req | Default (key **absent**) | Generator effect |
 |---|------|-----|---------|------------------|
 | `enabled` | bool | yes | — (absent = off) | Same semantics as `file_length.enabled` |
 | `max_files` | int | no | `12` | → `QG_FOLDER_MAX`; script fallback `12`. Counted per directory, non-recursive (`find -maxdepth 1 -name "*.py"`) |
@@ -113,7 +113,7 @@ Hook merged by N7: `id: check-folder-size`, `entry: tools/check_folder_size.sh`,
 
 #### `quality_gates.import_layers`
 
-| σ | Type | Req | Default | Generator effect |
+| σ | Type | Req | Default (key **absent**) | Generator effect |
 |---|------|-----|---------|------------------|
 | `enabled` | bool | yes | — (absent = off) | `true` → N5 `uv add --group dev "import-linter>=2.0,<3.0"`, N6 `.importlinter` scaffold, N7 hook |
 | `stage` | `pre-commit` \| `pre-push` | no | `pre-push` | → hook `stages: [<stage>]`, **applied on insert only** — see Surprises |
@@ -123,11 +123,25 @@ Hook merged by N7: `id: import-layers`, `entry: uv run lint-imports`, `language:
 
 #### Exemption file format
 
-`<path>  # <N> lines|files — <issue-url> <rationale>`. `<N>` is a **local cap**, not a bypass: the path fails the gate once it exceeds `N`. It must be the first `# <N>` token after the path (leftmost match). A line with no `# <N> <unit>` is a full bypass (back-compat). Paths must not contain spaces — the gate aborts on one. Matching is exact on the first whitespace field (`check_lib.sh` `is_exempt`), so a directory exemption does not cover its files.
+`<path>  # <N> lines|files — <issue-url> <rationale>`. `<N>` is a **local cap**, not a bypass: the path fails the gate once it exceeds `N`. Matching is exact on the first whitespace field (`check_lib.sh` `is_exempt`), so a directory exemption does not cover its files.
+
+**The cap parser reads too much of the line.** `exempt_cap` takes the leftmost match of `# *[0-9]+ *<unit>` *anywhere* after the path. Two consequences, not one: a second count later in the rationale is ignored (the leftmost wins), **and a line meant to carry no cap at all can acquire one** — an issue reference followed by the unit word is a match. `src/big.py  # full bypass, see #12 lines of generated code below` parses as a cap of `12`, and a 400-line file then fails with `exceeds declared exemption cap of 12`. Drop the unit word from rationales that carry an issue ref (`# see #12 for the refactor` is inert), or state the cap you actually mean.
+
+**Back-compat is narrower than "no `# <N> <unit>` = full bypass".** A capless line is a full bypass only while it holds **at most two whitespace fields**. `assert_exempt_no_spaces` aborts on any non-comment line with `NF > 2` whose `$2` does not start with `#`, and it cannot tell a space-bearing path from a legacy two-field line with a rationale appended. Observed against a 400-line file at cap 300:
+
+| Exemption line | rc |
+|---|---|
+| `src/big.py` | 0 (bypass) |
+| `src/big.py https://github.com/…/546` | 0 (bypass) |
+| `src/big.py https://github.com/…/546 legacy` | **1** — `ERROR: tools/file_exemptions.txt: exemption path contains spaces — paths with spaces are not supported` |
+| `src/big.py  # 400 lines — #546 legacy` | 0 (capped form; `$2` is `#`, rationale free-form) |
+
+That abort is an `exit 1` from a *sourced* helper, so it terminates the whole gate run before a single file is scanned: in the same repro a second, non-exempt 500-line file was never reported, and the only message names a cause (a path with spaces) that is not present. Trigger likelihood is high — `stack.yml.example:93` still advertises the legacy shape as `<path> <issue-url> (space-separated)`, so appending "why" to such a line lands exactly here. Rules that hold: keep capless lines to two fields, or add a `# <N> <unit>` cap and write the rationale after it.
 
 #### Surprises — verified against the generator, not the example
 
 - **`globs` is decorative.** `qg.conf` seeds `QG_FILE_ROOT` / `QG_FOLDER_ROOT` to a hardcoded `src/`; no step reads `globs`. Code outside `src/` is never scanned, and a repo with no `src/` **hard-fails** (`require_scan_root` exits 1, "A missing target is not a pass"). Escape hatches are env-only: `QG_FILE_ROOT=<dir>` / `QG_FOLDER_ROOT=<dir>`, or `QG_FILE_LENGTH_DISABLE=1` / `QG_FOLDER_SIZE_DISABLE=1` (`1|true|yes`).
+- **A present-but-empty key is not an absent key.** Every default in the tables above is the *absent-key* default. The generator extracts with `(… or {}).get('<key>', <default>)` (N4a), so `max_lines:` written with nothing after it parses as YAML `null` and `.get` returns that `null` — not `300`. It serialises as `: "${QG_FILE_MAX:=None}"`, and the gate's `[ "$LINES" -gt "$MAX" ]` then fails as a *shell* error rather than a violation: `[: None: integer expression expected` on stderr, **exit 0**. A 400-line file passes under a nominal cap of 300; observed identically on the folder gate (16 files under a nominal 12 → exit 0). Because the merged hooks are `pass_filenames: false`, pre-commit shows output only on failure, so the green run hides the warning. Blanking a path key is the opposite failure: `exemptions_file:` empty points the gate at a file literally named `None`, so every exemption is ignored and the gate gets *stricter*; `metric:` empty is inert (anything ≠ `sloc` is raw). Write a value or omit the key — "leave it at the default" must be expressed by deleting the line.
 - **The hook merge upserts by `id`.** N7 keys on `id`; an unknown id is inserted after `id: typecheck`, a known one is left alone (`--force` re-stamps `entry:` only). It never removes a hook, so **renaming a hook id leaves the old hook behind** and the project runs both.
 - **`stage:` only lands at install.** `stages:` is preserved on every re-run including `--force` (D4). Flipping `stage` in σ after install changes nothing — edit `.pre-commit-config.yaml` by hand.
 - **`raw` metric scans `*.py` only.** In `raw` mode (the default) the file gate ignores `QG_FILE_EXTS` and runs `find "$FIND_ROOT" -name "*.py"`. A `runtime: node` project on default `metric` gates zero files while reporting success; the merged hook additionally carries `types: [python]`. Node needs `metric: sloc`.
@@ -139,9 +153,9 @@ Hook merged by N7: `id: import-layers`, `entry: uv run lint-imports`, `language:
 
 | Source A | Source B | Disagreement |
 |---|---|---|
-| `stack.yml.example` "Python-only — stack-setup skips this section when runtime != python" | `stack-setup/SKILL.md` conditional rules (`runtime ∈ {python, node, bun}`) ∧ cookbook N1 (`runtime ∈ {python, node}`) | Three-way. `runtime: bun` gets a `quality_gates:` block stack-setup wrote and the generator refuses to install |
+| `stack.yml.example:87` "Python-only — stack-setup skips this section when runtime != python", plus four more Python-only claims: `dev-core/README.md:142`, `release-setup/README.md:32` ("triggers when `runtime == python`") and `:40` ("Non-Python runtimes exit Phase 4.5 immediately"), `release-setup/SKILL.md:111–116` (every `tools/` artifact annotated "python + quality_gates only") | `stack-setup/SKILL.md:254` conditional rules (`runtime ∈ {python, node, bun}`) ∧ cookbook N1 (`runtime ∈ {python, node}`) | Five sources say Python-only, two say wider. Node is installable per N1 yet documented everywhere as not applicable; `runtime: bun` gets a `quality_gates:` block stack-setup wrote and the generator refuses to install. Sharpest case: `release-setup/README.md:32` — the README of the very skill that dispatches N1, contradicting its own cookbook |
 | `stack.yml.example` `quality_gates.file_length` (no `metric`) | cookbook N4a + `stack-setup/SKILL.md` template | `metric` is implemented and templated but missing from the shipped example |
-| `stack.yml.example` exemption comment `<path> <issue-url> (space-separated)` | cookbook N4 + `check_lib.sh` `exempt_cap` | Example omits the `# <N> lines\|files` local cap, the part that can fail the gate |
+| `stack.yml.example:93` exemption comment `<path> <issue-url> (space-separated)` | cookbook N4 + `check_lib.sh` (`exempt_cap`, `assert_exempt_no_spaces`) | Example omits the `# <N> lines\|files` local cap, the part that can fail the gate — and the two-field shape it does advertise aborts the entire run as soon as a third field (a rationale) is appended |
 | `stack.yml.example` / `stack-setup` templates carry `globs` and `import_layers.config` | cookbook N4a/N6 | Both keys are inert; the example implies configurable scan roots and config paths that do not exist |
 
 ### `commands.*`
@@ -332,4 +346,4 @@ frontend:
 | `standards.frontend` | R-frontend-dev | Skips TS gotchas + UI library patterns |
 | `artifacts.*` | R-product-lead | Cannot write artifacts; reports path missing |
 | `review.roster.*` | dev-review | Active default: `max_agents` 3 and every agent `default`. Compatibility-only `max_agents_review` defaults to `0`. Deprecated `verify_below_confidence` and `recall_min_delta` are ignored |
-| `quality_gates.*` | release-setup | Never an error. Block absent → all gates off; sub-block absent → that gate off; per-key absent → generator default (`max_lines` 300, `max_files` 12, `metric` raw, `stage` pre-push, canonical exemption paths) |
+| `quality_gates.*` | release-setup | Never an error. Block absent → all gates off; sub-block absent → that gate off; per-key **absent** → generator default (`max_lines` 300, `max_files` 12, `metric` raw, `stage` pre-push, canonical exemption paths). A key **present with no value** is not absent: it reaches `qg.conf` as `None` and, for the numeric caps, turns the gate green on everything — see Surprises |
