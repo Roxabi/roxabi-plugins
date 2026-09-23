@@ -23,7 +23,7 @@
  *
  * Zero external dependencies — uses only Bun built-ins and Node.js fs/path.
  *
- * Copied into projects by /init Phase 10d via dev-core plugin.
+ * Copied into projects by /R-ci-setup (cookbooks/hooks.md step g) via the dev-core plugin.
  */
 
 import { spawnSync } from 'node:child_process'

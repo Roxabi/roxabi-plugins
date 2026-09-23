@@ -130,8 +130,8 @@ Ask: **Fix all** | **Select** | **Skip**
 | `ENABLE_LSP_TOOL not set` | `echo 'ENABLE_LSP_TOOL=1' >> .env && grep -q '^ENABLE_LSP_TOOL=' .env.example 2>/dev/null \|\| echo 'ENABLE_LSP_TOOL=1' >> .env.example` |
 | `LSP server not installed` | TS→ bun: `bun add -d typescript-language-server typescript` / pnpm: `pnpm add -D typescript-language-server typescript` / npm: `npm install --save-dev typescript-language-server typescript` / yarn: `yarn add --dev typescript-language-server typescript`. Python→`uv tool install pyright`. Rust→`rustup component add rust-analyzer`. Go→`go install golang.org/x/tools/gopls@latest` |
 | `LSP plugin not installed` | Ask: **Global** | **Project** | **Skip**. Global→`claude plugin install <plugin-name>`. Project→`claude plugin install <plugin-name> --scope project` |
-| `tools/licenseChecker.ts missing` | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && mkdir -p tools && cp "${Φ}/scripts/licenseChecker.ts" tools/licenseChecker.ts` |
-| `.license-policy.json missing` (JS) | `Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")") && cp "${Φ}/tools/license-policy.json.example" .license-policy.json` |
+| `tools/licenseChecker.ts missing` | `mkdir -p tools && cp "${CLAUDE_PLUGIN_ROOT}/scripts/licenseChecker.ts" tools/licenseChecker.ts` |
+| `.license-policy.json missing` (JS) | `cp "${CLAUDE_PLUGIN_ROOT}/tools/license-policy.json.example" .license-policy.json` |
 | `docs.path missing` / `docs incomplete` | `bun "${Φ}/skills/dev-init/init.ts" scaffold-docs --path {docs.path}` — re-check + display |
 | `Stub docs detected` | Run `/R-seed-docs` — populates TODOs from AGENTS.md + codebase analysis |
 
