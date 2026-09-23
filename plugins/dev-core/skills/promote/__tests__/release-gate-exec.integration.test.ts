@@ -103,7 +103,16 @@ function scratch(prefix: string): string {
  */
 function gitEnv(): NodeJS.ProcessEnv {
   const e: NodeJS.ProcessEnv = {}
-  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) e[k] = v
+  // GIT_* would leak the runner's repo state. GH_*/GITHUB_* are stripped for a
+  // sharper reason: every `gh` in these tests is meant to be the stub, and the
+  // stub is only *prepended* to PATH. If resolution ever misses it, the real
+  // `gh` runs — and with the runner's token still in the environment it runs
+  // AUTHENTICATED, against live repos, from a unit test. Removing the credentials
+  // means a fall-through can only fail, never act.
+  for (const [k, v] of Object.entries(process.env)) {
+    if (k.startsWith('GIT_') || k.startsWith('GH_') || k.startsWith('GITHUB_')) continue
+    e[k] = v
+  }
   e.GIT_CONFIG_GLOBAL = '/dev/null'
   e.GIT_CONFIG_SYSTEM = '/dev/null'
   e.GIT_AUTHOR_NAME = 'Fixture'
@@ -616,7 +625,19 @@ function ghStub(mode: StubMode): string {
  */
 function runProvisioner(args: string[], stub: StubMode, opts: { merge?: boolean } = {}): GateResult {
   const env = gitEnv()
-  env.PATH = `${ghStub(stub)}:${env.PATH}`
+  const stubDir = ghStub(stub)
+  env.PATH = `${stubDir}:${env.PATH}`
+  // The stub is prepended, not exclusive — the runner's real `gh` is still on
+  // PATH behind it. Prove resolution reached the stub rather than assuming it:
+  // a fall-through produces a *different* provisioner run, which shows up as a
+  // confusing assertion failure somewhere downstream instead of here.
+  const resolved = spawnSync('sh', ['-c', 'command -v gh'], { encoding: 'utf8', env })
+  const ghPath = (resolved.stdout ?? '').trim()
+  if (ghPath !== path.join(stubDir, 'gh')) {
+    throw new Error(
+      `gh stub not resolved: PATH lookup found ${ghPath || '<nothing>'}, expected ${path.join(stubDir, 'gh')}`,
+    )
+  }
   const r = opts.merge
     ? spawnSync('sh', ['-c', 'exec bash "$@" 2>&1', 'sh', PROVISIONER, ...args], {
         cwd: REPO_ROOT,
