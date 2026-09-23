@@ -112,7 +112,7 @@
       "name": "roxabi-forge",
       "source": "https://github.com/Roxabi/roxabi-forge",
       "added": "2026-04-12",
-      "last_checked_commit": "00e94873e6482ae170f1a11e40011b24289128d5",
+      "last_checked_commit": "a37b536721d0b8d369a1f46e97f1ff705cb403aa",
       "upstream_branch": "main",
       "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
       "status": "active",
