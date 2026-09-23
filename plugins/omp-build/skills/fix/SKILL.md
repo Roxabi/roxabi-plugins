@@ -1,6 +1,6 @@
 ---
 name: fix
-argument-hint: '[#PR]'
+argument-hint: '[#PR] [--no-label]'
 description: >-
   OMP-only — apply review findings: auto-apply high-confidence, 1b1 for the rest, every edit made inline.
   Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".
@@ -19,9 +19,18 @@ Two-pass pipeline: auto-apply high-C findings (C≥T, 2+ agents), then 1b1 for t
 **⚠ Continuous pipeline. ¬stop between phases. Stop only on: unrecoverable failure or Phase 8 completion.**
 
 ```
-/skill:fix        → findings from conversation context
-/skill:fix #42    → gather findings from PR #42 comments
+/skill:fix             → findings from conversation context
+/skill:fix #42         → gather findings from PR #42 comments
+/skill:fix #42 --no-label → idem, and **write no `reviewed` label**: the caller owns the merge gate
 ```
+
+**Label mode.** `mode := no-label` when `--no-label` is in the arguments, else `label`.
+It decides one thing, in Phase 7 step 2: whether this skill writes the `reviewed` label.
+That label is not a status — `.github/workflows/auto-merge.yml` turns it into
+`gh pr merge --auto --merge`, so writing it *is* merging. A caller that owns a review
+bound (`/feature` §6.6, where the loop decides whether the PR may land at all) must pass
+`--no-label`: a fix round that labels the PR merges it before the re-review that was
+supposed to judge the fix.
 
 **You apply every fix yourself.** There is no `R-fixer` in this plugin (ADR-020 §7) and nothing replaces it: Phase 3 and Phase 6 edit files inline, in this session, with the diff visible in the working tree. ¬spawn a fixer, ¬delegate the edit.
 
@@ -35,7 +44,7 @@ Two-pass pipeline: auto-apply high-C findings (C≥T, 2+ agents), then 1b1 for t
 | 4 | push-auto | — | `git push` success | ¬applied → skip |
 | 5 | walkthrough | — | decisions recorded | Q_1b1 = ∅ → skip |
 | 6 | apply-1b1 | — | applied count | acc = ∅ → skip |
-| 7 | final-push | ✓ | `git push` success | — |
+| 7 | final-push | ✓ | `git push` success | label written iff mode = `label` |
 | 8 | post-comment | — | comment posted | ∄ PR → skip |
 
 ## Pre-flight
@@ -244,7 +253,8 @@ New findings surfaced during falsification → **parking lot**: file as a candid
 ## Phase 7 — Final Push + Approve
 
 1. ∃ Phase 6 changes → O_push(N, scope, "apply N review findings from 1b1" + list in body). Fail after 3 → halt.
-2. ∃ PR → `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"`
+2. ∃ PR ∧ mode = `label` → `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"`
+3. mode = `no-label` → **write nothing**: ¬`labels[]=reviewed`, ¬`gh pr edit --add-label`, ¬`gh pr merge`. Say one line — « fix appliqué, pas de label : le gate appartient à l'appelant » — and continue to Phase 8. The caller is holding a bound this label would jump: `/feature` §6.6's loop is the sole writer of `reviewed` on a PR it drives, and a label written here merges the PR before the re-review that judges this very fix.
 
 ## Phase 8 — Post Follow-Up Comment
 
@@ -306,6 +316,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | cls(f) = ∅ for some f ∈ acc | Handled last, one finding at a time |
 | ∄ SOURCE_PARENT | Deferred issue is top-level — ¬parent it to the origin |
 | class ∈ {test-tautology, vacuous-guard, parallel-path-drift} ∧ solution is denylist/grep/inventory | `[failed]` — change the oracle / SSoT instead |
+| mode = `no-label` | Phases 1–6 unchanged, Phase 7 step 2 skipped — ¬label, ¬merge; the caller's gate decides |
 
 ## Safety Rules
 
@@ -313,7 +324,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 2. ∃ PR → must post the follow-up comment (Phase 8)
 3. Every edit is made here, inline — ¬spawn a fixer, ¬delegate the edit
 4. Stage specific files only — ¬`git add -A` (risk of .env, secrets)
-5. Merge via the gate: label `reviewed` → auto-merge merges (merge commit) on green. ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED
+5. Merge via the gate: label `reviewed` → auto-merge merges (merge commit) on green. ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED. mode = `no-label` → this skill writes no label at all: writing it *is* merging, and a bounded caller owns that decision
 
 ## Chain Position
 

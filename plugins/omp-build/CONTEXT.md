@@ -29,9 +29,13 @@ After a green review loop: required checks, `reviewed` label, auto-merge (`landP
 _Avoid_: R-ci-watch, gh pr merge while checks run
 
 **Review bound**:
-At most two review→fix rounds per PR. The third red returns `stop` from
-`createReviewLoop`, and the PR stays unlabelled and unmerged.
-_Avoid_: "one more review", re-opening the loop, a round counter held in prose
+At most two review→fix rounds per PR, counted by `createReviewLoop` and resumed from
+the PR by `resumeReviewLoop`. The third red returns `stop`; `enforceStop` then reads
+the labels back and removes `reviewed`, so the PR really is unlabelled and unmerged.
+A CI failure after a green verdict re-enters through `reopen('ci-failed')`, which
+spends a round rather than refunding one.
+_Avoid_: "one more review", a second loop on the same PR, a round counter held in
+prose, a `reviewed` label written by anything but the landing step
 
 **Snapshot**:
 A frozen copy of selected `dev-core` files inside `omp-build`. No resync. Claude's `dev-core` evolves alone.

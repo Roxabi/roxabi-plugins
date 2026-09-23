@@ -1,13 +1,27 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { commitPush, createReviewLoop, detectPrincipal, landPr, MAX_FIX_ROUNDS, openPr, run } from './workflow.js'
+import {
+  createReviewLoop,
+  MAX_FIX_ROUNDS,
+  openPr,
+  parseReviewRounds,
+  readReviewRounds,
+  resumeReviewLoop,
+  run,
+} from './workflow.js'
 
 /**
  * Every call goes through an injected client. Nothing here can reach a real `gh`,
  * so no test can open, label or merge a pull request — the same posture
  * `land.test.js` takes with `landPr(cwd, pr, { gh })`.
  */
+function ghError(spec) {
+  if (typeof spec === 'string') return new Error(spec)
+  const { message, ...payload } = spec
+  return Object.assign(new Error(message), payload)
+}
+
 function mockGh({
   list = '[]',
   create = JSON.stringify({ number: 512 }),
@@ -19,14 +33,14 @@ function mockGh({
   const gh = async (_cwd, args) => {
     calls.push(args)
     if (args[0] === 'pr' && args[1] === 'list') {
-      if (listThrows) throw new Error(listThrows)
+      if (listThrows) throw ghError(listThrows)
       const responses = Array.isArray(list) ? list : [list]
       const response = responses[Math.min(listCall, responses.length - 1)]
       listCall++
       return response
     }
     if (args[0] === 'api') {
-      if (createThrows) throw new Error(createThrows)
+      if (createThrows) throw ghError(createThrows)
       return create
     }
     throw new Error(`unexpected gh call: ${args.join(' ')}`)
@@ -34,25 +48,66 @@ function mockGh({
   return { gh, calls }
 }
 
+/**
+ * The client the loop drives: label read-back, label removal, the round marker.
+ * Injected, like every other client here — nothing labels or merges a real PR.
+ */
+function mockLoopGh({ labels = [], comments = [] } = {}) {
+  const calls = []
+  const present = new Set(labels)
+  const posted = [...comments]
+  const gh = async (_cwd, args) => {
+    calls.push(args)
+    if (args[0] === 'pr' && args[1] === 'view' && args.includes('labels')) {
+      return JSON.stringify({ labels: [...present].map((name) => ({ name })) })
+    }
+    if (args[0] === 'pr' && args[1] === 'view' && args.includes('comments')) {
+      return JSON.stringify({ comments: posted.map((body) => ({ body })) })
+    }
+    if (args[0] === 'pr' && args[1] === 'edit' && args.includes('--remove-label')) {
+      present.delete(args[args.indexOf('--remove-label') + 1])
+      return ''
+    }
+    if (args[0] === 'pr' && args[1] === 'comment') {
+      posted.push(args[args.indexOf('--body') + 1])
+      return ''
+    }
+    throw new Error(`unexpected gh call: ${args.join(' ')}`)
+  }
+  return { gh, calls, labels: present, comments: posted }
+}
+
 describe('expand–contract (#494 adds, #497 removes)', () => {
-  it('keeps every seam mode 2 and the old driver import from this module', () => {
-    // `skills/build/SKILL.md` does `const { run } = await import(…/workflow.js)`
-    // and `skills/feature/SKILL.md` §6.0 imports the five below. Both are runtime
-    // imports in a live session: nothing else here observes an early deletion.
-    const surface = { commitPush, createReviewLoop, detectPrincipal, landPr, openPr, run }
-    expect(Object.fromEntries(Object.entries(surface).map(([name, fn]) => [name, typeof fn]))).toEqual({
-      commitPush: 'function',
-      createReviewLoop: 'function',
-      detectPrincipal: 'function',
-      landPr: 'function',
-      openPr: 'function',
-      run: 'function',
-    })
+  it('keeps every seam mode 2 and the old driver import from this module', async () => {
+    // `skills/build/SKILL.md` does `const { run } = await import(…/workflow.js)` and
+    // `skills/feature/SKILL.md` §6.0 destructures its own list. Both are runtime imports
+    // in a live session: nothing else observes a deletion, or a rename, until it runs.
+    const module = await import('./workflow.js')
+    const feature = readFileSync(join(import.meta.dirname, '..', 'feature', 'SKILL.md'), 'utf8')
+    const imported = feature.match(/const \{([^}]+)\} =\s*await import\(`\$\{SKILL_DIR\}\/\.\.\/build\/workflow\.js`\)/)
+    expect(imported).not.toBeNull()
+    const names = imported[1]
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean)
+    expect(names.length).toBeGreaterThan(0)
+    expect(Object.fromEntries(names.map((name) => [name, typeof module[name]]))).toEqual(
+      Object.fromEntries(names.map((name) => [name, 'function'])),
+    )
+    expect(typeof run).toBe('function')
     expect(readFileSync(join(import.meta.dirname, 'SKILL.md'), 'utf8')).toContain('const { run } = await import(')
   })
 })
 
 const INPUT = { issue: 494, branch: 'feat/494-feature-back-half', base: 'staging', title: 'feat: back half' }
+
+/**
+ * The idempotency key, spelled out. `openPr` never opens a second PR *because* this is
+ * the lookup it makes: a wrong `--head`, a dropped `--base`, `--state all` or a `--json`
+ * without `number` each turn "one already open" into "none open", and the next answer is
+ * a duplicate PR. So the argv is asserted element by element, not just its effect.
+ */
+const LOOKUP = ['pr', 'list', '--head', INPUT.branch, '--base', INPUT.base, '--state', 'open', '--json', 'number']
 
 function created(calls) {
   return calls.filter((args) => args[0] === 'api')
@@ -90,12 +145,56 @@ describe('openPr', () => {
     // Re-running mode 2 after a crash must not put a second PR on one branch.
     const { gh, calls } = mockGh({ list: JSON.stringify([{ number: 400 }]) })
     expect(await openPr('/tmp/wt', INPUT, { gh })).toEqual({ number: 400, status: 'existing' })
-    expect(created(calls)).toEqual([])
+    expect(calls).toEqual([LOOKUP])
   })
 
   it('picks the oldest when the head somehow carries two open PRs', async () => {
-    const { gh } = mockGh({ list: JSON.stringify([{ number: 640 }, { number: 400 }]) })
+    const { gh, calls } = mockGh({ list: JSON.stringify([{ number: 640 }, { number: 400 }]) })
     expect(await openPr('/tmp/wt', INPUT, { gh })).toEqual({ number: 400, status: 'existing' })
+    expect(calls).toEqual([LOOKUP])
+  })
+
+  it('re-reads on GitHub\u2019s own 422, classified on the exit payload', async () => {
+    // The realistic client failure: `gh` exits non-zero with the API's JSON body.
+    const { gh, calls } = mockGh({
+      list: ['[]', JSON.stringify([{ number: 402 }])],
+      createThrows: {
+        message: 'gh api --method POST repos/{owner}/{repo}/pulls … failed (1)',
+        exitCode: 1,
+        stderr:
+          'gh: Validation Failed (HTTP 422)\n{"message":"Validation Failed","errors":[{"message":"A pull request already exists for Roxabi:feat/494-feature-back-half."}]}',
+      },
+    })
+    expect(await openPr('/tmp/wt', INPUT, { gh })).toEqual({ number: 402, status: 'existing' })
+    expect(calls.filter((args) => args[0] === 'pr')).toEqual([LOOKUP, LOOKUP])
+  })
+
+  it('does not read the race out of the title it was handed', async () => {
+    // The rendered message embeds the argv, and the argv carries `title=`/`body=` —
+    // caller input. A PR whose own title says "a pull request already exists" must not
+    // be able to turn an unrelated 403 into a race, and re-look-up a PR that is not
+    // there: the failure has to propagate.
+    const input = { ...INPUT, title: 'fix: a pull request already exists on re-entry' }
+    const { gh, calls } = mockGh({
+      list: ['[]', JSON.stringify([{ number: 403 }])],
+      createThrows:
+        'gh api --method POST … -f title=fix: a pull request already exists on re-entry failed (1): HTTP 403 — resource not accessible by integration',
+    })
+    await expect(openPr('/tmp/wt', input, { gh })).rejects.toThrow(/resource not accessible/)
+    expect(calls.filter((args) => args[0] === 'pr')).toEqual([LOOKUP])
+  })
+
+  it('does not read the race out of the body it was handed', async () => {
+    const body = 'Re-entry is safe: a pull request already exists for this head, and openPr reuses it.'
+    const { gh, calls } = mockGh({
+      list: ['[]', JSON.stringify([{ number: 404 }])],
+      createThrows: {
+        message: 'gh api --method POST … failed (1): gh: Not Found (HTTP 404)',
+        stderr: 'gh: Not Found (HTTP 404)',
+      },
+    })
+    await expect(openPr('/tmp/wt', { ...INPUT, body }, { gh })).rejects.toThrow(/HTTP 404/)
+    expect(calls.filter((args) => args[0] === 'pr')).toEqual([LOOKUP])
   })
 
   it('re-reads instead of failing when another opener wins the race', async () => {
@@ -128,14 +227,29 @@ describe('openPr', () => {
     await expect(openPr('/tmp/wt', INPUT, { gh })).rejects.toThrow(/returned no JSON/)
   })
 
-  it('refuses a lookup response that is not a JSON array, rather than opening a second PR', async () => {
+  it('refuses a lookup response that is not JSON at all, rather than opening a second PR', async () => {
     const { gh, calls } = mockGh({ list: 'no pull requests match your search' })
     await expect(openPr('/tmp/wt', INPUT, { gh })).rejects.toThrow(/returned no JSON/)
     expect(created(calls)).toEqual([])
   })
 
-  it('refuses a lookup entry with no number', async () => {
-    const { gh, calls } = mockGh({ list: JSON.stringify([{ title: 'feat: back half' }]) })
+  it.each([
+    ['null', 'null'],
+    ['a single object', '{"number":400}'],
+  ])('refuses a lookup response that parses but is not an array (%s)', async (_label, list) => {
+    // `null` and a bare object both survive `JSON.parse`; only the array check stops
+    // them, and "not an array" read as "none open" opens the duplicate.
+    const { gh, calls } = mockGh({ list })
+    await expect(openPr('/tmp/wt', INPUT, { gh })).rejects.toThrow(/returned no array/)
+    expect(created(calls)).toEqual([])
+  })
+
+  it.each([
+    ['no number field', JSON.stringify([{ title: 'feat: back half' }])],
+    ['a zero', '[{"number":0}]'],
+    ['a negative number', '[{"number":-4}]'],
+  ])('refuses a lookup entry with %s', async (_label, list) => {
+    const { gh, calls } = mockGh({ list })
     await expect(openPr('/tmp/wt', INPUT, { gh })).rejects.toThrow(/no PR number/)
     expect(created(calls)).toEqual([])
   })
@@ -238,5 +352,203 @@ describe('createReviewLoop', () => {
   it('refuses a bound that is not a count', () => {
     expect(() => createReviewLoop({ maxFixRounds: -1 })).toThrow(TypeError)
     expect(() => createReviewLoop({ maxFixRounds: 1.5 })).toThrow(TypeError)
+  })
+})
+
+describe('the bound, measured on the PR rather than on the object', () => {
+  const stopped = (options) => {
+    const loop = createReviewLoop({ pr: 512, ...options })
+    loop.record('red')
+    loop.record('red')
+    const step = loop.record('red')
+    return { loop, step }
+  }
+
+  it('removes a `reviewed` label it finds on a stopped PR, and says it did', async () => {
+    // The label is the whole of what `stop` promises: auto-merge.yml turns it into
+    // `gh pr merge --auto --merge`. A stop that only *says* "unlabelled" while the
+    // label sits on the PR is the merge the bound exists to prevent.
+    const { loop } = stopped()
+    const { gh, calls, labels } = mockLoopGh({ labels: ['reviewed', 'size:F-full'] })
+    const outcome = await loop.enforceStop('/tmp/wt', { gh })
+    expect(outcome.removed).toBe(true)
+    expect([...labels]).toEqual(['size:F-full'])
+    expect(calls).toEqual([
+      ['pr', 'view', '512', '--json', 'labels'],
+      ['pr', 'edit', '512', '--remove-label', 'reviewed'],
+    ])
+    expect(outcome.message).toContain('unlabelled and unmerged')
+    expect(outcome.message).toContain('removed')
+  })
+
+  it('touches nothing when the stopped PR carries no label', async () => {
+    const { loop, step } = stopped()
+    const { gh, calls } = mockLoopGh({ labels: ['size:F-full'] })
+    const outcome = await loop.enforceStop('/tmp/wt', { gh })
+    expect(outcome).toMatchObject({ removed: false, labels: ['size:F-full'] })
+    expect(calls).toEqual([['pr', 'view', '512', '--json', 'labels']])
+    expect(outcome.message).toBe(step.message)
+  })
+
+  it('refuses to enforce a stop that has not happened', async () => {
+    const loop = createReviewLoop({ pr: 512 })
+    const { gh, calls } = mockLoopGh()
+    await expect(loop.enforceStop('/tmp/wt', { gh })).rejects.toThrow(/only follows a stop/)
+    loop.record('green')
+    await expect(loop.enforceStop('/tmp/wt', { gh })).rejects.toThrow(/only follows a stop/)
+    expect(calls).toEqual([])
+  })
+
+  it('fails closed when the label read-back is not the shape promised', async () => {
+    const { loop } = stopped()
+    const gh = async () => 'gh: could not find pull request'
+    await expect(loop.enforceStop('/tmp/wt', { gh })).rejects.toThrow(/returned no JSON/)
+  })
+})
+
+describe('ci-failed after a green verdict', () => {
+  it('re-opens the loop by spending a fix round, never by refunding one', () => {
+    // §6.7's ci-failed row, executed: green → land → landPr says ci-failed → back to
+    // §6.5. `record` on a closed loop throws, so without `reopen` the only move an
+    // agent finds is a new loop — which hands the same PR two fresh rounds.
+    const loop = createReviewLoop({ pr: 512 })
+    expect(loop.record('red')).toMatchObject({ action: 'fix', fixes: 1 })
+    expect(loop.record('green').action).toBe('land')
+
+    const back = loop.reopen('ci-failed')
+    expect(back).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0, reason: 'ci-failed' })
+    expect(loop.closed).toBe(null)
+
+    // The bound still holds on the far side of the CI failure.
+    expect(loop.record('green').action).toBe('land')
+    const spent = loop.reopen('ci-failed')
+    expect(spent.action).toBe('stop')
+    expect(spent.reason).toBe('ci-failed')
+    expect(spent.fixes).toBe(MAX_FIX_ROUNDS)
+    expect(spent.message).toContain('unlabelled and unmerged')
+    expect(() => loop.record('green')).toThrow(/already closed with "stop"/)
+  })
+
+  it('costs a round even when every verdict so far was green', () => {
+    const loop = createReviewLoop({ pr: 512 })
+    loop.record('green')
+    expect(loop.reopen('ci-failed')).toMatchObject({ action: 'fix', reviews: 1, fixes: 1, remaining: 1 })
+  })
+
+  it('only re-opens a landing, and only for a CI failure', () => {
+    const landed = createReviewLoop({ pr: 512 })
+    expect(() => landed.reopen('timeout')).toThrow(TypeError)
+    expect(() => createReviewLoop().reopen('ci-failed')).toThrow(/only follows a green verdict/)
+    const red = createReviewLoop()
+    red.record('red')
+    expect(() => red.reopen('ci-failed')).toThrow(/only follows a green verdict/)
+  })
+})
+
+describe('the count outlives the process that holds it', () => {
+  it('reads the rounds a PR already carries', () => {
+    expect(parseReviewRounds('nothing here')).toBe(null)
+    expect(parseReviewRounds('<!-- omp-build:review-rounds reviews=3 fixes=2 -->')).toEqual({ reviews: 3, fixes: 2 })
+  })
+
+  it('takes the highest marker, so re-posting an old one refunds nothing', () => {
+    const text = [
+      '<!-- omp-build:review-rounds reviews=2 fixes=2 -->',
+      'later, a stale copy of the first round:',
+      '<!-- omp-build:review-rounds reviews=1 fixes=1 -->',
+    ].join('\n')
+    expect(parseReviewRounds(text)).toEqual({ reviews: 2, fixes: 2 })
+  })
+
+  it('resumes a loop on its last round instead of handing out two fresh ones', async () => {
+    const { gh } = mockLoopGh({
+      comments: ['## Review Fixes Applied', '<!-- omp-build:review-rounds reviews=2 fixes=2 -->\nReview bound: …'],
+    })
+    const loop = await resumeReviewLoop('/tmp/wt', { pr: 512, gh })
+    expect({ reviews: loop.reviews, fixes: loop.fixes, remaining: loop.remaining }).toEqual({
+      reviews: 2,
+      fixes: 2,
+      remaining: 0,
+    })
+    expect(loop.record('red').action).toBe('stop')
+  })
+
+  it('starts at zero on a PR that has never been reviewed', async () => {
+    const { gh } = mockLoopGh({ comments: ['a plain review comment'] })
+    const loop = await resumeReviewLoop('/tmp/wt', { pr: 512, gh })
+    expect({ reviews: loop.reviews, fixes: loop.fixes }).toEqual({ reviews: 0, fixes: 0 })
+  })
+
+  it('writes the count back after a verdict, where the next session can read it', async () => {
+    const { gh, comments } = mockLoopGh()
+    const loop = createReviewLoop({ pr: 512, gh })
+    loop.record('red')
+    await loop.persist('/tmp/wt')
+    expect(parseReviewRounds(comments.join('\n'))).toEqual({ reviews: 1, fixes: 1 })
+
+    const resumed = await resumeReviewLoop('/tmp/wt', { pr: 512, gh })
+    expect({ reviews: resumed.reviews, fixes: resumed.fixes }).toEqual({ reviews: 1, fixes: 1 })
+  })
+
+  it('fails closed rather than reading a bad answer as "no rounds spent"', async () => {
+    const gh = async () => 'gh: not found'
+    await expect(readReviewRounds('/tmp/wt', 512, { gh })).rejects.toThrow(/returned no JSON/)
+    await expect(resumeReviewLoop('/tmp/wt', { pr: 512, gh })).rejects.toThrow(/returned no JSON/)
+    const noComments = async () => JSON.stringify({ labels: [] })
+    await expect(readReviewRounds('/tmp/wt', 512, { gh: noComments })).rejects.toThrow(/carried no comments/)
+  })
+
+  it('refuses seeded counts that are not counts', () => {
+    expect(() => createReviewLoop({ pr: 512, fixes: -1 })).toThrow(TypeError)
+    expect(() => createReviewLoop({ pr: 512, reviews: 1.5 })).toThrow(TypeError)
+  })
+})
+
+const skill = (...parts) => readFileSync(join(import.meta.dirname, '..', ...parts), 'utf8')
+
+function section(text, heading) {
+  const level = heading.match(/^#+/)[0].length
+  const start = text.indexOf(`${heading}\n`)
+  if (start === -1) throw new Error(`no such heading: ${heading}`)
+  const rest = text.slice(start + heading.length)
+  const next = rest.search(new RegExp(`\\n#{1,${level}} `))
+  return next === -1 ? rest : rest.slice(0, next)
+}
+
+describe('`reviewed` has exactly one writer', () => {
+  // The label is not a status: `.github/workflows/auto-merge.yml` turns it into
+  // `gh pr merge --auto --merge`. Two writers means the bound in `createReviewLoop`
+  // decides nothing, because a fix round merges the PR before the re-review lands.
+  const fix = () => skill('fix', 'SKILL.md')
+  const feature = () => skill('feature', 'SKILL.md')
+
+  it('makes a fix round write no label unless it is told to', () => {
+    const phase7 = section(fix(), '## Phase 7 — Final Push + Approve')
+    const writes = phase7.split('\n').filter((line) => line.includes('gh api repos/:owner/:repo/issues/<#>/labels'))
+    expect(writes).toHaveLength(1)
+    expect(writes[0]).toMatch(/mode = `label` → `gh api/)
+    expect(phase7).toMatch(/mode = `no-label` → \*\*write nothing\*\*/)
+  })
+
+  it('has `/feature` §6.5 invoke fix in that mode, and name §6.7 as the only writer', () => {
+    const body = feature()
+    expect(section(body, '### 6.5 Fix — inline, and back round')).toMatch(/`#<pr> --no-label`/)
+    expect(section(body, '### 6.7 Land — wait, label, let auto-merge finish')).toMatch(/sole writer of `reviewed`/)
+  })
+
+  it('commits the fix round against the issue, not against a literal `#N`', () => {
+    // The fence interpolated `${step.fixes}` while printing `fix(#N)` verbatim, so
+    // every round's commit claimed a ticket called N.
+    expect(section(feature(), '### 6.5 Fix — inline, and back round')).toMatch(
+      /commitPush\(cwd, branch, `fix\(#\$\{issue\}\): review round \$\{step\.fixes\}`\)/,
+    )
+  })
+
+  it('does not attribute a merge offer to a `fix` phase that only posts a comment', () => {
+    // The stale sentence told the operator to decline an offer `fix` never makes —
+    // inherited from `dev-review`, whose Phase 8 does make it.
+    expect(fix()).toMatch(/^## Phase 8 — Post Follow-Up Comment$/m)
+    const claims = feature().match(/[^.\n]*`fix`[^.\n]*Phase 8[^.\n]*/g) ?? []
+    for (const claim of claims) expect(claim).not.toMatch(/merge|rebase|label/i)
   })
 })

@@ -290,9 +290,13 @@ remove, and a hand-rolled `gh pr create` is the prose-parsing this section delet
 Then import the seam once, and keep the handle — §6.6's bound lives in it:
 
 ```javascript
-const { commitPush, openPr, landPr, createReviewLoop, detectPrincipal } =
+const { commitPush, openPr, landPr, resumeReviewLoop, detectPrincipal } =
   await import(`${SKILL_DIR}/../build/workflow.js`)   // SKILL_DIR = the printed skill directory
 ```
+
+`resumeReviewLoop` rather than `createReviewLoop`: it reads the rounds the PR already
+carries before handing back a loop, so re-entering mode 2 on a PR that has already spent
+its rounds resumes the bound instead of restarting it (§6.6).
 
 ### 6.1 Read the ticket
 
@@ -340,10 +344,22 @@ agent to open the PR and read the number out of what it says; do not scrape a UR
 `openPr` throws when the response carries no number — a throw here is worth more than
 a plausible-looking string reaching `landPr` as a PR id.
 
+| `openPr` | Say |
+|---|---|
+| **throws** | stop, and print the error verbatim |
+
+There is no retry row and no manual fallback. `openPr` throws exactly when the client's
+answer was not understood — no JSON, no array, no `number` — and the one thing you must
+not do then is open the PR another way: `gh pr create` after a create whose outcome is
+unknown is the duplicate this function exists to prevent, and a retry is the same create
+again. Read the quoted response, fix the cause (auth, base branch, a `gh` that answered
+HTML), and re-run §6.3 — which is idempotent, and will find the PR if one was in fact
+opened.
+
 ### 6.4 Review — the panel, and only the panel
 
 ```javascript
-const loop = createReviewLoop({ pr })   // created once, before the first review
+const loop = await resumeReviewLoop(cwd, { pr })   // once, before the first review
 ```
 
 Invoke `Skill(skill: "dev-review")` with `#<pr>`. Its Phase 1 asserts `SKILL_DIR`
@@ -354,8 +370,9 @@ It must **stay out of the way of the loop and of landing**. Its Phase 8 offers
 "Fix now" and "Merge as-is — rebase + label + auto-merge". Answer **Stop**, both
 times, whatever the verdict: the fix is §6.5's to run *after* the verdict has been
 recorded (a fix that happens inside Phase 8 is a round the counter never saw), and
-§6.7 is the only place a `reviewed` label is written. Same for `fix`'s own Phase 8
-offer to rebase, label and merge: decline it.
+§6.7 is the only place a `reviewed` label is written. `fix` has no such offer — its
+Phase 8 posts the follow-up comment and nothing else — but its Phase 7 *does* write
+the label unless it is told not to, which is why §6.5 passes `--no-label`.
 
 Fold its verdict to the one word the loop takes:
 
@@ -366,44 +383,75 @@ Fold its verdict to the one word the loop takes:
 
 ```javascript
 let step = loop.record(verdict)   // 'green' | 'red' — nothing else; anything else throws
+await loop.persist(cwd)           // the count, onto the PR, after every verdict
 ```
+
+`persist` writes `<!-- omp-build:review-rounds reviews=N fixes=M -->` as a PR comment.
+That marker is what `resumeReviewLoop` reads back, and it is the only part of the bound
+that outlives this process: skip it and a re-entry starts again at zero rounds.
 
 ### 6.5 Fix — inline, and back round
 
-`step.action === 'fix'` → `Skill(skill: "fix")` with `#<pr>`. It applies findings
-**inline in this worktree** (there is no fixer agent in this plugin, ADR-020 §7), and
-defers what it does not apply through `Skill(skill: "issue-triage:issue-triage")` as a
-sibling of `#N` — never a child, never a `Blocked by:` text line.
+`step.action === 'fix'` → `Skill(skill: "fix")` with `#<pr> --no-label`. It applies
+findings **inline in this worktree** (there is no fixer agent in this plugin, ADR-020
+§7), and defers what it does not apply through
+`Skill(skill: "issue-triage:issue-triage")` as a sibling of `#N` — never a child, never
+a `Blocked by:` text line.
 
-Then commit the round — ``await commitPush(cwd, branch, `fix(#N): review round ${step.fixes}`)`` —
+**`--no-label` is not optional.** `fix` Phase 7 step 2 otherwise writes `reviewed`, and
+`.github/workflows/auto-merge.yml` turns that label into `gh pr merge --auto --merge`:
+a fix round would merge the PR before the re-review that judges the fix, and the bound
+below would be deciding nothing. §6.7 is the **sole** writer of `reviewed` on this PR.
+
+Then commit the round — ``await commitPush(cwd, branch, `fix(#${issue}): review round ${step.fixes}`)`` —
 and go back to §6.4: re-run the panel on the same PR and record the new verdict.
 `step.remaining` is how many rounds are left after this one; say it out loud.
 
 ### 6.6 The bound — two rounds, counted in code
 
-`createReviewLoop` holds the count, not this body and not your memory of it. Each
-verdict goes through `loop.record(...)` and the returned `action` is what happens
-next:
+The loop holds the count, not this body and not your memory of it. Each verdict goes
+through `loop.record(...)` and the returned `action` is what happens next:
 
 | `action` | Meaning | Next |
 |---|---|---|
 | `land` | the panel approved | §6.7 |
 | `fix` | red, and a round is left | §6.5 |
-| `stop` | red, and **both** rounds are spent | print `step.message`, stop |
+| `stop` | no round is left — a third red, or a CI failure (§6.7) with nothing left to spend | `await loop.enforceStop(cwd)`, print its `message`, stop |
 
 review → red → fix → review → red → fix → review: two fix rounds. **A third red
 stops.** `record` then returns `stop` and closes the loop — a fourth verdict throws
 rather than yielding `land`, so "one more review, it will be green this time" is not
-a move that exists. `landPr` is not called on `stop`: the PR keeps no `reviewed`
-label, auto-merge is never enabled, and nothing merges.
+a move that exists. `landPr` is not called on `stop`.
 
-What the operator sees is `step.message`, verbatim:
+**`stop` is enforced on the PR, not asserted about it.** "No `reviewed` label, no
+auto-merge" is a claim about a label anything could have written — a fix round run
+without `--no-label`, a `dev-review` "Merge as-is", a hand. So on `stop`:
+
+```javascript
+const outcome = await loop.enforceStop(cwd)   // reads the labels back, removes `reviewed`
+print(outcome.message)
+```
+
+`enforceStop` reads `gh pr view <pr> --json labels`, removes `reviewed` if it is there,
+and returns the operator message — saying so explicitly when it had to remove one,
+because a label found at that point means something else in this session was labelling
+PRs and that is worth knowing.
+
+What the operator sees is `outcome.message`, verbatim — this one for a third red, and
+the same sentence opened by the failed landing when the stop came from §6.7:
 
 > Review bound reached: 3 reviews, 2 fix rounds, still red. PR #512 stays unlabelled
 > and unmerged — no `reviewed` label, no auto-merge. Read the findings on the PR,
 > then fix by hand or close it.
 
 Then stop. Do not offer the tail (§0): nothing landed.
+
+**What is durable, and what is not.** `persist` (§6.4) writes the count onto the PR and
+`resumeReviewLoop` (§6.0) reads it back, so the bound survives a compaction, a crash and
+a re-created loop: three reds are three reds even across sessions. It does **not** bind a
+session that skips `persist`, nor one that labels the PR by hand — nothing inside a
+prose-driven skill can. The seam is what makes a resumed loop honest; the operator's
+branch protection is what makes an unlabelled PR unmergeable.
 
 ### 6.7 Land — wait, label, let auto-merge finish
 
@@ -418,10 +466,15 @@ reimplement any of that, and above all **never `gh pr merge` while a check is
 running** — a mid-CI merge cancels the in-flight runs and skips the gates that the
 label is supposed to attest.
 
+**This call is the sole writer of `reviewed` on this PR**, and therefore the only place
+mode 2 can cause a merge: §6.5 runs `fix` with `--no-label`, §6.4 declines `dev-review`'s
+"Merge as-is", and §6.6 removes the label if it finds one. Reached only from
+`step.action === 'land'` — that is, from a green panel verdict inside the bound.
+
 | `land.status` | What it means | Say |
 |---|---|---|
 | `merged` | landed | « #N landed in PR #<pr> » → §0's offer |
-| `ci-failed` | a required check is red (`land.failed`) | the branch is not landable; back to §6.5 only if a round is left, else stop |
+| `ci-failed` | a required check is red (`land.failed`) | the branch is not landable: `step = loop.reopen('ci-failed')`, then `await loop.persist(cwd)` — it re-opens the loop **spending** a fix round, not refunding one, so it returns `fix` (→ §6.5) while a round is left and `stop` (→ §6.6, `enforceStop`) when none is. Never re-create the loop: a fresh one hands this PR two fresh rounds |
 | `ci-skipped` | a required check reported `SKIPPED`/`NEUTRAL` (`land.skipped`) | a skipped required check is not a passed one — stop, no label |
 | `no-required-checks` | the base protects nothing | stop: there is nothing to wait on, so landing would attest nothing. Merge by hand, deliberately, or add the protection |
 | `timeout` | 20 minutes without a green rollup | stop, name the pending contexts |
