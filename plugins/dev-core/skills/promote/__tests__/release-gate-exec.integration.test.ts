@@ -103,7 +103,21 @@ function scratch(prefix: string): string {
  */
 function gitEnv(): NodeJS.ProcessEnv {
   const e: NodeJS.ProcessEnv = {}
-  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) e[k] = v
+  // GIT_* would leak the runner's repo state. GH_*/GITHUB_* go for a sharper
+  // reason: every `gh` here is meant to be the stub, and the stub is only
+  // *prepended* to PATH, so a missed resolution runs the real binary.
+  //
+  // Stripping the token vars is NOT sufficient on its own — `gh` also reads
+  // `$GH_CONFIG_DIR`, else `$XDG_CONFIG_HOME/gh/hosts.yml`, else
+  // `$HOME/.config/gh/hosts.yml`, and from there the system keyring. On a
+  // developer box that path carries admin:org / delete_repo / workflow scopes.
+  // So the config dir is redirected at a scratch path that does not exist:
+  // a fall-through then has no credentials by any route and can only fail.
+  for (const [k, v] of Object.entries(process.env)) {
+    if (k.startsWith('GIT_') || k.startsWith('GH_') || k.startsWith('GITHUB_')) continue
+    e[k] = v
+  }
+  e.GH_CONFIG_DIR = path.join(os.tmpdir(), 'gh-config-absent-fixture')
   e.GIT_CONFIG_GLOBAL = '/dev/null'
   e.GIT_CONFIG_SYSTEM = '/dev/null'
   e.GIT_AUTHOR_NAME = 'Fixture'
@@ -595,12 +609,18 @@ type StubMode = 'fail' | 'silent-ok' | 'stack-without-release'
  */
 function ghStub(mode: StubMode): string {
   const dir = scratch('gh-stub-')
+  // Every stub drains stdin first. Real `gh` always reads it (verified against
+  // 2.100.0, including an early exit on an unknown flag), so a stub that exits
+  // without reading models a `gh` that does not exist — and it is the reader
+  // half of the SIGPIPE that produced #524. Keeping the stub honest means the
+  // fixture cannot manufacture a failure the real binary would never cause.
+  const drain = 'cat >/dev/null 2>&1\n'
   let body: string
-  if (mode === 'fail') body = '#!/bin/sh\nexit 1\n'
-  else if (mode === 'silent-ok') body = '#!/bin/sh\nexit 0\n'
+  if (mode === 'fail') body = `#!/bin/sh\n${drain}exit 1\n`
+  else if (mode === 'silent-ok') body = `#!/bin/sh\n${drain}exit 0\n`
   else {
     const b64 = Buffer.from('schema_version: "1.0"\nruntime: bun\n').toString('base64')
-    body = `#!/bin/sh\ncase "$*" in\n  *contents/.dev/stack.yml*) printf '%s\\n' '${b64}' ;;\nesac\nexit 0\n`
+    body = `#!/bin/sh\n${drain}case "$*" in\n  *contents/.dev/stack.yml*) printf '%s\\n' '${b64}' ;;\nesac\nexit 0\n`
   }
   fs.writeFileSync(path.join(dir, 'gh'), body, { mode: 0o755 })
   return dir
@@ -616,7 +636,19 @@ function ghStub(mode: StubMode): string {
  */
 function runProvisioner(args: string[], stub: StubMode, opts: { merge?: boolean } = {}): GateResult {
   const env = gitEnv()
-  env.PATH = `${ghStub(stub)}:${env.PATH}`
+  const stubDir = ghStub(stub)
+  env.PATH = `${stubDir}:${env.PATH}`
+  // The stub is prepended, not exclusive — the runner's real `gh` is still on
+  // PATH behind it. Prove resolution reached the stub rather than assuming it:
+  // a fall-through produces a *different* provisioner run, which shows up as a
+  // confusing assertion failure somewhere downstream instead of here.
+  const resolved = spawnSync('sh', ['-c', 'command -v gh'], { encoding: 'utf8', env })
+  const ghPath = (resolved.stdout ?? '').trim()
+  if (ghPath !== path.join(stubDir, 'gh')) {
+    throw new Error(
+      `gh stub not resolved: PATH lookup found ${ghPath || '<nothing>'}, expected ${path.join(stubDir, 'gh')}`,
+    )
+  }
   const r = opts.merge
     ? spawnSync('sh', ['-c', 'exec bash "$@" 2>&1', 'sh', PROVISIONER, ...args], {
         cwd: REPO_ROOT,
