@@ -2,7 +2,7 @@
 title: "ADR-019: Plugin-owned falsify oracle (markdown is a report)"
 description: >
   Executable run-falsify is the sole falsify oracle for τ≠S gates.
-  Isolation = temp worktree. Proven record = falsify.json.
+  Isolation = copy at HEAD plus the working-tree overlay. Proven record = falsify.json.
   Gate boolean = oracle_ok from --verify re-exec. parse-falsify demoted to ungated lint.
 ---
 
@@ -26,16 +26,49 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    executable falsify oracle for τ≠S. Consumer `test:falsify` / LLM `git stash` are
    not alternate oracles unless they exec this helper without swallowing non-zero.
 
-2. **Isolation** — canonical API = **temp worktree / copy at HEAD**. Repo-global
-   `git stash` is not the public API. Trap-backed in-place backup may exist only as
-   an impl detail with restore guarantee.
+2. **Isolation** — canonical API = **copy at HEAD**, with the working tree
+   overlaid on top. Repo-global `git stash` is not the public API. Trap-backed
+   in-place backup may exist only as an impl detail with restore guarantee.
+
+   2a. **The overlay is intentional, and it changes what `oracle_ok` attests.**
+   `snapshot_repo` runs `git archive HEAD` and then copies **the working tree**
+   over it — `git ls-files -co --exclude-standard` is *cached* plus *others*,
+   i.e. every tracked file plus every untracked non-ignored one, not only the
+   modified ones. HEAD therefore survives only for paths absent from the working
+   tree. The implement-time call requires exactly that: `/R-dev-implement`
+   Step 6b runs the oracle on work that is `git add`-ed and deliberately **not**
+   committed, so a HEAD-pure snapshot would prove nothing about the code just
+   written. `oracle_ok` attests **the working tree as it stands at run time**,
+   never the PR's HEAD.
+
+   2b. **Named residual — the gate-time call inherits that, and the record
+   cannot fix it.** `/R-pr` refuse and `/R-dev-review` tester-skip read
+   `oracle_ok` from a `--verify` re-exec on the same snapshot path, so against a
+   dirty tree they proceed on code that is not in the PR. Note what a closure
+   may **not** assume: `--verify` writes its fresh record to a throwaway and
+   never rewrites `artifacts/reviews/{N}-falsify.json`, and the only value that
+   reaches a gate is the `oracle_ok=` line on stdout — so a new JSON field is
+   invisible to the reader that matters, and the committed artifact carries the
+   implement-time run, which is dirty by construction. Closing this means
+   emitting the tree state on the same stdout contract the gates already parse.
+   That is a code change, tracked as #539, not this ADR's to make. Until then a
+   gate-time `oracle_ok` is only as strong as the cleanliness of the tree it ran
+   in.
+
+   2c. **Named residual — the gate trusts the artifact it reads.** `verify()`
+   rebuilds its map from the committed `artifacts/reviews/{N}-falsify.json`
+   and executes each row's `test_cmd` through `bash -lc`. A PR author
+   therefore chooses what runs on a reviewer's machine when the reviewer runs
+   the gate on the checked-out branch. That is a larger hole than 2b on the
+   same call path, and it is a contract change — tracked as #541.
 
 3. **Proven record** — `artifacts/reviews/{N}-falsify.json` (`schema_version: "1"`)
    holds `head`, `runner_id`, `rows[]`, `oracle_ok`. Markdown `*-falsify.md` is an
    optional render, never a gate input.
 
-4. **Gate boolean graph** — `/pr` refuse and `/dev-review` tester-skip read only
-   **`oracle_ok`** from `run-falsify --verify` (full re-exec of mapped rows).
+4. **Gate boolean graph** — `/R-pr` refuse and `/R-dev-review` tester-skip read
+   only **`oracle_ok`** from `run-falsify --verify` (full re-exec of mapped rows),
+   which §2b qualifies: that boolean is about the tree the re-exec ran in.
    Schema-parse of a pre-written green JSON alone → ¬`oracle_ok`.
    `falsify_ok` from `parse-falsify.sh` is removed from refuse/skip paths.
    `parse-falsify.sh` may remain as ungated markdown hygiene.
@@ -62,7 +95,7 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
 
 ## Consequences
 
-- `/implement` Step 6b, `/pr` gather-state, and `/dev-review` must call the helper.
+- `/R-dev-implement` Step 6b, `/R-pr` gather-state, and `/R-dev-review` must call the helper.
 - Kit/boilerplate can later invoke the same script; not an AC of #417 V1.
 - Verify cost may run 2–3× (implement + pr + review); same-`head` session cache is
   optional later — never a receipt-only bypass.
