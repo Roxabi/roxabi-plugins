@@ -4,7 +4,7 @@ version: 1
 
 # Worktree Setup Checklist
 
-This file is parsed by `tools/worktreeScaffold.ts` (dev-core). The scaffolder reads each concern, evaluates its `applies_when` signals against the current project's `ProjectContext` (derived from `.dev/stack.yml` and filesystem probes), then composes the matching setup/teardown snippets into `tools/worktree-setup.sh` and `tools/worktree-teardown.sh` in the user's project root. The LLM may re-order concerns and insert bridging comments between snippets for readability, but **must not rewrite snippet bodies** — snippets are audited for correctness and must land verbatim.
+This file is parsed by `scripts/worktreeScaffold.ts` (dev-core). The scaffolder reads each concern, evaluates its `applies_when` signals against the current project's `ProjectContext` (derived from `.dev/stack.yml` and filesystem probes), then composes the matching setup/teardown snippets into `tools/worktree-setup.sh` and `tools/worktree-teardown.sh` in the user's project root. The LLM may re-order concerns and insert bridging comments between snippets for readability, but **must not rewrite snippet bodies** — snippets are audited for correctness and must land verbatim.
 
 ## Concerns
 

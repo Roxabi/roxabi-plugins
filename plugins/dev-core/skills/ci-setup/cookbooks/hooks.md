@@ -96,12 +96,14 @@ f. `bunx lefthook install`
 g. Copy license tools (JS/bun only — after lefthook install):
    ```bash
    [[ "${CLAUDE_PLUGIN_ROOT}" =~ ^/[a-zA-Z0-9/_.-]+$ ]] || { echo "ERROR: invalid CLAUDE_PLUGIN_ROOT"; exit 1; }
-   Φ=$(dirname "$(dirname "${CLAUDE_PLUGIN_ROOT}")")
-   test -f "${Φ}/tools/licenseChecker.ts" || { echo "ERROR: licenseChecker.ts not found in plugin (path: ${Φ}/tools/)"; exit 1; }
+   # No intermediate variable: `Φ` is not a valid shell name (bash parses
+   # `Φ=...` as a command), and dirname-of-dirname landed two levels above the
+   # plugin. Address the plugin root directly, as line 113 already does.
+   test -f "${CLAUDE_PLUGIN_ROOT}/scripts/licenseChecker.ts" || { echo "ERROR: licenseChecker.ts not found in plugin (path: ${CLAUDE_PLUGIN_ROOT}/scripts/)"; exit 1; }
    mkdir -p tools
-   cp "${Φ}/tools/licenseChecker.ts" tools/licenseChecker.ts
+   cp "${CLAUDE_PLUGIN_ROOT}/scripts/licenseChecker.ts" tools/licenseChecker.ts
    # Copy default policy template only if no policy file exists yet
-   test -f .license-policy.json || cp "${Φ}/tools/license-policy.json.example" .license-policy.json
+   test -f .license-policy.json || cp "${CLAUDE_PLUGIN_ROOT}/tools/license-policy.json.example" .license-policy.json
    # Gitignore the reports/ output directory
    grep -q 'reports/' .gitignore 2>/dev/null || echo 'reports/' >> .gitignore
    ```

@@ -16,7 +16,7 @@ import {
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..', '..')
 const REAL_CHECKLIST = path.join(REPO_ROOT, 'plugins/dev-core/references/worktree-setup-checklist.md')
 const FIXTURES_ROOT = path.join(import.meta.dirname, '__fixtures__/projects')
-const SCAFFOLD_TS = path.join(REPO_ROOT, 'plugins/dev-core/tools/worktreeScaffold.ts')
+const SCAFFOLD_TS = path.join(REPO_ROOT, 'plugins/dev-core/scripts/worktreeScaffold.ts')
 
 // ─── Tool availability (module-level, for skipIf) ────────────────────────────
 

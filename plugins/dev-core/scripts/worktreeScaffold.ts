@@ -6,7 +6,7 @@
  * into tools/worktree-setup.sh / tools/worktree-teardown.sh for user projects.
  *
  * Usage:
- *   bun plugins/dev-core/tools/worktreeScaffold.ts compose --checklist <path> \
+ *   bun plugins/dev-core/scripts/worktreeScaffold.ts compose --checklist <path> \
  *     --context-json <inline-json> --mode setup|teardown
  *
  * Zero external dependencies — uses Node built-ins only.

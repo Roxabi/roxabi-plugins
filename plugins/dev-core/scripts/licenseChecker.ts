@@ -5,7 +5,9 @@
  * checks each license against a configurable allowlist, and produces a human-readable
  * CLI summary plus a machine-readable JSON report.
  *
- * Usage: bun run tools/licenseChecker.ts
+ * Plugin source of truth: plugins/dev-core/scripts/licenseChecker.ts
+ * Usage, once copied into a project at tools/licenseChecker.ts:
+ *        bun run tools/licenseChecker.ts
  *        bun run tools/licenseChecker.ts --self-test
  * Turbo: turbo run license:check
  *
@@ -21,7 +23,7 @@
  *
  * Zero external dependencies — uses only Bun built-ins and Node.js fs/path.
  *
- * Copied into projects by /init Phase 10d via dev-core plugin.
+ * Copied into projects by /R-ci-setup (cookbooks/hooks.md step g) via the dev-core plugin.
  */
 
 import { spawnSync } from 'node:child_process'
