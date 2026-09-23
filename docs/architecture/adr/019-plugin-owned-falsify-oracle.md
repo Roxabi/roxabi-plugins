@@ -57,12 +57,25 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    gate-time `oracle_ok` is only as strong as the cleanliness of the tree it ran
    in.
 
-   2c. **Named residual — the gate trusts the artifact it reads.** `verify()`
-   rebuilds its map from the committed `artifacts/reviews/{N}-falsify.json`
-   and executes each row's `test_cmd` through `bash -lc`. A PR author
-   therefore chooses what runs on a reviewer's machine when the reviewer runs
-   the gate on the checked-out branch. That is a larger hole than 2b on the
-   same call path, and it is a contract change — tracked as #541.
+   2c. **The gate no longer trusts the artifact's commands (#541) — it still
+   runs the PR's tests.** `verify()` rebuilds its map from the committed
+   `artifacts/reviews/{N}-falsify.json`, and until #541 it executed each row's
+   `test_cmd` through `bash -lc`, so a PR author chose what ran on a reviewer's
+   machine. A row now only *names test paths*: its `test_cmd` must be exactly
+   `.dev/stack.yml` `commands.test` followed by plain relative paths, and the
+   runner executes that argv with no shell. A non-conforming row — or a source
+   path that is absolute or escapes the repo — is refused before **any** row
+   runs (`oracle_reason=refused-test-cmd:row<i>`, the row named on stderr); a
+   contract with no plain `commands.test` refuses everything
+   (`missing-test-command` / `unsupported-test-command`). The artifact records
+   what ran; it no longer decides it.
+
+   **Named residual.** The re-derived command is still PR content: the contract is
+   read from the checked-out tree, `commands.test` is typically indirect
+   (`bun run test` → `package.json`), and the test files are PR code. `--verify`
+   on an untrusted checkout is therefore exactly as dangerous as running
+   `{commands.test}` on it — no more, and no less. Gating the re-exec on the PR
+   author's trust is tracked as #569.
 
 3. **Proven record** — `artifacts/reviews/{N}-falsify.json` (`schema_version: "1"`)
    holds `head`, `runner_id`, `rows[]`, `oracle_ok`. Markdown `*-falsify.md` is an

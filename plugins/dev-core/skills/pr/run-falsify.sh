@@ -7,6 +7,9 @@
 #   run-falsify.sh --verify <falsify.json>
 #
 # Map: { "issue": N, "rows": [ { "sc_id", "sources": [], "test_cmd" } ] }
+#   test_cmd MUST be `.dev/stack.yml` commands.test + plain relative test paths;
+#   it is re-derived and run as argv (no shell). Anything else refuses every row
+#   (oracle_reason=refused-test-cmd:row<i>) — ADR-019 §2c, #541.
 # Emits: oracle_ok=true|false  +  oracle_reason=<token>
 # Always exit 0. Isolation = copy at HEAD with the working tree overlaid on top
 # (¬git stash API) — see snapshot_repo, and ADR-019 §2a for what that makes
@@ -28,7 +31,7 @@ rf_python() {
   ORACLE_REASON=missing
   local out
   out="$(MODE="$mode" RUNNER_ID="$RUNNER_ID" python3 - "$@" <<'PY'
-import hashlib, json, os, shutil, subprocess, sys, tempfile
+import hashlib, json, os, re, shlex, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
 mode = os.environ["MODE"]
@@ -44,8 +47,63 @@ def sha_file(p: Path) -> str:
     except OSError:
         return "missing"
 
-def run_cmd(cwd: Path, cmd: str) -> tuple[int, str]:
-    r = subprocess.run(["bash", "-lc", cmd], cwd=str(cwd), capture_output=True, text=True)
+# A row names test paths; it never names what runs. The command is re-derived from
+# the project contract (`.dev/stack.yml` commands.test) and executed as argv, without
+# a shell: the artifact is committed by the PR author, who is the untrusted party at
+# review time (#541). ADR-019 §2c prices what this does not close.
+PLAIN_PATH = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./@+-]*")
+SHELL_CHARS = set(";&|<>$`()\\\n")
+
+def plain_path(p) -> bool:
+    return isinstance(p, str) and PLAIN_PATH.fullmatch(p) is not None and ".." not in p.split("/")
+
+def contract_test_argv() -> tuple[list[str] | None, str]:
+    try:
+        lines = Path(".dev/stack.yml").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None, "missing-test-command"
+    in_commands = False
+    for line in lines:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line[0].isspace():
+            in_commands = line.split("#", 1)[0].rstrip() == "commands:"
+            continue
+        m = re.match(r"\s+test:(?:\s+(.*))?$", line) if in_commands else None
+        if m:
+            try:
+                argv = shlex.split(m.group(1) or "", comments=True)
+            except ValueError:
+                return None, "unsupported-test-command"
+            if not argv:
+                return None, "missing-test-command"
+            if any(SHELL_CHARS & set(t) for t in argv):
+                return None, "unsupported-test-command"
+            return argv, ""
+    return None, "missing-test-command"
+
+def derive_argv(test_cmd, base: list[str]) -> tuple[list[str] | None, str]:
+    if not isinstance(test_cmd, str):
+        return None, "test_cmd is not a string"
+    try:
+        tokens = shlex.split(test_cmd)
+    except ValueError as e:
+        return None, f"unparseable ({e})"
+    if tokens[:len(base)] != base:
+        return None, "does not start with commands.test"
+    paths = tokens[len(base):]
+    if not paths:
+        return None, "names no test path"
+    bad = next((p for p in paths if not plain_path(p)), None)
+    if bad is not None:
+        return None, f"{bad!r} is not a plain relative path"
+    return base + paths, ""
+
+def run_cmd(cwd: Path, argv: list[str]) -> tuple[int, str]:
+    try:
+        r = subprocess.run(argv, cwd=str(cwd), capture_output=True, text=True)
+    except OSError as e:
+        return 127, str(e)[:240]
     out = (r.stdout or "") + (r.stderr or "")
     return r.returncode, out.replace("\n", " ")[:240]
 
@@ -108,6 +166,34 @@ def execute_map(map_path: Path, out_path: Path | None, issue_override) -> tuple[
             write_artifacts(out_path, issue, head, False, "empty-map", [])
         return False, "empty-map"
 
+    base, base_reason = contract_test_argv()
+    if base is None:
+        print(f"run-falsify: {base_reason}: .dev/stack.yml commands.test must be a plain command (no shell syntax)", file=sys.stderr)
+        if out_path:
+            write_artifacts(out_path, issue, head, False, base_reason, [])
+        return False, base_reason
+
+    # Validate every row before anything runs: one refused row executes nothing.
+    refused = []
+    argvs = []
+    for i, row in enumerate(rows_in):
+        argv, why = derive_argv(row.get("test_cmd"), base)
+        if argv is not None and not all(plain_path(s) for s in row.get("sources") or []):
+            argv, why = None, "sources must be plain relative paths"
+        if argv is None:
+            refused.append(i)
+            print(
+                f"run-falsify: refused row {i} (sc_id={row.get('sc_id')!r}): {why}; "
+                f"test_cmd must be {shlex.join(base)!r} followed by test paths",
+                file=sys.stderr,
+            )
+        argvs.append(argv)
+    if refused:
+        reason = f"refused-test-cmd:row{refused[0]}"
+        if out_path:
+            write_artifacts(out_path, issue, head, False, reason, [])
+        return False, reason
+
     wt = Path(tempfile.mkdtemp(prefix="rf-wt."))
     try:
         snapshot_repo(wt)
@@ -115,10 +201,10 @@ def execute_map(map_path: Path, out_path: Path | None, issue_override) -> tuple[
         any_proven = False
         reason = "ok"
 
-        for row in rows_in:
+        for row, argv in zip(rows_in, argvs):
             sc = row.get("sc_id", "")
             sources = list(row.get("sources") or [])
-            test_cmd = row.get("test_cmd") or ""
+            test_cmd = shlex.join(argv)
             hashes = {s: sha_file(Path(s)) for s in sources}
 
             fail_dir = Path(tempfile.mkdtemp(prefix="rf-fail."))
@@ -130,7 +216,7 @@ def execute_map(map_path: Path, out_path: Path | None, issue_override) -> tuple[
                     if p.exists():
                         p.unlink()
 
-                fail_ec, fail_out = run_cmd(fail_dir, test_cmd)
+                fail_ec, fail_out = run_cmd(fail_dir, argv)
                 if fail_ec == 0:
                     rows_out.append({
                         "sc_id": sc, "sources": sources, "source_hashes": hashes,
@@ -145,7 +231,7 @@ def execute_map(map_path: Path, out_path: Path | None, issue_override) -> tuple[
                 if not any(t in err for t in ("AssertionError", "FAIL ", "toThrow", "Error:")):
                     err = f"FAIL exit={fail_ec}: {err}"
 
-                pass_ec, _pass_out = run_cmd(wt, test_cmd)
+                pass_ec, _pass_out = run_cmd(wt, argv)
                 if pass_ec == 0:
                     any_proven = True
                     rows_out.append({
