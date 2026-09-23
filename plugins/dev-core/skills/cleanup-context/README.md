@@ -31,7 +31,7 @@ Targets the "rule accumulation decay" problem: as rules accumulate, contradictio
 
 Always shows exact diffs before applying. Never deletes entire files.
 
-A memory entry whose tracked `#NNNN` refs have all closed is a *candidate*, not a deletion: the tracker is finished, the lesson in it may not be. Refs that can't be resolved (no `gh`, expired token, rate limit) count as open, so an outage can never propose a purge. Deleting or moving a memory file sweeps its `[[wikilink]]` backlinks in the same pass, before the removal.
+A memory entry whose tracked `#NNNN` refs have all closed is a *candidate*, not a deletion: the tracker is finished, the lesson in it may not be. Refs that can't be resolved (no `gh`, expired token, rate limit) count as open, so an outage can never propose a purge; resolving each ref costs one `gh` call, priced before the first one and skippable with `CLEANUP_CONTEXT_SKIP_GH=1`. Removing a memory file — under any resolution — sweeps its `[[wikilink]]` backlinks in the same pass, before the removal. That sweep reads every project's store, because citations cross projects, but only edits this one: citations elsewhere are reported and the pass stops for separate approval.
 
 ## When to run
 

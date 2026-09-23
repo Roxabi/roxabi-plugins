@@ -15,13 +15,6 @@ Let:
 # CLAUDE.md files (project root + nested)
 find . -name "CLAUDE.md" -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null
 
-# Project memory (μ + τ) — current project only.
-# The leading `/` maps to a leading `-`: `~/.claude/projects/-home-<user>-…`. Stripping it
-# silently resolves to a directory that never exists, and the audit reports "no memory".
-project_dir=$(echo "$PWD" | sed 's|/|-|g')
-memory_dir="$HOME/.claude/projects/$project_dir/memory"
-ls -la "$memory_dir/" 2>/dev/null || echo "No project memory"
-
 # Agent memory (α) — current project only
 ls -la .claude/agent-memory/*/MEMORY.md 2>/dev/null || echo "No agent memory"
 
@@ -30,6 +23,33 @@ test -f .claude/settings.json && echo "Settings: exists" || echo "Settings: miss
 
 # Prior audit log
 test -f .claude/context-audit-log.md && wc -l .claude/context-audit-log.md || echo "No prior audits"
+```
+
+### Project memory store (μ + τ)
+
+The store path is derived from `$PWD` **once**, in `${CLAUDE_SKILL_DIR}/memory-store.sh`.
+§2f of the analysis cookbook sources that same file rather than restating the rule, so the
+two callers cannot drift apart — they did, and the drifted copy was the bug: the encoder
+maps *every* non-alphanumeric byte to `-`, so a `/`-only substitution misses `_`, `.` and
+space, and resolves to a directory that exists nowhere.
+
+Three store states, three different lines. `empty` (a clean store) and `missing` (the path
+resolved to nothing) must never print the same reassuring text: printing "No project memory"
+for both is exactly how a wrong derivation reads as a healthy audit.
+
+```bash
+. "${CLAUDE_SKILL_DIR:?CLAUDE_SKILL_DIR unset — cannot locate memory-store.sh}/memory-store.sh"
+memory_dir="$(claude_resolve_memory_dir)"
+
+case "$(claude_store_state "$memory_dir")" in
+  populated) ls -la "$memory_dir/" ;;
+  empty)     echo "EMPTY: $memory_dir exists and holds no entries — nothing to audit here" ;;
+  missing)   echo "NO STORE: $memory_dir does not exist — \$PWD resolved to nothing." >&2
+             echo "  \$PWD=$PWD → slug $(claude_project_slug "$PWD")" >&2
+             echo "  Stores that do exist:" >&2
+             ls -1 "$HOME/.claude/projects" 2>/dev/null | sed 's/^/    /' >&2
+             echo "  ¬a clean store: verify the slug above before reporting 'no memory'." >&2 ;;
+esac
 ```
 
 `--scope` → filter to matching area only.
