@@ -37,6 +37,7 @@ For τ≠S work in this marketplace, `/pr` refuse and tester-skip are driven onl
 1. `/implement` builds SC→Test matrix (unit/FI only; e2e stays `⚠ NO FALSIFY — e2e`).
 2. Invokes plugin `run-falsify` at `plugins/dev-core/skills/pr/run-falsify.sh` with the map + source paths.
 3. Runner isolates via **canonical API = temp worktree / copy at HEAD** (¬repo-global `git stash`). Trap-backed in-place backup allowed only as an impl detail with restore guarantee — not the public API.
+   > Settled 2026-09-22 (#470): what shipped is **copy at HEAD plus a working-tree overlay**, and ADR-019 §2a is the governing text. Read "temp worktree" here as the historical wording, not the contract.
 4. Runs each mapped test with sources absent → must FAIL, restores → must PASS; writes `artifacts/reviews/{N}-falsify.json`; optionally renders `*-falsify.md` from JSON.
 5. Matrix row `✓ proven` only from runner row results.
 

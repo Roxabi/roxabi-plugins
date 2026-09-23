@@ -2,7 +2,7 @@
 title: "ADR-019: Plugin-owned falsify oracle (markdown is a report)"
 description: >
   Executable run-falsify is the sole falsify oracle for τ≠S gates.
-  Isolation = temp worktree. Proven record = falsify.json.
+  Isolation = copy at HEAD plus the working-tree overlay. Proven record = falsify.json.
   Gate boolean = oracle_ok from --verify re-exec. parse-falsify demoted to ungated lint.
 ---
 
@@ -26,9 +26,25 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    executable falsify oracle for τ≠S. Consumer `test:falsify` / LLM `git stash` are
    not alternate oracles unless they exec this helper without swallowing non-zero.
 
-2. **Isolation** — canonical API = **temp worktree / copy at HEAD**. Repo-global
-   `git stash` is not the public API. Trap-backed in-place backup may exist only as
-   an impl detail with restore guarantee.
+2. **Isolation** — canonical API = **copy at HEAD**, with the working tree
+   overlaid on top. Repo-global `git stash` is not the public API. Trap-backed
+   in-place backup may exist only as an impl detail with restore guarantee.
+
+   2a. **The overlay is intentional, and it changes what `oracle_ok` attests.**
+   `snapshot_repo` runs `git archive HEAD` and then copies every dirty and
+   untracked file over it (`git ls-files -co --exclude-standard`). The
+   implement-time call requires it: `/implement` Step 6b runs the oracle on work
+   that is not committed yet, and a HEAD-pure snapshot would prove nothing about
+   the code just written. So `oracle_ok` attests **the working tree as it stands
+   at run time**, not the PR's HEAD.
+
+   2b. **Named residual — the gate-time call inherits that.** `/R-pr` refuse and
+   `/R-dev-review` tester-skip read `oracle_ok` from a `--verify` re-exec that
+   uses the same snapshot path. Against a dirty tree it proves code that is not
+   in the PR, and nothing in the record says the tree was dirty. Closing that
+   needs the runner to record the working-tree state alongside `head` — a code
+   change, tracked as #539, not this ADR's to make. Until then a gate-time
+   `oracle_ok` is only as strong as the cleanliness of the tree it ran in.
 
 3. **Proven record** — `artifacts/reviews/{N}-falsify.json` (`schema_version: "1"`)
    holds `head`, `runner_id`, `rows[]`, `oracle_ok`. Markdown `*-falsify.md` is an
