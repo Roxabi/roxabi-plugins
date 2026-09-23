@@ -140,6 +140,13 @@ interface Fixture {
    * Prints this version and exits 0 whatever it is asked.
    */
   headPriceLies?: string
+  /**
+   * THE ATTACK. Commit a lying price.sh at the PINNED path — `.gate-tools/…` is
+   * a directory inside the head's own tree, so the head can simply put a file
+   * there. Committed on the head branch, so it is in the merge tree exactly as
+   * `actions/checkout` would materialise it on a pull_request.
+   */
+  headPlantsGateTools?: string
 }
 
 interface Built {
@@ -168,6 +175,15 @@ function build(f: Fixture): Built {
   const headBranch = f.headBranch ?? 'staging'
   if (f.headCommits?.length) {
     git(repo, ['checkout', '-q', '-b', headBranch])
+    // THE ATTACK, committed on the head branch: `.gate-tools/` is a path inside
+    // the PR author's own tree, so nothing stops a PR from putting a file there.
+    if (f.headPlantsGateTools) {
+      const dst = path.join(repo, PINNED_PRICE)
+      fs.mkdirSync(path.dirname(dst), { recursive: true })
+      fs.writeFileSync(dst, `#!/usr/bin/env bash\necho "${f.headPlantsGateTools}"\n`)
+      git(repo, ['add', '-A'])
+      git(repo, ['commit', '-q', '-m', 'chore: plant .gate-tools'])
+    }
     for (const subject of f.headCommits) git(repo, ['commit', '-q', '--allow-empty', '-m', subject])
     headSha = git(repo, ['rev-parse', 'HEAD'])
     git(repo, ['update-ref', `refs/remotes/origin/${headBranch}`, headSha])
@@ -175,6 +191,13 @@ function build(f: Fixture): Built {
     // actions/checkout materialises on a pull_request.
     git(repo, ['checkout', '-q', 'main'])
     git(repo, ['merge', '--no-ff', '--no-commit', headBranch])
+  } else if (f.headPlantsGateTools) {
+    // Push path: the same file materialised in the checkout of main (it landed
+    // through some earlier PR). The gate reads the workspace, so this is what a
+    // committed `.gate-tools/…/price.sh` looks like from the Gate step.
+    const dst = path.join(repo, PINNED_PRICE)
+    fs.mkdirSync(path.dirname(dst), { recursive: true })
+    fs.writeFileSync(dst, `#!/usr/bin/env bash\necho "${f.headPlantsGateTools}"\n`)
   }
 
   // The head-supplied deriver: present in the checkout, and a liar.
@@ -305,6 +328,115 @@ describe('release-consistency — the deriver is the pinned copy, not the checko
     expect(r.stderr).toMatch(/Roxabi\/roxabi-plugins@abc123/)
     // Not a three-way verdict: nothing was derived, so nothing was compared.
     expect(r.stderr).not.toMatch(/three-way/)
+  })
+})
+
+// ─── #385 item 1 (re-opened): the head can WRITE the pinned path ─────────────
+//
+// `.gate-tools/` is a directory inside the checkout, i.e. inside the PR author's
+// own tree. The pinned checkout step clears and fills it ONLY WHEN IT RUNS —
+// its `if:` exists precisely because job.workflow_* may be unpopulated (they are
+// documented as unavailable on GHES), and its `continue-on-error: true` exists
+// precisely so a failed clone does not deadlock main. On both of those outcomes
+// nothing touches the path, so a `.gate-tools/…/price.sh` COMMITTED BY THE PR is
+// what `[ -f "$PRICE" ]` finds and what `bash "$PRICE"` runs.
+//
+// Presence at that path is therefore not authority. The gate decides on
+// PROVENANCE: `steps.gate_tools.outcome` is the one witness the head cannot
+// write, and only `success` blesses the bytes.
+describe('release-consistency — a head-planted .gate-tools/ is not the pinned deriver (#385 item 1)', () => {
+  const PLANTED_PR = {
+    baseStack: STACK_STAGING_TRAIN,
+    baseTags: ['fixture/v1.2.3'],
+    headCommits: ['fix: something small'],
+    changelog: '## 9.9.9\n\n- lies\n',
+    headPlantsGateTools: '9.9.9',
+    pinned: false as const,
+  }
+  const PLANTED_PUSH = {
+    baseStack: 'release:\n  model: staging-train\n  component: fixture\n  version_files: [pkg.json]\n',
+    baseTags: ['fixture/v1.2.3'],
+    versionFile: { path: 'pkg.json', body: '{ "version": "1.2.2" }\n' },
+    // A floor of 1.0.0 makes the BEHIND file (1.2.2 < the real tag 1.2.3) read
+    // as ahead — the push path's own version of dictating the verdict.
+    headPlantsGateTools: '1.0.0',
+    pinned: false as const,
+  }
+
+  for (const outcome of ['skipped', 'failure']) {
+    it(`reds a promote PR that planted its own .gate-tools (pin ${outcome})`, () => {
+      const { repo, headSha } = build(PLANTED_PR)
+      const r = runGate(repo, {
+        ...PR_ENV,
+        PR_HEAD_SHA: headSha,
+        PR_TITLE: 'chore: promote staging to main (fixture/v9.9.9)',
+        GATE_TOOLS_OUTCOME: outcome,
+      })
+      expect(r.status).toBe(1)
+      expect(r.stderr).toMatch(/pinned deriver is unavailable/)
+      // The planted liar never ran: no derivation, so no three-way verdict.
+      expect(r.stdout).not.toMatch(/9\.9\.9/)
+      expect(r.stderr).not.toMatch(/three-way/)
+    })
+
+    it(`reds a push whose main carries a planted .gate-tools (pin ${outcome})`, () => {
+      const { repo, mainSha } = build(PLANTED_PUSH)
+      const r = runGate(repo, { EVENT_NAME: 'push', PUSH_SHA: mainSha, GATE_TOOLS_OUTCOME: outcome })
+      expect(r.status).toBe(1)
+      expect(r.stderr).toMatch(/pinned deriver is unavailable/)
+      expect(r.stdout).not.toMatch(/ok: pkg\.json/)
+    })
+  }
+
+  it('INVERTED: deciding on presence instead of provenance greens both attacks', () => {
+    // The falsifier, and the shape of the defect this closes: `[ -f "$PRICE" ]`
+    // alone is exactly what the gate used to ask, and it certifies a file the PR
+    // wrote. If these ever stop being green the two assertions above have stopped
+    // proving anything.
+    const presenceOnly = mutated((s) =>
+      s.replace('[ "${GATE_TOOLS_OUTCOME:-}" = "success" ] && [ -f "$PRICE" ]', '[ -f "$PRICE" ]'),
+    )
+    const pr = build(PLANTED_PR)
+    const rpr = runGate(
+      pr.repo,
+      {
+        ...PR_ENV,
+        PR_HEAD_SHA: pr.headSha,
+        PR_TITLE: 'chore: promote staging to main (fixture/v9.9.9)',
+        GATE_TOOLS_OUTCOME: 'skipped',
+      },
+      presenceOnly,
+    )
+    expect(rpr.status).toBe(0)
+    expect(rpr.stdout).toMatch(/three-way agreement on 9\.9\.9/)
+
+    const push = build(PLANTED_PUSH)
+    const rpush = runGate(
+      push.repo,
+      { EVENT_NAME: 'push', PUSH_SHA: push.mainSha, GATE_TOOLS_OUTCOME: 'failure' },
+      presenceOnly,
+    )
+    expect(rpush.status).toBe(0)
+    expect(rpush.stdout).toMatch(/ok: pkg\.json = 1\.2\.2 >= tag 1\.0\.0/)
+  })
+
+  it('a real pinned checkout is still trusted — the provenance check is not a blanket refusal', () => {
+    // outcome=success + the real deriver under .gate-tools/ is the normal path,
+    // and it must keep deriving. Otherwise "fail closed" would just be "fail".
+    const { repo, headSha } = build({
+      baseStack: STACK_STAGING_TRAIN,
+      baseTags: ['fixture/v1.2.3'],
+      headCommits: ['fix: something small'],
+      changelog: '## 1.2.4\n',
+    })
+    const r = runGate(repo, {
+      ...PR_ENV,
+      PR_HEAD_SHA: headSha,
+      PR_TITLE: 'chore: promote staging to main (fixture/v1.2.4)',
+      GATE_TOOLS_OUTCOME: 'success',
+    })
+    expect(r.status).toBe(0)
+    expect(r.stdout).toMatch(/three-way agreement on 1\.2\.4/)
   })
 })
 
@@ -450,18 +582,48 @@ describe('release-consistency — verdicts through the pinned deriver', () => {
 
 const PROVISIONER = path.join(REPO_ROOT, 'scripts/provision-release-gate.sh')
 
-/** A directory containing a fake `gh` behaving as `mode` dictates. */
-function ghStub(mode: 'fail' | 'silent-ok'): string {
+type StubMode = 'fail' | 'silent-ok' | 'stack-without-release'
+
+/**
+ * A directory containing a fake `gh` behaving as `mode` dictates.
+ *
+ * `silent-ok` answers every call with exit 0 and NO output, which is what a
+ * 404 on the contents API looks like through `gh api … --jq` — the real state
+ * of roxabi-factory / roxabi-live, whose main carries no .dev/stack.yml at all.
+ * `stack-without-release` returns a base64 stack.yml that exists but declares no
+ * `release:` block. The two are different states with OPPOSITE push verdicts.
+ */
+function ghStub(mode: StubMode): string {
   const dir = scratch('gh-stub-')
-  const body = mode === 'fail' ? '#!/bin/sh\nexit 1\n' : '#!/bin/sh\nexit 0\n'
+  let body: string
+  if (mode === 'fail') body = '#!/bin/sh\nexit 1\n'
+  else if (mode === 'silent-ok') body = '#!/bin/sh\nexit 0\n'
+  else {
+    const b64 = Buffer.from('schema_version: "1.0"\nruntime: bun\n').toString('base64')
+    body = `#!/bin/sh\ncase "$*" in\n  *contents/.dev/stack.yml*) printf '%s\\n' '${b64}' ;;\nesac\nexit 0\n`
+  }
   fs.writeFileSync(path.join(dir, 'gh'), body, { mode: 0o755 })
   return dir
 }
 
-function runProvisioner(args: string[], stub: 'fail' | 'silent-ok'): GateResult {
+/**
+ * `merge: true` runs the script with stderr redirected onto stdout, so `stdout`
+ * is the single stream an operator's terminal shows. Ordering claims MUST use
+ * it: `print_residual_risk` writes to stderr while `stub:`/`ruleset:` write to
+ * stdout, so searching one captured buffer for both can only ever find one of
+ * them — an ordering assertion across two independent buffers is not an ordering
+ * assertion at all, and cannot fail.
+ */
+function runProvisioner(args: string[], stub: StubMode, opts: { merge?: boolean } = {}): GateResult {
   const env = gitEnv()
   env.PATH = `${ghStub(stub)}:${env.PATH}`
-  const r = spawnSync('bash', [PROVISIONER, ...args], { cwd: REPO_ROOT, encoding: 'utf8', env })
+  const r = opts.merge
+    ? spawnSync('sh', ['-c', 'exec bash "$@" 2>&1', 'sh', PROVISIONER, ...args], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env,
+      })
+    : spawnSync('bash', [PROVISIONER, ...args], { cwd: REPO_ROOT, encoding: 'utf8', env })
   return { status: r.status ?? -1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }
 }
 
@@ -506,7 +668,7 @@ describe('provision-release-gate.sh — pin resolution (#385 item 5)', () => {
 })
 
 describe('provision-release-gate.sh — residual risk is shown before arming (#385 item 2)', () => {
-  it('prints the stub-tampering residual and its three controls before either mutation', () => {
+  it('prints the stub-tampering residual and its three controls', () => {
     const r = runProvisioner(['Roxabi/fixture-target', '--ref', 'roxabi-plugins/v9.9.9'], 'silent-ok')
     expect(r.status).toBe(0)
     expect(r.stderr).toMatch(/RESIDUAL RISK — this gate is NOT tamper-proof/)
@@ -515,27 +677,99 @@ describe('provision-release-gate.sh — residual risk is shown before arming (#3
     expect(r.stderr).toMatch(/CODEOWNERS/)
     expect(r.stderr).toMatch(/org-level required workflow/)
     expect(r.stderr).toMatch(/catches DRIFT and MISTAKES, not a determined/)
-
-    // Ordering is the point: an operator who reads only the top of the output
-    // has still read it before anything was armed.
-    const stubAt = r.stdout.search(/stub: (created|updated|up to date)/)
-    const rulesetAt = r.stdout.search(/ruleset: (created|already present)/)
-    expect(stubAt).toBeGreaterThan(-1)
-    expect(rulesetAt).toBeGreaterThan(stubAt)
   })
 
-  it('reports the target\u2019s day-1 release policy and how to onboard, without blocking', () => {
-    // The gh stub returns no .dev/stack.yml, which is the real state of
-    // factory/live: no release: block on either branch. That must read as an
-    // onboarding WARN with a path, not as a refusal — a blocking preflight would
-    // stop a provisioning that is safe.
-    const r = runProvisioner(['Roxabi/fixture-target', '--ref', 'roxabi-plugins/v9.9.9'], 'silent-ok')
-    expect(r.stderr).toMatch(/policy: WARN — no release\.component/)
+  it('shows the residual BEFORE either mutation, in the one stream an operator reads', () => {
+    // Ordering is the whole claim, and it is only checkable on a MERGED stream:
+    // the residual goes to stderr, `stub:`/`ruleset:` go to stdout, so an
+    // assertion that searched a single captured buffer for both could never
+    // fail — it would be measuring one stream's order against nothing.
+    const r = runProvisioner(['Roxabi/fixture-target', '--ref', 'roxabi-plugins/v9.9.9'], 'silent-ok', {
+      merge: true,
+    })
+    expect(r.status).toBe(0)
+    const residualAt = r.stdout.search(/RESIDUAL RISK — this gate is NOT tamper-proof/)
+    const policyAt = r.stdout.search(/^policy: /m)
+    const stubAt = r.stdout.search(/stub: (created|updated|up to date)/)
+    const rulesetAt = r.stdout.search(/ruleset: (created|already present)/)
+    for (const at of [residualAt, policyAt, stubAt, rulesetAt]) expect(at).toBeGreaterThan(-1)
+    expect(policyAt).toBeGreaterThan(residualAt)
+    expect(stubAt).toBeGreaterThan(policyAt)
+    expect(rulesetAt).toBeGreaterThan(stubAt)
+  })
+})
+
+// ─── #385 item 5, corrected: ABSENT ≠ PRESENT-WITHOUT-RELEASE ────────────────
+//
+// Two states the advisory used to collapse into one message, and their push
+// verdicts are opposite. Executed against the gate itself (see the D15c suites
+// above): an absent .dev/stack.yml hits the push path's fail-closed contract
+// guard (`refusing to gate`, exit 1), while a present file with no `release:`
+// block reads `version_files: []` and early-greens.
+describe('provision-release-gate.sh — target policy, per state (#385 item 5)', () => {
+  const ARGS = ['Roxabi/fixture-target', '--ref', 'roxabi-plugins/v9.9.9']
+
+  it('says RED-on-push when the target has no .dev/stack.yml at all (factory / live)', () => {
+    // `silent-ok` = the contents API answering with nothing, which is the 404
+    // shape — the state roxabi-factory and roxabi-live are actually in.
+    const r = runProvisioner(ARGS, 'silent-ok')
+    expect(r.stderr).toMatch(/policy: WARN — no \.dev\/stack\.yml at all/)
+    expect(r.stderr).toMatch(/every push to main\s+→ RED/)
+    expect(r.stderr).toMatch(/refusing[\s\S]{0,60}to gate/)
+    // The promise it must NOT make for this state.
+    expect(r.stderr).not.toMatch(/every push to main\s+→ early GREEN/)
+    // Still an onboarding WARN, still not a refusal.
     expect(r.stderr).toMatch(/early GREEN \(head != staging\)/)
-    expect(r.stderr).toMatch(/intended onboarding REFUSE, not a deadlock/)
     expect(r.stderr).toMatch(/ONBOARDING/)
-    // Not blocking: the run completed and armed both artifacts.
     expect(r.status).toBe(0)
     expect(r.stdout).toMatch(/== done ==/)
+  })
+
+  it('says GREEN-on-push when the file exists but carries no release: block', () => {
+    const r = runProvisioner(ARGS, 'stack-without-release')
+    expect(r.stderr).toMatch(/policy: WARN — \.dev\/stack\.yml present[\s\S]{0,80}no release\.component/)
+    expect(r.stderr).toMatch(/every push to main\s+→ early GREEN \(version_files: \[\]\)/)
+    expect(r.stderr).toMatch(/intended onboarding REFUSE, not a deadlock/)
+    expect(r.stderr).not.toMatch(/every push to main\s+→ RED/)
+    expect(r.status).toBe(0)
+  })
+
+  it('INVERTED: one message for both states is wrong for at least one of them', () => {
+    // The falsifier for the split. The two runs must not produce the same
+    // push-path verdict — that sameness IS the defect, because the gate's
+    // behaviour differs (exit 1 vs exit 0).
+    const PUSH_VERDICT = /every push to main\s+→ (RED|early GREEN)/
+    const absent = runProvisioner(ARGS, 'silent-ok').stderr.match(PUSH_VERDICT)?.[1]
+    const present = runProvisioner(ARGS, 'stack-without-release').stderr.match(PUSH_VERDICT)?.[1]
+    expect(absent).toBe('RED')
+    expect(present).toBe('early GREEN')
+    expect(absent).not.toBe(present)
+  })
+})
+
+// ─── m7: the host repo is not a provisioning target ──────────────────────────
+describe('provision-release-gate.sh — refuses to overwrite the reusable workflow', () => {
+  // $STUB_PATH and the reusable workflow's own path are the same string, so
+  // targeting the host repo PUTs a ~45-line caller stub over the gate's logic —
+  // and --remove deletes it. Both directions must stop before any mutation.
+  for (const target of ['Roxabi/roxabi-plugins', 'roxabi-plugins', 'roxabi/ROXABI-PLUGINS']) {
+    it(`exits 7 for '${target}' without touching anything`, () => {
+      const r = runProvisioner([target, '--ref', 'roxabi-plugins/v9.9.9'], 'silent-ok')
+      expect(r.status).toBe(7)
+      expect(r.stderr).toMatch(/HOSTS the reusable workflow/)
+      expect(r.stdout).toBe('')
+    })
+  }
+
+  it('refuses --remove on the host repo too — that direction DELETES the reusable', () => {
+    const r = runProvisioner(['Roxabi/roxabi-plugins', '--remove'], 'silent-ok')
+    expect(r.status).toBe(7)
+    expect(r.stdout).not.toMatch(/== removing/)
+  })
+
+  it('an ordinary target is unaffected', () => {
+    const r = runProvisioner(['Roxabi/fixture-target', '--ref', 'roxabi-plugins/v9.9.9'], 'silent-ok')
+    expect(r.status).toBe(0)
+    expect(r.stderr).not.toMatch(/HOSTS the reusable workflow/)
   })
 })

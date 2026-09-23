@@ -23,8 +23,12 @@ set -euo pipefail
 # commit and the ruleset.
 #
 # NOTE ON THE FILENAME COLLISION: the caller stub and the reusable workflow share
-# the basename `release-consistency.yml` but live in different repos (stub in the
-# target repo, reusable in Roxabi/roxabi-plugins). That is intentional and fine.
+# the basename `release-consistency.yml`, and in fact the WHOLE PATH
+# (`.github/workflows/release-consistency.yml`) is identical. That is fine only
+# because they live in different repos — and "different repos" is ENFORCED, not
+# assumed: targeting $REUSABLE_REPO exits 7 before any mutation, because a stub
+# PUT there would overwrite the reusable workflow with a call to itself (and
+# --remove would delete it). See the guard after arg parsing.
 #
 # ORDER MATTERS: the stub is committed BEFORE the ruleset is created. Reversing
 # the order would arm a required status check on a branch that has no workflow
@@ -86,9 +90,18 @@ set -euo pipefail
 # that can brick provisioning, and it would block the safe ordering (arm the gate
 # first, land the policy second) for a deadlock that does not exist: with the
 # gate armed and no policy, ordinary branch→main PRs early-green at the
-# `head != staging` scope gate and pushes to main early-green on the default
-# `version_files: []`. Only a staging→main PROMOTE PR reds, which is the intended
-# D13 onboarding REFUSE.
+# `head != staging` scope gate, so nothing becomes unmergeable. Only a
+# staging→main PROMOTE PR reds, which is the intended D13 onboarding REFUSE.
+#
+# WHAT THE PUSH PATH DOES DEPENDS ON WHICH "no policy" IT IS — two states, two
+# verdicts, and `report_target_policy` reports them apart:
+#   · `.dev/stack.yml` PRESENT without a `release:` block → push to main
+#     early-greens on `version_files: []`.
+#   · `.dev/stack.yml` ABSENT entirely → push to main is RED ("refusing to
+#     gate"): an absent contract must not read as an empty list, so the push
+#     path fails closed. This is the state roxabi-factory / roxabi-live are in.
+#     It is noise on main, not a blocked merge — the required context is
+#     evaluated on the PR head — but say it, do not promise a green.
 
 # ── constants (do NOT drift from T11) ────────────────────────────────────────
 STUB_PATH=".github/workflows/release-consistency.yml"
@@ -157,6 +170,26 @@ done
 [ -n "$REPO" ] || { echo "error: target repo is required" >&2; usage 2; }
 # bare name → default org
 case "$REPO" in */*) : ;; *) REPO="Roxabi/${REPO}" ;; esac
+
+# ── the host repo is NOT a valid target (self-overwrite guard) ───────────────
+# `$STUB_PATH` and the reusable workflow's own path are the same string, so
+# `provision-release-gate.sh ${REUSABLE_REPO}` does not "provision the host": it
+# PUTs the ~45-line caller stub over the reusable workflow itself, replacing the
+# gate's logic with a `uses:` line pointing at the file it just destroyed — and
+# `--remove` DELETES that file outright, which is worse, so the guard covers both
+# directions. GitHub repo names are case-insensitive, so compare folded.
+# The header's "different repos, that is fine" note is only true while this
+# refuses; without it, it is an assumption about who types what.
+repo_fold() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+if [ "$(repo_fold "$REPO")" = "$(repo_fold "$REUSABLE_REPO")" ]; then
+  {
+    echo "error: ${REPO} HOSTS the reusable workflow — it cannot be a provisioning target."
+    echo "  the caller stub path (${STUB_PATH}) is byte-identical to the reusable workflow's"
+    echo "  own path in ${REUSABLE_REPO}, so provisioning would overwrite the gate with a"
+    echo "  stub that calls it, and --remove would delete it. Nothing was touched."
+  } >&2
+  exit 7
+fi
 
 # ── preflight ────────────────────────────────────────────────────────────────
 for bin in gh jq git base64; do
@@ -306,10 +339,48 @@ ruleset_id() {
 # ADVISORY ONLY: it never returns non-zero and never blocks provisioning (see
 # "WHY THERE IS NO BLOCKING POLICY PREFLIGHT" in the header). Its job is to make
 # the day-1 state legible before the required check is armed, not to veto it.
+#
+# THE FILE BEING ABSENT AND THE FILE CARRYING NO `release:` BLOCK ARE DIFFERENT
+# STATES WITH OPPOSITE PUSH VERDICTS, and this used to collapse them: one `raw`
+# emptiness covered both a 404 and a stack.yml with no release key, and the one
+# message claimed `every push to main → early GREEN (version_files: [])` for
+# both. Executed, an ABSENT file hits the push path's fail-closed contract guard
+# (`.dev/stack.yml absent — refusing to gate`, exit 1) — RED, not green. That is
+# the state roxabi-factory and roxabi-live are actually in, i.e. the advisory was
+# wrong about precisely the two repos it names. Report them apart.
 report_target_policy() {
-  local raw component=""
-  raw=$(gh api "repos/${REPO}/contents/${STACK_PATH}?ref=${COMMIT_BRANCH}" --jq '.content' 2>/dev/null \
-    | base64 -d 2>/dev/null || true)
+  local encoded raw="" component="" present=0
+  encoded=$(gh api "repos/${REPO}/contents/${STACK_PATH}?ref=${COMMIT_BRANCH}" --jq '.content' 2>/dev/null || true)
+  if [ -n "$encoded" ]; then
+    present=1
+    raw=$(printf '%s\n' "$encoded" | base64 -d 2>/dev/null || true)
+  fi
+
+  if [ "$present" -eq 0 ]; then
+    {
+      echo "policy: WARN — no ${STACK_PATH} at all on ${REPO}@${COMMIT_BRANCH}"
+      echo "  The gate reads its AUTHORITY from the base branch, so until that file lands:"
+      echo "    · every ordinary branch→main PR      → early GREEN (head != staging)"
+      echo "    · every push to main                 → RED ('${STACK_PATH} absent — refusing"
+      echo "                                           to gate'): an absent contract must not"
+      echo "                                           read as an empty version_files list, so"
+      echo "                                           the push path fails CLOSED."
+      echo "    · a staging→main PROMOTE PR          → RED (release.component missing, D13)"
+      echo "  The push RED does not block a merge — the required context is evaluated on the"
+      echo "  PR head, and ordinary PRs early-green — but main's own runs stay red until the"
+      echo "  file lands. Arming the gate here is safe; it is not quiet."
+      echo "  ONBOARDING (this is the path for roxabi-factory / roxabi-live, which carry no"
+      echo "  ${STACK_PATH} on ${COMMIT_BRANCH} at all):"
+      echo "    1. Open an ORDINARY branch→${COMMIT_BRANCH} PR adding ${STACK_PATH} with a"
+      echo "       release: block (component + version_files, model if not staging-train)."
+      echo "       It early-greens at the scope gate, so it is mergeable with the gate armed,"
+      echo "       and it is what turns the push path from RED to green."
+      echo "    2. Only then is a staging→main promote PR gated for real."
+      echo "  Order does not matter for mergeability: provisioning before or after step 1 is"
+      echo "  equally safe. It DOES matter for noise — land step 1 first for a quiet main."
+    } >&2
+    return 0
+  fi
 
   if [ -n "$raw" ]; then
     if command -v yq >/dev/null 2>&1; then
@@ -320,20 +391,25 @@ report_target_policy() {
       echo "policy: ${STACK_PATH} present on ${COMMIT_BRANCH} but no YAML reader (yq/python3) here — cannot report release.component"
       return 0
     fi
+  else
+    echo "policy: ${STACK_PATH} present on ${COMMIT_BRANCH} but its contents could not be decoded here — cannot report release.component"
+    return 0
   fi
 
   case "$component" in
     '' | null)
       {
-        echo "policy: WARN — no release.component on ${REPO}@${COMMIT_BRANCH}:${STACK_PATH}"
-        echo "  The gate reads its AUTHORITY from the base branch, so until that lands:"
+        echo "policy: WARN — ${STACK_PATH} present on ${REPO}@${COMMIT_BRANCH} but no release.component in it"
+        echo "  The gate reads its AUTHORITY from the base branch, so until that block lands:"
         echo "    · every ordinary branch→main PR      → early GREEN (head != staging)"
-        echo "    · every push to main                 → early GREEN (version_files: [])"
+        echo "    · every push to main                 → early GREEN (version_files: []): the"
+        echo "                                           contract file EXISTS, so the push path"
+        echo "                                           reads an empty list and has nothing to"
+        echo "                                           check. (Absent file ≠ this: see above.)"
         echo "    · a staging→main PROMOTE PR          → RED (release.component missing, D13)"
         echo "  That last one is the intended onboarding REFUSE, not a deadlock — the gate is"
-        echo "  safe to arm now."
-        echo "  ONBOARDING (this is the path for roxabi-factory / roxabi-live, which carry no"
-        echo "  release: block on either branch):"
+        echo "  safe to arm now, and quiet until a promote PR is opened."
+        echo "  ONBOARDING:"
         echo "    1. Open an ORDINARY branch→${COMMIT_BRANCH} PR adding a release: block to"
         echo "       ${STACK_PATH} (component + version_files, model if not staging-train)."
         echo "       It early-greens at the scope gate, so it is mergeable with the gate armed."

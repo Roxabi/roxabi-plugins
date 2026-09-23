@@ -6,11 +6,14 @@ import { describe, expect, it } from 'vitest'
 // Grep-checkable so the trunk-mode concepts + the stack.yml.example key cannot
 // silently rot.
 //   __tests__ → promote (SKILL.md) ; __tests__ → promote → skills → dev-core (stack.yml.example)
+//   __tests__ → promote → skills → dev-core → plugins (omp-build's sibling copy)
 const SKILL_MD = fileURLToPath(new URL('../SKILL.md', import.meta.url))
 const STACK_EXAMPLE = fileURLToPath(new URL('../../../stack.yml.example', import.meta.url))
+const OMP_SKILL_MD = fileURLToPath(new URL('../../../../omp-build/skills/promote/SKILL.md', import.meta.url))
 
 const skill = readFileSync(SKILL_MD, 'utf8')
 const example = readFileSync(STACK_EXAMPLE, 'utf8')
+const ompSkill = readFileSync(OMP_SKILL_MD, 'utf8')
 
 describe('promote docs — release.model contract (#371 S5 / N12,N13)', () => {
   it('has a Trunk mode section keyed to release.model', () => {
@@ -51,5 +54,55 @@ describe('promote docs — release.model contract (#371 S5 / N12,N13)', () => {
 
   it('stack.yml.example ships release.model defaulting to staging-train', () => {
     expect(example).toMatch(/^\s+model:\s+staging-train/m)
+  })
+})
+
+// ─── #385 item 4 (corrected): the finalize trunk guard sits AFTER 9a ─────────
+//
+// The guard reads a release model, and its own text claims that read is
+// legitimate because "--finalize runs post-merge on main, so the working tree IS
+// the base". Placed at 9.0 — i.e. BEFORE 9a — nothing had established that: 9a
+// is the step that fetches (dev-core also checks out and pulls), and Step 1a's
+// own text says /promote runs on staging. So the exemption was asserted about a
+// tree the skill had not reached yet. Ordering is the fix, and it is the thing
+// that can silently regress, so pin it.
+describe('promote docs — the finalize trunk guard reads a base the skill has reached (#385 item 4)', () => {
+  for (const [name, src] of [
+    ['dev-core', skill],
+    ['omp-build', ompSkill],
+  ] as const) {
+    it(`${name}: the trunk guard comes after 9a, and nothing reads a stack before it`, () => {
+      const stepNine = src.indexOf('## Step 9 — Finalize')
+      const ninerA = src.indexOf('**9a.', stepNine)
+      const guard = src.search(/\*\*9\.1 Trunk guard/)
+      expect(stepNine).toBeGreaterThan(-1)
+      expect(ninerA).toBeGreaterThan(stepNine)
+      expect(guard).toBeGreaterThan(ninerA)
+      // The falsifiable half: between the Step 9 heading and 9a there is no
+      // release-policy read at all. Move the guard back to 9.0 and this slice
+      // carries `.dev/stack.yml` again.
+      expect(src.slice(stepNine, ninerA)).not.toContain('.dev/stack.yml')
+    })
+  }
+
+  it('dev-core reads the local stack only because 9a checked main out', () => {
+    // dev-core's 9a does `git checkout main && git pull`, so after it the working
+    // tree really is the base. The justification must name that dependency,
+    // otherwise it is the same unearned claim one step lower.
+    expect(skill).toMatch(/9a\.[\s\S]{0,200}git checkout main/)
+    expect(skill).toMatch(/only because it sits after 9a/)
+  })
+
+  it('omp-build reads the BASE REF — its 9a deliberately never checks anything out', () => {
+    // omp-build's 9a is read-only on purpose (--finalize runs from a feature
+    // worktree), so there is NO point at which its working tree is the base.
+    // Reading the local file there is wrong at every position; the guard must
+    // read refs/remotes/origin/main, the ref 9a's fetch refreshes.
+    expect(ompSkill).toMatch(/There is no `git checkout main && git pull` here/)
+    const guard = ompSkill.indexOf('**9.1 Trunk guard')
+    const block = ompSkill.slice(guard, ompSkill.indexOf('**9b.', guard))
+    expect(block).toContain('BASE_REF=refs/remotes/origin/main')
+    expect(block).toMatch(/git show "\$\{BASE_REF\}:\.dev\/stack\.yml"/)
+    expect(block).not.toMatch(/yq -r '\.release\.model[^']*' \.dev\/stack\.yml/)
   })
 })

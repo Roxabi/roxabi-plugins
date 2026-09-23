@@ -110,7 +110,12 @@ feature worktree that either fails or drags the tree off its own branch.
 
 ```bash
 BASE_REF=refs/remotes/origin/main    # the promote PR's base — same ref the gate anchors on
-git fetch --force origin '+refs/heads/*:refs/remotes/origin/*' >/dev/null 2>&1 || true
+# A failed fetch is not fatal — /promote must work offline — but it is NOT silent
+# either: `git show` below succeeds against a STALE refs/remotes/origin/main, so
+# without this warning a moved base produces a confident prediction of the wrong
+# verdict, and neither the fallback nor anything else fires (#385 m8).
+git fetch --force origin '+refs/heads/*:refs/remotes/origin/*' >/dev/null 2>&1 \
+  || echo "WARN: fetch failed — ${BASE_REF} may be stale; the gate anchors on the REAL base, so this prediction can differ from its verdict. Re-run with network before trusting a green." >&2
 BASE_STACK=$(mktemp)
 git show "${BASE_REF}:.dev/stack.yml" > "$BASE_STACK" 2>/dev/null || : > "$BASE_STACK"
 
@@ -358,17 +363,7 @@ After merge:
 
 Skip Steps 1-8. Post-merge only.
 
-**9.0 Trunk guard (#371 B1).** `/promote --finalize` is the *staging-train* tagger. Under `release.model: trunk` a release is cut by pushing an annotated tag (ADR-021), and there is no promotion to finalize — refuse before touching anything (see `## Trunk mode`):
-
-```bash
-MODEL=$(yq -r '.release.model // "staging-train"' .dev/stack.yml 2>/dev/null \
-  || { [ -f .dev/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".dev/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
-[ "$MODEL" = trunk ] && { echo "REFUSE: release.model==trunk — a trunk release is cut by pushing an annotated tag (ADR-021); /promote --finalize does not apply."; exit 1; }
-```
-
-Unlike Step 1a, this one legitimately reads the **local** `.dev/stack.yml`: `--finalize` runs post-merge on `main`, so the working tree *is* the base the gate reads. No divergence to correct (#385 item 4).
-
-**9a.** Verify the merge — **read-only**:
+**9a.** Verify the merge — **read-only**, and **first**, because 9.1's trunk guard reads the ref this fetch materialises:
 ```bash
 git fetch origin main      # refs/remotes/* only
 gh pr list --base main --head staging --state merged --limit 1 --json number,title,mergedAt
@@ -381,6 +376,29 @@ drags that tree off its own branch, before a single question has been asked. The
 fetch brings the merge object in; everything below is derived from that object,
 and Step 9d tags it by SHA. dev-core's copy checked out first for the same reason
 its pre-flight did, and it is wrong here for the same reason.
+
+**9.1 Trunk guard (#371 B1).** `/promote --finalize` is the *staging-train* tagger. Under `release.model: trunk` a release is cut by pushing an annotated tag (ADR-021), and there is no promotion to finalize — refuse before tagging anything (see `## Trunk mode`):
+
+```bash
+# The BASE ref, not the working tree — same source, same reason as Step 1a.
+BASE_REF=refs/remotes/origin/main            # refreshed by 9a's fetch, just above
+BASE_STACK=$(mktemp)
+git show "${BASE_REF}:.dev/stack.yml" > "$BASE_STACK" 2>/dev/null || : > "$BASE_STACK"
+MODEL=$(yq -r '.release.model // "staging-train"' "$BASE_STACK" 2>/dev/null \
+  || python3 -c 'import sys,yaml;d=yaml.safe_load(open(sys.argv[1])) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' "$BASE_STACK" 2>/dev/null \
+  || echo staging-train)
+MODEL=${MODEL:-staging-train}                # absent/unparseable coerces to the strict path, like the gate
+[ "$MODEL" = trunk ] && { echo "REFUSE: release.model==trunk — a trunk release is cut by pushing an annotated tag (ADR-021); /promote --finalize does not apply."; exit 1; }
+```
+
+This does **not** read the local `.dev/stack.yml`, and the claim that it could was
+false in two ways (#385 item 4). It sat *above* 9a, so nothing had moved HEAD yet
+— and 9a here deliberately never does: `--finalize` runs from whatever worktree
+the operator is standing in, routinely a feature branch, which per Step 1a is not
+`main`. So there is no point in this skill at which the working tree is
+guaranteed to be the base. The base ref is, and 9a's fetch is what makes it
+current — hence the ordering. Nothing is written before this guard: 9a fetches
+and lists, and the first mutation is the tag in 9d.
 
 **9b.** Derive V from the **merge object alone** (S11/D4) — never from a witness. The finalize verdict (structural REFUSE, drift REFUSE, witness WARN, per-artifact act) is computed by `lib/finalize.ts` — the **tested classifier IS the executed decision** (#369), not a bash re-implementation of part of it. The PR title, CHANGELOG heading and version file are compared only to **WARN** (D7); a disagreement prints repair actions and finalize **tags the derived version anyway**, because the merge already shipped and a post-merge REFUSE would re-manufacture the shipped-no-release defect. Gather the inputs:
 

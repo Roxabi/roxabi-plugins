@@ -167,6 +167,31 @@ describe('release-consistency — pinned gate tooling step (#385 item 1)', () =>
     const step = reusableSrc.slice(stepIdx, gateIdx)
     expect(step).toMatch(/continue-on-error: true/)
     expect(step).toMatch(/if: \$\{\{ job\.workflow_repository != '' && job\.workflow_sha != '' \}\}/)
+    // The clone is credential-free: `persist-credentials: false` keeps the
+    // cross-repo token out of .gate-tools/.git/config, where any later step —
+    // including `bash "$PRICE"` itself — could read it. Scoped to this step like
+    // its three siblings in the same `with:` block, so a drop is caught here
+    // rather than satisfied by the string appearing anywhere in the file.
+    expect(step).toMatch(/persist-credentials: false/)
+  })
+
+  it('clears .gate-tools/ before the pinned checkout — the head must not own that path', () => {
+    // `.gate-tools/` lives in the PR-author-controlled checkout, and the pinned
+    // step writes it ONLY when it runs (its `if:` and `continue-on-error` both
+    // exist for good reasons). Without an unconditional clear, a
+    // `.gate-tools/…/price.sh` committed by the PR survives into the Gate step.
+    // Exec cannot see this: the harness runs the Gate script alone.
+    const clearIdx = reusableSrc.indexOf('- name: Clear the pinned gate-tooling path')
+    const pinIdx = reusableSrc.indexOf('- name: Checkout pinned gate tooling')
+    expect(clearIdx).toBeGreaterThan(-1)
+    expect(pinIdx).toBeGreaterThan(clearIdx)
+    const step = reusableSrc.slice(clearIdx, pinIdx)
+    expect(step).toMatch(/run: rm -rf \.gate-tools/)
+    // Unconditional: no `if:` may gate it, or the attack path re-opens exactly
+    // where the pinned step is skipped.
+    expect(step).not.toMatch(/^\s+if:/m)
+    // And it may not fail the job in front of an early green (D15c).
+    expect(step).toMatch(/continue-on-error: true/)
   })
 
   it('plumbs the pin identity and the checkout outcome into the Gate step', () => {
@@ -181,6 +206,15 @@ describe('release-consistency — pinned gate tooling step (#385 item 1)', () =>
     expect(reusableSrc).not.toMatch(/PRICE="plugins\//)
   })
 
+  it('decides on PROVENANCE: only a pinned checkout that RAN and SUCCEEDED blesses the deriver', () => {
+    // `[ -f "$PRICE" ]` alone is presence, and the head can create presence at
+    // that path. `steps.gate_tools.outcome` is the one witness it cannot write.
+    // The exec suite proves the behaviour; this pins the predicate so a future
+    // edit cannot quietly drop the outcome conjunct and keep the file check.
+    expect(reusableSrc).toMatch(/^\s+price_available\(\) \{$/m)
+    expect(reusableSrc).toContain('[ "${GATE_TOOLS_OUTCOME:-}" = "success" ] && [ -f "$PRICE" ]')
+  })
+
   it('every `bash "$PRICE"` is immediately preceded by the lazy guard, and no guard precedes an early green', () => {
     // The placement contract of #385 item 3, read off the shipped bytes. The
     // behavioural half (early greens still exit 0 with no deriver) is in the exec
@@ -189,9 +223,11 @@ describe('release-consistency — pinned gate tooling step (#385 item 1)', () =>
     // an unguarded `bash "$PRICE"`.
     const lines = reusableSrc.split('\n')
     const callSites = lines.flatMap((l, i) => (/^\s*[A-Z_]+=\$\(bash "\$PRICE"/.test(l) ? [i] : []))
-    const guards = lines.flatMap((l, i) => (/^\s*\[ -f "\$PRICE" \] \|\|/.test(l) ? [i] : []))
+    const guards = lines.flatMap((l, i) => (/^\s*price_available \|\|/.test(l) ? [i] : []))
     expect(callSites.length).toBe(2)
     expect(guards.length).toBe(callSites.length)
+    // No call site may be guarded by the old presence-only test.
+    expect(reusableSrc).not.toMatch(/^\s*\[ -f "\$PRICE" \] \|\|/m)
 
     // Each call site has a guard above it with only comments and `set +e` between.
     for (const site of callSites) {
@@ -207,7 +243,7 @@ describe('release-consistency — pinned gate tooling step (#385 item 1)', () =>
     // deadlock the #374 review killed.
     const firstEarlyGreen = reusableSrc.search(/[^!]= "trunk" \]/)
     expect(firstEarlyGreen).toBeGreaterThan(-1)
-    const firstGuardOffset = reusableSrc.search(/\[ -f "\$PRICE" \] \|\|/)
+    const firstGuardOffset = reusableSrc.search(/^\s*price_available \|\|/m)
     expect(firstGuardOffset).toBeGreaterThan(firstEarlyGreen)
   })
 })

@@ -38,12 +38,23 @@
 #       clone — private repo, revoked token, GitHub outage — must NOT fail the
 #       JOB in front of the in-job early greens (D15c at JOB granularity), or it
 #       deadlocks main in every provisioned repo.
+#     * .gate-tools/ IS A PATH IN THE HEAD'S OWN CHECKOUT. The pinned step
+#       clears and writes it only when it RUNS; when it is `skipped`
+#       (job.workflow_* unpopulated — they are documented as unavailable on
+#       GHES) or `failure`d, nothing touches the path, so a
+#       `.gate-tools/plugins/dev-core/skills/promote/price.sh` COMMITTED BY THE
+#       PR would be what executes. Two answers, both required: the workflow
+#       clears the path unconditionally before the pinned checkout (so it owns
+#       it), and the gate decides on PROVENANCE, not presence — the deriver
+#       counts only when steps.gate_tools.outcome == success (see
+#       `price_available` below). A file the head planted is never blessed.
 #     * When the pinned copy is unavailable the gate FAILS CLOSED AT THE CALL
-#       SITE: never at the job front, and never by falling back to the head copy.
-#       A fallback would silently restore the hole; a front guard would deadlock.
-#       So every path that does not derive a version (trunk, head != staging,
-#       `version_files: []`) still reaches its `exit 0`, and only the paths that
-#       actually run the deriver go red — loudly, naming the pin.
+#       SITE: never at the job front, and never by falling back to a copy the
+#       head could have written. A fallback would silently restore the hole; a
+#       front guard would deadlock. So every path that does not derive a version
+#       (trunk, head != staging, `version_files: []`) still reaches its `exit 0`,
+#       and only the paths that actually run the deriver go red — loudly, naming
+#       the pin.
 #
 # KNOWN-OPEN (do NOT read this gate as fully hardened — tracked as FU-2):
 #   (b) The per-repo caller stub is committed into the TARGET repo, so a PR can
@@ -100,20 +111,39 @@ jobs:
       - name: Fetch branches and tags
         run: git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
 
+      # ── #385 item 1: the head must not own .gate-tools/ ──────────────────
+      # `.gate-tools/` is a path inside the checkout above, i.e. inside the PR
+      # author's own tree on the pull_request path. The pinned checkout below
+      # clears and writes it ONLY WHEN IT RUNS; skipped (job.workflow_*
+      # unpopulated) or failed (continue-on-error), nothing touches the path and
+      # a `.gate-tools/plugins/dev-core/skills/promote/price.sh` committed by the
+      # PR is what `$PRICE` would find. Clear it unconditionally so the workflow
+      # owns the path whatever the pinned step does next.
+      #
+      # `continue-on-error: true` for the same D15c reason as the step below:
+      # this sits in front of every in-job early green, so it MUST NOT be able to
+      # fail the job. It is the braces; the belt is the PROVENANCE check in the
+      # Gate step (`price_available`, which requires outcome == success), which
+      # is what actually decides — so a clear that somehow fails costs nothing.
+      - name: Clear the pinned gate-tooling path
+        continue-on-error: true
+        run: rm -rf .gate-tools
+
       # ── #385 item 1: run the deriver from a PINNED copy of THIS workflow's
       # own repo, never from the (PR-author-controlled) checkout above.
       #
       # `job.workflow_repository` / `job.workflow_sha` resolve to the REUSABLE's
       # repo and commit — not the caller stub's — so the clone is exactly the
       # bytes this file was called at. On a runner that does not populate them
-      # the `if:` is false, the step is SKIPPED (not failed), and the lazy guard
-      # in the Gate step turns that into a loud red on derive paths only.
+      # the `if:` is false, the step is SKIPPED (not failed), its outcome is not
+      # `success`, and the lazy guard in the Gate step turns that into a loud red
+      # on derive paths only.
       #
       # `continue-on-error: true` is LOAD-BEARING, not defensive dressing: this
       # step sits in front of every in-job early green, and a step that fails
       # here fails the JOB. With zero bypass actors that deadlocks main in every
       # provisioned repo (D15c at job granularity). Failure must arrive at the
-      # call site instead — see `[ -f "$PRICE" ]` below.
+      # call site instead — see `price_available` below.
       - name: Checkout pinned gate tooling
         id: gate_tools
         if: ${{ job.workflow_repository != '' && job.workflow_sha != '' }}
@@ -144,11 +174,19 @@ jobs:
           # `plugins/dev-core/skills/promote/price.sh` in the checkout is the PR
           # author's file on the pull_request path; running it would let a PR
           # that rewrites price.sh dictate its own verdict. This path lives in
-          # .gate-tools/, the pinned clone of this workflow's own repo.
+          # .gate-tools/, which the `Clear the pinned gate-tooling path` step
+          # emptied and only the pinned checkout refills.
           #
-          # There is NO fallback to the checked-out copy. A fallback is a silent
+          # PRESENCE AT THIS PATH IS NOT AUTHORITY. `.gate-tools/` sits in the
+          # head's own tree, so the head can commit a file there; the clear step
+          # is best-effort by construction (it cannot be allowed to fail the job
+          # in front of an early green). The decision therefore rests on
+          # PROVENANCE — `price_available` below requires the pinned checkout to
+          # have actually run and succeeded.
+          #
+          # There is NO fallback to a head-writable copy. A fallback is a silent
           # restoration of the hole, so an unavailable pin is a hard red — but
-          # only where a version is actually derived (see `[ -f "$PRICE" ]`).
+          # only where a version is actually derived (see `price_available`).
           PRICE=".gate-tools/plugins/dev-core/skills/promote/price.sh"
           STACK=".dev/stack.yml"
 
@@ -202,20 +240,36 @@ jobs:
             python3 -c 'import sys,yaml; v=yaml.safe_load(sys.argv[1]) if sys.argv[1].strip() else []; v=[v] if isinstance(v,str) else (v or []); [print(p) for p in v if p]' "$VERSION_FILES_OVERRIDE"
           }
 
-          # Diagnostic for an absent pinned deriver. A function DEFINITION only —
-          # it changes no control flow and therefore cannot sit "in front of" an
-          # early green. The decision is taken by the `[ -f "$PRICE" ]` guards at
-          # the two call sites (#385 items 1 + 3).
+          # ── PROVENANCE, NOT PRESENCE (#385 item 1) ──
+          # The deriver counts only when the step that writes it actually RAN
+          # and SUCCEEDED. `[ -f "$PRICE" ]` alone asks the wrong question: the
+          # path is inside the head's own checkout, and the pinned step touches
+          # it only when it runs — `skipped` (job.workflow_* unpopulated, e.g.
+          # GHES) and `failure` (continue-on-error) both leave whatever the head
+          # committed at that path, and running it is the hole restored with no
+          # log signal at all. `steps.gate_tools.outcome` is the one witness the
+          # head cannot write, so it decides; the file check then catches a clone
+          # that landed without the deriver (path moved, sparse checkout).
+          #
+          # Function DEFINITIONS only — they change no control flow and therefore
+          # cannot sit "in front of" an early green. The decision is taken by the
+          # `price_available ||` guards at the two call sites (#385 items 1 + 3).
+          price_available() {
+            [ "${GATE_TOOLS_OUTCOME:-}" = "success" ] && [ -f "$PRICE" ]
+          }
+
           price_unavailable() {
             {
               echo "release-consistency: the pinned deriver is unavailable — refusing to derive a version (#385)."
               echo "  pinned source        : ${GATE_PIN:-<unresolved>}"
-              echo "  pin checkout outcome : ${GATE_TOOLS_OUTCOME:-<unknown>}"
+              echo "  pin checkout outcome : ${GATE_TOOLS_OUTCOME:-<unknown>} (must be 'success')"
               echo "  expected file        : ${PRICE}"
-              echo "  This gate does NOT fall back to the checked-out price.sh: on a pull_request"
-              echo "  the checkout is the merge ref, so a PR that rewrote price.sh would dictate"
-              echo "  its own verdict. Re-run the job; if it persists, the reusable workflow's own"
-              echo "  repository is unreachable from this runner."
+              echo "  This gate does NOT fall back to a copy the head could have written: on a"
+              echo "  pull_request the checkout is the merge ref, so a PR that rewrote price.sh —"
+              echo "  or simply COMMITTED one at ${PRICE} — would dictate its own verdict. Only"
+              echo "  bytes written by a pinned checkout that ran and succeeded are trusted."
+              echo "  Re-run the job; if it persists, the reusable workflow's own repository is"
+              echo "  unreachable from this runner."
             } >&2
           }
 
@@ -280,7 +334,7 @@ jobs:
             # and with zero bypass actors red == unmergeable. That deadlock is the
             # P1 defect the #374 review killed; the guard is safe only when it is
             # unreachable except on the paths that genuinely need the deriver.
-            [ -f "$PRICE" ] || { price_unavailable; exit 1; }
+            price_available || { price_unavailable; exit 1; }
 
             # Derive from the PR's own head (re-price per head SHA), anchored at the
             # fully-qualified base ref (never a bare `origin/<base>` — B1 ambiguity).
@@ -362,7 +416,7 @@ jobs:
           # `bash "$PRICE"` on this path. Above that early green it would red every
           # push to main on the shipped default `version_files: []` — i.e. the
           # whole fleet — for a gate that had nothing to check.
-          [ -f "$PRICE" ] || { price_unavailable; exit 1; }
+          price_available || { price_unavailable; exit 1; }
           set +e
           TAG=$(bash "$PRICE" --base-only "$COMPONENT" "$ANCHOR")
           trc=$?

@@ -79,7 +79,12 @@ Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI
 
 ```bash
 BASE_REF=refs/remotes/origin/main    # the promote PR's base — same ref the gate anchors on
-git fetch --force origin '+refs/heads/*:refs/remotes/origin/*' >/dev/null 2>&1 || true
+# A failed fetch is not fatal — /R-promote must work offline — but it is NOT silent
+# either: `git show` below succeeds against a STALE refs/remotes/origin/main, so
+# without this warning a moved base produces a confident prediction of the wrong
+# verdict, and neither the fallback nor anything else fires (#385 m8).
+git fetch --force origin '+refs/heads/*:refs/remotes/origin/*' >/dev/null 2>&1 \
+  || echo "WARN: fetch failed — ${BASE_REF} may be stale; the gate anchors on the REAL base, so this prediction can differ from its verdict. Re-run with network before trusting a green." >&2
 BASE_STACK=$(mktemp)
 git show "${BASE_REF}:.dev/stack.yml" > "$BASE_STACK" 2>/dev/null || : > "$BASE_STACK"
 
@@ -304,7 +309,14 @@ After merge:
 
 Skip Steps 1-8. Post-merge only.
 
-**9.0 Trunk guard (#371 B1).** `/R-promote --finalize` is the *staging-train* tagger. Under `release.model: trunk` a release is cut by pushing an annotated tag (ADR-021), and there is no promotion to finalize — refuse before touching anything (see `## Trunk mode`):
+**9a.** Verify merge — and land on the base **first**, because 9.1's trunk guard reads the working tree:
+```bash
+git fetch origin main && git checkout main && git pull origin main
+gh pr list --base main --head staging --state merged --limit 1 --json number,title,mergedAt
+```
+¬merged → REFUSE: "Merge the promotion PR first."
+
+**9.1 Trunk guard (#371 B1).** `/R-promote --finalize` is the *staging-train* tagger. Under `release.model: trunk` a release is cut by pushing an annotated tag (ADR-021), and there is no promotion to finalize — refuse before tagging anything (see `## Trunk mode`):
 
 ```bash
 MODEL=$(yq -r '.release.model // "staging-train"' .dev/stack.yml 2>/dev/null \
@@ -312,14 +324,9 @@ MODEL=$(yq -r '.release.model // "staging-train"' .dev/stack.yml 2>/dev/null \
 [ "$MODEL" = trunk ] && { echo "REFUSE: release.model==trunk — a trunk release is cut by pushing an annotated tag (ADR-021); /R-promote --finalize does not apply."; exit 1; }
 ```
 
-Unlike Step 1a, this one legitimately reads the **local** `.dev/stack.yml`: `--finalize` runs post-merge on `main`, so the working tree *is* the base the gate reads. No divergence to correct (#385 item 4).
+Unlike Step 1a, this one legitimately reads the **local** `.dev/stack.yml` — but **only because it sits after 9a** (#385 item 4). 9a is what checks out and pulls `main`; before it, `--finalize` is still standing wherever it was invoked, which per Step 1a is `staging`. Read there, the local file is the *head's* stack.yml, i.e. exactly the source Step 1a refuses. After 9a the working tree **is** the base the gate reads, so there is no divergence to correct. Move this guard back above 9a and that sentence stops being true.
 
-**9a.** Verify merge:
-```bash
-git fetch origin main && git checkout main && git pull origin main
-gh pr list --base main --head staging --state merged --limit 1 --json number,title,mergedAt
-```
-¬merged → REFUSE: "Merge the promotion PR first."
+Nothing is written before this point: 9a fetches, checks out and lists. The guard still refuses before the first mutation (the tag in 9d).
 
 **9b.** Derive V from the **merge object alone** (S11/D4) — never from a witness. The finalize verdict (structural REFUSE, drift REFUSE, witness WARN, per-artifact act) is computed by `lib/finalize.ts` — the **tested classifier IS the executed decision** (#369), not a bash re-implementation of part of it. The PR title, CHANGELOG heading and version file are compared only to **WARN** (D7); a disagreement prints repair actions and finalize **tags the derived version anyway**, because the merge already shipped and a post-merge REFUSE would re-manufacture the shipped-no-release defect. Gather the inputs:
 
