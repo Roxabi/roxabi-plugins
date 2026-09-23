@@ -178,6 +178,16 @@ describe('run-falsify.sh — test_cmd is re-derived from the contract, never exe
       'unsupported-test-command',
     ],
     ['a non-ASCII space', 'commands:\n  test: sh\u00a0check.sh\n', 'unsupported-test-command'],
+    [
+      'a trailing U+2028 (str.strip would eat it)',
+      'commands:\n  test: "sh check.sh\\u2028"\n',
+      'unsupported-test-command',
+    ],
+    [
+      'a .nan test_file (JSON would read it as unset)',
+      'commands:\n  test_file: .nan\n  test: sh check.sh\n',
+      'unsupported-test-command',
+    ],
     ['non-UTF-8 bytes', Buffer.from('commands:\n  test: sh check.sh \xff\n', 'latin1'), 'unsupported-test-command'],
     [
       'an unusable test_file (no fallback to test)',
@@ -591,6 +601,57 @@ describe('run-falsify.sh — test_cmd is re-derived from the contract, never exe
     const out = run(['--verify', artifact], repo, { PATH: pathWith(['bash', 'sed', 'tail']) }) // no python3
     expect(out.ok).toBe('false')
     expect(out.reason).toBe('runner-error')
+  })
+
+  it('a staged .venv link pointing outside the checkout is not carried either', () => {
+    const mainVenv = join(dir, 'main-venv')
+    mkdirSync(mainVenv)
+    writeFileSync(join(mainVenv, 'check.sh'), 'echo through >> "$RF_LOG"\nexit 0\n')
+    const repo = fixtureRepo('commands:\n  test: sh .venv/check.sh\n', (r) =>
+      writeFileSync(join(r, '.gitignore'), '.venv/\n'),
+    )
+    symlinkSync(mainVenv, join(repo, '.venv'))
+    git(repo, 'add', '.venv') // `.venv/` does not match a link, so an add stages it
+    const artifact = forgedArtifact(repo, [
+      { sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh .venv/check.sh src/lib.txt' },
+    ])
+    expect(run(['--verify', artifact], repo).reason).toBe('restore-failed')
+    expect(existsSync(ranLog())).toBe(false)
+  })
+
+  it('--out never writes through a committed artifact link', () => {
+    const victim = join(dir, 'victim.txt')
+    writeFileSync(victim, 'untouched\n')
+    const repo = fixtureRepo(undefined, (r) => {
+      mkdirSync(join(r, 'artifacts', 'reviews'), { recursive: true })
+      symlinkSync(victim, join(r, 'artifacts', 'reviews', '541-falsify.json'))
+    })
+    const map = join(dir, 'map.json')
+    writeFileSync(
+      map,
+      JSON.stringify({
+        issue: 541,
+        rows: [{ sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh check.sh src/lib.txt' }],
+      }),
+    )
+    const out = run(['--map', map, '--out', 'artifacts/reviews/541-falsify.json', '--issue', '541'], repo)
+    expect(out.ok).toBe('false')
+    expect(readFileSync(victim, 'utf-8')).toBe('untouched\n')
+  })
+
+  it('a bun without Bun.YAML is named as the cause, not blamed on the YAML', () => {
+    const repo = fixtureRepo()
+    const artifact = forgedArtifact(repo, [
+      { sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh check.sh src/lib.txt' },
+    ])
+    const bin = pathWith(['bash', 'sed', 'tail', 'python3', 'git'])
+    const realBun = spawnSync('sh', ['-c', 'command -v bun'], { encoding: 'utf-8' }).stdout.trim()
+    const hide = join(dir, 'hide-yaml.js')
+    writeFileSync(hide, 'Object.defineProperty(Bun, "YAML", { value: undefined })\n')
+    writeFileSync(join(bin, 'bun'), `#!/bin/sh\nexec "${realBun}" --preload "${hide}" "$@"\n`, { mode: 0o755 })
+    const out = run(['--verify', artifact], repo, { PATH: bin })
+    expect(out.reason).toBe('unsupported-test-command')
+    expect(out.stderr).toContain('bun >= 1.2.21 is required')
   })
 })
 

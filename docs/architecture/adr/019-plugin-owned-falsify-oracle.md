@@ -54,10 +54,12 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    row reads as `tautology` — a false negative, never a false proven. What a run
    creates at the top of `node_modules` stays in the snapshot, but writes *inside*
    an existing entry reach the real tree — vitest's `node_modules/.vite` results
-   cache is the everyday case. The overlay carries tracked links as links and
-   never carries an untracked one: a worktree's `.venv -> <main>/.venv` (the
-   `uv-venv-symlink` scaffold) is local environment, and `uv run` would re-sync
-   *through* it into the real venv. A `.venv` is never linked either; a uv
+   cache is the everyday case. The overlay carries a link only when it is tracked
+   *and* resolves inside the checkout; any other link — a worktree's
+   `.venv -> <main>/.venv` (the `uv-venv-symlink` scaffold), untracked or staged —
+   is local environment, and `uv run` would re-sync *through* it into the real
+   venv. A link committed in HEAD comes with the archive: it is PR content
+   (#569). A `.venv` is never linked either; a uv
    contract builds the snapshot's own venv. Every other ignored path (`.env`,
    other caches) stays out. The runner unsets the git location variables
    (`GIT_DIR`, `GIT_INDEX_FILE`, …) on entry, and runs every test with
@@ -91,9 +93,10 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    contract's test command is `.dev/stack.yml` `commands.test_file` when set
    (a command that runs exactly the files named after it — what turbo root
    scripts and `unittest discover` cannot do), else `commands.test`. It is read
-   by a YAML parser — Bun.YAML, which dev-core already requires — so what runs is
-   what YAML reads, duplicate keys and quoted keys included; without bun the
-   contract is refused, never read by hand. The value must be plain words with no
+   by a YAML parser — Bun.YAML, so bun >= 1.2.21 — and what runs is what
+   Bun.YAML reads, duplicate keys and quoted keys included; a non-string value
+   (`true`, `.nan`) is refused, and without a usable bun the contract is refused
+   with that cause, never read by hand. The value must be plain words with no
    `VAR=` prefix, because no shell runs it. A non-conforming row, a malformed row,
    or a source with an empty, `.` or `..` segment is refused before **any** row
    runs, with `oracle_reason=refused-test-cmd:row<i>`. The reason names the
@@ -107,10 +110,12 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    failing row's reason (`source-escape`, `tautology`, `restore-failed`).
 
    **Containment is one primitive.** Every path the PR supplies — the contract,
-   a source, a test path, an overlay or dependency write — is read, hashed,
-   written or deleted only through `inside(root, rel)`, which requires the path
-   to resolve under its root. A read also opens a regular file without following
-   a final link, with a size cap on the contract. A source is hashed and
+   a source, a test path, an overlay or dependency write, the artifact read by
+   `--verify` and the record written by `--out` — goes only through
+   `inside(root, rel)`, which requires the path to resolve under its root (the
+   checkout for a relative artifact or `--out`; an absolute one is the caller's
+   choice). A read opens a regular file without following a final link, a write
+   never follows a final link, and the contract read is size-capped. A source is hashed and
    deleted in the snapshot, never in the real checkout. A source that resolves
    outside the snapshot fails its row as `source-escape` and is neither read nor
    deleted. An overlay path whose parent escapes the snapshot ends the run. Test

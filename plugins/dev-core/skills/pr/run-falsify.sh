@@ -107,15 +107,21 @@ def in_tree(root: Path, rel: str) -> bool:
     p = inside(root, rel)
     return p is not None and p.is_file()
 
-# `.dev/stack.yml` is read by a YAML parser, never by hand: Bun.YAML, which dev-core
-# already requires. bun runs in an empty temp dir on stdin, so no bunfig.toml or
-# package.json of the checkout is loaded. It prints the `commands` mapping as JSON.
+# `.dev/stack.yml` is read by a YAML parser, never by hand: Bun.YAML (bun >= 1.2.21).
+# bun runs in an empty temp dir on stdin, so no bunfig.toml or package.json of the
+# checkout is loaded. It prints the `commands` mapping as JSON, a non-string value as a
+# `{nonstring}` marker — JSON would turn `.nan` / `.inf` into null, i.e. "unset".
 YAML_JS = r"""
+const say = (v) => { console.log(JSON.stringify(v)); process.exit(0) }
+if (typeof Bun.YAML?.parse !== 'function') say({ error: 'bun >= 1.2.21 is required (Bun.YAML)', old: true })
 let doc
-try { doc = Bun.YAML.parse(await Bun.stdin.text()) }
-catch (e) { console.log(JSON.stringify({ error: String(e) })); process.exit(0) }
-const ok = doc !== null && typeof doc === 'object' && !Array.isArray(doc)
-console.log(JSON.stringify(ok ? { commands: doc.commands ?? null } : { error: 'not a mapping' }))
+try { doc = Bun.YAML.parse(await Bun.stdin.text()) } catch (e) { say({ error: String(e) }) }
+if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) say({ error: 'not a mapping' })
+const c = doc.commands
+if (c === null || c === undefined) say({ commands: null })
+if (typeof c !== 'object' || Array.isArray(c)) say({ commands: '<not a mapping>' })
+say({ commands: Object.fromEntries(Object.entries(c).map(([k, v]) =>
+  [k, typeof v === 'string' || v === null || v === undefined ? (v ?? null) : { nonstring: typeof v }])) })
 """
 
 def contract_test_argv() -> tuple[list[str] | None, str, str]:
@@ -141,6 +147,8 @@ def contract_test_argv() -> tuple[list[str] | None, str, str]:
     except json.JSONDecodeError:
         return None, "unsupported-test-command", "bun could not read .dev/stack.yml"
     if "error" in parsed:
+        if parsed.get("old"):
+            return None, "unsupported-test-command", parsed["error"]
         return None, "unsupported-test-command", f".dev/stack.yml is not valid YAML ({parsed['error'][:120]})"
     commands = parsed["commands"]
     if commands is None:
@@ -154,7 +162,7 @@ def contract_test_argv() -> tuple[list[str] | None, str, str]:
         if not isinstance(value, str):
             return None, "unsupported-test-command", f"commands.{key} is not a string"
         # No shell runs it: plain words only, and argv[0] is not a `VAR=value` prefix.
-        argv = re.split(r"[ \t]+", value.strip())
+        argv = re.split(r"[ \t]+", value.strip(" \t"))  # str.strip() would eat \x1c or U+2028
         if "=" in argv[0] or not all(PLAIN_TOKEN.fullmatch(t) for t in argv):
             return None, "unsupported-test-command", f"commands.{key} is not one plain command"
         return argv, "", ""
@@ -188,7 +196,17 @@ def run_cmd(cwd: Path, argv: list[str]) -> tuple[int, str]:
     out = (r.stdout or "") + (r.stderr or "")
     return r.returncode, out.replace("\n", " ")[:240]
 
+def write_text_nofollow(path: Path, text: str) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
 def write_artifacts(out: Path, issue, head: str, ok: bool, reason: str, rows: list) -> None:
+    # A relative --out is a checkout path (`artifacts/reviews/{N}-falsify.json`), which the
+    # PR may have committed as a link: it must stay inside the checkout, and no final link
+    # is followed — the run writes its record, never through somebody else's file.
+    if not out.is_absolute() and inside(Path.cwd(), str(out.parent)) is None:
+        raise RuntimeError(f"--out {str(out)!r} resolves outside the checkout")
     out.parent.mkdir(parents=True, exist_ok=True)
     doc = {
         "schema_version": "1",
@@ -199,7 +217,7 @@ def write_artifacts(out: Path, issue, head: str, ok: bool, reason: str, rows: li
         "oracle_reason": reason,
         "rows": rows,
     }
-    out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    write_text_nofollow(out, json.dumps(doc, indent=2) + "\n")
     md = out.with_suffix(".md")
     lines = [
         "## SC → Test Matrix", "",
@@ -214,7 +232,7 @@ def write_artifacts(out: Path, issue, head: str, ok: bool, reason: str, rows: li
         if r.get("status") == "proven" and r.get("error"):
             src = (r.get("sources") or ["?"])[0]
             lines.append(f"broke {src} → {r['error']}")
-    md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_text_nofollow(md, "\n".join(lines) + "\n")
 
 def snapshot_repo(dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
@@ -224,9 +242,11 @@ def snapshot_repo(dest: Path) -> None:
     archive.stdout.close()
     if archive.wait() != 0:
         raise subprocess.CalledProcessError(archive.returncode, ["git", "archive", "HEAD"])
-    # Overlay the working tree. A tracked link stays a link, so the guards see it; an
-    # untracked link is local environment (a worktree's `.venv -> <main>/.venv`) and is
-    # never carried. Every write goes through `inside`: an archive link cannot redirect it.
+    # Overlay the working tree. A tracked link that stays inside the checkout is carried as
+    # a link, so the guards see it. Any other link is local environment — a worktree's
+    # `.venv -> <main>/.venv`, untracked or staged — and is never carried: `uv run` would
+    # re-sync the main venv through it. Every write goes through `inside`.
+    repo = Path.cwd()
     for tracked, flag in ((True, "-c"), (False, "-o")):
         r = subprocess.run(["git", "ls-files", flag, "--exclude-standard", "-z"], capture_output=True)
         for raw in r.stdout.split(b"\0"):
@@ -234,7 +254,7 @@ def snapshot_repo(dest: Path) -> None:
                 continue
             rel = raw.decode("utf-8", "surrogateescape")
             src = Path(rel)
-            if src.is_symlink() and not tracked:
+            if src.is_symlink() and (not tracked or inside(repo, rel) is None):
                 continue
             if not (src.is_symlink() or src.is_file()):
                 continue
@@ -435,11 +455,16 @@ def execute_map(map_path: Path, out_path: Path | None, issue_override) -> tuple[
         shutil.rmtree(wt, ignore_errors=True)
 
 def verify(json_path: Path) -> tuple[bool, str]:
-    if not json_path.is_file():
+    # Read like every other PR path: a regular file, no final link (an absolute path is the
+    # caller's own choice; a relative one must stay inside the checkout).
+    fh = open_regular(Path("/") if json_path.is_absolute() else Path.cwd(), str(json_path))
+    if fh is None:
         return False, "missing-artifact"
+    with fh:
+        raw = fh.read()
     try:
-        doc = json.loads(json_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+        doc = json.loads(raw.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return False, "bad-schema"
     if not isinstance(doc, dict) or doc.get("schema_version") != "1":
         return False, "bad-schema"
