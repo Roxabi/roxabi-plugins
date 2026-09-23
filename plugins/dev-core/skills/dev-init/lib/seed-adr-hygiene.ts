@@ -25,7 +25,29 @@ export interface SeedAdrHygieneResult {
   written: string[]
   skipped: string[]
   sourceDir: string
+  /** Contract version implemented by the script that ships with this plugin. */
+  sourceVersion: string | null
+  /** Contract version implemented by the copy now in the project. */
+  localVersion: string | null
+  /**
+   * The local copy enforces an older contract than the one shipping.
+   *
+   * The gate ships **by value**, so a copy taken before a vocabulary change
+   * keeps rejecting ADRs that are legal upstream — and a rejection reads
+   * identically whether the ADR is wrong or the gate is old. Nothing else in
+   * the repository can tell the two apart, so the seeder says which it is.
+   */
+  stale: boolean
   error?: string
+}
+
+/** `CONTRACT_VERSION="N"` as declared by a hygiene script, or null. */
+function contractVersion(path: string): string | null {
+  try {
+    return /^CONTRACT_VERSION="(\d+)"/m.exec(readFileSync(path, 'utf-8'))?.[1] ?? null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -67,6 +89,9 @@ export function seedAdrHygieneScript(opts: SeedAdrHygieneOpts = {}): SeedAdrHygi
       written: [],
       skipped: [],
       sourceDir: '',
+      sourceVersion: null,
+      localVersion: null,
+      stale: false,
       error: 'adr hygiene seed source not found — install/enable dev-core plugin or pass sourceDir',
     }
   }
@@ -101,5 +126,9 @@ export function seedAdrHygieneScript(opts: SeedAdrHygieneOpts = {}): SeedAdrHygi
     // ignore
   }
 
-  return { written, skipped, sourceDir }
+  const sourceVersion = contractVersion(src)
+  const localVersion = contractVersion(dest)
+  const stale = sourceVersion !== null && localVersion !== null && Number(localVersion) < Number(sourceVersion)
+
+  return { written, skipped, sourceDir, sourceVersion, localVersion, stale }
 }

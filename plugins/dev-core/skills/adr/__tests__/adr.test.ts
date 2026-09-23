@@ -5,16 +5,21 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   ADR_STATUSES,
   type AdrFile,
+  adrCollisions,
   axialAdrs,
   deprecateAdr,
+  interpretStatusLine,
   listAdrs,
   migrateAdrFile,
+  misnamedAdrs,
   nextNnn,
   normativeFor,
   parseFrontmatter,
+  parseRefList,
   scanAdrs,
   setFrontmatter,
   supersedeAdr,
+  supersedeAdrInPart,
 } from '../lib/adr'
 
 let dir: string
@@ -286,5 +291,280 @@ describe('migrate', () => {
 
     expect(report.status).toBe('accepted')
     expect(readFileSync(path, 'utf-8')).toBe(before)
+  })
+  it('repairs a `normative` that contradicts the authored status', () => {
+    // The closed loop this kills: the gate reports "status 'superseded'
+    // requires normative: false, found true", its prescribed remedy
+    // (`/R-adr --migrate`) answers `changed: false, clean: true` while its own
+    // report field says `normative: false`, the file is never touched, and the
+    // gate is still red. `alreadyClean` asked whether `normative` was
+    // *present*, never whether it agreed with the status.
+    const path = writeAdr(
+      '002-b.md',
+      'title: t\ndescription: d\nstatus: superseded\nnormative: true\ndate: 2026-01-02\nsuperseded_by: ADR-001',
+    )
+    const report = migrateAdrFile(path)
+
+    expect(report.changed).toBe(true)
+    expect(report.normative).toBe(false)
+    expect(parseFrontmatter(readFileSync(path, 'utf-8')).normative).toBe('false')
+  })
+
+  it('reports what it writes — the file and the report never disagree', () => {
+    const path = writeAdr(
+      '002-b.md',
+      'title: t\ndescription: d\nstatus: superseded\nnormative: true\ndate: 2026-01-02\nsuperseded_by: ADR-001',
+    )
+    const report = migrateAdrFile(path)
+    const fields = parseFrontmatter(readFileSync(path, 'utf-8'))
+
+    expect(fields.status).toBe(report.status)
+    expect(fields.normative).toBe(String(report.normative))
+    expect(fields.date).toBe(report.date)
+    expect(fields.superseded_by).toBe(report.supersededBy)
+  })
+
+  it('normalises a status whose only fault is case', () => {
+    const path = writeAdr('001-a.md', 'title: t\ndescription: d\nstatus: Accepted\nnormative: true\ndate: 2026-01-01')
+    const report = migrateAdrFile(path)
+
+    expect(report.status).toBe('accepted')
+    expect(parseFrontmatter(readFileSync(path, 'utf-8')).status).toBe('accepted')
+  })
+
+  it('refuses to guess a status outside the vocabulary', () => {
+    const path = writeAdr('001-a.md', 'title: t\ndescription: d\nstatus: retired\nnormative: true\ndate: 2026-01-01')
+    const report = migrateAdrFile(path)
+
+    expect(report.warnings).toContainEqual(expect.stringContaining('not in the vocabulary'))
+  })
+
+  it('flags a `superseded_by` that its own status contradicts', () => {
+    const path = writeAdr(
+      '001-a.md',
+      'title: t\ndescription: d\nstatus: accepted\nnormative: true\ndate: 2026-01-01\nsuperseded_by: ADR-002',
+    )
+
+    expect(migrateAdrFile(path).warnings).toContainEqual(expect.stringContaining('but status is'))
+  })
+
+  it('prefers the first-commit date over a date scraped from a retirement line', () => {
+    // "Superseded — 2026-08-24" dates the *retirement*. Recording it as `date`
+    // backdates the ADR's authorship to its own death, silently, and the
+    // template defines `date` as the decision date. It hit ADR-015 in the PR
+    // that introduced the contract and was caught by hand; a consumer gets no
+    // such review.
+    const path = writeAdr(
+      '002-b.mdx',
+      'title: t\ndescription: d',
+      '\n## Status\n\nSuperseded — 2026-08-24 by ADR-003\n\n## Context\n\nx\n',
+    )
+    const report = migrateAdrFile(path, { dates: { [path]: '2026-02-01' } })
+
+    expect(report.date).toBe('2026-02-01')
+    expect(parseFrontmatter(readFileSync(path, 'utf-8')).date).toBe('2026-02-01')
+  })
+
+  it('still reads a decision date off an in-force status line', () => {
+    const path = writeAdr(
+      '001-a.mdx',
+      'title: t\ndescription: d',
+      '\n## Status\n\nAccepted 2026-01-05. Narrowed 2026-09-21 by ADR-020.\n\n## Context\n\nx\n',
+    )
+
+    expect(migrateAdrFile(path, { dates: { [path]: '2026-02-01' } }).date).toBe('2026-01-05')
+  })
+
+  it('flags a decision date later than the retirement it precedes', () => {
+    const path = writeAdr(
+      '002-b.mdx',
+      'title: t\ndescription: d',
+      '\n## Status\n\nSuperseded — 2026-01-02 by ADR-003\n\n## Context\n\nx\n',
+    )
+    const report = migrateAdrFile(path, { dates: { [path]: '2026-09-01' } })
+
+    expect(report.warnings).toContainEqual(expect.stringContaining('is after the superseded date'))
+  })
+
+  it('canonicalises an aliased axial declaration instead of leaving it invisible', () => {
+    const path = writeAdr(
+      '001-axis.md',
+      'title: t\ndescription: d\nstatus: accepted\nnormative: true\ndate: 2026-01-01\naxial: True',
+    )
+    const report = migrateAdrFile(path)
+
+    expect(report.warnings).toContainEqual(expect.stringContaining('boolean alias'))
+    expect(parseFrontmatter(readFileSync(path, 'utf-8')).axial).toBe('true')
+  })
+})
+
+describe('partial supersession', () => {
+  it('reads "Partially superseded by ADR-015" as a qualifier, not a replacement', () => {
+    const reading = interpretStatusLine(
+      'Accepted. **Partially superseded by [ADR-015](015-x.mdx) for the TypeScript layer**.',
+    )
+
+    expect(reading?.status).toBe('accepted')
+    expect(reading?.supersededBy).toBeNull()
+    expect(reading?.supersededInPartBy).toEqual(['ADR-015'])
+  })
+
+  it('reads "Narrowed YYYY-MM-DD by ADR-020"', () => {
+    expect(interpretStatusLine('Accepted — 2026-08-21. Narrowed 2026-09-21 by ADR-020.')?.supersededInPartBy).toEqual([
+      'ADR-020',
+    ])
+  })
+
+  it('reads a change reference when no ADR recorded the retirement', () => {
+    // ADR-003's own prose: the mechanism was removed by a PR and no ADR was
+    // ever written. The field holds `#268` rather than forcing a successor
+    // that does not exist — inventing one is how a decision log is falsified.
+    expect(
+      interpretStatusLine('Accepted. **Amended by #268** — the fieldIds bag was removed.')?.supersededInPartBy,
+    ).toEqual(['#268'])
+  })
+
+  it('finds a qualifier on a later line of the status section', () => {
+    // ADR-019's own shape: it opens "Accepted — 2026-08-21" and narrows itself
+    // two lines down. Reading only the opening line dropped the qualifier and
+    // still reported success — the exact loss this field exists to prevent.
+    const path = writeAdr(
+      '019-falsify.md',
+      'title: t\ndescription: d',
+      [
+        '',
+        '## Status',
+        '',
+        'Accepted — 2026-08-21. Implements Roxabi/roxabi-plugins#417 Shape 1 (V1).',
+        '**Narrowed 2026-09-21 by ADR-020** — this ADR governs the Claude/Grok product only.',
+        '',
+        '## Context',
+        '',
+        'x',
+        '',
+      ].join('\n'),
+    )
+    const report = migrateAdrFile(path)
+
+    expect(report.status).toBe('accepted')
+    expect(report.date).toBe('2026-08-21')
+    expect(report.supersededInPartBy).toEqual(['ADR-020'])
+    expect(parseFrontmatter(readFileSync(path, 'utf-8')).superseded_in_part_by).toBe('[ADR-020]')
+  })
+
+  it('keeps the ADR in force, in place, and appends rather than replaces', () => {
+    accepted('001', 'hex')
+    supersedeAdrInPart(find(1), 'ADR-015')
+    supersedeAdrInPart(find(1), '#452')
+
+    const fields = parseFrontmatter(readFileSync(join(dir, '001-hex.md'), 'utf-8'))
+    expect(fields.status).toBe('accepted')
+    expect(fields.normative).toBe('true')
+    expect(parseRefList(fields.superseded_in_part_by)).toEqual(['ADR-015', '#452'])
+    expect(existsSync(join(dir, 'archived', '001-hex.md'))).toBe(false)
+  })
+
+  it('does not duplicate a reference already recorded', () => {
+    accepted('001', 'hex')
+    supersedeAdrInPart(find(1), 'ADR-015')
+    supersedeAdrInPart(find(1), 'ADR-015')
+
+    expect(
+      parseRefList(parseFrontmatter(readFileSync(join(dir, '001-hex.md'), 'utf-8')).superseded_in_part_by),
+    ).toEqual(['ADR-015'])
+  })
+
+  it('is stripped when the ADR is wholly replaced', () => {
+    // "In force except X" is a contradiction on a record that is wholly gone.
+    accepted('001', 'hex')
+    supersedeAdrInPart(find(1), 'ADR-015')
+    const result = supersedeAdr(find(1), 'ADR-002', dir)
+
+    expect(parseFrontmatter(readFileSync(result.to, 'utf-8')).superseded_in_part_by).toBeUndefined()
+  })
+
+  it('is stripped when the ADR is deprecated', () => {
+    accepted('001', 'hex')
+    supersedeAdrInPart(find(1), 'ADR-015')
+    deprecateAdr(find(1))
+
+    expect(parseFrontmatter(readFileSync(join(dir, '001-hex.md'), 'utf-8')).superseded_in_part_by).toBeUndefined()
+  })
+})
+
+describe('number integrity', () => {
+  it('does not let a dated note set the next number', () => {
+    // `2026-08-24-notes.md` beside 001-005 returned 2027, silently: `next` is
+    // max + 1 over whatever the scan admits, and nothing questioned a maximum.
+    for (const n of ['001', '002', '003', '004', '005']) accepted(n, `decision-${n}`)
+    writeAdr('2026-08-24-notes.md', 'title: notes')
+
+    expect(nextNnn(dir)).toBe('006')
+    expect(misnamedAdrs(dir)).toEqual([join(dir, '2026-08-24-notes.md')])
+  })
+
+  it('does not admit a file whose prefix is not a padded number', () => {
+    accepted('001', 'first')
+    writeAdr('12.md', 'title: t')
+    writeAdr('00001-too-wide.md', 'title: t')
+
+    expect(scanAdrs(dir).map((a) => a.name)).toEqual(['001-first.md'])
+    expect(misnamedAdrs(dir)).toEqual([join(dir, '00001-too-wide.md'), join(dir, '12.md')])
+  })
+
+  it('finds one number claimed by two documents', () => {
+    accepted('001', 'a')
+    writeAdr('0001-b.md', 'title: t\nstatus: accepted\nnormative: true\ndate: 2026-01-01')
+
+    expect(adrCollisions(dir)).toEqual([{ nnn: 1, files: [join(dir, '0001-b.md'), join(dir, '001-a.md')] }])
+  })
+
+  it('finds a collision across the archive boundary', () => {
+    accepted('001', 'a')
+    accepted('002', 'b')
+    supersedeAdr(find(1), 'ADR-002', dir)
+    accepted('001', 'reused')
+
+    expect(adrCollisions(dir).map((c) => c.nnn)).toEqual([1])
+  })
+
+  it('reports no collision on a clean corpus', () => {
+    for (const n of ['001', '002', '003']) accepted(n, `decision-${n}`)
+
+    expect(adrCollisions(dir)).toEqual([])
+    expect(misnamedAdrs(dir)).toEqual([])
+  })
+})
+
+describe('axial reader', () => {
+  it('sees a declaration written in any YAML boolean spelling', () => {
+    // A repo whose axis is declared `axial: True` read as `declared: false` —
+    // the exact signal `/R-dev-init` and the axial interview use to launch the
+    // interview that writes a *second* axial ADR.
+    for (const spelling of ['true', 'True', 'TRUE', 'yes', 'on']) {
+      rmSync(dir, { recursive: true, force: true })
+      mkdirSync(dir, { recursive: true })
+      writeAdr('001-axis.md', `title: t\nstatus: accepted\nnormative: true\ndate: 2026-01-01\naxial: ${spelling}`)
+
+      expect(axialAdrs(dir), spelling).toHaveLength(1)
+    }
+  })
+
+  it('does not read a denial as a declaration', () => {
+    for (const spelling of ['false', 'False', 'no', 'off']) {
+      rmSync(dir, { recursive: true, force: true })
+      mkdirSync(dir, { recursive: true })
+      writeAdr('001-a.md', `title: t\nstatus: accepted\nnormative: true\ndate: 2026-01-01\naxial: ${spelling}`)
+
+      expect(axialAdrs(dir), spelling).toHaveLength(0)
+    }
+  })
+
+  it('strips an aliased marker when the ADR is archived', () => {
+    writeAdr('001-axis.md', 'title: t\nstatus: accepted\nnormative: true\ndate: 2026-01-01\naxial: yes')
+    const result = supersedeAdr(find(1), 'ADR-002', dir)
+
+    expect(result.axialStripped).toBe(true)
+    expect(axialAdrs(dir)).toHaveLength(0)
   })
 })

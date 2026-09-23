@@ -191,6 +191,12 @@ h2. Ensure the ADR hygiene gate exists (idempotent — a locally tuned copy is k
    `AGENTS_ADR_AXIAL_MODE` / `AGENTS_ADR_DIR`. Set `AGENTS_ADR_AXIAL_MODE=fail`
    once `/R-adr --axial` has declared the axis of decomposition.
 
+   The gate ships **by value**, so run `bun $I_TS seed-adr-hygiene` (no `test -f`
+   guard) whenever you want a version check: it reports `sourceVersion`,
+   `localVersion` and `stale`. `"stale": true` → the local copy enforces an older
+   contract and will reject ADRs that are legal upstream, which reads exactly
+   like an illegal ADR. Re-seed with `--force` after reviewing any local tuning.
+
 i. Check trufflehog binary:
    ```bash
    which trufflehog 2>/dev/null && echo "installed" || echo "missing"

@@ -7,6 +7,7 @@ description: >
 status: accepted
 normative: true
 date: 2026-08-21
+superseded_in_part_by: [ADR-020]
 ---
 
 > Implements Roxabi/roxabi-plugins#417 Shape 1 (V1).

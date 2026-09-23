@@ -87,6 +87,36 @@ describe('seedAdrHygieneScript', () => {
     expect(statSync(dest).mode & 0o111).not.toBe(0)
   })
 
+  it('names a locally-tuned copy that is frozen on an older contract', () => {
+    // The gate ships by value. A copy taken before a vocabulary change rejects
+    // ADRs that are legal upstream, and that rejection is indistinguishable
+    // from an illegal ADR — unless something says which contract the copy
+    // implements. Nothing else in a consumer repo can tell the two apart.
+    const cwd = project()
+    const dest = join(cwd, 'scripts', SCRIPT)
+    mkdirSync(join(cwd, 'scripts'), { recursive: true })
+    writeFileSync(dest, '#!/usr/bin/env bash\nCONTRACT_VERSION="1"\n# locally tuned\nexit 0\n')
+
+    const result = seedAdrHygieneScript({ cwd })
+
+    expect(result.skipped).toEqual([dest])
+    expect(result.localVersion).toBe('1')
+    expect(result.sourceVersion).toBe(
+      /^CONTRACT_VERSION="(\d+)"/m.exec(readFileSync(join(monorepoScripts, SCRIPT), 'utf-8'))?.[1],
+    )
+    expect(result.stale).toBe(true)
+  })
+
+  it('does not call a current copy stale', () => {
+    const cwd = project()
+    seedAdrHygieneScript({ cwd })
+
+    const result = seedAdrHygieneScript({ cwd })
+
+    expect(result.stale).toBe(false)
+    expect(result.localVersion).toBe(result.sourceVersion)
+  })
+
   it('reports a missing source instead of writing a broken gate', () => {
     const cwd = project()
     const result = seedAdrHygieneScript({ cwd, sourceDir: '/nonexistent' })

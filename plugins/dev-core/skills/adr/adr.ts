@@ -12,13 +12,17 @@
 import { execFileSync } from 'node:child_process'
 import {
   type AdrFile,
+  adrCollisions,
   axialAdrs,
   deprecateAdr,
   listAdrs,
   migrateAdrDir,
+  misnamedAdrs,
   nextNnn,
+  parseRefList,
   scanAdrs,
   supersedeAdr,
+  supersedeAdrInPart,
 } from './lib/adr'
 
 const USAGE = `ADR CLI — number allocation, lifecycle transitions, migration.
@@ -26,13 +30,19 @@ const USAGE = `ADR CLI — number allocation, lifecycle transitions, migration.
 Usage:
   bun adr.ts next-nnn [--dir docs/architecture/adr]
       Next sequence number. Scans archived/ too — archiving must never free a number.
+      Reports \`collisions\` and \`misnamed\`: one number naming two documents, and
+      files whose name cannot be an ADR, both of which corrupt allocation.
   bun adr.ts list [--dir docs/architecture/adr]
       Active ADRs and archived ADRs, separately.
   bun adr.ts axial [--dir docs/architecture/adr]
-      \`axial: true\` across active + archived. At most one is the invariant, so
-      exit 1 means two axes; \`declared: false\` means none declared yet.
+      An axial declaration across active + archived, in any YAML boolean spelling.
+      At most one is the invariant, so exit 1 means two axes; \`declared: false\`
+      means none declared yet.
   bun adr.ts supersede --nnn <N> --by ADR-<NNN> [--dir docs/architecture/adr]
       status: superseded, normative: false, superseded_by, strip axial, move to archived/.
+  bun adr.ts supersede-in-part --nnn <N> --by <ADR-NNN|#NNN> [--dir docs/architecture/adr]
+      Append to superseded_in_part_by. The ADR stays in force and stays put — it is
+      binding for every part nobody replaced.
   bun adr.ts deprecate --nnn <N> [--dir docs/architecture/adr]
       status: deprecated, normative: false. Stays in place — deprecated is not replaced.
   bun adr.ts migrate [--dir docs/architecture/adr] [--dry-run]
@@ -101,7 +111,14 @@ if (command === '--help' || command === '-h' || rest.includes('--help')) {
 
 switch (command) {
   case 'next-nnn': {
-    console.log(JSON.stringify({ dir, next: nextNnn(dir) }, null, 2))
+    // A collision or a misnamed file is a number-allocation fault, not a
+    // cosmetic one: `next` is max + 1 over the scan, so either can hand the
+    // same number out twice or skip a thousand. Exit 1 so a caller that pipes
+    // this into a filename stops instead of writing the wrong one.
+    const collisions = adrCollisions(dir)
+    const misnamed = misnamedAdrs(dir)
+    console.log(JSON.stringify({ dir, next: nextNnn(dir), collisions, misnamed }, null, 2))
+    process.exit(collisions.length > 0 || misnamed.length > 0 ? 1 : 0)
     break
   }
 
@@ -115,6 +132,7 @@ switch (command) {
       normative: a.fields.normative ?? '',
       date: a.fields.date ?? '',
       superseded_by: a.fields.superseded_by ?? '',
+      superseded_in_part_by: parseRefList(a.fields.superseded_in_part_by),
     })
     console.log(JSON.stringify({ dir, active: active.map(row), archived: archived.map(row) }, null, 2))
     break
@@ -144,6 +162,16 @@ switch (command) {
     }
     const adr = requireAdr(parseFlag('--nnn', ''))
     console.log(JSON.stringify(supersedeAdr(adr, by, dir), null, 2))
+    break
+  }
+
+  case 'supersede-in-part': {
+    const by = parseFlag('--by', '')
+    if (!/^(?:ADR-\d{3,4}|#\d+)$/.test(by)) {
+      console.error('--by ADR-<NNN> or --by #<NNN> is required: a partial supersession names what replaced the part')
+      process.exit(1)
+    }
+    console.log(JSON.stringify(supersedeAdrInPart(requireAdr(parseFlag('--nnn', '')), by), null, 2))
     break
   }
 

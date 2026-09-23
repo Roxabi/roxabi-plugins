@@ -18,15 +18,39 @@ const SKILL_DIR = join(PLUGINS, 'dev-core', 'skills', 'adr')
 const TEMPLATE = join(SKILL_DIR, 'references', 'adr-template.md')
 const HYGIENE = join(PLUGINS, 'dev-core', 'scripts', 'check-agents-adr-hygiene.sh')
 
-/** The skeleton's own title line — present in a template, absent from a pointer. */
-const SKELETON_MARKER = /^title: "ADR-\{NNN\}/m
+/**
+ * Does this document embed the ADR skeleton?
+ *
+ * Structural, not textual. The guard this replaces matched the literal title
+ * line `title: "ADR-{NNN}` — a proxy a copy escapes by substituting a concrete
+ * number, by switching to single quotes, or by living in a `.mdx` file, and
+ * above all by *drifting*, which is the only way the historical regression
+ * actually happened: the three carriers it was priced against had already
+ * diverged from each other.
+ *
+ * A carrier is a fenced block that opens a frontmatter fence, declares a
+ * `title`, and carries the ADR section spine. Drift in any one field leaves
+ * the spine intact, which is what makes a drifted copy findable at all.
+ */
+export const SKELETON_SPINE = ['## Context', '## Decision', '## Consequences']
 
+export function embedsSkeleton(text: string): boolean {
+  const fencedBlocks = text.split(/^```.*$/m).filter((_, i) => i % 2 === 1)
+  for (const block of fencedBlocks) {
+    if (!/^---\s*$/m.test(block)) continue
+    if (!/^title:\s*\S/m.test(block)) continue
+    if (SKELETON_SPINE.every((heading) => block.includes(heading))) return true
+  }
+  return false
+}
+
+/** Every `.md` and `.mdx` under a root — a copy cannot hide behind `.mdx`. */
 function markdownFiles(dir: string): string[] {
   const out: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name)
     if (entry.isDirectory()) out.push(...markdownFiles(full))
-    else if (entry.name.endsWith('.md')) out.push(full)
+    else if (entry.name.endsWith('.md') || entry.name.endsWith('.mdx')) out.push(full)
   }
   return out
 }
@@ -42,7 +66,7 @@ function templateVocabulary(): string[] {
 
 describe('ADR template is single-source', () => {
   it('is the only file under plugins/ that embeds the skeleton', () => {
-    const carriers = markdownFiles(PLUGINS).filter((f) => SKELETON_MARKER.test(readFileSync(f, 'utf-8')))
+    const carriers = markdownFiles(PLUGINS).filter((f) => embedsSkeleton(readFileSync(f, 'utf-8')))
 
     expect(carriers).toEqual([TEMPLATE])
   })
@@ -63,6 +87,26 @@ describe('ADR template is single-source', () => {
     const declared = /^STATUSES="([^"]+)"/m.exec(readFileSync(HYGIENE, 'utf-8'))
     expect(declared).not.toBeNull()
     expect(declared?.[1].split(/\s+/)).toEqual(templateVocabulary())
+  })
+
+  it('declares the contract version the hygiene gate implements', () => {
+    // The gate ships by value. A vocabulary or rule change that forgets to
+    // bump leaves frozen consumer copies silently rejecting legal ADRs, and
+    // nothing in the copy says which contract it is enforcing.
+    const declared = /<!-- adr:contract-version -->v(\d+)<!-- \/adr:contract-version -->/.exec(
+      readFileSync(TEMPLATE, 'utf-8'),
+    )
+    const gate = /^CONTRACT_VERSION="(\d+)"/m.exec(readFileSync(HYGIENE, 'utf-8'))
+
+    expect(declared?.[1]).toBeDefined()
+    expect(gate?.[1]).toBe(declared?.[1])
+  })
+
+  it('defines `superseded_in_part_by` as legal only while the ADR still binds', () => {
+    const template = readFileSync(TEMPLATE, 'utf-8')
+
+    expect(template).toContain('superseded_in_part_by')
+    expect(template).toMatch(/superseded_in_part_by[\s\S]*normative: true/)
   })
 
   it('leaves no `## Status` body section for a writer to emit', () => {
