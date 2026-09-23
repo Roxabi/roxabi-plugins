@@ -43,8 +43,22 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
 5. **Empty / all-exempt** — τ≠S with zero FAIL→PASS unit/FI rows (including
    all-exempt matrices) ⇒ `oracle_ok=false`.
 
-6. **Roster (out of V1)** — claim-axis spawn is V2. V1 keeps structural path
-   triggers for architect/devops/security-auditor.
+6. **Roster — claim-axis is cut, not pending.** V1 keeps structural path triggers
+   for architect/devops/security-auditor, and that is the settled posture.
+   Recorded 2026-09-22 (#469): the earlier "claim-axis spawn is V2" wording read
+   as a deferral, and HEAD has since accepted path-only as the posture rather
+   than a stepping stone — `roster.ts` keys `gates['R-security-auditor']` off
+   `path_hit` alone, `claims` is parsed and exposed but is not a spawn disjunct,
+   and two tests pin it — cited by full path, because a bare filename here
+   resolves to the wrong control (`plugins/omp-build/agents/__tests__/roster.test.ts`
+   exists, tests the agent manifest, and mentions `R-security-auditor`, so a
+   reader verifying a bare citation gets a plausible hit and stops):
+   `plugins/dev-core/skills/dev-review/__tests__/skill-roster-parity.test.ts`
+   ("keeps security path-only routing") and
+   `plugins/dev-core/skills/dev-review/__tests__/roster.integration.test.ts`
+   ("claim tags on non-security Δ do not spawn (cut)"). The omp-build snapshot
+   carries the same two (#492). Claim-axis spawn will not ship unless it is
+   separately repriced as its own decision.
 
 ## Consequences
 

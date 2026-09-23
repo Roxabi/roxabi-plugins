@@ -2,11 +2,22 @@
 title: "Control quality: claim-axis /code-review roster (V2 of #417)"
 description: "Structured SC claim tags drive /code-review control spawn; path globs retained until classifier proven."
 type: spec
-status: approved
+status: superseded
 issue: 419
 tier: F-lite
 date: 2026-08-22
 ---
+
+> **Superseded 2026-09-22 (#469).** The claim-axis spawn this spec prices was
+> **cut**, not shipped. Its success criteria are the negation of what HEAD
+> asserts: SC "S1 returns `spawn_security_auditor=true` when σ has
+> `claim: [fail-closed]` and Δ is only `skills/foo/bar.ts` with
+> `path_hit=false`" runs today as a test asserting **false**
+> (`plugins/dev-core/skills/dev-review/__tests__/roster.integration.test.ts`),
+> and "mechanical test fails if Skip reverts to path-only" is contradicted by
+> `skill-roster-parity.test.ts` "keeps security path-only routing". ADR-019 §6
+> records the cut. Read this as the argument a repricing would have to make
+> again, not as scheduled work.
 
 ## Context
 
