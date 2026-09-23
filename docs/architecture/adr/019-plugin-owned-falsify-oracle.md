@@ -47,17 +47,24 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    dependencies are gitignored, so the overlay alone never holds them and a
    `{commands.test}` such as `bun run test` would exit 127. Each entry of a
    `node_modules` next to a carried `package.json` is symlinked into a real
-   directory of the snapshot; an entry that is itself a link into the repo (a
-   workspace or `file:` package) is re-pointed at the snapshot's copy, so a
-   deleted source is really gone. What a run creates at the top of `node_modules`
-   stays in the snapshot, but writes *inside* an existing entry reach the real
-   tree — vitest's `node_modules/.vite` results cache is the everyday case. A
-   `.venv` is never linked: `uv run` re-syncs an editable install *through* a
-   linked venv and rewrites the real one; a uv contract builds the snapshot's own
-   venv instead. Every other ignored path (`.env`, other caches) stays out. The
-   runner unsets the git location variables (`GIT_DIR`, `GIT_INDEX_FILE`, …) on
-   entry, so the snapshot is not a git repository even under a git hook: a test
-   that shells out to git inside it cannot be a falsify row.
+   directory of the snapshot; a top-level entry that is itself a link into the
+   repo (a workspace or `file:` package) is re-pointed at the snapshot's copy, so
+   a deleted source is really gone. Links nested *inside* a linked entry (pnpm's
+   `.pnpm` store, bun isolated installs) still resolve to the real tree, so such a
+   row reads as `tautology` — a false negative, never a false proven. What a run
+   creates at the top of `node_modules` stays in the snapshot, but writes *inside*
+   an existing entry reach the real tree — vitest's `node_modules/.vite` results
+   cache is the everyday case. The overlay carries tracked links as links and
+   never carries an untracked one: a worktree's `.venv -> <main>/.venv` (the
+   `uv-venv-symlink` scaffold) is local environment, and `uv run` would re-sync
+   *through* it into the real venv. A `.venv` is never linked either; a uv
+   contract builds the snapshot's own venv. Every other ignored path (`.env`,
+   other caches) stays out. The runner unsets the git location variables
+   (`GIT_DIR`, `GIT_INDEX_FILE`, …) on entry, and runs every test with
+   `GIT_CEILING_DIRECTORIES` at the snapshot's parent, so the snapshot is not a
+   git repository and finds none above it — even under a git hook, even with
+   `TMPDIR` inside a work tree. A test that shells out to git cannot be a
+   falsify row.
 
    2b. **Named residual — the gate-time call inherits that, and the record
    cannot fix it.** `/R-pr` refuse and `/R-dev-review` tester-skip read
@@ -81,28 +88,41 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    machine. Now a row's `test_cmd` must be exactly the contract's test command
    followed by plain relative paths, each a file the snapshot carries, and the
    runner executes that argv — with no shell anywhere in the runner. The
-   contract's test command is `.dev/stack.yml` `commands.test_file` when present
+   contract's test command is `.dev/stack.yml` `commands.test_file` when set
    (a command that runs exactly the files named after it — what turbo root
    scripts and `unittest discover` cannot do), else `commands.test`. It is read
-   by a deliberately small subset of YAML, not a YAML parser: a single-line plain
-   or quoted value of a direct child of the one top-level `commands:`, plain
-   ASCII words with no `VAR=` prefix. Whatever that subset cannot read the way
-   YAML would — a duplicate key, a multi-line or unclosed value, tabs,
-   non-ASCII — is refused, never guessed. A non-conforming row, a malformed row,
-   or a source that is absolute or has an empty, `.` or `..` segment is refused
-   before **any** row runs, with `oracle_reason=refused-test-cmd:row<i>`. Test
-   paths are an allowlist, because they reach argv; sources are not, because
-   they are only hashed and deleted inside the snapshot. The reason names the
+   by a YAML parser — Bun.YAML, which dev-core already requires — so what runs is
+   what YAML reads, duplicate keys and quoted keys included; without bun the
+   contract is refused, never read by hand. The value must be plain words with no
+   `VAR=` prefix, because no shell runs it. A non-conforming row, a malformed row,
+   or a source with an empty, `.` or `..` segment is refused before **any** row
+   runs, with `oracle_reason=refused-test-cmd:row<i>`. The reason names the
    first refused row of the check that failed: shape is checked before the
    snapshot is built, and presence in the snapshot after it. A direct run
    (`/R-dev-implement` Step 6b, `--map`) names every row that check refused, with
    its `sc_id`, on stderr, which `/R-pr` gather-state discards. A contract that
    is unusable refuses everything (`missing-test-command` /
-   `unsupported-test-command`), and `/R-pr` routes those to `.dev/stack.yml`, not
-   to Step 6b. A source that still resolves outside the snapshot (a committed
-   symlink) fails its row as `source-escape` instead of being deleted, and any
-   input that makes the runner raise ends as `oracle_ok=false
-   oracle_reason=runner-error` — never as a missing verdict.
+   `unsupported-test-command`, the cause on stderr), and `/R-pr` routes those to
+   `.dev/stack.yml`, not to Step 6b. Once rows run, `oracle_reason` is the first
+   failing row's reason (`source-escape`, `tautology`, `restore-failed`).
+
+   **Containment is one primitive.** Every path the PR supplies — the contract,
+   a source, a test path, an overlay or dependency write — is read, hashed,
+   written or deleted only through `inside(root, rel)`, which requires the path
+   to resolve under its root. A read also opens a regular file without following
+   a final link, with a size cap on the contract. A source is hashed and
+   deleted in the snapshot, never in the real checkout. A source that resolves
+   outside the snapshot fails its row as `source-escape` and is neither read nor
+   deleted. An overlay path whose parent escapes the snapshot ends the run. Test
+   paths are also an allowlist, because they reach argv; sources are not,
+   because they never do.
+
+   **Nothing from the checkout runs inside the runner.** Python runs isolated
+   (`python3 -I`), so a committed `json.py` is not imported. bun parses the
+   contract from stdin in an empty temp dir, so a committed `bunfig.toml`
+   `preload` is not loaded. Any input that makes the runner raise ends as
+   `oracle_ok=false oracle_reason=runner-error`, and so does a runner that dies
+   without printing a verdict — never a missing verdict.
 
    What the artifact still decides. First, the trailing tokens are arguments to
    the runner, and the only check on them is that each one names a file the
@@ -121,11 +141,12 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    contract is read from the checked-out tree, `commands.test` is typically
    indirect (`bun run test` → `package.json`), the test files are PR code that
    runs as the reviewer — including writing to the stdout the gates read
-   `oracle_ok` from — and the row picks the runner's arguments. `--verify` on an
+   `oracle_ok` from — and the row picks the runner's arguments. Nothing bounds
+   how long a test runs, so a PR test can hang the gate. `--verify` on an
    untrusted checkout is therefore as dangerous as running the contract's test
    command, with arguments the PR chose, on the PR's tree, and its `oracle_ok` is
-   advisory. Gating the re-exec on the PR author's trust — and pricing what a
-   green row proves — is tracked as #569.
+   advisory. Gating the re-exec on the PR author's trust, a time bound, and
+   pricing what a green row proves are tracked as #569.
 
 3. **Proven record** — `artifacts/reviews/{N}-falsify.json` (`schema_version: "1"`)
    holds `head`, `runner_id`, `rows[]`, `oracle_ok`. Markdown `*-falsify.md` is an

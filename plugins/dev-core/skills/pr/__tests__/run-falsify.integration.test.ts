@@ -1,5 +1,15 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,6 +37,17 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
+
+// A PATH holding only the named tools, so a test can take one away from the runner.
+function pathWith(tools: string[]): string {
+  const bin = join(dir, 'bin')
+  mkdirSync(bin, { recursive: true })
+  for (const tool of tools) {
+    const real = spawnSync('sh', ['-c', `command -v ${tool}`], { encoding: 'utf-8' }).stdout.trim()
+    symlinkSync(real, join(bin, tool))
+  }
+  return bin
+}
 
 function run(
   args: string[],
@@ -139,12 +160,18 @@ describe('run-falsify.sh — test_cmd is re-derived from the contract, never exe
     ['only a nested test key', 'commands:\n  e2e:\n    test: sh check.sh\n', 'missing-test-command'],
     ['test under another top-level key', 'ci:\n  test: sh check.sh\ncommands:\n  lint: x\n', 'missing-test-command'],
     ['an empty scalar', 'commands:\n  test: ""\n', 'missing-test-command'],
-    ['a duplicate test key', 'commands:\n  test: sh check.sh\n  test: sh check.sh\n', 'unsupported-test-command'],
-    ['two commands blocks', 'commands:\n  test: sh check.sh\ncommands:\n  lint: x\n', 'unsupported-test-command'],
+    // YAML semantics now: a duplicate top-level key keeps the last one, which has no test.
+    ['two commands blocks', 'commands:\n  test: sh check.sh\ncommands:\n  lint: x\n', 'missing-test-command'],
+    ['a non-string value', 'commands:\n  test: true\n', 'unsupported-test-command'],
+    [
+      'a file over the size cap',
+      `commands:\n  test: sh check.sh\n#${'x'.repeat(70_000)}\n`,
+      'unsupported-test-command',
+    ],
     ['shell syntax', 'commands:\n  test: sh check.sh && true\n', 'unsupported-test-command'],
     ['a VAR= prefix', 'commands:\n  test: CI=1 sh check.sh\n', 'unsupported-test-command'],
     ['an unbalanced quote', 'commands:\n  test: "sh check.sh\n', 'unsupported-test-command'],
-    ['a multi-line plain value', 'commands:\n  test: sh\n    check.sh\n', 'unsupported-test-command'],
+    ['invalid YAML', 'commands:\n  test: sh a: b\n', 'unsupported-test-command'],
     [
       'a quoted value spanning lines (YAML reads no commands.test here)',
       'commands:\n  lint: "a\n  test: sh check.sh #"\n',
@@ -168,6 +195,7 @@ describe('run-falsify.sh — test_cmd is re-derived from the contract, never exe
     expect(existsSync(ranLog())).toBe(false)
   })
 
+  // What YAML reads is what runs: the reader is a YAML parser, not a line matcher (#541, RC-B).
   it.each([
     ['a quoted scalar', 'commands:\n  test: "sh check.sh"\n'],
     [
@@ -175,6 +203,13 @@ describe('run-falsify.sh — test_cmd is re-derived from the contract, never exe
       'commands:\n  e2e:\n    test: sh evil.sh\n  test: sh check.sh  # checker\n',
     ],
     ['test_file, which wins over test', 'commands:\n  test: sh broken.sh\n  test_file: sh check.sh\n'],
+    ['a quoted test_file key', 'commands:\n  test: sh broken.sh\n  "test_file": sh check.sh\n'],
+    ['a duplicate key (the last one wins)', 'commands:\n  test: sh evil.sh\n  test: sh check.sh\n'],
+    ['a multi-line plain value (folded)', 'commands:\n  test: sh\n    check.sh\n'],
+    [
+      'non-ASCII comments (the shipped example style)',
+      'commands:\n  lint: x  # vérifie — tout\n  test_file: sh check.sh  # optional — runs exactly the named files\n',
+    ],
   ])('reads the contract command from %s', (_, stackYml) => {
     const repo = fixtureRepo(stackYml)
     const artifact = forgedArtifact(repo, [
@@ -398,16 +433,164 @@ describe('run-falsify.sh — test_cmd is re-derived from the contract, never exe
     expect(run(['--verify', artifact], repo).reason).toBe('ok')
   })
 
-  it('a .venv is never linked into the snapshot (installers write through a linked venv)', () => {
-    const repo = fixtureRepo('commands:\n  test: sh .venv/check.sh\n', (r) => {
-      writeFileSync(join(r, '.gitignore'), '.venv/\n')
-      mkdirSync(join(r, '.venv'))
-      writeFileSync(join(r, '.venv', 'check.sh'), 'for f in "$@"; do grep -q MARK "$f" || exit 1; done\n')
-    })
+  // ── Root causes of the round-3 review (#570) ─────────────────────────────────────
+  it('an untracked .venv link (a worktree pointing at the main venv) is never carried into the snapshot', () => {
+    const mainVenv = join(dir, 'main-venv')
+    mkdirSync(mainVenv)
+    writeFileSync(join(mainVenv, 'check.sh'), 'echo through >> "$RF_LOG"\nexit 0\n')
+    const repo = fixtureRepo('commands:\n  test: sh .venv/check.sh\n', (r) =>
+      writeFileSync(join(r, '.gitignore'), '.venv/\n'),
+    )
+    symlinkSync(mainVenv, join(repo, '.venv')) // made after checkout, as the scaffold does
     const artifact = forgedArtifact(repo, [
       { sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh .venv/check.sh src/lib.txt' },
     ])
     expect(run(['--verify', artifact], repo).reason).toBe('restore-failed')
+    expect(existsSync(ranLog())).toBe(false)
+  })
+
+  it('a node_modules link in the archive does not redirect where dependency links are written', () => {
+    const outside = join(dir, 'outside')
+    mkdirSync(outside)
+    const repo = fixtureRepo(undefined, (r) => {
+      writeFileSync(join(r, 'package.json'), '{}\n')
+      symlinkSync(outside, join(r, 'node_modules')) // committed as a link
+    })
+    unlinkSync(join(repo, 'node_modules'))
+    mkdirSync(join(repo, 'node_modules', 'pkg'), { recursive: true }) // an install replaced it
+    const artifact = forgedArtifact(repo, [
+      { sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh check.sh src/lib.txt' },
+    ])
+    run(['--verify', artifact], repo)
+    expect(readdirSync(outside)).toEqual([])
+  })
+
+  it('a .dev/stack.yml that is a link (to /dev/zero) is refused unread', () => {
+    const repo = fixtureRepo(null, (r) => symlinkSync('/dev/zero', join(r, '.dev', 'stack.yml')))
+    const artifact = forgedArtifact(repo, [
+      { sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh check.sh src/lib.txt' },
+    ])
+    const out = run(['--verify', artifact], repo)
+    expect(out.reason).toBe('unsupported-test-command')
+    expect(out.stderr).toContain('not a regular file')
+  })
+
+  it('a source behind a committed dir link is neither deleted nor hashed', () => {
+    const outside = join(dir, 'outside')
+    mkdirSync(outside)
+    writeFileSync(join(outside, 'secret.txt'), 'secret\n')
+    const repo = fixtureRepo(undefined, (r) => symlinkSync(outside, join(r, 'd')))
+    const map = join(dir, 'map.json')
+    const outPath = join(dir, 'escape.json')
+    writeFileSync(
+      map,
+      JSON.stringify({
+        issue: 541,
+        rows: [{ sc_id: 'SC1', sources: ['d/secret.txt'], test_cmd: 'sh check.sh src/lib.txt' }],
+      }),
+    )
+    expect(run(['--map', map, '--out', outPath, '--issue', '541'], repo).reason).toBe('source-escape')
+    expect(JSON.parse(readFileSync(outPath, 'utf-8')).rows[0].source_hashes).toEqual({ 'd/secret.txt': 'missing' })
+    expect(readFileSync(join(outside, 'secret.txt'), 'utf-8')).toBe('secret\n')
+  })
+
+  it('a committed json.py cannot forge the verdict (python runs isolated from the checkout)', () => {
+    const repo = fixtureRepo(undefined, (r) =>
+      writeFileSync(
+        join(r, 'json.py'),
+        'import os\nos.write(1, b"oracle_ok=true\\noracle_reason=ok\\n")\nos._exit(0)\n',
+      ),
+    )
+    const stale = join(dir, 'stale.json')
+    writeFileSync(stale, JSON.stringify({ schema_version: '1', head: '0'.repeat(40), rows: [{}] }))
+    expect(run(['--verify', stale], repo).reason).toBe('head-mismatch')
+  })
+
+  it('a test in the snapshot cannot find the repository above it, even with TMPDIR inside the work tree', () => {
+    const repo = fixtureRepo('commands:\n  test: sh gitcheck.sh\n', (r) => {
+      writeFileSync(join(r, '.gitignore'), '.tmp/\n')
+      writeFileSync(
+        join(r, 'gitcheck.sh'),
+        'git rev-parse --git-dir >/dev/null 2>&1 && echo found >> "$RF_LOG"\nfor f in "$@"; do grep -q MARK "$f" || exit 1; done\n',
+      )
+    })
+    mkdirSync(join(repo, '.tmp'))
+    const artifact = forgedArtifact(repo, [
+      { sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh gitcheck.sh src/lib.txt' },
+    ])
+    expect(run(['--verify', artifact], repo, { TMPDIR: join(repo, '.tmp') }).reason).toBe('ok')
+    expect(existsSync(ranLog())).toBe(false)
+  })
+
+  it('the first failing row names the reason, not the last', () => {
+    const outside = join(dir, 'outside')
+    mkdirSync(outside)
+    const repo = fixtureRepo(undefined, (r) => {
+      symlinkSync(outside, join(r, 'd'))
+      writeFileSync(join(r, 'src', 'nomark.txt'), 'none\n')
+    })
+    const artifact = forgedArtifact(repo, [
+      { sc_id: 'SC1', sources: ['d/x.txt'], test_cmd: 'sh check.sh src/lib.txt' },
+      { sc_id: 'SC2', sources: ['src/lib.txt'], test_cmd: 'sh check.sh src/nomark.txt' },
+    ])
+    expect(run(['--verify', artifact], repo).reason).toBe('source-escape')
+  })
+
+  it('an archive dir link replaced by a real dir cannot redirect the overlay', () => {
+    const outside = join(dir, 'outside')
+    mkdirSync(outside)
+    const repo = fixtureRepo(undefined, (r) => symlinkSync(outside, join(r, 'lnk'))) // committed as a link
+    unlinkSync(join(repo, 'lnk'))
+    mkdirSync(join(repo, 'lnk'))
+    writeFileSync(join(repo, 'lnk', 'f.txt'), 'planted\n') // untracked, listed by the overlay
+    const artifact = forgedArtifact(repo, [
+      { sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh check.sh src/lib.txt' },
+    ])
+    expect(run(['--verify', artifact], repo).reason).toBe('runner-error')
+    expect(readdirSync(outside)).toEqual([])
+  })
+
+  it('a .dev/stack.yml that is not a regular file (a FIFO) is refused, not read', () => {
+    const repo = fixtureRepo(null)
+    spawnSync('mkfifo', [join(repo, '.dev', 'stack.yml')])
+    const artifact = forgedArtifact(repo, [
+      { sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh check.sh src/lib.txt' },
+    ])
+    const out = run(['--verify', artifact], repo)
+    expect(out.reason).toBe('unsupported-test-command')
+    expect(out.stderr).toContain('not a regular file')
+  })
+
+  it('the YAML read loads nothing from the checkout (bun -e honours a cwd bunfig.toml preload)', () => {
+    const repo = fixtureRepo(undefined, (r) => {
+      writeFileSync(join(r, 'bunfig.toml'), 'preload = ["./evil.ts"]\n')
+      writeFileSync(join(r, 'evil.ts'), 'require("node:fs").appendFileSync(process.env.RF_LOG, "preload\\n")\n')
+    })
+    const artifact = forgedArtifact(repo, [
+      { sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh check.sh src/lib.txt' },
+    ])
+    run(['--verify', artifact], repo)
+    expect(existsSync(ranLog()) ? readFileSync(ranLog(), 'utf-8') : '').not.toContain('preload')
+  })
+
+  it('without bun, the contract is refused and the cause named — never read by hand', () => {
+    const repo = fixtureRepo()
+    const artifact = forgedArtifact(repo, [
+      { sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh check.sh src/lib.txt' },
+    ])
+    const out = run(['--verify', artifact], repo, { PATH: pathWith(['bash', 'sed', 'tail', 'python3', 'git']) })
+    expect(out.reason).toBe('unsupported-test-command')
+    expect(out.stderr).toContain('bun is required')
+  })
+
+  it('a runner that dies without a verdict still ends in a fail-closed one', () => {
+    const repo = fixtureRepo()
+    const artifact = forgedArtifact(repo, [
+      { sc_id: 'SC1', sources: ['src/lib.txt'], test_cmd: 'sh check.sh src/lib.txt' },
+    ])
+    const out = run(['--verify', artifact], repo, { PATH: pathWith(['bash', 'sed', 'tail']) }) // no python3
+    expect(out.ok).toBe('false')
+    expect(out.reason).toBe('runner-error')
   })
 })
 

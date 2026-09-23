@@ -7,9 +7,9 @@
 #   run-falsify.sh --verify <falsify.json>
 #
 # Map: { "issue": N, "rows": [ { "sc_id", "sources": [], "test_cmd" } ] }
-#   test_cmd MUST be `.dev/stack.yml` commands.test + plain relative test paths;
-#   it is re-derived and run as argv (no shell). Anything else refuses every row
-#   (oracle_reason=refused-test-cmd:row<i>) — ADR-019 §2c, #541.
+#   test_cmd MUST be the contract's command (`.dev/stack.yml` commands.test_file, else
+#   commands.test — read with Bun.YAML) + plain relative test paths; run as argv, no
+#   shell. Anything else refuses every row (refused-test-cmd:row<i>) — ADR-019 §2c.
 # Emits: oracle_ok=true|false  +  oracle_reason=<token>
 # Always exit 0. Isolation = copy at HEAD with the working tree overlaid on top
 # (¬git stash API) — see snapshot_repo, and ADR-019 §2a for what that makes
@@ -36,8 +36,8 @@ rf_python() {
   ORACLE_OK=false
   ORACLE_REASON=missing
   local out
-  out="$(MODE="$mode" RUNNER_ID="$RUNNER_ID" python3 - "$@" <<'PY'
-import hashlib, json, os, re, shlex, shutil, subprocess, sys, tempfile
+  out="$(MODE="$mode" RUNNER_ID="$RUNNER_ID" python3 -I - "$@" <<'PY'
+import hashlib, json, os, re, shlex, shutil, stat, subprocess, sys, tempfile
 from pathlib import Path
 
 mode = os.environ["MODE"]
@@ -47,14 +47,44 @@ def emit(ok: bool, reason: str) -> None:
     print(f"oracle_ok={'true' if ok else 'false'}")
     print(f"oracle_reason={reason}")
 
-def sha_file(p: Path) -> str:
-    # Regular files only: a committed `z -> /dev/zero` must not be read before any guard.
-    if p.is_symlink() or not p.is_file():
-        return "missing"
+# ── Containment ──────────────────────────────────────────────────────────────────
+# Every path below comes from the PR (the artifact, the tree, the contract). Each one is
+# read, hashed, written or deleted through these functions and nowhere else: a path must
+# resolve inside its root, and a read opens a regular file without following a final
+# link (#541 — ADR-019 §2c).
+CONTRACT_CAP = 64 * 1024
+
+def inside(root: Path, rel: str) -> Path | None:
+    p = root / rel
     try:
-        return hashlib.sha256(p.read_bytes()).hexdigest()
+        return p if p.resolve().is_relative_to(root.resolve()) else None
+    except (OSError, RuntimeError):
+        return None
+
+def open_regular(root: Path, rel: str):
+    # A binary handle on root/rel, or None: outside root, a final link, not a regular file.
+    p = inside(root, rel)
+    if p is None:
+        return None
+    try:
+        fd = os.open(p, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
+        return None
+    fh = os.fdopen(fd, "rb")
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        fh.close()
+        return None
+    return fh
+
+def sha_file(root: Path, rel: str) -> str:
+    fh = open_regular(root, rel)
+    if fh is None:
         return "missing"
+    h = hashlib.sha256()
+    with fh:
+        for chunk in iter(lambda: fh.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 # A row names test paths; it never names what runs. The command is re-derived from
 # the project contract (`.dev/stack.yml` commands.test_file, else commands.test) and
@@ -69,98 +99,66 @@ def plain_path(p) -> bool:
     return isinstance(p, str) and PLAIN_PATH.fullmatch(p) is not None and ".." not in p.split("/")
 
 def plain_source(s) -> bool:
-    # Sources never reach argv — they are only hashed and deleted inside the snapshot —
-    # so the only constraint is that they stay relative and cannot walk out of it.
-    return (
-        isinstance(s, str) and s != "" and "\0" not in s and not s.startswith("/")
-        and all(seg not in ("", ".", "..") for seg in s.split("/"))
-    )
+    # Sources never reach argv — they are hashed and deleted inside the snapshot, through
+    # `inside` — so the only lexical rule is: relative, no empty, `.` or `..` segment.
+    return isinstance(s, str) and "\0" not in s and all(seg not in ("", ".", "..") for seg in s.split("/"))
 
 def in_tree(root: Path, rel: str) -> bool:
-    p = root / rel
-    try:
-        return p.resolve().is_relative_to(root.resolve()) and p.is_file()
-    except (OSError, RuntimeError):
-        return False
+    p = inside(root, rel)
+    return p is not None and p.is_file()
 
-def quote_open(raw: str) -> bool:
-    # True when a quoted scalar starts here and does not close on this line — YAML would
-    # carry it onto the next lines, which this line reader does not follow.
-    if raw[:1] not in ("'", '"'):
-        return False
-    return raw.find(raw[0], 1) == -1
+# `.dev/stack.yml` is read by a YAML parser, never by hand: Bun.YAML, which dev-core
+# already requires. bun runs in an empty temp dir on stdin, so no bunfig.toml or
+# package.json of the checkout is loaded. It prints the `commands` mapping as JSON.
+YAML_JS = r"""
+let doc
+try { doc = Bun.YAML.parse(await Bun.stdin.text()) }
+catch (e) { console.log(JSON.stringify({ error: String(e) })); process.exit(0) }
+const ok = doc !== null && typeof doc === 'object' && !Array.isArray(doc)
+console.log(JSON.stringify(ok ? { commands: doc.commands ?? null } : { error: 'not a mapping' }))
+"""
 
-def contract_test_argv() -> tuple[list[str] | None, str]:
-    # A deliberately small subset of YAML, read line by line: only direct children of the
-    # one top-level `commands:` count (a nested `e2e: {test: …}` is not commands.test), a
-    # key's value is one line, and anything this reader cannot read the way YAML would —
-    # a duplicate key, a multi-line value, non-ASCII, tabs — is refused, never guessed.
-    # `test_file` (runs exactly the named files) wins over `test` when present.
+def contract_test_argv() -> tuple[list[str] | None, str, str]:
+    # (argv, "", "") or (None, reason, why).
+    repo = Path.cwd()
+    stack = repo / ".dev/stack.yml"
+    if not stack.exists() and not stack.is_symlink():
+        return None, "missing-test-command", "no .dev/stack.yml"
+    fh = open_regular(repo, ".dev/stack.yml")
+    if fh is None:
+        return None, "unsupported-test-command", ".dev/stack.yml is not a regular file inside the checkout"
+    with fh:
+        text = fh.read(CONTRACT_CAP + 1)
+    if len(text) > CONTRACT_CAP:
+        return None, "unsupported-test-command", f".dev/stack.yml is larger than {CONTRACT_CAP} bytes"
+    bun = shutil.which("bun")
+    if bun is None:
+        return None, "unsupported-test-command", "bun is required to read .dev/stack.yml"
+    with tempfile.TemporaryDirectory(prefix="rf-yaml.") as neutral:
+        r = subprocess.run([bun, "-e", YAML_JS], input=text, cwd=neutral, capture_output=True, timeout=60)
     try:
-        text = Path(".dev/stack.yml").read_text(encoding="utf-8")
-    except OSError:
-        return None, "missing-test-command"
-    except UnicodeDecodeError:
-        return None, "unsupported-test-command"
-    lines = [line.rstrip("\r") for line in text.split("\n")]
-    heads = [i for i, line in enumerate(lines) if re.fullmatch(r"commands:\s*(#.*)?", line)]
-    if not heads:
-        return None, "missing-test-command"
-    if len(heads) > 1:
-        return None, "unsupported-test-command"
-    child, values, owner = None, {k: [] for k in CONTRACT_KEYS}, None
-    for line in lines[heads[0] + 1:]:
-        if not line.strip() or line.lstrip(" \t").startswith("#"):
-            continue
-        if line[0] not in " \t":
-            break
-        if line.startswith("\t") or not line.isascii():
-            return None, "unsupported-test-command"
-        body = line.lstrip(" ")
-        indent = len(line) - len(body)
-        child = indent if child is None else child
-        if indent < child:
-            return None, "unsupported-test-command"
-        if indent > child:
-            if owner is not None:  # a continuation of a contract key's value
-                return None, "unsupported-test-command"
-            continue
-        m = re.fullmatch(r"([A-Za-z0-9_-]+):(?:[ \t]+(.*))?", body)
-        raw = ((m.group(2) or "") if m else "").strip()
-        if quote_open(raw):
-            return None, "unsupported-test-command"
-        owner = m.group(1) if m and m.group(1) in values else None
-        if owner is not None:
-            values[owner].append(raw)
+        parsed = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return None, "unsupported-test-command", "bun could not read .dev/stack.yml"
+    if "error" in parsed:
+        return None, "unsupported-test-command", f".dev/stack.yml is not valid YAML ({parsed['error'][:120]})"
+    commands = parsed["commands"]
+    if commands is None:
+        return None, "missing-test-command", "no `commands` mapping"
+    if not isinstance(commands, dict):
+        return None, "unsupported-test-command", "`commands` is not a mapping"
     for key in CONTRACT_KEYS:
-        if len(values[key]) > 1:
-            return None, "unsupported-test-command"
-        if values[key]:
-            return scalar_argv(values[key][0])
-    return None, "missing-test-command"
-
-def scalar_argv(raw: str) -> tuple[list[str] | None, str]:
-    # One YAML scalar → argv. Every token must be a plain word, and argv[0] must not be a
-    # `VAR=value` prefix: the command runs without a shell, so anything whose meaning
-    # needs one (operators, globs, `~`, env prefixes, escapes) is refused, never guessed.
-    if not raw or raw.startswith("#"):
-        return None, "missing-test-command"
-    if raw[0] in ("'", '"'):
-        end = raw.find(raw[0], 1)
-        rest = raw[end + 1:].strip()
-        if (rest and not rest.startswith("#")) or (raw[0] == '"' and "\\" in raw[1:end]):
-            return None, "unsupported-test-command"
-        value = raw[1:end]
-    elif raw[0] in "|>{[&*!%@`":
-        return None, "unsupported-test-command"
-    else:
-        value = re.split(r"[ \t]#", raw, maxsplit=1)[0]
-    argv = value.split()
-    if not argv:
-        return None, "missing-test-command"
-    if "=" in argv[0] or not all(PLAIN_TOKEN.fullmatch(t) for t in argv):
-        return None, "unsupported-test-command"
-    return argv, ""
+        value = commands.get(key)
+        if value is None or value == "":
+            continue  # unset: `test_file` falls back to `test`
+        if not isinstance(value, str):
+            return None, "unsupported-test-command", f"commands.{key} is not a string"
+        # No shell runs it: plain words only, and argv[0] is not a `VAR=value` prefix.
+        argv = re.split(r"[ \t]+", value.strip())
+        if "=" in argv[0] or not all(PLAIN_TOKEN.fullmatch(t) for t in argv):
+            return None, "unsupported-test-command", f"commands.{key} is not one plain command"
+        return argv, "", ""
+    return None, "missing-test-command", "neither commands.test_file nor commands.test is set"
 
 def derive_argv(test_cmd, base: list[str]) -> tuple[list[str] | None, str]:
     if not isinstance(test_cmd, str):
@@ -180,8 +178,11 @@ def derive_argv(test_cmd, base: list[str]) -> tuple[list[str] | None, str]:
     return base + paths, ""
 
 def run_cmd(cwd: Path, argv: list[str]) -> tuple[int, str]:
+    # The snapshot is not a repository, and must not find one above it either (a TMPDIR
+    # inside a work tree): git discovery stops at the snapshot's parent.
+    env = {**os.environ, "GIT_CEILING_DIRECTORIES": str(cwd.parent)}
     try:
-        r = subprocess.run(argv, cwd=str(cwd), capture_output=True, text=True)
+        r = subprocess.run(argv, cwd=str(cwd), capture_output=True, text=True, env=env)
     except OSError as e:
         return 127, str(e)[:240]
     out = (r.stdout or "") + (r.stderr or "")
@@ -223,26 +224,30 @@ def snapshot_repo(dest: Path) -> None:
     archive.stdout.close()
     if archive.wait() != 0:
         raise subprocess.CalledProcessError(archive.returncode, ["git", "archive", "HEAD"])
-    # Overlay dirty + untracked (best-effort)
-    r = subprocess.run(
-        ["git", "ls-files", "-co", "--exclude-standard", "-z"],
-        capture_output=True,
-    )
-    for raw in r.stdout.split(b"\0"):
-        if not raw:
-            continue
-        rel = raw.decode("utf-8", "surrogateescape")
-        src = Path(rel)
-        if not (src.is_symlink() or src.is_file()):
-            continue
-        target = dest / rel
-        if target.is_symlink() or target.is_file():
-            target.unlink()  # never write through a link the archive extracted
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if src.is_symlink():
-            os.symlink(os.readlink(src), target)  # a link stays a link; guards see it
-        else:
-            shutil.copy2(src, target)
+    # Overlay the working tree. A tracked link stays a link, so the guards see it; an
+    # untracked link is local environment (a worktree's `.venv -> <main>/.venv`) and is
+    # never carried. Every write goes through `inside`: an archive link cannot redirect it.
+    for tracked, flag in ((True, "-c"), (False, "-o")):
+        r = subprocess.run(["git", "ls-files", flag, "--exclude-standard", "-z"], capture_output=True)
+        for raw in r.stdout.split(b"\0"):
+            if not raw:
+                continue
+            rel = raw.decode("utf-8", "surrogateescape")
+            src = Path(rel)
+            if src.is_symlink() and not tracked:
+                continue
+            if not (src.is_symlink() or src.is_file()):
+                continue
+            if inside(dest, str(src.parent)) is None:
+                raise RuntimeError(f"overlay path {rel!r} escapes the snapshot")
+            target = dest / rel
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if src.is_symlink():
+                os.symlink(os.readlink(src), target)
+            else:
+                shutil.copy2(src, target)
     link_dependencies(dest)
 
 def link_dependencies(dest: Path) -> None:
@@ -273,9 +278,11 @@ def link_dependencies(dest: Path) -> None:
     )
     pkg_dirs = {Path(raw.decode("utf-8", "surrogateescape")).parent for raw in r.stdout.split(b"\0") if raw}
     for dep in [d / "node_modules" for d in sorted(pkg_dirs)]:
-        if dep.is_symlink() or not dep.is_dir():
+        if dep.is_symlink() or not dep.is_dir() or inside(dest, str(dep.parent)) is None:
             continue
         target = dest / dep
+        if target.is_symlink():
+            target.unlink()  # an archive link must not become the place links are written
         target.mkdir(parents=True, exist_ok=True)
         for entry in dep.iterdir():
             link = target / entry.name
@@ -289,15 +296,11 @@ def link_dependencies(dest: Path) -> None:
                 link_entry(entry, link)
 
 def remove_sources(root: Path, sources: list[str]) -> str:
-    # The snapshot keeps symlinks (committed ones, and the dependency links above), so a
-    # lexically plain source can still resolve outside it: refuse instead of deleting.
+    # The snapshot keeps tracked links and dependency links, so a lexically plain source
+    # can still resolve outside it: refuse instead of deleting.
     for s in sources:
-        p = root / s
-        try:
-            inside = p.resolve().is_relative_to(root.resolve())
-        except (OSError, RuntimeError):
-            inside = False
-        if not inside:
+        p = inside(root, s)
+        if p is None:
             return f"source {s!r} resolves outside the snapshot"
         if p.is_symlink() or p.is_file():
             p.unlink()  # a link is removed, never followed
@@ -326,11 +329,11 @@ def execute_map(map_path: Path, out_path: Path | None, issue_override) -> tuple[
     if not rows_in:
         return fail("empty-map")
 
-    base, base_reason = contract_test_argv()
+    base, base_reason, base_why = contract_test_argv()
     if base is None:
         print(
-            f"run-falsify: {base_reason}: .dev/stack.yml commands.test_file (else commands.test) must be "
-            "one single-line plain command (plain words, no shell syntax, no VAR= prefix)",
+            f"run-falsify: {base_reason}: {base_why}. .dev/stack.yml commands.test_file (else "
+            "commands.test) must be one plain command: plain words, no shell syntax, no VAR= prefix",
             file=sys.stderr,
         )
         return fail(base_reason)
@@ -366,13 +369,13 @@ def execute_map(map_path: Path, out_path: Path | None, issue_override) -> tuple[
             return fail(f"refused-test-cmd:row{refused[0]}")
         rows_out = []
         any_proven = False
-        reason = "ok"
+        failures = []  # the first failing row names the reason, not the last
 
         for row, argv in zip(rows_in, argvs):
             sc = row.get("sc_id", "")
             sources = list(row.get("sources") or [])
             test_cmd = shlex.join(argv)
-            hashes = {s: sha_file(Path(s)) for s in sources}
+            hashes = {s: sha_file(wt, s) for s in sources}
 
             fail_dir = Path(tempfile.mkdtemp(prefix="rf-fail."))
             try:
@@ -385,7 +388,7 @@ def execute_map(map_path: Path, out_path: Path | None, issue_override) -> tuple[
                         "test_cmd": test_cmd, "fail_exit": None, "pass_exit": None,
                         "error": escape, "status": "failed",
                     })
-                    reason = "source-escape"
+                    failures.append("source-escape")
                     continue
 
                 fail_ec, fail_out = run_cmd(fail_dir, argv)
@@ -396,7 +399,7 @@ def execute_map(map_path: Path, out_path: Path | None, issue_override) -> tuple[
                         "error": "TAUTOLOGICAL: passed with sources absent",
                         "status": "failed",
                     })
-                    reason = "tautology"
+                    failures.append("tautology")
                     continue
 
                 err = fail_out
@@ -412,7 +415,7 @@ def execute_map(map_path: Path, out_path: Path | None, issue_override) -> tuple[
                         "error": err, "status": "proven",
                     })
                 else:
-                    reason = "restore-failed"
+                    failures.append("restore-failed")
                     rows_out.append({
                         "sc_id": sc, "sources": sources, "source_hashes": hashes,
                         "test_cmd": test_cmd, "fail_exit": fail_ec, "pass_exit": pass_ec,
@@ -421,9 +424,8 @@ def execute_map(map_path: Path, out_path: Path | None, issue_override) -> tuple[
             finally:
                 shutil.rmtree(fail_dir, ignore_errors=True)
 
-        ok = any_proven and all(r.get("status") == "proven" for r in rows_out)
-        if not ok and reason == "ok":
-            reason = "no-proven-row" if not any_proven else "row-failed"
+        ok = any_proven and not failures
+        reason = "ok" if ok else (failures[0] if failures else "no-proven-row")
 
         if out_path is None:
             out_path = Path(f"artifacts/reviews/{issue}-falsify.json")
@@ -487,11 +489,18 @@ except Exception as e:  # noqa: BLE001 — the gate needs a verdict, not a trace
     ok, reason = False, "runner-error"
 emit(ok, reason)
 PY
-)"
-  # Parse last oracle_ok/reason lines from python stdout
+)" || true
+  # Parse last oracle_ok/reason lines from python stdout. No line at all means python
+  # died without a verdict (a signal, an OOM kill): that is still a verdict, and false.
   ORACLE_OK="$(printf '%s\n' "$out" | sed -n 's/^oracle_ok=//p' | tail -1)"
   ORACLE_REASON="$(printf '%s\n' "$out" | sed -n 's/^oracle_reason=//p' | tail -1)"
-  printf '%s\n' "$out"
+  if [ -z "$ORACLE_OK" ]; then
+    ORACLE_OK=false
+    ORACLE_REASON=runner-error
+    rf_emit
+  else
+    printf '%s\n' "$out"
+  fi
 }
 
 MODE=""
