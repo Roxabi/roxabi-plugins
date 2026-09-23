@@ -2,6 +2,8 @@
 
 The unit of a fix. A finding is a symptom. A root cause is the shared mechanism behind one or more actionable findings. `dev-review` names them after dedup, before it posts. `fix` applies one change per cause. The plan is the decision.
 
+Two readers: `dev-review` Phase 4 writes the section, `fix` Phase 2 reads it. Both reach this file as `skill://dev-review/root-causes.md`.
+
 ## Who enters
 
 actionable := {issue, suggestion, todo, nitpick}, including `(blocking)` and `(non-blocking)` forms.
@@ -24,7 +26,9 @@ A finding with no usable root-cause sentence is its own cause until the cited li
 
 ## Record
 
-One block per cause. Order: a cause that contains a blocker first, then by the highest confidence among its members. Non-CC-shaped: no line matches `^\s*[-*]?\s*(issue|suggestion|todo|nitpick|thought|question|praise)(\([a-z-]+\))?:`.
+One block per cause. Order: a cause that contains a blocker first, then by the highest confidence among its members. Every line is non-CC-shaped, per `dev-review/SKILL.md` Phase 4 § `/fix` partition.
+
+The section ends at the next `##` heading. In a review, that heading is `## Findings`.
 
 ```markdown
 ## Root causes
@@ -33,16 +37,20 @@ One block per cause. Order: a cause that contains a blocker first, then by the h
 - mechanism: <why, not the symptom>
 - fix: <the one change that removes the cause, covering every member callsite>
 - findings: `path:line` ; `path:line`
+
+## Findings
 ```
 
-No actionable findings → the section is exactly:
+No actionable findings → the section body is exactly:
 
 ```markdown
 ## Root causes
 
 none
+
+## Findings
 ```
 
-`fix` is Solution 1 of the strongest member, widened so every member callsite is covered. For `test-tautology`, `vacuous-guard`, or `parallel-path-drift`, a line that only widens a denylist, adds a grep, or copies an inventory list is not a fix. The fix line names the oracle or single source of truth that must change.
+`fix` is Solution 1 of the strongest member, widened so every member callsite is covered. A fix line that only widens a denylist, adds a grep, or copies an inventory list is not a fix, whatever the members' classes. Name the oracle or single source of truth that must change.
 
-Number `RC-1` upward. Do not reuse a number. Every cause has a non-empty `fix:` and a non-empty `findings:`. An actionable finding that still has no mechanism and no fix stays out of this section; `fix` files it.
+Number `RC-1` upward. Do not reuse a number. Every cause has a non-empty `mechanism:`, `fix:` and `findings:`. An actionable finding that still has no mechanism and no fix stays out of this section; `fix` files it.

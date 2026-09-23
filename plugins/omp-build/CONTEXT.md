@@ -97,6 +97,10 @@ _Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent, a per-finding
 The shared mechanism behind one or more review findings. Named after the review, before any edit. The unit `fix` applies.
 _Avoid_: the finding itself, a class slug alone, a file
 
+**Review record**:
+The one PR comment `fix` reads: first line `<!-- omp-build:code-review -->`, authored by the account running `fix`, newest wins. Root causes and findings both come from it.
+_Avoid_: scraping every PR comment, matching `## Code Review` as a substring
+
 **Panel**:
 The five dispatchable review roles: the `R-adversarial` floor plus at most two specialists the roster proved relevant.
 _Avoid_: domain roles, FE/BE reviewers, a per-language reviewer

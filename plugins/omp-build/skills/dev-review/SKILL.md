@@ -205,7 +205,7 @@ Only when R-security-auditor is actually spawned (`spawn_security_auditor` from 
 3. scope = Δ ∪ ⋃{resolve(imports(f)) | f ∈ Δ} ∪ `{backend.path}/src/auth/**` — deduplicate
 
 # SYNC REQUIRED: inline class list must match review-classes.yml slugs
-# CROSS-SKILL CONSUMER: fix/SKILL.md Phase 0 reads this YAML via `skill://dev-review/review-classes.yml` — moving or renaming it HALTs /fix
+# CROSS-SKILL CONSUMER: fix/SKILL.md Phase 0 reads this YAML via `skill://dev-review/review-classes.yml`, and fix Phase 2 reads `skill://dev-review/root-causes.md` — moving or renaming either HALTs /fix
 
 ### Spawn template
 
@@ -323,7 +323,7 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 | Moderate | 40-69 | Probable, context-dependent |
 | Low | 0-39 | Speculative, competing explanations |
 
-**Validation:** missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label → C(f) := 0 (kept; clustering still reads the cited lines).
+**Validation:** missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label → C(f) := 0 (kept; `skill://fix` files a cause with a C := 0 member instead of applying it).
 
 ### Finding categories
 
@@ -345,9 +345,9 @@ One phase owns the final finding set, the single rendered review, and the option
    - one finding per `(file, class)` → keep max C
    - findings sharing file:line and intersecting class sets after subsumption → merge with max C, subsumed class stripping, and unioned `Raw callsites`
 3. **Classify:** normal findings follow their category label. A finding with `Source: recall` is always blocking; normalize its label to `issue(blocking):`.
-4. **Keep by default:** after deterministic dedup, every finding remains in F. Confidence controls ordering only. It does not drop a finding and it does not split the fix queue. No confidence threshold, agent judgement, or second LLM pass may remove a finding. Blocking findings are never filtered.
+4. **Keep by default:** after deterministic dedup, every finding remains in F. Confidence controls ordering. A validation zero (C := 0) also makes the finding's cause ineligible for auto-apply in `skill://fix`. No confidence threshold, agent judgement, or second LLM pass may remove a finding. Blocking findings are never filtered.
 5. **Sort and group:** C descending within Blockers → Warnings → Suggestions → Praise.
-6. **Name root causes.** Read `"$SKILL_DIR/../shared/root-causes.md"` (unset `SKILL_DIR` → the Phase 1 halt). R := causes over actionable findings, after reading cited lines where a join is not already obvious. praise, thought, question never enter R. This step writes no code.
+6. **Name root causes.** Read `skill://dev-review/root-causes.md`. R := causes over actionable findings, after reading cited lines where a join is not already obvious. praise, thought, question never enter R. This step writes no code.
 7. **Disclose roster allocation** in the review output whenever non-empty: `capped[]` (the per-chunk union) and `warnings[]`.
 
 `blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):} ∨ source(f)=recall`.
@@ -365,16 +365,16 @@ Verdict is computed from the complete deduplicated F and fails closed on blocker
 
 ### Render once
 
-Build one `## Code Review` body in this order:
+Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that marker is how `skill://fix` finds the record, together with the comment author. Then, in this order:
 
-1. `## Spec` — render Σ from Phase 2, one row per criterion in σ order: `✓` met / `✗` missing, quoting `criterion_text`. σ ∄ → `no spec available — spec axis not evaluated`.
+1. `## Code Review`, then `## Spec` — render Σ from Phase 2, one row per criterion in σ order: `✓` met / `✗` missing, quoting `criterion_text`. σ ∄ → `no spec available — spec axis not evaluated`.
 2. `## Standards` — the orchestrator reads `skill://dev-review/review-smells.md` once, walks Δ against the baseline, and emits at most one `possible <Smell>` row per smell. Render the receipt in `## Standards (judgement pass — {n} smells walked, {k} fired)`. These rows never enter F, carry `Class:`, or affect verdict.
-3. `## Root causes` — render R from step 6, in the shape `../shared/root-causes.md` defines. Actionable F = ∅ → the section is `none`.
-4. Grouped findings from step 5. **Render every finding exactly once here.** Spec, Standards, and Root causes are roll-ups, never copies of a finding.
+3. `## Root causes` — render R from step 6, in the shape `skill://dev-review/root-causes.md` defines. Actionable F = ∅ → the section body is exactly `none`.
+4. `## Findings` — this heading closes `## Root causes`. Grouped findings from step 5 under `### Blockers`, `### Warnings`, `### Suggestions`, `### Praise`. **Render every finding exactly once here.** Spec, Standards, and Root causes are roll-ups, never copies of a finding.
 5. Roster allocation disclosures from step 7.
 6. Summary + verdict.
 
-**`/fix` partition (load-bearing):** `skill://fix` applies the `## Root causes` blocks. It parses Conventional Comments only when that section is absent. Spec, Standards, and Root causes rows MUST be non-CC-shaped: no line in those blocks may match `^\s*[-*]?\s*(issue|suggestion|todo|nitpick|thought|question|praise)(\([a-z-]+\))?:`. Paraphrase a quoted σ or Δ line that matches this shape, or cite only its location. Never restate a grouped finding in any of those blocks.
+**`/fix` partition (load-bearing):** `skill://fix` reads only the newest comment whose first line is the marker and whose author is the account running it. From that one comment it takes R from `## Root causes` (up to `## Findings`) and F from the Conventional Comments under `## Findings`. Spec, Standards, and Root causes rows MUST be non-CC-shaped: no line in those blocks may match `^\s*[-*]?\s*(issue|suggestion|todo|nitpick|thought|question|praise)(\([a-z-]+\))?:`. Paraphrase a quoted σ or Δ line that matches this shape, or cite only its location. Never restate a grouped finding in any of those blocks.
 
 ### Post the same body
 
@@ -391,6 +391,7 @@ Build one `## Code Review` body in this order:
 **Comment shape (order normative, content illustrative):**
 
 ```markdown
+<!-- omp-build:code-review -->
 ## Code Review
 
 ## Spec
@@ -406,6 +407,8 @@ Build one `## Code Review` body in this order:
 - mechanism: the render path keeps the verdict and drops the warning list
 - fix: emit every roster warning into the posted body
 - findings: `skills/dev-review/SKILL.md:350`
+
+## Findings
 
 ### Blockers
 issue(blocking): oracle warnings dropped …
@@ -430,7 +433,7 @@ Skip the standalone actions below; never choose on the operator's behalf.
 **Standalone review:**
 
 Q:
-- **Fix now** — invoke `skill://fix` (one change per posted root cause, applied inline, no per-finding choice; its Phase 5 writes the `reviewed` label unless it is invoked `--no-label`, and its Phase 6 posts the follow-up comment — it offers no rebase and no merge)
+- **Fix now** — invoke `skill://fix` (one commit per eligible root cause, applied inline, no per-finding choice; its Phase 5 writes the `reviewed` label only in label mode and only when no cause with a blocking member was filed or failed; its Phase 6 posts the follow-up comment — it offers no rebase and no merge)
 - **Merge as-is** — rebase + label + auto-merge (below)
 - **Stop** — exit
 
@@ -456,13 +459,13 @@ Q:
 | Critical security | Escalate in findings, flag in verdict |
 | Agents disagree | Present both with respective C |
 | ¬∃ PR | Render Phase 4 body; Phase 8 local only |
-| Missing root cause/solutions | C(f) := 0; keep finding; clustering reads the cited lines |
+| Missing root cause/solutions | C(f) := 0; keep finding; `skill://fix` files its cause instead of applying it |
 | ∄ `size:` label | τ := F-lite, disclosed out loud (never silently) |
 | R-architect skipped | no axial or structural evidence |
 | R-tester skipped | ¬delta_test_hit — that is the whole gate |
 | R-security-auditor skipped | path_hit=false — R-adversarial owns OWASP on every review |
 | FE/BE concern in Δ | R-adversarial floor owns it — the domain roles are cut, ¬spawn a substitute |
-| Low-confidence finding | keep; it joins its cause; confidence does not split the fix queue |
+| Low-confidence finding | keep; it joins its cause; confidence orders, it does not split the fix queue |
 | Recall worker skipped | single chunk ∨ class appears in <2 chunks ∨ <3 unique callsites |
 | roster capped (max_agents, per chunk) | disclosed when ≠ ∅ (Phase 4) |
 | oracle warnings ≠ ∅ | echoed into output; review_halt → HALT |

