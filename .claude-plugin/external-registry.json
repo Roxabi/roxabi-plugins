@@ -112,11 +112,11 @@
       "name": "roxabi-forge",
       "source": "https://github.com/Roxabi/roxabi-forge",
       "added": "2026-04-12",
-      "last_checked_commit": "461eae78ff72d3ec71e8466f5485419580197e74",
+      "last_checked_commit": "00e94873e6482ae170f1a11e40011b24289128d5",
       "upstream_branch": "main",
       "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
       "status": "active",
-      "notes": "Roxabi-owned. Forge — HTML visual artifacts (diagrams, galleries, guides, epics). Extracted from roxabi-plugins. 1 plugin (forge) with 5 skills."
+      "notes": "Roxabi-owned. Tree-layout forge engine for forge.roxabi.dev + multi-host plugin (Claude, Codex, Grok, OMP): 1 plugin (roxabi-forge) with 2 skills (roxabi-forge-publish, roxabi-forge-setup). History replaced 2026-09-23; the 0.x engine and its `forge` plugin live on as Roxabi/roxabi-forge-legacy (archived)."
     },
     {
       "name": "roxabi-video-engine",
