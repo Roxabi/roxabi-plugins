@@ -18,7 +18,7 @@ Triggers: `"create PR"` | `"open PR"` | `"submit PR"` | `"open a pull request"` 
 
 ## How it works
 
-1. **Guard rails** — refuses to PR from `staging`/`main`/`master`; refuses if no commits ahead; offers to update if PR already exists; pushes branch if not yet pushed; warns on lint/typecheck failures. τ≠S: **REFUSE** if `oracle_ok=false` (mechanical parse of `artifacts/reviews/{N}-falsify.md` failed — heading presence is ¬the oracle) or `priced_ok=false` (fail-closed SC missing `priced`/`not`/`oracles`) — re-run `/R-dev-implement` Step 6b or `/R-spec`.
+1. **Guard rails** — refuses to PR from `staging`/`main`/`master`; refuses if no commits ahead; offers to update if PR already exists; pushes branch if not yet pushed; warns on lint/typecheck failures. τ≠S: **REFUSE** if `oracle_ok=false` from `run-falsify --verify` on `artifacts/reviews/{N}-falsify.json` (the markdown render is ¬the oracle) — `oracle_reason` `*-test-command` → fix `.dev/stack.yml`, anything else → re-run `/R-dev-implement` Step 6b — or if `priced_ok=false` (fail-closed SC missing `priced`/`not`/`oracles`) → `/R-spec`.
 2. **Content generation** — reads commits + diff + lifecycle artifacts (analysis, spec) to generate title (`<type>(<scope>): <desc>`, ≤70 chars) and body.
 3. **Create** — runs `gh pr create`; updates issue status to `Review`.
 4. **Rebase** — fetches latest base, rebases if behind, force-pushes with lease (no `--force`).

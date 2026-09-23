@@ -142,6 +142,8 @@ Spec SCs with a priced-quantity block: test `priced` + `oracles`, never `not`.
 bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh --map <map.json> --out artifacts/reviews/{N}-falsify.json --issue {N}
 ```
 
+Map row shape is **enforced** (ADR-019 §2c): `test_cmd` = `{commands.test_file}` (else `{commands.test}`) + plain relative test file paths the snapshot carries; anything else refuses the whole map — same contract as `/R-dev-implement` Step 6b.
+
 Consumer `{commands.test:falsify}` / `package.json` `test:falsify` / `scripts/test-falsify.sh` allowed **only if** they exec the plugin helper without swallowing non-zero — else stub-refuse. LLM `git stash` is ¬an alternate oracle.
 
 On `oracle_ok=true`, set `✓ proven` from JSON rows. Persist JSON (+ optional md render). Evidence lines come from the helper output. Matrix `Status` = `✓ proven` only from runner rows — append evidence block to output before reporting done.
