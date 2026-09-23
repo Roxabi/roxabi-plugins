@@ -106,21 +106,33 @@ feature worktree that either fails or drags the tree off its own branch.
 
 **Trunk skip (`release.model: trunk`, #371 B1).** Under trunk the create-PR path opens a *plain* staging→main merge PR: there is **no pre-declared version** to validate, and merging tags nothing (ADR-021). So the **Gate probe, Unfinalized-promote, and Version-file** checks below (all staging-train *finalize* invariants) are **SKIPPED**; only the **Component** check runs — `release.component` still scopes the release-consistency floor and the `<component>/vX.Y.Z` tag prefix. Detect and short-circuit before the staging-train guards:
 
+**Authority comes from the BASE branch, not your working tree (#374 F2, #385 item 4).** The `release-consistency` gate resolves `release.model` and `release.component` from `refs/remotes/origin/<base>:.dev/stack.yml` — for a staging→main promote, from `main`. `/promote` runs on `staging`. On `roxabi-factory` those two trees are 3934 commits apart and their `stack.yml` blobs differ, so reading the local file here makes `/promote` predict a verdict the gate will not return. Read what the gate reads:
+
 ```bash
-MODEL=$(yq -r '.release.model // "staging-train"' .dev/stack.yml 2>/dev/null \
-  || { [ -f .dev/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".dev/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
+BASE_REF=refs/remotes/origin/main    # the promote PR's base — same ref the gate anchors on
+git fetch --force origin '+refs/heads/*:refs/remotes/origin/*' >/dev/null 2>&1 || true
+BASE_STACK=$(mktemp)
+git show "${BASE_REF}:.dev/stack.yml" > "$BASE_STACK" 2>/dev/null || : > "$BASE_STACK"
+
+MODEL=$(yq -r '.release.model // "staging-train"' "$BASE_STACK" 2>/dev/null \
+  || python3 -c 'import sys,yaml;d=yaml.safe_load(open(sys.argv[1])) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' "$BASE_STACK" 2>/dev/null \
+  || echo staging-train)
+MODEL=${MODEL:-staging-train}        # absent/unparseable coerces to the strict path, like the gate
 # → if MODEL=trunk: run ONLY the Component check below, then jump to Step 1b.
 #   (The promote-PR's version heading/title, computed in Steps 2–4, is COSMETIC under
 #    trunk — no tag is cut at merge; a release is named later by an annotated tag.)
 ```
 
-**Component (S6/D13):**
+**Component (S6/D13)** — same source, same reason:
 
 ```bash
-COMPONENT=$(yq -r '.release.component // "null"' .dev/stack.yml 2>/dev/null \
-  || python3 -c 'import yaml;print((yaml.safe_load(open(".dev/stack.yml")).get("release") or {}).get("component") or "null")')
-{ [ "$COMPONENT" = null ] || [ -z "$COMPONENT" ]; } && { echo "REFUSE: release.component unset — paste the release: block from references/release-artifacts.md §2a"; exit 1; }
+COMPONENT=$(yq -r '.release.component // ""' "$BASE_STACK" 2>/dev/null \
+  || python3 -c 'import sys,yaml;d=yaml.safe_load(open(sys.argv[1])) or {};print(((d.get("release") or {}).get("component")) or "")' "$BASE_STACK" 2>/dev/null \
+  || true)
+{ [ -z "$COMPONENT" ] || [ "$COMPONENT" = null ]; } && { echo "REFUSE: release.component unset on ${BASE_REF}:.dev/stack.yml — paste the release: block from references/release-artifacts.md §2a"; exit 1; }
 ```
+
+If this is empty while your **working tree** declares a component, the `release:` block (or the rename) has not landed on the base yet. Land it first via an ordinary branch→`main` PR — that PR early-greens at the gate's `head != staging` scope gate, so it is mergeable even with the gate already armed — then re-run `/promote`.
 
 **Gate probe (S7/D6/D17)** — the check must be *required*, not merely present; a bypassable required check is advisory with better marketing, so the probe reads the actor list too. Read the **effective rules for `main`** (`rules/branches/main` resolves org-level and repo-level rulesets, including parents), then the bypass list of each ruleset that contributes the check:
 
@@ -353,6 +365,8 @@ MODEL=$(yq -r '.release.model // "staging-train"' .dev/stack.yml 2>/dev/null \
   || { [ -f .dev/stack.yml ] && python3 -c 'import sys,yaml;d=yaml.safe_load(open(".dev/stack.yml")) or {};print(((d.get("release") or {}).get("model")) or "staging-train")' || echo staging-train; })
 [ "$MODEL" = trunk ] && { echo "REFUSE: release.model==trunk — a trunk release is cut by pushing an annotated tag (ADR-021); /promote --finalize does not apply."; exit 1; }
 ```
+
+Unlike Step 1a, this one legitimately reads the **local** `.dev/stack.yml`: `--finalize` runs post-merge on `main`, so the working tree *is* the base the gate reads. No divergence to correct (#385 item 4).
 
 **9a.** Verify the merge — **read-only**:
 ```bash

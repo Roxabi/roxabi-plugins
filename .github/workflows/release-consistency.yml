@@ -29,15 +29,31 @@
 #   push path — the checkout IS the protected-branch tip, so reading stack.yml
 #     directly is already reading the base; no head exists.
 #
+# TRUST BOUNDARY — WHERE THE DERIVER COMES FROM (#385 item 1; closes FU-2 (a)).
+#   $PRICE is NOT the checked-out price.sh. The PR checkout is the merge ref, so
+#   a PR that rewrote price.sh would dictate its own verdict. The `Checkout
+#   pinned gate tooling` step clones THIS workflow's own repo at
+#   job.workflow_sha into .gate-tools/, and $PRICE points there.
+#     * The step is CONDITIONAL (`continue-on-error: true`). A failed cross-repo
+#       clone — private repo, revoked token, GitHub outage — must NOT fail the
+#       JOB in front of the in-job early greens (D15c at JOB granularity), or it
+#       deadlocks main in every provisioned repo.
+#     * When the pinned copy is unavailable the gate FAILS CLOSED AT THE CALL
+#       SITE: never at the job front, and never by falling back to the head copy.
+#       A fallback would silently restore the hole; a front guard would deadlock.
+#       So every path that does not derive a version (trunk, head != staging,
+#       `version_files: []`) still reaches its `exit 0`, and only the paths that
+#       actually run the deriver go red — loudly, naming the pin.
+#
 # KNOWN-OPEN (do NOT read this gate as fully hardened — tracked as FU-2):
-#   (a) $PRICE is still executed FROM THE CHECKOUT, so a PR that rewrites price.sh
-#       dictates its own verdict. Closing it needs a pinned checkout of this
-#       workflow's own repo, as a CONDITIONAL step (a failed cross-repo clone must
-#       not fail the JOB in front of the in-job early greens — D15c at job level).
-#   (b) The per-repo caller stub is committed into the target repo, so a PR can
-#       replace this `uses:` job with `run: exit 0`. Not fixable here — needs a
-#       ruleset file_path_restriction on .github/workflows/**, CODEOWNERS, or an
-#       org required-workflow.
+#   (b) The per-repo caller stub is committed into the TARGET repo, so a PR can
+#       replace this `uses:` job with `run: exit 0`. Not fixable here: it is a
+#       provisioning-time control. See the RESIDUAL RISK block at the top of
+#       scripts/provision-release-gate.sh — which the script also prints before
+#       it mutates anything — for the three options (ruleset
+#       file_path_restriction on .github/workflows/**, CODEOWNERS, org
+#       required-workflow) and what each does and does not cover. Until one is
+#       in place this gate is honest about drift, not tamper-proof.
 #   (c) MIGRATION ORDER. Authority is the BASE stack, so a staging→main promote PR
 #       on a repo whose base lacks .dev/stack.yml reads COMPONENT="" → hard red: the
 #       PR carrying the migration is unmergeable. Land .dev/stack.yml on the base first.
@@ -84,6 +100,32 @@ jobs:
       - name: Fetch branches and tags
         run: git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
 
+      # ── #385 item 1: run the deriver from a PINNED copy of THIS workflow's
+      # own repo, never from the (PR-author-controlled) checkout above.
+      #
+      # `job.workflow_repository` / `job.workflow_sha` resolve to the REUSABLE's
+      # repo and commit — not the caller stub's — so the clone is exactly the
+      # bytes this file was called at. On a runner that does not populate them
+      # the `if:` is false, the step is SKIPPED (not failed), and the lazy guard
+      # in the Gate step turns that into a loud red on derive paths only.
+      #
+      # `continue-on-error: true` is LOAD-BEARING, not defensive dressing: this
+      # step sits in front of every in-job early green, and a step that fails
+      # here fails the JOB. With zero bypass actors that deadlocks main in every
+      # provisioned repo (D15c at job granularity). Failure must arrive at the
+      # call site instead — see `[ -f "$PRICE" ]` below.
+      - name: Checkout pinned gate tooling
+        id: gate_tools
+        if: ${{ job.workflow_repository != '' && job.workflow_sha != '' }}
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .gate-tools
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Gate
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -93,10 +135,21 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PUSH_SHA: ${{ github.sha }}
           VERSION_FILES_OVERRIDE: ${{ inputs.version_files_override }}
+          GATE_TOOLS_OUTCOME: ${{ steps.gate_tools.outcome }}
+          GATE_PIN: ${{ job.workflow_repository }}@${{ job.workflow_sha }}
         run: |
           set -euo pipefail
 
-          PRICE="plugins/dev-core/skills/promote/price.sh"
+          # THE DERIVER IS THE PINNED COPY, NOT THE CHECKOUT (#385 item 1).
+          # `plugins/dev-core/skills/promote/price.sh` in the checkout is the PR
+          # author's file on the pull_request path; running it would let a PR
+          # that rewrites price.sh dictate its own verdict. This path lives in
+          # .gate-tools/, the pinned clone of this workflow's own repo.
+          #
+          # There is NO fallback to the checked-out copy. A fallback is a silent
+          # restoration of the hole, so an unavailable pin is a hard red — but
+          # only where a version is actually derived (see `[ -f "$PRICE" ]`).
+          PRICE=".gate-tools/plugins/dev-core/skills/promote/price.sh"
           STACK=".dev/stack.yml"
 
           # ── config readers (yq preferred, python3 YAML fallback — S2/D15) ──
@@ -131,15 +184,39 @@ jobs:
               python3 -c 'import sys,yaml; d=yaml.safe_load(open(sys.argv[1])) or {}; print(((d.get("release") or {}).get("model")) or "staging-train")' "$f" 2>/dev/null || echo "staging-train"
             fi
           }
-          read_version_files() {   # one path per line
+          read_version_files() {   # one path per line, ZERO lines for an empty list
             if command -v yq >/dev/null 2>&1; then
-              yq -r '.release.version_files[]? // ""' "$STACK"
+              # No `// ""` here. `[]?` on an empty list yields an empty STREAM, and
+              # `// ""` turns that stream into one empty line — so `version_files: []`
+              # read as ONE element under yq and as ZERO under the python3 branch, and
+              # only the python3 branch reached the `version_files empty` early green.
+              # ubuntu-latest ships yq, so the fleet default took the long way round
+              # and ran the deriver for a check with nothing to check (#385 item 3:
+              # that early green has to be reachable WITHOUT a deriver).
+              yq -r '.release.version_files[]?' "$STACK"
             else
               python3 -c 'import sys,yaml; d=yaml.safe_load(open(sys.argv[1])) or {}; [print(p) for p in ((d.get("release") or {}).get("version_files") or []) if p]' "$STACK"
             fi
           }
           parse_override() {       # override string (JSON/YAML list) → one path per line
             python3 -c 'import sys,yaml; v=yaml.safe_load(sys.argv[1]) if sys.argv[1].strip() else []; v=[v] if isinstance(v,str) else (v or []); [print(p) for p in v if p]' "$VERSION_FILES_OVERRIDE"
+          }
+
+          # Diagnostic for an absent pinned deriver. A function DEFINITION only —
+          # it changes no control flow and therefore cannot sit "in front of" an
+          # early green. The decision is taken by the `[ -f "$PRICE" ]` guards at
+          # the two call sites (#385 items 1 + 3).
+          price_unavailable() {
+            {
+              echo "release-consistency: the pinned deriver is unavailable — refusing to derive a version (#385)."
+              echo "  pinned source        : ${GATE_PIN:-<unresolved>}"
+              echo "  pin checkout outcome : ${GATE_TOOLS_OUTCOME:-<unknown>}"
+              echo "  expected file        : ${PRICE}"
+              echo "  This gate does NOT fall back to the checked-out price.sh: on a pull_request"
+              echo "  the checkout is the merge ref, so a PR that rewrote price.sh would dictate"
+              echo "  its own verdict. Re-run the job; if it persists, the reusable workflow's own"
+              echo "  repository is unreachable from this runner."
+            } >&2
           }
 
           # X.Y.Z core of a version file (first strict triple, e.g. version = "0.24.1").
@@ -194,6 +271,16 @@ jobs:
               echo "release-consistency: release.component missing/null in base ${PR_BASE_REF}:${STACK} (D13)" >&2
               exit 1
             fi
+
+            # ── LAZY $PRICE GUARD (#385 item 3). PLACEMENT IS LOAD-BEARING ──
+            # It sits HERE, immediately before the only `bash "$PRICE"` on this
+            # path, and never above the early greens. Hoisted anywhere earlier it
+            # would run in front of the trunk / head!=staging exits: a repo whose
+            # pinned clone failed (or that predates this file) would red EVERY PR,
+            # and with zero bypass actors red == unmergeable. That deadlock is the
+            # P1 defect the #374 review killed; the guard is safe only when it is
+            # unreachable except on the paths that genuinely need the deriver.
+            [ -f "$PRICE" ] || { price_unavailable; exit 1; }
 
             # Derive from the PR's own head (re-price per head SHA), anchored at the
             # fully-qualified base ref (never a bare `origin/<base>` — B1 ambiguity).
@@ -269,6 +356,13 @@ jobs:
           fi
 
           ANCHOR="${PUSH_SHA:-HEAD}"
+
+          # ── LAZY $PRICE GUARD (#385 item 3), same placement rule ──
+          # Below the `version_files: []` early green, immediately above the only
+          # `bash "$PRICE"` on this path. Above that early green it would red every
+          # push to main on the shipped default `version_files: []` — i.e. the
+          # whole fleet — for a gate that had nothing to check.
+          [ -f "$PRICE" ] || { price_unavailable; exit 1; }
           set +e
           TAG=$(bash "$PRICE" --base-only "$COMPONENT" "$ANCHOR")
           trc=$?
