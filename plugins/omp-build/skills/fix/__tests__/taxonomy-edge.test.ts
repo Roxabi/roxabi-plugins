@@ -79,3 +79,16 @@ describe('deferred follow-ups are siblings', () => {
     expect(FIX).toMatch(/\*\*Origin:\*\* PR #<N>/)
   })
 })
+
+describe('fix applies causes, not a per-finding walkthrough', () => {
+  it('names causes from the shared rules and does not ask for a solution', () => {
+    expect(FIX).toContain('../shared/root-causes.md')
+    expect(FIX).toContain('## Root causes')
+    expect(FIX).not.toContain('1b1')
+    expect(FIX).not.toMatch(/present choice/)
+    expect(REVIEW).toContain('## Root causes')
+    expect(REVIEW).toContain('../shared/root-causes.md')
+    expect(REVIEW).not.toContain('1b1')
+    expect(existsSync(path.join(SKILLS, 'shared', 'root-causes.md'))).toBe(true)
+  })
+})

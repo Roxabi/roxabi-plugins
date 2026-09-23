@@ -219,8 +219,9 @@ red verdict spends a fix round whether or not the operator then fixes.
 
 `step.action === 'fix'`, by `step.reason`:
 
-- review round (no reason) → execute `skill://fix` with `#<pr> --no-label`. Its inline
-  fixes and deferrals remain subject to its human choices.
+- review round (no reason) → execute `skill://fix` with `#<pr> --no-label`. It applies
+  one change per posted root cause, inline, and does not stop for a per-finding choice.
+  A cause it cannot apply becomes a sibling issue.
 - `ci-failed` → fix inline from the failed checks (`land.failed`) and their logs.
   `fix` reads review comments, not CI: running it here replays stale findings.
 

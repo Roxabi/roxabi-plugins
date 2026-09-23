@@ -1,6 +1,6 @@
 # Falsification Gate
 
-Gate definition for Phase 6.5 of `skill://fix`. Runs once per class after fixes are applied.
+Gate definition for Phase 4 of `skill://fix`. Runs once per class after fixes are applied.
 
 This is a local procedure, not the executable falsify oracle cut by ADR-020 §8: no script runs,
 no artifact is written, and nothing here feeds the review roster.
@@ -19,7 +19,7 @@ or single SSoT (matcher, parser, one `package.json` script) must change.
 
 ```
 class:     string    — the class being verified (e.g. "test-tautology")
-findings:  finding[] — findings of this class that were fixed in Phase 6
+findings:  finding[] — findings of this class that were fixed in Phase 3
 ```
 
 ## Procedure
@@ -55,7 +55,7 @@ class_result = "fail"  if ∃ finding in class where per-finding result = "fail"
              = "pass"  otherwise (coverage gaps count as per-finding "pass")
 ```
 
-Phase 6.5 in SKILL.md consumes `class_result` (boolean per class). Per-finding results feed the Retry section below.
+Phase 4 in SKILL.md consumes `class_result` (boolean per class). Per-finding results feed the Retry section below.
 
 ## Parking Lot Protocol
 
@@ -72,11 +72,11 @@ parking_lot.append({
 ```
 
 ¬reopen the current fix loop for parking lot entries. ¬increment the 2-iter cap.
-Parking lot entries are surfaced in Phase 8 under a dedicated `### Parking Lot` section.
+Parking lot entries are surfaced in Phase 6 under a dedicated `### Parking Lot` section.
 
 ## Retry
 
 `fail` result (per finding) → retry that fix once, inline, in the same session (max 1
 falsification-retry per finding — there is no fixer agent to hand it to).
-This retry budget is independent of the CI retry budget in Phase 6 (max 3 CI retries).
-Second `fail` → finding marked `[failed]`; surfaced in Phase 8.
+This retry budget is independent of the CI retry budget in Phase 3 (max 3 CI retries).
+Second `fail` → cause marked `[failed]`; surfaced in Phase 6.

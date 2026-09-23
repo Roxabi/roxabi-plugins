@@ -2,7 +2,7 @@
 name: dev-review
 argument-hint: '[#PR]'
 description: >-
-  OMP-only multi-domain code review — five-role evidence-selected panel, Conventional Comments, findings + verdict.
+  OMP-only multi-domain code review — five-role evidence-selected panel, Conventional Comments, common root causes, findings + verdict.
   Triggers: "dev-review" | "code review" | "review changes" | "review PR #42" | "check my code" | "review my changes" | "review this PR" | "do a code review" | "review the diff".
   Not the host native /review, not Matt code-review.
 version: 0.1.0
@@ -12,10 +12,10 @@ version: 0.1.0
 
 ## Success
 
-I := F collected ∧ verdict posted (PR ∃) ∧ Phase 8 decision made
+I := F collected ∧ R named ∧ verdict posted (PR ∃) ∧ Phase 8 decision made
 V := `gh pr view {N} --comments | grep "## Code Review"` ∧ verdict ∈ {Approve, Request changes}
 
-Review branch/PR via fresh agents → Conventional Comments → findings + verdict.
+Review branch/PR via fresh agents → Conventional Comments → root causes → findings + verdict.
 
 **⚠ Flow: single continuous pipeline (Phases 1→4 + 8). ¬stop between phases. Decision response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, roster `review_halt`, or Phase 8 completion.**
 
@@ -42,12 +42,12 @@ Let:
 | 1.5 | secret-scan | ✓ | ∅ matches (or ACK) | — |
 | 2 | spec-compliance | — | criteria checked | σ ∃ |
 | 3 | multi-domain-review | ✓ | agents return | parallel · roster oracle |
-| 4 | merge-render-post | ✓ | F + verdict (+ PR comment when PR ∃) | dedup → classify → render once → verdict → post |
+| 4 | merge-render-post | ✓ | F + R + verdict (+ PR comment when PR ∃) | dedup → name causes → render once → verdict → post |
 | 8 | next-step | ✓ | decision made | — |
 
 ## Pre-flight
 
-Success: F collected ∧ verdict posted ∧ Phase 8 decision made
+Success: F collected ∧ R named ∧ verdict posted ∧ Phase 8 decision made
 Evidence: `gh pr view {N} --comments | grep "## Code Review"`
 Steps: gather-changes → secret-scan → spec-compliance → multi-domain-review → merge-render-post → next-step
 ¬clear → STOP + ask: "Which branch/PR to review?"
@@ -323,7 +323,7 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 | Moderate | 40-69 | Probable, context-dependent |
 | Low | 0-39 | Speculative, competing explanations |
 
-**Validation:** missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label → C(f) := 0 (noted; `skill://fix` routes to 1b1).
+**Validation:** missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label → C(f) := 0 (kept; clustering still reads the cited lines).
 
 ### Finding categories
 
@@ -345,9 +345,10 @@ One phase owns the final finding set, the single rendered review, and the option
    - one finding per `(file, class)` → keep max C
    - findings sharing file:line and intersecting class sets after subsumption → merge with max C, subsumed class stripping, and unioned `Raw callsites`
 3. **Classify:** normal findings follow their category label. A finding with `Source: recall` is always blocking; normalize its label to `issue(blocking):`.
-4. **Keep by default:** after deterministic dedup, every finding remains in F. Confidence controls ordering and `skill://fix` handling only; no confidence threshold, agent judgement, or second LLM pass may remove a finding. Blocking findings are never filtered.
+4. **Keep by default:** after deterministic dedup, every finding remains in F. Confidence controls ordering only. It does not drop a finding and it does not split the fix queue. No confidence threshold, agent judgement, or second LLM pass may remove a finding. Blocking findings are never filtered.
 5. **Sort and group:** C descending within Blockers → Warnings → Suggestions → Praise.
-6. **Disclose roster allocation** in the review output whenever non-empty: `capped[]` (the per-chunk union) and `warnings[]`.
+6. **Name root causes.** Read `"$SKILL_DIR/../shared/root-causes.md"` (unset `SKILL_DIR` → the Phase 1 halt). R := causes over actionable findings, after reading cited lines where a join is not already obvious. praise, thought, question never enter R. This step writes no code.
+7. **Disclose roster allocation** in the review output whenever non-empty: `capped[]` (the per-chunk union) and `warnings[]`.
 
 `blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):} ∨ source(f)=recall`.
 
@@ -368,11 +369,12 @@ Build one `## Code Review` body in this order:
 
 1. `## Spec` — render Σ from Phase 2, one row per criterion in σ order: `✓` met / `✗` missing, quoting `criterion_text`. σ ∄ → `no spec available — spec axis not evaluated`.
 2. `## Standards` — the orchestrator reads `skill://dev-review/review-smells.md` once, walks Δ against the baseline, and emits at most one `possible <Smell>` row per smell. Render the receipt in `## Standards (judgement pass — {n} smells walked, {k} fired)`. These rows never enter F, carry `Class:`, or affect verdict.
-3. Grouped findings from step 5. **Render every finding exactly once here.** Spec and Standards are roll-ups, never copies of a finding.
-4. Roster allocation disclosures from step 6.
-5. Summary + verdict.
+3. `## Root causes` — render R from step 6, in the shape `../shared/root-causes.md` defines. Actionable F = ∅ → the section is `none`.
+4. Grouped findings from step 5. **Render every finding exactly once here.** Spec, Standards, and Root causes are roll-ups, never copies of a finding.
+5. Roster allocation disclosures from step 7.
+6. Summary + verdict.
 
-**`/fix` partition (load-bearing):** `skill://fix` parses Conventional Comments from the whole body. Spec and Standards rows MUST be non-CC-shaped: no line in either block may match `^\s*[-*]?\s*(issue|suggestion|todo|nitpick|thought|question|praise)(\([a-z-]+\))?:`. Paraphrase a quoted σ or Δ line that matches this shape, or cite only its location. Never restate a grouped finding in either axis block. This preserves one fix task per finding and keeps review separate from fixing.
+**`/fix` partition (load-bearing):** `skill://fix` applies the `## Root causes` blocks. It parses Conventional Comments only when that section is absent. Spec, Standards, and Root causes rows MUST be non-CC-shaped: no line in those blocks may match `^\s*[-*]?\s*(issue|suggestion|todo|nitpick|thought|question|praise)(\([a-z-]+\))?:`. Paraphrase a quoted σ or Δ line that matches this shape, or cite only its location. Never restate a grouped finding in any of those blocks.
 
 ### Post the same body
 
@@ -398,6 +400,13 @@ Build one `## Code Review` body in this order:
 ## Standards (judgement pass — 12 smells walked, 1 fired)
 - possible Feature Envy — `roster.ts:80` (judgement)
 
+## Root causes
+
+### RC-1 — warnings dropped before the comment is posted
+- mechanism: the render path keeps the verdict and drops the warning list
+- fix: emit every roster warning into the posted body
+- findings: `skills/dev-review/SKILL.md:350`
+
 ### Blockers
 issue(blocking): oracle warnings dropped …
 
@@ -415,13 +424,13 @@ Roster capped by max_agents: R-devops
 
 **Called by `/feature`:** return the posted verdict to `skill://feature` §6.4
 before presenting this decision. That caller records the bounded round and owns
-the human choices and their execution (`fix --no-label` or gated landing).
+the land-or-fix choice and its execution (`fix --no-label` or gated landing).
 Skip the standalone actions below; never choose on the operator's behalf.
 
 **Standalone review:**
 
 Q:
-- **Fix now** — invoke `skill://fix` (auto-apply + 1b1, applied inline; its Phase 7 writes the `reviewed` label unless it is invoked `--no-label`, and its Phase 8 posts the follow-up comment — it offers no rebase and no merge)
+- **Fix now** — invoke `skill://fix` (one change per posted root cause, applied inline, no per-finding choice; its Phase 5 writes the `reviewed` label unless it is invoked `--no-label`, and its Phase 6 posts the follow-up comment — it offers no rebase and no merge)
 - **Merge as-is** — rebase + label + auto-merge (below)
 - **Stop** — exit
 
@@ -447,13 +456,13 @@ Q:
 | Critical security | Escalate in findings, flag in verdict |
 | Agents disagree | Present both with respective C |
 | ¬∃ PR | Render Phase 4 body; Phase 8 local only |
-| Missing root cause/solutions | C(f) := 0; keep finding |
+| Missing root cause/solutions | C(f) := 0; keep finding; clustering reads the cited lines |
 | ∄ `size:` label | τ := F-lite, disclosed out loud (never silently) |
 | R-architect skipped | no axial or structural evidence |
 | R-tester skipped | ¬delta_test_hit — that is the whole gate |
 | R-security-auditor skipped | path_hit=false — R-adversarial owns OWASP on every review |
 | FE/BE concern in Δ | R-adversarial floor owns it — the domain roles are cut, ¬spawn a substitute |
-| Low-confidence finding | keep; sort by C and let `skill://fix` route it |
+| Low-confidence finding | keep; it joins its cause; confidence does not split the fix queue |
 | Recall worker skipped | single chunk ∨ class appears in <2 chunks ∨ <3 unique callsites |
 | roster capped (max_agents, per chunk) | disclosed when ≠ ∅ (Phase 4) |
 | oracle warnings ≠ ∅ | echoed into output; review_halt → HALT |
