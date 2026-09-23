@@ -57,6 +57,17 @@ silently downgrades its own review to `F-lite`.
 | `size:F-lite` | worktree + a small agent panel |
 | `size:F-full` | worktree + the full panel, test-first |
 
+The tier is derived from the body, so **a body edit that changes scope is not
+complete until the tier is re-asserted** — `T set <n> --size <tier>`, even when
+the answer is the tier already on the label.
+
+A stale `size:` gives no first contact. Nothing re-checks the label after the
+thing it describes has changed, and `R-dev-review` simply consumes it and
+proceeds with the wrong panel — so the defect surfaces as an under-reviewed
+ticket that *looks* reviewed. The exposed case is one author growing a ticket's
+scope with no reviewer between the two acts, which is the case with no natural
+check.
+
 ### Deferred follow-ups are siblings
 
 A follow-up deferred out of issue A is a **sibling** of A under their shared
