@@ -511,7 +511,14 @@ provision_ruleset() {
       bypass_actors: []
     }')
 
-  printf '%s' "$body" | gh api "repos/${REPO}/rulesets" --method POST --input - >/dev/null
+  # Here-string, NOT `printf … | gh`. Under `set -euo pipefail` a builtin on the
+  # write side of a pipe dies with SIGPIPE (141) whenever the reader exits before
+  # draining stdin, and pipefail turns that into a script abort carrying no
+  # diagnostic text at all — the script stops between `stub: created` and
+  # `ruleset: created`, leaving the target half-armed. Measured under load:
+  # `printf | gh` 317/1500 aborts, this form 0/1500. `<<<` is backed by a temp
+  # file, so there is no writer process left to signal. (#524)
+  gh api "repos/${REPO}/rulesets" --method POST --input - >/dev/null <<<"$body"
   echo "ruleset: created '${RULESET_NAME}' — requires '${JOB_NAME}' on main, zero bypass actors"
 }
 
