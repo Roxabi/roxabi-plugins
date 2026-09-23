@@ -49,7 +49,7 @@ Let:
   WS  := tools/worktree-setup.sh
   WT  := tools/worktree-teardown.sh
   CL  := ${CLAUDE_PLUGIN_ROOT}/references/worktree-setup-checklist.md
-  TS  := ${CLAUDE_PLUGIN_ROOT}/tools/worktreeScaffold.ts
+  TS  := ${CLAUDE_PLUGIN_ROOT}/scripts/worktreeScaffold.ts
   σ_has_hook       := `grep -q 'worktree_setup:' .dev/stack.yml`
   runtime_supported := σ.runtime ∈ {python, bun, node}
 

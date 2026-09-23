@@ -5,10 +5,11 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const toolsDir = join(import.meta.dirname, '..')
+const scriptsDir = join(import.meta.dirname, '..', '..', 'scripts')
 const fileLength = join(toolsDir, 'check_file_length.sh')
 const folderSize = join(toolsDir, 'check_folder_size.sh')
 const licensePy = join(toolsDir, 'license_check.py')
-const licenseTs = join(toolsDir, 'licenseChecker.ts')
+const licenseTs = join(scriptsDir, 'licenseChecker.ts')
 
 const ISOLATED = [
   'GIT_DIR',

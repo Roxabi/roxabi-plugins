@@ -5,7 +5,9 @@
  * checks each license against a configurable allowlist, and produces a human-readable
  * CLI summary plus a machine-readable JSON report.
  *
- * Usage: bun run tools/licenseChecker.ts
+ * Plugin source of truth: plugins/dev-core/scripts/licenseChecker.ts
+ * Usage, once copied into a project at tools/licenseChecker.ts:
+ *        bun run tools/licenseChecker.ts
  *        bun run tools/licenseChecker.ts --self-test
  * Turbo: turbo run license:check
  *
