@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -43,11 +43,20 @@ type ExtensionAPI = {
 
 const SKILLS_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), 'skills')
 
-/** Every slash command this extension owns: one skill body, dumped verbatim. */
+/**
+ * Every slash command this extension owns: one skill body, dumped verbatim.
+ *
+ * `requires` names the plugin-local skills that body invokes by name. They are not
+ * commands — the model reaches them with `Skill(skill: "<name>")` — so nothing else
+ * would notice a partial install: `/feature` would dump a body whose §6.4 calls a
+ * review that resolves nowhere, three steps into a live ticket. Checked at
+ * invocation, reported in the conversation, never fatal (mode 1 does not need them).
+ */
 const SKILL_COMMANDS = [
   {
     name: 'feature',
-    description: 'Run one OMP feature cycle — frame in ω, or build the named ticket',
+    description: 'Run one OMP feature cycle — frame in ω, or build the named ticket to a merged PR',
+    requires: ['dev-review', 'fix'],
   },
   {
     // The optional tail (#495). Offered after a ticket lands, never chained:
@@ -55,10 +64,12 @@ const SKILL_COMMANDS = [
     // the review→fix loop.
     name: 'promote',
     description: 'Promote staging→main — pre-flight, version, changelog, PR, tag',
+    requires: [],
   },
   {
     name: 'cleanup',
     description: 'Clean merged branches, worktrees and remotes after verification',
+    requires: [],
   },
 ] as const
 
@@ -69,7 +80,10 @@ function stripFrontmatter(markdown: string): string {
   return markdown.slice(end + 5)
 }
 
-export default function ompBuildExtension(pi: ExtensionAPI): void {
+export default function ompBuildExtension(
+  pi: ExtensionAPI,
+  { exists = existsSync }: { exists?: (path: string) => boolean } = {},
+): void {
   // User-only by construction, on the one lane that exists: `registerCommand` is
   // the slash lane, `registerTool` is the LLM one (omp://extensions.md), and the
   // model cannot reach a command. That alone is the property. A body's
@@ -81,7 +95,7 @@ export default function ompBuildExtension(pi: ExtensionAPI): void {
   // `${CLAUDE_*}` path token to expand — agent bodies *and* skill bodies, the
   // surface these commands added, are held to that by
   // `agents/__tests__/roster.test.ts` ("cites no plugin-root token").
-  for (const { name, description } of SKILL_COMMANDS) {
+  for (const { name, description, requires } of SKILL_COMMANDS) {
     const skillDir = join(SKILLS_DIR, name)
     pi.registerCommand(name, {
       description,
@@ -99,10 +113,14 @@ export default function ompBuildExtension(pi: ExtensionAPI): void {
           )
           return
         }
+        const missing = requires.filter((skill) => !exists(join(SKILLS_DIR, skill, 'SKILL.md')))
+        const banner = missing.length
+          ? `> **\`/${name}\` is partially installed**: ${missing.map((skill) => `\`${skill}\``).join(', ')} — no SKILL.md under ${SKILLS_DIR}. Every step of this body that names one of those stops there. Reinstall omp-build.\n`
+          : ''
         const body = stripFrontmatter(raw).trim()
         const trimmedArgs = args.trim()
         pi.sendUserMessage(
-          [body, '', `[Skill directory: ${skillDir}]`, trimmedArgs ? `\n${trimmedArgs}` : ''].join('\n').trim(),
+          [banner, body, '', `[Skill directory: ${skillDir}]`, trimmedArgs ? `\n${trimmedArgs}` : ''].join('\n').trim(),
         )
       },
     })

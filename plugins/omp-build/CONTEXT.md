@@ -28,6 +28,11 @@ _Avoid_: R-dev-implement, listing tdd as a sibling step
 After a green review loop: required checks, `reviewed` label, auto-merge (`landPr`).
 _Avoid_: R-ci-watch, gh pr merge while checks run
 
+**Review bound**:
+At most two review→fix rounds per PR. The third red returns `stop` from
+`createReviewLoop`, and the PR stays unlabelled and unmerged.
+_Avoid_: "one more review", re-opening the loop, a round counter held in prose
+
 **Snapshot**:
 A frozen copy of selected `dev-core` files inside `omp-build`. No resync. Claude's `dev-core` evolves alone.
 _Avoid_: fork, submodule, live share

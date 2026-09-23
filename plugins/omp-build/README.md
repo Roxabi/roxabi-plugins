@@ -98,8 +98,13 @@ stops — the in-session cwd hop is not extension-facing (ADR-020 §3), and the
 relaunch names ω's **directory**, never `/wt`: that command mints a fresh branch
 in `~/.omp/wt/…` instead of entering the worktree just built. Inside ω with no
 ticket it frames: grill → spec → tickets through `issue-triage`, then stops at the
-frontier. Mode 2 (implement → review → land) is #494; `/build` carries it until
-then.
+frontier. Inside ω **on the branch that carries the ticket** it builds (§6, #494):
+`implement` (which drives `tdd`) → `dev-review` → `fix` → land. The deterministic
+steps are calls on `skills/build/workflow.js` — `commitPush`, `openPr`, `landPr` —
+so the PR number comes from the client's response and never from an agent's
+wording. The review→fix bound is `createReviewLoop`, which counts the rounds
+itself: at most two, and the third red returns `stop`, leaving the PR unlabelled
+and unmerged. `/build` and its `run()` driver keep working until #497 removes them.
 
 ## Guards
 

@@ -199,8 +199,15 @@ export async function ensureWorktree(principalPath, names) {
   return resolved
 }
 
-/** Commit dirty tree if any, then push the feature branch. */
-async function commitPush(cwd, branch, message) {
+/**
+ * Commit dirty tree if any, then push the feature branch.
+ *
+ * Exported since #494: `/feature` mode 2 drives the deterministic steps — commit,
+ * push, open, land — from skill prose, and prose cannot call a module-private
+ * function. `run()` still calls it in-module (expand–contract: #497 deletes the
+ * driver, not this).
+ */
+export async function commitPush(cwd, branch, message) {
   const status = await git(cwd, ['status', '--porcelain'])
   if (status) {
     await git(cwd, ['add', '-A'])
@@ -317,6 +324,157 @@ async function gh(cwd, args) {
   const code = await proc.exited
   if (code !== 0) throw new Error(`gh ${args.join(' ')} failed (${code}): ${stderr || stdout}`)
   return stdout.trim()
+}
+
+/** First 200 characters of a client response, for an error message that names what arrived. */
+function preview(raw) {
+  const text = String(raw ?? '')
+  return text.length > 200 ? `${text.slice(0, 200)}…` : text || '(empty)'
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} label
+ * @returns {string}
+ */
+function requireField(value, label) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new TypeError(`openPr: ${label} is required, got ${JSON.stringify(value)}`)
+  }
+  return value.trim()
+}
+
+/** GitHub's own closing grammar — `skills/promote/lib/closing-issues.ts` is the SSOT for reading it back. */
+function closesIssue(text, issue) {
+  return new RegExp(String.raw`\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s*#${issue}\b`, 'i').test(text)
+}
+
+/**
+ * The body always carries `Closes #<issue>`: that keyword is the only machine-readable
+ * link from the merged PR back to its ticket, and `/promote` re-emits exactly it on the
+ * staging→main PR. A body written without it silently leaves the ticket open forever.
+ */
+function bodyFor(body, issue) {
+  const text = typeof body === 'string' ? body.trim() : ''
+  if (closesIssue(text, issue)) return text
+  return text ? `${text}\n\nCloses #${issue}` : `Closes #${issue}`
+}
+
+/**
+ * The open PR for `head`→`base`, or `null`. Never guesses: a response that is not a
+ * JSON array throws rather than reading as "none open", because "none open" is the
+ * answer that opens a second PR on a branch that already has one.
+ *
+ * @param {string} cwd
+ * @param {string} head
+ * @param {string} base
+ * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ * @returns {Promise<number | null>}
+ */
+async function findOpenPr(cwd, head, base, ghFn) {
+  const raw = await ghFn(cwd, ['pr', 'list', '--head', head, '--base', base, '--state', 'open', '--json', 'number'])
+  let data
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    throw new Error(`openPr: \`gh pr list --head ${head}\` returned no JSON — ${preview(raw)}`)
+  }
+  if (!Array.isArray(data)) {
+    throw new Error(`openPr: \`gh pr list --head ${head}\` returned no array — ${preview(raw)}`)
+  }
+  const numbers = data.map((entry) => entry?.number).filter((n) => Number.isInteger(n) && n > 0)
+  if (numbers.length !== data.length) {
+    throw new Error(`openPr: \`gh pr list --head ${head}\` returned an entry with no PR number — ${preview(raw)}`)
+  }
+  if (numbers.length === 0) return null
+  // Degenerate but possible (a PR reopened against the same pair): the oldest is the
+  // one the branch's history belongs to, and picking it is deterministic.
+  return Math.min(...numbers)
+}
+
+/**
+ * Open the pull request for a feature branch — as a call, not as a sentence.
+ *
+ * `runStage(ctx, 'pr')` asks a subagent to open the PR and then recovers the number by
+ * regexing `pr:\s*(\S+)` out of whatever it replied (`run()`, below). That number is an
+ * agent's wording: a reply of `pr: opened!` yields the string `opened!`, which reaches
+ * `landPr` as a PR id and fails there, one stage late. Here the number is the `number`
+ * field of the client's own response, or nothing at all.
+ *
+ * Client injection follows `landPr(cwd, pr, { gh })`: the tests drive a stub, never a
+ * real `gh`, so no test can open, label or merge a real pull request.
+ *
+ * Contract:
+ *
+ * | Case | Result |
+ * |---|---|
+ * | no open PR for `head`→`base` | `{ number, status: 'created' }` |
+ * | one already open for that pair | `{ number, status: 'existing' }` — idempotent; re-running mode 2 after a crash never opens a second PR |
+ * | the create races another opener | `{ number, status: 'existing' }` — GitHub's 422 is re-read as a lookup, not swallowed |
+ * | the client fails | **throws** the client's own error, unchanged |
+ * | the response is not the shape promised | **throws**, naming the call and quoting what arrived |
+ * | `issue`/`branch`/`base`/`title` missing | **throws** `TypeError` before any call is made |
+ *
+ * It returns a record rather than a bare number because the caller has to *say* which
+ * happened — "opened #512" and "reusing #512" are different operator-facing facts — and
+ * a number cannot carry that. The number is `result.number`.
+ *
+ * @param {string} cwd
+ * @param {{ issue: number | string, branch: string, base: string, title: string, body?: string }} input
+ * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
+ * @returns {Promise<{ number: number, status: 'created' | 'existing' }>}
+ */
+export async function openPr(cwd, { issue, branch, base, title, body } = {}, { gh: ghFn = gh } = {}) {
+  const n = Number(issue)
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new TypeError(`openPr: issue must be a positive issue number, got ${JSON.stringify(issue)}`)
+  }
+  const head = requireField(branch, 'branch')
+  const baseRef = requireField(base, 'base')
+  const prTitle = requireField(title, 'title')
+
+  const already = await findOpenPr(cwd, head, baseRef, ghFn)
+  if (already !== null) return { number: already, status: 'existing' }
+
+  let created
+  try {
+    created = await ghFn(cwd, [
+      'api',
+      '--method',
+      'POST',
+      'repos/{owner}/{repo}/pulls',
+      '-f',
+      `head=${head}`,
+      '-f',
+      `base=${baseRef}`,
+      '-f',
+      `title=${prTitle}`,
+      '-f',
+      `body=${bodyFor(body, n)}`,
+    ])
+  } catch (error) {
+    // GitHub answers a duplicate head with 422 "A pull request already exists for …".
+    // Between the lookup above and this call another opener may have won; re-read
+    // rather than fail, but only on that message — every other failure propagates.
+    const message = error instanceof Error ? error.message : String(error)
+    if (/already exists/i.test(message)) {
+      const raced = await findOpenPr(cwd, head, baseRef, ghFn)
+      if (raced !== null) return { number: raced, status: 'existing' }
+    }
+    throw error
+  }
+
+  let data
+  try {
+    data = JSON.parse(created)
+  } catch {
+    throw new Error(`openPr: \`gh api … pulls\` returned no JSON — ${preview(created)}`)
+  }
+  const number = data?.number
+  if (!Number.isInteger(number) || number <= 0) {
+    throw new Error(`openPr: \`gh api … pulls\` carried no PR number — ${preview(created)}`)
+  }
+  return { number, status: 'created' }
 }
 
 const WATCH_MS = 20 * 60 * 1000
@@ -478,6 +636,97 @@ export async function landPr(
     await sleep(WATCH_EVERY)
   }
   return { status: 'timeout' }
+}
+
+/** ADR-020 §3 / #488: at most two review→fix rounds. The third red stops. */
+export const MAX_FIX_ROUNDS = 2
+
+/**
+ * The review→fix bound, as a counter rather than a sentence.
+ *
+ * The bound is the one rule of mode 2 a driver made of prose cannot be trusted with:
+ * "at most two rounds" read from a skill body is a number an agent carries in its head
+ * across three reviews, several fix passes and a compaction. So the count lives here.
+ * The loop object is created once, before the first review, and it — not the agent —
+ * decides what happens after each verdict. `land` is reachable only through it, and
+ * only from a green verdict.
+ *
+ * Rounds, on the ticket's wording: review → red → fix → review → red → fix → review.
+ * Two fix rounds; the third red returns `stop`, and `stop` means the PR keeps no
+ * `reviewed` label and no auto-merge — `landPr` is never called.
+ *
+ * ```js
+ * const loop = createReviewLoop({ pr })
+ * let step = loop.record(verdict)        // after every dev-review verdict
+ * while (step.action === 'fix') { …run fix, re-review… ; step = loop.record(verdict) }
+ * if (step.action === 'land') await landPr(cwd, pr)
+ * else print(step.message)               // stop: nothing is labelled, nothing merges
+ * ```
+ *
+ * @param {{ pr?: number | string | null, maxFixRounds?: number }} [options]
+ */
+export function createReviewLoop({ pr = null, maxFixRounds = MAX_FIX_ROUNDS } = {}) {
+  if (!Number.isInteger(maxFixRounds) || maxFixRounds < 0) {
+    throw new TypeError(
+      `createReviewLoop: maxFixRounds must be a non-negative integer, got ${JSON.stringify(maxFixRounds)}`,
+    )
+  }
+  const subject = pr === null || pr === undefined || pr === '' ? 'The PR' : `PR #${pr}`
+  let reviews = 0
+  let fixes = 0
+  /** @type {'land' | 'stop' | null} */
+  let closed = null
+
+  return {
+    get reviews() {
+      return reviews
+    },
+    get fixes() {
+      return fixes
+    },
+    get closed() {
+      return closed
+    },
+    /**
+     * Record one `dev-review` verdict and get the next move.
+     *
+     * `verdict` is the panel's word — `green` or `red`, nothing else. A sentence, a
+     * missing value or a third word throws: reading a verdict out of prose is the
+     * failure this slice exists to remove, and a defaulted verdict would either burn
+     * a round for free or land an unreviewed PR.
+     *
+     * @param {string} verdict
+     * @returns {{ action: 'land' | 'fix' | 'stop', reviews: number, fixes: number, remaining?: number, reason?: string, message?: string }}
+     */
+    record(verdict) {
+      if (closed) {
+        throw new Error(
+          `createReviewLoop: the loop already closed with "${closed}" after ${reviews} reviews — a further verdict has nowhere to go`,
+        )
+      }
+      const v = typeof verdict === 'string' ? verdict.trim().toLowerCase() : ''
+      if (v !== 'green' && v !== 'red') {
+        throw new TypeError(`createReviewLoop: verdict must be "green" or "red", got ${JSON.stringify(verdict)}`)
+      }
+      reviews += 1
+      if (v === 'green') {
+        closed = 'land'
+        return { action: 'land', reviews, fixes }
+      }
+      if (fixes >= maxFixRounds) {
+        closed = 'stop'
+        return {
+          action: 'stop',
+          reason: 'review-bound',
+          reviews,
+          fixes,
+          message: `Review bound reached: ${reviews} reviews, ${fixes} fix rounds, still red. ${subject} stays unlabelled and unmerged — no \`reviewed\` label, no auto-merge. Read the findings on the PR, then fix by hand or close it.`,
+        }
+      }
+      fixes += 1
+      return { action: 'fix', reviews, fixes, remaining: maxFixRounds - fixes }
+    },
+  }
 }
 
 /**
