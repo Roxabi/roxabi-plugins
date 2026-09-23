@@ -15,8 +15,10 @@ Let:
 # CLAUDE.md files (project root + nested)
 find . -name "CLAUDE.md" -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null
 
-# Project memory (μ + τ) — current project only
-project_dir=$(echo "$PWD" | sed 's|/|-|g; s|^-||')
+# Project memory (μ + τ) — current project only.
+# The leading `/` maps to a leading `-`: `~/.claude/projects/-home-<user>-…`. Stripping it
+# silently resolves to a directory that never exists, and the audit reports "no memory".
+project_dir=$(echo "$PWD" | sed 's|/|-|g')
 memory_dir="$HOME/.claude/projects/$project_dir/memory"
 ls -la "$memory_dir/" 2>/dev/null || echo "No project memory"
 

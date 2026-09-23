@@ -38,7 +38,9 @@ Let:
 | **Fix** | Root cause = bug/wrong config/design flaw | Fix code/config/workflow, delete ε |
 | **Promote** | Durable insight needed by multiple agents | Move to permanent target (see Π), delete ε |
 | **Relocate** | Domain/agent-specific knowledge in wrong scope | Move to narrower target, delete ε |
-| **Delete** | Ephemeral, stale, already covered, resolved | Delete ε |
+| **Delete** | Ephemeral, stale, already covered — ∧ the Promote question was asked and answered "no" | Delete ε |
+
+A finished tracker is ¬automatically Delete: refs all CLOSED/MERGED makes an entry stale **as a status tracker**, so it becomes a candidate whose durable lesson must be offered to **Promote** first. Ref state that cannot be resolved counts as OPEN — keep.
 
 ## Dispatch
 
@@ -55,6 +57,7 @@ Phase 3–5 — Resolution → Read `${CLAUDE_SKILL_DIR}/cookbooks/resolution.md
 5. CLAUDE.md changes — show full before/after of modified sections
 6. Installed skill files — read-only (report issues, don't modify cache copies)
 7. Back up large changes: copy original to `{file}.bak` before multi-line edits
+8. Deleting, promoting or relocating a memory file → sweep its `[[wikilink]]` backlinks **in the same pass, before the removal** (resolution cookbook); a citation left dangling is indistinguishable from a deliberate forward-reference
 
 ## Edge Cases
 
