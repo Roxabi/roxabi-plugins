@@ -309,7 +309,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/pr/run-falsify.sh \
   --issue {N}
 ```
 
-Build the map from the SC→Test matrix: each unit/FI row → `{ sc_id, sources: [<priced source paths>], test_cmd: "{commands.test} {test_file}" }`. Isolation is **temp copy at HEAD** inside the helper (¬repo-global `git stash` as the public API).
+Build the map from the SC→Test matrix: each unit/FI row → `{ sc_id, sources: [<priced source paths>], test_cmd: "{commands.test} {test_file}" }`. Isolation is **copy at HEAD with the working tree overlaid** inside the helper (¬repo-global `git stash` as the public API) — which is why the `git add`-but-not-commit precondition above is enough: the snapshot carries your uncommitted work. ADR-019 §2a.
 
 **Consumer `test:falsify` / stack.yml:** allowed **only if** the script execs this helper as a child and does not swallow non-zero. Otherwise **stub-refuse** — do not treat it as an alternate oracle. LLM-operated `git stash` is **not** an alternate oracle after #417.
 

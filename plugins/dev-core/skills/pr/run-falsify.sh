@@ -8,7 +8,9 @@
 #
 # Map: { "issue": N, "rows": [ { "sc_id", "sources": [], "test_cmd" } ] }
 # Emits: oracle_ok=true|false  +  oracle_reason=<token>
-# Always exit 0. Isolation = temp copy at HEAD (¬git stash API).
+# Always exit 0. Isolation = copy at HEAD with the working tree overlaid on top
+# (¬git stash API) — see snapshot_repo, and ADR-019 §2a for what that makes
+# oracle_ok attest.
 set -euo pipefail
 
 RUNNER_ID="run-falsify/1"

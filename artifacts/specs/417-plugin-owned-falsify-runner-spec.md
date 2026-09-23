@@ -130,7 +130,7 @@ U6 before U1 merge. U1 → S1 → N1 (N2 optional). U2/U3 → S2(N1) → sole `o
 
 ## Success Criteria
 
-- [ ] ADR merged **before** runner/gate implementation, documenting: oracle ownership (plugin runner), isolation (temp worktree canonical), JSON schema v1, gate boolean graph (`oracle_ok` sole refuse/skip; parse demoted).
+- [ ] ADR merged **before** runner/gate implementation, documenting: oracle ownership (plugin runner), isolation (temp worktree canonical — superseded, see ADR-019 §2a: copy at HEAD + working-tree overlay), JSON schema v1, gate boolean graph (`oracle_ok` sole refuse/skip; parse demoted).
 - [ ] `plugins/dev-core/skills/pr/run-falsify.sh` performs fail-under-absent → pass-under-restore for mapped unit/FI tests and writes `artifacts/reviews/{N}-falsify.json`.
 - [ ] `/implement` Step 6b invokes that helper as the default oracle; consumer `test:falsify` is not an alternate oracle unless it execs the helper without swallowing non-zero.
 - [ ] Matrix `✓ proven` is set only from runner row results.
@@ -170,10 +170,10 @@ oracles:
   - "any refuse/skip still conditioned on falsify_ok alone → suite red"
 ```
 
-- [ ] Public runner API is not repo-global `git stash` (temp worktree/copy at HEAD).
+- [ ] Public runner API is not repo-global `git stash` (copy at HEAD + working-tree overlay — ADR-019 §2a).
 - [ ] V1 does not delete structural path triggers for architect/devops/security-auditor; claim (3) is **not** marked done in V1 (V2 / follow-on).
 - [ ] Kit bar / `classifyOrigin` / kit CP-FALSIFY are not implemented in this PR.
 
 ## Open Questions
 
-none — path = `skills/pr/run-falsify.sh`; `--verify` = full re-exec; isolation canonical = temp worktree; all-exempt = ¬`oracle_ok`.
+none — path = `skills/pr/run-falsify.sh`; `--verify` = full re-exec; isolation canonical = copy at HEAD + working-tree overlay (settled #470, ADR-019 §2a); all-exempt = ¬`oracle_ok`.
