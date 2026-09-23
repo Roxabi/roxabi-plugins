@@ -42,7 +42,7 @@ roxabi-plugins/
 - External ecosystem (curated marketplaces, wrapped plugins, upstream drift) → [`docs/EXTERNAL-ECOSYSTEM.md`](docs/EXTERNAL-ECOSYSTEM.md). Triggers: "external plugin" | "upstream sync" | "curated marketplace" | "drift"
 - Data management details (plugin.json data format, path resolution, vault layout) → [`docs/data-management.md`](docs/data-management.md)
 - Plugin cache internals (hash dirs, path vars, sync workflow) → [`docs/plugin-cache.md`](docs/plugin-cache.md)
-- Issue tracker contract (relations, tiers, sibling rule — read before any issue write) → [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md). Triggers: "create issue" | "blocked by" | "parent issue" | "size label" | "publish to the tracker"
+- Issue tracker contract (relations, tiers, sibling rule — read before any issue write) → [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md). Triggers: "create issue" | "blocked by" | "parent issue" | "size label" | "publish to the tracker" | "amend issue" | "edit the body" | "update the ticket"
 
 ## Documentation
 

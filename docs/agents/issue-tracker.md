@@ -57,6 +57,24 @@ silently downgrades its own review to `F-lite`.
 | `size:F-lite` | worktree + a small agent panel |
 | `size:F-full` | worktree + the full panel, test-first |
 
+The tier is derived from the body by the κ rubric in the `issue-triage` skill
+(files · risk · architecture · unknowns · domains), so **a body edit that
+changes any κ input is not complete until the tier is re-asserted** —
+`/issue-triage set <n> --size <tier>`.
+
+It moves in both directions. Adding an acceptance criterion or pasting review
+findings raises it; adding a reproduction or splitting work out of the ticket
+lowers it. Correcting a factual error touches no κ input and re-opens nothing.
+
+Re-asserting the **same** tier writes no label event, so it leaves no trace that
+anyone looked. When the answer is unchanged, say so in a comment instead — an
+unchanged tier after a scope edit is a decision, and a decision nobody can
+distinguish from an omission has not been recorded.
+
+A stale `size:` gives no first contact: `R-dev-review` consumes it and proceeds
+with the wrong panel, so the defect surfaces as an under-reviewed ticket that
+*looks* reviewed.
+
 ### Deferred follow-ups are siblings
 
 A follow-up deferred out of issue A is a **sibling** of A under their shared
@@ -88,7 +106,8 @@ relations the work implies.
 **Exception — an epic already exists for the subject.** When the conversation is
 already tracked by an issue (the grill ran before the spec, the issue holds the
 decisions), **amend that issue** instead of publishing a second one. One subject,
-one spec home.
+one spec home. An amendment that changes a κ input re-opens the tier — see
+[Tier is mandatory](#tier-is-mandatory).
 
 ## When a skill says "fetch the relevant ticket"
 
